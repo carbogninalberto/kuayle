@@ -1,14 +1,23 @@
 import { api } from './client';
-import type { Notification } from '$lib/types/notification';
+import type { Notification, NotificationListResponse } from '$lib/types/notification';
 
-export function listNotifications(): Promise<Notification[]> {
-	return api.get<Notification[]>('/api/notifications');
+export function listNotifications(tab?: string): Promise<NotificationListResponse> {
+	const query = tab ? `?tab=${tab}` : '';
+	return api.get<NotificationListResponse>(`/api/notifications${query}`);
 }
 
 export function markNotificationRead(id: string): Promise<Notification> {
 	return api.patch<Notification>(`/api/notifications/${id}`, {
 		read_at: new Date().toISOString()
 	});
+}
+
+export function snoozeNotification(id: string, until: string): Promise<Notification> {
+	return api.post<Notification>(`/api/notifications/${id}/snooze`, { until });
+}
+
+export function archiveNotification(id: string): Promise<Notification> {
+	return api.post<Notification>(`/api/notifications/${id}/archive`);
 }
 
 export function markAllRead(): Promise<void> {

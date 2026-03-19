@@ -9,6 +9,7 @@
 	import { listLabels } from '$lib/api/labels';
 	import { listMembers } from '$lib/api/members';
 	import { listViews } from '$lib/api/views';
+	import { listNotifications } from '$lib/api/notifications';
 	import type { Workspace } from '$lib/types/workspace';
 	import type { Team } from '$lib/types/team';
 	import type { Project } from '$lib/types/project';
@@ -31,6 +32,7 @@
 	let labels = $state<Label[]>([]);
 	let members = $state<WorkspaceMember[]>([]);
 	let views = $state<View[]>([]);
+	let unreadCount = $state(0);
 	let showCommandPalette = $state(false);
 	let showCreateIssue = $state(false);
 	let showCreateTeam = $state(false);
@@ -45,13 +47,14 @@
 			return;
 		}
 		try {
-			const [ws, t, p, l, m, v] = await Promise.all([
+			const [ws, t, p, l, m, v, notifRes] = await Promise.all([
 				getWorkspace(slug),
 				listTeams(slug),
 				listProjects(slug),
 				listLabels(slug),
 				listMembers(slug),
-				listViews(slug)
+				listViews(slug),
+				listNotifications()
 			]);
 			workspace = ws;
 			teams = t;
@@ -59,6 +62,7 @@
 			labels = l;
 			members = m;
 			views = v;
+			unreadCount = notifRes.unread_count;
 		} catch {
 			goto('/login');
 		}
@@ -137,6 +141,7 @@
 			{workspace}
 			{teams}
 			{views}
+			{unreadCount}
 			{slug}
 			oncreateissue={() => {
 				if (teams.length === 0) {

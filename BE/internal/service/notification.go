@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"time"
 
 	"github.com/carbon/carbon-backend/internal/domain"
 	"github.com/carbon/carbon-backend/internal/dto"
@@ -33,6 +34,14 @@ func (s *NotificationService) ListByUser(ctx context.Context, userID uuid.UUID, 
 	return s.notifRepo.ListByUser(ctx, userID, limit, offset)
 }
 
+func (s *NotificationService) ListSnoozed(ctx context.Context, userID uuid.UUID) ([]domain.Notification, error) {
+	return s.notifRepo.ListSnoozed(ctx, userID)
+}
+
+func (s *NotificationService) ListArchived(ctx context.Context, userID uuid.UUID, limit int) ([]domain.Notification, error) {
+	return s.notifRepo.ListArchived(ctx, userID, limit)
+}
+
 func (s *NotificationService) Update(ctx context.Context, id uuid.UUID, req dto.UpdateNotificationRequest) (*domain.Notification, error) {
 	n, err := s.notifRepo.GetByID(ctx, id)
 	if err != nil {
@@ -49,6 +58,37 @@ func (s *NotificationService) Update(ctx context.Context, id uuid.UUID, req dto.
 	return n, nil
 }
 
+func (s *NotificationService) Snooze(ctx context.Context, id uuid.UUID, until time.Time) (*domain.Notification, error) {
+	n, err := s.notifRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	n.SnoozedUntil = &until
+	if err := s.notifRepo.Update(ctx, n); err != nil {
+		return nil, err
+	}
+	return n, nil
+}
+
+func (s *NotificationService) Archive(ctx context.Context, id uuid.UUID) (*domain.Notification, error) {
+	n, err := s.notifRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+	n.ArchivedAt = &now
+	if err := s.notifRepo.Update(ctx, n); err != nil {
+		return nil, err
+	}
+	return n, nil
+}
+
 func (s *NotificationService) MarkAllRead(ctx context.Context, userID uuid.UUID) error {
 	return s.notifRepo.MarkAllRead(ctx, userID)
+}
+
+func (s *NotificationService) UnreadCount(ctx context.Context, userID uuid.UUID) (int, error) {
+	return s.notifRepo.UnreadCount(ctx, userID)
 }

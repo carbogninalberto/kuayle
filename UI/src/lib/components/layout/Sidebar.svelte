@@ -23,6 +23,7 @@
 		workspace,
 		teams,
 		views = [],
+		unreadCount = 0,
 		slug,
 		oncreateissue,
 		oncreateteam
@@ -30,6 +31,7 @@
 		workspace: Workspace;
 		teams: Team[];
 		views?: View[];
+		unreadCount?: number;
 		slug: string;
 		oncreateissue?: () => void;
 		oncreateteam?: () => void;
@@ -85,6 +87,11 @@
 			>
 				<Inbox size={16} />
 				Inbox
+				{#if unreadCount > 0}
+					<span class="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--app-accent)] px-1 text-[10px] font-medium text-white">
+						{unreadCount > 99 ? '99+' : unreadCount}
+					</span>
+				{/if}
 			</a>
 			<a
 				href="/{slug}/my-issues"

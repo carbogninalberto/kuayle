@@ -85,8 +85,11 @@ type NotificationRepo interface {
 	Create(ctx context.Context, n *domain.Notification) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Notification, error)
 	ListByUser(ctx context.Context, userID uuid.UUID, limit, offset int) ([]domain.Notification, error)
+	ListSnoozed(ctx context.Context, userID uuid.UUID) ([]domain.Notification, error)
+	ListArchived(ctx context.Context, userID uuid.UUID, limit int) ([]domain.Notification, error)
 	Update(ctx context.Context, n *domain.Notification) error
 	MarkAllRead(ctx context.Context, userID uuid.UUID) error
+	UnreadCount(ctx context.Context, userID uuid.UUID) (int, error)
 }
 
 type IssueHistoryRepo interface {

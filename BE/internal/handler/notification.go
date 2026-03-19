@@ -2,7 +2,9 @@ package handler
 
 import (
 	"net/http"
+	"time"
 
+	"github.com/carbon/carbon-backend/internal/domain"
 	"github.com/carbon/carbon-backend/internal/dto"
 	"github.com/carbon/carbon-backend/internal/middleware"
 	"github.com/carbon/carbon-backend/internal/service"
@@ -21,28 +23,35 @@ func NewNotificationHandler(notifSvc *service.NotificationService) *Notification
 
 func (h *NotificationHandler) List(c echo.Context) error {
 	userID := middleware.GetUserID(c)
-	notifications, err := h.notifSvc.ListByUser(c.Request().Context(), userID, 50, 0)
+	tab := c.QueryParam("tab")
+
+	var items []domain.Notification
+	var err error
+
+	switch tab {
+	case "snoozed":
+		items, err = h.notifSvc.ListSnoozed(c.Request().Context(), userID)
+	case "archived":
+		items, err = h.notifSvc.ListArchived(c.Request().Context(), userID, 50)
+	default:
+		items, err = h.notifSvc.ListByUser(c.Request().Context(), userID, 50, 0)
+	}
+
 	if err != nil {
 		return response.InternalError(c)
 	}
 
-	resp := make([]dto.NotificationResponse, len(notifications))
-	for i, n := range notifications {
-		resp[i] = dto.NotificationResponse{
-			ID:           n.ID.String(),
-			Type:         n.Type,
-			Title:        n.Title,
-			ReadAt:       n.ReadAt,
-			SnoozedUntil: n.SnoozedUntil,
-			ArchivedAt:   n.ArchivedAt,
-			CreatedAt:    n.CreatedAt,
-		}
-		if n.IssueID != nil {
-			s := n.IssueID.String()
-			resp[i].IssueID = &s
-		}
+	resp := make([]dto.NotificationResponse, len(items))
+	for i, n := range items {
+		resp[i] = toNotifResponse(n)
 	}
-	return response.Success(c, http.StatusOK, resp)
+
+	unreadCount, _ := h.notifSvc.UnreadCount(c.Request().Context(), userID)
+
+	return response.Success(c, http.StatusOK, dto.NotificationListResponse{
+		Notifications: resp,
+		UnreadCount:   unreadCount,
+	})
 }
 
 func (h *NotificationHandler) Update(c echo.Context) error {
@@ -58,7 +67,41 @@ func (h *NotificationHandler) Update(c echo.Context) error {
 	if err != nil {
 		return response.InternalError(c)
 	}
-	return response.Success(c, http.StatusOK, n)
+	return response.Success(c, http.StatusOK, toNotifResponse(*n))
+}
+
+func (h *NotificationHandler) Snooze(c echo.Context) error {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid notification ID")
+	}
+	var req struct {
+		Until string `json:"until"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
+	}
+	until, err := time.Parse(time.RFC3339, req.Until)
+	if err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid date format, use RFC3339")
+	}
+	n, err := h.notifSvc.Snooze(c.Request().Context(), id, until)
+	if err != nil {
+		return response.InternalError(c)
+	}
+	return response.Success(c, http.StatusOK, toNotifResponse(*n))
+}
+
+func (h *NotificationHandler) Archive(c echo.Context) error {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid notification ID")
+	}
+	n, err := h.notifSvc.Archive(c.Request().Context(), id)
+	if err != nil {
+		return response.InternalError(c)
+	}
+	return response.Success(c, http.StatusOK, toNotifResponse(*n))
 }
 
 func (h *NotificationHandler) MarkAllRead(c echo.Context) error {
@@ -67,4 +110,21 @@ func (h *NotificationHandler) MarkAllRead(c echo.Context) error {
 		return response.InternalError(c)
 	}
 	return response.Success(c, http.StatusOK, map[string]string{"status": "done"})
+}
+
+func toNotifResponse(n domain.Notification) dto.NotificationResponse {
+	resp := dto.NotificationResponse{
+		ID:           n.ID.String(),
+		Type:         n.Type,
+		Title:        n.Title,
+		ReadAt:       n.ReadAt,
+		SnoozedUntil: n.SnoozedUntil,
+		ArchivedAt:   n.ArchivedAt,
+		CreatedAt:    n.CreatedAt,
+	}
+	if n.IssueID != nil {
+		s := n.IssueID.String()
+		resp.IssueID = &s
+	}
+	return resp
 }

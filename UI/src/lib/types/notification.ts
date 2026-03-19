@@ -8,3 +8,8 @@ export interface Notification {
 	archived_at: string | null;
 	created_at: string;
 }
+
+export interface NotificationListResponse {
+	notifications: Notification[];
+	unread_count: number;
+}

@@ -18,3 +18,8 @@ type NotificationResponse struct {
 	ArchivedAt   *time.Time `json:"archived_at"`
 	CreatedAt    time.Time  `json:"created_at"`
 }
+
+type NotificationListResponse struct {
+	Notifications []NotificationResponse `json:"notifications"`
+	UnreadCount   int                    `json:"unread_count"`
+}
