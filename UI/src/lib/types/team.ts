@@ -8,6 +8,7 @@ export interface Team {
 	color: string | null;
 	icon: string | null;
 	estimate_scale: EstimateScale | null;
+	triage_enabled: boolean;
 	created_at: string;
 	updated_at: string;
 }

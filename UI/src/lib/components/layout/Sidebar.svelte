@@ -16,7 +16,8 @@
 		FolderKanban,
 		Plus,
 		Bookmark,
-		RotateCcw
+		RotateCcw,
+		ShieldCheck
 	} from 'lucide-svelte';
 
 	let {
@@ -136,7 +137,7 @@
 					href="/{slug}/teams/{team.id}"
 					class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm {isActive(
 						`/${slug}/teams/${team.id}`
-					) && !isActive(`/${slug}/teams/${team.id}/cycles`)
+					) && !isActive(`/${slug}/teams/${team.id}/cycles`) && !isActive(`/${slug}/teams/${team.id}/triage`)
 						? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
 						: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]'}"
 				>
@@ -154,6 +155,19 @@
 					<RotateCcw size={13} />
 					Cycles
 				</a>
+				{#if team.triage_enabled}
+					<a
+						href="/{slug}/teams/{team.id}/triage"
+						class="flex items-center gap-2 rounded-md px-2 py-1.5 pl-8 text-xs {isActive(
+							`/${slug}/teams/${team.id}/triage`
+						)
+							? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
+							: 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]'}"
+					>
+						<ShieldCheck size={13} />
+						Triage
+					</a>
+				{/if}
 			{/each}
 			{#if teams.length === 0}
 				<button

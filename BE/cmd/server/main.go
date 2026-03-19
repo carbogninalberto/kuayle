@@ -152,6 +152,8 @@ func main() {
 	ws.POST("/issues/:identifier/comments", issueH.CreateComment, mw.RequirePermission("issue:create"))
 	ws.GET("/issues/:identifier/sub-issues", issueH.ListSubIssues)
 	ws.GET("/issues/:identifier/history", issueH.GetHistory)
+	ws.POST("/issues/:identifier/triage/accept", issueH.TriageAccept, mw.RequirePermission("issue:update"))
+	ws.POST("/issues/:identifier/triage/decline", issueH.TriageDecline, mw.RequirePermission("issue:update"))
 
 	// Issue Relations
 	ws.POST("/issues/:identifier/relations", relationH.Create, mw.RequirePermission("issue:update"))

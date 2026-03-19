@@ -69,6 +69,7 @@ type IssueFilterParams struct {
 	Search     string `query:"search"`
 	DueBefore  string `query:"due_before"`
 	DueAfter   string `query:"due_after"`
+	Triaged    string `query:"triaged"`
 	GroupBy    string `query:"group_by" validate:"omitempty,oneof=status priority assignee project"`
 	Sort       string `query:"sort" validate:"omitempty,oneof=created_at updated_at priority sort_order status"`
 	Order      string `query:"order" validate:"omitempty,oneof=asc desc"`

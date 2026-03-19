@@ -229,6 +229,30 @@ func (h *IssueHandler) GetHistory(c echo.Context) error {
 	return response.Success(c, http.StatusOK, history)
 }
 
+func (h *IssueHandler) TriageAccept(c echo.Context) error {
+	ws := c.Get("workspace").(*domain.Workspace)
+	userID := middleware.GetUserID(c)
+	identifier := c.Param("identifier")
+
+	issue, err := h.issueSvc.Triage(c.Request().Context(), ws.ID, userID, identifier, true)
+	if err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+	}
+	return response.Success(c, http.StatusOK, toIssueResponse(*issue))
+}
+
+func (h *IssueHandler) TriageDecline(c echo.Context) error {
+	ws := c.Get("workspace").(*domain.Workspace)
+	userID := middleware.GetUserID(c)
+	identifier := c.Param("identifier")
+
+	issue, err := h.issueSvc.Triage(c.Request().Context(), ws.ID, userID, identifier, false)
+	if err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+	}
+	return response.Success(c, http.StatusOK, toIssueResponse(*issue))
+}
+
 func toIssueResponse(issue domain.Issue) dto.IssueResponse {
 	resp := dto.IssueResponse{
 		ID:          issue.ID.String(),

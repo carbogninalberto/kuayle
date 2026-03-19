@@ -47,3 +47,11 @@ export function createComment(slug: string, identifier: string, body: string): P
 export function getIssueHistory(slug: string, identifier: string): Promise<IssueHistory[]> {
 	return api.get<IssueHistory[]>(`/api/workspaces/${slug}/issues/${identifier}/history`);
 }
+
+export function triageAccept(slug: string, identifier: string): Promise<Issue> {
+	return api.post<Issue>(`/api/workspaces/${slug}/issues/${identifier}/triage/accept`);
+}
+
+export function triageDecline(slug: string, identifier: string): Promise<Issue> {
+	return api.post<Issue>(`/api/workspaces/${slug}/issues/${identifier}/triage/decline`);
+}

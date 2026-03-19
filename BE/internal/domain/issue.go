@@ -45,6 +45,7 @@ type Issue struct {
 	Estimate       *int          `json:"estimate" db:"estimate"`
 	DueDate        *time.Time    `json:"due_date" db:"due_date"`
 	SortOrder      float64       `json:"sort_order" db:"sort_order"`
+	Triaged        bool          `json:"triaged" db:"triaged"`
 	CreatedAt      time.Time     `json:"created_at" db:"created_at"`
 	UpdatedAt      time.Time     `json:"updated_at" db:"updated_at"`
 }

@@ -69,6 +69,7 @@ func (s *IssueService) Create(ctx context.Context, workspaceID, creatorID uuid.U
 		Priority:    priority,
 		CreatorID:   creatorID,
 		SortOrder:   float64(number) * 1000,
+		Triaged:     !team.TriageEnabled,
 	}
 
 	if req.ProjectID != nil {
@@ -222,6 +223,35 @@ func (s *IssueService) Delete(ctx context.Context, workspaceID uuid.UUID, identi
 	})
 
 	return nil
+}
+
+func (s *IssueService) Triage(ctx context.Context, workspaceID, userID uuid.UUID, identifier string, accept bool) (*domain.Issue, error) {
+	issue, err := s.issueRepo.GetByIdentifier(ctx, workspaceID, identifier)
+	if err != nil || issue == nil {
+		return nil, fmt.Errorf("issue not found")
+	}
+	if issue.Triaged {
+		return nil, fmt.Errorf("issue is already triaged")
+	}
+
+	issue.Triaged = true
+	if !accept {
+		issue.Status = domain.IssueStatusCancelled
+		old := string(issue.Status)
+		newVal := string(domain.IssueStatusCancelled)
+		s.recordHistory(ctx, issue.ID, userID, "status", &old, &newVal)
+	}
+
+	if err := s.issueRepo.Update(ctx, issue); err != nil {
+		return nil, err
+	}
+
+	s.hub.Broadcast(workspaceID, realtime.Event{
+		Type:    "issue.triaged",
+		Payload: issue,
+	})
+
+	return issue, nil
 }
 
 func (s *IssueService) GetLabels(ctx context.Context, issueID uuid.UUID) ([]domain.Label, error) {

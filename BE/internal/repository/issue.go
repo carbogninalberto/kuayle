@@ -23,14 +23,14 @@ func NewIssueRepository(db *sqlx.DB) *IssueRepository {
 
 func (r *IssueRepository) Create(ctx context.Context, tx *sqlx.Tx, issue *domain.Issue) error {
 	query := `
-		INSERT INTO issues (id, workspace_id, team_id, project_id, cycle_id, number, identifier_text, title, description, status, priority, creator_id, assignee_id, parent_id, estimate, due_date, sort_order)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+		INSERT INTO issues (id, workspace_id, team_id, project_id, cycle_id, number, identifier_text, title, description, status, priority, creator_id, assignee_id, parent_id, estimate, due_date, sort_order, triaged)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 		RETURNING created_at, updated_at`
 	return tx.QueryRowContext(ctx, query,
 		issue.ID, issue.WorkspaceID, issue.TeamID, issue.ProjectID, issue.CycleID,
 		issue.Number, issue.Identifier, issue.Title, issue.Description,
 		issue.Status, issue.Priority, issue.CreatorID, issue.AssigneeID,
-		issue.ParentID, issue.Estimate, issue.DueDate, issue.SortOrder,
+		issue.ParentID, issue.Estimate, issue.DueDate, issue.SortOrder, issue.Triaged,
 	).Scan(&issue.CreatedAt, &issue.UpdatedAt)
 }
 
@@ -139,6 +139,13 @@ func (r *IssueRepository) List(ctx context.Context, workspaceID uuid.UUID, param
 		where = append(where, "i.due_date >= :due_after")
 		args["due_after"] = params.DueAfter
 	}
+	if params.Triaged != "" {
+		if params.Triaged == "false" {
+			where = append(where, "i.triaged = false")
+		} else {
+			where = append(where, "i.triaged = true")
+		}
+	}
 
 	whereClause := strings.Join(where, " AND ")
 
@@ -189,13 +196,13 @@ func (r *IssueRepository) Update(ctx context.Context, issue *domain.Issue) error
 		UPDATE issues SET
 			title = $1, description = $2, status = $3, priority = $4,
 			assignee_id = $5, project_id = $6, cycle_id = $7, parent_id = $8,
-			estimate = $9, due_date = $10, sort_order = $11, updated_at = NOW()
-		WHERE id = $12
+			estimate = $9, due_date = $10, sort_order = $11, triaged = $12, updated_at = NOW()
+		WHERE id = $13
 		RETURNING updated_at`
 	return r.db.QueryRowContext(ctx, query,
 		issue.Title, issue.Description, issue.Status, issue.Priority,
 		issue.AssigneeID, issue.ProjectID, issue.CycleID, issue.ParentID,
-		issue.Estimate, issue.DueDate, issue.SortOrder, issue.ID,
+		issue.Estimate, issue.DueDate, issue.SortOrder, issue.Triaged, issue.ID,
 	).Scan(&issue.UpdatedAt)
 }
 

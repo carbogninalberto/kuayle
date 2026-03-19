@@ -10,6 +10,7 @@
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import type { IssueStatus, IssuePriority } from '$lib/types/issue';
 	import { STATUS_LABELS, PRIORITY_LABELS } from '$lib/types/issue';
+	import RichEditor from '$lib/components/shared/RichEditor.svelte';
 	import {
 		Circle,
 		CircleDot,
@@ -186,12 +187,14 @@
 				autofocus
 				class="w-full bg-transparent text-base font-medium text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)]"
 			/>
-			<textarea
-				bind:value={description}
-				placeholder="Add description..."
-				rows={4}
-				class="mt-2 w-full resize-none bg-transparent text-sm text-[var(--color-text-secondary)] outline-none placeholder:text-[var(--color-text-tertiary)]"
-			></textarea>
+			<div class="mt-2">
+				<RichEditor
+					content={description}
+					placeholder="Add description..."
+					minimal={false}
+					onupdate={(html) => (description = html)}
+				/>
+			</div>
 		</div>
 
 		<!-- Property pills -->

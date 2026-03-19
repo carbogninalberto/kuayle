@@ -123,9 +123,9 @@
 			<h1 class="text-xl font-semibold text-[var(--color-text-primary)]">{issue.title}</h1>
 
 			{#if issue.description}
-				<p class="mt-3 whitespace-pre-wrap text-sm text-[var(--color-text-secondary)]">
-					{issue.description}
-				</p>
+				<div class="mt-3 prose prose-invert prose-sm max-w-none text-sm text-[var(--color-text-secondary)]">
+					{@html issue.description}
+				</div>
 			{/if}
 
 			<!-- Properties -->
@@ -208,9 +208,9 @@
 									>{formatRelativeTime(comment.created_at)}</span
 								>
 							</div>
-							<p class="mt-1 whitespace-pre-wrap text-[var(--color-text-secondary)]">
-								{comment.body}
-							</p>
+							<div class="mt-1 prose prose-invert prose-sm max-w-none text-[var(--color-text-secondary)]">
+								{@html comment.body}
+							</div>
 						</div>
 					{/each}
 

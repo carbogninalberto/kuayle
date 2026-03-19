@@ -43,6 +43,15 @@
 		"vite": "^7.3.1"
 	},
 	"dependencies": {
-		"echarts": "^6.0.0"
+		"@tiptap/core": "^3.20.4",
+		"@tiptap/extension-code-block-lowlight": "^3.20.4",
+		"@tiptap/extension-link": "^3.20.4",
+		"@tiptap/extension-placeholder": "^3.20.4",
+		"@tiptap/extension-task-item": "^3.20.4",
+		"@tiptap/extension-task-list": "^3.20.4",
+		"@tiptap/starter-kit": "^3.20.4",
+		"echarts": "^6.0.0",
+		"lowlight": "^3.3.0",
+		"svelte-tiptap": "^3.0.1"
 	}
 }
