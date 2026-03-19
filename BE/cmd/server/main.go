@@ -176,6 +176,7 @@ func main() {
 	ws.POST("/projects", projectH.Create, mw.RequirePermission("project:manage"))
 	ws.GET("/projects/:id", projectH.Get)
 	ws.PATCH("/projects/:id", projectH.Update, mw.RequirePermission("project:manage"))
+	ws.DELETE("/projects/:id", projectH.Delete, mw.RequirePermission("project:manage"))
 
 	// Views
 	ws.GET("/views", viewH.List)

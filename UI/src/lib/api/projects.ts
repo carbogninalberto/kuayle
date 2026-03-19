@@ -15,3 +15,15 @@ export function createProject(
 ): Promise<Project> {
 	return api.post<Project>(`/api/workspaces/${slug}/projects`, data);
 }
+
+export function updateProject(
+	slug: string,
+	id: string,
+	data: { name?: string; description?: string; status?: string }
+): Promise<Project> {
+	return api.patch<Project>(`/api/workspaces/${slug}/projects/${id}`, data);
+}
+
+export function deleteProject(slug: string, id: string): Promise<void> {
+	return api.delete<void>(`/api/workspaces/${slug}/projects/${id}`);
+}

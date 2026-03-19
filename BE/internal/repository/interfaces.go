@@ -77,6 +77,8 @@ type ProjectRepo interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Project, error)
 	ListByWorkspace(ctx context.Context, workspaceID uuid.UUID) ([]domain.Project, error)
 	Update(ctx context.Context, project *domain.Project) error
+	Delete(ctx context.Context, id uuid.UUID) error
+	IssueStats(ctx context.Context, projectID uuid.UUID) (total int, completed int, cancelled int, err error)
 }
 
 type NotificationRepo interface {

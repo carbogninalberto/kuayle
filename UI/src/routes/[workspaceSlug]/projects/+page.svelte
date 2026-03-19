@@ -2,10 +2,11 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { listProjects, createProject } from '$lib/api/projects';
-	import type { Project } from '$lib/types/project';
+	import type { Project, ProjectStatus } from '$lib/types/project';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
 	import LoadingState from '$lib/components/shared/LoadingState.svelte';
 	import CreateProjectDialog from '$lib/features/projects/CreateProjectDialog.svelte';
+	import { Badge } from '$lib/components/ui/badge';
 	import { toast } from 'svelte-sonner';
 	import { Plus } from 'lucide-svelte';
 
@@ -13,6 +14,13 @@
 	let projects = $state<Project[]>([]);
 	let loading = $state(true);
 	let showCreateProject = $state(false);
+
+	const STATUS_LABELS: Record<ProjectStatus, string> = {
+		planned: 'Planned',
+		in_progress: 'In Progress',
+		completed: 'Completed',
+		cancelled: 'Cancelled'
+	};
 
 	onMount(async () => {
 		try {
@@ -29,6 +37,20 @@
 			toast.success('Project created');
 		} catch (err: any) {
 			toast.error(err?.error?.message || 'Failed to create project');
+		}
+	}
+
+	function progressPercentage(project: Project): number {
+		if (!project.progress || project.progress.total === 0) return 0;
+		return Math.round(((project.progress.completed + project.progress.cancelled) / project.progress.total) * 100);
+	}
+
+	function statusVariant(status: ProjectStatus): 'default' | 'secondary' | 'outline' | 'destructive' {
+		switch (status) {
+			case 'in_progress': return 'default';
+			case 'completed': return 'secondary';
+			case 'cancelled': return 'destructive';
+			default: return 'outline';
 		}
 	}
 </script>
@@ -60,15 +82,32 @@
 			{#each projects as project}
 				<a
 					href="/{slug}/projects/{project.id}"
-					class="flex items-center gap-3 px-6 py-3 hover:bg-[var(--color-bg-hover)]"
+					class="flex items-center gap-4 px-6 py-3 hover:bg-[var(--color-bg-hover)]"
 				>
-					<span class="text-sm font-medium text-[var(--color-text-primary)]"
-						>{project.name}</span
-					>
-					<span
-						class="rounded-full bg-[var(--color-bg-tertiary)] px-2 py-0.5 text-xs text-[var(--color-text-secondary)]"
-						>{project.status}</span
-					>
+					<div class="flex-1 min-w-0">
+						<div class="flex items-center gap-2">
+							<span class="text-sm font-medium text-[var(--color-text-primary)]">{project.name}</span>
+							<Badge variant={statusVariant(project.status)} class="text-[10px]">
+								{STATUS_LABELS[project.status]}
+							</Badge>
+						</div>
+						{#if project.description}
+							<p class="mt-0.5 truncate text-xs text-[var(--color-text-tertiary)]">{project.description}</p>
+						{/if}
+					</div>
+					{#if project.progress && project.progress.total > 0}
+						<div class="flex items-center gap-2 shrink-0">
+							<div class="relative h-1.5 w-24 overflow-hidden rounded-full bg-[var(--color-bg-tertiary)]">
+								<div
+									class="absolute left-0 top-0 h-full rounded-full bg-[var(--color-success)]"
+									style="width: {project.progress.total > 0 ? (project.progress.completed / project.progress.total) * 100 : 0}%"
+								></div>
+							</div>
+							<span class="text-xs tabular-nums text-[var(--color-text-tertiary)]">
+								{progressPercentage(project)}%
+							</span>
+						</div>
+					{/if}
 				</a>
 			{/each}
 		</div>

@@ -28,7 +28,12 @@ func (h *ProjectHandler) List(c echo.Context) error {
 	}
 	resp := make([]dto.ProjectResponse, len(projects))
 	for i, p := range projects {
-		resp[i] = toProjectResponse(p)
+		r := toProjectResponse(p)
+		stats, _ := h.projectSvc.GetStats(c.Request().Context(), p.ID)
+		if stats != nil {
+			r.Progress = stats
+		}
+		resp[i] = r
 	}
 	return response.Success(c, http.StatusOK, resp)
 }
@@ -63,7 +68,12 @@ func (h *ProjectHandler) Get(c echo.Context) error {
 	if err != nil || project == nil {
 		return response.NotFound(c, "Project")
 	}
-	return response.Success(c, http.StatusOK, toProjectResponse(*project))
+	r := toProjectResponse(*project)
+	stats, _ := h.projectSvc.GetStats(c.Request().Context(), project.ID)
+	if stats != nil {
+		r.Progress = stats
+	}
+	return response.Success(c, http.StatusOK, r)
 }
 
 func (h *ProjectHandler) Update(c echo.Context) error {
@@ -80,6 +90,17 @@ func (h *ProjectHandler) Update(c echo.Context) error {
 		return response.InternalError(c)
 	}
 	return response.Success(c, http.StatusOK, toProjectResponse(*project))
+}
+
+func (h *ProjectHandler) Delete(c echo.Context) error {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid project ID")
+	}
+	if err := h.projectSvc.Delete(c.Request().Context(), id); err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+	}
+	return response.Success(c, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
 func toProjectResponse(p domain.Project) dto.ProjectResponse {

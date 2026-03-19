@@ -72,3 +72,23 @@ func (s *ProjectService) Update(ctx context.Context, id uuid.UUID, req dto.Updat
 	}
 	return project, nil
 }
+
+func (s *ProjectService) Delete(ctx context.Context, id uuid.UUID) error {
+	project, err := s.projectRepo.GetByID(ctx, id)
+	if err != nil || project == nil {
+		return fmt.Errorf("project not found")
+	}
+	return s.projectRepo.Delete(ctx, id)
+}
+
+func (s *ProjectService) GetStats(ctx context.Context, projectID uuid.UUID) (*dto.ProjectProgressResponse, error) {
+	total, completed, cancelled, err := s.projectRepo.IssueStats(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	return &dto.ProjectProgressResponse{
+		Total:     total,
+		Completed: completed,
+		Cancelled: cancelled,
+	}, nil
+}
