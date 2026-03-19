@@ -8,11 +8,13 @@
 	import { listProjects } from '$lib/api/projects';
 	import { listLabels } from '$lib/api/labels';
 	import { listMembers } from '$lib/api/members';
+	import { listViews } from '$lib/api/views';
 	import type { Workspace } from '$lib/types/workspace';
 	import type { Team } from '$lib/types/team';
 	import type { Project } from '$lib/types/project';
 	import type { Label } from '$lib/types/label';
 	import type { WorkspaceMember } from '$lib/types/workspace';
+	import type { View } from '$lib/types/view';
 	import Sidebar from '$lib/components/layout/Sidebar.svelte';
 	import CommandPalette from '$lib/components/layout/CommandPalette.svelte';
 	import CreateIssueDialog from '$lib/features/issues/CreateIssueDialog.svelte';
@@ -27,6 +29,7 @@
 	let projects = $state<Project[]>([]);
 	let labels = $state<Label[]>([]);
 	let members = $state<WorkspaceMember[]>([]);
+	let views = $state<View[]>([]);
 	let showCommandPalette = $state(false);
 	let showCreateIssue = $state(false);
 	let showCreateTeam = $state(false);
@@ -40,18 +43,20 @@
 			return;
 		}
 		try {
-			const [ws, t, p, l, m] = await Promise.all([
+			const [ws, t, p, l, m, v] = await Promise.all([
 				getWorkspace(slug),
 				listTeams(slug),
 				listProjects(slug),
 				listLabels(slug),
-				listMembers(slug)
+				listMembers(slug),
+				listViews(slug)
 			]);
 			workspace = ws;
 			teams = t;
 			projects = p;
 			labels = l;
 			members = m;
+			views = v;
 		} catch {
 			goto('/login');
 		}
@@ -117,6 +122,7 @@
 		<Sidebar
 			{workspace}
 			{teams}
+			{views}
 			{slug}
 			oncreateissue={() => {
 				if (teams.length === 0) {

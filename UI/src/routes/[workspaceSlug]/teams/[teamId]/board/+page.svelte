@@ -1,46 +1,18 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import { issuesState } from '$lib/features/issues/issues.state.svelte';
-	import KanbanBoard from '$lib/features/issues/KanbanBoard.svelte';
-	import IssueDetail from '$lib/features/issues/IssueDetail.svelte';
-	import LoadingState from '$lib/components/shared/LoadingState.svelte';
+	import { goto } from '$app/navigation';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	const teamId = $derived(page.params.teamId ?? '');
 
+	// Board view is now integrated into the team page via ViewSwitcher.
+	// Redirect to team page — the user can toggle to board layout there.
 	onMount(() => {
-		issuesState.load(slug, { team: teamId, per_page: '200' });
+		goto(`/${slug}/teams/${teamId}`, { replaceState: true });
 	});
 </script>
 
-<div class="flex h-full flex-col">
-	<div class="flex h-[49px] items-center gap-3 border-b border-[var(--app-border)] px-6">
-		<h1 class="text-sm font-medium text-[var(--color-text-primary)]">Board</h1>
-		<a
-			href="/{slug}/teams/{teamId}"
-			class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
-		>
-			List view
-		</a>
-	</div>
-
-	{#if issuesState.loading}
-		<LoadingState />
-	{:else}
-		<div class="flex-1 overflow-hidden">
-			<KanbanBoard
-				issuesByStatus={issuesState.issuesByStatus}
-				onissueclick={(i) => issuesState.select(i)}
-			/>
-		</div>
-	{/if}
+<div class="flex h-full items-center justify-center">
+	<p class="text-sm text-[var(--color-text-secondary)]">Redirecting...</p>
 </div>
-
-{#if issuesState.selectedIssue}
-	<IssueDetail
-		issue={issuesState.selectedIssue}
-		{slug}
-		onclose={() => issuesState.select(null)}
-	/>
-{/if}

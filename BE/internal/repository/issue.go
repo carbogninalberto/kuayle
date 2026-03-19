@@ -67,29 +67,77 @@ func (r *IssueRepository) List(ctx context.Context, workspaceID uuid.UUID, param
 	where := []string{"i.workspace_id = :workspace_id"}
 	args := map[string]interface{}{"workspace_id": workspaceID}
 
+	// Multi-value status filter (comma-separated)
 	if params.Status != "" {
-		where = append(where, "i.status = :status")
-		args["status"] = params.Status
+		statuses := strings.Split(params.Status, ",")
+		if len(statuses) == 1 {
+			where = append(where, "i.status = :status")
+			args["status"] = statuses[0]
+		} else {
+			placeholders := make([]string, len(statuses))
+			for i, s := range statuses {
+				key := fmt.Sprintf("status_%d", i)
+				placeholders[i] = ":" + key
+				args[key] = strings.TrimSpace(s)
+			}
+			where = append(where, fmt.Sprintf("i.status IN (%s)", strings.Join(placeholders, ",")))
+		}
 	}
+	// Multi-value priority filter (comma-separated)
 	if params.Priority != "" {
-		where = append(where, "i.priority = :priority")
-		args["priority"] = params.Priority
+		priorities := strings.Split(params.Priority, ",")
+		if len(priorities) == 1 {
+			where = append(where, "i.priority = :priority")
+			args["priority"] = priorities[0]
+		} else {
+			placeholders := make([]string, len(priorities))
+			for i, p := range priorities {
+				key := fmt.Sprintf("priority_%d", i)
+				placeholders[i] = ":" + key
+				args[key] = strings.TrimSpace(p)
+			}
+			where = append(where, fmt.Sprintf("i.priority IN (%s)", strings.Join(placeholders, ",")))
+		}
 	}
 	if params.AssigneeID != "" {
-		where = append(where, "i.assignee_id = :assignee_id")
-		args["assignee_id"] = params.AssigneeID
+		if params.AssigneeID == "none" {
+			where = append(where, "i.assignee_id IS NULL")
+		} else {
+			where = append(where, "i.assignee_id = :assignee_id")
+			args["assignee_id"] = params.AssigneeID
+		}
+	}
+	if params.CreatorID != "" {
+		where = append(where, "i.creator_id = :creator_id")
+		args["creator_id"] = params.CreatorID
 	}
 	if params.TeamID != "" {
 		where = append(where, "i.team_id = :team_id")
 		args["team_id"] = params.TeamID
 	}
 	if params.ProjectID != "" {
-		where = append(where, "i.project_id = :project_id")
-		args["project_id"] = params.ProjectID
+		if params.ProjectID == "none" {
+			where = append(where, "i.project_id IS NULL")
+		} else {
+			where = append(where, "i.project_id = :project_id")
+			args["project_id"] = params.ProjectID
+		}
 	}
 	if params.LabelID != "" {
 		where = append(where, "EXISTS (SELECT 1 FROM issue_labels il WHERE il.issue_id = i.id AND il.label_id = :label_id)")
 		args["label_id"] = params.LabelID
+	}
+	if params.Search != "" {
+		where = append(where, "(i.title ILIKE :search OR i.identifier_text ILIKE :search)")
+		args["search"] = "%" + params.Search + "%"
+	}
+	if params.DueBefore != "" {
+		where = append(where, "i.due_date <= :due_before")
+		args["due_before"] = params.DueBefore
+	}
+	if params.DueAfter != "" {
+		where = append(where, "i.due_date >= :due_after")
+		args["due_after"] = params.DueAfter
 	}
 
 	whereClause := strings.Join(where, " AND ")
@@ -108,7 +156,8 @@ func (r *IssueRepository) List(ctx context.Context, workspaceID uuid.UUID, param
 
 	// Sort
 	sortCol := "i.created_at"
-	if params.Sort != "" {
+	allowedSorts := map[string]bool{"created_at": true, "updated_at": true, "priority": true, "sort_order": true, "status": true}
+	if params.Sort != "" && allowedSorts[params.Sort] {
 		sortCol = "i." + params.Sort
 	}
 	order := "DESC"

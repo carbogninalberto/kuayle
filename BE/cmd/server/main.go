@@ -59,6 +59,7 @@ func main() {
 	historyRepo := repository.NewIssueHistoryRepository(db)
 	relationRepo := repository.NewIssueRelationRepository(db)
 	templateRepo := repository.NewIssueTemplateRepository(db)
+	viewRepo := repository.NewViewRepository(db)
 
 	// Services
 	authSvc := service.NewAuthService(userRepo, refreshRepo, cfg.JWTSecret)
@@ -71,6 +72,7 @@ func main() {
 	notifSvc := service.NewNotificationService(notifRepo)
 	relationSvc := service.NewIssueRelationService(relationRepo, issueRepo)
 	templateSvc := service.NewIssueTemplateService(templateRepo)
+	viewSvc := service.NewViewService(viewRepo)
 
 	// Handlers
 	healthH := handler.NewHealthHandler(db)
@@ -84,6 +86,7 @@ func main() {
 	wsH := handler.NewWSHandler(hub)
 	relationH := handler.NewIssueRelationHandler(relationSvc)
 	templateH := handler.NewIssueTemplateHandler(templateSvc)
+	viewH := handler.NewViewHandler(viewSvc)
 
 	// Echo
 	e := echo.New()
@@ -162,6 +165,13 @@ func main() {
 	ws.POST("/projects", projectH.Create, mw.RequirePermission("project:manage"))
 	ws.GET("/projects/:id", projectH.Get)
 	ws.PATCH("/projects/:id", projectH.Update, mw.RequirePermission("project:manage"))
+
+	// Views
+	ws.GET("/views", viewH.List)
+	ws.POST("/views", viewH.Create)
+	ws.GET("/views/:id", viewH.Get)
+	ws.PATCH("/views/:id", viewH.Update)
+	ws.DELETE("/views/:id", viewH.Delete)
 
 	// WebSocket
 	ws.GET("/ws", wsH.Handle)

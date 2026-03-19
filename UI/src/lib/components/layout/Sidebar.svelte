@@ -5,6 +5,7 @@
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import type { Workspace } from '$lib/types/workspace';
 	import type { Team } from '$lib/types/team';
+	import type { View } from '$lib/types/view';
 	import {
 		Inbox,
 		LayoutDashboard,
@@ -13,18 +14,21 @@
 		LogOut,
 		Users,
 		FolderKanban,
-		Plus
+		Plus,
+		Bookmark
 	} from 'lucide-svelte';
 
 	let {
 		workspace,
 		teams,
+		views = [],
 		slug,
 		oncreateissue,
 		oncreateteam
 	}: {
 		workspace: Workspace;
 		teams: Team[];
+		views?: View[];
 		slug: string;
 		oncreateissue?: () => void;
 		oncreateteam?: () => void;
@@ -142,6 +146,28 @@
 				</button>
 			{/if}
 		</div>
+
+		<!-- Views -->
+		{#if views.length > 0}
+			<div class="mt-4">
+				<div class="flex items-center px-2 py-1">
+					<span class="text-xs font-medium uppercase text-[var(--color-text-tertiary)]">Views</span>
+				</div>
+				{#each views as view}
+					<a
+						href="/{slug}/views/{view.id}"
+						class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm {isActive(
+							`/${slug}/views/${view.id}`
+						)
+							? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
+							: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]'}"
+					>
+						<Bookmark size={16} />
+						{view.name}
+					</a>
+				{/each}
+			</div>
+		{/if}
 
 		<!-- Projects -->
 		<div class="mt-4">
