@@ -53,6 +53,8 @@ type IssueRepo interface {
 	Delete(ctx context.Context, id uuid.UUID) error
 	SetLabels(ctx context.Context, issueID uuid.UUID, labelIDs []uuid.UUID) error
 	GetLabels(ctx context.Context, issueID uuid.UUID) ([]domain.Label, error)
+	ListSubIssues(ctx context.Context, parentID uuid.UUID) ([]domain.Issue, error)
+	CountSubIssues(ctx context.Context, parentID uuid.UUID) (int, int, error)
 	BeginTx(ctx context.Context) (*sqlx.Tx, error)
 }
 
@@ -103,4 +105,21 @@ type CycleRepo interface {
 	ListByTeam(ctx context.Context, teamID uuid.UUID) ([]domain.Cycle, error)
 	NextNumber(ctx context.Context, teamID uuid.UUID) (int, error)
 	Update(ctx context.Context, cycle *domain.Cycle) error
+}
+
+type IssueRelationRepo interface {
+	Create(ctx context.Context, rel *domain.IssueRelation) error
+	ListByIssue(ctx context.Context, issueID uuid.UUID) ([]domain.IssueRelation, error)
+	Delete(ctx context.Context, id uuid.UUID) error
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.IssueRelation, error)
+	DeleteByIssues(ctx context.Context, issueID, relatedIssueID uuid.UUID, relType domain.IssueRelationType) error
+}
+
+type IssueTemplateRepo interface {
+	Create(ctx context.Context, tmpl *domain.IssueTemplate) error
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.IssueTemplate, error)
+	ListByWorkspace(ctx context.Context, workspaceID uuid.UUID) ([]domain.IssueTemplate, error)
+	Update(ctx context.Context, tmpl *domain.IssueTemplate) error
+	Delete(ctx context.Context, id uuid.UUID) error
+	ListDueForRecurrence(ctx context.Context) ([]domain.IssueTemplate, error)
 }

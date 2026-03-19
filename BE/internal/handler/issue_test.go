@@ -83,8 +83,30 @@ func (r *testIssueRepo) GetLabels(_ context.Context, _ uuid.UUID) ([]domain.Labe
 	return nil, nil
 }
 
+func (r *testIssueRepo) ListSubIssues(_ context.Context, parentID uuid.UUID) ([]domain.Issue, error) {
+	var subs []domain.Issue
+	for _, issue := range r.issues {
+		if issue.ParentID != nil && *issue.ParentID == parentID {
+			subs = append(subs, *issue)
+		}
+	}
+	return subs, nil
+}
+
+func (r *testIssueRepo) CountSubIssues(_ context.Context, parentID uuid.UUID) (int, int, error) {
+	total, done := 0, 0
+	for _, issue := range r.issues {
+		if issue.ParentID != nil && *issue.ParentID == parentID {
+			total++
+			if issue.Status == domain.IssueStatusDone || issue.Status == domain.IssueStatusCancelled {
+				done++
+			}
+		}
+	}
+	return total, done, nil
+}
+
 func (r *testIssueRepo) BeginTx(_ context.Context) (*sqlx.Tx, error) {
-	// Return nil tx — our test repo doesn't use it
 	return nil, nil
 }
 

@@ -38,7 +38,7 @@
 
 <div class="h-full">
 	<div
-		class="flex items-center justify-between border-b border-[var(--app-border)] px-6 py-3"
+		class="flex h-[49px] items-center justify-between border-b border-[var(--app-border)] px-6"
 	>
 		<h1 class="text-sm font-medium text-[var(--color-text-primary)]">Projects</h1>
 		<button

@@ -182,6 +182,18 @@ func (r *IssueRepository) GetLabels(ctx context.Context, issueID uuid.UUID) ([]d
 	return labels, err
 }
 
+func (r *IssueRepository) ListSubIssues(ctx context.Context, parentID uuid.UUID) ([]domain.Issue, error) {
+	var issues []domain.Issue
+	err := r.db.SelectContext(ctx, &issues, `SELECT * FROM issues WHERE parent_id = $1 ORDER BY sort_order, created_at`, parentID)
+	return issues, err
+}
+
+func (r *IssueRepository) CountSubIssues(ctx context.Context, parentID uuid.UUID) (int, int, error) {
+	var total, done int
+	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*), COUNT(*) FILTER (WHERE status IN ('done', 'cancelled')) FROM issues WHERE parent_id = $1`, parentID).Scan(&total, &done)
+	return total, done, err
+}
+
 func (r *IssueRepository) BeginTx(ctx context.Context) (*sqlx.Tx, error) {
 	return r.db.BeginTxx(ctx, nil)
 }

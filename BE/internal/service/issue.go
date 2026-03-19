@@ -232,6 +232,18 @@ func (s *IssueService) GetHistory(ctx context.Context, issueID uuid.UUID) ([]dom
 	return s.historyRepo.ListByIssue(ctx, issueID)
 }
 
+func (s *IssueService) ListSubIssues(ctx context.Context, workspaceID uuid.UUID, identifier string) ([]domain.Issue, error) {
+	issue, err := s.issueRepo.GetByIdentifier(ctx, workspaceID, identifier)
+	if err != nil || issue == nil {
+		return nil, fmt.Errorf("issue not found")
+	}
+	return s.issueRepo.ListSubIssues(ctx, issue.ID)
+}
+
+func (s *IssueService) CountSubIssues(ctx context.Context, issueID uuid.UUID) (int, int, error) {
+	return s.issueRepo.CountSubIssues(ctx, issueID)
+}
+
 func (s *IssueService) recordHistory(ctx context.Context, issueID, userID uuid.UUID, field string, oldValue, newValue *string) {
 	if err := s.historyRepo.Create(ctx, issueID, userID, field, oldValue, newValue); err != nil {
 		log.WithError(err).Warn("failed to record issue history")

@@ -13,14 +13,22 @@
 		LogOut,
 		Users,
 		FolderKanban,
-		ChevronDown
+		Plus
 	} from 'lucide-svelte';
 
 	let {
 		workspace,
 		teams,
-		slug
-	}: { workspace: Workspace; teams: Team[]; slug: string } = $props();
+		slug,
+		oncreateissue,
+		oncreateteam
+	}: {
+		workspace: Workspace;
+		teams: Team[];
+		slug: string;
+		oncreateissue?: () => void;
+		oncreateteam?: () => void;
+	} = $props();
 
 	const currentPath = $derived(page.url.pathname);
 
@@ -39,7 +47,7 @@
 	class="flex h-full w-60 flex-col border-r border-[var(--app-border)] bg-[var(--color-bg-secondary)]"
 >
 	<!-- Workspace header -->
-	<div class="flex items-center gap-2 border-b border-[var(--app-border)] px-4 py-3">
+	<div class="flex h-[49px] items-center gap-2 border-b border-[var(--app-border)] px-4">
 		<div
 			class="flex h-6 w-6 items-center justify-center rounded bg-[var(--app-accent)] text-xs font-bold text-white"
 		>
@@ -47,6 +55,19 @@
 		</div>
 		<span class="text-sm font-medium text-[var(--color-text-primary)]">{workspace.name}</span>
 	</div>
+
+	<!-- Create Issue -->
+	{#if oncreateissue}
+		<div class="px-2 py-2">
+			<button
+				onclick={oncreateissue}
+				class="flex w-full items-center gap-2 rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm font-medium text-white hover:bg-[var(--app-accent-hover)]"
+			>
+				<Plus size={14} />
+				New Issue
+			</button>
+		</div>
+	{/if}
 
 	<!-- Navigation -->
 	<nav class="flex-1 overflow-y-auto px-2 py-2">
@@ -88,6 +109,15 @@
 		<div class="mt-4">
 			<div class="flex items-center justify-between px-2 py-1">
 				<span class="text-xs font-medium uppercase text-[var(--color-text-tertiary)]">Teams</span>
+				{#if oncreateteam}
+					<button
+						onclick={oncreateteam}
+						class="rounded p-0.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]"
+						title="Create team"
+					>
+						<Plus size={14} />
+					</button>
+				{/if}
 			</div>
 			{#each teams as team}
 				<a
@@ -102,6 +132,15 @@
 					{team.name}
 				</a>
 			{/each}
+			{#if teams.length === 0}
+				<button
+					onclick={oncreateteam}
+					class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
+				>
+					<Plus size={14} />
+					Create your first team
+				</button>
+			{/if}
 		</div>
 
 		<!-- Projects -->

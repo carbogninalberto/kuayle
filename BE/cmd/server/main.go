@@ -57,6 +57,8 @@ func main() {
 	projectRepo := repository.NewProjectRepository(db)
 	notifRepo := repository.NewNotificationRepository(db)
 	historyRepo := repository.NewIssueHistoryRepository(db)
+	relationRepo := repository.NewIssueRelationRepository(db)
+	templateRepo := repository.NewIssueTemplateRepository(db)
 
 	// Services
 	authSvc := service.NewAuthService(userRepo, refreshRepo, cfg.JWTSecret)
@@ -67,6 +69,8 @@ func main() {
 	commentSvc := service.NewCommentService(commentRepo)
 	projectSvc := service.NewProjectService(projectRepo)
 	notifSvc := service.NewNotificationService(notifRepo)
+	relationSvc := service.NewIssueRelationService(relationRepo, issueRepo)
+	templateSvc := service.NewIssueTemplateService(templateRepo)
 
 	// Handlers
 	healthH := handler.NewHealthHandler(db)
@@ -78,6 +82,8 @@ func main() {
 	projectH := handler.NewProjectHandler(projectSvc)
 	notifH := handler.NewNotificationHandler(notifSvc)
 	wsH := handler.NewWSHandler(hub)
+	relationH := handler.NewIssueRelationHandler(relationSvc)
+	templateH := handler.NewIssueTemplateHandler(templateSvc)
 
 	// Echo
 	e := echo.New()
@@ -129,7 +135,20 @@ func main() {
 	ws.DELETE("/issues/:identifier", issueH.Delete, mw.RequirePermission("issue:delete"))
 	ws.GET("/issues/:identifier/comments", issueH.ListComments)
 	ws.POST("/issues/:identifier/comments", issueH.CreateComment, mw.RequirePermission("issue:create"))
+	ws.GET("/issues/:identifier/sub-issues", issueH.ListSubIssues)
 	ws.GET("/issues/:identifier/history", issueH.GetHistory)
+
+	// Issue Relations
+	ws.POST("/issues/:identifier/relations", relationH.Create, mw.RequirePermission("issue:update"))
+	ws.GET("/issues/:identifier/relations", relationH.List)
+	ws.DELETE("/issues/:identifier/relations/:relationId", relationH.Delete, mw.RequirePermission("issue:update"))
+
+	// Issue Templates
+	ws.GET("/issue-templates", templateH.List)
+	ws.POST("/issue-templates", templateH.Create, mw.RequirePermission("issue:create"))
+	ws.GET("/issue-templates/:id", templateH.Get)
+	ws.PATCH("/issue-templates/:id", templateH.Update, mw.RequirePermission("issue:create"))
+	ws.DELETE("/issue-templates/:id", templateH.Delete, mw.RequirePermission("issue:create"))
 
 	// Labels
 	ws.GET("/labels", labelH.List)

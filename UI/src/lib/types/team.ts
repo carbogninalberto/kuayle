@@ -1,3 +1,5 @@
+export type EstimateScale = 'linear' | 'exponential' | 'fibonacci' | 'tshirt';
+
 export interface Team {
 	id: string;
 	name: string;
@@ -5,6 +7,7 @@ export interface Team {
 	description: string | null;
 	color: string | null;
 	icon: string | null;
+	estimate_scale: EstimateScale | null;
 	created_at: string;
 	updated_at: string;
 }

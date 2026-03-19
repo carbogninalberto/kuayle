@@ -15,7 +15,7 @@
 </script>
 
 <div class="flex h-full flex-col">
-	<div class="flex items-center gap-3 border-b border-[var(--app-border)] px-6 py-3">
+	<div class="flex h-[49px] items-center gap-3 border-b border-[var(--app-border)] px-6">
 		<h1 class="text-sm font-medium text-[var(--color-text-primary)]">Board</h1>
 		<a
 			href="/{slug}/teams/{teamId}"

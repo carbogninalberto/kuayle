@@ -86,13 +86,14 @@ func (h *TeamHandler) Update(c echo.Context) error {
 
 func toTeamResponse(t domain.Team) dto.TeamResponse {
 	return dto.TeamResponse{
-		ID:          t.ID.String(),
-		Name:        t.Name,
-		Key:         t.Key,
-		Description: t.Description,
-		Color:       t.Color,
-		Icon:        t.Icon,
-		CreatedAt:   t.CreatedAt,
-		UpdatedAt:   t.UpdatedAt,
+		ID:            t.ID.String(),
+		Name:          t.Name,
+		Key:           t.Key,
+		Description:   t.Description,
+		Color:         t.Color,
+		Icon:          t.Icon,
+		EstimateScale: t.EstimateScale,
+		CreatedAt:     t.CreatedAt,
+		UpdatedAt:     t.UpdatedAt,
 	}
 }

@@ -69,6 +69,9 @@ func (s *TeamService) Update(ctx context.Context, id uuid.UUID, req dto.UpdateTe
 	if req.Icon != nil {
 		team.Icon = req.Icon
 	}
+	if req.EstimateScale != nil {
+		team.EstimateScale = *req.EstimateScale
+	}
 
 	if err := s.teamRepo.Update(ctx, team); err != nil {
 		return nil, err

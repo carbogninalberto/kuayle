@@ -70,6 +70,16 @@ func (m *mockIssueRepo) GetLabels(ctx context.Context, issueID uuid.UUID) ([]dom
 	return args.Get(0).([]domain.Label), args.Error(1)
 }
 
+func (m *mockIssueRepo) ListSubIssues(ctx context.Context, parentID uuid.UUID) ([]domain.Issue, error) {
+	args := m.Called(ctx, parentID)
+	return args.Get(0).([]domain.Issue), args.Error(1)
+}
+
+func (m *mockIssueRepo) CountSubIssues(ctx context.Context, parentID uuid.UUID) (int, int, error) {
+	args := m.Called(ctx, parentID)
+	return args.Int(0), args.Int(1), args.Error(2)
+}
+
 func (m *mockIssueRepo) BeginTx(ctx context.Context) (*sqlx.Tx, error) {
 	args := m.Called(ctx)
 	if args.Get(0) == nil {

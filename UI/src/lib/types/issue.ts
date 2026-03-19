@@ -23,6 +23,8 @@ export interface Issue {
 	labels?: Label[];
 	creator?: User;
 	assignee?: User;
+	sub_issue_count?: number;
+	sub_issue_done?: number;
 	created_at: string;
 	updated_at: string;
 }
@@ -65,6 +67,45 @@ export interface IssueHistory {
 	old_value: string | null;
 	new_value: string | null;
 	created_at: string;
+}
+
+export type RelationType = 'related' | 'blocked_by' | 'blocking' | 'duplicate';
+
+export interface IssueRelation {
+	id: string;
+	issue_id: string;
+	related_issue_id: string;
+	type: RelationType;
+	related_issue?: Issue;
+	created_at: string;
+}
+
+export interface IssueTemplate {
+	id: string;
+	workspace_id: string;
+	name: string;
+	description: string | null;
+	title: string;
+	template_description: string | null;
+	status: IssueStatus;
+	priority: IssuePriority;
+	label_ids: string[];
+	assignee_id: string | null;
+	estimate: number | null;
+	created_at: string;
+	updated_at: string;
+}
+
+export interface CreateIssueTemplateRequest {
+	name: string;
+	description?: string;
+	title: string;
+	template_description?: string;
+	status?: IssueStatus;
+	priority?: IssuePriority;
+	label_ids?: string[];
+	assignee_id?: string;
+	estimate?: number;
 }
 
 export interface Comment {

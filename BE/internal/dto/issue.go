@@ -48,11 +48,13 @@ type IssueResponse struct {
 	Estimate    *int           `json:"estimate"`
 	DueDate     *time.Time     `json:"due_date"`
 	SortOrder   float64        `json:"sort_order"`
-	Labels      []LabelResponse `json:"labels,omitempty"`
-	Creator     *UserResponse  `json:"creator,omitempty"`
-	Assignee    *UserResponse  `json:"assignee,omitempty"`
-	CreatedAt   time.Time      `json:"created_at"`
-	UpdatedAt   time.Time      `json:"updated_at"`
+	Labels         []LabelResponse `json:"labels,omitempty"`
+	Creator        *UserResponse  `json:"creator,omitempty"`
+	Assignee       *UserResponse  `json:"assignee,omitempty"`
+	SubIssueCount  *int           `json:"sub_issue_count,omitempty"`
+	SubIssueDone   *int           `json:"sub_issue_done,omitempty"`
+	CreatedAt      time.Time      `json:"created_at"`
+	UpdatedAt      time.Time      `json:"updated_at"`
 }
 
 type IssueFilterParams struct {

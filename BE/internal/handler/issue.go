@@ -189,6 +189,29 @@ func (h *IssueHandler) CreateComment(c echo.Context) error {
 	})
 }
 
+func (h *IssueHandler) ListSubIssues(c echo.Context) error {
+	ws := c.Get("workspace").(*domain.Workspace)
+	identifier := c.Param("identifier")
+
+	subIssues, err := h.issueSvc.ListSubIssues(c.Request().Context(), ws.ID, identifier)
+	if err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+	}
+
+	resp := make([]dto.IssueResponse, len(subIssues))
+	for i, issue := range subIssues {
+		r := toIssueResponse(issue)
+		total, done, _ := h.issueSvc.CountSubIssues(c.Request().Context(), issue.ID)
+		if total > 0 {
+			r.SubIssueCount = &total
+			r.SubIssueDone = &done
+		}
+		resp[i] = r
+	}
+
+	return response.Success(c, http.StatusOK, resp)
+}
+
 func (h *IssueHandler) GetHistory(c echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	identifier := c.Param("identifier")

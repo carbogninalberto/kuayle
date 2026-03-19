@@ -3,7 +3,7 @@
 </script>
 
 <div class="h-full">
-	<div class="border-b border-[var(--app-border)] px-6 py-3">
+	<div class="flex h-[49px] items-center border-b border-[var(--app-border)] px-6">
 		<h1 class="text-sm font-medium text-[var(--color-text-primary)]">Members</h1>
 	</div>
 	<div class="p-6">
