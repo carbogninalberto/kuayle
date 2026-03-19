@@ -1,0 +1,347 @@
+package handler
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/carbon/carbon-backend/internal/domain"
+	"github.com/carbon/carbon-backend/internal/dto"
+	"github.com/carbon/carbon-backend/internal/realtime"
+	"github.com/carbon/carbon-backend/internal/service"
+	"github.com/google/uuid"
+	"github.com/jmoiron/sqlx"
+	"github.com/labstack/echo/v4"
+	"github.com/stretchr/testify/assert"
+)
+
+// --- Test issue repos ---
+
+type testIssueRepo struct {
+	issues map[string]*domain.Issue
+}
+
+func newTestIssueRepo() *testIssueRepo {
+	return &testIssueRepo{issues: make(map[string]*domain.Issue)}
+}
+
+func (r *testIssueRepo) Create(_ context.Context, _ *sqlx.Tx, issue *domain.Issue) error {
+	r.issues[issue.Identifier] = issue
+	return nil
+}
+
+func (r *testIssueRepo) NextNumber(_ context.Context, _ *sqlx.Tx, _ uuid.UUID) (int, error) {
+	return len(r.issues) + 1, nil
+}
+
+func (r *testIssueRepo) GetByID(_ context.Context, id uuid.UUID) (*domain.Issue, error) {
+	for _, issue := range r.issues {
+		if issue.ID == id {
+			return issue, nil
+		}
+	}
+	return nil, nil
+}
+
+func (r *testIssueRepo) GetByIdentifier(_ context.Context, _ uuid.UUID, identifier string) (*domain.Issue, error) {
+	if issue, ok := r.issues[identifier]; ok {
+		return issue, nil
+	}
+	return nil, nil
+}
+
+func (r *testIssueRepo) List(_ context.Context, _ uuid.UUID, _ dto.IssueFilterParams) ([]domain.Issue, int, error) {
+	issues := make([]domain.Issue, 0, len(r.issues))
+	for _, issue := range r.issues {
+		issues = append(issues, *issue)
+	}
+	return issues, len(issues), nil
+}
+
+func (r *testIssueRepo) Update(_ context.Context, issue *domain.Issue) error {
+	r.issues[issue.Identifier] = issue
+	return nil
+}
+
+func (r *testIssueRepo) Delete(_ context.Context, id uuid.UUID) error {
+	for k, issue := range r.issues {
+		if issue.ID == id {
+			delete(r.issues, k)
+			return nil
+		}
+	}
+	return nil
+}
+
+func (r *testIssueRepo) SetLabels(_ context.Context, _ uuid.UUID, _ []uuid.UUID) error {
+	return nil
+}
+
+func (r *testIssueRepo) GetLabels(_ context.Context, _ uuid.UUID) ([]domain.Label, error) {
+	return nil, nil
+}
+
+func (r *testIssueRepo) BeginTx(_ context.Context) (*sqlx.Tx, error) {
+	// Return nil tx — our test repo doesn't use it
+	return nil, nil
+}
+
+type testTeamRepo struct {
+	teams map[uuid.UUID]*domain.Team
+}
+
+func newTestTeamRepo() *testTeamRepo {
+	return &testTeamRepo{teams: make(map[uuid.UUID]*domain.Team)}
+}
+
+func (r *testTeamRepo) Create(_ context.Context, team *domain.Team) error {
+	r.teams[team.ID] = team
+	return nil
+}
+
+func (r *testTeamRepo) GetByID(_ context.Context, id uuid.UUID) (*domain.Team, error) {
+	if team, ok := r.teams[id]; ok {
+		return team, nil
+	}
+	return nil, nil
+}
+
+func (r *testTeamRepo) ListByWorkspace(_ context.Context, wsID uuid.UUID) ([]domain.Team, error) {
+	var teams []domain.Team
+	for _, team := range r.teams {
+		if team.WorkspaceID == wsID {
+			teams = append(teams, *team)
+		}
+	}
+	return teams, nil
+}
+
+func (r *testTeamRepo) Update(_ context.Context, team *domain.Team) error {
+	r.teams[team.ID] = team
+	return nil
+}
+
+func (r *testTeamRepo) AddMember(_ context.Context, _ *domain.TeamMember) error {
+	return nil
+}
+
+func (r *testTeamRepo) GetMember(_ context.Context, _, _ uuid.UUID) (*domain.TeamMember, error) {
+	return nil, nil
+}
+
+type testHistoryRepo struct{}
+
+func (r *testHistoryRepo) Create(_ context.Context, _, _ uuid.UUID, _ string, _, _ *string) error {
+	return nil
+}
+
+func (r *testHistoryRepo) ListByIssue(_ context.Context, _ uuid.UUID) ([]domain.IssueHistory, error) {
+	return nil, nil
+}
+
+type testCommentRepo struct {
+	comments []domain.Comment
+}
+
+func (r *testCommentRepo) Create(_ context.Context, comment *domain.Comment) error {
+	r.comments = append(r.comments, *comment)
+	return nil
+}
+
+func (r *testCommentRepo) ListByIssue(_ context.Context, _ uuid.UUID) ([]domain.Comment, error) {
+	return r.comments, nil
+}
+
+// --- Context helpers ---
+
+func setupIssueContext(e *echo.Echo, method, path, body string) (echo.Context, *httptest.ResponseRecorder) {
+	var req *http.Request
+	if body != "" {
+		req = httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	} else {
+		req = httptest.NewRequest(method, path, nil)
+	}
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	return c, rec
+}
+
+func setWorkspaceContext(c echo.Context) uuid.UUID {
+	wsID := uuid.New()
+	ws := &domain.Workspace{ID: wsID, Name: "Test", Slug: "test"}
+	c.Set("workspace", ws)
+	c.Set("workspace_id", wsID)
+	c.Set("workspace_role", "owner")
+	c.Set("user_id", uuid.New())
+	return wsID
+}
+
+// --- Tests ---
+
+func TestIssueHandler_List(t *testing.T) {
+	e := echo.New()
+	issueRepo := newTestIssueRepo()
+	teamRepo := newTestTeamRepo()
+	historyRepo := &testHistoryRepo{}
+	hub := realtime.NewHub()
+
+	// Pre-populate
+	wsID := uuid.New()
+	issueRepo.issues["ENG-1"] = &domain.Issue{
+		ID:          uuid.New(),
+		WorkspaceID: wsID,
+		Identifier:  "ENG-1",
+		Title:       "Test Issue",
+		Status:      domain.IssueStatusTodo,
+	}
+
+	issueSvc := service.NewIssueService(issueRepo, teamRepo, historyRepo, hub)
+	commentSvc := service.NewCommentService(&testCommentRepo{})
+	h := NewIssueHandler(issueSvc, commentSvc)
+
+	c, rec := setupIssueContext(e, http.MethodGet, "/api/workspaces/test/issues", "")
+	ws := &domain.Workspace{ID: wsID, Name: "Test", Slug: "test"}
+	c.Set("workspace", ws)
+
+	err := h.List(c)
+
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "ENG-1")
+}
+
+func TestIssueHandler_Get_Found(t *testing.T) {
+	e := echo.New()
+	issueRepo := newTestIssueRepo()
+	teamRepo := newTestTeamRepo()
+	historyRepo := &testHistoryRepo{}
+	hub := realtime.NewHub()
+
+	wsID := uuid.New()
+	issueRepo.issues["ENG-1"] = &domain.Issue{
+		ID:          uuid.New(),
+		WorkspaceID: wsID,
+		Identifier:  "ENG-1",
+		Title:       "Test Issue",
+		Status:      domain.IssueStatusTodo,
+		TeamID:      uuid.New(),
+		CreatorID:   uuid.New(),
+	}
+
+	issueSvc := service.NewIssueService(issueRepo, teamRepo, historyRepo, hub)
+	commentSvc := service.NewCommentService(&testCommentRepo{})
+	h := NewIssueHandler(issueSvc, commentSvc)
+
+	c, rec := setupIssueContext(e, http.MethodGet, "/api/workspaces/test/issues/ENG-1", "")
+	ws := &domain.Workspace{ID: wsID, Name: "Test", Slug: "test"}
+	c.Set("workspace", ws)
+	c.SetParamNames("identifier")
+	c.SetParamValues("ENG-1")
+
+	err := h.Get(c)
+
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "ENG-1")
+}
+
+func TestIssueHandler_Get_NotFound(t *testing.T) {
+	e := echo.New()
+	issueRepo := newTestIssueRepo()
+	teamRepo := newTestTeamRepo()
+	historyRepo := &testHistoryRepo{}
+	hub := realtime.NewHub()
+
+	issueSvc := service.NewIssueService(issueRepo, teamRepo, historyRepo, hub)
+	commentSvc := service.NewCommentService(&testCommentRepo{})
+	h := NewIssueHandler(issueSvc, commentSvc)
+
+	c, rec := setupIssueContext(e, http.MethodGet, "/api/workspaces/test/issues/ENG-999", "")
+	ws := &domain.Workspace{ID: uuid.New(), Name: "Test", Slug: "test"}
+	c.Set("workspace", ws)
+	c.SetParamNames("identifier")
+	c.SetParamValues("ENG-999")
+
+	err := h.Get(c)
+
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestIssueHandler_Create_ValidationError(t *testing.T) {
+	e := echo.New()
+	issueRepo := newTestIssueRepo()
+	teamRepo := newTestTeamRepo()
+	historyRepo := &testHistoryRepo{}
+	hub := realtime.NewHub()
+
+	issueSvc := service.NewIssueService(issueRepo, teamRepo, historyRepo, hub)
+	commentSvc := service.NewCommentService(&testCommentRepo{})
+	h := NewIssueHandler(issueSvc, commentSvc)
+
+	// Missing required fields
+	c, rec := setupIssueContext(e, http.MethodPost, "/api/workspaces/test/issues", `{"title": ""}`)
+	setWorkspaceContext(c)
+
+	err := h.Create(c)
+
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestIssueHandler_Delete_Success(t *testing.T) {
+	e := echo.New()
+	issueRepo := newTestIssueRepo()
+	teamRepo := newTestTeamRepo()
+	historyRepo := &testHistoryRepo{}
+	hub := realtime.NewHub()
+
+	wsID := uuid.New()
+	issueRepo.issues["ENG-1"] = &domain.Issue{
+		ID:          uuid.New(),
+		WorkspaceID: wsID,
+		Identifier:  "ENG-1",
+		Title:       "Delete me",
+	}
+
+	issueSvc := service.NewIssueService(issueRepo, teamRepo, historyRepo, hub)
+	commentSvc := service.NewCommentService(&testCommentRepo{})
+	h := NewIssueHandler(issueSvc, commentSvc)
+
+	c, rec := setupIssueContext(e, http.MethodDelete, "/api/workspaces/test/issues/ENG-1", "")
+	ws := &domain.Workspace{ID: wsID, Name: "Test", Slug: "test"}
+	c.Set("workspace", ws)
+	c.SetParamNames("identifier")
+	c.SetParamValues("ENG-1")
+
+	err := h.Delete(c)
+
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "deleted")
+}
+
+func TestIssueHandler_CreateComment_ValidationError(t *testing.T) {
+	e := echo.New()
+	issueRepo := newTestIssueRepo()
+	teamRepo := newTestTeamRepo()
+	historyRepo := &testHistoryRepo{}
+	hub := realtime.NewHub()
+
+	issueSvc := service.NewIssueService(issueRepo, teamRepo, historyRepo, hub)
+	commentSvc := service.NewCommentService(&testCommentRepo{})
+	h := NewIssueHandler(issueSvc, commentSvc)
+
+	c, rec := setupIssueContext(e, http.MethodPost, "/api/workspaces/test/issues/ENG-1/comments", `{"body": ""}`)
+	setWorkspaceContext(c)
+	c.SetParamNames("identifier")
+	c.SetParamValues("ENG-1")
+
+	err := h.CreateComment(c)
+
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}

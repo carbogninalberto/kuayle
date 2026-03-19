@@ -1,0 +1,49 @@
+import { api } from './client';
+import type {
+	Issue,
+	CreateIssueRequest,
+	UpdateIssueRequest,
+	Comment,
+	IssueHistory
+} from '$lib/types/issue';
+import type { PaginatedResponse } from '$lib/types/common';
+
+export function listIssues(
+	slug: string,
+	params?: Record<string, string>
+): Promise<PaginatedResponse<Issue>> {
+	const query = params ? '?' + new URLSearchParams(params).toString() : '';
+	return api.get<PaginatedResponse<Issue>>(`/api/workspaces/${slug}/issues${query}`);
+}
+
+export function getIssue(slug: string, identifier: string): Promise<Issue> {
+	return api.get<Issue>(`/api/workspaces/${slug}/issues/${identifier}`);
+}
+
+export function createIssue(slug: string, req: CreateIssueRequest): Promise<Issue> {
+	return api.post<Issue>(`/api/workspaces/${slug}/issues`, req);
+}
+
+export function updateIssue(
+	slug: string,
+	identifier: string,
+	req: UpdateIssueRequest
+): Promise<Issue> {
+	return api.patch<Issue>(`/api/workspaces/${slug}/issues/${identifier}`, req);
+}
+
+export function deleteIssue(slug: string, identifier: string): Promise<void> {
+	return api.delete<void>(`/api/workspaces/${slug}/issues/${identifier}`);
+}
+
+export function listComments(slug: string, identifier: string): Promise<Comment[]> {
+	return api.get<Comment[]>(`/api/workspaces/${slug}/issues/${identifier}/comments`);
+}
+
+export function createComment(slug: string, identifier: string, body: string): Promise<Comment> {
+	return api.post<Comment>(`/api/workspaces/${slug}/issues/${identifier}/comments`, { body });
+}
+
+export function getIssueHistory(slug: string, identifier: string): Promise<IssueHistory[]> {
+	return api.get<IssueHistory[]>(`/api/workspaces/${slug}/issues/${identifier}/history`);
+}

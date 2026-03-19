@@ -1,0 +1,25 @@
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+vendor/
+
+# Node
+node_modules/
+
+# Build output
+dist/
+build/
+tmp/
+.svelte-kit/
+
+# Environment
+.env
+
+# Coverage
+coverage/
+
+# OS
+.DS_Store

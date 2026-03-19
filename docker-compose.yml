@@ -1,0 +1,45 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: carbon
+      POSTGRES_PASSWORD: carbon
+      POSTGRES_DB: carbon
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  backend:
+    build: ./BE
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./BE:/app
+    environment:
+      DATABASE_URL: postgres://carbon:carbon@postgres:5432/carbon?sslmode=disable
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: change-me-in-production
+
+  frontend:
+    build: ./UI
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    volumes:
+      - ./UI:/app
+      - /app/node_modules
+
+volumes:
+  pgdata:
