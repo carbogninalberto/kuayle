@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import { Settings, Users, Tag } from 'lucide-svelte';
+	import { Settings, Users, Tag, Webhook } from 'lucide-svelte';
 
 	const slug = $derived(page.params.workspaceSlug);
 </script>
@@ -31,6 +31,16 @@
 			<div>
 				<p class="text-sm text-[var(--color-text-primary)]">Labels</p>
 				<p class="text-xs text-[var(--color-text-tertiary)]">Manage issue labels</p>
+			</div>
+		</a>
+		<a
+			href="/{slug}/settings/webhooks"
+			class="flex items-center gap-3 rounded-md p-3 hover:bg-[var(--color-bg-hover)]"
+		>
+			<Webhook size={18} class="text-[var(--color-text-tertiary)]" />
+			<div>
+				<p class="text-sm text-[var(--color-text-primary)]">Webhooks</p>
+				<p class="text-xs text-[var(--color-text-tertiary)]">Manage webhook integrations</p>
 			</div>
 		</a>
 	</div>

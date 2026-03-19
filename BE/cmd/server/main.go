@@ -90,6 +90,10 @@ func main() {
 	templateH := handler.NewIssueTemplateHandler(templateSvc)
 	viewH := handler.NewViewHandler(viewSvc)
 	cycleH := handler.NewCycleHandler(cycleSvc)
+	analyticsH := handler.NewAnalyticsHandler(db)
+	webhookRepo := repository.NewWebhookRepository(db)
+	webhookSvc := service.NewWebhookService(webhookRepo)
+	webhookH := handler.NewWebhookHandler(webhookSvc)
 
 	// Echo
 	e := echo.New()
@@ -186,6 +190,16 @@ func main() {
 	ws.GET("/views/:id", viewH.Get)
 	ws.PATCH("/views/:id", viewH.Update)
 	ws.DELETE("/views/:id", viewH.Delete)
+
+	// Analytics
+	ws.GET("/analytics/overview", analyticsH.Overview)
+	ws.GET("/analytics/distribution", analyticsH.IssueDistribution)
+
+	// Webhooks
+	ws.GET("/webhooks", webhookH.List, mw.RequirePermission("workspace:manage"))
+	ws.POST("/webhooks", webhookH.Create, mw.RequirePermission("workspace:manage"))
+	ws.PATCH("/webhooks/:id", webhookH.Update, mw.RequirePermission("workspace:manage"))
+	ws.DELETE("/webhooks/:id", webhookH.Delete, mw.RequirePermission("workspace:manage"))
 
 	// WebSocket
 	ws.GET("/ws", wsH.Handle)
