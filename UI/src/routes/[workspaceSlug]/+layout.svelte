@@ -19,8 +19,9 @@
 	import CommandPalette from '$lib/components/layout/CommandPalette.svelte';
 	import CreateIssueDialog from '$lib/features/issues/CreateIssueDialog.svelte';
 	import CreateTeamDialog from '$lib/features/teams/CreateTeamDialog.svelte';
+	import ShortcutHelp from '$lib/components/shared/ShortcutHelp.svelte';
 	import { issuesState } from '$lib/features/issues/issues.state.svelte';
-	import { createKeyboardHandler } from '$lib/utils/keyboard';
+	import { createShortcutEngine, type ShortcutDef } from '$lib/utils/keyboard';
 	import { toast } from 'svelte-sonner';
 
 	let { children } = $props();
@@ -33,6 +34,7 @@
 	let showCommandPalette = $state(false);
 	let showCreateIssue = $state(false);
 	let showCreateTeam = $state(false);
+	let showShortcutHelp = $state(false);
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 
@@ -62,25 +64,37 @@
 		}
 	});
 
-	const keyHandler = createKeyboardHandler([
-		{ key: 'k', meta: true, handler: () => (showCommandPalette = !showCommandPalette) },
+	// Full shortcut definitions
+	const shortcutDefs: ShortcutDef[] = [
+		// Navigation sequences (G + key)
+		{ keys: ['g', 'i'], handler: () => goto(`/${slug}/inbox`), label: 'Go to Inbox', category: 'Navigation' },
+		{ keys: ['g', 'm'], handler: () => goto(`/${slug}/my-issues`), label: 'Go to My Issues', category: 'Navigation' },
+		{ keys: ['g', 'd'], handler: () => goto(`/${slug}/dashboard`), label: 'Go to Dashboard', category: 'Navigation' },
+		{ keys: ['g', 'p'], handler: () => goto(`/${slug}/projects`), label: 'Go to Projects', category: 'Navigation' },
+		{ keys: ['g', 's'], handler: () => goto(`/${slug}/settings`), label: 'Go to Settings', category: 'Navigation' },
+		// Actions
 		{
 			key: 'c',
 			handler: () => {
-				const active = document.activeElement;
-				if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || (active as HTMLElement).isContentEditable)) return;
 				if (teams.length === 0) {
 					showCreateTeam = true;
 				} else {
 					showCreateIssue = true;
 				}
-			}
-		}
-	]);
+			},
+			label: 'Create issue',
+			category: 'Actions'
+		},
+		{ key: 'k', meta: true, handler: () => (showCommandPalette = !showCommandPalette), label: 'Command palette', category: 'Actions' },
+		{ key: '/', handler: () => (showCommandPalette = true), label: 'Search', category: 'Actions' },
+		{ key: '?', shift: true, handler: () => (showShortcutHelp = !showShortcutHelp), label: 'Keyboard shortcuts', category: 'Help' },
+	];
+
+	const shortcutEngine = createShortcutEngine(shortcutDefs);
 
 	onMount(() => {
-		document.addEventListener('keydown', keyHandler);
-		return () => document.removeEventListener('keydown', keyHandler);
+		document.addEventListener('keydown', shortcutEngine.handler);
+		return () => document.removeEventListener('keydown', shortcutEngine.handler);
 	});
 
 	async function handleCreateTeam(data: { name: string; key: string; description?: string }) {
@@ -161,6 +175,11 @@
 	<CreateTeamDialog
 		bind:open={showCreateTeam}
 		onsubmit={handleCreateTeam}
+	/>
+
+	<ShortcutHelp
+		bind:open={showShortcutHelp}
+		shortcuts={shortcutDefs}
 	/>
 {:else}
 	<div class="flex h-screen items-center justify-center">
