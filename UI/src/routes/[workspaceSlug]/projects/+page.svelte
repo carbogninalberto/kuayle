@@ -5,14 +5,14 @@
 	import type { Project } from '$lib/types/project';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
 	import LoadingState from '$lib/components/shared/LoadingState.svelte';
+	import CreateProjectDialog from '$lib/features/projects/CreateProjectDialog.svelte';
 	import { toast } from 'svelte-sonner';
 	import { Plus } from 'lucide-svelte';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	let projects = $state<Project[]>([]);
 	let loading = $state(true);
-	let showForm = $state(false);
-	let newName = $state('');
+	let showCreateProject = $state(false);
 
 	onMount(async () => {
 		try {
@@ -22,14 +22,11 @@
 		}
 	});
 
-	async function handleCreate(e: Event) {
-		e.preventDefault();
-		if (!newName.trim()) return;
+	async function handleCreate(data: { name: string; description?: string }) {
 		try {
-			const project = await createProject(slug, { name: newName });
+			const project = await createProject(slug, data);
 			projects = [...projects, project];
-			newName = '';
-			showForm = false;
+			toast.success('Project created');
 		} catch (err: any) {
 			toast.error(err?.error?.message || 'Failed to create project');
 		}
@@ -42,7 +39,7 @@
 	>
 		<h1 class="text-sm font-medium text-[var(--color-text-primary)]">Projects</h1>
 		<button
-			onclick={() => (showForm = true)}
+			onclick={() => (showCreateProject = true)}
 			class="flex items-center gap-1 rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm text-white hover:bg-[var(--app-accent-hover)]"
 		>
 			<Plus size={14} />
@@ -50,37 +47,13 @@
 		</button>
 	</div>
 
-	{#if showForm}
-		<form
-			onsubmit={handleCreate}
-			class="flex gap-2 border-b border-[var(--app-border)] px-6 py-3"
-		>
-			<input
-				type="text"
-				bind:value={newName}
-				placeholder="Project name"
-				autofocus
-				class="flex-1 rounded border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] outline-none"
-			/>
-			<button
-				type="submit"
-				class="rounded bg-[var(--app-accent)] px-3 py-1.5 text-sm text-white">Create</button
-			>
-			<button
-				type="button"
-				onclick={() => (showForm = false)}
-				class="rounded border border-[var(--app-border)] px-3 py-1.5 text-sm text-[var(--color-text-secondary)]"
-				>Cancel</button
-			>
-		</form>
-	{/if}
-
 	{#if loading}
 		<LoadingState />
 	{:else if projects.length === 0}
 		<EmptyState
 			title="No projects yet"
 			description="Create a project to organize your issues"
+			action={{ label: 'New Project', onclick: () => (showCreateProject = true) }}
 		/>
 	{:else}
 		<div class="divide-y divide-[var(--app-border)]">
@@ -101,3 +74,8 @@
 		</div>
 	{/if}
 </div>
+
+<CreateProjectDialog
+	bind:open={showCreateProject}
+	onsubmit={handleCreate}
+/>

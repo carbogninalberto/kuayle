@@ -94,6 +94,26 @@ func (h *WorkspaceHandler) Invite(c echo.Context) error {
 	return response.Success(c, http.StatusOK, map[string]string{"status": "invited"})
 }
 
+func (h *WorkspaceHandler) ListMembers(c echo.Context) error {
+	ws := c.Get("workspace").(*domain.Workspace)
+	members, err := h.workspaceSvc.ListMembersWithUsers(c.Request().Context(), ws.ID)
+	if err != nil {
+		return response.InternalError(c)
+	}
+
+	resp := make([]dto.WorkspaceMemberResponse, 0, len(members))
+	for _, m := range members {
+		resp = append(resp, dto.WorkspaceMemberResponse{
+			UserID:    m.UserID.String(),
+			Email:     m.Email,
+			Name:      m.Name,
+			Role:      m.Role,
+			CreatedAt: m.CreatedAt,
+		})
+	}
+	return response.Success(c, http.StatusOK, resp)
+}
+
 func toWorkspaceResponse(ws domain.Workspace) dto.WorkspaceResponse {
 	return dto.WorkspaceResponse{
 		ID:        ws.ID.String(),

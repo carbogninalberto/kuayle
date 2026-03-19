@@ -72,3 +72,14 @@ func (r *WorkspaceRepository) ListMembers(ctx context.Context, workspaceID uuid.
 	err := r.db.SelectContext(ctx, &members, `SELECT * FROM workspace_members WHERE workspace_id = $1 ORDER BY created_at`, workspaceID)
 	return members, err
 }
+
+func (r *WorkspaceRepository) ListMembersWithUsers(ctx context.Context, workspaceID uuid.UUID) ([]domain.WorkspaceMemberWithUser, error) {
+	var members []domain.WorkspaceMemberWithUser
+	query := `SELECT wm.workspace_id, wm.user_id, wm.role, u.email, u.name, u.display_name, u.avatar_url, wm.created_at
+		FROM workspace_members wm
+		JOIN users u ON u.id = wm.user_id
+		WHERE wm.workspace_id = $1
+		ORDER BY wm.created_at`
+	err := r.db.SelectContext(ctx, &members, query, workspaceID)
+	return members, err
+}

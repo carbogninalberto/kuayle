@@ -23,14 +23,20 @@
 			labels = [...labels, label];
 			newName = '';
 			showForm = false;
+			toast.success('Label created');
 		} catch (err: any) {
 			toast.error(err?.error?.message || 'Failed to create label');
 		}
 	}
 
 	async function handleDelete(id: string) {
-		await deleteLabel(slug, id);
-		labels = labels.filter((l) => l.id !== id);
+		try {
+			await deleteLabel(slug, id);
+			labels = labels.filter((l) => l.id !== id);
+			toast.success('Label deleted');
+		} catch (err: any) {
+			toast.error(err?.error?.message || 'Failed to delete label');
+		}
 	}
 </script>
 

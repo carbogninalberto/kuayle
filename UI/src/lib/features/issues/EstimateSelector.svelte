@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { EstimateScale } from '$lib/types/team';
+	import * as Popover from '$lib/components/ui/popover';
 
 	let {
 		scale,
@@ -10,6 +11,8 @@
 		value?: number | null;
 		onchange?: (value: number | null) => void;
 	} = $props();
+
+	let open = $state(false);
 
 	const SCALE_OPTIONS: Record<EstimateScale, { label: string; value: number }[]> = {
 		linear: [
@@ -46,29 +49,39 @@
 	};
 
 	let options = $derived(SCALE_OPTIONS[scale] ?? SCALE_OPTIONS.linear);
+	let displayLabel = $derived(
+		value !== null && value !== undefined
+			? options.find((o) => o.value === value)?.label ?? String(value)
+			: 'No estimate'
+	);
 
-	let selectValue = $derived(value !== null && value !== undefined ? String(value) : '');
-
-	function handleChange(e: Event) {
-		const target = e.target as HTMLSelectElement;
-		if (target.value === '') {
-			value = null;
-			onchange?.(null);
-		} else {
-			const numValue = Number(target.value);
-			value = numValue;
-			onchange?.(numValue);
-		}
+	function selectValue(v: number | null) {
+		value = v;
+		onchange?.(v);
+		open = false;
 	}
 </script>
 
-<select
-	value={selectValue}
-	onchange={handleChange}
-	class="h-8 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
->
-	<option value="">No estimate</option>
-	{#each options as option}
-		<option value={String(option.value)}>{option.label}</option>
-	{/each}
-</select>
+<Popover.Root bind:open>
+	<Popover.Trigger>
+		<button class="flex h-8 items-center gap-1.5 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-2 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]">
+			{displayLabel}
+		</button>
+	</Popover.Trigger>
+	<Popover.Content class="w-36 p-1" align="start">
+		<button
+			onclick={() => selectValue(null)}
+			class="flex w-full items-center rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {value === null ? 'bg-[var(--color-bg-hover)]' : ''}"
+		>
+			No estimate
+		</button>
+		{#each options as option}
+			<button
+				onclick={() => selectValue(option.value)}
+				class="flex w-full items-center rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {value === option.value ? 'bg-[var(--color-bg-hover)]' : ''}"
+			>
+				{option.label}
+			</button>
+		{/each}
+	</Popover.Content>
+</Popover.Root>

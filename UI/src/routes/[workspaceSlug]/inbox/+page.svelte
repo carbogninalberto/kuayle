@@ -4,6 +4,7 @@
 	import type { Notification } from '$lib/types/notification';
 	import { formatRelativeTime } from '$lib/utils/format';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
+	import { toast } from 'svelte-sonner';
 
 	let notifications = $state<Notification[]>([]);
 	let loading = $state(true);
@@ -17,8 +18,13 @@
 	});
 
 	async function handleMarkAllRead() {
-		await markAllRead();
-		notifications = notifications.map((n) => ({ ...n, read_at: new Date().toISOString() }));
+		try {
+			await markAllRead();
+			notifications = notifications.map((n) => ({ ...n, read_at: new Date().toISOString() }));
+			toast.success('All notifications marked as read');
+		} catch (err: any) {
+			toast.error(err?.error?.message || 'Failed to mark notifications as read');
+		}
 	}
 </script>
 

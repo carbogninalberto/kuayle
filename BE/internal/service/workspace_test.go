@@ -66,6 +66,11 @@ func (m *mockWorkspaceRepo) ListMembers(ctx context.Context, workspaceID uuid.UU
 	return args.Get(0).([]domain.WorkspaceMember), args.Error(1)
 }
 
+func (m *mockWorkspaceRepo) ListMembersWithUsers(ctx context.Context, workspaceID uuid.UUID) ([]domain.WorkspaceMemberWithUser, error) {
+	args := m.Called(ctx, workspaceID)
+	return args.Get(0).([]domain.WorkspaceMemberWithUser), args.Error(1)
+}
+
 // --- Tests ---
 
 func TestWorkspaceService_Create_Happy(t *testing.T) {

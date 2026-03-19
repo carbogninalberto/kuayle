@@ -5,18 +5,28 @@
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { getWorkspace } from '$lib/api/workspaces';
 	import { listTeams, createTeam } from '$lib/api/teams';
+	import { listProjects } from '$lib/api/projects';
+	import { listLabels } from '$lib/api/labels';
+	import { listMembers } from '$lib/api/members';
 	import type { Workspace } from '$lib/types/workspace';
 	import type { Team } from '$lib/types/team';
+	import type { Project } from '$lib/types/project';
+	import type { Label } from '$lib/types/label';
+	import type { WorkspaceMember } from '$lib/types/workspace';
 	import Sidebar from '$lib/components/layout/Sidebar.svelte';
 	import CommandPalette from '$lib/components/layout/CommandPalette.svelte';
 	import CreateIssueDialog from '$lib/features/issues/CreateIssueDialog.svelte';
 	import CreateTeamDialog from '$lib/features/teams/CreateTeamDialog.svelte';
 	import { issuesState } from '$lib/features/issues/issues.state.svelte';
 	import { createKeyboardHandler } from '$lib/utils/keyboard';
+	import { toast } from 'svelte-sonner';
 
 	let { children } = $props();
 	let workspace = $state<Workspace | null>(null);
 	let teams = $state<Team[]>([]);
+	let projects = $state<Project[]>([]);
+	let labels = $state<Label[]>([]);
+	let members = $state<WorkspaceMember[]>([]);
 	let showCommandPalette = $state(false);
 	let showCreateIssue = $state(false);
 	let showCreateTeam = $state(false);
@@ -30,8 +40,18 @@
 			return;
 		}
 		try {
-			workspace = await getWorkspace(slug);
-			teams = await listTeams(slug);
+			const [ws, t, p, l, m] = await Promise.all([
+				getWorkspace(slug),
+				listTeams(slug),
+				listProjects(slug),
+				listLabels(slug),
+				listMembers(slug)
+			]);
+			workspace = ws;
+			teams = t;
+			projects = p;
+			labels = l;
+			members = m;
 		} catch {
 			goto('/login');
 		}
@@ -59,8 +79,13 @@
 	});
 
 	async function handleCreateTeam(data: { name: string; key: string; description?: string }) {
-		const team = await createTeam(slug, data);
-		teams = [...teams, team];
+		try {
+			const team = await createTeam(slug, data);
+			teams = [...teams, team];
+			toast.success('Team created');
+		} catch (err: any) {
+			toast.error(err?.error?.message || 'Failed to create team');
+		}
 	}
 
 	// WebSocket connection
@@ -114,8 +139,16 @@
 	<CreateIssueDialog
 		bind:open={showCreateIssue}
 		{teams}
+		{projects}
+		{labels}
+		{members}
 		onsubmit={async (req) => {
-			await issuesState.create(slug, req);
+			try {
+				await issuesState.create(slug, req);
+				toast.success('Issue created');
+			} catch (err: any) {
+				toast.error(err?.error?.message || 'Failed to create issue');
+			}
 		}}
 	/>
 

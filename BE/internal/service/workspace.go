@@ -100,3 +100,7 @@ func (s *WorkspaceService) InviteMember(ctx context.Context, workspaceID uuid.UU
 func (s *WorkspaceService) ListMembers(ctx context.Context, workspaceID uuid.UUID) ([]domain.WorkspaceMember, error) {
 	return s.workspaceRepo.ListMembers(ctx, workspaceID)
 }
+
+func (s *WorkspaceService) ListMembersWithUsers(ctx context.Context, workspaceID uuid.UUID) ([]domain.WorkspaceMemberWithUser, error) {
+	return s.workspaceRepo.ListMembersWithUsers(ctx, workspaceID)
+}

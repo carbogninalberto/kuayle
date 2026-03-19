@@ -1,13 +1,27 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import type { Issue, Comment, IssueHistory } from '$lib/types/issue';
+	import type { Issue, Comment, IssueHistory, IssueStatus, IssuePriority } from '$lib/types/issue';
 	import { STATUS_LABELS, PRIORITY_LABELS } from '$lib/types/issue';
 	import { listComments, createComment, getIssueHistory } from '$lib/api/issues';
 	import { issuesState } from './issues.state.svelte';
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
 	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
 	import { formatRelativeTime } from '$lib/utils/format';
-	import { X } from 'lucide-svelte';
+	import { toast } from 'svelte-sonner';
+	import * as Popover from '$lib/components/ui/popover';
+	import {
+		X,
+		Circle,
+		CircleDot,
+		CircleDashed,
+		Loader,
+		CheckCircle2,
+		XCircle,
+		SignalHigh,
+		SignalMedium,
+		SignalLow,
+		Minus
+	} from 'lucide-svelte';
 
 	let {
 		issue,
@@ -19,6 +33,25 @@
 	let history = $state<IssueHistory[]>([]);
 	let newComment = $state('');
 	let tab = $state<'comments' | 'activity'>('comments');
+	let statusOpen = $state(false);
+	let priorityOpen = $state(false);
+
+	const statusIcons: Record<IssueStatus, typeof Circle> = {
+		backlog: CircleDashed,
+		todo: Circle,
+		in_progress: Loader,
+		in_review: CircleDot,
+		done: CheckCircle2,
+		cancelled: XCircle
+	};
+
+	const priorityIcons: Record<IssuePriority, typeof Minus> = {
+		0: Minus,
+		1: SignalHigh,
+		2: SignalHigh,
+		3: SignalMedium,
+		4: SignalLow
+	};
 
 	onMount(async () => {
 		const [c, h] = await Promise.all([
@@ -32,17 +65,32 @@
 	async function handleAddComment(e: Event) {
 		e.preventDefault();
 		if (!newComment.trim()) return;
-		const comment = await createComment(slug, issue.identifier, newComment);
-		comments = [...comments, comment];
-		newComment = '';
+		try {
+			const comment = await createComment(slug, issue.identifier, newComment);
+			comments = [...comments, comment];
+			newComment = '';
+			toast.success('Comment added');
+		} catch (err: any) {
+			toast.error(err?.error?.message || 'Failed to add comment');
+		}
 	}
 
 	async function updateStatus(status: string) {
-		await issuesState.update(slug, issue.identifier, { status: status as any });
+		try {
+			await issuesState.update(slug, issue.identifier, { status: status as any });
+			toast.success('Status updated');
+		} catch (err: any) {
+			toast.error(err?.error?.message || 'Failed to update status');
+		}
 	}
 
 	async function updatePriority(priority: number) {
-		await issuesState.update(slug, issue.identifier, { priority: priority as any });
+		try {
+			await issuesState.update(slug, issue.identifier, { priority: priority as any });
+			toast.success('Priority updated');
+		} catch (err: any) {
+			toast.error(err?.error?.message || 'Failed to update priority');
+		}
 	}
 </script>
 
@@ -84,27 +132,47 @@
 			<div class="mt-6 grid grid-cols-2 gap-3">
 				<div class="flex items-center gap-2 text-sm">
 					<span class="w-20 text-[var(--color-text-tertiary)]">Status</span>
-					<select
-						value={issue.status}
-						onchange={(e) => updateStatus((e.target as HTMLSelectElement).value)}
-						class="rounded border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-2 py-1 text-sm text-[var(--color-text-secondary)]"
-					>
-						{#each Object.entries(STATUS_LABELS) as [value, label]}
-							<option {value}>{label}</option>
-						{/each}
-					</select>
+					<Popover.Root bind:open={statusOpen}>
+						<Popover.Trigger>
+							<button class="flex items-center gap-1.5 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-2.5 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
+								<svelte:component this={statusIcons[issue.status]} size={12} />
+								{STATUS_LABELS[issue.status]}
+							</button>
+						</Popover.Trigger>
+						<Popover.Content class="w-40 p-1" align="start">
+							{#each Object.entries(STATUS_LABELS) as [value, label]}
+								<button
+									onclick={() => { updateStatus(value); statusOpen = false; }}
+									class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {issue.status === value ? 'bg-[var(--color-bg-hover)]' : ''}"
+								>
+									<svelte:component this={statusIcons[value as IssueStatus]} size={14} />
+									{label}
+								</button>
+							{/each}
+						</Popover.Content>
+					</Popover.Root>
 				</div>
 				<div class="flex items-center gap-2 text-sm">
 					<span class="w-20 text-[var(--color-text-tertiary)]">Priority</span>
-					<select
-						value={issue.priority}
-						onchange={(e) => updatePriority(Number((e.target as HTMLSelectElement).value))}
-						class="rounded border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-2 py-1 text-sm text-[var(--color-text-secondary)]"
-					>
-						{#each Object.entries(PRIORITY_LABELS) as [value, label]}
-							<option value={Number(value)}>{label}</option>
-						{/each}
-					</select>
+					<Popover.Root bind:open={priorityOpen}>
+						<Popover.Trigger>
+							<button class="flex items-center gap-1.5 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-2.5 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
+								<svelte:component this={priorityIcons[issue.priority]} size={12} />
+								{PRIORITY_LABELS[issue.priority]}
+							</button>
+						</Popover.Trigger>
+						<Popover.Content class="w-40 p-1" align="start">
+							{#each Object.entries(PRIORITY_LABELS) as [value, label]}
+								<button
+									onclick={() => { updatePriority(Number(value)); priorityOpen = false; }}
+									class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {issue.priority === Number(value) ? 'bg-[var(--color-bg-hover)]' : ''}"
+								>
+									<svelte:component this={priorityIcons[Number(value) as IssuePriority]} size={14} />
+									{label}
+								</button>
+							{/each}
+						</Popover.Content>
+					</Popover.Root>
 				</div>
 			</div>
 

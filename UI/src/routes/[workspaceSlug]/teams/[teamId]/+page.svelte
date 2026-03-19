@@ -4,35 +4,49 @@
 	import { goto } from '$app/navigation';
 	import { issuesState } from '$lib/features/issues/issues.state.svelte';
 	import IssueRow from '$lib/features/issues/IssueRow.svelte';
-	import IssueForm from '$lib/features/issues/IssueForm.svelte';
 	import IssueDetail from '$lib/features/issues/IssueDetail.svelte';
 	import FilterBar from '$lib/components/shared/FilterBar.svelte';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
 	import LoadingState from '$lib/components/shared/LoadingState.svelte';
+	import CreateIssueDialog from '$lib/features/issues/CreateIssueDialog.svelte';
 	import { listTeams } from '$lib/api/teams';
+	import { listProjects } from '$lib/api/projects';
+	import { listLabels } from '$lib/api/labels';
+	import { listMembers } from '$lib/api/members';
 	import type { Team } from '$lib/types/team';
+	import type { Project } from '$lib/types/project';
+	import type { Label } from '$lib/types/label';
+	import type { WorkspaceMember } from '$lib/types/workspace';
 	import { createKeyboardHandler } from '$lib/utils/keyboard';
+	import { toast } from 'svelte-sonner';
 	import { Plus } from 'lucide-svelte';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	const teamId = $derived(page.params.teamId ?? '');
 
 	let teams = $state<Team[]>([]);
-	let showForm = $state(false);
+	let projects = $state<Project[]>([]);
+	let labels = $state<Label[]>([]);
+	let members = $state<WorkspaceMember[]>([]);
+	let showCreateIssue = $state(false);
 	let filters = $state<Record<string, string>>({});
 
 	onMount(async () => {
-		teams = await listTeams(slug);
+		const [t, p, l, m] = await Promise.all([
+			listTeams(slug),
+			listProjects(slug),
+			listLabels(slug),
+			listMembers(slug)
+		]);
+		teams = t;
+		projects = p;
+		labels = l;
+		members = m;
 		loadIssues();
 	});
 
 	function loadIssues() {
 		issuesState.load(slug, { team: teamId, ...filters });
-	}
-
-	async function handleCreate(req: any) {
-		await issuesState.create(slug, req);
-		showForm = false;
 	}
 
 	function handleFilterChange(f: Record<string, string>) {
@@ -41,7 +55,14 @@
 	}
 
 	const keyHandler = createKeyboardHandler([
-		{ key: 'c', handler: () => (showForm = true) }
+		{
+			key: 'c',
+			handler: () => {
+				const active = document.activeElement;
+				if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || (active as HTMLElement).isContentEditable)) return;
+				showCreateIssue = true;
+			}
+		}
 	]);
 
 	onMount(() => {
@@ -64,7 +85,7 @@
 			</a>
 		</div>
 		<button
-			onclick={() => (showForm = true)}
+			onclick={() => (showCreateIssue = true)}
 			class="flex items-center gap-1 rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm text-white hover:bg-[var(--app-accent-hover)]"
 		>
 			<Plus size={14} />
@@ -74,12 +95,6 @@
 
 	<FilterBar {filters} onchange={handleFilterChange} />
 
-	{#if showForm}
-		<div class="border-b border-[var(--app-border)]">
-			<IssueForm {teams} onsubmit={handleCreate} oncancel={() => (showForm = false)} />
-		</div>
-	{/if}
-
 	<div class="flex-1 overflow-y-auto">
 		{#if issuesState.loading}
 			<LoadingState />
@@ -87,7 +102,7 @@
 			<EmptyState
 				title="No issues yet"
 				description="Create your first issue to get started"
-				action={{ label: 'New Issue', onclick: () => (showForm = true) }}
+				action={{ label: 'New Issue', onclick: () => (showCreateIssue = true) }}
 			/>
 		{:else}
 			{#each issuesState.issues as issue (issue.id)}
@@ -104,3 +119,20 @@
 		onclose={() => issuesState.select(null)}
 	/>
 {/if}
+
+<CreateIssueDialog
+	bind:open={showCreateIssue}
+	{teams}
+	{projects}
+	{labels}
+	{members}
+	defaultTeamId={teamId}
+	onsubmit={async (req) => {
+		try {
+			await issuesState.create(slug, req);
+			toast.success('Issue created');
+		} catch (err: any) {
+			toast.error(err?.error?.message || 'Failed to create issue');
+		}
+	}}
+/>

@@ -120,6 +120,7 @@ func main() {
 	ws.GET("", workspaceH.Get)
 	ws.PATCH("", workspaceH.Update, mw.RequirePermission("workspace:manage"))
 	ws.POST("/invite", workspaceH.Invite, mw.RequirePermission("member:invite"))
+	ws.GET("/members", workspaceH.ListMembers)
 
 	// Teams
 	ws.GET("/teams", teamH.List)

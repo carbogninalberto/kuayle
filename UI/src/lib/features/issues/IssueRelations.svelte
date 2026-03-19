@@ -9,6 +9,7 @@
 	import { Separator } from '$lib/components/ui/separator';
 	import * as Command from '$lib/components/ui/command';
 	import { Link, X, Plus, Ban, Copy, ArrowRight } from 'lucide-svelte';
+	import { toast } from 'svelte-sonner';
 
 	let { slug, identifier }: { slug: string; identifier: string } = $props();
 
@@ -71,19 +72,29 @@
 	}
 
 	async function handleAddRelation(relatedIdentifier: string) {
-		await createRelation(slug, identifier, {
-			related_identifier: relatedIdentifier,
-			type: selectedType
-		});
-		await loadRelations();
-		dialogOpen = false;
-		searchQuery = '';
-		searchResults = [];
+		try {
+			await createRelation(slug, identifier, {
+				related_identifier: relatedIdentifier,
+				type: selectedType
+			});
+			await loadRelations();
+			dialogOpen = false;
+			searchQuery = '';
+			searchResults = [];
+			toast.success('Relation added');
+		} catch (err: any) {
+			toast.error(err?.error?.message || 'Failed to add relation');
+		}
 	}
 
 	async function handleRemoveRelation(relationId: string) {
-		await deleteRelation(slug, identifier, relationId);
-		relations = relations.filter((r) => r.id !== relationId);
+		try {
+			await deleteRelation(slug, identifier, relationId);
+			relations = relations.filter((r) => r.id !== relationId);
+			toast.success('Relation removed');
+		} catch (err: any) {
+			toast.error(err?.error?.message || 'Failed to remove relation');
+		}
 	}
 </script>
 
