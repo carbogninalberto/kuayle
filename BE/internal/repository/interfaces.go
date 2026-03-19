@@ -106,6 +106,8 @@ type CycleRepo interface {
 	ListByTeam(ctx context.Context, teamID uuid.UUID) ([]domain.Cycle, error)
 	NextNumber(ctx context.Context, teamID uuid.UUID) (int, error)
 	Update(ctx context.Context, cycle *domain.Cycle) error
+	Delete(ctx context.Context, id uuid.UUID) error
+	IssueStats(ctx context.Context, cycleID uuid.UUID) (total int, completed int, cancelled int, err error)
 }
 
 type IssueRelationRepo interface {

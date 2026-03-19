@@ -15,7 +15,8 @@
 		Users,
 		FolderKanban,
 		Plus,
-		Bookmark
+		Bookmark,
+		RotateCcw
 	} from 'lucide-svelte';
 
 	let {
@@ -128,12 +129,23 @@
 					href="/{slug}/teams/{team.id}"
 					class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm {isActive(
 						`/${slug}/teams/${team.id}`
-					)
+					) && !isActive(`/${slug}/teams/${team.id}/cycles`)
 						? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
 						: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]'}"
 				>
 					<Users size={16} />
 					{team.name}
+				</a>
+				<a
+					href="/{slug}/teams/{team.id}/cycles"
+					class="flex items-center gap-2 rounded-md px-2 py-1.5 pl-8 text-xs {isActive(
+						`/${slug}/teams/${team.id}/cycles`
+					)
+						? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
+						: 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]'}"
+				>
+					<RotateCcw size={13} />
+					Cycles
 				</a>
 			{/each}
 			{#if teams.length === 0}

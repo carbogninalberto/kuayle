@@ -60,6 +60,7 @@ func main() {
 	relationRepo := repository.NewIssueRelationRepository(db)
 	templateRepo := repository.NewIssueTemplateRepository(db)
 	viewRepo := repository.NewViewRepository(db)
+	cycleRepo := repository.NewCycleRepository(db)
 
 	// Services
 	authSvc := service.NewAuthService(userRepo, refreshRepo, cfg.JWTSecret)
@@ -73,6 +74,7 @@ func main() {
 	relationSvc := service.NewIssueRelationService(relationRepo, issueRepo)
 	templateSvc := service.NewIssueTemplateService(templateRepo)
 	viewSvc := service.NewViewService(viewRepo)
+	cycleSvc := service.NewCycleService(cycleRepo)
 
 	// Handlers
 	healthH := handler.NewHealthHandler(db)
@@ -87,6 +89,7 @@ func main() {
 	relationH := handler.NewIssueRelationHandler(relationSvc)
 	templateH := handler.NewIssueTemplateHandler(templateSvc)
 	viewH := handler.NewViewHandler(viewSvc)
+	cycleH := handler.NewCycleHandler(cycleSvc)
 
 	// Echo
 	e := echo.New()
@@ -130,6 +133,14 @@ func main() {
 	ws.POST("/teams", teamH.Create, mw.RequirePermission("team:manage"))
 	ws.GET("/teams/:teamId", teamH.Get)
 	ws.PATCH("/teams/:teamId", teamH.Update, mw.RequirePermission("team:manage"))
+
+	// Cycles (team-scoped)
+	ws.GET("/teams/:teamId/cycles", cycleH.List)
+	ws.POST("/teams/:teamId/cycles", cycleH.Create)
+	ws.GET("/teams/:teamId/cycles/:cycleId", cycleH.Get)
+	ws.PATCH("/teams/:teamId/cycles/:cycleId", cycleH.Update)
+	ws.POST("/teams/:teamId/cycles/:cycleId/complete", cycleH.Complete)
+	ws.DELETE("/teams/:teamId/cycles/:cycleId", cycleH.Delete)
 
 	// Issues
 	ws.GET("/issues", issueH.List)
