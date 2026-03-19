@@ -5,38 +5,172 @@
 	import { issuesState } from '$lib/features/issues/issues.state.svelte';
 	import IssueRow from '$lib/features/issues/IssueRow.svelte';
 	import IssueDetail from '$lib/features/issues/IssueDetail.svelte';
+	import KanbanBoard from '$lib/features/issues/KanbanBoard.svelte';
+	import FilterBuilder from '$lib/components/shared/FilterBuilder.svelte';
+	import ViewSwitcher from '$lib/components/shared/ViewSwitcher.svelte';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
 	import LoadingState from '$lib/components/shared/LoadingState.svelte';
+	import * as Tabs from '$lib/components/ui/tabs';
+	import { listProjects } from '$lib/api/projects';
+	import { listLabels } from '$lib/api/labels';
+	import { listMembers } from '$lib/api/members';
+	import type { Project } from '$lib/types/project';
+	import type { Label } from '$lib/types/label';
+	import type { WorkspaceMember } from '$lib/types/workspace';
+	import type { ViewFilter, ViewLayout } from '$lib/types/view';
+	import type { Issue, IssueStatus, IssuePriority } from '$lib/types/issue';
+	import { PRIORITY_LABELS, STATUS_LABELS } from '$lib/types/issue';
+	import IssuePriorityIcon from '$lib/features/issues/IssuePriorityIcon.svelte';
+	import { CircleUser, PenLine } from 'lucide-svelte';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 
-	onMount(() => {
-		if (authState.user) {
-			issuesState.load(slug, { assignee: authState.user.id });
-		}
+	type MyTab = 'assigned' | 'created';
+
+	let activeTab = $state<MyTab>('assigned');
+	let filters = $state<ViewFilter>({});
+	let layout = $state<ViewLayout>('list');
+	let projects = $state<Project[]>([]);
+	let labels = $state<Label[]>([]);
+	let members = $state<WorkspaceMember[]>([]);
+
+	onMount(async () => {
+		const [p, l, m] = await Promise.all([
+			listProjects(slug),
+			listLabels(slug),
+			listMembers(slug)
+		]);
+		projects = p;
+		labels = l;
+		members = m;
+		loadIssues();
 	});
 
-	function handleIssueClick(issue: any) {
-		issuesState.select(issue);
+	function loadIssues() {
+		if (!authState.user) return;
+		const params: Record<string, string> = {};
+
+		// Tab-specific filter
+		if (activeTab === 'assigned') {
+			params.assignee = authState.user.id;
+		} else {
+			params.creator = authState.user.id;
+		}
+
+		// Apply user filters
+		for (const [key, value] of Object.entries(filters)) {
+			if (value !== undefined && value !== '') {
+				params[key] = value;
+			}
+		}
+
+		// Sort by priority (urgent first) then created_at
+		params.sort = 'priority';
+		params.order = 'asc';
+
+		if (layout === 'board') {
+			params.per_page = '200';
+		}
+
+		issuesState.load(slug, params);
 	}
+
+	function handleTabChange(tab: string) {
+		activeTab = tab as MyTab;
+		loadIssues();
+	}
+
+	function handleFilterChange(f: ViewFilter) {
+		filters = f;
+		loadIssues();
+	}
+
+	function handleLayoutChange(l: ViewLayout) {
+		layout = l;
+		loadIssues();
+	}
+
+	// Group issues by priority for focus-sorted list
+	let groupedByPriority = $derived(() => {
+		const groups: { priority: IssuePriority; label: string; issues: Issue[] }[] = [];
+		const priorityOrder: IssuePriority[] = [1, 2, 3, 4, 0];
+		for (const p of priorityOrder) {
+			const issues = issuesState.issues.filter((i) => i.priority === p);
+			if (issues.length > 0) {
+				groups.push({ priority: p, label: PRIORITY_LABELS[p], issues });
+			}
+		}
+		return groups;
+	});
 </script>
 
-<div class="h-full">
-	<div class="flex h-[49px] items-center border-b border-[var(--app-border)] px-6">
+<div class="flex h-full flex-col">
+	<!-- Header -->
+	<div class="flex h-[49px] items-center justify-between border-b border-[var(--app-border)] px-6">
 		<h1 class="text-sm font-medium text-[var(--color-text-primary)]">My Issues</h1>
+		<ViewSwitcher bind:layout onchange={handleLayoutChange} />
 	</div>
 
-	{#if issuesState.loading}
-		<LoadingState />
-	{:else if issuesState.issues.length === 0}
-		<EmptyState
-			title="No issues assigned to you"
-			description="Issues assigned to you will appear here"
-		/>
+	<!-- Tabs -->
+	<Tabs.Root value={activeTab} onValueChange={handleTabChange}>
+		<Tabs.List class="w-full justify-start gap-0 rounded-none border-b border-[var(--app-border)] bg-transparent px-4">
+			<Tabs.Trigger value="assigned" class="relative rounded-none border-b-2 border-transparent px-3 py-2 text-xs data-[state=active]:border-[var(--app-accent)] data-[state=active]:bg-transparent data-[state=active]:shadow-none">
+				<CircleUser size={13} class="mr-1.5" />
+				Assigned to me
+			</Tabs.Trigger>
+			<Tabs.Trigger value="created" class="relative rounded-none border-b-2 border-transparent px-3 py-2 text-xs data-[state=active]:border-[var(--app-accent)] data-[state=active]:bg-transparent data-[state=active]:shadow-none">
+				<PenLine size={13} class="mr-1.5" />
+				Created by me
+			</Tabs.Trigger>
+		</Tabs.List>
+	</Tabs.Root>
+
+	<!-- Filter bar -->
+	<FilterBuilder
+		bind:filters
+		{projects}
+		{labels}
+		{members}
+		onchange={handleFilterChange}
+	/>
+
+	<!-- Content -->
+	{#if layout === 'list'}
+		<div class="flex-1 overflow-y-auto">
+			{#if issuesState.loading}
+				<LoadingState />
+			{:else if issuesState.issues.length === 0}
+				<EmptyState
+					title={activeTab === 'assigned' ? 'No issues assigned to you' : 'No issues created by you'}
+					description={activeTab === 'assigned' ? 'Issues assigned to you will appear here' : 'Issues you created will appear here'}
+				/>
+			{:else}
+				<!-- Grouped by priority -->
+				{#each groupedByPriority() as group}
+					<div class="border-b border-[var(--app-border)]">
+						<div class="flex items-center gap-2 bg-[var(--color-bg-secondary)] px-4 py-1.5">
+							<IssuePriorityIcon priority={group.priority} size={14} />
+							<span class="text-xs font-medium text-[var(--color-text-tertiary)]">{group.label}</span>
+							<span class="text-xs text-[var(--color-text-tertiary)]">{group.issues.length}</span>
+						</div>
+						{#each group.issues as issue (issue.id)}
+							<IssueRow {issue} onclick={(i) => issuesState.select(i)} />
+						{/each}
+					</div>
+				{/each}
+			{/if}
+		</div>
 	{:else}
-		{#each issuesState.issues as issue (issue.id)}
-			<IssueRow {issue} onclick={handleIssueClick} />
-		{/each}
+		{#if issuesState.loading}
+			<LoadingState />
+		{:else}
+			<div class="flex-1 overflow-hidden">
+				<KanbanBoard
+					issuesByStatus={issuesState.issuesByStatus}
+					onissueclick={(i) => issuesState.select(i)}
+				/>
+			</div>
+		{/if}
 	{/if}
 </div>
 
