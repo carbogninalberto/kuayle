@@ -22,7 +22,8 @@
 		RotateCcw,
 		ShieldCheck,
 		Star,
-		ChevronDown
+		ChevronDown,
+		CircleDot
 	} from 'lucide-svelte';
 
 	let {
@@ -74,6 +75,24 @@
 	let favoritesCollapsed = $state(initCollapsed('favorites'));
 	let viewsCollapsed = $state(initCollapsed('views'));
 	let projectsCollapsed = $state(initCollapsed('projects'));
+
+	// Per-team collapsed state
+	let collapsedTeams = $state<Set<string>>(new Set(
+		typeof localStorage !== 'undefined'
+			? JSON.parse(localStorage.getItem('sidebar_collapsed_teams') || '[]')
+			: []
+	));
+
+	function toggleTeam(teamId: string) {
+		const next = new Set(collapsedTeams);
+		if (next.has(teamId)) {
+			next.delete(teamId);
+		} else {
+			next.add(teamId);
+		}
+		collapsedTeams = next;
+		localStorage.setItem('sidebar_collapsed_teams', JSON.stringify([...next]));
+	}
 </script>
 
 <aside
@@ -181,65 +200,76 @@
 			</div>
 			{#if !teamsCollapsed}
 				{#each teams as team}
-					<a
-						href="/{slug}/teams/{team.id}"
-						class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm {isActive(
-							`/${slug}/teams/${team.id}`
-						) && !isActive(`/${slug}/teams/${team.id}/cycles`) && !isActive(`/${slug}/teams/${team.id}/triage`)
-							? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
-							: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]'}"
+					{@const teamExpanded = !collapsedTeams.has(team.id)}
+					{@const teamProjects = projects.filter(p => p.team_id === team.id)}
+					{@const teamViews = views.filter(v => v.filters?.team === team.id)}
+					<button
+						onclick={() => toggleTeam(team.id)}
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
 					>
-						<Users size={16} />
-						{team.name}
-					</a>
-					<a
-						href="/{slug}/teams/{team.id}/cycles"
-						class="flex items-center gap-2 rounded-md px-2 py-1.5 pl-8 text-xs {isActive(
-							`/${slug}/teams/${team.id}/cycles`
-						)
-							? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
-							: 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]'}"
-					>
-						<RotateCcw size={13} />
-						Cycles
-					</a>
-					{#if team.triage_enabled}
+						<ChevronDown size={12} class="shrink-0 text-[var(--color-text-tertiary)] transition-transform {teamExpanded ? '' : '-rotate-90'}" />
+						<Users size={16} class="shrink-0" />
+						<span class="truncate">{team.name}</span>
+					</button>
+					{#if teamExpanded}
 						<a
-							href="/{slug}/teams/{team.id}/triage"
+							href="/{slug}/teams/{team.id}"
 							class="flex items-center gap-2 rounded-md px-2 py-1.5 pl-8 text-xs {isActive(
-								`/${slug}/teams/${team.id}/triage`
+								`/${slug}/teams/${team.id}`
+							) && !isActive(`/${slug}/teams/${team.id}/cycles`) && !isActive(`/${slug}/teams/${team.id}/triage`)
+								? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
+								: 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]'}"
+						>
+							<CircleDot size={13} />
+							Issues
+						</a>
+						<a
+							href="/{slug}/teams/{team.id}/cycles"
+							class="flex items-center gap-2 rounded-md px-2 py-1.5 pl-8 text-xs {isActive(
+								`/${slug}/teams/${team.id}/cycles`
 							)
 								? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
 								: 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]'}"
 						>
-							<ShieldCheck size={13} />
-							Triage
+							<RotateCcw size={13} />
+							Cycles
 						</a>
+						{#if team.triage_enabled}
+							<a
+								href="/{slug}/teams/{team.id}/triage"
+								class="flex items-center gap-2 rounded-md px-2 py-1.5 pl-8 text-xs {isActive(
+									`/${slug}/teams/${team.id}/triage`
+								)
+									? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
+									: 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]'}"
+							>
+								<ShieldCheck size={13} />
+								Triage
+							</a>
+						{/if}
+						{#each teamProjects as project}
+							<a
+								href="/{slug}/projects/{project.id}"
+								class="flex items-center gap-2 rounded-md px-2 py-1.5 pl-8 text-xs {isActive(`/${slug}/projects/${project.id}`)
+									? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
+									: 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]'}"
+							>
+								<FolderKanban size={13} />
+								{project.name}
+							</a>
+						{/each}
+						{#each teamViews as view}
+							<a
+								href="/{slug}/views/{view.id}"
+								class="flex items-center gap-2 rounded-md px-2 py-1.5 pl-8 text-xs {isActive(`/${slug}/views/${view.id}`)
+									? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
+									: 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]'}"
+							>
+								<Bookmark size={13} />
+								{view.name}
+							</a>
+						{/each}
 					{/if}
-					<!-- Team projects -->
-					{#each projects.filter(p => p.team_id === team.id) as project}
-						<a
-							href="/{slug}/projects/{project.id}"
-							class="flex items-center gap-2 rounded-md px-2 py-1.5 pl-8 text-xs {isActive(`/${slug}/projects/${project.id}`)
-								? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
-								: 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]'}"
-						>
-							<FolderKanban size={13} />
-							{project.name}
-						</a>
-					{/each}
-					<!-- Team views -->
-					{#each views.filter(v => v.filters?.team === team.id) as view}
-						<a
-							href="/{slug}/views/{view.id}"
-							class="flex items-center gap-2 rounded-md px-2 py-1.5 pl-8 text-xs {isActive(`/${slug}/views/${view.id}`)
-								? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
-								: 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]'}"
-						>
-							<Bookmark size={13} />
-							{view.name}
-						</a>
-					{/each}
 				{/each}
 				{#if teams.length === 0}
 					<button
