@@ -23,7 +23,9 @@
 		ShieldCheck,
 		Star,
 		ChevronDown,
-		CircleDot
+		CircleDot,
+		SquarePen,
+		Search
 	} from 'lucide-svelte';
 
 	let {
@@ -35,7 +37,8 @@
 		unreadCount = 0,
 		slug,
 		oncreateissue,
-		oncreateteam
+		oncreateteam,
+		onsearch
 	}: {
 		workspace: Workspace;
 		teams: Team[];
@@ -46,6 +49,7 @@
 		slug: string;
 		oncreateissue?: () => void;
 		oncreateteam?: () => void;
+		onsearch?: () => void;
 	} = $props();
 
 	const currentPath = $derived(page.url.pathname);
@@ -101,20 +105,27 @@
 	<!-- Workspace header -->
 	<div class="flex h-[49px] items-center border-b border-[var(--app-border)] px-3">
 		<WorkspaceSwitcher currentWorkspace={workspace} {slug} />
-	</div>
-
-	<!-- Create Issue -->
-	{#if oncreateissue}
-		<div class="px-2 py-2">
-			<button
-				onclick={oncreateissue}
-				class="flex w-full items-center gap-2 rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm font-medium text-white hover:bg-[var(--app-accent-hover)]"
-			>
-				<Plus size={14} />
-				New Issue
-			</button>
+		<div class="ml-auto flex items-center gap-1">
+			{#if oncreateissue}
+				<button
+					onclick={oncreateissue}
+					class="rounded-md p-1 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+					title="New issue"
+				>
+					<SquarePen size={16} />
+				</button>
+			{/if}
+			{#if onsearch}
+				<button
+					onclick={onsearch}
+					class="rounded-md p-1 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+					title="Search"
+				>
+					<Search size={16} />
+				</button>
+			{/if}
 		</div>
-	{/if}
+	</div>
 
 	<!-- Navigation -->
 	<nav class="flex-1 overflow-y-auto px-2 py-2">

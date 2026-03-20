@@ -152,6 +152,7 @@
 				}
 			}}
 			oncreateteam={() => (showCreateTeam = true)}
+			onsearch={() => (showCommandPalette = true)}
 		/>
 		<main class="flex-1 overflow-auto">
 			{@render children()}
