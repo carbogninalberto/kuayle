@@ -59,7 +59,9 @@
 				/>
 			</div>
 		{:else}
-			<p class="text-sm text-[var(--color-text-tertiary)]">Loading...</p>
+			<div class="flex justify-center py-8">
+				<div class="h-5 w-5 animate-spin rounded-full border-2 border-[var(--color-text-tertiary)] border-t-transparent"></div>
+			</div>
 		{/if}
 	</div>
 </div>

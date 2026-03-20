@@ -25,14 +25,21 @@
 			goto(`/${slug}/issue/${adj}`);
 		}
 	}
+
+	function handleIssueUpdated(updated: Issue) {
+		issue = updated;
+	}
 </script>
 
 {#if issue}
-	<FullPageIssueView
-		{issue}
-		{slug}
-		onnavigate={handleNavigate}
-	/>
+	{#key issue.identifier}
+		<FullPageIssueView
+			{issue}
+			{slug}
+			onnavigate={handleNavigate}
+			onupdated={handleIssueUpdated}
+		/>
+	{/key}
 {:else}
 	<LoadingState />
 {/if}

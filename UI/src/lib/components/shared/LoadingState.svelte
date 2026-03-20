@@ -1,7 +1,3 @@
-<script lang="ts">
-	let { message = 'Loading...' }: { message?: string } = $props();
-</script>
-
 <div class="flex h-64 items-center justify-center">
-	<p class="text-sm text-[var(--color-text-secondary)]">{message}</p>
+	<div class="h-5 w-5 animate-spin rounded-full border-2 border-[var(--color-text-tertiary)] border-t-transparent"></div>
 </div>

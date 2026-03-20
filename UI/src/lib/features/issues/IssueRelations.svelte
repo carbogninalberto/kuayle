@@ -4,81 +4,60 @@
 	import type { PaginatedResponse } from '$lib/types/common';
 	import { listRelations, createRelation, deleteRelation } from '$lib/api/issue-relations';
 	import { listIssues } from '$lib/api/issues';
-	import { Badge } from '$lib/components/ui/badge';
-	import { Button } from '$lib/components/ui/button';
-	import { Separator } from '$lib/components/ui/separator';
-	import * as Command from '$lib/components/ui/command';
+	import IssueStatusIcon from './IssueStatusIcon.svelte';
 	import { Link, X, Plus, Ban, Copy, ArrowRight } from 'lucide-svelte';
 	import { toast } from 'svelte-sonner';
 
 	let { slug, identifier }: { slug: string; identifier: string } = $props();
 
 	let relations = $state<IssueRelation[]>([]);
-	let dialogOpen = $state(false);
+	let showAdd = $state(false);
 	let selectedType = $state<RelationType>('related');
 	let searchQuery = $state('');
 	let searchResults = $state<Issue[]>([]);
 	let searching = $state(false);
-
-	const RELATION_TYPES: { value: RelationType; label: string; icon: any }[] = [
-		{ value: 'related', label: 'Related', icon: Link },
-		{ value: 'blocked_by', label: 'Blocked By', icon: Ban },
-		{ value: 'blocking', label: 'Blocking', icon: ArrowRight },
-		{ value: 'duplicate', label: 'Duplicate', icon: Copy }
-	];
+	let searchTimer: ReturnType<typeof setTimeout> | undefined;
 
 	const RELATION_LABELS: Record<RelationType, string> = {
-		related: 'Related',
-		blocked_by: 'Blocked By',
+		related: 'Related to',
+		blocked_by: 'Blocked by',
 		blocking: 'Blocking',
-		duplicate: 'Duplicate'
+		duplicate: 'Duplicate of'
 	};
+
+	const RELATION_TYPES: RelationType[] = ['related', 'blocked_by', 'blocking', 'duplicate'];
 
 	let groupedRelations = $derived(
 		RELATION_TYPES.map((type) => ({
-			...type,
-			items: relations.filter((r) => r.type === type.value)
+			type,
+			label: RELATION_LABELS[type],
+			items: relations.filter((r) => r.type === type)
 		})).filter((group) => group.items.length > 0)
 	);
 
 	onMount(async () => {
-		await loadRelations();
+		relations = await listRelations(slug, identifier);
 	});
 
-	async function loadRelations() {
-		relations = await listRelations(slug, identifier);
-	}
-
-	async function handleSearch(query: string) {
+	function handleSearch(query: string) {
 		searchQuery = query;
-		if (!query.trim()) {
-			searchResults = [];
-			return;
-		}
-		searching = true;
-		try {
-			const response: PaginatedResponse<Issue> = await listIssues(slug, {
-				search: query,
-				limit: '10'
-			});
-			searchResults = response.data.filter(
-				(issue) => issue.identifier !== identifier
-			);
-		} catch {
-			searchResults = [];
-		} finally {
-			searching = false;
-		}
+		clearTimeout(searchTimer);
+		if (!query.trim()) { searchResults = []; return; }
+		searchTimer = setTimeout(async () => {
+			searching = true;
+			try {
+				const response: PaginatedResponse<Issue> = await listIssues(slug, { search: query, per_page: '10' });
+				searchResults = response.data.filter((issue) => issue.identifier !== identifier);
+			} catch { searchResults = []; }
+			finally { searching = false; }
+		}, 200);
 	}
 
 	async function handleAddRelation(relatedIdentifier: string) {
 		try {
-			await createRelation(slug, identifier, {
-				related_identifier: relatedIdentifier,
-				type: selectedType
-			});
-			await loadRelations();
-			dialogOpen = false;
+			await createRelation(slug, identifier, { related_identifier: relatedIdentifier, type: selectedType });
+			relations = await listRelations(slug, identifier);
+			showAdd = false;
 			searchQuery = '';
 			searchResults = [];
 			toast.success('Relation added');
@@ -91,94 +70,94 @@
 		try {
 			await deleteRelation(slug, identifier, relationId);
 			relations = relations.filter((r) => r.id !== relationId);
-			toast.success('Relation removed');
 		} catch (err: any) {
 			toast.error(err?.error?.message || 'Failed to remove relation');
 		}
 	}
 </script>
 
-<div class="space-y-3">
-	<div class="flex items-center justify-between">
-		<h3 class="text-sm font-medium text-[var(--color-text-primary)]">Relations</h3>
-		<Button variant="ghost" size="sm" onclick={() => (dialogOpen = true)}>
-			<Plus size={14} />
-			<span class="ml-1">Add relation</span>
-		</Button>
-	</div>
-
-	{#if groupedRelations.length === 0}
-		<p class="text-xs text-[var(--color-text-tertiary)]">No relations</p>
-	{:else}
-		{#each groupedRelations as group, i}
-			{#if i > 0}
-				<Separator />
-			{/if}
-			<div class="space-y-1.5">
-				<div class="flex items-center gap-1.5">
-					<svelte:component this={group.icon} size={12} class="text-[var(--color-text-tertiary)]" />
-					<span class="text-xs font-medium text-[var(--color-text-tertiary)]">{group.label}</span>
-				</div>
+{#if relations.length > 0 || showAdd}
+	<div class="space-y-2">
+		{#each groupedRelations as group}
+			<div class="space-y-1">
+				<span class="text-[11px] font-medium text-[var(--color-text-tertiary)]">{group.label}</span>
 				{#each group.items as relation}
-					<div
-						class="flex items-center justify-between rounded-md px-2 py-1.5 hover:bg-[var(--color-bg-hover)]"
-					>
-						<div class="flex items-center gap-2 min-w-0">
-							<Badge variant="outline" class="shrink-0 text-xs">
-								{relation.related_issue?.identifier ?? relation.related_issue_id.slice(0, 8)}
-							</Badge>
-							<span class="truncate text-sm text-[var(--color-text-secondary)]">
-								{relation.related_issue?.title ?? ''}
-							</span>
-						</div>
+					<div class="flex items-center justify-between group rounded px-2 py-1 hover:bg-[var(--color-bg-hover)] transition-colors">
+						<a
+							href="/{slug}/issue/{relation.related_issue?.identifier ?? ''}"
+							class="flex items-center gap-2 min-w-0"
+						>
+							{#if relation.related_issue}
+								<IssueStatusIcon status={relation.related_issue.status} size={13} />
+								<span class="text-xs text-[var(--color-text-tertiary)]">{relation.related_issue.identifier}</span>
+								<span class="truncate text-xs text-[var(--color-text-secondary)]">{relation.related_issue.title}</span>
+							{:else}
+								<span class="text-xs text-[var(--color-text-tertiary)]">{relation.related_issue_id.slice(0, 8)}...</span>
+							{/if}
+						</a>
 						<button
 							onclick={() => handleRemoveRelation(relation.id)}
-							class="shrink-0 ml-2 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
+							class="shrink-0 ml-2 opacity-0 group-hover:opacity-100 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-opacity"
 						>
-							<X size={14} />
+							<X size={12} />
 						</button>
 					</div>
 				{/each}
 			</div>
 		{/each}
-	{/if}
-</div>
 
-<Command.CommandDialog bind:open={dialogOpen} title="Add relation" description="Search for an issue to relate">
-	{#snippet children()}
-		<div class="flex gap-1 border-b border-[var(--app-border)] px-3 py-2">
+		{#if !showAdd}
+			<button
+				onclick={() => (showAdd = true)}
+				class="flex items-center gap-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors"
+			>
+				<Plus size={12} />
+				Add relation
+			</button>
+		{/if}
+	</div>
+{/if}
+
+{#if showAdd}
+	<div class="mt-2 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-2 animate-in slide-in-from-top-1 duration-150">
+		<div class="flex gap-1 mb-2">
 			{#each RELATION_TYPES as type}
 				<button
-					onclick={() => (selectedType = type.value)}
-					class="rounded-md px-2 py-1 text-xs transition-colors {selectedType === type.value
+					onclick={() => (selectedType = type)}
+					class="rounded px-2 py-0.5 text-[11px] transition-colors {selectedType === type
 						? 'bg-[var(--app-accent)] text-white'
 						: 'text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]'}"
 				>
-					{type.label}
+					{RELATION_LABELS[type]}
 				</button>
 			{/each}
 		</div>
-		<Command.CommandInput
-			placeholder="Search issues by identifier or title..."
+		<input
+			type="text"
+			placeholder="Search issues..."
 			value={searchQuery}
 			oninput={(e) => handleSearch((e.target as HTMLInputElement).value)}
+			class="w-full rounded border border-[var(--app-border)] bg-[var(--color-bg)] px-2 py-1 text-xs text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)] transition-colors"
 		/>
-		<Command.CommandList>
-			{#if searching}
-				<Command.CommandLoading>Searching...</Command.CommandLoading>
-			{/if}
-			<Command.CommandEmpty>No issues found.</Command.CommandEmpty>
-			<Command.CommandGroup>
-				{#each searchResults as issue}
-					<Command.CommandItem
-						value={issue.identifier}
-						onSelect={() => handleAddRelation(issue.identifier)}
+		{#if searchResults.length > 0}
+			<div class="mt-1 max-h-36 overflow-y-auto">
+				{#each searchResults as result}
+					<button
+						onclick={() => handleAddRelation(result.identifier)}
+						class="flex w-full items-center gap-2 rounded px-2 py-1 text-xs text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
 					>
-						<span class="mr-2 text-xs text-[var(--color-text-tertiary)]">{issue.identifier}</span>
-						<span class="truncate">{issue.title}</span>
-					</Command.CommandItem>
+						<IssueStatusIcon status={result.status} size={12} />
+						<span class="text-[var(--color-text-tertiary)]">{result.identifier}</span>
+						<span class="truncate">{result.title}</span>
+					</button>
 				{/each}
-			</Command.CommandGroup>
-		</Command.CommandList>
-	{/snippet}
-</Command.CommandDialog>
+			</div>
+		{/if}
+		<button
+			onclick={() => { showAdd = false; searchQuery = ''; searchResults = []; }}
+			class="mt-1 text-[11px] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
+		>
+			Cancel
+		</button>
+	</div>
+{/if}

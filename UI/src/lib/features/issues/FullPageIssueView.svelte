@@ -16,7 +16,7 @@
 	import { toast } from 'svelte-sonner';
 	import * as Popover from '$lib/components/ui/popover';
 	import { Checkbox } from '$lib/components/ui/checkbox';
-	import { ChevronUp, ChevronDown, User } from 'lucide-svelte';
+	import { ChevronUp, ChevronDown, User, Plus } from 'lucide-svelte';
 	import { listCycles } from '$lib/api/cycles';
 	import type { Cycle } from '$lib/types/cycle';
 	import IssueRelations from './IssueRelations.svelte';
@@ -26,11 +26,13 @@
 	let {
 		issue,
 		slug,
-		onnavigate
+		onnavigate,
+		onupdated
 	}: {
 		issue: Issue;
 		slug: string;
 		onnavigate?: (direction: 'prev' | 'next') => void;
+		onupdated?: (issue: Issue) => void;
 	} = $props();
 
 	let comments = $state<Comment[]>([]);
@@ -38,7 +40,6 @@
 	let members = $state<WorkspaceMember[]>([]);
 	let labels = $state<Label[]>([]);
 	let newComment = $state('');
-	let tab = $state<'comments' | 'activity'>('comments');
 	let editingTitle = $state(false);
 	let titleValue = $state('');
 	let statusOpen = $state(false);
@@ -48,6 +49,7 @@
 	let cycles = $state<Cycle[]>([]);
 	let cycleOpen = $state(false);
 	let estimateOpen = $state(false);
+	let loaded = $state(false);
 
 	const priorityValues: IssuePriority[] = [0, 1, 2, 3, 4];
 
@@ -58,12 +60,11 @@
 			listMembers(slug),
 			listLabels(slug)
 		]);
-		comments = c;
-		history = h;
-		members = m;
-		labels = l;
-
-		// Fetch cycles for the issue's team
+		comments = c ?? [];
+		history = h ?? [];
+		members = m ?? [];
+		labels = l ?? [];
+		loaded = true;
 		listCycles(slug, issue.team_id).then(c => cycles = c).catch(() => {});
 	});
 
@@ -75,7 +76,8 @@
 		editingTitle = false;
 		if (titleValue.trim() && titleValue !== issue.title) {
 			try {
-				await issuesState.update(slug, issue.identifier, { title: titleValue.trim() });
+				const updated = await issuesState.update(slug, issue.identifier, { title: titleValue.trim() });
+				onupdated?.(updated);
 			} catch {
 				titleValue = issue.title;
 				toast.error('Failed to update title');
@@ -93,39 +95,13 @@
 		}
 	}
 
-	async function updateStatus(status: string) {
+	async function updateField(field: string, value: any) {
 		try {
-			await issuesState.update(slug, issue.identifier, { status: status as any });
-			toast.success('Status updated');
+			await issuesState.update(slug, issue.identifier, { [field]: value });
+			const fresh = await getIssue(slug, issue.identifier);
+			onupdated?.(fresh);
 		} catch {
-			toast.error('Failed to update status');
-		}
-	}
-
-	async function updatePriority(priority: number) {
-		try {
-			await issuesState.update(slug, issue.identifier, { priority: priority as any });
-			toast.success('Priority updated');
-		} catch {
-			toast.error('Failed to update priority');
-		}
-	}
-
-	async function updateAssignee(assigneeId: string | null) {
-		try {
-			await issuesState.update(slug, issue.identifier, { assignee_id: assigneeId ?? undefined });
-			toast.success('Assignee updated');
-		} catch {
-			toast.error('Failed to update assignee');
-		}
-	}
-
-	async function updateDueDate(date: string | null) {
-		try {
-			await issuesState.update(slug, issue.identifier, { due_date: date ?? undefined });
-			toast.success('Due date updated');
-		} catch {
-			toast.error('Failed to update due date');
+			toast.error(`Failed to update ${field}`);
 		}
 	}
 
@@ -152,50 +128,61 @@
 			const comment = await createComment(slug, issue.identifier, newComment);
 			comments = [...comments, comment];
 			newComment = '';
-			toast.success('Comment added');
 		} catch (err: any) {
 			toast.error(err?.error?.message || 'Failed to add comment');
 		}
 	}
+
+	async function refreshLabels() {
+		try {
+			const fresh = await getIssue(slug, issue.identifier);
+			const idx = issuesState.issues.findIndex(i => i.identifier === issue.identifier);
+			if (idx >= 0) issuesState.issues[idx] = fresh;
+			if (issuesState.selectedIssue?.identifier === issue.identifier) {
+				issuesState.selectedIssue = fresh;
+			}
+			onupdated?.(fresh);
+		} catch { /* ignore */ }
+	}
 </script>
 
-<div class="flex h-full flex-col">
+<div class="flex h-full flex-col animate-in fade-in duration-150">
 	<!-- Top bar -->
-	<div class="flex h-[49px] items-center justify-between border-b border-[var(--app-border)] px-6">
-		<div class="flex items-center gap-1.5 text-sm">
+	<div class="flex h-11 items-center justify-between border-b border-[var(--app-border)] px-4">
+		<div class="flex items-center gap-1.5 text-xs">
 			<a
 				href="/{slug}/teams/{issue.team_id}"
-				class="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
+				class="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
 			>
 				{issue.identifier.split('-')[0]}
 			</a>
-			<span class="text-[var(--color-text-tertiary)]">/</span>
-			<span class="text-[var(--color-text-primary)] font-medium">{issue.identifier}</span>
+			<span class="text-[var(--color-text-tertiary)]">&rsaquo;</span>
+			<span class="font-medium text-[var(--color-text-primary)]">{issue.identifier}</span>
 		</div>
-		<div class="flex items-center gap-1">
-			{#if onnavigate}
+		{#if onnavigate}
+			<div class="flex items-center gap-0.5">
 				<button
 					onclick={() => onnavigate?.('prev')}
-					class="rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
-					title="Previous issue"
+					class="rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
+					title="Previous issue (K)"
 				>
-					<ChevronUp size={18} />
+					<ChevronUp size={16} />
 				</button>
 				<button
 					onclick={() => onnavigate?.('next')}
-					class="rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
-					title="Next issue"
+					class="rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
+					title="Next issue (J)"
 				>
-					<ChevronDown size={18} />
+					<ChevronDown size={16} />
 				</button>
-			{/if}
-		</div>
+			</div>
+		{/if}
 	</div>
 
 	<!-- Main content -->
 	<div class="flex flex-1 overflow-hidden">
-		<!-- Left column -->
-		<div class="flex-1 overflow-y-auto p-6">
+		<!-- Left column — main content -->
+		<div class="flex-1 overflow-y-auto px-10 py-6">
 			<!-- Title -->
 			<!-- svelte-ignore a11y_autofocus -->
 			{#if editingTitle}
@@ -205,19 +192,19 @@
 					onblur={saveTitle}
 					onkeydown={(e) => { if (e.key === 'Enter') saveTitle(); if (e.key === 'Escape') { titleValue = issue.title; editingTitle = false; } }}
 					autofocus
-					class="w-full bg-transparent text-xl font-semibold text-[var(--color-text-primary)] outline-none"
+					class="w-full bg-transparent text-lg font-semibold text-[var(--color-text-primary)] outline-none"
 				/>
 			{:else}
 				<button
 					onclick={() => (editingTitle = true)}
-					class="w-full text-left text-xl font-semibold text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded px-1 -mx-1"
+					class="w-full text-left text-lg font-semibold text-[var(--color-text-primary)] hover:text-[var(--color-text-primary)] transition-colors"
 				>
 					{issue.title}
 				</button>
 			{/if}
 
 			<!-- Description -->
-			<div class="mt-4">
+			<div class="mt-3">
 				<RichEditor
 					content={issue.description ?? ''}
 					placeholder="Add description..."
@@ -226,102 +213,107 @@
 				/>
 			</div>
 
+			<!-- Sub-issues (inline like Linear) -->
+			{#if (issue.sub_issue_count ?? 0) > 0}
+				<div class="mt-5">
+					<SubIssuesList
+						{slug}
+						identifier={issue.identifier}
+						subIssueCount={issue.sub_issue_count ?? 0}
+						subIssueDone={issue.sub_issue_done ?? 0}
+						onclickissue={(sub) => goto(`/${slug}/issue/${sub.identifier}`)}
+					/>
+				</div>
+			{/if}
+
 			<!-- Relations -->
-			<div class="mt-6">
+			<div class="mt-5">
 				<IssueRelations {slug} identifier={issue.identifier} />
 			</div>
 
-			<!-- Sub-issues -->
-			<div class="mt-6">
-				<SubIssuesList
-					{slug}
-					identifier={issue.identifier}
-					subIssueCount={issue.sub_issue_count ?? 0}
-					subIssueDone={issue.sub_issue_done ?? 0}
-					onclickissue={(sub) => goto(`/${slug}/issue/${sub.identifier}`)}
-				/>
-			</div>
+			<!-- Activity section (Linear-style) -->
+			<div class="mt-8">
+				<h3 class="text-sm font-medium text-[var(--color-text-primary)] mb-4">Activity</h3>
 
-			<!-- Tabs -->
-			<div class="mt-8 flex gap-4 border-b border-[var(--app-border)]">
-				<button
-					onclick={() => (tab = 'comments')}
-					class="pb-2 text-sm {tab === 'comments'
-						? 'border-b-2 border-[var(--app-accent)] text-[var(--color-text-primary)]'
-						: 'text-[var(--color-text-tertiary)]'}"
-				>
-					Comments ({comments.length})
-				</button>
-				<button
-					onclick={() => (tab = 'activity')}
-					class="pb-2 text-sm {tab === 'activity'
-						? 'border-b-2 border-[var(--app-accent)] text-[var(--color-text-primary)]'
-						: 'text-[var(--color-text-tertiary)]'}"
-				>
-					Activity ({history.length})
-				</button>
-			</div>
+				<div class="space-y-4">
+					<!-- Activity entries (history + comments merged, sorted by time) -->
+					{#if loaded}
+						{@const allActivity = [
+							...history.map(h => ({ type: 'history' as const, data: h, time: h.created_at })),
+							...comments.map(c => ({ type: 'comment' as const, data: c, time: c.created_at }))
+						].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())}
 
-			{#if tab === 'comments'}
-				<div class="mt-4 space-y-4">
-					{#each comments as comment}
-						<div class="text-sm">
-							<div class="flex items-center gap-2">
-								<span class="font-medium text-[var(--color-text-primary)]">{comment.user?.name ?? 'User'}</span>
-								<span class="text-[var(--color-text-tertiary)]">{formatRelativeTime(comment.created_at)}</span>
+						{#each allActivity as item}
+							<div class="flex gap-3 animate-in fade-in duration-200">
+								<!-- Avatar -->
+								<div class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--color-bg-tertiary)] text-[9px] font-medium text-[var(--color-text-secondary)] mt-0.5">
+									{#if item.type === 'comment'}
+										{(item.data.user?.name ?? 'U').charAt(0).toUpperCase()}
+									{:else}
+										&#8226;
+									{/if}
+								</div>
+								<div class="flex-1 min-w-0">
+									{#if item.type === 'comment'}
+										<div class="flex items-center gap-2 mb-1">
+											<span class="text-xs font-medium text-[var(--color-text-primary)]">{item.data.user?.name ?? 'User'}</span>
+											<span class="text-[11px] text-[var(--color-text-tertiary)]">{formatRelativeTime(item.data.created_at)}</span>
+										</div>
+										<div class="prose prose-invert prose-sm max-w-none text-[13px] text-[var(--color-text-secondary)] rounded-md bg-[var(--color-bg-secondary)] px-3 py-2">
+											{@html item.data.body}
+										</div>
+									{:else}
+										<div class="flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] py-1">
+											<span>changed <strong class="text-[var(--color-text-secondary)]">{item.data.field}</strong></span>
+											{#if item.data.old_value}
+												<span>from</span>
+												<code class="rounded bg-[var(--color-bg-tertiary)] px-1 py-0.5 text-[11px]">{formatHistoryValue(item.data.field, item.data.old_value)}</code>
+											{/if}
+											<span>to</span>
+											<code class="rounded bg-[var(--color-bg-tertiary)] px-1 py-0.5 text-[11px]">{formatHistoryValue(item.data.field, item.data.new_value)}</code>
+											<span class="ml-1">{formatRelativeTime(item.data.created_at)}</span>
+										</div>
+									{/if}
+								</div>
 							</div>
-							<div class="mt-1 prose prose-invert prose-sm max-w-none text-[var(--color-text-secondary)]">
-								{@html comment.body}
-							</div>
-						</div>
-					{/each}
+						{/each}
 
-					<form onsubmit={handleAddComment} class="flex gap-2">
-						<input
-							type="text"
-							bind:value={newComment}
-							placeholder="Write a comment..."
-							class="flex-1 rounded border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
-						/>
-						<button
-							type="submit"
-							disabled={!newComment.trim()}
-							class="rounded bg-[var(--app-accent)] px-3 py-2 text-sm text-white hover:bg-[var(--app-accent-hover)] disabled:opacity-50"
-						>
-							Send
-						</button>
-					</form>
-				</div>
-			{:else}
-				<div class="mt-4 space-y-3">
-					{#each history as entry}
-						<div class="flex items-start gap-2 text-sm">
-							<span class="text-[var(--color-text-tertiary)]">{formatRelativeTime(entry.created_at)}</span>
-							<span class="text-[var(--color-text-secondary)]">
-								changed <strong>{entry.field}</strong>
-								{#if entry.old_value}from <code class="rounded bg-[var(--color-bg-tertiary)] px-1">{formatHistoryValue(entry.field, entry.old_value)}</code>{/if}
-								to <code class="rounded bg-[var(--color-bg-tertiary)] px-1">{formatHistoryValue(entry.field, entry.new_value)}</code>
-							</span>
-						</div>
-					{/each}
-					{#if history.length === 0}
-						<p class="text-sm text-[var(--color-text-tertiary)]">No activity yet</p>
+						{#if allActivity.length === 0}
+							<p class="text-xs text-[var(--color-text-tertiary)]">No activity yet</p>
+						{/if}
 					{/if}
 				</div>
-			{/if}
+
+				<!-- Comment input -->
+				<form onsubmit={handleAddComment} class="mt-4 flex gap-2">
+					<input
+						type="text"
+						bind:value={newComment}
+						placeholder="Leave a comment..."
+						class="flex-1 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)] transition-colors"
+					/>
+					<button
+						type="submit"
+						disabled={!newComment.trim()}
+						class="rounded-md bg-[var(--app-accent)] px-3 py-2 text-sm text-white hover:bg-[var(--app-accent-hover)] disabled:opacity-40 transition-opacity"
+					>
+						Comment
+					</button>
+				</form>
+			</div>
 		</div>
 
-		<!-- Right column (properties sidebar) -->
-		<div class="w-72 shrink-0 overflow-y-auto border-l border-[var(--app-border)] p-4">
-			<h3 class="mb-4 text-xs font-medium uppercase text-[var(--color-text-tertiary)]">Properties</h3>
+		<!-- Right column — properties (Linear-style) -->
+		<div class="w-64 shrink-0 overflow-y-auto border-l border-[var(--app-border)] px-4 py-5">
+			<h3 class="mb-3 text-[11px] font-medium uppercase tracking-wider text-[var(--color-text-tertiary)]">Properties</h3>
 
-			<div class="space-y-3">
+			<div class="space-y-2.5">
 				<!-- Status -->
-				<div class="flex items-center justify-between">
+				<div class="flex items-center justify-between py-0.5">
 					<span class="text-xs text-[var(--color-text-tertiary)]">Status</span>
 					<Popover.Root bind:open={statusOpen}>
 						<Popover.Trigger>
-							<button class="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
+							<button class="flex items-center gap-1.5 rounded px-1.5 py-0.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] transition-colors">
 								<IssueStatusIcon status={issue.status} size={12} />
 								{STATUS_LABELS[issue.status]}
 							</button>
@@ -329,10 +321,10 @@
 						<Popover.Content class="w-40 p-1" align="end">
 							{#each STATUS_ORDER as value}
 								<button
-									onclick={() => { updateStatus(value); statusOpen = false; }}
-									class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {issue.status === value ? 'bg-[var(--color-bg-hover)]' : ''}"
+									onclick={() => { updateField('status', value); statusOpen = false; }}
+									class="flex w-full items-center gap-2 rounded px-2 py-1 text-xs text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors {issue.status === value ? 'bg-[var(--color-bg-hover)]' : ''}"
 								>
-									<IssueStatusIcon status={value} size={14} />
+									<IssueStatusIcon status={value} size={13} />
 									{STATUS_LABELS[value]}
 								</button>
 							{/each}
@@ -341,11 +333,11 @@
 				</div>
 
 				<!-- Priority -->
-				<div class="flex items-center justify-between">
+				<div class="flex items-center justify-between py-0.5">
 					<span class="text-xs text-[var(--color-text-tertiary)]">Priority</span>
 					<Popover.Root bind:open={priorityOpen}>
 						<Popover.Trigger>
-							<button class="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
+							<button class="flex items-center gap-1.5 rounded px-1.5 py-0.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] transition-colors">
 								<IssuePriorityIcon priority={issue.priority} size={12} />
 								{PRIORITY_LABELS[issue.priority]}
 							</button>
@@ -353,10 +345,10 @@
 						<Popover.Content class="w-40 p-1" align="end">
 							{#each priorityValues as value}
 								<button
-									onclick={() => { updatePriority(value); priorityOpen = false; }}
-									class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {issue.priority === value ? 'bg-[var(--color-bg-hover)]' : ''}"
+									onclick={() => { updateField('priority', value); priorityOpen = false; }}
+									class="flex w-full items-center gap-2 rounded px-2 py-1 text-xs text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors {issue.priority === value ? 'bg-[var(--color-bg-hover)]' : ''}"
 								>
-									<IssuePriorityIcon priority={value} size={14} />
+									<IssuePriorityIcon priority={value} size={13} />
 									{PRIORITY_LABELS[value]}
 								</button>
 							{/each}
@@ -365,32 +357,37 @@
 				</div>
 
 				<!-- Assignee -->
-				<div class="flex items-center justify-between">
+				<div class="flex items-center justify-between py-0.5">
 					<span class="text-xs text-[var(--color-text-tertiary)]">Assignee</span>
 					<Popover.Root bind:open={assigneeOpen}>
 						<Popover.Trigger>
-							<button class="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
-								<User size={12} />
+							<button class="flex items-center gap-1.5 rounded px-1.5 py-0.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] transition-colors">
 								{#if issue.assignee}
+									<div class="flex h-4 w-4 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] text-white">
+										{(issue.assignee.name ?? 'U').charAt(0).toUpperCase()}
+									</div>
 									{issue.assignee.name}
 								{:else}
-									Unassigned
+									<User size={12} class="text-[var(--color-text-tertiary)]" />
+									No assignee
 								{/if}
 							</button>
 						</Popover.Trigger>
 						<Popover.Content class="w-48 p-1" align="end">
 							<button
-								onclick={() => { updateAssignee(null); assigneeOpen = false; }}
-								class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
+								onclick={() => { updateField('assignee_id', undefined); assigneeOpen = false; }}
+								class="flex w-full items-center gap-2 rounded px-2 py-1 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
 							>
-								Unassigned
+								No assignee
 							</button>
 							{#each members as member}
 								<button
-									onclick={() => { updateAssignee(member.user_id); assigneeOpen = false; }}
-									class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {issue.assignee_id === member.user_id ? 'bg-[var(--color-bg-hover)]' : ''}"
+									onclick={() => { updateField('assignee_id', member.user_id); assigneeOpen = false; }}
+									class="flex w-full items-center gap-2 rounded px-2 py-1 text-xs text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {issue.assignee_id === member.user_id ? 'bg-[var(--color-bg-hover)]' : ''}"
 								>
-									<User size={14} class="text-[var(--color-text-tertiary)]" />
+									<div class="flex h-4 w-4 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] text-white">
+										{(member.name || member.email).charAt(0).toUpperCase()}
+									</div>
 									{member.name || member.email}
 								</button>
 							{/each}
@@ -399,18 +396,15 @@
 				</div>
 
 				<!-- Labels -->
-				<div class="flex items-center justify-between">
-					<span class="text-xs text-[var(--color-text-tertiary)]">Labels</span>
-					<Popover.Root bind:open={labelsOpen}>
-						<Popover.Trigger>
-							<button class="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
-								{#if issue.labels && issue.labels.length > 0}
-									{issue.labels.length} label{issue.labels.length > 1 ? 's' : ''}
-								{:else}
-									None
-								{/if}
-							</button>
-						</Popover.Trigger>
+				<div class="py-0.5">
+					<div class="flex items-center justify-between">
+						<span class="text-xs text-[var(--color-text-tertiary)]">Labels</span>
+						<Popover.Root bind:open={labelsOpen}>
+							<Popover.Trigger>
+								<button class="rounded px-1.5 py-0.5 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] transition-colors">
+									<Plus size={12} />
+								</button>
+							</Popover.Trigger>
 						<Popover.Content class="w-48 p-1" align="end">
 							{#each labels as label}
 								<button
@@ -421,16 +415,10 @@
 											: [...currentIds, label.id];
 										try {
 											await issuesState.update(slug, issue.identifier, { label_ids: newIds });
-											// Re-fetch to get full label objects
-											const fresh = await getIssue(slug, issue.identifier);
-											const idx = issuesState.issues.findIndex(i => i.identifier === issue.identifier);
-											if (idx >= 0) issuesState.issues[idx] = fresh;
-											if (issuesState.selectedIssue?.identifier === issue.identifier) {
-												issuesState.selectedIssue = fresh;
-											}
+											await refreshLabels();
 										} catch { toast.error('Failed to update labels'); }
 									}}
-									class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+									class="flex w-full items-center gap-2 rounded px-2 py-1 text-xs text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
 								>
 									<Checkbox checked={(issue.labels ?? []).some(l => l.id === label.id)} />
 									<div class="h-2.5 w-2.5 rounded-full shrink-0" style="background-color: {label.color}"></div>
@@ -442,95 +430,92 @@
 							{/if}
 						</Popover.Content>
 					</Popover.Root>
+					</div>
+					{#if issue.labels && issue.labels.length > 0}
+						<div class="flex flex-wrap gap-1 mt-1">
+							{#each issue.labels as lbl}
+								<span class="flex items-center gap-1.5 rounded-full border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-2 py-0.5 text-[11px] text-[var(--color-text-secondary)]">
+									<span class="h-2 w-2 rounded-full shrink-0" style="background-color: {lbl.color}"></span>
+									{lbl.name}
+								</span>
+							{/each}
+						</div>
+					{/if}
 				</div>
 
 				<!-- Due date -->
-				<div class="flex items-center justify-between">
+				<div class="flex items-center justify-between py-0.5">
 					<span class="text-xs text-[var(--color-text-tertiary)]">Due date</span>
-					<DatePickerPopover
-						value={issue.due_date}
-						onchange={updateDueDate}
-						placeholder="Set date"
-					/>
+					{#if issue.due_date}
+						{@const due = new Date(issue.due_date)}
+						{@const now = new Date()}
+						{@const diffDays = Math.ceil((due.getTime() - now.getTime()) / 86400000)}
+						{@const dateLabel = diffDays === 0 ? 'Today' : diffDays === 1 ? 'Tomorrow' : diffDays === -1 ? 'Yesterday' : due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+						<DatePickerPopover
+							value={issue.due_date}
+							onchange={(d) => updateField('due_date', d ?? undefined)}
+							placeholder="None"
+						/>
+					{:else}
+						<DatePickerPopover
+							value={issue.due_date}
+							onchange={(d) => updateField('due_date', d ?? undefined)}
+							placeholder="None"
+						/>
+					{/if}
 				</div>
 
 				<!-- Cycle -->
-				<div class="flex items-center justify-between">
+				<div class="flex items-center justify-between py-0.5">
 					<span class="text-xs text-[var(--color-text-tertiary)]">Cycle</span>
 					<Popover.Root bind:open={cycleOpen}>
 						<Popover.Trigger>
-							<button class="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
-								{#if issue.cycle_id}
-									{cycles.find(c => c.id === issue.cycle_id)?.name ?? 'Cycle'}
-								{:else}
-									No cycle
-								{/if}
+							<button class="flex items-center gap-1.5 rounded px-1.5 py-0.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] transition-colors">
+								{issue.cycle_id ? (cycles.find(c => c.id === issue.cycle_id)?.name ?? 'Cycle') : 'None'}
 							</button>
 						</Popover.Trigger>
 						<Popover.Content class="w-48 p-1" align="end">
 							<button
-								onclick={async () => {
-									try {
-										await issuesState.update(slug, issue.identifier, { cycle_id: undefined });
-										cycleOpen = false;
-									} catch { toast.error('Failed to update cycle'); }
-								}}
-								class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
+								onclick={() => { updateField('cycle_id', undefined); cycleOpen = false; }}
+								class="flex w-full items-center gap-2 rounded px-2 py-1 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
 							>
 								No cycle
 							</button>
 							{#each cycles as cycle}
 								<button
-									onclick={async () => {
-										try {
-											await issuesState.update(slug, issue.identifier, { cycle_id: cycle.id });
-											cycleOpen = false;
-										} catch { toast.error('Failed to update cycle'); }
-									}}
-									class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {issue.cycle_id === cycle.id ? 'bg-[var(--color-bg-hover)]' : ''}"
+									onclick={() => { updateField('cycle_id', cycle.id); cycleOpen = false; }}
+									class="flex w-full items-center gap-2 rounded px-2 py-1 text-xs text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {issue.cycle_id === cycle.id ? 'bg-[var(--color-bg-hover)]' : ''}"
 								>
 									{cycle.name}
 								</button>
 							{/each}
 							{#if cycles.length === 0}
-								<p class="px-2 py-3 text-center text-xs text-[var(--color-text-tertiary)]">No cycles</p>
+								<p class="px-2 py-2 text-center text-[11px] text-[var(--color-text-tertiary)]">No cycles</p>
 							{/if}
 						</Popover.Content>
 					</Popover.Root>
 				</div>
 
 				<!-- Estimate -->
-				<div class="flex items-center justify-between">
+				<div class="flex items-center justify-between py-0.5">
 					<span class="text-xs text-[var(--color-text-tertiary)]">Estimate</span>
 					<Popover.Root bind:open={estimateOpen}>
 						<Popover.Trigger>
-							<button class="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
-								{issue.estimate !== null && issue.estimate !== undefined ? issue.estimate : 'No estimate'}
+							<button class="rounded px-1.5 py-0.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] transition-colors">
+								{issue.estimate !== null && issue.estimate !== undefined ? issue.estimate : 'None'}
 							</button>
 						</Popover.Trigger>
-						<Popover.Content class="w-36 p-1" align="end">
+						<Popover.Content class="w-28 p-1" align="end">
 							<button
-								onclick={async () => {
-									try {
-										await issuesState.update(slug, issue.identifier, { estimate: undefined });
-										estimateOpen = false;
-										toast.success('Estimate cleared');
-									} catch { toast.error('Failed to update estimate'); }
-								}}
-								class="flex w-full items-center rounded-md px-2 py-1.5 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
+								onclick={() => { updateField('estimate', undefined); estimateOpen = false; }}
+								class="flex w-full items-center rounded px-2 py-1 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
 							>
 								Clear
 							</button>
 							{#each [0, 1, 2, 3, 5, 8, 13, 21] as est}
 								<button
-									onclick={async () => {
-										try {
-											await issuesState.update(slug, issue.identifier, { estimate: est });
-											estimateOpen = false;
-											toast.success('Estimate updated');
-										} catch { toast.error('Failed to update estimate'); }
-									}}
-									class="flex w-full items-center rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {issue.estimate === est ? 'bg-[var(--color-bg-hover)]' : ''}"
+									onclick={() => { updateField('estimate', est); estimateOpen = false; }}
+									class="flex w-full items-center rounded px-2 py-1 text-xs text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {issue.estimate === est ? 'bg-[var(--color-bg-hover)]' : ''}"
 								>
 									{est}
 								</button>

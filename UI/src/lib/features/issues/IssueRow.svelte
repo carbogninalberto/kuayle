@@ -44,11 +44,12 @@
 
 <IssueContextMenu {issue} {slug} {members} {labels}>
 	<button
-		class="group flex w-full items-center gap-3 border-b border-[var(--app-border)] px-4 py-2.5 text-left transition-colors hover:bg-[var(--color-bg-hover)] {isSelected ? 'bg-[var(--color-bg-hover)]' : ''}"
+		class="group flex w-full items-center gap-2 border-b border-[var(--app-border)] px-3 py-1.5 text-left transition-colors duration-100 hover:bg-[var(--color-bg-hover)] {isSelected ? 'bg-[var(--color-bg-hover)]' : ''}"
 		onclick={handleClick}
 	>
+		<!-- Checkbox -->
 		<span
-			class="shrink-0 {isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}"
+			class="shrink-0 transition-opacity duration-100 {isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}"
 			onclick={handleCheckboxChange}
 			onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleCheckboxChange(e); }}
 			role="checkbox"
@@ -57,37 +58,53 @@
 		>
 			<Checkbox checked={isSelected} />
 		</span>
-		<IssuePriorityIcon priority={issue.priority} />
-		<span class="w-16 shrink-0 text-xs text-[var(--color-text-tertiary)]">{issue.identifier}</span>
-		<IssueStatusIcon status={issue.status} />
-		<span class="flex-1 truncate text-sm text-[var(--color-text-primary)]">{issue.title}</span>
+
+		<!-- Priority -->
+		<span class="shrink-0"><IssuePriorityIcon priority={issue.priority} size={14} /></span>
+
+		<!-- Identifier -->
+		<span class="w-[4.5rem] shrink-0 text-xs tabular-nums text-[var(--color-text-tertiary)]">{issue.identifier}</span>
+
+		<!-- Status -->
+		<span class="shrink-0"><IssueStatusIcon status={issue.status} size={14} /></span>
+
+		<!-- Title -->
+		<span class="flex-1 truncate text-[13px] text-[var(--color-text-primary)]">{issue.title}</span>
+
+		<!-- Labels -->
 		{#if issue.labels && issue.labels.length > 0}
-			<div class="flex gap-1 shrink-0">
-				{#each issue.labels.slice(0, 3) as label}
+			<div class="hidden gap-1 shrink-0 sm:flex">
+				{#each issue.labels.slice(0, 2) as label}
 					<span
-						class="rounded-full px-2 py-0.5 text-xs"
-						style="background-color: {label.color}20; color: {label.color}"
+						class="rounded-full border px-1.5 py-0 text-[11px] leading-5"
+						style="border-color: {label.color}40; color: {label.color}"
 					>
 						{label.name}
 					</span>
 				{/each}
+				{#if issue.labels.length > 2}
+					<span class="text-[11px] text-[var(--color-text-tertiary)]">+{issue.labels.length - 2}</span>
+				{/if}
 			</div>
 		{/if}
-		{#if issue.assignee}
-			<div class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent)] text-[9px] font-medium text-white" title={issue.assignee.name}>
-				{(issue.assignee.name ?? 'U').charAt(0).toUpperCase()}
-			</div>
-		{/if}
+
+		<!-- Due date -->
 		{#if issue.due_date}
 			{@const due = new Date(issue.due_date)}
 			{@const now = new Date()}
 			{@const diffDays = Math.ceil((due.getTime() - now.getTime()) / 86400000)}
-			<span class="shrink-0 text-xs {diffDays < 0 ? 'text-red-500' : diffDays === 0 ? 'text-orange-500' : diffDays <= 7 ? 'text-[var(--color-text-secondary)]' : 'text-[var(--color-text-tertiary)]'}">
+			<span class="hidden shrink-0 text-[11px] sm:inline {diffDays < 0 ? 'text-red-500' : diffDays === 0 ? 'text-orange-500' : diffDays <= 7 ? 'text-[var(--color-text-secondary)]' : 'text-[var(--color-text-tertiary)]'}">
 				{due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
 			</span>
 		{/if}
-		<span class="shrink-0 text-xs text-[var(--color-text-tertiary)]"
-			>{formatRelativeTime(issue.updated_at)}</span
-		>
+
+		<!-- Assignee -->
+		{#if issue.assignee}
+			<div class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent)] text-[9px] font-medium text-white" title={issue.assignee.name}>
+				{(issue.assignee.name ?? 'U').charAt(0).toUpperCase()}
+			</div>
+		{:else}
+			<div class="h-5 w-5 shrink-0"></div>
+		{/if}
 	</button>
 </IssueContextMenu>
