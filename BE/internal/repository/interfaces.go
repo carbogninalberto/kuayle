@@ -58,6 +58,9 @@ type IssueRepo interface {
 	SetLabels(ctx context.Context, issueID uuid.UUID, labelIDs []uuid.UUID) error
 	GetLabels(ctx context.Context, issueID uuid.UUID) ([]domain.Label, error)
 	GetLabelsForIssues(ctx context.Context, issueIDs []uuid.UUID) (map[uuid.UUID][]domain.Label, error)
+	SetAssignees(ctx context.Context, issueID uuid.UUID, userIDs []uuid.UUID) error
+	GetAssignees(ctx context.Context, issueID uuid.UUID) ([]uuid.UUID, error)
+	GetAssigneesForIssues(ctx context.Context, issueIDs []uuid.UUID) (map[uuid.UUID][]uuid.UUID, error)
 	ListSubIssues(ctx context.Context, parentID uuid.UUID) ([]domain.Issue, error)
 	CountSubIssues(ctx context.Context, parentID uuid.UUID) (int, int, error)
 	BulkUpdate(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID, status *string, priority *int, assigneeID *uuid.UUID) (int, error)

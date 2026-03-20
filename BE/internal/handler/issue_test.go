@@ -118,6 +118,18 @@ func (r *testIssueRepo) BulkDelete(_ context.Context, _ uuid.UUID, _ []uuid.UUID
 	return 0, nil
 }
 
+func (r *testIssueRepo) SetAssignees(_ context.Context, _ uuid.UUID, _ []uuid.UUID) error {
+	return nil
+}
+
+func (r *testIssueRepo) GetAssignees(_ context.Context, _ uuid.UUID) ([]uuid.UUID, error) {
+	return nil, nil
+}
+
+func (r *testIssueRepo) GetAssigneesForIssues(_ context.Context, _ []uuid.UUID) (map[uuid.UUID][]uuid.UUID, error) {
+	return make(map[uuid.UUID][]uuid.UUID), nil
+}
+
 func (r *testIssueRepo) BeginTx(_ context.Context) (*sqlx.Tx, error) {
 	return nil, nil
 }

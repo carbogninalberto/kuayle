@@ -42,12 +42,13 @@ func (h *IssueHandler) List(c echo.Context) error {
 
 	ctx := c.Request().Context()
 
-	// Batch load labels for all issues
+	// Batch load labels and assignees for all issues
 	issueIDs := make([]uuid.UUID, len(issues))
 	for i, issue := range issues {
 		issueIDs[i] = issue.ID
 	}
 	labelsMap, _ := h.issueSvc.GetLabelsForIssues(ctx, issueIDs)
+	assigneesMap, _ := h.issueSvc.GetAssigneesForIssues(ctx, issueIDs)
 
 	issueResponses := make([]dto.IssueResponse, len(issues))
 	for i, issue := range issues {
@@ -58,6 +59,23 @@ func (h *IssueHandler) List(c echo.Context) error {
 			resp.Labels = make([]dto.LabelResponse, len(labels))
 			for j, l := range labels {
 				resp.Labels[j] = toLabelResponse(l)
+			}
+		}
+
+		// Populate assignees from batch
+		if uids, ok := assigneesMap[issue.ID]; ok && len(uids) > 0 {
+			resp.Assignees = make([]dto.UserResponse, 0, len(uids))
+			for _, uid := range uids {
+				user, _ := h.userRepo.GetByID(ctx, uid)
+				if user != nil {
+					resp.Assignees = append(resp.Assignees, dto.UserResponse{
+						ID:          user.ID.String(),
+						Email:       user.Email,
+						Name:        user.Name,
+						DisplayName: user.DisplayName,
+						AvatarURL:   user.AvatarURL,
+					})
+				}
 			}
 		}
 
@@ -355,6 +373,24 @@ func (h *IssueHandler) enrichIssueResponse(ctx context.Context, resp *dto.IssueR
 		resp.Labels = make([]dto.LabelResponse, len(labels))
 		for i, l := range labels {
 			resp.Labels[i] = toLabelResponse(l)
+		}
+	}
+
+	// Populate assignees
+	assigneeIDs, _ := h.issueSvc.GetAssignees(ctx, issue.ID)
+	if len(assigneeIDs) > 0 {
+		resp.Assignees = make([]dto.UserResponse, 0, len(assigneeIDs))
+		for _, uid := range assigneeIDs {
+			user, _ := h.userRepo.GetByID(ctx, uid)
+			if user != nil {
+				resp.Assignees = append(resp.Assignees, dto.UserResponse{
+					ID:          user.ID.String(),
+					Email:       user.Email,
+					Name:        user.Name,
+					DisplayName: user.DisplayName,
+					AvatarURL:   user.AvatarURL,
+				})
+			}
 		}
 	}
 

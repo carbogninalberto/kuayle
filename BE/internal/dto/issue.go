@@ -10,6 +10,7 @@ type CreateIssueRequest struct {
 	TeamID      string  `json:"team_id" validate:"required,uuid"`
 	ProjectID   *string `json:"project_id" validate:"omitempty,uuid"`
 	AssigneeID  *string `json:"assignee_id" validate:"omitempty,uuid"`
+	AssigneeIDs []string `json:"assignee_ids" validate:"omitempty,dive,uuid"`
 	LabelIDs    []string `json:"label_ids" validate:"omitempty,dive,uuid"`
 	ParentID    *string `json:"parent_id" validate:"omitempty,uuid"`
 	Estimate    *int    `json:"estimate" validate:"omitempty,min=0"`
@@ -23,6 +24,7 @@ type UpdateIssueRequest struct {
 	Status      *string `json:"status" validate:"omitempty,oneof=backlog todo in_progress in_review done cancelled"`
 	Priority    *int    `json:"priority" validate:"omitempty,min=0,max=4"`
 	AssigneeID  *string `json:"assignee_id" validate:"omitempty,uuid"`
+	AssigneeIDs []string `json:"assignee_ids" validate:"omitempty,dive,uuid"`
 	ProjectID   *string `json:"project_id" validate:"omitempty,uuid"`
 	CycleID     *string `json:"cycle_id" validate:"omitempty,uuid"`
 	LabelIDs    []string `json:"label_ids" validate:"omitempty,dive,uuid"`
@@ -51,6 +53,7 @@ type IssueResponse struct {
 	Labels         []LabelResponse `json:"labels,omitempty"`
 	Creator        *UserResponse  `json:"creator,omitempty"`
 	Assignee       *UserResponse  `json:"assignee,omitempty"`
+	Assignees      []UserResponse `json:"assignees,omitempty"`
 	SubIssueCount  *int           `json:"sub_issue_count,omitempty"`
 	SubIssueDone   *int           `json:"sub_issue_done,omitempty"`
 	CreatedAt      time.Time      `json:"created_at"`

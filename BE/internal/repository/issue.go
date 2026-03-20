@@ -355,6 +355,70 @@ func (r *IssueRepository) BulkDelete(ctx context.Context, workspaceID uuid.UUID,
 	return int(n), nil
 }
 
+func (r *IssueRepository) SetAssignees(ctx context.Context, issueID uuid.UUID, userIDs []uuid.UUID) error {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM issue_assignees WHERE issue_id = $1`, issueID); err != nil {
+		return err
+	}
+
+	for _, uid := range userIDs {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO issue_assignees (issue_id, user_id) VALUES ($1, $2)`, issueID, uid); err != nil {
+			return err
+		}
+	}
+
+	// Keep assignee_id in sync: set to first assignee or NULL
+	if len(userIDs) > 0 {
+		_, err = tx.ExecContext(ctx, `UPDATE issues SET assignee_id = $1, updated_at = NOW() WHERE id = $2`, userIDs[0], issueID)
+	} else {
+		_, err = tx.ExecContext(ctx, `UPDATE issues SET assignee_id = NULL, updated_at = NOW() WHERE id = $1`, issueID)
+	}
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+func (r *IssueRepository) GetAssignees(ctx context.Context, issueID uuid.UUID) ([]uuid.UUID, error) {
+	var ids []uuid.UUID
+	err := r.db.SelectContext(ctx, &ids, `SELECT user_id FROM issue_assignees WHERE issue_id = $1 ORDER BY created_at`, issueID)
+	return ids, err
+}
+
+func (r *IssueRepository) GetAssigneesForIssues(ctx context.Context, issueIDs []uuid.UUID) (map[uuid.UUID][]uuid.UUID, error) {
+	if len(issueIDs) == 0 {
+		return make(map[uuid.UUID][]uuid.UUID), nil
+	}
+
+	type row struct {
+		IssueID uuid.UUID `db:"issue_id"`
+		UserID  uuid.UUID `db:"user_id"`
+	}
+	var rows []row
+
+	query, args, err := sqlx.In(`SELECT issue_id, user_id FROM issue_assignees WHERE issue_id IN (?) ORDER BY created_at`, issueIDs)
+	if err != nil {
+		return nil, err
+	}
+	query = r.db.Rebind(query)
+
+	if err := r.db.SelectContext(ctx, &rows, query, args...); err != nil {
+		return nil, err
+	}
+
+	result := make(map[uuid.UUID][]uuid.UUID, len(issueIDs))
+	for _, r := range rows {
+		result[r.IssueID] = append(result[r.IssueID], r.UserID)
+	}
+	return result, nil
+}
+
 func (r *IssueRepository) BeginTx(ctx context.Context) (*sqlx.Tx, error) {
 	return r.db.BeginTxx(ctx, nil)
 }

@@ -23,6 +23,7 @@ export interface Issue {
 	labels?: Label[];
 	creator?: User;
 	assignee?: User;
+	assignees?: User[];
 	sub_issue_count?: number;
 	sub_issue_done?: number;
 	created_at: string;
@@ -37,6 +38,7 @@ export interface CreateIssueRequest {
 	team_id: string;
 	project_id?: string;
 	assignee_id?: string;
+	assignee_ids?: string[];
 	label_ids?: string[];
 	parent_id?: string;
 	estimate?: number;
@@ -50,6 +52,7 @@ export interface UpdateIssueRequest {
 	status?: IssueStatus;
 	priority?: IssuePriority;
 	assignee_id?: string;
+	assignee_ids?: string[];
 	project_id?: string;
 	cycle_id?: string;
 	label_ids?: string[];

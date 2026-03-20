@@ -116,6 +116,22 @@ func (s *IssueService) Create(ctx context.Context, workspaceID, creatorID uuid.U
 		}
 	}
 
+	// Set assignees (multi-assignee)
+	if len(req.AssigneeIDs) > 0 {
+		uids := make([]uuid.UUID, len(req.AssigneeIDs))
+		for i, aid := range req.AssigneeIDs {
+			uids[i], _ = uuid.Parse(aid)
+		}
+		if err := s.issueRepo.SetAssignees(ctx, issue.ID, uids); err != nil {
+			log.WithError(err).Warn("failed to set assignees")
+		}
+	} else if issue.AssigneeID != nil {
+		// Single assignee_id was provided — sync to junction table
+		if err := s.issueRepo.SetAssignees(ctx, issue.ID, []uuid.UUID{*issue.AssigneeID}); err != nil {
+			log.WithError(err).Warn("failed to set assignees")
+		}
+	}
+
 	// Publish real-time event
 	s.hub.Broadcast(workspaceID, realtime.Event{
 		Type:    "issue.created",
@@ -216,6 +232,17 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 		}
 	}
 
+	// Update assignees (multi-assignee)
+	if req.AssigneeIDs != nil {
+		uids := make([]uuid.UUID, len(req.AssigneeIDs))
+		for i, aid := range req.AssigneeIDs {
+			uids[i], _ = uuid.Parse(aid)
+		}
+		if err := s.issueRepo.SetAssignees(ctx, issue.ID, uids); err != nil {
+			log.WithError(err).Warn("failed to set assignees")
+		}
+	}
+
 	s.hub.Broadcast(workspaceID, realtime.Event{
 		Type:    "issue.updated",
 		Payload: issue,
@@ -277,6 +304,14 @@ func (s *IssueService) GetLabels(ctx context.Context, issueID uuid.UUID) ([]doma
 
 func (s *IssueService) GetLabelsForIssues(ctx context.Context, issueIDs []uuid.UUID) (map[uuid.UUID][]domain.Label, error) {
 	return s.issueRepo.GetLabelsForIssues(ctx, issueIDs)
+}
+
+func (s *IssueService) GetAssignees(ctx context.Context, issueID uuid.UUID) ([]uuid.UUID, error) {
+	return s.issueRepo.GetAssignees(ctx, issueID)
+}
+
+func (s *IssueService) GetAssigneesForIssues(ctx context.Context, issueIDs []uuid.UUID) (map[uuid.UUID][]uuid.UUID, error) {
+	return s.issueRepo.GetAssigneesForIssues(ctx, issueIDs)
 }
 
 func (s *IssueService) GetHistory(ctx context.Context, issueID uuid.UUID) ([]domain.IssueHistory, error) {

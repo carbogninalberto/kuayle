@@ -95,6 +95,21 @@ func (m *mockIssueRepo) BulkDelete(ctx context.Context, workspaceID uuid.UUID, i
 	return args.Int(0), args.Error(1)
 }
 
+func (m *mockIssueRepo) SetAssignees(ctx context.Context, issueID uuid.UUID, userIDs []uuid.UUID) error {
+	args := m.Called(ctx, issueID, userIDs)
+	return args.Error(0)
+}
+
+func (m *mockIssueRepo) GetAssignees(ctx context.Context, issueID uuid.UUID) ([]uuid.UUID, error) {
+	args := m.Called(ctx, issueID)
+	return args.Get(0).([]uuid.UUID), args.Error(1)
+}
+
+func (m *mockIssueRepo) GetAssigneesForIssues(ctx context.Context, issueIDs []uuid.UUID) (map[uuid.UUID][]uuid.UUID, error) {
+	args := m.Called(ctx, issueIDs)
+	return args.Get(0).(map[uuid.UUID][]uuid.UUID), args.Error(1)
+}
+
 func (m *mockIssueRepo) BeginTx(ctx context.Context) (*sqlx.Tx, error) {
 	args := m.Called(ctx)
 	if args.Get(0) == nil {

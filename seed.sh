@@ -180,6 +180,13 @@ INSERT INTO issues (id, workspace_id, team_id, project_id, number, identifier_te
     ('10000000-0000-0000-0000-000000000023', 'b0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000004', 'e0000000-0000-0000-0000-000000000004', 2, 'CORE-2', 'Payment integration', 'backlog', 3, 'a0000000-0000-0000-0000-000000000001', NULL, 2000);
 
 -- ============================================================
+-- ISSUE ASSIGNEES (sync from assignee_id)
+-- ============================================================
+INSERT INTO issue_assignees (issue_id, user_id)
+SELECT id, assignee_id FROM issues WHERE assignee_id IS NOT NULL
+ON CONFLICT DO NOTHING;
+
+-- ============================================================
 -- ISSUE LABELS
 -- ============================================================
 INSERT INTO issue_labels (issue_id, label_id) VALUES

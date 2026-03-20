@@ -51,6 +51,7 @@
 			team_id: string;
 			project_id?: string;
 			assignee_id?: string;
+			assignee_ids?: string[];
 			label_ids?: string[];
 			due_date?: string;
 			cycle_id?: string;
@@ -63,7 +64,7 @@
 	let priority = $state<IssuePriority>(0);
 	let teamId = $state('');
 	let projectId = $state<string | null>(null);
-	let assigneeId = $state<string | null>(null);
+	let assigneeIds = $state<string[]>([]);
 	let labelIds = $state<string[]>([]);
 	let dueDate = $state<string | null>(null);
 	let cycleId = $state<string | null>(null);
@@ -85,7 +86,7 @@
 			priority = defaultPriority ?? 0;
 			teamId = defaultTeamId ?? teams[0]?.id ?? '';
 			projectId = null;
-			assigneeId = defaultAssigneeId ?? null;
+			assigneeIds = defaultAssigneeId ? [defaultAssigneeId] : [];
 			labelIds = [];
 			dueDate = null;
 			cycleId = null;
@@ -94,7 +95,7 @@
 
 	let selectedTeam = $derived(teams.find((t) => t.id === teamId));
 	let selectedProject = $derived(projects.find((p) => p.id === projectId));
-	let selectedAssignee = $derived(members.find((m) => m.user_id === assigneeId));
+	let selectedAssignees = $derived(members.filter((m) => assigneeIds.includes(m.user_id)));
 	let selectedLabels = $derived(labels.filter((l) => labelIds.includes(l.id)));
 
 	const priorityValues: IssuePriority[] = [0, 1, 2, 3, 4];
@@ -108,7 +109,7 @@
 			priority,
 			team_id: teamId,
 			project_id: projectId || undefined,
-			assignee_id: assigneeId || undefined,
+			assignee_ids: assigneeIds.length > 0 ? assigneeIds : undefined,
 			label_ids: labelIds.length > 0 ? labelIds : undefined,
 			due_date: dueDate || undefined,
 			cycle_id: cycleId || undefined
@@ -265,26 +266,33 @@
 				</Popover.Content>
 			</Popover.Root>
 
-			<!-- Assignee -->
+			<!-- Assignees -->
 			<Popover.Root bind:open={assigneeOpen}>
 				<Popover.Trigger>
-					<button class="flex items-center gap-1.5 rounded-full border border-[var(--app-border)] px-2.5 py-1 text-xs {selectedAssignee ? 'text-[var(--color-text-secondary)]' : 'text-[var(--color-text-tertiary)]'} hover:bg-[var(--color-bg-hover)]">
+					<button class="flex items-center gap-1.5 rounded-full border border-[var(--app-border)] px-2.5 py-1 text-xs {selectedAssignees.length > 0 ? 'text-[var(--color-text-secondary)]' : 'text-[var(--color-text-tertiary)]'} hover:bg-[var(--color-bg-hover)]">
 						<User size={12} />
-						{selectedAssignee?.name || 'Assignee'}
+						{#if selectedAssignees.length === 0}
+							Assignee
+						{:else if selectedAssignees.length === 1}
+							{selectedAssignees[0].name || selectedAssignees[0].email}
+						{:else}
+							{selectedAssignees.length} assignees
+						{/if}
 					</button>
 				</Popover.Trigger>
 				<Popover.Content class="w-48 p-1" align="start">
-					<button
-						onclick={() => { assigneeId = null; assigneeOpen = false; }}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] {assigneeId === null ? 'bg-[var(--color-bg-hover)]' : ''}"
-					>
-						Unassigned
-					</button>
 					{#each members as member}
 						<button
-							onclick={() => { assigneeId = member.user_id; assigneeOpen = false; }}
-							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {assigneeId === member.user_id ? 'bg-[var(--color-bg-hover)]' : ''}"
+							onclick={() => {
+								if (assigneeIds.includes(member.user_id)) {
+									assigneeIds = assigneeIds.filter(id => id !== member.user_id);
+								} else {
+									assigneeIds = [...assigneeIds, member.user_id];
+								}
+							}}
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
 						>
+							<Checkbox checked={assigneeIds.includes(member.user_id)} />
 							<User size={14} class="text-[var(--color-text-tertiary)]" />
 							{member.name || member.email}
 						</button>

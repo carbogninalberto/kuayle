@@ -368,43 +368,66 @@
 					</Popover.Root>
 				</div>
 
-				<!-- Assignee -->
-				<div class="flex items-center justify-between py-0.5">
-					<span class="text-xs text-[var(--color-text-tertiary)]">Assignee</span>
-					<Popover.Root bind:open={assigneeOpen}>
-						<Popover.Trigger>
-							<button class="flex items-center gap-1.5 rounded px-1.5 py-0.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] transition-colors">
-								{#if issue.assignee}
-									<div class="flex h-4 w-4 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] text-white">
-										{(issue.assignee.name ?? 'U').charAt(0).toUpperCase()}
-									</div>
-									{issue.assignee.name}
-								{:else}
-									<User size={12} class="text-[var(--color-text-tertiary)]" />
-									No assignee
-								{/if}
-							</button>
-						</Popover.Trigger>
-						<Popover.Content class="w-48 p-1" align="end">
-							<button
-								onclick={() => { updateField('assignee_id', undefined); assigneeOpen = false; }}
-								class="flex w-full items-center gap-2 rounded px-2 py-1 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
-							>
-								No assignee
-							</button>
-							{#each members as member}
-								<button
-									onclick={() => { updateField('assignee_id', member.user_id); assigneeOpen = false; }}
-									class="flex w-full items-center gap-2 rounded px-2 py-1 text-xs text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {issue.assignee_id === member.user_id ? 'bg-[var(--color-bg-hover)]' : ''}"
-								>
-									<div class="flex h-4 w-4 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] text-white">
-										{(member.name || member.email).charAt(0).toUpperCase()}
-									</div>
-									{member.name || member.email}
+				<!-- Assignees -->
+				<div class="py-0.5">
+					<div class="flex items-center justify-between">
+						<span class="text-xs text-[var(--color-text-tertiary)]">Assignees</span>
+						<Popover.Root bind:open={assigneeOpen}>
+							<Popover.Trigger>
+								<button class="rounded px-1.5 py-0.5 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] transition-colors">
+									<Plus size={12} />
 								</button>
+							</Popover.Trigger>
+							<Popover.Content class="w-48 p-1" align="end">
+								{#each members as member}
+									{@const isAssigned = (issue.assignees ?? []).some(a => a.id === member.user_id)}
+									<button
+										onclick={async () => {
+											const currentIds = (issue.assignees ?? []).map(a => a.id);
+											const newIds = isAssigned
+												? currentIds.filter(id => id !== member.user_id)
+												: [...currentIds, member.user_id];
+											try {
+												await issuesState.update(slug, issue.identifier, { assignee_ids: newIds });
+												await refreshLabels();
+											} catch { toast.error('Failed to update assignees'); }
+										}}
+										class="flex w-full items-center gap-2 rounded px-2 py-1 text-xs text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+									>
+										<Checkbox checked={isAssigned} />
+										<div class="flex h-4 w-4 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] text-white">
+											{(member.name || member.email).charAt(0).toUpperCase()}
+										</div>
+										{member.name || member.email}
+									</button>
+								{/each}
+								{#if members.length === 0}
+									<p class="px-2 py-3 text-center text-xs text-[var(--color-text-tertiary)]">No members</p>
+								{/if}
+							</Popover.Content>
+						</Popover.Root>
+					</div>
+					{#if issue.assignees && issue.assignees.length > 0}
+						<div class="flex flex-wrap gap-1 mt-1">
+							{#each issue.assignees as a}
+								<span class="flex items-center gap-1.5 rounded-full border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-2 py-0.5 text-[11px] text-[var(--color-text-secondary)]">
+									<div class="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-[var(--app-accent)] text-[7px] text-white shrink-0">
+										{(a.name ?? 'U').charAt(0).toUpperCase()}
+									</div>
+									{a.name}
+								</span>
 							{/each}
-						</Popover.Content>
-					</Popover.Root>
+						</div>
+					{:else if issue.assignee}
+						<div class="flex items-center gap-1.5 mt-1 text-xs text-[var(--color-text-secondary)]">
+							<div class="flex h-4 w-4 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] text-white">
+								{(issue.assignee.name ?? 'U').charAt(0).toUpperCase()}
+							</div>
+							{issue.assignee.name}
+						</div>
+					{:else}
+						<p class="mt-1 text-[11px] text-[var(--color-text-tertiary)]">No assignees</p>
+					{/if}
 				</div>
 
 				<!-- Labels -->

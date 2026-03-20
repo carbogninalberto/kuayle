@@ -98,8 +98,21 @@
 			</span>
 		{/if}
 
-		<!-- Assignee -->
-		{#if issue.assignee}
+		<!-- Assignees -->
+		{#if issue.assignees && issue.assignees.length > 0}
+			<div class="flex shrink-0 -space-x-1.5">
+				{#each issue.assignees.slice(0, 3) as a}
+					<div class="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--app-accent)] text-[9px] font-medium text-white ring-1 ring-[var(--color-bg)]" title={a.name}>
+						{(a.name ?? 'U').charAt(0).toUpperCase()}
+					</div>
+				{/each}
+				{#if issue.assignees.length > 3}
+					<div class="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--color-bg-tertiary)] text-[8px] text-[var(--color-text-secondary)] ring-1 ring-[var(--color-bg)]">
+						+{issue.assignees.length - 3}
+					</div>
+				{/if}
+			</div>
+		{:else if issue.assignee}
 			<div class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent)] text-[9px] font-medium text-white" title={issue.assignee.name}>
 				{(issue.assignee.name ?? 'U').charAt(0).toUpperCase()}
 			</div>
