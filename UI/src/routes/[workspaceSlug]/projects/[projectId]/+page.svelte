@@ -4,6 +4,7 @@
 	import { goto } from '$app/navigation';
 	import { getProject, updateProject, deleteProject } from '$lib/api/projects';
 	import { issuesState } from '$lib/features/issues/issues.state.svelte';
+	import { teamStatusesState } from '$lib/features/issues/team-statuses.state.svelte';
 	import { listCycles } from '$lib/api/cycles';
 	import { listTeams } from '$lib/api/teams';
 	import type { Project, ProjectStatus } from '$lib/types/project';
@@ -70,7 +71,12 @@
 	onMount(async () => {
 		try {
 			project = await getProject(slug, projectId);
-			issuesState.load(slug, { project: projectId, per_page: '200' });
+			await issuesState.load(slug, { project: projectId, per_page: '200' });
+			// Load team statuses from the first issue's team
+			const firstTeamId = issuesState.issues[0]?.team_id;
+			if (firstTeamId) {
+				teamStatusesState.load(slug, firstTeamId);
+			}
 			// Load cycles for all teams (for gantt overlay)
 			const teams = await listTeams(slug);
 			const allCycles: Cycle[] = [];

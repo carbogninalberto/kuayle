@@ -7,6 +7,7 @@
 	import { listMembers } from '$lib/api/members';
 	import { listLabels } from '$lib/api/labels';
 	import { issuesState } from '$lib/features/issues/issues.state.svelte';
+	import { teamStatusesState } from '$lib/features/issues/team-statuses.state.svelte';
 	import type { Cycle } from '$lib/types/cycle';
 	import type { Issue } from '$lib/types/issue';
 	import type { WorkspaceMember } from '$lib/types/workspace';
@@ -49,6 +50,8 @@ import CycleProgress from '$lib/features/cycles/CycleProgress.svelte';
 			cycle = c;
 			members = m;
 			labels = l;
+			// Load team statuses for this team
+			teamStatusesState.load(slug, teamId);
 			// Load issues for this cycle using server-side cycle filter
 			issuesState.load(slug, { cycle: cycleId, per_page: '200' });
 		} catch {

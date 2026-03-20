@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { Issue, RelationType, IssuePriority } from '$lib/types/issue';
-	import { STATUS_LABELS, PRIORITY_LABELS, STATUS_ORDER } from '$lib/types/issue';
+	import { PRIORITY_LABELS } from '$lib/types/issue';
+	import { teamStatusesState } from './team-statuses.state.svelte';
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import type { Label } from '$lib/types/label';
 	import type { Project } from '$lib/types/project';
@@ -149,16 +150,21 @@
 		<span class="shrink-0 flex items-center" onclick={(e) => e.stopPropagation()}>
 			<Popover.Root bind:open={statusOpen}>
 				<Popover.Trigger class="flex items-center cursor-pointer rounded p-0.5 opacity-60 hover:opacity-100 hover:bg-[var(--color-bg-tertiary)] transition-all">
-					<IssueStatusIcon status={issue.status} size={14} />
+					<IssueStatusIcon
+						status={issue.status}
+						category={issue.status_info?.category}
+						color={issue.status_info?.color}
+						size={14}
+					/>
 				</Popover.Trigger>
-				<Popover.Content class="w-40 p-1" align="start">
-					{#each STATUS_ORDER as value}
+				<Popover.Content class="w-44 p-1" align="start">
+					{#each teamStatusesState.statusOrder as ts}
 						<button
-							onclick={() => { updateField('status', value); statusOpen = false; }}
-							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {issue.status === value ? 'bg-[var(--color-bg-hover)]' : ''}"
+							onclick={() => { updateField('status_id', ts.id); statusOpen = false; }}
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {issue.status_id === ts.id ? 'bg-[var(--color-bg-hover)]' : ''}"
 						>
-							<IssueStatusIcon status={value} size={14} />
-							{STATUS_LABELS[value]}
+							<IssueStatusIcon category={ts.category} color={ts.color} size={14} />
+							{ts.name}
 						</button>
 					{/each}
 				</Popover.Content>

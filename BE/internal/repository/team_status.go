@@ -45,6 +45,20 @@ func (r *TeamStatusRepository) GetByTeamAndSlug(ctx context.Context, teamID uuid
 	return &status, err
 }
 
+func (r *TeamStatusRepository) GetByIDs(ctx context.Context, ids []uuid.UUID) ([]domain.TeamStatus, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	query, args, err := sqlx.In(`SELECT * FROM team_statuses WHERE id IN (?)`, ids)
+	if err != nil {
+		return nil, err
+	}
+	query = r.db.Rebind(query)
+	var statuses []domain.TeamStatus
+	err = r.db.SelectContext(ctx, &statuses, query, args...)
+	return statuses, err
+}
+
 func (r *TeamStatusRepository) ListByTeam(ctx context.Context, teamID uuid.UUID) ([]domain.TeamStatus, error) {
 	var statuses []domain.TeamStatus
 	err := r.db.SelectContext(ctx, &statuses, `SELECT * FROM team_statuses WHERE team_id = $1 ORDER BY position`, teamID)

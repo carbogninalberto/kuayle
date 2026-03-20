@@ -106,15 +106,6 @@
 	<div class="flex h-[49px] items-center border-b border-[var(--app-border)] px-3">
 		<WorkspaceSwitcher currentWorkspace={workspace} {slug} />
 		<div class="ml-auto flex items-center gap-1">
-			{#if oncreateissue}
-				<button
-					onclick={oncreateissue}
-					class="rounded-md p-1 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
-					title="New issue"
-				>
-					<SquarePen size={16} />
-				</button>
-			{/if}
 			{#if onsearch}
 				<button
 					onclick={onsearch}
@@ -122,6 +113,15 @@
 					title="Search"
 				>
 					<Search size={16} />
+				</button>
+			{/if}
+			{#if oncreateissue}
+				<button
+					onclick={oncreateissue}
+					class="rounded-md p-1 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+					title="New issue"
+				>
+					<SquarePen size={16} />
 				</button>
 			{/if}
 		</div>

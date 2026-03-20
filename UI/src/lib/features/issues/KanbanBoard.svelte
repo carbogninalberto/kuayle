@@ -1,10 +1,11 @@
 <script lang="ts">
-	import type { Issue, IssueStatus } from '$lib/types/issue';
-	import { STATUS_ORDER } from '$lib/types/issue';
+	import type { Issue } from '$lib/types/issue';
+	import type { TeamStatus } from '$lib/types/team-status';
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import type { Label } from '$lib/types/label';
 	import KanbanColumn from './KanbanColumn.svelte';
 	import { issuesState } from './issues.state.svelte';
+	import { teamStatusesState } from './team-statuses.state.svelte';
 
 	let {
 		issuesByStatus,
@@ -13,7 +14,7 @@
 		labels = [],
 		onissueclick
 	}: {
-		issuesByStatus: Record<IssueStatus, Issue[]>;
+		issuesByStatus: Record<string, Issue[]>;
 		slug?: string;
 		members?: WorkspaceMember[];
 		labels?: Label[];
@@ -25,30 +26,30 @@
 
 	$effect(() => {
 		const copy: Record<string, Issue[]> = {};
-		for (const status of STATUS_ORDER) {
-			copy[status] = [...(issuesByStatus[status] ?? [])];
+		for (const ts of teamStatusesState.statusOrder) {
+			copy[ts.id] = [...(issuesByStatus[ts.id] ?? [])];
 		}
 		localByStatus = copy;
 	});
 
-	function handleConsider(status: IssueStatus, items: Issue[]) {
-		localByStatus[status] = items;
+	function handleConsider(statusId: string, items: Issue[]) {
+		localByStatus[statusId] = items;
 	}
 
-	function handleFinalize(status: IssueStatus, items: Issue[]) {
-		localByStatus[status] = items;
+	function handleFinalize(statusId: string, items: Issue[]) {
+		localByStatus[statusId] = items;
 
 		// Detect moved issues and update
 		for (let i = 0; i < items.length; i++) {
 			const issue = items[i];
-			const originalStatus = issue.status;
-			if (originalStatus !== status) {
-				// Cross-column move: update status
+			const originalStatusId = issue.status_id ?? issue.status;
+			if (originalStatusId !== statusId) {
+				// Cross-column move: update status_id
 				const sortOrder = calculateSortOrder(items, i);
-				issuesState.update(slug, issue.identifier, { status, sort_order: sortOrder });
+				issuesState.update(slug, issue.identifier, { status_id: statusId, sort_order: sortOrder });
 			} else {
 				// Same column reorder: check if position changed
-				const originalItems = issuesByStatus[status] ?? [];
+				const originalItems = issuesByStatus[statusId] ?? [];
 				const originalIdx = originalItems.findIndex((it) => it.id === issue.id);
 				if (originalIdx !== i) {
 					const sortOrder = calculateSortOrder(items, i);
@@ -66,10 +67,11 @@
 </script>
 
 <div class="flex gap-4 overflow-x-auto p-4">
-	{#each STATUS_ORDER as status}
+	{#each teamStatusesState.statusOrder as ts (ts.id)}
 		<KanbanColumn
-			{status}
-			issues={localByStatus[status] ?? []}
+			statusId={ts.id}
+			teamStatus={ts}
+			issues={localByStatus[ts.id] ?? []}
 			{slug}
 			{members}
 			{labels}

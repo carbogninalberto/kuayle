@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import type { Issue, Comment, IssueHistory, IssueStatus, IssuePriority } from '$lib/types/issue';
-	import { STATUS_LABELS, PRIORITY_LABELS, STATUS_ORDER } from '$lib/types/issue';
+	import { PRIORITY_LABELS } from '$lib/types/issue';
+	import { teamStatusesState } from './team-statuses.state.svelte';
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import type { Label } from '$lib/types/label';
 	import { listComments, createComment, getIssueHistory, getIssue } from '$lib/api/issues';
@@ -109,7 +110,7 @@
 		if (!value) return '';
 		switch (field) {
 			case 'status':
-				return STATUS_LABELS[value as IssueStatus] ?? value;
+				return value;
 			case 'priority':
 				return PRIORITY_LABELS[Number(value) as IssuePriority] ?? value;
 			case 'assignee_id': {
@@ -339,18 +340,18 @@
 					<Popover.Root bind:open={statusOpen}>
 						<Popover.Trigger>
 							<button class="flex items-center gap-1.5 rounded px-1.5 py-0.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] transition-colors">
-								<IssueStatusIcon status={issue.status} size={12} />
-								{STATUS_LABELS[issue.status]}
+								<IssueStatusIcon status={issue.status} category={issue.status_info?.category} color={issue.status_info?.color} size={12} />
+								{issue.status_info?.name ?? issue.status}
 							</button>
 						</Popover.Trigger>
-						<Popover.Content class="w-40 p-1" align="end">
-							{#each STATUS_ORDER as value}
+						<Popover.Content class="w-44 p-1" align="end">
+							{#each teamStatusesState.statusOrder as ts}
 								<button
-									onclick={() => { updateField('status', value); statusOpen = false; }}
-									class="flex w-full items-center gap-2 rounded px-2 py-1 text-xs text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors {issue.status === value ? 'bg-[var(--color-bg-hover)]' : ''}"
+									onclick={() => { updateField('status_id', ts.id); statusOpen = false; }}
+									class="flex w-full items-center gap-2 rounded px-2 py-1 text-xs text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors {issue.status_id === ts.id ? 'bg-[var(--color-bg-hover)]' : ''}"
 								>
-									<IssueStatusIcon status={value} size={13} />
-									{STATUS_LABELS[value]}
+									<IssueStatusIcon category={ts.category} color={ts.color} size={13} />
+									{ts.name}
 								</button>
 							{/each}
 						</Popover.Content>

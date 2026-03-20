@@ -1,7 +1,8 @@
 <script lang="ts">
-	import type { CreateIssueRequest, IssueStatus, IssuePriority } from '$lib/types/issue';
+	import type { CreateIssueRequest, IssuePriority } from '$lib/types/issue';
 	import type { Team } from '$lib/types/team';
-	import { STATUS_LABELS, PRIORITY_LABELS } from '$lib/types/issue';
+	import { PRIORITY_LABELS } from '$lib/types/issue';
+	import { teamStatusesState } from './team-statuses.state.svelte';
 
 	let {
 		teams,
@@ -15,7 +16,7 @@
 
 	let title = $state('');
 	let description = $state('');
-	let status = $state<IssueStatus>('backlog');
+	let statusId = $state(teamStatusesState.defaultForCategory('backlog')?.id ?? '');
 	let priority = $state<IssuePriority>(0);
 	let teamId = $state(teams[0]?.id ?? '');
 
@@ -24,7 +25,7 @@
 		onsubmit({
 			title,
 			description: description || undefined,
-			status,
+			status_id: statusId || undefined,
 			priority,
 			team_id: teamId
 		});
@@ -63,11 +64,11 @@
 		</select>
 
 		<select
-			bind:value={status}
+			bind:value={statusId}
 			class="rounded border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-2 py-1.5 text-sm text-[var(--color-text-secondary)]"
 		>
-			{#each Object.entries(STATUS_LABELS) as [value, label]}
-				<option {value}>{label}</option>
+			{#each teamStatusesState.statusOrder as ts}
+				<option value={ts.id}>{ts.name}</option>
 			{/each}
 		</select>
 

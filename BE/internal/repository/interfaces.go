@@ -137,6 +137,7 @@ type IssueRelationRepo interface {
 type TeamStatusRepo interface {
 	Create(ctx context.Context, status *domain.TeamStatus) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.TeamStatus, error)
+	GetByIDs(ctx context.Context, ids []uuid.UUID) ([]domain.TeamStatus, error)
 	GetByTeamAndSlug(ctx context.Context, teamID uuid.UUID, slug string) (*domain.TeamStatus, error)
 	ListByTeam(ctx context.Context, teamID uuid.UUID) ([]domain.TeamStatus, error)
 	Update(ctx context.Context, status *domain.TeamStatus) error

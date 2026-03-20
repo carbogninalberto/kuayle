@@ -1,6 +1,6 @@
 <script lang="ts">
-	import type { Issue, IssueStatus } from '$lib/types/issue';
-	import { STATUS_LABELS } from '$lib/types/issue';
+	import type { Issue } from '$lib/types/issue';
+	import type { TeamStatus } from '$lib/types/team-status';
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import type { Label } from '$lib/types/label';
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
@@ -9,7 +9,8 @@
 	import { dndzone } from 'svelte-dnd-action';
 
 	let {
-		status,
+		statusId,
+		teamStatus,
 		issues,
 		slug = '',
 		members = [],
@@ -18,30 +19,31 @@
 		onconsider,
 		onfinalize
 	}: {
-		status: IssueStatus;
+		statusId: string;
+		teamStatus: TeamStatus;
 		issues: Issue[];
 		slug?: string;
 		members?: WorkspaceMember[];
 		labels?: Label[];
 		onissueclick: (issue: Issue) => void;
-		onconsider?: (status: IssueStatus, items: Issue[]) => void;
-		onfinalize?: (status: IssueStatus, items: Issue[]) => void;
+		onconsider?: (statusId: string, items: Issue[]) => void;
+		onfinalize?: (statusId: string, items: Issue[]) => void;
 	} = $props();
 
 	function handleConsider(e: CustomEvent<{ items: Issue[] }>) {
-		onconsider?.(status, e.detail.items);
+		onconsider?.(statusId, e.detail.items);
 	}
 
 	function handleFinalize(e: CustomEvent<{ items: Issue[] }>) {
-		onfinalize?.(status, e.detail.items);
+		onfinalize?.(statusId, e.detail.items);
 	}
 </script>
 
 <div class="flex w-72 shrink-0 flex-col">
 	<div class="flex items-center gap-2 px-2 py-2">
-		<IssueStatusIcon {status} />
+		<IssueStatusIcon category={teamStatus.category} color={teamStatus.color} />
 		<span class="text-sm font-medium text-[var(--color-text-primary)]"
-			>{STATUS_LABELS[status]}</span
+			>{teamStatus.name}</span
 		>
 		<span class="text-xs text-[var(--color-text-tertiary)]">{issues.length}</span>
 	</div>

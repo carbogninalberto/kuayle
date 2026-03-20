@@ -88,7 +88,7 @@ func main() {
 	authH := handler.NewAuthHandler(authSvc)
 	workspaceH := handler.NewWorkspaceHandler(workspaceSvc)
 	teamH := handler.NewTeamHandler(teamSvc)
-	issueH := handler.NewIssueHandler(issueSvc, commentSvc, userRepo)
+	issueH := handler.NewIssueHandler(issueSvc, commentSvc, userRepo, teamStatusRepo)
 	labelH := handler.NewLabelHandler(labelSvc)
 	projectH := handler.NewProjectHandler(projectSvc)
 	notifH := handler.NewNotificationHandler(notifSvc)

@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import type { Issue, Comment, IssueHistory, IssuePriority } from '$lib/types/issue';
-	import { STATUS_LABELS, PRIORITY_LABELS, STATUS_ORDER } from '$lib/types/issue';
+	import { PRIORITY_LABELS } from '$lib/types/issue';
+	import { teamStatusesState } from './team-statuses.state.svelte';
 	import { listComments, createComment, getIssueHistory } from '$lib/api/issues';
 	import { issuesState } from './issues.state.svelte';
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
@@ -48,9 +49,9 @@
 		}
 	}
 
-	async function updateStatus(status: string) {
+	async function updateStatus(statusId: string) {
 		try {
-			await issuesState.update(slug, issue.identifier, { status: status as any });
+			await issuesState.update(slug, issue.identifier, { status_id: statusId });
 			toast.success('Status updated');
 		} catch (err: any) {
 			toast.error(err?.error?.message || 'Failed to update status');
@@ -107,18 +108,18 @@
 					<Popover.Root bind:open={statusOpen}>
 						<Popover.Trigger>
 							<button class="flex items-center gap-1.5 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-2.5 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
-								<IssueStatusIcon status={issue.status} size={12} />
-								{STATUS_LABELS[issue.status]}
+								<IssueStatusIcon status={issue.status} category={issue.status_info?.category} color={issue.status_info?.color} size={12} />
+								{issue.status_info?.name ?? issue.status}
 							</button>
 						</Popover.Trigger>
-						<Popover.Content class="w-40 p-1" align="start">
-							{#each STATUS_ORDER as value}
+						<Popover.Content class="w-44 p-1" align="start">
+							{#each teamStatusesState.statusOrder as ts}
 								<button
-									onclick={() => { updateStatus(value); statusOpen = false; }}
-									class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {issue.status === value ? 'bg-[var(--color-bg-hover)]' : ''}"
+									onclick={() => { updateStatus(ts.id); statusOpen = false; }}
+									class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {issue.status_id === ts.id ? 'bg-[var(--color-bg-hover)]' : ''}"
 								>
-									<IssueStatusIcon status={value} size={14} />
-									{STATUS_LABELS[value]}
+									<IssueStatusIcon category={ts.category} color={ts.color} size={14} />
+									{ts.name}
 								</button>
 							{/each}
 						</Popover.Content>

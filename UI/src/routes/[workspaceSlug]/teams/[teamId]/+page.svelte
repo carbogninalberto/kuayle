@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { issuesState } from '$lib/features/issues/issues.state.svelte';
+	import { teamStatusesState } from '$lib/features/issues/team-statuses.state.svelte';
 	import type { GroupByField } from '$lib/features/issues/issues.state.svelte';
 	import IssueRow from '$lib/features/issues/IssueRow.svelte';
 	import IssueDetail from '$lib/features/issues/IssueDetail.svelte';
@@ -28,7 +29,7 @@
 	import type { ViewFilter, ViewLayout } from '$lib/types/view';
 	import { createKeyboardHandler } from '$lib/utils/keyboard';
 	import { toast } from 'svelte-sonner';
-	import { Plus, Bookmark, Layers } from 'lucide-svelte';
+	import { Bookmark, Layers } from 'lucide-svelte';
 	import * as issueApi from '$lib/api/issues';
 	import type { Issue } from '$lib/types/issue';
 	import type { IssueStatus, IssuePriority, RelationType } from '$lib/types/issue';
@@ -45,7 +46,7 @@
 	let cycles = $state<Cycle[]>([]);
 	let showCreateIssue = $state(false);
 	let showSaveView = $state(false);
-	let quickAddDefaults = $state<{ status?: IssueStatus; priority?: IssuePriority; assigneeId?: string }>({});
+	let quickAddDefaults = $state<{ statusId?: string; priority?: IssuePriority; assigneeId?: string }>({});
 	let filters = $state<ViewFilter>({});
 	let layout = $state<ViewLayout>('list');
 	let groupByOpen = $state(false);
@@ -74,6 +75,7 @@
 		const s = slug;
 		const t = teamId;
 		if (!s || !t) return;
+		teamStatusesState.reload(s, t);
 		Promise.all([
 			listTeams(s),
 			listProjects(s),
@@ -122,7 +124,7 @@
 		const gb = issuesState.groupBy;
 		if (!gb) return;
 		const fieldMap: Record<string, string> = {
-			status: 'status',
+			status: 'status_id',
 			priority: 'priority',
 			assignee: 'assignee_id',
 			project: 'project_id'
@@ -154,7 +156,7 @@
 		quickAddDefaults = {};
 		const gb = issuesState.groupBy;
 		if (gb === 'status') {
-			quickAddDefaults = { status: groupKey as IssueStatus };
+			quickAddDefaults = { statusId: groupKey };
 		} else if (gb === 'priority') {
 			quickAddDefaults = { priority: Number(groupKey) as IssuePriority };
 		} else if (gb === 'assignee' && groupKey !== 'unassigned') {
@@ -270,13 +272,6 @@
 					Save view
 				</button>
 			{/if}
-			<button
-				onclick={() => (showCreateIssue = true)}
-				class="flex items-center gap-1 rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm text-white hover:bg-[var(--app-accent-hover)]"
-			>
-				<Plus size={14} />
-				New Issue
-			</button>
 		</div>
 	</div>
 
@@ -312,6 +307,7 @@
 						<IssueGroupHeader
 							groupKey={group.key}
 							groupBy={issuesState.groupBy}
+							groupLabel={group.label}
 							count={group.issues.length}
 							collapsed={collapsedGroups.has(group.key)}
 							{members}
@@ -370,7 +366,7 @@
 	{members}
 	{cycles}
 	defaultTeamId={teamId}
-	defaultStatus={quickAddDefaults.status}
+	defaultStatusId={quickAddDefaults.statusId}
 	defaultPriority={quickAddDefaults.priority}
 	defaultAssigneeId={quickAddDefaults.assigneeId}
 	onsubmit={async (req) => {

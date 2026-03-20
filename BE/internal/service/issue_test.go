@@ -212,6 +212,14 @@ func (m *mockTeamStatusRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	return args.Error(0)
 }
 
+func (m *mockTeamStatusRepo) GetByIDs(ctx context.Context, ids []uuid.UUID) ([]domain.TeamStatus, error) {
+	args := m.Called(ctx, ids)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]domain.TeamStatus), args.Error(1)
+}
+
 func (m *mockTeamStatusRepo) NextPosition(ctx context.Context, teamID uuid.UUID) (int, error) {
 	args := m.Called(ctx, teamID)
 	return args.Int(0), args.Error(1)

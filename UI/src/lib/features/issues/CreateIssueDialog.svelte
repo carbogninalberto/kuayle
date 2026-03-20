@@ -9,7 +9,8 @@
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import type { Cycle } from '$lib/types/cycle';
 	import type { IssueStatus, IssuePriority } from '$lib/types/issue';
-	import { STATUS_LABELS, PRIORITY_LABELS, STATUS_ORDER } from '$lib/types/issue';
+	import { PRIORITY_LABELS } from '$lib/types/issue';
+	import { teamStatusesState } from './team-statuses.state.svelte';
 	import RichEditor from '$lib/components/shared/RichEditor.svelte';
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
 	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
@@ -29,6 +30,7 @@
 		cycles = [],
 		defaultTeamId,
 		defaultStatus,
+		defaultStatusId,
 		defaultPriority,
 		defaultAssigneeId,
 		onsubmit
@@ -41,12 +43,14 @@
 		cycles?: Cycle[];
 		defaultTeamId?: string;
 		defaultStatus?: IssueStatus;
+		defaultStatusId?: string;
 		defaultPriority?: IssuePriority;
 		defaultAssigneeId?: string;
 		onsubmit: (req: {
 			title: string;
 			description?: string;
-			status: IssueStatus;
+			status?: IssueStatus;
+			status_id?: string;
 			priority: IssuePriority;
 			team_id: string;
 			project_id?: string;
@@ -60,7 +64,7 @@
 
 	let title = $state('');
 	let description = $state('');
-	let status = $state<IssueStatus>('backlog');
+	let statusId = $state<string>('');
 	let priority = $state<IssuePriority>(0);
 	let teamId = $state('');
 	let projectId = $state<string | null>(null);
@@ -82,7 +86,7 @@
 		if (open) {
 			title = '';
 			description = '';
-			status = defaultStatus ?? 'backlog';
+			statusId = defaultStatusId ?? teamStatusesState.defaultForCategory('backlog')?.id ?? '';
 			priority = defaultPriority ?? 0;
 			teamId = defaultTeamId ?? teams[0]?.id ?? '';
 			projectId = null;
@@ -100,12 +104,14 @@
 
 	const priorityValues: IssuePriority[] = [0, 1, 2, 3, 4];
 
+	const selectedStatus = $derived(teamStatusesState.statusById.get(statusId));
+
 	function handleSubmit() {
 		if (!title.trim() || !teamId) return;
 		onsubmit({
 			title: title.trim(),
 			description: description.trim() || undefined,
-			status,
+			status_id: statusId || undefined,
 			priority,
 			team_id: teamId,
 			project_id: projectId || undefined,
@@ -198,18 +204,18 @@
 			<Popover.Root bind:open={statusOpen}>
 				<Popover.Trigger>
 					<button class="flex items-center gap-1.5 rounded-full border border-[var(--app-border)] px-2.5 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
-						<IssueStatusIcon {status} size={12} />
-						{STATUS_LABELS[status]}
+						<IssueStatusIcon category={selectedStatus?.category} color={selectedStatus?.color} size={12} />
+						{selectedStatus?.name ?? 'Status'}
 					</button>
 				</Popover.Trigger>
 				<Popover.Content class="w-40 p-1" align="start">
-					{#each STATUS_ORDER as value}
+					{#each teamStatusesState.statusOrder as ts}
 						<button
-							onclick={() => { status = value; statusOpen = false; }}
-							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {status === value ? 'bg-[var(--color-bg-hover)]' : ''}"
+							onclick={() => { statusId = ts.id; statusOpen = false; }}
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {statusId === ts.id ? 'bg-[var(--color-bg-hover)]' : ''}"
 						>
-							<IssueStatusIcon status={value} size={14} />
-							{STATUS_LABELS[value]}
+							<IssueStatusIcon category={ts.category} color={ts.color} size={14} />
+							{ts.name}
 						</button>
 					{/each}
 				</Popover.Content>

@@ -6,6 +6,7 @@
 	import { listIssues } from '$lib/api/issues';
 	import { listMembers } from '$lib/api/members';
 	import { listLabels } from '$lib/api/labels';
+	import { teamStatusesState } from '$lib/features/issues/team-statuses.state.svelte';
 	import type { View } from '$lib/types/view';
 	import type { Issue } from '$lib/types/issue';
 	import type { WorkspaceMember } from '$lib/types/workspace';
@@ -64,6 +65,11 @@
 		try {
 			const res = await listIssues(slug, params);
 			issues = res.data;
+			// Load team statuses from the first issue's team
+			const firstTeamId = issues[0]?.team_id;
+			if (firstTeamId) {
+				teamStatusesState.load(slug, firstTeamId);
+			}
 		} catch {
 			issues = [];
 		}

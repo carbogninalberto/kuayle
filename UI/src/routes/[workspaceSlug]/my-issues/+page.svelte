@@ -4,6 +4,7 @@
 	import { goto } from '$app/navigation';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { issuesState } from '$lib/features/issues/issues.state.svelte';
+	import { teamStatusesState } from '$lib/features/issues/team-statuses.state.svelte';
 	import IssueRow from '$lib/features/issues/IssueRow.svelte';
 	import KanbanBoard from '$lib/features/issues/KanbanBoard.svelte';
 	import FilterBuilder from '$lib/components/shared/FilterBuilder.svelte';
@@ -58,7 +59,7 @@
 		loadIssues();
 	});
 
-	function loadIssues() {
+	async function loadIssues() {
 		if (!authState.user) return;
 		const params: Record<string, string> = {};
 
@@ -85,7 +86,13 @@
 		}
 
 		issuesState.groupBy = 'status';
-		issuesState.load(slug, params);
+		await issuesState.load(slug, params);
+
+		// Load team statuses from the first issue's team for status pickers
+		const firstTeamId = issuesState.issues[0]?.team_id;
+		if (firstTeamId) {
+			teamStatusesState.load(slug, firstTeamId);
+		}
 	}
 
 	function handleTabChange(tab: string) {
@@ -172,6 +179,7 @@
 					<IssueGroupHeader
 						groupKey={group.key}
 						groupBy={issuesState.groupBy}
+						groupLabel={group.label}
 						count={group.issues.length}
 						collapsed={collapsedGroups.has(group.key)}
 						ontoggle={() => toggleGroup(group.key)}

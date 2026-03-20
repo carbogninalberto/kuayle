@@ -4,8 +4,9 @@
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { Separator } from '$lib/components/ui/separator';
 	import type { ViewFilter } from '$lib/types/view';
-	import type { IssueStatus, IssuePriority } from '$lib/types/issue';
-	import { STATUS_LABELS, PRIORITY_LABELS } from '$lib/types/issue';
+	import type { IssuePriority } from '$lib/types/issue';
+	import { PRIORITY_LABELS } from '$lib/types/issue';
+	import { teamStatusesState } from '$lib/features/issues/team-statuses.state.svelte';
 	import type { Team } from '$lib/types/team';
 	import type { Project } from '$lib/types/project';
 	import type { Label } from '$lib/types/label';
@@ -168,7 +169,10 @@
 	function getStatusChipLabel(): string {
 		const vals = getStatusValues();
 		if (vals.length === 0) return 'Status';
-		if (vals.length === 1) return STATUS_LABELS[vals[0] as IssueStatus] ?? vals[0];
+		if (vals.length === 1) {
+			const ts = teamStatusesState.statusById.get(vals[0]);
+			return ts ? ts.name : vals[0];
+		}
 		return `${vals.length} statuses`;
 	}
 
@@ -229,14 +233,14 @@
 				</button>
 			</Popover.Trigger>
 			<Popover.Content class="w-44 p-1" align="start">
-				{#each Object.entries(STATUS_LABELS) as [value, label]}
+				{#each teamStatusesState.statusOrder as ts}
 					<button
-						onclick={() => toggleStatus(value)}
+						onclick={() => toggleStatus(ts.id)}
 						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
 					>
-						<Checkbox checked={getStatusValues().includes(value)} />
-						<IssueStatusIcon status={value as IssueStatus} />
-						{label}
+						<Checkbox checked={getStatusValues().includes(ts.id)} />
+						<IssueStatusIcon category={ts.category} color={ts.color} />
+						{ts.name}
 					</button>
 				{/each}
 				<Separator class="my-1" />

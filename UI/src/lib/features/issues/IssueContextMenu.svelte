@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { Issue, IssuePriority, RelationType } from '$lib/types/issue';
-	import { STATUS_LABELS, PRIORITY_LABELS, STATUS_ORDER } from '$lib/types/issue';
+	import { PRIORITY_LABELS } from '$lib/types/issue';
+	import { teamStatusesState } from './team-statuses.state.svelte';
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import type { Label } from '$lib/types/label';
 	import type { Project } from '$lib/types/project';
@@ -88,16 +89,16 @@
 		<ContextMenu.Sub>
 			<ContextMenu.SubTrigger>
 				<span class="flex items-center gap-2">
-					<IssueStatusIcon status={issue.status} size={14} />
+					<IssueStatusIcon status={issue.status} category={issue.status_info?.category} color={issue.status_info?.color} size={14} />
 					Status
 				</span>
 			</ContextMenu.SubTrigger>
 			<ContextMenu.SubContent class="w-44">
-				{#each STATUS_ORDER as value}
-					<ContextMenu.Item onclick={() => updateField('status', value)}>
+				{#each teamStatusesState.statusOrder as ts}
+					<ContextMenu.Item onclick={() => updateField('status_id', ts.id)}>
 						<span class="flex items-center gap-2">
-							<IssueStatusIcon status={value} size={14} />
-							{STATUS_LABELS[value]}
+							<IssueStatusIcon category={ts.category} color={ts.color} size={14} />
+							{ts.name}
 						</span>
 					</ContextMenu.Item>
 				{/each}

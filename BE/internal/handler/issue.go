@@ -17,13 +17,14 @@ import (
 )
 
 type IssueHandler struct {
-	issueSvc   *service.IssueService
-	commentSvc *service.CommentService
-	userRepo   repository.UserRepo
+	issueSvc       *service.IssueService
+	commentSvc     *service.CommentService
+	userRepo       repository.UserRepo
+	teamStatusRepo repository.TeamStatusRepo
 }
 
-func NewIssueHandler(issueSvc *service.IssueService, commentSvc *service.CommentService, userRepo repository.UserRepo) *IssueHandler {
-	return &IssueHandler{issueSvc: issueSvc, commentSvc: commentSvc, userRepo: userRepo}
+func NewIssueHandler(issueSvc *service.IssueService, commentSvc *service.CommentService, userRepo repository.UserRepo, teamStatusRepo repository.TeamStatusRepo) *IssueHandler {
+	return &IssueHandler{issueSvc: issueSvc, commentSvc: commentSvc, userRepo: userRepo, teamStatusRepo: teamStatusRepo}
 }
 
 func (h *IssueHandler) List(c echo.Context) error {
@@ -50,6 +51,25 @@ func (h *IssueHandler) List(c echo.Context) error {
 	labelsMap, _ := h.issueSvc.GetLabelsForIssues(ctx, issueIDs)
 	assigneesMap, _ := h.issueSvc.GetAssigneesForIssues(ctx, issueIDs)
 
+	// Batch load statuses for all issues
+	statusIDSet := make(map[uuid.UUID]struct{})
+	for _, issue := range issues {
+		if issue.StatusID != nil {
+			statusIDSet[*issue.StatusID] = struct{}{}
+		}
+	}
+	statusMap := make(map[uuid.UUID]*domain.TeamStatus)
+	if len(statusIDSet) > 0 {
+		statusIDs := make([]uuid.UUID, 0, len(statusIDSet))
+		for id := range statusIDSet {
+			statusIDs = append(statusIDs, id)
+		}
+		statuses, _ := h.teamStatusRepo.GetByIDs(ctx, statusIDs)
+		for i := range statuses {
+			statusMap[statuses[i].ID] = &statuses[i]
+		}
+	}
+
 	issueResponses := make([]dto.IssueResponse, len(issues))
 	for i, issue := range issues {
 		resp := toIssueResponse(issue)
@@ -75,6 +95,19 @@ func (h *IssueHandler) List(c echo.Context) error {
 						DisplayName: user.DisplayName,
 						AvatarURL:   user.AvatarURL,
 					})
+				}
+			}
+		}
+
+		// Populate status_info from batch
+		if issue.StatusID != nil {
+			if ts, ok := statusMap[*issue.StatusID]; ok {
+				resp.StatusInfo = &dto.StatusInfoResponse{
+					ID:       ts.ID.String(),
+					Name:     ts.Name,
+					Category: string(ts.Category),
+					Color:    ts.Color,
+					Position: ts.Position,
 				}
 			}
 		}
@@ -394,7 +427,31 @@ func (h *IssueHandler) enrichIssueResponse(ctx context.Context, resp *dto.IssueR
 		}
 	}
 
+	// Populate status_info
+	h.enrichStatusInfo(ctx, resp, issue)
+
 	h.enrichUserFields(ctx, resp, issue)
+}
+
+func (h *IssueHandler) enrichStatusInfo(ctx context.Context, resp *dto.IssueResponse, issue domain.Issue) {
+	if issue.StatusID == nil {
+		return
+	}
+	ts, err := h.teamStatusRepo.GetByID(ctx, *issue.StatusID)
+	if err != nil || ts == nil {
+		return
+	}
+	var color *string
+	if ts.Color != nil {
+		color = ts.Color
+	}
+	resp.StatusInfo = &dto.StatusInfoResponse{
+		ID:       ts.ID.String(),
+		Name:     ts.Name,
+		Category: string(ts.Category),
+		Color:    color,
+		Position: ts.Position,
+	}
 }
 
 func (h *IssueHandler) enrichUserFields(ctx context.Context, resp *dto.IssueResponse, issue domain.Issue) {

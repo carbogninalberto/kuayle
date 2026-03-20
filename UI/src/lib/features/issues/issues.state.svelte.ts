@@ -1,5 +1,4 @@
 import type { Issue, IssueStatus, IssuePriority, CreateIssueRequest, UpdateIssueRequest } from '$lib/types/issue';
-import { STATUS_ORDER } from '$lib/types/issue';
 import * as issueApi from '$lib/api/issues';
 
 export type GroupByField = 'status' | 'priority' | 'assignee' | 'project' | null;
@@ -16,11 +15,12 @@ class IssuesState {
 	issuesByStatus = $derived(
 		this.issues.reduce(
 			(acc, issue) => {
-				if (!acc[issue.status]) acc[issue.status] = [];
-				acc[issue.status].push(issue);
+				const key = issue.status_id ?? issue.status;
+				if (!acc[key]) acc[key] = [];
+				acc[key].push(issue);
 				return acc;
 			},
-			{} as Record<IssueStatus, Issue[]>
+			{} as Record<string, Issue[]>
 		)
 	);
 
@@ -37,8 +37,8 @@ class IssuesState {
 			let label: string;
 			switch (this.groupBy) {
 				case 'status':
-					key = issue.status;
-					label = key;
+					key = issue.status_id ?? issue.status;
+					label = issue.status_info?.name ?? issue.status;
 					break;
 				case 'priority':
 					key = String(issue.priority);
@@ -67,7 +67,13 @@ class IssuesState {
 		}));
 
 		if (this.groupBy === 'status') {
-			result.sort((a, b) => STATUS_ORDER.indexOf(a.key as IssueStatus) - STATUS_ORDER.indexOf(b.key as IssueStatus));
+			result.sort((a, b) => {
+				const aIssue = a.issues[0];
+				const bIssue = b.issues[0];
+				const aPos = aIssue?.status_info?.position ?? 999;
+				const bPos = bIssue?.status_info?.position ?? 999;
+				return aPos - bPos;
+			});
 		}
 
 		return result;
@@ -173,7 +179,7 @@ class IssuesState {
 		}
 	}
 
-	async bulkUpdate(slug: string, updates: { status?: string; priority?: number; assignee_id?: string; label_ids?: string[] }) {
+	async bulkUpdate(slug: string, updates: { status?: string; status_id?: string; priority?: number; assignee_id?: string; label_ids?: string[] }) {
 		const issueIds = Array.from(this.selectedIds);
 		if (issueIds.length === 0) return;
 
@@ -182,6 +188,7 @@ class IssuesState {
 		// Apply optimistic updates locally
 		for (const issue of this.issues) {
 			if (this.selectedIds.has(issue.id)) {
+				if (updates.status_id) (issue as any).status_id = updates.status_id;
 				if (updates.status) (issue as any).status = updates.status;
 				if (updates.priority !== undefined) (issue as any).priority = updates.priority;
 				if (updates.assignee_id) (issue as any).assignee_id = updates.assignee_id;

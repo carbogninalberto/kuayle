@@ -1,6 +1,7 @@
 <script lang="ts">
-	import type { IssueStatus, IssuePriority } from '$lib/types/issue';
-	import { STATUS_LABELS, PRIORITY_LABELS, STATUS_ORDER } from '$lib/types/issue';
+	import type { IssuePriority } from '$lib/types/issue';
+	import { PRIORITY_LABELS } from '$lib/types/issue';
+	import { teamStatusesState } from './team-statuses.state.svelte';
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
 	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
 	import { issuesState } from './issues.state.svelte';
@@ -16,9 +17,9 @@
 
 	const priorityValues: IssuePriority[] = [0, 1, 2, 3, 4];
 
-	async function bulkSetStatus(status: IssueStatus) {
+	async function bulkSetStatus(statusId: string) {
 		try {
-			await issuesState.bulkUpdate(slug, { status });
+			await issuesState.bulkUpdate(slug, { status_id: statusId } as any);
 			toast.success(`Updated ${issuesState.selectionCount} issues`);
 		} catch {
 			toast.error('Bulk update failed');
@@ -64,14 +65,14 @@
 						Status
 					</button>
 				</Popover.Trigger>
-				<Popover.Content class="w-40 p-1" align="start">
-					{#each STATUS_ORDER as value}
+				<Popover.Content class="w-44 p-1" align="start">
+					{#each teamStatusesState.statusOrder as ts}
 						<button
-							onclick={() => bulkSetStatus(value)}
+							onclick={() => bulkSetStatus(ts.id)}
 							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
 						>
-							<IssueStatusIcon status={value} size={14} />
-							{STATUS_LABELS[value]}
+							<IssueStatusIcon category={ts.category} color={ts.color} size={14} />
+							{ts.name}
 						</button>
 					{/each}
 				</Popover.Content>
