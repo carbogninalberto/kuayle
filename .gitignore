@@ -17,6 +17,7 @@ tmp/
 
 # Environment
 .env
+.dev.pids
 
 # Coverage
 coverage/
