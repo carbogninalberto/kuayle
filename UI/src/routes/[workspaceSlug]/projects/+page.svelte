@@ -4,7 +4,6 @@
 	import { listProjects, createProject } from '$lib/api/projects';
 	import type { Project, ProjectStatus } from '$lib/types/project';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
-	import LoadingState from '$lib/components/shared/LoadingState.svelte';
 	import CreateProjectDialog from '$lib/features/projects/CreateProjectDialog.svelte';
 	import { Badge } from '$lib/components/ui/badge';
 	import { toast } from 'svelte-sonner';
@@ -69,9 +68,7 @@
 		</button>
 	</div>
 
-	{#if loading}
-		<LoadingState />
-	{:else if projects.length === 0}
+	{#if !loading && projects.length === 0}
 		<EmptyState
 			title="No projects yet"
 			description="Create a project to organize your issues"

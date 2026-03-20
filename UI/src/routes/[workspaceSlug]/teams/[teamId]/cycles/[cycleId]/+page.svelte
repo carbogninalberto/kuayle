@@ -15,7 +15,6 @@
 import CycleProgress from '$lib/features/cycles/CycleProgress.svelte';
 	import DatePickerPopover from '$lib/components/shared/DatePickerPopover.svelte';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
-	import LoadingState from '$lib/components/shared/LoadingState.svelte';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import * as Popover from '$lib/components/ui/popover';
@@ -152,9 +151,7 @@ import CycleProgress from '$lib/features/cycles/CycleProgress.svelte';
 </script>
 
 <div class="flex h-full flex-col">
-	{#if loading}
-		<LoadingState />
-	{:else if cycle}
+	{#if !loading && cycle}
 		<!-- Header -->
 		<div class="flex h-[49px] items-center justify-between border-b border-[var(--app-border)] px-6">
 			<div class="flex items-center gap-3">
@@ -272,9 +269,7 @@ import CycleProgress from '$lib/features/cycles/CycleProgress.svelte';
 
 		<!-- Issues list -->
 		<div class="flex-1 overflow-y-auto">
-			{#if issuesState.loading}
-				<LoadingState />
-			{:else if issuesState.issues.length === 0}
+			{#if !issuesState.loading && issuesState.issues.length === 0}
 				<EmptyState
 					title="No issues in this cycle"
 					description="Search and add issues above, or assign issues from the issue detail panel"

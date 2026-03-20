@@ -1,8 +1,10 @@
 <script lang="ts">
-	import type { Issue, IssuePriority } from '$lib/types/issue';
+	import type { Issue, IssuePriority, RelationType } from '$lib/types/issue';
 	import { STATUS_LABELS, PRIORITY_LABELS, STATUS_ORDER } from '$lib/types/issue';
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import type { Label } from '$lib/types/label';
+	import type { Project } from '$lib/types/project';
+	import type { Cycle } from '$lib/types/cycle';
 	import * as ContextMenu from '$lib/components/ui/context-menu';
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
 	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
@@ -15,12 +17,18 @@
 		slug,
 		members = [],
 		labels = [],
+		projects = [],
+		cycles = [],
+		onaddrelation,
 		children
 	}: {
 		issue: Issue;
 		slug: string;
 		members?: WorkspaceMember[];
 		labels?: Label[];
+		projects?: Project[];
+		cycles?: Cycle[];
+		onaddrelation?: (type: RelationType) => void;
 		children: Snippet;
 	} = $props();
 
@@ -39,12 +47,34 @@
 		toast.success('Copied to clipboard');
 	}
 
+	function dateOffset(days: number): string {
+		const d = new Date();
+		d.setDate(d.getDate() + days);
+		return d.toISOString().split('T')[0];
+	}
+
 	async function handleDelete() {
 		try {
 			await issuesState.remove(slug, issue.identifier);
 			toast.success('Issue deleted');
 		} catch {
 			toast.error('Failed to delete issue');
+		}
+	}
+
+	async function handleDuplicate() {
+		try {
+			await issuesState.create(slug, {
+				title: `${issue.title} (copy)`,
+				status: issue.status,
+				priority: issue.priority,
+				team_id: issue.team_id,
+				project_id: issue.project_id ?? undefined,
+				cycle_id: issue.cycle_id ?? undefined,
+			});
+			toast.success('Issue duplicated');
+		} catch {
+			toast.error('Failed to duplicate issue');
 		}
 	}
 </script>
@@ -94,18 +124,26 @@
 			</ContextMenu.SubContent>
 		</ContextMenu.Sub>
 
-		<!-- Assignee submenu -->
+		<!-- Assignee submenu (multi-select) -->
 		{#if members.length > 0}
 			<ContextMenu.Sub>
 				<ContextMenu.SubTrigger>Assignee</ContextMenu.SubTrigger>
 				<ContextMenu.SubContent class="w-48">
-					<ContextMenu.Item onclick={() => updateField('assignee_id', null)}>
-						Unassigned
+					<ContextMenu.Item onclick={() => updateField('assignee_ids', [])}>
+						Clear all
 					</ContextMenu.Item>
 					{#each members as member}
-						<ContextMenu.Item onclick={() => updateField('assignee_id', member.user_id)}>
+						{@const isAssigned = (issue.assignees ?? []).some(a => a.id === member.user_id)}
+						<ContextMenu.CheckboxItem
+							checked={isAssigned}
+							onCheckedChange={() => {
+								const currentIds = (issue.assignees ?? []).map(a => a.id);
+								const newIds = isAssigned ? currentIds.filter(id => id !== member.user_id) : [...currentIds, member.user_id];
+								updateField('assignee_ids', newIds);
+							}}
+						>
 							{member.name || member.email}
-						</ContextMenu.Item>
+						</ContextMenu.CheckboxItem>
 					{/each}
 				</ContextMenu.SubContent>
 			</ContextMenu.Sub>
@@ -136,6 +174,81 @@
 			</ContextMenu.Sub>
 		{/if}
 
+		<!-- Due date submenu -->
+		<ContextMenu.Sub>
+			<ContextMenu.SubTrigger>Due date</ContextMenu.SubTrigger>
+			<ContextMenu.SubContent class="w-36">
+				<ContextMenu.Item onclick={() => updateField('due_date', dateOffset(0))}>Today</ContextMenu.Item>
+				<ContextMenu.Item onclick={() => updateField('due_date', dateOffset(1))}>Tomorrow</ContextMenu.Item>
+				<ContextMenu.Item onclick={() => updateField('due_date', dateOffset(7))}>Next week</ContextMenu.Item>
+				<ContextMenu.Item onclick={() => updateField('due_date', dateOffset(14))}>In 2 weeks</ContextMenu.Item>
+				{#if issue.due_date}
+					<ContextMenu.Separator />
+					<ContextMenu.Item onclick={() => updateField('due_date', '')}>Clear</ContextMenu.Item>
+				{/if}
+			</ContextMenu.SubContent>
+		</ContextMenu.Sub>
+
+		<!-- Project submenu -->
+		{#if projects && projects.length > 0}
+			<ContextMenu.Sub>
+				<ContextMenu.SubTrigger>Project</ContextMenu.SubTrigger>
+				<ContextMenu.SubContent class="w-48">
+					<ContextMenu.Item onclick={() => updateField('project_id', null)}>No project</ContextMenu.Item>
+					{#each projects as project}
+						<ContextMenu.Item onclick={() => updateField('project_id', project.id)}>
+							{project.name}
+						</ContextMenu.Item>
+					{/each}
+				</ContextMenu.SubContent>
+			</ContextMenu.Sub>
+		{/if}
+
+		<!-- Cycle submenu -->
+		{#if cycles && cycles.length > 0}
+			<ContextMenu.Sub>
+				<ContextMenu.SubTrigger>Cycle</ContextMenu.SubTrigger>
+				<ContextMenu.SubContent class="w-48">
+					<ContextMenu.Item onclick={() => updateField('cycle_id', null)}>No cycle</ContextMenu.Item>
+					{#each cycles as cycle}
+						<ContextMenu.Item onclick={() => updateField('cycle_id', cycle.id)}>
+							{cycle.name}
+						</ContextMenu.Item>
+					{/each}
+				</ContextMenu.SubContent>
+			</ContextMenu.Sub>
+		{/if}
+
+		<!-- Estimate submenu -->
+		<ContextMenu.Sub>
+			<ContextMenu.SubTrigger>Estimate</ContextMenu.SubTrigger>
+			<ContextMenu.SubContent class="w-28">
+				<ContextMenu.Item onclick={() => updateField('estimate', null)}>Clear</ContextMenu.Item>
+				{#each [0, 1, 2, 3, 5, 8, 13, 21] as est}
+					<ContextMenu.Item onclick={() => updateField('estimate', est)}>{est}</ContextMenu.Item>
+				{/each}
+			</ContextMenu.SubContent>
+		</ContextMenu.Sub>
+
+		<!-- Relation submenu -->
+		<ContextMenu.Sub>
+			<ContextMenu.SubTrigger>Relation</ContextMenu.SubTrigger>
+			<ContextMenu.SubContent class="w-48">
+				<ContextMenu.Item onclick={() => onaddrelation?.('blocking')}>
+					Mark as blocking...
+				</ContextMenu.Item>
+				<ContextMenu.Item onclick={() => onaddrelation?.('blocked_by')}>
+					Mark as blocked by...
+				</ContextMenu.Item>
+				<ContextMenu.Item onclick={() => onaddrelation?.('related')}>
+					Related issue...
+				</ContextMenu.Item>
+				<ContextMenu.Item onclick={() => onaddrelation?.('duplicate')}>
+					Duplicate of...
+				</ContextMenu.Item>
+			</ContextMenu.SubContent>
+		</ContextMenu.Sub>
+
 		<ContextMenu.Separator />
 
 		<ContextMenu.Item onclick={() => copyToClipboard(issue.identifier)}>
@@ -143,6 +256,12 @@
 		</ContextMenu.Item>
 		<ContextMenu.Item onclick={() => copyToClipboard(`${window.location.origin}/${slug}/issue/${issue.identifier}`)}>
 			Copy link
+		</ContextMenu.Item>
+		<ContextMenu.Item onclick={() => window.open(`/${slug}/issue/${issue.identifier}`, '_blank')}>
+			Open in new tab
+		</ContextMenu.Item>
+		<ContextMenu.Item onclick={handleDuplicate}>
+			Duplicate issue
 		</ContextMenu.Item>
 
 		<ContextMenu.Separator />

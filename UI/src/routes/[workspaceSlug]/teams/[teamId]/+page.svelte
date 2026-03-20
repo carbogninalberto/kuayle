@@ -12,7 +12,6 @@
 	import FilterBuilder from '$lib/components/shared/FilterBuilder.svelte';
 	import ViewSwitcher from '$lib/components/shared/ViewSwitcher.svelte';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
-	import LoadingState from '$lib/components/shared/LoadingState.svelte';
 	import CreateIssueDialog from '$lib/features/issues/CreateIssueDialog.svelte';
 	import SaveViewDialog from '$lib/components/shared/SaveViewDialog.svelte';
 	import * as Popover from '$lib/components/ui/popover';
@@ -31,7 +30,9 @@
 	import { toast } from 'svelte-sonner';
 	import { Plus, Bookmark, Layers } from 'lucide-svelte';
 	import * as issueApi from '$lib/api/issues';
-	import type { IssueStatus, IssuePriority } from '$lib/types/issue';
+	import type { Issue } from '$lib/types/issue';
+	import type { IssueStatus, IssuePriority, RelationType } from '$lib/types/issue';
+	import AddRelationDialog from '$lib/features/issues/AddRelationDialog.svelte';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	const teamId = $derived(page.params.teamId ?? '');
@@ -50,6 +51,15 @@
 	let groupByOpen = $state(false);
 	let collapsedGroups = $state<Set<string>>(new Set());
 	let lastSelectedId = $state<string | null>(null);
+	let relationDialogOpen = $state(false);
+	let relationIssue = $state<Issue | null>(null);
+	let relationDefaultType = $state<RelationType>('related');
+
+	function handleAddRelation(issue: Issue, type: RelationType) {
+		relationIssue = issue;
+		relationDefaultType = type;
+		relationDialogOpen = true;
+	}
 
 	const groupByOptions: { value: GroupByField; label: string }[] = [
 		{ value: 'status', label: 'Status' },
@@ -262,9 +272,7 @@
 	<!-- Content -->
 	{#if layout === 'list'}
 		<div class="relative flex-1 overflow-y-auto">
-			{#if issuesState.loading}
-				<LoadingState />
-			{:else if issuesState.issues.length === 0}
+			{#if !issuesState.loading && issuesState.issues.length === 0}
 				<EmptyState
 					title="No issues found"
 					description={Object.keys(filters).length > 0 ? 'Try adjusting your filters' : 'Create your first issue to get started'}
@@ -284,13 +292,13 @@
 					/>
 					{#if !collapsedGroups.has(group.key)}
 						{#each group.issues as issue (issue.id)}
-							<IssueRow {issue} {slug} {members} {labels} onclick={handleIssueClick} {lastSelectedId} />
+							<IssueRow {issue} {slug} {members} {labels} {projects} {cycles} onclick={handleIssueClick} {lastSelectedId} onaddrelation={handleAddRelation} />
 						{/each}
 					{/if}
 				{/each}
 			{:else}
 				{#each issuesState.issues as issue (issue.id)}
-					<IssueRow {issue} {slug} {members} {labels} onclick={handleIssueClick} {lastSelectedId} />
+					<IssueRow {issue} {slug} {members} {labels} {projects} {cycles} onclick={handleIssueClick} {lastSelectedId} onaddrelation={handleAddRelation} />
 				{/each}
 			{/if}
 
@@ -302,9 +310,7 @@
 			</div>
 		</div>
 	{:else}
-		{#if issuesState.loading}
-			<LoadingState />
-		{:else}
+		{#if !issuesState.loading}
 			<div class="flex-1 overflow-hidden">
 				<KanbanBoard
 					issuesByStatus={issuesState.issuesByStatus}
@@ -351,6 +357,13 @@
 	bind:open={showSaveView}
 	{filters}
 	{slug}
+/>
+
+<AddRelationDialog
+	bind:open={relationDialogOpen}
+	{slug}
+	identifier={relationIssue?.identifier ?? ''}
+	defaultType={relationDefaultType}
 />
 
 {#if showDeleteConfirm}

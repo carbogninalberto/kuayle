@@ -7,7 +7,6 @@
 	import IssueStatusIcon from '$lib/features/issues/IssueStatusIcon.svelte';
 	import IssuePriorityIcon from '$lib/features/issues/IssuePriorityIcon.svelte';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
-	import LoadingState from '$lib/components/shared/LoadingState.svelte';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import { Kbd } from '$lib/components/ui/kbd';
@@ -110,9 +109,7 @@
 		</div>
 
 		<div class="flex-1 overflow-y-auto">
-			{#if loading}
-				<LoadingState />
-			{:else if issues.length === 0}
+			{#if !loading && issues.length === 0}
 				<EmptyState
 					title="All triaged"
 					description="No issues waiting for triage"

@@ -7,7 +7,6 @@
 	import CycleProgress from '$lib/features/cycles/CycleProgress.svelte';
 	import DatePickerPopover from '$lib/components/shared/DatePickerPopover.svelte';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
-	import LoadingState from '$lib/components/shared/LoadingState.svelte';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import { toast } from 'svelte-sonner';
@@ -103,9 +102,7 @@
 	</div>
 
 	<div class="flex-1 overflow-y-auto">
-		{#if loading}
-			<LoadingState />
-		{:else if cycles.length === 0}
+		{#if !loading && cycles.length === 0}
 			<EmptyState
 				title="No cycles yet"
 				description="Create a cycle to plan your team's work in sprints"

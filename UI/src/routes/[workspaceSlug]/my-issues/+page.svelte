@@ -9,7 +9,6 @@
 	import FilterBuilder from '$lib/components/shared/FilterBuilder.svelte';
 	import ViewSwitcher from '$lib/components/shared/ViewSwitcher.svelte';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
-	import LoadingState from '$lib/components/shared/LoadingState.svelte';
 	import IssueGroupHeader from '$lib/features/issues/IssueGroupHeader.svelte';
 	import * as Tabs from '$lib/components/ui/tabs';
 	import { listProjects } from '$lib/api/projects';
@@ -19,7 +18,8 @@
 	import type { Label } from '$lib/types/label';
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import type { ViewFilter, ViewLayout } from '$lib/types/view';
-	import type { Issue } from '$lib/types/issue';
+	import type { Issue, RelationType } from '$lib/types/issue';
+	import AddRelationDialog from '$lib/features/issues/AddRelationDialog.svelte';
 	import { CircleUser, PenLine } from 'lucide-svelte';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
@@ -33,6 +33,15 @@
 	let labels = $state<Label[]>([]);
 	let members = $state<WorkspaceMember[]>([]);
 	let collapsedGroups = $state<Set<string>>(new Set());
+	let relationDialogOpen = $state(false);
+	let relationIssue = $state<Issue | null>(null);
+	let relationDefaultType = $state<RelationType>('related');
+
+	function handleAddRelation(issue: Issue, type: RelationType) {
+		relationIssue = issue;
+		relationDefaultType = type;
+		relationDialogOpen = true;
+	}
 
 	onMount(async () => {
 		const [p, l, m] = await Promise.all([
@@ -139,9 +148,7 @@
 	<!-- Content -->
 	{#if layout === 'list'}
 		<div class="flex-1 overflow-y-auto">
-			{#if issuesState.loading}
-				<LoadingState />
-			{:else if issuesState.issues.length === 0}
+			{#if !issuesState.loading && issuesState.issues.length === 0}
 				<EmptyState
 					title={activeTab === 'assigned' ? 'No issues assigned to you' : 'No issues created by you'}
 					description={activeTab === 'assigned' ? 'Issues assigned to you will appear here' : 'Issues you created will appear here'}
@@ -157,20 +164,18 @@
 					/>
 					{#if !collapsedGroups.has(group.key)}
 						{#each group.issues as issue (issue.id)}
-							<IssueRow {issue} {slug} {members} {labels} onclick={handleIssueClick} />
+							<IssueRow {issue} {slug} {members} {labels} {projects} onclick={handleIssueClick} onaddrelation={handleAddRelation} />
 						{/each}
 					{/if}
 				{/each}
 			{:else}
 				{#each issuesState.issues as issue (issue.id)}
-					<IssueRow {issue} {slug} {members} {labels} onclick={handleIssueClick} />
+					<IssueRow {issue} {slug} {members} {labels} {projects} onclick={handleIssueClick} onaddrelation={handleAddRelation} />
 				{/each}
 			{/if}
 		</div>
 	{:else}
-		{#if issuesState.loading}
-			<LoadingState />
-		{:else}
+		{#if !issuesState.loading}
 			<div class="flex-1 overflow-hidden">
 				<KanbanBoard
 					issuesByStatus={issuesState.issuesByStatus}
@@ -183,3 +188,10 @@
 		{/if}
 	{/if}
 </div>
+
+<AddRelationDialog
+	bind:open={relationDialogOpen}
+	{slug}
+	identifier={relationIssue?.identifier ?? ''}
+	defaultType={relationDefaultType}
+/>

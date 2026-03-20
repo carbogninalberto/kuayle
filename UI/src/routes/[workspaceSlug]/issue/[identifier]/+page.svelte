@@ -5,7 +5,6 @@
 	import type { Issue } from '$lib/types/issue';
 	import { issuesState } from '$lib/features/issues/issues.state.svelte';
 	import FullPageIssueView from '$lib/features/issues/FullPageIssueView.svelte';
-	import LoadingState from '$lib/components/shared/LoadingState.svelte';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	const identifier = $derived(page.params.identifier ?? '');
@@ -40,6 +39,4 @@
 			onupdated={handleIssueUpdated}
 		/>
 	{/key}
-{:else}
-	<LoadingState />
 {/if}

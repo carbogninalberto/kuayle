@@ -9,7 +9,6 @@
 	import IssuePriorityIcon from '$lib/features/issues/IssuePriorityIcon.svelte';
 	import * as Card from '$lib/components/ui/card';
 	import { Progress } from '$lib/components/ui/progress';
-	import LoadingState from '$lib/components/shared/LoadingState.svelte';
 	import {
 		LayoutGrid,
 		CheckCircle2,
@@ -79,9 +78,7 @@
 		<h1 class="text-sm font-medium text-[var(--color-text-primary)]">Dashboard</h1>
 	</div>
 
-	{#if loading}
-		<LoadingState />
-	{:else if overview}
+	{#if !loading && overview}
 		<div class="flex-1 overflow-y-auto p-6 space-y-6">
 			<!-- Summary cards -->
 			<div class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">

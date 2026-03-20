@@ -6,7 +6,6 @@
 	import { STATUS_LABELS, PRIORITY_LABELS } from '$lib/types/issue';
 	import type { IssueStatus, IssuePriority } from '$lib/types/issue';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
-	import LoadingState from '$lib/components/shared/LoadingState.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { Badge } from '$lib/components/ui/badge';
 	import * as Dialog from '$lib/components/ui/dialog';
@@ -104,9 +103,7 @@
 	</div>
 
 	<div class="flex-1 overflow-y-auto">
-		{#if loading}
-			<LoadingState />
-		{:else if templates.length === 0}
+		{#if !loading && templates.length === 0}
 			<EmptyState
 				title="No templates yet"
 				description="Create issue templates to standardize your team's workflow"

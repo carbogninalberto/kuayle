@@ -13,7 +13,6 @@
 	import IssueDetail from '$lib/features/issues/IssueDetail.svelte';
 	import GanttChart from '$lib/features/projects/GanttChart.svelte';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
-	import LoadingState from '$lib/components/shared/LoadingState.svelte';
 	import CycleProgress from '$lib/features/cycles/CycleProgress.svelte';
 	import DatePickerPopover from '$lib/components/shared/DatePickerPopover.svelte';
 	import { Badge } from '$lib/components/ui/badge';
@@ -129,9 +128,7 @@
 </script>
 
 <div class="flex h-full flex-col">
-	{#if loading}
-		<LoadingState />
-	{:else if project}
+	{#if !loading && project}
 		<!-- Header -->
 		<div class="flex h-[49px] items-center justify-between border-b border-[var(--app-border)] px-6">
 			<div class="flex items-center gap-3">
@@ -237,9 +234,7 @@
 		<!-- Content -->
 		{#if viewMode === 'list'}
 			<div class="flex-1 overflow-y-auto">
-				{#if issuesState.loading}
-					<LoadingState />
-				{:else if issuesState.issues.length === 0}
+				{#if !issuesState.loading && issuesState.issues.length === 0}
 					<EmptyState
 						title="No issues in this project"
 						description="Assign issues to this project when creating or editing them"
@@ -252,9 +247,7 @@
 			</div>
 		{:else}
 			<div class="flex-1 overflow-auto p-4">
-				{#if issuesState.loading}
-					<LoadingState />
-				{:else}
+				{#if !issuesState.loading}
 					<GanttChart
 						issues={issuesState.issues}
 						{cycles}

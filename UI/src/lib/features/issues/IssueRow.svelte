@@ -1,32 +1,76 @@
 <script lang="ts">
-	import type { Issue } from '$lib/types/issue';
+	import type { Issue, RelationType, IssuePriority } from '$lib/types/issue';
+	import { STATUS_LABELS, PRIORITY_LABELS, STATUS_ORDER } from '$lib/types/issue';
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import type { Label } from '$lib/types/label';
+	import type { Project } from '$lib/types/project';
+	import type { Cycle } from '$lib/types/cycle';
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
 	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
 	import IssueContextMenu from './IssueContextMenu.svelte';
 	import { Checkbox } from '$lib/components/ui/checkbox';
+	import * as Popover from '$lib/components/ui/popover';
 	import { issuesState } from './issues.state.svelte';
 	import { formatRelativeTime } from '$lib/utils/format';
 	import { CalendarDays } from 'lucide-svelte';
+	import { toast } from 'svelte-sonner';
 
 	let {
 		issue,
 		slug = '',
 		members = [],
 		labels = [],
+		projects = [],
+		cycles = [],
 		onclick,
-		lastSelectedId = null
+		lastSelectedId = null,
+		onaddrelation
 	}: {
 		issue: Issue;
 		slug?: string;
 		members?: WorkspaceMember[];
 		labels?: Label[];
+		projects?: Project[];
+		cycles?: Cycle[];
 		onclick: (issue: Issue) => void;
 		lastSelectedId?: string | null;
+		onaddrelation?: (issue: Issue, type: RelationType) => void;
 	} = $props();
 
 	const isSelected = $derived(issuesState.selectedIds.has(issue.id));
+	const priorityValues: IssuePriority[] = [0, 1, 2, 3, 4];
+
+	let editingTitle = $state(false);
+	let titleValue = $state('');
+	let statusOpen = $state(false);
+	let priorityOpen = $state(false);
+	let assigneeOpen = $state(false);
+
+	function startEditing(e: MouseEvent) {
+		e.stopPropagation();
+		e.preventDefault();
+		editingTitle = true;
+		titleValue = issue.title;
+	}
+
+	async function saveTitle() {
+		editingTitle = false;
+		if (titleValue.trim() && titleValue !== issue.title) {
+			try {
+				await issuesState.update(slug, issue.identifier, { title: titleValue.trim() });
+			} catch {
+				toast.error('Failed to update title');
+			}
+		}
+	}
+
+	async function updateField(field: string, value: any) {
+		try {
+			await issuesState.update(slug, issue.identifier, { [field]: value });
+		} catch {
+			toast.error(`Failed to update ${field}`);
+		}
+	}
 
 	function handleCheckboxChange(e: Event) {
 		e.stopPropagation();
@@ -43,7 +87,7 @@
 	}
 </script>
 
-<IssueContextMenu {issue} {slug} {members} {labels}>
+<IssueContextMenu {issue} {slug} {members} {labels} {projects} {cycles} onaddrelation={(type) => onaddrelation?.(issue, type)}>
 	<button
 		class="group flex w-full items-center gap-2 border-b border-[var(--app-border)] px-3 py-1.5 text-left transition-colors duration-100 hover:bg-[var(--color-bg-hover)] {isSelected ? 'bg-[var(--color-bg-hover)]' : ''}"
 		onclick={handleClick}
@@ -61,16 +105,69 @@
 		</span>
 
 		<!-- Priority -->
-		<span class="shrink-0"><IssuePriorityIcon priority={issue.priority} size={14} /></span>
+		<!-- svelte-ignore a11y_click_events_have_key_events -->
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<span class="shrink-0 flex items-center" onclick={(e) => e.stopPropagation()}>
+			<Popover.Root bind:open={priorityOpen}>
+				<Popover.Trigger class="flex items-center cursor-pointer rounded p-0.5 hover:bg-[var(--color-bg-tertiary)] transition-colors">
+					<IssuePriorityIcon priority={issue.priority} size={14} />
+				</Popover.Trigger>
+				<Popover.Content class="w-40 p-1" align="start">
+					{#each priorityValues as value}
+						<button
+							onclick={() => { updateField('priority', value); priorityOpen = false; }}
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {issue.priority === value ? 'bg-[var(--color-bg-hover)]' : ''}"
+						>
+							<IssuePriorityIcon priority={value} size={14} />
+							{PRIORITY_LABELS[value]}
+						</button>
+					{/each}
+				</Popover.Content>
+			</Popover.Root>
+		</span>
 
 		<!-- Identifier -->
 		<span class="w-[4.5rem] shrink-0 text-xs tabular-nums text-[var(--color-text-tertiary)]">{issue.identifier}</span>
 
 		<!-- Status -->
-		<span class="shrink-0"><IssueStatusIcon status={issue.status} size={14} /></span>
+		<!-- svelte-ignore a11y_click_events_have_key_events -->
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<span class="shrink-0 flex items-center" onclick={(e) => e.stopPropagation()}>
+			<Popover.Root bind:open={statusOpen}>
+				<Popover.Trigger class="flex items-center cursor-pointer rounded p-0.5 hover:bg-[var(--color-bg-tertiary)] transition-colors">
+					<IssueStatusIcon status={issue.status} size={14} />
+				</Popover.Trigger>
+				<Popover.Content class="w-40 p-1" align="start">
+					{#each STATUS_ORDER as value}
+						<button
+							onclick={() => { updateField('status', value); statusOpen = false; }}
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {issue.status === value ? 'bg-[var(--color-bg-hover)]' : ''}"
+						>
+							<IssueStatusIcon status={value} size={14} />
+							{STATUS_LABELS[value]}
+						</button>
+					{/each}
+				</Popover.Content>
+			</Popover.Root>
+		</span>
 
 		<!-- Title -->
-		<span class="flex-1 truncate text-[13px] text-[var(--color-text-primary)]">{issue.title}</span>
+		{#if editingTitle}
+			<input
+				type="text"
+				bind:value={titleValue}
+				onblur={saveTitle}
+				onkeydown={(e) => { if (e.key === 'Enter') saveTitle(); if (e.key === 'Escape') { editingTitle = false; } }}
+				onclick={(e) => e.stopPropagation()}
+				autofocus
+				class="flex-1 truncate text-[13px] text-[var(--color-text-primary)] bg-transparent outline-none border-b border-[var(--app-accent)]"
+			/>
+		{:else}
+			<span
+				class="flex-1 truncate text-[13px] text-[var(--color-text-primary)]"
+				ondblclick={startEditing}
+			>{issue.title}</span>
+		{/if}
 
 		<!-- Labels (Linear-style: dot + name) -->
 		{#if issue.labels && issue.labels.length > 0}
@@ -92,33 +189,72 @@
 			{@const due = new Date(issue.due_date)}
 			{@const now = new Date()}
 			{@const diffDays = Math.ceil((due.getTime() - now.getTime()) / 86400000)}
-			<span class="hidden shrink-0 items-center gap-1 text-[11px] sm:inline-flex {diffDays < 0 ? 'text-red-500' : diffDays === 0 ? 'text-orange-500' : diffDays <= 7 ? 'text-[var(--color-text-secondary)]' : 'text-[var(--color-text-tertiary)]'}">
-				<CalendarDays size={11} />
-				{due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+			<span class="hidden shrink-0 items-center gap-1 text-[11px] sm:inline-flex">
+				<CalendarDays size={11} class={diffDays < 0 ? 'text-red-500' : diffDays === 0 ? 'text-orange-500' : diffDays <= 7 ? 'text-[var(--color-text-secondary)]' : 'text-[var(--color-text-tertiary)]'} />
+				<span class="text-[var(--color-text-tertiary)]">{due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
 			</span>
 		{/if}
 
 		<!-- Assignees -->
-		{#if issue.assignees && issue.assignees.length > 0}
-			<div class="flex shrink-0 -space-x-1.5">
-				{#each issue.assignees.slice(0, 3) as a}
-					<div class="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--app-accent)] text-[9px] font-medium text-white ring-1 ring-[var(--color-bg)]" title={a.name}>
-						{(a.name ?? 'U').charAt(0).toUpperCase()}
-					</div>
-				{/each}
-				{#if issue.assignees.length > 3}
-					<div class="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--color-bg-tertiary)] text-[8px] text-[var(--color-text-secondary)] ring-1 ring-[var(--color-bg)]">
-						+{issue.assignees.length - 3}
-					</div>
-				{/if}
-			</div>
-		{:else if issue.assignee}
-			<div class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent)] text-[9px] font-medium text-white" title={issue.assignee.name}>
-				{(issue.assignee.name ?? 'U').charAt(0).toUpperCase()}
-			</div>
-		{:else}
-			<div class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-dashed border-[var(--color-text-tertiary)] opacity-30">
-			</div>
+		<!-- svelte-ignore a11y_click_events_have_key_events -->
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<span class="shrink-0 flex items-center" onclick={(e) => e.stopPropagation()}>
+			<Popover.Root bind:open={assigneeOpen}>
+				<Popover.Trigger class="flex items-center cursor-pointer rounded-full hover:ring-2 hover:ring-[var(--color-bg-tertiary)] transition-all">
+					{#if issue.assignees && issue.assignees.length > 1}
+						<div class="flex -space-x-2">
+							<div class="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--app-accent)] text-[9px] font-medium text-white ring-1 ring-[var(--color-bg)]" title={issue.assignees[0].name}>
+								{(issue.assignees[0].name ?? 'U').charAt(0).toUpperCase()}
+							</div>
+							<div class="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--color-bg-tertiary)] text-[8px] font-medium text-[var(--color-text-secondary)] ring-1 ring-[var(--color-bg)]">
+								+{issue.assignees.length - 1}
+							</div>
+						</div>
+					{:else if issue.assignees && issue.assignees.length === 1}
+						<div class="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--app-accent)] text-[9px] font-medium text-white" title={issue.assignees[0].name}>
+							{(issue.assignees[0].name ?? 'U').charAt(0).toUpperCase()}
+						</div>
+					{:else if issue.assignee}
+						<div class="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--app-accent)] text-[9px] font-medium text-white" title={issue.assignee.name}>
+							{(issue.assignee.name ?? 'U').charAt(0).toUpperCase()}
+						</div>
+					{:else}
+						<div class="flex h-5 w-5 items-center justify-center rounded-full border border-dashed border-[var(--color-text-tertiary)] opacity-30">
+						</div>
+					{/if}
+				</Popover.Trigger>
+				<Popover.Content class="w-48 p-1" align="end">
+					<button
+						onclick={() => { updateField('assignee_ids', []); assigneeOpen = false; }}
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+					>
+						Clear all
+					</button>
+					{#each members as member}
+						{@const isAssigned = (issue.assignees ?? []).some(a => a.id === member.user_id)}
+						<button
+							onclick={() => {
+								const currentIds = (issue.assignees ?? []).map(a => a.id);
+								const newIds = isAssigned ? currentIds.filter(id => id !== member.user_id) : [...currentIds, member.user_id];
+								updateField('assignee_ids', newIds);
+							}}
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {isAssigned ? 'bg-[var(--color-bg-hover)]' : ''}"
+						>
+							<div class="flex h-4 w-4 items-center justify-center rounded-full {isAssigned ? 'bg-[var(--app-accent)] text-white' : 'bg-[var(--color-bg-tertiary)] text-[var(--color-text-tertiary)]'} text-[8px]">
+								{isAssigned ? '✓' : (member.name || member.email || 'U').charAt(0).toUpperCase()}
+							</div>
+							{member.name || member.email}
+						</button>
+					{/each}
+				</Popover.Content>
+			</Popover.Root>
+		</span>
+
+		<!-- Created -->
+		{#if issue.created_at}
+			<span class="hidden shrink-0 text-[11px] text-[var(--color-text-tertiary)] sm:inline">
+				{formatRelativeTime(issue.created_at)}
+			</span>
 		{/if}
 	</button>
 </IssueContextMenu>

@@ -14,7 +14,6 @@
 	import IssueDetail from '$lib/features/issues/IssueDetail.svelte';
 	import { issuesState } from '$lib/features/issues/issues.state.svelte';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
-	import LoadingState from '$lib/components/shared/LoadingState.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import * as Popover from '$lib/components/ui/popover';
 	import { toast } from 'svelte-sonner';
@@ -107,9 +106,7 @@
 </script>
 
 <div class="flex h-full flex-col">
-	{#if loading}
-		<LoadingState />
-	{:else if view}
+	{#if !loading && view}
 		<!-- Header -->
 		<div class="flex h-[49px] items-center justify-between border-b border-[var(--app-border)] px-6">
 			<div class="flex items-center gap-3">
