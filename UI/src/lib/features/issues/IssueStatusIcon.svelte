@@ -21,8 +21,10 @@
 		done: 'text-[var(--color-success)]',
 		cancelled: 'text-[var(--color-text-tertiary)]'
 	};
+
+	const Icon = $derived(icons[status]);
 </script>
 
 <span class={colors[status]}>
-	<svelte:component this={icons[status]} {size} />
+	<Icon {size} />
 </span>

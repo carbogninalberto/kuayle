@@ -4,7 +4,7 @@
 	import { STATUS_LABELS, PRIORITY_LABELS, STATUS_ORDER } from '$lib/types/issue';
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import type { Label } from '$lib/types/label';
-	import { listComments, createComment, getIssueHistory } from '$lib/api/issues';
+	import { listComments, createComment, getIssueHistory, getIssue } from '$lib/api/issues';
 	import { listMembers } from '$lib/api/members';
 	import { listLabels } from '$lib/api/labels';
 	import { issuesState } from './issues.state.svelte';
@@ -17,6 +17,8 @@
 	import * as Popover from '$lib/components/ui/popover';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { ChevronUp, ChevronDown, User } from 'lucide-svelte';
+	import { listCycles } from '$lib/api/cycles';
+	import type { Cycle } from '$lib/types/cycle';
 
 	let {
 		issue,
@@ -40,6 +42,8 @@
 	let priorityOpen = $state(false);
 	let assigneeOpen = $state(false);
 	let labelsOpen = $state(false);
+	let cycles = $state<Cycle[]>([]);
+	let cycleOpen = $state(false);
 
 	const priorityValues: IssuePriority[] = [0, 1, 2, 3, 4];
 
@@ -54,6 +58,9 @@
 		history = h;
 		members = m;
 		labels = l;
+
+		// Fetch cycles for the issue's team
+		listCycles(slug, issue.team_id).then(c => cycles = c).catch(() => {});
 	});
 
 	$effect(() => {
@@ -118,6 +125,22 @@
 		}
 	}
 
+	function formatHistoryValue(field: string, value: string | null): string {
+		if (!value) return '';
+		switch (field) {
+			case 'status':
+				return STATUS_LABELS[value as IssueStatus] ?? value;
+			case 'priority':
+				return PRIORITY_LABELS[Number(value) as IssuePriority] ?? value;
+			case 'assignee_id': {
+				const member = members.find(m => m.user_id === value);
+				return member ? (member.name || member.email) : value;
+			}
+			default:
+				return value;
+		}
+	}
+
 	async function handleAddComment(e: Event) {
 		e.preventDefault();
 		if (!newComment.trim()) return;
@@ -135,10 +158,15 @@
 <div class="flex h-full flex-col">
 	<!-- Top bar -->
 	<div class="flex h-[49px] items-center justify-between border-b border-[var(--app-border)] px-6">
-		<div class="flex items-center gap-2 text-sm">
-			<span class="text-[var(--color-text-tertiary)]">{issue.identifier.split('-')[0]}</span>
+		<div class="flex items-center gap-1.5 text-sm">
+			<a
+				href="/{slug}/teams/{issue.team_id}"
+				class="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
+			>
+				{issue.identifier.split('-')[0]}
+			</a>
 			<span class="text-[var(--color-text-tertiary)]">/</span>
-			<span class="text-[var(--color-text-primary)]">{issue.identifier}</span>
+			<span class="text-[var(--color-text-primary)] font-medium">{issue.identifier}</span>
 		</div>
 		<div class="flex items-center gap-1">
 			{#if onnavigate}
@@ -165,6 +193,7 @@
 		<!-- Left column -->
 		<div class="flex-1 overflow-y-auto p-6">
 			<!-- Title -->
+			<!-- svelte-ignore a11y_autofocus -->
 			{#if editingTitle}
 				<input
 					type="text"
@@ -250,8 +279,8 @@
 							<span class="text-[var(--color-text-tertiary)]">{formatRelativeTime(entry.created_at)}</span>
 							<span class="text-[var(--color-text-secondary)]">
 								changed <strong>{entry.field}</strong>
-								{#if entry.old_value}from <code class="rounded bg-[var(--color-bg-tertiary)] px-1">{entry.field === 'status' ? (STATUS_LABELS[entry.old_value as IssueStatus] ?? entry.old_value) : entry.old_value}</code>{/if}
-								to <code class="rounded bg-[var(--color-bg-tertiary)] px-1">{entry.field === 'status' ? (STATUS_LABELS[entry.new_value as IssueStatus] ?? entry.new_value) : entry.new_value}</code>
+								{#if entry.old_value}from <code class="rounded bg-[var(--color-bg-tertiary)] px-1">{formatHistoryValue(entry.field, entry.old_value)}</code>{/if}
+								to <code class="rounded bg-[var(--color-bg-tertiary)] px-1">{formatHistoryValue(entry.field, entry.new_value)}</code>
 							</span>
 						</div>
 					{/each}
@@ -372,6 +401,13 @@
 											: [...currentIds, label.id];
 										try {
 											await issuesState.update(slug, issue.identifier, { label_ids: newIds });
+											// Re-fetch to get full label objects
+											const fresh = await getIssue(slug, issue.identifier);
+											const idx = issuesState.issues.findIndex(i => i.identifier === issue.identifier);
+											if (idx >= 0) issuesState.issues[idx] = fresh;
+											if (issuesState.selectedIssue?.identifier === issue.identifier) {
+												issuesState.selectedIssue = fresh;
+											}
 										} catch { toast.error('Failed to update labels'); }
 									}}
 									class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
@@ -396,6 +432,51 @@
 						onchange={updateDueDate}
 						placeholder="Set date"
 					/>
+				</div>
+
+				<!-- Cycle -->
+				<div class="flex items-center justify-between">
+					<span class="text-xs text-[var(--color-text-tertiary)]">Cycle</span>
+					<Popover.Root bind:open={cycleOpen}>
+						<Popover.Trigger>
+							<button class="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
+								{#if issue.cycle_id}
+									{cycles.find(c => c.id === issue.cycle_id)?.name ?? 'Cycle'}
+								{:else}
+									No cycle
+								{/if}
+							</button>
+						</Popover.Trigger>
+						<Popover.Content class="w-48 p-1" align="end">
+							<button
+								onclick={async () => {
+									try {
+										await issuesState.update(slug, issue.identifier, { cycle_id: undefined });
+										cycleOpen = false;
+									} catch { toast.error('Failed to update cycle'); }
+								}}
+								class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
+							>
+								No cycle
+							</button>
+							{#each cycles as cycle}
+								<button
+									onclick={async () => {
+										try {
+											await issuesState.update(slug, issue.identifier, { cycle_id: cycle.id });
+											cycleOpen = false;
+										} catch { toast.error('Failed to update cycle'); }
+									}}
+									class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {issue.cycle_id === cycle.id ? 'bg-[var(--color-bg-hover)]' : ''}"
+								>
+									{cycle.name}
+								</button>
+							{/each}
+							{#if cycles.length === 0}
+								<p class="px-2 py-3 text-center text-xs text-[var(--color-text-tertiary)]">No cycles</p>
+							{/if}
+						</Popover.Content>
+					</Popover.Root>
 				</div>
 
 				{#if issue.estimate !== null && issue.estimate !== undefined}

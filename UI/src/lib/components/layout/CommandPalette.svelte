@@ -94,13 +94,13 @@
 	onkeydown={handleKeydown}
 >
 	<!-- Backdrop -->
-	<!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
-	<div class="fixed inset-0 bg-black/50" onclick={onclose}></div>
+	<button class="fixed inset-0 bg-black/50 cursor-default" onclick={onclose} tabindex={-1} aria-label="Close"></button>
 
 	<!-- Dialog -->
 	<div
 		class="relative z-10 w-full max-w-lg overflow-hidden rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)] shadow-2xl"
 	>
+		<!-- svelte-ignore a11y_autofocus -->
 		<input
 			type="text"
 			bind:value={search}

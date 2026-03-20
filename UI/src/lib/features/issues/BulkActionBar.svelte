@@ -6,7 +6,8 @@
 	import { issuesState } from './issues.state.svelte';
 	import * as Popover from '$lib/components/ui/popover';
 	import { toast } from 'svelte-sonner';
-	import { X } from 'lucide-svelte';
+	import { X, Trash2 } from 'lucide-svelte';
+	import * as issueApi from '$lib/api/issues';
 
 	let { slug }: { slug: string } = $props();
 
@@ -34,11 +35,25 @@
 		}
 		priorityOpen = false;
 	}
+
+	async function bulkDelete() {
+		const ids = Array.from(issuesState.selectedIds);
+		if (ids.length === 0) return;
+		try {
+			await issueApi.bulkDeleteIssues(slug, { issue_ids: ids });
+			issuesState.issues = issuesState.issues.filter(i => !issuesState.selectedIds.has(i.id));
+			issuesState.totalCount -= ids.length;
+			issuesState.clearSelection();
+			toast.success(`Deleted ${ids.length} issues`);
+		} catch {
+			toast.error('Bulk delete failed');
+		}
+	}
 </script>
 
 {#if issuesState.selectionCount > 0}
-	<div class="sticky bottom-4 mx-4 flex items-center gap-3 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-4 py-2.5 shadow-lg">
-		<span class="text-sm font-medium text-[var(--color-text-primary)]">
+	<div class="fixed bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-1.5 shadow-lg">
+		<span class="text-xs font-medium text-[var(--color-text-primary)]">
 			{issuesState.selectionCount} selected
 		</span>
 
@@ -81,6 +96,13 @@
 				</Popover.Content>
 			</Popover.Root>
 		</div>
+
+		<button
+			onclick={bulkDelete}
+			class="rounded-md border border-red-500/30 px-2.5 py-1 text-xs text-red-500 hover:bg-red-500/10"
+		>
+			<Trash2 size={12} />
+		</button>
 
 		<button
 			onclick={() => issuesState.clearSelection()}

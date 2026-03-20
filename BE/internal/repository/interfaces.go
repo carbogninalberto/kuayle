@@ -60,6 +60,7 @@ type IssueRepo interface {
 	ListSubIssues(ctx context.Context, parentID uuid.UUID) ([]domain.Issue, error)
 	CountSubIssues(ctx context.Context, parentID uuid.UUID) (int, int, error)
 	BulkUpdate(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID, status *string, priority *int, assigneeID *uuid.UUID) (int, error)
+	BulkDelete(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID) (int, error)
 	BeginTx(ctx context.Context) (*sqlx.Tx, error)
 }
 
@@ -69,6 +70,7 @@ type LabelRepo interface {
 	ListByWorkspace(ctx context.Context, workspaceID uuid.UUID) ([]domain.Label, error)
 	Update(ctx context.Context, label *domain.Label) error
 	Delete(ctx context.Context, id uuid.UUID) error
+	ExistsByName(ctx context.Context, workspaceID uuid.UUID, name string) (bool, error)
 }
 
 type CommentRepo interface {

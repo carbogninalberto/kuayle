@@ -85,6 +85,11 @@ func (m *mockIssueRepo) BulkUpdate(ctx context.Context, workspaceID uuid.UUID, i
 	return args.Int(0), args.Error(1)
 }
 
+func (m *mockIssueRepo) BulkDelete(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID) (int, error) {
+	args := m.Called(ctx, workspaceID, issueIDs)
+	return args.Int(0), args.Error(1)
+}
+
 func (m *mockIssueRepo) BeginTx(ctx context.Context) (*sqlx.Tx, error) {
 	args := m.Called(ctx)
 	if args.Get(0) == nil {

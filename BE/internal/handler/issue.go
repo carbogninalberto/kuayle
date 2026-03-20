@@ -1,11 +1,13 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/carbon/carbon-backend/internal/domain"
 	"github.com/carbon/carbon-backend/internal/dto"
 	"github.com/carbon/carbon-backend/internal/middleware"
+	"github.com/carbon/carbon-backend/internal/repository"
 	"github.com/carbon/carbon-backend/internal/service"
 	"github.com/carbon/carbon-backend/pkg/response"
 	"github.com/carbon/carbon-backend/pkg/validate"
@@ -15,10 +17,11 @@ import (
 type IssueHandler struct {
 	issueSvc   *service.IssueService
 	commentSvc *service.CommentService
+	userRepo   repository.UserRepo
 }
 
-func NewIssueHandler(issueSvc *service.IssueService, commentSvc *service.CommentService) *IssueHandler {
-	return &IssueHandler{issueSvc: issueSvc, commentSvc: commentSvc}
+func NewIssueHandler(issueSvc *service.IssueService, commentSvc *service.CommentService, userRepo repository.UserRepo) *IssueHandler {
+	return &IssueHandler{issueSvc: issueSvc, commentSvc: commentSvc, userRepo: userRepo}
 }
 
 func (h *IssueHandler) List(c echo.Context) error {
@@ -34,9 +37,12 @@ func (h *IssueHandler) List(c echo.Context) error {
 		return response.InternalError(c)
 	}
 
+	ctx := c.Request().Context()
 	issueResponses := make([]dto.IssueResponse, len(issues))
 	for i, issue := range issues {
-		issueResponses[i] = toIssueResponse(issue)
+		resp := toIssueResponse(issue)
+		h.enrichIssueResponse(ctx, &resp, issue)
+		issueResponses[i] = resp
 	}
 
 	return response.Success(c, http.StatusOK, dto.ListResponse[dto.IssueResponse]{
@@ -69,7 +75,9 @@ func (h *IssueHandler) Create(c echo.Context) error {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
 	}
 
-	return response.Success(c, http.StatusCreated, toIssueResponse(*issue))
+	resp := toIssueResponse(*issue)
+	h.enrichIssueResponse(c.Request().Context(), &resp, *issue)
+	return response.Success(c, http.StatusCreated, resp)
 }
 
 func (h *IssueHandler) Get(c echo.Context) error {
@@ -82,14 +90,7 @@ func (h *IssueHandler) Get(c echo.Context) error {
 	}
 
 	resp := toIssueResponse(*issue)
-
-	labels, _ := h.issueSvc.GetLabels(c.Request().Context(), issue.ID)
-	if labels != nil {
-		resp.Labels = make([]dto.LabelResponse, len(labels))
-		for i, l := range labels {
-			resp.Labels[i] = toLabelResponse(l)
-		}
-	}
+	h.enrichIssueResponse(c.Request().Context(), &resp, *issue)
 
 	return response.Success(c, http.StatusOK, resp)
 }
@@ -109,7 +110,9 @@ func (h *IssueHandler) Update(c echo.Context) error {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
 	}
 
-	return response.Success(c, http.StatusOK, toIssueResponse(*issue))
+	resp := toIssueResponse(*issue)
+	h.enrichIssueResponse(c.Request().Context(), &resp, *issue)
+	return response.Success(c, http.StatusOK, resp)
 }
 
 func (h *IssueHandler) Delete(c echo.Context) error {
@@ -145,6 +148,29 @@ func (h *IssueHandler) BulkUpdate(c echo.Context) error {
 	}
 
 	return response.Success(c, http.StatusOK, map[string]int{"updated": updated})
+}
+
+func (h *IssueHandler) BulkDelete(c echo.Context) error {
+	var req dto.BulkDeleteIssueRequest
+	if err := c.Bind(&req); err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
+	}
+	if err := validate.Struct(&req); err != nil {
+		details := make([]dto.ErrorDetail, 0)
+		for _, e := range validate.FormatErrors(err) {
+			details = append(details, dto.ErrorDetail{Field: e["field"], Message: e["message"]})
+		}
+		return response.ValidationError(c, details)
+	}
+
+	ws := c.Get("workspace").(*domain.Workspace)
+
+	deleted, err := h.issueSvc.BulkDelete(c.Request().Context(), ws.ID, req)
+	if err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+	}
+
+	return response.Success(c, http.StatusOK, map[string]int{"deleted": deleted})
 }
 
 func (h *IssueHandler) ListComments(c echo.Context) error {
@@ -275,6 +301,43 @@ func (h *IssueHandler) TriageDecline(c echo.Context) error {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
 	}
 	return response.Success(c, http.StatusOK, toIssueResponse(*issue))
+}
+
+func (h *IssueHandler) enrichIssueResponse(ctx context.Context, resp *dto.IssueResponse, issue domain.Issue) {
+	// Populate labels
+	labels, _ := h.issueSvc.GetLabels(ctx, issue.ID)
+	if labels != nil {
+		resp.Labels = make([]dto.LabelResponse, len(labels))
+		for i, l := range labels {
+			resp.Labels[i] = toLabelResponse(l)
+		}
+	}
+
+	// Populate assignee user object
+	if issue.AssigneeID != nil {
+		user, _ := h.userRepo.GetByID(ctx, *issue.AssigneeID)
+		if user != nil {
+			resp.Assignee = &dto.UserResponse{
+				ID:          user.ID.String(),
+				Email:       user.Email,
+				Name:        user.Name,
+				DisplayName: user.DisplayName,
+				AvatarURL:   user.AvatarURL,
+			}
+		}
+	}
+
+	// Populate creator user object
+	user, _ := h.userRepo.GetByID(ctx, issue.CreatorID)
+	if user != nil {
+		resp.Creator = &dto.UserResponse{
+			ID:          user.ID.String(),
+			Email:       user.Email,
+			Name:        user.Name,
+			DisplayName: user.DisplayName,
+			AvatarURL:   user.AvatarURL,
+		}
+	}
 }
 
 func toIssueResponse(issue domain.Issue) dto.IssueResponse {

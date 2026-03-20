@@ -297,6 +297,25 @@ func (r *IssueRepository) BulkUpdate(ctx context.Context, workspaceID uuid.UUID,
 	return int(n), nil
 }
 
+func (r *IssueRepository) BulkDelete(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID) (int, error) {
+	if len(issueIDs) == 0 {
+		return 0, nil
+	}
+	args := []interface{}{workspaceID}
+	placeholders := make([]string, len(issueIDs))
+	for i, id := range issueIDs {
+		placeholders[i] = fmt.Sprintf("$%d", i+2)
+		args = append(args, id)
+	}
+	query := fmt.Sprintf(`DELETE FROM issues WHERE workspace_id = $1 AND id IN (%s)`, strings.Join(placeholders, ", "))
+	result, err := r.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := result.RowsAffected()
+	return int(n), nil
+}
+
 func (r *IssueRepository) BeginTx(ctx context.Context) (*sqlx.Tx, error) {
 	return r.db.BeginTxx(ctx, nil)
 }

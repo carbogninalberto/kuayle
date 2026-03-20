@@ -65,6 +65,10 @@ type BulkUpdateIssueRequest struct {
 	LabelIDs   []string `json:"label_ids" validate:"omitempty,dive,uuid"`
 }
 
+type BulkDeleteIssueRequest struct {
+	IssueIDs []string `json:"issue_ids" validate:"required,min=1,dive,uuid"`
+}
+
 type IssueFilterParams struct {
 	PaginationParams
 	Status     string `query:"status"`

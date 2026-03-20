@@ -110,6 +110,10 @@ func (r *testIssueRepo) BulkUpdate(_ context.Context, _ uuid.UUID, _ []uuid.UUID
 	return 0, nil
 }
 
+func (r *testIssueRepo) BulkDelete(_ context.Context, _ uuid.UUID, _ []uuid.UUID) (int, error) {
+	return 0, nil
+}
+
 func (r *testIssueRepo) BeginTx(_ context.Context) (*sqlx.Tx, error) {
 	return nil, nil
 }
@@ -226,7 +230,7 @@ func TestIssueHandler_List(t *testing.T) {
 
 	issueSvc := service.NewIssueService(issueRepo, teamRepo, historyRepo, hub)
 	commentSvc := service.NewCommentService(&testCommentRepo{})
-	h := NewIssueHandler(issueSvc, commentSvc)
+	h := NewIssueHandler(issueSvc, commentSvc, &testUserRepo{})
 
 	c, rec := setupIssueContext(e, http.MethodGet, "/api/workspaces/test/issues", "")
 	ws := &domain.Workspace{ID: wsID, Name: "Test", Slug: "test"}
@@ -259,7 +263,7 @@ func TestIssueHandler_Get_Found(t *testing.T) {
 
 	issueSvc := service.NewIssueService(issueRepo, teamRepo, historyRepo, hub)
 	commentSvc := service.NewCommentService(&testCommentRepo{})
-	h := NewIssueHandler(issueSvc, commentSvc)
+	h := NewIssueHandler(issueSvc, commentSvc, &testUserRepo{})
 
 	c, rec := setupIssueContext(e, http.MethodGet, "/api/workspaces/test/issues/ENG-1", "")
 	ws := &domain.Workspace{ID: wsID, Name: "Test", Slug: "test"}
@@ -283,7 +287,7 @@ func TestIssueHandler_Get_NotFound(t *testing.T) {
 
 	issueSvc := service.NewIssueService(issueRepo, teamRepo, historyRepo, hub)
 	commentSvc := service.NewCommentService(&testCommentRepo{})
-	h := NewIssueHandler(issueSvc, commentSvc)
+	h := NewIssueHandler(issueSvc, commentSvc, &testUserRepo{})
 
 	c, rec := setupIssueContext(e, http.MethodGet, "/api/workspaces/test/issues/ENG-999", "")
 	ws := &domain.Workspace{ID: uuid.New(), Name: "Test", Slug: "test"}
@@ -306,7 +310,7 @@ func TestIssueHandler_Create_ValidationError(t *testing.T) {
 
 	issueSvc := service.NewIssueService(issueRepo, teamRepo, historyRepo, hub)
 	commentSvc := service.NewCommentService(&testCommentRepo{})
-	h := NewIssueHandler(issueSvc, commentSvc)
+	h := NewIssueHandler(issueSvc, commentSvc, &testUserRepo{})
 
 	// Missing required fields
 	c, rec := setupIssueContext(e, http.MethodPost, "/api/workspaces/test/issues", `{"title": ""}`)
@@ -335,7 +339,7 @@ func TestIssueHandler_Delete_Success(t *testing.T) {
 
 	issueSvc := service.NewIssueService(issueRepo, teamRepo, historyRepo, hub)
 	commentSvc := service.NewCommentService(&testCommentRepo{})
-	h := NewIssueHandler(issueSvc, commentSvc)
+	h := NewIssueHandler(issueSvc, commentSvc, &testUserRepo{})
 
 	c, rec := setupIssueContext(e, http.MethodDelete, "/api/workspaces/test/issues/ENG-1", "")
 	ws := &domain.Workspace{ID: wsID, Name: "Test", Slug: "test"}
@@ -359,7 +363,7 @@ func TestIssueHandler_CreateComment_ValidationError(t *testing.T) {
 
 	issueSvc := service.NewIssueService(issueRepo, teamRepo, historyRepo, hub)
 	commentSvc := service.NewCommentService(&testCommentRepo{})
-	h := NewIssueHandler(issueSvc, commentSvc)
+	h := NewIssueHandler(issueSvc, commentSvc, &testUserRepo{})
 
 	c, rec := setupIssueContext(e, http.MethodPost, "/api/workspaces/test/issues/ENG-1/comments", `{"body": ""}`)
 	setWorkspaceContext(c)

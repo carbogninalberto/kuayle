@@ -13,6 +13,7 @@ type Label struct {
 	Color       string     `json:"color" db:"color"`
 	Description *string    `json:"description" db:"description"`
 	ParentID    *uuid.UUID `json:"parent_id" db:"parent_id"`
+	DeletedAt   *time.Time `json:"deleted_at" db:"deleted_at"`
 	CreatedAt   time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt   time.Time  `json:"updated_at" db:"updated_at"`
 }

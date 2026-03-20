@@ -19,6 +19,14 @@ func NewLabelService(labelRepo repository.LabelRepo) *LabelService {
 }
 
 func (s *LabelService) Create(ctx context.Context, workspaceID uuid.UUID, req dto.CreateLabelRequest) (*domain.Label, error) {
+	exists, err := s.labelRepo.ExistsByName(ctx, workspaceID, req.Name)
+	if err != nil {
+		return nil, err
+	}
+	if exists {
+		return nil, fmt.Errorf("a label with this name already exists")
+	}
+
 	label := &domain.Label{
 		ID:          uuid.New(),
 		WorkspaceID: workspaceID,

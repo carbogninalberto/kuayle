@@ -25,7 +25,7 @@ func (r *LabelRepository) Create(ctx context.Context, label *domain.Label) error
 
 func (r *LabelRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Label, error) {
 	var label domain.Label
-	err := r.db.GetContext(ctx, &label, `SELECT * FROM labels WHERE id = $1`, id)
+	err := r.db.GetContext(ctx, &label, `SELECT * FROM labels WHERE id = $1 AND deleted_at IS NULL`, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -34,7 +34,7 @@ func (r *LabelRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.La
 
 func (r *LabelRepository) ListByWorkspace(ctx context.Context, workspaceID uuid.UUID) ([]domain.Label, error) {
 	var labels []domain.Label
-	err := r.db.SelectContext(ctx, &labels, `SELECT * FROM labels WHERE workspace_id = $1 ORDER BY name`, workspaceID)
+	err := r.db.SelectContext(ctx, &labels, `SELECT * FROM labels WHERE workspace_id = $1 AND deleted_at IS NULL ORDER BY name`, workspaceID)
 	return labels, err
 }
 
@@ -44,6 +44,12 @@ func (r *LabelRepository) Update(ctx context.Context, label *domain.Label) error
 }
 
 func (r *LabelRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM labels WHERE id = $1`, id)
+	_, err := r.db.ExecContext(ctx, `UPDATE labels SET deleted_at = NOW() WHERE id = $1`, id)
 	return err
+}
+
+func (r *LabelRepository) ExistsByName(ctx context.Context, workspaceID uuid.UUID, name string) (bool, error) {
+	var exists bool
+	err := r.db.GetContext(ctx, &exists, `SELECT EXISTS(SELECT 1 FROM labels WHERE workspace_id = $1 AND LOWER(name) = LOWER($2) AND deleted_at IS NULL)`, workspaceID, name)
+	return exists, err
 }

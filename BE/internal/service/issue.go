@@ -306,6 +306,29 @@ func (s *IssueService) BulkUpdate(ctx context.Context, workspaceID, userID uuid.
 	return n, nil
 }
 
+func (s *IssueService) BulkDelete(ctx context.Context, workspaceID uuid.UUID, req dto.BulkDeleteIssueRequest) (int, error) {
+	issueIDs := make([]uuid.UUID, len(req.IssueIDs))
+	for i, id := range req.IssueIDs {
+		parsed, err := uuid.Parse(id)
+		if err != nil {
+			return 0, fmt.Errorf("invalid issue_id: %s", id)
+		}
+		issueIDs[i] = parsed
+	}
+
+	n, err := s.issueRepo.BulkDelete(ctx, workspaceID, issueIDs)
+	if err != nil {
+		return 0, err
+	}
+
+	s.hub.Broadcast(workspaceID, realtime.Event{
+		Type:    "issues.bulk_deleted",
+		Payload: map[string]interface{}{"count": n},
+	})
+
+	return n, nil
+}
+
 func (s *IssueService) recordHistory(ctx context.Context, issueID, userID uuid.UUID, field string, oldValue, newValue *string) {
 	if err := s.historyRepo.Create(ctx, issueID, userID, field, oldValue, newValue); err != nil {
 		log.WithError(err).Warn("failed to record issue history")

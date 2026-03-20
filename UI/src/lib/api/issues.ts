@@ -56,6 +56,13 @@ export function triageDecline(slug: string, identifier: string): Promise<Issue> 
 	return api.post<Issue>(`/api/workspaces/${slug}/issues/${identifier}/triage/decline`);
 }
 
+export function bulkDeleteIssues(
+	slug: string,
+	req: { issue_ids: string[] }
+): Promise<{ deleted: number }> {
+	return api.deleteWithBody<{ deleted: number }>(`/api/workspaces/${slug}/issues/bulk`, req);
+}
+
 export function bulkUpdateIssues(
 	slug: string,
 	req: {

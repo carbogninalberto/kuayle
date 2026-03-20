@@ -72,8 +72,7 @@
 	class="fixed inset-0 z-40 flex justify-end"
 	onkeydown={(e) => e.key === 'Escape' && onclose()}
 >
-	<!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
-	<div class="flex-1" onclick={onclose}></div>
+	<button class="flex-1 cursor-default" onclick={onclose} tabindex={-1}></button>
 
 	<div
 		class="w-full max-w-2xl overflow-y-auto border-l border-[var(--app-border)] bg-[var(--color-bg)] shadow-2xl"

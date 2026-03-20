@@ -4,17 +4,22 @@
 	import { goto } from '$app/navigation';
 	import { getProject, updateProject, deleteProject } from '$lib/api/projects';
 	import { issuesState } from '$lib/features/issues/issues.state.svelte';
+	import { listCycles } from '$lib/api/cycles';
+	import { listTeams } from '$lib/api/teams';
 	import type { Project, ProjectStatus } from '$lib/types/project';
+	import type { Cycle } from '$lib/types/cycle';
+	import type { Team } from '$lib/types/team';
 	import IssueRow from '$lib/features/issues/IssueRow.svelte';
 	import IssueDetail from '$lib/features/issues/IssueDetail.svelte';
+	import GanttChart from '$lib/features/projects/GanttChart.svelte';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
 	import LoadingState from '$lib/components/shared/LoadingState.svelte';
 	import CycleProgress from '$lib/features/cycles/CycleProgress.svelte';
+	import DatePickerPopover from '$lib/components/shared/DatePickerPopover.svelte';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import * as Popover from '$lib/components/ui/popover';
 	import { toast } from 'svelte-sonner';
-	import { formatRelativeTime } from '$lib/utils/format';
 	import {
 		ArrowLeft,
 		Trash2,
@@ -23,16 +28,20 @@
 		Play,
 		CheckCircle2,
 		XCircle,
-		Calendar
+		Calendar,
+		List,
+		BarChart3
 	} from 'lucide-svelte';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	const projectId = $derived(page.params.projectId ?? '');
 
 	let project = $state<Project | null>(null);
+	let cycles = $state<Cycle[]>([]);
 	let loading = $state(true);
 	let statusOpen = $state(false);
 	let actionsOpen = $state(false);
+	let viewMode = $state<'list' | 'gantt'>('list');
 
 	const STATUS_OPTIONS: { value: ProjectStatus; label: string; icon: typeof Circle }[] = [
 		{ value: 'planned', label: 'Planned', icon: Circle },
@@ -41,10 +50,34 @@
 		{ value: 'cancelled', label: 'Cancelled', icon: XCircle }
 	];
 
+	// Gantt date range: project dates or fallback to 3 months from now
+	const ganttStart = $derived.by(() => {
+		if (project?.start_date) return new Date(project.start_date);
+		const d = new Date();
+		d.setMonth(d.getMonth() - 1);
+		d.setDate(1);
+		return d;
+	});
+
+	const ganttEnd = $derived.by(() => {
+		if (project?.target_date) return new Date(project.target_date);
+		const d = new Date();
+		d.setMonth(d.getMonth() + 3);
+		return d;
+	});
+
 	onMount(async () => {
 		try {
 			project = await getProject(slug, projectId);
-			issuesState.load(slug, { project: projectId });
+			issuesState.load(slug, { project: projectId, per_page: '200' });
+			// Load cycles for all teams (for gantt overlay)
+			const teams = await listTeams(slug);
+			const allCycles: Cycle[] = [];
+			for (const team of teams) {
+				const tc = await listCycles(slug, team.id);
+				allCycles.push(...tc);
+			}
+			cycles = allCycles;
 		} catch {
 			toast.error('Project not found');
 			goto(`/${slug}/projects`);
@@ -61,6 +94,16 @@
 			toast.success('Status updated');
 		} catch (err: any) {
 			toast.error(err?.error?.message || 'Failed to update status');
+		}
+	}
+
+	async function handleDateChange(field: 'start_date' | 'target_date', value: string | null) {
+		if (!project) return;
+		try {
+			project = await updateProject(slug, project.id, { [field]: value });
+			toast.success('Date updated');
+		} catch (err: any) {
+			toast.error(err?.error?.message || 'Failed to update date');
 		}
 	}
 
@@ -82,11 +125,6 @@
 			case 'cancelled': return 'destructive';
 			default: return 'outline';
 		}
-	}
-
-	function formatDate(date: string | null): string {
-		if (!date) return '—';
-		return new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 	}
 </script>
 
@@ -112,44 +150,76 @@
 					</Popover.Trigger>
 					<Popover.Content class="w-40 p-1" align="start">
 						{#each STATUS_OPTIONS as option}
-							<button
+							{@const StatusIcon = option.icon}
+						<button
 								onclick={() => handleStatusChange(option.value)}
 								class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {project.status === option.value ? 'bg-[var(--color-bg-hover)]' : ''}"
 							>
-								<svelte:component this={option.icon} size={14} />
+								<StatusIcon size={14} />
 								{option.label}
 							</button>
 						{/each}
 					</Popover.Content>
 				</Popover.Root>
 			</div>
-			<Popover.Root bind:open={actionsOpen}>
-				<Popover.Trigger>
-					<Button variant="ghost" size="icon-sm">
-						<MoreHorizontal size={14} />
-					</Button>
-				</Popover.Trigger>
-				<Popover.Content class="w-40 p-1" align="end">
+			<div class="flex items-center gap-2">
+				<!-- View switcher -->
+				<div class="flex rounded-md border border-[var(--app-border)]">
 					<button
-						onclick={() => { actionsOpen = false; handleDelete(); }}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-error)] hover:bg-[var(--color-bg-hover)]"
+						onclick={() => (viewMode = 'list')}
+						class="rounded-l-md px-2 py-1 {viewMode === 'list' ? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]' : 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]'}"
+						title="List view"
 					>
-						<Trash2 size={14} />
-						Delete project
+						<List size={14} />
 					</button>
-				</Popover.Content>
-			</Popover.Root>
+					<button
+						onclick={() => (viewMode = 'gantt')}
+						class="rounded-r-md px-2 py-1 {viewMode === 'gantt' ? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]' : 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]'}"
+						title="Gantt view"
+					>
+						<BarChart3 size={14} />
+					</button>
+				</div>
+
+				<Popover.Root bind:open={actionsOpen}>
+					<Popover.Trigger>
+						<Button variant="ghost" size="icon-sm">
+							<MoreHorizontal size={14} />
+						</Button>
+					</Popover.Trigger>
+					<Popover.Content class="w-40 p-1" align="end">
+						<button
+							onclick={() => { actionsOpen = false; handleDelete(); }}
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-error)] hover:bg-[var(--color-bg-hover)]"
+						>
+							<Trash2 size={14} />
+							Delete project
+						</button>
+					</Popover.Content>
+				</Popover.Root>
+			</div>
 		</div>
 
 		<!-- Project info -->
 		<div class="border-b border-[var(--app-border)] px-6 py-4">
-			<div class="flex items-center gap-6 text-xs text-[var(--color-text-tertiary)]">
-				{#if project.start_date || project.target_date}
-					<div class="flex items-center gap-1.5">
-						<Calendar size={12} />
-						{formatDate(project.start_date)} → {formatDate(project.target_date)}
-					</div>
-				{/if}
+			<div class="flex items-center gap-4 text-xs text-[var(--color-text-tertiary)]">
+				<div class="flex items-center gap-1.5">
+					<Calendar size={12} />
+					<span>Start:</span>
+					<DatePickerPopover
+						value={project.start_date}
+						onchange={(d) => handleDateChange('start_date', d)}
+						placeholder="Set start"
+					/>
+				</div>
+				<div class="flex items-center gap-1.5">
+					<span>Target:</span>
+					<DatePickerPopover
+						value={project.target_date}
+						onchange={(d) => handleDateChange('target_date', d)}
+						placeholder="Set target"
+					/>
+				</div>
 				{#if project.progress}
 					<span>{project.progress.completed} of {project.progress.total} issues done</span>
 				{/if}
@@ -164,21 +234,37 @@
 			{/if}
 		</div>
 
-		<!-- Issues -->
-		<div class="flex-1 overflow-y-auto">
-			{#if issuesState.loading}
-				<LoadingState />
-			{:else if issuesState.issues.length === 0}
-				<EmptyState
-					title="No issues in this project"
-					description="Assign issues to this project when creating or editing them"
-				/>
-			{:else}
-				{#each issuesState.issues as issue (issue.id)}
-					<IssueRow {issue} onclick={(i) => issuesState.select(i)} />
-				{/each}
-			{/if}
-		</div>
+		<!-- Content -->
+		{#if viewMode === 'list'}
+			<div class="flex-1 overflow-y-auto">
+				{#if issuesState.loading}
+					<LoadingState />
+				{:else if issuesState.issues.length === 0}
+					<EmptyState
+						title="No issues in this project"
+						description="Assign issues to this project when creating or editing them"
+					/>
+				{:else}
+					{#each issuesState.issues as issue (issue.id)}
+						<IssueRow {issue} {slug} onclick={(i) => issuesState.select(i)} />
+					{/each}
+				{/if}
+			</div>
+		{:else}
+			<div class="flex-1 overflow-auto p-4">
+				{#if issuesState.loading}
+					<LoadingState />
+				{:else}
+					<GanttChart
+						issues={issuesState.issues}
+						{cycles}
+						startDate={ganttStart}
+						endDate={ganttEnd}
+						onissueclick={(i) => goto(`/${slug}/issue/${i.identifier}`)}
+					/>
+				{/if}
+			</div>
+		{/if}
 	{/if}
 </div>
 
