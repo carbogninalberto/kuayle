@@ -58,7 +58,7 @@
 				>
 					{ws.name.charAt(0).toUpperCase()}
 				</div>
-				<span class="flex-1 truncate">{ws.name}</span>
+				<span class="flex-1 truncate text-left">{ws.name}</span>
 				{#if ws.slug === slug}
 					<Check size={14} class="text-[var(--app-accent)]" />
 				{/if}
