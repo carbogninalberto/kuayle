@@ -18,6 +18,7 @@
 	import * as Popover from '$lib/components/ui/popover';
 	import { toast } from 'svelte-sonner';
 	import { ArrowLeft, Pencil, Trash2, MoreHorizontal, Check, X } from 'lucide-svelte';
+	import { createKeyboardHandler } from '$lib/utils/keyboard';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	const viewId = $derived(page.params.viewId ?? '');
@@ -28,6 +29,7 @@
 	let labels = $state<Label[]>([]);
 	let loading = $state(true);
 	let actionsOpen = $state(false);
+	let lastSelectedId = $state<string | null>(null);
 
 	// Edit name state
 	let editingName = $state(false);
@@ -98,6 +100,16 @@
 			toast.error(err?.error?.message || 'Failed to delete view');
 		}
 	}
+
+	const keyHandler = createKeyboardHandler([
+		{ key: 'a', ctrl: true, handler: () => issuesState.selectAll() },
+		{ key: 'Escape', handler: () => issuesState.clearSelection() },
+	]);
+
+	onMount(() => {
+		document.addEventListener('keydown', keyHandler);
+		return () => document.removeEventListener('keydown', keyHandler);
+	});
 
 	function handleEditNameKeydown(e: KeyboardEvent) {
 		if (e.key === 'Enter') saveName();
@@ -194,7 +206,7 @@
 				/>
 			{:else}
 				{#each issues as issue (issue.id)}
-					<IssueRow {issue} {slug} {members} {labels} onclick={(i) => issuesState.select(i)} />
+					<IssueRow {issue} {slug} {members} {labels} {lastSelectedId} onclick={(i) => { lastSelectedId = i.id; issuesState.select(i); }} />
 				{/each}
 			{/if}
 		</div>

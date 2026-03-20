@@ -19,6 +19,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import * as Popover from '$lib/components/ui/popover';
 	import { toast } from 'svelte-sonner';
+	import { createKeyboardHandler } from '$lib/utils/keyboard';
 	import {
 		ArrowLeft,
 		Trash2,
@@ -41,6 +42,7 @@
 	let statusOpen = $state(false);
 	let actionsOpen = $state(false);
 	let viewMode = $state<'list' | 'gantt'>('list');
+	let lastSelectedId = $state<string | null>(null);
 
 	const STATUS_OPTIONS: { value: ProjectStatus; label: string; icon: typeof Circle }[] = [
 		{ value: 'planned', label: 'Planned', icon: Circle },
@@ -116,6 +118,16 @@
 			toast.error(err?.error?.message || 'Failed to delete project');
 		}
 	}
+
+	const keyHandler = createKeyboardHandler([
+		{ key: 'a', ctrl: true, handler: () => issuesState.selectAll() },
+		{ key: 'Escape', handler: () => issuesState.clearSelection() },
+	]);
+
+	onMount(() => {
+		document.addEventListener('keydown', keyHandler);
+		return () => document.removeEventListener('keydown', keyHandler);
+	});
 
 	function statusVariant(status: ProjectStatus): 'default' | 'secondary' | 'outline' | 'destructive' {
 		switch (status) {
@@ -241,7 +253,7 @@
 					/>
 				{:else}
 					{#each issuesState.issues as issue (issue.id)}
-						<IssueRow {issue} {slug} onclick={(i) => issuesState.select(i)} />
+						<IssueRow {issue} {slug} {lastSelectedId} onclick={(i) => { lastSelectedId = i.id; issuesState.select(i); }} />
 					{/each}
 				{/if}
 			</div>

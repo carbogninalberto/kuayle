@@ -21,6 +21,8 @@
 	import type { Issue, RelationType } from '$lib/types/issue';
 	import AddRelationDialog from '$lib/features/issues/AddRelationDialog.svelte';
 	import { CircleUser, PenLine } from 'lucide-svelte';
+	import { createKeyboardHandler } from '$lib/utils/keyboard';
+	import BulkActionBar from '$lib/features/issues/BulkActionBar.svelte';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 
@@ -33,6 +35,7 @@
 	let labels = $state<Label[]>([]);
 	let members = $state<WorkspaceMember[]>([]);
 	let collapsedGroups = $state<Set<string>>(new Set());
+	let lastSelectedId = $state<string | null>(null);
 	let relationDialogOpen = $state(false);
 	let relationIssue = $state<Issue | null>(null);
 	let relationDefaultType = $state<RelationType>('related');
@@ -101,8 +104,19 @@
 	}
 
 	function handleIssueClick(issue: Issue) {
+		lastSelectedId = issue.id;
 		goto(`/${slug}/issue/${issue.identifier}`);
 	}
+
+	const keyHandler = createKeyboardHandler([
+		{ key: 'a', ctrl: true, handler: () => issuesState.selectAll() },
+		{ key: 'Escape', handler: () => issuesState.clearSelection() },
+	]);
+
+	onMount(() => {
+		document.addEventListener('keydown', keyHandler);
+		return () => document.removeEventListener('keydown', keyHandler);
+	});
 
 	function toggleGroup(key: string) {
 		const next = new Set(collapsedGroups);
@@ -164,15 +178,17 @@
 					/>
 					{#if !collapsedGroups.has(group.key)}
 						{#each group.issues as issue (issue.id)}
-							<IssueRow {issue} {slug} {members} {labels} {projects} onclick={handleIssueClick} onaddrelation={handleAddRelation} />
+							<IssueRow {issue} {slug} {members} {labels} {projects} onclick={handleIssueClick} {lastSelectedId} onaddrelation={handleAddRelation} />
 						{/each}
 					{/if}
 				{/each}
 			{:else}
 				{#each issuesState.issues as issue (issue.id)}
-					<IssueRow {issue} {slug} {members} {labels} {projects} onclick={handleIssueClick} onaddrelation={handleAddRelation} />
+					<IssueRow {issue} {slug} {members} {labels} {projects} onclick={handleIssueClick} {lastSelectedId} onaddrelation={handleAddRelation} />
 				{/each}
 			{/if}
+
+			<BulkActionBar {slug} />
 		</div>
 	{:else}
 		{#if !issuesState.loading}

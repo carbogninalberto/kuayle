@@ -21,6 +21,7 @@ import CycleProgress from '$lib/features/cycles/CycleProgress.svelte';
 	import { toast } from 'svelte-sonner';
 	import { formatRelativeTime } from '$lib/utils/format';
 	import { ArrowLeft, CheckCircle2, Play, Clock, Trash2, MoreHorizontal, Search, Plus } from 'lucide-svelte';
+	import { createKeyboardHandler } from '$lib/utils/keyboard';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	const teamId = $derived(page.params.teamId ?? '');
@@ -31,6 +32,8 @@ import CycleProgress from '$lib/features/cycles/CycleProgress.svelte';
 	let actionsOpen = $state(false);
 	let members = $state<WorkspaceMember[]>([]);
 	let labels = $state<Label[]>([]);
+
+	let lastSelectedId = $state<string | null>(null);
 
 	// Add issues search
 	let addSearchQuery = $state('');
@@ -142,6 +145,16 @@ import CycleProgress from '$lib/features/cycles/CycleProgress.svelte';
 			toast.error(err?.error?.message || 'Failed to add issue');
 		}
 	}
+
+	const keyHandler = createKeyboardHandler([
+		{ key: 'a', ctrl: true, handler: () => issuesState.selectAll() },
+		{ key: 'Escape', handler: () => issuesState.clearSelection() },
+	]);
+
+	onMount(() => {
+		document.addEventListener('keydown', keyHandler);
+		return () => document.removeEventListener('keydown', keyHandler);
+	});
 
 	const STATUS_ICONS = {
 		upcoming: Clock,
@@ -276,7 +289,7 @@ import CycleProgress from '$lib/features/cycles/CycleProgress.svelte';
 				/>
 			{:else}
 				{#each issuesState.issues as issue (issue.id)}
-					<IssueRow {issue} {slug} {members} {labels} onclick={(i) => goto(`/${slug}/issue/${i.identifier}`)} />
+					<IssueRow {issue} {slug} {members} {labels} {lastSelectedId} onclick={(i) => { lastSelectedId = i.id; goto(`/${slug}/issue/${i.identifier}`); }} />
 				{/each}
 			{/if}
 		</div>
