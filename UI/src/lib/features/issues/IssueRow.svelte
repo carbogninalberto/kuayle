@@ -92,9 +92,9 @@
 		class="group mx-2 flex w-[calc(100%-1rem)] items-center gap-2 rounded-md px-3 py-1.5 text-left transition-colors duration-100 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] {isSelected ? 'bg-black/[0.02] dark:bg-white/[0.02]' : ''}"
 		onclick={handleClick}
 	>
-		<!-- Checkbox -->
+		<!-- Checkbox hover zone -->
 		<span
-			class="shrink-0 transition-opacity duration-100 {isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}"
+			class="shrink-0 -my-1.5 -ml-3 flex items-center justify-center pl-3 pr-1 self-stretch transition-opacity duration-100 {isSelected ? 'opacity-100' : 'opacity-0 hover:opacity-100'}"
 			onclick={handleCheckboxChange}
 			onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleCheckboxChange(e); }}
 			role="checkbox"
