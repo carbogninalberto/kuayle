@@ -8,6 +8,7 @@
 	import type { View } from '$lib/types/view';
 	import WorkspaceSwitcher from './WorkspaceSwitcher.svelte';
 	import type { Favorite } from '$lib/api/favorites';
+	import type { Project } from '$lib/types/project';
 	import {
 		Inbox,
 		LayoutDashboard,
@@ -20,7 +21,8 @@
 		Bookmark,
 		RotateCcw,
 		ShieldCheck,
-		Star
+		Star,
+		ChevronDown
 	} from 'lucide-svelte';
 
 	let {
@@ -28,6 +30,7 @@
 		teams,
 		views = [],
 		favorites = [],
+		projects = [],
 		unreadCount = 0,
 		slug,
 		oncreateissue,
@@ -37,6 +40,7 @@
 		teams: Team[];
 		views?: View[];
 		favorites?: Favorite[];
+		projects?: Project[];
 		unreadCount?: number;
 		slug: string;
 		oncreateissue?: () => void;
@@ -54,6 +58,22 @@
 		authState.clear();
 		goto('/login');
 	}
+
+	function initCollapsed(key: string): boolean {
+		if (typeof localStorage === 'undefined') return false;
+		return localStorage.getItem(`sidebar_${key}`) === 'collapsed';
+	}
+
+	function toggleSection(key: string, current: boolean): boolean {
+		const next = !current;
+		localStorage.setItem(`sidebar_${key}`, next ? 'collapsed' : 'expanded');
+		return next;
+	}
+
+	let teamsCollapsed = $state(initCollapsed('teams'));
+	let favoritesCollapsed = $state(initCollapsed('favorites'));
+	let viewsCollapsed = $state(initCollapsed('views'));
+	let projectsCollapsed = $state(initCollapsed('projects'));
 </script>
 
 <aside
@@ -121,28 +141,34 @@
 		<!-- Favorites -->
 		{#if favorites.length > 0}
 			<div class="mt-4">
-				<div class="flex items-center px-2 py-1">
+				<button onclick={() => favoritesCollapsed = toggleSection('favorites', favoritesCollapsed)} class="flex w-full items-center justify-between px-2 py-1">
 					<span class="text-xs font-medium uppercase text-[var(--color-text-tertiary)]">Favorites</span>
-				</div>
-				{#each favorites as fav}
-					{@const href = fav.entity_type === 'project' ? `/${slug}/projects/${fav.entity_id}` : fav.entity_type === 'team' ? `/${slug}/teams/${fav.entity_id}` : fav.entity_type === 'view' ? `/${slug}/views/${fav.entity_id}` : `/${slug}/dashboard`}
-					<a
-						{href}
-						class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm {isActive(href)
-							? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
-							: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]'}"
-					>
-						<Star size={14} class="text-yellow-500" />
-						<span class="truncate">{fav.entity_type}</span>
-					</a>
-				{/each}
+					<ChevronDown size={12} class="text-[var(--color-text-tertiary)] transition-transform {favoritesCollapsed ? '-rotate-90' : ''}" />
+				</button>
+				{#if !favoritesCollapsed}
+					{#each favorites as fav}
+						{@const href = fav.entity_type === 'project' ? `/${slug}/projects/${fav.entity_id}` : fav.entity_type === 'team' ? `/${slug}/teams/${fav.entity_id}` : fav.entity_type === 'view' ? `/${slug}/views/${fav.entity_id}` : `/${slug}/dashboard`}
+						<a
+							{href}
+							class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm {isActive(href)
+								? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
+								: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]'}"
+						>
+							<Star size={14} class="text-yellow-500" />
+							<span class="truncate">{fav.entity_type}</span>
+						</a>
+					{/each}
+				{/if}
 			</div>
 		{/if}
 
 		<!-- Teams -->
 		<div class="mt-4">
 			<div class="flex items-center justify-between px-2 py-1">
-				<span class="text-xs font-medium uppercase text-[var(--color-text-tertiary)]">Teams</span>
+				<button onclick={() => teamsCollapsed = toggleSection('teams', teamsCollapsed)} class="flex items-center gap-1">
+					<span class="text-xs font-medium uppercase text-[var(--color-text-tertiary)]">Teams</span>
+					<ChevronDown size={12} class="text-[var(--color-text-tertiary)] transition-transform {teamsCollapsed ? '-rotate-90' : ''}" />
+				</button>
 				{#if oncreateteam}
 					<button
 						onclick={oncreateteam}
@@ -153,95 +179,124 @@
 					</button>
 				{/if}
 			</div>
-			{#each teams as team}
-				<a
-					href="/{slug}/teams/{team.id}"
-					class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm {isActive(
-						`/${slug}/teams/${team.id}`
-					) && !isActive(`/${slug}/teams/${team.id}/cycles`) && !isActive(`/${slug}/teams/${team.id}/triage`)
-						? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
-						: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]'}"
-				>
-					<Users size={16} />
-					{team.name}
-				</a>
-				<a
-					href="/{slug}/teams/{team.id}/cycles"
-					class="flex items-center gap-2 rounded-md px-2 py-1.5 pl-8 text-xs {isActive(
-						`/${slug}/teams/${team.id}/cycles`
-					)
-						? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
-						: 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]'}"
-				>
-					<RotateCcw size={13} />
-					Cycles
-				</a>
-				{#if team.triage_enabled}
+			{#if !teamsCollapsed}
+				{#each teams as team}
 					<a
-						href="/{slug}/teams/{team.id}/triage"
+						href="/{slug}/teams/{team.id}"
+						class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm {isActive(
+							`/${slug}/teams/${team.id}`
+						) && !isActive(`/${slug}/teams/${team.id}/cycles`) && !isActive(`/${slug}/teams/${team.id}/triage`)
+							? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
+							: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]'}"
+					>
+						<Users size={16} />
+						{team.name}
+					</a>
+					<a
+						href="/{slug}/teams/{team.id}/cycles"
 						class="flex items-center gap-2 rounded-md px-2 py-1.5 pl-8 text-xs {isActive(
-							`/${slug}/teams/${team.id}/triage`
+							`/${slug}/teams/${team.id}/cycles`
 						)
 							? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
 							: 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]'}"
 					>
-						<ShieldCheck size={13} />
-						Triage
+						<RotateCcw size={13} />
+						Cycles
 					</a>
+					{#if team.triage_enabled}
+						<a
+							href="/{slug}/teams/{team.id}/triage"
+							class="flex items-center gap-2 rounded-md px-2 py-1.5 pl-8 text-xs {isActive(
+								`/${slug}/teams/${team.id}/triage`
+							)
+								? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
+								: 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]'}"
+						>
+							<ShieldCheck size={13} />
+							Triage
+						</a>
+					{/if}
+					<!-- Team projects -->
+					{#each projects.filter(p => p.team_id === team.id) as project}
+						<a
+							href="/{slug}/projects/{project.id}"
+							class="flex items-center gap-2 rounded-md px-2 py-1.5 pl-8 text-xs {isActive(`/${slug}/projects/${project.id}`)
+								? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
+								: 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]'}"
+						>
+							<FolderKanban size={13} />
+							{project.name}
+						</a>
+					{/each}
+					<!-- Team views -->
+					{#each views.filter(v => v.filters?.team === team.id) as view}
+						<a
+							href="/{slug}/views/{view.id}"
+							class="flex items-center gap-2 rounded-md px-2 py-1.5 pl-8 text-xs {isActive(`/${slug}/views/${view.id}`)
+								? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
+								: 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]'}"
+						>
+							<Bookmark size={13} />
+							{view.name}
+						</a>
+					{/each}
+				{/each}
+				{#if teams.length === 0}
+					<button
+						onclick={oncreateteam}
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
+					>
+						<Plus size={14} />
+						Create your first team
+					</button>
 				{/if}
-			{/each}
-			{#if teams.length === 0}
-				<button
-					onclick={oncreateteam}
-					class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
-				>
-					<Plus size={14} />
-					Create your first team
-				</button>
 			{/if}
 		</div>
 
 		<!-- Views -->
 		{#if views.length > 0}
 			<div class="mt-4">
-				<div class="flex items-center px-2 py-1">
+				<button onclick={() => viewsCollapsed = toggleSection('views', viewsCollapsed)} class="flex w-full items-center justify-between px-2 py-1">
 					<span class="text-xs font-medium uppercase text-[var(--color-text-tertiary)]">Views</span>
-				</div>
-				{#each views as view}
-					<a
-						href="/{slug}/views/{view.id}"
-						class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm {isActive(
-							`/${slug}/views/${view.id}`
-						)
-							? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
-							: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]'}"
-					>
-						<Bookmark size={16} />
-						{view.name}
-					</a>
-				{/each}
+					<ChevronDown size={12} class="text-[var(--color-text-tertiary)] transition-transform {viewsCollapsed ? '-rotate-90' : ''}" />
+				</button>
+				{#if !viewsCollapsed}
+					{#each views as view}
+						<a
+							href="/{slug}/views/{view.id}"
+							class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm {isActive(
+								`/${slug}/views/${view.id}`
+							)
+								? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
+								: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]'}"
+						>
+							<Bookmark size={16} />
+							{view.name}
+						</a>
+					{/each}
+				{/if}
 			</div>
 		{/if}
 
 		<!-- Projects -->
 		<div class="mt-4">
 			<div class="flex items-center justify-between px-2 py-1">
+				<button onclick={() => projectsCollapsed = toggleSection('projects', projectsCollapsed)} class="flex items-center gap-1">
+					<span class="text-xs font-medium uppercase text-[var(--color-text-tertiary)]">Projects</span>
+					<ChevronDown size={12} class="text-[var(--color-text-tertiary)] transition-transform {projectsCollapsed ? '-rotate-90' : ''}" />
+				</button>
+			</div>
+			{#if !projectsCollapsed}
 				<a
 					href="/{slug}/projects"
-					class="text-xs font-medium uppercase text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
+					class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm {isActive(`/${slug}/projects`)
+						? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
+						: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]'}"
 				>
-					Projects
+					<FolderKanban size={16} />
+					All Projects
 				</a>
-			</div>
-			<a
-				href="/{slug}/projects"
-				class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm {isActive(`/${slug}/projects`)
-					? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
-					: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]'}"
-			>
-				<FolderKanban size={16} />
-				All Projects
-			</a>
+			{/if}
 		</div>
 	</nav>
 

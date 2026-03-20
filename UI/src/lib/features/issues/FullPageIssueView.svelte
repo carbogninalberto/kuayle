@@ -16,7 +16,7 @@
 	import { toast } from 'svelte-sonner';
 	import * as Popover from '$lib/components/ui/popover';
 	import { Checkbox } from '$lib/components/ui/checkbox';
-	import { ChevronUp, ChevronDown, User, Plus } from 'lucide-svelte';
+	import { ChevronUp, ChevronDown, User, Plus, CalendarDays } from 'lucide-svelte';
 	import { listCycles } from '$lib/api/cycles';
 	import type { Cycle } from '$lib/types/cycle';
 	import IssueRelations from './IssueRelations.svelte';
@@ -465,7 +465,8 @@
 							{@const diffDays = Math.ceil((due.getTime() - now.getTime()) / 86400000)}
 							{@const dateLabel = diffDays === 0 ? 'Today' : diffDays === 1 ? 'Tomorrow' : diffDays === -1 ? 'Yesterday' : due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
 							{@const color = diffDays < 0 ? 'text-red-500 bg-red-500/10' : diffDays === 0 ? 'text-orange-500 bg-orange-500/10' : 'text-[var(--color-text-secondary)] bg-[var(--color-bg-secondary)]'}
-							<span class="rounded px-1.5 py-0.5 text-[11px] font-medium {color}">
+							<span class="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium {color}">
+								<CalendarDays size={11} />
 								{dateLabel}
 							</span>
 						{/if}

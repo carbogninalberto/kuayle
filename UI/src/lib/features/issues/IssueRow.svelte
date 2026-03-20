@@ -8,6 +8,7 @@
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { issuesState } from './issues.state.svelte';
 	import { formatRelativeTime } from '$lib/utils/format';
+	import { CalendarDays } from 'lucide-svelte';
 
 	let {
 		issue,
@@ -91,7 +92,8 @@
 			{@const due = new Date(issue.due_date)}
 			{@const now = new Date()}
 			{@const diffDays = Math.ceil((due.getTime() - now.getTime()) / 86400000)}
-			<span class="hidden shrink-0 text-[11px] sm:inline {diffDays < 0 ? 'text-red-500' : diffDays === 0 ? 'text-orange-500' : diffDays <= 7 ? 'text-[var(--color-text-secondary)]' : 'text-[var(--color-text-tertiary)]'}">
+			<span class="hidden shrink-0 items-center gap-1 text-[11px] sm:inline-flex {diffDays < 0 ? 'text-red-500' : diffDays === 0 ? 'text-orange-500' : diffDays <= 7 ? 'text-[var(--color-text-secondary)]' : 'text-[var(--color-text-tertiary)]'}">
+				<CalendarDays size={11} />
 				{due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
 			</span>
 		{/if}
@@ -102,7 +104,8 @@
 				{(issue.assignee.name ?? 'U').charAt(0).toUpperCase()}
 			</div>
 		{:else}
-			<div class="h-5 w-5 shrink-0"></div>
+			<div class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-dashed border-[var(--color-text-tertiary)] opacity-30">
+			</div>
 		{/if}
 	</button>
 </IssueContextMenu>

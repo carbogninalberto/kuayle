@@ -19,8 +19,8 @@ func NewProjectRepository(db *sqlx.DB) *ProjectRepository {
 }
 
 func (r *ProjectRepository) Create(ctx context.Context, project *domain.Project) error {
-	query := `INSERT INTO projects (id, workspace_id, name, description, status, lead_id, start_date, target_date, sort_order) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING created_at, updated_at`
-	return r.db.QueryRowContext(ctx, query, project.ID, project.WorkspaceID, project.Name, project.Description, project.Status, project.LeadID, project.StartDate, project.TargetDate, project.SortOrder).Scan(&project.CreatedAt, &project.UpdatedAt)
+	query := `INSERT INTO projects (id, workspace_id, team_id, name, description, status, lead_id, start_date, target_date, sort_order) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING created_at, updated_at`
+	return r.db.QueryRowContext(ctx, query, project.ID, project.WorkspaceID, project.TeamID, project.Name, project.Description, project.Status, project.LeadID, project.StartDate, project.TargetDate, project.SortOrder).Scan(&project.CreatedAt, &project.UpdatedAt)
 }
 
 func (r *ProjectRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Project, error) {
@@ -39,8 +39,14 @@ func (r *ProjectRepository) ListByWorkspace(ctx context.Context, workspaceID uui
 }
 
 func (r *ProjectRepository) Update(ctx context.Context, project *domain.Project) error {
-	query := `UPDATE projects SET name = $1, description = $2, status = $3, lead_id = $4, start_date = $5, target_date = $6, sort_order = $7, updated_at = NOW() WHERE id = $8 RETURNING updated_at`
-	return r.db.QueryRowContext(ctx, query, project.Name, project.Description, project.Status, project.LeadID, project.StartDate, project.TargetDate, project.SortOrder, project.ID).Scan(&project.UpdatedAt)
+	query := `UPDATE projects SET name = $1, description = $2, status = $3, lead_id = $4, start_date = $5, target_date = $6, sort_order = $7, team_id = $8, updated_at = NOW() WHERE id = $9 RETURNING updated_at`
+	return r.db.QueryRowContext(ctx, query, project.Name, project.Description, project.Status, project.LeadID, project.StartDate, project.TargetDate, project.SortOrder, project.TeamID, project.ID).Scan(&project.UpdatedAt)
+}
+
+func (r *ProjectRepository) ListByTeam(ctx context.Context, teamID uuid.UUID) ([]domain.Project, error) {
+	var projects []domain.Project
+	err := r.db.SelectContext(ctx, &projects, `SELECT * FROM projects WHERE team_id = $1 ORDER BY sort_order, name`, teamID)
+	return projects, err
 }
 
 func (r *ProjectRepository) Delete(ctx context.Context, id uuid.UUID) error {

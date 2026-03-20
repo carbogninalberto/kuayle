@@ -115,12 +115,12 @@
 
 	<!-- Tabs -->
 	<Tabs.Root value={activeTab} onValueChange={handleTabChange}>
-		<Tabs.List class="w-full justify-start gap-0 rounded-none border-b border-[var(--app-border)] bg-transparent px-4">
-			<Tabs.Trigger value="assigned" class="relative rounded-none border-b-2 border-transparent px-3 py-2 text-xs data-[state=active]:border-[var(--app-accent)] data-[state=active]:bg-transparent data-[state=active]:shadow-none">
+		<Tabs.List class="w-full justify-start gap-0 rounded-lg border-b border-[var(--app-border)] bg-transparent px-4">
+			<Tabs.Trigger value="assigned" class="relative rounded-md border-b-2 border-transparent px-3 py-2 text-xs data-[state=active]:border-[var(--app-accent)] data-[state=active]:bg-transparent data-[state=active]:shadow-none">
 				<CircleUser size={13} class="mr-1.5" />
 				Assigned to me
 			</Tabs.Trigger>
-			<Tabs.Trigger value="created" class="relative rounded-none border-b-2 border-transparent px-3 py-2 text-xs data-[state=active]:border-[var(--app-accent)] data-[state=active]:bg-transparent data-[state=active]:shadow-none">
+			<Tabs.Trigger value="created" class="relative rounded-md border-b-2 border-transparent px-3 py-2 text-xs data-[state=active]:border-[var(--app-accent)] data-[state=active]:bg-transparent data-[state=active]:shadow-none">
 				<PenLine size={13} class="mr-1.5" />
 				Created by me
 			</Tabs.Trigger>

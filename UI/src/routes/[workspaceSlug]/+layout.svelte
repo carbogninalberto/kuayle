@@ -141,6 +141,7 @@
 			{workspace}
 			{teams}
 			{views}
+			{projects}
 			{unreadCount}
 			{slug}
 			oncreateissue={() => {

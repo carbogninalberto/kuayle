@@ -28,9 +28,9 @@
 		<rect x="11" y="3" width="3" height="12" rx="0.5" fill="currentColor" />
 	</svg>
 {:else if priority === 1}
-	<svg width={size} height={size} viewBox="0 0 16 16" fill="none" class="shrink-0 text-orange-500">
-		<circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.5" />
-		<path d="M8 4.5V9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
-		<circle cx="8" cy="11.5" r="0.75" fill="currentColor" />
+	<svg width={size} height={size} viewBox="0 0 16 16" fill="none" class="shrink-0">
+		<circle cx="8" cy="8" r="7" fill="#f97316" />
+		<path d="M8 4.5V9" stroke="white" stroke-width="1.5" stroke-linecap="round" />
+		<circle cx="8" cy="11.5" r="0.75" fill="white" />
 	</svg>
 {/if}

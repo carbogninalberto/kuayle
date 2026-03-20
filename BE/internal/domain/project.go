@@ -18,6 +18,7 @@ const (
 type Project struct {
 	ID          uuid.UUID     `json:"id" db:"id"`
 	WorkspaceID uuid.UUID     `json:"workspace_id" db:"workspace_id"`
+	TeamID      *uuid.UUID    `json:"team_id" db:"team_id"`
 	Name        string        `json:"name" db:"name"`
 	Description *string       `json:"description" db:"description"`
 	Status      ProjectStatus `json:"status" db:"status"`

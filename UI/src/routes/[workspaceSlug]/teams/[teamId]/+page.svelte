@@ -31,6 +31,7 @@
 	import { toast } from 'svelte-sonner';
 	import { Plus, Bookmark, Layers } from 'lucide-svelte';
 	import * as issueApi from '$lib/api/issues';
+	import type { IssueStatus, IssuePriority } from '$lib/types/issue';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	const teamId = $derived(page.params.teamId ?? '');
@@ -43,6 +44,7 @@
 	let cycles = $state<Cycle[]>([]);
 	let showCreateIssue = $state(false);
 	let showSaveView = $state(false);
+	let quickAddDefaults = $state<{ status?: IssueStatus; priority?: IssuePriority; assigneeId?: string }>({});
 	let filters = $state<ViewFilter>({});
 	let layout = $state<ViewLayout>('list');
 	let groupByOpen = $state(false);
@@ -109,6 +111,19 @@
 			next.add(key);
 		}
 		collapsedGroups = next;
+	}
+
+	function handleQuickAdd(groupKey: string) {
+		quickAddDefaults = {};
+		const gb = issuesState.groupBy;
+		if (gb === 'status') {
+			quickAddDefaults = { status: groupKey as IssueStatus };
+		} else if (gb === 'priority') {
+			quickAddDefaults = { priority: Number(groupKey) as IssuePriority };
+		} else if (gb === 'assignee' && groupKey !== 'unassigned') {
+			quickAddDefaults = { assigneeId: groupKey };
+		}
+		showCreateIssue = true;
 	}
 
 	async function deleteSelectedIssues() {
@@ -265,6 +280,7 @@
 						{members}
 						{projects}
 						ontoggle={() => toggleGroup(group.key)}
+					onquickadd={handleQuickAdd}
 					/>
 					{#if !collapsedGroups.has(group.key)}
 						{#each group.issues as issue (issue.id)}
@@ -318,6 +334,9 @@
 	{members}
 	{cycles}
 	defaultTeamId={teamId}
+	defaultStatus={quickAddDefaults.status}
+	defaultPriority={quickAddDefaults.priority}
+	defaultAssigneeId={quickAddDefaults.assigneeId}
 	onsubmit={async (req) => {
 		try {
 			await issuesState.create(slug, req);

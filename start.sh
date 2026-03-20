@@ -48,14 +48,12 @@ echo "  Stop:     ./stop.sh"
 echo ""
 
 # 7. Start backend with air
-cd BE && air &
+(cd BE && air) &
 BE_PID=$!
-cd ..
 
 # 8. Start frontend dev server
-cd UI && npm run dev &
+(cd UI && npm run dev) &
 FE_PID=$!
-cd ..
 
 # Save pids for stop script
 echo "$BE_PID" > "$PIDFILE"

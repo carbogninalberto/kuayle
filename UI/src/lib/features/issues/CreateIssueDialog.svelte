@@ -28,6 +28,9 @@
 		members = [],
 		cycles = [],
 		defaultTeamId,
+		defaultStatus,
+		defaultPriority,
+		defaultAssigneeId,
 		onsubmit
 	}: {
 		open: boolean;
@@ -37,6 +40,9 @@
 		members?: WorkspaceMember[];
 		cycles?: Cycle[];
 		defaultTeamId?: string;
+		defaultStatus?: IssueStatus;
+		defaultPriority?: IssuePriority;
+		defaultAssigneeId?: string;
 		onsubmit: (req: {
 			title: string;
 			description?: string;
@@ -75,11 +81,11 @@
 		if (open) {
 			title = '';
 			description = '';
-			status = 'backlog';
-			priority = 0;
+			status = defaultStatus ?? 'backlog';
+			priority = defaultPriority ?? 0;
 			teamId = defaultTeamId ?? teams[0]?.id ?? '';
 			projectId = null;
-			assigneeId = null;
+			assigneeId = defaultAssigneeId ?? null;
 			labelIds = [];
 			dueDate = null;
 			cycleId = null;

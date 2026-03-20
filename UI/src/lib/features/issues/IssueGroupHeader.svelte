@@ -6,7 +6,7 @@
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
 	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
 	import type { GroupByField } from './issues.state.svelte';
-	import { ChevronDown, ChevronRight, User } from 'lucide-svelte';
+	import { ChevronDown, ChevronRight, User, Plus } from 'lucide-svelte';
 
 	let {
 		groupKey,
@@ -15,7 +15,8 @@
 		collapsed = false,
 		members = [],
 		projects = [],
-		ontoggle
+		ontoggle,
+		onquickadd
 	}: {
 		groupKey: string;
 		groupBy: GroupByField;
@@ -24,6 +25,7 @@
 		members?: WorkspaceMember[];
 		projects?: Project[];
 		ontoggle: () => void;
+		onquickadd?: (groupKey: string) => void;
 	} = $props();
 
 	const label = $derived.by(() => {
@@ -49,7 +51,7 @@
 </script>
 
 <button
-	class="flex w-full items-center gap-2 border-b border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-1.5 text-xs font-medium text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-bg-hover)]"
+	class="group flex w-full items-center gap-2 border-b border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-1.5 text-xs font-medium text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-bg-hover)]"
 	onclick={ontoggle}
 >
 	{#if collapsed}
@@ -74,4 +76,12 @@
 
 	<span>{label}</span>
 	<span class="text-[10px] font-normal text-[var(--color-text-tertiary)]">{count}</span>
+	{#if onquickadd}
+		<button
+			onclick={(e) => { e.stopPropagation(); onquickadd?.(groupKey); }}
+			class="ml-auto rounded p-0.5 text-[var(--color-text-tertiary)] opacity-0 transition-opacity hover:bg-[var(--color-bg-hover)] group-hover:opacity-100"
+		>
+			<Plus size={14} />
+		</button>
+	{/if}
 </button>

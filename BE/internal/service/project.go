@@ -26,6 +26,10 @@ func (s *ProjectService) Create(ctx context.Context, workspaceID uuid.UUID, req 
 		Description: req.Description,
 		Status:      domain.ProjectStatusPlanned,
 	}
+	if req.TeamID != nil {
+		tid, _ := uuid.Parse(*req.TeamID)
+		project.TeamID = &tid
+	}
 	if req.LeadID != nil {
 		lid, _ := uuid.Parse(*req.LeadID)
 		project.LeadID = &lid
@@ -44,6 +48,10 @@ func (s *ProjectService) ListByWorkspace(ctx context.Context, workspaceID uuid.U
 	return s.projectRepo.ListByWorkspace(ctx, workspaceID)
 }
 
+func (s *ProjectService) ListByTeam(ctx context.Context, teamID uuid.UUID) ([]domain.Project, error) {
+	return s.projectRepo.ListByTeam(ctx, teamID)
+}
+
 func (s *ProjectService) Update(ctx context.Context, id uuid.UUID, req dto.UpdateProjectRequest) (*domain.Project, error) {
 	project, err := s.projectRepo.GetByID(ctx, id)
 	if err != nil || project == nil {
@@ -58,6 +66,10 @@ func (s *ProjectService) Update(ctx context.Context, id uuid.UUID, req dto.Updat
 	}
 	if req.Status != nil {
 		project.Status = domain.ProjectStatus(*req.Status)
+	}
+	if req.TeamID != nil {
+		tid, _ := uuid.Parse(*req.TeamID)
+		project.TeamID = &tid
 	}
 	if req.LeadID != nil {
 		lid, _ := uuid.Parse(*req.LeadID)

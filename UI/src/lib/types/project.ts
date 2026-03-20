@@ -11,6 +11,7 @@ export interface Project {
 	name: string;
 	description: string | null;
 	status: ProjectStatus;
+	team_id: string | null;
 	lead_id: string | null;
 	start_date: string | null;
 	target_date: string | null;
