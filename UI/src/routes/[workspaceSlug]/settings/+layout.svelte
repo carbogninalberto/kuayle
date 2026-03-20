@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import { ArrowLeft, Users, Tag, Webhook, Settings, FileText } from 'lucide-svelte';
+	import { ArrowLeft, Users, Tag, Webhook, Settings, FileText, Settings2 } from 'lucide-svelte';
 	import type { Snippet } from 'svelte';
 
 	let { children }: { children: Snippet } = $props();
@@ -14,6 +14,7 @@
 
 	const sections = $derived([
 		{ label: 'General', href: `/${slug}/settings`, icon: Settings, exact: true },
+		{ label: 'Preferences', href: `/${slug}/settings/preferences`, icon: Settings2 },
 		{ label: 'Members', href: `/${slug}/settings/members`, icon: Users },
 		{ label: 'Labels', href: `/${slug}/settings/labels`, icon: Tag },
 		{ label: 'Webhooks', href: `/${slug}/settings/webhooks`, icon: Webhook },

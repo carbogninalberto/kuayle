@@ -2,28 +2,10 @@
 @import "tw-animate-css";
 @import "@fontsource-variable/inter";
 
-@custom-variant dark (&:is(.dark *));
+@custom-variant dark (&:is(.dark *, .amethyst-dark *, .emerald-dark *));
 
 :root {
-	--color-bg: #111111;
-	--color-bg-secondary: #191919;
-	--color-bg-tertiary: #222222;
-	--color-bg-hover: #2a2a2a;
-	--app-border: #2e2e2e;
-	--app-border-hover: #404040;
-	--color-text-primary: #f5f5f5;
-	--color-text-secondary: #a0a0a0;
-	--color-text-tertiary: #6b6b6b;
-	--app-accent: #361dc2;
-	--app-accent-hover: #4b38d9;
-	--app-accent-light: #6650eb;
-	--color-success: #22c55e;
-	--color-warning: #f59e0b;
-	--color-error: #ef4444;
-	--color-urgent: #ef4444;
-	--color-high: #f97316;
-	--color-medium: #eab308;
-	--color-low: #6b7280;
+	--app-font-size: 14px;
 
 	--primary-50: #ededfc;
 	--primary-100: #d5d1fa;
@@ -74,6 +56,7 @@ body {
 	background-color: var(--color-bg);
 	color: var(--color-text-primary);
 	font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+	font-size: var(--app-font-size);
 }
 
 * {
@@ -81,7 +64,109 @@ body {
 	scrollbar-color: var(--app-border) transparent;
 }
 
-.dark {
+/* ============================================
+   LIGHT THEMES
+   ============================================ */
+
+html.light {
+	--color-bg: #ffffff;
+	--color-bg-secondary: #f5f5f5;
+	--color-bg-tertiary: #ebebeb;
+	--color-bg-hover: #e0e0e0;
+	--app-border: #d4d4d4;
+	--app-border-hover: #b0b0b0;
+	--color-text-primary: #1a1a1a;
+	--color-text-secondary: #6b6b6b;
+	--color-text-tertiary: #a0a0a0;
+	--app-accent: #361dc2;
+	--app-accent-hover: #4b38d9;
+	--app-accent-light: #6650eb;
+	--color-success: #16a34a;
+	--color-warning: #d97706;
+	--color-error: #dc2626;
+	--color-urgent: #dc2626;
+	--color-high: #ea580c;
+	--color-medium: #ca8a04;
+	--color-low: #6b7280;
+}
+
+html.rose-light {
+	--color-bg: #fffbfc;
+	--color-bg-secondary: #fdf2f4;
+	--color-bg-tertiary: #fce7eb;
+	--color-bg-hover: #f9d5dc;
+	--app-border: #f0c4cc;
+	--app-border-hover: #e0a0ad;
+	--color-text-primary: #1a1a1a;
+	--color-text-secondary: #6b6b6b;
+	--color-text-tertiary: #a0a0a0;
+	--app-accent: #be123c;
+	--app-accent-hover: #d4365a;
+	--app-accent-light: #e8507a;
+	--color-success: #16a34a;
+	--color-warning: #d97706;
+	--color-error: #dc2626;
+	--color-urgent: #dc2626;
+	--color-high: #ea580c;
+	--color-medium: #ca8a04;
+	--color-low: #6b7280;
+
+	--primary: oklch(0.505 0.213 11.765);
+	--primary-foreground: oklch(1 0 0);
+	--ring: oklch(0.505 0.213 11.765);
+}
+
+html.blue-light {
+	--color-bg: #fafcff;
+	--color-bg-secondary: #f0f5ff;
+	--color-bg-tertiary: #e0ebff;
+	--color-bg-hover: #d0dfff;
+	--app-border: #bfd0f0;
+	--app-border-hover: #9db5e0;
+	--color-text-primary: #1a1a1a;
+	--color-text-secondary: #6b6b6b;
+	--color-text-tertiary: #a0a0a0;
+	--app-accent: #1d4ed8;
+	--app-accent-hover: #2563eb;
+	--app-accent-light: #3b82f6;
+	--color-success: #16a34a;
+	--color-warning: #d97706;
+	--color-error: #dc2626;
+	--color-urgent: #dc2626;
+	--color-high: #ea580c;
+	--color-medium: #ca8a04;
+	--color-low: #6b7280;
+
+	--primary: oklch(0.488 0.217 264.376);
+	--primary-foreground: oklch(1 0 0);
+	--ring: oklch(0.488 0.217 264.376);
+}
+
+/* ============================================
+   DARK THEMES
+   ============================================ */
+
+html.dark {
+	--color-bg: #111111;
+	--color-bg-secondary: #191919;
+	--color-bg-tertiary: #222222;
+	--color-bg-hover: #2a2a2a;
+	--app-border: #2e2e2e;
+	--app-border-hover: #404040;
+	--color-text-primary: #f5f5f5;
+	--color-text-secondary: #a0a0a0;
+	--color-text-tertiary: #6b6b6b;
+	--app-accent: #361dc2;
+	--app-accent-hover: #4b38d9;
+	--app-accent-light: #6650eb;
+	--color-success: #22c55e;
+	--color-warning: #f59e0b;
+	--color-error: #ef4444;
+	--color-urgent: #ef4444;
+	--color-high: #f97316;
+	--color-medium: #eab308;
+	--color-low: #6b7280;
+
 	--background: oklch(0.145 0 0);
 	--foreground: oklch(0.985 0 0);
 	--card: oklch(0.205 0 0);
@@ -113,6 +198,114 @@ body {
 	--sidebar-accent-foreground: oklch(0.985 0 0);
 	--sidebar-border: oklch(1 0 0 / 10%);
 	--sidebar-ring: oklch(0.556 0 0);
+}
+
+html.amethyst-dark {
+	--color-bg: #110f18;
+	--color-bg-secondary: #1a1722;
+	--color-bg-tertiary: #23202e;
+	--color-bg-hover: #2e2a3a;
+	--app-border: #352f45;
+	--app-border-hover: #4a4260;
+	--color-text-primary: #f0edf5;
+	--color-text-secondary: #a099b0;
+	--color-text-tertiary: #6b6580;
+	--app-accent: #7c3aed;
+	--app-accent-hover: #8b5cf6;
+	--app-accent-light: #a78bfa;
+	--color-success: #22c55e;
+	--color-warning: #f59e0b;
+	--color-error: #ef4444;
+	--color-urgent: #ef4444;
+	--color-high: #f97316;
+	--color-medium: #eab308;
+	--color-low: #6b7280;
+
+	--background: oklch(0.16 0.02 290);
+	--foreground: oklch(0.985 0.005 290);
+	--card: oklch(0.22 0.02 290);
+	--card-foreground: oklch(0.985 0.005 290);
+	--popover: oklch(0.22 0.02 290);
+	--popover-foreground: oklch(0.985 0.005 290);
+	--primary: oklch(0.541 0.281 293.009);
+	--primary-foreground: oklch(1 0 0);
+	--secondary: oklch(0.29 0.02 290);
+	--secondary-foreground: oklch(0.985 0.005 290);
+	--muted: oklch(0.29 0.02 290);
+	--muted-foreground: oklch(0.7 0.01 290);
+	--accent: oklch(0.29 0.02 290);
+	--accent-foreground: oklch(0.985 0.005 290);
+	--destructive: oklch(0.704 0.191 22.216);
+	--border: oklch(1 0 0 / 10%);
+	--input: oklch(1 0 0 / 15%);
+	--ring: oklch(0.541 0.281 293.009);
+	--chart-1: oklch(0.809 0.105 290);
+	--chart-2: oklch(0.623 0.214 290);
+	--chart-3: oklch(0.546 0.245 290);
+	--chart-4: oklch(0.488 0.243 290);
+	--chart-5: oklch(0.424 0.199 290);
+	--sidebar: oklch(0.22 0.02 290);
+	--sidebar-foreground: oklch(0.985 0.005 290);
+	--sidebar-primary: oklch(0.541 0.281 293.009);
+	--sidebar-primary-foreground: oklch(0.985 0.005 290);
+	--sidebar-accent: oklch(0.29 0.02 290);
+	--sidebar-accent-foreground: oklch(0.985 0.005 290);
+	--sidebar-border: oklch(1 0 0 / 10%);
+	--sidebar-ring: oklch(0.556 0.02 290);
+}
+
+html.emerald-dark {
+	--color-bg: #0f1512;
+	--color-bg-secondary: #151e19;
+	--color-bg-tertiary: #1c2820;
+	--color-bg-hover: #243228;
+	--app-border: #2a3e30;
+	--app-border-hover: #3a5542;
+	--color-text-primary: #edf5f0;
+	--color-text-secondary: #99b0a0;
+	--color-text-tertiary: #65806b;
+	--app-accent: #059669;
+	--app-accent-hover: #10b981;
+	--app-accent-light: #34d399;
+	--color-success: #22c55e;
+	--color-warning: #f59e0b;
+	--color-error: #ef4444;
+	--color-urgent: #ef4444;
+	--color-high: #f97316;
+	--color-medium: #eab308;
+	--color-low: #6b7280;
+
+	--background: oklch(0.16 0.02 155);
+	--foreground: oklch(0.985 0.005 155);
+	--card: oklch(0.22 0.02 155);
+	--card-foreground: oklch(0.985 0.005 155);
+	--popover: oklch(0.22 0.02 155);
+	--popover-foreground: oklch(0.985 0.005 155);
+	--primary: oklch(0.596 0.145 163.225);
+	--primary-foreground: oklch(1 0 0);
+	--secondary: oklch(0.29 0.02 155);
+	--secondary-foreground: oklch(0.985 0.005 155);
+	--muted: oklch(0.29 0.02 155);
+	--muted-foreground: oklch(0.7 0.01 155);
+	--accent: oklch(0.29 0.02 155);
+	--accent-foreground: oklch(0.985 0.005 155);
+	--destructive: oklch(0.704 0.191 22.216);
+	--border: oklch(1 0 0 / 10%);
+	--input: oklch(1 0 0 / 15%);
+	--ring: oklch(0.596 0.145 163.225);
+	--chart-1: oklch(0.809 0.105 155);
+	--chart-2: oklch(0.623 0.145 155);
+	--chart-3: oklch(0.546 0.145 155);
+	--chart-4: oklch(0.488 0.145 155);
+	--chart-5: oklch(0.424 0.12 155);
+	--sidebar: oklch(0.22 0.02 155);
+	--sidebar-foreground: oklch(0.985 0.005 155);
+	--sidebar-primary: oklch(0.596 0.145 163.225);
+	--sidebar-primary-foreground: oklch(0.985 0.005 155);
+	--sidebar-accent: oklch(0.29 0.02 155);
+	--sidebar-accent-foreground: oklch(0.985 0.005 155);
+	--sidebar-border: oklch(1 0 0 / 10%);
+	--sidebar-ring: oklch(0.556 0.02 155);
 }
 
 @theme inline {
@@ -229,4 +422,22 @@ body {
 	&::-webkit-scrollbar {
 		display: none;
 	}
+}
+
+/* Pointer cursor utility — applied via html.pointer-cursors */
+html.pointer-cursors button,
+html.pointer-cursors a,
+html.pointer-cursors [role="button"],
+html.pointer-cursors [role="checkbox"],
+html.pointer-cursors [role="switch"],
+html.pointer-cursors [role="tab"],
+html.pointer-cursors [role="menuitem"],
+html.pointer-cursors [role="option"],
+html.pointer-cursors select,
+html.pointer-cursors input[type="submit"],
+html.pointer-cursors label[for],
+html.pointer-cursors [data-slot="select-trigger"],
+html.pointer-cursors [data-slot="select-item"],
+html.pointer-cursors [data-slot="switch"] {
+	cursor: pointer;
 }

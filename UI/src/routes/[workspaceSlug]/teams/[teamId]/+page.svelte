@@ -153,12 +153,6 @@
 
 	const keyHandler = createKeyboardHandler([
 		{
-			key: 'c',
-			handler: () => {
-				showCreateIssue = true;
-			}
-		},
-		{
 			key: 'x',
 			handler: () => {
 				// Toggle selection on the last clicked / focused issue

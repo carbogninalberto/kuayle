@@ -1,10 +1,36 @@
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="en">
 	<head>
 		<meta charset="utf-8" />
 		<link rel="icon" href="%sveltekit.assets%/favicon.svg" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<title>Carbon</title>
+		<script>
+			(function() {
+				try {
+					var raw = localStorage.getItem('carbon-preferences');
+					var prefs = raw ? JSON.parse(raw) : {};
+					var mode = prefs.themeMode || 'dark';
+					if (mode === 'system') {
+						mode = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+					}
+					var theme = mode === 'dark'
+						? (prefs.darkTheme || 'dark')
+						: (prefs.lightTheme || 'light');
+					var classes = theme;
+					if (prefs.pointerCursors !== false) {
+						classes += ' pointer-cursors';
+					}
+					document.documentElement.className = classes;
+					var fontMap = { small: '13px', default: '14px', large: '16px' };
+					var fs = fontMap[prefs.fontSize] || '14px';
+					document.documentElement.style.setProperty('--app-font-size', fs);
+				} catch (e) {
+					document.documentElement.className = 'dark pointer-cursors';
+					document.documentElement.style.setProperty('--app-font-size', '14px');
+				}
+			})();
+		</script>
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">
