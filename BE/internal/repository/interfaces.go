@@ -33,6 +33,9 @@ type WorkspaceRepo interface {
 	GetMember(ctx context.Context, workspaceID, userID uuid.UUID) (*domain.WorkspaceMember, error)
 	ListMembers(ctx context.Context, workspaceID uuid.UUID) ([]domain.WorkspaceMember, error)
 	ListMembersWithUsers(ctx context.Context, workspaceID uuid.UUID) ([]domain.WorkspaceMemberWithUser, error)
+	UpdateMemberRole(ctx context.Context, workspaceID, userID uuid.UUID, role string) error
+	RemoveMember(ctx context.Context, workspaceID, userID uuid.UUID) error
+	CountMembersByRole(ctx context.Context, workspaceID uuid.UUID, role string) (int, error)
 }
 
 type TeamRepo interface {
@@ -56,6 +59,7 @@ type IssueRepo interface {
 	GetLabels(ctx context.Context, issueID uuid.UUID) ([]domain.Label, error)
 	ListSubIssues(ctx context.Context, parentID uuid.UUID) ([]domain.Issue, error)
 	CountSubIssues(ctx context.Context, parentID uuid.UUID) (int, int, error)
+	BulkUpdate(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID, status *string, priority *int, assigneeID *uuid.UUID) (int, error)
 	BeginTx(ctx context.Context) (*sqlx.Tx, error)
 }
 
@@ -121,6 +125,15 @@ type IssueRelationRepo interface {
 	Delete(ctx context.Context, id uuid.UUID) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.IssueRelation, error)
 	DeleteByIssues(ctx context.Context, issueID, relatedIssueID uuid.UUID, relType domain.IssueRelationType) error
+}
+
+type TeamStatusRepo interface {
+	Create(ctx context.Context, status *domain.TeamStatus) error
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.TeamStatus, error)
+	ListByTeam(ctx context.Context, teamID uuid.UUID) ([]domain.TeamStatus, error)
+	Update(ctx context.Context, status *domain.TeamStatus) error
+	Delete(ctx context.Context, id uuid.UUID) error
+	NextPosition(ctx context.Context, teamID uuid.UUID) (int, error)
 }
 
 type IssueTemplateRepo interface {

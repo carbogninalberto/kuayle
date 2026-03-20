@@ -101,6 +101,44 @@ func (s *WorkspaceService) ListMembers(ctx context.Context, workspaceID uuid.UUI
 	return s.workspaceRepo.ListMembers(ctx, workspaceID)
 }
 
+func (s *WorkspaceService) UpdateMemberRole(ctx context.Context, workspaceID, userID uuid.UUID, role string) error {
+	member, err := s.workspaceRepo.GetMember(ctx, workspaceID, userID)
+	if err != nil || member == nil {
+		return fmt.Errorf("member not found")
+	}
+
+	if member.Role == domain.RoleOwner && role != domain.RoleOwner {
+		count, err := s.workspaceRepo.CountMembersByRole(ctx, workspaceID, domain.RoleOwner)
+		if err != nil {
+			return err
+		}
+		if count <= 1 {
+			return fmt.Errorf("cannot demote the last owner")
+		}
+	}
+
+	return s.workspaceRepo.UpdateMemberRole(ctx, workspaceID, userID, role)
+}
+
+func (s *WorkspaceService) RemoveMember(ctx context.Context, workspaceID, userID uuid.UUID) error {
+	member, err := s.workspaceRepo.GetMember(ctx, workspaceID, userID)
+	if err != nil || member == nil {
+		return fmt.Errorf("member not found")
+	}
+
+	if member.Role == domain.RoleOwner {
+		count, err := s.workspaceRepo.CountMembersByRole(ctx, workspaceID, domain.RoleOwner)
+		if err != nil {
+			return err
+		}
+		if count <= 1 {
+			return fmt.Errorf("cannot remove the last owner")
+		}
+	}
+
+	return s.workspaceRepo.RemoveMember(ctx, workspaceID, userID)
+}
+
 func (s *WorkspaceService) ListMembersWithUsers(ctx context.Context, workspaceID uuid.UUID) ([]domain.WorkspaceMemberWithUser, error) {
 	return s.workspaceRepo.ListMembersWithUsers(ctx, workspaceID)
 }

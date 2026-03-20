@@ -6,6 +6,7 @@
 	import type { Workspace } from '$lib/types/workspace';
 	import type { Team } from '$lib/types/team';
 	import type { View } from '$lib/types/view';
+	import WorkspaceSwitcher from './WorkspaceSwitcher.svelte';
 	import {
 		Inbox,
 		LayoutDashboard,
@@ -55,13 +56,8 @@
 	class="flex h-full w-60 flex-col border-r border-[var(--app-border)] bg-[var(--color-bg-secondary)]"
 >
 	<!-- Workspace header -->
-	<div class="flex h-[49px] items-center gap-2 border-b border-[var(--app-border)] px-4">
-		<div
-			class="flex h-6 w-6 items-center justify-center rounded bg-[var(--app-accent)] text-xs font-bold text-white"
-		>
-			{workspace.name.charAt(0).toUpperCase()}
-		</div>
-		<span class="text-sm font-medium text-[var(--color-text-primary)]">{workspace.name}</span>
+	<div class="flex h-[49px] items-center border-b border-[var(--app-border)] px-3">
+		<WorkspaceSwitcher currentWorkspace={workspace} {slug} />
 	</div>
 
 	<!-- Create Issue -->

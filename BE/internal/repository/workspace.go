@@ -73,6 +73,22 @@ func (r *WorkspaceRepository) ListMembers(ctx context.Context, workspaceID uuid.
 	return members, err
 }
 
+func (r *WorkspaceRepository) UpdateMemberRole(ctx context.Context, workspaceID, userID uuid.UUID, role string) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE workspace_members SET role = $1 WHERE workspace_id = $2 AND user_id = $3`, role, workspaceID, userID)
+	return err
+}
+
+func (r *WorkspaceRepository) RemoveMember(ctx context.Context, workspaceID, userID uuid.UUID) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM workspace_members WHERE workspace_id = $1 AND user_id = $2`, workspaceID, userID)
+	return err
+}
+
+func (r *WorkspaceRepository) CountMembersByRole(ctx context.Context, workspaceID uuid.UUID, role string) (int, error) {
+	var count int
+	err := r.db.GetContext(ctx, &count, `SELECT COUNT(*) FROM workspace_members WHERE workspace_id = $1 AND role = $2`, workspaceID, role)
+	return count, err
+}
+
 func (r *WorkspaceRepository) ListMembersWithUsers(ctx context.Context, workspaceID uuid.UUID) ([]domain.WorkspaceMemberWithUser, error) {
 	var members []domain.WorkspaceMemberWithUser
 	query := `SELECT wm.workspace_id, wm.user_id, wm.role, u.email, u.name, u.display_name, u.avatar_url, wm.created_at

@@ -123,6 +123,30 @@ func (h *IssueHandler) Delete(c echo.Context) error {
 	return response.Success(c, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
+func (h *IssueHandler) BulkUpdate(c echo.Context) error {
+	var req dto.BulkUpdateIssueRequest
+	if err := c.Bind(&req); err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
+	}
+	if err := validate.Struct(&req); err != nil {
+		details := make([]dto.ErrorDetail, 0)
+		for _, e := range validate.FormatErrors(err) {
+			details = append(details, dto.ErrorDetail{Field: e["field"], Message: e["message"]})
+		}
+		return response.ValidationError(c, details)
+	}
+
+	ws := c.Get("workspace").(*domain.Workspace)
+	userID := middleware.GetUserID(c)
+
+	updated, err := h.issueSvc.BulkUpdate(c.Request().Context(), ws.ID, userID, req)
+	if err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+	}
+
+	return response.Success(c, http.StatusOK, map[string]int{"updated": updated})
+}
+
 func (h *IssueHandler) ListComments(c echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	identifier := c.Param("identifier")

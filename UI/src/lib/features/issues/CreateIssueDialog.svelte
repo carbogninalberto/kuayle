@@ -9,24 +9,15 @@
 	import type { Label } from '$lib/types/label';
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import type { IssueStatus, IssuePriority } from '$lib/types/issue';
-	import { STATUS_LABELS, PRIORITY_LABELS } from '$lib/types/issue';
+	import { STATUS_LABELS, PRIORITY_LABELS, STATUS_ORDER } from '$lib/types/issue';
 	import RichEditor from '$lib/components/shared/RichEditor.svelte';
+	import IssueStatusIcon from './IssueStatusIcon.svelte';
+	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
+	import DatePickerPopover from '$lib/components/shared/DatePickerPopover.svelte';
 	import {
-		Circle,
-		CircleDot,
-		CircleDashed,
-		Loader,
-		CheckCircle2,
-		XCircle,
-		SignalHigh,
-		Signal,
-		SignalMedium,
-		SignalLow,
-		Minus,
 		User,
 		Tag,
-		FolderKanban,
-		MoreHorizontal
+		FolderKanban
 	} from 'lucide-svelte';
 
 	let {
@@ -53,6 +44,7 @@
 			project_id?: string;
 			assignee_id?: string;
 			label_ids?: string[];
+			due_date?: string;
 		}) => void;
 	} = $props();
 
@@ -64,6 +56,7 @@
 	let projectId = $state<string | null>(null);
 	let assigneeId = $state<string | null>(null);
 	let labelIds = $state<string[]>([]);
+	let dueDate = $state<string | null>(null);
 	let createMore = $state(false);
 
 	let statusOpen = $state(false);
@@ -83,6 +76,7 @@
 			projectId = null;
 			assigneeId = null;
 			labelIds = [];
+			dueDate = null;
 		}
 	});
 
@@ -91,22 +85,7 @@
 	let selectedAssignee = $derived(members.find((m) => m.user_id === assigneeId));
 	let selectedLabels = $derived(labels.filter((l) => labelIds.includes(l.id)));
 
-	const statusIcons: Record<IssueStatus, typeof Circle> = {
-		backlog: CircleDashed,
-		todo: Circle,
-		in_progress: Loader,
-		in_review: CircleDot,
-		done: CheckCircle2,
-		cancelled: XCircle
-	};
-
-	const priorityIcons: Record<IssuePriority, typeof Minus> = {
-		0: Minus,
-		1: SignalHigh,
-		2: SignalHigh,
-		3: SignalMedium,
-		4: SignalLow
-	};
+	const priorityValues: IssuePriority[] = [0, 1, 2, 3, 4];
 
 	function handleSubmit() {
 		if (!title.trim() || !teamId) return;
@@ -118,7 +97,8 @@
 			team_id: teamId,
 			project_id: projectId || undefined,
 			assignee_id: assigneeId || undefined,
-			label_ids: labelIds.length > 0 ? labelIds : undefined
+			label_ids: labelIds.length > 0 ? labelIds : undefined,
+			due_date: dueDate || undefined
 		});
 		if (createMore) {
 			title = '';
@@ -203,18 +183,18 @@
 			<Popover.Root bind:open={statusOpen}>
 				<Popover.Trigger>
 					<button class="flex items-center gap-1.5 rounded-full border border-[var(--app-border)] px-2.5 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
-						<svelte:component this={statusIcons[status]} size={12} />
+						<IssueStatusIcon {status} size={12} />
 						{STATUS_LABELS[status]}
 					</button>
 				</Popover.Trigger>
 				<Popover.Content class="w-40 p-1" align="start">
-					{#each Object.entries(STATUS_LABELS) as [value, label]}
+					{#each STATUS_ORDER as value}
 						<button
-							onclick={() => { status = value as IssueStatus; statusOpen = false; }}
+							onclick={() => { status = value; statusOpen = false; }}
 							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {status === value ? 'bg-[var(--color-bg-hover)]' : ''}"
 						>
-							<svelte:component this={statusIcons[value as IssueStatus]} size={14} />
-							{label}
+							<IssueStatusIcon status={value} size={14} />
+							{STATUS_LABELS[value]}
 						</button>
 					{/each}
 				</Popover.Content>
@@ -224,18 +204,18 @@
 			<Popover.Root bind:open={priorityOpen}>
 				<Popover.Trigger>
 					<button class="flex items-center gap-1.5 rounded-full border border-[var(--app-border)] px-2.5 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
-						<svelte:component this={priorityIcons[priority]} size={12} />
+						<IssuePriorityIcon {priority} size={12} />
 						{PRIORITY_LABELS[priority]}
 					</button>
 				</Popover.Trigger>
 				<Popover.Content class="w-40 p-1" align="start">
-					{#each Object.entries(PRIORITY_LABELS) as [value, label]}
+					{#each priorityValues as value}
 						<button
-							onclick={() => { priority = Number(value) as IssuePriority; priorityOpen = false; }}
-							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {priority === Number(value) ? 'bg-[var(--color-bg-hover)]' : ''}"
+							onclick={() => { priority = value; priorityOpen = false; }}
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {priority === value ? 'bg-[var(--color-bg-hover)]' : ''}"
 						>
-							<svelte:component this={priorityIcons[Number(value) as IssuePriority]} size={14} />
-							{label}
+							<IssuePriorityIcon priority={value} size={14} />
+							{PRIORITY_LABELS[value]}
 						</button>
 					{/each}
 				</Popover.Content>
@@ -331,6 +311,13 @@
 					{/if}
 				</Popover.Content>
 			</Popover.Root>
+
+			<!-- Due Date -->
+			<DatePickerPopover
+				value={dueDate}
+				onchange={(d) => (dueDate = d)}
+				placeholder="Due date"
+			/>
 		</div>
 
 		<!-- Footer -->

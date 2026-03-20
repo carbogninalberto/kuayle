@@ -250,6 +250,53 @@ func (r *IssueRepository) CountSubIssues(ctx context.Context, parentID uuid.UUID
 	return total, done, err
 }
 
+func (r *IssueRepository) BulkUpdate(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID, status *string, priority *int, assigneeID *uuid.UUID) (int, error) {
+	setClauses := []string{"updated_at = NOW()"}
+	args := []interface{}{workspaceID}
+	argIdx := 2
+
+	if status != nil {
+		setClauses = append(setClauses, fmt.Sprintf("status = $%d", argIdx))
+		args = append(args, *status)
+		argIdx++
+	}
+	if priority != nil {
+		setClauses = append(setClauses, fmt.Sprintf("priority = $%d", argIdx))
+		args = append(args, *priority)
+		argIdx++
+	}
+	if assigneeID != nil {
+		setClauses = append(setClauses, fmt.Sprintf("assignee_id = $%d", argIdx))
+		args = append(args, *assigneeID)
+		argIdx++
+	}
+
+	if len(setClauses) == 1 {
+		return 0, nil
+	}
+
+	// Build IN clause for issue IDs
+	idPlaceholders := make([]string, len(issueIDs))
+	for i, id := range issueIDs {
+		idPlaceholders[i] = fmt.Sprintf("$%d", argIdx)
+		args = append(args, id)
+		argIdx++
+	}
+
+	query := fmt.Sprintf(
+		`UPDATE issues SET %s WHERE workspace_id = $1 AND id IN (%s)`,
+		strings.Join(setClauses, ", "),
+		strings.Join(idPlaceholders, ", "),
+	)
+
+	result, err := r.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := result.RowsAffected()
+	return int(n), nil
+}
+
 func (r *IssueRepository) BeginTx(ctx context.Context) (*sqlx.Tx, error) {
 	return r.db.BeginTxx(ctx, nil)
 }

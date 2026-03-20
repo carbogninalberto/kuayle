@@ -80,6 +80,11 @@ func (m *mockIssueRepo) CountSubIssues(ctx context.Context, parentID uuid.UUID) 
 	return args.Int(0), args.Int(1), args.Error(2)
 }
 
+func (m *mockIssueRepo) BulkUpdate(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID, status *string, priority *int, assigneeID *uuid.UUID) (int, error) {
+	args := m.Called(ctx, workspaceID, issueIDs, status, priority, assigneeID)
+	return args.Int(0), args.Error(1)
+}
+
 func (m *mockIssueRepo) BeginTx(ctx context.Context) (*sqlx.Tx, error) {
 	args := m.Called(ctx)
 	if args.Get(0) == nil {

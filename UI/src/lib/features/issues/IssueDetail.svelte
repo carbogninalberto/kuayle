@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import type { Issue, Comment, IssueHistory, IssueStatus, IssuePriority } from '$lib/types/issue';
-	import { STATUS_LABELS, PRIORITY_LABELS } from '$lib/types/issue';
+	import { STATUS_LABELS, PRIORITY_LABELS, STATUS_ORDER } from '$lib/types/issue';
 	import { listComments, createComment, getIssueHistory } from '$lib/api/issues';
 	import { issuesState } from './issues.state.svelte';
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
@@ -9,19 +9,7 @@
 	import { formatRelativeTime } from '$lib/utils/format';
 	import { toast } from 'svelte-sonner';
 	import * as Popover from '$lib/components/ui/popover';
-	import {
-		X,
-		Circle,
-		CircleDot,
-		CircleDashed,
-		Loader,
-		CheckCircle2,
-		XCircle,
-		SignalHigh,
-		SignalMedium,
-		SignalLow,
-		Minus
-	} from 'lucide-svelte';
+	import { X } from 'lucide-svelte';
 
 	let {
 		issue,
@@ -36,22 +24,7 @@
 	let statusOpen = $state(false);
 	let priorityOpen = $state(false);
 
-	const statusIcons: Record<IssueStatus, typeof Circle> = {
-		backlog: CircleDashed,
-		todo: Circle,
-		in_progress: Loader,
-		in_review: CircleDot,
-		done: CheckCircle2,
-		cancelled: XCircle
-	};
-
-	const priorityIcons: Record<IssuePriority, typeof Minus> = {
-		0: Minus,
-		1: SignalHigh,
-		2: SignalHigh,
-		3: SignalMedium,
-		4: SignalLow
-	};
+	const priorityValues: IssuePriority[] = [0, 1, 2, 3, 4];
 
 	onMount(async () => {
 		const [c, h] = await Promise.all([
@@ -135,18 +108,18 @@
 					<Popover.Root bind:open={statusOpen}>
 						<Popover.Trigger>
 							<button class="flex items-center gap-1.5 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-2.5 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
-								<svelte:component this={statusIcons[issue.status]} size={12} />
+								<IssueStatusIcon status={issue.status} size={12} />
 								{STATUS_LABELS[issue.status]}
 							</button>
 						</Popover.Trigger>
 						<Popover.Content class="w-40 p-1" align="start">
-							{#each Object.entries(STATUS_LABELS) as [value, label]}
+							{#each STATUS_ORDER as value}
 								<button
 									onclick={() => { updateStatus(value); statusOpen = false; }}
 									class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {issue.status === value ? 'bg-[var(--color-bg-hover)]' : ''}"
 								>
-									<svelte:component this={statusIcons[value as IssueStatus]} size={14} />
-									{label}
+									<IssueStatusIcon status={value} size={14} />
+									{STATUS_LABELS[value]}
 								</button>
 							{/each}
 						</Popover.Content>
@@ -157,18 +130,18 @@
 					<Popover.Root bind:open={priorityOpen}>
 						<Popover.Trigger>
 							<button class="flex items-center gap-1.5 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-2.5 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
-								<svelte:component this={priorityIcons[issue.priority]} size={12} />
+								<IssuePriorityIcon priority={issue.priority} size={12} />
 								{PRIORITY_LABELS[issue.priority]}
 							</button>
 						</Popover.Trigger>
 						<Popover.Content class="w-40 p-1" align="start">
-							{#each Object.entries(PRIORITY_LABELS) as [value, label]}
+							{#each priorityValues as value}
 								<button
-									onclick={() => { updatePriority(Number(value)); priorityOpen = false; }}
-									class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {issue.priority === Number(value) ? 'bg-[var(--color-bg-hover)]' : ''}"
+									onclick={() => { updatePriority(value); priorityOpen = false; }}
+									class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {issue.priority === value ? 'bg-[var(--color-bg-hover)]' : ''}"
 								>
-									<svelte:component this={priorityIcons[Number(value) as IssuePriority]} size={14} />
-									{label}
+									<IssuePriorityIcon priority={value} size={14} />
+									{PRIORITY_LABELS[value]}
 								</button>
 							{/each}
 						</Popover.Content>

@@ -274,6 +274,38 @@ func (s *IssueService) CountSubIssues(ctx context.Context, issueID uuid.UUID) (i
 	return s.issueRepo.CountSubIssues(ctx, issueID)
 }
 
+func (s *IssueService) BulkUpdate(ctx context.Context, workspaceID, userID uuid.UUID, req dto.BulkUpdateIssueRequest) (int, error) {
+	issueIDs := make([]uuid.UUID, len(req.IssueIDs))
+	for i, id := range req.IssueIDs {
+		parsed, err := uuid.Parse(id)
+		if err != nil {
+			return 0, fmt.Errorf("invalid issue_id: %s", id)
+		}
+		issueIDs[i] = parsed
+	}
+
+	var assigneeID *uuid.UUID
+	if req.AssigneeID != nil {
+		aid, err := uuid.Parse(*req.AssigneeID)
+		if err != nil {
+			return 0, fmt.Errorf("invalid assignee_id")
+		}
+		assigneeID = &aid
+	}
+
+	n, err := s.issueRepo.BulkUpdate(ctx, workspaceID, issueIDs, req.Status, req.Priority, assigneeID)
+	if err != nil {
+		return 0, err
+	}
+
+	s.hub.Broadcast(workspaceID, realtime.Event{
+		Type:    "issues.bulk_updated",
+		Payload: map[string]interface{}{"count": n},
+	})
+
+	return n, nil
+}
+
 func (s *IssueService) recordHistory(ctx context.Context, issueID, userID uuid.UUID, field string, oldValue, newValue *string) {
 	if err := s.historyRepo.Create(ctx, issueID, userID, field, oldValue, newValue); err != nil {
 		log.WithError(err).Warn("failed to record issue history")

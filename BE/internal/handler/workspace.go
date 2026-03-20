@@ -9,8 +9,13 @@ import (
 	"github.com/carbon/carbon-backend/internal/service"
 	"github.com/carbon/carbon-backend/pkg/response"
 	"github.com/carbon/carbon-backend/pkg/validate"
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 )
+
+func parseUUID(s string) (uuid.UUID, error) {
+	return uuid.Parse(s)
+}
 
 type WorkspaceHandler struct {
 	workspaceSvc *service.WorkspaceService
@@ -112,6 +117,46 @@ func (h *WorkspaceHandler) ListMembers(c echo.Context) error {
 		})
 	}
 	return response.Success(c, http.StatusOK, resp)
+}
+
+func (h *WorkspaceHandler) UpdateMemberRole(c echo.Context) error {
+	var req dto.UpdateMemberRoleRequest
+	if err := c.Bind(&req); err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
+	}
+	if err := validate.Struct(&req); err != nil {
+		details := make([]dto.ErrorDetail, 0)
+		for _, e := range validate.FormatErrors(err) {
+			details = append(details, dto.ErrorDetail{Field: e["field"], Message: e["message"]})
+		}
+		return response.ValidationError(c, details)
+	}
+
+	ws := c.Get("workspace").(*domain.Workspace)
+	userIDStr := c.Param("userId")
+	userID, err := parseUUID(userIDStr)
+	if err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid user ID")
+	}
+
+	if err := h.workspaceSvc.UpdateMemberRole(c.Request().Context(), ws.ID, userID, req.Role); err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+	}
+	return response.Success(c, http.StatusOK, map[string]string{"status": "updated"})
+}
+
+func (h *WorkspaceHandler) RemoveMember(c echo.Context) error {
+	ws := c.Get("workspace").(*domain.Workspace)
+	userIDStr := c.Param("userId")
+	userID, err := parseUUID(userIDStr)
+	if err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid user ID")
+	}
+
+	if err := h.workspaceSvc.RemoveMember(c.Request().Context(), ws.ID, userID); err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+	}
+	return response.Success(c, http.StatusOK, map[string]string{"status": "removed"})
 }
 
 func toWorkspaceResponse(ws domain.Workspace) dto.WorkspaceResponse {

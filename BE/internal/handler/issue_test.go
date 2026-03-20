@@ -106,6 +106,10 @@ func (r *testIssueRepo) CountSubIssues(_ context.Context, parentID uuid.UUID) (i
 	return total, done, nil
 }
 
+func (r *testIssueRepo) BulkUpdate(_ context.Context, _ uuid.UUID, _ []uuid.UUID, _ *string, _ *int, _ *uuid.UUID) (int, error) {
+	return 0, nil
+}
+
 func (r *testIssueRepo) BeginTx(_ context.Context) (*sqlx.Tx, error) {
 	return nil, nil
 }

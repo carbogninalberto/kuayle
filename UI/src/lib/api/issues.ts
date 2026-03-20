@@ -55,3 +55,16 @@ export function triageAccept(slug: string, identifier: string): Promise<Issue> {
 export function triageDecline(slug: string, identifier: string): Promise<Issue> {
 	return api.post<Issue>(`/api/workspaces/${slug}/issues/${identifier}/triage/decline`);
 }
+
+export function bulkUpdateIssues(
+	slug: string,
+	req: {
+		issue_ids: string[];
+		status?: string;
+		priority?: number;
+		assignee_id?: string;
+		label_ids?: string[];
+	}
+): Promise<{ updated: number }> {
+	return api.patch<{ updated: number }>(`/api/workspaces/${slug}/issues/bulk`, req);
+}

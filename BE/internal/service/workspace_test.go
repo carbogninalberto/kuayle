@@ -71,6 +71,21 @@ func (m *mockWorkspaceRepo) ListMembersWithUsers(ctx context.Context, workspaceI
 	return args.Get(0).([]domain.WorkspaceMemberWithUser), args.Error(1)
 }
 
+func (m *mockWorkspaceRepo) UpdateMemberRole(ctx context.Context, workspaceID, userID uuid.UUID, role string) error {
+	args := m.Called(ctx, workspaceID, userID, role)
+	return args.Error(0)
+}
+
+func (m *mockWorkspaceRepo) RemoveMember(ctx context.Context, workspaceID, userID uuid.UUID) error {
+	args := m.Called(ctx, workspaceID, userID)
+	return args.Error(0)
+}
+
+func (m *mockWorkspaceRepo) CountMembersByRole(ctx context.Context, workspaceID uuid.UUID, role string) (int, error) {
+	args := m.Called(ctx, workspaceID, role)
+	return args.Int(0), args.Error(1)
+}
+
 // --- Tests ---
 
 func TestWorkspaceService_Create_Happy(t *testing.T) {

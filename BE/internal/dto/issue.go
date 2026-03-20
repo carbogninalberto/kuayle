@@ -57,6 +57,14 @@ type IssueResponse struct {
 	UpdatedAt      time.Time      `json:"updated_at"`
 }
 
+type BulkUpdateIssueRequest struct {
+	IssueIDs   []string `json:"issue_ids" validate:"required,min=1,dive,uuid"`
+	Status     *string  `json:"status" validate:"omitempty,oneof=backlog todo in_progress in_review done cancelled"`
+	Priority   *int     `json:"priority" validate:"omitempty,min=0,max=4"`
+	AssigneeID *string  `json:"assignee_id" validate:"omitempty,uuid"`
+	LabelIDs   []string `json:"label_ids" validate:"omitempty,dive,uuid"`
+}
+
 type IssueFilterParams struct {
 	PaginationParams
 	Status     string `query:"status"`

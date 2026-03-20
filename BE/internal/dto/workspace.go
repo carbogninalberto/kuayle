@@ -25,6 +25,10 @@ type InviteMemberRequest struct {
 	Role  string `json:"role" validate:"required,oneof=admin member guest"`
 }
 
+type UpdateMemberRoleRequest struct {
+	Role string `json:"role" validate:"required,oneof=owner admin member guest"`
+}
+
 type WorkspaceMemberResponse struct {
 	UserID    string    `json:"user_id"`
 	Email     string    `json:"email"`

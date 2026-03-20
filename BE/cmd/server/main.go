@@ -61,6 +61,7 @@ func main() {
 	templateRepo := repository.NewIssueTemplateRepository(db)
 	viewRepo := repository.NewViewRepository(db)
 	cycleRepo := repository.NewCycleRepository(db)
+	teamStatusRepo := repository.NewTeamStatusRepository(db)
 
 	// Services
 	authSvc := service.NewAuthService(userRepo, refreshRepo, cfg.JWTSecret)
@@ -75,6 +76,7 @@ func main() {
 	templateSvc := service.NewIssueTemplateService(templateRepo)
 	viewSvc := service.NewViewService(viewRepo)
 	cycleSvc := service.NewCycleService(cycleRepo)
+	teamStatusSvc := service.NewTeamStatusService(teamStatusRepo)
 
 	// Handlers
 	healthH := handler.NewHealthHandler(db)
@@ -90,6 +92,7 @@ func main() {
 	templateH := handler.NewIssueTemplateHandler(templateSvc)
 	viewH := handler.NewViewHandler(viewSvc)
 	cycleH := handler.NewCycleHandler(cycleSvc)
+	teamStatusH := handler.NewTeamStatusHandler(teamStatusSvc)
 	analyticsH := handler.NewAnalyticsHandler(db)
 	webhookRepo := repository.NewWebhookRepository(db)
 	webhookSvc := service.NewWebhookService(webhookRepo)
@@ -131,12 +134,20 @@ func main() {
 	ws.PATCH("", workspaceH.Update, mw.RequirePermission("workspace:manage"))
 	ws.POST("/invite", workspaceH.Invite, mw.RequirePermission("member:invite"))
 	ws.GET("/members", workspaceH.ListMembers)
+	ws.PATCH("/members/:userId", workspaceH.UpdateMemberRole, mw.RequirePermission("member:invite"))
+	ws.DELETE("/members/:userId", workspaceH.RemoveMember, mw.RequirePermission("member:invite"))
 
 	// Teams
 	ws.GET("/teams", teamH.List)
 	ws.POST("/teams", teamH.Create, mw.RequirePermission("team:manage"))
 	ws.GET("/teams/:teamId", teamH.Get)
 	ws.PATCH("/teams/:teamId", teamH.Update, mw.RequirePermission("team:manage"))
+
+	// Team Statuses
+	ws.GET("/teams/:teamId/statuses", teamStatusH.List)
+	ws.POST("/teams/:teamId/statuses", teamStatusH.Create, mw.RequirePermission("team:manage"))
+	ws.PATCH("/teams/:teamId/statuses/:statusId", teamStatusH.Update, mw.RequirePermission("team:manage"))
+	ws.DELETE("/teams/:teamId/statuses/:statusId", teamStatusH.Delete, mw.RequirePermission("team:manage"))
 
 	// Cycles (team-scoped)
 	ws.GET("/teams/:teamId/cycles", cycleH.List)
@@ -149,6 +160,7 @@ func main() {
 	// Issues
 	ws.GET("/issues", issueH.List)
 	ws.POST("/issues", issueH.Create, mw.RequirePermission("issue:create"))
+	ws.PATCH("/issues/bulk", issueH.BulkUpdate, mw.RequirePermission("issue:update"))
 	ws.GET("/issues/:identifier", issueH.Get)
 	ws.PATCH("/issues/:identifier", issueH.Update, mw.RequirePermission("issue:update"))
 	ws.DELETE("/issues/:identifier", issueH.Delete, mw.RequirePermission("issue:delete"))
