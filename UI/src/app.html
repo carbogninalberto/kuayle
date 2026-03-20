@@ -22,12 +22,12 @@
 						classes += ' pointer-cursors';
 					}
 					document.documentElement.className = classes;
-					var fontMap = { small: '13px', default: '14px', large: '16px' };
-					var fs = fontMap[prefs.fontSize] || '14px';
+					var fontMap = { small: '87.5%', default: '100%', large: '112.5%' };
+					var fs = fontMap[prefs.fontSize] || '100%';
 					document.documentElement.style.setProperty('--app-font-size', fs);
 				} catch (e) {
 					document.documentElement.className = 'dark pointer-cursors';
-					document.documentElement.style.setProperty('--app-font-size', '14px');
+					document.documentElement.style.setProperty('--app-font-size', '100%');
 				}
 			})();
 		</script>

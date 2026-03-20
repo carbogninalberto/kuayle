@@ -150,6 +150,11 @@ type FavoriteRepo interface {
 	DeleteByID(ctx context.Context, id uuid.UUID) error
 }
 
+type UserPreferencesRepo interface {
+	Get(ctx context.Context, userID uuid.UUID) (*domain.UserPreferences, error)
+	Upsert(ctx context.Context, prefs *domain.UserPreferences) error
+}
+
 type IssueTemplateRepo interface {
 	Create(ctx context.Context, tmpl *domain.IssueTemplate) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.IssueTemplate, error)

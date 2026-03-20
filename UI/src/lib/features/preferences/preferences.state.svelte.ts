@@ -1,3 +1,5 @@
+import { getPreferences, updatePreferences } from '$lib/api/preferences';
+
 type FontSize = 'small' | 'default' | 'large';
 type ThemeMode = 'system' | 'light' | 'dark';
 type LightTheme = 'light' | 'rose-light' | 'blue-light';
@@ -13,10 +15,12 @@ interface PreferencesData {
 
 const STORAGE_KEY = 'carbon-preferences';
 
-const FONT_SIZE_MAP: Record<FontSize, number> = {
-	small: 13,
-	default: 14,
-	large: 16,
+// Percentage values applied to <html> font-size so all rem-based
+// Tailwind utilities (text-sm, text-xs, etc.) scale proportionally.
+const FONT_SIZE_SCALE: Record<FontSize, string> = {
+	small: '87.5%',
+	default: '100%',
+	large: '112.5%',
 };
 
 class PreferencesState {
@@ -37,13 +41,14 @@ class PreferencesState {
 		this.resolvedMode === 'dark' ? this.darkTheme : this.lightTheme
 	);
 
-	fontSizePx = $derived(FONT_SIZE_MAP[this.fontSize]);
+	fontSizeScale = $derived(FONT_SIZE_SCALE[this.fontSize]);
 
 	init() {
 		if (this.initialized) return;
 		this.initialized = true;
 
-		this.load();
+		this.loadLocal();
+		this.loadRemote();
 
 		const mql = window.matchMedia('(prefers-color-scheme: dark)');
 		this.systemPrefersDark = mql.matches;
@@ -57,11 +62,11 @@ class PreferencesState {
 				classes.push('pointer-cursors');
 			}
 			document.documentElement.className = classes.join(' ');
-			document.documentElement.style.setProperty('--app-font-size', `${this.fontSizePx}px`);
+			document.documentElement.style.setProperty('--app-font-size', this.fontSizeScale);
 		});
 	}
 
-	private load() {
+	private loadLocal() {
 		try {
 			const raw = localStorage.getItem(STORAGE_KEY);
 			if (!raw) return;
@@ -76,7 +81,21 @@ class PreferencesState {
 		}
 	}
 
-	private persist() {
+	private async loadRemote() {
+		try {
+			const data = await getPreferences();
+			this.fontSize = data.font_size as FontSize;
+			this.pointerCursors = data.pointer_cursors;
+			this.themeMode = data.theme_mode as ThemeMode;
+			this.lightTheme = data.light_theme as LightTheme;
+			this.darkTheme = data.dark_theme as DarkTheme;
+			this.persistLocal();
+		} catch {
+			// API unavailable — local-only is fine
+		}
+	}
+
+	private persistLocal() {
 		const data: PreferencesData = {
 			fontSize: this.fontSize,
 			pointerCursors: this.pointerCursors,
@@ -85,6 +104,19 @@ class PreferencesState {
 			darkTheme: this.darkTheme,
 		};
 		localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+	}
+
+	private persist() {
+		this.persistLocal();
+		updatePreferences({
+			font_size: this.fontSize,
+			pointer_cursors: this.pointerCursors,
+			theme_mode: this.themeMode,
+			light_theme: this.lightTheme,
+			dark_theme: this.darkTheme,
+		}).catch(() => {
+			// fire-and-forget — localStorage is the primary source for instant UX
+		});
 	}
 
 	setFontSize(size: FontSize) {

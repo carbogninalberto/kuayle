@@ -63,6 +63,7 @@ func main() {
 	cycleRepo := repository.NewCycleRepository(db)
 	teamStatusRepo := repository.NewTeamStatusRepository(db)
 	favRepo := repository.NewFavoriteRepository(db)
+	prefsRepo := repository.NewUserPreferencesRepository(db)
 
 	// Services
 	authSvc := service.NewAuthService(userRepo, refreshRepo, cfg.JWTSecret)
@@ -79,6 +80,7 @@ func main() {
 	cycleSvc := service.NewCycleService(cycleRepo)
 	teamStatusSvc := service.NewTeamStatusService(teamStatusRepo)
 	favSvc := service.NewFavoriteService(favRepo)
+	prefsSvc := service.NewPreferencesService(prefsRepo)
 
 	// Handlers
 	healthH := handler.NewHealthHandler(db)
@@ -96,6 +98,7 @@ func main() {
 	cycleH := handler.NewCycleHandler(cycleSvc)
 	teamStatusH := handler.NewTeamStatusHandler(teamStatusSvc)
 	favH := handler.NewFavoriteHandler(favSvc)
+	prefsH := handler.NewPreferencesHandler(prefsSvc)
 	analyticsH := handler.NewAnalyticsHandler(db)
 	webhookRepo := repository.NewWebhookRepository(db)
 	webhookSvc := service.NewWebhookService(webhookRepo)
@@ -126,6 +129,8 @@ func main() {
 
 	// User
 	api.GET("/auth/me", authH.Me)
+	api.GET("/preferences", prefsH.Get)
+	api.PATCH("/preferences", prefsH.Update)
 
 	// Workspaces (no workspace context needed for list/create)
 	api.GET("/workspaces", workspaceH.List)

@@ -6,9 +6,9 @@
 	import { preferencesState } from '$lib/features/preferences/preferences.state.svelte';
 
 	const fontSizeLabels: Record<string, string> = {
-		small: 'Small (13px)',
-		default: 'Default (14px)',
-		large: 'Large (16px)',
+		small: 'Small',
+		default: 'Default',
+		large: 'Large',
 	};
 
 	const lightThemeLabels: Record<string, string> = {
@@ -53,9 +53,9 @@
 					{fontSizeLabels[preferencesState.fontSize]}
 				</Select.Trigger>
 				<Select.Content>
-					<Select.Item value="small">Small (13px)</Select.Item>
-					<Select.Item value="default">Default (14px)</Select.Item>
-					<Select.Item value="large">Large (16px)</Select.Item>
+					<Select.Item value="small">Small</Select.Item>
+					<Select.Item value="default">Default</Select.Item>
+					<Select.Item value="large">Large</Select.Item>
 				</Select.Content>
 			</Select.Root>
 		</div>

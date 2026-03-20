@@ -5,7 +5,7 @@
 @custom-variant dark (&:is(.dark *, .amethyst-dark *, .emerald-dark *));
 
 :root {
-	--app-font-size: 14px;
+	--app-font-size: 100%;
 
 	--primary-50: #ededfc;
 	--primary-100: #d5d1fa;
@@ -52,11 +52,14 @@
 	--sidebar-ring: oklch(0.708 0 0);
 }
 
+html {
+	font-size: var(--app-font-size);
+}
+
 body {
 	background-color: var(--color-bg);
 	color: var(--color-text-primary);
 	font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-	font-size: var(--app-font-size);
 }
 
 * {
