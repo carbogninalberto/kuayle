@@ -6,6 +6,7 @@ type CreateIssueRequest struct {
 	Title       string  `json:"title" validate:"required,min=1,max=500"`
 	Description *string `json:"description"`
 	Status      string  `json:"status" validate:"omitempty,oneof=backlog todo in_progress in_review done cancelled"`
+	StatusID    *string `json:"status_id" validate:"omitempty,uuid"`
 	Priority    *int    `json:"priority" validate:"omitempty,min=0,max=4"`
 	TeamID      string  `json:"team_id" validate:"required,uuid"`
 	ProjectID   *string `json:"project_id" validate:"omitempty,uuid"`
@@ -22,6 +23,7 @@ type UpdateIssueRequest struct {
 	Title       *string `json:"title" validate:"omitempty,min=1,max=500"`
 	Description *string `json:"description"`
 	Status      *string `json:"status" validate:"omitempty,oneof=backlog todo in_progress in_review done cancelled"`
+	StatusID    *string `json:"status_id" validate:"omitempty,uuid"`
 	Priority    *int    `json:"priority" validate:"omitempty,min=0,max=4"`
 	AssigneeID  *string `json:"assignee_id" validate:"omitempty,uuid"`
 	AssigneeIDs []string `json:"assignee_ids" validate:"omitempty,dive,uuid"`
@@ -40,6 +42,8 @@ type IssueResponse struct {
 	Title       string         `json:"title"`
 	Description *string        `json:"description"`
 	Status      string         `json:"status"`
+	StatusID    *string        `json:"status_id,omitempty"`
+	StatusInfo  *StatusInfoResponse `json:"status_info,omitempty"`
 	Priority    int            `json:"priority"`
 	TeamID      string         `json:"team_id"`
 	ProjectID   *string        `json:"project_id"`
@@ -60,9 +64,18 @@ type IssueResponse struct {
 	UpdatedAt      time.Time      `json:"updated_at"`
 }
 
+type StatusInfoResponse struct {
+	ID       string  `json:"id"`
+	Name     string  `json:"name"`
+	Category string  `json:"category"`
+	Color    *string `json:"color"`
+	Position int     `json:"position"`
+}
+
 type BulkUpdateIssueRequest struct {
 	IssueIDs   []string `json:"issue_ids" validate:"required,min=1,dive,uuid"`
 	Status     *string  `json:"status" validate:"omitempty,oneof=backlog todo in_progress in_review done cancelled"`
+	StatusID   *string  `json:"status_id" validate:"omitempty,uuid"`
 	Priority   *int     `json:"priority" validate:"omitempty,min=0,max=4"`
 	AssigneeID *string  `json:"assignee_id" validate:"omitempty,uuid"`
 	LabelIDs   []string `json:"label_ids" validate:"omitempty,dive,uuid"`

@@ -63,7 +63,7 @@ type IssueRepo interface {
 	GetAssigneesForIssues(ctx context.Context, issueIDs []uuid.UUID) (map[uuid.UUID][]uuid.UUID, error)
 	ListSubIssues(ctx context.Context, parentID uuid.UUID) ([]domain.Issue, error)
 	CountSubIssues(ctx context.Context, parentID uuid.UUID) (int, int, error)
-	BulkUpdate(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID, status *string, priority *int, assigneeID *uuid.UUID) (int, error)
+	BulkUpdate(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID, status *string, priority *int, assigneeID *uuid.UUID, statusID *uuid.UUID) (int, error)
 	BulkDelete(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID) (int, error)
 	BeginTx(ctx context.Context) (*sqlx.Tx, error)
 }
@@ -137,6 +137,7 @@ type IssueRelationRepo interface {
 type TeamStatusRepo interface {
 	Create(ctx context.Context, status *domain.TeamStatus) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.TeamStatus, error)
+	GetByTeamAndSlug(ctx context.Context, teamID uuid.UUID, slug string) (*domain.TeamStatus, error)
 	ListByTeam(ctx context.Context, teamID uuid.UUID) ([]domain.TeamStatus, error)
 	Update(ctx context.Context, status *domain.TeamStatus) error
 	Delete(ctx context.Context, id uuid.UUID) error
@@ -153,6 +154,13 @@ type FavoriteRepo interface {
 type UserPreferencesRepo interface {
 	Get(ctx context.Context, userID uuid.UUID) (*domain.UserPreferences, error)
 	Upsert(ctx context.Context, prefs *domain.UserPreferences) error
+}
+
+type ProjectStatusVisibilityRepo interface {
+	SetVisibleStatuses(ctx context.Context, projectID uuid.UUID, statusIDs []uuid.UUID) error
+	ListVisibleStatuses(ctx context.Context, projectID uuid.UUID) ([]uuid.UUID, error)
+	ListProjectsForStatus(ctx context.Context, statusID uuid.UUID) ([]uuid.UUID, error)
+	ListProjectIDsByStatuses(ctx context.Context, statusIDs []uuid.UUID) (map[uuid.UUID][]uuid.UUID, error)
 }
 
 type IssueTemplateRepo interface {

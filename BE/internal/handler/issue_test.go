@@ -110,7 +110,7 @@ func (r *testIssueRepo) CountSubIssues(_ context.Context, parentID uuid.UUID) (i
 	return total, done, nil
 }
 
-func (r *testIssueRepo) BulkUpdate(_ context.Context, _ uuid.UUID, _ []uuid.UUID, _ *string, _ *int, _ *uuid.UUID) (int, error) {
+func (r *testIssueRepo) BulkUpdate(_ context.Context, _ uuid.UUID, _ []uuid.UUID, _ *string, _ *int, _ *uuid.UUID, _ *uuid.UUID) (int, error) {
 	return 0, nil
 }
 
@@ -187,6 +187,36 @@ func (r *testHistoryRepo) ListByIssue(_ context.Context, _ uuid.UUID) ([]domain.
 	return nil, nil
 }
 
+type testTeamStatusRepo struct{}
+
+func (r *testTeamStatusRepo) Create(_ context.Context, _ *domain.TeamStatus) error {
+	return nil
+}
+
+func (r *testTeamStatusRepo) GetByID(_ context.Context, _ uuid.UUID) (*domain.TeamStatus, error) {
+	return nil, nil
+}
+
+func (r *testTeamStatusRepo) GetByTeamAndSlug(_ context.Context, _ uuid.UUID, _ string) (*domain.TeamStatus, error) {
+	return nil, nil
+}
+
+func (r *testTeamStatusRepo) ListByTeam(_ context.Context, _ uuid.UUID) ([]domain.TeamStatus, error) {
+	return nil, nil
+}
+
+func (r *testTeamStatusRepo) Update(_ context.Context, _ *domain.TeamStatus) error {
+	return nil
+}
+
+func (r *testTeamStatusRepo) Delete(_ context.Context, _ uuid.UUID) error {
+	return nil
+}
+
+func (r *testTeamStatusRepo) NextPosition(_ context.Context, _ uuid.UUID) (int, error) {
+	return 0, nil
+}
+
 type testCommentRepo struct {
 	comments []domain.Comment
 }
@@ -244,7 +274,7 @@ func TestIssueHandler_List(t *testing.T) {
 		Status:      domain.IssueStatusTodo,
 	}
 
-	issueSvc := service.NewIssueService(issueRepo, teamRepo, historyRepo, hub)
+	issueSvc := service.NewIssueService(issueRepo, teamRepo, &testTeamStatusRepo{}, historyRepo, hub)
 	commentSvc := service.NewCommentService(&testCommentRepo{})
 	h := NewIssueHandler(issueSvc, commentSvc, &testUserRepo{})
 
@@ -277,7 +307,7 @@ func TestIssueHandler_Get_Found(t *testing.T) {
 		CreatorID:   uuid.New(),
 	}
 
-	issueSvc := service.NewIssueService(issueRepo, teamRepo, historyRepo, hub)
+	issueSvc := service.NewIssueService(issueRepo, teamRepo, &testTeamStatusRepo{}, historyRepo, hub)
 	commentSvc := service.NewCommentService(&testCommentRepo{})
 	h := NewIssueHandler(issueSvc, commentSvc, &testUserRepo{})
 
@@ -301,7 +331,7 @@ func TestIssueHandler_Get_NotFound(t *testing.T) {
 	historyRepo := &testHistoryRepo{}
 	hub := realtime.NewHub()
 
-	issueSvc := service.NewIssueService(issueRepo, teamRepo, historyRepo, hub)
+	issueSvc := service.NewIssueService(issueRepo, teamRepo, &testTeamStatusRepo{}, historyRepo, hub)
 	commentSvc := service.NewCommentService(&testCommentRepo{})
 	h := NewIssueHandler(issueSvc, commentSvc, &testUserRepo{})
 
@@ -324,7 +354,7 @@ func TestIssueHandler_Create_ValidationError(t *testing.T) {
 	historyRepo := &testHistoryRepo{}
 	hub := realtime.NewHub()
 
-	issueSvc := service.NewIssueService(issueRepo, teamRepo, historyRepo, hub)
+	issueSvc := service.NewIssueService(issueRepo, teamRepo, &testTeamStatusRepo{}, historyRepo, hub)
 	commentSvc := service.NewCommentService(&testCommentRepo{})
 	h := NewIssueHandler(issueSvc, commentSvc, &testUserRepo{})
 
@@ -353,7 +383,7 @@ func TestIssueHandler_Delete_Success(t *testing.T) {
 		Title:       "Delete me",
 	}
 
-	issueSvc := service.NewIssueService(issueRepo, teamRepo, historyRepo, hub)
+	issueSvc := service.NewIssueService(issueRepo, teamRepo, &testTeamStatusRepo{}, historyRepo, hub)
 	commentSvc := service.NewCommentService(&testCommentRepo{})
 	h := NewIssueHandler(issueSvc, commentSvc, &testUserRepo{})
 
@@ -377,7 +407,7 @@ func TestIssueHandler_CreateComment_ValidationError(t *testing.T) {
 	historyRepo := &testHistoryRepo{}
 	hub := realtime.NewHub()
 
-	issueSvc := service.NewIssueService(issueRepo, teamRepo, historyRepo, hub)
+	issueSvc := service.NewIssueService(issueRepo, teamRepo, &testTeamStatusRepo{}, historyRepo, hub)
 	commentSvc := service.NewCommentService(&testCommentRepo{})
 	h := NewIssueHandler(issueSvc, commentSvc, &testUserRepo{})
 

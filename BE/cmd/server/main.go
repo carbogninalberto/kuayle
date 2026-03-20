@@ -62,6 +62,7 @@ func main() {
 	viewRepo := repository.NewViewRepository(db)
 	cycleRepo := repository.NewCycleRepository(db)
 	teamStatusRepo := repository.NewTeamStatusRepository(db)
+	visibilityRepo := repository.NewProjectStatusVisibilityRepository(db)
 	favRepo := repository.NewFavoriteRepository(db)
 	prefsRepo := repository.NewUserPreferencesRepository(db)
 
@@ -69,7 +70,7 @@ func main() {
 	authSvc := service.NewAuthService(userRepo, refreshRepo, cfg.JWTSecret)
 	workspaceSvc := service.NewWorkspaceService(workspaceRepo, userRepo)
 	teamSvc := service.NewTeamService(teamRepo)
-	issueSvc := service.NewIssueService(issueRepo, teamRepo, historyRepo, hub)
+	issueSvc := service.NewIssueService(issueRepo, teamRepo, teamStatusRepo, historyRepo, hub)
 	labelSvc := service.NewLabelService(labelRepo)
 	commentSvc := service.NewCommentService(commentRepo)
 	projectSvc := service.NewProjectService(projectRepo)
@@ -78,7 +79,7 @@ func main() {
 	templateSvc := service.NewIssueTemplateService(templateRepo)
 	viewSvc := service.NewViewService(viewRepo)
 	cycleSvc := service.NewCycleService(cycleRepo)
-	teamStatusSvc := service.NewTeamStatusService(teamStatusRepo)
+	teamStatusSvc := service.NewTeamStatusService(teamStatusRepo, visibilityRepo)
 	favSvc := service.NewFavoriteService(favRepo)
 	prefsSvc := service.NewPreferencesService(prefsRepo)
 

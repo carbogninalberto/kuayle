@@ -23,13 +23,13 @@ func NewIssueRepository(db *sqlx.DB) *IssueRepository {
 
 func (r *IssueRepository) Create(ctx context.Context, tx *sqlx.Tx, issue *domain.Issue) error {
 	query := `
-		INSERT INTO issues (id, workspace_id, team_id, project_id, cycle_id, number, identifier_text, title, description, status, priority, creator_id, assignee_id, parent_id, estimate, due_date, sort_order, triaged)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+		INSERT INTO issues (id, workspace_id, team_id, project_id, cycle_id, number, identifier_text, title, description, status, status_id, priority, creator_id, assignee_id, parent_id, estimate, due_date, sort_order, triaged)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
 		RETURNING created_at, updated_at`
 	return tx.QueryRowContext(ctx, query,
 		issue.ID, issue.WorkspaceID, issue.TeamID, issue.ProjectID, issue.CycleID,
 		issue.Number, issue.Identifier, issue.Title, issue.Description,
-		issue.Status, issue.Priority, issue.CreatorID, issue.AssigneeID,
+		issue.Status, issue.StatusID, issue.Priority, issue.CreatorID, issue.AssigneeID,
 		issue.ParentID, issue.Estimate, issue.DueDate, issue.SortOrder, issue.Triaged,
 	).Scan(&issue.CreatedAt, &issue.UpdatedAt)
 }
@@ -204,13 +204,15 @@ func (r *IssueRepository) Update(ctx context.Context, issue *domain.Issue) error
 		UPDATE issues SET
 			title = $1, description = $2, status = $3, priority = $4,
 			assignee_id = $5, project_id = $6, cycle_id = $7, parent_id = $8,
-			estimate = $9, due_date = $10, sort_order = $11, triaged = $12, updated_at = NOW()
-		WHERE id = $13
+			estimate = $9, due_date = $10, sort_order = $11, triaged = $12,
+			status_id = $13, updated_at = NOW()
+		WHERE id = $14
 		RETURNING updated_at`
 	return r.db.QueryRowContext(ctx, query,
 		issue.Title, issue.Description, issue.Status, issue.Priority,
 		issue.AssigneeID, issue.ProjectID, issue.CycleID, issue.ParentID,
-		issue.Estimate, issue.DueDate, issue.SortOrder, issue.Triaged, issue.ID,
+		issue.Estimate, issue.DueDate, issue.SortOrder, issue.Triaged,
+		issue.StatusID, issue.ID,
 	).Scan(&issue.UpdatedAt)
 }
 
@@ -285,11 +287,11 @@ func (r *IssueRepository) ListSubIssues(ctx context.Context, parentID uuid.UUID)
 
 func (r *IssueRepository) CountSubIssues(ctx context.Context, parentID uuid.UUID) (int, int, error) {
 	var total, done int
-	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*), COUNT(*) FILTER (WHERE status IN ('done', 'cancelled')) FROM issues WHERE parent_id = $1`, parentID).Scan(&total, &done)
+	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*), COUNT(*) FILTER (WHERE ts.category IN ('completed', 'cancelled')) FROM issues i LEFT JOIN team_statuses ts ON ts.id = i.status_id WHERE i.parent_id = $1`, parentID).Scan(&total, &done)
 	return total, done, err
 }
 
-func (r *IssueRepository) BulkUpdate(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID, status *string, priority *int, assigneeID *uuid.UUID) (int, error) {
+func (r *IssueRepository) BulkUpdate(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID, status *string, priority *int, assigneeID *uuid.UUID, statusID *uuid.UUID) (int, error) {
 	setClauses := []string{"updated_at = NOW()"}
 	args := []interface{}{workspaceID}
 	argIdx := 2
@@ -307,6 +309,11 @@ func (r *IssueRepository) BulkUpdate(ctx context.Context, workspaceID uuid.UUID,
 	if assigneeID != nil {
 		setClauses = append(setClauses, fmt.Sprintf("assignee_id = $%d", argIdx))
 		args = append(args, *assigneeID)
+		argIdx++
+	}
+	if statusID != nil {
+		setClauses = append(setClauses, fmt.Sprintf("status_id = $%d", argIdx))
+		args = append(args, *statusID)
 		argIdx++
 	}
 

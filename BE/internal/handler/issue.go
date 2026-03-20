@@ -457,6 +457,10 @@ func toIssueResponse(issue domain.Issue) dto.IssueResponse {
 		s := issue.ParentID.String()
 		resp.ParentID = &s
 	}
+	if issue.StatusID != nil {
+		s := issue.StatusID.String()
+		resp.StatusID = &s
+	}
 	return resp
 }
 

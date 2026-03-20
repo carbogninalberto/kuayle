@@ -36,6 +36,15 @@ func (r *TeamStatusRepository) GetByID(ctx context.Context, id uuid.UUID) (*doma
 	return &status, err
 }
 
+func (r *TeamStatusRepository) GetByTeamAndSlug(ctx context.Context, teamID uuid.UUID, slug string) (*domain.TeamStatus, error) {
+	var status domain.TeamStatus
+	err := r.db.GetContext(ctx, &status, `SELECT * FROM team_statuses WHERE team_id = $1 AND slug = $2`, teamID, slug)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return &status, err
+}
+
 func (r *TeamStatusRepository) ListByTeam(ctx context.Context, teamID uuid.UUID) ([]domain.TeamStatus, error) {
 	var statuses []domain.TeamStatus
 	err := r.db.SelectContext(ctx, &statuses, `SELECT * FROM team_statuses WHERE team_id = $1 ORDER BY position`, teamID)

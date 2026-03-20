@@ -27,14 +27,29 @@ func (h *TeamStatusHandler) List(c echo.Context) error {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid team ID")
 	}
 
-	statuses, err := h.statusSvc.List(c.Request().Context(), teamID)
+	ctx := c.Request().Context()
+	statuses, err := h.statusSvc.List(ctx, teamID)
 	if err != nil {
 		return response.InternalError(c)
 	}
 
+	// Batch load project IDs for all statuses
+	statusIDs := make([]uuid.UUID, len(statuses))
+	for i, s := range statuses {
+		statusIDs[i] = s.ID
+	}
+	projectIDsMap, _ := h.statusSvc.ListProjectIDsForStatuses(ctx, statusIDs)
+
 	resp := make([]dto.TeamStatusResponse, len(statuses))
 	for i, s := range statuses {
 		resp[i] = toTeamStatusResponse(s)
+		if pids, ok := projectIDsMap[s.ID]; ok && len(pids) > 0 {
+			pidStrs := make([]string, len(pids))
+			for j, pid := range pids {
+				pidStrs[j] = pid.String()
+			}
+			resp[i].ProjectIDs = pidStrs
+		}
 	}
 	return response.Success(c, http.StatusOK, resp)
 }
@@ -58,11 +73,20 @@ func (h *TeamStatusHandler) Create(c echo.Context) error {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid team ID")
 	}
 
-	status, err := h.statusSvc.Create(c.Request().Context(), teamID, req)
+	ctx := c.Request().Context()
+	status, err := h.statusSvc.Create(ctx, teamID, req)
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
 	}
-	return response.Success(c, http.StatusCreated, toTeamStatusResponse(*status))
+	resp := toTeamStatusResponse(*status)
+	if pids, _ := h.statusSvc.ListProjectsForStatus(ctx, status.ID); len(pids) > 0 {
+		pidStrs := make([]string, len(pids))
+		for i, pid := range pids {
+			pidStrs[i] = pid.String()
+		}
+		resp.ProjectIDs = pidStrs
+	}
+	return response.Success(c, http.StatusCreated, resp)
 }
 
 func (h *TeamStatusHandler) Update(c echo.Context) error {
@@ -77,11 +101,20 @@ func (h *TeamStatusHandler) Update(c echo.Context) error {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid status ID")
 	}
 
-	status, err := h.statusSvc.Update(c.Request().Context(), id, req)
+	ctx := c.Request().Context()
+	status, err := h.statusSvc.Update(ctx, id, req)
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
 	}
-	return response.Success(c, http.StatusOK, toTeamStatusResponse(*status))
+	resp := toTeamStatusResponse(*status)
+	if pids, _ := h.statusSvc.ListProjectsForStatus(ctx, status.ID); len(pids) > 0 {
+		pidStrs := make([]string, len(pids))
+		for i, pid := range pids {
+			pidStrs[i] = pid.String()
+		}
+		resp.ProjectIDs = pidStrs
+	}
+	return response.Success(c, http.StatusOK, resp)
 }
 
 func (h *TeamStatusHandler) Delete(c echo.Context) error {

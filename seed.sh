@@ -65,7 +65,7 @@ docker exec -i carbon-postgres-1 psql -U carbon -d carbon -q -v "hash=$HASH" <<'
 -- USERS
 -- ============================================================
 INSERT INTO users (id, email, name, display_name, password_hash) VALUES
-    ('a0000000-0000-0000-0000-000000000001', 'alice@carbon.dev', 'Alice Chen', 'Alice', :'hash'),
+    ('a0000000-0000-0000-0000-000000000001', 'q', 'Alice Chen', 'Alice', :'hash'),
     ('a0000000-0000-0000-0000-000000000002', 'bob@carbon.dev', 'Bob Martinez', 'Bob', :'hash'),
     ('a0000000-0000-0000-0000-000000000003', 'carol@carbon.dev', 'Carol Kim', 'Carol', :'hash'),
     ('a0000000-0000-0000-0000-000000000004', 'dave@carbon.dev', 'Dave Johnson', 'Dave', :'hash'),

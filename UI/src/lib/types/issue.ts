@@ -4,12 +4,22 @@ import type { User } from './auth';
 export type IssueStatus = 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'done' | 'cancelled';
 export type IssuePriority = 0 | 1 | 2 | 3 | 4;
 
+export interface StatusInfo {
+	id: string;
+	name: string;
+	category: string;
+	color: string | null;
+	position: number;
+}
+
 export interface Issue {
 	id: string;
 	identifier: string;
 	title: string;
 	description: string | null;
 	status: IssueStatus;
+	status_id?: string;
+	status_info?: StatusInfo;
 	priority: IssuePriority;
 	team_id: string;
 	project_id: string | null;
@@ -34,6 +44,7 @@ export interface CreateIssueRequest {
 	title: string;
 	description?: string;
 	status?: IssueStatus;
+	status_id?: string;
 	priority?: IssuePriority;
 	team_id: string;
 	project_id?: string;
@@ -50,6 +61,7 @@ export interface UpdateIssueRequest {
 	title?: string;
 	description?: string;
 	status?: IssueStatus;
+	status_id?: string;
 	priority?: IssuePriority;
 	assignee_id?: string;
 	assignee_ids?: string[];

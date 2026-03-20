@@ -8,7 +8,7 @@ export function listTeamStatuses(slug: string, teamId: string): Promise<TeamStat
 export function createTeamStatus(
 	slug: string,
 	teamId: string,
-	req: { name: string; category: string; color?: string }
+	req: { name: string; category: string; color?: string; project_ids?: string[] }
 ): Promise<TeamStatus> {
 	return api.post<TeamStatus>(`/api/workspaces/${slug}/teams/${teamId}/statuses`, req);
 }
@@ -17,7 +17,7 @@ export function updateTeamStatus(
 	slug: string,
 	teamId: string,
 	statusId: string,
-	req: { name?: string; color?: string; position?: number }
+	req: { name?: string; color?: string; position?: number; project_ids?: string[] }
 ): Promise<TeamStatus> {
 	return api.patch<TeamStatus>(`/api/workspaces/${slug}/teams/${teamId}/statuses/${statusId}`, req);
 }

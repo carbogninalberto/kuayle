@@ -14,14 +14,15 @@ import (
 )
 
 type IssueService struct {
-	issueRepo   repository.IssueRepo
-	teamRepo    repository.TeamRepo
-	historyRepo repository.IssueHistoryRepo
-	hub         *realtime.Hub
+	issueRepo      repository.IssueRepo
+	teamRepo       repository.TeamRepo
+	teamStatusRepo repository.TeamStatusRepo
+	historyRepo    repository.IssueHistoryRepo
+	hub            *realtime.Hub
 }
 
-func NewIssueService(issueRepo repository.IssueRepo, teamRepo repository.TeamRepo, historyRepo repository.IssueHistoryRepo, hub *realtime.Hub) *IssueService {
-	return &IssueService{issueRepo: issueRepo, teamRepo: teamRepo, historyRepo: historyRepo, hub: hub}
+func NewIssueService(issueRepo repository.IssueRepo, teamRepo repository.TeamRepo, teamStatusRepo repository.TeamStatusRepo, historyRepo repository.IssueHistoryRepo, hub *realtime.Hub) *IssueService {
+	return &IssueService{issueRepo: issueRepo, teamRepo: teamRepo, teamStatusRepo: teamStatusRepo, historyRepo: historyRepo, hub: hub}
 }
 
 func (s *IssueService) Create(ctx context.Context, workspaceID, creatorID uuid.UUID, req dto.CreateIssueRequest) (*domain.Issue, error) {
@@ -97,6 +98,21 @@ func (s *IssueService) Create(ctx context.Context, workspaceID, creatorID uuid.U
 		}
 	}
 
+	// Resolve status_id
+	if req.StatusID != nil {
+		sid, err := uuid.Parse(*req.StatusID)
+		if err == nil {
+			issue.StatusID = &sid
+		}
+	}
+	if issue.StatusID == nil {
+		// Look up the matching team_status by slug
+		ts, err := s.teamStatusRepo.GetByTeamAndSlug(ctx, teamID, string(status))
+		if err == nil && ts != nil {
+			issue.StatusID = &ts.ID
+		}
+	}
+
 	if err := s.issueRepo.Create(ctx, tx, issue); err != nil {
 		return nil, err
 	}
@@ -169,10 +185,35 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 		issue.Description = req.Description
 		s.recordHistory(ctx, issue.ID, userID, "description", &old, req.Description)
 	}
-	if req.Status != nil && *req.Status != string(issue.Status) {
+	if req.StatusID != nil {
+		sid, err := uuid.Parse(*req.StatusID)
+		if err == nil {
+			// Look up old and new status names for history
+			var oldName string
+			if issue.StatusID != nil {
+				oldStatus, _ := s.teamStatusRepo.GetByID(ctx, *issue.StatusID)
+				if oldStatus != nil {
+					oldName = oldStatus.Name
+				}
+			}
+			newStatus, _ := s.teamStatusRepo.GetByID(ctx, sid)
+			if newStatus != nil {
+				newName := newStatus.Name
+				issue.StatusID = &sid
+				// Update legacy status field for backward compat
+				issue.Status = domain.IssueStatus(newStatus.Slug)
+				s.recordHistory(ctx, issue.ID, userID, "status", &oldName, &newName)
+			}
+		}
+	} else if req.Status != nil && *req.Status != string(issue.Status) {
 		old := string(issue.Status)
 		issue.Status = domain.IssueStatus(*req.Status)
 		s.recordHistory(ctx, issue.ID, userID, "status", &old, req.Status)
+		// Also update status_id to match the new legacy status slug
+		ts, err := s.teamStatusRepo.GetByTeamAndSlug(ctx, issue.TeamID, *req.Status)
+		if err == nil && ts != nil {
+			issue.StatusID = &ts.ID
+		}
 	}
 	if req.Priority != nil && domain.IssuePriority(*req.Priority) != issue.Priority {
 		old := fmt.Sprintf("%d", issue.Priority)
@@ -280,10 +321,15 @@ func (s *IssueService) Triage(ctx context.Context, workspaceID, userID uuid.UUID
 
 	issue.Triaged = true
 	if !accept {
-		issue.Status = domain.IssueStatusCancelled
 		old := string(issue.Status)
+		issue.Status = domain.IssueStatusCancelled
 		newVal := string(domain.IssueStatusCancelled)
 		s.recordHistory(ctx, issue.ID, userID, "status", &old, &newVal)
+		// Look up the team's cancelled status
+		cancelledStatus, _ := s.teamStatusRepo.GetByTeamAndSlug(ctx, issue.TeamID, string(domain.IssueStatusCancelled))
+		if cancelledStatus != nil {
+			issue.StatusID = &cancelledStatus.ID
+		}
 	}
 
 	if err := s.issueRepo.Update(ctx, issue); err != nil {
@@ -349,7 +395,16 @@ func (s *IssueService) BulkUpdate(ctx context.Context, workspaceID, userID uuid.
 		assigneeID = &aid
 	}
 
-	n, err := s.issueRepo.BulkUpdate(ctx, workspaceID, issueIDs, req.Status, req.Priority, assigneeID)
+	var statusID *uuid.UUID
+	if req.StatusID != nil {
+		sid, err := uuid.Parse(*req.StatusID)
+		if err != nil {
+			return 0, fmt.Errorf("invalid status_id")
+		}
+		statusID = &sid
+	}
+
+	n, err := s.issueRepo.BulkUpdate(ctx, workspaceID, issueIDs, req.Status, req.Priority, assigneeID, statusID)
 	if err != nil {
 		return 0, err
 	}

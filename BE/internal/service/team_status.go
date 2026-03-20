@@ -12,11 +12,12 @@ import (
 )
 
 type TeamStatusService struct {
-	statusRepo repository.TeamStatusRepo
+	statusRepo     repository.TeamStatusRepo
+	visibilityRepo repository.ProjectStatusVisibilityRepo
 }
 
-func NewTeamStatusService(statusRepo repository.TeamStatusRepo) *TeamStatusService {
-	return &TeamStatusService{statusRepo: statusRepo}
+func NewTeamStatusService(statusRepo repository.TeamStatusRepo, visibilityRepo repository.ProjectStatusVisibilityRepo) *TeamStatusService {
+	return &TeamStatusService{statusRepo: statusRepo, visibilityRepo: visibilityRepo}
 }
 
 func (s *TeamStatusService) List(ctx context.Context, teamID uuid.UUID) ([]domain.TeamStatus, error) {
@@ -45,6 +46,20 @@ func (s *TeamStatusService) Create(ctx context.Context, teamID uuid.UUID, req dt
 	if err := s.statusRepo.Create(ctx, status); err != nil {
 		return nil, err
 	}
+
+	// Set project visibility if project IDs are provided
+	if len(req.ProjectIDs) > 0 {
+		for _, pidStr := range req.ProjectIDs {
+			pid, err := uuid.Parse(pidStr)
+			if err != nil {
+				continue
+			}
+			existingIDs, _ := s.visibilityRepo.ListVisibleStatuses(ctx, pid)
+			updatedIDs := append(existingIDs, status.ID)
+			_ = s.visibilityRepo.SetVisibleStatuses(ctx, pid, updatedIDs)
+		}
+	}
+
 	return status, nil
 }
 
@@ -67,7 +82,42 @@ func (s *TeamStatusService) Update(ctx context.Context, id uuid.UUID, req dto.Up
 	if err := s.statusRepo.Update(ctx, status); err != nil {
 		return nil, err
 	}
+
+	// Update project visibility if ProjectIDs is provided
+	if req.ProjectIDs != nil {
+		// First, remove this status from all projects
+		existingProjects, _ := s.visibilityRepo.ListProjectsForStatus(ctx, id)
+		for _, pid := range existingProjects {
+			visibleIDs, _ := s.visibilityRepo.ListVisibleStatuses(ctx, pid)
+			filtered := make([]uuid.UUID, 0, len(visibleIDs))
+			for _, sid := range visibleIDs {
+				if sid != id {
+					filtered = append(filtered, sid)
+				}
+			}
+			_ = s.visibilityRepo.SetVisibleStatuses(ctx, pid, filtered)
+		}
+		// Then, add this status to the specified projects
+		for _, pidStr := range *req.ProjectIDs {
+			pid, err := uuid.Parse(pidStr)
+			if err != nil {
+				continue
+			}
+			visibleIDs, _ := s.visibilityRepo.ListVisibleStatuses(ctx, pid)
+			updatedIDs := append(visibleIDs, id)
+			_ = s.visibilityRepo.SetVisibleStatuses(ctx, pid, updatedIDs)
+		}
+	}
+
 	return status, nil
+}
+
+func (s *TeamStatusService) ListProjectIDsForStatuses(ctx context.Context, statusIDs []uuid.UUID) (map[uuid.UUID][]uuid.UUID, error) {
+	return s.visibilityRepo.ListProjectIDsByStatuses(ctx, statusIDs)
+}
+
+func (s *TeamStatusService) ListProjectsForStatus(ctx context.Context, statusID uuid.UUID) ([]uuid.UUID, error) {
+	return s.visibilityRepo.ListProjectsForStatus(ctx, statusID)
 }
 
 func (s *TeamStatusService) Delete(ctx context.Context, id uuid.UUID) error {
