@@ -289,7 +289,7 @@ import CycleProgress from '$lib/features/cycles/CycleProgress.svelte';
 				/>
 			{:else}
 				{#each issuesState.issues as issue (issue.id)}
-					<IssueRow {issue} {slug} {members} {labels} {lastSelectedId} onclick={(i) => { lastSelectedId = i.id; goto(`/${slug}/issue/${i.identifier}`); }} />
+					<IssueRow {issue} {slug} {members} {labels} {lastSelectedId} onlastselected={(id) => lastSelectedId = id} onclick={(i) => { lastSelectedId = i.id; goto(`/${slug}/issue/${i.identifier}`); }} />
 				{/each}
 			{/if}
 		</div>

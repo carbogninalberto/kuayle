@@ -24,6 +24,7 @@
 		cycles = [],
 		onclick,
 		lastSelectedId = null,
+		onlastselected,
 		onaddrelation
 	}: {
 		issue: Issue;
@@ -34,6 +35,7 @@
 		cycles?: Cycle[];
 		onclick: (issue: Issue) => void;
 		lastSelectedId?: string | null;
+		onlastselected?: (id: string) => void;
 		onaddrelation?: (issue: Issue, type: RelationType) => void;
 	} = $props();
 
@@ -74,13 +76,19 @@
 
 	function handleCheckboxChange(e: Event) {
 		e.stopPropagation();
-		issuesState.toggleSelect(issue.id);
+		if (e instanceof MouseEvent && e.shiftKey && lastSelectedId) {
+			issuesState.selectRange(lastSelectedId, issue.id);
+		} else {
+			issuesState.toggleSelect(issue.id);
+		}
+		onlastselected?.(issue.id);
 	}
 
 	function handleClick(e: MouseEvent) {
 		if (e.shiftKey && lastSelectedId) {
 			e.preventDefault();
 			issuesState.selectRange(lastSelectedId, issue.id);
+			onlastselected?.(issue.id);
 		} else {
 			onclick(issue);
 		}

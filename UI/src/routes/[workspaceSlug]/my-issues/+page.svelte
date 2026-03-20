@@ -178,13 +178,13 @@
 					/>
 					{#if !collapsedGroups.has(group.key)}
 						{#each group.issues as issue (issue.id)}
-							<IssueRow {issue} {slug} {members} {labels} {projects} onclick={handleIssueClick} {lastSelectedId} onaddrelation={handleAddRelation} />
+							<IssueRow {issue} {slug} {members} {labels} {projects} onclick={handleIssueClick} {lastSelectedId} onlastselected={(id) => lastSelectedId = id} onaddrelation={handleAddRelation} />
 						{/each}
 					{/if}
 				{/each}
 			{:else}
 				{#each issuesState.issues as issue (issue.id)}
-					<IssueRow {issue} {slug} {members} {labels} {projects} onclick={handleIssueClick} {lastSelectedId} onaddrelation={handleAddRelation} />
+					<IssueRow {issue} {slug} {members} {labels} {projects} onclick={handleIssueClick} {lastSelectedId} onlastselected={(id) => lastSelectedId = id} onaddrelation={handleAddRelation} />
 				{/each}
 			{/if}
 

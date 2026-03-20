@@ -253,7 +253,7 @@
 					/>
 				{:else}
 					{#each issuesState.issues as issue (issue.id)}
-						<IssueRow {issue} {slug} {lastSelectedId} onclick={(i) => { lastSelectedId = i.id; issuesState.select(i); }} />
+						<IssueRow {issue} {slug} {lastSelectedId} onlastselected={(id) => lastSelectedId = id} onclick={(i) => { lastSelectedId = i.id; issuesState.select(i); }} />
 					{/each}
 				{/if}
 			</div>

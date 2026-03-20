@@ -66,6 +66,13 @@ class IssuesState {
 		}));
 	});
 
+	/** Flat issue order matching the visual rendering (respects grouping). */
+	private visibleOrder = $derived<Issue[]>(
+		this.groupBy
+			? this.groupedIssues.flatMap((g) => g.issues)
+			: this.issues
+	);
+
 	getAdjacentIdentifier(current: string, direction: 'prev' | 'next'): string | null {
 		const idx = this.issueIdentifiers.indexOf(current);
 		if (idx === -1) return null;
@@ -84,14 +91,15 @@ class IssuesState {
 	}
 
 	selectRange(fromId: string, toId: string) {
-		const fromIdx = this.issues.findIndex((i) => i.id === fromId);
-		const toIdx = this.issues.findIndex((i) => i.id === toId);
+		const order = this.visibleOrder;
+		const fromIdx = order.findIndex((i) => i.id === fromId);
+		const toIdx = order.findIndex((i) => i.id === toId);
 		if (fromIdx === -1 || toIdx === -1) return;
 		const start = Math.min(fromIdx, toIdx);
 		const end = Math.max(fromIdx, toIdx);
 		const next = new Set(this.selectedIds);
 		for (let i = start; i <= end; i++) {
-			next.add(this.issues[i].id);
+			next.add(order[i].id);
 		}
 		this.selectedIds = next;
 	}
