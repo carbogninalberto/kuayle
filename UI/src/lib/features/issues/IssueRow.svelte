@@ -89,7 +89,7 @@
 
 <IssueContextMenu {issue} {slug} {members} {labels} {projects} {cycles} onaddrelation={(type) => onaddrelation?.(issue, type)}>
 	<button
-		class="group flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors duration-100 hover:bg-black/[0.03] dark:hover:bg-white/[0.04] {isSelected ? 'bg-black/[0.03] dark:bg-white/[0.04]' : ''}"
+		class="group mx-2 flex w-[calc(100%-1rem)] items-center gap-2 rounded-md px-3 py-1.5 text-left transition-colors duration-100 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] {isSelected ? 'bg-black/[0.02] dark:bg-white/[0.02]' : ''}"
 		onclick={handleClick}
 	>
 		<!-- Checkbox -->
@@ -127,7 +127,7 @@
 		</span>
 
 		<!-- Identifier -->
-		<span class="w-[4.5rem] shrink-0 text-xs tabular-nums text-[var(--color-text-tertiary)]">{issue.identifier}</span>
+		<span class="w-[3.75rem] shrink-0 text-xs tabular-nums text-[var(--color-text-tertiary)]">{issue.identifier}</span>
 
 		<!-- Status -->
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
