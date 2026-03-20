@@ -1,4 +1,5 @@
 import type { Issue, IssueStatus, IssuePriority, CreateIssueRequest, UpdateIssueRequest } from '$lib/types/issue';
+import { STATUS_ORDER } from '$lib/types/issue';
 import * as issueApi from '$lib/api/issues';
 
 export type GroupByField = 'status' | 'priority' | 'assignee' | 'project' | null;
@@ -59,11 +60,17 @@ class IssuesState {
 			groups.get(key)!.issues.push(issue);
 		}
 
-		return Array.from(groups.entries()).map(([key, { issues, label }]) => ({
+		const result = Array.from(groups.entries()).map(([key, { issues, label }]) => ({
 			key,
 			label,
 			issues
 		}));
+
+		if (this.groupBy === 'status') {
+			result.sort((a, b) => STATUS_ORDER.indexOf(a.key as IssueStatus) - STATUS_ORDER.indexOf(b.key as IssueStatus));
+		}
+
+		return result;
 	});
 
 	/** Flat issue order matching the visual rendering (respects grouping). */

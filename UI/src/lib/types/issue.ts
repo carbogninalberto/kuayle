@@ -121,7 +121,7 @@ export interface Comment {
 	updated_at: string;
 }
 
-export const STATUS_ORDER: IssueStatus[] = ['backlog', 'todo', 'in_progress', 'in_review', 'done', 'cancelled'];
+export const STATUS_ORDER: IssueStatus[] = ['in_progress', 'in_review', 'todo', 'backlog', 'done', 'cancelled'];
 
 export const STATUS_LABELS: Record<IssueStatus, string> = {
 	backlog: 'Backlog',

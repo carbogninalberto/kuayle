@@ -51,6 +51,7 @@
 	let groupByOpen = $state(false);
 	let collapsedGroups = $state<Set<string>>(new Set());
 	let lastSelectedId = $state<string | null>(null);
+	let dragOverGroup = $state<string | null>(null);
 	let relationDialogOpen = $state(false);
 	let relationIssue = $state<Issue | null>(null);
 	let relationDefaultType = $state<RelationType>('related');
@@ -115,6 +116,28 @@
 	function handleIssueClick(issue: any) {
 		lastSelectedId = issue.id;
 		goto(`/${slug}/issue/${issue.identifier}`);
+	}
+
+	async function handleGroupDrop(issueIdentifier: string, groupKey: string) {
+		const gb = issuesState.groupBy;
+		if (!gb) return;
+		const fieldMap: Record<string, string> = {
+			status: 'status',
+			priority: 'priority',
+			assignee: 'assignee_id',
+			project: 'project_id'
+		};
+		const field = fieldMap[gb];
+		if (!field) return;
+		let value: any = groupKey;
+		if (gb === 'assignee' && groupKey === 'unassigned') value = null;
+		if (gb === 'project' && groupKey === 'no-project') value = null;
+		if (gb === 'priority') value = Number(groupKey);
+		try {
+			await issuesState.update(slug, issueIdentifier, { [field]: value });
+		} catch {
+			toast.error('Failed to move issue');
+		}
 	}
 
 	function toggleGroup(key: string) {
@@ -278,21 +301,30 @@
 				/>
 			{:else if issuesState.groupBy}
 				{#each issuesState.groupedIssues as group (group.key)}
-					<IssueGroupHeader
-						groupKey={group.key}
-						groupBy={issuesState.groupBy}
-						count={group.issues.length}
-						collapsed={collapsedGroups.has(group.key)}
-						{members}
-						{projects}
-						ontoggle={() => toggleGroup(group.key)}
-					onquickadd={handleQuickAdd}
-					/>
-					{#if !collapsedGroups.has(group.key)}
-						{#each group.issues as issue (issue.id)}
-							<IssueRow {issue} {slug} {members} {labels} {projects} {cycles} onclick={handleIssueClick} {lastSelectedId} onlastselected={(id) => lastSelectedId = id} onaddrelation={handleAddRelation} />
-						{/each}
-					{/if}
+					{@const dropKey = group.key}
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<div
+						class="group/drop transition-colors {dragOverGroup === dropKey ? 'bg-[var(--app-accent)]/5 rounded-lg' : ''}"
+						ondragover={(e) => { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'; dragOverGroup = dropKey; }}
+						ondragleave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) dragOverGroup = null; }}
+						ondrop={(e) => { e.preventDefault(); dragOverGroup = null; const id = e.dataTransfer?.getData('text/plain'); if (id) handleGroupDrop(id, dropKey); }}
+					>
+						<IssueGroupHeader
+							groupKey={group.key}
+							groupBy={issuesState.groupBy}
+							count={group.issues.length}
+							collapsed={collapsedGroups.has(group.key)}
+							{members}
+							{projects}
+							ontoggle={() => toggleGroup(group.key)}
+							onquickadd={handleQuickAdd}
+						/>
+						{#if !collapsedGroups.has(group.key)}
+							{#each group.issues as issue (issue.id)}
+								<IssueRow {issue} {slug} {members} {labels} {projects} {cycles} onclick={handleIssueClick} {lastSelectedId} onlastselected={(id) => lastSelectedId = id} onaddrelation={handleAddRelation} />
+							{/each}
+						{/if}
+					</div>
 				{/each}
 			{:else}
 				{#each issuesState.issues as issue (issue.id)}

@@ -99,6 +99,12 @@
 	<button
 		class="group mx-2 flex w-[calc(100%-1rem)] items-center gap-2 rounded-md px-3 py-1.5 text-left transition-colors duration-100 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] {isSelected ? 'bg-black/[0.02] dark:bg-white/[0.02]' : ''}"
 		onclick={handleClick}
+		draggable="true"
+		ondragstart={(e) => {
+			e.dataTransfer?.setData('text/plain', issue.identifier);
+			e.dataTransfer?.setData('application/issue-id', issue.id);
+			if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+		}}
 	>
 		<!-- Checkbox hover zone -->
 		<span
