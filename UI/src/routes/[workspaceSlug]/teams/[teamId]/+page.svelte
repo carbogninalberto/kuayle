@@ -69,20 +69,24 @@
 		{ value: null, label: 'No grouping' }
 	];
 
-	onMount(async () => {
-		const [t, p, l, m, c] = await Promise.all([
-			listTeams(slug),
-			listProjects(slug),
-			listLabels(slug),
-			listMembers(slug),
-			listCycles(slug, teamId)
-		]);
-		teams = t;
-		projects = p;
-		labels = l;
-		members = m;
-		cycles = c;
-		loadIssues();
+	$effect(() => {
+		const s = slug;
+		const t = teamId;
+		if (!s || !t) return;
+		Promise.all([
+			listTeams(s),
+			listProjects(s),
+			listLabels(s),
+			listMembers(s),
+			listCycles(s, t)
+		]).then(([te, p, l, m, c]) => {
+			teams = te;
+			projects = p;
+			labels = l;
+			members = m;
+			cycles = c;
+			loadIssues();
+		});
 	});
 
 	function loadIssues() {

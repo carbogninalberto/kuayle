@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { listCycles, createCycle, deleteCycle, completeCycle, updateCycle } from '$lib/api/cycles';
 	import type { Cycle } from '$lib/types/cycle';
@@ -24,12 +23,16 @@
 	let upcomingCycles = $derived(cycles.filter((c) => c.status === 'upcoming'));
 	let completedCycles = $derived(cycles.filter((c) => c.status === 'completed'));
 
-	onMount(async () => {
-		try {
-			cycles = await listCycles(slug, teamId);
-		} finally {
+	$effect(() => {
+		const s = slug;
+		const t = teamId;
+		if (!s || !t) return;
+		loading = true;
+		listCycles(s, t).then((c) => {
+			cycles = c;
+		}).finally(() => {
 			loading = false;
-		}
+		});
 	});
 
 	async function handleCreate(data: { name: string; description?: string; start_date?: string; end_date?: string }) {
