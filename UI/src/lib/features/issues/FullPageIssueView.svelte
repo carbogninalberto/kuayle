@@ -19,6 +19,9 @@
 	import { ChevronUp, ChevronDown, User } from 'lucide-svelte';
 	import { listCycles } from '$lib/api/cycles';
 	import type { Cycle } from '$lib/types/cycle';
+	import IssueRelations from './IssueRelations.svelte';
+	import SubIssuesList from './SubIssuesList.svelte';
+	import { goto } from '$app/navigation';
 
 	let {
 		issue,
@@ -44,6 +47,7 @@
 	let labelsOpen = $state(false);
 	let cycles = $state<Cycle[]>([]);
 	let cycleOpen = $state(false);
+	let estimateOpen = $state(false);
 
 	const priorityValues: IssuePriority[] = [0, 1, 2, 3, 4];
 
@@ -219,6 +223,22 @@
 					placeholder="Add description..."
 					minimal={false}
 					onupdate={saveDescription}
+				/>
+			</div>
+
+			<!-- Relations -->
+			<div class="mt-6">
+				<IssueRelations {slug} identifier={issue.identifier} />
+			</div>
+
+			<!-- Sub-issues -->
+			<div class="mt-6">
+				<SubIssuesList
+					{slug}
+					identifier={issue.identifier}
+					subIssueCount={issue.sub_issue_count ?? 0}
+					subIssueDone={issue.sub_issue_done ?? 0}
+					onclickissue={(sub) => goto(`/${slug}/issue/${sub.identifier}`)}
 				/>
 			</div>
 
@@ -479,12 +499,45 @@
 					</Popover.Root>
 				</div>
 
-				{#if issue.estimate !== null && issue.estimate !== undefined}
-					<div class="flex items-center justify-between">
-						<span class="text-xs text-[var(--color-text-tertiary)]">Estimate</span>
-						<span class="text-xs text-[var(--color-text-secondary)]">{issue.estimate}</span>
-					</div>
-				{/if}
+				<!-- Estimate -->
+				<div class="flex items-center justify-between">
+					<span class="text-xs text-[var(--color-text-tertiary)]">Estimate</span>
+					<Popover.Root bind:open={estimateOpen}>
+						<Popover.Trigger>
+							<button class="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
+								{issue.estimate !== null && issue.estimate !== undefined ? issue.estimate : 'No estimate'}
+							</button>
+						</Popover.Trigger>
+						<Popover.Content class="w-36 p-1" align="end">
+							<button
+								onclick={async () => {
+									try {
+										await issuesState.update(slug, issue.identifier, { estimate: undefined });
+										estimateOpen = false;
+										toast.success('Estimate cleared');
+									} catch { toast.error('Failed to update estimate'); }
+								}}
+								class="flex w-full items-center rounded-md px-2 py-1.5 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
+							>
+								Clear
+							</button>
+							{#each [0, 1, 2, 3, 5, 8, 13, 21] as est}
+								<button
+									onclick={async () => {
+										try {
+											await issuesState.update(slug, issue.identifier, { estimate: est });
+											estimateOpen = false;
+											toast.success('Estimate updated');
+										} catch { toast.error('Failed to update estimate'); }
+									}}
+									class="flex w-full items-center rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {issue.estimate === est ? 'bg-[var(--color-bg-hover)]' : ''}"
+								>
+									{est}
+								</button>
+							{/each}
+						</Popover.Content>
+					</Popover.Root>
+				</div>
 			</div>
 		</div>
 	</div>

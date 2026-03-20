@@ -7,6 +7,7 @@
 	import type { Team } from '$lib/types/team';
 	import type { View } from '$lib/types/view';
 	import WorkspaceSwitcher from './WorkspaceSwitcher.svelte';
+	import type { Favorite } from '$lib/api/favorites';
 	import {
 		Inbox,
 		LayoutDashboard,
@@ -18,13 +19,15 @@
 		Plus,
 		Bookmark,
 		RotateCcw,
-		ShieldCheck
+		ShieldCheck,
+		Star
 	} from 'lucide-svelte';
 
 	let {
 		workspace,
 		teams,
 		views = [],
+		favorites = [],
 		unreadCount = 0,
 		slug,
 		oncreateissue,
@@ -33,6 +36,7 @@
 		workspace: Workspace;
 		teams: Team[];
 		views?: View[];
+		favorites?: Favorite[];
 		unreadCount?: number;
 		slug: string;
 		oncreateissue?: () => void;
@@ -113,6 +117,27 @@
 				Dashboard
 			</a>
 		</div>
+
+		<!-- Favorites -->
+		{#if favorites.length > 0}
+			<div class="mt-4">
+				<div class="flex items-center px-2 py-1">
+					<span class="text-xs font-medium uppercase text-[var(--color-text-tertiary)]">Favorites</span>
+				</div>
+				{#each favorites as fav}
+					{@const href = fav.entity_type === 'project' ? `/${slug}/projects/${fav.entity_id}` : fav.entity_type === 'team' ? `/${slug}/teams/${fav.entity_id}` : fav.entity_type === 'view' ? `/${slug}/views/${fav.entity_id}` : `/${slug}/dashboard`}
+					<a
+						{href}
+						class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm {isActive(href)
+							? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
+							: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]'}"
+					>
+						<Star size={14} class="text-yellow-500" />
+						<span class="truncate">{fav.entity_type}</span>
+					</a>
+				{/each}
+			</div>
+		{/if}
 
 		<!-- Teams -->
 		<div class="mt-4">

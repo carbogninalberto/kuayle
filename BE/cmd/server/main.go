@@ -62,6 +62,7 @@ func main() {
 	viewRepo := repository.NewViewRepository(db)
 	cycleRepo := repository.NewCycleRepository(db)
 	teamStatusRepo := repository.NewTeamStatusRepository(db)
+	favRepo := repository.NewFavoriteRepository(db)
 
 	// Services
 	authSvc := service.NewAuthService(userRepo, refreshRepo, cfg.JWTSecret)
@@ -77,6 +78,7 @@ func main() {
 	viewSvc := service.NewViewService(viewRepo)
 	cycleSvc := service.NewCycleService(cycleRepo)
 	teamStatusSvc := service.NewTeamStatusService(teamStatusRepo)
+	favSvc := service.NewFavoriteService(favRepo)
 
 	// Handlers
 	healthH := handler.NewHealthHandler(db)
@@ -93,6 +95,7 @@ func main() {
 	viewH := handler.NewViewHandler(viewSvc)
 	cycleH := handler.NewCycleHandler(cycleSvc)
 	teamStatusH := handler.NewTeamStatusHandler(teamStatusSvc)
+	favH := handler.NewFavoriteHandler(favSvc)
 	analyticsH := handler.NewAnalyticsHandler(db)
 	webhookRepo := repository.NewWebhookRepository(db)
 	webhookSvc := service.NewWebhookService(webhookRepo)
@@ -213,6 +216,11 @@ func main() {
 	ws.POST("/webhooks", webhookH.Create, mw.RequirePermission("workspace:manage"))
 	ws.PATCH("/webhooks/:id", webhookH.Update, mw.RequirePermission("workspace:manage"))
 	ws.DELETE("/webhooks/:id", webhookH.Delete, mw.RequirePermission("workspace:manage"))
+
+	// Favorites
+	ws.GET("/favorites", favH.List)
+	ws.POST("/favorites", favH.Create)
+	ws.DELETE("/favorites/:id", favH.Delete)
 
 	// WebSocket
 	ws.GET("/ws", wsH.Handle)

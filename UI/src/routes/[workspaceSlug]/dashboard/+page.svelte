@@ -1,8 +1,12 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
+	import { goto } from '$app/navigation';
 	import { getOverview, getIssueDistribution, type AnalyticsOverview, type IssueDistribution } from '$lib/api/analytics';
-	import { STATUS_LABELS, PRIORITY_LABELS, type IssueStatus, type IssuePriority } from '$lib/types/issue';
+	import { listIssues } from '$lib/api/issues';
+	import { STATUS_LABELS, PRIORITY_LABELS, type IssueStatus, type IssuePriority, type Issue } from '$lib/types/issue';
+	import IssueStatusIcon from '$lib/features/issues/IssueStatusIcon.svelte';
+	import IssuePriorityIcon from '$lib/features/issues/IssuePriorityIcon.svelte';
 	import * as Card from '$lib/components/ui/card';
 	import { Progress } from '$lib/components/ui/progress';
 	import LoadingState from '$lib/components/shared/LoadingState.svelte';
@@ -12,22 +16,30 @@
 		Circle,
 		AlertTriangle,
 		FolderKanban,
-		Users
+		Users,
+		Clock,
+		CalendarDays
 	} from 'lucide-svelte';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	let overview = $state<AnalyticsOverview | null>(null);
 	let distribution = $state<IssueDistribution | null>(null);
+	let recentIssues = $state<Issue[]>([]);
+	let upcomingIssues = $state<Issue[]>([]);
 	let loading = $state(true);
 
 	onMount(async () => {
 		try {
-			const [o, d] = await Promise.all([
+			const [o, d, recent, upcoming] = await Promise.all([
 				getOverview(slug),
-				getIssueDistribution(slug)
+				getIssueDistribution(slug),
+				listIssues(slug, { sort: 'updated_at', order: 'desc', per_page: '8' }),
+				listIssues(slug, { due_before: new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0], status: 'backlog,todo,in_progress,in_review', sort: 'sort_order', order: 'asc', per_page: '8' })
 			]);
 			overview = o;
 			distribution = d;
+			recentIssues = recent.data;
+			upcomingIssues = upcoming.data;
 		} finally {
 			loading = false;
 		}
@@ -55,6 +67,11 @@
 			? Math.round((overview.completed_issues / overview.total_issues) * 100)
 			: 0
 	);
+
+	function formatShortDate(date: string | null): string {
+		if (!date) return '';
+		return new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+	}
 </script>
 
 <div class="flex h-full flex-col">
@@ -139,6 +156,67 @@
 					<Progress value={completionRate} class="h-2" />
 				</Card.Content>
 			</Card.Root>
+
+			<div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+				<!-- Recently updated issues -->
+				<Card.Root class="border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
+					<Card.Content class="p-5">
+						<div class="flex items-center gap-2 mb-4">
+							<Clock size={14} class="text-[var(--color-text-tertiary)]" />
+							<h3 class="text-sm font-medium text-[var(--color-text-primary)]">Recently Updated</h3>
+						</div>
+						<div class="space-y-1">
+							{#each recentIssues as issue}
+								<a
+									href="/{slug}/issue/{issue.identifier}"
+									class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-[var(--color-bg-hover)]"
+								>
+									<IssuePriorityIcon priority={issue.priority} size={14} />
+									<IssueStatusIcon status={issue.status} size={14} />
+									<span class="shrink-0 text-xs text-[var(--color-text-tertiary)]">{issue.identifier}</span>
+									<span class="flex-1 truncate text-[var(--color-text-primary)]">{issue.title}</span>
+									{#if issue.assignee}
+										<div class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent)] text-[9px] text-white">
+											{(issue.assignee.name ?? 'U').charAt(0).toUpperCase()}
+										</div>
+									{/if}
+								</a>
+							{/each}
+							{#if recentIssues.length === 0}
+								<p class="py-4 text-center text-xs text-[var(--color-text-tertiary)]">No recent issues</p>
+							{/if}
+						</div>
+					</Card.Content>
+				</Card.Root>
+
+				<!-- Upcoming due dates -->
+				<Card.Root class="border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
+					<Card.Content class="p-5">
+						<div class="flex items-center gap-2 mb-4">
+							<CalendarDays size={14} class="text-[var(--color-text-tertiary)]" />
+							<h3 class="text-sm font-medium text-[var(--color-text-primary)]">Due This Week</h3>
+						</div>
+						<div class="space-y-1">
+							{#each upcomingIssues as issue}
+								<a
+									href="/{slug}/issue/{issue.identifier}"
+									class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-[var(--color-bg-hover)]"
+								>
+									<IssueStatusIcon status={issue.status} size={14} />
+									<span class="shrink-0 text-xs text-[var(--color-text-tertiary)]">{issue.identifier}</span>
+									<span class="flex-1 truncate text-[var(--color-text-primary)]">{issue.title}</span>
+									{#if issue.due_date}
+										<span class="shrink-0 text-xs text-[var(--color-text-tertiary)]">{formatShortDate(issue.due_date)}</span>
+									{/if}
+								</a>
+							{/each}
+							{#if upcomingIssues.length === 0}
+								<p class="py-4 text-center text-xs text-[var(--color-text-tertiary)]">No upcoming deadlines</p>
+							{/if}
+						</div>
+					</Card.Content>
+				</Card.Root>
+			</div>
 
 			<div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
 				<!-- Status distribution -->

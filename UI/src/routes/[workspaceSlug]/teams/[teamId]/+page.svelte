@@ -28,9 +28,11 @@
 	import { createKeyboardHandler } from '$lib/utils/keyboard';
 	import { toast } from 'svelte-sonner';
 	import { Plus, Bookmark, Layers } from 'lucide-svelte';
+	import * as issueApi from '$lib/api/issues';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	const teamId = $derived(page.params.teamId ?? '');
+	let showDeleteConfirm = $state(false);
 
 	let teams = $state<Team[]>([]);
 	let projects = $state<Project[]>([]);
@@ -104,13 +106,64 @@
 		collapsedGroups = next;
 	}
 
+	async function deleteSelectedIssues() {
+		const ids = Array.from(issuesState.selectedIds);
+		if (ids.length === 0) return;
+		try {
+			await issueApi.bulkDeleteIssues(slug, { issue_ids: ids });
+			issuesState.issues = issuesState.issues.filter(i => !issuesState.selectedIds.has(i.id));
+			issuesState.totalCount -= ids.length;
+			issuesState.clearSelection();
+			toast.success(`Deleted ${ids.length} issue${ids.length > 1 ? 's' : ''}`);
+		} catch {
+			toast.error('Failed to delete issues');
+		}
+		showDeleteConfirm = false;
+	}
+
 	const keyHandler = createKeyboardHandler([
 		{
 			key: 'c',
 			handler: () => {
-				const active = document.activeElement;
-				if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || (active as HTMLElement).isContentEditable)) return;
 				showCreateIssue = true;
+			}
+		},
+		{
+			key: 'x',
+			handler: () => {
+				// Toggle selection on the last clicked / focused issue
+				if (lastSelectedId) {
+					issuesState.toggleSelect(lastSelectedId);
+				}
+			}
+		},
+		{
+			key: 'a',
+			ctrl: true,
+			handler: () => {
+				issuesState.selectAll();
+			}
+		},
+		{
+			key: 'Escape',
+			handler: () => {
+				issuesState.clearSelection();
+			}
+		},
+		{
+			key: 'Backspace',
+			handler: () => {
+				if (issuesState.selectionCount > 0) {
+					showDeleteConfirm = true;
+				}
+			}
+		},
+		{
+			key: 'Delete',
+			handler: () => {
+				if (issuesState.selectionCount > 0) {
+					showDeleteConfirm = true;
+				}
 			}
 		}
 	]);
@@ -219,6 +272,11 @@
 			{/if}
 
 			<BulkActionBar {slug} />
+
+			<!-- Shortcuts hint -->
+			<div class="py-2 text-center text-xs text-[var(--color-text-tertiary)]">
+				Press <kbd class="rounded border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-1 py-0.5 text-[10px]">?</kbd> for shortcuts
+			</div>
 		</div>
 	{:else}
 		{#if issuesState.loading}
@@ -267,3 +325,27 @@
 	{filters}
 	{slug}
 />
+
+{#if showDeleteConfirm}
+	<!-- Delete confirmation overlay -->
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+		<div class="w-96 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-primary)] p-6 shadow-xl">
+			<h3 class="text-sm font-medium text-[var(--color-text-primary)]">Delete {issuesState.selectionCount} issue{issuesState.selectionCount > 1 ? 's' : ''}?</h3>
+			<p class="mt-2 text-sm text-[var(--color-text-tertiary)]">This action cannot be undone.</p>
+			<div class="mt-4 flex justify-end gap-2">
+				<button
+					onclick={() => (showDeleteConfirm = false)}
+					class="rounded-md border border-[var(--app-border)] px-3 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+				>
+					Cancel
+				</button>
+				<button
+					onclick={deleteSelectedIssues}
+					class="rounded-md bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-700"
+				>
+					Delete
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}

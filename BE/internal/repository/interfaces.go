@@ -138,6 +138,13 @@ type TeamStatusRepo interface {
 	NextPosition(ctx context.Context, teamID uuid.UUID) (int, error)
 }
 
+type FavoriteRepo interface {
+	Create(ctx context.Context, fav *domain.Favorite) error
+	ListByUser(ctx context.Context, workspaceID, userID uuid.UUID) ([]domain.Favorite, error)
+	Delete(ctx context.Context, workspaceID, userID uuid.UUID, entityType string, entityID uuid.UUID) error
+	DeleteByID(ctx context.Context, id uuid.UUID) error
+}
+
 type IssueTemplateRepo interface {
 	Create(ctx context.Context, tmpl *domain.IssueTemplate) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.IssueTemplate, error)
