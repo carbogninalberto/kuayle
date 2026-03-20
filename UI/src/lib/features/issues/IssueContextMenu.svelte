@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Issue, IssueStatus, IssuePriority } from '$lib/types/issue';
+	import type { Issue, IssuePriority } from '$lib/types/issue';
 	import { STATUS_LABELS, PRIORITY_LABELS, STATUS_ORDER } from '$lib/types/issue';
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import type { Label } from '$lib/types/label';

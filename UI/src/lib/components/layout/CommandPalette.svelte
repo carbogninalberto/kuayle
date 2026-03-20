@@ -5,7 +5,7 @@
 	import { listIssues } from '$lib/api/issues';
 	import IssueStatusIcon from '$lib/features/issues/IssueStatusIcon.svelte';
 	import IssuePriorityIcon from '$lib/features/issues/IssuePriorityIcon.svelte';
-	import { Loader2 } from 'lucide-svelte';
+	import { LoaderCircle } from 'lucide-svelte';
 
 	let { slug, teams, onclose }: { slug: string; teams: Team[]; onclose: () => void } = $props();
 	let search = $state('');
@@ -94,7 +94,7 @@
 	onkeydown={handleKeydown}
 >
 	<!-- Backdrop -->
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
 	<div class="fixed inset-0 bg-black/50" onclick={onclose}></div>
 
 	<!-- Dialog -->
@@ -135,7 +135,7 @@
 				</div>
 				{#if issueLoading}
 					<div class="flex items-center justify-center py-4">
-						<Loader2 size={16} class="animate-spin text-[var(--color-text-tertiary)]" />
+						<LoaderCircle size={16} class="animate-spin text-[var(--color-text-tertiary)]" />
 					</div>
 				{:else if issueResults.length > 0}
 					{#each issueResults as issue, i}

@@ -21,13 +21,11 @@
 	let {
 		issue,
 		slug,
-		onnavigate,
-		onclose
+		onnavigate
 	}: {
 		issue: Issue;
 		slug: string;
 		onnavigate?: (direction: 'prev' | 'next') => void;
-		onclose?: () => void;
 	} = $props();
 
 	let comments = $state<Comment[]>([]);
@@ -37,7 +35,7 @@
 	let newComment = $state('');
 	let tab = $state<'comments' | 'activity'>('comments');
 	let editingTitle = $state(false);
-	let titleValue = $state(issue.title);
+	let titleValue = $state('');
 	let statusOpen = $state(false);
 	let priorityOpen = $state(false);
 	let assigneeOpen = $state(false);

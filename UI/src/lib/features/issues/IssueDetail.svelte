@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import type { Issue, Comment, IssueHistory, IssueStatus, IssuePriority } from '$lib/types/issue';
+	import type { Issue, Comment, IssueHistory, IssuePriority } from '$lib/types/issue';
 	import { STATUS_LABELS, PRIORITY_LABELS, STATUS_ORDER } from '$lib/types/issue';
 	import { listComments, createComment, getIssueHistory } from '$lib/api/issues';
 	import { issuesState } from './issues.state.svelte';
@@ -72,7 +72,7 @@
 	class="fixed inset-0 z-40 flex justify-end"
 	onkeydown={(e) => e.key === 'Escape' && onclose()}
 >
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
 	<div class="flex-1" onclick={onclose}></div>
 
 	<div

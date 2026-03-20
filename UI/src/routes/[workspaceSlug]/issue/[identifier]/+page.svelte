@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { getIssue } from '$lib/api/issues';
@@ -13,13 +12,9 @@
 
 	let issue = $state<Issue | null>(null);
 
-	onMount(async () => {
-		issue = await getIssue(slug, identifier);
-	});
-
 	$effect(() => {
-		// Re-fetch when identifier changes (prev/next navigation)
-		if (identifier) {
+		if (identifier && slug) {
+			issue = null;
 			getIssue(slug, identifier).then((i) => (issue = i));
 		}
 	});
@@ -37,7 +32,6 @@
 		{issue}
 		{slug}
 		onnavigate={handleNavigate}
-		onclose={() => history.back()}
 	/>
 {:else}
 	<LoadingState />

@@ -1,7 +1,6 @@
 <script lang="ts">
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Button } from '$lib/components/ui/button';
-	import { Badge } from '$lib/components/ui/badge';
 	import * as Popover from '$lib/components/ui/popover';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import type { Team } from '$lib/types/team';
@@ -52,7 +51,7 @@
 	let description = $state('');
 	let status = $state<IssueStatus>('backlog');
 	let priority = $state<IssuePriority>(0);
-	let teamId = $state(defaultTeamId ?? teams[0]?.id ?? '');
+	let teamId = $state('');
 	let projectId = $state<string | null>(null);
 	let assigneeId = $state<string | null>(null);
 	let labelIds = $state<string[]>([]);

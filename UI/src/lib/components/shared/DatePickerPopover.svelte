@@ -1,7 +1,7 @@
 <script lang="ts">
 	import * as Popover from '$lib/components/ui/popover';
 	import { Calendar } from '$lib/components/ui/calendar';
-	import { CalendarDate, parseDate, today, getLocalTimeZone } from '@internationalized/date';
+	import { CalendarDate } from '@internationalized/date';
 	import type { DateValue } from '@internationalized/date';
 	import { CalendarIcon, X } from 'lucide-svelte';
 
@@ -61,12 +61,15 @@
 			<CalendarIcon size={12} />
 			{#if displayDate}
 				{displayDate}
-				<button
+				<span
 					onclick={handleClear}
-					class="ml-1 rounded p-0.5 hover:bg-[var(--color-bg-hover)]"
+					onkeydown={(e) => { if (e.key === 'Enter') handleClear(e as unknown as MouseEvent); }}
+					role="button"
+					tabindex={0}
+					class="ml-1 inline-flex rounded p-0.5 hover:bg-[var(--color-bg-hover)]"
 				>
 					<X size={10} />
-				</button>
+				</span>
 			{:else}
 				{placeholder}
 			{/if}
