@@ -12,8 +12,7 @@
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import type { Label } from '$lib/types/label';
 	import IssueRow from '$lib/features/issues/IssueRow.svelte';
-	import IssueDetail from '$lib/features/issues/IssueDetail.svelte';
-	import CycleProgress from '$lib/features/cycles/CycleProgress.svelte';
+import CycleProgress from '$lib/features/cycles/CycleProgress.svelte';
 	import DatePickerPopover from '$lib/components/shared/DatePickerPopover.svelte';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
 	import LoadingState from '$lib/components/shared/LoadingState.svelte';
@@ -48,8 +47,8 @@
 			cycle = c;
 			members = m;
 			labels = l;
-			// Load issues for this cycle
-			issuesState.load(slug, { team: teamId, per_page: '200' });
+			// Load issues for this cycle using server-side cycle filter
+			issuesState.load(slug, { cycle: cycleId, per_page: '200' });
 		} catch {
 			toast.error('Cycle not found');
 			goto(`/${slug}/teams/${teamId}/cycles`);
@@ -58,19 +57,29 @@
 		}
 	});
 
-	// Filter issues by cycle_id on the client side since we already have the issue data
-	let cycleIssues = $derived(
-		issuesState.issues.filter((i) => i.cycle_id === cycleId)
-	);
+	// Issues available to add (same team, no cycle assigned) — requires a separate search
+	let availableIssues = $state<import('$lib/types/issue').Issue[]>([]);
+	let searchingAvailable = $state(false);
 
-	// Issues available to add (same team, no cycle assigned)
-	let availableIssues = $derived.by(() => {
-		if (!addSearchQuery.trim()) return [];
-		const q = addSearchQuery.toLowerCase();
-		return issuesState.issues
-			.filter((i) => i.cycle_id !== cycleId && (i.title.toLowerCase().includes(q) || i.identifier.toLowerCase().includes(q)))
-			.slice(0, 10);
-	});
+	async function searchAvailableIssues() {
+		if (!addSearchQuery.trim()) {
+			availableIssues = [];
+			return;
+		}
+		searchingAvailable = true;
+		try {
+			const { listIssues } = await import('$lib/api/issues');
+			const q = addSearchQuery.toLowerCase();
+			const results = await listIssues(slug, { team: teamId, per_page: '50' });
+			availableIssues = results.data
+				.filter((i: import('$lib/types/issue').Issue) => i.cycle_id !== cycleId && (i.title.toLowerCase().includes(q) || i.identifier.toLowerCase().includes(q)))
+				.slice(0, 10);
+		} catch {
+			availableIssues = [];
+		} finally {
+			searchingAvailable = false;
+		}
+	}
 
 	async function handleComplete() {
 		if (!cycle) return;
@@ -127,7 +136,7 @@
 		try {
 			await updateIssue(slug, issue.identifier, { cycle_id: cycleId });
 			// Reload to reflect change
-			issuesState.load(slug, { team: teamId, per_page: '200' });
+			issuesState.load(slug, { cycle: cycleId, per_page: '200' });
 			addSearchQuery = '';
 			toast.success(`Added ${issue.identifier} to cycle`);
 		} catch (err: any) {
@@ -237,6 +246,7 @@
 					<input
 						type="text"
 						bind:value={addSearchQuery}
+						oninput={() => searchAvailableIssues()}
 						onfocus={() => (addSearchOpen = true)}
 						onblur={() => setTimeout(() => (addSearchOpen = false), 200)}
 						placeholder="Search issues to add to this cycle..."
@@ -264,24 +274,16 @@
 		<div class="flex-1 overflow-y-auto">
 			{#if issuesState.loading}
 				<LoadingState />
-			{:else if cycleIssues.length === 0}
+			{:else if issuesState.issues.length === 0}
 				<EmptyState
 					title="No issues in this cycle"
 					description="Search and add issues above, or assign issues from the issue detail panel"
 				/>
 			{:else}
-				{#each cycleIssues as issue (issue.id)}
-					<IssueRow {issue} {slug} {members} {labels} onclick={(i) => issuesState.select(i)} />
+				{#each issuesState.issues as issue (issue.id)}
+					<IssueRow {issue} {slug} {members} {labels} onclick={(i) => goto(`/${slug}/issue/${i.identifier}`)} />
 				{/each}
 			{/if}
 		</div>
 	{/if}
 </div>
-
-{#if issuesState.selectedIssue}
-	<IssueDetail
-		issue={issuesState.selectedIssue}
-		{slug}
-		onclose={() => issuesState.select(null)}
-	/>
-{/if}

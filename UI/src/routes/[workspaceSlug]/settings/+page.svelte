@@ -1,15 +1,34 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import { getWorkspace } from '$lib/api/workspaces';
+	import { getWorkspace, updateWorkspace } from '$lib/api/workspaces';
 	import type { Workspace } from '$lib/types/workspace';
 	import { onMount } from 'svelte';
+	import { toast } from 'svelte-sonner';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	let workspace = $state<Workspace | null>(null);
+	let wsName = $state('');
 
 	onMount(async () => {
 		workspace = await getWorkspace(slug);
+		wsName = workspace.name;
 	});
+
+	async function handleNameBlur() {
+		if (!workspace || wsName.trim() === workspace.name) return;
+		if (!wsName.trim()) {
+			wsName = workspace.name;
+			return;
+		}
+		try {
+			workspace = await updateWorkspace(slug, { name: wsName.trim() });
+			wsName = workspace.name;
+			toast.success('Workspace name updated');
+		} catch (err: any) {
+			toast.error(err?.error?.message || 'Failed to update workspace name');
+			wsName = workspace.name;
+		}
+	}
 </script>
 
 <div class="h-full">

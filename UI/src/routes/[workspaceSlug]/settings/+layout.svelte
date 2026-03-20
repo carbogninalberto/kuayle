@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import { ArrowLeft, Users, Tag, Webhook, Settings } from 'lucide-svelte';
+	import { ArrowLeft, Users, Tag, Webhook, Settings, FileText } from 'lucide-svelte';
 	import type { Snippet } from 'svelte';
 
 	let { children }: { children: Snippet } = $props();
@@ -17,6 +17,7 @@
 		{ label: 'Members', href: `/${slug}/settings/members`, icon: Users },
 		{ label: 'Labels', href: `/${slug}/settings/labels`, icon: Tag },
 		{ label: 'Webhooks', href: `/${slug}/settings/webhooks`, icon: Webhook },
+		{ label: 'Templates', href: `/${slug}/settings/templates`, icon: FileText },
 	]);
 </script>
 

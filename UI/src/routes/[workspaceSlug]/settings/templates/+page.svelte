@@ -145,7 +145,7 @@
 	</div>
 </div>
 
-<Dialog.Root bind:open={showCreate} onOpenChange={(open) => { if (!open) resetForm(); }}>
+<Dialog.Root bind:open={showCreate}>
 	<Dialog.Content class="sm:max-w-md">
 		<Dialog.Header>
 			<Dialog.Title>Create Issue Template</Dialog.Title>

@@ -12,3 +12,7 @@ export function getWorkspace(slug: string): Promise<Workspace> {
 export function createWorkspace(name: string, slug: string): Promise<Workspace> {
 	return api.post<Workspace>('/api/workspaces', { name, slug });
 }
+
+export function updateWorkspace(slug: string, data: { name?: string }): Promise<Workspace> {
+	return api.patch<Workspace>(`/api/workspaces/${slug}`, data);
+}

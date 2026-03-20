@@ -206,9 +206,10 @@ func (h *IssueHandler) ListComments(c echo.Context) error {
 		return response.InternalError(c)
 	}
 
+	ctx := c.Request().Context()
 	resp := make([]dto.CommentResponse, len(comments))
 	for i, comment := range comments {
-		resp[i] = dto.CommentResponse{
+		cr := dto.CommentResponse{
 			ID:        comment.ID.String(),
 			IssueID:   comment.IssueID.String(),
 			UserID:    comment.UserID.String(),
@@ -216,6 +217,17 @@ func (h *IssueHandler) ListComments(c echo.Context) error {
 			CreatedAt: comment.CreatedAt,
 			UpdatedAt: comment.UpdatedAt,
 		}
+		user, _ := h.userRepo.GetByID(ctx, comment.UserID)
+		if user != nil {
+			cr.User = &dto.UserResponse{
+				ID:          user.ID.String(),
+				Email:       user.Email,
+				Name:        user.Name,
+				DisplayName: user.DisplayName,
+				AvatarURL:   user.AvatarURL,
+			}
+		}
+		resp[i] = cr
 	}
 
 	return response.Success(c, http.StatusOK, resp)
@@ -248,14 +260,26 @@ func (h *IssueHandler) CreateComment(c echo.Context) error {
 		return response.InternalError(c)
 	}
 
-	return response.Success(c, http.StatusCreated, dto.CommentResponse{
+	cr := dto.CommentResponse{
 		ID:        comment.ID.String(),
 		IssueID:   comment.IssueID.String(),
 		UserID:    comment.UserID.String(),
 		Body:      comment.Body,
 		CreatedAt: comment.CreatedAt,
 		UpdatedAt: comment.UpdatedAt,
-	})
+	}
+	user, _ := h.userRepo.GetByID(c.Request().Context(), userID)
+	if user != nil {
+		cr.User = &dto.UserResponse{
+			ID:          user.ID.String(),
+			Email:       user.Email,
+			Name:        user.Name,
+			DisplayName: user.DisplayName,
+			AvatarURL:   user.AvatarURL,
+		}
+	}
+
+	return response.Success(c, http.StatusCreated, cr)
 }
 
 func (h *IssueHandler) ListSubIssues(c echo.Context) error {
