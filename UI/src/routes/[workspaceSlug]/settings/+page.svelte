@@ -42,9 +42,9 @@
 				<input
 					id="ws-name"
 					type="text"
-					value={workspace.name}
-					disabled
-					class="w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none"
+					bind:value={wsName}
+					onblur={handleNameBlur}
+					class="w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
 				/>
 				<p class="mt-1 text-xs text-[var(--color-text-tertiary)]">The name of your workspace visible to all members.</p>
 			</div>

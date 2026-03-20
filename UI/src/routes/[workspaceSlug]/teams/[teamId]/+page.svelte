@@ -20,9 +20,11 @@
 	import { listProjects } from '$lib/api/projects';
 	import { listLabels } from '$lib/api/labels';
 	import { listMembers } from '$lib/api/members';
+	import { listCycles } from '$lib/api/cycles';
 	import type { Team } from '$lib/types/team';
 	import type { Project } from '$lib/types/project';
 	import type { Label } from '$lib/types/label';
+	import type { Cycle } from '$lib/types/cycle';
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import type { ViewFilter, ViewLayout } from '$lib/types/view';
 	import { createKeyboardHandler } from '$lib/utils/keyboard';
@@ -38,6 +40,7 @@
 	let projects = $state<Project[]>([]);
 	let labels = $state<Label[]>([]);
 	let members = $state<WorkspaceMember[]>([]);
+	let cycles = $state<Cycle[]>([]);
 	let showCreateIssue = $state(false);
 	let showSaveView = $state(false);
 	let filters = $state<ViewFilter>({});
@@ -55,16 +58,18 @@
 	];
 
 	onMount(async () => {
-		const [t, p, l, m] = await Promise.all([
+		const [t, p, l, m, c] = await Promise.all([
 			listTeams(slug),
 			listProjects(slug),
 			listLabels(slug),
-			listMembers(slug)
+			listMembers(slug),
+			listCycles(slug, teamId)
 		]);
 		teams = t;
 		projects = p;
 		labels = l;
 		members = m;
+		cycles = c;
 		loadIssues();
 	});
 
@@ -309,6 +314,7 @@
 	{projects}
 	{labels}
 	{members}
+	{cycles}
 	defaultTeamId={teamId}
 	onsubmit={async (req) => {
 		try {

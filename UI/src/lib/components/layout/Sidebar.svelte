@@ -225,16 +225,22 @@
 
 		<!-- Projects -->
 		<div class="mt-4">
+			<div class="flex items-center justify-between px-2 py-1">
+				<a
+					href="/{slug}/projects"
+					class="text-xs font-medium uppercase text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
+				>
+					Projects
+				</a>
+			</div>
 			<a
 				href="/{slug}/projects"
-				class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm {isActive(
-					`/${slug}/projects`
-				)
+				class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm {isActive(`/${slug}/projects`)
 					? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
 					: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]'}"
 			>
 				<FolderKanban size={16} />
-				Projects
+				All Projects
 			</a>
 		</div>
 	</nav>

@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import { listCycles, createCycle, deleteCycle, completeCycle } from '$lib/api/cycles';
+	import { listCycles, createCycle, deleteCycle, completeCycle, updateCycle } from '$lib/api/cycles';
 	import type { Cycle } from '$lib/types/cycle';
 	import CreateCycleDialog from '$lib/features/cycles/CreateCycleDialog.svelte';
 	import CycleProgress from '$lib/features/cycles/CycleProgress.svelte';
+	import DatePickerPopover from '$lib/components/shared/DatePickerPopover.svelte';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
 	import LoadingState from '$lib/components/shared/LoadingState.svelte';
 	import { Badge } from '$lib/components/ui/badge';
@@ -62,17 +63,22 @@
 		}
 	}
 
+	async function handleDateChange(cycleId: string, field: 'start_date' | 'end_date', date: string | null) {
+		try {
+			const updated = await updateCycle(slug, teamId, cycleId, { [field]: date ?? undefined });
+			cycles = cycles.map((c) => (c.id === cycleId ? updated : c));
+			toast.success(`${field === 'start_date' ? 'Start' : 'End'} date updated`);
+		} catch (err: any) {
+			toast.error(err?.error?.message || 'Failed to update date');
+		}
+	}
+
 	function statusBadgeVariant(status: string): 'default' | 'secondary' | 'outline' {
 		switch (status) {
 			case 'active': return 'default';
 			case 'completed': return 'secondary';
 			default: return 'outline';
 		}
-	}
-
-	function formatDate(date: string | null): string {
-		if (!date) return '—';
-		return new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 	}
 </script>
 
@@ -125,7 +131,25 @@
 								<Badge variant={statusBadgeVariant(cycle.status)} class="text-[10px]">{cycle.status}</Badge>
 							</div>
 							<div class="mt-1 flex items-center gap-3 text-xs text-[var(--color-text-tertiary)]">
-								<span>{formatDate(cycle.start_date)} → {formatDate(cycle.end_date)}</span>
+								<!-- svelte-ignore a11y_click_events_have_key_events -->
+								<!-- svelte-ignore a11y_no_static_element_interactions -->
+								<span onclick={(e: MouseEvent) => { e.preventDefault(); e.stopPropagation(); }}>
+									<DatePickerPopover
+										value={cycle.start_date}
+										onchange={(d) => handleDateChange(cycle.id, 'start_date', d)}
+										placeholder="Start date"
+									/>
+								</span>
+								<span>&#8594;</span>
+								<!-- svelte-ignore a11y_click_events_have_key_events -->
+								<!-- svelte-ignore a11y_no_static_element_interactions -->
+								<span onclick={(e: MouseEvent) => { e.preventDefault(); e.stopPropagation(); }}>
+									<DatePickerPopover
+										value={cycle.end_date}
+										onchange={(d) => handleDateChange(cycle.id, 'end_date', d)}
+										placeholder="End date"
+									/>
+								</span>
 								{#if cycle.progress}
 									<span>{cycle.progress.completed}/{cycle.progress.total} done</span>
 								{/if}
@@ -166,8 +190,26 @@
 								<span class="text-sm font-medium text-[var(--color-text-primary)]">{cycle.name}</span>
 								<Badge variant={statusBadgeVariant(cycle.status)} class="text-[10px]">{cycle.status}</Badge>
 							</div>
-							<div class="mt-1 text-xs text-[var(--color-text-tertiary)]">
-								{formatDate(cycle.start_date)} → {formatDate(cycle.end_date)}
+							<div class="mt-1 flex items-center gap-2 text-xs text-[var(--color-text-tertiary)]">
+								<!-- svelte-ignore a11y_click_events_have_key_events -->
+								<!-- svelte-ignore a11y_no_static_element_interactions -->
+								<span onclick={(e: MouseEvent) => { e.preventDefault(); e.stopPropagation(); }}>
+									<DatePickerPopover
+										value={cycle.start_date}
+										onchange={(d) => handleDateChange(cycle.id, 'start_date', d)}
+										placeholder="Start date"
+									/>
+								</span>
+								<span>&#8594;</span>
+								<!-- svelte-ignore a11y_click_events_have_key_events -->
+								<!-- svelte-ignore a11y_no_static_element_interactions -->
+								<span onclick={(e: MouseEvent) => { e.preventDefault(); e.stopPropagation(); }}>
+									<DatePickerPopover
+										value={cycle.end_date}
+										onchange={(d) => handleDateChange(cycle.id, 'end_date', d)}
+										placeholder="End date"
+									/>
+								</span>
 							</div>
 						</div>
 						<Button
@@ -201,7 +243,25 @@
 								<Badge variant={statusBadgeVariant(cycle.status)} class="text-[10px]">{cycle.status}</Badge>
 							</div>
 							<div class="mt-1 text-xs text-[var(--color-text-tertiary)]">
-								{formatDate(cycle.start_date)} → {formatDate(cycle.end_date)}
+								<!-- svelte-ignore a11y_click_events_have_key_events -->
+								<!-- svelte-ignore a11y_no_static_element_interactions -->
+								<span onclick={(e: MouseEvent) => { e.preventDefault(); e.stopPropagation(); }}>
+									<DatePickerPopover
+										value={cycle.start_date}
+										onchange={(d) => handleDateChange(cycle.id, 'start_date', d)}
+										placeholder="Start date"
+									/>
+								</span>
+								<span>&#8594;</span>
+								<!-- svelte-ignore a11y_click_events_have_key_events -->
+								<!-- svelte-ignore a11y_no_static_element_interactions -->
+								<span onclick={(e: MouseEvent) => { e.preventDefault(); e.stopPropagation(); }}>
+									<DatePickerPopover
+										value={cycle.end_date}
+										onchange={(d) => handleDateChange(cycle.id, 'end_date', d)}
+										placeholder="End date"
+									/>
+								</span>
 								{#if cycle.completed_at}
 									· Completed {formatRelativeTime(cycle.completed_at)}
 								{/if}

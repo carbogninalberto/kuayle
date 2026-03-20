@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/carbon/carbon-backend/internal/domain"
 	"github.com/carbon/carbon-backend/internal/dto"
@@ -89,6 +90,12 @@ func (s *IssueService) Create(ctx context.Context, workspaceID, creatorID uuid.U
 		issue.ParentID = &pid
 	}
 	issue.Estimate = req.Estimate
+	if req.DueDate != nil && *req.DueDate != "" {
+		t, err := time.Parse("2006-01-02", *req.DueDate)
+		if err == nil {
+			issue.DueDate = &t
+		}
+	}
 
 	if err := s.issueRepo.Create(ctx, tx, issue); err != nil {
 		return nil, err
@@ -180,6 +187,16 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 	}
 	if req.Estimate != nil {
 		issue.Estimate = req.Estimate
+	}
+	if req.DueDate != nil {
+		if *req.DueDate == "" {
+			issue.DueDate = nil
+		} else {
+			t, err := time.Parse("2006-01-02", *req.DueDate)
+			if err == nil {
+				issue.DueDate = &t
+			}
+		}
 	}
 	if req.SortOrder != nil {
 		issue.SortOrder = *req.SortOrder

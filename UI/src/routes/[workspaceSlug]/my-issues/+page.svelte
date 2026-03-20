@@ -1,15 +1,16 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
+	import { goto } from '$app/navigation';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { issuesState } from '$lib/features/issues/issues.state.svelte';
 	import IssueRow from '$lib/features/issues/IssueRow.svelte';
-	import IssueDetail from '$lib/features/issues/IssueDetail.svelte';
 	import KanbanBoard from '$lib/features/issues/KanbanBoard.svelte';
 	import FilterBuilder from '$lib/components/shared/FilterBuilder.svelte';
 	import ViewSwitcher from '$lib/components/shared/ViewSwitcher.svelte';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
 	import LoadingState from '$lib/components/shared/LoadingState.svelte';
+	import IssueGroupHeader from '$lib/features/issues/IssueGroupHeader.svelte';
 	import * as Tabs from '$lib/components/ui/tabs';
 	import { listProjects } from '$lib/api/projects';
 	import { listLabels } from '$lib/api/labels';
@@ -18,9 +19,7 @@
 	import type { Label } from '$lib/types/label';
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import type { ViewFilter, ViewLayout } from '$lib/types/view';
-	import type { Issue, IssueStatus, IssuePriority } from '$lib/types/issue';
-	import { PRIORITY_LABELS, STATUS_LABELS } from '$lib/types/issue';
-	import IssuePriorityIcon from '$lib/features/issues/IssuePriorityIcon.svelte';
+	import type { Issue } from '$lib/types/issue';
 	import { CircleUser, PenLine } from 'lucide-svelte';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
@@ -33,6 +32,7 @@
 	let projects = $state<Project[]>([]);
 	let labels = $state<Label[]>([]);
 	let members = $state<WorkspaceMember[]>([]);
+	let collapsedGroups = $state<Set<string>>(new Set());
 
 	onMount(async () => {
 		const [p, l, m] = await Promise.all([
@@ -72,6 +72,7 @@
 			params.per_page = '200';
 		}
 
+		issuesState.groupBy = 'status';
 		issuesState.load(slug, params);
 	}
 
@@ -90,18 +91,19 @@
 		loadIssues();
 	}
 
-	// Group issues by priority for focus-sorted list
-	let groupedByPriority = $derived(() => {
-		const groups: { priority: IssuePriority; label: string; issues: Issue[] }[] = [];
-		const priorityOrder: IssuePriority[] = [1, 2, 3, 4, 0];
-		for (const p of priorityOrder) {
-			const issues = issuesState.issues.filter((i) => i.priority === p);
-			if (issues.length > 0) {
-				groups.push({ priority: p, label: PRIORITY_LABELS[p], issues });
-			}
+	function handleIssueClick(issue: Issue) {
+		goto(`/${slug}/issue/${issue.identifier}`);
+	}
+
+	function toggleGroup(key: string) {
+		const next = new Set(collapsedGroups);
+		if (next.has(key)) {
+			next.delete(key);
+		} else {
+			next.add(key);
 		}
-		return groups;
-	});
+		collapsedGroups = next;
+	}
 </script>
 
 <div class="flex h-full flex-col">
@@ -144,19 +146,24 @@
 					title={activeTab === 'assigned' ? 'No issues assigned to you' : 'No issues created by you'}
 					description={activeTab === 'assigned' ? 'Issues assigned to you will appear here' : 'Issues you created will appear here'}
 				/>
-			{:else}
-				<!-- Grouped by priority -->
-				{#each groupedByPriority() as group}
-					<div class="border-b border-[var(--app-border)]">
-						<div class="flex items-center gap-2 bg-[var(--color-bg-secondary)] px-4 py-1.5">
-							<IssuePriorityIcon priority={group.priority} size={14} />
-							<span class="text-xs font-medium text-[var(--color-text-tertiary)]">{group.label}</span>
-							<span class="text-xs text-[var(--color-text-tertiary)]">{group.issues.length}</span>
-						</div>
+			{:else if issuesState.groupBy}
+				{#each issuesState.groupedIssues as group (group.key)}
+					<IssueGroupHeader
+						groupKey={group.key}
+						groupBy={issuesState.groupBy}
+						count={group.issues.length}
+						collapsed={collapsedGroups.has(group.key)}
+						ontoggle={() => toggleGroup(group.key)}
+					/>
+					{#if !collapsedGroups.has(group.key)}
 						{#each group.issues as issue (issue.id)}
-							<IssueRow {issue} onclick={(i) => issuesState.select(i)} />
+							<IssueRow {issue} {slug} {members} {labels} onclick={handleIssueClick} />
 						{/each}
-					</div>
+					{/if}
+				{/each}
+			{:else}
+				{#each issuesState.issues as issue (issue.id)}
+					<IssueRow {issue} {slug} {members} {labels} onclick={handleIssueClick} />
 				{/each}
 			{/if}
 		</div>
@@ -167,17 +174,12 @@
 			<div class="flex-1 overflow-hidden">
 				<KanbanBoard
 					issuesByStatus={issuesState.issuesByStatus}
-					onissueclick={(i) => issuesState.select(i)}
+					{slug}
+					{members}
+					{labels}
+					onissueclick={handleIssueClick}
 				/>
 			</div>
 		{/if}
 	{/if}
 </div>
-
-{#if issuesState.selectedIssue}
-	<IssueDetail
-		issue={issuesState.selectedIssue}
-		{slug}
-		onclose={() => issuesState.select(null)}
-	/>
-{/if}

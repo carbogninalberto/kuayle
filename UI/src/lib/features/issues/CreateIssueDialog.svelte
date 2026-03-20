@@ -7,6 +7,7 @@
 	import type { Project } from '$lib/types/project';
 	import type { Label } from '$lib/types/label';
 	import type { WorkspaceMember } from '$lib/types/workspace';
+	import type { Cycle } from '$lib/types/cycle';
 	import type { IssueStatus, IssuePriority } from '$lib/types/issue';
 	import { STATUS_LABELS, PRIORITY_LABELS, STATUS_ORDER } from '$lib/types/issue';
 	import RichEditor from '$lib/components/shared/RichEditor.svelte';
@@ -25,6 +26,7 @@
 		projects = [],
 		labels = [],
 		members = [],
+		cycles = [],
 		defaultTeamId,
 		onsubmit
 	}: {
@@ -33,6 +35,7 @@
 		projects?: Project[];
 		labels?: Label[];
 		members?: WorkspaceMember[];
+		cycles?: Cycle[];
 		defaultTeamId?: string;
 		onsubmit: (req: {
 			title: string;
@@ -44,6 +47,7 @@
 			assignee_id?: string;
 			label_ids?: string[];
 			due_date?: string;
+			cycle_id?: string;
 		}) => void;
 	} = $props();
 
@@ -56,6 +60,7 @@
 	let assigneeId = $state<string | null>(null);
 	let labelIds = $state<string[]>([]);
 	let dueDate = $state<string | null>(null);
+	let cycleId = $state<string | null>(null);
 	let createMore = $state(false);
 
 	let statusOpen = $state(false);
@@ -64,6 +69,7 @@
 	let projectOpen = $state(false);
 	let assigneeOpen = $state(false);
 	let labelsOpen = $state(false);
+	let cycleOpen = $state(false);
 
 	$effect(() => {
 		if (open) {
@@ -76,6 +82,7 @@
 			assigneeId = null;
 			labelIds = [];
 			dueDate = null;
+			cycleId = null;
 		}
 	});
 
@@ -97,7 +104,8 @@
 			project_id: projectId || undefined,
 			assignee_id: assigneeId || undefined,
 			label_ids: labelIds.length > 0 ? labelIds : undefined,
-			due_date: dueDate || undefined
+			due_date: dueDate || undefined,
+			cycle_id: cycleId || undefined
 		});
 		if (createMore) {
 			title = '';
@@ -309,6 +317,35 @@
 					{#if labels.length === 0}
 						<p class="px-2 py-3 text-center text-xs text-[var(--color-text-tertiary)]">No labels yet</p>
 					{/if}
+				</Popover.Content>
+			</Popover.Root>
+
+			<!-- Cycle -->
+			<Popover.Root bind:open={cycleOpen}>
+				<Popover.Trigger>
+					<button class="flex items-center gap-1.5 rounded-full border border-[var(--app-border)] px-2.5 py-1 text-xs {cycleId ? 'text-[var(--color-text-secondary)]' : 'text-[var(--color-text-tertiary)]'} hover:bg-[var(--color-bg-hover)]">
+						{#if cycleId}
+							{cycles?.find(c => c.id === cycleId)?.name ?? 'Cycle'}
+						{:else}
+							Cycle
+						{/if}
+					</button>
+				</Popover.Trigger>
+				<Popover.Content class="w-48 p-1" align="start">
+					<button
+						onclick={() => { cycleId = null; cycleOpen = false; }}
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
+					>
+						No cycle
+					</button>
+					{#each cycles ?? [] as cycle}
+						<button
+							onclick={() => { cycleId = cycle.id; cycleOpen = false; }}
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {cycleId === cycle.id ? 'bg-[var(--color-bg-hover)]' : ''}"
+						>
+							{cycle.name}
+						</button>
+					{/each}
 				</Popover.Content>
 			</Popover.Root>
 

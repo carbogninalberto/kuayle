@@ -79,7 +79,12 @@
 			</div>
 		{/if}
 		{#if issue.due_date}
-			<span class="shrink-0 text-xs text-[var(--color-text-tertiary)]">{new Date(issue.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+			{@const due = new Date(issue.due_date)}
+			{@const now = new Date()}
+			{@const diffDays = Math.ceil((due.getTime() - now.getTime()) / 86400000)}
+			<span class="shrink-0 text-xs {diffDays < 0 ? 'text-red-500' : diffDays === 0 ? 'text-orange-500' : diffDays <= 7 ? 'text-[var(--color-text-secondary)]' : 'text-[var(--color-text-tertiary)]'}">
+				{due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+			</span>
 		{/if}
 		<span class="shrink-0 text-xs text-[var(--color-text-tertiary)]"
 			>{formatRelativeTime(issue.updated_at)}</span
