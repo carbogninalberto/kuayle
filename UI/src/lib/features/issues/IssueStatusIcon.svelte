@@ -1,12 +1,12 @@
 <script lang="ts">
 	import type { IssueStatus } from '$lib/types/issue';
-	import { Circle, CircleDot, Loader, Eye, CheckCircle2, XCircle } from 'lucide-svelte';
+	import { Circle, CircleDashed, Loader, Eye, CheckCircle2, XCircle } from 'lucide-svelte';
 
 	let { status, size = 16 }: { status: IssueStatus; size?: number } = $props();
 
 	const icons: Record<IssueStatus, any> = {
-		backlog: Circle,
-		todo: CircleDot,
+		backlog: CircleDashed,
+		todo: Circle,
 		in_progress: Loader,
 		in_review: Eye,
 		done: CheckCircle2,

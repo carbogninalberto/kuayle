@@ -12,7 +12,7 @@
 	import * as Popover from '$lib/components/ui/popover';
 	import { issuesState } from './issues.state.svelte';
 	import { formatRelativeTime } from '$lib/utils/format';
-	import { CalendarDays } from 'lucide-svelte';
+	import { CalendarDays, CircleUser } from 'lucide-svelte';
 	import { toast } from 'svelte-sonner';
 
 	let {
@@ -89,7 +89,7 @@
 
 <IssueContextMenu {issue} {slug} {members} {labels} {projects} {cycles} onaddrelation={(type) => onaddrelation?.(issue, type)}>
 	<button
-		class="group flex w-full items-center gap-2 border-b border-[var(--app-border)] px-3 py-1.5 text-left transition-colors duration-100 hover:bg-[var(--color-bg-hover)] {isSelected ? 'bg-[var(--color-bg-hover)]' : ''}"
+		class="group flex w-full items-center gap-2 border-b border-[var(--app-border)] px-3 py-1.5 text-left transition-colors duration-100 hover:bg-black/[0.03] dark:hover:bg-white/[0.04] {isSelected ? 'bg-black/[0.03] dark:bg-white/[0.04]' : ''}"
 		onclick={handleClick}
 	>
 		<!-- Checkbox -->
@@ -109,7 +109,7 @@
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<span class="shrink-0 flex items-center" onclick={(e) => e.stopPropagation()}>
 			<Popover.Root bind:open={priorityOpen}>
-				<Popover.Trigger class="flex items-center cursor-pointer rounded p-0.5 hover:bg-[var(--color-bg-tertiary)] transition-colors">
+				<Popover.Trigger class="flex items-center cursor-pointer rounded p-0.5 opacity-60 hover:opacity-100 hover:bg-[var(--color-bg-tertiary)] transition-all">
 					<IssuePriorityIcon priority={issue.priority} size={14} />
 				</Popover.Trigger>
 				<Popover.Content class="w-40 p-1" align="start">
@@ -127,14 +127,14 @@
 		</span>
 
 		<!-- Identifier -->
-		<span class="w-[4.5rem] shrink-0 text-xs tabular-nums text-[var(--color-text-tertiary)]">{issue.identifier}</span>
+		<span class="w-[4.5rem] shrink-0 text-xs tabular-nums text-[var(--color-text-tertiary)] group-hover:text-[var(--color-text-secondary)]">{issue.identifier}</span>
 
 		<!-- Status -->
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<span class="shrink-0 flex items-center" onclick={(e) => e.stopPropagation()}>
 			<Popover.Root bind:open={statusOpen}>
-				<Popover.Trigger class="flex items-center cursor-pointer rounded p-0.5 hover:bg-[var(--color-bg-tertiary)] transition-colors">
+				<Popover.Trigger class="flex items-center cursor-pointer rounded p-0.5 opacity-60 hover:opacity-100 hover:bg-[var(--color-bg-tertiary)] transition-all">
 					<IssueStatusIcon status={issue.status} size={14} />
 				</Popover.Trigger>
 				<Popover.Content class="w-40 p-1" align="start">
@@ -173,13 +173,13 @@
 		{#if issue.labels && issue.labels.length > 0}
 			<div class="hidden gap-1 shrink-0 sm:flex">
 				{#each issue.labels.slice(0, 2) as label}
-					<span class="flex items-center gap-1 rounded-full border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-1.5 py-0 text-[11px] leading-5 text-[var(--color-text-secondary)]">
+					<span class="flex items-center gap-1 rounded-full border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-1.5 py-0 text-[11px] leading-5 text-[var(--color-text-tertiary)] group-hover:text-[var(--color-text-primary)] group-hover:border-[var(--app-border-hover)] transition-colors">
 						<span class="h-1.5 w-1.5 rounded-full shrink-0" style="background-color: {label.color}"></span>
 						{label.name}
 					</span>
 				{/each}
 				{#if issue.labels.length > 2}
-					<span class="text-[10px] text-[var(--color-text-tertiary)]">+{issue.labels.length - 2}</span>
+					<span class="text-[10px] text-[var(--color-text-tertiary)] group-hover:text-[var(--color-text-secondary)]">+{issue.labels.length - 2}</span>
 				{/if}
 			</div>
 		{/if}
@@ -191,7 +191,7 @@
 			{@const diffDays = Math.ceil((due.getTime() - now.getTime()) / 86400000)}
 			<span class="hidden shrink-0 items-center gap-1 text-[11px] sm:inline-flex">
 				<CalendarDays size={11} class={diffDays < 0 ? 'text-red-500' : diffDays === 0 ? 'text-orange-500' : diffDays <= 7 ? 'text-[var(--color-text-secondary)]' : 'text-[var(--color-text-tertiary)]'} />
-				<span class="text-[var(--color-text-tertiary)]">{due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+				<span class="text-[var(--color-text-tertiary)] group-hover:text-[var(--color-text-secondary)]">{due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
 			</span>
 		{/if}
 
@@ -200,7 +200,7 @@
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<span class="shrink-0 flex items-center" onclick={(e) => e.stopPropagation()}>
 			<Popover.Root bind:open={assigneeOpen}>
-				<Popover.Trigger class="flex items-center cursor-pointer rounded-full hover:ring-2 hover:ring-[var(--color-bg-tertiary)] transition-all">
+				<Popover.Trigger class="flex items-center cursor-pointer rounded-full hover:ring-2 hover:ring-[var(--app-accent)] transition-all">
 					{#if issue.assignees && issue.assignees.length > 1}
 						<div class="flex -space-x-2">
 							<div class="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--app-accent)] text-[9px] font-medium text-white ring-1 ring-[var(--color-bg)]" title={issue.assignees[0].name}>
@@ -219,8 +219,9 @@
 							{(issue.assignee.name ?? 'U').charAt(0).toUpperCase()}
 						</div>
 					{:else}
-						<div class="flex h-5 w-5 items-center justify-center rounded-full border border-dashed border-[var(--color-text-tertiary)] opacity-30">
-						</div>
+						<span class="text-[var(--color-text-tertiary)] opacity-40 group-hover:opacity-70">
+							<CircleUser size={20} />
+						</span>
 					{/if}
 				</Popover.Trigger>
 				<Popover.Content class="w-48 p-1" align="end">
@@ -252,7 +253,7 @@
 
 		<!-- Created -->
 		{#if issue.created_at}
-			<span class="hidden shrink-0 text-[11px] text-[var(--color-text-tertiary)] sm:inline">
+			<span class="hidden shrink-0 text-[11px] text-[var(--color-text-tertiary)] group-hover:text-[var(--color-text-secondary)] sm:inline">
 				{formatRelativeTime(issue.created_at)}
 			</span>
 		{/if}
