@@ -77,12 +77,13 @@ type IssueFilterParams struct {
 	CreatorID  string `query:"creator"`
 	TeamID     string `query:"team"`
 	ProjectID  string `query:"project"`
+	CycleID    string `query:"cycle"`
 	LabelID    string `query:"label"`
 	Search     string `query:"search"`
 	DueBefore  string `query:"due_before"`
 	DueAfter   string `query:"due_after"`
 	Triaged    string `query:"triaged"`
 	GroupBy    string `query:"group_by" validate:"omitempty,oneof=status priority assignee project"`
-	Sort       string `query:"sort" validate:"omitempty,oneof=created_at updated_at priority sort_order status"`
+	Sort       string `query:"sort" validate:"omitempty,oneof=created_at updated_at priority sort_order status due_date"`
 	Order      string `query:"order" validate:"omitempty,oneof=asc desc"`
 }

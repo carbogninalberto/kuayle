@@ -70,6 +70,11 @@ func (m *mockIssueRepo) GetLabels(ctx context.Context, issueID uuid.UUID) ([]dom
 	return args.Get(0).([]domain.Label), args.Error(1)
 }
 
+func (m *mockIssueRepo) GetLabelsForIssues(ctx context.Context, issueIDs []uuid.UUID) (map[uuid.UUID][]domain.Label, error) {
+	args := m.Called(ctx, issueIDs)
+	return args.Get(0).(map[uuid.UUID][]domain.Label), args.Error(1)
+}
+
 func (m *mockIssueRepo) ListSubIssues(ctx context.Context, parentID uuid.UUID) ([]domain.Issue, error) {
 	args := m.Called(ctx, parentID)
 	return args.Get(0).([]domain.Issue), args.Error(1)

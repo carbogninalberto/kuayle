@@ -123,6 +123,14 @@ func (r *IssueRepository) List(ctx context.Context, workspaceID uuid.UUID, param
 			args["project_id"] = params.ProjectID
 		}
 	}
+	if params.CycleID != "" {
+		if params.CycleID == "none" {
+			where = append(where, "i.cycle_id IS NULL")
+		} else {
+			where = append(where, "i.cycle_id = :cycle_id")
+			args["cycle_id"] = params.CycleID
+		}
+	}
 	if params.LabelID != "" {
 		where = append(where, "EXISTS (SELECT 1 FROM issue_labels il WHERE il.issue_id = i.id AND il.label_id = :label_id)")
 		args["label_id"] = params.LabelID
@@ -163,7 +171,7 @@ func (r *IssueRepository) List(ctx context.Context, workspaceID uuid.UUID, param
 
 	// Sort
 	sortCol := "i.created_at"
-	allowedSorts := map[string]bool{"created_at": true, "updated_at": true, "priority": true, "sort_order": true, "status": true}
+	allowedSorts := map[string]bool{"created_at": true, "updated_at": true, "priority": true, "sort_order": true, "status": true, "due_date": true}
 	if params.Sort != "" && allowedSorts[params.Sort] {
 		sortCol = "i." + params.Sort
 	}
@@ -236,6 +244,37 @@ func (r *IssueRepository) GetLabels(ctx context.Context, issueID uuid.UUID) ([]d
 	query := `SELECT l.* FROM labels l INNER JOIN issue_labels il ON l.id = il.label_id WHERE il.issue_id = $1 ORDER BY l.name`
 	err := r.db.SelectContext(ctx, &labels, query, issueID)
 	return labels, err
+}
+
+func (r *IssueRepository) GetLabelsForIssues(ctx context.Context, issueIDs []uuid.UUID) (map[uuid.UUID][]domain.Label, error) {
+	if len(issueIDs) == 0 {
+		return make(map[uuid.UUID][]domain.Label), nil
+	}
+
+	type labelRow struct {
+		domain.Label
+		IssueID uuid.UUID `db:"issue_id"`
+	}
+	var rows []labelRow
+
+	query, args, err := sqlx.In(`SELECT l.*, il.issue_id FROM labels l
+		INNER JOIN issue_labels il ON l.id = il.label_id
+		WHERE il.issue_id IN (?) AND (l.deleted_at IS NULL)
+		ORDER BY l.name`, issueIDs)
+	if err != nil {
+		return nil, err
+	}
+	query = r.db.Rebind(query)
+
+	if err := r.db.SelectContext(ctx, &rows, query, args...); err != nil {
+		return nil, err
+	}
+
+	result := make(map[uuid.UUID][]domain.Label, len(issueIDs))
+	for _, row := range rows {
+		result[row.IssueID] = append(result[row.IssueID], row.Label)
+	}
+	return result, nil
 }
 
 func (r *IssueRepository) ListSubIssues(ctx context.Context, parentID uuid.UUID) ([]domain.Issue, error) {

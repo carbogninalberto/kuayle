@@ -3,11 +3,18 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { getCycle, completeCycle, updateCycle, deleteCycle } from '$lib/api/cycles';
+	import { updateIssue } from '$lib/api/issues';
+	import { listMembers } from '$lib/api/members';
+	import { listLabels } from '$lib/api/labels';
 	import { issuesState } from '$lib/features/issues/issues.state.svelte';
 	import type { Cycle } from '$lib/types/cycle';
+	import type { Issue } from '$lib/types/issue';
+	import type { WorkspaceMember } from '$lib/types/workspace';
+	import type { Label } from '$lib/types/label';
 	import IssueRow from '$lib/features/issues/IssueRow.svelte';
 	import IssueDetail from '$lib/features/issues/IssueDetail.svelte';
 	import CycleProgress from '$lib/features/cycles/CycleProgress.svelte';
+	import DatePickerPopover from '$lib/components/shared/DatePickerPopover.svelte';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
 	import LoadingState from '$lib/components/shared/LoadingState.svelte';
 	import { Badge } from '$lib/components/ui/badge';
@@ -15,7 +22,7 @@
 	import * as Popover from '$lib/components/ui/popover';
 	import { toast } from 'svelte-sonner';
 	import { formatRelativeTime } from '$lib/utils/format';
-	import { ArrowLeft, CheckCircle2, Play, Clock, Trash2, MoreHorizontal } from 'lucide-svelte';
+	import { ArrowLeft, CheckCircle2, Play, Clock, Trash2, MoreHorizontal, Search, Plus } from 'lucide-svelte';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	const teamId = $derived(page.params.teamId ?? '');
@@ -24,10 +31,23 @@
 	let cycle = $state<Cycle | null>(null);
 	let loading = $state(true);
 	let actionsOpen = $state(false);
+	let members = $state<WorkspaceMember[]>([]);
+	let labels = $state<Label[]>([]);
+
+	// Add issues search
+	let addSearchQuery = $state('');
+	let addSearchOpen = $state(false);
 
 	onMount(async () => {
 		try {
-			cycle = await getCycle(slug, teamId, cycleId);
+			const [c, m, l] = await Promise.all([
+				getCycle(slug, teamId, cycleId),
+				listMembers(slug),
+				listLabels(slug)
+			]);
+			cycle = c;
+			members = m;
+			labels = l;
 			// Load issues for this cycle
 			issuesState.load(slug, { team: teamId, per_page: '200' });
 		} catch {
@@ -39,10 +59,18 @@
 	});
 
 	// Filter issues by cycle_id on the client side since we already have the issue data
-	// A proper implementation would filter server-side, but cycle_id filtering isn't exposed in query params yet
 	let cycleIssues = $derived(
 		issuesState.issues.filter((i) => i.cycle_id === cycleId)
 	);
+
+	// Issues available to add (same team, no cycle assigned)
+	let availableIssues = $derived.by(() => {
+		if (!addSearchQuery.trim()) return [];
+		const q = addSearchQuery.toLowerCase();
+		return issuesState.issues
+			.filter((i) => i.cycle_id !== cycleId && (i.title.toLowerCase().includes(q) || i.identifier.toLowerCase().includes(q)))
+			.slice(0, 10);
+	});
 
 	async function handleComplete() {
 		if (!cycle) return;
@@ -75,9 +103,36 @@
 		}
 	}
 
-	function formatDate(date: string | null): string {
-		if (!date) return '—';
-		return new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+	async function handleStartDateChange(date: string | null) {
+		if (!cycle) return;
+		try {
+			cycle = await updateCycle(slug, teamId, cycle.id, { start_date: date ?? undefined });
+			toast.success('Start date updated');
+		} catch (err: any) {
+			toast.error(err?.error?.message || 'Failed to update start date');
+		}
+	}
+
+	async function handleEndDateChange(date: string | null) {
+		if (!cycle) return;
+		try {
+			cycle = await updateCycle(slug, teamId, cycle.id, { end_date: date ?? undefined });
+			toast.success('End date updated');
+		} catch (err: any) {
+			toast.error(err?.error?.message || 'Failed to update end date');
+		}
+	}
+
+	async function handleAddIssueToCycle(issue: Issue) {
+		try {
+			await updateIssue(slug, issue.identifier, { cycle_id: cycleId });
+			// Reload to reflect change
+			issuesState.load(slug, { team: teamId, per_page: '200' });
+			addSearchQuery = '';
+			toast.success(`Added ${issue.identifier} to cycle`);
+		} catch (err: any) {
+			toast.error(err?.error?.message || 'Failed to add issue');
+		}
 	}
 
 	const STATUS_ICONS = {
@@ -141,8 +196,17 @@
 		<div class="border-b border-[var(--app-border)] px-6 py-4">
 			<div class="flex items-center gap-6">
 				<div class="flex items-center gap-2 text-xs text-[var(--color-text-tertiary)]">
-					<Clock size={12} />
-					{formatDate(cycle.start_date)} → {formatDate(cycle.end_date)}
+					<DatePickerPopover
+						value={cycle.start_date}
+						onchange={handleStartDateChange}
+						placeholder="Start date"
+					/>
+					<span>→</span>
+					<DatePickerPopover
+						value={cycle.end_date}
+						onchange={handleEndDateChange}
+						placeholder="End date"
+					/>
 				</div>
 				{#if cycle.progress}
 					<div class="flex items-center gap-2 text-xs text-[var(--color-text-tertiary)]">
@@ -165,6 +229,37 @@
 			{/if}
 		</div>
 
+		<!-- Add issues section -->
+		<div class="border-b border-[var(--app-border)] px-6 py-3">
+			<div class="relative">
+				<div class="flex items-center gap-2 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-1.5">
+					<Search size={14} class="text-[var(--color-text-tertiary)]" />
+					<input
+						type="text"
+						bind:value={addSearchQuery}
+						onfocus={() => (addSearchOpen = true)}
+						onblur={() => setTimeout(() => (addSearchOpen = false), 200)}
+						placeholder="Search issues to add to this cycle..."
+						class="w-full bg-transparent text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] outline-none"
+					/>
+				</div>
+				{#if addSearchOpen && availableIssues.length > 0}
+					<div class="absolute left-0 right-0 top-full z-50 mt-1 max-h-60 overflow-y-auto rounded-md border border-[var(--app-border)] bg-[var(--color-bg-primary)] shadow-lg">
+						{#each availableIssues as issue}
+							<button
+								onmousedown={() => handleAddIssueToCycle(issue)}
+								class="flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-[var(--color-bg-hover)]"
+							>
+								<Plus size={14} class="shrink-0 text-[var(--color-text-tertiary)]" />
+								<span class="shrink-0 text-xs text-[var(--color-text-tertiary)]">{issue.identifier}</span>
+								<span class="truncate text-[var(--color-text-primary)]">{issue.title}</span>
+							</button>
+						{/each}
+					</div>
+				{/if}
+			</div>
+		</div>
+
 		<!-- Issues list -->
 		<div class="flex-1 overflow-y-auto">
 			{#if issuesState.loading}
@@ -172,11 +267,11 @@
 			{:else if cycleIssues.length === 0}
 				<EmptyState
 					title="No issues in this cycle"
-					description="Assign issues to this cycle from the issue detail panel"
+					description="Search and add issues above, or assign issues from the issue detail panel"
 				/>
 			{:else}
 				{#each cycleIssues as issue (issue.id)}
-					<IssueRow {issue} onclick={(i) => issuesState.select(i)} />
+					<IssueRow {issue} {slug} {members} {labels} onclick={(i) => issuesState.select(i)} />
 				{/each}
 			{/if}
 		</div>

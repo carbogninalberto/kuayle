@@ -83,6 +83,10 @@ func (r *testIssueRepo) GetLabels(_ context.Context, _ uuid.UUID) ([]domain.Labe
 	return nil, nil
 }
 
+func (r *testIssueRepo) GetLabelsForIssues(_ context.Context, _ []uuid.UUID) (map[uuid.UUID][]domain.Label, error) {
+	return make(map[uuid.UUID][]domain.Label), nil
+}
+
 func (r *testIssueRepo) ListSubIssues(_ context.Context, parentID uuid.UUID) ([]domain.Issue, error) {
 	var subs []domain.Issue
 	for _, issue := range r.issues {

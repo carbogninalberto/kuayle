@@ -258,6 +258,10 @@ func (s *IssueService) GetLabels(ctx context.Context, issueID uuid.UUID) ([]doma
 	return s.issueRepo.GetLabels(ctx, issueID)
 }
 
+func (s *IssueService) GetLabelsForIssues(ctx context.Context, issueIDs []uuid.UUID) (map[uuid.UUID][]domain.Label, error) {
+	return s.issueRepo.GetLabelsForIssues(ctx, issueIDs)
+}
+
 func (s *IssueService) GetHistory(ctx context.Context, issueID uuid.UUID) ([]domain.IssueHistory, error) {
 	return s.historyRepo.ListByIssue(ctx, issueID)
 }

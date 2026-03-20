@@ -11,6 +11,7 @@ import (
 	"github.com/carbon/carbon-backend/internal/service"
 	"github.com/carbon/carbon-backend/pkg/response"
 	"github.com/carbon/carbon-backend/pkg/validate"
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 )
 
@@ -38,10 +39,28 @@ func (h *IssueHandler) List(c echo.Context) error {
 	}
 
 	ctx := c.Request().Context()
+
+	// Batch load labels for all issues
+	issueIDs := make([]uuid.UUID, len(issues))
+	for i, issue := range issues {
+		issueIDs[i] = issue.ID
+	}
+	labelsMap, _ := h.issueSvc.GetLabelsForIssues(ctx, issueIDs)
+
 	issueResponses := make([]dto.IssueResponse, len(issues))
 	for i, issue := range issues {
 		resp := toIssueResponse(issue)
-		h.enrichIssueResponse(ctx, &resp, issue)
+
+		// Populate labels from batch
+		if labels, ok := labelsMap[issue.ID]; ok && len(labels) > 0 {
+			resp.Labels = make([]dto.LabelResponse, len(labels))
+			for j, l := range labels {
+				resp.Labels[j] = toLabelResponse(l)
+			}
+		}
+
+		// Populate user objects
+		h.enrichUserFields(ctx, &resp, issue)
 		issueResponses[i] = resp
 	}
 
@@ -313,6 +332,10 @@ func (h *IssueHandler) enrichIssueResponse(ctx context.Context, resp *dto.IssueR
 		}
 	}
 
+	h.enrichUserFields(ctx, resp, issue)
+}
+
+func (h *IssueHandler) enrichUserFields(ctx context.Context, resp *dto.IssueResponse, issue domain.Issue) {
 	// Populate assignee user object
 	if issue.AssigneeID != nil {
 		user, _ := h.userRepo.GetByID(ctx, *issue.AssigneeID)

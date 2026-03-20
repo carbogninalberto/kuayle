@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
+	import { page } from '$app/state';
 	import { listNotifications, markAllRead, markNotificationRead, archiveNotification, snoozeNotification } from '$lib/api/notifications';
 	import type { Notification } from '$lib/types/notification';
 	import { formatRelativeTime } from '$lib/utils/format';
@@ -9,9 +10,28 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Badge } from '$lib/components/ui/badge';
 	import { toast } from 'svelte-sonner';
-	import { Inbox, Clock, Archive, Eye, AlarmClock, Trash2 } from 'lucide-svelte';
+	import { Inbox, Clock, Archive, Eye, AlarmClock, Trash2, ExternalLink } from 'lucide-svelte';
 
 	type TabValue = 'inbox' | 'snoozed' | 'archived';
+
+	const slug = $derived(page.params.workspaceSlug ?? '');
+
+	const NOTIFICATION_TYPE_LABELS: Record<string, string> = {
+		status_changed: 'Status changed',
+		assigned: 'Assigned to you',
+		commented: 'New comment',
+		mentioned: 'You were mentioned',
+		priority_changed: 'Priority changed',
+		issue_created: 'New issue created',
+		issue_updated: 'Issue updated',
+		due_date_changed: 'Due date changed',
+		label_added: 'Label added',
+		cycle_changed: 'Cycle changed'
+	};
+
+	function getNotificationTypeLabel(type: string): string {
+		return NOTIFICATION_TYPE_LABELS[type] || type.replace(/_/g, ' ');
+	}
 
 	let notifications = $state<Notification[]>([]);
 	let unreadCount = $state(0);
@@ -200,13 +220,30 @@
 							{/if}
 							<div class="flex-1 min-w-0">
 								<p class="text-sm text-[var(--color-text-primary)]">{notification.title}</p>
-								<p class="text-xs text-[var(--color-text-tertiary)]">
-									{formatRelativeTime(notification.created_at)}
-									{#if notification.snoozed_until && activeTab === 'snoozed'}
-										· Snoozed until {new Date(notification.snoozed_until).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+								<div class="mt-0.5 flex items-center gap-2">
+									{#if notification.type}
+										<span class="rounded bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 text-[10px] text-[var(--color-text-tertiary)]">
+											{getNotificationTypeLabel(notification.type)}
+										</span>
 									{/if}
-								</p>
+									<p class="text-xs text-[var(--color-text-tertiary)]">
+										{formatRelativeTime(notification.created_at)}
+										{#if notification.snoozed_until && activeTab === 'snoozed'}
+											· Snoozed until {new Date(notification.snoozed_until).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+										{/if}
+									</p>
+								</div>
 							</div>
+							{#if notification.issue_id}
+								<a
+									href="/{slug}/issue/{notification.issue_id}"
+									onclick={(e) => e.stopPropagation()}
+									class="shrink-0 text-[var(--color-text-tertiary)] hover:text-[var(--app-accent)]"
+									title="Go to issue"
+								>
+									<ExternalLink size={13} />
+								</a>
+							{/if}
 							{#if activeTab === 'inbox'}
 								<div class="flex items-center gap-1 opacity-0 group-hover:opacity-100">
 									<!-- Snooze -->
