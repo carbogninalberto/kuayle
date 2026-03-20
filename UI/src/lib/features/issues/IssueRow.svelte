@@ -89,7 +89,7 @@
 
 <IssueContextMenu {issue} {slug} {members} {labels} {projects} {cycles} onaddrelation={(type) => onaddrelation?.(issue, type)}>
 	<button
-		class="group flex w-full items-center gap-2 border-b border-[var(--app-border)] px-3 py-1.5 text-left transition-colors duration-100 hover:bg-black/[0.03] dark:hover:bg-white/[0.04] {isSelected ? 'bg-black/[0.03] dark:bg-white/[0.04]' : ''}"
+		class="group flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors duration-100 hover:bg-black/[0.03] dark:hover:bg-white/[0.04] {isSelected ? 'bg-black/[0.03] dark:bg-white/[0.04]' : ''}"
 		onclick={handleClick}
 	>
 		<!-- Checkbox -->
@@ -127,7 +127,7 @@
 		</span>
 
 		<!-- Identifier -->
-		<span class="w-[4.5rem] shrink-0 text-xs tabular-nums text-[var(--color-text-tertiary)] group-hover:text-[var(--color-text-secondary)]">{issue.identifier}</span>
+		<span class="w-[4.5rem] shrink-0 text-xs tabular-nums text-[var(--color-text-tertiary)]">{issue.identifier}</span>
 
 		<!-- Status -->
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -173,13 +173,13 @@
 		{#if issue.labels && issue.labels.length > 0}
 			<div class="hidden gap-1 shrink-0 sm:flex">
 				{#each issue.labels.slice(0, 2) as label}
-					<span class="flex items-center gap-1 rounded-full border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-1.5 py-0 text-[11px] leading-5 text-[var(--color-text-tertiary)] group-hover:text-[var(--color-text-primary)] group-hover:border-[var(--app-border-hover)] transition-colors">
+					<span class="flex items-center gap-1 rounded-full border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-1.5 py-0 text-[11px] leading-5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:border-[var(--app-border-hover)] hover:bg-[var(--color-bg-tertiary)] transition-colors">
 						<span class="h-1.5 w-1.5 rounded-full shrink-0" style="background-color: {label.color}"></span>
 						{label.name}
 					</span>
 				{/each}
 				{#if issue.labels.length > 2}
-					<span class="text-[10px] text-[var(--color-text-tertiary)] group-hover:text-[var(--color-text-secondary)]">+{issue.labels.length - 2}</span>
+					<span class="text-[10px] text-[var(--color-text-tertiary)]">+{issue.labels.length - 2}</span>
 				{/if}
 			</div>
 		{/if}
@@ -189,9 +189,9 @@
 			{@const due = new Date(issue.due_date)}
 			{@const now = new Date()}
 			{@const diffDays = Math.ceil((due.getTime() - now.getTime()) / 86400000)}
-			<span class="hidden shrink-0 items-center gap-1 text-[11px] sm:inline-flex">
+			<span class="group/due hidden shrink-0 items-center gap-1 rounded-full border border-[var(--app-border)] px-1.5 py-0 text-[11px] leading-5 sm:inline-flex hover:border-[var(--app-border-hover)] hover:bg-[var(--color-bg-tertiary)] transition-colors">
 				<CalendarDays size={11} class={diffDays < 0 ? 'text-red-500' : diffDays === 0 ? 'text-orange-500' : diffDays <= 7 ? 'text-[var(--color-text-secondary)]' : 'text-[var(--color-text-tertiary)]'} />
-				<span class="text-[var(--color-text-tertiary)] group-hover:text-[var(--color-text-secondary)]">{due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+				<span class="text-[var(--color-text-tertiary)] group-hover/due:text-[var(--color-text-primary)] transition-colors">{due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
 			</span>
 		{/if}
 
@@ -200,9 +200,9 @@
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<span class="shrink-0 flex items-center" onclick={(e) => e.stopPropagation()}>
 			<Popover.Root bind:open={assigneeOpen}>
-				<Popover.Trigger class="flex items-center cursor-pointer rounded-full hover:ring-2 hover:ring-[var(--app-accent)] transition-all">
+				<Popover.Trigger class="flex items-center cursor-pointer transition-all">
 					{#if issue.assignees && issue.assignees.length > 1}
-						<div class="flex -space-x-2">
+						<div class="flex -space-x-2 rounded-full hover:ring-2 hover:ring-[var(--app-accent)]">
 							<div class="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--app-accent)] text-[9px] font-medium text-white ring-1 ring-[var(--color-bg)]" title={issue.assignees[0].name}>
 								{(issue.assignees[0].name ?? 'U').charAt(0).toUpperCase()}
 							</div>
@@ -211,15 +211,15 @@
 							</div>
 						</div>
 					{:else if issue.assignees && issue.assignees.length === 1}
-						<div class="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--app-accent)] text-[9px] font-medium text-white" title={issue.assignees[0].name}>
+						<div class="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--app-accent)] text-[9px] font-medium text-white hover:ring-2 hover:ring-[var(--app-accent)]" title={issue.assignees[0].name}>
 							{(issue.assignees[0].name ?? 'U').charAt(0).toUpperCase()}
 						</div>
 					{:else if issue.assignee}
-						<div class="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--app-accent)] text-[9px] font-medium text-white" title={issue.assignee.name}>
+						<div class="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--app-accent)] text-[9px] font-medium text-white hover:ring-2 hover:ring-[var(--app-accent)]" title={issue.assignee.name}>
 							{(issue.assignee.name ?? 'U').charAt(0).toUpperCase()}
 						</div>
 					{:else}
-						<span class="text-[var(--color-text-tertiary)] opacity-40 group-hover:opacity-70">
+						<span class="text-[var(--color-text-tertiary)] opacity-40 hover:opacity-100 hover:text-[var(--color-text-secondary)] transition-all">
 							<CircleUser size={20} />
 						</span>
 					{/if}
@@ -253,7 +253,7 @@
 
 		<!-- Created -->
 		{#if issue.created_at}
-			<span class="hidden shrink-0 text-[11px] text-[var(--color-text-tertiary)] group-hover:text-[var(--color-text-secondary)] sm:inline">
+			<span class="hidden shrink-0 text-[11px] text-[var(--color-text-tertiary)] sm:inline">
 				{formatRelativeTime(issue.created_at)}
 			</span>
 		{/if}

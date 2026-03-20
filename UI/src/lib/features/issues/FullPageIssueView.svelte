@@ -264,13 +264,17 @@
 										</div>
 									{:else}
 										<div class="flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] py-1">
-											<span>changed <strong class="text-[var(--color-text-secondary)]">{item.data.field}</strong></span>
-											{#if item.data.old_value}
-												<span>from</span>
-												<code class="rounded bg-[var(--color-bg-tertiary)] px-1 py-0.5 text-[11px]">{formatHistoryValue(item.data.field, item.data.old_value)}</code>
+											{#if item.data.field === 'title' || item.data.field === 'description'}
+												<span>updated <strong class="text-[var(--color-text-secondary)]">{item.data.field}</strong></span>
+											{:else}
+												<span>changed <strong class="text-[var(--color-text-secondary)]">{item.data.field}</strong></span>
+												{#if item.data.old_value}
+													<span>from</span>
+													<code class="rounded bg-[var(--color-bg-tertiary)] px-1 py-0.5 text-[11px]">{formatHistoryValue(item.data.field, item.data.old_value)}</code>
+												{/if}
+												<span>to</span>
+												<code class="rounded bg-[var(--color-bg-tertiary)] px-1 py-0.5 text-[11px]">{formatHistoryValue(item.data.field, item.data.new_value)}</code>
 											{/if}
-											<span>to</span>
-											<code class="rounded bg-[var(--color-bg-tertiary)] px-1 py-0.5 text-[11px]">{formatHistoryValue(item.data.field, item.data.new_value)}</code>
 											<span class="ml-1">{formatRelativeTime(item.data.created_at)}</span>
 										</div>
 									{/if}

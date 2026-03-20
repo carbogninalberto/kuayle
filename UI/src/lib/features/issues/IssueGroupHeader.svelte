@@ -51,7 +51,7 @@
 </script>
 
 <button
-	class="group flex w-full items-center gap-2 border-b border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-1.5 text-xs font-medium text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-bg-hover)]"
+	class="group flex w-full items-center gap-2 bg-[var(--color-bg-secondary)] px-3 py-1.5 text-xs font-medium text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-bg-hover)]"
 	onclick={ontoggle}
 >
 	{#if collapsed}

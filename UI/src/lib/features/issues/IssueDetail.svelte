@@ -210,14 +210,18 @@
 								>{formatRelativeTime(entry.created_at)}</span
 							>
 							<span class="text-[var(--color-text-secondary)]">
-								changed <strong>{entry.field}</strong>
-								{#if entry.old_value}from <code
-										class="rounded bg-[var(--color-bg-tertiary)] px-1"
-										>{entry.old_value}</code
-									>{/if}
-								to <code class="rounded bg-[var(--color-bg-tertiary)] px-1"
-									>{entry.new_value}</code
-								>
+								{#if entry.field === 'title' || entry.field === 'description'}
+									updated <strong>{entry.field}</strong>
+								{:else}
+									changed <strong>{entry.field}</strong>
+									{#if entry.old_value}from <code
+											class="rounded bg-[var(--color-bg-tertiary)] px-1"
+											>{entry.old_value}</code
+										>{/if}
+									to <code class="rounded bg-[var(--color-bg-tertiary)] px-1"
+										>{entry.new_value}</code
+									>
+								{/if}
 							</span>
 						</div>
 					{/each}
