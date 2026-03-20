@@ -30,32 +30,38 @@ class IssuesState {
 	groupedIssues = $derived.by(() => {
 		if (!this.groupBy) return [{ key: 'all', label: 'All Issues', issues: this.issues }];
 
-		const groups = new Map<string, Issue[]>();
+		const groups = new Map<string, { issues: Issue[]; label: string }>();
 		for (const issue of this.issues) {
 			let key: string;
+			let label: string;
 			switch (this.groupBy) {
 				case 'status':
 					key = issue.status;
+					label = key;
 					break;
 				case 'priority':
 					key = String(issue.priority);
+					label = key;
 					break;
 				case 'assignee':
 					key = issue.assignee_id ?? 'unassigned';
+					label = issue.assignee?.name ?? key;
 					break;
 				case 'project':
 					key = issue.project_id ?? 'no-project';
+					label = key;
 					break;
 				default:
 					key = 'all';
+					label = key;
 			}
-			if (!groups.has(key)) groups.set(key, []);
-			groups.get(key)!.push(issue);
+			if (!groups.has(key)) groups.set(key, { issues: [], label });
+			groups.get(key)!.issues.push(issue);
 		}
 
-		return Array.from(groups.entries()).map(([key, issues]) => ({
+		return Array.from(groups.entries()).map(([key, { issues, label }]) => ({
 			key,
-			label: key,
+			label,
 			issues
 		}));
 	});

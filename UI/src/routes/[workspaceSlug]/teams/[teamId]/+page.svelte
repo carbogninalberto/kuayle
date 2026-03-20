@@ -262,6 +262,8 @@
 						groupBy={issuesState.groupBy}
 						count={group.issues.length}
 						collapsed={collapsedGroups.has(group.key)}
+						{members}
+						{projects}
 						ontoggle={() => toggleGroup(group.key)}
 					/>
 					{#if !collapsedGroups.has(group.key)}

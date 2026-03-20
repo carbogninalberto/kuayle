@@ -284,21 +284,33 @@
 					{/if}
 				</div>
 
-				<!-- Comment input -->
-				<form onsubmit={handleAddComment} class="mt-4 flex gap-2">
-					<input
-						type="text"
-						bind:value={newComment}
-						placeholder="Leave a comment..."
-						class="flex-1 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)] transition-colors"
-					/>
-					<button
-						type="submit"
-						disabled={!newComment.trim()}
-						class="rounded-md bg-[var(--app-accent)] px-3 py-2 text-sm text-white hover:bg-[var(--app-accent-hover)] disabled:opacity-40 transition-opacity"
-					>
-						Comment
-					</button>
+				<!-- Comment input (Linear-style) -->
+				<form onsubmit={handleAddComment} class="mt-4">
+					<div class="flex gap-3">
+						<div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent)] text-[10px] font-medium text-white mt-0.5">
+							U
+						</div>
+						<div class="flex-1 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)] transition-colors focus-within:border-[var(--app-accent)]">
+							<textarea
+								bind:value={newComment}
+								placeholder="Leave a comment..."
+								rows="1"
+								onkeydown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleAddComment(e); } }}
+								oninput={(e) => { const t = e.target as HTMLTextAreaElement; t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 120) + 'px'; }}
+								class="w-full resize-none bg-transparent px-3 py-2 text-[13px] text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)]"
+							></textarea>
+							{#if newComment.trim()}
+								<div class="flex items-center justify-end gap-1 border-t border-[var(--app-border)] px-2 py-1">
+									<button
+										type="submit"
+										class="rounded px-2 py-0.5 text-xs font-medium text-[var(--app-accent)] hover:bg-[var(--color-bg-hover)] transition-colors"
+									>
+										Comment
+									</button>
+								</div>
+							{/if}
+						</div>
+					</div>
 				</form>
 			</div>
 		</div>
@@ -443,26 +455,26 @@
 					{/if}
 				</div>
 
-				<!-- Due date -->
+				<!-- Due date (shown as tag like Linear) -->
 				<div class="flex items-center justify-between py-0.5">
 					<span class="text-xs text-[var(--color-text-tertiary)]">Due date</span>
-					{#if issue.due_date}
-						{@const due = new Date(issue.due_date)}
-						{@const now = new Date()}
-						{@const diffDays = Math.ceil((due.getTime() - now.getTime()) / 86400000)}
-						{@const dateLabel = diffDays === 0 ? 'Today' : diffDays === 1 ? 'Tomorrow' : diffDays === -1 ? 'Yesterday' : due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+					<div class="flex items-center gap-1">
+						{#if issue.due_date}
+							{@const due = new Date(issue.due_date)}
+							{@const now = new Date()}
+							{@const diffDays = Math.ceil((due.getTime() - now.getTime()) / 86400000)}
+							{@const dateLabel = diffDays === 0 ? 'Today' : diffDays === 1 ? 'Tomorrow' : diffDays === -1 ? 'Yesterday' : due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+							{@const color = diffDays < 0 ? 'text-red-500 bg-red-500/10' : diffDays === 0 ? 'text-orange-500 bg-orange-500/10' : 'text-[var(--color-text-secondary)] bg-[var(--color-bg-secondary)]'}
+							<span class="rounded px-1.5 py-0.5 text-[11px] font-medium {color}">
+								{dateLabel}
+							</span>
+						{/if}
 						<DatePickerPopover
 							value={issue.due_date}
 							onchange={(d) => updateField('due_date', d ?? undefined)}
-							placeholder="None"
+							placeholder={issue.due_date ? '' : 'None'}
 						/>
-					{:else}
-						<DatePickerPopover
-							value={issue.due_date}
-							onchange={(d) => updateField('due_date', d ?? undefined)}
-							placeholder="None"
-						/>
-					{/if}
+					</div>
 				</div>
 
 				<!-- Cycle -->
