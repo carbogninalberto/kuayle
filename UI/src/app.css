@@ -2,7 +2,7 @@
 @import "tw-animate-css";
 @import "@fontsource-variable/inter";
 
-@custom-variant dark (&:is(.dark *, .amethyst-dark *, .emerald-dark *));
+@custom-variant dark (&:is(.dark *, .amethyst-dark *, .emerald-dark *, .cyber-77 *, .blade-49 *, .pipboy *));
 
 :root {
 	--app-font-size: 100%;
@@ -309,6 +309,187 @@ html.emerald-dark {
 	--sidebar-accent-foreground: oklch(0.985 0.005 155);
 	--sidebar-border: oklch(1 0 0 / 10%);
 	--sidebar-ring: oklch(0.556 0.02 155);
+}
+
+/* ============================================
+   CYBERPUNK THEMES
+   ============================================ */
+
+html.cyber-77 {
+	--color-bg: #0a0a14;
+	--color-bg-secondary: #12122a;
+	--color-bg-tertiary: #1c1c38;
+	--color-bg-hover: #242448;
+	--app-border: #32325c;
+	--app-border-hover: #484878;
+	--color-text-primary: #ececfa;
+	--color-text-secondary: #a0a0cc;
+	--color-text-tertiary: #6e6e9a;
+	--app-accent: #fcee09;
+	--app-accent-hover: #ffe94a;
+	--app-accent-light: #fff480;
+	--color-success: #00ff9f;
+	--color-warning: #fcee09;
+	--color-error: #ff003c;
+	--color-urgent: #ff003c;
+	--color-high: #ff6b2b;
+	--color-medium: #fcee09;
+	--color-low: #6e6e9a;
+
+	--background: oklch(0.12 0.025 280);
+	--foreground: oklch(0.96 0.01 280);
+	--card: oklch(0.19 0.035 280);
+	--card-foreground: oklch(0.96 0.01 280);
+	--popover: oklch(0.19 0.035 280);
+	--popover-foreground: oklch(0.96 0.01 280);
+	--primary: oklch(0.93 0.21 105);
+	--primary-foreground: oklch(0.15 0.03 280);
+	--secondary: oklch(0.26 0.035 280);
+	--secondary-foreground: oklch(0.96 0.01 280);
+	--muted: oklch(0.26 0.035 280);
+	--muted-foreground: oklch(0.72 0.025 280);
+	--accent: oklch(0.26 0.035 280);
+	--accent-foreground: oklch(0.96 0.01 280);
+	--destructive: oklch(0.65 0.28 15);
+	--border: oklch(1 0 0 / 12%);
+	--input: oklch(1 0 0 / 18%);
+	--ring: oklch(0.93 0.21 105);
+	--chart-1: oklch(0.93 0.21 105);
+	--chart-2: oklch(0.80 0.18 200);
+	--chart-3: oklch(0.65 0.28 15);
+	--chart-4: oklch(0.75 0.15 290);
+	--chart-5: oklch(0.60 0.20 330);
+	--sidebar: oklch(0.15 0.03 280);
+	--sidebar-foreground: oklch(0.96 0.01 280);
+	--sidebar-primary: oklch(0.93 0.21 105);
+	--sidebar-primary-foreground: oklch(0.15 0.03 280);
+	--sidebar-accent: oklch(0.26 0.035 280);
+	--sidebar-accent-foreground: oklch(0.96 0.01 280);
+	--sidebar-border: oklch(1 0 0 / 12%);
+	--sidebar-ring: oklch(0.55 0.025 280);
+}
+
+/* Neon glow accents for Cyber 77 */
+html.cyber-77 :focus-visible {
+	box-shadow: 0 0 0 2px #0a0a14, 0 0 8px #fcee0966;
+}
+
+html.blade-49 {
+	--color-bg: #0c0a08;
+	--color-bg-secondary: #151210;
+	--color-bg-tertiary: #1e1a16;
+	--color-bg-hover: #28231e;
+	--app-border: #302820;
+	--app-border-hover: #483e32;
+	--color-text-primary: #f0e6d8;
+	--color-text-secondary: #a89880;
+	--color-text-tertiary: #6e6050;
+	--app-accent: #e87020;
+	--app-accent-hover: #f08838;
+	--app-accent-light: #f8a050;
+	--color-success: #4a9e6e;
+	--color-warning: #e8a020;
+	--color-error: #c84030;
+	--color-urgent: #c84030;
+	--color-high: #d06828;
+	--color-medium: #c89830;
+	--color-low: #6e6050;
+
+	--background: oklch(0.13 0.015 60);
+	--foreground: oklch(0.95 0.015 70);
+	--card: oklch(0.18 0.02 60);
+	--card-foreground: oklch(0.95 0.015 70);
+	--popover: oklch(0.18 0.02 60);
+	--popover-foreground: oklch(0.95 0.015 70);
+	--primary: oklch(0.65 0.18 50);
+	--primary-foreground: oklch(1 0 0);
+	--secondary: oklch(0.25 0.02 60);
+	--secondary-foreground: oklch(0.95 0.015 70);
+	--muted: oklch(0.25 0.02 60);
+	--muted-foreground: oklch(0.65 0.015 60);
+	--accent: oklch(0.25 0.02 60);
+	--accent-foreground: oklch(0.95 0.015 70);
+	--destructive: oklch(0.55 0.2 20);
+	--border: oklch(1 0 0 / 8%);
+	--input: oklch(1 0 0 / 12%);
+	--ring: oklch(0.65 0.18 50);
+	--chart-1: oklch(0.70 0.18 50);
+	--chart-2: oklch(0.60 0.10 200);
+	--chart-3: oklch(0.50 0.15 30);
+	--chart-4: oklch(0.55 0.10 80);
+	--chart-5: oklch(0.45 0.08 180);
+	--sidebar: oklch(0.16 0.015 60);
+	--sidebar-foreground: oklch(0.95 0.015 70);
+	--sidebar-primary: oklch(0.65 0.18 50);
+	--sidebar-primary-foreground: oklch(1 0 0);
+	--sidebar-accent: oklch(0.25 0.02 60);
+	--sidebar-accent-foreground: oklch(0.95 0.015 70);
+	--sidebar-border: oklch(1 0 0 / 8%);
+	--sidebar-ring: oklch(0.5 0.015 60);
+}
+
+/* Warm muted glow for Blade 49 */
+html.blade-49 :focus-visible {
+	box-shadow: 0 0 0 2px #0c0a08, 0 0 6px #e8702044;
+}
+
+html.pipboy {
+	--color-bg: #0a1008;
+	--color-bg-secondary: #101a0e;
+	--color-bg-tertiary: #182414;
+	--color-bg-hover: #20301c;
+	--app-border: #2a3e24;
+	--app-border-hover: #3c5836;
+	--color-text-primary: #20ff4a;
+	--color-text-secondary: #18c040;
+	--color-text-tertiary: #148030;
+	--app-accent: #20ff4a;
+	--app-accent-hover: #50ff70;
+	--app-accent-light: #80ff90;
+	--color-success: #20ff4a;
+	--color-warning: #c0ff40;
+	--color-error: #ff2020;
+	--color-urgent: #ff2020;
+	--color-high: #ff6020;
+	--color-medium: #c0ff40;
+	--color-low: #148030;
+
+	--background: oklch(0.11 0.03 140);
+	--foreground: oklch(0.90 0.25 145);
+	--card: oklch(0.16 0.035 140);
+	--card-foreground: oklch(0.90 0.25 145);
+	--popover: oklch(0.16 0.035 140);
+	--popover-foreground: oklch(0.90 0.25 145);
+	--primary: oklch(0.85 0.28 145);
+	--primary-foreground: oklch(0.12 0.03 140);
+	--secondary: oklch(0.22 0.04 140);
+	--secondary-foreground: oklch(0.85 0.25 145);
+	--muted: oklch(0.22 0.04 140);
+	--muted-foreground: oklch(0.60 0.15 145);
+	--accent: oklch(0.22 0.04 140);
+	--accent-foreground: oklch(0.85 0.25 145);
+	--destructive: oklch(0.60 0.25 25);
+	--border: oklch(0.35 0.08 145 / 40%);
+	--input: oklch(0.35 0.08 145 / 50%);
+	--ring: oklch(0.85 0.28 145);
+	--chart-1: oklch(0.85 0.28 145);
+	--chart-2: oklch(0.70 0.22 145);
+	--chart-3: oklch(0.55 0.18 145);
+	--chart-4: oklch(0.45 0.14 145);
+	--chart-5: oklch(0.35 0.10 145);
+	--sidebar: oklch(0.13 0.03 140);
+	--sidebar-foreground: oklch(0.85 0.25 145);
+	--sidebar-primary: oklch(0.85 0.28 145);
+	--sidebar-primary-foreground: oklch(0.12 0.03 140);
+	--sidebar-accent: oklch(0.22 0.04 140);
+	--sidebar-accent-foreground: oklch(0.85 0.25 145);
+	--sidebar-border: oklch(0.35 0.08 145 / 40%);
+	--sidebar-ring: oklch(0.50 0.12 145);
+}
+
+/* Phosphor green glow for Pip-Boy */
+html.pipboy :focus-visible {
+	box-shadow: 0 0 0 2px #0a1008, 0 0 10px #20ff4a55;
 }
 
 @theme inline {

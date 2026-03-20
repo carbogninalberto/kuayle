@@ -13,5 +13,5 @@ type UpdatePreferencesRequest struct {
 	PointerCursors *bool   `json:"pointer_cursors"`
 	ThemeMode      *string `json:"theme_mode" validate:"omitempty,oneof=system light dark"`
 	LightTheme     *string `json:"light_theme" validate:"omitempty,oneof=light rose-light blue-light"`
-	DarkTheme      *string `json:"dark_theme" validate:"omitempty,oneof=dark amethyst-dark emerald-dark"`
+	DarkTheme      *string `json:"dark_theme" validate:"omitempty,oneof=dark amethyst-dark emerald-dark cyber-77 blade-49 pipboy"`
 }

@@ -206,7 +206,7 @@
 	}
 </script>
 
-<div class="flex items-center gap-1.5 border-b border-[var(--app-border)] px-4 py-2">
+<div class="flex items-center gap-1.5 px-2 py-2">
 	<!-- Search input -->
 	<div class="relative">
 		<Search size={14} class="absolute left-2 top-1/2 -translate-y-1/2 text-[var(--color-text-tertiary)]" />
@@ -218,8 +218,6 @@
 			class="h-7 w-40 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] pl-7 pr-2 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)] focus:border-[var(--app-accent)]"
 		/>
 	</div>
-
-	<Separator orientation="vertical" class="mx-1 h-5" />
 
 	<!-- Filter chips -->
 	{#if visibleFilters.has('status')}

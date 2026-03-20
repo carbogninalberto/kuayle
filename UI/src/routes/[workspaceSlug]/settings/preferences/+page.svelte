@@ -21,6 +21,9 @@
 		dark: 'Dark',
 		'amethyst-dark': 'Amethyst Dark',
 		'emerald-dark': 'Emerald Dark',
+		'cyber-77': 'Cyber 77',
+		'blade-49': 'Blade 49',
+		'pipboy': 'Pip-Boy',
 	};
 </script>
 
@@ -142,7 +145,7 @@
 				type="single"
 				value={preferencesState.darkTheme}
 				onValueChange={(v) => {
-					if (v) preferencesState.setDarkTheme(v as 'dark' | 'amethyst-dark' | 'emerald-dark');
+					if (v) preferencesState.setDarkTheme(v as 'dark' | 'amethyst-dark' | 'emerald-dark' | 'cyber-77' | 'blade-49' | 'pipboy');
 				}}
 			>
 				<Select.Trigger size="sm" class="w-[130px]">
@@ -152,6 +155,9 @@
 					<Select.Item value="dark">Dark</Select.Item>
 					<Select.Item value="amethyst-dark">Amethyst Dark</Select.Item>
 					<Select.Item value="emerald-dark">Emerald Dark</Select.Item>
+					<Select.Item value="cyber-77">Cyber 77</Select.Item>
+					<Select.Item value="blade-49">Blade 49</Select.Item>
+					<Select.Item value="pipboy">Pip-Boy</Select.Item>
 				</Select.Content>
 			</Select.Root>
 		</div>
