@@ -13,6 +13,7 @@ import (
 	"github.com/carbon/carbon-backend/pkg/validate"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
+	log "github.com/sirupsen/logrus"
 )
 
 type IssueHandler struct {
@@ -35,6 +36,7 @@ func (h *IssueHandler) List(c echo.Context) error {
 
 	issues, total, err := h.issueSvc.List(c.Request().Context(), ws.ID, params)
 	if err != nil {
+		log.WithError(err).Error("issue list failed")
 		return response.InternalError(c)
 	}
 
