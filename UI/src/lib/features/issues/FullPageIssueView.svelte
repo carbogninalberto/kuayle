@@ -231,67 +231,76 @@
 				<IssueRelations {slug} identifier={issue.identifier} />
 			</div>
 
-			<!-- Activity section (Linear-style) -->
+			<!-- Activity timeline -->
 			<div class="mt-8">
 				<h3 class="text-sm font-medium text-[var(--color-text-primary)] mb-4">Activity</h3>
 
-				<div class="space-y-4">
-					<!-- Activity entries (history + comments merged, sorted by time) -->
-					{#if loaded}
-						{@const allActivity = [
-							...history.map(h => ({ type: 'history' as const, data: h, time: h.created_at })),
-							...comments.map(c => ({ type: 'comment' as const, data: c, time: c.created_at }))
-						].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())}
+				{#if loaded}
+					{@const allActivity = [
+						...history.map(h => ({ type: 'history' as const, data: h, time: h.created_at })),
+						...comments.map(c => ({ type: 'comment' as const, data: c, time: c.created_at }))
+					].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())}
 
-						{#each allActivity as item}
-							<div class="flex gap-3 animate-in fade-in duration-200">
-								<!-- Avatar -->
-								<div class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--color-bg-tertiary)] text-[9px] font-medium text-[var(--color-text-secondary)] mt-0.5">
-									{#if item.type === 'comment'}
-										{(item.data.user?.name ?? 'U').charAt(0).toUpperCase()}
-									{:else}
-										&#8226;
-									{/if}
-								</div>
-								<div class="flex-1 min-w-0">
-									{#if item.type === 'comment'}
-										<div class="flex items-center gap-2 mb-1">
-											<span class="text-xs font-medium text-[var(--color-text-primary)]">{item.data.user?.name ?? 'User'}</span>
-											<span class="text-[11px] text-[var(--color-text-tertiary)]">{formatRelativeTime(item.data.created_at)}</span>
+					<div class="relative">
+						<!-- Timeline connector line -->
+						{#if allActivity.length > 0}
+							<div class="absolute left-[11px] top-3 bottom-0 w-px bg-[var(--app-border)]"></div>
+						{/if}
+
+						<div class="space-y-0">
+							{#each allActivity as item, idx}
+								{#if item.type === 'comment'}
+									<!-- Comment entry -->
+									<div class="relative flex gap-3 pb-4">
+										<div class="relative z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent)] text-[9px] font-medium text-white ring-2 ring-[var(--color-bg)]">
+											{(item.data.user?.name ?? 'U').charAt(0).toUpperCase()}
 										</div>
-										<div class="prose prose-invert prose-sm max-w-none text-[13px] text-[var(--color-text-secondary)] rounded-md bg-[var(--color-bg-secondary)] px-3 py-2">
-											{@html item.data.body}
+										<div class="flex-1 min-w-0 pt-0.5">
+											<div class="flex items-center gap-2 mb-1.5">
+												<span class="text-xs font-medium text-[var(--color-text-primary)]">{item.data.user?.name ?? 'User'}</span>
+												<span class="text-[11px] text-[var(--color-text-tertiary)]">{formatRelativeTime(item.data.created_at)}</span>
+											</div>
+											<div class="prose prose-invert prose-sm max-w-none text-[13px] text-[var(--color-text-secondary)] rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2">
+												{@html item.data.body}
+											</div>
 										</div>
-									{:else}
-										<div class="flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] py-1">
+									</div>
+								{:else}
+									<!-- History entry -->
+									<div class="relative flex items-center gap-3 pb-3">
+										<div class="relative z-10 flex h-6 w-6 shrink-0 items-center justify-center">
+											<div class="h-2 w-2 rounded-full bg-[var(--color-text-tertiary)] ring-2 ring-[var(--color-bg)]"></div>
+										</div>
+										<div class="flex flex-wrap items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] min-w-0">
 											{#if item.data.field === 'title' || item.data.field === 'description'}
 												<span>updated <strong class="text-[var(--color-text-secondary)]">{item.data.field}</strong></span>
 											{:else}
 												<span>changed <strong class="text-[var(--color-text-secondary)]">{item.data.field}</strong></span>
 												{#if item.data.old_value}
 													<span>from</span>
-													<code class="rounded bg-[var(--color-bg-tertiary)] px-1 py-0.5 text-[11px]">{formatHistoryValue(item.data.field, item.data.old_value)}</code>
+													<code class="rounded bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 text-[11px] text-[var(--color-text-secondary)]">{formatHistoryValue(item.data.field, item.data.old_value)}</code>
 												{/if}
 												<span>to</span>
-												<code class="rounded bg-[var(--color-bg-tertiary)] px-1 py-0.5 text-[11px]">{formatHistoryValue(item.data.field, item.data.new_value)}</code>
+												<code class="rounded bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 text-[11px] text-[var(--color-text-secondary)]">{formatHistoryValue(item.data.field, item.data.new_value)}</code>
 											{/if}
-											<span class="ml-1">{formatRelativeTime(item.data.created_at)}</span>
+											<span class="text-[var(--color-text-tertiary)]">&middot;</span>
+											<span>{formatRelativeTime(item.data.created_at)}</span>
 										</div>
-									{/if}
-								</div>
-							</div>
-						{/each}
+									</div>
+								{/if}
+							{/each}
+						</div>
 
 						{#if allActivity.length === 0}
 							<p class="text-xs text-[var(--color-text-tertiary)]">No activity yet</p>
 						{/if}
-					{/if}
-				</div>
+					</div>
+				{/if}
 
-				<!-- Comment input (Linear-style) -->
-				<form onsubmit={handleAddComment} class="mt-4">
+				<!-- Comment input -->
+				<form onsubmit={handleAddComment} class="relative mt-2">
 					<div class="flex gap-3">
-						<div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent)] text-[10px] font-medium text-white mt-0.5">
+						<div class="relative z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent)] text-[9px] font-medium text-white">
 							U
 						</div>
 						<div class="flex-1 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)] transition-colors focus-within:border-[var(--app-accent)]">

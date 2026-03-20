@@ -203,30 +203,36 @@
 					</form>
 				</div>
 			{:else}
-				<div class="mt-4 space-y-3">
-					{#each history as entry}
-						<div class="flex items-start gap-2 text-sm">
-							<span class="text-[var(--color-text-tertiary)]"
-								>{formatRelativeTime(entry.created_at)}</span
-							>
-							<span class="text-[var(--color-text-secondary)]">
-								{#if entry.field === 'title' || entry.field === 'description'}
-									updated <strong>{entry.field}</strong>
-								{:else}
-									changed <strong>{entry.field}</strong>
-									{#if entry.old_value}from <code
-											class="rounded bg-[var(--color-bg-tertiary)] px-1"
-											>{entry.old_value}</code
-										>{/if}
-									to <code class="rounded bg-[var(--color-bg-tertiary)] px-1"
-										>{entry.new_value}</code
-									>
-								{/if}
-							</span>
-						</div>
-					{/each}
+				<div class="mt-4 relative">
+					{#if history.length > 0}
+						<div class="absolute left-[7px] top-2 bottom-0 w-px bg-[var(--app-border)]"></div>
+					{/if}
+					<div class="space-y-0">
+						{#each history as entry}
+							<div class="relative flex items-center gap-3 pb-3">
+								<div class="relative z-10 flex h-4 w-4 shrink-0 items-center justify-center">
+									<div class="h-1.5 w-1.5 rounded-full bg-[var(--color-text-tertiary)] ring-2 ring-[var(--color-bg)]"></div>
+								</div>
+								<div class="flex flex-wrap items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] min-w-0">
+									{#if entry.field === 'title' || entry.field === 'description'}
+										<span>updated <strong class="text-[var(--color-text-secondary)]">{entry.field}</strong></span>
+									{:else}
+										<span>changed <strong class="text-[var(--color-text-secondary)]">{entry.field}</strong></span>
+										{#if entry.old_value}
+											<span>from</span>
+											<code class="rounded bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 text-[11px] text-[var(--color-text-secondary)]">{entry.old_value}</code>
+										{/if}
+										<span>to</span>
+										<code class="rounded bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 text-[11px] text-[var(--color-text-secondary)]">{entry.new_value}</code>
+									{/if}
+									<span class="text-[var(--color-text-tertiary)]">&middot;</span>
+									<span>{formatRelativeTime(entry.created_at)}</span>
+								</div>
+							</div>
+						{/each}
+					</div>
 					{#if history.length === 0}
-						<p class="text-sm text-[var(--color-text-tertiary)]">No activity yet</p>
+						<p class="text-xs text-[var(--color-text-tertiary)]">No activity yet</p>
 					{/if}
 				</div>
 			{/if}
