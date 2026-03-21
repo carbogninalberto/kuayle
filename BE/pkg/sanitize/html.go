@@ -27,6 +27,10 @@ func init() {
 	policy.RequireNoReferrerOnLinks(true)
 
 	policy.AllowAttrs("type", "checked", "disabled").OnElements("input")
+
+	// Allow images with safe src
+	policy.AllowImages()
+	policy.AllowAttrs("alt", "width", "height").OnElements("img")
 }
 
 // SanitizeHTML sanitizes HTML input, stripping dangerous tags and attributes.

@@ -8,7 +8,9 @@
 	import TaskItem from '@tiptap/extension-task-item';
 	import Link from '@tiptap/extension-link';
 	import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
+	import Image from '@tiptap/extension-image';
 	import { Extension, InputRule } from '@tiptap/core';
+	import { Plugin } from 'prosemirror-state';
 	import { common, createLowlight } from 'lowlight';
 	import { Button } from '$lib/components/ui/button';
 	import { Separator } from '$lib/components/ui/separator';
@@ -38,7 +40,8 @@
 		bubbleMenu = false,
 		borderless = false,
 		onupdate,
-		onsubmit
+		onsubmit,
+		uploadUrl
 	}: {
 		content?: string;
 		placeholder?: string;
@@ -49,6 +52,7 @@
 		borderless?: boolean;
 		onupdate?: (html: string) => void;
 		onsubmit?: () => void;
+		uploadUrl?: string;
 	} = $props();
 
 	let editor = $state<Editor | null>(null);
@@ -77,6 +81,71 @@
 			? 'prose prose-invert prose-sm max-w-none outline-none min-h-[40px] text-[var(--color-text-primary)] borderless-editor'
 			: 'prose prose-invert prose-sm max-w-none outline-none min-h-[80px] px-3 py-2 text-[var(--color-text-primary)]';
 
+	async function uploadImage(file: File): Promise<string | null> {
+		if (!uploadUrl) return null;
+		const form = new FormData();
+		form.append('file', file);
+		try {
+			const res = await fetch(uploadUrl, { method: 'POST', body: form, credentials: 'include' });
+			if (!res.ok) return null;
+			const data = await res.json();
+			return data.data?.url ?? data.url ?? null;
+		} catch {
+			return null;
+		}
+	}
+
+	function createImagePasteHandler() {
+		if (!uploadUrl) return null;
+		return Extension.create({
+			name: 'imagePaste',
+			addProseMirrorPlugins() {
+				const editorRef = this.editor;
+				return [
+					new Plugin({
+						props: {
+							handlePaste(view: any, event: ClipboardEvent) {
+								const items = event.clipboardData?.items;
+								if (!items) return false;
+								for (const item of items) {
+									if (item.type.startsWith('image/')) {
+										event.preventDefault();
+										const file = item.getAsFile();
+										if (file) {
+											uploadImage(file).then(url => {
+												if (url) {
+													editorRef.chain().focus().setImage({ src: url }).run();
+												}
+											});
+										}
+										return true;
+									}
+								}
+								return false;
+							},
+							handleDrop(view: any, event: DragEvent) {
+								const files = event.dataTransfer?.files;
+								if (!files || files.length === 0) return false;
+								for (const file of files) {
+									if (file.type.startsWith('image/')) {
+										event.preventDefault();
+										uploadImage(file).then(url => {
+											if (url) {
+												editorRef.chain().focus().setImage({ src: url }).run();
+											}
+										});
+										return true;
+									}
+								}
+								return false;
+							}
+						}
+					})
+				];
+			}
+		});
+	}
+
 	onMount(() => {
 		const SubmitShortcut = onsubmit ? Extension.create({
 			name: 'submitShortcut',
@@ -90,6 +159,8 @@
 			}
 		}) : null;
 
+		const imagePasteExt = createImagePasteHandler();
+
 		const extensions = [
 			StarterKit.configure({
 				codeBlock: false,
@@ -102,8 +173,10 @@
 				HTMLAttributes: { class: 'text-[var(--app-accent-light)] underline' }
 			}),
 			CodeBlockLowlight.configure({ lowlight }),
+			Image.configure({ inline: true, allowBase64: false }),
 			TaskListShortcut,
 			...(SubmitShortcut ? [SubmitShortcut] : []),
+			...(imagePasteExt ? [imagePasteExt] : []),
 		];
 
 		editor = new Editor({
@@ -170,6 +243,7 @@
 	function shouldShowBubble(props: { from: number; to: number; editor: any }): boolean {
 		if (props.from === props.to) return false;
 		if (props.editor.isActive('codeBlock')) return false;
+		if (props.editor.isActive('image')) return false;
 		return true;
 	}
 
@@ -425,5 +499,11 @@
 		border: none;
 		border-top: 1px solid var(--app-border);
 		margin: 1rem 0;
+	}
+	:global(.rich-editor .tiptap img) {
+		max-width: 100%;
+		height: auto;
+		border-radius: 0.375rem;
+		margin: 0.5rem 0;
 	}
 </style>

@@ -104,10 +104,12 @@ func main() {
 	webhookRepo := repository.NewWebhookRepository(db)
 	webhookSvc := service.NewWebhookService(webhookRepo)
 	webhookH := handler.NewWebhookHandler(webhookSvc)
+	uploadH := handler.NewUploadHandler("./uploads")
 
 	// Echo
 	e := echo.New()
 	e.HideBanner = true
+	e.Static("/uploads", "./uploads")
 
 	// Global middleware
 	e.Use(mw.Recovery())
@@ -230,6 +232,9 @@ func main() {
 	ws.GET("/favorites", favH.List)
 	ws.POST("/favorites", favH.Create)
 	ws.DELETE("/favorites/:id", favH.Delete)
+
+	// Uploads
+	ws.POST("/upload", uploadH.Upload, mw.RequirePermission("issue:create"))
 
 	// WebSocket
 	ws.GET("/ws", wsH.Handle)

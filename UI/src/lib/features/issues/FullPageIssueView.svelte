@@ -76,6 +76,7 @@
 	let cycleExpanded = $state(true);
 
 	const priorityValues: IssuePriority[] = [0, 1, 2, 3, 4];
+	const imageUploadUrl = $derived(`/api/workspaces/${slug}/upload`);
 
 	let issueProject = $derived(projects.find(p => p.id === issue.project_id));
 	let issueCycle = $derived(cycles.find(c => c.id === issue.cycle_id));
@@ -464,6 +465,7 @@
 						placeholder="Add description..."
 						bubbleMenu={true}
 						borderless={true}
+						uploadUrl={imageUploadUrl}
 						onupdate={saveDescription}
 					/>
 				</div>
@@ -646,8 +648,8 @@
 												content=""
 												placeholder="Leave a reply..."
 												minimal={true}
-												bubbleMenu={true}
 												borderless={true}
+												uploadUrl={imageUploadUrl}
 												onupdate={(html) => { replyContents[comment.id] = html; replyContents = replyContents; }}
 												onsubmit={() => handleReply(comment.id)}
 											/>
@@ -678,8 +680,8 @@
 							content=""
 							placeholder="Leave a comment..."
 							minimal={true}
-							bubbleMenu={true}
 							borderless={true}
+							uploadUrl={imageUploadUrl}
 							onupdate={(html) => newComment = html}
 							onsubmit={handleAddComment}
 						/>
