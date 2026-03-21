@@ -537,7 +537,17 @@
 													{#if idx > 0}<span class="text-[var(--app-border)]">|</span>{/if}
 													<strong class="text-[var(--color-text-secondary)]">{historyFieldLabel(change.field)}</strong>
 													<span>&rarr;</span>
-													<code class="shrink-0 rounded bg-[var(--color-bg-tertiary)] px-1 py-0.5 text-[11px] text-[var(--color-text-secondary)]">{formatHistoryValue(change.field, change.new_value)}</code>
+													{#if change.field === 'labels' && change.new_value}
+														{#each change.new_value.split(', ') as labelName}
+															{@const label = labels.find(l => l.name === labelName)}
+															<code class="shrink-0 inline-flex items-center gap-1 rounded bg-[var(--color-bg-tertiary)] px-1 py-0.5 text-[11px] text-[var(--color-text-secondary)]">
+																<span class="inline-block h-2 w-2 rounded-full shrink-0" style="background-color: {label?.color ?? 'var(--color-text-tertiary)'}"></span>
+																{labelName}
+															</code>
+														{/each}
+													{:else}
+														<code class="shrink-0 rounded bg-[var(--color-bg-tertiary)] px-1 py-0.5 text-[11px] text-[var(--color-text-secondary)]">{formatHistoryValue(change.field, change.new_value)}</code>
+													{/if}
 												{/each}
 												<span>&middot;</span>
 												<span class="shrink-0">{formatRelativeTime(entry.time)}</span>
