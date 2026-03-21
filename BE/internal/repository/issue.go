@@ -67,12 +67,17 @@ func (r *IssueRepository) List(ctx context.Context, workspaceID uuid.UUID, param
 	where := []string{"i.workspace_id = :workspace_id"}
 	args := map[string]interface{}{"workspace_id": workspaceID}
 
-	// Multi-value status filter (comma-separated)
+	// Multi-value status filter (comma-separated) — supports both legacy slugs and status_id UUIDs
 	if params.Status != "" {
 		statuses := strings.Split(params.Status, ",")
+		// Detect if the values are UUIDs (status_id) or legacy slugs
+		col := "i.status"
+		if _, err := uuid.Parse(strings.TrimSpace(statuses[0])); err == nil {
+			col = "i.status_id"
+		}
 		if len(statuses) == 1 {
-			where = append(where, "i.status = :status")
-			args["status"] = statuses[0]
+			where = append(where, col+" = :status")
+			args["status"] = strings.TrimSpace(statuses[0])
 		} else {
 			placeholders := make([]string, len(statuses))
 			for i, s := range statuses {
@@ -80,7 +85,7 @@ func (r *IssueRepository) List(ctx context.Context, workspaceID uuid.UUID, param
 				placeholders[i] = ":" + key
 				args[key] = strings.TrimSpace(s)
 			}
-			where = append(where, fmt.Sprintf("i.status IN (%s)", strings.Join(placeholders, ",")))
+			where = append(where, fmt.Sprintf("%s IN (%s)", col, strings.Join(placeholders, ",")))
 		}
 	}
 	// Multi-value priority filter (comma-separated)

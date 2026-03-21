@@ -1,13 +1,14 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { Editor } from 'svelte-tiptap';
-	import { EditorContent } from 'svelte-tiptap';
+	import { EditorContent, BubbleMenu } from 'svelte-tiptap';
 	import StarterKit from '@tiptap/starter-kit';
 	import Placeholder from '@tiptap/extension-placeholder';
 	import TaskList from '@tiptap/extension-task-list';
 	import TaskItem from '@tiptap/extension-task-item';
 	import Link from '@tiptap/extension-link';
 	import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
+	import { Extension, InputRule } from '@tiptap/core';
 	import { common, createLowlight } from 'lowlight';
 	import { Button } from '$lib/components/ui/button';
 	import { Separator } from '$lib/components/ui/separator';
@@ -26,24 +27,49 @@
 		Undo2,
 		Redo2
 	} from 'lucide-svelte';
+	import { sanitizeEditorOutput } from '$lib/security/sanitize';
 
 	let {
 		content = '',
 		placeholder = 'Write something...',
 		editable = true,
 		minimal = false,
+		bubbleMenu = false,
+		borderless = false,
 		onupdate
 	}: {
 		content?: string;
 		placeholder?: string;
 		editable?: boolean;
 		minimal?: boolean;
+		bubbleMenu?: boolean;
+		borderless?: boolean;
 		onupdate?: (html: string) => void;
 	} = $props();
 
 	let editor = $state<Editor | null>(null);
+	let linkInputVisible = $state(false);
+	let linkUrl = $state('');
 
 	const lowlight = createLowlight(common);
+
+	const TaskListShortcut = Extension.create({
+		name: 'taskListShortcut',
+		addInputRules() {
+			return [
+				new InputRule({
+					find: /^\s*\[([ xX])\]\s$/,
+					handler: ({ state, range, chain }) => {
+						chain().deleteRange(range).toggleTaskList().run();
+					},
+				}),
+			];
+		},
+	});
+
+	const editorClass = borderless
+		? 'prose prose-invert prose-sm max-w-none outline-none min-h-[40px] py-1 text-[var(--color-text-primary)]'
+		: 'prose prose-invert prose-sm max-w-none outline-none min-h-[80px] px-3 py-2 text-[var(--color-text-primary)]';
 
 	onMount(() => {
 		const extensions = [
@@ -57,7 +83,8 @@
 				openOnClick: false,
 				HTMLAttributes: { class: 'text-[var(--app-accent-light)] underline' }
 			}),
-			CodeBlockLowlight.configure({ lowlight })
+			CodeBlockLowlight.configure({ lowlight }),
+			TaskListShortcut,
 		];
 
 		editor = new Editor({
@@ -65,11 +92,11 @@
 			content,
 			editable,
 			onUpdate: ({ editor: e }) => {
-				onupdate?.(e.getHTML());
+				onupdate?.(sanitizeEditorOutput(e.getHTML()));
 			},
 			editorProps: {
 				attributes: {
-					class: 'prose prose-invert prose-sm max-w-none outline-none min-h-[80px] px-3 py-2 text-[var(--color-text-primary)]'
+					class: editorClass
 				}
 			}
 		});
@@ -96,12 +123,35 @@
 		if (!editor) return;
 		if (editor.isActive('link')) {
 			editor.chain().focus().unsetLink().run();
+			linkInputVisible = false;
 		} else {
-			const url = prompt('Enter URL');
-			if (url) {
-				editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
-			}
+			linkInputVisible = !linkInputVisible;
+			linkUrl = '';
 		}
+	}
+
+	function applyLink() {
+		if (!editor || !linkUrl.trim()) return;
+		const url = linkUrl.trim();
+		if (!/^(https?:|mailto:)/i.test(url)) {
+			linkUrl = '';
+			return;
+		}
+		editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
+		linkInputVisible = false;
+		linkUrl = '';
+	}
+
+	function cancelLink() {
+		linkInputVisible = false;
+		linkUrl = '';
+		editor?.chain().focus().run();
+	}
+
+	function shouldShowBubble(props: { from: number; to: number; editor: any }): boolean {
+		if (props.from === props.to) return false;
+		if (props.editor.isActive('codeBlock')) return false;
+		return true;
 	}
 
 	function btnClass(active: boolean): string {
@@ -109,10 +159,13 @@
 			? 'h-7 w-7 flex items-center justify-center rounded bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
 			: 'h-7 w-7 flex items-center justify-center rounded text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]';
 	}
+
+	// Show static toolbar: not bubbleMenu, not minimal
+	const showStaticToolbar = editable && !minimal && !bubbleMenu;
 </script>
 
-<div class="rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] overflow-hidden">
-	{#if editable && !minimal}
+<div class={borderless ? 'overflow-hidden' : 'rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] overflow-hidden'}>
+	{#if showStaticToolbar}
 		<!-- Toolbar -->
 		<div class="flex items-center gap-0.5 border-b border-[var(--app-border)] px-2 py-1">
 			<button type="button" onclick={toggleBold} class={btnClass(editor?.isActive('bold') ?? false)} title="Bold">
@@ -173,9 +226,96 @@
 	{#if editor}
 		<EditorContent {editor} class="rich-editor" />
 	{/if}
+
+	{#if bubbleMenu && editor && editable}
+		<BubbleMenu {editor} shouldShow={shouldShowBubble}>
+			{#snippet children()}
+				<div class="bubble-toolbar">
+					<button type="button" onclick={toggleBold} class={btnClass(editor?.isActive('bold') ?? false)} title="Bold">
+						<Bold size={14} />
+					</button>
+					<button type="button" onclick={toggleItalic} class={btnClass(editor?.isActive('italic') ?? false)} title="Italic">
+						<Italic size={14} />
+					</button>
+					<button type="button" onclick={toggleStrike} class={btnClass(editor?.isActive('strike') ?? false)} title="Strikethrough">
+						<Strikethrough size={14} />
+					</button>
+					<button type="button" onclick={toggleCode} class={btnClass(editor?.isActive('code') ?? false)} title="Inline code">
+						<Code size={14} />
+					</button>
+
+					<div class="bubble-separator"></div>
+
+					<button type="button" onclick={toggleH1} class={btnClass(editor?.isActive('heading', { level: 1 }) ?? false)} title="Heading 1">
+						<Heading1 size={14} />
+					</button>
+					<button type="button" onclick={toggleH2} class={btnClass(editor?.isActive('heading', { level: 2 }) ?? false)} title="Heading 2">
+						<Heading2 size={14} />
+					</button>
+
+					<div class="bubble-separator"></div>
+
+					<button type="button" onclick={toggleLink} class={btnClass(editor?.isActive('link') ?? false)} title="Link">
+						<LinkIcon size={14} />
+					</button>
+					<button type="button" onclick={toggleCodeBlock} class={btnClass(editor?.isActive('codeBlock') ?? false)} title="Code block">
+						<Code2 size={14} />
+					</button>
+				</div>
+				{#if linkInputVisible}
+					<div class="bubble-link-input">
+						<!-- svelte-ignore a11y_autofocus -->
+						<input
+							type="url"
+							bind:value={linkUrl}
+							placeholder="https://..."
+							autofocus
+							onkeydown={(e) => {
+								if (e.key === 'Enter') { e.preventDefault(); applyLink(); }
+								if (e.key === 'Escape') { cancelLink(); }
+							}}
+							class="bubble-link-field"
+						/>
+					</div>
+				{/if}
+			{/snippet}
+		</BubbleMenu>
+	{/if}
 </div>
 
 <style>
+	:global(.bubble-toolbar) {
+		display: flex;
+		align-items: center;
+		gap: 2px;
+		background: var(--color-bg-secondary);
+		border: 1px solid var(--app-border);
+		border-radius: 8px;
+		padding: 4px;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+	}
+	:global(.bubble-separator) {
+		width: 1px;
+		height: 16px;
+		background: var(--app-border);
+		margin: 0 4px;
+	}
+	:global(.bubble-link-input) {
+		margin-top: 4px;
+		background: var(--color-bg-secondary);
+		border: 1px solid var(--app-border);
+		border-radius: 8px;
+		padding: 4px 8px;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+	}
+	:global(.bubble-link-field) {
+		background: transparent;
+		border: none;
+		outline: none;
+		color: var(--color-text-primary);
+		font-size: 0.8rem;
+		width: 200px;
+	}
 	:global(.rich-editor .tiptap) {
 		min-height: 80px;
 		padding: 0.5rem 0.75rem;

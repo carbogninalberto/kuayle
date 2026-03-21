@@ -69,7 +69,7 @@ func main() {
 	// Services
 	authSvc := service.NewAuthService(userRepo, refreshRepo, cfg.JWTSecret)
 	workspaceSvc := service.NewWorkspaceService(workspaceRepo, userRepo)
-	teamSvc := service.NewTeamService(teamRepo)
+	teamSvc := service.NewTeamService(teamRepo, teamStatusRepo)
 	issueSvc := service.NewIssueService(issueRepo, teamRepo, teamStatusRepo, historyRepo, hub)
 	labelSvc := service.NewLabelService(labelRepo)
 	commentSvc := service.NewCommentService(commentRepo)

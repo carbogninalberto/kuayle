@@ -22,6 +22,7 @@
 	import CreateTeamDialog from '$lib/features/teams/CreateTeamDialog.svelte';
 	import ShortcutHelp from '$lib/components/shared/ShortcutHelp.svelte';
 	import { issuesState } from '$lib/features/issues/issues.state.svelte';
+	import { teamStatusesState } from '$lib/features/issues/team-statuses.state.svelte';
 	import { createShortcutEngine, type ShortcutDef } from '$lib/utils/keyboard';
 	import { toast } from 'svelte-sonner';
 
@@ -83,6 +84,11 @@
 				if (teams.length === 0) {
 					showCreateTeam = true;
 				} else {
+					// Ensure statuses are loaded for the target team
+					const targetTeam = page.params.teamId ?? teams[0]?.id;
+					if (targetTeam) {
+						teamStatusesState.load(slug, targetTeam);
+					}
 					showCreateIssue = true;
 				}
 			},
@@ -148,6 +154,10 @@
 				if (teams.length === 0) {
 					showCreateTeam = true;
 				} else {
+					const targetTeam = page.params.teamId ?? teams[0]?.id;
+					if (targetTeam) {
+						teamStatusesState.load(slug, targetTeam);
+					}
 					showCreateIssue = true;
 				}
 			}}
@@ -169,10 +179,18 @@
 		{projects}
 		{labels}
 		{members}
+		defaultTeamId={page.params.teamId ?? teams[0]?.id}
 		onsubmit={async (req) => {
 			try {
-				await issuesState.create(slug, req);
+				const created = await issuesState.create(slug, req);
 				toast.success('Issue created');
+				// If the created issue's team doesn't match the current page's team filter,
+				// remove it from the optimistic list to avoid confusion
+				const currentTeam = page.params.teamId;
+				if (currentTeam && created.team_id !== currentTeam) {
+					issuesState.issues = issuesState.issues.filter(i => i.id !== created.id);
+					issuesState.totalCount--;
+				}
 			} catch (err: any) {
 				toast.error(err?.error?.message || 'Failed to create issue');
 			}

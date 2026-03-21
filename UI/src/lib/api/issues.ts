@@ -68,6 +68,7 @@ export function bulkUpdateIssues(
 	req: {
 		issue_ids: string[];
 		status?: string;
+		status_id?: string;
 		priority?: number;
 		assignee_id?: string;
 		label_ids?: string[];

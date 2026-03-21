@@ -11,6 +11,7 @@
 	import { toast } from 'svelte-sonner';
 	import * as Popover from '$lib/components/ui/popover';
 	import { X } from 'lucide-svelte';
+	import { sanitizeHtml } from '$lib/security/sanitize';
 
 	let {
 		issue,
@@ -97,7 +98,7 @@
 
 			{#if issue.description}
 				<div class="mt-3 prose prose-invert prose-sm max-w-none text-sm text-[var(--color-text-secondary)]">
-					{@html issue.description}
+					{@html sanitizeHtml(issue.description ?? '')}
 				</div>
 			{/if}
 
@@ -182,7 +183,7 @@
 								>
 							</div>
 							<div class="mt-1 prose prose-invert prose-sm max-w-none text-[var(--color-text-secondary)]">
-								{@html comment.body}
+								{@html sanitizeHtml(comment.body ?? '')}
 							</div>
 						</div>
 					{/each}

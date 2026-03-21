@@ -11,11 +11,12 @@ import (
 )
 
 type TeamService struct {
-	teamRepo repository.TeamRepo
+	teamRepo       repository.TeamRepo
+	teamStatusRepo repository.TeamStatusRepo
 }
 
-func NewTeamService(teamRepo repository.TeamRepo) *TeamService {
-	return &TeamService{teamRepo: teamRepo}
+func NewTeamService(teamRepo repository.TeamRepo, teamStatusRepo repository.TeamStatusRepo) *TeamService {
+	return &TeamService{teamRepo: teamRepo, teamStatusRepo: teamStatusRepo}
 }
 
 func (s *TeamService) Create(ctx context.Context, workspaceID uuid.UUID, creatorID uuid.UUID, req dto.CreateTeamRequest) (*domain.Team, error) {
@@ -39,6 +40,33 @@ func (s *TeamService) Create(ctx context.Context, workspaceID uuid.UUID, creator
 		UserID: creatorID,
 	}
 	_ = s.teamRepo.AddMember(ctx, member)
+
+	// Create default statuses for the new team
+	defaultStatuses := []struct {
+		Name     string
+		Slug     string
+		Category domain.StatusCategory
+		Position int
+	}{
+		{"Backlog", "backlog", domain.StatusCategoryBacklog, 0},
+		{"Todo", "todo", domain.StatusCategoryUnstarted, 1},
+		{"In Progress", "in_progress", domain.StatusCategoryStarted, 2},
+		{"In Review", "in_review", domain.StatusCategoryStarted, 3},
+		{"Done", "done", domain.StatusCategoryCompleted, 4},
+		{"Cancelled", "cancelled", domain.StatusCategoryCancelled, 5},
+	}
+	for _, ds := range defaultStatuses {
+		ts := &domain.TeamStatus{
+			ID:        uuid.New(),
+			TeamID:    team.ID,
+			Name:      ds.Name,
+			Slug:      ds.Slug,
+			Category:  ds.Category,
+			Position:  ds.Position,
+			IsDefault: true,
+		}
+		_ = s.teamStatusRepo.Create(ctx, ts)
+	}
 
 	return team, nil
 }

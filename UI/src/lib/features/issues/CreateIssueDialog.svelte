@@ -192,7 +192,8 @@
 				<RichEditor
 					content={description}
 					placeholder="Add description..."
-					minimal={false}
+					bubbleMenu={true}
+					borderless={true}
 					onupdate={(html) => (description = html)}
 				/>
 			</div>

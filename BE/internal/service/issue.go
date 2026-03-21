@@ -9,6 +9,7 @@ import (
 	"github.com/carbon/carbon-backend/internal/dto"
 	"github.com/carbon/carbon-backend/internal/realtime"
 	"github.com/carbon/carbon-backend/internal/repository"
+	"github.com/carbon/carbon-backend/pkg/sanitize"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 )
@@ -59,6 +60,12 @@ func (s *IssueService) Create(ctx context.Context, workspaceID, creatorID uuid.U
 		priority = domain.IssuePriority(*req.Priority)
 	}
 
+	// Sanitize HTML in description
+	if req.Description != nil {
+		clean := sanitize.SanitizeHTML(*req.Description)
+		req.Description = &clean
+	}
+
 	issue := &domain.Issue{
 		ID:          uuid.New(),
 		WorkspaceID: workspaceID,
@@ -102,7 +109,12 @@ func (s *IssueService) Create(ctx context.Context, workspaceID, creatorID uuid.U
 	if req.StatusID != nil {
 		sid, err := uuid.Parse(*req.StatusID)
 		if err == nil {
-			issue.StatusID = &sid
+			// Validate that the status belongs to the same team
+			ts, _ := s.teamStatusRepo.GetByID(ctx, sid)
+			if ts != nil && ts.TeamID == teamID {
+				issue.StatusID = &sid
+				issue.Status = domain.IssueStatus(ts.Slug)
+			}
 		}
 	}
 	if issue.StatusID == nil {
@@ -171,6 +183,12 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 		return nil, fmt.Errorf("issue not found")
 	}
 
+	// Sanitize HTML in description
+	if req.Description != nil {
+		clean := sanitize.SanitizeHTML(*req.Description)
+		req.Description = &clean
+	}
+
 	// Track changes for history
 	if req.Title != nil && *req.Title != issue.Title {
 		old := issue.Title
@@ -197,7 +215,8 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 				}
 			}
 			newStatus, _ := s.teamStatusRepo.GetByID(ctx, sid)
-			if newStatus != nil {
+			// Validate that the status belongs to the same team as the issue
+			if newStatus != nil && newStatus.TeamID == issue.TeamID {
 				newName := newStatus.Name
 				issue.StatusID = &sid
 				// Update legacy status field for backward compat

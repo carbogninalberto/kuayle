@@ -6,6 +6,7 @@ import (
 	"github.com/carbon/carbon-backend/internal/domain"
 	"github.com/carbon/carbon-backend/internal/dto"
 	"github.com/carbon/carbon-backend/internal/repository"
+	"github.com/carbon/carbon-backend/pkg/sanitize"
 	"github.com/google/uuid"
 )
 
@@ -18,6 +19,9 @@ func NewCommentService(commentRepo repository.CommentRepo) *CommentService {
 }
 
 func (s *CommentService) Create(ctx context.Context, issueID, userID uuid.UUID, req dto.CreateCommentRequest) (*domain.Comment, error) {
+	// Sanitize HTML in comment body
+	req.Body = sanitize.SanitizeHTML(req.Body)
+
 	comment := &domain.Comment{
 		ID:      uuid.New(),
 		IssueID: issueID,

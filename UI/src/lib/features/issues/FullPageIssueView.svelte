@@ -23,6 +23,7 @@
 	import IssueRelations from './IssueRelations.svelte';
 	import SubIssuesList from './SubIssuesList.svelte';
 	import { goto } from '$app/navigation';
+	import { sanitizeHtml } from '$lib/security/sanitize';
 
 	let {
 		issue,
@@ -209,7 +210,8 @@
 				<RichEditor
 					content={issue.description ?? ''}
 					placeholder="Add description..."
-					minimal={false}
+					bubbleMenu={true}
+					borderless={true}
 					onupdate={saveDescription}
 				/>
 			</div>
@@ -262,7 +264,7 @@
 												<span class="text-[11px] text-[var(--color-text-tertiary)]">{formatRelativeTime(item.data.created_at)}</span>
 											</div>
 											<div class="prose prose-invert prose-sm max-w-none text-[13px] text-[var(--color-text-secondary)] rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2">
-												{@html item.data.body}
+												{@html sanitizeHtml(item.data.body ?? '')}
 											</div>
 										</div>
 									</div>

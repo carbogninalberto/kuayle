@@ -1,0 +1,46 @@
+import DOMPurify from 'dompurify';
+
+const ALLOWED_TAGS = [
+	'p', 'br', 'strong', 'b', 'em', 'i', 's', 'del', 'code', 'pre',
+	'a', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+	'ul', 'ol', 'li', 'blockquote', 'hr',
+	'input', 'span', 'div', 'label'
+];
+
+const ALLOWED_ATTR = [
+	'class', 'data-type', 'data-checked',
+	'href', 'target', 'rel',
+	'type', 'checked', 'disabled'
+];
+
+const SAFE_URL_PATTERN = /^(https?:|mailto:)/i;
+
+function createPurify() {
+	const purify = DOMPurify;
+
+	purify.addHook('afterSanitizeAttributes', (node) => {
+		if (node.tagName === 'A') {
+			node.setAttribute('rel', 'noopener noreferrer nofollow');
+			const href = node.getAttribute('href') ?? '';
+			if (href && !SAFE_URL_PATTERN.test(href)) {
+				node.removeAttribute('href');
+			}
+		}
+	});
+
+	return purify;
+}
+
+const purify = createPurify();
+
+export function sanitizeHtml(dirty: string): string {
+	return purify.sanitize(dirty, {
+		ALLOWED_TAGS,
+		ALLOWED_ATTR,
+		ALLOW_DATA_ATTR: false
+	});
+}
+
+export function sanitizeEditorOutput(dirty: string): string {
+	return sanitizeHtml(dirty);
+}
