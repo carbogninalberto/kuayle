@@ -3,7 +3,7 @@ set -e
 
 cd "$(dirname "$0")"
 
-echo "=== Carbon - Run ==="
+echo "=== Kuayle - Run ==="
 
 # Start services (postgres, redis, backend, frontend)
 ./start.sh &

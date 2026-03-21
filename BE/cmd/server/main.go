@@ -14,13 +14,13 @@ import (
 	"github.com/labstack/echo/v4"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/carbon/carbon-backend/internal/config"
-	"github.com/carbon/carbon-backend/internal/handler"
-	mw "github.com/carbon/carbon-backend/internal/middleware"
-	"github.com/carbon/carbon-backend/internal/realtime"
-	"github.com/carbon/carbon-backend/internal/repository"
-	"github.com/carbon/carbon-backend/internal/service"
-	"github.com/carbon/carbon-backend/pkg/storage"
+	"github.com/kuayle/kuayle-backend/internal/config"
+	"github.com/kuayle/kuayle-backend/internal/handler"
+	mw "github.com/kuayle/kuayle-backend/internal/middleware"
+	"github.com/kuayle/kuayle-backend/internal/realtime"
+	"github.com/kuayle/kuayle-backend/internal/repository"
+	"github.com/kuayle/kuayle-backend/internal/service"
+	"github.com/kuayle/kuayle-backend/pkg/storage"
 )
 
 func main() {

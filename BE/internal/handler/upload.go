@@ -8,8 +8,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
-	"github.com/carbon/carbon-backend/pkg/response"
-	"github.com/carbon/carbon-backend/pkg/storage"
+	"github.com/kuayle/kuayle-backend/pkg/response"
+	"github.com/kuayle/kuayle-backend/pkg/storage"
 )
 
 type UploadHandler struct {

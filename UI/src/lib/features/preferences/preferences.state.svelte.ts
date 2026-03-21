@@ -13,7 +13,7 @@ interface PreferencesData {
 	darkTheme: DarkTheme;
 }
 
-const STORAGE_KEY = 'carbon-preferences';
+const STORAGE_KEY = 'kuayle-preferences';
 
 // Percentage values applied to <html> font-size so all rem-based
 // Tailwind utilities (text-sm, text-xs, etc.) scale proportionally.

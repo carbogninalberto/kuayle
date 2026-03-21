@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"runtime"
 
-	"github.com/carbon/carbon-backend/pkg/response"
+	"github.com/kuayle/kuayle-backend/pkg/response"
 	log "github.com/sirupsen/logrus"
 	"github.com/labstack/echo/v4"
 )

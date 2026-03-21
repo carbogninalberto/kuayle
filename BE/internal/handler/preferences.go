@@ -3,11 +3,11 @@ package handler
 import (
 	"net/http"
 
-	"github.com/carbon/carbon-backend/internal/dto"
-	"github.com/carbon/carbon-backend/internal/middleware"
-	"github.com/carbon/carbon-backend/internal/service"
-	"github.com/carbon/carbon-backend/pkg/response"
-	"github.com/carbon/carbon-backend/pkg/validate"
+	"github.com/kuayle/kuayle-backend/internal/dto"
+	"github.com/kuayle/kuayle-backend/internal/middleware"
+	"github.com/kuayle/kuayle-backend/internal/service"
+	"github.com/kuayle/kuayle-backend/pkg/response"
+	"github.com/kuayle/kuayle-backend/pkg/validate"
 	"github.com/labstack/echo/v4"
 )
 

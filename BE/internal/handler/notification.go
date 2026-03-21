@@ -4,11 +4,11 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/carbon/carbon-backend/internal/domain"
-	"github.com/carbon/carbon-backend/internal/dto"
-	"github.com/carbon/carbon-backend/internal/middleware"
-	"github.com/carbon/carbon-backend/internal/service"
-	"github.com/carbon/carbon-backend/pkg/response"
+	"github.com/kuayle/kuayle-backend/internal/domain"
+	"github.com/kuayle/kuayle-backend/internal/dto"
+	"github.com/kuayle/kuayle-backend/internal/middleware"
+	"github.com/kuayle/kuayle-backend/internal/service"
+	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 )

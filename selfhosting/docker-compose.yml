@@ -19,9 +19,9 @@ services:
     image: postgres:17-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-carbon}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-carbon}
-      POSTGRES_DB: ${POSTGRES_DB:-carbon}
+      POSTGRES_USER: ${POSTGRES_USER:-kuayle}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kuayle}
+      POSTGRES_DB: ${POSTGRES_DB:-kuayle}
     volumes:
       - pgdata:/var/lib/postgresql/data
 
@@ -38,7 +38,7 @@ services:
     volumes:
       - uploads:/app/uploads
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-carbon}:${POSTGRES_PASSWORD:-carbon}@postgres:5432/${POSTGRES_DB:-carbon}?sslmode=disable
+      DATABASE_URL: postgres://${POSTGRES_USER:-kuayle}:${POSTGRES_PASSWORD:-kuayle}@postgres:5432/${POSTGRES_DB:-kuayle}?sslmode=disable
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       ENVIRONMENT: ${ENVIRONMENT:-production}

@@ -24,7 +24,7 @@
 	function switchWorkspace(ws: Workspace) {
 		open = false;
 		if (ws.slug !== slug) {
-			localStorage.setItem('carbon_last_workspace', ws.slug);
+			localStorage.setItem('kuayle_last_workspace', ws.slug);
 			goto(`/${ws.slug}/dashboard`);
 		}
 	}

@@ -3,8 +3,8 @@ package repository
 import (
 	"context"
 
-	"github.com/carbon/carbon-backend/internal/domain"
-	"github.com/carbon/carbon-backend/internal/dto"
+	"github.com/kuayle/kuayle-backend/internal/domain"
+	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 )

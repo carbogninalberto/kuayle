@@ -3,9 +3,9 @@ package handler
 import (
 	"net/http"
 
-	"github.com/carbon/carbon-backend/internal/domain"
-	"github.com/carbon/carbon-backend/internal/dto"
-	"github.com/carbon/carbon-backend/pkg/response"
+	"github.com/kuayle/kuayle-backend/internal/domain"
+	"github.com/kuayle/kuayle-backend/internal/dto"
+	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo/v4"
 )

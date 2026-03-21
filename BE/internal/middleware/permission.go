@@ -1,8 +1,8 @@
 package middleware
 
 import (
-	"github.com/carbon/carbon-backend/internal/domain"
-	"github.com/carbon/carbon-backend/pkg/response"
+	"github.com/kuayle/kuayle-backend/internal/domain"
+	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 )

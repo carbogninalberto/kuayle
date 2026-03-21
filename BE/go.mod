@@ -1,4 +1,4 @@
-module github.com/carbon/carbon-backend
+module github.com/kuayle/kuayle-backend
 
 go 1.25.4
 

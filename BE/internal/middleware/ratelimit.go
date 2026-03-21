@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/carbon/carbon-backend/pkg/response"
+	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/labstack/echo/v4"
 )
 

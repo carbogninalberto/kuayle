@@ -4,12 +4,12 @@
   <p><strong>快乐 (kuàilè) · happiness, joy</strong></p>
   <p>A fast, keyboard-driven issue tracker inspired by Linear.</p>
 
-  [Report Bug](https://github.com/carbogninalberto/carbon/issues/new?labels=bug) · [Request Feature](https://github.com/carbogninalberto/carbon/issues/new?labels=enhancement)
+  [Report Bug](https://github.com/carbogninalberto/kuayle/issues/new?labels=bug) · [Request Feature](https://github.com/carbogninalberto/kuayle/issues/new?labels=enhancement)
 </div>
 
 <br />
 
-[![Kuayle Screenshot][product-screenshot]](https://github.com/carbogninalberto/carbon)
+[![Kuayle Screenshot][product-screenshot]](https://github.com/carbogninalberto/kuayle)
 
 ## 🧐 Why Kuayle?
 
@@ -95,15 +95,15 @@ Kuayle is designed to be self-hosted. Everything runs in Docker, no managed serv
 ### 1. Clone and configure
 
 ```sh
-git clone https://github.com/carbogninalberto/carbon.git
-cd carbon
+git clone https://github.com/carbogninalberto/kuayle.git
+cd kuayle
 cp .env.example .env
 ```
 
 Edit `.env` with production values:
 
 ```env
-DATABASE_URL=postgres://carbon:<strong-password>@postgres:5432/carbon?sslmode=disable
+DATABASE_URL=postgres://kuayle:<strong-password>@postgres:5432/kuayle?sslmode=disable
 REDIS_URL=redis://redis:6379
 JWT_SECRET=<random-string-at-least-32-chars>
 ENVIRONMENT=production
@@ -146,7 +146,7 @@ By default, uploads go to the local filesystem. For production, you can use any 
 ```env
 STORAGE_TYPE=s3
 S3_ENDPOINT=https://s3.us-east-1.amazonaws.com
-S3_BUCKET=carbon-uploads
+S3_BUCKET=kuayle-uploads
 S3_REGION=us-east-1
 S3_ACCESS_KEY=your-key
 S3_SECRET_KEY=your-secret
@@ -203,8 +203,8 @@ Alberto Carbognin, [@carbogninalberto](https://github.com/carbogninalberto)
 
 ## 🌍 Contributors
 
-<a href="https://github.com/carbogninalberto/carbon/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=carbogninalberto/carbon" />
+<a href="https://github.com/carbogninalberto/kuayle/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=carbogninalberto/kuayle" />
 </a>
 
 [![Contributors][contributors-shield]][contributors-url]
@@ -218,14 +218,14 @@ Alberto Carbognin, [@carbogninalberto](https://github.com/carbogninalberto)
 > 🤖 **Heads up:** this project is vibecoded. The entire codebase was built through AI-assisted development. It works, it's structured well, but expect rough edges.
 
 <!-- MARKDOWN LINKS & IMAGES -->
-[contributors-shield]: https://img.shields.io/github/contributors/carbogninalberto/carbon.svg?style=for-the-badge
-[contributors-url]: https://github.com/carbogninalberto/carbon/graphs/contributors
-[forks-shield]: https://img.shields.io/github/forks/carbogninalberto/carbon.svg?style=for-the-badge
-[forks-url]: https://github.com/carbogninalberto/carbon/network/members
-[stars-shield]: https://img.shields.io/github/stars/carbogninalberto/carbon.svg?style=for-the-badge
-[stars-url]: https://github.com/carbogninalberto/carbon/stargazers
-[issues-shield]: https://img.shields.io/github/issues/carbogninalberto/carbon.svg?style=for-the-badge
-[issues-url]: https://github.com/carbogninalberto/carbon/issues
-[license-shield]: https://img.shields.io/github/license/carbogninalberto/carbon.svg?style=for-the-badge
-[license-url]: https://github.com/carbogninalberto/carbon/blob/main/LICENSE
+[contributors-shield]: https://img.shields.io/github/contributors/carbogninalberto/kuayle.svg?style=for-the-badge
+[contributors-url]: https://github.com/carbogninalberto/kuayle/graphs/contributors
+[forks-shield]: https://img.shields.io/github/forks/carbogninalberto/kuayle.svg?style=for-the-badge
+[forks-url]: https://github.com/carbogninalberto/kuayle/network/members
+[stars-shield]: https://img.shields.io/github/stars/carbogninalberto/kuayle.svg?style=for-the-badge
+[stars-url]: https://github.com/carbogninalberto/kuayle/stargazers
+[issues-shield]: https://img.shields.io/github/issues/carbogninalberto/kuayle.svg?style=for-the-badge
+[issues-url]: https://github.com/carbogninalberto/kuayle/issues
+[license-shield]: https://img.shields.io/github/license/carbogninalberto/kuayle.svg?style=for-the-badge
+[license-url]: https://github.com/carbogninalberto/kuayle/blob/main/LICENSE
 [product-screenshot]: assets/screenshot.png

@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/carbon/carbon-backend/internal/domain"
-	"github.com/carbon/carbon-backend/internal/dto"
-	"github.com/carbon/carbon-backend/internal/repository"
+	"github.com/kuayle/kuayle-backend/internal/domain"
+	"github.com/kuayle/kuayle-backend/internal/dto"
+	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"

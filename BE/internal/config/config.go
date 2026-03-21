@@ -3,7 +3,7 @@ package config
 import (
 	"fmt"
 
-	"github.com/carbon/carbon-backend/pkg/storage"
+	"github.com/kuayle/kuayle-backend/pkg/storage"
 	"github.com/kelseyhightower/envconfig"
 )
 

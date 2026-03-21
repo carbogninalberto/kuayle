@@ -3,7 +3,7 @@ package response
 import (
 	"net/http"
 
-	"github.com/carbon/carbon-backend/internal/dto"
+	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/labstack/echo/v4"
 )
 

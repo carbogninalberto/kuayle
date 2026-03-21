@@ -3,9 +3,9 @@ services:
     image: postgres:17-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: carbon
-      POSTGRES_PASSWORD: carbon
-      POSTGRES_DB: carbon
+      POSTGRES_USER: kuayle
+      POSTGRES_PASSWORD: kuayle
+      POSTGRES_DB: kuayle
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
@@ -28,13 +28,13 @@ services:
       - ./BE:/app
       - uploads:/app/uploads
     environment:
-      DATABASE_URL: postgres://carbon:carbon@postgres:5432/carbon?sslmode=disable  # Use sslmode=require in production
+      DATABASE_URL: postgres://kuayle:kuayle@postgres:5432/kuayle?sslmode=disable  # Use sslmode=require in production
       REDIS_URL: redis://redis:6379
       JWT_SECRET: change-me-in-production  # MUST be changed in production
       ENVIRONMENT: development  # Set to "production" in production
       # STORAGE_TYPE: s3
       # S3_ENDPOINT: http://seaweedfs:8333
-      # S3_BUCKET: carbon-uploads
+      # S3_BUCKET: kuayle-uploads
       # S3_ACCESS_KEY: admin
       # S3_SECRET_KEY: admin
 

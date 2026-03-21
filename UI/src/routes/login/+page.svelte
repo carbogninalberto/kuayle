@@ -47,7 +47,7 @@
 <div class="flex min-h-screen items-center justify-center bg-[var(--color-bg)]">
 	<div class="w-full max-w-sm space-y-6 p-8">
 		<div class="text-center">
-			<h1 class="text-2xl font-bold text-[var(--color-text-primary)]">Carbon</h1>
+			<h1 class="text-2xl font-bold text-[var(--color-text-primary)]">Kuayle</h1>
 			<p class="mt-1 text-sm text-[var(--color-text-secondary)]">
 				{mode === 'login' ? 'Sign in to your account' : 'Create a new account'}
 			</p>

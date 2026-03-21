@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 set -e
 
-echo "=== Carbon - Seed Data ==="
+echo "=== Kuayle - Seed Data ==="
 
 # Load env
 if [ -f .env ]; then
     set -a && source .env && set +a
 fi
 
-PSQL="docker exec -i carbon-postgres-1 psql -U carbon -d carbon -q"
+PSQL="docker exec -i kuayle-postgres-1 psql -U kuayle -d kuayle -q"
 
 echo "Cleaning database..."
 $PSQL <<'SQL'
@@ -59,17 +59,17 @@ GOEOF
 HASH=$(cd BE && go run /tmp/hashgen.go)
 rm -f /tmp/hashgen.go
 
-docker exec -i carbon-postgres-1 psql -U carbon -d carbon -q -v "hash=$HASH" <<'SQL'
+docker exec -i kuayle-postgres-1 psql -U kuayle -d kuayle -q -v "hash=$HASH" <<'SQL'
 
 -- ============================================================
 -- USERS
 -- ============================================================
 INSERT INTO users (id, email, name, display_name, password_hash) VALUES
     ('a0000000-0000-0000-0000-000000000001', 'q', 'Alice Chen', 'Alice', :'hash'),
-    ('a0000000-0000-0000-0000-000000000002', 'bob@carbon.dev', 'Bob Martinez', 'Bob', :'hash'),
-    ('a0000000-0000-0000-0000-000000000003', 'carol@carbon.dev', 'Carol Kim', 'Carol', :'hash'),
-    ('a0000000-0000-0000-0000-000000000004', 'dave@carbon.dev', 'Dave Johnson', 'Dave', :'hash'),
-    ('a0000000-0000-0000-0000-000000000005', 'eve@carbon.dev', 'Eve Williams', 'Eve', :'hash');
+    ('a0000000-0000-0000-0000-000000000002', 'bob@kuayle.dev', 'Bob Martinez', 'Bob', :'hash'),
+    ('a0000000-0000-0000-0000-000000000003', 'carol@kuayle.dev', 'Carol Kim', 'Carol', :'hash'),
+    ('a0000000-0000-0000-0000-000000000004', 'dave@kuayle.dev', 'Dave Johnson', 'Dave', :'hash'),
+    ('a0000000-0000-0000-0000-000000000005', 'eve@kuayle.dev', 'Eve Williams', 'Eve', :'hash');
 
 -- ============================================================
 -- WORKSPACES
@@ -263,11 +263,11 @@ echo "  Login credentials:"
 echo "  ┌──────────────────────┬───────────────┬──────────┐"
 echo "  │ Email                │ Name          │ Role     │"
 echo "  ├──────────────────────┼───────────────┼──────────┤"
-echo "  │ alice@carbon.dev     │ Alice Chen    │ Owner    │"
-echo "  │ bob@carbon.dev       │ Bob Martinez  │ Admin    │"
-echo "  │ carol@carbon.dev     │ Carol Kim     │ Member   │"
-echo "  │ dave@carbon.dev      │ Dave Johnson  │ Member   │"
-echo "  │ eve@carbon.dev       │ Eve Williams  │ Guest    │"
+echo "  │ alice@kuayle.dev     │ Alice Chen    │ Owner    │"
+echo "  │ bob@kuayle.dev       │ Bob Martinez  │ Admin    │"
+echo "  │ carol@kuayle.dev     │ Carol Kim     │ Member   │"
+echo "  │ dave@kuayle.dev      │ Dave Johnson  │ Member   │"
+echo "  │ eve@kuayle.dev       │ Eve Williams  │ Guest    │"
 echo "  └──────────────────────┴───────────────┴──────────┘"
 echo "  Password for all: password123"
 echo ""

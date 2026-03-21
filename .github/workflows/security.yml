@@ -65,15 +65,15 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build backend image
-        run: docker build -t carbon-backend:scan ./BE
+        run: docker build -t kuayle-backend:scan ./BE
 
       - name: Build frontend image
-        run: docker build -t carbon-frontend:scan ./UI
+        run: docker build -t kuayle-frontend:scan ./UI
 
       - name: Scan backend image
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: carbon-backend:scan
+          image-ref: kuayle-backend:scan
           format: table
           exit-code: 1
           severity: CRITICAL,HIGH
@@ -81,7 +81,7 @@ jobs:
       - name: Scan frontend image
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: carbon-frontend:scan
+          image-ref: kuayle-frontend:scan
           format: table
           exit-code: 1
           severity: CRITICAL,HIGH

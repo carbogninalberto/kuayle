@@ -3,8 +3,8 @@ package middleware
 import (
 	"strings"
 
-	jwtpkg "github.com/carbon/carbon-backend/pkg/jwt"
-	"github.com/carbon/carbon-backend/pkg/response"
+	jwtpkg "github.com/kuayle/kuayle-backend/pkg/jwt"
+	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/labstack/echo/v4"
 )
 

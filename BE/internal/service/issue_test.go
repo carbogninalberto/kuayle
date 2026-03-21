@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/carbon/carbon-backend/internal/domain"
-	"github.com/carbon/carbon-backend/internal/dto"
-	"github.com/carbon/carbon-backend/internal/realtime"
+	"github.com/kuayle/kuayle-backend/internal/domain"
+	"github.com/kuayle/kuayle-backend/internal/dto"
+	"github.com/kuayle/kuayle-backend/internal/realtime"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/assert"

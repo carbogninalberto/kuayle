@@ -3,7 +3,7 @@ set -e
 
 PIDFILE=".dev.pids"
 
-echo "=== Carbon - Dev Setup ==="
+echo "=== Kuayle - Dev Setup ==="
 
 # 1. Create .env if missing
 if [ ! -f .env ]; then
@@ -41,7 +41,7 @@ make migrate-up
 [ -f "$PIDFILE" ] && ./stop.sh 2>/dev/null || true
 
 echo ""
-echo "=== Starting Carbon (dev mode) ==="
+echo "=== Starting Kuayle (dev mode) ==="
 echo "  Frontend: http://localhost:5173"
 echo "  Backend:  http://localhost:8080 (air hot reload)"
 echo "  Stop:     ./stop.sh"
