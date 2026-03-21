@@ -881,10 +881,10 @@
 						<div class="flex flex-wrap items-center gap-1">
 							{#if issue.labels && issue.labels.length > 0}
 								{#each issue.labels as lbl}
-									<span class="flex items-center gap-1.5 rounded-full bg-[var(--color-bg-tertiary)] px-2.5 py-1 text-sm text-[var(--color-text-primary)]">
+									<button onclick={() => labelsOpen = true} class="flex items-center gap-1.5 rounded-full bg-[var(--color-bg-tertiary)] px-2.5 py-1 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors cursor-pointer">
 										<span class="h-2.5 w-2.5 rounded-full shrink-0" style="background-color: {lbl.color}"></span>
 										{lbl.name}
-									</span>
+									</button>
 								{/each}
 							{/if}
 							<Popover.Root bind:open={labelsOpen}>
