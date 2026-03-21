@@ -234,6 +234,27 @@ func (r *testCommentRepo) ListByIssue(_ context.Context, _ uuid.UUID) ([]domain.
 	return r.comments, nil
 }
 
+func (r *testCommentRepo) ListReplies(_ context.Context, _ uuid.UUID) ([]domain.Comment, error) {
+	return nil, nil
+}
+
+func (r *testCommentRepo) GetByID(_ context.Context, id uuid.UUID) (*domain.Comment, error) {
+	for _, c := range r.comments {
+		if c.ID == id {
+			return &c, nil
+		}
+	}
+	return nil, nil
+}
+
+func (r *testCommentRepo) Resolve(_ context.Context, id uuid.UUID) error {
+	return nil
+}
+
+func (r *testCommentRepo) Reopen(_ context.Context, id uuid.UUID) error {
+	return nil
+}
+
 // --- Context helpers ---
 
 func setupIssueContext(e *echo.Echo, method, path, body string) (echo.Context, *httptest.ResponseRecorder) {

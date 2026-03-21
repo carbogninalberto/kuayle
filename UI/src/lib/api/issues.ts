@@ -40,8 +40,16 @@ export function listComments(slug: string, identifier: string): Promise<Comment[
 	return api.get<Comment[]>(`/api/workspaces/${slug}/issues/${identifier}/comments`);
 }
 
-export function createComment(slug: string, identifier: string, body: string): Promise<Comment> {
-	return api.post<Comment>(`/api/workspaces/${slug}/issues/${identifier}/comments`, { body });
+export function createComment(slug: string, identifier: string, body: string, parentId?: string): Promise<Comment> {
+	return api.post<Comment>(`/api/workspaces/${slug}/issues/${identifier}/comments`, { body, parent_id: parentId });
+}
+
+export function resolveComment(slug: string, identifier: string, commentId: string): Promise<void> {
+	return api.post<void>(`/api/workspaces/${slug}/issues/${identifier}/comments/${commentId}/resolve`);
+}
+
+export function reopenComment(slug: string, identifier: string, commentId: string): Promise<void> {
+	return api.post<void>(`/api/workspaces/${slug}/issues/${identifier}/comments/${commentId}/reopen`);
 }
 
 export function getIssueHistory(slug: string, identifier: string): Promise<IssueHistory[]> {

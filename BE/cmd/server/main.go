@@ -176,6 +176,8 @@ func main() {
 	ws.DELETE("/issues/:identifier", issueH.Delete, mw.RequirePermission("issue:delete"))
 	ws.GET("/issues/:identifier/comments", issueH.ListComments)
 	ws.POST("/issues/:identifier/comments", issueH.CreateComment, mw.RequirePermission("issue:create"))
+	ws.POST("/issues/:identifier/comments/:commentId/resolve", issueH.ResolveComment, mw.RequirePermission("issue:update"))
+	ws.POST("/issues/:identifier/comments/:commentId/reopen", issueH.ReopenComment, mw.RequirePermission("issue:update"))
 	ws.GET("/issues/:identifier/sub-issues", issueH.ListSubIssues)
 	ws.GET("/issues/:identifier/history", issueH.GetHistory)
 	ws.POST("/issues/:identifier/triage/accept", issueH.TriageAccept, mw.RequirePermission("issue:update"))

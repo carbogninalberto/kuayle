@@ -34,17 +34,21 @@
 		placeholder = 'Write something...',
 		editable = true,
 		minimal = false,
+		compact = false,
 		bubbleMenu = false,
 		borderless = false,
-		onupdate
+		onupdate,
+		onsubmit
 	}: {
 		content?: string;
 		placeholder?: string;
 		editable?: boolean;
 		minimal?: boolean;
+		compact?: boolean;
 		bubbleMenu?: boolean;
 		borderless?: boolean;
 		onupdate?: (html: string) => void;
+		onsubmit?: () => void;
 	} = $props();
 
 	let editor = $state<Editor | null>(null);
@@ -67,11 +71,25 @@
 		},
 	});
 
-	const editorClass = borderless
-		? 'prose prose-invert prose-sm max-w-none outline-none min-h-[40px] text-[var(--color-text-primary)] borderless-editor'
-		: 'prose prose-invert prose-sm max-w-none outline-none min-h-[80px] px-3 py-2 text-[var(--color-text-primary)]';
+	const editorClass = compact
+		? 'prose prose-invert prose-sm max-w-none outline-none text-[var(--color-text-primary)] compact-editor'
+		: borderless
+			? 'prose prose-invert prose-sm max-w-none outline-none min-h-[40px] text-[var(--color-text-primary)] borderless-editor'
+			: 'prose prose-invert prose-sm max-w-none outline-none min-h-[80px] px-3 py-2 text-[var(--color-text-primary)]';
 
 	onMount(() => {
+		const SubmitShortcut = onsubmit ? Extension.create({
+			name: 'submitShortcut',
+			addKeyboardShortcuts() {
+				return {
+					'Mod-Enter': () => {
+						onsubmit?.();
+						return true;
+					}
+				};
+			}
+		}) : null;
+
 		const extensions = [
 			StarterKit.configure({
 				codeBlock: false,
@@ -85,6 +103,7 @@
 			}),
 			CodeBlockLowlight.configure({ lowlight }),
 			TaskListShortcut,
+			...(SubmitShortcut ? [SubmitShortcut] : []),
 		];
 
 		editor = new Editor({
@@ -161,10 +180,10 @@
 	}
 
 	// Show static toolbar: not bubbleMenu, not minimal
-	const showStaticToolbar = editable && !minimal && !bubbleMenu;
+	let showStaticToolbar = $derived(editable && !minimal && !bubbleMenu);
 </script>
 
-<div class={borderless ? 'overflow-hidden' : 'rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] overflow-hidden'}>
+<div class="w-full my-auto {borderless ? 'overflow-hidden' : 'rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] overflow-hidden'}">
 	{#if showStaticToolbar}
 		<!-- Toolbar -->
 		<div class="flex items-center gap-0.5 border-b border-[var(--app-border)] px-2 py-1">
@@ -324,8 +343,16 @@
 		color: var(--color-text-primary);
 	}
 	:global(.rich-editor .tiptap.borderless-editor) {
-		min-height: 40px;
+		min-height: 20px;
 		padding: 0;
+	}
+	:global(.rich-editor .tiptap.compact-editor) {
+		min-height: 24px;
+		padding: 0.375rem 0.5rem;
+		font-size: 0.8125rem;
+	}
+	:global(.rich-editor .tiptap.compact-editor p) {
+		margin: 0;
 	}
 	:global(.rich-editor .tiptap p.is-editor-empty:first-child::before) {
 		content: attr(data-placeholder);

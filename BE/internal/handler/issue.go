@@ -262,28 +262,48 @@ func (h *IssueHandler) ListComments(c echo.Context) error {
 	ctx := c.Request().Context()
 	resp := make([]dto.CommentResponse, len(comments))
 	for i, comment := range comments {
-		cr := dto.CommentResponse{
-			ID:        comment.ID.String(),
-			IssueID:   comment.IssueID.String(),
-			UserID:    comment.UserID.String(),
-			Body:      comment.Body,
-			CreatedAt: comment.CreatedAt,
-			UpdatedAt: comment.UpdatedAt,
-		}
-		user, _ := h.userRepo.GetByID(ctx, comment.UserID)
-		if user != nil {
-			cr.User = &dto.UserResponse{
-				ID:          user.ID.String(),
-				Email:       user.Email,
-				Name:        user.Name,
-				DisplayName: user.DisplayName,
-				AvatarURL:   user.AvatarURL,
+		cr := h.toCommentResponse(ctx, comment)
+
+		// Fetch replies for this top-level comment
+		replies, err := h.commentSvc.ListReplies(ctx, comment.ID)
+		if err == nil && len(replies) > 0 {
+			cr.Replies = make([]dto.CommentResponse, len(replies))
+			for j, reply := range replies {
+				cr.Replies[j] = h.toCommentResponse(ctx, reply)
 			}
 		}
+
 		resp[i] = cr
 	}
 
 	return response.Success(c, http.StatusOK, resp)
+}
+
+func (h *IssueHandler) toCommentResponse(ctx context.Context, comment domain.Comment) dto.CommentResponse {
+	cr := dto.CommentResponse{
+		ID:         comment.ID.String(),
+		IssueID:    comment.IssueID.String(),
+		UserID:     comment.UserID.String(),
+		Body:       comment.Body,
+		ResolvedAt: comment.ResolvedAt,
+		CreatedAt:  comment.CreatedAt,
+		UpdatedAt:  comment.UpdatedAt,
+	}
+	if comment.ParentID != nil {
+		s := comment.ParentID.String()
+		cr.ParentID = &s
+	}
+	user, _ := h.userRepo.GetByID(ctx, comment.UserID)
+	if user != nil {
+		cr.User = &dto.UserResponse{
+			ID:          user.ID.String(),
+			Email:       user.Email,
+			Name:        user.Name,
+			DisplayName: user.DisplayName,
+			AvatarURL:   user.AvatarURL,
+		}
+	}
+	return cr
 }
 
 func (h *IssueHandler) CreateComment(c echo.Context) error {
@@ -313,26 +333,50 @@ func (h *IssueHandler) CreateComment(c echo.Context) error {
 		return response.InternalError(c)
 	}
 
-	cr := dto.CommentResponse{
-		ID:        comment.ID.String(),
-		IssueID:   comment.IssueID.String(),
-		UserID:    comment.UserID.String(),
-		Body:      comment.Body,
-		CreatedAt: comment.CreatedAt,
-		UpdatedAt: comment.UpdatedAt,
-	}
-	user, _ := h.userRepo.GetByID(c.Request().Context(), userID)
-	if user != nil {
-		cr.User = &dto.UserResponse{
-			ID:          user.ID.String(),
-			Email:       user.Email,
-			Name:        user.Name,
-			DisplayName: user.DisplayName,
-			AvatarURL:   user.AvatarURL,
-		}
+	cr := h.toCommentResponse(c.Request().Context(), *comment)
+	return response.Success(c, http.StatusCreated, cr)
+}
+
+func (h *IssueHandler) ResolveComment(c echo.Context) error {
+	commentID, err := uuid.Parse(c.Param("commentId"))
+	if err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid comment ID")
 	}
 
-	return response.Success(c, http.StatusCreated, cr)
+	comment, err := h.commentSvc.GetByID(c.Request().Context(), commentID)
+	if err != nil || comment == nil {
+		return response.NotFound(c, "Comment")
+	}
+
+	if err := h.commentSvc.Resolve(c.Request().Context(), commentID); err != nil {
+		return response.InternalError(c)
+	}
+
+	// Re-fetch to get updated resolved_at
+	comment, _ = h.commentSvc.GetByID(c.Request().Context(), commentID)
+	cr := h.toCommentResponse(c.Request().Context(), *comment)
+	return response.Success(c, http.StatusOK, cr)
+}
+
+func (h *IssueHandler) ReopenComment(c echo.Context) error {
+	commentID, err := uuid.Parse(c.Param("commentId"))
+	if err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid comment ID")
+	}
+
+	comment, err := h.commentSvc.GetByID(c.Request().Context(), commentID)
+	if err != nil || comment == nil {
+		return response.NotFound(c, "Comment")
+	}
+
+	if err := h.commentSvc.Reopen(c.Request().Context(), commentID); err != nil {
+		return response.InternalError(c)
+	}
+
+	// Re-fetch to get updated state
+	comment, _ = h.commentSvc.GetByID(c.Request().Context(), commentID)
+	cr := h.toCommentResponse(c.Request().Context(), *comment)
+	return response.Success(c, http.StatusOK, cr)
 }
 
 func (h *IssueHandler) ListSubIssues(c echo.Context) error {

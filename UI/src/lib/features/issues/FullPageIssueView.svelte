@@ -6,7 +6,7 @@
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import type { Label } from '$lib/types/label';
 	import type { Project } from '$lib/types/project';
-	import { listComments, createComment, getIssueHistory, getIssue } from '$lib/api/issues';
+	import { listComments, createComment, resolveComment, reopenComment, getIssueHistory, getIssue } from '$lib/api/issues';
 	import { listMembers } from '$lib/api/members';
 	import { listLabels } from '$lib/api/labels';
 	import { listProjects } from '$lib/api/projects';
@@ -22,9 +22,10 @@
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import {
 		ChevronUp, ChevronDown, ChevronRight, Plus, CalendarDays, X,
-		Copy, Link as LinkIcon, GitBranch, Sparkles,
+		Copy, Link as LinkIcon, GitBranch, SquareMousePointer,
 		CircleDot, ArrowUpCircle, UserCircle, FolderKanban, Pencil, Layers,
-		Tag, Gauge, RefreshCw
+		Tag, Gauge, RefreshCw, ArrowUp, Paperclip, MoreHorizontal, Check,
+		Trash2, CornerDownRight
 	} from 'lucide-svelte';
 	import { listCycles } from '$lib/api/cycles';
 	import type { Cycle } from '$lib/types/cycle';
@@ -51,6 +52,10 @@
 	let labels = $state<Label[]>([]);
 	let projects = $state<Project[]>([]);
 	let newComment = $state('');
+	let commentVersion = $state(0);
+	let replyContents = $state<Record<string, string>>({});
+	let replyVersions = $state<Record<string, number>>({});
+	let commentMenuId = $state<string | null>(null);
 	let editingTitle = $state(false);
 	let titleValue = $state('');
 	let statusOpen = $state(false);
@@ -200,15 +205,49 @@
 		}
 	}
 
-	async function handleAddComment(e: Event) {
-		e.preventDefault();
-		if (!newComment.trim()) return;
+	async function handleAddComment() {
+		if (!newComment.trim() || newComment === '<p></p>') return;
 		try {
 			await createComment(slug, issue.identifier, newComment);
 			newComment = '';
+			commentVersion++;
 			refreshActivity();
 		} catch (err: any) {
 			toast.error(err?.error?.message || 'Failed to add comment');
+		}
+	}
+
+	async function handleReply(parentId: string) {
+		const content = replyContents[parentId] ?? '';
+		if (!content.trim() || content === '<p></p>') return;
+		try {
+			await createComment(slug, issue.identifier, content, parentId);
+			replyContents[parentId] = '';
+			replyVersions[parentId] = (replyVersions[parentId] ?? 0) + 1;
+			replyVersions = { ...replyVersions };
+			refreshActivity();
+		} catch (err: any) {
+			toast.error(err?.error?.message || 'Failed to reply');
+		}
+	}
+
+	async function handleResolve(commentId: string) {
+		try {
+			await resolveComment(slug, issue.identifier, commentId);
+			commentMenuId = null;
+			refreshActivity();
+		} catch (err: any) {
+			toast.error(err?.error?.message || 'Failed to resolve');
+		}
+	}
+
+	async function handleReopen(commentId: string) {
+		try {
+			await reopenComment(slug, issue.identifier, commentId);
+			commentMenuId = null;
+			refreshActivity();
+		} catch (err: any) {
+			toast.error(err?.error?.message || 'Failed to reopen');
 		}
 	}
 
@@ -368,7 +407,7 @@
 				class="rounded p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
 				title="Copy AI prompt"
 			>
-				<Sparkles size={14} />
+				<SquareMousePointer size={14} />
 			</button>
 
 			{#if onnavigate}
@@ -462,129 +501,193 @@
 					<h3 class="text-xs font-medium text-[var(--color-text-tertiary)] uppercase tracking-wide mb-3">Activity</h3>
 
 					{#if loaded}
-						{@const allActivity = [
-							...history.map(h => ({ type: 'history' as const, data: h, time: h.created_at })),
-							...comments.map(c => ({ type: 'comment' as const, data: c, time: c.created_at }))
-						].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())}
-
 						{@const GROUP_THRESHOLD_MS = 5000}
-						{@const grouped = allActivity.reduce<Array<{ type: 'comment'; data: typeof comments[0]; time: string } | { type: 'history-group'; items: typeof history; time: string }>>((acc, item) => {
-							if (item.type === 'comment') {
-								acc.push(item);
+						{@const historyGroups = [...history].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()).reduce<Array<{ items: IssueHistory[]; time: string }>>((acc, h) => {
+							const prev = acc[acc.length - 1];
+							if (prev && Math.abs(new Date(h.created_at).getTime() - new Date(prev.time).getTime()) < GROUP_THRESHOLD_MS) {
+								prev.items.push(h);
 							} else {
-								const prev = acc[acc.length - 1];
-								if (prev && prev.type === 'history-group' && Math.abs(new Date(item.time).getTime() - new Date(prev.time).getTime()) < GROUP_THRESHOLD_MS) {
-									prev.items.push(item.data);
-								} else {
-									acc.push({ type: 'history-group', items: [item.data], time: item.time });
-								}
+								acc.push({ items: [h], time: h.created_at });
 							}
 							return acc;
 						}, [])}
 
 						{@const RECENT_COUNT = 10}
-						{@const visibleGrouped = showAllActivity ? grouped : grouped.slice(-RECENT_COUNT)}
-						{@const hiddenCount = grouped.length - visibleGrouped.length}
+						{@const visibleHistory = showAllActivity ? historyGroups : historyGroups.slice(-RECENT_COUNT)}
+						{@const hiddenCount = historyGroups.length - visibleHistory.length}
 
 						<div class="relative">
-							{#if visibleGrouped.length > 0}
+							{#if visibleHistory.length > 0}
 								<div class="absolute left-[9px] top-3 bottom-0 w-px bg-[var(--app-border)]"></div>
 							{/if}
 
 							{#if hiddenCount > 0}
 								<button
 									onclick={() => showAllActivity = true}
-									class="mb-2 rounded-full border border-[var(--app-border)] px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)] transition-colors"
+									class="relative z-10 mb-2 rounded-full border border-[var(--app-border)] bg-[var(--color-bg)] px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)] transition-colors"
 								>
 									Show {hiddenCount} earlier {hiddenCount === 1 ? 'event' : 'events'}
 								</button>
 							{/if}
 
 							<div>
-								{#each visibleGrouped as entry}
-									{#if entry.type === 'comment'}
-										<div class="relative flex gap-3 pb-3">
-											<div class="relative z-10 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] font-medium text-white ring-2 ring-[var(--color-bg)] mt-0.5">
-												{(entry.data.user?.name ?? 'U').charAt(0).toUpperCase()}
-											</div>
-											<div class="flex-1 min-w-0">
-												<div class="flex items-center gap-2">
-													<span class="text-[13px] font-medium text-[var(--color-text-primary)]">{entry.data.user?.name ?? 'User'}</span>
-													<span class="text-[11px] text-[var(--color-text-tertiary)]">{formatRelativeTime(entry.data.created_at)}</span>
-												</div>
-												<div class="prose prose-invert prose-sm max-w-none mt-0.5 text-[13px] text-[var(--color-text-secondary)]">
-													{@html sanitizeHtml(entry.data.body ?? '')}
-												</div>
-											</div>
+								{#each visibleHistory as entry}
+									{@const items = entry.items}
+									{@const firstField = items[0].field}
+									{@const IconComponent = items.length > 1 ? Layers : historyIcon(firstField)}
+									{@const iconColor = items.length > 1 ? 'text-[var(--color-text-tertiary)]' : historyColor(firstField)}
+									{@const textFields = [...new Set(items.filter(c => c.field === 'title' || c.field === 'description').map(c => c.field))]}
+									{@const valueItems = items.filter((c, i, arr) => c.field !== 'title' && c.field !== 'description' && arr.findIndex(x => x.field === c.field) === i)}
+									<div class="relative flex items-center gap-3 pb-2.5">
+										<div class="relative z-10 flex h-5 w-5 shrink-0 items-center justify-center ring-2 ring-[var(--color-bg)] rounded-full bg-[var(--color-bg)] {iconColor}">
+											<IconComponent size={12} />
 										</div>
-									{:else}
-										{@const items = entry.items}
-										{@const firstField = items[0].field}
-										{@const IconComponent = items.length > 1 ? Layers : historyIcon(firstField)}
-										{@const iconColor = items.length > 1 ? 'text-[var(--color-text-tertiary)]' : historyColor(firstField)}
-										{@const textFields = [...new Set(items.filter(c => c.field === 'title' || c.field === 'description').map(c => c.field))]}
-										{@const valueItems = items.filter((c, i, arr) => c.field !== 'title' && c.field !== 'description' && arr.findIndex(x => x.field === c.field) === i)}
-										<div class="relative flex items-center gap-3 pb-2.5">
-											<div class="relative z-10 flex h-5 w-5 shrink-0 items-center justify-center ring-2 ring-[var(--color-bg)] rounded-full bg-[var(--color-bg)] {iconColor}">
-												<IconComponent size={12} />
-											</div>
-											<div class="flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] min-w-0 overflow-hidden">
-												{#if textFields.length > 0}
-													<span>updated <strong class="text-[var(--color-text-secondary)]">{textFields.map(f => historyFieldLabel(f)).join(', ')}</strong></span>
-													{#if valueItems.length > 0}<span class="text-[var(--app-border)]">|</span>{/if}
+										<div class="flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] min-w-0 overflow-hidden">
+											{#if textFields.length > 0}
+												<span>updated <strong class="text-[var(--color-text-secondary)]">{textFields.map(f => historyFieldLabel(f)).join(', ')}</strong></span>
+												{#if valueItems.length > 0}<span class="text-[var(--app-border)]">|</span>{/if}
+											{/if}
+											{#each valueItems as change, idx}
+												{#if idx > 0}<span class="text-[var(--app-border)]">|</span>{/if}
+												<strong class="text-[var(--color-text-secondary)]">{historyFieldLabel(change.field)}</strong>
+												<span>&rarr;</span>
+												{#if change.field === 'labels' && change.new_value}
+													{#each change.new_value.split(', ') as labelName}
+														{@const label = labels.find(l => l.name === labelName)}
+														<code class="shrink-0 inline-flex items-center gap-1 rounded bg-[var(--color-bg-tertiary)] px-1 py-0.5 text-[11px] text-[var(--color-text-secondary)]">
+															<span class="inline-block h-2 w-2 rounded-full shrink-0" style="background-color: {label?.color ?? 'var(--color-text-tertiary)'}"></span>
+															{labelName}
+														</code>
+													{/each}
+												{:else}
+													<code class="shrink-0 rounded bg-[var(--color-bg-tertiary)] px-1 py-0.5 text-[11px] text-[var(--color-text-secondary)]">{formatHistoryValue(change.field, change.new_value)}</code>
 												{/if}
-												{#each valueItems as change, idx}
-													{#if idx > 0}<span class="text-[var(--app-border)]">|</span>{/if}
-													<strong class="text-[var(--color-text-secondary)]">{historyFieldLabel(change.field)}</strong>
-													<span>&rarr;</span>
-													{#if change.field === 'labels' && change.new_value}
-														{#each change.new_value.split(', ') as labelName}
-															{@const label = labels.find(l => l.name === labelName)}
-															<code class="shrink-0 inline-flex items-center gap-1 rounded bg-[var(--color-bg-tertiary)] px-1 py-0.5 text-[11px] text-[var(--color-text-secondary)]">
-																<span class="inline-block h-2 w-2 rounded-full shrink-0" style="background-color: {label?.color ?? 'var(--color-text-tertiary)'}"></span>
-																{labelName}
-															</code>
-														{/each}
-													{:else}
-														<code class="shrink-0 rounded bg-[var(--color-bg-tertiary)] px-1 py-0.5 text-[11px] text-[var(--color-text-secondary)]">{formatHistoryValue(change.field, change.new_value)}</code>
-													{/if}
-												{/each}
-												<span>&middot;</span>
-												<span class="shrink-0">{formatRelativeTime(entry.time)}</span>
-											</div>
+											{/each}
+											<span>&middot;</span>
+											<span class="shrink-0">{formatRelativeTime(entry.time)}</span>
 										</div>
-									{/if}
+									</div>
 								{/each}
 							</div>
 						</div>
 
-						{#if grouped.length === 0}
+						{#if historyGroups.length === 0}
 							<p class="text-xs text-[var(--color-text-tertiary)]">No activity yet</p>
 						{/if}
 					{/if}
+				</div>
 
-					<!-- Comment input -->
-					<div class="mt-4 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)] transition-colors focus-within:border-[var(--app-accent)]">
-						<form onsubmit={handleAddComment}>
-							<textarea
-								bind:value={newComment}
-								placeholder="Leave a comment..."
-								rows="2"
-								onkeydown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleAddComment(e); } }}
-								oninput={(e) => { const t = e.target as HTMLTextAreaElement; t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 120) + 'px'; }}
-								class="w-full resize-none bg-transparent px-3 py-2.5 text-[13px] text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)]"
-							></textarea>
-							{#if newComment.trim()}
-								<div class="flex items-center justify-end border-t border-[var(--app-border)] px-3 py-1.5">
-									<button
-										type="submit"
-										class="rounded-md bg-[var(--app-accent)] px-3 py-1 text-xs font-medium text-white hover:bg-[var(--app-accent-hover)] transition-colors"
-									>
-										Comment
-									</button>
+				<!-- Comments -->
+				<div class="mt-4 space-y-3">
+					{#each comments as comment (comment.id)}
+						<div class="rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
+							<!-- Comment header + body -->
+							<div class="group/comment p-4">
+								<div class="flex items-center gap-2">
+									<div class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] font-medium text-white">
+										{(comment.user?.name ?? 'U').charAt(0).toUpperCase()}
+									</div>
+									<span class="text-[13px] font-medium text-[var(--color-text-primary)]">{comment.user?.name ?? 'User'}</span>
+									<span class="text-[11px] text-[var(--color-text-tertiary)]">{formatRelativeTime(comment.created_at)}</span>
+									{#if comment.resolved_at}
+										<span class="text-[11px] font-medium text-green-400">Resolved</span>
+									{/if}
+									<div class="ml-auto opacity-0 group-hover/comment:opacity-100 transition-opacity">
+										{#if comment.resolved_at}
+											<button onclick={() => handleReopen(comment.id)} class="flex items-center gap-1 rounded-full border border-[var(--app-border)] px-2 py-0.5 text-[11px] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors" title="Reopen thread">
+												Reopen thread
+											</button>
+										{:else}
+											<button onclick={() => handleResolve(comment.id)} class="rounded p-1 text-[var(--color-text-tertiary)] hover:text-green-400 hover:bg-[var(--color-bg-hover)]" title="Resolve thread">
+												<Check size={14} />
+											</button>
+										{/if}
+									</div>
+								</div>
+								<div class="prose prose-invert prose-sm max-w-none mt-2.5 text-[13px] text-[var(--color-text-primary)] [&>p:first-child]:mt-0 [&>p:last-child]:mb-0">
+									{@html sanitizeHtml(comment.body ?? '')}
+								</div>
+							</div>
+
+							<!-- Replies -->
+							{#if comment.replies && comment.replies.length > 0}
+								{#each comment.replies as reply (reply.id)}
+									<div class="group/reply border-t border-[var(--app-border)] px-4 py-3 pl-4">
+										<div class="flex items-center gap-2">
+											<div class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] font-medium text-white">
+												{(reply.user?.name ?? 'U').charAt(0).toUpperCase()}
+											</div>
+											<span class="text-[13px] font-medium text-[var(--color-text-primary)]">{reply.user?.name ?? 'User'}</span>
+											<span class="text-[11px] text-[var(--color-text-tertiary)]">{formatRelativeTime(reply.created_at)}</span>
+										</div>
+										<div class="prose prose-invert prose-sm max-w-none mt-2.5 text-[13px] text-[var(--color-text-primary)] [&>p:first-child]:mt-0 [&>p:last-child]:mb-0">
+											{@html sanitizeHtml(reply.body ?? '')}
+										</div>
+									</div>
+								{/each}
+							{/if}
+
+							<!-- Reply input (hidden when resolved) -->
+							{#if !comment.resolved_at}
+								<div class="border-t border-[var(--app-border)] px-4 py-3 flex gap-3">
+									<div class="my-auto flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] font-medium text-white">
+										{(authState.user?.name ?? 'U').charAt(0).toUpperCase()}
+									</div>
+									<div class="min-w-0 flex items-center w-full">
+										{#key replyVersions[comment.id] ?? 0}
+											<RichEditor
+												content=""
+												placeholder="Leave a reply..."
+												minimal={true}
+												borderless={true}
+												onupdate={(html) => { replyContents[comment.id] = html; replyContents = replyContents; }}
+												onsubmit={() => handleReply(comment.id)}
+											/>
+										{/key}
+										<div class="flex items-center justify-end gap-1.5 mt-1">
+											<button class="rounded p-1.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]" title="Attach file">
+												<Paperclip size={14} />
+											</button>
+											<button
+												onclick={() => handleReply(comment.id)}
+												disabled={!(replyContents[comment.id]?.trim()) || replyContents[comment.id] === '<p></p>'}
+												class="rounded-full bg-[var(--app-accent)] p-1.5 text-white hover:bg-[var(--app-accent-hover)] disabled:opacity-30 transition-colors"
+												title="Send (Ctrl+Enter)"
+											>
+												<ArrowUp size={12} />
+											</button>
+										</div>
+									</div>
 								</div>
 							{/if}
-						</form>
+						</div>
+					{/each}
+
+					<!-- New comment input -->
+					<div class="flex items-center rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)] focus-within:border-[var(--color-text-tertiary)] transition-colors p-3">
+						{#key commentVersion}
+						<RichEditor
+							content=""
+							placeholder="Leave a comment..."
+							minimal={true}
+							borderless={true}
+							onupdate={(html) => newComment = html}
+							onsubmit={handleAddComment}
+						/>
+					{/key}
+						<div class="flex items-center justify-end gap-1.5 px-3 py-0">
+							<button class="rounded p-1.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]" title="Attach file">
+								<Paperclip size={14} />
+							</button>
+							<button
+								onclick={handleAddComment}
+								disabled={!newComment.trim() || newComment === '<p></p>'}
+								class="rounded-full bg-[var(--app-accent)] p-1.5 text-white hover:bg-[var(--app-accent-hover)] disabled:opacity-30 transition-colors"
+								title="Send (Ctrl+Enter)"
+							>
+								<ArrowUp size={14} />
+							</button>
+						</div>
 					</div>
 				</div>
 			</div>

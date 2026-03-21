@@ -80,6 +80,10 @@ type LabelRepo interface {
 type CommentRepo interface {
 	Create(ctx context.Context, comment *domain.Comment) error
 	ListByIssue(ctx context.Context, issueID uuid.UUID) ([]domain.Comment, error)
+	ListReplies(ctx context.Context, parentID uuid.UUID) ([]domain.Comment, error)
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.Comment, error)
+	Resolve(ctx context.Context, id uuid.UUID) error
+	Reopen(ctx context.Context, id uuid.UUID) error
 }
 
 type ProjectRepo interface {

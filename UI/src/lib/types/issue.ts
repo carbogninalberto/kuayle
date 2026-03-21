@@ -128,7 +128,10 @@ export interface Comment {
 	issue_id: string;
 	user_id: string;
 	body: string;
+	parent_id?: string;
+	resolved_at?: string;
 	user?: User;
+	replies?: Comment[];
 	created_at: string;
 	updated_at: string;
 }
