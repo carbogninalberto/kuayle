@@ -23,7 +23,8 @@
 	import {
 		ChevronUp, ChevronDown, ChevronRight, Plus, CalendarDays, X,
 		Copy, Link as LinkIcon, GitBranch, Sparkles,
-		CircleDot, ArrowUpCircle, UserCircle, FolderKanban, Pencil
+		CircleDot, ArrowUpCircle, UserCircle, FolderKanban, Pencil, Layers,
+		Tag, Gauge, RefreshCw
 	} from 'lucide-svelte';
 	import { listCycles } from '$lib/api/cycles';
 	import type { Cycle } from '$lib/types/cycle';
@@ -61,6 +62,7 @@
 	let estimateOpen = $state(false);
 	let projectOpen = $state(false);
 	let loaded = $state(false);
+	let showAllActivity = $state(false);
 
 	// Collapsible sidebar sections
 	let detailsExpanded = $state(true);
@@ -131,7 +133,7 @@
 	}
 
 	function formatHistoryValue(field: string, value: string | null): string {
-		if (!value) return '';
+		if (!value) return 'none';
 		switch (field) {
 			case 'status':
 				return value;
@@ -139,10 +141,32 @@
 				return PRIORITY_LABELS[Number(value) as IssuePriority] ?? value;
 			case 'assignee_id': {
 				const member = members.find(m => m.user_id === value);
-				return member ? (member.name || member.email) : value;
+				return member ? (member.name || member.email) : 'Unassigned';
 			}
+			case 'project': {
+				const p = projects.find(p => p.id === value);
+				return p ? p.name : 'None';
+			}
+			case 'cycle': {
+				const c = cycles.find(c => c.id === value);
+				return c ? c.name : 'None';
+			}
+			case 'estimate':
+				return value ? `${value} pts` : 'None';
+			case 'due_date':
+				return value || 'None';
+			case 'labels':
+				return value || 'None';
 			default:
 				return value;
+		}
+	}
+
+	function historyFieldLabel(field: string): string {
+		switch (field) {
+			case 'assignee_id': return 'assignee';
+			case 'due_date': return 'due date';
+			default: return field;
 		}
 	}
 
@@ -152,6 +176,11 @@
 			case 'priority': return ArrowUpCircle;
 			case 'assignee_id': return UserCircle;
 			case 'title': case 'description': return Pencil;
+			case 'due_date': return CalendarDays;
+			case 'labels': return Tag;
+			case 'estimate': return Gauge;
+			case 'project': return FolderKanban;
+			case 'cycle': return RefreshCw;
 			default: return CircleDot;
 		}
 	}
@@ -161,6 +190,11 @@
 			case 'status': return 'text-blue-400';
 			case 'priority': return 'text-orange-400';
 			case 'assignee_id': return 'text-purple-400';
+			case 'due_date': return 'text-red-400';
+			case 'labels': return 'text-teal-400';
+			case 'estimate': return 'text-green-400';
+			case 'project': return 'text-indigo-400';
+			case 'cycle': return 'text-cyan-400';
 			case 'title': case 'description': return 'text-[var(--color-text-tertiary)]';
 			default: return 'text-[var(--color-text-tertiary)]';
 		}
@@ -433,47 +467,80 @@
 							...comments.map(c => ({ type: 'comment' as const, data: c, time: c.created_at }))
 						].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())}
 
+						{@const GROUP_THRESHOLD_MS = 5000}
+						{@const grouped = allActivity.reduce<Array<{ type: 'comment'; data: typeof comments[0]; time: string } | { type: 'history-group'; items: typeof history; time: string }>>((acc, item) => {
+							if (item.type === 'comment') {
+								acc.push(item);
+							} else {
+								const prev = acc[acc.length - 1];
+								if (prev && prev.type === 'history-group' && Math.abs(new Date(item.time).getTime() - new Date(prev.time).getTime()) < GROUP_THRESHOLD_MS) {
+									prev.items.push(item.data);
+								} else {
+									acc.push({ type: 'history-group', items: [item.data], time: item.time });
+								}
+							}
+							return acc;
+						}, [])}
+
+						{@const RECENT_COUNT = 10}
+						{@const visibleGrouped = showAllActivity ? grouped : grouped.slice(-RECENT_COUNT)}
+						{@const hiddenCount = grouped.length - visibleGrouped.length}
+
 						<div class="relative">
-							{#if allActivity.length > 0}
+							{#if visibleGrouped.length > 0}
 								<div class="absolute left-[9px] top-3 bottom-0 w-px bg-[var(--app-border)]"></div>
 							{/if}
+
+							{#if hiddenCount > 0}
+								<button
+									onclick={() => showAllActivity = true}
+									class="mb-2 rounded-full border border-[var(--app-border)] px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)] transition-colors"
+								>
+									Show {hiddenCount} earlier {hiddenCount === 1 ? 'event' : 'events'}
+								</button>
+							{/if}
+
 							<div>
-								{#each allActivity as item}
-									{#if item.type === 'comment'}
+								{#each visibleGrouped as entry}
+									{#if entry.type === 'comment'}
 										<div class="relative flex gap-3 pb-3">
 											<div class="relative z-10 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] font-medium text-white ring-2 ring-[var(--color-bg)] mt-0.5">
-												{(item.data.user?.name ?? 'U').charAt(0).toUpperCase()}
+												{(entry.data.user?.name ?? 'U').charAt(0).toUpperCase()}
 											</div>
 											<div class="flex-1 min-w-0">
 												<div class="flex items-center gap-2">
-													<span class="text-[13px] font-medium text-[var(--color-text-primary)]">{item.data.user?.name ?? 'User'}</span>
-													<span class="text-[11px] text-[var(--color-text-tertiary)]">{formatRelativeTime(item.data.created_at)}</span>
+													<span class="text-[13px] font-medium text-[var(--color-text-primary)]">{entry.data.user?.name ?? 'User'}</span>
+													<span class="text-[11px] text-[var(--color-text-tertiary)]">{formatRelativeTime(entry.data.created_at)}</span>
 												</div>
 												<div class="prose prose-invert prose-sm max-w-none mt-0.5 text-[13px] text-[var(--color-text-secondary)]">
-													{@html sanitizeHtml(item.data.body ?? '')}
+													{@html sanitizeHtml(entry.data.body ?? '')}
 												</div>
 											</div>
 										</div>
 									{:else}
-										{@const IconComponent = historyIcon(item.data.field)}
+										{@const items = entry.items}
+										{@const firstField = items[0].field}
+										{@const IconComponent = items.length > 1 ? Layers : historyIcon(firstField)}
+										{@const iconColor = items.length > 1 ? 'text-[var(--color-text-tertiary)]' : historyColor(firstField)}
+										{@const textFields = [...new Set(items.filter(c => c.field === 'title' || c.field === 'description').map(c => c.field))]}
+										{@const valueItems = items.filter((c, i, arr) => c.field !== 'title' && c.field !== 'description' && arr.findIndex(x => x.field === c.field) === i)}
 										<div class="relative flex items-center gap-3 pb-2.5">
-											<div class="relative z-10 flex h-5 w-5 shrink-0 items-center justify-center ring-2 ring-[var(--color-bg)] rounded-full bg-[var(--color-bg)] {historyColor(item.data.field)}">
+											<div class="relative z-10 flex h-5 w-5 shrink-0 items-center justify-center ring-2 ring-[var(--color-bg)] rounded-full bg-[var(--color-bg)] {iconColor}">
 												<IconComponent size={12} />
 											</div>
-											<div class="flex flex-wrap items-center gap-1.5 text-xs text-[var(--color-text-tertiary)]">
-												{#if item.data.field === 'title' || item.data.field === 'description'}
-													<span>updated <strong class="text-[var(--color-text-secondary)]">{item.data.field}</strong></span>
-												{:else}
-													<span>changed <strong class="text-[var(--color-text-secondary)]">{item.data.field}</strong></span>
-													{#if item.data.old_value}
-														<span>from</span>
-														<code class="rounded bg-[var(--color-bg-tertiary)] px-1 py-0.5 text-[11px] text-[var(--color-text-secondary)]">{formatHistoryValue(item.data.field, item.data.old_value)}</code>
-													{/if}
-													<span>to</span>
-													<code class="rounded bg-[var(--color-bg-tertiary)] px-1 py-0.5 text-[11px] text-[var(--color-text-secondary)]">{formatHistoryValue(item.data.field, item.data.new_value)}</code>
+											<div class="flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] min-w-0 overflow-hidden">
+												{#if textFields.length > 0}
+													<span>updated <strong class="text-[var(--color-text-secondary)]">{textFields.map(f => historyFieldLabel(f)).join(', ')}</strong></span>
+													{#if valueItems.length > 0}<span class="text-[var(--app-border)]">|</span>{/if}
 												{/if}
+												{#each valueItems as change, idx}
+													{#if idx > 0}<span class="text-[var(--app-border)]">|</span>{/if}
+													<strong class="text-[var(--color-text-secondary)]">{historyFieldLabel(change.field)}</strong>
+													<span>&rarr;</span>
+													<code class="shrink-0 rounded bg-[var(--color-bg-tertiary)] px-1 py-0.5 text-[11px] text-[var(--color-text-secondary)]">{formatHistoryValue(change.field, change.new_value)}</code>
+												{/each}
 												<span>&middot;</span>
-												<span>{formatRelativeTime(item.data.created_at)}</span>
+												<span class="shrink-0">{formatRelativeTime(entry.time)}</span>
 											</div>
 										</div>
 									{/if}
@@ -481,7 +548,7 @@
 							</div>
 						</div>
 
-						{#if allActivity.length === 0}
+						{#if grouped.length === 0}
 							<p class="text-xs text-[var(--color-text-tertiary)]">No activity yet</p>
 						{/if}
 					{/if}
@@ -776,7 +843,7 @@
 							</Popover.Trigger>
 							<Popover.Content class="w-48 p-1" align="start">
 								<button
-									onclick={() => { updateField('project_id', ''); projectOpen = false; }}
+									onclick={() => { updateField('project_id', ''); if (issue.cycle_id) updateField('cycle_id', ''); projectOpen = false; }}
 									class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
 								>
 									No project
@@ -798,47 +865,42 @@
 						{#if issueProject?.description}
 							<p class="mt-1 px-2 text-xs text-[var(--color-text-tertiary)] leading-relaxed">{issueProject.description}</p>
 						{/if}
-					</div>
-				{/if}
-			</div>
 
-			<!-- Cycle card -->
-			<div class="rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
-				<button
-					onclick={() => cycleExpanded = !cycleExpanded}
-					class="flex w-full items-center gap-1.5 px-3 py-2.5 text-[11px] font-medium uppercase tracking-wider text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors"
-				>
-					<ChevronRight size={12} class="transition-transform {cycleExpanded ? 'rotate-90' : ''}" />
-					Cycle
-				</button>
-				{#if cycleExpanded}
-					<div class="px-3 pb-3">
-						<Popover.Root bind:open={cycleOpen}>
-							<Popover.Trigger>
-								<button class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-[var(--color-bg-hover)] transition-colors {issueCycle ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-tertiary)]'}">
-									{issueCycle ? issueCycle.name : 'None'}
-								</button>
-							</Popover.Trigger>
-							<Popover.Content class="w-48 p-1" align="start">
-								<button
-									onclick={() => { updateField('cycle_id', ''); cycleOpen = false; }}
-									class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
-								>
-									No cycle
-								</button>
-								{#each cycles as cycle}
-									<button
-										onclick={() => { updateField('cycle_id', cycle.id); cycleOpen = false; }}
-										class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {issue.cycle_id === cycle.id ? 'bg-[var(--color-bg-hover)]' : ''}"
-									>
-										{cycle.name}
-									</button>
-								{/each}
-								{#if cycles.length === 0}
-									<p class="px-2 py-2 text-center text-xs text-[var(--color-text-tertiary)]">No cycles</p>
-								{/if}
-							</Popover.Content>
-						</Popover.Root>
+						<!-- Cycle as sub-item of project -->
+						<div class="ml-3 flex">
+							<svg class="shrink-0 mr-1" width="14" height="100%" viewBox="0 0 14 28" preserveAspectRatio="xMinYMin" fill="none">
+								<path d="M1 0 L1 18 C1 23, 5 23, 9 23 L14 23" stroke="var(--color-text-tertiary)" stroke-width="1.5" opacity="0.4" fill="none"/>
+							</svg>
+							<div class="flex-1 min-w-0 mt-2.5">
+								<Popover.Root bind:open={cycleOpen}>
+									<Popover.Trigger>
+										<button class="flex items-center gap-2 rounded-md px-2 py-1 text-xs hover:bg-[var(--color-bg-hover)] transition-colors {issueCycle ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-tertiary)]'}">
+											<RefreshCw size={12} class="shrink-0 text-[var(--color-text-tertiary)]" />
+											{issueCycle ? issueCycle.name : 'No cycle'}
+										</button>
+									</Popover.Trigger>
+									<Popover.Content class="w-48 p-1" align="start">
+										<button
+											onclick={() => { updateField('cycle_id', ''); cycleOpen = false; }}
+											class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
+										>
+											No cycle
+										</button>
+										{#each cycles as cycle}
+											<button
+												onclick={() => { updateField('cycle_id', cycle.id); cycleOpen = false; }}
+												class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {issue.cycle_id === cycle.id ? 'bg-[var(--color-bg-hover)]' : ''}"
+											>
+												{cycle.name}
+											</button>
+										{/each}
+										{#if cycles.length === 0}
+											<p class="px-2 py-2 text-center text-xs text-[var(--color-text-tertiary)]">No cycles</p>
+										{/if}
+									</Popover.Content>
+								</Popover.Root>
+							</div>
+						</div>
 					</div>
 				{/if}
 			</div>

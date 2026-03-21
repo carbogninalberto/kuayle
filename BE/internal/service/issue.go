@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/carbon/carbon-backend/internal/domain"
@@ -250,19 +251,41 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 		s.recordHistory(ctx, issue.ID, userID, "assignee_id", &old, req.AssigneeID)
 	}
 	if req.ProjectID != nil {
+		old := ""
+		if issue.ProjectID != nil {
+			old = issue.ProjectID.String()
+		}
 		if *req.ProjectID == "" {
 			issue.ProjectID = nil
 		} else {
 			pid, _ := uuid.Parse(*req.ProjectID)
 			issue.ProjectID = &pid
 		}
+		newVal := ""
+		if issue.ProjectID != nil {
+			newVal = issue.ProjectID.String()
+		}
+		if old != newVal {
+			s.recordHistory(ctx, issue.ID, userID, "project", &old, &newVal)
+		}
 	}
 	if req.CycleID != nil {
+		old := ""
+		if issue.CycleID != nil {
+			old = issue.CycleID.String()
+		}
 		if *req.CycleID == "" {
 			issue.CycleID = nil
 		} else {
 			cid, _ := uuid.Parse(*req.CycleID)
 			issue.CycleID = &cid
+		}
+		newVal := ""
+		if issue.CycleID != nil {
+			newVal = issue.CycleID.String()
+		}
+		if old != newVal {
+			s.recordHistory(ctx, issue.ID, userID, "cycle", &old, &newVal)
 		}
 	}
 	if req.ParentID != nil {
@@ -274,9 +297,24 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 		}
 	}
 	if req.Estimate != nil {
+		oldVal := ""
+		if issue.Estimate != nil {
+			oldVal = fmt.Sprintf("%d", *issue.Estimate)
+		}
 		issue.Estimate = req.Estimate
+		newVal := ""
+		if req.Estimate != nil {
+			newVal = fmt.Sprintf("%d", *req.Estimate)
+		}
+		if oldVal != newVal {
+			s.recordHistory(ctx, issue.ID, userID, "estimate", &oldVal, &newVal)
+		}
 	}
 	if req.DueDate != nil {
+		oldVal := ""
+		if issue.DueDate != nil {
+			oldVal = issue.DueDate.Format("2006-01-02")
+		}
 		if *req.DueDate == "" {
 			issue.DueDate = nil
 		} else {
@@ -284,6 +322,10 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 			if err == nil {
 				issue.DueDate = &t
 			}
+		}
+		newVal := *req.DueDate
+		if oldVal != newVal {
+			s.recordHistory(ctx, issue.ID, userID, "due_date", &oldVal, &newVal)
 		}
 	}
 	if req.SortOrder != nil {
@@ -295,12 +337,30 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 	}
 
 	if req.LabelIDs != nil {
+		// Track label changes
+		oldLabels, _ := s.issueRepo.GetLabels(ctx, issue.ID)
+		oldNames := make([]string, len(oldLabels))
+		for i, l := range oldLabels {
+			oldNames[i] = l.Name
+		}
+
 		labelUUIDs := make([]uuid.UUID, len(req.LabelIDs))
 		for i, lid := range req.LabelIDs {
 			labelUUIDs[i], _ = uuid.Parse(lid)
 		}
 		if err := s.issueRepo.SetLabels(ctx, issue.ID, labelUUIDs); err != nil {
 			log.WithError(err).Warn("failed to set labels")
+		}
+
+		newLabels, _ := s.issueRepo.GetLabels(ctx, issue.ID)
+		newNames := make([]string, len(newLabels))
+		for i, l := range newLabels {
+			newNames[i] = l.Name
+		}
+		oldStr := strings.Join(oldNames, ", ")
+		newStr := strings.Join(newNames, ", ")
+		if oldStr != newStr {
+			s.recordHistory(ctx, issue.ID, userID, "labels", &oldStr, &newStr)
 		}
 	}
 
