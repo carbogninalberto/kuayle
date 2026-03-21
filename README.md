@@ -1,299 +1,221 @@
-<a id="readme-top"></a>
-
-<!-- PROJECT SHIELDS -->
-[![Contributors][contributors-shield]][contributors-url]
-[![Forks][forks-shield]][forks-url]
-[![Stargazers][stars-shield]][stars-url]
-[![Issues][issues-shield]][issues-url]
-[![AGPL v3 License][license-shield]][license-url]
-
-
-
-<!-- PROJECT LOGO -->
-<br />
 <div align="center">
-  <a href="https://github.com/carbogninalberto/carbon">
-    <img src="assets/logo.png" alt="Logo" width="80" height="80">
-  </a>
+  <img src="assets/logo.png" alt="Kuayle" width="80" height="80">
+  <h1>Kuayle</h1>
+  <p><strong>快乐 (kuàilè) · happiness, joy</strong></p>
+  <p>A fast, keyboard-driven issue tracker inspired by Linear.</p>
 
-  <h3 align="center">Carbon</h3>
-
-  <p align="center">
-    A fast, keyboard-driven issue tracker inspired by Linear.
-    <br />
-    <br />
-    <a href="https://github.com/carbogninalberto/carbon/issues/new?labels=bug">Report Bug</a>
-    &middot;
-    <a href="https://github.com/carbogninalberto/carbon/issues/new?labels=enhancement">Request Feature</a>
-  </p>
+  [Report Bug](https://github.com/carbogninalberto/carbon/issues/new?labels=bug) · [Request Feature](https://github.com/carbogninalberto/carbon/issues/new?labels=enhancement)
 </div>
 
+<br />
 
+[![Kuayle Screenshot][product-screenshot]](https://github.com/carbogninalberto/carbon)
 
-<!-- DISCLAIMER -->
-> [!WARNING]
-> **This project is vibecoded.** The entire codebase was built through AI-assisted development — I designed the architecture, made every decision, and guided AI agents to write the code to my specification. It works, it's structured well, but expect rough edges. Use at your own risk.
+## 🧐 Why Kuayle?
 
+I've been a happy Linear user for years, it's the gold standard for issue tracking. But some things kept bugging me: no multi-assignee on issues, no project-based Gantt, analytics locked behind a paywall, and per-seat pricing that adds up quickly for small teams.
 
+With AI, building your own tool is now realistic, so I did. First for myself, then for anyone who wants Linear-quality without the price tag.
 
-<!-- TABLE OF CONTENTS -->
-<details>
-  <summary>Table of Contents</summary>
-  <ol>
-    <li>
-      <a href="#about-the-project">About The Project</a>
-      <ul>
-        <li><a href="#features">Features</a></li>
-        <li><a href="#built-with">Built With</a></li>
-      </ul>
-    </li>
-    <li>
-      <a href="#getting-started">Getting Started</a>
-      <ul>
-        <li><a href="#prerequisites">Prerequisites</a></li>
-        <li><a href="#docker">Docker</a></li>
-        <li><a href="#local-development">Local Development</a></li>
-      </ul>
-    </li>
-    <li><a href="#usage">Usage</a></li>
-    <li><a href="#project-structure">Project Structure</a></li>
-    <li><a href="#roadmap">Roadmap</a></li>
-    <li><a href="#contributing">Contributing</a></li>
-    <li><a href="#license">License</a></li>
-    <li><a href="#contact">Contact</a></li>
-    <li><a href="#acknowledgments">Acknowledgments</a></li>
-  </ol>
-</details>
+I also looked at the open-source alternatives out there, but they gate core features behind paid plans, which kind of defeats the purpose. Kuayle takes a different approach: **every feature is free, forever.** No paid tiers, no feature gates, Apache 2.0. If you find it useful, consider sponsoring the project, that's the whole model.
 
-
-
-<!-- ABOUT THE PROJECT -->
-## About The Project
-
-[![Carbon Screenshot][product-screenshot]](https://github.com/carbogninalberto/carbon)
-
-Carbon is a full-stack issue tracker built to mirror the speed and workflow of tools like Linear. It's opinionated about how engineering teams should organize work — fast navigation, keyboard shortcuts, and a clean UI that stays out of your way.
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-
-
-### Features
+## ✨ Features
 
 | | Feature | Description |
 |---|---|---|
-| **Workspaces** | Multi-tenant | Role-based access (owner, admin, member, guest) |
-| **Teams** | Custom workflows | Each team gets its own statuses, estimate scales, and triage settings |
-| **Issues** | Full-featured | Priority, estimates, due dates, sub-tasks, multi-assignee, labels, comments, audit history |
-| **Cycles** | Sprint planning | Time-boxed iterations per team — upcoming, active, completed |
-| **Projects** | Cross-team | Group work across multiple teams under a single initiative |
-| **Labels** | Hierarchical | Workspace-scoped, nested labels with soft delete |
-| **Views** | Saved filters | Shareable filtered perspectives with JSONB-based filter persistence |
-| **Notifications** | Inbox | Snooze, read status, archive |
-| **Webhooks** | Integrations | External integration support |
-| **Real-time** | WebSockets | Live updates across all connected clients |
+| 🏢 | **Workspaces** | Multi-tenant with role-based access (owner, admin, member, guest) |
+| 👥 | **Teams** | Custom workflows, each team gets its own statuses, estimate scales, and triage settings |
+| 📋 | **Issues** | Priority, estimates, due dates, sub-tasks, multi-assignee, labels, comments, audit history |
+| 🔄 | **Cycles** | Sprint planning with time-boxed iterations (upcoming, active, completed) |
+| 📁 | **Projects** | Cross-team initiatives grouped under a single umbrella |
+| 🏷️ | **Labels** | Hierarchical, workspace-scoped, with soft delete |
+| 👁️ | **Views** | Saved and shareable filtered perspectives with JSONB persistence |
+| 🔔 | **Notifications** | Inbox with snooze, read status, and archive |
+| 🔗 | **Webhooks** | Plug into external services and integrations |
+| ⚡ | **Real-time** | WebSocket-powered live updates across all connected clients |
 
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
+## 🛠️ Tech Stack
 
+Here's what Kuayle runs on and what each piece does:
 
+| Layer | Tech | Role |
+|---|---|---|
+| **API** | Go + Echo | High-performance HTTP server with middleware, routing, JWT auth |
+| **Database** | PostgreSQL 17 | Primary data store, raw SQL via sqlx/pgx, no ORM |
+| **Cache & Jobs** | Redis 7 | Session caching, pub/sub, and background job queue via Asynq |
+| **Frontend** | SvelteKit + Svelte 5 | SPA with TypeScript, runes-based reactivity, static adapter |
+| **UI** | Tailwind CSS + shadcn-svelte | Utility-first styling with accessible component primitives |
+| **Infra** | Docker + Docker Compose | One-command local and production deployment |
 
-### Built With
+## 🚀 Quick Start
 
-* [![Go][Go-badge]][Go-url]
-* [![Echo][Echo-badge]][Echo-url]
-* [![PostgreSQL][PostgreSQL-badge]][PostgreSQL-url]
-* [![Redis][Redis-badge]][Redis-url]
-* [![Svelte][Svelte-badge]][Svelte-url]
-* [![SvelteKit][SvelteKit-badge]][SvelteKit-url]
-* [![TailwindCSS][TailwindCSS-badge]][TailwindCSS-url]
-* [![TypeScript][TypeScript-badge]][TypeScript-url]
-* [![Docker][Docker-badge]][Docker-url]
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-
-
-<!-- GETTING STARTED -->
-## Getting Started
-
-### Prerequisites
-
-* [Go 1.21+](https://go.dev/dl/)
-* [Node.js 20+](https://nodejs.org/)
-* [Docker](https://docs.docker.com/get-docker/) (optional, for containerized setup)
-
-### Docker
-
-The fastest way to get running:
+### Docker (fastest)
 
 ```sh
 cp .env.example .env
 make docker-up
 ```
 
-App at `http://localhost:5173` | API at `http://localhost:8080`
+App at `http://localhost:5173` · API at `http://localhost:8080`
 
-### Local Development
+### Local Dev
 
 ```sh
 cp .env.example .env
-
-# Start Postgres and Redis
 docker compose up postgres redis -d
-
-# Run migrations and seed
-make migrate-up
-make seed
-
-# Start both backend and frontend
+make migrate-up && make seed
 make dev
 ```
 
-#### Available Commands
+### 📖 Commands
 
-| Command | Description |
+| Command | What it does |
 |---|---|
-| `make dev` | Run backend + frontend concurrently |
+| `make dev` | Run backend + frontend |
 | `make dev-backend` | Backend only |
 | `make dev-frontend` | Frontend only |
-| `make migrate-up` | Apply database migrations |
+| `make migrate-up` | Apply migrations |
 | `make migrate-down` | Roll back migrations |
 | `make seed` | Seed the database |
 | `make test` | Run all tests |
-| `make test-backend` | Backend tests |
-| `make test-frontend` | Frontend tests |
 | `make lint` | Lint everything |
-| `make docker-up` | Start all services (Docker) |
-| `make docker-down` | Stop all services (Docker) |
+| `make docker-up` | Start all (Docker) |
+| `make docker-down` | Stop all (Docker) |
 
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
+## 🏠 Self-Hosting
 
+Kuayle is designed to be self-hosted. Everything runs in Docker, no managed services required.
 
+### Prerequisites
 
-<!-- USAGE -->
-## Usage
+- A Linux server (or any host that runs Docker)
+- Docker + Docker Compose
+- A domain (optional, for HTTPS)
 
-Once running, create a workspace and start organizing your work:
+### 1. Clone and configure
 
-1. **Create a workspace** — your top-level container
-2. **Add teams** — each team gets its own status workflow and settings
-3. **Create issues** — assign priority, labels, estimates, and due dates
-4. **Plan cycles** — group issues into time-boxed sprints
-5. **Track projects** — organize cross-team initiatives
+```sh
+git clone https://github.com/carbogninalberto/carbon.git
+cd carbon
+cp .env.example .env
+```
 
-[![Carbon Board View][board-screenshot]](https://github.com/carbogninalberto/carbon)
+Edit `.env` with production values:
 
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
+```env
+DATABASE_URL=postgres://carbon:<strong-password>@postgres:5432/carbon?sslmode=disable
+REDIS_URL=redis://redis:6379
+JWT_SECRET=<random-string-at-least-32-chars>
+ENVIRONMENT=production
+FRONTEND_URL=https://your-domain.com
+```
 
+### 2. Launch
 
+```sh
+docker compose up --build -d
+```
 
-<!-- PROJECT STRUCTURE -->
-## Project Structure
+This starts 4 containers: PostgreSQL, Redis, backend API (`:8080`), and frontend (`:5173`).
+
+### 3. Run migrations and seed
+
+```sh
+docker compose exec backend /app/server migrate up
+docker compose exec backend /app/server seed
+```
+
+### 4. Reverse proxy (recommended)
+
+Put Nginx, Caddy, or Traefik in front to handle HTTPS. Example with Caddy:
 
 ```
-carbon/
-├── BE/                          # Backend (Go)
-│   ├── cmd/server/              # CLI entrypoint (server, migrate, seed)
+your-domain.com {
+    reverse_proxy localhost:5173
+}
+
+api.your-domain.com {
+    reverse_proxy localhost:8080
+}
+```
+
+### Storage options
+
+By default, uploads go to the local filesystem. For production, you can use any S3-compatible storage:
+
+```env
+STORAGE_TYPE=s3
+S3_ENDPOINT=https://s3.us-east-1.amazonaws.com
+S3_BUCKET=carbon-uploads
+S3_REGION=us-east-1
+S3_ACCESS_KEY=your-key
+S3_SECRET_KEY=your-secret
+```
+
+Works with AWS S3, Cloudflare R2, MinIO, SeaweedFS, and any S3-compatible provider.
+
+## 📂 Project Structure
+
+```
+kuayle/
+├── BE/                     # Backend (Go)
+│   ├── cmd/server/         # Entrypoint (server, migrate, seed)
 │   └── internal/
-│       ├── config/              # Configuration
-│       ├── domain/              # Domain models
-│       ├── dto/                 # Data transfer objects
-│       ├── handler/             # HTTP handlers
-│       ├── service/             # Business logic
-│       ├── repository/          # Data access (raw SQL)
-│       ├── middleware/          # Auth & request middleware
-│       ├── realtime/            # WebSocket support
-│       └── worker/              # Background jobs (Asynq)
-├── UI/                          # Frontend (SvelteKit)
+│       ├── config/         # Configuration
+│       ├── domain/         # Domain models
+│       ├── dto/            # Data transfer objects
+│       ├── handler/        # HTTP handlers
+│       ├── service/        # Business logic
+│       ├── repository/     # Data access (raw SQL)
+│       ├── middleware/      # Auth and request middleware
+│       ├── realtime/       # WebSocket support
+│       └── worker/         # Background jobs (Asynq)
+├── UI/                     # Frontend (SvelteKit)
 │   └── src/
-│       ├── routes/              # Pages
+│       ├── routes/         # Pages
 │       └── lib/
-│           ├── api/             # API client
-│           ├── components/      # UI components (shadcn-svelte)
-│           ├── features/        # Feature modules
-│           ├── types/           # TypeScript types
-│           └── utils/           # Utilities
+│           ├── api/        # API client
+│           ├── components/ # UI components
+│           ├── features/   # Feature modules
+│           ├── types/      # TypeScript types
+│           └── utils/      # Utilities
 ├── docker-compose.yml
 ├── Makefile
 └── .env.example
 ```
 
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
+## 🤝 Contributing
 
+PRs welcome. Fork it, branch it, fix it, ship it.
 
+1. Fork the repo
+2. Create your branch (`git checkout -b feature/cool-thing`)
+3. Commit your changes
+4. Push and open a PR
 
-<!-- ROADMAP -->
-## Roadmap
+## 📄 License
 
-- [x] Workspaces with role-based access
-- [x] Teams with custom status workflows
-- [x] Full issue management (priority, labels, estimates, sub-tasks)
-- [x] Cycle-based sprint planning
-- [x] Cross-team projects
-- [x] Real-time WebSocket updates
-- [x] Notification inbox
-- [ ] Keyboard shortcuts
-- [ ] Bulk issue operations
-- [ ] Issue templates
-- [ ] GitHub/GitLab integration
-- [ ] Activity feed
-- [ ] Dark mode
+Apache 2.0, see [`LICENSE`](LICENSE).
 
-See the [open issues](https://github.com/carbogninalberto/carbon/issues) for a full list of proposed features and known issues.
+## 📬 Contact
 
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
+Alberto Carbognin, [@carbogninalberto](https://github.com/carbogninalberto)
 
+## 🌍 Contributors
 
+<a href="https://github.com/carbogninalberto/carbon/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=carbogninalberto/carbon" />
+</a>
 
-<!-- CONTRIBUTING -->
-## Contributing
+[![Contributors][contributors-shield]][contributors-url]
+[![Forks][forks-shield]][forks-url]
+[![Stargazers][stars-shield]][stars-url]
+[![Issues][issues-shield]][issues-url]
+[![Apache 2.0 License][license-shield]][license-url]
 
-Contributions are **greatly appreciated**. This is a vibecoded project — if you find something janky, that's expected. Fix it and send a PR.
+---
 
-1. Fork the Project
-2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the Branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-
-
-<!-- LICENSE -->
-## License
-
-Distributed under the GNU Affero General Public License v3.0. See `LICENSE` for more information.
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-
-
-<!-- CONTACT -->
-## Contact
-
-Alberto Carbognin - [@carbogninalberto](https://github.com/carbogninalberto)
-
-Project Link: [https://github.com/carbogninalberto/carbon](https://github.com/carbogninalberto/carbon)
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-
-
-<!-- ACKNOWLEDGMENTS -->
-## Acknowledgments
-
-* [Echo - High performance Go web framework](https://echo.labstack.com/)
-* [SvelteKit](https://kit.svelte.dev/)
-* [shadcn-svelte](https://www.shadcn-svelte.com/)
-* [Tailwind CSS](https://tailwindcss.com/)
-* [Asynq - Distributed task queue for Go](https://github.com/hibiken/asynq)
-* [sqlx](https://github.com/jmoiron/sqlx)
-* [Img Shields](https://shields.io)
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-
+> 🤖 **Heads up:** this project is vibecoded. The entire codebase was built through AI-assisted development. It works, it's structured well, but expect rough edges.
 
 <!-- MARKDOWN LINKS & IMAGES -->
 [contributors-shield]: https://img.shields.io/github/contributors/carbogninalberto/carbon.svg?style=for-the-badge
@@ -307,23 +229,3 @@ Project Link: [https://github.com/carbogninalberto/carbon](https://github.com/ca
 [license-shield]: https://img.shields.io/github/license/carbogninalberto/carbon.svg?style=for-the-badge
 [license-url]: https://github.com/carbogninalberto/carbon/blob/main/LICENSE
 [product-screenshot]: assets/screenshot.png
-[board-screenshot]: assets/board.png
-
-[Go-badge]: https://img.shields.io/badge/Go-00ADD8?style=for-the-badge&logo=go&logoColor=white
-[Go-url]: https://go.dev/
-[Echo-badge]: https://img.shields.io/badge/Echo-00ADD8?style=for-the-badge&logo=go&logoColor=white
-[Echo-url]: https://echo.labstack.com/
-[PostgreSQL-badge]: https://img.shields.io/badge/PostgreSQL-316192?style=for-the-badge&logo=postgresql&logoColor=white
-[PostgreSQL-url]: https://www.postgresql.org/
-[Redis-badge]: https://img.shields.io/badge/Redis-DC382D?style=for-the-badge&logo=redis&logoColor=white
-[Redis-url]: https://redis.io/
-[Svelte-badge]: https://img.shields.io/badge/Svelte-4A4A55?style=for-the-badge&logo=svelte&logoColor=FF3E00
-[Svelte-url]: https://svelte.dev/
-[SvelteKit-badge]: https://img.shields.io/badge/SvelteKit-FF3E00?style=for-the-badge&logo=svelte&logoColor=white
-[SvelteKit-url]: https://kit.svelte.dev/
-[TailwindCSS-badge]: https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white
-[TailwindCSS-url]: https://tailwindcss.com/
-[TypeScript-badge]: https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white
-[TypeScript-url]: https://www.typescriptlang.org/
-[Docker-badge]: https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white
-[Docker-url]: https://www.docker.com/
