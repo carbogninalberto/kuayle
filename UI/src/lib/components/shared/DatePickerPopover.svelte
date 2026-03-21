@@ -8,11 +8,13 @@
 	let {
 		value = null,
 		onchange,
-		placeholder = 'Set date'
+		placeholder = 'Set date',
+		colorClass = ''
 	}: {
 		value: string | null;
 		onchange: (date: string | null) => void;
 		placeholder?: string;
+		colorClass?: string;
 	} = $props();
 
 	let open = $state(false);
@@ -57,7 +59,7 @@
 
 <Popover.Root bind:open>
 	<Popover.Trigger>
-		<button class="flex items-center gap-1.5 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-2.5 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
+		<button class="flex items-center gap-1.5 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-2.5 py-1 text-xs hover:bg-[var(--color-bg-hover)] {displayDate && colorClass ? colorClass : 'text-[var(--color-text-secondary)]'}">
 			<CalendarIcon size={12} />
 			{#if displayDate}
 				{displayDate}
@@ -76,10 +78,12 @@
 		</button>
 	</Popover.Trigger>
 	<Popover.Content class="w-auto p-0" align="start">
-		<Calendar
-			type="single"
-			value={calendarValue}
-			onValueChange={handleSelect}
-		/>
+		{#key value}
+			<Calendar
+				type="single"
+				value={calendarValue}
+				onValueChange={handleSelect}
+			/>
+		{/key}
 	</Popover.Content>
 </Popover.Root>

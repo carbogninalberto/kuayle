@@ -150,18 +150,18 @@
 			}
 			case 'project': {
 				const p = projects.find(p => p.id === value);
-				return p ? p.name : 'None';
+				return p ? p.name : '-';
 			}
 			case 'cycle': {
 				const c = cycles.find(c => c.id === value);
-				return c ? c.name : 'None';
+				return c ? c.name : '-';
 			}
 			case 'estimate':
-				return value ? `${value} pts` : 'None';
+				return value ? `${value} pts` : '-';
 			case 'due_date':
-				return value || 'None';
+				return value || '-';
 			case 'labels':
-				return value || 'None';
+				return value || '-';
 			default:
 				return value;
 		}
@@ -571,6 +571,15 @@
 							</div>
 						</div>
 
+						{#if showAllActivity && historyGroups.length > 10}
+							<button
+								onclick={() => showAllActivity = false}
+								class="relative z-10 mt-2 rounded-full border border-[var(--app-border)] bg-[var(--color-bg)] px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)] transition-colors"
+							>
+								Show less
+							</button>
+						{/if}
+
 						{#if historyGroups.length === 0}
 							<p class="text-xs text-[var(--color-text-tertiary)]">No activity yet</p>
 						{/if}
@@ -775,7 +784,7 @@
 										{issue.assignee.name}
 									</span>
 								{:else}
-									<span class="text-sm text-[var(--color-text-tertiary)]">None</span>
+									<span class="text-sm text-[var(--color-text-tertiary)]">Add assignee</span>
 								{/if}
 								<Popover.Root bind:open={assigneeOpen}>
 									<Popover.Trigger>
@@ -817,25 +826,12 @@
 						<!-- Due date row -->
 						<div class="flex items-center gap-3 rounded-md px-2 py-1.5 hover:bg-[var(--color-bg-hover)] transition-colors">
 							<span class="w-20 shrink-0 text-xs text-[var(--color-text-tertiary)]">Due date</span>
-							{#if issue.due_date}
-								{@const { label, colorClass } = formatDueDate(issue.due_date)}
-								<span class="flex items-center gap-1.5 text-sm {colorClass}">
-									<CalendarDays size={14} />
-									{label}
-								</span>
-								<button
-									onclick={() => updateField('due_date', '')}
-									class="ml-auto rounded p-0.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
-								>
-									<X size={12} />
-								</button>
-							{:else}
-								<DatePickerPopover
-									value={issue.due_date}
-									onchange={(d) => updateField('due_date', d ?? '')}
-									placeholder="None"
-								/>
-							{/if}
+							<DatePickerPopover
+								value={issue.due_date}
+								onchange={(d) => updateField('due_date', d ?? '')}
+								placeholder="Set date"
+								colorClass={issue.due_date ? formatDueDate(issue.due_date).colorClass : ''}
+							/>
 						</div>
 
 						<!-- Estimate row -->
@@ -844,7 +840,7 @@
 							<Popover.Root bind:open={estimateOpen}>
 								<Popover.Trigger>
 									<button class="text-sm {issue.estimate !== null && issue.estimate !== undefined ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-tertiary)]'}">
-										{issue.estimate !== null && issue.estimate !== undefined ? `${issue.estimate} pts` : 'None'}
+										{issue.estimate !== null && issue.estimate !== undefined ? `${issue.estimate} pts` : 'Set estimate'}
 									</button>
 								</Popover.Trigger>
 								<Popover.Content class="w-28 p-1" align="start">
@@ -889,7 +885,7 @@
 									</span>
 								{/each}
 							{:else}
-								<span class="text-sm text-[var(--color-text-tertiary)]">None</span>
+								<span class="text-sm text-[var(--color-text-tertiary)]">Add label</span>
 							{/if}
 							<Popover.Root bind:open={labelsOpen}>
 								<Popover.Trigger>
@@ -950,7 +946,7 @@
 								{:else}
 									<button class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] transition-colors">
 										<FolderKanban size={14} />
-										None
+										Add project
 									</button>
 								{/if}
 							</Popover.Trigger>
