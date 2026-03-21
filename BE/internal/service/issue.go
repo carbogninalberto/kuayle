@@ -250,16 +250,28 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 		s.recordHistory(ctx, issue.ID, userID, "assignee_id", &old, req.AssigneeID)
 	}
 	if req.ProjectID != nil {
-		pid, _ := uuid.Parse(*req.ProjectID)
-		issue.ProjectID = &pid
+		if *req.ProjectID == "" {
+			issue.ProjectID = nil
+		} else {
+			pid, _ := uuid.Parse(*req.ProjectID)
+			issue.ProjectID = &pid
+		}
 	}
 	if req.CycleID != nil {
-		cid, _ := uuid.Parse(*req.CycleID)
-		issue.CycleID = &cid
+		if *req.CycleID == "" {
+			issue.CycleID = nil
+		} else {
+			cid, _ := uuid.Parse(*req.CycleID)
+			issue.CycleID = &cid
+		}
 	}
 	if req.ParentID != nil {
-		pid, _ := uuid.Parse(*req.ParentID)
-		issue.ParentID = &pid
+		if *req.ParentID == "" {
+			issue.ParentID = nil
+		} else {
+			pid, _ := uuid.Parse(*req.ParentID)
+			issue.ParentID = &pid
+		}
 	}
 	if req.Estimate != nil {
 		issue.Estimate = req.Estimate

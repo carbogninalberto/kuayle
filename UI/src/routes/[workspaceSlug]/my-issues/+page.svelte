@@ -145,13 +145,13 @@
 
 	<!-- Tabs -->
 	<Tabs.Root value={activeTab} onValueChange={handleTabChange}>
-		<Tabs.List class="w-full justify-start gap-0 rounded-lg border-b border-[var(--app-border)] bg-transparent px-4">
-			<Tabs.Trigger value="assigned" class="relative rounded-md border-b-2 border-transparent px-3 py-2 text-xs data-[state=active]:border-[var(--app-accent)] data-[state=active]:bg-transparent data-[state=active]:shadow-none">
-				<CircleUser size={13} class="mr-1.5" />
+		<Tabs.List class="w-full justify-start gap-1.5 rounded-none border-none bg-transparent px-2 pt-4 pb-2">
+			<Tabs.Trigger value="assigned" class="flex-none h-auto rounded-full border border-[var(--app-border)] px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] shadow-none data-[state=active]:border-[var(--app-accent)]/30 data-[state=active]:bg-[var(--app-accent)]/10 data-[state=active]:text-[var(--app-accent-light)] data-[state=active]:shadow-none">
+				<CircleUser size={13} class="mr-1" />
 				Assigned to me
 			</Tabs.Trigger>
-			<Tabs.Trigger value="created" class="relative rounded-md border-b-2 border-transparent px-3 py-2 text-xs data-[state=active]:border-[var(--app-accent)] data-[state=active]:bg-transparent data-[state=active]:shadow-none">
-				<PenLine size={13} class="mr-1.5" />
+			<Tabs.Trigger value="created" class="flex-none h-auto rounded-full border border-[var(--app-border)] px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] shadow-none data-[state=active]:border-[var(--app-accent)]/30 data-[state=active]:bg-[var(--app-accent)]/10 data-[state=active]:text-[var(--app-accent-light)] data-[state=active]:shadow-none">
+				<PenLine size={13} class="mr-1" />
 				Created by me
 			</Tabs.Trigger>
 		</Tabs.List>

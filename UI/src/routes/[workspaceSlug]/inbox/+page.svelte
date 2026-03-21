@@ -178,17 +178,17 @@
 
 	<!-- Tabs -->
 	<Tabs.Root value={activeTab} onValueChange={handleTabChange}>
-		<Tabs.List class="w-full justify-start gap-0 rounded-none border-b border-[var(--app-border)] bg-transparent px-4">
-			<Tabs.Trigger value="inbox" class="relative rounded-none border-b-2 border-transparent px-3 py-2 text-xs data-[state=active]:border-[var(--app-accent)] data-[state=active]:bg-transparent data-[state=active]:shadow-none">
-				<Inbox size={13} class="mr-1.5" />
+		<Tabs.List class="w-full justify-start gap-1.5 rounded-none border-none bg-transparent px-2 pt-4 pb-2">
+			<Tabs.Trigger value="inbox" class="flex-none h-auto rounded-full border border-[var(--app-border)] px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] shadow-none data-[state=active]:border-[var(--app-accent)]/30 data-[state=active]:bg-[var(--app-accent)]/10 data-[state=active]:text-[var(--app-accent-light)] data-[state=active]:shadow-none">
+				<Inbox size={13} class="mr-1" />
 				Inbox
 			</Tabs.Trigger>
-			<Tabs.Trigger value="snoozed" class="relative rounded-none border-b-2 border-transparent px-3 py-2 text-xs data-[state=active]:border-[var(--app-accent)] data-[state=active]:bg-transparent data-[state=active]:shadow-none">
-				<Clock size={13} class="mr-1.5" />
+			<Tabs.Trigger value="snoozed" class="flex-none h-auto rounded-full border border-[var(--app-border)] px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] shadow-none data-[state=active]:border-[var(--app-accent)]/30 data-[state=active]:bg-[var(--app-accent)]/10 data-[state=active]:text-[var(--app-accent-light)] data-[state=active]:shadow-none">
+				<Clock size={13} class="mr-1" />
 				Snoozed
 			</Tabs.Trigger>
-			<Tabs.Trigger value="archived" class="relative rounded-none border-b-2 border-transparent px-3 py-2 text-xs data-[state=active]:border-[var(--app-accent)] data-[state=active]:bg-transparent data-[state=active]:shadow-none">
-				<Archive size={13} class="mr-1.5" />
+			<Tabs.Trigger value="archived" class="flex-none h-auto rounded-full border border-[var(--app-border)] px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] shadow-none data-[state=active]:border-[var(--app-accent)]/30 data-[state=active]:bg-[var(--app-accent)]/10 data-[state=active]:text-[var(--app-accent-light)] data-[state=active]:shadow-none">
+				<Archive size={13} class="mr-1" />
 				Archived
 			</Tabs.Trigger>
 		</Tabs.List>
