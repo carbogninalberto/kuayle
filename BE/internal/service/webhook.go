@@ -7,6 +7,7 @@ import (
 	"github.com/carbon/carbon-backend/internal/domain"
 	"github.com/carbon/carbon-backend/internal/dto"
 	"github.com/carbon/carbon-backend/internal/repository"
+	"github.com/carbon/carbon-backend/pkg/validate"
 	"github.com/google/uuid"
 	"github.com/lib/pq"
 )
@@ -20,6 +21,10 @@ func NewWebhookService(webhookRepo *repository.WebhookRepository) *WebhookServic
 }
 
 func (s *WebhookService) Create(ctx context.Context, workspaceID uuid.UUID, req dto.CreateWebhookRequest) (*domain.Webhook, error) {
+	if err := validate.ValidateWebhookURL(req.URL); err != nil {
+		return nil, fmt.Errorf("invalid webhook URL: %w", err)
+	}
+
 	w := &domain.Webhook{
 		ID:          uuid.New(),
 		WorkspaceID: workspaceID,
@@ -44,6 +49,9 @@ func (s *WebhookService) Update(ctx context.Context, id uuid.UUID, req dto.Updat
 		return nil, fmt.Errorf("webhook not found")
 	}
 	if req.URL != nil {
+		if err := validate.ValidateWebhookURL(*req.URL); err != nil {
+			return nil, fmt.Errorf("invalid webhook URL: %w", err)
+		}
 		w.URL = *req.URL
 	}
 	if req.Events != nil {

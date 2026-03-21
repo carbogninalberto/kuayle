@@ -36,7 +36,7 @@ func TestAuthHandler_Register_ValidationError(t *testing.T) {
 	userRepo := &testUserRepo{}
 	refreshRepo := &testRefreshTokenRepo{}
 	authSvc := service.NewAuthService(userRepo, refreshRepo, "test-secret")
-	h := NewAuthHandler(authSvc)
+	h := NewAuthHandler(authSvc, false)
 
 	err := h.Register(c)
 
@@ -57,7 +57,7 @@ func TestAuthHandler_Register_Success(t *testing.T) {
 	userRepo := &testUserRepo{}
 	refreshRepo := &testRefreshTokenRepo{}
 	authSvc := service.NewAuthService(userRepo, refreshRepo, "test-secret")
-	h := NewAuthHandler(authSvc)
+	h := NewAuthHandler(authSvc, false)
 
 	err := h.Register(c)
 
@@ -92,7 +92,7 @@ func TestAuthHandler_Register_DuplicateEmail(t *testing.T) {
 	userRepo := &testUserRepo{emailExists: true}
 	refreshRepo := &testRefreshTokenRepo{}
 	authSvc := service.NewAuthService(userRepo, refreshRepo, "test-secret")
-	h := NewAuthHandler(authSvc)
+	h := NewAuthHandler(authSvc, false)
 
 	err := h.Register(c)
 
@@ -113,7 +113,7 @@ func TestAuthHandler_Login_Success(t *testing.T) {
 	userRepo := &testUserRepo{userWithPassword: "password123"}
 	refreshRepo := &testRefreshTokenRepo{}
 	authSvc := service.NewAuthService(userRepo, refreshRepo, "test-secret")
-	h := NewAuthHandler(authSvc)
+	h := NewAuthHandler(authSvc, false)
 
 	err := h.Login(c)
 
@@ -142,7 +142,7 @@ func TestAuthHandler_Login_WrongPassword(t *testing.T) {
 	userRepo := &testUserRepo{userWithPassword: "password123"}
 	refreshRepo := &testRefreshTokenRepo{}
 	authSvc := service.NewAuthService(userRepo, refreshRepo, "test-secret")
-	h := NewAuthHandler(authSvc)
+	h := NewAuthHandler(authSvc, false)
 
 	err := h.Login(c)
 
@@ -166,7 +166,7 @@ func TestAuthHandler_Me_Success(t *testing.T) {
 	userRepo := &testUserRepo{specificUserID: userID}
 	refreshRepo := &testRefreshTokenRepo{}
 	authSvc := service.NewAuthService(userRepo, refreshRepo, "test-secret")
-	h := NewAuthHandler(authSvc)
+	h := NewAuthHandler(authSvc, false)
 
 	err := h.Me(c)
 
@@ -185,7 +185,7 @@ func TestAuthHandler_Logout(t *testing.T) {
 	userRepo := &testUserRepo{}
 	refreshRepo := &testRefreshTokenRepo{}
 	authSvc := service.NewAuthService(userRepo, refreshRepo, "test-secret")
-	h := NewAuthHandler(authSvc)
+	h := NewAuthHandler(authSvc, false)
 
 	err := h.Logout(c)
 

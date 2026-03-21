@@ -27,9 +27,10 @@ services:
     volumes:
       - ./BE:/app
     environment:
-      DATABASE_URL: postgres://carbon:carbon@postgres:5432/carbon?sslmode=disable
+      DATABASE_URL: postgres://carbon:carbon@postgres:5432/carbon?sslmode=disable  # Use sslmode=require in production
       REDIS_URL: redis://redis:6379
-      JWT_SECRET: change-me-in-production
+      JWT_SECRET: change-me-in-production  # MUST be changed in production
+      ENVIRONMENT: development  # Set to "production" in production
 
   frontend:
     build: ./UI

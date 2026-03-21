@@ -85,7 +85,7 @@ func main() {
 
 	// Handlers
 	healthH := handler.NewHealthHandler(db)
-	authH := handler.NewAuthHandler(authSvc)
+	authH := handler.NewAuthHandler(authSvc, cfg.Environment != "development")
 	workspaceH := handler.NewWorkspaceHandler(workspaceSvc)
 	teamH := handler.NewTeamHandler(teamSvc)
 	issueH := handler.NewIssueHandler(issueSvc, commentSvc, userRepo, teamStatusRepo)
@@ -115,13 +115,14 @@ func main() {
 	e.Use(mw.Recovery())
 	e.Use(mw.Logging())
 	e.Use(mw.CORS(cfg.FrontendURL))
+	e.Use(mw.SecureHeaders())
 
 	// Health
 	e.GET("/health", healthH.Health)
 	e.GET("/ready", healthH.Ready)
 
-	// Auth (public)
-	auth := e.Group("/api/auth")
+	// Auth (public) — rate limited: 5 requests/sec, burst of 10
+	auth := e.Group("/api/auth", mw.RateLimit(5, 10))
 	auth.POST("/register", authH.Register)
 	auth.POST("/login", authH.Login)
 	auth.POST("/refresh", authH.Refresh)

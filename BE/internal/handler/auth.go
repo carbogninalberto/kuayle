@@ -15,10 +15,11 @@ import (
 
 type AuthHandler struct {
 	authService *service.AuthService
+	secureCookie bool
 }
 
-func NewAuthHandler(authService *service.AuthService) *AuthHandler {
-	return &AuthHandler{authService: authService}
+func NewAuthHandler(authService *service.AuthService, secureCookie bool) *AuthHandler {
+	return &AuthHandler{authService: authService, secureCookie: secureCookie}
 }
 
 func (h *AuthHandler) Register(c echo.Context) error {
@@ -42,7 +43,7 @@ func (h *AuthHandler) Register(c echo.Context) error {
 		return response.InternalError(c)
 	}
 
-	setAuthCookies(c, accessToken, refreshToken)
+	h.setAuthCookies(c, accessToken, refreshToken)
 
 	return response.Success(c, http.StatusCreated, dto.UserResponse{
 		ID:          user.ID.String(),
@@ -74,7 +75,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 		return response.InternalError(c)
 	}
 
-	setAuthCookies(c, accessToken, refreshToken)
+	h.setAuthCookies(c, accessToken, refreshToken)
 
 	return response.Success(c, http.StatusOK, dto.UserResponse{
 		ID:          user.ID.String(),
@@ -97,7 +98,7 @@ func (h *AuthHandler) Refresh(c echo.Context) error {
 		return response.Unauthorized(c)
 	}
 
-	setAuthCookies(c, accessToken, refreshToken)
+	h.setAuthCookies(c, accessToken, refreshToken)
 	return response.Success(c, http.StatusOK, map[string]string{"status": "refreshed"})
 }
 
@@ -125,13 +126,13 @@ func (h *AuthHandler) Me(c echo.Context) error {
 	})
 }
 
-func setAuthCookies(c echo.Context, accessToken, refreshToken string) {
+func (h *AuthHandler) setAuthCookies(c echo.Context, accessToken, refreshToken string) {
 	c.SetCookie(&http.Cookie{
 		Name:     "access_token",
 		Value:    accessToken,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   false, // Set to true in production
+		Secure:   h.secureCookie,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   900, // 15 min
 	})
@@ -140,7 +141,7 @@ func setAuthCookies(c echo.Context, accessToken, refreshToken string) {
 		Value:    refreshToken,
 		Path:     "/api/auth",
 		HttpOnly: true,
-		Secure:   false, // Set to true in production
+		Secure:   h.secureCookie,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(7 * 24 * time.Hour / time.Second),
 	})
