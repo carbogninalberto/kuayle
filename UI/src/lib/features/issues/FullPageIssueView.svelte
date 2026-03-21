@@ -884,16 +884,19 @@
 										{lbl.name}
 									</span>
 								{/each}
-							{:else}
-								<span class="text-sm text-[var(--color-text-tertiary)]">Add label</span>
 							{/if}
 							<Popover.Root bind:open={labelsOpen}>
 								<Popover.Trigger>
-									<button
-										class="flex h-6 w-6 items-center justify-center rounded-full hover:bg-[var(--color-bg-hover)] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors"
-									>
-										<Plus size={14} />
-									</button>
+									{#if issue.labels && issue.labels.length > 0}
+										<button class="flex h-6 w-6 items-center justify-center rounded-full hover:bg-[var(--color-bg-hover)] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors">
+											<Plus size={14} />
+										</button>
+									{:else}
+										<button class="flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)] transition-colors">
+											<Plus size={12} />
+											Add label
+										</button>
+									{/if}
 								</Popover.Trigger>
 								<Popover.Content class="w-48 p-1" align="start">
 									{#each labels as label}
