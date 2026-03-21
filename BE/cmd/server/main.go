@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
@@ -85,7 +86,8 @@ func main() {
 
 	// Handlers
 	healthH := handler.NewHealthHandler(db)
-	authH := handler.NewAuthHandler(authSvc, cfg.Environment != "development")
+	loginThrottle := mw.NewLoginThrottle(5, 15*time.Minute)
+	authH := handler.NewAuthHandler(authSvc, cfg.Environment != "development", loginThrottle)
 	workspaceH := handler.NewWorkspaceHandler(workspaceSvc)
 	teamH := handler.NewTeamHandler(teamSvc)
 	issueH := handler.NewIssueHandler(issueSvc, commentSvc, userRepo, teamStatusRepo)
@@ -102,7 +104,7 @@ func main() {
 	prefsH := handler.NewPreferencesHandler(prefsSvc)
 	analyticsH := handler.NewAnalyticsHandler(db)
 	webhookRepo := repository.NewWebhookRepository(db)
-	webhookSvc := service.NewWebhookService(webhookRepo)
+	webhookSvc := service.NewWebhookService(webhookRepo, cfg.JWTSecret)
 	webhookH := handler.NewWebhookHandler(webhookSvc)
 	uploadH := handler.NewUploadHandler("./uploads")
 

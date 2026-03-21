@@ -37,3 +37,8 @@ func init() {
 func SanitizeHTML(input string) string {
 	return policy.Sanitize(input)
 }
+
+// StripHTML removes all HTML tags, returning plain text only.
+func StripHTML(input string) string {
+	return bluemonday.StrictPolicy().Sanitize(input)
+}

@@ -14,12 +14,13 @@ import (
 )
 
 type AuthHandler struct {
-	authService *service.AuthService
-	secureCookie bool
+	authService    *service.AuthService
+	secureCookie   bool
+	loginThrottle  *middleware.LoginThrottle
 }
 
-func NewAuthHandler(authService *service.AuthService, secureCookie bool) *AuthHandler {
-	return &AuthHandler{authService: authService, secureCookie: secureCookie}
+func NewAuthHandler(authService *service.AuthService, secureCookie bool, loginThrottle *middleware.LoginThrottle) *AuthHandler {
+	return &AuthHandler{authService: authService, secureCookie: secureCookie, loginThrottle: loginThrottle}
 }
 
 func (h *AuthHandler) Register(c echo.Context) error {
@@ -67,14 +68,20 @@ func (h *AuthHandler) Login(c echo.Context) error {
 		return response.ValidationError(c, details)
 	}
 
+	if h.loginThrottle.IsLocked(req.Email) {
+		return response.Error(c, http.StatusTooManyRequests, "ACCOUNT_LOCKED", "Too many failed attempts, please try again later")
+	}
+
 	user, accessToken, refreshToken, err := h.authService.Login(c.Request().Context(), req)
 	if err != nil {
 		if errors.Is(err, service.ErrInvalidCredentials) {
+			h.loginThrottle.RecordFailure(req.Email)
 			return response.Error(c, http.StatusUnauthorized, "INVALID_CREDENTIALS", "Invalid email or password")
 		}
 		return response.InternalError(c)
 	}
 
+	h.loginThrottle.RecordSuccess(req.Email)
 	h.setAuthCookies(c, accessToken, refreshToken)
 
 	return response.Success(c, http.StatusOK, dto.UserResponse{
@@ -133,7 +140,7 @@ func (h *AuthHandler) setAuthCookies(c echo.Context, accessToken, refreshToken s
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   h.secureCookie,
-		SameSite: http.SameSiteLaxMode,
+		SameSite: http.SameSiteStrictMode,
 		MaxAge:   900, // 15 min
 	})
 	c.SetCookie(&http.Cookie{
@@ -142,7 +149,7 @@ func (h *AuthHandler) setAuthCookies(c echo.Context, accessToken, refreshToken s
 		Path:     "/api/auth",
 		HttpOnly: true,
 		Secure:   h.secureCookie,
-		SameSite: http.SameSiteLaxMode,
+		SameSite: http.SameSiteStrictMode,
 		MaxAge:   int(7 * 24 * time.Hour / time.Second),
 	})
 }

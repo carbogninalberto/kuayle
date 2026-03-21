@@ -7,6 +7,7 @@ import (
 	"github.com/carbon/carbon-backend/internal/domain"
 	"github.com/carbon/carbon-backend/internal/dto"
 	"github.com/carbon/carbon-backend/internal/repository"
+	"github.com/carbon/carbon-backend/pkg/audit"
 	"github.com/google/uuid"
 )
 
@@ -43,6 +44,10 @@ func (s *WorkspaceService) Create(ctx context.Context, userID uuid.UUID, req dto
 	if err := s.workspaceRepo.AddMember(ctx, member); err != nil {
 		return nil, err
 	}
+
+	audit.Log("workspace.created", userID, map[string]interface{}{
+		"workspace_id": ws.ID, "slug": ws.Slug,
+	})
 
 	return ws, nil
 }
@@ -94,7 +99,14 @@ func (s *WorkspaceService) InviteMember(ctx context.Context, workspaceID uuid.UU
 		UserID:      user.ID,
 		Role:        req.Role,
 	}
-	return s.workspaceRepo.AddMember(ctx, member)
+	if err := s.workspaceRepo.AddMember(ctx, member); err != nil {
+		return err
+	}
+
+	audit.Log("member.invited", user.ID, map[string]interface{}{
+		"workspace_id": workspaceID, "role": req.Role, "email": req.Email,
+	})
+	return nil
 }
 
 func (s *WorkspaceService) ListMembers(ctx context.Context, workspaceID uuid.UUID) ([]domain.WorkspaceMember, error) {
@@ -117,7 +129,14 @@ func (s *WorkspaceService) UpdateMemberRole(ctx context.Context, workspaceID, us
 		}
 	}
 
-	return s.workspaceRepo.UpdateMemberRole(ctx, workspaceID, userID, role)
+	if err := s.workspaceRepo.UpdateMemberRole(ctx, workspaceID, userID, role); err != nil {
+		return err
+	}
+
+	audit.Log("member.role_changed", userID, map[string]interface{}{
+		"workspace_id": workspaceID, "new_role": role, "old_role": member.Role,
+	})
+	return nil
 }
 
 func (s *WorkspaceService) RemoveMember(ctx context.Context, workspaceID, userID uuid.UUID) error {
@@ -136,7 +155,14 @@ func (s *WorkspaceService) RemoveMember(ctx context.Context, workspaceID, userID
 		}
 	}
 
-	return s.workspaceRepo.RemoveMember(ctx, workspaceID, userID)
+	if err := s.workspaceRepo.RemoveMember(ctx, workspaceID, userID); err != nil {
+		return err
+	}
+
+	audit.Log("member.removed", userID, map[string]interface{}{
+		"workspace_id": workspaceID,
+	})
+	return nil
 }
 
 func (s *WorkspaceService) ListMembersWithUsers(ctx context.Context, workspaceID uuid.UUID) ([]domain.WorkspaceMemberWithUser, error) {

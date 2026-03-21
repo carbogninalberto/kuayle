@@ -7,6 +7,7 @@ import (
 	"github.com/carbon/carbon-backend/internal/domain"
 	"github.com/carbon/carbon-backend/internal/dto"
 	"github.com/carbon/carbon-backend/internal/repository"
+	"github.com/carbon/carbon-backend/pkg/sanitize"
 	"github.com/google/uuid"
 )
 
@@ -19,6 +20,12 @@ func NewProjectService(projectRepo repository.ProjectRepo) *ProjectService {
 }
 
 func (s *ProjectService) Create(ctx context.Context, workspaceID uuid.UUID, req dto.CreateProjectRequest) (*domain.Project, error) {
+	req.Name = sanitize.StripHTML(req.Name)
+	if req.Description != nil {
+		clean := sanitize.SanitizeHTML(*req.Description)
+		req.Description = &clean
+	}
+
 	project := &domain.Project{
 		ID:          uuid.New(),
 		WorkspaceID: workspaceID,
@@ -52,16 +59,23 @@ func (s *ProjectService) ListByTeam(ctx context.Context, teamID uuid.UUID) ([]do
 	return s.projectRepo.ListByTeam(ctx, teamID)
 }
 
-func (s *ProjectService) Update(ctx context.Context, id uuid.UUID, req dto.UpdateProjectRequest) (*domain.Project, error) {
+func (s *ProjectService) Update(ctx context.Context, workspaceID, id uuid.UUID, req dto.UpdateProjectRequest) (*domain.Project, error) {
 	project, err := s.projectRepo.GetByID(ctx, id)
 	if err != nil || project == nil {
 		return nil, fmt.Errorf("project not found")
 	}
+	if project.WorkspaceID != workspaceID {
+		return nil, fmt.Errorf("project not found")
+	}
 
 	if req.Name != nil {
-		project.Name = *req.Name
+		clean := sanitize.StripHTML(*req.Name)
+		req.Name = &clean
+		project.Name = clean
 	}
 	if req.Description != nil {
+		clean := sanitize.SanitizeHTML(*req.Description)
+		req.Description = &clean
 		project.Description = req.Description
 	}
 	if req.Status != nil {
@@ -85,9 +99,12 @@ func (s *ProjectService) Update(ctx context.Context, id uuid.UUID, req dto.Updat
 	return project, nil
 }
 
-func (s *ProjectService) Delete(ctx context.Context, id uuid.UUID) error {
+func (s *ProjectService) Delete(ctx context.Context, workspaceID, id uuid.UUID) error {
 	project, err := s.projectRepo.GetByID(ctx, id)
 	if err != nil || project == nil {
+		return fmt.Errorf("project not found")
+	}
+	if project.WorkspaceID != workspaceID {
 		return fmt.Errorf("project not found")
 	}
 	return s.projectRepo.Delete(ctx, id)

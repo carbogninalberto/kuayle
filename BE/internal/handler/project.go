@@ -85,7 +85,8 @@ func (h *ProjectHandler) Update(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
 	}
-	project, err := h.projectSvc.Update(c.Request().Context(), id, req)
+	ws := c.Get("workspace").(*domain.Workspace)
+	project, err := h.projectSvc.Update(c.Request().Context(), ws.ID, id, req)
 	if err != nil {
 		return response.InternalError(c)
 	}
@@ -97,7 +98,8 @@ func (h *ProjectHandler) Delete(c echo.Context) error {
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid project ID")
 	}
-	if err := h.projectSvc.Delete(c.Request().Context(), id); err != nil {
+	ws := c.Get("workspace").(*domain.Workspace)
+	if err := h.projectSvc.Delete(c.Request().Context(), ws.ID, id); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
 	}
 	return response.Success(c, http.StatusOK, map[string]string{"status": "deleted"})

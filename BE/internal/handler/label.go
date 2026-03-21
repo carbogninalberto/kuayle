@@ -63,7 +63,8 @@ func (h *LabelHandler) Update(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
 	}
-	label, err := h.labelSvc.Update(c.Request().Context(), id, req)
+	ws := c.Get("workspace").(*domain.Workspace)
+	label, err := h.labelSvc.Update(c.Request().Context(), ws.ID, id, req)
 	if err != nil {
 		return response.InternalError(c)
 	}
@@ -75,7 +76,8 @@ func (h *LabelHandler) Delete(c echo.Context) error {
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid label ID")
 	}
-	if err := h.labelSvc.Delete(c.Request().Context(), id); err != nil {
+	ws := c.Get("workspace").(*domain.Workspace)
+	if err := h.labelSvc.Delete(c.Request().Context(), ws.ID, id); err != nil {
 		return response.InternalError(c)
 	}
 	return response.Success(c, http.StatusOK, map[string]string{"status": "deleted"})

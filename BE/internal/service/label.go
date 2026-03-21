@@ -48,9 +48,12 @@ func (s *LabelService) ListByWorkspace(ctx context.Context, workspaceID uuid.UUI
 	return s.labelRepo.ListByWorkspace(ctx, workspaceID)
 }
 
-func (s *LabelService) Update(ctx context.Context, id uuid.UUID, req dto.UpdateLabelRequest) (*domain.Label, error) {
+func (s *LabelService) Update(ctx context.Context, workspaceID, id uuid.UUID, req dto.UpdateLabelRequest) (*domain.Label, error) {
 	label, err := s.labelRepo.GetByID(ctx, id)
 	if err != nil || label == nil {
+		return nil, fmt.Errorf("label not found")
+	}
+	if label.WorkspaceID != workspaceID {
 		return nil, fmt.Errorf("label not found")
 	}
 
@@ -70,6 +73,13 @@ func (s *LabelService) Update(ctx context.Context, id uuid.UUID, req dto.UpdateL
 	return label, nil
 }
 
-func (s *LabelService) Delete(ctx context.Context, id uuid.UUID) error {
+func (s *LabelService) Delete(ctx context.Context, workspaceID, id uuid.UUID) error {
+	label, err := s.labelRepo.GetByID(ctx, id)
+	if err != nil || label == nil {
+		return fmt.Errorf("label not found")
+	}
+	if label.WorkspaceID != workspaceID {
+		return fmt.Errorf("label not found")
+	}
 	return s.labelRepo.Delete(ctx, id)
 }

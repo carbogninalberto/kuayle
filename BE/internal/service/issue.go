@@ -61,7 +61,8 @@ func (s *IssueService) Create(ctx context.Context, workspaceID, creatorID uuid.U
 		priority = domain.IssuePriority(*req.Priority)
 	}
 
-	// Sanitize HTML in description
+	// Sanitize user input
+	req.Title = sanitize.StripHTML(req.Title)
 	if req.Description != nil {
 		clean := sanitize.SanitizeHTML(*req.Description)
 		req.Description = &clean
@@ -184,7 +185,11 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 		return nil, fmt.Errorf("issue not found")
 	}
 
-	// Sanitize HTML in description
+	// Sanitize user input
+	if req.Title != nil {
+		clean := sanitize.StripHTML(*req.Title)
+		req.Title = &clean
+	}
 	if req.Description != nil {
 		clean := sanitize.SanitizeHTML(*req.Description)
 		req.Description = &clean
