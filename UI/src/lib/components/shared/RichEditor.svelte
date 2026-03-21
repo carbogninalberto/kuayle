@@ -68,7 +68,7 @@
 	});
 
 	const editorClass = borderless
-		? 'prose prose-invert prose-sm max-w-none outline-none min-h-[40px] py-1 text-[var(--color-text-primary)]'
+		? 'prose prose-invert prose-sm max-w-none outline-none min-h-[40px] text-[var(--color-text-primary)] borderless-editor'
 		: 'prose prose-invert prose-sm max-w-none outline-none min-h-[80px] px-3 py-2 text-[var(--color-text-primary)]';
 
 	onMount(() => {
@@ -322,6 +322,10 @@
 		font-size: 0.875rem;
 		line-height: 1.5;
 		color: var(--color-text-primary);
+	}
+	:global(.rich-editor .tiptap.borderless-editor) {
+		min-height: 40px;
+		padding: 0;
 	}
 	:global(.rich-editor .tiptap p.is-editor-empty:first-child::before) {
 		content: attr(data-placeholder);

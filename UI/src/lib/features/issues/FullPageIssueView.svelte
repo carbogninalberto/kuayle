@@ -184,97 +184,90 @@
 	<!-- Main content -->
 	<div class="flex flex-1 overflow-hidden">
 		<!-- Left column — main content -->
-		<div class="flex-1 overflow-y-auto px-10 py-6">
-			<!-- Title -->
-			<!-- svelte-ignore a11y_autofocus -->
-			{#if editingTitle}
-				<input
-					type="text"
-					bind:value={titleValue}
-					onblur={saveTitle}
-					onkeydown={(e) => { if (e.key === 'Enter') saveTitle(); if (e.key === 'Escape') { titleValue = issue.title; editingTitle = false; } }}
-					autofocus
-					class="w-full bg-transparent text-lg font-semibold text-[var(--color-text-primary)] outline-none"
-				/>
-			{:else}
-				<button
-					onclick={() => (editingTitle = true)}
-					class="w-full text-left text-lg font-semibold text-[var(--color-text-primary)] hover:text-[var(--color-text-primary)] transition-colors"
-				>
-					{issue.title}
-				</button>
-			{/if}
+		<div class="flex-1 overflow-y-auto">
+			<div class="mx-auto max-w-[720px] px-10 py-6">
+				<!-- Title -->
+				<!-- svelte-ignore a11y_autofocus -->
+				{#if editingTitle}
+					<input
+						type="text"
+						bind:value={titleValue}
+						onblur={saveTitle}
+						onkeydown={(e) => { if (e.key === 'Enter') saveTitle(); if (e.key === 'Escape') { titleValue = issue.title; editingTitle = false; } }}
+						autofocus
+						class="w-full bg-transparent text-lg font-semibold text-[var(--color-text-primary)] outline-none"
+					/>
+				{:else}
+					<button
+						onclick={() => (editingTitle = true)}
+						class="w-full text-left text-lg font-semibold text-[var(--color-text-primary)] hover:text-[var(--color-text-primary)] transition-colors"
+					>
+						{issue.title}
+					</button>
+				{/if}
 
-			<!-- Description -->
-			<div class="mt-3">
-				<RichEditor
-					content={issue.description ?? ''}
-					placeholder="Add description..."
-					bubbleMenu={true}
-					borderless={true}
-					onupdate={saveDescription}
-				/>
-			</div>
-
-			<!-- Sub-issues (inline like Linear) -->
-			{#if (issue.sub_issue_count ?? 0) > 0}
-				<div class="mt-5">
-					<SubIssuesList
-						{slug}
-						identifier={issue.identifier}
-						subIssueCount={issue.sub_issue_count ?? 0}
-						subIssueDone={issue.sub_issue_done ?? 0}
-						onclickissue={(sub) => goto(`/${slug}/issue/${sub.identifier}`)}
+				<!-- Description -->
+				<div class="mt-3">
+					<RichEditor
+						content={issue.description ?? ''}
+						placeholder="Add description..."
+						bubbleMenu={true}
+						borderless={true}
+						onupdate={saveDescription}
 					/>
 				</div>
-			{/if}
 
-			<!-- Relations -->
-			<div class="mt-5">
-				<IssueRelations {slug} identifier={issue.identifier} />
-			</div>
+				<!-- Sub-issues (inline like Linear) -->
+				{#if (issue.sub_issue_count ?? 0) > 0}
+					<div class="mt-5">
+						<SubIssuesList
+							{slug}
+							identifier={issue.identifier}
+							subIssueCount={issue.sub_issue_count ?? 0}
+							subIssueDone={issue.sub_issue_done ?? 0}
+							onclickissue={(sub) => goto(`/${slug}/issue/${sub.identifier}`)}
+						/>
+					</div>
+				{/if}
 
-			<!-- Activity timeline -->
-			<div class="mt-8">
-				<h3 class="text-sm font-medium text-[var(--color-text-primary)] mb-4">Activity</h3>
+				<!-- Relations -->
+				<div class="mt-5">
+					<IssueRelations {slug} identifier={issue.identifier} />
+				</div>
 
-				{#if loaded}
-					{@const allActivity = [
-						...history.map(h => ({ type: 'history' as const, data: h, time: h.created_at })),
-						...comments.map(c => ({ type: 'comment' as const, data: c, time: c.created_at }))
-					].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())}
+				<!-- Activity -->
+				<div class="mt-8 border-t border-[var(--app-border)] pt-5">
+					<h3 class="text-sm font-medium text-[var(--color-text-primary)] mb-4">Activity</h3>
 
-					<div class="relative">
-						<!-- Timeline connector line -->
-						{#if allActivity.length > 0}
-							<div class="absolute left-[11px] top-3 bottom-0 w-px bg-[var(--app-border)]"></div>
-						{/if}
+					{#if loaded}
+						{@const allActivity = [
+							...history.map(h => ({ type: 'history' as const, data: h, time: h.created_at })),
+							...comments.map(c => ({ type: 'comment' as const, data: c, time: c.created_at }))
+						].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())}
 
-						<div class="space-y-0">
-							{#each allActivity as item, idx}
+						<div class="space-y-3">
+							{#each allActivity as item}
 								{#if item.type === 'comment'}
-									<!-- Comment entry -->
-									<div class="relative flex gap-3 pb-4">
-										<div class="relative z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent)] text-[9px] font-medium text-white ring-2 ring-[var(--color-bg)]">
+									<div class="flex gap-3">
+										<div class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent)] text-[9px] font-medium text-white mt-0.5">
 											{(item.data.user?.name ?? 'U').charAt(0).toUpperCase()}
 										</div>
-										<div class="flex-1 min-w-0 pt-0.5">
-											<div class="flex items-center gap-2 mb-1.5">
-												<span class="text-xs font-medium text-[var(--color-text-primary)]">{item.data.user?.name ?? 'User'}</span>
+										<div class="flex-1 min-w-0">
+											<div class="flex items-center gap-2">
+												<span class="text-[13px] font-medium text-[var(--color-text-primary)]">{item.data.user?.name ?? 'User'}</span>
 												<span class="text-[11px] text-[var(--color-text-tertiary)]">{formatRelativeTime(item.data.created_at)}</span>
 											</div>
-											<div class="prose prose-invert prose-sm max-w-none text-[13px] text-[var(--color-text-secondary)] rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2">
+											<div class="prose prose-invert prose-sm max-w-none mt-1 text-[13px] text-[var(--color-text-secondary)]">
 												{@html sanitizeHtml(item.data.body ?? '')}
 											</div>
 										</div>
 									</div>
 								{:else}
-									<!-- History entry -->
-									<div class="relative flex items-center gap-3 pb-3">
-										<div class="relative z-10 flex h-6 w-6 shrink-0 items-center justify-center">
-											<div class="h-2 w-2 rounded-full bg-[var(--color-text-tertiary)] ring-2 ring-[var(--color-bg)]"></div>
+									<div class="flex items-center gap-3 pl-1">
+										<div class="flex h-4 w-4 shrink-0 items-center justify-center">
+											<div class="h-1.5 w-1.5 rounded-full bg-[var(--color-text-tertiary)]"></div>
 										</div>
-										<div class="flex flex-wrap items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] min-w-0">
+										<div class="flex flex-wrap items-center gap-1.5 text-xs text-[var(--color-text-tertiary)]">
 											{#if item.data.field === 'title' || item.data.field === 'description'}
 												<span>updated <strong class="text-[var(--color-text-secondary)]">{item.data.field}</strong></span>
 											{:else}
@@ -286,7 +279,7 @@
 												<span>to</span>
 												<code class="rounded bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 text-[11px] text-[var(--color-text-secondary)]">{formatHistoryValue(item.data.field, item.data.new_value)}</code>
 											{/if}
-											<span class="text-[var(--color-text-tertiary)]">&middot;</span>
+											<span>&middot;</span>
 											<span>{formatRelativeTime(item.data.created_at)}</span>
 										</div>
 									</div>
@@ -297,37 +290,32 @@
 						{#if allActivity.length === 0}
 							<p class="text-xs text-[var(--color-text-tertiary)]">No activity yet</p>
 						{/if}
-					</div>
-				{/if}
+					{/if}
 
-				<!-- Comment input -->
-				<form onsubmit={handleAddComment} class="relative mt-2">
-					<div class="flex gap-3">
-						<div class="relative z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent)] text-[9px] font-medium text-white">
-							U
-						</div>
-						<div class="flex-1 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)] transition-colors focus-within:border-[var(--app-accent)]">
+					<!-- Comment input -->
+					<div class="mt-4 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)] transition-colors focus-within:border-[var(--app-accent)]">
+						<form onsubmit={handleAddComment}>
 							<textarea
 								bind:value={newComment}
 								placeholder="Leave a comment..."
-								rows="1"
+								rows="2"
 								onkeydown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleAddComment(e); } }}
 								oninput={(e) => { const t = e.target as HTMLTextAreaElement; t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 120) + 'px'; }}
-								class="w-full resize-none bg-transparent px-3 py-2 text-[13px] text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)]"
+								class="w-full resize-none bg-transparent px-3 py-2.5 text-[13px] text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)]"
 							></textarea>
 							{#if newComment.trim()}
-								<div class="flex items-center justify-end gap-1 border-t border-[var(--app-border)] px-2 py-1">
+								<div class="flex items-center justify-end border-t border-[var(--app-border)] px-3 py-1.5">
 									<button
 										type="submit"
-										class="rounded px-2 py-0.5 text-xs font-medium text-[var(--app-accent)] hover:bg-[var(--color-bg-hover)] transition-colors"
+										class="rounded-md bg-[var(--app-accent)] px-3 py-1 text-xs font-medium text-white hover:bg-[var(--app-accent-hover)] transition-colors"
 									>
 										Comment
 									</button>
 								</div>
 							{/if}
-						</div>
+						</form>
 					</div>
-				</form>
+				</div>
 			</div>
 		</div>
 
