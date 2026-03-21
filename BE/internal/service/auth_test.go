@@ -84,7 +84,7 @@ func TestRegister_Happy(t *testing.T) {
 	ctx := context.Background()
 	req := dto.RegisterRequest{
 		Email:    "test@example.com",
-		Password: "password123",
+		Password: "Password123!!",
 		Name:     "Test User",
 	}
 
@@ -113,7 +113,7 @@ func TestRegister_DuplicateEmail(t *testing.T) {
 	ctx := context.Background()
 	req := dto.RegisterRequest{
 		Email:    "existing@example.com",
-		Password: "password123",
+		Password: "Password123!!",
 		Name:     "Test User",
 	}
 
@@ -137,7 +137,7 @@ func TestRegister_DuplicateEmail_DBConstraint(t *testing.T) {
 	ctx := context.Background()
 	req := dto.RegisterRequest{
 		Email:    "race@example.com",
-		Password: "password123",
+		Password: "Password123!!",
 		Name:     "Test User",
 	}
 
@@ -157,14 +157,14 @@ func TestLogin_Happy(t *testing.T) {
 
 	ctx := context.Background()
 
-	// bcrypt hash of "password123"
+	// bcrypt hash of "Password123!!"
 	existingUser := &domain.User{
 		ID:    uuid.New(),
 		Email: "test@example.com",
 		Name:  "Test User",
 	}
 	// We need a real bcrypt hash
-	hash, _ := bcryptGenerateHelper("password123")
+	hash, _ := bcryptGenerateHelper("Password123!!")
 	existingUser.PasswordHash = hash
 
 	userRepo.On("GetByEmail", ctx, "test@example.com").Return(existingUser, nil)
@@ -172,7 +172,7 @@ func TestLogin_Happy(t *testing.T) {
 
 	req := dto.LoginRequest{
 		Email:    "test@example.com",
-		Password: "password123",
+		Password: "Password123!!",
 	}
 
 	user, accessToken, refreshToken, err := svc.Login(ctx, req)
@@ -190,7 +190,7 @@ func TestLogin_WrongPassword(t *testing.T) {
 	svc := NewAuthService(userRepo, refreshRepo, "test-secret")
 
 	ctx := context.Background()
-	hash, _ := bcryptGenerateHelper("password123")
+	hash, _ := bcryptGenerateHelper("Password123!!")
 	existingUser := &domain.User{
 		ID:           uuid.New(),
 		Email:        "test@example.com",
@@ -220,7 +220,7 @@ func TestLogin_NonexistentUser(t *testing.T) {
 
 	req := dto.LoginRequest{
 		Email:    "nobody@example.com",
-		Password: "password123",
+		Password: "Password123!!",
 	}
 
 	user, _, _, err := svc.Login(ctx, req)
@@ -242,7 +242,7 @@ func TestRefreshTokens_Happy(t *testing.T) {
 	_ = jwtpkg // We need to generate a real token
 
 	// We'll use the Login path to get a valid refresh token first
-	hash, _ := bcryptGenerateHelper("password123")
+	hash, _ := bcryptGenerateHelper("Password123!!")
 	existingUser := &domain.User{
 		ID:           userID,
 		Email:        "test@example.com",
@@ -253,7 +253,7 @@ func TestRefreshTokens_Happy(t *testing.T) {
 
 	_, _, refreshToken, _ := svc.Login(ctx, dto.LoginRequest{
 		Email:    "test@example.com",
-		Password: "password123",
+		Password: "Password123!!",
 	})
 
 	// Now test refresh

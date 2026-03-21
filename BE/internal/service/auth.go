@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
+	"unicode"
 
 	"github.com/carbon/carbon-backend/internal/domain"
 	"github.com/carbon/carbon-backend/internal/dto"
@@ -18,6 +20,7 @@ var (
 	ErrInvalidCredentials = errors.New("invalid credentials")
 	ErrEmailTaken         = errors.New("email already taken")
 	ErrInvalidToken       = errors.New("invalid or expired token")
+	ErrWeakPassword       = errors.New("password must contain at least one uppercase letter, one lowercase letter, and one digit")
 )
 
 type AuthService struct {
@@ -31,6 +34,10 @@ func NewAuthService(userRepo repository.UserRepo, refreshRepo repository.Refresh
 }
 
 func (s *AuthService) Register(ctx context.Context, req dto.RegisterRequest) (*domain.User, string, string, error) {
+	if err := validatePasswordComplexity(req.Password); err != nil {
+		return nil, "", "", err
+	}
+
 	existing, _ := s.userRepo.GetByEmail(ctx, req.Email)
 	if existing != nil {
 		return nil, "", "", ErrEmailTaken
@@ -167,4 +174,22 @@ func (s *AuthService) GetUserByID(ctx context.Context, id uuid.UUID) (*domain.Us
 func hashToken(token string) string {
 	h := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(h[:])
+}
+
+func validatePasswordComplexity(password string) error {
+	var hasUpper, hasLower, hasDigit bool
+	for _, ch := range password {
+		switch {
+		case unicode.IsUpper(ch):
+			hasUpper = true
+		case unicode.IsLower(ch):
+			hasLower = true
+		case unicode.IsDigit(ch):
+			hasDigit = true
+		}
+	}
+	if !hasUpper || !hasLower || !hasDigit {
+		return fmt.Errorf("%w", ErrWeakPassword)
+	}
+	return nil
 }

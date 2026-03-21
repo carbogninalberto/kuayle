@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"time"
@@ -107,6 +108,19 @@ func main() {
 	webhookSvc := service.NewWebhookService(webhookRepo, cfg.JWTSecret)
 	webhookH := handler.NewWebhookHandler(webhookSvc)
 	uploadH := handler.NewUploadHandler("./uploads")
+
+	// Background: clean up expired refresh tokens every hour
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			if err := refreshRepo.DeleteExpired(context.Background()); err != nil {
+				log.WithError(err).Warn("failed to clean up expired refresh tokens")
+			} else {
+				log.Info("expired refresh tokens cleaned up")
+			}
+		}
+	}()
 
 	// Echo
 	e := echo.New()

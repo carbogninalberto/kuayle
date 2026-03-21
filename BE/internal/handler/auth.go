@@ -11,6 +11,7 @@ import (
 	"github.com/carbon/carbon-backend/pkg/response"
 	"github.com/carbon/carbon-backend/pkg/validate"
 	"github.com/labstack/echo/v4"
+	log "github.com/sirupsen/logrus"
 )
 
 type AuthHandler struct {
@@ -38,12 +39,17 @@ func (h *AuthHandler) Register(c echo.Context) error {
 
 	user, accessToken, refreshToken, err := h.authService.Register(c.Request().Context(), req)
 	if err != nil {
+		if errors.Is(err, service.ErrWeakPassword) {
+			return response.Error(c, http.StatusBadRequest, "WEAK_PASSWORD", err.Error())
+		}
 		if errors.Is(err, service.ErrEmailTaken) {
+			log.WithFields(log.Fields{"event": "auth.register_failed", "email": req.Email, "reason": "email_taken", "ip": c.RealIP()}).Warn("registration failed")
 			return response.Error(c, http.StatusConflict, "EMAIL_TAKEN", "Email already registered")
 		}
 		return response.InternalError(c)
 	}
 
+	log.WithFields(log.Fields{"event": "auth.register", "user_id": user.ID, "email": user.Email, "ip": c.RealIP()}).Info("user registered")
 	h.setAuthCookies(c, accessToken, refreshToken)
 
 	return response.Success(c, http.StatusCreated, dto.UserResponse{
@@ -69,6 +75,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	}
 
 	if h.loginThrottle.IsLocked(req.Email) {
+		log.WithFields(log.Fields{"event": "auth.login_locked", "email": req.Email, "ip": c.RealIP()}).Warn("login attempt while locked")
 		return response.Error(c, http.StatusTooManyRequests, "ACCOUNT_LOCKED", "Too many failed attempts, please try again later")
 	}
 
@@ -76,12 +83,14 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	if err != nil {
 		if errors.Is(err, service.ErrInvalidCredentials) {
 			h.loginThrottle.RecordFailure(req.Email)
+			log.WithFields(log.Fields{"event": "auth.login_failed", "email": req.Email, "ip": c.RealIP()}).Warn("login failed")
 			return response.Error(c, http.StatusUnauthorized, "INVALID_CREDENTIALS", "Invalid email or password")
 		}
 		return response.InternalError(c)
 	}
 
 	h.loginThrottle.RecordSuccess(req.Email)
+	log.WithFields(log.Fields{"event": "auth.login", "user_id": user.ID, "email": user.Email, "ip": c.RealIP()}).Info("user logged in")
 	h.setAuthCookies(c, accessToken, refreshToken)
 
 	return response.Success(c, http.StatusOK, dto.UserResponse{
@@ -101,10 +110,12 @@ func (h *AuthHandler) Refresh(c echo.Context) error {
 
 	accessToken, refreshToken, err := h.authService.RefreshTokens(c.Request().Context(), cookie.Value)
 	if err != nil {
+		log.WithFields(log.Fields{"event": "auth.refresh_failed", "ip": c.RealIP()}).Warn("token refresh failed")
 		clearAuthCookies(c)
 		return response.Unauthorized(c)
 	}
 
+	log.WithFields(log.Fields{"event": "auth.refresh", "ip": c.RealIP()}).Info("token refreshed")
 	h.setAuthCookies(c, accessToken, refreshToken)
 	return response.Success(c, http.StatusOK, map[string]string{"status": "refreshed"})
 }
@@ -114,6 +125,7 @@ func (h *AuthHandler) Logout(c echo.Context) error {
 	if err == nil && cookie.Value != "" {
 		_ = h.authService.Logout(c.Request().Context(), cookie.Value)
 	}
+	log.WithFields(log.Fields{"event": "auth.logout", "ip": c.RealIP()}).Info("user logged out")
 	clearAuthCookies(c)
 	return response.Success(c, http.StatusOK, map[string]string{"status": "logged out"})
 }

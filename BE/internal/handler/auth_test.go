@@ -50,7 +50,7 @@ func TestAuthHandler_Register_ValidationError(t *testing.T) {
 func TestAuthHandler_Register_Success(t *testing.T) {
 	e := echo.New()
 
-	body := `{"email": "test@example.com", "password": "password123", "name": "Test User"}`
+	body := `{"email": "test@example.com", "password": "Password123!!", "name": "Test User"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/auth/register", strings.NewReader(body))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
@@ -85,7 +85,7 @@ func TestAuthHandler_Register_Success(t *testing.T) {
 func TestAuthHandler_Register_DuplicateEmail(t *testing.T) {
 	e := echo.New()
 
-	body := `{"email": "existing@example.com", "password": "password123", "name": "Test"}`
+	body := `{"email": "existing@example.com", "password": "Password123!!", "name": "Test"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/auth/register", strings.NewReader(body))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
@@ -106,13 +106,13 @@ func TestAuthHandler_Register_DuplicateEmail(t *testing.T) {
 func TestAuthHandler_Login_Success(t *testing.T) {
 	e := echo.New()
 
-	body := `{"email": "test@example.com", "password": "password123"}`
+	body := `{"email": "test@example.com", "password": "Password123!!"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(body))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
-	userRepo := &testUserRepo{userWithPassword: "password123"}
+	userRepo := &testUserRepo{userWithPassword: "Password123!!"}
 	refreshRepo := &testRefreshTokenRepo{}
 	authSvc := service.NewAuthService(userRepo, refreshRepo, "test-secret")
 	h := NewAuthHandler(authSvc, false, middleware.NewLoginThrottle(5, 15*time.Minute))
@@ -141,7 +141,7 @@ func TestAuthHandler_Login_WrongPassword(t *testing.T) {
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
-	userRepo := &testUserRepo{userWithPassword: "password123"}
+	userRepo := &testUserRepo{userWithPassword: "Password123!!"}
 	refreshRepo := &testRefreshTokenRepo{}
 	authSvc := service.NewAuthService(userRepo, refreshRepo, "test-secret")
 	h := NewAuthHandler(authSvc, false, middleware.NewLoginThrottle(5, 15*time.Minute))

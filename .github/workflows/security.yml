@@ -1,0 +1,87 @@
+name: Security Scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 6 * * 1' # Weekly on Monday at 06:00 UTC
+
+jobs:
+  go-security:
+    name: Go Security Scan
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./BE
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: BE/go.mod
+
+      - name: Run govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Build check
+        run: go build ./...
+
+      - name: Run tests
+        run: go test ./... -race -count=1
+
+  frontend-security:
+    name: Frontend Security Scan
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./UI
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run npm audit
+        run: npm audit --audit-level=high
+
+      - name: Build check
+        run: npm run build
+
+  docker-security:
+    name: Container Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build backend image
+        run: docker build -t carbon-backend:scan ./BE
+
+      - name: Build frontend image
+        run: docker build -t carbon-frontend:scan ./UI
+
+      - name: Scan backend image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: carbon-backend:scan
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+
+      - name: Scan frontend image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: carbon-frontend:scan
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
