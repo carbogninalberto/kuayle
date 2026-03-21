@@ -1,0 +1,75 @@
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    depends_on:
+      - backend
+      - frontend
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-carbon}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-carbon}
+      POSTGRES_DB: ${POSTGRES_DB:-carbon}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+  backend:
+    build: ../BE
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - uploads:/app/uploads
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-carbon}:${POSTGRES_PASSWORD:-carbon}@postgres:5432/${POSTGRES_DB:-carbon}?sslmode=disable
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      FRONTEND_URL: ${FRONTEND_URL:-https://localhost}
+      PORT: 8080
+      STORAGE_TYPE: ${STORAGE_TYPE:-local}
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-}
+      S3_PUBLIC: ${S3_PUBLIC:-true}
+      S3_CDN_BASE_URL: ${S3_CDN_BASE_URL:-}
+
+  frontend:
+    build: ../UI
+    restart: unless-stopped
+    depends_on:
+      - backend
+
+  # Uncomment for self-hosted S3-compatible storage
+  # seaweedfs:
+  #   image: chrislusf/seaweedfs:latest
+  #   restart: unless-stopped
+  #   command: "server -s3 -dir=/data -s3.port=8333 -master.dir=/data/master -volume.dir.idx=/data/volume"
+  #   volumes:
+  #     - seaweedfs:/data
+
+volumes:
+  pgdata:
+  uploads:
+  caddy_data:
+  caddy_config:
+  # seaweedfs:

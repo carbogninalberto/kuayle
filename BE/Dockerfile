@@ -11,7 +11,7 @@ RUN apk add --no-cache ca-certificates && \
 WORKDIR /app
 COPY --from=builder /app/server .
 COPY --from=builder /app/migrations ./migrations
-RUN chown -R appuser:appgroup /app
+RUN mkdir -p /app/uploads && chown -R appuser:appgroup /app
 USER appuser
 EXPOSE 8080
 CMD ["./server"]

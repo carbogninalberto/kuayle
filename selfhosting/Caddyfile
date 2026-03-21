@@ -1,0 +1,28 @@
+{$DOMAIN:localhost} {
+	# API and uploads — proxy to backend
+	handle /api/* {
+		reverse_proxy backend:8080
+	}
+
+	handle /uploads/* {
+		reverse_proxy backend:8080
+	}
+
+	handle /health {
+		reverse_proxy backend:8080
+	}
+
+	handle /ready {
+		reverse_proxy backend:8080
+	}
+
+	# WebSocket support
+	handle /api/workspaces/*/ws {
+		reverse_proxy backend:8080
+	}
+
+	# Frontend — proxy to static file server
+	handle {
+		reverse_proxy frontend:5173
+	}
+}

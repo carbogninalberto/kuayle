@@ -2,24 +2,22 @@ package handler
 
 import (
 	"fmt"
-	"io"
 	"net/http"
-	"os"
 	"path/filepath"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
 	"github.com/carbon/carbon-backend/pkg/response"
+	"github.com/carbon/carbon-backend/pkg/storage"
 )
 
 type UploadHandler struct {
-	uploadDir string
+	store storage.Backend
 }
 
-func NewUploadHandler(uploadDir string) *UploadHandler {
-	os.MkdirAll(uploadDir, 0755)
-	return &UploadHandler{uploadDir: uploadDir}
+func NewUploadHandler(store storage.Backend) *UploadHandler {
+	return &UploadHandler{store: store}
 }
 
 func (h *UploadHandler) Upload(c echo.Context) error {
@@ -62,7 +60,7 @@ func (h *UploadHandler) Upload(c echo.Context) error {
 			ext = ".svg"
 		}
 	}
-	filename := fmt.Sprintf("%s%s", uuid.New().String(), ext)
+	key := fmt.Sprintf("%s%s", uuid.New().String(), ext)
 
 	src, err := file.Open()
 	if err != nil {
@@ -70,19 +68,14 @@ func (h *UploadHandler) Upload(c echo.Context) error {
 	}
 	defer src.Close()
 
-	dstPath := filepath.Join(h.uploadDir, filename)
-	dst, err := os.Create(dstPath)
+	if _, err := h.store.Put(c.Request().Context(), key, src, contentType); err != nil {
+		return response.InternalError(c)
+	}
+
+	url, err := h.store.URL(c.Request().Context(), key)
 	if err != nil {
 		return response.InternalError(c)
 	}
-	defer dst.Close()
-
-	if _, err = io.Copy(dst, src); err != nil {
-		return response.InternalError(c)
-	}
-
-	// Build URL - serve from /uploads/
-	url := fmt.Sprintf("/uploads/%s", filename)
 
 	return response.Success(c, http.StatusOK, map[string]string{
 		"url":      url,

@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 
+	"github.com/carbon/carbon-backend/pkg/storage"
 	"github.com/kelseyhightower/envconfig"
 )
 
@@ -12,7 +13,8 @@ type Config struct {
 	RedisURL    string `envconfig:"REDIS_URL" required:"true"`
 	JWTSecret   string `envconfig:"JWT_SECRET" required:"true"`
 	FrontendURL string `envconfig:"FRONTEND_URL" default:"http://localhost:5173"`
-	Environment string `envconfig:"ENVIRONMENT" default:"development"`
+	Environment string         `envconfig:"ENVIRONMENT" default:"development"`
+	Storage     storage.Config
 }
 
 func Load() (*Config, error) {

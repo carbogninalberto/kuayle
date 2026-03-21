@@ -20,6 +20,7 @@ import (
 	"github.com/carbon/carbon-backend/internal/realtime"
 	"github.com/carbon/carbon-backend/internal/repository"
 	"github.com/carbon/carbon-backend/internal/service"
+	"github.com/carbon/carbon-backend/pkg/storage"
 )
 
 func main() {
@@ -107,7 +108,11 @@ func main() {
 	webhookRepo := repository.NewWebhookRepository(db)
 	webhookSvc := service.NewWebhookService(webhookRepo, cfg.JWTSecret)
 	webhookH := handler.NewWebhookHandler(webhookSvc)
-	uploadH := handler.NewUploadHandler("./uploads")
+	store, err := storage.New(cfg.Storage)
+	if err != nil {
+		log.Fatalf("Failed to initialize storage: %v", err)
+	}
+	uploadH := handler.NewUploadHandler(store)
 
 	// Background: clean up expired refresh tokens every hour
 	go func() {
@@ -125,7 +130,9 @@ func main() {
 	// Echo
 	e := echo.New()
 	e.HideBanner = true
-	e.Static("/uploads", "./uploads")
+	if cfg.Storage.Type == storage.TypeLocal || cfg.Storage.Type == "" {
+		e.Static("/uploads", cfg.Storage.LocalDir)
+	}
 
 	// Global middleware
 	e.Use(mw.Recovery())
