@@ -979,7 +979,8 @@
 							<p class="mt-1 px-2 text-xs text-[var(--color-text-tertiary)] leading-relaxed">{issueProject.description}</p>
 						{/if}
 
-						<!-- Cycle as sub-item of project -->
+						<!-- Cycle as sub-item of project (only when project is selected) -->
+						{#if issueProject}
 						<div class="ml-3 flex">
 							<svg class="shrink-0 mr-1" width="14" height="100%" viewBox="0 0 14 28" preserveAspectRatio="xMinYMin" fill="none">
 								<path d="M1 0 L1 18 C1 23, 5 23, 9 23 L14 23" stroke="var(--color-text-tertiary)" stroke-width="1.5" opacity="0.4" fill="none"/>
@@ -1014,6 +1015,7 @@
 								</Popover.Root>
 							</div>
 						</div>
+						{/if}
 					</div>
 				{/if}
 			</div>
