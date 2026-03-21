@@ -410,11 +410,9 @@
 				<SquareMousePointer size={14} />
 			</button>
 
-			{#if onnavigate}
+			{#if onnavigate && issueCount > 0}
 				<div class="ml-1 flex items-center gap-0.5 border-l border-[var(--app-border)] pl-2">
-					{#if issueCount > 0}
-						<span class="text-[11px] text-[var(--color-text-tertiary)] mr-1">{currentIndex + 1}/{issueCount}</span>
-					{/if}
+					<span class="text-[11px] text-[var(--color-text-tertiary)] mr-1">{currentIndex + 1}/{issueCount}</span>
 					<button
 						onclick={() => onnavigate?.('prev')}
 						class="rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
@@ -648,6 +646,7 @@
 												content=""
 												placeholder="Leave a reply..."
 												minimal={true}
+												bubbleMenu={true}
 												borderless={true}
 												onupdate={(html) => { replyContents[comment.id] = html; replyContents = replyContents; }}
 												onsubmit={() => handleReply(comment.id)}
@@ -679,6 +678,7 @@
 							content=""
 							placeholder="Leave a comment..."
 							minimal={true}
+							bubbleMenu={true}
 							borderless={true}
 							onupdate={(html) => newComment = html}
 							onsubmit={handleAddComment}
