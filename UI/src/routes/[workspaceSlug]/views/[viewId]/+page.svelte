@@ -6,13 +6,16 @@
 	import { listIssues } from '$lib/api/issues';
 	import { listMembers } from '$lib/api/members';
 	import { listLabels } from '$lib/api/labels';
+	import { listTeams } from '$lib/api/teams';
+	import { listProjects } from '$lib/api/projects';
 	import { teamStatusesState } from '$lib/features/issues/team-statuses.state.svelte';
 	import type { View } from '$lib/types/view';
 	import type { Issue } from '$lib/types/issue';
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import type { Label } from '$lib/types/label';
+	import type { Team } from '$lib/types/team';
+	import type { Project } from '$lib/types/project';
 	import IssueRow from '$lib/features/issues/IssueRow.svelte';
-	import IssueDetail from '$lib/features/issues/IssueDetail.svelte';
 	import { issuesState } from '$lib/features/issues/issues.state.svelte';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
 	import { Button } from '$lib/components/ui/button';
@@ -28,6 +31,8 @@
 	let issues = $state<Issue[]>([]);
 	let members = $state<WorkspaceMember[]>([]);
 	let labels = $state<Label[]>([]);
+	let teams = $state<Team[]>([]);
+	let projects = $state<Project[]>([]);
 	let loading = $state(true);
 	let actionsOpen = $state(false);
 	let lastSelectedId = $state<string | null>(null);
@@ -36,23 +41,30 @@
 	let editingName = $state(false);
 	let editNameValue = $state('');
 
-	onMount(async () => {
-		try {
-			const [v, m, l] = await Promise.all([
-				getView(slug, viewId),
-				listMembers(slug),
-				listLabels(slug)
-			]);
-			view = v;
+	$effect(() => {
+		const s = slug;
+		const v = viewId;
+		if (!s || !v) return;
+		loading = true;
+		Promise.all([
+			getView(s, v),
+			listMembers(s),
+			listLabels(s),
+			listTeams(s),
+			listProjects(s)
+		]).then(async ([viewData, m, l, t, p]) => {
+			view = viewData;
 			members = m;
 			labels = l;
-			await loadIssues(v);
-		} catch {
+			teams = t;
+			projects = p;
+			await loadIssues(viewData);
+		}).catch(() => {
 			toast.error('View not found');
-			goto(`/${slug}/views`);
-		} finally {
+			goto(`/${s}`);
+		}).finally(() => {
 			loading = false;
-		}
+		});
 	});
 
 	async function loadIssues(v: View) {
@@ -65,7 +77,6 @@
 		try {
 			const res = await listIssues(slug, params);
 			issues = res.data;
-			// Load team statuses from the first issue's team
 			const firstTeamId = issues[0]?.team_id;
 			if (firstTeamId) {
 				teamStatusesState.load(slug, firstTeamId);
@@ -73,6 +84,61 @@
 		} catch {
 			issues = [];
 		}
+	}
+
+	function resolveFilterValue(key: string, value: string): string {
+		switch (key) {
+			case 'label': {
+				const names = value.split(',').map((id) => {
+					const label = labels.find((l) => l.id === id);
+					return label ? label.name : id;
+				});
+				return names.join(', ');
+			}
+			case 'assignee':
+			case 'creator': {
+				const names = value.split(',').map((id) => {
+					const member = members.find((m) => m.user_id === id);
+					return member ? member.user_name : id;
+				});
+				return names.join(', ');
+			}
+			case 'team': {
+				const names = value.split(',').map((id) => {
+					const team = teams.find((t) => t.id === id);
+					return team ? team.name : id;
+				});
+				return names.join(', ');
+			}
+			case 'project': {
+				const names = value.split(',').map((id) => {
+					const project = projects.find((p) => p.id === id);
+					return project ? project.name : id;
+				});
+				return names.join(', ');
+			}
+			case 'status':
+			case 'priority':
+			case 'search':
+			default:
+				return value;
+		}
+	}
+
+	function filterLabel(key: string): string {
+		const labels: Record<string, string> = {
+			status: 'Status',
+			priority: 'Priority',
+			assignee: 'Assignee',
+			creator: 'Creator',
+			team: 'Team',
+			project: 'Project',
+			label: 'Label',
+			search: 'Search',
+			due_before: 'Due before',
+			due_after: 'Due after'
+		};
+		return labels[key] ?? key;
 	}
 
 	function startEditName() {
@@ -101,15 +167,20 @@
 		try {
 			await deleteView(slug, view.id);
 			toast.success('View deleted');
-			goto(`/${slug}/views`);
+			goto(`/${slug}`);
 		} catch (err: any) {
 			toast.error(err?.error?.message || 'Failed to delete view');
 		}
 	}
 
+	function handleIssueClick(issue: Issue) {
+		lastSelectedId = issue.id;
+		goto(`/${slug}/issue/${issue.identifier}`);
+	}
+
 	const keyHandler = createKeyboardHandler([
 		{ key: 'a', ctrl: true, handler: () => issuesState.selectAll() },
-		{ key: 'Escape', handler: () => issuesState.clearSelection() },
+		{ key: 'Escape', handler: () => issuesState.clearSelection() }
 	]);
 
 	onMount(() => {
@@ -126,14 +197,16 @@
 <div class="flex h-full flex-col">
 	{#if !loading && view}
 		<!-- Header -->
-		<div class="flex h-[49px] items-center justify-between border-b border-[var(--app-border)] px-6">
+		<div
+			class="flex h-[49px] items-center justify-between border-b border-[var(--app-border)] px-6"
+		>
 			<div class="flex items-center gap-3">
-				<a
-					href="/{slug}/views"
+				<button
+					onclick={() => history.back()}
 					class="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
 				>
 					<ArrowLeft size={16} />
-				</a>
+				</button>
 				{#if editingName}
 					<div class="flex items-center gap-1">
 						<input
@@ -159,7 +232,10 @@
 					</button>
 				{/if}
 				{#if view.is_shared}
-					<span class="rounded bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 text-[10px] text-[var(--color-text-tertiary)]">Shared</span>
+					<span
+						class="rounded bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 text-[10px] text-[var(--color-text-tertiary)]"
+						>Shared</span
+					>
 				{/if}
 			</div>
 			<div class="flex items-center gap-2">
@@ -171,7 +247,10 @@
 					</Popover.Trigger>
 					<Popover.Content class="w-40 p-1" align="end">
 						<button
-							onclick={() => { actionsOpen = false; handleDelete(); }}
+							onclick={() => {
+								actionsOpen = false;
+								handleDelete();
+							}}
 							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-error)] hover:bg-[var(--color-bg-hover)]"
 						>
 							<Trash2 size={14} />
@@ -184,12 +263,16 @@
 
 		<!-- Active filters -->
 		{#if view.filters && Object.keys(view.filters).length > 0}
-			<div class="flex items-center gap-2 border-b border-[var(--app-border)] px-6 py-2">
+			<div
+				class="flex flex-wrap items-center gap-2 border-b border-[var(--app-border)] px-6 py-2"
+			>
 				<span class="text-xs text-[var(--color-text-tertiary)]">Filters:</span>
 				{#each Object.entries(view.filters) as [key, val]}
 					{#if val}
-						<span class="rounded bg-[var(--color-bg-tertiary)] px-2 py-0.5 text-xs text-[var(--color-text-secondary)]">
-							{key}: {val}
+						<span
+							class="rounded bg-[var(--color-bg-tertiary)] px-2 py-0.5 text-xs text-[var(--color-text-secondary)]"
+						>
+							{filterLabel(key)}: {resolveFilterValue(key, val)}
 						</span>
 					{/if}
 				{/each}
@@ -212,17 +295,18 @@
 				/>
 			{:else}
 				{#each issues as issue (issue.id)}
-					<IssueRow {issue} {slug} {members} {labels} {lastSelectedId} onlastselected={(id) => lastSelectedId = id} onclick={(i) => { lastSelectedId = i.id; issuesState.select(i); }} />
+					<IssueRow
+						{issue}
+						{slug}
+						{members}
+						{labels}
+						{projects}
+						{lastSelectedId}
+						onlastselected={(id) => (lastSelectedId = id)}
+						onclick={handleIssueClick}
+					/>
 				{/each}
 			{/if}
 		</div>
 	{/if}
 </div>
-
-{#if issuesState.selectedIssue}
-	<IssueDetail
-		issue={issuesState.selectedIssue}
-		{slug}
-		onclose={() => issuesState.select(null)}
-	/>
-{/if}
