@@ -109,7 +109,7 @@
 			{#if onsearch}
 				<button
 					onclick={onsearch}
-					class="rounded-md p-1 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+					class="rounded-md p-1 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
 					title="Search"
 				>
 					<Search size={16} />
@@ -118,7 +118,7 @@
 			{#if oncreateissue}
 				<button
 					onclick={oncreateissue}
-					class="rounded-md p-1 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+					class="rounded-md p-1 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
 					title="New issue"
 				>
 					<SquarePen size={16} />
@@ -129,12 +129,12 @@
 
 	<!-- Navigation -->
 	<nav class="flex-1 overflow-y-auto px-2 py-2">
-		<div class="space-y-0.5">
+		<div class="space-y-px">
 			<a
 				href="/{slug}/inbox"
-				class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm {isActive(`/${slug}/inbox`)
-					? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
-					: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]'}"
+				class="flex items-center gap-2 rounded-md px-2 py-1 text-sm {isActive(`/${slug}/inbox`)
+					? 'bg-[var(--color-bg-hover)]/50 text-[var(--color-text-primary)]'
+					: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
 			>
 				<Inbox size={16} />
 				Inbox
@@ -146,22 +146,22 @@
 			</a>
 			<a
 				href="/{slug}/my-issues"
-				class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm {isActive(
+				class="flex items-center gap-2 rounded-md px-2 py-1 text-sm {isActive(
 					`/${slug}/my-issues`
 				)
-					? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
-					: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]'}"
+					? 'bg-[var(--color-bg-hover)]/50 text-[var(--color-text-primary)]'
+					: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
 			>
 				<CircleUser size={16} />
 				My Issues
 			</a>
 			<a
 				href="/{slug}/dashboard"
-				class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm {isActive(
+				class="flex items-center gap-2 rounded-md px-2 py-1 text-sm {isActive(
 					`/${slug}/dashboard`
 				)
-					? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
-					: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]'}"
+					? 'bg-[var(--color-bg-hover)]/50 text-[var(--color-text-primary)]'
+					: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
 			>
 				<LayoutDashboard size={16} />
 				Dashboard
@@ -180,9 +180,9 @@
 						{@const href = fav.entity_type === 'project' ? `/${slug}/projects/${fav.entity_id}` : fav.entity_type === 'team' ? `/${slug}/teams/${fav.entity_id}` : fav.entity_type === 'view' ? `/${slug}/views/${fav.entity_id}` : `/${slug}/dashboard`}
 						<a
 							{href}
-							class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm {isActive(href)
-								? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
-								: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]'}"
+							class="flex items-center gap-2 rounded-md px-2 py-1 text-sm {isActive(href)
+								? 'bg-[var(--color-bg-hover)]/50 text-[var(--color-text-primary)]'
+								: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
 						>
 							<Star size={14} class="text-yellow-500" />
 							<span class="truncate">{fav.entity_type}</span>
@@ -216,7 +216,7 @@
 					{@const teamViews = views.filter(v => v.filters?.team === team.id)}
 					<button
 						onclick={() => toggleTeam(team.id)}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
 					>
 						<ChevronDown size={12} class="shrink-0 text-[var(--color-text-tertiary)] transition-transform {teamExpanded ? '' : '-rotate-90'}" />
 						<Users size={16} class="shrink-0" />
@@ -225,44 +225,44 @@
 					{#if teamExpanded}
 						<a
 							href="/{slug}/teams/{team.id}"
-							class="flex items-center gap-2 rounded-md px-2 py-1.5 pl-8 text-xs {isActive(
+							class="ml-7 flex items-center gap-2 rounded-md px-2 py-1 text-xs {isActive(
 								`/${slug}/teams/${team.id}`
 							) && !isActive(`/${slug}/teams/${team.id}/cycles`) && !isActive(`/${slug}/teams/${team.id}/triage`) && !isActive(`/${slug}/teams/${team.id}/projects`) && !isActive(`/${slug}/teams/${team.id}/views`)
-								? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
-								: 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]'}"
+								? 'bg-[var(--color-bg-hover)]/50 text-[var(--color-text-primary)]'
+								: 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
 						>
 							<CircleDot size={13} />
 							Issues
 						</a>
 						<a
 							href="/{slug}/teams/{team.id}/cycles"
-							class="flex items-center gap-2 rounded-md px-2 py-1.5 pl-8 text-xs {isActive(
+							class="ml-7 flex items-center gap-2 rounded-md px-2 py-1 text-xs {isActive(
 								`/${slug}/teams/${team.id}/cycles`
 							)
-								? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
-								: 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]'}"
+								? 'bg-[var(--color-bg-hover)]/50 text-[var(--color-text-primary)]'
+								: 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
 						>
 							<RotateCcw size={13} />
 							Cycles
 						</a>
 						<a
 							href="/{slug}/teams/{team.id}/projects"
-							class="flex items-center gap-2 rounded-md px-2 py-1.5 pl-8 text-xs {isActive(
+							class="ml-7 flex items-center gap-2 rounded-md px-2 py-1 text-xs {isActive(
 								`/${slug}/teams/${team.id}/projects`
 							)
-								? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
-								: 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]'}"
+								? 'bg-[var(--color-bg-hover)]/50 text-[var(--color-text-primary)]'
+								: 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
 						>
 							<FolderKanban size={13} />
 							Projects
 						</a>
 						<a
 							href="/{slug}/teams/{team.id}/views"
-							class="flex items-center gap-2 rounded-md px-2 py-1.5 pl-8 text-xs {isActive(
+							class="ml-7 flex items-center gap-2 rounded-md px-2 py-1 text-xs {isActive(
 								`/${slug}/teams/${team.id}/views`
 							)
-								? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
-								: 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]'}"
+								? 'bg-[var(--color-bg-hover)]/50 text-[var(--color-text-primary)]'
+								: 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
 						>
 							<Bookmark size={13} />
 							Views
@@ -270,11 +270,11 @@
 						{#if team.triage_enabled}
 							<a
 								href="/{slug}/teams/{team.id}/triage"
-								class="flex items-center gap-2 rounded-md px-2 py-1.5 pl-8 text-xs {isActive(
+								class="ml-7 flex items-center gap-2 rounded-md px-2 py-1 text-xs {isActive(
 									`/${slug}/teams/${team.id}/triage`
 								)
-									? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
-									: 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]'}"
+									? 'bg-[var(--color-bg-hover)]/50 text-[var(--color-text-primary)]'
+									: 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
 							>
 								<ShieldCheck size={13} />
 								Triage
@@ -283,9 +283,9 @@
 						{#each teamProjects as project}
 							<a
 								href="/{slug}/projects/{project.id}"
-								class="flex items-center gap-2 rounded-md px-2 py-1.5 pl-8 text-xs {isActive(`/${slug}/projects/${project.id}`)
-									? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
-									: 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]'}"
+								class="ml-7 flex items-center gap-2 rounded-md px-2 py-1 text-xs {isActive(`/${slug}/projects/${project.id}`)
+									? 'bg-[var(--color-bg-hover)]/50 text-[var(--color-text-primary)]'
+									: 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
 							>
 								<FolderKanban size={13} />
 								{project.name}
@@ -294,9 +294,9 @@
 						{#each teamViews as view}
 							<a
 								href="/{slug}/views/{view.id}"
-								class="flex items-center gap-2 rounded-md px-2 py-1.5 pl-8 text-xs {isActive(`/${slug}/views/${view.id}`)
-									? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
-									: 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]'}"
+								class="ml-7 flex items-center gap-2 rounded-md px-2 py-1 text-xs {isActive(`/${slug}/views/${view.id}`)
+									? 'bg-[var(--color-bg-hover)]/50 text-[var(--color-text-primary)]'
+									: 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
 							>
 								<Bookmark size={13} />
 								{view.name}
@@ -307,7 +307,7 @@
 				{#if teams.length === 0}
 					<button
 						onclick={oncreateteam}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
 					>
 						<Plus size={14} />
 						Create your first team
@@ -327,11 +327,11 @@
 					{#each views as view}
 						<a
 							href="/{slug}/views/{view.id}"
-							class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm {isActive(
+							class="flex items-center gap-2 rounded-md px-2 py-1 text-sm {isActive(
 								`/${slug}/views/${view.id}`
 							)
-								? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
-								: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]'}"
+								? 'bg-[var(--color-bg-hover)]/50 text-[var(--color-text-primary)]'
+								: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
 						>
 							<Bookmark size={16} />
 							{view.name}
@@ -352,9 +352,9 @@
 			{#if !projectsCollapsed}
 				<a
 					href="/{slug}/projects"
-					class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm {isActive(`/${slug}/projects`)
-						? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
-						: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]'}"
+					class="flex items-center gap-2 rounded-md px-2 py-1 text-sm {isActive(`/${slug}/projects`)
+						? 'bg-[var(--color-bg-hover)]/50 text-[var(--color-text-primary)]'
+						: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
 				>
 					<FolderKanban size={16} />
 					All Projects
@@ -367,14 +367,14 @@
 	<div class="border-t border-[var(--app-border)] px-2 py-2">
 		<a
 			href="/{slug}/settings"
-			class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+			class="flex items-center gap-2 rounded-md px-2 py-1 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
 		>
 			<Settings size={16} />
 			Settings
 		</a>
 		<button
 			onclick={handleLogout}
-			class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+			class="flex w-full items-center gap-2 rounded-md px-2 py-1 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
 		>
 			<LogOut size={16} />
 			Log out
