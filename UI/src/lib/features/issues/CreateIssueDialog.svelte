@@ -2,7 +2,7 @@
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Button } from '$lib/components/ui/button';
 	import * as Popover from '$lib/components/ui/popover';
-	import { Checkbox } from '$lib/components/ui/checkbox';
+	import { Switch } from '$lib/components/ui/switch';
 	import type { Team } from '$lib/types/team';
 	import type { Project } from '$lib/types/project';
 	import type { Label } from '$lib/types/label';
@@ -146,12 +146,17 @@
 <Dialog.Root bind:open>
 	<Dialog.Content
 		class="sm:max-w-[640px] gap-0 overflow-hidden rounded-xl border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-0"
+		onOpenAutoFocus={(e) => {
+			e.preventDefault();
+			const input = document.getElementById('create-issue-title');
+			input?.focus();
+		}}
 	>
 		<!-- Top bar: Team + Template -->
-		<div class="flex items-center gap-1.5 border-b border-[var(--app-border)] px-4 py-2.5">
+		<div class="flex items-center gap-1.5 px-4 py-2.5">
 			<Popover.Root bind:open={teamOpen}>
 				<Popover.Trigger>
-					<button class="flex items-center gap-1.5 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-tertiary)] px-2.5 py-1 text-xs font-medium text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]">
+					<button tabindex="-1" class="flex items-center gap-1.5 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-tertiary)] px-2.5 py-1 text-xs font-medium text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]">
 						<span class="flex h-4 w-4 items-center justify-center rounded bg-[var(--app-accent)] text-[9px] font-bold text-white">
 							{selectedTeam?.key?.charAt(0) ?? 'T'}
 						</span>
@@ -175,6 +180,8 @@
 					{/if}
 				</Popover.Content>
 			</Popover.Root>
+			<span class="text-xs text-[var(--color-text-tertiary)]">›</span>
+			<span class="text-xs font-medium text-[var(--color-text-secondary)]">New Issue</span>
 		</div>
 
 		<!-- Title + Description -->
@@ -182,13 +189,13 @@
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div class="px-4 py-3" onkeydown={handleKeydown}>
 			<input
+				id="create-issue-title"
 				type="text"
 				bind:value={title}
 				placeholder="Issue title"
-				autofocus
-				class="w-full bg-transparent text-base font-medium text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)]"
+				class="w-full bg-transparent text-lg font-semibold text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)]"
 			/>
-			<div class="mt-2">
+			<div class="mt-4">
 				<RichEditor
 					content={description}
 					placeholder="Add description..."
@@ -200,7 +207,7 @@
 		</div>
 
 		<!-- Property pills -->
-		<div class="flex flex-wrap items-center gap-1.5 border-t border-[var(--app-border)] px-4 py-2.5">
+		<div class="flex flex-wrap items-center gap-1.5 px-4 py-2.5">
 			<!-- Status -->
 			<Popover.Root bind:open={statusOpen}>
 				<Popover.Trigger>
@@ -379,9 +386,9 @@
 		</div>
 
 		<!-- Footer -->
-		<div class="flex items-center justify-between border-t border-[var(--app-border)] px-4 py-2.5">
+		<div class="flex items-center justify-end gap-3 px-4 py-2.5">
 			<label class="flex items-center gap-2 text-xs text-[var(--color-text-tertiary)]">
-				<Checkbox bind:checked={createMore} />
+				<Switch bind:checked={createMore} size="sm" />
 				Create more
 			</label>
 			<Button
