@@ -58,6 +58,7 @@
 	} = $props();
 
 	let editor = $state<Editor | null>(null);
+	let isFocused = $state(false);
 	let linkInputVisible = $state(false);
 	let linkUrl = $state('');
 
@@ -188,6 +189,8 @@
 			onUpdate: ({ editor: e }) => {
 				onupdate?.(sanitizeEditorOutput(e.getHTML()));
 			},
+			onFocus: () => { isFocused = true; },
+			onBlur: () => { isFocused = false; },
 			editorProps: {
 				attributes: {
 					class: editorClass
@@ -243,6 +246,7 @@
 	}
 
 	function shouldShowBubble(props: { from: number; to: number; editor: any }): boolean {
+		if (!props.editor.isFocused) return false;
 		if (props.from === props.to) return false;
 		if (props.editor.isActive('codeBlock')) return false;
 		if (props.editor.isActive('image')) return false;
@@ -319,10 +323,12 @@
 
 	<!-- Editor content -->
 	{#if editor}
-		<EditorContent {editor} class="rich-editor" style={minHeight ? `--editor-min-height: ${minHeight}` : undefined} />
+		<div class="rich-editor" style={minHeight ? `--editor-min-height: ${minHeight}` : undefined}>
+			<EditorContent {editor} />
+		</div>
 	{/if}
 
-	{#if bubbleMenu && editor && editable}
+	{#if bubbleMenu && editor && editable && isFocused}
 		<BubbleMenu {editor} shouldShow={shouldShowBubble}>
 			{#snippet children()}
 				<div class="bubble-toolbar">

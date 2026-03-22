@@ -642,20 +642,22 @@
 									<div class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] font-medium text-[var(--app-accent-foreground)]">
 										{(authState.user?.name ?? 'U').charAt(0).toUpperCase()}
 									</div>
-									<div class="min-w-0 flex-1">
-										{#key replyVersions[comment.id] ?? 0}
-											<RichEditor
-												content=""
-												placeholder="Leave a reply..."
-												minimal={true}
-												borderless={true}
-												bubbleMenu={true}
-												uploadUrl={imageUploadUrl}
-												onupdate={(html) => { replyContents[comment.id] = html; replyContents = replyContents; }}
-												onsubmit={() => handleReply(comment.id)}
-											/>
-										{/key}
-										<div class="flex items-center justify-end gap-1.5 mt-1">
+									<div class="min-w-0 flex-1 flex items-end gap-1.5">
+										<div class="min-w-0 flex-1">
+											{#key replyVersions[comment.id] ?? 0}
+												<RichEditor
+													content=""
+													placeholder="Leave a reply..."
+													minimal={true}
+													borderless={true}
+													bubbleMenu={true}
+													uploadUrl={imageUploadUrl}
+													onupdate={(html) => { replyContents[comment.id] = html; replyContents = replyContents; }}
+													onsubmit={() => handleReply(comment.id)}
+												/>
+											{/key}
+										</div>
+										<div class="flex shrink-0 items-center gap-1.5">
 											<button class="rounded p-1.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]" title="Attach file">
 												<Paperclip size={14} />
 											</button>
@@ -675,8 +677,8 @@
 					{/each}
 
 					<!-- New comment input -->
-					<div class="flex flex-wrap rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)] focus-within:border-[var(--color-text-tertiary)] transition-colors p-3">
-						<div class="w-full min-w-0">
+					<div class="flex items-end gap-1.5 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)] focus-within:border-[var(--color-text-tertiary)] transition-colors p-3">
+						<div class="min-w-0 flex-1">
 							{#key commentVersion}
 							<RichEditor
 								content=""
@@ -690,7 +692,7 @@
 							/>
 							{/key}
 						</div>
-						<div class="flex items-center justify-end gap-1.5 ml-auto mt-1">
+						<div class="flex shrink-0 items-center gap-1.5">
 							<button class="rounded p-1.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]" title="Attach file">
 								<Paperclip size={14} />
 							</button>
