@@ -84,6 +84,7 @@ html.light {
 	--app-accent: #361dc2;
 	--app-accent-hover: #4b38d9;
 	--app-accent-light: #6650eb;
+	--app-accent-foreground: #ffffff;
 	--color-success: #16a34a;
 	--color-warning: #d97706;
 	--color-error: #dc2626;
@@ -106,6 +107,7 @@ html.rose-light {
 	--app-accent: #be123c;
 	--app-accent-hover: #d4365a;
 	--app-accent-light: #e8507a;
+	--app-accent-foreground: #ffffff;
 	--color-success: #16a34a;
 	--color-warning: #d97706;
 	--color-error: #dc2626;
@@ -132,6 +134,7 @@ html.blue-light {
 	--app-accent: #1d4ed8;
 	--app-accent-hover: #2563eb;
 	--app-accent-light: #3b82f6;
+	--app-accent-foreground: #ffffff;
 	--color-success: #16a34a;
 	--color-warning: #d97706;
 	--color-error: #dc2626;
@@ -162,6 +165,7 @@ html.dark {
 	--app-accent: #361dc2;
 	--app-accent-hover: #4b38d9;
 	--app-accent-light: #6650eb;
+	--app-accent-foreground: #ffffff;
 	--color-success: #22c55e;
 	--color-warning: #f59e0b;
 	--color-error: #ef4444;
@@ -216,6 +220,7 @@ html.dark-gray {
 	--app-accent: #361dc2;
 	--app-accent-hover: #4b38d9;
 	--app-accent-light: #6650eb;
+	--app-accent-foreground: #ffffff;
 	--color-success: #22c55e;
 	--color-warning: #f59e0b;
 	--color-error: #ef4444;
@@ -270,6 +275,7 @@ html.amethyst-dark {
 	--app-accent: #7c3aed;
 	--app-accent-hover: #8b5cf6;
 	--app-accent-light: #a78bfa;
+	--app-accent-foreground: #ffffff;
 	--color-success: #22c55e;
 	--color-warning: #f59e0b;
 	--color-error: #ef4444;
@@ -324,6 +330,7 @@ html.emerald-dark {
 	--app-accent: #059669;
 	--app-accent-hover: #10b981;
 	--app-accent-light: #34d399;
+	--app-accent-foreground: #ffffff;
 	--color-success: #22c55e;
 	--color-warning: #f59e0b;
 	--color-error: #ef4444;
@@ -382,6 +389,7 @@ html.cyber-77 {
 	--app-accent: #fcee09;
 	--app-accent-hover: #ffe94a;
 	--app-accent-light: #fff480;
+	--app-accent-foreground: #0a0a14;
 	--color-success: #00ff9f;
 	--color-warning: #fcee09;
 	--color-error: #ff003c;
@@ -441,6 +449,7 @@ html.blade-49 {
 	--app-accent: #e87020;
 	--app-accent-hover: #f08838;
 	--app-accent-light: #f8a050;
+	--app-accent-foreground: #ffffff;
 	--color-success: #4a9e6e;
 	--color-warning: #e8a020;
 	--color-error: #c84030;
@@ -500,6 +509,7 @@ html.pipboy {
 	--app-accent: #20ff4a;
 	--app-accent-hover: #50ff70;
 	--app-accent-light: #80ff90;
+	--app-accent-foreground: #0a1a0a;
 	--color-success: #20ff4a;
 	--color-warning: #c0ff40;
 	--color-error: #ff2020;
