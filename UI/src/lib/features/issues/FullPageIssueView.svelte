@@ -643,7 +643,7 @@
 										{(authState.user?.name ?? 'U').charAt(0).toUpperCase()}
 									</div>
 									<div class="min-w-0 flex-1 flex items-end gap-1.5">
-										<div class="min-w-0 flex-1">
+										<div class="min-w-0 flex-1 my-auto">
 											{#key replyVersions[comment.id] ?? 0}
 												<RichEditor
 													content=""
@@ -678,7 +678,7 @@
 
 					<!-- New comment input -->
 					<div class="flex items-end gap-1.5 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)] focus-within:border-[var(--color-text-tertiary)] transition-colors p-3">
-						<div class="min-w-0 flex-1">
+						<div class="min-w-0 flex-1 my-auto">
 							{#key commentVersion}
 							<RichEditor
 								content=""
