@@ -125,7 +125,7 @@
 				<button
 					onclick={() => (selectedType = type)}
 					class="rounded px-2 py-0.5 text-[11px] transition-colors {selectedType === type
-						? 'bg-[var(--app-accent)] text-white'
+						? 'bg-[var(--app-accent)] text-[var(--app-accent-foreground)]'
 						: 'text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]'}"
 				>
 					{RELATION_LABELS[type]}

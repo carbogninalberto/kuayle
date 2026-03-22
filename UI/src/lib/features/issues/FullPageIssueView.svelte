@@ -593,7 +593,7 @@
 							<!-- Comment header + body -->
 							<div class="group/comment p-4">
 								<div class="flex items-center gap-2">
-									<div class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] font-medium text-white">
+									<div class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] font-medium text-[var(--app-accent-foreground)]">
 										{(comment.user?.name ?? 'U').charAt(0).toUpperCase()}
 									</div>
 									<span class="text-[13px] font-medium text-[var(--color-text-primary)]">{comment.user?.name ?? 'User'}</span>
@@ -623,7 +623,7 @@
 								{#each comment.replies as reply (reply.id)}
 									<div class="group/reply border-t border-[var(--app-border)] px-4 py-3 pl-4">
 										<div class="flex items-center gap-2">
-											<div class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] font-medium text-white">
+											<div class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] font-medium text-[var(--app-accent-foreground)]">
 												{(reply.user?.name ?? 'U').charAt(0).toUpperCase()}
 											</div>
 											<span class="text-[13px] font-medium text-[var(--color-text-primary)]">{reply.user?.name ?? 'User'}</span>
@@ -639,7 +639,7 @@
 							<!-- Reply input (hidden when resolved) -->
 							{#if !comment.resolved_at}
 								<div class="border-t border-[var(--app-border)] px-4 py-3 flex gap-3">
-									<div class="my-auto flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] font-medium text-white">
+									<div class="my-auto flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] font-medium text-[var(--app-accent-foreground)]">
 										{(authState.user?.name ?? 'U').charAt(0).toUpperCase()}
 									</div>
 									<div class="min-w-0 flex items-center w-full">
@@ -661,7 +661,7 @@
 											<button
 												onclick={() => handleReply(comment.id)}
 												disabled={!(replyContents[comment.id]?.trim()) || replyContents[comment.id] === '<p></p>'}
-												class="rounded-full bg-[var(--app-accent)] p-1.5 text-white hover:bg-[var(--app-accent-hover)] disabled:opacity-30 transition-colors"
+												class="rounded-full bg-[var(--app-accent)] p-1.5 text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)] disabled:opacity-30 transition-colors"
 												title="Send (Ctrl+Enter)"
 											>
 												<ArrowUp size={12} />
@@ -693,7 +693,7 @@
 							<button
 								onclick={handleAddComment}
 								disabled={!newComment.trim() || newComment === '<p></p>'}
-								class="rounded-full bg-[var(--app-accent)] p-1.5 text-white hover:bg-[var(--app-accent-hover)] disabled:opacity-30 transition-colors"
+								class="rounded-full bg-[var(--app-accent)] p-1.5 text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)] disabled:opacity-30 transition-colors"
 								title="Send (Ctrl+Enter)"
 							>
 								<ArrowUp size={14} />
@@ -772,7 +772,7 @@
 								{#if issue.assignees && issue.assignees.length > 0}
 									{#each issue.assignees as a}
 										<span class="flex items-center gap-1.5 rounded-full bg-[var(--color-bg-tertiary)] px-2 py-0.5 text-sm text-[var(--color-text-primary)]">
-											<div class="flex h-4 w-4 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] text-white shrink-0">
+											<div class="flex h-4 w-4 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] text-[var(--app-accent-foreground)] shrink-0">
 												{(a.name ?? 'U').charAt(0).toUpperCase()}
 											</div>
 											{a.name}
@@ -780,7 +780,7 @@
 									{/each}
 								{:else if issue.assignee}
 									<span class="flex items-center gap-1.5 text-sm text-[var(--color-text-primary)]">
-										<div class="flex h-4 w-4 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] text-white">
+										<div class="flex h-4 w-4 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] text-[var(--app-accent-foreground)]">
 											{(issue.assignee.name ?? 'U').charAt(0).toUpperCase()}
 										</div>
 										{issue.assignee.name}
@@ -811,7 +811,7 @@
 												class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
 											>
 												<Checkbox checked={isAssigned} />
-												<div class="flex h-4 w-4 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] text-white">
+												<div class="flex h-4 w-4 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] text-[var(--app-accent-foreground)]">
 													{(member.name || member.email).charAt(0).toUpperCase()}
 												</div>
 												{member.name || member.email}

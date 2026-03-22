@@ -13,7 +13,7 @@
 	<img src={avatarUrl} alt={name} class="rounded-full object-cover {sizes[size]}" />
 {:else}
 	<div
-		class="flex items-center justify-center rounded-full bg-[var(--app-accent)] font-medium text-white {sizes[
+		class="flex items-center justify-center rounded-full bg-[var(--app-accent)] font-medium text-[var(--app-accent-foreground)] {sizes[
 			size
 		]}"
 	>

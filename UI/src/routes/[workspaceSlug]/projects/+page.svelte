@@ -64,10 +64,10 @@
 		<h1 class="text-sm font-medium text-[var(--color-text-primary)]">Projects</h1>
 		<button
 			onclick={() => (showCreateProject = true)}
-			class="flex items-center gap-1 rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm text-white hover:bg-[var(--app-accent-hover)]"
+			class="rounded-md p-1 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+			title="New Project"
 		>
-			<Plus size={14} />
-			New Project
+			<Plus size={16} />
 		</button>
 	</div>
 

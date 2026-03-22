@@ -67,7 +67,7 @@
 		<h1 class="text-sm font-medium text-[var(--color-text-primary)]">Members</h1>
 		<button
 			onclick={() => (showInvite = true)}
-			class="flex items-center gap-1.5 rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm text-white hover:bg-[var(--app-accent-hover)]"
+			class="flex items-center gap-1.5 rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)]"
 		>
 			<UserPlus size={14} />
 			Invite member
@@ -95,7 +95,7 @@
 							<tr class="border-b border-[var(--app-border)] last:border-b-0">
 								<td class="px-4 py-3">
 									<div class="flex items-center gap-2">
-										<div class="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--app-accent)] text-xs font-medium text-white">
+										<div class="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--app-accent)] text-xs font-medium text-[var(--app-accent-foreground)]">
 											{(member.name || member.email).charAt(0).toUpperCase()}
 										</div>
 										<span class="font-medium text-[var(--color-text-primary)]">{member.name || 'Unnamed'}</span>

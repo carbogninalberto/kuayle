@@ -95,7 +95,7 @@
 			<button
 				type="submit"
 				disabled={loading}
-				class="w-full rounded-md bg-[var(--app-accent)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--app-accent-hover)] disabled:opacity-50"
+				class="w-full rounded-md bg-[var(--app-accent)] px-4 py-2 text-sm font-medium text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)] disabled:opacity-50"
 			>
 				{loading ? 'Loading...' : mode === 'login' ? 'Sign in' : 'Create account'}
 			</button>

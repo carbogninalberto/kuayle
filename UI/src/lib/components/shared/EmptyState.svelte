@@ -18,7 +18,7 @@
 	{#if action}
 		<button
 			onclick={action.onclick}
-			class="mt-2 rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm text-white hover:bg-[var(--app-accent-hover)]"
+			class="mt-2 rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)]"
 		>
 			{action.label}
 		</button>

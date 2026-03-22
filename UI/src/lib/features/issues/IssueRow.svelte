@@ -223,7 +223,7 @@
 				<Popover.Trigger class="flex items-center cursor-pointer transition-all">
 					{#if issue.assignees && issue.assignees.length > 1}
 						<div class="flex -space-x-2 rounded-full hover:ring-2 hover:ring-[var(--app-accent)]">
-							<div class="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--app-accent)] text-[9px] font-medium text-white ring-1 ring-[var(--color-bg)]" title={issue.assignees[0].name}>
+							<div class="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--app-accent)] text-[9px] font-medium text-[var(--app-accent-foreground)] ring-1 ring-[var(--color-bg)]" title={issue.assignees[0].name}>
 								{(issue.assignees[0].name ?? 'U').charAt(0).toUpperCase()}
 							</div>
 							<div class="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--color-bg-tertiary)] text-[8px] font-medium text-[var(--color-text-secondary)] ring-1 ring-[var(--color-bg)]">
@@ -231,11 +231,11 @@
 							</div>
 						</div>
 					{:else if issue.assignees && issue.assignees.length === 1}
-						<div class="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--app-accent)] text-[9px] font-medium text-white hover:ring-2 hover:ring-[var(--app-accent)]" title={issue.assignees[0].name}>
+						<div class="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--app-accent)] text-[9px] font-medium text-[var(--app-accent-foreground)] hover:ring-2 hover:ring-[var(--app-accent)]" title={issue.assignees[0].name}>
 							{(issue.assignees[0].name ?? 'U').charAt(0).toUpperCase()}
 						</div>
 					{:else if issue.assignee}
-						<div class="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--app-accent)] text-[9px] font-medium text-white hover:ring-2 hover:ring-[var(--app-accent)]" title={issue.assignee.name}>
+						<div class="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--app-accent)] text-[9px] font-medium text-[var(--app-accent-foreground)] hover:ring-2 hover:ring-[var(--app-accent)]" title={issue.assignee.name}>
 							{(issue.assignee.name ?? 'U').charAt(0).toUpperCase()}
 						</div>
 					{:else}
@@ -261,7 +261,7 @@
 							}}
 							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {isAssigned ? 'bg-[var(--color-bg-hover)]' : ''}"
 						>
-							<div class="flex h-4 w-4 items-center justify-center rounded-full {isAssigned ? 'bg-[var(--app-accent)] text-white' : 'bg-[var(--color-bg-tertiary)] text-[var(--color-text-tertiary)]'} text-[8px]">
+							<div class="flex h-4 w-4 items-center justify-center rounded-full {isAssigned ? 'bg-[var(--app-accent)] text-[var(--app-accent-foreground)]' : 'bg-[var(--color-bg-tertiary)] text-[var(--color-text-tertiary)]'} text-[8px]">
 								{isAssigned ? '✓' : (member.name || member.email || 'U').charAt(0).toUpperCase()}
 							</div>
 							{member.name || member.email}

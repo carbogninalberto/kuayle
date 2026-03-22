@@ -41,7 +41,7 @@
 	<button
 		type="submit"
 		disabled={loading}
-		class="w-full rounded bg-[var(--app-accent)] py-2 text-sm text-white disabled:opacity-50"
+		class="w-full rounded bg-[var(--app-accent)] py-2 text-sm text-[var(--app-accent-foreground)] disabled:opacity-50"
 	>
 		{loading ? 'Signing in...' : 'Sign in'}
 	</button>

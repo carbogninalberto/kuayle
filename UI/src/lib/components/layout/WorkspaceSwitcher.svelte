@@ -34,7 +34,7 @@
 	<Popover.Trigger>
 		<button class="flex w-full items-center gap-2 rounded-md px-1 py-0.5 hover:bg-[var(--color-bg-hover)]">
 			<div
-				class="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-[var(--app-accent)] text-xs font-bold text-white"
+				class="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-[var(--app-accent)] text-xs font-bold text-[var(--app-accent-foreground)]"
 			>
 				{currentWorkspace.name.charAt(0).toUpperCase()}
 			</div>
@@ -54,7 +54,7 @@
 				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
 			>
 				<div
-					class="flex h-5 w-5 items-center justify-center rounded bg-[var(--app-accent)] text-[9px] font-bold text-white"
+					class="flex h-5 w-5 items-center justify-center rounded bg-[var(--app-accent)] text-[9px] font-bold text-[var(--app-accent-foreground)]"
 				>
 					{ws.name.charAt(0).toUpperCase()}
 				</div>

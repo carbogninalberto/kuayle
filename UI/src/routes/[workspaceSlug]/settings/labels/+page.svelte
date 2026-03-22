@@ -72,7 +72,7 @@
 		<h1 class="text-sm font-medium text-[var(--color-text-primary)]">Labels</h1>
 		<button
 			onclick={() => (showCreate = true)}
-			class="flex items-center gap-1 rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm text-white hover:bg-[var(--app-accent-hover)]"
+			class="flex items-center gap-1 rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)]"
 		>
 			<Plus size={14} />
 			New Label

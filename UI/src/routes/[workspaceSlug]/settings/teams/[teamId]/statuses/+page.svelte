@@ -313,7 +313,7 @@
 							<button
 								onclick={handleAdd}
 								disabled={!addName.trim()}
-								class="rounded-md bg-[var(--app-accent)] px-2.5 py-1 text-xs text-white hover:bg-[var(--app-accent-hover)] disabled:opacity-50"
+								class="rounded-md bg-[var(--app-accent)] px-2.5 py-1 text-xs text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)] disabled:opacity-50"
 							>
 								Add
 							</button>

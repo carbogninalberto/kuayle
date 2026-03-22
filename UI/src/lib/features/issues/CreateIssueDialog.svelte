@@ -153,11 +153,11 @@
 		}}
 	>
 		<!-- Top bar: Team + Template -->
-		<div class="flex items-center gap-1.5 px-4 py-2.5">
+		<div class="flex items-center gap-1.5 px-3 py-2">
 			<Popover.Root bind:open={teamOpen}>
 				<Popover.Trigger>
 					<button tabindex="-1" class="flex items-center gap-1.5 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-tertiary)] px-2.5 py-1 text-xs font-medium text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]">
-						<span class="flex h-4 w-4 items-center justify-center rounded bg-[var(--app-accent)] text-[9px] font-bold text-white">
+						<span class="flex h-4 w-4 items-center justify-center rounded bg-[var(--app-accent)] text-[9px] font-bold text-[var(--app-accent-foreground)]">
 							{selectedTeam?.key?.charAt(0) ?? 'T'}
 						</span>
 						{selectedTeam?.key ?? 'Team'}
@@ -169,7 +169,7 @@
 							onclick={() => { teamId = team.id; teamOpen = false; }}
 							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {team.id === teamId ? 'bg-[var(--color-bg-hover)]' : ''}"
 						>
-							<span class="flex h-4 w-4 items-center justify-center rounded bg-[var(--app-accent)] text-[9px] font-bold text-white">
+							<span class="flex h-4 w-4 items-center justify-center rounded bg-[var(--app-accent)] text-[9px] font-bold text-[var(--app-accent-foreground)]">
 								{team.key.charAt(0)}
 							</span>
 							{team.name}

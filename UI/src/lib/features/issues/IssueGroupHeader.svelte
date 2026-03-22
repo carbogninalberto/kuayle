@@ -75,7 +75,7 @@
 			<IssuePriorityIcon priority={Number(groupKey) as IssuePriority} size={14} />
 		{:else if groupBy === 'assignee'}
 			{#if groupKey !== 'unassigned'}
-				<div class="flex h-4 w-4 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] font-medium text-white">
+				<div class="flex h-4 w-4 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] font-medium text-[var(--app-accent-foreground)]">
 					{label.charAt(0).toUpperCase()}
 				</div>
 			{:else}

@@ -303,7 +303,7 @@
 				<Inbox size={16} class="shrink-0" />
 				<span class="truncate">Inbox</span>
 				{#if unreadCount > 0}
-					<span class="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--app-accent)] px-1 text-[10px] font-medium text-white">
+					<span class="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--app-accent)] px-1 text-[10px] font-medium text-[var(--app-accent-foreground)]">
 						{unreadCount > 99 ? '99+' : unreadCount}
 					</span>
 				{/if}

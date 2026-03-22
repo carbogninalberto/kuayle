@@ -173,7 +173,7 @@
 									<span class="shrink-0 text-xs text-[var(--color-text-tertiary)]">{issue.identifier}</span>
 									<span class="flex-1 truncate text-[var(--color-text-primary)]">{issue.title}</span>
 									{#if issue.assignee}
-										<div class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent)] text-[9px] text-white">
+										<div class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent)] text-[9px] text-[var(--app-accent-foreground)]">
 											{(issue.assignee.name ?? 'U').charAt(0).toUpperCase()}
 										</div>
 									{/if}

@@ -198,7 +198,7 @@
 						<button
 							type="submit"
 							disabled={!newComment.trim()}
-							class="rounded bg-[var(--app-accent)] px-3 py-2 text-sm text-white hover:bg-[var(--app-accent-hover)] disabled:opacity-50"
+							class="rounded bg-[var(--app-accent)] px-3 py-2 text-sm text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)] disabled:opacity-50"
 						>
 							Send
 						</button>
