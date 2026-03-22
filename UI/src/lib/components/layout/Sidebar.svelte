@@ -101,7 +101,7 @@
 
 	// ── Resize & collapse logic ──
 	const DEFAULT_WIDTH = 240;
-	const MIN_WIDTH = 200;
+	const MIN_WIDTH = 220;
 	const MAX_WIDTH = 320;
 
 	let sidebarWidth = $state(
@@ -163,6 +163,20 @@
 		});
 	}
 
+	// Eased resize: applies a cubic bezier-like curve so dragging feels weighted.
+	// Near the center of the range it moves 1:1, near the edges it decelerates.
+	function easedResize(startWidth: number, rawDelta: number): number {
+		const range = MAX_WIDTH - MIN_WIDTH;
+		const raw = startWidth + rawDelta;
+		// Normalize to 0..1 within the allowed range
+		const t = Math.max(0, Math.min(1, (raw - MIN_WIDTH) / range));
+		// Ease-in-out cubic: smooth deceleration near edges
+		const eased = t < 0.5
+			? 4 * t * t * t
+			: 1 - Math.pow(-2 * t + 2, 3) / 2;
+		return MIN_WIDTH + eased * range;
+	}
+
 	function onPointerDown(e: PointerEvent) {
 		e.preventDefault();
 		dragging = true;
@@ -173,8 +187,7 @@
 		function onPointerMove(ev: PointerEvent) {
 			const delta = ev.clientX - startX;
 			if (Math.abs(delta) > 2) didDrag = true;
-			const newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startWidth + delta));
-			sidebarWidth = newWidth;
+			sidebarWidth = Math.round(easedResize(startWidth, delta));
 		}
 
 		function onPointerUp() {
