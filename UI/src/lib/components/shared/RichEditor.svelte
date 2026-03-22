@@ -417,7 +417,7 @@
 		color: var(--color-text-primary);
 	}
 	:global(.rich-editor .tiptap.borderless-editor) {
-		min-height: 20px;
+		min-height: 120px;
 		padding: 0;
 	}
 	:global(.rich-editor .tiptap.compact-editor) {
