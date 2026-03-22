@@ -1,6 +1,6 @@
 module github.com/kuayle/kuayle-backend
 
-go 1.25.4
+go 1.25.8
 
 require (
 	github.com/go-playground/validator/v10 v10.30.1
