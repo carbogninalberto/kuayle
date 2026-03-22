@@ -6,6 +6,7 @@ COPY . .
 RUN npm run build
 
 FROM node:22-alpine
+RUN apk update && apk upgrade --no-cache && npm install -g npm@latest
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 WORKDIR /app
 COPY --from=builder /app/build ./build
