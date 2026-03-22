@@ -3,6 +3,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
+	import DatePickerPopover from '$lib/components/shared/DatePickerPopover.svelte';
 
 	let {
 		open = $bindable(false),
@@ -70,18 +71,18 @@
 				<div class="grid grid-cols-2 gap-3">
 					<div class="space-y-1.5">
 						<Label class="text-xs text-[var(--color-text-secondary)]">Start date</Label>
-						<Input
-							type="date"
-							bind:value={startDate}
-							class="bg-[var(--color-bg)] border-[var(--app-border)] text-[var(--color-text-primary)]"
+						<DatePickerPopover
+							value={startDate || null}
+							onchange={(d) => (startDate = d ?? '')}
+							placeholder="Start date"
 						/>
 					</div>
 					<div class="space-y-1.5">
 						<Label class="text-xs text-[var(--color-text-secondary)]">End date</Label>
-						<Input
-							type="date"
-							bind:value={endDate}
-							class="bg-[var(--color-bg)] border-[var(--app-border)] text-[var(--color-text-primary)]"
+						<DatePickerPopover
+							value={endDate || null}
+							onchange={(d) => (endDate = d ?? '')}
+							placeholder="End date"
 						/>
 					</div>
 				</div>
