@@ -186,6 +186,7 @@
 			} else {
 				persistWidth();
 			}
+			didDrag = false;
 		}
 
 		document.addEventListener('pointermove', onPointerMove);
