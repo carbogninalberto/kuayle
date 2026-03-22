@@ -12,6 +12,7 @@
 	import { PRIORITY_LABELS } from '$lib/types/issue';
 	import { teamStatusesState } from './team-statuses.state.svelte';
 	import RichEditor from '$lib/components/shared/RichEditor.svelte';
+	import { Checkbox } from '$lib/components/ui/checkbox';
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
 	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
 	import DatePickerPopover from '$lib/components/shared/DatePickerPopover.svelte';

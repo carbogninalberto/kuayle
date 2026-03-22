@@ -80,6 +80,7 @@
 									onclick={() => (color = preset)}
 									class="h-6 w-6 rounded-full border-2 transition-transform {color === preset ? 'border-white scale-110' : 'border-transparent'}"
 									style="background-color: {preset}"
+									aria-label="Select color {preset}"
 								></button>
 							{/each}
 						</div>

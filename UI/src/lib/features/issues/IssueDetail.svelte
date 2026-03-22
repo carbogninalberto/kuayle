@@ -74,7 +74,7 @@
 	class="fixed inset-0 z-40 flex justify-end"
 	onkeydown={(e) => e.key === 'Escape' && onclose()}
 >
-	<button class="flex-1 cursor-default" onclick={onclose} tabindex={-1}></button>
+	<button class="flex-1 cursor-default" onclick={onclose} tabindex={-1} aria-label="Close issue detail"></button>
 
 	<div
 		class="w-full max-w-2xl overflow-y-auto border-l border-[var(--app-border)] bg-[var(--color-bg)] shadow-2xl"

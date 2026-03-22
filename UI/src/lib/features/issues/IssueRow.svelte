@@ -179,11 +179,13 @@
 				onblur={saveTitle}
 				onkeydown={(e) => { if (e.key === 'Enter') saveTitle(); if (e.key === 'Escape') { editingTitle = false; } }}
 				onclick={(e) => e.stopPropagation()}
-				autofocus
 				class="flex-1 truncate text-[13px] text-[var(--color-text-primary)] bg-transparent outline-none border-b border-[var(--app-accent)]"
 			/>
 		{:else}
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<span
+				role="textbox"
+				tabindex={0}
 				class="flex-1 truncate text-[13px] text-[var(--color-text-primary)]"
 				ondblclick={startEditing}
 			>{issue.title}</span>

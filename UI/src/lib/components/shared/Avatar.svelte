@@ -6,7 +6,7 @@
 	}: { name: string; avatarUrl?: string | null; size?: 'sm' | 'md' | 'lg' } = $props();
 
 	const sizes = { sm: 'h-6 w-6 text-xs', md: 'h-8 w-8 text-sm', lg: 'h-10 w-10 text-base' };
-	const initial = name.charAt(0).toUpperCase();
+	const initial = $derived(name.charAt(0).toUpperCase());
 </script>
 
 {#if avatarUrl}

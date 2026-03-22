@@ -406,7 +406,7 @@
 						onclick={() => addFilter(option.key)}
 						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
 					>
-						<svelte:component this={option.icon} size={14} class="text-[var(--color-text-tertiary)]" />
+						<option.icon size={14} class="text-[var(--color-text-tertiary)]" />
 						{option.label}
 					</button>
 				{/each}

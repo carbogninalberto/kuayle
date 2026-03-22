@@ -30,6 +30,7 @@
 
 	const RELATION_TYPES: RelationType[] = ['related', 'blocked_by', 'blocking', 'duplicate'];
 
+	// svelte-ignore state_referenced_locally
 	let selectedType = $state<RelationType>(defaultType);
 	let searchQuery = $state('');
 	let searchResults = $state<Issue[]>([]);

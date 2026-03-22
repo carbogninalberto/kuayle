@@ -250,6 +250,7 @@
 													onclick={() => editColor = c}
 													class="h-3.5 w-3.5 rounded-full {editColor === c ? 'ring-2 ring-[var(--app-accent)] ring-offset-1 ring-offset-[var(--color-bg)]' : ''}"
 													style="background-color: {c}"
+													aria-label="Select color {c}"
 												></button>
 											{/each}
 										</div>
@@ -307,6 +308,7 @@
 										onclick={() => addColor = c}
 										class="h-3.5 w-3.5 rounded-full {addColor === c ? 'ring-2 ring-[var(--app-accent)] ring-offset-1 ring-offset-[var(--color-bg)]' : ''}"
 										style="background-color: {c}"
+									aria-label="Select color"
 									></button>
 								{/each}
 							</div>

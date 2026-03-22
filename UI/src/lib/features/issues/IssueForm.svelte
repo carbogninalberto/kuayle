@@ -18,6 +18,7 @@
 	let description = $state('');
 	let statusId = $state(teamStatusesState.defaultForCategory('backlog')?.id ?? '');
 	let priority = $state<IssuePriority>(0);
+	// svelte-ignore state_referenced_locally
 	let teamId = $state(teams[0]?.id ?? '');
 
 	function handleSubmit(e: Event) {
@@ -39,7 +40,6 @@
 			bind:value={title}
 			placeholder="Issue title"
 			required
-			autofocus
 			class="w-full bg-transparent text-lg font-medium text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)]"
 		/>
 	</div>

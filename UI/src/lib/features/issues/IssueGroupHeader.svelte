@@ -58,9 +58,13 @@
 </script>
 
 <div class="mt-1 first:mt-0 mx-2">
-	<button
-		class="flex w-full items-center gap-2 rounded-md bg-[var(--color-bg-secondary)] px-4 py-1.5 text-xs font-medium text-[var(--color-text-secondary)]"
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div
+		role="button"
+		tabindex={0}
+		class="flex w-full items-center gap-2 rounded-md bg-[var(--color-bg-secondary)] px-4 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] cursor-default"
 		onclick={ontoggle}
+		onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); ontoggle?.(); } }}
 	>
 		{#if collapsed}
 			<ChevronRight size={12} class="text-[var(--color-text-tertiary)]" />
@@ -93,5 +97,5 @@
 				<Plus size={14} />
 			</button>
 		{/if}
-	</button>
+	</div>
 </div>

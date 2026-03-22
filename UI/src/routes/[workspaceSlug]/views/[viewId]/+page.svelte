@@ -99,7 +99,7 @@
 			case 'creator': {
 				const names = value.split(',').map((id) => {
 					const member = members.find((m) => m.user_id === id);
-					return member ? member.user_name : id;
+					return member ? member.name : id;
 				});
 				return names.join(', ');
 			}
