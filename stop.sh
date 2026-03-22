@@ -2,6 +2,9 @@
 
 PIDFILE=".dev.pids"
 
+# Ensure Docker CLI is in PATH (macOS Docker Desktop)
+export PATH="/Applications/Docker.app/Contents/Resources/bin:$PATH"
+
 echo "=== Kuayle - Stopping ==="
 
 # Kill dev processes

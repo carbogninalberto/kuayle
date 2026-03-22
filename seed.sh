@@ -3,6 +3,9 @@ set -e
 
 echo "=== Kuayle - Seed Data ==="
 
+# Ensure Docker CLI is in PATH (macOS Docker Desktop)
+export PATH="/Applications/Docker.app/Contents/Resources/bin:$PATH"
+
 # Load env
 if [ -f .env ]; then
     set -a && source .env && set +a
@@ -44,7 +47,7 @@ echo "Database cleaned."
 
 echo "Generating seed data..."
 
-# Generate bcrypt hash for "password123" using Go
+# Generate bcrypt hash for "Password123!" using Go
 cat > /tmp/hashgen.go <<'GOEOF'
 package main
 import (
@@ -52,7 +55,7 @@ import (
     "golang.org/x/crypto/bcrypt"
 )
 func main() {
-    hash, _ := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
+    hash, _ := bcrypt.GenerateFromPassword([]byte("Password123!"), bcrypt.DefaultCost)
     fmt.Print(string(hash))
 }
 GOEOF
@@ -107,6 +110,39 @@ INSERT INTO team_members (team_id, user_id) VALUES
     ('c0000000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-000000000001');
 
 -- ============================================================
+-- TEAM STATUSES
+-- ============================================================
+INSERT INTO team_statuses (id, team_id, name, slug, category, position) VALUES
+    -- Engineering (c0...001)
+    ('50000000-0001-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', 'Backlog',     'backlog',      'backlog',    1),
+    ('50000000-0001-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000001', 'Todo',        'todo',         'unstarted',  2),
+    ('50000000-0001-0000-0000-000000000003', 'c0000000-0000-0000-0000-000000000001', 'In Progress', 'in_progress',  'started',    3),
+    ('50000000-0001-0000-0000-000000000004', 'c0000000-0000-0000-0000-000000000001', 'In Review',   'in_review',    'started',    4),
+    ('50000000-0001-0000-0000-000000000005', 'c0000000-0000-0000-0000-000000000001', 'Done',        'done',         'completed',  5),
+    ('50000000-0001-0000-0000-000000000006', 'c0000000-0000-0000-0000-000000000001', 'Cancelled',   'cancelled',    'cancelled',  6),
+    -- Design (c0...002)
+    ('50000000-0002-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000002', 'Backlog',     'backlog',      'backlog',    1),
+    ('50000000-0002-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000002', 'Todo',        'todo',         'unstarted',  2),
+    ('50000000-0002-0000-0000-000000000003', 'c0000000-0000-0000-0000-000000000002', 'In Progress', 'in_progress',  'started',    3),
+    ('50000000-0002-0000-0000-000000000004', 'c0000000-0000-0000-0000-000000000002', 'In Review',   'in_review',    'started',    4),
+    ('50000000-0002-0000-0000-000000000005', 'c0000000-0000-0000-0000-000000000002', 'Done',        'done',         'completed',  5),
+    ('50000000-0002-0000-0000-000000000006', 'c0000000-0000-0000-0000-000000000002', 'Cancelled',   'cancelled',    'cancelled',  6),
+    -- Platform (c0...003)
+    ('50000000-0003-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000003', 'Backlog',     'backlog',      'backlog',    1),
+    ('50000000-0003-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000003', 'Todo',        'todo',         'unstarted',  2),
+    ('50000000-0003-0000-0000-000000000003', 'c0000000-0000-0000-0000-000000000003', 'In Progress', 'in_progress',  'started',    3),
+    ('50000000-0003-0000-0000-000000000004', 'c0000000-0000-0000-0000-000000000003', 'In Review',   'in_review',    'started',    4),
+    ('50000000-0003-0000-0000-000000000005', 'c0000000-0000-0000-0000-000000000003', 'Done',        'done',         'completed',  5),
+    ('50000000-0003-0000-0000-000000000006', 'c0000000-0000-0000-0000-000000000003', 'Cancelled',   'cancelled',    'cancelled',  6),
+    -- Core (c0...004)
+    ('50000000-0004-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000004', 'Backlog',     'backlog',      'backlog',    1),
+    ('50000000-0004-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000004', 'Todo',        'todo',         'unstarted',  2),
+    ('50000000-0004-0000-0000-000000000003', 'c0000000-0000-0000-0000-000000000004', 'In Progress', 'in_progress',  'started',    3),
+    ('50000000-0004-0000-0000-000000000004', 'c0000000-0000-0000-0000-000000000004', 'In Review',   'in_review',    'started',    4),
+    ('50000000-0004-0000-0000-000000000005', 'c0000000-0000-0000-0000-000000000004', 'Done',        'done',         'completed',  5),
+    ('50000000-0004-0000-0000-000000000006', 'c0000000-0000-0000-0000-000000000004', 'Cancelled',   'cancelled',    'cancelled',  6);
+
+-- ============================================================
 -- LABELS
 -- ============================================================
 INSERT INTO labels (id, workspace_id, name, color) VALUES
@@ -141,43 +177,43 @@ INSERT INTO cycles (id, team_id, name, number, status, start_date, end_date) VAL
 -- ============================================================
 -- ISSUES (Engineering team)
 -- ============================================================
-INSERT INTO issues (id, workspace_id, team_id, project_id, cycle_id, number, identifier_text, title, description, status, priority, creator_id, assignee_id, estimate, due_date, sort_order) VALUES
+INSERT INTO issues (id, workspace_id, team_id, project_id, cycle_id, number, identifier_text, title, description, status, status_id, priority, creator_id, assignee_id, estimate, due_date, sort_order) VALUES
     -- Sprint 2 (active) Engineering issues
-    ('10000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000002', 1, 'ENG-1', 'Implement user authentication flow', '<p>Build the complete login/register flow with JWT tokens, refresh token rotation, and session management.</p>', 'in_progress', 1, 'a0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000002', 8, '2026-03-10', 1000),
-    ('10000000-0000-0000-0000-000000000002', 'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000002', 2, 'ENG-2', 'Design database schema for multi-tenancy', '<p>Create the migration scripts for workspace isolation. Need advisory locks for sequential numbering.</p>', 'done', 2, 'a0000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000002', 5, '2026-03-05', 2000),
-    ('10000000-0000-0000-0000-000000000003', 'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000002', 3, 'ENG-3', 'Build REST API for issue CRUD', '<p>Endpoints for create, read, update, delete issues with proper validation and error handling.</p>', 'in_review', 2, 'a0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000004', 8, '2026-03-12', 3000),
-    ('10000000-0000-0000-0000-000000000004', 'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000002', 4, 'ENG-4', 'WebSocket real-time updates', '<p>Implement WebSocket hub for broadcasting issue changes to connected clients.</p>', 'todo', 3, 'a0000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000001', 5, '2026-03-14', 4000),
-    ('10000000-0000-0000-0000-000000000005', 'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000002', 5, 'ENG-5', 'Fix N+1 query in issue list endpoint', '<p>The issue list endpoint makes separate queries for labels per issue. Batch with a single IN query.</p>', 'done', 1, 'a0000000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-000000000004', 3, '2026-03-06', 5000),
+    ('10000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000002', 1, 'ENG-1', 'Implement user authentication flow', '<p>Build the complete login/register flow with JWT tokens, refresh token rotation, and session management.</p>', 'in_progress', '50000000-0001-0000-0000-000000000003', 1, 'a0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000002', 8, '2026-03-10', 1000),
+    ('10000000-0000-0000-0000-000000000002', 'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000002', 2, 'ENG-2', 'Design database schema for multi-tenancy', '<p>Create the migration scripts for workspace isolation. Need advisory locks for sequential numbering.</p>', 'done', '50000000-0001-0000-0000-000000000005', 2, 'a0000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000002', 5, '2026-03-05', 2000),
+    ('10000000-0000-0000-0000-000000000003', 'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000002', 3, 'ENG-3', 'Build REST API for issue CRUD', '<p>Endpoints for create, read, update, delete issues with proper validation and error handling.</p>', 'in_review', '50000000-0001-0000-0000-000000000004', 2, 'a0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000004', 8, '2026-03-12', 3000),
+    ('10000000-0000-0000-0000-000000000004', 'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000002', 4, 'ENG-4', 'WebSocket real-time updates', '<p>Implement WebSocket hub for broadcasting issue changes to connected clients.</p>', 'todo', '50000000-0001-0000-0000-000000000002', 3, 'a0000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000001', 5, '2026-03-14', 4000),
+    ('10000000-0000-0000-0000-000000000005', 'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000002', 5, 'ENG-5', 'Fix N+1 query in issue list endpoint', '<p>The issue list endpoint makes separate queries for labels per issue. Batch with a single IN query.</p>', 'done', '50000000-0001-0000-0000-000000000005', 1, 'a0000000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-000000000004', 3, '2026-03-06', 5000),
     -- Backlog (no cycle)
-    ('10000000-0000-0000-0000-000000000006', 'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000001', NULL, 6, 'ENG-6', 'Add rate limiting to API endpoints', '<p>Implement token bucket rate limiting per user/IP to prevent abuse.</p>', 'backlog', 3, 'a0000000-0000-0000-0000-000000000001', NULL, 3, NULL, 6000),
-    ('10000000-0000-0000-0000-000000000007', 'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000002', NULL, 7, 'ENG-7', 'OAuth2 provider integration', '<p>Add support for Google, GitHub, and Microsoft OAuth2 login flows.</p>', 'backlog', 2, 'a0000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000002', 13, NULL, 7000),
-    ('10000000-0000-0000-0000-000000000008', 'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', NULL, NULL, 8, 'ENG-8', 'Set up CI/CD pipeline', '<p>Configure GitHub Actions for automated testing, linting, and deployment.</p>', 'todo', 2, 'a0000000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-000000000004', 5, '2026-03-25', 8000),
-    ('10000000-0000-0000-0000-000000000009', 'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', NULL, NULL, 9, 'ENG-9', 'Implement search with full-text indexing', '<p>Add PostgreSQL full-text search with ts_vector for fast issue search across title and description.</p>', 'backlog', 4, 'a0000000-0000-0000-0000-000000000001', NULL, 8, NULL, 9000),
-    ('10000000-0000-0000-0000-000000000010', 'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000001', NULL, 10, 'ENG-10', 'File attachment support', '<p>Allow users to upload and attach files to issues. Use S3-compatible storage.</p>', 'backlog', 4, 'a0000000-0000-0000-0000-000000000003', NULL, 8, NULL, 10000),
-    ('10000000-0000-0000-0000-000000000011', 'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', NULL, NULL, 11, 'ENG-11', 'Email notification service', '<p>Send email notifications for issue assignments, mentions, and status changes.</p>', 'backlog', 3, 'a0000000-0000-0000-0000-000000000002', NULL, 5, NULL, 11000),
-    ('10000000-0000-0000-0000-000000000012', 'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000003', 12, 'ENG-12', 'Implement drag-and-drop kanban board', '<p>Allow users to drag issues between status columns and reorder within columns.</p>', 'todo', 2, 'a0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 8, '2026-03-28', 12000),
+    ('10000000-0000-0000-0000-000000000006', 'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000001', NULL, 6, 'ENG-6', 'Add rate limiting to API endpoints', '<p>Implement token bucket rate limiting per user/IP to prevent abuse.</p>', 'backlog', '50000000-0001-0000-0000-000000000001', 3, 'a0000000-0000-0000-0000-000000000001', NULL, 3, NULL, 6000),
+    ('10000000-0000-0000-0000-000000000007', 'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000002', NULL, 7, 'ENG-7', 'OAuth2 provider integration', '<p>Add support for Google, GitHub, and Microsoft OAuth2 login flows.</p>', 'backlog', '50000000-0001-0000-0000-000000000001', 2, 'a0000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000002', 13, NULL, 7000),
+    ('10000000-0000-0000-0000-000000000008', 'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', NULL, NULL, 8, 'ENG-8', 'Set up CI/CD pipeline', '<p>Configure GitHub Actions for automated testing, linting, and deployment.</p>', 'todo', '50000000-0001-0000-0000-000000000002', 2, 'a0000000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-000000000004', 5, '2026-03-25', 8000),
+    ('10000000-0000-0000-0000-000000000009', 'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', NULL, NULL, 9, 'ENG-9', 'Implement search with full-text indexing', '<p>Add PostgreSQL full-text search with ts_vector for fast issue search across title and description.</p>', 'backlog', '50000000-0001-0000-0000-000000000001', 4, 'a0000000-0000-0000-0000-000000000001', NULL, 8, NULL, 9000),
+    ('10000000-0000-0000-0000-000000000010', 'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000001', NULL, 10, 'ENG-10', 'File attachment support', '<p>Allow users to upload and attach files to issues. Use S3-compatible storage.</p>', 'backlog', '50000000-0001-0000-0000-000000000001', 4, 'a0000000-0000-0000-0000-000000000003', NULL, 8, NULL, 10000),
+    ('10000000-0000-0000-0000-000000000011', 'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', NULL, NULL, 11, 'ENG-11', 'Email notification service', '<p>Send email notifications for issue assignments, mentions, and status changes.</p>', 'backlog', '50000000-0001-0000-0000-000000000001', 3, 'a0000000-0000-0000-0000-000000000002', NULL, 5, NULL, 11000),
+    ('10000000-0000-0000-0000-000000000012', 'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000003', 12, 'ENG-12', 'Implement drag-and-drop kanban board', '<p>Allow users to drag issues between status columns and reorder within columns.</p>', 'todo', '50000000-0001-0000-0000-000000000002', 2, 'a0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 8, '2026-03-28', 12000),
     -- Overdue issue
-    ('10000000-0000-0000-0000-000000000013', 'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000002', 13, 'ENG-13', 'Fix broken pagination on issue list', '<p>Page 2+ returns wrong results when filters are applied. Off-by-one in offset calculation.</p>', 'in_progress', 1, 'a0000000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-000000000002', 2, '2026-03-15', 13000),
+    ('10000000-0000-0000-0000-000000000013', 'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000002', 13, 'ENG-13', 'Fix broken pagination on issue list', '<p>Page 2+ returns wrong results when filters are applied. Off-by-one in offset calculation.</p>', 'in_progress', '50000000-0001-0000-0000-000000000003', 1, 'a0000000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-000000000002', 2, '2026-03-15', 13000),
     -- Cancelled issue
-    ('10000000-0000-0000-0000-000000000014', 'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', NULL, 'f0000000-0000-0000-0000-000000000001', 14, 'ENG-14', 'Custom GraphQL API layer', '<p>Decided to stick with REST for now. May revisit later.</p>', 'cancelled', 4, 'a0000000-0000-0000-0000-000000000001', NULL, NULL, NULL, 14000);
+    ('10000000-0000-0000-0000-000000000014', 'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', NULL, 'f0000000-0000-0000-0000-000000000001', 14, 'ENG-14', 'Custom GraphQL API layer', '<p>Decided to stick with REST for now. May revisit later.</p>', 'cancelled', '50000000-0001-0000-0000-000000000006', 4, 'a0000000-0000-0000-0000-000000000001', NULL, NULL, NULL, 14000);
 
 -- Design team issues
-INSERT INTO issues (id, workspace_id, team_id, project_id, cycle_id, number, identifier_text, title, description, status, priority, creator_id, assignee_id, estimate, due_date, sort_order) VALUES
-    ('10000000-0000-0000-0000-000000000015', 'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000002', 'e0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000004', 1, 'DES-1', 'Design system tokens and components', '<p>Define color palette, typography scale, spacing, and base component library.</p>', 'in_progress', 2, 'a0000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000003', 13, '2026-03-20', 1000),
-    ('10000000-0000-0000-0000-000000000016', 'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000002', 'e0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000004', 2, 'DES-2', 'Issue detail page mockups', '<p>Create high-fidelity mockups for the full-page issue detail view with inline editing.</p>', 'done', 2, 'a0000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000003', 5, '2026-03-08', 2000),
-    ('10000000-0000-0000-0000-000000000017', 'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000002', 'e0000000-0000-0000-0000-000000000003', NULL, 3, 'DES-3', 'Mobile app wireframes', '<p>Low-fidelity wireframes for the mobile app issue list and detail views.</p>', 'backlog', 3, 'a0000000-0000-0000-0000-000000000003', NULL, 8, NULL, 3000),
-    ('10000000-0000-0000-0000-000000000018', 'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000002', NULL, NULL, 4, 'DES-4', 'Onboarding flow design', '<p>Design the first-time user experience including workspace creation and team setup.</p>', 'todo', 3, 'a0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000003', 5, '2026-04-01', 4000);
+INSERT INTO issues (id, workspace_id, team_id, project_id, cycle_id, number, identifier_text, title, description, status, status_id, priority, creator_id, assignee_id, estimate, due_date, sort_order) VALUES
+    ('10000000-0000-0000-0000-000000000015', 'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000002', 'e0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000004', 1, 'DES-1', 'Design system tokens and components', '<p>Define color palette, typography scale, spacing, and base component library.</p>', 'in_progress', '50000000-0002-0000-0000-000000000003', 2, 'a0000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000003', 13, '2026-03-20', 1000),
+    ('10000000-0000-0000-0000-000000000016', 'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000002', 'e0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000004', 2, 'DES-2', 'Issue detail page mockups', '<p>Create high-fidelity mockups for the full-page issue detail view with inline editing.</p>', 'done', '50000000-0002-0000-0000-000000000005', 2, 'a0000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000003', 5, '2026-03-08', 2000),
+    ('10000000-0000-0000-0000-000000000017', 'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000002', 'e0000000-0000-0000-0000-000000000003', NULL, 3, 'DES-3', 'Mobile app wireframes', '<p>Low-fidelity wireframes for the mobile app issue list and detail views.</p>', 'backlog', '50000000-0002-0000-0000-000000000001', 3, 'a0000000-0000-0000-0000-000000000003', NULL, 8, NULL, 3000),
+    ('10000000-0000-0000-0000-000000000018', 'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000002', NULL, NULL, 4, 'DES-4', 'Onboarding flow design', '<p>Design the first-time user experience including workspace creation and team setup.</p>', 'todo', '50000000-0002-0000-0000-000000000002', 3, 'a0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000003', 5, '2026-04-01', 4000);
 
 -- Platform team issues
-INSERT INTO issues (id, workspace_id, team_id, number, identifier_text, title, description, status, priority, creator_id, assignee_id, estimate, due_date, sort_order) VALUES
-    ('10000000-0000-0000-0000-000000000019', 'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000003', 1, 'PLT-1', 'Kubernetes cluster setup', '<p>Provision and configure k8s cluster for staging and production environments.</p>', 'in_progress', 2, 'a0000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000004', 13, '2026-03-25', 1000),
-    ('10000000-0000-0000-0000-000000000020', 'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000003', 2, 'PLT-2', 'Set up monitoring and alerting', '<p>Deploy Prometheus + Grafana stack with alerts for API latency, error rates, and resource usage.</p>', 'todo', 3, 'a0000000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-000000000002', 8, '2026-04-05', 2000),
-    ('10000000-0000-0000-0000-000000000021', 'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000003', 3, 'PLT-3', 'Database backup automation', '<p>Automated daily PostgreSQL backups to S3 with 30-day retention and point-in-time recovery.</p>', 'backlog', 2, 'a0000000-0000-0000-0000-000000000002', NULL, 5, NULL, 3000);
+INSERT INTO issues (id, workspace_id, team_id, number, identifier_text, title, description, status, status_id, priority, creator_id, assignee_id, estimate, due_date, sort_order) VALUES
+    ('10000000-0000-0000-0000-000000000019', 'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000003', 1, 'PLT-1', 'Kubernetes cluster setup', '<p>Provision and configure k8s cluster for staging and production environments.</p>', 'in_progress', '50000000-0003-0000-0000-000000000003', 2, 'a0000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000004', 13, '2026-03-25', 1000),
+    ('10000000-0000-0000-0000-000000000020', 'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000003', 2, 'PLT-2', 'Set up monitoring and alerting', '<p>Deploy Prometheus + Grafana stack with alerts for API latency, error rates, and resource usage.</p>', 'todo', '50000000-0003-0000-0000-000000000002', 3, 'a0000000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-000000000002', 8, '2026-04-05', 2000),
+    ('10000000-0000-0000-0000-000000000021', 'b0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000003', 3, 'PLT-3', 'Database backup automation', '<p>Automated daily PostgreSQL backups to S3 with 30-day retention and point-in-time recovery.</p>', 'backlog', '50000000-0003-0000-0000-000000000001', 2, 'a0000000-0000-0000-0000-000000000002', NULL, 5, NULL, 3000);
 
 -- Side project issues
-INSERT INTO issues (id, workspace_id, team_id, project_id, number, identifier_text, title, status, priority, creator_id, assignee_id, sort_order) VALUES
-    ('10000000-0000-0000-0000-000000000022', 'b0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000004', 'e0000000-0000-0000-0000-000000000004', 1, 'CORE-1', 'Landing page', 'in_progress', 2, 'a0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 1000),
-    ('10000000-0000-0000-0000-000000000023', 'b0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000004', 'e0000000-0000-0000-0000-000000000004', 2, 'CORE-2', 'Payment integration', 'backlog', 3, 'a0000000-0000-0000-0000-000000000001', NULL, 2000);
+INSERT INTO issues (id, workspace_id, team_id, project_id, number, identifier_text, title, status, status_id, priority, creator_id, assignee_id, sort_order) VALUES
+    ('10000000-0000-0000-0000-000000000022', 'b0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000004', 'e0000000-0000-0000-0000-000000000004', 1, 'CORE-1', 'Landing page', 'in_progress', '50000000-0004-0000-0000-000000000003', 2, 'a0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 1000),
+    ('10000000-0000-0000-0000-000000000023', 'b0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000004', 'e0000000-0000-0000-0000-000000000004', 2, 'CORE-2', 'Payment integration', 'backlog', '50000000-0004-0000-0000-000000000001', 3, 'a0000000-0000-0000-0000-000000000001', NULL, 2000);
 
 -- ============================================================
 -- ISSUE ASSIGNEES (sync from assignee_id)
@@ -257,7 +293,7 @@ echo "=== Seed data created ==="
 echo ""
 echo "  Workspaces:  Acme Corp (acme), Side Project (side-project)"
 echo "  Teams:       Engineering (ENG), Design (DES), Platform (PLT), Core (CORE)"
-echo "  Users:       5 users, all with password: password123"
+echo "  Users:       5 users, all with password: Password123!"
 echo ""
 echo "  Login credentials:"
 echo "  ┌──────────────────────┬───────────────┬──────────┐"
@@ -269,7 +305,7 @@ echo "  │ carol@kuayle.dev     │ Carol Kim     │ Member   │"
 echo "  │ dave@kuayle.dev      │ Dave Johnson  │ Member   │"
 echo "  │ eve@kuayle.dev       │ Eve Williams  │ Guest    │"
 echo "  └──────────────────────┴───────────────┴──────────┘"
-echo "  Password for all: password123"
+echo "  Password for all: Password123!"
 echo ""
 echo "  Issues: 23 across 4 teams"
 echo "  Labels: 9 (Bug, Feature, Improvement, Tech Debt, etc.)"

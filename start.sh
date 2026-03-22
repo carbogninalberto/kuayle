@@ -3,6 +3,9 @@ set -e
 
 PIDFILE=".dev.pids"
 
+# Ensure Docker CLI is in PATH (macOS Docker Desktop)
+export PATH="/Applications/Docker.app/Contents/Resources/bin:$PATH"
+
 echo "=== Kuayle - Dev Setup ==="
 
 # 1. Create .env if missing
