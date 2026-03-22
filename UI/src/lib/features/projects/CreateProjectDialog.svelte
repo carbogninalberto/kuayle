@@ -4,21 +4,29 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 
+	import type { Team } from '$lib/types/team';
+
 	let {
 		open = $bindable(false),
-		onsubmit
+		onsubmit,
+		teams = [],
+		defaultTeamId
 	}: {
 		open: boolean;
-		onsubmit: (data: { name: string; description?: string }) => void;
+		onsubmit: (data: { name: string; description?: string; team_id?: string }) => void;
+		teams?: Team[];
+		defaultTeamId?: string;
 	} = $props();
 
 	let name = $state('');
 	let description = $state('');
+	let teamId = $state('');
 
 	$effect(() => {
 		if (open) {
 			name = '';
 			description = '';
+			teamId = defaultTeamId ?? '';
 		}
 	});
 
@@ -27,7 +35,8 @@
 		if (!name.trim()) return;
 		onsubmit({
 			name: name.trim(),
-			description: description.trim() || undefined
+			description: description.trim() || undefined,
+			team_id: teamId || undefined
 		});
 		open = false;
 	}
@@ -51,6 +60,21 @@
 						class="bg-[var(--color-bg)] border-[var(--app-border)] text-[var(--color-text-primary)]"
 					/>
 				</div>
+
+				{#if teams.length > 0}
+					<div class="space-y-1.5">
+						<Label class="text-xs text-[var(--color-text-secondary)]">Team <span class="text-[var(--color-text-tertiary)]">(optional)</span></Label>
+						<select
+							bind:value={teamId}
+							class="flex h-9 w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-1 text-sm text-[var(--color-text-primary)]"
+						>
+							<option value="">No team</option>
+							{#each teams as team}
+								<option value={team.id}>{team.name}</option>
+							{/each}
+						</select>
+					</div>
+				{/if}
 
 				<div class="space-y-1.5">
 					<Label class="text-xs text-[var(--color-text-secondary)]">Description <span class="text-[var(--color-text-tertiary)]">(optional)</span></Label>

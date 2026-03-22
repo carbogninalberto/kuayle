@@ -19,6 +19,7 @@
 
 	const darkThemeLabels: Record<string, string> = {
 		dark: 'Dark',
+		'dark-gray': 'Dark Gray',
 		'amethyst-dark': 'Amethyst Dark',
 		'emerald-dark': 'Emerald Dark',
 		'cyber-77': 'Cyber 77',
@@ -145,7 +146,7 @@
 				type="single"
 				value={preferencesState.darkTheme}
 				onValueChange={(v) => {
-					if (v) preferencesState.setDarkTheme(v as 'dark' | 'amethyst-dark' | 'emerald-dark' | 'cyber-77' | 'blade-49' | 'pipboy');
+					if (v) preferencesState.setDarkTheme(v as 'dark' | 'dark-gray' | 'amethyst-dark' | 'emerald-dark' | 'cyber-77' | 'blade-49' | 'pipboy');
 				}}
 			>
 				<Select.Trigger size="sm" class="w-[130px]">
@@ -153,6 +154,7 @@
 				</Select.Trigger>
 				<Select.Content>
 					<Select.Item value="dark">Dark</Select.Item>
+					<Select.Item value="dark-gray">Dark Gray</Select.Item>
 					<Select.Item value="amethyst-dark">Amethyst Dark</Select.Item>
 					<Select.Item value="emerald-dark">Emerald Dark</Select.Item>
 					<Select.Item value="cyber-77">Cyber 77</Select.Item>

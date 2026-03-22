@@ -227,7 +227,7 @@
 							href="/{slug}/teams/{team.id}"
 							class="flex items-center gap-2 rounded-md px-2 py-1.5 pl-8 text-xs {isActive(
 								`/${slug}/teams/${team.id}`
-							) && !isActive(`/${slug}/teams/${team.id}/cycles`) && !isActive(`/${slug}/teams/${team.id}/triage`)
+							) && !isActive(`/${slug}/teams/${team.id}/cycles`) && !isActive(`/${slug}/teams/${team.id}/triage`) && !isActive(`/${slug}/teams/${team.id}/projects`)
 								? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
 								: 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]'}"
 						>
@@ -244,6 +244,17 @@
 						>
 							<RotateCcw size={13} />
 							Cycles
+						</a>
+						<a
+							href="/{slug}/teams/{team.id}/projects"
+							class="flex items-center gap-2 rounded-md px-2 py-1.5 pl-8 text-xs {isActive(
+								`/${slug}/teams/${team.id}/projects`
+							)
+								? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
+								: 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]'}"
+						>
+							<FolderKanban size={13} />
+							Projects
 						</a>
 						{#if team.triage_enabled}
 							<a

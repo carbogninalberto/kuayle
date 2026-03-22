@@ -3,7 +3,7 @@ import { getPreferences, updatePreferences } from '$lib/api/preferences';
 type FontSize = 'small' | 'default' | 'large';
 type ThemeMode = 'system' | 'light' | 'dark';
 type LightTheme = 'light' | 'rose-light' | 'blue-light';
-type DarkTheme = 'dark' | 'amethyst-dark' | 'emerald-dark' | 'cyber-77' | 'blade-49' | 'pipboy';
+type DarkTheme = 'dark' | 'dark-gray' | 'amethyst-dark' | 'emerald-dark' | 'cyber-77' | 'blade-49' | 'pipboy';
 
 interface PreferencesData {
 	fontSize: FontSize;

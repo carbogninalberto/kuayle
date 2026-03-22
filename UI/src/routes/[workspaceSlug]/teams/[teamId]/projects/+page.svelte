@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import { listProjects, createProject } from '$lib/api/projects';
+	import { listTeamProjects, createProject } from '$lib/api/projects';
 	import { listTeams } from '$lib/api/teams';
 	import type { Project, ProjectStatus } from '$lib/types/project';
 	import type { Team } from '$lib/types/team';
@@ -12,6 +12,7 @@
 	import { Plus } from 'lucide-svelte';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
+	const teamId = $derived(page.params.teamId ?? '');
 	let projects = $state<Project[]>([]);
 	let teams = $state<Team[]>([]);
 	let loading = $state(true);
@@ -24,17 +25,23 @@
 		cancelled: 'Cancelled'
 	};
 
-	onMount(async () => {
-		try {
-			[projects, teams] = await Promise.all([listProjects(slug), listTeams(slug)]);
-		} finally {
+	$effect(() => {
+		if (!slug || !teamId) return;
+		loading = true;
+		Promise.all([
+			listTeamProjects(slug, teamId),
+			listTeams(slug)
+		]).then(([p, t]) => {
+			projects = p;
+			teams = t;
+		}).finally(() => {
 			loading = false;
-		}
+		});
 	});
 
 	async function handleCreate(data: { name: string; description?: string; team_id?: string }) {
 		try {
-			const project = await createProject(slug, data);
+			const project = await createProject(slug, { ...data, team_id: teamId });
 			projects = [...projects, project];
 			toast.success('Project created');
 		} catch (err: any) {
@@ -73,8 +80,8 @@
 
 	{#if !loading && projects.length === 0}
 		<EmptyState
-			title="No projects yet"
-			description="Create a project to organize your issues"
+			title="No projects for this team"
+			description="Create a project to organize this team's issues"
 			action={{ label: 'New Project', onclick: () => (showCreateProject = true) }}
 		/>
 	{:else}
@@ -90,12 +97,6 @@
 							<Badge variant={statusVariant(project.status)} class="text-[10px]">
 								{STATUS_LABELS[project.status]}
 							</Badge>
-							{#if project.team_id}
-								{@const team = teams.find(t => t.id === project.team_id)}
-								{#if team}
-									<span class="text-[10px] text-[var(--color-text-tertiary)]">{team.name}</span>
-								{/if}
-							{/if}
 						</div>
 						{#if project.description}
 							<p class="mt-0.5 truncate text-xs text-[var(--color-text-tertiary)]">{project.description}</p>
@@ -123,5 +124,6 @@
 <CreateProjectDialog
 	bind:open={showCreateProject}
 	{teams}
+	defaultTeamId={teamId}
 	onsubmit={handleCreate}
 />
