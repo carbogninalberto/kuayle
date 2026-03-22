@@ -180,7 +180,7 @@
 		<!-- Title + Description -->
 		<!-- svelte-ignore a11y_autofocus -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div class="px-4 pt-3" onkeydown={handleKeydown}>
+		<div class="px-4 py-3" onkeydown={handleKeydown}>
 			<input
 				type="text"
 				bind:value={title}

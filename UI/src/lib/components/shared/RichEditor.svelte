@@ -78,7 +78,7 @@
 	const editorClass = compact
 		? 'prose prose-invert prose-sm max-w-none outline-none text-[var(--color-text-primary)] compact-editor'
 		: borderless
-			? 'prose prose-invert prose-sm max-w-none outline-none min-h-[40px] text-[var(--color-text-primary)] borderless-editor'
+			? 'prose prose-invert prose-sm max-w-none outline-none min-h-[120px] text-[var(--color-text-primary)] borderless-editor'
 			: 'prose prose-invert prose-sm max-w-none outline-none min-h-[80px] px-3 py-2 text-[var(--color-text-primary)]';
 
 	async function uploadImage(file: File): Promise<string | null> {
