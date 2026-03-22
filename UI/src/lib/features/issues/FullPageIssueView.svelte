@@ -638,17 +638,18 @@
 
 							<!-- Reply input (hidden when resolved) -->
 							{#if !comment.resolved_at}
-								<div class="border-t border-[var(--app-border)] px-4 py-3 flex gap-3">
-									<div class="my-auto flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] font-medium text-[var(--app-accent-foreground)]">
+								<div class="border-t border-[var(--app-border)] px-4 py-3 flex items-start gap-3">
+									<div class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] font-medium text-[var(--app-accent-foreground)]">
 										{(authState.user?.name ?? 'U').charAt(0).toUpperCase()}
 									</div>
-									<div class="min-w-0 flex items-center w-full">
+									<div class="min-w-0 flex-1">
 										{#key replyVersions[comment.id] ?? 0}
 											<RichEditor
 												content=""
 												placeholder="Leave a reply..."
 												minimal={true}
 												borderless={true}
+												bubbleMenu={true}
 												uploadUrl={imageUploadUrl}
 												onupdate={(html) => { replyContents[comment.id] = html; replyContents = replyContents; }}
 												onsubmit={() => handleReply(comment.id)}
@@ -674,19 +675,22 @@
 					{/each}
 
 					<!-- New comment input -->
-					<div class="flex items-center rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)] focus-within:border-[var(--color-text-tertiary)] transition-colors p-3">
-						{#key commentVersion}
-						<RichEditor
-							content=""
-							placeholder="Leave a comment..."
-							minimal={true}
-							borderless={true}
-							uploadUrl={imageUploadUrl}
-							onupdate={(html) => newComment = html}
-							onsubmit={handleAddComment}
-						/>
-					{/key}
-						<div class="flex items-center justify-end gap-1.5 px-3 py-0">
+					<div class="flex flex-wrap rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)] focus-within:border-[var(--color-text-tertiary)] transition-colors p-3">
+						<div class="w-full min-w-0">
+							{#key commentVersion}
+							<RichEditor
+								content=""
+								placeholder="Leave a comment..."
+								minimal={true}
+								borderless={true}
+								bubbleMenu={true}
+								uploadUrl={imageUploadUrl}
+								onupdate={(html) => newComment = html}
+								onsubmit={handleAddComment}
+							/>
+							{/key}
+						</div>
+						<div class="flex items-center justify-end gap-1.5 ml-auto mt-1">
 							<button class="rounded p-1.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]" title="Attach file">
 								<Paperclip size={14} />
 							</button>

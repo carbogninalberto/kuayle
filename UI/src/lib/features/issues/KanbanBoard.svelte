@@ -66,7 +66,7 @@
 	}
 </script>
 
-<div class="flex gap-4 overflow-x-auto p-4">
+<div class="flex h-full gap-4 overflow-x-auto p-4">
 	{#each teamStatusesState.statusOrder as ts (ts.id)}
 		<KanbanColumn
 			statusId={ts.id}

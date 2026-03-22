@@ -201,6 +201,7 @@
 					placeholder="Add description..."
 					bubbleMenu={true}
 					borderless={true}
+					minHeight="120px"
 					onupdate={(html) => (description = html)}
 				/>
 			</div>

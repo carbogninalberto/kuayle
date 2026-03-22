@@ -39,6 +39,7 @@
 		compact = false,
 		bubbleMenu = false,
 		borderless = false,
+		minHeight,
 		onupdate,
 		onsubmit,
 		uploadUrl
@@ -50,6 +51,7 @@
 		compact?: boolean;
 		bubbleMenu?: boolean;
 		borderless?: boolean;
+		minHeight?: string;
 		onupdate?: (html: string) => void;
 		onsubmit?: () => void;
 		uploadUrl?: string;
@@ -78,7 +80,7 @@
 	const editorClass = compact
 		? 'prose prose-invert prose-sm max-w-none outline-none text-[var(--color-text-primary)] compact-editor'
 		: borderless
-			? 'prose prose-invert prose-sm max-w-none outline-none min-h-[120px] text-[var(--color-text-primary)] borderless-editor'
+			? 'prose prose-invert prose-sm max-w-none outline-none text-[var(--color-text-primary)] borderless-editor'
 			: 'prose prose-invert prose-sm max-w-none outline-none min-h-[80px] px-3 py-2 text-[var(--color-text-primary)]';
 
 	async function uploadImage(file: File): Promise<string | null> {
@@ -317,7 +319,7 @@
 
 	<!-- Editor content -->
 	{#if editor}
-		<EditorContent {editor} class="rich-editor" />
+		<EditorContent {editor} class="rich-editor" style={minHeight ? `--editor-min-height: ${minHeight}` : undefined} />
 	{/if}
 
 	{#if bubbleMenu && editor && editable}
@@ -417,7 +419,7 @@
 		color: var(--color-text-primary);
 	}
 	:global(.rich-editor .tiptap.borderless-editor) {
-		min-height: 120px;
+		min-height: var(--editor-min-height, 20px);
 		padding: 0;
 	}
 	:global(.rich-editor .tiptap.compact-editor) {
