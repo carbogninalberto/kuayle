@@ -25,7 +25,7 @@
 		open = false;
 		if (ws.slug !== slug) {
 			localStorage.setItem('kuayle_last_workspace', ws.slug);
-			goto(`/${ws.slug}/dashboard`);
+			goto(`/${ws.slug}/my-issues`);
 		}
 	}
 </script>

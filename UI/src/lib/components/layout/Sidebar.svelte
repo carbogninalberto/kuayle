@@ -12,7 +12,6 @@
 	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
 	import {
 		Inbox,
-		LayoutDashboard,
 		CircleUser,
 		Settings,
 		LogOut,
@@ -370,17 +369,6 @@
 				<CircleUser size={16} class="shrink-0" />
 				<span class="truncate">My Issues</span>
 			</a>
-			<a
-				href="/{slug}/dashboard"
-				class="flex items-center gap-2 rounded-md px-2 py-1 text-sm {isActive(
-					`/${slug}/dashboard`
-				)
-					? 'bg-[var(--color-bg-hover)]/50 text-[var(--color-text-primary)]'
-					: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
-			>
-				<LayoutDashboard size={16} class="shrink-0" />
-				<span class="truncate">Dashboard</span>
-			</a>
 		</div>
 
 		<!-- Favorites -->
@@ -392,7 +380,7 @@
 				</button>
 				{#if !favoritesCollapsed}
 					{#each favorites as fav}
-						{@const href = fav.entity_type === 'project' ? `/${slug}/projects/${fav.entity_id}` : fav.entity_type === 'team' ? `/${slug}/teams/${fav.entity_id}` : fav.entity_type === 'view' ? `/${slug}/views/${fav.entity_id}` : `/${slug}/dashboard`}
+						{@const href = fav.entity_type === 'project' ? `/${slug}/projects/${fav.entity_id}` : fav.entity_type === 'team' ? `/${slug}/teams/${fav.entity_id}` : fav.entity_type === 'view' ? `/${slug}/views/${fav.entity_id}` : `/${slug}/my-issues`}
 						<a
 							{href}
 							class="flex items-center gap-2 rounded-md px-2 py-1 text-sm {isActive(href)

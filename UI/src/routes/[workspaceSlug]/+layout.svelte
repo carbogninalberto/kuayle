@@ -87,7 +87,6 @@
 		// Navigation sequences (G + key)
 		{ keys: ['g', 'i'], handler: () => goto(`/${slug}/inbox`), label: 'Go to Inbox', category: 'Navigation' },
 		{ keys: ['g', 'm'], handler: () => goto(`/${slug}/my-issues`), label: 'Go to My Issues', category: 'Navigation' },
-		{ keys: ['g', 'd'], handler: () => goto(`/${slug}/dashboard`), label: 'Go to Dashboard', category: 'Navigation' },
 		{ keys: ['g', 'p'], handler: () => goto(`/${slug}/projects`), label: 'Go to Projects', category: 'Navigation' },
 		{ keys: ['g', 's'], handler: () => goto(`/${slug}/settings`), label: 'Go to Settings', category: 'Navigation' },
 		// Actions

@@ -24,7 +24,6 @@
 		const items: CommandItem[] = [
 			{ label: 'Go to Inbox', action: () => navigate(`/${slug}/inbox`) },
 			{ label: 'Go to My Issues', action: () => navigate(`/${slug}/my-issues`) },
-			{ label: 'Go to Dashboard', action: () => navigate(`/${slug}/dashboard`) },
 			{ label: 'Go to Projects', action: () => navigate(`/${slug}/projects`) },
 			{ label: 'Go to Settings', action: () => navigate(`/${slug}/settings`) },
 			...teams.map((t) => ({

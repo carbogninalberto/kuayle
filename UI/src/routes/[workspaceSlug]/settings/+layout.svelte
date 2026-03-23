@@ -55,7 +55,7 @@
 		<div class="flex h-[49px] items-center gap-2 border-b border-[var(--app-border)] px-4">
 			<SidebarToggle />
 			<a
-				href="/{slug}/dashboard"
+				href="/{slug}/my-issues"
 				class="rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
 				title="Back"
 			>
