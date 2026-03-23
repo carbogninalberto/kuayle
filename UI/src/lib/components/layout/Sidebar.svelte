@@ -284,16 +284,15 @@
 	{/if}
 </aside>
 
-<!-- When collapsed: hover zone on left edge triggers drawer (below page header) -->
+<!-- When collapsed: hover zone on left edge triggers drawer -->
 {#if sidebarState.collapsed}
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
-		class="fixed left-0 top-[49px] z-20 w-[6px]"
-		style="height: calc(100% - 49px)"
+		class="fixed left-0 top-0 z-20 h-full w-[6px]"
 		onmouseenter={openDrawer}
 	></div>
 
-	<!-- Drawer overlay sidebar -->
+	<!-- Drawer overlay sidebar (below page header) -->
 	<!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
 	<div
 		class="fixed inset-0 top-[49px] z-40 transition-[background-color] duration-300 {drawerOpen ? 'pointer-events-auto' : 'pointer-events-none'}"
