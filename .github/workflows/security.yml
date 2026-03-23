@@ -2,11 +2,9 @@ name: Security Scan
 
 on:
   push:
-    branches: [main]
+    tags: ['v*']
   pull_request:
     branches: [main]
-  schedule:
-    - cron: '0 6 * * 1' # Weekly on Monday at 06:00 UTC
 
 jobs:
   go-security:

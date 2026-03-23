@@ -1,4 +1,4 @@
-.PHONY: dev dev-backend dev-frontend migrate-up migrate-down seed reset-dev test test-backend test-frontend lint docker-up docker-down
+.PHONY: dev dev-backend dev-frontend migrate-up migrate-down seed reset-dev test test-backend test-frontend lint docker-up docker-down scan scan-backend scan-frontend
 
 # Load .env into shell commands
 DOTENV := $(shell [ -f .env ] && echo "set -a && . ./.env && set +a &&" || echo "")
@@ -42,3 +42,13 @@ docker-up:
 
 docker-down:
 	docker compose down
+
+scan: scan-backend scan-frontend
+
+scan-backend:
+	docker build -t kuayle-backend:scan ./BE
+	trivy image --severity CRITICAL,HIGH --exit-code 1 kuayle-backend:scan
+
+scan-frontend:
+	docker build -t kuayle-frontend:scan ./UI
+	trivy image --severity CRITICAL,HIGH --exit-code 1 kuayle-frontend:scan
