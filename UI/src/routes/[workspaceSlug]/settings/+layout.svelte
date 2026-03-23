@@ -52,7 +52,7 @@
 <div class="flex h-full">
 	<!-- Settings sidebar -->
 	<aside class="w-56 shrink-0 border-r border-[var(--app-border)] bg-[var(--color-bg-secondary)] overflow-y-auto">
-		<div class="flex h-[49px] items-center gap-2 border-b border-[var(--app-border)] px-4">
+		<div class="flex h-[49px] items-center gap-2 px-4">
 			<SidebarToggle />
 			<a
 				href="/{slug}/my-issues"

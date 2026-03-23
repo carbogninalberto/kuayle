@@ -40,6 +40,7 @@
 	let showShortcutHelp = $state(false);
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
+	const isSettings = $derived(page.url.pathname.includes('/settings'));
 
 	async function loadWorkspaceData(workspaceSlug: string) {
 		try {
@@ -161,27 +162,29 @@
 
 {#if workspace}
 	<div class="flex h-screen bg-[var(--color-bg)]">
-		<Sidebar
-			{workspace}
-			{teams}
-			{views}
-			{projects}
-			{unreadCount}
-			{slug}
-			oncreateissue={() => {
-				if (teams.length === 0) {
-					showCreateTeam = true;
-				} else {
-					const targetTeam = page.params.teamId ?? teams[0]?.id;
-					if (targetTeam) {
-						teamStatusesState.load(slug, targetTeam);
+		{#if !isSettings}
+			<Sidebar
+				{workspace}
+				{teams}
+				{views}
+				{projects}
+				{unreadCount}
+				{slug}
+				oncreateissue={() => {
+					if (teams.length === 0) {
+						showCreateTeam = true;
+					} else {
+						const targetTeam = page.params.teamId ?? teams[0]?.id;
+						if (targetTeam) {
+							teamStatusesState.load(slug, targetTeam);
+						}
+						showCreateIssue = true;
 					}
-					showCreateIssue = true;
-				}
-			}}
-			oncreateteam={() => (showCreateTeam = true)}
-			onsearch={() => (showCommandPalette = true)}
-		/>
+				}}
+				oncreateteam={() => (showCreateTeam = true)}
+				onsearch={() => (showCommandPalette = true)}
+			/>
+		{/if}
 		<main class="flex-1 overflow-auto">
 			{@render children()}
 		</main>
