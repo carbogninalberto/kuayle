@@ -1,4 +1,4 @@
-.PHONY: dev dev-backend dev-frontend migrate-up migrate-down seed reset-dev test test-backend test-frontend lint docker-up docker-down scan scan-backend scan-frontend
+.PHONY: dev dev-backend dev-frontend migrate-up migrate-down seed reset-dev test test-backend test-frontend lint docker-up docker-down ensure-trivy scan scan-backend scan-frontend
 
 # Load .env into shell commands
 DOTENV := $(shell [ -f .env ] && echo "set -a && . ./.env && set +a &&" || echo "")
@@ -43,12 +43,26 @@ docker-up:
 docker-down:
 	docker compose down
 
+ensure-trivy:
+	@command -v trivy >/dev/null 2>&1 || { \
+		echo "Trivy not found, installing..."; \
+		OS=$$(uname -s); \
+		if [ "$$OS" = "Darwin" ]; then \
+			brew install trivy; \
+		elif [ "$$OS" = "Linux" ]; then \
+			curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin; \
+		else \
+			echo "Unsupported OS: $$OS. Install Trivy manually: https://trivy.dev"; \
+			exit 1; \
+		fi; \
+	}
+
 scan: scan-backend scan-frontend
 
-scan-backend:
+scan-backend: ensure-trivy
 	docker build -t kuayle-backend:scan ./BE
 	trivy image --severity CRITICAL,HIGH --exit-code 1 kuayle-backend:scan
 
-scan-frontend:
+scan-frontend: ensure-trivy
 	docker build -t kuayle-frontend:scan ./UI
 	trivy image --severity CRITICAL,HIGH --exit-code 1 kuayle-frontend:scan
