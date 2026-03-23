@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -11,6 +12,7 @@ import (
 	"github.com/kuayle/kuayle-backend/pkg/validate"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
+	log "github.com/sirupsen/logrus"
 )
 
 type IssueTemplateHandler struct {
@@ -39,6 +41,7 @@ func (h *IssueTemplateHandler) Create(c echo.Context) error {
 
 	tmpl, err := h.templateSvc.Create(c.Request().Context(), ws.ID, userID, req)
 	if err != nil {
+		log.WithError(err).Error("Failed to create issue template")
 		return response.InternalError(c)
 	}
 
@@ -50,6 +53,7 @@ func (h *IssueTemplateHandler) List(c echo.Context) error {
 
 	templates, err := h.templateSvc.ListByWorkspace(c.Request().Context(), ws.ID)
 	if err != nil {
+		log.WithError(err).Error("Failed to list issue templates")
 		return response.InternalError(c)
 	}
 
@@ -108,6 +112,10 @@ func (h *IssueTemplateHandler) Delete(c echo.Context) error {
 }
 
 func toIssueTemplateResponse(tmpl *domain.IssueTemplate) dto.IssueTemplateResponse {
+	var recurrence json.RawMessage
+	if tmpl.RecurrenceRule != nil {
+		recurrence = *tmpl.RecurrenceRule
+	}
 	resp := dto.IssueTemplateResponse{
 		ID:             tmpl.ID.String(),
 		WorkspaceID:    tmpl.WorkspaceID.String(),
@@ -116,7 +124,7 @@ func toIssueTemplateResponse(tmpl *domain.IssueTemplate) dto.IssueTemplateRespon
 		Status:         tmpl.Status,
 		Priority:       tmpl.Priority,
 		LabelIDs:       tmpl.LabelIDs,
-		RecurrenceRule: tmpl.RecurrenceRule,
+		RecurrenceRule: recurrence,
 		NextRunAt:      tmpl.NextRunAt,
 		IsActive:       tmpl.IsActive,
 		CreatedBy:      tmpl.CreatedBy.String(),

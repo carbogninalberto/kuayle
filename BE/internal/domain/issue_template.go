@@ -17,7 +17,7 @@ type IssueTemplate struct {
 	Priority       *int            `json:"priority" db:"priority"`
 	AssigneeID     *uuid.UUID      `json:"assignee_id" db:"assignee_id"`
 	LabelIDs       json.RawMessage `json:"label_ids" db:"label_ids"`
-	RecurrenceRule json.RawMessage `json:"recurrence_rule" db:"recurrence_rule"`
+	RecurrenceRule *json.RawMessage `json:"recurrence_rule" db:"recurrence_rule"`
 	NextRunAt      *time.Time      `json:"next_run_at" db:"next_run_at"`
 	IsActive       bool            `json:"is_active" db:"is_active"`
 	CreatedBy      uuid.UUID       `json:"created_by" db:"created_by"`

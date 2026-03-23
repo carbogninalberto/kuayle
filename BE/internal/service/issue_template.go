@@ -25,6 +25,11 @@ func (s *IssueTemplateService) Create(ctx context.Context, workspaceID, creatorI
 		labelIDsJSON = []byte("[]")
 	}
 
+	var recurrence *json.RawMessage
+	if len(req.RecurrenceRule) > 0 {
+		recurrence = &req.RecurrenceRule
+	}
+
 	tmpl := &domain.IssueTemplate{
 		ID:             uuid.New(),
 		WorkspaceID:    workspaceID,
@@ -33,7 +38,7 @@ func (s *IssueTemplateService) Create(ctx context.Context, workspaceID, creatorI
 		Status:         req.Status,
 		Priority:       req.Priority,
 		LabelIDs:       labelIDsJSON,
-		RecurrenceRule: req.RecurrenceRule,
+		RecurrenceRule: recurrence,
 		IsActive:       true,
 		CreatedBy:      creatorID,
 	}
@@ -91,8 +96,8 @@ func (s *IssueTemplateService) Update(ctx context.Context, id uuid.UUID, req dto
 		labelIDsJSON, _ := json.Marshal(req.LabelIDs)
 		tmpl.LabelIDs = labelIDsJSON
 	}
-	if req.RecurrenceRule != nil {
-		tmpl.RecurrenceRule = req.RecurrenceRule
+	if len(req.RecurrenceRule) > 0 {
+		tmpl.RecurrenceRule = &req.RecurrenceRule
 	}
 	if req.IsActive != nil {
 		tmpl.IsActive = *req.IsActive
