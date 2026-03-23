@@ -103,6 +103,7 @@
 	const DEFAULT_WIDTH = 240;
 	const MIN_WIDTH = 220;
 	const MAX_WIDTH = 320;
+	const COLLAPSE_THRESHOLD = 140;
 
 	let sidebarWidth = $state(
 		typeof localStorage !== 'undefined'
@@ -187,7 +188,13 @@
 		function onPointerMove(ev: PointerEvent) {
 			const delta = ev.clientX - startX;
 			if (Math.abs(delta) > 2) didDrag = true;
-			sidebarWidth = Math.round(easedResize(startWidth, delta));
+			const raw = startWidth + delta;
+			if (raw < COLLAPSE_THRESHOLD) {
+				// Visual feedback: shrink towards 0 as user drags left
+				sidebarWidth = Math.max(0, raw);
+			} else {
+				sidebarWidth = Math.round(easedResize(startWidth, delta));
+			}
 		}
 
 		function onPointerUp() {
@@ -196,6 +203,11 @@
 			document.removeEventListener('pointerup', onPointerUp);
 			if (!didDrag) {
 				toggleCollapse();
+			} else if (sidebarWidth < COLLAPSE_THRESHOLD) {
+				// Dragged far enough left — collapse
+				sidebarWidth = startWidth; // restore for next expand
+				collapsed = true;
+				localStorage.setItem('sidebar_collapsed_panel', 'true');
 			} else {
 				persistWidth();
 			}
