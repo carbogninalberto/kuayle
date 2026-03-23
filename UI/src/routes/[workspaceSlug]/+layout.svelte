@@ -57,6 +57,7 @@
 			workspace = ws;
 			teams = t;
 			projects = p;
+			sidebarState.teams = t;
 			sidebarState.projects = p;
 			labels = l;
 			members = m;

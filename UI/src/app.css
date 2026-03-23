@@ -236,8 +236,8 @@ html.dark-gray {
 	--app-border: #333333;
 	--app-border-hover: #484848;
 	--color-text-primary: #f5f5f5;
-	--color-text-secondary: #a8a8a8;
-	--color-text-tertiary: #737373;
+	--color-text-secondary: #d4d4d4;
+	--color-text-tertiary: #a3a3a3;
 	--app-accent: #6650eb;
 	--app-accent-hover: #7b68f0;
 	--app-accent-light: #9585f5;
@@ -261,12 +261,12 @@ html.dark-gray {
 	--secondary: oklch(0.32 0 0);
 	--secondary-foreground: oklch(0.985 0 0);
 	--muted: oklch(0.32 0 0);
-	--muted-foreground: oklch(0.72 0 0);
+	--muted-foreground: oklch(0.82 0 0);
 	--accent: oklch(0.32 0 0);
 	--accent-foreground: oklch(0.985 0 0);
 	--destructive: oklch(0.704 0.191 22.216);
-	--border: oklch(1 0 0 / 12%);
-	--input: oklch(1 0 0 / 17%);
+	--border: oklch(1 0 0 / 14%);
+	--input: oklch(1 0 0 / 19%);
 	--ring: oklch(0.4 0 0);
 	--chart-1: oklch(0.809 0.105 251.813);
 	--chart-2: oklch(0.623 0.214 259.815);
@@ -279,7 +279,7 @@ html.dark-gray {
 	--sidebar-primary-foreground: oklch(0.985 0 0);
 	--sidebar-accent: oklch(0.32 0 0);
 	--sidebar-accent-foreground: oklch(0.985 0 0);
-	--sidebar-border: oklch(1 0 0 / 12%);
+	--sidebar-border: oklch(1 0 0 / 14%);
 	--sidebar-ring: oklch(0.556 0 0);
 }
 

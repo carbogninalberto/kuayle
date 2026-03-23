@@ -22,7 +22,6 @@
 	import { toast } from 'svelte-sonner';
 	import { createKeyboardHandler } from '$lib/utils/keyboard';
 	import {
-		ArrowLeft,
 		Trash2,
 		MoreHorizontal,
 		Circle,
@@ -31,20 +30,26 @@
 		XCircle,
 		Calendar,
 		List,
-		BarChart3
+		BarChart3,
+		ChevronRight,
+		SquareUser,
+		Box
 	} from 'lucide-svelte';
+	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
 	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	const projectId = $derived(page.params.projectId ?? '');
 
 	let project = $state<Project | null>(null);
+	let teams = $state<Team[]>([]);
 	let cycles = $state<Cycle[]>([]);
 	let loading = $state(true);
 	let statusOpen = $state(false);
 	let actionsOpen = $state(false);
 	let viewMode = $state<'list' | 'gantt'>('list');
 	let lastSelectedId = $state<string | null>(null);
+	const projectTeam = $derived(project?.team_id ? teams.find(t => t.id === project.team_id) : null);
 
 	const STATUS_OPTIONS: { value: ProjectStatus; label: string; icon: typeof Circle }[] = [
 		{ value: 'planned', label: 'Planned', icon: Circle },
@@ -78,7 +83,7 @@
 			if (firstTeamId) {
 				teamStatusesState.load(s, firstTeamId);
 			}
-			const teams = await listTeams(s);
+			teams = await listTeams(s);
 			const allCycles: Cycle[] = [];
 			for (const team of teams) {
 				const tc = await listCycles(s, team.id);
@@ -155,13 +160,21 @@
 		<div class="flex h-[49px] items-center justify-between border-b border-[var(--app-border)] px-6">
 			<div class="flex items-center gap-3">
 				<SidebarToggle />
-				<a
-					href="/{slug}/projects"
-					class="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
-				>
-					<ArrowLeft size={16} />
-				</a>
-				<h1 class="text-sm font-medium text-[var(--color-text-primary)]">{project.name}</h1>
+				<nav class="flex items-center gap-1.5 text-sm">
+					{#if projectTeam}
+						<a href="/{slug}/teams/{projectTeam.id}" class="flex items-center gap-1.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]">
+							<SquareUser size={14} class="shrink-0" style="color: {sidebarState.getTeamColor(projectTeam.id)}" />
+							{projectTeam.name}
+						</a>
+						<ChevronRight size={12} class="shrink-0 text-[var(--color-text-tertiary)]" />
+						<a href="/{slug}/teams/{projectTeam.id}/projects" class="flex items-center gap-1.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]">
+							<Box size={14} class="shrink-0" />
+							Projects
+						</a>
+						<ChevronRight size={12} class="shrink-0 text-[var(--color-text-tertiary)]" />
+					{/if}
+					<span class="font-medium text-[var(--color-text-primary)]">{project.name}</span>
+				</nav>
 				<Popover.Root bind:open={statusOpen}>
 					<Popover.Trigger>
 						<Badge variant={statusVariant(project.status)} class="cursor-pointer text-[10px]">

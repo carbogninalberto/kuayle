@@ -21,8 +21,9 @@ import CycleProgress from '$lib/features/cycles/CycleProgress.svelte';
 	import * as Popover from '$lib/components/ui/popover';
 	import { toast } from 'svelte-sonner';
 	import { formatRelativeTime } from '$lib/utils/format';
-	import { ArrowLeft, CheckCircle2, Play, Clock, Trash2, MoreHorizontal, Search, Plus } from 'lucide-svelte';
+	import { CheckCircle2, Play, Clock, Trash2, MoreHorizontal, Search, Plus, SquareUser, RefreshCcwDot, ChevronRight } from 'lucide-svelte';
 	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
+	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
 	import { createKeyboardHandler } from '$lib/utils/keyboard';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
@@ -173,13 +174,21 @@ import CycleProgress from '$lib/features/cycles/CycleProgress.svelte';
 		<div class="flex h-[49px] items-center justify-between border-b border-[var(--app-border)] px-6">
 			<div class="flex items-center gap-3">
 				<SidebarToggle />
-				<a
-					href="/{slug}/teams/{teamId}/cycles"
-					class="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
-				>
-					<ArrowLeft size={16} />
-				</a>
-				<h1 class="text-sm font-medium text-[var(--color-text-primary)]">{cycle.name}</h1>
+				<nav class="flex items-center gap-1.5 text-sm">
+					{#if sidebarState.getTeam(teamId)}
+						<a href="/{slug}/teams/{teamId}" class="flex items-center gap-1.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]">
+							<SquareUser size={14} class="shrink-0" style="color: {sidebarState.getTeamColor(teamId)}" />
+							{sidebarState.getTeam(teamId)?.name}
+						</a>
+						<ChevronRight size={12} class="shrink-0 text-[var(--color-text-tertiary)]" />
+						<a href="/{slug}/teams/{teamId}/cycles" class="flex items-center gap-1.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]">
+							<RefreshCcwDot size={14} class="shrink-0" />
+							Cycles
+						</a>
+						<ChevronRight size={12} class="shrink-0 text-[var(--color-text-tertiary)]" />
+					{/if}
+					<span class="font-medium text-[var(--color-text-primary)]">{cycle.name}</span>
+				</nav>
 				<Badge variant={cycle.status === 'active' ? 'default' : cycle.status === 'completed' ? 'secondary' : 'outline'} class="text-[10px]">
 					{cycle.status}
 				</Badge>

@@ -5,8 +5,9 @@
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
 	import { Badge } from '$lib/components/ui/badge';
 	import { toast } from 'svelte-sonner';
-	import { Bookmark, Trash2 } from 'lucide-svelte';
+	import { Bookmark, Trash2, SquareUser, Layers, ChevronRight } from 'lucide-svelte';
 	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
+	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	const teamId = $derived(page.params.teamId ?? '');
@@ -46,9 +47,21 @@
 	<div
 		class="flex h-[49px] items-center justify-between border-b border-[var(--app-border)] px-6"
 	>
-		<div class="flex items-center gap-2">
+		<div class="flex items-center gap-3">
 			<SidebarToggle />
-			<h1 class="text-sm font-medium text-[var(--color-text-primary)]">Views</h1>
+			<nav class="flex items-center gap-1.5 text-sm">
+				{#if sidebarState.getTeam(teamId)}
+					<a href="/{slug}/teams/{teamId}" class="flex items-center gap-1.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]">
+						<SquareUser size={14} class="shrink-0" style="color: {sidebarState.getTeamColor(teamId)}" />
+						{sidebarState.getTeam(teamId)?.name}
+					</a>
+					<ChevronRight size={12} class="shrink-0 text-[var(--color-text-tertiary)]" />
+				{/if}
+				<span class="flex items-center gap-1.5 font-medium text-[var(--color-text-primary)]">
+					<Layers size={14} class="shrink-0" />
+					Views
+				</span>
+			</nav>
 		</div>
 	</div>
 

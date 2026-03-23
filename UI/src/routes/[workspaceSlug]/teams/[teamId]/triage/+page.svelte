@@ -12,7 +12,8 @@
 	import { Kbd } from '$lib/components/ui/kbd';
 	import { toast } from 'svelte-sonner';
 	import { formatRelativeTime } from '$lib/utils/format';
-	import { CheckCircle2, XCircle, ArrowLeft } from 'lucide-svelte';
+	import { CheckCircle2, XCircle, SquareUser, ShieldCheck, ChevronRight } from 'lucide-svelte';
+	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
 	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
@@ -100,13 +101,19 @@
 	<div class="flex w-80 shrink-0 flex-col border-r border-[var(--app-border)]">
 		<div class="flex h-[49px] items-center gap-3 border-b border-[var(--app-border)] px-4">
 			<SidebarToggle />
-			<a
-				href="/{slug}/teams/{teamId}"
-				class="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
-			>
-				<ArrowLeft size={16} />
-			</a>
-			<h1 class="text-sm font-medium text-[var(--color-text-primary)]">Triage</h1>
+			<nav class="flex items-center gap-1.5 text-sm">
+				{#if sidebarState.getTeam(teamId)}
+					<a href="/{slug}/teams/{teamId}" class="flex items-center gap-1.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]">
+						<SquareUser size={14} class="shrink-0" style="color: {sidebarState.getTeamColor(teamId)}" />
+						{sidebarState.getTeam(teamId)?.name}
+					</a>
+					<ChevronRight size={12} class="shrink-0 text-[var(--color-text-tertiary)]" />
+				{/if}
+				<span class="flex items-center gap-1.5 font-medium text-[var(--color-text-primary)]">
+					<ShieldCheck size={14} class="shrink-0" />
+					Triage
+				</span>
+			</nav>
 			<Badge variant="outline" class="text-[10px]">{issues.length}</Badge>
 		</div>
 

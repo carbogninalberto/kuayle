@@ -29,7 +29,8 @@
 	import type { ViewFilter, ViewLayout } from '$lib/types/view';
 	import { createKeyboardHandler } from '$lib/utils/keyboard';
 	import { toast } from 'svelte-sonner';
-	import { Bookmark, Layers } from 'lucide-svelte';
+	import { Bookmark, Layers, SquareUser, SquaresSubtract, ChevronRight } from 'lucide-svelte';
+	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
 	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
 	import * as issueApi from '$lib/api/issues';
 	import type { Issue } from '$lib/types/issue';
@@ -238,7 +239,19 @@
 	>
 		<div class="flex items-center gap-3">
 			<SidebarToggle />
-			<h1 class="text-sm font-medium text-[var(--color-text-primary)]">Issues</h1>
+			<nav class="flex items-center gap-1.5 text-sm">
+				{#if sidebarState.getTeam(teamId)}
+					<a href="/{slug}/teams/{teamId}" class="flex items-center gap-1.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]">
+						<SquareUser size={14} class="shrink-0" style="color: {sidebarState.getTeamColor(teamId)}" />
+						{sidebarState.getTeam(teamId)?.name}
+					</a>
+					<ChevronRight size={12} class="shrink-0 text-[var(--color-text-tertiary)]" />
+				{/if}
+				<span class="flex items-center gap-1.5 font-medium text-[var(--color-text-primary)]">
+					<SquaresSubtract size={14} class="shrink-0" />
+					Issues
+				</span>
+			</nav>
 		</div>
 		<div class="flex items-center gap-2">
 			<!-- Group by -->
