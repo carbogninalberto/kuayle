@@ -69,20 +69,19 @@
 		return d;
 	});
 
-	onMount(async () => {
+	async function loadProject(s: string, pid: string) {
+		loading = true;
 		try {
-			project = await getProject(slug, projectId);
-			await issuesState.load(slug, { project: projectId, per_page: '200' });
-			// Load team statuses from the first issue's team
+			project = await getProject(s, pid);
+			await issuesState.load(s, { project: pid, per_page: '200' });
 			const firstTeamId = issuesState.issues[0]?.team_id;
 			if (firstTeamId) {
-				teamStatusesState.load(slug, firstTeamId);
+				teamStatusesState.load(s, firstTeamId);
 			}
-			// Load cycles for all teams (for gantt overlay)
-			const teams = await listTeams(slug);
+			const teams = await listTeams(s);
 			const allCycles: Cycle[] = [];
 			for (const team of teams) {
-				const tc = await listCycles(slug, team.id);
+				const tc = await listCycles(s, team.id);
 				allCycles.push(...tc);
 			}
 			cycles = allCycles;
@@ -92,6 +91,10 @@
 		} finally {
 			loading = false;
 		}
+	}
+
+	$effect(() => {
+		loadProject(slug, projectId);
 	});
 
 	async function handleStatusChange(status: ProjectStatus) {
