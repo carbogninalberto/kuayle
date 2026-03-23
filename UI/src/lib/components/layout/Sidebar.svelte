@@ -329,9 +329,11 @@
 
 {#snippet sidebarContent()}
 	<!-- Workspace header -->
-	<div class="flex h-[49px] items-center px-3">
-		<WorkspaceSwitcher currentWorkspace={workspace} {slug} />
-		<div class="ml-auto flex items-center gap-1">
+	<div class="flex h-[49px] items-center gap-1 px-3">
+		<div class="min-w-0 flex-1">
+			<WorkspaceSwitcher currentWorkspace={workspace} {slug} />
+		</div>
+		<div class="flex shrink-0 items-center gap-1">
 			{#if onsearch}
 				<button
 					onclick={onsearch}

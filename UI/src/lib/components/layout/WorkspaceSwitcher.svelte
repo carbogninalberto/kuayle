@@ -31,8 +31,8 @@
 </script>
 
 <Popover.Root bind:open>
-	<Popover.Trigger>
-		<button class="flex w-full items-center gap-2 rounded-md px-1 py-0.5 hover:bg-[var(--color-bg-hover)]">
+	<Popover.Trigger class="min-w-0 w-full">
+		<button class="flex w-full min-w-0 items-center gap-2 rounded-md px-1 py-0.5 hover:bg-[var(--color-bg-hover)]">
 			<div
 				class="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-[var(--app-accent)] text-xs font-bold text-[var(--app-accent-foreground)]"
 			>
