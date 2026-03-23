@@ -183,9 +183,9 @@ html.dark {
 	--color-text-primary: #f5f5f5;
 	--color-text-secondary: #a0a0a0;
 	--color-text-tertiary: #6b6b6b;
-	--app-accent: #361dc2;
-	--app-accent-hover: #4b38d9;
-	--app-accent-light: #6650eb;
+	--app-accent: #6650eb;
+	--app-accent-hover: #7b68f0;
+	--app-accent-light: #9585f5;
 	--app-accent-foreground: #ffffff;
 	--color-success: #22c55e;
 	--color-warning: #f59e0b;
@@ -238,9 +238,9 @@ html.dark-gray {
 	--color-text-primary: #f5f5f5;
 	--color-text-secondary: #a8a8a8;
 	--color-text-tertiary: #737373;
-	--app-accent: #361dc2;
-	--app-accent-hover: #4b38d9;
-	--app-accent-light: #6650eb;
+	--app-accent: #6650eb;
+	--app-accent-hover: #7b68f0;
+	--app-accent-light: #9585f5;
 	--app-accent-foreground: #ffffff;
 	--color-success: #22c55e;
 	--color-warning: #f59e0b;

@@ -304,7 +304,7 @@
 					{@const dropKey = group.key}
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
-						class="group/drop transition-all {dragOverGroup === dropKey ? 'ring-1 ring-[var(--app-accent)] rounded-lg' : ''}"
+						class="group/drop transition-all {dragOverGroup === dropKey && dragSourceGroup !== dropKey ? 'border border-[var(--app-accent)]' : ''}"
 						ondragstart={() => { dragSourceGroup = dropKey; }}
 						ondragend={() => { dragSourceGroup = null; dragOverGroup = null; dragOverIssueId = null; }}
 						ondragover={(e) => { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'; dragOverGroup = dropKey; }}
@@ -336,7 +336,7 @@
 									ondragleave={() => { dragOverIssueId = null; }}
 								>
 									{#if dragOverIssueId === issue.id && dragSourceGroup === dropKey}
-										<div class="absolute {dropPosition === 'above' ? 'top-0' : 'bottom-0'} left-4 right-4 h-0.5 bg-[var(--app-accent)] z-10 rounded-full"></div>
+										<div class="absolute {dropPosition === 'above' ? 'top-0' : 'bottom-0'} left-0 right-0 h-px bg-[var(--app-accent)] z-10"></div>
 									{/if}
 									<IssueRow {issue} {slug} {members} {labels} {projects} {cycles} onclick={handleIssueClick} {lastSelectedId} onlastselected={(id) => lastSelectedId = id} onaddrelation={handleAddRelation} />
 								</div>
