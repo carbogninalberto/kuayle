@@ -28,6 +28,8 @@
 	let dragStatusId = $state<string | null>(null);
 	let dragOverStatusId = $state<string | null>(null);
 	let dragCategory = $state<StatusCategory | null>(null);
+	let dragOverCategory = $state<StatusCategory | null>(null);
+	let dropIndicator = $state<'above' | 'below'>('below');
 
 	$effect(() => {
 		const s = slug;
@@ -118,10 +120,20 @@
 	}
 
 	function handleDragOver(e: DragEvent, status: TeamStatus) {
-		if (dragCategory !== status.category) return;
+		if (!dragStatusId) return;
+		dragOverCategory = status.category;
+
+		if (dragCategory !== status.category) {
+			dragOverStatusId = null;
+			return;
+		}
+
 		e.preventDefault();
 		if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
 		dragOverStatusId = status.id;
+		const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+		const midY = rect.top + rect.height / 2;
+		dropIndicator = e.clientY < midY ? 'above' : 'below';
 	}
 
 	function handleDragLeave() {
@@ -132,6 +144,20 @@
 		dragStatusId = null;
 		dragOverStatusId = null;
 		dragCategory = null;
+		dragOverCategory = null;
+		dropIndicator = 'below';
+	}
+
+	function handleSectionDragOver(e: DragEvent, cat: StatusCategory) {
+		if (!dragStatusId) return;
+		dragOverCategory = cat;
+	}
+
+	function handleSectionDragLeave(e: DragEvent) {
+		const related = e.relatedTarget as HTMLElement | null;
+		if (related && (e.currentTarget as HTMLElement).contains(related)) return;
+		dragOverCategory = null;
+		dragOverStatusId = null;
 	}
 
 	async function handleDrop(e: DragEvent, targetStatus: TeamStatus) {
@@ -153,7 +179,9 @@
 
 		const reordered = [...catStatuses];
 		const [moved] = reordered.splice(dragIdx, 1);
-		reordered.splice(targetIdx, 0, moved);
+		const newTargetIdx = reordered.findIndex((s) => s.id === targetStatus.id);
+		const insertIdx = dropIndicator === 'below' ? newTargetIdx + 1 : newTargetIdx;
+		reordered.splice(insertIdx, 0, moved);
 
 		const otherStatuses = statuses.filter((s) => s.category !== cat);
 		const updatedCat = reordered.map((s, i) => ({ ...s, position: i }));
@@ -192,7 +220,13 @@
 				{#each CATEGORY_ORDER as cat, catIdx}
 					{@const catStatuses = statusesByCategory(cat)}
 
-					<div class="flex items-center justify-between px-5 py-2.5 {catIdx > 0 ? 'border-t border-[var(--app-border)]' : ''}">
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<div
+						class="transition-colors {catIdx > 0 ? 'border-t' : ''} {dragStatusId && dragOverCategory === cat ? 'border-[var(--app-accent)]' : 'border-[var(--app-border)]'}"
+						ondragover={(e) => handleSectionDragOver(e, cat)}
+						ondragleave={(e) => handleSectionDragLeave(e)}
+					>
+					<div class="flex items-center justify-between px-5 py-2.5">
 						<span class="text-xs font-medium text-[var(--color-text-tertiary)]">{CATEGORY_LABELS[cat]}</span>
 						<button
 							onclick={() => startAdd(cat)}
@@ -206,8 +240,7 @@
 					{#each catStatuses as status (status.id)}
 						<!-- svelte-ignore a11y_no_static_element_interactions -->
 						<div
-							class="flex items-center gap-1 px-1 py-0 border-t border-[var(--app-border)] transition-colors
-								{dragOverStatusId === status.id && dragStatusId !== status.id ? 'border-t-2 border-t-[var(--app-accent)]' : ''}
+							class="relative flex items-center gap-1 px-1 py-0 border-t border-[var(--app-border)] transition-colors
 								{dragStatusId === status.id ? 'opacity-40' : 'hover:bg-[var(--color-bg-hover)]/50'}"
 							draggable={editingId !== status.id}
 							ondragstart={(e) => handleDragStart(e, status)}
@@ -216,6 +249,9 @@
 							ondragend={handleDragEnd}
 							ondrop={(e) => handleDrop(e, status)}
 						>
+							{#if dragOverStatusId === status.id && dragStatusId !== status.id}
+								<div class="absolute {dropIndicator === 'above' ? '-top-px' : '-bottom-px'} left-3 right-3 h-0.5 bg-[var(--app-accent)] z-10 rounded-full"></div>
+							{/if}
 							<span class="shrink-0 cursor-grab text-[var(--color-text-tertiary)] opacity-0 hover:opacity-100 transition-opacity group-hover:opacity-50 {dragStatusId ? 'opacity-50' : ''}" style="cursor: grab;">
 								<GripVertical size={14} />
 							</span>
@@ -310,6 +346,7 @@
 							</button>
 						</div>
 					{/if}
+					</div>
 				{/each}
 			</div>
 		{/if}

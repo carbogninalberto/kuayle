@@ -54,6 +54,9 @@
 	let collapsedGroups = $state<Set<string>>(new Set());
 	let lastSelectedId = $state<string | null>(null);
 	let dragOverGroup = $state<string | null>(null);
+	let dragSourceGroup = $state<string | null>(null);
+	let dragOverIssueId = $state<string | null>(null);
+	let dropPosition = $state<'above' | 'below'>('below');
 	let relationDialogOpen = $state(false);
 	let relationIssue = $state<Issue | null>(null);
 	let relationDefaultType = $state<RelationType>('related');
@@ -301,10 +304,12 @@
 					{@const dropKey = group.key}
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
-						class="group/drop transition-colors {dragOverGroup === dropKey ? 'bg-[var(--app-accent)]/5 rounded-lg' : ''}"
+						class="group/drop transition-all {dragOverGroup === dropKey ? 'ring-1 ring-[var(--app-accent)] rounded-lg' : ''}"
+						ondragstart={() => { dragSourceGroup = dropKey; }}
+						ondragend={() => { dragSourceGroup = null; dragOverGroup = null; dragOverIssueId = null; }}
 						ondragover={(e) => { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'; dragOverGroup = dropKey; }}
-						ondragleave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) dragOverGroup = null; }}
-						ondrop={(e) => { e.preventDefault(); dragOverGroup = null; const id = e.dataTransfer?.getData('text/plain'); if (id) handleGroupDrop(id, dropKey); }}
+						ondragleave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) { dragOverGroup = null; dragOverIssueId = null; } }}
+						ondrop={(e) => { e.preventDefault(); dragOverGroup = null; dragOverIssueId = null; const id = e.dataTransfer?.getData('text/plain'); if (id) handleGroupDrop(id, dropKey); }}
 					>
 						<IssueGroupHeader
 							groupKey={group.key}
@@ -319,7 +324,22 @@
 						/>
 						{#if !collapsedGroups.has(group.key)}
 							{#each group.issues as issue (issue.id)}
-								<IssueRow {issue} {slug} {members} {labels} {projects} {cycles} onclick={handleIssueClick} {lastSelectedId} onlastselected={(id) => lastSelectedId = id} onaddrelation={handleAddRelation} />
+								<!-- svelte-ignore a11y_no_static_element_interactions -->
+								<div
+									class="relative"
+									ondragover={(e) => {
+										dragOverIssueId = issue.id;
+										const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+										const midY = rect.top + rect.height / 2;
+										dropPosition = e.clientY < midY ? 'above' : 'below';
+									}}
+									ondragleave={() => { dragOverIssueId = null; }}
+								>
+									{#if dragOverIssueId === issue.id && dragSourceGroup === dropKey}
+										<div class="absolute {dropPosition === 'above' ? 'top-0' : 'bottom-0'} left-4 right-4 h-0.5 bg-[var(--app-accent)] z-10 rounded-full"></div>
+									{/if}
+									<IssueRow {issue} {slug} {members} {labels} {projects} {cycles} onclick={handleIssueClick} {lastSelectedId} onlastselected={(id) => lastSelectedId = id} onaddrelation={handleAddRelation} />
+								</div>
 							{/each}
 						{/if}
 					</div>
