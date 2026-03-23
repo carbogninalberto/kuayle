@@ -41,20 +41,15 @@
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 
-	onMount(async () => {
-		await authState.init();
-		if (!authState.authenticated) {
-			goto('/login');
-			return;
-		}
+	async function loadWorkspaceData(workspaceSlug: string) {
 		try {
 			const [ws, t, p, l, m, v, notifRes] = await Promise.all([
-				getWorkspace(slug),
-				listTeams(slug),
-				listProjects(slug),
-				listLabels(slug),
-				listMembers(slug),
-				listViews(slug),
+				getWorkspace(workspaceSlug),
+				listTeams(workspaceSlug),
+				listProjects(workspaceSlug),
+				listLabels(workspaceSlug),
+				listMembers(workspaceSlug),
+				listViews(workspaceSlug),
 				listNotifications()
 			]);
 			workspace = ws;
@@ -66,6 +61,24 @@
 			unreadCount = notifRes.unread_count;
 		} catch {
 			goto('/login');
+		}
+	}
+
+	onMount(async () => {
+		await authState.init();
+		if (!authState.authenticated) {
+			goto('/login');
+			return;
+		}
+		await loadWorkspaceData(slug);
+	});
+
+	// Re-fetch all data when workspace slug changes (e.g. workspace switch)
+	let loadedSlug = '';
+	$effect(() => {
+		if (slug && slug !== loadedSlug) {
+			loadedSlug = slug;
+			loadWorkspaceData(slug);
 		}
 	});
 
@@ -117,12 +130,15 @@
 		}
 	}
 
-	// WebSocket connection
+	// WebSocket connection — reconnects when slug changes
 	let ws_conn: WebSocket | null = null;
+	let wsSlug = '';
 
-	onMount(() => {
-		if (slug) {
-			connectWebSocket();
+	$effect(() => {
+		if (slug && slug !== wsSlug) {
+			wsSlug = slug;
+			ws_conn?.close();
+			connectWebSocket(slug);
 		}
 	});
 
@@ -130,13 +146,16 @@
 		ws_conn?.close();
 	});
 
-	function connectWebSocket() {
+	function connectWebSocket(workspaceSlug: string) {
 		const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-		const wsUrl = `${protocol}//${window.location.host}/api/workspaces/${slug}/ws`;
+		const wsUrl = `${protocol}//${window.location.host}/api/workspaces/${workspaceSlug}/ws`;
 		ws_conn = new WebSocket(wsUrl);
 
 		ws_conn.onclose = () => {
-			setTimeout(connectWebSocket, 3000);
+			// Only reconnect if still on the same workspace
+			if (wsSlug === workspaceSlug) {
+				setTimeout(() => connectWebSocket(workspaceSlug), 3000);
+			}
 		};
 	}
 </script>
