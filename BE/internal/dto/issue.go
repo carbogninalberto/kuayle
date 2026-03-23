@@ -31,7 +31,7 @@ type UpdateIssueRequest struct {
 	CycleID     *string `json:"cycle_id" validate:"omitempty,uuid"`
 	LabelIDs    []string `json:"label_ids" validate:"omitempty,dive,uuid"`
 	ParentID    *string `json:"parent_id" validate:"omitempty,uuid"`
-	Estimate    *int    `json:"estimate" validate:"omitempty,min=0"`
+	Estimate    *int    `json:"estimate" validate:"omitempty,min=-1"`
 	DueDate     *string `json:"due_date"`
 	SortOrder   *float64 `json:"sort_order"`
 }

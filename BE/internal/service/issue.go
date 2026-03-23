@@ -306,10 +306,15 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 		if issue.Estimate != nil {
 			oldVal = fmt.Sprintf("%d", *issue.Estimate)
 		}
-		issue.Estimate = req.Estimate
+		if *req.Estimate < 0 {
+			// Sentinel value: negative means clear the estimate
+			issue.Estimate = nil
+		} else {
+			issue.Estimate = req.Estimate
+		}
 		newVal := ""
-		if req.Estimate != nil {
-			newVal = fmt.Sprintf("%d", *req.Estimate)
+		if issue.Estimate != nil {
+			newVal = fmt.Sprintf("%d", *issue.Estimate)
 		}
 		if oldVal != newVal {
 			s.recordHistory(ctx, issue.ID, userID, "estimate", &oldVal, &newVal)

@@ -853,7 +853,7 @@
 								</Popover.Trigger>
 								<Popover.Content class="w-28 p-1" align="start">
 									<button
-										onclick={() => { updateField('estimate', null); estimateOpen = false; }}
+										onclick={() => { updateField('estimate', -1); estimateOpen = false; }}
 										class="flex w-full items-center rounded px-2 py-1.5 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
 									>
 										Clear
