@@ -6,18 +6,25 @@ RUN npm ci
 COPY UI/ .
 RUN npm run build
 
-# Stage 2: Build BE
-FROM golang:1.25-alpine AS be-builder
+# Stage 2: Build Caddy from source with patched Go
+FROM golang:1.26.1-alpine AS caddy-builder
+RUN apk add --no-cache git
+RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
+RUN xcaddy build latest
+
+# Stage 3: Build backend
+FROM golang:1.26.1-alpine AS be-builder
 WORKDIR /app
 COPY BE/go.mod BE/go.sum ./
 RUN go mod download
 COPY BE/ .
 RUN CGO_ENABLED=0 go build -o server ./cmd/server
 
-# Stage 3: Final image
-FROM caddy:2-alpine
-RUN apk add --no-cache ca-certificates
+# Stage 4: Final image
+FROM alpine:3.23
+RUN apk update && apk upgrade --no-cache && apk add --no-cache ca-certificates
 WORKDIR /app
+COPY --from=caddy-builder /go/caddy /usr/bin/caddy
 COPY --from=be-builder /app/server .
 COPY --from=be-builder /app/migrations ./migrations
 COPY --from=ui-builder /app/build /srv
