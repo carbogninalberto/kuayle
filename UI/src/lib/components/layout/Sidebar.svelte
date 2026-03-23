@@ -435,7 +435,7 @@
 				<div transition:slideFade>
 				{#each teams as team}
 					{@const teamExpanded = !collapsedTeams.has(team.id)}
-					{@const teamProjects = projects.filter(p => p.team_id === team.id)}
+					{@const teamProjects = sidebarState.projects.filter(p => p.team_id === team.id)}
 					{@const teamViews = views.filter(v => v.filters?.team === team.id)}
 					<button
 						onclick={() => toggleTeam(team.id)}
@@ -480,6 +480,22 @@
 							<FolderKanban size={13} />
 							Projects
 						</a>
+						{#if teamProjects.length > 0}
+							<div class="relative ml-[43px]">
+								<div class="absolute left-0 top-0 bottom-2 w-px bg-[var(--app-border)]"></div>
+								{#each teamProjects as project}
+									<a
+										href="/{slug}/projects/{project.id}"
+										class="relative flex items-center gap-2 rounded-md px-2 py-1 text-xs {isActive(`/${slug}/projects/${project.id}`)
+											? 'bg-[var(--color-bg-hover)]/50 text-[var(--color-text-primary)]'
+											: 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
+									>
+										<div class="absolute left-0 top-1/2 h-px w-2 bg-[var(--app-border)]"></div>
+										<span class="ml-2 truncate capitalize">{project.name}</span>
+									</a>
+								{/each}
+							</div>
+						{/if}
 						<a
 							href="/{slug}/teams/{team.id}/views"
 							class="ml-7 flex items-center gap-2 rounded-md px-2 py-1 text-xs {isActive(
@@ -504,17 +520,6 @@
 								Triage
 							</a>
 						{/if}
-						{#each teamProjects as project}
-							<a
-								href="/{slug}/projects/{project.id}"
-								class="ml-7 flex items-center gap-2 rounded-md px-2 py-1 text-xs {isActive(`/${slug}/projects/${project.id}`)
-									? 'bg-[var(--color-bg-hover)]/50 text-[var(--color-text-primary)]'
-									: 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
-							>
-								<FolderKanban size={13} />
-								{project.name}
-							</a>
-						{/each}
 						{#each teamViews as view}
 							<a
 								href="/{slug}/views/{view.id}"

@@ -23,6 +23,7 @@
 	import ShortcutHelp from '$lib/components/shared/ShortcutHelp.svelte';
 	import { issuesState } from '$lib/features/issues/issues.state.svelte';
 	import { teamStatusesState } from '$lib/features/issues/team-statuses.state.svelte';
+	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
 	import { createShortcutEngine, type ShortcutDef } from '$lib/utils/keyboard';
 	import { toast } from 'svelte-sonner';
 
@@ -56,6 +57,7 @@
 			workspace = ws;
 			teams = t;
 			projects = p;
+			sidebarState.projects = p;
 			labels = l;
 			members = m;
 			views = v;

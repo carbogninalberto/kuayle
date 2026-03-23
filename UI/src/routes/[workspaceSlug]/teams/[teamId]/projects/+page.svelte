@@ -8,6 +8,7 @@
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
 	import CreateProjectDialog from '$lib/features/projects/CreateProjectDialog.svelte';
 	import { Badge } from '$lib/components/ui/badge';
+	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
 	import { toast } from 'svelte-sonner';
 	import { Plus } from 'lucide-svelte';
 	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
@@ -44,6 +45,7 @@
 		try {
 			const project = await createProject(slug, { ...data, team_id: teamId });
 			projects = [...projects, project];
+			sidebarState.addProject(project);
 			toast.success('Project created');
 		} catch (err: any) {
 			toast.error(err?.error?.message || 'Failed to create project');

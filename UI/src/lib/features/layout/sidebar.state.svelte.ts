@@ -1,3 +1,5 @@
+import type { Project } from '$lib/types/project';
+
 const STORAGE_KEY = 'sidebar_collapsed_panel';
 
 class SidebarState {
@@ -6,6 +8,8 @@ class SidebarState {
 			? localStorage.getItem(STORAGE_KEY) === 'true'
 			: false
 	);
+
+	projects = $state<Project[]>([]);
 
 	toggle() {
 		this.collapsed = !this.collapsed;
@@ -20,6 +24,10 @@ class SidebarState {
 	collapse() {
 		this.collapsed = true;
 		this.persist();
+	}
+
+	addProject(project: Project) {
+		this.projects = [...this.projects, project];
 	}
 
 	private persist() {
