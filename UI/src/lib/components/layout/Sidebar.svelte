@@ -181,11 +181,11 @@
 		if (sidebarState.collapsed) {
 			sidebarState.expand();
 		} else {
-			// Animate content out, then collapse
+			// Mark collapsed immediately (shows toggle in headers) and animate out
 			collapsing = true;
+			sidebarState.collapse();
 			setTimeout(() => {
 				collapsing = false;
-				sidebarState.collapse();
 			}, ANIM_DURATION);
 		}
 	}
@@ -266,7 +266,7 @@
 >
 	{#if !sidebarState.collapsed || collapsing}
 		<div class="flex h-full flex-col" style="width: {contentWidth}px; min-width: {contentWidth}px; transform: translate({slideX}px, {slideY}px); opacity: {slideOpacity}; transition: {dragging ? 'none' : `transform ${ANIM_DURATION}ms cubic-bezier(0.25, 1, 0.5, 1), opacity ${ANIM_DURATION}ms cubic-bezier(0.25, 1, 0.5, 1)`};">
-			{@render sidebarContent(false)}
+			{@render sidebarContent()}
 		</div>
 
 		<!-- Resize handle -->
@@ -308,7 +308,7 @@
 			onmouseenter={cancelCloseDrawer}
 			onmouseleave={scheduleCloseDrawer}
 		>
-			{@render sidebarContent(true)}
+			{@render sidebarContent()}
 		</div>
 	</div>
 {/if}
@@ -317,7 +317,7 @@
 	<div class="fixed inset-0 z-50 cursor-col-resize" style="user-select: none;"></div>
 {/if}
 
-{#snippet sidebarContent(isDrawer: boolean)}
+{#snippet sidebarContent()}
 	<!-- Workspace header -->
 	<div class="flex h-[49px] items-center px-3">
 		<WorkspaceSwitcher currentWorkspace={workspace} {slug} />
