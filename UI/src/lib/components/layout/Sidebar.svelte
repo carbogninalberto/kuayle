@@ -594,7 +594,7 @@
 								? 'bg-[var(--color-bg-hover)]/50 text-[var(--color-text-primary)]'
 								: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
 						>
-							<Bookmark size={16} />
+							<Layers size={16} />
 							{view.name}
 						</a>
 					{/each}
@@ -620,7 +620,7 @@
 						? 'bg-[var(--color-bg-hover)]/50 text-[var(--color-text-primary)]'
 						: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
 				>
-					<FolderKanban size={16} />
+					<Box size={16} />
 					All Projects
 				</a>
 				</div>
