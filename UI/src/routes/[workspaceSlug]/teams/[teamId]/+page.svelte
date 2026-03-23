@@ -30,6 +30,7 @@
 	import { createKeyboardHandler } from '$lib/utils/keyboard';
 	import { toast } from 'svelte-sonner';
 	import { Bookmark, Layers } from 'lucide-svelte';
+	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
 	import * as issueApi from '$lib/api/issues';
 	import type { Issue } from '$lib/types/issue';
 	import type { IssueStatus, IssuePriority, RelationType } from '$lib/types/issue';
@@ -233,6 +234,7 @@
 		class="flex h-[49px] items-center justify-between border-b border-[var(--app-border)] px-6"
 	>
 		<div class="flex items-center gap-3">
+			<SidebarToggle />
 			<h1 class="text-sm font-medium text-[var(--color-text-primary)]">Issues</h1>
 		</div>
 		<div class="flex items-center gap-2">

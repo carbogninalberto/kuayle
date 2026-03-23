@@ -11,6 +11,7 @@
 	import ViewSwitcher from '$lib/components/shared/ViewSwitcher.svelte';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
 	import IssueGroupHeader from '$lib/features/issues/IssueGroupHeader.svelte';
+	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
 	import * as Tabs from '$lib/components/ui/tabs';
 	import { listProjects } from '$lib/api/projects';
 	import { listLabels } from '$lib/api/labels';
@@ -139,7 +140,10 @@
 <div class="flex h-full flex-col">
 	<!-- Header -->
 	<div class="flex h-[49px] items-center justify-between border-b border-[var(--app-border)] px-6">
-		<h1 class="text-sm font-medium text-[var(--color-text-primary)]">My Issues</h1>
+		<div class="flex items-center gap-2">
+			<SidebarToggle />
+			<h1 class="text-sm font-medium text-[var(--color-text-primary)]">My Issues</h1>
+		</div>
 		<ViewSwitcher bind:layout onchange={handleLayoutChange} />
 	</div>
 

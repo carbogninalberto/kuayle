@@ -6,6 +6,7 @@
 	import { listIssues } from '$lib/api/issues';
 	import { STATUS_LABELS, PRIORITY_LABELS, type IssueStatus, type IssuePriority, type Issue } from '$lib/types/issue';
 	import IssueStatusIcon from '$lib/features/issues/IssueStatusIcon.svelte';
+	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
 	import IssuePriorityIcon from '$lib/features/issues/IssuePriorityIcon.svelte';
 	import * as Card from '$lib/components/ui/card';
 	import { Progress } from '$lib/components/ui/progress';
@@ -74,7 +75,8 @@
 </script>
 
 <div class="flex h-full flex-col">
-	<div class="flex h-[49px] items-center border-b border-[var(--app-border)] px-6">
+	<div class="flex h-[49px] items-center gap-2 border-b border-[var(--app-border)] px-6">
+		<SidebarToggle />
 		<h1 class="text-sm font-medium text-[var(--color-text-primary)]">Dashboard</h1>
 	</div>
 

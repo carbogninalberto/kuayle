@@ -9,6 +9,7 @@
 	import WorkspaceSwitcher from './WorkspaceSwitcher.svelte';
 	import type { Favorite } from '$lib/api/favorites';
 	import type { Project } from '$lib/types/project';
+	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
 	import {
 		Inbox,
 		LayoutDashboard,
@@ -25,9 +26,7 @@
 		ChevronDown,
 		CircleDot,
 		SquarePen,
-		Search,
-		PanelLeftOpen,
-		PanelLeftClose
+		Search
 	} from 'lucide-svelte';
 
 	let {
@@ -110,11 +109,24 @@
 			? parseInt(localStorage.getItem('sidebar_width') || String(DEFAULT_WIDTH), 10)
 			: DEFAULT_WIDTH
 	);
-	let collapsed = $state(
-		typeof localStorage !== 'undefined'
-			? localStorage.getItem('sidebar_collapsed_panel') === 'true'
-			: false
-	);
+	// Close drawer when sidebar expands + trigger expand animation
+	let expanding = $state(false);
+	let wasCollapsed = sidebarState.collapsed;
+	$effect(() => {
+		const isCollapsed = sidebarState.collapsed;
+		if (!isCollapsed) drawerOpen = false;
+		if (wasCollapsed && !isCollapsed) {
+			// Start content at offset, then animate to normal
+			expanding = true;
+			requestAnimationFrame(() => {
+				requestAnimationFrame(() => {
+					expanding = false;
+				});
+			});
+		}
+		wasCollapsed = isCollapsed;
+	});
+
 	let dragging = $state(false);
 	let didDrag = $state(false);
 	let hoveringHandle = $state(false);
@@ -141,24 +153,31 @@
 		clearTimeout(drawerTimeout);
 	}
 
-	const renderedWidth = $derived(collapsed ? 0 : sidebarWidth);
+	const renderedWidth = $derived(sidebarState.collapsed ? 0 : sidebarWidth);
+	const contentWidth = $derived(Math.max(sidebarWidth, MIN_WIDTH));
+	// How far below MIN_WIDTH the user has dragged (0 when above MIN_WIDTH or not dragging)
+	const belowMin = $derived(dragging && sidebarWidth < MIN_WIDTH ? MIN_WIDTH - sidebarWidth : 0);
+	// Normalized 0..1 progress through the collapse zone, eased for smooth deceleration
+	const collapseProgress = $derived(Math.min(1, belowMin / MIN_WIDTH));
+	const easedProgress = $derived(1 - Math.pow(1 - collapseProgress, 3)); // ease-out cubic
+
+	// Content slide values: driven by drag (collapsing) or expanding flag (reverse)
+	const slideX = $derived(expanding ? -60 : -easedProgress * 60);
+	const slideY = $derived(expanding ? 24 : easedProgress * 24);
+	const slideOpacity = $derived(expanding ? 0.6 : 1 - easedProgress * 0.4);
 
 	function persistWidth() {
 		localStorage.setItem('sidebar_width', String(sidebarWidth));
 	}
 
 	function toggleCollapse() {
-		collapsed = !collapsed;
-		localStorage.setItem('sidebar_collapsed_panel', String(collapsed));
-		if (!collapsed) drawerOpen = false;
+		sidebarState.toggle();
 	}
 
 	function expand() {
 		// When pinning from drawer, skip the width animation so it doesn't replay
 		skipTransition = true;
-		collapsed = false;
-		drawerOpen = false;
-		localStorage.setItem('sidebar_collapsed_panel', 'false');
+		sidebarState.expand();
 		requestAnimationFrame(() => {
 			skipTransition = false;
 		});
@@ -206,8 +225,7 @@
 			} else if (sidebarWidth < COLLAPSE_THRESHOLD) {
 				// Dragged far enough left — collapse
 				sidebarWidth = startWidth; // restore for next expand
-				collapsed = true;
-				localStorage.setItem('sidebar_collapsed_panel', 'true');
+				sidebarState.collapse();
 			} else {
 				persistWidth();
 			}
@@ -221,7 +239,7 @@
 	function onHandleDblClick() {
 		sidebarWidth = DEFAULT_WIDTH;
 		persistWidth();
-		if (collapsed) expand();
+		if (sidebarState.collapsed) expand();
 	}
 </script>
 
@@ -230,8 +248,8 @@
 	class="relative flex h-full shrink-0 flex-col overflow-hidden border-r border-[var(--app-border)] bg-[var(--color-bg-secondary)]"
 	style="width: {renderedWidth}px; min-width: 0; transition: {dragging || skipTransition ? 'none' : 'width 300ms cubic-bezier(0.25, 1, 0.5, 1)'};"
 >
-	{#if !collapsed}
-		<div class="flex h-full flex-col" style="width: {sidebarWidth}px; min-width: {sidebarWidth}px;">
+	{#if !sidebarState.collapsed}
+		<div class="flex h-full flex-col" style="width: {contentWidth}px; min-width: {contentWidth}px; transform: translate({slideX}px, {slideY}px); opacity: {slideOpacity}; transition: {dragging ? 'none' : 'transform 300ms cubic-bezier(0.25, 1, 0.5, 1), opacity 300ms cubic-bezier(0.25, 1, 0.5, 1)'};">
 			{@render sidebarContent(false)}
 		</div>
 
@@ -250,18 +268,19 @@
 	{/if}
 </aside>
 
-<!-- When collapsed: hover zone on left edge triggers drawer -->
-{#if collapsed}
+<!-- When collapsed: hover zone on left edge triggers drawer (below page header) -->
+{#if sidebarState.collapsed}
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
-		class="fixed left-0 top-0 z-30 h-full w-[6px]"
+		class="fixed left-0 top-[49px] z-20 w-[6px]"
+		style="height: calc(100% - 49px)"
 		onmouseenter={openDrawer}
 	></div>
 
 	<!-- Drawer overlay sidebar -->
 	<!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
 	<div
-		class="fixed inset-0 z-40 transition-[background-color] duration-300 {drawerOpen ? 'pointer-events-auto' : 'pointer-events-none'}"
+		class="fixed inset-0 top-[49px] z-40 transition-[background-color] duration-300 {drawerOpen ? 'pointer-events-auto' : 'pointer-events-none'}"
 		style="background-color: {drawerOpen ? 'rgba(0,0,0,0.15)' : 'transparent'};"
 		onclick={() => (drawerOpen = false)}
 	>
@@ -303,15 +322,6 @@
 					title="New issue"
 				>
 					<SquarePen size={16} />
-				</button>
-			{/if}
-			{#if isDrawer}
-				<button
-					onclick={expand}
-					class="rounded-md p-1 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
-					title="Pin sidebar"
-				>
-					<PanelLeftClose size={16} />
 				</button>
 			{/if}
 		</div>

@@ -33,6 +33,7 @@
 		List,
 		BarChart3
 	} from 'lucide-svelte';
+	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	const projectId = $derived(page.params.projectId ?? '');
@@ -150,6 +151,7 @@
 		<!-- Header -->
 		<div class="flex h-[49px] items-center justify-between border-b border-[var(--app-border)] px-6">
 			<div class="flex items-center gap-3">
+				<SidebarToggle />
 				<a
 					href="/{slug}/projects"
 					class="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"

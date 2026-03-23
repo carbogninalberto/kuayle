@@ -10,6 +10,7 @@
 	import { Badge } from '$lib/components/ui/badge';
 	import { toast } from 'svelte-sonner';
 	import { Plus } from 'lucide-svelte';
+	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	let projects = $state<Project[]>([]);
@@ -61,7 +62,10 @@
 	<div
 		class="flex h-[49px] items-center justify-between border-b border-[var(--app-border)] px-6"
 	>
-		<h1 class="text-sm font-medium text-[var(--color-text-primary)]">Projects</h1>
+		<div class="flex items-center gap-2">
+			<SidebarToggle />
+			<h1 class="text-sm font-medium text-[var(--color-text-primary)]">Projects</h1>
+		</div>
 		<button
 			onclick={() => (showCreateProject = true)}
 			class="rounded-md p-1 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"

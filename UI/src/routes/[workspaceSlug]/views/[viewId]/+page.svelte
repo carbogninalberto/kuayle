@@ -22,6 +22,7 @@
 	import * as Popover from '$lib/components/ui/popover';
 	import { toast } from 'svelte-sonner';
 	import { ArrowLeft, Pencil, Trash2, MoreHorizontal, Check, X } from 'lucide-svelte';
+	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
 	import { createKeyboardHandler } from '$lib/utils/keyboard';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
@@ -201,6 +202,7 @@
 			class="flex h-[49px] items-center justify-between border-b border-[var(--app-border)] px-6"
 		>
 			<div class="flex items-center gap-3">
+				<SidebarToggle />
 				<button
 					onclick={() => history.back()}
 					class="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"

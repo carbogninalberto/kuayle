@@ -5,6 +5,7 @@
 	import type { Snippet } from 'svelte';
 	import type { Team } from '$lib/types/team';
 	import { listTeams } from '$lib/api/teams';
+	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
 
 	let { children }: { children: Snippet } = $props();
 
@@ -52,6 +53,7 @@
 	<!-- Settings sidebar -->
 	<aside class="w-56 shrink-0 border-r border-[var(--app-border)] bg-[var(--color-bg-secondary)] overflow-y-auto">
 		<div class="flex h-[49px] items-center gap-2 border-b border-[var(--app-border)] px-4">
+			<SidebarToggle />
 			<a
 				href="/{slug}/dashboard"
 				class="rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"

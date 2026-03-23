@@ -22,6 +22,7 @@ import CycleProgress from '$lib/features/cycles/CycleProgress.svelte';
 	import { toast } from 'svelte-sonner';
 	import { formatRelativeTime } from '$lib/utils/format';
 	import { ArrowLeft, CheckCircle2, Play, Clock, Trash2, MoreHorizontal, Search, Plus } from 'lucide-svelte';
+	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
 	import { createKeyboardHandler } from '$lib/utils/keyboard';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
@@ -171,6 +172,7 @@ import CycleProgress from '$lib/features/cycles/CycleProgress.svelte';
 		<!-- Header -->
 		<div class="flex h-[49px] items-center justify-between border-b border-[var(--app-border)] px-6">
 			<div class="flex items-center gap-3">
+				<SidebarToggle />
 				<a
 					href="/{slug}/teams/{teamId}/cycles"
 					class="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"

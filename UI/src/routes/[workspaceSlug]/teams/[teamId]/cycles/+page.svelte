@@ -11,6 +11,7 @@
 	import { toast } from 'svelte-sonner';
 	import { formatRelativeTime } from '$lib/utils/format';
 	import { Plus, Play, CheckCircle2, Clock, Trash2 } from 'lucide-svelte';
+	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	const teamId = $derived(page.params.teamId ?? '');
@@ -87,6 +88,7 @@
 <div class="flex h-full flex-col">
 	<div class="flex h-[49px] items-center justify-between border-b border-[var(--app-border)] px-6">
 		<div class="flex items-center gap-3">
+			<SidebarToggle />
 			<h1 class="text-sm font-medium text-[var(--color-text-primary)]">Cycles</h1>
 			<a
 				href="/{slug}/teams/{teamId}"

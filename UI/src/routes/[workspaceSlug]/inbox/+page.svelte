@@ -11,6 +11,7 @@
 	import { Badge } from '$lib/components/ui/badge';
 	import { toast } from 'svelte-sonner';
 	import { Inbox, Clock, Archive, Eye, AlarmClock, Trash2, ExternalLink } from 'lucide-svelte';
+	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
 
 	type TabValue = 'inbox' | 'snoozed' | 'archived';
 
@@ -161,6 +162,7 @@
 <div class="flex h-full flex-col">
 	<div class="flex h-[49px] items-center justify-between border-b border-[var(--app-border)] px-6">
 		<div class="flex items-center gap-2">
+			<SidebarToggle />
 			<h1 class="text-sm font-medium text-[var(--color-text-primary)]">Inbox</h1>
 			{#if unreadCount > 0}
 				<Badge variant="default" class="text-[10px]">{unreadCount}</Badge>

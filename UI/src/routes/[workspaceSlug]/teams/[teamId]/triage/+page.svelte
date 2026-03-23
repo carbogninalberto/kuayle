@@ -13,6 +13,7 @@
 	import { toast } from 'svelte-sonner';
 	import { formatRelativeTime } from '$lib/utils/format';
 	import { CheckCircle2, XCircle, ArrowLeft } from 'lucide-svelte';
+	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	const teamId = $derived(page.params.teamId ?? '');
@@ -98,6 +99,7 @@
 	<!-- Issue list -->
 	<div class="flex w-80 shrink-0 flex-col border-r border-[var(--app-border)]">
 		<div class="flex h-[49px] items-center gap-3 border-b border-[var(--app-border)] px-4">
+			<SidebarToggle />
 			<a
 				href="/{slug}/teams/{teamId}"
 				class="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
