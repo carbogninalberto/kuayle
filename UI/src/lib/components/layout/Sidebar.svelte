@@ -109,14 +109,12 @@
 			? parseInt(localStorage.getItem('sidebar_width') || String(DEFAULT_WIDTH), 10)
 			: DEFAULT_WIDTH
 	);
-	// Close drawer when sidebar expands + trigger expand animation
+	// Trigger expand animation: runs before DOM so content mounts at offset
 	let expanding = $state(false);
 	let wasCollapsed = sidebarState.collapsed;
-	$effect(() => {
+	$effect.pre(() => {
 		const isCollapsed = sidebarState.collapsed;
-		if (!isCollapsed) drawerOpen = false;
 		if (wasCollapsed && !isCollapsed) {
-			// Start content at offset, then animate to normal
 			expanding = true;
 			requestAnimationFrame(() => {
 				requestAnimationFrame(() => {
@@ -125,6 +123,11 @@
 			});
 		}
 		wasCollapsed = isCollapsed;
+	});
+
+	// Close drawer when sidebar expands
+	$effect(() => {
+		if (!sidebarState.collapsed) drawerOpen = false;
 	});
 
 	let dragging = $state(false);
@@ -153,7 +156,10 @@
 		clearTimeout(drawerTimeout);
 	}
 
-	const renderedWidth = $derived(sidebarState.collapsed ? 0 : sidebarWidth);
+	let collapsing = $state(false);
+	const ANIM_DURATION = 300;
+
+	const renderedWidth = $derived(sidebarState.collapsed || collapsing ? 0 : sidebarWidth);
 	const contentWidth = $derived(Math.max(sidebarWidth, MIN_WIDTH));
 	// How far below MIN_WIDTH the user has dragged (0 when above MIN_WIDTH or not dragging)
 	const belowMin = $derived(dragging && sidebarWidth < MIN_WIDTH ? MIN_WIDTH - sidebarWidth : 0);
@@ -161,17 +167,27 @@
 	const collapseProgress = $derived(Math.min(1, belowMin / MIN_WIDTH));
 	const easedProgress = $derived(1 - Math.pow(1 - collapseProgress, 3)); // ease-out cubic
 
-	// Content slide values: driven by drag (collapsing) or expanding flag (reverse)
-	const slideX = $derived(expanding ? -60 : -easedProgress * 60);
-	const slideY = $derived(expanding ? 24 : easedProgress * 24);
-	const slideOpacity = $derived(expanding ? 0.6 : 1 - easedProgress * 0.4);
+	// Content slide values: driven by drag, collapsing click, or expanding reverse
+	const atOffset = $derived(expanding || collapsing);
+	const slideX = $derived(atOffset ? -60 : -easedProgress * 60);
+	const slideY = $derived(atOffset ? 48 : easedProgress * 48);
+	const slideOpacity = $derived(atOffset ? 0.5 : 1 - easedProgress * 0.5);
 
 	function persistWidth() {
 		localStorage.setItem('sidebar_width', String(sidebarWidth));
 	}
 
 	function toggleCollapse() {
-		sidebarState.toggle();
+		if (sidebarState.collapsed) {
+			sidebarState.expand();
+		} else {
+			// Animate content out, then collapse
+			collapsing = true;
+			setTimeout(() => {
+				collapsing = false;
+				sidebarState.collapse();
+			}, ANIM_DURATION);
+		}
 	}
 
 	function expand() {
@@ -246,10 +262,10 @@
 <!-- Inline sidebar (pushes content) -->
 <aside
 	class="relative flex h-full shrink-0 flex-col overflow-hidden border-r border-[var(--app-border)] bg-[var(--color-bg-secondary)]"
-	style="width: {renderedWidth}px; min-width: 0; transition: {dragging || skipTransition ? 'none' : 'width 300ms cubic-bezier(0.25, 1, 0.5, 1)'};"
+	style="width: {renderedWidth}px; min-width: 0; transition: {dragging || skipTransition ? 'none' : `width ${ANIM_DURATION}ms cubic-bezier(0.25, 1, 0.5, 1)`};"
 >
-	{#if !sidebarState.collapsed}
-		<div class="flex h-full flex-col" style="width: {contentWidth}px; min-width: {contentWidth}px; transform: translate({slideX}px, {slideY}px); opacity: {slideOpacity}; transition: {dragging ? 'none' : 'transform 300ms cubic-bezier(0.25, 1, 0.5, 1), opacity 300ms cubic-bezier(0.25, 1, 0.5, 1)'};">
+	{#if !sidebarState.collapsed || collapsing}
+		<div class="flex h-full flex-col" style="width: {contentWidth}px; min-width: {contentWidth}px; transform: translate({slideX}px, {slideY}px); opacity: {slideOpacity}; transition: {dragging ? 'none' : `transform ${ANIM_DURATION}ms cubic-bezier(0.25, 1, 0.5, 1), opacity ${ANIM_DURATION}ms cubic-bezier(0.25, 1, 0.5, 1)`};">
 			{@render sidebarContent(false)}
 		</div>
 
