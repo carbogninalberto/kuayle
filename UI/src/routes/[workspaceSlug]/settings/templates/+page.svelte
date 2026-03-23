@@ -18,7 +18,6 @@
 	let loading = $state(true);
 	let showCreate = $state(false);
 
-	// Create form state
 	let formName = $state('');
 	let formTitle = $state('');
 	let formDescription = $state('');
@@ -87,12 +86,9 @@
 	}
 </script>
 
-<div class="flex h-full flex-col">
-	<div class="flex h-[49px] items-center justify-between border-b border-[var(--app-border)] px-6">
-		<div class="flex items-center gap-3">
-			<h1 class="text-sm font-medium text-[var(--color-text-primary)]">Issue Templates</h1>
-			<Badge variant="outline" class="text-[10px]">{templates.length}</Badge>
-		</div>
+<div class="mx-auto max-w-2xl px-8 py-10">
+	<div class="flex items-center justify-between">
+		<h1 class="text-2xl font-semibold text-[var(--color-text-primary)]">Templates</h1>
 		<button
 			onclick={() => (showCreate = true)}
 			class="flex items-center gap-1 rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)]"
@@ -102,7 +98,7 @@
 		</button>
 	</div>
 
-	<div class="flex-1 overflow-y-auto">
+	<div class="mt-8">
 		{#if !loading && templates.length === 0}
 			<EmptyState
 				title="No templates yet"
@@ -110,9 +106,9 @@
 				action={{ label: 'New Template', onclick: () => (showCreate = true) }}
 			/>
 		{:else}
-			<div class="divide-y divide-[var(--app-border)]">
-				{#each templates as template (template.id)}
-					<div class="group flex items-center gap-4 px-6 py-3 hover:bg-[var(--color-bg-hover)]">
+			<div class="rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
+				{#each templates as template, i (template.id)}
+					<div class="group flex items-center gap-4 px-5 py-3.5 {i > 0 ? 'border-t border-[var(--app-border)]' : ''}">
 						<FileText size={16} class="shrink-0 text-[var(--color-text-tertiary)]" />
 						<div class="flex-1 min-w-0">
 							<div class="flex items-center gap-2">

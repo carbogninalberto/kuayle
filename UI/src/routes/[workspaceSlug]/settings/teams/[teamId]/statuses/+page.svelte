@@ -17,17 +17,14 @@
 	let statuses = $state<TeamStatus[]>([]);
 	let loading = $state(true);
 
-	// Add status form per category
 	let addingCategory = $state<StatusCategory | null>(null);
 	let addName = $state('');
 	let addColor = $state('');
 
-	// Edit status
 	let editingId = $state<string | null>(null);
 	let editName = $state('');
 	let editColor = $state('');
 
-	// Drag state
 	let dragStatusId = $state<string | null>(null);
 	let dragOverStatusId = $state<string | null>(null);
 	let dragCategory = $state<StatusCategory | null>(null);
@@ -111,7 +108,6 @@
 		addColor = '';
 	}
 
-	// Drag and drop handlers
 	function handleDragStart(e: DragEvent, status: TeamStatus) {
 		dragStatusId = status.id;
 		dragCategory = status.category;
@@ -122,7 +118,6 @@
 	}
 
 	function handleDragOver(e: DragEvent, status: TeamStatus) {
-		// Only allow reorder within the same category
 		if (dragCategory !== status.category) return;
 		e.preventDefault();
 		if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
@@ -156,19 +151,16 @@
 			return;
 		}
 
-		// Reorder: remove dragged item, insert at target position
 		const reordered = [...catStatuses];
 		const [moved] = reordered.splice(dragIdx, 1);
 		reordered.splice(targetIdx, 0, moved);
 
-		// Optimistically update local state
 		const otherStatuses = statuses.filter((s) => s.category !== cat);
 		const updatedCat = reordered.map((s, i) => ({ ...s, position: i }));
 		statuses = [...otherStatuses, ...updatedCat];
 
 		handleDragEnd();
 
-		// Persist new positions
 		try {
 			await Promise.all(
 				updatedCat.map((s, i) =>
@@ -184,26 +176,23 @@
 	const PRESET_COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899'];
 </script>
 
-<div class="h-full">
-	<div class="flex h-[49px] items-center border-b border-[var(--app-border)] px-6">
-		<h1 class="text-sm font-medium text-[var(--color-text-primary)]">Issue statuses</h1>
-	</div>
-	<div class="max-w-2xl p-6 space-y-2">
-		<p class="text-xs text-[var(--color-text-tertiary)] mb-4">
-			Issue statuses define the workflow that issues go through from start to completion.
-		</p>
+<div class="mx-auto max-w-2xl px-8 py-10">
+	<h1 class="text-2xl font-semibold text-[var(--color-text-primary)]">Issue statuses</h1>
+	<p class="mt-2 text-sm text-[var(--color-text-tertiary)]">
+		Issue statuses define the workflow that issues go through from start to completion.
+	</p>
 
+	<div class="mt-8">
 		{#if loading}
 			<div class="flex justify-center py-8">
 				<div class="h-5 w-5 animate-spin rounded-full border-2 border-[var(--color-text-tertiary)] border-t-transparent"></div>
 			</div>
 		{:else}
-			<div class="rounded-lg border border-[var(--app-border)] overflow-hidden">
+			<div class="rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)] overflow-hidden">
 				{#each CATEGORY_ORDER as cat, catIdx}
 					{@const catStatuses = statusesByCategory(cat)}
 
-					<!-- Category header -->
-					<div class="flex items-center justify-between bg-[var(--color-bg-secondary)] px-4 py-2 {catIdx > 0 ? 'border-t border-[var(--app-border)]' : ''}">
+					<div class="flex items-center justify-between px-5 py-2.5 {catIdx > 0 ? 'border-t border-[var(--app-border)]' : ''}">
 						<span class="text-xs font-medium text-[var(--color-text-tertiary)]">{CATEGORY_LABELS[cat]}</span>
 						<button
 							onclick={() => startAdd(cat)}
@@ -214,7 +203,6 @@
 						</button>
 					</div>
 
-					<!-- Statuses in this category -->
 					{#each catStatuses as status (status.id)}
 						<!-- svelte-ignore a11y_no_static_element_interactions -->
 						<div
@@ -228,7 +216,6 @@
 							ondragend={handleDragEnd}
 							ondrop={(e) => handleDrop(e, status)}
 						>
-							<!-- Drag handle -->
 							<span class="shrink-0 cursor-grab text-[var(--color-text-tertiary)] opacity-0 hover:opacity-100 transition-opacity group-hover:opacity-50 {dragStatusId ? 'opacity-50' : ''}" style="cursor: grab;">
 								<GripVertical size={14} />
 							</span>
@@ -242,7 +229,7 @@
 											type="text"
 											bind:value={editName}
 											onkeydown={(e) => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') editingId = null; }}
-											class="flex-1 rounded border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-2 py-0.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
+											class="flex-1 rounded border border-[var(--app-border)] bg-[var(--color-bg)] px-2 py-0.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
 										/>
 										<div class="flex items-center gap-0.5">
 											{#each PRESET_COLORS as c}
@@ -291,9 +278,8 @@
 						</div>
 					{/each}
 
-					<!-- Inline add form for this category -->
 					{#if addingCategory === cat}
-						<div class="flex items-center gap-3 px-4 py-2.5 border-t border-[var(--app-border)] bg-[var(--color-bg-hover)]/30">
+						<div class="flex items-center gap-3 px-5 py-2.5 border-t border-[var(--app-border)] bg-[var(--color-bg-hover)]/30">
 							<IssueStatusIcon category={cat} size={18} />
 							<input
 								type="text"
@@ -308,7 +294,7 @@
 										onclick={() => addColor = c}
 										class="h-3.5 w-3.5 rounded-full {addColor === c ? 'ring-2 ring-[var(--app-accent)] ring-offset-1 ring-offset-[var(--color-bg)]' : ''}"
 										style="background-color: {c}"
-									aria-label="Select color"
+										aria-label="Select color"
 									></button>
 								{/each}
 							</div>

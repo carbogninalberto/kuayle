@@ -28,22 +28,17 @@
 	};
 </script>
 
-<div class="h-full">
-	<div class="flex h-[49px] items-center border-b border-[var(--app-border)] px-6">
-		<h1 class="text-sm font-medium text-[var(--color-text-primary)]">Preferences</h1>
-	</div>
-	<div class="max-w-xl p-6 space-y-6">
-		<div>
-			<h2 class="text-sm font-medium text-[var(--color-text-primary)]">Interface and theme</h2>
-			<p class="mt-1 text-xs text-[var(--color-text-tertiary)]">
-				Customize the appearance and behavior of the application.
-			</p>
-		</div>
+<div class="mx-auto max-w-2xl px-8 py-10">
+	<h1 class="text-2xl font-semibold text-[var(--color-text-primary)]">Preferences</h1>
 
+	<!-- Interface and theme -->
+	<h2 class="mt-8 text-sm font-medium text-[var(--color-text-secondary)]">Interface and theme</h2>
+
+	<div class="mt-3 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
 		<!-- Font size -->
-		<div class="flex items-center justify-between">
+		<div class="flex items-center justify-between px-5 py-4">
 			<div>
-				<p class="text-sm text-[var(--color-text-primary)]">Font size</p>
+				<p class="text-sm font-medium text-[var(--color-text-primary)]">Font size</p>
 				<p class="text-xs text-[var(--color-text-tertiary)]">Set the font size for the interface.</p>
 			</div>
 			<Select.Root
@@ -64,13 +59,13 @@
 			</Select.Root>
 		</div>
 
+		<div class="border-t border-[var(--app-border)]"></div>
+
 		<!-- Pointer cursors -->
-		<div class="flex items-center justify-between">
+		<div class="flex items-center justify-between px-5 py-4">
 			<div>
-				<p class="text-sm text-[var(--color-text-primary)]">Use pointer cursors</p>
-				<p class="text-xs text-[var(--color-text-tertiary)]">
-					Display a pointer cursor on interactive elements.
-				</p>
+				<p class="text-sm font-medium text-[var(--color-text-primary)]">Use pointer cursors</p>
+				<p class="text-xs text-[var(--color-text-tertiary)]">Display a pointer cursor on interactive elements.</p>
 			</div>
 			<Switch
 				size="sm"
@@ -79,13 +74,13 @@
 			/>
 		</div>
 
+		<div class="border-t border-[var(--app-border)]"></div>
+
 		<!-- Interface theme -->
-		<div class="flex items-center justify-between">
+		<div class="flex items-center justify-between px-5 py-4">
 			<div>
-				<p class="text-sm text-[var(--color-text-primary)]">Interface theme</p>
-				<p class="text-xs text-[var(--color-text-tertiary)]">
-					Select your preferred color mode.
-				</p>
+				<p class="text-sm font-medium text-[var(--color-text-primary)]">Interface theme</p>
+				<p class="text-xs text-[var(--color-text-tertiary)]">Select your preferred color mode.</p>
 			</div>
 			<ToggleGroup.Root
 				type="single"
@@ -108,13 +103,13 @@
 			</ToggleGroup.Root>
 		</div>
 
+		<div class="border-t border-[var(--app-border)]"></div>
+
 		<!-- Light theme variant -->
-		<div class="flex items-center justify-between">
+		<div class="flex items-center justify-between px-5 py-4">
 			<div>
-				<p class="text-sm text-[var(--color-text-primary)]">Light theme</p>
-				<p class="text-xs text-[var(--color-text-tertiary)]">
-					Theme variant used in light mode.
-				</p>
+				<p class="text-sm font-medium text-[var(--color-text-primary)]">Light theme</p>
+				<p class="text-xs text-[var(--color-text-tertiary)]">Theme variant used in light mode.</p>
 			</div>
 			<Select.Root
 				type="single"
@@ -134,13 +129,13 @@
 			</Select.Root>
 		</div>
 
+		<div class="border-t border-[var(--app-border)]"></div>
+
 		<!-- Dark theme variant -->
-		<div class="flex items-center justify-between">
+		<div class="flex items-center justify-between px-5 py-4">
 			<div>
-				<p class="text-sm text-[var(--color-text-primary)]">Dark theme</p>
-				<p class="text-xs text-[var(--color-text-tertiary)]">
-					Theme variant used in dark mode.
-				</p>
+				<p class="text-sm font-medium text-[var(--color-text-primary)]">Dark theme</p>
+				<p class="text-xs text-[var(--color-text-tertiary)]">Theme variant used in dark mode.</p>
 			</div>
 			<Select.Root
 				type="single"

@@ -62,9 +62,9 @@
 	}
 </script>
 
-<div class="h-full">
-	<div class="flex h-[49px] items-center justify-between border-b border-[var(--app-border)] px-6">
-		<h1 class="text-sm font-medium text-[var(--color-text-primary)]">Members</h1>
+<div class="mx-auto max-w-2xl px-8 py-10">
+	<div class="flex items-center justify-between">
+		<h1 class="text-2xl font-semibold text-[var(--color-text-primary)]">Members</h1>
 		<button
 			onclick={() => (showInvite = true)}
 			class="flex items-center gap-1.5 rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)]"
@@ -74,66 +74,52 @@
 		</button>
 	</div>
 
-	<div class="p-6">
+	<div class="mt-8">
 		{#if loading}
 			<p class="text-sm text-[var(--color-text-tertiary)]">Loading...</p>
 		{:else if members.length === 0}
 			<p class="text-sm text-[var(--color-text-secondary)]">No members found.</p>
 		{:else}
-			<div class="overflow-hidden rounded-lg border border-[var(--app-border)]">
-				<table class="w-full text-sm">
-					<thead>
-						<tr class="border-b border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
-							<th class="px-4 py-2.5 text-left text-xs font-medium text-[var(--color-text-tertiary)]">Member</th>
-							<th class="px-4 py-2.5 text-left text-xs font-medium text-[var(--color-text-tertiary)]">Email</th>
-							<th class="px-4 py-2.5 text-left text-xs font-medium text-[var(--color-text-tertiary)]">Role</th>
-							<th class="px-4 py-2.5 text-right text-xs font-medium text-[var(--color-text-tertiary)]"></th>
-						</tr>
-					</thead>
-					<tbody>
-						{#each members as member}
-							<tr class="border-b border-[var(--app-border)] last:border-b-0">
-								<td class="px-4 py-3">
-									<div class="flex items-center gap-2">
-										<div class="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--app-accent)] text-xs font-medium text-[var(--app-accent-foreground)]">
-											{(member.name || member.email).charAt(0).toUpperCase()}
-										</div>
-										<span class="font-medium text-[var(--color-text-primary)]">{member.name || 'Unnamed'}</span>
-									</div>
-								</td>
-								<td class="px-4 py-3 text-[var(--color-text-secondary)]">{member.email}</td>
-								<td class="px-4 py-3">
-									<Popover.Root>
-										<Popover.Trigger>
-											<button class="rounded-md border border-[var(--app-border)] px-2.5 py-1 text-xs capitalize text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
-												{member.role}
-											</button>
-										</Popover.Trigger>
-										<Popover.Content class="w-36 p-1" align="start">
-											{#each roles as role}
-												<button
-													onclick={() => handleRoleChange(member.user_id, role)}
-													class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm capitalize text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {member.role === role ? 'bg-[var(--color-bg-hover)]' : ''}"
-												>
-													{role}
-												</button>
-											{/each}
-										</Popover.Content>
-									</Popover.Root>
-								</td>
-								<td class="px-4 py-3 text-right">
-									<button
-										onclick={() => handleRemove(member.user_id)}
-										class="rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-red-500"
-										title="Remove member"
-									>
-										<Trash2 size={14} />
+			<div class="overflow-hidden rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
+				{#each members as member, i}
+					<div class="flex items-center justify-between px-5 py-3.5 {i > 0 ? 'border-t border-[var(--app-border)]' : ''}">
+						<div class="flex items-center gap-3">
+							<div class="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--app-accent)] text-xs font-medium text-[var(--app-accent-foreground)]">
+								{(member.name || member.email).charAt(0).toUpperCase()}
+							</div>
+							<div>
+								<p class="text-sm font-medium text-[var(--color-text-primary)]">{member.name || 'Unnamed'}</p>
+								<p class="text-xs text-[var(--color-text-tertiary)]">{member.email}</p>
+							</div>
+						</div>
+						<div class="flex items-center gap-2">
+							<Popover.Root>
+								<Popover.Trigger>
+									<button class="rounded-md border border-[var(--app-border)] px-2.5 py-1 text-xs capitalize text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
+										{member.role}
 									</button>
-								</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
+								</Popover.Trigger>
+								<Popover.Content class="w-36 p-1" align="end">
+									{#each roles as role}
+										<button
+											onclick={() => handleRoleChange(member.user_id, role)}
+											class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm capitalize text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {member.role === role ? 'bg-[var(--color-bg-hover)]' : ''}"
+										>
+											{role}
+										</button>
+									{/each}
+								</Popover.Content>
+							</Popover.Root>
+							<button
+								onclick={() => handleRemove(member.user_id)}
+								class="rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-red-500"
+								title="Remove member"
+							>
+								<Trash2 size={14} />
+							</button>
+						</div>
+					</div>
+				{/each}
 			</div>
 		{/if}
 	</div>

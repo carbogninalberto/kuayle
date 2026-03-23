@@ -19,7 +19,6 @@
 	let loading = $state(true);
 	let showCreate = $state(false);
 
-	// Create form state
 	let newUrl = $state('');
 	let newSecret = $state('');
 	let newEvents = $state<string[]>(['issue.created', 'issue.updated']);
@@ -95,9 +94,9 @@
 	}
 </script>
 
-<div class="h-full">
-	<div class="flex h-[49px] items-center justify-between border-b border-[var(--app-border)] px-6">
-		<h1 class="text-sm font-medium text-[var(--color-text-primary)]">Webhooks</h1>
+<div class="mx-auto max-w-2xl px-8 py-10">
+	<div class="flex items-center justify-between">
+		<h1 class="text-2xl font-semibold text-[var(--color-text-primary)]">Webhooks</h1>
 		<button
 			onclick={() => { resetForm(); showCreate = true; }}
 			class="flex items-center gap-1 rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)]"
@@ -107,55 +106,57 @@
 		</button>
 	</div>
 
-	{#if loading}
-		<div class="flex h-64 items-center justify-center">
-			<p class="text-sm text-[var(--color-text-secondary)]">Loading...</p>
-		</div>
-	{:else if webhooks.length === 0}
-		<EmptyState
-			title="No webhooks configured"
-			description="Webhooks notify external services when events happen in your workspace"
-			action={{ label: 'New Webhook', onclick: () => { resetForm(); showCreate = true; } }}
-		/>
-	{:else}
-		<div class="divide-y divide-[var(--app-border)]">
-			{#each webhooks as webhook}
-				<div class="flex items-center gap-4 px-6 py-4">
-					<div class="flex-1 min-w-0">
+	<div class="mt-8">
+		{#if loading}
+			<div class="flex h-64 items-center justify-center">
+				<p class="text-sm text-[var(--color-text-secondary)]">Loading...</p>
+			</div>
+		{:else if webhooks.length === 0}
+			<EmptyState
+				title="No webhooks configured"
+				description="Webhooks notify external services when events happen in your workspace"
+				action={{ label: 'New Webhook', onclick: () => { resetForm(); showCreate = true; } }}
+			/>
+		{:else}
+			<div class="rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
+				{#each webhooks as webhook, i}
+					<div class="flex items-center gap-4 px-5 py-4 {i > 0 ? 'border-t border-[var(--app-border)]' : ''}">
+						<div class="flex-1 min-w-0">
+							<div class="flex items-center gap-2">
+								<ExternalLink size={14} class="shrink-0 text-[var(--color-text-tertiary)]" />
+								<span class="truncate text-sm font-medium text-[var(--color-text-primary)]">{webhook.url}</span>
+								{#if !webhook.is_active}
+									<Badge variant="outline" class="text-[10px]">Inactive</Badge>
+								{/if}
+							</div>
+							<div class="mt-1 flex flex-wrap items-center gap-1.5">
+								{#each webhook.events as event}
+									<Badge variant="secondary" class="text-[10px]">{event}</Badge>
+								{/each}
+							</div>
+							<p class="mt-1 text-xs text-[var(--color-text-tertiary)]">
+								Created {formatRelativeTime(webhook.created_at)}
+							</p>
+						</div>
 						<div class="flex items-center gap-2">
-							<ExternalLink size={14} class="shrink-0 text-[var(--color-text-tertiary)]" />
-							<span class="truncate text-sm font-medium text-[var(--color-text-primary)]">{webhook.url}</span>
-							{#if !webhook.is_active}
-								<Badge variant="outline" class="text-[10px]">Inactive</Badge>
-							{/if}
+							<Switch
+								checked={webhook.is_active}
+								onCheckedChange={() => handleToggleActive(webhook)}
+							/>
+							<Button
+								variant="ghost"
+								size="icon-sm"
+								onclick={() => handleDelete(webhook.id)}
+								class="text-[var(--color-text-tertiary)] hover:text-[var(--color-error)]"
+							>
+								<Trash2 size={14} />
+							</Button>
 						</div>
-						<div class="mt-1 flex flex-wrap items-center gap-1.5">
-							{#each webhook.events as event}
-								<Badge variant="secondary" class="text-[10px]">{event}</Badge>
-							{/each}
-						</div>
-						<p class="mt-1 text-xs text-[var(--color-text-tertiary)]">
-							Created {formatRelativeTime(webhook.created_at)}
-						</p>
 					</div>
-					<div class="flex items-center gap-2">
-						<Switch
-							checked={webhook.is_active}
-							onCheckedChange={() => handleToggleActive(webhook)}
-						/>
-						<Button
-							variant="ghost"
-							size="icon-sm"
-							onclick={() => handleDelete(webhook.id)}
-							class="text-[var(--color-text-tertiary)] hover:text-[var(--color-error)]"
-						>
-							<Trash2 size={14} />
-						</Button>
-					</div>
-				</div>
-			{/each}
-		</div>
-	{/if}
+				{/each}
+			</div>
+		{/if}
+	</div>
 </div>
 
 <Dialog.Root bind:open={showCreate}>

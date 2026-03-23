@@ -31,37 +31,35 @@
 	}
 </script>
 
-<div class="h-full">
-	<div class="flex h-[49px] items-center border-b border-[var(--app-border)] px-6">
-		<h1 class="text-sm font-medium text-[var(--color-text-primary)]">General</h1>
-	</div>
-	<div class="max-w-xl p-6 space-y-6">
-		{#if workspace}
-			<div>
-				<label for="ws-name" class="mb-1.5 block text-sm font-medium text-[var(--color-text-primary)]">Workspace name</label>
+<div class="mx-auto max-w-2xl px-8 py-10">
+	<h1 class="text-2xl font-semibold text-[var(--color-text-primary)]">General</h1>
+
+	{#if workspace}
+		<div class="mt-8 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
+			<div class="flex items-center justify-between px-5 py-4">
+				<div>
+					<p class="text-sm font-medium text-[var(--color-text-primary)]">Workspace name</p>
+					<p class="text-xs text-[var(--color-text-tertiary)]">The name of your workspace visible to all members.</p>
+				</div>
 				<input
-					id="ws-name"
 					type="text"
 					bind:value={wsName}
 					onblur={handleNameBlur}
-					class="w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
-				/>
-				<p class="mt-1 text-xs text-[var(--color-text-tertiary)]">The name of your workspace visible to all members.</p>
-			</div>
-			<div>
-				<label for="ws-slug" class="mb-1.5 block text-sm font-medium text-[var(--color-text-primary)]">Workspace URL</label>
-				<input
-					id="ws-slug"
-					type="text"
-					value={workspace.slug}
-					disabled
-					class="w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-tertiary)] outline-none"
+					class="w-[200px] rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
 				/>
 			</div>
-		{:else}
-			<div class="flex justify-center py-8">
-				<div class="h-5 w-5 animate-spin rounded-full border-2 border-[var(--color-text-tertiary)] border-t-transparent"></div>
+			<div class="border-t border-[var(--app-border)]"></div>
+			<div class="flex items-center justify-between px-5 py-4">
+				<div>
+					<p class="text-sm font-medium text-[var(--color-text-primary)]">Workspace URL</p>
+					<p class="text-xs text-[var(--color-text-tertiary)]">The unique identifier for your workspace.</p>
+				</div>
+				<span class="text-sm text-[var(--color-text-tertiary)]">{workspace.slug}</span>
 			</div>
-		{/if}
-	</div>
+		</div>
+	{:else}
+		<div class="mt-8 flex justify-center py-8">
+			<div class="h-5 w-5 animate-spin rounded-full border-2 border-[var(--color-text-tertiary)] border-t-transparent"></div>
+		</div>
+	{/if}
 </div>
