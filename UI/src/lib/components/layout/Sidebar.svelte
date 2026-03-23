@@ -10,6 +10,7 @@
 	import type { Favorite } from '$lib/api/favorites';
 	import type { Project } from '$lib/types/project';
 	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
+	import * as Popover from '$lib/components/ui/popover';
 	import {
 		Inbox,
 		CircleUser,
@@ -374,9 +375,11 @@
 		<!-- Favorites -->
 		{#if favorites.length > 0}
 			<div class="mt-4">
-				<button onclick={() => favoritesCollapsed = toggleSection('favorites', favoritesCollapsed)} class="flex w-full items-center justify-between px-2 py-1">
-					<span class="text-xs font-medium uppercase text-[var(--color-text-tertiary)]">Favorites</span>
-					<ChevronDown size={12} class="text-[var(--color-text-tertiary)] transition-transform {favoritesCollapsed ? '-rotate-90' : ''}" />
+				<button onclick={() => favoritesCollapsed = toggleSection('favorites', favoritesCollapsed)} class="flex w-full items-center px-2 py-1">
+					<span class="flex items-center gap-1">
+						<span class="text-[11px] font-semibold text-[var(--color-text-secondary)]">Favorites</span>
+						<ChevronDown size={12} class="text-[var(--color-text-tertiary)] transition-transform {favoritesCollapsed ? '-rotate-90' : ''}" />
+					</span>
 				</button>
 				{#if !favoritesCollapsed}
 					{#each favorites as fav}
@@ -396,16 +399,17 @@
 		{/if}
 
 		<!-- Teams -->
-		<div class="mt-4">
-			<div class="flex items-center justify-between px-2 py-1">
-				<button onclick={() => teamsCollapsed = toggleSection('teams', teamsCollapsed)} class="flex items-center gap-1">
-					<span class="text-xs font-medium uppercase text-[var(--color-text-tertiary)]">Teams</span>
+		<div class="group/teams mt-4">
+			<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+			<div class="flex cursor-pointer items-center justify-between px-2 py-1" onclick={() => teamsCollapsed = toggleSection('teams', teamsCollapsed)}>
+				<span class="flex items-center gap-1">
+					<span class="text-[11px] font-semibold text-[var(--color-text-secondary)]">Teams</span>
 					<ChevronDown size={12} class="text-[var(--color-text-tertiary)] transition-transform {teamsCollapsed ? '-rotate-90' : ''}" />
-				</button>
+				</span>
 				{#if oncreateteam}
 					<button
-						onclick={oncreateteam}
-						class="rounded p-0.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]"
+						onclick={(e) => { e.stopPropagation(); oncreateteam?.(); }}
+						class="rounded p-0.5 text-[var(--color-text-tertiary)] opacity-0 transition-opacity group-hover/teams:opacity-100 hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]"
 						title="Create team"
 					>
 						<Plus size={14} />
@@ -522,9 +526,11 @@
 		<!-- Views -->
 		{#if views.length > 0}
 			<div class="mt-4">
-				<button onclick={() => viewsCollapsed = toggleSection('views', viewsCollapsed)} class="flex w-full items-center justify-between px-2 py-1">
-					<span class="text-xs font-medium uppercase text-[var(--color-text-tertiary)]">Views</span>
-					<ChevronDown size={12} class="text-[var(--color-text-tertiary)] transition-transform {viewsCollapsed ? '-rotate-90' : ''}" />
+				<button onclick={() => viewsCollapsed = toggleSection('views', viewsCollapsed)} class="flex w-full items-center px-2 py-1">
+					<span class="flex items-center gap-1">
+						<span class="text-[11px] font-semibold text-[var(--color-text-secondary)]">Views</span>
+						<ChevronDown size={12} class="text-[var(--color-text-tertiary)] transition-transform {viewsCollapsed ? '-rotate-90' : ''}" />
+					</span>
 				</button>
 				{#if !viewsCollapsed}
 					{#each views as view}
@@ -546,11 +552,12 @@
 
 		<!-- Projects -->
 		<div class="mt-4">
-			<div class="flex items-center justify-between px-2 py-1">
-				<button onclick={() => projectsCollapsed = toggleSection('projects', projectsCollapsed)} class="flex items-center gap-1">
-					<span class="text-xs font-medium uppercase text-[var(--color-text-tertiary)]">Projects</span>
+			<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+			<div class="flex cursor-pointer items-center justify-between px-2 py-1" onclick={() => projectsCollapsed = toggleSection('projects', projectsCollapsed)}>
+				<span class="flex items-center gap-1">
+					<span class="text-[11px] font-semibold text-[var(--color-text-secondary)]">Projects</span>
 					<ChevronDown size={12} class="text-[var(--color-text-tertiary)] transition-transform {projectsCollapsed ? '-rotate-90' : ''}" />
-				</button>
+				</span>
 			</div>
 			{#if !projectsCollapsed}
 				<a
@@ -566,21 +573,36 @@
 		</div>
 	</nav>
 
-	<!-- Footer -->
-	<div class="border-t border-[var(--app-border)] px-2 py-2">
-		<a
-			href="/{slug}/settings"
-			class="flex items-center gap-2 rounded-md px-2 py-1 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
-		>
-			<Settings size={16} />
-			Settings
-		</a>
-		<button
-			onclick={handleLogout}
-			class="flex w-full items-center gap-2 rounded-md px-2 py-1 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
-		>
-			<LogOut size={16} />
-			Log out
-		</button>
+	<!-- Profile -->
+	<div class="px-2 py-2">
+		<Popover.Root>
+			<Popover.Trigger>
+				{#if authState.user?.avatar_url}
+					<img src={authState.user.avatar_url} alt="" class="h-7 w-7 cursor-pointer rounded-full transition-[filter] hover:brightness-125" />
+				{:else}
+					<div class="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-[var(--app-accent)] text-xs font-bold text-[var(--app-accent-foreground)] transition-[filter] hover:brightness-125">
+						{(authState.user?.name ?? 'U').charAt(0).toUpperCase()}
+					</div>
+				{/if}
+			</Popover.Trigger>
+			<Popover.Content side="top" align="start" class="w-52 p-1">
+				<a
+					href="/{slug}/settings"
+					class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+				>
+					<Settings size={14} />
+					Settings
+				</a>
+				<div class="mt-1 border-t border-[var(--app-border)] pt-1">
+					<button
+						onclick={handleLogout}
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+					>
+						<LogOut size={14} />
+						Log out
+					</button>
+				</div>
+			</Popover.Content>
+		</Popover.Root>
 	</div>
 {/snippet}
