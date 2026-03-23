@@ -4,6 +4,22 @@
 
 @custom-variant dark (&:is(.dark *, .dark-gray *, .amethyst-dark *, .emerald-dark *, .cyber-77 *, .blade-49 *, .pipboy *));
 
+*,
+*::before,
+*::after {
+	-webkit-user-select: none;
+	user-select: none;
+}
+
+input,
+textarea,
+[contenteditable="true"],
+pre,
+code {
+	-webkit-user-select: text;
+	user-select: text;
+}
+
 :root {
 	--app-font-size: 100%;
 
