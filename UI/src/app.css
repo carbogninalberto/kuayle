@@ -21,7 +21,7 @@ code {
 }
 
 ::selection {
-	background-color: color-mix(in srgb, var(--app-accent) 30%, transparent);
+	background-color: color-mix(in srgb, var(--primary-200) 40%, transparent);
 	color: inherit;
 }
 
