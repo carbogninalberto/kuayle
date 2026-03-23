@@ -1,7 +1,18 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
+	import { cubicOut } from 'svelte/easing';
 	import { logout } from '$lib/api/auth';
+
+	function slideFade(node: HTMLElement, params: { duration?: number } = {}) {
+		const duration = params.duration ?? 200;
+		const h = node.offsetHeight;
+		return {
+			duration,
+			easing: cubicOut,
+			css: (t: number) => `overflow: hidden; height: ${t * h}px; opacity: ${t};`
+		};
+	}
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import type { Workspace } from '$lib/types/workspace';
 	import type { Team } from '$lib/types/team';
@@ -382,6 +393,7 @@
 					</span>
 				</button>
 				{#if !favoritesCollapsed}
+					<div transition:slideFade>
 					{#each favorites as fav}
 						{@const href = fav.entity_type === 'project' ? `/${slug}/projects/${fav.entity_id}` : fav.entity_type === 'team' ? `/${slug}/teams/${fav.entity_id}` : fav.entity_type === 'view' ? `/${slug}/views/${fav.entity_id}` : `/${slug}/my-issues`}
 						<a
@@ -394,6 +406,7 @@
 							<span class="truncate">{fav.entity_type}</span>
 						</a>
 					{/each}
+					</div>
 				{/if}
 			</div>
 		{/if}
@@ -417,6 +430,7 @@
 				{/if}
 			</div>
 			{#if !teamsCollapsed}
+				<div transition:slideFade>
 				{#each teams as team}
 					{@const teamExpanded = !collapsedTeams.has(team.id)}
 					{@const teamProjects = projects.filter(p => p.team_id === team.id)}
@@ -430,6 +444,7 @@
 						<span class="truncate">{team.name}</span>
 					</button>
 					{#if teamExpanded}
+						<div transition:slideFade>
 						<a
 							href="/{slug}/teams/{team.id}"
 							class="ml-7 flex items-center gap-2 rounded-md px-2 py-1 text-xs {isActive(
@@ -509,6 +524,7 @@
 								{view.name}
 							</a>
 						{/each}
+						</div>
 					{/if}
 				{/each}
 				{#if teams.length === 0}
@@ -520,6 +536,7 @@
 						Create your first team
 					</button>
 				{/if}
+				</div>
 			{/if}
 		</div>
 
@@ -533,6 +550,7 @@
 					</span>
 				</button>
 				{#if !viewsCollapsed}
+					<div transition:slideFade>
 					{#each views as view}
 						<a
 							href="/{slug}/views/{view.id}"
@@ -546,6 +564,7 @@
 							{view.name}
 						</a>
 					{/each}
+					</div>
 				{/if}
 			</div>
 		{/if}
@@ -560,6 +579,7 @@
 				</span>
 			</div>
 			{#if !projectsCollapsed}
+				<div transition:slideFade>
 				<a
 					href="/{slug}/projects"
 					class="flex items-center gap-2 rounded-md px-2 py-1 text-sm {isActive(`/${slug}/projects`)
@@ -569,6 +589,7 @@
 					<FolderKanban size={16} />
 					All Projects
 				</a>
+				</div>
 			{/if}
 		</div>
 	</nav>
