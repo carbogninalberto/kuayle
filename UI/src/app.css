@@ -20,6 +20,11 @@ code {
 	user-select: text;
 }
 
+::selection {
+	background-color: color-mix(in srgb, var(--app-accent) 30%, transparent);
+	color: inherit;
+}
+
 :root {
 	--app-font-size: 100%;
 
