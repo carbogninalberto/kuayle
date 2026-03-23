@@ -1,4 +1,4 @@
-.PHONY: dev dev-backend dev-frontend migrate-up migrate-down seed test test-backend test-frontend lint docker-up docker-down
+.PHONY: dev dev-backend dev-frontend migrate-up migrate-down seed reset-dev test test-backend test-frontend lint docker-up docker-down
 
 # Load .env into shell commands
 DOTENV := $(shell [ -f .env ] && echo "set -a && . ./.env && set +a &&" || echo "")
@@ -20,7 +20,10 @@ migrate-down:
 	$(DOTENV) cd BE && go run ./cmd/server migrate down
 
 seed:
-	$(DOTENV) cd BE && go run ./cmd/server seed
+	bash scripts/seed.sh
+
+reset-dev:
+	bash scripts/reset_dev.sh
 
 test: test-backend test-frontend
 

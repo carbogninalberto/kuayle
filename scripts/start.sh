@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -e
 
+cd "$(dirname "$0")/.."
+
 PIDFILE=".dev.pids"
 
 # Ensure Docker CLI is in PATH (macOS Docker Desktop)
@@ -41,13 +43,13 @@ echo "Applying database migrations..."
 make migrate-up
 
 # 6. Clean up any previous dev pids
-[ -f "$PIDFILE" ] && ./stop.sh 2>/dev/null || true
+[ -f "$PIDFILE" ] && ./scripts/stop.sh 2>/dev/null || true
 
 echo ""
 echo "=== Starting Kuayle (dev mode) ==="
 echo "  Frontend: http://localhost:5173"
 echo "  Backend:  http://localhost:8080 (air hot reload)"
-echo "  Stop:     ./stop.sh"
+echo "  Stop:     ./scripts/stop.sh"
 echo ""
 
 # 7. Start backend with air
@@ -63,5 +65,5 @@ echo "$BE_PID" > "$PIDFILE"
 echo "$FE_PID" >> "$PIDFILE"
 
 # Wait for either to exit
-trap './stop.sh 2>/dev/null; exit 0' INT TERM
+trap './scripts/stop.sh 2>/dev/null; exit 0' INT TERM
 wait

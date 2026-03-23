@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -e
 
+cd "$(dirname "$0")/.."
+
 echo "=== Kuayle - Seed Data ==="
 
 # Ensure Docker CLI is in PATH (macOS Docker Desktop)
@@ -11,7 +13,7 @@ if [ -f .env ]; then
     set -a && source .env && set +a
 fi
 
-PSQL="docker exec -i kuayle-postgres-1 psql -U kuayle -d kuayle -q"
+PSQL="docker compose exec -T postgres psql -U kuayle -d kuayle -q"
 
 echo "Cleaning database..."
 $PSQL <<'SQL'
@@ -62,7 +64,7 @@ GOEOF
 HASH=$(cd BE && go run /tmp/hashgen.go)
 rm -f /tmp/hashgen.go
 
-docker exec -i kuayle-postgres-1 psql -U kuayle -d kuayle -q -v "hash=$HASH" <<'SQL'
+docker compose exec -T postgres psql -U kuayle -d kuayle -q -v "hash=$HASH" <<'SQL'
 
 -- ============================================================
 -- USERS

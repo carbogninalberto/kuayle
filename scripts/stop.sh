@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+cd "$(dirname "$0")/.."
+
 PIDFILE=".dev.pids"
 
 # Ensure Docker CLI is in PATH (macOS Docker Desktop)
