@@ -32,6 +32,7 @@
 	let burndownData = $state<CycleBurndownPoint[]>([]);
 	let burndownLoading = $state(false);
 	let archivedExpanded = $state(false);
+	let burndownVersion = $state(0);
 
 	const MAX_VISIBLE_COMPLETED = 5;
 
@@ -81,13 +82,15 @@
 			if (active) {
 				expandedCycleId = active.id;
 			}
+			burndownVersion++;
 		}).finally(() => {
 			loading = false;
 		});
 	});
 
-	// Fetch burndown when expanded cycle changes
+	// Fetch burndown when expanded cycle changes or data is updated
 	$effect(() => {
+		const _v = burndownVersion;
 		const id = expandedCycleId;
 		if (!id || !slug || !teamId) {
 			burndownData = [];

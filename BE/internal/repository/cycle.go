@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -80,12 +81,17 @@ type issueSnapshot struct {
 	InCycle bool
 }
 
+func normalizeStatus(status string) string {
+	return strings.ToLower(strings.ReplaceAll(strings.TrimSpace(status), " ", "_"))
+}
+
 func isStarted(status string) bool {
-	return status == "in_progress" || status == "in_review" || status == "done"
+	s := normalizeStatus(status)
+	return s == "in_progress" || s == "in_review" || s == "done"
 }
 
 func isCompleted(status string) bool {
-	return status == "done"
+	return normalizeStatus(status) == "done"
 }
 
 // BurndownData reconstructs daily scope/started/completed counts by replaying
