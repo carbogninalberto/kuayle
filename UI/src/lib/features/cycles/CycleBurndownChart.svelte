@@ -143,12 +143,19 @@
 			xAxis: {
 				type: 'category',
 				data: dates,
-				axisLine: { lineStyle: { color: colorBorder } },
-				axisTick: { show: false },
+				axisLine: { lineStyle: { color: 'transparent' } },
+				axisTick: {
+					show: true,
+					alignWithLabel: true,
+					interval: (index: number) => index === 0 || index === dates.length - 1,
+					lineStyle: { color: colorText, opacity: 0.7, width: 1 },
+					length: 8
+				},
 				axisLabel: {
 					color: colorText,
 					fontSize: 10,
-					interval: (index: number) => index === 0 || index === dates.length - 1
+					interval: (index: number) => index === 0 || index === dates.length - 1,
+					margin: 10
 				},
 				boundaryGap: false,
 				triggerEvent: true,
