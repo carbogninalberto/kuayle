@@ -12,20 +12,22 @@
 
 	let chartEl: HTMLDivElement | undefined = $state();
 	let chart: echarts.ECharts | undefined;
+	let hoveredPoint = $state<CycleBurndownPoint | null>(null);
 
 	function getColor(varName: string): string {
 		return getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
 	}
 
 	const lastPoint = $derived(data.length > 0 ? data[data.length - 1] : null);
+	const displayPoint = $derived(hoveredPoint ?? lastPoint);
 	const startedPct = $derived(
-		lastPoint && lastPoint.scope > 0
-			? Math.round((lastPoint.started / lastPoint.scope) * 100)
+		displayPoint && displayPoint.scope > 0
+			? Math.round((displayPoint.started / displayPoint.scope) * 100)
 			: 0
 	);
 	const completedPct = $derived(
-		lastPoint && lastPoint.scope > 0
-			? Math.round((lastPoint.completed / lastPoint.scope) * 100)
+		displayPoint && displayPoint.scope > 0
+			? Math.round((displayPoint.completed / displayPoint.scope) * 100)
 			: 0
 	);
 
@@ -148,7 +150,9 @@
 					fontSize: 10,
 					interval: (index: number) => index === 0 || index === dates.length - 1
 				},
-				boundaryGap: false
+				boundaryGap: false,
+				triggerEvent: true,
+				axisPointer: { triggerEvent: true }
 			},
 			yAxis: {
 				type: 'value',
@@ -259,6 +263,19 @@
 			]
 		});
 
+		// Update right-side legend on hover
+		chart.on('updateAxisPointer', (event: any) => {
+			const idx = event.dataIndex ?? event.seriesData?.[0]?.dataIndex;
+			if (idx !== undefined && idx < data.length) {
+				hoveredPoint = data[idx];
+			} else {
+				hoveredPoint = null;
+			}
+		});
+		chart.on('globalout', () => {
+			hoveredPoint = null;
+		});
+
 		const ro = new ResizeObserver(() => chart?.resize());
 		ro.observe(chartEl);
 
@@ -266,40 +283,41 @@
 			ro.disconnect();
 			chart?.dispose();
 			chart = undefined;
+			hoveredPoint = null;
 		};
 	});
 </script>
 
-<div class="flex gap-4">
+<div class="flex gap-6">
 	<div class="flex-1 min-w-0">
 		<div bind:this={chartEl} class="h-[200px] w-full"></div>
 	</div>
-	{#if lastPoint}
-		<div class="flex w-[140px] shrink-0 flex-col justify-center gap-2 text-xs">
-			<div class="flex items-center justify-between gap-2">
-				<span class="flex items-center gap-1.5">
-					<span class="inline-block h-2 w-2 rounded-sm bg-[var(--color-text-tertiary)]" style="border: 1px dotted var(--color-text-tertiary);"></span>
+	{#if displayPoint}
+		<div class="flex w-[180px] shrink-0 flex-col justify-center gap-4 text-sm">
+			<div class="flex items-center justify-between gap-3">
+				<span class="flex items-center gap-2">
+					<span class="inline-block h-2.5 w-2.5 rounded-sm bg-[var(--color-text-tertiary)]" style="border: 1px dotted var(--color-text-tertiary);"></span>
 					<span class="text-[var(--color-text-secondary)]">Finish line</span>
 				</span>
-				<span class="font-medium text-[var(--app-accent)]">{lastPoint.scope}</span>
+				<span class="font-medium text-[var(--app-accent)]">{displayPoint.scope}</span>
 			</div>
-			<div class="flex items-center justify-between gap-2">
-				<span class="flex items-center gap-1.5">
-					<span class="inline-block h-2 w-2 rounded-sm bg-amber-500"></span>
+			<div class="flex items-center justify-between gap-3">
+				<span class="flex items-center gap-2">
+					<span class="inline-block h-2.5 w-2.5 rounded-sm bg-amber-500"></span>
 					<span class="text-[var(--color-text-secondary)]">Started</span>
 				</span>
-				<span class="text-[var(--color-text-primary)]">{lastPoint.started} <span class="text-[var(--color-text-tertiary)]">· {startedPct}%</span></span>
+				<span class="text-[var(--color-text-primary)]">{displayPoint.started} <span class="text-[var(--color-text-tertiary)]">· {startedPct}%</span></span>
 			</div>
-			<div class="flex items-center justify-between gap-2">
-				<span class="flex items-center gap-1.5">
-					<span class="inline-block h-2 w-2 rounded-sm bg-[var(--app-accent)]"></span>
+			<div class="flex items-center justify-between gap-3">
+				<span class="flex items-center gap-2">
+					<span class="inline-block h-2.5 w-2.5 rounded-sm bg-[var(--app-accent)]"></span>
 					<span class="text-[var(--color-text-secondary)]">Completed</span>
 				</span>
-				<span class="text-[var(--color-text-primary)]">{lastPoint.completed} <span class="text-[var(--color-text-tertiary)]">· {completedPct}%</span></span>
+				<span class="text-[var(--color-text-primary)]">{displayPoint.completed} <span class="text-[var(--color-text-tertiary)]">· {completedPct}%</span></span>
 			</div>
-			<div class="flex items-center justify-between gap-2">
-				<span class="flex items-center gap-1.5">
-					<span class="inline-block h-2 w-2 rounded-sm bg-[var(--app-accent)]"></span>
+			<div class="flex items-center justify-between gap-3">
+				<span class="flex items-center gap-2">
+					<span class="inline-block h-2.5 w-2.5 rounded-sm bg-[var(--app-accent)]"></span>
 					<span class="text-[var(--color-text-secondary)]">Projection</span>
 				</span>
 				<span class="text-[var(--color-text-tertiary)]">avg/day</span>

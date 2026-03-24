@@ -1,0 +1,100 @@
+<script lang="ts">
+	import * as Dialog from '$lib/components/ui/dialog';
+	import { Button } from '$lib/components/ui/button';
+	import { Input } from '$lib/components/ui/input';
+	import { Label } from '$lib/components/ui/label';
+	import DatePickerPopover from '$lib/components/shared/DatePickerPopover.svelte';
+	import type { Cycle } from '$lib/types/cycle';
+
+	let {
+		open = $bindable(false),
+		cycle,
+		onsubmit
+	}: {
+		open: boolean;
+		cycle: Cycle | null;
+		onsubmit: (data: { name: string; description?: string; start_date?: string; end_date?: string }) => void;
+	} = $props();
+
+	let name = $state('');
+	let description = $state('');
+	let startDate = $state('');
+	let endDate = $state('');
+
+	$effect(() => {
+		if (open && cycle) {
+			name = cycle.name;
+			description = cycle.description ?? '';
+			startDate = cycle.start_date?.slice(0, 10) ?? '';
+			endDate = cycle.end_date?.slice(0, 10) ?? '';
+		}
+	});
+
+	function handleSubmit(e: Event) {
+		e.preventDefault();
+		if (!name.trim()) return;
+		onsubmit({
+			name: name.trim(),
+			description: description.trim() || undefined,
+			start_date: startDate || undefined,
+			end_date: endDate || undefined
+		});
+		open = false;
+	}
+</script>
+
+<Dialog.Root bind:open>
+	<Dialog.Content class="sm:max-w-[420px] border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-0 overflow-hidden rounded-xl">
+		<form onsubmit={handleSubmit}>
+			<div class="px-5 pt-5 pb-4 space-y-4">
+				<div>
+					<h2 class="text-base font-semibold text-[var(--color-text-primary)]">Edit cycle</h2>
+					<p class="mt-0.5 text-xs text-[var(--color-text-tertiary)]">Update the cycle name, description, or dates.</p>
+				</div>
+
+				<div class="space-y-1.5">
+					<Label class="text-xs text-[var(--color-text-secondary)]">Name</Label>
+					<Input
+						bind:value={name}
+						placeholder="e.g. Sprint 1"
+						required
+						class="bg-[var(--color-bg)] border-[var(--app-border)] text-[var(--color-text-primary)]"
+					/>
+				</div>
+
+				<div class="space-y-1.5">
+					<Label class="text-xs text-[var(--color-text-secondary)]">Description <span class="text-[var(--color-text-tertiary)]">(optional)</span></Label>
+					<Input
+						bind:value={description}
+						placeholder="What's the goal for this cycle?"
+						class="bg-[var(--color-bg)] border-[var(--app-border)] text-[var(--color-text-primary)]"
+					/>
+				</div>
+
+				<div class="grid grid-cols-2 gap-3">
+					<div class="space-y-1.5">
+						<Label class="text-xs text-[var(--color-text-secondary)]">Start date</Label>
+						<DatePickerPopover
+							value={startDate || null}
+							onchange={(d) => (startDate = d ?? '')}
+							placeholder="Start date"
+						/>
+					</div>
+					<div class="space-y-1.5">
+						<Label class="text-xs text-[var(--color-text-secondary)]">End date</Label>
+						<DatePickerPopover
+							value={endDate || null}
+							onchange={(d) => (endDate = d ?? '')}
+							placeholder="End date"
+						/>
+					</div>
+				</div>
+			</div>
+
+			<div class="flex justify-end gap-2 border-t border-[var(--app-border)] px-5 py-3">
+				<Button variant="outline" size="sm" type="button" onclick={() => (open = false)}>Cancel</Button>
+				<Button size="sm" type="submit" disabled={!name.trim()}>Save changes</Button>
+			</div>
+		</form>
+	</Dialog.Content>
+</Dialog.Root>

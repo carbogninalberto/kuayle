@@ -20,6 +20,14 @@ func NewCycleService(cycleRepo repository.CycleRepo) *CycleService {
 }
 
 func (s *CycleService) Create(ctx context.Context, teamID uuid.UUID, req dto.CreateCycleRequest) (*domain.Cycle, error) {
+	exists, err := s.cycleRepo.ExistsByName(ctx, teamID, req.Name)
+	if err != nil {
+		return nil, err
+	}
+	if exists {
+		return nil, fmt.Errorf("a cycle with this name already exists")
+	}
+
 	number, err := s.cycleRepo.NextNumber(ctx, teamID)
 	if err != nil {
 		return nil, err

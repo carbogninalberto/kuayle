@@ -1,24 +1,35 @@
 <script lang="ts">
 	import type { Cycle } from '$lib/types/cycle';
 	import { Badge } from '$lib/components/ui/badge';
-	import { Play, Clock, CheckCircle2, Circle } from 'lucide-svelte';
+	import * as Popover from '$lib/components/ui/popover';
+	import { CirclePlay, CircleDotDashed, CircleCheckBig, Circle, MoreHorizontal, Pencil, Calendar, Play, CheckCircle2, Trash2 } from 'lucide-svelte';
 
 	let {
 		cycle,
 		slug,
 		teamId,
-		clickable = true
+		clickable = true,
+		onactivate,
+		oncomplete,
+		ondelete,
+		onedit
 	}: {
 		cycle: Cycle;
 		slug: string;
 		teamId: string;
 		clickable?: boolean;
+		onactivate?: (cycleId: string) => void;
+		oncomplete?: (cycleId: string) => void;
+		ondelete?: (cycleId: string) => void;
+		onedit?: (cycle: Cycle) => void;
 	} = $props();
 
+	let menuOpen = $state(false);
+
 	const statusIcon = $derived(
-		cycle.status === 'active' ? Play :
-		cycle.status === 'completed' ? CheckCircle2 :
-		cycle.status === 'upcoming' ? Clock :
+		cycle.status === 'active' ? CirclePlay :
+		cycle.status === 'completed' ? CircleCheckBig :
+		cycle.status === 'upcoming' ? CircleDotDashed :
 		Circle
 	);
 
@@ -40,7 +51,6 @@
 			: 0
 	);
 
-	// Small SVG capacity ring for active cycles
 	const ringPct = $derived(
 		cycle.progress && cycle.progress.total > 0
 			? Math.min(100, Math.round((cycle.progress.completed / cycle.progress.total) * 100))
@@ -86,6 +96,58 @@
 		{:else}
 			<span>0 scope</span>
 		{/if}
+
+		<!-- 3-dot menu: visible on hover or when open -->
+		<Popover.Root bind:open={menuOpen}>
+			<Popover.Trigger>
+				<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+				<button
+					onclick={(e) => { e.stopPropagation(); e.preventDefault(); }}
+					class="rounded p-0.5 text-[var(--color-text-tertiary)] opacity-0 transition-opacity hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)] group-hover:opacity-100 {menuOpen ? '!opacity-100' : ''}"
+				>
+					<MoreHorizontal size={14} />
+				</button>
+			</Popover.Trigger>
+			<Popover.Content class="w-48 p-1" align="end" side="bottom">
+				{#if onedit}
+					<button
+						onclick={(e) => { e.stopPropagation(); menuOpen = false; onedit?.(cycle); }}
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+					>
+						<Pencil size={14} />
+						Edit cycle
+					</button>
+				{/if}
+				{#if cycle.status === 'upcoming' && onactivate}
+					<button
+						onclick={(e) => { e.stopPropagation(); menuOpen = false; onactivate?.(cycle.id); }}
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+					>
+						<Play size={14} />
+						Start cycle
+					</button>
+				{/if}
+				{#if cycle.status === 'active' && oncomplete}
+					<button
+						onclick={(e) => { e.stopPropagation(); menuOpen = false; oncomplete?.(cycle.id); }}
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+					>
+						<CheckCircle2 size={14} />
+						Complete cycle
+					</button>
+				{/if}
+				{#if ondelete}
+					<div class="my-1 border-t border-[var(--app-border)]"></div>
+					<button
+						onclick={(e) => { e.stopPropagation(); menuOpen = false; ondelete?.(cycle.id); }}
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-error)] hover:bg-[var(--color-bg-hover)]"
+					>
+						<Trash2 size={14} />
+						Delete cycle
+					</button>
+				{/if}
+			</Popover.Content>
+		</Popover.Root>
 	</div>
 {/snippet}
 

@@ -57,6 +57,14 @@ func (r *CycleRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	return err
 }
 
+// ExistsByName checks if a cycle with the given name already exists in the team.
+func (r *CycleRepository) ExistsByName(ctx context.Context, teamID uuid.UUID, name string) (bool, error) {
+	var exists bool
+	err := r.db.GetContext(ctx, &exists,
+		`SELECT EXISTS(SELECT 1 FROM cycles WHERE team_id = $1 AND LOWER(name) = LOWER($2))`, teamID, name)
+	return exists, err
+}
+
 // IssueStats returns total, completed, and cancelled issue counts for a cycle.
 func (r *CycleRepository) IssueStats(ctx context.Context, cycleID uuid.UUID) (total int, completed int, cancelled int, err error) {
 	err = r.db.QueryRowContext(ctx,

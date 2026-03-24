@@ -3,6 +3,7 @@
 	import { listCycles, createCycle, deleteCycle, completeCycle, updateCycle, getCycleBurndown } from '$lib/api/cycles';
 	import type { Cycle, CycleBurndownPoint } from '$lib/types/cycle';
 	import CreateCycleDialog from '$lib/features/cycles/CreateCycleDialog.svelte';
+	import EditCycleDialog from '$lib/features/cycles/EditCycleDialog.svelte';
 	import CycleTimelineRow from '$lib/features/cycles/CycleTimelineRow.svelte';
 	import CycleBurndownChart from '$lib/features/cycles/CycleBurndownChart.svelte';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
@@ -28,11 +29,12 @@
 	let cycles = $state<Cycle[]>([]);
 	let loading = $state(true);
 	let showCreate = $state(false);
-	let expandedCycleId = $state<string | null>(null);
 	let burndownData = $state<CycleBurndownPoint[]>([]);
 	let burndownLoading = $state(false);
 	let archivedExpanded = $state(false);
 	let burndownVersion = $state(0);
+
+	const activeCycle = $derived(cycles.find(c => c.status === 'active') ?? null);
 
 	const MAX_VISIBLE_COMPLETED = 5;
 
@@ -51,7 +53,7 @@
 				const bDate = b.completed_at ? new Date(b.completed_at).getTime() : 0;
 				return bDate - aDate;
 			});
-		return [...active, ...upcoming, ...completed];
+		return [...upcoming, ...active, ...completed];
 	});
 
 	const visibleCycles = $derived(
@@ -77,32 +79,22 @@
 		loading = true;
 		listCycles(s, t).then((c) => {
 			cycles = c;
-			// Auto-expand active cycle
-			const active = c.find(cy => cy.status === 'active');
-			if (active) {
-				expandedCycleId = active.id;
-			}
 			burndownVersion++;
 		}).finally(() => {
 			loading = false;
 		});
 	});
 
-	// Fetch burndown when expanded cycle changes or data is updated
+	// Fetch burndown for the active cycle
 	$effect(() => {
 		const _v = burndownVersion;
-		const id = expandedCycleId;
-		if (!id || !slug || !teamId) {
-			burndownData = [];
-			return;
-		}
-		const cycle = cycles.find(c => c.id === id);
-		if (!cycle || !cycle.start_date || !cycle.end_date) {
+		const cycle = activeCycle;
+		if (!cycle || !slug || !teamId || !cycle.start_date || !cycle.end_date) {
 			burndownData = [];
 			return;
 		}
 		burndownLoading = true;
-		getCycleBurndown(slug, teamId, id).then((d) => {
+		getCycleBurndown(slug, teamId, cycle.id).then((d) => {
 			burndownData = d;
 		}).catch(() => {
 			burndownData = [];
@@ -131,6 +123,16 @@
 		}
 	}
 
+	async function handleActivate(cycleId: string) {
+		try {
+			const updated = await updateCycle(slug, teamId, cycleId, { status: 'active' });
+			cycles = cycles.map((c) => (c.id === cycleId ? updated : c));
+			toast.success('Cycle activated');
+		} catch (err: any) {
+			toast.error(err?.error?.message || 'Failed to activate cycle');
+		}
+	}
+
 	async function handleDelete(cycleId: string) {
 		try {
 			await deleteCycle(slug, teamId, cycleId);
@@ -138,6 +140,30 @@
 			toast.success('Cycle deleted');
 		} catch (err: any) {
 			toast.error(err?.error?.message || 'Failed to delete cycle');
+		}
+	}
+
+	let editingCycle = $state<Cycle | null>(null);
+	let showEdit = $state(false);
+
+	function handleEdit(cycle: Cycle) {
+		editingCycle = cycle;
+		showEdit = true;
+	}
+
+	async function handleEditSubmit(data: { name: string; description?: string; start_date?: string; end_date?: string }) {
+		if (!editingCycle) return;
+		try {
+			const updated = await updateCycle(slug, teamId, editingCycle.id, {
+				name: data.name,
+				description: data.description,
+				start_date: data.start_date,
+				end_date: data.end_date
+			});
+			cycles = cycles.map((c) => (c.id === updated.id ? updated : c));
+			toast.success('Cycle updated');
+		} catch (err: any) {
+			toast.error(err?.error?.message || 'Failed to update cycle');
 		}
 	}
 
@@ -157,12 +183,8 @@
 		return formatTimelineDate(cycle.start_date);
 	}
 
-	function toggleExpand(cycleId: string) {
-		if (expandedCycleId === cycleId) {
-			expandedCycleId = null;
-		} else {
-			expandedCycleId = cycleId;
-		}
+	function navigateToCycle(cycleId: string) {
+		window.location.href = `/${slug}/teams/${teamId}/cycles/${cycleId}`;
 	}
 </script>
 
@@ -201,43 +223,47 @@
 				action={{ label: 'New Cycle', onclick: () => (showCreate = true) }}
 			/>
 		{:else if !loading}
-			<div class="relative pl-16 pt-2">
-				<!-- Vertical timeline line -->
-				<div class="absolute left-[34px] top-0 bottom-0 w-px bg-[var(--app-border)]"></div>
-
+			<div class="pt-2">
 				{#each visibleCycles as cycle (cycle.id)}
 					{@const timelineDate = getTimelineDate(cycle)}
-					{@const isExpanded = expandedCycleId === cycle.id}
-					<div class="relative">
-						<!-- Date label -->
-						{#if timelineDate}
-							<div class="absolute left-0 top-2.5 w-[26px] text-right text-[10px] leading-tight text-[var(--color-text-tertiary)]">
-								<div>{timelineDate.month}</div>
-								<div>{timelineDate.day}</div>
+					{@const isActive = cycle.status === 'active'}
+					<div class="relative flex">
+						<!-- Timeline column: date + line + dot -->
+						<div class="relative flex w-16 shrink-0 flex-col items-center">
+							<!-- Date label -->
+							{#if timelineDate}
+								<div class="mb-0.5 text-center text-[10px] leading-tight text-[var(--color-text-tertiary)]">
+									<div>{timelineDate.month}</div>
+									<div>{timelineDate.day}</div>
+								</div>
+							{:else}
+								<div class="mb-0.5 h-[26px]"></div>
+							{/if}
+							<!-- Dot -->
+							<div class="rounded-full {isActive ? 'h-[10px] w-[10px] bg-[var(--app-accent)]' : 'h-[7px] w-[7px] bg-[var(--color-text-tertiary)]'}"></div>
+							<!-- Line extending down -->
+							<div class="w-px flex-1 bg-[var(--app-border)]"></div>
+						</div>
+
+						<!-- Cycle content -->
+						<div class="min-w-0 flex-1 pb-2">
+							<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+							<div
+								class="cursor-pointer"
+								onclick={() => navigateToCycle(cycle.id)}
+							>
+								<CycleTimelineRow
+									{cycle} {slug} {teamId} clickable={false}
+									onedit={handleEdit}
+									onactivate={handleActivate}
+									oncomplete={handleComplete}
+									ondelete={handleDelete}
+								/>
 							</div>
-						{/if}
 
-						<!-- Timeline dot -->
-						<div
-							class="absolute top-3.5 rounded-full {cycle.status === 'active'
-								? 'left-[30px] h-[9px] w-[9px] bg-[var(--app-accent)]'
-								: 'left-[31px] h-[7px] w-[7px] bg-[var(--color-text-tertiary)]'}"
-						></div>
-
-						<!-- Cycle row -->
-						<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-						<div
-							class="ml-6 cursor-pointer"
-							onclick={() => toggleExpand(cycle.id)}
-							ondblclick={() => {
-								window.location.href = `/${slug}/teams/${teamId}/cycles/${cycle.id}`;
-							}}
-						>
-							<CycleTimelineRow {cycle} {slug} {teamId} clickable={false} />
-
-							<!-- Expanded burndown chart -->
-							{#if isExpanded && cycle.start_date && cycle.end_date}
-								<div transition:slideFade class="mr-4 mb-2 mt-1">
+							<!-- Chart shown only for active cycle -->
+							{#if isActive && cycle.start_date && cycle.end_date}
+								<div class="mr-4 mt-1">
 									{#if burndownLoading}
 										<div class="flex h-[200px] items-center justify-center text-sm text-[var(--color-text-tertiary)]">
 											Loading...
@@ -257,34 +283,44 @@
 
 				<!-- Archived cycles -->
 				{#if archivedCycles.length > 0}
-					<div class="relative py-3">
-						<button
-							onclick={() => archivedExpanded = !archivedExpanded}
-							class="ml-6 flex items-center gap-2 rounded-md px-3 py-2 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]"
-						>
-							<Clock size={12} />
-							{archivedCycles.length} older cycle{archivedCycles.length > 1 ? 's' : ''} (archived)
-						</button>
+					<div class="flex">
+						<div class="flex w-16 shrink-0 flex-col items-center">
+							<div class="w-px flex-1 bg-[var(--app-border)]"></div>
+						</div>
+						<div class="min-w-0 flex-1 py-1">
+							<button
+								onclick={() => archivedExpanded = !archivedExpanded}
+								class="flex items-center gap-2 rounded-md px-3 py-2 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]"
+							>
+								<Clock size={12} />
+								{archivedCycles.length} older cycle{archivedCycles.length > 1 ? 's' : ''} (archived)
+							</button>
 
-						{#if archivedExpanded}
-							<div transition:slideFade>
-								{#each archivedCycles as cycle (cycle.id)}
-									{@const timelineDate = getTimelineDate(cycle)}
-									<div class="relative">
-										{#if timelineDate}
-											<div class="absolute left-0 top-2.5 w-[26px] text-right text-[10px] leading-tight text-[var(--color-text-tertiary)]">
-												<div>{timelineDate.month}</div>
-												<div>{timelineDate.day}</div>
+							{#if archivedExpanded}
+								<div transition:slideFade>
+									{#each archivedCycles as cycle (cycle.id)}
+										{@const timelineDate = getTimelineDate(cycle)}
+										<div class="relative flex">
+											<div class="relative flex w-16 shrink-0 flex-col items-center">
+												{#if timelineDate}
+													<div class="mb-0.5 text-center text-[10px] leading-tight text-[var(--color-text-tertiary)]">
+														<div>{timelineDate.month}</div>
+														<div>{timelineDate.day}</div>
+													</div>
+												{:else}
+													<div class="mb-0.5 h-[26px]"></div>
+												{/if}
+												<div class="h-[7px] w-[7px] rounded-full bg-[var(--color-text-tertiary)]"></div>
+												<div class="w-px flex-1 bg-[var(--app-border)]"></div>
 											</div>
-										{/if}
-										<div class="absolute left-[31px] top-3.5 h-[7px] w-[7px] rounded-full bg-[var(--color-text-tertiary)]"></div>
-										<div class="ml-6 opacity-60">
-											<CycleTimelineRow {cycle} {slug} {teamId} />
+											<div class="min-w-0 flex-1 opacity-60">
+												<CycleTimelineRow {cycle} {slug} {teamId} />
+											</div>
 										</div>
-									</div>
-								{/each}
-							</div>
-						{/if}
+									{/each}
+								</div>
+							{/if}
+						</div>
 					</div>
 				{/if}
 			</div>
@@ -293,3 +329,4 @@
 </div>
 
 <CreateCycleDialog bind:open={showCreate} onsubmit={handleCreate} />
+<EditCycleDialog bind:open={showEdit} cycle={editingCycle} onsubmit={handleEditSubmit} />

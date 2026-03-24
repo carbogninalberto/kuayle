@@ -64,6 +64,11 @@ func (m *mockCycleRepo) BurndownData(ctx context.Context, cycleID uuid.UUID, sta
 	return args.Get(0).([]dto.BurndownPoint), args.Error(1)
 }
 
+func (m *mockCycleRepo) ExistsByName(ctx context.Context, teamID uuid.UUID, name string) (bool, error) {
+	args := m.Called(ctx, teamID, name)
+	return args.Bool(0), args.Error(1)
+}
+
 // --- Tests ---
 
 func TestCycleService_Create(t *testing.T) {
@@ -73,6 +78,7 @@ func TestCycleService_Create(t *testing.T) {
 	ctx := context.Background()
 	teamID := uuid.New()
 
+	repo.On("ExistsByName", ctx, teamID, "Sprint 1").Return(false, nil)
 	repo.On("NextNumber", ctx, teamID).Return(1, nil)
 	repo.On("Create", ctx, mock.AnythingOfType("*domain.Cycle")).Return(nil)
 
@@ -91,6 +97,20 @@ func TestCycleService_Create(t *testing.T) {
 	assert.Equal(t, domain.CycleStatusUpcoming, cycle.Status)
 	assert.NotNil(t, cycle.StartDate)
 	assert.NotNil(t, cycle.EndDate)
+}
+
+func TestCycleService_Create_DuplicateName(t *testing.T) {
+	repo := new(mockCycleRepo)
+	svc := NewCycleService(repo)
+
+	ctx := context.Background()
+	teamID := uuid.New()
+
+	repo.On("ExistsByName", ctx, teamID, "Sprint 1").Return(true, nil)
+
+	_, err := svc.Create(ctx, teamID, dto.CreateCycleRequest{Name: "Sprint 1"})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "already exists")
 }
 
 func TestCycleService_List(t *testing.T) {

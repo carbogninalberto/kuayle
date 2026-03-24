@@ -130,6 +130,7 @@ type CycleRepo interface {
 	Delete(ctx context.Context, id uuid.UUID) error
 	IssueStats(ctx context.Context, cycleID uuid.UUID) (total int, completed int, cancelled int, err error)
 	BurndownData(ctx context.Context, cycleID uuid.UUID, startDate, endDate time.Time) ([]dto.BurndownPoint, error)
+	ExistsByName(ctx context.Context, teamID uuid.UUID, name string) (bool, error)
 }
 
 type IssueRelationRepo interface {
