@@ -152,7 +152,7 @@
 			},
 			yAxis: {
 				type: 'value',
-				splitLine: { lineStyle: { color: colorBorder, opacity: 0.3 } },
+				splitLine: { show: false },
 				axisLine: { show: false },
 				axisTick: { show: false },
 				axisLabel: { show: false }
@@ -192,6 +192,12 @@
 					symbol: 'none',
 					lineStyle: { color: colorFinish, width: 1.5, opacity: 0.35 },
 					itemStyle: { color: colorFinish },
+					areaStyle: {
+						color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+							{ offset: 0, color: colorFinish + '0a' },
+							{ offset: 0.4, color: colorFinish + '00' }
+						])
+					},
 					markLine: {
 						silent: true,
 						symbol: 'none',
