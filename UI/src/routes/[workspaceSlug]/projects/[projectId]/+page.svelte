@@ -49,7 +49,7 @@
 	let actionsOpen = $state(false);
 	let viewMode = $state<'list' | 'gantt'>('list');
 	let lastSelectedId = $state<string | null>(null);
-	const projectTeam = $derived(project?.team_id ? teams.find(t => t.id === project.team_id) : null);
+	const projectTeam = $derived(project?.team_id ? teams.find(t => t.id === project!.team_id) : null);
 
 	const STATUS_OPTIONS: { value: ProjectStatus; label: string; icon: typeof Circle }[] = [
 		{ value: 'planned', label: 'Planned', icon: Circle },
