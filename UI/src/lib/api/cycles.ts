@@ -1,5 +1,5 @@
 import { api } from './client';
-import type { Cycle, CreateCycleRequest, UpdateCycleRequest } from '$lib/types/cycle';
+import type { Cycle, CreateCycleRequest, UpdateCycleRequest, CycleBurndownPoint } from '$lib/types/cycle';
 
 export function listCycles(slug: string, teamId: string): Promise<Cycle[]> {
 	return api.get<Cycle[]>(`/api/workspaces/${slug}/teams/${teamId}/cycles`);
@@ -23,4 +23,8 @@ export function completeCycle(slug: string, teamId: string, cycleId: string): Pr
 
 export function deleteCycle(slug: string, teamId: string, cycleId: string): Promise<void> {
 	return api.delete<void>(`/api/workspaces/${slug}/teams/${teamId}/cycles/${cycleId}`);
+}
+
+export function getCycleBurndown(slug: string, teamId: string, cycleId: string): Promise<CycleBurndownPoint[]> {
+	return api.get<CycleBurndownPoint[]>(`/api/workspaces/${slug}/teams/${teamId}/cycles/${cycleId}/burndown`);
 }

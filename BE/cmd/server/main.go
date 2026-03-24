@@ -190,6 +190,7 @@ func main() {
 	ws.GET("/teams/:teamId/cycles/:cycleId", cycleH.Get)
 	ws.PATCH("/teams/:teamId/cycles/:cycleId", cycleH.Update)
 	ws.POST("/teams/:teamId/cycles/:cycleId/complete", cycleH.Complete)
+	ws.GET("/teams/:teamId/cycles/:cycleId/burndown", cycleH.Burndown)
 	ws.DELETE("/teams/:teamId/cycles/:cycleId", cycleH.Delete)
 
 	// Issues

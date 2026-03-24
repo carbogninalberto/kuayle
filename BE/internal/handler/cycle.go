@@ -137,6 +137,20 @@ func (h *CycleHandler) Delete(c echo.Context) error {
 	return response.Success(c, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
+func (h *CycleHandler) Burndown(c echo.Context) error {
+	id, err := uuid.Parse(c.Param("cycleId"))
+	if err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid cycle ID")
+	}
+
+	points, err := h.cycleSvc.GetBurndown(c.Request().Context(), id)
+	if err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+	}
+
+	return response.Success(c, http.StatusOK, points)
+}
+
 func toCycleResponse(cy domain.Cycle) dto.CycleResponse {
 	return dto.CycleResponse{
 		ID:          cy.ID.String(),

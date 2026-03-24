@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
@@ -128,6 +129,7 @@ type CycleRepo interface {
 	Update(ctx context.Context, cycle *domain.Cycle) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	IssueStats(ctx context.Context, cycleID uuid.UUID) (total int, completed int, cancelled int, err error)
+	BurndownData(ctx context.Context, cycleID uuid.UUID, startDate, endDate time.Time) ([]dto.BurndownPoint, error)
 }
 
 type IssueRelationRepo interface {

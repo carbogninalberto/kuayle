@@ -135,3 +135,14 @@ func (s *CycleService) GetStats(ctx context.Context, cycleID uuid.UUID) (*dto.Cy
 		Cancelled: cancelled,
 	}, nil
 }
+
+func (s *CycleService) GetBurndown(ctx context.Context, cycleID uuid.UUID) ([]dto.BurndownPoint, error) {
+	cycle, err := s.cycleRepo.GetByID(ctx, cycleID)
+	if err != nil || cycle == nil {
+		return nil, fmt.Errorf("cycle not found")
+	}
+	if cycle.StartDate == nil || cycle.EndDate == nil {
+		return nil, fmt.Errorf("cycle must have start and end dates")
+	}
+	return s.cycleRepo.BurndownData(ctx, cycleID, *cycle.StartDate, *cycle.EndDate)
+}

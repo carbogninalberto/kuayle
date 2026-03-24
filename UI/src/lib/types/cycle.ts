@@ -28,6 +28,13 @@ export interface CreateCycleRequest {
 	end_date?: string;
 }
 
+export interface CycleBurndownPoint {
+	date: string;
+	scope: number;
+	started: number;
+	completed: number;
+}
+
 export interface UpdateCycleRequest {
 	name?: string;
 	description?: string;

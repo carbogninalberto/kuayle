@@ -37,3 +37,10 @@ type CycleProgressResponse struct {
 	Completed int `json:"completed"`
 	Cancelled int `json:"cancelled"`
 }
+
+type BurndownPoint struct {
+	Date      string `json:"date"`
+	Scope     int    `json:"scope"`
+	Started   int    `json:"started"`
+	Completed int    `json:"completed"`
+}

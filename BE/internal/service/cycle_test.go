@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
@@ -53,6 +54,14 @@ func (m *mockCycleRepo) Delete(ctx context.Context, id uuid.UUID) error {
 func (m *mockCycleRepo) IssueStats(ctx context.Context, cycleID uuid.UUID) (int, int, int, error) {
 	args := m.Called(ctx, cycleID)
 	return args.Int(0), args.Int(1), args.Int(2), args.Error(3)
+}
+
+func (m *mockCycleRepo) BurndownData(ctx context.Context, cycleID uuid.UUID, startDate, endDate time.Time) ([]dto.BurndownPoint, error) {
+	args := m.Called(ctx, cycleID, startDate, endDate)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]dto.BurndownPoint), args.Error(1)
 }
 
 // --- Tests ---
