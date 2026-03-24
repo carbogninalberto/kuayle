@@ -243,7 +243,13 @@
 					smooth: true,
 					symbol: 'none',
 					lineStyle: { color: colorStarted, width: 2 },
-					itemStyle: { color: colorStarted }
+					itemStyle: { color: colorStarted },
+					areaStyle: {
+						color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+							{ offset: 0.6, color: colorStarted + '10' },
+							{ offset: 1, color: colorStarted + '00' }
+						])
+					}
 				},
 				{
 					name: 'Completed',
@@ -256,7 +262,13 @@
 					smooth: true,
 					symbol: 'none',
 					lineStyle: { color: colorCompleted, width: 2 },
-					itemStyle: { color: colorCompleted }
+					itemStyle: { color: colorCompleted },
+					areaStyle: {
+						color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+							{ offset: 0.6, color: colorCompleted + '10' },
+							{ offset: 1, color: colorCompleted + '00' }
+						])
+					}
 				},
 				{
 					name: 'Projection',
