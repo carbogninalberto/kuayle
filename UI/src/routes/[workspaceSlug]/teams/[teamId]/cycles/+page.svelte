@@ -230,30 +230,30 @@
 					{@const isUpcoming = cycle.status === 'upcoming'}
 					{@const lineColor = isActive ? 'bg-[var(--app-accent)]' : 'bg-[var(--app-border)]'}
 					<div class="relative flex">
-						<!-- Timeline spine with dates aligned to dots -->
+						<!-- Timeline spine -->
 						<div class="relative shrink-0 pl-5" style="width: 76px;">
-							<!-- Continuous vertical line (full height, behind everything) -->
+							<!-- Continuous vertical line -->
 							<div class="absolute top-0 bottom-0 right-[3.25px] {lineColor}" style="width: 1.5px;"></div>
-							<!-- Date labels + dots (on top of line, at edges) -->
-							<div class="relative flex h-full flex-col items-end justify-between">
-								<!-- End date + dot (top) -->
-								{#if dates.end}
-									<div class="flex w-full items-center gap-2">
-										<div class="flex-1 text-right text-[11px] leading-tight text-[var(--color-text-tertiary)] opacity-50">
-											<div>{dates.end.month}</div>
-											<div class="pl-1">{dates.end.day}</div>
-										</div>
-										<div class="h-2 w-2 shrink-0 rounded-full border-[1.5px] border-[var(--color-text-tertiary)] bg-[var(--color-bg)] opacity-60"></div>
-									</div>
-								{/if}
-								<!-- Start date + dot (bottom) -->
+							<!-- Start date + dot (top, aligned to cycle name) -->
+							<div class="relative flex h-full flex-col items-end">
 								{#if dates.start}
-									<div class="flex w-full items-center gap-2">
+									<div class="flex w-full items-start gap-2">
 										<div class="flex-1 text-right text-[11px] leading-tight text-[var(--color-text-tertiary)] opacity-50">
 											<div>{dates.start.month}</div>
 											<div class="pl-1">{dates.start.day}</div>
 										</div>
-										<div class="h-2 w-2 shrink-0 rounded-full {isActive ? 'bg-[var(--app-accent)]' : 'bg-[var(--color-text-tertiary)]'} opacity-60"></div>
+										<div class="mt-0.5 h-2 w-2 shrink-0 rounded-full {isActive ? 'bg-[var(--app-accent)]' : 'bg-[var(--color-text-tertiary)]'} opacity-60"></div>
+									</div>
+								{/if}
+								<div class="flex-1"></div>
+								<!-- End date + dot (bottom) -->
+								{#if dates.end && isActive}
+									<div class="flex w-full items-end gap-2">
+										<div class="flex-1 text-right text-[11px] leading-tight text-[var(--color-text-tertiary)] opacity-50">
+											<div>{dates.end.month}</div>
+											<div class="pl-1">{dates.end.day}</div>
+										</div>
+										<div class="mb-0.5 h-2 w-2 shrink-0 rounded-full border-[1.5px] border-[var(--color-text-tertiary)] bg-[var(--color-bg)] opacity-60"></div>
 									</div>
 								{/if}
 							</div>
@@ -262,7 +262,7 @@
 						<!-- Cycle content (full row clickable + hover) -->
 						<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 						<div
-							class="group min-w-0 flex-1 cursor-pointer rounded-md hover:bg-[var(--color-bg-hover)]/30"
+							class="group my-2 mr-2 min-w-0 flex-1 cursor-pointer rounded-md hover:bg-[var(--color-bg-hover)]/30"
 							onclick={() => navigateToCycle(cycle.id)}
 						>
 							<CycleTimelineRow
