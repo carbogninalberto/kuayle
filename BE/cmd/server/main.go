@@ -108,6 +108,9 @@ func main() {
 	webhookRepo := repository.NewWebhookRepository(db)
 	webhookSvc := service.NewWebhookService(webhookRepo, cfg.JWTSecret)
 	webhookH := handler.NewWebhookHandler(webhookSvc)
+	sharedLinkRepo := repository.NewSharedLinkRepository(db)
+	sharedLinkSvc := service.NewSharedLinkService(sharedLinkRepo, workspaceRepo, teamRepo, projectRepo, viewRepo, issueRepo, userRepo, teamStatusRepo)
+	sharedLinkH := handler.NewSharedLinkHandler(sharedLinkSvc, cfg.FrontendURL)
 	store, err := storage.New(cfg.Storage)
 	if err != nil {
 		log.Fatalf("Failed to initialize storage: %v", err)
@@ -150,6 +153,11 @@ func main() {
 	auth.POST("/login", authH.Login)
 	auth.POST("/refresh", authH.Refresh)
 	auth.POST("/logout", authH.Logout)
+
+	// Public share routes (no auth, rate limited)
+	pub := e.Group("/api/public", mw.RateLimit(2, 5))
+	pub.GET("/share/:token", sharedLinkH.GetPublicMeta)
+	pub.GET("/share/:token/issues", sharedLinkH.ListPublicIssues)
 
 	// Authenticated routes
 	api := e.Group("/api", mw.Auth(cfg.JWTSecret))
@@ -257,6 +265,12 @@ func main() {
 	ws.GET("/favorites", favH.List)
 	ws.POST("/favorites", favH.Create)
 	ws.DELETE("/favorites/:id", favH.Delete)
+
+	// Shared Links
+	ws.GET("/shared-links", sharedLinkH.List)
+	ws.POST("/shared-links", sharedLinkH.Create)
+	ws.PATCH("/shared-links/:id", sharedLinkH.Update)
+	ws.DELETE("/shared-links/:id", sharedLinkH.Delete)
 
 	// Uploads
 	ws.POST("/upload", uploadH.Upload, mw.RequirePermission("issue:create"))

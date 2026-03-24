@@ -171,6 +171,15 @@ type ProjectStatusVisibilityRepo interface {
 	ListProjectIDsByStatuses(ctx context.Context, statusIDs []uuid.UUID) (map[uuid.UUID][]uuid.UUID, error)
 }
 
+type SharedLinkRepo interface {
+	Create(ctx context.Context, link *domain.SharedLink) error
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.SharedLink, error)
+	GetByToken(ctx context.Context, token string) (*domain.SharedLink, error)
+	ListByWorkspace(ctx context.Context, workspaceID uuid.UUID) ([]domain.SharedLink, error)
+	Update(ctx context.Context, link *domain.SharedLink) error
+	Delete(ctx context.Context, id uuid.UUID) error
+}
+
 type IssueTemplateRepo interface {
 	Create(ctx context.Context, tmpl *domain.IssueTemplate) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.IssueTemplate, error)

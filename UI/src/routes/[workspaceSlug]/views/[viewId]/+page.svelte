@@ -21,7 +21,8 @@
 	import { Button } from '$lib/components/ui/button';
 	import * as Popover from '$lib/components/ui/popover';
 	import { toast } from 'svelte-sonner';
-	import { ArrowLeft, Pencil, Trash2, MoreHorizontal, Check, X } from 'lucide-svelte';
+	import { ArrowLeft, Pencil, Trash2, MoreHorizontal, Check, X, Share2 } from 'lucide-svelte';
+	import ShareLinkDialog from '$lib/components/shared/ShareLinkDialog.svelte';
 	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
 	import { createKeyboardHandler } from '$lib/utils/keyboard';
 
@@ -36,6 +37,7 @@
 	let projects = $state<Project[]>([]);
 	let loading = $state(true);
 	let actionsOpen = $state(false);
+	let showShareLink = $state(false);
 	let lastSelectedId = $state<string | null>(null);
 
 	// Edit name state
@@ -251,6 +253,16 @@
 						<button
 							onclick={() => {
 								actionsOpen = false;
+								showShareLink = true;
+							}}
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+						>
+							<Share2 size={14} />
+							Share link
+						</button>
+						<button
+							onclick={() => {
+								actionsOpen = false;
 								handleDelete();
 							}}
 							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-error)] hover:bg-[var(--color-bg-hover)]"
@@ -312,3 +324,13 @@
 		</div>
 	{/if}
 </div>
+
+{#if view}
+	<ShareLinkDialog
+		bind:open={showShareLink}
+		{slug}
+		scope="view"
+		scopeId={viewId}
+		filters={view.filters}
+	/>
+{/if}

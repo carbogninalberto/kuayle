@@ -29,7 +29,8 @@
 	import type { ViewFilter, ViewLayout } from '$lib/types/view';
 	import { createKeyboardHandler } from '$lib/utils/keyboard';
 	import { toast } from 'svelte-sonner';
-	import { Bookmark, Layers, SquareUser, SquaresSubtract, ChevronRight } from 'lucide-svelte';
+	import { Bookmark, Layers, SquareUser, SquaresSubtract, ChevronRight, Share2 } from 'lucide-svelte';
+	import ShareLinkDialog from '$lib/components/shared/ShareLinkDialog.svelte';
 	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
 	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
 	import * as issueApi from '$lib/api/issues';
@@ -48,6 +49,7 @@
 	let cycles = $state<Cycle[]>([]);
 	let showCreateIssue = $state(false);
 	let showSaveView = $state(false);
+	let showShareLink = $state(false);
 	let quickAddDefaults = $state<{ statusId?: string; priority?: IssuePriority; assigneeId?: string }>({});
 	let filters = $state<ViewFilter>({});
 	let layout = $state<ViewLayout>('list');
@@ -252,6 +254,13 @@
 					Issues
 				</span>
 			</nav>
+			<button
+				onclick={() => (showShareLink = true)}
+				class="rounded-md p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] transition-colors"
+				title="Share public link"
+			>
+				<Share2 size={14} />
+			</button>
 		</div>
 		<div class="flex items-center gap-2">
 			<!-- Group by -->
@@ -418,6 +427,14 @@
 	bind:open={showSaveView}
 	{filters}
 	{slug}
+/>
+
+<ShareLinkDialog
+	bind:open={showShareLink}
+	{slug}
+	scope="team"
+	scopeId={teamId}
+	{filters}
 />
 
 <AddRelationDialog

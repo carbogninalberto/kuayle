@@ -1,4 +1,4 @@
-import { getPreferences, updatePreferences } from '$lib/api/preferences';
+import { updatePreferences } from '$lib/api/preferences';
 
 type FontSize = 'small' | 'default' | 'large';
 type ThemeMode = 'system' | 'light' | 'dark';
@@ -83,7 +83,15 @@ class PreferencesState {
 
 	private async loadRemote() {
 		try {
-			const data = await getPreferences();
+			// Use raw fetch to avoid the authenticated client's 401 → /login redirect.
+			// On public pages (e.g. /share/:token) there is no session, and the
+			// redirect would kick the visitor to the login page before the catch fires.
+			const res = await fetch('/api/preferences', {
+				credentials: 'include',
+				headers: { 'Content-Type': 'application/json' }
+			});
+			if (!res.ok) return;
+			const data = await res.json();
 			this.fontSize = data.font_size as FontSize;
 			this.pointerCursors = data.pointer_cursors;
 			this.themeMode = data.theme_mode as ThemeMode;
