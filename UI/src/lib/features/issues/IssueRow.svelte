@@ -13,7 +13,7 @@
 	import * as Popover from '$lib/components/ui/popover';
 	import { issuesState } from './issues.state.svelte';
 	import { formatRelativeTime } from '$lib/utils/format';
-	import { CalendarDays, CircleUser } from 'lucide-svelte';
+	import { CalendarDays, CircleUser, RefreshCw } from 'lucide-svelte';
 	import { toast } from 'svelte-sonner';
 
 	let {
@@ -41,6 +41,7 @@
 	} = $props();
 
 	const isSelected = $derived(issuesState.selectedIds.has(issue.id));
+	const issueCycle = $derived(issue.cycle_id ? cycles.find(c => c.id === issue.cycle_id) : null);
 	const priorityValues: IssuePriority[] = [0, 1, 2, 3, 4];
 
 	let editingTitle = $state(false);
@@ -204,6 +205,14 @@
 					<span class="text-[10px] text-[var(--color-text-tertiary)]">+{issue.labels.length - 2}</span>
 				{/if}
 			</div>
+		{/if}
+
+		<!-- Cycle -->
+		{#if issueCycle}
+			<span class="hidden shrink-0 items-center gap-1 rounded-full border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-1.5 py-0 text-[11px] leading-5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:border-[var(--app-border-hover)] hover:bg-[var(--color-bg-tertiary)] transition-colors sm:inline-flex">
+				<RefreshCw size={10} class="text-[var(--color-text-tertiary)]" />
+				{issueCycle.name}
+			</span>
 		{/if}
 
 		<!-- Due date -->
