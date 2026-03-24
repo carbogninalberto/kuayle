@@ -227,32 +227,31 @@
 						<!-- Cycle row -->
 						<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 						<div
-							class="ml-6"
-							onclick={(e) => {
-								// Don't toggle if clicking the link itself
-								if ((e.target as HTMLElement).closest('a')) return;
-								toggleExpand(cycle.id);
+							class="ml-6 cursor-pointer"
+							onclick={() => toggleExpand(cycle.id)}
+							ondblclick={() => {
+								window.location.href = `/${slug}/teams/${teamId}/cycles/${cycle.id}`;
 							}}
 						>
-							<CycleTimelineRow {cycle} {slug} {teamId} />
-						</div>
+							<CycleTimelineRow {cycle} {slug} {teamId} clickable={false} />
 
-						<!-- Expanded burndown chart -->
-						{#if isExpanded && cycle.start_date && cycle.end_date}
-							<div transition:slideFade class="ml-12 mr-4 mb-2 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-4">
-								{#if burndownLoading}
-									<div class="flex h-[200px] items-center justify-center text-sm text-[var(--color-text-tertiary)]">
-										Loading...
-									</div>
-								{:else if burndownData.length > 0}
-									<CycleBurndownChart {cycle} data={burndownData} />
-								{:else}
-									<div class="flex h-[200px] items-center justify-center text-sm text-[var(--color-text-tertiary)]">
-										No burndown data available
-									</div>
-								{/if}
-							</div>
-						{/if}
+							<!-- Expanded burndown chart -->
+							{#if isExpanded && cycle.start_date && cycle.end_date}
+								<div transition:slideFade class="mr-4 mb-2 mt-1">
+									{#if burndownLoading}
+										<div class="flex h-[200px] items-center justify-center text-sm text-[var(--color-text-tertiary)]">
+											Loading...
+										</div>
+									{:else if burndownData.length > 0}
+										<CycleBurndownChart {cycle} data={burndownData} />
+									{:else}
+										<div class="flex h-[200px] items-center justify-center text-sm text-[var(--color-text-tertiary)]">
+											No burndown data available
+										</div>
+									{/if}
+								</div>
+							{/if}
+						</div>
 					</div>
 				{/each}
 

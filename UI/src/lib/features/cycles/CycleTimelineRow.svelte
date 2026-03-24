@@ -6,11 +6,13 @@
 	let {
 		cycle,
 		slug,
-		teamId
+		teamId,
+		clickable = true
 	}: {
 		cycle: Cycle;
 		slug: string;
 		teamId: string;
+		clickable?: boolean;
 	} = $props();
 
 	const statusIcon = $derived(
@@ -48,10 +50,7 @@
 	const ringOffset = $derived(ringCircumference - (ringPct / 100) * ringCircumference);
 </script>
 
-<a
-	href="/{slug}/teams/{teamId}/cycles/{cycle.id}"
-	class="group flex items-center gap-3 rounded-md px-3 py-2.5 hover:bg-[var(--color-bg-hover)]"
->
+{#snippet content()}
 	<svelte:component this={statusIcon} size={14} class="shrink-0 text-[var(--color-text-tertiary)]" />
 
 	<span class="min-w-0 flex-1 truncate text-sm font-medium text-[var(--color-text-primary)]">
@@ -88,4 +87,17 @@
 			<span>0 scope</span>
 		{/if}
 	</div>
-</a>
+{/snippet}
+
+{#if clickable}
+	<a
+		href="/{slug}/teams/{teamId}/cycles/{cycle.id}"
+		class="group flex items-center gap-3 rounded-md px-3 py-2.5 hover:bg-[var(--color-bg-hover)]"
+	>
+		{@render content()}
+	</a>
+{:else}
+	<div class="group flex items-center gap-3 rounded-md px-3 py-2.5 hover:bg-[var(--color-bg-hover)]">
+		{@render content()}
+	</div>
+{/if}
