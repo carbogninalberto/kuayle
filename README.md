@@ -1,6 +1,5 @@
 <div align="center">
-  <img src="assets/logo.png" alt="Kuayle" width="80" height="80">
-  <h1>Kuayle</h1>
+  <img src="assets/logo.svg" alt="Kuayle" width="250">
   <p><strong>快乐 (kuàilè) · happiness, joy</strong></p>
   <p>A fast, keyboard-driven issue tracker inspired by Linear.</p>
 
@@ -9,7 +8,7 @@
 
 <br />
 
-[![Kuayle Screenshot][product-screenshot]](https://github.com/carbogninalberto/kuayle)
+[![Kuayle Screenshot](assets/product-screenshot.png)](https://github.com/carbogninalberto/kuayle)
 
 ## 🧐 Why Kuayle?
 
