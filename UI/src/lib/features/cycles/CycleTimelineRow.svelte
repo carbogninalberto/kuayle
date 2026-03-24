@@ -67,7 +67,7 @@
 		{cycle.name}
 	</span>
 
-	<div class="flex shrink-0 items-center gap-3 text-xs text-[var(--color-text-tertiary)]">
+	<div class="flex shrink-0 items-center gap-3 text-[13px] text-[var(--color-text-tertiary)]">
 		<Badge variant={badgeVariant} class="text-[10px]">{badgeLabel}</Badge>
 
 		{#if cycle.status === 'active' && cycle.progress}
@@ -83,18 +83,18 @@
 						stroke-linecap="round"
 					/>
 				</svg>
-				<span>{ringPct}% complete</span>
+				<span><span class="font-semibold text-[var(--color-text-secondary)]">{ringPct}%</span> complete</span>
 			</div>
-			<span>{cycle.progress.total} scope</span>
+			<span><span class="font-semibold text-[var(--color-text-secondary)]">{cycle.progress.total}</span> scope</span>
 		{:else if cycle.status === 'completed' && cycle.progress}
-			<span>{successPct}% success</span>
-			<span>{cycle.progress.completed} completed</span>
-			<span>{cycle.progress.total} scope</span>
+			<span><span class="font-semibold text-[var(--color-text-secondary)]">{successPct}%</span> success</span>
+			<span><span class="font-semibold text-[var(--color-text-secondary)]">{cycle.progress.completed}</span> completed</span>
+			<span><span class="font-semibold text-[var(--color-text-secondary)]">{cycle.progress.total}</span> scope</span>
 		{:else if cycle.progress}
-			<span>{successPct}% of capacity</span>
-			<span>{cycle.progress.total} scope</span>
+			<span><span class="font-semibold text-[var(--color-text-secondary)]">{successPct}%</span> of capacity</span>
+			<span><span class="font-semibold text-[var(--color-text-secondary)]">{cycle.progress.total}</span> scope</span>
 		{:else}
-			<span>0 scope</span>
+			<span><span class="font-semibold text-[var(--color-text-secondary)]">0</span> scope</span>
 		{/if}
 
 		<!-- 3-dot menu: visible on hover or when open -->
@@ -154,12 +154,12 @@
 {#if clickable}
 	<a
 		href="/{slug}/teams/{teamId}/cycles/{cycle.id}"
-		class="group flex items-center gap-3 rounded-md px-3 py-2.5 hover:bg-[var(--color-bg-hover)]"
+		class="group flex items-center gap-3 rounded-md px-3 py-4 hover:bg-[var(--color-bg-hover)]"
 	>
 		{@render content()}
 	</a>
 {:else}
-	<div class="group flex items-center gap-3 rounded-md px-3 py-2.5 hover:bg-[var(--color-bg-hover)]">
+	<div class="flex items-center gap-3 px-3 py-4">
 		{@render content()}
 	</div>
 {/if}

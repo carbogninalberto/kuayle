@@ -176,11 +176,11 @@
 		};
 	}
 
-	function getTimelineDate(cycle: Cycle): { month: string; day: string } | null {
-		if (cycle.status === 'completed' && cycle.completed_at) {
-			return formatTimelineDate(cycle.completed_at);
-		}
-		return formatTimelineDate(cycle.start_date);
+	function getCycleDates(cycle: Cycle): { start: { month: string; day: string } | null; end: { month: string; day: string } | null } {
+		return {
+			start: formatTimelineDate(cycle.start_date),
+			end: formatTimelineDate(cycle.end_date)
+		};
 	}
 
 	function navigateToCycle(cycleId: string) {
@@ -225,45 +225,57 @@
 		{:else if !loading}
 			<div class="pt-2">
 				{#each visibleCycles as cycle (cycle.id)}
-					{@const timelineDate = getTimelineDate(cycle)}
+					{@const dates = getCycleDates(cycle)}
 					{@const isActive = cycle.status === 'active'}
+					{@const isUpcoming = cycle.status === 'upcoming'}
+					{@const lineColor = isActive ? 'bg-[var(--app-accent)]' : 'bg-[var(--app-border)]'}
 					<div class="relative flex">
-						<!-- Timeline column: date + line + dot -->
-						<div class="relative flex w-16 shrink-0 flex-col items-center">
-							<!-- Date label -->
-							{#if timelineDate}
-								<div class="mb-0.5 text-center text-[10px] leading-tight text-[var(--color-text-tertiary)]">
-									<div>{timelineDate.month}</div>
-									<div>{timelineDate.day}</div>
-								</div>
-							{:else}
-								<div class="mb-0.5 h-[26px]"></div>
-							{/if}
-							<!-- Dot -->
-							<div class="rounded-full {isActive ? 'h-[10px] w-[10px] bg-[var(--app-accent)]' : 'h-[7px] w-[7px] bg-[var(--color-text-tertiary)]'}"></div>
-							<!-- Line extending down -->
-							<div class="w-px flex-1 bg-[var(--app-border)]"></div>
+						<!-- Timeline spine with dates aligned to dots -->
+						<div class="relative shrink-0 pl-5" style="width: 76px;">
+							<!-- Continuous vertical line (full height, behind everything) -->
+							<div class="absolute top-0 bottom-0 right-[3.25px] {lineColor}" style="width: 1.5px;"></div>
+							<!-- Date labels + dots (on top of line, at edges) -->
+							<div class="relative flex h-full flex-col items-end justify-between">
+								<!-- End date + dot (top) -->
+								{#if dates.end}
+									<div class="flex w-full items-center gap-2">
+										<div class="flex-1 text-right text-[11px] leading-tight text-[var(--color-text-tertiary)] opacity-50">
+											<div>{dates.end.month}</div>
+											<div class="pl-1">{dates.end.day}</div>
+										</div>
+										<div class="h-2 w-2 shrink-0 rounded-full border-[1.5px] border-[var(--color-text-tertiary)] bg-[var(--color-bg)] opacity-60"></div>
+									</div>
+								{/if}
+								<!-- Start date + dot (bottom) -->
+								{#if dates.start}
+									<div class="flex w-full items-center gap-2">
+										<div class="flex-1 text-right text-[11px] leading-tight text-[var(--color-text-tertiary)] opacity-50">
+											<div>{dates.start.month}</div>
+											<div class="pl-1">{dates.start.day}</div>
+										</div>
+										<div class="h-2 w-2 shrink-0 rounded-full {isActive ? 'bg-[var(--app-accent)]' : 'bg-[var(--color-text-tertiary)]'} opacity-60"></div>
+									</div>
+								{/if}
+							</div>
 						</div>
 
-						<!-- Cycle content -->
-						<div class="min-w-0 flex-1 pb-2">
-							<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-							<div
-								class="cursor-pointer"
-								onclick={() => navigateToCycle(cycle.id)}
-							>
-								<CycleTimelineRow
-									{cycle} {slug} {teamId} clickable={false}
-									onedit={handleEdit}
-									onactivate={handleActivate}
-									oncomplete={handleComplete}
-									ondelete={handleDelete}
-								/>
-							</div>
+						<!-- Cycle content (full row clickable + hover) -->
+						<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+						<div
+							class="group min-w-0 flex-1 cursor-pointer rounded-md hover:bg-[var(--color-bg-hover)]/30"
+							onclick={() => navigateToCycle(cycle.id)}
+						>
+							<CycleTimelineRow
+								{cycle} {slug} {teamId} clickable={false}
+								onedit={handleEdit}
+								onactivate={handleActivate}
+								oncomplete={handleComplete}
+								ondelete={handleDelete}
+							/>
 
 							<!-- Chart shown only for active cycle -->
 							{#if isActive && cycle.start_date && cycle.end_date}
-								<div class="mr-4 mt-1">
+								<div class="px-3 pb-3">
 									{#if burndownLoading}
 										<div class="flex h-[200px] items-center justify-center text-sm text-[var(--color-text-tertiary)]">
 											Loading...
@@ -284,8 +296,8 @@
 				<!-- Archived cycles -->
 				{#if archivedCycles.length > 0}
 					<div class="flex">
-						<div class="flex w-16 shrink-0 flex-col items-center">
-							<div class="w-px flex-1 bg-[var(--app-border)]"></div>
+						<div class="relative shrink-0 pl-5" style="width: 76px;">
+							<div class="absolute top-0 bottom-0 right-[3.25px] bg-[var(--app-border)]" style="width: 1.5px;"></div>
 						</div>
 						<div class="min-w-0 flex-1 py-1">
 							<button
@@ -299,19 +311,21 @@
 							{#if archivedExpanded}
 								<div transition:slideFade>
 									{#each archivedCycles as cycle (cycle.id)}
-										{@const timelineDate = getTimelineDate(cycle)}
+										{@const dates = getCycleDates(cycle)}
 										<div class="relative flex">
-											<div class="relative flex w-16 shrink-0 flex-col items-center">
-												{#if timelineDate}
-													<div class="mb-0.5 text-center text-[10px] leading-tight text-[var(--color-text-tertiary)]">
-														<div>{timelineDate.month}</div>
-														<div>{timelineDate.day}</div>
-													</div>
-												{:else}
-													<div class="mb-0.5 h-[26px]"></div>
-												{/if}
-												<div class="h-[7px] w-[7px] rounded-full bg-[var(--color-text-tertiary)]"></div>
-												<div class="w-px flex-1 bg-[var(--app-border)]"></div>
+											<div class="relative shrink-0 pl-5" style="width: 76px;">
+												<div class="absolute top-0 bottom-0 right-[3.25px] bg-[var(--app-border)]" style="width: 1.5px;"></div>
+												<div class="relative flex h-full flex-col items-end justify-center py-3">
+													{#if dates.start}
+														<div class="flex w-full items-center gap-2">
+															<div class="flex-1 text-right text-[11px] leading-tight text-[var(--color-text-tertiary)] opacity-50">
+																<div>{dates.start.month}</div>
+																<div class="pl-1">{dates.start.day}</div>
+															</div>
+															<div class="h-2 w-2 shrink-0 rounded-full bg-[var(--color-text-tertiary)] opacity-50"></div>
+														</div>
+													{/if}
+												</div>
 											</div>
 											<div class="min-w-0 flex-1 opacity-60">
 												<CycleTimelineRow {cycle} {slug} {teamId} />

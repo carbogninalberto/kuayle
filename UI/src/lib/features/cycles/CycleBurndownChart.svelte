@@ -189,7 +189,7 @@
 			},
 			series: [
 				{
-					name: 'Finish line',
+					name: 'Scope',
 					type: 'line',
 					data: finishData,
 					smooth: false,
@@ -293,13 +293,13 @@
 		<div bind:this={chartEl} class="h-[200px] w-full"></div>
 	</div>
 	{#if displayPoint}
-		<div class="flex w-[180px] shrink-0 flex-col justify-center gap-4 text-sm">
+		<div class="flex w-[200px] shrink-0 flex-col justify-center gap-5 px-4 py-5 text-sm">
 			<div class="flex items-center justify-between gap-3">
 				<span class="flex items-center gap-2">
 					<span class="inline-block h-2.5 w-2.5 rounded-sm bg-[var(--color-text-tertiary)]" style="border: 1px dotted var(--color-text-tertiary);"></span>
-					<span class="text-[var(--color-text-secondary)]">Finish line</span>
+					<span class="text-[var(--color-text-secondary)]">Scope</span>
 				</span>
-				<span class="font-medium text-[var(--app-accent)]">{displayPoint.scope}</span>
+				<span class="font-medium text-[var(--color-text-secondary)]">{displayPoint.scope}</span>
 			</div>
 			<div class="flex items-center justify-between gap-3">
 				<span class="flex items-center gap-2">
