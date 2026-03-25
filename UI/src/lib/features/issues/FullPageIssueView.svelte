@@ -107,7 +107,7 @@
 		listCycles(slug, issue.team_id).then(c => cycles = c).catch(() => {});
 
 		// Join presence AFTER members are loaded so names resolve correctly
-		presenceState.join(issue.id);
+		presenceState.join(issue.id, m ?? []);
 	});
 
 	// --- Real-time event listeners ---
@@ -137,11 +137,11 @@
 			refreshActivity();
 		}
 	}
-	function onPresenceJoin(e: Event) { presenceState.handleJoin((e as CustomEvent).detail, members); }
+	function onPresenceJoin(e: Event) { presenceState.handleJoin((e as CustomEvent).detail); }
 	function onPresenceLeave(e: Event) { presenceState.handleLeave((e as CustomEvent).detail); }
-	function onPresenceSync(e: Event) { presenceState.handleSync((e as CustomEvent).detail, members); }
+	function onPresenceSync(e: Event) { presenceState.handleSync((e as CustomEvent).detail); }
 	function onCursorMoveEvent(e: Event) { presenceState.handleCursorMove((e as CustomEvent).detail); }
-	function onReconnected() { if (loaded) presenceState.join(issue.id); }
+	function onReconnected() { if (loaded) presenceState.join(issue.id, members); }
 
 	onMount(() => {
 		window.addEventListener('ws:issue-updated', onIssueUpdated);
@@ -170,10 +170,10 @@
 		titleValue = issue.title;
 	});
 
-	// Re-resolve presence names when members finish loading
+	// Update presence with members when they load
 	$effect(() => {
 		if (members.length > 0) {
-			presenceState.resolveNames(members);
+			presenceState.setMembers(members);
 		}
 	});
 
