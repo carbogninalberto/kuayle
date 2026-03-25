@@ -633,4 +633,17 @@ func (s *IssueService) sendUpdateNotifications(ctx context.Context, issue *domai
 				fmt.Sprintf("%s labels updated", issue.Identifier))
 		}
 	}
+
+	// Mention notifications from description
+	if req.Description != nil {
+		mentionedIDs := extractMentionedUserIDs(*req.Description)
+		for _, uid := range mentionedIDs {
+			if uid == actorID || seen[uid] {
+				continue
+			}
+			s.notify(ctx, uid, issue, "mentioned",
+				fmt.Sprintf("You were mentioned in %s: %s", issue.Identifier, issue.Title))
+			seen[uid] = true
+		}
+	}
 }

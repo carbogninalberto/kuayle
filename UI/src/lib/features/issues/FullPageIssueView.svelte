@@ -34,6 +34,9 @@
 	import { goto } from '$app/navigation';
 	import { sanitizeHtml } from '$lib/security/sanitize';
 	import { presenceState } from '$lib/features/presence/presence.state.svelte';
+	import CreateIssueDialog from './CreateIssueDialog.svelte';
+	import type { Team } from '$lib/types/team';
+	import { listTeams } from '$lib/api/teams';
 
 	let {
 		issue,
@@ -53,6 +56,7 @@
 	let labels = $state<Label[]>([]);
 	let projects = $state<Project[]>([]);
 	let newComment = $state('');
+	$effect(() => { console.log('[COMMENT] newComment updated:', newComment?.substring(0, 80)); });
 	let commentVersion = $state(0);
 	let replyContents = $state<Record<string, string>>({});
 	let replyVersions = $state<Record<string, number>>({});
@@ -68,6 +72,9 @@
 	let projectOpen = $state(false);
 	let loaded = $state(false);
 	let showAllActivity = $state(false);
+	let teams = $state<Team[]>([]);
+	let showCreateIssueDialog = $state(false);
+	let createIssueTitle = $state('');
 
 	// Presence & real-time
 	let lastLocalUpdate = 0;
@@ -109,6 +116,7 @@
 		projects = p ?? [];
 		loaded = true;
 		listCycles(slug, issue.team_id).then(c => cycles = c).catch(() => {});
+		listTeams(slug).then(t => teams = t).catch(() => {});
 
 		// Join presence AFTER members are loaded so names resolve correctly
 		presenceState.join(issue.id, m ?? []);
@@ -285,6 +293,7 @@
 	}
 
 	async function handleAddComment() {
+		console.log('[COMMENT] handleAddComment, newComment =', JSON.stringify(newComment));
 		if (!newComment.trim() || newComment === '<p></p>') return;
 		try {
 			lastLocalUpdate = Date.now();
@@ -568,11 +577,13 @@
 						bubbleMenu={true}
 						borderless={true}
 						uploadUrl={imageUploadUrl}
+						{members}
 						onupdate={saveDescription}
 						remoteCursors={descriptionCursors}
 						onfocus={() => presenceState.sendFocus(issue.id, 'description', 0)}
 						onblur={() => presenceState.sendFocusLeave(issue.id)}
 						oncursorchange={(pos, anchor) => presenceState.sendFocus(issue.id, 'description', pos, anchor)}
+						oncreateissue={(text) => { createIssueTitle = text; showCreateIssueDialog = true; }}
 					/>
 				</div>
 
@@ -768,6 +779,7 @@
 													borderless={true}
 													bubbleMenu={true}
 													uploadUrl={imageUploadUrl}
+													{members}
 													onupdate={(html) => { replyContents[comment.id] = html; replyContents = replyContents; }}
 													onsubmit={() => handleReply(comment.id)}
 													remoteCursors={getRemoteCursors(`reply-${comment.id}`)}
@@ -816,6 +828,7 @@
 								borderless={true}
 								bubbleMenu={true}
 								uploadUrl={imageUploadUrl}
+								{members}
 								onupdate={(html) => newComment = html}
 								onsubmit={handleAddComment}
 								remoteCursors={getRemoteCursors('new-comment')}
@@ -1135,3 +1148,23 @@
 		</div>
 	</div>
 </div>
+
+<CreateIssueDialog
+	bind:open={showCreateIssueDialog}
+	{teams}
+	{projects}
+	{labels}
+	{members}
+	{cycles}
+	defaultTeamId={issue.team_id}
+	defaultTitle={createIssueTitle}
+	onsubmit={async (req) => {
+		try {
+			const created = await issuesState.create(slug, req);
+			toast.success(`Issue ${created.identifier} created`);
+			createIssueTitle = '';
+		} catch (err: any) {
+			toast.error(err?.error?.message || 'Failed to create issue');
+		}
+	}}
+/>

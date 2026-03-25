@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"regexp"
 
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
@@ -12,6 +13,27 @@ import (
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 )
+
+// mentionSpanRegex matches <span ...> tags that contain data-type="mention" and captures data-id UUID.
+// Uses two patterns to handle either attribute order.
+var mentionSpanRegex1 = regexp.MustCompile(`<span[^>]*data-type="mention"[^>]*data-id="([0-9a-f-]{36})"[^>]*>`)
+var mentionSpanRegex2 = regexp.MustCompile(`<span[^>]*data-id="([0-9a-f-]{36})"[^>]*data-type="mention"[^>]*>`)
+
+// extractMentionedUserIDs parses mention spans from sanitized HTML and returns unique user UUIDs.
+func extractMentionedUserIDs(html string) []uuid.UUID {
+	seen := make(map[uuid.UUID]bool)
+	var result []uuid.UUID
+	for _, re := range []*regexp.Regexp{mentionSpanRegex1, mentionSpanRegex2} {
+		matches := re.FindAllStringSubmatch(html, -1)
+		for _, m := range matches {
+			if uid, err := uuid.Parse(m[1]); err == nil && !seen[uid] {
+				seen[uid] = true
+				result = append(result, uid)
+			}
+		}
+	}
+	return result
+}
 
 type CommentService struct {
 	commentRepo repository.CommentRepo
@@ -81,6 +103,23 @@ func (s *CommentService) Create(ctx context.Context, issueID, userID uuid.UUID, 
 			s.hub.BroadcastToUser(issue.WorkspaceID, uid, realtime.Event{
 				Type:    "notification.created",
 				Payload: map[string]string{"type": "commented"},
+			})
+		}
+
+		// Notify @mentioned users (skip commenter and already-notified recipients)
+		mentionedIDs := extractMentionedUserIDs(comment.Body)
+		mentionTitle := fmt.Sprintf("You were mentioned in %s: %s", issue.Identifier, issue.Title)
+		for _, uid := range mentionedIDs {
+			if uid == userID || recipients[uid] {
+				continue
+			}
+			if err := s.notifSvc.Create(ctx, uid, issue.WorkspaceID, &issue.ID, "mentioned", mentionTitle); err != nil {
+				log.WithError(err).Warn("failed to create mention notification")
+				continue
+			}
+			s.hub.BroadcastToUser(issue.WorkspaceID, uid, realtime.Event{
+				Type:    "notification.created",
+				Payload: map[string]string{"type": "mentioned"},
 			})
 		}
 	}

@@ -9,6 +9,7 @@
 	import Link from '@tiptap/extension-link';
 	import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
 	import Image from '@tiptap/extension-image';
+	import Underline from '@tiptap/extension-underline';
 	import { Extension, InputRule } from '@tiptap/core';
 	import { Plugin } from 'prosemirror-state';
 	import { common, createLowlight } from 'lowlight';
@@ -18,6 +19,7 @@
 		Bold,
 		Italic,
 		Strikethrough,
+		Underline as UnderlineIcon,
 		Code,
 		Heading1,
 		Heading2,
@@ -25,11 +27,18 @@
 		ListOrdered,
 		ListChecks,
 		Link as LinkIcon,
+		Quote,
 		Code2,
 		Undo2,
-		Redo2
+		Redo2,
+		SquareArrowOutUpRight
 	} from 'lucide-svelte';
 	import { sanitizeEditorOutput } from '$lib/security/sanitize';
+	import { createSlashCommandExtension } from './slash-command/slash-command.extension';
+	import { filterSlashItems, flatFilteredItems, type SlashMenuItem } from './slash-command/slash-items';
+	import SlashCommandMenu from './slash-command/SlashCommandMenu.svelte';
+	import { MentionNode, createMentionPlugin, type MentionUser } from './mention/mention.extension';
+	import MentionList from './mention/MentionList.svelte';
 
 	let {
 		content = '',
@@ -43,10 +52,12 @@
 		onupdate,
 		onsubmit,
 		uploadUrl,
+		members = [],
 		remoteCursors,
 		onfocus: onFocusProp,
 		onblur: onBlurProp,
-		oncursorchange
+		oncursorchange,
+		oncreateissue
 	}: {
 		content?: string;
 		placeholder?: string;
@@ -59,10 +70,12 @@
 		onupdate?: (html: string) => void;
 		onsubmit?: () => void;
 		uploadUrl?: string;
+		members?: Array<{ user_id: string; name: string; email: string }>;
 		remoteCursors?: Array<{ name: string; color: string; position: number; anchor?: number }>;
 		onfocus?: () => void;
 		onblur?: () => void;
 		oncursorchange?: (position: number, anchor: number) => void;
+		oncreateissue?: (selectedText: string) => void;
 	} = $props();
 
 	let editor = $state<Editor | null>(null);
@@ -70,6 +83,32 @@
 	let linkInputVisible = $state(false);
 	let linkUrl = $state('');
 	let cursorElements: HTMLElement[] = [];
+
+	// Slash command state
+	let slashActive = $state(false);
+	let slashQuery = $state('');
+	let slashPosition = $state({ x: 0, y: 0 });
+	let slashSelectedIndex = $state(0);
+	let slashRange = $state<{ from: number; to: number } | null>(null);
+
+	const slashFilteredGroups = $derived(filterSlashItems(slashQuery));
+	const slashFlatItems = $derived(flatFilteredItems(slashQuery));
+
+	// Mention state
+	let mentionActive = $state(false);
+	let mentionQuery = $state('');
+	let mentionPosition = $state({ x: 0, y: 0 });
+	let mentionSelectedIndex = $state(0);
+	let mentionRange = $state<{ from: number; to: number } | null>(null);
+
+	const mentionFilteredUsers: MentionUser[] = $derived.by(() => {
+		const q = mentionQuery.toLowerCase();
+		const mapped = members.map((m) => ({ id: m.user_id, name: m.name, email: m.email }));
+		if (!q) return mapped.slice(0, 10);
+		return mapped.filter(
+			(u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)
+		).slice(0, 10);
+	});
 
 	const lowlight = createLowlight(common);
 
@@ -173,9 +212,55 @@
 
 		const imagePasteExt = createImagePasteHandler();
 
+		const mentionPlugin = createMentionPlugin({
+			onStateChange(state) {
+				mentionActive = state.active;
+				mentionQuery = state.query;
+				mentionPosition = { x: state.x, y: state.y };
+				mentionRange = state.range;
+				if (state.active) mentionSelectedIndex = 0;
+			},
+			onNavigate(direction) {
+				const total = mentionFilteredUsers.length;
+				if (total === 0) return;
+				if (direction === 'down') {
+					mentionSelectedIndex = (mentionSelectedIndex + 1) % total;
+				} else {
+					mentionSelectedIndex = (mentionSelectedIndex - 1 + total) % total;
+				}
+			},
+			onSelect() {
+				handleMentionSelect(mentionFilteredUsers[mentionSelectedIndex]);
+			}
+		});
+
+		const slashCommandExt = createSlashCommandExtension({
+			onStateChange(state) {
+				slashActive = state.active;
+				slashQuery = state.query;
+				slashPosition = { x: state.x, y: state.y };
+				slashRange = state.range;
+				if (state.active) slashSelectedIndex = 0;
+			},
+			onNavigate(direction) {
+				const total = slashFlatItems.length;
+				if (total === 0) return;
+				if (direction === 'down') {
+					slashSelectedIndex = (slashSelectedIndex + 1) % total;
+				} else {
+					slashSelectedIndex = (slashSelectedIndex - 1 + total) % total;
+				}
+			},
+			onSelect() {
+				handleSlashSelect(slashFlatItems[slashSelectedIndex]);
+			}
+		});
+
 		const extensions = [
 			StarterKit.configure({
 				codeBlock: false,
+				link: false,
+				underline: false,
 			}),
 			Placeholder.configure({ placeholder }),
 			TaskList,
@@ -186,7 +271,16 @@
 			}),
 			CodeBlockLowlight.configure({ lowlight }),
 			Image.configure({ inline: true, allowBase64: false }),
+			Underline,
+			MentionNode,
 			TaskListShortcut,
+			slashCommandExt,
+			Extension.create({
+				name: 'mentionPlugin',
+				addProseMirrorPlugins() {
+					return [mentionPlugin];
+				}
+			}),
 			...(SubmitShortcut ? [SubmitShortcut] : []),
 			...(imagePasteExt ? [imagePasteExt] : []),
 		];
@@ -334,6 +428,20 @@
 		}
 	});
 
+	// Handle slash command image upload
+	function handleSlashUpload(e: Event) {
+		const { file, editor: targetEditor } = (e as CustomEvent).detail;
+		if (targetEditor !== editor) return;
+		uploadImage(file).then((url) => {
+			if (url) editor?.chain().focus().setImage({ src: url }).run();
+		});
+	}
+
+	onMount(() => {
+		window.addEventListener('slash:upload-image', handleSlashUpload);
+		return () => window.removeEventListener('slash:upload-image', handleSlashUpload);
+	});
+
 	onDestroy(() => {
 		cursorElements.forEach(el => el.remove());
 		editor?.destroy();
@@ -342,6 +450,7 @@
 	function toggleBold() { editor?.chain().focus().toggleBold().run(); }
 	function toggleItalic() { editor?.chain().focus().toggleItalic().run(); }
 	function toggleStrike() { editor?.chain().focus().toggleStrike().run(); }
+	function toggleUnderline() { editor?.chain().focus().toggleUnderline().run(); }
 	function toggleCode() { editor?.chain().focus().toggleCode().run(); }
 	function toggleH1() { editor?.chain().focus().toggleHeading({ level: 1 }).run(); }
 	function toggleH2() { editor?.chain().focus().toggleHeading({ level: 2 }).run(); }
@@ -349,8 +458,38 @@
 	function toggleOrderedList() { editor?.chain().focus().toggleOrderedList().run(); }
 	function toggleTaskList() { editor?.chain().focus().toggleTaskList().run(); }
 	function toggleCodeBlock() { editor?.chain().focus().toggleCodeBlock().run(); }
+	function toggleBlockquote() { editor?.chain().focus().toggleBlockquote().run(); }
 	function undo() { editor?.chain().focus().undo().run(); }
 	function redo() { editor?.chain().focus().redo().run(); }
+
+	function createIssueFromSelection() {
+		if (!editor || !oncreateissue) return;
+		const { from, to } = editor.state.selection;
+		const selectedText = editor.state.doc.textBetween(from, to, ' ');
+		if (selectedText.trim()) oncreateissue(selectedText.trim());
+	}
+
+	function handleSlashSelect(item: SlashMenuItem | undefined) {
+		if (!item || !editor || !slashRange) return;
+		// Delete the "/" + query text
+		editor.chain().focus().deleteRange({ from: slashRange.from, to: slashRange.to }).run();
+		// Execute the item action
+		item.action(editor, { uploadUrl });
+		slashActive = false;
+	}
+
+	function handleMentionSelect(user: MentionUser | undefined) {
+		if (!user || !editor || !mentionRange) return;
+		editor.chain().focus()
+			.deleteRange({ from: mentionRange.from, to: mentionRange.to })
+			.insertContent({
+				type: 'mention',
+				attrs: { id: user.id, label: user.name || user.email }
+			})
+			.insertContent(' ')
+			.run();
+		mentionActive = false;
+	}
 
 	function toggleLink() {
 		if (!editor) return;
@@ -464,6 +603,28 @@
 		</div>
 	{/if}
 
+	<!-- Slash command menu -->
+	{#if slashActive && editor && slashFlatItems.length > 0}
+		<SlashCommandMenu
+			groups={slashFilteredGroups}
+			selectedIndex={slashSelectedIndex}
+			position={slashPosition}
+			onselect={handleSlashSelect}
+			onclose={() => { slashActive = false; }}
+		/>
+	{/if}
+
+	<!-- Mention menu -->
+	{#if mentionActive && editor && members.length > 0}
+		<MentionList
+			users={mentionFilteredUsers}
+			selectedIndex={mentionSelectedIndex}
+			position={mentionPosition}
+			onselect={handleMentionSelect}
+			onclose={() => { mentionActive = false; }}
+		/>
+	{/if}
+
 	{#if bubbleMenu && editor && editable && isFocused}
 		<BubbleMenu {editor} shouldShow={shouldShowBubble}>
 			{#snippet children()}
@@ -477,17 +638,8 @@
 					<button type="button" onclick={toggleStrike} class={btnClass(editor?.isActive('strike') ?? false)} title="Strikethrough">
 						<Strikethrough size={14} />
 					</button>
-					<button type="button" onclick={toggleCode} class={btnClass(editor?.isActive('code') ?? false)} title="Inline code">
-						<Code size={14} />
-					</button>
-
-					<div class="bubble-separator"></div>
-
-					<button type="button" onclick={toggleH1} class={btnClass(editor?.isActive('heading', { level: 1 }) ?? false)} title="Heading 1">
-						<Heading1 size={14} />
-					</button>
-					<button type="button" onclick={toggleH2} class={btnClass(editor?.isActive('heading', { level: 2 }) ?? false)} title="Heading 2">
-						<Heading2 size={14} />
+					<button type="button" onclick={toggleUnderline} class={btnClass(editor?.isActive('underline') ?? false)} title="Underline">
+						<UnderlineIcon size={14} />
 					</button>
 
 					<div class="bubble-separator"></div>
@@ -495,9 +647,25 @@
 					<button type="button" onclick={toggleLink} class={btnClass(editor?.isActive('link') ?? false)} title="Link">
 						<LinkIcon size={14} />
 					</button>
+					<button type="button" onclick={toggleBlockquote} class={btnClass(editor?.isActive('blockquote') ?? false)} title="Blockquote">
+						<Quote size={14} />
+					</button>
+					<button type="button" onclick={toggleCode} class={btnClass(editor?.isActive('code') ?? false)} title="Inline code">
+						<Code size={14} />
+					</button>
 					<button type="button" onclick={toggleCodeBlock} class={btnClass(editor?.isActive('codeBlock') ?? false)} title="Code block">
 						<Code2 size={14} />
 					</button>
+					<button type="button" onclick={toggleBulletList} class={btnClass(editor?.isActive('bulletList') ?? false)} title="Bullet list">
+						<List size={14} />
+					</button>
+
+					{#if oncreateissue}
+						<div class="bubble-separator"></div>
+						<button type="button" onclick={createIssueFromSelection} class={btnClass(false)} title="Create issue from selection">
+							<SquareArrowOutUpRight size={14} />
+						</button>
+					{/if}
 				</div>
 				{#if linkInputVisible}
 					<div class="bubble-link-input">
@@ -649,5 +817,15 @@
 		height: auto;
 		border-radius: 0.375rem;
 		margin: 0.5rem 0;
+	}
+
+	:global(.mention) {
+		background: color-mix(in srgb, var(--app-accent) 20%, transparent);
+		color: var(--app-accent-light, var(--app-accent));
+		border-radius: 4px;
+		padding: 1px 4px;
+		font-weight: 500;
+		font-size: 0.9em;
+		white-space: nowrap;
 	}
 </style>

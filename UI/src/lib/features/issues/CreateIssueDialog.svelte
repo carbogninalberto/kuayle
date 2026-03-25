@@ -34,6 +34,7 @@
 		defaultStatusId,
 		defaultPriority,
 		defaultAssigneeId,
+		defaultTitle,
 		onsubmit
 	}: {
 		open: boolean;
@@ -47,6 +48,7 @@
 		defaultStatusId?: string;
 		defaultPriority?: IssuePriority;
 		defaultAssigneeId?: string;
+		defaultTitle?: string;
 		onsubmit: (req: {
 			title: string;
 			description?: string;
@@ -85,7 +87,7 @@
 
 	$effect(() => {
 		if (open) {
-			title = '';
+			title = defaultTitle ?? '';
 			description = '';
 			statusId = defaultStatusId ?? teamStatusesState.defaultForCategory('backlog')?.id ?? '';
 			priority = defaultPriority ?? 0;
