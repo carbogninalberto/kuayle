@@ -6,6 +6,7 @@
 	import IssueStatusIcon from '$lib/features/issues/IssueStatusIcon.svelte';
 	import IssuePriorityIcon from '$lib/features/issues/IssuePriorityIcon.svelte';
 	import { LoaderCircle } from 'lucide-svelte';
+	import { onMount } from 'svelte';
 
 	let { slug, teams, onclose }: { slug: string; teams: Team[]; onclose: () => void } = $props();
 	let search = $state('');
@@ -13,6 +14,25 @@
 	let issueResults = $state<Issue[]>([]);
 	let issueLoading = $state(false);
 	let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+
+	const ANIM_DURATION = 100;
+	let visible = $state(false);
+	let closing = false;
+
+	onMount(() => {
+		requestAnimationFrame(() => {
+			requestAnimationFrame(() => {
+				visible = true;
+			});
+		});
+	});
+
+	function close() {
+		if (closing) return;
+		closing = true;
+		visible = false;
+		setTimeout(onclose, ANIM_DURATION);
+	}
 
 	interface CommandItem {
 		label: string;
@@ -62,12 +82,12 @@
 
 	function navigate(path: string) {
 		goto(path);
-		onclose();
+		close();
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
 		if (e.key === 'Escape') {
-			onclose();
+			close();
 		} else if (e.key === 'ArrowDown') {
 			e.preventDefault();
 			selectedIndex = Math.min(selectedIndex + 1, totalItems - 1);
@@ -93,11 +113,18 @@
 	onkeydown={handleKeydown}
 >
 	<!-- Backdrop -->
-	<button class="fixed inset-0 bg-black/50 cursor-default" onclick={onclose} tabindex={-1} aria-label="Close"></button>
+	<button
+		class="fixed inset-0 cursor-default"
+		style="background: rgba(0,0,0,{visible ? 0.5 : 0}); transition: background {ANIM_DURATION}ms ease;"
+		onclick={close}
+		tabindex={-1}
+		aria-label="Close"
+	></button>
 
 	<!-- Dialog -->
 	<div
 		class="relative z-10 w-full max-w-lg overflow-hidden rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)] shadow-2xl"
+		style="opacity: {visible ? 1 : 0}; transform: scale({visible ? 1 : 0.95}); transition: opacity {ANIM_DURATION}ms ease, transform {ANIM_DURATION}ms ease;"
 	>
 		<!-- svelte-ignore a11y_autofocus -->
 		<input
