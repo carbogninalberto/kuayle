@@ -216,7 +216,9 @@
 			case 'presence.join':
 			case 'presence.leave':
 			case 'presence.sync':
-			case 'cursor.move': {
+			case 'cursor.move':
+			case 'focus.update':
+			case 'focus.leave': {
 				window.dispatchEvent(new CustomEvent(`ws:${msg.type}`, { detail: msg.payload }));
 				break;
 			}

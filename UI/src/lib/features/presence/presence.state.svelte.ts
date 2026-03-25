@@ -19,11 +19,17 @@ function getColor(userId: string): string {
 	return COLORS[Math.abs(hash) % COLORS.length];
 }
 
+export interface FocusInfo {
+	field: string; // 'title' | 'description' | 'comment-{id}' | 'reply-{id}'
+	position: number;
+}
+
 export interface PresenceUser {
 	user_id: string;
 	name: string;
 	color: string;
 	cursor?: { x: number; y: number };
+	focus?: FocusInfo;
 	last_seen: number;
 }
 
@@ -126,6 +132,63 @@ class PresenceState {
 			});
 		}
 		this.viewers = next;
+	}
+
+	handleFocusUpdate(payload: { issue_id: string; user_id: string; field: string; position: number }) {
+		if (!this.issueId || payload.issue_id !== this.issueId) return;
+		const next = new Map(this.viewers);
+		const existing = next.get(payload.user_id);
+		if (existing) {
+			next.set(payload.user_id, {
+				...existing,
+				focus: { field: payload.field, position: payload.position },
+				last_seen: Date.now()
+			});
+		} else {
+			next.set(payload.user_id, {
+				user_id: payload.user_id,
+				name: this.resolveName(payload.user_id),
+				color: getColor(payload.user_id),
+				focus: { field: payload.field, position: payload.position },
+				last_seen: Date.now()
+			});
+		}
+		this.viewers = next;
+	}
+
+	handleFocusLeave(payload: { issue_id: string; user_id: string }) {
+		if (!this.issueId || payload.issue_id !== this.issueId) return;
+		const existing = this.viewers.get(payload.user_id);
+		if (existing?.focus) {
+			const next = new Map(this.viewers);
+			next.set(payload.user_id, { ...existing, focus: undefined });
+			this.viewers = next;
+		}
+	}
+
+	/** Get remote cursors for a specific field */
+	getCursorsForField(field: string): Array<{ name: string; color: string; position: number }> {
+		const result: Array<{ name: string; color: string; position: number }> = [];
+		for (const viewer of this.viewers.values()) {
+			if (viewer.focus?.field === field) {
+				result.push({ name: viewer.name, color: viewer.color, position: viewer.focus.position });
+			}
+		}
+		return result;
+	}
+
+	/** Send focus update to other clients */
+	sendFocus(issueId: string, field: string, position: number) {
+		window.dispatchEvent(new CustomEvent('ws:send', {
+			detail: { type: 'focus.update', payload: { issue_id: issueId, field, position } }
+		}));
+	}
+
+	/** Send focus leave to other clients */
+	sendFocusLeave(issueId: string) {
+		window.dispatchEvent(new CustomEvent('ws:send', {
+			detail: { type: 'focus.leave', payload: { issue_id: issueId } }
+		}));
 	}
 
 	private resolveName(userId: string): string {

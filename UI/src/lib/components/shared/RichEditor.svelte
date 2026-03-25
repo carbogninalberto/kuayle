@@ -42,7 +42,11 @@
 		minHeight,
 		onupdate,
 		onsubmit,
-		uploadUrl
+		uploadUrl,
+		remoteCursors,
+		onfocus: onFocusProp,
+		onblur: onBlurProp,
+		oncursorchange
 	}: {
 		content?: string;
 		placeholder?: string;
@@ -55,12 +59,17 @@
 		onupdate?: (html: string) => void;
 		onsubmit?: () => void;
 		uploadUrl?: string;
+		remoteCursors?: Array<{ name: string; color: string; position: number }>;
+		onfocus?: () => void;
+		onblur?: () => void;
+		oncursorchange?: (position: number) => void;
 	} = $props();
 
 	let editor = $state<Editor | null>(null);
 	let isFocused = $state(false);
 	let linkInputVisible = $state(false);
 	let linkUrl = $state('');
+	let cursorElements: HTMLElement[] = [];
 
 	const lowlight = createLowlight(common);
 
@@ -189,17 +198,94 @@
 			onUpdate: ({ editor: e }) => {
 				onupdate?.(sanitizeEditorOutput(e.getHTML()));
 			},
-			onFocus: () => { isFocused = true; },
-			onBlur: () => { isFocused = false; },
+			onSelectionUpdate: ({ editor: e }) => {
+				oncursorchange?.(e.state.selection.head);
+			},
+			onFocus: () => { isFocused = true; onFocusProp?.(); },
+			onBlur: () => { isFocused = false; onBlurProp?.(); },
 			editorProps: {
 				attributes: {
 					class: editorClass
 				}
 			}
 		});
+
+	});
+
+	// Render remote cursors as widget decorations in the editor
+	$effect(() => {
+		if (!editor || !remoteCursors || remoteCursors.length === 0) {
+			// Clear cursors
+			if (editor && cursorElements.length > 0) {
+				cursorElements.forEach(el => el.remove());
+				cursorElements = [];
+			}
+			return;
+		}
+
+		// Remove old cursor elements
+		cursorElements.forEach(el => el.remove());
+		cursorElements = [];
+
+		const view = editor.view;
+		const docSize = view.state.doc.content.size;
+
+		for (const rc of remoteCursors) {
+			const pos = Math.max(0, Math.min(rc.position, docSize));
+			try {
+				const coords = view.coordsAtPos(pos);
+				const editorRect = view.dom.getBoundingClientRect();
+
+				const cursor = document.createElement('div');
+				cursor.className = 'remote-cursor-widget';
+				cursor.style.cssText = `
+					position: absolute;
+					left: ${coords.left - editorRect.left}px;
+					top: ${coords.top - editorRect.top}px;
+					height: ${coords.bottom - coords.top}px;
+					border-left: 2px solid ${rc.color};
+					pointer-events: none;
+					z-index: 50;
+				`;
+
+				const label = document.createElement('div');
+				label.className = 'remote-cursor-label';
+				label.style.cssText = `
+					position: absolute;
+					top: -16px;
+					left: -1px;
+					background: ${rc.color};
+					color: white;
+					font-size: 10px;
+					font-weight: 600;
+					padding: 1px 4px;
+					border-radius: 3px 3px 3px 0;
+					white-space: nowrap;
+					line-height: 14px;
+				`;
+				label.textContent = rc.name;
+				cursor.appendChild(label);
+
+				view.dom.parentElement?.appendChild(cursor);
+				cursorElements.push(cursor);
+			} catch {
+				// Position out of range, skip
+			}
+		}
+	});
+
+	// Sync content from outside (e.g. real-time updates) without losing cursor
+	$effect(() => {
+		if (editor && !isFocused && content !== undefined) {
+			const current = sanitizeEditorOutput(editor.getHTML());
+			if (current !== content) {
+				editor.commands.setContent(content, false);
+			}
+		}
 	});
 
 	onDestroy(() => {
+		cursorElements.forEach(el => el.remove());
 		editor?.destroy();
 	});
 
@@ -323,7 +409,7 @@
 
 	<!-- Editor content -->
 	{#if editor}
-		<div class="rich-editor" style={minHeight ? `--editor-min-height: ${minHeight}` : undefined}>
+		<div class="rich-editor" style="position: relative; {minHeight ? `--editor-min-height: ${minHeight}` : ''}">
 			<EditorContent {editor} />
 		</div>
 	{/if}

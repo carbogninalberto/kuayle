@@ -46,6 +46,8 @@
 		"@tiptap/core": "^3.20.4",
 		"@tiptap/extension-bubble-menu": "^3.20.4",
 		"@tiptap/extension-code-block-lowlight": "^3.20.4",
+		"@tiptap/extension-collaboration": "^3.20.5",
+		"@tiptap/extension-collaboration-cursor": "^3.0.0",
 		"@tiptap/extension-image": "^3.20.4",
 		"@tiptap/extension-link": "^3.20.4",
 		"@tiptap/extension-placeholder": "^3.20.4",
@@ -55,6 +57,9 @@
 		"dompurify": "^3.3.3",
 		"echarts": "^6.0.0",
 		"lowlight": "^3.3.0",
-		"svelte-tiptap": "^3.0.1"
+		"svelte-tiptap": "^3.0.1",
+		"ws": "^8.20.0",
+		"y-websocket": "^3.0.0",
+		"yjs": "^13.6.30"
 	}
 }

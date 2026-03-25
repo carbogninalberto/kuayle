@@ -87,6 +87,13 @@
 	let issueProject = $derived(projects.find(p => p.id === issue.project_id));
 	let issueCycle = $derived(cycles.find(c => c.id === issue.cycle_id));
 
+	// Get remote cursors for a specific field from presence state
+	function getRemoteCursors(field: string) {
+		return presenceState.getCursorsForField(field);
+	}
+	const descriptionCursors = $derived(getRemoteCursors('description'));
+	const titleCursors = $derived(getRemoteCursors('title'));
+
 	onMount(async () => {
 		// Load team statuses (needed on direct navigation / refresh)
 		await teamStatusesState.load(slug, issue.team_id);
@@ -141,6 +148,8 @@
 	function onPresenceLeave(e: Event) { presenceState.handleLeave((e as CustomEvent).detail); }
 	function onPresenceSync(e: Event) { presenceState.handleSync((e as CustomEvent).detail); }
 	function onCursorMoveEvent(e: Event) { presenceState.handleCursorMove((e as CustomEvent).detail); }
+	function onFocusUpdate(e: Event) { presenceState.handleFocusUpdate((e as CustomEvent).detail); }
+	function onFocusLeaveEvent(e: Event) { presenceState.handleFocusLeave((e as CustomEvent).detail); }
 	function onReconnected() { if (loaded) presenceState.join(issue.id, members); }
 
 	onMount(() => {
@@ -151,6 +160,8 @@
 		window.addEventListener('ws:presence.leave', onPresenceLeave);
 		window.addEventListener('ws:presence.sync', onPresenceSync);
 		window.addEventListener('ws:cursor.move', onCursorMoveEvent);
+		window.addEventListener('ws:focus.update', onFocusUpdate);
+		window.addEventListener('ws:focus.leave', onFocusLeaveEvent);
 		window.addEventListener('ws:reconnected', onReconnected);
 	});
 
@@ -163,6 +174,8 @@
 		window.removeEventListener('ws:presence.leave', onPresenceLeave);
 		window.removeEventListener('ws:presence.sync', onPresenceSync);
 		window.removeEventListener('ws:cursor.move', onCursorMoveEvent);
+		window.removeEventListener('ws:focus.update', onFocusUpdate);
+		window.removeEventListener('ws:focus.leave', onFocusLeaveEvent);
 		window.removeEventListener('ws:reconnected', onReconnected);
 	});
 
@@ -547,23 +560,32 @@
 				<PresenceCursors {contentRef} />
 				<!-- Title -->
 				<!-- svelte-ignore a11y_autofocus -->
-				{#if editingTitle}
-					<input
-						type="text"
-						bind:value={titleValue}
-						onblur={saveTitle}
-						onkeydown={(e) => { if (e.key === 'Enter') saveTitle(); if (e.key === 'Escape') { titleValue = issue.title; editingTitle = false; } }}
-						autofocus
-						class="w-full bg-transparent text-lg font-semibold text-[var(--color-text-primary)] outline-none"
-					/>
-				{:else}
-					<button
-						onclick={() => (editingTitle = true)}
-						class="w-full text-left text-lg font-semibold text-[var(--color-text-primary)] hover:text-[var(--color-text-primary)] transition-colors"
-					>
-						{issue.title}
-					</button>
-				{/if}
+				<div class="relative">
+					{#if editingTitle}
+						<input
+							type="text"
+							bind:value={titleValue}
+							onblur={() => { saveTitle(); presenceState.sendFocusLeave(issue.id); }}
+							onfocus={() => presenceState.sendFocus(issue.id, 'title', 0)}
+							oninput={(e) => presenceState.sendFocus(issue.id, 'title', (e.currentTarget as HTMLInputElement).selectionStart ?? 0)}
+							onkeydown={(e) => { if (e.key === 'Enter') saveTitle(); if (e.key === 'Escape') { titleValue = issue.title; editingTitle = false; } }}
+							autofocus
+							class="w-full bg-transparent text-lg font-semibold text-[var(--color-text-primary)] outline-none"
+						/>
+					{:else}
+						<button
+							onclick={() => (editingTitle = true)}
+							class="w-full text-left text-lg font-semibold text-[var(--color-text-primary)] hover:text-[var(--color-text-primary)] transition-colors"
+						>
+							{issue.title}
+						</button>
+					{/if}
+					{#each titleCursors as tc (tc.name)}
+						<div class="pointer-events-none absolute top-0 text-[10px] font-semibold text-white px-1.5 py-0.5 rounded" style="right: -4px; top: -14px; background: {tc.color};">
+							{tc.name}
+						</div>
+					{/each}
+				</div>
 
 				<!-- Description -->
 				<div class="mt-3">
@@ -574,6 +596,10 @@
 						borderless={true}
 						uploadUrl={imageUploadUrl}
 						onupdate={saveDescription}
+						remoteCursors={descriptionCursors}
+						onfocus={() => presenceState.sendFocus(issue.id, 'description', 0)}
+						onblur={() => presenceState.sendFocusLeave(issue.id)}
+						oncursorchange={(pos) => presenceState.sendFocus(issue.id, 'description', pos)}
 					/>
 				</div>
 
@@ -761,6 +787,10 @@
 													uploadUrl={imageUploadUrl}
 													onupdate={(html) => { replyContents[comment.id] = html; replyContents = replyContents; }}
 													onsubmit={() => handleReply(comment.id)}
+													remoteCursors={getRemoteCursors(`reply-${comment.id}`)}
+													onfocus={() => presenceState.sendFocus(issue.id, `reply-${comment.id}`, 0)}
+													onblur={() => presenceState.sendFocusLeave(issue.id)}
+													oncursorchange={(pos) => presenceState.sendFocus(issue.id, `reply-${comment.id}`, pos)}
 												/>
 											{/key}
 										</div>
@@ -796,6 +826,10 @@
 								uploadUrl={imageUploadUrl}
 								onupdate={(html) => newComment = html}
 								onsubmit={handleAddComment}
+								remoteCursors={getRemoteCursors('new-comment')}
+								onfocus={() => presenceState.sendFocus(issue.id, 'new-comment', 0)}
+								onblur={() => presenceState.sendFocusLeave(issue.id)}
+								oncursorchange={(pos) => presenceState.sendFocus(issue.id, 'new-comment', pos)}
 							/>
 							{/key}
 						</div>

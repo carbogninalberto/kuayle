@@ -183,6 +183,16 @@ func (h *Hub) ReadPump(ctx context.Context, client *Client) {
 					},
 				})
 			}
+		case "focus.update", "focus.leave":
+			// Relay focus/cursor-position events to other clients viewing the same issue
+			var raw map[string]interface{}
+			if json.Unmarshal(msg.Payload, &raw) == nil {
+				raw["user_id"] = client.userID.String()
+				h.BroadcastExcluding(client.workspaceID, client, Event{
+					Type:    msg.Type,
+					Payload: raw,
+				})
+			}
 		}
 	}
 }
