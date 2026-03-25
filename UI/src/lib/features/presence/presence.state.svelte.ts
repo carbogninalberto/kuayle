@@ -1,4 +1,5 @@
 import type { WorkspaceMember } from '$lib/types/workspace';
+import { authState } from '$lib/features/auth/auth.state.svelte';
 
 const COLORS = [
 	'#3b82f6', // blue
@@ -28,7 +29,6 @@ export interface PresenceUser {
 	user_id: string;
 	name: string;
 	color: string;
-	cursor?: { x: number; y: number };
 	focus?: FocusInfo;
 	last_seen: number;
 }
@@ -39,7 +39,9 @@ class PresenceState {
 	private cleanupInterval: ReturnType<typeof setInterval> | null = null;
 	private members: WorkspaceMember[] = [];
 
-	activeViewers = $derived([...this.viewers.values()]);
+	activeViewers = $derived(
+		[...this.viewers.values()].filter((v) => v.user_id !== authState.user?.id)
+	);
 
 	join(issueId: string, members?: WorkspaceMember[]) {
 		this.issueId = issueId;
@@ -111,29 +113,6 @@ class PresenceState {
 		this.viewers = next;
 	}
 
-	handleCursorMove(payload: { issue_id: string; user_id: string; x: number; y: number }) {
-		if (!this.issueId || payload.issue_id !== this.issueId) return;
-		const next = new Map(this.viewers);
-		const existing = next.get(payload.user_id);
-		if (existing) {
-			next.set(payload.user_id, {
-				...existing,
-				cursor: { x: payload.x, y: payload.y },
-				last_seen: Date.now()
-			});
-		} else {
-			// Auto-add viewer from cursor event (they joined before us)
-			next.set(payload.user_id, {
-				user_id: payload.user_id,
-				name: this.resolveName(payload.user_id),
-				color: getColor(payload.user_id),
-				cursor: { x: payload.x, y: payload.y },
-				last_seen: Date.now()
-			});
-		}
-		this.viewers = next;
-	}
-
 	handleFocusUpdate(payload: { issue_id: string; user_id: string; field: string; position: number }) {
 		if (!this.issueId || payload.issue_id !== this.issueId) return;
 		const next = new Map(this.viewers);
@@ -169,7 +148,9 @@ class PresenceState {
 	/** Get remote cursors for a specific field */
 	getCursorsForField(field: string): Array<{ name: string; color: string; position: number }> {
 		const result: Array<{ name: string; color: string; position: number }> = [];
+		const currentUserId = authState.user?.id;
 		for (const viewer of this.viewers.values()) {
+			if (viewer.user_id === currentUserId) continue;
 			if (viewer.focus?.field === field) {
 				result.push({ name: viewer.name, color: viewer.color, position: viewer.focus.position });
 			}

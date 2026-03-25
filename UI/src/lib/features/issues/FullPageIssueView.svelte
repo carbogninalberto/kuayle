@@ -34,7 +34,6 @@
 	import { goto } from '$app/navigation';
 	import { sanitizeHtml } from '$lib/security/sanitize';
 	import { presenceState } from '$lib/features/presence/presence.state.svelte';
-	import PresenceCursors from '$lib/features/presence/PresenceCursors.svelte';
 
 	let {
 		issue,
@@ -71,9 +70,7 @@
 	let showAllActivity = $state(false);
 
 	// Presence & real-time
-	let contentRef: HTMLElement | undefined = $state();
 	let lastLocalUpdate = 0;
-	let lastCursorSend = 0;
 
 	// Collapsible sidebar sections
 	let detailsExpanded = $state(true);
@@ -92,7 +89,6 @@
 		return presenceState.getCursorsForField(field);
 	}
 	const descriptionCursors = $derived(getRemoteCursors('description'));
-	const titleCursors = $derived(getRemoteCursors('title'));
 
 	onMount(async () => {
 		// Load team statuses (needed on direct navigation / refresh)
@@ -147,7 +143,6 @@
 	function onPresenceJoin(e: Event) { presenceState.handleJoin((e as CustomEvent).detail); }
 	function onPresenceLeave(e: Event) { presenceState.handleLeave((e as CustomEvent).detail); }
 	function onPresenceSync(e: Event) { presenceState.handleSync((e as CustomEvent).detail); }
-	function onCursorMoveEvent(e: Event) { presenceState.handleCursorMove((e as CustomEvent).detail); }
 	function onFocusUpdate(e: Event) { presenceState.handleFocusUpdate((e as CustomEvent).detail); }
 	function onFocusLeaveEvent(e: Event) { presenceState.handleFocusLeave((e as CustomEvent).detail); }
 	function onReconnected() { if (loaded) presenceState.join(issue.id, members); }
@@ -159,7 +154,6 @@
 		window.addEventListener('ws:presence.join', onPresenceJoin);
 		window.addEventListener('ws:presence.leave', onPresenceLeave);
 		window.addEventListener('ws:presence.sync', onPresenceSync);
-		window.addEventListener('ws:cursor.move', onCursorMoveEvent);
 		window.addEventListener('ws:focus.update', onFocusUpdate);
 		window.addEventListener('ws:focus.leave', onFocusLeaveEvent);
 		window.addEventListener('ws:reconnected', onReconnected);
@@ -173,7 +167,6 @@
 		window.removeEventListener('ws:presence.join', onPresenceJoin);
 		window.removeEventListener('ws:presence.leave', onPresenceLeave);
 		window.removeEventListener('ws:presence.sync', onPresenceSync);
-		window.removeEventListener('ws:cursor.move', onCursorMoveEvent);
 		window.removeEventListener('ws:focus.update', onFocusUpdate);
 		window.removeEventListener('ws:focus.leave', onFocusLeaveEvent);
 		window.removeEventListener('ws:reconnected', onReconnected);
@@ -288,20 +281,6 @@
 			case 'title': case 'description': return 'text-[var(--color-text-tertiary)]';
 			default: return 'text-[var(--color-text-tertiary)]';
 		}
-	}
-
-	function handleMouseMove(e: MouseEvent) {
-		const now = Date.now();
-		if (now - lastCursorSend < 50 || !contentRef) return;
-		lastCursorSend = now;
-		const rect = contentRef.getBoundingClientRect();
-		const x = (e.clientX - rect.left) / rect.width;
-		const y = (e.clientY - rect.top) / rect.height;
-		window.dispatchEvent(
-			new CustomEvent('ws:send', {
-				detail: { type: 'cursor.move', payload: { issue_id: issue.id, x, y } }
-			})
-		);
 	}
 
 	async function handleAddComment() {
@@ -555,9 +534,7 @@
 	<div class="flex flex-1 overflow-hidden">
 		<!-- Left column — main content -->
 		<div class="flex-1 overflow-y-auto">
-			<!-- svelte-ignore a11y_no_static_element_interactions -->
-			<div class="relative mx-auto max-w-[840px] px-10 py-6" bind:this={contentRef} onmousemove={handleMouseMove}>
-				<PresenceCursors {contentRef} />
+			<div class="mx-auto max-w-[840px] px-10 py-6">
 				<!-- Title -->
 				<!-- svelte-ignore a11y_autofocus -->
 				<div class="relative">
@@ -580,12 +557,7 @@
 							{issue.title}
 						</button>
 					{/if}
-					{#each titleCursors as tc (tc.name)}
-						<div class="pointer-events-none absolute top-0 text-[10px] font-semibold text-white px-1.5 py-0.5 rounded" style="right: -4px; top: -14px; background: {tc.color};">
-							{tc.name}
-						</div>
-					{/each}
-				</div>
+					</div>
 
 				<!-- Description -->
 				<div class="mt-3">
