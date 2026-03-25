@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import type { Issue, Comment, IssueHistory, IssueStatus, IssuePriority } from '$lib/types/issue';
 	import { PRIORITY_LABELS } from '$lib/types/issue';
 	import { teamStatusesState } from './team-statuses.state.svelte';
@@ -33,6 +33,8 @@
 	import SubIssuesList from './SubIssuesList.svelte';
 	import { goto } from '$app/navigation';
 	import { sanitizeHtml } from '$lib/security/sanitize';
+	import { presenceState } from '$lib/features/presence/presence.state.svelte';
+	import PresenceCursors from '$lib/features/presence/PresenceCursors.svelte';
 
 	let {
 		issue,
@@ -68,6 +70,11 @@
 	let loaded = $state(false);
 	let showAllActivity = $state(false);
 
+	// Presence & real-time
+	let contentRef: HTMLElement | undefined = $state();
+	let lastLocalUpdate = 0;
+	let lastCursorSend = 0;
+
 	// Collapsible sidebar sections
 	let detailsExpanded = $state(true);
 	let labelsExpanded = $state(true);
@@ -98,16 +105,83 @@
 		projects = p ?? [];
 		loaded = true;
 		listCycles(slug, issue.team_id).then(c => cycles = c).catch(() => {});
+
+		// Join presence AFTER members are loaded so names resolve correctly
+		presenceState.join(issue.id);
+	});
+
+	// --- Real-time event listeners ---
+	function matchesCurrentIssue(detail: any): boolean {
+		if (!detail) return false;
+		// Match on identifier, id, or issue_id (comment.created uses issue_id)
+		return detail.identifier === issue.identifier
+			|| detail.id === issue.id
+			|| detail.issue_id === issue.id;
+	}
+
+	function onIssueUpdated(e: Event) {
+		const detail = (e as CustomEvent).detail;
+		if (matchesCurrentIssue(detail) && Date.now() - lastLocalUpdate > 2000) {
+			refreshIssue();
+		}
+	}
+	function onIssueDeleted(e: Event) {
+		const detail = (e as CustomEvent).detail;
+		if (matchesCurrentIssue(detail)) {
+			goto(`/${slug}/teams/${issue.team_id}`);
+		}
+	}
+	function onCommentCreated(e: Event) {
+		const detail = (e as CustomEvent).detail;
+		if (matchesCurrentIssue(detail) && Date.now() - lastLocalUpdate > 2000) {
+			refreshActivity();
+		}
+	}
+	function onPresenceJoin(e: Event) { presenceState.handleJoin((e as CustomEvent).detail, members); }
+	function onPresenceLeave(e: Event) { presenceState.handleLeave((e as CustomEvent).detail); }
+	function onPresenceSync(e: Event) { presenceState.handleSync((e as CustomEvent).detail, members); }
+	function onCursorMoveEvent(e: Event) { presenceState.handleCursorMove((e as CustomEvent).detail); }
+	function onReconnected() { if (loaded) presenceState.join(issue.id); }
+
+	onMount(() => {
+		window.addEventListener('ws:issue-updated', onIssueUpdated);
+		window.addEventListener('ws:issue-deleted', onIssueDeleted);
+		window.addEventListener('ws:comment-created', onCommentCreated);
+		window.addEventListener('ws:presence.join', onPresenceJoin);
+		window.addEventListener('ws:presence.leave', onPresenceLeave);
+		window.addEventListener('ws:presence.sync', onPresenceSync);
+		window.addEventListener('ws:cursor.move', onCursorMoveEvent);
+		window.addEventListener('ws:reconnected', onReconnected);
+	});
+
+	onDestroy(() => {
+		presenceState.leave();
+		window.removeEventListener('ws:issue-updated', onIssueUpdated);
+		window.removeEventListener('ws:issue-deleted', onIssueDeleted);
+		window.removeEventListener('ws:comment-created', onCommentCreated);
+		window.removeEventListener('ws:presence.join', onPresenceJoin);
+		window.removeEventListener('ws:presence.leave', onPresenceLeave);
+		window.removeEventListener('ws:presence.sync', onPresenceSync);
+		window.removeEventListener('ws:cursor.move', onCursorMoveEvent);
+		window.removeEventListener('ws:reconnected', onReconnected);
 	});
 
 	$effect(() => {
 		titleValue = issue.title;
 	});
 
+	// Re-resolve presence names when members finish loading
+	$effect(() => {
+		if (members.length > 0) {
+			presenceState.resolveNames(members);
+		}
+	});
+
 	async function saveTitle() {
 		editingTitle = false;
 		if (titleValue.trim() && titleValue !== issue.title) {
 			try {
+				lastLocalUpdate = Date.now();
 				const updated = await issuesState.update(slug, issue.identifier, { title: titleValue.trim() });
 				onupdated?.(updated);
 			} catch {
@@ -121,6 +195,7 @@
 
 	async function saveDescription(html: string) {
 		try {
+			lastLocalUpdate = Date.now();
 			const updated = await issuesState.update(slug, issue.identifier, { description: html });
 			onupdated?.(updated);
 		} catch {
@@ -130,6 +205,7 @@
 
 	async function updateField(field: string, value: any) {
 		try {
+			lastLocalUpdate = Date.now();
 			await issuesState.update(slug, issue.identifier, { [field]: value });
 			await refreshIssue();
 		} catch {
@@ -201,9 +277,24 @@
 		}
 	}
 
+	function handleMouseMove(e: MouseEvent) {
+		const now = Date.now();
+		if (now - lastCursorSend < 50 || !contentRef) return;
+		lastCursorSend = now;
+		const rect = contentRef.getBoundingClientRect();
+		const x = (e.clientX - rect.left) / rect.width;
+		const y = (e.clientY - rect.top) / rect.height;
+		window.dispatchEvent(
+			new CustomEvent('ws:send', {
+				detail: { type: 'cursor.move', payload: { issue_id: issue.id, x, y } }
+			})
+		);
+	}
+
 	async function handleAddComment() {
 		if (!newComment.trim() || newComment === '<p></p>') return;
 		try {
+			lastLocalUpdate = Date.now();
 			await createComment(slug, issue.identifier, newComment);
 			newComment = '';
 			commentVersion++;
@@ -406,6 +497,25 @@
 				<SquareMousePointer size={14} />
 			</button>
 
+			{#if presenceState.activeViewers.length > 0}
+				<div class="ml-1 flex items-center -space-x-1.5 border-l border-[var(--app-border)] pl-2">
+					{#each presenceState.activeViewers.slice(0, 5) as viewer (viewer.user_id)}
+						<div
+							class="relative flex h-6 w-6 items-center justify-center rounded-full border-2 border-[var(--color-bg)] text-[8px] font-medium text-white"
+							style="background-color: {viewer.color};"
+							title="{viewer.name} is viewing"
+						>
+							{viewer.name.charAt(0).toUpperCase()}
+						</div>
+					{/each}
+					{#if presenceState.activeViewers.length > 5}
+						<div class="flex h-6 w-6 items-center justify-center rounded-full border-2 border-[var(--color-bg)] bg-[var(--color-bg-tertiary)] text-[9px] text-[var(--color-text-tertiary)]">
+							+{presenceState.activeViewers.length - 5}
+						</div>
+					{/if}
+				</div>
+			{/if}
+
 			{#if onnavigate && issueCount > 0}
 				<div class="ml-1 flex items-center gap-0.5 border-l border-[var(--app-border)] pl-2">
 					<span class="text-[11px] text-[var(--color-text-tertiary)] mr-1">{currentIndex + 1}/{issueCount}</span>
@@ -432,7 +542,9 @@
 	<div class="flex flex-1 overflow-hidden">
 		<!-- Left column — main content -->
 		<div class="flex-1 overflow-y-auto">
-			<div class="mx-auto max-w-[840px] px-10 py-6">
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<div class="relative mx-auto max-w-[840px] px-10 py-6" bind:this={contentRef} onmousemove={handleMouseMove}>
+				<PresenceCursors {contentRef} />
 				<!-- Title -->
 				<!-- svelte-ignore a11y_autofocus -->
 				{#if editingTitle}

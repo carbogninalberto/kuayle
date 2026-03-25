@@ -147,7 +147,16 @@
 
 	onDestroy(() => {
 		ws_conn?.close();
+		window.removeEventListener('ws:send', handleWSSend as EventListener);
 	});
+
+	// Allow child components to send WebSocket messages
+	function handleWSSend(e: CustomEvent<any>) {
+		if (ws_conn?.readyState === WebSocket.OPEN) {
+			ws_conn.send(JSON.stringify(e.detail));
+		}
+	}
+	window.addEventListener('ws:send', handleWSSend as EventListener);
 
 	function connectWebSocket(workspaceSlug: string) {
 		const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -163,6 +172,10 @@
 			}
 		};
 
+		ws_conn.onopen = () => {
+			window.dispatchEvent(new CustomEvent('ws:reconnected'));
+		};
+
 		ws_conn.onclose = () => {
 			// Only reconnect if still on the same workspace
 			if (wsSlug === workspaceSlug) {
@@ -175,19 +188,36 @@
 		switch (msg.type) {
 			case 'issue.created':
 			case 'issue.updated':
-			case 'issue.deleted':
 			case 'issue.triaged':
 			case 'issues.bulk_updated':
 			case 'issues.bulk_deleted': {
-				// Reload the full list to get enriched data and avoid duplicates
 				if (slug && issuesState.issues.length > 0) {
 					issuesState.load(slug, issuesState.filters);
 				}
+				window.dispatchEvent(new CustomEvent('ws:issue-updated', { detail: msg.payload }));
+				break;
+			}
+			case 'issue.deleted': {
+				if (slug && issuesState.issues.length > 0) {
+					issuesState.load(slug, issuesState.filters);
+				}
+				window.dispatchEvent(new CustomEvent('ws:issue-deleted', { detail: msg.payload }));
+				break;
+			}
+			case 'comment.created': {
+				window.dispatchEvent(new CustomEvent('ws:comment-created', { detail: msg.payload }));
 				break;
 			}
 			case 'notification.created': {
 				unreadCount++;
 				window.dispatchEvent(new CustomEvent('ws:notification', { detail: msg.payload }));
+				break;
+			}
+			case 'presence.join':
+			case 'presence.leave':
+			case 'presence.sync':
+			case 'cursor.move': {
+				window.dispatchEvent(new CustomEvent(`ws:${msg.type}`, { detail: msg.payload }));
 				break;
 			}
 		}

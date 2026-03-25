@@ -9,7 +9,6 @@ import (
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"nhooyr.io/websocket"
-	"nhooyr.io/websocket/wsjson"
 )
 
 type Event struct {
@@ -19,10 +18,27 @@ type Event struct {
 }
 
 type Client struct {
-	conn        *websocket.Conn
-	workspaceID uuid.UUID
-	userID      uuid.UUID
-	send        chan []byte
+	conn          *websocket.Conn
+	workspaceID   uuid.UUID
+	userID        uuid.UUID
+	send          chan []byte
+	viewingIssue  string // issue ID currently being viewed (empty if none)
+}
+
+// Incoming message types from clients
+type IncomingMessage struct {
+	Type    string          `json:"type"`
+	Payload json.RawMessage `json:"payload"`
+}
+
+type PresencePayload struct {
+	IssueID string `json:"issue_id"`
+}
+
+type CursorPayload struct {
+	IssueID string  `json:"issue_id"`
+	X       float64 `json:"x"`
+	Y       float64 `json:"y"`
 }
 
 type Hub struct {
@@ -118,7 +134,7 @@ func (h *Hub) WritePump(ctx context.Context, client *Client) {
 			if !ok {
 				return
 			}
-			err := wsjson.Write(ctx, client.conn, json.RawMessage(msg))
+			err := client.conn.Write(ctx, websocket.MessageText, msg)
 			if err != nil {
 				return
 			}
@@ -129,11 +145,141 @@ func (h *Hub) WritePump(ctx context.Context, client *Client) {
 }
 
 func (h *Hub) ReadPump(ctx context.Context, client *Client) {
+	defer func() {
+		if client.viewingIssue != "" {
+			h.handlePresenceLeave(client)
+		}
+	}()
+
 	for {
-		_, _, err := client.conn.Read(ctx)
+		_, data, err := client.conn.Read(ctx)
 		if err != nil {
 			return
 		}
-		// We don't process incoming messages for now (client -> server)
+
+		var msg IncomingMessage
+		if err := json.Unmarshal(data, &msg); err != nil {
+			continue
+		}
+
+		switch msg.Type {
+		case "presence.join":
+			var p PresencePayload
+			if json.Unmarshal(msg.Payload, &p) == nil && p.IssueID != "" {
+				h.handlePresenceJoin(client, p.IssueID)
+			}
+		case "presence.leave":
+			h.handlePresenceLeave(client)
+		case "cursor.move":
+			var p CursorPayload
+			if json.Unmarshal(msg.Payload, &p) == nil && p.IssueID != "" {
+				h.BroadcastExcluding(client.workspaceID, client, Event{
+					Type: "cursor.move",
+					Payload: map[string]interface{}{
+						"issue_id": p.IssueID,
+						"user_id":  client.userID.String(),
+						"x":        p.X,
+						"y":        p.Y,
+					},
+				})
+			}
+		}
+	}
+}
+
+func (h *Hub) handlePresenceJoin(client *Client, issueID string) {
+	// Leave previous issue if any
+	if client.viewingIssue != "" && client.viewingIssue != issueID {
+		h.handlePresenceLeave(client)
+	}
+
+	client.viewingIssue = issueID
+
+	// Broadcast join to workspace (excluding sender)
+	h.BroadcastExcluding(client.workspaceID, client, Event{
+		Type: "presence.join",
+		Payload: map[string]interface{}{
+			"issue_id": issueID,
+			"user_id":  client.userID.String(),
+		},
+	})
+
+	// Send sync to the joining client with current viewers
+	viewers := h.GetIssueViewers(client.workspaceID, issueID, client)
+	viewerIDs := make([]string, len(viewers))
+	for i, uid := range viewers {
+		viewerIDs[i] = uid.String()
+	}
+	h.sendToClient(client, Event{
+		Type: "presence.sync",
+		Payload: map[string]interface{}{
+			"issue_id": issueID,
+			"users":    viewerIDs,
+		},
+	})
+}
+
+func (h *Hub) handlePresenceLeave(client *Client) {
+	issueID := client.viewingIssue
+	if issueID == "" {
+		return
+	}
+	client.viewingIssue = ""
+
+	h.BroadcastExcluding(client.workspaceID, client, Event{
+		Type: "presence.leave",
+		Payload: map[string]interface{}{
+			"issue_id": issueID,
+			"user_id":  client.userID.String(),
+		},
+	})
+}
+
+func (h *Hub) BroadcastExcluding(workspaceID uuid.UUID, exclude *Client, event Event) {
+	event.Timestamp = time.Now()
+
+	data, err := json.Marshal(event)
+	if err != nil {
+		log.WithError(err).Error("failed to marshal event")
+		return
+	}
+
+	h.mu.RLock()
+	clients := h.clients[workspaceID]
+	h.mu.RUnlock()
+
+	for client := range clients {
+		if client == exclude {
+			continue
+		}
+		select {
+		case client.send <- data:
+		default:
+		}
+	}
+}
+
+func (h *Hub) GetIssueViewers(workspaceID uuid.UUID, issueID string, exclude *Client) []uuid.UUID {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	var viewers []uuid.UUID
+	for client := range h.clients[workspaceID] {
+		if client.viewingIssue == issueID && client != exclude {
+			viewers = append(viewers, client.userID)
+		}
+	}
+	return viewers
+}
+
+func (h *Hub) sendToClient(client *Client, event Event) {
+	event.Timestamp = time.Now()
+	data, err := json.Marshal(event)
+	if err != nil {
+		return
+	}
+	select {
+	case client.send <- data:
+	default:
 	}
 }
