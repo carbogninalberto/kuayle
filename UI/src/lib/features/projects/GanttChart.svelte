@@ -154,13 +154,29 @@
 			};
 		});
 
+		const cycleColors = ['#6366f1', '#8b5cf6', '#a855f7'];
 		const cycleAreas: any[] = [];
+		let cycleIdx = 0;
 		for (const cycle of cycles) {
 			if (cycle.start_date && cycle.end_date) {
+				const cColor = cycleColors[cycleIdx % cycleColors.length];
 				cycleAreas.push([
-					{ xAxis: new Date(cycle.start_date).getTime(), itemStyle: { color: colorAccent + '10' } },
-					{ xAxis: new Date(cycle.end_date).getTime() }
+					{
+						xAxis: new Date(cycle.start_date).getTime(),
+						itemStyle: { color: cColor + '18', borderWidth: 1, borderType: 'dashed', borderColor: cColor + '35' },
+						label: {
+							show: true,
+							position: 'insideTop',
+							formatter: cycle.name,
+							fontSize: 10,
+							fontWeight: 500,
+							color: cColor + '99',
+							padding: [4, 8]
+						}
+					},
+					{ xAxis: new Date(cycle.end_date).getTime(), label: { show: false } }
 				]);
+				cycleIdx++;
 			}
 		}
 
@@ -173,7 +189,7 @@
 			grid: {
 				left: 12,
 				right: 12,
-				top: 16,
+				top: cycles.length > 0 ? 28 : 16,
 				bottom: 44
 			},
 			xAxis: {
