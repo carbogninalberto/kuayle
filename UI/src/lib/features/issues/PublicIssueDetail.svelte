@@ -75,7 +75,7 @@
 	<!-- Backdrop -->
 	<button
 		class="flex-1 cursor-default"
-		style="background: rgba(0,0,0,{visible ? 0.2 : 0}); transition: background {ANIM_DURATION}ms cubic-bezier(0.25, 1, 0.5, 1);"
+		style="background: transparent;"
 		onclick={close}
 		tabindex={-1}
 		aria-label="Close issue detail"
