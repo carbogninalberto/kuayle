@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/logo.svg" alt="Kuayle" width="250">
+  <img src="assets/logo_primary.svg" alt="Kuayle" width="250">
   <p><strong>快乐 (kuàilè) · happiness, joy</strong></p>
   <p>A fast, keyboard-driven issue tracker inspired by Linear.</p>
 
