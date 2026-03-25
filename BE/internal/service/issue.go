@@ -21,10 +21,11 @@ type IssueService struct {
 	teamStatusRepo repository.TeamStatusRepo
 	historyRepo    repository.IssueHistoryRepo
 	hub            *realtime.Hub
+	notifSvc       *NotificationService
 }
 
-func NewIssueService(issueRepo repository.IssueRepo, teamRepo repository.TeamRepo, teamStatusRepo repository.TeamStatusRepo, historyRepo repository.IssueHistoryRepo, hub *realtime.Hub) *IssueService {
-	return &IssueService{issueRepo: issueRepo, teamRepo: teamRepo, teamStatusRepo: teamStatusRepo, historyRepo: historyRepo, hub: hub}
+func NewIssueService(issueRepo repository.IssueRepo, teamRepo repository.TeamRepo, teamStatusRepo repository.TeamStatusRepo, historyRepo repository.IssueHistoryRepo, hub *realtime.Hub, notifSvc *NotificationService) *IssueService {
+	return &IssueService{issueRepo: issueRepo, teamRepo: teamRepo, teamStatusRepo: teamStatusRepo, historyRepo: historyRepo, hub: hub, notifSvc: notifSvc}
 }
 
 func (s *IssueService) Create(ctx context.Context, workspaceID, creatorID uuid.UUID, req dto.CreateIssueRequest) (*domain.Issue, error) {
@@ -166,6 +167,9 @@ func (s *IssueService) Create(ctx context.Context, workspaceID, creatorID uuid.U
 		Type:    "issue.created",
 		Payload: issue,
 	})
+
+	// Notify assignees (except the creator)
+	s.notifyAssignees(ctx, issue, creatorID, workspaceID)
 
 	return issue, nil
 }
@@ -370,6 +374,9 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 		Payload: issue,
 	})
 
+	// Send notifications for field changes
+	s.sendUpdateNotifications(ctx, issue, userID, req)
+
 	return issue, nil
 }
 
@@ -524,5 +531,106 @@ func (s *IssueService) BulkDelete(ctx context.Context, workspaceID uuid.UUID, re
 func (s *IssueService) recordHistory(ctx context.Context, issueID, userID uuid.UUID, field string, oldValue, newValue *string) {
 	if err := s.historyRepo.Create(ctx, issueID, userID, field, oldValue, newValue); err != nil {
 		log.WithError(err).Warn("failed to record issue history")
+	}
+}
+
+func (s *IssueService) notify(ctx context.Context, userID uuid.UUID, issue *domain.Issue, notifType, title string) {
+	if err := s.notifSvc.Create(ctx, userID, issue.WorkspaceID, &issue.ID, notifType, title); err != nil {
+		log.WithError(err).Warn("failed to create notification")
+		return
+	}
+	s.hub.BroadcastToUser(issue.WorkspaceID, userID, realtime.Event{
+		Type:    "notification.created",
+		Payload: map[string]string{"type": notifType},
+	})
+}
+
+func (s *IssueService) notifyAssignees(ctx context.Context, issue *domain.Issue, actorID, workspaceID uuid.UUID) {
+	notified := make(map[uuid.UUID]bool)
+
+	// Single assignee
+	if issue.AssigneeID != nil && *issue.AssigneeID != actorID {
+		s.notify(ctx, *issue.AssigneeID, issue, "assigned",
+			fmt.Sprintf("You were assigned to %s: %s", issue.Identifier, issue.Title))
+		notified[*issue.AssigneeID] = true
+	}
+
+	// Multi-assignees
+	assignees, _ := s.issueRepo.GetAssignees(ctx, issue.ID)
+	for _, uid := range assignees {
+		if uid != actorID && !notified[uid] {
+			s.notify(ctx, uid, issue, "assigned",
+				fmt.Sprintf("You were assigned to %s: %s", issue.Identifier, issue.Title))
+		}
+	}
+}
+
+func (s *IssueService) sendUpdateNotifications(ctx context.Context, issue *domain.Issue, actorID uuid.UUID, req dto.UpdateIssueRequest) {
+	// Build recipient list: all assignees except the actor
+	assignees, _ := s.issueRepo.GetAssignees(ctx, issue.ID)
+	recipients := make([]uuid.UUID, 0, len(assignees))
+	seen := make(map[uuid.UUID]bool)
+	for _, uid := range assignees {
+		if uid != actorID && !seen[uid] {
+			recipients = append(recipients, uid)
+			seen[uid] = true
+		}
+	}
+	if issue.AssigneeID != nil && *issue.AssigneeID != actorID && !seen[*issue.AssigneeID] {
+		recipients = append(recipients, *issue.AssigneeID)
+		seen[*issue.AssigneeID] = true
+	}
+
+	// Assignee change: notify the new assignee specifically
+	if req.AssigneeID != nil {
+		newAID, err := uuid.Parse(*req.AssigneeID)
+		if err == nil && newAID != actorID {
+			s.notify(ctx, newAID, issue, "assigned",
+				fmt.Sprintf("You were assigned to %s: %s", issue.Identifier, issue.Title))
+		}
+	}
+
+	if len(recipients) == 0 {
+		return
+	}
+
+	// Status change
+	if req.StatusID != nil || req.Status != nil {
+		for _, uid := range recipients {
+			s.notify(ctx, uid, issue, "status_changed",
+				fmt.Sprintf("%s status changed to %s", issue.Identifier, issue.Status))
+		}
+	}
+
+	// Priority change
+	if req.Priority != nil {
+		for _, uid := range recipients {
+			s.notify(ctx, uid, issue, "priority_changed",
+				fmt.Sprintf("%s priority changed", issue.Identifier))
+		}
+	}
+
+	// Due date change
+	if req.DueDate != nil {
+		for _, uid := range recipients {
+			s.notify(ctx, uid, issue, "due_date_changed",
+				fmt.Sprintf("%s due date changed", issue.Identifier))
+		}
+	}
+
+	// Cycle change
+	if req.CycleID != nil {
+		for _, uid := range recipients {
+			s.notify(ctx, uid, issue, "cycle_changed",
+				fmt.Sprintf("%s cycle changed", issue.Identifier))
+		}
+	}
+
+	// Label change
+	if req.LabelIDs != nil {
+		for _, uid := range recipients {
+			s.notify(ctx, uid, issue, "label_added",
+				fmt.Sprintf("%s labels updated", issue.Identifier))
+		}
 	}
 }

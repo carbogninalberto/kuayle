@@ -7,16 +7,21 @@ import (
 
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
+	"github.com/kuayle/kuayle-backend/internal/realtime"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/google/uuid"
+	log "github.com/sirupsen/logrus"
 )
 
 type CycleService struct {
 	cycleRepo repository.CycleRepo
+	teamRepo  repository.TeamRepo
+	hub       *realtime.Hub
+	notifSvc  *NotificationService
 }
 
-func NewCycleService(cycleRepo repository.CycleRepo) *CycleService {
-	return &CycleService{cycleRepo: cycleRepo}
+func NewCycleService(cycleRepo repository.CycleRepo, teamRepo repository.TeamRepo, hub *realtime.Hub, notifSvc *NotificationService) *CycleService {
+	return &CycleService{cycleRepo: cycleRepo, teamRepo: teamRepo, hub: hub, notifSvc: notifSvc}
 }
 
 func (s *CycleService) Create(ctx context.Context, teamID uuid.UUID, req dto.CreateCycleRequest) (*domain.Cycle, error) {
@@ -131,6 +136,12 @@ func (s *CycleService) Update(ctx context.Context, id uuid.UUID, req dto.UpdateC
 	if err := s.cycleRepo.Update(ctx, cycle); err != nil {
 		return nil, err
 	}
+
+	// Broadcast and notify on cycle activation
+	if req.Status != nil && domain.CycleStatus(*req.Status) == domain.CycleStatusActive {
+		s.broadcastAndNotifyTeam(ctx, cycle, "cycle.updated", fmt.Sprintf("Cycle '%s' has started", cycle.Name))
+	}
+
 	return cycle, nil
 }
 
@@ -169,6 +180,10 @@ func (s *CycleService) Complete(ctx context.Context, id uuid.UUID, req dto.Compl
 	if err := s.cycleRepo.Update(ctx, cycle); err != nil {
 		return nil, 0, err
 	}
+
+	// Broadcast and notify on cycle completion
+	s.broadcastAndNotifyTeam(ctx, cycle, "cycle.completed", fmt.Sprintf("Cycle '%s' has been completed", cycle.Name))
+
 	return cycle, carriedOver, nil
 }
 
@@ -205,4 +220,33 @@ func (s *CycleService) GetBurndown(ctx context.Context, cycleID uuid.UUID) ([]dt
 		return nil, fmt.Errorf("cycle must have start and end dates")
 	}
 	return s.cycleRepo.BurndownData(ctx, cycleID, *cycle.StartDate, *cycle.EndDate)
+}
+
+func (s *CycleService) broadcastAndNotifyTeam(ctx context.Context, cycle *domain.Cycle, eventType, title string) {
+	team, err := s.teamRepo.GetByID(ctx, cycle.TeamID)
+	if err != nil || team == nil {
+		return
+	}
+
+	s.hub.Broadcast(team.WorkspaceID, realtime.Event{
+		Type:    eventType,
+		Payload: cycle,
+	})
+
+	members, err := s.teamRepo.ListMembers(ctx, cycle.TeamID)
+	if err != nil {
+		log.WithError(err).Warn("failed to list team members for cycle notification")
+		return
+	}
+
+	for _, m := range members {
+		if err := s.notifSvc.Create(ctx, m.UserID, team.WorkspaceID, nil, "cycle_changed", title); err != nil {
+			log.WithError(err).Warn("failed to create cycle notification")
+			continue
+		}
+		s.hub.BroadcastToUser(team.WorkspaceID, m.UserID, realtime.Event{
+			Type:    "notification.created",
+			Payload: map[string]string{"type": "cycle_changed"},
+		})
+	}
 }

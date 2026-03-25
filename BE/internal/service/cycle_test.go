@@ -7,6 +7,7 @@ import (
 
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
+	"github.com/kuayle/kuayle-backend/internal/realtime"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -95,11 +96,21 @@ func (m *mockCycleRepo) VelocityData(ctx context.Context, teamID uuid.UUID, limi
 	return args.Get(0).([]dto.VelocityPoint), args.Error(1)
 }
 
+// --- Helpers ---
+
+func newCycleTestDeps() (*mockTeamRepo, *realtime.Hub, *NotificationService) {
+	teamRepo := new(mockTeamRepo)
+	hub := realtime.NewHub()
+	notifSvc := newTestNotifSvc()
+	return teamRepo, hub, notifSvc
+}
+
 // --- Tests ---
 
 func TestCycleService_Create(t *testing.T) {
 	repo := new(mockCycleRepo)
-	svc := NewCycleService(repo)
+	teamRepo, hub, notifSvc := newCycleTestDeps()
+	svc := NewCycleService(repo, teamRepo, hub, notifSvc)
 
 	ctx := context.Background()
 	teamID := uuid.New()
@@ -126,7 +137,8 @@ func TestCycleService_Create(t *testing.T) {
 
 func TestCycleService_Create_DuplicateName(t *testing.T) {
 	repo := new(mockCycleRepo)
-	svc := NewCycleService(repo)
+	teamRepo, hub, notifSvc := newCycleTestDeps()
+	svc := NewCycleService(repo, teamRepo, hub, notifSvc)
 
 	ctx := context.Background()
 	teamID := uuid.New()
@@ -140,7 +152,8 @@ func TestCycleService_Create_DuplicateName(t *testing.T) {
 
 func TestCycleService_List(t *testing.T) {
 	repo := new(mockCycleRepo)
-	svc := NewCycleService(repo)
+	teamRepo, hub, notifSvc := newCycleTestDeps()
+	svc := NewCycleService(repo, teamRepo, hub, notifSvc)
 
 	ctx := context.Background()
 	teamID := uuid.New()
@@ -158,14 +171,18 @@ func TestCycleService_List(t *testing.T) {
 
 func TestCycleService_Complete(t *testing.T) {
 	repo := new(mockCycleRepo)
-	svc := NewCycleService(repo)
+	teamRepo, hub, notifSvc := newCycleTestDeps()
+	svc := NewCycleService(repo, teamRepo, hub, notifSvc)
 
 	ctx := context.Background()
 	cycleID := uuid.New()
+	teamID := uuid.New()
 
-	cycle := &domain.Cycle{ID: cycleID, Status: domain.CycleStatusActive}
+	cycle := &domain.Cycle{ID: cycleID, TeamID: teamID, Status: domain.CycleStatusActive}
 	repo.On("GetByID", ctx, cycleID).Return(cycle, nil)
 	repo.On("Update", ctx, mock.AnythingOfType("*domain.Cycle")).Return(nil)
+	teamRepo.On("GetByID", ctx, teamID).Return(&domain.Team{ID: teamID, WorkspaceID: uuid.New()}, nil)
+	teamRepo.On("ListMembers", ctx, teamID).Return([]domain.TeamMember{}, nil)
 
 	result, _, err := svc.Complete(ctx, cycleID, dto.CompleteCycleRequest{})
 
@@ -176,7 +193,8 @@ func TestCycleService_Complete(t *testing.T) {
 
 func TestCycleService_Complete_AlreadyCompleted(t *testing.T) {
 	repo := new(mockCycleRepo)
-	svc := NewCycleService(repo)
+	teamRepo, hub, notifSvc := newCycleTestDeps()
+	svc := NewCycleService(repo, teamRepo, hub, notifSvc)
 
 	ctx := context.Background()
 	cycleID := uuid.New()
@@ -191,7 +209,8 @@ func TestCycleService_Complete_AlreadyCompleted(t *testing.T) {
 
 func TestCycleService_GetStats(t *testing.T) {
 	repo := new(mockCycleRepo)
-	svc := NewCycleService(repo)
+	teamRepo, hub, notifSvc := newCycleTestDeps()
+	svc := NewCycleService(repo, teamRepo, hub, notifSvc)
 
 	ctx := context.Background()
 	cycleID := uuid.New()
@@ -207,7 +226,8 @@ func TestCycleService_GetStats(t *testing.T) {
 
 func TestCycleService_Delete(t *testing.T) {
 	repo := new(mockCycleRepo)
-	svc := NewCycleService(repo)
+	teamRepo, hub, notifSvc := newCycleTestDeps()
+	svc := NewCycleService(repo, teamRepo, hub, notifSvc)
 
 	ctx := context.Background()
 	cycleID := uuid.New()

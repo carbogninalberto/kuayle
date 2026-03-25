@@ -56,3 +56,9 @@ func (r *TeamRepository) GetMember(ctx context.Context, teamID, userID uuid.UUID
 	}
 	return &member, err
 }
+
+func (r *TeamRepository) ListMembers(ctx context.Context, teamID uuid.UUID) ([]domain.TeamMember, error) {
+	var members []domain.TeamMember
+	err := r.db.SelectContext(ctx, &members, `SELECT * FROM team_members WHERE team_id = $1`, teamID)
+	return members, err
+}

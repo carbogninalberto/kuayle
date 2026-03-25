@@ -103,7 +103,7 @@
 			getCycleVelocity(s, t).catch(() => [] as VelocityPoint[])
 		]).then(([c, v]) => {
 			cycles = c;
-			velocityData = v;
+			velocityData = v ?? [];
 			burndownVersion++;
 		}).finally(() => {
 			loading = false;

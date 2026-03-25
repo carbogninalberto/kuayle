@@ -154,12 +154,43 @@
 		const wsUrl = `${protocol}//${window.location.host}/api/workspaces/${workspaceSlug}/ws`;
 		ws_conn = new WebSocket(wsUrl);
 
+		ws_conn.onmessage = (event) => {
+			try {
+				const data = JSON.parse(event.data);
+				handleWSMessage(data);
+			} catch {
+				// Ignore malformed messages
+			}
+		};
+
 		ws_conn.onclose = () => {
 			// Only reconnect if still on the same workspace
 			if (wsSlug === workspaceSlug) {
 				setTimeout(() => connectWebSocket(workspaceSlug), 3000);
 			}
 		};
+	}
+
+	function handleWSMessage(msg: { type: string; payload: any }) {
+		switch (msg.type) {
+			case 'issue.created':
+			case 'issue.updated':
+			case 'issue.deleted':
+			case 'issue.triaged':
+			case 'issues.bulk_updated':
+			case 'issues.bulk_deleted': {
+				// Reload the full list to get enriched data and avoid duplicates
+				if (slug && issuesState.issues.length > 0) {
+					issuesState.load(slug, issuesState.filters);
+				}
+				break;
+			}
+			case 'notification.created': {
+				unreadCount++;
+				window.dispatchEvent(new CustomEvent('ws:notification', { detail: msg.payload }));
+				break;
+			}
+		}
 	}
 </script>
 

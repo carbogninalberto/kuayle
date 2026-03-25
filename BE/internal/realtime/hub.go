@@ -88,6 +88,29 @@ func (h *Hub) Broadcast(workspaceID uuid.UUID, event Event) {
 	}
 }
 
+func (h *Hub) BroadcastToUser(workspaceID, userID uuid.UUID, event Event) {
+	event.Timestamp = time.Now()
+
+	data, err := json.Marshal(event)
+	if err != nil {
+		log.WithError(err).Error("failed to marshal event")
+		return
+	}
+
+	h.mu.RLock()
+	clients := h.clients[workspaceID]
+	h.mu.RUnlock()
+
+	for client := range clients {
+		if client.userID == userID {
+			select {
+			case client.send <- data:
+			default:
+			}
+		}
+	}
+}
+
 func (h *Hub) WritePump(ctx context.Context, client *Client) {
 	for {
 		select {

@@ -42,6 +42,11 @@
 
 	onMount(async () => {
 		await loadNotifications();
+
+		// Reload when a new notification arrives via WebSocket
+		const onWsNotification = () => loadNotifications();
+		window.addEventListener('ws:notification', onWsNotification);
+		return () => window.removeEventListener('ws:notification', onWsNotification);
 	});
 
 	async function loadNotifications() {

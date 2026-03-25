@@ -177,6 +177,10 @@ func (r *testTeamRepo) GetMember(_ context.Context, _, _ uuid.UUID) (*domain.Tea
 	return nil, nil
 }
 
+func (r *testTeamRepo) ListMembers(_ context.Context, _ uuid.UUID) ([]domain.TeamMember, error) {
+	return nil, nil
+}
+
 type testHistoryRepo struct{}
 
 func (r *testHistoryRepo) Create(_ context.Context, _, _ uuid.UUID, _ string, _, _ *string) error {
@@ -255,6 +259,25 @@ func (r *testCommentRepo) Reopen(_ context.Context, id uuid.UUID) error {
 	return nil
 }
 
+type testNotifRepo struct{}
+
+func (r *testNotifRepo) Create(_ context.Context, _ *domain.Notification) error   { return nil }
+func (r *testNotifRepo) GetByID(_ context.Context, _ uuid.UUID) (*domain.Notification, error) {
+	return nil, nil
+}
+func (r *testNotifRepo) ListByUser(_ context.Context, _ uuid.UUID, _, _ int) ([]domain.Notification, error) {
+	return nil, nil
+}
+func (r *testNotifRepo) ListSnoozed(_ context.Context, _ uuid.UUID) ([]domain.Notification, error) {
+	return nil, nil
+}
+func (r *testNotifRepo) ListArchived(_ context.Context, _ uuid.UUID, _ int) ([]domain.Notification, error) {
+	return nil, nil
+}
+func (r *testNotifRepo) Update(_ context.Context, _ *domain.Notification) error { return nil }
+func (r *testNotifRepo) MarkAllRead(_ context.Context, _ uuid.UUID) error        { return nil }
+func (r *testNotifRepo) UnreadCount(_ context.Context, _ uuid.UUID) (int, error)  { return 0, nil }
+
 // --- Context helpers ---
 
 func setupIssueContext(e *echo.Echo, method, path, body string) (echo.Context, *httptest.ResponseRecorder) {
@@ -299,8 +322,9 @@ func TestIssueHandler_List(t *testing.T) {
 		Status:      domain.IssueStatusTodo,
 	}
 
-	issueSvc := service.NewIssueService(issueRepo, teamRepo, &testTeamStatusRepo{}, historyRepo, hub)
-	commentSvc := service.NewCommentService(&testCommentRepo{})
+	notifSvc := service.NewNotificationService(&testNotifRepo{})
+	issueSvc := service.NewIssueService(issueRepo, teamRepo, &testTeamStatusRepo{}, historyRepo, hub, notifSvc)
+	commentSvc := service.NewCommentService(&testCommentRepo{}, issueRepo, hub, notifSvc)
 	h := NewIssueHandler(issueSvc, commentSvc, &testUserRepo{}, &testTeamStatusRepo{})
 
 	c, rec := setupIssueContext(e, http.MethodGet, "/api/workspaces/test/issues", "")
@@ -332,8 +356,9 @@ func TestIssueHandler_Get_Found(t *testing.T) {
 		CreatorID:   uuid.New(),
 	}
 
-	issueSvc := service.NewIssueService(issueRepo, teamRepo, &testTeamStatusRepo{}, historyRepo, hub)
-	commentSvc := service.NewCommentService(&testCommentRepo{})
+	notifSvc := service.NewNotificationService(&testNotifRepo{})
+	issueSvc := service.NewIssueService(issueRepo, teamRepo, &testTeamStatusRepo{}, historyRepo, hub, notifSvc)
+	commentSvc := service.NewCommentService(&testCommentRepo{}, issueRepo, hub, notifSvc)
 	h := NewIssueHandler(issueSvc, commentSvc, &testUserRepo{}, &testTeamStatusRepo{})
 
 	c, rec := setupIssueContext(e, http.MethodGet, "/api/workspaces/test/issues/ENG-1", "")
@@ -356,8 +381,9 @@ func TestIssueHandler_Get_NotFound(t *testing.T) {
 	historyRepo := &testHistoryRepo{}
 	hub := realtime.NewHub()
 
-	issueSvc := service.NewIssueService(issueRepo, teamRepo, &testTeamStatusRepo{}, historyRepo, hub)
-	commentSvc := service.NewCommentService(&testCommentRepo{})
+	notifSvc := service.NewNotificationService(&testNotifRepo{})
+	issueSvc := service.NewIssueService(issueRepo, teamRepo, &testTeamStatusRepo{}, historyRepo, hub, notifSvc)
+	commentSvc := service.NewCommentService(&testCommentRepo{}, issueRepo, hub, notifSvc)
 	h := NewIssueHandler(issueSvc, commentSvc, &testUserRepo{}, &testTeamStatusRepo{})
 
 	c, rec := setupIssueContext(e, http.MethodGet, "/api/workspaces/test/issues/ENG-999", "")
@@ -379,8 +405,9 @@ func TestIssueHandler_Create_ValidationError(t *testing.T) {
 	historyRepo := &testHistoryRepo{}
 	hub := realtime.NewHub()
 
-	issueSvc := service.NewIssueService(issueRepo, teamRepo, &testTeamStatusRepo{}, historyRepo, hub)
-	commentSvc := service.NewCommentService(&testCommentRepo{})
+	notifSvc := service.NewNotificationService(&testNotifRepo{})
+	issueSvc := service.NewIssueService(issueRepo, teamRepo, &testTeamStatusRepo{}, historyRepo, hub, notifSvc)
+	commentSvc := service.NewCommentService(&testCommentRepo{}, issueRepo, hub, notifSvc)
 	h := NewIssueHandler(issueSvc, commentSvc, &testUserRepo{}, &testTeamStatusRepo{})
 
 	// Missing required fields
@@ -408,8 +435,9 @@ func TestIssueHandler_Delete_Success(t *testing.T) {
 		Title:       "Delete me",
 	}
 
-	issueSvc := service.NewIssueService(issueRepo, teamRepo, &testTeamStatusRepo{}, historyRepo, hub)
-	commentSvc := service.NewCommentService(&testCommentRepo{})
+	notifSvc := service.NewNotificationService(&testNotifRepo{})
+	issueSvc := service.NewIssueService(issueRepo, teamRepo, &testTeamStatusRepo{}, historyRepo, hub, notifSvc)
+	commentSvc := service.NewCommentService(&testCommentRepo{}, issueRepo, hub, notifSvc)
 	h := NewIssueHandler(issueSvc, commentSvc, &testUserRepo{}, &testTeamStatusRepo{})
 
 	c, rec := setupIssueContext(e, http.MethodDelete, "/api/workspaces/test/issues/ENG-1", "")
@@ -432,8 +460,9 @@ func TestIssueHandler_CreateComment_ValidationError(t *testing.T) {
 	historyRepo := &testHistoryRepo{}
 	hub := realtime.NewHub()
 
-	issueSvc := service.NewIssueService(issueRepo, teamRepo, &testTeamStatusRepo{}, historyRepo, hub)
-	commentSvc := service.NewCommentService(&testCommentRepo{})
+	notifSvc := service.NewNotificationService(&testNotifRepo{})
+	issueSvc := service.NewIssueService(issueRepo, teamRepo, &testTeamStatusRepo{}, historyRepo, hub, notifSvc)
+	commentSvc := service.NewCommentService(&testCommentRepo{}, issueRepo, hub, notifSvc)
 	h := NewIssueHandler(issueSvc, commentSvc, &testUserRepo{}, &testTeamStatusRepo{})
 
 	c, rec := setupIssueContext(e, http.MethodPost, "/api/workspaces/test/issues/ENG-1/comments", `{"body": ""}`)

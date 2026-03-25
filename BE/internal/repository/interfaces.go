@@ -46,6 +46,7 @@ type TeamRepo interface {
 	Update(ctx context.Context, team *domain.Team) error
 	AddMember(ctx context.Context, member *domain.TeamMember) error
 	GetMember(ctx context.Context, teamID, userID uuid.UUID) (*domain.TeamMember, error)
+	ListMembers(ctx context.Context, teamID uuid.UUID) ([]domain.TeamMember, error)
 }
 
 type IssueRepo interface {
