@@ -58,21 +58,6 @@
 		{ value: 'cancelled', label: 'Cancelled', icon: XCircle }
 	];
 
-	// Gantt date range: project dates or fallback to 3 months from now
-	const ganttStart = $derived.by(() => {
-		if (project?.start_date) return new Date(project.start_date);
-		const d = new Date();
-		d.setMonth(d.getMonth() - 1);
-		d.setDate(1);
-		return d;
-	});
-
-	const ganttEnd = $derived.by(() => {
-		if (project?.target_date) return new Date(project.target_date);
-		const d = new Date();
-		d.setMonth(d.getMonth() + 3);
-		return d;
-	});
 
 	async function loadProject(s: string, pid: string) {
 		loading = true;
@@ -282,13 +267,11 @@
 				{/if}
 			</div>
 		{:else}
-			<div class="flex-1 overflow-auto p-4">
+			<div class="flex-1 min-h-0 px-4 py-3">
 				{#if !issuesState.loading}
 					<GanttChart
 						issues={issuesState.issues}
 						{cycles}
-						startDate={ganttStart}
-						endDate={ganttEnd}
 						onissueclick={(i) => goto(`/${slug}/issue/${i.identifier}`)}
 					/>
 				{/if}

@@ -1,180 +1,432 @@
 <script lang="ts">
-	import type { Issue } from '$lib/types/issue';
+	import type { Issue, IssueStatus } from '$lib/types/issue';
+	import { STATUS_LABELS } from '$lib/types/issue';
 	import type { Cycle } from '$lib/types/cycle';
-	import IssueStatusIcon from '$lib/features/issues/IssueStatusIcon.svelte';
-	import IssuePriorityIcon from '$lib/features/issues/IssuePriorityIcon.svelte';
+	import * as echarts from 'echarts';
+	import { Filter, X } from 'lucide-svelte';
 
 	let {
 		issues,
 		cycles = [],
-		startDate,
-		endDate,
 		onissueclick
 	}: {
 		issues: Issue[];
 		cycles?: Cycle[];
-		startDate: Date;
-		endDate: Date;
 		onissueclick?: (issue: Issue) => void;
 	} = $props();
 
-	const MS_PER_DAY = 86400000;
-	const totalDays = $derived(Math.max(1, Math.ceil((endDate.getTime() - startDate.getTime()) / MS_PER_DAY)));
+	let chartEl: HTMLDivElement | undefined = $state();
+	let containerEl: HTMLDivElement | undefined = $state();
+	let chart: echarts.ECharts | undefined;
 
-	const months = $derived.by(() => {
-		const result: { label: string; startPct: number; widthPct: number }[] = [];
-		const cur = new Date(startDate);
-		while (cur < endDate) {
-			const monthStart = new Date(cur.getFullYear(), cur.getMonth(), 1);
-			const monthEnd = new Date(cur.getFullYear(), cur.getMonth() + 1, 0);
-			const visibleStart = Math.max(monthStart.getTime(), startDate.getTime());
-			const visibleEnd = Math.min(monthEnd.getTime(), endDate.getTime());
-			const startPct = ((visibleStart - startDate.getTime()) / MS_PER_DAY / totalDays) * 100;
-			const widthPct = ((visibleEnd - visibleStart) / MS_PER_DAY / totalDays) * 100;
-			result.push({
-				label: cur.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
-				startPct,
-				widthPct
-			});
-			cur.setMonth(cur.getMonth() + 1);
-			cur.setDate(1);
+	// Filters
+	let showFilters = $state(false);
+	let filterStatus = $state<Set<IssueStatus>>(new Set());
+	let filterHasDueDate = $state<'all' | 'yes' | 'no'>('all');
+
+	const statusOptions: IssueStatus[] = ['in_progress', 'in_review', 'todo', 'backlog', 'done', 'cancelled'];
+
+	function toggleStatus(s: IssueStatus) {
+		const next = new Set(filterStatus);
+		if (next.has(s)) next.delete(s); else next.add(s);
+		filterStatus = next;
+	}
+
+	function clearFilters() {
+		filterStatus = new Set();
+		filterHasDueDate = 'all';
+	}
+
+	const hasActiveFilters = $derived(filterStatus.size > 0 || filterHasDueDate !== 'all');
+
+	const filteredIssues = $derived.by(() => {
+		let result = issues;
+		if (filterStatus.size > 0) {
+			result = result.filter(i => filterStatus.has(i.status));
+		}
+		if (filterHasDueDate === 'yes') {
+			result = result.filter(i => i.due_date);
+		} else if (filterHasDueDate === 'no') {
+			result = result.filter(i => !i.due_date);
 		}
 		return result;
 	});
 
-	const todayPct = $derived.by(() => {
-		const now = new Date();
-		if (now < startDate || now > endDate) return null;
-		return ((now.getTime() - startDate.getTime()) / MS_PER_DAY / totalDays) * 100;
+	const MS_PER_DAY = 86400000;
+
+	function getColor(varName: string): string {
+		return getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+	}
+
+	function formatDate(d: Date): string {
+		return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+	}
+
+	// Sorted: by due_date first, then created_at, reversed for ECharts bottom-up y-axis
+	const sortedIssues = $derived.by(() => {
+		const withDue = filteredIssues.filter(i => i.due_date).sort((a, b) => a.due_date!.localeCompare(b.due_date!));
+		const withoutDue = filteredIssues.filter(i => !i.due_date).sort((a, b) => a.created_at.localeCompare(b.created_at));
+		return [...withDue, ...withoutDue].reverse();
 	});
 
-	function getBarPosition(dueDateStr: string | null, createdAt: string): { left: number; width: number } | null {
-		if (!dueDateStr) return null;
-		const created = new Date(createdAt);
-		const due = new Date(dueDateStr);
-		if (due < startDate || created > endDate) return null;
-		const barStart = Math.max(created.getTime(), startDate.getTime());
-		const barEnd = Math.min(due.getTime(), endDate.getTime());
-		const left = ((barStart - startDate.getTime()) / MS_PER_DAY / totalDays) * 100;
-		const width = Math.max(1, ((barEnd - barStart) / MS_PER_DAY / totalDays) * 100);
-		return { left, width };
-	}
+	const dateRange = $derived.by(() => {
+		let min = new Date();
+		let max = new Date();
+		let hasDate = false;
 
-	function getCyclePosition(cycle: Cycle): { left: number; width: number } | null {
-		if (!cycle.start_date || !cycle.end_date) return null;
-		const cStart = new Date(cycle.start_date);
-		const cEnd = new Date(cycle.end_date);
-		if (cEnd < startDate || cStart > endDate) return null;
-		const barStart = Math.max(cStart.getTime(), startDate.getTime());
-		const barEnd = Math.min(cEnd.getTime(), endDate.getTime());
-		const left = ((barStart - startDate.getTime()) / MS_PER_DAY / totalDays) * 100;
-		const width = Math.max(1, ((barEnd - barStart) / MS_PER_DAY / totalDays) * 100);
-		return { left, width };
-	}
+		for (const issue of filteredIssues) {
+			const created = new Date(issue.created_at);
+			const due = issue.due_date ? new Date(issue.due_date) : null;
+			if (!hasDate) {
+				min = created;
+				max = due ?? created;
+				hasDate = true;
+			} else {
+				if (created < min) min = created;
+				if (due && due > max) max = due;
+				if (created > max) max = created;
+			}
+		}
+
+		for (const cycle of cycles) {
+			if (cycle.start_date) {
+				const d = new Date(cycle.start_date);
+				if (d < min) min = d;
+			}
+			if (cycle.end_date) {
+				const d = new Date(cycle.end_date);
+				if (d > max) max = d;
+			}
+		}
+
+		const padded_min = new Date(min);
+		padded_min.setDate(padded_min.getDate() - 5);
+		const padded_max = new Date(max);
+		padded_max.setDate(padded_max.getDate() + 5);
+
+		return { min: padded_min, max: padded_max };
+	});
 
 	function statusColor(status: string): string {
 		switch (status) {
-			case 'done': return 'var(--color-success)';
-			case 'in_progress': case 'in_review': return 'var(--app-accent)';
-			case 'cancelled': return 'var(--color-text-tertiary)';
-			default: return 'var(--color-text-secondary)';
+			case 'done': return getColor('--color-success') || '#22c55e';
+			case 'in_progress': case 'in_review': return getColor('--app-accent') || '#6650eb';
+			case 'cancelled': return getColor('--color-text-tertiary') || '#8c8c8c';
+			default: return getColor('--color-text-secondary') || '#a0a0a0';
 		}
 	}
+
+	function truncateText(text: string, maxLen: number): string {
+		return text.length > maxLen ? text.slice(0, maxLen - 1) + '…' : text;
+	}
+
+	$effect(() => {
+		if (!chartEl || sortedIssues.length === 0) return;
+
+		const colorBorder = getColor('--app-border') || '#333333';
+		const colorText = getColor('--color-text-tertiary') || '#8c8c8c';
+		const colorTextPrimary = getColor('--color-text-primary') || '#ffffff';
+		const colorBg = getColor('--color-bg') || '#1e1e1e';
+		const colorAccent = getColor('--app-accent') || '#6650eb';
+
+		const categories = sortedIssues.map((_, i) => String(i));
+		const barHeight = 22;
+		const rowHeight = 32;
+
+		if (chart) {
+			chart.dispose();
+		}
+
+		chart = echarts.init(chartEl, undefined, { renderer: 'canvas' });
+
+		const issueData: any[] = sortedIssues.map((issue, idx) => {
+			const created = new Date(issue.created_at);
+			const due = issue.due_date ? new Date(issue.due_date) : null;
+			const barStart = created.getTime();
+			const barEnd = due ? due.getTime() : created.getTime() + MS_PER_DAY;
+			return {
+				value: [idx, barStart, barEnd, due ? 1 : 0],
+				itemStyle: {
+					color: statusColor(issue.status),
+					opacity: due ? 0.75 : 0.3,
+					borderRadius: 3
+				}
+			};
+		});
+
+		const cycleAreas: any[] = [];
+		for (const cycle of cycles) {
+			if (cycle.start_date && cycle.end_date) {
+				cycleAreas.push([
+					{ xAxis: new Date(cycle.start_date).getTime(), itemStyle: { color: colorAccent + '10' } },
+					{ xAxis: new Date(cycle.end_date).getTime() }
+				]);
+			}
+		}
+
+		const today = new Date();
+		const todayInRange = today >= dateRange.min && today <= dateRange.max;
+
+		chart.setOption({
+			backgroundColor: 'transparent',
+			grid: {
+				left: 12,
+				right: 12,
+				top: 16,
+				bottom: 44
+			},
+			xAxis: {
+				type: 'time',
+				min: dateRange.min.getTime(),
+				max: dateRange.max.getTime(),
+				axisLine: { lineStyle: { color: 'transparent' } },
+				axisTick: {
+					show: true,
+					lineStyle: { color: colorText, opacity: 0.5, width: 1 },
+					length: 6
+				},
+				axisLabel: {
+					color: colorText,
+					fontSize: 10,
+					formatter: (value: number) => formatDate(new Date(value))
+				},
+				splitLine: {
+					show: true,
+					lineStyle: { color: colorBorder, opacity: 0.2, type: 'dotted' }
+				}
+			},
+			yAxis: {
+				type: 'category',
+				data: categories,
+				axisLine: { show: false },
+				axisTick: { show: false },
+				axisLabel: { show: false },
+				splitLine: { show: false }
+			},
+			tooltip: {
+				backgroundColor: colorBg,
+				borderColor: colorBorder,
+				borderWidth: 1,
+				borderRadius: 8,
+				padding: [6, 12],
+				textStyle: { color: colorText, fontSize: 11 },
+				formatter: (params: any) => {
+					const idx = params.value[0];
+					const issue = sortedIssues[idx];
+					if (!issue) return '';
+					const created = formatDate(new Date(issue.created_at));
+					const due = issue.due_date ? formatDate(new Date(issue.due_date)) : 'No due date';
+					return `<div style="max-width:280px">
+						<div style="font-weight:500;color:${colorTextPrimary};margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${issue.title}</div>
+						<div style="display:flex;gap:8px;font-size:10px">
+							<span>${issue.identifier}</span>
+							<span>${created} → ${due}</span>
+						</div>
+					</div>`;
+				}
+			},
+			dataZoom: [
+				{
+					type: 'inside',
+					xAxisIndex: 0,
+					filterMode: 'none',
+					zoomOnMouseWheel: true,
+					moveOnMouseMove: true,
+					moveOnMouseWheel: false
+				},
+				{
+					type: 'slider',
+					xAxisIndex: 0,
+					height: 16,
+					bottom: 4,
+					borderColor: colorBorder,
+					backgroundColor: colorBg,
+					fillerColor: colorAccent + '20',
+					handleStyle: { color: colorAccent, borderColor: colorAccent },
+					dataBackground: {
+						lineStyle: { color: 'transparent' },
+						areaStyle: { color: 'transparent' }
+					},
+					selectedDataBackground: {
+						lineStyle: { color: 'transparent' },
+						areaStyle: { color: 'transparent' }
+					},
+					textStyle: { color: colorText, fontSize: 9 },
+					labelFormatter: (value: string) => formatDate(new Date(value)),
+					filterMode: 'none'
+				}
+			],
+			series: [
+				{
+					type: 'custom',
+					renderItem: (params: any, api: any) => {
+						const categoryIndex = api.value(0);
+						const startTime = api.value(1);
+						const endTime = api.value(2);
+						const hasDue = api.value(3);
+
+						const start = api.coord([startTime, categoryIndex]);
+						const end = api.coord([endTime, categoryIndex]);
+						const barW = Math.max(end[0] - start[0], hasDue ? 6 : 10);
+
+						const rectShape = echarts.graphic.clipRectByRect(
+							{
+								x: start[0],
+								y: start[1] - barHeight / 2,
+								width: barW,
+								height: barHeight
+							},
+							{
+								x: params.coordSys.x,
+								y: params.coordSys.y,
+								width: params.coordSys.width,
+								height: params.coordSys.height
+							}
+						);
+
+						if (!rectShape) return;
+
+						const issue = sortedIssues[categoryIndex];
+						const title = issue?.title ?? '';
+
+						// Estimate how many chars fit inside the bar
+						const charWidth = 6;
+						const padding = 12;
+						const availableWidth = rectShape.width - padding;
+						const maxChars = Math.floor(availableWidth / charWidth);
+
+						const children: any[] = [
+							{
+								type: 'rect',
+								shape: { ...rectShape, r: 3 },
+								style: api.style()
+							}
+						];
+
+						if (maxChars >= 4 && hasDue) {
+							const label = truncateText(title, maxChars);
+							children.push({
+								type: 'text',
+								style: {
+									text: label,
+									x: rectShape.x + 6,
+									y: rectShape.y + barHeight / 2,
+									textVerticalAlign: 'middle',
+									fill: '#fff',
+									fontSize: 10,
+									fontWeight: 500,
+									opacity: 0.9
+								}
+							});
+						}
+
+						return { type: 'group', children };
+					},
+					data: issueData,
+					encode: {
+						x: [1, 2],
+						y: 0
+					},
+					markArea: cycleAreas.length > 0 ? { silent: true, data: cycleAreas } : undefined,
+					markLine: todayInRange ? {
+						silent: true,
+						symbol: 'none',
+						label: {
+							show: true,
+							position: 'start',
+							formatter: 'Today',
+							fontSize: 9,
+							color: '#ef4444',
+							padding: [0, 0, 0, 4]
+						},
+						data: [{ xAxis: today.getTime() }],
+						lineStyle: { color: '#ef4444', width: 1, type: 'dashed', opacity: 0.5 }
+					} : undefined
+				}
+			]
+		});
+
+		chart.on('click', (params: any) => {
+			if (params.componentType === 'series' && params.value) {
+				const idx = params.value[0];
+				const issue = sortedIssues[idx];
+				if (issue) onissueclick?.(issue);
+			}
+		});
+
+		const ro = new ResizeObserver(() => chart?.resize());
+		ro.observe(chartEl);
+
+		return () => {
+			ro.disconnect();
+			chart?.dispose();
+			chart = undefined;
+		};
+	});
 </script>
 
-<div class="flex flex-col overflow-hidden rounded-lg border border-[var(--app-border)]">
-	<!-- Header with months -->
-	<div class="relative flex h-8 shrink-0 border-b border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
-		{#each months as month}
-			<div
-				class="absolute top-0 flex h-full items-center border-l border-[var(--app-border)] px-2 text-[10px] font-medium text-[var(--color-text-tertiary)]"
-				style="left: {month.startPct}%; width: {month.widthPct}%"
+<div bind:this={containerEl} class="flex h-full flex-col">
+	<!-- Toolbar -->
+	<div class="flex items-center gap-2 pb-3">
+		<button
+			onclick={() => showFilters = !showFilters}
+			class="flex items-center gap-1.5 rounded-md border border-[var(--app-border)] px-2.5 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] {hasActiveFilters ? 'border-[var(--app-accent)] text-[var(--app-accent)]' : ''}"
+		>
+			<Filter size={12} />
+			Filter
+			{#if hasActiveFilters}
+				<span class="rounded-full bg-[var(--app-accent)] px-1.5 text-[9px] font-medium text-white">{filterStatus.size + (filterHasDueDate !== 'all' ? 1 : 0)}</span>
+			{/if}
+		</button>
+		{#if hasActiveFilters}
+			<button
+				onclick={clearFilters}
+				class="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
 			>
-				{month.label}
-			</div>
-		{/each}
+				<X size={12} />
+				Clear
+			</button>
+		{/if}
+		<span class="text-[11px] text-[var(--color-text-tertiary)]">{filteredIssues.length} issue{filteredIssues.length !== 1 ? 's' : ''}</span>
 	</div>
 
-	<!-- Cycle bands -->
-	{#if cycles.length > 0}
-		<div class="relative h-6 shrink-0 border-b border-[var(--app-border)] bg-[var(--color-bg)]">
-			{#each cycles as cycle}
-				{@const pos = getCyclePosition(cycle)}
-				{#if pos}
-					<div
-						class="absolute top-1 h-4 rounded-sm opacity-20"
-						style="left: {pos.left}%; width: {pos.width}%; background-color: var(--app-accent)"
-						title="{cycle.name}: {cycle.start_date} → {cycle.end_date}"
+	<!-- Filter bar -->
+	{#if showFilters}
+		<div class="flex flex-wrap items-center gap-3 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2 mb-3">
+			<div class="flex items-center gap-1.5">
+				<span class="text-[10px] font-medium uppercase text-[var(--color-text-tertiary)]">Status</span>
+				{#each statusOptions as s}
+					<button
+						onclick={() => toggleStatus(s)}
+						class="rounded-md px-2 py-0.5 text-[11px] {filterStatus.has(s) ? 'bg-[var(--app-accent)] text-white' : 'bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]'}"
 					>
-						<span class="absolute inset-0 flex items-center justify-center text-[9px] font-medium text-[var(--app-accent)] opacity-100">
-							{cycle.name}
-						</span>
-					</div>
-				{/if}
-			{/each}
+						{STATUS_LABELS[s]}
+					</button>
+				{/each}
+			</div>
+			<div class="h-4 w-px bg-[var(--app-border)]"></div>
+			<div class="flex items-center gap-1.5">
+				<span class="text-[10px] font-medium uppercase text-[var(--color-text-tertiary)]">Due date</span>
+				{#each [['all', 'All'], ['yes', 'Has due'], ['no', 'No due']] as [val, label]}
+					<button
+						onclick={() => filterHasDueDate = val as any}
+						class="rounded-md px-2 py-0.5 text-[11px] {filterHasDueDate === val ? 'bg-[var(--app-accent)] text-white' : 'bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]'}"
+					>
+						{label}
+					</button>
+				{/each}
+			</div>
 		</div>
 	{/if}
 
-	<!-- Issue rows -->
-	<div class="flex-1 overflow-y-auto">
-		{#each issues as issue (issue.id)}
-			{@const bar = getBarPosition(issue.due_date, issue.created_at)}
-			<div class="group relative flex h-9 items-center border-b border-[var(--app-border)] hover:bg-[var(--color-bg-hover)]">
-				<!-- Issue label (left side) -->
-				<div class="flex w-64 shrink-0 items-center gap-2 border-r border-[var(--app-border)] px-3">
-					<IssuePriorityIcon priority={issue.priority} size={12} />
-					<IssueStatusIcon status={issue.status} size={12} />
-					<button
-						class="truncate text-xs text-[var(--color-text-primary)] hover:underline"
-						onclick={() => onissueclick?.(issue)}
-					>
-						{issue.title}
-					</button>
-				</div>
-
-				<!-- Bar area -->
-				<div class="relative flex-1">
-					{#if bar}
-						<div
-							class="absolute top-1.5 h-4 rounded-sm transition-colors"
-							style="left: {bar.left}%; width: {bar.width}%; background-color: {statusColor(issue.status)}; opacity: 0.7"
-							title="{issue.identifier}: {issue.title}"
-						></div>
-					{:else}
-						<!-- No due date: show a dot at creation -->
-						{@const created = new Date(issue.created_at)}
-						{#if created >= startDate && created <= endDate}
-							{@const pct = ((created.getTime() - startDate.getTime()) / MS_PER_DAY / totalDays) * 100}
-							<div
-								class="absolute top-2.5 h-2 w-2 rounded-full"
-								style="left: {pct}%; background-color: {statusColor(issue.status)}; opacity: 0.5"
-							></div>
-						{/if}
-					{/if}
-				</div>
-
-				<!-- Today line -->
-				{#if todayPct !== null}
-					<div
-						class="pointer-events-none absolute top-0 h-full w-px bg-red-500 opacity-40"
-						style="left: calc({64 / 1}px + {todayPct}% * (1 - {64 / 1}px / 100%))"
-					></div>
-				{/if}
-			</div>
-		{/each}
-
-		{#if issues.length === 0}
-			<div class="flex h-24 items-center justify-center text-sm text-[var(--color-text-tertiary)]">
-				No issues to display
-			</div>
-		{/if}
+	<!-- Chart -->
+	<div class="flex-1 min-h-0">
+		<div bind:this={chartEl} class="h-full w-full"></div>
 	</div>
 
-	<!-- Today line in header -->
-	{#if todayPct !== null}
-		<div
-			class="pointer-events-none absolute top-0 h-full w-px bg-red-500 opacity-60 z-10"
-			style="left: calc(256px + (100% - 256px) * {todayPct} / 100)"
-		></div>
+	{#if filteredIssues.length === 0}
+		<div class="flex h-24 items-center justify-center text-sm text-[var(--color-text-tertiary)]">
+			{hasActiveFilters ? 'No issues match the current filters' : 'No issues to display'}
+		</div>
 	{/if}
 </div>
