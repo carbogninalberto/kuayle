@@ -198,6 +198,12 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 		req.Description = &clean
 	}
 
+	// Capture old description before overwriting (for mention diff)
+	var oldDescription string
+	if issue.Description != nil {
+		oldDescription = *issue.Description
+	}
+
 	// Track changes for history
 	if req.Title != nil && *req.Title != issue.Title {
 		old := issue.Title
@@ -375,7 +381,7 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 	})
 
 	// Send notifications for field changes
-	s.sendUpdateNotifications(ctx, issue, userID, req)
+	s.sendUpdateNotifications(ctx, issue, userID, req, oldDescription)
 
 	return issue, nil
 }
@@ -565,7 +571,7 @@ func (s *IssueService) notifyAssignees(ctx context.Context, issue *domain.Issue,
 	}
 }
 
-func (s *IssueService) sendUpdateNotifications(ctx context.Context, issue *domain.Issue, actorID uuid.UUID, req dto.UpdateIssueRequest) {
+func (s *IssueService) sendUpdateNotifications(ctx context.Context, issue *domain.Issue, actorID uuid.UUID, req dto.UpdateIssueRequest, oldDescription string) {
 	// Build recipient list: all assignees except the actor
 	assignees, _ := s.issueRepo.GetAssignees(ctx, issue.ID)
 	recipients := make([]uuid.UUID, 0, len(assignees))
@@ -587,6 +593,23 @@ func (s *IssueService) sendUpdateNotifications(ctx context.Context, issue *domai
 		if err == nil && newAID != actorID {
 			s.notify(ctx, newAID, issue, "assigned",
 				fmt.Sprintf("You were assigned to %s: %s", issue.Identifier, issue.Title))
+		}
+	}
+
+	// Mention notifications from description (always, regardless of assignees).
+	// Only notify for NEW mentions — skip users already mentioned in the old description.
+	if req.Description != nil {
+		oldMentions := make(map[uuid.UUID]bool)
+		for _, uid := range extractMentionedUserIDs(oldDescription) {
+			oldMentions[uid] = true
+		}
+		for _, uid := range extractMentionedUserIDs(*req.Description) {
+			if uid == actorID || seen[uid] || oldMentions[uid] {
+				continue
+			}
+			s.notify(ctx, uid, issue, "mentioned",
+				fmt.Sprintf("You were mentioned in %s: %s", issue.Identifier, issue.Title))
+			seen[uid] = true
 		}
 	}
 
@@ -631,19 +654,6 @@ func (s *IssueService) sendUpdateNotifications(ctx context.Context, issue *domai
 		for _, uid := range recipients {
 			s.notify(ctx, uid, issue, "label_added",
 				fmt.Sprintf("%s labels updated", issue.Identifier))
-		}
-	}
-
-	// Mention notifications from description
-	if req.Description != nil {
-		mentionedIDs := extractMentionedUserIDs(*req.Description)
-		for _, uid := range mentionedIDs {
-			if uid == actorID || seen[uid] {
-				continue
-			}
-			s.notify(ctx, uid, issue, "mentioned",
-				fmt.Sprintf("You were mentioned in %s: %s", issue.Identifier, issue.Title))
-			seen[uid] = true
 		}
 	}
 }

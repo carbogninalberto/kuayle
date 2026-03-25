@@ -56,7 +56,6 @@
 	let labels = $state<Label[]>([]);
 	let projects = $state<Project[]>([]);
 	let newComment = $state('');
-	$effect(() => { console.log('[COMMENT] newComment updated:', newComment?.substring(0, 80)); });
 	let commentVersion = $state(0);
 	let replyContents = $state<Record<string, string>>({});
 	let replyVersions = $state<Record<string, number>>({});
@@ -293,7 +292,6 @@
 	}
 
 	async function handleAddComment() {
-		console.log('[COMMENT] handleAddComment, newComment =', JSON.stringify(newComment));
 		if (!newComment.trim() || newComment === '<p></p>') return;
 		try {
 			lastLocalUpdate = Date.now();

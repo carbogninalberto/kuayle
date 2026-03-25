@@ -418,9 +418,11 @@
 		};
 	});
 
-	// Sync content from outside (e.g. real-time updates) without losing cursor
+	// Sync content from outside (e.g. real-time updates) without losing cursor.
+	// Only sync when content prop has a non-empty value (skip for comment editors
+	// where content="" is just the initial value, not an ongoing binding).
 	$effect(() => {
-		if (editor && !isFocused && content !== undefined) {
+		if (editor && !isFocused && content) {
 			const current = sanitizeEditorOutput(editor.getHTML());
 			if (current !== content) {
 				editor.commands.setContent(content, false);
