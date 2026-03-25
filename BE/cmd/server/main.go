@@ -195,6 +195,7 @@ func main() {
 	// Cycles (team-scoped)
 	ws.GET("/teams/:teamId/cycles", cycleH.List)
 	ws.POST("/teams/:teamId/cycles", cycleH.Create)
+	ws.GET("/teams/:teamId/cycles/velocity", cycleH.Velocity)
 	ws.GET("/teams/:teamId/cycles/:cycleId", cycleH.Get)
 	ws.PATCH("/teams/:teamId/cycles/:cycleId", cycleH.Update)
 	ws.POST("/teams/:teamId/cycles/:cycleId/complete", cycleH.Complete)

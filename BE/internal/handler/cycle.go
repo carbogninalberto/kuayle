@@ -116,12 +116,32 @@ func (h *CycleHandler) Complete(c echo.Context) error {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid cycle ID")
 	}
 
-	cycle, err := h.cycleSvc.Complete(c.Request().Context(), id)
+	var req dto.CompleteCycleRequest
+	// Bind optional JSON body; ignore errors (body may be empty)
+	_ = c.Bind(&req)
+
+	cycle, carriedOver, err := h.cycleSvc.Complete(c.Request().Context(), id, req)
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
 	}
 
-	return response.Success(c, http.StatusOK, toCycleResponse(*cycle))
+	resp := toCycleResponse(*cycle)
+	return response.Success(c, http.StatusOK, map[string]interface{}{
+		"cycle":              resp,
+		"carried_over_count": carriedOver,
+	})
+}
+
+func (h *CycleHandler) Velocity(c echo.Context) error {
+	teamID, err := uuid.Parse(c.Param("teamId"))
+	if err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid team ID")
+	}
+	points, err := h.cycleSvc.GetVelocity(c.Request().Context(), teamID)
+	if err != nil {
+		return response.InternalError(c)
+	}
+	return response.Success(c, http.StatusOK, points)
 }
 
 func (h *CycleHandler) Delete(c echo.Context) error {
@@ -153,16 +173,18 @@ func (h *CycleHandler) Burndown(c echo.Context) error {
 
 func toCycleResponse(cy domain.Cycle) dto.CycleResponse {
 	return dto.CycleResponse{
-		ID:          cy.ID.String(),
-		TeamID:      cy.TeamID.String(),
-		Name:        cy.Name,
-		Number:      cy.Number,
-		Status:      string(cy.Status),
-		Description: cy.Description,
-		StartDate:   cy.StartDate,
-		EndDate:     cy.EndDate,
-		CompletedAt: cy.CompletedAt,
-		CreatedAt:   cy.CreatedAt,
-		UpdatedAt:   cy.UpdatedAt,
+		ID:            cy.ID.String(),
+		TeamID:        cy.TeamID.String(),
+		Name:          cy.Name,
+		Number:        cy.Number,
+		Status:        string(cy.Status),
+		Description:   cy.Description,
+		Goals:         cy.Goals,
+		Retrospective: cy.Retrospective,
+		StartDate:     cy.StartDate,
+		EndDate:       cy.EndDate,
+		CompletedAt:   cy.CompletedAt,
+		CreatedAt:     cy.CreatedAt,
+		UpdatedAt:     cy.UpdatedAt,
 	}
 }

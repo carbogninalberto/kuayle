@@ -131,6 +131,10 @@ type CycleRepo interface {
 	IssueStats(ctx context.Context, cycleID uuid.UUID) (total int, completed int, cancelled int, err error)
 	BurndownData(ctx context.Context, cycleID uuid.UUID, startDate, endDate time.Time) ([]dto.BurndownPoint, error)
 	ExistsByName(ctx context.Context, teamID uuid.UUID, name string) (bool, error)
+	HasOverlap(ctx context.Context, teamID uuid.UUID, startDate, endDate time.Time, excludeID *uuid.UUID) (bool, error)
+	GetNextUpcoming(ctx context.Context, teamID uuid.UUID) (*domain.Cycle, error)
+	CarryOverIssues(ctx context.Context, fromCycleID, toCycleID uuid.UUID) (int, error)
+	VelocityData(ctx context.Context, teamID uuid.UUID, limit int) ([]dto.VelocityPoint, error)
 }
 
 type IssueRelationRepo interface {

@@ -2,7 +2,8 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
-	import { getCycle, completeCycle, updateCycle, deleteCycle } from '$lib/api/cycles';
+	import { getCycle, completeCycle, updateCycle, deleteCycle, listCycles } from '$lib/api/cycles';
+	import CompleteCycleDialog from '$lib/features/cycles/CompleteCycleDialog.svelte';
 	import { updateIssue } from '$lib/api/issues';
 	import { listMembers } from '$lib/api/members';
 	import { listLabels } from '$lib/api/labels';
@@ -14,7 +15,7 @@
 	import type { Label } from '$lib/types/label';
 	import IssueRow from '$lib/features/issues/IssueRow.svelte';
 import CycleProgress from '$lib/features/cycles/CycleProgress.svelte';
-	import DatePickerPopover from '$lib/components/shared/DatePickerPopover.svelte';
+	import DateRangePickerPopover from '$lib/components/shared/DateRangePickerPopover.svelte';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
@@ -38,20 +39,39 @@ import CycleProgress from '$lib/features/cycles/CycleProgress.svelte';
 
 	let lastSelectedId = $state<string | null>(null);
 
+	let showComplete = $state(false);
+	let allCycles = $state<Cycle[]>([]);
+	const nextUpcomingCycle = $derived(
+		allCycles
+			.filter(c => c.status === 'upcoming')
+			.sort((a, b) => {
+				const aD = a.start_date ? new Date(a.start_date).getTime() : Infinity;
+				const bD = b.start_date ? new Date(b.start_date).getTime() : Infinity;
+				return aD - bD;
+			})[0] ?? null
+	);
+	const incompleteCount = $derived.by(() => {
+		if (!cycle?.progress) return 0;
+		const { total, completed, cancelled } = cycle.progress;
+		return total - completed - cancelled;
+	});
+
 	// Add issues search
 	let addSearchQuery = $state('');
 	let addSearchOpen = $state(false);
 
 	onMount(async () => {
 		try {
-			const [c, m, l] = await Promise.all([
+			const [c, m, l, cyc] = await Promise.all([
 				getCycle(slug, teamId, cycleId),
 				listMembers(slug),
-				listLabels(slug)
+				listLabels(slug),
+				listCycles(slug, teamId)
 			]);
 			cycle = c;
 			members = m;
 			labels = l;
+			allCycles = cyc;
 			// Load team statuses for this team
 			teamStatusesState.load(slug, teamId);
 			// Load issues for this cycle using server-side cycle filter
@@ -88,11 +108,25 @@ import CycleProgress from '$lib/features/cycles/CycleProgress.svelte';
 		}
 	}
 
-	async function handleComplete() {
+	function handleComplete() {
+		if (!cycle) return;
+		showComplete = true;
+	}
+
+	async function handleCompleteSubmit(data: { retrospective?: string; carry_over: boolean }) {
 		if (!cycle) return;
 		try {
-			cycle = await completeCycle(slug, teamId, cycle.id);
-			toast.success('Cycle completed');
+			const result = await completeCycle(slug, teamId, cycle.id, {
+				retrospective: data.retrospective,
+				carry_over: data.carry_over
+			});
+			cycle = result.cycle;
+			if (result.carried_over_count > 0) {
+				toast.success(`Cycle completed. ${result.carried_over_count} issue${result.carried_over_count > 1 ? 's' : ''} carried over.`);
+			} else {
+				toast.success('Cycle completed');
+			}
+			issuesState.load(slug, { cycle: cycleId, per_page: '200' });
 		} catch (err: any) {
 			toast.error(err?.error?.message || 'Failed to complete cycle');
 		}
@@ -119,23 +153,13 @@ import CycleProgress from '$lib/features/cycles/CycleProgress.svelte';
 		}
 	}
 
-	async function handleStartDateChange(date: string | null) {
+	async function handleDateRangeChange(start: string, end: string) {
 		if (!cycle) return;
 		try {
-			cycle = await updateCycle(slug, teamId, cycle.id, { start_date: date ?? undefined });
-			toast.success('Start date updated');
+			cycle = await updateCycle(slug, teamId, cycle.id, { start_date: start, end_date: end });
+			toast.success('Dates updated');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to update start date');
-		}
-	}
-
-	async function handleEndDateChange(date: string | null) {
-		if (!cycle) return;
-		try {
-			cycle = await updateCycle(slug, teamId, cycle.id, { end_date: date ?? undefined });
-			toast.success('End date updated');
-		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to update end date');
+			toast.error(err?.error?.message || 'Failed to update dates');
 		}
 	}
 
@@ -229,16 +253,11 @@ import CycleProgress from '$lib/features/cycles/CycleProgress.svelte';
 		<div class="border-b border-[var(--app-border)] px-6 py-4">
 			<div class="flex items-center gap-6">
 				<div class="flex items-center gap-2 text-xs text-[var(--color-text-tertiary)]">
-					<DatePickerPopover
-						value={cycle.start_date}
-						onchange={handleStartDateChange}
-						placeholder="Start date"
-					/>
-					<span>→</span>
-					<DatePickerPopover
-						value={cycle.end_date}
-						onchange={handleEndDateChange}
-						placeholder="End date"
+					<DateRangePickerPopover
+						startDate={cycle.start_date}
+						endDate={cycle.end_date}
+						onchange={handleDateRangeChange}
+						placeholder="Select dates"
 					/>
 				</div>
 				{#if cycle.progress}
@@ -254,6 +273,18 @@ import CycleProgress from '$lib/features/cycles/CycleProgress.svelte';
 			</div>
 			{#if cycle.description}
 				<p class="mt-2 text-sm text-[var(--color-text-secondary)]">{cycle.description}</p>
+			{/if}
+			{#if cycle.goals}
+				<div class="mt-2">
+					<span class="text-xs font-medium text-[var(--color-text-tertiary)]">Goals</span>
+					<p class="mt-0.5 text-sm text-[var(--color-text-secondary)]">{cycle.goals}</p>
+				</div>
+			{/if}
+			{#if cycle.retrospective}
+				<div class="mt-2">
+					<span class="text-xs font-medium text-[var(--color-text-tertiary)]">Retrospective</span>
+					<p class="mt-0.5 text-sm text-[var(--color-text-secondary)]">{cycle.retrospective}</p>
+				</div>
 			{/if}
 			{#if cycle.progress && cycle.progress.total > 0}
 				<div class="mt-3 w-64">
@@ -309,3 +340,11 @@ import CycleProgress from '$lib/features/cycles/CycleProgress.svelte';
 		</div>
 	{/if}
 </div>
+
+<CompleteCycleDialog
+	bind:open={showComplete}
+	cycle={cycle}
+	{incompleteCount}
+	{nextUpcomingCycle}
+	onsubmit={handleCompleteSubmit}
+/>

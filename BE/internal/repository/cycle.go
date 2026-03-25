@@ -22,8 +22,8 @@ func NewCycleRepository(db *sqlx.DB) *CycleRepository {
 }
 
 func (r *CycleRepository) Create(ctx context.Context, cycle *domain.Cycle) error {
-	query := `INSERT INTO cycles (id, team_id, name, number, status, description, start_date, end_date) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING created_at, updated_at`
-	return r.db.QueryRowContext(ctx, query, cycle.ID, cycle.TeamID, cycle.Name, cycle.Number, cycle.Status, cycle.Description, cycle.StartDate, cycle.EndDate).Scan(&cycle.CreatedAt, &cycle.UpdatedAt)
+	query := `INSERT INTO cycles (id, team_id, name, number, status, description, goals, start_date, end_date) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING created_at, updated_at`
+	return r.db.QueryRowContext(ctx, query, cycle.ID, cycle.TeamID, cycle.Name, cycle.Number, cycle.Status, cycle.Description, cycle.Goals, cycle.StartDate, cycle.EndDate).Scan(&cycle.CreatedAt, &cycle.UpdatedAt)
 }
 
 func (r *CycleRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Cycle, error) {
@@ -48,8 +48,8 @@ func (r *CycleRepository) NextNumber(ctx context.Context, teamID uuid.UUID) (int
 }
 
 func (r *CycleRepository) Update(ctx context.Context, cycle *domain.Cycle) error {
-	query := `UPDATE cycles SET name = $1, description = $2, status = $3, start_date = $4, end_date = $5, completed_at = $6, updated_at = NOW() WHERE id = $7 RETURNING updated_at`
-	return r.db.QueryRowContext(ctx, query, cycle.Name, cycle.Description, cycle.Status, cycle.StartDate, cycle.EndDate, cycle.CompletedAt, cycle.ID).Scan(&cycle.UpdatedAt)
+	query := `UPDATE cycles SET name = $1, description = $2, goals = $3, retrospective = $4, status = $5, start_date = $6, end_date = $7, completed_at = $8, updated_at = NOW() WHERE id = $9 RETURNING updated_at`
+	return r.db.QueryRowContext(ctx, query, cycle.Name, cycle.Description, cycle.Goals, cycle.Retrospective, cycle.Status, cycle.StartDate, cycle.EndDate, cycle.CompletedAt, cycle.ID).Scan(&cycle.UpdatedAt)
 }
 
 func (r *CycleRepository) Delete(ctx context.Context, id uuid.UUID) error {
@@ -65,6 +65,20 @@ func (r *CycleRepository) ExistsByName(ctx context.Context, teamID uuid.UUID, na
 	return exists, err
 }
 
+func (r *CycleRepository) HasOverlap(ctx context.Context, teamID uuid.UUID, startDate, endDate time.Time, excludeID *uuid.UUID) (bool, error) {
+	var exists bool
+	err := r.db.GetContext(ctx, &exists,
+		`SELECT EXISTS(
+			SELECT 1 FROM cycles
+			WHERE team_id = $1
+				AND status != 'completed'
+				AND start_date IS NOT NULL AND end_date IS NOT NULL
+				AND start_date < $3 AND end_date > $2
+				AND ($4::uuid IS NULL OR id != $4)
+		)`, teamID, startDate, endDate, excludeID)
+	return exists, err
+}
+
 // IssueStats returns total, completed, and cancelled issue counts for a cycle.
 func (r *CycleRepository) IssueStats(ctx context.Context, cycleID uuid.UUID) (total int, completed int, cancelled int, err error) {
 	err = r.db.QueryRowContext(ctx,
@@ -72,6 +86,44 @@ func (r *CycleRepository) IssueStats(ctx context.Context, cycleID uuid.UUID) (to
 		cycleID,
 	).Scan(&total, &completed, &cancelled)
 	return
+}
+
+func (r *CycleRepository) GetNextUpcoming(ctx context.Context, teamID uuid.UUID) (*domain.Cycle, error) {
+	var cycle domain.Cycle
+	err := r.db.GetContext(ctx, &cycle,
+		`SELECT * FROM cycles WHERE team_id = $1 AND status = 'upcoming' ORDER BY start_date ASC NULLS LAST LIMIT 1`, teamID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return &cycle, err
+}
+
+func (r *CycleRepository) CarryOverIssues(ctx context.Context, fromCycleID, toCycleID uuid.UUID) (int, error) {
+	result, err := r.db.ExecContext(ctx,
+		`UPDATE issues SET cycle_id = $2, updated_at = NOW() WHERE cycle_id = $1 AND status NOT IN ('done', 'cancelled')`,
+		fromCycleID, toCycleID)
+	if err != nil {
+		return 0, err
+	}
+	count, _ := result.RowsAffected()
+	return int(count), nil
+}
+
+func (r *CycleRepository) VelocityData(ctx context.Context, teamID uuid.UUID, limit int) ([]dto.VelocityPoint, error) {
+	var points []dto.VelocityPoint
+	err := r.db.SelectContext(ctx, &points,
+		`SELECT c.id as cycle_id, c.name as cycle_name, c.number as cycle_number,
+			COUNT(i.id) as scope,
+			COUNT(i.id) FILTER (WHERE i.status = 'done') as completed,
+			COUNT(i.id) FILTER (WHERE i.status = 'cancelled') as cancelled,
+			c.start_date, c.end_date
+		FROM cycles c
+		LEFT JOIN issues i ON i.cycle_id = c.id
+		WHERE c.team_id = $1 AND c.status = 'completed'
+		GROUP BY c.id
+		ORDER BY c.number ASC
+		LIMIT $2`, teamID, limit)
+	return points, err
 }
 
 // historyEvent represents a single issue_history row relevant to burndown.

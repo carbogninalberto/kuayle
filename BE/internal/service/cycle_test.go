@@ -69,6 +69,32 @@ func (m *mockCycleRepo) ExistsByName(ctx context.Context, teamID uuid.UUID, name
 	return args.Bool(0), args.Error(1)
 }
 
+func (m *mockCycleRepo) HasOverlap(ctx context.Context, teamID uuid.UUID, startDate, endDate time.Time, excludeID *uuid.UUID) (bool, error) {
+	args := m.Called(ctx, teamID, startDate, endDate, excludeID)
+	return args.Bool(0), args.Error(1)
+}
+
+func (m *mockCycleRepo) GetNextUpcoming(ctx context.Context, teamID uuid.UUID) (*domain.Cycle, error) {
+	args := m.Called(ctx, teamID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.Cycle), args.Error(1)
+}
+
+func (m *mockCycleRepo) CarryOverIssues(ctx context.Context, fromCycleID, toCycleID uuid.UUID) (int, error) {
+	args := m.Called(ctx, fromCycleID, toCycleID)
+	return args.Int(0), args.Error(1)
+}
+
+func (m *mockCycleRepo) VelocityData(ctx context.Context, teamID uuid.UUID, limit int) ([]dto.VelocityPoint, error) {
+	args := m.Called(ctx, teamID, limit)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]dto.VelocityPoint), args.Error(1)
+}
+
 // --- Tests ---
 
 func TestCycleService_Create(t *testing.T) {
@@ -79,15 +105,14 @@ func TestCycleService_Create(t *testing.T) {
 	teamID := uuid.New()
 
 	repo.On("ExistsByName", ctx, teamID, "Sprint 1").Return(false, nil)
+	repo.On("HasOverlap", ctx, teamID, mock.AnythingOfType("time.Time"), mock.AnythingOfType("time.Time"), mock.Anything).Return(false, nil)
 	repo.On("NextNumber", ctx, teamID).Return(1, nil)
 	repo.On("Create", ctx, mock.AnythingOfType("*domain.Cycle")).Return(nil)
 
-	startDate := "2026-04-01"
-	endDate := "2026-04-14"
 	cycle, err := svc.Create(ctx, teamID, dto.CreateCycleRequest{
 		Name:      "Sprint 1",
-		StartDate: &startDate,
-		EndDate:   &endDate,
+		StartDate: "2026-04-01",
+		EndDate:   "2026-04-14",
 	})
 
 	assert.NoError(t, err)
@@ -108,7 +133,7 @@ func TestCycleService_Create_DuplicateName(t *testing.T) {
 
 	repo.On("ExistsByName", ctx, teamID, "Sprint 1").Return(true, nil)
 
-	_, err := svc.Create(ctx, teamID, dto.CreateCycleRequest{Name: "Sprint 1"})
+	_, err := svc.Create(ctx, teamID, dto.CreateCycleRequest{Name: "Sprint 1", StartDate: "2026-04-01", EndDate: "2026-04-14"})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "already exists")
 }
@@ -142,7 +167,7 @@ func TestCycleService_Complete(t *testing.T) {
 	repo.On("GetByID", ctx, cycleID).Return(cycle, nil)
 	repo.On("Update", ctx, mock.AnythingOfType("*domain.Cycle")).Return(nil)
 
-	result, err := svc.Complete(ctx, cycleID)
+	result, _, err := svc.Complete(ctx, cycleID, dto.CompleteCycleRequest{})
 
 	assert.NoError(t, err)
 	assert.Equal(t, domain.CycleStatusCompleted, result.Status)
@@ -159,7 +184,7 @@ func TestCycleService_Complete_AlreadyCompleted(t *testing.T) {
 	cycle := &domain.Cycle{ID: cycleID, Status: domain.CycleStatusCompleted}
 	repo.On("GetByID", ctx, cycleID).Return(cycle, nil)
 
-	_, err := svc.Complete(ctx, cycleID)
+	_, _, err := svc.Complete(ctx, cycleID, dto.CompleteCycleRequest{})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "already completed")
 }

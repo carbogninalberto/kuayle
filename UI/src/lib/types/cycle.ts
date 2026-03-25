@@ -13,6 +13,8 @@ export interface Cycle {
 	number: number;
 	status: CycleStatus;
 	description: string | null;
+	goals: string | null;
+	retrospective: string | null;
 	start_date: string | null;
 	end_date: string | null;
 	completed_at: string | null;
@@ -24,8 +26,9 @@ export interface Cycle {
 export interface CreateCycleRequest {
 	name: string;
 	description?: string;
-	start_date?: string;
-	end_date?: string;
+	goals?: string;
+	start_date: string;
+	end_date: string;
 }
 
 export interface CycleBurndownPoint {
@@ -38,7 +41,25 @@ export interface CycleBurndownPoint {
 export interface UpdateCycleRequest {
 	name?: string;
 	description?: string;
+	goals?: string;
+	retrospective?: string;
 	status?: CycleStatus;
 	start_date?: string;
 	end_date?: string;
+}
+
+export interface CompleteCycleRequest {
+	retrospective?: string;
+	carry_over?: boolean;
+}
+
+export interface VelocityPoint {
+	cycle_id: string;
+	cycle_name: string;
+	cycle_number: number;
+	scope: number;
+	completed: number;
+	cancelled: number;
+	start_date: string | null;
+	end_date: string | null;
 }

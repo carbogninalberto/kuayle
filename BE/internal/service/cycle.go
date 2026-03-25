@@ -28,6 +28,26 @@ func (s *CycleService) Create(ctx context.Context, teamID uuid.UUID, req dto.Cre
 		return nil, fmt.Errorf("a cycle with this name already exists")
 	}
 
+	startDate, err := time.Parse("2006-01-02", req.StartDate)
+	if err != nil {
+		return nil, fmt.Errorf("invalid start_date format, expected YYYY-MM-DD")
+	}
+	endDate, err := time.Parse("2006-01-02", req.EndDate)
+	if err != nil {
+		return nil, fmt.Errorf("invalid end_date format, expected YYYY-MM-DD")
+	}
+	if !startDate.Before(endDate) {
+		return nil, fmt.Errorf("start_date must be before end_date")
+	}
+
+	overlap, err := s.cycleRepo.HasOverlap(ctx, teamID, startDate, endDate, nil)
+	if err != nil {
+		return nil, err
+	}
+	if overlap {
+		return nil, fmt.Errorf("cycle dates overlap with an existing cycle")
+	}
+
 	number, err := s.cycleRepo.NextNumber(ctx, teamID)
 	if err != nil {
 		return nil, err
@@ -40,19 +60,9 @@ func (s *CycleService) Create(ctx context.Context, teamID uuid.UUID, req dto.Cre
 		Number:      number,
 		Status:      domain.CycleStatusUpcoming,
 		Description: req.Description,
-	}
-
-	if req.StartDate != nil {
-		t, err := time.Parse("2006-01-02", *req.StartDate)
-		if err == nil {
-			cycle.StartDate = &t
-		}
-	}
-	if req.EndDate != nil {
-		t, err := time.Parse("2006-01-02", *req.EndDate)
-		if err == nil {
-			cycle.EndDate = &t
-		}
+		Goals:       req.Goals,
+		StartDate:   &startDate,
+		EndDate:     &endDate,
 	}
 
 	if err := s.cycleRepo.Create(ctx, cycle); err != nil {
@@ -82,6 +92,12 @@ func (s *CycleService) Update(ctx context.Context, id uuid.UUID, req dto.UpdateC
 	if req.Description != nil {
 		cycle.Description = req.Description
 	}
+	if req.Goals != nil {
+		cycle.Goals = req.Goals
+	}
+	if req.Retrospective != nil {
+		cycle.Retrospective = req.Retrospective
+	}
 	if req.Status != nil {
 		cycle.Status = domain.CycleStatus(*req.Status)
 	}
@@ -98,30 +114,66 @@ func (s *CycleService) Update(ctx context.Context, id uuid.UUID, req dto.UpdateC
 		}
 	}
 
+	// Validate dates don't overlap with other cycles
+	if cycle.StartDate != nil && cycle.EndDate != nil {
+		if !cycle.StartDate.Before(*cycle.EndDate) {
+			return nil, fmt.Errorf("start_date must be before end_date")
+		}
+		overlap, err := s.cycleRepo.HasOverlap(ctx, cycle.TeamID, *cycle.StartDate, *cycle.EndDate, &id)
+		if err != nil {
+			return nil, err
+		}
+		if overlap {
+			return nil, fmt.Errorf("cycle dates overlap with an existing cycle")
+		}
+	}
+
 	if err := s.cycleRepo.Update(ctx, cycle); err != nil {
 		return nil, err
 	}
 	return cycle, nil
 }
 
-func (s *CycleService) Complete(ctx context.Context, id uuid.UUID) (*domain.Cycle, error) {
+func (s *CycleService) Complete(ctx context.Context, id uuid.UUID, req dto.CompleteCycleRequest) (*domain.Cycle, int, error) {
 	cycle, err := s.cycleRepo.GetByID(ctx, id)
 	if err != nil || cycle == nil {
-		return nil, fmt.Errorf("cycle not found")
+		return nil, 0, fmt.Errorf("cycle not found")
 	}
 
 	if cycle.Status == domain.CycleStatusCompleted {
-		return nil, fmt.Errorf("cycle is already completed")
+		return nil, 0, fmt.Errorf("cycle is already completed")
 	}
 
 	now := time.Now()
 	cycle.Status = domain.CycleStatusCompleted
 	cycle.CompletedAt = &now
 
-	if err := s.cycleRepo.Update(ctx, cycle); err != nil {
-		return nil, err
+	if req.Retrospective != nil {
+		cycle.Retrospective = req.Retrospective
 	}
-	return cycle, nil
+
+	carriedOver := 0
+	if req.CarryOver {
+		next, err := s.cycleRepo.GetNextUpcoming(ctx, cycle.TeamID)
+		if err != nil {
+			return nil, 0, err
+		}
+		if next != nil {
+			carriedOver, err = s.cycleRepo.CarryOverIssues(ctx, id, next.ID)
+			if err != nil {
+				return nil, 0, err
+			}
+		}
+	}
+
+	if err := s.cycleRepo.Update(ctx, cycle); err != nil {
+		return nil, 0, err
+	}
+	return cycle, carriedOver, nil
+}
+
+func (s *CycleService) GetVelocity(ctx context.Context, teamID uuid.UUID) ([]dto.VelocityPoint, error) {
+	return s.cycleRepo.VelocityData(ctx, teamID, 20)
 }
 
 func (s *CycleService) Delete(ctx context.Context, id uuid.UUID) error {

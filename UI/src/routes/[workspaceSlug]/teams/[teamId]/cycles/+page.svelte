@@ -1,11 +1,13 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import { listCycles, createCycle, deleteCycle, completeCycle, updateCycle, getCycleBurndown } from '$lib/api/cycles';
-	import type { Cycle, CycleBurndownPoint } from '$lib/types/cycle';
+	import { listCycles, createCycle, deleteCycle, completeCycle, updateCycle, getCycleBurndown, getCycleVelocity } from '$lib/api/cycles';
+	import type { Cycle, CycleBurndownPoint, VelocityPoint } from '$lib/types/cycle';
 	import CreateCycleDialog from '$lib/features/cycles/CreateCycleDialog.svelte';
 	import EditCycleDialog from '$lib/features/cycles/EditCycleDialog.svelte';
+	import CompleteCycleDialog from '$lib/features/cycles/CompleteCycleDialog.svelte';
 	import CycleTimelineRow from '$lib/features/cycles/CycleTimelineRow.svelte';
 	import CycleBurndownChart from '$lib/features/cycles/CycleBurndownChart.svelte';
+	import CycleVelocityChart from '$lib/features/cycles/CycleVelocityChart.svelte';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
 	import { toast } from 'svelte-sonner';
 	import { Plus, SquareUser, RefreshCcwDot, ChevronRight, Clock } from 'lucide-svelte';
@@ -33,8 +35,27 @@
 	let burndownLoading = $state(false);
 	let archivedExpanded = $state(false);
 	let burndownVersion = $state(0);
+	let velocityData = $state<VelocityPoint[]>([]);
+	let velocityExpanded = $state(false);
+	let showComplete = $state(false);
+	let completingCycle = $state<Cycle | null>(null);
 
 	const activeCycle = $derived(cycles.find(c => c.status === 'active') ?? null);
+	const nextNumber = $derived(cycles.length > 0 ? Math.max(...cycles.map(c => c.number)) + 1 : 1);
+	const nextUpcomingCycle = $derived(
+		cycles
+			.filter(c => c.status === 'upcoming')
+			.sort((a, b) => {
+				const aD = a.start_date ? new Date(a.start_date).getTime() : Infinity;
+				const bD = b.start_date ? new Date(b.start_date).getTime() : Infinity;
+				return aD - bD;
+			})[0] ?? null
+	);
+	const completingIncompleteCount = $derived.by(() => {
+		if (!completingCycle?.progress) return 0;
+		const { total, completed, cancelled } = completingCycle.progress;
+		return total - completed - cancelled;
+	});
 
 	const MAX_VISIBLE_COMPLETED = 5;
 
@@ -77,8 +98,12 @@
 		const t = teamId;
 		if (!s || !t) return;
 		loading = true;
-		listCycles(s, t).then((c) => {
+		Promise.all([
+			listCycles(s, t),
+			getCycleVelocity(s, t).catch(() => [] as VelocityPoint[])
+		]).then(([c, v]) => {
 			cycles = c;
+			velocityData = v;
 			burndownVersion++;
 		}).finally(() => {
 			loading = false;
@@ -103,7 +128,7 @@
 		});
 	});
 
-	async function handleCreate(data: { name: string; description?: string; start_date?: string; end_date?: string }) {
+	async function handleCreate(data: { name: string; description?: string; start_date: string; end_date: string }) {
 		try {
 			const cycle = await createCycle(slug, teamId, data);
 			cycles = [cycle, ...cycles];
@@ -113,11 +138,27 @@
 		}
 	}
 
-	async function handleComplete(cycleId: string) {
+	function handleComplete(cycleId: string) {
+		const cycle = cycles.find(c => c.id === cycleId);
+		if (!cycle) return;
+		completingCycle = cycle;
+		showComplete = true;
+	}
+
+	async function handleCompleteSubmit(data: { retrospective?: string; carry_over: boolean }) {
+		if (!completingCycle) return;
 		try {
-			const updated = await completeCycle(slug, teamId, cycleId);
-			cycles = cycles.map((c) => (c.id === cycleId ? updated : c));
-			toast.success('Cycle completed');
+			const result = await completeCycle(slug, teamId, completingCycle.id, {
+				retrospective: data.retrospective,
+				carry_over: data.carry_over
+			});
+			cycles = cycles.map((c) => (c.id === completingCycle!.id ? result.cycle : c));
+			if (result.carried_over_count > 0) {
+				toast.success(`Cycle completed. ${result.carried_over_count} issue${result.carried_over_count > 1 ? 's' : ''} carried over.`);
+			} else {
+				toast.success('Cycle completed');
+			}
+			burndownVersion++;
 		} catch (err: any) {
 			toast.error(err?.error?.message || 'Failed to complete cycle');
 		}
@@ -151,12 +192,14 @@
 		showEdit = true;
 	}
 
-	async function handleEditSubmit(data: { name: string; description?: string; start_date?: string; end_date?: string }) {
+	async function handleEditSubmit(data: { name: string; description?: string; goals?: string; retrospective?: string; start_date?: string; end_date?: string }) {
 		if (!editingCycle) return;
 		try {
 			const updated = await updateCycle(slug, teamId, editingCycle.id, {
 				name: data.name,
 				description: data.description,
+				goals: data.goals,
+				retrospective: data.retrospective,
 				start_date: data.start_date,
 				end_date: data.end_date
 			});
@@ -353,9 +396,34 @@
 					</div>
 				{/if}
 			</div>
+
+			<!-- Velocity chart -->
+			{#if velocityData.length > 0}
+				<div class="mt-4 px-6 pb-4">
+					<button
+						onclick={() => velocityExpanded = !velocityExpanded}
+						class="flex items-center gap-2 text-xs font-medium text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
+					>
+						<ChevronRight size={12} class="transition-transform {velocityExpanded ? 'rotate-90' : ''}" />
+						Velocity ({velocityData.length} completed cycle{velocityData.length > 1 ? 's' : ''})
+					</button>
+					{#if velocityExpanded}
+						<div class="mt-2 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-3" transition:slideFade>
+							<CycleVelocityChart data={velocityData} />
+						</div>
+					{/if}
+				</div>
+			{/if}
 		{/if}
 	</div>
 </div>
 
-<CreateCycleDialog bind:open={showCreate} onsubmit={handleCreate} />
-<EditCycleDialog bind:open={showEdit} cycle={editingCycle} onsubmit={handleEditSubmit} />
+<CreateCycleDialog bind:open={showCreate} {cycles} {nextNumber} onsubmit={handleCreate} />
+<EditCycleDialog bind:open={showEdit} cycle={editingCycle} {cycles} onsubmit={handleEditSubmit} />
+<CompleteCycleDialog
+	bind:open={showComplete}
+	cycle={completingCycle}
+	incompleteCount={completingIncompleteCount}
+	{nextUpcomingCycle}
+	onsubmit={handleCompleteSubmit}
+/>

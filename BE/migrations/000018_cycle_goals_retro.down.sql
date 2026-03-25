@@ -1,0 +1,2 @@
+ALTER TABLE cycles DROP COLUMN IF EXISTS goals;
+ALTER TABLE cycles DROP COLUMN IF EXISTS retrospective;
