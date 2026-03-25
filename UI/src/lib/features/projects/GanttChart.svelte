@@ -155,29 +155,43 @@
 		});
 
 		const cycleColors = ['#6366f1', '#8b5cf6', '#a855f7'];
-		const cycleAreas: any[] = [];
-		let cycleIdx = 0;
+		// Group overlapping cycles by date range so we merge their labels
+		const cycleGroups = new Map<string, { names: string[]; start: number; end: number }>();
 		for (const cycle of cycles) {
 			if (cycle.start_date && cycle.end_date) {
-				const cColor = cycleColors[cycleIdx % cycleColors.length];
-				cycleAreas.push([
-					{
-						xAxis: new Date(cycle.start_date).getTime(),
-						itemStyle: { color: cColor + '18', borderWidth: 1, borderType: 'dashed', borderColor: cColor + '35' },
-						label: {
-							show: true,
-							position: 'insideTop',
-							formatter: cycle.name,
-							fontSize: 10,
-							fontWeight: 500,
-							color: cColor + '99',
-							padding: [4, 8]
-						}
-					},
-					{ xAxis: new Date(cycle.end_date).getTime(), label: { show: false } }
-				]);
-				cycleIdx++;
+				const start = new Date(cycle.start_date).getTime();
+				const end = new Date(cycle.end_date).getTime();
+				const key = `${start}-${end}`;
+				const existing = cycleGroups.get(key);
+				if (existing) {
+					existing.names.push(cycle.name);
+				} else {
+					cycleGroups.set(key, { names: [cycle.name], start, end });
+				}
 			}
+		}
+		const cycleAreas: any[] = [];
+		let cycleIdx = 0;
+		for (const group of cycleGroups.values()) {
+			const cColor = cycleColors[cycleIdx % cycleColors.length];
+			const label = group.names.join(' / ');
+			cycleAreas.push([
+				{
+					xAxis: group.start,
+					itemStyle: { color: cColor + '18', borderWidth: 1, borderType: 'dashed', borderColor: cColor + '35' },
+					label: {
+						show: true,
+						position: 'insideTop',
+						formatter: label,
+						fontSize: 10,
+						fontWeight: 500,
+						color: cColor + '99',
+						padding: [4, 8]
+					}
+				},
+				{ xAxis: group.end, label: { show: false } }
+			]);
+			cycleIdx++;
 		}
 
 		const today = new Date();
