@@ -59,10 +59,10 @@
 		onupdate?: (html: string) => void;
 		onsubmit?: () => void;
 		uploadUrl?: string;
-		remoteCursors?: Array<{ name: string; color: string; position: number }>;
+		remoteCursors?: Array<{ name: string; color: string; position: number; anchor?: number }>;
 		onfocus?: () => void;
 		onblur?: () => void;
-		oncursorchange?: (position: number) => void;
+		oncursorchange?: (position: number, anchor: number) => void;
 	} = $props();
 
 	let editor = $state<Editor | null>(null);
@@ -199,7 +199,8 @@
 				onupdate?.(sanitizeEditorOutput(e.getHTML()));
 			},
 			onSelectionUpdate: ({ editor: e }) => {
-				oncursorchange?.(e.state.selection.head);
+				const { head, anchor } = e.state.selection;
+				oncursorchange?.(head, anchor);
 			},
 			onFocus: () => { isFocused = true; onFocusProp?.(); },
 			onBlur: () => { isFocused = false; onBlurProp?.(); },
@@ -236,10 +237,50 @@
 		const containerRect = container.getBoundingClientRect();
 
 		for (const rc of remoteCursors) {
-			const pos = Math.max(0, Math.min(rc.position, docSize));
-			try {
-				const coords = view.coordsAtPos(pos);
+			const headPos = Math.max(0, Math.min(rc.position, docSize));
+			const hasSelection = rc.anchor !== undefined && rc.anchor !== rc.position;
 
+			try {
+				// Render selection highlight if there's a range
+				if (hasSelection) {
+					const anchorPos = Math.max(0, Math.min(rc.anchor!, docSize));
+					const from = Math.min(headPos, anchorPos);
+					const to = Math.max(headPos, anchorPos);
+
+					// Use a native DOM Range to get per-visual-line rectangles
+					try {
+						const domFrom = view.domAtPos(from);
+						const domTo = view.domAtPos(to);
+						const range = document.createRange();
+						range.setStart(domFrom.node, domFrom.offset);
+						range.setEnd(domTo.node, domTo.offset);
+
+						const rects = range.getClientRects();
+						for (const rect of rects) {
+							if (rect.width === 0 && rect.height === 0) continue;
+							const highlight = document.createElement('div');
+							highlight.className = 'remote-cursor-selection';
+							highlight.style.cssText = `
+								position: absolute;
+								left: ${rect.left - containerRect.left}px;
+								top: ${rect.top - containerRect.top}px;
+								width: ${rect.width}px;
+								height: ${rect.height}px;
+								background: ${rc.color}20;
+								border-radius: 2px;
+								pointer-events: none;
+								z-index: 40;
+							`;
+							container.appendChild(highlight);
+							cursorElements.push(highlight);
+						}
+					} catch {
+						// DOM range creation failed, skip selection highlight
+					}
+				}
+
+				// Always render the cursor line at head position
+				const coords = view.coordsAtPos(headPos);
 				const cursor = document.createElement('div');
 				cursor.className = 'remote-cursor-widget';
 				cursor.style.cssText = `

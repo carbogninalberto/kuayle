@@ -23,6 +23,7 @@ function getColor(userId: string): string {
 export interface FocusInfo {
 	field: string; // 'title' | 'description' | 'comment-{id}' | 'reply-{id}'
 	position: number;
+	anchor?: number; // selection start (when different from position, there's an active selection)
 }
 
 export interface PresenceUser {
@@ -113,22 +114,19 @@ class PresenceState {
 		this.viewers = next;
 	}
 
-	handleFocusUpdate(payload: { issue_id: string; user_id: string; field: string; position: number }) {
+	handleFocusUpdate(payload: { issue_id: string; user_id: string; field: string; position: number; anchor?: number }) {
 		if (!this.issueId || payload.issue_id !== this.issueId) return;
 		const next = new Map(this.viewers);
+		const focus: FocusInfo = { field: payload.field, position: payload.position, anchor: payload.anchor };
 		const existing = next.get(payload.user_id);
 		if (existing) {
-			next.set(payload.user_id, {
-				...existing,
-				focus: { field: payload.field, position: payload.position },
-				last_seen: Date.now()
-			});
+			next.set(payload.user_id, { ...existing, focus, last_seen: Date.now() });
 		} else {
 			next.set(payload.user_id, {
 				user_id: payload.user_id,
 				name: this.resolveName(payload.user_id),
 				color: getColor(payload.user_id),
-				focus: { field: payload.field, position: payload.position },
+				focus,
 				last_seen: Date.now()
 			});
 		}
@@ -147,21 +145,34 @@ class PresenceState {
 
 	/** Get remote cursors for a specific field */
 	getCursorsForField(field: string): Array<{ name: string; color: string; position: number }> {
-		const result: Array<{ name: string; color: string; position: number }> = [];
+		const result: Array<{ name: string; color: string; position: number; anchor?: number }> = [];
 		const currentUserId = authState.user?.id;
 		for (const viewer of this.viewers.values()) {
 			if (viewer.user_id === currentUserId) continue;
 			if (viewer.focus?.field === field) {
-				result.push({ name: viewer.name, color: viewer.color, position: viewer.focus.position });
+				result.push({ name: viewer.name, color: viewer.color, position: viewer.focus.position, anchor: viewer.focus.anchor });
+			}
+		}
+		return result;
+	}
+
+	/** Get viewers focused on a specific field (for showing presence indicators on comments) */
+	getViewersForField(field: string): Array<{ name: string; color: string }> {
+		const result: Array<{ name: string; color: string }> = [];
+		const currentUserId = authState.user?.id;
+		for (const viewer of this.viewers.values()) {
+			if (viewer.user_id === currentUserId) continue;
+			if (viewer.focus?.field === field) {
+				result.push({ name: viewer.name, color: viewer.color });
 			}
 		}
 		return result;
 	}
 
 	/** Send focus update to other clients */
-	sendFocus(issueId: string, field: string, position: number) {
+	sendFocus(issueId: string, field: string, position: number, anchor?: number) {
 		window.dispatchEvent(new CustomEvent('ws:send', {
-			detail: { type: 'focus.update', payload: { issue_id: issueId, field, position } }
+			detail: { type: 'focus.update', payload: { issue_id: issueId, field, position, anchor } }
 		}));
 	}
 

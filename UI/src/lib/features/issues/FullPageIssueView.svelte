@@ -89,6 +89,7 @@
 		return presenceState.getCursorsForField(field);
 	}
 	const descriptionCursors = $derived(getRemoteCursors('description'));
+	const newCommentViewers = $derived(presenceState.getViewersForField('new-comment'));
 
 	onMount(async () => {
 		// Load team statuses (needed on direct navigation / refresh)
@@ -571,7 +572,7 @@
 						remoteCursors={descriptionCursors}
 						onfocus={() => presenceState.sendFocus(issue.id, 'description', 0)}
 						onblur={() => presenceState.sendFocusLeave(issue.id)}
-						oncursorchange={(pos) => presenceState.sendFocus(issue.id, 'description', pos)}
+						oncursorchange={(pos, anchor) => presenceState.sendFocus(issue.id, 'description', pos, anchor)}
 					/>
 				</div>
 
@@ -694,6 +695,7 @@
 				<!-- Comments -->
 				<div class="mt-4 space-y-3">
 					{#each comments as comment (comment.id)}
+						{@const replyViewers = presenceState.getViewersForField(`reply-${comment.id}`)}
 						<div class="rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
 							<!-- Comment header + body -->
 							<div class="group/comment p-4">
@@ -705,6 +707,15 @@
 									<span class="text-[11px] text-[var(--color-text-tertiary)]">{formatRelativeTime(comment.created_at)}</span>
 									{#if comment.resolved_at}
 										<span class="text-[11px] font-medium text-green-400">Resolved</span>
+									{/if}
+									{#if replyViewers.length > 0}
+										<span class="flex items-center gap-1 ml-1">
+											{#each replyViewers as rv (rv.name)}
+												<span class="flex items-center gap-1 text-[10px] font-medium text-white px-1.5 py-0.5 rounded-full" style="background: {rv.color};">
+													{rv.name} is typing...
+												</span>
+											{/each}
+										</span>
 									{/if}
 									<div class="ml-auto opacity-0 group-hover/comment:opacity-100 transition-opacity">
 										{#if comment.resolved_at}
@@ -762,7 +773,7 @@
 													remoteCursors={getRemoteCursors(`reply-${comment.id}`)}
 													onfocus={() => presenceState.sendFocus(issue.id, `reply-${comment.id}`, 0)}
 													onblur={() => presenceState.sendFocusLeave(issue.id)}
-													oncursorchange={(pos) => presenceState.sendFocus(issue.id, `reply-${comment.id}`, pos)}
+													oncursorchange={(pos, anchor) => presenceState.sendFocus(issue.id, `reply-${comment.id}`, pos, anchor)}
 												/>
 											{/key}
 										</div>
@@ -786,6 +797,15 @@
 					{/each}
 
 					<!-- New comment input -->
+					{#if newCommentViewers.length > 0}
+						<div class="flex items-center gap-1.5 px-1">
+							{#each newCommentViewers as nv (nv.name)}
+								<span class="flex items-center gap-1 text-[10px] font-medium text-white px-1.5 py-0.5 rounded-full" style="background: {nv.color};">
+									{nv.name} is typing...
+								</span>
+							{/each}
+						</div>
+					{/if}
 					<div class="flex items-end gap-1.5 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)] focus-within:border-[var(--color-text-tertiary)] transition-colors p-3">
 						<div class="min-w-0 flex-1 my-auto">
 							{#key commentVersion}
@@ -801,7 +821,7 @@
 								remoteCursors={getRemoteCursors('new-comment')}
 								onfocus={() => presenceState.sendFocus(issue.id, 'new-comment', 0)}
 								onblur={() => presenceState.sendFocusLeave(issue.id)}
-								oncursorchange={(pos) => presenceState.sendFocus(issue.id, 'new-comment', pos)}
+								oncursorchange={(pos, anchor) => presenceState.sendFocus(issue.id, 'new-comment', pos, anchor)}
 							/>
 							{/key}
 						</div>
