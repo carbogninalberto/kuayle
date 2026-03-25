@@ -233,31 +233,42 @@
 					{@const prevStartDate = prevCycle?.start_date?.slice(0, 10) ?? ''}
 					{@const thisEndDate = cycle.end_date?.slice(0, 10) ?? ''}
 					{@const collapseTop = prevStartDate !== '' && thisEndDate !== '' && prevStartDate === thisEndDate}
+					{@const today = new Date().toISOString().slice(0, 10)}
+					{@const startPassed = cycle.start_date ? cycle.start_date.slice(0, 10) <= today : false}
+					{@const endPassed = cycle.end_date ? cycle.end_date.slice(0, 10) <= today : false}
 					<div class="relative flex">
 						<!-- Timeline spine -->
 						<div class="relative shrink-0 pl-5" style="width: 76px;">
 							<!-- Continuous vertical line -->
-							<div class="absolute top-0 bottom-0 right-[3.25px] {lineColor}" style="width: 1.5px;"></div>
+							<div class="absolute right-[3.25px] {lineColor}" style="width: 1.5px; top: 0; bottom: 4px;"></div>
 							<div class="relative flex h-full flex-col items-end">
 								<!-- End date + dot (top = most recent) — hidden if collapsed with prev -->
 								{#if dates.end && !collapseTop}
-									<div class="flex w-full items-start gap-2">
+									<div class="relative z-10 flex w-full items-start gap-2">
 										<div class="flex-1 text-right text-[11px] leading-tight text-[var(--color-text-tertiary)] opacity-50">
 											<div>{dates.end.month}</div>
 											<div class="pl-1">{dates.end.day}</div>
 										</div>
-										<div class="mt-0.5 h-2 w-2 shrink-0 rounded-full border-[1.5px] border-[var(--color-text-tertiary)] bg-[var(--color-bg)] opacity-60"></div>
+										{#if endPassed}
+											<div class="mt-0.5 h-2 w-2 shrink-0 rounded-full {isActive ? 'bg-[var(--app-accent)]' : 'bg-[var(--color-text-tertiary)] opacity-60'}"></div>
+										{:else}
+											<div class="mt-0.5 h-2 w-2 shrink-0 rounded-full border-2 {isActive ? 'border-[var(--app-accent)]' : 'border-[var(--color-text-tertiary)]'} bg-[var(--color-bg)] {isActive ? '' : 'opacity-60'}"></div>
+										{/if}
 									</div>
 								{/if}
 								<div class="flex-1 min-h-3"></div>
 								<!-- Start date + dot (bottom = oldest) -->
 								{#if dates.start}
-									<div class="flex w-full items-end gap-2">
+									<div class="relative z-10 flex w-full items-end gap-2">
 										<div class="flex-1 text-right text-[11px] leading-tight text-[var(--color-text-tertiary)] opacity-50">
 											<div>{dates.start.month}</div>
 											<div class="pl-1">{dates.start.day}</div>
 										</div>
-										<div class="mb-0.5 h-2 w-2 shrink-0 rounded-full {isActive ? 'bg-[var(--app-accent)]' : 'bg-[var(--color-text-tertiary)]'} opacity-60"></div>
+										{#if startPassed}
+											<div class="mb-0.5 h-2 w-2 shrink-0 rounded-full {isActive ? 'bg-[var(--app-accent)]' : 'bg-[var(--color-text-tertiary)] opacity-60'}"></div>
+										{:else}
+											<div class="mb-0.5 h-2 w-2 shrink-0 rounded-full border-2 {isActive ? 'border-[var(--app-accent)]' : 'border-[var(--color-text-tertiary)]'} bg-[var(--color-bg)] {isActive ? '' : 'opacity-60'}"></div>
+										{/if}
 									</div>
 								{/if}
 							</div>
