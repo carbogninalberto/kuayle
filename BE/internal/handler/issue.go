@@ -536,7 +536,6 @@ func toIssueResponse(issue domain.Issue) dto.IssueResponse {
 		Priority:    int(issue.Priority),
 		TeamID:      issue.TeamID.String(),
 		CreatorID:   issue.CreatorID.String(),
-		Estimate:    issue.Estimate,
 		DueDate:     issue.DueDate,
 		SortOrder:   issue.SortOrder,
 		CreatedAt:   issue.CreatedAt,

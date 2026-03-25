@@ -1,0 +1,2 @@
+ALTER TABLE issues DROP COLUMN IF EXISTS estimate;
+ALTER TABLE teams DROP COLUMN IF EXISTS estimate_scale;

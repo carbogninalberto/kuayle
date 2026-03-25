@@ -1,0 +1,2 @@
+ALTER TABLE issues ADD COLUMN estimate INT;
+ALTER TABLE teams ADD COLUMN estimate_scale VARCHAR(20) NOT NULL DEFAULT 'linear';

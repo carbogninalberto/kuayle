@@ -27,7 +27,6 @@ export interface Issue {
 	creator_id: string;
 	assignee_id: string | null;
 	parent_id: string | null;
-	estimate: number | null;
 	due_date: string | null;
 	sort_order: number;
 	labels?: Label[];
@@ -52,7 +51,6 @@ export interface CreateIssueRequest {
 	assignee_ids?: string[];
 	label_ids?: string[];
 	parent_id?: string;
-	estimate?: number;
 	due_date?: string;
 	cycle_id?: string;
 }
@@ -69,7 +67,6 @@ export interface UpdateIssueRequest {
 	cycle_id?: string;
 	label_ids?: string[];
 	parent_id?: string;
-	estimate?: number;
 	due_date?: string;
 	sort_order?: number;
 }
@@ -106,7 +103,6 @@ export interface IssueTemplate {
 	priority: IssuePriority;
 	label_ids: string[];
 	assignee_id: string | null;
-	estimate: number | null;
 	created_at: string;
 	updated_at: string;
 }
@@ -120,7 +116,6 @@ export interface CreateIssueTemplateRequest {
 	priority?: IssuePriority;
 	label_ids?: string[];
 	assignee_id?: string;
-	estimate?: number;
 }
 
 export interface Comment {

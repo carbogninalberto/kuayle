@@ -14,7 +14,6 @@ type Team struct {
 	Description    *string   `json:"description" db:"description"`
 	Color          *string   `json:"color" db:"color"`
 	Icon           *string   `json:"icon" db:"icon"`
-	EstimateScale  string    `json:"estimate_scale" db:"estimate_scale"`
 	TriageEnabled  bool      `json:"triage_enabled" db:"triage_enabled"`
 	CreatedAt      time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at" db:"updated_at"`

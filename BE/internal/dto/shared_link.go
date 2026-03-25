@@ -62,7 +62,6 @@ type PublicIssueResponse struct {
 	Labels      []LabelResponse       `json:"labels,omitempty"`
 	Assignees   []PublicUserResponse  `json:"assignees,omitempty"`
 	DueDate     *time.Time            `json:"due_date,omitempty"`
-	Estimate    *int                  `json:"estimate,omitempty"`
 	CreatedAt   time.Time             `json:"created_at"`
 	UpdatedAt   time.Time             `json:"updated_at"`
 }

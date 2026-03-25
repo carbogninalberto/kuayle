@@ -181,18 +181,6 @@
 					</Tooltip.Root>
 				{/if}
 
-				<!-- Estimate -->
-				{#if issue.estimate != null}
-					<Tooltip.Root>
-						<Tooltip.Trigger>
-							<span class="rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-2 py-1 text-xs text-[var(--color-text-secondary)]">
-								{issue.estimate}pt
-							</span>
-						</Tooltip.Trigger>
-						<Tooltip.Content>Estimate</Tooltip.Content>
-					</Tooltip.Root>
-				{/if}
-
 				<!-- Labels -->
 				{#if issue.labels && issue.labels.length > 0}
 					{#each issue.labels.slice(0, 3) as label}

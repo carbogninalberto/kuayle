@@ -24,7 +24,7 @@
 		ChevronUp, ChevronDown, ChevronRight, Plus, CalendarDays, X,
 		Copy, Link as LinkIcon, GitBranch, SquareMousePointer,
 		CircleDot, ArrowUpCircle, UserCircle, FolderKanban, Pencil, Layers,
-		Tag, Gauge, RefreshCw, ArrowUp, Paperclip, MoreHorizontal, Check,
+		Tag, RefreshCw, ArrowUp, Paperclip, MoreHorizontal, Check,
 		Trash2, CornerDownRight
 	} from 'lucide-svelte';
 	import { listCycles } from '$lib/api/cycles';
@@ -64,7 +64,6 @@
 	let labelsOpen = $state(false);
 	let cycles = $state<Cycle[]>([]);
 	let cycleOpen = $state(false);
-	let estimateOpen = $state(false);
 	let projectOpen = $state(false);
 	let loaded = $state(false);
 	let showAllActivity = $state(false);
@@ -157,8 +156,6 @@
 				const c = cycles.find(c => c.id === value);
 				return c ? c.name : '-';
 			}
-			case 'estimate':
-				return value ? `${value} pts` : '-';
 			case 'due_date':
 				return value || '-';
 			case 'labels':
@@ -184,7 +181,6 @@
 			case 'title': case 'description': return Pencil;
 			case 'due_date': return CalendarDays;
 			case 'labels': return Tag;
-			case 'estimate': return Gauge;
 			case 'project': return FolderKanban;
 			case 'cycle': return RefreshCw;
 			default: return CircleDot;
@@ -198,7 +194,6 @@
 			case 'assignee_id': return 'text-purple-400';
 			case 'due_date': return 'text-red-400';
 			case 'labels': return 'text-teal-400';
-			case 'estimate': return 'text-green-400';
 			case 'project': return 'text-indigo-400';
 			case 'cycle': return 'text-cyan-400';
 			case 'title': case 'description': return 'text-[var(--color-text-tertiary)]';
@@ -367,7 +362,7 @@
 	let currentIndex = $derived(issuesState.issues.findIndex(i => i.identifier === issue.identifier));
 </script>
 
-<div class="flex h-full flex-col animate-in fade-in duration-150">
+<div class="flex h-full flex-col">
 	<!-- Top bar — matches sidebar h-[49px] -->
 	<div class="flex h-[49px] items-center justify-between border-b border-[var(--app-border)] px-4">
 		<div class="flex items-center gap-1.5 text-xs">
@@ -842,33 +837,6 @@
 							/>
 						</div>
 
-						<!-- Estimate row -->
-						<div class="flex items-center gap-3 rounded-md px-2 py-1.5 hover:bg-[var(--color-bg-hover)] transition-colors">
-							<span class="w-20 shrink-0 text-xs text-[var(--color-text-tertiary)]">Estimate</span>
-							<Popover.Root bind:open={estimateOpen}>
-								<Popover.Trigger>
-									<button class="text-sm {issue.estimate !== null && issue.estimate !== undefined ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-tertiary)]'}">
-										{issue.estimate !== null && issue.estimate !== undefined ? `${issue.estimate} pts` : 'Set estimate'}
-									</button>
-								</Popover.Trigger>
-								<Popover.Content class="w-28 p-1" align="start">
-									<button
-										onclick={() => { updateField('estimate', -1); estimateOpen = false; }}
-										class="flex w-full items-center rounded px-2 py-1.5 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
-									>
-										Clear
-									</button>
-									{#each [0, 1, 2, 3, 5, 8, 13, 21] as est}
-										<button
-											onclick={() => { updateField('estimate', est); estimateOpen = false; }}
-											class="flex w-full items-center rounded px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {issue.estimate === est ? 'bg-[var(--color-bg-hover)]' : ''}"
-										>
-											{est}
-										</button>
-									{/each}
-								</Popover.Content>
-							</Popover.Root>
-						</div>
 					</div>
 				{/if}
 			</div>

@@ -97,9 +97,6 @@ func (s *TeamService) Update(ctx context.Context, id uuid.UUID, req dto.UpdateTe
 	if req.Icon != nil {
 		team.Icon = req.Icon
 	}
-	if req.EstimateScale != nil {
-		team.EstimateScale = *req.EstimateScale
-	}
 	if req.TriageEnabled != nil {
 		team.TriageEnabled = *req.TriageEnabled
 	}

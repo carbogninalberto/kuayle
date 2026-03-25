@@ -58,7 +58,6 @@ export interface PublicIssue {
 	labels?: Label[];
 	assignees?: PublicUser[];
 	due_date?: string;
-	estimate?: number;
 	created_at: string;
 	updated_at: string;
 }

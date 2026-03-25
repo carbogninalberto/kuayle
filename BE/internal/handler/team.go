@@ -92,7 +92,6 @@ func toTeamResponse(t domain.Team) dto.TeamResponse {
 		Description:   t.Description,
 		Color:         t.Color,
 		Icon:          t.Icon,
-		EstimateScale: t.EstimateScale,
 		TriageEnabled: t.TriageEnabled,
 		CreatedAt:     t.CreatedAt,
 		UpdatedAt:     t.UpdatedAt,

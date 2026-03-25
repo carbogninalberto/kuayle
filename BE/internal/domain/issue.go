@@ -42,7 +42,6 @@ type Issue struct {
 	CreatorID      uuid.UUID     `json:"creator_id" db:"creator_id"`
 	AssigneeID     *uuid.UUID    `json:"assignee_id" db:"assignee_id"`
 	ParentID       *uuid.UUID    `json:"parent_id" db:"parent_id"`
-	Estimate       *int          `json:"estimate" db:"estimate"`
 	DueDate        *time.Time    `json:"due_date" db:"due_date"`
 	SortOrder      float64       `json:"sort_order" db:"sort_order"`
 	StatusID       *uuid.UUID    `json:"status_id" db:"status_id"`

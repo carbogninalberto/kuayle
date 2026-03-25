@@ -15,7 +15,6 @@ type UpdateTeamRequest struct {
 	Description   *string `json:"description"`
 	Color         *string `json:"color"`
 	Icon          *string `json:"icon"`
-	EstimateScale *string `json:"estimate_scale" validate:"omitempty,oneof=linear exponential fibonacci tshirt"`
 	TriageEnabled *bool   `json:"triage_enabled"`
 }
 
@@ -26,7 +25,6 @@ type TeamResponse struct {
 	Description   *string   `json:"description"`
 	Color         *string   `json:"color"`
 	Icon          *string   `json:"icon"`
-	EstimateScale string    `json:"estimate_scale"`
 	TriageEnabled bool      `json:"triage_enabled"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`

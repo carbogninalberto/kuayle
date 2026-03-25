@@ -220,17 +220,6 @@
 			</ContextMenu.Sub>
 		{/if}
 
-		<!-- Estimate submenu -->
-		<ContextMenu.Sub>
-			<ContextMenu.SubTrigger>Estimate</ContextMenu.SubTrigger>
-			<ContextMenu.SubContent class="w-28">
-				<ContextMenu.Item onclick={() => updateField('estimate', -1)}>Clear</ContextMenu.Item>
-				{#each [0, 1, 2, 3, 5, 8, 13, 21] as est}
-					<ContextMenu.Item onclick={() => updateField('estimate', est)}>{est}</ContextMenu.Item>
-				{/each}
-			</ContextMenu.SubContent>
-		</ContextMenu.Sub>
-
 		<!-- Relation submenu -->
 		<ContextMenu.Sub>
 			<ContextMenu.SubTrigger>Relation</ContextMenu.SubTrigger>

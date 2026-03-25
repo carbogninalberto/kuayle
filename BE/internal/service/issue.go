@@ -99,7 +99,6 @@ func (s *IssueService) Create(ctx context.Context, workspaceID, creatorID uuid.U
 		pid, _ := uuid.Parse(*req.ParentID)
 		issue.ParentID = &pid
 	}
-	issue.Estimate = req.Estimate
 	if req.DueDate != nil && *req.DueDate != "" {
 		t, err := time.Parse("2006-01-02", *req.DueDate)
 		if err == nil {
@@ -299,25 +298,6 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 		} else {
 			pid, _ := uuid.Parse(*req.ParentID)
 			issue.ParentID = &pid
-		}
-	}
-	if req.Estimate != nil {
-		oldVal := ""
-		if issue.Estimate != nil {
-			oldVal = fmt.Sprintf("%d", *issue.Estimate)
-		}
-		if *req.Estimate < 0 {
-			// Sentinel value: negative means clear the estimate
-			issue.Estimate = nil
-		} else {
-			issue.Estimate = req.Estimate
-		}
-		newVal := ""
-		if issue.Estimate != nil {
-			newVal = fmt.Sprintf("%d", *issue.Estimate)
-		}
-		if oldVal != newVal {
-			s.recordHistory(ctx, issue.ID, userID, "estimate", &oldVal, &newVal)
 		}
 	}
 	if req.DueDate != nil {
