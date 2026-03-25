@@ -168,6 +168,7 @@
 		const todayInRange = today >= dateRange.min && today <= dateRange.max;
 
 		chart.setOption({
+			animation: false,
 			backgroundColor: 'transparent',
 			grid: {
 				left: 12,
@@ -230,9 +231,10 @@
 					type: 'inside',
 					xAxisIndex: 0,
 					filterMode: 'none',
-					zoomOnMouseWheel: true,
-					moveOnMouseMove: true,
-					moveOnMouseWheel: false
+					zoomOnMouseWheel: 'shift',
+					moveOnMouseMove: false,
+					moveOnMouseWheel: true,
+					preventDefaultMouseMove: false
 				},
 				{
 					type: 'slider',
@@ -286,41 +288,43 @@
 
 						if (!rectShape) return;
 
-						const issue = sortedIssues[categoryIndex];
-						const title = issue?.title ?? '';
+						// Only add text label if bar is wide enough
+						const minTextWidth = 36;
+						if (rectShape.width >= minTextWidth && hasDue) {
+							const issue = sortedIssues[categoryIndex];
+							const title = issue?.title ?? '';
+							const maxChars = Math.floor((rectShape.width - 12) / 6);
 
-						// Estimate how many chars fit inside the bar
-						const charWidth = 6;
-						const padding = 12;
-						const availableWidth = rectShape.width - padding;
-						const maxChars = Math.floor(availableWidth / charWidth);
-
-						const children: any[] = [
-							{
-								type: 'rect',
-								shape: { ...rectShape, r: 3 },
-								style: api.style()
-							}
-						];
-
-						if (maxChars >= 4 && hasDue) {
-							const label = truncateText(title, maxChars);
-							children.push({
-								type: 'text',
-								style: {
-									text: label,
-									x: rectShape.x + 6,
-									y: rectShape.y + barHeight / 2,
-									textVerticalAlign: 'middle',
-									fill: '#fff',
-									fontSize: 10,
-									fontWeight: 500,
-									opacity: 0.9
-								}
-							});
+							return {
+								type: 'group',
+								children: [
+									{
+										type: 'rect',
+										shape: { ...rectShape, r: 3 },
+										style: api.style()
+									},
+									{
+										type: 'text',
+										style: {
+											text: truncateText(title, maxChars),
+											x: rectShape.x + 6,
+											y: rectShape.y + barHeight / 2,
+											textVerticalAlign: 'middle',
+											fill: '#fff',
+											fontSize: 10,
+											fontWeight: 500,
+											opacity: 0.9
+										}
+									}
+								]
+							};
 						}
 
-						return { type: 'group', children };
+						return {
+							type: 'rect',
+							shape: { ...rectShape, r: 3 },
+							style: api.style()
+						};
 					},
 					data: issueData,
 					encode: {
