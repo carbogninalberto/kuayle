@@ -14,7 +14,6 @@
 
 	$effect(() => {
 		if (identifier && slug) {
-			issue = null;
 			getIssue(slug, identifier).then((i) => {
 				issue = i;
 				// Load team issues for prev/next navigation if not already loaded
