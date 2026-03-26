@@ -12,6 +12,7 @@
 		trigger,
 		width = 'w-40',
 		align = 'start' as 'start' | 'center' | 'end',
+		shortcutKey,
 	}: {
 		open?: boolean;
 		value: IssuePriority;
@@ -19,12 +20,13 @@
 		trigger: Snippet;
 		width?: string;
 		align?: 'start' | 'center' | 'end';
+		shortcutKey?: string;
 	} = $props();
 
 	const priorityValues: IssuePriority[] = [0, 1, 2, 3, 4];
 </script>
 
-<ComboboxPopover bind:open showSearch={false} {width} {align} {trigger}>
+<ComboboxPopover bind:open showSearch={false} {width} {align} {shortcutKey} {trigger}>
 	{#each priorityValues as p (p)}
 		<Command.Item
 			value={PRIORITY_LABELS[p]}

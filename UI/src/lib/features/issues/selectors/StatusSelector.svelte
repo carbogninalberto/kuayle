@@ -13,6 +13,7 @@
 		trigger,
 		width = 'w-44',
 		align = 'start' as 'start' | 'center' | 'end',
+		shortcutKey,
 	}: {
 		open?: boolean;
 		statuses: TeamStatus[];
@@ -21,10 +22,11 @@
 		trigger: Snippet;
 		width?: string;
 		align?: 'start' | 'center' | 'end';
+		shortcutKey?: string;
 	} = $props();
 </script>
 
-<ComboboxPopover bind:open placeholder="Search statuses..." {width} {align} {trigger}>
+<ComboboxPopover bind:open placeholder="Search statuses..." {width} {align} {shortcutKey} {trigger}>
 	{#each statuses as ts (ts.id)}
 		<Command.Item
 			value={ts.name}

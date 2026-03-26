@@ -12,6 +12,7 @@
 		trigger,
 		width = 'w-48',
 		align = 'start' as 'start' | 'center' | 'end',
+		shortcutKey,
 	}: {
 		open?: boolean;
 		teams: Team[];
@@ -20,10 +21,11 @@
 		trigger: Snippet;
 		width?: string;
 		align?: 'start' | 'center' | 'end';
+		shortcutKey?: string;
 	} = $props();
 </script>
 
-<ComboboxPopover bind:open placeholder="Search teams..." {width} {align} {trigger}>
+<ComboboxPopover bind:open placeholder="Search teams..." {width} {align} {shortcutKey} {trigger}>
 	{#each teams as team (team.id)}
 		<Command.Item
 			value={team.name}

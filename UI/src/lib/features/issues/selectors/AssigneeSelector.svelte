@@ -13,6 +13,7 @@
 		trigger,
 		width = 'w-48',
 		align = 'start' as 'start' | 'center' | 'end',
+		shortcutKey,
 	}: {
 		open?: boolean;
 		members: WorkspaceMember[];
@@ -21,10 +22,11 @@
 		trigger: Snippet;
 		width?: string;
 		align?: 'start' | 'center' | 'end';
+		shortcutKey?: string;
 	} = $props();
 </script>
 
-<ComboboxPopover bind:open placeholder="Search members..." emptyMessage="No members." {width} {align} {trigger}>
+<ComboboxPopover bind:open placeholder="Search members..." emptyMessage="No members." {width} {align} {shortcutKey} {trigger}>
 	{#each members as member (member.user_id)}
 		{@const isAssigned = value.includes(member.user_id)}
 		<Command.Item

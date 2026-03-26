@@ -895,6 +895,7 @@
 								statuses={teamStatusesState.statusOrder}
 								value={issue.status_id}
 								onchange={(id) => updateField('status_id', id)}
+								shortcutKey="S"
 							>
 								{#snippet trigger()}
 									<button class="flex items-center gap-1.5 text-sm text-[var(--color-text-primary)]">
@@ -912,6 +913,7 @@
 								bind:open={priorityOpen}
 								value={issue.priority}
 								onchange={(p) => updateField('priority', p)}
+								shortcutKey="P"
 							>
 								{#snippet trigger()}
 									<button class="flex items-center gap-1.5 text-sm text-[var(--color-text-primary)]">
@@ -949,6 +951,7 @@
 									bind:open={assigneeOpen}
 									{members}
 									value={(issue.assignees ?? []).map(a => a.id)}
+									shortcutKey="A"
 									onchange={async (userId) => {
 										const currentIds = (issue.assignees ?? []).map(a => a.id);
 										const newIds = currentIds.includes(userId)
@@ -1008,6 +1011,7 @@
 								bind:open={labelsOpen}
 								{labels}
 								value={(issue.labels ?? []).map(l => l.id)}
+								shortcutKey="L"
 								onchange={async (labelId) => {
 									const currentIds = (issue.labels ?? []).map(l => l.id);
 									const newIds = currentIds.includes(labelId)

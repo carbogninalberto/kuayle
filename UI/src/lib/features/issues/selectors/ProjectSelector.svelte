@@ -14,6 +14,7 @@
 		showNone = true,
 		width = 'w-48',
 		align = 'start' as 'start' | 'center' | 'end',
+		shortcutKey,
 	}: {
 		open?: boolean;
 		projects: Project[];
@@ -23,10 +24,11 @@
 		showNone?: boolean;
 		width?: string;
 		align?: 'start' | 'center' | 'end';
+		shortcutKey?: string;
 	} = $props();
 </script>
 
-<ComboboxPopover bind:open placeholder="Search projects..." emptyMessage="No projects." {width} {align} {trigger}>
+<ComboboxPopover bind:open placeholder="Search projects..." emptyMessage="No projects." {width} {align} {shortcutKey} {trigger}>
 	{#if showNone}
 		<Command.Item
 			value="No project"
