@@ -787,10 +787,47 @@
 	:global(.rich-editor .tiptap ul[data-type="taskList"] li) {
 		display: flex;
 		align-items: flex-start;
-		gap: 0.5rem;
+		gap: 0.25rem;
+		margin-bottom: 0.35rem;
 	}
-	:global(.rich-editor .tiptap ul[data-type="taskList"] li input) {
-		margin-top: 0.25rem;
+	:global(.rich-editor .tiptap ul[data-type="taskList"] li label) {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.2rem;
+	}
+
+	:global(.rich-editor .tiptap ul[data-type="taskList"] li input[type="checkbox"]) {
+		appearance: none;
+		-webkit-appearance: none;
+		width: 15px;
+		height: 15px;
+		min-width: 15px;
+		margin-top: 3px;
+		border: 1.5px solid var(--app-border);
+		border-radius: 3px;
+		background: transparent;
+		cursor: pointer;
+		position: relative;
+		transition: background-color 0.15s, border-color 0.15s;
+	}
+
+	:global(.rich-editor .tiptap ul[data-type="taskList"] li input[type="checkbox"]:checked) {
+		background: var(--app-accent);
+		border-color: var(--app-accent);
+	}
+
+	:global(.rich-editor .tiptap ul[data-type="taskList"] li input[type="checkbox"]:checked::after) {
+		content: '';
+		position: absolute;
+		inset: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center/13px no-repeat;
+	}
+
+	:global(.rich-editor .tiptap ul[data-type="taskList"] li input[type="checkbox"]:hover) {
+		border-color: var(--app-accent);
 	}
 	:global(.rich-editor .tiptap code) {
 		background: var(--color-bg-tertiary);
