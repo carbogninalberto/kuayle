@@ -15,6 +15,13 @@ type Config struct {
 	FrontendURL string `envconfig:"FRONTEND_URL" default:"http://localhost:5173"`
 	Environment string         `envconfig:"ENVIRONMENT" default:"development"`
 	Storage     storage.Config
+
+	// GitHub App integration (optional — disabled when GitHubAppID is 0)
+	GitHubAppID         int64  `envconfig:"GITHUB_APP_ID"`
+	GitHubAppPrivateKey string `envconfig:"GITHUB_APP_PRIVATE_KEY"` // PEM base64-encoded
+	GitHubClientID      string `envconfig:"GITHUB_CLIENT_ID"`
+	GitHubClientSecret  string `envconfig:"GITHUB_CLIENT_SECRET"`
+	GitHubWebhookSecret string `envconfig:"GITHUB_WEBHOOK_SECRET"`
 }
 
 func Load() (*Config, error) {

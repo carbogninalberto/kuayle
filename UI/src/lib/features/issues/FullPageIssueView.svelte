@@ -31,6 +31,7 @@
 	import type { Cycle } from '$lib/types/cycle';
 	import IssueRelations from './IssueRelations.svelte';
 	import SubIssuesList from './SubIssuesList.svelte';
+	import IssueGitHubActivity from './IssueGitHubActivity.svelte';
 	import { goto } from '$app/navigation';
 	import { sanitizeHtml } from '$lib/security/sanitize';
 	import { presenceState } from '$lib/features/presence/presence.state.svelte';
@@ -610,6 +611,11 @@
 				<!-- Relations -->
 				<div class="mt-4">
 					<IssueRelations {slug} identifier={issue.identifier} />
+				</div>
+
+				<!-- GitHub Activity -->
+				<div class="mt-4">
+					<IssueGitHubActivity {slug} identifier={issue.identifier} />
 				</div>
 
 				<!-- Activity -->

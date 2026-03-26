@@ -185,6 +185,32 @@ type SharedLinkRepo interface {
 	Delete(ctx context.Context, id uuid.UUID) error
 }
 
+type GitHubRepo interface {
+	CreateInstallation(ctx context.Context, inst *domain.GitHubInstallation) error
+	GetInstallationByWorkspace(ctx context.Context, workspaceID uuid.UUID) (*domain.GitHubInstallation, error)
+	GetInstallationByGitHubID(ctx context.Context, installationID int64) (*domain.GitHubInstallation, error)
+	UpdateInstallationToken(ctx context.Context, id uuid.UUID, token string, expiresAt *time.Time) error
+	DeleteInstallation(ctx context.Context, workspaceID uuid.UUID) error
+
+	CreateRepo(ctx context.Context, repo *domain.GitHubRepoModel) error
+	ListReposByWorkspace(ctx context.Context, workspaceID uuid.UUID) ([]domain.GitHubRepoModel, error)
+	GetRepoByGitHubID(ctx context.Context, workspaceID uuid.UUID, githubRepoID int64) (*domain.GitHubRepoModel, error)
+	DeleteRepo(ctx context.Context, id uuid.UUID) error
+
+	UpsertPullRequest(ctx context.Context, pr *domain.GitHubPullRequest) error
+	ListPRsWithRepoByIssue(ctx context.Context, issueID uuid.UUID) ([]PRWithRepo, error)
+
+	UpsertBranch(ctx context.Context, b *domain.GitHubBranch) error
+	ListBranchesWithRepoByIssue(ctx context.Context, issueID uuid.UUID) ([]BranchWithRepo, error)
+
+	UpsertCommit(ctx context.Context, c *domain.GitHubCommit) error
+	ListCommitsWithRepoByIssue(ctx context.Context, issueID uuid.UUID) ([]CommitWithRepo, error)
+
+	UpsertAutoTransition(ctx context.Context, t *domain.GitHubAutoTransition) error
+	ListAutoTransitions(ctx context.Context, workspaceID uuid.UUID) ([]domain.GitHubAutoTransition, error)
+	GetAutoTransitionByEvent(ctx context.Context, workspaceID uuid.UUID, event string) (*domain.GitHubAutoTransition, error)
+}
+
 type IssueTemplateRepo interface {
 	Create(ctx context.Context, tmpl *domain.IssueTemplate) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.IssueTemplate, error)
