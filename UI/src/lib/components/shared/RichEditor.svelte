@@ -37,7 +37,7 @@
 	import { createSlashCommandExtension } from './slash-command/slash-command.extension';
 	import { filterSlashItems, flatFilteredItems, type SlashMenuItem } from './slash-command/slash-items';
 	import SlashCommandMenu from './slash-command/SlashCommandMenu.svelte';
-	import { MentionNode, createMentionPlugin, type MentionUser } from './mention/mention.extension';
+	import { MentionNode, createMentionPlugin, type MentionItem } from './mention/mention.extension';
 	import MentionList from './mention/MentionList.svelte';
 
 	let {
@@ -53,6 +53,7 @@
 		onsubmit,
 		uploadUrl,
 		members = [],
+		issues = [],
 		remoteCursors,
 		onfocus: onFocusProp,
 		onblur: onBlurProp,
@@ -71,6 +72,7 @@
 		onsubmit?: () => void;
 		uploadUrl?: string;
 		members?: Array<{ user_id: string; name: string; email: string }>;
+		issues?: Array<{ id: string; identifier: string; title: string }>;
 		remoteCursors?: Array<{ name: string; color: string; position: number; anchor?: number }>;
 		onfocus?: () => void;
 		onblur?: () => void;
@@ -101,13 +103,21 @@
 	let mentionSelectedIndex = $state(0);
 	let mentionRange = $state<{ from: number; to: number } | null>(null);
 
-	const mentionFilteredUsers: MentionUser[] = $derived.by(() => {
+	const mentionFilteredItems: MentionItem[] = $derived.by(() => {
 		const q = mentionQuery.toLowerCase();
-		const mapped = members.map((m) => ({ id: m.user_id, name: m.name, email: m.email }));
-		if (!q) return mapped.slice(0, 10);
-		return mapped.filter(
+		const userItems = members.map((m) => ({ kind: 'user' as const, id: m.user_id, name: m.name, email: m.email }));
+		const issueItems = issues.map((i) => ({ kind: 'issue' as const, id: i.id, identifier: i.identifier, title: i.title }));
+
+		if (!q) return [...userItems.slice(0, 6), ...issueItems.slice(0, 4)];
+
+		const filteredUsers = userItems.filter(
 			(u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)
-		).slice(0, 10);
+		).slice(0, 6);
+		const filteredIssues = issueItems.filter(
+			(i) => i.identifier.toLowerCase().includes(q) || i.title.toLowerCase().includes(q)
+		).slice(0, 4);
+
+		return [...filteredUsers, ...filteredIssues];
 	});
 
 	const lowlight = createLowlight(common);
@@ -221,7 +231,7 @@
 				if (state.active) mentionSelectedIndex = 0;
 			},
 			onNavigate(direction) {
-				const total = mentionFilteredUsers.length;
+				const total = mentionFilteredItems.length;
 				if (total === 0) return;
 				if (direction === 'down') {
 					mentionSelectedIndex = (mentionSelectedIndex + 1) % total;
@@ -230,7 +240,7 @@
 				}
 			},
 			onSelect() {
-				handleMentionSelect(mentionFilteredUsers[mentionSelectedIndex]);
+				handleMentionSelect(mentionFilteredItems[mentionSelectedIndex]);
 			}
 		});
 
@@ -480,14 +490,14 @@
 		slashActive = false;
 	}
 
-	function handleMentionSelect(user: MentionUser | undefined) {
-		if (!user || !editor || !mentionRange) return;
+	function handleMentionSelect(item: MentionItem | undefined) {
+		if (!item || !editor || !mentionRange) return;
+		const attrs = item.kind === 'user'
+			? { id: item.id, label: item.name || item.email, kind: 'user' }
+			: { id: item.id, label: `${item.identifier} ${item.title}`, kind: 'issue' };
 		editor.chain().focus()
 			.deleteRange({ from: mentionRange.from, to: mentionRange.to })
-			.insertContent({
-				type: 'mention',
-				attrs: { id: user.id, label: user.name || user.email }
-			})
+			.insertContent({ type: 'mention', attrs })
 			.insertContent(' ')
 			.run();
 		mentionActive = false;
@@ -617,9 +627,9 @@
 	{/if}
 
 	<!-- Mention menu -->
-	{#if mentionActive && editor && members.length > 0}
+	{#if mentionActive && editor && (members.length > 0 || issues.length > 0)}
 		<MentionList
-			users={mentionFilteredUsers}
+			items={mentionFilteredItems}
 			selectedIndex={mentionSelectedIndex}
 			position={mentionPosition}
 			onselect={handleMentionSelect}
@@ -829,5 +839,11 @@
 		font-weight: 500;
 		font-size: 0.9em;
 		white-space: nowrap;
+	}
+
+	:global(.mention-issue) {
+		background: color-mix(in srgb, var(--color-text-tertiary) 15%, transparent);
+		color: var(--color-text-secondary);
+		font-weight: 600;
 	}
 </style>

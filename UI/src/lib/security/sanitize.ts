@@ -9,7 +9,7 @@ const ALLOWED_TAGS = [
 ];
 
 const ALLOWED_ATTR = [
-	'class', 'data-type', 'data-checked', 'data-id', 'data-label',
+	'class', 'data-type', 'data-checked', 'data-id', 'data-label', 'data-kind',
 	'href', 'target', 'rel',
 	'type', 'checked', 'disabled',
 	'src', 'alt', 'width', 'height'

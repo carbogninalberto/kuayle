@@ -9,6 +9,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/middleware"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
+	log "github.com/sirupsen/logrus"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 )
@@ -38,6 +39,7 @@ func (h *NotificationHandler) List(c echo.Context) error {
 	}
 
 	if err != nil {
+		log.WithError(err).Error("failed to list notifications")
 		return response.InternalError(c)
 	}
 
@@ -126,5 +128,6 @@ func toNotifResponse(n domain.Notification) dto.NotificationResponse {
 		s := n.IssueID.String()
 		resp.IssueID = &s
 	}
+	resp.IssueIdentifier = n.IssueIdentifier
 	return resp
 }

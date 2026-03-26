@@ -7,6 +7,16 @@ export interface MentionUser {
 	email: string;
 }
 
+export interface MentionIssue {
+	id: string;
+	identifier: string;
+	title: string;
+}
+
+export type MentionItem =
+	| { kind: 'user'; id: string; name: string; email: string }
+	| { kind: 'issue'; id: string; identifier: string; title: string };
+
 export interface MentionState {
 	active: boolean;
 	query: string;
@@ -36,6 +46,11 @@ export const MentionNode = Node.create({
 				default: null,
 				parseHTML: (el: HTMLElement) => el.getAttribute('data-label'),
 				renderHTML: (attrs: Record<string, any>) => ({ 'data-label': attrs.label })
+			},
+			kind: {
+				default: 'user',
+				parseHTML: (el: HTMLElement) => el.getAttribute('data-kind') || 'user',
+				renderHTML: (attrs: Record<string, any>) => ({ 'data-kind': attrs.kind })
 			}
 		};
 	},
@@ -45,13 +60,14 @@ export const MentionNode = Node.create({
 	},
 
 	renderHTML({ node, HTMLAttributes }) {
+		const isIssue = node.attrs.kind === 'issue';
 		return [
 			'span',
 			mergeAttributes(HTMLAttributes, {
 				'data-type': 'mention',
-				class: 'mention'
+				class: isIssue ? 'mention mention-issue' : 'mention'
 			}),
-			`@${node.attrs.label}`
+			isIssue ? node.attrs.label : `@${node.attrs.label}`
 		];
 	}
 });

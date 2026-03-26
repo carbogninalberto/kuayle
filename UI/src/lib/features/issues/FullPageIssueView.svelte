@@ -576,6 +576,7 @@
 						borderless={true}
 						uploadUrl={imageUploadUrl}
 						{members}
+						issues={issuesState.issues}
 						onupdate={saveDescription}
 						remoteCursors={descriptionCursors}
 						onfocus={() => presenceState.sendFocus(issue.id, 'description', 0)}
@@ -778,6 +779,7 @@
 													bubbleMenu={true}
 													uploadUrl={imageUploadUrl}
 													{members}
+													issues={issuesState.issues}
 													onupdate={(html) => { replyContents[comment.id] = html; replyContents = replyContents; }}
 													onsubmit={() => handleReply(comment.id)}
 													remoteCursors={getRemoteCursors(`reply-${comment.id}`)}
@@ -827,6 +829,7 @@
 								bubbleMenu={true}
 								uploadUrl={imageUploadUrl}
 								{members}
+								issues={issuesState.issues}
 								onupdate={(html) => newComment = html}
 								onsubmit={handleAddComment}
 								remoteCursors={getRemoteCursors('new-comment')}

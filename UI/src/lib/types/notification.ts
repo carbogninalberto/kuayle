@@ -1,6 +1,7 @@
 export interface Notification {
 	id: string;
 	issue_id: string | null;
+	issue_identifier: string | null;
 	type: string;
 	title: string;
 	read_at: string | null;

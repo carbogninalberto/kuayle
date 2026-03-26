@@ -21,6 +21,7 @@ func init() {
 	policy.AllowAttrs("data-checked").Globally()
 	policy.AllowAttrs("data-id").Globally()
 	policy.AllowAttrs("data-label").Globally()
+	policy.AllowAttrs("data-kind").Globally()
 
 	policy.AllowAttrs("href", "target", "rel").OnElements("a")
 	policy.AllowStandardURLs()

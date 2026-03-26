@@ -30,11 +30,12 @@ func (r *NotificationRepository) GetByID(ctx context.Context, id uuid.UUID) (*do
 	return &n, nil
 }
 
+const notifSelectCols = `n.id, n.user_id, n.workspace_id, n.issue_id, n.type, n.title, n.read_at, n.snoozed_until, n.archived_at, n.created_at, i.identifier_text AS issue_identifier`
+
 func (r *NotificationRepository) ListByUser(ctx context.Context, userID uuid.UUID, limit, offset int) ([]domain.Notification, error) {
 	var notifications []domain.Notification
-	// Default list: exclude archived and currently-snoozed
 	err := r.db.SelectContext(ctx, &notifications,
-		`SELECT * FROM notifications WHERE user_id = $1 AND archived_at IS NULL AND (snoozed_until IS NULL OR snoozed_until <= NOW()) ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
+		`SELECT `+notifSelectCols+` FROM notifications n LEFT JOIN issues i ON n.issue_id = i.id WHERE n.user_id = $1 AND n.archived_at IS NULL AND (n.snoozed_until IS NULL OR n.snoozed_until <= NOW()) ORDER BY n.created_at DESC LIMIT $2 OFFSET $3`,
 		userID, limit, offset)
 	return notifications, err
 }
@@ -42,7 +43,7 @@ func (r *NotificationRepository) ListByUser(ctx context.Context, userID uuid.UUI
 func (r *NotificationRepository) ListSnoozed(ctx context.Context, userID uuid.UUID) ([]domain.Notification, error) {
 	var notifications []domain.Notification
 	err := r.db.SelectContext(ctx, &notifications,
-		`SELECT * FROM notifications WHERE user_id = $1 AND snoozed_until IS NOT NULL AND snoozed_until > NOW() AND archived_at IS NULL ORDER BY snoozed_until ASC`,
+		`SELECT `+notifSelectCols+` FROM notifications n LEFT JOIN issues i ON n.issue_id = i.id WHERE n.user_id = $1 AND n.snoozed_until IS NOT NULL AND n.snoozed_until > NOW() AND n.archived_at IS NULL ORDER BY n.snoozed_until ASC`,
 		userID)
 	return notifications, err
 }
@@ -50,7 +51,7 @@ func (r *NotificationRepository) ListSnoozed(ctx context.Context, userID uuid.UU
 func (r *NotificationRepository) ListArchived(ctx context.Context, userID uuid.UUID, limit int) ([]domain.Notification, error) {
 	var notifications []domain.Notification
 	err := r.db.SelectContext(ctx, &notifications,
-		`SELECT * FROM notifications WHERE user_id = $1 AND archived_at IS NOT NULL ORDER BY archived_at DESC LIMIT $2`,
+		`SELECT `+notifSelectCols+` FROM notifications n LEFT JOIN issues i ON n.issue_id = i.id WHERE n.user_id = $1 AND n.archived_at IS NOT NULL ORDER BY n.archived_at DESC LIMIT $2`,
 		userID, limit)
 	return notifications, err
 }

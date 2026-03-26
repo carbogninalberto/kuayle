@@ -15,6 +15,7 @@ type Notification struct {
 	Title        string     `json:"title" db:"title"`
 	ReadAt       *time.Time `json:"read_at" db:"read_at"`
 	SnoozedUntil *time.Time `json:"snoozed_until" db:"snoozed_until"`
-	ArchivedAt   *time.Time `json:"archived_at" db:"archived_at"`
-	CreatedAt    time.Time  `json:"created_at" db:"created_at"`
+	ArchivedAt       *time.Time `json:"archived_at" db:"archived_at"`
+	CreatedAt        time.Time  `json:"created_at" db:"created_at"`
+	IssueIdentifier  *string    `json:"-" db:"issue_identifier"`
 }
