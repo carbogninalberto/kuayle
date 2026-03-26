@@ -202,6 +202,102 @@ S3_SECRET_KEY=your-secret
 
 Works with AWS S3, Cloudflare R2, MinIO, SeaweedFS, and any S3-compatible provider.
 
+### GitHub Integration (optional)
+
+Kuayle can connect to GitHub via a **GitHub App** to automatically link pull requests, branches, and commits to issues, and auto-transition issue status based on PR activity.
+
+#### 1. Create a GitHub App
+
+1. Go to **GitHub → Settings → Developer settings → GitHub Apps → New GitHub App**
+2. Fill in the form:
+
+| Field | Value |
+|---|---|
+| **App name** | `Kuayle` (or any name) |
+| **Homepage URL** | Your Kuayle instance URL |
+| **Callback URL** | `https://your-domain.com/<workspace-slug>/settings/github` |
+| **Webhook URL** | `https://your-api-domain.com/api/github/webhook` |
+| **Webhook secret** | Generate a random string (save this for `.env`) |
+
+3. Set **permissions**:
+
+| Permission | Access |
+|---|---|
+| **Pull requests** | Read |
+| **Contents** | Read |
+| **Metadata** | Read |
+| **Issues** | Read (optional, for future sync) |
+
+4. Subscribe to **events**:
+   - `Pull request`
+   - `Push`
+   - `Create` (branch/tag creation)
+
+5. Set **Where can this GitHub App be installed?** to "Any account" (or "Only on this account" for private use)
+
+6. Click **Create GitHub App**
+
+#### 2. Generate a private key
+
+After creating the app:
+
+1. On the app settings page, scroll to **Private keys**
+2. Click **Generate a private key** — this downloads a `.pem` file
+3. Base64-encode it for the env var:
+
+```sh
+cat your-app-name.2024-01-01.private-key.pem | base64 -w 0
+```
+
+#### 3. Get your App credentials
+
+From the app settings page, note:
+- **App ID** (numeric, shown at the top)
+- **Client ID** (starts with `Iv1.`)
+- **Client secret** (generate one if not already created)
+
+#### 4. Configure environment variables
+
+Add these to your `.env`:
+
+```env
+GITHUB_APP_ID=123456
+GITHUB_APP_PRIVATE_KEY=LS0tLS1CRUdJTi...  # base64-encoded PEM
+GITHUB_CLIENT_ID=Iv1.abc123
+GITHUB_CLIENT_SECRET=your-client-secret
+GITHUB_WEBHOOK_SECRET=your-webhook-secret
+```
+
+Restart the backend. The integration is **disabled** when `GITHUB_APP_ID` is not set.
+
+#### 5. Connect from Kuayle
+
+1. Go to **Settings → GitHub** in your workspace
+2. Click **Connect** — this redirects to GitHub to install the app
+3. Select which repositories to grant access to
+4. After redirect back, select which repos to link in Kuayle
+5. Configure auto-transition rules (branch created → In Progress, PR opened → In Review, PR merged → Done)
+
+#### How issue linking works
+
+Kuayle matches issue identifiers (e.g. `ENG-123`) in:
+- **Branch names** — `feat/ENG-123-add-auth`
+- **PR titles** — `fix: resolve ENG-123 login bug`
+- **PR descriptions** — any mention of `ENG-123` in the body
+- **Commit messages** — `ENG-123: update schema`
+
+Matched issues automatically show linked PRs, branches, and commits on the issue detail page.
+
+#### Local development
+
+For local development, you can use [smee.io](https://smee.io) to forward GitHub webhooks to your local machine:
+
+```sh
+npx smee-client --url https://smee.io/your-channel --target http://localhost:8080/api/github/webhook
+```
+
+Set the smee URL as the webhook URL in your GitHub App settings during development.
+
 ## 📂 Project Structure
 
 ```
@@ -264,7 +360,7 @@ Alberto Carbognin, [@carbogninalberto](https://github.com/carbogninalberto)
 
 ---
 
-> 🤖 **Heads up:** this project is vibecoded. The entire codebase was built through AI-assisted development. It works, it's structured well, but expect rough edges.
+> 🤖 **Heads up:** This codebase was built through AI-assisted development under my supervision, ideas, and direction. It works, but expect some rough edges that still need smoothing.
 
 <!-- MARKDOWN LINKS & IMAGES -->
 [contributors-shield]: https://img.shields.io/github/contributors/carbogninalberto/kuayle.svg?style=for-the-badge
