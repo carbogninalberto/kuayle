@@ -32,6 +32,50 @@ I also looked at the open-source alternatives out there, but they gate core feat
 | 🔔 | **Notifications** | Inbox with snooze, read status, and archive |
 | 🔗 | **Webhooks** | Plug into external services and integrations |
 | ⚡ | **Real-time** | WebSocket-powered live updates across all connected clients |
+| 🖥️ | **Dev Machines** | On-demand, single-container development environments with agentic coding, browser, and auto work tracking |
+| 🐙 | **GitHub** | Link repos, auto-sync issues, webhook-based updates |
+| 📊 | **Analytics** | Overview dashboards and issue distribution charts |
+| 🔗 | **Public Sharing** | Token-based read-only links for issues and views |
+
+## 🤖 Dev Machines (Agentic Coding)
+
+Kuayle can spawn **on-demand, single-container development environments** on a VPS. Each machine is a disposable workspace with an IDE, agentic coding CLI, and a browser — accessible via auto-generated subdomains.
+
+> See [`TECHNICAL.md`](TECHNICAL.md) for the full specification, architecture diagrams, and API reference.
+
+### How it works
+
+```
+You (browser)
+  │
+  ├─ f8k2m9.kuayle.com         → code-server (IDE + Claude Code)
+  ├─ f8k2m9-browser.kuayle.com → Chromium (in-browser web navigation)
+  └─ f8k2m9-app.kuayle.com     → Dev server preview
+        │
+        └── All routed through Kuayle auth — no port management needed
+```
+
+1. **Kuayle spawns a container** with code-server + Claude Code CLI + Chromium + your repo
+2. **Assigns random subdomains** via wildcard DNS (`*.kuayle.com`) — no per-container port management
+3. **Authenticates** users and agents through Kuayle's session layer
+4. **Tracks all activity** (edits, commands, git ops, navigation) and feeds it back into project management
+
+### Two modes
+
+| Mode | Who | What happens |
+|---|---|---|
+| **Agent-only** | Kuayle assigns a task | Agent works autonomously, pushes results, machine tears down |
+| **Human + Agent** | Developer clicks "Open Machine" | Gets a browser link to a full IDE with agentic tools, works interactively |
+
+### Configuration
+
+Machines are configured from Kuayle's UI or via API — repo, branch, env vars, tools, and size. Configuration resolves in order: project defaults → user preferences → spawn-time overrides.
+
+| Size | CPU | Memory | Disk |
+|---|---|---|---|
+| Small | 2 cores | 4 GB | 20 GB |
+| Medium | 4 cores | 8 GB | 50 GB |
+| Large | 8 cores | 16 GB | 100 GB |
 
 ## 🛠️ Tech Stack
 
@@ -44,6 +88,11 @@ Here's what Kuayle runs on and what each piece does:
 | **Cache & Jobs** | Redis 7 | Session caching, pub/sub, and background job queue via Asynq |
 | **Frontend** | SvelteKit + Svelte 5 | SPA with TypeScript, runes-based reactivity, static adapter |
 | **UI** | Tailwind CSS + shadcn-svelte | Utility-first styling with accessible component primitives |
+| **Editor** | Tiptap v3 + Yjs | Rich text with code blocks, mentions, slash commands, task lists |
+| **Real-time** | WebSocket (nhooyr.io) | Live collaboration, presence, issue updates |
+| **Storage** | Local FS or S3-compatible | AWS S3, Cloudflare R2, MinIO, SeaweedFS |
+| **Reverse Proxy** | Caddy | Production HTTPS and routing |
+| **Dev Machines** | code-server + Claude Code + Chromium | Single-container agentic dev environments |
 | **Infra** | Docker + Docker Compose | One-command local and production deployment |
 
 ## 🚀 Quick Start
@@ -180,6 +229,7 @@ kuayle/
 │           └── utils/      # Utilities
 ├── docker-compose.yml
 ├── Makefile
+├── TECHNICAL.md            # Dev Machines specification
 └── .env.example
 ```
 
