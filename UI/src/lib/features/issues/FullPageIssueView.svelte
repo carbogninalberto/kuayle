@@ -20,6 +20,8 @@
 	import { toast } from 'svelte-sonner';
 	import * as Popover from '$lib/components/ui/popover';
 	import { Checkbox } from '$lib/components/ui/checkbox';
+	import { StatusSelector, PrioritySelector, AssigneeSelector, LabelSelector, ProjectSelector, CycleSelector } from './selectors';
+	import { createKeyboardHandler } from '$lib/utils/keyboard';
 	import {
 		ChevronUp, ChevronDown, ChevronRight, Plus, CalendarDays, X,
 		Copy, Link as LinkIcon, GitBranch, SquareMousePointer,
@@ -156,7 +158,15 @@
 	function onFocusLeaveEvent(e: Event) { presenceState.handleFocusLeave((e as CustomEvent).detail); }
 	function onReconnected() { if (loaded) presenceState.join(issue.id, members); }
 
+	const issueKeyHandler = createKeyboardHandler([
+		{ key: 's', handler: () => { statusOpen = true; } },
+		{ key: 'p', handler: () => { priorityOpen = true; } },
+		{ key: 'a', handler: () => { assigneeOpen = true; } },
+		{ key: 'l', handler: () => { labelsOpen = true; } },
+	]);
+
 	onMount(() => {
+		window.addEventListener('keydown', issueKeyHandler);
 		window.addEventListener('ws:issue-updated', onIssueUpdated);
 		window.addEventListener('ws:issue-deleted', onIssueDeleted);
 		window.addEventListener('ws:comment-created', onCommentCreated);
@@ -169,6 +179,7 @@
 	});
 
 	onDestroy(() => {
+		window.removeEventListener('keydown', issueKeyHandler);
 		presenceState.leave();
 		window.removeEventListener('ws:issue-updated', onIssueUpdated);
 		window.removeEventListener('ws:issue-deleted', onIssueDeleted);
@@ -879,49 +890,36 @@
 						<!-- Status row -->
 						<div class="flex items-center gap-3 rounded-md px-2 py-1.5 hover:bg-[var(--color-bg-hover)] transition-colors">
 							<span class="w-20 shrink-0 text-xs text-[var(--color-text-tertiary)]">Status</span>
-							<Popover.Root bind:open={statusOpen}>
-								<Popover.Trigger>
+							<StatusSelector
+								bind:open={statusOpen}
+								statuses={teamStatusesState.statusOrder}
+								value={issue.status_id}
+								onchange={(id) => updateField('status_id', id)}
+							>
+								{#snippet trigger()}
 									<button class="flex items-center gap-1.5 text-sm text-[var(--color-text-primary)]">
 										<IssueStatusIcon status={issue.status} category={issue.status_info?.category} color={issue.status_info?.color} size={14} />
 										{issue.status_info?.name ?? issue.status}
 									</button>
-								</Popover.Trigger>
-								<Popover.Content class="w-44 p-1" align="start">
-									{#each teamStatusesState.statusOrder as ts}
-										<button
-											onclick={() => { updateField('status_id', ts.id); statusOpen = false; }}
-											class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors {issue.status_id === ts.id ? 'bg-[var(--color-bg-hover)]' : ''}"
-										>
-											<IssueStatusIcon category={ts.category} color={ts.color} size={14} />
-											{ts.name}
-										</button>
-									{/each}
-								</Popover.Content>
-							</Popover.Root>
+								{/snippet}
+							</StatusSelector>
 						</div>
 
 						<!-- Priority row -->
 						<div class="flex items-center gap-3 rounded-md px-2 py-1.5 hover:bg-[var(--color-bg-hover)] transition-colors">
 							<span class="w-20 shrink-0 text-xs text-[var(--color-text-tertiary)]">Priority</span>
-							<Popover.Root bind:open={priorityOpen}>
-								<Popover.Trigger>
+							<PrioritySelector
+								bind:open={priorityOpen}
+								value={issue.priority}
+								onchange={(p) => updateField('priority', p)}
+							>
+								{#snippet trigger()}
 									<button class="flex items-center gap-1.5 text-sm text-[var(--color-text-primary)]">
 										<IssuePriorityIcon priority={issue.priority} size={14} />
 										{PRIORITY_LABELS[issue.priority]}
 									</button>
-								</Popover.Trigger>
-								<Popover.Content class="w-40 p-1" align="start">
-									{#each priorityValues as value}
-										<button
-											onclick={() => { updateField('priority', value); priorityOpen = false; }}
-											class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors {issue.priority === value ? 'bg-[var(--color-bg-hover)]' : ''}"
-										>
-											<IssuePriorityIcon priority={value} size={14} />
-											{PRIORITY_LABELS[value]}
-										</button>
-									{/each}
-								</Popover.Content>
-							</Popover.Root>
+								{/snippet}
+							</PrioritySelector>
 						</div>
 
 						<!-- Assignee row -->
@@ -947,40 +945,27 @@
 								{:else}
 									<span class="text-sm text-[var(--color-text-tertiary)]">Add assignee</span>
 								{/if}
-								<Popover.Root bind:open={assigneeOpen}>
-									<Popover.Trigger>
+								<AssigneeSelector
+									bind:open={assigneeOpen}
+									{members}
+									value={(issue.assignees ?? []).map(a => a.id)}
+									onchange={async (userId) => {
+										const currentIds = (issue.assignees ?? []).map(a => a.id);
+										const newIds = currentIds.includes(userId)
+											? currentIds.filter(id => id !== userId)
+											: [...currentIds, userId];
+										try {
+											await issuesState.update(slug, issue.identifier, { assignee_ids: newIds });
+											await refreshIssue();
+										} catch { toast.error('Failed to update assignees'); }
+									}}
+								>
+									{#snippet trigger()}
 										<button class="flex h-5 w-5 items-center justify-center rounded-full hover:bg-[var(--color-bg-tertiary)] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors">
 											<Plus size={14} />
 										</button>
-									</Popover.Trigger>
-									<Popover.Content class="w-48 p-1" align="start">
-										{#each members as member}
-											{@const isAssigned = (issue.assignees ?? []).some(a => a.id === member.user_id)}
-											<button
-												onclick={async () => {
-													const currentIds = (issue.assignees ?? []).map(a => a.id);
-													const newIds = isAssigned
-														? currentIds.filter(id => id !== member.user_id)
-														: [...currentIds, member.user_id];
-													try {
-														await issuesState.update(slug, issue.identifier, { assignee_ids: newIds });
-														await refreshIssue();
-													} catch { toast.error('Failed to update assignees'); }
-												}}
-												class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
-											>
-												<Checkbox checked={isAssigned} />
-												<div class="flex h-4 w-4 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] text-[var(--app-accent-foreground)]">
-													{(member.name || member.email).charAt(0).toUpperCase()}
-												</div>
-												{member.name || member.email}
-											</button>
-										{/each}
-										{#if members.length === 0}
-											<p class="px-2 py-3 text-center text-xs text-[var(--color-text-tertiary)]">No members</p>
-										{/if}
-									</Popover.Content>
-								</Popover.Root>
+									{/snippet}
+								</AssigneeSelector>
 							</div>
 						</div>
 
@@ -1019,8 +1004,22 @@
 									</button>
 								{/each}
 							{/if}
-							<Popover.Root bind:open={labelsOpen}>
-								<Popover.Trigger>
+							<LabelSelector
+								bind:open={labelsOpen}
+								{labels}
+								value={(issue.labels ?? []).map(l => l.id)}
+								onchange={async (labelId) => {
+									const currentIds = (issue.labels ?? []).map(l => l.id);
+									const newIds = currentIds.includes(labelId)
+										? currentIds.filter(id => id !== labelId)
+										: [...currentIds, labelId];
+									try {
+										await issuesState.update(slug, issue.identifier, { label_ids: newIds });
+										await refreshIssue();
+									} catch { toast.error('Failed to update labels'); }
+								}}
+							>
+								{#snippet trigger()}
 									{#if issue.labels && issue.labels.length > 0}
 										<button class="flex h-6 w-6 items-center justify-center rounded-full hover:bg-[var(--color-bg-hover)] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors">
 											<Plus size={14} />
@@ -1031,32 +1030,8 @@
 											Add label
 										</button>
 									{/if}
-								</Popover.Trigger>
-								<Popover.Content class="w-48 p-1" align="start">
-									{#each labels as label}
-										<button
-											onclick={async () => {
-												const currentIds = (issue.labels ?? []).map(l => l.id);
-												const newIds = currentIds.includes(label.id)
-													? currentIds.filter(id => id !== label.id)
-													: [...currentIds, label.id];
-												try {
-													await issuesState.update(slug, issue.identifier, { label_ids: newIds });
-													await refreshIssue();
-												} catch { toast.error('Failed to update labels'); }
-											}}
-											class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
-										>
-											<Checkbox checked={(issue.labels ?? []).some(l => l.id === label.id)} />
-											<div class="h-2.5 w-2.5 rounded-full shrink-0" style="background-color: {label.color}"></div>
-											<span class="truncate">{label.name}</span>
-										</button>
-									{/each}
-									{#if labels.length === 0}
-										<p class="px-2 py-3 text-center text-xs text-[var(--color-text-tertiary)]">No labels</p>
-									{/if}
-								</Popover.Content>
-							</Popover.Root>
+								{/snippet}
+							</LabelSelector>
 						</div>
 					</div>
 				{/if}
@@ -1073,8 +1048,13 @@
 				</button>
 				{#if projectExpanded}
 					<div class="px-3 pb-3">
-						<Popover.Root bind:open={projectOpen}>
-							<Popover.Trigger>
+						<ProjectSelector
+							bind:open={projectOpen}
+							{projects}
+							value={issue.project_id}
+							onchange={(id) => { updateField('project_id', id ?? ''); if (!id && issue.cycle_id) updateField('cycle_id', ''); }}
+						>
+							{#snippet trigger()}
 								{#if issueProject}
 									<button class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors w-full text-left">
 										<FolderKanban size={14} class="text-[var(--color-text-tertiary)] shrink-0" />
@@ -1086,28 +1066,8 @@
 										Add project
 									</button>
 								{/if}
-							</Popover.Trigger>
-							<Popover.Content class="w-48 p-1" align="start">
-								<button
-									onclick={() => { updateField('project_id', ''); if (issue.cycle_id) updateField('cycle_id', ''); projectOpen = false; }}
-									class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
-								>
-									No project
-								</button>
-								{#each projects as project}
-									<button
-										onclick={() => { updateField('project_id', project.id); projectOpen = false; }}
-										class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {issue.project_id === project.id ? 'bg-[var(--color-bg-hover)]' : ''}"
-									>
-										<FolderKanban size={14} class="text-[var(--color-text-tertiary)]" />
-										{project.name}
-									</button>
-								{/each}
-								{#if projects.length === 0}
-									<p class="px-2 py-2 text-center text-xs text-[var(--color-text-tertiary)]">No projects</p>
-								{/if}
-							</Popover.Content>
-						</Popover.Root>
+							{/snippet}
+						</ProjectSelector>
 						{#if issueProject?.description}
 							<p class="mt-1 px-2 text-xs text-[var(--color-text-tertiary)] leading-relaxed">{issueProject.description}</p>
 						{/if}
@@ -1119,33 +1079,19 @@
 								<path d="M1 0 L1 18 C1 23, 5 23, 9 23 L14 23" stroke="var(--color-text-tertiary)" stroke-width="1.5" opacity="0.4" fill="none"/>
 							</svg>
 							<div class="flex-1 min-w-0 mt-2.5">
-								<Popover.Root bind:open={cycleOpen}>
-									<Popover.Trigger>
+								<CycleSelector
+									bind:open={cycleOpen}
+									{cycles}
+									value={issue.cycle_id}
+									onchange={(id) => updateField('cycle_id', id ?? '')}
+								>
+									{#snippet trigger()}
 										<button class="flex items-center gap-2 rounded-md px-2 py-1 text-xs hover:bg-[var(--color-bg-hover)] transition-colors {issueCycle ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-tertiary)]'}">
 											<RefreshCw size={12} class="shrink-0 text-[var(--color-text-tertiary)]" />
 											{issueCycle ? issueCycle.name : 'No cycle'}
 										</button>
-									</Popover.Trigger>
-									<Popover.Content class="w-48 p-1" align="start">
-										<button
-											onclick={() => { updateField('cycle_id', ''); cycleOpen = false; }}
-											class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
-										>
-											No cycle
-										</button>
-										{#each cycles as cycle}
-											<button
-												onclick={() => { updateField('cycle_id', cycle.id); cycleOpen = false; }}
-												class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {issue.cycle_id === cycle.id ? 'bg-[var(--color-bg-hover)]' : ''}"
-											>
-												{cycle.name}
-											</button>
-										{/each}
-										{#if cycles.length === 0}
-											<p class="px-2 py-2 text-center text-xs text-[var(--color-text-tertiary)]">No cycles</p>
-										{/if}
-									</Popover.Content>
-								</Popover.Root>
+									{/snippet}
+								</CycleSelector>
 							</div>
 						</div>
 						{/if}

@@ -10,6 +10,7 @@
 	import { formatRelativeTime } from '$lib/utils/format';
 	import { toast } from 'svelte-sonner';
 	import * as Popover from '$lib/components/ui/popover';
+	import { StatusSelector, PrioritySelector } from './selectors';
 	import { X } from 'lucide-svelte';
 	import { sanitizeHtml } from '$lib/security/sanitize';
 
@@ -106,47 +107,34 @@
 			<div class="mt-6 grid grid-cols-2 gap-3">
 				<div class="flex items-center gap-2 text-sm">
 					<span class="w-20 text-[var(--color-text-tertiary)]">Status</span>
-					<Popover.Root bind:open={statusOpen}>
-						<Popover.Trigger>
+					<StatusSelector
+						bind:open={statusOpen}
+						statuses={teamStatusesState.statusOrder}
+						value={issue.status_id}
+						onchange={(id) => { updateStatus(id); }}
+					>
+						{#snippet trigger()}
 							<button class="flex items-center gap-1.5 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-2.5 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
 								<IssueStatusIcon status={issue.status} category={issue.status_info?.category} color={issue.status_info?.color} size={12} />
 								{issue.status_info?.name ?? issue.status}
 							</button>
-						</Popover.Trigger>
-						<Popover.Content class="w-44 p-1" align="start">
-							{#each teamStatusesState.statusOrder as ts}
-								<button
-									onclick={() => { updateStatus(ts.id); statusOpen = false; }}
-									class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {issue.status_id === ts.id ? 'bg-[var(--color-bg-hover)]' : ''}"
-								>
-									<IssueStatusIcon category={ts.category} color={ts.color} size={14} />
-									{ts.name}
-								</button>
-							{/each}
-						</Popover.Content>
-					</Popover.Root>
+						{/snippet}
+					</StatusSelector>
 				</div>
 				<div class="flex items-center gap-2 text-sm">
 					<span class="w-20 text-[var(--color-text-tertiary)]">Priority</span>
-					<Popover.Root bind:open={priorityOpen}>
-						<Popover.Trigger>
+					<PrioritySelector
+						bind:open={priorityOpen}
+						value={issue.priority}
+						onchange={(p) => { updatePriority(p); }}
+					>
+						{#snippet trigger()}
 							<button class="flex items-center gap-1.5 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-2.5 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
 								<IssuePriorityIcon priority={issue.priority} size={12} />
 								{PRIORITY_LABELS[issue.priority]}
 							</button>
-						</Popover.Trigger>
-						<Popover.Content class="w-40 p-1" align="start">
-							{#each priorityValues as value}
-								<button
-									onclick={() => { updatePriority(value); priorityOpen = false; }}
-									class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {issue.priority === value ? 'bg-[var(--color-bg-hover)]' : ''}"
-								>
-									<IssuePriorityIcon priority={value} size={14} />
-									{PRIORITY_LABELS[value]}
-								</button>
-							{/each}
-						</Popover.Content>
-					</Popover.Root>
+						{/snippet}
+					</PrioritySelector>
 				</div>
 			</div>
 

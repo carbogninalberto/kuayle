@@ -18,6 +18,7 @@
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
 	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
 	import DatePickerPopover from '$lib/components/shared/DatePickerPopover.svelte';
+	import { StatusSelector, PrioritySelector, AssigneeSelector, LabelSelector, ProjectSelector, CycleSelector, TeamSelector } from './selectors';
 	import { listTemplates } from '$lib/api/issue-templates';
 	import {
 		User,
@@ -183,32 +184,21 @@
 	>
 		<!-- Top bar: Team + Template -->
 		<div class="flex items-center gap-1.5 px-3 pr-10 py-2">
-			<Popover.Root bind:open={teamOpen}>
-				<Popover.Trigger>
+			<TeamSelector
+				bind:open={teamOpen}
+				{teams}
+				value={teamId}
+				onchange={(id) => { teamId = id; }}
+			>
+				{#snippet trigger()}
 					<button tabindex="-1" class="flex items-center gap-1.5 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-tertiary)] px-2.5 py-1 text-xs font-medium text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]">
 						<span class="flex h-4 w-4 items-center justify-center rounded bg-[var(--app-accent)] text-[9px] font-bold text-[var(--app-accent-foreground)]">
 							{selectedTeam?.key?.charAt(0) ?? 'T'}
 						</span>
 						{selectedTeam?.key ?? 'Team'}
 					</button>
-				</Popover.Trigger>
-				<Popover.Content class="w-48 p-1" align="start">
-					{#each teams as team}
-						<button
-							onclick={() => { teamId = team.id; teamOpen = false; }}
-							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {team.id === teamId ? 'bg-[var(--color-bg-hover)]' : ''}"
-						>
-							<span class="flex h-4 w-4 items-center justify-center rounded bg-[var(--app-accent)] text-[9px] font-bold text-[var(--app-accent-foreground)]">
-								{team.key.charAt(0)}
-							</span>
-							{team.name}
-						</button>
-					{/each}
-					{#if teams.length === 0}
-						<p class="px-2 py-3 text-center text-xs text-[var(--color-text-tertiary)]">No teams yet</p>
-					{/if}
-				</Popover.Content>
-			</Popover.Root>
+				{/snippet}
+			</TeamSelector>
 			<span class="text-xs text-[var(--color-text-tertiary)]">›</span>
 			<span class="text-xs font-medium text-[var(--color-text-secondary)]">New Issue</span>
 
@@ -265,80 +255,64 @@
 		<!-- Property pills -->
 		<div class="flex flex-wrap items-center gap-1.5 px-4 py-2.5">
 			<!-- Status -->
-			<Popover.Root bind:open={statusOpen}>
-				<Popover.Trigger>
+			<StatusSelector
+				bind:open={statusOpen}
+				statuses={teamStatusesState.statusOrder}
+				value={statusId}
+				onchange={(id) => { statusId = id; }}
+				width="w-44"
+			>
+				{#snippet trigger()}
 					<button class="flex items-center gap-1.5 rounded-full border border-[var(--app-border)] px-2.5 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
 						<IssueStatusIcon category={selectedStatus?.category} color={selectedStatus?.color} size={12} />
 						{selectedStatus?.name ?? 'Status'}
 					</button>
-				</Popover.Trigger>
-				<Popover.Content class="w-40 p-1" align="start">
-					{#each teamStatusesState.statusOrder as ts}
-						<button
-							onclick={() => { statusId = ts.id; statusOpen = false; }}
-							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {statusId === ts.id ? 'bg-[var(--color-bg-hover)]' : ''}"
-						>
-							<IssueStatusIcon category={ts.category} color={ts.color} size={14} />
-							{ts.name}
-						</button>
-					{/each}
-				</Popover.Content>
-			</Popover.Root>
+				{/snippet}
+			</StatusSelector>
 
 			<!-- Priority -->
-			<Popover.Root bind:open={priorityOpen}>
-				<Popover.Trigger>
+			<PrioritySelector
+				bind:open={priorityOpen}
+				value={priority}
+				onchange={(p) => { priority = p; }}
+			>
+				{#snippet trigger()}
 					<button class="flex items-center gap-1.5 rounded-full border border-[var(--app-border)] px-2.5 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
 						<IssuePriorityIcon {priority} size={12} />
 						{PRIORITY_LABELS[priority]}
 					</button>
-				</Popover.Trigger>
-				<Popover.Content class="w-40 p-1" align="start">
-					{#each priorityValues as value}
-						<button
-							onclick={() => { priority = value; priorityOpen = false; }}
-							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {priority === value ? 'bg-[var(--color-bg-hover)]' : ''}"
-						>
-							<IssuePriorityIcon priority={value} size={14} />
-							{PRIORITY_LABELS[value]}
-						</button>
-					{/each}
-				</Popover.Content>
-			</Popover.Root>
+				{/snippet}
+			</PrioritySelector>
 
 			<!-- Project -->
-			<Popover.Root bind:open={projectOpen}>
-				<Popover.Trigger>
+			<ProjectSelector
+				bind:open={projectOpen}
+				{projects}
+				value={projectId}
+				onchange={(id) => { projectId = id; }}
+			>
+				{#snippet trigger()}
 					<button class="flex items-center gap-1.5 rounded-full border border-[var(--app-border)] px-2.5 py-1 text-xs {selectedProject ? 'text-[var(--color-text-secondary)]' : 'text-[var(--color-text-tertiary)]'} hover:bg-[var(--color-bg-hover)]">
 						<FolderKanban size={12} />
 						{selectedProject?.name ?? 'Project'}
 					</button>
-				</Popover.Trigger>
-				<Popover.Content class="w-48 p-1" align="start">
-					<button
-						onclick={() => { projectId = null; projectOpen = false; }}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] {projectId === null ? 'bg-[var(--color-bg-hover)]' : ''}"
-					>
-						No project
-					</button>
-					{#each projects as project}
-						<button
-							onclick={() => { projectId = project.id; projectOpen = false; }}
-							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {projectId === project.id ? 'bg-[var(--color-bg-hover)]' : ''}"
-						>
-							<FolderKanban size={14} class="text-[var(--color-text-tertiary)]" />
-							{project.name}
-						</button>
-					{/each}
-					{#if projects.length === 0}
-						<p class="px-2 py-3 text-center text-xs text-[var(--color-text-tertiary)]">No projects yet</p>
-					{/if}
-				</Popover.Content>
-			</Popover.Root>
+				{/snippet}
+			</ProjectSelector>
 
 			<!-- Assignees -->
-			<Popover.Root bind:open={assigneeOpen}>
-				<Popover.Trigger>
+			<AssigneeSelector
+				bind:open={assigneeOpen}
+				{members}
+				value={assigneeIds}
+				onchange={(userId) => {
+					if (assigneeIds.includes(userId)) {
+						assigneeIds = assigneeIds.filter(id => id !== userId);
+					} else {
+						assigneeIds = [...assigneeIds, userId];
+					}
+				}}
+			>
+				{#snippet trigger()}
 					<button class="flex items-center gap-1.5 rounded-full border border-[var(--app-border)] px-2.5 py-1 text-xs {selectedAssignees.length > 0 ? 'text-[var(--color-text-secondary)]' : 'text-[var(--color-text-tertiary)]'} hover:bg-[var(--color-bg-hover)]">
 						<User size={12} />
 						{#if selectedAssignees.length === 0}
@@ -349,33 +323,17 @@
 							{selectedAssignees.length} assignees
 						{/if}
 					</button>
-				</Popover.Trigger>
-				<Popover.Content class="w-48 p-1" align="start">
-					{#each members as member}
-						<button
-							onclick={() => {
-								if (assigneeIds.includes(member.user_id)) {
-									assigneeIds = assigneeIds.filter(id => id !== member.user_id);
-								} else {
-									assigneeIds = [...assigneeIds, member.user_id];
-								}
-							}}
-							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
-						>
-							<Checkbox checked={assigneeIds.includes(member.user_id)} />
-							<User size={14} class="text-[var(--color-text-tertiary)]" />
-							{member.name || member.email}
-						</button>
-					{/each}
-					{#if members.length === 0}
-						<p class="px-2 py-3 text-center text-xs text-[var(--color-text-tertiary)]">No members</p>
-					{/if}
-				</Popover.Content>
-			</Popover.Root>
+				{/snippet}
+			</AssigneeSelector>
 
 			<!-- Labels -->
-			<Popover.Root bind:open={labelsOpen}>
-				<Popover.Trigger>
+			<LabelSelector
+				bind:open={labelsOpen}
+				{labels}
+				value={labelIds}
+				onchange={(labelId) => toggleLabel(labelId)}
+			>
+				{#snippet trigger()}
 					<button class="flex items-center gap-1.5 rounded-full border border-[var(--app-border)] px-2.5 py-1 text-xs {selectedLabels.length > 0 ? 'text-[var(--color-text-secondary)]' : 'text-[var(--color-text-tertiary)]'} hover:bg-[var(--color-bg-hover)]">
 						<Tag size={12} />
 						{#if selectedLabels.length === 0}
@@ -386,27 +344,17 @@
 							{selectedLabels.length} labels
 						{/if}
 					</button>
-				</Popover.Trigger>
-				<Popover.Content class="w-48 p-1" align="start">
-					{#each labels as label}
-						<button
-							onclick={() => toggleLabel(label.id)}
-							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
-						>
-							<Checkbox checked={labelIds.includes(label.id)} />
-							<div class="h-2.5 w-2.5 rounded-full shrink-0" style="background-color: {label.color}"></div>
-							<span class="truncate">{label.name}</span>
-						</button>
-					{/each}
-					{#if labels.length === 0}
-						<p class="px-2 py-3 text-center text-xs text-[var(--color-text-tertiary)]">No labels yet</p>
-					{/if}
-				</Popover.Content>
-			</Popover.Root>
+				{/snippet}
+			</LabelSelector>
 
 			<!-- Cycle -->
-			<Popover.Root bind:open={cycleOpen}>
-				<Popover.Trigger>
+			<CycleSelector
+				bind:open={cycleOpen}
+				cycles={cycles ?? []}
+				value={cycleId}
+				onchange={(id) => { cycleId = id; }}
+			>
+				{#snippet trigger()}
 					<button class="flex items-center gap-1.5 rounded-full border border-[var(--app-border)] px-2.5 py-1 text-xs {cycleId ? 'text-[var(--color-text-secondary)]' : 'text-[var(--color-text-tertiary)]'} hover:bg-[var(--color-bg-hover)]">
 						{#if cycleId}
 							{cycles?.find(c => c.id === cycleId)?.name ?? 'Cycle'}
@@ -414,24 +362,8 @@
 							Cycle
 						{/if}
 					</button>
-				</Popover.Trigger>
-				<Popover.Content class="w-48 p-1" align="start">
-					<button
-						onclick={() => { cycleId = null; cycleOpen = false; }}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
-					>
-						No cycle
-					</button>
-					{#each cycles ?? [] as cycle}
-						<button
-							onclick={() => { cycleId = cycle.id; cycleOpen = false; }}
-							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {cycleId === cycle.id ? 'bg-[var(--color-bg-hover)]' : ''}"
-						>
-							{cycle.name}
-						</button>
-					{/each}
-				</Popover.Content>
-			</Popover.Root>
+				{/snippet}
+			</CycleSelector>
 
 			<!-- Due Date -->
 			<DatePickerPopover

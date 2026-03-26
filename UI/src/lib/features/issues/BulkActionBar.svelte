@@ -6,6 +6,7 @@
 	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
 	import { issuesState } from './issues.state.svelte';
 	import * as Popover from '$lib/components/ui/popover';
+	import { StatusSelector, PrioritySelector } from './selectors';
 	import { toast } from 'svelte-sonner';
 	import { X, Trash2 } from 'lucide-svelte';
 	import * as issueApi from '$lib/api/issues';
@@ -59,43 +60,30 @@
 		</span>
 
 		<div class="flex items-center gap-1">
-			<Popover.Root bind:open={statusOpen}>
-				<Popover.Trigger>
+			<StatusSelector
+				bind:open={statusOpen}
+				statuses={teamStatusesState.statusOrder}
+				value={undefined}
+				onchange={(id) => bulkSetStatus(id)}
+			>
+				{#snippet trigger()}
 					<button class="rounded-md border border-[var(--app-border)] px-2.5 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
 						Status
 					</button>
-				</Popover.Trigger>
-				<Popover.Content class="w-44 p-1" align="start">
-					{#each teamStatusesState.statusOrder as ts}
-						<button
-							onclick={() => bulkSetStatus(ts.id)}
-							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
-						>
-							<IssueStatusIcon category={ts.category} color={ts.color} size={14} />
-							{ts.name}
-						</button>
-					{/each}
-				</Popover.Content>
-			</Popover.Root>
+				{/snippet}
+			</StatusSelector>
 
-			<Popover.Root bind:open={priorityOpen}>
-				<Popover.Trigger>
+			<PrioritySelector
+				bind:open={priorityOpen}
+				value={0 as import('$lib/types/issue').IssuePriority}
+				onchange={(p) => bulkSetPriority(p)}
+			>
+				{#snippet trigger()}
 					<button class="rounded-md border border-[var(--app-border)] px-2.5 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
 						Priority
 					</button>
-				</Popover.Trigger>
-				<Popover.Content class="w-40 p-1" align="start">
-					{#each priorityValues as value}
-						<button
-							onclick={() => bulkSetPriority(value)}
-							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
-						>
-							<IssuePriorityIcon priority={value} size={14} />
-							{PRIORITY_LABELS[value]}
-						</button>
-					{/each}
-				</Popover.Content>
-			</Popover.Root>
+				{/snippet}
+			</PrioritySelector>
 		</div>
 
 		<button
