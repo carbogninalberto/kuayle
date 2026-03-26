@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Button } from '$lib/components/ui/button';
 	import * as Popover from '$lib/components/ui/popover';
@@ -10,20 +11,24 @@
 	import type { Cycle } from '$lib/types/cycle';
 	import type { IssueStatus, IssuePriority } from '$lib/types/issue';
 	import { PRIORITY_LABELS } from '$lib/types/issue';
+	import type { IssueTemplate } from '$lib/types/issue';
 	import { teamStatusesState } from './team-statuses.state.svelte';
 	import RichEditor from '$lib/components/shared/RichEditor.svelte';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
 	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
 	import DatePickerPopover from '$lib/components/shared/DatePickerPopover.svelte';
+	import { listTemplates } from '$lib/api/issue-templates';
 	import {
 		User,
 		Tag,
-		FolderKanban
+		FolderKanban,
+		FileText
 	} from 'lucide-svelte';
 
 	let {
 		open = $bindable(false),
+		slug = '',
 		teams,
 		projects = [],
 		labels = [],
@@ -38,6 +43,7 @@
 		onsubmit
 	}: {
 		open: boolean;
+		slug?: string;
 		teams: Team[];
 		projects?: Project[];
 		labels?: Label[];
@@ -77,6 +83,10 @@
 	let cycleId = $state<string | null>(null);
 	let createMore = $state(false);
 
+	let templates = $state<IssueTemplate[]>([]);
+	let templateOpen = $state(false);
+	let descriptionVersion = $state(0);
+
 	let statusOpen = $state(false);
 	let priorityOpen = $state(false);
 	let teamOpen = $state(false);
@@ -85,18 +95,24 @@
 	let labelsOpen = $state(false);
 	let cycleOpen = $state(false);
 
+	function resetForm() {
+		title = defaultTitle ?? '';
+		description = '';
+		descriptionVersion++;
+		statusId = defaultStatusId ?? teamStatusesState.defaultForCategory('backlog')?.id ?? '';
+		priority = defaultPriority ?? 0;
+		teamId = defaultTeamId ?? teams[0]?.id ?? '';
+		projectId = null;
+		assigneeIds = defaultAssigneeId ? [defaultAssigneeId] : [];
+		labelIds = [];
+		dueDate = null;
+		cycleId = null;
+		if (slug) listTemplates(slug).then(t => templates = t).catch(() => {});
+	}
+
 	$effect(() => {
 		if (open) {
-			title = defaultTitle ?? '';
-			description = '';
-			statusId = defaultStatusId ?? teamStatusesState.defaultForCategory('backlog')?.id ?? '';
-			priority = defaultPriority ?? 0;
-			teamId = defaultTeamId ?? teams[0]?.id ?? '';
-			projectId = null;
-			assigneeIds = defaultAssigneeId ? [defaultAssigneeId] : [];
-			labelIds = [];
-			dueDate = null;
-			cycleId = null;
+			untrack(() => resetForm());
 		}
 	});
 
@@ -131,6 +147,16 @@
 		}
 	}
 
+	function applyTemplate(tmpl: IssueTemplate) {
+		title = tmpl.title || '';
+		description = tmpl.template_description ?? '';
+		descriptionVersion = Date.now();
+		priority = tmpl.priority ?? 0;
+		labelIds = tmpl.label_ids ?? [];
+		if (tmpl.assignee_id) assigneeIds = [tmpl.assignee_id];
+		templateOpen = false;
+	}
+
 	function handleKeydown(e: KeyboardEvent) {
 		if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
 			handleSubmit();
@@ -156,7 +182,7 @@
 		}}
 	>
 		<!-- Top bar: Team + Template -->
-		<div class="flex items-center gap-1.5 px-3 py-2">
+		<div class="flex items-center gap-1.5 px-3 pr-10 py-2">
 			<Popover.Root bind:open={teamOpen}>
 				<Popover.Trigger>
 					<button tabindex="-1" class="flex items-center gap-1.5 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-tertiary)] px-2.5 py-1 text-xs font-medium text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]">
@@ -185,6 +211,30 @@
 			</Popover.Root>
 			<span class="text-xs text-[var(--color-text-tertiary)]">›</span>
 			<span class="text-xs font-medium text-[var(--color-text-secondary)]">New Issue</span>
+
+			{#if templates.length > 0}
+				<div class="ml-auto">
+					<Popover.Root bind:open={templateOpen}>
+						<Popover.Trigger>
+							<button tabindex="-1" class="flex items-center gap-1.5 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-tertiary)] px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]">
+								<FileText size={12} />
+								Template
+							</button>
+						</Popover.Trigger>
+						<Popover.Content class="w-56 p-1" align="end">
+							{#each templates as tmpl (tmpl.id)}
+								<button
+									onclick={() => applyTemplate(tmpl)}
+									class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+								>
+									<FileText size={14} class="shrink-0 text-[var(--color-text-tertiary)]" />
+									<span class="truncate">{tmpl.name || tmpl.title || 'Untitled template'}</span>
+								</button>
+							{/each}
+						</Popover.Content>
+					</Popover.Root>
+				</div>
+			{/if}
 		</div>
 
 		<!-- Title + Description -->
@@ -199,6 +249,7 @@
 				class="w-full bg-transparent text-lg font-semibold text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)]"
 			/>
 			<div class="mt-4">
+				{#key descriptionVersion}
 				<RichEditor
 					content={description}
 					placeholder="Add description..."
@@ -207,6 +258,7 @@
 					minHeight="120px"
 					onupdate={(html) => (description = html)}
 				/>
+				{/key}
 			</div>
 		</div>
 

@@ -404,6 +404,7 @@
 
 <CreateIssueDialog
 	bind:open={showCreateIssue}
+	{slug}
 	{teams}
 	{projects}
 	{labels}

@@ -1152,6 +1152,7 @@
 
 <CreateIssueDialog
 	bind:open={showCreateIssueDialog}
+	{slug}
 	{teams}
 	{projects}
 	{labels}
