@@ -175,7 +175,7 @@
 
 <Dialog.Root bind:open>
 	<Dialog.Content
-		class="sm:max-w-[640px] gap-0 overflow-hidden rounded-xl border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-0 top-[20vh] translate-y-0!"
+		class="sm:max-w-[640px] gap-0 overflow-hidden rounded-xl border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-0"
 		onOpenAutoFocus={(e) => {
 			e.preventDefault();
 			const input = document.getElementById('create-issue-title');
@@ -238,7 +238,7 @@
 				placeholder="Issue title"
 				class="w-full bg-transparent text-lg font-semibold text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)]"
 			/>
-			<div class="mt-4">
+			<div class="mt-4 max-h-[calc(60vh-120px)] overflow-y-auto">
 				{#key descriptionVersion}
 				<RichEditor
 					content={description}

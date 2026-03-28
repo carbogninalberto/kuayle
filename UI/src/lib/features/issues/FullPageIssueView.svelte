@@ -421,22 +421,29 @@
 		}
 	}
 
+	function decodeHtmlEntities(text: string): string {
+		const el = document.createElement('textarea');
+		el.innerHTML = text;
+		return el.value;
+	}
+
 	function getAIPrompt(): string {
 		let prompt = `Work on issue ${issue.identifier}:\n\n`;
 		prompt += `<issue identifier="${issue.identifier}">\n`;
-		prompt += `<title>${issue.title}</title>\n`;
+		prompt += `<title>${decodeHtmlEntities(issue.title)}</title>\n`;
 		const teamKey = issue.identifier.split('-')[0];
 		prompt += `<team name="${teamKey}"/>\n`;
 		if (issue.labels && issue.labels.length > 0) {
 			for (const l of issue.labels) {
-				prompt += `<label>${l.name}</label>\n`;
+				prompt += `<label>${decodeHtmlEntities(l.name)}</label>\n`;
 			}
 		}
 		if (issueProject) {
-			prompt += `<project name="${issueProject.name}">${issueProject.description ?? ''}</project>\n`;
+			prompt += `<project name="${decodeHtmlEntities(issueProject.name)}">${decodeHtmlEntities(issueProject.description ?? '')}</project>\n`;
 		}
 		if (issue.description) {
-			prompt += `<description>${issue.description.replace(/<[^>]*>/g, '')}</description>\n`;
+			const plain = issue.description.replace(/<[^>]*>/g, '');
+			prompt += `<description>${decodeHtmlEntities(plain)}</description>\n`;
 		}
 		prompt += `</issue>`;
 		return prompt;
