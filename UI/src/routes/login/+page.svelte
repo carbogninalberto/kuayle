@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { login, register } from '$lib/api/auth';
+	import { Loader2 } from 'lucide-svelte';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { listWorkspaces, createWorkspace } from '$lib/api/workspaces';
 	import { toast } from 'svelte-sonner';
@@ -97,7 +98,7 @@
 				disabled={loading}
 				class="w-full rounded-md bg-[var(--app-accent)] px-4 py-2 text-sm font-medium text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)] disabled:opacity-50"
 			>
-				{loading ? 'Loading...' : mode === 'login' ? 'Sign in' : 'Create account'}
+				{#if loading}<Loader2 size={14} class="animate-spin" />{:else}{mode === 'login' ? 'Sign in' : 'Create account'}{/if}
 			</button>
 		</form>
 
