@@ -1,6 +1,10 @@
 package handler
 
 import (
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -31,14 +35,39 @@ func (h *GitHubHandler) Status(c echo.Context) error {
 	return response.Success(c, http.StatusOK, status)
 }
 
-// Setup returns the manifest data as JSON. The frontend handles the form POST.
+// Setup serves an HTML page that auto-submits the manifest form to GitHub.
+// Uses a CSP nonce to allow the inline script securely.
 func (h *GitHubHandler) Setup(c echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	manifest, submitURL := h.ghSvc.GetManifest(ws.ID, ws.Slug)
-	return response.Success(c, http.StatusOK, map[string]any{
-		"manifest":   manifest,
-		"submit_url": submitURL,
-	})
+
+	manifestJSON, err := json.Marshal(manifest)
+	if err != nil {
+		return response.InternalError(c)
+	}
+
+	// Generate a random nonce for CSP
+	nonceBytes := make([]byte, 16)
+	if _, err := rand.Read(nonceBytes); err != nil {
+		return response.InternalError(c)
+	}
+	nonce := hex.EncodeToString(nonceBytes)
+
+	c.Response().Header().Set("Content-Security-Policy",
+		fmt.Sprintf("default-src 'none'; script-src 'nonce-%s'; form-action https://github.com; style-src 'unsafe-inline'", nonce))
+
+	// Use a textarea to avoid HTML attribute escaping issues with JSON
+	page := fmt.Sprintf(`<!DOCTYPE html>
+<html><head><title>Redirecting to GitHub...</title></head>
+<body style="display:flex;align-items:center;justify-content:center;height:100vh;margin:0;font-family:system-ui,sans-serif;background:#111;color:#f5f5f5">
+<p>Redirecting to GitHub...</p>
+<form id="f" method="POST" action="%s">
+<textarea name="manifest" hidden>%s</textarea>
+</form>
+<script nonce="%s">document.getElementById("f").submit();</script>
+</body></html>`, submitURL, string(manifestJSON), nonce)
+
+	return c.HTML(http.StatusOK, page)
 }
 
 // SetupCallback handles the redirect from GitHub after app creation via manifest.

@@ -110,9 +110,6 @@ func (s *GitHubService) GetManifest(workspaceID uuid.UUID, slug string) (map[str
 		"name":               fmt.Sprintf("Kuayle (%s)", slug),
 		"url":                s.frontendURL,
 		"redirect_url":       callbackURL,
-		"callback_urls":      []string{callbackURL},
-		"setup_url":          callbackURL,
-		"setup_on_update":    true,
 		"public":             false,
 		"default_permissions": map[string]string{
 			"pull_requests": "read",
@@ -153,7 +150,8 @@ func (s *GitHubService) HandleManifestCallback(ctx context.Context, workspaceID 
 	}
 
 	// Exchange code for credentials
-	convURL := fmt.Sprintf("https://api.github.com/app-manifests/%s/conversion", code)
+	log.WithField("code", code).WithField("workspace_id", workspaceID).Info("Exchanging manifest code with GitHub")
+	convURL := fmt.Sprintf("https://api.github.com/app-manifests/%s/conversions", code)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, convURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating conversion request: %w", err)

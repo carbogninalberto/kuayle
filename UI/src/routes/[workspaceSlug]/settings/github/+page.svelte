@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import { replaceState } from '$app/navigation';
 	import {
 		getGitHubStatus,
 		getManifestSetup,
@@ -34,20 +33,30 @@
 	let settingUp = $state(false);
 
 	onMount(async () => {
-		const code = page.url.searchParams.get('code');
-		const installationId = page.url.searchParams.get('installation_id');
+		const params = new URLSearchParams(window.location.search);
+		const code = params.get('code');
+		const installationId = params.get('installation_id');
+
+		// Clean URL immediately to prevent re-execution on HMR reload
+		if (code || installationId) {
+			const cleanPath = window.location.pathname;
+			window.history.replaceState(null, '', cleanPath);
+		}
 
 		try {
 			if (code) {
-				// Manifest flow callback — exchange code for app credentials
-				await handleManifestCallback(slug, code);
-				toast.success('GitHub App created');
-				cleanURL();
+				// Prevent double exchange: check if already handled
+				const key = `gh_code_${code}`;
+				if (sessionStorage.getItem(key)) {
+					// Already processed — just load status
+				} else {
+					sessionStorage.setItem(key, '1');
+					await handleManifestCallback(slug, code);
+					toast.success('GitHub App created');
+				}
 			} else if (installationId) {
-				// Installation callback — app installed on repos
 				await handleGitHubCallback(slug, parseInt(installationId));
 				toast.success('GitHub connected');
-				cleanURL();
 			}
 
 			// Load current status
@@ -59,20 +68,11 @@
 			console.error('GitHub setup error:', err);
 			if (code || installationId) {
 				toast.error(err?.error?.message || 'GitHub setup failed');
-				cleanURL();
 			}
 		} finally {
 			loading = false;
 		}
 	});
-
-	function cleanURL() {
-		const url = new URL(window.location.href);
-		url.searchParams.delete('code');
-		url.searchParams.delete('installation_id');
-		url.searchParams.delete('setup_action');
-		replaceState(url.pathname, {});
-	}
 
 	function handleSetup() {
 		settingUp = true;
