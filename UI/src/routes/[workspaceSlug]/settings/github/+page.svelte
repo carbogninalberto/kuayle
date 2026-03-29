@@ -19,8 +19,11 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Switch } from '$lib/components/ui/switch';
+	import { Input } from '$lib/components/ui/input';
+	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { toast } from 'svelte-sonner';
-	import { GitBranch, ExternalLink, Plus, Check, Trash2, Loader2 } from 'lucide-svelte';
+	import { ExternalLink, Plus, Trash2, Loader2, Search } from 'lucide-svelte';
+	import { GithubLogoIcon } from 'phosphor-svelte';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	let status = $state<GitHubStatus | null>(null);
@@ -31,6 +34,34 @@
 	let selectedRepoIds = $state<Set<number>>(new Set());
 	let transitions = $state<GitHubAutoTransition[]>([]);
 	let settingUp = $state(false);
+	let repoSearch = $state('');
+	let savingRepos = $state(false);
+
+	const filteredRepos = $derived(
+		repoSearch
+			? availableRepos.filter((r) =>
+					r.full_name.toLowerCase().includes(repoSearch.toLowerCase())
+				)
+			: availableRepos
+	);
+
+	const allFilteredSelected = $derived(
+		filteredRepos.length > 0 && filteredRepos.every((r) => selectedRepoIds.has(r.github_repo_id))
+	);
+
+	const someFilteredSelected = $derived(
+		!allFilteredSelected && filteredRepos.some((r) => selectedRepoIds.has(r.github_repo_id))
+	);
+
+	function toggleSelectAll() {
+		const next = new Set(selectedRepoIds);
+		if (allFilteredSelected) {
+			for (const r of filteredRepos) next.delete(r.github_repo_id);
+		} else {
+			for (const r of filteredRepos) next.add(r.github_repo_id);
+		}
+		selectedRepoIds = next;
+	}
 
 	onMount(async () => {
 		const params = new URLSearchParams(window.location.search);
@@ -114,6 +145,7 @@
 	async function loadAvailableRepos() {
 		loadingRepos = true;
 		showRepoSelector = true;
+		repoSearch = '';
 		try {
 			availableRepos = await listGitHubRepos(slug);
 			selectedRepoIds = new Set(availableRepos.filter(r => r.linked).map(r => r.github_repo_id));
@@ -135,25 +167,31 @@
 	}
 
 	async function saveRepoSelection() {
-		const newIds = [...selectedRepoIds].filter(id => !availableRepos.find(r => r.github_repo_id === id && r.linked));
-		if (newIds.length > 0) {
-			try {
-				await linkGitHubRepos(slug, newIds);
-				toast.success('Repos linked');
-			} catch {
-				toast.error('Failed to link repos');
-			}
-		}
-		for (const repo of availableRepos.filter(r => r.linked)) {
-			if (!selectedRepoIds.has(repo.github_repo_id)) {
-				const linked = status?.repos.find(r => r.github_repo_id === repo.github_repo_id);
-				if (linked) {
-					try { await unlinkGitHubRepo(slug, linked.id); } catch { /* ignore */ }
+		savingRepos = true;
+		try {
+			const newIds = [...selectedRepoIds].filter(id => !availableRepos.find(r => r.github_repo_id === id && r.linked));
+			if (newIds.length > 0) {
+				try {
+					await linkGitHubRepos(slug, newIds);
+					toast.success('Repos linked');
+				} catch {
+					toast.error('Failed to link repos');
 				}
 			}
+			for (const repo of availableRepos.filter(r => r.linked)) {
+				if (!selectedRepoIds.has(repo.github_repo_id)) {
+					const linked = status?.repos.find(r => r.github_repo_id === repo.github_repo_id);
+					if (linked) {
+						try { await unlinkGitHubRepo(slug, linked.id); } catch { /* ignore */ }
+					}
+				}
+			}
+			status = await getGitHubStatus(slug);
+			showRepoSelector = false;
+			repoSearch = '';
+		} finally {
+			savingRepos = false;
 		}
-		status = await getGitHubStatus(slug);
-		showRepoSelector = false;
 	}
 
 	async function handleTransitionToggle(event: string, active: boolean) {
@@ -173,7 +211,7 @@
 	};
 </script>
 
-<div class="mx-auto max-w-2xl space-y-8 p-8">
+<div class="mx-auto max-w-2xl space-y-8 p-6">
 	<div>
 		<h2 class="text-lg font-semibold text-[var(--color-text-primary)]">GitHub</h2>
 		<p class="mt-1 text-sm text-[var(--color-text-tertiary)]">
@@ -183,13 +221,14 @@
 
 	{#if loading}
 		<div class="flex items-center justify-center py-12">
+			<Loader2 size={20} class="animate-spin text-[var(--color-text-tertiary)]" />
 		</div>
 	{:else if !status?.configured}
 		<!-- State 1: No app configured — show setup button -->
 		<div class="rounded-lg border border-[var(--app-border)] p-6">
 			<div class="flex items-center gap-3">
 				<div class="flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--color-bg-tertiary)]">
-					<GitBranch size={20} class="text-[var(--color-text-secondary)]" />
+					<GithubLogoIcon size={20} class="text-[var(--color-text-secondary)]" />
 				</div>
 				<div class="flex-1">
 					<h3 class="text-sm font-medium text-[var(--color-text-primary)]">Set up GitHub App</h3>
@@ -217,7 +256,7 @@
 				<div class="flex items-center justify-between">
 					<div class="flex items-center gap-3">
 						<div class="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--color-bg-tertiary)]">
-							<GitBranch size={16} class="text-[var(--color-text-secondary)]" />
+							<GithubLogoIcon size={16} class="text-[var(--color-text-secondary)]" />
 						</div>
 						<div>
 							<span class="text-sm font-medium text-[var(--color-text-primary)]">GitHub App ready</span>
@@ -245,7 +284,7 @@
 				<div class="flex items-center justify-between">
 					<div class="flex items-center gap-3">
 						<div class="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--color-bg-tertiary)]">
-							<GitBranch size={16} class="text-[var(--color-text-secondary)]" />
+							<GithubLogoIcon size={16} class="text-[var(--color-text-secondary)]" />
 						</div>
 						<div>
 							<div class="flex items-center gap-2">
@@ -278,7 +317,7 @@
 						{#each status.repos as repo}
 							<div class="flex items-center justify-between rounded-md border border-[var(--app-border)] px-3 py-2">
 								<div class="flex items-center gap-2">
-									<GitBranch size={14} class="text-[var(--color-text-tertiary)]" />
+									<GithubLogoIcon size={14} class="text-[var(--color-text-tertiary)]" />
 									<span class="text-sm text-[var(--color-text-primary)]">{repo.full_name}</span>
 									<span class="text-xs text-[var(--color-text-tertiary)]">{repo.default_branch}</span>
 								</div>
@@ -293,29 +332,73 @@
 				{#if showRepoSelector}
 					<div class="mt-3 rounded-lg border border-[var(--app-border)] p-4">
 						{#if loadingRepos}
-							<p class="text-sm text-[var(--color-text-tertiary)]"></p>
+							<div class="flex items-center justify-center py-8">
+								<Loader2 size={18} class="animate-spin text-[var(--color-text-tertiary)]" />
+							</div>
 						{:else}
-							<div class="max-h-64 space-y-1 overflow-y-auto">
-								{#each availableRepos as repo}
+							<!-- Search -->
+							<div class="relative">
+								<Search size={14} class="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--color-text-tertiary)]" />
+								<Input
+									type="text"
+									placeholder="Search repositories..."
+									bind:value={repoSearch}
+									class="pl-8 h-8 text-sm"
+								/>
+							</div>
+
+							<!-- Select all -->
+							<button
+								onclick={toggleSelectAll}
+								class="mt-2 flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+							>
+								<Checkbox
+									checked={allFilteredSelected}
+									indeterminate={someFilteredSelected}
+									class="pointer-events-none"
+								/>
+								<span class="text-xs">Select all{repoSearch ? ' filtered' : ''} ({filteredRepos.length})</span>
+							</button>
+
+							<!-- Repo list -->
+							<div class="mt-1 max-h-64 space-y-0.5 overflow-y-auto">
+								{#each filteredRepos as repo}
 									<button
 										onclick={() => toggleRepo(repo.github_repo_id)}
-										class="flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-sm hover:bg-[var(--color-bg-hover)] {selectedRepoIds.has(repo.github_repo_id) ? 'bg-[var(--color-bg-hover)]/50' : ''}"
+										class="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-sm hover:bg-[var(--color-bg-hover)] {selectedRepoIds.has(repo.github_repo_id) ? 'bg-[var(--color-bg-hover)]/50' : ''}"
 									>
-										<div class="flex h-4 w-4 items-center justify-center rounded border {selectedRepoIds.has(repo.github_repo_id) ? 'border-[var(--app-accent)] bg-[var(--app-accent)]' : 'border-[var(--app-border)]'}">
-											{#if selectedRepoIds.has(repo.github_repo_id)}
-												<Check size={10} class="text-[var(--app-accent-foreground)]" />
-											{/if}
-										</div>
-										<span class="text-[var(--color-text-primary)]">{repo.full_name}</span>
+										<Checkbox
+											checked={selectedRepoIds.has(repo.github_repo_id)}
+											class="pointer-events-none"
+										/>
+										<GithubLogoIcon size={14} class="shrink-0 text-[var(--color-text-tertiary)]" />
+										<span class="truncate text-[var(--color-text-primary)]">{repo.full_name}</span>
 										{#if repo.private}
-											<Badge variant="outline" class="text-[9px]">Private</Badge>
+											<Badge variant="outline" class="ml-auto shrink-0 text-[9px]">Private</Badge>
 										{/if}
 									</button>
+								{:else}
+									<p class="py-4 text-center text-xs text-[var(--color-text-tertiary)]">
+										{repoSearch ? 'No repositories match your search.' : 'No repositories available.'}
+									</p>
 								{/each}
 							</div>
-							<div class="mt-3 flex justify-end gap-2">
-								<Button variant="outline" size="sm" onclick={() => (showRepoSelector = false)}>Cancel</Button>
-								<Button size="sm" onclick={saveRepoSelection}>Save</Button>
+
+							<!-- Actions -->
+							<div class="mt-3 flex items-center justify-between border-t border-[var(--app-border)] pt-3">
+								<span class="text-xs text-[var(--color-text-tertiary)]">
+									{selectedRepoIds.size} selected
+								</span>
+								<div class="flex gap-2">
+									<Button variant="outline" size="sm" onclick={() => { showRepoSelector = false; repoSearch = ''; }}>Cancel</Button>
+									<Button size="sm" onclick={saveRepoSelection} disabled={savingRepos}>
+										{#if savingRepos}
+											<Loader2 size={14} class="animate-spin" />
+										{:else}
+											Save
+										{/if}
+									</Button>
+								</div>
 							</div>
 						{/if}
 					</div>
@@ -357,4 +440,3 @@
 		</div>
 	{/if}
 </div>
-
