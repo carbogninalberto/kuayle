@@ -183,7 +183,6 @@
 
 {#if loading}
 	<div class="flex h-[60vh] items-center justify-center">
-		<p class="text-sm text-[var(--color-text-tertiary)]">Loading...</p>
 	</div>
 {:else if error}
 	<div class="flex h-[60vh] flex-col items-center justify-center gap-2">

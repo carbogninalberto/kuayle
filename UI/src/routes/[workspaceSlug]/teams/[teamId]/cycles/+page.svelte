@@ -336,7 +336,6 @@
 								<div class="px-3 pb-3">
 									{#if burndownLoading}
 										<div class="flex h-[200px] items-center justify-center text-sm text-[var(--color-text-tertiary)]">
-											Loading...
 										</div>
 									{:else if burndownData.length > 0}
 										<CycleBurndownChart {cycle} data={burndownData} />

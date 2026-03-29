@@ -250,7 +250,6 @@
 			<div class="flex-1 overflow-y-auto">
 				{#if loading}
 					<div class="flex h-32 items-center justify-center">
-						<p class="text-xs text-[var(--color-text-secondary)]">Loading...</p>
 					</div>
 				{:else if notifications.length === 0}
 					<div class="px-4 py-8">
@@ -313,7 +312,6 @@
 		<div class="flex-1 overflow-hidden">
 			{#if issueLoading}
 				<div class="flex h-full items-center justify-center">
-					<p class="text-sm text-[var(--color-text-secondary)]">Loading issue...</p>
 				</div>
 			{:else if selectedIssue}
 				{#key selectedIssue.id}

@@ -74,27 +74,10 @@
 		replaceState(url.pathname, {});
 	}
 
-	async function handleSetup() {
+	function handleSetup() {
 		settingUp = true;
-		try {
-			const { manifest, submit_url } = await getManifestSetup(slug);
-			// Open a blank page and write a self-submitting form into it
-			// This completely bypasses SvelteKit's router and CSP restrictions
-			const w = window.open('about:blank', '_self');
-			if (w) {
-				w.document.write(`<!DOCTYPE html><html><body>
-					<form id="f" method="POST" action="${submit_url}">
-						<input type="hidden" name="manifest" value='${JSON.stringify(manifest).replace(/'/g, '&#39;')}'>
-					</form>
-					<script>document.getElementById('f').submit()<\/script>
-				</body></html>`);
-				w.document.close();
-			}
-		} catch (err: any) {
-			console.error('Setup failed:', err);
-			toast.error('Failed to start setup');
-			settingUp = false;
-		}
+		// Navigate directly to the backend — it serves an HTML page that auto-posts to GitHub
+		window.location.href = `/api/workspaces/${slug}/github/setup`;
 	}
 
 	async function handleInstall() {
@@ -200,7 +183,6 @@
 
 	{#if loading}
 		<div class="flex items-center justify-center py-12">
-			<span class="text-sm text-[var(--color-text-tertiary)]">Loading...</span>
 		</div>
 	{:else if !status?.configured}
 		<!-- State 1: No app configured — show setup button -->
@@ -311,7 +293,7 @@
 				{#if showRepoSelector}
 					<div class="mt-3 rounded-lg border border-[var(--app-border)] p-4">
 						{#if loadingRepos}
-							<p class="text-sm text-[var(--color-text-tertiary)]">Loading repositories...</p>
+							<p class="text-sm text-[var(--color-text-tertiary)]"></p>
 						{:else}
 							<div class="max-h-64 space-y-1 overflow-y-auto">
 								{#each availableRepos as repo}

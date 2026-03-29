@@ -14,5 +14,4 @@
 </script>
 
 <div class="flex h-full items-center justify-center">
-	<p class="text-sm text-[var(--color-text-secondary)]">Redirecting...</p>
 </div>

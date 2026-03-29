@@ -296,6 +296,5 @@
 	/>
 {:else}
 	<div class="flex h-screen items-center justify-center">
-		<div class="text-[var(--color-text-secondary)]">Loading...</div>
 	</div>
 {/if}

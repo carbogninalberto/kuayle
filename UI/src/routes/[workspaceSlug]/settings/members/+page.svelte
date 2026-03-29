@@ -76,7 +76,7 @@
 
 	<div class="mt-8">
 		{#if loading}
-			<p class="text-sm text-[var(--color-text-tertiary)]">Loading...</p>
+			<p class="text-sm text-[var(--color-text-tertiary)]"></p>
 		{:else if members.length === 0}
 			<p class="text-sm text-[var(--color-text-secondary)]">No members found.</p>
 		{:else}

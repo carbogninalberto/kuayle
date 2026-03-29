@@ -109,7 +109,6 @@
 	<div class="mt-8">
 		{#if loading}
 			<div class="flex h-64 items-center justify-center">
-				<p class="text-sm text-[var(--color-text-secondary)]">Loading...</p>
 			</div>
 		{:else if webhooks.length === 0}
 			<EmptyState
