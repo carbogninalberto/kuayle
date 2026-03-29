@@ -511,7 +511,7 @@ func (s *IssueService) BulkUpdate(ctx context.Context, workspaceID, userID uuid.
 	return n, nil
 }
 
-func (s *IssueService) BulkDelete(ctx context.Context, workspaceID uuid.UUID, req dto.BulkDeleteIssueRequest) (int, error) {
+func (s *IssueService) BulkDelete(ctx context.Context, workspaceID, userID uuid.UUID, canDeleteAny bool, req dto.BulkDeleteIssueRequest) (int, error) {
 	issueIDs := make([]uuid.UUID, len(req.IssueIDs))
 	for i, id := range req.IssueIDs {
 		parsed, err := uuid.Parse(id)
@@ -519,6 +519,19 @@ func (s *IssueService) BulkDelete(ctx context.Context, workspaceID uuid.UUID, re
 			return 0, fmt.Errorf("invalid issue_id: %s", id)
 		}
 		issueIDs[i] = parsed
+	}
+
+	// Members can only delete their own issues
+	if !canDeleteAny {
+		for _, id := range issueIDs {
+			issue, err := s.issueRepo.GetByID(ctx, id)
+			if err != nil || issue == nil {
+				return 0, fmt.Errorf("issue not found")
+			}
+			if issue.CreatorID != userID {
+				return 0, fmt.Errorf("forbidden")
+			}
+		}
 	}
 
 	n, err := s.issueRepo.BulkDelete(ctx, workspaceID, issueIDs)

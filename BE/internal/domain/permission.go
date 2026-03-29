@@ -7,6 +7,7 @@ const (
 	PermIssueRead       = "issue:read"
 	PermIssueUpdate     = "issue:update"
 	PermIssueDelete     = "issue:delete"
+	PermIssueDeleteOwn  = "issue:delete_own"
 	PermProjectManage   = "project:manage"
 	PermLabelManage     = "label:manage"
 	PermMemberInvite    = "member:invite"
@@ -17,16 +18,16 @@ const (
 var RolePermissions = map[string][]string{
 	RoleOwner: {
 		PermWorkspaceManage, PermTeamManage, PermIssueCreate, PermIssueRead,
-		PermIssueUpdate, PermIssueDelete, PermProjectManage, PermLabelManage,
+		PermIssueUpdate, PermIssueDelete, PermIssueDeleteOwn, PermProjectManage, PermLabelManage,
 		PermMemberInvite, PermCycleManage, PermViewManage,
 	},
 	RoleAdmin: {
 		PermTeamManage, PermIssueCreate, PermIssueRead, PermIssueUpdate,
-		PermIssueDelete, PermProjectManage, PermLabelManage, PermMemberInvite,
+		PermIssueDelete, PermIssueDeleteOwn, PermProjectManage, PermLabelManage, PermMemberInvite,
 		PermCycleManage, PermViewManage,
 	},
 	RoleMember: {
-		PermIssueCreate, PermIssueRead, PermIssueUpdate, PermProjectManage,
+		PermIssueCreate, PermIssueRead, PermIssueUpdate, PermIssueDeleteOwn, PermProjectManage,
 		PermLabelManage, PermCycleManage, PermViewManage,
 	},
 	RoleGuest: {

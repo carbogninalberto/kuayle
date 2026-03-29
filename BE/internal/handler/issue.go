@@ -190,6 +190,19 @@ func (h *IssueHandler) Update(c echo.Context) error {
 func (h *IssueHandler) Delete(c echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	identifier := c.Param("identifier")
+	role, _ := c.Get("workspace_role").(string)
+	userID := middleware.GetUserID(c)
+
+	// Admin/Owner can delete any issue; members can only delete their own
+	if !domain.HasPermission(role, domain.PermIssueDelete) {
+		issue, err := h.issueSvc.GetByIdentifier(c.Request().Context(), ws.ID, identifier)
+		if err != nil || issue == nil {
+			return response.NotFound(c, "Issue")
+		}
+		if issue.CreatorID != userID {
+			return response.Forbidden(c)
+		}
+	}
 
 	if err := h.issueSvc.Delete(c.Request().Context(), ws.ID, identifier); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
@@ -236,9 +249,15 @@ func (h *IssueHandler) BulkDelete(c echo.Context) error {
 	}
 
 	ws := c.Get("workspace").(*domain.Workspace)
+	role, _ := c.Get("workspace_role").(string)
+	userID := middleware.GetUserID(c)
+	canDeleteAny := domain.HasPermission(role, domain.PermIssueDelete)
 
-	deleted, err := h.issueSvc.BulkDelete(c.Request().Context(), ws.ID, req)
+	deleted, err := h.issueSvc.BulkDelete(c.Request().Context(), ws.ID, userID, canDeleteAny, req)
 	if err != nil {
+		if err.Error() == "forbidden" {
+			return response.Forbidden(c)
+		}
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
 	}
 
