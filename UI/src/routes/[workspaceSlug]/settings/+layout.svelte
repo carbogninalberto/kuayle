@@ -2,7 +2,8 @@
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
 	import { cubicOut } from 'svelte/easing';
-	import { ArrowLeft, Users, Tag, Webhook, Settings, FileText, Settings2, CircleDot, ChevronDown, GitBranch } from 'lucide-svelte';
+	import { ArrowLeft, Users, Tag, Webhook, Settings, FileText, Settings2, CircleDot, ChevronDown } from 'lucide-svelte';
+	import { GithubLogoIcon } from 'phosphor-svelte';
 	import type { Snippet } from 'svelte';
 	import type { Team } from '$lib/types/team';
 	import { listTeams } from '$lib/api/teams';
@@ -45,7 +46,7 @@
 		{ label: 'Members', href: `/${slug}/settings/members`, icon: Users },
 		{ label: 'Labels', href: `/${slug}/settings/labels`, icon: Tag },
 		{ label: 'Webhooks', href: `/${slug}/settings/webhooks`, icon: Webhook },
-		{ label: 'GitHub', href: `/${slug}/settings/github`, icon: GitBranch },
+		{ label: 'GitHub', href: `/${slug}/settings/github`, icon: GithubLogoIcon },
 		{ label: 'Templates', href: `/${slug}/settings/templates`, icon: FileText },
 	]);
 
