@@ -110,6 +110,8 @@ func (s *GitHubService) GetManifest(workspaceID uuid.UUID, slug string) (map[str
 		"name":               fmt.Sprintf("Kuayle (%s)", slug),
 		"url":                s.frontendURL,
 		"redirect_url":       callbackURL,
+		"setup_url":          callbackURL,
+		"setup_on_update":    true,
 		"public":             false,
 		"default_permissions": map[string]string{
 			"pull_requests": "read",
