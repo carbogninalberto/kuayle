@@ -10,8 +10,20 @@ export function getGitHubStatus(slug: string): Promise<GitHubStatus> {
 	return api.get<GitHubStatus>(`/api/workspaces/${slug}/github/status`);
 }
 
+export function getManifestSetup(slug: string): Promise<{ manifest: Record<string, any>; submit_url: string }> {
+	return api.post<{ manifest: Record<string, any>; submit_url: string }>(`/api/workspaces/${slug}/github/setup`, {});
+}
+
+export function handleManifestCallback(slug: string, code: string): Promise<{ app_id: number; app_slug: string }> {
+	return api.get<{ app_id: number; app_slug: string }>(`/api/workspaces/${slug}/github/setup/callback?code=${code}`);
+}
+
 export function getInstallURL(slug: string): Promise<{ url: string }> {
 	return api.get<{ url: string }>(`/api/workspaces/${slug}/github/install`);
+}
+
+export function deleteGitHubApp(slug: string): Promise<void> {
+	return api.delete<void>(`/api/workspaces/${slug}/github/app`);
 }
 
 export function handleGitHubCallback(slug: string, installationId: number): Promise<{ id: string; account_login: string }> {

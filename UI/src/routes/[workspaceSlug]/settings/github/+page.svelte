@@ -1,11 +1,15 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
+	import { replaceState } from '$app/navigation';
 	import {
 		getGitHubStatus,
+		getManifestSetup,
+		handleManifestCallback,
 		getInstallURL,
 		handleGitHubCallback,
 		disconnectGitHub,
+		deleteGitHubApp,
 		listGitHubRepos,
 		linkGitHubRepos,
 		unlinkGitHubRepo,
@@ -16,9 +20,8 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Switch } from '$lib/components/ui/switch';
-	import EmptyState from '$lib/components/shared/EmptyState.svelte';
 	import { toast } from 'svelte-sonner';
-	import { GitBranch, ExternalLink, Trash2, Plus, Check, RefreshCw } from 'lucide-svelte';
+	import { GitBranch, ExternalLink, Plus, Check, Trash2, Loader2 } from 'lucide-svelte';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	let status = $state<GitHubStatus | null>(null);
@@ -28,42 +31,71 @@
 	let showRepoSelector = $state(false);
 	let selectedRepoIds = $state<Set<number>>(new Set());
 	let transitions = $state<GitHubAutoTransition[]>([]);
-	let disconnecting = $state(false);
-	let notConfigured = $state(false);
+	let settingUp = $state(false);
 
 	onMount(async () => {
+		const code = page.url.searchParams.get('code');
+		const installationId = page.url.searchParams.get('installation_id');
+
 		try {
+			if (code) {
+				// Manifest flow callback — exchange code for app credentials
+				await handleManifestCallback(slug, code);
+				toast.success('GitHub App created');
+				cleanURL();
+			} else if (installationId) {
+				// Installation callback — app installed on repos
+				await handleGitHubCallback(slug, parseInt(installationId));
+				toast.success('GitHub connected');
+				cleanURL();
+			}
+
+			// Load current status
 			status = await getGitHubStatus(slug);
 			if (status.installed) {
 				transitions = await listAutoTransitions(slug);
 			}
 		} catch (err: any) {
-			if (err?.status === 404) {
-				notConfigured = true;
+			console.error('GitHub setup error:', err);
+			if (code || installationId) {
+				toast.error(err?.error?.message || 'GitHub setup failed');
+				cleanURL();
 			}
 		} finally {
 			loading = false;
 		}
 	});
 
-	// Handle callback from GitHub App install (check URL params)
-	$effect(() => {
-		const installationId = page.url.searchParams.get('installation_id');
-		if (installationId && slug) {
-			handleGitHubCallback(slug, parseInt(installationId)).then(async () => {
-				toast.success('GitHub connected');
-				status = await getGitHubStatus(slug);
-				transitions = await listAutoTransitions(slug);
-				// Clean URL
-				const url = new URL(window.location.href);
-				url.searchParams.delete('installation_id');
-				url.searchParams.delete('setup_action');
-				window.history.replaceState({}, '', url.toString());
-			}).catch(() => {
-				toast.error('Failed to connect GitHub');
-			});
+	function cleanURL() {
+		const url = new URL(window.location.href);
+		url.searchParams.delete('code');
+		url.searchParams.delete('installation_id');
+		url.searchParams.delete('setup_action');
+		replaceState(url.pathname, {});
+	}
+
+	async function handleSetup() {
+		settingUp = true;
+		try {
+			const { manifest, submit_url } = await getManifestSetup(slug);
+			// Open a blank page and write a self-submitting form into it
+			// This completely bypasses SvelteKit's router and CSP restrictions
+			const w = window.open('about:blank', '_self');
+			if (w) {
+				w.document.write(`<!DOCTYPE html><html><body>
+					<form id="f" method="POST" action="${submit_url}">
+						<input type="hidden" name="manifest" value='${JSON.stringify(manifest).replace(/'/g, '&#39;')}'>
+					</form>
+					<script>document.getElementById('f').submit()<\/script>
+				</body></html>`);
+				w.document.close();
+			}
+		} catch (err: any) {
+			console.error('Setup failed:', err);
+			toast.error('Failed to start setup');
+			settingUp = false;
 		}
-	});
+	}
 
 	async function handleInstall() {
 		try {
@@ -75,16 +107,24 @@
 	}
 
 	async function handleDisconnect() {
-		disconnecting = true;
 		try {
 			await disconnectGitHub(slug);
-			status = { installed: false, repos: [] };
+			status = await getGitHubStatus(slug);
 			transitions = [];
 			toast.success('GitHub disconnected');
 		} catch {
 			toast.error('Failed to disconnect');
-		} finally {
-			disconnecting = false;
+		}
+	}
+
+	async function handleDeleteApp() {
+		try {
+			await deleteGitHubApp(slug);
+			status = await getGitHubStatus(slug);
+			transitions = [];
+			toast.success('GitHub App removed');
+		} catch {
+			toast.error('Failed to remove app');
 		}
 	}
 
@@ -121,21 +161,14 @@
 				toast.error('Failed to link repos');
 			}
 		}
-
-		// Unlink repos that were deselected
 		for (const repo of availableRepos.filter(r => r.linked)) {
 			if (!selectedRepoIds.has(repo.github_repo_id)) {
 				const linked = status?.repos.find(r => r.github_repo_id === repo.github_repo_id);
 				if (linked) {
-					try {
-						await unlinkGitHubRepo(slug, linked.id);
-					} catch {
-						toast.error(`Failed to unlink ${repo.full_name}`);
-					}
+					try { await unlinkGitHubRepo(slug, linked.id); } catch { /* ignore */ }
 				}
 			}
 		}
-
 		status = await getGitHubStatus(slug);
 		showRepoSelector = false;
 	}
@@ -169,29 +202,61 @@
 		<div class="flex items-center justify-center py-12">
 			<span class="text-sm text-[var(--color-text-tertiary)]">Loading...</span>
 		</div>
-	{:else if notConfigured}
-		<EmptyState
-			title="GitHub integration not configured"
-			description="The server administrator needs to configure GitHub App credentials to enable this integration."
-		/>
-	{:else if !status?.installed}
-		<!-- Not connected -->
+	{:else if !status?.configured}
+		<!-- State 1: No app configured — show setup button -->
 		<div class="rounded-lg border border-[var(--app-border)] p-6">
 			<div class="flex items-center gap-3">
 				<div class="flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--color-bg-tertiary)]">
 					<GitBranch size={20} class="text-[var(--color-text-secondary)]" />
 				</div>
 				<div class="flex-1">
-					<h3 class="text-sm font-medium text-[var(--color-text-primary)]">Connect GitHub</h3>
-					<p class="text-xs text-[var(--color-text-tertiary)]">Install the Kuayle GitHub App to get started</p>
+					<h3 class="text-sm font-medium text-[var(--color-text-primary)]">Set up GitHub App</h3>
+					<p class="text-xs text-[var(--color-text-tertiary)]">Create a GitHub App to connect your repositories. Takes about 30 seconds.</p>
 				</div>
-				<Button size="sm" onclick={handleInstall}>
-					Connect
+				<Button size="sm" onclick={handleSetup} disabled={settingUp}>
+					{#if settingUp}
+						<Loader2 size={14} class="animate-spin" />
+					{:else}
+						Set up
+					{/if}
 				</Button>
 			</div>
 		</div>
+
+		<div class="rounded-md bg-[var(--color-bg-secondary)] px-4 py-3">
+			<p class="text-xs text-[var(--color-text-tertiary)]">
+				Clicking "Set up" will redirect you to GitHub with a pre-filled form. Confirm to create the app, then you'll be redirected back here automatically. No manual configuration needed.
+			</p>
+		</div>
+	{:else if !status?.installed}
+		<!-- State 2: App configured but not installed -->
+		<div class="space-y-4">
+			<div class="rounded-lg border border-[var(--app-border)] p-4">
+				<div class="flex items-center justify-between">
+					<div class="flex items-center gap-3">
+						<div class="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--color-bg-tertiary)]">
+							<GitBranch size={16} class="text-[var(--color-text-secondary)]" />
+						</div>
+						<div>
+							<span class="text-sm font-medium text-[var(--color-text-primary)]">GitHub App ready</span>
+							<p class="text-xs text-[var(--color-text-tertiary)]">Now install it on your GitHub account to connect repositories.</p>
+						</div>
+					</div>
+					<Button size="sm" onclick={handleInstall}>
+						Install on GitHub
+					</Button>
+				</div>
+			</div>
+
+			<button
+				onclick={handleDeleteApp}
+				class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-error)]"
+			>
+				Remove GitHub App
+			</button>
+		</div>
 	{:else}
-		<!-- Connected -->
+		<!-- State 3: Fully connected -->
 		<div class="space-y-6">
 			<!-- Connection info -->
 			<div class="rounded-lg border border-[var(--app-border)] p-4">
@@ -203,15 +268,13 @@
 						<div>
 							<div class="flex items-center gap-2">
 								<span class="text-sm font-medium text-[var(--color-text-primary)]">{status.installation?.account_login}</span>
-								<Badge variant="outline" class="text-[10px]">
-									{status.installation?.account_type}
-								</Badge>
+								<Badge variant="outline" class="text-[10px]">{status.installation?.account_type}</Badge>
 							</div>
 							<p class="text-xs text-[var(--color-text-tertiary)]">GitHub App connected</p>
 						</div>
 					</div>
-					<Button variant="destructive" size="sm" onclick={handleDisconnect} disabled={disconnecting}>
-						{disconnecting ? 'Disconnecting...' : 'Disconnect'}
+					<Button variant="destructive" size="sm" onclick={handleDisconnect}>
+						Disconnect
 					</Button>
 				</div>
 			</div>
@@ -227,7 +290,7 @@
 				</div>
 
 				{#if status.repos.length === 0}
-					<p class="mt-3 text-sm text-[var(--color-text-tertiary)]">No repositories linked yet. Click "Manage repos" to select repositories.</p>
+					<p class="mt-3 text-sm text-[var(--color-text-tertiary)]">No repositories linked yet.</p>
 				{:else}
 					<div class="mt-3 space-y-1">
 						{#each status.repos as repo}
@@ -245,7 +308,6 @@
 					</div>
 				{/if}
 
-				<!-- Repo selector -->
 				{#if showRepoSelector}
 					<div class="mt-3 rounded-lg border border-[var(--app-border)] p-4">
 						{#if loadingRepos}
@@ -299,6 +361,18 @@
 					</div>
 				</div>
 			{/if}
+
+			<!-- Danger zone -->
+			<div class="border-t border-[var(--app-border)] pt-4">
+				<button
+					onclick={handleDeleteApp}
+					class="flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-error)]"
+				>
+					<Trash2 size={12} />
+					Remove GitHub App entirely
+				</button>
+			</div>
 		</div>
 	{/if}
 </div>
+

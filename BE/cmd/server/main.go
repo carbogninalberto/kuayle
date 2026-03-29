@@ -21,7 +21,6 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/crypto"
-	ghpkg "github.com/kuayle/kuayle-backend/pkg/github"
 	"github.com/kuayle/kuayle-backend/pkg/storage"
 )
 
@@ -119,21 +118,13 @@ func main() {
 	}
 	uploadH := handler.NewUploadHandler(store)
 
-	// GitHub integration (optional — only when GITHUB_APP_ID is configured)
-	var githubH *handler.GitHubHandler
-	if cfg.GitHubAppID > 0 {
-		ghClient, err := ghpkg.NewClient(cfg.GitHubAppID, cfg.GitHubAppPrivateKey)
-		if err != nil {
-			log.Fatalf("Failed to create GitHub client: %v", err)
-		}
-		githubRepo := repository.NewGitHubRepository(db)
-		githubSvc := service.NewGitHubService(
-			githubRepo, issueRepo, teamStatusRepo, historyRepo, ghClient,
-			crypto.DeriveKey(cfg.JWTSecret+":github"), hub, cfg.GitHubWebhookSecret, cfg.GitHubClientID,
-		)
-		githubH = handler.NewGitHubHandler(githubSvc, cfg.GitHubClientID)
-		log.Info("GitHub integration enabled")
-	}
+	// GitHub integration (always available — credentials stored per-workspace in DB)
+	githubRepo := repository.NewGitHubRepository(db)
+	githubSvc := service.NewGitHubService(
+		githubRepo, issueRepo, teamStatusRepo, historyRepo,
+		crypto.DeriveKey(cfg.JWTSecret+":github"), hub, cfg.FrontendURL, cfg.GitHubWebhookURL,
+	)
+	githubH := handler.NewGitHubHandler(githubSvc)
 
 	// Background: clean up expired refresh tokens every hour
 	go func() {
@@ -281,23 +272,24 @@ func main() {
 	ws.DELETE("/webhooks/:id", webhookH.Delete, mw.RequirePermission("workspace:manage"))
 
 	// GitHub integration (conditional)
-	if githubH != nil {
-		// Public webhook endpoint (no auth, signature-verified internally)
-		e.POST("/api/github/webhook", githubH.HandleWebhook)
+	// Public webhook endpoint (no auth, signature-verified internally)
+	e.POST("/api/github/webhook", githubH.HandleWebhook)
 
-		// Workspace-scoped GitHub routes
-		ws.GET("/github/status", githubH.Status)
-		ws.GET("/github/install", githubH.InstallURL, mw.RequirePermission("workspace:manage"))
-		ws.GET("/github/callback", githubH.Callback, mw.RequirePermission("workspace:manage"))
-		ws.DELETE("/github/disconnect", githubH.Disconnect, mw.RequirePermission("workspace:manage"))
-		ws.GET("/github/repos", githubH.ListRepos, mw.RequirePermission("workspace:manage"))
-		ws.POST("/github/repos", githubH.LinkRepos, mw.RequirePermission("workspace:manage"))
-		ws.DELETE("/github/repos/:id", githubH.UnlinkRepo, mw.RequirePermission("workspace:manage"))
-		ws.GET("/github/auto-transitions", githubH.ListAutoTransitions)
-		ws.PATCH("/github/auto-transitions", githubH.UpdateAutoTransitions, mw.RequirePermission("workspace:manage"))
-		ws.GET("/issues/:identifier/github", githubH.IssueGitHubActivity)
-		ws.GET("/github/issue-links", githubH.AgentIssueLinks)
-	}
+	// GitHub integration (workspace-scoped)
+	ws.GET("/github/status", githubH.Status)
+	ws.POST("/github/setup", githubH.Setup, mw.RequirePermission("workspace:manage"))
+	ws.GET("/github/setup/callback", githubH.SetupCallback, mw.RequirePermission("workspace:manage"))
+	ws.GET("/github/install", githubH.InstallURL, mw.RequirePermission("workspace:manage"))
+	ws.GET("/github/callback", githubH.Callback, mw.RequirePermission("workspace:manage"))
+	ws.DELETE("/github/disconnect", githubH.Disconnect, mw.RequirePermission("workspace:manage"))
+	ws.DELETE("/github/app", githubH.DeleteApp, mw.RequirePermission("workspace:manage"))
+	ws.GET("/github/repos", githubH.ListRepos, mw.RequirePermission("workspace:manage"))
+	ws.POST("/github/repos", githubH.LinkRepos, mw.RequirePermission("workspace:manage"))
+	ws.DELETE("/github/repos/:id", githubH.UnlinkRepo, mw.RequirePermission("workspace:manage"))
+	ws.GET("/github/auto-transitions", githubH.ListAutoTransitions)
+	ws.PATCH("/github/auto-transitions", githubH.UpdateAutoTransitions, mw.RequirePermission("workspace:manage"))
+	ws.GET("/issues/:identifier/github", githubH.IssueGitHubActivity)
+	ws.GET("/github/issue-links", githubH.AgentIssueLinks)
 
 	// Favorites
 	ws.GET("/favorites", favH.List)

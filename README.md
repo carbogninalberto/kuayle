@@ -204,99 +204,98 @@ Works with AWS S3, Cloudflare R2, MinIO, SeaweedFS, and any S3-compatible provid
 
 ### GitHub Integration (optional)
 
-Kuayle can connect to GitHub via a **GitHub App** to automatically link pull requests, branches, and commits to issues, and auto-transition issue status based on PR activity.
+Kuayle connects to GitHub via a self-configuring **GitHub App**. No environment variables needed — everything is set up from the UI.
 
-#### 1. Create a GitHub App
+#### What it does
 
-1. Go to **GitHub → Settings → Developer settings → GitHub Apps → New GitHub App**
-2. Fill in the form:
+- **Links PRs to issues** — mention `ENG-123` in a branch name, PR title, or commit message
+- **Auto-transitions** — branch created → In Progress, PR opened → In Review, PR merged → Done (configurable)
+- **Activity feed** — linked PRs, branches, and commits on every issue detail page
 
-| Field | Value |
-|---|---|
-| **App name** | `Kuayle` (or any name) |
-| **Homepage URL** | Your Kuayle instance URL |
-| **Callback URL** | `https://your-domain.com/<workspace-slug>/settings/github` |
-| **Webhook URL** | `https://your-api-domain.com/api/github/webhook` |
-| **Webhook secret** | Generate a random string (save this for `.env`) |
+#### Public-facing instance (recommended)
 
-3. Set **permissions**:
-
-| Permission | Access |
-|---|---|
-| **Pull requests** | Read |
-| **Contents** | Read |
-| **Metadata** | Read |
-| **Issues** | Read (optional, for future sync) |
-
-4. Subscribe to **events**:
-   - `Pull request`
-   - `Push`
-   - `Create` (branch/tag creation)
-
-5. Set **Where can this GitHub App be installed?** to "Any account" (or "Only on this account" for private use)
-
-6. Click **Create GitHub App**
-
-#### 2. Generate a private key
-
-After creating the app:
-
-1. On the app settings page, scroll to **Private keys**
-2. Click **Generate a private key** — this downloads a `.pem` file
-3. Base64-encode it for the env var:
-
-```sh
-cat your-app-name.2024-01-01.private-key.pem | base64 -w 0
-```
-
-#### 3. Get your App credentials
-
-From the app settings page, note:
-- **App ID** (numeric, shown at the top)
-- **Client ID** (starts with `Iv1.`)
-- **Client secret** (generate one if not already created)
-
-#### 4. Configure environment variables
-
-Add these to your `.env`:
-
-```env
-GITHUB_APP_ID=123456
-GITHUB_APP_PRIVATE_KEY=LS0tLS1CRUdJTi...  # base64-encoded PEM
-GITHUB_CLIENT_ID=Iv1.abc123
-GITHUB_CLIENT_SECRET=your-client-secret
-GITHUB_WEBHOOK_SECRET=your-webhook-secret
-```
-
-Restart the backend. The integration is **disabled** when `GITHUB_APP_ID` is not set.
-
-#### 5. Connect from Kuayle
+If your Kuayle instance is reachable from the internet (e.g. `https://kuayle.yourcompany.com`), setup is fully automatic:
 
 1. Go to **Settings → GitHub** in your workspace
-2. Click **Connect** — this redirects to GitHub to install the app
-3. Select which repositories to grant access to
-4. After redirect back, select which repos to link in Kuayle
-5. Configure auto-transition rules (branch created → In Progress, PR opened → In Review, PR merged → Done)
+2. Click **Set up GitHub App** — redirects to GitHub with a pre-filled form
+3. Click **Create GitHub App** on GitHub
+4. Redirected back — credentials saved automatically, webhook URL configured
+5. Click **Install on GitHub** to grant access to your repos
+6. Select which repos to link — done!
 
-#### How issue linking works
+Everything including the webhook URL is configured automatically. PRs, branches, and commits start appearing on issues immediately.
 
-Kuayle matches issue identifiers (e.g. `ENG-123`) in:
-- **Branch names** — `feat/ENG-123-add-auth`
-- **PR titles** — `fix: resolve ENG-123 login bug`
-- **PR descriptions** — any mention of `ENG-123` in the body
-- **Commit messages** — `ENG-123: update schema`
+#### Private network / no public domain
 
-Matched issues automatically show linked PRs, branches, and commits on the issue detail page.
+If your instance runs on a private network (e.g. `http://192.168.1.50:5173` or behind a VPN), GitHub can't send webhooks directly. You have two options:
+
+**Option A: Webhook proxy with smee.io (simplest)**
+
+[smee.io](https://smee.io) is a free webhook relay that forwards GitHub events to your private instance.
+
+1. Go to [smee.io/new](https://smee.io/new) and copy your channel URL (e.g. `https://smee.io/abc123`)
+2. Run the proxy on your server:
+   ```sh
+   npx smee-client --url https://smee.io/abc123 --target http://localhost:8080/api/github/webhook
+   ```
+3. Set up the GitHub App from **Settings → GitHub** (same steps as above)
+4. After the app is created, go to its settings on GitHub:
+   **GitHub → Settings → Developer settings → GitHub Apps → your app → General**
+5. Set **Webhook URL** to your smee channel URL (`https://smee.io/abc123`)
+6. Check **Active** and save
+
+The smee client must stay running to receive events. You can run it as a systemd service:
+
+```ini
+# /etc/systemd/system/smee-kuayle.service
+[Unit]
+Description=Smee webhook proxy for Kuayle
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/npx smee-client --url https://smee.io/abc123 --target http://localhost:8080/api/github/webhook
+Restart=always
+User=kuayle
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```sh
+sudo systemctl enable --now smee-kuayle
+```
+
+**Option B: Reverse tunnel (no third-party relay)**
+
+Use a reverse tunnel to expose just the webhook endpoint. With [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/):
+
+```sh
+cloudflared tunnel --url http://localhost:8080
+```
+
+Or with [ngrok](https://ngrok.com):
+
+```sh
+ngrok http 8080
+```
+
+Then set the generated public URL as the webhook URL in your GitHub App settings (append `/api/github/webhook`).
+
+**Option C: Polling (no webhook needed)**
+
+If you can't expose any endpoint, the GitHub integration still works for PR/branch/commit linking — it just won't receive real-time webhook events. You can manually refresh issue activity from the UI. Auto-transitions won't fire without webhooks.
 
 #### Local development
 
-For local development, you can use [smee.io](https://smee.io) to forward GitHub webhooks to your local machine:
+For local development, the GitHub App is created without a webhook URL (since localhost isn't reachable). To receive webhook events during development:
 
-```sh
-npx smee-client --url https://smee.io/your-channel --target http://localhost:8080/api/github/webhook
-```
-
-Set the smee URL as the webhook URL in your GitHub App settings during development.
+1. Set up the GitHub App from Settings → GitHub (works on localhost)
+2. Start a smee proxy:
+   ```sh
+   npx smee-client --url https://smee.io/your-channel --target http://localhost:8080/api/github/webhook
+   ```
+3. Update the webhook URL in your GitHub App settings to your smee channel URL
+4. Events will now flow through to your local instance
 
 ## 📂 Project Structure
 

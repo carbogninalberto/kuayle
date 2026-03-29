@@ -14,12 +14,11 @@ import (
 )
 
 type GitHubHandler struct {
-	ghSvc    *service.GitHubService
-	clientID string
+	ghSvc *service.GitHubService
 }
 
-func NewGitHubHandler(ghSvc *service.GitHubService, clientID string) *GitHubHandler {
-	return &GitHubHandler{ghSvc: ghSvc, clientID: clientID}
+func NewGitHubHandler(ghSvc *service.GitHubService) *GitHubHandler {
+	return &GitHubHandler{ghSvc: ghSvc}
 }
 
 // Status returns the GitHub integration status for the workspace.
@@ -32,10 +31,47 @@ func (h *GitHubHandler) Status(c echo.Context) error {
 	return response.Success(c, http.StatusOK, status)
 }
 
+// Setup returns the manifest data as JSON. The frontend handles the form POST.
+func (h *GitHubHandler) Setup(c echo.Context) error {
+	ws := c.Get("workspace").(*domain.Workspace)
+	manifest, submitURL := h.ghSvc.GetManifest(ws.ID, ws.Slug)
+	return response.Success(c, http.StatusOK, map[string]any{
+		"manifest":   manifest,
+		"submit_url": submitURL,
+	})
+}
+
+// SetupCallback handles the redirect from GitHub after app creation via manifest.
+func (h *GitHubHandler) SetupCallback(c echo.Context) error {
+	ws := c.Get("workspace").(*domain.Workspace)
+	code := c.QueryParam("code")
+	if code == "" {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Missing code parameter")
+	}
+
+	appCfg, err := h.ghSvc.HandleManifestCallback(c.Request().Context(), ws.ID, code)
+	if err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+	}
+
+	appSlug := ""
+	if appCfg.AppSlug != nil {
+		appSlug = *appCfg.AppSlug
+	}
+
+	return response.Success(c, http.StatusOK, map[string]any{
+		"app_id":   appCfg.AppID,
+		"app_slug": appSlug,
+	})
+}
+
 // InstallURL returns the URL to install the GitHub App.
 func (h *GitHubHandler) InstallURL(c echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
-	url := h.ghSvc.GetInstallURL(ws.ID)
+	url, err := h.ghSvc.GetInstallURL(c.Request().Context(), ws.ID)
+	if err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+	}
 	return response.Success(c, http.StatusOK, dto.GitHubInstallURLResponse{URL: url})
 }
 
@@ -61,13 +97,22 @@ func (h *GitHubHandler) Callback(c echo.Context) error {
 	})
 }
 
-// Disconnect removes the GitHub integration.
+// Disconnect removes the GitHub installation (keeps app config).
 func (h *GitHubHandler) Disconnect(c echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	if err := h.ghSvc.Disconnect(c.Request().Context(), ws.ID); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
 	}
 	return response.Success(c, http.StatusOK, map[string]string{"status": "disconnected"})
+}
+
+// DeleteApp removes the entire GitHub App configuration.
+func (h *GitHubHandler) DeleteApp(c echo.Context) error {
+	ws := c.Get("workspace").(*domain.Workspace)
+	if err := h.ghSvc.DeleteApp(c.Request().Context(), ws.ID); err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+	}
+	return response.Success(c, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
 // ListRepos lists available GitHub repos for the installation.
@@ -169,7 +214,7 @@ func (h *GitHubHandler) HandleWebhook(c echo.Context) error {
 		return c.NoContent(http.StatusBadRequest)
 	}
 
-	if !h.ghSvc.VerifyWebhookSignature(body, signature) {
+	if !h.ghSvc.VerifyWebhookSignature(c.Request().Context(), body, signature) {
 		return c.NoContent(http.StatusUnauthorized)
 	}
 

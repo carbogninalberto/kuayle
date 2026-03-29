@@ -228,3 +228,28 @@ func (r *GitHubRepository) ListCommitsWithRepoByIssue(ctx context.Context, issue
 	err := r.db.SelectContext(ctx, &commits, query, issueID)
 	return commits, err
 }
+
+// --- App Config ---
+
+func (r *GitHubRepository) CreateAppConfig(ctx context.Context, cfg *domain.GitHubAppConfig) error {
+	query := `INSERT INTO github_app_configs (id, workspace_id, app_id, app_slug, client_id, client_secret, private_key, webhook_secret, html_url)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING created_at`
+	return r.db.QueryRowContext(ctx, query,
+		cfg.ID, cfg.WorkspaceID, cfg.AppID, cfg.AppSlug, cfg.ClientID,
+		cfg.ClientSecret, cfg.PrivateKey, cfg.WebhookSecret, cfg.HTMLURL,
+	).Scan(&cfg.CreatedAt)
+}
+
+func (r *GitHubRepository) GetAppConfigByWorkspace(ctx context.Context, workspaceID uuid.UUID) (*domain.GitHubAppConfig, error) {
+	var cfg domain.GitHubAppConfig
+	err := r.db.GetContext(ctx, &cfg, `SELECT * FROM github_app_configs WHERE workspace_id = $1`, workspaceID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return &cfg, err
+}
+
+func (r *GitHubRepository) DeleteAppConfig(ctx context.Context, workspaceID uuid.UUID) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM github_app_configs WHERE workspace_id = $1`, workspaceID)
+	return err
+}

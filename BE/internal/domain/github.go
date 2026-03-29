@@ -85,3 +85,16 @@ type GitHubAutoTransition struct {
 	TargetStatusID *uuid.UUID `json:"target_status_id" db:"target_status_id"`
 	IsActive       bool       `json:"is_active" db:"is_active"`
 }
+
+type GitHubAppConfig struct {
+	ID            uuid.UUID `json:"id" db:"id"`
+	WorkspaceID   uuid.UUID `json:"workspace_id" db:"workspace_id"`
+	AppID         int64     `json:"app_id" db:"app_id"`
+	AppSlug       *string   `json:"app_slug" db:"app_slug"`
+	ClientID      string    `json:"-" db:"client_id"`
+	ClientSecret  string    `json:"-" db:"client_secret"`
+	PrivateKey    string    `json:"-" db:"private_key"`
+	WebhookSecret string    `json:"-" db:"webhook_secret"`
+	HTMLURL       *string   `json:"html_url" db:"html_url"`
+	CreatedAt     time.Time `json:"created_at" db:"created_at"`
+}

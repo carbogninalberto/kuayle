@@ -126,6 +126,7 @@ class IssuesState {
 	}
 
 	async load(slug: string, params?: Record<string, string>) {
+		this.filters = params ?? {};
 		this.loading = true;
 		try {
 			const res = await issueApi.listIssues(slug, params);
@@ -138,8 +139,12 @@ class IssuesState {
 
 	async create(slug: string, req: CreateIssueRequest): Promise<Issue> {
 		const issue = await issueApi.createIssue(slug, req);
-		this.issues = [issue, ...this.issues];
-		this.totalCount++;
+		// Only add to local list if it matches the current team filter
+		const teamFilter = this.filters.team;
+		if (!teamFilter || issue.team_id === teamFilter) {
+			this.issues = [issue, ...this.issues];
+			this.totalCount++;
+		}
 		return issue;
 	}
 

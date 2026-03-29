@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"regexp"
 	"strings"
 	"time"
@@ -15,6 +17,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/realtime"
 	"github.com/kuayle/kuayle-backend/internal/repository"
+	"github.com/kuayle/kuayle-backend/pkg/crypto"
 	gh "github.com/kuayle/kuayle-backend/pkg/github"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
@@ -27,11 +30,10 @@ type GitHubService struct {
 	issueRepo      repository.IssueRepo
 	teamStatusRepo repository.TeamStatusRepo
 	historyRepo    repository.IssueHistoryRepo
-	ghClient       *gh.Client
 	encryptionKey  []byte
 	hub            *realtime.Hub
-	webhookSecret  string
-	clientID       string
+	frontendURL    string
+	webhookURL     string // optional override (e.g. smee.io for dev)
 }
 
 func NewGitHubService(
@@ -39,35 +41,204 @@ func NewGitHubService(
 	issueRepo repository.IssueRepo,
 	teamStatusRepo repository.TeamStatusRepo,
 	historyRepo repository.IssueHistoryRepo,
-	ghClient *gh.Client,
 	encryptionKey []byte,
 	hub *realtime.Hub,
-	webhookSecret string,
-	clientID string,
+	frontendURL string,
+	webhookURL string,
 ) *GitHubService {
 	return &GitHubService{
 		ghRepo:         ghRepo,
 		issueRepo:      issueRepo,
 		teamStatusRepo: teamStatusRepo,
 		historyRepo:    historyRepo,
-		ghClient:       ghClient,
 		encryptionKey:  encryptionKey,
 		hub:            hub,
-		webhookSecret:  webhookSecret,
-		clientID:       clientID,
+		frontendURL:    frontendURL,
+		webhookURL:     webhookURL,
 	}
+}
+
+// getClient creates a GitHub API client from the workspace's stored app config.
+func (s *GitHubService) getClient(ctx context.Context, workspaceID uuid.UUID) (*gh.Client, *domain.GitHubAppConfig, error) {
+	cfg, err := s.ghRepo.GetAppConfigByWorkspace(ctx, workspaceID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if cfg == nil {
+		return nil, nil, fmt.Errorf("GitHub App not configured")
+	}
+
+	// Decrypt private key
+	privateKey, err := crypto.Decrypt(cfg.PrivateKey, s.encryptionKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("decrypting private key: %w", err)
+	}
+
+	client, err := gh.NewClient(cfg.AppID, privateKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("creating GitHub client: %w", err)
+	}
+
+	return client, cfg, nil
+}
+
+// getClientByInstallationID creates a client by looking up the workspace from an installation.
+func (s *GitHubService) getClientByInstallationID(ctx context.Context, installationID int64) (*gh.Client, *domain.GitHubInstallation, error) {
+	inst, err := s.ghRepo.GetInstallationByGitHubID(ctx, installationID)
+	if err != nil || inst == nil {
+		return nil, nil, fmt.Errorf("unknown installation")
+	}
+
+	client, _, err := s.getClient(ctx, inst.WorkspaceID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return client, inst, nil
+}
+
+// --- Manifest Flow ---
+
+// GetManifest returns the GitHub App manifest and the URL to submit it to.
+func (s *GitHubService) GetManifest(workspaceID uuid.UUID, slug string) (map[string]any, string) {
+	callbackURL := fmt.Sprintf("%s/%s/settings/github", s.frontendURL, slug)
+
+	// Determine if the frontend URL is publicly reachable
+	isLocal := strings.Contains(s.frontendURL, "localhost") || strings.Contains(s.frontendURL, "127.0.0.1")
+
+	manifest := map[string]any{
+		"name":               fmt.Sprintf("Kuayle (%s)", slug),
+		"url":                s.frontendURL,
+		"redirect_url":       callbackURL,
+		"callback_urls":      []string{callbackURL},
+		"setup_url":          callbackURL,
+		"setup_on_update":    true,
+		"public":             false,
+		"default_permissions": map[string]string{
+			"pull_requests": "read",
+			"contents":      "read",
+			"metadata":      "read",
+			"issues":        "read",
+		},
+		"default_events": []string{
+			"pull_request",
+			"push",
+			"create",
+		},
+	}
+
+	// Determine webhook URL: explicit override > auto-derive from domain > placeholder
+	if s.webhookURL != "" {
+		manifest["hook_attributes"] = map[string]any{"url": s.webhookURL, "active": true}
+	} else if !isLocal {
+		webhookURL := fmt.Sprintf("%s/api/github/webhook", strings.Replace(s.frontendURL, ":5173", ":8080", 1))
+		manifest["hook_attributes"] = map[string]any{"url": webhookURL, "active": true}
+	} else {
+		manifest["hook_attributes"] = map[string]any{"url": "https://example.com/webhook", "active": false}
+	}
+
+	submitURL := "https://github.com/settings/apps/new"
+	return manifest, submitURL
+}
+
+// HandleManifestCallback exchanges the temporary code from GitHub for app credentials.
+func (s *GitHubService) HandleManifestCallback(ctx context.Context, workspaceID uuid.UUID, code string) (*domain.GitHubAppConfig, error) {
+	// Check if already configured
+	existing, err := s.ghRepo.GetAppConfigByWorkspace(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	if existing != nil {
+		return existing, nil
+	}
+
+	// Exchange code for credentials
+	convURL := fmt.Sprintf("https://api.github.com/app-manifests/%s/conversion", code)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, convURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating conversion request: %w", err)
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("exchanging manifest code: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		log.WithFields(log.Fields{
+			"status": resp.StatusCode,
+			"body":   string(body),
+			"code":   code[:8] + "...",
+		}).Warn("GitHub manifest conversion failed")
+		return nil, fmt.Errorf("GitHub API error %d: %s", resp.StatusCode, body)
+	}
+
+	var result struct {
+		ID            int64  `json:"id"`
+		Slug          string `json:"slug"`
+		ClientID      string `json:"client_id"`
+		ClientSecret  string `json:"client_secret"`
+		PEM           string `json:"pem"`
+		WebhookSecret string `json:"webhook_secret"`
+		HTMLURL       string `json:"html_url"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decoding manifest response: %w", err)
+	}
+
+	// Encrypt secrets
+	encClientSecret, err := crypto.Encrypt(result.ClientSecret, s.encryptionKey)
+	if err != nil {
+		return nil, fmt.Errorf("encrypting client secret: %w", err)
+	}
+	encPrivateKey, err := crypto.Encrypt(result.PEM, s.encryptionKey)
+	if err != nil {
+		return nil, fmt.Errorf("encrypting private key: %w", err)
+	}
+	encWebhookSecret, err := crypto.Encrypt(result.WebhookSecret, s.encryptionKey)
+	if err != nil {
+		return nil, fmt.Errorf("encrypting webhook secret: %w", err)
+	}
+
+	appCfg := &domain.GitHubAppConfig{
+		ID:            uuid.New(),
+		WorkspaceID:   workspaceID,
+		AppID:         result.ID,
+		AppSlug:       &result.Slug,
+		ClientID:      result.ClientID,
+		ClientSecret:  encClientSecret,
+		PrivateKey:    encPrivateKey,
+		WebhookSecret: encWebhookSecret,
+		HTMLURL:       &result.HTMLURL,
+	}
+
+	if err := s.ghRepo.CreateAppConfig(ctx, appCfg); err != nil {
+		return nil, err
+	}
+
+	return appCfg, nil
 }
 
 // --- Installation Flow ---
 
-// GetInstallURL returns the GitHub App installation URL.
-func (s *GitHubService) GetInstallURL(workspaceID uuid.UUID) string {
-	return fmt.Sprintf("https://github.com/apps/kuayle/installations/new?state=%s", workspaceID.String())
+// GetInstallURL returns the GitHub App installation URL using the stored app slug.
+func (s *GitHubService) GetInstallURL(ctx context.Context, workspaceID uuid.UUID) (string, error) {
+	cfg, err := s.ghRepo.GetAppConfigByWorkspace(ctx, workspaceID)
+	if err != nil || cfg == nil {
+		return "", fmt.Errorf("GitHub App not configured")
+	}
+	slug := "kuayle"
+	if cfg.AppSlug != nil {
+		slug = *cfg.AppSlug
+	}
+	return fmt.Sprintf("https://github.com/apps/%s/installations/new?state=%s", slug, workspaceID.String()), nil
 }
 
 // HandleInstallationCallback processes the GitHub App installation callback.
 func (s *GitHubService) HandleInstallationCallback(ctx context.Context, workspaceID, userID uuid.UUID, installationID int64) (*domain.GitHubInstallation, error) {
-	// Check if already installed
 	existing, err := s.ghRepo.GetInstallationByWorkspace(ctx, workspaceID)
 	if err != nil {
 		return nil, err
@@ -76,8 +247,12 @@ func (s *GitHubService) HandleInstallationCallback(ctx context.Context, workspac
 		return existing, nil
 	}
 
-	// Fetch installation details from GitHub
-	ghInst, err := s.ghClient.GetInstallation(installationID)
+	client, _, err := s.getClient(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+
+	ghInst, err := client.GetInstallation(installationID)
 	if err != nil {
 		return nil, fmt.Errorf("fetching installation details: %w", err)
 	}
@@ -120,14 +295,22 @@ func (s *GitHubService) HandleInstallationCallback(ctx context.Context, workspac
 
 // GetStatus returns the current GitHub integration status for a workspace.
 func (s *GitHubService) GetStatus(ctx context.Context, workspaceID uuid.UUID) (*dto.GitHubStatusResponse, error) {
-	inst, err := s.ghRepo.GetInstallationByWorkspace(ctx, workspaceID)
-	if err != nil {
-		return nil, err
-	}
+	appCfg, _ := s.ghRepo.GetAppConfigByWorkspace(ctx, workspaceID)
+	inst, _ := s.ghRepo.GetInstallationByWorkspace(ctx, workspaceID)
 
 	resp := &dto.GitHubStatusResponse{
 		Installed: inst != nil,
 		Repos:     []dto.GitHubRepoResponse{},
+	}
+
+	// Add app config info
+	if appCfg != nil {
+		resp.Configured = true
+		appSlug := ""
+		if appCfg.AppSlug != nil {
+			appSlug = *appCfg.AppSlug
+		}
+		resp.AppSlug = appSlug
 	}
 
 	if inst != nil {
@@ -164,17 +347,21 @@ func (s *GitHubService) ListAvailableRepos(ctx context.Context, workspaceID uuid
 		return nil, fmt.Errorf("GitHub not connected")
 	}
 
-	token, _, err := s.ghClient.GetInstallationToken(inst.InstallationID)
+	client, _, err := s.getClient(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+
+	token, _, err := client.GetInstallationToken(inst.InstallationID)
 	if err != nil {
 		return nil, fmt.Errorf("getting installation token: %w", err)
 	}
 
-	ghRepos, err := s.ghClient.ListInstallationRepos(token)
+	ghRepos, err := client.ListInstallationRepos(token)
 	if err != nil {
 		return nil, fmt.Errorf("listing repos: %w", err)
 	}
 
-	// Get already linked repos
 	linkedRepos, err := s.ghRepo.ListReposByWorkspace(ctx, workspaceID)
 	if err != nil {
 		return nil, err
@@ -204,12 +391,17 @@ func (s *GitHubService) LinkRepos(ctx context.Context, workspaceID uuid.UUID, re
 		return fmt.Errorf("GitHub not connected")
 	}
 
-	token, _, err := s.ghClient.GetInstallationToken(inst.InstallationID)
+	client, _, err := s.getClient(ctx, workspaceID)
+	if err != nil {
+		return err
+	}
+
+	token, _, err := client.GetInstallationToken(inst.InstallationID)
 	if err != nil {
 		return fmt.Errorf("getting installation token: %w", err)
 	}
 
-	ghRepos, err := s.ghClient.ListInstallationRepos(token)
+	ghRepos, err := client.ListInstallationRepos(token)
 	if err != nil {
 		return fmt.Errorf("listing repos: %w", err)
 	}
@@ -249,20 +441,49 @@ func (s *GitHubService) UnlinkRepo(ctx context.Context, repoID uuid.UUID) error 
 	return s.ghRepo.DeleteRepo(ctx, repoID)
 }
 
-// Disconnect removes the GitHub integration for a workspace.
+// Disconnect removes the GitHub installation (keeps app config).
 func (s *GitHubService) Disconnect(ctx context.Context, workspaceID uuid.UUID) error {
 	return s.ghRepo.DeleteInstallation(ctx, workspaceID)
+}
+
+// DeleteApp removes the entire GitHub App configuration and installation.
+func (s *GitHubService) DeleteApp(ctx context.Context, workspaceID uuid.UUID) error {
+	_ = s.ghRepo.DeleteInstallation(ctx, workspaceID)
+	return s.ghRepo.DeleteAppConfig(ctx, workspaceID)
 }
 
 // --- Webhook Event Processing ---
 
 // VerifyWebhookSignature verifies the GitHub webhook HMAC-SHA256 signature.
-func (s *GitHubService) VerifyWebhookSignature(payload []byte, signature string) bool {
-	if s.webhookSecret == "" {
-		return true // No secret configured, skip verification
+// It looks up the webhook secret from the DB using the installation ID in the payload.
+func (s *GitHubService) VerifyWebhookSignature(ctx context.Context, payload []byte, signature string) bool {
+	// Extract installation ID from payload to look up the webhook secret
+	var partial struct {
+		Installation struct {
+			ID int64 `json:"id"`
+		} `json:"installation"`
 	}
+	if err := json.Unmarshal(payload, &partial); err != nil || partial.Installation.ID == 0 {
+		return false
+	}
+
+	inst, err := s.ghRepo.GetInstallationByGitHubID(ctx, partial.Installation.ID)
+	if err != nil || inst == nil {
+		return false
+	}
+
+	cfg, err := s.ghRepo.GetAppConfigByWorkspace(ctx, inst.WorkspaceID)
+	if err != nil || cfg == nil {
+		return false
+	}
+
+	secret, err := crypto.Decrypt(cfg.WebhookSecret, s.encryptionKey)
+	if err != nil {
+		return false
+	}
+
 	sig := strings.TrimPrefix(signature, "sha256=")
-	mac := hmac.New(sha256.New, []byte(s.webhookSecret))
+	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write(payload)
 	expected := hex.EncodeToString(mac.Sum(nil))
 	return hmac.Equal([]byte(sig), []byte(expected))
@@ -280,24 +501,24 @@ func (s *GitHubService) HandleWebhookEvent(ctx context.Context, eventType string
 	case "installation":
 		return s.processInstallationEvent(ctx, payload)
 	default:
-		return nil // Ignore unhandled events
+		return nil
 	}
 }
 
 type ghWebhookPR struct {
-	Action       string `json:"action"`
-	Number       int    `json:"number"`
-	PullRequest  struct {
-		ID        int64      `json:"id"`
-		Number    int        `json:"number"`
-		Title     string     `json:"title"`
-		State     string     `json:"state"`
-		Draft     bool       `json:"draft"`
-		Merged    bool       `json:"merged"`
-		HTMLURL   string     `json:"html_url"`
-		Head      struct{ Ref string `json:"ref"` } `json:"head"`
-		Base      struct{ Ref string `json:"ref"` } `json:"base"`
-		User      struct {
+	Action      string `json:"action"`
+	Number      int    `json:"number"`
+	PullRequest struct {
+		ID    int64  `json:"id"`
+		Number int   `json:"number"`
+		Title  string `json:"title"`
+		State  string `json:"state"`
+		Draft  bool   `json:"draft"`
+		Merged bool   `json:"merged"`
+		HTMLURL string `json:"html_url"`
+		Head   struct{ Ref string `json:"ref"` } `json:"head"`
+		Base   struct{ Ref string `json:"ref"` } `json:"base"`
+		User   struct {
 			Login     string `json:"login"`
 			AvatarURL string `json:"avatar_url"`
 		} `json:"user"`
@@ -323,15 +544,14 @@ func (s *GitHubService) processPullRequestEvent(ctx context.Context, payload []b
 
 	inst, err := s.ghRepo.GetInstallationByGitHubID(ctx, event.Installation.ID)
 	if err != nil || inst == nil {
-		return nil // Unknown installation, skip
+		return nil
 	}
 
 	repo, err := s.ghRepo.GetRepoByGitHubID(ctx, inst.WorkspaceID, event.Repository.ID)
 	if err != nil || repo == nil {
-		return nil // Repo not linked, skip
+		return nil
 	}
 
-	// Determine PR state
 	state := event.PullRequest.State
 	if event.PullRequest.Draft {
 		state = "draft"
@@ -340,7 +560,6 @@ func (s *GitHubService) processPullRequestEvent(ctx context.Context, payload []b
 		state = "merged"
 	}
 
-	// Resolve issue from branch name, PR title, or PR body
 	issue := s.resolveIssueFromRef(ctx, inst.WorkspaceID,
 		event.PullRequest.Head.Ref,
 		event.PullRequest.Title,
@@ -380,7 +599,6 @@ func (s *GitHubService) processPullRequestEvent(ctx context.Context, payload []b
 		return fmt.Errorf("upserting PR: %w", err)
 	}
 
-	// Apply auto-transitions
 	if issue != nil {
 		switch {
 		case event.Action == "opened" || event.Action == "ready_for_review":
@@ -388,10 +606,7 @@ func (s *GitHubService) processPullRequestEvent(ctx context.Context, payload []b
 		case event.PullRequest.Merged:
 			s.applyAutoTransition(ctx, inst.WorkspaceID, "pr_merged", issue)
 		}
-	}
 
-	// Broadcast realtime update
-	if issue != nil {
 		s.hub.Broadcast(inst.WorkspaceID, realtime.Event{
 			Type:    "github:pr_updated",
 			Payload: map[string]any{"issue_id": issue.ID, "pr_number": pr.Number, "state": state},
@@ -439,7 +654,6 @@ func (s *GitHubService) processPushEvent(ctx context.Context, payload []byte) er
 
 	for _, c := range event.Commits {
 		issue := s.resolveIssueFromRef(ctx, inst.WorkspaceID, c.Message)
-
 		var issueID *uuid.UUID
 		if issue != nil {
 			issueID = &issue.ID
@@ -472,8 +686,8 @@ func (s *GitHubService) processPushEvent(ctx context.Context, payload []byte) er
 }
 
 type ghWebhookCreate struct {
-	RefType string `json:"ref_type"`
-	Ref     string `json:"ref"`
+	RefType    string `json:"ref_type"`
+	Ref        string `json:"ref"`
 	Repository struct {
 		ID      int64  `json:"id"`
 		HTMLURL string `json:"html_url"`
@@ -564,7 +778,6 @@ func (s *GitHubService) processInstallationEvent(ctx context.Context, payload []
 
 // --- Issue Linking ---
 
-// resolveIssueFromRef extracts issue identifiers from text and returns the first matching issue.
 func (s *GitHubService) resolveIssueFromRef(ctx context.Context, workspaceID uuid.UUID, texts ...string) *domain.Issue {
 	seen := make(map[string]bool)
 	for _, text := range texts {
@@ -593,8 +806,6 @@ func (s *GitHubService) applyAutoTransition(ctx context.Context, workspaceID uui
 
 	oldStatus := string(issue.Status)
 	newStatus := rule.TargetStatus
-
-	// Don't transition if already in the target status
 	if oldStatus == newStatus {
 		return
 	}
@@ -609,10 +820,8 @@ func (s *GitHubService) applyAutoTransition(ctx context.Context, workspaceID uui
 		return
 	}
 
-	// Record history
 	_ = s.historyRepo.Create(ctx, issue.ID, uuid.Nil, "status", &oldStatus, &newStatus)
 
-	// Broadcast
 	s.hub.Broadcast(workspaceID, realtime.Event{
 		Type:    "issue.updated",
 		Payload: issue,
@@ -621,27 +830,15 @@ func (s *GitHubService) applyAutoTransition(ctx context.Context, workspaceID uui
 
 // --- Data Access ---
 
-// GetIssueActivity returns GitHub PRs, branches, and commits linked to an issue.
 func (s *GitHubService) GetIssueActivity(ctx context.Context, workspaceID uuid.UUID, identifier string) (*dto.GitHubIssueActivityResponse, error) {
 	issue, err := s.issueRepo.GetByIdentifier(ctx, workspaceID, identifier)
 	if err != nil || issue == nil {
 		return nil, fmt.Errorf("issue not found")
 	}
 
-	prs, err := s.ghRepo.ListPRsWithRepoByIssue(ctx, issue.ID)
-	if err != nil {
-		return nil, err
-	}
-
-	branches, err := s.ghRepo.ListBranchesWithRepoByIssue(ctx, issue.ID)
-	if err != nil {
-		return nil, err
-	}
-
-	commits, err := s.ghRepo.ListCommitsWithRepoByIssue(ctx, issue.ID)
-	if err != nil {
-		return nil, err
-	}
+	prs, _ := s.ghRepo.ListPRsWithRepoByIssue(ctx, issue.ID)
+	branches, _ := s.ghRepo.ListBranchesWithRepoByIssue(ctx, issue.ID)
+	commits, _ := s.ghRepo.ListCommitsWithRepoByIssue(ctx, issue.ID)
 
 	resp := &dto.GitHubIssueActivityResponse{
 		PullRequests: make([]dto.GitHubPullRequestResponse, 0, len(prs)),
@@ -650,73 +847,38 @@ func (s *GitHubService) GetIssueActivity(ctx context.Context, workspaceID uuid.U
 	}
 
 	for _, pr := range prs {
-		avatarURL := ""
-		if pr.AuthorAvatarURL != nil {
-			avatarURL = *pr.AuthorAvatarURL
-		}
-		headBranch := ""
-		if pr.HeadBranch != nil {
-			headBranch = *pr.HeadBranch
-		}
-		baseBranch := ""
-		if pr.BaseBranch != nil {
-			baseBranch = *pr.BaseBranch
-		}
+		avatarURL, headBranch, baseBranch := "", "", ""
+		if pr.AuthorAvatarURL != nil { avatarURL = *pr.AuthorAvatarURL }
+		if pr.HeadBranch != nil { headBranch = *pr.HeadBranch }
+		if pr.BaseBranch != nil { baseBranch = *pr.BaseBranch }
 		resp.PullRequests = append(resp.PullRequests, dto.GitHubPullRequestResponse{
-			ID:              pr.ID.String(),
-			Number:          pr.Number,
-			Title:           pr.Title,
-			State:           pr.State,
-			AuthorLogin:     pr.AuthorLogin,
-			AuthorAvatarURL: avatarURL,
-			HTMLURL:         pr.HTMLURL,
-			HeadBranch:      headBranch,
-			BaseBranch:      baseBranch,
-			Additions:       pr.Additions,
-			Deletions:       pr.Deletions,
-			RepoFullName:    pr.RepoFullName,
-			MergedAt:        pr.MergedAt,
-			CreatedAt:       pr.CreatedAt,
-			UpdatedAt:       pr.UpdatedAt,
+			ID: pr.ID.String(), Number: pr.Number, Title: pr.Title, State: pr.State,
+			AuthorLogin: pr.AuthorLogin, AuthorAvatarURL: avatarURL, HTMLURL: pr.HTMLURL,
+			HeadBranch: headBranch, BaseBranch: baseBranch,
+			Additions: pr.Additions, Deletions: pr.Deletions,
+			RepoFullName: pr.RepoFullName, MergedAt: pr.MergedAt,
+			CreatedAt: pr.CreatedAt, UpdatedAt: pr.UpdatedAt,
 		})
 	}
 
 	for _, b := range branches {
 		htmlURL := ""
-		if b.HTMLURL != nil {
-			htmlURL = *b.HTMLURL
-		}
+		if b.HTMLURL != nil { htmlURL = *b.HTMLURL }
 		resp.Branches = append(resp.Branches, dto.GitHubBranchResponse{
-			ID:           b.ID.String(),
-			Name:         b.Name,
-			HTMLURL:      htmlURL,
-			RepoFullName: b.RepoFullName,
+			ID: b.ID.String(), Name: b.Name, HTMLURL: htmlURL, RepoFullName: b.RepoFullName,
 		})
 	}
 
 	for _, c := range commits {
-		authorLogin := ""
-		if c.AuthorLogin != nil {
-			authorLogin = *c.AuthorLogin
-		}
-		authorAvatar := ""
-		if c.AuthorAvatarURL != nil {
-			authorAvatar = *c.AuthorAvatarURL
-		}
+		authorLogin, authorAvatar := "", ""
+		if c.AuthorLogin != nil { authorLogin = *c.AuthorLogin }
+		if c.AuthorAvatarURL != nil { authorAvatar = *c.AuthorAvatarURL }
 		shortSHA := c.SHA
-		if len(shortSHA) > 7 {
-			shortSHA = shortSHA[:7]
-		}
+		if len(shortSHA) > 7 { shortSHA = shortSHA[:7] }
 		resp.Commits = append(resp.Commits, dto.GitHubCommitResponse{
-			ID:              c.ID.String(),
-			SHA:             c.SHA,
-			ShortSHA:        shortSHA,
-			Message:         c.Message,
-			AuthorLogin:     authorLogin,
-			AuthorAvatarURL: authorAvatar,
-			HTMLURL:         c.HTMLURL,
-			RepoFullName:    c.RepoFullName,
-			CommittedAt:     c.CommittedAt,
+			ID: c.ID.String(), SHA: c.SHA, ShortSHA: shortSHA, Message: c.Message,
+			AuthorLogin: authorLogin, AuthorAvatarURL: authorAvatar,
+			HTMLURL: c.HTMLURL, RepoFullName: c.RepoFullName, CommittedAt: c.CommittedAt,
 		})
 	}
 
@@ -739,10 +901,7 @@ func (s *GitHubService) ListAutoTransitions(ctx context.Context, workspaceID uui
 			statusID = &s
 		}
 		result = append(result, dto.GitHubAutoTransitionResponse{
-			Event:          t.Event,
-			TargetStatus:   t.TargetStatus,
-			TargetStatusID: statusID,
-			IsActive:       t.IsActive,
+			Event: t.Event, TargetStatus: t.TargetStatus, TargetStatusID: statusID, IsActive: t.IsActive,
 		})
 	}
 	return result, nil
@@ -758,12 +917,8 @@ func (s *GitHubService) UpdateAutoTransitions(ctx context.Context, workspaceID u
 			}
 		}
 		t := &domain.GitHubAutoTransition{
-			ID:             uuid.New(),
-			WorkspaceID:    workspaceID,
-			Event:          rule.Event,
-			TargetStatus:   rule.TargetStatus,
-			TargetStatusID: statusID,
-			IsActive:       rule.IsActive,
+			ID: uuid.New(), WorkspaceID: workspaceID,
+			Event: rule.Event, TargetStatus: rule.TargetStatus, TargetStatusID: statusID, IsActive: rule.IsActive,
 		}
 		if err := s.ghRepo.UpsertAutoTransition(ctx, t); err != nil {
 			return err
@@ -771,4 +926,3 @@ func (s *GitHubService) UpdateAutoTransitions(ctx context.Context, workspaceID u
 	}
 	return nil
 }
-
