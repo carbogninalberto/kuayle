@@ -25,6 +25,7 @@ export interface GitHubAvailableRepo {
 export interface GitHubStatus {
 	configured: boolean;
 	installed: boolean;
+	global_app: boolean;
 	app_slug?: string;
 	installation?: GitHubInstallation;
 	repos: GitHubRepo[];

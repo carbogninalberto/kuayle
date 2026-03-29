@@ -38,6 +38,9 @@ func (h *GitHubHandler) Status(c echo.Context) error {
 // Setup serves an HTML page that auto-submits the manifest form to GitHub.
 // Uses a CSP nonce to allow the inline script securely.
 func (h *GitHubHandler) Setup(c echo.Context) error {
+	if h.ghSvc.IsGlobalMode() {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "GitHub App is centrally managed — setup is not needed")
+	}
 	ws := c.Get("workspace").(*domain.Workspace)
 	manifest, submitURL := h.ghSvc.GetManifest(ws.ID, ws.Slug)
 
@@ -72,6 +75,9 @@ func (h *GitHubHandler) Setup(c echo.Context) error {
 
 // SetupCallback handles the redirect from GitHub after app creation via manifest.
 func (h *GitHubHandler) SetupCallback(c echo.Context) error {
+	if h.ghSvc.IsGlobalMode() {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "GitHub App is centrally managed — setup is not needed")
+	}
 	ws := c.Get("workspace").(*domain.Workspace)
 	code := c.QueryParam("code")
 	if code == "" {

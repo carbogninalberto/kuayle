@@ -118,11 +118,24 @@ func main() {
 	}
 	uploadH := handler.NewUploadHandler(store)
 
-	// GitHub integration (always available — credentials stored per-workspace in DB)
+	// GitHub integration
+	var globalGitHubApp *service.GlobalGitHubAppConfig
+	if cfg.GitHubApp.IsConfigured() {
+		globalGitHubApp = &service.GlobalGitHubAppConfig{
+			AppID:         cfg.GitHubApp.AppID,
+			PrivateKey:    cfg.GitHubApp.PrivateKey,
+			ClientID:      cfg.GitHubApp.ClientID,
+			ClientSecret:  cfg.GitHubApp.ClientSecret,
+			WebhookSecret: cfg.GitHubApp.WebhookSecret,
+			Slug:          cfg.GitHubApp.Slug,
+		}
+		log.Info("Global GitHub App configured (SaaS mode)")
+	}
 	githubRepo := repository.NewGitHubRepository(db)
 	githubSvc := service.NewGitHubService(
 		githubRepo, issueRepo, teamStatusRepo, historyRepo,
 		crypto.DeriveKey(cfg.JWTSecret+":github"), hub, cfg.FrontendURL, cfg.GitHubWebhookURL,
+		globalGitHubApp,
 	)
 	githubH := handler.NewGitHubHandler(githubSvc)
 

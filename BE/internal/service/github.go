@@ -25,6 +25,17 @@ import (
 
 var issueIdentifierRegex = regexp.MustCompile(`([A-Z][A-Z0-9]+-\d+)`)
 
+// GlobalGitHubAppConfig holds pre-configured GitHub App credentials for SaaS mode.
+// When set, all workspaces share this app instead of creating per-workspace apps via manifest.
+type GlobalGitHubAppConfig struct {
+	AppID         int64
+	PrivateKey    string // raw PEM or base64-encoded PEM
+	ClientID      string
+	ClientSecret  string
+	WebhookSecret string
+	Slug          string
+}
+
 type GitHubService struct {
 	ghRepo         *repository.GitHubRepository
 	issueRepo      repository.IssueRepo
@@ -34,6 +45,12 @@ type GitHubService struct {
 	hub            *realtime.Hub
 	frontendURL    string
 	webhookURL     string // optional override (e.g. smee.io for dev)
+	globalApp      *GlobalGitHubAppConfig // nil = self-hosted mode
+}
+
+// IsGlobalMode returns true when a shared GitHub App is configured via env vars.
+func (s *GitHubService) IsGlobalMode() bool {
+	return s.globalApp != nil
 }
 
 func NewGitHubService(
@@ -45,6 +62,7 @@ func NewGitHubService(
 	hub *realtime.Hub,
 	frontendURL string,
 	webhookURL string,
+	globalApp *GlobalGitHubAppConfig,
 ) *GitHubService {
 	return &GitHubService{
 		ghRepo:         ghRepo,
@@ -55,11 +73,26 @@ func NewGitHubService(
 		hub:            hub,
 		frontendURL:    frontendURL,
 		webhookURL:     webhookURL,
+		globalApp:      globalApp,
 	}
 }
 
-// getClient creates a GitHub API client from the workspace's stored app config.
+// getClient creates a GitHub API client. In global mode, uses shared credentials;
+// otherwise looks up per-workspace app config from the DB.
 func (s *GitHubService) getClient(ctx context.Context, workspaceID uuid.UUID) (*gh.Client, *domain.GitHubAppConfig, error) {
+	if s.globalApp != nil {
+		client, err := gh.NewClient(s.globalApp.AppID, s.globalApp.PrivateKey)
+		if err != nil {
+			return nil, nil, fmt.Errorf("creating global GitHub client: %w", err)
+		}
+		slug := s.globalApp.Slug
+		cfg := &domain.GitHubAppConfig{
+			AppID:   s.globalApp.AppID,
+			AppSlug: &slug,
+		}
+		return client, cfg, nil
+	}
+
 	cfg, err := s.ghRepo.GetAppConfigByWorkspace(ctx, workspaceID)
 	if err != nil {
 		return nil, nil, err
@@ -142,6 +175,10 @@ func (s *GitHubService) GetManifest(workspaceID uuid.UUID, slug string) (map[str
 
 // HandleManifestCallback exchanges the temporary code from GitHub for app credentials.
 func (s *GitHubService) HandleManifestCallback(ctx context.Context, workspaceID uuid.UUID, code string) (*domain.GitHubAppConfig, error) {
+	if s.globalApp != nil {
+		return nil, fmt.Errorf("GitHub App is centrally managed — manifest setup is not available")
+	}
+
 	// Check if already configured
 	existing, err := s.ghRepo.GetAppConfigByWorkspace(ctx, workspaceID)
 	if err != nil {
@@ -226,6 +263,14 @@ func (s *GitHubService) HandleManifestCallback(ctx context.Context, workspaceID 
 
 // GetInstallURL returns the GitHub App installation URL using the stored app slug.
 func (s *GitHubService) GetInstallURL(ctx context.Context, workspaceID uuid.UUID) (string, error) {
+	if s.globalApp != nil {
+		slug := s.globalApp.Slug
+		if slug == "" {
+			slug = "kuayle"
+		}
+		return fmt.Sprintf("https://github.com/apps/%s/installations/new?state=%s", slug, workspaceID.String()), nil
+	}
+
 	cfg, err := s.ghRepo.GetAppConfigByWorkspace(ctx, workspaceID)
 	if err != nil || cfg == nil {
 		return "", fmt.Errorf("GitHub App not configured")
@@ -295,7 +340,6 @@ func (s *GitHubService) HandleInstallationCallback(ctx context.Context, workspac
 
 // GetStatus returns the current GitHub integration status for a workspace.
 func (s *GitHubService) GetStatus(ctx context.Context, workspaceID uuid.UUID) (*dto.GitHubStatusResponse, error) {
-	appCfg, _ := s.ghRepo.GetAppConfigByWorkspace(ctx, workspaceID)
 	inst, _ := s.ghRepo.GetInstallationByWorkspace(ctx, workspaceID)
 
 	resp := &dto.GitHubStatusResponse{
@@ -303,14 +347,18 @@ func (s *GitHubService) GetStatus(ctx context.Context, workspaceID uuid.UUID) (*
 		Repos:     []dto.GitHubRepoResponse{},
 	}
 
-	// Add app config info
-	if appCfg != nil {
+	if s.globalApp != nil {
 		resp.Configured = true
-		appSlug := ""
-		if appCfg.AppSlug != nil {
-			appSlug = *appCfg.AppSlug
+		resp.GlobalApp = true
+		resp.AppSlug = s.globalApp.Slug
+	} else {
+		appCfg, _ := s.ghRepo.GetAppConfigByWorkspace(ctx, workspaceID)
+		if appCfg != nil {
+			resp.Configured = true
+			if appCfg.AppSlug != nil {
+				resp.AppSlug = *appCfg.AppSlug
+			}
 		}
-		resp.AppSlug = appSlug
 	}
 
 	if inst != nil {
@@ -447,17 +495,30 @@ func (s *GitHubService) Disconnect(ctx context.Context, workspaceID uuid.UUID) e
 }
 
 // DeleteApp removes the entire GitHub App configuration and installation.
+// In global mode, only disconnects the installation (the shared app config is not in DB).
 func (s *GitHubService) DeleteApp(ctx context.Context, workspaceID uuid.UUID) error {
 	_ = s.ghRepo.DeleteInstallation(ctx, workspaceID)
-	return s.ghRepo.DeleteAppConfig(ctx, workspaceID)
+	if s.globalApp == nil {
+		return s.ghRepo.DeleteAppConfig(ctx, workspaceID)
+	}
+	return nil
 }
 
 // --- Webhook Event Processing ---
 
 // VerifyWebhookSignature verifies the GitHub webhook HMAC-SHA256 signature.
-// It looks up the webhook secret from the DB using the installation ID in the payload.
+// In global mode, uses the shared webhook secret directly.
+// In self-hosted mode, looks up the webhook secret from the DB using the installation ID.
 func (s *GitHubService) VerifyWebhookSignature(ctx context.Context, payload []byte, signature string) bool {
-	// Extract installation ID from payload to look up the webhook secret
+	if s.globalApp != nil {
+		sig := strings.TrimPrefix(signature, "sha256=")
+		mac := hmac.New(sha256.New, []byte(s.globalApp.WebhookSecret))
+		mac.Write(payload)
+		expected := hex.EncodeToString(mac.Sum(nil))
+		return hmac.Equal([]byte(sig), []byte(expected))
+	}
+
+	// Self-hosted: extract installation ID from payload to look up the webhook secret
 	var partial struct {
 		Installation struct {
 			ID int64 `json:"id"`

@@ -269,12 +269,14 @@
 				</div>
 			</div>
 
-			<button
-				onclick={handleDeleteApp}
-				class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-error)]"
-			>
-				Remove GitHub App
-			</button>
+			{#if !status?.global_app}
+				<button
+					onclick={handleDeleteApp}
+					class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-error)]"
+				>
+					Remove GitHub App
+				</button>
+			{/if}
 		</div>
 	{:else}
 		<!-- State 3: Fully connected -->
@@ -431,15 +433,17 @@
 			{/if}
 
 			<!-- Danger zone -->
-			<div class="border-t border-[var(--app-border)] pt-4">
-				<button
-					onclick={handleDeleteApp}
-					class="flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-error)]"
-				>
-					<Trash2 size={12} />
-					Remove GitHub App entirely
-				</button>
-			</div>
+			{#if !status?.global_app}
+				<div class="border-t border-[var(--app-border)] pt-4">
+					<button
+						onclick={handleDeleteApp}
+						class="flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-error)]"
+					>
+						<Trash2 size={12} />
+						Remove GitHub App entirely
+					</button>
+				</div>
+			{/if}
 		</div>
 	{/if}
 </div>

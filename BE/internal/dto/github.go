@@ -24,6 +24,7 @@ type AutoTransitionRule struct {
 type GitHubStatusResponse struct {
 	Configured   bool                         `json:"configured"`
 	Installed    bool                         `json:"installed"`
+	GlobalApp    bool                         `json:"global_app"`
 	AppSlug      string                       `json:"app_slug,omitempty"`
 	Installation *GitHubInstallationResponse  `json:"installation,omitempty"`
 	Repos        []GitHubRepoResponse         `json:"repos"`
