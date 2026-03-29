@@ -874,6 +874,12 @@ func (s *GitHubService) applyAutoTransition(ctx context.Context, workspaceID uui
 	issue.Status = domain.IssueStatus(newStatus)
 	if rule.TargetStatusID != nil {
 		issue.StatusID = rule.TargetStatusID
+	} else {
+		// Resolve the team's custom status ID from the slug
+		ts, err := s.teamStatusRepo.GetByTeamAndSlug(ctx, issue.TeamID, newStatus)
+		if err == nil && ts != nil {
+			issue.StatusID = &ts.ID
+		}
 	}
 
 	if err := s.issueRepo.Update(ctx, issue); err != nil {
