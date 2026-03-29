@@ -304,33 +304,19 @@
 			<div>
 				<div class="flex items-center justify-between">
 					<h3 class="text-sm font-medium text-[var(--color-text-primary)]">Linked Repositories</h3>
-					<Button variant="outline" size="sm" onclick={loadAvailableRepos}>
-						<Plus size={14} class="mr-1" />
-						Manage repos
-					</Button>
+					{#if !showRepoSelector}
+						<button
+							onclick={loadAvailableRepos}
+							class="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
+						>
+							<Plus size={13} />
+							Manage
+						</button>
+					{/if}
 				</div>
 
-				{#if status.repos.length === 0}
-					<p class="mt-3 text-sm text-[var(--color-text-tertiary)]">No repositories linked yet.</p>
-				{:else}
-					<div class="mt-3 space-y-1">
-						{#each status.repos as repo}
-							<div class="flex items-center justify-between rounded-md border border-[var(--app-border)] px-3 py-2">
-								<div class="flex items-center gap-2">
-									<GithubLogoIcon size={14} class="text-[var(--color-text-tertiary)]" />
-									<span class="text-sm text-[var(--color-text-primary)]">{repo.full_name}</span>
-									<span class="text-xs text-[var(--color-text-tertiary)]">{repo.default_branch}</span>
-								</div>
-								<a href="https://github.com/{repo.full_name}" target="_blank" rel="noopener" class="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]">
-									<ExternalLink size={14} />
-								</a>
-							</div>
-						{/each}
-					</div>
-				{/if}
-
 				{#if showRepoSelector}
-					<div class="mt-3 rounded-lg border border-[var(--app-border)] p-4">
+					<div class="mt-3 rounded-lg border border-[var(--app-border)] p-3">
 						{#if loadingRepos}
 							<div class="flex items-center justify-center py-8">
 								<Loader2 size={18} class="animate-spin text-[var(--color-text-tertiary)]" />
@@ -401,6 +387,23 @@
 								</div>
 							</div>
 						{/if}
+					</div>
+				{:else if status.repos.length === 0}
+					<p class="mt-3 text-sm text-[var(--color-text-tertiary)]">No repositories linked yet.</p>
+				{:else}
+					<div class="mt-3 space-y-1">
+						{#each status.repos as repo}
+							<div class="flex items-center justify-between rounded-md border border-[var(--app-border)] px-3 py-2">
+								<div class="flex items-center gap-2">
+									<GithubLogoIcon size={14} class="text-[var(--color-text-tertiary)]" />
+									<span class="text-sm text-[var(--color-text-primary)]">{repo.full_name}</span>
+									<span class="text-xs text-[var(--color-text-tertiary)]">{repo.default_branch}</span>
+								</div>
+								<a href="https://github.com/{repo.full_name}" target="_blank" rel="noopener" class="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]">
+									<ExternalLink size={14} />
+								</a>
+							</div>
+						{/each}
 					</div>
 				{/if}
 			</div>
