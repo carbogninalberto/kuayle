@@ -47,8 +47,8 @@
 			issuesState.totalCount -= ids.length;
 			issuesState.clearSelection();
 			toast.success(`Deleted ${ids.length} issues`);
-		} catch {
-			toast.error('Bulk delete failed');
+		} catch (err: any) {
+			toast.error(err?.error?.message || 'Failed to delete issues');
 		}
 	}
 </script>

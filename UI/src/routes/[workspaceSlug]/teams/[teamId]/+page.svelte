@@ -181,8 +181,8 @@
 			issuesState.totalCount -= ids.length;
 			issuesState.clearSelection();
 			toast.success(`Deleted ${ids.length} issue${ids.length > 1 ? 's' : ''}`);
-		} catch {
-			toast.error('Failed to delete issues');
+		} catch (err: any) {
+			toast.error(err?.error?.message || 'Failed to delete issues');
 		}
 		showDeleteConfirm = false;
 	}

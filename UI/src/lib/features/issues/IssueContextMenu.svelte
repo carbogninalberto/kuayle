@@ -58,8 +58,8 @@
 		try {
 			await issuesState.remove(slug, issue.identifier);
 			toast.success('Issue deleted');
-		} catch {
-			toast.error('Failed to delete issue');
+		} catch (err: any) {
+			toast.error(err?.error?.message || 'Failed to delete issue');
 		}
 	}
 
