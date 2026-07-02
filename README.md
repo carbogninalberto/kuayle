@@ -389,9 +389,7 @@ Alberto Carbognin, [@carbogninalberto](https://github.com/carbogninalberto)
 
 ## 🌍 Contributors
 
-<a href="https://github.com/carbogninalberto/kuayle/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=carbogninalberto/kuayle" />
-</a>
+View the full contributor graph on GitHub: [contributors](https://github.com/carbogninalberto/kuayle/graphs/contributors).
 
 [![Contributors][contributors-shield]][contributors-url]
 [![Forks][forks-shield]][forks-url]
