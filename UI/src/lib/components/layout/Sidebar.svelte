@@ -467,7 +467,7 @@
 							</DropdownMenu.Trigger>
 							<DropdownMenu.Content side="right" align="start" class="w-44">
 								<DropdownMenu.Item
-									onclick={() => goto(`/${slug}/teams/${team.id}/settings`)}
+									onclick={() => goto(`/${slug}/settings/teams/${team.id}/statuses`)}
 								>
 									<Settings size={14} class="mr-2" />
 									Team settings
