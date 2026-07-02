@@ -17,7 +17,7 @@
 	} = $props();
 
 	let menuRef: HTMLElement | undefined = $state();
-	let flipAbove = $state(false);
+	let menuPosition = $state({ left: 0, top: 0 });
 
 	// Build flat index for keyboard nav highlighting
 	const flatItems = $derived(groups.flatMap((g) => g.items));
@@ -29,11 +29,30 @@
 		item?.scrollIntoView({ block: 'nearest' });
 	});
 
-	// Flip above cursor if near viewport bottom
-	$effect(() => {
+	function updateMenuPosition() {
 		if (!menuRef) return;
-		const menuHeight = menuRef.offsetHeight;
-		flipAbove = position.y + menuHeight > window.innerHeight - 16;
+
+		const margin = 8;
+		const menuWidth = menuRef.offsetWidth || 240;
+		const menuHeight = menuRef.offsetHeight || 340;
+		const left = Math.min(Math.max(position.x, margin), window.innerWidth - menuWidth - margin);
+		let top = position.y;
+
+		if (top + menuHeight > window.innerHeight - margin) {
+			top = position.y - menuHeight - 28;
+		}
+
+		menuPosition = {
+			left,
+			top: Math.min(Math.max(top, margin), window.innerHeight - menuHeight - margin)
+		};
+	}
+
+	$effect(() => {
+		position.x;
+		position.y;
+		menuRef;
+		requestAnimationFrame(updateMenuPosition);
 	});
 
 	// Close on click outside
@@ -45,16 +64,16 @@
 
 	onMount(() => {
 		window.addEventListener('pointerdown', handlePointerDown, true);
+		if (menuRef) {
+			document.body.appendChild(menuRef);
+			requestAnimationFrame(updateMenuPosition);
+		}
 	});
 
 	onDestroy(() => {
 		window.removeEventListener('pointerdown', handlePointerDown, true);
+		menuRef?.remove();
 	});
-
-	function computedTop(): number {
-		if (!flipAbove || !menuRef) return position.y;
-		return position.y - menuRef.offsetHeight - 28;
-	}
 
 	let globalIdx = 0;
 </script>
@@ -62,7 +81,7 @@
 <div
 	bind:this={menuRef}
 	class="slash-command-menu"
-	style="position: fixed; left: {position.x}px; top: {flipAbove ? computedTop() : position.y}px;"
+	style="position: fixed; left: {menuPosition.left}px; top: {menuPosition.top}px;"
 >
 	{#each groups as group}
 		<div class="slash-group">
@@ -74,7 +93,7 @@
 						data-index={idx}
 						class="slash-item"
 						class:selected={idx === selectedIndex}
-						onpointerdown={(e) => { e.preventDefault(); onselect(item); }}
+						onpointerdown={(e) => { e.preventDefault(); onselect(item); onclose(); }}
 					>
 						<span class="slash-item-icon">
 							<Icon size={16} />

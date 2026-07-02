@@ -488,6 +488,8 @@
 		// Execute the item action
 		item.action(editor, { uploadUrl });
 		slashActive = false;
+		slashQuery = '';
+		slashRange = null;
 	}
 
 	function handleMentionSelect(item: MentionItem | undefined) {

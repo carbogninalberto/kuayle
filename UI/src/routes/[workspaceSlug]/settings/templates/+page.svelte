@@ -6,9 +6,11 @@
 	import { STATUS_LABELS, PRIORITY_LABELS } from '$lib/types/issue';
 	import type { IssueStatus, IssuePriority } from '$lib/types/issue';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
+	import RichEditor from '$lib/components/shared/RichEditor.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { Badge } from '$lib/components/ui/badge';
 	import * as Dialog from '$lib/components/ui/dialog';
+	import * as Select from '$lib/components/ui/select';
 	import { toast } from 'svelte-sonner';
 	import { Plus, Trash2, FileText } from 'lucide-svelte';
 
@@ -18,12 +20,12 @@
 	let loading = $state(true);
 	let showCreate = $state(false);
 
-	let formName = $state('');
 	let formTitle = $state('');
 	let formDescription = $state('');
 	let formStatus = $state<IssueStatus>('backlog');
 	let formPriority = $state<IssuePriority>(0);
 	let creating = $state(false);
+	let editorVersion = $state(0);
 
 	onMount(async () => {
 		try {
@@ -34,22 +36,26 @@
 	});
 
 	function resetForm() {
-		formName = '';
 		formTitle = '';
 		formDescription = '';
 		formStatus = 'backlog';
 		formPriority = 0;
+		editorVersion++;
+	}
+
+	function openCreateDialog() {
+		resetForm();
+		showCreate = true;
 	}
 
 	async function handleCreate() {
-		if (!formName.trim() || !formTitle.trim()) {
-			toast.error('Name and title are required');
+		if (!formTitle.trim()) {
+			toast.error('Title is required');
 			return;
 		}
 		creating = true;
 		try {
 			const data: CreateIssueTemplateRequest = {
-				name: formName.trim(),
 				title: formTitle.trim(),
 				description: formDescription.trim() || undefined,
 				status: formStatus,
@@ -77,12 +83,16 @@
 		}
 	}
 
-	function statusLabel(status: IssueStatus): string {
-		return STATUS_LABELS[status] || status;
+	function statusLabel(status: IssueStatus | null): string {
+		return status ? (STATUS_LABELS[status] || status) : '';
 	}
 
-	function priorityLabel(priority: IssuePriority): string {
-		return PRIORITY_LABELS[priority] || `P${priority}`;
+	function priorityLabel(priority: IssuePriority | null): string {
+		return priority != null ? (PRIORITY_LABELS[priority] || `P${priority}`) : '';
+	}
+
+	function setFormPriority(value: string | undefined) {
+		if (value) formPriority = Number(value) as IssuePriority;
 	}
 </script>
 
@@ -90,7 +100,7 @@
 	<div class="flex items-center justify-between">
 		<h1 class="text-2xl font-semibold text-[var(--color-text-primary)]">Templates</h1>
 		<button
-			onclick={() => (showCreate = true)}
+			onclick={openCreateDialog}
 			class="flex items-center gap-1 rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)]"
 		>
 			<Plus size={14} />
@@ -103,7 +113,7 @@
 			<EmptyState
 				title="No templates yet"
 				description="Create issue templates to standardize your team's workflow"
-				action={{ label: 'New Template', onclick: () => (showCreate = true) }}
+				action={{ label: 'New Template', onclick: openCreateDialog }}
 			/>
 		{:else}
 			<div class="rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
@@ -111,18 +121,14 @@
 					<div class="group flex items-center gap-4 px-5 py-3.5 {i > 0 ? 'border-t border-[var(--app-border)]' : ''}">
 						<FileText size={16} class="shrink-0 text-[var(--color-text-tertiary)]" />
 						<div class="flex-1 min-w-0">
-							<div class="flex items-center gap-2">
-								<span class="text-sm font-medium text-[var(--color-text-primary)]">{template.name}</span>
-							</div>
-							<div class="mt-0.5 flex items-center gap-2">
-								<span class="text-xs text-[var(--color-text-tertiary)]">{template.title}</span>
-								{#if template.description}
-									<span class="text-xs text-[var(--color-text-tertiary)]">· {template.description}</span>
-								{/if}
-							</div>
+							<span class="text-sm font-medium text-[var(--color-text-primary)]">{template.title || 'Untitled template'}</span>
 						</div>
-						<Badge variant="outline" class="text-[10px]">{statusLabel(template.status)}</Badge>
-						<Badge variant="outline" class="text-[10px]">{priorityLabel(template.priority)}</Badge>
+						{#if template.status}
+							<Badge variant="outline" class="text-[10px]">{statusLabel(template.status)}</Badge>
+						{/if}
+						{#if template.priority != null}
+							<Badge variant="outline" class="text-[10px]">{priorityLabel(template.priority)}</Badge>
+						{/if}
 						<Button
 							variant="ghost"
 							size="icon-sm"
@@ -146,63 +152,69 @@
 		</Dialog.Header>
 		<div class="flex flex-col gap-4 py-4">
 			<div class="flex flex-col gap-1.5">
-				<label for="tpl-name" class="text-sm text-[var(--color-text-secondary)]">Template name</label>
+				<label for="tpl-title" class="text-sm text-[var(--color-text-secondary)]">Title</label>
 				<input
-					id="tpl-name"
+					id="tpl-title"
 					type="text"
-					bind:value={formName}
+					bind:value={formTitle}
 					placeholder="e.g. Bug Report"
 					class="rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
 				/>
 			</div>
 			<div class="flex flex-col gap-1.5">
-				<label for="tpl-title" class="text-sm text-[var(--color-text-secondary)]">Issue title template</label>
-				<input
-					id="tpl-title"
-					type="text"
-					bind:value={formTitle}
-					placeholder="e.g. [Bug] ..."
-					class="rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
-				/>
-			</div>
-			<div class="flex flex-col gap-1.5">
 				<label for="tpl-desc" class="text-sm text-[var(--color-text-secondary)]">Description</label>
-				<textarea
-					id="tpl-desc"
-					bind:value={formDescription}
+				{#key editorVersion}
+				<RichEditor
+					content={formDescription}
 					placeholder="Template description..."
-					rows={3}
-					class="rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
-				></textarea>
+					bubbleMenu={true}
+					borderless={true}
+					minHeight="120px"
+					onupdate={(html: string) => (formDescription = html)}
+				/>
+				{/key}
 			</div>
 			<div class="flex gap-4">
 				<div class="flex flex-1 flex-col gap-1.5">
-					<label for="tpl-status" class="text-sm text-[var(--color-text-secondary)]">Default status</label>
-					<select
-						id="tpl-status"
-						bind:value={formStatus}
-						class="rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
+					<span class="text-sm text-[var(--color-text-secondary)]">Default status</span>
+					<Select.Root
+						type="single"
+						value={formStatus}
+						onValueChange={(value) => {
+							if (value) formStatus = value as IssueStatus;
+						}}
 					>
-						<option value="backlog">Backlog</option>
-						<option value="todo">Todo</option>
-						<option value="in_progress">In Progress</option>
-						<option value="in_review">In Review</option>
-						<option value="done">Done</option>
-					</select>
+						<Select.Trigger class="w-full border-[var(--app-border)] bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)]">
+							{statusLabel(formStatus)}
+						</Select.Trigger>
+						<Select.Content>
+							<Select.Item value="backlog">Backlog</Select.Item>
+							<Select.Item value="todo">Todo</Select.Item>
+							<Select.Item value="in_progress">In Progress</Select.Item>
+							<Select.Item value="in_review">In Review</Select.Item>
+							<Select.Item value="done">Done</Select.Item>
+							<Select.Item value="cancelled">Cancelled</Select.Item>
+						</Select.Content>
+					</Select.Root>
 				</div>
 				<div class="flex flex-1 flex-col gap-1.5">
-					<label for="tpl-priority" class="text-sm text-[var(--color-text-secondary)]">Default priority</label>
-					<select
-						id="tpl-priority"
-						bind:value={formPriority}
-						class="rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
+					<span class="text-sm text-[var(--color-text-secondary)]">Default priority</span>
+					<Select.Root
+						type="single"
+						value={String(formPriority)}
+						onValueChange={setFormPriority}
 					>
-						<option value={0}>No priority</option>
-						<option value={1}>Urgent</option>
-						<option value={2}>High</option>
-						<option value={3}>Medium</option>
-						<option value={4}>Low</option>
-					</select>
+						<Select.Trigger class="w-full border-[var(--app-border)] bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)]">
+							{priorityLabel(formPriority)}
+						</Select.Trigger>
+						<Select.Content>
+							<Select.Item value="0">No priority</Select.Item>
+							<Select.Item value="1">Urgent</Select.Item>
+							<Select.Item value="2">High</Select.Item>
+							<Select.Item value="3">Medium</Select.Item>
+							<Select.Item value="4">Low</Select.Item>
+						</Select.Content>
+					</Select.Root>
 				</div>
 			</div>
 		</div>

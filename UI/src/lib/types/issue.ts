@@ -95,27 +95,29 @@ export interface IssueRelation {
 export interface IssueTemplate {
 	id: string;
 	workspace_id: string;
-	name: string;
-	description: string | null;
+	team_id: string | null;
 	title: string;
-	template_description: string | null;
-	status: IssueStatus;
-	priority: IssuePriority;
+	description: string | null;
+	status: IssueStatus | null;
+	priority: IssuePriority | null;
 	label_ids: string[];
 	assignee_id: string | null;
+	recurrence_rule?: unknown;
+	next_run_at: string | null;
+	is_active: boolean;
+	created_by: string;
 	created_at: string;
 	updated_at: string;
 }
 
 export interface CreateIssueTemplateRequest {
-	name: string;
-	description?: string;
 	title: string;
-	template_description?: string;
+	description?: string;
 	status?: IssueStatus;
 	priority?: IssuePriority;
 	label_ids?: string[];
 	assignee_id?: string;
+	team_id?: string;
 }
 
 export interface Comment {

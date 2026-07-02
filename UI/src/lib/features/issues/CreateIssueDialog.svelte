@@ -13,6 +13,7 @@
 	import { PRIORITY_LABELS } from '$lib/types/issue';
 	import type { IssueTemplate } from '$lib/types/issue';
 	import { teamStatusesState } from './team-statuses.state.svelte';
+	import type { StatusCategory } from '$lib/types/team-status';
 	import RichEditor from '$lib/components/shared/RichEditor.svelte';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
@@ -148,13 +149,29 @@
 		}
 	}
 
+	const STATUS_TO_CATEGORY: Record<string, StatusCategory> = {
+		backlog: 'backlog',
+		todo: 'unstarted',
+		in_progress: 'started',
+		in_review: 'started',
+		done: 'completed',
+		cancelled: 'cancelled',
+	};
+
 	function applyTemplate(tmpl: IssueTemplate) {
 		title = tmpl.title || '';
-		description = tmpl.template_description ?? '';
+		description = tmpl.description ?? '';
 		descriptionVersion = Date.now();
 		priority = tmpl.priority ?? 0;
-		labelIds = tmpl.label_ids ?? [];
+		labelIds = Array.isArray(tmpl.label_ids) ? tmpl.label_ids : [];
 		if (tmpl.assignee_id) assigneeIds = [tmpl.assignee_id];
+		if (tmpl.status) {
+			const category = STATUS_TO_CATEGORY[tmpl.status];
+			if (category) {
+				const defaultStatus = teamStatusesState.defaultForCategory(category);
+				if (defaultStatus) statusId = defaultStatus.id;
+			}
+		}
 		templateOpen = false;
 	}
 
@@ -218,7 +235,7 @@
 									class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
 								>
 									<FileText size={14} class="shrink-0 text-[var(--color-text-tertiary)]" />
-									<span class="truncate">{tmpl.name || tmpl.title || 'Untitled template'}</span>
+									<span class="truncate">{tmpl.title || 'Untitled template'}</span>
 								</button>
 							{/each}
 						</Popover.Content>
