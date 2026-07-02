@@ -25,6 +25,8 @@ Kuayle is currently a runnable MVP of the core issue tracker. The repository inc
 
 ## 🆚 How it compares to similar products
 
+_Note: this is a lightweight snapshot, not a guarantee of current feature parity. Products evolve quickly, so some details may be outdated or incomplete._
+
 **Where Kuayle is different:**
 
 | Kuayle edge                      | Why it matters                                                |
