@@ -1,5 +1,15 @@
 <script lang="ts">
 	const year = new Date().getFullYear();
+
+	function starPoints(cx: number, cy: number, outer: number, inner: number, rot: number) {
+		const pts: string[] = [];
+		for (let i = 0; i < 10; i++) {
+			const r = i % 2 === 0 ? outer : inner;
+			const angle = rot + (i * Math.PI) / 5 - Math.PI / 2;
+			pts.push(`${cx + r * Math.cos(angle)},${cy + r * Math.sin(angle)}`);
+		}
+		return pts.join(' ');
+	}
 </script>
 
 <footer class="border-t border-border bg-black/30">
@@ -44,17 +54,20 @@
 					rel="noopener"
 					class="text-muted-foreground transition-colors hover:text-foreground">GitHub</a
 				>
-				<a
-					href="https://github.com/carbogninalberto/kuayle/blob/main/LICENSE"
-					target="_blank"
-					rel="noopener"
-					class="text-muted-foreground transition-colors hover:text-foreground">License</a
-				>
-				<a
-					href="mailto:support@bakney.com"
-					class="text-muted-foreground transition-colors hover:text-foreground"
-					>support@bakney.com</a
-				>
+			<a
+				href="https://github.com/carbogninalberto/kuayle/blob/main/LICENSE"
+				target="_blank"
+				rel="noopener"
+				class="text-muted-foreground transition-colors hover:text-foreground">License</a
+			>
+			<a href="/privacy" class="text-muted-foreground transition-colors hover:text-foreground"
+				>Privacy</a
+			>
+			<a
+				href="mailto:support@bakney.com"
+				class="text-muted-foreground transition-colors hover:text-foreground"
+				>support@bakney.com</a
+			>
 				<a
 					href="https://html2pdfapi.com"
 					target="_blank"
@@ -70,7 +83,41 @@
 			<p class="text-xs text-muted-foreground">
 				© {year} Bakney srl. Kuayle is open source under the Apache 2.0 license.
 			</p>
-			<p class="text-xs text-muted-foreground">Leveraging tech like never before.</p>
+			<p
+				class="flex items-center gap-1.5 text-xs text-muted-foreground"
+				title="Proudly made in Europe"
+			>
+					Proudly made in
+					<svg
+						viewBox="0 0 60 40"
+						class="size-3.5 rounded-[2px] ring-1 ring-white/10"
+						role="img"
+						aria-label="European Union flag"
+					>
+						<rect width="60" height="40" fill="#003399" />
+						<g fill="#FFCC00">
+							{#each Array(12) as _, i}
+								{@const a = (i * 30 - 90) * Math.PI / 180}
+								{@const x = 30 + 9 * Math.cos(a)}
+								{@const y = 20 + 9 * Math.sin(a)}
+								<polygon points={starPoints(x, y, 1.7, 0.75, a)} />
+							{/each}
+						</g>
+					</svg>
+					Europe
+			</p>
 		</div>
 	</div>
 </footer>
+
+<script context="module" lang="ts">
+	function starPoints(cx: number, cy: number, outer: number, inner: number, rot: number) {
+		const pts: string[] = [];
+		for (let i = 0; i < 10; i++) {
+			const r = i % 2 === 0 ? outer : inner;
+			const angle = rot + (i * Math.PI) / 5 - Math.PI / 2;
+			pts.push(`${cx + r * Math.cos(angle)},${cy + r * Math.sin(angle)}`);
+		}
+		return pts.join(' ');
+	}
+</script>
