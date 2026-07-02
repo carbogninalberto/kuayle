@@ -219,17 +219,15 @@ docker compose exec backend /app/server seed
 
 ### 4. Reverse proxy (recommended)
 
-Put Nginx, Caddy, or Traefik in front to handle HTTPS. Example with Caddy:
+Put Nginx, Caddy, or Traefik in front to handle HTTPS. Example with Caddy, pointing at the frontend container only:
 
 ```
 your-domain.com {
     reverse_proxy localhost:5173
 }
-
-api.your-domain.com {
-    reverse_proxy localhost:8080
-}
 ```
+
+The frontend container serves the app and proxies `/api/*` to the backend, so one public origin is enough.
 
 ### Storage options
 
