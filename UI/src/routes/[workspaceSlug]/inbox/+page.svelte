@@ -68,8 +68,8 @@
 
 	const selectedNotification = $derived(notifications.find((n) => n.id === selectedId) ?? null);
 
-	onMount(async () => {
-		await loadNotifications();
+	onMount(() => {
+		loadNotifications();
 		const onWsNotification = () => loadNotifications();
 		window.addEventListener('ws:notification', onWsNotification);
 		return () => window.removeEventListener('ws:notification', onWsNotification);
@@ -261,12 +261,16 @@
 				{:else}
 					{#each notifications as notification (notification.id)}
 						{@const style = getTypeStyle(notification.type)}
-						<button
-							class="group flex w-full items-start gap-2.5 px-3 py-2.5 text-left transition-colors {selectedId === notification.id ? 'bg-[var(--color-bg-hover)]' : ''} {notification.read_at ? 'opacity-60' : ''} hover:bg-[var(--color-bg-hover)]"
+						{@const Icon = style.icon}
+						<div
+							role="button"
+							tabindex="0"
+							class="group flex w-full cursor-pointer items-start gap-2.5 px-3 py-2.5 text-left transition-colors {selectedId === notification.id ? 'bg-[var(--color-bg-hover)]' : ''} {notification.read_at ? 'opacity-60' : ''} hover:bg-[var(--color-bg-hover)]"
 							onclick={() => selectNotification(notification)}
+							onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectNotification(notification); }}}
 						>
 							<div class="relative mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg" style="background: {style.bg};">
-								<svelte:component this={style.icon} size={16} color={style.color} />
+								<Icon size={16} color={style.color} />
 								{#if !notification.read_at && activeTab === 'inbox'}
 									<div class="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-[var(--app-accent)] ring-2 ring-[var(--color-bg-primary)]"></div>
 								{/if}
@@ -287,9 +291,9 @@
 								<div class="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100">
 									<Popover.Root open={snoozeOpenId === notification.id} onOpenChange={(open) => { snoozeOpenId = open ? notification.id : null; }}>
 										<Popover.Trigger>
-											<button class="rounded p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]" title="Snooze" onclick={(e) => e.stopPropagation()}>
-												<AlarmClock size={12} />
-											</button>
+										<button class="rounded p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]" title="Snooze" onclick={(e) => e.stopPropagation()}>
+											<AlarmClock size={12} />
+										</button>
 										</Popover.Trigger>
 										<Popover.Content class="w-32 p-1" align="end">
 											<button onclick={() => { snoozeOpenId = null; handleSnooze(notification.id, 1); }} class="flex w-full rounded-md px-2 py-1 text-xs text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]">1 hour</button>
@@ -299,10 +303,10 @@
 									</Popover.Root>
 									<button class="rounded p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]" title="Archive" onclick={(e) => { e.stopPropagation(); handleArchive(notification.id); }}>
 										<Archive size={12} />
-									</button>
-								</div>
-							{/if}
-						</button>
+								</button>
+							</div>
+						{/if}
+					</div>
 					{/each}
 				{/if}
 			</div>

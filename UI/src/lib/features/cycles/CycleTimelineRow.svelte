@@ -61,7 +61,8 @@
 </script>
 
 {#snippet content()}
-	<svelte:component this={statusIcon} size={14} class="shrink-0 text-[var(--color-text-tertiary)]" />
+	{@const StatusIcon = statusIcon}
+	<StatusIcon size={14} class="shrink-0 text-[var(--color-text-tertiary)]"></StatusIcon>
 
 	<span class="min-w-0 flex-1 truncate text-sm font-medium text-[var(--color-text-primary)]">
 		{cycle.name}

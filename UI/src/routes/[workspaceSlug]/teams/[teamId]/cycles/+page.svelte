@@ -318,10 +318,12 @@
 						</div>
 
 						<!-- Cycle content (full row clickable + hover) -->
-						<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 						<div
+							role="button"
+							tabindex="0"
 							class="group my-2 mr-2 min-w-0 flex-1 cursor-pointer rounded-md hover:bg-[var(--color-bg-hover)]/30"
 							onclick={() => navigateToCycle(cycle.id)}
+							onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigateToCycle(cycle.id); }}}
 						>
 							<CycleTimelineRow
 								{cycle} {slug} {teamId} clickable={false}

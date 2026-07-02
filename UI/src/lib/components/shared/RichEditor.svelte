@@ -435,7 +435,7 @@
 		if (editor && !isFocused && content) {
 			const current = sanitizeEditorOutput(editor.getHTML());
 			if (current !== content) {
-				editor.commands.setContent(content, false);
+				editor.commands.setContent(content, { emitUpdate: false });
 			}
 		}
 	});

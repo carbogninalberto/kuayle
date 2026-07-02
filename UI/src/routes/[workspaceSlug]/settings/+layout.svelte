@@ -93,14 +93,17 @@
 			<!-- Teams section -->
 			{#if teams.length > 0}
 				<div class="mt-4">
-					<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 					{#each teams as team}
 						{@const expanded = expandedTeams.has(team.id)}
-						<div class="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]" onclick={() => toggleTeam(team.id)}>
+						<button
+							type="button"
+							class="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-left text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+							onclick={() => toggleTeam(team.id)}
+						>
 							<ChevronDown size={12} class="shrink-0 text-[var(--color-text-tertiary)] transition-transform {expanded ? '' : '-rotate-90'}" />
 							<Users size={16} class="shrink-0" />
 							<span class="truncate">{team.name}</span>
-						</div>
+						</button>
 						{#if expanded}
 							<div transition:slideFade>
 								<a

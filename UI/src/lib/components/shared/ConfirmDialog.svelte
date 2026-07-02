@@ -17,8 +17,14 @@
 </script>
 
 <div class="fixed inset-0 z-50 flex items-center justify-center">
-	<!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
-	<div class="fixed inset-0 bg-black/50" onclick={oncancel}></div>
+	<div
+		role="button"
+		tabindex="0"
+		aria-label="Cancel"
+		class="fixed inset-0 bg-black/50"
+		onclick={oncancel}
+		onkeydown={(e) => { if (e.key === 'Enter' || e.key === 'Escape') oncancel(); }}
+	></div>
 	<div
 		class="relative z-10 w-full max-w-sm rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-6 shadow-2xl"
 	>

@@ -306,17 +306,21 @@
 	></div>
 
 	<!-- Drawer overlay sidebar (below page header) -->
-	<!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
 	<div
+		role="button"
+		tabindex="0"
+		aria-label="Close sidebar"
 		class="fixed inset-0 top-[49px] z-40 transition-[background-color] duration-300 {drawerOpen ? 'pointer-events-auto' : 'pointer-events-none'}"
 		style="background-color: {drawerOpen ? 'rgba(0,0,0,0.15)' : 'transparent'};"
 		onclick={() => (drawerOpen = false)}
+		onkeydown={(e) => { if (e.key === 'Enter' || e.key === 'Escape') drawerOpen = false; }}
 	>
-		<!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
 		<div
+			role="presentation"
 			class="absolute left-0 top-0 h-full flex flex-col border-r border-[var(--app-border)] bg-[var(--color-bg-secondary)] shadow-xl transition-transform duration-300"
 			style="width: {sidebarWidth}px; transform: translateX({drawerOpen ? '0' : '-100%'}); will-change: transform;"
 			onclick={(e) => e.stopPropagation()}
+			onkeydown={(e) => e.stopPropagation()}
 			onmouseenter={cancelCloseDrawer}
 			onmouseleave={scheduleCloseDrawer}
 		>
@@ -417,8 +421,13 @@
 
 		<!-- Teams -->
 		<div class="group/teams mt-4">
-			<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-			<div class="flex cursor-pointer items-center justify-between px-2 py-1" onclick={() => teamsCollapsed = toggleSection('teams', teamsCollapsed)}>
+		<div
+			role="button"
+			tabindex="0"
+			class="flex cursor-pointer items-center justify-between px-2 py-1"
+			onclick={() => teamsCollapsed = toggleSection('teams', teamsCollapsed)}
+			onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); teamsCollapsed = toggleSection('teams', teamsCollapsed); }}}
+		>
 				<span class="flex items-center gap-1">
 					<span class="text-[11px] font-semibold text-[var(--color-text-secondary)]">Teams</span>
 					<ChevronDown size={12} class="text-[var(--color-text-tertiary)] transition-transform {teamsCollapsed ? '-rotate-90' : ''}" />
@@ -605,13 +614,16 @@
 
 		<!-- Projects -->
 		<div class="mt-4">
-			<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-			<div class="flex cursor-pointer items-center justify-between px-2 py-1" onclick={() => projectsCollapsed = toggleSection('projects', projectsCollapsed)}>
-				<span class="flex items-center gap-1">
-					<span class="text-[11px] font-semibold text-[var(--color-text-secondary)]">Projects</span>
-					<ChevronDown size={12} class="text-[var(--color-text-tertiary)] transition-transform {projectsCollapsed ? '-rotate-90' : ''}" />
-				</span>
-			</div>
+		<button
+			type="button"
+			class="flex w-full cursor-pointer items-center justify-between px-2 py-1"
+			onclick={() => projectsCollapsed = toggleSection('projects', projectsCollapsed)}
+		>
+					<span class="flex items-center gap-1">
+						<span class="text-[11px] font-semibold text-[var(--color-text-secondary)]">Projects</span>
+						<ChevronDown size={12} class="text-[var(--color-text-tertiary)] transition-transform {projectsCollapsed ? '-rotate-90' : ''}" />
+					</span>
+				</button>
 			{#if !projectsCollapsed}
 				<div transition:slideFade>
 				<a

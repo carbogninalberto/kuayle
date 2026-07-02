@@ -66,18 +66,19 @@
 >
 	{#each groups as group}
 		<div class="slash-group">
-			{#each group.items as item}
-				{@const idx = flatItems.indexOf(item)}
-				<button
-					type="button"
-					data-index={idx}
-					class="slash-item"
-					class:selected={idx === selectedIndex}
-					onpointerdown={(e) => { e.preventDefault(); onselect(item); }}
-				>
-					<span class="slash-item-icon">
-						<svelte:component this={item.icon} size={16} />
-					</span>
+				{#each group.items as item}
+					{@const idx = flatItems.indexOf(item)}
+					{@const Icon = item.icon}
+					<button
+						type="button"
+						data-index={idx}
+						class="slash-item"
+						class:selected={idx === selectedIndex}
+						onpointerdown={(e) => { e.preventDefault(); onselect(item); }}
+					>
+						<span class="slash-item-icon">
+							<Icon size={16} />
+						</span>
 					<span class="slash-item-label">{item.label}</span>
 					{#if item.shortcut}
 						<span class="slash-item-shortcut">{item.shortcut}</span>
