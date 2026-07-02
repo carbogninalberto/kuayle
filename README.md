@@ -58,11 +58,11 @@ _Note: this is a lightweight snapshot, not a guarantee of current feature parity
 
 ## 🧐 Why Kuayle?
 
-I've been a happy Linear user for years, it's the gold standard for issue tracking. But some things kept bugging me: no multi-assignee on issues, no project-based Gantt, analytics locked behind a paywall, and per-seat pricing that adds up quickly for small teams.
+I've been a happy Linear user for years, and it has set a very high bar for issue tracking. At the time I started this project, a few things kept bugging me: no multi-assignee on issues, no project-based Gantt, analytics behind a paywall, and per-seat pricing that adds up quickly for small teams.
 
-With AI, building your own tool is now realistic, so I did. First for myself, then for anyone who wants Linear-quality without the price tag.
+With AI, building your own tool became realistic, so I did. First for myself, then for anyone who wants a similar workflow without the same cost structure.
 
-I also looked at the open-source alternatives out there, but they gate core features behind paid plans, which kind of defeats the purpose. Kuayle takes a different approach: **every feature is free, forever.** No paid tiers, no feature gates, Apache 2.0. If you find it useful, consider sponsoring the project, that's the whole model.
+I also looked at the open-source alternatives available at the time, and Kuayle took a different approach: **every feature is free, forever.** No paid tiers, no feature gates, Apache 2.0. If you find it useful, consider sponsoring the project, that's the whole model.
 
 ## ✨ Features
 
