@@ -1,11 +1,12 @@
 <script lang="ts">
 	import * as Popover from '$lib/components/ui/popover';
+	import * as HoverCard from '$lib/components/ui/hover-card';
 	import { Button } from '$lib/components/ui/button';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { Separator } from '$lib/components/ui/separator';
 	import type { ViewFilter } from '$lib/types/view';
-	import type { IssuePriority } from '$lib/types/issue';
-	import { PRIORITY_LABELS } from '$lib/types/issue';
+	import type { IssuePriority, IssueStatus } from '$lib/types/issue';
+	import { PRIORITY_LABELS, STATUS_LABELS } from '$lib/types/issue';
 	import { teamStatusesState } from '$lib/features/issues/team-statuses.state.svelte';
 	import type { Team } from '$lib/types/team';
 	import type { Project } from '$lib/types/project';
@@ -30,6 +31,7 @@
 		projects = [],
 		labels = [],
 		members = [],
+		readonly = false,
 		onchange
 	}: {
 		filters: ViewFilter;
@@ -37,6 +39,7 @@
 		projects?: Project[];
 		labels?: Label[];
 		members?: WorkspaceMember[];
+		readonly?: boolean;
 		onchange: (filters: ViewFilter) => void;
 	} = $props();
 
@@ -88,6 +91,14 @@
 	}
 	function getPriorityValues(): string[] {
 		return filters.priority ? filters.priority.split(',') : [];
+	}
+
+	function getStatusByValue(value: string) {
+		return teamStatusesState.statusById.get(value) ?? teamStatusesState.statusOrder.find((ts) => ts.slug === value);
+	}
+
+	function statusValueMatches(status: { id: string; slug?: string }, value: string): boolean {
+		return status.id === value || status.slug === value;
 	}
 
 	function toggleStatus(value: string) {
@@ -170,8 +181,8 @@
 		const vals = getStatusValues();
 		if (vals.length === 0) return 'Status';
 		if (vals.length === 1) {
-			const ts = teamStatusesState.statusById.get(vals[0]);
-			return ts ? ts.name : vals[0];
+			const ts = getStatusByValue(vals[0]);
+			return ts ? ts.name : STATUS_LABELS[vals[0] as IssueStatus] ?? vals[0];
 		}
 		return `${vals.length} statuses`;
 	}
@@ -203,6 +214,23 @@
 		return l?.name || 'Label';
 	}
 
+	function getChipLabel(key: string): string {
+		switch (key) {
+			case 'status':
+				return getStatusChipLabel();
+			case 'priority':
+				return getPriorityChipLabel();
+			case 'assignee':
+				return getAssigneeChipLabel();
+			case 'project':
+				return getProjectChipLabel();
+			case 'label':
+				return getLabelChipLabel();
+			default:
+				return key;
+		}
+	}
+
 	function chipClass(hasValue: boolean): string {
 		return hasValue
 			? 'flex items-center gap-1 rounded-md border border-[var(--app-accent)]/30 bg-[var(--app-accent)]/10 px-2 py-0.5 text-xs text-[var(--app-accent-light)] hover:bg-[var(--app-accent)]/20'
@@ -211,219 +239,310 @@
 </script>
 
 <div class="flex items-center gap-1.5 px-2 py-2">
-	<!-- Search input -->
-	<div class="relative">
-		<Search size={14} class="absolute left-2 top-1/2 -translate-y-1/2 text-[var(--color-text-tertiary)]" />
-		<input
-			type="text"
-			value={searchValue}
-			oninput={handleSearchInput}
-			placeholder="Search..."
-			class="h-7 w-40 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] pl-7 pr-2 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)] focus:border-[var(--app-accent)]"
-		/>
-	</div>
+	{#if !readonly}
+		<!-- Search input -->
+		<div class="relative">
+			<Search size={14} class="absolute left-2 top-1/2 -translate-y-1/2 text-[var(--color-text-tertiary)]" />
+			<input
+				type="text"
+				value={searchValue}
+				oninput={handleSearchInput}
+				placeholder="Search..."
+				class="h-7 w-40 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] pl-7 pr-2 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)] focus:border-[var(--app-accent)]"
+			/>
+		</div>
+	{/if}
 
 	<!-- Filter chips -->
-	{#if visibleFilters.has('status')}
-		<Popover.Root bind:open={statusOpen} onOpenChange={(open) => handlePopoverClose('status', open)}>
-			<Popover.Trigger>
-				<button class={chipClass(!!filters.status)}>
-					<CircleDashed size={12} />
-					{getStatusChipLabel()}
-				</button>
-			</Popover.Trigger>
-			<Popover.Content class="w-44 p-1" align="start">
-				{#each teamStatusesState.statusOrder as ts}
-					<button
-						onclick={() => toggleStatus(ts.id)}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
-					>
-						<Checkbox checked={getStatusValues().includes(ts.id)} />
-						<IssueStatusIcon category={ts.category} color={ts.color} />
-						{ts.name}
-					</button>
-				{/each}
-				<Separator class="my-1" />
-				<button
-					onclick={() => removeFilter('status')}
-					class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
-				>
-					<X size={12} />
-					Remove filter
-				</button>
-			</Popover.Content>
-		</Popover.Root>
-	{/if}
-
-	{#if visibleFilters.has('priority')}
-		<Popover.Root bind:open={priorityOpen} onOpenChange={(open) => handlePopoverClose('priority', open)}>
-			<Popover.Trigger>
-				<button class={chipClass(!!filters.priority)}>
-					<Signal size={12} />
-					{getPriorityChipLabel()}
-				</button>
-			</Popover.Trigger>
-			<Popover.Content class="w-44 p-1" align="start">
+	{#if readonly}
+		{#snippet readonlyContent(key: string)}
+			{#if key === 'status'}
+				{@const statusValues = getStatusValues()}
+				{#if teamStatusesState.statusOrder.length > 0}
+					{#each statusValues.filter((value) => !teamStatusesState.statusOrder.some((ts) => statusValueMatches(ts, value))) as value}
+						<div class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)]">
+							<Checkbox checked class="pointer-events-none" />
+							<IssueStatusIcon status={value} size={14} />
+							{STATUS_LABELS[value as IssueStatus] ?? value}
+						</div>
+					{/each}
+					{#each teamStatusesState.statusOrder as ts}
+						{@const selected = statusValues.some((value) => statusValueMatches(ts, value))}
+						<div class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)]">
+							<Checkbox checked={selected} class="pointer-events-none" />
+							<IssueStatusIcon category={ts.category} color={ts.color} size={14} />
+							{ts.name}
+						</div>
+					{/each}
+				{:else}
+					{#each statusValues as id}
+						<div class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)]">
+							<Checkbox checked class="pointer-events-none" />
+							<IssueStatusIcon status={id} size={14} />
+							{id}
+						</div>
+					{/each}
+				{/if}
+			{:else if key === 'priority'}
 				{#each Object.entries(PRIORITY_LABELS) as [value, label]}
-					<button
-						onclick={() => togglePriority(value)}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
-					>
-						<Checkbox checked={getPriorityValues().includes(value)} />
-						<IssuePriorityIcon priority={Number(value) as IssuePriority} />
+					{@const selected = getPriorityValues().includes(value)}
+					<div class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)]">
+						<Checkbox checked={selected} class="pointer-events-none" />
+						<IssuePriorityIcon priority={Number(value) as IssuePriority} size={14} />
 						{label}
-					</button>
+					</div>
 				{/each}
-				<Separator class="my-1" />
-				<button
-					onclick={() => removeFilter('priority')}
-					class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
-				>
-					<X size={12} />
-					Remove filter
-				</button>
-			</Popover.Content>
-		</Popover.Root>
-	{/if}
-
-	{#if visibleFilters.has('assignee')}
-		<Popover.Root bind:open={assigneeOpen} onOpenChange={(open) => handlePopoverClose('assignee', open)}>
-			<Popover.Trigger>
-				<button class={chipClass(!!filters.assignee)}>
-					<User size={12} />
-					{getAssigneeChipLabel()}
-				</button>
-			</Popover.Trigger>
-			<Popover.Content class="w-48 p-1" align="start">
-				<button
-					onclick={() => updateFilter('assignee', 'none')}
-					class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] {filters.assignee === 'none' ? 'bg-[var(--color-bg-hover)]' : ''}"
-				>
+			{:else if key === 'assignee'}
+				<div class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-tertiary)]">
 					Unassigned
-				</button>
+				</div>
 				{#each members as member}
-					<button
-						onclick={() => updateFilter('assignee', member.user_id)}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {filters.assignee === member.user_id ? 'bg-[var(--color-bg-hover)]' : ''}"
-					>
+					{@const selected = filters.assignee === member.user_id}
+					<div class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)]">
 						<User size={14} class="text-[var(--color-text-tertiary)]" />
 						{member.name || member.email}
-					</button>
+					</div>
 				{/each}
-				<Separator class="my-1" />
-				<button
-					onclick={() => removeFilter('assignee')}
-					class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
-				>
-					<X size={12} />
-					Remove filter
-				</button>
-			</Popover.Content>
-		</Popover.Root>
-	{/if}
-
-	{#if visibleFilters.has('project')}
-		<Popover.Root bind:open={projectOpen} onOpenChange={(open) => handlePopoverClose('project', open)}>
-			<Popover.Trigger>
-				<button class={chipClass(!!filters.project)}>
-					<FolderKanban size={12} />
-					{getProjectChipLabel()}
-				</button>
-			</Popover.Trigger>
-			<Popover.Content class="w-48 p-1" align="start">
-				<button
-					onclick={() => updateFilter('project', 'none')}
-					class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] {filters.project === 'none' ? 'bg-[var(--color-bg-hover)]' : ''}"
-				>
+			{:else if key === 'project'}
+				<div class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-tertiary)]">
 					No project
-				</button>
+				</div>
 				{#each projects as project}
-					<button
-						onclick={() => updateFilter('project', project.id)}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {filters.project === project.id ? 'bg-[var(--color-bg-hover)]' : ''}"
-					>
+					{@const selected = filters.project === project.id}
+					<div class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)]">
 						<FolderKanban size={14} class="text-[var(--color-text-tertiary)]" />
 						{project.name}
-					</button>
+					</div>
 				{/each}
-				<Separator class="my-1" />
-				<button
-					onclick={() => removeFilter('project')}
-					class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
-				>
-					<X size={12} />
-					Remove filter
-				</button>
-			</Popover.Content>
-		</Popover.Root>
-	{/if}
-
-	{#if visibleFilters.has('label')}
-		<Popover.Root bind:open={labelOpen} onOpenChange={(open) => handlePopoverClose('label', open)}>
-			<Popover.Trigger>
-				<button class={chipClass(!!filters.label)}>
-					<Tag size={12} />
-					{getLabelChipLabel()}
-				</button>
-			</Popover.Trigger>
-			<Popover.Content class="w-48 p-1" align="start">
+			{:else if key === 'label'}
 				{#each labels as label}
-					<button
-						onclick={() => updateFilter('label', label.id)}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {filters.label === label.id ? 'bg-[var(--color-bg-hover)]' : ''}"
-					>
-						<div class="h-2.5 w-2.5 rounded-full shrink-0" style="background-color: {label.color}"></div>
+					{@const selected = filters.label === label.id}
+					<div class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)]">
+						<div class="h-2.5 w-2.5 shrink-0 rounded-full" style="background-color: {label.color}"></div>
 						{label.name}
-					</button>
+					</div>
 				{/each}
 				{#if labels.length === 0}
 					<p class="px-2 py-3 text-center text-xs text-[var(--color-text-tertiary)]">No labels</p>
 				{/if}
-				<Separator class="my-1" />
-				<button
-					onclick={() => removeFilter('label')}
-					class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
-				>
-					<X size={12} />
-					Remove filter
-				</button>
-			</Popover.Content>
-		</Popover.Root>
-	{/if}
+			{/if}
+		{/snippet}
 
-	<!-- Add filter button -->
-	{#if availableFilters.length > 0}
-		<Popover.Root bind:open={addFilterOpen}>
-			<Popover.Trigger>
-				<button class="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]">
-					<Plus size={14} />
-					Filter
-				</button>
-			</Popover.Trigger>
-			<Popover.Content class="w-44 p-1" align="start">
-				{#each availableFilters as option}
-					<button
-						onclick={() => addFilter(option.key)}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
-					>
-						<option.icon size={14} class="text-[var(--color-text-tertiary)]" />
-						{option.label}
+		{#each FILTER_OPTIONS as option}
+			{#if filters[option.key]}
+				<HoverCard.Root openDelay={150} closeDelay={100}>
+					<HoverCard.Trigger class={chipClass(true)}>
+						<option.icon size={12} />
+						{getChipLabel(option.key)}
+					</HoverCard.Trigger>
+					<HoverCard.Content class="w-48 p-1" align="start">
+						{@render readonlyContent(option.key)}
+					</HoverCard.Content>
+				</HoverCard.Root>
+			{/if}
+		{/each}
+	{:else}
+		{#if visibleFilters.has('status')}
+			<Popover.Root bind:open={statusOpen} onOpenChange={(open) => handlePopoverClose('status', open)}>
+				<Popover.Trigger>
+					<button class={chipClass(!!filters.status)}>
+						<CircleDashed size={12} />
+						{getStatusChipLabel()}
 					</button>
-				{/each}
-			</Popover.Content>
-		</Popover.Root>
-	{/if}
+				</Popover.Trigger>
+				<Popover.Content class="w-44 p-1" align="start">
+					{#each teamStatusesState.statusOrder as ts}
+						<button
+							onclick={() => toggleStatus(ts.id)}
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+						>
+							<Checkbox checked={getStatusValues().includes(ts.id)} />
+							<IssueStatusIcon category={ts.category} color={ts.color} />
+							{ts.name}
+						</button>
+					{/each}
+					<Separator class="my-1" />
+					<button
+						onclick={() => removeFilter('status')}
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
+					>
+						<X size={12} />
+						Remove filter
+					</button>
+				</Popover.Content>
+			</Popover.Root>
+		{/if}
 
-	<!-- Spacer -->
-	<div class="flex-1"></div>
+		{#if visibleFilters.has('priority')}
+			<Popover.Root bind:open={priorityOpen} onOpenChange={(open) => handlePopoverClose('priority', open)}>
+				<Popover.Trigger>
+					<button class={chipClass(!!filters.priority)}>
+						<Signal size={12} />
+						{getPriorityChipLabel()}
+					</button>
+				</Popover.Trigger>
+				<Popover.Content class="w-44 p-1" align="start">
+					{#each Object.entries(PRIORITY_LABELS) as [value, label]}
+						<button
+							onclick={() => togglePriority(value)}
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+						>
+							<Checkbox checked={getPriorityValues().includes(value)} />
+							<IssuePriorityIcon priority={Number(value) as IssuePriority} />
+							{label}
+						</button>
+					{/each}
+					<Separator class="my-1" />
+					<button
+						onclick={() => removeFilter('priority')}
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
+					>
+						<X size={12} />
+						Remove filter
+					</button>
+				</Popover.Content>
+			</Popover.Root>
+		{/if}
 
-	<!-- Clear all -->
-	{#if visibleFilters.size > 0}
-		<button
-			onclick={clearAll}
-			class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
-		>
-			Clear filters
-		</button>
+		{#if visibleFilters.has('assignee')}
+			<Popover.Root bind:open={assigneeOpen} onOpenChange={(open) => handlePopoverClose('assignee', open)}>
+				<Popover.Trigger>
+					<button class={chipClass(!!filters.assignee)}>
+						<User size={12} />
+						{getAssigneeChipLabel()}
+					</button>
+				</Popover.Trigger>
+				<Popover.Content class="w-48 p-1" align="start">
+					<button
+						onclick={() => updateFilter('assignee', 'none')}
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] {filters.assignee === 'none' ? 'bg-[var(--color-bg-hover)]' : ''}"
+					>
+						Unassigned
+					</button>
+					{#each members as member}
+						<button
+							onclick={() => updateFilter('assignee', member.user_id)}
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {filters.assignee === member.user_id ? 'bg-[var(--color-bg-hover)]' : ''}"
+						>
+							<User size={14} class="text-[var(--color-text-tertiary)]" />
+							{member.name || member.email}
+						</button>
+					{/each}
+					<Separator class="my-1" />
+					<button
+						onclick={() => removeFilter('assignee')}
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
+					>
+						<X size={12} />
+						Remove filter
+					</button>
+				</Popover.Content>
+			</Popover.Root>
+		{/if}
+
+		{#if visibleFilters.has('project')}
+			<Popover.Root bind:open={projectOpen} onOpenChange={(open) => handlePopoverClose('project', open)}>
+				<Popover.Trigger>
+					<button class={chipClass(!!filters.project)}>
+						<FolderKanban size={12} />
+						{getProjectChipLabel()}
+					</button>
+				</Popover.Trigger>
+				<Popover.Content class="w-48 p-1" align="start">
+					<button
+						onclick={() => updateFilter('project', 'none')}
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] {filters.project === 'none' ? 'bg-[var(--color-bg-hover)]' : ''}"
+					>
+						No project
+					</button>
+					{#each projects as project}
+						<button
+							onclick={() => updateFilter('project', project.id)}
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {filters.project === project.id ? 'bg-[var(--color-bg-hover)]' : ''}"
+						>
+							<FolderKanban size={14} class="text-[var(--color-text-tertiary)]" />
+							{project.name}
+						</button>
+					{/each}
+					<Separator class="my-1" />
+					<button
+						onclick={() => removeFilter('project')}
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
+					>
+						<X size={12} />
+						Remove filter
+					</button>
+				</Popover.Content>
+			</Popover.Root>
+		{/if}
+
+		{#if visibleFilters.has('label')}
+			<Popover.Root bind:open={labelOpen} onOpenChange={(open) => handlePopoverClose('label', open)}>
+				<Popover.Trigger>
+					<button class={chipClass(!!filters.label)}>
+						<Tag size={12} />
+						{getLabelChipLabel()}
+					</button>
+				</Popover.Trigger>
+				<Popover.Content class="w-48 p-1" align="start">
+					{#each labels as label}
+						<button
+							onclick={() => updateFilter('label', label.id)}
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {filters.label === label.id ? 'bg-[var(--color-bg-hover)]' : ''}"
+						>
+							<div class="h-2.5 w-2.5 rounded-full shrink-0" style="background-color: {label.color}"></div>
+							{label.name}
+						</button>
+					{/each}
+					{#if labels.length === 0}
+						<p class="px-2 py-3 text-center text-xs text-[var(--color-text-tertiary)]">No labels</p>
+					{/if}
+					<Separator class="my-1" />
+					<button
+						onclick={() => removeFilter('label')}
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
+					>
+						<X size={12} />
+						Remove filter
+					</button>
+				</Popover.Content>
+			</Popover.Root>
+		{/if}
+
+		<!-- Add filter button -->
+		{#if availableFilters.length > 0}
+			<Popover.Root bind:open={addFilterOpen}>
+				<Popover.Trigger>
+					<button class="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]">
+						<Plus size={14} />
+						Filter
+					</button>
+				</Popover.Trigger>
+				<Popover.Content class="w-44 p-1" align="start">
+					{#each availableFilters as option}
+						<button
+							onclick={() => addFilter(option.key)}
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+						>
+							<option.icon size={14} class="text-[var(--color-text-tertiary)]" />
+							{option.label}
+						</button>
+					{/each}
+				</Popover.Content>
+			</Popover.Root>
+		{/if}
+
+		<!-- Spacer -->
+		<div class="flex-1"></div>
+
+		<!-- Clear all -->
+		{#if visibleFilters.size > 0}
+			<button
+				onclick={clearAll}
+				class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
+			>
+				Clear filters
+			</button>
+		{/if}
 	{/if}
 </div>

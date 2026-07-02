@@ -9,7 +9,8 @@
 	import { listTeams } from '$lib/api/teams';
 	import { listProjects } from '$lib/api/projects';
 	import { teamStatusesState } from '$lib/features/issues/team-statuses.state.svelte';
-	import type { View } from '$lib/types/view';
+	import { authState } from '$lib/features/auth/auth.state.svelte';
+	import type { View, ViewFilter } from '$lib/types/view';
 	import type { Issue } from '$lib/types/issue';
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import type { Label } from '$lib/types/label';
@@ -20,8 +21,10 @@
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import * as Popover from '$lib/components/ui/popover';
+	import * as Tooltip from '$lib/components/ui/tooltip';
 	import { toast } from 'svelte-sonner';
 	import { ArrowLeft, Pencil, Trash2, MoreHorizontal, Check, X, Share2 } from 'lucide-svelte';
+	import FilterBuilder from '$lib/components/shared/FilterBuilder.svelte';
 	import ShareLinkDialog from '$lib/components/shared/ShareLinkDialog.svelte';
 	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
 	import { createKeyboardHandler } from '$lib/utils/keyboard';
@@ -35,10 +38,15 @@
 	let labels = $state<Label[]>([]);
 	let teams = $state<Team[]>([]);
 	let projects = $state<Project[]>([]);
+
+	const isOwner = $derived(!!authState.user && !!view && authState.user.id === view.creator_id);
+	const owner = $derived(members.find((m) => m.user_id === view?.creator_id));
 	let loading = $state(true);
 	let actionsOpen = $state(false);
 	let showShareLink = $state(false);
 	let lastSelectedId = $state<string | null>(null);
+	let filters = $state<ViewFilter>({});
+	let saveTimeout: ReturnType<typeof setTimeout> | null = null;
 
 	// Edit name state
 	let editingName = $state(false);
@@ -61,7 +69,8 @@
 			labels = l;
 			teams = t;
 			projects = p;
-			await loadIssues(viewData);
+			filters = { ...viewData.filters };
+			await loadIssues();
 		}).catch(() => {
 			toast.error('View not found');
 			goto(`/${s}`);
@@ -70,78 +79,24 @@
 		});
 	});
 
-	async function loadIssues(v: View) {
+	async function loadIssues() {
 		const params: Record<string, string> = { per_page: '200' };
-		if (v.filters) {
-			for (const [key, val] of Object.entries(v.filters)) {
-				if (val) params[key] = val;
-			}
+		for (const [key, val] of Object.entries(filters)) {
+			if (val) params[key] = val;
 		}
 		try {
 			const res = await listIssues(slug, params);
 			issues = res.data;
-			const firstTeamId = issues[0]?.team_id;
-			if (firstTeamId) {
-				teamStatusesState.load(slug, firstTeamId);
-			}
+			await loadTeamStatuses();
 		} catch {
 			issues = [];
 		}
 	}
 
-	function resolveFilterValue(key: string, value: string): string {
-		switch (key) {
-			case 'label': {
-				const names = value.split(',').map((id) => {
-					const label = labels.find((l) => l.id === id);
-					return label ? label.name : id;
-				});
-				return names.join(', ');
-			}
-			case 'assignee':
-			case 'creator': {
-				const names = value.split(',').map((id) => {
-					const member = members.find((m) => m.user_id === id);
-					return member ? member.name : id;
-				});
-				return names.join(', ');
-			}
-			case 'team': {
-				const names = value.split(',').map((id) => {
-					const team = teams.find((t) => t.id === id);
-					return team ? team.name : id;
-				});
-				return names.join(', ');
-			}
-			case 'project': {
-				const names = value.split(',').map((id) => {
-					const project = projects.find((p) => p.id === id);
-					return project ? project.name : id;
-				});
-				return names.join(', ');
-			}
-			case 'status':
-			case 'priority':
-			case 'search':
-			default:
-				return value;
-		}
-	}
-
-	function filterLabel(key: string): string {
-		const labels: Record<string, string> = {
-			status: 'Status',
-			priority: 'Priority',
-			assignee: 'Assignee',
-			creator: 'Creator',
-			team: 'Team',
-			project: 'Project',
-			label: 'Label',
-			search: 'Search',
-			due_before: 'Due before',
-			due_after: 'Due after'
-		};
-		return labels[key] ?? key;
+	async function loadTeamStatuses() {
+		const teamId = filters.team || issues[0]?.team_id || teams[0]?.id;
+		if (!teamId || !filters.status) return;
+		await teamStatusesState.load(slug, teamId);
 	}
 
 	function startEditName() {
@@ -181,8 +136,23 @@
 		goto(`/${slug}/issue/${issue.identifier}`);
 	}
 
+	function handleFilterChange(f: ViewFilter) {
+		filters = f;
+		loadIssues();
+		if (saveTimeout) clearTimeout(saveTimeout);
+		saveTimeout = setTimeout(saveFilters, 500);
+	}
+
+	async function saveFilters() {
+		if (!view) return;
+		try {
+			view = await updateView(slug, view.id, { filters });
+		} catch (err: any) {
+			toast.error(err?.error?.message || 'Failed to save filters');
+		}
+	}
+
 	const keyHandler = createKeyboardHandler([
-		{ key: 'a', ctrl: true, handler: () => issuesState.selectAll() },
 		{ key: 'Escape', handler: () => issuesState.clearSelection() }
 	]);
 
@@ -243,6 +213,29 @@
 				{/if}
 			</div>
 			<div class="flex items-center gap-2">
+				{#if owner}
+					<Tooltip.Root>
+						<Tooltip.Trigger>
+							<div
+								class="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--app-accent)] text-xs font-medium text-[var(--app-accent-foreground)]"
+							>
+								{#if authState.user?.id === owner.user_id && authState.user?.avatar_url}
+									<img
+										src={authState.user.avatar_url}
+										alt=""
+										class="h-7 w-7 rounded-full"
+									/>
+								{:else}
+									{(owner.name ?? owner.email ?? 'U').charAt(0).toUpperCase()}
+								{/if}
+							</div>
+						</Tooltip.Trigger>
+						<Tooltip.Content>
+							<p class="text-sm font-medium">{owner.name || owner.email}</p>
+							<p class="text-xs text-[var(--color-text-tertiary)]">Owner</p>
+						</Tooltip.Content>
+					</Tooltip.Root>
+				{/if}
 				<Popover.Root bind:open={actionsOpen}>
 					<Popover.Trigger>
 						<Button variant="ghost" size="icon-sm">
@@ -275,23 +268,18 @@
 			</div>
 		</div>
 
-		<!-- Active filters -->
-		{#if view.filters && Object.keys(view.filters).length > 0}
-			<div
-				class="flex flex-wrap items-center gap-2 border-b border-[var(--app-border)] px-6 py-2"
-			>
-				<span class="text-xs text-[var(--color-text-tertiary)]">Filters:</span>
-				{#each Object.entries(view.filters) as [key, val]}
-					{#if val}
-						<span
-							class="rounded bg-[var(--color-bg-tertiary)] px-2 py-0.5 text-xs text-[var(--color-text-secondary)]"
-						>
-							{filterLabel(key)}: {resolveFilterValue(key, val)}
-						</span>
-					{/if}
-				{/each}
-			</div>
-		{/if}
+		<!-- Filter bar -->
+		<div class="border-b border-[var(--app-border)]">
+			<FilterBuilder
+				bind:filters
+				{teams}
+				{projects}
+				{labels}
+				{members}
+				readonly={!isOwner}
+				onchange={handleFilterChange}
+			/>
+		</div>
 
 		<!-- Description -->
 		{#if view.description}
@@ -316,6 +304,7 @@
 						{labels}
 						{projects}
 						{lastSelectedId}
+						singleSelect
 						onlastselected={(id) => (lastSelectedId = id)}
 						onclick={handleIssueClick}
 					/>

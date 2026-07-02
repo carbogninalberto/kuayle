@@ -26,7 +26,8 @@
 		onclick,
 		lastSelectedId = null,
 		onlastselected,
-		onaddrelation
+		onaddrelation,
+		singleSelect = false
 	}: {
 		issue: Issue;
 		slug?: string;
@@ -38,6 +39,7 @@
 		lastSelectedId?: string | null;
 		onlastselected?: (id: string) => void;
 		onaddrelation?: (issue: Issue, type: RelationType) => void;
+		singleSelect?: boolean;
 	} = $props();
 
 	const isSelected = $derived(issuesState.selectedIds.has(issue.id));
@@ -87,7 +89,7 @@
 	}
 
 	function handleClick(e: MouseEvent) {
-		if (e.shiftKey && lastSelectedId) {
+		if (!singleSelect && e.shiftKey && lastSelectedId) {
 			e.preventDefault();
 			issuesState.selectRange(lastSelectedId, issue.id);
 			onlastselected?.(issue.id);
@@ -108,17 +110,19 @@
 			if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
 		}}
 	>
-		<!-- Checkbox hover zone -->
-		<span
-			class="shrink-0 -my-1.5 -ml-3 flex items-center justify-center pl-3 pr-1 self-stretch transition-opacity duration-100 {isSelected ? 'opacity-100' : 'opacity-0 hover:opacity-100'}"
-			onclick={handleCheckboxChange}
-			onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleCheckboxChange(e); }}
-			role="checkbox"
-			aria-checked={isSelected}
-			tabindex={0}
-		>
-			<Checkbox checked={isSelected} />
-		</span>
+		{#if !singleSelect}
+			<!-- Checkbox hover zone -->
+			<span
+				class="shrink-0 -my-1.5 -ml-3 flex items-center justify-center pl-3 pr-1 self-stretch transition-opacity duration-100 {isSelected ? 'opacity-100' : 'opacity-0 hover:opacity-100'}"
+				onclick={handleCheckboxChange}
+				onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleCheckboxChange(e); }}
+				role="checkbox"
+				aria-checked={isSelected}
+				tabindex={0}
+			>
+				<Checkbox checked={isSelected} />
+			</span>
+		{/if}
 
 		<!-- Priority -->
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
