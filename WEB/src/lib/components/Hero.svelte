@@ -12,17 +12,6 @@
   ></div>
 
   <div class="mx-auto max-w-6xl px-6 text-center">
-    <div class="animate-fade-up" style="animation-delay: 0ms">
-      <a
-        href="https://github.com/carbogninalberto/kuayle/blob/main/LICENSE"
-        target="_blank"
-        rel="noopener"
-        class="inline-flex items-center gap-2 rounded-full border border-brand-400/30 bg-brand-400/10 px-4 py-1.5 text-sm text-brand-200 transition-colors hover:border-brand-400/60"
-      >
-        Apache 2.0 licensed - read it yourself
-      </a>
-    </div>
-
     <h1
       class="animate-fade-up mx-auto mt-6 max-w-3xl text-5xl leading-[1.05] font-bold tracking-tight sm:text-6xl md:text-7xl"
       style="animation-delay: 100ms"
