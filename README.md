@@ -22,6 +22,37 @@ Kuayle is currently a runnable MVP of the core issue tracker. The repository inc
 | **Analytics** | Backend endpoints exist for overview and issue distribution; a dedicated frontend analytics page is not wired yet. |
 | **Dev Machines** | Specification/design only in this repo today. The runtime container manager and UI flow are not wired into the app yet; see [`TECHNICAL.md`](TECHNICAL.md). |
 
+## 🆚 How it compares to similar products
+
+**Where Kuayle is different:**
+
+| Kuayle edge | Why it matters |
+|---|---|
+| ✅ **No paid feature gates** | Every implemented feature is intended to stay free. |
+| ✅ **Apache 2.0** | Permissive for internal forks, embedding, and commercial use. |
+| ✅ **Small and hackable** | Go API, raw SQL, SvelteKit UI, Docker Compose. |
+| ✅ **Multi-assignee by default** | Linear-like workflow without single-owner assumptions. |
+| 🟠 **Dev Machines direction** | Spec points toward issue-to-coding-environment workflows. |
+
+| Area | Kuayle | Linear | Plane |
+|---|---|---|---|
+| **License** | ✅ Apache 2.0 | ❌ Proprietary | ✅ Open source |
+| **Self-hosting** | ✅ First-class Docker setup | ❌ Hosted SaaS | ✅ Cloud and self-hosted |
+| **Paid feature gates** | ✅ None intended | 🟠 Tiered | 🟠 Tiered |
+| **Core issues** | ✅ MVP implemented | ✅ Mature | ✅ Mature |
+| **Multi-assignee** | ✅ Built in | ❌ Not a core Linear feature | 🟠 Work-item ownership varies by model |
+| **Teams and workflows** | ✅ Teams + custom statuses | ✅ Mature | ✅ Mature |
+| **Projects** | ✅ Projects + Gantt view | ✅ Projects + roadmaps | ✅ Projects + layouts |
+| **Cycles** | ✅ Cycles + burndown/velocity | ✅ Mature | ✅ Mature |
+| **Initiatives/modules** | ❌ Not yet | ✅ Initiatives | ✅ Initiatives + modules |
+| **Views/public sharing** | ✅ Saved views + public links | ✅ Views | ✅ Views + publish options |
+| **Analytics UI** | 🟠 Backend endpoints only | 🟠 Tiered insights/dashboards | 🟠 Tiered dashboards/analytics |
+| **GitHub automation** | ✅ GitHub App + auto-transitions | ✅ Mature | ✅ GitHub integration |
+| **Import/export** | ❌ Not yet | ✅ Available | ✅ Multiple importers/export |
+| **Enterprise auth** | ❌ No SSO/SCIM/LDAP yet | 🟠 Enterprise tier | 🟠 Paid/self-hosted tiers |
+| **AI/agents** | 🟠 Dev Machines spec only | 🟠 Tiered Linear Agent/features | 🟠 Tiered Plane AI/MCP |
+| **Best fit** | ✅ Hackable, no-gates Linear-style tracker | ✅ Polished hosted engineering workflow | ✅ Broader PM suite with wiki/modules |
+
 ## 🧐 Why Kuayle?
 
 I've been a happy Linear user for years, it's the gold standard for issue tracking. But some things kept bugging me: no multi-assignee on issues, no project-based Gantt, analytics locked behind a paywall, and per-seat pricing that adds up quickly for small teams.
@@ -38,7 +69,7 @@ I also looked at the open-source alternatives out there, but they gate core feat
 | 👥 | **Teams** | Custom workflows, each team gets its own statuses and triage settings |
 | 📋 | **Issues** | Priority, due dates, sub-tasks, multi-assignee, labels, comments, audit history |
 | 🔄 | **Cycles** | Sprint planning with time-boxed iterations (upcoming, active, completed) |
-| 📁 | **Projects** | Cross-team initiatives grouped under a single umbrella |
+| 📁 | **Projects** | Cross-team work grouped under a single umbrella |
 | 🏷️ | **Labels** | Hierarchical, workspace-scoped, with soft delete |
 | 👁️ | **Views** | Saved and shareable filtered perspectives with JSONB persistence |
 | 🔔 | **Notifications** | Inbox with snooze, read status, and archive |
