@@ -3,7 +3,8 @@
   <p><strong>快乐 (kuàilè) · happiness, joy</strong></p>
   <p>A fast, keyboard-driven issue tracker inspired by Linear.</p>
 
-  [Report Bug](https://github.com/carbogninalberto/kuayle/issues/new?labels=bug) · [Request Feature](https://github.com/carbogninalberto/kuayle/issues/new?labels=enhancement)
+[Report Bug](https://github.com/carbogninalberto/kuayle/issues/new?labels=bug) · [Request Feature](https://github.com/carbogninalberto/kuayle/issues/new?labels=enhancement)
+
 </div>
 
 <br />
@@ -14,44 +15,44 @@
 
 Kuayle is currently a runnable MVP of the core issue tracker. The repository includes a Go API, PostgreSQL migrations, Redis configuration, and a SvelteKit frontend that can be run locally with Docker Compose or the Makefile commands below.
 
-| Area | State |
-|---|---|
+| Area             | State                                                                                                                                                                                                                                                     |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Core tracker** | Implemented end-to-end: auth, workspaces, members/RBAC, teams, custom statuses, issues, labels, comments, history, sub-issues, issue relations, triage, templates, favorites, saved views, notifications, public sharing, uploads, and WebSocket updates. |
-| **Planning** | Implemented: cycles with completion, burndown/velocity support, and UI; projects with status, lead/date metadata, issue lists, and a Gantt view. |
-| **Integrations** | Implemented: workspace webhooks and GitHub App setup, repo linking, PR/branch/commit activity, auto-transitions, and webhook handling. |
-| **Analytics** | Backend endpoints exist for overview and issue distribution; a dedicated frontend analytics page is not wired yet. |
-| **Dev Machines** | Specification/design only in this repo today. The runtime container manager and UI flow are not wired into the app yet; see [`TECHNICAL.md`](TECHNICAL.md). |
+| **Planning**     | Implemented: cycles with completion, burndown/velocity support, and UI; projects with status, lead/date metadata, issue lists, and a Gantt view.                                                                                                          |
+| **Integrations** | Implemented: workspace webhooks and GitHub App setup, repo linking, PR/branch/commit activity, auto-transitions, and webhook handling.                                                                                                                    |
+| **Analytics**    | Backend endpoints exist for overview and issue distribution; a dedicated frontend analytics page is not wired yet.                                                                                                                                        |
+| **Dev Machines** | Specification/design only in this repo today. The runtime container manager and UI flow are not wired into the app yet; see [`TECHNICAL.md`](TECHNICAL.md).                                                                                               |
 
 ## 🆚 How it compares to similar products
 
 **Where Kuayle is different:**
 
-| Kuayle edge | Why it matters |
-|---|---|
-| ✅ **No paid feature gates** | Every implemented feature is intended to stay free. |
-| ✅ **Apache 2.0** | Permissive for internal forks, embedding, and commercial use. |
-| ✅ **Small and hackable** | Go API, raw SQL, SvelteKit UI, Docker Compose. |
-| ✅ **Multi-assignee by default** | Linear-like workflow without single-owner assumptions. |
-| 🟠 **Dev Machines direction** | Spec points toward issue-to-coding-environment workflows. |
+| Kuayle edge                      | Why it matters                                                |
+| -------------------------------- | ------------------------------------------------------------- |
+| ✅ **No paid feature gates**     | Every implemented feature is intended to stay free.           |
+| ✅ **Apache 2.0**                | Permissive for internal forks, embedding, and commercial use. |
+| ✅ **Small and hackable**        | Go API, raw SQL, SvelteKit UI, Docker Compose.                |
+| ✅ **Multi-assignee by default** | Linear-like workflow without single-owner assumptions.        |
+| 🟠 **Dev Machines direction**    | Spec points toward issue-to-coding-environment workflows.     |
 
-| Area | Kuayle | Linear | Plane |
-|---|---|---|---|
-| **License** | ✅ Apache 2.0 | ❌ Proprietary | ✅ Open source |
-| **Self-hosting** | ✅ First-class Docker setup | ❌ Hosted SaaS | ✅ Cloud and self-hosted |
-| **Paid feature gates** | ✅ None intended | 🟠 Tiered | 🟠 Tiered |
-| **Core issues** | ✅ MVP implemented | ✅ Mature | ✅ Mature |
-| **Multi-assignee** | ✅ Built in | ❌ Not a core Linear feature | 🟠 Work-item ownership varies by model |
-| **Teams and workflows** | ✅ Teams + custom statuses | ✅ Mature | ✅ Mature |
-| **Projects** | ✅ Projects + Gantt view | ✅ Projects + roadmaps | ✅ Projects + layouts |
-| **Cycles** | ✅ Cycles + burndown/velocity | ✅ Mature | ✅ Mature |
-| **Initiatives/modules** | ❌ Not yet | ✅ Initiatives | ✅ Initiatives + modules |
-| **Views/public sharing** | ✅ Saved views + public links | ✅ Views | ✅ Views + publish options |
-| **Analytics UI** | 🟠 Backend endpoints only | 🟠 Tiered insights/dashboards | 🟠 Tiered dashboards/analytics |
-| **GitHub automation** | ✅ GitHub App + auto-transitions | ✅ Mature | ✅ GitHub integration |
-| **Import/export** | ❌ Not yet | ✅ Available | ✅ Multiple importers/export |
-| **Enterprise auth** | ❌ No SSO/SCIM/LDAP yet | 🟠 Enterprise tier | 🟠 Paid/self-hosted tiers |
-| **AI/agents** | 🟠 Dev Machines spec only | 🟠 Tiered Linear Agent/features | 🟠 Tiered Plane AI/MCP |
-| **Best fit** | ✅ Hackable, no-gates Linear-style tracker | ✅ Polished hosted engineering workflow | ✅ Broader PM suite with wiki/modules |
+| Area                     | Kuayle                                     | Linear                                  | Plane                                  |
+| ------------------------ | ------------------------------------------ | --------------------------------------- | -------------------------------------- |
+| **License**              | ✅ Apache 2.0                              | ❌ Proprietary                          | ✅ Open source                         |
+| **Self-hosting**         | ✅ First-class Docker setup                | ❌ Hosted SaaS                          | ✅ Cloud and self-hosted               |
+| **Paid feature gates**   | ✅ None intended                           | 🟠 Tiered                               | 🟠 Tiered                              |
+| **Core issues**          | ✅ MVP implemented                         | ✅ Mature                               | ✅ Mature                              |
+| **Multi-assignee**       | ✅ Built in                                | ❌ Not a core Linear feature            | 🟠 Work-item ownership varies by model |
+| **Teams and workflows**  | ✅ Teams + custom statuses                 | ✅ Mature                               | ✅ Mature                              |
+| **Projects**             | ✅ Projects + Gantt view                   | ✅ Projects + roadmaps                  | ✅ Projects + layouts                  |
+| **Cycles**               | ✅ Cycles + burndown/velocity              | ✅ Mature                               | ✅ Mature                              |
+| **Initiatives/modules**  | ❌ Not yet                                 | ✅ Initiatives                          | ✅ Initiatives + modules               |
+| **Views/public sharing** | ✅ Saved views + public links              | ✅ Views                                | ✅ Views + publish options             |
+| **Analytics UI**         | 🟠 Backend endpoints only                  | 🟠 Tiered insights/dashboards           | 🟠 Tiered dashboards/analytics         |
+| **GitHub automation**    | ✅ GitHub App + auto-transitions           | ✅ Mature                               | ✅ GitHub integration                  |
+| **Import/export**        | ❌ Not yet                                 | ✅ Available                            | ✅ Multiple importers/export           |
+| **Enterprise auth**      | ❌ No SSO/SCIM/LDAP yet                    | 🟠 Enterprise tier                      | 🟠 Paid/self-hosted tiers              |
+| **AI/agents**            | 🟠 Dev Machines spec only                  | 🟠 Tiered Linear Agent/features         | 🟠 Tiered Plane AI/MCP                 |
+| **Best fit**             | ✅ Hackable, no-gates Linear-style tracker | ✅ Polished hosted engineering workflow | ✅ Broader PM suite with wiki/modules  |
 
 ## 🧐 Why Kuayle?
 
@@ -63,22 +64,22 @@ I also looked at the open-source alternatives out there, but they gate core feat
 
 ## ✨ Features
 
-| | Feature | Description |
-|---|---|---|
-| 🏢 | **Workspaces** | Multi-tenant with role-based access (owner, admin, member, guest) |
-| 👥 | **Teams** | Custom workflows, each team gets its own statuses and triage settings |
-| 📋 | **Issues** | Priority, due dates, sub-tasks, multi-assignee, labels, comments, audit history |
-| 🔄 | **Cycles** | Sprint planning with time-boxed iterations (upcoming, active, completed) |
-| 📁 | **Projects** | Cross-team work grouped under a single umbrella |
-| 🏷️ | **Labels** | Hierarchical, workspace-scoped, with soft delete |
-| 👁️ | **Views** | Saved and shareable filtered perspectives with JSONB persistence |
-| 🔔 | **Notifications** | Inbox with snooze, read status, and archive |
-| 🔗 | **Webhooks** | Plug into external services and integrations |
-| ⚡ | **Real-time** | WebSocket-powered live updates across all connected clients |
-| 🖥️ | **Dev Machines** | Technical specification for on-demand, single-container development environments |
-| 🐙 | **GitHub** | Link repos, auto-sync issues, webhook-based updates |
-| 📊 | **Analytics** | Backend overview and issue distribution endpoints |
-| 🔗 | **Public Sharing** | Token-based read-only links for issues and views |
+|     | Feature            | Description                                                                      |
+| --- | ------------------ | -------------------------------------------------------------------------------- |
+| 🏢  | **Workspaces**     | Multi-tenant with role-based access (owner, admin, member, guest)                |
+| 👥  | **Teams**          | Custom workflows, each team gets its own statuses and triage settings            |
+| 📋  | **Issues**         | Priority, due dates, sub-tasks, multi-assignee, labels, comments, audit history  |
+| 🔄  | **Cycles**         | Sprint planning with time-boxed iterations (upcoming, active, completed)         |
+| 📁  | **Projects**       | Cross-team work grouped under a single umbrella                                  |
+| 🏷️  | **Labels**         | Hierarchical, workspace-scoped, with soft delete                                 |
+| 👁️  | **Views**          | Saved and shareable filtered perspectives with JSONB persistence                 |
+| 🔔  | **Notifications**  | Inbox with snooze, read status, and archive                                      |
+| 🔗  | **Webhooks**       | Plug into external services and integrations                                     |
+| ⚡  | **Real-time**      | WebSocket-powered live updates across all connected clients                      |
+| 🖥️  | **Dev Machines**   | Technical specification for on-demand, single-container development environments |
+| 🐙  | **GitHub**         | Link repos, auto-sync issues, webhook-based updates                              |
+| 📊  | **Analytics**      | Backend overview and issue distribution endpoints                                |
+| 🔗  | **Public Sharing** | Token-based read-only links for issues and views                                 |
 
 ## 🤖 Dev Machines (Agentic Coding)
 
@@ -105,38 +106,38 @@ You (browser)
 
 ### Target modes
 
-| Mode | Who | What happens |
-|---|---|---|
-| **Agent-only** | Kuayle assigns a task | Agent works autonomously, pushes results, machine tears down |
+| Mode              | Who                             | What happens                                                              |
+| ----------------- | ------------------------------- | ------------------------------------------------------------------------- |
+| **Agent-only**    | Kuayle assigns a task           | Agent works autonomously, pushes results, machine tears down              |
 | **Human + Agent** | Developer clicks "Open Machine" | Gets a browser link to a full IDE with agentic tools, works interactively |
 
 ### Target configuration
 
 Machines would be configured from Kuayle's UI or via API: repo, branch, env vars, tools, and size. Configuration would resolve in order: project defaults → user preferences → spawn-time overrides.
 
-| Size | CPU | Memory | Disk |
-|---|---|---|---|
-| Small | 2 cores | 4 GB | 20 GB |
-| Medium | 4 cores | 8 GB | 50 GB |
-| Large | 8 cores | 16 GB | 100 GB |
+| Size   | CPU     | Memory | Disk   |
+| ------ | ------- | ------ | ------ |
+| Small  | 2 cores | 4 GB   | 20 GB  |
+| Medium | 4 cores | 8 GB   | 50 GB  |
+| Large  | 8 cores | 16 GB  | 100 GB |
 
 ## 🛠️ Tech Stack
 
 Here's what Kuayle runs on and what each piece does:
 
-| Layer | Tech | Role |
-|---|---|---|
-| **API** | Go + Echo | High-performance HTTP server with middleware, routing, JWT auth |
-| **Database** | PostgreSQL 17 | Primary data store, raw SQL via sqlx/pgx, no ORM |
-| **Cache & Jobs** | Redis 7 | Configured in Docker/env for future cache and job usage |
-| **Frontend** | SvelteKit + Svelte 5 | SPA with TypeScript, runes-based reactivity, static adapter |
-| **UI** | Tailwind CSS + shadcn-svelte | Utility-first styling with accessible component primitives |
-| **Editor** | Tiptap v3 + Yjs | Rich text with code blocks, mentions, slash commands, task lists |
-| **Real-time** | WebSocket (nhooyr.io) | Live collaboration, presence, issue updates |
-| **Storage** | Local FS or S3-compatible | AWS S3, Cloudflare R2, MinIO, SeaweedFS |
-| **Reverse Proxy** | Caddy | Production HTTPS and routing |
-| **Dev Machines** | code-server + Claude Code + Chromium | Technical specification for single-container agentic dev environments |
-| **Infra** | Docker + Docker Compose | One-command local and production deployment |
+| Layer             | Tech                                 | Role                                                                  |
+| ----------------- | ------------------------------------ | --------------------------------------------------------------------- |
+| **API**           | Go + Echo                            | High-performance HTTP server with middleware, routing, JWT auth       |
+| **Database**      | PostgreSQL 17                        | Primary data store, raw SQL via sqlx/pgx, no ORM                      |
+| **Cache & Jobs**  | Redis 7                              | Configured in Docker/env for future cache and job usage               |
+| **Frontend**      | SvelteKit + Svelte 5                 | SPA with TypeScript, runes-based reactivity, static adapter           |
+| **UI**            | Tailwind CSS + shadcn-svelte         | Utility-first styling with accessible component primitives            |
+| **Editor**        | Tiptap v3 + Yjs                      | Rich text with code blocks, mentions, slash commands, task lists      |
+| **Real-time**     | WebSocket (nhooyr.io)                | Live collaboration, presence, issue updates                           |
+| **Storage**       | Local FS or S3-compatible            | AWS S3, Cloudflare R2, MinIO, SeaweedFS                               |
+| **Reverse Proxy** | Caddy                                | Production HTTPS and routing                                          |
+| **Dev Machines**  | code-server + Claude Code + Chromium | Technical specification for single-container agentic dev environments |
+| **Infra**         | Docker + Docker Compose              | One-command local and production deployment                           |
 
 ## 🚀 Quick Start
 
@@ -160,18 +161,18 @@ make dev
 
 ### 📖 Commands
 
-| Command | What it does |
-|---|---|
-| `make dev` | Run backend + frontend |
-| `make dev-backend` | Backend only |
-| `make dev-frontend` | Frontend only |
-| `make migrate-up` | Apply migrations |
-| `make migrate-down` | Roll back migrations |
-| `make seed` | Seed the database |
-| `make test` | Run all tests |
-| `make lint` | Lint everything |
-| `make docker-up` | Start all (Docker) |
-| `make docker-down` | Stop all (Docker) |
+| Command             | What it does           |
+| ------------------- | ---------------------- |
+| `make dev`          | Run backend + frontend |
+| `make dev-backend`  | Backend only           |
+| `make dev-frontend` | Frontend only          |
+| `make migrate-up`   | Apply migrations       |
+| `make migrate-down` | Roll back migrations   |
+| `make seed`         | Seed the database      |
+| `make test`         | Run all tests          |
+| `make lint`         | Lint everything        |
+| `make docker-up`    | Start all (Docker)     |
+| `make docker-down`  | Stop all (Docker)      |
 
 ## 🏠 Self-Hosting
 
@@ -391,17 +392,12 @@ Alberto Carbognin, [@carbogninalberto](https://github.com/carbogninalberto)
 
 View the full contributor graph on GitHub: [contributors](https://github.com/carbogninalberto/kuayle/graphs/contributors).
 
-[![Contributors][contributors-shield]][contributors-url]
-[![Forks][forks-shield]][forks-url]
-[![Stargazers][stars-shield]][stars-url]
-[![Issues][issues-shield]][issues-url]
-[![Apache 2.0 License][license-shield]][license-url]
-
 ---
 
 > 🤖 **Heads up:** This codebase was built through AI-assisted development under my supervision, ideas, and direction. It works, but expect some rough edges that still need smoothing.
 
 <!-- MARKDOWN LINKS & IMAGES -->
+
 [contributors-shield]: https://img.shields.io/github/contributors/carbogninalberto/kuayle.svg?style=for-the-badge
 [contributors-url]: https://github.com/carbogninalberto/kuayle/graphs/contributors
 [forks-shield]: https://img.shields.io/github/forks/carbogninalberto/kuayle.svg?style=for-the-badge
