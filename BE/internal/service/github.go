@@ -189,7 +189,7 @@ func (s *GitHubService) HandleManifestCallback(ctx context.Context, workspaceID 
 	}
 
 	// Exchange code for credentials
-	log.WithField("code", code).WithField("workspace_id", workspaceID).Info("Exchanging manifest code with GitHub")
+	log.WithField("workspace_id", workspaceID).Info("Exchanging manifest code with GitHub")
 	convURL := fmt.Sprintf("https://api.github.com/app-manifests/%s/conversions", code)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, convURL, nil)
 	if err != nil {
@@ -207,8 +207,6 @@ func (s *GitHubService) HandleManifestCallback(ctx context.Context, workspaceID 
 		body, _ := io.ReadAll(resp.Body)
 		log.WithFields(log.Fields{
 			"status": resp.StatusCode,
-			"body":   string(body),
-			"code":   code[:8] + "...",
 		}).Warn("GitHub manifest conversion failed")
 		return nil, fmt.Errorf("GitHub API error %d: %s", resp.StatusCode, body)
 	}
