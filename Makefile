@@ -7,6 +7,20 @@ dev:
 	@echo "Starting backend and frontend..."
 	$(MAKE) -j2 dev-backend dev-frontend
 
+dev-all: dev-start-services dev
+
+dev-start-services:
+	@echo "Starting Postgres and Redis..."
+	docker compose up postgres redis -d
+
+dev-smee:
+	@echo "Starting smee webhook proxy..."
+	$(DOTENV) npx smee-client --url $${GITHUB_WEBHOOK_URL} --target http://localhost:8080/api/github/webhook
+
+dev-full: dev-start-services
+	@echo "Starting backend, frontend, and smee..."
+	$(MAKE) -j3 dev-backend dev-frontend dev-smee
+
 dev-backend:
 	$(DOTENV) cd BE && go run ./cmd/server
 
