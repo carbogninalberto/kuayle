@@ -12,6 +12,21 @@ class IssuesState {
 	selectedIds = $state<Set<string>>(new Set());
 	groupBy = $state<GroupByField>('status');
 
+	/**
+	 * Key identifying the view (filters) the current selection belongs to.
+	 * When the view changes via `load()`, the selection is cleared so that
+	 * bulk operations stay scoped to the view where the selection happened.
+	 */
+	private selectionScope: string | null = null;
+
+	private viewKey(slug: string, params?: Record<string, string>): string {
+		if (!params) return slug;
+		const entries = Object.keys(params)
+			.sort()
+			.map((k) => `${k}=${params[k]}`);
+		return [slug, ...entries].join('&');
+	}
+
 	issuesByStatus = $derived(
 		this.issues.reduce(
 			(acc, issue) => {
@@ -126,6 +141,13 @@ class IssuesState {
 	}
 
 	async load(slug: string, params?: Record<string, string>) {
+		// If the view changed, drop any selection from the previous view so
+		// bulk operations remain scoped to the current view.
+		const newScope = this.viewKey(slug, params);
+		if (newScope !== this.selectionScope) {
+			this.clearSelection();
+		}
+		this.selectionScope = newScope;
 		this.filters = params ?? {};
 		this.loading = true;
 		try {

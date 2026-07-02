@@ -1,27 +1,35 @@
 <script lang="ts">
 	import type { IssuePriority } from '$lib/types/issue';
-	import { PRIORITY_LABELS } from '$lib/types/issue';
 	import { teamStatusesState } from './team-statuses.state.svelte';
-	import IssueStatusIcon from './IssueStatusIcon.svelte';
-	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
 	import { issuesState } from './issues.state.svelte';
-	import * as Popover from '$lib/components/ui/popover';
+	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import { StatusSelector, PrioritySelector } from './selectors';
 	import { toast } from 'svelte-sonner';
 	import { X, Trash2 } from 'lucide-svelte';
 	import * as issueApi from '$lib/api/issues';
+	import { onMount } from 'svelte';
 
 	let { slug }: { slug: string } = $props();
 
 	let statusOpen = $state(false);
 	let priorityOpen = $state(false);
+	let deleteOpen = $state(false);
 
-	const priorityValues: IssuePriority[] = [0, 1, 2, 3, 4];
+	onMount(() => {
+		const onRequestDelete = () => {
+			if (issuesState.selectionCount > 0) {
+				deleteOpen = true;
+			}
+		};
+		window.addEventListener('issues:bulk-delete-request', onRequestDelete);
+		return () => window.removeEventListener('issues:bulk-delete-request', onRequestDelete);
+	});
 
 	async function bulkSetStatus(statusId: string) {
+		const count = issuesState.selectionCount;
 		try {
 			await issuesState.bulkUpdate(slug, { status_id: statusId } as any);
-			toast.success(`Updated ${issuesState.selectionCount} issues`);
+			toast.success(`Updated ${count} issue${count > 1 ? 's' : ''}`);
 		} catch {
 			toast.error('Bulk update failed');
 		}
@@ -29,9 +37,10 @@
 	}
 
 	async function bulkSetPriority(priority: IssuePriority) {
+		const count = issuesState.selectionCount;
 		try {
 			await issuesState.bulkUpdate(slug, { priority });
-			toast.success(`Updated ${issuesState.selectionCount} issues`);
+			toast.success(`Updated ${count} issue${count > 1 ? 's' : ''}`);
 		} catch {
 			toast.error('Bulk update failed');
 		}
@@ -41,15 +50,17 @@
 	async function bulkDelete() {
 		const ids = Array.from(issuesState.selectedIds);
 		if (ids.length === 0) return;
+		const idsToDelete = new Set(ids);
 		try {
 			await issueApi.bulkDeleteIssues(slug, { issue_ids: ids });
-			issuesState.issues = issuesState.issues.filter(i => !issuesState.selectedIds.has(i.id));
+			issuesState.issues = issuesState.issues.filter((i) => !idsToDelete.has(i.id));
 			issuesState.totalCount -= ids.length;
 			issuesState.clearSelection();
-			toast.success(`Deleted ${ids.length} issues`);
+			toast.success(`Deleted ${ids.length} issue${ids.length > 1 ? 's' : ''}`);
 		} catch (err: any) {
 			toast.error(err?.error?.message || 'Failed to delete issues');
 		}
+		deleteOpen = false;
 	}
 </script>
 
@@ -87,8 +98,9 @@
 		</div>
 
 		<button
-			onclick={bulkDelete}
+			onclick={() => (deleteOpen = true)}
 			class="rounded-md border border-red-500/30 px-2.5 py-1 text-xs text-red-500 hover:bg-red-500/10"
+			title="Delete selected issues"
 		>
 			<Trash2 size={12} />
 		</button>
@@ -100,4 +112,28 @@
 			<X size={16} />
 		</button>
 	</div>
+
+	<AlertDialog.Root bind:open={deleteOpen}>
+		<AlertDialog.Content>
+			<AlertDialog.Header>
+				<AlertDialog.Title>Delete {issuesState.selectionCount} issue{issuesState.selectionCount > 1 ? 's' : ''}?</AlertDialog.Title>
+				<AlertDialog.Description>This action cannot be undone.</AlertDialog.Description>
+			</AlertDialog.Header>
+			<AlertDialog.Footer>
+				<AlertDialog.Cancel
+					variant="outline"
+					class="border-[var(--app-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+				>
+					Cancel
+				</AlertDialog.Cancel>
+				<AlertDialog.Action
+					variant="destructive"
+					class="bg-red-600 text-white hover:bg-red-700"
+					onclick={bulkDelete}
+				>
+					Delete
+				</AlertDialog.Action>
+			</AlertDialog.Footer>
+		</AlertDialog.Content>
+	</AlertDialog.Root>
 {/if}

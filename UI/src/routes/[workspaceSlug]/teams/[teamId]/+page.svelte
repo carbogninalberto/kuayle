@@ -33,14 +33,12 @@
 	import ShareLinkDialog from '$lib/components/shared/ShareLinkDialog.svelte';
 	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
 	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
-	import * as issueApi from '$lib/api/issues';
 	import type { Issue } from '$lib/types/issue';
 	import type { IssueStatus, IssuePriority, RelationType } from '$lib/types/issue';
 	import AddRelationDialog from '$lib/features/issues/AddRelationDialog.svelte';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	const teamId = $derived(page.params.teamId ?? '');
-	let showDeleteConfirm = $state(false);
 
 	let teams = $state<Team[]>([]);
 	let projects = $state<Project[]>([]);
@@ -172,19 +170,8 @@
 		showCreateIssue = true;
 	}
 
-	async function deleteSelectedIssues() {
-		const ids = Array.from(issuesState.selectedIds);
-		if (ids.length === 0) return;
-		try {
-			await issueApi.bulkDeleteIssues(slug, { issue_ids: ids });
-			issuesState.issues = issuesState.issues.filter(i => !issuesState.selectedIds.has(i.id));
-			issuesState.totalCount -= ids.length;
-			issuesState.clearSelection();
-			toast.success(`Deleted ${ids.length} issue${ids.length > 1 ? 's' : ''}`);
-		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to delete issues');
-		}
-		showDeleteConfirm = false;
+	function deleteSelectedIssues() {
+		window.dispatchEvent(new CustomEvent('issues:bulk-delete-request'));
 	}
 
 	const keyHandler = createKeyboardHandler([
@@ -214,7 +201,7 @@
 			key: 'Backspace',
 			handler: () => {
 				if (issuesState.selectionCount > 0) {
-					showDeleteConfirm = true;
+					deleteSelectedIssues();
 				}
 			}
 		},
@@ -222,7 +209,7 @@
 			key: 'Delete',
 			handler: () => {
 				if (issuesState.selectionCount > 0) {
-					showDeleteConfirm = true;
+					deleteSelectedIssues();
 				}
 			}
 		}
@@ -444,27 +431,3 @@
 	identifier={relationIssue?.identifier ?? ''}
 	defaultType={relationDefaultType}
 />
-
-{#if showDeleteConfirm}
-	<!-- Delete confirmation overlay -->
-	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-		<div class="w-96 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-primary)] p-6 shadow-xl">
-			<h3 class="text-sm font-medium text-[var(--color-text-primary)]">Delete {issuesState.selectionCount} issue{issuesState.selectionCount > 1 ? 's' : ''}?</h3>
-			<p class="mt-2 text-sm text-[var(--color-text-tertiary)]">This action cannot be undone.</p>
-			<div class="mt-4 flex justify-end gap-2">
-				<button
-					onclick={() => (showDeleteConfirm = false)}
-					class="rounded-md border border-[var(--app-border)] px-3 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
-				>
-					Cancel
-				</button>
-				<button
-					onclick={deleteSelectedIssues}
-					class="rounded-md bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-700"
-				>
-					Delete
-				</button>
-			</div>
-		</div>
-	</div>
-{/if}
