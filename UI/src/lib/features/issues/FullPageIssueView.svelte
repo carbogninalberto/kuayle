@@ -934,26 +934,7 @@
 						<!-- Assignee row -->
 						<div class="flex items-start gap-3 rounded-md px-2 py-1.5 hover:bg-[var(--color-bg-hover)] transition-colors">
 							<span class="w-20 shrink-0 text-xs text-[var(--color-text-tertiary)] pt-0.5">Assignee</span>
-							<div class="flex flex-wrap items-center gap-1 flex-1">
-								{#if issue.assignees && issue.assignees.length > 0}
-									{#each issue.assignees as a}
-										<span class="flex items-center gap-1.5 rounded-full bg-[var(--color-bg-tertiary)] px-2 py-0.5 text-sm text-[var(--color-text-primary)]">
-											<div class="flex h-4 w-4 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] text-[var(--app-accent-foreground)] shrink-0">
-												{(a.name ?? 'U').charAt(0).toUpperCase()}
-											</div>
-											{a.name}
-										</span>
-									{/each}
-								{:else if issue.assignee}
-									<span class="flex items-center gap-1.5 text-sm text-[var(--color-text-primary)]">
-										<div class="flex h-4 w-4 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] text-[var(--app-accent-foreground)]">
-											{(issue.assignee.name ?? 'U').charAt(0).toUpperCase()}
-										</div>
-										{issue.assignee.name}
-									</span>
-								{:else}
-									<span class="text-sm text-[var(--color-text-tertiary)]">Add assignee</span>
-								{/if}
+							<div class="flex-1">
 								<AssigneeSelector
 									bind:open={assigneeOpen}
 									{members}
@@ -971,8 +952,29 @@
 									}}
 								>
 									{#snippet trigger()}
-										<button class="flex h-5 w-5 items-center justify-center rounded-full hover:bg-[var(--color-bg-tertiary)] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors">
-											<Plus size={14} />
+										<button class="flex min-h-5 flex-wrap items-center gap-1 rounded-md text-left transition-colors">
+											{#if issue.assignees && issue.assignees.length > 0}
+												{#each issue.assignees as a}
+													<span class="flex items-center gap-1.5 rounded-full bg-[var(--color-bg-tertiary)] px-2 py-0.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]">
+														<div class="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] text-[var(--app-accent-foreground)]">
+															{(a.name ?? 'U').charAt(0).toUpperCase()}
+														</div>
+														{a.name}
+													</span>
+												{/each}
+												<span class="flex h-5 w-5 items-center justify-center rounded-full text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors">
+													<Plus size={14} />
+												</span>
+											{:else if issue.assignee}
+												<span class="flex items-center gap-1.5 rounded-full px-2 py-0.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]">
+													<div class="flex h-4 w-4 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] text-[var(--app-accent-foreground)]">
+														{(issue.assignee.name ?? 'U').charAt(0).toUpperCase()}
+													</div>
+													{issue.assignee.name}
+												</span>
+											{:else}
+												<span class="text-sm text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]">Add assignee</span>
+											{/if}
 										</button>
 									{/snippet}
 								</AssigneeSelector>
