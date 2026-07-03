@@ -5,6 +5,7 @@
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
+	import { Password } from '$lib/components/ui/password';
 	import { Label } from '$lib/components/ui/label';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Checkbox } from '$lib/components/ui/checkbox';
@@ -179,9 +180,8 @@
 
 				<div class="space-y-1.5">
 					<Label class="text-xs text-[var(--color-text-secondary)]">Secret</Label>
-					<Input
+					<Password
 						bind:value={newSecret}
-						type="password"
 						placeholder="Used to sign webhook payloads"
 						required
 						class="bg-[var(--color-bg)] border-[var(--app-border)] text-[var(--color-text-primary)]"
