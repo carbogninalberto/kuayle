@@ -2,7 +2,18 @@
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
 	import { cubicOut } from 'svelte/easing';
-	import { ArrowLeft, Users, Tag, Webhook, Settings, FileText, Settings2, CircleDot, ChevronDown, Menu } from 'lucide-svelte';
+	import {
+		ArrowLeft,
+		Users,
+		Tag,
+		Webhook,
+		Settings,
+		FileText,
+		Settings2,
+		CircleDot,
+		ChevronDown,
+		Menu
+	} from 'lucide-svelte';
 	import { GithubLogoIcon } from 'phosphor-svelte';
 	import type { Snippet } from 'svelte';
 	import type { Team } from '$lib/types/team';
@@ -50,7 +61,7 @@
 		{ label: 'Labels', href: `/${slug}/settings/labels`, icon: Tag },
 		{ label: 'Webhooks', href: `/${slug}/settings/webhooks`, icon: Webhook },
 		{ label: 'GitHub', href: `/${slug}/settings/github`, icon: GithubLogoIcon },
-		{ label: 'Templates', href: `/${slug}/settings/templates`, icon: FileText },
+		{ label: 'Templates', href: `/${slug}/settings/templates`, icon: FileText }
 	]);
 
 	function toggleTeam(teamId: string) {
@@ -81,7 +92,9 @@
 				{@const Icon = section.icon}
 				<a
 					href={section.href}
-					class="flex items-center gap-2 rounded-md px-2 py-1 text-sm {(section.exact ? currentPath === section.href : isActive(section.href))
+					class="flex items-center gap-2 rounded-md px-2 py-1 text-sm {(
+						section.exact ? currentPath === section.href : isActive(section.href)
+					)
 						? 'bg-[var(--color-bg-hover)]/50 text-[var(--color-text-primary)]'
 						: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
 				>
@@ -101,7 +114,10 @@
 						class="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-left text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
 						onclick={() => toggleTeam(team.id)}
 					>
-						<ChevronDown size={12} class="shrink-0 text-[var(--color-text-tertiary)] transition-transform {expanded ? '' : '-rotate-90'}" />
+						<ChevronDown
+							size={12}
+							class="shrink-0 text-[var(--color-text-tertiary)] transition-transform {expanded ? '' : '-rotate-90'}"
+						/>
 						<Users size={16} class="shrink-0" />
 						<span class="truncate">{team.name}</span>
 					</button>
@@ -109,7 +125,9 @@
 						<div transition:slideFade>
 							<a
 								href="/{slug}/settings/teams/{team.id}/statuses"
-								class="ml-7 flex items-center gap-2 rounded-md px-2 py-1 text-xs {isActive(`/${slug}/settings/teams/${team.id}/statuses`)
+								class="ml-7 flex items-center gap-2 rounded-md px-2 py-1 text-xs {isActive(
+									`/${slug}/settings/teams/${team.id}/statuses`
+								)
 									? 'bg-[var(--color-bg-hover)]/50 text-[var(--color-text-primary)]'
 									: 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
 							>
@@ -126,7 +144,9 @@
 
 <div class="flex h-full min-w-0 flex-col">
 	<!-- Mobile top bar -->
-	<div class="flex h-12 shrink-0 items-center gap-2 border-b border-[var(--app-border)] bg-[var(--color-bg)] px-3 md:hidden">
+	<div
+		class="flex h-12 shrink-0 items-center gap-2 border-b border-[var(--app-border)] bg-[var(--color-bg)] px-3 md:hidden"
+	>
 		<Button variant="ghost" size="icon-lg" onclick={() => (showMobileNav = true)} aria-label="Open settings menu">
 			<Menu size={18} />
 		</Button>
@@ -135,7 +155,9 @@
 
 	<div class="flex min-h-0 flex-1">
 		<!-- Desktop settings sidebar -->
-		<aside class="hidden w-56 shrink-0 border-r border-[var(--app-border)] bg-[var(--color-bg-secondary)] overflow-y-auto md:block">
+		<aside
+			class="hidden w-56 shrink-0 border-r border-[var(--app-border)] bg-[var(--color-bg-secondary)] overflow-y-auto md:block"
+		>
 			{@render settingsNav()}
 		</aside>
 
@@ -146,11 +168,13 @@
 					<Sheet.Title>Settings navigation</Sheet.Title>
 					<Sheet.Description>Navigate settings sections.</Sheet.Description>
 				</Sheet.Header>
-				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 				<div
+					role="presentation"
 					class="flex h-full flex-col bg-[var(--color-bg-secondary)]"
-					onclick={(e) => { if ((e.target as HTMLElement).closest('a')) showMobileNav = false; }}
-					onkeydown={() => {}}
+					onclick={(e) => {
+						if ((e.target as HTMLElement).closest('a')) showMobileNav = false;
+					}}
 				>
 					{@render settingsNav()}
 				</div>
