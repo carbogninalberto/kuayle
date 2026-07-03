@@ -200,7 +200,7 @@
 				{/each}
 			{/if}
 
-			<BulkActionBar {slug} {labels} onlabelcreated={(label) => (labels = [...labels, label])} />
+			<BulkActionBar {slug} {labels} onlabelcreated={(label) => (labels = [label, ...labels.filter((existing) => existing.id !== label.id)])} />
 		</div>
 	{:else}
 		{#if !issuesState.loading}

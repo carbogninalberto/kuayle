@@ -1021,7 +1021,7 @@
 								{labels}
 								value={(issue.labels ?? []).map(l => l.id)}
 								shortcutKey="L"
-								oncreated={(label) => (labels = [...labels, label])}
+								oncreated={(label) => (labels = [label, ...labels.filter((existing) => existing.id !== label.id)])}
 								{slug}
 								onchange={async (labelId) => {
 									const currentIds = (issue.labels ?? []).map(l => l.id);
@@ -1127,6 +1127,7 @@
 	{cycles}
 	defaultTeamId={issue.team_id}
 	defaultTitle={createIssueTitle}
+	onlabelcreated={(label) => (labels = [label, ...labels.filter((existing) => existing.id !== label.id)])}
 	onsubmit={async (req) => {
 		try {
 			const created = await issuesState.create(slug, req);

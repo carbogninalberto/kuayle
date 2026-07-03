@@ -369,7 +369,7 @@
 				{/each}
 			{/if}
 
-			<BulkActionBar {slug} {labels} onlabelcreated={(label) => (labels = [...labels, label])} />
+			<BulkActionBar {slug} {labels} onlabelcreated={(label) => (labels = [label, ...labels.filter((existing) => existing.id !== label.id)])} />
 
 			<!-- Shortcuts hint -->
 			<div class="py-2 text-center text-xs text-[var(--color-text-tertiary)]">
@@ -411,6 +411,7 @@
 	defaultStatusId={quickAddDefaults.statusId}
 	defaultPriority={quickAddDefaults.priority}
 	defaultAssigneeId={quickAddDefaults.assigneeId}
+	onlabelcreated={(label) => (labels = [label, ...labels.filter((existing) => existing.id !== label.id)])}
 	onsubmit={async (req) => {
 		try {
 			await issuesState.create(slug, req);
