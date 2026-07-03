@@ -237,19 +237,19 @@
 		<div class="flex w-full min-w-0 shrink-0 flex-col border-r border-[var(--app-border)] md:w-[320px]">
 			<!-- Tabs -->
 			<Tabs.Root value={activeTab} onValueChange={handleTabChange}>
-				<Tabs.List class="no-scrollbar w-full justify-start gap-1 overflow-x-auto rounded-none border-none bg-transparent px-2 pt-3 pb-2">
-					<Tabs.Trigger value="inbox" class="h-8 flex-none rounded-full border border-[var(--app-border)] px-3 py-1 text-[11px] text-[var(--color-text-tertiary)] shadow-none data-[state=active]:border-[var(--app-accent)]/30 data-[state=active]:bg-[var(--app-accent)]/10 data-[state=active]:text-[var(--app-accent-light)] data-[state=active]:shadow-none md:h-auto md:px-2 md:py-0.5">
-						<Inbox size={12} class="mr-1" />
-						Inbox
-					</Tabs.Trigger>
-					<Tabs.Trigger value="snoozed" class="h-8 flex-none rounded-full border border-[var(--app-border)] px-3 py-1 text-[11px] text-[var(--color-text-tertiary)] shadow-none data-[state=active]:border-[var(--app-accent)]/30 data-[state=active]:bg-[var(--app-accent)]/10 data-[state=active]:text-[var(--app-accent-light)] data-[state=active]:shadow-none md:h-auto md:px-2 md:py-0.5">
-						<Clock size={12} class="mr-1" />
-						Snoozed
-					</Tabs.Trigger>
-					<Tabs.Trigger value="archived" class="h-8 flex-none rounded-full border border-[var(--app-border)] px-3 py-1 text-[11px] text-[var(--color-text-tertiary)] shadow-none data-[state=active]:border-[var(--app-accent)]/30 data-[state=active]:bg-[var(--app-accent)]/10 data-[state=active]:text-[var(--app-accent-light)] data-[state=active]:shadow-none md:h-auto md:px-2 md:py-0.5">
-						<Archive size={12} class="mr-1" />
-						Archived
-					</Tabs.Trigger>
+			<Tabs.List class="no-scrollbar w-full justify-start gap-1 overflow-x-auto overflow-y-hidden rounded-none border-none bg-transparent px-3 py-4">
+				<Tabs.Trigger value="inbox" class="h-9 flex-none rounded-full border border-[var(--app-border)] px-3 py-1.5 text-xs text-[var(--color-text-tertiary)] shadow-none data-[state=active]:border-[var(--app-accent)]/30 data-[state=active]:bg-[var(--app-accent)]/10 data-[state=active]:text-[var(--app-accent-light)] data-[state=active]:shadow-none md:h-auto md:px-2 md:py-0.5 md:text-[11px]">
+					<Inbox size={12} class="mr-1" />
+					Inbox
+				</Tabs.Trigger>
+				<Tabs.Trigger value="snoozed" class="h-9 flex-none rounded-full border border-[var(--app-border)] px-3 py-1.5 text-xs text-[var(--color-text-tertiary)] shadow-none data-[state=active]:border-[var(--app-accent)]/30 data-[state=active]:bg-[var(--app-accent)]/10 data-[state=active]:text-[var(--app-accent-light)] data-[state=active]:shadow-none md:h-auto md:px-2 md:py-0.5 md:text-[11px]">
+					<Clock size={12} class="mr-1" />
+					Snoozed
+				</Tabs.Trigger>
+				<Tabs.Trigger value="archived" class="h-9 flex-none rounded-full border border-[var(--app-border)] px-3 py-1.5 text-xs text-[var(--color-text-tertiary)] shadow-none data-[state=active]:border-[var(--app-accent)]/30 data-[state=active]:bg-[var(--app-accent)]/10 data-[state=active]:text-[var(--app-accent-light)] data-[state=active]:shadow-none md:h-auto md:px-2 md:py-0.5 md:text-[11px]">
+					<Archive size={12} class="mr-1" />
+					Archived
+				</Tabs.Trigger>
 				</Tabs.List>
 			</Tabs.Root>
 

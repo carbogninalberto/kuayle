@@ -231,27 +231,27 @@
 	}
 </script>
 
-<div class="flex h-full flex-col">
-	<div class="flex h-[49px] items-center justify-between border-b border-[var(--app-border)] px-6">
-		<div class="flex items-center gap-3">
+<div class="flex h-full min-w-0 flex-col">
+	<div class="flex min-h-[49px] items-center justify-between gap-2 border-b border-[var(--app-border)] px-3 sm:px-6">
+		<div class="flex min-w-0 items-center gap-3">
 			<SidebarToggle />
-			<nav class="flex items-center gap-1.5 text-sm">
+			<nav class="flex min-w-0 items-center gap-1.5 text-sm">
 				{#if sidebarState.getTeam(teamId)}
 					<a href="/{slug}/teams/{teamId}" class="flex items-center gap-1.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]">
 						<SquareUser size={14} class="shrink-0" style="color: {sidebarState.getTeamColor(teamId)}" />
-						{sidebarState.getTeam(teamId)?.name}
+						<span class="hidden sm:inline truncate">{sidebarState.getTeam(teamId)?.name}</span>
 					</a>
 					<ChevronRight size={12} class="shrink-0 text-[var(--color-text-tertiary)]" />
 				{/if}
 				<span class="flex items-center gap-1.5 font-medium text-[var(--color-text-primary)]">
 					<RefreshCcwDot size={14} class="shrink-0" />
-					Cycles
+					<span class="truncate">Cycles</span>
 				</span>
 			</nav>
 		</div>
 		<button
 			onclick={() => (showCreate = true)}
-			class="rounded-md p-1 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+			class="shrink-0 rounded-md p-1 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
 			title="New Cycle"
 		>
 			<Plus size={16} />
@@ -279,9 +279,9 @@
 					{@const today = new Date().toISOString().slice(0, 10)}
 					{@const startPassed = cycle.start_date ? cycle.start_date.slice(0, 10) <= today : false}
 					{@const endPassed = cycle.end_date ? cycle.end_date.slice(0, 10) <= today : false}
-					<div class="relative flex">
+					<div class="relative flex min-w-0">
 						<!-- Timeline spine -->
-						<div class="relative shrink-0 pl-5" style="width: 76px;">
+						<div class="relative shrink-0 pl-3 sm:pl-5" style="width: 60px;">
 							<!-- Continuous vertical line -->
 							<div class="absolute right-[3.25px] {lineColor}" style="width: 1.5px; top: 0; bottom: 4px;"></div>
 							<div class="relative flex h-full flex-col items-end">
@@ -334,8 +334,8 @@
 							/>
 
 							<!-- Chart shown only for active cycle -->
-							{#if isActive && cycle.start_date && cycle.end_date}
-								<div class="px-3 pb-3">
+						{#if isActive && cycle.start_date && cycle.end_date}
+							<div class="hidden px-3 pb-3 sm:block">
 									{#if burndownLoading}
 										<div class="flex h-[200px] items-center justify-center text-sm text-[var(--color-text-tertiary)]">
 										</div>
@@ -354,8 +354,8 @@
 
 				<!-- Archived cycles -->
 				{#if archivedCycles.length > 0}
-					<div class="flex">
-						<div class="relative shrink-0 pl-5" style="width: 76px;">
+					<div class="flex min-w-0">
+						<div class="relative shrink-0 pl-3 sm:pl-5" style="width: 60px;">
 							<div class="absolute top-0 bottom-0 right-[3.25px] bg-[var(--app-border)]" style="width: 1.5px;"></div>
 						</div>
 						<div class="min-w-0 flex-1 py-1">
@@ -371,8 +371,8 @@
 								<div transition:slideFade>
 									{#each archivedCycles as cycle (cycle.id)}
 										{@const dates = getCycleDates(cycle)}
-										<div class="relative flex">
-											<div class="relative shrink-0 pl-5" style="width: 76px;">
+										<div class="relative flex min-w-0">
+											<div class="relative shrink-0 pl-3 sm:pl-5" style="width: 60px;">
 												<div class="absolute top-0 bottom-0 right-[3.25px] bg-[var(--app-border)]" style="width: 1.5px;"></div>
 												<div class="relative flex h-full flex-col items-end justify-center py-3">
 													{#if dates.start}
@@ -400,7 +400,7 @@
 
 			<!-- Velocity chart -->
 			{#if velocityData.length > 0}
-				<div class="mt-4 px-6 pb-4">
+				<div class="mt-4 px-3 pb-4 sm:px-6">
 					<button
 						onclick={() => velocityExpanded = !velocityExpanded}
 						class="flex items-center gap-2 text-xs font-medium text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"

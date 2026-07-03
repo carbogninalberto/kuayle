@@ -68,7 +68,7 @@
 		{cycle.name}
 	</span>
 
-	<div class="flex shrink-0 items-center gap-3 text-[13px] text-[var(--color-text-tertiary)]">
+	<div class="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-[var(--color-text-tertiary)]">
 		<Badge variant={badgeVariant} class="text-[10px]">{badgeLabel}</Badge>
 
 		{#if cycle.status === 'active' && cycle.progress}
@@ -97,70 +97,70 @@
 		{:else}
 			<span><span class="font-semibold text-[var(--color-text-secondary)]">0</span> scope</span>
 		{/if}
-
-		<!-- 3-dot menu: visible on hover or when open -->
-		<Popover.Root bind:open={menuOpen}>
-			<Popover.Trigger>
-				<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-				<button
-					onclick={(e) => { e.stopPropagation(); e.preventDefault(); }}
-					class="rounded p-0.5 text-[var(--color-text-tertiary)] opacity-0 transition-opacity hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)] group-hover:opacity-100 {menuOpen ? '!opacity-100' : ''}"
-				>
-					<MoreHorizontal size={14} />
-				</button>
-			</Popover.Trigger>
-			<Popover.Content class="w-48 p-1" align="end" side="bottom">
-				{#if onedit}
-					<button
-						onclick={(e) => { e.stopPropagation(); menuOpen = false; onedit?.(cycle); }}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
-					>
-						<Pencil size={14} />
-						Edit cycle
-					</button>
-				{/if}
-				{#if cycle.status === 'upcoming' && onactivate}
-					<button
-						onclick={(e) => { e.stopPropagation(); menuOpen = false; onactivate?.(cycle.id); }}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
-					>
-						<Play size={14} />
-						Start cycle
-					</button>
-				{/if}
-				{#if cycle.status === 'active' && oncomplete}
-					<button
-						onclick={(e) => { e.stopPropagation(); menuOpen = false; oncomplete?.(cycle.id); }}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
-					>
-						<CheckCircle2 size={14} />
-						Complete cycle
-					</button>
-				{/if}
-				{#if ondelete}
-					<div class="my-1 border-t border-[var(--app-border)]"></div>
-					<button
-						onclick={(e) => { e.stopPropagation(); menuOpen = false; ondelete?.(cycle.id); }}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-error)] hover:bg-[var(--color-bg-hover)]"
-					>
-						<Trash2 size={14} />
-						Delete cycle
-					</button>
-				{/if}
-			</Popover.Content>
-		</Popover.Root>
 	</div>
+
+	<!-- 3-dot menu: visible on hover or when open -->
+	<Popover.Root bind:open={menuOpen}>
+		<Popover.Trigger>
+			<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+			<button
+				onclick={(e) => { e.stopPropagation(); e.preventDefault(); }}
+				class="rounded p-0.5 text-[var(--color-text-tertiary)] opacity-100 transition-opacity hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)] sm:ml-auto sm:opacity-0 sm:group-hover:opacity-100 {menuOpen ? '!opacity-100' : ''}"
+			>
+				<MoreHorizontal size={14} />
+			</button>
+		</Popover.Trigger>
+		<Popover.Content class="w-48 p-1" align="end" side="bottom">
+			{#if onedit}
+				<button
+					onclick={(e) => { e.stopPropagation(); menuOpen = false; onedit?.(cycle); }}
+					class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+				>
+					<Pencil size={14} />
+					Edit cycle
+				</button>
+			{/if}
+			{#if cycle.status === 'upcoming' && onactivate}
+				<button
+					onclick={(e) => { e.stopPropagation(); menuOpen = false; onactivate?.(cycle.id); }}
+					class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+				>
+					<Play size={14} />
+					Start cycle
+				</button>
+			{/if}
+			{#if cycle.status === 'active' && oncomplete}
+				<button
+					onclick={(e) => { e.stopPropagation(); menuOpen = false; oncomplete?.(cycle.id); }}
+					class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+				>
+					<CheckCircle2 size={14} />
+					Complete cycle
+				</button>
+			{/if}
+			{#if ondelete}
+				<div class="my-1 border-t border-[var(--app-border)]"></div>
+				<button
+					onclick={(e) => { e.stopPropagation(); menuOpen = false; ondelete?.(cycle.id); }}
+					class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-error)] hover:bg-[var(--color-bg-hover)]"
+				>
+					<Trash2 size={14} />
+					Delete cycle
+				</button>
+			{/if}
+		</Popover.Content>
+	</Popover.Root>
 {/snippet}
 
 {#if clickable}
 	<a
 		href="/{slug}/teams/{teamId}/cycles/{cycle.id}"
-		class="group flex items-center gap-3 rounded-md px-3 py-4 hover:bg-[var(--color-bg-hover)]"
+		class="group flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 rounded-md px-3 py-5 hover:bg-[var(--color-bg-hover)] sm:py-4"
 	>
 		{@render content()}
 	</a>
 {:else}
-	<div class="flex items-center gap-3 px-3 py-4">
+	<div class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 px-3 py-5 sm:py-4">
 		{@render content()}
 	</div>
 {/if}

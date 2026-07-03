@@ -192,32 +192,32 @@ import CycleProgress from '$lib/features/cycles/CycleProgress.svelte';
 	} as const;
 </script>
 
-<div class="flex h-full flex-col">
+<div class="flex h-full min-w-0 flex-col">
 	{#if !loading && cycle}
 		<!-- Header -->
-		<div class="flex h-[49px] items-center justify-between border-b border-[var(--app-border)] px-6">
-			<div class="flex items-center gap-3">
+		<div class="flex min-h-[49px] items-center justify-between gap-2 border-b border-[var(--app-border)] px-3 sm:px-6">
+			<div class="flex min-w-0 items-center gap-3">
 				<SidebarToggle />
-				<nav class="flex items-center gap-1.5 text-sm">
+				<nav class="flex min-w-0 items-center gap-1.5 text-sm">
 					{#if sidebarState.getTeam(teamId)}
 						<a href="/{slug}/teams/{teamId}" class="flex items-center gap-1.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]">
 							<SquareUser size={14} class="shrink-0" style="color: {sidebarState.getTeamColor(teamId)}" />
-							{sidebarState.getTeam(teamId)?.name}
+							<span class="hidden sm:inline truncate">{sidebarState.getTeam(teamId)?.name}</span>
 						</a>
 						<ChevronRight size={12} class="shrink-0 text-[var(--color-text-tertiary)]" />
 						<a href="/{slug}/teams/{teamId}/cycles" class="flex items-center gap-1.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]">
 							<RefreshCcwDot size={14} class="shrink-0" />
-							Cycles
+							<span class="hidden sm:inline">Cycles</span>
 						</a>
 						<ChevronRight size={12} class="shrink-0 text-[var(--color-text-tertiary)]" />
 					{/if}
-					<span class="font-medium text-[var(--color-text-primary)]">{cycle.name}</span>
+					<span class="truncate font-medium text-[var(--color-text-primary)]">{cycle.name}</span>
 				</nav>
-				<Badge variant={cycle.status === 'active' ? 'default' : cycle.status === 'completed' ? 'secondary' : 'outline'} class="text-[10px]">
+				<Badge variant={cycle.status === 'active' ? 'default' : cycle.status === 'completed' ? 'secondary' : 'outline'} class="shrink-0 text-[10px]">
 					{cycle.status}
 				</Badge>
 			</div>
-			<div class="flex items-center gap-2">
+			<div class="flex shrink-0 items-center gap-2">
 				{#if cycle.status === 'upcoming'}
 					<Button size="sm" onclick={handleActivate}>
 						<Play size={14} class="mr-1" />
@@ -250,8 +250,8 @@ import CycleProgress from '$lib/features/cycles/CycleProgress.svelte';
 		</div>
 
 		<!-- Cycle info -->
-		<div class="border-b border-[var(--app-border)] px-6 py-4">
-			<div class="flex items-center gap-6">
+		<div class="border-b border-[var(--app-border)] px-3 py-3 sm:px-6 sm:py-4">
+			<div class="flex flex-wrap items-center gap-3 sm:gap-6">
 				<div class="flex items-center gap-2 text-xs text-[var(--color-text-tertiary)]">
 					<DateRangePickerPopover
 						startDate={cycle.start_date}
@@ -287,14 +287,14 @@ import CycleProgress from '$lib/features/cycles/CycleProgress.svelte';
 				</div>
 			{/if}
 			{#if cycle.progress && cycle.progress.total > 0}
-				<div class="mt-3 w-64">
+				<div class="mt-3 w-full sm:w-64">
 					<CycleProgress progress={cycle.progress} />
 				</div>
 			{/if}
 		</div>
 
 		<!-- Add issues section -->
-		<div class="border-b border-[var(--app-border)] px-6 py-3">
+		<div class="border-b border-[var(--app-border)] px-3 py-3 sm:px-6">
 			<div class="relative">
 				<div class="flex items-center gap-2 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-1.5">
 					<Search size={14} class="text-[var(--color-text-tertiary)]" />

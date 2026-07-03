@@ -237,7 +237,7 @@
 	}
 </script>
 
-<div class="no-scrollbar flex min-h-11 max-w-full items-center gap-1.5 overflow-x-auto overflow-y-hidden px-2 py-1.5 sm:min-h-0 sm:overflow-visible sm:py-2">
+<div class="no-scrollbar flex shrink-0 max-w-full items-center gap-1.5 overflow-x-auto overflow-y-hidden px-2 py-1.5 sm:overflow-visible sm:py-2" style="-webkit-overflow-scrolling: touch;">
 	{#if !readonly}
 		<!-- Search input -->
 		<div class="relative shrink-0">
