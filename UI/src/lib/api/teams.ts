@@ -11,3 +11,11 @@ export function createTeam(
 ): Promise<Team> {
 	return api.post<Team>(`/api/workspaces/${slug}/teams`, data);
 }
+
+export function deleteTeam(slug: string, teamId: string): Promise<{ status: string }> {
+	return api.delete<{ status: string }>(`/api/workspaces/${slug}/teams/${teamId}`);
+}
+
+export function leaveTeam(slug: string, teamId: string): Promise<{ status: string }> {
+	return api.post<{ status: string }>(`/api/workspaces/${slug}/teams/${teamId}/leave`);
+}

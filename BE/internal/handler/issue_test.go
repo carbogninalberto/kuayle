@@ -7,12 +7,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+	"github.com/jmoiron/sqlx"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/realtime"
 	"github.com/kuayle/kuayle-backend/internal/service"
-	"github.com/google/uuid"
-	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
 )
@@ -169,6 +169,11 @@ func (r *testTeamRepo) Update(_ context.Context, team *domain.Team) error {
 	return nil
 }
 
+func (r *testTeamRepo) Delete(_ context.Context, id uuid.UUID) error {
+	delete(r.teams, id)
+	return nil
+}
+
 func (r *testTeamRepo) AddMember(_ context.Context, _ *domain.TeamMember) error {
 	return nil
 }
@@ -179,6 +184,10 @@ func (r *testTeamRepo) GetMember(_ context.Context, _, _ uuid.UUID) (*domain.Tea
 
 func (r *testTeamRepo) ListMembers(_ context.Context, _ uuid.UUID) ([]domain.TeamMember, error) {
 	return nil, nil
+}
+
+func (r *testTeamRepo) RemoveMember(_ context.Context, _, _ uuid.UUID) error {
+	return nil
 }
 
 type testHistoryRepo struct{}
@@ -261,7 +270,7 @@ func (r *testCommentRepo) Reopen(_ context.Context, id uuid.UUID) error {
 
 type testNotifRepo struct{}
 
-func (r *testNotifRepo) Create(_ context.Context, _ *domain.Notification) error   { return nil }
+func (r *testNotifRepo) Create(_ context.Context, _ *domain.Notification) error { return nil }
 func (r *testNotifRepo) GetByID(_ context.Context, _ uuid.UUID) (*domain.Notification, error) {
 	return nil, nil
 }
@@ -274,9 +283,9 @@ func (r *testNotifRepo) ListSnoozed(_ context.Context, _ uuid.UUID) ([]domain.No
 func (r *testNotifRepo) ListArchived(_ context.Context, _ uuid.UUID, _ int) ([]domain.Notification, error) {
 	return nil, nil
 }
-func (r *testNotifRepo) Update(_ context.Context, _ *domain.Notification) error { return nil }
+func (r *testNotifRepo) Update(_ context.Context, _ *domain.Notification) error  { return nil }
 func (r *testNotifRepo) MarkAllRead(_ context.Context, _ uuid.UUID) error        { return nil }
-func (r *testNotifRepo) UnreadCount(_ context.Context, _ uuid.UUID) (int, error)  { return 0, nil }
+func (r *testNotifRepo) UnreadCount(_ context.Context, _ uuid.UUID) (int, error) { return 0, nil }
 
 // --- Context helpers ---
 

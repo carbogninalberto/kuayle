@@ -41,6 +41,7 @@
 		SquarePen,
 		Search,
 		Ellipsis,
+		Trash2,
 		Info
 	} from 'lucide-svelte';
 
@@ -55,6 +56,8 @@
 		mobile = false,
 		oncreateissue,
 		oncreateteam,
+		onleaveteam,
+		ondeleteteam,
 		onsearch,
 		onnavigate
 	}: {
@@ -68,6 +71,8 @@
 		mobile?: boolean;
 		oncreateissue?: () => void;
 		oncreateteam?: () => void;
+		onleaveteam?: (team: Team) => void;
+		ondeleteteam?: (team: Team) => void;
 		onsearch?: () => void;
 		onnavigate?: () => void;
 	} = $props();
@@ -493,10 +498,18 @@
 								</DropdownMenu.Item>
 								<DropdownMenu.Separator />
 								<DropdownMenu.Item
+									onclick={() => onleaveteam?.(team)}
 									class="text-[var(--color-error)]"
 								>
 									<LogOut size={14} class="mr-2" />
 									Leave team...
+								</DropdownMenu.Item>
+								<DropdownMenu.Item
+									onclick={() => ondeleteteam?.(team)}
+									class="text-[var(--color-error)]"
+								>
+									<Trash2 size={14} class="mr-2" />
+									Delete team...
 								</DropdownMenu.Item>
 							</DropdownMenu.Content>
 						</DropdownMenu.Root>

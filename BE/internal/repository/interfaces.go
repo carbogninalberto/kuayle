@@ -4,10 +4,10 @@ import (
 	"context"
 	"time"
 
-	"github.com/kuayle/kuayle-backend/internal/domain"
-	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"github.com/kuayle/kuayle-backend/internal/domain"
+	"github.com/kuayle/kuayle-backend/internal/dto"
 )
 
 type UserRepo interface {
@@ -44,9 +44,11 @@ type TeamRepo interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Team, error)
 	ListByWorkspace(ctx context.Context, workspaceID uuid.UUID) ([]domain.Team, error)
 	Update(ctx context.Context, team *domain.Team) error
+	Delete(ctx context.Context, id uuid.UUID) error
 	AddMember(ctx context.Context, member *domain.TeamMember) error
 	GetMember(ctx context.Context, teamID, userID uuid.UUID) (*domain.TeamMember, error)
 	ListMembers(ctx context.Context, teamID uuid.UUID) ([]domain.TeamMember, error)
+	RemoveMember(ctx context.Context, teamID, userID uuid.UUID) error
 }
 
 type IssueRepo interface {
