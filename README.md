@@ -252,7 +252,7 @@ Kuayle connects to GitHub via a self-configuring **GitHub App**. No environment 
 
 #### What it does
 
-- **Links PRs to issues** — mention `ENG-123` in a branch name, PR title, or commit message
+- **Links PRs to issues** — mention `ENG-123` in a branch name, PR title, or commit message (case-insensitive)
 - **Auto-transitions** — branch created → In Progress, PR opened → In Review, PR merged → Done (configurable)
 - **Activity feed** — linked PRs, branches, and commits on every issue detail page
 
