@@ -1,8 +1,13 @@
-FROM node:22-alpine AS builder
+FROM alpine:3.23 AS builder
 WORKDIR /app
+RUN apk add --no-cache nodejs npm
 COPY package*.json ./
 RUN npm ci
 COPY . .
+ARG PUBLIC_DEMO_MODE=false
+ARG PUBLIC_DEMO_USERS
+ENV PUBLIC_DEMO_MODE=$PUBLIC_DEMO_MODE
+ENV PUBLIC_DEMO_USERS=$PUBLIC_DEMO_USERS
 RUN npm run build
 
 FROM golang:1.26.4-alpine AS caddy-builder
