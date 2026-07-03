@@ -2,6 +2,8 @@
 	import { goto } from '$app/navigation';
 	import { login, register } from '$lib/api/auth';
 	import { Loader2 } from 'lucide-svelte';
+	import { Input } from '$lib/components/ui/input';
+	import { Password } from '$lib/components/ui/password';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { listWorkspaces, createWorkspace } from '$lib/api/workspaces';
 	import { toast } from 'svelte-sonner';
@@ -11,6 +13,8 @@
 	let password = $state('');
 	let name = $state('');
 	let loading = $state(false);
+	const authInputClass =
+		'mt-1 h-auto w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)] focus-visible:border-[var(--app-accent)] focus-visible:ring-0';
 
 	async function handleSubmit(e: Event) {
 		e.preventDefault();
@@ -58,39 +62,18 @@
 			{#if mode === 'register'}
 				<div>
 					<label for="name" class="block text-sm text-[var(--color-text-secondary)]">Name</label>
-					<input
-						id="name"
-						type="text"
-						bind:value={name}
-						required
-						class="mt-1 w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
-					/>
+					<Input id="name" type="text" bind:value={name} required class={authInputClass} />
 				</div>
 			{/if}
 
 			<div>
 				<label for="email" class="block text-sm text-[var(--color-text-secondary)]">Email</label>
-				<input
-					id="email"
-					type="email"
-					bind:value={email}
-					required
-					class="mt-1 w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
-				/>
+				<Input id="email" type="email" bind:value={email} required class={authInputClass} />
 			</div>
 
 			<div>
-				<label for="password" class="block text-sm text-[var(--color-text-secondary)]"
-					>Password</label
-				>
-				<input
-					id="password"
-					type="password"
-					bind:value={password}
-					required
-					minlength={8}
-					class="mt-1 w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
-				/>
+				<label for="password" class="block text-sm text-[var(--color-text-secondary)]">Password</label>
+				<Password id="password" bind:value={password} required minlength={8} class={authInputClass} />
 			</div>
 
 			<button
@@ -98,7 +81,9 @@
 				disabled={loading}
 				class="w-full rounded-md bg-[var(--app-accent)] px-4 py-2 text-sm font-medium text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)] disabled:opacity-50"
 			>
-				{#if loading}<Loader2 size={14} class="animate-spin" />{:else}{mode === 'login' ? 'Sign in' : 'Create account'}{/if}
+				{#if loading}<Loader2 size={14} class="animate-spin" />{:else}{mode === 'login'
+						? 'Sign in'
+						: 'Create account'}{/if}
 			</button>
 		</form>
 

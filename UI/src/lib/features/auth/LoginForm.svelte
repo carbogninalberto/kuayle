@@ -2,12 +2,16 @@
 	import { goto } from '$app/navigation';
 	import { login } from '$lib/api/auth';
 	import { Loader2 } from 'lucide-svelte';
+	import { Input } from '$lib/components/ui/input';
+	import { Password } from '$lib/components/ui/password';
 	import { authState } from './auth.state.svelte';
 	import { toast } from 'svelte-sonner';
 
 	let email = $state('');
 	let password = $state('');
 	let loading = $state(false);
+	const authInputClass =
+		'h-auto w-full rounded border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-primary)] focus-visible:ring-0';
 
 	async function handleSubmit(e: Event) {
 		e.preventDefault();
@@ -25,19 +29,18 @@
 </script>
 
 <form onsubmit={handleSubmit} class="space-y-4">
-	<input
+	<Input
 		type="email"
 		bind:value={email}
 		placeholder="Email"
 		required
-		class="w-full rounded border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-primary)]"
+		class={authInputClass}
 	/>
-	<input
-		type="password"
+	<Password
 		bind:value={password}
 		placeholder="Password"
 		required
-		class="w-full rounded border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-primary)]"
+		class={authInputClass}
 	/>
 	<button
 		type="submit"
