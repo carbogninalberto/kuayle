@@ -6,12 +6,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/realtime"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/pkg/sanitize"
-	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -63,9 +63,9 @@ func (s *IssueService) Create(ctx context.Context, workspaceID, creatorID uuid.U
 	}
 
 	// Sanitize user input
-	req.Title = sanitize.StripHTML(req.Title)
+	req.Title = sanitize.PlainText(req.Title)
 	if req.Description != nil {
-		clean := sanitize.SanitizeHTML(*req.Description)
+		clean := sanitize.SanitizeEditorContent(*req.Description)
 		req.Description = &clean
 	}
 
@@ -190,11 +190,11 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 
 	// Sanitize user input
 	if req.Title != nil {
-		clean := sanitize.StripHTML(*req.Title)
+		clean := sanitize.PlainText(*req.Title)
 		req.Title = &clean
 	}
 	if req.Description != nil {
-		clean := sanitize.SanitizeHTML(*req.Description)
+		clean := sanitize.SanitizeEditorContent(*req.Description)
 		req.Description = &clean
 	}
 
