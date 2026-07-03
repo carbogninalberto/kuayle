@@ -652,7 +652,7 @@
 							return acc;
 						}, [])}
 
-						{@const RECENT_COUNT = 10}
+						{@const RECENT_COUNT = 3}
 						{@const visibleHistory = showAllActivity ? historyGroups : historyGroups.slice(-RECENT_COUNT)}
 						{@const hiddenCount = historyGroups.length - visibleHistory.length}
 
@@ -711,7 +711,7 @@
 							</div>
 						</div>
 
-						{#if showAllActivity && historyGroups.length > 10}
+						{#if showAllActivity && historyGroups.length > RECENT_COUNT}
 							<button
 								onclick={() => showAllActivity = false}
 								class="relative z-10 mt-2 rounded-full border border-[var(--app-border)] bg-[var(--color-bg)] px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)] transition-colors"

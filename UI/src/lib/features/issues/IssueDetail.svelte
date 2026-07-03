@@ -26,6 +26,12 @@
 	let statusOpen = $state(false);
 	let priorityOpen = $state(false);
 	let sheetOpen = $state(true);
+	let showAllActivity = $state(false);
+
+	const RECENT_ACTIVITY_COUNT = 3;
+	let sortedHistory = $derived([...history].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()));
+	let visibleHistory = $derived(showAllActivity ? sortedHistory : sortedHistory.slice(-RECENT_ACTIVITY_COUNT));
+	let hiddenHistoryCount = $derived(sortedHistory.length - visibleHistory.length);
 
 	$effect(() => {
 		if (!sheetOpen) onclose();
@@ -183,11 +189,21 @@
 				</div>
 			{:else}
 				<div class="mt-4 relative">
-					{#if history.length > 0}
+					{#if visibleHistory.length > 0}
 						<div class="absolute left-[7px] top-2 bottom-0 w-px bg-[var(--app-border)]"></div>
 					{/if}
+
+					{#if hiddenHistoryCount > 0}
+						<button
+							onclick={() => showAllActivity = true}
+							class="relative z-10 mb-2 rounded-full border border-[var(--app-border)] bg-[var(--color-bg)] px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)] transition-colors"
+						>
+							Show {hiddenHistoryCount} earlier {hiddenHistoryCount === 1 ? 'event' : 'events'}
+						</button>
+					{/if}
+
 					<div class="space-y-0">
-						{#each history as entry}
+						{#each visibleHistory as entry}
 							<div class="relative flex items-center gap-3 pb-3">
 								<div class="relative z-10 flex h-4 w-4 shrink-0 items-center justify-center">
 									<div class="h-1.5 w-1.5 rounded-full bg-[var(--color-text-tertiary)] ring-2 ring-[var(--color-bg)]"></div>
@@ -210,6 +226,16 @@
 							</div>
 						{/each}
 					</div>
+
+					{#if showAllActivity && sortedHistory.length > RECENT_ACTIVITY_COUNT}
+						<button
+							onclick={() => showAllActivity = false}
+							class="relative z-10 mt-2 rounded-full border border-[var(--app-border)] bg-[var(--color-bg)] px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)] transition-colors"
+						>
+							Show less
+						</button>
+					{/if}
+
 					{#if history.length === 0}
 						<p class="text-xs text-[var(--color-text-tertiary)]">No activity yet</p>
 					{/if}
