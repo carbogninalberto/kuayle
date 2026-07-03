@@ -33,12 +33,24 @@
 	} = $props();
 
 	let creating = $state(false);
+	let createdLabels = $state<Label[]>([]);
+	let visibleLabels = $derived([
+		...createdLabels.filter((createdLabel) => !labels.some((label) => label.id === createdLabel.id)),
+		...labels,
+	]);
+
+	const presetColors = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4', '#3b82f6', '#6366f1', '#8b5cf6', '#ec4899', '#6b7280'];
+
+	function randomPresetColor() {
+		return presetColors[Math.floor(Math.random() * presetColors.length)];
+	}
 
 	async function handleCreate(name: string) {
 		if (!slug || creating) return;
 		creating = true;
 		try {
-			const label = await createLabel(slug, { name, color: '#6366f1' });
+			const label = await createLabel(slug, { name, color: randomPresetColor() });
+			createdLabels = [label, ...createdLabels.filter((createdLabel) => createdLabel.id !== label.id)];
 			oncreated?.(label);
 			onchange(label.id);
 			open = false;
@@ -53,7 +65,7 @@
 <ComboboxPopover bind:open placeholder="Search labels..." emptyMessage="No labels." {width} {align} {shortcutKey} {trigger}>
 	{#snippet children(searchValue: string)}
 		{@const labelName = searchValue.trim()}
-		{@const canCreate = slug && labelName && !labels.some((label) => label.name.toLowerCase() === labelName.toLowerCase())}
+		{@const canCreate = slug && labelName && !visibleLabels.some((label) => label.name.toLowerCase() === labelName.toLowerCase())}
 		{#if canCreate}
 			<Command.Item
 				value={labelName}
@@ -64,7 +76,7 @@
 				<span class="truncate">{creating ? 'Creating...' : `Create label "${labelName}"`}</span>
 			</Command.Item>
 		{/if}
-		{#each labels as label (label.id)}
+		{#each visibleLabels as label (label.id)}
 		{@const isSelected = value.includes(label.id)}
 		<Command.Item
 			value={label.name}

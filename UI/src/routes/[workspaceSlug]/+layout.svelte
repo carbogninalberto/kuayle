@@ -321,7 +321,7 @@
 		{labels}
 		{members}
 		defaultTeamId={page.params.teamId ?? teams[0]?.id}
-		onlabelcreated={(label) => (labels = [...labels, label])}
+		onlabelcreated={(label) => (labels = [label, ...labels.filter((existing) => existing.id !== label.id)])}
 		onsubmit={async (req) => {
 			try {
 				const created = await issuesState.create(slug, req);
