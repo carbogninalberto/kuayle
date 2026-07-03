@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import type { Issue, Comment, IssueHistory, IssuePriority } from '$lib/types/issue';
+	import type { Issue, Comment, IssueHistory } from '$lib/types/issue';
 	import { PRIORITY_LABELS } from '$lib/types/issue';
 	import { teamStatusesState } from './team-statuses.state.svelte';
 	import { listComments, createComment, getIssueHistory } from '$lib/api/issues';
@@ -9,9 +9,8 @@
 	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
 	import { formatRelativeTime } from '$lib/utils/format';
 	import { toast } from 'svelte-sonner';
-	import * as Popover from '$lib/components/ui/popover';
+	import * as Sheet from '$lib/components/ui/sheet';
 	import { StatusSelector, PrioritySelector } from './selectors';
-	import { X } from 'lucide-svelte';
 	import { sanitizeHtml } from '$lib/security/sanitize';
 
 	let {
@@ -26,8 +25,11 @@
 	let tab = $state<'comments' | 'activity'>('comments');
 	let statusOpen = $state(false);
 	let priorityOpen = $state(false);
+	let sheetOpen = $state(true);
 
-	const priorityValues: IssuePriority[] = [0, 1, 2, 3, 4];
+	$effect(() => {
+		if (!sheetOpen) onclose();
+	});
 
 	onMount(async () => {
 		const [c, h] = await Promise.all([
@@ -70,31 +72,18 @@
 	}
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div
-	class="fixed inset-0 z-40 flex justify-end"
-	onkeydown={(e) => e.key === 'Escape' && onclose()}
->
-	<button class="flex-1 cursor-default" onclick={onclose} tabindex={-1} aria-label="Close issue detail"></button>
+<Sheet.Root bind:open={sheetOpen}>
+	<Sheet.Content side="right" class="h-dvh w-screen max-w-none gap-0 overflow-hidden border-[var(--app-border)] bg-[var(--color-bg)] p-0 sm:w-full sm:max-w-2xl">
+		<Sheet.Header class="sticky top-0 z-10 border-b border-[var(--app-border)] bg-[var(--color-bg)] px-4 py-3 text-left sm:px-6">
+			<div class="flex items-center justify-between gap-3 pr-8">
+				<Sheet.Title class="truncate text-sm font-medium text-[var(--color-text-tertiary)]">{issue.identifier}</Sheet.Title>
+				<Sheet.Description class="sr-only">Issue details for {issue.identifier}</Sheet.Description>
+			</div>
+		</Sheet.Header>
 
-	<div
-		class="w-full max-w-2xl overflow-y-auto border-l border-[var(--app-border)] bg-[var(--color-bg)] shadow-2xl"
-	>
-		<!-- Header -->
-		<div
-			class="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--app-border)] bg-[var(--color-bg)] px-6 py-3"
-		>
-			<span class="text-sm text-[var(--color-text-tertiary)]">{issue.identifier}</span>
-			<button
-				onclick={onclose}
-				class="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
-			>
-				<X size={18} />
-			</button>
-		</div>
-
-		<!-- Content -->
-		<div class="p-6">
+		<div class="min-h-0 flex-1 overflow-y-auto">
+			<!-- Content -->
+			<div class="p-4 sm:p-6">
 			<h1 class="text-xl font-semibold text-[var(--color-text-primary)]">{issue.title}</h1>
 
 			{#if issue.description}
@@ -104,7 +93,7 @@
 			{/if}
 
 			<!-- Properties -->
-			<div class="mt-6 grid grid-cols-2 gap-3">
+			<div class="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
 				<div class="flex items-center gap-2 text-sm">
 					<span class="w-20 text-[var(--color-text-tertiary)]">Status</span>
 					<StatusSelector
@@ -176,7 +165,7 @@
 						</div>
 					{/each}
 
-					<form onsubmit={handleAddComment} class="flex gap-2">
+					<form onsubmit={handleAddComment} class="sticky bottom-0 -mx-4 flex gap-2 border-t border-[var(--app-border)] bg-[var(--color-bg)] px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:p-0">
 						<input
 							type="text"
 							bind:value={newComment}
@@ -228,4 +217,5 @@
 			{/if}
 		</div>
 	</div>
-</div>
+	</Sheet.Content>
+</Sheet.Root>

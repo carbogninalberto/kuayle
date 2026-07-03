@@ -21,10 +21,14 @@
 	import CreateIssueDialog from '$lib/features/issues/CreateIssueDialog.svelte';
 	import CreateTeamDialog from '$lib/features/teams/CreateTeamDialog.svelte';
 	import ShortcutHelp from '$lib/components/shared/ShortcutHelp.svelte';
+	import * as Sheet from '$lib/components/ui/sheet';
+	import { Button } from '$lib/components/ui/button';
+	import { IsMobile } from '$lib/hooks/is-mobile.svelte';
 	import { issuesState } from '$lib/features/issues/issues.state.svelte';
 	import { teamStatusesState } from '$lib/features/issues/team-statuses.state.svelte';
 	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
 	import { createShortcutEngine, type ShortcutDef } from '$lib/utils/keyboard';
+	import { Menu, Search, SquarePen } from 'lucide-svelte';
 	import { toast } from 'svelte-sonner';
 
 	let { children } = $props();
@@ -39,6 +43,8 @@
 	let showCreateIssue = $state(false);
 	let showCreateTeam = $state(false);
 	let showShortcutHelp = $state(false);
+	let showMobileSidebar = $state(false);
+	const isMobile = new IsMobile();
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	const isSettings = $derived(page.url.pathname.includes('/settings'));
@@ -131,6 +137,19 @@
 		} catch (err: any) {
 			toast.error(err?.error?.message || 'Failed to create team');
 		}
+	}
+
+	function openCreateIssue() {
+		if (teams.length === 0) {
+			showCreateTeam = true;
+		} else {
+			const targetTeam = page.params.teamId ?? teams[0]?.id;
+			if (targetTeam) {
+				teamStatusesState.load(slug, targetTeam);
+			}
+			showCreateIssue = true;
+		}
+		showMobileSidebar = false;
 	}
 
 	// WebSocket connection — reconnects when slug changes
@@ -227,32 +246,66 @@
 </script>
 
 {#if workspace}
-	<div class="flex h-screen bg-[var(--color-bg)]">
+	<div class="flex h-dvh bg-[var(--color-bg)]">
 		{#if !isSettings}
-			<Sidebar
-				{workspace}
-				{teams}
-				{views}
-				{projects}
-				{unreadCount}
-				{slug}
-				oncreateissue={() => {
-					if (teams.length === 0) {
-						showCreateTeam = true;
-					} else {
-						const targetTeam = page.params.teamId ?? teams[0]?.id;
-						if (targetTeam) {
-							teamStatusesState.load(slug, targetTeam);
-						}
-						showCreateIssue = true;
-					}
-				}}
-				oncreateteam={() => (showCreateTeam = true)}
-				onsearch={() => (showCommandPalette = true)}
-			/>
+			<div class="hidden md:contents">
+				<Sidebar
+					{workspace}
+					{teams}
+					{views}
+					{projects}
+					{unreadCount}
+					{slug}
+					oncreateissue={openCreateIssue}
+					oncreateteam={() => (showCreateTeam = true)}
+					onsearch={() => (showCommandPalette = true)}
+				/>
+			</div>
+
+			<Sheet.Root bind:open={showMobileSidebar}>
+				<Sheet.Content side="left" class="w-[min(88vw,320px)] p-0 [&>button]:hidden" showCloseButton={false}>
+					<Sheet.Header class="sr-only">
+						<Sheet.Title>Workspace navigation</Sheet.Title>
+						<Sheet.Description>Navigate workspace sections, teams, views, and projects.</Sheet.Description>
+					</Sheet.Header>
+					<Sidebar
+						{workspace}
+						{teams}
+						{views}
+						{projects}
+						{unreadCount}
+						{slug}
+						mobile
+						oncreateissue={openCreateIssue}
+						oncreateteam={() => { showCreateTeam = true; showMobileSidebar = false; }}
+						onsearch={() => { showCommandPalette = true; showMobileSidebar = false; }}
+						onnavigate={() => (showMobileSidebar = false)}
+					/>
+				</Sheet.Content>
+			</Sheet.Root>
 		{/if}
-		<main class="flex-1 overflow-auto">
-			{@render children()}
+		<main class="flex min-w-0 flex-1 flex-col overflow-hidden">
+			{#if !isSettings}
+				<div class="flex h-12 shrink-0 items-center justify-between border-b border-[var(--app-border)] bg-[var(--color-bg)] px-3 md:hidden">
+					<div class="flex min-w-0 items-center gap-2">
+						<Button variant="ghost" size="icon-lg" onclick={() => (showMobileSidebar = true)} aria-label="Open navigation">
+							<Menu size={18} />
+						</Button>
+						<span class="truncate text-sm font-medium text-[var(--color-text-primary)]">{workspace.name}</span>
+					</div>
+					<div class="flex shrink-0 items-center gap-1">
+						<Button variant="ghost" size="icon-lg" onclick={() => (showCommandPalette = true)} aria-label="Search">
+							<Search size={18} />
+						</Button>
+						<Button variant="ghost" size="icon-lg" onclick={openCreateIssue} aria-label="Create issue">
+							<SquarePen size={18} />
+						</Button>
+					</div>
+				</div>
+			{/if}
+			<div class="min-h-0 flex-1 overflow-auto">
+				{@render children()}
+			</div>
 		</main>
 	</div>
 

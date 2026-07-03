@@ -1,7 +1,6 @@
 <script lang="ts">
 	import * as Popover from '$lib/components/ui/popover';
 	import * as HoverCard from '$lib/components/ui/hover-card';
-	import { Button } from '$lib/components/ui/button';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { Separator } from '$lib/components/ui/separator';
 	import type { ViewFilter } from '$lib/types/view';
@@ -233,22 +232,22 @@
 
 	function chipClass(hasValue: boolean): string {
 		return hasValue
-			? 'flex items-center gap-1 rounded-md border border-[var(--app-accent)]/30 bg-[var(--app-accent)]/10 px-2 py-0.5 text-xs text-[var(--app-accent-light)] hover:bg-[var(--app-accent)]/20'
-			: 'flex items-center gap-1 rounded-md border border-[var(--app-border)] px-2 py-0.5 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]';
+			? 'flex h-8 shrink-0 items-center gap-1 rounded-md border border-[var(--app-accent)]/30 bg-[var(--app-accent)]/10 px-2.5 text-xs text-[var(--app-accent-light)] hover:bg-[var(--app-accent)]/20 sm:h-auto sm:px-2 sm:py-0.5'
+			: 'flex h-8 shrink-0 items-center gap-1 rounded-md border border-[var(--app-border)] px-2.5 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] sm:h-auto sm:px-2 sm:py-0.5';
 	}
 </script>
 
-<div class="flex items-center gap-1.5 px-2 py-2">
+<div class="no-scrollbar flex min-h-11 max-w-full items-center gap-1.5 overflow-x-auto overflow-y-hidden px-2 py-1.5 sm:min-h-0 sm:overflow-visible sm:py-2">
 	{#if !readonly}
 		<!-- Search input -->
-		<div class="relative">
+		<div class="relative shrink-0">
 			<Search size={14} class="absolute left-2 top-1/2 -translate-y-1/2 text-[var(--color-text-tertiary)]" />
 			<input
 				type="text"
 				value={searchValue}
 				oninput={handleSearchInput}
 				placeholder="Search..."
-				class="h-7 w-40 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] pl-7 pr-2 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)] focus:border-[var(--app-accent)]"
+				class="h-8 w-[min(58vw,14rem)] rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] pl-7 pr-2 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)] focus:border-[var(--app-accent)] sm:h-7 sm:w-40"
 			/>
 		</div>
 	{/if}

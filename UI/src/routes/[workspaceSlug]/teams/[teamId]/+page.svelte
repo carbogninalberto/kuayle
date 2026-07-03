@@ -33,6 +33,7 @@
 	import ShareLinkDialog from '$lib/components/shared/ShareLinkDialog.svelte';
 	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
 	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
+	import { IsMobile } from '$lib/hooks/is-mobile.svelte';
 	import type { Issue } from '$lib/types/issue';
 	import type { IssueStatus, IssuePriority, RelationType } from '$lib/types/issue';
 	import AddRelationDialog from '$lib/features/issues/AddRelationDialog.svelte';
@@ -61,6 +62,7 @@
 	let relationDialogOpen = $state(false);
 	let relationIssue = $state<Issue | null>(null);
 	let relationDefaultType = $state<RelationType>('related');
+	const isMobile = new IsMobile();
 
 	function handleAddRelation(issue: Issue, type: RelationType) {
 		relationIssue = issue;
@@ -75,6 +77,12 @@
 		{ value: 'project', label: 'Project' },
 		{ value: null, label: 'No grouping' }
 	];
+
+	$effect(() => {
+		if (isMobile.current && layout === 'board') {
+			layout = 'list';
+		}
+	});
 
 	$effect(() => {
 		const s = slug;
@@ -224,11 +232,11 @@
 <div class="flex h-full flex-col">
 	<!-- Header -->
 	<div
-		class="flex h-[49px] items-center justify-between border-b border-[var(--app-border)] px-6"
+		class="flex min-h-[49px] items-center justify-between gap-2 border-b border-[var(--app-border)] px-3 sm:px-6"
 	>
-		<div class="flex items-center gap-3">
+		<div class="flex min-w-0 items-center gap-3">
 			<SidebarToggle />
-			<nav class="flex items-center gap-1.5 text-sm">
+			<nav class="flex min-w-0 items-center gap-1.5 text-sm">
 				{#if sidebarState.getTeam(teamId)}
 					<a href="/{slug}/teams/{teamId}" class="flex items-center gap-1.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]">
 						<SquareUser size={14} class="shrink-0" style="color: {sidebarState.getTeamColor(teamId)}" />
@@ -249,7 +257,7 @@
 				<Share2 size={14} />
 			</button>
 		</div>
-		<div class="flex items-center gap-2">
+		<div class="flex shrink-0 items-center gap-2">
 			<!-- Group by -->
 			{#if layout === 'list'}
 				<Popover.Root bind:open={groupByOpen}>
@@ -275,7 +283,9 @@
 				</Popover.Root>
 			{/if}
 
-			<ViewSwitcher bind:layout onchange={handleLayoutChange} />
+			<div class="hidden sm:block">
+				<ViewSwitcher bind:layout onchange={handleLayoutChange} />
+			</div>
 			{#if Object.keys(filters).length > 0}
 				<button
 					onclick={() => (showSaveView = true)}

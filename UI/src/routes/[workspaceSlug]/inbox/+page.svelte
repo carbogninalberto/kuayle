@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
+	import { goto } from '$app/navigation';
 	import { listNotifications, markAllRead, markNotificationRead, archiveNotification, snoozeNotification } from '$lib/api/notifications';
 	import { getIssue } from '$lib/api/issues';
 	import type { Notification } from '$lib/types/notification';
@@ -19,6 +20,7 @@
 		Signal, CirclePlus, Pencil, CalendarDays, Tag, RefreshCw
 	} from 'lucide-svelte';
 	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
+	import { IsMobile } from '$lib/hooks/is-mobile.svelte';
 
 	type TabValue = 'inbox' | 'snoozed' | 'archived';
 
@@ -65,6 +67,7 @@
 	let selectedId = $state<string | null>(null);
 	let selectedIssue = $state<Issue | null>(null);
 	let issueLoading = $state(false);
+	const isMobile = new IsMobile();
 
 	const selectedNotification = $derived(notifications.find((n) => n.id === selectedId) ?? null);
 
@@ -83,7 +86,7 @@
 			notifications = res.notifications ?? [];
 			unreadCount = res.unread_count;
 			// Auto-select first if nothing selected
-			if (!selectedId && notifications.length > 0) {
+			if (!isMobile.current && !selectedId && notifications.length > 0) {
 				selectNotification(notifications[0]);
 			}
 		} finally {
@@ -95,6 +98,10 @@
 		selectedId = n.id;
 		if (!n.read_at && activeTab === 'inbox') {
 			handleMarkRead(n.id);
+		}
+		if (isMobile.current && n.issue_identifier) {
+			goto(`/${slug}/issue/${n.issue_identifier}`);
+			return;
 		}
 		// Load issue if available
 		if (n.issue_identifier) {
@@ -204,10 +211,10 @@
 	let snoozeOpenId = $state<string | null>(null);
 </script>
 
-<div class="flex h-full flex-col">
+<div class="flex h-full min-w-0 flex-col">
 	<!-- Fixed header -->
-	<div class="flex h-[49px] shrink-0 items-center justify-between border-b border-[var(--app-border)] px-4">
-		<div class="flex items-center gap-2">
+	<div class="flex min-h-[49px] shrink-0 items-center justify-between gap-2 border-b border-[var(--app-border)] px-3 sm:px-4">
+		<div class="flex min-w-0 items-center gap-2">
 			<SidebarToggle />
 			<h1 class="text-sm font-medium text-[var(--color-text-primary)]">Inbox</h1>
 			{#if unreadCount > 0}
@@ -225,21 +232,21 @@
 	</div>
 
 	<!-- Main content: left list + right detail -->
-	<div class="flex flex-1 overflow-hidden">
+	<div class="flex min-h-0 flex-1 overflow-hidden">
 		<!-- Left: notification list -->
-		<div class="flex w-[320px] shrink-0 flex-col border-r border-[var(--app-border)]">
+		<div class="flex w-full min-w-0 shrink-0 flex-col border-r border-[var(--app-border)] md:w-[320px]">
 			<!-- Tabs -->
 			<Tabs.Root value={activeTab} onValueChange={handleTabChange}>
-				<Tabs.List class="w-full justify-start gap-1 rounded-none border-none bg-transparent px-2 pt-3 pb-2">
-					<Tabs.Trigger value="inbox" class="flex-none h-auto rounded-full border border-[var(--app-border)] px-2 py-0.5 text-[11px] text-[var(--color-text-tertiary)] shadow-none data-[state=active]:border-[var(--app-accent)]/30 data-[state=active]:bg-[var(--app-accent)]/10 data-[state=active]:text-[var(--app-accent-light)] data-[state=active]:shadow-none">
+				<Tabs.List class="no-scrollbar w-full justify-start gap-1 overflow-x-auto rounded-none border-none bg-transparent px-2 pt-3 pb-2">
+					<Tabs.Trigger value="inbox" class="h-8 flex-none rounded-full border border-[var(--app-border)] px-3 py-1 text-[11px] text-[var(--color-text-tertiary)] shadow-none data-[state=active]:border-[var(--app-accent)]/30 data-[state=active]:bg-[var(--app-accent)]/10 data-[state=active]:text-[var(--app-accent-light)] data-[state=active]:shadow-none md:h-auto md:px-2 md:py-0.5">
 						<Inbox size={12} class="mr-1" />
 						Inbox
 					</Tabs.Trigger>
-					<Tabs.Trigger value="snoozed" class="flex-none h-auto rounded-full border border-[var(--app-border)] px-2 py-0.5 text-[11px] text-[var(--color-text-tertiary)] shadow-none data-[state=active]:border-[var(--app-accent)]/30 data-[state=active]:bg-[var(--app-accent)]/10 data-[state=active]:text-[var(--app-accent-light)] data-[state=active]:shadow-none">
+					<Tabs.Trigger value="snoozed" class="h-8 flex-none rounded-full border border-[var(--app-border)] px-3 py-1 text-[11px] text-[var(--color-text-tertiary)] shadow-none data-[state=active]:border-[var(--app-accent)]/30 data-[state=active]:bg-[var(--app-accent)]/10 data-[state=active]:text-[var(--app-accent-light)] data-[state=active]:shadow-none md:h-auto md:px-2 md:py-0.5">
 						<Clock size={12} class="mr-1" />
 						Snoozed
 					</Tabs.Trigger>
-					<Tabs.Trigger value="archived" class="flex-none h-auto rounded-full border border-[var(--app-border)] px-2 py-0.5 text-[11px] text-[var(--color-text-tertiary)] shadow-none data-[state=active]:border-[var(--app-accent)]/30 data-[state=active]:bg-[var(--app-accent)]/10 data-[state=active]:text-[var(--app-accent-light)] data-[state=active]:shadow-none">
+					<Tabs.Trigger value="archived" class="h-8 flex-none rounded-full border border-[var(--app-border)] px-3 py-1 text-[11px] text-[var(--color-text-tertiary)] shadow-none data-[state=active]:border-[var(--app-accent)]/30 data-[state=active]:bg-[var(--app-accent)]/10 data-[state=active]:text-[var(--app-accent-light)] data-[state=active]:shadow-none md:h-auto md:px-2 md:py-0.5">
 						<Archive size={12} class="mr-1" />
 						Archived
 					</Tabs.Trigger>
@@ -265,7 +272,7 @@
 						<div
 							role="button"
 							tabindex="0"
-							class="group flex w-full cursor-pointer items-start gap-2.5 px-3 py-2.5 text-left transition-colors {selectedId === notification.id ? 'bg-[var(--color-bg-hover)]' : ''} {notification.read_at ? 'opacity-60' : ''} hover:bg-[var(--color-bg-hover)]"
+							class="group flex min-h-16 w-full cursor-pointer items-start gap-2.5 px-3 py-3 text-left transition-colors {selectedId === notification.id ? 'bg-[var(--color-bg-hover)]' : ''} {notification.read_at ? 'opacity-60' : ''} hover:bg-[var(--color-bg-hover)] md:min-h-0 md:py-2.5"
 							onclick={() => selectNotification(notification)}
 							onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectNotification(notification); }}}
 						>
@@ -288,7 +295,7 @@
 							</div>
 							<!-- Action buttons on hover -->
 							{#if activeTab === 'inbox'}
-								<div class="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100">
+								<div class="flex shrink-0 items-center gap-0.5 opacity-100 md:opacity-0 md:group-hover:opacity-100">
 									<Popover.Root open={snoozeOpenId === notification.id} onOpenChange={(open) => { snoozeOpenId = open ? notification.id : null; }}>
 										<Popover.Trigger>
 										<button class="rounded p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]" title="Snooze" onclick={(e) => e.stopPropagation()}>
@@ -313,7 +320,7 @@
 		</div>
 
 		<!-- Right: issue detail -->
-		<div class="flex-1 overflow-hidden">
+		<div class="hidden flex-1 overflow-hidden md:block">
 			{#if issueLoading}
 				<div class="flex h-full items-center justify-center">
 				</div>

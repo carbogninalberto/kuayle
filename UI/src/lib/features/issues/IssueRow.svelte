@@ -13,6 +13,7 @@
 	import * as Popover from '$lib/components/ui/popover';
 	import { issuesState } from './issues.state.svelte';
 	import { formatRelativeTime } from '$lib/utils/format';
+	import { IsMobile } from '$lib/hooks/is-mobile.svelte';
 	import { CalendarDays, CircleUser, RefreshCw } from 'lucide-svelte';
 	import { toast } from 'svelte-sonner';
 
@@ -45,6 +46,7 @@
 	const isSelected = $derived(issuesState.selectedIds.has(issue.id));
 	const issueCycle = $derived(issue.cycle_id ? cycles.find(c => c.id === issue.cycle_id) : null);
 	const priorityValues: IssuePriority[] = [0, 1, 2, 3, 4];
+	const isMobile = new IsMobile();
 
 	let editingTitle = $state(false);
 	let titleValue = $state('');
@@ -99,11 +101,11 @@
 	}
 </script>
 
-<IssueContextMenu {issue} {slug} {members} {labels} {projects} {cycles} onaddrelation={(type) => onaddrelation?.(issue, type)}>
+	<IssueContextMenu {issue} {slug} {members} {labels} {projects} {cycles} onaddrelation={(type) => onaddrelation?.(issue, type)}>
 	<button
-		class="group mx-2 flex w-[calc(100%-1rem)] items-center gap-2 rounded-md px-3 py-1.5 text-left transition-colors duration-100 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] {isSelected ? 'bg-black/[0.02] dark:bg-white/[0.02]' : ''}"
+		class="group flex min-h-12 w-full items-center gap-2 rounded-none border-b border-[var(--app-border)] px-3 py-2 text-left transition-colors duration-100 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] sm:mx-2 sm:min-h-0 sm:w-[calc(100%-1rem)] sm:rounded-md sm:border-b-0 sm:py-1.5 {isSelected ? 'bg-black/[0.02] dark:bg-white/[0.02]' : ''}"
 		onclick={handleClick}
-		draggable="true"
+		draggable={!isMobile.current}
 		ondragstart={(e) => {
 			e.dataTransfer?.setData('text/plain', issue.identifier);
 			e.dataTransfer?.setData('application/issue-id', issue.id);
@@ -113,7 +115,7 @@
 		{#if !singleSelect}
 			<!-- Checkbox hover zone -->
 			<span
-				class="shrink-0 -my-1.5 -ml-3 flex items-center justify-center pl-3 pr-1 self-stretch transition-opacity duration-100 {isSelected ? 'opacity-100' : 'opacity-0 hover:opacity-100'}"
+				class="-ml-1 flex h-8 shrink-0 items-center justify-center pr-1 transition-opacity duration-100 sm:-my-1.5 sm:-ml-3 sm:h-auto sm:self-stretch sm:pl-3 {isSelected ? 'opacity-100' : 'opacity-100 sm:opacity-0 sm:hover:opacity-100'}"
 				onclick={handleCheckboxChange}
 				onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleCheckboxChange(e); }}
 				role="checkbox"
@@ -147,7 +149,7 @@
 		</span>
 
 		<!-- Identifier -->
-		<span class="w-[3.75rem] shrink-0 text-xs tabular-nums text-[var(--color-text-tertiary)]">{issue.identifier}</span>
+		<span class="w-auto shrink-0 text-xs tabular-nums text-[var(--color-text-tertiary)] sm:w-[3.75rem]">{issue.identifier}</span>
 
 		<!-- Status -->
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -191,7 +193,7 @@
 			<span
 				role="textbox"
 				tabindex={0}
-				class="flex-1 truncate text-[13px] text-[var(--color-text-primary)]"
+				class="min-w-0 flex-1 truncate text-sm leading-5 text-[var(--color-text-primary)] sm:text-[13px] sm:leading-normal"
 				ondblclick={startEditing}
 			>{issue.title}</span>
 		{/if}

@@ -50,9 +50,11 @@
 		projects = [],
 		unreadCount = 0,
 		slug,
+		mobile = false,
 		oncreateissue,
 		oncreateteam,
-		onsearch
+		onsearch,
+		onnavigate
 	}: {
 		workspace: Workspace;
 		teams: Team[];
@@ -61,9 +63,11 @@
 		projects?: Project[];
 		unreadCount?: number;
 		slug: string;
+		mobile?: boolean;
 		oncreateissue?: () => void;
 		oncreateteam?: () => void;
 		onsearch?: () => void;
+		onnavigate?: () => void;
 	} = $props();
 
 	const currentPath = $derived(page.url.pathname);
@@ -272,6 +276,11 @@
 	}
 </script>
 
+{#if mobile}
+	<div class="flex h-full flex-col bg-[var(--color-bg-secondary)]">
+		{@render sidebarContent()}
+	</div>
+{:else}
 <!-- Inline sidebar (pushes content) -->
 <aside
 	class="relative flex h-full shrink-0 flex-col overflow-hidden border-r border-[var(--app-border)] bg-[var(--color-bg-secondary)]"
@@ -283,6 +292,7 @@
 		</div>
 
 		<!-- Resize handle -->
+		<!-- svelte-ignore a11y_click_events_have_key_events -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
 			class="absolute top-0 right-0 z-10 h-full w-[8px] translate-x-1/2 cursor-col-resize"
@@ -332,6 +342,7 @@
 {#if didDrag}
 	<div class="fixed inset-0 z-50 cursor-col-resize" style="user-select: none;"></div>
 {/if}
+{/if}
 
 {#snippet sidebarContent()}
 	<!-- Workspace header -->
@@ -362,7 +373,12 @@
 	</div>
 
 	<!-- Navigation -->
-	<nav class="flex-1 overflow-y-auto overflow-x-hidden px-2 py-2">
+		<nav class="flex-1 overflow-y-auto overflow-x-hidden px-2 py-2">
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div
+			onclick={(e) => { if ((e.target as HTMLElement).closest('a')) onnavigate?.(); }}
+			onkeydown={() => {}}
+		>
 		<div class="space-y-px">
 			<a
 				href="/{slug}/inbox"
@@ -637,6 +653,7 @@
 				</a>
 				</div>
 			{/if}
+		</div>
 		</div>
 	</nav>
 

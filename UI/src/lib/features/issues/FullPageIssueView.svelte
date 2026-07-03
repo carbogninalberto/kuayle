@@ -472,20 +472,20 @@
 	let currentIndex = $derived(issuesState.issues.findIndex(i => i.identifier === issue.identifier));
 </script>
 
-<div class="flex h-full flex-col">
+<div class="flex h-full min-w-0 flex-col">
 	<!-- Top bar — matches sidebar h-[49px] -->
-	<div class="flex h-[49px] items-center justify-between border-b border-[var(--app-border)] px-4">
-		<div class="flex items-center gap-1.5 text-xs">
+	<div class="flex min-h-[49px] items-center justify-between gap-2 border-b border-[var(--app-border)] px-3 sm:px-4">
+		<div class="flex min-w-0 items-center gap-1.5 text-xs">
 			<a
 				href="/{slug}/teams/{issue.team_id}"
-				class="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+				class="shrink-0 text-[var(--color-text-tertiary)] transition-colors hover:text-[var(--color-text-primary)]"
 			>
 				{issue.identifier.split('-')[0]}
 			</a>
-			<span class="text-[var(--color-text-tertiary)]">&rsaquo;</span>
-			<span class="font-medium text-[var(--color-text-primary)]">{issue.identifier}</span>
+			<span class="shrink-0 text-[var(--color-text-tertiary)]">&rsaquo;</span>
+			<span class="truncate font-medium text-[var(--color-text-primary)]">{issue.identifier}</span>
 		</div>
-		<div class="flex items-center gap-0.5">
+		<div class="no-scrollbar flex shrink-0 items-center gap-0.5 overflow-x-auto">
 			<!-- Actions -->
 			<button
 				onclick={() => copyToClipboard(issue.identifier, 'ID')}
@@ -558,10 +558,10 @@
 	</div>
 
 	<!-- Main content -->
-	<div class="flex flex-1 overflow-hidden">
+	<div class="min-h-0 flex-1 overflow-y-auto md:flex md:overflow-hidden">
 		<!-- Left column — main content -->
-		<div class="flex-1 overflow-y-auto">
-			<div class="mx-auto max-w-[840px] px-10 py-6">
+		<div class="min-w-0 md:min-h-0 md:flex-1 md:overflow-y-auto">
+			<div class="mx-auto max-w-[840px] px-4 py-5 sm:px-10 sm:py-6">
 				<!-- Title -->
 				<!-- svelte-ignore a11y_autofocus -->
 				<div class="relative">
@@ -882,7 +882,7 @@
 		</div>
 
 		<!-- Right column — card-based sidebar -->
-		<div class="w-[300px] shrink-0 overflow-y-auto p-3 space-y-2">
+		<div class="w-full space-y-2 border-t border-[var(--app-border)] p-3 md:w-[300px] md:shrink-0 md:overflow-y-auto md:border-t-0">
 			<!-- Details card -->
 			<div class="rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
 				<button
