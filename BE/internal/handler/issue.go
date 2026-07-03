@@ -4,14 +4,15 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/middleware"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
+	"github.com/kuayle/kuayle-backend/pkg/sanitize"
 	"github.com/kuayle/kuayle-backend/pkg/validate"
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	log "github.com/sirupsen/logrus"
 )
@@ -549,7 +550,7 @@ func toIssueResponse(issue domain.Issue) dto.IssueResponse {
 	resp := dto.IssueResponse{
 		ID:          issue.ID.String(),
 		Identifier:  issue.Identifier,
-		Title:       issue.Title,
+		Title:       sanitize.PlainText(issue.Title),
 		Description: issue.Description,
 		Status:      string(issue.Status),
 		Priority:    int(issue.Priority),

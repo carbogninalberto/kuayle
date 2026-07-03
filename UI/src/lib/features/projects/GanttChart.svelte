@@ -62,6 +62,16 @@
 		return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 	}
 
+	function escapeHtml(value: string): string {
+		return value.replace(/[&<>"']/g, (char) => ({
+			'&': '&amp;',
+			'<': '&lt;',
+			'>': '&gt;',
+			'"': '&quot;',
+			"'": '&#39;'
+		}[char] ?? char));
+	}
+
 	// Sorted: by due_date first, then created_at, reversed for ECharts bottom-up y-axis
 	const sortedIssues = $derived.by(() => {
 		const withDue = filteredIssues.filter(i => i.due_date).sort((a, b) => a.due_date!.localeCompare(b.due_date!));
@@ -248,7 +258,7 @@
 					const created = formatDate(new Date(issue.created_at));
 					const due = issue.due_date ? formatDate(new Date(issue.due_date)) : 'No due date';
 					return `<div style="max-width:280px">
-						<div style="font-weight:500;color:${colorTextPrimary};margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${issue.title}</div>
+						<div style="font-weight:500;color:${colorTextPrimary};margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(issue.title)}</div>
 						<div style="display:flex;gap:8px;font-size:10px">
 							<span>${issue.identifier}</span>
 							<span>${created} → ${due}</span>
