@@ -1021,6 +1021,8 @@
 								{labels}
 								value={(issue.labels ?? []).map(l => l.id)}
 								shortcutKey="L"
+								oncreated={(label) => (labels = [...labels, label])}
+								{slug}
 								onchange={async (labelId) => {
 									const currentIds = (issue.labels ?? []).map(l => l.id);
 									const newIds = currentIds.includes(labelId)

@@ -369,7 +369,7 @@
 				{/each}
 			{/if}
 
-			<BulkActionBar {slug} />
+			<BulkActionBar {slug} {labels} onlabelcreated={(label) => (labels = [...labels, label])} />
 
 			<!-- Shortcuts hint -->
 			<div class="py-2 text-center text-xs text-[var(--color-text-tertiary)]">

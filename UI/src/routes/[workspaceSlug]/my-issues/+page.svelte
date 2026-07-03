@@ -200,7 +200,7 @@
 				{/each}
 			{/if}
 
-			<BulkActionBar {slug} />
+			<BulkActionBar {slug} {labels} onlabelcreated={(label) => (labels = [...labels, label])} />
 		</div>
 	{:else}
 		{#if !issuesState.loading}
