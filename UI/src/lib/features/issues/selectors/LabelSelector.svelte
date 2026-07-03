@@ -34,11 +34,17 @@
 
 	let creating = $state(false);
 
+	const presetColors = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4', '#3b82f6', '#6366f1', '#8b5cf6', '#ec4899', '#6b7280'];
+
+	function randomPresetColor() {
+		return presetColors[Math.floor(Math.random() * presetColors.length)];
+	}
+
 	async function handleCreate(name: string) {
 		if (!slug || creating) return;
 		creating = true;
 		try {
-			const label = await createLabel(slug, { name, color: '#6366f1' });
+			const label = await createLabel(slug, { name, color: randomPresetColor() });
 			oncreated?.(label);
 			onchange(label.id);
 			open = false;
