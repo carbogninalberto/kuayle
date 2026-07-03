@@ -2,12 +2,18 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/repository"
-	"github.com/google/uuid"
+)
+
+var (
+	ErrTeamNotFound       = errors.New("team not found")
+	ErrTeamMemberNotFound = errors.New("team member not found")
 )
 
 type TeamService struct {
@@ -105,4 +111,48 @@ func (s *TeamService) Update(ctx context.Context, id uuid.UUID, req dto.UpdateTe
 		return nil, err
 	}
 	return team, nil
+}
+
+func (s *TeamService) Delete(ctx context.Context, workspaceID, id uuid.UUID) error {
+	team, err := s.teamRepo.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if team == nil || team.WorkspaceID != workspaceID {
+		return ErrTeamNotFound
+	}
+
+	return s.teamRepo.Delete(ctx, id)
+}
+
+func (s *TeamService) Leave(ctx context.Context, workspaceID, teamID, userID uuid.UUID, workspaceRole string) (bool, error) {
+	team, err := s.teamRepo.GetByID(ctx, teamID)
+	if err != nil {
+		return false, err
+	}
+	if team == nil || team.WorkspaceID != workspaceID {
+		return false, ErrTeamNotFound
+	}
+
+	if workspaceRole == domain.RoleOwner {
+		return true, s.teamRepo.Delete(ctx, teamID)
+	}
+
+	member, err := s.teamRepo.GetMember(ctx, teamID, userID)
+	if err != nil {
+		return false, err
+	}
+	if member == nil {
+		return false, ErrTeamMemberNotFound
+	}
+
+	members, err := s.teamRepo.ListMembers(ctx, teamID)
+	if err != nil {
+		return false, err
+	}
+	if len(members) <= 1 {
+		return true, s.teamRepo.Delete(ctx, teamID)
+	}
+
+	return false, s.teamRepo.RemoveMember(ctx, teamID, userID)
 }

@@ -5,9 +5,9 @@ import (
 	"database/sql"
 	"errors"
 
-	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"github.com/kuayle/kuayle-backend/internal/domain"
 )
 
 type TeamRepository struct {
@@ -43,6 +43,11 @@ func (r *TeamRepository) Update(ctx context.Context, team *domain.Team) error {
 	return r.db.QueryRowContext(ctx, query, team.Name, team.Description, team.Color, team.Icon, team.TriageEnabled, team.ID).Scan(&team.UpdatedAt)
 }
 
+func (r *TeamRepository) Delete(ctx context.Context, id uuid.UUID) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM teams WHERE id = $1`, id)
+	return err
+}
+
 func (r *TeamRepository) AddMember(ctx context.Context, member *domain.TeamMember) error {
 	query := `INSERT INTO team_members (team_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING created_at`
 	return r.db.QueryRowContext(ctx, query, member.TeamID, member.UserID).Scan(&member.CreatedAt)
@@ -61,4 +66,9 @@ func (r *TeamRepository) ListMembers(ctx context.Context, teamID uuid.UUID) ([]d
 	var members []domain.TeamMember
 	err := r.db.SelectContext(ctx, &members, `SELECT * FROM team_members WHERE team_id = $1`, teamID)
 	return members, err
+}
+
+func (r *TeamRepository) RemoveMember(ctx context.Context, teamID, userID uuid.UUID) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM team_members WHERE team_id = $1 AND user_id = $2`, teamID, userID)
+	return err
 }

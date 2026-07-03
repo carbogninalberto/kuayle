@@ -1,15 +1,16 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 
+	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/middleware"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/kuayle/kuayle-backend/pkg/validate"
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 )
 
@@ -82,6 +83,49 @@ func (h *TeamHandler) Update(c echo.Context) error {
 		return response.InternalError(c)
 	}
 	return response.Success(c, http.StatusOK, toTeamResponse(*team))
+}
+
+func (h *TeamHandler) Delete(c echo.Context) error {
+	teamID, err := uuid.Parse(c.Param("teamId"))
+	if err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid team ID")
+	}
+
+	ws := c.Get("workspace").(*domain.Workspace)
+	if err := h.teamSvc.Delete(c.Request().Context(), ws.ID, teamID); err != nil {
+		if errors.Is(err, service.ErrTeamNotFound) {
+			return response.NotFound(c, "Team")
+		}
+		return response.InternalError(c)
+	}
+	return response.Success(c, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+func (h *TeamHandler) Leave(c echo.Context) error {
+	teamID, err := uuid.Parse(c.Param("teamId"))
+	if err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid team ID")
+	}
+
+	ws := c.Get("workspace").(*domain.Workspace)
+	userID := middleware.GetUserID(c)
+	role, _ := c.Get("workspace_role").(string)
+	deleted, err := h.teamSvc.Leave(c.Request().Context(), ws.ID, teamID, userID, role)
+	if err != nil {
+		if errors.Is(err, service.ErrTeamNotFound) {
+			return response.NotFound(c, "Team")
+		}
+		if errors.Is(err, service.ErrTeamMemberNotFound) {
+			return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "You are not a member of this team")
+		}
+		return response.InternalError(c)
+	}
+
+	status := "left"
+	if deleted {
+		status = "deleted"
+	}
+	return response.Success(c, http.StatusOK, map[string]string{"status": status})
 }
 
 func toTeamResponse(t domain.Team) dto.TeamResponse {

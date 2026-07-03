@@ -4,7 +4,7 @@
 	import { goto } from '$app/navigation';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { getWorkspace } from '$lib/api/workspaces';
-	import { listTeams, createTeam } from '$lib/api/teams';
+	import { listTeams, createTeam, deleteTeam, leaveTeam } from '$lib/api/teams';
 	import { listProjects } from '$lib/api/projects';
 	import { listLabels } from '$lib/api/labels';
 	import { listMembers } from '$lib/api/members';
@@ -20,6 +20,7 @@
 	import CommandPalette from '$lib/components/layout/CommandPalette.svelte';
 	import CreateIssueDialog from '$lib/features/issues/CreateIssueDialog.svelte';
 	import CreateTeamDialog from '$lib/features/teams/CreateTeamDialog.svelte';
+	import * as Dialog from '$lib/components/ui/dialog';
 	import ShortcutHelp from '$lib/components/shared/ShortcutHelp.svelte';
 	import * as Sheet from '$lib/components/ui/sheet';
 	import { Button } from '$lib/components/ui/button';
@@ -44,6 +45,10 @@
 	let showCreateTeam = $state(false);
 	let showShortcutHelp = $state(false);
 	let showMobileSidebar = $state(false);
+	let confirmTeam = $state<Team | null>(null);
+	let confirmAction = $state<'leave' | 'delete' | null>(null);
+	let confirmOpen = $state(false);
+	let confirmSubmitting = $state(false);
 	const isMobile = new IsMobile();
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
@@ -133,9 +138,58 @@
 		try {
 			const team = await createTeam(slug, data);
 			teams = [...teams, team];
+			sidebarState.teams = teams;
 			toast.success('Team created');
 		} catch (err: any) {
 			toast.error(err?.error?.message || 'Failed to create team');
+		}
+	}
+
+	function removeTeamFromState(teamId: string) {
+		teams = teams.filter((team) => team.id !== teamId);
+		sidebarState.teams = teams;
+
+		const teamPath = `/${slug}/teams/${teamId}`;
+		const settingsPath = `/${slug}/settings/teams/${teamId}`;
+		if (page.url.pathname.startsWith(teamPath) || page.url.pathname.startsWith(settingsPath)) {
+			goto(`/${slug}/my-issues`);
+		}
+	}
+
+	function openTeamConfirm(team: Team, action: 'leave' | 'delete') {
+		confirmTeam = team;
+		confirmAction = action;
+		confirmOpen = true;
+	}
+
+	function handleLeaveTeam(team: Team) {
+		openTeamConfirm(team, 'leave');
+	}
+
+	function handleDeleteTeam(team: Team) {
+		openTeamConfirm(team, 'delete');
+	}
+
+	async function confirmTeamAction() {
+		if (!confirmTeam || !confirmAction) return;
+		confirmSubmitting = true;
+		try {
+			if (confirmAction === 'leave') {
+				const result = await leaveTeam(slug, confirmTeam.id);
+				removeTeamFromState(confirmTeam.id);
+				toast.success(result.status === 'deleted' ? 'Team deleted' : 'Left team');
+			} else {
+				await deleteTeam(slug, confirmTeam.id);
+				removeTeamFromState(confirmTeam.id);
+				toast.success('Team deleted');
+			}
+			confirmOpen = false;
+			confirmTeam = null;
+			confirmAction = null;
+		} catch (err: any) {
+			toast.error(err?.error?.message || `Failed to ${confirmAction} team`);
+		} finally {
+			confirmSubmitting = false;
 		}
 	}
 
@@ -258,6 +312,8 @@
 					{slug}
 					oncreateissue={openCreateIssue}
 					oncreateteam={() => (showCreateTeam = true)}
+					onleaveteam={handleLeaveTeam}
+					ondeleteteam={handleDeleteTeam}
 					onsearch={() => (showCommandPalette = true)}
 				/>
 			</div>
@@ -278,6 +334,8 @@
 						mobile
 						oncreateissue={openCreateIssue}
 						oncreateteam={() => { showCreateTeam = true; showMobileSidebar = false; }}
+						onleaveteam={(team) => { showMobileSidebar = false; handleLeaveTeam(team); }}
+						ondeleteteam={(team) => { showMobileSidebar = false; handleDeleteTeam(team); }}
 						onsearch={() => { showCommandPalette = true; showMobileSidebar = false; }}
 						onnavigate={() => (showMobileSidebar = false)}
 					/>
@@ -343,6 +401,29 @@
 		bind:open={showCreateTeam}
 		onsubmit={handleCreateTeam}
 	/>
+
+	<Dialog.Root bind:open={confirmOpen}>
+		<Dialog.Content class="sm:max-w-[420px] border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
+			<Dialog.Header>
+				<Dialog.Title>
+					{confirmAction === 'delete' ? 'Delete team' : 'Leave team'}
+				</Dialog.Title>
+				<Dialog.Description>
+					{#if confirmAction === 'delete'}
+						This will permanently delete {confirmTeam?.name ?? 'this team'} and its issues, cycles, and statuses.
+					{:else}
+						You will leave {confirmTeam?.name ?? 'this team'}. If you are the last member or workspace owner, the team will be deleted.
+					{/if}
+				</Dialog.Description>
+			</Dialog.Header>
+			<Dialog.Footer>
+				<Button variant="outline" onclick={() => (confirmOpen = false)} disabled={confirmSubmitting}>Cancel</Button>
+				<Button variant="destructive" onclick={confirmTeamAction} disabled={confirmSubmitting}>
+					{confirmSubmitting ? 'Working...' : confirmAction === 'delete' ? 'Delete team' : 'Leave team'}
+				</Button>
+			</Dialog.Footer>
+		</Dialog.Content>
+	</Dialog.Root>
 
 	<ShortcutHelp
 		bind:open={showShortcutHelp}

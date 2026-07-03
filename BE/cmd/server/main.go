@@ -207,6 +207,8 @@ func main() {
 	ws.POST("/teams", teamH.Create, mw.RequirePermission("team:manage"))
 	ws.GET("/teams/:teamId", teamH.Get)
 	ws.PATCH("/teams/:teamId", teamH.Update, mw.RequirePermission("team:manage"))
+	ws.DELETE("/teams/:teamId", teamH.Delete, mw.RequirePermission("team:manage"))
+	ws.POST("/teams/:teamId/leave", teamH.Leave)
 
 	// Team Statuses
 	ws.GET("/teams/:teamId/statuses", teamStatusH.List)

@@ -4,11 +4,11 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/uuid"
+	"github.com/jmoiron/sqlx"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/realtime"
-	"github.com/google/uuid"
-	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -145,6 +145,11 @@ func (m *mockTeamRepo) Update(ctx context.Context, team *domain.Team) error {
 	return args.Error(0)
 }
 
+func (m *mockTeamRepo) Delete(ctx context.Context, id uuid.UUID) error {
+	args := m.Called(ctx, id)
+	return args.Error(0)
+}
+
 func (m *mockTeamRepo) AddMember(ctx context.Context, member *domain.TeamMember) error {
 	args := m.Called(ctx, member)
 	return args.Error(0)
@@ -161,6 +166,11 @@ func (m *mockTeamRepo) GetMember(ctx context.Context, teamID, userID uuid.UUID) 
 func (m *mockTeamRepo) ListMembers(ctx context.Context, teamID uuid.UUID) ([]domain.TeamMember, error) {
 	args := m.Called(ctx, teamID)
 	return args.Get(0).([]domain.TeamMember), args.Error(1)
+}
+
+func (m *mockTeamRepo) RemoveMember(ctx context.Context, teamID, userID uuid.UUID) error {
+	args := m.Called(ctx, teamID, userID)
+	return args.Error(0)
 }
 
 type mockNotificationRepo struct {
