@@ -25,7 +25,7 @@ dev-backend:
 	$(DOTENV) cd BE && go run ./cmd/server
 
 dev-frontend:
-	cd UI && npm run dev
+	$(DOTENV) cd UI && npm run dev
 
 migrate-up:
 	$(DOTENV) cd BE && go run ./cmd/server migrate up

@@ -32,6 +32,7 @@ class PreferencesState {
 
 	private systemPrefersDark = $state(true);
 	private initialized = false;
+	private remoteLoaded = false;
 
 	resolvedMode = $derived<'light' | 'dark'>(
 		this.themeMode === 'system' ? (this.systemPrefersDark ? 'dark' : 'light') : this.themeMode
@@ -48,7 +49,6 @@ class PreferencesState {
 		this.initialized = true;
 
 		this.loadLocal();
-		this.loadRemote();
 
 		const mql = window.matchMedia('(prefers-color-scheme: dark)');
 		this.systemPrefersDark = mql.matches;
@@ -64,6 +64,12 @@ class PreferencesState {
 			document.documentElement.className = classes.join(' ');
 			document.documentElement.style.setProperty('--app-font-size', this.fontSizeScale);
 		});
+	}
+
+	syncRemote() {
+		if (this.remoteLoaded) return;
+		this.remoteLoaded = true;
+		this.loadRemote();
 	}
 
 	private loadLocal() {

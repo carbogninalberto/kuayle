@@ -54,7 +54,11 @@ services:
       S3_CDN_BASE_URL: ${S3_CDN_BASE_URL:-}
 
   frontend:
-    build: ../UI
+    build:
+      context: ../UI
+      args:
+        PUBLIC_DEMO_MODE: ${PUBLIC_DEMO_MODE:-false}
+        PUBLIC_DEMO_USERS: ${PUBLIC_DEMO_USERS:-}
     restart: unless-stopped
     depends_on:
       - backend

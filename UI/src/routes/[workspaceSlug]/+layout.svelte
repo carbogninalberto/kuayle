@@ -26,6 +26,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import { IsMobile } from '$lib/hooks/is-mobile.svelte';
 	import { issuesState } from '$lib/features/issues/issues.state.svelte';
+	import { preferencesState } from '$lib/features/preferences/preferences.state.svelte';
 	import { teamStatusesState } from '$lib/features/issues/team-statuses.state.svelte';
 	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
 	import { createShortcutEngine, type ShortcutDef } from '$lib/utils/keyboard';
@@ -79,12 +80,13 @@
 		}
 	}
 
-	onMount(async () => {
+		onMount(async () => {
 		await authState.init();
 		if (!authState.authenticated) {
 			goto('/login');
 			return;
 		}
+		preferencesState.syncRemote();
 		await loadWorkspaceData(slug);
 	});
 

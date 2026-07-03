@@ -1,11 +1,12 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { login, register } from '$lib/api/auth';
-	import { Loader2 } from 'lucide-svelte';
+	import { ChevronDown, ChevronUp, Loader2 } from 'lucide-svelte';
 	import { Input } from '$lib/components/ui/input';
 	import { Password } from '$lib/components/ui/password';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { listWorkspaces, createWorkspace } from '$lib/api/workspaces';
+	import { demoMode, demoUsers, type DemoUser } from '$lib/demo';
 	import { toast } from 'svelte-sonner';
 
 	let mode = $state<'login' | 'register'>('login');
@@ -13,6 +14,7 @@
 	let password = $state('');
 	let name = $state('');
 	let loading = $state(false);
+	let demoDrawerOpen = $state(false);
 	const authInputClass =
 		'mt-1 h-auto w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)] focus-visible:border-[var(--app-accent)] focus-visible:ring-0';
 
@@ -46,6 +48,13 @@
 		} finally {
 			loading = false;
 		}
+	}
+
+	function useDemoUser(user: DemoUser) {
+		mode = 'login';
+		email = user.email;
+		password = user.password;
+		demoDrawerOpen = false;
 	}
 </script>
 
@@ -98,4 +107,69 @@
 			</button>
 		</p>
 	</div>
+
+	{#if demoMode && mode === 'login'}
+		<div class="fixed right-4 bottom-4 z-50 flex w-[calc(100vw-2rem)] max-w-sm flex-col items-end gap-3 sm:right-6 sm:bottom-6">
+			{#if demoDrawerOpen}
+				<section
+					aria-label="Demo login details"
+					class="w-full origin-bottom-right rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-4 text-sm text-[var(--color-text-secondary)] shadow-2xl"
+				>
+					<div class="mb-3 flex items-start justify-between gap-4">
+						<div>
+							<h2 class="font-medium text-[var(--color-text-primary)]">Demo login</h2>
+							<p class="mt-1 text-xs">Pick a seeded user to fill the login form.</p>
+						</div>
+						<button
+							type="button"
+							onclick={() => (demoDrawerOpen = false)}
+							aria-label="Close demo login drawer"
+							class="rounded px-2 py-1 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg)] hover:text-[var(--color-text-primary)]"
+						>
+							Close
+						</button>
+					</div>
+
+					<div class="max-h-[60vh] space-y-2 overflow-y-auto pr-1">
+						{#each demoUsers as user}
+							<button
+								type="button"
+								onclick={() => useDemoUser(user)}
+								class="w-full rounded-lg border border-[var(--app-border)] bg-[var(--color-bg)] p-3 text-left transition hover:border-[var(--app-accent)] hover:bg-[var(--color-bg-secondary)]"
+							>
+								<div class="flex items-center justify-between gap-3">
+									<p class="font-medium text-[var(--color-text-primary)]">{user.label}</p>
+									<span class="text-xs text-[var(--app-accent)]">Use</span>
+								</div>
+								<dl class="mt-2 space-y-1 text-xs">
+									<div class="flex justify-between gap-3">
+										<dt>Email</dt>
+										<dd class="font-mono text-[var(--color-text-primary)]">{user.email}</dd>
+									</div>
+									<div class="flex justify-between gap-3">
+										<dt>Password</dt>
+										<dd class="font-mono text-[var(--color-text-primary)]">{user.password}</dd>
+									</div>
+								</dl>
+							</button>
+						{/each}
+					</div>
+				</section>
+			{/if}
+
+			<button
+				type="button"
+				onclick={() => (demoDrawerOpen = !demoDrawerOpen)}
+				aria-expanded={demoDrawerOpen}
+				class="inline-flex items-center gap-2 rounded-full bg-[var(--app-accent)] px-4 py-2 text-sm font-medium text-[var(--app-accent-foreground)] shadow-lg transition hover:bg-[var(--app-accent-hover)]"
+			>
+				{#if demoDrawerOpen}
+					<ChevronDown size={14} aria-hidden="true" />
+				{:else}
+					<ChevronUp size={14} aria-hidden="true" />
+				{/if}
+				Demo users
+			</button>
+		</div>
+	{/if}
 </div>
