@@ -2,8 +2,8 @@
 	import { onMount } from 'svelte';
 	import { Button } from '$lib/components/ui/button';
 	import * as Dialog from '$lib/components/ui/dialog';
+	import { currentVersion, currentVersionLabel } from '$lib/release';
 	import Info from '@lucide/svelte/icons/info';
-	import packageJson from '../../../../package.json';
 
 	interface GitHubRelease {
 		tag_name: string;
@@ -12,12 +12,13 @@
 	}
 
 	const DISMISSED_KEY = 'kuayle_release_notice_dismissed';
-	const currentVersion = packageJson.version;
-	const currentVersionLabel = `v${currentVersion}`;
 
 	let latestRelease = $state<GitHubRelease | null>(null);
 	let dialogOpen = $state(false);
 	let hasOpened = $state(false);
+	const releaseIsNewer = $derived(
+		latestRelease ? compareVersions(latestRelease.tag_name, currentVersion) > 0 : false
+	);
 
 	$effect(() => {
 		if (dialogOpen) {
@@ -70,7 +71,7 @@
 		}
 	}
 
-	onMount(async () => {
+	async function loadLatestRelease(forceOpen = false) {
 		try {
 			const response = await fetch('https://api.github.com/repos/carbogninalberto/kuayle/releases/latest', {
 				headers: {
@@ -82,13 +83,17 @@
 
 			const release = (await response.json()) as GitHubRelease;
 
-			if (compareVersions(release.tag_name, currentVersion) > 0 && !isDismissed(release.tag_name)) {
+			if (forceOpen || (compareVersions(release.tag_name, currentVersion) > 0 && !isDismissed(release.tag_name))) {
 				latestRelease = release;
 				dialogOpen = true;
 			}
 		} catch {
 			// Silently ignore release lookup failures.
 		}
+	}
+
+	onMount(() => {
+		void loadLatestRelease();
 	});
 </script>
 
@@ -100,10 +105,10 @@
 			<div class="flex max-h-[calc(100vh-2rem)] flex-col">
 				<Dialog.Header class="border-b border-[var(--app-border)] px-5 py-4 pr-12">
 					<p class="text-xs font-semibold tracking-widest text-[var(--app-accent-light)] uppercase">
-						Update available
+						{releaseIsNewer ? 'Update available' : 'Release'}
 					</p>
 					<Dialog.Title class="flex items-center gap-2 text-[var(--color-text-primary)]">
-						<span aria-hidden="true">🚀</span>
+						<span aria-hidden="true">{releaseIsNewer ? '🚀' : 'ℹ️'}</span>
 						<span>{latestRelease.tag_name}</span>
 					</Dialog.Title>
 					<Dialog.Description class="flex items-center gap-1.5 text-[var(--color-text-secondary)]">

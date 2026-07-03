@@ -21,6 +21,7 @@
 	import type { Favorite } from '$lib/api/favorites';
 	import type { Project } from '$lib/types/project';
 	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
+	import { currentReleaseUrl, currentVersionLabel } from '$lib/release';
 	import * as Popover from '$lib/components/ui/popover';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
 	import {
@@ -39,7 +40,8 @@
 		SquaresSubtract,
 		SquarePen,
 		Search,
-		Ellipsis
+		Ellipsis,
+		Info
 	} from 'lucide-svelte';
 
 	let {
@@ -274,6 +276,7 @@
 		persistWidth();
 		if (sidebarState.collapsed) expand();
 	}
+
 </script>
 
 {#if mobile}
@@ -678,6 +681,15 @@
 					Settings
 				</a>
 				<div class="mt-1 border-t border-[var(--app-border)] pt-1">
+					<a
+						href={currentReleaseUrl}
+						target="_blank"
+						rel="noopener"
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+					>
+						<Info size={14} />
+						{currentVersionLabel}
+					</a>
 					<button
 						onclick={handleLogout}
 						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"

@@ -14,9 +14,9 @@ jobs:
       run:
         working-directory: ./BE
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.0
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6.4.0
         with:
           go-version-file: BE/go.mod
 
@@ -41,9 +41,9 @@ jobs:
       run:
         working-directory: ./UI
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6.4.0
         with:
           node-version: 22
 
@@ -60,7 +60,7 @@ jobs:
     name: Container Security Scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.0
 
       - name: Build backend image
         run: docker build -t kuayle-backend:scan ./BE
