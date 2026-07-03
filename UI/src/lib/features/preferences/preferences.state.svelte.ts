@@ -1,9 +1,17 @@
 import { updatePreferences } from '$lib/api/preferences';
+import { CATEGORY_ORDER, type StatusCategory } from '$lib/types/team-status';
 
 type FontSize = 'small' | 'default' | 'large';
 type ThemeMode = 'system' | 'light' | 'dark';
 type LightTheme = 'light' | 'rose-light' | 'blue-light';
 type DarkTheme = 'dark' | 'dark-gray' | 'amethyst-dark' | 'emerald-dark' | 'cyber-77' | 'blade-49' | 'pipboy';
+export type WorkflowSortMode = 'default' | 'active-first' | 'custom';
+export type TeamWorkflowSortMode = WorkflowSortMode | 'inherit';
+
+export interface TeamWorkflowSortOverride {
+	mode: TeamWorkflowSortMode;
+	workflowSortOrder?: StatusCategory[];
+}
 
 interface PreferencesData {
 	fontSize: FontSize;
@@ -11,6 +19,9 @@ interface PreferencesData {
 	themeMode: ThemeMode;
 	lightTheme: LightTheme;
 	darkTheme: DarkTheme;
+	workflowSortMode: WorkflowSortMode;
+	workflowSortOrder: StatusCategory[];
+	teamWorkflowSortOverrides: Record<string, TeamWorkflowSortOverride>;
 }
 
 const STORAGE_KEY = 'kuayle-preferences';
@@ -23,12 +34,18 @@ const FONT_SIZE_SCALE: Record<FontSize, string> = {
 	large: '112.5%',
 };
 
+const DEFAULT_WORKFLOW_SORT_ORDER = [...CATEGORY_ORDER];
+const ACTIVE_FIRST_WORKFLOW_SORT_ORDER: StatusCategory[] = ['started', 'unstarted', 'backlog', 'completed', 'cancelled'];
+
 class PreferencesState {
 	fontSize = $state<FontSize>('default');
 	pointerCursors = $state(true);
 	themeMode = $state<ThemeMode>('dark');
 	lightTheme = $state<LightTheme>('light');
 	darkTheme = $state<DarkTheme>('dark');
+	workflowSortMode = $state<WorkflowSortMode>('default');
+	workflowSortOrder = $state<StatusCategory[]>([...DEFAULT_WORKFLOW_SORT_ORDER]);
+	teamWorkflowSortOverrides = $state<Record<string, TeamWorkflowSortOverride>>({});
 
 	private systemPrefersDark = $state(true);
 	private initialized = false;
@@ -82,6 +99,9 @@ class PreferencesState {
 			if (data.themeMode) this.themeMode = data.themeMode;
 			if (data.lightTheme) this.lightTheme = data.lightTheme;
 			if (data.darkTheme) this.darkTheme = data.darkTheme;
+			if (data.workflowSortMode) this.workflowSortMode = data.workflowSortMode;
+			if (data.workflowSortOrder) this.workflowSortOrder = normalizeWorkflowSortOrder(data.workflowSortOrder);
+			if (data.teamWorkflowSortOverrides) this.teamWorkflowSortOverrides = normalizeTeamOverrides(data.teamWorkflowSortOverrides);
 		} catch {
 			// ignore corrupt data
 		}
@@ -103,6 +123,19 @@ class PreferencesState {
 			this.themeMode = data.theme_mode as ThemeMode;
 			this.lightTheme = data.light_theme as LightTheme;
 			this.darkTheme = data.dark_theme as DarkTheme;
+			this.workflowSortMode = (data.workflow_sort_mode ?? 'default') as WorkflowSortMode;
+			this.workflowSortOrder = normalizeWorkflowSortOrder(data.workflow_sort_order);
+			this.teamWorkflowSortOverrides = normalizeTeamOverrides(
+				Object.fromEntries(
+					Object.entries(data.team_workflow_sort_overrides ?? {}).map(([key, override]: [string, any]) => [
+						key,
+						{
+							mode: override.mode,
+							workflowSortOrder: override.workflow_sort_order
+						}
+					])
+				)
+			);
 			this.persistLocal();
 		} catch {
 			// API unavailable — local-only is fine
@@ -116,6 +149,9 @@ class PreferencesState {
 			themeMode: this.themeMode,
 			lightTheme: this.lightTheme,
 			darkTheme: this.darkTheme,
+			workflowSortMode: this.workflowSortMode,
+			workflowSortOrder: this.workflowSortOrder,
+			teamWorkflowSortOverrides: this.teamWorkflowSortOverrides,
 		};
 		localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 	}
@@ -128,6 +164,17 @@ class PreferencesState {
 			theme_mode: this.themeMode,
 			light_theme: this.lightTheme,
 			dark_theme: this.darkTheme,
+			workflow_sort_mode: this.workflowSortMode,
+			workflow_sort_order: this.workflowSortOrder,
+			team_workflow_sort_overrides: Object.fromEntries(
+				Object.entries(this.teamWorkflowSortOverrides).map(([key, override]) => [
+					key,
+					{
+						mode: override.mode,
+						workflow_sort_order: override.workflowSortOrder
+					}
+				])
+			),
 		}).catch(() => {
 			// fire-and-forget — localStorage is the primary source for instant UX
 		});
@@ -157,6 +204,85 @@ class PreferencesState {
 		this.darkTheme = theme;
 		this.persist();
 	}
+
+	setWorkflowSortMode(mode: WorkflowSortMode) {
+		this.workflowSortMode = mode;
+		this.persist();
+	}
+
+	setWorkflowSortOrder(order: StatusCategory[]) {
+		this.workflowSortOrder = normalizeWorkflowSortOrder(order);
+		this.workflowSortMode = 'custom';
+		this.persist();
+	}
+
+	setTeamWorkflowSortOverride(workspaceSlug: string, teamId: string, override: TeamWorkflowSortOverride) {
+		const key = teamWorkflowSortKey(workspaceSlug, teamId);
+		this.teamWorkflowSortOverrides = {
+			...this.teamWorkflowSortOverrides,
+			[key]: {
+				mode: override.mode,
+				workflowSortOrder: override.workflowSortOrder ? normalizeWorkflowSortOrder(override.workflowSortOrder) : undefined
+			}
+		};
+		this.persist();
+	}
+
+	getTeamWorkflowSortOverride(workspaceSlug: string, teamId: string): TeamWorkflowSortOverride {
+		return this.teamWorkflowSortOverrides[teamWorkflowSortKey(workspaceSlug, teamId)] ?? { mode: 'inherit' };
+	}
+
+	getWorkflowSortMode(workspaceSlug?: string, teamId?: string): WorkflowSortMode {
+		if (workspaceSlug && teamId) {
+			const override = this.getTeamWorkflowSortOverride(workspaceSlug, teamId);
+			if (override.mode !== 'inherit') return override.mode;
+		}
+		return this.workflowSortMode;
+	}
+
+	getWorkflowSortOrder(workspaceSlug?: string, teamId?: string): StatusCategory[] {
+		if (workspaceSlug && teamId) {
+			const override = this.getTeamWorkflowSortOverride(workspaceSlug, teamId);
+			if (override.mode === 'active-first') return [...ACTIVE_FIRST_WORKFLOW_SORT_ORDER];
+			if (override.mode === 'custom') return normalizeWorkflowSortOrder(override.workflowSortOrder);
+			if (override.mode === 'default') return [...DEFAULT_WORKFLOW_SORT_ORDER];
+		}
+		if (this.workflowSortMode === 'active-first') return [...ACTIVE_FIRST_WORKFLOW_SORT_ORDER];
+		if (this.workflowSortMode === 'custom') return normalizeWorkflowSortOrder(this.workflowSortOrder);
+		return [...DEFAULT_WORKFLOW_SORT_ORDER];
+	}
+}
+
+function teamWorkflowSortKey(workspaceSlug: string, teamId: string) {
+	return `${workspaceSlug}/${teamId}`;
+}
+
+function normalizeWorkflowSortOrder(order?: string[] | StatusCategory[]): StatusCategory[] {
+	if (!order) return [...DEFAULT_WORKFLOW_SORT_ORDER];
+	const valid = new Set<StatusCategory>(DEFAULT_WORKFLOW_SORT_ORDER);
+	const normalized: StatusCategory[] = [];
+	for (const category of order) {
+		const normalizedCategory = category as StatusCategory;
+		if (valid.has(normalizedCategory) && !normalized.includes(normalizedCategory)) {
+			normalized.push(normalizedCategory);
+		}
+	}
+	for (const category of DEFAULT_WORKFLOW_SORT_ORDER) {
+		if (!normalized.includes(category)) normalized.push(category);
+	}
+	return normalized.slice(0, DEFAULT_WORKFLOW_SORT_ORDER.length);
+}
+
+function normalizeTeamOverrides(overrides: Record<string, TeamWorkflowSortOverride>) {
+	return Object.fromEntries(
+		Object.entries(overrides).map(([key, override]) => [
+			key,
+			{
+				mode: override.mode ?? 'inherit',
+				workflowSortOrder: override.workflowSortOrder ? normalizeWorkflowSortOrder(override.workflowSortOrder) : undefined
+			}
+		])
+	) as Record<string, TeamWorkflowSortOverride>;
 }
 
 export const preferencesState = new PreferencesState();

@@ -2,12 +2,18 @@ package service
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/repository"
-	"github.com/google/uuid"
 )
+
+var defaultWorkflowSortOrder = []string{"backlog", "unstarted", "started", "completed", "cancelled"}
+
+var ErrInvalidPreferences = errors.New("invalid preferences")
 
 type PreferencesService struct {
 	prefsRepo repository.UserPreferencesRepo
@@ -24,13 +30,25 @@ func (s *PreferencesService) Get(ctx context.Context, userID uuid.UUID) (*domain
 	}
 	if prefs == nil {
 		return &domain.UserPreferences{
-			UserID:         userID,
-			FontSize:       "default",
-			PointerCursors: true,
-			ThemeMode:      "dark",
-			LightTheme:     "light",
-			DarkTheme:      "dark",
+			UserID:                    userID,
+			FontSize:                  "default",
+			PointerCursors:            true,
+			ThemeMode:                 "dark",
+			LightTheme:                "light",
+			DarkTheme:                 "dark",
+			WorkflowSortMode:          "default",
+			WorkflowSortOrder:         domain.WorkflowSortOrder(defaultWorkflowSortOrder),
+			TeamWorkflowSortOverrides: domain.TeamWorkflowSortOverrides{},
 		}, nil
+	}
+	if prefs.WorkflowSortMode == "" {
+		prefs.WorkflowSortMode = "default"
+	}
+	if len(prefs.WorkflowSortOrder) == 0 {
+		prefs.WorkflowSortOrder = domain.WorkflowSortOrder(defaultWorkflowSortOrder)
+	}
+	if prefs.TeamWorkflowSortOverrides == nil {
+		prefs.TeamWorkflowSortOverrides = domain.TeamWorkflowSortOverrides{}
 	}
 	return prefs, nil
 }
@@ -56,9 +74,83 @@ func (s *PreferencesService) Update(ctx context.Context, userID uuid.UUID, req d
 	if req.DarkTheme != nil {
 		prefs.DarkTheme = *req.DarkTheme
 	}
+	if req.WorkflowSortMode != nil {
+		prefs.WorkflowSortMode = *req.WorkflowSortMode
+	}
+	if req.WorkflowSortOrder != nil {
+		order, err := normalizeWorkflowSortOrder(*req.WorkflowSortOrder)
+		if err != nil {
+			return nil, err
+		}
+		prefs.WorkflowSortOrder = domain.WorkflowSortOrder(order)
+	}
+	if req.TeamWorkflowSortOverrides != nil {
+		overrides, err := normalizeWorkflowSortOverrides(*req.TeamWorkflowSortOverrides)
+		if err != nil {
+			return nil, err
+		}
+		prefs.TeamWorkflowSortOverrides = overrides
+	}
 
 	if err := s.prefsRepo.Upsert(ctx, prefs); err != nil {
 		return nil, err
 	}
 	return prefs, nil
+}
+
+func normalizeWorkflowSortOverrides(req map[string]dto.WorkflowSortOverride) (domain.TeamWorkflowSortOverrides, error) {
+	overrides := domain.TeamWorkflowSortOverrides{}
+	for key, override := range req {
+		if key == "" {
+			return nil, fmt.Errorf("%w: team workflow sort override key cannot be empty", ErrInvalidPreferences)
+		}
+		if !validOverrideMode(override.Mode) {
+			return nil, fmt.Errorf("%w: invalid team workflow sort mode %q", ErrInvalidPreferences, override.Mode)
+		}
+
+		var order domain.WorkflowSortOrder
+		if len(override.WorkflowSortOrder) > 0 {
+			normalized, err := normalizeWorkflowSortOrder(override.WorkflowSortOrder)
+			if err != nil {
+				return nil, err
+			}
+			order = domain.WorkflowSortOrder(normalized)
+		}
+
+		overrides[key] = domain.WorkflowSortOverride{
+			Mode:              override.Mode,
+			WorkflowSortOrder: order,
+		}
+	}
+	return overrides, nil
+}
+
+func normalizeWorkflowSortOrder(order []string) ([]string, error) {
+	if len(order) != len(defaultWorkflowSortOrder) {
+		return nil, fmt.Errorf("%w: workflow sort order must contain all status categories", ErrInvalidPreferences)
+	}
+	seen := make(map[string]bool, len(order))
+	valid := make(map[string]bool, len(defaultWorkflowSortOrder))
+	for _, category := range defaultWorkflowSortOrder {
+		valid[category] = true
+	}
+	for _, category := range order {
+		if !valid[category] {
+			return nil, fmt.Errorf("%w: invalid workflow category %q", ErrInvalidPreferences, category)
+		}
+		if seen[category] {
+			return nil, fmt.Errorf("%w: duplicate workflow category %q", ErrInvalidPreferences, category)
+		}
+		seen[category] = true
+	}
+	return order, nil
+}
+
+func validOverrideMode(mode string) bool {
+	switch mode {
+	case "inherit", "default", "active-first", "custom":
+		return true
+	default:
+		return false
+	}
 }

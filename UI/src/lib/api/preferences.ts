@@ -6,6 +6,14 @@ export interface PreferencesData {
 	theme_mode: string;
 	light_theme: string;
 	dark_theme: string;
+	workflow_sort_mode: string;
+	workflow_sort_order: string[];
+	team_workflow_sort_overrides: Record<string, WorkflowSortOverride>;
+}
+
+export interface WorkflowSortOverride {
+	mode: string;
+	workflow_sort_order?: string[];
 }
 
 export function getPreferences(): Promise<PreferencesData> {
