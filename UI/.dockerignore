@@ -1,0 +1,6 @@
+node_modules
+build
+.svelte-kit
+.vite
+coverage
+npm-debug.log*
