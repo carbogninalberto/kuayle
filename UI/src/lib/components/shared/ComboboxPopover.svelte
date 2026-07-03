@@ -22,7 +22,7 @@
 		showSearch?: boolean;
 		shortcutKey?: string;
 		trigger: Snippet;
-		children: Snippet;
+		children: Snippet<[string]>;
 	} = $props();
 
 	let searchValue = $state('');
@@ -69,7 +69,7 @@
 			{/if}
 			<CommandPrimitive.List class="no-scrollbar max-h-72 scroll-py-1 outline-none overflow-x-hidden overflow-y-auto space-y-0.5">
 				<CommandPrimitive.Empty class="py-4 text-center text-xs text-[var(--color-text-tertiary)]">{emptyMessage}</CommandPrimitive.Empty>
-				{@render children()}
+				{@render children(searchValue)}
 			</CommandPrimitive.List>
 		</CommandPrimitive.Root>
 	</Popover.Content>

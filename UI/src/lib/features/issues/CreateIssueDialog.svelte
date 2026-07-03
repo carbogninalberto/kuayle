@@ -42,6 +42,7 @@
 		defaultPriority,
 		defaultAssigneeId,
 		defaultTitle,
+		onlabelcreated,
 		onsubmit
 	}: {
 		open: boolean;
@@ -57,6 +58,7 @@
 		defaultPriority?: IssuePriority;
 		defaultAssigneeId?: string;
 		defaultTitle?: string;
+		onlabelcreated?: (label: Label) => void;
 		onsubmit: (req: {
 			title: string;
 			description?: string;
@@ -349,6 +351,8 @@
 				{labels}
 				value={labelIds}
 				onchange={(labelId) => toggleLabel(labelId)}
+				oncreated={(label) => onlabelcreated?.(label)}
+				{slug}
 			>
 				{#snippet trigger()}
 					<button class="flex items-center gap-1.5 rounded-full border border-[var(--app-border)] px-2.5 py-1 max-sm:px-3 max-sm:py-1.5 text-xs {selectedLabels.length > 0 ? 'text-[var(--color-text-secondary)]' : 'text-[var(--color-text-tertiary)]'} hover:bg-[var(--color-bg-hover)]">

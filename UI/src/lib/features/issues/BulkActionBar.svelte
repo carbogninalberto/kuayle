@@ -1,18 +1,28 @@
 <script lang="ts">
 	import type { IssuePriority } from '$lib/types/issue';
+	import type { Label } from '$lib/types/label';
 	import { teamStatusesState } from './team-statuses.state.svelte';
 	import { issuesState } from './issues.state.svelte';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
-	import { StatusSelector, PrioritySelector } from './selectors';
+	import { StatusSelector, PrioritySelector, LabelSelector } from './selectors';
 	import { toast } from 'svelte-sonner';
 	import { X, Trash2 } from 'lucide-svelte';
 	import * as issueApi from '$lib/api/issues';
 	import { onMount } from 'svelte';
 
-	let { slug }: { slug: string } = $props();
+	let {
+		slug,
+		labels = [],
+		onlabelcreated
+	}: {
+		slug: string;
+		labels?: Label[];
+		onlabelcreated?: (label: Label) => void;
+	} = $props();
 
 	let statusOpen = $state(false);
 	let priorityOpen = $state(false);
+	let labelOpen = $state(false);
 	let deleteOpen = $state(false);
 
 	onMount(() => {
@@ -45,6 +55,26 @@
 			toast.error('Bulk update failed');
 		}
 		priorityOpen = false;
+	}
+
+	async function bulkAddLabel(labelId: string, successMessage?: string) {
+		const selectedIssues = issuesState.issues.filter((issue) => issuesState.selectedIds.has(issue.id));
+		if (selectedIssues.length === 0) return;
+
+		try {
+			await Promise.all(
+				selectedIssues.map((issue) => {
+					const labelIds = new Set((issue.labels ?? []).map((label) => label.id));
+					labelIds.add(labelId);
+					return issuesState.update(slug, issue.identifier, { label_ids: Array.from(labelIds) });
+				})
+			);
+			issuesState.clearSelection();
+			toast.success(successMessage ?? `Updated ${selectedIssues.length} issue${selectedIssues.length > 1 ? 's' : ''}`);
+		} catch (err: any) {
+			toast.error(err?.error?.message || 'Failed to update labels');
+		}
+		labelOpen = false;
 	}
 
 	async function bulkDelete() {
@@ -95,6 +125,22 @@
 					</button>
 				{/snippet}
 			</PrioritySelector>
+
+			<LabelSelector
+				bind:open={labelOpen}
+				{labels}
+				value={[]}
+				onchange={(id) => bulkAddLabel(id)}
+				oncreated={(label) => onlabelcreated?.(label)}
+				width="w-52"
+				{slug}
+			>
+				{#snippet trigger()}
+					<button class="rounded-md border border-[var(--app-border)] px-2.5 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
+						Label
+					</button>
+				{/snippet}
+			</LabelSelector>
 		</div>
 
 		<button
