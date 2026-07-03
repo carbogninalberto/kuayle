@@ -88,6 +88,7 @@
 	let createMore = $state(false);
 
 	let templates = $state<IssueTemplate[]>([]);
+	let selectedTemplate = $state<IssueTemplate | null>(null);
 	let templateOpen = $state(false);
 	let descriptionVersion = $state(0);
 
@@ -103,6 +104,7 @@
 		title = defaultTitle ?? '';
 		description = '';
 		descriptionVersion++;
+		selectedTemplate = null;
 		statusId = defaultStatusId ?? teamStatusesState.defaultForCategory('backlog')?.id ?? '';
 		priority = defaultPriority ?? 0;
 		teamId = defaultTeamId ?? teams[0]?.id ?? '';
@@ -144,8 +146,8 @@
 			cycle_id: cycleId || undefined
 		});
 		if (createMore) {
-			title = '';
-			description = '';
+			title = selectedTemplate?.title || '';
+			description = selectedTemplate?.description ?? '';
 			descriptionVersion++;
 		} else {
 			open = false;
@@ -162,6 +164,7 @@
 	};
 
 	function applyTemplate(tmpl: IssueTemplate) {
+		selectedTemplate = tmpl;
 		title = tmpl.title || '';
 		description = tmpl.description ?? '';
 		descriptionVersion = Date.now();
@@ -175,6 +178,11 @@
 				if (defaultStatus) statusId = defaultStatus.id;
 			}
 		}
+		templateOpen = false;
+	}
+
+	function clearTemplateSelection() {
+		selectedTemplate = null;
 		templateOpen = false;
 	}
 
@@ -220,30 +228,35 @@
 				{/snippet}
 			</TeamSelector>
 			<span class="text-xs text-[var(--color-text-tertiary)]">›</span>
-			<span class="text-xs font-medium text-[var(--color-text-secondary)]">New Issue</span>
-
 			{#if templates.length > 0}
-				<div class="ml-auto">
-					<Popover.Root bind:open={templateOpen}>
-						<Popover.Trigger>
-							<button tabindex="-1" class="flex items-center gap-1.5 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-tertiary)] px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]">
-								<FileText size={12} />
-								Template
+				<Popover.Root bind:open={templateOpen}>
+					<Popover.Trigger>
+						<button tabindex="-1" class="flex max-w-52 items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
+							<FileText size={12} class="shrink-0 text-[var(--color-text-tertiary)]" />
+							<span class="truncate">{selectedTemplate?.title || 'Template'}</span>
+						</button>
+					</Popover.Trigger>
+					<Popover.Content class="w-56 p-1" align="start">
+						<button
+							onclick={clearTemplateSelection}
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+						>
+							<FileText size={14} class="shrink-0 text-[var(--color-text-tertiary)]" />
+							<span class="truncate">No template</span>
+						</button>
+						{#each templates as tmpl (tmpl.id)}
+							<button
+								onclick={() => applyTemplate(tmpl)}
+								class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+							>
+								<FileText size={14} class="shrink-0 text-[var(--color-text-tertiary)]" />
+								<span class="truncate">{tmpl.title || 'Untitled template'}</span>
 							</button>
-						</Popover.Trigger>
-						<Popover.Content class="w-56 p-1" align="end">
-							{#each templates as tmpl (tmpl.id)}
-								<button
-									onclick={() => applyTemplate(tmpl)}
-									class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
-								>
-									<FileText size={14} class="shrink-0 text-[var(--color-text-tertiary)]" />
-									<span class="truncate">{tmpl.title || 'Untitled template'}</span>
-								</button>
-							{/each}
-						</Popover.Content>
-					</Popover.Root>
-				</div>
+						{/each}
+					</Popover.Content>
+				</Popover.Root>
+			{:else}
+				<span class="text-xs font-medium text-[var(--color-text-secondary)]">New Issue</span>
 			{/if}
 		</div>
 
