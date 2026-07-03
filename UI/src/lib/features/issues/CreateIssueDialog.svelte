@@ -146,6 +146,7 @@
 		if (createMore) {
 			title = '';
 			description = '';
+			descriptionVersion++;
 		} else {
 			open = false;
 		}
