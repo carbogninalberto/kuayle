@@ -73,7 +73,7 @@
 			await loadIssues();
 		}).catch(() => {
 			toast.error('View not found');
-			goto(`/${s}`);
+			goto(`/${s}/inbox`);
 		}).finally(() => {
 			loading = false;
 		});
@@ -125,7 +125,7 @@
 		try {
 			await deleteView(slug, view.id);
 			toast.success('View deleted');
-			goto(`/${slug}`);
+			goto(`/${slug}/inbox`);
 		} catch (err: any) {
 			toast.error(err?.error?.message || 'Failed to delete view');
 		}
