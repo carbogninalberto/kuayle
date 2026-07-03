@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 
+	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/middleware"
 	"github.com/kuayle/kuayle-backend/internal/service"
@@ -25,13 +27,7 @@ func (h *PreferencesHandler) Get(c echo.Context) error {
 	if err != nil {
 		return response.InternalError(c)
 	}
-	return response.Success(c, http.StatusOK, dto.UserPreferencesResponse{
-		FontSize:       prefs.FontSize,
-		PointerCursors: prefs.PointerCursors,
-		ThemeMode:      prefs.ThemeMode,
-		LightTheme:     prefs.LightTheme,
-		DarkTheme:      prefs.DarkTheme,
-	})
+	return response.Success(c, http.StatusOK, toPreferencesResponse(prefs))
 }
 
 func (h *PreferencesHandler) Update(c echo.Context) error {
@@ -50,13 +46,31 @@ func (h *PreferencesHandler) Update(c echo.Context) error {
 	userID := middleware.GetUserID(c)
 	prefs, err := h.prefsSvc.Update(c.Request().Context(), userID, req)
 	if err != nil {
+		if errors.Is(err, service.ErrInvalidPreferences) {
+			return response.Error(c, http.StatusBadRequest, "INVALID_PREFERENCES", err.Error())
+		}
 		return response.InternalError(c)
 	}
-	return response.Success(c, http.StatusOK, dto.UserPreferencesResponse{
-		FontSize:       prefs.FontSize,
-		PointerCursors: prefs.PointerCursors,
-		ThemeMode:      prefs.ThemeMode,
-		LightTheme:     prefs.LightTheme,
-		DarkTheme:      prefs.DarkTheme,
-	})
+	return response.Success(c, http.StatusOK, toPreferencesResponse(prefs))
+}
+
+func toPreferencesResponse(prefs *domain.UserPreferences) dto.UserPreferencesResponse {
+	overrides := make(map[string]dto.WorkflowSortOverride, len(prefs.TeamWorkflowSortOverrides))
+	for key, override := range prefs.TeamWorkflowSortOverrides {
+		overrides[key] = dto.WorkflowSortOverride{
+			Mode:              override.Mode,
+			WorkflowSortOrder: []string(override.WorkflowSortOrder),
+		}
+	}
+
+	return dto.UserPreferencesResponse{
+		FontSize:                  prefs.FontSize,
+		PointerCursors:            prefs.PointerCursors,
+		ThemeMode:                 prefs.ThemeMode,
+		LightTheme:                prefs.LightTheme,
+		DarkTheme:                 prefs.DarkTheme,
+		WorkflowSortMode:          prefs.WorkflowSortMode,
+		WorkflowSortOrder:         []string(prefs.WorkflowSortOrder),
+		TeamWorkflowSortOverrides: overrides,
+	}
 }

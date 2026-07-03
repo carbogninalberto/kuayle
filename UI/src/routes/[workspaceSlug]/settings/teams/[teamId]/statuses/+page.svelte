@@ -1,14 +1,16 @@
 <script lang="ts">
+	import { flip } from 'svelte/animate';
 	import { page } from '$app/state';
 	import type { TeamStatus, StatusCategory } from '$lib/types/team-status';
 	import { CATEGORY_ORDER, CATEGORY_LABELS } from '$lib/types/team-status';
 	import type { Team } from '$lib/types/team';
+	import { preferencesState, type TeamWorkflowSortMode } from '$lib/features/preferences/preferences.state.svelte';
 	import { listTeams } from '$lib/api/teams';
 	import { listTeamStatuses, createTeamStatus, updateTeamStatus, deleteTeamStatus } from '$lib/api/team-statuses';
 	import IssueStatusIcon from '$lib/features/issues/IssueStatusIcon.svelte';
 	import * as Select from '$lib/components/ui/select';
 	import { toast } from 'svelte-sonner';
-	import { Plus, Trash2, Lock, Pencil, X, Check, GripVertical } from 'lucide-svelte';
+	import { Plus, Trash2, Pencil, X, Check, GripVertical, ArrowUp, ArrowDown } from 'lucide-svelte';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	const teamId = $derived(page.params.teamId ?? '');
@@ -30,6 +32,22 @@
 	let dragCategory = $state<StatusCategory | null>(null);
 	let dragOverCategory = $state<StatusCategory | null>(null);
 	let dropIndicator = $state<'above' | 'below'>('below');
+	let workflowDragCategory = $state<StatusCategory | null>(null);
+	let workflowDragOverCategory = $state<StatusCategory | null>(null);
+	let workflowDropIndicator = $state<'above' | 'below'>('below');
+
+	const teamWorkflowOverride = $derived(preferencesState.getTeamWorkflowSortOverride(slug, teamId));
+	const teamWorkflowOrder = $derived(
+		teamWorkflowOverride.mode === 'custom' && teamWorkflowOverride.workflowSortOrder
+			? teamWorkflowOverride.workflowSortOrder
+			: preferencesState.getWorkflowSortOrder(slug, teamId)
+	);
+	const workflowSortLabels: Record<TeamWorkflowSortMode, string> = {
+		inherit: 'Use global',
+		default: 'Workflow order',
+		'active-first': 'Active first',
+		custom: 'Custom',
+	};
 
 	$effect(() => {
 		const s = slug;
@@ -108,6 +126,75 @@
 		addingCategory = cat;
 		addName = '';
 		addColor = '';
+	}
+
+	function setTeamWorkflowSortMode(mode: TeamWorkflowSortMode) {
+		preferencesState.setTeamWorkflowSortOverride(slug, teamId, {
+			mode,
+			workflowSortOrder: mode === 'custom' ? teamWorkflowOrder : teamWorkflowOverride.workflowSortOrder
+		});
+	}
+
+	function moveTeamWorkflowCategory(category: StatusCategory, direction: -1 | 1) {
+		const order = [...teamWorkflowOrder];
+		const index = order.indexOf(category);
+		const nextIndex = index + direction;
+		if (index < 0 || nextIndex < 0 || nextIndex >= order.length) return;
+		[order[index], order[nextIndex]] = [order[nextIndex], order[index]];
+		preferencesState.setTeamWorkflowSortOverride(slug, teamId, {
+			mode: 'custom',
+			workflowSortOrder: order
+		});
+	}
+
+	function handleWorkflowDragStart(e: DragEvent, category: StatusCategory) {
+		workflowDragCategory = category;
+		if (e.dataTransfer) {
+			e.dataTransfer.effectAllowed = 'move';
+			e.dataTransfer.setData('text/plain', category);
+		}
+	}
+
+	function handleWorkflowDragOver(e: DragEvent, category: StatusCategory) {
+		if (!workflowDragCategory) return;
+		e.preventDefault();
+		if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+		workflowDragOverCategory = category;
+		const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+		workflowDropIndicator = e.clientY < rect.top + rect.height / 2 ? 'above' : 'below';
+	}
+
+	function handleWorkflowDragEnd() {
+		workflowDragCategory = null;
+		workflowDragOverCategory = null;
+		workflowDropIndicator = 'below';
+	}
+
+	function handleWorkflowDrop(e: DragEvent, targetCategory: StatusCategory) {
+		e.preventDefault();
+		const sourceCategory = (e.dataTransfer?.getData('text/plain') || workflowDragCategory) as StatusCategory | null;
+		if (!sourceCategory || sourceCategory === targetCategory) {
+			handleWorkflowDragEnd();
+			return;
+		}
+
+		const order = [...teamWorkflowOrder];
+		const sourceIndex = order.indexOf(sourceCategory);
+		const targetIndex = order.indexOf(targetCategory);
+		if (sourceIndex === -1 || targetIndex === -1) {
+			handleWorkflowDragEnd();
+			return;
+		}
+
+		const [moved] = order.splice(sourceIndex, 1);
+		const adjustedTargetIndex = order.indexOf(targetCategory);
+		const insertIndex = workflowDropIndicator === 'below' ? adjustedTargetIndex + 1 : adjustedTargetIndex;
+		order.splice(insertIndex, 0, moved);
+		preferencesState.setTeamWorkflowSortOverride(slug, teamId, {
+			mode: 'custom',
+			workflowSortOrder: order
+		});
+		handleWorkflowDragEnd();
 	}
 
 	function handleDragStart(e: DragEvent, status: TeamStatus) {
@@ -209,6 +296,82 @@
 	<p class="mt-2 text-sm text-[var(--color-text-tertiary)]">
 		Issue statuses define the workflow that issues go through from start to completion.
 	</p>
+
+	<div class="mt-6 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
+		<div class="flex items-center justify-between px-5 py-4">
+			<div>
+				<p class="text-sm font-medium text-[var(--color-text-primary)]">Issue list sorting</p>
+				<p class="text-xs text-[var(--color-text-tertiary)]">Override status group sorting for this team. Kanban keeps the workflow below.</p>
+			</div>
+			<Select.Root
+				type="single"
+				value={teamWorkflowOverride.mode}
+				onValueChange={(v) => {
+					if (v) setTeamWorkflowSortMode(v as TeamWorkflowSortMode);
+				}}
+			>
+				<Select.Trigger size="sm" class="w-[145px]">
+					{workflowSortLabels[teamWorkflowOverride.mode]}
+				</Select.Trigger>
+				<Select.Content>
+					<Select.Item value="inherit">Use global</Select.Item>
+					<Select.Item value="default">Workflow order</Select.Item>
+					<Select.Item value="active-first">Active first</Select.Item>
+					<Select.Item value="custom">Custom</Select.Item>
+				</Select.Content>
+			</Select.Root>
+		</div>
+
+		{#if teamWorkflowOverride.mode === 'custom'}
+			<div class="border-t border-[var(--app-border)]"></div>
+			<div class="px-5 py-4">
+				<p class="mb-2 text-xs text-[var(--color-text-tertiary)]">Custom category order</p>
+				<div class="space-y-1">
+					{#each teamWorkflowOrder as category, index (category)}
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
+						<div
+							animate:flip={{ duration: 180 }}
+							class="group relative flex items-center justify-between rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-2 py-2 transition-[background-color,border-color,box-shadow,opacity,scale] duration-200 ease-out hover:border-[var(--app-accent)]/40 hover:bg-[var(--color-bg-hover)]/40 hover:shadow-sm {workflowDragCategory === category ? 'scale-[0.99] opacity-70' : ''}"
+							draggable="true"
+							ondragstart={(e) => handleWorkflowDragStart(e, category)}
+							ondragover={(e) => handleWorkflowDragOver(e, category)}
+							ondragleave={() => (workflowDragOverCategory = null)}
+							ondragend={handleWorkflowDragEnd}
+							ondrop={(e) => handleWorkflowDrop(e, category)}
+						>
+							{#if workflowDragOverCategory === category && workflowDragCategory !== category}
+								<div class="absolute {workflowDropIndicator === 'above' ? '-top-1' : '-bottom-1'} left-2 right-2 h-0.5 rounded-full bg-[var(--app-accent)] shadow-[0_0_12px_var(--app-accent)] transition-all"></div>
+							{/if}
+							<div class="flex items-center gap-2">
+								<span class="cursor-grab rounded p-1 text-[var(--color-text-tertiary)] transition-colors group-hover:text-[var(--color-text-secondary)] active:cursor-grabbing">
+									<GripVertical size={14} />
+								</span>
+								<span class="text-sm text-[var(--color-text-primary)] transition-colors group-hover:text-[var(--color-text-primary)]">{CATEGORY_LABELS[category]}</span>
+							</div>
+							<div class="flex items-center gap-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+								<button
+									onclick={() => moveTeamWorkflowCategory(category, -1)}
+									disabled={index === 0}
+									class="rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-30"
+									aria-label="Move {CATEGORY_LABELS[category]} up"
+								>
+									<ArrowUp size={13} />
+								</button>
+								<button
+									onclick={() => moveTeamWorkflowCategory(category, 1)}
+									disabled={index === teamWorkflowOrder.length - 1}
+									class="rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-30"
+									aria-label="Move {CATEGORY_LABELS[category]} down"
+								>
+									<ArrowDown size={13} />
+								</button>
+							</div>
+						</div>
+					{/each}
+				</div>
+			</div>
+		{/if}
+	</div>
 
 	<div class="mt-8">
 		{#if loading}

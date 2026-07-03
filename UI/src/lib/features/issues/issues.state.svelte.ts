@@ -1,5 +1,7 @@
 import type { Issue, IssueStatus, IssuePriority, CreateIssueRequest, UpdateIssueRequest } from '$lib/types/issue';
 import * as issueApi from '$lib/api/issues';
+import { preferencesState } from '$lib/features/preferences/preferences.state.svelte';
+import type { StatusCategory } from '$lib/types/team-status';
 
 export type GroupByField = 'status' | 'priority' | 'assignee' | 'project' | null;
 
@@ -11,6 +13,7 @@ class IssuesState {
 	filters = $state<Record<string, string>>({});
 	selectedIds = $state<Set<string>>(new Set());
 	groupBy = $state<GroupByField>('status');
+	private currentSlug = '';
 
 	/**
 	 * Key identifying the view (filters) the current selection belongs to.
@@ -85,6 +88,16 @@ class IssuesState {
 			result.sort((a, b) => {
 				const aIssue = a.issues[0];
 				const bIssue = b.issues[0];
+				const teamId = this.filters.team;
+				const mode = preferencesState.getWorkflowSortMode(this.currentSlug, teamId);
+				if (mode !== 'default') {
+					const order = preferencesState.getWorkflowSortOrder(this.currentSlug, teamId);
+					const aCategory = aIssue?.status_info?.category as StatusCategory | undefined;
+					const bCategory = bIssue?.status_info?.category as StatusCategory | undefined;
+					const aRank = aCategory ? order.indexOf(aCategory) : -1;
+					const bRank = bCategory ? order.indexOf(bCategory) : -1;
+					if (aRank !== bRank) return (aRank === -1 ? 999 : aRank) - (bRank === -1 ? 999 : bRank);
+				}
 				const aPos = aIssue?.status_info?.position ?? 999;
 				const bPos = bIssue?.status_info?.position ?? 999;
 				return aPos - bPos;
@@ -141,6 +154,7 @@ class IssuesState {
 	}
 
 	async load(slug: string, params?: Record<string, string>) {
+		this.currentSlug = slug;
 		// If the view changed, drop any selection from the previous view so
 		// bulk operations remain scoped to the current view.
 		const newScope = this.viewKey(slug, params);

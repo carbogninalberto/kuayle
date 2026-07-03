@@ -1,9 +1,10 @@
-.PHONY: dev dev-backend dev-frontend migrate-up migrate-down seed reset-dev test test-backend test-frontend lint docker-up docker-down ensure-trivy scan scan-backend scan-frontend
+.PHONY: dev dev-all dev-backend dev-frontend migrate-up migrate-down seed reset-dev test test-backend test-frontend lint docker-up docker-down ensure-trivy scan scan-backend scan-frontend
 
 # Load .env into shell commands
 DOTENV := $(shell [ -f .env ] && echo "set -a && . ./.env && set +a &&" || echo "")
 
 dev:
+	$(MAKE) migrate-up
 	@echo "Starting backend and frontend..."
 	$(MAKE) -j2 dev-backend dev-frontend
 

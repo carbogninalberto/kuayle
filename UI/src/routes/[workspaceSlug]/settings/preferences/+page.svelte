@@ -1,9 +1,11 @@
 <script lang="ts">
-	import { Monitor, Sun, Moon } from 'lucide-svelte';
+	import { flip } from 'svelte/animate';
+	import { Monitor, Sun, Moon, ArrowUp, ArrowDown, GripVertical } from 'lucide-svelte';
 	import * as Select from '$lib/components/ui/select';
 	import { Switch } from '$lib/components/ui/switch';
 	import * as ToggleGroup from '$lib/components/ui/toggle-group';
 	import { preferencesState } from '$lib/features/preferences/preferences.state.svelte';
+	import { CATEGORY_LABELS, type StatusCategory } from '$lib/types/team-status';
 
 	const fontSizeLabels: Record<string, string> = {
 		small: 'Small',
@@ -26,6 +28,72 @@
 		'blade-49': 'Blade 49',
 		'pipboy': 'Pip-Boy',
 	};
+
+	const workflowSortLabels: Record<string, string> = {
+		default: 'Workflow order',
+		'active-first': 'Active first',
+		custom: 'Custom',
+	};
+
+	let dragCategory = $state<StatusCategory | null>(null);
+	let dragOverCategory = $state<StatusCategory | null>(null);
+	let dropIndicator = $state<'above' | 'below'>('below');
+
+	function moveWorkflowCategory(category: StatusCategory, direction: -1 | 1) {
+		const order = [...preferencesState.workflowSortOrder];
+		const index = order.indexOf(category);
+		const nextIndex = index + direction;
+		if (index < 0 || nextIndex < 0 || nextIndex >= order.length) return;
+		[order[index], order[nextIndex]] = [order[nextIndex], order[index]];
+		preferencesState.setWorkflowSortOrder(order);
+	}
+
+	function handleWorkflowDragStart(e: DragEvent, category: StatusCategory) {
+		dragCategory = category;
+		if (e.dataTransfer) {
+			e.dataTransfer.effectAllowed = 'move';
+			e.dataTransfer.setData('text/plain', category);
+		}
+	}
+
+	function handleWorkflowDragOver(e: DragEvent, category: StatusCategory) {
+		if (!dragCategory) return;
+		e.preventDefault();
+		if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+		dragOverCategory = category;
+		const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+		dropIndicator = e.clientY < rect.top + rect.height / 2 ? 'above' : 'below';
+	}
+
+	function handleWorkflowDragEnd() {
+		dragCategory = null;
+		dragOverCategory = null;
+		dropIndicator = 'below';
+	}
+
+	function handleWorkflowDrop(e: DragEvent, targetCategory: StatusCategory) {
+		e.preventDefault();
+		const sourceCategory = (e.dataTransfer?.getData('text/plain') || dragCategory) as StatusCategory | null;
+		if (!sourceCategory || sourceCategory === targetCategory) {
+			handleWorkflowDragEnd();
+			return;
+		}
+
+		const order = [...preferencesState.workflowSortOrder];
+		const sourceIndex = order.indexOf(sourceCategory);
+		const targetIndex = order.indexOf(targetCategory);
+		if (sourceIndex === -1 || targetIndex === -1) {
+			handleWorkflowDragEnd();
+			return;
+		}
+
+		const [moved] = order.splice(sourceIndex, 1);
+		const adjustedTargetIndex = order.indexOf(targetCategory);
+		const insertIndex = dropIndicator === 'below' ? adjustedTargetIndex + 1 : adjustedTargetIndex;
+		order.splice(insertIndex, 0, moved);
+		preferencesState.setWorkflowSortOrder(order);
+		handleWorkflowDragEnd();
+	}
 </script>
 
 <div class="mx-auto max-w-2xl px-8 py-10">
@@ -158,5 +226,83 @@
 				</Select.Content>
 			</Select.Root>
 		</div>
+	</div>
+
+	<!-- Issue list display -->
+	<h2 class="mt-8 text-sm font-medium text-[var(--color-text-secondary)]">Issue list display</h2>
+
+	<div class="mt-3 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
+		<div class="flex items-center justify-between px-5 py-4">
+			<div>
+				<p class="text-sm font-medium text-[var(--color-text-primary)]">Workflow group sorting</p>
+				<p class="text-xs text-[var(--color-text-tertiary)]">Controls status group order in issue lists. Kanban keeps the workflow order.</p>
+			</div>
+			<Select.Root
+				type="single"
+				value={preferencesState.workflowSortMode}
+				onValueChange={(v) => {
+					if (v) preferencesState.setWorkflowSortMode(v as 'default' | 'active-first' | 'custom');
+				}}
+			>
+				<Select.Trigger size="sm" class="w-[145px]">
+					{workflowSortLabels[preferencesState.workflowSortMode]}
+				</Select.Trigger>
+				<Select.Content>
+					<Select.Item value="default">Workflow order</Select.Item>
+					<Select.Item value="active-first">Active first</Select.Item>
+					<Select.Item value="custom">Custom</Select.Item>
+				</Select.Content>
+			</Select.Root>
+		</div>
+
+		{#if preferencesState.workflowSortMode === 'custom'}
+			<div class="border-t border-[var(--app-border)]"></div>
+			<div class="px-5 py-4">
+				<p class="mb-2 text-xs text-[var(--color-text-tertiary)]">Custom category order</p>
+				<div class="space-y-1">
+					{#each preferencesState.workflowSortOrder as category, index (category)}
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
+						<div
+							animate:flip={{ duration: 180 }}
+							class="group relative flex items-center justify-between rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-2 py-2 transition-[background-color,border-color,box-shadow,opacity,scale] duration-200 ease-out hover:border-[var(--app-accent)]/40 hover:bg-[var(--color-bg-hover)]/40 hover:shadow-sm {dragCategory === category ? 'scale-[0.99] opacity-70' : ''}"
+							draggable="true"
+							ondragstart={(e) => handleWorkflowDragStart(e, category)}
+							ondragover={(e) => handleWorkflowDragOver(e, category)}
+							ondragleave={() => (dragOverCategory = null)}
+							ondragend={handleWorkflowDragEnd}
+							ondrop={(e) => handleWorkflowDrop(e, category)}
+						>
+							{#if dragOverCategory === category && dragCategory !== category}
+								<div class="absolute {dropIndicator === 'above' ? '-top-1' : '-bottom-1'} left-2 right-2 h-0.5 rounded-full bg-[var(--app-accent)] shadow-[0_0_12px_var(--app-accent)] transition-all"></div>
+							{/if}
+							<div class="flex items-center gap-2">
+								<span class="cursor-grab rounded p-1 text-[var(--color-text-tertiary)] transition-colors group-hover:text-[var(--color-text-secondary)] active:cursor-grabbing">
+									<GripVertical size={14} />
+								</span>
+								<span class="text-sm text-[var(--color-text-primary)] transition-colors group-hover:text-[var(--color-text-primary)]">{CATEGORY_LABELS[category]}</span>
+							</div>
+							<div class="flex items-center gap-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+								<button
+									onclick={() => moveWorkflowCategory(category, -1)}
+									disabled={index === 0}
+									class="rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-30"
+									aria-label="Move {CATEGORY_LABELS[category]} up"
+								>
+									<ArrowUp size={13} />
+								</button>
+								<button
+									onclick={() => moveWorkflowCategory(category, 1)}
+									disabled={index === preferencesState.workflowSortOrder.length - 1}
+									class="rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-30"
+									aria-label="Move {CATEGORY_LABELS[category]} down"
+								>
+									<ArrowDown size={13} />
+								</button>
+							</div>
+						</div>
+					{/each}
+				</div>
+			</div>
+		{/if}
 	</div>
 </div>

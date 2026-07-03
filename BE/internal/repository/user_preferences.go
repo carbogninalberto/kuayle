@@ -29,18 +29,22 @@ func (r *UserPreferencesRepository) Get(ctx context.Context, userID uuid.UUID) (
 
 func (r *UserPreferencesRepository) Upsert(ctx context.Context, prefs *domain.UserPreferences) error {
 	query := `
-		INSERT INTO user_preferences (user_id, font_size, pointer_cursors, theme_mode, light_theme, dark_theme, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, NOW())
+		INSERT INTO user_preferences (user_id, font_size, pointer_cursors, theme_mode, light_theme, dark_theme, workflow_sort_mode, workflow_sort_order, team_workflow_sort_overrides, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
 		ON CONFLICT (user_id) DO UPDATE SET
 			font_size = EXCLUDED.font_size,
 			pointer_cursors = EXCLUDED.pointer_cursors,
 			theme_mode = EXCLUDED.theme_mode,
 			light_theme = EXCLUDED.light_theme,
 			dark_theme = EXCLUDED.dark_theme,
+			workflow_sort_mode = EXCLUDED.workflow_sort_mode,
+			workflow_sort_order = EXCLUDED.workflow_sort_order,
+			team_workflow_sort_overrides = EXCLUDED.team_workflow_sort_overrides,
 			updated_at = NOW()
 		RETURNING updated_at`
 	return r.db.QueryRowContext(ctx, query,
 		prefs.UserID, prefs.FontSize, prefs.PointerCursors,
 		prefs.ThemeMode, prefs.LightTheme, prefs.DarkTheme,
+		prefs.WorkflowSortMode, prefs.WorkflowSortOrder, prefs.TeamWorkflowSortOverrides,
 	).Scan(&prefs.UpdatedAt)
 }
