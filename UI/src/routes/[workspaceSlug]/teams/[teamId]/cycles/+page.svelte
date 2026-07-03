@@ -1,6 +1,14 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import { listCycles, createCycle, deleteCycle, completeCycle, updateCycle, getCycleBurndown, getCycleVelocity } from '$lib/api/cycles';
+	import {
+		listCycles,
+		createCycle,
+		deleteCycle,
+		completeCycle,
+		updateCycle,
+		getCycleBurndown,
+		getCycleVelocity
+	} from '$lib/api/cycles';
 	import type { Cycle, CycleBurndownPoint, VelocityPoint } from '$lib/types/cycle';
 	import CreateCycleDialog from '$lib/features/cycles/CreateCycleDialog.svelte';
 	import EditCycleDialog from '$lib/features/cycles/EditCycleDialog.svelte';
@@ -40,11 +48,11 @@
 	let showComplete = $state(false);
 	let completingCycle = $state<Cycle | null>(null);
 
-	const activeCycle = $derived(cycles.find(c => c.status === 'active') ?? null);
-	const nextNumber = $derived(cycles.length > 0 ? Math.max(...cycles.map(c => c.number)) + 1 : 1);
+	const activeCycle = $derived(cycles.find((c) => c.status === 'active') ?? null);
+	const nextNumber = $derived(cycles.length > 0 ? Math.max(...cycles.map((c) => c.number)) + 1 : 1);
 	const nextUpcomingCycle = $derived(
 		cycles
-			.filter(c => c.status === 'upcoming')
+			.filter((c) => c.status === 'upcoming')
 			.sort((a, b) => {
 				const aD = a.start_date ? new Date(a.start_date).getTime() : Infinity;
 				const bD = b.start_date ? new Date(b.start_date).getTime() : Infinity;
@@ -61,14 +69,16 @@
 
 	// Single flat sorted list: active first, then upcoming by start_date, then completed by completed_at desc
 	const sortedCycles = $derived.by(() => {
-		const active = cycles.filter(c => c.status === 'active');
-		const upcoming = cycles.filter(c => c.status === 'upcoming')
+		const active = cycles.filter((c) => c.status === 'active');
+		const upcoming = cycles
+			.filter((c) => c.status === 'upcoming')
 			.sort((a, b) => {
 				const aDate = a.start_date ? new Date(a.start_date).getTime() : Infinity;
 				const bDate = b.start_date ? new Date(b.start_date).getTime() : Infinity;
 				return aDate - bDate;
 			});
-		const completed = cycles.filter(c => c.status === 'completed')
+		const completed = cycles
+			.filter((c) => c.status === 'completed')
 			.sort((a, b) => {
 				const aDate = a.completed_at ? new Date(a.completed_at).getTime() : 0;
 				const bDate = b.completed_at ? new Date(b.completed_at).getTime() : 0;
@@ -98,16 +108,15 @@
 		const t = teamId;
 		if (!s || !t) return;
 		loading = true;
-		Promise.all([
-			listCycles(s, t),
-			getCycleVelocity(s, t).catch(() => [] as VelocityPoint[])
-		]).then(([c, v]) => {
-			cycles = c;
-			velocityData = v ?? [];
-			burndownVersion++;
-		}).finally(() => {
-			loading = false;
-		});
+		Promise.all([listCycles(s, t), getCycleVelocity(s, t).catch(() => [] as VelocityPoint[])])
+			.then(([c, v]) => {
+				cycles = c;
+				velocityData = v ?? [];
+				burndownVersion++;
+			})
+			.finally(() => {
+				loading = false;
+			});
 	});
 
 	// Fetch burndown for the active cycle
@@ -119,13 +128,16 @@
 			return;
 		}
 		burndownLoading = true;
-		getCycleBurndown(slug, teamId, cycle.id).then((d) => {
-			burndownData = d;
-		}).catch(() => {
-			burndownData = [];
-		}).finally(() => {
-			burndownLoading = false;
-		});
+		getCycleBurndown(slug, teamId, cycle.id)
+			.then((d) => {
+				burndownData = d;
+			})
+			.catch(() => {
+				burndownData = [];
+			})
+			.finally(() => {
+				burndownLoading = false;
+			});
 	});
 
 	async function handleCreate(data: { name: string; description?: string; start_date: string; end_date: string }) {
@@ -139,7 +151,7 @@
 	}
 
 	function handleComplete(cycleId: string) {
-		const cycle = cycles.find(c => c.id === cycleId);
+		const cycle = cycles.find((c) => c.id === cycleId);
 		if (!cycle) return;
 		completingCycle = cycle;
 		showComplete = true;
@@ -154,7 +166,9 @@
 			});
 			cycles = cycles.map((c) => (c.id === completingCycle!.id ? result.cycle : c));
 			if (result.carried_over_count > 0) {
-				toast.success(`Cycle completed. ${result.carried_over_count} issue${result.carried_over_count > 1 ? 's' : ''} carried over.`);
+				toast.success(
+					`Cycle completed. ${result.carried_over_count} issue${result.carried_over_count > 1 ? 's' : ''} carried over.`
+				);
 			} else {
 				toast.success('Cycle completed');
 			}
@@ -192,7 +206,14 @@
 		showEdit = true;
 	}
 
-	async function handleEditSubmit(data: { name: string; description?: string; goals?: string; retrospective?: string; start_date?: string; end_date?: string }) {
+	async function handleEditSubmit(data: {
+		name: string;
+		description?: string;
+		goals?: string;
+		retrospective?: string;
+		start_date?: string;
+		end_date?: string;
+	}) {
 		if (!editingCycle) return;
 		try {
 			const updated = await updateCycle(slug, teamId, editingCycle.id, {
@@ -219,7 +240,10 @@
 		};
 	}
 
-	function getCycleDates(cycle: Cycle): { start: { month: string; day: string } | null; end: { month: string; day: string } | null } {
+	function getCycleDates(cycle: Cycle): {
+		start: { month: string; day: string } | null;
+		end: { month: string; day: string } | null;
+	} {
 		return {
 			start: formatTimelineDate(cycle.start_date),
 			end: formatTimelineDate(cycle.end_date)
@@ -231,27 +255,30 @@
 	}
 </script>
 
-<div class="flex h-full flex-col">
-	<div class="flex h-[49px] items-center justify-between border-b border-[var(--app-border)] px-6">
-		<div class="flex items-center gap-3">
+<div class="flex h-full min-w-0 flex-col">
+	<div class="flex min-h-[49px] items-center justify-between gap-2 border-b border-[var(--app-border)] px-3 sm:px-6">
+		<div class="flex min-w-0 items-center gap-3">
 			<SidebarToggle />
-			<nav class="flex items-center gap-1.5 text-sm">
+			<nav class="flex min-w-0 items-center gap-1.5 text-sm">
 				{#if sidebarState.getTeam(teamId)}
-					<a href="/{slug}/teams/{teamId}" class="flex items-center gap-1.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]">
+					<a
+						href="/{slug}/teams/{teamId}"
+						class="flex items-center gap-1.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
+					>
 						<SquareUser size={14} class="shrink-0" style="color: {sidebarState.getTeamColor(teamId)}" />
-						{sidebarState.getTeam(teamId)?.name}
+						<span class="hidden sm:inline truncate">{sidebarState.getTeam(teamId)?.name}</span>
 					</a>
 					<ChevronRight size={12} class="shrink-0 text-[var(--color-text-tertiary)]" />
 				{/if}
 				<span class="flex items-center gap-1.5 font-medium text-[var(--color-text-primary)]">
 					<RefreshCcwDot size={14} class="shrink-0" />
-					Cycles
+					<span class="truncate">Cycles</span>
 				</span>
 			</nav>
 		</div>
 		<button
 			onclick={() => (showCreate = true)}
-			class="rounded-md p-1 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+			class="shrink-0 rounded-md p-1 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
 			title="New Cycle"
 		>
 			<Plus size={16} />
@@ -279,23 +306,33 @@
 					{@const today = new Date().toISOString().slice(0, 10)}
 					{@const startPassed = cycle.start_date ? cycle.start_date.slice(0, 10) <= today : false}
 					{@const endPassed = cycle.end_date ? cycle.end_date.slice(0, 10) <= today : false}
-					<div class="relative flex">
+					<div class="relative flex min-w-0">
 						<!-- Timeline spine -->
-						<div class="relative shrink-0 pl-5" style="width: 76px;">
+						<div class="relative w-[60px] shrink-0 pl-3 sm:w-[76px] sm:pl-5">
 							<!-- Continuous vertical line -->
 							<div class="absolute right-[3.25px] {lineColor}" style="width: 1.5px; top: 0; bottom: 4px;"></div>
 							<div class="relative flex h-full flex-col items-end">
 								<!-- End date + dot (top = most recent) — hidden if collapsed with prev -->
 								{#if dates.end && !collapseTop}
 									<div class="relative z-10 flex w-full items-start gap-2">
-										<div class="flex-1 text-right text-[11px] leading-tight text-[var(--color-text-tertiary)] opacity-50">
+										<div
+											class="flex-1 text-right text-[11px] leading-tight text-[var(--color-text-tertiary)] opacity-50"
+										>
 											<div>{dates.end.month}</div>
 											<div class="pl-1">{dates.end.day}</div>
 										</div>
 										{#if endPassed}
-											<div class="mt-0.5 h-2 w-2 shrink-0 rounded-full {isActive ? 'bg-[var(--app-accent)]' : 'bg-[var(--color-text-tertiary)] opacity-60'}"></div>
+											<div
+												class="mt-0.5 h-2 w-2 shrink-0 rounded-full {isActive
+													? 'bg-[var(--app-accent)]'
+													: 'bg-[var(--color-text-tertiary)] opacity-60'}"
+											></div>
 										{:else}
-											<div class="mt-0.5 h-2 w-2 shrink-0 rounded-full border-2 {isActive ? 'border-[var(--app-accent)]' : 'border-[var(--color-text-tertiary)]'} bg-[var(--color-bg)] {isActive ? '' : 'opacity-60'}"></div>
+											<div
+												class="mt-0.5 h-2 w-2 shrink-0 rounded-full border-2 {isActive
+													? 'border-[var(--app-accent)]'
+													: 'border-[var(--color-text-tertiary)]'} bg-[var(--color-bg)] {isActive ? '' : 'opacity-60'}"
+											></div>
 										{/if}
 									</div>
 								{/if}
@@ -303,14 +340,24 @@
 								<!-- Start date + dot (bottom = oldest) -->
 								{#if dates.start}
 									<div class="relative z-10 flex w-full items-end gap-2">
-										<div class="flex-1 text-right text-[11px] leading-tight text-[var(--color-text-tertiary)] opacity-50">
+										<div
+											class="flex-1 text-right text-[11px] leading-tight text-[var(--color-text-tertiary)] opacity-50"
+										>
 											<div>{dates.start.month}</div>
 											<div class="pl-1">{dates.start.day}</div>
 										</div>
 										{#if startPassed}
-											<div class="mb-0.5 h-2 w-2 shrink-0 rounded-full {isActive ? 'bg-[var(--app-accent)]' : 'bg-[var(--color-text-tertiary)] opacity-60'}"></div>
+											<div
+												class="mb-0.5 h-2 w-2 shrink-0 rounded-full {isActive
+													? 'bg-[var(--app-accent)]'
+													: 'bg-[var(--color-text-tertiary)] opacity-60'}"
+											></div>
 										{:else}
-											<div class="mb-0.5 h-2 w-2 shrink-0 rounded-full border-2 {isActive ? 'border-[var(--app-accent)]' : 'border-[var(--color-text-tertiary)]'} bg-[var(--color-bg)] {isActive ? '' : 'opacity-60'}"></div>
+											<div
+												class="mb-0.5 h-2 w-2 shrink-0 rounded-full border-2 {isActive
+													? 'border-[var(--app-accent)]'
+													: 'border-[var(--color-text-tertiary)]'} bg-[var(--color-bg)] {isActive ? '' : 'opacity-60'}"
+											></div>
 										{/if}
 									</div>
 								{/if}
@@ -323,10 +370,18 @@
 							tabindex="0"
 							class="group my-2 mr-2 min-w-0 flex-1 cursor-pointer rounded-md hover:bg-[var(--color-bg-hover)]/30"
 							onclick={() => navigateToCycle(cycle.id)}
-							onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigateToCycle(cycle.id); }}}
+							onkeydown={(e) => {
+								if (e.key === 'Enter' || e.key === ' ') {
+									e.preventDefault();
+									navigateToCycle(cycle.id);
+								}
+							}}
 						>
 							<CycleTimelineRow
-								{cycle} {slug} {teamId} clickable={false}
+								{cycle}
+								{slug}
+								{teamId}
+								clickable={false}
 								onedit={handleEdit}
 								onactivate={handleActivate}
 								oncomplete={handleComplete}
@@ -335,10 +390,11 @@
 
 							<!-- Chart shown only for active cycle -->
 							{#if isActive && cycle.start_date && cycle.end_date}
-								<div class="px-3 pb-3">
+								<div class="hidden px-3 pb-3 sm:block">
 									{#if burndownLoading}
-										<div class="flex h-[200px] items-center justify-center text-sm text-[var(--color-text-tertiary)]">
-										</div>
+										<div
+											class="flex h-[200px] items-center justify-center text-sm text-[var(--color-text-tertiary)]"
+										></div>
 									{:else if burndownData.length > 0}
 										<CycleBurndownChart {cycle} data={burndownData} />
 									{:else}
@@ -354,13 +410,13 @@
 
 				<!-- Archived cycles -->
 				{#if archivedCycles.length > 0}
-					<div class="flex">
-						<div class="relative shrink-0 pl-5" style="width: 76px;">
+					<div class="flex min-w-0">
+						<div class="relative w-[60px] shrink-0 pl-3 sm:w-[76px] sm:pl-5">
 							<div class="absolute top-0 bottom-0 right-[3.25px] bg-[var(--app-border)]" style="width: 1.5px;"></div>
 						</div>
 						<div class="min-w-0 flex-1 py-1">
 							<button
-								onclick={() => archivedExpanded = !archivedExpanded}
+								onclick={() => (archivedExpanded = !archivedExpanded)}
 								class="flex items-center gap-2 rounded-md px-3 py-2 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]"
 							>
 								<Clock size={12} />
@@ -371,17 +427,24 @@
 								<div transition:slideFade>
 									{#each archivedCycles as cycle (cycle.id)}
 										{@const dates = getCycleDates(cycle)}
-										<div class="relative flex">
-											<div class="relative shrink-0 pl-5" style="width: 76px;">
-												<div class="absolute top-0 bottom-0 right-[3.25px] bg-[var(--app-border)]" style="width: 1.5px;"></div>
+										<div class="relative flex min-w-0">
+											<div class="relative w-[60px] shrink-0 pl-3 sm:w-[76px] sm:pl-5">
+												<div
+													class="absolute top-0 bottom-0 right-[3.25px] bg-[var(--app-border)]"
+													style="width: 1.5px;"
+												></div>
 												<div class="relative flex h-full flex-col items-end justify-center py-3">
 													{#if dates.start}
 														<div class="flex w-full items-center gap-2">
-															<div class="flex-1 text-right text-[11px] leading-tight text-[var(--color-text-tertiary)] opacity-50">
+															<div
+																class="flex-1 text-right text-[11px] leading-tight text-[var(--color-text-tertiary)] opacity-50"
+															>
 																<div>{dates.start.month}</div>
 																<div class="pl-1">{dates.start.day}</div>
 															</div>
-															<div class="h-2 w-2 shrink-0 rounded-full bg-[var(--color-text-tertiary)] opacity-50"></div>
+															<div
+																class="h-2 w-2 shrink-0 rounded-full bg-[var(--color-text-tertiary)] opacity-50"
+															></div>
 														</div>
 													{/if}
 												</div>
@@ -400,16 +463,19 @@
 
 			<!-- Velocity chart -->
 			{#if velocityData.length > 0}
-				<div class="mt-4 px-6 pb-4">
+				<div class="mt-4 px-3 pb-4 sm:px-6">
 					<button
-						onclick={() => velocityExpanded = !velocityExpanded}
+						onclick={() => (velocityExpanded = !velocityExpanded)}
 						class="flex items-center gap-2 text-xs font-medium text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
 					>
 						<ChevronRight size={12} class="transition-transform {velocityExpanded ? 'rotate-90' : ''}" />
 						Velocity ({velocityData.length} completed cycle{velocityData.length > 1 ? 's' : ''})
 					</button>
 					{#if velocityExpanded}
-						<div class="mt-2 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-3" transition:slideFade>
+						<div
+							class="mt-2 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-3"
+							transition:slideFade
+						>
 							<CycleVelocityChart data={velocityData} />
 						</div>
 					{/if}

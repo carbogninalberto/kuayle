@@ -4,7 +4,7 @@ Connects GitHub repositories to Kuayle workspaces, automatically linking pull re
 
 ## How It Works
 
-- **Issue linking**: Branch names, PR titles/bodies, and commit messages are scanned for issue identifiers matching the pattern `[A-Z][A-Z0-9]+-\d+` (e.g., `PROJ-42`, `ENG-123`). When a match is found, the GitHub activity is linked to the corresponding issue.
+- **Issue linking**: Branch names, PR titles/bodies, and commit messages are scanned for issue identifiers matching the pattern `[A-Z][A-Z0-9]+-\d+` (e.g., `PROJ-42`, `ENG-123`). The match is case-insensitive — `kua-1`, `KUA-1`, and `Kua-1` all work. When a match is found, the GitHub activity is linked to the corresponding issue.
 - **Auto-transitions**: When GitHub events occur (branch created, PR opened, PR merged), issues are automatically moved to configured statuses (e.g., In Progress, In Review, Done).
 - **Real-time updates**: GitHub activity is pushed to connected clients via WebSocket.
 

@@ -23,7 +23,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var issueIdentifierRegex = regexp.MustCompile(`([A-Z][A-Z0-9]+-\d+)`)
+var issueIdentifierRegex = regexp.MustCompile(`(?i)([A-Z][A-Z0-9]+-\d+)`)
 
 // GlobalGitHubAppConfig holds pre-configured GitHub App credentials for SaaS mode.
 // When set, all workspaces share this app instead of creating per-workspace apps via manifest.
@@ -846,7 +846,7 @@ func (s *GitHubService) resolveIssueFromRef(ctx context.Context, workspaceID uui
 				continue
 			}
 			seen[m] = true
-			issue, err := s.issueRepo.GetByIdentifier(ctx, workspaceID, m)
+			issue, err := s.issueRepo.GetByIdentifier(ctx, workspaceID, strings.ToUpper(m))
 			if err == nil && issue != nil {
 				return issue
 			}
