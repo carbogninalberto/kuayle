@@ -97,8 +97,32 @@
 			loadWorkspaceData(slug);
 			return;
 		}
+		if (resources.includes('workspace')) {
+			getWorkspace(slug).then((ws) => { workspace = ws; }).catch(() => {});
+		}
+		if (resources.includes('teams')) {
+			listTeams(slug).then((t) => {
+				teams = t;
+				sidebarState.teams = t;
+			}).catch(() => {});
+		}
+		if (resources.includes('projects')) {
+			listProjects(slug).then((p) => {
+				projects = p;
+				sidebarState.projects = p;
+			}).catch(() => {});
+		}
+		if (resources.includes('labels')) {
+			listLabels(slug).then((l) => { labels = l; }).catch(() => {});
+		}
+		if (resources.includes('members')) {
+			listMembers(slug).then((m) => { members = m; }).catch(() => {});
+		}
 		if (resources.includes('views')) {
 			reloadViews(slug);
+		}
+		if (resources.includes('notifications')) {
+			listNotifications().then((r) => { unreadCount = r.unread_count; }).catch(() => {});
 		}
 	}
 

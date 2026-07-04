@@ -1,21 +1,28 @@
 import { api } from './client';
+import { emitAppRefresh } from './refresh';
 import type { Team } from '$lib/types/team';
 
 export function listTeams(slug: string): Promise<Team[]> {
 	return api.get<Team[]>(`/api/workspaces/${slug}/teams`);
 }
 
-export function createTeam(
+export async function createTeam(
 	slug: string,
 	data: { name: string; key: string; description?: string; color?: string }
 ): Promise<Team> {
-	return api.post<Team>(`/api/workspaces/${slug}/teams`, data);
+	const team = await api.post<Team>(`/api/workspaces/${slug}/teams`, data);
+	emitAppRefresh(['teams'], slug);
+	return team;
 }
 
-export function deleteTeam(slug: string, teamId: string): Promise<{ status: string }> {
-	return api.delete<{ status: string }>(`/api/workspaces/${slug}/teams/${teamId}`);
+export async function deleteTeam(slug: string, teamId: string): Promise<{ status: string }> {
+	const result = await api.delete<{ status: string }>(`/api/workspaces/${slug}/teams/${teamId}`);
+	emitAppRefresh(['teams'], slug);
+	return result;
 }
 
-export function leaveTeam(slug: string, teamId: string): Promise<{ status: string }> {
-	return api.post<{ status: string }>(`/api/workspaces/${slug}/teams/${teamId}/leave`);
+export async function leaveTeam(slug: string, teamId: string): Promise<{ status: string }> {
+	const result = await api.post<{ status: string }>(`/api/workspaces/${slug}/teams/${teamId}/leave`);
+	emitAppRefresh(['teams'], slug);
+	return result;
 }
