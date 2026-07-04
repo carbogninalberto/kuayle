@@ -31,14 +31,17 @@
 	});
 
 	onMount(() => {
-		function handleViewsChanged(e: Event) {
-			const detail = (e as CustomEvent<{ slug?: string }>).detail;
+		function handleAppRefresh(e: Event) {
+			const detail = (e as CustomEvent<{ slug?: string; resources?: string[] }>).detail;
 			if (detail?.slug && detail.slug !== slug) return;
-			loadViews();
+			const resources = detail?.resources;
+			if (!resources || resources.length === 0 || resources.includes('views')) {
+				loadViews();
+			}
 		}
 
-		window.addEventListener('views:changed', handleViewsChanged);
-		return () => window.removeEventListener('views:changed', handleViewsChanged);
+		window.addEventListener('app:refresh', handleAppRefresh);
+		return () => window.removeEventListener('app:refresh', handleAppRefresh);
 	});
 
 	async function handleDelete(view: View) {

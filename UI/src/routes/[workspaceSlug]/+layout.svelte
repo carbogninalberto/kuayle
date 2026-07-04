@@ -88,10 +88,18 @@
 		}
 	}
 
-	function handleViewsChanged(e: Event) {
-		const detail = (e as CustomEvent<{ slug?: string }>).detail;
+	function handleAppRefresh(e: Event) {
+		const detail = (e as CustomEvent<{ slug?: string; resources?: string[] }>).detail;
 		if (detail?.slug && detail.slug !== slug) return;
-		if (slug) reloadViews(slug);
+		const resources = detail?.resources;
+		if (!slug) return;
+		if (!resources || resources.length === 0) {
+			loadWorkspaceData(slug);
+			return;
+		}
+		if (resources.includes('views')) {
+			reloadViews(slug);
+		}
 	}
 
 	onMount(async () => {
@@ -147,10 +155,10 @@
 
 	onMount(() => {
 		document.addEventListener('keydown', shortcutEngine.handler);
-		window.addEventListener('views:changed', handleViewsChanged);
+		window.addEventListener('app:refresh', handleAppRefresh);
 		return () => {
 			document.removeEventListener('keydown', shortcutEngine.handler);
-			window.removeEventListener('views:changed', handleViewsChanged);
+			window.removeEventListener('app:refresh', handleAppRefresh);
 		};
 	});
 
@@ -304,7 +312,7 @@
 			case 'view.created':
 			case 'view.updated':
 			case 'view.deleted': {
-				window.dispatchEvent(new CustomEvent('views:changed', { detail: msg.payload }));
+				window.dispatchEvent(new CustomEvent('app:refresh', { detail: { ...msg.payload, resources: ['views'] } }));
 				break;
 			}
 			case 'notification.created': {
