@@ -88,6 +88,7 @@
 		const s = slug;
 		const t = teamId;
 		if (!s || !t) return;
+		issuesState.beginLoad(s, getIssueParams());
 		teamStatusesState.reload(s, t);
 		Promise.all([
 			listTeams(s),
@@ -105,7 +106,7 @@
 		});
 	});
 
-	function loadIssues() {
+	function getIssueParams() {
 		const params: Record<string, string> = { team: teamId };
 		for (const [key, value] of Object.entries(filters)) {
 			if (value !== undefined && value !== '') {
@@ -115,6 +116,11 @@
 		if (layout === 'board') {
 			params.per_page = '200';
 		}
+		return params;
+	}
+
+	function loadIssues() {
+		const params = getIssueParams();
 		issuesState.load(slug, params);
 	}
 

@@ -14,6 +14,7 @@ class IssuesState {
 	selectedIds = $state<Set<string>>(new Set());
 	groupBy = $state<GroupByField>('status');
 	private currentSlug = '';
+	private loadRequestId = 0;
 
 	/**
 	 * Key identifying the view (filters) the current selection belongs to.
@@ -153,23 +154,39 @@ class IssuesState {
 		this.selectedIds = new Set();
 	}
 
-	async load(slug: string, params?: Record<string, string>) {
+	clear() {
+		this.issues = [];
+		this.totalCount = 0;
+		this.selectedIssue = null;
+		this.clearSelection();
+	}
+
+	beginLoad(slug: string, params?: Record<string, string>) {
+		this.loadRequestId++;
 		this.currentSlug = slug;
 		// If the view changed, drop any selection from the previous view so
 		// bulk operations remain scoped to the current view.
 		const newScope = this.viewKey(slug, params);
 		if (newScope !== this.selectionScope) {
-			this.clearSelection();
+			this.clear();
 		}
 		this.selectionScope = newScope;
 		this.filters = params ?? {};
 		this.loading = true;
+	}
+
+	async load(slug: string, params?: Record<string, string>) {
+		this.beginLoad(slug, params);
+		const requestId = this.loadRequestId;
 		try {
 			const res = await issueApi.listIssues(slug, params);
+			if (requestId !== this.loadRequestId) return;
 			this.issues = res.data;
 			this.totalCount = res.total_count;
 		} finally {
-			this.loading = false;
+			if (requestId === this.loadRequestId) {
+				this.loading = false;
+			}
 		}
 	}
 
