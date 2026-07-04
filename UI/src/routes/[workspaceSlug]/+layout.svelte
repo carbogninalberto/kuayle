@@ -80,7 +80,53 @@
 		}
 	}
 
-		onMount(async () => {
+	async function reloadViews(workspaceSlug: string) {
+		try {
+			views = await listViews(workspaceSlug);
+		} catch {
+			// Keep the current navigation list if a background refresh fails.
+		}
+	}
+
+	function handleAppRefresh(e: Event) {
+		const detail = (e as CustomEvent<{ slug?: string; resources?: string[] }>).detail;
+		if (detail?.slug && detail.slug !== slug) return;
+		const resources = detail?.resources;
+		if (!slug) return;
+		if (!resources || resources.length === 0) {
+			loadWorkspaceData(slug);
+			return;
+		}
+		if (resources.includes('workspace')) {
+			getWorkspace(slug).then((ws) => { workspace = ws; }).catch(() => {});
+		}
+		if (resources.includes('teams')) {
+			listTeams(slug).then((t) => {
+				teams = t;
+				sidebarState.teams = t;
+			}).catch(() => {});
+		}
+		if (resources.includes('projects')) {
+			listProjects(slug).then((p) => {
+				projects = p;
+				sidebarState.projects = p;
+			}).catch(() => {});
+		}
+		if (resources.includes('labels')) {
+			listLabels(slug).then((l) => { labels = l; }).catch(() => {});
+		}
+		if (resources.includes('members')) {
+			listMembers(slug).then((m) => { members = m; }).catch(() => {});
+		}
+		if (resources.includes('views')) {
+			reloadViews(slug);
+		}
+		if (resources.includes('notifications')) {
+			listNotifications().then((r) => { unreadCount = r.unread_count; }).catch(() => {});
+		}
+	}
+
+	onMount(async () => {
 		await authState.init();
 		if (!authState.authenticated) {
 			goto('/login');
@@ -133,7 +179,11 @@
 
 	onMount(() => {
 		document.addEventListener('keydown', shortcutEngine.handler);
-		return () => document.removeEventListener('keydown', shortcutEngine.handler);
+		window.addEventListener('app:refresh', handleAppRefresh);
+		return () => {
+			document.removeEventListener('keydown', shortcutEngine.handler);
+			window.removeEventListener('app:refresh', handleAppRefresh);
+		};
 	});
 
 	async function handleCreateTeam(data: { name: string; key: string; description?: string }) {
@@ -281,6 +331,12 @@
 			}
 			case 'comment.created': {
 				window.dispatchEvent(new CustomEvent('ws:comment-created', { detail: msg.payload }));
+				break;
+			}
+			case 'view.created':
+			case 'view.updated':
+			case 'view.deleted': {
+				window.dispatchEvent(new CustomEvent('app:refresh', { detail: { ...msg.payload, resources: ['views'] } }));
 				break;
 			}
 			case 'notification.created': {

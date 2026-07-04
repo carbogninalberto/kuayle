@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { listViews, deleteView } from '$lib/api/views';
 	import type { View } from '$lib/types/view';
@@ -14,14 +15,33 @@
 	let views = $state<View[]>([]);
 	let loading = $state(true);
 
-	$effect(() => {
+	async function loadViews() {
 		if (!slug || !teamId) return;
 		loading = true;
-		listViews(slug).then((all) => {
+		try {
+			const all = await listViews(slug);
 			views = all.filter((v) => v.filters?.team === teamId);
-		}).finally(() => {
+		} finally {
 			loading = false;
-		});
+		}
+	}
+
+	$effect(() => {
+		loadViews();
+	});
+
+	onMount(() => {
+		function handleAppRefresh(e: Event) {
+			const detail = (e as CustomEvent<{ slug?: string; resources?: string[] }>).detail;
+			if (detail?.slug && detail.slug !== slug) return;
+			const resources = detail?.resources;
+			if (!resources || resources.length === 0 || resources.includes('views')) {
+				loadViews();
+			}
+		}
+
+		window.addEventListener('app:refresh', handleAppRefresh);
+		return () => window.removeEventListener('app:refresh', handleAppRefresh);
 	});
 
 	async function handleDelete(view: View) {

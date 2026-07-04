@@ -1,26 +1,33 @@
 import { api } from './client';
+import { emitAppRefresh } from './refresh';
 import type { WorkspaceMember } from '$lib/types/workspace';
 
 export function listMembers(slug: string): Promise<WorkspaceMember[]> {
 	return api.get<WorkspaceMember[]>(`/api/workspaces/${slug}/members`);
 }
 
-export function updateMemberRole(
+export async function updateMemberRole(
 	slug: string,
 	userId: string,
 	role: string
 ): Promise<{ status: string }> {
-	return api.patch<{ status: string }>(`/api/workspaces/${slug}/members/${userId}`, { role });
+	const result = await api.patch<{ status: string }>(`/api/workspaces/${slug}/members/${userId}`, { role });
+	emitAppRefresh(['members'], slug);
+	return result;
 }
 
-export function removeMember(slug: string, userId: string): Promise<{ status: string }> {
-	return api.delete<{ status: string }>(`/api/workspaces/${slug}/members/${userId}`);
+export async function removeMember(slug: string, userId: string): Promise<{ status: string }> {
+	const result = await api.delete<{ status: string }>(`/api/workspaces/${slug}/members/${userId}`);
+	emitAppRefresh(['members'], slug);
+	return result;
 }
 
-export function inviteMember(
+export async function inviteMember(
 	slug: string,
 	email: string,
 	role: string
 ): Promise<{ status: string }> {
-	return api.post<{ status: string }>(`/api/workspaces/${slug}/invite`, { email, role });
+	const result = await api.post<{ status: string }>(`/api/workspaces/${slug}/invite`, { email, role });
+	emitAppRefresh(['members'], slug);
+	return result;
 }
