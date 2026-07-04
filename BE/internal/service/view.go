@@ -4,18 +4,24 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
+	"github.com/kuayle/kuayle-backend/internal/realtime"
 	"github.com/kuayle/kuayle-backend/internal/repository"
-	"github.com/google/uuid"
 )
 
 type ViewService struct {
 	viewRepo repository.ViewRepo
+	hub      *realtime.Hub
 }
 
-func NewViewService(viewRepo repository.ViewRepo) *ViewService {
-	return &ViewService{viewRepo: viewRepo}
+func NewViewService(viewRepo repository.ViewRepo, hub ...*realtime.Hub) *ViewService {
+	var h *realtime.Hub
+	if len(hub) > 0 {
+		h = hub[0]
+	}
+	return &ViewService{viewRepo: viewRepo, hub: h}
 }
 
 func (s *ViewService) Create(ctx context.Context, workspaceID, creatorID uuid.UUID, req dto.CreateViewRequest) (*domain.View, error) {
@@ -32,6 +38,8 @@ func (s *ViewService) Create(ctx context.Context, workspaceID, creatorID uuid.UU
 	if err := s.viewRepo.Create(ctx, view); err != nil {
 		return nil, err
 	}
+
+	s.broadcastChange(workspaceID, creatorID, "view.created", view.ID, view.IsShared)
 
 	return view, nil
 }
@@ -53,6 +61,7 @@ func (s *ViewService) Update(ctx context.Context, id, userID uuid.UUID, req dto.
 	if view.CreatorID != userID {
 		return nil, fmt.Errorf("only the creator can update this view")
 	}
+	wasShared := view.IsShared
 
 	if req.Name != nil {
 		view.Name = *req.Name
@@ -71,6 +80,8 @@ func (s *ViewService) Update(ctx context.Context, id, userID uuid.UUID, req dto.
 		return nil, err
 	}
 
+	s.broadcastChange(view.WorkspaceID, userID, "view.updated", view.ID, wasShared || view.IsShared)
+
 	return view, nil
 }
 
@@ -84,5 +95,31 @@ func (s *ViewService) Delete(ctx context.Context, id, userID uuid.UUID) error {
 		return fmt.Errorf("only the creator can delete this view")
 	}
 
-	return s.viewRepo.Delete(ctx, id)
+	if err := s.viewRepo.Delete(ctx, id); err != nil {
+		return err
+	}
+
+	s.broadcastChange(view.WorkspaceID, userID, "view.deleted", view.ID, view.IsShared)
+
+	return nil
+}
+
+func (s *ViewService) broadcastChange(workspaceID, userID uuid.UUID, eventType string, viewID uuid.UUID, broadcastWorkspace bool) {
+	if s.hub == nil {
+		return
+	}
+
+	event := realtime.Event{
+		Type: eventType,
+		Payload: map[string]string{
+			"id": viewID.String(),
+		},
+	}
+
+	if broadcastWorkspace {
+		s.hub.Broadcast(workspaceID, event)
+		return
+	}
+
+	s.hub.BroadcastToUser(workspaceID, userID, event)
 }

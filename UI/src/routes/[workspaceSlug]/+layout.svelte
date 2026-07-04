@@ -80,7 +80,21 @@
 		}
 	}
 
-		onMount(async () => {
+	async function reloadViews(workspaceSlug: string) {
+		try {
+			views = await listViews(workspaceSlug);
+		} catch {
+			// Keep the current navigation list if a background refresh fails.
+		}
+	}
+
+	function handleViewsChanged(e: Event) {
+		const detail = (e as CustomEvent<{ slug?: string }>).detail;
+		if (detail?.slug && detail.slug !== slug) return;
+		if (slug) reloadViews(slug);
+	}
+
+	onMount(async () => {
 		await authState.init();
 		if (!authState.authenticated) {
 			goto('/login');
@@ -133,7 +147,11 @@
 
 	onMount(() => {
 		document.addEventListener('keydown', shortcutEngine.handler);
-		return () => document.removeEventListener('keydown', shortcutEngine.handler);
+		window.addEventListener('views:changed', handleViewsChanged);
+		return () => {
+			document.removeEventListener('keydown', shortcutEngine.handler);
+			window.removeEventListener('views:changed', handleViewsChanged);
+		};
 	});
 
 	async function handleCreateTeam(data: { name: string; key: string; description?: string }) {
@@ -281,6 +299,12 @@
 			}
 			case 'comment.created': {
 				window.dispatchEvent(new CustomEvent('ws:comment-created', { detail: msg.payload }));
+				break;
+			}
+			case 'view.created':
+			case 'view.updated':
+			case 'view.deleted': {
+				window.dispatchEvent(new CustomEvent('views:changed', { detail: msg.payload }));
 				break;
 			}
 			case 'notification.created': {

@@ -81,7 +81,7 @@ func main() {
 	projectSvc := service.NewProjectService(projectRepo)
 	relationSvc := service.NewIssueRelationService(relationRepo, issueRepo)
 	templateSvc := service.NewIssueTemplateService(templateRepo)
-	viewSvc := service.NewViewService(viewRepo)
+	viewSvc := service.NewViewService(viewRepo, hub)
 	cycleSvc := service.NewCycleService(cycleRepo, teamRepo, hub, notifSvc)
 	teamStatusSvc := service.NewTeamStatusService(teamStatusRepo, visibilityRepo)
 	favSvc := service.NewFavoriteService(favRepo)
