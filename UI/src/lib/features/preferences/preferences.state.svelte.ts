@@ -22,6 +22,7 @@ interface PreferencesData {
 	workflowSortMode: WorkflowSortMode;
 	workflowSortOrder: StatusCategory[];
 	teamWorkflowSortOverrides: Record<string, TeamWorkflowSortOverride>;
+	localDirty?: boolean;
 }
 
 const STORAGE_KEY = 'kuayle-preferences';
@@ -50,6 +51,11 @@ class PreferencesState {
 	private systemPrefersDark = $state(true);
 	private initialized = false;
 	private remoteLoaded = false;
+	// Persisted flag: true when local holds changes not yet confirmed by the
+	// server. Prevents a stale remote snapshot from clobbering newer local
+	// edits (e.g. a theme change whose fire-and-forget PATCH hasn't landed
+	// before a reload/remount triggers syncRemote()).
+	private localDirty = false;
 
 	resolvedMode = $derived<'light' | 'dark'>(
 		this.themeMode === 'system' ? (this.systemPrefersDark ? 'dark' : 'light') : this.themeMode
@@ -102,6 +108,7 @@ class PreferencesState {
 			if (data.workflowSortMode) this.workflowSortMode = data.workflowSortMode;
 			if (data.workflowSortOrder) this.workflowSortOrder = normalizeWorkflowSortOrder(data.workflowSortOrder);
 			if (data.teamWorkflowSortOverrides) this.teamWorkflowSortOverrides = normalizeTeamOverrides(data.teamWorkflowSortOverrides);
+			if (data.localDirty !== undefined) this.localDirty = data.localDirty;
 		} catch {
 			// ignore corrupt data
 		}
@@ -118,6 +125,14 @@ class PreferencesState {
 			});
 			if (!res.ok) return;
 			const data = await res.json();
+			// If the user changed something locally since the last confirmed sync
+			// (e.g. picked a new theme but the PATCH hasn't landed, or a reload
+			// happened mid-flight), the remote snapshot is stale relative to local.
+			// Keep local and re-push to reconcile instead of reverting the user.
+			if (this.localDirty) {
+				this.pushRemote();
+				return;
+			}
 			this.fontSize = data.font_size as FontSize;
 			this.pointerCursors = data.pointer_cursors;
 			this.themeMode = data.theme_mode as ThemeMode;
@@ -136,6 +151,7 @@ class PreferencesState {
 					])
 				)
 			);
+			this.localDirty = false;
 			this.persistLocal();
 		} catch {
 			// API unavailable — local-only is fine
@@ -152,12 +168,18 @@ class PreferencesState {
 			workflowSortMode: this.workflowSortMode,
 			workflowSortOrder: this.workflowSortOrder,
 			teamWorkflowSortOverrides: this.teamWorkflowSortOverrides,
+			localDirty: this.localDirty
 		};
 		localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 	}
 
 	private persist() {
+		this.localDirty = true;
 		this.persistLocal();
+		this.pushRemote();
+	}
+
+	private pushRemote() {
 		updatePreferences({
 			font_size: this.fontSize,
 			pointer_cursors: this.pointerCursors,
@@ -174,10 +196,16 @@ class PreferencesState {
 						workflow_sort_order: override.workflowSortOrder
 					}
 				])
-			),
-		}).catch(() => {
-			// fire-and-forget — localStorage is the primary source for instant UX
-		});
+			)
+		})
+			.then(() => {
+				this.localDirty = false;
+				this.persistLocal();
+			})
+			.catch(() => {
+				// keep localDirty — localStorage is the primary source for instant UX;
+				// the change will be re-pushed on the next sync.
+			});
 	}
 
 	setFontSize(size: FontSize) {
