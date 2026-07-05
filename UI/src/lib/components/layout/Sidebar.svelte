@@ -42,7 +42,8 @@
 		Search,
 		Ellipsis,
 		Trash2,
-		Info
+		Info,
+		CircleQuestionMark
 	} from 'lucide-svelte';
 
 	let {
@@ -59,7 +60,8 @@
 		onleaveteam,
 		ondeleteteam,
 		onsearch,
-		onnavigate
+		onnavigate,
+		onshortcutshelp
 	}: {
 		workspace: Workspace;
 		teams: Team[];
@@ -75,6 +77,7 @@
 		ondeleteteam?: (team: Team) => void;
 		onsearch?: () => void;
 		onnavigate?: () => void;
+		onshortcutshelp?: () => void;
 	} = $props();
 
 	const currentPath = $derived(page.url.pathname);
@@ -674,13 +677,13 @@
 	</nav>
 
 	<!-- Profile -->
-	<div class="px-2 py-2">
+	<div class="flex items-center gap-2 px-2 py-2">
 		<Popover.Root>
 			<Popover.Trigger>
 				{#if authState.user?.avatar_url}
-					<img src={authState.user.avatar_url} alt="" class="h-7 w-7 cursor-pointer rounded-full transition-[filter] hover:brightness-125" />
+					<img src={authState.user.avatar_url} alt="" class="h-7 w-7 shrink-0 cursor-pointer rounded-full transition-[filter] hover:brightness-125" />
 				{:else}
-					<div class="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-[var(--app-accent)] text-xs font-bold text-[var(--app-accent-foreground)] transition-[filter] hover:brightness-125">
+					<div class="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-full bg-[var(--app-accent)] text-xs font-bold text-[var(--app-accent-foreground)] transition-[filter] hover:brightness-125">
 						{(authState.user?.name ?? 'U').charAt(0).toUpperCase()}
 					</div>
 				{/if}
@@ -713,5 +716,13 @@
 				</div>
 			</Popover.Content>
 		</Popover.Root>
+		<button
+			onclick={() => onshortcutshelp?.()}
+			class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[var(--app-border)] text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+			aria-label="Keyboard shortcuts"
+			title="Keyboard shortcuts (?)"
+		>
+			<CircleQuestionMark size={16} />
+		</button>
 	</div>
 {/snippet}

@@ -376,11 +376,6 @@
 			{/if}
 
 			<BulkActionBar {slug} {labels} onlabelcreated={(label) => (labels = [label, ...labels.filter((existing) => existing.id !== label.id)])} />
-
-			<!-- Shortcuts hint -->
-			<div class="py-2 text-center text-xs text-[var(--color-text-tertiary)]">
-				Press <kbd class="rounded border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-1 py-0.5 text-[10px]">?</kbd> for shortcuts
-			</div>
 		</div>
 	{:else}
 		{#if !issuesState.loading}
