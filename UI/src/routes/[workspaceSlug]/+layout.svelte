@@ -373,6 +373,7 @@
 					onleaveteam={handleLeaveTeam}
 					ondeleteteam={handleDeleteTeam}
 					onsearch={() => (showCommandPalette = true)}
+					onshortcutshelp={() => (showShortcutHelp = true)}
 				/>
 			</div>
 
@@ -394,9 +395,10 @@
 						oncreateteam={() => { showCreateTeam = true; showMobileSidebar = false; }}
 						onleaveteam={(team) => { showMobileSidebar = false; handleLeaveTeam(team); }}
 						ondeleteteam={(team) => { showMobileSidebar = false; handleDeleteTeam(team); }}
-						onsearch={() => { showCommandPalette = true; showMobileSidebar = false; }}
-						onnavigate={() => (showMobileSidebar = false)}
-					/>
+					onsearch={() => { showCommandPalette = true; showMobileSidebar = false; }}
+					onnavigate={() => (showMobileSidebar = false)}
+					onshortcutshelp={() => { showMobileSidebar = false; showShortcutHelp = true; }}
+				/>
 				</Sheet.Content>
 			</Sheet.Root>
 		{/if}
