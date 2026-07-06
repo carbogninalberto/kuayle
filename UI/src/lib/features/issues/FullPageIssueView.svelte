@@ -38,6 +38,7 @@
 	import { sanitizeHtml } from '$lib/security/sanitize';
 	import { presenceState } from '$lib/features/presence/presence.state.svelte';
 	import CreateIssueDialog from './CreateIssueDialog.svelte';
+	import { showIssueCreatedToast } from './issue-created-toast';
 	import type { Team } from '$lib/types/team';
 	import { listTeams } from '$lib/api/teams';
 
@@ -1215,7 +1216,7 @@
 	onsubmit={async (req) => {
 		try {
 			const created = await issuesState.create(slug, req);
-			toast.success(`Issue ${created.identifier} created`);
+			showIssueCreatedToast(slug, created);
 			createIssueTitle = '';
 		} catch (err: any) {
 			toast.error(err?.error?.message || 'Failed to create issue');

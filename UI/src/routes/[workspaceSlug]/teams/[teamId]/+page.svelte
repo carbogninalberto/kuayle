@@ -14,6 +14,7 @@
 	import ViewSwitcher from '$lib/components/shared/ViewSwitcher.svelte';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
 	import CreateIssueDialog from '$lib/features/issues/CreateIssueDialog.svelte';
+	import { showIssueCreatedToast } from '$lib/features/issues/issue-created-toast';
 	import SaveViewDialog from '$lib/components/shared/SaveViewDialog.svelte';
 	import * as Popover from '$lib/components/ui/popover';
 	import { listTeams } from '$lib/api/teams';
@@ -543,8 +544,8 @@
 	onlabelcreated={(label) => (labels = [label, ...labels.filter((existing) => existing.id !== label.id)])}
 	onsubmit={async (req) => {
 		try {
-			await issuesState.create(slug, req);
-			toast.success('Issue created');
+			const created = await issuesState.create(slug, req);
+			showIssueCreatedToast(slug, created);
 		} catch (err: any) {
 			toast.error(err?.error?.message || 'Failed to create issue');
 		}
