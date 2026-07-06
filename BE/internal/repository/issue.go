@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/kuayle/kuayle-backend/internal/domain"
-	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"github.com/kuayle/kuayle-backend/internal/domain"
+	"github.com/kuayle/kuayle-backend/internal/dto"
 )
 
 type IssueRepository struct {
@@ -141,7 +141,65 @@ func (r *IssueRepository) List(ctx context.Context, workspaceID uuid.UUID, param
 		args["label_id"] = params.LabelID
 	}
 	if params.Search != "" {
-		where = append(where, "(i.title ILIKE :search OR i.identifier_text ILIKE :search)")
+		searchFields := []string{
+			"i.title ILIKE :search",
+			"i.identifier_text ILIKE :search",
+			"i.description ILIKE :search",
+			"i.status ILIKE :search",
+			"CAST(i.number AS TEXT) ILIKE :search",
+			"CAST(i.priority AS TEXT) ILIKE :search",
+			"CASE i.priority WHEN 0 THEN 'No priority' WHEN 1 THEN 'Urgent' WHEN 2 THEN 'High' WHEN 3 THEN 'Medium' WHEN 4 THEN 'Low' END ILIKE :search",
+			"TO_CHAR(i.due_date, 'YYYY-MM-DD') ILIKE :search",
+			`EXISTS (
+				SELECT 1 FROM team_statuses ts
+				WHERE ts.id = i.status_id
+				AND (ts.name ILIKE :search OR ts.slug ILIKE :search OR ts.category ILIKE :search)
+			)`,
+			`EXISTS (
+				SELECT 1 FROM projects p
+				WHERE p.id = i.project_id
+				AND (p.name ILIKE :search OR p.description ILIKE :search OR p.status ILIKE :search)
+			)`,
+			`EXISTS (
+				SELECT 1 FROM cycles c
+				WHERE c.id = i.cycle_id
+				AND (
+					c.name ILIKE :search OR c.status ILIKE :search OR c.description ILIKE :search
+					OR c.goals ILIKE :search OR c.retrospective ILIKE :search
+					OR TO_CHAR(c.start_date, 'YYYY-MM-DD') ILIKE :search
+					OR TO_CHAR(c.end_date, 'YYYY-MM-DD') ILIKE :search
+				)
+			)`,
+			`EXISTS (
+				SELECT 1 FROM users u
+				WHERE u.id = i.creator_id
+				AND (u.name ILIKE :search OR u.display_name ILIKE :search OR u.email ILIKE :search)
+			)`,
+			`EXISTS (
+				SELECT 1 FROM users u
+				WHERE u.id = i.assignee_id
+				AND (u.name ILIKE :search OR u.display_name ILIKE :search OR u.email ILIKE :search)
+			)`,
+			`EXISTS (
+				SELECT 1 FROM issue_assignees ia
+				INNER JOIN users u ON u.id = ia.user_id
+				WHERE ia.issue_id = i.id
+				AND (u.name ILIKE :search OR u.display_name ILIKE :search OR u.email ILIKE :search)
+			)`,
+			`EXISTS (
+				SELECT 1 FROM issue_labels il
+				INNER JOIN labels l ON l.id = il.label_id
+				WHERE il.issue_id = i.id
+				AND l.deleted_at IS NULL
+				AND (l.name ILIKE :search OR l.description ILIKE :search OR l.color ILIKE :search)
+			)`,
+			`EXISTS (
+				SELECT 1 FROM teams t
+				WHERE t.id = i.team_id
+				AND (t.name ILIKE :search OR t.key ILIKE :search OR t.description ILIKE :search)
+			)`,
+		}
+		where = append(where, "("+strings.Join(searchFields, " OR ")+")")
 		args["search"] = "%" + params.Search + "%"
 	}
 	if params.DueBefore != "" {
