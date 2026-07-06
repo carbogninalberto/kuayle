@@ -21,7 +21,8 @@
 		Signal,
 		User,
 		FolderKanban,
-		Tag
+		Tag,
+		CornerDownRight
 	} from 'lucide-svelte';
 
 	let {
@@ -48,6 +49,7 @@
 	let assigneeOpen = $state(false);
 	let projectOpen = $state(false);
 	let labelOpen = $state(false);
+	let subIssuesOpen = $state(false);
 	let searchValue = $state(filters.search ?? '');
 	let searchTimeout: ReturnType<typeof setTimeout>;
 
@@ -77,8 +79,16 @@
 		{ key: 'priority', label: 'Priority', icon: Signal },
 		{ key: 'assignee', label: 'Assignee', icon: User },
 		{ key: 'project', label: 'Project', icon: FolderKanban },
-		{ key: 'label', label: 'Label', icon: Tag }
+		{ key: 'label', label: 'Label', icon: Tag },
+		{ key: 'sub_issues', label: 'Sub-issues', icon: CornerDownRight }
 	] as const;
+
+	const SUB_ISSUE_FILTERS = [
+		{ value: 'include', label: 'Show all issues' },
+		{ value: 'exclude', label: 'Hide sub-issues' },
+		{ value: 'only', label: 'Only sub-issues' },
+		{ value: 'has_sub_issues', label: 'Has sub-issues' }
+	];
 
 	let availableFilters = $derived(
 		FILTER_OPTIONS.filter((f) => !visibleFilters.has(f.key))
@@ -163,6 +173,7 @@
 				case 'assignee': assigneeOpen = true; break;
 				case 'project': projectOpen = true; break;
 				case 'label': labelOpen = true; break;
+				case 'sub_issues': subIssuesOpen = true; break;
 			}
 		});
 	}
@@ -213,6 +224,10 @@
 		return l?.name || 'Label';
 	}
 
+	function getSubIssuesChipLabel(): string {
+		return SUB_ISSUE_FILTERS.find((option) => option.value === filters.sub_issues)?.label ?? 'Sub-issues';
+	}
+
 	function getChipLabel(key: string): string {
 		switch (key) {
 			case 'status':
@@ -225,6 +240,8 @@
 				return getProjectChipLabel();
 			case 'label':
 				return getLabelChipLabel();
+			case 'sub_issues':
+				return getSubIssuesChipLabel();
 			default:
 				return key;
 		}
@@ -324,6 +341,13 @@
 				{#if labels.length === 0}
 					<p class="px-2 py-3 text-center text-xs text-[var(--color-text-tertiary)]">No labels</p>
 				{/if}
+			{:else if key === 'sub_issues'}
+				{#each SUB_ISSUE_FILTERS as option}
+					<div class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)]">
+						<Checkbox checked={filters.sub_issues === option.value} class="pointer-events-none" />
+						{option.label}
+					</div>
+				{/each}
 			{/if}
 		{/snippet}
 
@@ -499,6 +523,36 @@
 					<Separator class="my-1" />
 					<button
 						onclick={() => removeFilter('label')}
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
+					>
+						<X size={12} />
+						Remove filter
+					</button>
+				</Popover.Content>
+			</Popover.Root>
+		{/if}
+
+		{#if visibleFilters.has('sub_issues')}
+			<Popover.Root bind:open={subIssuesOpen} onOpenChange={(open) => handlePopoverClose('sub_issues', open)}>
+				<Popover.Trigger>
+					<button class={chipClass(!!filters.sub_issues)}>
+						<CornerDownRight size={12} />
+						{getSubIssuesChipLabel()}
+					</button>
+				</Popover.Trigger>
+				<Popover.Content class="w-52 p-1" align="start">
+					{#each SUB_ISSUE_FILTERS as option}
+						<button
+							onclick={() => updateFilter('sub_issues', option.value)}
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {filters.sub_issues === option.value ? 'bg-[var(--color-bg-hover)]' : ''}"
+						>
+							<Checkbox checked={filters.sub_issues === option.value} />
+							{option.label}
+						</button>
+					{/each}
+					<Separator class="my-1" />
+					<button
+						onclick={() => removeFilter('sub_issues')}
 						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
 					>
 						<X size={12} />

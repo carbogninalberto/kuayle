@@ -8,6 +8,7 @@
 	import type { Cycle } from '$lib/types/cycle';
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
 	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
+	import SubIssueCounterTag from './SubIssueCounterTag.svelte';
 	import IssueContextMenu from './IssueContextMenu.svelte';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import * as Popover from '$lib/components/ui/popover';
@@ -197,6 +198,8 @@
 				ondblclick={startEditing}
 			>{issue.title}</span>
 		{/if}
+
+		<SubIssueCounterTag issue={issue} {slug} {members} onclickissue={onclick} compact />
 
 		<!-- Labels (Linear-style: dot + name) -->
 		{#if issue.labels && issue.labels.length > 0}

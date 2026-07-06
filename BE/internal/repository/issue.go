@@ -217,6 +217,22 @@ func (r *IssueRepository) List(ctx context.Context, workspaceID uuid.UUID, param
 			where = append(where, "i.triaged = true")
 		}
 	}
+	if params.ParentID != "" {
+		if params.ParentID == "none" {
+			where = append(where, "i.parent_id IS NULL")
+		} else {
+			where = append(where, "i.parent_id = :parent_id")
+			args["parent_id"] = params.ParentID
+		}
+	}
+	switch params.SubIssues {
+	case "exclude", "top_level":
+		where = append(where, "i.parent_id IS NULL")
+	case "only":
+		where = append(where, "i.parent_id IS NOT NULL")
+	case "has_sub_issues":
+		where = append(where, "EXISTS (SELECT 1 FROM issues child WHERE child.parent_id = i.id)")
+	}
 
 	whereClause := strings.Join(where, " AND ")
 
@@ -352,6 +368,65 @@ func (r *IssueRepository) CountSubIssues(ctx context.Context, parentID uuid.UUID
 	var total, done int
 	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*), COUNT(*) FILTER (WHERE ts.category IN ('completed', 'cancelled')) FROM issues i LEFT JOIN team_statuses ts ON ts.id = i.status_id WHERE i.parent_id = $1`, parentID).Scan(&total, &done)
 	return total, done, err
+}
+
+func (r *IssueRepository) CountSubIssuesForIssues(ctx context.Context, issueIDs []uuid.UUID) (map[uuid.UUID]domain.SubIssueCount, error) {
+	result := make(map[uuid.UUID]domain.SubIssueCount, len(issueIDs))
+	if len(issueIDs) == 0 {
+		return result, nil
+	}
+
+	query, args, err := sqlx.In(`
+		SELECT i.parent_id AS issue_id,
+			COUNT(*) AS total,
+			COUNT(*) FILTER (WHERE ts.category IN ('completed', 'cancelled')) AS done
+		FROM issues i
+		LEFT JOIN team_statuses ts ON ts.id = i.status_id
+		WHERE i.parent_id IN (?)
+		GROUP BY i.parent_id`, issueIDs)
+	if err != nil {
+		return nil, err
+	}
+	query = r.db.Rebind(query)
+
+	var rows []domain.SubIssueCount
+	if err := r.db.SelectContext(ctx, &rows, query, args...); err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		result[row.IssueID] = row
+	}
+	return result, nil
+}
+
+func (r *IssueRepository) WouldCreateCycle(ctx context.Context, issueID, parentID uuid.UUID) (bool, error) {
+	if issueID == parentID {
+		return true, nil
+	}
+	var exists bool
+	err := r.db.GetContext(ctx, &exists, `
+		WITH RECURSIVE descendants AS (
+			SELECT id
+			FROM issues
+			WHERE parent_id = $1
+
+			UNION ALL
+
+			SELECT i.id
+			FROM issues i
+			INNER JOIN descendants d ON i.parent_id = d.id
+		)
+		SELECT EXISTS (SELECT 1 FROM descendants WHERE id = $2)`, issueID, parentID)
+	return exists, err
+}
+
+func (r *IssueRepository) CycleIsActive(ctx context.Context, cycleID uuid.UUID) (bool, error) {
+	var active bool
+	err := r.db.GetContext(ctx, &active, `SELECT status = 'active' FROM cycles WHERE id = $1`, cycleID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return active, err
 }
 
 func (r *IssueRepository) BulkUpdate(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID, status *string, priority *int, assigneeID *uuid.UUID, statusID *uuid.UUID) (int, error) {

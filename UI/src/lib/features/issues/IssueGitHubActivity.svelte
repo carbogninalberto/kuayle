@@ -3,8 +3,7 @@
 	import { getIssueGitHubActivity } from '$lib/api/github';
 	import type { GitHubIssueActivity } from '$lib/types/github';
 	import { formatRelativeTime } from '$lib/utils/format';
-	import { GitBranch, GitPullRequest, GitCommitHorizontal, ExternalLink, Copy, Check, ChevronDown } from 'lucide-svelte';
-	import { Badge } from '$lib/components/ui/badge';
+	import { GitBranch, GitPullRequest, GitCommitHorizontal, ExternalLink, Copy, Check, ChevronRight } from 'lucide-svelte';
 	import { toast } from 'svelte-sonner';
 
 	let { slug, identifier }: { slug: string; identifier: string } = $props();
@@ -50,45 +49,52 @@
 		setTimeout(() => { copiedBranch = null; }, 2000);
 	}
 
-	function prStateBadge(state: string): 'default' | 'secondary' | 'outline' | 'destructive' {
+	function prStateClass(state: string) {
 		switch (state) {
-			case 'merged': return 'default';
-			case 'open': return 'secondary';
-			case 'draft': return 'outline';
-			case 'closed': return 'destructive';
-			default: return 'outline';
+			case 'merged': return 'bg-purple-500/10 text-purple-400 border-purple-500/20';
+			case 'open': return 'bg-green-500/10 text-green-400 border-green-500/20';
+			case 'draft': return 'bg-[var(--color-bg-tertiary)] text-[var(--color-text-tertiary)] border-[var(--app-border)]';
+			case 'closed': return 'bg-red-500/10 text-red-400 border-red-500/20';
+			default: return 'bg-[var(--color-bg-tertiary)] text-[var(--color-text-tertiary)] border-[var(--app-border)]';
 		}
 	}
+
+	let referenceCount = $derived(
+		activity ? activity.pull_requests.length + activity.branches.length + activity.commits.length : 0
+	);
 </script>
 
 {#if !loading && hasActivity}
-	<div class="border-t border-[var(--app-border)] pt-3">
+	<div class="overflow-hidden rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]/60">
 		<button
 			onclick={() => (expanded = !expanded)}
-			class="flex w-full items-center gap-2 text-xs font-medium text-[var(--color-text-secondary)]"
+			class="flex w-full items-center gap-2 px-3 py-2 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
 		>
-			<GitBranch size={13} class="shrink-0" />
-			GitHub
-			<ChevronDown size={12} class="ml-auto transition-transform {expanded ? '' : '-rotate-90'}" />
+			<ChevronRight size={14} class="transition-transform {expanded ? 'rotate-90' : ''}" />
+			<GitBranch size={14} class="shrink-0" />
+			<span class="font-medium">GitHub</span>
+			<span class="rounded-full bg-[var(--color-bg-tertiary)] px-2 py-0.5 text-xs text-[var(--color-text-tertiary)]">
+				{referenceCount}
+			</span>
 		</button>
 
 		{#if expanded && activity}
-			<div class="mt-2 space-y-2">
+			<div class="border-t border-[var(--app-border)]">
 				<!-- Pull Requests -->
 				{#each activity.pull_requests as pr}
 					<a
 						href={pr.html_url}
 						target="_blank"
 						rel="noopener"
-						class="group flex items-start gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-[var(--color-bg-hover)]"
+						class="group flex items-start gap-2 px-3 py-2 text-xs transition-colors hover:bg-[var(--color-bg-hover)]"
 					>
 						<GitPullRequest size={13} class="mt-0.5 shrink-0 {pr.state === 'merged' ? 'text-purple-500' : pr.state === 'open' ? 'text-green-500' : 'text-[var(--color-text-tertiary)]'}" />
 						<div class="min-w-0 flex-1">
 							<div class="flex items-center gap-1.5">
-								<span class="truncate text-[var(--color-text-primary)]">{pr.title}</span>
-								<Badge variant={prStateBadge(pr.state)} class="shrink-0 text-[9px]">{pr.state}</Badge>
+								<span class="min-w-0 flex-1 truncate text-[var(--color-text-primary)]">{pr.title}</span>
+								<span class="shrink-0 rounded-full border px-1.5 py-0 text-[9px] leading-4 {prStateClass(pr.state)}">{pr.state}</span>
 							</div>
-							<div class="mt-0.5 flex items-center gap-2 text-[var(--color-text-tertiary)]">
+							<div class="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[var(--color-text-tertiary)]">
 								<span>{pr.repo_full_name}#{pr.number}</span>
 								<span class="text-green-600">+{pr.additions}</span>
 								<span class="text-red-500">-{pr.deletions}</span>
@@ -101,12 +107,15 @@
 
 				<!-- Branches -->
 				{#each activity.branches as branch}
-					<div class="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs">
+					<div class="flex items-center gap-2 px-3 py-2 text-xs transition-colors hover:bg-[var(--color-bg-hover)]">
 						<GitBranch size={13} class="shrink-0 text-[var(--color-text-tertiary)]" />
-						<code class="min-w-0 flex-1 truncate rounded bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 text-[var(--color-text-primary)]">{branch.name}</code>
+						<div class="min-w-0 flex-1">
+							<code class="block truncate text-[var(--color-text-primary)]">{branch.name}</code>
+							<div class="mt-0.5 truncate text-[var(--color-text-tertiary)]">{branch.repo_full_name}</div>
+						</div>
 						<button
 							onclick={() => copyBranch(branch.name)}
-							class="shrink-0 rounded p-0.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
+							class="shrink-0 rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-secondary)]"
 							title="Copy branch name"
 						>
 							{#if copiedBranch === branch.name}
@@ -116,7 +125,7 @@
 							{/if}
 						</button>
 						{#if branch.html_url}
-							<a href={branch.html_url} target="_blank" rel="noopener" class="shrink-0 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]">
+							<a href={branch.html_url} target="_blank" rel="noopener" class="shrink-0 rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-secondary)]">
 								<ExternalLink size={12} />
 							</a>
 						{/if}
@@ -129,13 +138,14 @@
 						href={commit.html_url}
 						target="_blank"
 						rel="noopener"
-						class="group flex items-start gap-2 rounded-md px-2 py-1 text-xs hover:bg-[var(--color-bg-hover)]"
+						class="group flex items-start gap-2 px-3 py-2 text-xs transition-colors hover:bg-[var(--color-bg-hover)]"
 					>
 						<GitCommitHorizontal size={13} class="mt-0.5 shrink-0 text-[var(--color-text-tertiary)]" />
 						<div class="min-w-0 flex-1">
-							<span class="truncate text-[var(--color-text-primary)]">{commit.message.split('\n')[0]}</span>
-							<div class="mt-0.5 flex items-center gap-2 text-[var(--color-text-tertiary)]">
+							<div class="truncate text-[var(--color-text-primary)]">{commit.message.split('\n')[0]}</div>
+							<div class="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[var(--color-text-tertiary)]">
 								<code>{commit.short_sha}</code>
+								<span>{commit.repo_full_name}</span>
 								{#if commit.author_login}
 									<span>{commit.author_login}</span>
 								{/if}
@@ -145,7 +155,7 @@
 					</a>
 				{/each}
 				{#if activity.commits.length > 5}
-					<p class="px-2 text-[10px] text-[var(--color-text-tertiary)]">
+					<p class="px-3 py-2 text-[10px] text-[var(--color-text-tertiary)]">
 						+{activity.commits.length - 5} more commit{activity.commits.length - 5 > 1 ? 's' : ''}
 					</p>
 				{/if}

@@ -130,14 +130,16 @@ func (h *TeamHandler) Leave(c echo.Context) error {
 
 func toTeamResponse(t domain.Team) dto.TeamResponse {
 	return dto.TeamResponse{
-		ID:            t.ID.String(),
-		Name:          t.Name,
-		Key:           t.Key,
-		Description:   t.Description,
-		Color:         t.Color,
-		Icon:          t.Icon,
-		TriageEnabled: t.TriageEnabled,
-		CreatedAt:     t.CreatedAt,
-		UpdatedAt:     t.UpdatedAt,
+		ID:                       t.ID.String(),
+		Name:                     t.Name,
+		Key:                      t.Key,
+		Description:              t.Description,
+		Color:                    t.Color,
+		Icon:                     t.Icon,
+		TriageEnabled:            t.TriageEnabled,
+		ParentAutoCloseEnabled:   t.ParentAutoCloseEnabled,
+		SubIssueAutoCloseEnabled: t.SubIssueAutoCloseEnabled,
+		CreatedAt:                t.CreatedAt,
+		UpdatedAt:                t.UpdatedAt,
 	}
 }

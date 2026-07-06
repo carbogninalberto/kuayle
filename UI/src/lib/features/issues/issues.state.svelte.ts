@@ -237,7 +237,7 @@ class IssuesState {
 		}
 	}
 
-	async bulkUpdate(slug: string, updates: { status?: string; status_id?: string; priority?: number; assignee_id?: string; label_ids?: string[] }) {
+	async bulkUpdate(slug: string, updates: { status?: string; status_id?: string; priority?: number; assignee_id?: string; label_ids?: string[]; parent_id?: string }) {
 		const issueIds = Array.from(this.selectedIds);
 		if (issueIds.length === 0) return;
 
@@ -250,6 +250,7 @@ class IssuesState {
 				if (updates.status) (issue as any).status = updates.status;
 				if (updates.priority !== undefined) (issue as any).priority = updates.priority;
 				if (updates.assignee_id) (issue as any).assignee_id = updates.assignee_id;
+				if (updates.parent_id !== undefined) (issue as any).parent_id = updates.parent_id || null;
 			}
 		}
 		this.clearSelection();

@@ -18,14 +18,19 @@ import (
 type IssueService struct {
 	issueRepo      repository.IssueRepo
 	teamRepo       repository.TeamRepo
+	projectRepo    repository.ProjectRepo
 	teamStatusRepo repository.TeamStatusRepo
 	historyRepo    repository.IssueHistoryRepo
 	hub            *realtime.Hub
 	notifSvc       *NotificationService
 }
 
-func NewIssueService(issueRepo repository.IssueRepo, teamRepo repository.TeamRepo, teamStatusRepo repository.TeamStatusRepo, historyRepo repository.IssueHistoryRepo, hub *realtime.Hub, notifSvc *NotificationService) *IssueService {
-	return &IssueService{issueRepo: issueRepo, teamRepo: teamRepo, teamStatusRepo: teamStatusRepo, historyRepo: historyRepo, hub: hub, notifSvc: notifSvc}
+func NewIssueService(issueRepo repository.IssueRepo, teamRepo repository.TeamRepo, teamStatusRepo repository.TeamStatusRepo, historyRepo repository.IssueHistoryRepo, hub *realtime.Hub, notifSvc *NotificationService, projectRepo ...repository.ProjectRepo) *IssueService {
+	svc := &IssueService{issueRepo: issueRepo, teamRepo: teamRepo, teamStatusRepo: teamStatusRepo, historyRepo: historyRepo, hub: hub, notifSvc: notifSvc}
+	if len(projectRepo) > 0 {
+		svc.projectRepo = projectRepo[0]
+	}
+	return svc
 }
 
 func (s *IssueService) Create(ctx context.Context, workspaceID, creatorID uuid.UUID, req dto.CreateIssueRequest) (*domain.Issue, error) {
@@ -97,8 +102,11 @@ func (s *IssueService) Create(ctx context.Context, workspaceID, creatorID uuid.U
 		issue.CycleID = &cid
 	}
 	if req.ParentID != nil {
-		pid, _ := uuid.Parse(*req.ParentID)
-		issue.ParentID = &pid
+		pid, _, err := s.validateParentID(ctx, workspaceID, uuid.Nil, *req.ParentID)
+		if err != nil {
+			return nil, err
+		}
+		issue.ParentID = pid
 	}
 	if req.DueDate != nil && *req.DueDate != "" {
 		t, err := time.Parse("2006-01-02", *req.DueDate)
@@ -174,8 +182,207 @@ func (s *IssueService) Create(ctx context.Context, workspaceID, creatorID uuid.U
 	return issue, nil
 }
 
+func (s *IssueService) CreateSubIssue(ctx context.Context, workspaceID, creatorID uuid.UUID, parentIdentifier string, req dto.CreateSubIssueRequest) (*domain.Issue, error) {
+	parent, err := s.issueRepo.GetByIdentifier(ctx, workspaceID, parentIdentifier)
+	if err != nil || parent == nil {
+		return nil, fmt.Errorf("parent issue not found")
+	}
+
+	priority := int(parent.Priority)
+	if req.Priority != nil {
+		priority = *req.Priority
+	}
+	parentID := parent.ID.String()
+	createReq := dto.CreateIssueRequest{
+		Title:       req.Title,
+		Description: req.Description,
+		Status:      req.Status,
+		StatusID:    req.StatusID,
+		Priority:    &priority,
+		TeamID:      parent.TeamID.String(),
+		ProjectID:   req.ProjectID,
+		AssigneeID:  req.AssigneeID,
+		AssigneeIDs: req.AssigneeIDs,
+		LabelIDs:    req.LabelIDs,
+		ParentID:    &parentID,
+		DueDate:     req.DueDate,
+		CycleID:     req.CycleID,
+	}
+
+	if createReq.ProjectID == nil && parent.ProjectID != nil {
+		pid := parent.ProjectID.String()
+		createReq.ProjectID = &pid
+	}
+	if createReq.CycleID == nil && parent.CycleID != nil {
+		active, _ := s.issueRepo.CycleIsActive(ctx, *parent.CycleID)
+		if active {
+			cid := parent.CycleID.String()
+			createReq.CycleID = &cid
+		}
+	}
+	if len(createReq.AssigneeIDs) == 0 && createReq.AssigneeID == nil {
+		createReq.AssigneeIDs = s.inheritSubIssueAssignees(ctx, parent, creatorID)
+	}
+
+	return s.Create(ctx, workspaceID, creatorID, createReq)
+}
+
+func (s *IssueService) BulkCreateSubIssues(ctx context.Context, workspaceID, creatorID uuid.UUID, parentIdentifier string, req dto.BulkCreateSubIssueRequest) ([]domain.Issue, error) {
+	created := make([]domain.Issue, 0, len(req.Issues))
+	for _, subReq := range req.Issues {
+		issue, err := s.CreateSubIssue(ctx, workspaceID, creatorID, parentIdentifier, subReq)
+		if err != nil {
+			return nil, err
+		}
+		created = append(created, *issue)
+	}
+	return created, nil
+}
+
+func (s *IssueService) Duplicate(ctx context.Context, workspaceID, creatorID uuid.UUID, identifier string, includeSubIssues bool) (*domain.Issue, error) {
+	original, err := s.issueRepo.GetByIdentifier(ctx, workspaceID, identifier)
+	if err != nil || original == nil {
+		return nil, fmt.Errorf("issue not found")
+	}
+
+	duplicated, err := s.duplicateIssue(ctx, workspaceID, creatorID, original, nil, true)
+	if err != nil {
+		return nil, err
+	}
+
+	if includeSubIssues {
+		subIssues, err := s.issueRepo.ListSubIssues(ctx, original.ID)
+		if err != nil {
+			return nil, err
+		}
+		for i := range subIssues {
+			if _, err := s.duplicateIssue(ctx, workspaceID, creatorID, &subIssues[i], &duplicated.ID, false); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	return duplicated, nil
+}
+
+func (s *IssueService) ConvertToProject(ctx context.Context, workspaceID, userID uuid.UUID, identifier string) (*domain.Project, error) {
+	if s.projectRepo == nil {
+		return nil, fmt.Errorf("project repository unavailable")
+	}
+	issue, err := s.issueRepo.GetByIdentifier(ctx, workspaceID, identifier)
+	if err != nil || issue == nil {
+		return nil, fmt.Errorf("issue not found")
+	}
+
+	project := &domain.Project{
+		ID:          uuid.New(),
+		WorkspaceID: workspaceID,
+		TeamID:      &issue.TeamID,
+		Name:        sanitize.PlainText(sanitize.StripHTML(issue.Title)),
+		Description: issue.Description,
+		Status:      domain.ProjectStatusPlanned,
+		SortOrder:   issue.SortOrder,
+	}
+	if err := s.projectRepo.Create(ctx, project); err != nil {
+		return nil, err
+	}
+
+	issuesToMove := []*domain.Issue{issue}
+	subIssues, err := s.issueRepo.ListSubIssues(ctx, issue.ID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range subIssues {
+		issuesToMove = append(issuesToMove, &subIssues[i])
+	}
+
+	projectID := project.ID
+	for _, item := range issuesToMove {
+		oldProject := ""
+		if item.ProjectID != nil {
+			oldProject = item.ProjectID.String()
+		}
+		oldParent := ""
+		if item.ParentID != nil {
+			oldParent = item.ParentID.String()
+		}
+		newProject := projectID.String()
+		item.ProjectID = &projectID
+		item.ParentID = nil
+		if err := s.issueRepo.Update(ctx, item); err != nil {
+			return nil, err
+		}
+		if oldProject != newProject {
+			s.recordHistory(ctx, item.ID, userID, "project", &oldProject, &newProject)
+		}
+		if oldParent != "" {
+			newParent := ""
+			s.recordHistory(ctx, item.ID, userID, "parent", &oldParent, &newParent)
+		}
+		s.hub.Broadcast(workspaceID, realtime.Event{Type: "issue.updated", Payload: item})
+	}
+
+	return project, nil
+}
+
+func (s *IssueService) duplicateIssue(ctx context.Context, workspaceID, creatorID uuid.UUID, original *domain.Issue, parentID *uuid.UUID, appendCopy bool) (*domain.Issue, error) {
+	labels, _ := s.issueRepo.GetLabels(ctx, original.ID)
+	labelIDs := make([]string, 0, len(labels))
+	for _, label := range labels {
+		labelIDs = append(labelIDs, label.ID.String())
+	}
+	assignees, _ := s.issueRepo.GetAssignees(ctx, original.ID)
+	assigneeIDs := make([]string, 0, len(assignees))
+	for _, assignee := range assignees {
+		assigneeIDs = append(assigneeIDs, assignee.String())
+	}
+	if len(assigneeIDs) == 0 && original.AssigneeID != nil {
+		assigneeIDs = append(assigneeIDs, original.AssigneeID.String())
+	}
+
+	title := original.Title
+	if appendCopy {
+		title = title + " (copy)"
+	}
+	priority := int(original.Priority)
+	req := dto.CreateIssueRequest{
+		Title:       title,
+		Description: original.Description,
+		Status:      string(original.Status),
+		Priority:    &priority,
+		TeamID:      original.TeamID.String(),
+		LabelIDs:    labelIDs,
+		AssigneeIDs: assigneeIDs,
+	}
+	if original.StatusID != nil {
+		statusID := original.StatusID.String()
+		req.StatusID = &statusID
+	}
+	if original.ProjectID != nil {
+		projectID := original.ProjectID.String()
+		req.ProjectID = &projectID
+	}
+	if original.CycleID != nil {
+		cycleID := original.CycleID.String()
+		req.CycleID = &cycleID
+	}
+	if original.DueDate != nil {
+		due := original.DueDate.Format("2006-01-02")
+		req.DueDate = &due
+	}
+	if parentID != nil {
+		parentIDString := parentID.String()
+		req.ParentID = &parentIDString
+	}
+	return s.Create(ctx, workspaceID, creatorID, req)
+}
+
 func (s *IssueService) GetByIdentifier(ctx context.Context, workspaceID uuid.UUID, identifier string) (*domain.Issue, error) {
 	return s.issueRepo.GetByIdentifier(ctx, workspaceID, identifier)
+}
+
+func (s *IssueService) GetByID(ctx context.Context, id uuid.UUID) (*domain.Issue, error) {
+	return s.issueRepo.GetByID(ctx, id)
 }
 
 func (s *IssueService) List(ctx context.Context, workspaceID uuid.UUID, params dto.IssueFilterParams) ([]domain.Issue, int, error) {
@@ -218,6 +425,7 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 		issue.Description = req.Description
 		s.recordHistory(ctx, issue.ID, userID, "description", &old, req.Description)
 	}
+	statusChanged := false
 	if req.StatusID != nil {
 		sid, err := uuid.Parse(*req.StatusID)
 		if err == nil {
@@ -233,6 +441,7 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 			// Validate that the status belongs to the same team as the issue
 			if newStatus != nil && newStatus.TeamID == issue.TeamID {
 				newName := newStatus.Name
+				statusChanged = issue.StatusID == nil || *issue.StatusID != sid
 				issue.StatusID = &sid
 				// Update legacy status field for backward compat
 				issue.Status = domain.IssueStatus(newStatus.Slug)
@@ -242,6 +451,7 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 	} else if req.Status != nil && *req.Status != string(issue.Status) {
 		old := string(issue.Status)
 		issue.Status = domain.IssueStatus(*req.Status)
+		statusChanged = true
 		s.recordHistory(ctx, issue.ID, userID, "status", &old, req.Status)
 		// Also update status_id to match the new legacy status slug
 		ts, err := s.teamStatusRepo.GetByTeamAndSlug(ctx, issue.TeamID, *req.Status)
@@ -303,11 +513,25 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 		}
 	}
 	if req.ParentID != nil {
+		old := ""
+		if issue.ParentID != nil {
+			old = issue.ParentID.String()
+		}
 		if *req.ParentID == "" {
 			issue.ParentID = nil
 		} else {
-			pid, _ := uuid.Parse(*req.ParentID)
-			issue.ParentID = &pid
+			pid, _, err := s.validateParentID(ctx, workspaceID, issue.ID, *req.ParentID)
+			if err != nil {
+				return nil, err
+			}
+			issue.ParentID = pid
+		}
+		newVal := ""
+		if issue.ParentID != nil {
+			newVal = issue.ParentID.String()
+		}
+		if old != newVal {
+			s.recordHistory(ctx, issue.ID, userID, "parent", &old, &newVal)
 		}
 	}
 	if req.DueDate != nil {
@@ -379,6 +603,9 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 		Type:    "issue.updated",
 		Payload: issue,
 	})
+	if statusChanged {
+		s.applyStatusAutomation(ctx, workspaceID, userID, issue, map[uuid.UUID]bool{})
+	}
 
 	// Send notifications for field changes
 	s.sendUpdateNotifications(ctx, issue, userID, req, oldDescription)
@@ -394,6 +621,11 @@ func (s *IssueService) Delete(ctx context.Context, workspaceID uuid.UUID, identi
 
 	if err := s.issueRepo.Delete(ctx, issue.ID); err != nil {
 		return err
+	}
+	if issue.ParentID != nil {
+		if parent, _ := s.issueRepo.GetByID(ctx, *issue.ParentID); parent != nil {
+			s.hub.Broadcast(workspaceID, realtime.Event{Type: "issue.updated", Payload: parent})
+		}
 	}
 
 	s.hub.Broadcast(workspaceID, realtime.Event{
@@ -428,6 +660,9 @@ func (s *IssueService) Triage(ctx context.Context, workspaceID, userID uuid.UUID
 
 	if err := s.issueRepo.Update(ctx, issue); err != nil {
 		return nil, err
+	}
+	if !accept {
+		s.applyStatusAutomation(ctx, workspaceID, userID, issue, map[uuid.UUID]bool{})
 	}
 
 	s.hub.Broadcast(workspaceID, realtime.Event{
@@ -470,6 +705,10 @@ func (s *IssueService) CountSubIssues(ctx context.Context, issueID uuid.UUID) (i
 	return s.issueRepo.CountSubIssues(ctx, issueID)
 }
 
+func (s *IssueService) CountSubIssuesForIssues(ctx context.Context, issueIDs []uuid.UUID) (map[uuid.UUID]domain.SubIssueCount, error) {
+	return s.issueRepo.CountSubIssuesForIssues(ctx, issueIDs)
+}
+
 func (s *IssueService) BulkUpdate(ctx context.Context, workspaceID, userID uuid.UUID, req dto.BulkUpdateIssueRequest) (int, error) {
 	issueIDs := make([]uuid.UUID, len(req.IssueIDs))
 	for i, id := range req.IssueIDs {
@@ -498,9 +737,21 @@ func (s *IssueService) BulkUpdate(ctx context.Context, workspaceID, userID uuid.
 		statusID = &sid
 	}
 
+	if req.ParentID != nil {
+		return s.bulkUpdateParent(ctx, workspaceID, userID, issueIDs, *req.ParentID)
+	}
+
 	n, err := s.issueRepo.BulkUpdate(ctx, workspaceID, issueIDs, req.Status, req.Priority, assigneeID, statusID)
 	if err != nil {
 		return 0, err
+	}
+	if req.Status != nil || req.StatusID != nil {
+		for _, id := range issueIDs {
+			issue, err := s.issueRepo.GetByID(ctx, id)
+			if err == nil && issue != nil && issue.WorkspaceID == workspaceID {
+				s.applyStatusAutomation(ctx, workspaceID, userID, issue, map[uuid.UUID]bool{})
+			}
+		}
 	}
 
 	s.hub.Broadcast(workspaceID, realtime.Event{
@@ -509,6 +760,235 @@ func (s *IssueService) BulkUpdate(ctx context.Context, workspaceID, userID uuid.
 	})
 
 	return n, nil
+}
+
+func (s *IssueService) validateParentID(ctx context.Context, workspaceID, issueID uuid.UUID, rawParentID string) (*uuid.UUID, *domain.Issue, error) {
+	if rawParentID == "" {
+		return nil, nil, nil
+	}
+	parentID, err := uuid.Parse(rawParentID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("invalid parent_id")
+	}
+	if issueID != uuid.Nil && parentID == issueID {
+		return nil, nil, fmt.Errorf("issue cannot be its own parent")
+	}
+	parent, err := s.issueRepo.GetByID(ctx, parentID)
+	if err != nil || parent == nil {
+		return nil, nil, fmt.Errorf("parent issue not found")
+	}
+	if parent.WorkspaceID != workspaceID {
+		return nil, nil, fmt.Errorf("parent issue must belong to the same workspace")
+	}
+	if issueID != uuid.Nil {
+		cycle, err := s.issueRepo.WouldCreateCycle(ctx, issueID, parentID)
+		if err != nil {
+			return nil, nil, err
+		}
+		if cycle {
+			return nil, nil, fmt.Errorf("parent would create a sub-issue cycle")
+		}
+	}
+	return &parentID, parent, nil
+}
+
+func (s *IssueService) inheritSubIssueAssignees(ctx context.Context, parent *domain.Issue, creatorID uuid.UUID) []string {
+	parentAssignees, _ := s.issueRepo.GetAssignees(ctx, parent.ID)
+	if len(parentAssignees) == 0 && parent.AssigneeID != nil {
+		parentAssignees = []uuid.UUID{*parent.AssigneeID}
+	}
+	if len(parentAssignees) == 0 {
+		return nil
+	}
+	for _, id := range parentAssignees {
+		if id == creatorID {
+			return []string{creatorID.String()}
+		}
+	}
+	if len(parentAssignees) != 1 {
+		return nil
+	}
+
+	subIssues, err := s.issueRepo.ListSubIssues(ctx, parent.ID)
+	if err != nil {
+		return nil
+	}
+	for _, sub := range subIssues {
+		if sub.AssigneeID == nil || *sub.AssigneeID != parentAssignees[0] {
+			return nil
+		}
+	}
+	return []string{parentAssignees[0].String()}
+}
+
+func (s *IssueService) bulkUpdateParent(ctx context.Context, workspaceID, userID uuid.UUID, issueIDs []uuid.UUID, rawParentID string) (int, error) {
+	issues := make([]*domain.Issue, 0, len(issueIDs))
+	var parentID *uuid.UUID
+	if rawParentID != "" {
+		parsedParentID, _, err := s.validateParentID(ctx, workspaceID, uuid.Nil, rawParentID)
+		if err != nil {
+			return 0, err
+		}
+		parentID = parsedParentID
+	}
+
+	for _, id := range issueIDs {
+		issue, err := s.issueRepo.GetByID(ctx, id)
+		if err != nil || issue == nil || issue.WorkspaceID != workspaceID {
+			return 0, fmt.Errorf("issue not found")
+		}
+		if parentID != nil {
+			if *parentID == issue.ID {
+				return 0, fmt.Errorf("issue cannot be its own parent")
+			}
+			cycle, err := s.issueRepo.WouldCreateCycle(ctx, issue.ID, *parentID)
+			if err != nil {
+				return 0, err
+			}
+			if cycle {
+				return 0, fmt.Errorf("parent would create a sub-issue cycle")
+			}
+		}
+		issues = append(issues, issue)
+	}
+
+	updated := 0
+	for _, issue := range issues {
+		old := ""
+		if issue.ParentID != nil {
+			old = issue.ParentID.String()
+		}
+		newVal := ""
+		if parentID != nil {
+			newVal = parentID.String()
+		}
+		if old == newVal {
+			continue
+		}
+		issue.ParentID = parentID
+		if err := s.issueRepo.Update(ctx, issue); err != nil {
+			return updated, err
+		}
+		s.recordHistory(ctx, issue.ID, userID, "parent", &old, &newVal)
+		updated++
+		s.hub.Broadcast(workspaceID, realtime.Event{Type: "issue.updated", Payload: issue})
+	}
+
+	return updated, nil
+}
+
+func (s *IssueService) applyStatusAutomation(ctx context.Context, workspaceID, actorID uuid.UUID, issue *domain.Issue, visited map[uuid.UUID]bool) {
+	if issue == nil || visited[issue.ID] {
+		return
+	}
+	visited[issue.ID] = true
+
+	category := s.issueStatusCategory(ctx, issue)
+	if category == domain.StatusCategoryCompleted {
+		team, err := s.teamRepo.GetByID(ctx, issue.TeamID)
+		if err == nil && team != nil && team.SubIssueAutoCloseEnabled {
+			s.autoCloseSubIssues(ctx, workspaceID, actorID, issue.ID, visited)
+		}
+	}
+
+	if issue.ParentID != nil {
+		s.maybeAutoCloseParent(ctx, workspaceID, actorID, *issue.ParentID, visited)
+	}
+}
+
+func (s *IssueService) maybeAutoCloseParent(ctx context.Context, workspaceID, actorID, parentID uuid.UUID, visited map[uuid.UUID]bool) {
+	parent, err := s.issueRepo.GetByID(ctx, parentID)
+	if err != nil || parent == nil || parent.WorkspaceID != workspaceID || visited[parent.ID] {
+		return
+	}
+	team, err := s.teamRepo.GetByID(ctx, parent.TeamID)
+	if err != nil || team == nil || !team.ParentAutoCloseEnabled {
+		return
+	}
+	total, done, err := s.issueRepo.CountSubIssues(ctx, parent.ID)
+	if err != nil || total == 0 || total != done {
+		return
+	}
+	s.moveIssueToCompleted(ctx, workspaceID, actorID, parent, visited)
+}
+
+func (s *IssueService) autoCloseSubIssues(ctx context.Context, workspaceID, actorID, parentID uuid.UUID, visited map[uuid.UUID]bool) {
+	subIssues, err := s.issueRepo.ListSubIssues(ctx, parentID)
+	if err != nil {
+		return
+	}
+	for i := range subIssues {
+		sub := subIssues[i]
+		if sub.WorkspaceID != workspaceID || s.isTerminalStatus(ctx, &sub) {
+			continue
+		}
+		s.moveIssueToCompleted(ctx, workspaceID, actorID, &sub, visited)
+	}
+}
+
+func (s *IssueService) moveIssueToCompleted(ctx context.Context, workspaceID, actorID uuid.UUID, issue *domain.Issue, visited map[uuid.UUID]bool) {
+	if issue == nil || s.isTerminalStatus(ctx, issue) {
+		return
+	}
+	completedStatus, err := s.completedStatusForTeam(ctx, issue.TeamID)
+	if err != nil || completedStatus == nil {
+		return
+	}
+
+	old := string(issue.Status)
+	issue.Status = domain.IssueStatus(completedStatus.Slug)
+	issue.StatusID = &completedStatus.ID
+	if err := s.issueRepo.Update(ctx, issue); err != nil {
+		log.WithError(err).WithField("issue_id", issue.ID).Warn("failed to auto-close issue")
+		return
+	}
+	newVal := completedStatus.Slug
+	s.recordHistory(ctx, issue.ID, actorID, "status", &old, &newVal)
+	s.hub.Broadcast(workspaceID, realtime.Event{Type: "issue.updated", Payload: issue})
+	s.applyStatusAutomation(ctx, workspaceID, actorID, issue, visited)
+}
+
+func (s *IssueService) completedStatusForTeam(ctx context.Context, teamID uuid.UUID) (*domain.TeamStatus, error) {
+	status, err := s.teamStatusRepo.GetByTeamAndSlug(ctx, teamID, string(domain.IssueStatusDone))
+	if err == nil && status != nil {
+		return status, nil
+	}
+	statuses, err := s.teamStatusRepo.ListByTeam(ctx, teamID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range statuses {
+		if statuses[i].Category == domain.StatusCategoryCompleted {
+			return &statuses[i], nil
+		}
+	}
+	return nil, nil
+}
+
+func (s *IssueService) isTerminalStatus(ctx context.Context, issue *domain.Issue) bool {
+	category := s.issueStatusCategory(ctx, issue)
+	return category == domain.StatusCategoryCompleted || category == domain.StatusCategoryCancelled
+}
+
+func (s *IssueService) issueStatusCategory(ctx context.Context, issue *domain.Issue) domain.StatusCategory {
+	if issue.StatusID != nil {
+		status, err := s.teamStatusRepo.GetByID(ctx, *issue.StatusID)
+		if err == nil && status != nil {
+			return status.Category
+		}
+	}
+	switch issue.Status {
+	case domain.IssueStatusDone:
+		return domain.StatusCategoryCompleted
+	case domain.IssueStatusCancelled:
+		return domain.StatusCategoryCancelled
+	case domain.IssueStatusInProgress, domain.IssueStatusInReview:
+		return domain.StatusCategoryStarted
+	case domain.IssueStatusTodo:
+		return domain.StatusCategoryUnstarted
+	default:
+		return domain.StatusCategoryBacklog
+	}
 }
 
 func (s *IssueService) BulkDelete(ctx context.Context, workspaceID, userID uuid.UUID, canDeleteAny bool, req dto.BulkDeleteIssueRequest) (int, error) {

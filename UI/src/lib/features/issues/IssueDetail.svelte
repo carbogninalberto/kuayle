@@ -76,6 +76,25 @@
 			toast.error(err?.error?.message || 'Failed to update priority');
 		}
 	}
+
+	function formatHistoryValue(field: string, value: string | null, displayValue?: string | null): string {
+		if (displayValue?.trim()) return displayValue;
+		if (!value) return 'None';
+		if (field === 'priority') return PRIORITY_LABELS[Number(value) as keyof typeof PRIORITY_LABELS] ?? value;
+		return value;
+	}
+
+	function historyFieldLabel(field: string): string {
+		switch (field) {
+			case 'assignee_id': return 'assignee';
+			case 'due_date': return 'due date';
+			case 'parent_id': return 'parent';
+			case 'project_id': return 'project';
+			case 'cycle_id': return 'cycle';
+			case 'status_id': return 'status';
+			default: return field;
+		}
+	}
 </script>
 
 <Sheet.Root bind:open={sheetOpen}>
@@ -210,15 +229,15 @@
 								</div>
 								<div class="flex flex-wrap items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] min-w-0">
 									{#if entry.field === 'title' || entry.field === 'description'}
-										<span>updated <strong class="text-[var(--color-text-secondary)]">{entry.field}</strong></span>
+										<span>updated <strong class="text-[var(--color-text-secondary)]">{historyFieldLabel(entry.field)}</strong></span>
 									{:else}
-										<span>changed <strong class="text-[var(--color-text-secondary)]">{entry.field}</strong></span>
-										{#if entry.old_value}
+										<span>changed <strong class="text-[var(--color-text-secondary)]">{historyFieldLabel(entry.field)}</strong></span>
+										{#if entry.old_value || entry.old_display_value}
 											<span>from</span>
-											<code class="rounded bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 text-[11px] text-[var(--color-text-secondary)]">{entry.old_value}</code>
+											<code class="rounded bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 text-[11px] text-[var(--color-text-secondary)]">{formatHistoryValue(entry.field, entry.old_value, entry.old_display_value)}</code>
 										{/if}
 										<span>to</span>
-										<code class="rounded bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 text-[11px] text-[var(--color-text-secondary)]">{entry.new_value}</code>
+										<code class="rounded bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 text-[11px] text-[var(--color-text-secondary)]">{formatHistoryValue(entry.field, entry.new_value, entry.new_display_value)}</code>
 									{/if}
 									<span class="text-[var(--color-text-tertiary)]">&middot;</span>
 									<span>{formatRelativeTime(entry.created_at)}</span>

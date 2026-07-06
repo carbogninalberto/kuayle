@@ -76,7 +76,7 @@ func main() {
 	workspaceSvc := service.NewWorkspaceService(workspaceRepo, userRepo)
 	teamSvc := service.NewTeamService(teamRepo, teamStatusRepo)
 	notifSvc := service.NewNotificationService(notifRepo)
-	issueSvc := service.NewIssueService(issueRepo, teamRepo, teamStatusRepo, historyRepo, hub, notifSvc)
+	issueSvc := service.NewIssueService(issueRepo, teamRepo, teamStatusRepo, historyRepo, hub, notifSvc, projectRepo)
 	labelSvc := service.NewLabelService(labelRepo)
 	commentSvc := service.NewCommentService(commentRepo, issueRepo, hub, notifSvc)
 	projectSvc := service.NewProjectService(projectRepo)
@@ -94,7 +94,7 @@ func main() {
 	authH := handler.NewAuthHandler(authSvc, cfg.Environment != "development", loginThrottle)
 	workspaceH := handler.NewWorkspaceHandler(workspaceSvc)
 	teamH := handler.NewTeamHandler(teamSvc)
-	issueH := handler.NewIssueHandler(issueSvc, commentSvc, userRepo, teamStatusRepo)
+	issueH := handler.NewIssueHandler(issueSvc, commentSvc, userRepo, teamStatusRepo, projectRepo, cycleRepo)
 	labelH := handler.NewLabelHandler(labelSvc)
 	projectH := handler.NewProjectHandler(projectSvc)
 	notifH := handler.NewNotificationHandler(notifSvc)
@@ -134,7 +134,7 @@ func main() {
 	}
 	githubRepo := repository.NewGitHubRepository(db)
 	githubSvc := service.NewGitHubService(
-		githubRepo, issueRepo, teamStatusRepo, historyRepo,
+		githubRepo, issueRepo, teamRepo, teamStatusRepo, historyRepo,
 		crypto.DeriveKey(cfg.JWTSecret+":github"), hub, cfg.FrontendURL, cfg.GitHubWebhookURL,
 		globalGitHubApp,
 	)
@@ -234,11 +234,15 @@ func main() {
 	ws.GET("/issues/:identifier", issueH.Get)
 	ws.PATCH("/issues/:identifier", issueH.Update, mw.RequirePermission("issue:update"))
 	ws.DELETE("/issues/:identifier", issueH.Delete, mw.RequirePermission("issue:delete_own"))
+	ws.POST("/issues/:identifier/duplicate", issueH.Duplicate, mw.RequirePermission("issue:create"))
+	ws.POST("/issues/:identifier/convert-to-project", issueH.ConvertToProject, mw.RequirePermission("project:manage"))
 	ws.GET("/issues/:identifier/comments", issueH.ListComments)
 	ws.POST("/issues/:identifier/comments", issueH.CreateComment, mw.RequirePermission("issue:create"))
 	ws.POST("/issues/:identifier/comments/:commentId/resolve", issueH.ResolveComment, mw.RequirePermission("issue:update"))
 	ws.POST("/issues/:identifier/comments/:commentId/reopen", issueH.ReopenComment, mw.RequirePermission("issue:update"))
 	ws.GET("/issues/:identifier/sub-issues", issueH.ListSubIssues)
+	ws.POST("/issues/:identifier/sub-issues", issueH.CreateSubIssue, mw.RequirePermission("issue:create"))
+	ws.POST("/issues/:identifier/sub-issues/bulk", issueH.BulkCreateSubIssues, mw.RequirePermission("issue:create"))
 	ws.GET("/issues/:identifier/history", issueH.GetHistory)
 	ws.POST("/issues/:identifier/triage/accept", issueH.TriageAccept, mw.RequirePermission("issue:update"))
 	ws.POST("/issues/:identifier/triage/decline", issueH.TriageDecline, mw.RequirePermission("issue:update"))

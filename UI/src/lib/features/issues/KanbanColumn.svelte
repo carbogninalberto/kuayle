@@ -5,6 +5,7 @@
 	import type { Label } from '$lib/types/label';
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
 	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
+	import SubIssueCounterTag from './SubIssueCounterTag.svelte';
 	import IssueContextMenu from './IssueContextMenu.svelte';
 	import { dndzone } from 'svelte-dnd-action';
 
@@ -64,7 +65,10 @@
 						<span class="text-xs text-[var(--color-text-tertiary)]">{issue.identifier}</span>
 						<IssuePriorityIcon priority={issue.priority} size={14} />
 					</div>
-					<p class="mt-1 line-clamp-2 text-sm text-[var(--color-text-primary)]">{issue.title}</p>
+					<div class="mt-1 flex items-start gap-2">
+						<p class="line-clamp-2 min-w-0 flex-1 text-sm text-[var(--color-text-primary)]">{issue.title}</p>
+						<SubIssueCounterTag issue={issue} {slug} {members} onclickissue={onissueclick} compact />
+					</div>
 				</button>
 			</IssueContextMenu>
 		{/each}

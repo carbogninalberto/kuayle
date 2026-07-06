@@ -24,6 +24,41 @@ export function createIssue(slug: string, req: CreateIssueRequest): Promise<Issu
 	return api.post<Issue>(`/api/workspaces/${slug}/issues`, req);
 }
 
+export function createSubIssue(
+	slug: string,
+	identifier: string,
+	req: Omit<CreateIssueRequest, 'team_id' | 'parent_id'>
+): Promise<Issue> {
+	return api.post<Issue>(`/api/workspaces/${slug}/issues/${identifier}/sub-issues`, req);
+}
+
+export function bulkCreateSubIssues(
+	slug: string,
+	identifier: string,
+	issues: Array<Omit<CreateIssueRequest, 'team_id' | 'parent_id'>>
+): Promise<Issue[]> {
+	return api.post<Issue[]>(`/api/workspaces/${slug}/issues/${identifier}/sub-issues/bulk`, { issues });
+}
+
+export function duplicateIssue(
+	slug: string,
+	identifier: string,
+	includeSubIssues = false
+): Promise<Issue> {
+	return api.post<Issue>(`/api/workspaces/${slug}/issues/${identifier}/duplicate`, {
+		include_sub_issues: includeSubIssues
+	});
+}
+
+export function convertIssueToProject(
+	slug: string,
+	identifier: string
+): Promise<{ project: { id: string; name: string } }> {
+	return api.post<{ project: { id: string; name: string } }>(
+		`/api/workspaces/${slug}/issues/${identifier}/convert-to-project`
+	);
+}
+
 export function updateIssue(
 	slug: string,
 	identifier: string,
@@ -89,6 +124,7 @@ export function bulkUpdateIssues(
 		priority?: number;
 		assignee_id?: string;
 		label_ids?: string[];
+		parent_id?: string;
 	}
 ): Promise<{ updated: number }> {
 	return api.patch<{ updated: number }>(`/api/workspaces/${slug}/issues/bulk`, req);

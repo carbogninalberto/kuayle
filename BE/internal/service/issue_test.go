@@ -85,6 +85,21 @@ func (m *mockIssueRepo) CountSubIssues(ctx context.Context, parentID uuid.UUID) 
 	return args.Int(0), args.Int(1), args.Error(2)
 }
 
+func (m *mockIssueRepo) CountSubIssuesForIssues(ctx context.Context, issueIDs []uuid.UUID) (map[uuid.UUID]domain.SubIssueCount, error) {
+	args := m.Called(ctx, issueIDs)
+	return args.Get(0).(map[uuid.UUID]domain.SubIssueCount), args.Error(1)
+}
+
+func (m *mockIssueRepo) WouldCreateCycle(ctx context.Context, issueID, parentID uuid.UUID) (bool, error) {
+	args := m.Called(ctx, issueID, parentID)
+	return args.Bool(0), args.Error(1)
+}
+
+func (m *mockIssueRepo) CycleIsActive(ctx context.Context, cycleID uuid.UUID) (bool, error) {
+	args := m.Called(ctx, cycleID)
+	return args.Bool(0), args.Error(1)
+}
+
 func (m *mockIssueRepo) BulkUpdate(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID, status *string, priority *int, assigneeID *uuid.UUID, statusID *uuid.UUID) (int, error) {
 	args := m.Called(ctx, workspaceID, issueIDs, status, priority, assigneeID, statusID)
 	return args.Int(0), args.Error(1)
@@ -430,6 +445,91 @@ func TestIssueService_Update(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "New Title", result.Title)
 	assert.Equal(t, domain.IssueStatusTodo, result.Status)
+}
+
+func TestIssueService_Update_SetParent(t *testing.T) {
+	issueRepo := new(mockIssueRepo)
+	teamRepo := new(mockTeamRepo)
+	historyRepo := new(mockIssueHistoryRepo)
+	hub := realtime.NewHub()
+	teamStatusRepo := new(mockTeamStatusRepo)
+	svc := NewIssueService(issueRepo, teamRepo, teamStatusRepo, historyRepo, hub, newTestNotifSvc())
+
+	ctx := context.Background()
+	wsID := uuid.New()
+	userID := uuid.New()
+	issueID := uuid.New()
+	parentID := uuid.New()
+	issue := &domain.Issue{ID: issueID, WorkspaceID: wsID, Identifier: "ENG-2", Title: "Child"}
+	parent := &domain.Issue{ID: parentID, WorkspaceID: wsID, Identifier: "ENG-1", Title: "Parent"}
+	parentIDString := parentID.String()
+
+	issueRepo.On("GetByIdentifier", ctx, wsID, "ENG-2").Return(issue, nil)
+	issueRepo.On("GetByID", ctx, parentID).Return(parent, nil)
+	issueRepo.On("WouldCreateCycle", ctx, issueID, parentID).Return(false, nil)
+	issueRepo.On("Update", ctx, mock.AnythingOfType("*domain.Issue")).Return(nil)
+	issueRepo.On("GetAssignees", ctx, issueID).Return([]uuid.UUID{}, nil)
+	historyRepo.On("Create", ctx, issueID, userID, "parent", mock.AnythingOfType("*string"), mock.AnythingOfType("*string")).Return(nil)
+
+	result, err := svc.Update(ctx, wsID, userID, "ENG-2", dto.UpdateIssueRequest{ParentID: &parentIDString})
+
+	assert.NoError(t, err)
+	assert.NotNil(t, result.ParentID)
+	assert.Equal(t, parentID, *result.ParentID)
+	issueRepo.AssertExpectations(t)
+	historyRepo.AssertExpectations(t)
+}
+
+func TestIssueService_Update_RejectsSelfParent(t *testing.T) {
+	issueRepo := new(mockIssueRepo)
+	teamRepo := new(mockTeamRepo)
+	historyRepo := new(mockIssueHistoryRepo)
+	hub := realtime.NewHub()
+	teamStatusRepo := new(mockTeamStatusRepo)
+	svc := NewIssueService(issueRepo, teamRepo, teamStatusRepo, historyRepo, hub, newTestNotifSvc())
+
+	ctx := context.Background()
+	wsID := uuid.New()
+	userID := uuid.New()
+	issueID := uuid.New()
+	issue := &domain.Issue{ID: issueID, WorkspaceID: wsID, Identifier: "ENG-1", Title: "Issue"}
+	parentIDString := issueID.String()
+
+	issueRepo.On("GetByIdentifier", ctx, wsID, "ENG-1").Return(issue, nil)
+
+	_, err := svc.Update(ctx, wsID, userID, "ENG-1", dto.UpdateIssueRequest{ParentID: &parentIDString})
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "own parent")
+	issueRepo.AssertExpectations(t)
+}
+
+func TestIssueService_Update_RejectsParentCycle(t *testing.T) {
+	issueRepo := new(mockIssueRepo)
+	teamRepo := new(mockTeamRepo)
+	historyRepo := new(mockIssueHistoryRepo)
+	hub := realtime.NewHub()
+	teamStatusRepo := new(mockTeamStatusRepo)
+	svc := NewIssueService(issueRepo, teamRepo, teamStatusRepo, historyRepo, hub, newTestNotifSvc())
+
+	ctx := context.Background()
+	wsID := uuid.New()
+	userID := uuid.New()
+	issueID := uuid.New()
+	parentID := uuid.New()
+	issue := &domain.Issue{ID: issueID, WorkspaceID: wsID, Identifier: "ENG-1", Title: "Issue"}
+	parent := &domain.Issue{ID: parentID, WorkspaceID: wsID, Identifier: "ENG-2", Title: "Descendant"}
+	parentIDString := parentID.String()
+
+	issueRepo.On("GetByIdentifier", ctx, wsID, "ENG-1").Return(issue, nil)
+	issueRepo.On("GetByID", ctx, parentID).Return(parent, nil)
+	issueRepo.On("WouldCreateCycle", ctx, issueID, parentID).Return(true, nil)
+
+	_, err := svc.Update(ctx, wsID, userID, "ENG-1", dto.UpdateIssueRequest{ParentID: &parentIDString})
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "cycle")
+	issueRepo.AssertExpectations(t)
 }
 
 func TestIssueService_GetLabels(t *testing.T) {

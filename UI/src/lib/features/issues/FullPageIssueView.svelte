@@ -6,7 +6,7 @@
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import type { Label } from '$lib/types/label';
 	import type { Project } from '$lib/types/project';
-	import { listComments, createComment, resolveComment, reopenComment, getIssueHistory, getIssue, signIssuePromptAssets } from '$lib/api/issues';
+	import { listComments, createComment, resolveComment, reopenComment, getIssueHistory, getIssue, signIssuePromptAssets, createSubIssue, bulkCreateSubIssues } from '$lib/api/issues';
 	import { listMembers } from '$lib/api/members';
 	import { listLabels } from '$lib/api/labels';
 	import { listProjects } from '$lib/api/projects';
@@ -19,11 +19,13 @@
 	import { formatRelativeTime } from '$lib/utils/format';
 	import { toast } from 'svelte-sonner';
 	import * as Popover from '$lib/components/ui/popover';
+	import * as ContextMenu from '$lib/components/ui/context-menu';
+	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { StatusSelector, PrioritySelector, AssigneeSelector, LabelSelector, ProjectSelector, CycleSelector } from './selectors';
 	import { createKeyboardHandler } from '$lib/utils/keyboard';
 	import {
-		ChevronUp, ChevronDown, ChevronRight, Plus, CalendarDays, X,
+		ChevronUp, ChevronDown, ChevronRight, Plus, CalendarDays,
 		Copy, Link as LinkIcon, GitBranch, SquareMousePointer,
 		CircleDot, ArrowUpCircle, UserCircle, FolderKanban, Pencil, Layers,
 		Tag, RefreshCw, ArrowUp, Paperclip, MoreHorizontal, Check,
@@ -38,6 +40,7 @@
 	import { sanitizeHtml } from '$lib/security/sanitize';
 	import { presenceState } from '$lib/features/presence/presence.state.svelte';
 	import CreateIssueDialog from './CreateIssueDialog.svelte';
+	import IssuePickerDialog from './IssuePickerDialog.svelte';
 	import { showIssueCreatedToast } from './issue-created-toast';
 	import type { Team } from '$lib/types/team';
 	import { listTeams } from '$lib/api/teams';
@@ -63,7 +66,6 @@
 	let commentVersion = $state(0);
 	let replyContents = $state<Record<string, string>>({});
 	let replyVersions = $state<Record<string, number>>({});
-	let commentMenuId = $state<string | null>(null);
 	let editingTitle = $state(false);
 	let titleValue = $state('');
 	let statusOpen = $state(false);
@@ -78,6 +80,9 @@
 	let teams = $state<Team[]>([]);
 	let showCreateIssueDialog = $state(false);
 	let createIssueTitle = $state('');
+	let createDialogParentIssue = $state<Issue | null>(null);
+	let parentPickerOpen = $state(false);
+	let removeParentOpen = $state(false);
 
 	// Presence & real-time
 	let lastLocalUpdate = 0;
@@ -93,6 +98,7 @@
 
 	let issueProject = $derived(projects.find(p => p.id === issue.project_id));
 	let issueCycle = $derived(cycles.find(c => c.id === issue.cycle_id));
+	let currentParentPreview = $derived(parentDescriptionPreview(issue.parent?.description));
 
 	// Get remote cursors for a specific field from presence state
 	function getRemoteCursors(field: string) {
@@ -240,25 +246,73 @@
 		}
 	}
 
-	function formatHistoryValue(field: string, value: string | null): string {
-		if (!value) return 'none';
+	function openCreateIssueDialog(title = '') {
+		createIssueTitle = title;
+		createDialogParentIssue = null;
+		showCreateIssueDialog = true;
+	}
+
+	function openCreateSubIssueDialog() {
+		createIssueTitle = '';
+		createDialogParentIssue = issue;
+		showCreateIssueDialog = true;
+	}
+
+	async function changeParent(parent: Issue) {
+		try {
+			lastLocalUpdate = Date.now();
+			const updated = await issuesState.update(slug, issue.identifier, { parent_id: parent.id });
+			onupdated?.(updated);
+			await refreshIssue();
+			toast.success(`Set parent to ${parent.identifier}`);
+		} catch (err: any) {
+			toast.error(err?.error?.message || 'Failed to set parent');
+		}
+	}
+
+	async function removeParent() {
+		try {
+			lastLocalUpdate = Date.now();
+			const updated = await issuesState.update(slug, issue.identifier, { parent_id: '' });
+			onupdated?.(updated);
+			await refreshIssue();
+			toast.success('Removed parent');
+		} catch (err: any) {
+			toast.error(err?.error?.message || 'Failed to remove parent');
+		}
+		removeParentOpen = false;
+	}
+
+	function goToParentIssue() {
+		if (issue.parent) goto(`/${slug}/issue/${issue.parent.identifier}`);
+	}
+
+	function formatHistoryValue(field: string, value: string | null, displayValue?: string | null): string {
+		if (displayValue?.trim()) return displayValue;
+		if (!value) return 'None';
 		switch (field) {
 			case 'status':
 				return value;
 			case 'priority':
 				return PRIORITY_LABELS[Number(value) as IssuePriority] ?? value;
+			case 'assignee':
 			case 'assignee_id': {
 				const member = members.find(m => m.user_id === value);
 				return member ? (member.name || member.email) : 'Unassigned';
 			}
-			case 'project': {
+			case 'project':
+			case 'project_id': {
 				const p = projects.find(p => p.id === value);
 				return p ? p.name : '-';
 			}
-			case 'cycle': {
+			case 'cycle':
+			case 'cycle_id': {
 				const c = cycles.find(c => c.id === value);
 				return c ? c.name : '-';
 			}
+			case 'parent':
+			case 'parent_id':
+				return 'Unknown issue';
 			case 'due_date':
 				return value || '-';
 			case 'labels':
@@ -272,33 +326,39 @@
 		switch (field) {
 			case 'assignee_id': return 'assignee';
 			case 'due_date': return 'due date';
+			case 'parent_id': return 'parent';
+			case 'project_id': return 'project';
+			case 'cycle_id': return 'cycle';
+			case 'status_id': return 'status';
 			default: return field;
 		}
 	}
 
 	function historyIcon(field: string): typeof CircleDot {
 		switch (field) {
-			case 'status': return CircleDot;
+			case 'status': case 'status_id': return CircleDot;
 			case 'priority': return ArrowUpCircle;
-			case 'assignee_id': return UserCircle;
+			case 'assignee': case 'assignee_id': return UserCircle;
 			case 'title': case 'description': return Pencil;
 			case 'due_date': return CalendarDays;
 			case 'labels': return Tag;
-			case 'project': return FolderKanban;
-			case 'cycle': return RefreshCw;
+			case 'project': case 'project_id': return FolderKanban;
+			case 'cycle': case 'cycle_id': return RefreshCw;
+			case 'parent': case 'parent_id': return CornerDownRight;
 			default: return CircleDot;
 		}
 	}
 
 	function historyColor(field: string): string {
 		switch (field) {
-			case 'status': return 'text-blue-400';
+			case 'status': case 'status_id': return 'text-blue-400';
 			case 'priority': return 'text-orange-400';
-			case 'assignee_id': return 'text-purple-400';
+			case 'assignee': case 'assignee_id': return 'text-purple-400';
 			case 'due_date': return 'text-red-400';
 			case 'labels': return 'text-teal-400';
-			case 'project': return 'text-indigo-400';
-			case 'cycle': return 'text-cyan-400';
+			case 'project': case 'project_id': return 'text-indigo-400';
+			case 'cycle': case 'cycle_id': return 'text-cyan-400';
+			case 'parent': case 'parent_id': return 'text-sky-400';
 			case 'title': case 'description': return 'text-[var(--color-text-tertiary)]';
 			default: return 'text-[var(--color-text-tertiary)]';
 		}
@@ -334,7 +394,6 @@
 	async function handleResolve(commentId: string) {
 		try {
 			await resolveComment(slug, issue.identifier, commentId);
-			commentMenuId = null;
 			refreshActivity();
 		} catch (err: any) {
 			toast.error(err?.error?.message || 'Failed to resolve');
@@ -344,7 +403,6 @@
 	async function handleReopen(commentId: string) {
 		try {
 			await reopenComment(slug, issue.identifier, commentId);
-			commentMenuId = null;
 			refreshActivity();
 		} catch (err: any) {
 			toast.error(err?.error?.message || 'Failed to reopen');
@@ -436,6 +494,21 @@
 		const el = document.createElement('textarea');
 		el.innerHTML = text;
 		return el.value;
+	}
+
+	function plainText(html: string | null | undefined): string {
+		if (!html) return '';
+		if (typeof document !== 'undefined') {
+			const el = document.createElement('div');
+			el.innerHTML = html;
+			return (el.textContent ?? '').replace(/\s+/g, ' ').trim();
+		}
+		return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+	}
+
+	function parentDescriptionPreview(description: string | null | undefined): string {
+		const text = plainText(description);
+		return text.length > 180 ? `${text.slice(0, 177)}...` : text;
 	}
 
 	function getPromptAssetUrl(src: string): string {
@@ -669,7 +742,48 @@
 							{issue.title}
 						</button>
 					{/if}
+				</div>
+
+				{#if issue.parent}
+					<div class="mt-2 flex min-w-0 items-center gap-1.5 text-xs">
+						<span class="shrink-0 text-[var(--color-text-tertiary)]">Sub-issue of</span>
+						<ContextMenu.Root>
+							<div class="group/parent relative inline-flex max-w-full">
+								<ContextMenu.Trigger>
+									<button
+										type="button"
+										onclick={goToParentIssue}
+										class="inline-flex max-w-full items-center gap-1.5 rounded-md border border-transparent px-1.5 py-1 text-[var(--color-text-secondary)] transition-colors hover:border-[var(--app-border)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+									>
+										<IssueStatusIcon status={issue.parent.status ?? 'backlog'} category={issue.parent.status_info?.category} color={issue.parent.status_info?.color} size={13} />
+										<span class="shrink-0 tabular-nums text-[var(--color-text-tertiary)]">{issue.parent.identifier}</span>
+										<span class="min-w-0 truncate">{issue.parent.title}</span>
+									</button>
+								</ContextMenu.Trigger>
+								<div class="pointer-events-none absolute left-0 top-full z-40 mt-2 hidden w-72 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-3 shadow-xl group-hover/parent:block">
+									<div class="flex items-start gap-2">
+										<IssueStatusIcon status={issue.parent.status ?? 'backlog'} category={issue.parent.status_info?.category} color={issue.parent.status_info?.color} size={14} />
+										<div class="min-w-0 flex-1">
+											<div class="text-xs text-[var(--color-text-tertiary)]">{issue.parent.identifier}</div>
+											<div class="mt-0.5 text-sm font-medium leading-5 text-[var(--color-text-primary)]">{issue.parent.title}</div>
+											{#if currentParentPreview}
+												<p class="mt-2 line-clamp-3 text-xs leading-5 text-[var(--color-text-tertiary)]">{currentParentPreview}</p>
+											{/if}
+										</div>
+									</div>
+								</div>
+							</div>
+							<ContextMenu.Content class="w-44">
+								<ContextMenu.Item onclick={() => (parentPickerOpen = true)}>
+									<span class="flex items-center gap-2"><CornerDownRight size={14} />Change parent</span>
+								</ContextMenu.Item>
+								<ContextMenu.Item class="text-red-500 focus:text-red-500" onclick={() => (removeParentOpen = true)}>
+									<span class="flex w-full items-center justify-between gap-2"><span>Remove parent</span><Trash2 size={14} /></span>
+								</ContextMenu.Item>
+							</ContextMenu.Content>
+						</ContextMenu.Root>
 					</div>
+				{/if}
 
 				<!-- Description -->
 				<div class="mt-3">
@@ -686,38 +800,43 @@
 						onfocus={() => presenceState.sendFocus(issue.id, 'description', 0)}
 						onblur={() => presenceState.sendFocusLeave(issue.id)}
 						oncursorchange={(pos, anchor) => presenceState.sendFocus(issue.id, 'description', pos, anchor)}
-						oncreateissue={(text) => { createIssueTitle = text; showCreateIssueDialog = true; }}
+						oncreateissue={(text) => openCreateIssueDialog(text)}
 					/>
 				</div>
 
 				<!-- Sub-issues -->
-				<div class="mt-5">
+				<div class="mt-4">
 					{#if (issue.sub_issue_count ?? 0) > 0}
 						<SubIssuesList
 							{slug}
 							identifier={issue.identifier}
 							subIssueCount={issue.sub_issue_count ?? 0}
 							subIssueDone={issue.sub_issue_done ?? 0}
+							{members}
+							onaddsubissue={openCreateSubIssueDialog}
 							onclickissue={(sub) => goto(`/${slug}/issue/${sub.identifier}`)}
+							onupdated={refreshIssue}
 						/>
 					{:else}
 						<button
-							onclick={() => toast.info('Create sub-issue coming soon')}
-							class="flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors"
+							onclick={openCreateSubIssueDialog}
+							class="flex items-center gap-2 text-xs text-[var(--color-text-tertiary)] transition-colors hover:text-[var(--color-text-secondary)]"
 						>
-							<Plus size={12} />
+							<span class="flex h-6 w-6 items-center justify-center rounded-full border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
+								<Plus size={12} />
+							</span>
 							Add sub-issue
 						</button>
 					{/if}
 				</div>
 
 				<!-- Relations -->
-				<div class="mt-4">
+				<div class="mt-2">
 					<IssueRelations {slug} identifier={issue.identifier} />
 				</div>
 
 				<!-- GitHub Activity -->
-				<div class="mt-4">
+				<div class="mt-2">
 					<IssueGitHubActivity {slug} identifier={issue.identifier} />
 				</div>
 
@@ -785,7 +904,7 @@
 														</code>
 													{/each}
 												{:else}
-													<code class="shrink-0 rounded bg-[var(--color-bg-tertiary)] px-1 py-0.5 text-[11px] text-[var(--color-text-secondary)]">{formatHistoryValue(change.field, change.new_value)}</code>
+													<code class="shrink-0 rounded bg-[var(--color-bg-tertiary)] px-1 py-0.5 text-[11px] text-[var(--color-text-secondary)]">{formatHistoryValue(change.field, change.new_value, change.new_display_value)}</code>
 												{/if}
 											{/each}
 											<span>&middot;</span>
@@ -1210,16 +1329,60 @@
 	{labels}
 	{members}
 	{cycles}
-	defaultTeamId={issue.team_id}
+	parentIssue={createDialogParentIssue}
+	defaultTeamId={createDialogParentIssue ? issue.team_id : issue.team_id}
+	defaultPriority={createDialogParentIssue ? issue.priority : undefined}
+	defaultProjectId={createDialogParentIssue ? issue.project_id : undefined}
+	defaultCycleId={createDialogParentIssue ? issue.cycle_id : undefined}
 	defaultTitle={createIssueTitle}
 	onlabelcreated={(label) => (labels = [label, ...labels.filter((existing) => existing.id !== label.id)])}
+	onbulkcreate={async (titles) => {
+		if (!createDialogParentIssue) return;
+		try {
+			const created = await bulkCreateSubIssues(slug, createDialogParentIssue.identifier, titles.map((title) => ({ title })));
+			toast.success(`Created ${created.length} sub-issues`);
+			await refreshIssue();
+			createIssueTitle = '';
+			createDialogParentIssue = null;
+		} catch (err: any) {
+			toast.error(err?.error?.message || 'Failed to create sub-issues');
+		}
+	}}
 	onsubmit={async (req) => {
 		try {
-			const created = await issuesState.create(slug, req);
+			const parentForCreate = createDialogParentIssue;
+			const created = parentForCreate
+				? await createSubIssue(slug, parentForCreate.identifier, req)
+				: await issuesState.create(slug, req);
 			showIssueCreatedToast(slug, created);
+			if (parentForCreate) await refreshIssue();
 			createIssueTitle = '';
+			createDialogParentIssue = null;
 		} catch (err: any) {
 			toast.error(err?.error?.message || 'Failed to create issue');
 		}
 	}}
 />
+
+<IssuePickerDialog
+	bind:open={parentPickerOpen}
+	{slug}
+	title="Change parent"
+	description={`${issue.identifier} will become a sub-issue of the selected issue.`}
+	actionLabel="Set parent"
+	excludeIds={[issue.id]}
+	onselect={changeParent}
+/>
+
+<AlertDialog.Root bind:open={removeParentOpen}>
+	<AlertDialog.Content>
+		<AlertDialog.Header>
+			<AlertDialog.Title>Remove parent from {issue.identifier}?</AlertDialog.Title>
+			<AlertDialog.Description>This will turn the issue back into a regular top-level issue.</AlertDialog.Description>
+		</AlertDialog.Header>
+		<AlertDialog.Footer>
+			<AlertDialog.Cancel variant="outline">Cancel</AlertDialog.Cancel>
+			<AlertDialog.Action variant="destructive" onclick={removeParent}>Remove parent</AlertDialog.Action>
+		</AlertDialog.Footer>
+	</AlertDialog.Content>
+</AlertDialog.Root>

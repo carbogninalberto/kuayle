@@ -39,8 +39,8 @@ func (r *TeamRepository) ListByWorkspace(ctx context.Context, workspaceID uuid.U
 }
 
 func (r *TeamRepository) Update(ctx context.Context, team *domain.Team) error {
-	query := `UPDATE teams SET name = $1, description = $2, color = $3, icon = $4, triage_enabled = $5, updated_at = NOW() WHERE id = $6 RETURNING updated_at`
-	return r.db.QueryRowContext(ctx, query, team.Name, team.Description, team.Color, team.Icon, team.TriageEnabled, team.ID).Scan(&team.UpdatedAt)
+	query := `UPDATE teams SET name = $1, description = $2, color = $3, icon = $4, triage_enabled = $5, parent_auto_close_enabled = $6, sub_issue_auto_close_enabled = $7, updated_at = NOW() WHERE id = $8 RETURNING updated_at`
+	return r.db.QueryRowContext(ctx, query, team.Name, team.Description, team.Color, team.Icon, team.TriageEnabled, team.ParentAutoCloseEnabled, team.SubIssueAutoCloseEnabled, team.ID).Scan(&team.UpdatedAt)
 }
 
 func (r *TeamRepository) Delete(ctx context.Context, id uuid.UUID) error {
