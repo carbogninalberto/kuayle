@@ -9,6 +9,7 @@
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
 	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
 	import SubIssueCounterTag from './SubIssueCounterTag.svelte';
+	import IssueLabelChips from './IssueLabelChips.svelte';
 	import IssueContextMenu from './IssueContextMenu.svelte';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import * as Popover from '$lib/components/ui/popover';
@@ -201,20 +202,7 @@
 
 		<SubIssueCounterTag issue={issue} {slug} {members} onclickissue={onclick} compact />
 
-		<!-- Labels (Linear-style: dot + name) -->
-		{#if issue.labels && issue.labels.length > 0}
-			<div class="hidden gap-1 shrink-0 sm:flex">
-				{#each issue.labels.slice(0, 2) as label}
-					<span class="flex items-center gap-1 rounded-full border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-1.5 py-0 text-[11px] leading-5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:border-[var(--app-border-hover)] hover:bg-[var(--color-bg-tertiary)] transition-colors">
-						<span class="h-1.5 w-1.5 rounded-full shrink-0" style="background-color: {label.color}"></span>
-						{label.name}
-					</span>
-				{/each}
-				{#if issue.labels.length > 2}
-					<span class="text-[10px] text-[var(--color-text-tertiary)]">+{issue.labels.length - 2}</span>
-				{/if}
-			</div>
-		{/if}
+		<IssueLabelChips labels={issue.labels ?? []} />
 
 		<!-- Cycle -->
 		{#if issueCycle}

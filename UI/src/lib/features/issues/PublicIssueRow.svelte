@@ -3,6 +3,7 @@
 	import type { IssuePriority } from '$lib/types/issue';
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
 	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
+	import IssueLabelChips from './IssueLabelChips.svelte';
 	import { formatRelativeTime } from '$lib/utils/format';
 	import { CalendarDays } from 'lucide-svelte';
 
@@ -40,20 +41,7 @@
 	<!-- Title -->
 	<span class="flex-1 truncate text-[13px] text-[var(--color-text-primary)]">{issue.title}</span>
 
-	<!-- Labels -->
-	{#if issue.labels && issue.labels.length > 0}
-		<div class="hidden gap-1 shrink-0 sm:flex">
-			{#each issue.labels.slice(0, 2) as label}
-				<span class="flex items-center gap-1 rounded-full border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-1.5 py-0 text-[11px] leading-5 text-[var(--color-text-tertiary)]">
-					<span class="h-1.5 w-1.5 rounded-full shrink-0" style="background-color: {label.color}"></span>
-					{label.name}
-				</span>
-			{/each}
-			{#if issue.labels.length > 2}
-				<span class="text-[10px] text-[var(--color-text-tertiary)]">+{issue.labels.length - 2}</span>
-			{/if}
-		</div>
-	{/if}
+	<IssueLabelChips labels={issue.labels ?? []} />
 
 	<!-- Due date -->
 	{#if issue.due_date}
