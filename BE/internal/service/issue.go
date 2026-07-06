@@ -18,14 +18,19 @@ import (
 type IssueService struct {
 	issueRepo      repository.IssueRepo
 	teamRepo       repository.TeamRepo
+	projectRepo    repository.ProjectRepo
 	teamStatusRepo repository.TeamStatusRepo
 	historyRepo    repository.IssueHistoryRepo
 	hub            *realtime.Hub
 	notifSvc       *NotificationService
 }
 
-func NewIssueService(issueRepo repository.IssueRepo, teamRepo repository.TeamRepo, teamStatusRepo repository.TeamStatusRepo, historyRepo repository.IssueHistoryRepo, hub *realtime.Hub, notifSvc *NotificationService) *IssueService {
-	return &IssueService{issueRepo: issueRepo, teamRepo: teamRepo, teamStatusRepo: teamStatusRepo, historyRepo: historyRepo, hub: hub, notifSvc: notifSvc}
+func NewIssueService(issueRepo repository.IssueRepo, teamRepo repository.TeamRepo, teamStatusRepo repository.TeamStatusRepo, historyRepo repository.IssueHistoryRepo, hub *realtime.Hub, notifSvc *NotificationService, projectRepo ...repository.ProjectRepo) *IssueService {
+	svc := &IssueService{issueRepo: issueRepo, teamRepo: teamRepo, teamStatusRepo: teamStatusRepo, historyRepo: historyRepo, hub: hub, notifSvc: notifSvc}
+	if len(projectRepo) > 0 {
+		svc.projectRepo = projectRepo[0]
+	}
+	return svc
 }
 
 func (s *IssueService) Create(ctx context.Context, workspaceID, creatorID uuid.UUID, req dto.CreateIssueRequest) (*domain.Issue, error) {
@@ -232,6 +237,144 @@ func (s *IssueService) BulkCreateSubIssues(ctx context.Context, workspaceID, cre
 		created = append(created, *issue)
 	}
 	return created, nil
+}
+
+func (s *IssueService) Duplicate(ctx context.Context, workspaceID, creatorID uuid.UUID, identifier string, includeSubIssues bool) (*domain.Issue, error) {
+	original, err := s.issueRepo.GetByIdentifier(ctx, workspaceID, identifier)
+	if err != nil || original == nil {
+		return nil, fmt.Errorf("issue not found")
+	}
+
+	duplicated, err := s.duplicateIssue(ctx, workspaceID, creatorID, original, nil, true)
+	if err != nil {
+		return nil, err
+	}
+
+	if includeSubIssues {
+		subIssues, err := s.issueRepo.ListSubIssues(ctx, original.ID)
+		if err != nil {
+			return nil, err
+		}
+		for i := range subIssues {
+			if _, err := s.duplicateIssue(ctx, workspaceID, creatorID, &subIssues[i], &duplicated.ID, false); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	return duplicated, nil
+}
+
+func (s *IssueService) ConvertToProject(ctx context.Context, workspaceID, userID uuid.UUID, identifier string) (*domain.Project, error) {
+	if s.projectRepo == nil {
+		return nil, fmt.Errorf("project repository unavailable")
+	}
+	issue, err := s.issueRepo.GetByIdentifier(ctx, workspaceID, identifier)
+	if err != nil || issue == nil {
+		return nil, fmt.Errorf("issue not found")
+	}
+
+	project := &domain.Project{
+		ID:          uuid.New(),
+		WorkspaceID: workspaceID,
+		TeamID:      &issue.TeamID,
+		Name:        sanitize.PlainText(sanitize.StripHTML(issue.Title)),
+		Description: issue.Description,
+		Status:      domain.ProjectStatusPlanned,
+		SortOrder:   issue.SortOrder,
+	}
+	if err := s.projectRepo.Create(ctx, project); err != nil {
+		return nil, err
+	}
+
+	issuesToMove := []*domain.Issue{issue}
+	subIssues, err := s.issueRepo.ListSubIssues(ctx, issue.ID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range subIssues {
+		issuesToMove = append(issuesToMove, &subIssues[i])
+	}
+
+	projectID := project.ID
+	for _, item := range issuesToMove {
+		oldProject := ""
+		if item.ProjectID != nil {
+			oldProject = item.ProjectID.String()
+		}
+		oldParent := ""
+		if item.ParentID != nil {
+			oldParent = item.ParentID.String()
+		}
+		newProject := projectID.String()
+		item.ProjectID = &projectID
+		item.ParentID = nil
+		if err := s.issueRepo.Update(ctx, item); err != nil {
+			return nil, err
+		}
+		if oldProject != newProject {
+			s.recordHistory(ctx, item.ID, userID, "project", &oldProject, &newProject)
+		}
+		if oldParent != "" {
+			newParent := ""
+			s.recordHistory(ctx, item.ID, userID, "parent", &oldParent, &newParent)
+		}
+		s.hub.Broadcast(workspaceID, realtime.Event{Type: "issue.updated", Payload: item})
+	}
+
+	return project, nil
+}
+
+func (s *IssueService) duplicateIssue(ctx context.Context, workspaceID, creatorID uuid.UUID, original *domain.Issue, parentID *uuid.UUID, appendCopy bool) (*domain.Issue, error) {
+	labels, _ := s.issueRepo.GetLabels(ctx, original.ID)
+	labelIDs := make([]string, 0, len(labels))
+	for _, label := range labels {
+		labelIDs = append(labelIDs, label.ID.String())
+	}
+	assignees, _ := s.issueRepo.GetAssignees(ctx, original.ID)
+	assigneeIDs := make([]string, 0, len(assignees))
+	for _, assignee := range assignees {
+		assigneeIDs = append(assigneeIDs, assignee.String())
+	}
+	if len(assigneeIDs) == 0 && original.AssigneeID != nil {
+		assigneeIDs = append(assigneeIDs, original.AssigneeID.String())
+	}
+
+	title := original.Title
+	if appendCopy {
+		title = title + " (copy)"
+	}
+	priority := int(original.Priority)
+	req := dto.CreateIssueRequest{
+		Title:       title,
+		Description: original.Description,
+		Status:      string(original.Status),
+		Priority:    &priority,
+		TeamID:      original.TeamID.String(),
+		LabelIDs:    labelIDs,
+		AssigneeIDs: assigneeIDs,
+	}
+	if original.StatusID != nil {
+		statusID := original.StatusID.String()
+		req.StatusID = &statusID
+	}
+	if original.ProjectID != nil {
+		projectID := original.ProjectID.String()
+		req.ProjectID = &projectID
+	}
+	if original.CycleID != nil {
+		cycleID := original.CycleID.String()
+		req.CycleID = &cycleID
+	}
+	if original.DueDate != nil {
+		due := original.DueDate.Format("2006-01-02")
+		req.DueDate = &due
+	}
+	if parentID != nil {
+		parentIDString := parentID.String()
+		req.ParentID = &parentIDString
+	}
+	return s.Create(ctx, workspaceID, creatorID, req)
 }
 
 func (s *IssueService) GetByIdentifier(ctx context.Context, workspaceID uuid.UUID, identifier string) (*domain.Issue, error) {

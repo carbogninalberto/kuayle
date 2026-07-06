@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"net/http"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -22,10 +23,12 @@ type IssueHandler struct {
 	commentSvc     *service.CommentService
 	userRepo       repository.UserRepo
 	teamStatusRepo repository.TeamStatusRepo
+	projectRepo    repository.ProjectRepo
+	cycleRepo      repository.CycleRepo
 }
 
-func NewIssueHandler(issueSvc *service.IssueService, commentSvc *service.CommentService, userRepo repository.UserRepo, teamStatusRepo repository.TeamStatusRepo) *IssueHandler {
-	return &IssueHandler{issueSvc: issueSvc, commentSvc: commentSvc, userRepo: userRepo, teamStatusRepo: teamStatusRepo}
+func NewIssueHandler(issueSvc *service.IssueService, commentSvc *service.CommentService, userRepo repository.UserRepo, teamStatusRepo repository.TeamStatusRepo, projectRepo repository.ProjectRepo, cycleRepo repository.CycleRepo) *IssueHandler {
+	return &IssueHandler{issueSvc: issueSvc, commentSvc: commentSvc, userRepo: userRepo, teamStatusRepo: teamStatusRepo, projectRepo: projectRepo, cycleRepo: cycleRepo}
 }
 
 func (h *IssueHandler) List(c echo.Context) error {
@@ -211,6 +214,34 @@ func (h *IssueHandler) BulkCreateSubIssues(c echo.Context) error {
 		h.enrichIssueResponse(c.Request().Context(), &resp[i], issue)
 	}
 	return response.Success(c, http.StatusCreated, resp)
+}
+
+func (h *IssueHandler) Duplicate(c echo.Context) error {
+	var req dto.DuplicateIssueRequest
+	if err := c.Bind(&req); err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
+	}
+
+	ws := c.Get("workspace").(*domain.Workspace)
+	userID := middleware.GetUserID(c)
+	issue, err := h.issueSvc.Duplicate(c.Request().Context(), ws.ID, userID, c.Param("identifier"), req.IncludeSubIssues)
+	if err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+	}
+
+	resp := toIssueResponse(*issue)
+	h.enrichIssueResponse(c.Request().Context(), &resp, *issue)
+	return response.Success(c, http.StatusCreated, resp)
+}
+
+func (h *IssueHandler) ConvertToProject(c echo.Context) error {
+	ws := c.Get("workspace").(*domain.Workspace)
+	userID := middleware.GetUserID(c)
+	project, err := h.issueSvc.ConvertToProject(c.Request().Context(), ws.ID, userID, c.Param("identifier"))
+	if err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+	}
+	return response.Success(c, http.StatusCreated, dto.ConvertIssueToProjectResponse{Project: toProjectResponseForIssue(*project)})
 }
 
 func (h *IssueHandler) Get(c echo.Context) error {
@@ -497,7 +528,97 @@ func (h *IssueHandler) GetHistory(c echo.Context) error {
 		return response.InternalError(c)
 	}
 
-	return response.Success(c, http.StatusOK, history)
+	resp := make([]dto.IssueHistoryResponse, len(history))
+	for i, entry := range history {
+		resp[i] = h.toIssueHistoryResponse(c.Request().Context(), entry)
+	}
+
+	return response.Success(c, http.StatusOK, resp)
+}
+
+func (h *IssueHandler) toIssueHistoryResponse(ctx context.Context, entry domain.IssueHistory) dto.IssueHistoryResponse {
+	return dto.IssueHistoryResponse{
+		ID:              entry.ID.String(),
+		IssueID:         entry.IssueID.String(),
+		UserID:          entry.UserID.String(),
+		Field:           entry.Field,
+		OldValue:        entry.OldValue,
+		NewValue:        entry.NewValue,
+		OldDisplayValue: h.historyDisplayValue(ctx, entry.Field, entry.OldValue),
+		NewDisplayValue: h.historyDisplayValue(ctx, entry.Field, entry.NewValue),
+		CreatedAt:       entry.CreatedAt,
+	}
+}
+
+func (h *IssueHandler) historyDisplayValue(ctx context.Context, field string, value *string) *string {
+	if value == nil {
+		return nil
+	}
+	raw := strings.TrimSpace(*value)
+	if raw == "" {
+		return stringPtr("None")
+	}
+
+	switch field {
+	case "parent", "parent_id":
+		id, err := uuid.Parse(raw)
+		if err != nil {
+			return value
+		}
+		issue, _ := h.issueSvc.GetByID(ctx, id)
+		if issue == nil {
+			return stringPtr("Deleted issue")
+		}
+		return stringPtr(formatIssueHistoryName(*issue))
+	case "project", "project_id":
+		id, err := uuid.Parse(raw)
+		if err != nil {
+			return value
+		}
+		if h.projectRepo == nil {
+			return stringPtr("Unknown project")
+		}
+		project, _ := h.projectRepo.GetByID(ctx, id)
+		if project == nil {
+			return stringPtr("Deleted project")
+		}
+		return stringPtr(project.Name)
+	case "cycle", "cycle_id":
+		id, err := uuid.Parse(raw)
+		if err != nil {
+			return value
+		}
+		if h.cycleRepo == nil {
+			return stringPtr("Unknown cycle")
+		}
+		cycle, _ := h.cycleRepo.GetByID(ctx, id)
+		if cycle == nil {
+			return stringPtr("Deleted cycle")
+		}
+		return stringPtr(cycle.Name)
+	case "assignee", "assignee_id":
+		id, err := uuid.Parse(raw)
+		if err != nil {
+			return value
+		}
+		user, _ := h.userRepo.GetByID(ctx, id)
+		if user == nil {
+			return stringPtr("Former user")
+		}
+		return stringPtr(displayUserName(user))
+	case "status", "status_id":
+		if id, err := uuid.Parse(raw); err == nil {
+			status, _ := h.teamStatusRepo.GetByID(ctx, id)
+			if status != nil {
+				return stringPtr(status.Name)
+			}
+		}
+		return stringPtr(statusHistoryLabel(raw))
+	case "priority":
+		return stringPtr(priorityHistoryLabel(raw))
+	default:
+		return value
+	}
 }
 
 func (h *IssueHandler) TriageAccept(c echo.Context) error {
@@ -559,11 +680,8 @@ func (h *IssueHandler) enrichIssueResponse(ctx context.Context, resp *dto.IssueR
 	if issue.ParentID != nil {
 		parent, _ := h.issueSvc.GetByID(ctx, *issue.ParentID)
 		if parent != nil {
-			resp.Parent = &dto.IssueSummaryResponse{
-				ID:         parent.ID.String(),
-				Identifier: parent.Identifier,
-				Title:      sanitize.PlainText(parent.Title),
-			}
+			summary := h.toIssueSummaryResponse(ctx, *parent)
+			resp.Parent = &summary
 		}
 	}
 
@@ -677,4 +795,120 @@ func toLabelResponse(l domain.Label) dto.LabelResponse {
 		resp.ParentID = &s
 	}
 	return resp
+}
+
+func toProjectResponseForIssue(project domain.Project) dto.ProjectResponse {
+	resp := dto.ProjectResponse{
+		ID:          project.ID.String(),
+		Name:        project.Name,
+		Description: project.Description,
+		Status:      string(project.Status),
+		LeadID:      nil,
+		StartDate:   project.StartDate,
+		TargetDate:  project.TargetDate,
+		SortOrder:   project.SortOrder,
+		CreatedAt:   project.CreatedAt,
+		UpdatedAt:   project.UpdatedAt,
+	}
+	if project.TeamID != nil {
+		s := project.TeamID.String()
+		resp.TeamID = &s
+	}
+	if project.LeadID != nil {
+		s := project.LeadID.String()
+		resp.LeadID = &s
+	}
+	return resp
+}
+
+func (h *IssueHandler) toIssueSummaryResponse(ctx context.Context, issue domain.Issue) dto.IssueSummaryResponse {
+	resp := dto.IssueSummaryResponse{
+		ID:          issue.ID.String(),
+		Identifier:  issue.Identifier,
+		Title:       sanitize.PlainText(issue.Title),
+		Description: issue.Description,
+		Status:      string(issue.Status),
+		Priority:    int(issue.Priority),
+	}
+	if issue.StatusID != nil {
+		statusID := issue.StatusID.String()
+		resp.StatusID = &statusID
+		status, _ := h.teamStatusRepo.GetByID(ctx, *issue.StatusID)
+		if status != nil {
+			resp.StatusInfo = &dto.StatusInfoResponse{
+				ID:       status.ID.String(),
+				Name:     status.Name,
+				Category: string(status.Category),
+				Color:    status.Color,
+				Position: status.Position,
+			}
+		}
+	}
+	if issue.AssigneeID != nil {
+		user, _ := h.userRepo.GetByID(ctx, *issue.AssigneeID)
+		if user != nil {
+			resp.Assignee = &dto.UserResponse{
+				ID:          user.ID.String(),
+				Email:       user.Email,
+				Name:        user.Name,
+				DisplayName: user.DisplayName,
+				AvatarURL:   user.AvatarURL,
+			}
+		}
+	}
+	return resp
+}
+
+func formatIssueHistoryName(issue domain.Issue) string {
+	return issue.Identifier + ": " + sanitize.PlainText(issue.Title)
+}
+
+func stringPtr(value string) *string {
+	return &value
+}
+
+func displayUserName(user *domain.User) string {
+	if user.DisplayName != "" {
+		return user.DisplayName
+	}
+	if user.Name != "" {
+		return user.Name
+	}
+	return user.Email
+}
+
+func statusHistoryLabel(value string) string {
+	switch value {
+	case "backlog":
+		return "Backlog"
+	case "todo":
+		return "Todo"
+	case "in_progress":
+		return "In Progress"
+	case "in_review":
+		return "In Review"
+	case "done":
+		return "Done"
+	case "cancelled":
+		return "Cancelled"
+	default:
+		return value
+	}
+}
+
+func priorityHistoryLabel(value string) string {
+	switch value {
+	case "0":
+		return "No priority"
+	case "1":
+		return "Urgent"
+	case "2":
+		return "High"
+	case "3":
+		return "Medium"
+	case "4":
+		return "Low"
+	default:
+		return value
+	}
 }

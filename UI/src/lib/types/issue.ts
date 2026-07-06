@@ -44,6 +44,12 @@ export interface IssueSummary {
 	id: string;
 	identifier: string;
 	title: string;
+	description?: string | null;
+	status?: IssueStatus;
+	status_id?: string;
+	status_info?: StatusInfo;
+	priority?: IssuePriority;
+	assignee?: User;
 }
 
 export interface CreateIssueRequest {
@@ -85,6 +91,8 @@ export interface IssueHistory {
 	field: string;
 	old_value: string | null;
 	new_value: string | null;
+	old_display_value?: string | null;
+	new_display_value?: string | null;
 	created_at: string;
 }
 

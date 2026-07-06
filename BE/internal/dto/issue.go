@@ -36,6 +36,10 @@ type BulkCreateSubIssueRequest struct {
 	Issues []CreateSubIssueRequest `json:"issues" validate:"required,min=1,dive"`
 }
 
+type DuplicateIssueRequest struct {
+	IncludeSubIssues bool `json:"include_sub_issues"`
+}
+
 type UpdateIssueRequest struct {
 	Title       *string  `json:"title" validate:"omitempty,min=1,max=500"`
 	Description *string  `json:"description"`
@@ -81,9 +85,31 @@ type IssueResponse struct {
 }
 
 type IssueSummaryResponse struct {
-	ID         string `json:"id"`
-	Identifier string `json:"identifier"`
-	Title      string `json:"title"`
+	ID          string              `json:"id"`
+	Identifier  string              `json:"identifier"`
+	Title       string              `json:"title"`
+	Description *string             `json:"description,omitempty"`
+	Status      string              `json:"status,omitempty"`
+	StatusID    *string             `json:"status_id,omitempty"`
+	StatusInfo  *StatusInfoResponse `json:"status_info,omitempty"`
+	Priority    int                 `json:"priority,omitempty"`
+	Assignee    *UserResponse       `json:"assignee,omitempty"`
+}
+
+type IssueHistoryResponse struct {
+	ID              string    `json:"id"`
+	IssueID         string    `json:"issue_id"`
+	UserID          string    `json:"user_id"`
+	Field           string    `json:"field"`
+	OldValue        *string   `json:"old_value"`
+	NewValue        *string   `json:"new_value"`
+	OldDisplayValue *string   `json:"old_display_value,omitempty"`
+	NewDisplayValue *string   `json:"new_display_value,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+}
+
+type ConvertIssueToProjectResponse struct {
+	Project ProjectResponse `json:"project"`
 }
 
 type StatusInfoResponse struct {

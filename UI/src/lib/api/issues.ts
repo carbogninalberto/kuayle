@@ -40,6 +40,25 @@ export function bulkCreateSubIssues(
 	return api.post<Issue[]>(`/api/workspaces/${slug}/issues/${identifier}/sub-issues/bulk`, { issues });
 }
 
+export function duplicateIssue(
+	slug: string,
+	identifier: string,
+	includeSubIssues = false
+): Promise<Issue> {
+	return api.post<Issue>(`/api/workspaces/${slug}/issues/${identifier}/duplicate`, {
+		include_sub_issues: includeSubIssues
+	});
+}
+
+export function convertIssueToProject(
+	slug: string,
+	identifier: string
+): Promise<{ project: { id: string; name: string } }> {
+	return api.post<{ project: { id: string; name: string } }>(
+		`/api/workspaces/${slug}/issues/${identifier}/convert-to-project`
+	);
+}
+
 export function updateIssue(
 	slug: string,
 	identifier: string,

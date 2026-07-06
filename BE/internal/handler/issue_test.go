@@ -361,7 +361,7 @@ func TestIssueHandler_List(t *testing.T) {
 	notifSvc := service.NewNotificationService(&testNotifRepo{})
 	issueSvc := service.NewIssueService(issueRepo, teamRepo, &testTeamStatusRepo{}, historyRepo, hub, notifSvc)
 	commentSvc := service.NewCommentService(&testCommentRepo{}, issueRepo, hub, notifSvc)
-	h := NewIssueHandler(issueSvc, commentSvc, &testUserRepo{}, &testTeamStatusRepo{})
+	h := NewIssueHandler(issueSvc, commentSvc, &testUserRepo{}, &testTeamStatusRepo{}, nil, nil)
 
 	c, rec := setupIssueContext(e, http.MethodGet, "/api/workspaces/test/issues", "")
 	ws := &domain.Workspace{ID: wsID, Name: "Test", Slug: "test"}
@@ -395,7 +395,7 @@ func TestIssueHandler_Get_Found(t *testing.T) {
 	notifSvc := service.NewNotificationService(&testNotifRepo{})
 	issueSvc := service.NewIssueService(issueRepo, teamRepo, &testTeamStatusRepo{}, historyRepo, hub, notifSvc)
 	commentSvc := service.NewCommentService(&testCommentRepo{}, issueRepo, hub, notifSvc)
-	h := NewIssueHandler(issueSvc, commentSvc, &testUserRepo{}, &testTeamStatusRepo{})
+	h := NewIssueHandler(issueSvc, commentSvc, &testUserRepo{}, &testTeamStatusRepo{}, nil, nil)
 
 	c, rec := setupIssueContext(e, http.MethodGet, "/api/workspaces/test/issues/ENG-1", "")
 	ws := &domain.Workspace{ID: wsID, Name: "Test", Slug: "test"}
@@ -420,7 +420,7 @@ func TestIssueHandler_Get_NotFound(t *testing.T) {
 	notifSvc := service.NewNotificationService(&testNotifRepo{})
 	issueSvc := service.NewIssueService(issueRepo, teamRepo, &testTeamStatusRepo{}, historyRepo, hub, notifSvc)
 	commentSvc := service.NewCommentService(&testCommentRepo{}, issueRepo, hub, notifSvc)
-	h := NewIssueHandler(issueSvc, commentSvc, &testUserRepo{}, &testTeamStatusRepo{})
+	h := NewIssueHandler(issueSvc, commentSvc, &testUserRepo{}, &testTeamStatusRepo{}, nil, nil)
 
 	c, rec := setupIssueContext(e, http.MethodGet, "/api/workspaces/test/issues/ENG-999", "")
 	ws := &domain.Workspace{ID: uuid.New(), Name: "Test", Slug: "test"}
@@ -444,7 +444,7 @@ func TestIssueHandler_Create_ValidationError(t *testing.T) {
 	notifSvc := service.NewNotificationService(&testNotifRepo{})
 	issueSvc := service.NewIssueService(issueRepo, teamRepo, &testTeamStatusRepo{}, historyRepo, hub, notifSvc)
 	commentSvc := service.NewCommentService(&testCommentRepo{}, issueRepo, hub, notifSvc)
-	h := NewIssueHandler(issueSvc, commentSvc, &testUserRepo{}, &testTeamStatusRepo{})
+	h := NewIssueHandler(issueSvc, commentSvc, &testUserRepo{}, &testTeamStatusRepo{}, nil, nil)
 
 	// Missing required fields
 	c, rec := setupIssueContext(e, http.MethodPost, "/api/workspaces/test/issues", `{"title": ""}`)
@@ -474,7 +474,7 @@ func TestIssueHandler_Delete_Success(t *testing.T) {
 	notifSvc := service.NewNotificationService(&testNotifRepo{})
 	issueSvc := service.NewIssueService(issueRepo, teamRepo, &testTeamStatusRepo{}, historyRepo, hub, notifSvc)
 	commentSvc := service.NewCommentService(&testCommentRepo{}, issueRepo, hub, notifSvc)
-	h := NewIssueHandler(issueSvc, commentSvc, &testUserRepo{}, &testTeamStatusRepo{})
+	h := NewIssueHandler(issueSvc, commentSvc, &testUserRepo{}, &testTeamStatusRepo{}, nil, nil)
 
 	c, rec := setupIssueContext(e, http.MethodDelete, "/api/workspaces/test/issues/ENG-1", "")
 	ws := &domain.Workspace{ID: wsID, Name: "Test", Slug: "test"}
@@ -499,7 +499,7 @@ func TestIssueHandler_CreateComment_ValidationError(t *testing.T) {
 	notifSvc := service.NewNotificationService(&testNotifRepo{})
 	issueSvc := service.NewIssueService(issueRepo, teamRepo, &testTeamStatusRepo{}, historyRepo, hub, notifSvc)
 	commentSvc := service.NewCommentService(&testCommentRepo{}, issueRepo, hub, notifSvc)
-	h := NewIssueHandler(issueSvc, commentSvc, &testUserRepo{}, &testTeamStatusRepo{})
+	h := NewIssueHandler(issueSvc, commentSvc, &testUserRepo{}, &testTeamStatusRepo{}, nil, nil)
 
 	c, rec := setupIssueContext(e, http.MethodPost, "/api/workspaces/test/issues/ENG-1/comments", `{"body": ""}`)
 	setWorkspaceContext(c)
