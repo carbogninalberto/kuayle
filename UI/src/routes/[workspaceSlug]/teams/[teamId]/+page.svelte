@@ -113,6 +113,8 @@
 				params[key] = value;
 			}
 		}
+		params.sort ??= 'sort_order';
+		params.order ??= 'asc';
 		if (layout === 'board') {
 			params.per_page = '200';
 		}
@@ -139,9 +141,77 @@
 		goto(`/${slug}/issue/${issue.identifier}`);
 	}
 
-	async function handleGroupDrop(issueIdentifier: string, groupKey: string) {
+	function getIssueGroupKey(issue: Issue, groupBy: GroupByField) {
+		switch (groupBy) {
+			case 'status':
+				return issue.status_id ?? issue.status;
+			case 'priority':
+				return String(issue.priority);
+			case 'assignee':
+				return issue.assignee_id ?? 'unassigned';
+			case 'project':
+				return issue.project_id ?? 'no-project';
+			default:
+				return 'all';
+		}
+	}
+
+	function calculateSortOrder(items: Issue[], index: number): number {
+		const prev = index > 0 ? items[index - 1].sort_order : 0;
+		const next = index < items.length - 1 ? items[index + 1].sort_order : prev + 2000;
+		return (prev + next) / 2;
+	}
+
+	function hasSameIssueOrder(a: Issue[], b: Issue[]) {
+		return a.length === b.length && a.every((issue, index) => issue.id === b[index]?.id);
+	}
+
+	function applyLocalGroupOrder(orderedIssues: Issue[]) {
+		const orderedIds = orderedIssues.map((issue) => issue.id);
+		const groupIds = new Set(orderedIds);
+		const currentIssues = new Map(issuesState.issues.map((issue) => [issue.id, issue]));
+		let groupIndex = 0;
+		issuesState.issues = issuesState.issues.map((issue) => {
+			if (!groupIds.has(issue.id)) return issue;
+			return currentIssues.get(orderedIds[groupIndex++]) ?? issue;
+		});
+	}
+
+	async function handleGroupDrop(
+		issueIdentifier: string,
+		groupKey: string,
+		targetIssueId?: string,
+		targetPosition: 'above' | 'below' = dropPosition
+	) {
 		const gb = issuesState.groupBy;
 		if (!gb) return;
+
+		const sourceIssue = issuesState.issues.find((issue) => issue.identifier === issueIdentifier);
+		if (!sourceIssue) return;
+
+		const sourceGroupKey = getIssueGroupKey(sourceIssue, gb);
+		const isSameGroup = sourceGroupKey === groupKey;
+		let sortOrder: number | undefined;
+		let reorderedGroup: Issue[] | null = null;
+
+		if (targetIssueId) {
+			const group = issuesState.groupedIssues.find((g) => g.key === groupKey);
+			const itemsWithoutSource = group?.issues.filter((issue) => issue.id !== sourceIssue.id) ?? [];
+			const targetIndex = itemsWithoutSource.findIndex((issue) => issue.id === targetIssueId);
+
+			if (targetIndex !== -1) {
+				const insertIndex = targetPosition === 'below' ? targetIndex + 1 : targetIndex;
+				reorderedGroup = [...itemsWithoutSource];
+				reorderedGroup.splice(insertIndex, 0, sourceIssue);
+
+				if (!isSameGroup || !hasSameIssueOrder(group?.issues ?? [], reorderedGroup)) {
+					sortOrder = calculateSortOrder(reorderedGroup, insertIndex);
+				}
+			}
+		}
+
+		if (isSameGroup && sortOrder === undefined) return;
+
 		const fieldMap: Record<string, string> = {
 			status: 'status_id',
 			priority: 'priority',
@@ -150,12 +220,26 @@
 		};
 		const field = fieldMap[gb];
 		if (!field) return;
-		let value: any = groupKey;
-		if (gb === 'assignee' && groupKey === 'unassigned') value = null;
-		if (gb === 'project' && groupKey === 'no-project') value = null;
-		if (gb === 'priority') value = Number(groupKey);
+
+		const req: Record<string, any> = {};
+		if (!isSameGroup) {
+			let value: any = groupKey;
+			if (gb === 'assignee' && groupKey === 'unassigned') value = null;
+			if (gb === 'project' && groupKey === 'no-project') value = null;
+			if (gb === 'priority') value = Number(groupKey);
+			req[field] = value;
+		}
+		if (sortOrder !== undefined) {
+			req.sort_order = sortOrder;
+		}
+
 		try {
-			await issuesState.update(slug, issueIdentifier, { [field]: value });
+			const updatedIssue = await issuesState.update(slug, issueIdentifier, req);
+			if (isSameGroup && reorderedGroup) {
+				applyLocalGroupOrder(
+					reorderedGroup.map((issue) => (issue.id === updatedIssue.id ? updatedIssue : issue))
+				);
+			}
 		} catch {
 			toast.error('Failed to move issue');
 		}
@@ -353,12 +437,14 @@
 								<div
 									class="relative"
 									ondragover={(e) => {
+										e.preventDefault();
 										dragOverIssueId = issue.id;
 										const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
 										const midY = rect.top + rect.height / 2;
 										dropPosition = e.clientY < midY ? 'above' : 'below';
 									}}
 									ondragleave={() => { dragOverIssueId = null; }}
+									ondrop={(e) => { e.preventDefault(); e.stopPropagation(); dragOverGroup = null; dragOverIssueId = null; const id = e.dataTransfer?.getData('text/plain'); if (id) handleGroupDrop(id, dropKey, issue.id, dropPosition); }}
 								>
 									{#if dragOverIssueId === issue.id && dragSourceGroup === dropKey}
 										<div class="absolute {dropPosition === 'above' ? 'top-0' : 'bottom-0'} left-0 right-0 h-px bg-[var(--app-accent)] z-10"></div>
