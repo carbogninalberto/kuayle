@@ -277,7 +277,7 @@
 	{#if showHeader}
 	<Collapsible.Root bind:open={isOpen}>
 		<div class="overflow-hidden rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]/60">
-			<div class="flex items-center gap-2 px-3 py-2">
+			<div class="flex items-center gap-2 px-3 py-1.5">
 				<Collapsible.Trigger
 					class="flex min-w-0 flex-1 items-center gap-2 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
 				>
@@ -311,10 +311,10 @@
 				{#if onaddsubissue}
 					<button
 						onclick={onaddsubissue}
-						class="ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+						class="ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
 						title="Add sub-issue"
 					>
-						<Plus size={14} />
+						<Plus size={13} />
 					</button>
 				{/if}
 			</div>

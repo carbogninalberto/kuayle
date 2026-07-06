@@ -805,7 +805,7 @@
 				</div>
 
 				<!-- Sub-issues -->
-				<div class="mt-5">
+				<div class="mt-4">
 					{#if (issue.sub_issue_count ?? 0) > 0}
 						<SubIssuesList
 							{slug}
@@ -831,12 +831,12 @@
 				</div>
 
 				<!-- Relations -->
-				<div class="mt-4">
+				<div class="mt-2">
 					<IssueRelations {slug} identifier={issue.identifier} />
 				</div>
 
 				<!-- GitHub Activity -->
-				<div class="mt-4">
+				<div class="mt-2">
 					<IssueGitHubActivity {slug} identifier={issue.identifier} />
 				</div>
 
