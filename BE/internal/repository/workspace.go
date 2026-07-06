@@ -19,8 +19,8 @@ func NewWorkspaceRepository(db *sqlx.DB) *WorkspaceRepository {
 }
 
 func (r *WorkspaceRepository) Create(ctx context.Context, ws *domain.Workspace) error {
-	query := `INSERT INTO workspaces (id, name, slug) VALUES ($1, $2, $3) RETURNING created_at, updated_at`
-	return r.db.QueryRowContext(ctx, query, ws.ID, ws.Name, ws.Slug).Scan(&ws.CreatedAt, &ws.UpdatedAt)
+	query := `INSERT INTO workspaces (id, name, slug, owner_id) VALUES ($1, $2, $3, $4) RETURNING created_at, updated_at`
+	return r.db.QueryRowContext(ctx, query, ws.ID, ws.Name, ws.Slug, ws.OwnerID).Scan(&ws.CreatedAt, &ws.UpdatedAt)
 }
 
 func (r *WorkspaceRepository) GetBySlug(ctx context.Context, slug string) (*domain.Workspace, error) {
@@ -42,8 +42,13 @@ func (r *WorkspaceRepository) GetByID(ctx context.Context, id uuid.UUID) (*domai
 }
 
 func (r *WorkspaceRepository) Update(ctx context.Context, ws *domain.Workspace) error {
-	query := `UPDATE workspaces SET name = $1, updated_at = NOW() WHERE id = $2 RETURNING updated_at`
-	return r.db.QueryRowContext(ctx, query, ws.Name, ws.ID).Scan(&ws.UpdatedAt)
+	query := `UPDATE workspaces SET name = $1, logo_url = $2, share_link_min_role = $3, updated_at = NOW() WHERE id = $4 RETURNING updated_at`
+	return r.db.QueryRowContext(ctx, query, ws.Name, ws.LogoURL, ws.ShareLinkMinRole, ws.ID).Scan(&ws.UpdatedAt)
+}
+
+func (r *WorkspaceRepository) Delete(ctx context.Context, id uuid.UUID) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM workspaces WHERE id = $1`, id)
+	return err
 }
 
 func (r *WorkspaceRepository) ListByUser(ctx context.Context, userID uuid.UUID) ([]domain.Workspace, error) {

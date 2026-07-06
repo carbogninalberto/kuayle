@@ -2,13 +2,20 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 
+	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/pkg/audit"
-	"github.com/google/uuid"
+)
+
+var (
+	ErrWorkspaceNotFound = errors.New("workspace not found")
+	ErrNotWorkspaceOwner = errors.New("only the workspace owner can perform this action")
 )
 
 type WorkspaceService struct {
@@ -27,9 +34,11 @@ func (s *WorkspaceService) Create(ctx context.Context, userID uuid.UUID, req dto
 	}
 
 	ws := &domain.Workspace{
-		ID:   uuid.New(),
-		Name: req.Name,
-		Slug: req.Slug,
+		ID:               uuid.New(),
+		Name:             req.Name,
+		Slug:             req.Slug,
+		OwnerID:          userID,
+		ShareLinkMinRole: domain.RoleAdmin,
 	}
 
 	if err := s.workspaceRepo.Create(ctx, ws); err != nil {
@@ -60,20 +69,69 @@ func (s *WorkspaceService) ListByUser(ctx context.Context, userID uuid.UUID) ([]
 	return s.workspaceRepo.ListByUser(ctx, userID)
 }
 
-func (s *WorkspaceService) Update(ctx context.Context, slug string, req dto.UpdateWorkspaceRequest) (*domain.Workspace, error) {
+func (s *WorkspaceService) Update(ctx context.Context, slug string, userID uuid.UUID, req dto.UpdateWorkspaceRequest) (*domain.Workspace, error) {
 	ws, err := s.workspaceRepo.GetBySlug(ctx, slug)
 	if err != nil || ws == nil {
-		return nil, fmt.Errorf("workspace not found")
+		return nil, ErrWorkspaceNotFound
+	}
+
+	if ws.OwnerID != userID {
+		return nil, ErrNotWorkspaceOwner
 	}
 
 	if req.Name != nil {
 		ws.Name = *req.Name
 	}
+	if req.LogoURL.Set {
+		if req.LogoURL.Value == nil || strings.TrimSpace(*req.LogoURL.Value) == "" {
+			ws.LogoURL = nil
+		} else {
+			trimmed := strings.TrimSpace(*req.LogoURL.Value)
+			ws.LogoURL = &trimmed
+		}
+	}
+	if req.ShareLinkMinRole != nil {
+		ws.ShareLinkMinRole = *req.ShareLinkMinRole
+	}
 
 	if err := s.workspaceRepo.Update(ctx, ws); err != nil {
 		return nil, err
 	}
+
+	audit.Log("workspace.updated", userID, map[string]interface{}{
+		"workspace_id": ws.ID, "slug": ws.Slug,
+	})
+
 	return ws, nil
+}
+
+func (s *WorkspaceService) Delete(ctx context.Context, slug string, userID uuid.UUID) error {
+	ws, err := s.workspaceRepo.GetBySlug(ctx, slug)
+	if err != nil || ws == nil {
+		return ErrWorkspaceNotFound
+	}
+
+	if ws.OwnerID != userID {
+		return ErrNotWorkspaceOwner
+	}
+
+	if err := s.workspaceRepo.Delete(ctx, ws.ID); err != nil {
+		return err
+	}
+
+	audit.Log("workspace.deleted", userID, map[string]interface{}{
+		"workspace_id": ws.ID, "slug": ws.Slug,
+	})
+
+	return nil
+}
+
+// GetOwner returns the user that owns the workspace, if any.
+func (s *WorkspaceService) GetOwner(ctx context.Context, ws *domain.Workspace) (*domain.User, error) {
+	if ws.OwnerID == uuid.Nil {
+		return nil, nil
+	}
+	return s.userRepo.GetByID(ctx, ws.OwnerID)
 }
 
 func (s *WorkspaceService) GetMember(ctx context.Context, workspaceID, userID uuid.UUID) (*domain.WorkspaceMember, error) {
@@ -114,19 +172,24 @@ func (s *WorkspaceService) ListMembers(ctx context.Context, workspaceID uuid.UUI
 }
 
 func (s *WorkspaceService) UpdateMemberRole(ctx context.Context, workspaceID, userID uuid.UUID, role string) error {
+	ws, err := s.workspaceRepo.GetByID(ctx, workspaceID)
+	if err != nil {
+		return err
+	}
+	if ws == nil {
+		return ErrWorkspaceNotFound
+	}
+
 	member, err := s.workspaceRepo.GetMember(ctx, workspaceID, userID)
 	if err != nil || member == nil {
 		return fmt.Errorf("member not found")
 	}
 
-	if member.Role == domain.RoleOwner && role != domain.RoleOwner {
-		count, err := s.workspaceRepo.CountMembersByRole(ctx, workspaceID, domain.RoleOwner)
-		if err != nil {
-			return err
-		}
-		if count <= 1 {
-			return fmt.Errorf("cannot demote the last owner")
-		}
+	if userID == ws.OwnerID && role != domain.RoleOwner {
+		return fmt.Errorf("workspace owner cannot be demoted")
+	}
+	if userID != ws.OwnerID && role == domain.RoleOwner {
+		return fmt.Errorf("ownership transfer is not supported")
 	}
 
 	if err := s.workspaceRepo.UpdateMemberRole(ctx, workspaceID, userID, role); err != nil {
