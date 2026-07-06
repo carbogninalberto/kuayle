@@ -16,6 +16,7 @@
 	import type { Label } from '$lib/types/label';
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import type { View } from '$lib/types/view';
+	import type { IssuePriority } from '$lib/types/issue';
 	import Sidebar from '$lib/components/layout/Sidebar.svelte';
 	import CommandPalette from '$lib/components/layout/CommandPalette.svelte';
 	import CreateIssueDialog from '$lib/features/issues/CreateIssueDialog.svelte';
@@ -160,7 +161,7 @@
 					showCreateTeam = true;
 				} else {
 					// Ensure statuses are loaded for the target team
-					const targetTeam = page.params.teamId ?? teams[0]?.id;
+					const targetTeam = getCreateTeamId();
 					if (targetTeam) {
 						teamStatusesState.load(slug, targetTeam);
 					}
@@ -249,13 +250,67 @@
 		if (teams.length === 0) {
 			showCreateTeam = true;
 		} else {
-			const targetTeam = page.params.teamId ?? teams[0]?.id;
+			const targetTeam = getCreateTeamId();
 			if (targetTeam) {
 				teamStatusesState.load(slug, targetTeam);
 			}
 			showCreateIssue = true;
 		}
 		showMobileSidebar = false;
+	}
+
+	function singleFilterValue(value?: string): string | undefined {
+		if (!value) return undefined;
+		const values = value.split(',').filter(Boolean);
+		return values.length === 1 ? values[0] : undefined;
+	}
+
+	function getActiveIssueFilters(): Record<string, string> {
+		const pathname = page.url.pathname;
+		const teamPath = page.params.teamId ? `/${slug}/teams/${page.params.teamId}` : '';
+		const projectPath = page.params.projectId ? `/${slug}/projects/${page.params.projectId}` : '';
+
+		if (pathname === `/${slug}/my-issues`) return issuesState.filters;
+		if (teamPath && (pathname === teamPath || pathname === `${teamPath}/board`)) return issuesState.filters;
+		if (projectPath && pathname === projectPath) return issuesState.filters;
+		return {};
+	}
+
+	function getCreateTeamId(): string | undefined {
+		const activeFilters = getActiveIssueFilters();
+		const routeProject = projects.find((project) => project.id === page.params.projectId);
+		return page.params.teamId ?? routeProject?.team_id ?? singleFilterValue(activeFilters.team) ?? teams[0]?.id;
+	}
+
+	function getCreateStatusId(): string | undefined {
+		const value = singleFilterValue(getActiveIssueFilters().status);
+		if (!value) return undefined;
+		return teamStatusesState.statusById.get(value)?.id ?? teamStatusesState.statusOrder.find((status) => status.slug === value)?.id;
+	}
+
+	function getCreatePriority(): IssuePriority | undefined {
+		const value = singleFilterValue(getActiveIssueFilters().priority);
+		const priority = value === undefined ? NaN : Number(value);
+		return [0, 1, 2, 3, 4].includes(priority) ? priority as IssuePriority : undefined;
+	}
+
+	function getCreateProjectId(): string | null | undefined {
+		const routeProjectId = page.params.projectId;
+		if (routeProjectId) return routeProjectId;
+		const value = singleFilterValue(getActiveIssueFilters().project);
+		if (value === 'none') return null;
+		return value;
+	}
+
+	function getCreateAssigneeIds(): string[] | undefined {
+		const value = singleFilterValue(getActiveIssueFilters().assignee);
+		if (value === 'none') return [];
+		return value ? [value] : undefined;
+	}
+
+	function getCreateLabelIds(): string[] | undefined {
+		const value = singleFilterValue(getActiveIssueFilters().label);
+		return value ? [value] : undefined;
 	}
 
 	// WebSocket connection — reconnects when slug changes
@@ -428,7 +483,7 @@
 	</div>
 
 	{#if showCommandPalette}
-		<CommandPalette {slug} {teams} onclose={() => (showCommandPalette = false)} />
+		<CommandPalette {slug} {teams} onclose={() => (showCommandPalette = false)} oncreateissue={openCreateIssue} />
 	{/if}
 
 	<CreateIssueDialog
@@ -438,7 +493,12 @@
 		{projects}
 		{labels}
 		{members}
-		defaultTeamId={page.params.teamId ?? teams[0]?.id}
+		defaultTeamId={getCreateTeamId()}
+		defaultStatusId={getCreateStatusId()}
+		defaultPriority={getCreatePriority()}
+		defaultProjectId={getCreateProjectId()}
+		defaultAssigneeIds={getCreateAssigneeIds()}
+		defaultLabelIds={getCreateLabelIds()}
 		onlabelcreated={(label) => (labels = [label, ...labels.filter((existing) => existing.id !== label.id)])}
 		onsubmit={async (req) => {
 			try {

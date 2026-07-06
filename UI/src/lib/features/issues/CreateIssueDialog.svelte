@@ -13,6 +13,7 @@
 	import { PRIORITY_LABELS } from '$lib/types/issue';
 	import type { IssueTemplate } from '$lib/types/issue';
 	import { teamStatusesState } from './team-statuses.state.svelte';
+	import { getIssueCreateDefaults } from './create-defaults';
 	import type { StatusCategory } from '$lib/types/team-status';
 	import RichEditor from '$lib/components/shared/RichEditor.svelte';
 	import { Checkbox } from '$lib/components/ui/checkbox';
@@ -41,6 +42,11 @@
 		defaultStatusId,
 		defaultPriority,
 		defaultAssigneeId,
+		defaultProjectId,
+		defaultAssigneeIds,
+		defaultLabelIds,
+		defaultDueDate,
+		defaultCycleId,
 		defaultTitle,
 		onlabelcreated,
 		onsubmit
@@ -57,6 +63,11 @@
 		defaultStatusId?: string;
 		defaultPriority?: IssuePriority;
 		defaultAssigneeId?: string;
+		defaultProjectId?: string | null;
+		defaultAssigneeIds?: string[];
+		defaultLabelIds?: string[];
+		defaultDueDate?: string | null;
+		defaultCycleId?: string | null;
 		defaultTitle?: string;
 		onlabelcreated?: (label: Label) => void;
 		onsubmit: (req: {
@@ -100,19 +111,70 @@
 	let labelsOpen = $state(false);
 	let cycleOpen = $state(false);
 
+	function validTeam(id: string | undefined): string | undefined {
+		if (!id) return undefined;
+		return teams.some((t) => t.id === id) ? id : undefined;
+	}
+
+	function validStatus(id: string | undefined): string | undefined {
+		if (!id) return undefined;
+		return teamStatusesState.statusById.has(id) ? id : undefined;
+	}
+
+	function validProject(id: string | null | undefined): string | null {
+		if (!id) return null;
+		return projects.some((p) => p.id === id) ? id : null;
+	}
+
+	function validCycle(id: string | null | undefined): string | null {
+		if (!id) return null;
+		return cycles?.some((c) => c.id === id) ? id : null;
+	}
+
+	function validMemberIds(ids: string[] | undefined): string[] {
+		if (!ids) return [];
+		const memberIds = new Set(members.map((m) => m.user_id));
+		return ids.filter((id) => memberIds.has(id));
+	}
+
+	function validLabelIds(ids: string[] | undefined): string[] {
+		if (!ids) return [];
+		const availableLabelIds = new Set(labels.map((l) => l.id));
+		return ids.filter((id) => availableLabelIds.has(id));
+	}
+
+	function applyDefaultStatus(preferredStatusId?: string) {
+		statusId = validStatus(preferredStatusId) ?? teamStatusesState.defaultForCategory('backlog')?.id ?? '';
+	}
+
+	function loadStatusesForTeam(nextTeamId: string, preferredStatusId?: string) {
+		if (!slug || !nextTeamId) {
+			applyDefaultStatus(preferredStatusId);
+			return;
+		}
+
+		teamStatusesState.load(slug, nextTeamId).then(() => {
+			if (open && teamId === nextTeamId) {
+				applyDefaultStatus(preferredStatusId);
+			}
+		});
+	}
+
 	function resetForm() {
+		const savedDefaults = getIssueCreateDefaults(slug);
 		title = defaultTitle ?? '';
 		description = '';
 		descriptionVersion++;
 		selectedTemplate = null;
-		statusId = defaultStatusId ?? teamStatusesState.defaultForCategory('backlog')?.id ?? '';
-		priority = defaultPriority ?? 0;
-		teamId = defaultTeamId ?? teams[0]?.id ?? '';
-		projectId = null;
-		assigneeIds = defaultAssigneeId ? [defaultAssigneeId] : [];
-		labelIds = [];
-		dueDate = null;
-		cycleId = null;
+		priority = defaultPriority ?? savedDefaults.priority ?? 0;
+		teamId = validTeam(defaultTeamId) ?? validTeam(savedDefaults.teamId) ?? teams[0]?.id ?? '';
+		statusId = '';
+		loadStatusesForTeam(teamId, defaultStatusId ?? savedDefaults.statusId);
+		projectId = defaultProjectId !== undefined ? validProject(defaultProjectId) : validProject(savedDefaults.projectId);
+		assigneeIds = defaultAssigneeIds ? validMemberIds(defaultAssigneeIds) : (defaultAssigneeId ? validMemberIds([defaultAssigneeId]) : validMemberIds(savedDefaults.assigneeIds));
+		labelIds = defaultLabelIds ? validLabelIds(defaultLabelIds) : validLabelIds(savedDefaults.labelIds);
+		dueDate = defaultDueDate !== undefined ? defaultDueDate : savedDefaults.dueDate ?? null;
+		cycleId = defaultCycleId !== undefined ? validCycle(defaultCycleId) : validCycle(savedDefaults.cycleId);
 		if (slug) listTemplates(slug).then(t => templates = t).catch(() => {});
 	}
 
@@ -199,6 +261,12 @@
 			labelIds = [...labelIds, id];
 		}
 	}
+
+	function handleTeamChange(id: string) {
+		teamId = id;
+		statusId = '';
+		loadStatusesForTeam(id);
+	}
 </script>
 
 <Dialog.Root bind:open>
@@ -216,7 +284,7 @@
 				bind:open={teamOpen}
 				{teams}
 				value={teamId}
-				onchange={(id) => { teamId = id; }}
+				onchange={handleTeamChange}
 			>
 				{#snippet trigger()}
 					<button tabindex="-1" class="flex items-center gap-1.5 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-tertiary)] px-2.5 py-1 text-xs font-medium text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]">
