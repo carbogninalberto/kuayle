@@ -69,6 +69,7 @@ func main() {
 	visibilityRepo := repository.NewProjectStatusVisibilityRepository(db)
 	favRepo := repository.NewFavoriteRepository(db)
 	prefsRepo := repository.NewUserPreferencesRepository(db)
+	assetRepo := repository.NewAssetRepository(db)
 
 	// Services
 	authSvc := service.NewAuthService(userRepo, refreshRepo, cfg.JWTSecret)
@@ -116,7 +117,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to initialize storage: %v", err)
 	}
-	uploadH := handler.NewUploadHandler(store)
+	uploadH := handler.NewUploadHandler(store, assetRepo, issueRepo, cfg.JWTSecret)
 
 	// GitHub integration
 	var globalGitHubApp *service.GlobalGitHubAppConfig
@@ -155,9 +156,6 @@ func main() {
 	// Echo
 	e := echo.New()
 	e.HideBanner = true
-	if cfg.Storage.Type == storage.TypeLocal || cfg.Storage.Type == "" {
-		e.Static("/uploads", cfg.Storage.LocalDir)
-	}
 
 	// Global middleware
 	e.Use(mw.Recovery())
@@ -180,6 +178,7 @@ func main() {
 	pub := e.Group("/api/public", mw.RateLimit(2, 5))
 	pub.GET("/share/:token", sharedLinkH.GetPublicMeta)
 	pub.GET("/share/:token/issues", sharedLinkH.ListPublicIssues)
+	e.GET("/api/public/assets/:token", uploadH.PublicAsset, mw.RateLimit(10, 20))
 
 	// Authenticated routes
 	api := e.Group("/api", mw.Auth(cfg.JWTSecret))
@@ -320,6 +319,8 @@ func main() {
 
 	// Uploads
 	ws.POST("/upload", uploadH.Upload, mw.RequirePermission("issue:create"))
+	ws.GET("/assets/:assetId", uploadH.GetAsset)
+	ws.POST("/issues/:identifier/prompt-assets", uploadH.SignIssuePromptAssets)
 
 	// WebSocket
 	ws.GET("/ws", wsH.Handle)

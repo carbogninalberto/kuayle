@@ -53,6 +53,20 @@ func TestLocalBackend_CreatesDir(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestLocalBackend_RejectsPathTraversal(t *testing.T) {
+	b, err := NewLocalBackend(t.TempDir(), "/uploads")
+	require.NoError(t, err)
+
+	_, err = b.Put(context.Background(), "../secret.txt", strings.NewReader("data"), "text/plain")
+	assert.Error(t, err)
+
+	_, err = b.Get(context.Background(), "../secret.txt")
+	assert.Error(t, err)
+
+	err = b.Delete(context.Background(), "../secret.txt")
+	assert.Error(t, err)
+}
+
 func TestNewConfig_DefaultsToLocal(t *testing.T) {
 	cfg := Config{}
 	assert.Equal(t, Type(""), cfg.Type)

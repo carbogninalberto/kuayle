@@ -30,7 +30,7 @@ function createPurify() {
 		}
 		if (node.tagName === 'IMG') {
 			const src = node.getAttribute('src') ?? '';
-			if (src && !src.startsWith('/uploads/') && !SAFE_URL_PATTERN.test(src)) {
+			if (src && !src.startsWith('/api/workspaces/') && !SAFE_URL_PATTERN.test(src)) {
 				node.removeAttribute('src');
 			}
 		}

@@ -41,6 +41,7 @@ func init() {
 
 	policy.AllowAttrs("href", "target", "rel").OnElements("a")
 	policy.AllowStandardURLs()
+	policy.AllowRelativeURLs(true)
 	policy.AddTargetBlankToFullyQualifiedLinks(true)
 	policy.RequireNoFollowOnLinks(true)
 	policy.RequireNoReferrerOnLinks(true)

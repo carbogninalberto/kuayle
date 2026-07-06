@@ -6,7 +6,7 @@
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import type { Label } from '$lib/types/label';
 	import type { Project } from '$lib/types/project';
-	import { listComments, createComment, resolveComment, reopenComment, getIssueHistory, getIssue } from '$lib/api/issues';
+	import { listComments, createComment, resolveComment, reopenComment, getIssueHistory, getIssue, signIssuePromptAssets } from '$lib/api/issues';
 	import { listMembers } from '$lib/api/members';
 	import { listLabels } from '$lib/api/labels';
 	import { listProjects } from '$lib/api/projects';
@@ -380,6 +380,16 @@
 		toast.success(`${label} copied`);
 	}
 
+	async function copyAIPrompt() {
+		try {
+			const { assets } = await signIssuePromptAssets(slug, issue.identifier);
+			await navigator.clipboard.writeText(getAIPrompt(assets));
+			toast.success('AI prompt copied');
+		} catch {
+			toast.error('Failed to copy AI prompt');
+		}
+	}
+
 	function getUsername(): string {
 		const user = authState.user;
 		if (!user) return 'user';
@@ -435,7 +445,19 @@
 		}
 	}
 
-	function htmlToPromptMarkdown(html: string): string {
+	function getSignedPromptAssetUrl(src: string, signedAssets: Record<string, string>): string {
+		const signed = signedAssets[src];
+		if (signed) return signed;
+
+		try {
+			const path = new URL(src, window.location.origin).pathname;
+			return signedAssets[path] ?? src;
+		} catch {
+			return src;
+		}
+	}
+
+	function htmlToPromptMarkdown(html: string, signedAssets: Record<string, string>): string {
 		const root = document.createElement('div');
 		root.innerHTML = html;
 
@@ -468,7 +490,7 @@
 				if (!src) return;
 				const alt = (node.getAttribute('alt') ?? 'Image').replace(/[\[\]\r\n]+/g, ' ').trim() || 'Image';
 				appendBreak();
-				parts.push(`![${alt}](${getPromptAssetUrl(src)})`);
+				parts.push(`![${alt}](${getPromptAssetUrl(getSignedPromptAssetUrl(src, signedAssets))})`);
 				appendBreak();
 				return;
 			}
@@ -490,7 +512,7 @@
 			.trim();
 	}
 
-	function getAIPrompt(): string {
+	function getAIPrompt(signedAssets: Record<string, string> = {}): string {
 		let prompt = `Work on issue ${issue.identifier}:\n\n`;
 		prompt += `<issue identifier="${issue.identifier}">\n`;
 		prompt += `<title>${decodeHtmlEntities(issue.title)}</title>\n`;
@@ -505,7 +527,7 @@
 			prompt += `<project name="${decodeHtmlEntities(issueProject.name)}">${decodeHtmlEntities(issueProject.description ?? '')}</project>\n`;
 		}
 		if (issue.description) {
-			prompt += `<description>${htmlToPromptMarkdown(issue.description)}</description>\n`;
+			prompt += `<description>${htmlToPromptMarkdown(issue.description, signedAssets)}</description>\n`;
 		}
 		prompt += `</issue>`;
 		return prompt;
@@ -571,7 +593,7 @@
 				<GitBranch size={14} />
 			</button>
 			<button
-				onclick={() => copyToClipboard(getAIPrompt(), 'AI prompt')}
+				onclick={copyAIPrompt}
 				class="rounded p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
 				title="Copy AI prompt"
 			>

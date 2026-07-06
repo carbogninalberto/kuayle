@@ -56,6 +56,24 @@ func TestSanitizeEditorContentKeepsSafeEditorHTML(t *testing.T) {
 	assertNotContains(t, got, `alert(1)`)
 }
 
+func TestSanitizeEditorContentKeepsProtectedAssetImages(t *testing.T) {
+	assetID := "123e4567-e89b-12d3-a456-426614174000"
+	input := `<p><img src="/api/workspaces/acme/assets/` + assetID + `" alt="Screenshot"></p>`
+
+	got := SanitizeEditorContent(input)
+
+	assertContains(t, got, `src="/api/workspaces/acme/assets/`+assetID+`"`)
+	assertContains(t, got, `alt="Screenshot"`)
+}
+
+func TestSanitizeEditorContentRejectsUnsafeImageURL(t *testing.T) {
+	input := `<p><img src="javascript:alert(1)" alt="Bad"></p>`
+
+	got := SanitizeEditorContent(input)
+
+	assertNotContains(t, got, `javascript:`)
+}
+
 func assertContains(t *testing.T, value, substring string) {
 	t.Helper()
 	if !strings.Contains(value, substring) {
