@@ -6,7 +6,7 @@
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import { StatusSelector, PrioritySelector, LabelSelector } from './selectors';
 	import { toast } from 'svelte-sonner';
-	import { X, Trash2 } from 'lucide-svelte';
+	import { CornerDownRight, X, Trash2 } from 'lucide-svelte';
 	import * as issueApi from '$lib/api/issues';
 	import { onMount } from 'svelte';
 	import { showIssueDeletedToast, showIssuesDeletedToast } from './issue-deleted-toast';
@@ -78,6 +78,29 @@
 		labelOpen = false;
 	}
 
+	async function bulkSetParent() {
+		const identifier = window.prompt('Parent issue identifier');
+		if (!identifier?.trim()) return;
+		const count = issuesState.selectionCount;
+		try {
+			const parent = await issueApi.getIssue(slug, identifier.trim().toUpperCase());
+			await issuesState.bulkUpdate(slug, { parent_id: parent.id } as any);
+			toast.success(`Moved ${count} issue${count > 1 ? 's' : ''} under ${parent.identifier}`);
+		} catch (err: any) {
+			toast.error(err?.error?.message || 'Failed to set parent');
+		}
+	}
+
+	async function bulkRemoveParent() {
+		const count = issuesState.selectionCount;
+		try {
+			await issuesState.bulkUpdate(slug, { parent_id: '' } as any);
+			toast.success(`Removed parent from ${count} issue${count > 1 ? 's' : ''}`);
+		} catch (err: any) {
+			toast.error(err?.error?.message || 'Failed to remove parent');
+		}
+	}
+
 	async function bulkDelete() {
 		const ids = Array.from(issuesState.selectedIds);
 		if (ids.length === 0) return;
@@ -147,6 +170,21 @@
 					</button>
 				{/snippet}
 			</LabelSelector>
+
+			<button
+				onclick={bulkSetParent}
+				class="rounded-md border border-[var(--app-border)] px-2.5 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+				title="Set parent"
+			>
+				<CornerDownRight size={12} />
+			</button>
+
+			<button
+				onclick={bulkRemoveParent}
+				class="rounded-md border border-[var(--app-border)] px-2.5 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+			>
+				Unparent
+			</button>
 		</div>
 
 		<button

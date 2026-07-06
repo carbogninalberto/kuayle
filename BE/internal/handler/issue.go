@@ -51,6 +51,7 @@ func (h *IssueHandler) List(c echo.Context) error {
 	}
 	labelsMap, _ := h.issueSvc.GetLabelsForIssues(ctx, issueIDs)
 	assigneesMap, _ := h.issueSvc.GetAssigneesForIssues(ctx, issueIDs)
+	subIssueCounts, _ := h.issueSvc.CountSubIssuesForIssues(ctx, issueIDs)
 
 	// Batch load statuses for all issues
 	statusIDSet := make(map[uuid.UUID]struct{})
@@ -112,6 +113,12 @@ func (h *IssueHandler) List(c echo.Context) error {
 				}
 			}
 		}
+		if count, ok := subIssueCounts[issue.ID]; ok && count.Total > 0 {
+			total := count.Total
+			done := count.Done
+			resp.SubIssueCount = &total
+			resp.SubIssueDone = &done
+		}
 
 		// Populate user objects
 		h.enrichUserFields(ctx, &resp, issue)
@@ -150,6 +157,59 @@ func (h *IssueHandler) Create(c echo.Context) error {
 
 	resp := toIssueResponse(*issue)
 	h.enrichIssueResponse(c.Request().Context(), &resp, *issue)
+	return response.Success(c, http.StatusCreated, resp)
+}
+
+func (h *IssueHandler) CreateSubIssue(c echo.Context) error {
+	var req dto.CreateSubIssueRequest
+	if err := c.Bind(&req); err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
+	}
+	if err := validate.Struct(&req); err != nil {
+		details := make([]dto.ErrorDetail, 0)
+		for _, e := range validate.FormatErrors(err) {
+			details = append(details, dto.ErrorDetail{Field: e["field"], Message: e["message"]})
+		}
+		return response.ValidationError(c, details)
+	}
+
+	ws := c.Get("workspace").(*domain.Workspace)
+	userID := middleware.GetUserID(c)
+	issue, err := h.issueSvc.CreateSubIssue(c.Request().Context(), ws.ID, userID, c.Param("identifier"), req)
+	if err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+	}
+
+	resp := toIssueResponse(*issue)
+	h.enrichIssueResponse(c.Request().Context(), &resp, *issue)
+	return response.Success(c, http.StatusCreated, resp)
+}
+
+func (h *IssueHandler) BulkCreateSubIssues(c echo.Context) error {
+	var req dto.BulkCreateSubIssueRequest
+	if err := c.Bind(&req); err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
+	}
+	if err := validate.Struct(&req); err != nil {
+		details := make([]dto.ErrorDetail, 0)
+		for _, e := range validate.FormatErrors(err) {
+			details = append(details, dto.ErrorDetail{Field: e["field"], Message: e["message"]})
+		}
+		return response.ValidationError(c, details)
+	}
+
+	ws := c.Get("workspace").(*domain.Workspace)
+	userID := middleware.GetUserID(c)
+	issues, err := h.issueSvc.BulkCreateSubIssues(c.Request().Context(), ws.ID, userID, c.Param("identifier"), req)
+	if err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+	}
+
+	resp := make([]dto.IssueResponse, len(issues))
+	for i, issue := range issues {
+		resp[i] = toIssueResponse(issue)
+		h.enrichIssueResponse(c.Request().Context(), &resp[i], issue)
+	}
 	return response.Success(c, http.StatusCreated, resp)
 }
 
@@ -411,6 +471,7 @@ func (h *IssueHandler) ListSubIssues(c echo.Context) error {
 	resp := make([]dto.IssueResponse, len(subIssues))
 	for i, issue := range subIssues {
 		r := toIssueResponse(issue)
+		h.enrichIssueResponse(c.Request().Context(), &r, issue)
 		total, done, _ := h.issueSvc.CountSubIssues(c.Request().Context(), issue.ID)
 		if total > 0 {
 			r.SubIssueCount = &total
@@ -493,6 +554,24 @@ func (h *IssueHandler) enrichIssueResponse(ctx context.Context, resp *dto.IssueR
 
 	// Populate status_info
 	h.enrichStatusInfo(ctx, resp, issue)
+
+	// Populate parent summary
+	if issue.ParentID != nil {
+		parent, _ := h.issueSvc.GetByID(ctx, *issue.ParentID)
+		if parent != nil {
+			resp.Parent = &dto.IssueSummaryResponse{
+				ID:         parent.ID.String(),
+				Identifier: parent.Identifier,
+				Title:      sanitize.PlainText(parent.Title),
+			}
+		}
+	}
+
+	total, done, _ := h.issueSvc.CountSubIssues(ctx, issue.ID)
+	if total > 0 {
+		resp.SubIssueCount = &total
+		resp.SubIssueDone = &done
+	}
 
 	h.enrichUserFields(ctx, resp, issue)
 }

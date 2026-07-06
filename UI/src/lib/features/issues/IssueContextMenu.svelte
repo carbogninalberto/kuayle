@@ -10,6 +10,7 @@
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
 	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
 	import { issuesState } from './issues.state.svelte';
+	import { getIssue } from '$lib/api/issues';
 	import { showIssueDeletedToast } from './issue-deleted-toast';
 	import { toast } from 'svelte-sonner';
 	import type { Snippet } from 'svelte';
@@ -77,6 +78,27 @@
 			toast.success('Issue duplicated');
 		} catch {
 			toast.error('Failed to duplicate issue');
+		}
+	}
+
+	async function handleSetParent() {
+		const identifier = window.prompt('Parent issue identifier');
+		if (!identifier?.trim()) return;
+		try {
+			const parent = await getIssue(slug, identifier.trim().toUpperCase());
+			await issuesState.update(slug, issue.identifier, { parent_id: parent.id });
+			toast.success(`Set parent to ${parent.identifier}`);
+		} catch (err: any) {
+			toast.error(err?.error?.message || 'Failed to set parent');
+		}
+	}
+
+	async function handleRemoveParent() {
+		try {
+			await issuesState.update(slug, issue.identifier, { parent_id: '' });
+			toast.success('Removed parent');
+		} catch (err: any) {
+			toast.error(err?.error?.message || 'Failed to remove parent');
 		}
 	}
 </script>
@@ -239,6 +261,17 @@
 				</ContextMenu.Item>
 			</ContextMenu.SubContent>
 		</ContextMenu.Sub>
+
+		<ContextMenu.Separator />
+
+		<ContextMenu.Item onclick={handleSetParent}>
+			Set parent...
+		</ContextMenu.Item>
+		{#if issue.parent_id}
+			<ContextMenu.Item onclick={handleRemoveParent}>
+				Remove parent
+			</ContextMenu.Item>
+		{/if}
 
 		<ContextMenu.Separator />
 

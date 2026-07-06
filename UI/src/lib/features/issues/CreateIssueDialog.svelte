@@ -9,7 +9,7 @@
 	import type { Label } from '$lib/types/label';
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import type { Cycle } from '$lib/types/cycle';
-	import type { IssueStatus, IssuePriority } from '$lib/types/issue';
+	import type { Issue, IssueStatus, IssuePriority } from '$lib/types/issue';
 	import { PRIORITY_LABELS } from '$lib/types/issue';
 	import type { IssueTemplate } from '$lib/types/issue';
 	import { teamStatusesState } from './team-statuses.state.svelte';
@@ -48,7 +48,9 @@
 		defaultDueDate,
 		defaultCycleId,
 		defaultTitle,
+		parentIssue = null,
 		onlabelcreated,
+		onbulkcreate,
 		onsubmit
 	}: {
 		open: boolean;
@@ -69,7 +71,9 @@
 		defaultDueDate?: string | null;
 		defaultCycleId?: string | null;
 		defaultTitle?: string;
+		parentIssue?: Issue | null;
 		onlabelcreated?: (label: Label) => void;
+		onbulkcreate?: (titles: string[]) => void;
 		onsubmit: (req: {
 			title: string;
 			description?: string;
@@ -81,6 +85,7 @@
 			assignee_id?: string;
 			assignee_ids?: string[];
 			label_ids?: string[];
+			parent_id?: string;
 			due_date?: string;
 			cycle_id?: string;
 		}) => void;
@@ -204,6 +209,7 @@
 			project_id: projectId || undefined,
 			assignee_ids: assigneeIds.length > 0 ? assigneeIds : undefined,
 			label_ids: labelIds.length > 0 ? labelIds : undefined,
+			parent_id: parentIssue?.id,
 			due_date: dueDate || undefined,
 			cycle_id: cycleId || undefined
 		});
@@ -214,6 +220,22 @@
 		} else {
 			open = false;
 		}
+	}
+
+	function titleFromListLine(line: string): string {
+		return line
+			.replace(/^\s*(?:[-*+]\s+\[[ xX]?\]\s+|\[[ xX]?\]\s+|[-*+]\s+|\d+[.)]\s+)/, '')
+			.trim();
+	}
+
+	function handleTitlePaste(e: ClipboardEvent) {
+		if (!parentIssue || !onbulkcreate) return;
+		const text = e.clipboardData?.getData('text') ?? '';
+		const titles = text.split(/\r?\n/).map(titleFromListLine).filter(Boolean);
+		if (titles.length < 2) return;
+		e.preventDefault();
+		onbulkcreate(titles);
+		if (!createMore) open = false;
 	}
 
 	const STATUS_TO_CATEGORY: Record<string, StatusCategory> = {
@@ -324,7 +346,9 @@
 					</Popover.Content>
 				</Popover.Root>
 			{:else}
-				<span class="text-xs font-medium text-[var(--color-text-secondary)]">New Issue</span>
+				<span class="text-xs font-medium text-[var(--color-text-secondary)]">
+					{parentIssue ? `New sub-issue of ${parentIssue.identifier}` : 'New Issue'}
+				</span>
 			{/if}
 		</div>
 
@@ -336,6 +360,7 @@
 				id="create-issue-title"
 				type="text"
 				bind:value={title}
+				onpaste={handleTitlePaste}
 				placeholder="Issue title"
 				class="w-full bg-transparent text-lg font-semibold text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)] max-sm:shrink-0"
 			/>

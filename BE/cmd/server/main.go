@@ -134,7 +134,7 @@ func main() {
 	}
 	githubRepo := repository.NewGitHubRepository(db)
 	githubSvc := service.NewGitHubService(
-		githubRepo, issueRepo, teamStatusRepo, historyRepo,
+		githubRepo, issueRepo, teamRepo, teamStatusRepo, historyRepo,
 		crypto.DeriveKey(cfg.JWTSecret+":github"), hub, cfg.FrontendURL, cfg.GitHubWebhookURL,
 		globalGitHubApp,
 	)
@@ -239,6 +239,8 @@ func main() {
 	ws.POST("/issues/:identifier/comments/:commentId/resolve", issueH.ResolveComment, mw.RequirePermission("issue:update"))
 	ws.POST("/issues/:identifier/comments/:commentId/reopen", issueH.ReopenComment, mw.RequirePermission("issue:update"))
 	ws.GET("/issues/:identifier/sub-issues", issueH.ListSubIssues)
+	ws.POST("/issues/:identifier/sub-issues", issueH.CreateSubIssue, mw.RequirePermission("issue:create"))
+	ws.POST("/issues/:identifier/sub-issues/bulk", issueH.BulkCreateSubIssues, mw.RequirePermission("issue:create"))
 	ws.GET("/issues/:identifier/history", issueH.GetHistory)
 	ws.POST("/issues/:identifier/triage/accept", issueH.TriageAccept, mw.RequirePermission("issue:update"))
 	ws.POST("/issues/:identifier/triage/decline", issueH.TriageDecline, mw.RequirePermission("issue:update"))

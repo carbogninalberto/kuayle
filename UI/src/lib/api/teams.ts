@@ -15,6 +15,24 @@ export async function createTeam(
 	return team;
 }
 
+export async function updateTeam(
+	slug: string,
+	teamId: string,
+	data: Partial<{
+		name: string;
+		description: string | null;
+		color: string | null;
+		icon: string | null;
+		triage_enabled: boolean;
+		parent_auto_close_enabled: boolean;
+		sub_issue_auto_close_enabled: boolean;
+	}>
+): Promise<Team> {
+	const team = await api.patch<Team>(`/api/workspaces/${slug}/teams/${teamId}`, data);
+	emitAppRefresh(['teams'], slug);
+	return team;
+}
+
 export async function deleteTeam(slug: string, teamId: string): Promise<{ status: string }> {
 	const result = await api.delete<{ status: string }>(`/api/workspaces/${slug}/teams/${teamId}`);
 	emitAppRefresh(['teams'], slug);

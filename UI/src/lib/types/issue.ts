@@ -33,10 +33,17 @@ export interface Issue {
 	creator?: User;
 	assignee?: User;
 	assignees?: User[];
+	parent?: IssueSummary;
 	sub_issue_count?: number;
 	sub_issue_done?: number;
 	created_at: string;
 	updated_at: string;
+}
+
+export interface IssueSummary {
+	id: string;
+	identifier: string;
+	title: string;
 }
 
 export interface CreateIssueRequest {

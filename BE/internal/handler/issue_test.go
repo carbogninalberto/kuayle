@@ -110,6 +110,33 @@ func (r *testIssueRepo) CountSubIssues(_ context.Context, parentID uuid.UUID) (i
 	return total, done, nil
 }
 
+func (r *testIssueRepo) CountSubIssuesForIssues(_ context.Context, issueIDs []uuid.UUID) (map[uuid.UUID]domain.SubIssueCount, error) {
+	result := make(map[uuid.UUID]domain.SubIssueCount, len(issueIDs))
+	for _, id := range issueIDs {
+		total, done, _ := r.CountSubIssues(context.Background(), id)
+		if total > 0 {
+			result[id] = domain.SubIssueCount{IssueID: id, Total: total, Done: done}
+		}
+	}
+	return result, nil
+}
+
+func (r *testIssueRepo) WouldCreateCycle(_ context.Context, issueID, parentID uuid.UUID) (bool, error) {
+	if issueID == parentID {
+		return true, nil
+	}
+	for _, issue := range r.issues {
+		if issue.ID == parentID && issue.ParentID != nil {
+			return r.WouldCreateCycle(context.Background(), issueID, *issue.ParentID)
+		}
+	}
+	return false, nil
+}
+
+func (r *testIssueRepo) CycleIsActive(_ context.Context, _ uuid.UUID) (bool, error) {
+	return false, nil
+}
+
 func (r *testIssueRepo) BulkUpdate(_ context.Context, _ uuid.UUID, _ []uuid.UUID, _ *string, _ *int, _ *uuid.UUID, _ *uuid.UUID) (int, error) {
 	return 0, nil
 }

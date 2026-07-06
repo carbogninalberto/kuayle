@@ -29,20 +29,36 @@
 	let subIssues = $state<Issue[]>([]);
 	let isOpen = $state(false);
 	let loaded = $state(false);
+	let loading = $state(false);
+	let lastCount = $state(0);
 
 	let progressPercent = $derived(
 		subIssueCount > 0 ? Math.round((subIssueDone / subIssueCount) * 100) : 0
 	);
 
 	async function loadSubIssues() {
-		if (loaded) return;
-		subIssues = await listSubIssues(slug, identifier);
-		loaded = true;
+		if (loaded || loading) return;
+		loading = true;
+		try {
+			subIssues = await listSubIssues(slug, identifier);
+			loaded = true;
+		} finally {
+			loading = false;
+		}
 	}
 
 	$effect(() => {
 		if (isOpen && !loaded) {
 			loadSubIssues();
+		}
+	});
+
+	$effect(() => {
+		if (subIssueCount !== lastCount) {
+			lastCount = subIssueCount;
+			loaded = false;
+			subIssues = [];
+			if (isOpen) loadSubIssues();
 		}
 	});
 </script>
@@ -82,6 +98,9 @@
 
 			<Collapsible.Content>
 				<div class="ml-4 space-y-0.5 border-l border-[var(--app-border)] pl-3">
+					{#if loading}
+						<p class="py-2 text-xs text-[var(--color-text-tertiary)]">Loading sub-issues...</p>
+					{/if}
 					{#each subIssues as subIssue}
 						<button
 							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-[var(--color-bg-hover)]"

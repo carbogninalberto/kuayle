@@ -6,7 +6,7 @@
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import type { Label } from '$lib/types/label';
 	import type { Project } from '$lib/types/project';
-	import { listComments, createComment, resolveComment, reopenComment, getIssueHistory, getIssue, signIssuePromptAssets } from '$lib/api/issues';
+	import { listComments, createComment, resolveComment, reopenComment, getIssueHistory, getIssue, signIssuePromptAssets, createSubIssue, bulkCreateSubIssues } from '$lib/api/issues';
 	import { listMembers } from '$lib/api/members';
 	import { listLabels } from '$lib/api/labels';
 	import { listProjects } from '$lib/api/projects';
@@ -78,6 +78,7 @@
 	let teams = $state<Team[]>([]);
 	let showCreateIssueDialog = $state(false);
 	let createIssueTitle = $state('');
+	let createDialogParentIssue = $state<Issue | null>(null);
 
 	// Presence & real-time
 	let lastLocalUpdate = 0;
@@ -237,6 +238,45 @@
 			await refreshIssue();
 		} catch {
 			toast.error(`Failed to update ${field}`);
+		}
+	}
+
+	function openCreateIssueDialog(title = '') {
+		createIssueTitle = title;
+		createDialogParentIssue = null;
+		showCreateIssueDialog = true;
+	}
+
+	function openCreateSubIssueDialog() {
+		createIssueTitle = '';
+		createDialogParentIssue = issue;
+		showCreateIssueDialog = true;
+	}
+
+	async function setParentFromPrompt() {
+		const identifier = window.prompt('Parent issue identifier');
+		if (!identifier?.trim()) return;
+		try {
+			const parent = await getIssue(slug, identifier.trim().toUpperCase());
+			lastLocalUpdate = Date.now();
+			const updated = await issuesState.update(slug, issue.identifier, { parent_id: parent.id });
+			onupdated?.(updated);
+			await refreshIssue();
+			toast.success(`Set parent to ${parent.identifier}`);
+		} catch (err: any) {
+			toast.error(err?.error?.message || 'Failed to set parent');
+		}
+	}
+
+	async function removeParent() {
+		try {
+			lastLocalUpdate = Date.now();
+			const updated = await issuesState.update(slug, issue.identifier, { parent_id: '' });
+			onupdated?.(updated);
+			await refreshIssue();
+			toast.success('Removed parent');
+		} catch (err: any) {
+			toast.error(err?.error?.message || 'Failed to remove parent');
 		}
 	}
 
@@ -686,23 +726,44 @@
 						onfocus={() => presenceState.sendFocus(issue.id, 'description', 0)}
 						onblur={() => presenceState.sendFocusLeave(issue.id)}
 						oncursorchange={(pos, anchor) => presenceState.sendFocus(issue.id, 'description', pos, anchor)}
-						oncreateissue={(text) => { createIssueTitle = text; showCreateIssueDialog = true; }}
+						oncreateissue={(text) => openCreateIssueDialog(text)}
 					/>
 				</div>
 
 				<!-- Sub-issues -->
 				<div class="mt-5">
+					{#if issue.parent}
+						<div class="mb-3 flex items-center gap-1.5">
+							<a
+								href="/{slug}/issue/{issue.parent.identifier}"
+								class="flex w-fit min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-xs text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+							>
+								<CornerDownRight size={13} class="shrink-0" />
+								<span class="truncate">Parent {issue.parent.identifier}: {issue.parent.title}</span>
+							</a>
+							<button onclick={removeParent} class="rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]" title="Remove parent">
+								<X size={12} />
+							</button>
+						</div>
+					{:else}
+						<button onclick={setParentFromPrompt} class="mb-3 flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] transition-colors hover:text-[var(--color-text-secondary)]">
+							<CornerDownRight size={12} />
+							Set parent
+						</button>
+					{/if}
+
 					{#if (issue.sub_issue_count ?? 0) > 0}
 						<SubIssuesList
 							{slug}
 							identifier={issue.identifier}
 							subIssueCount={issue.sub_issue_count ?? 0}
 							subIssueDone={issue.sub_issue_done ?? 0}
+							onaddsubissue={openCreateSubIssueDialog}
 							onclickissue={(sub) => goto(`/${slug}/issue/${sub.identifier}`)}
 						/>
 					{:else}
 						<button
-							onclick={() => toast.info('Create sub-issue coming soon')}
+							onclick={openCreateSubIssueDialog}
 							class="flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors"
 						>
 							<Plus size={12} />
@@ -1210,14 +1271,35 @@
 	{labels}
 	{members}
 	{cycles}
-	defaultTeamId={issue.team_id}
+	parentIssue={createDialogParentIssue}
+	defaultTeamId={createDialogParentIssue ? issue.team_id : issue.team_id}
+	defaultPriority={createDialogParentIssue ? issue.priority : undefined}
+	defaultProjectId={createDialogParentIssue ? issue.project_id : undefined}
+	defaultCycleId={createDialogParentIssue ? issue.cycle_id : undefined}
 	defaultTitle={createIssueTitle}
 	onlabelcreated={(label) => (labels = [label, ...labels.filter((existing) => existing.id !== label.id)])}
+	onbulkcreate={async (titles) => {
+		if (!createDialogParentIssue) return;
+		try {
+			const created = await bulkCreateSubIssues(slug, createDialogParentIssue.identifier, titles.map((title) => ({ title })));
+			toast.success(`Created ${created.length} sub-issues`);
+			await refreshIssue();
+			createIssueTitle = '';
+			createDialogParentIssue = null;
+		} catch (err: any) {
+			toast.error(err?.error?.message || 'Failed to create sub-issues');
+		}
+	}}
 	onsubmit={async (req) => {
 		try {
-			const created = await issuesState.create(slug, req);
+			const parentForCreate = createDialogParentIssue;
+			const created = parentForCreate
+				? await createSubIssue(slug, parentForCreate.identifier, req)
+				: await issuesState.create(slug, req);
 			showIssueCreatedToast(slug, created);
+			if (parentForCreate) await refreshIssue();
 			createIssueTitle = '';
+			createDialogParentIssue = null;
 		} catch (err: any) {
 			toast.error(err?.error?.message || 'Failed to create issue');
 		}

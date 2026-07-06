@@ -11,21 +11,25 @@ type CreateTeamRequest struct {
 }
 
 type UpdateTeamRequest struct {
-	Name          *string `json:"name" validate:"omitempty,min=1,max=100"`
-	Description   *string `json:"description"`
-	Color         *string `json:"color"`
-	Icon          *string `json:"icon"`
-	TriageEnabled *bool   `json:"triage_enabled"`
+	Name                     *string `json:"name" validate:"omitempty,min=1,max=100"`
+	Description              *string `json:"description"`
+	Color                    *string `json:"color"`
+	Icon                     *string `json:"icon"`
+	TriageEnabled            *bool   `json:"triage_enabled"`
+	ParentAutoCloseEnabled   *bool   `json:"parent_auto_close_enabled"`
+	SubIssueAutoCloseEnabled *bool   `json:"sub_issue_auto_close_enabled"`
 }
 
 type TeamResponse struct {
-	ID            string    `json:"id"`
-	Name          string    `json:"name"`
-	Key           string    `json:"key"`
-	Description   *string   `json:"description"`
-	Color         *string   `json:"color"`
-	Icon          *string   `json:"icon"`
-	TriageEnabled bool      `json:"triage_enabled"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID                       string    `json:"id"`
+	Name                     string    `json:"name"`
+	Key                      string    `json:"key"`
+	Description              *string   `json:"description"`
+	Color                    *string   `json:"color"`
+	Icon                     *string   `json:"icon"`
+	TriageEnabled            bool      `json:"triage_enabled"`
+	ParentAutoCloseEnabled   bool      `json:"parent_auto_close_enabled"`
+	SubIssueAutoCloseEnabled bool      `json:"sub_issue_auto_close_enabled"`
+	CreatedAt                time.Time `json:"created_at"`
+	UpdatedAt                time.Time `json:"updated_at"`
 }

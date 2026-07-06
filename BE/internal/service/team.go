@@ -106,6 +106,12 @@ func (s *TeamService) Update(ctx context.Context, id uuid.UUID, req dto.UpdateTe
 	if req.TriageEnabled != nil {
 		team.TriageEnabled = *req.TriageEnabled
 	}
+	if req.ParentAutoCloseEnabled != nil {
+		team.ParentAutoCloseEnabled = *req.ParentAutoCloseEnabled
+	}
+	if req.SubIssueAutoCloseEnabled != nil {
+		team.SubIssueAutoCloseEnabled = *req.SubIssueAutoCloseEnabled
+	}
 
 	if err := s.teamRepo.Update(ctx, team); err != nil {
 		return nil, err

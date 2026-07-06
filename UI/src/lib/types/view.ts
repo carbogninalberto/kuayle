@@ -7,6 +7,7 @@ export interface ViewFilter {
 	team?: string;
 	project?: string;
 	label?: string;
+	sub_issues?: string;
 	search?: string;
 	due_before?: string;
 	due_after?: string;

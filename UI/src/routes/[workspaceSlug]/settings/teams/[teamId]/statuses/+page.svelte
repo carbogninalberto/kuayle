@@ -5,7 +5,7 @@
 	import { CATEGORY_ORDER, CATEGORY_LABELS } from '$lib/types/team-status';
 	import type { Team } from '$lib/types/team';
 	import { preferencesState, type TeamWorkflowSortMode } from '$lib/features/preferences/preferences.state.svelte';
-	import { listTeams } from '$lib/api/teams';
+	import { listTeams, updateTeam } from '$lib/api/teams';
 	import { listTeamStatuses, createTeamStatus, updateTeamStatus, deleteTeamStatus } from '$lib/api/team-statuses';
 	import IssueStatusIcon from '$lib/features/issues/IssueStatusIcon.svelte';
 	import * as Select from '$lib/components/ui/select';
@@ -65,6 +65,19 @@
 
 	async function loadStatuses() {
 		statuses = await listTeamStatuses(slug, teamId);
+	}
+
+	async function updateSubIssueAutomation(field: 'parent_auto_close_enabled' | 'sub_issue_auto_close_enabled', value: boolean) {
+		if (!team) return;
+		const previous = team;
+		team = { ...team, [field]: value };
+		try {
+			team = await updateTeam(slug, teamId, { [field]: value });
+			toast.success('Sub-issue automation updated');
+		} catch (err: any) {
+			team = previous;
+			toast.error(err?.error?.message || 'Failed to update automation');
+		}
 	}
 
 	async function handleAdd() {
@@ -296,6 +309,39 @@
 	<p class="mt-2 text-sm text-[var(--color-text-tertiary)]">
 		Issue statuses define the workflow that issues go through from start to completion.
 	</p>
+
+	{#if team}
+		<div class="mt-6 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
+			<div class="border-b border-[var(--app-border)] px-5 py-4">
+				<p class="text-sm font-medium text-[var(--color-text-primary)]">Sub-issue automation</p>
+				<p class="text-xs text-[var(--color-text-tertiary)]">Automatically keep parent and sub-issue statuses in sync for this team.</p>
+			</div>
+			<label class="flex items-center justify-between gap-4 px-5 py-4">
+				<div>
+					<p class="text-sm text-[var(--color-text-primary)]">Parent auto-close</p>
+					<p class="text-xs text-[var(--color-text-tertiary)]">Move a parent issue to done when all direct sub-issues are completed or cancelled.</p>
+				</div>
+				<input
+					type="checkbox"
+					checked={team.parent_auto_close_enabled}
+					onchange={(e) => updateSubIssueAutomation('parent_auto_close_enabled', (e.currentTarget as HTMLInputElement).checked)}
+					class="h-4 w-4 accent-[var(--app-accent)]"
+				/>
+			</label>
+			<label class="flex items-center justify-between gap-4 border-t border-[var(--app-border)] px-5 py-4">
+				<div>
+					<p class="text-sm text-[var(--color-text-primary)]">Sub-issue auto-close</p>
+					<p class="text-xs text-[var(--color-text-tertiary)]">Move remaining open direct sub-issues to done when their parent is completed.</p>
+				</div>
+				<input
+					type="checkbox"
+					checked={team.sub_issue_auto_close_enabled}
+					onchange={(e) => updateSubIssueAutomation('sub_issue_auto_close_enabled', (e.currentTarget as HTMLInputElement).checked)}
+					class="h-4 w-4 accent-[var(--app-accent)]"
+				/>
+			</label>
+		</div>
+	{/if}
 
 	<div class="mt-6 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
 		<div class="flex items-center justify-between px-5 py-4">
