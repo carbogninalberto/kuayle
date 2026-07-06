@@ -185,9 +185,9 @@
 {#if latestRelease}
 	<Dialog.Root bind:open={dialogOpen}>
 		<Dialog.Content
-			class="top-4 max-h-[calc(100vh-2rem)] border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-0 sm:top-[10vh] sm:max-w-xl"
+			class="top-4 max-h-[calc(100dvh-2rem)] border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-0 sm:top-[10dvh] sm:max-h-[80dvh] sm:max-w-xl"
 		>
-			<div class="flex max-h-[calc(100vh-2rem)] flex-col">
+			<div class="flex max-h-[calc(100dvh-2rem)] flex-col sm:max-h-[80dvh]">
 				<Dialog.Header class="border-b border-[var(--app-border)] px-5 py-4 pr-12">
 					<p class="text-xs font-semibold tracking-widest text-[var(--app-accent-light)] uppercase">
 						{releaseIsNewer ? 'Update available' : 'Release'}
