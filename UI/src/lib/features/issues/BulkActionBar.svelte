@@ -9,6 +9,7 @@
 	import { X, Trash2 } from 'lucide-svelte';
 	import * as issueApi from '$lib/api/issues';
 	import { onMount } from 'svelte';
+	import { showIssueDeletedToast, showIssuesDeletedToast } from './issue-deleted-toast';
 
 	let {
 		slug,
@@ -81,12 +82,17 @@
 		const ids = Array.from(issuesState.selectedIds);
 		if (ids.length === 0) return;
 		const idsToDelete = new Set(ids);
+		const selectedIssues = issuesState.issues.filter((issue) => idsToDelete.has(issue.id));
 		try {
 			await issueApi.bulkDeleteIssues(slug, { issue_ids: ids });
 			issuesState.issues = issuesState.issues.filter((i) => !idsToDelete.has(i.id));
 			issuesState.totalCount -= ids.length;
 			issuesState.clearSelection();
-			toast.success(`Deleted ${ids.length} issue${ids.length > 1 ? 's' : ''}`);
+			if (selectedIssues.length === 1) {
+				showIssueDeletedToast(selectedIssues[0]);
+			} else {
+				showIssuesDeletedToast(ids.length);
+			}
 		} catch (err: any) {
 			toast.error(err?.error?.message || 'Failed to delete issues');
 		}
