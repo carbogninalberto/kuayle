@@ -53,14 +53,6 @@
 			toast.error('Failed to delete view');
 		}
 	}
-
-	function filterSummary(view: View): string {
-		const parts: string[] = [];
-		for (const [key, value] of Object.entries(view.filters || {})) {
-			if (value && key !== 'team') parts.push(`${key}: ${value}`);
-		}
-		return parts.join(', ') || 'No filters';
-	}
 </script>
 
 <div class="h-full">
@@ -108,8 +100,6 @@
 							</div>
 							{#if view.description}
 								<p class="mt-0.5 truncate text-xs text-[var(--color-text-tertiary)]">{view.description}</p>
-							{:else}
-								<p class="mt-0.5 truncate text-xs text-[var(--color-text-tertiary)]">{filterSummary(view)}</p>
 							{/if}
 						</div>
 					</a>
