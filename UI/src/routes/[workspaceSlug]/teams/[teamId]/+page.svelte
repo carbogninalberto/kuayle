@@ -49,7 +49,7 @@
 	let showCreateIssue = $state(false);
 	let showSaveView = $state(false);
 	let showShareLink = $state(false);
-	let quickAddDefaults = $state<{ statusId?: string; priority?: IssuePriority; assigneeId?: string }>({});
+	let quickAddDefaults = $state<{ statusId?: string; priority?: IssuePriority; assigneeIds?: string[] }>({});
 	let filters = $state<ViewFilter>({});
 	let layout = $state<ViewLayout>('list');
 	let groupByOpen = $state(false);
@@ -262,10 +262,50 @@
 			quickAddDefaults = { statusId: groupKey };
 		} else if (gb === 'priority') {
 			quickAddDefaults = { priority: Number(groupKey) as IssuePriority };
-		} else if (gb === 'assignee' && groupKey !== 'unassigned') {
-			quickAddDefaults = { assigneeId: groupKey };
+		} else if (gb === 'assignee') {
+			quickAddDefaults = { assigneeIds: groupKey === 'unassigned' ? [] : [groupKey] };
 		}
 		showCreateIssue = true;
+	}
+
+	function openCreateIssue() {
+		quickAddDefaults = {};
+		showCreateIssue = true;
+	}
+
+	function singleFilterValue(value?: string): string | undefined {
+		if (!value) return undefined;
+		const values = value.split(',').filter(Boolean);
+		return values.length === 1 ? values[0] : undefined;
+	}
+
+	function getFilterStatusId(): string | undefined {
+		const value = singleFilterValue(filters.status);
+		if (!value) return undefined;
+		return teamStatusesState.statusById.get(value)?.id ?? teamStatusesState.statusOrder.find((status) => status.slug === value)?.id;
+	}
+
+	function getFilterPriority(): IssuePriority | undefined {
+		const value = singleFilterValue(filters.priority);
+		const priority = value === undefined ? NaN : Number(value);
+		return [0, 1, 2, 3, 4].includes(priority) ? priority as IssuePriority : undefined;
+	}
+
+	function getFilterProjectId(): string | null | undefined {
+		const value = singleFilterValue(filters.project);
+		if (value === 'none') return null;
+		return value;
+	}
+
+	function getFilterAssigneeIds(): string[] | undefined {
+		const value = singleFilterValue(filters.assignee);
+		if (value === 'none') return [];
+		return value ? [value] : undefined;
+	}
+
+	function getFilterLabelIds(): string[] | undefined {
+		const value = singleFilterValue(filters.label);
+		return value ? [value] : undefined;
 	}
 
 	function deleteSelectedIssues() {
@@ -406,7 +446,7 @@
 				<EmptyState
 					title="No issues found"
 					description={Object.keys(filters).length > 0 ? 'Try adjusting your filters' : 'Create your first issue to get started'}
-					action={Object.keys(filters).length === 0 ? { label: 'New Issue', onclick: () => (showCreateIssue = true) } : undefined}
+					action={{ label: 'New Issue', onclick: openCreateIssue }}
 				/>
 			{:else if issuesState.groupBy}
 				{#each issuesState.groupedIssues as group (group.key)}
@@ -495,9 +535,11 @@
 	{members}
 	{cycles}
 	defaultTeamId={teamId}
-	defaultStatusId={quickAddDefaults.statusId}
-	defaultPriority={quickAddDefaults.priority}
-	defaultAssigneeId={quickAddDefaults.assigneeId}
+	defaultStatusId={quickAddDefaults.statusId ?? getFilterStatusId()}
+	defaultPriority={quickAddDefaults.priority ?? getFilterPriority()}
+	defaultProjectId={getFilterProjectId()}
+	defaultAssigneeIds={quickAddDefaults.assigneeIds ?? getFilterAssigneeIds()}
+	defaultLabelIds={getFilterLabelIds()}
 	onlabelcreated={(label) => (labels = [label, ...labels.filter((existing) => existing.id !== label.id)])}
 	onsubmit={async (req) => {
 		try {

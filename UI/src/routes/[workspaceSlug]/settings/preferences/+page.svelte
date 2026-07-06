@@ -1,11 +1,29 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
+	import { page } from '$app/state';
 	import { flip } from 'svelte/animate';
 	import { Monitor, Sun, Moon, ArrowUp, ArrowDown, GripVertical } from 'lucide-svelte';
 	import * as Select from '$lib/components/ui/select';
 	import { Switch } from '$lib/components/ui/switch';
+	import { Checkbox } from '$lib/components/ui/checkbox';
 	import * as ToggleGroup from '$lib/components/ui/toggle-group';
 	import { preferencesState } from '$lib/features/preferences/preferences.state.svelte';
+	import { clearIssueCreateDefaults, getIssueCreateDefaults, setIssueCreateDefaults, type IssueCreateDefaults } from '$lib/features/issues/create-defaults';
+	import { listLabels } from '$lib/api/labels';
+	import { listMembers } from '$lib/api/members';
+	import { listProjects } from '$lib/api/projects';
+	import { listTeams } from '$lib/api/teams';
+	import { listTeamStatuses } from '$lib/api/team-statuses';
+	import type { Label } from '$lib/types/label';
+	import type { Project } from '$lib/types/project';
+	import type { Team } from '$lib/types/team';
+	import type { TeamStatus } from '$lib/types/team-status';
+	import type { WorkspaceMember } from '$lib/types/workspace';
+	import type { IssuePriority } from '$lib/types/issue';
+	import { PRIORITY_LABELS } from '$lib/types/issue';
 	import { CATEGORY_LABELS, type StatusCategory } from '$lib/types/team-status';
+
+	const slug = $derived(page.params.workspaceSlug ?? '');
 
 	const fontSizeLabels: Record<string, string> = {
 		small: 'Small',
@@ -38,6 +56,84 @@
 	let dragCategory = $state<StatusCategory | null>(null);
 	let dragOverCategory = $state<StatusCategory | null>(null);
 	let dropIndicator = $state<'above' | 'below'>('below');
+	let issueDefaults = $state<IssueCreateDefaults>({});
+	let teams = $state<Team[]>([]);
+	let projects = $state<Project[]>([]);
+	let labels = $state<Label[]>([]);
+	let members = $state<WorkspaceMember[]>([]);
+	let statuses = $state<TeamStatus[]>([]);
+	let issueDefaultsLoading = $state(true);
+
+	const priorityValues: IssuePriority[] = [0, 1, 2, 3, 4];
+
+	onMount(async () => {
+		issueDefaults = getIssueCreateDefaults(slug);
+		try {
+			const [t, p, l, m] = await Promise.all([
+				listTeams(slug),
+				listProjects(slug),
+				listLabels(slug),
+				listMembers(slug)
+			]);
+			teams = t;
+			projects = p;
+			labels = l;
+			members = m;
+			if (issueDefaults.teamId) {
+				statuses = await listTeamStatuses(slug, issueDefaults.teamId);
+			}
+		} finally {
+			issueDefaultsLoading = false;
+		}
+	});
+
+	function saveIssueDefaults(next: IssueCreateDefaults) {
+		issueDefaults = next;
+		setIssueCreateDefaults(slug, next);
+	}
+
+	async function setDefaultTeam(teamId: string | undefined) {
+		statuses = [];
+		const next = { ...issueDefaults, teamId, statusId: undefined };
+		saveIssueDefaults(next);
+		if (teamId) {
+			statuses = await listTeamStatuses(slug, teamId);
+		}
+	}
+
+	function setDefaultPriority(priority: IssuePriority | undefined) {
+		saveIssueDefaults({ ...issueDefaults, priority });
+	}
+
+	function setDefaultProject(projectId: string | null | undefined) {
+		saveIssueDefaults({ ...issueDefaults, projectId });
+	}
+
+	function setDefaultStatus(statusId: string | undefined) {
+		saveIssueDefaults({ ...issueDefaults, statusId });
+	}
+
+	function toggleDefaultAssignee(userId: string) {
+		const current = issueDefaults.assigneeIds ?? [];
+		const assigneeIds = current.includes(userId)
+			? current.filter((id) => id !== userId)
+			: [...current, userId];
+		saveIssueDefaults({ ...issueDefaults, assigneeIds: assigneeIds.length > 0 ? assigneeIds : undefined });
+	}
+
+	function toggleDefaultLabel(labelId: string) {
+		const current = issueDefaults.labelIds ?? [];
+		const labelIds = current.includes(labelId)
+			? current.filter((id) => id !== labelId)
+			: [...current, labelId];
+		saveIssueDefaults({ ...issueDefaults, labelIds: labelIds.length > 0 ? labelIds : undefined });
+	}
+
+	function clearDefaults() {
+		clearIssueCreateDefaults(slug);
+		issueDefaults = {};
+		statuses = [];
+	}
 
 	function moveWorkflowCategory(category: StatusCategory, direction: -1 | 1) {
 		const order = [...preferencesState.workflowSortOrder];
@@ -304,5 +400,149 @@
 				</div>
 			</div>
 		{/if}
+	</div>
+
+	<!-- Issue creation -->
+	<h2 class="mt-8 text-sm font-medium text-[var(--color-text-secondary)]">Issue creation</h2>
+
+	<div class="mt-3 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
+		<div class="flex items-center justify-between px-5 py-4">
+			<div>
+				<p class="text-sm font-medium text-[var(--color-text-primary)]">Default prefill</p>
+				<p class="text-xs text-[var(--color-text-tertiary)]">Values used when opening the create issue dialog. Current page filters can still override these.</p>
+			</div>
+			<button
+				type="button"
+				disabled={issueDefaultsLoading || Object.keys(issueDefaults).length === 0}
+				onclick={clearDefaults}
+				class="rounded-md border border-[var(--app-border)] px-2 py-1 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)] disabled:opacity-40"
+			>
+				Clear defaults
+			</button>
+		</div>
+
+		<div class="border-t border-[var(--app-border)]"></div>
+
+		<div class="grid gap-4 px-5 py-4 sm:grid-cols-2">
+			<div>
+				<p class="mb-1.5 text-xs text-[var(--color-text-tertiary)]">Team</p>
+				<Select.Root
+					type="single"
+					value={issueDefaults.teamId ?? 'none'}
+					onValueChange={(v) => setDefaultTeam(v === 'none' ? undefined : v)}
+				>
+					<Select.Trigger size="sm" class="w-full">
+						{teams.find((team) => team.id === issueDefaults.teamId)?.name ?? 'No default'}
+					</Select.Trigger>
+					<Select.Content>
+						<Select.Item value="none">No default</Select.Item>
+						{#each teams as team (team.id)}
+							<Select.Item value={team.id}>{team.name}</Select.Item>
+						{/each}
+					</Select.Content>
+				</Select.Root>
+			</div>
+
+			<div>
+				<p class="mb-1.5 text-xs text-[var(--color-text-tertiary)]">Status</p>
+				<Select.Root
+					type="single"
+					value={issueDefaults.statusId ?? 'none'}
+					onValueChange={(v) => setDefaultStatus(v === 'none' ? undefined : v)}
+					disabled={!issueDefaults.teamId}
+				>
+					<Select.Trigger size="sm" class="w-full">
+						{statuses.find((status) => status.id === issueDefaults.statusId)?.name ?? 'No default'}
+					</Select.Trigger>
+					<Select.Content>
+						<Select.Item value="none">No default</Select.Item>
+						{#each statuses as status (status.id)}
+							<Select.Item value={status.id}>{status.name}</Select.Item>
+						{/each}
+					</Select.Content>
+				</Select.Root>
+			</div>
+
+			<div>
+				<p class="mb-1.5 text-xs text-[var(--color-text-tertiary)]">Priority</p>
+				<Select.Root
+					type="single"
+					value={issueDefaults.priority === undefined ? 'none' : String(issueDefaults.priority)}
+					onValueChange={(v) => setDefaultPriority(v === 'none' ? undefined : Number(v) as IssuePriority)}
+				>
+					<Select.Trigger size="sm" class="w-full">
+						{issueDefaults.priority === undefined ? 'No default' : PRIORITY_LABELS[issueDefaults.priority]}
+					</Select.Trigger>
+					<Select.Content>
+						<Select.Item value="none">No default</Select.Item>
+						{#each priorityValues as value (value)}
+							<Select.Item value={String(value)}>{PRIORITY_LABELS[value]}</Select.Item>
+						{/each}
+					</Select.Content>
+				</Select.Root>
+			</div>
+
+			<div>
+				<p class="mb-1.5 text-xs text-[var(--color-text-tertiary)]">Project</p>
+				<Select.Root
+					type="single"
+					value={issueDefaults.projectId ?? 'none'}
+					onValueChange={(v) => setDefaultProject(v === 'none' ? undefined : v)}
+				>
+					<Select.Trigger size="sm" class="w-full">
+						{projects.find((project) => project.id === issueDefaults.projectId)?.name ?? 'No default'}
+					</Select.Trigger>
+					<Select.Content>
+						<Select.Item value="none">No default</Select.Item>
+						{#each projects as project (project.id)}
+							<Select.Item value={project.id}>{project.name}</Select.Item>
+						{/each}
+					</Select.Content>
+				</Select.Root>
+			</div>
+		</div>
+
+		<div class="border-t border-[var(--app-border)]"></div>
+
+		<div class="grid gap-4 px-5 py-4 sm:grid-cols-2">
+			<div>
+				<p class="mb-2 text-xs text-[var(--color-text-tertiary)]">Assignees</p>
+				<div class="max-h-44 space-y-1 overflow-y-auto rounded-md border border-[var(--app-border)] p-1">
+					{#each members as member (member.user_id)}
+						<button
+							type="button"
+							onclick={() => toggleDefaultAssignee(member.user_id)}
+							class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+						>
+							<Checkbox checked={issueDefaults.assigneeIds?.includes(member.user_id) ?? false} />
+							<span class="truncate">{member.name || member.email}</span>
+						</button>
+					{/each}
+					{#if members.length === 0}
+						<p class="px-2 py-1.5 text-sm text-[var(--color-text-tertiary)]">No members found</p>
+					{/if}
+				</div>
+			</div>
+
+			<div>
+				<p class="mb-2 text-xs text-[var(--color-text-tertiary)]">Labels</p>
+				<div class="max-h-44 space-y-1 overflow-y-auto rounded-md border border-[var(--app-border)] p-1">
+					{#each labels as label (label.id)}
+						<button
+							type="button"
+							onclick={() => toggleDefaultLabel(label.id)}
+							class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+						>
+							<Checkbox checked={issueDefaults.labelIds?.includes(label.id) ?? false} />
+							<span class="h-2.5 w-2.5 rounded-full" style="background-color: {label.color}"></span>
+							<span class="truncate">{label.name}</span>
+						</button>
+					{/each}
+					{#if labels.length === 0}
+						<p class="px-2 py-1.5 text-sm text-[var(--color-text-tertiary)]">No labels found</p>
+					{/if}
+				</div>
+			</div>
+		</div>
 	</div>
 </div>

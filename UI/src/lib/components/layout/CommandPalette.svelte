@@ -9,7 +9,17 @@
 	import { LoaderCircle } from 'lucide-svelte';
 	import { onMount } from 'svelte';
 
-	let { slug, teams, onclose }: { slug: string; teams: Team[]; onclose: () => void } = $props();
+	let {
+		slug,
+		teams,
+		onclose,
+		oncreateissue
+	}: {
+		slug: string;
+		teams: Team[];
+		onclose: () => void;
+		oncreateissue?: () => void;
+	} = $props();
 	let search = $state('');
 	let selectedIndex = $state(0);
 	let issueResults = $state<Issue[]>([]);
@@ -38,6 +48,7 @@
 	interface CommandItem {
 		label: string;
 		description?: string;
+		keys?: string[];
 		action: () => void;
 	}
 
@@ -48,10 +59,11 @@
 
 	const commands: CommandItem[] = $derived.by(() => {
 		const items: CommandItem[] = [
-			{ label: 'Go to Inbox', action: () => navigate(`/${slug}/inbox`) },
-			{ label: 'Go to My Issues', action: () => navigate(`/${slug}/my-issues`) },
-			{ label: 'Go to Projects', action: () => navigate(`/${slug}/projects`) },
-			{ label: 'Go to Settings', action: () => navigate(`/${slug}/settings`) },
+			{ label: 'Create issue', description: 'New issue', keys: ['C'], action: createIssue },
+			{ label: 'Go to Inbox', keys: ['G', 'I'], action: () => navigate(`/${slug}/inbox`) },
+			{ label: 'Go to My Issues', keys: ['G', 'M'], action: () => navigate(`/${slug}/my-issues`) },
+			{ label: 'Go to Projects', keys: ['G', 'P'], action: () => navigate(`/${slug}/projects`) },
+			{ label: 'Go to Settings', keys: ['G', 'S'], action: () => navigate(`/${slug}/settings`) },
 			...teams.map((t) => ({
 				label: `Go to ${t.name}`,
 				description: t.key,
@@ -67,7 +79,6 @@
 	const shortcuts = [
 		{ keys: ['↑', '↓'], label: 'Move selection' },
 		{ keys: ['Enter'], label: 'Open selected' },
-		{ keys: ['⌥', '1-9'], label: 'Quick open' },
 		{ keys: ['Esc'], label: 'Close' }
 	];
 	const hanRegex = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
@@ -100,6 +111,11 @@
 
 	function navigate(path: string) {
 		goto(path);
+		close();
+	}
+
+	function createIssue() {
+		oncreateissue?.();
 		close();
 	}
 
@@ -185,10 +201,7 @@
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
-		if (e.altKey && /^[1-9]$/.test(e.key)) {
-			e.preventDefault();
-			activateIndex(Number(e.key) - 1);
-		} else if (e.key === 'Escape') {
+		if (e.key === 'Escape') {
 			close();
 		} else if (e.key === 'ArrowDown') {
 			e.preventDefault();
@@ -252,11 +265,12 @@
 								{#if cmd.description}
 									<span class="text-xs text-[var(--color-text-tertiary)]">{cmd.description}</span>
 								{/if}
-								{#if i < 9}
-									<Kbd
-										class="ml-auto shrink-0 border border-[var(--app-border)] bg-[var(--color-bg-tertiary)] text-[var(--color-text-tertiary)]"
-										>⌥{i + 1}</Kbd
-									>
+								{#if cmd.keys}
+									<span class="ml-auto flex shrink-0 items-center gap-1">
+										{#each cmd.keys as key}
+											<Kbd class="border border-[var(--app-border)] bg-[var(--color-bg-tertiary)] text-[var(--color-text-tertiary)]">{key}</Kbd>
+										{/each}
+									</span>
 								{/if}
 							</button>
 						{/each}
@@ -297,12 +311,6 @@
 													<span class={highlightClass(segment.match)}>{segment.text}</span>
 												{/each}
 											</span>
-											{#if idx < 9}
-												<Kbd
-													class="shrink-0 border border-[var(--app-border)] bg-[var(--color-bg-tertiary)] text-[var(--color-text-tertiary)]"
-													>⌥{idx + 1}</Kbd
-												>
-											{/if}
 										</div>
 										{#if snippet}
 											<p class="mt-1 line-clamp-2 pr-8 text-xs leading-5 text-[var(--color-text-tertiary)]">
