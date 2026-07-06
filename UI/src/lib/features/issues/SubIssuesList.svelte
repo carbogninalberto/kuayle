@@ -5,6 +5,7 @@
 	import { issuesState } from './issues.state.svelte';
 	import { teamStatusesState } from './team-statuses.state.svelte';
 	import { StatusSelector, PrioritySelector, AssigneeSelector } from './selectors';
+	import SubIssuesList from './SubIssuesList.svelte';
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
 	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
 	import * as Collapsible from '$lib/components/ui/collapsible';
@@ -17,6 +18,9 @@
 		subIssueCount = 0,
 		subIssueDone = 0,
 		members = [],
+		defaultOpen = false,
+		showHeader = true,
+		editable = true,
 		onaddsubissue,
 		onclickissue,
 		onupdated
@@ -26,6 +30,9 @@
 		subIssueCount?: number;
 		subIssueDone?: number;
 		members?: WorkspaceMember[];
+		defaultOpen?: boolean;
+		showHeader?: boolean;
+		editable?: boolean;
 		onaddsubissue?: () => void;
 		onclickissue?: (issue: Issue) => void;
 		onupdated?: () => void | Promise<void>;
@@ -52,6 +59,10 @@
 			loading = false;
 		}
 	}
+
+	$effect(() => {
+		if (defaultOpen) isOpen = true;
+	});
 
 	$effect(() => {
 		if (isOpen && !loaded) {
@@ -108,6 +119,162 @@
 </script>
 
 {#if subIssueCount > 0 || onaddsubissue}
+	{#snippet rows()}
+		{#if loading}
+			<p class="px-3 py-3 text-xs text-[var(--color-text-tertiary)]">Loading sub-issues...</p>
+		{/if}
+		{#each subIssues as subIssue}
+			{@const assignees = displayAssignees(subIssue)}
+			{@const firstAssignee = assignees[0]}
+				<div class="group/subissue">
+					<div class="flex w-full items-center gap-2 px-3 py-1.5 transition-colors hover:bg-[var(--color-bg-hover)] {!showHeader ? 'rounded-l-md' : ''}">
+					{#if editable}
+						<StatusSelector
+							statuses={teamStatusesState.statusOrder}
+							value={subIssue.status_id}
+							width="w-44"
+							onchange={(statusId) => updateSubIssue(subIssue, { status_id: statusId })}
+						>
+							{#snippet trigger()}
+								<button
+									type="button"
+									class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
+									title={subIssue.status_info?.name ?? subIssue.status}
+								>
+									<IssueStatusIcon status={subIssue.status} category={subIssue.status_info?.category} color={subIssue.status_info?.color} size={14} />
+								</button>
+							{/snippet}
+						</StatusSelector>
+					{:else}
+						<span class="flex h-6 w-6 shrink-0 items-center justify-center">
+							<IssueStatusIcon status={subIssue.status} category={subIssue.status_info?.category} color={subIssue.status_info?.color} size={14} />
+						</span>
+					{/if}
+
+					<button
+						type="button"
+						class="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-[var(--color-bg-tertiary)]"
+						onclick={() => onclickissue?.(subIssue)}
+					>
+						<span class="shrink-0 text-xs tabular-nums text-[var(--color-text-tertiary)]">{subIssue.identifier}</span>
+						<span class="min-w-0 flex-1 truncate text-sm text-[var(--color-text-primary)]">{subIssue.title}</span>
+					</button>
+
+					{#if subIssue.labels && subIssue.labels.length > 0}
+						<div class="hidden shrink-0 items-center gap-1 sm:flex">
+							{#each subIssue.labels.slice(0, 2) as label}
+								<span class="flex items-center gap-1 rounded-full border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-1.5 py-0 text-[11px] leading-5 text-[var(--color-text-tertiary)]">
+									<span class="h-1.5 w-1.5 shrink-0 rounded-full" style="background-color: {label.color}"></span>
+									{label.name}
+								</span>
+							{/each}
+							{#if subIssue.labels.length > 2}
+								<span class="text-[10px] text-[var(--color-text-tertiary)]">+{subIssue.labels.length - 2}</span>
+							{/if}
+						</div>
+					{/if}
+
+					{#if editable}
+						<PrioritySelector
+							value={subIssue.priority}
+							width="w-40"
+							align="end"
+							onchange={(priority: IssuePriority) => updateSubIssue(subIssue, { priority })}
+						>
+							{#snippet trigger()}
+								<button
+									type="button"
+									class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
+									title="Change priority"
+								>
+									<IssuePriorityIcon priority={subIssue.priority} size={14} />
+								</button>
+							{/snippet}
+						</PrioritySelector>
+					{:else}
+						<span class="flex h-6 w-6 shrink-0 items-center justify-center text-[var(--color-text-tertiary)]">
+							<IssuePriorityIcon priority={subIssue.priority} size={14} />
+						</span>
+					{/if}
+
+					{#if editable}
+						<AssigneeSelector
+							{members}
+							value={assigneeIds(subIssue)}
+							width="w-52"
+							align="end"
+							onchange={(userId) => toggleAssignee(subIssue, userId)}
+						>
+							{#snippet trigger()}
+								<button
+									type="button"
+									class="flex min-w-6 shrink-0 items-center justify-center rounded-full text-[var(--color-text-tertiary)] transition-colors hover:text-[var(--color-text-primary)]"
+									title={assigneeTitle(subIssue)}
+								>
+									{#if assignees.length > 1 && firstAssignee}
+										<span class="flex -space-x-2 rounded-full transition-all hover:ring-2 hover:ring-[var(--app-accent)]">
+											<span class="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--app-accent)] text-[9px] font-medium text-[var(--app-accent-foreground)] ring-1 ring-[var(--color-bg)]">
+												{assigneeName(firstAssignee).charAt(0).toUpperCase()}
+											</span>
+											<span class="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--color-bg-tertiary)] text-[8px] font-medium text-[var(--color-text-secondary)] ring-1 ring-[var(--color-bg)]">
+												+{assignees.length - 1}
+											</span>
+										</span>
+									{:else if firstAssignee}
+										<span class="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--app-accent)] text-[9px] font-medium text-[var(--app-accent-foreground)] transition-all hover:ring-2 hover:ring-[var(--app-accent)]">
+											{assigneeName(firstAssignee).charAt(0).toUpperCase()}
+										</span>
+									{:else}
+										<UserCircle size={15} />
+									{/if}
+								</button>
+							{/snippet}
+						</AssigneeSelector>
+					{:else if assignees.length > 0}
+						<span class="flex min-w-6 shrink-0 items-center justify-center rounded-full" title={assigneeTitle(subIssue)}>
+							{#if assignees.length > 1 && firstAssignee}
+								<span class="flex -space-x-2 rounded-full">
+									<span class="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--app-accent)] text-[9px] font-medium text-[var(--app-accent-foreground)] ring-1 ring-[var(--color-bg)]">
+										{assigneeName(firstAssignee).charAt(0).toUpperCase()}
+									</span>
+									<span class="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--color-bg-tertiary)] text-[8px] font-medium text-[var(--color-text-secondary)] ring-1 ring-[var(--color-bg)]">+{assignees.length - 1}</span>
+								</span>
+							{:else if firstAssignee}
+								<span class="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--app-accent)] text-[9px] font-medium text-[var(--app-accent-foreground)]">{assigneeName(firstAssignee).charAt(0).toUpperCase()}</span>
+							{/if}
+						</span>
+					{/if}
+				</div>
+
+				{#if (subIssue.sub_issue_count ?? 0) > 0}
+					<div class="ml-6 flex">
+						<svg class="mr-1 shrink-0" width="14" height="100%" viewBox="0 0 14 28" preserveAspectRatio="xMinYMin" fill="none" aria-hidden="true">
+							<path d="M1 0 L1 18 C1 23, 5 23, 9 23 L14 23" stroke="var(--color-text-tertiary)" stroke-width="1.5" opacity="0.4" fill="none" />
+						</svg>
+						<div class="min-w-0 flex-1">
+							<SubIssuesList
+								{slug}
+								identifier={subIssue.identifier}
+								subIssueCount={subIssue.sub_issue_count ?? 0}
+								subIssueDone={subIssue.sub_issue_done ?? 0}
+								{members}
+								defaultOpen={true}
+								showHeader={false}
+								{editable}
+								{onclickissue}
+								{onupdated}
+							/>
+						</div>
+					</div>
+				{/if}
+			</div>
+		{/each}
+		{#if subIssues.length === 0 && loaded}
+			<p class="px-3 py-3 text-xs text-[var(--color-text-tertiary)]">No sub-issues yet</p>
+		{/if}
+	{/snippet}
+
+	{#if showHeader}
 	<Collapsible.Root bind:open={isOpen}>
 		<div class="overflow-hidden rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]/60">
 			<div class="flex items-center gap-2 px-3 py-2">
@@ -154,95 +321,14 @@
 
 			<Collapsible.Content>
 				<div class="border-t border-[var(--app-border)] py-1">
-					{#if loading}
-						<p class="px-3 py-3 text-xs text-[var(--color-text-tertiary)]">Loading sub-issues...</p>
-					{/if}
-					{#each subIssues as subIssue}
-						{@const assignees = displayAssignees(subIssue)}
-						{@const firstAssignee = assignees[0]}
-						<div class="group flex w-full items-center gap-2 px-3 py-1.5 transition-colors hover:bg-[var(--color-bg-hover)]">
-							<StatusSelector
-								statuses={teamStatusesState.statusOrder}
-								value={subIssue.status_id}
-								width="w-44"
-								onchange={(statusId) => updateSubIssue(subIssue, { status_id: statusId })}
-							>
-								{#snippet trigger()}
-									<button
-										type="button"
-										class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
-										title={subIssue.status_info?.name ?? subIssue.status}
-									>
-										<IssueStatusIcon status={subIssue.status} category={subIssue.status_info?.category} color={subIssue.status_info?.color} size={14} />
-									</button>
-								{/snippet}
-							</StatusSelector>
-
-							<button
-								type="button"
-								class="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-[var(--color-bg-tertiary)]"
-								onclick={() => onclickissue?.(subIssue)}
-							>
-								<span class="shrink-0 text-xs tabular-nums text-[var(--color-text-tertiary)]">{subIssue.identifier}</span>
-								<span class="min-w-0 flex-1 truncate text-sm text-[var(--color-text-primary)]">{subIssue.title}</span>
-							</button>
-
-							<PrioritySelector
-								value={subIssue.priority}
-								width="w-40"
-								align="end"
-								onchange={(priority: IssuePriority) => updateSubIssue(subIssue, { priority })}
-							>
-								{#snippet trigger()}
-									<button
-										type="button"
-										class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
-										title="Change priority"
-									>
-										<IssuePriorityIcon priority={subIssue.priority} size={14} />
-									</button>
-								{/snippet}
-							</PrioritySelector>
-
-							<AssigneeSelector
-								{members}
-								value={assigneeIds(subIssue)}
-								width="w-52"
-								align="end"
-								onchange={(userId) => toggleAssignee(subIssue, userId)}
-							>
-								{#snippet trigger()}
-									<button
-										type="button"
-										class="flex min-w-6 shrink-0 items-center justify-center rounded-full text-[var(--color-text-tertiary)] transition-colors hover:text-[var(--color-text-primary)]"
-										title={assigneeTitle(subIssue)}
-									>
-										{#if assignees.length > 1 && firstAssignee}
-											<span class="flex -space-x-2 rounded-full transition-all hover:ring-2 hover:ring-[var(--app-accent)]">
-												<span class="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--app-accent)] text-[9px] font-medium text-[var(--app-accent-foreground)] ring-1 ring-[var(--color-bg)]">
-													{assigneeName(firstAssignee).charAt(0).toUpperCase()}
-												</span>
-												<span class="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--color-bg-tertiary)] text-[8px] font-medium text-[var(--color-text-secondary)] ring-1 ring-[var(--color-bg)]">
-													+{assignees.length - 1}
-												</span>
-											</span>
-										{:else if firstAssignee}
-											<span class="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--app-accent)] text-[9px] font-medium text-[var(--app-accent-foreground)] transition-all hover:ring-2 hover:ring-[var(--app-accent)]">
-												{assigneeName(firstAssignee).charAt(0).toUpperCase()}
-											</span>
-										{:else}
-											<UserCircle size={15} />
-										{/if}
-									</button>
-								{/snippet}
-							</AssigneeSelector>
-						</div>
-					{/each}
-					{#if subIssues.length === 0 && loaded}
-						<p class="px-3 py-3 text-xs text-[var(--color-text-tertiary)]">No sub-issues yet</p>
-					{/if}
+					{@render rows()}
 				</div>
 			</Collapsible.Content>
 		</div>
 	</Collapsible.Root>
+	{:else if isOpen}
+		<div class="py-0.5">
+			{@render rows()}
+		</div>
+	{/if}
 {/if}

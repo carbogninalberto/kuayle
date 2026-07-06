@@ -34,6 +34,7 @@
 	let searchQuery = $state('');
 	let searchResults = $state<Issue[]>([]);
 	let searching = $state(false);
+	let showingRecent = $state(false);
 	let selectedIndex = $state(0);
 	let visible = $state(false);
 	let closing = false;
@@ -46,7 +47,9 @@
 			searchQuery = '';
 			searchResults = [];
 			searching = false;
+			showingRecent = false;
 			selectedIndex = 0;
+			loadRecentIssues();
 			requestAnimationFrame(() => {
 				requestAnimationFrame(() => {
 					visible = true;
@@ -66,13 +69,13 @@
 		clearTimeout(searchTimer);
 		const query = searchQuery;
 		if (!canSearchIssues(query)) {
-			searchResults = [];
-			searching = false;
+			if (!showingRecent) loadRecentIssues();
 			selectedIndex = 0;
 			return;
 		}
 
 		searching = true;
+		showingRecent = false;
 		selectedIndex = 0;
 		searchTimer = setTimeout(async () => {
 			try {
@@ -100,6 +103,20 @@
 	function canSearchIssues(value: string) {
 		const query = value.trim();
 		return query.length >= 2 || hanRegex.test(query);
+	}
+
+	async function loadRecentIssues() {
+		searching = true;
+		showingRecent = true;
+		try {
+			const response: PaginatedResponse<Issue> = await listIssues(slug, { sort: 'updated_at', order: 'desc', per_page: '12' });
+			const excluded = new Set(excludeIds);
+			searchResults = response.data.filter((issue) => !excluded.has(issue.id));
+		} catch {
+			searchResults = [];
+		} finally {
+			searching = false;
+		}
 	}
 
 	function close() {
@@ -240,9 +257,9 @@
 					/>
 
 					<div class="max-h-[68vh] min-h-[22rem] overflow-y-auto py-2">
-						{#if canSearchIssues(searchQuery)}
+						{#if canSearchIssues(searchQuery) || showingRecent || searchResults.length > 0}
 							<div class="px-3 py-1">
-								<span class="text-[10px] font-medium uppercase text-[var(--color-text-tertiary)]">Issues</span>
+								<span class="text-[10px] font-medium uppercase text-[var(--color-text-tertiary)]">{showingRecent && !canSearchIssues(searchQuery) ? 'Recent issues' : 'Issues'}</span>
 							</div>
 							{#if searching}
 								<div class="flex items-center justify-center py-8">

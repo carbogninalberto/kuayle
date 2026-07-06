@@ -16,7 +16,7 @@
 	import type { Label } from '$lib/types/label';
 	import type { Team } from '$lib/types/team';
 	import type { Project } from '$lib/types/project';
-	import IssueRow from '$lib/features/issues/IssueRow.svelte';
+	import IssueTreeItem from '$lib/features/issues/IssueTreeItem.svelte';
 	import { issuesState } from '$lib/features/issues/issues.state.svelte';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
 	import { Button } from '$lib/components/ui/button';
@@ -47,6 +47,7 @@
 	let lastSelectedId = $state<string | null>(null);
 	let filters = $state<ViewFilter>({});
 	let saveTimeout: ReturnType<typeof setTimeout> | null = null;
+	let visibleTreeIssues = $derived(issues.filter((issue) => !issue.parent_id || !issues.some((parent) => parent.id === issue.parent_id)));
 
 	// Edit name state
 	let editingName = $state(false);
@@ -296,8 +297,8 @@
 					description="Adjust the filters or add new issues"
 				/>
 			{:else}
-				{#each issues as issue (issue.id)}
-					<IssueRow
+				{#each visibleTreeIssues as issue (issue.id)}
+					<IssueTreeItem
 						{issue}
 						{slug}
 						{members}
@@ -307,6 +308,7 @@
 						singleSelect
 						onlastselected={(id) => (lastSelectedId = id)}
 						onclick={handleIssueClick}
+						onupdated={loadIssues}
 					/>
 				{/each}
 			{/if}
