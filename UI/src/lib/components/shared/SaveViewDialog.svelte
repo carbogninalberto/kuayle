@@ -80,23 +80,6 @@
 					<Checkbox bind:checked={isShared} />
 					<span class="text-xs text-[var(--color-text-secondary)]">Share with workspace</span>
 				</div>
-
-				<!-- Preview of saved filters -->
-				<div class="rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] p-3">
-					<p class="text-[10px] font-medium uppercase text-[var(--color-text-tertiary)]">Filters</p>
-					<div class="mt-1.5 flex flex-wrap gap-1">
-						{#each Object.entries(filters) as [key, value]}
-							{#if value}
-								<span class="rounded-full bg-[var(--color-bg-tertiary)] px-2 py-0.5 text-xs text-[var(--color-text-secondary)]">
-									{key}: {value}
-								</span>
-							{/if}
-						{/each}
-						{#if Object.keys(filters).length === 0}
-							<span class="text-xs text-[var(--color-text-tertiary)]">No filters applied</span>
-						{/if}
-					</div>
-				</div>
 			</div>
 
 			<div class="flex justify-end gap-2 border-t border-[var(--app-border)] px-5 py-3">
