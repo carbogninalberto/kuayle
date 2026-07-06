@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -40,6 +40,11 @@ func (m *mockWorkspaceRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.
 
 func (m *mockWorkspaceRepo) Update(ctx context.Context, ws *domain.Workspace) error {
 	args := m.Called(ctx, ws)
+	return args.Error(0)
+}
+
+func (m *mockWorkspaceRepo) Delete(ctx context.Context, id uuid.UUID) error {
+	args := m.Called(ctx, id)
 	return args.Error(0)
 }
 
@@ -110,6 +115,7 @@ func TestWorkspaceService_Create_Happy(t *testing.T) {
 	assert.NotNil(t, ws)
 	assert.Equal(t, "My Workspace", ws.Name)
 	assert.Equal(t, "my-workspace", ws.Slug)
+	assert.Equal(t, domain.RoleAdmin, ws.ShareLinkMinRole)
 
 	// Verify owner membership was added
 	wsRepo.AssertCalled(t, "AddMember", ctx, mock.MatchedBy(func(m *domain.WorkspaceMember) bool {
@@ -176,15 +182,198 @@ func TestWorkspaceService_Update(t *testing.T) {
 	svc := NewWorkspaceService(wsRepo, userRepo)
 
 	ctx := context.Background()
-	ws := &domain.Workspace{ID: uuid.New(), Name: "Old Name", Slug: "test"}
+	ownerID := uuid.New()
+	ws := &domain.Workspace{ID: uuid.New(), Name: "Old Name", Slug: "test", OwnerID: ownerID}
 	wsRepo.On("GetBySlug", ctx, "test").Return(ws, nil)
 	wsRepo.On("Update", ctx, mock.AnythingOfType("*domain.Workspace")).Return(nil)
 
 	newName := "New Name"
-	result, err := svc.Update(ctx, "test", dto.UpdateWorkspaceRequest{Name: &newName})
+	result, err := svc.Update(ctx, "test", ownerID, dto.UpdateWorkspaceRequest{Name: &newName})
 
 	assert.NoError(t, err)
 	assert.Equal(t, "New Name", result.Name)
+}
+
+func TestWorkspaceService_Update_NotOwner(t *testing.T) {
+	wsRepo := new(mockWorkspaceRepo)
+	userRepo := new(mockUserRepo)
+	svc := NewWorkspaceService(wsRepo, userRepo)
+
+	ctx := context.Background()
+	ownerID := uuid.New()
+	requesterID := uuid.New()
+	ws := &domain.Workspace{ID: uuid.New(), Name: "Old Name", Slug: "test", OwnerID: ownerID}
+	wsRepo.On("GetBySlug", ctx, "test").Return(ws, nil)
+
+	newName := "New Name"
+	_, err := svc.Update(ctx, "test", requesterID, dto.UpdateWorkspaceRequest{Name: &newName})
+
+	assert.ErrorIs(t, err, ErrNotWorkspaceOwner)
+	wsRepo.AssertNotCalled(t, "Update", ctx, mock.AnythingOfType("*domain.Workspace"))
+}
+
+func TestWorkspaceService_Update_Fields(t *testing.T) {
+	wsRepo := new(mockWorkspaceRepo)
+	userRepo := new(mockUserRepo)
+	svc := NewWorkspaceService(wsRepo, userRepo)
+
+	ctx := context.Background()
+	ownerID := uuid.New()
+	ws := &domain.Workspace{ID: uuid.New(), Name: "Name", Slug: "test", OwnerID: ownerID, ShareLinkMinRole: "admin"}
+	wsRepo.On("GetBySlug", ctx, "test").Return(ws, nil)
+	wsRepo.On("Update", ctx, mock.MatchedBy(func(w *domain.Workspace) bool {
+		return w.ShareLinkMinRole == "member"
+	})).Return(nil)
+
+	minRole := "member"
+	result, err := svc.Update(ctx, "test", ownerID, dto.UpdateWorkspaceRequest{ShareLinkMinRole: &minRole})
+
+	assert.NoError(t, err)
+	assert.Equal(t, "member", result.ShareLinkMinRole)
+}
+
+func TestWorkspaceService_Update_ClearLogoURL(t *testing.T) {
+	wsRepo := new(mockWorkspaceRepo)
+	userRepo := new(mockUserRepo)
+	svc := NewWorkspaceService(wsRepo, userRepo)
+
+	ctx := context.Background()
+	ownerID := uuid.New()
+	oldLogo := "https://example.com/logo.png"
+	ws := &domain.Workspace{ID: uuid.New(), Name: "Name", Slug: "test", OwnerID: ownerID, LogoURL: &oldLogo}
+	wsRepo.On("GetBySlug", ctx, "test").Return(ws, nil)
+	wsRepo.On("Update", ctx, mock.MatchedBy(func(w *domain.Workspace) bool {
+		return w.LogoURL == nil
+	})).Return(nil)
+
+	result, err := svc.Update(ctx, "test", ownerID, dto.UpdateWorkspaceRequest{LogoURL: dto.OptionalString{Set: true}})
+
+	assert.NoError(t, err)
+	assert.Nil(t, result.LogoURL)
+}
+
+func TestWorkspaceService_Update_TrimLogoURL(t *testing.T) {
+	wsRepo := new(mockWorkspaceRepo)
+	userRepo := new(mockUserRepo)
+	svc := NewWorkspaceService(wsRepo, userRepo)
+
+	ctx := context.Background()
+	ownerID := uuid.New()
+	ws := &domain.Workspace{ID: uuid.New(), Name: "Name", Slug: "test", OwnerID: ownerID}
+	wsRepo.On("GetBySlug", ctx, "test").Return(ws, nil)
+	wsRepo.On("Update", ctx, mock.MatchedBy(func(w *domain.Workspace) bool {
+		return w.LogoURL != nil && *w.LogoURL == "https://example.com/logo.png"
+	})).Return(nil)
+
+	logo := "  https://example.com/logo.png  "
+	result, err := svc.Update(ctx, "test", ownerID, dto.UpdateWorkspaceRequest{LogoURL: dto.OptionalString{Set: true, Value: &logo}})
+
+	assert.NoError(t, err)
+	assert.NotNil(t, result.LogoURL)
+	assert.Equal(t, "https://example.com/logo.png", *result.LogoURL)
+}
+
+func TestWorkspaceService_Delete_Owner(t *testing.T) {
+	wsRepo := new(mockWorkspaceRepo)
+	userRepo := new(mockUserRepo)
+	svc := NewWorkspaceService(wsRepo, userRepo)
+
+	ctx := context.Background()
+	ownerID := uuid.New()
+	ws := &domain.Workspace{ID: uuid.New(), Slug: "test", OwnerID: ownerID}
+	wsRepo.On("GetBySlug", ctx, "test").Return(ws, nil)
+	wsRepo.On("Delete", ctx, ws.ID).Return(nil)
+
+	err := svc.Delete(ctx, "test", ownerID)
+
+	assert.NoError(t, err)
+	wsRepo.AssertCalled(t, "Delete", ctx, ws.ID)
+}
+
+func TestWorkspaceService_Delete_NotOwner(t *testing.T) {
+	wsRepo := new(mockWorkspaceRepo)
+	userRepo := new(mockUserRepo)
+	svc := NewWorkspaceService(wsRepo, userRepo)
+
+	ctx := context.Background()
+	ownerID := uuid.New()
+	requesterID := uuid.New()
+	ws := &domain.Workspace{ID: uuid.New(), Slug: "test", OwnerID: ownerID}
+	wsRepo.On("GetBySlug", ctx, "test").Return(ws, nil)
+
+	err := svc.Delete(ctx, "test", requesterID)
+
+	assert.ErrorIs(t, err, ErrNotWorkspaceOwner)
+	wsRepo.AssertNotCalled(t, "Delete", ctx, ws.ID)
+}
+
+func TestWorkspaceService_Delete_NotFound(t *testing.T) {
+	wsRepo := new(mockWorkspaceRepo)
+	userRepo := new(mockUserRepo)
+	svc := NewWorkspaceService(wsRepo, userRepo)
+
+	ctx := context.Background()
+	wsRepo.On("GetBySlug", ctx, "missing").Return(nil, nil)
+
+	err := svc.Delete(ctx, "missing", uuid.New())
+
+	assert.ErrorIs(t, err, ErrWorkspaceNotFound)
+}
+
+func TestWorkspaceService_UpdateMemberRole_PreventsOwnerDemotion(t *testing.T) {
+	wsRepo := new(mockWorkspaceRepo)
+	userRepo := new(mockUserRepo)
+	svc := NewWorkspaceService(wsRepo, userRepo)
+
+	ctx := context.Background()
+	workspaceID := uuid.New()
+	ownerID := uuid.New()
+	wsRepo.On("GetByID", ctx, workspaceID).Return(&domain.Workspace{ID: workspaceID, OwnerID: ownerID}, nil)
+	wsRepo.On("GetMember", ctx, workspaceID, ownerID).Return(&domain.WorkspaceMember{WorkspaceID: workspaceID, UserID: ownerID, Role: domain.RoleOwner}, nil)
+
+	err := svc.UpdateMemberRole(ctx, workspaceID, ownerID, domain.RoleAdmin)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "workspace owner cannot be demoted")
+	wsRepo.AssertNotCalled(t, "UpdateMemberRole", ctx, workspaceID, ownerID, domain.RoleAdmin)
+}
+
+func TestWorkspaceService_UpdateMemberRole_PreventsOwnershipTransfer(t *testing.T) {
+	wsRepo := new(mockWorkspaceRepo)
+	userRepo := new(mockUserRepo)
+	svc := NewWorkspaceService(wsRepo, userRepo)
+
+	ctx := context.Background()
+	workspaceID := uuid.New()
+	ownerID := uuid.New()
+	memberID := uuid.New()
+	wsRepo.On("GetByID", ctx, workspaceID).Return(&domain.Workspace{ID: workspaceID, OwnerID: ownerID}, nil)
+	wsRepo.On("GetMember", ctx, workspaceID, memberID).Return(&domain.WorkspaceMember{WorkspaceID: workspaceID, UserID: memberID, Role: domain.RoleAdmin}, nil)
+
+	err := svc.UpdateMemberRole(ctx, workspaceID, memberID, domain.RoleOwner)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "ownership transfer is not supported")
+	wsRepo.AssertNotCalled(t, "UpdateMemberRole", ctx, workspaceID, memberID, domain.RoleOwner)
+}
+
+func TestWorkspaceService_UpdateMemberRole_AllowsNonOwnerRoleChange(t *testing.T) {
+	wsRepo := new(mockWorkspaceRepo)
+	userRepo := new(mockUserRepo)
+	svc := NewWorkspaceService(wsRepo, userRepo)
+
+	ctx := context.Background()
+	workspaceID := uuid.New()
+	ownerID := uuid.New()
+	memberID := uuid.New()
+	wsRepo.On("GetByID", ctx, workspaceID).Return(&domain.Workspace{ID: workspaceID, OwnerID: ownerID}, nil)
+	wsRepo.On("GetMember", ctx, workspaceID, memberID).Return(&domain.WorkspaceMember{WorkspaceID: workspaceID, UserID: memberID, Role: domain.RoleMember}, nil)
+	wsRepo.On("UpdateMemberRole", ctx, workspaceID, memberID, domain.RoleAdmin).Return(nil)
+
+	err := svc.UpdateMemberRole(ctx, workspaceID, memberID, domain.RoleAdmin)
+
+	assert.NoError(t, err)
+	wsRepo.AssertCalled(t, "UpdateMemberRole", ctx, workspaceID, memberID, domain.RoleAdmin)
 }
 
 func TestWorkspaceService_InviteMember_Happy(t *testing.T) {

@@ -196,7 +196,8 @@ func main() {
 	// Workspace-scoped routes
 	ws := api.Group("/workspaces/:slug", mw.WorkspaceMembership(workspaceRepo))
 	ws.GET("", workspaceH.Get)
-	ws.PATCH("", workspaceH.Update, mw.RequirePermission("workspace:manage"))
+	ws.PATCH("", workspaceH.Update, mw.RequireOwner())
+	ws.DELETE("", workspaceH.Delete, mw.RequireOwner())
 	ws.POST("/invite", workspaceH.Invite, mw.RequirePermission("member:invite"))
 	ws.GET("/members", workspaceH.ListMembers)
 	ws.PATCH("/members/:userId", workspaceH.UpdateMemberRole, mw.RequirePermission("member:invite"))

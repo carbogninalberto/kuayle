@@ -29,6 +29,7 @@ type WorkspaceRepo interface {
 	GetBySlug(ctx context.Context, slug string) (*domain.Workspace, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Workspace, error)
 	Update(ctx context.Context, ws *domain.Workspace) error
+	Delete(ctx context.Context, id uuid.UUID) error
 	ListByUser(ctx context.Context, userID uuid.UUID) ([]domain.Workspace, error)
 	AddMember(ctx context.Context, member *domain.WorkspaceMember) error
 	GetMember(ctx context.Context, workspaceID, userID uuid.UUID) (*domain.WorkspaceMember, error)

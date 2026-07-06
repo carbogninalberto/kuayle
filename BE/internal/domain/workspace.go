@@ -11,6 +11,7 @@ type Workspace struct {
 	Name             string    `json:"name" db:"name"`
 	Slug             string    `json:"slug" db:"slug"`
 	LogoURL          *string   `json:"logo_url" db:"logo_url"`
+	OwnerID          uuid.UUID `json:"owner_id" db:"owner_id"`
 	ShareLinkMinRole string    `json:"share_link_min_role" db:"share_link_min_role"`
 	CreatedAt        time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at" db:"updated_at"`
