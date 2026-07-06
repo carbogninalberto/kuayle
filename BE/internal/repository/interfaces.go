@@ -73,6 +73,11 @@ type IssueRepo interface {
 	BeginTx(ctx context.Context) (*sqlx.Tx, error)
 }
 
+type AssetRepo interface {
+	Create(ctx context.Context, asset *domain.Asset) error
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.Asset, error)
+}
+
 type LabelRepo interface {
 	Create(ctx context.Context, label *domain.Label) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Label, error)

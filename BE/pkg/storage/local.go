@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // LocalBackend stores files on the local filesystem.
@@ -22,7 +23,10 @@ func NewLocalBackend(dir, urlBase string) (*LocalBackend, error) {
 }
 
 func (b *LocalBackend) Put(_ context.Context, key string, r io.Reader, _ string) (int64, error) {
-	path := filepath.Join(b.dir, key)
+	path, err := b.pathForKey(key)
+	if err != nil {
+		return 0, err
+	}
 	f, err := os.Create(path)
 	if err != nil {
 		return 0, fmt.Errorf("creating file: %w", err)
@@ -36,15 +40,29 @@ func (b *LocalBackend) Put(_ context.Context, key string, r io.Reader, _ string)
 }
 
 func (b *LocalBackend) Get(_ context.Context, key string) (io.ReadCloser, error) {
-	path := filepath.Join(b.dir, key)
+	path, err := b.pathForKey(key)
+	if err != nil {
+		return nil, err
+	}
 	return os.Open(path)
 }
 
 func (b *LocalBackend) Delete(_ context.Context, key string) error {
-	path := filepath.Join(b.dir, key)
+	path, err := b.pathForKey(key)
+	if err != nil {
+		return err
+	}
 	return os.Remove(path)
 }
 
 func (b *LocalBackend) URL(_ context.Context, key string) (string, error) {
 	return fmt.Sprintf("%s/%s", b.urlBase, key), nil
+}
+
+func (b *LocalBackend) pathForKey(key string) (string, error) {
+	clean := filepath.Clean(key)
+	if clean == "." || filepath.IsAbs(clean) || strings.HasPrefix(clean, ".."+string(filepath.Separator)) || clean == ".." {
+		return "", fmt.Errorf("invalid storage key")
+	}
+	return filepath.Join(b.dir, clean), nil
 }

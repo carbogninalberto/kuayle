@@ -6,7 +6,7 @@
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import type { Label } from '$lib/types/label';
 	import type { Project } from '$lib/types/project';
-	import { listComments, createComment, resolveComment, reopenComment, getIssueHistory, getIssue } from '$lib/api/issues';
+	import { listComments, createComment, resolveComment, reopenComment, getIssueHistory, getIssue, signIssuePromptAssets } from '$lib/api/issues';
 	import { listMembers } from '$lib/api/members';
 	import { listLabels } from '$lib/api/labels';
 	import { listProjects } from '$lib/api/projects';
@@ -380,6 +380,16 @@
 		toast.success(`${label} copied`);
 	}
 
+	async function copyAIPrompt() {
+		try {
+			const { assets } = await signIssuePromptAssets(slug, issue.identifier);
+			await navigator.clipboard.writeText(getAIPrompt(assets));
+			toast.success('AI prompt copied');
+		} catch {
+			toast.error('Failed to copy AI prompt');
+		}
+	}
+
 	function getUsername(): string {
 		const user = authState.user;
 		if (!user) return 'user';
@@ -427,7 +437,82 @@
 		return el.value;
 	}
 
-	function getAIPrompt(): string {
+	function getPromptAssetUrl(src: string): string {
+		try {
+			return new URL(src, window.location.origin).href;
+		} catch {
+			return src;
+		}
+	}
+
+	function getSignedPromptAssetUrl(src: string, signedAssets: Record<string, string>): string {
+		const signed = signedAssets[src];
+		if (signed) return signed;
+
+		try {
+			const path = new URL(src, window.location.origin).pathname;
+			return signedAssets[path] ?? src;
+		} catch {
+			return src;
+		}
+	}
+
+	function htmlToPromptMarkdown(html: string, signedAssets: Record<string, string>): string {
+		const root = document.createElement('div');
+		root.innerHTML = html;
+
+		const parts: string[] = [];
+		const blockTags = new Set([
+			'ADDRESS', 'ARTICLE', 'ASIDE', 'BLOCKQUOTE', 'DIV', 'H1', 'H2', 'H3',
+			'H4', 'H5', 'H6', 'LI', 'OL', 'P', 'PRE', 'SECTION', 'UL'
+		]);
+
+		function appendBreak() {
+			if (parts.length === 0 || parts[parts.length - 1].endsWith('\n')) return;
+			parts.push('\n');
+		}
+
+		function walk(node: Node) {
+			if (node.nodeType === Node.TEXT_NODE) {
+				parts.push(node.textContent ?? '');
+				return;
+			}
+
+			if (!(node instanceof HTMLElement)) return;
+
+			if (node.tagName === 'BR') {
+				appendBreak();
+				return;
+			}
+
+			if (node.tagName === 'IMG') {
+				const src = node.getAttribute('src');
+				if (!src) return;
+				const alt = (node.getAttribute('alt') ?? 'Image').replace(/[\[\]\r\n]+/g, ' ').trim() || 'Image';
+				appendBreak();
+				parts.push(`![${alt}](${getPromptAssetUrl(getSignedPromptAssetUrl(src, signedAssets))})`);
+				appendBreak();
+				return;
+			}
+
+			const isBlock = blockTags.has(node.tagName);
+			if (isBlock) appendBreak();
+
+			if (node.tagName === 'LI') parts.push('- ');
+			for (const child of node.childNodes) walk(child);
+
+			if (isBlock) appendBreak();
+		}
+
+		for (const child of root.childNodes) walk(child);
+
+		return parts.join('')
+			.replace(/[ \t]+\n/g, '\n')
+			.replace(/\n{3,}/g, '\n\n')
+			.trim();
+	}
+
+	function getAIPrompt(signedAssets: Record<string, string> = {}): string {
 		let prompt = `Work on issue ${issue.identifier}:\n\n`;
 		prompt += `<issue identifier="${issue.identifier}">\n`;
 		prompt += `<title>${decodeHtmlEntities(issue.title)}</title>\n`;
@@ -442,8 +527,7 @@
 			prompt += `<project name="${decodeHtmlEntities(issueProject.name)}">${decodeHtmlEntities(issueProject.description ?? '')}</project>\n`;
 		}
 		if (issue.description) {
-			const plain = issue.description.replace(/<[^>]*>/g, '');
-			prompt += `<description>${decodeHtmlEntities(plain)}</description>\n`;
+			prompt += `<description>${htmlToPromptMarkdown(issue.description, signedAssets)}</description>\n`;
 		}
 		prompt += `</issue>`;
 		return prompt;
@@ -509,7 +593,7 @@
 				<GitBranch size={14} />
 			</button>
 			<button
-				onclick={() => copyToClipboard(getAIPrompt(), 'AI prompt')}
+				onclick={copyAIPrompt}
 				class="rounded p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
 				title="Copy AI prompt"
 			>

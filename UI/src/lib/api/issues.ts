@@ -56,6 +56,15 @@ export function getIssueHistory(slug: string, identifier: string): Promise<Issue
 	return api.get<IssueHistory[]>(`/api/workspaces/${slug}/issues/${identifier}/history`);
 }
 
+export function signIssuePromptAssets(
+	slug: string,
+	identifier: string
+): Promise<{ assets: Record<string, string>; expires_at: string }> {
+	return api.post<{ assets: Record<string, string>; expires_at: string }>(
+		`/api/workspaces/${slug}/issues/${identifier}/prompt-assets`
+	);
+}
+
 export function triageAccept(slug: string, identifier: string): Promise<Issue> {
 	return api.post<Issue>(`/api/workspaces/${slug}/issues/${identifier}/triage/accept`);
 }
