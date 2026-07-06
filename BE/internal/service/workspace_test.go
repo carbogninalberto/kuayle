@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/google/uuid"
@@ -19,6 +20,11 @@ type mockWorkspaceRepo struct {
 
 func (m *mockWorkspaceRepo) Create(ctx context.Context, ws *domain.Workspace) error {
 	args := m.Called(ctx, ws)
+	return args.Error(0)
+}
+
+func (m *mockWorkspaceRepo) CreateWithMemberAndLabels(ctx context.Context, ws *domain.Workspace, member *domain.WorkspaceMember, labels []domain.Label) error {
+	args := m.Called(ctx, ws, member, labels)
 	return args.Error(0)
 }
 
@@ -106,8 +112,24 @@ func TestWorkspaceService_Create_Happy(t *testing.T) {
 	}
 
 	wsRepo.On("GetBySlug", ctx, "my-workspace").Return(nil, nil)
-	wsRepo.On("Create", ctx, mock.AnythingOfType("*domain.Workspace")).Return(nil)
-	wsRepo.On("AddMember", ctx, mock.AnythingOfType("*domain.WorkspaceMember")).Return(nil)
+	wsRepo.On("CreateWithMemberAndLabels", ctx, mock.AnythingOfType("*domain.Workspace"), mock.AnythingOfType("*domain.WorkspaceMember"), mock.AnythingOfType("[]domain.Label")).Run(func(args mock.Arguments) {
+		workspace := args.Get(1).(*domain.Workspace)
+		member := args.Get(2).(*domain.WorkspaceMember)
+		labels := args.Get(3).([]domain.Label)
+
+		assert.Equal(t, workspace.ID, member.WorkspaceID)
+		assert.Equal(t, userID, member.UserID)
+		assert.Equal(t, domain.RoleOwner, member.Role)
+
+		assert.Len(t, labels, len(defaultWorkspaceLabelSpecs()))
+		for i, spec := range defaultWorkspaceLabelSpecs() {
+			assert.Equal(t, workspace.ID, labels[i].WorkspaceID)
+			assert.Equal(t, spec.name, labels[i].Name)
+			assert.Equal(t, spec.color, labels[i].Color)
+			assert.NotNil(t, labels[i].Description)
+			assert.Equal(t, spec.description, *labels[i].Description)
+		}
+	}).Return(nil)
 
 	ws, err := svc.Create(ctx, userID, req)
 
@@ -117,10 +139,29 @@ func TestWorkspaceService_Create_Happy(t *testing.T) {
 	assert.Equal(t, "my-workspace", ws.Slug)
 	assert.Equal(t, domain.RoleAdmin, ws.ShareLinkMinRole)
 
-	// Verify owner membership was added
-	wsRepo.AssertCalled(t, "AddMember", ctx, mock.MatchedBy(func(m *domain.WorkspaceMember) bool {
-		return m.UserID == userID && m.Role == domain.RoleOwner
-	}))
+	wsRepo.AssertCalled(t, "CreateWithMemberAndLabels", ctx, mock.AnythingOfType("*domain.Workspace"), mock.AnythingOfType("*domain.WorkspaceMember"), mock.AnythingOfType("[]domain.Label"))
+	wsRepo.AssertNotCalled(t, "Create", ctx, mock.AnythingOfType("*domain.Workspace"))
+	wsRepo.AssertNotCalled(t, "AddMember", ctx, mock.AnythingOfType("*domain.WorkspaceMember"))
+}
+
+func TestWorkspaceService_Create_TransactionalCreateFails(t *testing.T) {
+	wsRepo := new(mockWorkspaceRepo)
+	userRepo := new(mockUserRepo)
+	svc := NewWorkspaceService(wsRepo, userRepo)
+
+	ctx := context.Background()
+	errCreate := errors.New("label insert failed")
+
+	wsRepo.On("GetBySlug", ctx, "my-workspace").Return(nil, nil)
+	wsRepo.On("CreateWithMemberAndLabels", ctx, mock.AnythingOfType("*domain.Workspace"), mock.AnythingOfType("*domain.WorkspaceMember"), mock.AnythingOfType("[]domain.Label")).Return(errCreate)
+
+	ws, err := svc.Create(ctx, uuid.New(), dto.CreateWorkspaceRequest{Name: "My Workspace", Slug: "my-workspace"})
+
+	assert.ErrorIs(t, err, errCreate)
+	assert.Nil(t, ws)
+	wsRepo.AssertCalled(t, "CreateWithMemberAndLabels", ctx, mock.AnythingOfType("*domain.Workspace"), mock.AnythingOfType("*domain.WorkspaceMember"), mock.AnythingOfType("[]domain.Label"))
+	wsRepo.AssertNotCalled(t, "Create", ctx, mock.AnythingOfType("*domain.Workspace"))
+	wsRepo.AssertNotCalled(t, "AddMember", ctx, mock.AnythingOfType("*domain.WorkspaceMember"))
 }
 
 func TestWorkspaceService_Create_SlugTaken(t *testing.T) {

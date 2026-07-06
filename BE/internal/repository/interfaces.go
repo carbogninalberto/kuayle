@@ -26,6 +26,7 @@ type RefreshTokenRepo interface {
 
 type WorkspaceRepo interface {
 	Create(ctx context.Context, ws *domain.Workspace) error
+	CreateWithMemberAndLabels(ctx context.Context, ws *domain.Workspace, member *domain.WorkspaceMember, labels []domain.Label) error
 	GetBySlug(ctx context.Context, slug string) (*domain.Workspace, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Workspace, error)
 	Update(ctx context.Context, ws *domain.Workspace) error
