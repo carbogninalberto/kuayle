@@ -13,13 +13,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/realtime"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/pkg/crypto"
 	gh "github.com/kuayle/kuayle-backend/pkg/github"
-	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -44,7 +44,7 @@ type GitHubService struct {
 	encryptionKey  []byte
 	hub            *realtime.Hub
 	frontendURL    string
-	webhookURL     string // optional override (e.g. smee.io for dev)
+	webhookURL     string                 // optional override (e.g. smee.io for dev)
 	globalApp      *GlobalGitHubAppConfig // nil = self-hosted mode
 }
 
@@ -140,12 +140,12 @@ func (s *GitHubService) GetManifest(workspaceID uuid.UUID, slug string) (map[str
 	isLocal := strings.Contains(s.frontendURL, "localhost") || strings.Contains(s.frontendURL, "127.0.0.1")
 
 	manifest := map[string]any{
-		"name":               fmt.Sprintf("Kuayle (%s)", slug),
-		"url":                s.frontendURL,
-		"redirect_url":       callbackURL,
-		"setup_url":          callbackURL,
-		"setup_on_update":    true,
-		"public":             false,
+		"name":            fmt.Sprintf("Kuayle (%s)", slug),
+		"url":             s.frontendURL,
+		"redirect_url":    callbackURL,
+		"setup_url":       callbackURL,
+		"setup_on_update": true,
+		"public":          false,
 		"default_permissions": map[string]string{
 			"pull_requests": "read",
 			"contents":      "read",
@@ -564,20 +564,44 @@ func (s *GitHubService) HandleWebhookEvent(ctx context.Context, eventType string
 	}
 }
 
+func (s *GitHubService) broadcastAppRefresh(workspaceID uuid.UUID, resources ...string) {
+	if s.hub == nil {
+		return
+	}
+	s.hub.Broadcast(workspaceID, realtime.Event{
+		Type: "app.refresh",
+		Payload: map[string]any{
+			"source":    "github",
+			"resources": resources,
+		},
+	})
+}
+
+func (s *GitHubService) broadcastRealtimeEvent(workspaceID uuid.UUID, event realtime.Event) {
+	if s.hub == nil {
+		return
+	}
+	s.hub.Broadcast(workspaceID, event)
+}
+
 type ghWebhookPR struct {
 	Action      string `json:"action"`
 	Number      int    `json:"number"`
 	PullRequest struct {
-		ID    int64  `json:"id"`
-		Number int   `json:"number"`
-		Title  string `json:"title"`
-		State  string `json:"state"`
-		Draft  bool   `json:"draft"`
-		Merged bool   `json:"merged"`
+		ID      int64  `json:"id"`
+		Number  int    `json:"number"`
+		Title   string `json:"title"`
+		State   string `json:"state"`
+		Draft   bool   `json:"draft"`
+		Merged  bool   `json:"merged"`
 		HTMLURL string `json:"html_url"`
-		Head   struct{ Ref string `json:"ref"` } `json:"head"`
-		Base   struct{ Ref string `json:"ref"` } `json:"base"`
-		User   struct {
+		Head    struct {
+			Ref string `json:"ref"`
+		} `json:"head"`
+		Base struct {
+			Ref string `json:"ref"`
+		} `json:"base"`
+		User struct {
 			Login     string `json:"login"`
 			AvatarURL string `json:"avatar_url"`
 		} `json:"user"`
@@ -666,10 +690,11 @@ func (s *GitHubService) processPullRequestEvent(ctx context.Context, payload []b
 			s.applyAutoTransition(ctx, inst.WorkspaceID, "pr_merged", issue)
 		}
 
-		s.hub.Broadcast(inst.WorkspaceID, realtime.Event{
+		s.broadcastRealtimeEvent(inst.WorkspaceID, realtime.Event{
 			Type:    "github:pr_updated",
 			Payload: map[string]any{"issue_id": issue.ID, "pr_number": pr.Number, "state": state},
 		})
+		s.broadcastAppRefresh(inst.WorkspaceID, "issues")
 	}
 
 	return nil
@@ -711,6 +736,7 @@ func (s *GitHubService) processPushEvent(ctx context.Context, payload []byte) er
 		return nil
 	}
 
+	updatedIssues := make(map[uuid.UUID]bool)
 	for _, c := range event.Commits {
 		issue := s.resolveIssueFromRef(ctx, inst.WorkspaceID, c.Message)
 		var issueID *uuid.UUID
@@ -738,7 +764,19 @@ func (s *GitHubService) processPushEvent(ctx context.Context, payload []byte) er
 
 		if err := s.ghRepo.UpsertCommit(ctx, commit); err != nil {
 			log.WithError(err).WithField("sha", c.ID).Warn("failed to upsert commit")
+			continue
 		}
+
+		if issue != nil {
+			updatedIssues[issue.ID] = true
+			s.broadcastRealtimeEvent(inst.WorkspaceID, realtime.Event{
+				Type:    "github:commit_pushed",
+				Payload: map[string]any{"issue_id": issue.ID, "sha": commit.SHA},
+			})
+		}
+	}
+	if len(updatedIssues) > 0 {
+		s.broadcastAppRefresh(inst.WorkspaceID, "issues")
 	}
 
 	return nil
@@ -798,10 +836,11 @@ func (s *GitHubService) processCreateEvent(ctx context.Context, payload []byte) 
 
 	if issue != nil {
 		s.applyAutoTransition(ctx, inst.WorkspaceID, "branch_created", issue)
-		s.hub.Broadcast(inst.WorkspaceID, realtime.Event{
+		s.broadcastRealtimeEvent(inst.WorkspaceID, realtime.Event{
 			Type:    "github:branch_created",
 			Payload: map[string]any{"issue_id": issue.ID, "branch": event.Ref},
 		})
+		s.broadcastAppRefresh(inst.WorkspaceID, "issues")
 	}
 
 	return nil
@@ -887,7 +926,7 @@ func (s *GitHubService) applyAutoTransition(ctx context.Context, workspaceID uui
 
 	_ = s.historyRepo.Create(ctx, issue.ID, uuid.Nil, "status", &oldStatus, &newStatus)
 
-	s.hub.Broadcast(workspaceID, realtime.Event{
+	s.broadcastRealtimeEvent(workspaceID, realtime.Event{
 		Type:    "issue.updated",
 		Payload: issue,
 	})
@@ -913,9 +952,15 @@ func (s *GitHubService) GetIssueActivity(ctx context.Context, workspaceID uuid.U
 
 	for _, pr := range prs {
 		avatarURL, headBranch, baseBranch := "", "", ""
-		if pr.AuthorAvatarURL != nil { avatarURL = *pr.AuthorAvatarURL }
-		if pr.HeadBranch != nil { headBranch = *pr.HeadBranch }
-		if pr.BaseBranch != nil { baseBranch = *pr.BaseBranch }
+		if pr.AuthorAvatarURL != nil {
+			avatarURL = *pr.AuthorAvatarURL
+		}
+		if pr.HeadBranch != nil {
+			headBranch = *pr.HeadBranch
+		}
+		if pr.BaseBranch != nil {
+			baseBranch = *pr.BaseBranch
+		}
 		resp.PullRequests = append(resp.PullRequests, dto.GitHubPullRequestResponse{
 			ID: pr.ID.String(), Number: pr.Number, Title: pr.Title, State: pr.State,
 			AuthorLogin: pr.AuthorLogin, AuthorAvatarURL: avatarURL, HTMLURL: pr.HTMLURL,
@@ -928,7 +973,9 @@ func (s *GitHubService) GetIssueActivity(ctx context.Context, workspaceID uuid.U
 
 	for _, b := range branches {
 		htmlURL := ""
-		if b.HTMLURL != nil { htmlURL = *b.HTMLURL }
+		if b.HTMLURL != nil {
+			htmlURL = *b.HTMLURL
+		}
 		resp.Branches = append(resp.Branches, dto.GitHubBranchResponse{
 			ID: b.ID.String(), Name: b.Name, HTMLURL: htmlURL, RepoFullName: b.RepoFullName,
 		})
@@ -936,10 +983,16 @@ func (s *GitHubService) GetIssueActivity(ctx context.Context, workspaceID uuid.U
 
 	for _, c := range commits {
 		authorLogin, authorAvatar := "", ""
-		if c.AuthorLogin != nil { authorLogin = *c.AuthorLogin }
-		if c.AuthorAvatarURL != nil { authorAvatar = *c.AuthorAvatarURL }
+		if c.AuthorLogin != nil {
+			authorLogin = *c.AuthorLogin
+		}
+		if c.AuthorAvatarURL != nil {
+			authorAvatar = *c.AuthorAvatarURL
+		}
 		shortSHA := c.SHA
-		if len(shortSHA) > 7 { shortSHA = shortSHA[:7] }
+		if len(shortSHA) > 7 {
+			shortSHA = shortSHA[:7]
+		}
 		resp.Commits = append(resp.Commits, dto.GitHubCommitResponse{
 			ID: c.ID.String(), SHA: c.SHA, ShortSHA: shortSHA, Message: c.Message,
 			AuthorLogin: authorLogin, AuthorAvatarURL: authorAvatar,

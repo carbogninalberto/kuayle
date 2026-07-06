@@ -96,7 +96,13 @@
 		if (!slug) return;
 		if (!resources || resources.length === 0) {
 			loadWorkspaceData(slug);
+			if (issuesState.issues.length > 0) {
+				issuesState.load(slug, issuesState.filters);
+			}
 			return;
+		}
+		if (resources.includes('issues') && issuesState.issues.length > 0) {
+			issuesState.load(slug, issuesState.filters);
 		}
 		if (resources.includes('workspace')) {
 			getWorkspace(slug).then((ws) => { workspace = ws; }).catch(() => {});
@@ -392,6 +398,16 @@
 			case 'view.updated':
 			case 'view.deleted': {
 				window.dispatchEvent(new CustomEvent('app:refresh', { detail: { ...msg.payload, resources: ['views'] } }));
+				break;
+			}
+			case 'app.refresh': {
+				window.dispatchEvent(new CustomEvent('app:refresh', { detail: msg.payload ?? {} }));
+				break;
+			}
+			case 'github:pr_updated':
+			case 'github:branch_created':
+			case 'github:commit_pushed': {
+				window.dispatchEvent(new CustomEvent(`ws:${msg.type}`, { detail: msg.payload }));
 				break;
 			}
 			case 'notification.created': {
