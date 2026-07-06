@@ -320,7 +320,7 @@
 			</div>
 
 			<Collapsible.Content>
-				<div class="border-t border-[var(--app-border)] py-1">
+				<div class="border-t border-[var(--app-border)]">
 					{@render rows()}
 				</div>
 			</Collapsible.Content>
