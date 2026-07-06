@@ -427,6 +427,69 @@
 		return el.value;
 	}
 
+	function getPromptAssetUrl(src: string): string {
+		try {
+			return new URL(src, window.location.origin).href;
+		} catch {
+			return src;
+		}
+	}
+
+	function htmlToPromptMarkdown(html: string): string {
+		const root = document.createElement('div');
+		root.innerHTML = html;
+
+		const parts: string[] = [];
+		const blockTags = new Set([
+			'ADDRESS', 'ARTICLE', 'ASIDE', 'BLOCKQUOTE', 'DIV', 'H1', 'H2', 'H3',
+			'H4', 'H5', 'H6', 'LI', 'OL', 'P', 'PRE', 'SECTION', 'UL'
+		]);
+
+		function appendBreak() {
+			if (parts.length === 0 || parts[parts.length - 1].endsWith('\n')) return;
+			parts.push('\n');
+		}
+
+		function walk(node: Node) {
+			if (node.nodeType === Node.TEXT_NODE) {
+				parts.push(node.textContent ?? '');
+				return;
+			}
+
+			if (!(node instanceof HTMLElement)) return;
+
+			if (node.tagName === 'BR') {
+				appendBreak();
+				return;
+			}
+
+			if (node.tagName === 'IMG') {
+				const src = node.getAttribute('src');
+				if (!src) return;
+				const alt = (node.getAttribute('alt') ?? 'Image').replace(/[\[\]\r\n]+/g, ' ').trim() || 'Image';
+				appendBreak();
+				parts.push(`![${alt}](${getPromptAssetUrl(src)})`);
+				appendBreak();
+				return;
+			}
+
+			const isBlock = blockTags.has(node.tagName);
+			if (isBlock) appendBreak();
+
+			if (node.tagName === 'LI') parts.push('- ');
+			for (const child of node.childNodes) walk(child);
+
+			if (isBlock) appendBreak();
+		}
+
+		for (const child of root.childNodes) walk(child);
+
+		return parts.join('')
+			.replace(/[ \t]+\n/g, '\n')
+			.replace(/\n{3,}/g, '\n\n')
+			.trim();
+	}
+
 	function getAIPrompt(): string {
 		let prompt = `Work on issue ${issue.identifier}:\n\n`;
 		prompt += `<issue identifier="${issue.identifier}">\n`;
@@ -442,8 +505,7 @@
 			prompt += `<project name="${decodeHtmlEntities(issueProject.name)}">${decodeHtmlEntities(issueProject.description ?? '')}</project>\n`;
 		}
 		if (issue.description) {
-			const plain = issue.description.replace(/<[^>]*>/g, '');
-			prompt += `<description>${decodeHtmlEntities(plain)}</description>\n`;
+			prompt += `<description>${htmlToPromptMarkdown(issue.description)}</description>\n`;
 		}
 		prompt += `</issue>`;
 		return prompt;
