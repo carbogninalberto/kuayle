@@ -10,6 +10,7 @@
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
 	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
 	import { issuesState } from './issues.state.svelte';
+	import { showIssueDeletedToast } from './issue-deleted-toast';
 	import { toast } from 'svelte-sonner';
 	import type { Snippet } from 'svelte';
 
@@ -57,7 +58,7 @@
 	async function handleDelete() {
 		try {
 			await issuesState.remove(slug, issue.identifier);
-			toast.success('Issue deleted');
+			showIssueDeletedToast(issue);
 		} catch (err: any) {
 			toast.error(err?.error?.message || 'Failed to delete issue');
 		}

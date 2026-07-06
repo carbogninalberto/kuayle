@@ -27,6 +27,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import { IsMobile } from '$lib/hooks/is-mobile.svelte';
 	import { issuesState } from '$lib/features/issues/issues.state.svelte';
+	import { showIssueCreatedToast } from '$lib/features/issues/issue-created-toast';
 	import { preferencesState } from '$lib/features/preferences/preferences.state.svelte';
 	import { teamStatusesState } from '$lib/features/issues/team-statuses.state.svelte';
 	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
@@ -519,7 +520,7 @@
 		onsubmit={async (req) => {
 			try {
 				const created = await issuesState.create(slug, req);
-				toast.success('Issue created');
+				showIssueCreatedToast(slug, created);
 				// If the created issue's team doesn't match the current page's team filter,
 				// remove it from the optimistic list to avoid confusion
 				const currentTeam = page.params.teamId;
