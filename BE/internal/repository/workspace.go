@@ -5,9 +5,9 @@ import (
 	"database/sql"
 	"errors"
 
-	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"github.com/kuayle/kuayle-backend/internal/domain"
 )
 
 type WorkspaceRepository struct {
@@ -21,6 +21,43 @@ func NewWorkspaceRepository(db *sqlx.DB) *WorkspaceRepository {
 func (r *WorkspaceRepository) Create(ctx context.Context, ws *domain.Workspace) error {
 	query := `INSERT INTO workspaces (id, name, slug, owner_id) VALUES ($1, $2, $3, $4) RETURNING created_at, updated_at`
 	return r.db.QueryRowContext(ctx, query, ws.ID, ws.Name, ws.Slug, ws.OwnerID).Scan(&ws.CreatedAt, &ws.UpdatedAt)
+}
+
+func (r *WorkspaceRepository) CreateWithMemberAndLabels(ctx context.Context, ws *domain.Workspace, member *domain.WorkspaceMember, labels []domain.Label) error {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	workspaceQuery := `INSERT INTO workspaces (id, name, slug, owner_id) VALUES ($1, $2, $3, $4) RETURNING created_at, updated_at`
+	if err := tx.QueryRowContext(ctx, workspaceQuery, ws.ID, ws.Name, ws.Slug, ws.OwnerID).Scan(&ws.CreatedAt, &ws.UpdatedAt); err != nil {
+		return err
+	}
+
+	memberQuery := `INSERT INTO workspace_members (workspace_id, user_id, role) VALUES ($1, $2, $3) RETURNING created_at`
+	if err := tx.QueryRowContext(ctx, memberQuery, member.WorkspaceID, member.UserID, member.Role).Scan(&member.CreatedAt); err != nil {
+		return err
+	}
+
+	labelQuery := `INSERT INTO labels (id, workspace_id, name, color, description, parent_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING created_at, updated_at`
+	for i := range labels {
+		label := &labels[i]
+		if err := tx.QueryRowContext(ctx, labelQuery, label.ID, label.WorkspaceID, label.Name, label.Color, label.Description, label.ParentID).Scan(&label.CreatedAt, &label.UpdatedAt); err != nil {
+			return err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	committed = true
+	return nil
 }
 
 func (r *WorkspaceRepository) GetBySlug(ctx context.Context, slug string) (*domain.Workspace, error) {

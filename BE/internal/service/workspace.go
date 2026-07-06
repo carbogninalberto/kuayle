@@ -27,6 +27,22 @@ func NewWorkspaceService(workspaceRepo repository.WorkspaceRepo, userRepo reposi
 	return &WorkspaceService{workspaceRepo: workspaceRepo, userRepo: userRepo}
 }
 
+type defaultWorkspaceLabel struct {
+	name        string
+	color       string
+	description string
+}
+
+func defaultWorkspaceLabelSpecs() []defaultWorkspaceLabel {
+	return []defaultWorkspaceLabel{
+		{name: "Bug", color: "#EF4444", description: "Something is broken or not working as expected."},
+		{name: "Feature", color: "#3B82F6", description: "A new feature or capability."},
+		{name: "Improvement", color: "#22C55E", description: "An enhancement to existing functionality."},
+		{name: "Documentation", color: "#A855F7", description: "Documentation or content updates."},
+		{name: "Question", color: "#F59E0B", description: "Needs clarification or discussion."},
+	}
+}
+
 func (s *WorkspaceService) Create(ctx context.Context, userID uuid.UUID, req dto.CreateWorkspaceRequest) (*domain.Workspace, error) {
 	existing, _ := s.workspaceRepo.GetBySlug(ctx, req.Slug)
 	if existing != nil {
@@ -41,16 +57,14 @@ func (s *WorkspaceService) Create(ctx context.Context, userID uuid.UUID, req dto
 		ShareLinkMinRole: domain.RoleAdmin,
 	}
 
-	if err := s.workspaceRepo.Create(ctx, ws); err != nil {
-		return nil, err
-	}
-
 	member := &domain.WorkspaceMember{
 		WorkspaceID: ws.ID,
 		UserID:      userID,
 		Role:        domain.RoleOwner,
 	}
-	if err := s.workspaceRepo.AddMember(ctx, member); err != nil {
+	labels := defaultWorkspaceLabels(ws.ID)
+
+	if err := s.workspaceRepo.CreateWithMemberAndLabels(ctx, ws, member, labels); err != nil {
 		return nil, err
 	}
 
@@ -59,6 +73,22 @@ func (s *WorkspaceService) Create(ctx context.Context, userID uuid.UUID, req dto
 	})
 
 	return ws, nil
+}
+
+func defaultWorkspaceLabels(workspaceID uuid.UUID) []domain.Label {
+	specs := defaultWorkspaceLabelSpecs()
+	labels := make([]domain.Label, 0, len(specs))
+	for _, defaultLabel := range specs {
+		description := defaultLabel.description
+		labels = append(labels, domain.Label{
+			ID:          uuid.New(),
+			WorkspaceID: workspaceID,
+			Name:        defaultLabel.name,
+			Color:       defaultLabel.color,
+			Description: &description,
+		})
+	}
+	return labels
 }
 
 func (s *WorkspaceService) GetBySlug(ctx context.Context, slug string) (*domain.Workspace, error) {
