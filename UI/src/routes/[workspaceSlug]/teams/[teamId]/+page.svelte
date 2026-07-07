@@ -91,20 +91,16 @@
 		if (!s || !t) return;
 		issuesState.beginLoad(s, getIssueParams());
 		teamStatusesState.reload(s, t);
-		Promise.all([
-			listTeams(s),
-			listProjects(s),
-			listLabels(s),
-			listMembers(s),
-			listCycles(s, t)
-		]).then(([te, p, l, m, c]) => {
-			teams = te;
-			projects = p;
-			labels = l;
-			members = m;
-			cycles = c;
-			loadIssues();
-		});
+		Promise.all([listTeams(s), listProjects(s), listLabels(s), listMembers(s), listCycles(s, t)]).then(
+			([te, p, l, m, c]) => {
+				teams = te;
+				projects = p;
+				labels = l;
+				members = m;
+				cycles = c;
+				loadIssues();
+			}
+		);
 	});
 
 	function getIssueParams() {
@@ -237,9 +233,7 @@
 		try {
 			const updatedIssue = await issuesState.update(slug, issueIdentifier, req);
 			if (isSameGroup && reorderedGroup) {
-				applyLocalGroupOrder(
-					reorderedGroup.map((issue) => (issue.id === updatedIssue.id ? updatedIssue : issue))
-				);
+				applyLocalGroupOrder(reorderedGroup.map((issue) => (issue.id === updatedIssue.id ? updatedIssue : issue)));
 			}
 		} catch {
 			toast.error('Failed to move issue');
@@ -283,13 +277,16 @@
 	function getFilterStatusId(): string | undefined {
 		const value = singleFilterValue(filters.status);
 		if (!value) return undefined;
-		return teamStatusesState.statusById.get(value)?.id ?? teamStatusesState.statusOrder.find((status) => status.slug === value)?.id;
+		return (
+			teamStatusesState.statusById.get(value)?.id ??
+			teamStatusesState.statusOrder.find((status) => status.slug === value)?.id
+		);
 	}
 
 	function getFilterPriority(): IssuePriority | undefined {
 		const value = singleFilterValue(filters.priority);
 		const priority = value === undefined ? NaN : Number(value);
-		return [0, 1, 2, 3, 4].includes(priority) ? priority as IssuePriority : undefined;
+		return [0, 1, 2, 3, 4].includes(priority) ? (priority as IssuePriority) : undefined;
 	}
 
 	function getFilterProjectId(): string | null | undefined {
@@ -362,14 +359,15 @@
 
 <div class="flex h-full flex-col">
 	<!-- Header -->
-	<div
-		class="flex min-h-[49px] items-center justify-between gap-2 border-b border-[var(--app-border)] px-3 sm:px-6"
-	>
+	<div class="flex min-h-[49px] items-center justify-between gap-2 border-b border-[var(--app-border)] px-3 sm:px-6">
 		<div class="flex min-w-0 items-center gap-3">
 			<SidebarToggle />
 			<nav class="flex min-w-0 items-center gap-1.5 text-sm">
 				{#if sidebarState.getTeam(teamId)}
-					<a href="/{slug}/teams/{teamId}" class="flex items-center gap-1.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]">
+					<a
+						href="/{slug}/teams/{teamId}"
+						class="flex items-center gap-1.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
+					>
 						<SquareUser size={14} class="shrink-0" style="color: {sidebarState.getTeamColor(teamId)}" />
 						{sidebarState.getTeam(teamId)?.name}
 					</a>
@@ -404,8 +402,14 @@
 					<Popover.Content class="w-40 p-1" align="end">
 						{#each groupByOptions as opt}
 							<button
-								onclick={() => { issuesState.groupBy = opt.value; groupByOpen = false; }}
-								class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {issuesState.groupBy === opt.value ? 'bg-[var(--color-bg-hover)]' : ''}"
+								onclick={() => {
+									issuesState.groupBy = opt.value;
+									groupByOpen = false;
+								}}
+								class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {issuesState.groupBy ===
+								opt.value
+									? 'bg-[var(--color-bg-hover)]'
+									: ''}"
 							>
 								{opt.label}
 							</button>
@@ -417,28 +421,19 @@
 			<div class="hidden sm:block">
 				<ViewSwitcher bind:layout onchange={handleLayoutChange} />
 			</div>
-			{#if Object.keys(filters).length > 0}
-				<button
-					onclick={() => (showSaveView = true)}
-					class="flex items-center gap-1 rounded-md border border-[var(--app-border)] px-2 py-1 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]"
-					title="Save as view"
-				>
-					<Bookmark size={12} />
-					Save view
-				</button>
-			{/if}
+			<button
+				onclick={() => (showSaveView = true)}
+				class="flex items-center gap-1 rounded-md border border-[var(--app-border)] px-2 py-1 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]"
+				title="Save as view"
+			>
+				<Bookmark size={12} />
+				Save view
+			</button>
 		</div>
 	</div>
 
 	<!-- Filter bar -->
-	<FilterBuilder
-		bind:filters
-		{teams}
-		{projects}
-		{labels}
-		{members}
-		onchange={handleFilterChange}
-	/>
+	<FilterBuilder bind:filters {teams} {projects} {labels} {members} onchange={handleFilterChange} />
 
 	<!-- Content -->
 	{#if layout === 'list'}
@@ -446,7 +441,9 @@
 			{#if !issuesState.loading && issuesState.issues.length === 0}
 				<EmptyState
 					title="No issues found"
-					description={Object.keys(filters).length > 0 ? 'Try adjusting your filters' : 'Create your first issue to get started'}
+					description={Object.keys(filters).length > 0
+						? 'Try adjusting your filters'
+						: 'Create your first issue to get started'}
 					action={{ label: 'New Issue', onclick: openCreateIssue }}
 				/>
 			{:else if issuesState.groupBy}
@@ -454,12 +451,35 @@
 					{@const dropKey = group.key}
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
-						class="group/drop transition-all {dragOverGroup === dropKey && dragSourceGroup !== dropKey ? 'border border-[var(--app-accent)]' : ''}"
-						ondragstart={() => { dragSourceGroup = dropKey; }}
-						ondragend={() => { dragSourceGroup = null; dragOverGroup = null; dragOverIssueId = null; }}
-						ondragover={(e) => { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'; dragOverGroup = dropKey; }}
-						ondragleave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) { dragOverGroup = null; dragOverIssueId = null; } }}
-						ondrop={(e) => { e.preventDefault(); dragOverGroup = null; dragOverIssueId = null; const id = e.dataTransfer?.getData('text/plain'); if (id) handleGroupDrop(id, dropKey); }}
+						class="group/drop transition-all {dragOverGroup === dropKey && dragSourceGroup !== dropKey
+							? 'border border-[var(--app-accent)]'
+							: ''}"
+						ondragstart={() => {
+							dragSourceGroup = dropKey;
+						}}
+						ondragend={() => {
+							dragSourceGroup = null;
+							dragOverGroup = null;
+							dragOverIssueId = null;
+						}}
+						ondragover={(e) => {
+							e.preventDefault();
+							if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+							dragOverGroup = dropKey;
+						}}
+						ondragleave={(e) => {
+							if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+								dragOverGroup = null;
+								dragOverIssueId = null;
+							}
+						}}
+						ondrop={(e) => {
+							e.preventDefault();
+							dragOverGroup = null;
+							dragOverIssueId = null;
+							const id = e.dataTransfer?.getData('text/plain');
+							if (id) handleGroupDrop(id, dropKey);
+						}}
 					>
 						<IssueGroupHeader
 							groupKey={group.key}
@@ -484,13 +504,37 @@
 										const midY = rect.top + rect.height / 2;
 										dropPosition = e.clientY < midY ? 'above' : 'below';
 									}}
-									ondragleave={() => { dragOverIssueId = null; }}
-									ondrop={(e) => { e.preventDefault(); e.stopPropagation(); dragOverGroup = null; dragOverIssueId = null; const id = e.dataTransfer?.getData('text/plain'); if (id) handleGroupDrop(id, dropKey, issue.id, dropPosition); }}
+									ondragleave={() => {
+										dragOverIssueId = null;
+									}}
+									ondrop={(e) => {
+										e.preventDefault();
+										e.stopPropagation();
+										dragOverGroup = null;
+										dragOverIssueId = null;
+										const id = e.dataTransfer?.getData('text/plain');
+										if (id) handleGroupDrop(id, dropKey, issue.id, dropPosition);
+									}}
 								>
 									{#if dragOverIssueId === issue.id && dragSourceGroup === dropKey}
-										<div class="absolute {dropPosition === 'above' ? 'top-0' : 'bottom-0'} left-0 right-0 h-px bg-[var(--app-accent)] z-10"></div>
+										<div
+											class="absolute {dropPosition === 'above'
+												? 'top-0'
+												: 'bottom-0'} left-0 right-0 h-px bg-[var(--app-accent)] z-10"
+										></div>
 									{/if}
-									<IssueRow {issue} {slug} {members} {labels} {projects} {cycles} onclick={handleIssueClick} {lastSelectedId} onlastselected={(id) => lastSelectedId = id} onaddrelation={handleAddRelation} />
+									<IssueRow
+										{issue}
+										{slug}
+										{members}
+										{labels}
+										{projects}
+										{cycles}
+										onclick={handleIssueClick}
+										{lastSelectedId}
+										onlastselected={(id) => (lastSelectedId = id)}
+										onaddrelation={handleAddRelation}
+									/>
 								</div>
 							{/each}
 						{/if}
@@ -498,33 +542,42 @@
 				{/each}
 			{:else}
 				{#each issuesState.issues as issue (issue.id)}
-					<IssueRow {issue} {slug} {members} {labels} {projects} {cycles} onclick={handleIssueClick} {lastSelectedId} onlastselected={(id) => lastSelectedId = id} onaddrelation={handleAddRelation} />
+					<IssueRow
+						{issue}
+						{slug}
+						{members}
+						{labels}
+						{projects}
+						{cycles}
+						onclick={handleIssueClick}
+						{lastSelectedId}
+						onlastselected={(id) => (lastSelectedId = id)}
+						onaddrelation={handleAddRelation}
+					/>
 				{/each}
 			{/if}
 
-			<BulkActionBar {slug} {labels} onlabelcreated={(label) => (labels = [label, ...labels.filter((existing) => existing.id !== label.id)])} />
+			<BulkActionBar
+				{slug}
+				{labels}
+				onlabelcreated={(label) => (labels = [label, ...labels.filter((existing) => existing.id !== label.id)])}
+			/>
 		</div>
-	{:else}
-		{#if !issuesState.loading}
-			<div class="flex-1 overflow-hidden">
-				<KanbanBoard
-					issuesByStatus={issuesState.issuesByStatus}
-					{slug}
-					{members}
-					{labels}
-					onissueclick={handleIssueClick}
-				/>
-			</div>
-		{/if}
+	{:else if !issuesState.loading}
+		<div class="flex-1 overflow-hidden">
+			<KanbanBoard
+				issuesByStatus={issuesState.issuesByStatus}
+				{slug}
+				{members}
+				{labels}
+				onissueclick={handleIssueClick}
+			/>
+		</div>
 	{/if}
 </div>
 
 {#if issuesState.selectedIssue}
-	<IssueDetail
-		issue={issuesState.selectedIssue}
-		{slug}
-		onclose={() => issuesState.select(null)}
-	/>
+	<IssueDetail issue={issuesState.selectedIssue} {slug} onclose={() => issuesState.select(null)} />
 {/if}
 
 <CreateIssueDialog
@@ -552,19 +605,9 @@
 	}}
 />
 
-<SaveViewDialog
-	bind:open={showSaveView}
-	{filters}
-	{slug}
-/>
+<SaveViewDialog bind:open={showSaveView} {filters} {slug} {teams} defaultTeamId={teamId} defaultScope="team" />
 
-<ShareLinkDialog
-	bind:open={showShareLink}
-	{slug}
-	scope="team"
-	scopeId={teamId}
-	{filters}
-/>
+<ShareLinkDialog bind:open={showShareLink} {slug} scope="team" scopeId={teamId} {filters} />
 
 <AddRelationDialog
 	bind:open={relationDialogOpen}

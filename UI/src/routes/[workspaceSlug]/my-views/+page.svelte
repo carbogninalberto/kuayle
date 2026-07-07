@@ -3,28 +3,26 @@
 	import { page } from '$app/state';
 	import { listViews, deleteView } from '$lib/api/views';
 	import type { View } from '$lib/types/view';
-	import { isTeamView } from '$lib/types/view';
+	import { isPersonalView } from '$lib/types/view';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
-	import { Badge } from '$lib/components/ui/badge';
+	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import { toast } from 'svelte-sonner';
-	import { Bookmark, Trash2, SquareUser, Layers, ChevronRight } from 'lucide-svelte';
-	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
-	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
+	import { Bookmark, CircleUser, Trash2 } from 'lucide-svelte';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
-	const teamId = $derived(page.params.teamId ?? '');
+
 	let views = $state<View[]>([]);
 	let loading = $state(true);
 	let pendingDeleteView = $state<View | null>(null);
 	let deleteOpen = $state(false);
 
 	async function loadViews() {
-		if (!slug || !teamId) return;
+		if (!slug) return;
 		loading = true;
 		try {
 			const all = await listViews(slug);
-			views = all.filter((view) => isTeamView(view, teamId));
+			views = all.filter(isPersonalView);
 		} finally {
 			loading = false;
 		}
@@ -58,7 +56,7 @@
 		if (!view) return;
 		try {
 			await deleteView(slug, view.id);
-			views = views.filter((v) => v.id !== view.id);
+			views = views.filter((item) => item.id !== view.id);
 			toast.success('View deleted');
 		} catch {
 			toast.error('Failed to delete view');
@@ -74,19 +72,9 @@
 		<div class="flex items-center gap-3">
 			<SidebarToggle />
 			<nav class="flex items-center gap-1.5 text-sm">
-				{#if sidebarState.getTeam(teamId)}
-					<a
-						href="/{slug}/teams/{teamId}"
-						class="flex items-center gap-1.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
-					>
-						<SquareUser size={14} class="shrink-0" style="color: {sidebarState.getTeamColor(teamId)}" />
-						{sidebarState.getTeam(teamId)?.name}
-					</a>
-					<ChevronRight size={12} class="shrink-0 text-[var(--color-text-tertiary)]" />
-				{/if}
 				<span class="flex items-center gap-1.5 font-medium text-[var(--color-text-primary)]">
-					<Layers size={14} class="shrink-0" />
-					Views
+					<Bookmark size={14} class="shrink-0" />
+					My Views
 				</span>
 			</nav>
 		</div>
@@ -94,21 +82,18 @@
 
 	{#if !loading && views.length === 0}
 		<EmptyState
-			title="No views for this team"
-			description="Save filters from the team issues page and choose Team visibility to share views here."
+			title="No personal views"
+			description="Save filters and choose Personal visibility to keep views here."
 		/>
 	{:else}
 		<div class="divide-y divide-[var(--app-border)]">
 			{#each views as view}
 				<div class="flex items-center gap-4 px-6 py-3 hover:bg-[var(--color-bg-hover)]">
-					<a href="/{slug}/views/{view.id}" class="flex flex-1 items-center gap-3 min-w-0">
-						<Bookmark size={14} class="shrink-0 text-[var(--color-text-tertiary)]" />
+					<a href="/{slug}/views/{view.id}" class="flex min-w-0 flex-1 items-center gap-3">
+						<CircleUser size={14} class="shrink-0 text-[var(--color-text-tertiary)]" />
 						<div class="min-w-0">
 							<div class="flex items-center gap-2">
-								<span class="text-sm font-medium text-[var(--color-text-primary)]">{view.name}</span>
-								{#if view.is_shared}
-									<Badge variant="outline" class="text-[10px]">Shared</Badge>
-								{/if}
+								<span class="truncate text-sm font-medium text-[var(--color-text-primary)]">{view.name}</span>
 							</div>
 							{#if view.description}
 								<p class="mt-0.5 truncate text-xs text-[var(--color-text-tertiary)]">{view.description}</p>

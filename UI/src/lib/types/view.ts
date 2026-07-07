@@ -1,5 +1,7 @@
 export interface ViewFilter {
 	[key: string]: string | undefined;
+	view_scope?: ViewScope;
+	view_team?: string;
 	status?: string;
 	priority?: string;
 	assignee?: string;
@@ -16,6 +18,7 @@ export interface ViewFilter {
 	order?: string;
 }
 
+export type ViewScope = 'personal' | 'workspace' | 'team';
 export type ViewLayout = 'list' | 'board';
 
 export interface View {
@@ -42,4 +45,34 @@ export interface UpdateViewRequest {
 	description?: string;
 	filters?: ViewFilter;
 	is_shared?: boolean;
+}
+
+export function getViewScope(view: Pick<View, 'filters' | 'is_shared'>): ViewScope {
+	const scope = view.filters?.view_scope;
+	if (scope === 'personal' || scope === 'workspace' || scope === 'team') return scope;
+	return view.is_shared ? 'workspace' : 'personal';
+}
+
+export function isPersonalView(view: Pick<View, 'filters' | 'is_shared'>): boolean {
+	return getViewScope(view) === 'personal';
+}
+
+export function isWorkspaceView(view: Pick<View, 'filters' | 'is_shared'>): boolean {
+	return getViewScope(view) === 'workspace';
+}
+
+export function isTeamView(view: Pick<View, 'filters' | 'is_shared'>, teamId: string): boolean {
+	return getViewScope(view) === 'team' && view.filters?.view_team === teamId;
+}
+
+export function viewMetadata(filters: ViewFilter): ViewFilter {
+	const metadata: ViewFilter = {};
+	if (filters.view_scope) metadata.view_scope = filters.view_scope;
+	if (filters.view_team) metadata.view_team = filters.view_team;
+	return metadata;
+}
+
+export function issueFilters(filters: ViewFilter): ViewFilter {
+	const { view_scope, view_team, ...rest } = filters;
+	return rest;
 }
