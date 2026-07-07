@@ -43,6 +43,28 @@ func (r *UserRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Use
 	return &user, err
 }
 
+func (r *UserRepository) ListByIDs(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]domain.User, error) {
+	users := make(map[uuid.UUID]domain.User, len(ids))
+	if len(ids) == 0 {
+		return users, nil
+	}
+
+	query, args, err := sqlx.In(`SELECT * FROM users WHERE id IN (?)`, ids)
+	if err != nil {
+		return nil, err
+	}
+	query = r.db.Rebind(query)
+
+	var rows []domain.User
+	if err := r.db.SelectContext(ctx, &rows, query, args...); err != nil {
+		return nil, err
+	}
+	for _, user := range rows {
+		users[user.ID] = user
+	}
+	return users, nil
+}
+
 func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
 	var user domain.User
 	err := r.db.GetContext(ctx, &user, `SELECT * FROM users WHERE email = $1`, email)

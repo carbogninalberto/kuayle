@@ -9,11 +9,14 @@ class IssuesState {
 	issues = $state<Issue[]>([]);
 	totalCount = $state(0);
 	loading = $state(false);
+	loadingMore = $state(false);
+	hasMore = $state(false);
 	selectedIssue = $state<Issue | null>(null);
 	filters = $state<Record<string, string>>({});
 	selectedIds = $state<Set<string>>(new Set());
 	groupBy = $state<GroupByField>('status');
 	private currentSlug = '';
+	private currentPage = 1;
 	private loadRequestId = 0;
 
 	/**
@@ -157,6 +160,7 @@ class IssuesState {
 	clear() {
 		this.issues = [];
 		this.totalCount = 0;
+		this.hasMore = false;
 		this.selectedIssue = null;
 		this.clearSelection();
 	}
@@ -172,6 +176,8 @@ class IssuesState {
 		}
 		this.selectionScope = newScope;
 		this.filters = params ?? {};
+		this.currentPage = Number(params?.page ?? 1) || 1;
+		this.hasMore = false;
 		this.loading = true;
 	}
 
@@ -183,9 +189,34 @@ class IssuesState {
 			if (requestId !== this.loadRequestId) return;
 			this.issues = res.data;
 			this.totalCount = res.total_count;
+			this.currentPage = res.page;
+			this.hasMore = res.has_more;
 		} finally {
 			if (requestId === this.loadRequestId) {
 				this.loading = false;
+			}
+		}
+	}
+
+	async loadMore() {
+		if (!this.currentSlug || this.loading || this.loadingMore || !this.hasMore) return;
+		const requestId = this.loadRequestId;
+		this.loadingMore = true;
+		try {
+			const nextPage = this.currentPage + 1;
+			const res = await issueApi.listIssues(this.currentSlug, {
+				...this.filters,
+				page: String(nextPage)
+			});
+			if (requestId !== this.loadRequestId) return;
+			const existingIds = new Set(this.issues.map((issue) => issue.id));
+			this.issues = [...this.issues, ...res.data.filter((issue) => !existingIds.has(issue.id))];
+			this.totalCount = res.total_count;
+			this.currentPage = res.page;
+			this.hasMore = res.has_more;
+		} finally {
+			if (requestId === this.loadRequestId) {
+				this.loadingMore = false;
 			}
 		}
 	}

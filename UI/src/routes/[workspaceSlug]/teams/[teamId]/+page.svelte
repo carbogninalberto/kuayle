@@ -8,6 +8,7 @@
 	import IssueRow from '$lib/features/issues/IssueRow.svelte';
 	import IssueDetail from '$lib/features/issues/IssueDetail.svelte';
 	import IssueGroupHeader from '$lib/features/issues/IssueGroupHeader.svelte';
+	import IssueListLoadMore from '$lib/features/issues/IssueListLoadMore.svelte';
 	import KanbanBoard from '$lib/features/issues/KanbanBoard.svelte';
 	import BulkActionBar from '$lib/features/issues/BulkActionBar.svelte';
 	import FilterBuilder from '$lib/components/shared/FilterBuilder.svelte';
@@ -556,6 +557,8 @@
 					/>
 				{/each}
 			{/if}
+
+			<IssueListLoadMore />
 
 			<BulkActionBar
 				{slug}
