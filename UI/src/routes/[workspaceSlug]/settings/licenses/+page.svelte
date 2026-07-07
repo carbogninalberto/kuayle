@@ -37,19 +37,20 @@
 
 	const packages = (packageLock as { packages: Record<string, LockPackage> }).packages;
 	const licenseEntries = Object.entries(packages)
-		.map(([path, pkg]) => {
+		.reduce<LicenseEntry[]>((entries, [path, pkg]) => {
 			const name = packageNameFromPath(path);
-			if (!name || !pkg.version) return null;
-			return {
+			if (!name || !pkg.version) return entries;
+
+			entries.push({
 				name,
 				version: pkg.version,
 				license: licenseText(pkg),
 				resolved: pkg.resolved,
 				dev: Boolean(pkg.dev),
 				optional: Boolean(pkg.optional)
-			} satisfies LicenseEntry;
-		})
-		.filter((entry): entry is LicenseEntry => Boolean(entry))
+			});
+			return entries;
+		}, [])
 		.filter(
 			(entry, index, entries) =>
 				entries.findIndex((item) => item.name === entry.name && item.version === entry.version) === index
