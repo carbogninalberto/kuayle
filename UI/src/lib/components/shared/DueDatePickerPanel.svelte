@@ -8,11 +8,13 @@
 	let {
 		value = null,
 		onchange,
-		close
+		close,
+		clearLabel = 'No due date'
 	}: {
 		value: string | null;
 		onchange: (date: string | null) => void | Promise<void>;
 		close?: () => void;
+		clearLabel?: string;
 	} = $props();
 
 	const presets = $derived([
@@ -98,7 +100,7 @@
 					onclick={() => selectDate(null)}
 				>
 					<X size={13} />
-					No due date
+					{clearLabel}
 				</button>
 			</div>
 		</div>

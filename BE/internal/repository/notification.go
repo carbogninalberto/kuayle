@@ -27,7 +27,7 @@ func (r *NotificationRepository) CreateOrRefresh(ctx context.Context, n *domain.
 	query := `
 		WITH refreshed AS (
 			UPDATE notifications
-			SET title = $1, read_at = NULL, snoozed_until = NULL, created_at = NOW()
+			SET title = $1, read_at = NULL, created_at = NOW()
 			WHERE id = (
 				SELECT id FROM notifications
 				WHERE user_id = $2

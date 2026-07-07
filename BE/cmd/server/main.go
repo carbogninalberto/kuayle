@@ -343,8 +343,12 @@ func main() {
 	// Notifications (user-scoped, not workspace-scoped)
 	api.GET("/notifications", notifH.List)
 	api.PATCH("/notifications/:id", notifH.Update)
+	api.POST("/notifications/:id/read", notifH.MarkRead)
+	api.POST("/notifications/:id/unread", notifH.MarkUnread)
 	api.POST("/notifications/:id/snooze", notifH.Snooze)
+	api.POST("/notifications/:id/unsnooze", notifH.Unsnooze)
 	api.POST("/notifications/:id/archive", notifH.Archive)
+	api.POST("/notifications/:id/unarchive", notifH.Unarchive)
 	api.POST("/notifications/mark-all-read", notifH.MarkAllRead)
 
 	// Start
