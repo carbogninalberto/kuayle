@@ -4,7 +4,7 @@
 	import type { GitHubIssueActivity } from '$lib/types/github';
 	import { formatRelativeTime } from '$lib/utils/format';
 	import { GitBranch, GitPullRequest, GitCommitHorizontal, ExternalLink, Copy, Check, ChevronRight } from 'lucide-svelte';
-	import { toast } from 'svelte-sonner';
+	import { appToast } from '$lib/features/toast/toast';
 
 	let { slug, identifier }: { slug: string; identifier: string } = $props();
 
@@ -45,7 +45,7 @@
 	function copyBranch(name: string) {
 		navigator.clipboard.writeText(name);
 		copiedBranch = name;
-		toast.success('Branch name copied');
+		appToast.success('Branch name copied');
 		setTimeout(() => { copiedBranch = null; }, 2000);
 	}
 

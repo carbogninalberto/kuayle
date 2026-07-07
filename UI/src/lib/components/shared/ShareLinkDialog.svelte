@@ -7,7 +7,7 @@
 	import type { ViewFilter } from '$lib/types/view';
 	import { createSharedLink, listSharedLinks, updateSharedLink, deleteSharedLink } from '$lib/api/shared-links';
 	import { Copy, ExternalLink, Trash2, Link, Info } from 'lucide-svelte';
-	import { toast } from 'svelte-sonner';
+	import { appToast } from '$lib/features/toast/toast';
 
 	let {
 		open = $bindable(false),
@@ -60,9 +60,9 @@
 			};
 			const link = await createSharedLink(slug, req);
 			links = [link, ...links];
-			toast.success('Share link created');
+			appToast.success('Share link created');
 		} catch {
-			toast.error('Failed to create share link');
+			appToast.error('Failed to create share link');
 		} finally {
 			loading = false;
 		}
@@ -72,9 +72,9 @@
 		try {
 			const updated = await updateSharedLink(slug, link.id, { is_active: !link.is_active });
 			links = links.map((l) => (l.id === updated.id ? updated : l));
-			toast.success(updated.is_active ? 'Link activated' : 'Link deactivated');
+			appToast.success(updated.is_active ? 'Link activated' : 'Link deactivated');
 		} catch {
-			toast.error('Failed to update link');
+			appToast.error('Failed to update link');
 		}
 	}
 
@@ -82,15 +82,15 @@
 		try {
 			await deleteSharedLink(slug, link.id);
 			links = links.filter((l) => l.id !== link.id);
-			toast.success('Link deleted');
+			appToast.success('Link deleted');
 		} catch {
-			toast.error('Failed to delete link');
+			appToast.error('Failed to delete link');
 		}
 	}
 
 	function copyUrl(url: string) {
 		navigator.clipboard.writeText(url);
-		toast.success('Link copied to clipboard');
+		appToast.success('Link copied to clipboard');
 	}
 </script>
 

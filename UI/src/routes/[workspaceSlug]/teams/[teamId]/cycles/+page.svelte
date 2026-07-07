@@ -17,7 +17,7 @@
 	import CycleBurndownChart from '$lib/features/cycles/CycleBurndownChart.svelte';
 	import CycleVelocityChart from '$lib/features/cycles/CycleVelocityChart.svelte';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
-	import { toast } from 'svelte-sonner';
+	import { appToast } from '$lib/features/toast/toast';
 	import { Plus, SquareUser, RefreshCcwDot, ChevronRight, Clock } from 'lucide-svelte';
 	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
 	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
@@ -144,9 +144,9 @@
 		try {
 			const cycle = await createCycle(slug, teamId, data);
 			cycles = [cycle, ...cycles];
-			toast.success('Cycle created');
+			appToast.success('Cycle created');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to create cycle');
+			appToast.apiError(err, 'Failed to create cycle');
 		}
 	}
 
@@ -166,15 +166,15 @@
 			});
 			cycles = cycles.map((c) => (c.id === completingCycle!.id ? result.cycle : c));
 			if (result.carried_over_count > 0) {
-				toast.success(
+				appToast.success(
 					`Cycle completed. ${result.carried_over_count} issue${result.carried_over_count > 1 ? 's' : ''} carried over.`
 				);
 			} else {
-				toast.success('Cycle completed');
+				appToast.success('Cycle completed');
 			}
 			burndownVersion++;
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to complete cycle');
+			appToast.apiError(err, 'Failed to complete cycle');
 		}
 	}
 
@@ -182,9 +182,9 @@
 		try {
 			const updated = await updateCycle(slug, teamId, cycleId, { status: 'active' });
 			cycles = cycles.map((c) => (c.id === cycleId ? updated : c));
-			toast.success('Cycle activated');
+			appToast.success('Cycle activated');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to activate cycle');
+			appToast.apiError(err, 'Failed to activate cycle');
 		}
 	}
 
@@ -192,9 +192,9 @@
 		try {
 			await deleteCycle(slug, teamId, cycleId);
 			cycles = cycles.filter((c) => c.id !== cycleId);
-			toast.success('Cycle deleted');
+			appToast.success('Cycle deleted');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to delete cycle');
+			appToast.apiError(err, 'Failed to delete cycle');
 		}
 	}
 
@@ -225,9 +225,9 @@
 				end_date: data.end_date
 			});
 			cycles = cycles.map((c) => (c.id === updated.id ? updated : c));
-			toast.success('Cycle updated');
+			appToast.success('Cycle updated');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to update cycle');
+			appToast.apiError(err, 'Failed to update cycle');
 		}
 	}
 

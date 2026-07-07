@@ -7,7 +7,7 @@
 	import { teamStatusesState } from './team-statuses.state.svelte';
 	import { issuesState } from './issues.state.svelte';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
-	import { toast } from 'svelte-sonner';
+	import { appToast } from '$lib/features/toast/toast';
 	import { CalendarDays, ChevronLeft, CircleDot, Command, CornerDownRight, Copy, Flag, GitBranch, Link, Plus, RefreshCw, Search, Tag, Trash2, Users, X } from 'lucide-svelte';
 	import * as issueApi from '$lib/api/issues';
 	import { createLabel } from '$lib/api/labels';
@@ -319,10 +319,10 @@
 				selectedIssues.map((issue) => issuesState.update(slug, issue.identifier, { assignee_ids: assigneeIds }))
 			);
 			issuesState.clearSelection();
-			toast.success(`${assigneeIds.length === 0 ? 'Cleared assignees from' : 'Assigned'} ${selectedIssues.length} issue${selectedIssues.length > 1 ? 's' : ''}`);
+			appToast.success(`${assigneeIds.length === 0 ? 'Cleared assignees from' : 'Assigned'} ${selectedIssues.length} issue${selectedIssues.length > 1 ? 's' : ''}`);
 			closeActions();
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to update assignees');
+			appToast.apiError(err, 'Failed to update assignees');
 		}
 	}
 
@@ -335,10 +335,10 @@
 				selectedIssues.map((issue) => issuesState.update(slug, issue.identifier, { due_date: date ?? '' }))
 			);
 			issuesState.clearSelection();
-			toast.success(`${date ? `Set due date to ${formatDisplayDate(date)} for` : 'Cleared due date from'} ${selectedIssues.length} issue${selectedIssues.length > 1 ? 's' : ''}`);
+			appToast.success(`${date ? `Set due date to ${formatDisplayDate(date)} for` : 'Cleared due date from'} ${selectedIssues.length} issue${selectedIssues.length > 1 ? 's' : ''}`);
 			closeActions();
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to update due date');
+			appToast.apiError(err, 'Failed to update due date');
 		}
 	}
 
@@ -351,9 +351,9 @@
 				selectedIssues.map((issue) => createRelation(slug, issue.identifier, { related_identifier: target.identifier, type: relationPickerType }))
 			);
 			issuesState.clearSelection();
-			toast.success(`${relationPickerType === 'duplicate' ? 'Marked' : 'Related'} ${selectedIssues.length} issue${selectedIssues.length > 1 ? 's' : ''} ${relationPickerType === 'duplicate' ? 'as duplicates of' : 'to'} ${target.identifier}`);
+			appToast.success(`${relationPickerType === 'duplicate' ? 'Marked' : 'Related'} ${selectedIssues.length} issue${selectedIssues.length > 1 ? 's' : ''} ${relationPickerType === 'duplicate' ? 'as duplicates of' : 'to'} ${target.identifier}`);
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to add relation');
+			appToast.apiError(err, 'Failed to add relation');
 		}
 	}
 
@@ -365,10 +365,10 @@
 		const count = issuesState.selectionCount;
 		try {
 			await issuesState.bulkUpdate(slug, { status_id: statusId } as any);
-			toast.success(`Updated ${count} issue${count > 1 ? 's' : ''}`);
+			appToast.success(`Updated ${count} issue${count > 1 ? 's' : ''}`);
 			closeActions();
 		} catch {
-			toast.error('Bulk update failed');
+			appToast.error('Bulk update failed');
 		}
 	}
 
@@ -376,10 +376,10 @@
 		const count = issuesState.selectionCount;
 		try {
 			await issuesState.bulkUpdate(slug, { priority });
-			toast.success(`Updated ${count} issue${count > 1 ? 's' : ''}`);
+			appToast.success(`Updated ${count} issue${count > 1 ? 's' : ''}`);
 			closeActions();
 		} catch {
-			toast.error('Bulk update failed');
+			appToast.error('Bulk update failed');
 		}
 	}
 
@@ -396,10 +396,10 @@
 				})
 			);
 			issuesState.clearSelection();
-			toast.success(successMessage ?? `Updated ${selectedIssues.length} issue${selectedIssues.length > 1 ? 's' : ''}`);
+			appToast.success(successMessage ?? `Updated ${selectedIssues.length} issue${selectedIssues.length > 1 ? 's' : ''}`);
 			closeActions();
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to update labels');
+			appToast.apiError(err, 'Failed to update labels');
 		}
 	}
 
@@ -413,7 +413,7 @@
 			onlabelcreated?.(label);
 			await bulkAddLabel(label.id, `Created and added ${label.name}`);
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to create label');
+			appToast.apiError(err, 'Failed to create label');
 		} finally {
 			creatingLabel = false;
 		}
@@ -428,10 +428,10 @@
 		const count = issuesState.selectionCount;
 		try {
 			await issuesState.bulkUpdate(slug, { cycle_id: cycleId ?? '' });
-			toast.success(`${cycleId ? 'Assigned' : 'Removed cycle from'} ${count} issue${count > 1 ? 's' : ''}`);
+			appToast.success(`${cycleId ? 'Assigned' : 'Removed cycle from'} ${count} issue${count > 1 ? 's' : ''}`);
 			closeActions();
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to update cycle');
+			appToast.apiError(err, 'Failed to update cycle');
 		}
 	}
 
@@ -439,9 +439,9 @@
 		const count = issuesState.selectionCount;
 		try {
 			await issuesState.bulkUpdate(slug, { parent_id: parent.id } as any);
-			toast.success(`Moved ${count} issue${count > 1 ? 's' : ''} under ${parent.identifier}`);
+			appToast.success(`Moved ${count} issue${count > 1 ? 's' : ''} under ${parent.identifier}`);
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to set parent');
+			appToast.apiError(err, 'Failed to set parent');
 		}
 	}
 
@@ -449,9 +449,9 @@
 		const count = issuesState.selectionCount;
 		try {
 			await issuesState.bulkUpdate(slug, { parent_id: '' } as any);
-			toast.success(`Removed parent from ${count} issue${count > 1 ? 's' : ''}`);
+			appToast.success(`Removed parent from ${count} issue${count > 1 ? 's' : ''}`);
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to remove parent');
+			appToast.apiError(err, 'Failed to remove parent');
 		}
 		unparentOpen = false;
 	}
@@ -472,7 +472,7 @@
 				showIssuesDeletedToast(ids.length);
 			}
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to delete issues');
+			appToast.apiError(err, 'Failed to delete issues');
 		}
 		deleteOpen = false;
 	}

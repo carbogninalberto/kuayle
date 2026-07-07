@@ -7,7 +7,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Plus, ChevronsUpDown, Check, Loader2 } from 'lucide-svelte';
 	import { onMount } from 'svelte';
-	import { toast } from 'svelte-sonner';
+	import { appToast } from '$lib/features/toast/toast';
 
 	let {
 		currentWorkspace,
@@ -68,14 +68,14 @@
 			const workspace = await createWorkspace(workspaceName, workspaceSlug);
 			workspaces = [...workspaces, workspace].sort((a, b) => a.name.localeCompare(b.name));
 			localStorage.setItem('kuayle_last_workspace', workspace.slug);
-			toast.success('Workspace created');
+			appToast.success('Workspace created');
 			showCreateWorkspace = false;
 			newWorkspaceName = '';
 			newWorkspaceSlug = '';
 			slugEdited = false;
 			goto(`/${workspace.slug}/inbox`);
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to create workspace');
+			appToast.apiError(err, 'Failed to create workspace');
 		} finally {
 			creating = false;
 		}

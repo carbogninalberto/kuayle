@@ -7,7 +7,7 @@
 	import { listTeamStatuses, createTeamStatus, updateTeamStatus, deleteTeamStatus } from '$lib/api/team-statuses';
 	import IssueStatusIcon from '$lib/features/issues/IssueStatusIcon.svelte';
 	import * as Select from '$lib/components/ui/select';
-	import { toast } from 'svelte-sonner';
+	import { appToast } from '$lib/features/toast/toast';
 	import { Plus, Trash2, Pencil, X, Check, GripVertical, ArrowUp, ArrowDown } from 'lucide-svelte';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
@@ -74,9 +74,9 @@
 			addColor = '';
 			addingCategory = null;
 			await loadStatuses();
-			toast.success('Status created');
+			appToast.success('Status created');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to create status');
+			appToast.apiError(err, 'Failed to create status');
 		}
 	}
 
@@ -95,9 +95,9 @@
 			});
 			editingId = null;
 			await loadStatuses();
-			toast.success('Status updated');
+			appToast.success('Status updated');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to update status');
+			appToast.apiError(err, 'Failed to update status');
 		}
 	}
 
@@ -105,9 +105,9 @@
 		try {
 			await deleteTeamStatus(slug, teamId, statusId);
 			await loadStatuses();
-			toast.success('Status deleted');
+			appToast.success('Status deleted');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to delete status');
+			appToast.apiError(err, 'Failed to delete status');
 		}
 	}
 
@@ -272,7 +272,7 @@
 		try {
 			await Promise.all(updatedCat.map((s, i) => updateTeamStatus(slug, teamId, s.id, { position: i })));
 		} catch {
-			toast.error('Failed to reorder statuses');
+			appToast.error('Failed to reorder statuses');
 			await loadStatuses();
 		}
 	}

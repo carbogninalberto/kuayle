@@ -7,7 +7,7 @@
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
 	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
-	import { toast } from 'svelte-sonner';
+	import { appToast } from '$lib/features/toast/toast';
 	import { Bookmark, CircleUser, Trash2 } from 'lucide-svelte';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
@@ -57,9 +57,9 @@
 		try {
 			await deleteView(slug, view.id);
 			views = views.filter((item) => item.id !== view.id);
-			toast.success('View deleted');
+			appToast.success('View deleted');
 		} catch {
-			toast.error('Failed to delete view');
+			appToast.error('Failed to delete view');
 		} finally {
 			deleteOpen = false;
 			pendingDeleteView = null;

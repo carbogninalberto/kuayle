@@ -11,7 +11,7 @@
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { Switch } from '$lib/components/ui/switch';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
-	import { toast } from 'svelte-sonner';
+	import { appToast } from '$lib/features/toast/toast';
 	import { formatRelativeTime } from '$lib/utils/format';
 	import { Plus, Trash2, ExternalLink } from 'lucide-svelte';
 
@@ -60,9 +60,9 @@
 			webhooks = [w, ...webhooks];
 			showCreate = false;
 			resetForm();
-			toast.success('Webhook created');
+			appToast.success('Webhook created');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to create webhook');
+			appToast.apiError(err, 'Failed to create webhook');
 		}
 	}
 
@@ -70,9 +70,9 @@
 		try {
 			const updated = await updateWebhook(slug, webhook.id, { is_active: !webhook.is_active });
 			webhooks = webhooks.map((w) => (w.id === webhook.id ? updated : w));
-			toast.success(updated.is_active ? 'Webhook enabled' : 'Webhook disabled');
+			appToast.success(updated.is_active ? 'Webhook enabled' : 'Webhook disabled');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to update webhook');
+			appToast.apiError(err, 'Failed to update webhook');
 		}
 	}
 
@@ -80,9 +80,9 @@
 		try {
 			await deleteWebhook(slug, id);
 			webhooks = webhooks.filter((w) => w.id !== id);
-			toast.success('Webhook deleted');
+			appToast.success('Webhook deleted');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to delete webhook');
+			appToast.apiError(err, 'Failed to delete webhook');
 		}
 	}
 

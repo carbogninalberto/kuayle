@@ -32,7 +32,7 @@
 	import * as ContextMenu from '$lib/components/ui/context-menu';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import { dndzone } from 'svelte-dnd-action';
-	import { toast } from 'svelte-sonner';
+	import { appToast } from '$lib/features/toast/toast';
 	import {
 		ArrowUpRight,
 		Bookmark,
@@ -352,7 +352,7 @@
 
 	function copyLink(path: string) {
 		navigator.clipboard.writeText(`${window.location.origin}${path}`);
-		toast.success('Link copied');
+		appToast.success('Link copied');
 	}
 
 	function requestDeleteView(view: View) {
@@ -367,10 +367,10 @@
 			await deleteView(slug, view.id);
 			views = views.filter((item) => item.id !== view.id);
 			orderedViews = orderedViews.filter((item) => item.id !== view.id);
-			toast.success('View deleted');
+			appToast.success('View deleted');
 			if (currentPath === `/${slug}/views/${view.id}`) goto(`/${slug}/my-issues`);
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to delete view');
+			appToast.apiError(err, 'Failed to delete view');
 		} finally {
 			deleteViewOpen = false;
 			pendingDeleteView = null;
@@ -383,10 +383,10 @@
 			projects = projects.filter((item) => item.id !== project.id);
 			orderedProjects = orderedProjects.filter((item) => item.id !== project.id);
 			sidebarState.projects = orderedProjects;
-			toast.success('Project deleted');
+			appToast.success('Project deleted');
 			if (currentPath === `/${slug}/projects/${project.id}`) goto(`/${slug}/projects`);
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to delete project');
+			appToast.apiError(err, 'Failed to delete project');
 		}
 	}
 

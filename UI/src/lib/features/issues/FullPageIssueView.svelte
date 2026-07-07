@@ -17,7 +17,7 @@
 	import DatePickerPopover from '$lib/components/shared/DatePickerPopover.svelte';
 	import RichEditor from '$lib/components/shared/RichEditor.svelte';
 	import { formatRelativeTime } from '$lib/utils/format';
-	import { toast } from 'svelte-sonner';
+	import { appToast } from '$lib/features/toast/toast';
 	import * as Popover from '$lib/components/ui/popover';
 	import * as ContextMenu from '$lib/components/ui/context-menu';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
@@ -231,7 +231,7 @@
 				onupdated?.(updated);
 			} catch {
 				titleValue = issue.title;
-				toast.error('Failed to update title');
+				appToast.error('Failed to update title');
 			}
 		} else {
 			titleValue = issue.title;
@@ -244,7 +244,7 @@
 			const updated = await issuesState.update(slug, issue.identifier, { description: html });
 			onupdated?.(updated);
 		} catch {
-			toast.error('Failed to update description');
+			appToast.error('Failed to update description');
 		}
 	}
 
@@ -252,10 +252,10 @@
 	async function reworkSelectedDescriptionText(selectedText: string): Promise<string> {
 		try {
 			const result = await expandIssueDescription(slug, issue.identifier, { selected_text: selectedText });
-			toast.success('Selection reworked');
+			appToast.success('Selection reworked');
 			return result.description;
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to rework selection');
+			appToast.apiError(err, 'Failed to rework selection');
 			return '';
 		}
 	}
@@ -266,7 +266,7 @@
 			await issuesState.update(slug, issue.identifier, { [field]: value });
 			await refreshIssue();
 		} catch {
-			toast.error(`Failed to update ${field}`);
+			appToast.error(`Failed to update ${field}`);
 		}
 	}
 
@@ -288,9 +288,9 @@
 			const updated = await issuesState.update(slug, issue.identifier, { parent_id: parent.id });
 			onupdated?.(updated);
 			await refreshIssue();
-			toast.success(`Set parent to ${parent.identifier}`);
+			appToast.success(`Set parent to ${parent.identifier}`);
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to set parent');
+			appToast.apiError(err, 'Failed to set parent');
 		}
 	}
 
@@ -300,9 +300,9 @@
 			const updated = await issuesState.update(slug, issue.identifier, { parent_id: '' });
 			onupdated?.(updated);
 			await refreshIssue();
-			toast.success('Removed parent');
+			appToast.success('Removed parent');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to remove parent');
+			appToast.apiError(err, 'Failed to remove parent');
 		}
 		removeParentOpen = false;
 	}
@@ -402,7 +402,7 @@
 			commentVersion++;
 			refreshActivity();
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to add comment');
+			appToast.apiError(err, 'Failed to add comment');
 		}
 	}
 
@@ -416,7 +416,7 @@
 			replyVersions = { ...replyVersions };
 			refreshActivity();
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to reply');
+			appToast.apiError(err, 'Failed to reply');
 		}
 	}
 
@@ -425,7 +425,7 @@
 			await resolveComment(slug, issue.identifier, commentId);
 			refreshActivity();
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to resolve');
+			appToast.apiError(err, 'Failed to resolve');
 		}
 	}
 
@@ -434,7 +434,7 @@
 			await reopenComment(slug, issue.identifier, commentId);
 			refreshActivity();
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to reopen');
+			appToast.apiError(err, 'Failed to reopen');
 		}
 	}
 
@@ -465,7 +465,7 @@
 
 	function copyToClipboard(text: string, label: string) {
 		navigator.clipboard.writeText(text);
-		toast.success(`${label} copied`);
+		appToast.success(`${label} copied`);
 	}
 
 	async function toggleSubscription() {
@@ -480,10 +480,10 @@
 			isSubscribed = res.is_subscribed;
 			issuesState.setSubscription(issue.identifier, res.is_subscribed);
 			onupdated?.({ ...issue, is_subscribed: res.is_subscribed });
-			toast.success(isSubscribed ? 'Notifications enabled' : 'Notifications disabled');
+			appToast.success(isSubscribed ? 'Notifications enabled' : 'Notifications disabled');
 		} catch (err: any) {
 			isSubscribed = !nextValue;
-			toast.error(err?.error?.message || 'Failed to update notifications');
+			appToast.apiError(err, 'Failed to update notifications');
 		} finally {
 			subscriptionBusy = false;
 		}
@@ -498,9 +498,9 @@
 			]);
 			if (!issueTeam) teams = copyTeams;
 			await navigator.clipboard.writeText(getAIPrompt(assets, settings.issue_copy_prompt, copyTeams.find(t => t.id === issue.team_id)));
-			toast.success('AI prompt copied');
+			appToast.success('AI prompt copied');
 		} catch {
-			toast.error('Failed to copy AI prompt');
+			appToast.error('Failed to copy AI prompt');
 		}
 	}
 
@@ -536,12 +536,12 @@
 				await issuesState.update(slug, issue.identifier, { status_id: startedStatus.id });
 				const fresh = await getIssue(slug, issue.identifier);
 				onupdated?.(fresh);
-				toast.success('Branch copied & moved to In Progress');
+				appToast.success('Branch copied & moved to In Progress');
 			} catch {
-				toast.success('Branch copied');
+				appToast.success('Branch copied');
 			}
 		} else {
-			toast.success('Branch name copied');
+			appToast.success('Branch name copied');
 		}
 	}
 
@@ -1282,7 +1282,7 @@
 										try {
 											await issuesState.update(slug, issue.identifier, { assignee_ids: newIds });
 											await refreshIssue();
-										} catch { toast.error('Failed to update assignees'); }
+										} catch { appToast.error('Failed to update assignees'); }
 									}}
 								>
 									{#snippet trigger()}
@@ -1366,7 +1366,7 @@
 									try {
 										await issuesState.update(slug, issue.identifier, { label_ids: newIds });
 										await refreshIssue();
-									} catch { toast.error('Failed to update labels'); }
+									} catch { appToast.error('Failed to update labels'); }
 								}}
 							>
 								{#snippet trigger()}
@@ -1471,12 +1471,12 @@
 		if (!createDialogParentIssue) return;
 		try {
 			const created = await bulkCreateSubIssues(slug, createDialogParentIssue.identifier, titles.map((title) => ({ title })));
-			toast.success(`Created ${created.length} sub-issues`);
+			appToast.success(`Created ${created.length} sub-issues`);
 			await refreshIssue();
 			createIssueTitle = '';
 			createDialogParentIssue = null;
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to create sub-issues');
+			appToast.apiError(err, 'Failed to create sub-issues');
 		}
 	}}
 	onsubmit={async (req) => {
@@ -1490,7 +1490,7 @@
 			createIssueTitle = '';
 			createDialogParentIssue = null;
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to create issue');
+			appToast.apiError(err, 'Failed to create issue');
 		}
 	}}
 />

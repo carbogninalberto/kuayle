@@ -15,7 +15,7 @@
 	import { issuesState } from './issues.state.svelte';
 	import { convertIssueToProject, duplicateIssue } from '$lib/api/issues';
 	import { showIssueDeletedToast } from './issue-deleted-toast';
-	import { toast } from 'svelte-sonner';
+	import { appToast } from '$lib/features/toast/toast';
 	import type { Snippet } from 'svelte';
 	import {
 		ArrowUpCircle,
@@ -85,13 +85,13 @@
 		try {
 			await issuesState.update(slug, issue.identifier, { [field]: value });
 		} catch (err: any) {
-			toast.error(err?.error?.message || `Failed to update ${field}`);
+			appToast.apiError(err, `Failed to update ${field}`);
 		}
 	}
 
 	function copyToClipboard(text: string) {
 		navigator.clipboard.writeText(text);
-		toast.success('Copied to clipboard');
+		appToast.success('Copied to clipboard');
 	}
 
 	function openPicker(mode: PickerMode) {
@@ -139,22 +139,22 @@
 		try {
 			if (pickerMode === 'sub_issue_of') {
 				await issuesState.update(slug, issue.identifier, { parent_id: selected.id });
-				toast.success(`${issue.identifier} is now a sub-issue of ${selected.identifier}`);
+				appToast.success(`${issue.identifier} is now a sub-issue of ${selected.identifier}`);
 			} else {
 				await issuesState.update(slug, selected.identifier, { parent_id: issue.id });
-				toast.success(`${selected.identifier} is now a sub-issue of ${issue.identifier}`);
+				appToast.success(`${selected.identifier} is now a sub-issue of ${issue.identifier}`);
 			}
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to update parent');
+			appToast.apiError(err, 'Failed to update parent');
 		}
 	}
 
 	async function handleRemoveParent() {
 		try {
 			await issuesState.update(slug, issue.identifier, { parent_id: '' });
-			toast.success('Removed parent');
+			appToast.success('Removed parent');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to remove parent');
+			appToast.apiError(err, 'Failed to remove parent');
 		}
 		removeParentOpen = false;
 	}
@@ -164,7 +164,7 @@
 			await issuesState.remove(slug, issue.identifier);
 			showIssueDeletedToast(issue);
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to delete issue');
+			appToast.apiError(err, 'Failed to delete issue');
 		}
 		deleteOpen = false;
 	}
@@ -174,9 +174,9 @@
 			const duplicated = await duplicateIssue(slug, issue.identifier, includeSubIssues);
 			issuesState.issues = [duplicated, ...issuesState.issues.filter((item) => item.id !== duplicated.id)];
 			issuesState.totalCount += 1;
-			toast.success(`Duplicated as ${duplicated.identifier}`);
+			appToast.success(`Duplicated as ${duplicated.identifier}`);
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to duplicate issue');
+			appToast.apiError(err, 'Failed to duplicate issue');
 		}
 		duplicateOpen = false;
 	}
@@ -184,9 +184,9 @@
 	async function handleConvertToProject() {
 		try {
 			const result = await convertIssueToProject(slug, issue.identifier);
-			toast.success(`Converted to project ${result.project.name}`);
+			appToast.success(`Converted to project ${result.project.name}`);
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to convert issue');
+			appToast.apiError(err, 'Failed to convert issue');
 		}
 		convertOpen = false;
 	}

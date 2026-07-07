@@ -6,7 +6,7 @@
 	import AddRelationDialog from './AddRelationDialog.svelte';
 	import * as Collapsible from '$lib/components/ui/collapsible';
 	import { Link, X, Plus, Ban, Copy, ArrowRight, ChevronRight } from 'lucide-svelte';
-	import { toast } from 'svelte-sonner';
+	import { appToast } from '$lib/features/toast/toast';
 
 	let {
 		slug,
@@ -81,7 +81,7 @@
 			await deleteRelation(slug, identifier, relationId);
 			relations = relations.filter((r) => r.id !== relationId);
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to remove relation');
+			appToast.apiError(err, 'Failed to remove relation');
 		}
 	}
 </script>

@@ -24,7 +24,7 @@
 	import * as Popover from '$lib/components/ui/popover';
 	import * as Tooltip from '$lib/components/ui/tooltip';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
-	import { toast } from 'svelte-sonner';
+	import { appToast } from '$lib/features/toast/toast';
 	import { ArrowLeft, Pencil, Trash2, MoreHorizontal, Check, X, Share2 } from 'lucide-svelte';
 	import FilterBuilder from '$lib/components/shared/FilterBuilder.svelte';
 	import ShareLinkDialog from '$lib/components/shared/ShareLinkDialog.svelte';
@@ -74,7 +74,7 @@
 				await loadIssues();
 			})
 			.catch(() => {
-				toast.error('View not found');
+				appToast.error('View not found');
 				goto(`/${s}/inbox`);
 			})
 			.finally(() => {
@@ -113,9 +113,9 @@
 		try {
 			view = await updateView(slug, view.id, { name: editNameValue.trim() });
 			editingName = false;
-			toast.success('View name updated');
+			appToast.success('View name updated');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to update view');
+			appToast.apiError(err, 'Failed to update view');
 		}
 	}
 
@@ -127,10 +127,10 @@
 		if (!view) return;
 		try {
 			await deleteView(slug, view.id);
-			toast.success('View deleted');
+			appToast.success('View deleted');
 			goto(`/${slug}/inbox`);
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to delete view');
+			appToast.apiError(err, 'Failed to delete view');
 		} finally {
 			deleteOpen = false;
 		}
@@ -153,7 +153,7 @@
 		try {
 			view = await updateView(slug, view.id, { filters: { ...filters, ...viewMetadata(view.filters) } });
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to save filters');
+			appToast.apiError(err, 'Failed to save filters');
 		}
 	}
 

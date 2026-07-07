@@ -6,7 +6,7 @@
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Button } from '$lib/components/ui/button';
 	import * as Popover from '$lib/components/ui/popover';
-	import { toast } from 'svelte-sonner';
+	import { appToast } from '$lib/features/toast/toast';
 	import { UserPlus, Trash2 } from 'lucide-svelte';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
@@ -31,9 +31,9 @@
 		try {
 			await updateMemberRole(slug, userId, role);
 			members = members.map((m) => (m.user_id === userId ? { ...m, role } : m));
-			toast.success('Role updated');
+			appToast.success('Role updated');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to update role');
+			appToast.apiError(err, 'Failed to update role');
 		}
 	}
 
@@ -41,9 +41,9 @@
 		try {
 			await removeMember(slug, userId);
 			members = members.filter((m) => m.user_id !== userId);
-			toast.success('Member removed');
+			appToast.success('Member removed');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to remove member');
+			appToast.apiError(err, 'Failed to remove member');
 		}
 	}
 
@@ -51,13 +51,13 @@
 		if (!inviteEmail.trim()) return;
 		try {
 			await inviteMember(slug, inviteEmail.trim(), inviteRole);
-			toast.success('Member invited');
+			appToast.success('Member invited');
 			showInvite = false;
 			inviteEmail = '';
 			inviteRole = 'member';
 			members = await listMembers(slug);
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to invite member');
+			appToast.apiError(err, 'Failed to invite member');
 		}
 	}
 </script>

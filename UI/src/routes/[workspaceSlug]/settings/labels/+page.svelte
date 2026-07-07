@@ -7,7 +7,7 @@
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import * as Popover from '$lib/components/ui/popover';
-	import { toast } from 'svelte-sonner';
+	import { appToast } from '$lib/features/toast/toast';
 	import { Plus, Trash2, Pencil, MoreHorizontal } from 'lucide-svelte';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
@@ -30,9 +30,9 @@
 		try {
 			const label = await createLabel(slug, data);
 			labels = [...labels, label];
-			toast.success('Label created');
+			appToast.success('Label created');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to create label');
+			appToast.apiError(err, 'Failed to create label');
 		}
 	}
 
@@ -42,9 +42,9 @@
 			const updated = await updateLabel(slug, editingLabel.id, data);
 			labels = labels.map((l) => (l.id === editingLabel!.id ? updated : l));
 			editingLabel = null;
-			toast.success('Label updated');
+			appToast.success('Label updated');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to update label');
+			appToast.apiError(err, 'Failed to update label');
 		}
 	}
 
@@ -52,9 +52,9 @@
 		try {
 			await deleteLabel(slug, id);
 			labels = labels.filter((l) => l.id !== id);
-			toast.success('Label deleted');
+			appToast.success('Label deleted');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to delete label');
+			appToast.apiError(err, 'Failed to delete label');
 		}
 	}
 

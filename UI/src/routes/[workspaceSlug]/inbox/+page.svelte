@@ -19,7 +19,7 @@
 	import * as Popover from '$lib/components/ui/popover';
 	import { Button } from '$lib/components/ui/button';
 	import { Badge } from '$lib/components/ui/badge';
-	import { toast } from 'svelte-sonner';
+	import { appToast } from '$lib/features/toast/toast';
 	import {
 		Inbox,
 		Clock,
@@ -160,9 +160,9 @@
 			await markAllRead();
 			notifications = notifications.map((n) => ({ ...n, read_at: new Date().toISOString() }));
 			unreadCount = 0;
-			toast.success('All marked as read');
+			appToast.success('All marked as read');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to mark as read');
+			appToast.apiError(err, 'Failed to mark as read');
 		}
 	}
 
@@ -185,9 +185,9 @@
 				if (selectedId) selectNotification(notifications[0]);
 				else selectedIssue = null;
 			}
-			toast.success('Archived');
+			appToast.success('Archived');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to archive');
+			appToast.apiError(err, 'Failed to archive');
 		}
 	}
 
@@ -201,9 +201,9 @@
 				if (selectedId) selectNotification(notifications[0]);
 				else selectedIssue = null;
 			}
-			toast.success(`Snoozed for ${hours}h`);
+			appToast.success(`Snoozed for ${hours}h`);
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to snooze');
+			appToast.apiError(err, 'Failed to snooze');
 		}
 	}
 

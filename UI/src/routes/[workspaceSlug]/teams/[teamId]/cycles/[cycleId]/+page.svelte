@@ -20,7 +20,7 @@ import CycleProgress from '$lib/features/cycles/CycleProgress.svelte';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import * as Popover from '$lib/components/ui/popover';
-	import { toast } from 'svelte-sonner';
+	import { appToast } from '$lib/features/toast/toast';
 	import { formatRelativeTime } from '$lib/utils/format';
 	import { CheckCircle2, Play, Clock, Trash2, MoreHorizontal, Search, Plus, SquareUser, RefreshCcwDot, ChevronRight } from 'lucide-svelte';
 	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
@@ -77,7 +77,7 @@ import CycleProgress from '$lib/features/cycles/CycleProgress.svelte';
 			// Load issues for this cycle using server-side cycle filter
 			issuesState.load(slug, { cycle: cycleId, per_page: '200' });
 		} catch {
-			toast.error('Cycle not found');
+			appToast.error('Cycle not found');
 			goto(`/${slug}/teams/${teamId}/cycles`);
 		} finally {
 			loading = false;
@@ -122,13 +122,13 @@ import CycleProgress from '$lib/features/cycles/CycleProgress.svelte';
 			});
 			cycle = result.cycle;
 			if (result.carried_over_count > 0) {
-				toast.success(`Cycle completed. ${result.carried_over_count} issue${result.carried_over_count > 1 ? 's' : ''} carried over.`);
+				appToast.success(`Cycle completed. ${result.carried_over_count} issue${result.carried_over_count > 1 ? 's' : ''} carried over.`);
 			} else {
-				toast.success('Cycle completed');
+				appToast.success('Cycle completed');
 			}
 			issuesState.load(slug, { cycle: cycleId, per_page: '200' });
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to complete cycle');
+			appToast.apiError(err, 'Failed to complete cycle');
 		}
 	}
 
@@ -136,9 +136,9 @@ import CycleProgress from '$lib/features/cycles/CycleProgress.svelte';
 		if (!cycle) return;
 		try {
 			cycle = await updateCycle(slug, teamId, cycle.id, { status: 'active' });
-			toast.success('Cycle activated');
+			appToast.success('Cycle activated');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to activate cycle');
+			appToast.apiError(err, 'Failed to activate cycle');
 		}
 	}
 
@@ -146,10 +146,10 @@ import CycleProgress from '$lib/features/cycles/CycleProgress.svelte';
 		if (!cycle) return;
 		try {
 			await deleteCycle(slug, teamId, cycle.id);
-			toast.success('Cycle deleted');
+			appToast.success('Cycle deleted');
 			goto(`/${slug}/teams/${teamId}/cycles`);
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to delete cycle');
+			appToast.apiError(err, 'Failed to delete cycle');
 		}
 	}
 
@@ -157,9 +157,9 @@ import CycleProgress from '$lib/features/cycles/CycleProgress.svelte';
 		if (!cycle) return;
 		try {
 			cycle = await updateCycle(slug, teamId, cycle.id, { start_date: start, end_date: end });
-			toast.success('Dates updated');
+			appToast.success('Dates updated');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to update dates');
+			appToast.apiError(err, 'Failed to update dates');
 		}
 	}
 
@@ -169,9 +169,9 @@ import CycleProgress from '$lib/features/cycles/CycleProgress.svelte';
 			// Reload to reflect change
 			issuesState.load(slug, { cycle: cycleId, per_page: '200' });
 			addSearchQuery = '';
-			toast.success(`Added ${issue.identifier} to cycle`);
+			appToast.success(`Added ${issue.identifier} to cycle`);
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to add issue');
+			appToast.apiError(err, 'Failed to add issue');
 		}
 	}
 

@@ -9,7 +9,7 @@
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
 	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
 	import * as Collapsible from '$lib/components/ui/collapsible';
-	import { toast } from 'svelte-sonner';
+	import { appToast } from '$lib/features/toast/toast';
 	import { ChevronRight, Plus, UserCircle } from 'lucide-svelte';
 
 	let {
@@ -85,7 +85,7 @@
 			subIssues = subIssues.map((item) => item.id === updated.id ? updated : item);
 			await onupdated?.();
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to update sub-issue');
+			appToast.apiError(err, 'Failed to update sub-issue');
 		}
 	}
 

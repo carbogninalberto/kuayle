@@ -10,7 +10,7 @@
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import { Kbd } from '$lib/components/ui/kbd';
-	import { toast } from 'svelte-sonner';
+	import { appToast } from '$lib/features/toast/toast';
 	import { formatRelativeTime } from '$lib/utils/format';
 	import { CheckCircle2, XCircle, SquareUser, ShieldCheck, ChevronRight } from 'lucide-svelte';
 	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
@@ -49,9 +49,9 @@
 			await triageAccept(slug, identifier);
 			issues = issues.filter((i) => i.identifier !== identifier);
 			selectedIndex = Math.min(selectedIndex, issues.length - 1);
-			toast.success('Issue accepted');
+			appToast.success('Issue accepted');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to accept');
+			appToast.apiError(err, 'Failed to accept');
 		}
 	}
 
@@ -60,9 +60,9 @@
 			await triageDecline(slug, identifier);
 			issues = issues.filter((i) => i.identifier !== identifier);
 			selectedIndex = Math.min(selectedIndex, issues.length - 1);
-			toast.success('Issue declined');
+			appToast.success('Issue declined');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to decline');
+			appToast.apiError(err, 'Failed to decline');
 		}
 	}
 

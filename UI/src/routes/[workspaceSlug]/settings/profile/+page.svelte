@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { toast } from 'svelte-sonner';
+	import { appToast } from '$lib/features/toast/toast';
 	import { Button } from '$lib/components/ui/button';
 	import { getMe, updateProfile } from '$lib/api/auth';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
@@ -21,7 +21,7 @@
 
 	async function saveProfile() {
 		if (!user || !name.trim()) {
-			toast.error('Name is required');
+			appToast.error('Name is required');
 			return;
 		}
 		saving = true;
@@ -36,9 +36,9 @@
 			name = updated.name;
 			displayName = updated.display_name;
 			avatarUrl = updated.avatar_url ?? '';
-			toast.success('Profile updated');
+			appToast.success('Profile updated');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to update profile');
+			appToast.apiError(err, 'Failed to update profile');
 		} finally {
 			saving = false;
 		}
