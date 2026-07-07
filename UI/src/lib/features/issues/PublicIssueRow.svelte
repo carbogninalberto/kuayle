@@ -4,7 +4,7 @@
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
 	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
 	import IssueLabelChips from './IssueLabelChips.svelte';
-	import { formatRelativeTime } from '$lib/utils/format';
+	import { formatRelativeTime, formatDate } from '$lib/utils/format';
 	import { CalendarDays } from 'lucide-svelte';
 
 	let {
@@ -14,6 +14,9 @@
 		issue: PublicIssue;
 		onclick: (issue: PublicIssue) => void;
 	} = $props();
+
+	const createdAtText = $derived(issue.created_at ? formatRelativeTime(issue.created_at) : '');
+	const createdAtTooltip = $derived(createdAtText ? `${createdAtText} • ${formatDate(issue.created_at)}` : '');
 </script>
 
 <button
@@ -76,8 +79,12 @@
 
 	<!-- Created -->
 	{#if issue.created_at}
-		<span class="hidden shrink-0 text-[11px] text-[var(--color-text-tertiary)] sm:inline">
-			{formatRelativeTime(issue.created_at)}
+		<span
+		class="hidden w-[4.5rem] min-w-[4.5rem] max-w-[4.5rem] shrink-0 justify-end truncate text-right text-[11px] text-[var(--color-text-tertiary)] sm:inline-flex"
+			title={createdAtTooltip}
+			aria-label={createdAtTooltip}
+		>
+			{createdAtText}
 		</span>
 	{/if}
 </button>

@@ -15,7 +15,7 @@
 	import * as HoverCard from '$lib/components/ui/hover-card';
 	import * as Popover from '$lib/components/ui/popover';
 	import { issuesState } from './issues.state.svelte';
-	import { formatRelativeTime } from '$lib/utils/format';
+	import { formatRelativeTime, formatDate } from '$lib/utils/format';
 	import { IsMobile } from '$lib/hooks/is-mobile.svelte';
 	import { Ban, CalendarDays, CircleUser, Copy, Link, OctagonAlert, RefreshCw } from 'lucide-svelte';
 	import { toast } from 'svelte-sonner';
@@ -54,6 +54,8 @@
 	const blockedByCount = $derived(issue.relation_counts?.blocked_by ?? 0);
 	const blockingCount = $derived(issue.relation_counts?.blocking ?? 0);
 	const duplicateCount = $derived(issue.relation_counts?.duplicate ?? 0);
+	const createdAtText = $derived(issue.created_at ? formatRelativeTime(issue.created_at) : '');
+	const createdAtTooltip = $derived(createdAtText ? `${createdAtText} • ${formatDate(issue.created_at)}` : '');
 	const relatedIssues = $derived(issue.relation_summary?.related ?? []);
 	const blockedByIssues = $derived(issue.relation_summary?.blocked_by ?? []);
 	const blockingIssues = $derived(issue.relation_summary?.blocking ?? []);
@@ -369,11 +371,13 @@
 			</Popover.Root>
 		</span>
 
-		<!-- Created -->
-		{#if issue.created_at}
-			<span class="hidden shrink-0 text-[11px] text-[var(--color-text-tertiary)] sm:inline">
-				{formatRelativeTime(issue.created_at)}
-			</span>
-		{/if}
-	</button>
-</IssueContextMenu>
+			<!-- Created -->
+			{#if issue.created_at}
+				<span
+					class="hidden w-[4.5rem] min-w-[4.5rem] max-w-[4.5rem] shrink-0 justify-end truncate text-right text-[11px] text-[var(--color-text-tertiary)] sm:inline-flex"
+					title={createdAtTooltip}
+					aria-label={createdAtTooltip}
+				>{createdAtText}</span>
+			{/if}
+		</button>
+	</IssueContextMenu>
