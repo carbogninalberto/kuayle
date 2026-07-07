@@ -22,6 +22,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import * as Popover from '$lib/components/ui/popover';
 	import * as Tooltip from '$lib/components/ui/tooltip';
+	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import { toast } from 'svelte-sonner';
 	import { ArrowLeft, Pencil, Trash2, MoreHorizontal, Check, X, Share2 } from 'lucide-svelte';
 	import FilterBuilder from '$lib/components/shared/FilterBuilder.svelte';
@@ -44,10 +45,13 @@
 	let loading = $state(true);
 	let actionsOpen = $state(false);
 	let showShareLink = $state(false);
+	let deleteOpen = $state(false);
 	let lastSelectedId = $state<string | null>(null);
 	let filters = $state<ViewFilter>({});
 	let saveTimeout: ReturnType<typeof setTimeout> | null = null;
-	let visibleTreeIssues = $derived(issues.filter((issue) => !issue.parent_id || !issues.some((parent) => parent.id === issue.parent_id)));
+	let visibleTreeIssues = $derived(
+		issues.filter((issue) => !issue.parent_id || !issues.some((parent) => parent.id === issue.parent_id))
+	);
 
 	// Edit name state
 	let editingName = $state(false);
@@ -58,26 +62,23 @@
 		const v = viewId;
 		if (!s || !v) return;
 		loading = true;
-		Promise.all([
-			getView(s, v),
-			listMembers(s),
-			listLabels(s),
-			listTeams(s),
-			listProjects(s)
-		]).then(async ([viewData, m, l, t, p]) => {
-			view = viewData;
-			members = m;
-			labels = l;
-			teams = t;
-			projects = p;
-			filters = { ...viewData.filters };
-			await loadIssues();
-		}).catch(() => {
-			toast.error('View not found');
-			goto(`/${s}/inbox`);
-		}).finally(() => {
-			loading = false;
-		});
+		Promise.all([getView(s, v), listMembers(s), listLabels(s), listTeams(s), listProjects(s)])
+			.then(async ([viewData, m, l, t, p]) => {
+				view = viewData;
+				members = m;
+				labels = l;
+				teams = t;
+				projects = p;
+				filters = { ...viewData.filters };
+				await loadIssues();
+			})
+			.catch(() => {
+				toast.error('View not found');
+				goto(`/${s}/inbox`);
+			})
+			.finally(() => {
+				loading = false;
+			});
 	});
 
 	async function loadIssues() {
@@ -129,6 +130,8 @@
 			goto(`/${slug}/inbox`);
 		} catch (err: any) {
 			toast.error(err?.error?.message || 'Failed to delete view');
+		} finally {
+			deleteOpen = false;
 		}
 	}
 
@@ -153,9 +156,7 @@
 		}
 	}
 
-	const keyHandler = createKeyboardHandler([
-		{ key: 'Escape', handler: () => issuesState.clearSelection() }
-	]);
+	const keyHandler = createKeyboardHandler([{ key: 'Escape', handler: () => issuesState.clearSelection() }]);
 
 	onMount(() => {
 		document.addEventListener('keydown', keyHandler);
@@ -171,9 +172,7 @@
 <div class="flex h-full flex-col">
 	{#if !loading && view}
 		<!-- Header -->
-		<div
-			class="flex h-[49px] items-center justify-between border-b border-[var(--app-border)] px-6"
-		>
+		<div class="flex h-[49px] items-center justify-between border-b border-[var(--app-border)] px-6">
 			<div class="flex items-center gap-3">
 				<SidebarToggle />
 				<button
@@ -221,11 +220,7 @@
 								class="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--app-accent)] text-xs font-medium text-[var(--app-accent-foreground)]"
 							>
 								{#if authState.user?.id === owner.user_id && authState.user?.avatar_url}
-									<img
-										src={authState.user.avatar_url}
-										alt=""
-										class="h-7 w-7 rounded-full"
-									/>
+									<img src={authState.user.avatar_url} alt="" class="h-7 w-7 rounded-full" />
 								{:else}
 									{(owner.name ?? owner.email ?? 'U').charAt(0).toUpperCase()}
 								{/if}
@@ -257,7 +252,7 @@
 						<button
 							onclick={() => {
 								actionsOpen = false;
-								handleDelete();
+								deleteOpen = true;
 							}}
 							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-error)] hover:bg-[var(--color-bg-hover)]"
 						>
@@ -292,10 +287,7 @@
 		<!-- Issues list -->
 		<div class="flex-1 overflow-y-auto">
 			{#if issues.length === 0}
-				<EmptyState
-					title="No issues match this view"
-					description="Adjust the filters or add new issues"
-				/>
+				<EmptyState title="No issues match this view" description="Adjust the filters or add new issues" />
 			{:else}
 				{#each visibleTreeIssues as issue (issue.id)}
 					<IssueTreeItem
@@ -317,11 +309,18 @@
 </div>
 
 {#if view}
-	<ShareLinkDialog
-		bind:open={showShareLink}
-		{slug}
-		scope="view"
-		scopeId={viewId}
-		filters={view.filters}
-	/>
+	<ShareLinkDialog bind:open={showShareLink} {slug} scope="view" scopeId={viewId} filters={view.filters} />
+
+	<AlertDialog.Root bind:open={deleteOpen}>
+		<AlertDialog.Content>
+			<AlertDialog.Header>
+				<AlertDialog.Title>Delete view?</AlertDialog.Title>
+				<AlertDialog.Description>This will permanently delete {view.name}.</AlertDialog.Description>
+			</AlertDialog.Header>
+			<AlertDialog.Footer>
+				<AlertDialog.Cancel variant="outline">Cancel</AlertDialog.Cancel>
+				<AlertDialog.Action variant="destructive" onclick={handleDelete}>Delete view</AlertDialog.Action>
+			</AlertDialog.Footer>
+		</AlertDialog.Content>
+	</AlertDialog.Root>
 {/if}

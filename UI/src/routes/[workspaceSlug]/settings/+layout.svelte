@@ -9,7 +9,9 @@
 		Webhook,
 		Settings,
 		FileText,
+		ScrollText,
 		Settings2,
+		SlidersHorizontal,
 		CircleDot,
 		ChevronDown,
 		Menu
@@ -18,6 +20,7 @@
 	import type { Snippet } from 'svelte';
 	import type { Team } from '$lib/types/team';
 	import { listTeams } from '$lib/api/teams';
+	import TeamIcon from '$lib/components/shared/TeamIcon.svelte';
 	import * as Sheet from '$lib/components/ui/sheet';
 	import { Button } from '$lib/components/ui/button';
 
@@ -40,7 +43,7 @@
 	let expandedTeams = $state<Set<string>>(new Set());
 	let showMobileNav = $state(false);
 
-	onMount(async () => {
+	async function loadTeams() {
 		teams = await listTeams(slug);
 		for (const team of teams) {
 			if (currentPath.includes(`/settings/teams/${team.id}`)) {
@@ -48,6 +51,22 @@
 				expandedTeams = new Set(expandedTeams);
 			}
 		}
+	}
+
+	onMount(() => {
+		loadTeams();
+
+		function handleAppRefresh(e: Event) {
+			const detail = (e as CustomEvent<{ slug?: string; resources?: string[] }>).detail;
+			if (detail?.slug && detail.slug !== slug) return;
+			const resources = detail?.resources;
+			if (!resources || resources.includes('teams')) {
+				loadTeams();
+			}
+		}
+
+		window.addEventListener('app:refresh', handleAppRefresh);
+		return () => window.removeEventListener('app:refresh', handleAppRefresh);
 	});
 
 	function isActive(path: string): boolean {
@@ -61,7 +80,8 @@
 		{ label: 'Labels', href: `/${slug}/settings/labels`, icon: Tag },
 		{ label: 'Webhooks', href: `/${slug}/settings/webhooks`, icon: Webhook },
 		{ label: 'GitHub', href: `/${slug}/settings/github`, icon: GithubLogoIcon },
-		{ label: 'Templates', href: `/${slug}/settings/templates`, icon: FileText }
+		{ label: 'Templates', href: `/${slug}/settings/templates`, icon: FileText },
+		{ label: 'Licenses', href: `/${slug}/settings/licenses`, icon: ScrollText }
 	]);
 
 	function toggleTeam(teamId: string) {
@@ -118,11 +138,22 @@
 							size={12}
 							class="shrink-0 text-[var(--color-text-tertiary)] transition-transform {expanded ? '' : '-rotate-90'}"
 						/>
-						<Users size={16} class="shrink-0" />
+						<TeamIcon {team} />
 						<span class="truncate">{team.name}</span>
 					</button>
 					{#if expanded}
 						<div transition:slideFade>
+							<a
+								href="/{slug}/settings/teams/{team.id}"
+								class="ml-7 flex items-center gap-2 rounded-md px-2 py-1 text-xs {isActive(
+									`/${slug}/settings/teams/${team.id}`
+								) && !isActive(`/${slug}/settings/teams/${team.id}/statuses`)
+									? 'bg-[var(--color-bg-hover)]/50 text-[var(--color-text-primary)]'
+									: 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
+							>
+								<SlidersHorizontal size={13} />
+								General
+							</a>
 							<a
 								href="/{slug}/settings/teams/{team.id}/statuses"
 								class="ml-7 flex items-center gap-2 rounded-md px-2 py-1 text-xs {isActive(

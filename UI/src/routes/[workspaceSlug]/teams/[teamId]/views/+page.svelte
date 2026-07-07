@@ -5,6 +5,7 @@
 	import type { View } from '$lib/types/view';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
 	import { Badge } from '$lib/components/ui/badge';
+	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import { toast } from 'svelte-sonner';
 	import { Bookmark, Trash2, SquareUser, Layers, ChevronRight } from 'lucide-svelte';
 	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
@@ -14,6 +15,8 @@
 	const teamId = $derived(page.params.teamId ?? '');
 	let views = $state<View[]>([]);
 	let loading = $state(true);
+	let pendingDeleteView = $state<View | null>(null);
+	let deleteOpen = $state(false);
 
 	async function loadViews() {
 		if (!slug || !teamId) return;
@@ -44,26 +47,37 @@
 		return () => window.removeEventListener('app:refresh', handleAppRefresh);
 	});
 
-	async function handleDelete(view: View) {
+	function requestDelete(view: View) {
+		pendingDeleteView = view;
+		deleteOpen = true;
+	}
+
+	async function handleDelete() {
+		const view = pendingDeleteView;
+		if (!view) return;
 		try {
 			await deleteView(slug, view.id);
 			views = views.filter((v) => v.id !== view.id);
 			toast.success('View deleted');
 		} catch {
 			toast.error('Failed to delete view');
+		} finally {
+			deleteOpen = false;
+			pendingDeleteView = null;
 		}
 	}
 </script>
 
 <div class="h-full">
-	<div
-		class="flex h-[49px] items-center justify-between border-b border-[var(--app-border)] px-6"
-	>
+	<div class="flex h-[49px] items-center justify-between border-b border-[var(--app-border)] px-6">
 		<div class="flex items-center gap-3">
 			<SidebarToggle />
 			<nav class="flex items-center gap-1.5 text-sm">
 				{#if sidebarState.getTeam(teamId)}
-					<a href="/{slug}/teams/{teamId}" class="flex items-center gap-1.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]">
+					<a
+						href="/{slug}/teams/{teamId}"
+						class="flex items-center gap-1.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
+					>
 						<SquareUser size={14} class="shrink-0" style="color: {sidebarState.getTeamColor(teamId)}" />
 						{sidebarState.getTeam(teamId)?.name}
 					</a>
@@ -86,10 +100,7 @@
 		<div class="divide-y divide-[var(--app-border)]">
 			{#each views as view}
 				<div class="flex items-center gap-4 px-6 py-3 hover:bg-[var(--color-bg-hover)]">
-					<a
-						href="/{slug}/views/{view.id}"
-						class="flex flex-1 items-center gap-3 min-w-0"
-					>
+					<a href="/{slug}/views/{view.id}" class="flex flex-1 items-center gap-3 min-w-0">
 						<Bookmark size={14} class="shrink-0 text-[var(--color-text-tertiary)]" />
 						<div class="min-w-0">
 							<div class="flex items-center gap-2">
@@ -104,7 +115,7 @@
 						</div>
 					</a>
 					<button
-						onclick={() => handleDelete(view)}
+						onclick={() => requestDelete(view)}
 						class="shrink-0 rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-tertiary)] hover:text-red-500"
 						title="Delete view"
 					>
@@ -115,3 +126,18 @@
 		</div>
 	{/if}
 </div>
+
+<AlertDialog.Root bind:open={deleteOpen}>
+	<AlertDialog.Content>
+		<AlertDialog.Header>
+			<AlertDialog.Title>Delete view?</AlertDialog.Title>
+			<AlertDialog.Description>
+				This will permanently delete {pendingDeleteView?.name ?? 'this view'}.
+			</AlertDialog.Description>
+		</AlertDialog.Header>
+		<AlertDialog.Footer>
+			<AlertDialog.Cancel variant="outline" onclick={() => (pendingDeleteView = null)}>Cancel</AlertDialog.Cancel>
+			<AlertDialog.Action variant="destructive" onclick={handleDelete}>Delete view</AlertDialog.Action>
+		</AlertDialog.Footer>
+	</AlertDialog.Content>
+</AlertDialog.Root>

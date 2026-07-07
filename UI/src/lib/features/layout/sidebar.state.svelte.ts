@@ -20,6 +20,19 @@ export function getTeamColor(index: number): string {
 	return TEAM_COLORS[index % TEAM_COLORS.length];
 }
 
+function hashString(value: string): number {
+	let hash = 0;
+	for (let i = 0; i < value.length; i++) {
+		hash = (hash * 31 + value.charCodeAt(i)) >>> 0;
+	}
+	return hash;
+}
+
+export function getStableTeamColor(team: Pick<Team, 'id' | 'key' | 'color'>): string {
+	if (team.color) return team.color;
+	return getTeamColor(hashString(team.id || team.key));
+}
+
 class SidebarState {
 	collapsed = $state(
 		typeof localStorage !== 'undefined'
@@ -35,8 +48,8 @@ class SidebarState {
 	}
 
 	getTeamColor(id: string): string {
-		const idx = this.teams.findIndex(t => t.id === id);
-		return getTeamColor(idx >= 0 ? idx : 0);
+		const team = this.getTeam(id);
+		return team ? getStableTeamColor(team) : getTeamColor(hashString(id));
 	}
 
 	toggle() {
