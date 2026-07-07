@@ -8,13 +8,21 @@
 	import { Link, X, Plus, Ban, Copy, ArrowRight, ChevronRight } from 'lucide-svelte';
 	import { toast } from 'svelte-sonner';
 
-	let { slug, identifier }: { slug: string; identifier: string } = $props();
+	let {
+		slug,
+		identifier,
+		dialogOpen = $bindable(false),
+		dialogType = $bindable<RelationType>('related')
+	}: {
+		slug: string;
+		identifier: string;
+		dialogOpen?: boolean;
+		dialogType?: RelationType;
+	} = $props();
 
 	let relations = $state<IssueRelation[]>([]);
 	let loading = $state(true);
 	let expanded = $state(true);
-	let relationDialogOpen = $state(false);
-	let relationDefaultType = $state<RelationType>('related');
 
 	const RELATION_LABELS: Record<RelationType, string> = {
 		related: 'Related to',
@@ -63,8 +71,8 @@
 	}
 
 	function openAdd(type: RelationType = 'related') {
-		relationDefaultType = type;
-		relationDialogOpen = true;
+		dialogType = type;
+		dialogOpen = true;
 		expanded = true;
 	}
 
@@ -79,17 +87,7 @@
 </script>
 
 {#if !loading}
-	{#if relations.length === 0}
-		<button
-			onclick={() => openAdd()}
-			class="flex items-center gap-2 text-xs text-[var(--color-text-tertiary)] transition-colors hover:text-[var(--color-text-secondary)]"
-		>
-			<span class="flex h-6 w-6 items-center justify-center rounded-full border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
-				<Plus size={12} />
-			</span>
-			Add relation
-		</button>
-	{:else}
+	{#if relations.length > 0}
 		<Collapsible.Root bind:open={expanded}>
 			<div class="overflow-hidden rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]/60">
 				<div class="flex items-center gap-2 px-3 py-1.5">
@@ -156,12 +154,12 @@
 			</div>
 		</Collapsible.Root>
 	{/if}
-{/if}
 
-<AddRelationDialog
-	bind:open={relationDialogOpen}
-	{slug}
-	{identifier}
-	defaultType={relationDefaultType}
-	oncreated={refreshRelations}
-/>
+	<AddRelationDialog
+		bind:open={dialogOpen}
+		{slug}
+		{identifier}
+		defaultType={dialogType}
+		oncreated={refreshRelations}
+	/>
+{/if}

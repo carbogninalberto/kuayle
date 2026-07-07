@@ -1,15 +1,17 @@
 <script lang="ts">
-	import type { Issue, IssuePriority } from '$lib/types/issue';
+	import type { Issue, IssuePriority, RelationType } from '$lib/types/issue';
 	import { PRIORITY_LABELS } from '$lib/types/issue';
 	import type { Label } from '$lib/types/label';
 	import type { Cycle } from '$lib/types/cycle';
+	import type { WorkspaceMember } from '$lib/types/workspace';
 	import { teamStatusesState } from './team-statuses.state.svelte';
 	import { issuesState } from './issues.state.svelte';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import { toast } from 'svelte-sonner';
-	import { ChevronLeft, CircleDot, Command, CornerDownRight, Flag, Plus, RefreshCw, Search, Tag, Trash2, X } from 'lucide-svelte';
+	import { CalendarDays, ChevronLeft, CircleDot, Command, CornerDownRight, Copy, Flag, GitBranch, Link, Plus, RefreshCw, Search, Tag, Trash2, Users, X } from 'lucide-svelte';
 	import * as issueApi from '$lib/api/issues';
 	import { createLabel } from '$lib/api/labels';
+	import { createRelation } from '$lib/api/issue-relations';
 	import { onMount } from 'svelte';
 	import { showIssueDeletedToast, showIssuesDeletedToast } from './issue-deleted-toast';
 	import IssuePickerDialog from './IssuePickerDialog.svelte';
@@ -19,16 +21,18 @@
 	let {
 		slug,
 		labels = [],
+		members = [],
 		cycles,
 		onlabelcreated
 	}: {
 		slug: string;
 		labels?: Label[];
+		members?: WorkspaceMember[];
 		cycles?: Cycle[];
 		onlabelcreated?: (label: Label) => void;
 	} = $props();
 
-	type BulkCommand = 'status' | 'priority' | 'label' | 'cycle' | 'parent' | 'unparent';
+	type BulkCommand = 'assignee' | 'status' | 'priority' | 'label' | 'cycle' | 'due_date' | 'parent' | 'subissue' | 'duplicate' | 'related' | 'unparent';
 
 	interface BulkCommandOption {
 		id: BulkCommand;
@@ -48,8 +52,13 @@
 	let activeCommand = $state<BulkCommand | null>(null);
 	let searchQuery = $state('');
 	let selectedIndex = $state(0);
+	let selectedAssigneeIds = $state<string[]>([]);
+	let dueDateValue = $state('');
 	let deleteOpen = $state(false);
 	let parentPickerOpen = $state(false);
+	let parentPickerMode = $state<'parent' | 'subissue'>('parent');
+	let relationPickerOpen = $state(false);
+	let relationPickerType = $state<RelationType>('related');
 	let unparentOpen = $state(false);
 	let creatingLabel = $state(false);
 	let createdLabels = $state<Label[]>([]);
@@ -60,9 +69,11 @@
 	]);
 	let commands = $derived.by<BulkCommandOption[]>(() => {
 		const options: BulkCommandOption[] = [
+			{ id: 'assignee', title: 'Assign users', description: 'Replace assignees with one or more users', keywords: 'assignee assign users members owner' },
 			{ id: 'status', title: 'Change status', description: 'Move selected issues to a workflow status', keywords: 'status workflow state' },
 			{ id: 'priority', title: 'Set priority', description: 'Apply a priority to selected issues', keywords: 'priority urgent high medium low none' },
 			{ id: 'label', title: 'Add label', description: 'Add a label to selected issues', keywords: 'label tag' },
+			{ id: 'due_date', title: 'Set due date', description: 'Apply or clear due date on selected issues', keywords: 'due date deadline calendar' },
 		];
 
 		if (showCycleActions) {
@@ -71,6 +82,9 @@
 
 		options.push(
 			{ id: 'parent', title: 'Set parent', description: 'Move selected issues under another issue', keywords: 'parent subissue sub issue' },
+			{ id: 'subissue', title: 'Make sub-issues of...', description: 'Choose the issue these selected issues belong under', keywords: 'subissue sub issue child parent' },
+			{ id: 'duplicate', title: 'Duplicated of...', description: 'Mark selected issues as duplicates of another issue', keywords: 'duplicate duplicated copy' },
+			{ id: 'related', title: 'Related to...', description: 'Relate selected issues to another issue', keywords: 'related relation link' },
 			{ id: 'unparent', title: 'Remove parent', description: 'Make selected sub-issues top-level issues', keywords: 'unparent remove parent top level' }
 		);
 
@@ -85,6 +99,11 @@
 		const term = searchQuery.trim().toLowerCase();
 		if (!term) return teamStatusesState.statusOrder;
 		return teamStatusesState.statusOrder.filter((status) => `${status.name} ${status.category}`.toLowerCase().includes(term));
+	});
+	let filteredMembers = $derived.by(() => {
+		const term = searchQuery.trim().toLowerCase();
+		if (!term) return members;
+		return members.filter((member) => `${member.name ?? ''} ${member.email}`.toLowerCase().includes(term));
 	});
 	let filteredPriorities = $derived.by(() => {
 		const term = searchQuery.trim().toLowerCase();
@@ -104,12 +123,20 @@
 	let activeTitle = $derived(commands.find((command) => command.id === activeCommand)?.title ?? 'Bulk actions');
 	let searchPlaceholder = $derived(activeCommand ? `Search ${activeTitle.toLowerCase()}...` : 'Search actions...');
 	let canCreateLabel = $derived(activeCommand === 'label' && searchQuery.trim() && !visibleLabels.some((label) => label.name.toLowerCase() === searchQuery.trim().toLowerCase()));
+	let relationPickerTitle = $derived(relationPickerType === 'duplicate' ? 'Mark duplicated of' : 'Relate selected issues');
+	let relationPickerDescription = $derived(relationPickerType === 'duplicate'
+		? `${issuesState.selectionCount} selected issue${issuesState.selectionCount > 1 ? 's' : ''} will be marked as duplicates of the selected issue.`
+		: `${issuesState.selectionCount} selected issue${issuesState.selectionCount > 1 ? 's' : ''} will be related to the selected issue.`);
+	let parentPickerTitle = $derived(parentPickerMode === 'subissue' ? 'Make selected issues sub-issues' : 'Set parent for selected issues');
+	let parentPickerDescription = $derived(`${issuesState.selectionCount} selected issue${issuesState.selectionCount > 1 ? 's' : ''} will become sub-issues of the selected issue.`);
 	let activeOptionCount = $derived.by(() => {
 		if (!activeCommand) return filteredCommands.length;
+		if (activeCommand === 'assignee') return filteredMembers.length + 1;
 		if (activeCommand === 'status') return filteredStatuses.length;
 		if (activeCommand === 'priority') return filteredPriorities.length;
 		if (activeCommand === 'label') return filteredLabels.length + (canCreateLabel ? 1 : 0);
 		if (activeCommand === 'cycle') return filteredCycles.length + 1;
+		if (activeCommand === 'due_date') return 4;
 		return 0;
 	});
 
@@ -183,9 +210,17 @@
 	}
 
 	function selectCommand(command: BulkCommand) {
-		if (command === 'parent') {
+		if (command === 'parent' || command === 'subissue') {
+			parentPickerMode = command;
 			closeActions();
 			setTimeout(() => (parentPickerOpen = true), ANIM_DURATION);
+			return;
+		}
+
+		if (command === 'duplicate' || command === 'related') {
+			relationPickerType = command === 'duplicate' ? 'duplicate' : 'related';
+			closeActions();
+			setTimeout(() => (relationPickerOpen = true), ANIM_DURATION);
 			return;
 		}
 
@@ -198,6 +233,8 @@
 		activeCommand = command;
 		searchQuery = '';
 		selectedIndex = 0;
+		if (command === 'assignee') selectedAssigneeIds = [];
+		if (command === 'due_date') dueDateValue = '';
 		requestAnimationFrame(() => document.getElementById('bulk-actions-search')?.focus());
 	}
 
@@ -217,8 +254,12 @@
 			if (activeOptionCount > 0) selectedIndex = Math.max(selectedIndex - 1, 0);
 		} else if (e.key === 'Enter') {
 			e.preventDefault();
+			if (activeCommand === 'due_date' && dueDateValue) {
+				void bulkSetDueDate(dueDateValue);
+				return;
+			}
 			activateSelectedOption();
-		} else if (e.key === 'Backspace' && activeCommand && searchQuery === '') {
+		} else if (e.key === 'Backspace' && activeCommand && activeCommand !== 'due_date' && searchQuery === '') {
 			backToCommands();
 		}
 	}
@@ -231,7 +272,14 @@
 			return;
 		}
 
-		if (activeCommand === 'status') {
+		if (activeCommand === 'assignee') {
+			if (selectedIndex === 0) {
+				selectedAssigneeIds = [];
+			} else {
+				const member = filteredMembers[selectedIndex - 1];
+				if (member) toggleAssignee(member.user_id);
+			}
+		} else if (activeCommand === 'status') {
 			const status = filteredStatuses[selectedIndex];
 			if (status) void bulkSetStatus(status.id);
 		} else if (activeCommand === 'priority') {
@@ -252,6 +300,80 @@
 				const cycle = filteredCycles[selectedIndex - 1];
 				if (cycle) void bulkSetCycle(cycle.id);
 			}
+		} else if (activeCommand === 'due_date') {
+			if (selectedIndex === 0) void bulkSetDueDate(formatLocalDate(new Date()));
+			if (selectedIndex === 1) void bulkSetDueDate(formatLocalDate(addDays(new Date(), 1)));
+			if (selectedIndex === 2) void bulkSetDueDate(formatLocalDate(addDays(new Date(), 7)));
+			if (selectedIndex === 3) void bulkSetDueDate(null);
+		}
+	}
+
+	function toggleAssignee(userId: string) {
+		if (selectedAssigneeIds.includes(userId)) {
+			selectedAssigneeIds = selectedAssigneeIds.filter((id) => id !== userId);
+		} else {
+			selectedAssigneeIds = [...selectedAssigneeIds, userId];
+		}
+	}
+
+	function formatLocalDate(date: Date) {
+		return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+	}
+
+	function addDays(date: Date, days: number) {
+		const next = new Date(date);
+		next.setDate(next.getDate() + days);
+		return next;
+	}
+
+	function formatDisplayDate(value: string) {
+		return new Date(`${value}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+	}
+
+	async function bulkSetAssignees(assigneeIds = selectedAssigneeIds) {
+		const selectedIssues = issuesState.issues.filter((issue) => issuesState.selectedIds.has(issue.id));
+		if (selectedIssues.length === 0) return;
+
+		try {
+			await Promise.all(
+				selectedIssues.map((issue) => issuesState.update(slug, issue.identifier, { assignee_ids: assigneeIds }))
+			);
+			issuesState.clearSelection();
+			toast.success(`${assigneeIds.length === 0 ? 'Cleared assignees from' : 'Assigned'} ${selectedIssues.length} issue${selectedIssues.length > 1 ? 's' : ''}`);
+			closeActions();
+		} catch (err: any) {
+			toast.error(err?.error?.message || 'Failed to update assignees');
+		}
+	}
+
+	async function bulkSetDueDate(date: string | null) {
+		const selectedIssues = issuesState.issues.filter((issue) => issuesState.selectedIds.has(issue.id));
+		if (selectedIssues.length === 0) return;
+
+		try {
+			await Promise.all(
+				selectedIssues.map((issue) => issuesState.update(slug, issue.identifier, { due_date: date ?? '' }))
+			);
+			issuesState.clearSelection();
+			toast.success(`${date ? `Set due date to ${formatDisplayDate(date)} for` : 'Cleared due date from'} ${selectedIssues.length} issue${selectedIssues.length > 1 ? 's' : ''}`);
+			closeActions();
+		} catch (err: any) {
+			toast.error(err?.error?.message || 'Failed to update due date');
+		}
+	}
+
+	async function bulkAddRelation(target: Issue) {
+		const selectedIssues = issuesState.issues.filter((issue) => issuesState.selectedIds.has(issue.id));
+		if (selectedIssues.length === 0) return;
+
+		try {
+			await Promise.all(
+				selectedIssues.map((issue) => createRelation(slug, issue.identifier, { related_identifier: target.identifier, type: relationPickerType }))
+			);
+			issuesState.clearSelection();
+			toast.success(`${relationPickerType === 'duplicate' ? 'Marked' : 'Related'} ${selectedIssues.length} issue${selectedIssues.length > 1 ? 's' : ''} ${relationPickerType === 'duplicate' ? 'as duplicates of' : 'to'} ${target.identifier}`);
+		} catch (err: any) {
+			toast.error(err?.error?.message || 'Failed to add relation');
 		}
 	}
 
@@ -446,9 +568,10 @@
 					<!-- svelte-ignore a11y_autofocus -->
 					<input
 						id="bulk-actions-search"
-						type="text"
+						type={activeCommand === 'due_date' ? 'date' : 'text'}
 						aria-label={activeTitle}
-						bind:value={searchQuery}
+						value={activeCommand === 'due_date' ? dueDateValue : searchQuery}
+						oninput={(e) => activeCommand === 'due_date' ? (dueDateValue = e.currentTarget.value) : (searchQuery = e.currentTarget.value)}
 						placeholder={searchPlaceholder}
 						autofocus
 						class="min-w-0 flex-1 bg-transparent py-4 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)]"
@@ -470,7 +593,9 @@
 							{#each filteredCommands as command, index (command.id)}
 								<button id={`bulk-action-row-${index}`} class={commandButtonClass} data-selected={selectedIndex === index} onpointerenter={() => (selectedIndex = index)} onclick={() => selectCommand(command.id)}>
 									<span class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[var(--color-bg-tertiary)] text-[var(--color-text-tertiary)]">
-										{#if commandIcon(command.id) === 'status'}
+										{#if commandIcon(command.id) === 'assignee'}
+											<Users size={16} />
+										{:else if commandIcon(command.id) === 'status'}
 											<CircleDot size={16} />
 										{:else if commandIcon(command.id) === 'priority'}
 											<Flag size={16} />
@@ -478,8 +603,16 @@
 											<Tag size={16} />
 										{:else if commandIcon(command.id) === 'cycle'}
 											<RefreshCw size={16} />
+										{:else if commandIcon(command.id) === 'due_date'}
+											<CalendarDays size={16} />
 										{:else if commandIcon(command.id) === 'parent'}
 											<CornerDownRight size={16} />
+										{:else if commandIcon(command.id) === 'subissue'}
+											<GitBranch size={16} />
+										{:else if commandIcon(command.id) === 'duplicate'}
+											<Copy size={16} />
+										{:else if commandIcon(command.id) === 'related'}
+											<Link size={16} />
 										{:else}
 											<X size={16} />
 										{/if}
@@ -488,6 +621,30 @@
 										<span class="block truncate font-medium text-[var(--color-text-primary)]">{command.title}</span>
 										<span class="block truncate text-xs text-[var(--color-text-tertiary)]">{command.description}</span>
 									</span>
+								</button>
+							{/each}
+						{/if}
+					{:else if activeCommand === 'assignee'}
+						<div class="mb-2 flex items-center justify-between gap-2 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg)]/50 px-3 py-2">
+							<span class="text-xs text-[var(--color-text-tertiary)]">{selectedAssigneeIds.length} user{selectedAssigneeIds.length === 1 ? '' : 's'} selected</span>
+							<button class="rounded-md bg-[var(--app-accent)] px-2.5 py-1 text-xs font-medium text-[var(--app-accent-foreground)] disabled:opacity-50" disabled={selectedAssigneeIds.length === 0} onclick={() => bulkSetAssignees()}>
+								Assign
+							</button>
+						</div>
+						<button id="bulk-action-row-0" class={optionButtonClass} data-selected={selectedIndex === 0} onpointerenter={() => (selectedIndex = 0)} onclick={() => bulkSetAssignees([])}>
+							<X size={14} class="text-[var(--color-text-tertiary)]" />
+							<span class="truncate text-[var(--color-text-tertiary)]">Clear assignees</span>
+						</button>
+						{#if filteredMembers.length === 0}
+							<div class="py-8 text-center text-xs text-[var(--color-text-tertiary)]">No members found.</div>
+						{:else}
+							{#each filteredMembers as member, index (member.user_id)}
+								{@const rowIndex = index + 1}
+								{@const isSelected = selectedAssigneeIds.includes(member.user_id)}
+								<button id={`bulk-action-row-${rowIndex}`} class={optionButtonClass} data-selected={selectedIndex === rowIndex} onpointerenter={() => (selectedIndex = rowIndex)} onclick={() => toggleAssignee(member.user_id)}>
+									<span class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent)] text-[10px] text-[var(--app-accent-foreground)]">{(member.name || member.email).charAt(0).toUpperCase()}</span>
+									<span class="min-w-0 flex-1 truncate">{member.name || member.email}</span>
+									<span class="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border border-[var(--app-border)] text-[10px] {isSelected ? 'bg-[var(--app-accent)] text-[var(--app-accent-foreground)]' : 'text-transparent'}">✓</span>
 								</button>
 							{/each}
 						{/if}
@@ -547,6 +704,32 @@
 								</button>
 							{/each}
 						{/if}
+					{:else if activeCommand === 'due_date'}
+						<div class="mb-2 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg)]/50 p-3">
+							<label class="mb-1 block text-xs text-[var(--color-text-tertiary)]" for="bulk-actions-search">Custom due date</label>
+							<div class="flex items-center gap-2">
+								<span class="min-w-0 flex-1 text-xs text-[var(--color-text-secondary)]">{dueDateValue ? formatDisplayDate(dueDateValue) : 'Choose a date above, or use a quick option below.'}</span>
+								<button class="rounded-md bg-[var(--app-accent)] px-2.5 py-1 text-xs font-medium text-[var(--app-accent-foreground)] disabled:opacity-50" disabled={!dueDateValue} onclick={() => bulkSetDueDate(dueDateValue)}>
+									Apply
+								</button>
+							</div>
+						</div>
+						<button id="bulk-action-row-0" class={optionButtonClass} data-selected={selectedIndex === 0} onpointerenter={() => (selectedIndex = 0)} onclick={() => bulkSetDueDate(formatLocalDate(new Date()))}>
+							<CalendarDays size={14} />
+							<span class="truncate">Today</span>
+						</button>
+						<button id="bulk-action-row-1" class={optionButtonClass} data-selected={selectedIndex === 1} onpointerenter={() => (selectedIndex = 1)} onclick={() => bulkSetDueDate(formatLocalDate(addDays(new Date(), 1)))}>
+							<CalendarDays size={14} />
+							<span class="truncate">Tomorrow</span>
+						</button>
+						<button id="bulk-action-row-2" class={optionButtonClass} data-selected={selectedIndex === 2} onpointerenter={() => (selectedIndex = 2)} onclick={() => bulkSetDueDate(formatLocalDate(addDays(new Date(), 7)))}>
+							<CalendarDays size={14} />
+							<span class="truncate">Next week</span>
+						</button>
+						<button id="bulk-action-row-3" class={optionButtonClass} data-selected={selectedIndex === 3} onpointerenter={() => (selectedIndex = 3)} onclick={() => bulkSetDueDate(null)}>
+							<X size={14} class="text-[var(--color-text-tertiary)]" />
+							<span class="truncate text-[var(--color-text-tertiary)]">No due date</span>
+						</button>
 					{/if}
 				</div>
 			</div>
@@ -556,11 +739,21 @@
 	<IssuePickerDialog
 		bind:open={parentPickerOpen}
 		{slug}
-		title="Set parent for selected issues"
-		description={`${issuesState.selectionCount} selected issue${issuesState.selectionCount > 1 ? 's' : ''} will become sub-issues of the selected issue.`}
+		title={parentPickerTitle}
+		description={parentPickerDescription}
 		actionLabel="Set parent"
 		excludeIds={Array.from(issuesState.selectedIds)}
 		onselect={bulkSetParent}
+	/>
+
+	<IssuePickerDialog
+		bind:open={relationPickerOpen}
+		{slug}
+		title={relationPickerTitle}
+		description={relationPickerDescription}
+		actionLabel={relationPickerType === 'duplicate' ? 'Mark duplicate' : 'Relate'}
+		excludeIds={Array.from(issuesState.selectedIds)}
+		onselect={bulkAddRelation}
 	/>
 
 	<AlertDialog.Root bind:open={deleteOpen}>

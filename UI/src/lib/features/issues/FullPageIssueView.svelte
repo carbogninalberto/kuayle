@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import type { Issue, Comment, IssueHistory, IssueStatus, IssuePriority } from '$lib/types/issue';
+	import type { Issue, Comment, IssueHistory, IssueStatus, IssuePriority, RelationType } from '$lib/types/issue';
 	import { PRIORITY_LABELS } from '$lib/types/issue';
 	import { teamStatusesState } from './team-statuses.state.svelte';
 	import type { WorkspaceMember } from '$lib/types/workspace';
@@ -29,7 +29,7 @@
 		Copy, Link as LinkIcon, GitBranch, SquareMousePointer,
 		CircleDot, ArrowUpCircle, UserCircle, FolderKanban, Pencil, Layers,
 		Tag, RefreshCw, ArrowUp, Paperclip, MoreHorizontal, Check, Bell,
-		Trash2, CornerDownRight
+		Trash2, CornerDownRight, Ban, ArrowRight
 	} from 'lucide-svelte';
 	import { listCycles } from '$lib/api/cycles';
 	import type { Cycle } from '$lib/types/cycle';
@@ -41,6 +41,7 @@
 	import { presenceState } from '$lib/features/presence/presence.state.svelte';
 	import CreateIssueDialog from './CreateIssueDialog.svelte';
 	import IssuePickerDialog from './IssuePickerDialog.svelte';
+	import AddRelationDialog from './AddRelationDialog.svelte';
 	import { showIssueCreatedToast } from './issue-created-toast';
 	import type { Team } from '$lib/types/team';
 	import { listTeams } from '$lib/api/teams';
@@ -84,6 +85,9 @@
 	let createDialogParentIssue = $state<Issue | null>(null);
 	let parentPickerOpen = $state(false);
 	let removeParentOpen = $state(false);
+	let relationDialogOpen = $state(false);
+	let relationType = $state<RelationType>('related');
+	let issueActionsOpen = $state(false);
 	let isSubscribed = $state(false);
 	let subscriptionBusy = $state(false);
 
@@ -305,6 +309,11 @@
 
 	function goToParentIssue() {
 		if (issue.parent) goto(`/${slug}/issue/${issue.parent.identifier}`);
+	}
+
+	function openAddRelation(type: RelationType = 'related') {
+		relationType = type;
+		relationDialogOpen = true;
 	}
 
 	function formatHistoryValue(field: string, value: string | null, displayValue?: string | null): string {
@@ -739,6 +748,60 @@
 			>
 				<SquareMousePointer size={14} />
 			</button>
+			<Popover.Root bind:open={issueActionsOpen}>
+				<Popover.Trigger>
+					<button
+						type="button"
+						class="rounded p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
+						title="Issue actions"
+					>
+						<MoreHorizontal size={14} />
+					</button>
+				</Popover.Trigger>
+				<Popover.Content class="w-44 p-1" align="end">
+					<button
+						type="button"
+						onclick={() => { issueActionsOpen = false; parentPickerOpen = true; }}
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
+					>
+						<CornerDownRight size={14} />
+						{issue.parent ? 'Change parent' : 'Add parent'}
+					</button>
+					<div class="my-1 h-px bg-[var(--app-border)]"></div>
+					<button
+						type="button"
+						onclick={() => { issueActionsOpen = false; openAddRelation('related'); }}
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
+					>
+						<LinkIcon size={14} />
+						Add relation
+					</button>
+					<button
+						type="button"
+						onclick={() => { issueActionsOpen = false; openAddRelation('blocked_by'); }}
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
+					>
+						<Ban size={14} />
+						Blocked by
+					</button>
+					<button
+						type="button"
+						onclick={() => { issueActionsOpen = false; openAddRelation('blocking'); }}
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
+					>
+						<ArrowRight size={14} />
+						Blocking
+					</button>
+					<button
+						type="button"
+						onclick={() => { issueActionsOpen = false; openAddRelation('duplicate'); }}
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
+					>
+						<Copy size={14} />
+						Duplicate
+					</button>
+				</Popover.Content>
+			</Popover.Root>
 
 			{#if presenceState.activeViewers.length > 0}
 				<div class="ml-1 flex items-center -space-x-1.5 border-l border-[var(--app-border)] pl-2">
@@ -897,10 +960,10 @@
 					{/if}
 				</div>
 
-				<!-- Relations -->
-				<div class="mt-2">
-					<IssueRelations {slug} identifier={issue.identifier} />
-				</div>
+			<!-- Relations -->
+			<div class="mt-2">
+				<IssueRelations {slug} identifier={issue.identifier} bind:dialogOpen={relationDialogOpen} bind:dialogType={relationType} />
+			</div>
 
 				<!-- GitHub Activity -->
 				<div class="mt-2">
