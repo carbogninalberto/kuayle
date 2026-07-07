@@ -12,11 +12,12 @@
 	import IssueLabelChips from './IssueLabelChips.svelte';
 	import IssueContextMenu from './IssueContextMenu.svelte';
 	import { Checkbox } from '$lib/components/ui/checkbox';
+	import * as HoverCard from '$lib/components/ui/hover-card';
 	import * as Popover from '$lib/components/ui/popover';
 	import { issuesState } from './issues.state.svelte';
-	import { formatRelativeTime } from '$lib/utils/format';
+	import { formatRelativeTime, formatDate } from '$lib/utils/format';
 	import { IsMobile } from '$lib/hooks/is-mobile.svelte';
-	import { CalendarDays, CircleUser, RefreshCw } from 'lucide-svelte';
+	import { Ban, CalendarDays, CircleUser, Copy, Link, OctagonAlert, RefreshCw } from 'lucide-svelte';
 	import { toast } from 'svelte-sonner';
 
 	let {
@@ -49,6 +50,54 @@
 	const issueCycle = $derived(issue.cycle_id ? cycles.find(c => c.id === issue.cycle_id) : null);
 	const priorityValues: IssuePriority[] = [0, 1, 2, 3, 4];
 	const isMobile = new IsMobile();
+	const relatedCount = $derived(issue.relation_counts?.related ?? 0);
+	const blockedByCount = $derived(issue.relation_counts?.blocked_by ?? 0);
+	const blockingCount = $derived(issue.relation_counts?.blocking ?? 0);
+	const duplicateCount = $derived(issue.relation_counts?.duplicate ?? 0);
+	const createdAtText = $derived(issue.created_at ? formatRelativeTime(issue.created_at) : '');
+	const createdAtTooltip = $derived(createdAtText ? `${createdAtText} • ${formatDate(issue.created_at)}` : '');
+	const relatedIssues = $derived(issue.relation_summary?.related ?? []);
+	const blockedByIssues = $derived(issue.relation_summary?.blocked_by ?? []);
+	const blockingIssues = $derived(issue.relation_summary?.blocking ?? []);
+	const duplicateIssues = $derived(issue.relation_summary?.duplicate ?? []);
+	const relationBadges = $derived([
+		{
+			label: 'Related',
+			count: relatedCount,
+			issues: relatedIssues,
+			Icon: Link,
+			triggerClass: 'border-[var(--app-border)] bg-[var(--color-bg-secondary)] text-[var(--color-text-tertiary)] hover:border-[var(--app-border-hover)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]',
+			headerClass: 'text-[var(--color-text-secondary)]',
+			fallback: `${relatedCount} related ${relatedCount === 1 ? 'issue' : 'issues'}.`
+		},
+		{
+			label: 'Blocked by',
+			count: blockedByCount,
+			issues: blockedByIssues,
+			Icon: Ban,
+			triggerClass: 'border-red-500/20 bg-red-500/10 text-red-500 hover:border-red-500/40 hover:bg-red-500/15 hover:text-red-400',
+			headerClass: 'text-red-500',
+			fallback: `${blockedByCount} ${blockedByCount === 1 ? 'issue is' : 'issues are'} blocking this.`
+		},
+		{
+			label: 'Blocking',
+			count: blockingCount,
+			issues: blockingIssues,
+			Icon: OctagonAlert,
+			triggerClass: 'border-red-500/20 bg-red-500/10 text-red-500 hover:border-red-500/40 hover:bg-red-500/15 hover:text-red-400',
+			headerClass: 'text-red-500',
+			fallback: `This blocks ${blockingCount} ${blockingCount === 1 ? 'issue' : 'issues'}.`
+		},
+		{
+			label: 'Duplicate',
+			count: duplicateCount,
+			issues: duplicateIssues,
+			Icon: Copy,
+			triggerClass: 'border-purple-400/20 bg-purple-400/10 text-purple-300 hover:border-purple-400/40 hover:bg-purple-400/15 hover:text-purple-200',
+			headerClass: 'text-purple-300',
+			fallback: `${duplicateCount} duplicate ${duplicateCount === 1 ? 'issue' : 'issues'}.`
+		}
+	].filter((badge) => badge.count > 0));
 
 	let editingTitle = $state(false);
 	let titleValue = $state('');
@@ -181,26 +230,73 @@
 		</span>
 
 		<!-- Title -->
-		{#if editingTitle}
-			<input
-				type="text"
-				bind:value={titleValue}
-				onblur={saveTitle}
-				onkeydown={(e) => { if (e.key === 'Enter') saveTitle(); if (e.key === 'Escape') { editingTitle = false; } }}
-				onclick={(e) => e.stopPropagation()}
-				class="flex-1 truncate text-[13px] text-[var(--color-text-primary)] bg-transparent outline-none border-b border-[var(--app-accent)]"
-			/>
-		{:else}
-			<!-- svelte-ignore a11y_no_static_element_interactions -->
-			<span
-				role="textbox"
-				tabindex={0}
-				class="min-w-0 flex-1 truncate text-sm leading-5 text-[var(--color-text-primary)] sm:text-[13px] sm:leading-normal"
-				ondblclick={startEditing}
-			>{issue.title}</span>
-		{/if}
+		<div class="min-w-0 flex-1">
+			{#if editingTitle}
+				<input
+					type="text"
+					bind:value={titleValue}
+					onblur={saveTitle}
+					onkeydown={(e) => { if (e.key === 'Enter') saveTitle(); if (e.key === 'Escape') { editingTitle = false; } }}
+					onclick={(e) => e.stopPropagation()}
+					class="w-full truncate text-[13px] text-[var(--color-text-primary)] bg-transparent outline-none border-b border-[var(--app-accent)]"
+				/>
+			{:else}
+				<div class="flex min-w-0 flex-1 items-center gap-1">
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<span
+						role="textbox"
+						tabindex={0}
+						class="min-w-0 shrink truncate text-sm leading-5 text-[var(--color-text-primary)] sm:text-[13px] sm:leading-normal"
+						ondblclick={startEditing}
+					>{issue.title}</span>
 
-		<SubIssueCounterTag issue={issue} {slug} {members} onclickissue={onclick} compact />
+					<SubIssueCounterTag issue={issue} {slug} {members} onclickissue={onclick} compact />
+
+					{#if relationBadges.length > 0}
+						<span class="inline-flex shrink-0 items-center gap-1" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()} role="presentation">
+							{#each relationBadges as badge (badge.label)}
+								{@const Icon = badge.Icon}
+								<HoverCard.Root openDelay={150} closeDelay={100}>
+									<HoverCard.Trigger
+										class="inline-flex cursor-default items-center gap-1 rounded-full border px-1.5 py-0 text-[11px] leading-5 transition-colors {badge.triggerClass}"
+										title={`${badge.label} ${badge.count} ${badge.count === 1 ? 'issue' : 'issues'}`}
+									>
+										<Icon size={10} />
+										{badge.count}
+									</HoverCard.Trigger>
+									<HoverCard.Content class="w-56 p-2" align="end">
+										<div class="flex items-center gap-2 text-xs {badge.headerClass}">
+											<Icon size={13} />
+											<span class="font-medium">{badge.label}</span>
+										</div>
+										{#if badge.issues.length > 0}
+											<div class="mt-2 max-h-48 space-y-1 overflow-y-auto">
+												{#each badge.issues as relatedIssue (relatedIssue.id)}
+													<a
+														href="/{slug}/issue/{relatedIssue.identifier}"
+														onclick={(e) => e.stopPropagation()}
+														title={`Open ${relatedIssue.identifier}`}
+														class="flex min-w-0 items-center gap-2 rounded-md px-1 py-1 text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+													>
+														<IssueStatusIcon status={relatedIssue.status} category={relatedIssue.status_info?.category} color={relatedIssue.status_info?.color} size={12} />
+														<span class="shrink-0 tabular-nums text-[var(--color-text-tertiary)]">{relatedIssue.identifier}</span>
+														<span class="min-w-0 flex-1 truncate">{relatedIssue.title}</span>
+													</a>
+												{/each}
+											</div>
+										{:else}
+											<p class="mt-1 text-xs text-[var(--color-text-tertiary)]">
+												{badge.fallback}
+											</p>
+										{/if}
+									</HoverCard.Content>
+								</HoverCard.Root>
+							{/each}
+						</span>
+					{/if}
+				</div>
+			{/if}
+		</div>
 
 		<IssueLabelChips labels={issue.labels ?? []} />
 
@@ -279,11 +375,13 @@
 			</Popover.Root>
 		</span>
 
-		<!-- Created -->
-		{#if issue.created_at}
-			<span class="hidden shrink-0 text-[11px] text-[var(--color-text-tertiary)] sm:inline">
-				{formatRelativeTime(issue.created_at)}
-			</span>
-		{/if}
-	</button>
-</IssueContextMenu>
+			<!-- Created -->
+			{#if issue.created_at}
+				<span
+					class="hidden w-[4.5rem] min-w-[4.5rem] max-w-[4.5rem] shrink-0 justify-end truncate text-right text-[11px] text-[var(--color-text-tertiary)] sm:inline-flex"
+					title={createdAtTooltip}
+					aria-label={createdAtTooltip}
+				>{createdAtText}</span>
+			{/if}
+		</button>
+	</IssueContextMenu>

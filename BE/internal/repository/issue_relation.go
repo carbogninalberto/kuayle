@@ -3,9 +3,9 @@ package repository
 import (
 	"context"
 
-	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"github.com/kuayle/kuayle-backend/internal/domain"
 )
 
 type IssueRelationRepository struct {
@@ -25,6 +25,22 @@ func (r *IssueRelationRepository) ListByIssue(ctx context.Context, issueID uuid.
 	var relations []domain.IssueRelation
 	query := `SELECT * FROM issue_relations WHERE issue_id = $1 OR related_issue_id = $1 ORDER BY created_at DESC`
 	err := r.db.SelectContext(ctx, &relations, query, issueID)
+	return relations, err
+}
+
+func (r *IssueRelationRepository) ListByIssues(ctx context.Context, issueIDs []uuid.UUID) ([]domain.IssueRelation, error) {
+	if len(issueIDs) == 0 {
+		return []domain.IssueRelation{}, nil
+	}
+
+	query, args, err := sqlx.In(`SELECT * FROM issue_relations WHERE issue_id IN (?) OR related_issue_id IN (?) ORDER BY created_at DESC`, issueIDs, issueIDs)
+	if err != nil {
+		return nil, err
+	}
+	query = r.db.Rebind(query)
+
+	var relations []domain.IssueRelation
+	err = r.db.SelectContext(ctx, &relations, query, args...)
 	return relations, err
 }
 

@@ -3,12 +3,12 @@ package handler
 import (
 	"net/http"
 
+	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/kuayle/kuayle-backend/pkg/validate"
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 )
 
@@ -41,13 +41,7 @@ func (h *IssueRelationHandler) Create(c echo.Context) error {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
 	}
 
-	return response.Success(c, http.StatusCreated, dto.IssueRelationResponse{
-		ID:             rel.ID.String(),
-		IssueID:        rel.IssueID.String(),
-		RelatedIssueID: rel.RelatedIssueID.String(),
-		Type:           string(rel.Type),
-		CreatedAt:      rel.CreatedAt,
-	})
+	return response.Success(c, http.StatusCreated, toIssueRelationResponse(*rel))
 }
 
 func (h *IssueRelationHandler) List(c echo.Context) error {
@@ -61,13 +55,7 @@ func (h *IssueRelationHandler) List(c echo.Context) error {
 
 	resp := make([]dto.IssueRelationResponse, len(relations))
 	for i, rel := range relations {
-		resp[i] = dto.IssueRelationResponse{
-			ID:             rel.ID.String(),
-			IssueID:        rel.IssueID.String(),
-			RelatedIssueID: rel.RelatedIssueID.String(),
-			Type:           string(rel.Type),
-			CreatedAt:      rel.CreatedAt,
-		}
+		resp[i] = toIssueRelationResponse(rel)
 	}
 
 	return response.Success(c, http.StatusOK, resp)
@@ -84,4 +72,19 @@ func (h *IssueRelationHandler) Delete(c echo.Context) error {
 	}
 
 	return response.Success(c, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+func toIssueRelationResponse(rel domain.IssueRelation) dto.IssueRelationResponse {
+	resp := dto.IssueRelationResponse{
+		ID:             rel.ID.String(),
+		IssueID:        rel.IssueID.String(),
+		RelatedIssueID: rel.RelatedIssueID.String(),
+		Type:           string(rel.Type),
+		CreatedAt:      rel.CreatedAt,
+	}
+	if rel.RelatedIssue != nil {
+		relatedIssue := toIssueResponse(*rel.RelatedIssue)
+		resp.RelatedIssue = &relatedIssue
+	}
+	return resp
 }

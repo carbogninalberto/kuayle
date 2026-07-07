@@ -20,6 +20,7 @@ import (
 
 type IssueHandler struct {
 	issueSvc       *service.IssueService
+	relationSvc    *service.IssueRelationService
 	commentSvc     *service.CommentService
 	userRepo       repository.UserRepo
 	teamStatusRepo repository.TeamStatusRepo
@@ -27,8 +28,8 @@ type IssueHandler struct {
 	cycleRepo      repository.CycleRepo
 }
 
-func NewIssueHandler(issueSvc *service.IssueService, commentSvc *service.CommentService, userRepo repository.UserRepo, teamStatusRepo repository.TeamStatusRepo, projectRepo repository.ProjectRepo, cycleRepo repository.CycleRepo) *IssueHandler {
-	return &IssueHandler{issueSvc: issueSvc, commentSvc: commentSvc, userRepo: userRepo, teamStatusRepo: teamStatusRepo, projectRepo: projectRepo, cycleRepo: cycleRepo}
+func NewIssueHandler(issueSvc *service.IssueService, commentSvc *service.CommentService, userRepo repository.UserRepo, teamStatusRepo repository.TeamStatusRepo, projectRepo repository.ProjectRepo, cycleRepo repository.CycleRepo, relationSvc *service.IssueRelationService) *IssueHandler {
+	return &IssueHandler{issueSvc: issueSvc, relationSvc: relationSvc, commentSvc: commentSvc, userRepo: userRepo, teamStatusRepo: teamStatusRepo, projectRepo: projectRepo, cycleRepo: cycleRepo}
 }
 
 func (h *IssueHandler) List(c echo.Context) error {
@@ -55,6 +56,10 @@ func (h *IssueHandler) List(c echo.Context) error {
 	labelsMap, _ := h.issueSvc.GetLabelsForIssues(ctx, issueIDs)
 	assigneesMap, _ := h.issueSvc.GetAssigneesForIssues(ctx, issueIDs)
 	subIssueCounts, _ := h.issueSvc.CountSubIssuesForIssues(ctx, issueIDs)
+	relationSummaries := make(map[uuid.UUID]domain.IssueRelationSummary)
+	if h.relationSvc != nil {
+		relationSummaries, _ = h.relationSvc.SummariesByIssues(ctx, issueIDs)
+	}
 
 	// Batch load statuses for all issues
 	statusIDSet := make(map[uuid.UUID]struct{})
@@ -121,6 +126,9 @@ func (h *IssueHandler) List(c echo.Context) error {
 			done := count.Done
 			resp.SubIssueCount = &total
 			resp.SubIssueDone = &done
+		}
+		if summary, ok := relationSummaries[issue.ID]; ok {
+			h.enrichIssueRelationSummary(ctx, &resp, summary)
 		}
 
 		// Populate user objects
@@ -690,8 +698,65 @@ func (h *IssueHandler) enrichIssueResponse(ctx context.Context, resp *dto.IssueR
 		resp.SubIssueCount = &total
 		resp.SubIssueDone = &done
 	}
+	h.enrichRelationCounts(ctx, resp, issue.ID)
 
 	h.enrichUserFields(ctx, resp, issue)
+}
+
+func (h *IssueHandler) enrichRelationCounts(ctx context.Context, resp *dto.IssueResponse, issueID uuid.UUID) {
+	if h.relationSvc == nil {
+		return
+	}
+	summaries, err := h.relationSvc.SummariesByIssues(ctx, []uuid.UUID{issueID})
+	if err != nil {
+		return
+	}
+	if summary, ok := summaries[issueID]; ok {
+		h.enrichIssueRelationSummary(ctx, resp, summary)
+	}
+}
+
+func (h *IssueHandler) enrichIssueRelationSummary(ctx context.Context, resp *dto.IssueResponse, summary domain.IssueRelationSummary) {
+	resp.RelationCounts = toIssueRelationCountsResponse(summary.Counts)
+	if len(summary.Related) == 0 && len(summary.BlockedBy) == 0 && len(summary.Blocking) == 0 && len(summary.Duplicate) == 0 {
+		return
+	}
+
+	relationSummary := &dto.IssueRelationSummaryResponse{}
+	if len(summary.Related) > 0 {
+		relationSummary.Related = make([]dto.IssueSummaryResponse, len(summary.Related))
+		for i, issue := range summary.Related {
+			relationSummary.Related[i] = h.toIssueSummaryResponse(ctx, issue)
+		}
+	}
+	if len(summary.BlockedBy) > 0 {
+		relationSummary.BlockedBy = make([]dto.IssueSummaryResponse, len(summary.BlockedBy))
+		for i, issue := range summary.BlockedBy {
+			relationSummary.BlockedBy[i] = h.toIssueSummaryResponse(ctx, issue)
+		}
+	}
+	if len(summary.Blocking) > 0 {
+		relationSummary.Blocking = make([]dto.IssueSummaryResponse, len(summary.Blocking))
+		for i, issue := range summary.Blocking {
+			relationSummary.Blocking[i] = h.toIssueSummaryResponse(ctx, issue)
+		}
+	}
+	if len(summary.Duplicate) > 0 {
+		relationSummary.Duplicate = make([]dto.IssueSummaryResponse, len(summary.Duplicate))
+		for i, issue := range summary.Duplicate {
+			relationSummary.Duplicate[i] = h.toIssueSummaryResponse(ctx, issue)
+		}
+	}
+	resp.RelationSummary = relationSummary
+}
+
+func toIssueRelationCountsResponse(count domain.IssueRelationCounts) *dto.IssueRelationCountsResponse {
+	return &dto.IssueRelationCountsResponse{
+		Related:   count.Related,
+		BlockedBy: count.BlockedBy,
+		Blocking:  count.Blocking,
+		Duplicate: count.Duplicate,
+	}
 }
 
 func (h *IssueHandler) enrichStatusInfo(ctx context.Context, resp *dto.IssueResponse, issue domain.Issue) {

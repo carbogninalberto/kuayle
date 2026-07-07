@@ -57,31 +57,47 @@ type UpdateIssueRequest struct {
 }
 
 type IssueResponse struct {
-	ID            string                `json:"id"`
-	Identifier    string                `json:"identifier"`
-	Title         string                `json:"title"`
-	Description   *string               `json:"description"`
-	Status        string                `json:"status"`
-	StatusID      *string               `json:"status_id,omitempty"`
-	StatusInfo    *StatusInfoResponse   `json:"status_info,omitempty"`
-	Priority      int                   `json:"priority"`
-	TeamID        string                `json:"team_id"`
-	ProjectID     *string               `json:"project_id"`
-	CycleID       *string               `json:"cycle_id"`
-	CreatorID     string                `json:"creator_id"`
-	AssigneeID    *string               `json:"assignee_id"`
-	ParentID      *string               `json:"parent_id"`
-	DueDate       *time.Time            `json:"due_date"`
-	SortOrder     float64               `json:"sort_order"`
-	Labels        []LabelResponse       `json:"labels,omitempty"`
-	Creator       *UserResponse         `json:"creator,omitempty"`
-	Assignee      *UserResponse         `json:"assignee,omitempty"`
-	Assignees     []UserResponse        `json:"assignees,omitempty"`
-	Parent        *IssueSummaryResponse `json:"parent,omitempty"`
-	SubIssueCount *int                  `json:"sub_issue_count,omitempty"`
-	SubIssueDone  *int                  `json:"sub_issue_done,omitempty"`
-	CreatedAt     time.Time             `json:"created_at"`
-	UpdatedAt     time.Time             `json:"updated_at"`
+	ID              string                        `json:"id"`
+	Identifier      string                        `json:"identifier"`
+	Title           string                        `json:"title"`
+	Description     *string                       `json:"description"`
+	Status          string                        `json:"status"`
+	StatusID        *string                       `json:"status_id,omitempty"`
+	StatusInfo      *StatusInfoResponse           `json:"status_info,omitempty"`
+	Priority        int                           `json:"priority"`
+	TeamID          string                        `json:"team_id"`
+	ProjectID       *string                       `json:"project_id"`
+	CycleID         *string                       `json:"cycle_id"`
+	CreatorID       string                        `json:"creator_id"`
+	AssigneeID      *string                       `json:"assignee_id"`
+	ParentID        *string                       `json:"parent_id"`
+	DueDate         *time.Time                    `json:"due_date"`
+	SortOrder       float64                       `json:"sort_order"`
+	Labels          []LabelResponse               `json:"labels,omitempty"`
+	Creator         *UserResponse                 `json:"creator,omitempty"`
+	Assignee        *UserResponse                 `json:"assignee,omitempty"`
+	Assignees       []UserResponse                `json:"assignees,omitempty"`
+	Parent          *IssueSummaryResponse         `json:"parent,omitempty"`
+	SubIssueCount   *int                          `json:"sub_issue_count,omitempty"`
+	SubIssueDone    *int                          `json:"sub_issue_done,omitempty"`
+	RelationCounts  *IssueRelationCountsResponse  `json:"relation_counts,omitempty"`
+	RelationSummary *IssueRelationSummaryResponse `json:"relation_summary,omitempty"`
+	CreatedAt       time.Time                     `json:"created_at"`
+	UpdatedAt       time.Time                     `json:"updated_at"`
+}
+
+type IssueRelationCountsResponse struct {
+	Related   int `json:"related"`
+	BlockedBy int `json:"blocked_by"`
+	Blocking  int `json:"blocking"`
+	Duplicate int `json:"duplicate"`
+}
+
+type IssueRelationSummaryResponse struct {
+	Related   []IssueSummaryResponse `json:"related,omitempty"`
+	BlockedBy []IssueSummaryResponse `json:"blocked_by,omitempty"`
+	Blocking  []IssueSummaryResponse `json:"blocking,omitempty"`
+	Duplicate []IssueSummaryResponse `json:"duplicate,omitempty"`
 }
 
 type IssueSummaryResponse struct {
