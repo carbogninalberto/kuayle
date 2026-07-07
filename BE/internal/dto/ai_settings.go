@@ -9,6 +9,8 @@ type AISettingsResponse struct {
 	HasAPIKey               bool      `json:"has_api_key"`
 	DescriptionExpandPrompt string    `json:"description_expand_prompt"`
 	DefaultPrompt           string    `json:"default_prompt"`
+	IssueCopyPrompt         string    `json:"issue_copy_prompt"`
+	DefaultIssueCopyPrompt  string    `json:"default_issue_copy_prompt"`
 	CreatedAt               time.Time `json:"created_at"`
 	UpdatedAt               time.Time `json:"updated_at"`
 }
@@ -19,6 +21,7 @@ type UpdateAISettingsRequest struct {
 	Model                   *string        `json:"model" validate:"omitempty,max=200"`
 	APIKey                  OptionalString `json:"api_key"`
 	DescriptionExpandPrompt *string        `json:"description_expand_prompt" validate:"omitempty,max=4000"`
+	IssueCopyPrompt         *string        `json:"issue_copy_prompt" validate:"omitempty,max=8000"`
 }
 
 type ExpandIssueDescriptionResponse struct {

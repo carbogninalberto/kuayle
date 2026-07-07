@@ -24,6 +24,8 @@
 	let editingDetails = $state(false);
 	let editName = $state('');
 	let editDescription = $state('');
+	let issueCopyPrompt = $state('');
+	let savingIssueCopyPrompt = $state(false);
 	let pickerOpen = $state(false);
 	let pickerQuery = $state('');
 	let pickerTab = $state<'icons' | 'emoji'>('icons');
@@ -192,6 +194,7 @@
 		listTeams(s)
 			.then((teams) => {
 				team = teams.find((tm) => tm.id === t) ?? null;
+				issueCopyPrompt = team?.issue_copy_prompt ?? '';
 			})
 			.catch(() => {
 				toast.error('Failed to load team');
@@ -251,6 +254,24 @@
 		} catch (err: any) {
 			team = previous;
 			toast.error(err?.error?.message || 'Failed to update automation');
+		}
+	}
+
+	async function saveIssueCopyPrompt() {
+		if (!team) return;
+		const previous = team;
+		savingIssueCopyPrompt = true;
+		const prompt = issueCopyPrompt.trim();
+		team = { ...team, issue_copy_prompt: prompt || null };
+		try {
+			team = await updateTeam(slug, teamId, { issue_copy_prompt: prompt || null });
+			issueCopyPrompt = team.issue_copy_prompt ?? '';
+			toast.success('Issue copy prompt updated');
+		} catch (err: any) {
+			team = previous;
+			toast.error(err?.error?.message || 'Failed to update issue copy prompt');
+		} finally {
+			savingIssueCopyPrompt = false;
 		}
 	}
 </script>
@@ -519,6 +540,32 @@
 					onCheckedChange={(value) => updateSubIssueAutomation('sub_issue_auto_close_enabled', value)}
 				/>
 			</label>
+		</div>
+
+		<div class="mt-6 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
+			<div class="border-b border-[var(--app-border)] px-5 py-4">
+				<p class="text-sm font-medium text-[var(--color-text-primary)]">Issue copy prompt</p>
+				<p class="text-xs text-[var(--color-text-tertiary)]">
+					Override the workspace AI prompt template for this team. Leave empty to use the workspace default.
+				</p>
+			</div>
+			<div class="space-y-3 px-5 py-4">
+				<textarea
+					bind:value={issueCopyPrompt}
+					rows="8"
+					placeholder="Use workspace issue copy prompt"
+					class="w-full rounded-lg border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-2 font-mono text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)] focus:border-[var(--app-accent)]"
+				></textarea>
+				<p class="text-xs text-[var(--color-text-tertiary)]">
+					Available placeholders: {'{{issue_identifier}}'}, {'{{issue_title}}'}, {'{{team_key}}'}, {'{{team_name}}'}, {'{{issue_xml}}'}.
+				</p>
+				<div class="flex justify-end gap-2">
+					<Button variant="outline" size="sm" onclick={() => (issueCopyPrompt = '')}>Use workspace default</Button>
+					<Button size="sm" onclick={saveIssueCopyPrompt} disabled={savingIssueCopyPrompt}>
+						{savingIssueCopyPrompt ? 'Saving...' : 'Save prompt'}
+					</Button>
+				</div>
+			</div>
 		</div>
 	{/if}
 </div>

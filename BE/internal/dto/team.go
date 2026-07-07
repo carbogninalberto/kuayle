@@ -18,6 +18,7 @@ type UpdateTeamRequest struct {
 	TriageEnabled            *bool   `json:"triage_enabled"`
 	ParentAutoCloseEnabled   *bool   `json:"parent_auto_close_enabled"`
 	SubIssueAutoCloseEnabled *bool   `json:"sub_issue_auto_close_enabled"`
+	IssueCopyPrompt          *string `json:"issue_copy_prompt" validate:"omitempty,max=8000"`
 }
 
 type TeamResponse struct {
@@ -30,6 +31,7 @@ type TeamResponse struct {
 	TriageEnabled            bool      `json:"triage_enabled"`
 	ParentAutoCloseEnabled   bool      `json:"parent_auto_close_enabled"`
 	SubIssueAutoCloseEnabled bool      `json:"sub_issue_auto_close_enabled"`
+	IssueCopyPrompt          *string   `json:"issue_copy_prompt"`
 	CreatedAt                time.Time `json:"created_at"`
 	UpdatedAt                time.Time `json:"updated_at"`
 }

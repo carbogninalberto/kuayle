@@ -139,6 +139,7 @@ func toTeamResponse(t domain.Team) dto.TeamResponse {
 		TriageEnabled:            t.TriageEnabled,
 		ParentAutoCloseEnabled:   t.ParentAutoCloseEnabled,
 		SubIssueAutoCloseEnabled: t.SubIssueAutoCloseEnabled,
+		IssueCopyPrompt:          t.IssueCopyPrompt,
 		CreatedAt:                t.CreatedAt,
 		UpdatedAt:                t.UpdatedAt,
 	}

@@ -21,6 +21,7 @@ import (
 )
 
 const DefaultDescriptionExpandPrompt = "Write TipTap-compatible HTML for a Linear-style issue description. Use only an HTML fragment that TipTap StarterKit can parse, such as <p>, <strong>, <em>, <code>, <ul>, <ol>, <li>, <blockquote>, <h2>, and <h3>. Do not return Markdown, code fences, <html>, <body>, scripts, styles, or explanations. Expand or rewrite the given text into clear, actionable issue content with context, expected behavior, acceptance criteria, and relevant edge cases. Keep it concise and practical. Preserve existing meaning and avoid inventing facts."
+const DefaultIssueCopyPrompt = "Work on issue {{issue_identifier}}:\n\n{{issue_xml}}"
 
 var (
 	ErrAISettingsNotConfigured = errors.New("AI settings are not configured")
@@ -60,6 +61,9 @@ func (s *AISettingsService) Get(ctx context.Context, workspaceID uuid.UUID) (*do
 	if strings.TrimSpace(settings.DescriptionExpandPrompt) == "" {
 		settings.DescriptionExpandPrompt = DefaultDescriptionExpandPrompt
 	}
+	if strings.TrimSpace(settings.IssueCopyPrompt) == "" {
+		settings.IssueCopyPrompt = DefaultIssueCopyPrompt
+	}
 	return settings, nil
 }
 
@@ -91,6 +95,13 @@ func (s *AISettingsService) Update(ctx context.Context, workspaceID, userID uuid
 			prompt = DefaultDescriptionExpandPrompt
 		}
 		settings.DescriptionExpandPrompt = prompt
+	}
+	if req.IssueCopyPrompt != nil {
+		prompt := strings.TrimSpace(*req.IssueCopyPrompt)
+		if prompt == "" {
+			prompt = DefaultIssueCopyPrompt
+		}
+		settings.IssueCopyPrompt = prompt
 	}
 	if req.APIKey.Set {
 		if req.APIKey.Value == nil || strings.TrimSpace(*req.APIKey.Value) == "" {
@@ -171,6 +182,7 @@ func defaultAISettings(workspaceID uuid.UUID) *domain.AISettings {
 		WorkspaceID:             workspaceID,
 		Provider:                domain.AIProviderOpenAICompatible,
 		DescriptionExpandPrompt: DefaultDescriptionExpandPrompt,
+		IssueCopyPrompt:         DefaultIssueCopyPrompt,
 	}
 }
 
@@ -182,6 +194,8 @@ func ToAISettingsResponse(settings *domain.AISettings) dto.AISettingsResponse {
 		HasAPIKey:               settings.APIKeyEncrypted != nil && *settings.APIKeyEncrypted != "",
 		DescriptionExpandPrompt: settings.DescriptionExpandPrompt,
 		DefaultPrompt:           DefaultDescriptionExpandPrompt,
+		IssueCopyPrompt:         settings.IssueCopyPrompt,
+		DefaultIssueCopyPrompt:  DefaultIssueCopyPrompt,
 		CreatedAt:               settings.CreatedAt,
 		UpdatedAt:               settings.UpdatedAt,
 	}

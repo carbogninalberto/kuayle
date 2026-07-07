@@ -17,6 +17,7 @@ type Team struct {
 	TriageEnabled            bool      `json:"triage_enabled" db:"triage_enabled"`
 	ParentAutoCloseEnabled   bool      `json:"parent_auto_close_enabled" db:"parent_auto_close_enabled"`
 	SubIssueAutoCloseEnabled bool      `json:"sub_issue_auto_close_enabled" db:"sub_issue_auto_close_enabled"`
+	IssueCopyPrompt          *string   `json:"issue_copy_prompt" db:"issue_copy_prompt"`
 	CreatedAt                time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt                time.Time `json:"updated_at" db:"updated_at"`
 }
