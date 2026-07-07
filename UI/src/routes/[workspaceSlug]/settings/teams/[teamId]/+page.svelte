@@ -264,7 +264,7 @@
 		const prompt = issueCopyPrompt.trim();
 		team = { ...team, issue_copy_prompt: prompt || null };
 		try {
-			team = await updateTeam(slug, teamId, { issue_copy_prompt: prompt || null });
+			team = await updateTeam(slug, teamId, { issue_copy_prompt: prompt });
 			issueCopyPrompt = team.issue_copy_prompt ?? '';
 			toast.success('Issue copy prompt updated');
 		} catch (err: any) {
