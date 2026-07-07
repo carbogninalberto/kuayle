@@ -272,6 +272,7 @@
 										<a
 											href="/{slug}/issue/{relatedIssue.identifier}"
 											onclick={(e) => e.stopPropagation()}
+											title={`Open ${relatedIssue.identifier}`}
 											class="flex min-w-0 items-center gap-2 rounded-md px-1 py-1 text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
 										>
 											<IssueStatusIcon status={relatedIssue.status} category={relatedIssue.status_info?.category} color={relatedIssue.status_info?.color} size={12} />
