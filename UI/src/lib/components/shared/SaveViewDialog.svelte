@@ -6,18 +6,20 @@
 	import { createView } from '$lib/api/views';
 	import type { Team } from '$lib/types/team';
 	import type { ViewFilter, ViewScope } from '$lib/types/view';
-	import { Building2, Check, CircleUser, SquareUser } from 'lucide-svelte';
+	import { Bookmark, Building2, Check, CircleUser, SquareUser } from 'lucide-svelte';
 	import { toast } from 'svelte-sonner';
 
 	let {
 		open = $bindable(false),
+		showTrigger = true,
 		filters,
 		slug,
 		teams = [],
 		defaultTeamId,
 		defaultScope = 'personal'
 	}: {
-		open: boolean;
+		open?: boolean;
+		showTrigger?: boolean;
 		filters: ViewFilter;
 		slug: string;
 		teams?: Team[];
@@ -106,6 +108,16 @@
 </script>
 
 <Dialog.Root bind:open>
+	{#if showTrigger}
+		<Dialog.Trigger
+			class="flex items-center gap-1 rounded-md border border-[var(--app-border)] px-2 py-1 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]"
+			title="Save as view"
+		>
+			<Bookmark size={12} />
+			Save view
+		</Dialog.Trigger>
+	{/if}
+
 	<Dialog.Content
 		class="sm:max-w-[420px] border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-0 overflow-hidden rounded-xl"
 	>
