@@ -18,6 +18,7 @@
 	import type { Workspace } from '$lib/types/workspace';
 	import type { Team } from '$lib/types/team';
 	import type { View } from '$lib/types/view';
+	import { isPersonalView, isTeamView, isWorkspaceView } from '$lib/types/view';
 	import TeamIcon from '$lib/components/shared/TeamIcon.svelte';
 	import WorkspaceSwitcher from './WorkspaceSwitcher.svelte';
 	import type { Favorite } from '$lib/api/favorites';
@@ -34,6 +35,7 @@
 	import { toast } from 'svelte-sonner';
 	import {
 		ArrowUpRight,
+		Bookmark,
 		Copy,
 		Inbox,
 		CircleUser,
@@ -215,6 +217,8 @@
 	let orderedTeams = $state<Team[]>([]);
 	let orderedViews = $state<View[]>([]);
 	let orderedProjects = $state<Project[]>([]);
+	let personalViews = $derived(orderedViews.filter(isPersonalView));
+	let workspaceViews = $derived(orderedViews.filter(isWorkspaceView));
 
 	function getTranslateY(transform: string): string {
 		const match = transform.match(/translate3d\([^,]+,\s*([^,]+),/);
@@ -304,11 +308,11 @@
 
 	function handleViewsConsider(e: SidebarDndEvent<View>) {
 		updateActiveSidebarDrag(e);
-		orderedViews = e.detail.items;
+		orderedViews = replaceOrderedGroup(orderedViews, e.detail.items);
 	}
 
 	function handleViewsFinalize(e: SidebarDndEvent<View>) {
-		orderedViews = e.detail.items;
+		orderedViews = replaceOrderedGroup(orderedViews, e.detail.items);
 		saveOrder(
 			'views',
 			orderedViews.map((view) => view.id)
@@ -790,7 +794,7 @@
 						{#each orderedTeams as team (team.id)}
 							{@const teamExpanded = !collapsedTeams.has(team.id)}
 							{@const teamProjects = orderedProjects.filter((p) => p.team_id === team.id)}
-							{@const teamViews = orderedViews.filter((v) => v.filters?.team === team.id)}
+							{@const teamViews = orderedViews.filter((view) => isTeamView(view, team.id))}
 							<div
 								animate:flip={{ duration: sidebarDndFlipMs }}
 								class="transition-[transform,opacity] duration-150 {activeSidebarDragId === team.id
@@ -991,58 +995,61 @@
 											</a>
 										{/if}
 										{#if teamViews.length > 0}
-											<div
-												use:dndzone={{ items: teamViews, type: `sidebar-view-${team.id}`, ...dragOptions }}
-												onconsider={handleTeamViewsConsider}
-												onfinalize={handleTeamViewsFinalize}
-											>
-												{#each teamViews as view (view.id)}
-													<div
-														animate:flip={{ duration: sidebarDndFlipMs }}
-														class="transition-[transform,opacity] duration-150 {activeSidebarDragId === view.id
-															? 'opacity-60'
-															: ''}"
-													>
-														<ContextMenu.Root>
-															<ContextMenu.Trigger class="block">
-																<a
-																	data-sidebar-drag-row
-																	href="/{slug}/views/{view.id}"
-																	class="ml-4 flex items-center gap-2 rounded-md px-2 py-1 text-xs {isActive(
-																		`/${slug}/views/${view.id}`
-																	)
-																		? 'bg-[var(--color-bg-hover)]/50 text-[var(--color-text-primary)]'
-																		: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
-																>
-																	<Layers size={13} />
-																	{view.name}
-																</a>
-															</ContextMenu.Trigger>
-															<ContextMenu.Content class="w-44">
-																<ContextMenu.Item onclick={() => goto(`/${slug}/views/${view.id}`)}>
-																	<Layers class={menuIconClass} />
-																	Open view
-																</ContextMenu.Item>
-																<ContextMenu.Item onclick={() => window.open(`/${slug}/views/${view.id}`, '_blank')}>
-																	<ArrowUpRight class={menuIconClass} />
-																	Open in new tab
-																</ContextMenu.Item>
-																<ContextMenu.Item onclick={() => copyLink(`/${slug}/views/${view.id}`)}>
-																	<Copy class={menuIconClass} />
-																	Copy link
-																</ContextMenu.Item>
-																<ContextMenu.Separator />
-																<ContextMenu.Item
-																	onclick={() => requestDeleteView(view)}
-																	class="text-[var(--color-error)] focus:text-[var(--color-error)]"
-																>
-																	<Trash2 class={menuIconClass} />
-																	Delete view
-																</ContextMenu.Item>
-															</ContextMenu.Content>
-														</ContextMenu.Root>
-													</div>
-												{/each}
+											<div class="relative ml-[31px]">
+												<div class="absolute left-0 top-0 bottom-2 w-px bg-[var(--app-border-hover)]"></div>
+												<div
+													use:dndzone={{ items: teamViews, type: `sidebar-view-${team.id}`, ...dragOptions }}
+													onconsider={handleTeamViewsConsider}
+													onfinalize={handleTeamViewsFinalize}
+												>
+													{#each teamViews as view (view.id)}
+														<div
+															animate:flip={{ duration: sidebarDndFlipMs }}
+															class="transition-[transform,opacity] duration-150 {activeSidebarDragId === view.id
+																? 'opacity-60'
+																: ''}"
+														>
+															<ContextMenu.Root>
+																<ContextMenu.Trigger class="block">
+																	<a
+																		data-sidebar-drag-row
+																		href="/{slug}/views/{view.id}"
+																		class="relative flex items-center gap-2 rounded-md px-2 py-1 text-xs {isActive(
+																			`/${slug}/views/${view.id}`
+																		)
+																			? 'bg-[var(--color-bg-hover)]/50 text-[var(--color-text-primary)]'
+																			: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
+																	>
+																		<Layers size={13} />
+																		{view.name}
+																	</a>
+																</ContextMenu.Trigger>
+																<ContextMenu.Content class="w-44">
+																	<ContextMenu.Item onclick={() => goto(`/${slug}/views/${view.id}`)}>
+																		<Layers class={menuIconClass} />
+																		Open view
+																	</ContextMenu.Item>
+																	<ContextMenu.Item onclick={() => window.open(`/${slug}/views/${view.id}`, '_blank')}>
+																		<ArrowUpRight class={menuIconClass} />
+																		Open in new tab
+																	</ContextMenu.Item>
+																	<ContextMenu.Item onclick={() => copyLink(`/${slug}/views/${view.id}`)}>
+																		<Copy class={menuIconClass} />
+																		Copy link
+																	</ContextMenu.Item>
+																	<ContextMenu.Separator />
+																	<ContextMenu.Item
+																		onclick={() => requestDeleteView(view)}
+																		class="text-[var(--color-error)] focus:text-[var(--color-error)]"
+																	>
+																		<Trash2 class={menuIconClass} />
+																		Delete view
+																	</ContextMenu.Item>
+																</ContextMenu.Content>
+															</ContextMenu.Root>
+														</div>
+													{/each}
+												</div>
 											</div>
 										{/if}
 									</div>
@@ -1063,7 +1070,7 @@
 			</div>
 
 			<!-- Views -->
-			{#if orderedViews.length > 0}
+			{#if personalViews.length > 0 || workspaceViews.length > 0}
 				<div class="mt-4">
 					<button
 						onclick={() => (viewsCollapsed = toggleSection('views', viewsCollapsed))}
@@ -1078,60 +1085,77 @@
 						</span>
 					</button>
 					{#if !viewsCollapsed}
-						<div
-							transition:slideFade
-							use:dndzone={{ items: orderedViews, type: 'sidebar-view', ...dragOptions }}
-							onconsider={handleViewsConsider}
-							onfinalize={handleViewsFinalize}
-						>
-							{#each orderedViews as view (view.id)}
-								<div
-									animate:flip={{ duration: sidebarDndFlipMs }}
-									class="transition-[transform,opacity] duration-150 {activeSidebarDragId === view.id
-										? 'opacity-60'
-										: ''}"
-								>
-									<ContextMenu.Root>
-										<ContextMenu.Trigger class="block">
-											<a
-												data-sidebar-drag-row
-												href="/{slug}/views/{view.id}"
-												class="flex items-center gap-2 rounded-md px-2 py-1 text-sm {isActive(
-													`/${slug}/views/${view.id}`
-												)
-													? 'bg-[var(--color-bg-hover)]/50 text-[var(--color-text-primary)]'
-													: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
-											>
-												<Layers size={16} />
-												{view.name}
-											</a>
-										</ContextMenu.Trigger>
-										<ContextMenu.Content class="w-44">
-											<ContextMenu.Item onclick={() => goto(`/${slug}/views/${view.id}`)}>
-												<Layers class={menuIconClass} />
-												Open view
-											</ContextMenu.Item>
-											<ContextMenu.Item onclick={() => window.open(`/${slug}/views/${view.id}`, '_blank')}>
-												<ArrowUpRight class={menuIconClass} />
-												Open in new tab
-											</ContextMenu.Item>
-											<ContextMenu.Item onclick={() => copyLink(`/${slug}/views/${view.id}`)}>
-												<Copy class={menuIconClass} />
-												Copy link
-											</ContextMenu.Item>
-											<ContextMenu.Separator />
-											<ContextMenu.Item
-												onclick={() => requestDeleteView(view)}
-												class="text-[var(--color-error)] focus:text-[var(--color-error)]"
-											>
-												<Trash2 class={menuIconClass} />
-												Delete view
-											</ContextMenu.Item>
-										</ContextMenu.Content>
-									</ContextMenu.Root>
-								</div>
-							{/each}
+						<div transition:slideFade>
+							<a
+								href="/{slug}/my-views"
+								class="flex items-center gap-2 rounded-md px-2 py-1 text-sm {isActive(`/${slug}/my-views`)
+									? 'bg-[var(--color-bg-hover)]/50 text-[var(--color-text-primary)]'
+									: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
+							>
+								<Bookmark size={16} class="shrink-0" />
+								<span class="truncate">My Views</span>
+								{#if personalViews.length > 0}
+									<span class="ml-auto text-[10px] text-[var(--color-text-tertiary)]">{personalViews.length}</span>
+								{/if}
+							</a>
 						</div>
+
+						{#if workspaceViews.length > 0}
+							<div
+								transition:slideFade
+								use:dndzone={{ items: workspaceViews, type: 'sidebar-view', ...dragOptions }}
+								onconsider={handleViewsConsider}
+								onfinalize={handleViewsFinalize}
+							>
+								{#each workspaceViews as view (view.id)}
+									<div
+										animate:flip={{ duration: sidebarDndFlipMs }}
+										class="transition-[transform,opacity] duration-150 {activeSidebarDragId === view.id
+											? 'opacity-60'
+											: ''}"
+									>
+										<ContextMenu.Root>
+											<ContextMenu.Trigger class="block">
+												<a
+													data-sidebar-drag-row
+													href="/{slug}/views/{view.id}"
+													class="flex items-center gap-2 rounded-md px-2 py-1 text-sm {isActive(
+														`/${slug}/views/${view.id}`
+													)
+														? 'bg-[var(--color-bg-hover)]/50 text-[var(--color-text-primary)]'
+														: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
+												>
+													<Layers size={16} />
+													{view.name}
+												</a>
+											</ContextMenu.Trigger>
+											<ContextMenu.Content class="w-44">
+												<ContextMenu.Item onclick={() => goto(`/${slug}/views/${view.id}`)}>
+													<Layers class={menuIconClass} />
+													Open view
+												</ContextMenu.Item>
+												<ContextMenu.Item onclick={() => window.open(`/${slug}/views/${view.id}`, '_blank')}>
+													<ArrowUpRight class={menuIconClass} />
+													Open in new tab
+												</ContextMenu.Item>
+												<ContextMenu.Item onclick={() => copyLink(`/${slug}/views/${view.id}`)}>
+													<Copy class={menuIconClass} />
+													Copy link
+												</ContextMenu.Item>
+												<ContextMenu.Separator />
+												<ContextMenu.Item
+													onclick={() => requestDeleteView(view)}
+													class="text-[var(--color-error)] focus:text-[var(--color-error)]"
+												>
+													<Trash2 class={menuIconClass} />
+													Delete view
+												</ContextMenu.Item>
+											</ContextMenu.Content>
+										</ContextMenu.Root>
+									</div>
+								{/each}
+							</div>
+						{/if}
 					{/if}
 				</div>
 			{/if}

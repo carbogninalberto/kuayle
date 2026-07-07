@@ -11,6 +11,7 @@
 	import { teamStatusesState } from '$lib/features/issues/team-statuses.state.svelte';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import type { View, ViewFilter } from '$lib/types/view';
+	import { issueFilters, viewMetadata } from '$lib/types/view';
 	import type { Issue } from '$lib/types/issue';
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import type { Label } from '$lib/types/label';
@@ -69,7 +70,7 @@
 				labels = l;
 				teams = t;
 				projects = p;
-				filters = { ...viewData.filters };
+				filters = issueFilters(viewData.filters);
 				await loadIssues();
 			})
 			.catch(() => {
@@ -83,7 +84,7 @@
 
 	async function loadIssues() {
 		const params: Record<string, string> = { per_page: '200' };
-		for (const [key, val] of Object.entries(filters)) {
+		for (const [key, val] of Object.entries(issueFilters(filters))) {
 			if (val) params[key] = val;
 		}
 		try {
@@ -150,7 +151,7 @@
 	async function saveFilters() {
 		if (!view) return;
 		try {
-			view = await updateView(slug, view.id, { filters });
+			view = await updateView(slug, view.id, { filters: { ...filters, ...viewMetadata(view.filters) } });
 		} catch (err: any) {
 			toast.error(err?.error?.message || 'Failed to save filters');
 		}

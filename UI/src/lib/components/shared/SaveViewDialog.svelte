@@ -3,42 +3,99 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
-	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { createView } from '$lib/api/views';
-	import type { ViewFilter } from '$lib/types/view';
+	import type { Team } from '$lib/types/team';
+	import type { ViewFilter, ViewScope } from '$lib/types/view';
+	import { Building2, Check, CircleUser, SquareUser } from 'lucide-svelte';
 	import { toast } from 'svelte-sonner';
 
 	let {
 		open = $bindable(false),
 		filters,
-		slug
+		slug,
+		teams = [],
+		defaultTeamId,
+		defaultScope = 'personal'
 	}: {
 		open: boolean;
 		filters: ViewFilter;
 		slug: string;
+		teams?: Team[];
+		defaultTeamId?: string;
+		defaultScope?: ViewScope;
 	} = $props();
 
 	let name = $state('');
 	let description = $state('');
-	let isShared = $state(false);
+	let scope = $state<ViewScope>('personal');
+
+	const scopeOptions: Array<{
+		value: ViewScope;
+		label: string;
+		description: string;
+		icon: typeof CircleUser;
+	}> = [
+		{
+			value: 'personal',
+			label: 'Personal',
+			description: 'Only visible to you',
+			icon: CircleUser
+		},
+		{
+			value: 'workspace',
+			label: 'Workspace',
+			description: 'Shared with everyone',
+			icon: Building2
+		},
+		{
+			value: 'team',
+			label: 'Team',
+			description: 'Shared in a team section',
+			icon: SquareUser
+		}
+	];
+
+	let currentTeam = $derived(teams.find((team) => team.id === defaultTeamId));
+	let visibleScopeOptions = $derived(scopeOptions.filter((option) => option.value !== 'team' || defaultTeamId));
 
 	$effect(() => {
 		if (open) {
 			name = '';
 			description = '';
-			isShared = false;
+			scope = defaultScope === 'team' && !defaultTeamId ? 'personal' : defaultScope;
 		}
+	});
+
+	$effect(() => {
+		if (scope === 'team' && !defaultTeamId) scope = 'personal';
 	});
 
 	async function handleSubmit(e: Event) {
 		e.preventDefault();
 		if (!name.trim()) return;
+		if (scope === 'team' && !defaultTeamId) {
+			toast.error('Team views can only be saved from a team');
+			return;
+		}
+
+		const nextFilters: ViewFilter = {
+			...filters,
+			...(defaultTeamId ? { team: defaultTeamId } : {}),
+			view_scope: scope
+		};
+		if (scope === 'team') {
+			nextFilters.team = defaultTeamId;
+			nextFilters.view_team = defaultTeamId;
+		} else {
+			delete nextFilters.view_team;
+		}
+
 		try {
 			await createView(slug, {
 				name: name.trim(),
 				description: description.trim() || undefined,
-				filters,
-				is_shared: isShared
+				filters: nextFilters,
+				is_shared: scope !== 'personal'
 			});
 			toast.success('View saved');
 			open = false;
@@ -49,7 +106,9 @@
 </script>
 
 <Dialog.Root bind:open>
-	<Dialog.Content class="sm:max-w-[420px] border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-0 overflow-hidden rounded-xl">
+	<Dialog.Content
+		class="sm:max-w-[420px] border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-0 overflow-hidden rounded-xl"
+	>
 		<form onsubmit={handleSubmit}>
 			<div class="px-5 pt-5 pb-4 space-y-4">
 				<div>
@@ -68,7 +127,9 @@
 				</div>
 
 				<div class="space-y-1.5">
-					<Label class="text-xs text-[var(--color-text-secondary)]">Description <span class="text-[var(--color-text-tertiary)]">(optional)</span></Label>
+					<Label class="text-xs text-[var(--color-text-secondary)]"
+						>Description <span class="text-[var(--color-text-tertiary)]">(optional)</span></Label
+					>
 					<Input
 						bind:value={description}
 						placeholder="What does this view show?"
@@ -76,10 +137,41 @@
 					/>
 				</div>
 
-				<div class="flex items-center gap-2">
-					<Checkbox bind:checked={isShared} />
-					<span class="text-xs text-[var(--color-text-secondary)]">Share with workspace</span>
+				<div class="space-y-2">
+					<Label class="text-xs text-[var(--color-text-secondary)]">Visibility</Label>
+					<div class="grid gap-2">
+						{#each visibleScopeOptions as option}
+							{@const Icon = option.icon}
+							<button
+								type="button"
+								onclick={() => (scope = option.value)}
+								class="flex items-center gap-3 rounded-lg border p-3 text-left transition-colors {scope === option.value
+									? 'border-[var(--app-accent)] bg-[var(--app-accent)]/10'
+									: 'border-[var(--app-border)] bg-[var(--color-bg)] hover:bg-[var(--color-bg-hover)]'}"
+							>
+								<Icon size={16} class="shrink-0 text-[var(--color-text-secondary)]" />
+								<span class="min-w-0 flex-1">
+									<span class="block text-sm font-medium text-[var(--color-text-primary)]">{option.label}</span>
+									<span class="block text-xs text-[var(--color-text-tertiary)]">
+										{option.value === 'team' && currentTeam ? `Shared with ${currentTeam.name}` : option.description}
+									</span>
+								</span>
+								{#if scope === option.value}
+									<Check size={15} class="shrink-0 text-[var(--app-accent-light)]" />
+								{/if}
+							</button>
+						{/each}
+					</div>
 				</div>
+
+				{#if scope === 'team' && currentTeam}
+					<div
+						class="flex items-center gap-2 rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-2 text-xs text-[var(--color-text-secondary)]"
+					>
+						<SquareUser size={14} class="shrink-0 text-[var(--color-text-tertiary)]" />
+						<span>This view will be saved to {currentTeam.name}.</span>
+					</div>
+				{/if}
 			</div>
 
 			<div class="flex justify-end gap-2 border-t border-[var(--app-border)] px-5 py-3">
