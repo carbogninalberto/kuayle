@@ -1,1 +1,86 @@
-[]
+[
+  {
+    "tag_name": "v0.1.0",
+    "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.0",
+    "body": "**Full Changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.0.11...v0.1.0",
+    "published_at": "2026-07-07T01:04:15Z",
+    "prerelease": false
+  },
+  {
+    "tag_name": "v0.0.11",
+    "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.0.11",
+    "body": "## What's Changed\r\n* Add sub-issue hierarchy UX and GitHub activity refinements by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/28\r\n* refactor(issues): extract label chips into reusable component by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/29\r\n* Add customizable sidebar views and team-scoped saved views by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/30\r\n\r\n\r\n**Full Changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.0.10...v0.0.11",
+    "published_at": "2026-07-07T00:56:06Z",
+    "prerelease": false
+  },
+  {
+    "tag_name": "v0.0.10",
+    "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.0.10",
+    "body": "## What's Changed\r\n* Alberto/kua 30 improvementtoast make toasts to look way nicer by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/26\r\n* fix(release-notice): use dvh units to prevent modal overflow by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/27\r\n\r\n\r\n**Full Changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.0.9...v0.0.10",
+    "published_at": "2026-07-06T19:59:30Z",
+    "prerelease": false
+  },
+  {
+    "tag_name": "v0.0.9",
+    "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.0.9",
+    "body": "## What's Changed\r\n* Alberto/kua 27 addsearch global search of issues should also sear by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/20\r\n* Alberto/kua 37 fixprompt copy images are not included in the prom by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/21\r\n* feat(workspace): add default labels on workspace creation by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/22\r\n* fix(views): remove filter preview from save dialog and view list by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/23\r\n* feat(issues): add default prefill for issue creation dialog by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/24\r\n* feat(websocket): dispatch real-time updates for GitHub events by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/25\r\n\r\n\r\n**Full Changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.0.8...v0.0.9",
+    "published_at": "2026-07-06T19:08:32Z",
+    "prerelease": false
+  },
+  {
+    "tag_name": "v0.0.8",
+    "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.0.8",
+    "body": "## What's Changed\r\n* feat(teams): add issue sorting within workflow by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/19\r\n\r\n\r\n**Full Changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.0.7...v0.0.8",
+    "published_at": "2026-07-06T11:32:17Z",
+    "prerelease": false
+  },
+  {
+    "tag_name": "v0.0.7",
+    "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.0.7",
+    "body": "## What's Changed\r\n* Alberto/kua 12 fixux general UI data refreshing by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/14\r\n* feat(release): add multi-release changelog with markdown rendering by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/15\r\n* feat(ui): add keyboard shortcuts help button to sidebar by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/16\r\n* fix(preferences): prevent stale remote from overwriting local theme c… by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/17\r\n* feat(workspace): add workspace delete and owner-based settings manage… by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/18\r\n\r\n\r\n**Full Changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.0.6...v0.0.7",
+    "published_at": "2026-07-06T05:59:10Z",
+    "prerelease": false
+  },
+  {
+    "tag_name": "v0.0.6",
+    "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.0.6",
+    "body": "## What's Changed\r\n* fix(views): redirect to inbox instead of workspace root on view errors by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/9\r\n* Alberto/kua 5 adddemo global demo mode with info for login by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/10\r\n* fix(issues): show only last 3 activity entries by default by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/11\r\n* Alberto/kua 22 fixissues creation with create more after creation by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/12\r\n* feat(preferences): add workflow sort customization with per-team over… by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/13\r\n\r\n\r\n**Full Changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.0.5...v0.0.6",
+    "published_at": "2026-07-03T23:37:49Z",
+    "prerelease": false
+  },
+  {
+    "tag_name": "v0.0.5",
+    "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.0.5",
+    "body": "## What's Changed\r\n* fix(issues): randomize label color on creation by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/4\r\n* Alberto/kua 10 addpassword eye toggle on password input by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/5\r\n* fix(issues): support special characters in issue titles by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/6\r\n* feat(teams): add delete and leave team functionality by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/7\r\n* feat(login): add logo to login page by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/8\r\n\r\n\r\n**Full Changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.0.4...v0.0.5",
+    "published_at": "2026-07-03T19:55:49Z",
+    "prerelease": false
+  },
+  {
+    "tag_name": "v0.0.4",
+    "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.0.4",
+    "body": "## What's Changed\r\n* KUA-1: fix mobile layout by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/2\r\n* feat(issues): add label creation and bulk label assignment by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/3\r\n\r\n## New Contributors\r\n* @carbogninalberto made their first contribution in https://github.com/carbogninalberto/kuayle/pull/2\r\n\r\n**Full Changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.0.3...v0.0.4",
+    "published_at": "2026-07-03T11:55:55Z",
+    "prerelease": false
+  },
+  {
+    "tag_name": "v0.0.3",
+    "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.0.3",
+    "body": "**Full Changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.0.2...v0.0.3",
+    "published_at": "2026-07-03T01:36:21Z",
+    "prerelease": false
+  },
+  {
+    "tag_name": "v0.0.2",
+    "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.0.2",
+    "body": "**Full Changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.0.1...v0.0.2",
+    "published_at": "2026-07-03T01:08:12Z",
+    "prerelease": false
+  },
+  {
+    "tag_name": "v0.0.1",
+    "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.0.1",
+    "body": "**Full Changelog**: https://github.com/carbogninalberto/kuayle/commits/v0.0.1",
+    "published_at": "2026-07-02T23:44:46Z",
+    "prerelease": false
+  }
+]
