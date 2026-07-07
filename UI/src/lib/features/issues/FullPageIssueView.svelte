@@ -93,6 +93,8 @@
 
 	// Presence & real-time
 	let lastLocalUpdate = 0;
+	let descriptionSaveTimer: ReturnType<typeof setTimeout> | null = null;
+	let pendingDescriptionHtml = '';
 
 	// Collapsible sidebar sections
 	let detailsExpanded = $state(true);
@@ -196,6 +198,11 @@
 	onDestroy(() => {
 		window.removeEventListener('keydown', issueKeyHandler);
 		presenceState.leave();
+		if (descriptionSaveTimer) {
+			clearTimeout(descriptionSaveTimer);
+			descriptionSaveTimer = null;
+			void flushDescriptionSave(pendingDescriptionHtml);
+		}
 		window.removeEventListener('ws:issue-updated', onIssueUpdated);
 		window.removeEventListener('ws:issue-deleted', onIssueDeleted);
 		window.removeEventListener('ws:comment-created', onCommentCreated);
@@ -238,7 +245,18 @@
 		}
 	}
 
-	async function saveDescription(html: string) {
+	function saveDescription(html: string) {
+		lastLocalUpdate = Date.now();
+		pendingDescriptionHtml = html;
+		if (descriptionSaveTimer) clearTimeout(descriptionSaveTimer);
+		descriptionSaveTimer = setTimeout(() => {
+			descriptionSaveTimer = null;
+			void flushDescriptionSave(pendingDescriptionHtml);
+		}, 2000);
+	}
+
+	async function flushDescriptionSave(html: string) {
+		if (html === (issue.description ?? '')) return;
 		try {
 			lastLocalUpdate = Date.now();
 			const updated = await issuesState.update(slug, issue.identifier, { description: html });

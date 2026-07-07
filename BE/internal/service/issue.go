@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -23,6 +24,31 @@ type IssueService struct {
 	historyRepo    repository.IssueHistoryRepo
 	hub            *realtime.Hub
 	notifSvc       *NotificationService
+}
+
+const issueUpdateNotificationWindow = 5 * time.Minute
+
+type issueChangeSet struct {
+	fields       []string
+	fieldSet     map[string]bool
+	newAssignees []uuid.UUID
+	newMentions  []uuid.UUID
+}
+
+func newIssueChangeSet() *issueChangeSet {
+	return &issueChangeSet{fieldSet: make(map[string]bool)}
+}
+
+func (c *issueChangeSet) addField(field string) {
+	if c.fieldSet[field] {
+		return
+	}
+	c.fieldSet[field] = true
+	c.fields = append(c.fields, field)
+}
+
+func (c *issueChangeSet) hasRegularChanges() bool {
+	return len(c.fields) > 0
 }
 
 type issueSubscriberRepo interface {
@@ -329,6 +355,9 @@ func (s *IssueService) ConvertToProject(ctx context.Context, workspaceID, userID
 		}
 		s.hub.Broadcast(workspaceID, realtime.Event{Type: "issue.updated", Payload: item})
 	}
+	for _, uid := range s.issueNotificationRecipients(ctx, issue, userID, true) {
+		s.notify(ctx, uid, issue, "issue_converted_to_project", fmt.Sprintf("%s was converted to a project", issue.Identifier))
+	}
 
 	return project, nil
 }
@@ -418,42 +447,66 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 	if issue.Description != nil {
 		oldDescription = *issue.Description
 	}
+	oldSingleAssignee := issue.AssigneeID
+	oldAssigneeSet := make(map[uuid.UUID]bool)
+	oldAssigneesLoaded := false
+	loadOldAssigneeSet := func() map[uuid.UUID]bool {
+		if oldAssigneesLoaded {
+			return oldAssigneeSet
+		}
+		oldAssignees, _ := s.issueRepo.GetAssignees(ctx, issue.ID)
+		oldAssigneeSet = uuidSet(oldAssignees)
+		if oldSingleAssignee != nil {
+			oldAssigneeSet[*oldSingleAssignee] = true
+		}
+		oldAssigneesLoaded = true
+		return oldAssigneeSet
+	}
+	changes := newIssueChangeSet()
 
 	// Track changes for history
 	if req.Title != nil && *req.Title != issue.Title {
 		old := issue.Title
 		issue.Title = *req.Title
 		s.recordHistory(ctx, issue.ID, userID, "title", &old, req.Title)
+		changes.addField("title")
 	}
-	if req.Description != nil {
+	if req.Description != nil && *req.Description != oldDescription {
 		old := ""
 		if issue.Description != nil {
 			old = *issue.Description
 		}
 		issue.Description = req.Description
 		s.recordHistory(ctx, issue.ID, userID, "description", &old, req.Description)
+		changes.addField("description")
+		changes.newMentions = newMentionedUserIDs(oldDescription, *req.Description)
 	}
 	statusChanged := false
 	if req.StatusID != nil {
 		sid, err := uuid.Parse(*req.StatusID)
 		if err == nil {
-			// Look up old and new status names for history
-			var oldName string
-			if issue.StatusID != nil {
-				oldStatus, _ := s.teamStatusRepo.GetByID(ctx, *issue.StatusID)
-				if oldStatus != nil {
-					oldName = oldStatus.Name
+			statusChanged = issue.StatusID == nil || *issue.StatusID != sid
+			if statusChanged {
+				// Look up old and new status names for history
+				var oldName string
+				if issue.StatusID != nil {
+					oldStatus, _ := s.teamStatusRepo.GetByID(ctx, *issue.StatusID)
+					if oldStatus != nil {
+						oldName = oldStatus.Name
+					}
 				}
-			}
-			newStatus, _ := s.teamStatusRepo.GetByID(ctx, sid)
-			// Validate that the status belongs to the same team as the issue
-			if newStatus != nil && newStatus.TeamID == issue.TeamID {
-				newName := newStatus.Name
-				statusChanged = issue.StatusID == nil || *issue.StatusID != sid
-				issue.StatusID = &sid
-				// Update legacy status field for backward compat
-				issue.Status = domain.IssueStatus(newStatus.Slug)
-				s.recordHistory(ctx, issue.ID, userID, "status", &oldName, &newName)
+				newStatus, _ := s.teamStatusRepo.GetByID(ctx, sid)
+				// Validate that the status belongs to the same team as the issue
+				if newStatus != nil && newStatus.TeamID == issue.TeamID {
+					newName := newStatus.Name
+					issue.StatusID = &sid
+					// Update legacy status field for backward compat
+					issue.Status = domain.IssueStatus(newStatus.Slug)
+					s.recordHistory(ctx, issue.ID, userID, "status", &oldName, &newName)
+					changes.addField("status")
+				} else {
+					statusChanged = false
+				}
 			}
 		}
 	} else if req.Status != nil && *req.Status != string(issue.Status) {
@@ -461,6 +514,7 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 		issue.Status = domain.IssueStatus(*req.Status)
 		statusChanged = true
 		s.recordHistory(ctx, issue.ID, userID, "status", &old, req.Status)
+		changes.addField("status")
 		// Also update status_id to match the new legacy status slug
 		ts, err := s.teamStatusRepo.GetByTeamAndSlug(ctx, issue.TeamID, *req.Status)
 		if err == nil && ts != nil {
@@ -472,6 +526,7 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 		issue.Priority = domain.IssuePriority(*req.Priority)
 		newVal := fmt.Sprintf("%d", *req.Priority)
 		s.recordHistory(ctx, issue.ID, userID, "priority", &old, &newVal)
+		changes.addField("priority")
 	}
 	if req.AssigneeID != nil {
 		old := ""
@@ -479,8 +534,15 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 			old = issue.AssigneeID.String()
 		}
 		aid, _ := uuid.Parse(*req.AssigneeID)
-		issue.AssigneeID = &aid
-		s.recordHistory(ctx, issue.ID, userID, "assignee_id", &old, req.AssigneeID)
+		if old != aid.String() {
+			oldAssigneeSet := loadOldAssigneeSet()
+			issue.AssigneeID = &aid
+			s.recordHistory(ctx, issue.ID, userID, "assignee_id", &old, req.AssigneeID)
+			changes.addField("assignee")
+			if !oldAssigneeSet[aid] {
+				changes.newAssignees = append(changes.newAssignees, aid)
+			}
+		}
 	}
 	if req.ProjectID != nil {
 		old := ""
@@ -499,6 +561,7 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 		}
 		if old != newVal {
 			s.recordHistory(ctx, issue.ID, userID, "project", &old, &newVal)
+			changes.addField("project")
 		}
 	}
 	if req.CycleID != nil {
@@ -518,6 +581,7 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 		}
 		if old != newVal {
 			s.recordHistory(ctx, issue.ID, userID, "cycle", &old, &newVal)
+			changes.addField("cycle")
 		}
 	}
 	if req.ParentID != nil {
@@ -540,6 +604,7 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 		}
 		if old != newVal {
 			s.recordHistory(ctx, issue.ID, userID, "parent", &old, &newVal)
+			changes.addField("parent")
 		}
 	}
 	if req.DueDate != nil {
@@ -558,6 +623,7 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 		newVal := *req.DueDate
 		if oldVal != newVal {
 			s.recordHistory(ctx, issue.ID, userID, "due_date", &oldVal, &newVal)
+			changes.addField("due date")
 		}
 	}
 	if req.SortOrder != nil {
@@ -593,17 +659,36 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 		newStr := strings.Join(newNames, ", ")
 		if oldStr != newStr {
 			s.recordHistory(ctx, issue.ID, userID, "labels", &oldStr, &newStr)
+			changes.addField("labels")
 		}
 	}
 
 	// Update assignees (multi-assignee)
 	if req.AssigneeIDs != nil {
+		oldAssigneeSet := loadOldAssigneeSet()
 		uids := make([]uuid.UUID, len(req.AssigneeIDs))
 		for i, aid := range req.AssigneeIDs {
 			uids[i], _ = uuid.Parse(aid)
 		}
 		if err := s.issueRepo.SetAssignees(ctx, issue.ID, uids); err != nil {
 			log.WithError(err).Warn("failed to set assignees")
+		}
+		if len(uids) > 0 {
+			issue.AssigneeID = &uids[0]
+		} else {
+			issue.AssigneeID = nil
+		}
+		oldUIDs := keysFromUUIDSet(oldAssigneeSet)
+		if !sameUUIDSet(oldUIDs, uids) {
+			oldStr := uuidListString(oldUIDs)
+			newStr := uuidListString(uids)
+			s.recordHistory(ctx, issue.ID, userID, "assignees", &oldStr, &newStr)
+			changes.addField("assignees")
+			for _, uid := range uids {
+				if !oldAssigneeSet[uid] {
+					changes.newAssignees = append(changes.newAssignees, uid)
+				}
+			}
 		}
 	}
 
@@ -616,16 +701,17 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 	}
 
 	// Send notifications for field changes
-	s.sendUpdateNotifications(ctx, issue, userID, req, oldDescription)
+	s.sendUpdateNotifications(ctx, issue, userID, changes)
 
 	return issue, nil
 }
 
-func (s *IssueService) Delete(ctx context.Context, workspaceID uuid.UUID, identifier string) error {
+func (s *IssueService) Delete(ctx context.Context, workspaceID, actorID uuid.UUID, identifier string) error {
 	issue, err := s.issueRepo.GetByIdentifier(ctx, workspaceID, identifier)
 	if err != nil || issue == nil {
 		return fmt.Errorf("issue not found")
 	}
+	recipients := s.issueNotificationRecipients(ctx, issue, actorID, true)
 
 	if err := s.issueRepo.Delete(ctx, issue.ID); err != nil {
 		return err
@@ -640,6 +726,9 @@ func (s *IssueService) Delete(ctx context.Context, workspaceID uuid.UUID, identi
 		Type:    "issue.deleted",
 		Payload: map[string]string{"identifier": identifier},
 	})
+	for _, uid := range recipients {
+		s.notifyIssue(ctx, uid, issue, "issue_deleted", fmt.Sprintf("%s was deleted: %s", issue.Identifier, issue.Title), false)
+	}
 
 	return nil
 }
@@ -677,6 +766,13 @@ func (s *IssueService) Triage(ctx context.Context, workspaceID, userID uuid.UUID
 		Type:    "issue.triaged",
 		Payload: issue,
 	})
+	result := "accepted"
+	if !accept {
+		result = "declined"
+	}
+	for _, uid := range s.issueNotificationRecipients(ctx, issue, userID, true) {
+		s.notify(ctx, uid, issue, "issue_triaged", fmt.Sprintf("%s was triaged: %s", issue.Identifier, result))
+	}
 
 	return issue, nil
 }
@@ -803,11 +899,15 @@ func (s *IssueService) BulkUpdate(ctx context.Context, workspaceID, userID uuid.
 	if err != nil {
 		return 0, err
 	}
-	if req.Status != nil || req.StatusID != nil {
-		for _, id := range issueIDs {
-			issue, err := s.issueRepo.GetByID(ctx, id)
-			if err == nil && issue != nil && issue.WorkspaceID == workspaceID {
+	recipientCounts := make(map[uuid.UUID]int)
+	for _, id := range issueIDs {
+		issue, err := s.issueRepo.GetByID(ctx, id)
+		if err == nil && issue != nil && issue.WorkspaceID == workspaceID {
+			if req.Status != nil || req.StatusID != nil {
 				s.applyStatusAutomation(ctx, workspaceID, userID, issue, map[uuid.UUID]bool{})
+			}
+			for _, uid := range s.issueNotificationRecipients(ctx, issue, userID, true) {
+				recipientCounts[uid]++
 			}
 		}
 	}
@@ -816,6 +916,13 @@ func (s *IssueService) BulkUpdate(ctx context.Context, workspaceID, userID uuid.
 		Type:    "issues.bulk_updated",
 		Payload: map[string]interface{}{"count": n},
 	})
+	fields := bulkUpdateFields(req)
+	if n > 0 && len(fields) > 0 {
+		for uid, count := range recipientCounts {
+			title := fmt.Sprintf("%d issues updated: %s", count, strings.Join(fields, ", "))
+			s.notifyWorkspace(ctx, workspaceID, uid, "issues_updated", title, true)
+		}
+	}
 
 	return n, nil
 }
@@ -1059,16 +1166,17 @@ func (s *IssueService) BulkDelete(ctx context.Context, workspaceID, userID uuid.
 		issueIDs[i] = parsed
 	}
 
-	// Members can only delete their own issues
-	if !canDeleteAny {
-		for _, id := range issueIDs {
-			issue, err := s.issueRepo.GetByID(ctx, id)
-			if err != nil || issue == nil {
-				return 0, fmt.Errorf("issue not found")
-			}
-			if issue.CreatorID != userID {
-				return 0, fmt.Errorf("forbidden")
-			}
+	recipientCounts := make(map[uuid.UUID]int)
+	for _, id := range issueIDs {
+		issue, err := s.issueRepo.GetByID(ctx, id)
+		if err != nil || issue == nil || issue.WorkspaceID != workspaceID {
+			return 0, fmt.Errorf("issue not found")
+		}
+		if !canDeleteAny && issue.CreatorID != userID {
+			return 0, fmt.Errorf("forbidden")
+		}
+		for _, uid := range s.issueNotificationRecipients(ctx, issue, userID, true) {
+			recipientCounts[uid]++
 		}
 	}
 
@@ -1081,6 +1189,11 @@ func (s *IssueService) BulkDelete(ctx context.Context, workspaceID, userID uuid.
 		Type:    "issues.bulk_deleted",
 		Payload: map[string]interface{}{"count": n},
 	})
+	if n > 0 {
+		for uid, count := range recipientCounts {
+			s.notifyWorkspace(ctx, workspaceID, uid, "issues_deleted", fmt.Sprintf("%d issues deleted", count), false)
+		}
+	}
 
 	return n, nil
 }
@@ -1092,11 +1205,42 @@ func (s *IssueService) recordHistory(ctx context.Context, issueID, userID uuid.U
 }
 
 func (s *IssueService) notify(ctx context.Context, userID uuid.UUID, issue *domain.Issue, notifType, title string) {
-	if err := s.notifSvc.Create(ctx, userID, issue.WorkspaceID, &issue.ID, notifType, title); err != nil {
+	s.notifyIssue(ctx, userID, issue, notifType, title, true)
+}
+
+func (s *IssueService) notifyIssue(ctx context.Context, userID uuid.UUID, issue *domain.Issue, notifType, title string, linkIssue bool) {
+	var issueID *uuid.UUID
+	if linkIssue {
+		issueID = &issue.ID
+	}
+	var err error
+	if notifType == "issue_updated" {
+		err = s.notifSvc.CreateOrRefresh(ctx, userID, issue.WorkspaceID, issueID, notifType, title, issueUpdateNotificationWindow)
+	} else {
+		err = s.notifSvc.Create(ctx, userID, issue.WorkspaceID, issueID, notifType, title)
+	}
+	if err != nil {
 		log.WithError(err).Warn("failed to create notification")
 		return
 	}
 	s.hub.BroadcastToUser(issue.WorkspaceID, userID, realtime.Event{
+		Type:    "notification.created",
+		Payload: map[string]string{"type": notifType},
+	})
+}
+
+func (s *IssueService) notifyWorkspace(ctx context.Context, workspaceID, userID uuid.UUID, notifType, title string, dedupe bool) {
+	var err error
+	if dedupe {
+		err = s.notifSvc.CreateOrRefresh(ctx, userID, workspaceID, nil, notifType, title, issueUpdateNotificationWindow)
+	} else {
+		err = s.notifSvc.Create(ctx, userID, workspaceID, nil, notifType, title)
+	}
+	if err != nil {
+		log.WithError(err).Warn("failed to create notification")
+		return
+	}
+	s.hub.BroadcastToUser(workspaceID, userID, realtime.Event{
 		Type:    "notification.created",
 		Payload: map[string]string{"type": notifType},
 	})
@@ -1122,146 +1266,147 @@ func (s *IssueService) notifyAssignees(ctx context.Context, issue *domain.Issue,
 	}
 }
 
-func (s *IssueService) sendUpdateNotifications(ctx context.Context, issue *domain.Issue, actorID uuid.UUID, req dto.UpdateIssueRequest, oldDescription string) {
-	// Build recipient list: all assignees and subscribers except the actor
-	assignees, _ := s.issueRepo.GetAssignees(ctx, issue.ID)
-	recipients := make([]uuid.UUID, 0, len(assignees))
-	seen := make(map[uuid.UUID]bool)
-	for _, uid := range assignees {
-		if uid != actorID && !seen[uid] {
-			recipients = append(recipients, uid)
-			seen[uid] = true
-		}
+func (s *IssueService) issueNotificationRecipients(ctx context.Context, issue *domain.Issue, actorID uuid.UUID, includeCreator bool) []uuid.UUID {
+	if issue == nil {
+		return nil
 	}
-	if issue.AssigneeID != nil && *issue.AssigneeID != actorID && !seen[*issue.AssigneeID] {
-		recipients = append(recipients, *issue.AssigneeID)
-		seen[*issue.AssigneeID] = true
+	assignees, _ := s.issueRepo.GetAssignees(ctx, issue.ID)
+	recipients := make([]uuid.UUID, 0, len(assignees)+2)
+	seen := make(map[uuid.UUID]bool)
+	add := func(uid uuid.UUID) {
+		if uid == uuid.Nil || uid == actorID || seen[uid] {
+			return
+		}
+		recipients = append(recipients, uid)
+		seen[uid] = true
+	}
+	addSubscriber := func(uid uuid.UUID) {
+		if uid == uuid.Nil || seen[uid] {
+			return
+		}
+		recipients = append(recipients, uid)
+		seen[uid] = true
+	}
+	if includeCreator {
+		add(issue.CreatorID)
+	}
+	for _, uid := range assignees {
+		add(uid)
+	}
+	if issue.AssigneeID != nil {
+		add(*issue.AssigneeID)
 	}
 	if repo, ok := s.issueRepo.(issueSubscriberRepo); ok {
 		subscribers, _ := repo.GetSubscribers(ctx, issue.ID)
 		for _, uid := range subscribers {
-			if !seen[uid] {
-				recipients = append(recipients, uid)
-				seen[uid] = true
-			}
+			addSubscriber(uid)
 		}
 	}
+	return recipients
+}
 
-	// Assignee change: notify the new assignee specifically
-	if req.AssigneeID != nil {
-		newAID, err := uuid.Parse(*req.AssigneeID)
-		if err == nil && newAID != actorID {
-			s.notify(ctx, newAID, issue, "assigned",
-				fmt.Sprintf("You were assigned to %s: %s", issue.Identifier, issue.Title))
-		}
-	}
-
-	// Mention notifications from description (always, regardless of assignees).
-	// Only notify for NEW mentions — skip users already mentioned in the old description.
-	if req.Description != nil {
-		oldMentions := make(map[uuid.UUID]bool)
-		for _, uid := range extractMentionedUserIDs(oldDescription) {
-			oldMentions[uid] = true
-		}
-		for _, uid := range extractMentionedUserIDs(*req.Description) {
-			if uid == actorID || seen[uid] || oldMentions[uid] {
-				continue
-			}
-			s.notify(ctx, uid, issue, "mentioned",
-				fmt.Sprintf("You were mentioned in %s: %s", issue.Identifier, issue.Title))
-			seen[uid] = true
-		}
-	}
-
-	if len(recipients) == 0 {
+func (s *IssueService) sendUpdateNotifications(ctx context.Context, issue *domain.Issue, actorID uuid.UUID, changes *issueChangeSet) {
+	if changes == nil {
 		return
 	}
-
-	// Status change
-	if req.StatusID != nil || req.Status != nil {
+	if changes.hasRegularChanges() {
+		recipients := s.issueNotificationRecipients(ctx, issue, actorID, true)
+		title := fmt.Sprintf("%s updated: %s", issue.Identifier, strings.Join(changes.fields, ", "))
 		for _, uid := range recipients {
-			s.notify(ctx, uid, issue, "status_changed",
-				fmt.Sprintf("%s status changed to %s", issue.Identifier, issue.Status))
+			s.notify(ctx, uid, issue, "issue_updated", title)
 		}
 	}
 
-	// Priority change
+	notifiedAssignees := make(map[uuid.UUID]bool)
+	for _, uid := range changes.newAssignees {
+		if uid == actorID || notifiedAssignees[uid] {
+			continue
+		}
+		notifiedAssignees[uid] = true
+		s.notify(ctx, uid, issue, "assigned", fmt.Sprintf("You were assigned to %s: %s", issue.Identifier, issue.Title))
+	}
+
+	notifiedMentions := make(map[uuid.UUID]bool)
+	for _, uid := range changes.newMentions {
+		if uid == actorID || notifiedMentions[uid] {
+			continue
+		}
+		notifiedMentions[uid] = true
+		s.notify(ctx, uid, issue, "mentioned", fmt.Sprintf("You were mentioned in %s: %s", issue.Identifier, issue.Title))
+	}
+}
+
+func newMentionedUserIDs(oldDescription, newDescription string) []uuid.UUID {
+	oldMentions := uuidSet(extractMentionedUserIDs(oldDescription))
+	result := make([]uuid.UUID, 0)
+	for _, uid := range extractMentionedUserIDs(newDescription) {
+		if !oldMentions[uid] {
+			result = append(result, uid)
+		}
+	}
+	return result
+}
+
+func bulkUpdateFields(req dto.BulkUpdateIssueRequest) []string {
+	fields := make([]string, 0, 5)
+	if req.Status != nil || req.StatusID != nil {
+		fields = append(fields, "status")
+	}
 	if req.Priority != nil {
-		for _, uid := range recipients {
-			s.notify(ctx, uid, issue, "priority_changed",
-				fmt.Sprintf("%s priority changed", issue.Identifier))
-		}
+		fields = append(fields, "priority")
 	}
-
-	// Title change
-	if req.Title != nil {
-		for _, uid := range recipients {
-			s.notify(ctx, uid, issue, "title_changed",
-				fmt.Sprintf("%s title changed", issue.Identifier))
-		}
+	if req.AssigneeID != nil {
+		fields = append(fields, "assignee")
 	}
-
-	// Description change
-	if req.Description != nil {
-		for _, uid := range recipients {
-			s.notify(ctx, uid, issue, "description_changed",
-				fmt.Sprintf("%s description changed", issue.Identifier))
-		}
-	}
-
-	// Assignee change
-	if req.AssigneeIDs != nil {
-		for _, uid := range recipients {
-			s.notify(ctx, uid, issue, "assignees_changed",
-				fmt.Sprintf("%s assignees changed", issue.Identifier))
-		}
-	}
-
-	// Project change
-	if req.ProjectID != nil {
-		for _, uid := range recipients {
-			s.notify(ctx, uid, issue, "project_changed",
-				fmt.Sprintf("%s project changed", issue.Identifier))
-		}
-	}
-
-	// Parent change
-	if req.ParentID != nil {
-		for _, uid := range recipients {
-			s.notify(ctx, uid, issue, "parent_changed",
-				fmt.Sprintf("%s parent changed", issue.Identifier))
-		}
-	}
-
-	// Due date change
-	if req.DueDate != nil {
-		for _, uid := range recipients {
-			s.notify(ctx, uid, issue, "due_date_changed",
-				fmt.Sprintf("%s due date changed", issue.Identifier))
-		}
-	}
-
-	// Cycle change
 	if req.CycleID != nil {
-		for _, uid := range recipients {
-			s.notify(ctx, uid, issue, "cycle_changed",
-				fmt.Sprintf("%s cycle changed", issue.Identifier))
-		}
+		fields = append(fields, "cycle")
 	}
-
-	// Label change
 	if req.LabelIDs != nil {
-		for _, uid := range recipients {
-			s.notify(ctx, uid, issue, "label_added",
-				fmt.Sprintf("%s labels updated", issue.Identifier))
-		}
+		fields = append(fields, "labels")
 	}
+	return fields
+}
 
-	// Sort order changes are still issue activity for subscribers.
-	if req.SortOrder != nil {
-		for _, uid := range recipients {
-			s.notify(ctx, uid, issue, "issue_moved",
-				fmt.Sprintf("%s moved", issue.Identifier))
+func uuidSet(ids []uuid.UUID) map[uuid.UUID]bool {
+	set := make(map[uuid.UUID]bool, len(ids))
+	for _, id := range ids {
+		set[id] = true
+	}
+	return set
+}
+
+func keysFromUUIDSet(set map[uuid.UUID]bool) []uuid.UUID {
+	ids := make([]uuid.UUID, 0, len(set))
+	for id := range set {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+func sameUUIDSet(a, b []uuid.UUID) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	set := uuidSet(a)
+	for _, id := range b {
+		if !set[id] {
+			return false
 		}
 	}
+	return true
+}
+
+func uuidListString(ids []uuid.UUID) string {
+	values := make([]string, 0, len(ids))
+	seen := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		value := id.String()
+		if seen[value] {
+			continue
+		}
+		seen[value] = true
+		values = append(values, value)
+	}
+	sort.Strings(values)
+	return strings.Join(values, ", ")
 }

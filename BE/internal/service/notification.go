@@ -4,10 +4,10 @@ import (
 	"context"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/repository"
-	"github.com/google/uuid"
 )
 
 type NotificationService struct {
@@ -28,6 +28,18 @@ func (s *NotificationService) Create(ctx context.Context, userID, workspaceID uu
 		Title:       title,
 	}
 	return s.notifRepo.Create(ctx, n)
+}
+
+func (s *NotificationService) CreateOrRefresh(ctx context.Context, userID, workspaceID uuid.UUID, issueID *uuid.UUID, notifType, title string, window time.Duration) error {
+	n := &domain.Notification{
+		ID:          uuid.New(),
+		UserID:      userID,
+		WorkspaceID: workspaceID,
+		IssueID:     issueID,
+		Type:        notifType,
+		Title:       title,
+	}
+	return s.notifRepo.CreateOrRefresh(ctx, n, window)
 }
 
 func (s *NotificationService) ListByUser(ctx context.Context, userID uuid.UUID, limit, offset int) ([]domain.Notification, error) {

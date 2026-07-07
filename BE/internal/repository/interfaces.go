@@ -118,6 +118,7 @@ type ProjectRepo interface {
 
 type NotificationRepo interface {
 	Create(ctx context.Context, n *domain.Notification) error
+	CreateOrRefresh(ctx context.Context, n *domain.Notification, window time.Duration) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Notification, error)
 	ListByUser(ctx context.Context, userID uuid.UUID, limit, offset int) ([]domain.Notification, error)
 	ListSnoozed(ctx context.Context, userID uuid.UUID) ([]domain.Notification, error)
