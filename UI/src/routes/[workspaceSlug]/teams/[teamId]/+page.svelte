@@ -31,7 +31,7 @@
 	import type { ViewFilter, ViewLayout } from '$lib/types/view';
 	import { createKeyboardHandler } from '$lib/utils/keyboard';
 	import { toast } from 'svelte-sonner';
-	import { Bookmark, Layers, SquareUser, SquaresSubtract, ChevronRight, Share2 } from 'lucide-svelte';
+	import { Layers, SquareUser, SquaresSubtract, ChevronRight, Share2 } from 'lucide-svelte';
 	import ShareLinkDialog from '$lib/components/shared/ShareLinkDialog.svelte';
 	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
 	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
@@ -49,10 +49,10 @@
 	let members = $state<WorkspaceMember[]>([]);
 	let cycles = $state<Cycle[]>([]);
 	let showCreateIssue = $state(false);
-	let showSaveView = $state(false);
 	let showShareLink = $state(false);
 	let quickAddDefaults = $state<{ statusId?: string; priority?: IssuePriority; assigneeIds?: string[] }>({});
 	let filters = $state<ViewFilter>({});
+	let hasActiveFilters = $derived(Object.values(filters).some((value) => value !== undefined && value !== ''));
 	let layout = $state<ViewLayout>('list');
 	let groupByOpen = $state(false);
 	let collapsedGroups = $state<Set<string>>(new Set());
@@ -422,14 +422,9 @@
 			<div class="hidden sm:block">
 				<ViewSwitcher bind:layout onchange={handleLayoutChange} />
 			</div>
-			<button
-				onclick={() => (showSaveView = true)}
-				class="flex items-center gap-1 rounded-md border border-[var(--app-border)] px-2 py-1 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]"
-				title="Save as view"
-			>
-				<Bookmark size={12} />
-				Save view
-			</button>
+			{#if hasActiveFilters}
+				<SaveViewDialog {filters} {slug} {teams} defaultTeamId={teamId} defaultScope="team" />
+			{/if}
 		</div>
 	</div>
 
@@ -442,7 +437,7 @@
 			{#if !issuesState.loading && issuesState.issues.length === 0}
 				<EmptyState
 					title="No issues found"
-					description={Object.keys(filters).length > 0
+					description={hasActiveFilters
 						? 'Try adjusting your filters'
 						: 'Create your first issue to get started'}
 					action={{ label: 'New Issue', onclick: openCreateIssue }}
@@ -607,8 +602,6 @@
 		}
 	}}
 />
-
-<SaveViewDialog bind:open={showSaveView} {filters} {slug} {teams} defaultTeamId={teamId} defaultScope="team" />
 
 <ShareLinkDialog bind:open={showShareLink} {slug} scope="team" scopeId={teamId} {filters} />
 

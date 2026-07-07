@@ -2,24 +2,24 @@
 	import { onMount } from 'svelte';
 	import { issuesState } from './issues.state.svelte';
 
-	let sentinel: HTMLDivElement;
+	let sentinel: HTMLDivElement | undefined;
 
 	onMount(() => {
 		const observer = new IntersectionObserver(
 			(entries) => {
-				if (entries.some((entry) => entry.isIntersecting)) {
+				if (issuesState.hasMore && entries.some((entry) => entry.isIntersecting)) {
 					issuesState.loadMore();
 				}
 			},
 			{ rootMargin: '600px 0px' }
 		);
-		observer.observe(sentinel);
+		if (sentinel) observer.observe(sentinel);
 		return () => observer.disconnect();
 	});
 </script>
 
-{#if issuesState.hasMore}
-	<div bind:this={sentinel} class="flex justify-center py-4">
+<div bind:this={sentinel} class={issuesState.hasMore ? 'flex justify-center py-4' : 'hidden'}>
+	{#if issuesState.hasMore}
 		<button
 			type="button"
 			onclick={() => issuesState.loadMore()}
@@ -28,5 +28,5 @@
 		>
 			{issuesState.loadingMore ? 'Loading...' : 'Load more'}
 		</button>
-	</div>
-{/if}
+	{/if}
+</div>
