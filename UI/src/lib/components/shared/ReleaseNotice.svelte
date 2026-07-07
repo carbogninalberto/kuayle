@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { Button } from '$lib/components/ui/button';
 	import * as Dialog from '$lib/components/ui/dialog';
-	import { currentVersion, currentVersionLabel } from '$lib/release';
+	import { currentVersion, currentVersionLabel, releasesManifestUrl } from '$lib/release';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { renderMarkdown } from '$lib/markdown';
 	import Info from '@lucide/svelte/icons/info';
@@ -132,15 +132,14 @@
 	async function loadReleases(autoOpen = true) {
 		loaded = false;
 		try {
-			const response = await fetch('https://api.github.com/repos/carbogninalberto/kuayle/releases', {
-				headers: {
-					Accept: 'application/vnd.github+json'
-				}
-			});
+			const response = await fetch(releasesManifestUrl);
 
 			if (!response.ok) return;
 
-			allReleases = (await response.json()) as GitHubRelease[];
+			const releases = await response.json();
+			if (!Array.isArray(releases)) return;
+
+			allReleases = releases as GitHubRelease[];
 			applyReleases(autoOpen);
 		} catch {
 			// Silently ignore release lookup failures.

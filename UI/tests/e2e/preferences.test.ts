@@ -23,7 +23,9 @@ test('keeps dirty local theme when remote preferences are stale', async ({ page 
 		);
 	}, workflowSortOrder);
 
-	await page.route('https://api.github.com/**', (route) => route.fulfill({ json: [] }));
+	await page.route('https://raw.githubusercontent.com/carbogninalberto/kuayle/main/UI/static/releases.json', (route) =>
+		route.fulfill({ json: [] })
+	);
 	await page.route('**/api/**', async (route) => {
 		const request = route.request();
 		const path = new URL(request.url()).pathname;
