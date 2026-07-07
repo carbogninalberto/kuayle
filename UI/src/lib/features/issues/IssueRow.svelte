@@ -230,69 +230,73 @@
 		</span>
 
 		<!-- Title -->
-		{#if editingTitle}
-			<input
-				type="text"
-				bind:value={titleValue}
-				onblur={saveTitle}
-				onkeydown={(e) => { if (e.key === 'Enter') saveTitle(); if (e.key === 'Escape') { editingTitle = false; } }}
-				onclick={(e) => e.stopPropagation()}
-				class="flex-1 truncate text-[13px] text-[var(--color-text-primary)] bg-transparent outline-none border-b border-[var(--app-accent)]"
-			/>
-		{:else}
-			<!-- svelte-ignore a11y_no_static_element_interactions -->
-			<span
-				role="textbox"
-				tabindex={0}
-				class="min-w-0 flex-1 truncate text-sm leading-5 text-[var(--color-text-primary)] sm:text-[13px] sm:leading-normal"
-				ondblclick={startEditing}
-			>{issue.title}</span>
-		{/if}
+		<div class="min-w-0 flex-1">
+			{#if editingTitle}
+				<input
+					type="text"
+					bind:value={titleValue}
+					onblur={saveTitle}
+					onkeydown={(e) => { if (e.key === 'Enter') saveTitle(); if (e.key === 'Escape') { editingTitle = false; } }}
+					onclick={(e) => e.stopPropagation()}
+					class="w-full truncate text-[13px] text-[var(--color-text-primary)] bg-transparent outline-none border-b border-[var(--app-accent)]"
+				/>
+			{:else}
+				<div class="flex min-w-0 flex-1 items-center gap-1">
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<span
+						role="textbox"
+						tabindex={0}
+						class="min-w-0 shrink truncate text-sm leading-5 text-[var(--color-text-primary)] sm:text-[13px] sm:leading-normal"
+						ondblclick={startEditing}
+					>{issue.title}</span>
 
-		<SubIssueCounterTag issue={issue} {slug} {members} onclickissue={onclick} compact />
+					<SubIssueCounterTag issue={issue} {slug} {members} onclickissue={onclick} compact />
 
-		{#if relationBadges.length > 0}
-			<span class="inline-flex shrink-0 items-center gap-1" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()} role="presentation">
-				{#each relationBadges as badge (badge.label)}
-					{@const Icon = badge.Icon}
-					<HoverCard.Root openDelay={150} closeDelay={100}>
-						<HoverCard.Trigger
-							class="inline-flex cursor-default items-center gap-1 rounded-full border px-1.5 py-0 text-[11px] leading-5 transition-colors {badge.triggerClass}"
-							title={`${badge.label} ${badge.count} ${badge.count === 1 ? 'issue' : 'issues'}`}
-						>
-							<Icon size={10} />
-							{badge.count}
-						</HoverCard.Trigger>
-						<HoverCard.Content class="w-56 p-2" align="end">
-							<div class="flex items-center gap-2 text-xs {badge.headerClass}">
-								<Icon size={13} />
-								<span class="font-medium">{badge.label}</span>
-							</div>
-							{#if badge.issues.length > 0}
-								<div class="mt-2 max-h-48 space-y-1 overflow-y-auto">
-									{#each badge.issues as relatedIssue (relatedIssue.id)}
-										<a
-											href="/{slug}/issue/{relatedIssue.identifier}"
-											onclick={(e) => e.stopPropagation()}
-											title={`Open ${relatedIssue.identifier}`}
-											class="flex min-w-0 items-center gap-2 rounded-md px-1 py-1 text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
-										>
-											<IssueStatusIcon status={relatedIssue.status} category={relatedIssue.status_info?.category} color={relatedIssue.status_info?.color} size={12} />
-											<span class="shrink-0 tabular-nums text-[var(--color-text-tertiary)]">{relatedIssue.identifier}</span>
-											<span class="min-w-0 flex-1 truncate">{relatedIssue.title}</span>
-										</a>
-									{/each}
-								</div>
-							{:else}
-								<p class="mt-1 text-xs text-[var(--color-text-tertiary)]">
-									{badge.fallback}
-								</p>
-							{/if}
-						</HoverCard.Content>
-					</HoverCard.Root>
-				{/each}
-			</span>
-		{/if}
+					{#if relationBadges.length > 0}
+						<span class="inline-flex shrink-0 items-center gap-1" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()} role="presentation">
+							{#each relationBadges as badge (badge.label)}
+								{@const Icon = badge.Icon}
+								<HoverCard.Root openDelay={150} closeDelay={100}>
+									<HoverCard.Trigger
+										class="inline-flex cursor-default items-center gap-1 rounded-full border px-1.5 py-0 text-[11px] leading-5 transition-colors {badge.triggerClass}"
+										title={`${badge.label} ${badge.count} ${badge.count === 1 ? 'issue' : 'issues'}`}
+									>
+										<Icon size={10} />
+										{badge.count}
+									</HoverCard.Trigger>
+									<HoverCard.Content class="w-56 p-2" align="end">
+										<div class="flex items-center gap-2 text-xs {badge.headerClass}">
+											<Icon size={13} />
+											<span class="font-medium">{badge.label}</span>
+										</div>
+										{#if badge.issues.length > 0}
+											<div class="mt-2 max-h-48 space-y-1 overflow-y-auto">
+												{#each badge.issues as relatedIssue (relatedIssue.id)}
+													<a
+														href="/{slug}/issue/{relatedIssue.identifier}"
+														onclick={(e) => e.stopPropagation()}
+														title={`Open ${relatedIssue.identifier}`}
+														class="flex min-w-0 items-center gap-2 rounded-md px-1 py-1 text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+													>
+														<IssueStatusIcon status={relatedIssue.status} category={relatedIssue.status_info?.category} color={relatedIssue.status_info?.color} size={12} />
+														<span class="shrink-0 tabular-nums text-[var(--color-text-tertiary)]">{relatedIssue.identifier}</span>
+														<span class="min-w-0 flex-1 truncate">{relatedIssue.title}</span>
+													</a>
+												{/each}
+											</div>
+										{:else}
+											<p class="mt-1 text-xs text-[var(--color-text-tertiary)]">
+												{badge.fallback}
+											</p>
+										{/if}
+									</HoverCard.Content>
+								</HoverCard.Root>
+							{/each}
+						</span>
+					{/if}
+				</div>
+			{/if}
+		</div>
 
 		<IssueLabelChips labels={issue.labels ?? []} />
 
