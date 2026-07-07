@@ -31,7 +31,8 @@
 		Code2,
 		Undo2,
 		Redo2,
-		SquareArrowOutUpRight
+		SquareArrowOutUpRight,
+		Sparkles
 	} from 'lucide-svelte';
 	import { sanitizeEditorOutput } from '$lib/security/sanitize';
 	import { createSlashCommandExtension } from './slash-command/slash-command.extension';
@@ -58,7 +59,8 @@
 		onfocus: onFocusProp,
 		onblur: onBlurProp,
 		oncursorchange,
-		oncreateissue
+		oncreateissue,
+		onreworkselection
 	}: {
 		content?: string;
 		placeholder?: string;
@@ -78,6 +80,7 @@
 		onblur?: () => void;
 		oncursorchange?: (position: number, anchor: number) => void;
 		oncreateissue?: (selectedText: string) => void;
+		onreworkselection?: (selectedText: string) => Promise<string>;
 	} = $props();
 
 	let editor = $state<Editor | null>(null);
@@ -102,6 +105,10 @@
 	let mentionPosition = $state({ x: 0, y: 0 });
 	let mentionSelectedIndex = $state(0);
 	let mentionRange = $state<{ from: number; to: number } | null>(null);
+	let reworkingSelection = $state(false);
+	let rewriteJustApplied = $state(false);
+	let lastSelection = $state<{ from: number; to: number; text: string } | null>(null);
+	let rewriteAnimationTimer: ReturnType<typeof setTimeout> | null = null;
 
 	const mentionFilteredItems: MentionItem[] = $derived.by(() => {
 		const q = mentionQuery.toLowerCase();
@@ -303,7 +310,9 @@
 				onupdate?.(sanitizeEditorOutput(e.getHTML()));
 			},
 			onSelectionUpdate: ({ editor: e }) => {
-				const { head, anchor } = e.state.selection;
+				const { from, to, head, anchor } = e.state.selection;
+				const selectedText = e.state.doc.textBetween(from, to, ' ').trim();
+				lastSelection = selectedText ? { from, to, text: selectedText } : null;
 				oncursorchange?.(head, anchor);
 			},
 			onFocus: () => { isFocused = true; onFocusProp?.(); },
@@ -456,6 +465,7 @@
 
 	onDestroy(() => {
 		cursorElements.forEach(el => el.remove());
+		if (rewriteAnimationTimer) clearTimeout(rewriteAnimationTimer);
 		editor?.destroy();
 	});
 
@@ -479,6 +489,28 @@
 		const { from, to } = editor.state.selection;
 		const selectedText = editor.state.doc.textBetween(from, to, ' ');
 		if (selectedText.trim()) oncreateissue(selectedText.trim());
+	}
+
+	async function reworkSelection() {
+		if (!editor || !onreworkselection || reworkingSelection) return;
+		const { from, to } = editor.state.selection;
+		const selectedText = editor.state.doc.textBetween(from, to, ' ').trim();
+		const selection = selectedText ? { from, to, text: selectedText } : lastSelection;
+		if (!selection) return;
+		reworkingSelection = true;
+		try {
+			const replacement = await onreworkselection(selection.text);
+			if (!replacement.trim()) return;
+			editor.chain().focus().deleteRange({ from: selection.from, to: selection.to }).insertContent(replacement).run();
+			rewriteJustApplied = true;
+			if (rewriteAnimationTimer) clearTimeout(rewriteAnimationTimer);
+			rewriteAnimationTimer = setTimeout(() => {
+				rewriteJustApplied = false;
+				rewriteAnimationTimer = null;
+			}, 900);
+		} finally {
+			reworkingSelection = false;
+		}
 	}
 
 	function handleSlashSelect(item: SlashMenuItem | undefined) {
@@ -612,8 +644,17 @@
 
 	<!-- Editor content -->
 	{#if editor}
-		<div class="rich-editor" style="position: relative; overflow: visible; {minHeight ? `--editor-min-height: ${minHeight}` : ''}">
+		<div
+			class="rich-editor {reworkingSelection ? 'ai-rewrite-loading' : ''} {rewriteJustApplied ? 'ai-rewrite-applied' : ''}"
+			style="position: relative; overflow: visible; {minHeight ? `--editor-min-height: ${minHeight}` : ''}"
+		>
 			<EditorContent {editor} />
+			{#if reworkingSelection}
+				<div class="ai-rewrite-overlay" aria-live="polite">
+					<Sparkles size={14} class="ai-rewrite-spinner" />
+					<span>Reworking selection...</span>
+				</div>
+			{/if}
 		</div>
 	{/if}
 
@@ -680,6 +721,12 @@
 							<SquareArrowOutUpRight size={14} />
 						</button>
 					{/if}
+					{#if onreworkselection}
+						<div class="bubble-separator"></div>
+						<button type="button" onpointerdown={(e) => e.preventDefault()} onclick={reworkSelection} class={btnClass(false)} title="Rework with AI" disabled={reworkingSelection}>
+							<Sparkles size={14} class={reworkingSelection ? 'ai-rewrite-icon-loading' : ''} />
+						</button>
+					{/if}
 				</div>
 				{#if linkInputVisible}
 					<div class="bubble-link-input">
@@ -742,9 +789,60 @@
 		line-height: 1.5;
 		color: var(--color-text-primary);
 	}
+	:global(.rich-editor.ai-rewrite-loading .tiptap) {
+		opacity: 0.72;
+		transition: opacity 120ms ease;
+	}
+	:global(.rich-editor.ai-rewrite-applied .tiptap) {
+		animation: aiRewriteFlash 900ms ease-out;
+	}
+	:global(.ai-rewrite-overlay) {
+		position: absolute;
+		right: 8px;
+		top: 8px;
+		z-index: 30;
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		border: 1px solid color-mix(in srgb, var(--app-accent) 35%, var(--app-border));
+		border-radius: 999px;
+		background: color-mix(in srgb, var(--color-bg-secondary) 92%, var(--app-accent));
+		padding: 4px 8px;
+		color: var(--color-text-secondary);
+		font-size: 11px;
+		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+		animation: aiRewriteFloat 900ms ease-in-out infinite alternate;
+	}
+	:global(.ai-rewrite-spinner),
+	:global(.ai-rewrite-icon-loading) {
+		animation: aiRewriteSpin 1s linear infinite;
+		color: var(--app-accent-light);
+	}
 	:global(.rich-editor .tiptap.borderless-editor) {
 		min-height: var(--editor-min-height, 20px);
 		padding: 0;
+	}
+	@keyframes aiRewriteSpin {
+		from { transform: rotate(0deg); }
+		to { transform: rotate(360deg); }
+	}
+	@keyframes aiRewriteFloat {
+		from { transform: translateY(0); opacity: 0.82; }
+		to { transform: translateY(-2px); opacity: 1; }
+	}
+	@keyframes aiRewriteFlash {
+		0% {
+			background: color-mix(in srgb, var(--app-accent) 18%, transparent);
+			box-shadow: 0 0 0 0 color-mix(in srgb, var(--app-accent) 20%, transparent);
+		}
+		55% {
+			background: color-mix(in srgb, var(--app-accent) 8%, transparent);
+			box-shadow: 0 0 0 6px transparent;
+		}
+		100% {
+			background: transparent;
+			box-shadow: none;
+		}
 	}
 	:global(.rich-editor .tiptap.compact-editor) {
 		min-height: 24px;

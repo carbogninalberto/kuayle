@@ -70,6 +70,7 @@ func main() {
 	favRepo := repository.NewFavoriteRepository(db)
 	prefsRepo := repository.NewUserPreferencesRepository(db)
 	assetRepo := repository.NewAssetRepository(db)
+	aiSettingsRepo := repository.NewAISettingsRepository(db)
 
 	// Services
 	authSvc := service.NewAuthService(userRepo, refreshRepo, cfg.JWTSecret)
@@ -87,6 +88,7 @@ func main() {
 	teamStatusSvc := service.NewTeamStatusService(teamStatusRepo, visibilityRepo)
 	favSvc := service.NewFavoriteService(favRepo)
 	prefsSvc := service.NewPreferencesService(prefsRepo)
+	aiSettingsSvc := service.NewAISettingsService(aiSettingsRepo, workspaceRepo, issueRepo, crypto.DeriveKey(cfg.JWTSecret+":ai"))
 
 	// Handlers
 	healthH := handler.NewHealthHandler(db)
@@ -106,6 +108,7 @@ func main() {
 	teamStatusH := handler.NewTeamStatusHandler(teamStatusSvc)
 	favH := handler.NewFavoriteHandler(favSvc)
 	prefsH := handler.NewPreferencesHandler(prefsSvc)
+	aiSettingsH := handler.NewAISettingsHandler(aiSettingsSvc)
 	analyticsH := handler.NewAnalyticsHandler(db)
 	webhookRepo := repository.NewWebhookRepository(db)
 	webhookSvc := service.NewWebhookService(webhookRepo, cfg.JWTSecret)
@@ -185,6 +188,7 @@ func main() {
 
 	// User
 	api.GET("/auth/me", authH.Me)
+	api.PATCH("/auth/me", authH.UpdateProfile)
 	api.GET("/preferences", prefsH.Get)
 	api.PATCH("/preferences", prefsH.Update)
 
@@ -236,6 +240,7 @@ func main() {
 	ws.DELETE("/issues/:identifier", issueH.Delete, mw.RequirePermission("issue:delete_own"))
 	ws.POST("/issues/:identifier/duplicate", issueH.Duplicate, mw.RequirePermission("issue:create"))
 	ws.POST("/issues/:identifier/convert-to-project", issueH.ConvertToProject, mw.RequirePermission("project:manage"))
+	ws.POST("/issues/:identifier/expand-description", aiSettingsH.ExpandIssueDescription, mw.RequirePermission("issue:update"))
 	ws.GET("/issues/:identifier/comments", issueH.ListComments)
 	ws.POST("/issues/:identifier/comments", issueH.CreateComment, mw.RequirePermission("issue:create"))
 	ws.POST("/issues/:identifier/comments/:commentId/resolve", issueH.ResolveComment, mw.RequirePermission("issue:update"))
@@ -289,6 +294,10 @@ func main() {
 	ws.POST("/webhooks", webhookH.Create, mw.RequirePermission("workspace:manage"))
 	ws.PATCH("/webhooks/:id", webhookH.Update, mw.RequirePermission("workspace:manage"))
 	ws.DELETE("/webhooks/:id", webhookH.Delete, mw.RequirePermission("workspace:manage"))
+
+	// AI settings
+	ws.GET("/ai-settings", aiSettingsH.Get, mw.RequireOwner())
+	ws.PATCH("/ai-settings", aiSettingsH.Update, mw.RequireOwner())
 
 	// GitHub integration (conditional)
 	// Public webhook endpoint (no auth, signature-verified internally)

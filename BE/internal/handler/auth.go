@@ -3,6 +3,8 @@ package handler
 import (
 	"errors"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/kuayle/kuayle-backend/internal/dto"
@@ -15,9 +17,9 @@ import (
 )
 
 type AuthHandler struct {
-	authService    *service.AuthService
-	secureCookie   bool
-	loginThrottle  *middleware.LoginThrottle
+	authService   *service.AuthService
+	secureCookie  bool
+	loginThrottle *middleware.LoginThrottle
 }
 
 func NewAuthHandler(authService *service.AuthService, secureCookie bool, loginThrottle *middleware.LoginThrottle) *AuthHandler {
@@ -145,6 +147,38 @@ func (h *AuthHandler) Me(c echo.Context) error {
 	})
 }
 
+func (h *AuthHandler) UpdateProfile(c echo.Context) error {
+	var req dto.UpdateProfileRequest
+	if err := c.Bind(&req); err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
+	}
+	if err := validate.Struct(&req); err != nil {
+		details := make([]dto.ErrorDetail, 0)
+		for _, e := range validate.FormatErrors(err) {
+			details = append(details, dto.ErrorDetail{Field: e["field"], Message: e["message"]})
+		}
+		return response.ValidationError(c, details)
+	}
+	if req.AvatarURL.Set && req.AvatarURL.Value != nil && strings.TrimSpace(*req.AvatarURL.Value) != "" {
+		if err := validateProfileURL(*req.AvatarURL.Value); err != nil {
+			return response.ValidationError(c, []dto.ErrorDetail{{Field: "AvatarURL", Message: err.Error()}})
+		}
+	}
+
+	userID := middleware.GetUserID(c)
+	user, err := h.authService.UpdateProfile(c.Request().Context(), userID, req)
+	if err != nil || user == nil {
+		return response.NotFound(c, "User")
+	}
+	return response.Success(c, http.StatusOK, dto.UserResponse{
+		ID:          user.ID.String(),
+		Email:       user.Email,
+		Name:        user.Name,
+		DisplayName: user.DisplayName,
+		AvatarURL:   user.AvatarURL,
+	})
+}
+
 func (h *AuthHandler) setAuthCookies(c echo.Context, accessToken, refreshToken string) {
 	c.SetCookie(&http.Cookie{
 		Name:     "access_token",
@@ -181,4 +215,16 @@ func clearAuthCookies(c echo.Context) {
 		HttpOnly: true,
 		MaxAge:   -1,
 	})
+}
+
+func validateProfileURL(rawURL string) error {
+	u, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || u.Hostname() == "" {
+		return errors.New("must be a valid URL")
+	}
+	scheme := strings.ToLower(u.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return errors.New("must be an http or https URL")
+	}
+	return nil
 }

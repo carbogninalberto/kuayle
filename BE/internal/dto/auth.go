@@ -23,3 +23,9 @@ type UserResponse struct {
 	DisplayName string  `json:"display_name"`
 	AvatarURL   *string `json:"avatar_url"`
 }
+
+type UpdateProfileRequest struct {
+	Name        *string        `json:"name" validate:"omitempty,min=1,max=100"`
+	DisplayName *string        `json:"display_name" validate:"omitempty,max=100"`
+	AvatarURL   OptionalString `json:"avatar_url"`
+}

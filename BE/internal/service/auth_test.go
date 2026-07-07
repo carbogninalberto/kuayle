@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/repository"
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"golang.org/x/crypto/bcrypt"
@@ -40,6 +40,11 @@ func (m *mockUserRepo) GetByEmail(ctx context.Context, email string) (*domain.Us
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*domain.User), args.Error(1)
+}
+
+func (m *mockUserRepo) Update(ctx context.Context, user *domain.User) error {
+	args := m.Called(ctx, user)
+	return args.Error(0)
 }
 
 type mockRefreshTokenRepo struct {

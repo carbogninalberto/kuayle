@@ -9,13 +9,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/middleware"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/jwt"
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/crypto/bcrypt"
@@ -260,6 +260,14 @@ func (r *testUserRepo) GetByEmail(_ context.Context, email string) (*domain.User
 		}
 	}
 	return nil, nil
+}
+
+func (r *testUserRepo) Update(_ context.Context, user *domain.User) error {
+	if r.createdUsers == nil {
+		r.createdUsers = make(map[string]*domain.User)
+	}
+	r.createdUsers[user.Email] = user
+	return nil
 }
 
 type testRefreshTokenRepo struct {
