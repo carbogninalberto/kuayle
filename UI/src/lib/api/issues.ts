@@ -91,6 +91,14 @@ export function getIssueHistory(slug: string, identifier: string): Promise<Issue
 	return api.get<IssueHistory[]>(`/api/workspaces/${slug}/issues/${identifier}/history`);
 }
 
+export function subscribeToIssue(slug: string, identifier: string): Promise<{ is_subscribed: boolean }> {
+	return api.post<{ is_subscribed: boolean }>(`/api/workspaces/${slug}/issues/${identifier}/subscribe`);
+}
+
+export function unsubscribeFromIssue(slug: string, identifier: string): Promise<{ is_subscribed: boolean }> {
+	return api.delete<{ is_subscribed: boolean }>(`/api/workspaces/${slug}/issues/${identifier}/subscribe`);
+}
+
 export function signIssuePromptAssets(
 	slug: string,
 	identifier: string

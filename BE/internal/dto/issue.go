@@ -82,6 +82,7 @@ type IssueResponse struct {
 	SubIssueDone    *int                          `json:"sub_issue_done,omitempty"`
 	RelationCounts  *IssueRelationCountsResponse  `json:"relation_counts,omitempty"`
 	RelationSummary *IssueRelationSummaryResponse `json:"relation_summary,omitempty"`
+	IsSubscribed    bool                          `json:"is_subscribed"`
 	CreatedAt       time.Time                     `json:"created_at"`
 	UpdatedAt       time.Time                     `json:"updated_at"`
 }
@@ -148,6 +149,10 @@ type BulkUpdateIssueRequest struct {
 
 type BulkDeleteIssueRequest struct {
 	IssueIDs []string `json:"issue_ids" validate:"required,min=1,dive,uuid"`
+}
+
+type SubscriptionResponse struct {
+	IsSubscribed bool `json:"is_subscribed"`
 }
 
 type IssueFilterParams struct {

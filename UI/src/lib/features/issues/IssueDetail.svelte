@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import BellIcon from '@lucide/svelte/icons/bell';
 	import type { Issue, Comment, IssueHistory } from '$lib/types/issue';
 	import { PRIORITY_LABELS } from '$lib/types/issue';
 	import { teamStatusesState } from './team-statuses.state.svelte';
-	import { listComments, createComment, getIssueHistory } from '$lib/api/issues';
+	import { listComments, createComment, getIssueHistory, subscribeToIssue, unsubscribeFromIssue } from '$lib/api/issues';
 	import { issuesState } from './issues.state.svelte';
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
 	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
@@ -27,6 +28,8 @@
 	let priorityOpen = $state(false);
 	let sheetOpen = $state(true);
 	let showAllActivity = $state(false);
+	let isSubscribed = $state(false);
+	let subscriptionBusy = $state(false);
 
 	const RECENT_ACTIVITY_COUNT = 3;
 	let sortedHistory = $derived([...history].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()));
@@ -35,6 +38,10 @@
 
 	$effect(() => {
 		if (!sheetOpen) onclose();
+	});
+
+	$effect(() => {
+		isSubscribed = issue.is_subscribed ?? false;
 	});
 
 	onMount(async () => {
@@ -77,6 +84,26 @@
 		}
 	}
 
+	async function toggleSubscription() {
+		if (subscriptionBusy) return;
+		subscriptionBusy = true;
+		const nextValue = !isSubscribed;
+		isSubscribed = nextValue;
+		try {
+			const res = nextValue
+				? await subscribeToIssue(slug, issue.identifier)
+				: await unsubscribeFromIssue(slug, issue.identifier);
+			isSubscribed = res.is_subscribed;
+			issuesState.setSubscription(issue.identifier, res.is_subscribed);
+			toast.success(isSubscribed ? 'Notifications enabled' : 'Notifications disabled');
+		} catch (err: any) {
+			isSubscribed = !nextValue;
+			toast.error(err?.error?.message || 'Failed to update notifications');
+		} finally {
+			subscriptionBusy = false;
+		}
+	}
+
 	function formatHistoryValue(field: string, value: string | null, displayValue?: string | null): string {
 		if (displayValue?.trim()) return displayValue;
 		if (!value) return 'None';
@@ -102,6 +129,17 @@
 		<Sheet.Header class="sticky top-0 z-10 border-b border-[var(--app-border)] bg-[var(--color-bg)] px-4 py-3 text-left sm:px-6">
 			<div class="flex items-center justify-between gap-3 pr-8">
 				<Sheet.Title class="truncate text-sm font-medium text-[var(--color-text-tertiary)]">{issue.identifier}</Sheet.Title>
+				<button
+					type="button"
+					onclick={toggleSubscription}
+					disabled={subscriptionBusy}
+					aria-pressed={isSubscribed}
+					aria-label={isSubscribed ? 'Disable issue notifications' : 'Enable issue notifications'}
+					title={isSubscribed ? 'Disable issue notifications' : 'Notify me about changes'}
+					class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[var(--app-border)] transition-colors hover:bg-[var(--color-bg-hover)] disabled:opacity-50 {isSubscribed ? 'bg-[var(--app-accent)] text-[var(--app-accent-foreground)] border-[var(--app-accent)]' : 'bg-[var(--color-bg-secondary)] text-[var(--color-text-tertiary)]'}"
+				>
+					<BellIcon size={16} />
+				</button>
 				<Sheet.Description class="sr-only">Issue details for {issue.identifier}</Sheet.Description>
 			</div>
 		</Sheet.Header>

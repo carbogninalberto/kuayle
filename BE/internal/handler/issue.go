@@ -59,6 +59,7 @@ func (h *IssueHandler) List(c echo.Context) error {
 	}
 	labelsMap, _ := h.issueSvc.GetLabelsForIssues(ctx, issueIDs)
 	assigneesMap, _ := h.issueSvc.GetAssigneesForIssues(ctx, issueIDs)
+	subscribedIssueIDs, _ := h.issueSvc.GetSubscribedIssueIDs(ctx, issueIDs, middleware.GetUserID(c))
 	subIssueCounts, _ := h.issueSvc.CountSubIssuesForIssues(ctx, issueIDs)
 	usersMap := h.usersForIssueList(ctx, issues, assigneesMap)
 	relationSummaries := make(map[uuid.UUID]domain.IssueRelationSummary)
@@ -88,6 +89,7 @@ func (h *IssueHandler) List(c echo.Context) error {
 	issueResponses := make([]dto.IssueResponse, len(issues))
 	for i, issue := range issues {
 		resp := toIssueResponse(issue)
+		resp.IsSubscribed = subscribedIssueIDs[issue.ID]
 
 		// Populate labels from batch
 		if labels, ok := labelsMap[issue.ID]; ok && len(labels) > 0 {
@@ -260,6 +262,7 @@ func (h *IssueHandler) Get(c echo.Context) error {
 
 	resp := toIssueResponse(*issue)
 	h.enrichIssueResponse(c.Request().Context(), &resp, *issue)
+	h.enrichIssueSubscription(c.Request().Context(), &resp, issue.ID, middleware.GetUserID(c))
 
 	return response.Success(c, http.StatusOK, resp)
 }
@@ -281,7 +284,26 @@ func (h *IssueHandler) Update(c echo.Context) error {
 
 	resp := toIssueResponse(*issue)
 	h.enrichIssueResponse(c.Request().Context(), &resp, *issue)
+	h.enrichIssueSubscription(c.Request().Context(), &resp, issue.ID, userID)
 	return response.Success(c, http.StatusOK, resp)
+}
+
+func (h *IssueHandler) Subscribe(c echo.Context) error {
+	ws := c.Get("workspace").(*domain.Workspace)
+	userID := middleware.GetUserID(c)
+	if err := h.issueSvc.Subscribe(c.Request().Context(), ws.ID, userID, c.Param("identifier")); err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+	}
+	return response.Success(c, http.StatusOK, dto.SubscriptionResponse{IsSubscribed: true})
+}
+
+func (h *IssueHandler) Unsubscribe(c echo.Context) error {
+	ws := c.Get("workspace").(*domain.Workspace)
+	userID := middleware.GetUserID(c)
+	if err := h.issueSvc.Unsubscribe(c.Request().Context(), ws.ID, userID, c.Param("identifier")); err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+	}
+	return response.Success(c, http.StatusOK, dto.SubscriptionResponse{IsSubscribed: false})
 }
 
 func (h *IssueHandler) Delete(c echo.Context) error {
@@ -698,6 +720,13 @@ func (h *IssueHandler) enrichIssueResponse(ctx context.Context, resp *dto.IssueR
 	h.enrichRelationCounts(ctx, resp, issue.ID)
 
 	h.enrichUserFields(ctx, resp, issue)
+}
+
+func (h *IssueHandler) enrichIssueSubscription(ctx context.Context, resp *dto.IssueResponse, issueID, userID uuid.UUID) {
+	subscribed, err := h.issueSvc.IsSubscribed(ctx, issueID, userID)
+	if err == nil {
+		resp.IsSubscribed = subscribed
+	}
 }
 
 func (h *IssueHandler) enrichRelationCounts(ctx context.Context, resp *dto.IssueResponse, issueID uuid.UUID) {

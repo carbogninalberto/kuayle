@@ -38,6 +38,7 @@ export interface Issue {
 	sub_issue_done?: number;
 	relation_counts?: IssueRelationCounts;
 	relation_summary?: IssueRelationSummary;
+	is_subscribed?: boolean;
 	created_at: string;
 	updated_at: string;
 }

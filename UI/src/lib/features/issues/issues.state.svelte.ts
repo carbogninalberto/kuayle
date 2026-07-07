@@ -268,6 +268,16 @@ class IssuesState {
 		}
 	}
 
+	setSubscription(identifier: string, isSubscribed: boolean) {
+		const idx = this.issues.findIndex((i) => i.identifier === identifier);
+		if (idx >= 0) {
+			this.issues[idx] = { ...this.issues[idx], is_subscribed: isSubscribed };
+		}
+		if (this.selectedIssue?.identifier === identifier) {
+			this.selectedIssue = { ...this.selectedIssue, is_subscribed: isSubscribed };
+		}
+	}
+
 	async bulkUpdate(slug: string, updates: { status?: string; status_id?: string; priority?: number; assignee_id?: string; label_ids?: string[]; parent_id?: string }) {
 		const issueIds = Array.from(this.selectedIds);
 		if (issueIds.length === 0) return;

@@ -564,6 +564,48 @@ func (r *IssueRepository) GetAssigneesForIssues(ctx context.Context, issueIDs []
 	return result, nil
 }
 
+func (r *IssueRepository) Subscribe(ctx context.Context, issueID, userID uuid.UUID) error {
+	_, err := r.db.ExecContext(ctx, `INSERT INTO issue_subscribers (issue_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, issueID, userID)
+	return err
+}
+
+func (r *IssueRepository) Unsubscribe(ctx context.Context, issueID, userID uuid.UUID) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM issue_subscribers WHERE issue_id = $1 AND user_id = $2`, issueID, userID)
+	return err
+}
+
+func (r *IssueRepository) IsSubscribed(ctx context.Context, issueID, userID uuid.UUID) (bool, error) {
+	var exists bool
+	err := r.db.GetContext(ctx, &exists, `SELECT EXISTS (SELECT 1 FROM issue_subscribers WHERE issue_id = $1 AND user_id = $2)`, issueID, userID)
+	return exists, err
+}
+
+func (r *IssueRepository) GetSubscribers(ctx context.Context, issueID uuid.UUID) ([]uuid.UUID, error) {
+	var userIDs []uuid.UUID
+	err := r.db.SelectContext(ctx, &userIDs, `SELECT user_id FROM issue_subscribers WHERE issue_id = $1`, issueID)
+	return userIDs, err
+}
+
+func (r *IssueRepository) GetSubscribedIssueIDs(ctx context.Context, issueIDs []uuid.UUID, userID uuid.UUID) (map[uuid.UUID]bool, error) {
+	result := make(map[uuid.UUID]bool)
+	if len(issueIDs) == 0 {
+		return result, nil
+	}
+	query, args, err := sqlx.In(`SELECT issue_id FROM issue_subscribers WHERE user_id = ? AND issue_id IN (?)`, userID, issueIDs)
+	if err != nil {
+		return nil, err
+	}
+	query = r.db.Rebind(query)
+	var subscribed []uuid.UUID
+	if err := r.db.SelectContext(ctx, &subscribed, query, args...); err != nil {
+		return nil, err
+	}
+	for _, id := range subscribed {
+		result[id] = true
+	}
+	return result, nil
+}
+
 func (r *IssueRepository) BeginTx(ctx context.Context) (*sqlx.Tx, error) {
 	return r.db.BeginTxx(ctx, nil)
 }
