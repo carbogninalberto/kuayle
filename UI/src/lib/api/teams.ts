@@ -26,6 +26,7 @@ export async function updateTeam(
 		triage_enabled: boolean;
 		parent_auto_close_enabled: boolean;
 		sub_issue_auto_close_enabled: boolean;
+		issue_copy_prompt: string | null;
 	}>
 ): Promise<Team> {
 	const team = await api.patch<Team>(`/api/workspaces/${slug}/teams/${teamId}`, data);

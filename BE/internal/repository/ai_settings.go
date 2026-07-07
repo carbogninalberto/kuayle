@@ -28,14 +28,15 @@ func (r *AISettingsRepository) GetByWorkspaceID(ctx context.Context, workspaceID
 }
 
 func (r *AISettingsRepository) Upsert(ctx context.Context, settings *domain.AISettings) error {
-	query := `INSERT INTO ai_settings (workspace_id, provider, base_url, model, api_key_encrypted, description_expand_prompt)
-		VALUES ($1, $2, $3, $4, $5, $6)
+	query := `INSERT INTO ai_settings (workspace_id, provider, base_url, model, api_key_encrypted, description_expand_prompt, issue_copy_prompt)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT (workspace_id) DO UPDATE SET
 			provider = EXCLUDED.provider,
 			base_url = EXCLUDED.base_url,
 			model = EXCLUDED.model,
 			api_key_encrypted = EXCLUDED.api_key_encrypted,
 			description_expand_prompt = EXCLUDED.description_expand_prompt,
+			issue_copy_prompt = EXCLUDED.issue_copy_prompt,
 			updated_at = NOW()
 		RETURNING created_at, updated_at`
 	return r.db.QueryRowContext(ctx, query,
@@ -45,5 +46,6 @@ func (r *AISettingsRepository) Upsert(ctx context.Context, settings *domain.AISe
 		settings.Model,
 		settings.APIKeyEncrypted,
 		settings.DescriptionExpandPrompt,
+		settings.IssueCopyPrompt,
 	).Scan(&settings.CreatedAt, &settings.UpdatedAt)
 }

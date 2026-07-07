@@ -1,0 +1,2 @@
+ALTER TABLE ai_settings ADD COLUMN IF NOT EXISTS issue_copy_prompt TEXT NOT NULL DEFAULT '';
+ALTER TABLE teams ADD COLUMN IF NOT EXISTS issue_copy_prompt TEXT;

@@ -15,6 +15,7 @@
 	let model = $state('');
 	let apiKey = $state('');
 	let prompt = $state('');
+	let issueCopyPrompt = $state('');
 	let saving = $state(false);
 
 	onMount(async () => {
@@ -24,6 +25,7 @@
 			baseUrl = settings.base_url;
 			model = settings.model;
 			prompt = settings.description_expand_prompt;
+			issueCopyPrompt = settings.issue_copy_prompt;
 		} catch (err: any) {
 			toast.error(err?.error?.message || 'Failed to load AI settings');
 		}
@@ -36,7 +38,8 @@
 				provider,
 				base_url: baseUrl.trim(),
 				model: model.trim(),
-				description_expand_prompt: prompt.trim()
+				description_expand_prompt: prompt.trim(),
+				issue_copy_prompt: issueCopyPrompt.trim()
 			};
 			if (apiKey.trim()) payload.api_key = apiKey.trim();
 			settings = await updateAISettings(slug, payload);
@@ -44,6 +47,7 @@
 			baseUrl = settings.base_url;
 			model = settings.model;
 			prompt = settings.description_expand_prompt;
+			issueCopyPrompt = settings.issue_copy_prompt;
 			apiKey = '';
 			toast.success('AI settings updated');
 		} catch (err: any) {
@@ -55,6 +59,10 @@
 
 	function resetPrompt() {
 		if (settings) prompt = settings.default_prompt;
+	}
+
+	function resetIssueCopyPrompt() {
+		if (settings) issueCopyPrompt = settings.default_issue_copy_prompt;
 	}
 </script>
 
@@ -137,6 +145,23 @@
 				bind:value={prompt}
 				rows="8"
 				class="mt-3 w-full rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
+			></textarea>
+		</div>
+
+		<div class="mt-8">
+			<div class="flex items-center justify-between gap-4">
+				<div>
+					<h2 class="text-sm font-medium text-[var(--color-text-primary)]">Issue copy prompt</h2>
+					<p class="text-xs text-[var(--color-text-tertiary)]">
+						Template used by the issue AI prompt copy button. Use placeholders like {'{{issue_identifier}}'}, {'{{team_key}}'}, and {'{{issue_xml}}'}.
+					</p>
+				</div>
+				<Button variant="outline" size="sm" onclick={resetIssueCopyPrompt}>Reset</Button>
+			</div>
+			<textarea
+				bind:value={issueCopyPrompt}
+				rows="8"
+				class="mt-3 w-full rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2 font-mono text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
 			></textarea>
 		</div>
 

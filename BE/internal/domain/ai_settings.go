@@ -15,6 +15,7 @@ type AISettings struct {
 	Model                   string    `json:"model" db:"model"`
 	APIKeyEncrypted         *string   `json:"-" db:"api_key_encrypted"`
 	DescriptionExpandPrompt string    `json:"description_expand_prompt" db:"description_expand_prompt"`
+	IssueCopyPrompt         string    `json:"issue_copy_prompt" db:"issue_copy_prompt"`
 	CreatedAt               time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt               time.Time `json:"updated_at" db:"updated_at"`
 }

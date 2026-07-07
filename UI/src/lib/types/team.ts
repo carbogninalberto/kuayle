@@ -8,6 +8,7 @@ export interface Team {
 	triage_enabled: boolean;
 	parent_auto_close_enabled: boolean;
 	sub_issue_auto_close_enabled: boolean;
+	issue_copy_prompt: string | null;
 	created_at: string;
 	updated_at: string;
 }

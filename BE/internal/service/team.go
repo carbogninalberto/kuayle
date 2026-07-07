@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -111,6 +112,14 @@ func (s *TeamService) Update(ctx context.Context, id uuid.UUID, req dto.UpdateTe
 	}
 	if req.SubIssueAutoCloseEnabled != nil {
 		team.SubIssueAutoCloseEnabled = *req.SubIssueAutoCloseEnabled
+	}
+	if req.IssueCopyPrompt != nil {
+		prompt := strings.TrimSpace(*req.IssueCopyPrompt)
+		if prompt == "" {
+			team.IssueCopyPrompt = nil
+		} else {
+			team.IssueCopyPrompt = &prompt
+		}
 	}
 
 	if err := s.teamRepo.Update(ctx, team); err != nil {

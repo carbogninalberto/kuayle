@@ -44,6 +44,7 @@
 	import { showIssueCreatedToast } from './issue-created-toast';
 	import type { Team } from '$lib/types/team';
 	import { listTeams } from '$lib/api/teams';
+	import { getAISettings } from '$lib/api/ai-settings';
 
 	let {
 		issue,
@@ -99,6 +100,7 @@
 	let issueProject = $derived(projects.find(p => p.id === issue.project_id));
 	let issueCycle = $derived(cycles.find(c => c.id === issue.cycle_id));
 	let currentParentPreview = $derived(parentDescriptionPreview(issue.parent?.description));
+	let issueTeam = $derived(teams.find(t => t.id === issue.team_id));
 
 	// Get remote cursors for a specific field from presence state
 	function getRemoteCursors(field: string) {
@@ -453,8 +455,13 @@
 
 	async function copyAIPrompt() {
 		try {
-			const { assets } = await signIssuePromptAssets(slug, issue.identifier);
-			await navigator.clipboard.writeText(getAIPrompt(assets));
+			const [{ assets }, settings, copyTeams] = await Promise.all([
+				signIssuePromptAssets(slug, issue.identifier),
+				getAISettings(slug),
+				issueTeam ? Promise.resolve(teams) : listTeams(slug)
+			]);
+			if (!issueTeam) teams = copyTeams;
+			await navigator.clipboard.writeText(getAIPrompt(assets, settings.issue_copy_prompt, copyTeams.find(t => t.id === issue.team_id)));
 			toast.success('AI prompt copied');
 		} catch {
 			toast.error('Failed to copy AI prompt');
@@ -598,25 +605,36 @@
 			.trim();
 	}
 
-	function getAIPrompt(signedAssets: Record<string, string> = {}): string {
-		let prompt = `Work on issue ${issue.identifier}:\n\n`;
-		prompt += `<issue identifier="${issue.identifier}">\n`;
-		prompt += `<title>${decodeHtmlEntities(issue.title)}</title>\n`;
+	function applyIssueCopyTemplate(template: string, issueXml: string, teamKey: string, selectedTeam: Team | undefined): string {
+		const values: Record<string, string> = {
+			issue_identifier: issue.identifier,
+			issue_title: decodeHtmlEntities(issue.title),
+			team_key: teamKey,
+			team_name: selectedTeam?.name ?? teamKey,
+			issue_xml: issueXml
+		};
+		return template.replace(/{{\s*(issue_identifier|issue_title|team_key|team_name|issue_xml)\s*}}/g, (_, key) => values[key] ?? '');
+	}
+
+	function getAIPrompt(signedAssets: Record<string, string> = {}, workspaceTemplate = '', selectedTeam = issueTeam): string {
+		let issueXml = `<issue identifier="${issue.identifier}">\n`;
+		issueXml += `<title>${decodeHtmlEntities(issue.title)}</title>\n`;
 		const teamKey = issue.identifier.split('-')[0];
-		prompt += `<team name="${teamKey}"/>\n`;
+		issueXml += `<team name="${teamKey}"/>\n`;
 		if (issue.labels && issue.labels.length > 0) {
 			for (const l of issue.labels) {
-				prompt += `<label>${decodeHtmlEntities(l.name)}</label>\n`;
+				issueXml += `<label>${decodeHtmlEntities(l.name)}</label>\n`;
 			}
 		}
 		if (issueProject) {
-			prompt += `<project name="${decodeHtmlEntities(issueProject.name)}">${decodeHtmlEntities(issueProject.description ?? '')}</project>\n`;
+			issueXml += `<project name="${decodeHtmlEntities(issueProject.name)}">${decodeHtmlEntities(issueProject.description ?? '')}</project>\n`;
 		}
 		if (issue.description) {
-			prompt += `<description>${htmlToPromptMarkdown(issue.description, signedAssets)}</description>\n`;
+			issueXml += `<description>${htmlToPromptMarkdown(issue.description, signedAssets)}</description>\n`;
 		}
-		prompt += `</issue>`;
-		return prompt;
+		issueXml += `</issue>`;
+		const template = selectedTeam?.issue_copy_prompt?.trim() || workspaceTemplate.trim() || 'Work on issue {{issue_identifier}}:\n\n{{issue_xml}}';
+		return applyIssueCopyTemplate(template, issueXml, teamKey, selectedTeam);
 	}
 
 	function formatDueDate(dateStr: string): { label: string; colorClass: string } {
