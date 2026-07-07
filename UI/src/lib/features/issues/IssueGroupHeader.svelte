@@ -57,7 +57,7 @@
 	});
 </script>
 
-<div class="mt-1 first:mt-0 mx-2">
+<div class="sticky top-0 z-20 mx-2 mt-1 bg-[var(--color-bg-primary)] first:mt-0">
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		role="button"

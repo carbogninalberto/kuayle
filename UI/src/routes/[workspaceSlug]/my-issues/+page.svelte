@@ -180,19 +180,21 @@
 				/>
 			{:else if issuesState.groupBy}
 				{#each issuesState.groupedIssues as group (group.key)}
-					<IssueGroupHeader
-						groupKey={group.key}
-						groupBy={issuesState.groupBy}
-						groupLabel={group.label}
-						count={group.issues.length}
-						collapsed={collapsedGroups.has(group.key)}
-						ontoggle={() => toggleGroup(group.key)}
-					/>
-					{#if !collapsedGroups.has(group.key)}
-						{#each group.issues as issue (issue.id)}
-							<IssueRow {issue} {slug} {members} {labels} {projects} onclick={handleIssueClick} {lastSelectedId} onlastselected={(id) => lastSelectedId = id} onaddrelation={handleAddRelation} />
-						{/each}
-					{/if}
+					<section>
+						<IssueGroupHeader
+							groupKey={group.key}
+							groupBy={issuesState.groupBy}
+							groupLabel={group.label}
+							count={group.issues.length}
+							collapsed={collapsedGroups.has(group.key)}
+							ontoggle={() => toggleGroup(group.key)}
+						/>
+						{#if !collapsedGroups.has(group.key)}
+							{#each group.issues as issue (issue.id)}
+								<IssueRow {issue} {slug} {members} {labels} {projects} onclick={handleIssueClick} {lastSelectedId} onlastselected={(id) => lastSelectedId = id} onaddrelation={handleAddRelation} />
+							{/each}
+						{/if}
+					</section>
 				{/each}
 			{:else}
 				{#each issuesState.issues as issue (issue.id)}
