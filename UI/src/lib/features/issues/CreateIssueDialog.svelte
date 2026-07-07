@@ -498,6 +498,7 @@
 				value={dueDate}
 				onchange={(d) => (dueDate = d)}
 				placeholder="Due date"
+				dueDateMode
 			/>
 		</div>
 

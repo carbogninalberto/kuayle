@@ -1323,6 +1323,7 @@
 								onchange={(d) => updateField('due_date', d ?? '')}
 								placeholder="Set date"
 								colorClass={issue.due_date ? formatDueDate(issue.due_date).colorClass : ''}
+								dueDateMode
 							/>
 						</div>
 

@@ -17,6 +17,7 @@
 	import IssuePickerDialog from './IssuePickerDialog.svelte';
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
 	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
+	import DueDatePickerPanel from '$lib/components/shared/DueDatePickerPanel.svelte';
 
 	let {
 		slug,
@@ -53,7 +54,6 @@
 	let searchQuery = $state('');
 	let selectedIndex = $state(0);
 	let selectedAssigneeIds = $state<string[]>([]);
-	let dueDateValue = $state('');
 	let deleteOpen = $state(false);
 	let parentPickerOpen = $state(false);
 	let parentPickerMode = $state<'parent' | 'subissue'>('parent');
@@ -136,7 +136,7 @@
 		if (activeCommand === 'priority') return filteredPriorities.length;
 		if (activeCommand === 'label') return filteredLabels.length + (canCreateLabel ? 1 : 0);
 		if (activeCommand === 'cycle') return filteredCycles.length + 1;
-		if (activeCommand === 'due_date') return 4;
+		if (activeCommand === 'due_date') return 0;
 		return 0;
 	});
 
@@ -234,7 +234,6 @@
 		searchQuery = '';
 		selectedIndex = 0;
 		if (command === 'assignee') selectedAssigneeIds = [];
-		if (command === 'due_date') dueDateValue = '';
 		requestAnimationFrame(() => document.getElementById('bulk-actions-search')?.focus());
 	}
 
@@ -254,12 +253,8 @@
 			if (activeOptionCount > 0) selectedIndex = Math.max(selectedIndex - 1, 0);
 		} else if (e.key === 'Enter') {
 			e.preventDefault();
-			if (activeCommand === 'due_date' && dueDateValue) {
-				void bulkSetDueDate(dueDateValue);
-				return;
-			}
 			activateSelectedOption();
-		} else if (e.key === 'Backspace' && activeCommand && activeCommand !== 'due_date' && searchQuery === '') {
+		} else if (e.key === 'Backspace' && activeCommand && searchQuery === '') {
 			backToCommands();
 		}
 	}
@@ -300,11 +295,6 @@
 				const cycle = filteredCycles[selectedIndex - 1];
 				if (cycle) void bulkSetCycle(cycle.id);
 			}
-		} else if (activeCommand === 'due_date') {
-			if (selectedIndex === 0) void bulkSetDueDate(formatLocalDate(new Date()));
-			if (selectedIndex === 1) void bulkSetDueDate(formatLocalDate(addDays(new Date(), 1)));
-			if (selectedIndex === 2) void bulkSetDueDate(formatLocalDate(addDays(new Date(), 7)));
-			if (selectedIndex === 3) void bulkSetDueDate(null);
 		}
 	}
 
@@ -314,16 +304,6 @@
 		} else {
 			selectedAssigneeIds = [...selectedAssigneeIds, userId];
 		}
-	}
-
-	function formatLocalDate(date: Date) {
-		return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-	}
-
-	function addDays(date: Date, days: number) {
-		const next = new Date(date);
-		next.setDate(next.getDate() + days);
-		return next;
 	}
 
 	function formatDisplayDate(value: string) {
@@ -545,7 +525,7 @@
 			></button>
 
 			<div
-				class="relative z-10 w-full max-w-lg overflow-hidden rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] shadow-2xl"
+				class="relative z-10 w-full overflow-hidden rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] shadow-2xl {activeCommand === 'due_date' ? 'max-w-[31rem]' : 'max-w-lg'}"
 				style="opacity: {actionsVisible ? 1 : 0}; transform: scale({actionsVisible ? 1 : 0.95}); transition: opacity {ANIM_DURATION}ms ease, transform {ANIM_DURATION}ms ease;"
 			>
 				<div class="sr-only">
@@ -565,17 +545,22 @@
 					{:else}
 						<Search size={16} class="text-[var(--color-text-tertiary)]" />
 					{/if}
-					<!-- svelte-ignore a11y_autofocus -->
-					<input
-						id="bulk-actions-search"
-						type={activeCommand === 'due_date' ? 'date' : 'text'}
-						aria-label={activeTitle}
-						value={activeCommand === 'due_date' ? dueDateValue : searchQuery}
-						oninput={(e) => activeCommand === 'due_date' ? (dueDateValue = e.currentTarget.value) : (searchQuery = e.currentTarget.value)}
-						placeholder={searchPlaceholder}
-						autofocus
-						class="min-w-0 flex-1 bg-transparent py-4 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)]"
-					/>
+					{#if activeCommand === 'due_date'}
+						<div id="bulk-actions-search" class="min-w-0 flex-1 py-4 text-sm font-medium text-[var(--color-text-primary)]" tabindex="-1">
+							Choose due date
+						</div>
+					{:else}
+						<!-- svelte-ignore a11y_autofocus -->
+						<input
+							id="bulk-actions-search"
+							type="text"
+							aria-label={activeTitle}
+							bind:value={searchQuery}
+							placeholder={searchPlaceholder}
+							autofocus
+							class="min-w-0 flex-1 bg-transparent py-4 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)]"
+						/>
+					{/if}
 					<button
 						onclick={closeActions}
 						class="inline-flex h-8 w-8 items-center justify-center rounded-md text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
@@ -705,31 +690,7 @@
 							{/each}
 						{/if}
 					{:else if activeCommand === 'due_date'}
-						<div class="mb-2 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg)]/50 p-3">
-							<label class="mb-1 block text-xs text-[var(--color-text-tertiary)]" for="bulk-actions-search">Custom due date</label>
-							<div class="flex items-center gap-2">
-								<span class="min-w-0 flex-1 text-xs text-[var(--color-text-secondary)]">{dueDateValue ? formatDisplayDate(dueDateValue) : 'Choose a date above, or use a quick option below.'}</span>
-								<button class="rounded-md bg-[var(--app-accent)] px-2.5 py-1 text-xs font-medium text-[var(--app-accent-foreground)] disabled:opacity-50" disabled={!dueDateValue} onclick={() => bulkSetDueDate(dueDateValue)}>
-									Apply
-								</button>
-							</div>
-						</div>
-						<button id="bulk-action-row-0" class={optionButtonClass} data-selected={selectedIndex === 0} onpointerenter={() => (selectedIndex = 0)} onclick={() => bulkSetDueDate(formatLocalDate(new Date()))}>
-							<CalendarDays size={14} />
-							<span class="truncate">Today</span>
-						</button>
-						<button id="bulk-action-row-1" class={optionButtonClass} data-selected={selectedIndex === 1} onpointerenter={() => (selectedIndex = 1)} onclick={() => bulkSetDueDate(formatLocalDate(addDays(new Date(), 1)))}>
-							<CalendarDays size={14} />
-							<span class="truncate">Tomorrow</span>
-						</button>
-						<button id="bulk-action-row-2" class={optionButtonClass} data-selected={selectedIndex === 2} onpointerenter={() => (selectedIndex = 2)} onclick={() => bulkSetDueDate(formatLocalDate(addDays(new Date(), 7)))}>
-							<CalendarDays size={14} />
-							<span class="truncate">Next week</span>
-						</button>
-						<button id="bulk-action-row-3" class={optionButtonClass} data-selected={selectedIndex === 3} onpointerenter={() => (selectedIndex = 3)} onclick={() => bulkSetDueDate(null)}>
-							<X size={14} class="text-[var(--color-text-tertiary)]" />
-							<span class="truncate text-[var(--color-text-tertiary)]">No due date</span>
-						</button>
+						<DueDatePickerPanel value={null} onchange={bulkSetDueDate} close={closeActions} />
 					{/if}
 				</div>
 			</div>

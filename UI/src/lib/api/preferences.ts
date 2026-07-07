@@ -9,6 +9,7 @@ export interface PreferencesData {
 	workflow_sort_mode: string;
 	workflow_sort_order: string[];
 	team_workflow_sort_overrides: Record<string, WorkflowSortOverride>;
+	recent_due_dates: string[];
 }
 
 export interface WorkflowSortOverride {

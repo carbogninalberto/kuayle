@@ -72,5 +72,6 @@ func toPreferencesResponse(prefs *domain.UserPreferences) dto.UserPreferencesRes
 		WorkflowSortMode:          prefs.WorkflowSortMode,
 		WorkflowSortOrder:         []string(prefs.WorkflowSortOrder),
 		TeamWorkflowSortOverrides: overrides,
+		RecentDueDates:            []string(prefs.RecentDueDates),
 	}
 }

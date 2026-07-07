@@ -22,6 +22,7 @@ interface PreferencesData {
 	workflowSortMode: WorkflowSortMode;
 	workflowSortOrder: StatusCategory[];
 	teamWorkflowSortOverrides: Record<string, TeamWorkflowSortOverride>;
+	recentDueDates: string[];
 	localDirty?: boolean;
 }
 
@@ -47,6 +48,7 @@ class PreferencesState {
 	workflowSortMode = $state<WorkflowSortMode>('default');
 	workflowSortOrder = $state<StatusCategory[]>([...DEFAULT_WORKFLOW_SORT_ORDER]);
 	teamWorkflowSortOverrides = $state<Record<string, TeamWorkflowSortOverride>>({});
+	recentDueDates = $state<string[]>([]);
 
 	private systemPrefersDark = $state(true);
 	private initialized = false;
@@ -108,6 +110,7 @@ class PreferencesState {
 			if (data.workflowSortMode) this.workflowSortMode = data.workflowSortMode;
 			if (data.workflowSortOrder) this.workflowSortOrder = normalizeWorkflowSortOrder(data.workflowSortOrder);
 			if (data.teamWorkflowSortOverrides) this.teamWorkflowSortOverrides = normalizeTeamOverrides(data.teamWorkflowSortOverrides);
+			if (data.recentDueDates) this.recentDueDates = normalizeRecentDueDates(data.recentDueDates);
 			if (data.localDirty !== undefined) this.localDirty = data.localDirty;
 		} catch {
 			// ignore corrupt data
@@ -151,6 +154,7 @@ class PreferencesState {
 					])
 				)
 			);
+			this.recentDueDates = normalizeRecentDueDates(data.recent_due_dates ?? []);
 			this.localDirty = false;
 			this.persistLocal();
 		} catch {
@@ -168,6 +172,7 @@ class PreferencesState {
 			workflowSortMode: this.workflowSortMode,
 			workflowSortOrder: this.workflowSortOrder,
 			teamWorkflowSortOverrides: this.teamWorkflowSortOverrides,
+			recentDueDates: this.recentDueDates,
 			localDirty: this.localDirty
 		};
 		localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -196,7 +201,8 @@ class PreferencesState {
 						workflow_sort_order: override.workflowSortOrder
 					}
 				])
-			)
+			),
+			recent_due_dates: this.recentDueDates
 		})
 			.then(() => {
 				this.localDirty = false;
@@ -279,6 +285,12 @@ class PreferencesState {
 		if (this.workflowSortMode === 'custom') return normalizeWorkflowSortOrder(this.workflowSortOrder);
 		return [...DEFAULT_WORKFLOW_SORT_ORDER];
 	}
+
+	addRecentDueDate(date: string | null | undefined) {
+		if (!date || !isValidDueDate(date)) return;
+		this.recentDueDates = normalizeRecentDueDates([date, ...this.recentDueDates]);
+		this.persist();
+	}
 }
 
 function teamWorkflowSortKey(workspaceSlug: string, teamId: string) {
@@ -311,6 +323,20 @@ function normalizeTeamOverrides(overrides: Record<string, TeamWorkflowSortOverri
 			}
 		])
 	) as Record<string, TeamWorkflowSortOverride>;
+}
+
+function normalizeRecentDueDates(dates: string[]) {
+	const normalized: string[] = [];
+	for (const date of dates) {
+		if (normalized.length === 3) break;
+		if (!isValidDueDate(date) || normalized.includes(date)) continue;
+		normalized.push(date);
+	}
+	return normalized;
+}
+
+function isValidDueDate(date: string) {
+	return /^\d{4}-\d{2}-\d{2}$/.test(date) && !Number.isNaN(new Date(`${date}T00:00:00`).getTime());
 }
 
 export const preferencesState = new PreferencesState();
