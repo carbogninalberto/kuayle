@@ -6,7 +6,7 @@
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import type { Label } from '$lib/types/label';
 	import type { Project } from '$lib/types/project';
-	import { listComments, createComment, resolveComment, reopenComment, getIssueHistory, getIssue, signIssuePromptAssets, createSubIssue, bulkCreateSubIssues } from '$lib/api/issues';
+	import { listComments, createComment, resolveComment, reopenComment, getIssueHistory, getIssue, signIssuePromptAssets, createSubIssue, bulkCreateSubIssues, expandIssueDescription } from '$lib/api/issues';
 	import { listMembers } from '$lib/api/members';
 	import { listLabels } from '$lib/api/labels';
 	import { listProjects } from '$lib/api/projects';
@@ -233,6 +233,18 @@
 			onupdated?.(updated);
 		} catch {
 			toast.error('Failed to update description');
+		}
+	}
+
+
+	async function reworkSelectedDescriptionText(selectedText: string): Promise<string> {
+		try {
+			const result = await expandIssueDescription(slug, issue.identifier, { selected_text: selectedText });
+			toast.success('Selection reworked');
+			return result.description;
+		} catch (err: any) {
+			toast.error(err?.error?.message || 'Failed to rework selection');
+			return '';
 		}
 	}
 
@@ -801,6 +813,7 @@
 						onblur={() => presenceState.sendFocusLeave(issue.id)}
 						oncursorchange={(pos, anchor) => presenceState.sendFocus(issue.id, 'description', pos, anchor)}
 						oncreateissue={(text) => openCreateIssueDialog(text)}
+						onreworkselection={reworkSelectedDescriptionText}
 					/>
 				</div>
 

@@ -14,6 +14,12 @@ type UserRepo interface {
 	Create(ctx context.Context, user *domain.User) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.User, error)
 	GetByEmail(ctx context.Context, email string) (*domain.User, error)
+	Update(ctx context.Context, user *domain.User) error
+}
+
+type AISettingsRepo interface {
+	GetByWorkspaceID(ctx context.Context, workspaceID uuid.UUID) (*domain.AISettings, error)
+	Upsert(ctx context.Context, settings *domain.AISettings) error
 }
 
 type RefreshTokenRepo interface {

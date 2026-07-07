@@ -5,10 +5,10 @@ import (
 	"database/sql"
 	"errors"
 
-	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jmoiron/sqlx"
+	"github.com/kuayle/kuayle-backend/internal/domain"
 )
 
 var ErrDuplicateEmail = errors.New("email already exists")
@@ -50,4 +50,9 @@ func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*domain.
 		return nil, nil
 	}
 	return &user, err
+}
+
+func (r *UserRepository) Update(ctx context.Context, user *domain.User) error {
+	query := `UPDATE users SET name = $1, display_name = $2, avatar_url = $3, updated_at = NOW() WHERE id = $4 RETURNING updated_at`
+	return r.db.QueryRowContext(ctx, query, user.Name, user.DisplayName, user.AvatarURL, user.ID).Scan(&user.UpdatedAt)
 }

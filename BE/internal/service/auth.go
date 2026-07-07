@@ -6,13 +6,14 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"unicode"
 
+	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	jwtpkg "github.com/kuayle/kuayle-backend/pkg/jwt"
-	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -169,6 +170,34 @@ func (s *AuthService) Logout(ctx context.Context, refreshToken string) error {
 
 func (s *AuthService) GetUserByID(ctx context.Context, id uuid.UUID) (*domain.User, error) {
 	return s.userRepo.GetByID(ctx, id)
+}
+
+func (s *AuthService) UpdateProfile(ctx context.Context, id uuid.UUID, req dto.UpdateProfileRequest) (*domain.User, error) {
+	user, err := s.userRepo.GetByID(ctx, id)
+	if err != nil || user == nil {
+		return nil, err
+	}
+	if req.Name != nil {
+		user.Name = strings.TrimSpace(*req.Name)
+	}
+	if req.DisplayName != nil {
+		user.DisplayName = strings.TrimSpace(*req.DisplayName)
+	}
+	if req.AvatarURL.Set {
+		if req.AvatarURL.Value == nil || strings.TrimSpace(*req.AvatarURL.Value) == "" {
+			user.AvatarURL = nil
+		} else {
+			trimmed := strings.TrimSpace(*req.AvatarURL.Value)
+			user.AvatarURL = &trimmed
+		}
+	}
+	if user.DisplayName == "" {
+		user.DisplayName = user.Name
+	}
+	if err := s.userRepo.Update(ctx, user); err != nil {
+		return nil, err
+	}
+	return user, nil
 }
 
 func hashToken(token string) string {

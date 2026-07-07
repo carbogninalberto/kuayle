@@ -16,3 +16,9 @@ export interface RegisterRequest {
 	password: string;
 	name: string;
 }
+
+export interface UpdateProfileRequest {
+	name?: string;
+	display_name?: string;
+	avatar_url?: string | null;
+}

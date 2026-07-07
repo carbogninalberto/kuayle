@@ -4,6 +4,7 @@
 	import { cubicOut } from 'svelte/easing';
 	import {
 		ArrowLeft,
+		User,
 		Users,
 		Tag,
 		Webhook,
@@ -11,6 +12,7 @@
 		FileText,
 		ScrollText,
 		Settings2,
+		Sparkles,
 		SlidersHorizontal,
 		CircleDot,
 		ChevronDown,
@@ -73,15 +75,30 @@
 		return currentPath === path || currentPath.startsWith(path + '/');
 	}
 
-	const sections = $derived([
-		{ label: 'General', href: `/${slug}/settings`, icon: Settings, exact: true },
-		{ label: 'Preferences', href: `/${slug}/settings/preferences`, icon: Settings2 },
-		{ label: 'Members', href: `/${slug}/settings/members`, icon: Users },
-		{ label: 'Labels', href: `/${slug}/settings/labels`, icon: Tag },
-		{ label: 'Webhooks', href: `/${slug}/settings/webhooks`, icon: Webhook },
-		{ label: 'GitHub', href: `/${slug}/settings/github`, icon: GithubLogoIcon },
-		{ label: 'Templates', href: `/${slug}/settings/templates`, icon: FileText },
-		{ label: 'Licenses', href: `/${slug}/settings/licenses`, icon: ScrollText }
+	const sectionGroups = $derived([
+		{
+			label: 'Personal',
+			items: [
+				{ label: 'Profile', href: `/${slug}/settings/profile`, icon: User },
+				{ label: 'Preferences', href: `/${slug}/settings/preferences`, icon: Settings2 }
+			]
+		},
+		{
+			label: 'Workspace',
+			items: [
+				{ label: 'General', href: `/${slug}/settings`, icon: Settings, exact: true },
+				{ label: 'Members', href: `/${slug}/settings/members`, icon: Users },
+				{ label: 'Labels', href: `/${slug}/settings/labels`, icon: Tag },
+				{ label: 'Webhooks', href: `/${slug}/settings/webhooks`, icon: Webhook },
+				{ label: 'GitHub', href: `/${slug}/settings/github`, icon: GithubLogoIcon },
+				{ label: 'Templates', href: `/${slug}/settings/templates`, icon: FileText },
+				{ label: 'AI', href: `/${slug}/settings/ai`, icon: Sparkles }
+			]
+		},
+		{
+			label: 'System',
+			items: [{ label: 'Licenses', href: `/${slug}/settings/licenses`, icon: ScrollText }]
+		}
 	]);
 
 	function toggleTeam(teamId: string) {
@@ -107,20 +124,29 @@
 	</div>
 
 	<nav class="flex-1 overflow-y-auto overflow-x-hidden px-2 py-2">
-		<div class="space-y-px">
-			{#each sections as section}
-				{@const Icon = section.icon}
-				<a
-					href={section.href}
-					class="flex items-center gap-2 rounded-md px-2 py-1 text-sm {(
-						section.exact ? currentPath === section.href : isActive(section.href)
-					)
-						? 'bg-[var(--color-bg-hover)]/50 text-[var(--color-text-primary)]'
-						: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
-				>
-					<Icon size={16} class="shrink-0" />
-					<span class="truncate">{section.label}</span>
-				</a>
+		<div class="space-y-4">
+			{#each sectionGroups as group}
+				<div>
+					<p class="px-2 pb-1 text-[11px] font-medium uppercase tracking-wide text-[var(--color-text-tertiary)]">
+						{group.label}
+					</p>
+					<div class="space-y-px">
+						{#each group.items as section}
+							{@const Icon = section.icon}
+							<a
+								href={section.href}
+								class="flex items-center gap-2 rounded-md px-2 py-1 text-sm {(
+									section.exact ? currentPath === section.href : isActive(section.href)
+								)
+									? 'bg-[var(--color-bg-hover)]/50 text-[var(--color-text-primary)]'
+									: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
+							>
+								<Icon size={16} class="shrink-0" />
+								<span class="truncate">{section.label}</span>
+							</a>
+						{/each}
+					</div>
+				</div>
 			{/each}
 		</div>
 

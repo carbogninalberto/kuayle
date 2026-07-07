@@ -100,6 +100,17 @@ export function signIssuePromptAssets(
 	);
 }
 
+export function expandIssueDescription(
+	slug: string,
+	identifier: string,
+	req?: { selected_text?: string }
+): Promise<{ description: string }> {
+	return api.post<{ description: string }>(
+		`/api/workspaces/${slug}/issues/${identifier}/expand-description`,
+		req
+	);
+}
+
 export function triageAccept(slug: string, identifier: string): Promise<Issue> {
 	return api.post<Issue>(`/api/workspaces/${slug}/issues/${identifier}/triage/accept`);
 }
