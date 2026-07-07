@@ -558,6 +558,7 @@
 			<BulkActionBar
 				{slug}
 				{labels}
+				{cycles}
 				onlabelcreated={(label) => (labels = [label, ...labels.filter((existing) => existing.id !== label.id)])}
 			/>
 		</div>

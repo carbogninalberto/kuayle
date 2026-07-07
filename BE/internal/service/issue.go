@@ -785,11 +785,21 @@ func (s *IssueService) BulkUpdate(ctx context.Context, workspaceID, userID uuid.
 		statusID = &sid
 	}
 
+	var cycleID *uuid.UUID
+	cycleSet := req.CycleID != nil
+	if req.CycleID != nil && *req.CycleID != "" {
+		cid, err := uuid.Parse(*req.CycleID)
+		if err != nil {
+			return 0, fmt.Errorf("invalid cycle_id")
+		}
+		cycleID = &cid
+	}
+
 	if req.ParentID != nil {
 		return s.bulkUpdateParent(ctx, workspaceID, userID, issueIDs, *req.ParentID)
 	}
 
-	n, err := s.issueRepo.BulkUpdate(ctx, workspaceID, issueIDs, req.Status, req.Priority, assigneeID, statusID)
+	n, err := s.issueRepo.BulkUpdate(ctx, workspaceID, issueIDs, req.Status, req.Priority, assigneeID, statusID, cycleID, cycleSet)
 	if err != nil {
 		return 0, err
 	}

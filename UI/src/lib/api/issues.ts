@@ -143,6 +143,7 @@ export function bulkUpdateIssues(
 		priority?: number;
 		assignee_id?: string;
 		label_ids?: string[];
+		cycle_id?: string;
 		parent_id?: string;
 	}
 ): Promise<{ updated: number }> {

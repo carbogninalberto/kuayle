@@ -429,7 +429,7 @@ func (r *IssueRepository) CycleIsActive(ctx context.Context, cycleID uuid.UUID) 
 	return active, err
 }
 
-func (r *IssueRepository) BulkUpdate(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID, status *string, priority *int, assigneeID *uuid.UUID, statusID *uuid.UUID) (int, error) {
+func (r *IssueRepository) BulkUpdate(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID, status *string, priority *int, assigneeID *uuid.UUID, statusID *uuid.UUID, cycleID *uuid.UUID, cycleSet bool) (int, error) {
 	setClauses := []string{"updated_at = NOW()"}
 	args := []interface{}{workspaceID}
 	argIdx := 2
@@ -452,6 +452,15 @@ func (r *IssueRepository) BulkUpdate(ctx context.Context, workspaceID uuid.UUID,
 	if statusID != nil {
 		setClauses = append(setClauses, fmt.Sprintf("status_id = $%d", argIdx))
 		args = append(args, *statusID)
+		argIdx++
+	}
+	if cycleSet {
+		setClauses = append(setClauses, fmt.Sprintf("cycle_id = $%d", argIdx))
+		var cycleArg interface{}
+		if cycleID != nil {
+			cycleArg = *cycleID
+		}
+		args = append(args, cycleArg)
 		argIdx++
 	}
 
