@@ -1,5 +1,12 @@
 [
   {
+    "tag_name": "v0.1.1",
+    "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.1",
+    "body": "## What's Changed\r\n* feat(ai-settings): implement custom AI settings and profile management by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/31\r\n\r\n\r\n**Full Changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.1.0...v0.1.1",
+    "published_at": "2026-07-07T06:11:03Z",
+    "prerelease": false
+  },
+  {
     "tag_name": "v0.1.0",
     "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.0",
     "body": "**Full Changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.0.11...v0.1.0",
