@@ -1,7 +1,7 @@
 <div align="center">
   <img src="assets/logo_primary.svg" alt="Kuayle" width="250">
   <p><strong>快乐 (kuàilè) · happiness, joy</strong></p>
-  <p>A fast, keyboard-driven issue tracker inspired by Linear.</p>
+  <p>A fast, keyboard-driven issue tracker inspired by Linear. <strong>v0.1.0</strong></p>
 
 [Report Bug](https://github.com/carbogninalberto/kuayle/issues/new?labels=bug) · [Request Feature](https://github.com/carbogninalberto/kuayle/issues/new?labels=enhancement)
 
@@ -18,10 +18,11 @@ Kuayle is currently a runnable MVP of the core issue tracker. The repository inc
 | Area             | State                                                                                                                                                                                                                                                     |
 | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Core tracker** | Implemented end-to-end: auth, workspaces, members/RBAC, teams, custom statuses, issues, labels, comments, history, sub-issues, issue relations, triage, templates, favorites, saved views, notifications, public sharing, uploads, and WebSocket updates. |
-| **Planning**     | Implemented: cycles with completion, burndown/velocity support, and UI; projects with status, lead/date metadata, issue lists, and a Gantt view.                                                                                                          |
-| **Integrations** | Implemented: workspace webhooks and GitHub App setup, repo linking, PR/branch/commit activity, auto-transitions, and webhook handling.                                                                                                                    |
+| **Planning**     | Implemented: cycles with burndown/velocity charts, project management with Gantt view, and full cycle/project UI.                                                                                                                                         |
+| **Integrations** | Implemented: workspace webhooks, GitHub App setup with repo linking, PR/branch/commit activity, auto-transitions, WebSocket real-time dispatch, and smee.io/cloudflared/ngrok support for private networks.                                              |
 | **Analytics**    | Backend endpoints exist for overview and issue distribution; a dedicated frontend analytics page is not wired yet.                                                                                                                                        |
 | **Dev Machines** | Specification/design only in this repo today. The runtime container manager and UI flow are not wired into the app yet; see [`TECHNICAL.md`](TECHNICAL.md).                                                                                               |
+| **Self-hosting** | Production-grade Docker Compose with Caddy reverse proxy, Let's Encrypt TLS, update script, and dedicated config in [`selfhosting/`](selfhosting/).                                                                                                       |
 
 ## 🆚 How it compares to similar products
 
@@ -42,23 +43,25 @@ _Note: this is a lightweight snapshot, not a guarantee of current feature parity
 | **License**              | ✅ Apache 2.0                              | ❌ Proprietary                          | ✅ Open source                         |
 | **Self-hosting**         | ✅ First-class Docker setup                | ❌ Hosted SaaS                          | ✅ Cloud and self-hosted               |
 | **Paid feature gates**   | ✅ None intended                           | 🟠 Tiered                               | 🟠 Tiered                              |
-| **Core issues**          | ✅ MVP implemented                         | ✅ Mature                               | ✅ Mature                              |
+| **Core issues**          | ✅ Fully implemented                       | ✅ Mature                               | ✅ Mature                              |
 | **Multi-assignee**       | ✅ Built in                                | ❌ Not a core Linear feature            | 🟠 Work-item ownership varies by model |
+| **Sub-issues**           | ✅ Tree view + counter                     | ✅ Mature                               | ✅ Mature                              |
 | **Teams and workflows**  | ✅ Teams + custom statuses                 | ✅ Mature                               | ✅ Mature                              |
 | **Projects**             | ✅ Projects + Gantt view                   | ✅ Projects + roadmaps                  | ✅ Projects + layouts                  |
-| **Cycles**               | ✅ Cycles + burndown/velocity              | ✅ Mature                               | ✅ Mature                              |
+| **Cycles**               | ✅ Cycles + burndown/velocity charts       | ✅ Mature                               | ✅ Mature                              |
 | **Initiatives/modules**  | ❌ Not yet                                 | ✅ Initiatives                          | ✅ Initiatives + modules               |
-| **Views/public sharing** | ✅ Saved views + public links              | ✅ Views                                | ✅ Views + publish options             |
+| **Views/public sharing** | ✅ Saved views + view scoping + public links | ✅ Views                              | ✅ Views + publish options             |
 | **Analytics UI**         | 🟠 Backend endpoints only                  | 🟠 Tiered insights/dashboards           | 🟠 Tiered dashboards/analytics         |
-| **GitHub automation**    | ✅ GitHub App + auto-transitions           | ✅ Mature                               | ✅ GitHub integration                  |
+| **GitHub automation**    | ✅ GitHub App + auto-transitions + WebSocket | ✅ Mature                            | ✅ GitHub integration                  |
 | **Import/export**        | ❌ Not yet                                 | ✅ Available                            | ✅ Multiple importers/export           |
 | **Enterprise auth**      | ❌ No SSO/SCIM/LDAP yet                    | 🟠 Enterprise tier                      | 🟠 Paid/self-hosted tiers              |
 | **AI/agents**            | 🟠 Dev Machines spec only                  | 🟠 Tiered Linear Agent/features         | 🟠 Tiered Plane AI/MCP                 |
+| **Self-hosting**         | ✅ Production Docker Compose + Caddy+TLS   | ❌ Hosted SaaS                          | ✅ Cloud and self-hosted               |
 | **Best fit**             | ✅ Hackable, no-gates Linear-style tracker | ✅ Polished hosted engineering workflow | ✅ Broader PM suite with wiki/modules  |
 
 ## 🧐 Why Kuayle?
 
-I've been a happy Linear user for years, and it has set a very high bar for issue tracking. At the time I started this project, a few things kept bugging me: no multi-assignee on issues, no project-based Gantt, analytics behind a paywall, and per-seat pricing that adds up quickly for small teams.
+I've been a happy Linear user for years, and it has set a very high bar for issue tracking. A few things kept bugging me: no multi-assignee on issues, no project-based Gantt, analytics behind a paywall, and per-seat pricing that adds up quickly for small teams.
 
 With AI, building your own tool became realistic, so I did. First for myself, then for anyone who wants a similar workflow without the same cost structure.
 
@@ -66,22 +69,27 @@ I also looked at the open-source alternatives available at the time, and Kuayle 
 
 ## ✨ Features
 
-|     | Feature            | Description                                                                      |
-| --- | ------------------ | -------------------------------------------------------------------------------- |
-| 🏢  | **Workspaces**     | Multi-tenant with role-based access (owner, admin, member, guest)                |
-| 👥  | **Teams**          | Custom workflows, each team gets its own statuses and triage settings            |
-| 📋  | **Issues**         | Priority, due dates, sub-tasks, multi-assignee, labels, comments, audit history  |
-| 🔄  | **Cycles**         | Sprint planning with time-boxed iterations (upcoming, active, completed)         |
-| 📁  | **Projects**       | Cross-team work grouped under a single umbrella                                  |
-| 🏷️  | **Labels**         | Hierarchical, workspace-scoped, with soft delete                                 |
-| 👁️  | **Views**          | Saved and shareable filtered perspectives with JSONB persistence                 |
-| 🔔  | **Notifications**  | Inbox with snooze, read status, and archive                                      |
-| 🔗  | **Webhooks**       | Plug into external services and integrations                                     |
-| ⚡  | **Real-time**      | WebSocket-powered live updates across all connected clients                      |
-| 🖥️  | **Dev Machines**   | Technical specification for on-demand, single-container development environments |
-| 🐙  | **GitHub**         | Link repos, auto-sync issues, webhook-based updates                              |
-| 📊  | **Analytics**      | Backend overview and issue distribution endpoints                                |
-| 🔗  | **Public Sharing** | Token-based read-only links for issues and views                                 |
+|     | Feature                | Description                                                                      |
+| --- | ---------------------- | -------------------------------------------------------------------------------- |
+| 🏢  | **Workspaces**         | Multi-tenant with role-based access (owner, admin, member, guest)                |
+| 👥  | **Teams**              | Custom workflows, each team gets its own statuses and triage settings            |
+| 📋  | **Issues**             | Priority, due dates, sub-issues, multi-assignee, labels, comments, audit history |
+| 🔗  | **Issue Relations**    | Blocking/blocked, duplicate, and related issue links                             |
+| 🔄  | **Cycles**             | Sprint planning with burndown/velocity charts and time-boxed iterations          |
+| 📁  | **Projects**           | Cross-team work grouped under a single umbrella with Gantt view                  |
+| 🏷️  | **Labels**             | Hierarchical, workspace-scoped, with soft delete and default labels on creation  |
+| 👁️  | **Views**              | Saved views with personal/workspace/team scoping, drag-and-drop reorder          |
+| 🔔  | **Notifications**      | Inbox with snooze, read status, and archive                                      |
+| 🔗  | **Webhooks**           | Plug into external services and integrations                                     |
+| ⚡  | **Real-time**          | WebSocket-powered live updates across all connected clients                      |
+| 🖥️  | **Dev Machines**       | Technical specification for on-demand, single-container development environments |
+| 🐙  | **GitHub**             | Link repos, auto-sync issues, webhook-based updates, real-time WebSocket events  |
+| 📊  | **Analytics**          | Backend overview and issue distribution endpoints                                |
+| 🔗  | **Public Sharing**     | Token-based read-only links for issues and views                                 |
+| 📦  | **Asset Management**   | File uploads, signed URLs for prompt images, S3-compatible storage               |
+| ⌨️  | **Command Palette**    | Global search with highlighting, keyboard shortcuts, and quick actions           |
+| 🎨  | **Rich Text Editor**   | Tiptap-based with code blocks, slash commands, mentions, task lists              |
+| 🚀  | **Release Changelog**  | Multi-release changelog modal with markdown rendering from static manifest       |
 
 ## 🤖 Dev Machines (Agentic Coding)
 
@@ -163,45 +171,48 @@ make dev
 
 ### 📖 Commands
 
-| Command             | What it does           |
-| ------------------- | ---------------------- |
-| `make dev`          | Run backend + frontend |
-| `make dev-backend`  | Backend only           |
-| `make dev-frontend` | Frontend only          |
-| `make migrate-up`   | Apply migrations       |
-| `make migrate-down` | Roll back migrations   |
-| `make seed`         | Seed the database      |
-| `make test`         | Run all tests          |
-| `make lint`         | Lint everything        |
-| `make docker-up`    | Start all (Docker)     |
-| `make docker-down`  | Stop all (Docker)      |
+| Command                | What it does                          |
+| ---------------------- | ------------------------------------- |
+| `make dev`             | Run backend + frontend (with migrate) |
+| `make dev-backend`     | Backend only                          |
+| `make dev-frontend`    | Frontend only                         |
+| `make dev-full`        | Backend + frontend + smee proxy       |
+| `make dev-smee`        | Start webhook proxy (smee.io)         |
+| `make migrate-up`      | Apply migrations                      |
+| `make migrate-down`    | Roll back migrations                  |
+| `make seed`            | Seed the database                     |
+| `make reset-dev`       | Reset dev database                    |
+| `make test`            | Run all tests                         |
+| `make test-backend`    | Backend tests only                    |
+| `make test-frontend`   | Frontend tests only                   |
+| `make lint`            | Lint everything                       |
+| `make docker-up`       | Start all (Docker)                    |
+| `make docker-down`     | Stop all (Docker)                     |
+| `make scan`            | Security scan backend + frontend      |
 
 ## 🏠 Self-Hosting
 
-Kuayle is designed to be self-hosted. Everything runs in Docker, no managed services required.
+Kuayle is designed to be self-hosted. A production-grade Docker Compose setup with Caddy reverse proxy, automatic Let's Encrypt TLS, and an update script is available in [`selfhosting/`](selfhosting/).
 
 ### Prerequisites
 
-- A Linux server (or any host that runs Docker)
-- Docker + Docker Compose
-- A domain (optional, for HTTPS)
+- A Linux server with Docker + Docker Compose
+- A domain pointing to your server (for HTTPS)
 
 ### 1. Clone and configure
 
 ```sh
 git clone https://github.com/carbogninalberto/kuayle.git
-cd kuayle
+cd kuayle/selfhosting
 cp .env.example .env
 ```
 
-Edit `.env` with production values:
+Edit `.env` with your domain and production values:
 
 ```env
-DATABASE_URL=postgres://kuayle:<strong-password>@postgres:5432/kuayle?sslmode=disable
-REDIS_URL=redis://redis:6379
+DOMAIN=kuayle.yourcompany.com
+POSTGRES_PASSWORD=<strong-random-password>
 JWT_SECRET=<random-string-at-least-32-chars>
-ENVIRONMENT=production
-FRONTEND_URL=https://your-domain.com
 ```
 
 ### 2. Launch
@@ -210,7 +221,7 @@ FRONTEND_URL=https://your-domain.com
 docker compose up --build -d
 ```
 
-This starts 4 containers: PostgreSQL, Redis, backend API (`:8080`), and frontend (`:5173`).
+This starts 5 containers: Caddy (auto TLS), PostgreSQL, Redis, backend API, and frontend.
 
 ### 3. Run migrations and seed
 
@@ -219,17 +230,16 @@ docker compose exec backend /app/server migrate up
 docker compose exec backend /app/server seed
 ```
 
-### 4. Reverse proxy (recommended)
+The frontend serves the app and proxies `/api/*` to the backend, so one public origin is enough.
 
-Put Nginx, Caddy, or Traefik in front to handle HTTPS. Example with Caddy, pointing at the frontend container only:
+### Updating
 
+```sh
+cd kuayle
+bash selfhosting/update.sh
 ```
-your-domain.com {
-    reverse_proxy localhost:5173
-}
-```
 
-The frontend container serves the app and proxies `/api/*` to the backend, so one public origin is enough.
+The update script pulls the latest code, rebuilds images, recreates containers, and applies pending migrations.
 
 ### Storage options
 
@@ -248,7 +258,7 @@ Works with AWS S3, Cloudflare R2, MinIO, SeaweedFS, and any S3-compatible provid
 
 ### GitHub Integration (optional)
 
-Kuayle connects to GitHub via a self-configuring **GitHub App**. No environment variables needed — everything is set up from the UI.
+Kuayle connects to GitHub via a self-configuring **GitHub App**. By default, each workspace creates its own app manifest from the UI. For SaaS deployments, set shared GitHub App credentials in `.env` so each workspace only needs to install the app (see `.env.example` for the `GITHUB_APP_*` variables).
 
 #### What it does
 
@@ -271,7 +281,7 @@ Everything including the webhook URL is configured automatically. PRs, branches,
 
 #### Private network / no public domain
 
-If your instance runs on a private network (e.g. `http://192.168.1.50:5173` or behind a VPN), GitHub can't send webhooks directly. You have two options:
+If your instance runs on a private network (e.g. `http://192.168.1.50:5173` or behind a VPN), GitHub can't send webhooks directly. You have three options:
 
 **Option A: Webhook proxy with smee.io (simplest)**
 
@@ -354,7 +364,7 @@ kuayle/
 │       ├── handler/        # HTTP handlers
 │       ├── service/        # Business logic
 │       ├── repository/     # Data access (raw SQL)
-│       ├── middleware/      # Auth and request middleware
+│       ├── middleware/     # Auth and request middleware
 │       └── realtime/       # WebSocket support
 ├── UI/                     # Frontend (SvelteKit)
 │   └── src/
@@ -365,7 +375,14 @@ kuayle/
 │           ├── features/   # Feature modules
 │           ├── types/      # TypeScript types
 │           └── utils/      # Utilities
-├── docker-compose.yml
+├── WEB/                    # Build output / minimal web root
+├── selfhosting/            # Production Docker Compose + Caddy config
+│   ├── docker-compose.yml
+│   ├── Caddyfile
+│   ├── update.sh
+│   └── .env.example
+├── scripts/                # Dev and maintenance scripts
+├── docker-compose.yml      # Dev Docker Compose
 ├── Makefile
 ├── TECHNICAL.md            # Dev Machines specification
 └── .env.example
