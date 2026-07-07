@@ -28,6 +28,10 @@ type IssueHandler struct {
 	cycleRepo      repository.CycleRepo
 }
 
+type userBatchRepo interface {
+	ListByIDs(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]domain.User, error)
+}
+
 func NewIssueHandler(issueSvc *service.IssueService, commentSvc *service.CommentService, userRepo repository.UserRepo, teamStatusRepo repository.TeamStatusRepo, projectRepo repository.ProjectRepo, cycleRepo repository.CycleRepo, relationSvc *service.IssueRelationService) *IssueHandler {
 	return &IssueHandler{issueSvc: issueSvc, relationSvc: relationSvc, commentSvc: commentSvc, userRepo: userRepo, teamStatusRepo: teamStatusRepo, projectRepo: projectRepo, cycleRepo: cycleRepo}
 }
@@ -56,6 +60,7 @@ func (h *IssueHandler) List(c echo.Context) error {
 	labelsMap, _ := h.issueSvc.GetLabelsForIssues(ctx, issueIDs)
 	assigneesMap, _ := h.issueSvc.GetAssigneesForIssues(ctx, issueIDs)
 	subIssueCounts, _ := h.issueSvc.CountSubIssuesForIssues(ctx, issueIDs)
+	usersMap := h.usersForIssueList(ctx, issues, assigneesMap)
 	relationSummaries := make(map[uuid.UUID]domain.IssueRelationSummary)
 	if h.relationSvc != nil {
 		relationSummaries, _ = h.relationSvc.SummariesByIssues(ctx, issueIDs)
@@ -96,15 +101,8 @@ func (h *IssueHandler) List(c echo.Context) error {
 		if uids, ok := assigneesMap[issue.ID]; ok && len(uids) > 0 {
 			resp.Assignees = make([]dto.UserResponse, 0, len(uids))
 			for _, uid := range uids {
-				user, _ := h.userRepo.GetByID(ctx, uid)
-				if user != nil {
-					resp.Assignees = append(resp.Assignees, dto.UserResponse{
-						ID:          user.ID.String(),
-						Email:       user.Email,
-						Name:        user.Name,
-						DisplayName: user.DisplayName,
-						AvatarURL:   user.AvatarURL,
-					})
+				if user, ok := usersMap[uid]; ok {
+					resp.Assignees = append(resp.Assignees, toUserResponse(user))
 				}
 			}
 		}
@@ -131,8 +129,7 @@ func (h *IssueHandler) List(c echo.Context) error {
 			h.enrichIssueRelationSummary(ctx, &resp, summary)
 		}
 
-		// Populate user objects
-		h.enrichUserFields(ctx, &resp, issue)
+		h.enrichUserFieldsFromMap(&resp, issue, usersMap)
 		issueResponses[i] = resp
 	}
 
@@ -805,6 +802,66 @@ func (h *IssueHandler) enrichUserFields(ctx context.Context, resp *dto.IssueResp
 			DisplayName: user.DisplayName,
 			AvatarURL:   user.AvatarURL,
 		}
+	}
+}
+
+func (h *IssueHandler) usersForIssueList(ctx context.Context, issues []domain.Issue, assigneesMap map[uuid.UUID][]uuid.UUID) map[uuid.UUID]domain.User {
+	ids := make([]uuid.UUID, 0, len(issues)*2)
+	seen := make(map[uuid.UUID]struct{}, len(issues)*2)
+	add := func(id uuid.UUID) {
+		if _, ok := seen[id]; ok {
+			return
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	for _, issue := range issues {
+		add(issue.CreatorID)
+		if issue.AssigneeID != nil {
+			add(*issue.AssigneeID)
+		}
+		for _, assigneeID := range assigneesMap[issue.ID] {
+			add(assigneeID)
+		}
+	}
+
+	if repo, ok := h.userRepo.(userBatchRepo); ok {
+		users, err := repo.ListByIDs(ctx, ids)
+		if err == nil {
+			return users
+		}
+	}
+
+	users := make(map[uuid.UUID]domain.User, len(ids))
+	for _, id := range ids {
+		user, _ := h.userRepo.GetByID(ctx, id)
+		if user != nil {
+			users[id] = *user
+		}
+	}
+	return users
+}
+
+func (h *IssueHandler) enrichUserFieldsFromMap(resp *dto.IssueResponse, issue domain.Issue, users map[uuid.UUID]domain.User) {
+	if issue.AssigneeID != nil {
+		if user, ok := users[*issue.AssigneeID]; ok {
+			assignee := toUserResponse(user)
+			resp.Assignee = &assignee
+		}
+	}
+	if user, ok := users[issue.CreatorID]; ok {
+		creator := toUserResponse(user)
+		resp.Creator = &creator
+	}
+}
+
+func toUserResponse(user domain.User) dto.UserResponse {
+	return dto.UserResponse{
+		ID:          user.ID.String(),
+		Email:       user.Email,
+		Name:        user.Name,
+		DisplayName: user.DisplayName,
+		AvatarURL:   user.AvatarURL,
 	}
 }
 

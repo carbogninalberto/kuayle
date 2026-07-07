@@ -106,9 +106,9 @@ func (r *IssueRepository) List(ctx context.Context, workspaceID uuid.UUID, param
 	}
 	if params.AssigneeID != "" {
 		if params.AssigneeID == "none" {
-			where = append(where, "i.assignee_id IS NULL")
+			where = append(where, "NOT EXISTS (SELECT 1 FROM issue_assignees ia WHERE ia.issue_id = i.id)")
 		} else {
-			where = append(where, "i.assignee_id = :assignee_id")
+			where = append(where, "EXISTS (SELECT 1 FROM issue_assignees ia WHERE ia.issue_id = i.id AND ia.user_id = :assignee_id)")
 			args["assignee_id"] = params.AssigneeID
 		}
 	}

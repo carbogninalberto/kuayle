@@ -11,6 +11,7 @@
 	import ViewSwitcher from '$lib/components/shared/ViewSwitcher.svelte';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
 	import IssueGroupHeader from '$lib/features/issues/IssueGroupHeader.svelte';
+	import IssueListLoadMore from '$lib/features/issues/IssueListLoadMore.svelte';
 	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
 	import * as Tabs from '$lib/components/ui/tabs';
 	import { listProjects } from '$lib/api/projects';
@@ -201,6 +202,8 @@
 					<IssueRow {issue} {slug} {members} {labels} {projects} onclick={handleIssueClick} {lastSelectedId} onlastselected={(id) => lastSelectedId = id} onaddrelation={handleAddRelation} />
 				{/each}
 			{/if}
+
+			<IssueListLoadMore />
 
 			<BulkActionBar {slug} {labels} onlabelcreated={(label) => (labels = [label, ...labels.filter((existing) => existing.id !== label.id)])} />
 		</div>

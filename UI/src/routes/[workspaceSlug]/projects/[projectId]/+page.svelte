@@ -11,6 +11,7 @@
 	import type { Cycle } from '$lib/types/cycle';
 	import type { Team } from '$lib/types/team';
 	import IssueRow from '$lib/features/issues/IssueRow.svelte';
+	import IssueListLoadMore from '$lib/features/issues/IssueListLoadMore.svelte';
 	import IssueDetail from '$lib/features/issues/IssueDetail.svelte';
 	import GanttChart from '$lib/features/projects/GanttChart.svelte';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
@@ -63,7 +64,7 @@
 		loading = true;
 		try {
 			project = await getProject(s, pid);
-			await issuesState.load(s, { project: pid, per_page: '200' });
+			await issuesState.load(s, viewMode === 'gantt' ? { project: pid, per_page: '200' } : { project: pid });
 			const firstTeamId = issuesState.issues[0]?.team_id;
 			if (firstTeamId) {
 				teamStatusesState.load(s, firstTeamId);
@@ -265,6 +266,7 @@
 						<IssueRow {issue} {slug} {lastSelectedId} onlastselected={(id) => lastSelectedId = id} onclick={(i) => { lastSelectedId = i.id; issuesState.select(i); }} />
 					{/each}
 				{/if}
+				<IssueListLoadMore />
 			</div>
 		{:else}
 			<div class="flex-1 min-h-0 px-4 py-3">

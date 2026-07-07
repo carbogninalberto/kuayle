@@ -323,16 +323,21 @@
 	// WebSocket connection — reconnects when slug changes
 	let ws_conn: WebSocket | null = null;
 	let wsSlug = '';
+	let wsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+	let wsDestroyed = false;
 
 	$effect(() => {
 		if (slug && slug !== wsSlug) {
 			wsSlug = slug;
+			clearWebSocketReconnect();
 			ws_conn?.close();
 			connectWebSocket(slug);
 		}
 	});
 
 	onDestroy(() => {
+		wsDestroyed = true;
+		clearWebSocketReconnect();
 		ws_conn?.close();
 		window.removeEventListener('ws:send', handleWSSend as EventListener);
 	});
@@ -346,11 +351,15 @@
 	window.addEventListener('ws:send', handleWSSend as EventListener);
 
 	function connectWebSocket(workspaceSlug: string) {
+		if (wsDestroyed || wsSlug !== workspaceSlug) return;
+		clearWebSocketReconnect();
 		const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const wsUrl = `${protocol}//${window.location.host}/api/workspaces/${workspaceSlug}/ws`;
-		ws_conn = new WebSocket(wsUrl);
+		const socket = new WebSocket(wsUrl);
+		ws_conn = socket;
 
-		ws_conn.onmessage = (event) => {
+		socket.onmessage = (event) => {
+			if (socket !== ws_conn) return;
 			try {
 				const data = JSON.parse(event.data);
 				handleWSMessage(data);
@@ -359,16 +368,29 @@
 			}
 		};
 
-		ws_conn.onopen = () => {
+		socket.onopen = () => {
+			if (socket !== ws_conn) return;
 			window.dispatchEvent(new CustomEvent('ws:reconnected'));
 		};
 
-		ws_conn.onclose = () => {
+		socket.onerror = () => {
+			socket.close();
+		};
+
+		socket.onclose = () => {
+			if (socket !== ws_conn) return;
 			// Only reconnect if still on the same workspace
-			if (wsSlug === workspaceSlug) {
-				setTimeout(() => connectWebSocket(workspaceSlug), 3000);
+			if (!wsDestroyed && wsSlug === workspaceSlug) {
+				wsReconnectTimer = setTimeout(() => connectWebSocket(workspaceSlug), 3000);
 			}
 		};
+	}
+
+	function clearWebSocketReconnect() {
+		if (wsReconnectTimer) {
+			clearTimeout(wsReconnectTimer);
+			wsReconnectTimer = null;
+		}
 	}
 
 	function handleWSMessage(msg: { type: string; payload: any }) {
