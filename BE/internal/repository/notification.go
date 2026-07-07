@@ -2,10 +2,12 @@ package repository
 
 import (
 	"context"
+	"database/sql"
+	"time"
 
-	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"github.com/kuayle/kuayle-backend/internal/domain"
 )
 
 type NotificationRepository struct {
@@ -19,6 +21,35 @@ func NewNotificationRepository(db *sqlx.DB) *NotificationRepository {
 func (r *NotificationRepository) Create(ctx context.Context, n *domain.Notification) error {
 	query := `INSERT INTO notifications (id, user_id, workspace_id, issue_id, type, title) VALUES ($1, $2, $3, $4, $5, $6) RETURNING created_at`
 	return r.db.QueryRowContext(ctx, query, n.ID, n.UserID, n.WorkspaceID, n.IssueID, n.Type, n.Title).Scan(&n.CreatedAt)
+}
+
+func (r *NotificationRepository) CreateOrRefresh(ctx context.Context, n *domain.Notification, window time.Duration) error {
+	query := `
+		WITH refreshed AS (
+			UPDATE notifications
+			SET title = $1, read_at = NULL, created_at = NOW()
+			WHERE id = (
+				SELECT id FROM notifications
+				WHERE user_id = $2
+					AND workspace_id = $3
+					AND issue_id IS NOT DISTINCT FROM $4::uuid
+					AND type = $5
+					AND archived_at IS NULL
+					AND created_at >= NOW() - ($6 * INTERVAL '1 second')
+				ORDER BY created_at DESC
+				LIMIT 1
+			)
+			RETURNING id, created_at
+		)
+		SELECT id, created_at FROM refreshed`
+	err := r.db.QueryRowContext(ctx, query, n.Title, n.UserID, n.WorkspaceID, n.IssueID, n.Type, int(window.Seconds())).Scan(&n.ID, &n.CreatedAt)
+	if err == nil {
+		return nil
+	}
+	if err != sql.ErrNoRows {
+		return err
+	}
+	return r.Create(ctx, n)
 }
 
 func (r *NotificationRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Notification, error) {

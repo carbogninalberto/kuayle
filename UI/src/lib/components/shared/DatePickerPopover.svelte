@@ -1,6 +1,7 @@
 <script lang="ts">
 	import * as Popover from '$lib/components/ui/popover';
 	import { Calendar } from '$lib/components/ui/calendar';
+	import DueDatePickerPanel from './DueDatePickerPanel.svelte';
 	import { CalendarDate } from '@internationalized/date';
 	import type { DateValue } from '@internationalized/date';
 	import { CalendarIcon, X } from 'lucide-svelte';
@@ -9,25 +10,17 @@
 		value = null,
 		onchange,
 		placeholder = 'Set date',
-		colorClass = ''
+		colorClass = '',
+		dueDateMode = false
 	}: {
 		value: string | null;
 		onchange: (date: string | null) => void;
 		placeholder?: string;
 		colorClass?: string;
+		dueDateMode?: boolean;
 	} = $props();
 
 	let open = $state(false);
-
-	const calendarValue = $derived.by(() => {
-		if (!value) return undefined;
-		try {
-			const d = new Date(value);
-			return new CalendarDate(d.getFullYear(), d.getMonth() + 1, d.getDate());
-		} catch {
-			return undefined;
-		}
-	});
 
 	const displayDate = $derived.by(() => {
 		if (!value) return null;
@@ -39,6 +32,16 @@
 			});
 		} catch {
 			return null;
+		}
+	});
+
+	const calendarValue = $derived.by(() => {
+		if (!value) return undefined;
+		try {
+			const d = new Date(value);
+			return new CalendarDate(d.getFullYear(), d.getMonth() + 1, d.getDate());
+		} catch {
+			return undefined;
 		}
 	});
 
@@ -78,12 +81,16 @@
 		</button>
 	</Popover.Trigger>
 	<Popover.Content class="w-auto p-0" align="start">
-		{#key value}
-			<Calendar
-				type="single"
-				value={calendarValue}
-				onValueChange={handleSelect}
-			/>
-		{/key}
+		{#if dueDateMode}
+			<DueDatePickerPanel {value} {onchange} close={() => (open = false)} />
+		{:else}
+			{#key value}
+				<Calendar
+					type="single"
+					value={calendarValue}
+					onValueChange={handleSelect}
+				/>
+			{/key}
+		{/if}
 	</Popover.Content>
 </Popover.Root>

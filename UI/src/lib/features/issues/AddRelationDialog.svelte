@@ -6,7 +6,7 @@
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
 	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
 	import { Ban, Copy, Link, LoaderCircle, OctagonAlert } from 'lucide-svelte';
-	import { toast } from 'svelte-sonner';
+	import { appToast } from '$lib/features/toast/toast';
 
 	let {
 		open = $bindable(false),
@@ -147,7 +147,7 @@
 	async function selectIssue(issue: Issue) {
 		try {
 			await createRelation(slug, identifier, { related_identifier: issue.identifier, type: selectedType });
-			toast.success('Relation added');
+			appToast.success('Relation added');
 			try {
 				await oncreated?.();
 			} catch {
@@ -155,7 +155,7 @@
 			}
 			close();
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to add relation');
+			appToast.apiError(err, 'Failed to add relation');
 		}
 	}
 

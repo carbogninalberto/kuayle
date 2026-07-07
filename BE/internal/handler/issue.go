@@ -323,7 +323,7 @@ func (h *IssueHandler) Delete(c echo.Context) error {
 		}
 	}
 
-	if err := h.issueSvc.Delete(c.Request().Context(), ws.ID, identifier); err != nil {
+	if err := h.issueSvc.Delete(c.Request().Context(), ws.ID, userID, identifier); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
 	}
 

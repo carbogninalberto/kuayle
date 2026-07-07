@@ -11,7 +11,7 @@
 	import { Badge } from '$lib/components/ui/badge';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import * as Select from '$lib/components/ui/select';
-	import { toast } from 'svelte-sonner';
+	import { appToast } from '$lib/features/toast/toast';
 	import { Plus, Trash2, FileText } from 'lucide-svelte';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
@@ -50,7 +50,7 @@
 
 	async function handleCreate() {
 		if (!formTitle.trim()) {
-			toast.error('Title is required');
+			appToast.error('Title is required');
 			return;
 		}
 		creating = true;
@@ -65,9 +65,9 @@
 			templates = [template, ...templates];
 			showCreate = false;
 			resetForm();
-			toast.success('Template created');
+			appToast.success('Template created');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to create template');
+			appToast.apiError(err, 'Failed to create template');
 		} finally {
 			creating = false;
 		}
@@ -77,9 +77,9 @@
 		try {
 			await deleteTemplate(slug, id);
 			templates = templates.filter((t) => t.id !== id);
-			toast.success('Template deleted');
+			appToast.success('Template deleted');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to delete template');
+			appToast.apiError(err, 'Failed to delete template');
 		}
 	}
 

@@ -20,7 +20,7 @@
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import * as Popover from '$lib/components/ui/popover';
-	import { toast } from 'svelte-sonner';
+	import { appToast } from '$lib/features/toast/toast';
 	import { createKeyboardHandler } from '$lib/utils/keyboard';
 	import {
 		Trash2,
@@ -77,7 +77,7 @@
 			}
 			cycles = allCycles;
 		} catch {
-			toast.error('Project not found');
+			appToast.error('Project not found');
 			goto(`/${slug}/projects`);
 		} finally {
 			loading = false;
@@ -93,9 +93,9 @@
 		try {
 			project = await updateProject(slug, project.id, { status });
 			statusOpen = false;
-			toast.success('Status updated');
+			appToast.success('Status updated');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to update status');
+			appToast.apiError(err, 'Failed to update status');
 		}
 	}
 
@@ -103,9 +103,9 @@
 		if (!project) return;
 		try {
 			project = await updateProject(slug, project.id, { [field]: value });
-			toast.success('Date updated');
+			appToast.success('Date updated');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to update date');
+			appToast.apiError(err, 'Failed to update date');
 		}
 	}
 
@@ -113,10 +113,10 @@
 		if (!project) return;
 		try {
 			await deleteProject(slug, project.id);
-			toast.success('Project deleted');
+			appToast.success('Project deleted');
 			goto(`/${slug}/projects`);
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to delete project');
+			appToast.apiError(err, 'Failed to delete project');
 		}
 	}
 

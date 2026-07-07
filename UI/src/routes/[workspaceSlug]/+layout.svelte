@@ -33,7 +33,7 @@
 	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
 	import { createShortcutEngine, type ShortcutDef } from '$lib/utils/keyboard';
 	import { Menu, Search, SquarePen } from 'lucide-svelte';
-	import { toast } from 'svelte-sonner';
+	import { appToast } from '$lib/features/toast/toast';
 
 	let { children } = $props();
 	let workspace = $state<Workspace | null>(null);
@@ -199,9 +199,9 @@
 			const team = await createTeam(slug, data);
 			teams = [...teams, team];
 			sidebarState.teams = teams;
-			toast.success('Team created');
+			appToast.success('Team created');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to create team');
+			appToast.apiError(err, 'Failed to create team');
 		}
 	}
 
@@ -237,17 +237,17 @@
 			if (confirmAction === 'leave') {
 				const result = await leaveTeam(slug, confirmTeam.id);
 				removeTeamFromState(confirmTeam.id);
-				toast.success(result.status === 'deleted' ? 'Team deleted' : 'Left team');
+				appToast.success(result.status === 'deleted' ? 'Team deleted' : 'Left team');
 			} else {
 				await deleteTeam(slug, confirmTeam.id);
 				removeTeamFromState(confirmTeam.id);
-				toast.success('Team deleted');
+				appToast.success('Team deleted');
 			}
 			confirmOpen = false;
 			confirmTeam = null;
 			confirmAction = null;
 		} catch (err: any) {
-			toast.error(err?.error?.message || `Failed to ${confirmAction} team`);
+			appToast.apiError(err, `Failed to ${confirmAction} team`);
 		} finally {
 			confirmSubmitting = false;
 		}
@@ -551,7 +551,7 @@
 					issuesState.totalCount--;
 				}
 			} catch (err: any) {
-				toast.error(err?.error?.message || 'Failed to create issue');
+				appToast.apiError(err, 'Failed to create issue');
 			}
 		}}
 	/>

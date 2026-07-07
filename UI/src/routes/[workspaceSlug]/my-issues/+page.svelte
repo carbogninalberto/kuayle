@@ -205,7 +205,7 @@
 
 			<IssueListLoadMore />
 
-			<BulkActionBar {slug} {labels} onlabelcreated={(label) => (labels = [label, ...labels.filter((existing) => existing.id !== label.id)])} />
+			<BulkActionBar {slug} {labels} {members} onlabelcreated={(label) => (labels = [label, ...labels.filter((existing) => existing.id !== label.id)])} />
 		</div>
 	{:else}
 		{#if !issuesState.loading}

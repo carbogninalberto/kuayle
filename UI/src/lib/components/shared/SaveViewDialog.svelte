@@ -7,7 +7,7 @@
 	import type { Team } from '$lib/types/team';
 	import type { ViewFilter, ViewScope } from '$lib/types/view';
 	import { Bookmark, Building2, Check, CircleUser, SquareUser } from 'lucide-svelte';
-	import { toast } from 'svelte-sonner';
+	import { appToast } from '$lib/features/toast/toast';
 
 	let {
 		open = $bindable(false),
@@ -76,7 +76,7 @@
 		e.preventDefault();
 		if (!name.trim()) return;
 		if (scope === 'team' && !defaultTeamId) {
-			toast.error('Team views can only be saved from a team');
+			appToast.error('Team views can only be saved from a team');
 			return;
 		}
 
@@ -99,10 +99,10 @@
 				filters: nextFilters,
 				is_shared: scope !== 'personal'
 			});
-			toast.success('View saved');
+			appToast.success('View saved');
 			open = false;
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to save view');
+			appToast.apiError(err, 'Failed to save view');
 		}
 	}
 </script>

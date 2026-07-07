@@ -7,7 +7,7 @@
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { listWorkspaces, createWorkspace } from '$lib/api/workspaces';
 	import { demoMode, demoUsers, type DemoUser } from '$lib/demo';
-	import { toast } from 'svelte-sonner';
+	import { appToast } from '$lib/features/toast/toast';
 
 	let mode = $state<'login' | 'register'>('login');
 	let email = $state('');
@@ -44,7 +44,7 @@
 				goto(`/${ws.slug}/inbox`);
 			}
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Something went wrong');
+			appToast.apiError(err, 'Something went wrong');
 		} finally {
 			loading = false;
 		}

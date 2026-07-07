@@ -4,10 +4,10 @@ import (
 	"context"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/repository"
-	"github.com/google/uuid"
 )
 
 type NotificationService struct {
@@ -28,6 +28,18 @@ func (s *NotificationService) Create(ctx context.Context, userID, workspaceID uu
 		Title:       title,
 	}
 	return s.notifRepo.Create(ctx, n)
+}
+
+func (s *NotificationService) CreateOrRefresh(ctx context.Context, userID, workspaceID uuid.UUID, issueID *uuid.UUID, notifType, title string, window time.Duration) error {
+	n := &domain.Notification{
+		ID:          uuid.New(),
+		UserID:      userID,
+		WorkspaceID: workspaceID,
+		IssueID:     issueID,
+		Type:        notifType,
+		Title:       title,
+	}
+	return s.notifRepo.CreateOrRefresh(ctx, n, window)
 }
 
 func (s *NotificationService) ListByUser(ctx context.Context, userID uuid.UUID, limit, offset int) ([]domain.Notification, error) {
@@ -71,6 +83,43 @@ func (s *NotificationService) Snooze(ctx context.Context, id uuid.UUID, until ti
 	return n, nil
 }
 
+func (s *NotificationService) Unsnooze(ctx context.Context, id uuid.UUID) (*domain.Notification, error) {
+	n, err := s.notifRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	n.SnoozedUntil = nil
+	if err := s.notifRepo.Update(ctx, n); err != nil {
+		return nil, err
+	}
+	return n, nil
+}
+
+func (s *NotificationService) MarkRead(ctx context.Context, id uuid.UUID) (*domain.Notification, error) {
+	n, err := s.notifRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	n.ReadAt = &now
+	if err := s.notifRepo.Update(ctx, n); err != nil {
+		return nil, err
+	}
+	return n, nil
+}
+
+func (s *NotificationService) MarkUnread(ctx context.Context, id uuid.UUID) (*domain.Notification, error) {
+	n, err := s.notifRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	n.ReadAt = nil
+	if err := s.notifRepo.Update(ctx, n); err != nil {
+		return nil, err
+	}
+	return n, nil
+}
+
 func (s *NotificationService) Archive(ctx context.Context, id uuid.UUID) (*domain.Notification, error) {
 	n, err := s.notifRepo.GetByID(ctx, id)
 	if err != nil {
@@ -79,6 +128,18 @@ func (s *NotificationService) Archive(ctx context.Context, id uuid.UUID) (*domai
 
 	now := time.Now()
 	n.ArchivedAt = &now
+	if err := s.notifRepo.Update(ctx, n); err != nil {
+		return nil, err
+	}
+	return n, nil
+}
+
+func (s *NotificationService) Unarchive(ctx context.Context, id uuid.UUID) (*domain.Notification, error) {
+	n, err := s.notifRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	n.ArchivedAt = nil
 	if err := s.notifRepo.Update(ctx, n); err != nil {
 		return nil, err
 	}

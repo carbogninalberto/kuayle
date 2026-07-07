@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -39,6 +40,7 @@ func (s *PreferencesService) Get(ctx context.Context, userID uuid.UUID) (*domain
 			WorkflowSortMode:          "default",
 			WorkflowSortOrder:         domain.WorkflowSortOrder(defaultWorkflowSortOrder),
 			TeamWorkflowSortOverrides: domain.TeamWorkflowSortOverrides{},
+			RecentDueDates:            domain.RecentDueDates{},
 		}, nil
 	}
 	if prefs.WorkflowSortMode == "" {
@@ -50,6 +52,7 @@ func (s *PreferencesService) Get(ctx context.Context, userID uuid.UUID) (*domain
 	if prefs.TeamWorkflowSortOverrides == nil {
 		prefs.TeamWorkflowSortOverrides = domain.TeamWorkflowSortOverrides{}
 	}
+	prefs.RecentDueDates = domain.RecentDueDates(normalizeRecentDueDates([]string(prefs.RecentDueDates)))
 	return prefs, nil
 }
 
@@ -91,11 +94,33 @@ func (s *PreferencesService) Update(ctx context.Context, userID uuid.UUID, req d
 		}
 		prefs.TeamWorkflowSortOverrides = overrides
 	}
+	if req.RecentDueDates != nil {
+		prefs.RecentDueDates = domain.RecentDueDates(normalizeRecentDueDates(*req.RecentDueDates))
+	}
 
 	if err := s.prefsRepo.Upsert(ctx, prefs); err != nil {
 		return nil, err
 	}
 	return prefs, nil
+}
+
+func normalizeRecentDueDates(dates []string) []string {
+	normalized := make([]string, 0, 3)
+	seen := map[string]bool{}
+	for _, date := range dates {
+		if len(normalized) == 3 {
+			break
+		}
+		if seen[date] {
+			continue
+		}
+		if _, err := time.Parse("2006-01-02", date); err != nil {
+			continue
+		}
+		seen[date] = true
+		normalized = append(normalized, date)
+	}
+	return normalized
 }
 
 func normalizeWorkflowSortOverrides(req map[string]dto.WorkflowSortOverride) (domain.TeamWorkflowSortOverrides, error) {

@@ -18,7 +18,7 @@
 	import { formatRelativeTime, formatDate } from '$lib/utils/format';
 	import { IsMobile } from '$lib/hooks/is-mobile.svelte';
 	import { Ban, CalendarDays, CircleUser, Copy, Link, OctagonAlert, RefreshCw } from 'lucide-svelte';
-	import { toast } from 'svelte-sonner';
+	import { appToast } from '$lib/features/toast/toast';
 
 	let {
 		issue,
@@ -118,7 +118,7 @@
 			try {
 				await issuesState.update(slug, issue.identifier, { title: titleValue.trim() });
 			} catch {
-				toast.error('Failed to update title');
+				appToast.error('Failed to update title');
 			}
 		}
 	}
@@ -127,7 +127,7 @@
 		try {
 			await issuesState.update(slug, issue.identifier, { [field]: value });
 		} catch {
-			toast.error(`Failed to update ${field}`);
+			appToast.error(`Failed to update ${field}`);
 		}
 	}
 

@@ -6,7 +6,7 @@
 	import type { Label } from '$lib/types/label';
 	import type { Snippet } from 'svelte';
 	import { Plus } from 'lucide-svelte';
-	import { toast } from 'svelte-sonner';
+	import { appToast } from '$lib/features/toast/toast';
 
 	let {
 		open = $bindable(false),
@@ -55,7 +55,7 @@
 			onchange(label.id);
 			open = false;
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to create label');
+			appToast.apiError(err, 'Failed to create label');
 		} finally {
 			creating = false;
 		}

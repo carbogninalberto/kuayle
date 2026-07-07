@@ -23,6 +23,20 @@ func (o *WorkflowSortOrder) Scan(value interface{}) error {
 	return scanJSON(value, o)
 }
 
+type RecentDueDates []string
+
+func (d RecentDueDates) Value() (driver.Value, error) {
+	if d == nil {
+		return "[]", nil
+	}
+	data, err := json.Marshal(d)
+	return string(data), err
+}
+
+func (d *RecentDueDates) Scan(value interface{}) error {
+	return scanJSON(value, d)
+}
+
 type WorkflowSortOverride struct {
 	Mode              string            `json:"mode"`
 	WorkflowSortOrder WorkflowSortOrder `json:"workflow_sort_order,omitempty"`
@@ -71,5 +85,6 @@ type UserPreferences struct {
 	WorkflowSortMode          string                    `json:"workflow_sort_mode" db:"workflow_sort_mode"`
 	WorkflowSortOrder         WorkflowSortOrder         `json:"workflow_sort_order" db:"workflow_sort_order"`
 	TeamWorkflowSortOverrides TeamWorkflowSortOverrides `json:"team_workflow_sort_overrides" db:"team_workflow_sort_overrides"`
+	RecentDueDates            RecentDueDates            `json:"recent_due_dates" db:"recent_due_dates"`
 	UpdatedAt                 time.Time                 `json:"updated_at" db:"updated_at"`
 }

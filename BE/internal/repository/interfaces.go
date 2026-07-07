@@ -78,7 +78,7 @@ type IssueRepo interface {
 	CountSubIssuesForIssues(ctx context.Context, issueIDs []uuid.UUID) (map[uuid.UUID]domain.SubIssueCount, error)
 	WouldCreateCycle(ctx context.Context, issueID, parentID uuid.UUID) (bool, error)
 	CycleIsActive(ctx context.Context, cycleID uuid.UUID) (bool, error)
-	BulkUpdate(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID, status *string, priority *int, assigneeID *uuid.UUID, statusID *uuid.UUID) (int, error)
+	BulkUpdate(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID, status *string, priority *int, assigneeID *uuid.UUID, statusID *uuid.UUID, cycleID *uuid.UUID, cycleSet bool) (int, error)
 	BulkDelete(ctx context.Context, workspaceID uuid.UUID, issueIDs []uuid.UUID) (int, error)
 	BeginTx(ctx context.Context) (*sqlx.Tx, error)
 }
@@ -118,6 +118,7 @@ type ProjectRepo interface {
 
 type NotificationRepo interface {
 	Create(ctx context.Context, n *domain.Notification) error
+	CreateOrRefresh(ctx context.Context, n *domain.Notification, window time.Duration) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Notification, error)
 	ListByUser(ctx context.Context, userID uuid.UUID, limit, offset int) ([]domain.Notification, error)
 	ListSnoozed(ctx context.Context, userID uuid.UUID) ([]domain.Notification, error)

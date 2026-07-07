@@ -9,7 +9,7 @@
 	import CreateProjectDialog from '$lib/features/projects/CreateProjectDialog.svelte';
 	import { Badge } from '$lib/components/ui/badge';
 	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
-	import { toast } from 'svelte-sonner';
+	import { appToast } from '$lib/features/toast/toast';
 	import { Plus } from 'lucide-svelte';
 	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
 
@@ -39,9 +39,9 @@
 			const project = await createProject(slug, data);
 			projects = [...projects, project];
 			sidebarState.addProject(project);
-			toast.success('Project created');
+			appToast.success('Project created');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to create project');
+			appToast.apiError(err, 'Failed to create project');
 		}
 	}
 

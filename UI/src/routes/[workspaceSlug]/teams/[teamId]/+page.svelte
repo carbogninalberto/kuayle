@@ -30,7 +30,7 @@
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import type { ViewFilter, ViewLayout } from '$lib/types/view';
 	import { createKeyboardHandler } from '$lib/utils/keyboard';
-	import { toast } from 'svelte-sonner';
+	import { appToast } from '$lib/features/toast/toast';
 	import { Layers, SquareUser, SquaresSubtract, ChevronRight, Share2 } from 'lucide-svelte';
 	import ShareLinkDialog from '$lib/components/shared/ShareLinkDialog.svelte';
 	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
@@ -237,7 +237,7 @@
 				applyLocalGroupOrder(reorderedGroup.map((issue) => (issue.id === updatedIssue.id ? updatedIssue : issue)));
 			}
 		} catch {
-			toast.error('Failed to move issue');
+			appToast.error('Failed to move issue');
 		}
 	}
 
@@ -558,6 +558,8 @@
 			<BulkActionBar
 				{slug}
 				{labels}
+				{members}
+				{cycles}
 				onlabelcreated={(label) => (labels = [label, ...labels.filter((existing) => existing.id !== label.id)])}
 			/>
 		</div>
@@ -598,7 +600,7 @@
 			const created = await issuesState.create(slug, req);
 			showIssueCreatedToast(slug, created);
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to create issue');
+			appToast.apiError(err, 'Failed to create issue');
 		}
 	}}
 />

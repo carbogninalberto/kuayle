@@ -11,10 +11,11 @@
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
 	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
 	import IssuePickerDialog from './IssuePickerDialog.svelte';
+	import DueDatePickerPanel from '$lib/components/shared/DueDatePickerPanel.svelte';
 	import { issuesState } from './issues.state.svelte';
 	import { convertIssueToProject, duplicateIssue } from '$lib/api/issues';
 	import { showIssueDeletedToast } from './issue-deleted-toast';
-	import { toast } from 'svelte-sonner';
+	import { appToast } from '$lib/features/toast/toast';
 	import type { Snippet } from 'svelte';
 	import {
 		ArrowUpCircle,
@@ -66,7 +67,11 @@
 	let duplicateOpen = $state(false);
 	let convertOpen = $state(false);
 	let removeParentOpen = $state(false);
+	let dueDateOpen = $state(false);
+	let dueDateVisible = $state(false);
+	let closingDueDate = false;
 	let includeSubIssues = $state(false);
+	const ANIM_DURATION = 100;
 
 	let pickerTitle = $derived(pickerMode === 'sub_issue_of' ? 'Set parent issue' : 'Make parent of issue');
 	let pickerDescription = $derived(
@@ -80,19 +85,13 @@
 		try {
 			await issuesState.update(slug, issue.identifier, { [field]: value });
 		} catch (err: any) {
-			toast.error(err?.error?.message || `Failed to update ${field}`);
+			appToast.apiError(err, `Failed to update ${field}`);
 		}
 	}
 
 	function copyToClipboard(text: string) {
 		navigator.clipboard.writeText(text);
-		toast.success('Copied to clipboard');
-	}
-
-	function dateOffset(days: number): string {
-		const d = new Date();
-		d.setDate(d.getDate() + days);
-		return d.toISOString().split('T')[0];
+		appToast.success('Copied to clipboard');
 	}
 
 	function openPicker(mode: PickerMode) {
@@ -100,26 +99,62 @@
 		pickerOpen = true;
 	}
 
+	function openDueDatePicker() {
+		dueDateOpen = true;
+	}
+
+	function closeDueDatePicker() {
+		if (closingDueDate) return;
+		closingDueDate = true;
+		dueDateVisible = false;
+		setTimeout(() => {
+			dueDateOpen = false;
+			closingDueDate = false;
+		}, ANIM_DURATION);
+	}
+
+	function handleDueDateKeydown(e: KeyboardEvent) {
+		if (e.key === 'Escape') {
+			e.preventDefault();
+			closeDueDatePicker();
+		}
+	}
+
+	$effect(() => {
+		if (dueDateOpen) {
+			closingDueDate = false;
+			dueDateVisible = false;
+			requestAnimationFrame(() => {
+				requestAnimationFrame(() => {
+					dueDateVisible = true;
+				});
+			});
+		} else {
+			dueDateVisible = false;
+			closingDueDate = false;
+		}
+	});
+
 	async function handlePickedIssue(selected: Issue) {
 		try {
 			if (pickerMode === 'sub_issue_of') {
 				await issuesState.update(slug, issue.identifier, { parent_id: selected.id });
-				toast.success(`${issue.identifier} is now a sub-issue of ${selected.identifier}`);
+				appToast.success(`${issue.identifier} is now a sub-issue of ${selected.identifier}`);
 			} else {
 				await issuesState.update(slug, selected.identifier, { parent_id: issue.id });
-				toast.success(`${selected.identifier} is now a sub-issue of ${issue.identifier}`);
+				appToast.success(`${selected.identifier} is now a sub-issue of ${issue.identifier}`);
 			}
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to update parent');
+			appToast.apiError(err, 'Failed to update parent');
 		}
 	}
 
 	async function handleRemoveParent() {
 		try {
 			await issuesState.update(slug, issue.identifier, { parent_id: '' });
-			toast.success('Removed parent');
+			appToast.success('Removed parent');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to remove parent');
+			appToast.apiError(err, 'Failed to remove parent');
 		}
 		removeParentOpen = false;
 	}
@@ -129,7 +164,7 @@
 			await issuesState.remove(slug, issue.identifier);
 			showIssueDeletedToast(issue);
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to delete issue');
+			appToast.apiError(err, 'Failed to delete issue');
 		}
 		deleteOpen = false;
 	}
@@ -139,9 +174,9 @@
 			const duplicated = await duplicateIssue(slug, issue.identifier, includeSubIssues);
 			issuesState.issues = [duplicated, ...issuesState.issues.filter((item) => item.id !== duplicated.id)];
 			issuesState.totalCount += 1;
-			toast.success(`Duplicated as ${duplicated.identifier}`);
+			appToast.success(`Duplicated as ${duplicated.identifier}`);
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to duplicate issue');
+			appToast.apiError(err, 'Failed to duplicate issue');
 		}
 		duplicateOpen = false;
 	}
@@ -149,9 +184,9 @@
 	async function handleConvertToProject() {
 		try {
 			const result = await convertIssueToProject(slug, issue.identifier);
-			toast.success(`Converted to project ${result.project.name}`);
+			appToast.success(`Converted to project ${result.project.name}`);
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to convert issue');
+			appToast.apiError(err, 'Failed to convert issue');
 		}
 		convertOpen = false;
 	}
@@ -252,21 +287,9 @@
 			</ContextMenu.Sub>
 		{/if}
 
-		<ContextMenu.Sub>
-			<ContextMenu.SubTrigger>
-				<span class={rowClass}><CalendarDays class={iconClass} />Due date</span>
-			</ContextMenu.SubTrigger>
-			<ContextMenu.SubContent class="w-40">
-				<ContextMenu.Item onclick={() => updateField('due_date', dateOffset(0))}><span class={rowClass}><CalendarDays class={iconClass} />Today</span></ContextMenu.Item>
-				<ContextMenu.Item onclick={() => updateField('due_date', dateOffset(1))}><span class={rowClass}><CalendarDays class={iconClass} />Tomorrow</span></ContextMenu.Item>
-				<ContextMenu.Item onclick={() => updateField('due_date', dateOffset(7))}><span class={rowClass}><CalendarDays class={iconClass} />Next week</span></ContextMenu.Item>
-				<ContextMenu.Item onclick={() => updateField('due_date', dateOffset(14))}><span class={rowClass}><CalendarDays class={iconClass} />In 2 weeks</span></ContextMenu.Item>
-				{#if issue.due_date}
-					<ContextMenu.Separator />
-					<ContextMenu.Item onclick={() => updateField('due_date', '')}><span class={rowClass}><X class={iconClass} />Clear</span></ContextMenu.Item>
-				{/if}
-			</ContextMenu.SubContent>
-		</ContextMenu.Sub>
+		<ContextMenu.Item onclick={openDueDatePicker}>
+			<span class={rowClass}><CalendarDays class={iconClass} />Due date...</span>
+		</ContextMenu.Item>
 
 		{#if projects && projects.length > 0}
 			<ContextMenu.Sub>
@@ -326,6 +349,44 @@
 		</ContextMenu.Item>
 	</ContextMenu.Content>
 </ContextMenu.Root>
+
+{#if dueDateOpen}
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div class="fixed inset-0 z-50 flex items-start justify-center px-3 pt-[12vh]" onkeydown={handleDueDateKeydown}>
+		<button
+			class="fixed inset-0 cursor-default"
+			style="background: rgba(0,0,0,{dueDateVisible ? 0.5 : 0}); transition: background {ANIM_DURATION}ms ease;"
+			onclick={closeDueDatePicker}
+			tabindex={-1}
+			aria-label="Close due date picker"
+		></button>
+
+		<div
+			class="relative z-10 w-full max-w-[31rem] overflow-hidden rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] shadow-2xl"
+			style="opacity: {dueDateVisible ? 1 : 0}; transform: scale({dueDateVisible ? 1 : 0.95}); transition: opacity {ANIM_DURATION}ms ease, transform {ANIM_DURATION}ms ease;"
+		>
+			<div class="flex items-center justify-between gap-3 border-b border-[var(--app-border)] px-4 py-3">
+				<div>
+					<h2 class="text-sm font-medium text-[var(--color-text-primary)]">Choose due date</h2>
+					<p class="text-xs text-[var(--color-text-tertiary)]">{issue.identifier}</p>
+				</div>
+				<button
+					onclick={closeDueDatePicker}
+					class="inline-flex h-8 w-8 items-center justify-center rounded-md text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+					title="Close"
+				>
+					<X size={16} />
+				</button>
+			</div>
+
+			<DueDatePickerPanel
+				value={issue.due_date}
+				onchange={(date) => updateField('due_date', date ?? '')}
+				close={closeDueDatePicker}
+			/>
+		</div>
+	</div>
+{/if}
 
 <IssuePickerDialog
 	bind:open={pickerOpen}

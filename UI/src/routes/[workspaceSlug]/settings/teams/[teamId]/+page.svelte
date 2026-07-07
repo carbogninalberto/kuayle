@@ -9,7 +9,7 @@
 	import { Label } from '$lib/components/ui/label';
 	import { Switch } from '$lib/components/ui/switch';
 	import * as Popover from '$lib/components/ui/popover';
-	import { toast } from 'svelte-sonner';
+	import { appToast } from '$lib/features/toast/toast';
 	import { Check, Search, X } from 'lucide-svelte';
 	import * as LucideIcons from 'lucide-svelte';
 	import type { Component } from 'svelte';
@@ -197,7 +197,7 @@
 				issueCopyPrompt = team?.issue_copy_prompt ?? '';
 			})
 			.catch(() => {
-				toast.error('Failed to load team');
+				appToast.error('Failed to load team');
 			})
 			.finally(() => {
 				loading = false;
@@ -221,10 +221,10 @@
 				description: editDescription.trim() || null
 			});
 			editingDetails = false;
-			toast.success('Team details updated');
+			appToast.success('Team details updated');
 		} catch (err: any) {
 			team = previous;
-			toast.error(err?.error?.message || 'Failed to update team details');
+			appToast.apiError(err, 'Failed to update team details');
 		}
 	}
 
@@ -234,10 +234,10 @@
 		team = { ...team, ...data };
 		try {
 			team = await updateTeam(slug, teamId, data);
-			toast.success('Team appearance updated');
+			appToast.success('Team appearance updated');
 		} catch (err: any) {
 			team = previous;
-			toast.error(err?.error?.message || 'Failed to update team appearance');
+			appToast.apiError(err, 'Failed to update team appearance');
 		}
 	}
 
@@ -250,10 +250,10 @@
 		team = { ...team, [field]: value };
 		try {
 			team = await updateTeam(slug, teamId, { [field]: value });
-			toast.success('Sub-issue automation updated');
+			appToast.success('Sub-issue automation updated');
 		} catch (err: any) {
 			team = previous;
-			toast.error(err?.error?.message || 'Failed to update automation');
+			appToast.apiError(err, 'Failed to update automation');
 		}
 	}
 
@@ -264,12 +264,12 @@
 		const prompt = issueCopyPrompt.trim();
 		team = { ...team, issue_copy_prompt: prompt || null };
 		try {
-			team = await updateTeam(slug, teamId, { issue_copy_prompt: prompt || null });
+			team = await updateTeam(slug, teamId, { issue_copy_prompt: prompt });
 			issueCopyPrompt = team.issue_copy_prompt ?? '';
-			toast.success('Issue copy prompt updated');
+			appToast.success('Issue copy prompt updated');
 		} catch (err: any) {
 			team = previous;
-			toast.error(err?.error?.message || 'Failed to update issue copy prompt');
+			appToast.apiError(err, 'Failed to update issue copy prompt');
 		} finally {
 			savingIssueCopyPrompt = false;
 		}

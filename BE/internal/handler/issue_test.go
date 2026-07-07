@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
@@ -137,7 +138,7 @@ func (r *testIssueRepo) CycleIsActive(_ context.Context, _ uuid.UUID) (bool, err
 	return false, nil
 }
 
-func (r *testIssueRepo) BulkUpdate(_ context.Context, _ uuid.UUID, _ []uuid.UUID, _ *string, _ *int, _ *uuid.UUID, _ *uuid.UUID) (int, error) {
+func (r *testIssueRepo) BulkUpdate(_ context.Context, _ uuid.UUID, _ []uuid.UUID, _ *string, _ *int, _ *uuid.UUID, _ *uuid.UUID, _ *uuid.UUID, _ bool) (int, error) {
 	return 0, nil
 }
 
@@ -298,6 +299,9 @@ func (r *testCommentRepo) Reopen(_ context.Context, id uuid.UUID) error {
 type testNotifRepo struct{}
 
 func (r *testNotifRepo) Create(_ context.Context, _ *domain.Notification) error { return nil }
+func (r *testNotifRepo) CreateOrRefresh(_ context.Context, _ *domain.Notification, _ time.Duration) error {
+	return nil
+}
 func (r *testNotifRepo) GetByID(_ context.Context, _ uuid.UUID) (*domain.Notification, error) {
 	return nil, nil
 }

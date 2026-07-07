@@ -7,7 +7,7 @@
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
 	import { Badge } from '$lib/components/ui/badge';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
-	import { toast } from 'svelte-sonner';
+	import { appToast } from '$lib/features/toast/toast';
 	import { Bookmark, Trash2, SquareUser, Layers, ChevronRight } from 'lucide-svelte';
 	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
 	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
@@ -59,9 +59,9 @@
 		try {
 			await deleteView(slug, view.id);
 			views = views.filter((v) => v.id !== view.id);
-			toast.success('View deleted');
+			appToast.success('View deleted');
 		} catch {
-			toast.error('Failed to delete view');
+			appToast.error('Failed to delete view');
 		} finally {
 			deleteOpen = false;
 			pendingDeleteView = null;

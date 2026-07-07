@@ -21,7 +21,7 @@
 	import { Switch } from '$lib/components/ui/switch';
 	import { Input } from '$lib/components/ui/input';
 	import { Checkbox } from '$lib/components/ui/checkbox';
-	import { toast } from 'svelte-sonner';
+	import { appToast } from '$lib/features/toast/toast';
 	import { ExternalLink, Plus, Trash2, Loader2, Search } from 'lucide-svelte';
 	import { GithubLogoIcon } from 'phosphor-svelte';
 
@@ -83,11 +83,11 @@
 				} else {
 					sessionStorage.setItem(key, '1');
 					await handleManifestCallback(slug, code);
-					toast.success('GitHub App created');
+					appToast.success('GitHub App created');
 				}
 			} else if (installationId) {
 				await handleGitHubCallback(slug, parseInt(installationId));
-				toast.success('GitHub connected');
+				appToast.success('GitHub connected');
 			}
 
 			// Load current status
@@ -98,7 +98,7 @@
 		} catch (err: any) {
 			console.error('GitHub setup error:', err);
 			if (code || installationId) {
-				toast.error(err?.error?.message || 'GitHub setup failed');
+				appToast.apiError(err, 'GitHub setup failed');
 			}
 		} finally {
 			loading = false;
@@ -116,7 +116,7 @@
 			const { url } = await getInstallURL(slug);
 			window.location.href = url;
 		} catch {
-			toast.error('Failed to get install URL');
+			appToast.error('Failed to get install URL');
 		}
 	}
 
@@ -125,9 +125,9 @@
 			await disconnectGitHub(slug);
 			status = await getGitHubStatus(slug);
 			transitions = [];
-			toast.success('GitHub disconnected');
+			appToast.success('GitHub disconnected');
 		} catch {
-			toast.error('Failed to disconnect');
+			appToast.error('Failed to disconnect');
 		}
 	}
 
@@ -136,9 +136,9 @@
 			await deleteGitHubApp(slug);
 			status = await getGitHubStatus(slug);
 			transitions = [];
-			toast.success('GitHub App removed');
+			appToast.success('GitHub App removed');
 		} catch {
-			toast.error('Failed to remove app');
+			appToast.error('Failed to remove app');
 		}
 	}
 
@@ -150,7 +150,7 @@
 			availableRepos = await listGitHubRepos(slug);
 			selectedRepoIds = new Set(availableRepos.filter(r => r.linked).map(r => r.github_repo_id));
 		} catch {
-			toast.error('Failed to load repos');
+			appToast.error('Failed to load repos');
 		} finally {
 			loadingRepos = false;
 		}
@@ -173,9 +173,9 @@
 			if (newIds.length > 0) {
 				try {
 					await linkGitHubRepos(slug, newIds);
-					toast.success('Repos linked');
+					appToast.success('Repos linked');
 				} catch {
-					toast.error('Failed to link repos');
+					appToast.error('Failed to link repos');
 				}
 			}
 			for (const repo of availableRepos.filter(r => r.linked)) {
@@ -200,7 +200,7 @@
 		try {
 			await updateAutoTransitions(slug, updated);
 		} catch {
-			toast.error('Failed to update');
+			appToast.error('Failed to update');
 		}
 	}
 

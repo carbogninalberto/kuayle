@@ -4,14 +4,14 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/middleware"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
-	log "github.com/sirupsen/logrus"
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
+	log "github.com/sirupsen/logrus"
 )
 
 type NotificationHandler struct {
@@ -94,12 +94,60 @@ func (h *NotificationHandler) Snooze(c echo.Context) error {
 	return response.Success(c, http.StatusOK, toNotifResponse(*n))
 }
 
+func (h *NotificationHandler) Unsnooze(c echo.Context) error {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid notification ID")
+	}
+	n, err := h.notifSvc.Unsnooze(c.Request().Context(), id)
+	if err != nil {
+		return response.InternalError(c)
+	}
+	return response.Success(c, http.StatusOK, toNotifResponse(*n))
+}
+
+func (h *NotificationHandler) MarkRead(c echo.Context) error {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid notification ID")
+	}
+	n, err := h.notifSvc.MarkRead(c.Request().Context(), id)
+	if err != nil {
+		return response.InternalError(c)
+	}
+	return response.Success(c, http.StatusOK, toNotifResponse(*n))
+}
+
+func (h *NotificationHandler) MarkUnread(c echo.Context) error {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid notification ID")
+	}
+	n, err := h.notifSvc.MarkUnread(c.Request().Context(), id)
+	if err != nil {
+		return response.InternalError(c)
+	}
+	return response.Success(c, http.StatusOK, toNotifResponse(*n))
+}
+
 func (h *NotificationHandler) Archive(c echo.Context) error {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid notification ID")
 	}
 	n, err := h.notifSvc.Archive(c.Request().Context(), id)
+	if err != nil {
+		return response.InternalError(c)
+	}
+	return response.Success(c, http.StatusOK, toNotifResponse(*n))
+}
+
+func (h *NotificationHandler) Unarchive(c echo.Context) error {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid notification ID")
+	}
+	n, err := h.notifSvc.Unarchive(c.Request().Context(), id)
 	if err != nil {
 		return response.InternalError(c)
 	}

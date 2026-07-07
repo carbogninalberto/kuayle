@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import { toast } from 'svelte-sonner';
+	import { appToast } from '$lib/features/toast/toast';
 	import { Button } from '$lib/components/ui/button';
 	import * as Select from '$lib/components/ui/select';
 	import { getAISettings, updateAISettings } from '$lib/api/ai-settings';
@@ -27,7 +27,7 @@
 			prompt = settings.description_expand_prompt;
 			issueCopyPrompt = settings.issue_copy_prompt;
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to load AI settings');
+			appToast.apiError(err, 'Failed to load AI settings');
 		}
 	});
 
@@ -49,9 +49,9 @@
 			prompt = settings.description_expand_prompt;
 			issueCopyPrompt = settings.issue_copy_prompt;
 			apiKey = '';
-			toast.success('AI settings updated');
+			appToast.success('AI settings updated');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to update AI settings');
+			appToast.apiError(err, 'Failed to update AI settings');
 		} finally {
 			saving = false;
 		}

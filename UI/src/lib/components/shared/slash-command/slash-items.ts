@@ -14,7 +14,7 @@ import {
 	ChevronsDownUp,
 	Quote
 } from 'lucide-svelte';
-import { toast } from 'svelte-sonner';
+import { appToast } from '$lib/features/toast/toast';
 
 export interface SlashMenuItem {
 	id: string;
@@ -100,7 +100,7 @@ const ITEMS: SlashMenuItem[] = [
 		keywords: ['image', 'media', 'photo', 'picture', 'upload'],
 		action: (_editor, opts) => {
 			if (!opts?.uploadUrl) {
-				toast.info('No upload URL configured');
+				appToast.info('No upload URL configured');
 				return;
 			}
 			// Trigger file picker — the RichEditor will handle this via a callback
@@ -125,7 +125,7 @@ const ITEMS: SlashMenuItem[] = [
 		icon: Smile,
 		group: 'Media',
 		keywords: ['gif', 'giphy', 'animation'],
-		action: () => toast.info('GIF insertion coming soon')
+		action: () => appToast.info('GIF insertion coming soon')
 	},
 	{
 		id: 'attach-files',
@@ -134,7 +134,7 @@ const ITEMS: SlashMenuItem[] = [
 		shortcut: '⌘⇧U',
 		group: 'Media',
 		keywords: ['attach', 'file', 'upload', 'document'],
-		action: () => toast.info('File attachment coming soon')
+		action: () => appToast.info('File attachment coming soon')
 	},
 
 	// --- Advanced ---
@@ -153,7 +153,7 @@ const ITEMS: SlashMenuItem[] = [
 		icon: GitBranch,
 		group: 'Advanced',
 		keywords: ['diagram', 'mermaid', 'chart', 'flow'],
-		action: () => toast.info('Diagrams coming soon')
+		action: () => appToast.info('Diagrams coming soon')
 	},
 	{
 		id: 'collapsible',
@@ -161,7 +161,7 @@ const ITEMS: SlashMenuItem[] = [
 		icon: ChevronsDownUp,
 		group: 'Advanced',
 		keywords: ['collapsible', 'toggle', 'details', 'accordion', 'expand'],
-		action: () => toast.info('Collapsible sections coming soon')
+		action: () => appToast.info('Collapsible sections coming soon')
 	},
 	{
 		id: 'blockquote',

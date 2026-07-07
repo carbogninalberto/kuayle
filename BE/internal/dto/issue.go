@@ -144,6 +144,7 @@ type BulkUpdateIssueRequest struct {
 	Priority   *int     `json:"priority" validate:"omitempty,min=0,max=4"`
 	AssigneeID *string  `json:"assignee_id" validate:"omitempty,uuid"`
 	LabelIDs   []string `json:"label_ids" validate:"omitempty,dive,uuid"`
+	CycleID    *string  `json:"cycle_id"`
 	ParentID   *string  `json:"parent_id"`
 }
 

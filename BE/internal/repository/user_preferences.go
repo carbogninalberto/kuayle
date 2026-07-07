@@ -5,9 +5,9 @@ import (
 	"database/sql"
 	"errors"
 
-	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"github.com/kuayle/kuayle-backend/internal/domain"
 )
 
 type UserPreferencesRepository struct {
@@ -29,8 +29,8 @@ func (r *UserPreferencesRepository) Get(ctx context.Context, userID uuid.UUID) (
 
 func (r *UserPreferencesRepository) Upsert(ctx context.Context, prefs *domain.UserPreferences) error {
 	query := `
-		INSERT INTO user_preferences (user_id, font_size, pointer_cursors, theme_mode, light_theme, dark_theme, workflow_sort_mode, workflow_sort_order, team_workflow_sort_overrides, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+		INSERT INTO user_preferences (user_id, font_size, pointer_cursors, theme_mode, light_theme, dark_theme, workflow_sort_mode, workflow_sort_order, team_workflow_sort_overrides, recent_due_dates, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
 		ON CONFLICT (user_id) DO UPDATE SET
 			font_size = EXCLUDED.font_size,
 			pointer_cursors = EXCLUDED.pointer_cursors,
@@ -40,11 +40,12 @@ func (r *UserPreferencesRepository) Upsert(ctx context.Context, prefs *domain.Us
 			workflow_sort_mode = EXCLUDED.workflow_sort_mode,
 			workflow_sort_order = EXCLUDED.workflow_sort_order,
 			team_workflow_sort_overrides = EXCLUDED.team_workflow_sort_overrides,
+			recent_due_dates = EXCLUDED.recent_due_dates,
 			updated_at = NOW()
 		RETURNING updated_at`
 	return r.db.QueryRowContext(ctx, query,
 		prefs.UserID, prefs.FontSize, prefs.PointerCursors,
 		prefs.ThemeMode, prefs.LightTheme, prefs.DarkTheme,
-		prefs.WorkflowSortMode, prefs.WorkflowSortOrder, prefs.TeamWorkflowSortOverrides,
+		prefs.WorkflowSortMode, prefs.WorkflowSortOrder, prefs.TeamWorkflowSortOverrides, prefs.RecentDueDates,
 	).Scan(&prefs.UpdatedAt)
 }

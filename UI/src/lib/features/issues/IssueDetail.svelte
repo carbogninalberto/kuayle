@@ -9,7 +9,7 @@
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
 	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
 	import { formatRelativeTime } from '$lib/utils/format';
-	import { toast } from 'svelte-sonner';
+	import { appToast } from '$lib/features/toast/toast';
 	import * as Sheet from '$lib/components/ui/sheet';
 	import { StatusSelector, PrioritySelector } from './selectors';
 	import { sanitizeHtml } from '$lib/security/sanitize';
@@ -60,27 +60,27 @@
 			const comment = await createComment(slug, issue.identifier, newComment);
 			comments = [...comments, comment];
 			newComment = '';
-			toast.success('Comment added');
+			appToast.success('Comment added');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to add comment');
+			appToast.apiError(err, 'Failed to add comment');
 		}
 	}
 
 	async function updateStatus(statusId: string) {
 		try {
 			await issuesState.update(slug, issue.identifier, { status_id: statusId });
-			toast.success('Status updated');
+			appToast.success('Status updated');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to update status');
+			appToast.apiError(err, 'Failed to update status');
 		}
 	}
 
 	async function updatePriority(priority: number) {
 		try {
 			await issuesState.update(slug, issue.identifier, { priority: priority as any });
-			toast.success('Priority updated');
+			appToast.success('Priority updated');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to update priority');
+			appToast.apiError(err, 'Failed to update priority');
 		}
 	}
 
@@ -95,10 +95,10 @@
 				: await unsubscribeFromIssue(slug, issue.identifier);
 			isSubscribed = res.is_subscribed;
 			issuesState.setSubscription(issue.identifier, res.is_subscribed);
-			toast.success(isSubscribed ? 'Notifications enabled' : 'Notifications disabled');
+			appToast.success(isSubscribed ? 'Notifications enabled' : 'Notifications disabled');
 		} catch (err: any) {
 			isSubscribed = !nextValue;
-			toast.error(err?.error?.message || 'Failed to update notifications');
+			appToast.apiError(err, 'Failed to update notifications');
 		} finally {
 			subscriptionBusy = false;
 		}

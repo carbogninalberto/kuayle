@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import type { Issue, Comment, IssueHistory, IssueStatus, IssuePriority } from '$lib/types/issue';
+	import type { Issue, Comment, IssueHistory, IssueStatus, IssuePriority, RelationType } from '$lib/types/issue';
 	import { PRIORITY_LABELS } from '$lib/types/issue';
 	import { teamStatusesState } from './team-statuses.state.svelte';
 	import type { WorkspaceMember } from '$lib/types/workspace';
@@ -17,7 +17,7 @@
 	import DatePickerPopover from '$lib/components/shared/DatePickerPopover.svelte';
 	import RichEditor from '$lib/components/shared/RichEditor.svelte';
 	import { formatRelativeTime } from '$lib/utils/format';
-	import { toast } from 'svelte-sonner';
+	import { appToast } from '$lib/features/toast/toast';
 	import * as Popover from '$lib/components/ui/popover';
 	import * as ContextMenu from '$lib/components/ui/context-menu';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
@@ -29,7 +29,7 @@
 		Copy, Link as LinkIcon, GitBranch, SquareMousePointer,
 		CircleDot, ArrowUpCircle, UserCircle, FolderKanban, Pencil, Layers,
 		Tag, RefreshCw, ArrowUp, Paperclip, MoreHorizontal, Check, Bell,
-		Trash2, CornerDownRight
+		Trash2, CornerDownRight, Ban, ArrowRight
 	} from 'lucide-svelte';
 	import { listCycles } from '$lib/api/cycles';
 	import type { Cycle } from '$lib/types/cycle';
@@ -41,6 +41,7 @@
 	import { presenceState } from '$lib/features/presence/presence.state.svelte';
 	import CreateIssueDialog from './CreateIssueDialog.svelte';
 	import IssuePickerDialog from './IssuePickerDialog.svelte';
+	import AddRelationDialog from './AddRelationDialog.svelte';
 	import { showIssueCreatedToast } from './issue-created-toast';
 	import type { Team } from '$lib/types/team';
 	import { listTeams } from '$lib/api/teams';
@@ -84,11 +85,16 @@
 	let createDialogParentIssue = $state<Issue | null>(null);
 	let parentPickerOpen = $state(false);
 	let removeParentOpen = $state(false);
+	let relationDialogOpen = $state(false);
+	let relationType = $state<RelationType>('related');
+	let issueActionsOpen = $state(false);
 	let isSubscribed = $state(false);
 	let subscriptionBusy = $state(false);
 
 	// Presence & real-time
 	let lastLocalUpdate = 0;
+	let descriptionSaveTimer: ReturnType<typeof setTimeout> | null = null;
+	let pendingDescriptionHtml = '';
 
 	// Collapsible sidebar sections
 	let detailsExpanded = $state(true);
@@ -192,6 +198,11 @@
 	onDestroy(() => {
 		window.removeEventListener('keydown', issueKeyHandler);
 		presenceState.leave();
+		if (descriptionSaveTimer) {
+			clearTimeout(descriptionSaveTimer);
+			descriptionSaveTimer = null;
+			void flushDescriptionSave(pendingDescriptionHtml);
+		}
 		window.removeEventListener('ws:issue-updated', onIssueUpdated);
 		window.removeEventListener('ws:issue-deleted', onIssueDeleted);
 		window.removeEventListener('ws:comment-created', onCommentCreated);
@@ -227,20 +238,31 @@
 				onupdated?.(updated);
 			} catch {
 				titleValue = issue.title;
-				toast.error('Failed to update title');
+				appToast.error('Failed to update title');
 			}
 		} else {
 			titleValue = issue.title;
 		}
 	}
 
-	async function saveDescription(html: string) {
+	function saveDescription(html: string) {
+		lastLocalUpdate = Date.now();
+		pendingDescriptionHtml = html;
+		if (descriptionSaveTimer) clearTimeout(descriptionSaveTimer);
+		descriptionSaveTimer = setTimeout(() => {
+			descriptionSaveTimer = null;
+			void flushDescriptionSave(pendingDescriptionHtml);
+		}, 2000);
+	}
+
+	async function flushDescriptionSave(html: string) {
+		if (html === (issue.description ?? '')) return;
 		try {
 			lastLocalUpdate = Date.now();
 			const updated = await issuesState.update(slug, issue.identifier, { description: html });
 			onupdated?.(updated);
 		} catch {
-			toast.error('Failed to update description');
+			appToast.error('Failed to update description');
 		}
 	}
 
@@ -248,10 +270,10 @@
 	async function reworkSelectedDescriptionText(selectedText: string): Promise<string> {
 		try {
 			const result = await expandIssueDescription(slug, issue.identifier, { selected_text: selectedText });
-			toast.success('Selection reworked');
+			appToast.success('Selection reworked');
 			return result.description;
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to rework selection');
+			appToast.apiError(err, 'Failed to rework selection');
 			return '';
 		}
 	}
@@ -262,7 +284,7 @@
 			await issuesState.update(slug, issue.identifier, { [field]: value });
 			await refreshIssue();
 		} catch {
-			toast.error(`Failed to update ${field}`);
+			appToast.error(`Failed to update ${field}`);
 		}
 	}
 
@@ -284,9 +306,9 @@
 			const updated = await issuesState.update(slug, issue.identifier, { parent_id: parent.id });
 			onupdated?.(updated);
 			await refreshIssue();
-			toast.success(`Set parent to ${parent.identifier}`);
+			appToast.success(`Set parent to ${parent.identifier}`);
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to set parent');
+			appToast.apiError(err, 'Failed to set parent');
 		}
 	}
 
@@ -296,15 +318,20 @@
 			const updated = await issuesState.update(slug, issue.identifier, { parent_id: '' });
 			onupdated?.(updated);
 			await refreshIssue();
-			toast.success('Removed parent');
+			appToast.success('Removed parent');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to remove parent');
+			appToast.apiError(err, 'Failed to remove parent');
 		}
 		removeParentOpen = false;
 	}
 
 	function goToParentIssue() {
 		if (issue.parent) goto(`/${slug}/issue/${issue.parent.identifier}`);
+	}
+
+	function openAddRelation(type: RelationType = 'related') {
+		relationType = type;
+		relationDialogOpen = true;
 	}
 
 	function formatHistoryValue(field: string, value: string | null, displayValue?: string | null): string {
@@ -393,7 +420,7 @@
 			commentVersion++;
 			refreshActivity();
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to add comment');
+			appToast.apiError(err, 'Failed to add comment');
 		}
 	}
 
@@ -407,7 +434,7 @@
 			replyVersions = { ...replyVersions };
 			refreshActivity();
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to reply');
+			appToast.apiError(err, 'Failed to reply');
 		}
 	}
 
@@ -416,7 +443,7 @@
 			await resolveComment(slug, issue.identifier, commentId);
 			refreshActivity();
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to resolve');
+			appToast.apiError(err, 'Failed to resolve');
 		}
 	}
 
@@ -425,7 +452,7 @@
 			await reopenComment(slug, issue.identifier, commentId);
 			refreshActivity();
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to reopen');
+			appToast.apiError(err, 'Failed to reopen');
 		}
 	}
 
@@ -456,7 +483,7 @@
 
 	function copyToClipboard(text: string, label: string) {
 		navigator.clipboard.writeText(text);
-		toast.success(`${label} copied`);
+		appToast.success(`${label} copied`);
 	}
 
 	async function toggleSubscription() {
@@ -471,10 +498,10 @@
 			isSubscribed = res.is_subscribed;
 			issuesState.setSubscription(issue.identifier, res.is_subscribed);
 			onupdated?.({ ...issue, is_subscribed: res.is_subscribed });
-			toast.success(isSubscribed ? 'Notifications enabled' : 'Notifications disabled');
+			appToast.success(isSubscribed ? 'Notifications enabled' : 'Notifications disabled');
 		} catch (err: any) {
 			isSubscribed = !nextValue;
-			toast.error(err?.error?.message || 'Failed to update notifications');
+			appToast.apiError(err, 'Failed to update notifications');
 		} finally {
 			subscriptionBusy = false;
 		}
@@ -489,9 +516,9 @@
 			]);
 			if (!issueTeam) teams = copyTeams;
 			await navigator.clipboard.writeText(getAIPrompt(assets, settings.issue_copy_prompt, copyTeams.find(t => t.id === issue.team_id)));
-			toast.success('AI prompt copied');
+			appToast.success('AI prompt copied');
 		} catch {
-			toast.error('Failed to copy AI prompt');
+			appToast.error('Failed to copy AI prompt');
 		}
 	}
 
@@ -527,12 +554,12 @@
 				await issuesState.update(slug, issue.identifier, { status_id: startedStatus.id });
 				const fresh = await getIssue(slug, issue.identifier);
 				onupdated?.(fresh);
-				toast.success('Branch copied & moved to In Progress');
+				appToast.success('Branch copied & moved to In Progress');
 			} catch {
-				toast.success('Branch copied');
+				appToast.success('Branch copied');
 			}
 		} else {
-			toast.success('Branch name copied');
+			appToast.success('Branch name copied');
 		}
 	}
 
@@ -739,6 +766,60 @@
 			>
 				<SquareMousePointer size={14} />
 			</button>
+			<Popover.Root bind:open={issueActionsOpen}>
+				<Popover.Trigger>
+					<button
+						type="button"
+						class="rounded p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
+						title="Issue actions"
+					>
+						<MoreHorizontal size={14} />
+					</button>
+				</Popover.Trigger>
+				<Popover.Content class="w-44 p-1" align="end">
+					<button
+						type="button"
+						onclick={() => { issueActionsOpen = false; parentPickerOpen = true; }}
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
+					>
+						<CornerDownRight size={14} />
+						{issue.parent ? 'Change parent' : 'Add parent'}
+					</button>
+					<div class="my-1 h-px bg-[var(--app-border)]"></div>
+					<button
+						type="button"
+						onclick={() => { issueActionsOpen = false; openAddRelation('related'); }}
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
+					>
+						<LinkIcon size={14} />
+						Add relation
+					</button>
+					<button
+						type="button"
+						onclick={() => { issueActionsOpen = false; openAddRelation('blocked_by'); }}
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
+					>
+						<Ban size={14} />
+						Blocked by
+					</button>
+					<button
+						type="button"
+						onclick={() => { issueActionsOpen = false; openAddRelation('blocking'); }}
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
+					>
+						<ArrowRight size={14} />
+						Blocking
+					</button>
+					<button
+						type="button"
+						onclick={() => { issueActionsOpen = false; openAddRelation('duplicate'); }}
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
+					>
+						<Copy size={14} />
+						Duplicate
+					</button>
+				</Popover.Content>
+			</Popover.Root>
 
 			{#if presenceState.activeViewers.length > 0}
 				<div class="ml-1 flex items-center -space-x-1.5 border-l border-[var(--app-border)] pl-2">
@@ -897,10 +978,10 @@
 					{/if}
 				</div>
 
-				<!-- Relations -->
-				<div class="mt-2">
-					<IssueRelations {slug} identifier={issue.identifier} />
-				</div>
+			<!-- Relations -->
+			<div class="mt-2">
+				<IssueRelations {slug} identifier={issue.identifier} bind:dialogOpen={relationDialogOpen} bind:dialogType={relationType} />
+			</div>
 
 				<!-- GitHub Activity -->
 				<div class="mt-2">
@@ -1219,7 +1300,7 @@
 										try {
 											await issuesState.update(slug, issue.identifier, { assignee_ids: newIds });
 											await refreshIssue();
-										} catch { toast.error('Failed to update assignees'); }
+										} catch { appToast.error('Failed to update assignees'); }
 									}}
 								>
 									{#snippet trigger()}
@@ -1260,6 +1341,7 @@
 								onchange={(d) => updateField('due_date', d ?? '')}
 								placeholder="Set date"
 								colorClass={issue.due_date ? formatDueDate(issue.due_date).colorClass : ''}
+								dueDateMode
 							/>
 						</div>
 
@@ -1302,7 +1384,7 @@
 									try {
 										await issuesState.update(slug, issue.identifier, { label_ids: newIds });
 										await refreshIssue();
-									} catch { toast.error('Failed to update labels'); }
+									} catch { appToast.error('Failed to update labels'); }
 								}}
 							>
 								{#snippet trigger()}
@@ -1407,12 +1489,12 @@
 		if (!createDialogParentIssue) return;
 		try {
 			const created = await bulkCreateSubIssues(slug, createDialogParentIssue.identifier, titles.map((title) => ({ title })));
-			toast.success(`Created ${created.length} sub-issues`);
+			appToast.success(`Created ${created.length} sub-issues`);
 			await refreshIssue();
 			createIssueTitle = '';
 			createDialogParentIssue = null;
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to create sub-issues');
+			appToast.apiError(err, 'Failed to create sub-issues');
 		}
 	}}
 	onsubmit={async (req) => {
@@ -1426,7 +1508,7 @@
 			createIssueTitle = '';
 			createDialogParentIssue = null;
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to create issue');
+			appToast.apiError(err, 'Failed to create issue');
 		}
 	}}
 />

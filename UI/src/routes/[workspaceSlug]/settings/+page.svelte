@@ -4,7 +4,7 @@
 	import { getWorkspace, updateWorkspace, deleteWorkspace } from '$lib/api/workspaces';
 	import type { Workspace } from '$lib/types/workspace';
 	import { onMount } from 'svelte';
-	import { toast } from 'svelte-sonner';
+	import { appToast } from '$lib/features/toast/toast';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import * as Dialog from '$lib/components/ui/dialog';
@@ -52,9 +52,9 @@
 		try {
 			workspace = await updateWorkspace(slug, { name: wsName.trim() });
 			wsName = workspace.name;
-			toast.success('Workspace name updated');
+			appToast.success('Workspace name updated');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to update workspace name');
+			appToast.apiError(err, 'Failed to update workspace name');
 			wsName = workspace.name;
 		} finally {
 			savingName = false;
@@ -69,9 +69,9 @@
 		try {
 			workspace = await updateWorkspace(slug, { logo_url: next });
 			logoUrl = workspace.logo_url ?? '';
-			toast.success('Workspace logo updated');
+			appToast.success('Workspace logo updated');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to update workspace logo');
+			appToast.apiError(err, 'Failed to update workspace logo');
 			logoUrl = workspace.logo_url ?? '';
 		} finally {
 			savingLogo = false;
@@ -84,9 +84,9 @@
 		try {
 			workspace = await updateWorkspace(slug, { share_link_min_role: value });
 			shareLinkMinRole = workspace.share_link_min_role;
-			toast.success('Shared link minimum role updated');
+			appToast.success('Shared link minimum role updated');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to update minimum role');
+			appToast.apiError(err, 'Failed to update minimum role');
 			shareLinkMinRole = workspace.share_link_min_role ?? 'admin';
 		} finally {
 			savingRole = false;
@@ -95,17 +95,17 @@
 
 	async function handleDelete() {
 		if (deleteConfirm !== workspace?.slug) {
-			toast.error('Type the workspace slug to confirm deletion');
+			appToast.error('Type the workspace slug to confirm deletion');
 			return;
 		}
 		deleting = true;
 		try {
 			await deleteWorkspace(slug);
-			toast.success('Workspace deleted');
+			appToast.success('Workspace deleted');
 			showDelete = false;
 			goto('/');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to delete workspace');
+			appToast.apiError(err, 'Failed to delete workspace');
 		} finally {
 			deleting = false;
 		}

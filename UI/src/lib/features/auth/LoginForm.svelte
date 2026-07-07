@@ -5,7 +5,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Password } from '$lib/components/ui/password';
 	import { authState } from './auth.state.svelte';
-	import { toast } from 'svelte-sonner';
+	import { appToast } from '$lib/features/toast/toast';
 
 	let email = $state('');
 	let password = $state('');
@@ -21,7 +21,7 @@
 			authState.setUser(user);
 			goto('/');
 		} catch (err: any) {
-			toast.error(err?.error?.message || 'Login failed');
+			appToast.apiError(err, 'Login failed');
 		} finally {
 			loading = false;
 		}
