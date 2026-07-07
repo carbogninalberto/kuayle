@@ -159,6 +159,7 @@ type CycleRepo interface {
 type IssueRelationRepo interface {
 	Create(ctx context.Context, rel *domain.IssueRelation) error
 	ListByIssue(ctx context.Context, issueID uuid.UUID) ([]domain.IssueRelation, error)
+	ListByIssues(ctx context.Context, issueIDs []uuid.UUID) ([]domain.IssueRelation, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.IssueRelation, error)
 	DeleteByIssues(ctx context.Context, issueID, relatedIssueID uuid.UUID, relType domain.IssueRelationType) error

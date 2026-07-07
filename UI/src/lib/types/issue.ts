@@ -36,8 +36,24 @@ export interface Issue {
 	parent?: IssueSummary;
 	sub_issue_count?: number;
 	sub_issue_done?: number;
+	relation_counts?: IssueRelationCounts;
+	relation_summary?: IssueRelationSummary;
 	created_at: string;
 	updated_at: string;
+}
+
+export interface IssueRelationCounts {
+	related: number;
+	blocked_by: number;
+	blocking: number;
+	duplicate: number;
+}
+
+export interface IssueRelationSummary {
+	related?: IssueSummary[];
+	blocked_by?: IssueSummary[];
+	blocking?: IssueSummary[];
+	duplicate?: IssueSummary[];
 }
 
 export interface IssueSummary {

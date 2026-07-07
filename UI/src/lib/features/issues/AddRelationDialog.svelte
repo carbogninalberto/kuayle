@@ -4,7 +4,8 @@
 	import { createRelation } from '$lib/api/issue-relations';
 	import { listIssues } from '$lib/api/issues';
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
-	import * as Dialog from '$lib/components/ui/dialog';
+	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
+	import { Ban, Copy, Link, LoaderCircle, OctagonAlert } from 'lucide-svelte';
 	import { toast } from 'svelte-sonner';
 
 	let {
@@ -18,113 +19,294 @@
 		slug: string;
 		identifier: string;
 		defaultType?: RelationType;
-		oncreated?: () => void;
+		oncreated?: () => void | Promise<void>;
 	} = $props();
 
-	const RELATION_LABELS: Record<RelationType, string> = {
-		related: 'Related to',
-		blocked_by: 'Blocked by',
-		blocking: 'Blocking',
-		duplicate: 'Duplicate of'
-	};
+	interface HighlightSegment {
+		text: string;
+		match: boolean;
+	}
 
-	const RELATION_TYPES: RelationType[] = ['related', 'blocked_by', 'blocking', 'duplicate'];
+	const ANIM_DURATION = 100;
+	const hanRegex = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
 
-	// svelte-ignore state_referenced_locally
-	let selectedType = $state<RelationType>(defaultType);
+	const RELATION_OPTIONS: Array<{
+		type: RelationType;
+		label: string;
+		description: string;
+		Icon: any;
+		activeClass: string;
+	}> = [
+		{ type: 'related', label: 'Related', description: 'Connect a related issue', Icon: Link, activeClass: 'border-[var(--app-accent)] bg-[var(--app-accent)]/10 text-[var(--color-text-primary)]' },
+		{ type: 'blocked_by', label: 'Blocked by', description: 'This issue is blocked', Icon: Ban, activeClass: 'border-red-500/40 bg-red-500/10 text-red-400' },
+		{ type: 'blocking', label: 'Blocking', description: 'This issue blocks another', Icon: OctagonAlert, activeClass: 'border-red-500/40 bg-red-500/10 text-red-400' },
+		{ type: 'duplicate', label: 'Duplicate', description: 'Mark as duplicate', Icon: Copy, activeClass: 'border-purple-400/40 bg-purple-400/10 text-purple-300' }
+	];
+
+	let selectedType = $state<RelationType>('related');
 	let searchQuery = $state('');
 	let searchResults = $state<Issue[]>([]);
 	let searching = $state(false);
+	let showingRecent = $state(false);
+	let selectedIndex = $state(0);
+	let visible = $state(false);
+	let closing = false;
 	let searchTimer: ReturnType<typeof setTimeout> | undefined;
+
+	let selectedOption = $derived(RELATION_OPTIONS.find((option) => option.type === selectedType) ?? RELATION_OPTIONS[0]);
 
 	$effect(() => {
 		if (open) {
+			closing = false;
+			visible = false;
 			selectedType = defaultType;
 			searchQuery = '';
 			searchResults = [];
+			searching = false;
+			showingRecent = false;
+			selectedIndex = 0;
+			loadRecentIssues();
+			requestAnimationFrame(() => {
+				requestAnimationFrame(() => {
+					visible = true;
+					document.getElementById('relation-picker-search')?.focus();
+				});
+			});
+		} else {
+			visible = false;
+			closing = false;
+			clearTimeout(searchTimer);
 		}
 	});
 
-	function handleSearch(query: string) {
-		searchQuery = query;
+	$effect(() => {
+		if (!open) return;
+
 		clearTimeout(searchTimer);
-		if (!query.trim()) {
-			searchResults = [];
+		const query = searchQuery;
+		if (!canSearchIssues(query)) {
+			if (!showingRecent) loadRecentIssues();
+			selectedIndex = 0;
 			return;
 		}
+
+		searching = true;
+		showingRecent = false;
+		selectedIndex = 0;
 		searchTimer = setTimeout(async () => {
-			searching = true;
 			try {
-				const response: PaginatedResponse<Issue> = await listIssues(slug, { search: query, per_page: '10' });
+				const response: PaginatedResponse<Issue> = await listIssues(slug, { search: query, per_page: '12' });
 				searchResults = response.data.filter((issue) => issue.identifier !== identifier);
 			} catch {
 				searchResults = [];
 			} finally {
 				searching = false;
 			}
-		}, 200);
+		}, 250);
+
+		return () => clearTimeout(searchTimer);
+	});
+
+	$effect(() => {
+		if (searchResults.length === 0) {
+			selectedIndex = 0;
+		} else if (selectedIndex >= searchResults.length) {
+			selectedIndex = searchResults.length - 1;
+		}
+	});
+
+	function canSearchIssues(value: string) {
+		const query = value.trim();
+		return query.length >= 2 || hanRegex.test(query);
 	}
 
-	async function handleAddRelation(relatedIdentifier: string) {
+	async function loadRecentIssues() {
+		searching = true;
+		showingRecent = true;
 		try {
-			await createRelation(slug, identifier, { related_identifier: relatedIdentifier, type: selectedType });
-			toast.success('Relation added');
+			const response: PaginatedResponse<Issue> = await listIssues(slug, { sort: 'updated_at', order: 'desc', per_page: '12' });
+			searchResults = response.data.filter((issue) => issue.identifier !== identifier);
+		} catch {
+			searchResults = [];
+		} finally {
+			searching = false;
+		}
+	}
+
+	function close() {
+		if (closing) return;
+		closing = true;
+		visible = false;
+		clearTimeout(searchTimer);
+		setTimeout(() => {
 			open = false;
-			oncreated?.();
+			closing = false;
+		}, ANIM_DURATION);
+	}
+
+	async function selectIssue(issue: Issue) {
+		try {
+			await createRelation(slug, identifier, { related_identifier: issue.identifier, type: selectedType });
+			toast.success('Relation added');
+			try {
+				await oncreated?.();
+			} catch {
+				// The relation was created; a stale list is preferable to a false failure toast.
+			}
+			close();
 		} catch (err: any) {
 			toast.error(err?.error?.message || 'Failed to add relation');
 		}
 	}
+
+	function activateIndex(index: number) {
+		const issue = searchResults[index];
+		if (issue) selectIssue(issue);
+	}
+
+	function handleKeydown(e: KeyboardEvent) {
+		if (e.key === 'Escape') {
+			close();
+		} else if (e.key === 'ArrowDown') {
+			e.preventDefault();
+			if (searchResults.length > 0) selectedIndex = Math.min(selectedIndex + 1, searchResults.length - 1);
+		} else if (e.key === 'ArrowUp') {
+			e.preventDefault();
+			if (searchResults.length > 0) selectedIndex = Math.max(selectedIndex - 1, 0);
+		} else if (e.key === 'Enter') {
+			e.preventDefault();
+			activateIndex(selectedIndex);
+		}
+	}
+
+	function highlightedSegments(value: string | null | undefined, query: string): HighlightSegment[] {
+		const text = value ?? '';
+		const term = query.trim();
+		if (!text || !term) return [{ text, match: false }];
+
+		const lowerText = text.toLowerCase();
+		const lowerTerm = term.toLowerCase();
+		const segments: HighlightSegment[] = [];
+		let cursor = 0;
+		let index = lowerText.indexOf(lowerTerm);
+
+		while (index !== -1) {
+			if (index > cursor) segments.push({ text: text.slice(cursor, index), match: false });
+			segments.push({ text: text.slice(index, index + term.length), match: true });
+			cursor = index + term.length;
+			index = lowerText.indexOf(lowerTerm, cursor);
+		}
+
+		if (cursor < text.length) segments.push({ text: text.slice(cursor), match: false });
+		return segments;
+	}
+
+	function highlightClass(match: boolean) {
+		return match ? 'rounded-sm bg-yellow-300 px-0.5 text-slate-950' : '';
+	}
 </script>
 
-<Dialog.Root bind:open>
-	<Dialog.Content class="sm:max-w-md">
-		<Dialog.Header>
-			<Dialog.Title>Add Relation</Dialog.Title>
-			<Dialog.Description>Select a relation type and search for an issue.</Dialog.Description>
-		</Dialog.Header>
+{#if open}
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div class="fixed inset-0 z-50 flex items-start justify-center px-3 pt-[6vh]" onkeydown={handleKeydown}>
+		<button
+			class="fixed inset-0 cursor-default"
+			style="background: rgba(0,0,0,{visible ? 0.5 : 0}); transition: background {ANIM_DURATION}ms ease;"
+			onclick={close}
+			tabindex={-1}
+			aria-label="Close"
+		></button>
 
-		<div class="flex flex-col gap-3 py-4">
-			<!-- Relation type pills -->
-			<div class="flex gap-1">
-				{#each RELATION_TYPES as type}
-					<button
-						onclick={() => (selectedType = type)}
-						class="rounded px-2 py-0.5 text-[11px] transition-colors {selectedType === type
-							? 'bg-[var(--app-accent)] text-[var(--app-accent-foreground)]'
-							: 'text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] bg-[var(--color-bg-secondary)]'}"
-					>
-						{RELATION_LABELS[type]}
-					</button>
-				{/each}
-			</div>
-
-			<!-- Search input -->
-			<input
-				type="text"
-				placeholder="Search issues..."
-				value={searchQuery}
-				oninput={(e) => handleSearch((e.target as HTMLInputElement).value)}
-				class="w-full rounded border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)] transition-colors"
-			/>
-
-			<!-- Search results -->
-			{#if searchResults.length > 0}
-				<div class="max-h-48 overflow-y-auto rounded border border-[var(--app-border)]">
-					{#each searchResults as result}
+		<div
+			class="relative z-10 w-full max-w-2xl overflow-hidden rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] shadow-2xl"
+			style="opacity: {visible ? 1 : 0}; transform: scale({visible ? 1 : 0.95}); transition: opacity {ANIM_DURATION}ms ease, transform {ANIM_DURATION}ms ease;"
+		>
+			<div class="border-b border-[var(--app-border)] p-3">
+				<div class="mb-2 flex items-center justify-between gap-3 px-1">
+					<div>
+						<h2 class="text-sm font-medium text-[var(--color-text-primary)]">Add relation</h2>
+						<p class="text-xs text-[var(--color-text-tertiary)]">Choose how {identifier} relates to another issue.</p>
+					</div>
+					<span class="hidden rounded-md border border-[var(--app-border)] px-2 py-1 text-[11px] text-[var(--color-text-tertiary)] sm:block">Esc</span>
+				</div>
+				<div class="grid grid-cols-2 gap-1 sm:grid-cols-4">
+					{#each RELATION_OPTIONS as option}
+						{@const Icon = option.Icon}
 						<button
-							onclick={() => handleAddRelation(result.identifier)}
-							class="flex w-full items-center gap-2 px-3 py-2 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
+							type="button"
+							onclick={() => (selectedType = option.type)}
+							class="flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors {selectedType === option.type
+								? option.activeClass
+								: 'border-transparent bg-[var(--color-bg)]/60 text-[var(--color-text-tertiary)] hover:border-[var(--app-border)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
 						>
-							<IssueStatusIcon status={result.status} size={13} />
-							<span class="text-xs text-[var(--color-text-tertiary)]">{result.identifier}</span>
-							<span class="truncate">{result.title}</span>
+							<Icon size={15} class="shrink-0" />
+							<span class="min-w-0">
+								<span class="block truncate text-xs font-medium">{option.label}</span>
+								<span class="hidden truncate text-[10px] text-[var(--color-text-tertiary)] sm:block">{option.description}</span>
+							</span>
 						</button>
 					{/each}
 				</div>
-			{:else if searchQuery.trim() && !searching}
-				<p class="text-xs text-[var(--color-text-tertiary)] text-center py-2">No issues found</p>
-			{/if}
+			</div>
+
+			<!-- svelte-ignore a11y_autofocus -->
+			<input
+				id="relation-picker-search"
+				type="text"
+				aria-label="Search issues"
+				bind:value={searchQuery}
+				placeholder="Search issues..."
+				autofocus
+				class="w-full border-b border-[var(--app-border)] bg-transparent px-4 py-4 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)]"
+			/>
+
+			<div class="max-h-[58vh] min-h-[20rem] overflow-y-auto py-2">
+				{#if canSearchIssues(searchQuery) || showingRecent || searchResults.length > 0}
+					<div class="flex items-center justify-between px-3 py-1">
+						<span class="text-[10px] font-medium uppercase text-[var(--color-text-tertiary)]">{showingRecent && !canSearchIssues(searchQuery) ? 'Recent issues' : 'Issues'}</span>
+						<span class="text-[10px] text-[var(--color-text-tertiary)]">{selectedOption.label}</span>
+					</div>
+					{#if searching}
+						<div class="flex items-center justify-center py-8">
+							<LoaderCircle size={16} class="animate-spin text-[var(--color-text-tertiary)]" />
+						</div>
+					{:else if searchResults.length > 0}
+						{#each searchResults as result, i (result.id)}
+							<button
+								class="flex w-full items-start gap-2 px-4 py-2 text-left text-sm {i === selectedIndex ? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]' : 'text-[var(--color-text-secondary)]'}"
+								onmouseenter={() => (selectedIndex = i)}
+								onclick={() => selectIssue(result)}
+							>
+								<div class="mt-0.5 flex shrink-0 items-center gap-2">
+									<IssuePriorityIcon priority={result.priority} size={14} />
+									<IssueStatusIcon status={result.status} category={result.status_info?.category} color={result.status_info?.color} size={14} />
+								</div>
+								<div class="min-w-0 flex-1">
+									<div class="flex min-w-0 items-center gap-2">
+										<span class="shrink-0 text-xs text-[var(--color-text-tertiary)]">
+											{#each highlightedSegments(result.identifier, searchQuery) as segment}
+												<span class={highlightClass(segment.match)}>{segment.text}</span>
+											{/each}
+										</span>
+										<span class="min-w-0 flex-1 truncate">
+											{#each highlightedSegments(result.title, searchQuery) as segment}
+												<span class={highlightClass(segment.match)}>{segment.text}</span>
+											{/each}
+										</span>
+									</div>
+								</div>
+								<span class="mt-0.5 hidden shrink-0 text-xs text-[var(--color-text-tertiary)] sm:inline">{selectedOption.label}</span>
+							</button>
+						{/each}
+					{:else}
+						<p class="px-4 py-2 text-sm text-[var(--color-text-tertiary)]">No issues found</p>
+					{/if}
+				{:else if searchQuery.trim()}
+					<p class="px-4 py-2 text-sm text-[var(--color-text-tertiary)]">Keep typing to search issues</p>
+				{:else}
+					<p class="px-4 py-2 text-sm text-[var(--color-text-tertiary)]">Start typing to search issues</p>
+				{/if}
+			</div>
 		</div>
-	</Dialog.Content>
-</Dialog.Root>
+	</div>
+{/if}

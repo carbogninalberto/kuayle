@@ -1,22 +1,20 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import type { Issue, IssueRelation, RelationType } from '$lib/types/issue';
-	import type { PaginatedResponse } from '$lib/types/common';
-	import { listRelations, createRelation, deleteRelation } from '$lib/api/issue-relations';
-	import { listIssues } from '$lib/api/issues';
+	import type { IssueRelation, RelationType } from '$lib/types/issue';
+	import { listRelations, deleteRelation } from '$lib/api/issue-relations';
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
-	import { Link, X, Plus, Ban, Copy, ArrowRight } from 'lucide-svelte';
+	import AddRelationDialog from './AddRelationDialog.svelte';
+	import * as Collapsible from '$lib/components/ui/collapsible';
+	import { Link, X, Plus, Ban, Copy, ArrowRight, ChevronRight } from 'lucide-svelte';
 	import { toast } from 'svelte-sonner';
 
 	let { slug, identifier }: { slug: string; identifier: string } = $props();
 
 	let relations = $state<IssueRelation[]>([]);
-	let showAdd = $state(false);
-	let selectedType = $state<RelationType>('related');
-	let searchQuery = $state('');
-	let searchResults = $state<Issue[]>([]);
-	let searching = $state(false);
-	let searchTimer: ReturnType<typeof setTimeout> | undefined;
+	let loading = $state(true);
+	let expanded = $state(true);
+	let relationDialogOpen = $state(false);
+	let relationDefaultType = $state<RelationType>('related');
 
 	const RELATION_LABELS: Record<RelationType, string> = {
 		related: 'Related to',
@@ -25,8 +23,23 @@
 		duplicate: 'Duplicate of'
 	};
 
+	const RELATION_ICONS: Record<RelationType, any> = {
+		related: Link,
+		blocked_by: Ban,
+		blocking: ArrowRight,
+		duplicate: Copy
+	};
+
+	const RELATION_ICON_CLASSES: Record<RelationType, string> = {
+		related: 'text-[var(--color-text-tertiary)]',
+		blocked_by: 'text-amber-500',
+		blocking: 'text-blue-400',
+		duplicate: 'text-purple-400'
+	};
+
 	const RELATION_TYPES: RelationType[] = ['related', 'blocked_by', 'blocking', 'duplicate'];
 
+	let relationCount = $derived(relations.length);
 	let groupedRelations = $derived(
 		RELATION_TYPES.map((type) => ({
 			type,
@@ -36,34 +49,23 @@
 	);
 
 	onMount(async () => {
-		relations = await listRelations(slug, identifier);
+		await refreshRelations();
 	});
 
-	function handleSearch(query: string) {
-		searchQuery = query;
-		clearTimeout(searchTimer);
-		if (!query.trim()) { searchResults = []; return; }
-		searchTimer = setTimeout(async () => {
-			searching = true;
-			try {
-				const response: PaginatedResponse<Issue> = await listIssues(slug, { search: query, per_page: '10' });
-				searchResults = response.data.filter((issue) => issue.identifier !== identifier);
-			} catch { searchResults = []; }
-			finally { searching = false; }
-		}, 200);
+	async function refreshRelations() {
+		try {
+			relations = await listRelations(slug, identifier);
+		} catch {
+			relations = [];
+		} finally {
+			loading = false;
+		}
 	}
 
-	async function handleAddRelation(relatedIdentifier: string) {
-		try {
-			await createRelation(slug, identifier, { related_identifier: relatedIdentifier, type: selectedType });
-			relations = await listRelations(slug, identifier);
-			showAdd = false;
-			searchQuery = '';
-			searchResults = [];
-			toast.success('Relation added');
-		} catch (err: any) {
-			toast.error(err?.error?.message || 'Failed to add relation');
-		}
+	function openAdd(type: RelationType = 'related') {
+		relationDefaultType = type;
+		relationDialogOpen = true;
+		expanded = true;
 	}
 
 	async function handleRemoveRelation(relationId: string) {
@@ -76,88 +78,90 @@
 	}
 </script>
 
-{#if relations.length > 0 || showAdd}
-	<div class="space-y-2">
-		{#each groupedRelations as group}
-			<div class="space-y-1">
-				<span class="text-[11px] font-medium text-[var(--color-text-tertiary)]">{group.label}</span>
-				{#each group.items as relation}
-					<div class="flex items-center justify-between group rounded px-2 py-1 hover:bg-[var(--color-bg-hover)] transition-colors">
-						<a
-							href="/{slug}/issue/{relation.related_issue?.identifier ?? ''}"
-							class="flex items-center gap-2 min-w-0"
-						>
-							{#if relation.related_issue}
-								<IssueStatusIcon status={relation.related_issue.status} size={13} />
-								<span class="text-xs text-[var(--color-text-tertiary)]">{relation.related_issue.identifier}</span>
-								<span class="truncate text-xs text-[var(--color-text-secondary)]">{relation.related_issue.title}</span>
-							{:else}
-								<span class="text-xs text-[var(--color-text-tertiary)]">{relation.related_issue_id.slice(0, 8)}...</span>
-							{/if}
-						</a>
-						<button
-							onclick={() => handleRemoveRelation(relation.id)}
-							class="shrink-0 ml-2 opacity-0 group-hover:opacity-100 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-opacity"
-						>
-							<X size={12} />
-						</button>
-					</div>
-				{/each}
-			</div>
-		{/each}
-
-		{#if !showAdd}
-			<button
-				onclick={() => (showAdd = true)}
-				class="flex items-center gap-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors"
-			>
-				<Plus size={12} />
-				Add relation
-			</button>
-		{/if}
-	</div>
-{/if}
-
-{#if showAdd}
-	<div class="mt-2 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-2 animate-in slide-in-from-top-1 duration-150">
-		<div class="flex gap-1 mb-2">
-			{#each RELATION_TYPES as type}
-				<button
-					onclick={() => (selectedType = type)}
-					class="rounded px-2 py-0.5 text-[11px] transition-colors {selectedType === type
-						? 'bg-[var(--app-accent)] text-[var(--app-accent-foreground)]'
-						: 'text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]'}"
-				>
-					{RELATION_LABELS[type]}
-				</button>
-			{/each}
-		</div>
-		<input
-			type="text"
-			placeholder="Search issues..."
-			value={searchQuery}
-			oninput={(e) => handleSearch((e.target as HTMLInputElement).value)}
-			class="w-full rounded border border-[var(--app-border)] bg-[var(--color-bg)] px-2 py-1 text-xs text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)] transition-colors"
-		/>
-		{#if searchResults.length > 0}
-			<div class="mt-1 max-h-36 overflow-y-auto">
-				{#each searchResults as result}
-					<button
-						onclick={() => handleAddRelation(result.identifier)}
-						class="flex w-full items-center gap-2 rounded px-2 py-1 text-xs text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
-					>
-						<IssueStatusIcon status={result.status} size={12} />
-						<span class="text-[var(--color-text-tertiary)]">{result.identifier}</span>
-						<span class="truncate">{result.title}</span>
-					</button>
-				{/each}
-			</div>
-		{/if}
+{#if !loading}
+	{#if relations.length === 0}
 		<button
-			onclick={() => { showAdd = false; searchQuery = ''; searchResults = []; }}
-			class="mt-1 text-[11px] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
+			onclick={() => openAdd()}
+			class="flex items-center gap-2 text-xs text-[var(--color-text-tertiary)] transition-colors hover:text-[var(--color-text-secondary)]"
 		>
-			Cancel
+			<span class="flex h-6 w-6 items-center justify-center rounded-full border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
+				<Plus size={12} />
+			</span>
+			Add relation
 		</button>
-	</div>
+	{:else}
+		<Collapsible.Root bind:open={expanded}>
+			<div class="overflow-hidden rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]/60">
+				<div class="flex items-center gap-2 px-3 py-1.5">
+					<Collapsible.Trigger class="flex min-w-0 flex-1 items-center gap-2 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]">
+						<ChevronRight size={14} class="transition-transform {expanded ? 'rotate-90' : ''}" />
+						<Link size={14} class="shrink-0" />
+						<span class="font-medium">Relations</span>
+						{#if relationCount > 0}
+							<span class="rounded-full bg-[var(--color-bg-tertiary)] px-2 py-0.5 text-xs text-[var(--color-text-tertiary)]">
+								{relationCount}
+							</span>
+						{/if}
+					</Collapsible.Trigger>
+
+					<button
+						onclick={(e) => { e.stopPropagation(); openAdd(); }}
+						class="ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+						title="Add relation"
+					>
+						<Plus size={13} />
+					</button>
+				</div>
+
+				<Collapsible.Content>
+					<div class="border-t border-[var(--app-border)]">
+						{#if groupedRelations.length > 0}
+							<div class="py-1">
+								{#each groupedRelations as group}
+									{@const Icon = RELATION_ICONS[group.type]}
+									<div class="py-1">
+										<div class="flex items-center gap-1.5 px-3 py-1 text-[11px] font-medium text-[var(--color-text-tertiary)]">
+											<Icon size={12} class={RELATION_ICON_CLASSES[group.type]} />
+											{group.label}
+										</div>
+										{#each group.items as relation (relation.id)}
+											<div class="group/relation flex items-center gap-1 px-3 py-0.5 transition-colors hover:bg-[var(--color-bg-hover)]">
+												{#if relation.related_issue}
+													<a href="/{slug}/issue/{relation.related_issue.identifier}" class="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 py-1 text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]">
+														<IssueStatusIcon status={relation.related_issue.status} category={relation.related_issue.status_info?.category} color={relation.related_issue.status_info?.color} size={13} />
+														<span class="shrink-0 tabular-nums text-[var(--color-text-tertiary)]">{relation.related_issue.identifier}</span>
+														<span class="min-w-0 flex-1 truncate">{relation.related_issue.title}</span>
+													</a>
+												{:else}
+													<div class="flex min-w-0 flex-1 items-center gap-2 px-1.5 py-1 text-xs text-[var(--color-text-tertiary)]">
+														<Link size={13} class="shrink-0 opacity-60" />
+														<span>Unavailable issue</span>
+													</div>
+												{/if}
+												<button
+													onclick={() => handleRemoveRelation(relation.id)}
+													class="ml-1 shrink-0 rounded p-1 text-[var(--color-text-tertiary)] opacity-0 transition-opacity hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] group-hover/relation:opacity-100"
+													title="Remove relation"
+												>
+													<X size={12} />
+												</button>
+											</div>
+										{/each}
+									</div>
+								{/each}
+							</div>
+						{/if}
+					</div>
+				</Collapsible.Content>
+			</div>
+		</Collapsible.Root>
+	{/if}
 {/if}
+
+<AddRelationDialog
+	bind:open={relationDialogOpen}
+	{slug}
+	{identifier}
+	defaultType={relationDefaultType}
+	oncreated={refreshRelations}
+/>

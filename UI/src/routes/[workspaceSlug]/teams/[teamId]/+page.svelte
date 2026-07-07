@@ -614,4 +614,5 @@
 	{slug}
 	identifier={relationIssue?.identifier ?? ''}
 	defaultType={relationDefaultType}
+	oncreated={loadIssues}
 />
