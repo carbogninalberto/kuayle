@@ -25,6 +25,14 @@ type IssueService struct {
 	notifSvc       *NotificationService
 }
 
+type issueSubscriberRepo interface {
+	Subscribe(ctx context.Context, issueID, userID uuid.UUID) error
+	Unsubscribe(ctx context.Context, issueID, userID uuid.UUID) error
+	IsSubscribed(ctx context.Context, issueID, userID uuid.UUID) (bool, error)
+	GetSubscribers(ctx context.Context, issueID uuid.UUID) ([]uuid.UUID, error)
+	GetSubscribedIssueIDs(ctx context.Context, issueIDs []uuid.UUID, userID uuid.UUID) (map[uuid.UUID]bool, error)
+}
+
 func NewIssueService(issueRepo repository.IssueRepo, teamRepo repository.TeamRepo, teamStatusRepo repository.TeamStatusRepo, historyRepo repository.IssueHistoryRepo, hub *realtime.Hub, notifSvc *NotificationService, projectRepo ...repository.ProjectRepo) *IssueService {
 	svc := &IssueService{issueRepo: issueRepo, teamRepo: teamRepo, teamStatusRepo: teamStatusRepo, historyRepo: historyRepo, hub: hub, notifSvc: notifSvc}
 	if len(projectRepo) > 0 {
@@ -689,6 +697,46 @@ func (s *IssueService) GetAssigneesForIssues(ctx context.Context, issueIDs []uui
 	return s.issueRepo.GetAssigneesForIssues(ctx, issueIDs)
 }
 
+func (s *IssueService) Subscribe(ctx context.Context, workspaceID, userID uuid.UUID, identifier string) error {
+	issue, err := s.issueRepo.GetByIdentifier(ctx, workspaceID, identifier)
+	if err != nil || issue == nil {
+		return fmt.Errorf("issue not found")
+	}
+	repo, ok := s.issueRepo.(issueSubscriberRepo)
+	if !ok {
+		return fmt.Errorf("issue subscriptions are unavailable")
+	}
+	return repo.Subscribe(ctx, issue.ID, userID)
+}
+
+func (s *IssueService) Unsubscribe(ctx context.Context, workspaceID, userID uuid.UUID, identifier string) error {
+	issue, err := s.issueRepo.GetByIdentifier(ctx, workspaceID, identifier)
+	if err != nil || issue == nil {
+		return fmt.Errorf("issue not found")
+	}
+	repo, ok := s.issueRepo.(issueSubscriberRepo)
+	if !ok {
+		return fmt.Errorf("issue subscriptions are unavailable")
+	}
+	return repo.Unsubscribe(ctx, issue.ID, userID)
+}
+
+func (s *IssueService) IsSubscribed(ctx context.Context, issueID, userID uuid.UUID) (bool, error) {
+	repo, ok := s.issueRepo.(issueSubscriberRepo)
+	if !ok {
+		return false, nil
+	}
+	return repo.IsSubscribed(ctx, issueID, userID)
+}
+
+func (s *IssueService) GetSubscribedIssueIDs(ctx context.Context, issueIDs []uuid.UUID, userID uuid.UUID) (map[uuid.UUID]bool, error) {
+	repo, ok := s.issueRepo.(issueSubscriberRepo)
+	if !ok {
+		return map[uuid.UUID]bool{}, nil
+	}
+	return repo.GetSubscribedIssueIDs(ctx, issueIDs, userID)
+}
+
 func (s *IssueService) GetHistory(ctx context.Context, issueID uuid.UUID) ([]domain.IssueHistory, error) {
 	return s.historyRepo.ListByIssue(ctx, issueID)
 }
@@ -1065,7 +1113,7 @@ func (s *IssueService) notifyAssignees(ctx context.Context, issue *domain.Issue,
 }
 
 func (s *IssueService) sendUpdateNotifications(ctx context.Context, issue *domain.Issue, actorID uuid.UUID, req dto.UpdateIssueRequest, oldDescription string) {
-	// Build recipient list: all assignees except the actor
+	// Build recipient list: all assignees and subscribers except the actor
 	assignees, _ := s.issueRepo.GetAssignees(ctx, issue.ID)
 	recipients := make([]uuid.UUID, 0, len(assignees))
 	seen := make(map[uuid.UUID]bool)
@@ -1078,6 +1126,15 @@ func (s *IssueService) sendUpdateNotifications(ctx context.Context, issue *domai
 	if issue.AssigneeID != nil && *issue.AssigneeID != actorID && !seen[*issue.AssigneeID] {
 		recipients = append(recipients, *issue.AssigneeID)
 		seen[*issue.AssigneeID] = true
+	}
+	if repo, ok := s.issueRepo.(issueSubscriberRepo); ok {
+		subscribers, _ := repo.GetSubscribers(ctx, issue.ID)
+		for _, uid := range subscribers {
+			if !seen[uid] {
+				recipients = append(recipients, uid)
+				seen[uid] = true
+			}
+		}
 	}
 
 	// Assignee change: notify the new assignee specifically
@@ -1126,6 +1183,46 @@ func (s *IssueService) sendUpdateNotifications(ctx context.Context, issue *domai
 		}
 	}
 
+	// Title change
+	if req.Title != nil {
+		for _, uid := range recipients {
+			s.notify(ctx, uid, issue, "title_changed",
+				fmt.Sprintf("%s title changed", issue.Identifier))
+		}
+	}
+
+	// Description change
+	if req.Description != nil {
+		for _, uid := range recipients {
+			s.notify(ctx, uid, issue, "description_changed",
+				fmt.Sprintf("%s description changed", issue.Identifier))
+		}
+	}
+
+	// Assignee change
+	if req.AssigneeIDs != nil {
+		for _, uid := range recipients {
+			s.notify(ctx, uid, issue, "assignees_changed",
+				fmt.Sprintf("%s assignees changed", issue.Identifier))
+		}
+	}
+
+	// Project change
+	if req.ProjectID != nil {
+		for _, uid := range recipients {
+			s.notify(ctx, uid, issue, "project_changed",
+				fmt.Sprintf("%s project changed", issue.Identifier))
+		}
+	}
+
+	// Parent change
+	if req.ParentID != nil {
+		for _, uid := range recipients {
+			s.notify(ctx, uid, issue, "parent_changed",
+				fmt.Sprintf("%s parent changed", issue.Identifier))
+		}
+	}
+
 	// Due date change
 	if req.DueDate != nil {
 		for _, uid := range recipients {
@@ -1147,6 +1244,14 @@ func (s *IssueService) sendUpdateNotifications(ctx context.Context, issue *domai
 		for _, uid := range recipients {
 			s.notify(ctx, uid, issue, "label_added",
 				fmt.Sprintf("%s labels updated", issue.Identifier))
+		}
+	}
+
+	// Sort order changes are still issue activity for subscribers.
+	if req.SortOrder != nil {
+		for _, uid := range recipients {
+			s.notify(ctx, uid, issue, "issue_moved",
+				fmt.Sprintf("%s moved", issue.Identifier))
 		}
 	}
 }

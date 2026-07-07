@@ -6,7 +6,7 @@
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import type { Label } from '$lib/types/label';
 	import type { Project } from '$lib/types/project';
-	import { listComments, createComment, resolveComment, reopenComment, getIssueHistory, getIssue, signIssuePromptAssets, createSubIssue, bulkCreateSubIssues, expandIssueDescription } from '$lib/api/issues';
+	import { listComments, createComment, resolveComment, reopenComment, getIssueHistory, getIssue, signIssuePromptAssets, createSubIssue, bulkCreateSubIssues, expandIssueDescription, subscribeToIssue, unsubscribeFromIssue } from '$lib/api/issues';
 	import { listMembers } from '$lib/api/members';
 	import { listLabels } from '$lib/api/labels';
 	import { listProjects } from '$lib/api/projects';
@@ -28,7 +28,7 @@
 		ChevronUp, ChevronDown, ChevronRight, Plus, CalendarDays,
 		Copy, Link as LinkIcon, GitBranch, SquareMousePointer,
 		CircleDot, ArrowUpCircle, UserCircle, FolderKanban, Pencil, Layers,
-		Tag, RefreshCw, ArrowUp, Paperclip, MoreHorizontal, Check,
+		Tag, RefreshCw, ArrowUp, Paperclip, MoreHorizontal, Check, Bell,
 		Trash2, CornerDownRight
 	} from 'lucide-svelte';
 	import { listCycles } from '$lib/api/cycles';
@@ -84,6 +84,8 @@
 	let createDialogParentIssue = $state<Issue | null>(null);
 	let parentPickerOpen = $state(false);
 	let removeParentOpen = $state(false);
+	let isSubscribed = $state(false);
+	let subscriptionBusy = $state(false);
 
 	// Presence & real-time
 	let lastLocalUpdate = 0;
@@ -203,6 +205,10 @@
 
 	$effect(() => {
 		titleValue = issue.title;
+	});
+
+	$effect(() => {
+		isSubscribed = issue.is_subscribed ?? false;
 	});
 
 	// Update presence with members when they load
@@ -453,6 +459,27 @@
 		toast.success(`${label} copied`);
 	}
 
+	async function toggleSubscription() {
+		if (subscriptionBusy) return;
+		subscriptionBusy = true;
+		const nextValue = !isSubscribed;
+		isSubscribed = nextValue;
+		try {
+			const res = nextValue
+				? await subscribeToIssue(slug, issue.identifier)
+				: await unsubscribeFromIssue(slug, issue.identifier);
+			isSubscribed = res.is_subscribed;
+			issuesState.setSubscription(issue.identifier, res.is_subscribed);
+			onupdated?.({ ...issue, is_subscribed: res.is_subscribed });
+			toast.success(isSubscribed ? 'Notifications enabled' : 'Notifications disabled');
+		} catch (err: any) {
+			isSubscribed = !nextValue;
+			toast.error(err?.error?.message || 'Failed to update notifications');
+		} finally {
+			subscriptionBusy = false;
+		}
+	}
+
 	async function copyAIPrompt() {
 		try {
 			const [{ assets }, settings, copyTeams] = await Promise.all([
@@ -675,6 +702,15 @@
 		</div>
 		<div class="no-scrollbar flex shrink-0 items-center gap-0.5 overflow-x-auto">
 			<!-- Actions -->
+			<button
+				onclick={toggleSubscription}
+				disabled={subscriptionBusy}
+				aria-pressed={isSubscribed}
+				class="rounded p-1.5 transition-colors disabled:opacity-50 {isSubscribed ? 'bg-[var(--app-accent)] text-[var(--app-accent-foreground)]' : 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
+				title={isSubscribed ? 'Disable issue notifications' : 'Notify me about changes'}
+			>
+				<Bell size={14} />
+			</button>
 			<button
 				onclick={() => copyToClipboard(issue.identifier, 'ID')}
 				class="rounded p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"

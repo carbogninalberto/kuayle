@@ -238,6 +238,8 @@ func main() {
 	ws.GET("/issues/:identifier", issueH.Get)
 	ws.PATCH("/issues/:identifier", issueH.Update, mw.RequirePermission("issue:update"))
 	ws.DELETE("/issues/:identifier", issueH.Delete, mw.RequirePermission("issue:delete_own"))
+	ws.POST("/issues/:identifier/subscribe", issueH.Subscribe)
+	ws.DELETE("/issues/:identifier/subscribe", issueH.Unsubscribe)
 	ws.POST("/issues/:identifier/duplicate", issueH.Duplicate, mw.RequirePermission("issue:create"))
 	ws.POST("/issues/:identifier/convert-to-project", issueH.ConvertToProject, mw.RequirePermission("project:manage"))
 	ws.POST("/issues/:identifier/expand-description", aiSettingsH.ExpandIssueDescription, mw.RequirePermission("issue:update"))

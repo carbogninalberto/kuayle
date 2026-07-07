@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"regexp"
 
+	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/realtime"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/pkg/sanitize"
-	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -90,6 +90,12 @@ func (s *CommentService) Create(ctx context.Context, issueID, userID uuid.UUID, 
 		assignees, _ := s.issueRepo.GetAssignees(ctx, issueID)
 		for _, uid := range assignees {
 			if uid != userID {
+				recipients[uid] = true
+			}
+		}
+		if repo, ok := s.issueRepo.(issueSubscriberRepo); ok {
+			subscribers, _ := repo.GetSubscribers(ctx, issueID)
+			for _, uid := range subscribers {
 				recipients[uid] = true
 			}
 		}
