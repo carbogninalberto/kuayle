@@ -19,6 +19,7 @@ tmp/
 .env
 .dev.pids
 uploads/
+selfhosting/runtime/upgrading
 
 # Coverage
 coverage/

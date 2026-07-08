@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="robots" content="noindex" />
+		<title>Kuayle is upgrading</title>
+		<style>
+			:root {
+				color-scheme: dark;
+				--background: #111111;
+				--foreground: #f5f5f5;
+				--card: #191919;
+				--card-foreground: #f5f5f5;
+				--muted: #222222;
+				--muted-foreground: #a0a0a0;
+				--border: #2f2f2f;
+				--primary: #6650eb;
+				--primary-foreground: #ffffff;
+				--ring: rgba(149, 133, 245, 0.45);
+			}
+
+			* {
+				box-sizing: border-box;
+			}
+
+			body {
+				min-height: 100vh;
+				margin: 0;
+				display: grid;
+				place-items: center;
+				padding: 24px;
+				background: var(--background);
+				color: var(--foreground);
+				font-family:
+					Inter,
+					ui-sans-serif,
+					system-ui,
+					-apple-system,
+					BlinkMacSystemFont,
+					'Segoe UI',
+					sans-serif;
+			}
+
+			main {
+				width: min(100%, 420px);
+				border: 1px solid var(--border);
+				border-radius: 16px;
+				background: var(--card);
+				box-shadow: 0 18px 50px rgba(0, 0, 0, 0.26);
+			}
+
+			.card-header {
+				padding: 24px 24px 0;
+			}
+
+			.brand {
+				display: inline-flex;
+				align-items: center;
+				gap: 10px;
+				color: var(--card-foreground);
+				font-size: 14px;
+				font-weight: 600;
+			}
+
+			.logo {
+				width: 32px;
+				height: 32px;
+				display: block;
+				border-radius: 8px;
+			}
+
+			h1 {
+				margin: 24px 0 0;
+				font-size: 24px;
+				line-height: 1.2;
+				letter-spacing: -0.025em;
+				font-weight: 650;
+			}
+
+			.card-content {
+				padding: 16px 24px 24px;
+			}
+
+			p {
+				margin: 0;
+				color: var(--muted-foreground);
+				font-size: 14px;
+				line-height: 1.6;
+			}
+
+			.status {
+				display: flex;
+				align-items: center;
+				gap: 10px;
+				margin-top: 20px;
+				padding: 12px;
+				border: 1px solid var(--border);
+				border-radius: 12px;
+				background: var(--muted);
+				color: var(--card-foreground);
+				font-size: 14px;
+			}
+
+			.pulse {
+				width: 8px;
+				height: 8px;
+				flex: 0 0 auto;
+				border-radius: 999px;
+				background: var(--primary);
+				box-shadow: 0 0 0 var(--ring);
+				animation: pulse 1.6s infinite;
+			}
+
+			.card-footer {
+				display: flex;
+				flex-wrap: wrap;
+				justify-content: flex-end;
+				gap: 8px;
+				padding: 0 24px 24px;
+			}
+
+			button,
+			a {
+				height: 36px;
+				display: inline-flex;
+				align-items: center;
+				justify-content: center;
+				border-radius: 8px;
+				padding: 0 12px;
+				font: inherit;
+				font-size: 14px;
+				font-weight: 500;
+				text-decoration: none;
+				cursor: pointer;
+			}
+
+			button {
+				border: 0;
+				background: var(--primary);
+				color: var(--primary-foreground);
+			}
+
+			a {
+				border: 1px solid var(--border);
+				background: transparent;
+				color: var(--card-foreground);
+			}
+
+			@keyframes pulse {
+				0% {
+					box-shadow: 0 0 0 0 var(--ring);
+				}
+				70% {
+					box-shadow: 0 0 0 10px rgba(149, 133, 245, 0);
+				}
+				100% {
+					box-shadow: 0 0 0 0 rgba(149, 133, 245, 0);
+				}
+			}
+
+			@media (max-width: 480px) {
+				.card-footer {
+					flex-direction: column-reverse;
+				}
+
+				button,
+				a {
+					width: 100%;
+				}
+			}
+		</style>
+	</head>
+	<body>
+		<main>
+			<section class="card-header">
+				<div class="brand" aria-label="Kuayle">
+					<img class="logo" src="favicon.svg" alt="" />
+					<span>Kuayle</span>
+				</div>
+				<h1>Upgrade in progress</h1>
+			</section>
+			<section class="card-content">
+				<p>
+					Kuayle is temporarily unavailable while the server restarts services and applies any pending migrations.
+					Existing work is safe.
+				</p>
+				<div class="status" aria-live="polite">
+					<span class="pulse" aria-hidden="true"></span>
+					<span>Waiting for the update to finish</span>
+				</div>
+			</section>
+			<div class="card-footer">
+				<a href="https://github.com/carbogninalberto/kuayle/releases" rel="noopener">Release notes</a>
+				<button type="button" onclick="window.location.reload()">Try again</button>
+			</div>
+		</main>
+	</body>
+</html>
