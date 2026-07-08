@@ -1,5 +1,16 @@
 [
   {
+    "tag_name": "v0.1.4",
+    "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.4",
+    "body": "## What's Changed\r\n* fix(deps): update AWS SDK Go v2 dependencies to patch versions by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/39\r\n\r\n\r\n**Full Changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.1.3...v0.1.4",
+    "published_at": "2026-07-08T11:33:24Z",
+    "prerelease": false,
+    "force_upgrade": false,
+    "minimum_supported_version": null,
+    "upgrade_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.4",
+    "upgrade_message": null
+  },
+  {
     "tag_name": "v0.1.3",
     "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.3",
     "body": "## What's Changed\r\n* feat(ai): add customizable issue copy prompts for workspace and teams by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/35\r\n* feat(issues): add issue subscription system for change notifications by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/36\r\n* Alberto/kua 49 addbulk assign to cycle by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/37\r\n* feat(selfhosting): add forced upgrade mechanism with upgrade page by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/38\r\n\r\n\r\n**Full Changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.1.2...v0.1.3",
