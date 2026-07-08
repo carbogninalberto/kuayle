@@ -4,6 +4,7 @@ export interface User {
 	name: string;
 	display_name: string;
 	avatar_url: string | null;
+	is_sysadmin: boolean;
 }
 
 export interface LoginRequest {

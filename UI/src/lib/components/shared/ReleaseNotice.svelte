@@ -2,22 +2,20 @@
 	import { onMount } from 'svelte';
 	import { Button } from '$lib/components/ui/button';
 	import * as Dialog from '$lib/components/ui/dialog';
-	import { currentVersion, currentVersionLabel, releasesManifestUrl } from '$lib/release';
+	import {
+		buildChangelog,
+		compareVersions,
+		currentVersion,
+		currentVersionLabel,
+		fetchReleases,
+		releasesManifestUrl,
+		requiredUpgradeRelease as findRequiredUpgradeRelease,
+		visibleReleases as getVisibleReleases,
+		type GitHubRelease
+	} from '$lib/release';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { renderMarkdown } from '$lib/markdown';
 	import Info from '@lucide/svelte/icons/info';
-
-	interface GitHubRelease {
-		tag_name: string;
-		html_url: string;
-		body: string | null;
-		published_at: string;
-		prerelease: boolean;
-		force_upgrade?: boolean;
-		minimum_supported_version?: string | null;
-		upgrade_url?: string | null;
-		upgrade_message?: string | null;
-	}
 
 	const DISMISSED_KEY = 'kuayle_release_notice_dismissed';
 	const PRERELEASE_KEY = 'kuayle_release_notice_include_prerelease';
@@ -54,27 +52,6 @@
 			hasOpened = false;
 		}
 	});
-
-	function normalize(version: string) {
-		return version
-			.replace(/^v/i, '')
-			.split(/[-+]/)[0]
-			.split('.')
-			.map((part) => Number.parseInt(part, 10) || 0);
-	}
-
-	function compareVersions(left: string, right: string) {
-		const a = normalize(left);
-		const b = normalize(right);
-		const length = Math.max(a.length, b.length);
-
-		for (let i = 0; i < length; i += 1) {
-			const delta = (a[i] ?? 0) - (b[i] ?? 0);
-			if (delta !== 0) return delta;
-		}
-
-		return 0;
-	}
 
 	function isDismissed(tagName: string) {
 		if (typeof localStorage === 'undefined') return false;
@@ -113,56 +90,11 @@
 	}
 
 	function visibleReleases(): GitHubRelease[] {
-		return allReleases
-			.filter((release) => includePrerelease || !release.prerelease)
-			.sort((a, b) => compareVersions(b.tag_name, a.tag_name));
-	}
-
-	function requiresUpgrade(release: GitHubRelease) {
-		if (release.prerelease) return false;
-
-		const minimumSupported = release.minimum_supported_version?.trim();
-		if (minimumSupported) {
-			return compareVersions(currentVersion, minimumSupported) < 0;
-		}
-
-		return release.force_upgrade === true && compareVersions(release.tag_name, currentVersion) > 0;
+		return getVisibleReleases(allReleases, includePrerelease);
 	}
 
 	function requiredUpgradeRelease(): GitHubRelease | null {
-		return (
-			allReleases
-				.filter(requiresUpgrade)
-				.sort((a, b) => {
-					const bVersion = b.minimum_supported_version || b.tag_name;
-					const aVersion = a.minimum_supported_version || a.tag_name;
-					return compareVersions(bVersion, aVersion);
-				})[0] ?? null
-		);
-	}
-
-	function parseReleaseManifest(manifest: unknown): GitHubRelease[] {
-		if (Array.isArray(manifest)) return manifest as GitHubRelease[];
-
-		if (manifest && typeof manifest === 'object') {
-			const releases = (manifest as { releases?: unknown }).releases;
-			if (Array.isArray(releases)) return releases as GitHubRelease[];
-		}
-
-		return [];
-	}
-
-	function buildChangelog(visible: GitHubRelease[]): string {
-		const newer = visible.filter((release) => compareVersions(release.tag_name, currentVersion) > 0);
-
-		if (newer.length === 0) return '';
-
-		const sections = newer.map((release) => {
-			const body = (release.body ?? '').trim();
-			return `## ${release.tag_name}${release.prerelease ? ' (prerelease)' : ''}\n\n${body || '_No notes._'}`;
-		});
-
-		return sections.join('\n\n---\n\n');
+		return findRequiredUpgradeRelease(allReleases);
 	}
 
 	function applyReleases(autoOpen: boolean) {
@@ -187,12 +119,7 @@
 	async function loadReleases(autoOpen = true) {
 		loaded = false;
 		try {
-			const response = await fetch(releasesManifestUrl, { cache: 'no-store' });
-
-			if (!response.ok) return;
-
-			const manifest = await response.json();
-			const releases = parseReleaseManifest(manifest);
+			const releases = await fetchReleases();
 			if (releases.length === 0) return;
 
 			allReleases = releases;

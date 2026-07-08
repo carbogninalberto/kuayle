@@ -22,6 +22,7 @@ type UserResponse struct {
 	Name        string  `json:"name"`
 	DisplayName string  `json:"display_name"`
 	AvatarURL   *string `json:"avatar_url"`
+	IsSysAdmin  bool    `json:"is_sysadmin"`
 }
 
 type UpdateProfileRequest struct {

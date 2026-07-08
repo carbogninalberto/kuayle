@@ -16,7 +16,8 @@
 		SlidersHorizontal,
 		CircleDot,
 		ChevronDown,
-		Menu
+		Menu,
+		RefreshCw
 	} from 'lucide-svelte';
 	import { GithubLogoIcon } from 'phosphor-svelte';
 	import type { Snippet } from 'svelte';
@@ -97,7 +98,10 @@
 		},
 		{
 			label: 'System',
-			items: [{ label: 'Licenses', href: `/${slug}/settings/licenses`, icon: ScrollText }]
+			items: [
+				{ label: 'Version', href: `/${slug}/settings/version`, icon: RefreshCw },
+				{ label: 'Licenses', href: `/${slug}/settings/licenses`, icon: ScrollText }
+			]
 		}
 	]);
 

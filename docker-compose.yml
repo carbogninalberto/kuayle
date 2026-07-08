@@ -32,6 +32,7 @@ services:
       REDIS_URL: redis://redis:6379
       JWT_SECRET: change-me-in-production  # MUST be changed in production
       ENVIRONMENT: development  # Set to "production" in production
+      SYSADMINS: ${SYSADMINS:-}
       # STORAGE_TYPE: s3
       # S3_ENDPOINT: http://seaweedfs:8333
       # S3_BUCKET: kuayle-uploads

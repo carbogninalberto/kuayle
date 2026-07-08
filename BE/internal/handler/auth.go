@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/middleware"
 	"github.com/kuayle/kuayle-backend/internal/service"
@@ -20,10 +22,14 @@ type AuthHandler struct {
 	authService   *service.AuthService
 	secureCookie  bool
 	loginThrottle *middleware.LoginThrottle
+	isSysAdmin    func(uuid.UUID) bool
 }
 
-func NewAuthHandler(authService *service.AuthService, secureCookie bool, loginThrottle *middleware.LoginThrottle) *AuthHandler {
-	return &AuthHandler{authService: authService, secureCookie: secureCookie, loginThrottle: loginThrottle}
+func NewAuthHandler(authService *service.AuthService, secureCookie bool, loginThrottle *middleware.LoginThrottle, isSysAdmin func(uuid.UUID) bool) *AuthHandler {
+	if isSysAdmin == nil {
+		isSysAdmin = func(uuid.UUID) bool { return false }
+	}
+	return &AuthHandler{authService: authService, secureCookie: secureCookie, loginThrottle: loginThrottle, isSysAdmin: isSysAdmin}
 }
 
 func (h *AuthHandler) Register(c echo.Context) error {
@@ -54,13 +60,7 @@ func (h *AuthHandler) Register(c echo.Context) error {
 	log.WithFields(log.Fields{"event": "auth.register", "user_id": user.ID, "email": user.Email, "ip": c.RealIP()}).Info("user registered")
 	h.setAuthCookies(c, accessToken, refreshToken)
 
-	return response.Success(c, http.StatusCreated, dto.UserResponse{
-		ID:          user.ID.String(),
-		Email:       user.Email,
-		Name:        user.Name,
-		DisplayName: user.DisplayName,
-		AvatarURL:   user.AvatarURL,
-	})
+	return response.Success(c, http.StatusCreated, h.userResponse(user))
 }
 
 func (h *AuthHandler) Login(c echo.Context) error {
@@ -95,13 +95,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	log.WithFields(log.Fields{"event": "auth.login", "user_id": user.ID, "email": user.Email, "ip": c.RealIP()}).Info("user logged in")
 	h.setAuthCookies(c, accessToken, refreshToken)
 
-	return response.Success(c, http.StatusOK, dto.UserResponse{
-		ID:          user.ID.String(),
-		Email:       user.Email,
-		Name:        user.Name,
-		DisplayName: user.DisplayName,
-		AvatarURL:   user.AvatarURL,
-	})
+	return response.Success(c, http.StatusOK, h.userResponse(user))
 }
 
 func (h *AuthHandler) Refresh(c echo.Context) error {
@@ -138,13 +132,7 @@ func (h *AuthHandler) Me(c echo.Context) error {
 	if err != nil || user == nil {
 		return response.NotFound(c, "User")
 	}
-	return response.Success(c, http.StatusOK, dto.UserResponse{
-		ID:          user.ID.String(),
-		Email:       user.Email,
-		Name:        user.Name,
-		DisplayName: user.DisplayName,
-		AvatarURL:   user.AvatarURL,
-	})
+	return response.Success(c, http.StatusOK, h.userResponse(user))
 }
 
 func (h *AuthHandler) UpdateProfile(c echo.Context) error {
@@ -170,13 +158,18 @@ func (h *AuthHandler) UpdateProfile(c echo.Context) error {
 	if err != nil || user == nil {
 		return response.NotFound(c, "User")
 	}
-	return response.Success(c, http.StatusOK, dto.UserResponse{
+	return response.Success(c, http.StatusOK, h.userResponse(user))
+}
+
+func (h *AuthHandler) userResponse(user *domain.User) dto.UserResponse {
+	return dto.UserResponse{
 		ID:          user.ID.String(),
 		Email:       user.Email,
 		Name:        user.Name,
 		DisplayName: user.DisplayName,
 		AvatarURL:   user.AvatarURL,
-	})
+		IsSysAdmin:  h.isSysAdmin(user.ID),
+	}
 }
 
 func (h *AuthHandler) setAuthCookies(c echo.Context, accessToken, refreshToken string) {

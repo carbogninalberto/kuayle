@@ -93,7 +93,7 @@ func main() {
 	// Handlers
 	healthH := handler.NewHealthHandler(db)
 	loginThrottle := mw.NewLoginThrottle(5, 15*time.Minute)
-	authH := handler.NewAuthHandler(authSvc, cfg.Environment != "development", loginThrottle)
+	authH := handler.NewAuthHandler(authSvc, cfg.Environment != "development", loginThrottle, cfg.IsSysAdmin)
 	workspaceH := handler.NewWorkspaceHandler(workspaceSvc)
 	teamH := handler.NewTeamHandler(teamSvc)
 	issueH := handler.NewIssueHandler(issueSvc, commentSvc, userRepo, teamStatusRepo, projectRepo, cycleRepo, relationSvc)
@@ -110,6 +110,7 @@ func main() {
 	prefsH := handler.NewPreferencesHandler(prefsSvc)
 	aiSettingsH := handler.NewAISettingsHandler(aiSettingsSvc)
 	analyticsH := handler.NewAnalyticsHandler(db)
+	systemH := handler.NewSystemHandler(cfg.SystemUpdaterURL, cfg.SystemUpdaterToken, cfg.IsSysAdmin)
 	webhookRepo := repository.NewWebhookRepository(db)
 	webhookSvc := service.NewWebhookService(webhookRepo, cfg.JWTSecret)
 	webhookH := handler.NewWebhookHandler(webhookSvc)
@@ -191,6 +192,8 @@ func main() {
 	api.PATCH("/auth/me", authH.UpdateProfile)
 	api.GET("/preferences", prefsH.Get)
 	api.PATCH("/preferences", prefsH.Update)
+	api.GET("/system/update-status", systemH.UpdateStatus)
+	api.POST("/system/update", systemH.StartUpdate)
 
 	// Workspaces (no workspace context needed for list/create)
 	api.GET("/workspaces", workspaceH.List)

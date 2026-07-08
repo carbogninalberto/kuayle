@@ -5,6 +5,7 @@
 	import { getMe, updateProfile } from '$lib/api/auth';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import type { User } from '$lib/types/auth';
+	import { Copy } from 'lucide-svelte';
 
 	let user = $state<User | null>(null);
 	let name = $state('');
@@ -43,6 +44,16 @@
 			saving = false;
 		}
 	}
+
+	async function copyUserId() {
+		if (!user) return;
+		try {
+			await navigator.clipboard.writeText(user.id);
+			appToast.success('User ID copied');
+		} catch {
+			appToast.error('Failed to copy user ID');
+		}
+	}
 </script>
 
 <div class="mx-auto max-w-2xl px-8 py-10">
@@ -57,6 +68,22 @@
 					<p class="text-xs text-[var(--color-text-tertiary)]">Used for sign in. Email changes are not supported yet.</p>
 				</div>
 				<span class="truncate text-sm text-[var(--color-text-secondary)]">{user.email}</span>
+			</div>
+
+			<div class="border-t border-[var(--app-border)]"></div>
+
+			<div class="flex items-center justify-between gap-4 px-5 py-4">
+				<div>
+					<p class="text-sm font-medium text-[var(--color-text-primary)]">User ID</p>
+					<p class="text-xs text-[var(--color-text-tertiary)]">Use this UUID in the server SYSADMINS setting.</p>
+				</div>
+				<div class="flex min-w-0 items-center gap-2">
+					<span class="truncate font-mono text-xs text-[var(--color-text-secondary)]">{user.id}</span>
+					<Button variant="outline" size="sm" onclick={copyUserId}>
+						<Copy size={13} />
+						Copy
+					</Button>
+				</div>
 			</div>
 
 			<div class="border-t border-[var(--app-border)]"></div>

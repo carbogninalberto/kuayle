@@ -241,6 +241,15 @@ bash selfhosting/update.sh
 
 The update script pulls the latest code, rebuilds images, recreates containers, and applies pending migrations.
 
+Instance sysadmins can also enable one-click updates from **Settings → Version**:
+
+1. Copy your user ID from **Settings → Profile**.
+2. Add it to `SYSADMINS` in `selfhosting/.env`.
+3. Set a strong `SYSTEM_UPDATER_TOKEN` and keep `SYSTEM_UPDATER_URL=http://updater:8081`.
+4. Apply the env and start the internal updater sidecar with `docker compose --profile updater up -d backend updater` from `selfhosting/`.
+
+The updater sidecar is internal-only and runs the same `selfhosting/update.sh` flow. If it is not configured, the Version page shows the manual update command instead.
+
 ### Storage options
 
 By default, uploads go to the local filesystem. For production, you can use any S3-compatible storage:

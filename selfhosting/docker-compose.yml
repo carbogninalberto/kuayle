@@ -46,6 +46,9 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       ENVIRONMENT: ${ENVIRONMENT:-production}
       FRONTEND_URL: ${FRONTEND_URL:-https://localhost}
+      SYSADMINS: ${SYSADMINS:-}
+      SYSTEM_UPDATER_URL: ${SYSTEM_UPDATER_URL:-http://updater:8081}
+      SYSTEM_UPDATER_TOKEN: ${SYSTEM_UPDATER_TOKEN:-}
       PORT: 8080
       STORAGE_TYPE: ${STORAGE_TYPE:-local}
       S3_ENDPOINT: ${S3_ENDPOINT:-}
@@ -65,6 +68,21 @@ services:
     restart: unless-stopped
     depends_on:
       - backend
+
+  updater:
+    profiles: ["updater"]
+    build:
+      context: ../BE
+      dockerfile: Dockerfile.updater
+    restart: unless-stopped
+    volumes:
+      - ..:/repo
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      UPDATER_TOKEN: ${SYSTEM_UPDATER_TOKEN:-}
+      REPO_ROOT: /repo
+      UPDATE_SCRIPT: /repo/selfhosting/update.sh
+      PORT: 8081
 
   # Uncomment for self-hosted S3-compatible storage
   # seaweedfs:

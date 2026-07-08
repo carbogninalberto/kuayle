@@ -38,7 +38,7 @@ func TestAuthHandler_Register_ValidationError(t *testing.T) {
 	userRepo := &testUserRepo{}
 	refreshRepo := &testRefreshTokenRepo{}
 	authSvc := service.NewAuthService(userRepo, refreshRepo, "test-secret")
-	h := NewAuthHandler(authSvc, false, middleware.NewLoginThrottle(5, 15*time.Minute))
+	h := NewAuthHandler(authSvc, false, middleware.NewLoginThrottle(5, 15*time.Minute), nil)
 
 	err := h.Register(c)
 
@@ -59,7 +59,7 @@ func TestAuthHandler_Register_Success(t *testing.T) {
 	userRepo := &testUserRepo{}
 	refreshRepo := &testRefreshTokenRepo{}
 	authSvc := service.NewAuthService(userRepo, refreshRepo, "test-secret")
-	h := NewAuthHandler(authSvc, false, middleware.NewLoginThrottle(5, 15*time.Minute))
+	h := NewAuthHandler(authSvc, false, middleware.NewLoginThrottle(5, 15*time.Minute), nil)
 
 	err := h.Register(c)
 
@@ -94,7 +94,7 @@ func TestAuthHandler_Register_DuplicateEmail(t *testing.T) {
 	userRepo := &testUserRepo{emailExists: true}
 	refreshRepo := &testRefreshTokenRepo{}
 	authSvc := service.NewAuthService(userRepo, refreshRepo, "test-secret")
-	h := NewAuthHandler(authSvc, false, middleware.NewLoginThrottle(5, 15*time.Minute))
+	h := NewAuthHandler(authSvc, false, middleware.NewLoginThrottle(5, 15*time.Minute), nil)
 
 	err := h.Register(c)
 
@@ -115,7 +115,7 @@ func TestAuthHandler_Login_Success(t *testing.T) {
 	userRepo := &testUserRepo{userWithPassword: "Password123!!"}
 	refreshRepo := &testRefreshTokenRepo{}
 	authSvc := service.NewAuthService(userRepo, refreshRepo, "test-secret")
-	h := NewAuthHandler(authSvc, false, middleware.NewLoginThrottle(5, 15*time.Minute))
+	h := NewAuthHandler(authSvc, false, middleware.NewLoginThrottle(5, 15*time.Minute), nil)
 
 	err := h.Login(c)
 
@@ -144,7 +144,7 @@ func TestAuthHandler_Login_WrongPassword(t *testing.T) {
 	userRepo := &testUserRepo{userWithPassword: "Password123!!"}
 	refreshRepo := &testRefreshTokenRepo{}
 	authSvc := service.NewAuthService(userRepo, refreshRepo, "test-secret")
-	h := NewAuthHandler(authSvc, false, middleware.NewLoginThrottle(5, 15*time.Minute))
+	h := NewAuthHandler(authSvc, false, middleware.NewLoginThrottle(5, 15*time.Minute), nil)
 
 	err := h.Login(c)
 
@@ -168,12 +168,13 @@ func TestAuthHandler_Me_Success(t *testing.T) {
 	userRepo := &testUserRepo{specificUserID: userID}
 	refreshRepo := &testRefreshTokenRepo{}
 	authSvc := service.NewAuthService(userRepo, refreshRepo, "test-secret")
-	h := NewAuthHandler(authSvc, false, middleware.NewLoginThrottle(5, 15*time.Minute))
+	h := NewAuthHandler(authSvc, false, middleware.NewLoginThrottle(5, 15*time.Minute), func(id uuid.UUID) bool { return id == userID })
 
 	err := h.Me(c)
 
 	assert.NoError(t, err)
 	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), `"is_sysadmin":true`)
 }
 
 func TestAuthHandler_Logout(t *testing.T) {
@@ -187,7 +188,7 @@ func TestAuthHandler_Logout(t *testing.T) {
 	userRepo := &testUserRepo{}
 	refreshRepo := &testRefreshTokenRepo{}
 	authSvc := service.NewAuthService(userRepo, refreshRepo, "test-secret")
-	h := NewAuthHandler(authSvc, false, middleware.NewLoginThrottle(5, 15*time.Minute))
+	h := NewAuthHandler(authSvc, false, middleware.NewLoginThrottle(5, 15*time.Minute), nil)
 
 	err := h.Logout(c)
 

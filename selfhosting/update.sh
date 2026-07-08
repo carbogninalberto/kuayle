@@ -7,6 +7,10 @@ REPO_ROOT="$(pwd)"
 SELFHOST_DIR="$REPO_ROOT/selfhosting"
 UPGRADE_MARKER="$SELFHOST_DIR/runtime/upgrading"
 
+compose() {
+	docker compose --profile updater "$@"
+}
+
 disable_upgrade_page() {
 	rm -f "$UPGRADE_MARKER"
 }
@@ -37,16 +41,16 @@ trap handle_interrupt INT
 trap handle_terminate TERM
 
 cd "$SELFHOST_DIR"
-docker compose up -d caddy >/dev/null 2>&1 || true
+compose up -d caddy >/dev/null 2>&1 || true
 
 # 3. Rebuild and recreate containers
 echo "Rebuilding images and refreshing containers..."
-docker compose build --pull backend frontend
-docker compose up -d --remove-orphans
+compose build --pull backend frontend
+compose up -d --remove-orphans caddy backend frontend
 
 # 4. Apply pending migrations
 echo "Applying database migrations..."
-docker compose exec -T backend /app/server migrate up
+compose exec -T backend /app/server migrate up
 
 disable_upgrade_page
 trap - EXIT INT TERM
