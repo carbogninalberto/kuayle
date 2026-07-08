@@ -119,7 +119,7 @@ func (s *IssueService) Create(ctx context.Context, workspaceID, creatorID uuid.U
 		Status:      status,
 		Priority:    priority,
 		CreatorID:   creatorID,
-		SortOrder:   float64(number) * 1000,
+		SortOrder:   -float64(number) * 1000,
 		Triaged:     !team.TriageEnabled,
 	}
 

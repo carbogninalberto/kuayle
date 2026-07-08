@@ -60,9 +60,12 @@
 	}
 
 	function calculateSortOrder(items: Issue[], index: number): number {
-		const prev = index > 0 ? items[index - 1].sort_order : 0;
-		const next = index < items.length - 1 ? items[index + 1].sort_order : prev + 2000;
-		return (prev + next) / 2;
+		const prev = index > 0 ? items[index - 1].sort_order : undefined;
+		const next = index < items.length - 1 ? items[index + 1].sort_order : undefined;
+		if (prev !== undefined && next !== undefined) return (prev + next) / 2;
+		if (prev !== undefined) return prev + 1000;
+		if (next !== undefined) return next - 1000;
+		return 0;
 	}
 </script>
 

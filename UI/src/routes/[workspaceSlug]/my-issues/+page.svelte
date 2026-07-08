@@ -79,7 +79,8 @@
 			}
 		}
 
-		// Sort by priority (urgent first) then created_at
+		// Keep server pagination aligned with the status-grouped rendering.
+		params.group_by = 'status';
 		params.sort = 'priority';
 		params.order = 'asc';
 

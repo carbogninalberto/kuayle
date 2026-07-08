@@ -111,6 +111,11 @@
 				params[key] = value;
 			}
 		}
+		if (layout === 'list' && issuesState.groupBy) {
+			params.group_by = issuesState.groupBy;
+		} else {
+			delete params.group_by;
+		}
 		params.sort ??= 'sort_order';
 		params.order ??= 'asc';
 		if (layout === 'board') {
@@ -131,6 +136,12 @@
 
 	function handleLayoutChange(l: ViewLayout) {
 		layout = l;
+		loadIssues();
+	}
+
+	function handleGroupByChange(value: GroupByField) {
+		issuesState.groupBy = value;
+		groupByOpen = false;
 		loadIssues();
 	}
 
@@ -155,9 +166,12 @@
 	}
 
 	function calculateSortOrder(items: Issue[], index: number): number {
-		const prev = index > 0 ? items[index - 1].sort_order : 0;
-		const next = index < items.length - 1 ? items[index + 1].sort_order : prev + 2000;
-		return (prev + next) / 2;
+		const prev = index > 0 ? items[index - 1].sort_order : undefined;
+		const next = index < items.length - 1 ? items[index + 1].sort_order : undefined;
+		if (prev !== undefined && next !== undefined) return (prev + next) / 2;
+		if (prev !== undefined) return prev + 1000;
+		if (next !== undefined) return next - 1000;
+		return 0;
 	}
 
 	function hasSameIssueOrder(a: Issue[], b: Issue[]) {
@@ -403,10 +417,7 @@
 					<Popover.Content class="w-40 p-1" align="end">
 						{#each groupByOptions as opt}
 							<button
-								onclick={() => {
-									issuesState.groupBy = opt.value;
-									groupByOpen = false;
-								}}
+								onclick={() => handleGroupByChange(opt.value)}
 								class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {issuesState.groupBy ===
 								opt.value
 									? 'bg-[var(--color-bg-hover)]'
