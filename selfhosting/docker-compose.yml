@@ -7,6 +7,9 @@ services:
       - "443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../UI/static/upgrading.html:/srv/upgrading.html:ro
+      - ../UI/static/favicon.svg:/srv/favicon.svg:ro
+      - ./runtime:/runtime:ro
       - caddy_data:/data
       - caddy_config:/config
     environment:

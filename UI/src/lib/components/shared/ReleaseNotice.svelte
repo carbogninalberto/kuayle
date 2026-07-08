@@ -13,6 +13,10 @@
 		body: string | null;
 		published_at: string;
 		prerelease: boolean;
+		force_upgrade?: boolean;
+		minimum_supported_version?: string | null;
+		upgrade_url?: string | null;
+		upgrade_message?: string | null;
 	}
 
 	const DISMISSED_KEY = 'kuayle_release_notice_dismissed';
@@ -20,6 +24,7 @@
 
 	let allReleases = $state<GitHubRelease[]>([]);
 	let latestRelease = $state<GitHubRelease | null>(null);
+	let requiredRelease = $state<GitHubRelease | null>(null);
 	let changelogHtml = $state('');
 	let dialogOpen = $state(false);
 	let hasOpened = $state(false);
@@ -27,8 +32,16 @@
 	let loaded = $state(false);
 
 	const releaseIsNewer = $derived(latestRelease ? compareVersions(latestRelease.tag_name, currentVersion) > 0 : false);
+	const requiredVersionLabel = $derived(requiredRelease?.minimum_supported_version || requiredRelease?.tag_name || '');
+	const upgradeUrl = $derived(requiredRelease?.upgrade_url || requiredRelease?.html_url || releasesManifestUrl);
 
 	$effect(() => {
+		if (requiredRelease) {
+			dialogOpen = false;
+			hasOpened = false;
+			return;
+		}
+
 		if (dialogOpen) {
 			hasOpened = true;
 			return;
@@ -105,6 +118,40 @@
 			.sort((a, b) => compareVersions(b.tag_name, a.tag_name));
 	}
 
+	function requiresUpgrade(release: GitHubRelease) {
+		if (release.prerelease) return false;
+
+		const minimumSupported = release.minimum_supported_version?.trim();
+		if (minimumSupported) {
+			return compareVersions(currentVersion, minimumSupported) < 0;
+		}
+
+		return release.force_upgrade === true && compareVersions(release.tag_name, currentVersion) > 0;
+	}
+
+	function requiredUpgradeRelease(): GitHubRelease | null {
+		return (
+			allReleases
+				.filter(requiresUpgrade)
+				.sort((a, b) => {
+					const bVersion = b.minimum_supported_version || b.tag_name;
+					const aVersion = a.minimum_supported_version || a.tag_name;
+					return compareVersions(bVersion, aVersion);
+				})[0] ?? null
+		);
+	}
+
+	function parseReleaseManifest(manifest: unknown): GitHubRelease[] {
+		if (Array.isArray(manifest)) return manifest as GitHubRelease[];
+
+		if (manifest && typeof manifest === 'object') {
+			const releases = (manifest as { releases?: unknown }).releases;
+			if (Array.isArray(releases)) return releases as GitHubRelease[];
+		}
+
+		return [];
+	}
+
 	function buildChangelog(visible: GitHubRelease[]): string {
 		const newer = visible.filter((release) => compareVersions(release.tag_name, currentVersion) > 0);
 
@@ -122,9 +169,17 @@
 		const visible = visibleReleases();
 		const latest = visible[0] ?? null;
 		latestRelease = latest;
+		requiredRelease = requiredUpgradeRelease();
 		changelogHtml = latest ? renderMarkdown(buildChangelog(visible)) : '';
 
-		if (autoOpen && latest && compareVersions(latest.tag_name, currentVersion) > 0 && !isDismissed(latest.tag_name)) {
+		if (
+			autoOpen &&
+			authState.authenticated &&
+			!requiredRelease &&
+			latest &&
+			compareVersions(latest.tag_name, currentVersion) > 0 &&
+			!isDismissed(latest.tag_name)
+		) {
 			dialogOpen = true;
 		}
 	}
@@ -132,14 +187,15 @@
 	async function loadReleases(autoOpen = true) {
 		loaded = false;
 		try {
-			const response = await fetch(releasesManifestUrl);
+			const response = await fetch(releasesManifestUrl, { cache: 'no-store' });
 
 			if (!response.ok) return;
 
-			const releases = await response.json();
-			if (!Array.isArray(releases)) return;
+			const manifest = await response.json();
+			const releases = parseReleaseManifest(manifest);
+			if (releases.length === 0) return;
 
-			allReleases = releases as GitHubRelease[];
+			allReleases = releases;
 			applyReleases(autoOpen);
 		} catch {
 			// Silently ignore release lookup failures.
@@ -161,27 +217,65 @@
 
 	onMount(() => {
 		includePrerelease = isPrereleaseEnabled();
+		void loadReleases(false);
 	});
 
-	// Release checks are a logged-in user feature only.
 	$effect(() => {
 		if (!authState.authenticated) {
-			// Reset so a re-login re-checks for updates.
-			loaded = false;
-			latestRelease = null;
-			changelogHtml = '';
 			dialogOpen = false;
 			hasOpened = false;
 			return;
 		}
 
-		if (!loaded) {
-			void loadReleases();
+		if (loaded && latestRelease && releaseIsNewer && !requiredRelease && !isDismissed(latestRelease.tag_name)) {
+			dialogOpen = true;
 		}
 	});
 </script>
 
-{#if latestRelease}
+{#if requiredRelease}
+	<div class="fixed inset-0 z-[100] flex min-h-dvh items-center justify-center bg-background px-4 py-8 text-foreground">
+		<div
+			class="relative w-full max-w-md rounded-xl border border-border bg-card text-card-foreground shadow-lg"
+			role="alertdialog"
+			aria-modal="true"
+			aria-labelledby="upgrade-required-title"
+			aria-describedby="upgrade-required-description"
+			tabindex="-1"
+		>
+			<div class="space-y-6 p-6 pb-4">
+				<div class="flex items-center gap-2 text-sm font-semibold">
+					<img src="/favicon.svg" alt="" class="size-8 rounded-md" />
+					<span>Kuayle</span>
+				</div>
+
+				<div class="space-y-2">
+					<p class="text-xs font-medium tracking-wide text-muted-foreground uppercase">Upgrade required</p>
+					<h1 id="upgrade-required-title" class="text-2xl leading-tight font-semibold tracking-tight">
+						This version is no longer supported
+					</h1>
+				</div>
+			</div>
+			<div class="space-y-4 px-6 pb-6 text-sm leading-6 text-muted-foreground">
+				<p id="upgrade-required-description">
+					Current version: <strong class="font-medium text-foreground">{currentVersionLabel}</strong>. Required version:
+					<strong class="font-medium text-foreground">{requiredVersionLabel}</strong> or newer.
+				</p>
+				<p>
+					{requiredRelease.upgrade_message ||
+						'Ask the instance owner to upgrade Kuayle, then refresh this page to load the new app version.'}
+				</p>
+				<div class="rounded-lg border border-border bg-muted px-3 py-2 font-mono text-xs text-muted-foreground">
+					bash selfhosting/update.sh
+				</div>
+			</div>
+			<div class="flex flex-col-reverse gap-2 border-t border-border p-6 pt-4 sm:flex-row sm:justify-end">
+				<Button variant="outline" onclick={() => window.location.reload()}>Refresh app</Button>
+				<Button href={upgradeUrl} target="_blank" rel="noopener">Open release</Button>
+			</div>
+		</div>
+	</div>
+{:else if latestRelease}
 	<Dialog.Root bind:open={dialogOpen}>
 		<Dialog.Content
 			class="top-4 max-h-[calc(100dvh-2rem)] border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-0 sm:top-[10dvh] sm:max-h-[80dvh] sm:max-w-xl"

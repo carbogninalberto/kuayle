@@ -1,18 +1,35 @@
 {$DOMAIN:localhost} {
+	handle /health {
+		reverse_proxy backend:8080
+	}
+
+	handle /ready {
+		reverse_proxy backend:8080
+	}
+
+	@upgrading file {
+		root /runtime
+		try_files /upgrading
+	}
+
+	handle /favicon.svg {
+		root * /srv
+		file_server
+	}
+
+	handle @upgrading {
+		root * /srv
+		header Cache-Control "no-store, max-age=0"
+		rewrite * /upgrading.html
+		file_server
+	}
+
 	# API and uploads — proxy to backend
 	handle /api/* {
 		reverse_proxy backend:8080
 	}
 
 	handle /uploads/* {
-		reverse_proxy backend:8080
-	}
-
-	handle /health {
-		reverse_proxy backend:8080
-	}
-
-	handle /ready {
 		reverse_proxy backend:8080
 	}
 
@@ -23,6 +40,6 @@
 
 	# Frontend — proxy to static file server
 	handle {
-		reverse_proxy frontend:5173
+		reverse_proxy frontend:3000
 	}
 }
