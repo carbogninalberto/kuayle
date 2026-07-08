@@ -248,22 +248,51 @@ func (r *IssueRepository) List(ctx context.Context, workspaceID uuid.UUID, param
 		return nil, 0, err
 	}
 
-	// Sort
+	// Sort. Group ordering must happen before pagination so lazily loaded pages
+	// match the visual grouping applied by the client.
+	joins := ""
+	if params.GroupBy == "status" || params.Sort == "status" {
+		joins = " LEFT JOIN team_statuses ts ON ts.id = i.status_id"
+	}
+
 	sortCol := "i.created_at"
-	allowedSorts := map[string]bool{"created_at": true, "updated_at": true, "priority": true, "sort_order": true, "status": true, "due_date": true}
-	if params.Sort != "" && allowedSorts[params.Sort] {
-		sortCol = "i." + params.Sort
+	allowedSorts := map[string]string{
+		"created_at": "i.created_at",
+		"updated_at": "i.updated_at",
+		"priority":   "i.priority",
+		"sort_order": "i.sort_order",
+		"status":     "COALESCE(ts.position, 999)",
+		"due_date":   "i.due_date",
+	}
+	if col, ok := allowedSorts[params.Sort]; ok {
+		sortCol = col
 	}
 	order := "DESC"
 	if params.Order == "asc" {
 		order = "ASC"
 	}
+	orderParts := make([]string, 0, 5)
+	switch params.GroupBy {
+	case "status":
+		orderParts = append(orderParts, "COALESCE(ts.position, 999) ASC", "i.status_id ASC")
+	case "priority":
+		orderParts = append(orderParts, "i.priority ASC")
+	case "assignee":
+		orderParts = append(orderParts, "i.assignee_id IS NULL ASC", "i.assignee_id ASC")
+	case "project":
+		orderParts = append(orderParts, "i.project_id IS NULL ASC", "i.project_id ASC")
+	}
+	orderParts = append(orderParts, fmt.Sprintf("%s %s", sortCol, order))
+	if sortCol != "i.created_at" {
+		orderParts = append(orderParts, "i.created_at DESC")
+	}
+	orderParts = append(orderParts, "i.id DESC")
 
 	params.Defaults()
 	args["limit"] = params.PerPage
 	args["offset"] = params.Offset()
 
-	dataQuery := fmt.Sprintf(`SELECT i.* FROM issues i WHERE %s ORDER BY %s %s LIMIT :limit OFFSET :offset`, whereClause, sortCol, order)
+	dataQuery := fmt.Sprintf(`SELECT i.* FROM issues i%s WHERE %s ORDER BY %s LIMIT :limit OFFSET :offset`, joins, whereClause, strings.Join(orderParts, ", "))
 	dataQuery, dataArgs, err := sqlx.Named(dataQuery, args)
 	if err != nil {
 		return nil, 0, err
