@@ -76,12 +76,12 @@ services:
       dockerfile: Dockerfile.updater
     restart: unless-stopped
     volumes:
-      - ..:/repo
+      - ${PWD}/..:${PWD}/..
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       UPDATER_TOKEN: ${SYSTEM_UPDATER_TOKEN:-}
-      REPO_ROOT: /repo
-      UPDATE_SCRIPT: /repo/selfhosting/update.sh
+      REPO_ROOT: ${PWD}/..
+      UPDATE_SCRIPT: ${PWD}/../selfhosting/update.sh
       PORT: 8081
 
   # Uncomment for self-hosted S3-compatible storage
