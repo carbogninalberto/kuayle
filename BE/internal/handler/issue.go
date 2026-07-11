@@ -633,6 +633,30 @@ func (h *IssueHandler) historyDisplayValue(ctx context.Context, field string, va
 			return stringPtr("Former user")
 		}
 		return stringPtr(displayUserName(user))
+	case "assignees":
+		parts := strings.Split(raw, ",")
+		names := make([]string, 0, len(parts))
+		for _, part := range parts {
+			uid := strings.TrimSpace(part)
+			if uid == "" {
+				continue
+			}
+			id, err := uuid.Parse(uid)
+			if err != nil {
+				names = append(names, "Former user")
+				continue
+			}
+			user, _ := h.userRepo.GetByID(ctx, id)
+			if user != nil {
+				names = append(names, displayUserName(user))
+			} else {
+				names = append(names, "Former user")
+			}
+		}
+		if len(names) == 0 {
+			return stringPtr("None")
+		}
+		return stringPtr(strings.Join(names, ", "))
 	case "status", "status_id":
 		if id, err := uuid.Parse(raw); err == nil {
 			status, _ := h.teamStatusRepo.GetByID(ctx, id)

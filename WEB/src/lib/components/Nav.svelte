@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { page } from '$app/state';
 	import { Button } from '$lib/components/ui/button';
 	import Github from '$lib/components/GithubIcon.svelte';
 	import Menu from '@lucide/svelte/icons/menu';
@@ -7,6 +8,21 @@
 
 	let scrolled = $state(false);
 	let menuOpen = $state(false);
+
+	// On homepage, use fragment links for smooth scroll. On other pages,
+	// use proper route links so navigation works correctly.
+	const isHome = $derived(page.url.pathname === '/');
+
+	const links = $derived([
+		{ label: 'Open source', homeHref: '#open-source', routeHref: '/open-source' },
+		{ label: 'Features', homeHref: '#features', routeHref: '/features' },
+		{ label: 'Pricing', homeHref: '#pricing', routeHref: '/#pricing' },
+		{ label: 'Self-host', homeHref: '#deploy', routeHref: '/self-hosting' },
+	]);
+
+	function linkHref(link: { homeHref: string; routeHref: string }): string {
+		return isHome ? link.homeHref : link.routeHref;
+	}
 
 	function onScroll() {
 		scrolled = window.scrollY > 12;
@@ -26,15 +42,14 @@
 >
 	<nav class="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
 		<a href="/" class="flex items-center gap-2" aria-label="Kuayle home">
-			<img src="/logo_white.svg" alt="Kuayle" class="h-7 w-auto" />
+			<img src="/logo_white.svg" alt="Kuayle" class="h-7 w-auto" width={112} height={28} />
 		</a>
 
 		<!-- Desktop nav links -->
 		<div class="hidden items-center gap-8 text-sm text-muted-foreground md:flex">
-			<a href="#open-source" class="transition-colors hover:text-foreground">Open source</a>
-			<a href="#features" class="transition-colors hover:text-foreground">Features</a>
-			<a href="#pricing" class="transition-colors hover:text-foreground">Pricing</a>
-			<a href="#deploy" class="transition-colors hover:text-foreground">Self-host</a>
+			{#each links as link}
+				<a href={linkHref(link)} class="transition-colors hover:text-foreground">{link.label}</a>
+			{/each}
 			<a href="https://demo.kuayle.com" target="_blank" rel="noopener" class="transition-colors hover:text-foreground">Demo</a>
 		</div>
 
@@ -49,7 +64,7 @@
 				<Github />
 				<span class="hidden sm:inline">GitHub</span>
 			</Button>
-			<Button href="#deploy" class="bg-brand-400 text-white hover:bg-brand-500">Self-host</Button>
+			<Button href={isHome ? '#deploy' : '/self-hosting'} class="bg-brand-400 text-white hover:bg-brand-500">Self-host</Button>
 		</div>
 
 		<!-- Mobile hamburger toggle -->
@@ -70,10 +85,9 @@
 	{#if menuOpen}
 		<div class="border-b border-border bg-background/95 backdrop-blur-xl md:hidden">
 			<div class="mx-auto max-w-6xl space-y-1 px-6 pb-4 pt-2">
-				<a href="#open-source" class="block rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground" onclick={closeMenu}>Open source</a>
-				<a href="#features" class="block rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground" onclick={closeMenu}>Features</a>
-				<a href="#pricing" class="block rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground" onclick={closeMenu}>Pricing</a>
-				<a href="#deploy" class="block rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground" onclick={closeMenu}>Self-host</a>
+				{#each links as link}
+					<a href={linkHref(link)} class="block rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground" onclick={closeMenu}>{link.label}</a>
+				{/each}
 				<a href="https://demo.kuayle.com" target="_blank" rel="noopener" class="flex items-center gap-1 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground" onclick={closeMenu}>
 					Demo
 					<ArrowRight class="size-3" />
@@ -82,7 +96,7 @@
 					<Github />
 					GitHub
 				</a>
-				<Button href="#deploy" class="mt-2 w-full bg-brand-400 text-white hover:bg-brand-500" onclick={closeMenu}>Self-host</Button>
+				<Button href={isHome ? '#deploy' : '/self-hosting'} class="mt-2 w-full bg-brand-400 text-white hover:bg-brand-500" onclick={closeMenu}>Self-host</Button>
 			</div>
 		</div>
 	{/if}

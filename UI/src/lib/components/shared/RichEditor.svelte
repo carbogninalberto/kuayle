@@ -40,6 +40,9 @@
 	import SlashCommandMenu from './slash-command/SlashCommandMenu.svelte';
 	import { MentionNode, createMentionPlugin, type MentionItem } from './mention/mention.extension';
 	import MentionList from './mention/MentionList.svelte';
+	import { mentionInteractivity } from './mention/mention-interactivity.action';
+	import type { WorkspaceMember } from '$lib/types/workspace';
+	import type { Issue } from '$lib/types/issue';
 
 	let {
 		content = '',
@@ -53,6 +56,7 @@
 		onupdate,
 		onsubmit,
 		uploadUrl,
+		workspaceSlug = '',
 		members = [],
 		issues = [],
 		remoteCursors,
@@ -73,8 +77,9 @@
 		onupdate?: (html: string) => void;
 		onsubmit?: () => void;
 		uploadUrl?: string;
-		members?: Array<{ user_id: string; name: string; email: string }>;
-		issues?: Array<{ id: string; identifier: string; title: string }>;
+		workspaceSlug?: string;
+		members?: WorkspaceMember[];
+		issues?: Issue[];
 		remoteCursors?: Array<{ name: string; color: string; position: number; anchor?: number }>;
 		onfocus?: () => void;
 		onblur?: () => void;
@@ -113,7 +118,15 @@
 	const mentionFilteredItems: MentionItem[] = $derived.by(() => {
 		const q = mentionQuery.toLowerCase();
 		const userItems = members.map((m) => ({ kind: 'user' as const, id: m.user_id, name: m.name, email: m.email }));
-		const issueItems = issues.map((i) => ({ kind: 'issue' as const, id: i.id, identifier: i.identifier, title: i.title }));
+		const issueItems = issues.map((i) => ({
+			kind: 'issue' as const,
+			id: i.id,
+			identifier: i.identifier,
+			title: i.title,
+			status: i.status,
+			status_category: i.status_info?.category,
+			status_color: i.status_info?.color ?? null
+		}));
 
 		if (!q) return [...userItems.slice(0, 6), ...issueItems.slice(0, 4)];
 
@@ -528,7 +541,7 @@
 		if (!item || !editor || !mentionRange) return;
 		const attrs = item.kind === 'user'
 			? { id: item.id, label: item.name || item.email, kind: 'user' }
-			: { id: item.id, label: `${item.identifier} ${item.title}`, kind: 'issue' };
+			: { id: item.id, label: `${item.identifier} ${item.title}`, kind: 'issue', identifier: item.identifier };
 		editor.chain().focus()
 			.deleteRange({ from: mentionRange.from, to: mentionRange.to })
 			.insertContent({ type: 'mention', attrs })
@@ -647,6 +660,7 @@
 		<div
 			class="rich-editor {reworkingSelection ? 'ai-rewrite-loading' : ''} {rewriteJustApplied ? 'ai-rewrite-applied' : ''}"
 			style="position: relative; overflow: visible; {minHeight ? `--editor-min-height: ${minHeight}` : ''}"
+			use:mentionInteractivity={{ slug: workspaceSlug, members, issues }}
 		>
 			<EditorContent {editor} />
 			{#if reworkingSelection}
@@ -968,19 +982,4 @@
 		margin: 0.5rem 0;
 	}
 
-	:global(.mention) {
-		background: color-mix(in srgb, var(--app-accent) 20%, transparent);
-		color: var(--app-accent-light, var(--app-accent));
-		border-radius: 4px;
-		padding: 1px 4px;
-		font-weight: 500;
-		font-size: 0.9em;
-		white-space: nowrap;
-	}
-
-	:global(.mention-issue) {
-		background: color-mix(in srgb, var(--color-text-tertiary) 15%, transparent);
-		color: var(--color-text-secondary);
-		font-weight: 600;
-	}
 </style>

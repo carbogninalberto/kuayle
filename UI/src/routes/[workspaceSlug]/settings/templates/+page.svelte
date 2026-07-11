@@ -166,6 +166,7 @@
 				{#key editorVersion}
 				<RichEditor
 					content={formDescription}
+					workspaceSlug={slug}
 					placeholder="Template description..."
 					bubbleMenu={true}
 					borderless={true}

@@ -86,3 +86,28 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  web-check:
+    name: Marketing Site Checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./WEB
+
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - uses: actions/setup-node@v6.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: WEB/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Svelte check (type checking)
+        run: npm run check
+
+      - name: Build + SEO validation
+        run: npm run validate

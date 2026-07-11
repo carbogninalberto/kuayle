@@ -9,7 +9,9 @@
 cd kuayle/selfhosting
 cp .env.example .env
 # edit .env (set DOMAIN, JWT_SECRET, POSTGRES_PASSWORD)
-docker compose up -d`;
+docker compose up --build -d
+docker compose exec backend /app/server migrate up
+docker compose exec backend /app/server seed`;
 
 	let copied = $state(false);
 
@@ -29,10 +31,10 @@ docker compose up -d`;
 	<div class="mx-auto max-w-3xl px-6 text-center">
 		<div use:reveal>
 			<p class="text-sm font-semibold tracking-widest text-brand-300 uppercase">Self-host</p>
-			<h2 class="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">Run it yourself</h2>
+			<h2 class="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">Deploy with Docker Compose</h2>
 			<p class="mt-4 text-lg text-muted-foreground">
-				One compose file brings up Postgres, Redis, the Go backend and the frontend. That's the
-				whole deployment.
+				The self-hosting stack runs Caddy, PostgreSQL 17, Redis 7, the Go API and the SvelteKit app.
+				Set the required secrets, start the services, then run the database migration and seed commands.
 			</p>
 		</div>
 
@@ -62,7 +64,9 @@ docker compose up -d`;
 <span class="text-muted-foreground">$</span> <span class="text-brand-200">cd</span> kuayle/selfhosting
 <span class="text-muted-foreground">$</span> <span class="text-brand-200">cp</span> .env.example .env
 <span class="text-muted-foreground">#</span> edit .env (set DOMAIN, JWT_SECRET, POSTGRES_PASSWORD)
-<span class="text-muted-foreground">$</span> <span class="text-brand-200">docker</span> compose up -d<span
+<span class="text-muted-foreground">$</span> <span class="text-brand-200">docker</span> compose up --build -d
+<span class="text-muted-foreground">$</span> <span class="text-brand-200">docker</span> compose exec backend /app/server migrate up
+<span class="text-muted-foreground">$</span> <span class="text-brand-200">docker</span> compose exec backend /app/server seed<span
 							class="ml-1 inline-block h-4 w-2 translate-y-0.5 bg-brand-300"
 							style="animation: caret-blink 1.2s step-end infinite"
 						></span></code
@@ -82,14 +86,12 @@ docker compose up -d`;
 				View on GitHub
 			</Button>
 			<Button
-				href="https://github.com/carbogninalberto/kuayle#readme"
-				target="_blank"
-				rel="noopener"
+				href="/self-hosting"
 				variant="outline"
 				size="lg"
 				class="h-11 px-6 text-base"
 			>
-				Read the docs
+				Deployment requirements
 			</Button>
 		</div>
 	</div>

@@ -1,29 +1,33 @@
 <script lang="ts">
 	import Nav from '$lib/components/Nav.svelte';
 	import Footer from '$lib/components/Footer.svelte';
+	import Seo from '$lib/components/Seo.svelte';
+	import Breadcrumbs from '$lib/components/Breadcrumbs.svelte';
 	import { consent } from '$lib/cookieConsent.svelte';
 	import { Button } from '$lib/components/ui/button';
+	import { url } from '$lib/config/site';
+	import { breadcrumbsFrom, webPageLd } from '$lib/data/routes';
 
 	let resetOpen = $state(false);
 
 	const title = 'Privacy Policy — Kuayle';
 	const description =
 		'Kuayle privacy policy: what we collect, the cookies we use, your GDPR rights, and how to contact us.';
-	const updated = 'July 3, 2026';
+	const updated = 'July 11, 2026';
+	const canonical = url('/privacy');
+	const crumbs = breadcrumbsFrom('privacy', 'Privacy');
+	const jsonLd = webPageLd(title, description, canonical, crumbs);
 </script>
 
-<svelte:head>
-	<title>{title}</title>
-	<meta name="description" content={description} />
-	<meta property="og:title" content={title} />
-	<meta property="og:description" content={description} />
-	<meta property="og:type" content="article" />
-</svelte:head>
+<Seo meta={{ title, description, canonical, ogType: 'article', jsonLd }} />
 
 <Nav />
 
 <main class="mx-auto max-w-3xl px-6 pt-28 pb-20">
 	<article>
+		<div class="mb-8">
+			<Breadcrumbs breadcrumbs={crumbs} />
+		</div>
 		<p class="text-sm font-semibold tracking-widest text-brand-300 uppercase">Legal</p>
 		<h1 class="mt-2 text-4xl font-bold tracking-tight">Privacy Policy</h1>
 		<p class="mt-2 text-sm text-muted-foreground">Last updated: {updated}</p>
@@ -53,9 +57,9 @@
 						you give us when writing to support or requesting a demo.
 					</li>
 					<li>
-						<strong class="text-foreground">Technical data:</strong> IP address, browser type and
-						version, referring page, and timestamps — only when you have enabled optional cookies
-						(see below).
+						<strong class="text-foreground">Request data:</strong> the server or hosting provider may
+						process IP address, request path, user agent, referrer and timestamp in standard access or
+						security logs.
 					</li>
 					<li>
 						<strong class="text-foreground">Self-hosted deployments:</strong> when you run Kuayle
@@ -68,43 +72,44 @@
 			<section>
 				<h2>3. Cookies</h2>
 				<p>
-					We only set cookies once you have made a choice through the consent banner. The categories
-					are:
+					The marketing site currently installs no analytics, advertising or campaign-measurement
+					scripts. Your consent selection is stored in browser local storage under
+					<code>kuayle_cookie_consent</code>; it is not sent to Kuayle by the site.
 				</p>
 				<table class="mt-4 w-full border-collapse text-left">
 					<thead>
 						<tr class="border-b border-white/10 text-foreground">
 							<th class="py-2 pr-4 font-medium">Category</th>
 							<th class="py-2 pr-4 font-medium">Purpose</th>
-							<th class="py-2 font-medium">Default</th>
+							<th class="py-2 font-medium">Current status</th>
 						</tr>
 					</thead>
 					<tbody class="align-top">
 						<tr class="border-b border-white/5">
 							<td class="py-2 pr-4">Essential</td>
-							<td class="py-2 pr-4">Remember your consent choice; keep the site working.</td>
-							<td class="py-2">Always on</td>
+							<td class="py-2 pr-4">Store your consent selection in this browser.</td>
+							<td class="py-2">Local storage only</td>
 						</tr>
 						<tr class="border-b border-white/5">
 							<td class="py-2 pr-4">Analytics</td>
-							<td class="py-2 pr-4">Aggregate, anonymised usage statistics.</td>
-							<td class="py-2">Off</td>
+							<td class="py-2 pr-4">Reserved for optional usage measurement.</td>
+							<td class="py-2">No script installed</td>
 						</tr>
 						<tr class="border-b border-white/5">
 							<td class="py-2 pr-4">Preferences</td>
-							<td class="py-2 pr-4">Remember UI preferences (theme, language).</td>
-							<td class="py-2">Off</td>
+							<td class="py-2 pr-4">Reserved for non-essential interface settings.</td>
+							<td class="py-2">No feature installed</td>
 						</tr>
 						<tr>
 							<td class="py-2 pr-4">Marketing</td>
-							<td class="py-2 pr-4">Measure performance of any campaigns.</td>
-							<td class="py-2">Off</td>
+							<td class="py-2 pr-4">Reserved for optional campaign measurement.</td>
+							<td class="py-2">No script installed</td>
 						</tr>
 					</tbody>
 				</table>
 				<p class="mt-4">
-					We do not use cookies for cross-site tracking, advertising networks, or selling data to
-					third parties.
+					If optional measurement tools are introduced, they must remain disabled until the relevant
+					consent is given and this policy is updated with the provider, purpose and retention period.
 				</p>
 			</section>
 
@@ -112,16 +117,16 @@
 				<h2>4. Legal basis (GDPR Art. 6)</h2>
 				<ul class="ml-5 list-disc space-y-1">
 					<li>
-						<strong class="text-foreground">Consent (§6.1.a):</strong> for all optional cookies
-						and analytics — you can withdraw consent at any time.
+						<strong class="text-foreground">Consent (Art. 6(1)(a)):</strong> for any optional
+						measurement technology introduced in the future. You can withdraw consent at any time.
 					</li>
 					<li>
-						<strong class="text-foreground">Legitimate interest (§6.1.f):</strong> for essential
-						security and session cookies required to operate the site.
+						<strong class="text-foreground">Legitimate interest (Art. 6(1)(f)):</strong> for
+						security, abuse prevention and ordinary server logging.
 					</li>
 					<li>
-						<strong class="text-foreground">Contractual necessity (§6.1.b):</strong> to respond to
-						your support requests.
+						<strong class="text-foreground">Contract or pre-contract steps (Art. 6(1)(b)):</strong>
+						where your request relates to a contract or requested service.
 					</li>
 				</ul>
 			</section>
@@ -129,9 +134,10 @@
 			<section>
 				<h2>5. How long we keep data</h2>
 				<p>
-					Contact emails are kept for as long as needed to answer your request and for the legal
-					retention period required under Italian law. Cookie consent is stored locally in your
-					browser and never sent to our servers.
+					Contact correspondence is kept for as long as needed to handle the request and meet
+					applicable legal obligations. Hosting logs are retained according to the hosting and
+					security configuration. The consent record remains in your browser until you reset it or
+					clear site data.
 				</p>
 			</section>
 
@@ -164,8 +170,9 @@
 			<section>
 				<h2>7. International transfers</h2>
 				<p>
-					Bakney is based in Italy (EU). Where data is processed by third parties located outside
-					the EEA, we rely on Standard Contractual Clauses or an adequacy decision.
+					Bakney is based in Italy. If a service provider processes personal data outside the EEA,
+					we use an applicable transfer mechanism, such as an adequacy decision or Standard
+					Contractual Clauses, where required.
 				</p>
 			</section>
 
@@ -177,8 +184,8 @@
 			<section>
 				<h2>9. Changes to this policy</h2>
 				<p>
-					We may update this policy. The “last updated” date above will reflect the most recent
-					review. Material changes will be highlighted on the homepage.
+					We may update this policy when the website, providers or legal requirements change. The
+					“last updated” date above identifies the current version.
 				</p>
 			</section>
 
@@ -188,8 +195,9 @@
 				<div class="mt-4 flex flex-wrap gap-2">
 					{#if consent.decided}
 						<span class="inline-flex items-center rounded-md border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-muted-foreground">
-							Current: analytics
-							{consent.value.analytics ? 'on' : 'off'}
+							Saved choice: analytics {consent.value.analytics ? 'on' : 'off'}, preferences
+							{consent.value.preferences ? 'on' : 'off'}, marketing
+							{consent.value.marketing ? 'on' : 'off'}
 						</span>
 					{/if}
 					<Button
@@ -207,14 +215,19 @@
 {#if resetOpen}
 	<div
 		class="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
-		role="dialog"
-		aria-modal="true"
-		aria-labelledby="reset-title"
-		onclick={() => (resetOpen = false)}
 	>
+		<button
+			type="button"
+			class="absolute inset-0 cursor-default"
+			aria-label="Close reset confirmation"
+			onclick={() => (resetOpen = false)}
+		></button>
 		<div
-			class="w-full max-w-sm rounded-2xl border border-white/10 bg-card p-6 shadow-2xl"
-			onclick={(e) => e.stopPropagation()}
+			class="relative w-full max-w-sm rounded-2xl border border-white/10 bg-card p-6 shadow-2xl"
+			role="dialog"
+			aria-modal="true"
+			aria-labelledby="reset-title"
+			tabindex="-1"
 		>
 			<h2 id="reset-title" class="text-lg font-semibold">Reset consent?</h2>
 			<p class="mt-2 text-sm text-muted-foreground">

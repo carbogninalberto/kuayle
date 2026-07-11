@@ -743,3 +743,35 @@ html.pointer-cursors [data-slot="switch"] {
 .prose input[type="checkbox"]:hover {
 	border-color: var(--app-accent);
 }
+
+.mention {
+	display: inline-flex;
+	align-items: center;
+	gap: 3px;
+	padding: 1px 4px;
+	border-radius: 4px;
+	background: color-mix(in srgb, var(--app-accent) 20%, transparent);
+	color: var(--app-accent-light, var(--app-accent));
+	font-size: 0.9em;
+	font-weight: 500;
+	vertical-align: middle;
+	white-space: nowrap;
+	cursor: pointer;
+	outline: none;
+}
+
+.mention:focus-visible {
+	box-shadow: 0 0 0 1px var(--app-accent);
+}
+
+.mention-status-icon {
+	display: inline-flex;
+	align-items: center;
+	flex: none;
+}
+
+.mention-issue {
+	background: color-mix(in srgb, var(--color-text-tertiary) 15%, transparent);
+	color: var(--color-text-secondary);
+	font-weight: 600;
+}

@@ -13,6 +13,10 @@
 	import * as Sheet from '$lib/components/ui/sheet';
 	import { StatusSelector, PrioritySelector } from './selectors';
 	import { sanitizeHtml } from '$lib/security/sanitize';
+	import { listMembers } from '$lib/api/members';
+	import type { WorkspaceMember } from '$lib/types/workspace';
+	import { mentionInteractivity } from '$lib/components/shared/mention/mention-interactivity.action';
+	import HistoryAssignees from './HistoryAssignees.svelte';
 
 	let {
 		issue,
@@ -30,6 +34,7 @@
 	let showAllActivity = $state(false);
 	let isSubscribed = $state(false);
 	let subscriptionBusy = $state(false);
+	let members = $state<WorkspaceMember[]>([]);
 
 	const RECENT_ACTIVITY_COUNT = 3;
 	let sortedHistory = $derived([...history].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()));
@@ -45,12 +50,14 @@
 	});
 
 	onMount(async () => {
-		const [c, h] = await Promise.all([
+		const [c, h, m] = await Promise.all([
 			listComments(slug, issue.identifier),
-			getIssueHistory(slug, issue.identifier)
+			getIssueHistory(slug, issue.identifier),
+			listMembers(slug)
 		]);
 		comments = c;
 		history = h;
+		members = m;
 	});
 
 	async function handleAddComment(e: Event) {
@@ -114,6 +121,7 @@
 	function historyFieldLabel(field: string): string {
 		switch (field) {
 			case 'assignee_id': return 'assignee';
+			case 'assignees': return 'assignees';
 			case 'due_date': return 'due date';
 			case 'parent_id': return 'parent';
 			case 'project_id': return 'project';
@@ -150,7 +158,7 @@
 			<h1 class="text-xl font-semibold text-[var(--color-text-primary)]">{issue.title}</h1>
 
 			{#if issue.description}
-				<div class="mt-3 prose prose-invert prose-sm max-w-none text-sm text-[var(--color-text-secondary)]">
+				<div class="mt-3 prose prose-invert prose-sm max-w-none text-sm text-[var(--color-text-secondary)]" use:mentionInteractivity={{ slug, members, issues: issuesState.issues }}>
 					{@html sanitizeHtml(issue.description ?? '')}
 				</div>
 			{/if}
@@ -222,7 +230,7 @@
 									>{formatRelativeTime(comment.created_at)}</span
 								>
 							</div>
-							<div class="mt-1 prose prose-invert prose-sm max-w-none text-[var(--color-text-secondary)]">
+							<div class="mt-1 prose prose-invert prose-sm max-w-none text-[var(--color-text-secondary)]" use:mentionInteractivity={{ slug, members, issues: issuesState.issues }}>
 								{@html sanitizeHtml(comment.body ?? '')}
 							</div>
 						</div>
@@ -272,10 +280,18 @@
 										<span>changed <strong class="text-[var(--color-text-secondary)]">{historyFieldLabel(entry.field)}</strong></span>
 										{#if entry.old_value || entry.old_display_value}
 											<span>from</span>
-											<code class="rounded bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 text-[11px] text-[var(--color-text-secondary)]">{formatHistoryValue(entry.field, entry.old_value, entry.old_display_value)}</code>
+											{#if entry.field === 'assignee' || entry.field === 'assignee_id' || entry.field === 'assignees'}
+												<HistoryAssignees value={entry.old_value} displayValue={entry.old_display_value} {members} />
+											{:else}
+												<code class="rounded bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 text-[11px] text-[var(--color-text-secondary)]">{formatHistoryValue(entry.field, entry.old_value, entry.old_display_value)}</code>
+											{/if}
 										{/if}
 										<span>to</span>
-										<code class="rounded bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 text-[11px] text-[var(--color-text-secondary)]">{formatHistoryValue(entry.field, entry.new_value, entry.new_display_value)}</code>
+										{#if entry.field === 'assignee' || entry.field === 'assignee_id' || entry.field === 'assignees'}
+											<HistoryAssignees value={entry.new_value} displayValue={entry.new_display_value} {members} />
+										{:else}
+											<code class="rounded bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 text-[11px] text-[var(--color-text-secondary)]">{formatHistoryValue(entry.field, entry.new_value, entry.new_display_value)}</code>
+										{/if}
 									{/if}
 									<span class="text-[var(--color-text-tertiary)]">&middot;</span>
 									<span>{formatRelativeTime(entry.created_at)}</span>

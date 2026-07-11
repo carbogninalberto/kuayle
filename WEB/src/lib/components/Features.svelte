@@ -6,43 +6,50 @@
 	import Zap from '@lucide/svelte/icons/zap';
 	import Layers from '@lucide/svelte/icons/layers';
 	import Users from '@lucide/svelte/icons/users';
+	import ArrowRight from '@lucide/svelte/icons/arrow-right';
 
 	const features = [
 		{
 			icon: Keyboard,
 			title: 'Keyboard-driven',
 			description:
-				'Single-key actions for create, assign, status and labels. A command palette for the rest. Built for people who find the mouse slow.'
+				'Create issues with C, search with Cmd/Ctrl+K, and update status, priority, assignees or labels from the issue view.',
+			href: '/features/keyboard-shortcuts'
 		},
 		{
 			icon: RefreshCw,
 			title: 'Cycles',
 			description:
-				'Time-boxed sprints with velocity and burndown charts. Unfinished issues roll over automatically.'
+				'Time-box work, review burndown and velocity, and choose whether unfinished issues move to the next cycle.',
+			href: '/features/cycles'
 		},
 		{
 			icon: GitPullRequest,
 			title: 'GitHub integration',
 			description:
-				'A GitHub App links PRs to issues and moves them through your workflow when branches merge. Configured per repo.'
+				'Link repositories through a GitHub App. Match issue IDs in branches, commits and pull requests, with configurable status transitions.',
+			href: '/features/github-integration'
 		},
 		{
 			icon: Zap,
 			title: 'Real-time sync',
 			description:
-				'Changes propagate to every open client over WebSockets. Two people can work the same board without stepping on each other.'
+				'WebSocket events notify connected workspace clients about issue, comment, cycle and GitHub changes.',
+			href: '/features/real-time-sync'
 		},
 		{
 			icon: Layers,
 			title: 'Views, triage, labels',
 			description:
-				'Saved filters as shareable views, a triage inbox for incoming work, hierarchical labels and per-team custom workflows.'
+				'Saved filters as shareable views, a triage inbox for incoming work, hierarchical labels and per-team custom workflows.',
+			href: '/features/views-and-triage'
 		},
 		{
 			icon: Users,
 			title: 'Teams and access control',
 			description:
-				'Multiple teams per workspace, owner/admin/member/guest roles, and read-only public links for sharing outside the team.'
+				'Multiple teams per workspace, owner/admin/member/guest roles, and read-only public links for sharing outside the team.',
+			href: '/features/teams-and-access-control'
 		}
 	];
 </script>
@@ -51,17 +58,18 @@
 	<div class="mx-auto max-w-6xl px-6">
 		<div class="max-w-2xl" use:reveal>
 			<p class="text-sm font-semibold tracking-widest text-brand-300 uppercase">Features</p>
-			<h2 class="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">What's in the repo</h2>
+			<h2 class="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">Implemented in Kuayle today</h2>
 			<p class="mt-4 text-lg text-muted-foreground">
-				The full feature set, as it ships today. No tiers, so no comparison table.
+				The current v0.1.0 release covers the core issue-tracking workflow. The source for each feature is available in the public repository.
 			</p>
 		</div>
 
 		<div class="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
 			{#each features as feature, i (feature.title)}
-				<div
+				<a
+					href={feature.href}
 					use:reveal={{ delay: (i % 3) * 100 }}
-					class="group relative rounded-2xl border border-border bg-card/60 p-6 transition-all duration-300 hover:-translate-y-1 hover:border-brand-400/40 hover:bg-card hover:shadow-xl hover:shadow-brand-400/10"
+					class="group relative flex flex-col rounded-2xl border border-border bg-card/60 p-6 transition-all duration-300 hover:-translate-y-1 hover:border-brand-400/40 hover:bg-card hover:shadow-xl hover:shadow-brand-400/10"
 				>
 					<div
 						class="flex size-11 items-center justify-center rounded-xl border border-brand-400/25 bg-brand-400/10 text-brand-300 transition-colors group-hover:bg-brand-400/20"
@@ -70,8 +78,17 @@
 					</div>
 					<h3 class="mt-5 text-lg font-semibold">{feature.title}</h3>
 					<p class="mt-2 text-sm leading-relaxed text-muted-foreground">{feature.description}</p>
-				</div>
+					<span class="mt-4 flex items-center gap-1 text-xs font-medium text-brand-300 opacity-0 transition-opacity group-hover:opacity-100">
+						View feature <ArrowRight class="size-3" />
+					</span>
+				</a>
 			{/each}
+		</div>
+
+		<div class="mt-8 text-center" use:reveal>
+			<a href="/features" class="inline-flex items-center gap-1.5 text-sm font-medium text-brand-300 transition-colors hover:text-brand-200">
+				All features <ArrowRight class="size-3.5" />
+			</a>
 		</div>
 	</div>
 </section>

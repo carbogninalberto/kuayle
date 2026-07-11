@@ -62,6 +62,7 @@
 	<div
 		role="button"
 		tabindex={0}
+		aria-expanded={!collapsed}
 		class="flex w-full items-center gap-2 rounded-md bg-[var(--color-bg-secondary)] px-4 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] cursor-default"
 		onclick={ontoggle}
 		onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); ontoggle?.(); } }}

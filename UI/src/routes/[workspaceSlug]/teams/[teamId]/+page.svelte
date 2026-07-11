@@ -39,6 +39,8 @@
 	import type { Issue } from '$lib/types/issue';
 	import type { IssueStatus, IssuePriority, RelationType } from '$lib/types/issue';
 	import AddRelationDialog from '$lib/features/issues/AddRelationDialog.svelte';
+	import { preferencesState } from '$lib/features/preferences/preferences.state.svelte';
+	import { loadCollapsedGroups, saveCollapsedGroups } from '$lib/features/issues/collapsed-groups';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	const teamId = $derived(page.params.teamId ?? '');
@@ -56,6 +58,8 @@
 	let layout = $state<ViewLayout>('list');
 	let groupByOpen = $state(false);
 	let collapsedGroups = $state<Set<string>>(new Set());
+	let loadedCollapsedScope = '';
+	let initializationId = 0;
 	let lastSelectedId = $state<string | null>(null);
 	let dragOverGroup = $state<string | null>(null);
 	let dragSourceGroup = $state<string | null>(null);
@@ -90,18 +94,32 @@
 		const s = slug;
 		const t = teamId;
 		if (!s || !t) return;
-		issuesState.beginLoad(s, getIssueParams());
-		teamStatusesState.reload(s, t);
-		Promise.all([listTeams(s), listProjects(s), listLabels(s), listMembers(s), listCycles(s, t)]).then(
-			([te, p, l, m, c]) => {
-				teams = te;
-				projects = p;
-				labels = l;
-				members = m;
-				cycles = c;
-				loadIssues();
-			}
-		);
+		const currentInitialization = ++initializationId;
+		void preferencesState.syncRemote().then(() => {
+			if (currentInitialization !== initializationId || s !== slug || t !== teamId) return;
+			issuesState.groupBy = preferencesState.issuesGroupBy;
+			issuesState.beginLoad(s, getIssueParams());
+			teamStatusesState.reload(s, t);
+			return Promise.all([listTeams(s), listProjects(s), listLabels(s), listMembers(s), listCycles(s, t)]).then(
+				([te, p, l, m, c]) => {
+					if (currentInitialization !== initializationId) return;
+					teams = te;
+					projects = p;
+					labels = l;
+					members = m;
+					cycles = c;
+					loadIssues();
+				}
+			);
+		});
+	});
+
+	$effect(() => {
+		const groupBy = issuesState.groupBy;
+		const scope = groupBy ? `${slug}/${teamId}/${groupBy}` : '';
+		if (scope === loadedCollapsedScope) return;
+		loadedCollapsedScope = scope;
+		collapsedGroups = loadCollapsedGroups(slug, teamId, groupBy);
 	});
 
 	function getIssueParams() {
@@ -141,6 +159,7 @@
 
 	function handleGroupByChange(value: GroupByField) {
 		issuesState.groupBy = value;
+		preferencesState.setIssuesGroupBy(value);
 		groupByOpen = false;
 		loadIssues();
 	}
@@ -263,6 +282,7 @@
 			next.add(key);
 		}
 		collapsedGroups = next;
+		saveCollapsedGroups(slug, teamId, issuesState.groupBy, next);
 	}
 
 	function handleQuickAdd(groupKey: string) {
@@ -374,7 +394,7 @@
 
 <div class="flex h-full flex-col">
 	<!-- Header -->
-	<div class="flex min-h-[49px] items-center justify-between gap-2 border-b border-[var(--app-border)] px-3 sm:px-6">
+	<div class="flex min-h-[49px] items-center justify-between gap-2 border-b border-[var(--app-border)] px-3 sm:px-4">
 		<div class="flex min-w-0 items-center gap-3">
 			<SidebarToggle />
 			<nav class="flex min-w-0 items-center gap-1.5 text-sm">

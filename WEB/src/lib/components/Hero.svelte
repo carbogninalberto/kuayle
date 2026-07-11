@@ -23,9 +23,8 @@
       class="animate-fade-up mx-auto mt-6 max-w-2xl text-lg text-muted-foreground sm:text-xl"
       style="animation-delay: 200ms"
     >
-      Kuayle is a keyboard-driven issue tracker you run on your own servers.
-      Cycles, projects, GitHub integration, real-time sync. All of it in one
-      public repo, none of it behind a license key.
+      Run Kuayle on your own infrastructure. Manage multi-assignee issues, cycles,
+      projects and GitHub activity from one Apache 2.0-licensed codebase.
     </p>
 
     <div
@@ -40,15 +39,15 @@
         class="h-11 bg-brand-400 px-6 text-base text-white shadow-lg shadow-brand-400/30 hover:bg-brand-500"
       >
         <Github />
-        Star on GitHub
+        View source
       </Button>
       <Button
-        href="#deploy"
+        href="/self-hosting"
         variant="outline"
         size="lg"
         class="h-11 px-6 text-base"
       >
-        Get Started
+        Self-host Kuayle
         <ArrowRight />
       </Button>
     </div>
@@ -61,7 +60,7 @@
       <kbd class="key h-6! min-w-6! text-xs">⌘</kbd><kbd
         class="key h-6! min-w-6! text-xs">K</kbd
       >
-      for everything else.
+      to search issues and navigate.
     </p>
 
     <!-- Product screenshot -->
@@ -84,9 +83,14 @@
         </div>
         <img
           src="/product-screenshot.png"
-          alt="Kuayle issue tracker interface"
-          class="w-full"
+          srcset="/product-screenshot-720.png 720w, /product-screenshot-1440.png 1440w, /product-screenshot.png 3600w"
+          sizes="(max-width: 640px) 100vw, (max-width: 1200px) 92vw, 1152px"
+          alt="Kuayle issue tracker interface showing the board view with issues"
+          width="3600"
+          height="1886"
+          class="w-full h-auto"
           loading="eager"
+          fetchpriority="high"
         />
       </div>
     </div>

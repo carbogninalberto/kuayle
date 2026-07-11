@@ -11,11 +11,14 @@ export interface MentionIssue {
 	id: string;
 	identifier: string;
 	title: string;
+	status?: string;
+	status_category?: string;
+	status_color?: string | null;
 }
 
 export type MentionItem =
 	| { kind: 'user'; id: string; name: string; email: string }
-	| { kind: 'issue'; id: string; identifier: string; title: string };
+	| { kind: 'issue'; id: string; identifier: string; title: string; status?: string; status_category?: string; status_color?: string | null };
 
 export interface MentionState {
 	active: boolean;
@@ -51,6 +54,14 @@ export const MentionNode = Node.create({
 				default: 'user',
 				parseHTML: (el: HTMLElement) => el.getAttribute('data-kind') || 'user',
 				renderHTML: (attrs: Record<string, any>) => ({ 'data-kind': attrs.kind })
+			},
+			identifier: {
+				default: null,
+				parseHTML: (el: HTMLElement) => el.getAttribute('data-identifier'),
+				renderHTML: (attrs: Record<string, any>) => {
+					if (!attrs.identifier) return {};
+					return { 'data-identifier': attrs.identifier };
+				}
 			}
 		};
 	},

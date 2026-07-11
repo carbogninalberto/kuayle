@@ -195,7 +195,7 @@ import CycleProgress from '$lib/features/cycles/CycleProgress.svelte';
 <div class="flex h-full min-w-0 flex-col">
 	{#if !loading && cycle}
 		<!-- Header -->
-		<div class="flex min-h-[49px] items-center justify-between gap-2 border-b border-[var(--app-border)] px-3 sm:px-6">
+		<div class="flex min-h-[49px] items-center justify-between gap-2 border-b border-[var(--app-border)] px-3 sm:px-4">
 			<div class="flex min-w-0 items-center gap-3">
 				<SidebarToggle />
 				<nav class="flex min-w-0 items-center gap-1.5 text-sm">
