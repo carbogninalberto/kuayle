@@ -12,7 +12,13 @@ export default defineConfig({
 				runes: ({ filename }) =>
 					filename.split(/[/\\]/).includes('node_modules') ? undefined : true
 			},
-			adapter: adapter({ fallback: undefined })
+			adapter: adapter({
+				fallback: undefined,
+				pages: 'build',
+				assets: 'build',
+				precompress: false,
+				strict: true
+			})
 		})
 	]
 });

@@ -4,14 +4,14 @@
 	import Check from '@lucide/svelte/icons/check';
 
 	const included = [
-		'Unlimited users, teams and workspaces',
-		'Unlimited issues, projects and cycles',
-		'GitHub integration',
-		'Real-time sync',
-		'Saved views, triage and analytics',
+		'No software-enforced user or workspace limit',
+		'No software-enforced issue, project or cycle limit',
+		'GitHub integration with auto-transitions',
+		'Real-time sync via WebSockets',
+		'Saved views, triage and labels',
 		'Public share links',
 		'Role-based access control',
-		'Every future feature'
+		'Apache 2.0 source code'
 	];
 </script>
 
@@ -21,15 +21,15 @@
 			<div use:reveal>
 				<p class="text-sm font-semibold tracking-widest text-brand-300 uppercase">Pricing</p>
 				<h2 class="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">
-					There is no pricing page
+					No software license fee
 				</h2>
 				<p class="mt-5 text-lg leading-relaxed text-muted-foreground">
-					Kuayle has no per-seat fees, no usage limits and no sales team, because you host it
-					yourself. Your only cost is the server it runs on.
+					Kuayle does not charge per user and does not enforce paid feature tiers. The software is
+					available under Apache 2.0 and runs on infrastructure you operate.
 				</p>
 				<p class="mt-4 text-lg leading-relaxed text-muted-foreground">
-					Development is funded by sponsorships. If Kuayle saves your team money, sponsoring the
-					project is welcome, but it never unlocks anything, because nothing is locked.
+					You remain responsible for infrastructure, storage, backups, monitoring, upgrades and the
+					time required to operate the instance.
 				</p>
 			</div>
 
@@ -44,7 +44,7 @@
 						<h3 class="text-xl font-semibold">Self-hosted</h3>
 						<div class="text-right">
 							<span class="text-5xl font-bold tracking-tight">$0</span>
-							<span class="text-sm text-muted-foreground">/user/month</span>
+							<span class="text-sm text-muted-foreground">software license</span>
 						</div>
 					</div>
 
@@ -58,11 +58,11 @@
 					</ul>
 
 					<Button
-						href="#deploy"
+						href="/self-hosting"
 						size="lg"
 						class="mt-8 h-11 w-full bg-brand-400 text-base text-white shadow-lg shadow-brand-400/30 hover:bg-brand-500"
 					>
-						Deploy it
+						Read the deployment guide
 					</Button>
 				</div>
 			</div>

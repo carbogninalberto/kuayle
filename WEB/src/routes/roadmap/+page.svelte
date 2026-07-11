@@ -1,0 +1,74 @@
+<script lang="ts">
+	import StandalonePage from '$lib/components/StandalonePage.svelte';
+	import { url } from '$lib/config/site';
+	import { breadcrumbsFrom } from '$lib/data/routes';
+
+	const meta = {
+		title: 'Kuayle Roadmap and Development Status',
+		description: 'Kuayle development status, known product gaps, the Dev Machines design track, and where to follow proposed work.',
+		canonical: url('/roadmap'),
+		modifiedAt: '2026-07-11'
+	};
+
+	const crumbs = breadcrumbsFrom('roadmap', 'Roadmap');
+
+	const sections = [
+		{
+			heading: 'No invented release dates',
+			body: 'Kuayle does not publish committed release dates or promise features against version numbers. Open issues and merged pull requests are the reliable record of proposed and completed work. This page documents the current product boundary rather than a sales roadmap.',
+			list: [
+				'Open issues describe proposed work',
+				'Pull requests and releases describe shipped work',
+				'No feature on this page has a guaranteed delivery date',
+				'Last reviewed: July 11, 2026'
+			]
+		},
+		{
+			heading: 'Available in v0.1.0',
+			body: 'The current MVP includes the issue workflow, workspace roles, teams, custom statuses, comments, sub-issues, relations, labels, cycles, projects, saved views, notifications, public sharing, webhooks and GitHub integration.',
+			list: [
+				'Cycle burndown and velocity charts',
+				'Project issue list and Gantt view',
+				'GitHub activity linking and configurable status transitions',
+				'WebSocket updates and issue presence'
+			]
+		},
+		{
+			heading: 'Known gaps',
+			body: 'These capabilities are not available in the current user interface. Their absence is documented so teams can evaluate Kuayle against present requirements rather than future assumptions.',
+			list: [
+				'Analytics dashboard: backend overview endpoints exist, but no dedicated UI',
+				'Data import and export workflows',
+				'Enterprise identity: SSO, SAML, SCIM and LDAP',
+				'GitLab and chat integrations'
+			]
+		},
+		{
+			heading: 'Dev Machines is a design, not a feature',
+			body: 'TECHNICAL.md contains a design for disposable development environments connected to issues. The runtime container manager, authentication gateway and product UI described there are not implemented in the application.',
+			list: [
+				'Specification only',
+				'Not included in v0.1.0',
+				'No delivery date assigned'
+			]
+		},
+		{
+			heading: 'Follow or propose work',
+			body: 'Use the GitHub repository to review active work, report a reproducible bug or propose a feature with a concrete use case.',
+			list: [
+				'GitHub: github.com/carbogninalberto/kuayle',
+				'Bug reports: include version, environment and reproduction steps',
+				'Feature requests: describe the workflow and expected outcome',
+				'Implementation status: verify merged code and release notes'
+			]
+		}
+	];
+</script>
+
+<StandalonePage
+	{meta}
+	heading="Roadmap and Development Status"
+	intro="What Kuayle implements now, what it does not implement, and where proposed work is tracked. There are no promised dates or invented release milestones."
+	{sections}
+	breadcrumbs={crumbs}
+/>

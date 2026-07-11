@@ -7,21 +7,30 @@
 	import Pricing from '$lib/components/Pricing.svelte';
 	import Deploy from '$lib/components/Deploy.svelte';
 	import Footer from '$lib/components/Footer.svelte';
+	import Seo from '$lib/components/Seo.svelte';
+	import { url, SITE } from '$lib/config/site';
+	import { ORGANIZATION_LD, WEBSITE_LD, SOFTWARE_APP_LD, webPageLd } from '$lib/data/routes';
 
-	const title = 'Kuayle: the open source issue tracker with no paid tier';
-	const description =
-		'Kuayle is a keyboard-driven, self-hosted issue tracker. Apache 2.0 licensed, no enterprise edition, no feature gates. Cycles, projects, GitHub integration and real-time sync in one public repo.';
+	const title = 'Kuayle — The Issue Tracker With No Paid Tier';
+	const description = SITE.description;
+	const canonical = url('/');
+
+	const jsonLd = [
+		ORGANIZATION_LD,
+		WEBSITE_LD,
+		SOFTWARE_APP_LD,
+		webPageLd(title, description, canonical)
+	];
 </script>
 
-<svelte:head>
-	<title>{title}</title>
-	<meta name="description" content={description} />
-	<meta property="og:title" content={title} />
-	<meta property="og:description" content={description} />
-	<meta property="og:type" content="website" />
-	<meta property="og:image" content="/product-screenshot.png" />
-	<meta name="twitter:card" content="summary_large_image" />
-</svelte:head>
+<Seo
+	meta={{
+		title,
+		description,
+		canonical,
+		jsonLd
+	}}
+/>
 
 <Nav />
 

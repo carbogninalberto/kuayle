@@ -4,10 +4,10 @@
 	const shortcuts = [
 		{ keys: ['C'], label: 'Create issue' },
 		{ keys: ['⌘', 'K'], label: 'Command palette' },
-		{ keys: ['A'], label: 'Assign to…' },
+		{ keys: ['A'], label: 'Set assignees' },
 		{ keys: ['S'], label: 'Set status' },
 		{ keys: ['L'], label: 'Add label' },
-		{ keys: ['⇧', 'V'], label: 'Switch view' }
+		{ keys: ['P'], label: 'Set priority' }
 	];
 </script>
 
@@ -21,12 +21,12 @@
 			<div use:reveal>
 				<p class="text-sm font-semibold tracking-widest text-brand-300 uppercase">Keyboard-first</p>
 				<h2 class="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">
-					Built around shortcuts, not menus
+					Shortcuts for frequent issue actions
 				</h2>
 				<p class="mt-5 text-lg leading-relaxed text-muted-foreground">
-					Every action in Kuayle is reachable from the keyboard: single keys for the common
-					operations, a fuzzy command palette for everything else. Triage a full inbox without
-					touching the mouse once.
+					Use C to create an issue and Cmd/Ctrl+K to search issues or open workspace destinations.
+					Inside an issue, S, P, A and L open the status, priority, assignee and label controls.
+					The triage queue uses J/K for navigation and number keys to accept or decline work.
 				</p>
 			</div>
 

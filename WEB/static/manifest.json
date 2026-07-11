@@ -1,0 +1,17 @@
+{
+	"name": "Kuayle",
+	"short_name": "Kuayle",
+	"description": "The keyboard-driven, self-hosted issue tracker with no paid tier. Available in one public Apache 2.0 repository.",
+	"start_url": "/",
+	"display": "browser",
+	"background_color": "#0b0b0f",
+	"theme_color": "#0b0b0f",
+	"icons": [
+		{
+			"src": "/favicon_logo.svg",
+			"sizes": "any",
+			"type": "image/svg+xml",
+			"purpose": "any"
+		}
+	]
+}

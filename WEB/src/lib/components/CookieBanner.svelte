@@ -15,7 +15,8 @@
 {#if visible}
 	<div class="cookie-banner">
 		<p class="text-sm leading-relaxed text-muted-foreground">
-			We use essential cookies. Optional ones are off by default. See our
+			This site stores your consent choice in your browser. No optional analytics or marketing
+			scripts are currently active. See our
 			<a href="/privacy" class="text-brand-300 underline-offset-4 hover:underline">privacy policy</a
 			>.
 		</p>
@@ -23,14 +24,14 @@
 			<Button
 				size="sm"
 				onclick={() => consent.acceptAll()}
-				class="cursor-pointer bg-brand-400 text-white hover:bg-brand-500">Accept</Button
+				class="cursor-pointer bg-brand-400 text-white hover:bg-brand-500">Allow all</Button
 			>
 			<div class="flex gap-2">
 				<Button
 					variant="outline"
 					size="sm"
 					onclick={() => consent.rejectAll()}
-					class="flex-1 cursor-pointer border-border">Reject</Button
+					class="flex-1 cursor-pointer border-border">Essential only</Button
 				>
 				<Button
 					variant="ghost"
@@ -47,14 +48,19 @@
 	{@const prefs = consent.value}
 	<div
 		class="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
-		role="dialog"
-		aria-modal="true"
-		aria-labelledby="cookie-prefs-title"
-		onclick={() => (showPrefs = false)}
 	>
+		<button
+			type="button"
+			class="absolute inset-0 cursor-default"
+			aria-label="Close cookie preferences"
+			onclick={() => (showPrefs = false)}
+		></button>
 		<div
-			class="w-full max-w-md rounded-2xl border border-white/10 bg-card p-6 shadow-2xl"
-			onclick={(e) => e.stopPropagation()}
+			class="relative w-full max-w-md rounded-2xl border border-white/10 bg-card p-6 shadow-2xl"
+			role="dialog"
+			aria-modal="true"
+			aria-labelledby="cookie-prefs-title"
+			tabindex="-1"
 		>
 			<h2 id="cookie-prefs-title" class="text-lg font-semibold">Cookie preferences</h2>
 			<p class="mt-1 text-sm text-muted-foreground">
@@ -82,7 +88,7 @@
 					<span>
 						<span class="text-sm font-medium">Analytics</span>
 						<span class="block text-xs text-muted-foreground">
-							Anonymous usage statistics to improve the product.
+							Permission for optional usage measurement if analytics is introduced later.
 						</span>
 					</span>
 				</label>
@@ -97,7 +103,7 @@
 					<span>
 						<span class="text-sm font-medium">Preferences</span>
 						<span class="block text-xs text-muted-foreground">
-							Remember your settings (theme, language, etc.).
+							Permission to remember non-essential interface settings if introduced later.
 						</span>
 					</span>
 				</label>
@@ -112,7 +118,7 @@
 					<span>
 						<span class="text-sm font-medium">Marketing</span>
 						<span class="block text-xs text-muted-foreground">
-							Used to measure ad performance. Off by default.
+							Permission for campaign measurement if marketing tools are introduced later.
 						</span>
 					</span>
 				</label>

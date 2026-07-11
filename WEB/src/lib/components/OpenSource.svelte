@@ -7,21 +7,21 @@
 	const facts = [
 		{
 			icon: ScrollText,
-			title: 'One license: Apache 2.0',
+			title: 'Apache 2.0 license',
 			description:
-				'Use it commercially, modify it, redistribute it. No dual licensing, no CLA that lets us relicense your contributions later, no "source available" fine print.'
+				'Use, modify and redistribute Kuayle, including for commercial purposes, subject to the Apache 2.0 terms.'
 		},
 		{
 			icon: GitFork,
-			title: 'No enterprise edition',
+			title: 'One public edition',
 			description:
-				'There is no second, private repo where the good features live. SSO-style access control, analytics, GitHub integration - everything ships in the same public codebase.'
+				'The implemented issue tracking, planning, GitHub, real-time and access-control features are maintained in the public repository.'
 		},
 		{
 			icon: Database,
 			title: 'Your database, your data',
 			description:
-				'Kuayle runs on your servers against your own Postgres. If you ever leave, your data is already sitting in tables you control. Nothing to export, nothing held hostage.'
+				'Application records stay in your PostgreSQL database. Uploads use local storage or an S3-compatible service that you configure.'
 		}
 	];
 </script>
@@ -29,13 +29,13 @@
 <section id="open-source" class="border-y border-border bg-black/30 py-20 sm:py-24">
 	<div class="mx-auto max-w-6xl px-6">
 		<div class="max-w-2xl" use:reveal>
-			<p class="text-sm font-semibold tracking-widest text-brand-300 uppercase">Open source</p>
+			<p class="text-sm font-semibold tracking-widest text-brand-300 uppercase">Source and license</p>
 			<h2 class="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">
-				Open source, not open core
+				One public edition
 			</h2>
 			<p class="mt-4 text-lg text-muted-foreground">
-				Most "open source" trackers keep the useful parts in a commercial edition. Kuayle
-				doesn't. Here is exactly what that means:
+				Kuayle is distributed under Apache 2.0 from one public repository. There is no separate
+				commercial codebase for the features listed on this site.
 			</p>
 		</div>
 
@@ -57,14 +57,15 @@
 		</div>
 
 		<p class="mt-10 text-sm text-muted-foreground" use:reveal>
-			Don't take our word for it:
+			<a href="/open-source" class="text-brand-200 underline underline-offset-4 hover:text-brand-100">Read how the licensing model works</a>.
+			Verify the claims directly:
 			<a
 				href="https://github.com/carbogninalberto/kuayle"
 				target="_blank"
 				rel="noopener"
 				class="text-brand-200 underline underline-offset-4 hover:text-brand-100"
 				>the repo is public</a
-			>. Check the license, read the code, count the feature flags. There are none.
+			>. Read the license and inspect the implementation before deploying it.
 		</p>
 	</div>
 </section>
