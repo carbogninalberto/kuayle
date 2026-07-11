@@ -19,6 +19,7 @@
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
 	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
+	import { issuesState } from './issues.state.svelte';
 	import DatePickerPopover from '$lib/components/shared/DatePickerPopover.svelte';
 	import { StatusSelector, PrioritySelector, AssigneeSelector, LabelSelector, ProjectSelector, CycleSelector, TeamSelector } from './selectors';
 	import { listTemplates } from '$lib/api/issue-templates';
@@ -368,6 +369,9 @@
 				{#key descriptionVersion}
 				<RichEditor
 					content={description}
+					workspaceSlug={slug}
+					{members}
+					issues={issuesState.issues}
 					placeholder="Add description..."
 					bubbleMenu={true}
 					borderless={true}

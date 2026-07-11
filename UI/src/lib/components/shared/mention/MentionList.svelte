@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import type { MentionItem } from './mention.extension';
-	import { CircleDot } from 'lucide-svelte';
+	import IssueStatusIcon from '$lib/features/issues/IssueStatusIcon.svelte';
 
 	let {
 		items,
@@ -106,7 +106,9 @@
 				onpointerdown={(e) => { e.preventDefault(); onselect(item); }}
 			>
 				<div class="mention-issue-icon">
-					<CircleDot size={14} />
+					{#if item.kind === 'issue'}
+						<IssueStatusIcon status={item.status} category={item.status_category} color={item.status_color} size={14} />
+					{/if}
 				</div>
 				<div class="mention-info">
 					<span class="mention-name">

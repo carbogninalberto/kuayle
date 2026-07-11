@@ -38,6 +38,7 @@
 	import IssueGitHubActivity from './IssueGitHubActivity.svelte';
 	import { goto } from '$app/navigation';
 	import { sanitizeHtml } from '$lib/security/sanitize';
+	import { mentionInteractivity } from '$lib/components/shared/mention/mention-interactivity.action';
 	import { presenceState } from '$lib/features/presence/presence.state.svelte';
 	import CreateIssueDialog from './CreateIssueDialog.svelte';
 	import IssuePickerDialog from './IssuePickerDialog.svelte';
@@ -46,6 +47,7 @@
 	import type { Team } from '$lib/types/team';
 	import { listTeams } from '$lib/api/teams';
 	import { getAISettings } from '$lib/api/ai-settings';
+	import HistoryAssignees from './HistoryAssignees.svelte';
 
 	let {
 		issue,
@@ -372,6 +374,7 @@
 	function historyFieldLabel(field: string): string {
 		switch (field) {
 			case 'assignee_id': return 'assignee';
+			case 'assignees': return 'assignees';
 			case 'due_date': return 'due date';
 			case 'parent_id': return 'parent';
 			case 'project_id': return 'project';
@@ -385,7 +388,7 @@
 		switch (field) {
 			case 'status': case 'status_id': return CircleDot;
 			case 'priority': return ArrowUpCircle;
-			case 'assignee': case 'assignee_id': return UserCircle;
+			case 'assignee': case 'assignee_id': case 'assignees': return UserCircle;
 			case 'title': case 'description': return Pencil;
 			case 'due_date': return CalendarDays;
 			case 'labels': return Tag;
@@ -400,7 +403,7 @@
 		switch (field) {
 			case 'status': case 'status_id': return 'text-blue-400';
 			case 'priority': return 'text-orange-400';
-			case 'assignee': case 'assignee_id': return 'text-purple-400';
+			case 'assignee': case 'assignee_id': case 'assignees': return 'text-purple-400';
 			case 'due_date': return 'text-red-400';
 			case 'labels': return 'text-teal-400';
 			case 'project': case 'project_id': return 'text-indigo-400';
@@ -936,6 +939,7 @@
 				<div class="mt-3">
 					<RichEditor
 						content={issue.description ?? ''}
+						workspaceSlug={slug}
 						placeholder="Add description..."
 						bubbleMenu={true}
 						borderless={true}
@@ -1051,6 +1055,8 @@
 															{labelName}
 														</code>
 													{/each}
+												{:else if change.field === 'assignee' || change.field === 'assignee_id' || change.field === 'assignees'}
+													<HistoryAssignees value={change.new_value} displayValue={change.new_display_value} {members} />
 												{:else}
 													<code class="shrink-0 rounded bg-[var(--color-bg-tertiary)] px-1 py-0.5 text-[11px] text-[var(--color-text-secondary)]">{formatHistoryValue(change.field, change.new_value, change.new_display_value)}</code>
 												{/if}
@@ -1115,7 +1121,7 @@
 										{/if}
 									</div>
 								</div>
-								<div class="prose prose-invert prose-sm max-w-none mt-2.5 text-[13px] text-[var(--color-text-primary)] [&>p:first-child]:mt-0 [&>p:last-child]:mb-0">
+								<div class="prose prose-invert prose-sm max-w-none mt-2.5 text-[13px] text-[var(--color-text-primary)] [&>p:first-child]:mt-0 [&>p:last-child]:mb-0" use:mentionInteractivity={{ slug, members, issues: issuesState.issues }}>
 									{@html sanitizeHtml(comment.body ?? '')}
 								</div>
 							</div>
@@ -1131,7 +1137,7 @@
 											<span class="text-[13px] font-medium text-[var(--color-text-primary)]">{reply.user?.name ?? 'User'}</span>
 											<span class="text-[11px] text-[var(--color-text-tertiary)]">{formatRelativeTime(reply.created_at)}</span>
 										</div>
-										<div class="prose prose-invert prose-sm max-w-none mt-2.5 text-[13px] text-[var(--color-text-primary)] [&>p:first-child]:mt-0 [&>p:last-child]:mb-0">
+										<div class="prose prose-invert prose-sm max-w-none mt-2.5 text-[13px] text-[var(--color-text-primary)] [&>p:first-child]:mt-0 [&>p:last-child]:mb-0" use:mentionInteractivity={{ slug, members, issues: issuesState.issues }}>
 											{@html sanitizeHtml(reply.body ?? '')}
 										</div>
 									</div>
@@ -1149,6 +1155,7 @@
 											{#key replyVersions[comment.id] ?? 0}
 												<RichEditor
 													content=""
+													workspaceSlug={slug}
 													placeholder="Leave a reply..."
 													minimal={true}
 													borderless={true}
@@ -1199,6 +1206,7 @@
 							{#key commentVersion}
 							<RichEditor
 								content=""
+								workspaceSlug={slug}
 								placeholder="Leave a comment..."
 								minimal={true}
 								borderless={true}
