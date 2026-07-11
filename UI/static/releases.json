@@ -1,5 +1,16 @@
 [
   {
+    "tag_name": "v0.1.9",
+    "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.9",
+    "body": "**Full Changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.1.8...v0.1.9",
+    "published_at": "2026-07-11T09:18:03Z",
+    "prerelease": false,
+    "force_upgrade": false,
+    "minimum_supported_version": null,
+    "upgrade_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.9",
+    "upgrade_message": null
+  },
+  {
     "tag_name": "v0.1.8",
     "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.8",
     "body": "## What's Changed\r\n* Improve issue interactions and expand the marketing site by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/41\r\n\r\n\r\n**Full Changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.1.7...v0.1.8",
