@@ -41,6 +41,7 @@ func (s *PreferencesService) Get(ctx context.Context, userID uuid.UUID) (*domain
 			WorkflowSortOrder:         domain.WorkflowSortOrder(defaultWorkflowSortOrder),
 			TeamWorkflowSortOverrides: domain.TeamWorkflowSortOverrides{},
 			RecentDueDates:            domain.RecentDueDates{},
+			IssuesGroupBy:             "status",
 		}, nil
 	}
 	if prefs.WorkflowSortMode == "" {
@@ -53,6 +54,9 @@ func (s *PreferencesService) Get(ctx context.Context, userID uuid.UUID) (*domain
 		prefs.TeamWorkflowSortOverrides = domain.TeamWorkflowSortOverrides{}
 	}
 	prefs.RecentDueDates = domain.RecentDueDates(normalizeRecentDueDates([]string(prefs.RecentDueDates)))
+	if prefs.IssuesGroupBy == "" {
+		prefs.IssuesGroupBy = "status"
+	}
 	return prefs, nil
 }
 
@@ -96,6 +100,12 @@ func (s *PreferencesService) Update(ctx context.Context, userID uuid.UUID, req d
 	}
 	if req.RecentDueDates != nil {
 		prefs.RecentDueDates = domain.RecentDueDates(normalizeRecentDueDates(*req.RecentDueDates))
+	}
+	if req.IssuesGroupBy != nil {
+		if !validIssuesGroupBy(*req.IssuesGroupBy) {
+			return nil, fmt.Errorf("%w: invalid issues_group_by %q", ErrInvalidPreferences, *req.IssuesGroupBy)
+		}
+		prefs.IssuesGroupBy = *req.IssuesGroupBy
 	}
 
 	if err := s.prefsRepo.Upsert(ctx, prefs); err != nil {
@@ -174,6 +184,15 @@ func normalizeWorkflowSortOrder(order []string) ([]string, error) {
 func validOverrideMode(mode string) bool {
 	switch mode {
 	case "inherit", "default", "active-first", "custom":
+		return true
+	default:
+		return false
+	}
+}
+
+func validIssuesGroupBy(val string) bool {
+	switch val {
+	case "status", "priority", "assignee", "project", "none":
 		return true
 	default:
 		return false

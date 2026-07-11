@@ -1,5 +1,7 @@
 import { api } from './client';
 
+export type IssuesGroupByPreference = 'status' | 'priority' | 'assignee' | 'project' | 'none';
+
 export interface PreferencesData {
 	font_size: string;
 	pointer_cursors: boolean;
@@ -10,6 +12,7 @@ export interface PreferencesData {
 	workflow_sort_order: string[];
 	team_workflow_sort_overrides: Record<string, WorkflowSortOverride>;
 	recent_due_dates: string[];
+	issues_group_by: IssuesGroupByPreference;
 }
 
 export interface WorkflowSortOverride {

@@ -10,6 +10,7 @@ type UserPreferencesResponse struct {
 	WorkflowSortOrder         []string                        `json:"workflow_sort_order"`
 	TeamWorkflowSortOverrides map[string]WorkflowSortOverride `json:"team_workflow_sort_overrides"`
 	RecentDueDates            []string                        `json:"recent_due_dates"`
+	IssuesGroupBy             string                          `json:"issues_group_by"`
 }
 
 type UpdatePreferencesRequest struct {
@@ -22,6 +23,7 @@ type UpdatePreferencesRequest struct {
 	WorkflowSortOrder         *[]string                        `json:"workflow_sort_order"`
 	TeamWorkflowSortOverrides *map[string]WorkflowSortOverride `json:"team_workflow_sort_overrides"`
 	RecentDueDates            *[]string                        `json:"recent_due_dates"`
+	IssuesGroupBy             *string                          `json:"issues_group_by" validate:"omitempty,oneof=status priority assignee project none"`
 }
 
 type WorkflowSortOverride struct {

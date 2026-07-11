@@ -86,5 +86,6 @@ type UserPreferences struct {
 	WorkflowSortOrder         WorkflowSortOrder         `json:"workflow_sort_order" db:"workflow_sort_order"`
 	TeamWorkflowSortOverrides TeamWorkflowSortOverrides `json:"team_workflow_sort_overrides" db:"team_workflow_sort_overrides"`
 	RecentDueDates            RecentDueDates            `json:"recent_due_dates" db:"recent_due_dates"`
+	IssuesGroupBy             string                    `json:"issues_group_by" db:"issues_group_by"`
 	UpdatedAt                 time.Time                 `json:"updated_at" db:"updated_at"`
 }

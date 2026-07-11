@@ -1,9 +1,9 @@
 import type { Issue, IssueStatus, IssuePriority, CreateIssueRequest, UpdateIssueRequest } from '$lib/types/issue';
 import * as issueApi from '$lib/api/issues';
-import { preferencesState } from '$lib/features/preferences/preferences.state.svelte';
+import { preferencesState, type GroupByField } from '$lib/features/preferences/preferences.state.svelte';
 import type { StatusCategory } from '$lib/types/team-status';
 
-export type GroupByField = 'status' | 'priority' | 'assignee' | 'project' | null;
+export type { GroupByField } from '$lib/features/preferences/preferences.state.svelte';
 
 class IssuesState {
 	issues = $state<Issue[]>([]);

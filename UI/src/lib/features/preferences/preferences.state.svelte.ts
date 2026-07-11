@@ -1,4 +1,4 @@
-import { updatePreferences } from '$lib/api/preferences';
+import { getPreferences, updatePreferences, type IssuesGroupByPreference } from '$lib/api/preferences';
 import { CATEGORY_ORDER, type StatusCategory } from '$lib/types/team-status';
 
 type FontSize = 'small' | 'default' | 'large';
@@ -7,6 +7,7 @@ type LightTheme = 'light' | 'rose-light' | 'blue-light';
 type DarkTheme = 'dark' | 'dark-gray' | 'amethyst-dark' | 'emerald-dark' | 'cyber-77' | 'blade-49' | 'pipboy';
 export type WorkflowSortMode = 'default' | 'active-first' | 'custom';
 export type TeamWorkflowSortMode = WorkflowSortMode | 'inherit';
+export type GroupByField = Exclude<IssuesGroupByPreference, 'none'> | null;
 
 export interface TeamWorkflowSortOverride {
 	mode: TeamWorkflowSortMode;
@@ -23,6 +24,7 @@ interface PreferencesData {
 	workflowSortOrder: StatusCategory[];
 	teamWorkflowSortOverrides: Record<string, TeamWorkflowSortOverride>;
 	recentDueDates: string[];
+	issuesGroupBy: GroupByField;
 	localDirty?: boolean;
 }
 
@@ -49,10 +51,14 @@ class PreferencesState {
 	workflowSortOrder = $state<StatusCategory[]>([...DEFAULT_WORKFLOW_SORT_ORDER]);
 	teamWorkflowSortOverrides = $state<Record<string, TeamWorkflowSortOverride>>({});
 	recentDueDates = $state<string[]>([]);
+	issuesGroupBy = $state<GroupByField>('status');
 
 	private systemPrefersDark = $state(true);
 	private initialized = false;
-	private remoteLoaded = false;
+	private remoteSync: Promise<void> | null = null;
+	private pushInFlight = false;
+	private pushQueued = false;
+	private localVersion = 0;
 	// Persisted flag: true when local holds changes not yet confirmed by the
 	// server. Prevents a stale remote snapshot from clobbering newer local
 	// edits (e.g. a theme change whose fire-and-forget PATCH hasn't landed
@@ -91,10 +97,9 @@ class PreferencesState {
 		});
 	}
 
-	syncRemote() {
-		if (this.remoteLoaded) return;
-		this.remoteLoaded = true;
-		this.loadRemote();
+	syncRemote(): Promise<void> {
+		this.remoteSync ??= this.loadRemote();
+		return this.remoteSync;
 	}
 
 	private loadLocal() {
@@ -111,6 +116,7 @@ class PreferencesState {
 			if (data.workflowSortOrder) this.workflowSortOrder = normalizeWorkflowSortOrder(data.workflowSortOrder);
 			if (data.teamWorkflowSortOverrides) this.teamWorkflowSortOverrides = normalizeTeamOverrides(data.teamWorkflowSortOverrides);
 			if (data.recentDueDates) this.recentDueDates = normalizeRecentDueDates(data.recentDueDates);
+			if (data.issuesGroupBy !== undefined) this.issuesGroupBy = normalizeIssuesGroupBy(data.issuesGroupBy);
 			if (data.localDirty !== undefined) this.localDirty = data.localDirty;
 		} catch {
 			// ignore corrupt data
@@ -119,15 +125,7 @@ class PreferencesState {
 
 	private async loadRemote() {
 		try {
-			// Use raw fetch to avoid the authenticated client's 401 → /login redirect.
-			// On public pages (e.g. /share/:token) there is no session, and the
-			// redirect would kick the visitor to the login page before the catch fires.
-			const res = await fetch('/api/preferences', {
-				credentials: 'include',
-				headers: { 'Content-Type': 'application/json' }
-			});
-			if (!res.ok) return;
-			const data = await res.json();
+			const data = await getPreferences();
 			// If the user changed something locally since the last confirmed sync
 			// (e.g. picked a new theme but the PATCH hasn't landed, or a reload
 			// happened mid-flight), the remote snapshot is stale relative to local.
@@ -155,6 +153,7 @@ class PreferencesState {
 				)
 			);
 			this.recentDueDates = normalizeRecentDueDates(data.recent_due_dates ?? []);
+			this.issuesGroupBy = normalizeIssuesGroupBy(data.issues_group_by);
 			this.localDirty = false;
 			this.persistLocal();
 		} catch {
@@ -173,6 +172,7 @@ class PreferencesState {
 			workflowSortOrder: this.workflowSortOrder,
 			teamWorkflowSortOverrides: this.teamWorkflowSortOverrides,
 			recentDueDates: this.recentDueDates,
+			issuesGroupBy: this.issuesGroupBy,
 			localDirty: this.localDirty
 		};
 		localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -180,12 +180,38 @@ class PreferencesState {
 
 	private persist() {
 		this.localDirty = true;
+		this.localVersion += 1;
 		this.persistLocal();
 		this.pushRemote();
 	}
 
 	private pushRemote() {
-		updatePreferences({
+		this.pushQueued = true;
+		if (this.pushInFlight) return;
+		void this.flushRemote();
+	}
+
+	private async flushRemote() {
+		this.pushInFlight = true;
+		while (this.pushQueued) {
+			this.pushQueued = false;
+			const version = this.localVersion;
+			try {
+				await updatePreferences(this.remoteSnapshot());
+				if (version === this.localVersion && !this.pushQueued) {
+					this.localDirty = false;
+					this.persistLocal();
+				}
+			} catch {
+				// Keep localDirty so the latest snapshot is retried on the next sync.
+				break;
+			}
+		}
+		this.pushInFlight = false;
+	}
+
+	private remoteSnapshot() {
+		return {
 			font_size: this.fontSize,
 			pointer_cursors: this.pointerCursors,
 			theme_mode: this.themeMode,
@@ -202,16 +228,9 @@ class PreferencesState {
 					}
 				])
 			),
-			recent_due_dates: this.recentDueDates
-		})
-			.then(() => {
-				this.localDirty = false;
-				this.persistLocal();
-			})
-			.catch(() => {
-				// keep localDirty — localStorage is the primary source for instant UX;
-				// the change will be re-pushed on the next sync.
-			});
+			recent_due_dates: this.recentDueDates,
+			issues_group_by: toIssuesGroupByPreference(this.issuesGroupBy)
+		};
 	}
 
 	setFontSize(size: FontSize) {
@@ -291,6 +310,11 @@ class PreferencesState {
 		this.recentDueDates = normalizeRecentDueDates([date, ...this.recentDueDates]);
 		this.persist();
 	}
+
+	setIssuesGroupBy(groupBy: GroupByField) {
+		this.issuesGroupBy = groupBy;
+		this.persist();
+	}
 }
 
 function teamWorkflowSortKey(workspaceSlug: string, teamId: string) {
@@ -337,6 +361,16 @@ function normalizeRecentDueDates(dates: string[]) {
 
 function isValidDueDate(date: string) {
 	return /^\d{4}-\d{2}-\d{2}$/.test(date) && !Number.isNaN(new Date(`${date}T00:00:00`).getTime());
+}
+
+function normalizeIssuesGroupBy(value: unknown): GroupByField {
+	if (value === 'none' || value === null) return null;
+	if (value === 'status' || value === 'priority' || value === 'assignee' || value === 'project') return value;
+	return 'status';
+}
+
+function toIssuesGroupByPreference(value: GroupByField): IssuesGroupByPreference {
+	return value ?? 'none';
 }
 
 export const preferencesState = new PreferencesState();
