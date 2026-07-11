@@ -10,7 +10,7 @@ ENV PUBLIC_DEMO_MODE=$PUBLIC_DEMO_MODE
 ENV PUBLIC_DEMO_USERS=$PUBLIC_DEMO_USERS
 RUN npm run build
 
-FROM golang:1.26.4-alpine AS caddy-builder
+FROM golang:1.26.5-alpine AS caddy-builder
 RUN apk add --no-cache git
 RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
 RUN xcaddy build latest
