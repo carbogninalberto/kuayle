@@ -13,17 +13,7 @@
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import IssueStatusIcon from '$lib/features/issues/IssueStatusIcon.svelte';
 	import IssuePriorityIcon from '$lib/features/issues/IssuePriorityIcon.svelte';
-	import {
-		Plus,
-		X,
-		Search,
-		CircleDashed,
-		Signal,
-		User,
-		FolderKanban,
-		Tag,
-		CornerDownRight
-	} from 'lucide-svelte';
+	import { Plus, X, Search, CircleDashed, Signal, User, FolderKanban, Tag, CornerDownRight } from 'lucide-svelte';
 
 	let {
 		filters = $bindable<ViewFilter>({}),
@@ -54,11 +44,13 @@
 	let searchTimeout: ReturnType<typeof setTimeout>;
 
 	// Track which filter chips are visible (active value OR just added via "Add filter")
-	let visibleFilters = $state<Set<string>>(new Set(
-		Object.entries(filters)
-			.filter(([_, v]) => v !== undefined && v !== '')
-			.map(([k]) => k)
-	));
+	let visibleFilters = $state<Set<string>>(
+		new Set(
+			Object.entries(filters)
+				.filter(([_, v]) => v !== undefined && v !== '')
+				.map(([k]) => k)
+		)
+	);
 
 	// Keep visibleFilters in sync when filters change externally
 	$effect(() => {
@@ -90,9 +82,7 @@
 		{ value: 'has_sub_issues', label: 'Has sub-issues' }
 	];
 
-	let availableFilters = $derived(
-		FILTER_OPTIONS.filter((f) => !visibleFilters.has(f.key))
-	);
+	let availableFilters = $derived(FILTER_OPTIONS.filter((f) => !visibleFilters.has(f.key)));
 
 	// Helpers for multi-value filters
 	function getStatusValues(): string[] {
@@ -112,17 +102,13 @@
 
 	function toggleStatus(value: string) {
 		const current = getStatusValues();
-		const next = current.includes(value)
-			? current.filter((v) => v !== value)
-			: [...current, value];
+		const next = current.includes(value) ? current.filter((v) => v !== value) : [...current, value];
 		updateFilter('status', next.length > 0 ? next.join(',') : undefined);
 	}
 
 	function togglePriority(value: string) {
 		const current = getPriorityValues();
-		const next = current.includes(value)
-			? current.filter((v) => v !== value)
-			: [...current, value];
+		const next = current.includes(value) ? current.filter((v) => v !== value) : [...current, value];
 		updateFilter('priority', next.length > 0 ? next.join(',') : undefined);
 	}
 
@@ -168,12 +154,24 @@
 		// Use tick to ensure the popover DOM is rendered before opening
 		requestAnimationFrame(() => {
 			switch (key) {
-				case 'status': statusOpen = true; break;
-				case 'priority': priorityOpen = true; break;
-				case 'assignee': assigneeOpen = true; break;
-				case 'project': projectOpen = true; break;
-				case 'label': labelOpen = true; break;
-				case 'sub_issues': subIssuesOpen = true; break;
+				case 'status':
+					statusOpen = true;
+					break;
+				case 'priority':
+					priorityOpen = true;
+					break;
+				case 'assignee':
+					assigneeOpen = true;
+					break;
+				case 'project':
+					projectOpen = true;
+					break;
+				case 'label':
+					labelOpen = true;
+					break;
+				case 'sub_issues':
+					subIssuesOpen = true;
+					break;
 			}
 		});
 	}
@@ -192,7 +190,7 @@
 		if (vals.length === 0) return 'Status';
 		if (vals.length === 1) {
 			const ts = getStatusByValue(vals[0]);
-			return ts ? ts.name : STATUS_LABELS[vals[0] as IssueStatus] ?? vals[0];
+			return ts ? ts.name : (STATUS_LABELS[vals[0] as IssueStatus] ?? vals[0]);
 		}
 		return `${vals.length} statuses`;
 	}
@@ -220,6 +218,7 @@
 
 	function getLabelChipLabel(): string {
 		if (!filters.label) return 'Label';
+		if (filters.label === 'none') return 'No label';
 		const l = labels.find((l) => l.id === filters.label);
 		return l?.name || 'Label';
 	}
@@ -240,6 +239,14 @@
 				return getProjectChipLabel();
 			case 'label':
 				return getLabelChipLabel();
+			case 'status_type':
+				return `Status type: ${filters.status_type}`;
+			case 'cycle':
+				return filters.cycle === 'none' ? 'No cycle' : 'Cycle';
+			case 'team':
+				return 'Team';
+			case 'creator':
+				return 'Creator';
 			case 'sub_issues':
 				return getSubIssuesChipLabel();
 			default:
@@ -254,7 +261,10 @@
 	}
 </script>
 
-<div class="no-scrollbar flex shrink-0 max-w-full items-center gap-1.5 overflow-x-auto overflow-y-hidden px-2 py-1.5 sm:overflow-visible sm:py-2" style="-webkit-overflow-scrolling: touch;">
+<div
+	class="no-scrollbar flex shrink-0 max-w-full items-center gap-1.5 overflow-x-auto overflow-y-hidden px-2 py-1.5 sm:overflow-visible sm:py-2"
+	style="-webkit-overflow-scrolling: touch;"
+>
 	{#if !readonly}
 		<!-- Search input -->
 		<div class="relative shrink-0">
@@ -275,7 +285,7 @@
 			{#if key === 'status'}
 				{@const statusValues = getStatusValues()}
 				{#if teamStatusesState.statusOrder.length > 0}
-					{#each statusValues.filter((value) => !teamStatusesState.statusOrder.some((ts) => statusValueMatches(ts, value))) as value}
+					{#each statusValues.filter((value) => !teamStatusesState.statusOrder.some( (ts) => statusValueMatches(ts, value) )) as value}
 						<div class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)]">
 							<Checkbox checked class="pointer-events-none" />
 							<IssueStatusIcon status={value} size={14} />
@@ -438,14 +448,20 @@
 				<Popover.Content class="w-48 p-1" align="start">
 					<button
 						onclick={() => updateFilter('assignee', 'none')}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] {filters.assignee === 'none' ? 'bg-[var(--color-bg-hover)]' : ''}"
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] {filters.assignee ===
+						'none'
+							? 'bg-[var(--color-bg-hover)]'
+							: ''}"
 					>
 						Unassigned
 					</button>
 					{#each members as member}
 						<button
 							onclick={() => updateFilter('assignee', member.user_id)}
-							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {filters.assignee === member.user_id ? 'bg-[var(--color-bg-hover)]' : ''}"
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {filters.assignee ===
+							member.user_id
+								? 'bg-[var(--color-bg-hover)]'
+								: ''}"
 						>
 							<User size={14} class="text-[var(--color-text-tertiary)]" />
 							{member.name || member.email}
@@ -474,14 +490,20 @@
 				<Popover.Content class="w-48 p-1" align="start">
 					<button
 						onclick={() => updateFilter('project', 'none')}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] {filters.project === 'none' ? 'bg-[var(--color-bg-hover)]' : ''}"
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] {filters.project ===
+						'none'
+							? 'bg-[var(--color-bg-hover)]'
+							: ''}"
 					>
 						No project
 					</button>
 					{#each projects as project}
 						<button
 							onclick={() => updateFilter('project', project.id)}
-							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {filters.project === project.id ? 'bg-[var(--color-bg-hover)]' : ''}"
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {filters.project ===
+							project.id
+								? 'bg-[var(--color-bg-hover)]'
+								: ''}"
 						>
 							<FolderKanban size={14} class="text-[var(--color-text-tertiary)]" />
 							{project.name}
@@ -511,7 +533,10 @@
 					{#each labels as label}
 						<button
 							onclick={() => updateFilter('label', label.id)}
-							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {filters.label === label.id ? 'bg-[var(--color-bg-hover)]' : ''}"
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {filters.label ===
+							label.id
+								? 'bg-[var(--color-bg-hover)]'
+								: ''}"
 						>
 							<div class="h-2.5 w-2.5 rounded-full shrink-0" style="background-color: {label.color}"></div>
 							{label.name}
@@ -544,7 +569,10 @@
 					{#each SUB_ISSUE_FILTERS as option}
 						<button
 							onclick={() => updateFilter('sub_issues', option.value)}
-							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {filters.sub_issues === option.value ? 'bg-[var(--color-bg-hover)]' : ''}"
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {filters.sub_issues ===
+							option.value
+								? 'bg-[var(--color-bg-hover)]'
+								: ''}"
 						>
 							<Checkbox checked={filters.sub_issues === option.value} />
 							{option.label}
@@ -562,11 +590,22 @@
 			</Popover.Root>
 		{/if}
 
+		{#each Array.from(visibleFilters).filter((key) => !FILTER_OPTIONS.some((option) => option.key === key)) as key}
+			{#if filters[key]}
+				<button class={chipClass(true)} onclick={() => removeFilter(key)} title="Remove filter">
+					{getChipLabel(key)}
+					<X size={12} />
+				</button>
+			{/if}
+		{/each}
+
 		<!-- Add filter button -->
 		{#if availableFilters.length > 0}
 			<Popover.Root bind:open={addFilterOpen}>
 				<Popover.Trigger>
-					<button class="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]">
+					<button
+						class="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]"
+					>
 						<Plus size={14} />
 						Filter
 					</button>

@@ -88,6 +88,10 @@ func (r *IssueRepository) List(ctx context.Context, workspaceID uuid.UUID, param
 			where = append(where, fmt.Sprintf("%s IN (%s)", col, strings.Join(placeholders, ",")))
 		}
 	}
+	if params.StatusType != "" {
+		where = append(where, issueStatusCategorySubqueryExpr("i")+" = :status_type")
+		args["status_type"] = params.StatusType
+	}
 	// Multi-value priority filter (comma-separated)
 	if params.Priority != "" {
 		priorities := strings.Split(params.Priority, ",")
@@ -137,8 +141,16 @@ func (r *IssueRepository) List(ctx context.Context, workspaceID uuid.UUID, param
 		}
 	}
 	if params.LabelID != "" {
-		where = append(where, "EXISTS (SELECT 1 FROM issue_labels il WHERE il.issue_id = i.id AND il.label_id = :label_id)")
-		args["label_id"] = params.LabelID
+		if params.LabelID == "none" {
+			where = append(where, `NOT EXISTS (
+				SELECT 1 FROM issue_labels il
+				INNER JOIN labels l ON l.id = il.label_id AND l.deleted_at IS NULL
+				WHERE il.issue_id = i.id
+			)`)
+		} else {
+			where = append(where, "EXISTS (SELECT 1 FROM issue_labels il WHERE il.issue_id = i.id AND il.label_id = :label_id)")
+			args["label_id"] = params.LabelID
+		}
 	}
 	if params.Search != "" {
 		searchFields := []string{
@@ -395,7 +407,8 @@ func (r *IssueRepository) ListSubIssues(ctx context.Context, parentID uuid.UUID)
 
 func (r *IssueRepository) CountSubIssues(ctx context.Context, parentID uuid.UUID) (int, int, error) {
 	var total, done int
-	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*), COUNT(*) FILTER (WHERE ts.category IN ('completed', 'cancelled')) FROM issues i LEFT JOIN team_statuses ts ON ts.id = i.status_id WHERE i.parent_id = $1`, parentID).Scan(&total, &done)
+	query := fmt.Sprintf(`SELECT COUNT(*), COUNT(*) FILTER (WHERE %s IN ('completed', 'cancelled')) FROM issues i LEFT JOIN team_statuses ts ON ts.id = i.status_id WHERE i.parent_id = $1`, issueStatusCategoryExpr("i", "ts"))
+	err := r.db.QueryRowContext(ctx, query, parentID).Scan(&total, &done)
 	return total, done, err
 }
 
@@ -405,14 +418,14 @@ func (r *IssueRepository) CountSubIssuesForIssues(ctx context.Context, issueIDs 
 		return result, nil
 	}
 
-	query, args, err := sqlx.In(`
+	query, args, err := sqlx.In(fmt.Sprintf(`
 		SELECT i.parent_id AS issue_id,
 			COUNT(*) AS total,
-			COUNT(*) FILTER (WHERE ts.category IN ('completed', 'cancelled')) AS done
+			COUNT(*) FILTER (WHERE %s IN ('completed', 'cancelled')) AS done
 		FROM issues i
 		LEFT JOIN team_statuses ts ON ts.id = i.status_id
 		WHERE i.parent_id IN (?)
-		GROUP BY i.parent_id`, issueIDs)
+		GROUP BY i.parent_id`, issueStatusCategoryExpr("i", "ts")), issueIDs)
 	if err != nil {
 		return nil, err
 	}

@@ -30,9 +30,31 @@
 	const slug = $derived(page.params.workspaceSlug ?? '');
 
 	type MyTab = 'assigned' | 'created';
+	const DRILL_DOWN_FILTERS = [
+		'status',
+		'status_type',
+		'priority',
+		'assignee',
+		'project',
+		'cycle',
+		'team',
+		'label',
+		'creator'
+	] as const;
+
+	function initialFilters(): ViewFilter {
+		const filters: ViewFilter = {};
+		for (const key of DRILL_DOWN_FILTERS) {
+			const value = page.url.searchParams.get(key);
+			if (value) filters[key] = value;
+		}
+		return filters;
+	}
 
 	let activeTab = $state<MyTab>('assigned');
-	let filters = $state<ViewFilter>({});
+	const initialDrillDownFilters = initialFilters();
+	let filters = $state<ViewFilter>(initialDrillDownFilters);
+	let drillDownMode = $state(Object.keys(initialDrillDownFilters).length > 0);
 	let layout = $state<ViewLayout>('list');
 	let projects = $state<Project[]>([]);
 	let labels = $state<Label[]>([]);
@@ -50,11 +72,7 @@
 	}
 
 	onMount(async () => {
-		const [p, l, m] = await Promise.all([
-			listProjects(slug),
-			listLabels(slug),
-			listMembers(slug)
-		]);
+		const [p, l, m] = await Promise.all([listProjects(slug), listLabels(slug), listMembers(slug)]);
 		projects = p;
 		labels = l;
 		members = m;
@@ -66,9 +84,9 @@
 		const params: Record<string, string> = {};
 
 		// Tab-specific filter
-		if (activeTab === 'assigned') {
+		if (!drillDownMode && activeTab === 'assigned') {
 			params.assignee = authState.user.id;
-		} else {
+		} else if (!drillDownMode) {
 			params.creator = authState.user.id;
 		}
 
@@ -105,6 +123,7 @@
 
 	function handleFilterChange(f: ViewFilter) {
 		filters = f;
+		if (!DRILL_DOWN_FILTERS.some((key) => !!f[key])) drillDownMode = false;
 		loadIssues();
 	}
 
@@ -120,7 +139,7 @@
 
 	const keyHandler = createKeyboardHandler([
 		{ key: 'a', ctrl: true, handler: () => issuesState.selectAll() },
-		{ key: 'Escape', handler: () => issuesState.clearSelection() },
+		{ key: 'Escape', handler: () => issuesState.clearSelection() }
 	]);
 
 	onMount(() => {
@@ -152,11 +171,17 @@
 	<!-- Tabs -->
 	<Tabs.Root value={activeTab} onValueChange={handleTabChange}>
 		<Tabs.List class="w-full justify-start gap-1.5 rounded-none border-none bg-transparent px-2 pt-4 pb-2">
-			<Tabs.Trigger value="assigned" class="flex-none h-auto rounded-full border border-[var(--app-border)] px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] shadow-none data-[state=active]:border-[var(--app-accent)]/30 data-[state=active]:bg-[var(--app-accent)]/10 data-[state=active]:text-[var(--app-accent-light)] data-[state=active]:shadow-none">
+			<Tabs.Trigger
+				value="assigned"
+				class="flex-none h-auto rounded-full border border-[var(--app-border)] px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] shadow-none data-[state=active]:border-[var(--app-accent)]/30 data-[state=active]:bg-[var(--app-accent)]/10 data-[state=active]:text-[var(--app-accent-light)] data-[state=active]:shadow-none"
+			>
 				<CircleUser size={13} class="mr-1" />
 				Assigned to me
 			</Tabs.Trigger>
-			<Tabs.Trigger value="created" class="flex-none h-auto rounded-full border border-[var(--app-border)] px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] shadow-none data-[state=active]:border-[var(--app-accent)]/30 data-[state=active]:bg-[var(--app-accent)]/10 data-[state=active]:text-[var(--app-accent-light)] data-[state=active]:shadow-none">
+			<Tabs.Trigger
+				value="created"
+				class="flex-none h-auto rounded-full border border-[var(--app-border)] px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] shadow-none data-[state=active]:border-[var(--app-accent)]/30 data-[state=active]:bg-[var(--app-accent)]/10 data-[state=active]:text-[var(--app-accent-light)] data-[state=active]:shadow-none"
+			>
 				<PenLine size={13} class="mr-1" />
 				Created by me
 			</Tabs.Trigger>
@@ -164,13 +189,7 @@
 	</Tabs.Root>
 
 	<!-- Filter bar -->
-	<FilterBuilder
-		bind:filters
-		{projects}
-		{labels}
-		{members}
-		onchange={handleFilterChange}
-	/>
+	<FilterBuilder bind:filters {projects} {labels} {members} onchange={handleFilterChange} />
 
 	<!-- Content -->
 	{#if layout === 'list'}
@@ -178,7 +197,9 @@
 			{#if !issuesState.loading && issuesState.issues.length === 0}
 				<EmptyState
 					title={activeTab === 'assigned' ? 'No issues assigned to you' : 'No issues created by you'}
-					description={activeTab === 'assigned' ? 'Issues assigned to you will appear here' : 'Issues you created will appear here'}
+					description={activeTab === 'assigned'
+						? 'Issues assigned to you will appear here'
+						: 'Issues you created will appear here'}
 				/>
 			{:else if issuesState.groupBy}
 				{#each issuesState.groupedIssues as group (group.key)}
@@ -193,33 +214,56 @@
 						/>
 						{#if !collapsedGroups.has(group.key)}
 							{#each group.issues as issue (issue.id)}
-								<IssueRow {issue} {slug} {members} {labels} {projects} onclick={handleIssueClick} {lastSelectedId} onlastselected={(id) => lastSelectedId = id} onaddrelation={handleAddRelation} />
+								<IssueRow
+									{issue}
+									{slug}
+									{members}
+									{labels}
+									{projects}
+									onclick={handleIssueClick}
+									{lastSelectedId}
+									onlastselected={(id) => (lastSelectedId = id)}
+									onaddrelation={handleAddRelation}
+								/>
 							{/each}
 						{/if}
 					</section>
 				{/each}
 			{:else}
 				{#each issuesState.issues as issue (issue.id)}
-					<IssueRow {issue} {slug} {members} {labels} {projects} onclick={handleIssueClick} {lastSelectedId} onlastselected={(id) => lastSelectedId = id} onaddrelation={handleAddRelation} />
+					<IssueRow
+						{issue}
+						{slug}
+						{members}
+						{labels}
+						{projects}
+						onclick={handleIssueClick}
+						{lastSelectedId}
+						onlastselected={(id) => (lastSelectedId = id)}
+						onaddrelation={handleAddRelation}
+					/>
 				{/each}
 			{/if}
 
 			<IssueListLoadMore />
 
-			<BulkActionBar {slug} {labels} {members} onlabelcreated={(label) => (labels = [label, ...labels.filter((existing) => existing.id !== label.id)])} />
+			<BulkActionBar
+				{slug}
+				{labels}
+				{members}
+				onlabelcreated={(label) => (labels = [label, ...labels.filter((existing) => existing.id !== label.id)])}
+			/>
 		</div>
-	{:else}
-		{#if !issuesState.loading}
-			<div class="flex-1 overflow-hidden">
-				<KanbanBoard
-					issuesByStatus={issuesState.issuesByStatus}
-					{slug}
-					{members}
-					{labels}
-					onissueclick={handleIssueClick}
-				/>
-			</div>
-		{/if}
+	{:else if !issuesState.loading}
+		<div class="flex-1 overflow-hidden">
+			<KanbanBoard
+				issuesByStatus={issuesState.issuesByStatus}
+				{slug}
+				{members}
+				{labels}
+				onissueclick={handleIssueClick}
+			/>
+		</div>
 	{/if}
 </div>
 

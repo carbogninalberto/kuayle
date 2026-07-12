@@ -146,11 +146,16 @@ export function defaultDateRange(dayCount = 90): { from: string; to: string } {
 	return { from: dateString(from), to };
 }
 
+const NONE_FILTER_KEYS = new Set(['project_id', 'cycle_id', 'assignee_id']);
+
 function buildQuery(params: AnalyticsScopeParams | InsightsParams | BurnupParams): string {
 	const query = new URLSearchParams();
 	for (const [key, value] of Object.entries(params)) {
 		if (typeof value === 'boolean') query.set(key, value ? 'true' : 'false');
-		if (typeof value === 'string' && value !== '' && value !== 'none') query.set(key, value);
+		if (typeof value === 'string' && value !== '') {
+			if (value === 'none' && !NONE_FILTER_KEYS.has(key)) continue;
+			query.set(key, value);
+		}
 	}
 	const qs = query.toString();
 	return qs ? `?${qs}` : '';

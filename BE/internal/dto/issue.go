@@ -159,6 +159,7 @@ type SubscriptionResponse struct {
 type IssueFilterParams struct {
 	PaginationParams
 	Status     string `query:"status"`
+	StatusType string `query:"status_type"`
 	Priority   string `query:"priority"`
 	AssigneeID string `query:"assignee"`
 	CreatorID  string `query:"creator"`

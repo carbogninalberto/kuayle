@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -225,17 +226,120 @@ func TestValidateBurnupParams(t *testing.T) {
 		{name: "invalid interval", params: dto.AnalyticsBurnupParams{From: "2026-01-01", To: "2026-02-01", Interval: "year"}, wantErr: true},
 		{name: "reversed range", params: dto.AnalyticsBurnupParams{From: "2026-02-01", To: "2026-01-01"}, wantErr: true},
 		{name: "invalid scoped id", params: dto.AnalyticsBurnupParams{From: "2026-01-01", To: "2026-02-01", TeamID: stringPtr("bad")}, wantErr: true},
+		{name: "valid status type", params: dto.AnalyticsBurnupParams{From: "2026-01-01", To: "2026-02-01", StatusType: stringPtr("started")}},
+		{name: "invalid status type", params: dto.AnalyticsBurnupParams{From: "2026-01-01", To: "2026-02-01", StatusType: stringPtr("done")}, wantErr: true},
+		{name: "366 daily buckets accepted", params: dto.AnalyticsBurnupParams{From: "2024-01-01", To: "2024-12-31", Interval: "day"}},
+		{name: "367 daily buckets rejected", params: dto.AnalyticsBurnupParams{From: "2024-01-01", To: "2025-01-01", Interval: "day"}, wantErr: true},
+		{name: "366 monthly buckets accepted", params: dto.AnalyticsBurnupParams{From: "2000-01-31", To: "2030-06-28", Interval: "month"}},
+		{name: "367 monthly buckets rejected", params: dto.AnalyticsBurnupParams{From: "2000-01-31", To: "2030-07-28", Interval: "month"}, wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			wantInterval := tt.params.Interval
+			if wantInterval == "" {
+				wantInterval = "week"
+			}
 			err := ValidateBurnupParams(&tt.params)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("ValidateBurnupParams() error = %v, wantErr %v", err, tt.wantErr)
 			}
-			if err == nil && tt.params.Interval != "week" {
-				t.Fatalf("default interval = %q, want week", tt.params.Interval)
+			if err == nil && tt.params.Interval != wantInterval {
+				t.Fatalf("interval = %q, want %q", tt.params.Interval, wantInterval)
 			}
 		})
+	}
+}
+
+func TestBuildBurnupQueryUsesCurrentIssueScopeAndClampedBuckets(t *testing.T) {
+	repo := NewAnalyticsRepository(sqlx.NewDb(nil, "postgres"))
+	projectID := "00000000-0000-0000-0000-000000000101"
+	cycleID := "00000000-0000-0000-0000-000000000102"
+	statusType := "started"
+
+	query, args := repo.buildBurnupQuery("workspace-1", &dto.AnalyticsBurnupParams{
+		From:       "2026-01-01",
+		To:         "2026-01-31",
+		Interval:   "week",
+		ProjectID:  &projectID,
+		CycleID:    &cycleID,
+		StatusType: &statusType,
+	})
+
+	if len(args) != 6 {
+		t.Fatalf("args = %#v, want workspace, project, cycle, status_type, from, to", args)
+	}
+	if args[0] != "workspace-1" || args[1] != projectID || args[2] != cycleID || args[3] != statusType || args[4] != "2026-01-01" || args[5] != "2026-01-31" {
+		t.Fatalf("unexpected args: %#v", args)
+	}
+	for _, want := range []string{
+		"WITH scoped_issues AS",
+		"LEFT JOIN team_statuses ts ON ts.id = i.status_id",
+		"i.project_id = $2",
+		"i.cycle_id = $3",
+		"COALESCE(ts.category",
+		"= $4",
+		"LEAST(dt::timestamp + '1 week'::interval, $6::date + INTERVAL '1 day') AS bucket_end",
+	} {
+		if !strings.Contains(query, want) {
+			t.Fatalf("burnup query missing %q:\n%s", want, query)
+		}
+	}
+	if strings.Contains(query, "le.project_id") || strings.Contains(query, "le.cycle_id") {
+		t.Fatalf("burnup query should scope by current issues, not lifecycle snapshots:\n%s", query)
+	}
+}
+
+func TestIssueStatusCategoryExpressionsIncludeLegacyFallback(t *testing.T) {
+	expr := issueStatusCategoryExpr("i", "ts")
+	for _, want := range []string{
+		"COALESCE(ts.category",
+		"WHEN 'done' THEN 'completed'",
+		"WHEN 'cancelled' THEN 'cancelled'",
+		"WHEN 'in_progress' THEN 'started'",
+		"WHEN 'in_review' THEN 'started'",
+		"WHEN 'todo' THEN 'unstarted'",
+	} {
+		if !strings.Contains(expr, want) {
+			t.Fatalf("status category expression missing %q: %s", want, expr)
+		}
+	}
+
+	subquery := issueStatusCategorySubqueryExpr("i")
+	if !strings.Contains(subquery, "SELECT ts.category FROM team_statuses ts WHERE ts.id = i.status_id") || !strings.Contains(subquery, "WHEN 'done' THEN 'completed'") {
+		t.Fatalf("status category subquery should include team status and legacy fallback: %s", subquery)
+	}
+}
+
+func TestIssueLifecycleMigrationBackfillIsNonFabricated(t *testing.T) {
+	contents, err := os.ReadFile("../../migrations/000032_issue_lifecycle.up.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sql := string(contents)
+
+	backfillIdx := strings.Index(sql, "UPDATE issues i\nSET")
+	triggerIdx := strings.Index(sql, "CREATE TRIGGER trg_issue_lifecycle_ts")
+	if backfillIdx == -1 || triggerIdx == -1 {
+		t.Fatalf("migration should contain backfill update and lifecycle trigger")
+	}
+	if triggerIdx < backfillIdx {
+		t.Fatalf("lifecycle triggers must be created after backfill to avoid NOW() timestamp fabrication")
+	}
+	for _, forbidden := range []string{"THEN i.updated_at", "THEN i2.updated_at", "THEN i.created_at"} {
+		if strings.Contains(sql, forbidden) {
+			t.Fatalf("migration should not fabricate lifecycle timestamps from issue timestamps: found %q", forbidden)
+		}
+	}
+	for _, want := range []string{
+		"FROM issue_history ih",
+		"LEFT JOIN team_statuses current_status ON current_status.id = i.status_id",
+		"WHEN 'done' THEN 'completed'",
+		"WHEN i.current_category = 'completed' THEN 'backlog'",
+		"Replay only category-changing status history rows",
+	} {
+		if !strings.Contains(sql, want) {
+			t.Fatalf("migration missing %q", want)
+		}
 	}
 }
 

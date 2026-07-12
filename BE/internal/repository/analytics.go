@@ -22,6 +22,7 @@ func NewAnalyticsRepository(db *sqlx.DB) *AnalyticsRepository {
 
 func (r *AnalyticsRepository) Overview(ctx context.Context, workspaceID, teamID string) (*dto.AnalyticsOverview, error) {
 	var o dto.AnalyticsOverview
+	statusCategory := issueStatusCategoryExpr("i", "ts")
 	issueScope := ""
 	args := []interface{}{workspaceID}
 	if teamID != "" {
@@ -36,31 +37,31 @@ func (r *AnalyticsRepository) Overview(ctx context.Context, workspaceID, teamID 
 	}
 
 	err = r.db.GetContext(ctx, &o.OpenIssues,
-		`SELECT COUNT(*)
+		fmt.Sprintf(`SELECT COUNT(*)
 		 FROM issues i
 		 LEFT JOIN team_statuses ts ON ts.id = i.status_id
 		 WHERE i.workspace_id = $1
-		   AND COALESCE(ts.category, 'backlog') NOT IN ('completed', 'cancelled')`+issueScope, args...)
+		   AND %s NOT IN ('completed', 'cancelled')`, statusCategory)+issueScope, args...)
 	if err != nil {
 		return nil, err
 	}
 
 	err = r.db.GetContext(ctx, &o.CompletedIssues,
-		`SELECT COUNT(*)
+		fmt.Sprintf(`SELECT COUNT(*)
 		 FROM issues i
-		 INNER JOIN team_statuses ts ON ts.id = i.status_id
-		 WHERE i.workspace_id = $1 AND ts.category = 'completed'`+issueScope, args...)
+		 LEFT JOIN team_statuses ts ON ts.id = i.status_id
+		 WHERE i.workspace_id = $1 AND %s = 'completed'`, statusCategory)+issueScope, args...)
 	if err != nil {
 		return nil, err
 	}
 
 	err = r.db.GetContext(ctx, &o.OverdueIssues,
-		`SELECT COUNT(*)
+		fmt.Sprintf(`SELECT COUNT(*)
 		 FROM issues i
 		 LEFT JOIN team_statuses ts ON ts.id = i.status_id
 		 WHERE i.workspace_id = $1
 		   AND i.due_date < CURRENT_DATE
-		   AND COALESCE(ts.category, 'backlog') NOT IN ('completed', 'cancelled')`+issueScope, args...)
+		   AND %s NOT IN ('completed', 'cancelled')`, statusCategory)+issueScope, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -89,20 +90,20 @@ func (r *AnalyticsRepository) Overview(ctx context.Context, workspaceID, teamID 
 	}
 
 	err = r.db.GetContext(ctx, &o.StartedIssues,
-		`SELECT COUNT(*) FROM issues i
-		 INNER JOIN team_statuses ts ON ts.id = i.status_id
-		 WHERE i.workspace_id = $1 AND ts.category = 'started'`+issueScope, args...)
+		fmt.Sprintf(`SELECT COUNT(*) FROM issues i
+		 LEFT JOIN team_statuses ts ON ts.id = i.status_id
+		 WHERE i.workspace_id = $1 AND %s = 'started'`, statusCategory)+issueScope, args...)
 	if err != nil {
 		return nil, err
 	}
 
 	err = r.db.GetContext(ctx, &o.UnassignedIssues,
-		`SELECT COUNT(*)
+		fmt.Sprintf(`SELECT COUNT(*)
 		 FROM issues i
 		 LEFT JOIN team_statuses ts ON ts.id = i.status_id
 		 WHERE i.workspace_id = $1
-		   AND COALESCE(ts.category, 'backlog') NOT IN ('completed', 'cancelled')
-		   AND NOT EXISTS (SELECT 1 FROM issue_assignees ia WHERE ia.issue_id = i.id)`+issueScope, args...)
+		   AND %s NOT IN ('completed', 'cancelled')
+		   AND NOT EXISTS (SELECT 1 FROM issue_assignees ia WHERE ia.issue_id = i.id)`, statusCategory)+issueScope, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -190,6 +191,28 @@ var allowedDims = map[string]bool{
 
 var allowedStatusTypes = map[string]bool{
 	"backlog": true, "unstarted": true, "started": true, "completed": true, "cancelled": true,
+}
+
+func legacyStatusCategoryExpr(issueAlias string) string {
+	return fmt.Sprintf(`CASE %s.status::text
+		WHEN 'done' THEN 'completed'
+		WHEN 'completed' THEN 'completed'
+		WHEN 'cancelled' THEN 'cancelled'
+		WHEN 'started' THEN 'started'
+		WHEN 'in_progress' THEN 'started'
+		WHEN 'in_review' THEN 'started'
+		WHEN 'unstarted' THEN 'unstarted'
+		WHEN 'todo' THEN 'unstarted'
+		ELSE 'backlog'
+	END`, issueAlias)
+}
+
+func issueStatusCategoryExpr(issueAlias, statusAlias string) string {
+	return fmt.Sprintf("COALESCE(%s.category, %s)", statusAlias, legacyStatusCategoryExpr(issueAlias))
+}
+
+func issueStatusCategorySubqueryExpr(issueAlias string) string {
+	return fmt.Sprintf("COALESCE((SELECT ts.category FROM team_statuses ts WHERE ts.id = %s.status_id), %s)", issueAlias, legacyStatusCategoryExpr(issueAlias))
 }
 
 func validateOptionalUUID(name string, value *string, allowNone bool) error {
@@ -307,6 +330,27 @@ func ValidateBurnupParams(params *dto.AnalyticsBurnupParams) error {
 	if from.After(to) {
 		return fmt.Errorf("from must be before or equal to to")
 	}
+	buckets := 0
+	for bucket := from; !bucket.After(to); {
+		buckets++
+		if buckets > 366 {
+			return fmt.Errorf("date range must not exceed 366 buckets")
+		}
+		switch params.Interval {
+		case "day":
+			bucket = bucket.AddDate(0, 0, 1)
+		case "week":
+			bucket = bucket.AddDate(0, 0, 7)
+		case "month":
+			year, month, day := bucket.Date()
+			month++
+			lastDay := time.Date(year, month+1, 0, 0, 0, 0, 0, bucket.Location()).Day()
+			if day > lastDay {
+				day = lastDay
+			}
+			bucket = time.Date(year, month, day, 0, 0, 0, 0, bucket.Location())
+		}
+	}
 	for _, filter := range []struct {
 		name      string
 		value     *string
@@ -320,6 +364,9 @@ func ValidateBurnupParams(params *dto.AnalyticsBurnupParams) error {
 		if err := validateOptionalUUID(filter.name, filter.value, filter.allowNone); err != nil {
 			return err
 		}
+	}
+	if params.StatusType != nil && *params.StatusType != "" && !allowedStatusTypes[*params.StatusType] {
+		return fmt.Errorf("invalid status_type")
 	}
 	return nil
 }
@@ -733,7 +780,7 @@ func (r *AnalyticsRepository) dimensionPointParts(dim, alias string) (selectPart
 	case "none":
 		return "", "", "", ""
 	case "status_type":
-		return fmt.Sprintf("COALESCE(ts.category, 'backlog')"), "", "", ""
+		return issueStatusCategoryExpr("i", "ts"), "", "", ""
 	case "status":
 		return fmt.Sprintf("i.status_id::text"), "", "", ""
 	case "priority":
@@ -818,9 +865,10 @@ func (r *AnalyticsRepository) dimensionParts(dim, alias string) (selectPart, joi
 	case "none":
 		return "", "", "", ""
 	case "status_type":
-		return fmt.Sprintf("COALESCE(ts.category, 'backlog') AS %s_key, COALESCE(ts.category, 'backlog') AS %s_label, NULL AS %s_color", alias, alias, alias),
+		categoryExpr := issueStatusCategoryExpr("i", "ts")
+		return fmt.Sprintf("%s AS %s_key, %s AS %s_label, NULL AS %s_color", categoryExpr, alias, categoryExpr, alias, alias),
 			"",
-			"COALESCE(ts.category, 'backlog')",
+			categoryExpr,
 			""
 	case "status":
 		return fmt.Sprintf("i.status_id::text AS %s_key, ts.name AS %s_label, ts.color AS %s_color", alias, alias, alias),
@@ -926,7 +974,7 @@ func (r *AnalyticsRepository) buildInsightWhere(workspaceID string, params *dto.
 		idx++
 	}
 	if params.StatusType != nil && *params.StatusType != "" {
-		where = append(where, fmt.Sprintf("ts.category = $%d", idx))
+		where = append(where, fmt.Sprintf("%s = $%d", issueStatusCategoryExpr("i", "ts"), idx))
 		args = append(args, *params.StatusType)
 		idx++
 	}
@@ -944,7 +992,7 @@ func (r *AnalyticsRepository) buildInsightWhere(workspaceID string, params *dto.
 	return where, args, nil
 }
 
-func (r *AnalyticsRepository) Burnup(ctx context.Context, workspaceID string, params *dto.AnalyticsBurnupParams) (*dto.AnalyticsBurnupResponse, error) {
+func (r *AnalyticsRepository) buildBurnupQuery(workspaceID string, params *dto.AnalyticsBurnupParams) (string, []interface{}) {
 	interval := params.Interval
 	intervalSQL := map[string]string{"day": "1 day", "week": "1 week", "month": "1 month"}[interval]
 
@@ -952,13 +1000,8 @@ func (r *AnalyticsRepository) Burnup(ctx context.Context, workspaceID string, pa
 	issueWhere := []string{"i.workspace_id = $1"}
 	whereArgs := []interface{}{workspaceID}
 	idx := 2
-	teamArgIdx := 0
-	projectArgIdx := 0
-	cycleArgIdx := 0
-	assigneeArgIdx := 0
 
 	if params.TeamID != nil && *params.TeamID != "" {
-		teamArgIdx = idx
 		issueWhere = append(issueWhere, fmt.Sprintf("i.team_id = $%d", idx))
 		whereArgs = append(whereArgs, *params.TeamID)
 		idx++
@@ -967,7 +1010,6 @@ func (r *AnalyticsRepository) Burnup(ctx context.Context, workspaceID string, pa
 		if *params.ProjectID == "none" {
 			issueWhere = append(issueWhere, "i.project_id IS NULL")
 		} else {
-			projectArgIdx = idx
 			issueWhere = append(issueWhere, fmt.Sprintf("i.project_id = $%d", idx))
 			whereArgs = append(whereArgs, *params.ProjectID)
 			idx++
@@ -977,7 +1019,6 @@ func (r *AnalyticsRepository) Burnup(ctx context.Context, workspaceID string, pa
 		if *params.CycleID == "none" {
 			issueWhere = append(issueWhere, "i.cycle_id IS NULL")
 		} else {
-			cycleArgIdx = idx
 			issueWhere = append(issueWhere, fmt.Sprintf("i.cycle_id = $%d", idx))
 			whereArgs = append(whereArgs, *params.CycleID)
 			idx++
@@ -987,7 +1028,6 @@ func (r *AnalyticsRepository) Burnup(ctx context.Context, workspaceID string, pa
 		if *params.AssigneeID == "none" {
 			issueWhere = append(issueWhere, "NOT EXISTS (SELECT 1 FROM issue_assignees ia WHERE ia.issue_id = i.id)")
 		} else {
-			assigneeArgIdx = idx
 			issueWhere = append(issueWhere, fmt.Sprintf("EXISTS (SELECT 1 FROM issue_assignees ia WHERE ia.issue_id = i.id AND ia.user_id = $%d)", idx))
 			whereArgs = append(whereArgs, *params.AssigneeID)
 			idx++
@@ -1001,58 +1041,46 @@ func (r *AnalyticsRepository) Burnup(ctx context.Context, workspaceID string, pa
 	if !includeTriage {
 		issueWhere = append(issueWhere, "i.triaged = TRUE")
 	}
-
-	// Event filter: use workspace_id from event snapshot
-	eventWhere := []string{"le.workspace_id = $1"}
-	if teamArgIdx != 0 {
-		eventWhere = append(eventWhere, fmt.Sprintf("le.team_id = $%d", teamArgIdx))
+	if params.StatusType != nil && *params.StatusType != "" {
+		issueWhere = append(issueWhere, fmt.Sprintf("%s = $%d", issueStatusCategoryExpr("i", "ts"), idx))
+		whereArgs = append(whereArgs, *params.StatusType)
+		idx++
 	}
-	if params.ProjectID != nil && *params.ProjectID == "none" {
-		eventWhere = append(eventWhere, "le.project_id IS NULL")
-	} else if projectArgIdx != 0 {
-		eventWhere = append(eventWhere, fmt.Sprintf("le.project_id = $%d", projectArgIdx))
-	}
-	if params.CycleID != nil && *params.CycleID == "none" {
-		eventWhere = append(eventWhere, "le.cycle_id IS NULL")
-	} else if cycleArgIdx != 0 {
-		eventWhere = append(eventWhere, fmt.Sprintf("le.cycle_id = $%d", cycleArgIdx))
-	}
-	if params.AssigneeID != nil && *params.AssigneeID == "none" {
-		eventWhere = append(eventWhere, "NOT EXISTS (SELECT 1 FROM issue_assignees event_ia WHERE event_ia.issue_id = le.issue_id)")
-	} else if assigneeArgIdx != 0 {
-		eventWhere = append(eventWhere, fmt.Sprintf("EXISTS (SELECT 1 FROM issue_assignees event_ia WHERE event_ia.issue_id = le.issue_id AND event_ia.user_id = $%d)", assigneeArgIdx))
-	}
-	if !includeSubIssues {
-		eventWhere = append(eventWhere, "EXISTS (SELECT 1 FROM issues event_i WHERE event_i.id = le.issue_id AND event_i.parent_id IS NULL)")
-	}
-	if !includeTriage {
-		eventWhere = append(eventWhere, "EXISTS (SELECT 1 FROM issues event_i WHERE event_i.id = le.issue_id AND event_i.triaged = TRUE)")
-	}
-	eventWhereClause := strings.Join(eventWhere, " AND ")
+	issueWhereClause := strings.Join(issueWhere, " AND ")
 
 	fromIdx := idx
 	toIdx := idx + 1
 	allArgs := append(whereArgs, params.From, params.To)
 
 	query := fmt.Sprintf(`
-		WITH buckets AS (
+		WITH scoped_issues AS (
+			SELECT i.id
+			FROM issues i
+			LEFT JOIN team_statuses ts ON ts.id = i.status_id
+			WHERE %s
+		), buckets AS (
 			SELECT generate_series(
 				$%d::date,
 				$%d::date,
 				'%s'::interval
 			)::date AS dt
+		), bounded_buckets AS (
+			SELECT dt, LEAST(dt::timestamp + '%s'::interval, $%d::date + INTERVAL '1 day') AS bucket_end
+			FROM buckets
 		)
 		SELECT
 			b.dt::text AS dt,
 			COALESCE((SELECT COUNT(*) FROM issue_lifecycle_events le
-				WHERE %s
+				JOIN scoped_issues si ON si.id = le.issue_id
+				WHERE le.workspace_id = $1
 				  AND le.event_type = 'created'
 				  AND le.created_at::date >= b.dt
-				  AND le.created_at::date < (b.dt + '%s'::interval)), 0) AS created,
+				  AND le.created_at < b.bucket_end), 0) AS created,
 			COALESCE((SELECT COUNT(*) FROM issue_lifecycle_events le
-				WHERE %s
+				JOIN scoped_issues si ON si.id = le.issue_id
+				WHERE le.workspace_id = $1
 				  AND le.event_type = 'created'
-				  AND le.created_at::date <= (b.dt + '%s'::interval - '1 day'::interval)), 0) AS total_created,
+				  AND le.created_at < b.bucket_end), 0) AS total_created,
 			COALESCE((SELECT COALESCE(SUM(net), 0) FROM (
 				SELECT le.issue_id,
 					CASE
@@ -1065,9 +1093,10 @@ func (r *AnalyticsRepository) Burnup(ctx context.Context, workspaceID string, pa
 						ELSE 0
 					END AS net
 				FROM issue_lifecycle_events le
-				WHERE %s
+				JOIN scoped_issues si ON si.id = le.issue_id
+				WHERE le.workspace_id = $1
 				  AND le.created_at::date >= b.dt
-				  AND le.created_at::date < (b.dt + '%s'::interval)
+				  AND le.created_at < b.bucket_end
 			) net_changes WHERE net_changes.net != 0), 0) AS completed,
 			COALESCE((SELECT COALESCE(SUM(net), 0) FROM (
 				SELECT le.issue_id,
@@ -1081,19 +1110,23 @@ func (r *AnalyticsRepository) Burnup(ctx context.Context, workspaceID string, pa
 						ELSE 0
 					END AS net
 				FROM issue_lifecycle_events le
-				WHERE %s
-				  AND le.created_at::date <= (b.dt + '%s'::interval - '1 day'::interval)
+				JOIN scoped_issues si ON si.id = le.issue_id
+				WHERE le.workspace_id = $1
+				  AND le.created_at < b.bucket_end
 			) net_changes WHERE net_changes.net != 0), 0) AS total_completed
-		FROM buckets b
+		FROM bounded_buckets b
 		ORDER BY b.dt`,
+		issueWhereClause,
 		fromIdx, toIdx, intervalSQL,
-		eventWhereClause, intervalSQL,
-		eventWhereClause, intervalSQL,
-		eventWhereClause, intervalSQL,
-		eventWhereClause, intervalSQL,
+		intervalSQL, toIdx,
 	)
 
 	query = r.db.Rebind(query)
+	return query, allArgs
+}
+
+func (r *AnalyticsRepository) Burnup(ctx context.Context, workspaceID string, params *dto.AnalyticsBurnupParams) (*dto.AnalyticsBurnupResponse, error) {
+	query, allArgs := r.buildBurnupQuery(workspaceID, params)
 
 	type burnupRow struct {
 		Dt             string `db:"dt"`

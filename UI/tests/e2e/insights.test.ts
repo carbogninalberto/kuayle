@@ -3,6 +3,7 @@ import { expect, test } from '@playwright/test';
 test('shows workspace analytics and opens the explorer', async ({ page }) => {
 	const teamId = '00000000-0000-0000-0000-000000000010';
 	let scopedOverviewRequests = 0;
+	const issueListQueries: URLSearchParams[] = [];
 	const pageErrors: Error[] = [];
 	page.on('pageerror', (error) => {
 		pageErrors.push(error);
@@ -160,26 +161,35 @@ test('shows workspace analytics and opens the explorer', async ({ page }) => {
 					interval: 'week',
 					from: '2026-04-14',
 					to: '2026-07-12',
-					points: [
-						{ date: '2026-07-06', created: 5, completed: 3, total_created: 42, total_completed: 24, scope: 18 }
-					]
+					points: [{ date: '2026-07-06', created: 5, completed: 3, total_created: 42, total_completed: 24, scope: 18 }]
 				}
 			});
 		}
 		if (path === '/api/workspaces/test/analytics/insights') {
+			const requestedSlice = requestUrl.searchParams.get('slice') ?? 'none';
+			const group =
+				requestedSlice === 'cycle'
+					? { key: '__null__', label: 'No cycle' }
+					: requestedSlice === 'status_type'
+						? { key: 'started', label: 'Started' }
+						: requestedSlice === 'team'
+							? { key: teamId, label: 'Engineering' }
+							: {
+									key: '00000000-0000-0000-0000-000000000003',
+									label: 'In progress',
+									color: '#6366f1'
+								};
 			return route.fulfill({
 				json: {
 					measure: 'issue_count',
-					slice: 'status',
+					slice: requestedSlice,
 					segment: 'none',
 					unit: 'issues',
 					total_count: 42,
 					aggregate: 42,
 					groups: [
 						{
-							key: '00000000-0000-0000-0000-000000000003',
-							label: 'In progress',
-							color: '#6366f1',
+							...group,
 							count: 18,
 							value: 18,
 							segments: []
@@ -188,6 +198,10 @@ test('shows workspace analytics and opens the explorer', async ({ page }) => {
 					points: []
 				}
 			});
+		}
+		if (path === '/api/workspaces/test/issues') {
+			issueListQueries.push(requestUrl.searchParams);
+			return route.fulfill({ json: { data: [], total_count: 0, page: 1, has_more: false } });
 		}
 		return route.fulfill({ status: 404, json: { error: { message: `Unhandled ${path}` } } });
 	});
@@ -214,8 +228,36 @@ test('shows workspace analytics and opens the explorer', async ({ page }) => {
 	await expect(page.getByRole('button', { name: '90 days' })).toBeVisible();
 	await page.keyboard.press('Escape');
 	await expect(page.getByText('In progress', { exact: true })).toBeVisible();
+
+	await page.goto('/test/insights?tab=explore&slice=cycle');
+	await expect(page.getByText('No cycle', { exact: true })).toBeVisible();
+	await page.getByText('No cycle', { exact: true }).click();
+	await expect(page).toHaveURL('/test/my-issues?cycle=none');
+	await expect.poll(() => issueListQueries.length).toBeGreaterThan(0);
+	const drillDownQuery = issueListQueries.at(-1)!;
+	expect(drillDownQuery.get('cycle')).toBe('none');
+	expect(drillDownQuery.has('assignee')).toBe(false);
+	expect(drillDownQuery.has('creator')).toBe(false);
+
+	await page.goto('/test/insights?tab=explore&slice=status_type');
+	const statusTypeQueryCount = issueListQueries.length;
+	await page.getByText('Started', { exact: true }).click();
+	await expect(page).toHaveURL('/test/my-issues?status_type=started');
+	await expect.poll(() => issueListQueries.length).toBeGreaterThan(statusTypeQueryCount);
+	const statusTypeQuery = issueListQueries.at(-1)!;
+	expect(statusTypeQuery.get('status_type')).toBe('started');
+	expect(statusTypeQuery.has('assignee')).toBe(false);
+	expect(statusTypeQuery.has('creator')).toBe(false);
+
+	await page.goto('/test/insights?tab=explore&slice=team');
+	const teamQueryCount = issueListQueries.length;
+	await page.getByText('Engineering', { exact: true }).last().click();
+	await expect(page).toHaveURL(`/test/my-issues?team=${teamId}`);
+	await expect.poll(() => issueListQueries.length).toBeGreaterThan(teamQueryCount);
+	expect(issueListQueries.at(-1)!.get('team')).toBe(teamId);
+
 	await page.setViewportSize({ width: 390, height: 844 });
-	await expect(page.getByLabel('Team scope')).toBeVisible();
+	await page.goto('/test/insights?tab=explore');
 	await expect(page.getByRole('tab', { name: 'Explore' })).toBeVisible();
 	await expect(page.getByLabel('Measure')).toBeVisible();
 	await expect.poll(() => pageErrors.map((error) => error.message)).toEqual([]);

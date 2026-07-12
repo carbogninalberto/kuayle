@@ -35,12 +35,7 @@
 	import type { IssuePriority } from '$lib/types/issue';
 	import type { TeamStatus } from '$lib/types/team-status';
 	import AnalyticsDateRangePicker from './AnalyticsDateRangePicker.svelte';
-	import {
-		getAnalyticsChartTheme,
-		observeAnalyticsTheme,
-		seriesChartColor,
-		statusChartColor
-	} from './chart-theme';
+	import { getAnalyticsChartTheme, observeAnalyticsTheme, seriesChartColor, statusChartColor } from './chart-theme';
 
 	let {
 		slug,
@@ -241,9 +236,7 @@
 		};
 		const colorForGroup = (key: string, color: string | null | undefined, index: number) =>
 			color?.trim() ||
-			(result?.slice === 'status_type'
-				? statusChartColor(key, null, theme)
-				: seriesChartColor(index, theme));
+			(result?.slice === 'status_type' ? statusChartColor(key, null, theme) : seriesChartColor(index, theme));
 
 		// Build group key -> index for scatterplot
 		const keyIndex = new Map<string, number>();
@@ -294,7 +287,7 @@
 				series: segKeys.map((segmentKey, segmentIndex) => ({
 					name: segLabels[segmentIndex],
 					type: 'bar' as const,
-					stack: 'total',
+					stack: isDuration ? undefined : 'total',
 					data: groups.map((group) => {
 						const segmentGroup = group.segments?.find((item) => item.key === segmentKey);
 						return segmentGroup
@@ -430,6 +423,15 @@
 	}
 
 	const handleResize = () => chart?.resize();
+	function handleChartClick(params: { componentType?: string; dataIndex?: number; value?: unknown }) {
+		if (params.componentType !== 'series' || params.dataIndex === undefined) return;
+		const groupIndex =
+			Array.isArray(params.value) && typeof params.value[0] === 'number'
+				? Math.round(params.value[0])
+				: params.dataIndex;
+		const group = result?.groups?.[groupIndex];
+		if (group && result?.slice && result.slice !== 'none') handleSliceClick(group.key);
+	}
 
 	$effect(() => {
 		result;
@@ -441,6 +443,7 @@
 	onMount(() => {
 		if (container) {
 			chart = echarts.init(container, undefined, { renderer: 'canvas' });
+			chart.on('click', handleChartClick);
 			renderChart();
 		}
 		const resizeObserver = new ResizeObserver(handleResize);
@@ -450,6 +453,7 @@
 			loadId += 1;
 			resizeObserver.disconnect();
 			stopThemeObserver();
+			chart?.off('click', handleChartClick);
 			chart?.dispose();
 			chart = null;
 		};
@@ -460,18 +464,54 @@
 		goto(`/${ws}/issue/${identifier}`);
 	}
 
+	const NULL_DRILLDOWN_KEYS = new Set(['', 'null', '__null__']);
+
+	function seedDrilldownParams(): URLSearchParams {
+		const p = new URLSearchParams();
+		const scopedFilters: Array<[string, string | undefined]> = [
+			['team', filters.team_id],
+			['project', filters.project_id],
+			['cycle', filters.cycle_id],
+			['assignee', filters.assignee_id],
+			['creator', filters.creator_id],
+			['status', filters.status_id],
+			['status_type', filters.status_type],
+			['priority', filters.priority],
+			['label', filters.label_id]
+		];
+		for (const [key, value] of scopedFilters) {
+			if (value) p.set(key, value);
+		}
+		return p;
+	}
+
+	function drilldownValue(sliceKey: AnalyticsSlice, key: string): string {
+		const value = String(key);
+		const lower = value.toLowerCase();
+		if (sliceKey === 'assignee' && (lower === 'unassigned' || NULL_DRILLDOWN_KEYS.has(lower))) return 'none';
+		if (sliceKey === 'project' && (lower === 'no-project' || NULL_DRILLDOWN_KEYS.has(lower))) return 'none';
+		if (sliceKey === 'cycle' && (lower === 'no-cycle' || NULL_DRILLDOWN_KEYS.has(lower))) return 'none';
+		if (sliceKey === 'label' && (lower === 'no-label' || NULL_DRILLDOWN_KEYS.has(lower))) return 'none';
+		return value;
+	}
+
 	function handleSliceClick(key: string) {
 		const ws = slug;
-		const p = new URLSearchParams();
-		if (result?.slice === 'status') p.set('status', key);
-		else if (result?.slice === 'priority') p.set('priority', key);
-		else if (result?.slice === 'assignee') p.set('assignee', key);
-		else if (result?.slice === 'project') p.set('project', key);
-		else if (result?.slice === 'team') p.set('team', key);
-		else if (result?.slice === 'label') p.set('label', key);
-		else if (result?.slice === 'creator') p.set('creator', key);
+		const p = seedDrilldownParams();
+		const currentSlice = result?.slice;
+		if (!currentSlice || currentSlice === 'none') return;
+		const normalizedKey = drilldownValue(currentSlice, key);
+		if (currentSlice === 'status') p.set('status', normalizedKey);
+		else if (currentSlice === 'status_type') p.set('status_type', normalizedKey);
+		else if (currentSlice === 'priority') p.set('priority', normalizedKey);
+		else if (currentSlice === 'assignee') p.set('assignee', normalizedKey);
+		else if (currentSlice === 'project') p.set('project', normalizedKey);
+		else if (currentSlice === 'cycle') p.set('cycle', normalizedKey);
+		else if (currentSlice === 'team') p.set('team', normalizedKey);
+		else if (currentSlice === 'label') p.set('label', normalizedKey);
+		else if (currentSlice === 'creator') p.set('creator', normalizedKey);
 		const qs = p.toString();
-		goto(`/${ws}/my-issues${qs ? `?${qs}` : ''}`);
+		if (qs) goto(`/${ws}/my-issues?${qs}`);
 	}
 
 	function statusForGroup(key: string): TeamStatus | undefined {
@@ -480,10 +520,16 @@
 </script>
 
 <div class="space-y-4">
-	<div class="flex flex-wrap items-end gap-3 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]/50 p-3">
+	<div
+		class="flex flex-wrap items-end gap-3 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]/50 p-3"
+	>
 		<div class="flex flex-col gap-1">
 			<span class="text-[11px] font-medium text-[var(--color-text-tertiary)]">Measure</span>
-			<Select.Root type="single" value={measure} onValueChange={(value) => value && (measure = value as AnalyticsMeasure)}>
+			<Select.Root
+				type="single"
+				value={measure}
+				onValueChange={(value) => value && (measure = value as AnalyticsMeasure)}
+			>
 				<Select.Trigger size="sm" aria-label="Measure" class="w-[170px] bg-[var(--color-bg)]">
 					<MeasureIcon size={13} />
 					{selectedMeasure.label}
@@ -514,7 +560,11 @@
 		{#if slice !== 'none'}
 			<div class="flex flex-col gap-1">
 				<span class="text-[11px] font-medium text-[var(--color-text-tertiary)]">Segment by</span>
-				<Select.Root type="single" value={segment} onValueChange={(value) => value && (segment = value as AnalyticsSlice)}>
+				<Select.Root
+					type="single"
+					value={segment}
+					onValueChange={(value) => value && (segment = value as AnalyticsSlice)}
+				>
 					<Select.Trigger size="sm" aria-label="Segment by" class="w-[160px] bg-[var(--color-bg)]">
 						<SegmentIcon size={13} />
 						{selectedSegment.label}
@@ -534,7 +584,10 @@
 				startDate={fromDate}
 				endDate={toDate}
 				allowClear
-				onchange={(start, end) => { fromDate = start; toDate = end; }}
+				onchange={(start, end) => {
+					fromDate = start;
+					toDate = end;
+				}}
 			/>
 		</div>
 	</div>
@@ -605,11 +658,17 @@
 							<td class="px-3 py-2">
 								<div class="flex items-center gap-2">
 									{#if slice === 'status'}
-										<IssueStatusIcon category={groupStatus?.category} color={groupStatus?.color ?? group.color} size={14} />
+										<IssueStatusIcon
+											category={groupStatus?.category}
+											color={groupStatus?.color ?? group.color}
+											size={14}
+										/>
 									{:else if slice === 'status_type'}
 										<IssueStatusIcon category={group.key} size={14} />
 									{:else if slice === 'priority'}
-										<span class="text-[var(--color-text-secondary)]"><IssuePriorityIcon priority={Number(group.key) as IssuePriority} size={14} /></span>
+										<span class="text-[var(--color-text-secondary)]"
+											><IssuePriorityIcon priority={Number(group.key) as IssuePriority} size={14} /></span
+										>
 									{:else if group.color}
 										<span class="inline-block h-2.5 w-2.5 shrink-0 rounded-full" style="background-color: {group.color}"
 										></span>
