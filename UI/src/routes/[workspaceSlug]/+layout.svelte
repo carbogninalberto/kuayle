@@ -401,14 +401,14 @@
 			case 'issues.bulk_updated':
 			case 'issues.bulk_deleted': {
 				if (slug && issuesState.issues.length > 0) {
-					issuesState.load(slug, issuesState.filters);
+					issuesState.load(slug, issuesState.filters, false);
 				}
 				window.dispatchEvent(new CustomEvent('ws:issue-updated', { detail: msg.payload }));
 				break;
 			}
 			case 'issue.deleted': {
 				if (slug && issuesState.issues.length > 0) {
-					issuesState.load(slug, issuesState.filters);
+					issuesState.load(slug, issuesState.filters, false);
 				}
 				window.dispatchEvent(new CustomEvent('ws:issue-deleted', { detail: msg.payload }));
 				break;
@@ -543,13 +543,6 @@
 			try {
 				const created = await issuesState.create(slug, req);
 				showIssueCreatedToast(slug, created);
-				// If the created issue's team doesn't match the current page's team filter,
-				// remove it from the optimistic list to avoid confusion
-				const currentTeam = page.params.teamId;
-				if (currentTeam && created.team_id !== currentTeam) {
-					issuesState.issues = issuesState.issues.filter(i => i.id !== created.id);
-					issuesState.totalCount--;
-				}
 			} catch (err: any) {
 				appToast.apiError(err, 'Failed to create issue');
 			}

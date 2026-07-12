@@ -165,7 +165,7 @@ class IssuesState {
 		this.clearSelection();
 	}
 
-	beginLoad(slug: string, params?: Record<string, string>) {
+	beginLoad(slug: string, params?: Record<string, string>, showLoading = true) {
 		this.loadRequestId++;
 		this.currentSlug = slug;
 		// If the view changed, drop any selection from the previous view so
@@ -178,11 +178,11 @@ class IssuesState {
 		this.filters = params ?? {};
 		this.currentPage = Number(params?.page ?? 1) || 1;
 		this.hasMore = false;
-		this.loading = true;
+		if (showLoading) this.loading = true;
 	}
 
-	async load(slug: string, params?: Record<string, string>) {
-		this.beginLoad(slug, params);
+	async load(slug: string, params?: Record<string, string>, showLoading = true) {
+		this.beginLoad(slug, params, showLoading);
 		const requestId = this.loadRequestId;
 		try {
 			const res = await issueApi.listIssues(slug, params);
@@ -226,8 +226,13 @@ class IssuesState {
 		// Only add to local list if it matches the current team filter
 		const teamFilter = this.filters.team;
 		if (!teamFilter || issue.team_id === teamFilter) {
-			this.issues = [issue, ...this.issues];
-			this.totalCount++;
+			const existingIndex = this.issues.findIndex((existing) => existing.id === issue.id);
+			if (existingIndex >= 0) {
+				this.issues[existingIndex] = issue;
+			} else {
+				this.issues = [issue, ...this.issues];
+				this.totalCount++;
+			}
 		}
 		return issue;
 	}
