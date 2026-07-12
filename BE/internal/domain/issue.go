@@ -46,6 +46,10 @@ type Issue struct {
 	SortOrder   float64       `json:"sort_order" db:"sort_order"`
 	StatusID    *uuid.UUID    `json:"status_id" db:"status_id"`
 	Triaged     bool          `json:"triaged" db:"triaged"`
+	StartedAt   *time.Time    `json:"started_at" db:"started_at"`
+	CompletedAt *time.Time    `json:"completed_at" db:"completed_at"`
+	CancelledAt *time.Time    `json:"cancelled_at" db:"cancelled_at"`
+	TriagedAt   *time.Time    `json:"triaged_at" db:"triaged_at"`
 	CreatedAt   time.Time     `json:"created_at" db:"created_at"`
 	UpdatedAt   time.Time     `json:"updated_at" db:"updated_at"`
 }

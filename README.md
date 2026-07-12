@@ -21,7 +21,7 @@ Kuayle v0.1.0 is a runnable MVP, not a mature enterprise platform. The repositor
 | **Core tracker** | Available: auth, workspaces, RBAC, teams, custom statuses, issues, multiple assignees, labels, comments, history, sub-issues, relations, triage, templates, favorites, saved views, notifications, public sharing, uploads, and WebSocket events. |
 | **Planning**     | Implemented: cycles with burndown/velocity charts, project management with Gantt view, and full cycle/project UI.                                                                                                                                         |
 | **Integrations** | Available: workspace webhooks and a GitHub App with repository linking, branch/commit/PR activity, configurable status transitions, and WebSocket refresh events. Private networks require a webhook relay or tunnel.                                              |
-| **Analytics**    | Backend endpoints exist for overview and issue distribution; a dedicated frontend analytics page is not wired yet.                                                                                                                                        |
+| **Analytics**    | Workspace and team overviews, burn-up trends, and configurable issue insights backed by durable lifecycle events.                                                                                                                                              |
 | **Dev Machines** | Specification/design only in this repo today. The runtime container manager and UI flow are not wired into the app yet; see [`TECHNICAL.md`](TECHNICAL.md).                                                                                               |
 | **Self-hosting** | Reference Docker Compose stack with Caddy, PostgreSQL, Redis, backend, frontend, an update script, and dedicated config in [`selfhosting/`](selfhosting/).                                                                                                       |
 
@@ -37,7 +37,7 @@ The distribution model is deliberately simple:
 - no per-user software fee;
 - infrastructure, backups, monitoring, and updates remain the operator's responsibility.
 
-The product is intentionally smaller than broad project-management suites. It covers issues, cycles, projects, saved views, GitHub automation, public sharing, and real-time events. It does not currently include an analytics UI, import/export workflows, enterprise identity, a wiki, or modules.
+The product is intentionally smaller than broad project-management suites. It covers issues, cycles, projects, saved views, analytics, GitHub automation, public sharing, and real-time events. It does not currently include import/export workflows, enterprise identity, a wiki, or modules.
 
 ## ✨ Features
 
@@ -56,7 +56,7 @@ The product is intentionally smaller than broad project-management suites. It co
 | ⚡  | **Real-time**          | Workspace WebSocket events for issues, comments, cycles, views, GitHub, and presence |
 | 🖥️  | **Dev Machines**       | Technical specification for on-demand, single-container development environments |
 | 🐙  | **GitHub**             | Link repos, match issue IDs in development activity, and apply status rules      |
-| 📊  | **Analytics**          | Backend overview and issue distribution endpoints                                |
+| 📊  | **Analytics**          | Workspace/team overview, burn-up, and configurable insights                     |
 | 🔗  | **Public Sharing**     | Token-based read-only links for issues and views                                 |
 | 📦  | **Asset Management**   | File uploads, signed URLs for prompt images, S3-compatible storage               |
 | ⌨️  | **Command Palette**    | Global search with highlighting, keyboard shortcuts, and quick actions           |

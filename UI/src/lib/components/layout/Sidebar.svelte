@@ -55,7 +55,8 @@
 		Ellipsis,
 		Trash2,
 		Info,
-		CircleQuestionMark
+		CircleQuestionMark,
+		BarChart3
 	} from 'lucide-svelte';
 
 	let {
@@ -706,6 +707,15 @@
 				>
 					<CircleUser size={16} class="shrink-0" />
 					<span class="truncate">My Issues</span>
+				</a>
+				<a
+					href="/{slug}/insights"
+					class="flex items-center gap-2 rounded-md px-2 py-1 text-sm {isActive(`/${slug}/insights`)
+						? 'bg-[var(--color-bg-hover)]/50 text-[var(--color-text-primary)]'
+						: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
+				>
+					<BarChart3 size={16} class="shrink-0" />
+					<span class="truncate">Insights</span>
 				</a>
 			</div>
 
