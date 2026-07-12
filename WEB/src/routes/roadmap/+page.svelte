@@ -25,10 +25,11 @@
 		},
 		{
 			heading: 'Available in v0.1.0',
-			body: 'The current MVP includes the issue workflow, workspace roles, teams, custom statuses, comments, sub-issues, relations, labels, cycles, projects, saved views, notifications, public sharing, webhooks and GitHub integration.',
+			body: 'The current MVP includes the issue workflow, workspace roles, teams, custom statuses, comments, sub-issues, relations, labels, cycles, projects, saved views, analytics, notifications, public sharing, webhooks and GitHub integration.',
 			list: [
 				'Cycle burndown and velocity charts',
 				'Project issue list and Gantt view',
+				'Workspace insights, lifecycle metrics and burn-up trends',
 				'GitHub activity linking and configurable status transitions',
 				'WebSocket updates and issue presence'
 			]
@@ -37,7 +38,6 @@
 			heading: 'Known gaps',
 			body: 'These capabilities are not available in the current user interface. Their absence is documented so teams can evaluate Kuayle against present requirements rather than future assumptions.',
 			list: [
-				'Analytics dashboard: backend overview endpoints exist, but no dedicated UI',
 				'Data import and export workflows',
 				'Enterprise identity: SSO, SAML, SCIM and LDAP',
 				'GitLab and chat integrations'

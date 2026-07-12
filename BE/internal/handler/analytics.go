@@ -3,68 +3,98 @@ package handler
 import (
 	"net/http"
 
+	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
+	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/pkg/response"
-	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo/v4"
 )
 
 type AnalyticsHandler struct {
-	db *sqlx.DB
+	repo *repository.AnalyticsRepository
 }
 
-func NewAnalyticsHandler(db *sqlx.DB) *AnalyticsHandler {
-	return &AnalyticsHandler{db: db}
+func NewAnalyticsHandler(repo *repository.AnalyticsRepository) *AnalyticsHandler {
+	return &AnalyticsHandler{repo: repo}
 }
 
 func (h *AnalyticsHandler) Overview(c echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
-	ctx := c.Request().Context()
+	var params dto.AnalyticsScopeParams
+	if err := c.Bind(&params); err != nil {
+		return response.Error(c, http.StatusBadRequest, "INVALID_PARAMS", "Invalid parameters")
+	}
+	if params.TeamID != "" {
+		if _, err := uuid.Parse(params.TeamID); err != nil {
+			return response.Error(c, http.StatusBadRequest, "INVALID_PARAMS", "invalid team_id")
+		}
+	}
 
-	var overview dto.AnalyticsOverview
-
-	// Total issues
-	h.db.GetContext(ctx, &overview.TotalIssues,
-		`SELECT COUNT(*) FROM issues WHERE workspace_id = $1`, ws.ID)
-
-	// Open issues (not done/cancelled)
-	h.db.GetContext(ctx, &overview.OpenIssues,
-		`SELECT COUNT(*) FROM issues WHERE workspace_id = $1 AND status NOT IN ('done', 'cancelled')`, ws.ID)
-
-	// Completed issues
-	h.db.GetContext(ctx, &overview.CompletedIssues,
-		`SELECT COUNT(*) FROM issues WHERE workspace_id = $1 AND status = 'done'`, ws.ID)
-
-	// Overdue issues
-	h.db.GetContext(ctx, &overview.OverdueIssues,
-		`SELECT COUNT(*) FROM issues WHERE workspace_id = $1 AND due_date < NOW() AND status NOT IN ('done', 'cancelled')`, ws.ID)
-
-	// Total projects
-	h.db.GetContext(ctx, &overview.TotalProjects,
-		`SELECT COUNT(*) FROM projects WHERE workspace_id = $1`, ws.ID)
-
-	// Total members
-	h.db.GetContext(ctx, &overview.TotalMembers,
-		`SELECT COUNT(*) FROM workspace_members WHERE workspace_id = $1`, ws.ID)
+	overview, err := h.repo.Overview(c.Request().Context(), ws.ID.String(), params.TeamID)
+	if err != nil {
+		return response.InternalError(c)
+	}
 
 	return response.Success(c, http.StatusOK, overview)
 }
 
 func (h *AnalyticsHandler) IssueDistribution(c echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
-	ctx := c.Request().Context()
+	var params dto.AnalyticsScopeParams
+	if err := c.Bind(&params); err != nil {
+		return response.Error(c, http.StatusBadRequest, "INVALID_PARAMS", "Invalid parameters")
+	}
+	if params.TeamID != "" {
+		if _, err := uuid.Parse(params.TeamID); err != nil {
+			return response.Error(c, http.StatusBadRequest, "INVALID_PARAMS", "invalid team_id")
+		}
+	}
 
-	var byStatus []dto.StatusCount
-	h.db.SelectContext(ctx, &byStatus,
-		`SELECT status, COUNT(*) as count FROM issues WHERE workspace_id = $1 GROUP BY status ORDER BY count DESC`, ws.ID)
+	dist, err := h.repo.Distribution(c.Request().Context(), ws.ID.String(), params.TeamID)
+	if err != nil {
+		return response.InternalError(c)
+	}
 
-	var byPriority []dto.PriorityCount
-	h.db.SelectContext(ctx, &byPriority,
-		`SELECT priority, COUNT(*) as count FROM issues WHERE workspace_id = $1 GROUP BY priority ORDER BY priority`, ws.ID)
+	return response.Success(c, http.StatusOK, dist)
+}
 
-	return response.Success(c, http.StatusOK, dto.AnalyticsIssueDistribution{
-		ByStatus:   byStatus,
-		ByPriority: byPriority,
-	})
+func (h *AnalyticsHandler) Insights(c echo.Context) error {
+	ws := c.Get("workspace").(*domain.Workspace)
+
+	var params dto.AnalyticsInsightsParams
+	if err := c.Bind(&params); err != nil {
+		return response.Error(c, http.StatusBadRequest, "INVALID_PARAMS", "Invalid parameters")
+	}
+
+	if err := repository.ValidateInsightParams(&params); err != nil {
+		return response.Error(c, http.StatusBadRequest, "INVALID_PARAMS", err.Error())
+	}
+
+	result, err := h.repo.Insights(c.Request().Context(), ws.ID.String(), &params)
+	if err != nil {
+		return response.InternalError(c)
+	}
+
+	return response.Success(c, http.StatusOK, result)
+}
+
+func (h *AnalyticsHandler) Burnup(c echo.Context) error {
+	ws := c.Get("workspace").(*domain.Workspace)
+
+	var params dto.AnalyticsBurnupParams
+	if err := c.Bind(&params); err != nil {
+		return response.Error(c, http.StatusBadRequest, "INVALID_PARAMS", "Invalid parameters")
+	}
+
+	if err := repository.ValidateBurnupParams(&params); err != nil {
+		return response.Error(c, http.StatusBadRequest, "INVALID_PARAMS", err.Error())
+	}
+
+	result, err := h.repo.Burnup(c.Request().Context(), ws.ID.String(), &params)
+	if err != nil {
+		return response.InternalError(c)
+	}
+
+	return response.Success(c, http.StatusOK, result)
 }

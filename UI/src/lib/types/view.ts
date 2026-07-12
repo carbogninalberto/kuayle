@@ -3,11 +3,13 @@ export interface ViewFilter {
 	view_scope?: ViewScope;
 	view_team?: string;
 	status?: string;
+	status_type?: string;
 	priority?: string;
 	assignee?: string;
 	creator?: string;
 	team?: string;
 	project?: string;
+	cycle?: string;
 	label?: string;
 	sub_issues?: string;
 	search?: string;

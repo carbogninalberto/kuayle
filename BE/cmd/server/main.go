@@ -109,7 +109,8 @@ func main() {
 	favH := handler.NewFavoriteHandler(favSvc)
 	prefsH := handler.NewPreferencesHandler(prefsSvc)
 	aiSettingsH := handler.NewAISettingsHandler(aiSettingsSvc)
-	analyticsH := handler.NewAnalyticsHandler(db)
+	analyticsRepo := repository.NewAnalyticsRepository(db)
+	analyticsH := handler.NewAnalyticsHandler(analyticsRepo)
 	systemH := handler.NewSystemHandler(cfg.SystemUpdaterURL, cfg.SystemUpdaterToken, cfg.IsSysAdmin)
 	webhookRepo := repository.NewWebhookRepository(db)
 	webhookSvc := service.NewWebhookService(webhookRepo, cfg.JWTSecret)
@@ -293,6 +294,8 @@ func main() {
 	// Analytics
 	ws.GET("/analytics/overview", analyticsH.Overview)
 	ws.GET("/analytics/distribution", analyticsH.IssueDistribution)
+	ws.GET("/analytics/insights", analyticsH.Insights)
+	ws.GET("/analytics/burnup", analyticsH.Burnup)
 
 	// Webhooks
 	ws.GET("/webhooks", webhookH.List, mw.RequirePermission("workspace:manage"))

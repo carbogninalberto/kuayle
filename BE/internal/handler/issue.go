@@ -256,7 +256,11 @@ func (h *IssueHandler) Get(c echo.Context) error {
 	identifier := c.Param("identifier")
 
 	issue, err := h.issueSvc.GetByIdentifier(c.Request().Context(), ws.ID, identifier)
-	if err != nil || issue == nil {
+	if err != nil {
+		log.WithError(err).Error("issue get failed")
+		return response.InternalError(c)
+	}
+	if issue == nil {
 		return response.NotFound(c, "Issue")
 	}
 
