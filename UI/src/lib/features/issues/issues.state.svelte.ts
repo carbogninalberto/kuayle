@@ -178,6 +178,7 @@ class IssuesState {
 		this.filters = params ?? {};
 		this.currentPage = Number(params?.page ?? 1) || 1;
 		this.hasMore = false;
+		this.loadingMore = false;
 		if (showLoading) this.loading = true;
 	}
 

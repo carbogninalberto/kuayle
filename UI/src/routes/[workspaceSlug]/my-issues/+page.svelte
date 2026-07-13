@@ -71,12 +71,13 @@
 		relationDialogOpen = true;
 	}
 
-	onMount(async () => {
-		const [p, l, m] = await Promise.all([listProjects(slug), listLabels(slug), listMembers(slug)]);
-		projects = p;
-		labels = l;
-		members = m;
-		loadIssues();
+	onMount(() => {
+		void loadIssues();
+		void Promise.all([listProjects(slug), listLabels(slug), listMembers(slug)]).then(([p, l, m]) => {
+			projects = p;
+			labels = l;
+			members = m;
+		});
 	});
 
 	async function loadIssues() {

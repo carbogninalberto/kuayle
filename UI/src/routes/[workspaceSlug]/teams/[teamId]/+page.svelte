@@ -95,23 +95,31 @@
 		const t = teamId;
 		if (!s || !t) return;
 		const currentInitialization = ++initializationId;
-		void preferencesState.syncRemote().then(() => {
-			if (currentInitialization !== initializationId || s !== slug || t !== teamId) return;
-			issuesState.groupBy = preferencesState.issuesGroupBy;
-			issuesState.beginLoad(s, getIssueParams());
-			teamStatusesState.reload(s, t);
-			return Promise.all([listTeams(s), listProjects(s), listLabels(s), listMembers(s), listCycles(s, t)]).then(
-				([te, p, l, m, c]) => {
-					if (currentInitialization !== initializationId) return;
-					teams = te;
-					projects = p;
-					labels = l;
-					members = m;
-					cycles = c;
-					loadIssues();
+		void preferencesState
+			.syncRemote()
+			.then(() => {
+				if (currentInitialization !== initializationId || s !== slug || t !== teamId) return;
+				issuesState.groupBy = preferencesState.issuesGroupBy;
+				void teamStatusesState.reload(s, t);
+				return Promise.all([
+					issuesState.load(s, getIssueParams()),
+					Promise.all([listTeams(s), listProjects(s), listLabels(s), listMembers(s), listCycles(s, t)]).then(
+						([te, p, l, m, c]) => {
+							if (currentInitialization !== initializationId || s !== slug || t !== teamId) return;
+							teams = te;
+							projects = p;
+							labels = l;
+							members = m;
+							cycles = c;
+						}
+					)
+				]);
+			})
+			.catch(() => {
+				if (currentInitialization === initializationId && s === slug && t === teamId) {
+					appToast.error('Failed to load issues');
 				}
-			);
-		});
+			});
 	});
 
 	$effect(() => {

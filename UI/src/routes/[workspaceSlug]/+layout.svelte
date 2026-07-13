@@ -52,33 +52,42 @@
 	let confirmAction = $state<'leave' | 'delete' | null>(null);
 	let confirmOpen = $state(false);
 	let confirmSubmitting = $state(false);
+	let authReady = $state(false);
+	let workspaceLoadId = 0;
 	const isMobile = new IsMobile();
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	const isSettings = $derived(page.url.pathname.includes('/settings'));
 
 	async function loadWorkspaceData(workspaceSlug: string) {
+		const loadId = ++workspaceLoadId;
 		try {
-			const [ws, t, p, l, m, v, notifRes] = await Promise.all([
-				getWorkspace(workspaceSlug),
-				listTeams(workspaceSlug),
+			const workspaceRequest = getWorkspace(workspaceSlug);
+			const teamsRequest = listTeams(workspaceSlug);
+			const renderRequest = Promise.all([workspaceRequest, teamsRequest]).then(([ws, t]) => {
+				if (loadId !== workspaceLoadId) return;
+				workspace = ws;
+				teams = t;
+				sidebarState.teams = t;
+			});
+			const navigationRequest = Promise.all([
 				listProjects(workspaceSlug),
 				listLabels(workspaceSlug),
 				listMembers(workspaceSlug),
 				listViews(workspaceSlug),
 				listNotifications()
-			]);
-			workspace = ws;
-			teams = t;
-			projects = p;
-			sidebarState.teams = t;
-			sidebarState.projects = p;
-			labels = l;
-			members = m;
-			views = v;
-			unreadCount = notifRes.unread_count;
+			]).then(([p, l, m, v, notifRes]) => {
+				if (loadId !== workspaceLoadId) return;
+				projects = p;
+				sidebarState.projects = p;
+				labels = l;
+				members = m;
+				views = v;
+				unreadCount = notifRes.unread_count;
+			});
+			await Promise.all([renderRequest, navigationRequest]);
 		} catch {
-			goto('/login');
+			if (loadId === workspaceLoadId) goto('/login');
 		}
 	}
 
@@ -140,16 +149,24 @@
 			goto('/login');
 			return;
 		}
-		preferencesState.syncRemote();
-		await loadWorkspaceData(slug);
+		void preferencesState.syncRemote();
+		authReady = true;
 	});
 
 	// Re-fetch all data when workspace slug changes (e.g. workspace switch)
 	let loadedSlug = '';
 	$effect(() => {
-		if (slug && slug !== loadedSlug) {
+		if (authReady && slug && slug !== loadedSlug) {
 			loadedSlug = slug;
-			loadWorkspaceData(slug);
+			workspace = null;
+			teams = [];
+			projects = [];
+			labels = [];
+			members = [];
+			views = [];
+			sidebarState.teams = [];
+			sidebarState.projects = [];
+			void loadWorkspaceData(slug);
 		}
 	});
 
