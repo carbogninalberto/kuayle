@@ -28,7 +28,7 @@
 		ChevronUp, ChevronDown, ChevronRight, Plus, CalendarDays,
 		Copy, Link as LinkIcon, GitBranch, SquareMousePointer,
 		CircleDot, ArrowUpCircle, UserCircle, FolderKanban, Pencil, Layers,
-		Tag, RefreshCw, ArrowUp, Paperclip, MoreHorizontal, Check, Bell,
+		Tag, RefreshCw, ArrowUp, MoreHorizontal, Check, Bell,
 		Trash2, CornerDownRight, Ban, ArrowRight
 	} from 'lucide-svelte';
 	import { listCycles } from '$lib/api/cycles';
@@ -1173,9 +1173,6 @@
 											{/key}
 										</div>
 										<div class="flex shrink-0 items-center gap-1.5">
-											<button class="rounded p-1.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]" title="Attach file">
-												<Paperclip size={14} />
-											</button>
 											<button
 												onclick={() => handleReply(comment.id)}
 												disabled={!(replyContents[comment.id]?.trim()) || replyContents[comment.id] === '<p></p>'}
@@ -1224,9 +1221,6 @@
 							{/key}
 						</div>
 						<div class="flex shrink-0 items-center gap-1.5">
-							<button class="rounded p-1.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]" title="Attach file">
-								<Paperclip size={14} />
-							</button>
 							<button
 								onclick={handleAddComment}
 								disabled={!newComment.trim() || newComment === '<p></p>'}

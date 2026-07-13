@@ -38,8 +38,11 @@ func init() {
 	policy.AllowAttrs("data-id").Globally()
 	policy.AllowAttrs("data-label").Globally()
 	policy.AllowAttrs("data-kind").Globally()
+	policy.AllowAttrs("data-identifier").Globally()
+	policy.AllowAttrs("data-filename").Globally()
+	policy.AllowAttrs("data-size").Globally()
 
-	policy.AllowAttrs("href", "target", "rel").OnElements("a")
+	policy.AllowAttrs("href", "target", "rel", "download").OnElements("a")
 	policy.AllowStandardURLs()
 	policy.AllowRelativeURLs(true)
 	policy.AddTargetBlankToFullyQualifiedLinks(true)

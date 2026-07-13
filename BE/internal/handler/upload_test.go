@@ -75,7 +75,8 @@ func TestUploadCreatesProtectedAssetURL(t *testing.T) {
 	header.Set("Content-Type", "image/png")
 	part, err := writer.CreatePart(header)
 	require.NoError(t, err)
-	_, err = part.Write([]byte("image bytes"))
+	pngBytes := []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")
+	_, err = part.Write(pngBytes)
 	require.NoError(t, err)
 	require.NoError(t, writer.Close())
 
@@ -91,12 +92,96 @@ func TestUploadCreatesProtectedAssetURL(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), `/api/workspaces/acme/assets/`)
+	assert.Contains(t, rec.Body.String(), `"content_type":"image/png"`)
 	assert.Len(t, assetRepo.assets, 1)
 	for _, asset := range assetRepo.assets {
 		assert.Equal(t, "screenshot.png", asset.Filename)
 		assert.Equal(t, "image/png", asset.ContentType)
-		assert.Equal(t, "image bytes", store.files[asset.StorageKey])
+		assert.Equal(t, string(pngBytes), store.files[asset.StorageKey])
 	}
+}
+
+func TestUploadAcceptsDocumentAttachment(t *testing.T) {
+	e := echo.New()
+	store := &memoryStorage{}
+	assetRepo := &memoryAssetRepo{}
+	h := NewUploadHandler(store, assetRepo, nil, "secret-32-characters-minimum-value")
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	header := make(textproto.MIMEHeader)
+	header.Set("Content-Disposition", `form-data; name="file"; filename="requirements.pdf"`)
+	header.Set("Content-Type", "application/pdf")
+	part, err := writer.CreatePart(header)
+	require.NoError(t, err)
+	_, err = part.Write([]byte("%PDF-1.7\n1 0 obj\n<<>>\nendobj\n"))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+
+	req := httptest.NewRequest(http.MethodPost, "/api/workspaces/acme/upload", body)
+	req.Header.Set(echo.HeaderContentType, writer.FormDataContentType())
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.Set("workspace", &domain.Workspace{ID: uuid.New(), Slug: "acme"})
+	c.Set("user_id", uuid.New())
+
+	require.NoError(t, h.Upload(c))
+	assert.Equal(t, http.StatusOK, rec.Code)
+	require.Len(t, assetRepo.assets, 1)
+	for _, asset := range assetRepo.assets {
+		assert.Equal(t, "requirements.pdf", asset.Filename)
+		assert.Equal(t, "application/pdf", asset.ContentType)
+	}
+}
+
+func TestUploadRejectsUnsupportedFileType(t *testing.T) {
+	e := echo.New()
+	h := NewUploadHandler(&memoryStorage{}, &memoryAssetRepo{}, nil, "secret-32-characters-minimum-value")
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	header := make(textproto.MIMEHeader)
+	header.Set("Content-Disposition", `form-data; name="file"; filename="page.html"`)
+	header.Set("Content-Type", "text/html")
+	part, err := writer.CreatePart(header)
+	require.NoError(t, err)
+	_, err = part.Write([]byte("<html></html>"))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+
+	req := httptest.NewRequest(http.MethodPost, "/api/workspaces/acme/upload", body)
+	req.Header.Set(echo.HeaderContentType, writer.FormDataContentType())
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.Set("workspace", &domain.Workspace{ID: uuid.New(), Slug: "acme"})
+	c.Set("user_id", uuid.New())
+
+	require.NoError(t, h.Upload(c))
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestUploadRejectsSpoofedContentType(t *testing.T) {
+	e := echo.New()
+	h := NewUploadHandler(&memoryStorage{}, &memoryAssetRepo{}, nil, "secret-32-characters-minimum-value")
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	header := make(textproto.MIMEHeader)
+	header.Set("Content-Disposition", `form-data; name="file"; filename="page.html"`)
+	header.Set("Content-Type", "application/pdf")
+	part, err := writer.CreatePart(header)
+	require.NoError(t, err)
+	_, err = part.Write([]byte("<!doctype html><html><body>unsafe</body></html>"))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+
+	req := httptest.NewRequest(http.MethodPost, "/api/workspaces/acme/upload", body)
+	req.Header.Set(echo.HeaderContentType, writer.FormDataContentType())
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.Set("workspace", &domain.Workspace{ID: uuid.New(), Slug: "acme"})
+	c.Set("user_id", uuid.New())
+
+	require.NoError(t, h.Upload(c))
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestGetAssetStreamsWorkspaceAsset(t *testing.T) {
@@ -129,6 +214,31 @@ func TestGetAssetStreamsWorkspaceAsset(t *testing.T) {
 	assert.Equal(t, "image bytes", rec.Body.String())
 }
 
+func TestGetAssetCanForceSafeDownload(t *testing.T) {
+	e := echo.New()
+	assetID := uuid.New()
+	workspaceID := uuid.New()
+	store := &memoryStorage{files: map[string]string{"asset.pdf": "pdf bytes"}}
+	assetRepo := &memoryAssetRepo{assets: map[uuid.UUID]*domain.Asset{
+		assetID: {
+			ID: assetID, WorkspaceID: workspaceID, StorageKey: "asset.pdf",
+			Filename: "project plan.pdf", ContentType: "application/pdf",
+		},
+	}}
+	h := NewUploadHandler(store, assetRepo, nil, "secret-32-characters-minimum-value")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/workspaces/acme/assets/"+assetID.String()+"?download=1", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.Set("workspace", &domain.Workspace{ID: workspaceID, Slug: "acme"})
+	c.SetParamNames("assetId")
+	c.SetParamValues(assetID.String())
+
+	require.NoError(t, h.GetAsset(c))
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, `attachment; filename="project plan.pdf"`, rec.Header().Get("Content-Disposition"))
+}
+
 func TestPublicAssetRequiresValidToken(t *testing.T) {
 	e := echo.New()
 	assetID := uuid.New()
@@ -158,6 +268,33 @@ func TestPublicAssetRequiresValidToken(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "image bytes", rec.Body.String())
+}
+
+func TestPublicAssetCanForceSafeDownload(t *testing.T) {
+	e := echo.New()
+	assetID := uuid.New()
+	workspaceID := uuid.New()
+	issueID := uuid.New()
+	store := &memoryStorage{files: map[string]string{"asset.pdf": "%PDF-1.7"}}
+	assetRepo := &memoryAssetRepo{assets: map[uuid.UUID]*domain.Asset{
+		assetID: {
+			ID: assetID, WorkspaceID: workspaceID, StorageKey: "asset.pdf",
+			Filename: "public plan.pdf", ContentType: "application/pdf",
+		},
+	}}
+	h := NewUploadHandler(store, assetRepo, nil, "secret-32-characters-minimum-value")
+	token, _, err := assettoken.Generate("secret-32-characters-minimum-value:prompt-assets", assetID, workspaceID, issueID, time.Hour)
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/public/assets/"+token+"?download=1", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.SetParamNames("token")
+	c.SetParamValues(token)
+
+	require.NoError(t, h.PublicAsset(c))
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, `attachment; filename="public plan.pdf"`, rec.Header().Get("Content-Disposition"))
 }
 
 func TestExtractProtectedAssetSourcesIgnoresExternalImages(t *testing.T) {

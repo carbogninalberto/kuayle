@@ -6,23 +6,28 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/repository"
-	"github.com/google/uuid"
+	"github.com/kuayle/kuayle-backend/pkg/assettoken"
 )
 
+var protectedPublicAssetPattern = regexp.MustCompile(`(?i)(\b(?:src|href)=["'])(/api/workspaces/[^/"']+/assets/([0-9a-fA-F-]{36}))(\?download=1)?(["'])`)
+
 type SharedLinkService struct {
-	sharedLinkRepo repository.SharedLinkRepo
-	workspaceRepo  repository.WorkspaceRepo
-	teamRepo       repository.TeamRepo
-	projectRepo    repository.ProjectRepo
-	viewRepo       repository.ViewRepo
-	issueRepo      repository.IssueRepo
-	userRepo       repository.UserRepo
-	teamStatusRepo repository.TeamStatusRepo
+	sharedLinkRepo   repository.SharedLinkRepo
+	workspaceRepo    repository.WorkspaceRepo
+	teamRepo         repository.TeamRepo
+	projectRepo      repository.ProjectRepo
+	viewRepo         repository.ViewRepo
+	issueRepo        repository.IssueRepo
+	userRepo         repository.UserRepo
+	teamStatusRepo   repository.TeamStatusRepo
+	assetTokenSecret string
 }
 
 func NewSharedLinkService(
@@ -34,16 +39,18 @@ func NewSharedLinkService(
 	issueRepo repository.IssueRepo,
 	userRepo repository.UserRepo,
 	teamStatusRepo repository.TeamStatusRepo,
+	jwtSecret string,
 ) *SharedLinkService {
 	return &SharedLinkService{
-		sharedLinkRepo: sharedLinkRepo,
-		workspaceRepo:  workspaceRepo,
-		teamRepo:       teamRepo,
-		projectRepo:    projectRepo,
-		viewRepo:       viewRepo,
-		issueRepo:      issueRepo,
-		userRepo:       userRepo,
-		teamStatusRepo: teamStatusRepo,
+		sharedLinkRepo:   sharedLinkRepo,
+		workspaceRepo:    workspaceRepo,
+		teamRepo:         teamRepo,
+		projectRepo:      projectRepo,
+		viewRepo:         viewRepo,
+		issueRepo:        issueRepo,
+		userRepo:         userRepo,
+		teamStatusRepo:   teamStatusRepo,
+		assetTokenSecret: jwtSecret + ":prompt-assets",
 	}
 }
 
@@ -306,7 +313,10 @@ func (s *SharedLinkService) ListPublicIssues(ctx context.Context, token string, 
 		}
 
 		if link.IncludeDescription {
-			resp.Description = issue.Description
+			if issue.Description != nil {
+				description := signPublicAssetURLs(*issue.Description, s.assetTokenSecret, issue.WorkspaceID, issue.ID)
+				resp.Description = &description
+			}
 		}
 
 		// Status info
@@ -366,6 +376,24 @@ func (s *SharedLinkService) ListPublicIssues(ctx context.Context, token string, 
 		PerPage:    params.PerPage,
 		HasMore:    params.Page*params.PerPage < total,
 	}, nil
+}
+
+func signPublicAssetURLs(description, secret string, workspaceID, issueID uuid.UUID) string {
+	return protectedPublicAssetPattern.ReplaceAllStringFunc(description, func(match string) string {
+		parts := protectedPublicAssetPattern.FindStringSubmatch(match)
+		if len(parts) != 6 {
+			return match
+		}
+		assetID, err := uuid.Parse(parts[3])
+		if err != nil {
+			return match
+		}
+		token, _, err := assettoken.Generate(secret, assetID, workspaceID, issueID, time.Hour)
+		if err != nil {
+			return match
+		}
+		return parts[1] + "/api/public/assets/" + token + parts[4] + parts[5]
+	})
 }
 
 // resolveActiveLink fetches a shared link by token and validates it's active and not expired.

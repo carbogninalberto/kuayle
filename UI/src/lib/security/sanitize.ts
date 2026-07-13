@@ -10,12 +10,17 @@ const ALLOWED_TAGS = [
 
 const ALLOWED_ATTR = [
 	'class', 'data-type', 'data-checked', 'data-id', 'data-label', 'data-kind', 'data-identifier',
-	'href', 'target', 'rel',
+	'data-filename', 'data-size',
+	'href', 'target', 'rel', 'download',
 	'type', 'checked', 'disabled',
 	'src', 'alt', 'width', 'height'
 ];
 
 const SAFE_URL_PATTERN = /^(https?:|mailto:)/i;
+
+function isSafeResourceUrl(value: string): boolean {
+	return value.startsWith('/api/workspaces/') || value.startsWith('/api/public/assets/') || SAFE_URL_PATTERN.test(value);
+}
 
 function createPurify() {
 	const purify = DOMPurify;
@@ -24,13 +29,13 @@ function createPurify() {
 		if (node.tagName === 'A') {
 			node.setAttribute('rel', 'noopener noreferrer nofollow');
 			const href = node.getAttribute('href') ?? '';
-			if (href && !SAFE_URL_PATTERN.test(href)) {
+			if (href && !isSafeResourceUrl(href)) {
 				node.removeAttribute('href');
 			}
 		}
 		if (node.tagName === 'IMG') {
 			const src = node.getAttribute('src') ?? '';
-			if (src && !src.startsWith('/api/workspaces/') && !SAFE_URL_PATTERN.test(src)) {
+			if (src && !isSafeResourceUrl(src)) {
 				node.removeAttribute('src');
 			}
 		}

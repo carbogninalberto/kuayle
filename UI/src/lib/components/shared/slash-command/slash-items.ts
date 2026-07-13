@@ -134,7 +134,24 @@ const ITEMS: SlashMenuItem[] = [
 		shortcut: '⌘⇧U',
 		group: 'Media',
 		keywords: ['attach', 'file', 'upload', 'document'],
-		action: () => appToast.info('File attachment coming soon')
+		action: (_editor, opts) => {
+			if (!opts?.uploadUrl) {
+				appToast.info('No upload URL configured');
+				return;
+			}
+			const input = document.createElement('input');
+			input.type = 'file';
+			input.multiple = true;
+			input.onchange = () => {
+				const files = Array.from(input.files ?? []);
+				if (files.length > 0) {
+					window.dispatchEvent(
+						new CustomEvent('slash:upload-files', { detail: { files, editor: _editor } })
+					);
+				}
+			};
+			input.click();
+		}
 	},
 
 	// --- Advanced ---
