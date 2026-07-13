@@ -1,5 +1,16 @@
 [
   {
+    "tag_name": "v0.1.12",
+    "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.12",
+    "body": "## What's Changed\r\n* fix(issues): replace IntersectionObserver with scroll-based load more by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/45\r\n\r\n\r\n**Full Changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.1.11...v0.1.12",
+    "published_at": "2026-07-13T11:50:28Z",
+    "prerelease": false,
+    "force_upgrade": false,
+    "minimum_supported_version": null,
+    "upgrade_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.12",
+    "upgrade_message": null
+  },
+  {
     "tag_name": "v0.1.11",
     "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.11",
     "body": "## What's Changed\r\n* feat(editor): add file attachments, image resizing, and secure uploads by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/44\r\n\r\n\r\n**Full Changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.1.10...v0.1.11",
