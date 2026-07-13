@@ -3,13 +3,17 @@ package handler
 import (
 	"errors"
 	"fmt"
+	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 
+	"github.com/gabriel-vasile/mimetype"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
@@ -20,6 +24,36 @@ import (
 	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/kuayle/kuayle-backend/pkg/storage"
 )
+
+const maxUploadSize = 10 * 1024 * 1024
+
+var allowedUploadExtensions = map[string]map[string]bool{
+	"image/jpeg":    {".jpg": true, ".jpeg": true},
+	"image/png":     {".png": true},
+	"image/gif":     {".gif": true},
+	"image/webp":    {".webp": true},
+	"image/svg+xml": {".svg": true},
+
+	"application/pdf":  {".pdf": true},
+	"text/plain":       {".txt": true, ".log": true},
+	"text/csv":         {".csv": true},
+	"text/markdown":    {".md": true, ".markdown": true},
+	"application/json": {".json": true},
+	"text/rtf":         {".rtf": true},
+
+	"application/msword": {".doc": true},
+	"application/vnd.openxmlformats-officedocument.wordprocessingml.document": {".docx": true},
+	"application/vnd.ms-excel": {".xls": true},
+	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":         {".xlsx": true},
+	"application/vnd.ms-powerpoint":                                             {".ppt": true},
+	"application/vnd.openxmlformats-officedocument.presentationml.presentation": {".pptx": true},
+
+	"application/zip":             {".zip": true},
+	"application/gzip":            {".gz": true, ".gzip": true},
+	"application/x-tar":           {".tar": true},
+	"application/x-7z-compressed": {".7z": true},
+	"application/vnd.rar":         {".rar": true},
+}
 
 type UploadHandler struct {
 	store       storage.Backend
@@ -40,53 +74,47 @@ func NewUploadHandler(store storage.Backend, assetRepo repository.AssetRepo, iss
 func (h *UploadHandler) Upload(c echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	userID := middleware.GetUserID(c)
+	c.Request().Body = http.MaxBytesReader(c.Response().Writer, c.Request().Body, maxUploadSize+1024*1024)
 
 	file, err := c.FormFile("file")
 	if err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			return response.Error(c, http.StatusRequestEntityTooLarge, "BAD_REQUEST", "File too large (max 10MB)")
+		}
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "No file provided")
 	}
 
 	// Validate file size (max 10MB)
-	if file.Size > 10*1024*1024 {
+	if file.Size > maxUploadSize {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "File too large (max 10MB)")
 	}
-
-	// Validate content type
-	contentType := file.Header.Get("Content-Type")
-	allowedTypes := map[string]bool{
-		"image/jpeg":    true,
-		"image/png":     true,
-		"image/gif":     true,
-		"image/webp":    true,
-		"image/svg+xml": true,
-	}
-	if !allowedTypes[contentType] {
-		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Unsupported file type")
-	}
-
-	// Generate unique filename
-	ext := filepath.Ext(file.Filename)
-	if ext == "" {
-		switch contentType {
-		case "image/jpeg":
-			ext = ".jpg"
-		case "image/png":
-			ext = ".png"
-		case "image/gif":
-			ext = ".gif"
-		case "image/webp":
-			ext = ".webp"
-		case "image/svg+xml":
-			ext = ".svg"
-		}
-	}
-	key := fmt.Sprintf("%s%s", uuid.New().String(), ext)
 
 	src, err := file.Open()
 	if err != nil {
 		return response.InternalError(c)
 	}
 	defer src.Close()
+
+	detected, err := mimetype.DetectReader(src)
+	if err != nil {
+		return response.InternalError(c)
+	}
+	if _, err := src.Seek(0, io.SeekStart); err != nil {
+		return response.InternalError(c)
+	}
+
+	ext := strings.ToLower(filepath.Ext(file.Filename))
+	contentType, ok := allowedUploadType(detected.String(), ext)
+	if !ok {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Unsupported file type")
+	}
+
+	// Generate unique filename
+	if ext == "" {
+		ext = detected.Extension()
+	}
+	key := fmt.Sprintf("%s%s", uuid.New().String(), ext)
 
 	if _, err := h.store.Put(c.Request().Context(), key, src, contentType); err != nil {
 		return response.InternalError(c)
@@ -108,9 +136,10 @@ func (h *UploadHandler) Upload(c echo.Context) error {
 	assetURL := fmt.Sprintf("/api/workspaces/%s/assets/%s", ws.Slug, asset.ID)
 
 	return response.Success(c, http.StatusOK, map[string]string{
-		"url":      assetURL,
-		"asset_id": asset.ID.String(),
-		"filename": asset.Filename,
+		"url":          assetURL,
+		"asset_id":     asset.ID.String(),
+		"filename":     asset.Filename,
+		"content_type": asset.ContentType,
 	})
 }
 
@@ -127,6 +156,7 @@ func (h *UploadHandler) GetAsset(c echo.Context) error {
 	}
 
 	c.Response().Header().Set("Cache-Control", "private, max-age=300")
+	h.setAssetDisposition(c, asset)
 	return h.streamAsset(c, asset)
 }
 
@@ -142,7 +172,33 @@ func (h *UploadHandler) PublicAsset(c echo.Context) error {
 	}
 
 	c.Response().Header().Set("Cache-Control", "private, max-age=3600")
+	h.setAssetDisposition(c, asset)
 	return h.streamAsset(c, asset)
+}
+
+func allowedUploadType(detectedType, ext string) (string, bool) {
+	if detectedType == "text/plain" {
+		switch ext {
+		case ".csv":
+			detectedType = "text/csv"
+		case ".md", ".markdown":
+			detectedType = "text/markdown"
+		}
+	}
+	extensions, ok := allowedUploadExtensions[detectedType]
+	if !ok {
+		return "", false
+	}
+	if ext != "" && !extensions[ext] {
+		return "", false
+	}
+	return detectedType, true
+}
+
+func (h *UploadHandler) setAssetDisposition(c echo.Context, asset *domain.Asset) {
+	if c.QueryParam("download") == "1" || !strings.HasPrefix(asset.ContentType, "image/") {
+		c.Response().Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": asset.Filename}))
+	}
 }
 
 func (h *UploadHandler) SignIssuePromptAssets(c echo.Context) error {

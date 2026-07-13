@@ -775,3 +775,30 @@ html.pointer-cursors [data-slot="switch"] {
 	color: var(--color-text-secondary);
 	font-weight: 600;
 }
+
+.editor-attachment {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.35rem;
+	max-width: 100%;
+	margin: 0.2rem 0;
+	border: 1px solid var(--app-border);
+	border-radius: 0.375rem;
+	background: var(--color-bg-tertiary);
+	padding: 0.3rem 0.5rem;
+	color: var(--color-text-secondary);
+	text-decoration: none;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.editor-attachment::before {
+	content: 'File';
+	border-radius: 0.25rem;
+	background: var(--color-bg-hover);
+	padding: 0.05rem 0.25rem;
+	color: var(--color-text-tertiary);
+	font-size: 0.65rem;
+	text-transform: uppercase;
+}

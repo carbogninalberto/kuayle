@@ -74,6 +74,19 @@ func TestSanitizeEditorContentRejectsUnsafeImageURL(t *testing.T) {
 	assertNotContains(t, got, `javascript:`)
 }
 
+func TestSanitizeEditorContentKeepsAttachmentMetadata(t *testing.T) {
+	assetID := "123e4567-e89b-12d3-a456-426614174000"
+	input := `<p><a class="editor-attachment" data-type="attachment" data-filename="requirements.pdf" data-size="2048" href="/api/workspaces/acme/assets/` + assetID + `?download=1" download="requirements.pdf" target="_blank">requirements.pdf (2 KB)</a></p>`
+
+	got := SanitizeEditorContent(input)
+
+	assertContains(t, got, `data-type="attachment"`)
+	assertContains(t, got, `data-filename="requirements.pdf"`)
+	assertContains(t, got, `data-size="2048"`)
+	assertContains(t, got, `download="requirements.pdf"`)
+	assertContains(t, got, `/api/workspaces/acme/assets/`+assetID+`?download=1`)
+}
+
 func assertContains(t *testing.T, value, substring string) {
 	t.Helper()
 	if !strings.Contains(value, substring) {

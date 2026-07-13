@@ -11,7 +11,8 @@
 	import Image from '@tiptap/extension-image';
 	import Underline from '@tiptap/extension-underline';
 	import { Extension, InputRule } from '@tiptap/core';
-	import { Plugin } from 'prosemirror-state';
+	import { Plugin, PluginKey } from 'prosemirror-state';
+	import { Decoration, DecorationSet } from 'prosemirror-view';
 	import { common, createLowlight } from 'lowlight';
 	import { Button } from '$lib/components/ui/button';
 	import { Separator } from '$lib/components/ui/separator';
@@ -32,8 +33,11 @@
 		Undo2,
 		Redo2,
 		SquareArrowOutUpRight,
-		Sparkles
+		Sparkles,
+		ImagePlus,
+		Paperclip
 	} from 'lucide-svelte';
+	import { appToast } from '$lib/features/toast/toast';
 	import { sanitizeEditorOutput } from '$lib/security/sanitize';
 	import { createSlashCommandExtension } from './slash-command/slash-command.extension';
 	import { filterSlashItems, flatFilteredItems, type SlashMenuItem } from './slash-command/slash-items';
@@ -43,6 +47,7 @@
 	import { mentionInteractivity } from './mention/mention-interactivity.action';
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import type { Issue } from '$lib/types/issue';
+	import { Attachment } from './attachment.extension';
 
 	let {
 		content = '',
@@ -162,18 +167,313 @@
 			? 'prose prose-invert prose-sm max-w-none outline-none text-[var(--color-text-primary)] borderless-editor'
 			: 'prose prose-invert prose-sm max-w-none outline-none min-h-[80px] px-3 py-2 text-[var(--color-text-primary)]');
 
-	async function uploadImage(file: File): Promise<string | null> {
+	type UploadedFile = { url: string; filename: string; size: number; contentType: string };
+	type UploadPlaceholder = { id: string; pos: number; label: string; side: number };
+	type UploadPlaceholderMeta = { add?: UploadPlaceholder[]; remove?: string[] };
+
+	const uploadPlaceholderKey = new PluginKey<DecorationSet>('uploadPlaceholder');
+	let uploadPlaceholderSequence = 0;
+
+	const ResizableImage = Image.extend({
+		addAttributes() {
+			return {
+				...this.parent?.(),
+				width: {
+					default: null,
+					parseHTML: (element) => element.getAttribute('width'),
+					renderHTML: (attributes) => attributes.width ? { width: attributes.width } : {}
+				}
+			};
+		},
+		addNodeView() {
+			return ({ node: initialNode, editor: nodeEditor, getPos }) => {
+				let currentNode = initialNode;
+				let pendingWidth: string | null = null;
+				let resizing = false;
+				let previousBodyCursor = '';
+				let previousBodyUserSelect = '';
+
+				const dom = document.createElement('span');
+				dom.className = 'resizable-image-wrapper';
+				dom.setAttribute('data-drag-handle', '');
+
+				const image = document.createElement('img');
+				image.draggable = false;
+
+				const handle = document.createElement('button');
+				handle.type = 'button';
+				handle.className = 'image-resize-handle';
+				handle.contentEditable = 'false';
+				handle.setAttribute('aria-label', 'Resize image');
+				handle.title = 'Drag to resize. Use arrow keys for 5% steps.';
+
+				function currentPercent(): number {
+					const stored = Number.parseFloat(String(currentNode.attrs.width ?? ''));
+					if (Number.isFinite(stored)) return stored;
+					const containerWidth = dom.parentElement?.getBoundingClientRect().width ?? 0;
+					if (!containerWidth) return 100;
+					return Math.round((dom.getBoundingClientRect().width / containerWidth) * 100);
+				}
+
+				function syncDOM() {
+					for (const attribute of ['src', 'alt', 'title']) {
+						const value = currentNode.attrs[attribute];
+						if (value) image.setAttribute(attribute, String(value));
+						else image.removeAttribute(attribute);
+					}
+					const width = currentNode.attrs.width ? String(currentNode.attrs.width) : null;
+					if (width) {
+						dom.style.width = width;
+						image.setAttribute('width', width);
+						image.style.width = '100%';
+					} else {
+						dom.style.removeProperty('width');
+						image.removeAttribute('width');
+						image.style.width = 'auto';
+					}
+					handle.setAttribute('aria-valuenow', String(Math.round(currentPercent())));
+				}
+
+				function commitWidth(width: string | null) {
+					const position = getPos();
+					if (typeof position !== 'number') return;
+					nodeEditor.view.dispatch(
+						nodeEditor.view.state.tr.setNodeMarkup(position, undefined, {
+							...currentNode.attrs,
+							width
+						})
+					);
+				}
+
+				function finishResize(commit: boolean) {
+					if (!resizing) return;
+					resizing = false;
+					window.removeEventListener('pointermove', handlePointerMove);
+					window.removeEventListener('pointerup', handlePointerUp);
+					window.removeEventListener('pointercancel', handlePointerCancel);
+					document.body.style.cursor = previousBodyCursor;
+					document.body.style.userSelect = previousBodyUserSelect;
+					dom.classList.remove('is-resizing');
+					if (commit && pendingWidth) commitWidth(pendingWidth);
+					else syncDOM();
+					pendingWidth = null;
+				}
+
+				let dragStartX = 0;
+				let dragStartWidth = 0;
+				let dragContainerWidth = 0;
+
+				function handlePointerMove(event: PointerEvent) {
+					if (!resizing || !dragContainerWidth) return;
+					const widthInPixels = Math.max(
+						dragContainerWidth * 0.1,
+						Math.min(dragContainerWidth, dragStartWidth + event.clientX - dragStartX)
+					);
+					const percent = Math.max(10, Math.min(100, Math.round((widthInPixels / dragContainerWidth) * 100)));
+					pendingWidth = `${percent}%`;
+					dom.style.width = pendingWidth;
+					image.style.width = '100%';
+					handle.setAttribute('aria-valuenow', String(percent));
+				}
+
+				function handlePointerUp() {
+					finishResize(true);
+				}
+
+				function handlePointerCancel() {
+					finishResize(false);
+				}
+
+				handle.addEventListener('pointerdown', (event) => {
+					if (event.button !== 0 || !nodeEditor.isEditable) return;
+					event.preventDefault();
+					event.stopPropagation();
+					dragContainerWidth = dom.parentElement?.getBoundingClientRect().width ?? 0;
+					dragStartWidth = dom.getBoundingClientRect().width;
+					if (!dragContainerWidth || !dragStartWidth) return;
+					dragStartX = event.clientX;
+					pendingWidth = null;
+					resizing = true;
+					previousBodyCursor = document.body.style.cursor;
+					previousBodyUserSelect = document.body.style.userSelect;
+					document.body.style.cursor = 'nwse-resize';
+					document.body.style.userSelect = 'none';
+					dom.classList.add('is-resizing');
+					window.addEventListener('pointermove', handlePointerMove);
+					window.addEventListener('pointerup', handlePointerUp);
+					window.addEventListener('pointercancel', handlePointerCancel);
+				});
+
+				handle.addEventListener('keydown', (event) => {
+					if (!nodeEditor.isEditable) return;
+					let percent = currentPercent();
+					const step = event.shiftKey ? 10 : 5;
+					if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') percent -= step;
+					else if (event.key === 'ArrowRight' || event.key === 'ArrowUp') percent += step;
+					else if (event.key === 'Home') percent = 10;
+					else if (event.key === 'End') percent = 100;
+					else return;
+					event.preventDefault();
+					event.stopPropagation();
+					commitWidth(`${Math.max(10, Math.min(100, Math.round(percent)))}%`);
+				});
+
+				dom.append(image, handle);
+				syncDOM();
+
+				return {
+					dom,
+					update(updatedNode) {
+						if (updatedNode.type !== currentNode.type) return false;
+						currentNode = updatedNode;
+						if (!resizing) syncDOM();
+						return true;
+					},
+					selectNode() {
+						dom.classList.add('ProseMirror-selectednode');
+					},
+					deselectNode() {
+						dom.classList.remove('ProseMirror-selectednode');
+					},
+					stopEvent(event) {
+						return event.target === handle;
+					},
+					ignoreMutation: () => true,
+					destroy() {
+						finishResize(false);
+					}
+				};
+			};
+		}
+	});
+
+	const UploadPlaceholderExtension = Extension.create({
+		name: 'uploadPlaceholder',
+		addProseMirrorPlugins() {
+			return [
+				new Plugin<DecorationSet>({
+					key: uploadPlaceholderKey,
+					state: {
+						init: () => DecorationSet.empty,
+						apply(transaction, decorations) {
+							let next = decorations.map(transaction.mapping, transaction.doc);
+							const meta = transaction.getMeta(uploadPlaceholderKey) as UploadPlaceholderMeta | undefined;
+							if (meta?.add?.length) {
+								const widgets = meta.add.map((placeholder) => {
+									const element = document.createElement('span');
+									element.className = 'editor-upload-placeholder';
+									element.textContent = `Uploading ${placeholder.label}...`;
+									return Decoration.widget(placeholder.pos, element, {
+										id: placeholder.id,
+										side: placeholder.side
+									});
+								});
+								next = next.add(transaction.doc, widgets);
+							}
+							if (meta?.remove?.length) {
+								const ids = new Set(meta.remove);
+								next = next.remove(next.find(undefined, undefined, (spec) => ids.has(spec.id)));
+							}
+							return next;
+						}
+					},
+					props: {
+						decorations(state) {
+							return uploadPlaceholderKey.getState(state);
+						}
+					}
+				})
+			];
+		}
+	});
+
+	async function uploadFile(file: File): Promise<UploadedFile | null> {
 		if (!uploadUrl) return null;
 		const form = new FormData();
 		form.append('file', file);
 		try {
 			const res = await fetch(uploadUrl, { method: 'POST', body: form, credentials: 'include' });
-			if (!res.ok) return null;
+			if (!res.ok) {
+				const data = await res.json().catch(() => null);
+				appToast.error(data?.error?.message ?? data?.message ?? `Failed to upload ${file.name}`);
+				return null;
+			}
 			const data = await res.json();
-			return data.data?.url ?? data.url ?? null;
+			const result = data.data ?? data;
+			if (!result.url) return null;
+			return {
+				url: result.url,
+				filename: result.filename ?? file.name,
+				size: file.size,
+				contentType: result.content_type ?? file.type
+			};
 		} catch {
+			appToast.error(`Failed to upload ${file.name}`);
 			return null;
 		}
+	}
+
+	function reserveUploadPlaceholders(files: File[], position?: number): UploadPlaceholder[] {
+		if (!editor || editor.isDestroyed) return [];
+		const docSize = editor.state.doc.content.size;
+		const pos = Math.max(0, Math.min(position ?? editor.state.selection.from, docSize));
+		const placeholders = files.map((file, index) => ({
+			id: `upload-${Date.now()}-${uploadPlaceholderSequence++}`,
+			pos,
+			label: file.name,
+			side: index + 1
+		}));
+		editor.view.dispatch(editor.state.tr.setMeta(uploadPlaceholderKey, { add: placeholders }));
+		return placeholders;
+	}
+
+	function removeUploadPlaceholder(id: string) {
+		if (!editor || editor.isDestroyed) return;
+		editor.view.dispatch(editor.state.tr.setMeta(uploadPlaceholderKey, { remove: [id] }));
+	}
+
+	async function uploadAndInsert(file: File, placeholder: UploadPlaceholder) {
+		const uploaded = await uploadFile(file);
+		if (!uploaded || !editor || editor.isDestroyed) {
+			removeUploadPlaceholder(placeholder.id);
+			return;
+		}
+		const decoration = uploadPlaceholderKey
+			.getState(editor.state)
+			?.find(undefined, undefined, (spec) => spec.id === placeholder.id)[0];
+		if (!decoration) return;
+		const content = uploaded.contentType.startsWith('image/')
+			? { type: 'image', attrs: { src: uploaded.url, alt: uploaded.filename } }
+			: {
+				type: 'attachment',
+				attrs: {
+					href: `${uploaded.url}?download=1`,
+					filename: uploaded.filename,
+					size: uploaded.size
+				}
+			};
+		editor.commands.insertContentAt(decoration.from, content, { updateSelection: false });
+		removeUploadPlaceholder(placeholder.id);
+	}
+
+	async function uploadFiles(files: File[], position?: number) {
+		const placeholders = reserveUploadPlaceholders(files, position);
+		for (const [index, file] of files.entries()) {
+			const placeholder = placeholders[index];
+			if (placeholder) await uploadAndInsert(file, placeholder);
+		}
+	}
+
+	function chooseFiles(imagesOnly = false) {
+		if (!uploadUrl) return;
+		const input = document.createElement('input');
+		input.type = 'file';
+		input.multiple = !imagesOnly;
+		if (imagesOnly) input.accept = 'image/*';
+		input.onchange = () => {
+			void uploadFiles(Array.from(input.files ?? []));
+		};
+		input.click();
 	}
 
 	function createImagePasteHandler() {
@@ -181,24 +481,17 @@
 		return Extension.create({
 			name: 'imagePaste',
 			addProseMirrorPlugins() {
-				const editorRef = this.editor;
 				return [
 					new Plugin({
 						props: {
-							handlePaste(view: any, event: ClipboardEvent) {
+							handlePaste(_view: any, event: ClipboardEvent) {
 								const items = event.clipboardData?.items;
 								if (!items) return false;
 								for (const item of items) {
-									if (item.type.startsWith('image/')) {
+									if (item.kind === 'file') {
 										event.preventDefault();
 										const file = item.getAsFile();
-										if (file) {
-											uploadImage(file).then(url => {
-												if (url) {
-													editorRef.chain().focus().setImage({ src: url }).run();
-												}
-											});
-										}
+										if (file) void uploadFiles([file]);
 										return true;
 									}
 								}
@@ -207,18 +500,10 @@
 							handleDrop(view: any, event: DragEvent) {
 								const files = event.dataTransfer?.files;
 								if (!files || files.length === 0) return false;
-								for (const file of files) {
-									if (file.type.startsWith('image/')) {
-										event.preventDefault();
-										uploadImage(file).then(url => {
-											if (url) {
-												editorRef.chain().focus().setImage({ src: url }).run();
-											}
-										});
-										return true;
-									}
-								}
-								return false;
+								event.preventDefault();
+								const position = view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos;
+								void uploadFiles(Array.from(files), position);
+								return true;
 							}
 						}
 					})
@@ -300,7 +585,9 @@
 				HTMLAttributes: { class: 'text-[var(--app-accent-light)] underline' }
 			}),
 			CodeBlockLowlight.configure({ lowlight }),
-			Image.configure({ inline: true, allowBase64: false }),
+			ResizableImage.configure({ inline: true, allowBase64: false }),
+			Attachment,
+			UploadPlaceholderExtension,
 			Underline,
 			MentionNode,
 			TaskListShortcut,
@@ -466,14 +753,22 @@
 	function handleSlashUpload(e: Event) {
 		const { file, editor: targetEditor } = (e as CustomEvent).detail;
 		if (targetEditor !== editor) return;
-		uploadImage(file).then((url) => {
-			if (url) editor?.chain().focus().setImage({ src: url }).run();
-		});
+		void uploadFiles([file]);
+	}
+
+	function handleSlashFileUpload(e: Event) {
+		const { files, editor: targetEditor } = (e as CustomEvent).detail;
+		if (targetEditor !== editor) return;
+		void uploadFiles(files as File[]);
 	}
 
 	onMount(() => {
 		window.addEventListener('slash:upload-image', handleSlashUpload);
-		return () => window.removeEventListener('slash:upload-image', handleSlashUpload);
+		window.addEventListener('slash:upload-files', handleSlashFileUpload);
+		return () => {
+			window.removeEventListener('slash:upload-image', handleSlashUpload);
+			window.removeEventListener('slash:upload-files', handleSlashFileUpload);
+		};
 	});
 
 	onDestroy(() => {
@@ -496,6 +791,9 @@
 	function toggleBlockquote() { editor?.chain().focus().toggleBlockquote().run(); }
 	function undo() { editor?.chain().focus().undo().run(); }
 	function redo() { editor?.chain().focus().redo().run(); }
+	function setImageWidth(width: string | null) {
+		editor?.chain().focus().updateAttributes('image', { width }).run();
+	}
 
 	function createIssueFromSelection() {
 		if (!editor || !oncreateissue) return;
@@ -581,9 +879,9 @@
 
 	function shouldShowBubble(props: { from: number; to: number; editor: any }): boolean {
 		if (!props.editor.isFocused) return false;
+		if (props.editor.isActive('image')) return true;
 		if (props.from === props.to) return false;
 		if (props.editor.isActive('codeBlock')) return false;
-		if (props.editor.isActive('image')) return false;
 		return true;
 	}
 
@@ -643,6 +941,14 @@
 			<button type="button" onclick={toggleCodeBlock} class={btnClass(editor?.isActive('codeBlock') ?? false)} title="Code block">
 				<Code2 size={14} />
 			</button>
+			{#if uploadUrl}
+				<button type="button" onclick={() => chooseFiles(true)} class={btnClass(false)} title="Upload image">
+					<ImagePlus size={14} />
+				</button>
+				<button type="button" onclick={() => chooseFiles()} class={btnClass(false)} title="Attach files">
+					<Paperclip size={14} />
+				</button>
+			{/if}
 
 			<div class="flex-1"></div>
 
@@ -651,6 +957,16 @@
 			</button>
 			<button type="button" onclick={redo} class={btnClass(false)} title="Redo">
 				<Redo2 size={14} />
+			</button>
+		</div>
+	{/if}
+	{#if editable && uploadUrl && bubbleMenu}
+		<div class="flex items-center justify-end gap-0.5 px-1 py-0.5">
+			<button type="button" onclick={() => chooseFiles(true)} class={btnClass(false)} title="Upload image" aria-label="Upload image">
+				<ImagePlus size={14} />
+			</button>
+			<button type="button" onclick={() => chooseFiles()} class={btnClass(false)} title="Attach files" aria-label="Attach files">
+				<Paperclip size={14} />
 			</button>
 		</div>
 	{/if}
@@ -694,10 +1010,19 @@
 		/>
 	{/if}
 
-	{#if bubbleMenu && editor && editable && isFocused}
+	{#if bubbleMenu && editor && editable}
 		<BubbleMenu {editor} shouldShow={shouldShowBubble}>
 			{#snippet children()}
-				<div class="bubble-toolbar">
+				<div class="bubble-toolbar" role="toolbar" aria-label="Editor formatting" tabindex="-1" onpointerdown={(event) => event.preventDefault()}>
+					{#if editor?.isActive('image')}
+						<span class="bubble-image-label">Image size</span>
+						{#each ['25%', '50%', '75%', '100%'] as width}
+							<button type="button" onclick={() => setImageWidth(width)} class={btnClass(editor?.getAttributes('image').width === width)} title={`Set image width to ${width}`}>
+								{width}
+							</button>
+						{/each}
+						<button type="button" onclick={() => setImageWidth(null)} class={btnClass(!editor?.getAttributes('image').width)} title="Use original image size">Auto</button>
+					{:else}
 					<button type="button" onclick={toggleBold} class={btnClass(editor?.isActive('bold') ?? false)} title="Bold">
 						<Bold size={14} />
 					</button>
@@ -741,6 +1066,7 @@
 							<Sparkles size={14} class={reworkingSelection ? 'ai-rewrite-icon-loading' : ''} />
 						</button>
 					{/if}
+					{/if}
 				</div>
 				{#if linkInputVisible}
 					<div class="bubble-link-input">
@@ -779,6 +1105,17 @@
 		height: 16px;
 		background: var(--app-border);
 		margin: 0 4px;
+	}
+	:global(.bubble-image-label) {
+		padding: 0 4px;
+		color: var(--color-text-tertiary);
+		font-size: 11px;
+		white-space: nowrap;
+	}
+	:global(.bubble-toolbar button) {
+		min-width: 28px;
+		padding: 0 5px;
+		font-size: 11px;
 	}
 	:global(.bubble-link-input) {
 		margin-top: 4px;
@@ -981,5 +1318,58 @@
 		border-radius: 0.375rem;
 		margin: 0.5rem 0;
 	}
-
+	:global(.rich-editor .tiptap .resizable-image-wrapper) {
+		position: relative;
+		display: inline-block;
+		max-width: 100%;
+		margin: 0.5rem 0;
+		line-height: 0;
+		vertical-align: middle;
+	}
+	:global(.rich-editor .tiptap .resizable-image-wrapper img) {
+		display: block;
+		max-width: 100%;
+		margin: 0;
+		pointer-events: none;
+	}
+	:global(.rich-editor .tiptap .resizable-image-wrapper.ProseMirror-selectednode),
+	:global(.rich-editor .tiptap .resizable-image-wrapper.is-resizing) {
+		border-radius: 0.375rem;
+		outline: 2px solid var(--app-accent);
+		outline-offset: 2px;
+	}
+	:global(.rich-editor .tiptap .image-resize-handle) {
+		position: absolute;
+		right: -7px;
+		bottom: -7px;
+		display: none;
+		width: 15px;
+		height: 15px;
+		border: 2px solid var(--color-bg-secondary);
+		border-radius: 4px;
+		background: var(--app-accent);
+		box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+		cursor: nwse-resize;
+		touch-action: none;
+	}
+	:global(.rich-editor .tiptap .resizable-image-wrapper.ProseMirror-selectednode .image-resize-handle),
+	:global(.rich-editor .tiptap .resizable-image-wrapper.is-resizing .image-resize-handle) {
+		display: block;
+	}
+	:global(.rich-editor .tiptap .image-resize-handle:focus-visible) {
+		display: block;
+		outline: 2px solid var(--color-text-primary);
+		outline-offset: 2px;
+	}
+	:global(.rich-editor .tiptap .editor-upload-placeholder) {
+		display: inline-flex;
+		align-items: center;
+		margin: 0 0.2rem;
+		border-radius: 0.25rem;
+		background: var(--color-bg-hover);
+		padding: 0.1rem 0.35rem;
+		color: var(--color-text-tertiary);
+		font-size: 0.75rem;
+		font-style: italic;
+	}
 </style>
