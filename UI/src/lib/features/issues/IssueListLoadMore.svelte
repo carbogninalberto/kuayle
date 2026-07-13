@@ -5,16 +5,16 @@
 	let sentinel: HTMLDivElement | undefined;
 
 	onMount(() => {
-		const observer = new IntersectionObserver(
-			(entries) => {
-				if (issuesState.hasMore && entries.some((entry) => entry.isIntersecting)) {
-					issuesState.loadMore();
-				}
-			},
-			{ rootMargin: '600px 0px' }
-		);
-		if (sentinel) observer.observe(sentinel);
-		return () => observer.disconnect();
+		const scrollContainer = sentinel?.parentElement;
+		if (!scrollContainer) return;
+
+		const handleScroll = () => {
+			const distanceToBottom = scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight;
+			if (distanceToBottom <= 300) void issuesState.loadMore();
+		};
+
+		scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
+		return () => scrollContainer.removeEventListener('scroll', handleScroll);
 	});
 </script>
 
