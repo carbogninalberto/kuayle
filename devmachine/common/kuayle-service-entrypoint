@@ -1,0 +1,31 @@
+#!/bin/sh
+set -eu
+
+attempt=0
+while [ ! -f /run/kuayle-secrets/.ready ]; do
+  attempt=$((attempt + 1))
+  if [ "$attempt" -ge 300 ]; then
+    echo "timed out waiting for scoped secrets" >&2
+    exit 1
+  fi
+  sleep 0.1
+done
+
+old_ifs=$IFS
+IFS=,
+for secret_name in ${KUAYLE_SECRET_NAMES:-}; do
+  case "$secret_name" in
+    ''|*[!A-Za-z0-9_]*) echo "invalid secret name" >&2; exit 1 ;;
+  esac
+  secret_file="/run/kuayle-secrets/$secret_name"
+  if [ -f "$secret_file" ]; then
+    secret_value=$(cat "$secret_file"; printf x)
+    secret_value=${secret_value%x}
+    export "$secret_name=$secret_value"
+    rm -f "$secret_file"
+  fi
+done
+IFS=$old_ifs
+rm -f /run/kuayle-secrets/.ready
+
+exec "$@"
