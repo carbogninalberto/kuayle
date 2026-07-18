@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { getProject, updateProject, deleteProject } from '$lib/api/projects';
+	import { getWorkspace } from '$lib/api/workspaces';
 	import { issuesState } from '$lib/features/issues/issues.state.svelte';
 	import { teamStatusesState } from '$lib/features/issues/team-statuses.state.svelte';
 	import { listCycles } from '$lib/api/cycles';
@@ -19,7 +20,14 @@
 	import DatePickerPopover from '$lib/components/shared/DatePickerPopover.svelte';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
+	import { Label } from '$lib/components/ui/label';
+	import * as Dialog from '$lib/components/ui/dialog';
+	import * as Select from '$lib/components/ui/select';
 	import * as Popover from '$lib/components/ui/popover';
+	import { getGitHubStatus } from '$lib/api/github';
+	import { deleteDevMachineScopeSetting, getDevMachineScopeSetting, listDevMachineEnvironments, updateDevMachineScopeSetting } from '$lib/api/dev-machines';
+	import type { GitHubRepo } from '$lib/types/github';
+	import type { DevMachineEnvironment } from '$lib/types/dev-machine';
 	import { appToast } from '$lib/features/toast/toast';
 	import { createKeyboardHandler } from '$lib/utils/keyboard';
 	import {
@@ -34,7 +42,8 @@
 		BarChart3,
 		ChevronRight,
 		SquareUser,
-		Box
+		Box,
+		Settings2
 	} from 'lucide-svelte';
 	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
 	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
@@ -50,6 +59,13 @@
 	let actionsOpen = $state(false);
 	let viewMode = $state<'list' | 'gantt'>('list');
 	let lastSelectedId = $state<string | null>(null);
+	let developmentOpen = $state(false);
+	let developmentRepositories = $state<GitHubRepo[]>([]);
+	let developmentEnvironments = $state<DevMachineEnvironment[]>([]);
+	let developmentRepositoryId = $state('inherit');
+	let developmentEnvironmentId = $state('inherit');
+	let savingDevelopment = $state(false);
+	let canManageDevelopment = $state(false);
 	const projectTeam = $derived(project?.team_id ? teams.find(t => t.id === project!.team_id) : null);
 
 	const STATUS_OPTIONS: { value: ProjectStatus; label: string; icon: typeof Circle }[] = [
@@ -59,11 +75,28 @@
 		{ value: 'cancelled', label: 'Cancelled', icon: XCircle }
 	];
 
+	async function loadDevelopmentSettings(s: string, pid: string) {
+		try {
+			const workspace = await getWorkspace(s);
+			canManageDevelopment = workspace.current_user_role === 'owner' || workspace.current_user_role === 'admin';
+			if (!canManageDevelopment) return;
+			const [github, developmentSetting, availableEnvironments] = await Promise.all([
+				getGitHubStatus(s), getDevMachineScopeSetting(s, 'project', pid), listDevMachineEnvironments(s)
+			]);
+			developmentRepositories = github.repos ?? [];
+			developmentEnvironments = (availableEnvironments ?? []).filter((item) => item.status === 'ready');
+			developmentRepositoryId = developmentSetting.github_repo_id ?? 'inherit';
+			developmentEnvironmentId = developmentSetting.environment_id ?? 'inherit';
+		} catch (error) {
+			appToast.apiError(error, 'Failed to load project development settings');
+		}
+	}
 
 	async function loadProject(s: string, pid: string) {
 		loading = true;
 		try {
 			project = await getProject(s, pid);
+			void loadDevelopmentSettings(s, pid);
 			await issuesState.load(s, viewMode === 'gantt' ? { project: pid, per_page: '200' } : { project: pid });
 			const firstTeamId = issuesState.issues[0]?.team_id;
 			if (firstTeamId) {
@@ -117,6 +150,29 @@
 			goto(`/${slug}/projects`);
 		} catch (err: any) {
 			appToast.apiError(err, 'Failed to delete project');
+		}
+	}
+
+	async function saveDevelopmentSettings() {
+		if (!canManageDevelopment) return;
+		savingDevelopment = true;
+		try {
+			const repository = developmentRepositories.find((item) => item.id === developmentRepositoryId);
+			if (developmentRepositoryId === 'inherit' && developmentEnvironmentId === 'inherit') {
+				await deleteDevMachineScopeSetting(slug, 'project', projectId);
+			} else {
+				await updateDevMachineScopeSetting(slug, {
+					scope_type: 'project', scope_id: projectId,
+					github_repo_id: repository?.id, base_branch: repository?.default_branch,
+					environment_id: developmentEnvironmentId === 'inherit' ? undefined : developmentEnvironmentId
+				});
+			}
+			developmentOpen = false;
+			appToast.success('Project development settings saved');
+		} catch (error) {
+			appToast.apiError(error, 'Failed to save project development settings');
+		} finally {
+			savingDevelopment = false;
 		}
 	}
 
@@ -182,6 +238,7 @@
 				</Popover.Root>
 			</div>
 			<div class="flex items-center gap-2">
+				<Button variant="ghost" size="icon-sm" disabled={!canManageDevelopment} onclick={() => (developmentOpen = true)} title={canManageDevelopment ? 'Development settings' : 'Workspace admin required'}><Settings2 size={15} /></Button>
 				<!-- View switcher -->
 				<div class="flex rounded-md border border-[var(--app-border)]">
 					<button
@@ -281,6 +338,18 @@
 		{/if}
 	{/if}
 </div>
+
+<Dialog.Root bind:open={developmentOpen}>
+	<Dialog.Content class="sm:max-w-md">
+		<Dialog.Header><Dialog.Title>Project development</Dialog.Title><Dialog.Description>Choose defaults for issue repositories and machine environments in this project.</Dialog.Description></Dialog.Header>
+		{#if !canManageDevelopment}<p class="rounded-md border border-[var(--app-border)] p-3 text-xs text-[var(--color-text-tertiary)]">Workspace owners and admins manage project development defaults.</p>{/if}
+		<div class="space-y-4">
+			<div class="space-y-1"><Label>Repository</Label><Select.Root type="single" value={developmentRepositoryId} disabled={!canManageDevelopment} onValueChange={(value) => value && (developmentRepositoryId = value)}><Select.Trigger class="w-full">{developmentRepositories.find((item) => item.id === developmentRepositoryId)?.full_name ?? 'Use team or workspace default'}</Select.Trigger><Select.Content><Select.Item value="inherit" label="Use inherited default">Use inherited default</Select.Item>{#each developmentRepositories as repository}<Select.Item value={repository.id} label={repository.full_name}>{repository.full_name}</Select.Item>{/each}</Select.Content></Select.Root></div>
+			<div class="space-y-1"><Label>Environment</Label><Select.Root type="single" value={developmentEnvironmentId} disabled={!canManageDevelopment} onValueChange={(value) => value && (developmentEnvironmentId = value)}><Select.Trigger class="w-full">{developmentEnvironments.find((item) => item.id === developmentEnvironmentId)?.name ?? 'Use team or workspace default'}</Select.Trigger><Select.Content><Select.Item value="inherit" label="Use inherited default">Use inherited default</Select.Item>{#each developmentEnvironments as environment}<Select.Item value={environment.id} label={environment.name}>{environment.name}</Select.Item>{/each}</Select.Content></Select.Root></div>
+		</div>
+		<Dialog.Footer><Button variant="outline" onclick={() => (developmentOpen = false)}>Cancel</Button><Button onclick={saveDevelopmentSettings} disabled={savingDevelopment || !canManageDevelopment}>{savingDevelopment ? 'Saving...' : 'Save'}</Button></Dialog.Footer>
+	</Dialog.Content>
+</Dialog.Root>
 
 {#if issuesState.selectedIssue}
 	<IssueDetail

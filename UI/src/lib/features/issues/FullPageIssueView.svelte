@@ -48,6 +48,12 @@
 	import { listTeams } from '$lib/api/teams';
 	import { getIssueCopyPrompt } from '$lib/api/ai-settings';
 	import HistoryAssignees from './HistoryAssignees.svelte';
+	import IssueMachineActions from '$lib/features/dev-machines/IssueMachineActions.svelte';
+	import IssueMachinePickerDialog, { type IssueMachineIntent } from '$lib/features/dev-machines/IssueMachinePickerDialog.svelte';
+	import CreateMachineDialog from '$lib/features/dev-machines/CreateMachineDialog.svelte';
+	import IssueRepositoryDialog from '$lib/features/dev-machines/IssueRepositoryDialog.svelte';
+	import AgentRunDialog from '$lib/features/dev-machines/AgentRunDialog.svelte';
+	import type { AgentRun, DevMachine } from '$lib/types/dev-machine';
 
 	let {
 		issue,
@@ -90,6 +96,13 @@
 	let relationDialogOpen = $state(false);
 	let relationType = $state<RelationType>('related');
 	let issueActionsOpen = $state(false);
+	let issueActionsCreateOpen = $state(false);
+	let issueActionsRunOpen = $state(false);
+	let issueActionsRepositoryOpen = $state(false);
+	let issueActionsMachinePickerOpen = $state(false);
+	let issueActionsMachineIntent = $state<IssueMachineIntent>('ide');
+	let issueActionsSelectedMachine = $state<DevMachine | null>(null);
+	let issueActionsSelectedCheckoutId = $state<string | undefined>(undefined);
 	let isSubscribed = $state(false);
 	let subscriptionBusy = $state(false);
 
@@ -779,7 +792,9 @@
 						<MoreHorizontal size={14} />
 					</button>
 				</Popover.Trigger>
-				<Popover.Content class="w-44 p-1" align="end">
+				<Popover.Content class="w-64 max-w-[calc(100vw-1rem)] p-1" align="end">
+					<IssueMachineActions {slug} {issue} bind:repositoryOpen={issueActionsRepositoryOpen} bind:pickerOpen={issueActionsMachinePickerOpen} bind:pickerIntent={issueActionsMachineIntent} onaction={() => (issueActionsOpen = false)} />
+					<div class="my-1 h-px bg-[var(--app-border)]"></div>
 					<button
 						type="button"
 						onclick={() => { issueActionsOpen = false; parentPickerOpen = true; }}
@@ -1537,3 +1552,32 @@
 		</AlertDialog.Footer>
 	</AlertDialog.Content>
 </AlertDialog.Root>
+
+<CreateMachineDialog bind:open={issueActionsCreateOpen} {slug} {issue} oncreated={(machine) => goto(`/${slug}/machines/${machine.id}`)} />
+<IssueRepositoryDialog bind:open={issueActionsRepositoryOpen} {slug} {issue} />
+<IssueMachinePickerDialog
+	bind:open={issueActionsMachinePickerOpen}
+	{slug}
+	{issue}
+	intent={issueActionsMachineIntent}
+	oncreate={() => (issueActionsCreateOpen = true)}
+	onrepository={() => (issueActionsRepositoryOpen = true)}
+	onagent={(machine, checkoutId) => {
+		issueActionsSelectedMachine = machine;
+		issueActionsSelectedCheckoutId = checkoutId;
+		issueActionsRunOpen = true;
+	}}
+/>
+{#if issueActionsSelectedMachine && issueActionsSelectedCheckoutId}
+	<AgentRunDialog
+		bind:open={issueActionsRunOpen}
+		{slug}
+		machine={issueActionsSelectedMachine}
+		checkoutId={issueActionsSelectedCheckoutId}
+		initialPrompt={`${issue.title}\n\n${issue.description ?? ''}`}
+		oncreated={(run: AgentRun) => {
+			const m = issueActionsSelectedMachine as NonNullable<typeof issueActionsSelectedMachine>;
+			goto(`/${slug}/machines/${m.id}?agent_run_id=${run.id}`);
+		}}
+	/>
+{/if}
