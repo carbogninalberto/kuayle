@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/network"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/client"
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/stretchr/testify/require"
@@ -34,15 +34,19 @@ func TestDockerRuntimeLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = runtime.client.Close() })
 
-	gateway, err := runtime.client.ContainerCreate(ctx, &container.Config{
-		Image:      "kuayle/dev-machine-ide:0.1.0",
-		Entrypoint: []string{"/bin/sleep"},
-		Cmd:        []string{"120"},
-	}, nil, nil, nil, gatewayName)
+	gateway, err := runtime.client.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Config: &container.Config{
+			Image:      "kuayle/dev-machine-ide:0.1.0",
+			Entrypoint: []string{"/bin/sleep"},
+			Cmd:        []string{"120"},
+		},
+		Name: gatewayName,
+	})
 	require.NoError(t, err)
-	require.NoError(t, runtime.client.ContainerStart(ctx, gateway.ID, container.StartOptions{}))
+	_, err = runtime.client.ContainerStart(ctx, gateway.ID, client.ContainerStartOptions{})
+	require.NoError(t, err)
 	t.Cleanup(func() {
-		_ = runtime.client.ContainerRemove(context.Background(), gateway.ID, container.RemoveOptions{Force: true})
+		_, _ = runtime.client.ContainerRemove(context.Background(), gateway.ID, client.ContainerRemoveOptions{Force: true})
 	})
 
 	machine := &domain.DevMachine{
@@ -78,27 +82,27 @@ func TestDockerRuntimeLifecycle(t *testing.T) {
 		}
 	})
 
-	privateNetwork, err := runtime.client.NetworkInspect(ctx, networkName, network.InspectOptions{})
+	privateNetwork, err := runtime.client.NetworkInspect(ctx, networkName, client.NetworkInspectOptions{})
 	require.NoError(t, err)
-	require.True(t, privateNetwork.Internal)
-	require.Contains(t, privateNetwork.Containers, gateway.ID)
+	require.True(t, privateNetwork.Network.Internal)
+	require.Contains(t, privateNetwork.Network.Containers, gateway.ID)
 
 	for _, service := range services {
 		requireContainerRunning(t, ctx, runtime, service.ServiceKey, *service.ContainerID)
-		inspection, err := runtime.client.ContainerInspect(ctx, *service.ContainerID)
+		inspection, err := runtime.client.ContainerInspect(ctx, *service.ContainerID, client.ContainerInspectOptions{})
 		require.NoError(t, err)
-		require.Equal(t, "1000:1000", inspection.Config.User)
-		require.True(t, inspection.HostConfig.ReadonlyRootfs)
-		require.False(t, inspection.HostConfig.Privileged)
-		require.Contains(t, inspection.HostConfig.CapDrop, "ALL")
-		require.Contains(t, inspection.HostConfig.SecurityOpt, "no-new-privileges=true")
-		require.Empty(t, inspection.HostConfig.PortBindings)
-		require.NotZero(t, inspection.HostConfig.Memory)
-		require.NotZero(t, inspection.HostConfig.NanoCPUs)
-		require.NotNil(t, inspection.HostConfig.PidsLimit)
-		require.Contains(t, inspection.HostConfig.Tmpfs, "/run/kuayle-secrets")
+		require.Equal(t, "1000:1000", inspection.Container.Config.User)
+		require.True(t, inspection.Container.HostConfig.ReadonlyRootfs)
+		require.False(t, inspection.Container.HostConfig.Privileged)
+		require.Contains(t, inspection.Container.HostConfig.CapDrop, "ALL")
+		require.Contains(t, inspection.Container.HostConfig.SecurityOpt, "no-new-privileges=true")
+		require.Empty(t, inspection.Container.HostConfig.PortBindings)
+		require.NotZero(t, inspection.Container.HostConfig.Memory)
+		require.NotZero(t, inspection.Container.HostConfig.NanoCPUs)
+		require.NotNil(t, inspection.Container.HostConfig.PidsLimit)
+		require.Contains(t, inspection.Container.HostConfig.Tmpfs, "/run/kuayle-secrets")
 		if service.ServiceType == "egress" {
-			require.Contains(t, inspection.NetworkSettings.Networks, egressNetworkName)
+			require.Contains(t, inspection.Container.NetworkSettings.Networks, egressNetworkName)
 		}
 	}
 	for _, service := range services {
@@ -111,9 +115,9 @@ func TestDockerRuntimeLifecycle(t *testing.T) {
 
 	require.NoError(t, runtime.Pause(ctx, machine, services))
 	for _, service := range services {
-		inspection, err := runtime.client.ContainerInspect(ctx, *service.ContainerID)
+		inspection, err := runtime.client.ContainerInspect(ctx, *service.ContainerID, client.ContainerInspectOptions{})
 		require.NoError(t, err)
-		require.True(t, inspection.State.Paused)
+		require.True(t, inspection.Container.State.Paused)
 	}
 	require.NoError(t, runtime.Start(ctx, machine, services, secrets))
 	for _, service := range services {
@@ -162,12 +166,12 @@ func TestDockerRuntimeLifecycle(t *testing.T) {
 	for _, service := range services[:len(services)-2] {
 		requireContainerRunning(t, ctx, runtime, service.ServiceKey, *service.ContainerID)
 	}
-	agentInspection, err := runtime.client.ContainerInspect(ctx, execution.ContainerID)
+	agentInspection, err := runtime.client.ContainerInspect(ctx, execution.ContainerID, client.ContainerInspectOptions{})
 	require.NoError(t, err)
-	require.False(t, agentInspection.State.Running)
-	customAgentInspection, err := runtime.client.ContainerInspect(ctx, customExecution.ContainerID)
+	require.False(t, agentInspection.Container.State.Running)
+	customAgentInspection, err := runtime.client.ContainerInspect(ctx, customExecution.ContainerID, client.ContainerInspectOptions{})
 	require.NoError(t, err)
-	require.False(t, customAgentInspection.State.Running)
+	require.False(t, customAgentInspection.Container.State.Running)
 
 	require.NoError(t, runtime.Teardown(ctx, machine, services))
 	cleaned = true
@@ -187,13 +191,14 @@ func requireContainerRunning(t *testing.T, ctx context.Context, runtime *DockerR
 	var inspectErr error
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
-		inspection, inspectErr = runtime.client.ContainerInspect(ctx, containerID)
+		raw, rawErr := runtime.client.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{})
+		inspection, inspectErr = raw.Container, rawErr
 		if inspectErr == nil && inspection.State.Running {
 			return
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
-	logs, err := runtime.client.ContainerLogs(ctx, containerID, container.LogsOptions{ShowStdout: true, ShowStderr: true})
+	logs, err := runtime.client.ContainerLogs(ctx, containerID, client.ContainerLogsOptions{ShowStdout: true, ShowStderr: true})
 	if err != nil {
 		t.Fatalf("%s container is not running: inspect=%v logs=%v", serviceKey, inspectErr, err)
 	}

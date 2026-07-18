@@ -11,15 +11,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/filters"
-	"github.com/docker/docker/api/types/image"
-	"github.com/docker/docker/api/types/mount"
-	"github.com/docker/docker/api/types/network"
-	"github.com/docker/docker/api/types/volume"
-	"github.com/docker/docker/client"
-	"github.com/docker/docker/errdefs"
-	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/containerd/errdefs"
+	"github.com/moby/moby/api/pkg/stdcopy"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/mount"
+	"github.com/moby/moby/api/types/network"
+	"github.com/moby/moby/client"
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 )
@@ -88,7 +85,7 @@ func NewDockerRuntime(config DockerConfig) (*DockerRuntime, error) {
 }
 
 func (r *DockerRuntime) Ping(ctx context.Context) error {
-	_, err := r.client.Ping(ctx)
+	_, err := r.client.Ping(ctx, client.PingOptions{})
 	return err
 }
 
@@ -102,18 +99,18 @@ func (r *DockerRuntime) Inspect(ctx context.Context, machine *domain.DevMachine,
 		volumeName = *machine.WorkspaceVolumeName
 	}
 	result := RuntimeInspection{NetworkName: networkName, VolumeName: volumeName, Services: make(map[string]RuntimeServiceInspection, len(services))}
-	networkInspection, err := r.client.NetworkInspect(ctx, networkName, network.InspectOptions{})
+	networkInspection, err := r.client.NetworkInspect(ctx, networkName, client.NetworkInspectOptions{})
 	if err == nil {
 		result.NetworkExists = true
 		if r.config.GatewayContainerName != "" {
-			if gateway, gatewayErr := r.client.ContainerInspect(ctx, r.config.GatewayContainerName); gatewayErr == nil {
-				_, result.GatewayAttached = networkInspection.Containers[gateway.ID]
+			if gateway, gatewayErr := r.client.ContainerInspect(ctx, r.config.GatewayContainerName, client.ContainerInspectOptions{}); gatewayErr == nil {
+				_, result.GatewayAttached = networkInspection.Network.Containers[gateway.Container.ID]
 			}
 		}
 	} else if !errdefs.IsNotFound(err) {
 		return RuntimeInspection{}, err
 	}
-	if _, err := r.client.VolumeInspect(ctx, volumeName); err == nil {
+	if _, err := r.client.VolumeInspect(ctx, volumeName, client.VolumeInspectOptions{}); err == nil {
 		result.VolumeExists = true
 	} else if !errdefs.IsNotFound(err) {
 		return RuntimeInspection{}, err
@@ -123,9 +120,9 @@ func (r *DockerRuntime) Inspect(ctx context.Context, machine *domain.DevMachine,
 		if service.ContainerID != nil && *service.ContainerID != "" {
 			containerReference = *service.ContainerID
 		}
-		inspection, inspectErr := r.client.ContainerInspect(ctx, containerReference)
+		inspection, inspectErr := r.client.ContainerInspect(ctx, containerReference, client.ContainerInspectOptions{})
 		if errdefs.IsNotFound(inspectErr) && containerReference != service.ContainerName {
-			inspection, inspectErr = r.client.ContainerInspect(ctx, service.ContainerName)
+			inspection, inspectErr = r.client.ContainerInspect(ctx, service.ContainerName, client.ContainerInspectOptions{})
 		}
 		if errdefs.IsNotFound(inspectErr) {
 			result.Services[service.ServiceKey] = RuntimeServiceInspection{}
@@ -134,17 +131,17 @@ func (r *DockerRuntime) Inspect(ctx context.Context, machine *domain.DevMachine,
 		if inspectErr != nil {
 			return RuntimeInspection{}, inspectErr
 		}
-		health := inspection.State.Status
-		if inspection.State.Running {
+		health := string(inspection.Container.State.Status)
+		if inspection.Container.State.Running {
 			health = "healthy"
 		}
-		if inspection.State.Health != nil {
-			health = inspection.State.Health.Status
+		if inspection.Container.State.Health != nil {
+			health = string(inspection.Container.State.Health.Status)
 		}
-		_, onNetwork := inspection.NetworkSettings.Networks[networkName]
+		_, onNetwork := inspection.Container.NetworkSettings.Networks[networkName]
 		result.Services[service.ServiceKey] = RuntimeServiceInspection{
-			ContainerID: inspection.ID, Status: inspection.State.Status, HealthStatus: health,
-			Exists: true, Running: inspection.State.Running, Paused: inspection.State.Paused, OnNetwork: onNetwork,
+			ContainerID: inspection.Container.ID, Status: string(inspection.Container.State.Status), HealthStatus: health,
+			Exists: true, Running: inspection.Container.State.Running, Paused: inspection.Container.State.Paused, OnNetwork: onNetwork,
 		}
 	}
 	return result, nil
@@ -168,16 +165,16 @@ func (r *DockerRuntime) Spawn(ctx context.Context, machine *domain.DevMachine, s
 		cleanup := planSpawnFailureCleanup(createdContainers, createdMachineNetworkConnections, networkCreated, volumeCreated)
 		_ = r.removeContainers(context.Background(), cleanup.Containers)
 		for _, containerID := range createdEgressNetworkConnections {
-			_ = r.client.NetworkDisconnect(context.Background(), egressNetworkName, containerID, true)
+			_, _ = r.client.NetworkDisconnect(context.Background(), egressNetworkName, client.NetworkDisconnectOptions{Container: containerID, Force: true})
 		}
 		for _, containerID := range cleanup.NetworkConnections {
-			_ = r.client.NetworkDisconnect(context.Background(), networkName, containerID, true)
+			_, _ = r.client.NetworkDisconnect(context.Background(), networkName, client.NetworkDisconnectOptions{Container: containerID, Force: true})
 		}
 		if cleanup.RemoveNetwork {
-			_ = r.client.NetworkRemove(context.Background(), networkName)
+			_, _ = r.client.NetworkRemove(context.Background(), networkName, client.NetworkRemoveOptions{})
 		}
 		if cleanup.RemoveVolume {
-			_ = r.client.VolumeRemove(context.Background(), volumeName, true)
+			_, _ = r.client.VolumeRemove(context.Background(), volumeName, client.VolumeRemoveOptions{Force: true})
 		}
 	}()
 
@@ -247,7 +244,7 @@ func (r *DockerRuntime) connectNetwork(ctx context.Context, networkName, contain
 	if r.containerOnNetwork(ctx, networkName, containerID) {
 		return false, nil
 	}
-	err := r.client.NetworkConnect(ctx, networkName, containerID, endpoint)
+	_, err := r.client.NetworkConnect(ctx, networkName, client.NetworkConnectOptions{Container: containerID, EndpointConfig: endpoint})
 	if err == nil {
 		return true, nil
 	}
@@ -261,12 +258,12 @@ func (r *DockerRuntime) connectNetwork(ctx context.Context, networkName, contain
 }
 
 func (r *DockerRuntime) containerOnNetwork(ctx context.Context, networkName, containerID string) bool {
-	containerInspection, containerErr := r.client.ContainerInspect(ctx, containerID)
-	networkInspection, networkErr := r.client.NetworkInspect(ctx, networkName, network.InspectOptions{})
+	containerInspection, containerErr := r.client.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{})
+	networkInspection, networkErr := r.client.NetworkInspect(ctx, networkName, client.NetworkInspectOptions{})
 	if containerErr != nil || networkErr != nil {
 		return false
 	}
-	_, connected := networkInspection.Containers[containerInspection.ID]
+	_, connected := networkInspection.Network.Containers[containerInspection.Container.ID]
 	return connected
 }
 
@@ -275,11 +272,11 @@ func (r *DockerRuntime) prepareWorkspaceVolume(ctx context.Context, machine *dom
 		return err
 	}
 	containerName := "kuayle-" + machine.RoutingKey + "-volume-init"
-	if inspection, err := r.client.ContainerInspect(ctx, containerName); err == nil {
-		if inspection.Config.Labels["com.kuayle.machine-id"] != machine.ID.String() {
+	if inspection, err := r.client.ContainerInspect(ctx, containerName, client.ContainerInspectOptions{}); err == nil {
+		if inspection.Container.Config.Labels["com.kuayle.machine-id"] != machine.ID.String() {
 			return fmt.Errorf("existing volume initializer is not managed by Kuayle")
 		}
-		if err := r.client.ContainerRemove(ctx, inspection.ID, container.RemoveOptions{Force: true, RemoveVolumes: true}); err != nil {
+		if _, err := r.client.ContainerRemove(ctx, inspection.Container.ID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true}); err != nil {
 			return err
 		}
 	} else if !errdefs.IsNotFound(err) {
@@ -288,34 +285,38 @@ func (r *DockerRuntime) prepareWorkspaceVolume(ctx context.Context, machine *dom
 	labels := machineLabels(machine)
 	labels["com.kuayle.service"] = "volume-init"
 	pidsLimit := int64(16)
-	response, err := r.client.ContainerCreate(ctx, &container.Config{
-		Image: imageRef, User: "0:0", Entrypoint: []string{"/bin/sh"}, Cmd: []string{"-c", "chown 1000:1000 /workspace"}, Labels: labels,
-	}, &container.HostConfig{
-		NetworkMode: "none", ReadonlyRootfs: true, CapDrop: []string{"ALL"}, CapAdd: []string{"CHOWN"},
-		SecurityOpt: []string{"no-new-privileges=true"},
-		LogConfig:   boundedLogConfig(),
-		Mounts: []mount.Mount{{
-			Type: mount.TypeVolume, Source: volumeName, Target: "/workspace",
-			VolumeOptions: &mount.VolumeOptions{NoCopy: true},
-		}},
-		Resources: container.Resources{Memory: 64 * 1024 * 1024, MemorySwap: 64 * 1024 * 1024, NanoCPUs: 100_000_000, PidsLimit: &pidsLimit},
-	}, nil, nil, containerName)
+	response, err := r.client.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Config: &container.Config{
+			Image: imageRef, User: "0:0", Entrypoint: []string{"/bin/sh"}, Cmd: []string{"-c", "chown 1000:1000 /workspace"}, Labels: labels,
+		},
+		HostConfig: &container.HostConfig{
+			NetworkMode: "none", ReadonlyRootfs: true, CapDrop: []string{"ALL"}, CapAdd: []string{"CHOWN"},
+			SecurityOpt: []string{"no-new-privileges=true"},
+			LogConfig:   boundedLogConfig(),
+			Mounts: []mount.Mount{{
+				Type: mount.TypeVolume, Source: volumeName, Target: "/workspace",
+				VolumeOptions: &mount.VolumeOptions{NoCopy: true},
+			}},
+			Resources: container.Resources{Memory: 64 * 1024 * 1024, MemorySwap: 64 * 1024 * 1024, NanoCPUs: 100_000_000, PidsLimit: &pidsLimit},
+		},
+		Name: containerName,
+	})
 	if err != nil {
 		return err
 	}
-	defer r.client.ContainerRemove(context.Background(), response.ID, container.RemoveOptions{Force: true, RemoveVolumes: true})
-	if err := r.client.ContainerStart(ctx, response.ID, container.StartOptions{}); err != nil {
+	defer func() { _, _ = r.client.ContainerRemove(context.Background(), response.ID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true}) }()
+	if _, err := r.client.ContainerStart(ctx, response.ID, client.ContainerStartOptions{}); err != nil {
 		return err
 	}
-	wait, waitErrors := r.client.ContainerWait(ctx, response.ID, container.WaitConditionNotRunning)
+	waitResult := r.client.ContainerWait(ctx, response.ID, client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
 	select {
-	case result := <-wait:
+	case result := <-waitResult.Result:
 		if result.StatusCode != 0 {
 			_, stderr, _ := r.containerLogs(ctx, response.ID)
 			return fmt.Errorf("volume initializer exited %d: %s", result.StatusCode, strings.TrimSpace(stderr))
 		}
 		return nil
-	case err := <-waitErrors:
+	case err := <-waitResult.Error:
 		return err
 	case <-ctx.Done():
 		return ctx.Err()
@@ -335,16 +336,16 @@ func (r *DockerRuntime) Start(ctx context.Context, machine *domain.DevMachine, s
 			continue
 		}
 		seen[*service.ContainerID] = true
-		inspection, err := r.client.ContainerInspect(ctx, *service.ContainerID)
+		inspection, err := r.client.ContainerInspect(ctx, *service.ContainerID, client.ContainerInspectOptions{})
 		if err != nil {
 			return err
 		}
-		if inspection.State.Paused {
-			if err := r.client.ContainerUnpause(ctx, *service.ContainerID); err != nil {
+		if inspection.Container.State.Paused {
+			if _, err := r.client.ContainerUnpause(ctx, *service.ContainerID, client.ContainerUnpauseOptions{}); err != nil {
 				return err
 			}
-		} else if !inspection.State.Running {
-			if err := r.client.ContainerStart(ctx, *service.ContainerID, container.StartOptions{}); err != nil {
+		} else if !inspection.Container.State.Running {
+			if _, err := r.client.ContainerStart(ctx, *service.ContainerID, client.ContainerStartOptions{}); err != nil {
 				return err
 			}
 			if err := r.copySecrets(ctx, *service.ContainerID, secrets[service.ServiceKey]); err != nil {
@@ -360,7 +361,7 @@ func (r *DockerRuntime) Start(ctx context.Context, machine *domain.DevMachine, s
 
 func (r *DockerRuntime) Pause(ctx context.Context, _ *domain.DevMachine, services []domain.DevMachineService) error {
 	for _, containerID := range uniqueContainerIDs(services) {
-		if err := r.client.ContainerPause(ctx, containerID); err != nil && !errdefs.IsNotFound(err) && !errdefs.IsConflict(err) {
+		if _, err := r.client.ContainerPause(ctx, containerID, client.ContainerPauseOptions{}); err != nil && !errdefs.IsNotFound(err) && !errdefs.IsConflict(err) {
 			return err
 		}
 	}
@@ -370,7 +371,7 @@ func (r *DockerRuntime) Pause(ctx context.Context, _ *domain.DevMachine, service
 func (r *DockerRuntime) Stop(ctx context.Context, _ *domain.DevMachine, services []domain.DevMachineService) error {
 	timeout := 15
 	for _, containerID := range uniqueContainerIDs(services) {
-		if err := r.client.ContainerStop(ctx, containerID, container.StopOptions{Timeout: &timeout}); err != nil && !errdefs.IsNotFound(err) && !errdefs.IsConflict(err) {
+		if _, err := r.client.ContainerStop(ctx, containerID, client.ContainerStopOptions{Timeout: &timeout}); err != nil && !errdefs.IsNotFound(err) && !errdefs.IsConflict(err) {
 			return err
 		}
 	}
@@ -391,15 +392,18 @@ func (r *DockerRuntime) Teardown(ctx context.Context, machine *domain.DevMachine
 			return err
 		}
 	}
-	containers, err := r.client.ContainerList(ctx, container.ListOptions{All: true, Filters: filters.NewArgs(filters.Arg("label", "com.kuayle.machine-id="+machine.ID.String()))})
+	containers, err := r.client.ContainerList(ctx, client.ContainerListOptions{
+		All:     true,
+		Filters: make(client.Filters).Add("label", "com.kuayle.machine-id="+machine.ID.String()),
+	})
 	if err != nil {
 		return err
 	}
-	for _, item := range containers {
+	for _, item := range containers.Items {
 		if item.Labels["com.kuayle.managed"] != "true" || item.Labels["com.kuayle.machine-id"] != machine.ID.String() {
 			return fmt.Errorf("container %s is not owned by machine", item.ID)
 		}
-		if err := r.client.ContainerRemove(ctx, item.ID, container.RemoveOptions{Force: true, RemoveVolumes: true}); err != nil && !errdefs.IsNotFound(err) {
+		if _, err := r.client.ContainerRemove(ctx, item.ID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true}); err != nil && !errdefs.IsNotFound(err) {
 			return err
 		}
 	}
@@ -407,7 +411,7 @@ func (r *DockerRuntime) Teardown(ctx context.Context, machine *domain.DevMachine
 	if machine.DockerNetworkName != nil && *machine.DockerNetworkName != "" {
 		networkName = *machine.DockerNetworkName
 	}
-	_ = r.client.NetworkDisconnect(ctx, networkName, r.config.GatewayContainerName, true)
+	_, _ = r.client.NetworkDisconnect(ctx, networkName, client.NetworkDisconnectOptions{Container: r.config.GatewayContainerName, Force: true})
 	if err := r.removeManagedNetwork(ctx, networkName, machine.ID); err != nil {
 		return err
 	}
@@ -422,51 +426,51 @@ func (r *DockerRuntime) Teardown(ctx context.Context, machine *domain.DevMachine
 }
 
 func (r *DockerRuntime) removeManagedContainer(ctx context.Context, containerID string, machineID uuid.UUID) error {
-	inspection, err := r.client.ContainerInspect(ctx, containerID)
+	inspection, err := r.client.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{})
 	if errdefs.IsNotFound(err) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	if !ownedByMachine(inspection.Config.Labels, machineID) {
+	if !ownedByMachine(inspection.Container.Config.Labels, machineID) {
 		return fmt.Errorf("container %s is not owned by machine", containerID)
 	}
-	if err := r.client.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true, RemoveVolumes: true}); err != nil && !errdefs.IsNotFound(err) {
+	if _, err := r.client.ContainerRemove(ctx, containerID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true}); err != nil && !errdefs.IsNotFound(err) {
 		return err
 	}
 	return nil
 }
 
 func (r *DockerRuntime) removeManagedNetwork(ctx context.Context, networkName string, machineID uuid.UUID) error {
-	inspection, err := r.client.NetworkInspect(ctx, networkName, network.InspectOptions{})
+	inspection, err := r.client.NetworkInspect(ctx, networkName, client.NetworkInspectOptions{})
 	if errdefs.IsNotFound(err) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	if !ownedByMachine(inspection.Labels, machineID) {
+	if !ownedByMachine(inspection.Network.Labels, machineID) {
 		return fmt.Errorf("network %s is not owned by machine", networkName)
 	}
-	if err := r.client.NetworkRemove(ctx, networkName); err != nil && !errdefs.IsNotFound(err) {
+	if _, err := r.client.NetworkRemove(ctx, networkName, client.NetworkRemoveOptions{}); err != nil && !errdefs.IsNotFound(err) {
 		return err
 	}
 	return nil
 }
 
 func (r *DockerRuntime) removeManagedVolume(ctx context.Context, volumeName string, machineID uuid.UUID) error {
-	inspection, err := r.client.VolumeInspect(ctx, volumeName)
+	inspection, err := r.client.VolumeInspect(ctx, volumeName, client.VolumeInspectOptions{})
 	if errdefs.IsNotFound(err) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	if !ownedByMachine(inspection.Labels, machineID) {
+	if !ownedByMachine(inspection.Volume.Labels, machineID) {
 		return fmt.Errorf("volume %s is not owned by machine", volumeName)
 	}
-	if err := r.client.VolumeRemove(ctx, volumeName, true); err != nil && !errdefs.IsNotFound(err) {
+	if _, err := r.client.VolumeRemove(ctx, volumeName, client.VolumeRemoveOptions{Force: true}); err != nil && !errdefs.IsNotFound(err) {
 		return err
 	}
 	return nil
@@ -505,11 +509,11 @@ func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine
 		"HTTPS_PROXY=http://" + machine.RoutingKey + "-egress:3128", "NO_PROXY=localhost,127.0.0.1," + machine.RoutingKey + "-collector",
 		"KUAYLE_COLLECTOR_URL=http://" + machine.RoutingKey + "-collector:8091", "KUAYLE_SECRET_NAMES=" + strings.Join(secretNames, ","),
 	}
-	if inspection, inspectErr := r.client.ContainerInspect(ctx, containerName); inspectErr == nil {
-		if inspection.Config.Image != provider.ImageRef || inspection.Config.Labels["com.kuayle.agent-run-id"] != run.ID.String() {
+	if inspection, inspectErr := r.client.ContainerInspect(ctx, containerName, client.ContainerInspectOptions{}); inspectErr == nil {
+		if inspection.Container.Config.Image != provider.ImageRef || inspection.Container.Config.Labels["com.kuayle.agent-run-id"] != run.ID.String() {
 			return nil, fmt.Errorf("existing agent container does not match run")
 		}
-		return r.resumeAgent(ctx, inspection, run.Mode == "interactive", secrets)
+		return r.resumeAgent(ctx, inspection.Container, run.Mode == "interactive", secrets)
 	} else if !errdefs.IsNotFound(inspectErr) {
 		return nil, inspectErr
 	}
@@ -517,44 +521,49 @@ func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine
 	if checkout != nil {
 		workingDirectory = checkout.WorkspacePath
 	}
-	response, err := r.client.ContainerCreate(ctx, &container.Config{
-		Image: provider.ImageRef, User: "1000:1000", WorkingDir: workingDirectory,
-		Entrypoint: entrypoint, Cmd: argv,
-		Env: mergeEnvironment(imageEnvironment, runtimeEnvironment...), Labels: labels,
-		AttachStdout: true, AttachStderr: true, AttachStdin: run.Mode == "interactive",
-		OpenStdin: run.Mode == "interactive", Tty: run.Mode == "interactive",
-	}, hostConfig, &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{
-		*machine.DockerNetworkName: {Aliases: []string{"agent-" + run.ID.String()}},
-	}}, nil, containerName)
+	response, err := r.client.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Config: &container.Config{
+			Image: provider.ImageRef, User: "1000:1000", WorkingDir: workingDirectory,
+			Entrypoint: entrypoint, Cmd: argv,
+			Env: mergeEnvironment(imageEnvironment, runtimeEnvironment...), Labels: labels,
+			AttachStdout: true, AttachStderr: true, AttachStdin: run.Mode == "interactive",
+			OpenStdin: run.Mode == "interactive", Tty: run.Mode == "interactive",
+		},
+		HostConfig: hostConfig,
+		NetworkingConfig: &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{
+			*machine.DockerNetworkName: {Aliases: []string{"agent-" + run.ID.String()}},
+		}},
+		Name: containerName,
+	})
 	if err != nil {
 		return nil, err
 	}
 	containerID := response.ID
-	if err := r.client.ContainerStart(ctx, containerID, container.StartOptions{}); err != nil {
-		_ = r.client.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true, RemoveVolumes: true})
+	if _, err := r.client.ContainerStart(ctx, containerID, client.ContainerStartOptions{}); err != nil {
+		_, _ = r.client.ContainerRemove(ctx, containerID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
 		return nil, err
 	}
 	if err := r.copySecrets(ctx, containerID, secrets); err != nil {
-		_ = r.client.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true, RemoveVolumes: true})
+		_, _ = r.client.ContainerRemove(ctx, containerID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
 		return nil, err
 	}
-	inspection, err := r.client.ContainerInspect(ctx, containerID)
+	inspection, err := r.client.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{})
 	if err != nil {
 		return nil, err
 	}
-	return r.resumeAgent(ctx, inspection, run.Mode == "interactive", nil)
+	return r.resumeAgent(ctx, inspection.Container, run.Mode == "interactive", nil)
 }
 
 func (r *DockerRuntime) resumeAgent(ctx context.Context, inspection container.InspectResponse, interactive bool, secrets map[string]string) (*AgentExecution, error) {
 	containerID := inspection.ID
 	if inspection.State.Paused {
-		if err := r.client.ContainerUnpause(ctx, containerID); err != nil {
+		if _, err := r.client.ContainerUnpause(ctx, containerID, client.ContainerUnpauseOptions{}); err != nil {
 			return nil, err
 		}
 		inspection.State.Running = true
 	}
 	if !inspection.State.Running && inspection.State.Status != "exited" && inspection.State.Status != "dead" {
-		if err := r.client.ContainerStart(ctx, containerID, container.StartOptions{}); err != nil {
+		if _, err := r.client.ContainerStart(ctx, containerID, client.ContainerStartOptions{}); err != nil {
 			return nil, err
 		}
 		if err := r.copySecrets(ctx, containerID, secrets); err != nil {
@@ -569,15 +578,15 @@ func (r *DockerRuntime) resumeAgent(ctx context.Context, inspection container.In
 		return &AgentExecution{ContainerID: containerID}, nil
 	}
 	if inspection.State.Running {
-		wait, waitErrors := r.client.ContainerWait(ctx, containerID, container.WaitConditionNotRunning)
+		waitResult := r.client.ContainerWait(ctx, containerID, client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
 		select {
-		case result := <-wait:
+		case result := <-waitResult.Result:
 			inspection.State.ExitCode = int(result.StatusCode)
-		case err := <-waitErrors:
+		case err := <-waitResult.Error:
 			return &AgentExecution{ContainerID: containerID, ExitCode: -1}, err
 		case <-ctx.Done():
 			stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			stopErr := r.client.ContainerStop(stopCtx, containerID, container.StopOptions{})
+			_, stopErr := r.client.ContainerStop(stopCtx, containerID, client.ContainerStopOptions{})
 			cancel()
 			if stopErr != nil && !errdefs.IsNotFound(stopErr) {
 				return &AgentExecution{ContainerID: containerID, ExitCode: -1}, fmt.Errorf("stop timed out agent: %w", stopErr)
@@ -593,18 +602,19 @@ func (r *DockerRuntime) resumeAgent(ctx context.Context, inspection container.In
 }
 
 func (r *DockerRuntime) CancelAgent(ctx context.Context, run *domain.DevMachineAgentRun) error {
-	containers, err := r.client.ContainerList(ctx, container.ListOptions{All: true})
+	containers, err := r.client.ContainerList(ctx, client.ContainerListOptions{All: true})
 	if err != nil {
 		return err
 	}
-	for _, item := range containers {
+	for _, item := range containers.Items {
 		if item.Labels["com.kuayle.agent-run-id"] != run.ID.String() {
 			continue
 		}
 		if item.Labels["com.kuayle.managed"] != "true" {
 			return fmt.Errorf("agent container %s is not managed by Kuayle", item.ID)
 		}
-		return r.client.ContainerRemove(ctx, item.ID, container.RemoveOptions{Force: true, RemoveVolumes: true})
+		_, err := r.client.ContainerRemove(ctx, item.ID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+		return err
 	}
 	return nil
 }
@@ -624,7 +634,7 @@ func (r *DockerRuntime) Stats(ctx context.Context, _ *domain.DevMachine, service
 		if service.ServiceType == "collector" {
 			collectorID = *service.ContainerID
 		}
-		statsReader, err := r.client.ContainerStats(ctx, *service.ContainerID, false)
+		statsReader, err := r.client.ContainerStats(ctx, *service.ContainerID, client.ContainerStatsOptions{Stream: false})
 		if err != nil {
 			if errdefs.IsNotFound(err) {
 				continue
@@ -703,26 +713,26 @@ func (r *DockerRuntime) SnapshotEnvironment(ctx context.Context, machine *domain
 	if developerContainer == "" {
 		return "", fmt.Errorf("developer container is unavailable")
 	}
-	inspection, err := r.client.ContainerInspect(ctx, developerContainer)
+	inspection, err := r.client.ContainerInspect(ctx, developerContainer, client.ContainerInspectOptions{})
 	if err != nil {
 		return "", err
 	}
-	wasPaused, wasRunning := inspection.State.Paused, inspection.State.Running
+	wasPaused, wasRunning := inspection.Container.State.Paused, inspection.Container.State.Running
 	if wasPaused {
-		if err := r.client.ContainerUnpause(ctx, developerContainer); err != nil {
+		if _, err := r.client.ContainerUnpause(ctx, developerContainer, client.ContainerUnpauseOptions{}); err != nil {
 			return "", err
 		}
 	} else if !wasRunning {
-		if err := r.client.ContainerStart(ctx, developerContainer, container.StartOptions{}); err != nil {
+		if _, err := r.client.ContainerStart(ctx, developerContainer, client.ContainerStartOptions{}); err != nil {
 			return "", err
 		}
 	}
 	restoreState := func() {
 		if wasPaused {
-			_ = r.client.ContainerPause(context.Background(), developerContainer)
+			_, _ = r.client.ContainerPause(context.Background(), developerContainer, client.ContainerPauseOptions{})
 		} else if !wasRunning {
 			timeout := 10
-			_ = r.client.ContainerStop(context.Background(), developerContainer, container.StopOptions{Timeout: &timeout})
+			_, _ = r.client.ContainerStop(context.Background(), developerContainer, client.ContainerStopOptions{Timeout: &timeout})
 		}
 	}
 	defer restoreState()
@@ -738,9 +748,9 @@ chown -R 1000:1000 /opt/kuayle-home-template`}, "0:0")
 		return "", fmt.Errorf("prepare environment home template: %w", err)
 	}
 	restoreState()
-	response, err := r.client.ContainerCommit(ctx, developerContainer, container.CommitOptions{
+	response, err := r.client.ContainerCommit(ctx, developerContainer, client.ContainerCommitOptions{
 		Reference: environment.ImageRef, Comment: "Kuayle Development Environment " + environment.Name,
-		Author: "Kuayle", Pause: false,
+		Author: "Kuayle", NoPause: true,
 		Changes: []string{
 			"LABEL com.kuayle.managed=true",
 			"LABEL com.kuayle.kind=dev-machine-environment",
@@ -763,7 +773,7 @@ func (r *DockerRuntime) DeleteEnvironmentImage(ctx context.Context, environment 
 	if reference == "" {
 		return nil
 	}
-	inspection, _, err := r.client.ImageInspectWithRaw(ctx, reference)
+	inspection, err := r.client.ImageInspect(ctx, reference)
 	if errdefs.IsNotFound(err) {
 		return nil
 	}
@@ -777,7 +787,7 @@ func (r *DockerRuntime) DeleteEnvironmentImage(ctx context.Context, environment 
 	if err := validateEnvironmentImageLabels(labels, environment.WorkspaceID, environment.ID); err != nil {
 		return fmt.Errorf("environment image %s is not owned by Kuayle: %w", reference, err)
 	}
-	_, err = r.client.ImageRemove(ctx, reference, image.RemoveOptions{Force: true, PruneChildren: true})
+	_, err = r.client.ImageRemove(ctx, reference, client.ImageRemoveOptions{Force: true, PruneChildren: true})
 	if errdefs.IsNotFound(err) {
 		return nil
 	}
@@ -807,30 +817,30 @@ func uniqueContainerIDs(services []domain.DevMachineService) []string {
 }
 
 func (r *DockerRuntime) ensureService(ctx context.Context, machine *domain.DevMachine, service domain.DevMachineService, networkName, volumeName string, secrets map[string]string) (containerID string, containerCreated bool, networkAttached bool, err error) {
-	inspection, err := r.client.ContainerInspect(ctx, service.ContainerName)
+	inspection, err := r.client.ContainerInspect(ctx, service.ContainerName, client.ContainerInspectOptions{})
 	if err == nil {
-		if inspection.Config.Image != service.ImageRef || inspection.Config.Labels["com.kuayle.machine-id"] != machine.ID.String() || inspection.Config.Labels["com.kuayle.service"] != service.ServiceType {
+		if inspection.Container.Config.Image != service.ImageRef || inspection.Container.Config.Labels["com.kuayle.machine-id"] != machine.ID.String() || inspection.Container.Config.Labels["com.kuayle.service"] != service.ServiceType {
 			return "", false, false, fmt.Errorf("existing container does not match service")
 		}
-		containerID = inspection.ID
-		networkAttached, err = r.connectNetwork(ctx, networkName, inspection.ID, &network.EndpointSettings{Aliases: []string{service.InternalHost}})
+		containerID = inspection.Container.ID
+		networkAttached, err = r.connectNetwork(ctx, networkName, inspection.Container.ID, &network.EndpointSettings{Aliases: []string{service.InternalHost}})
 		if err != nil {
 			return containerID, false, networkAttached, err
 		}
-		if inspection.State.Paused {
-			if err := r.client.ContainerUnpause(ctx, inspection.ID); err != nil {
+		if inspection.Container.State.Paused {
+			if _, err := r.client.ContainerUnpause(ctx, inspection.Container.ID, client.ContainerUnpauseOptions{}); err != nil {
 				return containerID, false, networkAttached, err
 			}
 		}
-		if !inspection.State.Running {
-			if err := r.client.ContainerStart(ctx, inspection.ID, container.StartOptions{}); err != nil {
+		if !inspection.Container.State.Running {
+			if _, err := r.client.ContainerStart(ctx, inspection.Container.ID, client.ContainerStartOptions{}); err != nil {
 				return containerID, false, networkAttached, err
 			}
-			if err := r.copySecrets(ctx, inspection.ID, secrets); err != nil {
+			if err := r.copySecrets(ctx, inspection.Container.ID, secrets); err != nil {
 				return containerID, false, networkAttached, err
 			}
 		}
-		if err := r.requireRunning(ctx, inspection.ID); err != nil {
+		if err := r.requireRunning(ctx, inspection.Container.ID); err != nil {
 			return containerID, false, networkAttached, err
 		}
 		return containerID, false, networkAttached, nil
@@ -886,19 +896,22 @@ func (r *DockerRuntime) ensureService(ctx context.Context, machine *domain.DevMa
 	} else if service.ServiceType == "browser" {
 		containerConfig.Healthcheck = &container.HealthConfig{Test: []string{"CMD", "/usr/local/bin/kuayle-browser-healthcheck"}, Interval: 10 * time.Second, Timeout: 2 * time.Second, StartPeriod: 10 * time.Second, Retries: 6}
 	}
-	response, err := r.client.ContainerCreate(ctx, containerConfig, r.secureHostConfig(machine, service.ServiceType, networkName, volumeName), &network.NetworkingConfig{
-		EndpointsConfig: map[string]*network.EndpointSettings{networkName: {Aliases: []string{service.InternalHost}}},
-	}, nil, service.ContainerName)
+	response, err := r.client.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Config:           containerConfig,
+		HostConfig:       r.secureHostConfig(machine, service.ServiceType, networkName, volumeName),
+		NetworkingConfig: &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{networkName: {Aliases: []string{service.InternalHost}}}},
+		Name:             service.ContainerName,
+	})
 	if err != nil {
 		return "", false, false, err
 	}
 	completed := false
 	defer func() {
 		if !completed {
-			_ = r.client.ContainerRemove(context.Background(), response.ID, container.RemoveOptions{Force: true, RemoveVolumes: true})
+			_, _ = r.client.ContainerRemove(context.Background(), response.ID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
 		}
 	}()
-	if err := r.client.ContainerStart(ctx, response.ID, container.StartOptions{}); err != nil {
+	if _, err := r.client.ContainerStart(ctx, response.ID, client.ContainerStartOptions{}); err != nil {
 		return "", false, false, err
 	}
 	if err := r.copySecrets(ctx, response.ID, secrets); err != nil {
@@ -986,7 +999,7 @@ func (r *DockerRuntime) ensureImage(ctx context.Context, reference string) error
 	if reference == "" {
 		return fmt.Errorf("container image is not configured")
 	}
-	if _, _, err := r.client.ImageInspectWithRaw(ctx, reference); err == nil {
+	if _, err := r.client.ImageInspect(ctx, reference); err == nil {
 		return nil
 	} else if !errdefs.IsNotFound(err) {
 		return err
@@ -994,7 +1007,7 @@ func (r *DockerRuntime) ensureImage(ctx context.Context, reference string) error
 	if err := missingImageError(reference, r.config.PullImages); err != nil {
 		return err
 	}
-	reader, err := r.client.ImagePull(ctx, reference, image.PullOptions{})
+	reader, err := r.client.ImagePull(ctx, reference, client.ImagePullOptions{})
 	if err != nil {
 		return err
 	}
@@ -1010,7 +1023,7 @@ func (r *DockerRuntime) ensureEnvironmentImage(ctx context.Context, reference st
 	if err := r.ensureImage(ctx, reference); err != nil {
 		return err
 	}
-	inspection, _, err := r.client.ImageInspectWithRaw(ctx, reference)
+	inspection, err := r.client.ImageInspect(ctx, reference)
 	if err != nil {
 		return err
 	}
@@ -1025,7 +1038,7 @@ func (r *DockerRuntime) ensureEnvironmentImage(ctx context.Context, reference st
 }
 
 func (r *DockerRuntime) imageConfig(ctx context.Context, reference string) ([]string, []string, error) {
-	inspection, _, err := r.client.ImageInspectWithRaw(ctx, reference)
+	inspection, err := r.client.ImageInspect(ctx, reference)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1056,12 +1069,12 @@ func mergeEnvironment(base []string, overrides ...string) []string {
 }
 
 func (r *DockerRuntime) ensureNetwork(ctx context.Context, name string, internal bool, labels map[string]string) (bool, error) {
-	if inspection, err := r.client.NetworkInspect(ctx, name, network.InspectOptions{}); err == nil {
-		if inspection.Internal != internal {
+	if inspection, err := r.client.NetworkInspect(ctx, name, client.NetworkInspectOptions{}); err == nil {
+		if inspection.Network.Internal != internal {
 			return false, fmt.Errorf("existing network %s has incompatible isolation", name)
 		}
 		for key, value := range labels {
-			if inspection.Labels[key] != value {
+			if inspection.Network.Labels[key] != value {
 				return false, fmt.Errorf("existing network %s is not managed by Kuayle", name)
 			}
 		}
@@ -1069,14 +1082,14 @@ func (r *DockerRuntime) ensureNetwork(ctx context.Context, name string, internal
 	} else if !errdefs.IsNotFound(err) {
 		return false, err
 	}
-	_, err := r.client.NetworkCreate(ctx, name, network.CreateOptions{Driver: "bridge", Internal: internal, Labels: labels})
+	_, err := r.client.NetworkCreate(ctx, name, client.NetworkCreateOptions{Driver: "bridge", Internal: internal, Labels: labels})
 	return err == nil, err
 }
 
 func (r *DockerRuntime) ensureVolume(ctx context.Context, name string, labels map[string]string) (bool, error) {
-	if inspection, err := r.client.VolumeInspect(ctx, name); err == nil {
+	if inspection, err := r.client.VolumeInspect(ctx, name, client.VolumeInspectOptions{}); err == nil {
 		for key, value := range labels {
-			if inspection.Labels[key] != value {
+			if inspection.Volume.Labels[key] != value {
 				return false, fmt.Errorf("existing volume %s is not managed by Kuayle", name)
 			}
 		}
@@ -1084,7 +1097,7 @@ func (r *DockerRuntime) ensureVolume(ctx context.Context, name string, labels ma
 	} else if !errdefs.IsNotFound(err) {
 		return false, err
 	}
-	_, err := r.client.VolumeCreate(ctx, volume.CreateOptions{Name: name, Labels: labels})
+	_, err := r.client.VolumeCreate(ctx, client.VolumeCreateOptions{Name: name, Labels: labels})
 	return err == nil, err
 }
 
@@ -1100,21 +1113,21 @@ func (r *DockerRuntime) requireRunning(ctx context.Context, containerID string) 
 		case <-timeout.C:
 			return fmt.Errorf("container readiness timed out")
 		case <-ticker.C:
-			inspection, err := r.client.ContainerInspect(ctx, containerID)
+			inspection, err := r.client.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{})
 			if err != nil {
 				return err
 			}
-			if inspection.State.Running && (inspection.State.Health == nil || inspection.State.Health.Status == "healthy") {
+			if inspection.Container.State.Running && (inspection.Container.State.Health == nil || inspection.Container.State.Health.Status == "healthy") {
 				return nil
 			}
-			if inspection.State.Running {
+			if inspection.Container.State.Running {
 				continue
 			}
 			_, stderr, logErr := r.containerLogs(ctx, containerID)
 			if logErr != nil {
-				stderr = inspection.State.Error
+				stderr = inspection.Container.State.Error
 			}
-			return fmt.Errorf("container exited with code %d: %s", inspection.State.ExitCode, strings.TrimSpace(stderr))
+			return fmt.Errorf("container exited with code %d: %s", inspection.Container.State.ExitCode, strings.TrimSpace(stderr))
 		}
 	}
 }
@@ -1132,13 +1145,13 @@ func (r *DockerRuntime) copySecrets(ctx context.Context, containerID string, sec
 }
 
 func (r *DockerRuntime) writeSecretFile(ctx context.Context, containerID, name, value string) error {
-	created, err := r.client.ContainerExecCreate(ctx, containerID, container.ExecOptions{
+	created, err := r.client.ExecCreate(ctx, containerID, client.ExecCreateOptions{
 		User: "1000:1000", AttachStdin: true, Cmd: []string{"/bin/sh", "-c", "umask 077; cat > /run/kuayle-secrets/" + name},
 	})
 	if err != nil {
 		return err
 	}
-	attached, err := r.client.ContainerExecAttach(ctx, created.ID, container.ExecAttachOptions{})
+	attached, err := r.client.ExecAttach(ctx, created.ID, client.ExecAttachOptions{})
 	if err != nil {
 		return err
 	}
@@ -1152,7 +1165,7 @@ func (r *DockerRuntime) writeSecretFile(ctx context.Context, containerID, name, 
 	if _, err := io.Copy(io.Discard, attached.Reader); err != nil {
 		return err
 	}
-	inspection, err := r.client.ContainerExecInspect(ctx, created.ID)
+	inspection, err := r.client.ExecInspect(ctx, created.ID, client.ExecInspectOptions{})
 	if err != nil {
 		return err
 	}
@@ -1178,7 +1191,7 @@ func validSecretName(name string) bool {
 }
 
 func (r *DockerRuntime) containerLogs(ctx context.Context, containerID string) (string, string, error) {
-	reader, err := r.client.ContainerLogs(ctx, containerID, container.LogsOptions{ShowStdout: true, ShowStderr: true})
+	reader, err := r.client.ContainerLogs(ctx, containerID, client.ContainerLogsOptions{ShowStdout: true, ShowStderr: true})
 	if err != nil {
 		return "", "", err
 	}
@@ -1229,13 +1242,13 @@ func (r *DockerRuntime) execOutput(ctx context.Context, containerID string, comm
 }
 
 func (r *DockerRuntime) execOutputAs(ctx context.Context, containerID string, command []string, user string) (string, error) {
-	created, err := r.client.ContainerExecCreate(ctx, containerID, container.ExecOptions{
+	created, err := r.client.ExecCreate(ctx, containerID, client.ExecCreateOptions{
 		User: user, AttachStdout: true, AttachStderr: true, Cmd: command,
 	})
 	if err != nil {
 		return "", err
 	}
-	attached, err := r.client.ContainerExecAttach(ctx, created.ID, container.ExecAttachOptions{})
+	attached, err := r.client.ExecAttach(ctx, created.ID, client.ExecAttachOptions{})
 	if err != nil {
 		return "", err
 	}
@@ -1245,7 +1258,7 @@ func (r *DockerRuntime) execOutputAs(ctx context.Context, containerID string, co
 	if _, err := stdcopy.StdCopy(&stdout, &stderr, attached.Reader); err != nil {
 		return "", err
 	}
-	inspection, err := r.client.ContainerExecInspect(ctx, created.ID)
+	inspection, err := r.client.ExecInspect(ctx, created.ID, client.ExecInspectOptions{})
 	if err != nil {
 		return "", err
 	}
@@ -1256,13 +1269,13 @@ func (r *DockerRuntime) execOutputAs(ctx context.Context, containerID string, co
 }
 
 func (r *DockerRuntime) execWithInput(ctx context.Context, containerID string, command []string, input string) error {
-	created, err := r.client.ContainerExecCreate(ctx, containerID, container.ExecOptions{
+	created, err := r.client.ExecCreate(ctx, containerID, client.ExecCreateOptions{
 		Cmd: command, User: "1000:1000", AttachStdin: true, AttachStdout: true, AttachStderr: true,
 	})
 	if err != nil {
 		return err
 	}
-	attached, err := r.client.ContainerExecAttach(ctx, created.ID, container.ExecAttachOptions{})
+	attached, err := r.client.ExecAttach(ctx, created.ID, client.ExecAttachOptions{})
 	if err != nil {
 		return err
 	}
@@ -1277,7 +1290,7 @@ func (r *DockerRuntime) execWithInput(ctx context.Context, containerID string, c
 	if _, err := stdcopy.StdCopy(&stdout, &stderr, attached.Reader); err != nil && !errors.Is(err, io.EOF) {
 		return err
 	}
-	inspection, err := r.client.ContainerExecInspect(ctx, created.ID)
+	inspection, err := r.client.ExecInspect(ctx, created.ID, client.ExecInspectOptions{})
 	if err != nil {
 		return err
 	}
@@ -1331,7 +1344,7 @@ func (r *DockerRuntime) removeContainers(ctx context.Context, containers map[str
 			continue
 		}
 		seen[containerID] = true
-		_ = r.client.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true, RemoveVolumes: true})
+		_, _ = r.client.ContainerRemove(ctx, containerID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
 	}
 	return nil
 }

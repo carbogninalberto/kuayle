@@ -46,6 +46,11 @@ jobs:
         with:
           go-version-file: BE/go.mod
 
+      - name: Apply database migrations
+        env:
+          DATABASE_URL: postgres://kuayle:kuayle@localhost:5432/kuayle_test?sslmode=disable
+        run: go run ./cmd/server migrate up
+
       - name: Run tests with coverage
         env:
           DATABASE_URL: postgres://kuayle:kuayle@localhost:5432/kuayle_test?sslmode=disable
