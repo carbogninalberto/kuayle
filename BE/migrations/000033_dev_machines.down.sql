@@ -1,0 +1,32 @@
+DROP TRIGGER IF EXISTS dev_machine_workspace_policies_touch ON dev_machine_workspace_policies;
+DROP TRIGGER IF EXISTS dev_machine_services_touch ON dev_machine_services;
+DROP TRIGGER IF EXISTS dev_machine_agent_providers_touch ON dev_machine_agent_providers;
+DROP TRIGGER IF EXISTS dev_machine_operations_touch ON dev_machine_operations;
+DROP TRIGGER IF EXISTS dev_machines_touch ON dev_machines;
+DROP FUNCTION IF EXISTS touch_dev_machine_updated_at;
+
+DROP TABLE IF EXISTS dev_machine_resource_samples;
+DROP TABLE IF EXISTS dev_machine_access_logs;
+DROP TABLE IF EXISTS dev_machine_access_sessions;
+DROP TABLE IF EXISTS dev_machine_access_tickets;
+DROP TABLE IF EXISTS dev_machine_git_refs;
+DROP TABLE IF EXISTS dev_machine_artifacts;
+DROP TABLE IF EXISTS dev_machine_log_chunks;
+DROP TABLE IF EXISTS dev_machine_events;
+DROP TABLE IF EXISTS dev_machine_agent_run_steps;
+DROP TABLE IF EXISTS dev_machine_tokens;
+DROP TABLE IF EXISTS dev_machine_env_vars;
+DROP TABLE IF EXISTS dev_machine_services;
+DROP TABLE IF EXISTS dev_machine_operations;
+DROP TABLE IF EXISTS dev_machine_agent_runs;
+DROP TABLE IF EXISTS dev_machine_volumes;
+DROP TABLE IF EXISTS dev_machine_agent_providers;
+DROP TABLE IF EXISTS dev_machines;
+DROP TABLE IF EXISTS dev_machine_workspace_policies;
+
+DROP TYPE IF EXISTS dev_machine_access_ticket_status;
+DROP TYPE IF EXISTS dev_machine_agent_run_step_status;
+DROP TYPE IF EXISTS dev_machine_agent_run_status;
+DROP TYPE IF EXISTS dev_machine_operation_status;
+DROP TYPE IF EXISTS dev_machine_operation_action;
+DROP TYPE IF EXISTS dev_machine_status;
