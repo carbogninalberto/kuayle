@@ -14,9 +14,15 @@ services:
       - caddy_config:/config
     environment:
       DOMAIN: ${DOMAIN:-localhost}
+      DEV_MACHINE_DOMAIN: ${DEV_MACHINE_DOMAIN:-machines.localhost}
+    networks:
+      - default
+      - machine-control
     depends_on:
-      - backend
-      - frontend
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
 
   postgres:
     image: postgres:17-alpine
@@ -27,17 +33,33 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-kuayle}
     volumes:
       - pgdata:/var/lib/postgresql/data
+    networks:
+      - default
+      - machine-control
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kuayle} -d ${POSTGRES_DB:-kuayle}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   backend:
     build: ../BE
     restart: unless-stopped
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     volumes:
       - uploads:/app/uploads
     environment:
@@ -47,6 +69,7 @@ services:
       ENVIRONMENT: ${ENVIRONMENT:-production}
       FRONTEND_URL: ${FRONTEND_URL:-https://localhost}
       SYSADMINS: ${SYSADMINS:-}
+      PUBLIC_DEMO_MODE: ${PUBLIC_DEMO_MODE:-false}
       SYSTEM_UPDATER_URL: ${SYSTEM_UPDATER_URL:-http://updater:8081}
       SYSTEM_UPDATER_TOKEN: ${SYSTEM_UPDATER_TOKEN:-}
       PORT: 8080
@@ -58,6 +81,25 @@ services:
       S3_SECRET_KEY: ${S3_SECRET_KEY:-}
       S3_PUBLIC: ${S3_PUBLIC:-true}
       S3_CDN_BASE_URL: ${S3_CDN_BASE_URL:-}
+      DEV_MACHINES_ENABLED: ${DEV_MACHINES_ENABLED:-false}
+      DEV_MACHINE_DOMAIN: ${DEV_MACHINE_DOMAIN:-machines.localhost}
+      DEV_MACHINE_ENCRYPTION_KEY: ${DEV_MACHINE_ENCRYPTION_KEY:-}
+      DEV_MACHINE_INGEST_URL: ${DEV_MACHINE_INGEST_URL:-}
+      DEV_MACHINE_SESSION_TTL_MINUTES: ${DEV_MACHINE_SESSION_TTL_MINUTES:-480}
+      DEV_MACHINE_ACCESS_TICKET_TTL_SECONDS: ${DEV_MACHINE_ACCESS_TICKET_TTL_SECONDS:-60}
+      DEV_MACHINE_IDE_IMAGE: ${DEV_MACHINE_IDE_IMAGE:-kuayle/dev-machine-ide:0.1.0}
+      DEV_MACHINE_BROWSER_IMAGE: ${DEV_MACHINE_BROWSER_IMAGE:-kuayle/dev-machine-browser:0.1.0}
+      DEV_MACHINE_COLLECTOR_IMAGE: ${DEV_MACHINE_COLLECTOR_IMAGE:-kuayle/dev-machine-collector:0.1.0}
+      DEV_MACHINE_EGRESS_IMAGE: ${DEV_MACHINE_EGRESS_IMAGE:-kuayle/dev-machine-egress:0.1.0}
+      DEV_MACHINE_CLAUDE_IMAGE: ${DEV_MACHINE_CLAUDE_IMAGE:-kuayle/dev-machine-agent-claude:0.1.0}
+      DEV_MACHINE_OPENCODE_IMAGE: ${DEV_MACHINE_OPENCODE_IMAGE:-kuayle/dev-machine-agent-opencode:0.1.0}
+      DEV_MACHINE_CODEX_IMAGE: ${DEV_MACHINE_CODEX_IMAGE:-kuayle/dev-machine-agent-codex:0.1.0}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
 
   frontend:
     build:
@@ -67,7 +109,166 @@ services:
         PUBLIC_DEMO_USERS: ${PUBLIC_DEMO_USERS:-}
     restart: unless-stopped
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  machine-gateway:
+    profiles: ["dev-machines"]
+    container_name: ${DEV_MACHINE_GATEWAY_CONTAINER:-kuayle-machine-gateway}
+    build:
+      context: ../BE
+      dockerfile: Dockerfile.machine-gateway
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,noexec,nosuid
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - machine-control
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-kuayle}:${POSTGRES_PASSWORD:-kuayle}@postgres:5432/${POSTGRES_DB:-kuayle}?sslmode=disable
+      DEV_MACHINE_GATEWAY_DATABASE_URL: ${DEV_MACHINE_GATEWAY_DATABASE_URL:-}
+      FRONTEND_URL: ${FRONTEND_URL:-https://localhost}
+      SYSADMINS: ${SYSADMINS:-}
+      PUBLIC_DEMO_MODE: ${PUBLIC_DEMO_MODE:-false}
+      DEV_MACHINES_ENABLED: "true"
+      DEV_MACHINE_DOMAIN: ${DEV_MACHINE_DOMAIN:-machines.localhost}
+      DEV_MACHINE_SESSION_TTL_MINUTES: ${DEV_MACHINE_SESSION_TTL_MINUTES:-480}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8090/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  machine-manager:
+    profiles: ["dev-machines"]
+    build:
+      context: ../BE
+      dockerfile: Dockerfile.machine-manager
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      machine-gateway:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,noexec,nosuid
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - default
+      - machine-control
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-kuayle}:${POSTGRES_PASSWORD:-kuayle}@postgres:5432/${POSTGRES_DB:-kuayle}?sslmode=disable
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      FRONTEND_URL: ${FRONTEND_URL:-https://localhost}
+      DEV_MACHINES_ENABLED: "true"
+      DEV_MACHINE_DOMAIN: ${DEV_MACHINE_DOMAIN:-machines.localhost}
+      DEV_MACHINE_ENCRYPTION_KEY: ${DEV_MACHINE_ENCRYPTION_KEY:-}
+      DEV_MACHINE_INGEST_URL: ${DEV_MACHINE_INGEST_URL:-}
+      DEV_MACHINE_GATEWAY_CONTAINER: ${DEV_MACHINE_GATEWAY_CONTAINER:-kuayle-machine-gateway}
+      DEV_MACHINE_PULL_IMAGES: ${DEV_MACHINE_PULL_IMAGES:-false}
+      DEV_MACHINE_EGRESS_ALLOWLIST: ${DEV_MACHINE_EGRESS_ALLOWLIST:-}
+      DEV_MACHINE_EGRESS_DENYLIST: ${DEV_MACHINE_EGRESS_DENYLIST:-}
+      DEV_MACHINE_SESSION_TTL_MINUTES: ${DEV_MACHINE_SESSION_TTL_MINUTES:-480}
+      DEV_MACHINE_ACCESS_TICKET_TTL_SECONDS: ${DEV_MACHINE_ACCESS_TICKET_TTL_SECONDS:-60}
+      DEV_MACHINE_SECCOMP_PROFILE: ${DEV_MACHINE_SECCOMP_PROFILE:-}
+      DEV_MACHINE_APPARMOR_PROFILE: ${DEV_MACHINE_APPARMOR_PROFILE:-}
+      DEV_MACHINE_DOCKER_HOST: ${DEV_MACHINE_DOCKER_HOST:-unix:///var/run/docker.sock}
+      DEV_MACHINE_IDE_IMAGE: ${DEV_MACHINE_IDE_IMAGE:-kuayle/dev-machine-ide:0.1.0}
+      DEV_MACHINE_BROWSER_IMAGE: ${DEV_MACHINE_BROWSER_IMAGE:-kuayle/dev-machine-browser:0.1.0}
+      DEV_MACHINE_COLLECTOR_IMAGE: ${DEV_MACHINE_COLLECTOR_IMAGE:-kuayle/dev-machine-collector:0.1.0}
+      DEV_MACHINE_EGRESS_IMAGE: ${DEV_MACHINE_EGRESS_IMAGE:-kuayle/dev-machine-egress:0.1.0}
+      DEV_MACHINE_CLAUDE_IMAGE: ${DEV_MACHINE_CLAUDE_IMAGE:-kuayle/dev-machine-agent-claude:0.1.0}
+      DEV_MACHINE_OPENCODE_IMAGE: ${DEV_MACHINE_OPENCODE_IMAGE:-kuayle/dev-machine-agent-opencode:0.1.0}
+      DEV_MACHINE_CODEX_IMAGE: ${DEV_MACHINE_CODEX_IMAGE:-kuayle/dev-machine-agent-codex:0.1.0}
+      GITHUB_APP_ID: ${GITHUB_APP_ID:-0}
+      GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY:-}
+      GITHUB_APP_WEBHOOK_SECRET: ${GITHUB_APP_WEBHOOK_SECRET:-}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8092/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  dev-machine-ide:
+    profiles: ["dev-machine-images"]
+    image: ${DEV_MACHINE_IDE_IMAGE:-kuayle/dev-machine-ide:0.1.0}
+    build:
+      context: ../devmachine
+      dockerfile: ide/Dockerfile
+    entrypoint: ["/bin/true"]
+
+  dev-machine-browser:
+    profiles: ["dev-machine-images"]
+    image: ${DEV_MACHINE_BROWSER_IMAGE:-kuayle/dev-machine-browser:0.1.0}
+    build:
+      context: ../devmachine
+      dockerfile: browser/Dockerfile
+    entrypoint: ["/bin/true"]
+
+  dev-machine-collector:
+    profiles: ["dev-machine-images"]
+    image: ${DEV_MACHINE_COLLECTOR_IMAGE:-kuayle/dev-machine-collector:0.1.0}
+    build:
+      context: ../devmachine
+      dockerfile: collector/Dockerfile
+    entrypoint: ["/bin/true"]
+
+  dev-machine-egress:
+    profiles: ["dev-machine-images"]
+    image: ${DEV_MACHINE_EGRESS_IMAGE:-kuayle/dev-machine-egress:0.1.0}
+    build:
+      context: ../devmachine
+      dockerfile: egress/Dockerfile
+    entrypoint: ["/bin/true"]
+
+  dev-machine-agent-claude:
+    profiles: ["dev-machine-images"]
+    image: ${DEV_MACHINE_CLAUDE_IMAGE:-kuayle/dev-machine-agent-claude:0.1.0}
+    build:
+      context: ../devmachine
+      dockerfile: agent/Dockerfile
+      args:
+        PROVIDER: claude-code
+    entrypoint: ["/bin/true"]
+
+  dev-machine-agent-opencode:
+    profiles: ["dev-machine-images"]
+    image: ${DEV_MACHINE_OPENCODE_IMAGE:-kuayle/dev-machine-agent-opencode:0.1.0}
+    build:
+      context: ../devmachine
+      dockerfile: agent/Dockerfile
+      args:
+        PROVIDER: opencode
+    entrypoint: ["/bin/true"]
+
+  dev-machine-agent-codex:
+    profiles: ["dev-machine-images"]
+    image: ${DEV_MACHINE_CODEX_IMAGE:-kuayle/dev-machine-agent-codex:0.1.0}
+    build:
+      context: ../devmachine
+      dockerfile: agent/Dockerfile
+      args:
+        PROVIDER: codex
+    entrypoint: ["/bin/true"]
 
   updater:
     profiles: ["updater"]
@@ -98,3 +299,7 @@ volumes:
   caddy_data:
   caddy_config:
   # seaweedfs:
+
+networks:
+  machine-control:
+    internal: true

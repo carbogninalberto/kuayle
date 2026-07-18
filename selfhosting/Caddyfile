@@ -43,3 +43,35 @@
 		reverse_proxy frontend:3000
 	}
 }
+
+# Machine wildcard TLS
+#
+# Stock Caddy cannot issue wildcard certificates via HTTP-01 (Let's Encrypt).
+# Production operators must choose one of:
+#
+#   1. Custom Caddy build with a DNS-01 plugin:
+#      tls {
+#        dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+#      }
+#
+#   2. Mount an operator-provided wildcard certificate:
+#      tls /etc/caddy/certs/machines.pem /etc/caddy/certs/machines.key
+#
+# For local/internal installations, Caddy's internal CA works without
+# additional configuration.
+*.{$DEV_MACHINE_DOMAIN:machines.localhost} {
+	tls internal
+	encode zstd gzip
+	header {
+		-Server
+		Referrer-Policy "no-referrer"
+		X-Content-Type-Options "nosniff"
+	}
+	reverse_proxy machine-gateway:8090 {
+		flush_interval -1
+		transport http {
+			dial_timeout 10s
+			response_header_timeout 0
+		}
+	}
+}
