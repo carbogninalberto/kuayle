@@ -109,6 +109,8 @@ func (h *WorkspaceHandler) Delete(c echo.Context) error {
 			return response.NotFound(c, "Workspace")
 		case errors.Is(err, service.ErrNotWorkspaceOwner):
 			return response.Error(c, http.StatusForbidden, "FORBIDDEN", "Only the workspace owner can delete this workspace")
+		case errors.Is(err, service.ErrWorkspaceHasDevMachineRuntimes):
+			return response.Error(c, http.StatusConflict, "WORKSPACE_HAS_DEV_MACHINES", "Destroy all dev machines before deleting this workspace")
 		default:
 			return response.InternalError(c)
 		}

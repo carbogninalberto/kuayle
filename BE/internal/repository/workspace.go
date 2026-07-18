@@ -4,11 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 )
+
+var ErrWorkspaceHasDevMachineRuntimes = errors.New("workspace has non-destroyed dev machine runtimes")
 
 type WorkspaceRepository struct {
 	db *sqlx.DB
@@ -84,8 +87,26 @@ func (r *WorkspaceRepository) Update(ctx context.Context, ws *domain.Workspace) 
 }
 
 func (r *WorkspaceRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM workspaces WHERE id = $1`, id)
-	return err
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`, id); err != nil {
+		return err
+	}
+	var activeRuntimes int
+	if err := tx.GetContext(ctx, &activeRuntimes, `SELECT COUNT(*) FROM dev_machines
+		WHERE workspace_id=$1 AND status <> 'destroyed'`, id); err != nil {
+		return err
+	}
+	if activeRuntimes > 0 {
+		return fmt.Errorf("%w: %d", ErrWorkspaceHasDevMachineRuntimes, activeRuntimes)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM workspaces WHERE id = $1`, id); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (r *WorkspaceRepository) ListByUser(ctx context.Context, userID uuid.UUID) ([]domain.Workspace, error) {

@@ -14,8 +14,9 @@ import (
 )
 
 var (
-	ErrWorkspaceNotFound = errors.New("workspace not found")
-	ErrNotWorkspaceOwner = errors.New("only the workspace owner can perform this action")
+	ErrWorkspaceNotFound                 = errors.New("workspace not found")
+	ErrNotWorkspaceOwner                 = errors.New("only the workspace owner can perform this action")
+	ErrWorkspaceHasDevMachineRuntimes    = errors.New("workspace has non-destroyed dev machine runtimes")
 )
 
 type WorkspaceService struct {
@@ -146,6 +147,9 @@ func (s *WorkspaceService) Delete(ctx context.Context, slug string, userID uuid.
 	}
 
 	if err := s.workspaceRepo.Delete(ctx, ws.ID); err != nil {
+		if errors.Is(err, repository.ErrWorkspaceHasDevMachineRuntimes) {
+			return ErrWorkspaceHasDevMachineRuntimes
+		}
 		return err
 	}
 

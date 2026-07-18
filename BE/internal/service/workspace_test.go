@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
+	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -359,6 +360,21 @@ func TestWorkspaceService_Delete_NotFound(t *testing.T) {
 	err := svc.Delete(ctx, "missing", uuid.New())
 
 	assert.ErrorIs(t, err, ErrWorkspaceNotFound)
+}
+
+func TestWorkspaceService_Delete_BlocksActiveDevMachines(t *testing.T) {
+	wsRepo := new(mockWorkspaceRepo)
+	userRepo := new(mockUserRepo)
+	svc := NewWorkspaceService(wsRepo, userRepo)
+	ctx := context.Background()
+	ownerID := uuid.New()
+	ws := &domain.Workspace{ID: uuid.New(), Slug: "test", OwnerID: ownerID}
+	wsRepo.On("GetBySlug", ctx, "test").Return(ws, nil)
+	wsRepo.On("Delete", ctx, ws.ID).Return(repository.ErrWorkspaceHasDevMachineRuntimes)
+
+	err := svc.Delete(ctx, "test", ownerID)
+
+	assert.ErrorIs(t, err, ErrWorkspaceHasDevMachineRuntimes)
 }
 
 func TestWorkspaceService_UpdateMemberRole_PreventsOwnerDemotion(t *testing.T) {
