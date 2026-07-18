@@ -14,6 +14,7 @@ import (
 	"github.com/labstack/echo/v4"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/kuayle/kuayle-backend/internal/agent"
 	"github.com/kuayle/kuayle-backend/internal/config"
 	"github.com/kuayle/kuayle-backend/internal/handler"
 	mw "github.com/kuayle/kuayle-backend/internal/middleware"
@@ -72,6 +73,9 @@ func main() {
 	assetRepo := repository.NewAssetRepository(db)
 	aiSettingsRepo := repository.NewAISettingsRepository(db)
 
+	// Dev Machine control-plane store
+	devMachineRepo := repository.NewDevMachineRepository(db)
+
 	// Services
 	authSvc := service.NewAuthService(userRepo, refreshRepo, cfg.JWTSecret)
 	workspaceSvc := service.NewWorkspaceService(workspaceRepo, userRepo)
@@ -89,6 +93,28 @@ func main() {
 	favSvc := service.NewFavoriteService(favRepo)
 	prefsSvc := service.NewPreferencesService(prefsRepo)
 	aiSettingsSvc := service.NewAISettingsService(aiSettingsRepo, workspaceRepo, issueRepo, crypto.DeriveKey(cfg.JWTSecret+":ai"))
+
+	// Dev Machine agent registry
+	devMachineAgentReg := agent.NewRegistry(
+		agent.NewClaudeCodeProvider(cfg.DevMachine.ClaudeCodeImage),
+		agent.NewOpenCodeProvider(cfg.DevMachine.OpenCodeImage),
+		agent.NewCodexProvider(cfg.DevMachine.CodexImage),
+		agent.NewCustomCLIProvider(cfg.DevMachine.CustomImage),
+	)
+
+	var devMachineEncKey []byte
+	if cfg.DevMachine.EncryptionKey != "" {
+		devMachineEncKey = crypto.DeriveKey(cfg.DevMachine.EncryptionKey)
+	}
+	devMachineSvc := service.NewDevMachineService(
+		devMachineRepo, devMachineAgentReg, cfg.DevMachine.Enabled, cfg.DevMachine.Domain,
+		devMachineEncKey, time.Duration(cfg.DevMachine.TicketTTLSeconds)*time.Second,
+		service.DevMachineImages{
+			IDE: cfg.DevMachine.IDEImage, Browser: cfg.DevMachine.BrowserImage,
+			Collector: cfg.DevMachine.CollectorImage,
+			Egress:    cfg.DevMachine.EgressImage,
+		}, cfg.FrontendURL,
+	)
 
 	// Handlers
 	healthH := handler.NewHealthHandler(db)
@@ -109,6 +135,7 @@ func main() {
 	favH := handler.NewFavoriteHandler(favSvc)
 	prefsH := handler.NewPreferencesHandler(prefsSvc)
 	aiSettingsH := handler.NewAISettingsHandler(aiSettingsSvc)
+	devMachineH := handler.NewDevMachineHandler(devMachineSvc)
 	analyticsRepo := repository.NewAnalyticsRepository(db)
 	analyticsH := handler.NewAnalyticsHandler(analyticsRepo)
 	systemH := handler.NewSystemHandler(cfg.SystemUpdaterURL, cfg.SystemUpdaterToken, cfg.IsSysAdmin)
@@ -311,6 +338,8 @@ func main() {
 	// GitHub integration (conditional)
 	// Public webhook endpoint (no auth, signature-verified internally)
 	e.POST("/api/github/webhook", githubH.HandleWebhook)
+	e.POST("/api/dev-machine-ingest/events", devMachineH.IngestEvent, mw.RateLimit(20, 40))
+	e.POST("/api/dev-machine-ingest/logs", devMachineH.IngestLog, mw.RateLimit(50, 100))
 
 	// GitHub integration (workspace-scoped)
 	ws.GET("/github/status", githubH.Status)
@@ -327,6 +356,52 @@ func main() {
 	ws.PATCH("/github/auto-transitions", githubH.UpdateAutoTransitions, mw.RequirePermission("workspace:manage"))
 	ws.GET("/issues/:identifier/github", githubH.IssueGitHubActivity)
 	ws.GET("/github/issue-links", githubH.AgentIssueLinks)
+
+	// Dev Machines — guarded by demo-mode restriction when active
+	dm := ws.Group("", mw.DevMachineDemoGuard(cfg.DemoDevMachineAllowed))
+	dm.GET("/dev-machines", devMachineH.List, mw.RequirePermission("dev_machine:read"))
+	dm.POST("/dev-machines", devMachineH.Create, mw.RequirePermission("dev_machine:create"))
+	dm.DELETE("/dev-machines/bulk", devMachineH.BulkDelete, mw.RequirePermission("dev_machine:admin"))
+	dm.POST("/dev-machines/bulk/permanent-delete", devMachineH.BulkPermanentDelete, mw.RequirePermission("dev_machine:admin"))
+	dm.GET("/dev-machine-names/suggestion", devMachineH.NameSuggestion, mw.RequirePermission("dev_machine:create"))
+	dm.GET("/dev-machine-names/availability", devMachineH.NameAvailability, mw.RequirePermission("dev_machine:create"))
+	dm.GET("/dev-machine-policy", devMachineH.GetPolicy, mw.RequirePermission("dev_machine:read"))
+	dm.PATCH("/dev-machine-policy", devMachineH.UpdatePolicy, mw.RequirePermission("dev_machine:admin"))
+	dm.GET("/dev-machine-scope-settings", devMachineH.ScopeSettings, mw.RequirePermission("dev_machine:read"))
+	dm.GET("/dev-machine-scope-setting", devMachineH.ScopeSetting, mw.RequirePermission("dev_machine:read"))
+	dm.PUT("/dev-machine-scope-setting", devMachineH.UpdateScopeSetting, mw.RequirePermission("dev_machine:manage"))
+	dm.DELETE("/dev-machine-scope-setting", devMachineH.DeleteScopeSetting, mw.RequirePermission("dev_machine:manage"))
+	dm.GET("/dev-machine-environments", devMachineH.Environments, mw.RequirePermission("dev_machine:read"))
+	dm.POST("/dev-machine-environments", devMachineH.SnapshotEnvironment, mw.RequirePermission("dev_machine:admin"))
+	dm.GET("/dev-machine-environments/:environmentId", devMachineH.GetEnvironment, mw.RequirePermission("dev_machine:read"))
+	dm.DELETE("/dev-machine-environments/:environmentId", devMachineH.DeleteEnvironment, mw.RequirePermission("dev_machine:admin"))
+	dm.GET("/dev-machine-providers", devMachineH.Providers, mw.RequirePermission("dev_machine:read"))
+	dm.GET("/dev-machines/:machineId", devMachineH.Get, mw.RequirePermission("dev_machine:read"))
+	dm.PATCH("/dev-machines/:machineId", devMachineH.Update, mw.RequirePermission("dev_machine:manage"))
+	dm.DELETE("/dev-machines/:machineId", devMachineH.Delete, mw.RequirePermission("dev_machine:admin"))
+	dm.POST("/dev-machines/:machineId/permanent-delete", devMachineH.PermanentDelete, mw.RequirePermission("dev_machine:admin"))
+	dm.POST("/dev-machines/:machineId/start", devMachineH.Start, mw.RequirePermission("dev_machine:manage"))
+	dm.POST("/dev-machines/:machineId/stop", devMachineH.Stop, mw.RequirePermission("dev_machine:manage"))
+	dm.POST("/dev-machines/:machineId/pause", devMachineH.Pause, mw.RequirePermission("dev_machine:manage"))
+	dm.POST("/dev-machines/:machineId/teardown", devMachineH.Teardown, mw.RequirePermission("dev_machine:manage"))
+	dm.POST("/dev-machines/:machineId/activity", devMachineH.TouchActivity, mw.RequirePermission("dev_machine:read"))
+	dm.GET("/dev-machines/:machineId/checkouts", devMachineH.Checkouts, mw.RequirePermission("dev_machine:read"))
+	dm.POST("/dev-machines/:machineId/checkouts", devMachineH.CheckoutIssue, mw.RequirePermission("dev_machine:manage"))
+	dm.GET("/dev-machines/:machineId/events", devMachineH.Events, mw.RequirePermission("dev_machine:read"))
+	dm.GET("/dev-machines/:machineId/logs", devMachineH.Logs, mw.RequirePermission("dev_machine:read"))
+	dm.GET("/dev-machines/:machineId/services", devMachineH.Services, mw.RequirePermission("dev_machine:read"))
+	dm.GET("/dev-machines/:machineId/providers", devMachineH.MachineProviders, mw.RequirePermission("dev_machine:read"))
+	dm.GET("/dev-machines/:machineId/resource-usage", devMachineH.ResourceUsage, mw.RequirePermission("dev_machine:read"))
+	dm.POST("/dev-machines/:machineId/services/:service/launch", devMachineH.LaunchService, mw.RequirePermission("dev_machine:read"))
+	dm.GET("/dev-machines/:machineId/terminal-sessions", devMachineH.ListTerminalSessions, mw.RequirePermission("dev_machine:read"))
+	dm.POST("/dev-machines/:machineId/terminal-sessions", devMachineH.CreateTerminalSession, mw.RequirePermission("dev_machine:read"))
+	dm.POST("/dev-machines/:machineId/terminal-sessions/:sessionId/close", devMachineH.CloseTerminalSession, mw.RequirePermission("dev_machine:read"))
+	dm.GET("/dev-machines/:machineId/agent-runs", devMachineH.ListMachineAgentRuns, mw.RequirePermission("dev_machine:read"))
+	dm.POST("/dev-machines/:machineId/agent-runs", devMachineH.CreateAgentRun, mw.RequirePermission("dev_machine:manage"))
+	dm.GET("/agent-runs", devMachineH.ListAgentRuns, mw.RequirePermission("dev_machine:read"))
+	dm.GET("/agent-runs/:agentRunId", devMachineH.GetAgentRun, mw.RequirePermission("dev_machine:read"))
+	dm.POST("/agent-runs/:agentRunId/cancel", devMachineH.CancelAgentRun, mw.RequirePermission("dev_machine:manage"))
+	dm.GET("/agent-runs/:agentRunId/trace", devMachineH.AgentRunTrace, mw.RequirePermission("dev_machine:read"))
 
 	// Favorites
 	ws.GET("/favorites", favH.List)

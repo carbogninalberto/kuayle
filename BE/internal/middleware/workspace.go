@@ -1,9 +1,10 @@
 package middleware
 
 import (
+	"github.com/google/uuid"
+	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/pkg/response"
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 )
 
@@ -36,4 +37,9 @@ func WorkspaceMembership(workspaceRepo *repository.WorkspaceRepository) echo.Mid
 			return next(c)
 		}
 	}
+}
+
+func GetWorkspace(c echo.Context) *domain.Workspace {
+	workspace, _ := c.Get("workspace").(*domain.Workspace)
+	return workspace
 }
