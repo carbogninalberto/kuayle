@@ -44,12 +44,12 @@
 			]
 		},
 		{
-			heading: 'Dev Machines is a design, not a feature',
-			body: 'TECHNICAL.md contains a design for disposable development environments connected to issues. The runtime container manager, authentication gateway and product UI described there are not implemented in the application.',
+			heading: 'Dev Machines is opt-in infrastructure',
+			body: 'The repository now includes the opt-in multi-container Dev Machines subsystem: Caddy wildcard ingress, an unprivileged authenticated gateway, a dedicated Docker manager, isolated machine networks, PostgreSQL reconciliation, scoped secrets, activity collection, issue-linked agent runs, and Claude Code, OpenCode, Codex, and custom CLI adapters. Self-hosted operators must explicitly configure the machine domain, TLS, runtime images, GitHub permissions, and capacity.',
 			list: [
-				'Specification only',
-				'Not included in v0.1.0',
-				'No delivery date assigned'
+				'Disabled by default',
+				'Requires wildcard DNS and TLS',
+				'Trusted self-hosted workspace model'
 			]
 		},
 		{
