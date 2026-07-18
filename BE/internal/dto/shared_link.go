@@ -36,11 +36,11 @@ type SharedLinkResponse struct {
 }
 
 type PublicShareMetaResponse struct {
-	Scope         string          `json:"scope"`
-	ScopeID       *string         `json:"scope_id,omitempty"`
-	ScopeName     string          `json:"scope_name"`
-	WorkspaceName string          `json:"workspace_name"`
-	Filters       json.RawMessage `json:"filters"`
+	Scope         string                 `json:"scope"`
+	ScopeID       *string                `json:"scope_id,omitempty"`
+	ScopeName     string                 `json:"scope_name"`
+	WorkspaceName string                 `json:"workspace_name"`
+	Filters       json.RawMessage        `json:"filters"`
 	Statuses      []PublicStatusResponse `json:"statuses,omitempty"`
 }
 
@@ -53,17 +53,17 @@ type PublicStatusResponse struct {
 }
 
 type PublicIssueResponse struct {
-	Identifier  string                `json:"identifier"`
-	Title       string                `json:"title"`
-	Description *string               `json:"description,omitempty"`
-	Status      string                `json:"status"`
-	StatusInfo  *StatusInfoResponse   `json:"status_info,omitempty"`
-	Priority    int                   `json:"priority"`
-	Labels      []LabelResponse       `json:"labels,omitempty"`
-	Assignees   []PublicUserResponse  `json:"assignees,omitempty"`
-	DueDate     *time.Time            `json:"due_date,omitempty"`
-	CreatedAt   time.Time             `json:"created_at"`
-	UpdatedAt   time.Time             `json:"updated_at"`
+	Identifier  string               `json:"identifier"`
+	Title       string               `json:"title"`
+	Description *string              `json:"description,omitempty"`
+	Status      string               `json:"status"`
+	StatusInfo  *StatusInfoResponse  `json:"status_info,omitempty"`
+	Priority    int                  `json:"priority"`
+	Labels      []LabelResponse      `json:"labels,omitempty"`
+	Assignees   []PublicUserResponse `json:"assignees,omitempty"`
+	DueDate     *time.Time           `json:"due_date,omitempty"`
+	CreatedAt   time.Time            `json:"created_at"`
+	UpdatedAt   time.Time            `json:"updated_at"`
 }
 
 type PublicUserResponse struct {

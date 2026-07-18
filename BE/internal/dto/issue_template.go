@@ -6,26 +6,26 @@ import (
 )
 
 type CreateIssueTemplateRequest struct {
-	Title          string           `json:"title" validate:"required,min=1,max=500"`
-	Description    *string          `json:"description"`
-	Status         *string          `json:"status" validate:"omitempty,oneof=backlog todo in_progress in_review done cancelled"`
-	Priority       *int             `json:"priority" validate:"omitempty,min=0,max=4"`
-	TeamID         *string          `json:"team_id" validate:"omitempty,uuid"`
-	AssigneeID     *string          `json:"assignee_id" validate:"omitempty,uuid"`
-	LabelIDs       []string         `json:"label_ids" validate:"omitempty,dive,uuid"`
-	RecurrenceRule json.RawMessage  `json:"recurrence_rule"`
+	Title          string          `json:"title" validate:"required,min=1,max=500"`
+	Description    *string         `json:"description"`
+	Status         *string         `json:"status" validate:"omitempty,oneof=backlog todo in_progress in_review done cancelled"`
+	Priority       *int            `json:"priority" validate:"omitempty,min=0,max=4"`
+	TeamID         *string         `json:"team_id" validate:"omitempty,uuid"`
+	AssigneeID     *string         `json:"assignee_id" validate:"omitempty,uuid"`
+	LabelIDs       []string        `json:"label_ids" validate:"omitempty,dive,uuid"`
+	RecurrenceRule json.RawMessage `json:"recurrence_rule"`
 }
 
 type UpdateIssueTemplateRequest struct {
-	Title          *string          `json:"title" validate:"omitempty,min=1,max=500"`
-	Description    *string          `json:"description"`
-	Status         *string          `json:"status" validate:"omitempty,oneof=backlog todo in_progress in_review done cancelled"`
-	Priority       *int             `json:"priority" validate:"omitempty,min=0,max=4"`
-	TeamID         *string          `json:"team_id" validate:"omitempty,uuid"`
-	AssigneeID     *string          `json:"assignee_id" validate:"omitempty,uuid"`
-	LabelIDs       []string         `json:"label_ids" validate:"omitempty,dive,uuid"`
-	RecurrenceRule json.RawMessage  `json:"recurrence_rule"`
-	IsActive       *bool            `json:"is_active"`
+	Title          *string         `json:"title" validate:"omitempty,min=1,max=500"`
+	Description    *string         `json:"description"`
+	Status         *string         `json:"status" validate:"omitempty,oneof=backlog todo in_progress in_review done cancelled"`
+	Priority       *int            `json:"priority" validate:"omitempty,min=0,max=4"`
+	TeamID         *string         `json:"team_id" validate:"omitempty,uuid"`
+	AssigneeID     *string         `json:"assignee_id" validate:"omitempty,uuid"`
+	LabelIDs       []string        `json:"label_ids" validate:"omitempty,dive,uuid"`
+	RecurrenceRule json.RawMessage `json:"recurrence_rule"`
+	IsActive       *bool           `json:"is_active"`
 }
 
 type IssueTemplateResponse struct {
