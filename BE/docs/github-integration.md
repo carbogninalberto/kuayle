@@ -8,6 +8,12 @@ Connects GitHub repositories to Kuayle workspaces, automatically linking pull re
 - **Auto-transitions**: When GitHub events occur (branch created, PR opened, PR merged), issues are automatically moved to configured statuses (e.g., In Progress, In Review, Done).
 - **Real-time updates**: GitHub activity is pushed to connected clients via WebSocket.
 
+## Dev Machines Repository Tokens
+
+Dev Machines use GitHub App installation tokens, not personal access tokens. Issue worktrees resolve their linked repository from development defaults in this order: issue, project, team, workspace. One machine has affinity to one linked repository and can hold multiple issue worktrees from that repository; use a separate machine for another repository or development environment.
+
+For checkout, agent push, and pull request operations, Kuayle mints a short-lived installation token restricted to the selected linked repository and injects it only into the developer or agent container that needs Git.
+
 ## Deployment Modes
 
 ### SaaS Mode (Shared App)
@@ -21,8 +27,8 @@ A single GitHub App is pre-configured and shared across all workspaces. Users on
    **Permissions:**
    | Permission | Access |
    |---|---|
-   | Pull requests | Read |
-   | Contents | Read |
+   | Pull requests | Read and write |
+   | Contents | Read and write |
    | Metadata | Read |
    | Issues | Read |
 
