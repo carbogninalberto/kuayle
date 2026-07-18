@@ -46,7 +46,7 @@
 	import { showIssueCreatedToast } from './issue-created-toast';
 	import type { Team } from '$lib/types/team';
 	import { listTeams } from '$lib/api/teams';
-	import { getAISettings } from '$lib/api/ai-settings';
+	import { getIssueCopyPrompt } from '$lib/api/ai-settings';
 	import HistoryAssignees from './HistoryAssignees.svelte';
 
 	let {
@@ -514,14 +514,14 @@
 		try {
 			const [{ assets }, settings, copyTeams] = await Promise.all([
 				signIssuePromptAssets(slug, issue.identifier),
-				getAISettings(slug),
+				getIssueCopyPrompt(slug),
 				issueTeam ? Promise.resolve(teams) : listTeams(slug)
 			]);
 			if (!issueTeam) teams = copyTeams;
 			await navigator.clipboard.writeText(getAIPrompt(assets, settings.issue_copy_prompt, copyTeams.find(t => t.id === issue.team_id)));
 			appToast.success('AI prompt copied');
-		} catch {
-			appToast.error('Failed to copy AI prompt');
+		} catch (error) {
+			appToast.apiError(error, 'Failed to copy AI prompt');
 		}
 	}
 

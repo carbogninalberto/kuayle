@@ -30,6 +30,18 @@ func (h *AISettingsHandler) Get(c echo.Context) error {
 	return response.Success(c, http.StatusOK, service.ToAISettingsResponse(settings))
 }
 
+func (h *AISettingsHandler) GetIssueCopyPrompt(c echo.Context) error {
+	ws := c.Get("workspace").(*domain.Workspace)
+	settings, err := h.aiSvc.Get(c.Request().Context(), ws.ID)
+	if err != nil {
+		return response.InternalError(c)
+	}
+	return response.Success(c, http.StatusOK, dto.IssueCopyPromptResponse{
+		IssueCopyPrompt:        settings.IssueCopyPrompt,
+		DefaultIssueCopyPrompt: service.DefaultIssueCopyPrompt,
+	})
+}
+
 func (h *AISettingsHandler) Update(c echo.Context) error {
 	var req dto.UpdateAISettingsRequest
 	if err := c.Bind(&req); err != nil {

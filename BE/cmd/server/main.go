@@ -305,6 +305,7 @@ func main() {
 
 	// AI settings
 	ws.GET("/ai-settings", aiSettingsH.Get, mw.RequireOwner())
+	ws.GET("/ai-settings/issue-copy-prompt", aiSettingsH.GetIssueCopyPrompt, mw.RequirePermission("issue:read"))
 	ws.PATCH("/ai-settings", aiSettingsH.Update, mw.RequireOwner())
 
 	// GitHub integration (conditional)
