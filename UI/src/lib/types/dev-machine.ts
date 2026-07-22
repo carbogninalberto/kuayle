@@ -208,6 +208,7 @@ export interface CreateDevMachineInput {
 
 export interface CreateAgentRunInput {
 	checkout_id?: string;
+	use_root_workspace: boolean;
 	provider: AgentProvider['id'];
 	mode: 'interactive' | 'autonomous';
 	prompt: string;

@@ -139,6 +139,7 @@ type DevMachineOperationResponse struct {
 
 type CreateAgentRunRequest struct {
 	CheckoutID         *string  `json:"checkout_id,omitempty" validate:"omitempty,uuid"`
+	UseRootWorkspace   bool     `json:"use_root_workspace"`
 	Provider           string   `json:"provider" validate:"required,oneof=claude-code opencode codex custom"`
 	Mode               string   `json:"mode" validate:"required,oneof=interactive autonomous"`
 	Prompt             string   `json:"prompt" validate:"required,min=1,max=100000"`

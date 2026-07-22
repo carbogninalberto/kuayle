@@ -62,6 +62,127 @@ func TestCreateAgentRunRejectsPullRequestWithoutPush(t *testing.T) {
 	require.ErrorContains(t, err, "requires pushing the working branch")
 }
 
+func TestSelectReadyAgentCheckoutHandlesEveryCheckoutState(t *testing.T) {
+	failedReason := "repository clone failed"
+	readyID := uuid.New()
+	for _, test := range []struct {
+		name          string
+		checkouts     []domain.DevMachineCheckout
+		selectedID    uuid.UUID
+		expectedError error
+		errorContains string
+	}{
+		{name: "zero", expectedError: ErrCheckoutNotReady, errorContains: "prepare an issue checkout"},
+		{name: "one ready", checkouts: []domain.DevMachineCheckout{{ID: readyID, Status: "ready"}}, selectedID: readyID},
+		{name: "multiple ready", checkouts: []domain.DevMachineCheckout{{ID: uuid.New(), Status: "ready"}, {ID: uuid.New(), Status: "ready"}}, expectedError: ErrInvalidOperation, errorContains: "checkout_id"},
+		{name: "one queued", checkouts: []domain.DevMachineCheckout{{ID: uuid.New(), Status: "queued"}}, expectedError: ErrCheckoutNotReady, errorContains: "in progress"},
+		{name: "multiple queued", checkouts: []domain.DevMachineCheckout{{ID: uuid.New(), Status: "queued"}, {ID: uuid.New(), Status: "queued"}}, expectedError: ErrCheckoutNotReady, errorContains: "in progress"},
+		{name: "one preparing", checkouts: []domain.DevMachineCheckout{{ID: uuid.New(), Status: "preparing"}}, expectedError: ErrCheckoutNotReady, errorContains: "in progress"},
+		{name: "multiple preparing", checkouts: []domain.DevMachineCheckout{{ID: uuid.New(), Status: "preparing"}, {ID: uuid.New(), Status: "preparing"}}, expectedError: ErrCheckoutNotReady, errorContains: "in progress"},
+		{name: "one failed", checkouts: []domain.DevMachineCheckout{{ID: uuid.New(), Status: "failed", LastError: &failedReason}}, expectedError: ErrCheckoutNotReady, errorContains: failedReason},
+		{name: "multiple failed", checkouts: []domain.DevMachineCheckout{{ID: uuid.New(), Status: "failed"}, {ID: uuid.New(), Status: "failed"}}, expectedError: ErrCheckoutNotReady, errorContains: "retry checkout preparation"},
+		{name: "one ready among pending", checkouts: []domain.DevMachineCheckout{{ID: uuid.New(), Status: "preparing"}, {ID: readyID, Status: "ready"}}, selectedID: readyID},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			checkout, err := selectReadyAgentCheckout(test.checkouts)
+			if test.expectedError != nil {
+				require.ErrorIs(t, err, test.expectedError)
+				require.ErrorContains(t, err, test.errorContains)
+				require.Nil(t, checkout)
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, checkout)
+			require.Equal(t, test.selectedID, checkout.ID)
+		})
+	}
+}
+
+func TestCreateAgentRunNeverImplicitlyFallsBackToRootWorkspace(t *testing.T) {
+	workspaceID, machineID, userID, repositoryID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	pushBranch := true
+	for _, test := range []struct {
+		name          string
+		affinity      *uuid.UUID
+		checkouts     []domain.DevMachineCheckout
+		useRoot       bool
+		pushBranch    *bool
+		expectedError error
+	}{
+		{name: "repository with zero checkouts", affinity: &repositoryID, expectedError: ErrCheckoutNotReady},
+		{name: "repository with queued checkout", affinity: &repositoryID, checkouts: []domain.DevMachineCheckout{{ID: uuid.New(), Status: "queued"}}, expectedError: ErrCheckoutNotReady},
+		{name: "repository with preparing checkout", affinity: &repositoryID, checkouts: []domain.DevMachineCheckout{{ID: uuid.New(), Status: "preparing"}}, expectedError: ErrCheckoutNotReady},
+		{name: "repository with failed checkout", affinity: &repositoryID, checkouts: []domain.DevMachineCheckout{{ID: uuid.New(), Status: "failed"}}, expectedError: ErrCheckoutNotReady},
+		{name: "repository rejects explicit root", affinity: &repositoryID, useRoot: true, expectedError: ErrCheckoutNotReady},
+		{name: "root requires explicit mode", expectedError: ErrInvalidOperation},
+		{name: "root cannot push a branch", useRoot: true, pushBranch: &pushBranch, expectedError: ErrInvalidOperation},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := &devMachineStoreFake{
+				policy: testPolicy(workspaceID), checkouts: test.checkouts,
+				machine: &domain.DevMachine{
+					ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID,
+					Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning,
+					RepositoryAffinityID: test.affinity, ExpiresAt: time.Now().Add(time.Hour), MaxRuntimeMinutes: 60,
+				},
+			}
+			_, err := newTestDevMachineService(store).CreateAgentRun(context.Background(), workspaceID, machineID, userID, dto.CreateAgentRunRequest{
+				UseRootWorkspace: test.useRoot, PushBranch: test.pushBranch,
+			})
+			require.ErrorIs(t, err, test.expectedError)
+			require.Empty(t, store.agentRuns)
+		})
+	}
+}
+
+func TestCreateAgentRunUsesOnlyExplicitRootOrReadyCheckout(t *testing.T) {
+	workspaceID, machineID, userID, repositoryID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	readyCheckout := domain.DevMachineCheckout{
+		ID: uuid.New(), WorkspaceID: workspaceID, MachineID: machineID, IssueID: uuid.New(), Status: "ready",
+		WorkspacePath: "/workspace/tasks/chk-1", RepositoryFullName: "kuayle/test", BaseBranch: "main", WorkingBranch: "kuayle/chk-1",
+	}
+	for _, test := range []struct {
+		name             string
+		affinity         *uuid.UUID
+		checkouts        []domain.DevMachineCheckout
+		useRoot          bool
+		expectedCheckout *uuid.UUID
+	}{
+		{name: "explicit root workspace", useRoot: true},
+		{name: "single ready checkout", affinity: &repositoryID, checkouts: []domain.DevMachineCheckout{readyCheckout}, expectedCheckout: &readyCheckout.ID},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			policy := testPolicy(workspaceID)
+			policy.AllowedProviders = json.RawMessage(`["opencode"]`)
+			store := &devMachineStoreFake{
+				policy: policy, checkouts: test.checkouts,
+				machine: &domain.DevMachine{
+					ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID,
+					Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning,
+					RepositoryAffinityID: test.affinity, ExpiresAt: time.Now().Add(time.Hour), MaxRuntimeMinutes: 60,
+				},
+				agentProvider: &domain.DevMachineAgentProvider{
+					ProviderID: "opencode", Enabled: true, SupportedModes: json.RawMessage(`["autonomous"]`),
+					RequiredSecrets: json.RawMessage(`[]`), Config: json.RawMessage(`{}`),
+				},
+			}
+			service := NewDevMachineService(store, agent.NewRegistry(agent.NewOpenCodeProvider("")), true,
+				"machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, DevMachineImages{})
+
+			run, err := service.CreateAgentRun(context.Background(), workspaceID, machineID, userID, dto.CreateAgentRunRequest{
+				UseRootWorkspace: test.useRoot, Provider: "opencode", Mode: "autonomous", Prompt: "Implement the change",
+				MaxRuntimeSeconds: 30,
+			})
+
+			require.NoError(t, err)
+			require.NotNil(t, run)
+			require.Equal(t, test.expectedCheckout, run.CheckoutID)
+			require.Len(t, store.agentRuns, 1)
+			require.NotNil(t, store.createdAgentOperation)
+		})
+	}
+}
+
 func TestIngestEventRedactsActiveRuntimeCredential(t *testing.T) {
 	workspaceID, machineID := uuid.New(), uuid.New()
 	runtimeToken := "ghs_runtime_event_secret"
@@ -788,7 +909,9 @@ type devMachineStoreFake struct {
 	createdTicket               *domain.DevMachineAccessTicket
 	createAccessTicketErr       error
 	checkouts                   []domain.DevMachineCheckout
+	agentProvider               *domain.DevMachineAgentProvider
 	agentRuns                   []domain.DevMachineAgentRun
+	createdAgentOperation       *domain.DevMachineOperation
 	agentRunSteps               []domain.DevMachineAgentRunStep
 	agentRunEvents              []domain.DevMachineEvent
 	agentRunLogs                []domain.DevMachineLogChunk
@@ -934,6 +1057,20 @@ func (f *devMachineStoreFake) HasActiveAgentRun(context.Context, uuid.UUID) (boo
 	return false, nil
 }
 
+func (f *devMachineStoreFake) CountAgentRunsSince(context.Context, uuid.UUID, time.Time) (int, error) {
+	return 0, nil
+}
+
+func (f *devMachineStoreFake) GetProvider(context.Context, uuid.UUID, uuid.UUID, string) (*domain.DevMachineAgentProvider, error) {
+	return f.agentProvider, nil
+}
+
+func (f *devMachineStoreFake) CreateAgentRun(_ context.Context, run *domain.DevMachineAgentRun, operation *domain.DevMachineOperation) error {
+	f.agentRuns = append(f.agentRuns, *run)
+	f.createdAgentOperation = operation
+	return nil
+}
+
 func (f *devMachineStoreFake) RequestEnvironmentDeletion(context.Context, uuid.UUID, uuid.UUID) error {
 	return f.deleteEnvironmentErr
 }
@@ -1068,6 +1205,16 @@ func (f *devMachineStoreFake) GetEnvironment(_ context.Context, _ uuid.UUID, env
 
 func (f *devMachineStoreFake) ListCheckouts(context.Context, uuid.UUID, uuid.UUID) ([]domain.DevMachineCheckout, error) {
 	return f.checkouts, nil
+}
+
+func (f *devMachineStoreFake) GetCheckout(_ context.Context, workspaceID, machineID, checkoutID uuid.UUID) (*domain.DevMachineCheckout, error) {
+	for index := range f.checkouts {
+		checkout := &f.checkouts[index]
+		if checkout.ID == checkoutID && checkout.WorkspaceID == workspaceID && checkout.MachineID == machineID {
+			return checkout, nil
+		}
+	}
+	return nil, nil
 }
 
 func (f *devMachineStoreFake) CreateCheckout(_ context.Context, checkout *domain.DevMachineCheckout, operation *domain.DevMachineOperation) error {

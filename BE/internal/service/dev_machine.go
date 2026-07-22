@@ -33,6 +33,7 @@ var (
 	ErrRepositoryNotAllowed    = errors.New("repository is not allowed")
 	ErrServiceNotAvailable     = errors.New("machine service is not available")
 	ErrCheckoutNotEligible     = errors.New("machine is not eligible for this issue checkout")
+	ErrCheckoutNotReady        = errors.New("repository checkout is not ready")
 )
 
 type DevMachineImages struct {
@@ -1097,7 +1098,13 @@ func (s *DevMachineService) ConfiguredProviders(ctx context.Context, workspaceID
 }
 
 func (s *DevMachineService) CreateAgentRun(ctx context.Context, workspaceID, machineID, userID uuid.UUID, req dto.CreateAgentRunRequest) (*domain.DevMachineAgentRun, error) {
-	pushBranch := req.PushBranch == nil || *req.PushBranch
+	pushBranch := !req.UseRootWorkspace
+	if req.PushBranch != nil {
+		pushBranch = *req.PushBranch
+	}
+	if req.UseRootWorkspace && pushBranch {
+		return nil, fmt.Errorf("%w: root workspace runs cannot push a repository branch", ErrInvalidOperation)
+	}
 	if req.OpenPullRequest && !pushBranch {
 		return nil, fmt.Errorf("%w: opening a pull request requires pushing the working branch", ErrInvalidOperation)
 	}
@@ -1122,29 +1129,43 @@ func (s *DevMachineService) CreateAgentRun(ctx context.Context, workspaceID, mac
 	}
 	var checkoutID *uuid.UUID
 	var selectedCheckout *domain.DevMachineCheckout
+	if req.CheckoutID != nil && req.UseRootWorkspace {
+		return nil, fmt.Errorf("%w: checkout_id and use_root_workspace cannot be combined", ErrInvalidOperation)
+	}
 	if req.CheckoutID != nil {
-		parsed, _ := uuid.Parse(*req.CheckoutID)
+		parsed, err := uuid.Parse(*req.CheckoutID)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid checkout_id", ErrInvalidOperation)
+		}
 		checkout, err := s.store.GetCheckout(ctx, workspaceID, machineID, parsed)
 		if err != nil {
 			return nil, err
 		}
-		if checkout == nil || checkout.Status != "ready" {
-			return nil, fmt.Errorf("checkout must be ready")
+		if checkout == nil {
+			return nil, fmt.Errorf("%w: selected checkout does not exist", ErrCheckoutNotReady)
+		}
+		selectedCheckout, err = selectReadyAgentCheckout([]domain.DevMachineCheckout{*checkout})
+		if err != nil {
+			return nil, err
 		}
 		checkoutID = &parsed
-		selectedCheckout = checkout
 	}
 	if machine.RepositoryAffinityID != nil && checkoutID == nil {
+		if req.UseRootWorkspace {
+			return nil, fmt.Errorf("%w: repository-linked machines require a ready checkout", ErrCheckoutNotReady)
+		}
 		checkouts, err := s.store.ListCheckouts(ctx, workspaceID, machineID)
 		if err != nil {
 			return nil, err
 		}
-		if len(checkouts) == 1 && checkouts[0].Status == "ready" {
-			checkoutID = &checkouts[0].ID
-			selectedCheckout = &checkouts[0]
-		} else if len(checkouts) > 1 {
-			return nil, fmt.Errorf("checkout_id is required when a machine has multiple issue branches")
+		selectedCheckout, err = selectReadyAgentCheckout(checkouts)
+		if err != nil {
+			return nil, err
 		}
+		checkoutID = &selectedCheckout.ID
+	}
+	if selectedCheckout == nil && !req.UseRootWorkspace {
+		return nil, fmt.Errorf("%w: set use_root_workspace to run without a repository checkout", ErrInvalidOperation)
 	}
 	remainingRuntime := int(time.Until(machine.ExpiresAt).Seconds())
 	if remainingRuntime < 30 {
@@ -1259,6 +1280,37 @@ func (s *DevMachineService) CreateAgentRun(ctx context.Context, workspaceID, mac
 	_ = s.store.TouchMachineActivity(ctx, machineID, time.Now().UTC())
 	s.emit(ctx, machine, &runID, &userID, "agent", "agent_run.queued", map[string]any{"provider_id": req.Provider, "mode": req.Mode})
 	return run, nil
+}
+
+func selectReadyAgentCheckout(checkouts []domain.DevMachineCheckout) (*domain.DevMachineCheckout, error) {
+	var ready *domain.DevMachineCheckout
+	for index := range checkouts {
+		if checkouts[index].Status != "ready" {
+			continue
+		}
+		if ready != nil {
+			return nil, fmt.Errorf("%w: checkout_id is required when multiple ready checkouts are available", ErrInvalidOperation)
+		}
+		ready = &checkouts[index]
+	}
+	if ready != nil {
+		return ready, nil
+	}
+	for index := range checkouts {
+		if checkouts[index].Status == "queued" || checkouts[index].Status == "preparing" {
+			return nil, fmt.Errorf("%w: checkout preparation is still in progress", ErrCheckoutNotReady)
+		}
+	}
+	for index := range checkouts {
+		if checkouts[index].Status != "failed" {
+			continue
+		}
+		if checkouts[index].LastError != nil && strings.TrimSpace(*checkouts[index].LastError) != "" {
+			return nil, fmt.Errorf("%w: checkout preparation failed: %s; retry checkout preparation", ErrCheckoutNotReady, strings.TrimSpace(*checkouts[index].LastError))
+		}
+		return nil, fmt.Errorf("%w: checkout preparation failed; retry checkout preparation", ErrCheckoutNotReady)
+	}
+	return nil, fmt.Errorf("%w: prepare an issue checkout before starting an agent", ErrCheckoutNotReady)
 }
 
 func (s *DevMachineService) ListAgentRuns(ctx context.Context, workspaceID, userID uuid.UUID, machineID *uuid.UUID, page, perPage int) ([]domain.DevMachineAgentRun, int, error) {

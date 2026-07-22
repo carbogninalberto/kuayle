@@ -42,6 +42,8 @@
 		machineRemainingSeconds = Math.max(0, Math.floor((new Date(machine.expires_at).getTime() - Date.now()) / 1000));
 		maxRuntimeCap = Math.min(machine.max_runtime_minutes * 60, machineRemainingSeconds, 86400);
 		maxRuntime = maxRuntimeCap >= 30 ? Math.min(3600, maxRuntimeCap) : 0;
+		pushBranch = !!checkoutId || !!machine.repository_affinity_id;
+		openPullRequest = false;
 		void loadProviders();
 	});
 
@@ -94,7 +96,8 @@
 		loading = true;
 		try {
 			const run = await createAgentRun(slug, machine.id, {
-				checkout_id: checkoutId, provider, mode, prompt, acceptance_criteria: criteria.split('\n').map((line) => line.trim()).filter(Boolean),
+				checkout_id: checkoutId, use_root_workspace: !checkoutId && !machine.repository_affinity_id,
+				provider, mode, prompt, acceptance_criteria: criteria.split('\n').map((line) => line.trim()).filter(Boolean),
 				allowed_commands: [], forbidden_paths: forbiddenPaths.split('\n').map((line) => line.trim()).filter(Boolean),
 				test_command: parsedTest, max_runtime_seconds: maxRuntime,
 				allowed_secrets: allowedSecrets.split('\n').map((line) => line.trim()).filter(Boolean), push_branch: pushBranch, open_pull_request: openPullRequest

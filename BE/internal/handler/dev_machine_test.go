@@ -36,6 +36,21 @@ func TestMachineErrorMapsCheckoutEligibilityConflict(t *testing.T) {
 	require.Contains(t, response.Error.Message, "no development repository")
 }
 
+func TestMachineErrorMapsCheckoutReadinessConflict(t *testing.T) {
+	e := echo.New()
+	recorder := httptest.NewRecorder()
+	ctx := e.NewContext(httptest.NewRequest(http.MethodPost, "/agent-runs", nil), recorder)
+
+	err := machineError(ctx, fmt.Errorf("%w: checkout preparation is still in progress", service.ErrCheckoutNotReady))
+
+	require.NoError(t, err)
+	require.Equal(t, http.StatusConflict, recorder.Code)
+	var response dto.ErrorResponse
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+	require.Equal(t, "CHECKOUT_NOT_READY", response.Error.Code)
+	require.Contains(t, response.Error.Message, "in progress")
+}
+
 func TestMachineErrorMapsEnvironmentDeletionStates(t *testing.T) {
 	for _, test := range []struct {
 		name   string

@@ -615,6 +615,30 @@ func TestManagerMarksStaleCheckoutFailed(t *testing.T) {
 	require.Contains(t, *store.checkoutError, "state changed")
 }
 
+func TestManagerRejectsRepositoryAgentRunWithoutCheckout(t *testing.T) {
+	machineID, workspaceID, runID, repositoryID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	machine := &domain.DevMachine{
+		ID: machineID, WorkspaceID: workspaceID, Status: domain.DevMachineStatusRunning,
+		DesiredStatus: domain.DevMachineStatusRunning, Generation: 1, RepositoryAffinityID: &repositoryID,
+	}
+	store := &managerStoreFake{
+		machine: machine,
+		agentRun: &domain.DevMachineAgentRun{
+			ID: runID, MachineID: machineID, WorkspaceID: workspaceID, Status: domain.DevMachineAgentRunStatusQueued,
+		},
+	}
+	runtime := &runtimeFake{}
+	manager := NewManager(store, runtime, agent.NewRegistry(), nil, make([]byte, 32), nil, "test")
+
+	err := manager.runAgent(context.Background(), machine, &domain.DevMachineOperation{AgentRunID: &runID, Generation: 1})
+
+	var terminalErr *terminalOperationError
+	require.ErrorAs(t, err, &terminalErr)
+	require.Equal(t, "checkout_not_ready", terminalErr.code)
+	require.Zero(t, runtime.agentRuns)
+	require.Zero(t, store.envVarListCalls)
+}
+
 func TestManagerSnapshotEnvironmentTransitionsThroughBuilding(t *testing.T) {
 	machineID, workspaceID, environmentID := uuid.New(), uuid.New(), uuid.New()
 	environment := &domain.DevMachineEnvironment{ID: environmentID, WorkspaceID: workspaceID, Name: "base", ImageRef: "kuayle/dev-environment-test:snapshot", Status: "pending"}

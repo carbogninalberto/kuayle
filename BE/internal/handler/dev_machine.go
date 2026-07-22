@@ -705,6 +705,8 @@ func machineError(c echo.Context, err error) error {
 		return response.Error(c, http.StatusConflict, "INVALID_OPERATION", err.Error())
 	case errors.Is(err, service.ErrCheckoutNotEligible):
 		return response.Error(c, http.StatusConflict, "CHECKOUT_NOT_ELIGIBLE", err.Error())
+	case errors.Is(err, service.ErrCheckoutNotReady):
+		return response.Error(c, http.StatusConflict, "CHECKOUT_NOT_READY", err.Error())
 	case errors.Is(err, service.ErrServiceNotAvailable):
 		return response.Error(c, http.StatusNotFound, "SERVICE_NOT_AVAILABLE", err.Error())
 	case strings.Contains(err.Error(), "invalid") || strings.Contains(err.Error(), "exceeds") || strings.Contains(err.Error(), "must"):

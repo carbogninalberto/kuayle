@@ -611,6 +611,9 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	if terminalAgentStatus(run.Status) {
 		return nil
 	}
+	if machine.RepositoryAffinityID != nil && run.CheckoutID == nil {
+		return &terminalOperationError{code: "checkout_not_ready", message: "repository-linked agent run has no checkout"}
+	}
 	var checkout *domain.DevMachineCheckout
 	if run.CheckoutID != nil {
 		checkout, err = m.store.GetCheckoutInternal(ctx, *run.CheckoutID)
