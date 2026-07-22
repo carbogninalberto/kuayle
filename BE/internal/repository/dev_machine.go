@@ -89,6 +89,8 @@ var ErrActiveAgentRun = errors.New("machine has an active agent run")
 var ErrMachineStateConflict = errors.New("machine state changed while queuing operation")
 var ErrEnvironmentInUse = errors.New("development environment is in use")
 var ErrEnvironmentUnavailable = errors.New("development environment is not available")
+var ErrEnvironmentInvalidState = errors.New("development environment cannot be deleted in its current state")
+var ErrEnvironmentDeletionConflict = errors.New("development environment build is still active")
 
 type DevMachineRepository struct {
 	db *sqlx.DB
@@ -1550,8 +1552,11 @@ func (r *DevMachineRepository) RequestEnvironmentDeletion(ctx context.Context, w
 		WHERE workspace_id=$1 AND id=$2 FOR UPDATE`, workspaceID, environmentID); err != nil {
 		return err
 	}
-	if status != "ready" && status != "failed" {
-		return sql.ErrNoRows
+	if status == "delete_requested" {
+		return tx.Commit()
+	}
+	if status != "pending" && status != "building" && status != "ready" && status != "failed" {
+		return ErrEnvironmentInvalidState
 	}
 	var inUse bool
 	if err := tx.GetContext(ctx, &inUse, `SELECT
@@ -1561,13 +1566,27 @@ func (r *DevMachineRepository) RequestEnvironmentDeletion(ctx context.Context, w
 				SELECT 1 FROM dev_machine_operations o WHERE o.machine_id=m.id
 				AND o.status IN ('pending','leased') AND o.action IN ('spawn','start','reconcile','snapshot_environment')
 			)
-		))
-		OR EXISTS(SELECT 1 FROM dev_machine_operations WHERE environment_id=$1
-			AND status IN ('pending','leased') AND action='snapshot_environment')`, environmentID); err != nil {
+		))`, environmentID); err != nil {
 		return err
 	}
 	if inUse {
 		return ErrEnvironmentInUse
+	}
+	var activeBuild bool
+	if err := tx.GetContext(ctx, &activeBuild, `SELECT EXISTS(SELECT 1 FROM dev_machine_operations
+		WHERE environment_id=$1 AND action='snapshot_environment' AND status='leased'
+		AND (lease_expires_at IS NULL OR lease_expires_at>=NOW()))`, environmentID); err != nil {
+		return err
+	}
+	if activeBuild {
+		return ErrEnvironmentDeletionConflict
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE dev_machine_operations SET status='cancelled',
+		error_code='environment_deletion_requested',error_message='snapshot cancelled because environment deletion was requested',
+		lease_owner=NULL,lease_expires_at=NULL,completed_at=NOW()
+		WHERE environment_id=$1 AND action='snapshot_environment'
+		AND (status='pending' OR (status='leased' AND lease_expires_at<NOW()))`, environmentID); err != nil {
+		return err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE dev_machine_environments
 		SET status='delete_requested',delete_requested_at=COALESCE(delete_requested_at,NOW())
@@ -1600,10 +1619,16 @@ func (r *DevMachineRepository) DeleteEnvironment(ctx context.Context, workspaceI
 }
 
 func (r *DevMachineRepository) UpdateEnvironmentState(ctx context.Context, environmentID uuid.UUID, status, imageRef string, digest *string) error {
-	_, err := r.db.ExecContext(ctx, `UPDATE dev_machine_environments SET status=$2,
+	result, err := r.db.ExecContext(ctx, `UPDATE dev_machine_environments SET status=$2,
 		image_ref=CASE WHEN $3='' THEN image_ref ELSE $3 END, image_digest=COALESCE($4,image_digest)
-		WHERE id=$1`, environmentID, status, imageRef, digest)
-	return err
+		WHERE id=$1 AND status<>'delete_requested'`, environmentID, status, imageRef, digest)
+	if err != nil {
+		return err
+	}
+	if rows, _ := result.RowsAffected(); rows != 1 {
+		return ErrEnvironmentDeletionConflict
+	}
+	return nil
 }
 
 func (r *DevMachineRepository) GetCheckout(ctx context.Context, workspaceID, machineID, checkoutID uuid.UUID) (*domain.DevMachineCheckout, error) {

@@ -36,6 +36,30 @@ func TestMachineErrorMapsCheckoutEligibilityConflict(t *testing.T) {
 	require.Contains(t, response.Error.Message, "no development repository")
 }
 
+func TestMachineErrorMapsEnvironmentDeletionStates(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		err    error
+		status int
+		code   string
+	}{
+		{name: "missing", err: service.ErrEnvironmentNotFound, status: http.StatusNotFound, code: "NOT_FOUND"},
+		{name: "conflict", err: fmt.Errorf("%w: environment build is active", service.ErrInvalidOperation), status: http.StatusConflict, code: "INVALID_OPERATION"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			e := echo.New()
+			recorder := httptest.NewRecorder()
+			ctx := e.NewContext(httptest.NewRequest(http.MethodDelete, "/environments/test", nil), recorder)
+
+			require.NoError(t, machineError(ctx, test.err))
+			require.Equal(t, test.status, recorder.Code)
+			var response dto.ErrorResponse
+			require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+			require.Equal(t, test.code, response.Error.Code)
+		})
+	}
+}
+
 func TestAgentRunTraceRejectsInvalidRunID(t *testing.T) {
 	e := echo.New()
 	recorder := httptest.NewRecorder()

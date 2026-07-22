@@ -887,11 +887,11 @@ func (s *DevMachineService) GetEnvironment(ctx context.Context, workspaceID, env
 
 func (s *DevMachineService) RequestEnvironmentDeletion(ctx context.Context, workspaceID, environmentID uuid.UUID) error {
 	if err := s.store.RequestEnvironmentDeletion(ctx, workspaceID, environmentID); err != nil {
-		if errors.Is(err, repository.ErrEnvironmentInUse) {
+		if errors.Is(err, repository.ErrEnvironmentInUse) || errors.Is(err, repository.ErrEnvironmentInvalidState) || errors.Is(err, repository.ErrEnvironmentDeletionConflict) {
 			return fmt.Errorf("%w: %v", ErrInvalidOperation, err)
 		}
 		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("invalid development environment")
+			return ErrEnvironmentNotFound
 		}
 		return err
 	}

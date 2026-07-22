@@ -756,6 +756,70 @@ func TestEnvironmentDeletionChecksDesiredStateAndPendingOperations(t *testing.T)
 	})
 }
 
+func TestEnvironmentDeletionCancelsStuckSnapshotOperations(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is not configured")
+	}
+	db, err := sqlx.Connect("pgx", databaseURL)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	for _, test := range []struct {
+		name              string
+		environmentStatus string
+		leaseExpiresAt    *time.Time
+		wantConflict      bool
+	}{
+		{name: "pending operation", environmentStatus: "pending"},
+		{name: "expired build lease", environmentStatus: "building", leaseExpiresAt: dmTimePtr(time.Now().Add(-time.Minute))},
+		{name: "active build lease", environmentStatus: "building", leaseExpiresAt: dmTimePtr(time.Now().Add(time.Minute)), wantConflict: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newEnvironmentRaceFixture(t, db)
+			_, err := db.Exec(`UPDATE dev_machine_environments SET status=$2 WHERE id=$1`, fixture.environmentID, test.environmentStatus)
+			require.NoError(t, err)
+			machineID := fixture.insertMachine(t, domain.DevMachineStatusStopped, domain.DevMachineStatusStopped, true)
+			_, err = db.Exec(`UPDATE dev_machines SET environment_id=NULL WHERE id=$1`, machineID)
+			require.NoError(t, err)
+			operation := &domain.DevMachineOperation{
+				ID: uuid.New(), MachineID: machineID, EnvironmentID: &fixture.environmentID, WorkspaceID: fixture.workspaceID,
+				Action: domain.DevMachineOpSnapshotEnvironment, Status: domain.DevMachineOpStatusPending,
+				Generation: 1, IdempotencyKey: "snapshot:" + fixture.environmentID.String(), MaxAttempts: 2,
+			}
+			require.NoError(t, fixture.repository.EnqueueInternalOperation(context.Background(), operation))
+			if test.leaseExpiresAt != nil {
+				_, err = db.Exec(`UPDATE dev_machine_operations SET status='leased',lease_owner='worker',lease_expires_at=$2 WHERE id=$1`, operation.ID, test.leaseExpiresAt)
+				require.NoError(t, err)
+			}
+
+			err = fixture.repository.RequestEnvironmentDeletion(context.Background(), fixture.workspaceID, fixture.environmentID)
+
+			var environmentStatus string
+			var operationStatus domain.DevMachineOperationStatus
+			require.NoError(t, db.Get(&environmentStatus, `SELECT status FROM dev_machine_environments WHERE id=$1`, fixture.environmentID))
+			require.NoError(t, db.Get(&operationStatus, `SELECT status FROM dev_machine_operations WHERE id=$1`, operation.ID))
+			if test.wantConflict {
+				require.ErrorIs(t, err, ErrEnvironmentDeletionConflict)
+				require.Equal(t, "building", environmentStatus)
+				require.Equal(t, domain.DevMachineOpStatusLeased, operationStatus)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, "delete_requested", environmentStatus)
+			require.Equal(t, domain.DevMachineOpStatusCancelled, operationStatus)
+
+			require.ErrorIs(t, fixture.repository.UpdateEnvironmentState(context.Background(), fixture.environmentID, "ready", "sha256:late", nil), ErrEnvironmentDeletionConflict)
+			require.NoError(t, db.Get(&environmentStatus, `SELECT status FROM dev_machine_environments WHERE id=$1`, fixture.environmentID))
+			require.Equal(t, "delete_requested", environmentStatus)
+		})
+	}
+}
+
+func dmTimePtr(value time.Time) *time.Time {
+	return &value
+}
+
 func TestSnapshotCreationSerializesWithResume(t *testing.T) {
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {

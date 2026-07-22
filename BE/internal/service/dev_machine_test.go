@@ -517,12 +517,26 @@ func TestLifecycleMapsTransactionalConflicts(t *testing.T) {
 }
 
 func TestEnvironmentRepositoryConflictsMapToInvalidOperation(t *testing.T) {
-	store := &devMachineStoreFake{deleteEnvironmentErr: repository.ErrEnvironmentInUse}
+	for _, conflict := range []error{
+		repository.ErrEnvironmentInUse,
+		repository.ErrEnvironmentInvalidState,
+		repository.ErrEnvironmentDeletionConflict,
+	} {
+		store := &devMachineStoreFake{deleteEnvironmentErr: conflict}
+
+		err := newTestDevMachineService(store).RequestEnvironmentDeletion(context.Background(), uuid.New(), uuid.New())
+
+		require.ErrorIs(t, err, ErrInvalidOperation)
+		require.Contains(t, err.Error(), conflict.Error())
+	}
+}
+
+func TestMissingEnvironmentDeletionMapsToNotFound(t *testing.T) {
+	store := &devMachineStoreFake{deleteEnvironmentErr: sql.ErrNoRows}
 
 	err := newTestDevMachineService(store).RequestEnvironmentDeletion(context.Background(), uuid.New(), uuid.New())
 
-	require.ErrorIs(t, err, ErrInvalidOperation)
-	require.Contains(t, err.Error(), repository.ErrEnvironmentInUse.Error())
+	require.ErrorIs(t, err, ErrEnvironmentNotFound)
 }
 
 func TestEnvironmentUnavailableMapsToInvalidOperation(t *testing.T) {
