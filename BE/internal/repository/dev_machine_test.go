@@ -399,6 +399,128 @@ func TestRuntimeCredentialsSchemaHasCascadeUniqueAndExpiryIndex(t *testing.T) {
 	require.Contains(t, indexDef, "expires_at")
 }
 
+func TestDevMachineOffsetPaginationUsesStableTieBreakers(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is not configured")
+	}
+	db, err := sqlx.Connect("pgx", databaseURL)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	userID, workspaceID := uuid.New(), uuid.New()
+	suffix := strings.ReplaceAll(workspaceID.String(), "-", "")
+	t.Cleanup(func() {
+		_, _ = db.Exec(`DELETE FROM workspaces WHERE id=$1`, workspaceID)
+		_, _ = db.Exec(`DELETE FROM users WHERE id=$1`, userID)
+	})
+	_, err = db.Exec(`INSERT INTO users (id,email,name,password_hash) VALUES ($1,$2,'Pagination Test','test')`,
+		userID, suffix+"@example.test")
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO workspaces (id,name,slug,owner_id) VALUES ($1,'Pagination Test',$2,$3)`,
+		workspaceID, "pagination-"+suffix, userID)
+	require.NoError(t, err)
+
+	machinePrefix := uuid.New()
+	machineIDs := make([]uuid.UUID, 4)
+	for index, suffix := range []byte{2, 4, 1, 3} {
+		machineIDs[index] = machinePrefix
+		machineIDs[index][15] = suffix
+	}
+	createdAt := time.Now().UTC().Truncate(time.Second)
+	for index, machineID := range machineIDs {
+		routingKey := strings.ReplaceAll(machineID.String(), "-", "")
+		_, err = db.Exec(`INSERT INTO dev_machines
+			(id,workspace_id,created_by_user_id,routing_key,name,status,desired_status,generation,
+			 repo_url,repo_provider,repo_owner,repo_name,base_branch,working_branch,
+			 machine_size,cpu_millis,memory_mb,disk_gb,max_runtime_minutes,created_at,updated_at,expires_at)
+			VALUES ($1,$2,$3,$4,$5,'stopped','stopped',1,'','github','','','','',
+			 'small',1000,2048,20,480,$6::timestamptz,$6::timestamptz,$6::timestamptz+INTERVAL '1 hour')`,
+			machineID, workspaceID, userID, routingKey[len(routingKey)-16:], fmt.Sprintf("pagination-machine-%d", index), createdAt)
+		require.NoError(t, err)
+	}
+
+	repo := NewDevMachineRepository(db)
+	expectedMachineIDs := []uuid.UUID{machineIDs[1], machineIDs[3], machineIDs[0], machineIDs[2]}
+	assertMachinePages := func(t *testing.T, list func(int, int) ([]domain.DevMachine, int, error)) {
+		t.Helper()
+		var actual []uuid.UUID
+		for offset := 0; offset < len(expectedMachineIDs); offset += 2 {
+			page, total, listErr := list(2, offset)
+			require.NoError(t, listErr)
+			require.Equal(t, len(expectedMachineIDs), total)
+			require.Len(t, page, 2)
+			for _, machine := range page {
+				actual = append(actual, machine.ID)
+			}
+		}
+		require.Equal(t, expectedMachineIDs, actual)
+		require.Len(t, uniqueUUIDs(actual), len(expectedMachineIDs), "adjacent pages must not contain duplicates")
+	}
+
+	t.Run("machines", func(t *testing.T) {
+		assertMachinePages(t, func(limit, offset int) ([]domain.DevMachine, int, error) {
+			return repo.ListMachines(context.Background(), workspaceID, "", nil, limit, offset)
+		})
+	})
+	t.Run("machines for user", func(t *testing.T) {
+		assertMachinePages(t, func(limit, offset int) ([]domain.DevMachine, int, error) {
+			return repo.ListMachinesForUser(context.Background(), workspaceID, userID, "", nil, limit, offset)
+		})
+	})
+
+	runPrefix := uuid.New()
+	runIDs := make([]uuid.UUID, 4)
+	for index, suffix := range []byte{2, 4, 1, 3} {
+		runIDs[index] = runPrefix
+		runIDs[index][15] = suffix
+	}
+	for _, runID := range runIDs {
+		_, err = db.Exec(`INSERT INTO dev_machine_agent_runs
+			(id,machine_id,workspace_id,requested_by_user_id,provider_id,mode,status,prompt,
+			 command_argv,max_runtime_seconds,created_at)
+			VALUES ($1,$2,$3,$4,'opencode','autonomous','succeeded','pagination test','["true"]',60,$5)`,
+			runID, machineIDs[0], workspaceID, userID, createdAt)
+		require.NoError(t, err)
+	}
+
+	expectedRunIDs := []uuid.UUID{runIDs[1], runIDs[3], runIDs[0], runIDs[2]}
+	assertRunPages := func(t *testing.T, list func(int, int) ([]domain.DevMachineAgentRun, int, error)) {
+		t.Helper()
+		var actual []uuid.UUID
+		for offset := 0; offset < len(expectedRunIDs); offset += 2 {
+			page, total, listErr := list(2, offset)
+			require.NoError(t, listErr)
+			require.Equal(t, len(expectedRunIDs), total)
+			require.Len(t, page, 2)
+			for _, run := range page {
+				actual = append(actual, run.ID)
+			}
+		}
+		require.Equal(t, expectedRunIDs, actual)
+		require.Len(t, uniqueUUIDs(actual), len(expectedRunIDs), "adjacent pages must not contain duplicates")
+	}
+
+	t.Run("agent runs", func(t *testing.T) {
+		assertRunPages(t, func(limit, offset int) ([]domain.DevMachineAgentRun, int, error) {
+			return repo.ListAgentRuns(context.Background(), workspaceID, nil, limit, offset)
+		})
+	})
+	t.Run("agent runs for user", func(t *testing.T) {
+		assertRunPages(t, func(limit, offset int) ([]domain.DevMachineAgentRun, int, error) {
+			return repo.ListAgentRunsForUser(context.Background(), workspaceID, userID, nil, limit, offset)
+		})
+	})
+}
+
+func uniqueUUIDs(ids []uuid.UUID) map[uuid.UUID]struct{} {
+	unique := make(map[uuid.UUID]struct{}, len(ids))
+	for _, id := range ids {
+		unique[id] = struct{}{}
+	}
+	return unique
+}
+
 func TestAgentRunCreationSerializesWithLifecycle(t *testing.T) {
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {

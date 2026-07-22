@@ -299,7 +299,7 @@ func (r *DevMachineRepository) ListMachines(ctx context.Context, workspaceID uui
 		return nil, 0, err
 	}
 	var machines []domain.DevMachine
-	if err := r.db.SelectContext(ctx, &machines, `SELECT * FROM dev_machines WHERE `+where+` ORDER BY created_at DESC LIMIT $4 OFFSET $5`, workspaceID, status, issueID, limit, offset); err != nil {
+	if err := r.db.SelectContext(ctx, &machines, `SELECT * FROM dev_machines WHERE `+where+` ORDER BY created_at DESC, id DESC LIMIT $4 OFFSET $5`, workspaceID, status, issueID, limit, offset); err != nil {
 		return nil, 0, err
 	}
 	if machines == nil {
@@ -317,7 +317,7 @@ func (r *DevMachineRepository) ListMachinesForUser(ctx context.Context, workspac
 		return nil, 0, err
 	}
 	var machines []domain.DevMachine
-	if err := r.db.SelectContext(ctx, &machines, `SELECT * FROM dev_machines WHERE `+where+` ORDER BY created_at DESC LIMIT $5 OFFSET $6`, workspaceID, userID, status, issueID, limit, offset); err != nil {
+	if err := r.db.SelectContext(ctx, &machines, `SELECT * FROM dev_machines WHERE `+where+` ORDER BY created_at DESC, id DESC LIMIT $5 OFFSET $6`, workspaceID, userID, status, issueID, limit, offset); err != nil {
 		return nil, 0, err
 	}
 	if machines == nil {
@@ -871,7 +871,7 @@ func (r *DevMachineRepository) ListAgentRuns(ctx context.Context, workspaceID uu
 		return nil, 0, err
 	}
 	var runs []domain.DevMachineAgentRun
-	err := r.db.SelectContext(ctx, &runs, `SELECT * FROM dev_machine_agent_runs WHERE `+where+` ORDER BY created_at DESC LIMIT $3 OFFSET $4`, workspaceID, machineID, limit, offset)
+	err := r.db.SelectContext(ctx, &runs, `SELECT * FROM dev_machine_agent_runs WHERE `+where+` ORDER BY created_at DESC, id DESC LIMIT $3 OFFSET $4`, workspaceID, machineID, limit, offset)
 	return runs, total, err
 }
 
@@ -882,7 +882,7 @@ func (r *DevMachineRepository) ListAgentRunsForUser(ctx context.Context, workspa
 		return nil, 0, err
 	}
 	var runs []domain.DevMachineAgentRun
-	err := r.db.SelectContext(ctx, &runs, `SELECT r.* FROM dev_machine_agent_runs r JOIN dev_machines m ON m.id=r.machine_id WHERE `+where+` ORDER BY r.created_at DESC LIMIT $4 OFFSET $5`, workspaceID, userID, machineID, limit, offset)
+	err := r.db.SelectContext(ctx, &runs, `SELECT r.* FROM dev_machine_agent_runs r JOIN dev_machines m ON m.id=r.machine_id WHERE `+where+` ORDER BY r.created_at DESC, r.id DESC LIMIT $4 OFFSET $5`, workspaceID, userID, machineID, limit, offset)
 	if runs == nil {
 		runs = []domain.DevMachineAgentRun{}
 	}
