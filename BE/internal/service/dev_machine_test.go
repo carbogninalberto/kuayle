@@ -58,8 +58,19 @@ func TestCreateAgentRunRejectsPullRequestWithoutPush(t *testing.T) {
 		OpenPullRequest: true,
 	})
 
-	require.ErrorIs(t, err, ErrInvalidOperation)
+	require.ErrorIs(t, err, ErrInvalidMachineInput)
 	require.ErrorContains(t, err, "requires pushing the working branch")
+}
+
+func TestMachineTokenAuthenticationDistinguishesCredentialsFromStorageFailure(t *testing.T) {
+	storageErr := errors.New("token database unavailable")
+	service := newTestDevMachineService(&devMachineStoreFake{authenticateMachineTokenErr: storageErr})
+
+	require.ErrorIs(t, service.IngestEvent(context.Background(), "short", dto.CollectorEventInput{}), ErrMachineAuthentication)
+	require.ErrorIs(t, service.IngestEvent(context.Background(), strings.Repeat("a", 64), dto.CollectorEventInput{}), storageErr)
+
+	service = newTestDevMachineService(&devMachineStoreFake{})
+	require.ErrorIs(t, service.IngestEvent(context.Background(), strings.Repeat("a", 64), dto.CollectorEventInput{}), ErrMachineAuthentication)
 }
 
 func TestSelectReadyAgentCheckoutHandlesEveryCheckoutState(t *testing.T) {
@@ -114,8 +125,8 @@ func TestCreateAgentRunNeverImplicitlyFallsBackToRootWorkspace(t *testing.T) {
 		{name: "repository with preparing checkout", affinity: &repositoryID, checkouts: []domain.DevMachineCheckout{{ID: uuid.New(), Status: "preparing"}}, expectedError: ErrCheckoutNotReady},
 		{name: "repository with failed checkout", affinity: &repositoryID, checkouts: []domain.DevMachineCheckout{{ID: uuid.New(), Status: "failed"}}, expectedError: ErrCheckoutNotReady},
 		{name: "repository rejects explicit root", affinity: &repositoryID, useRoot: true, expectedError: ErrCheckoutNotReady},
-		{name: "root requires explicit mode", expectedError: ErrInvalidOperation},
-		{name: "root cannot push a branch", useRoot: true, pushBranch: &pushBranch, expectedError: ErrInvalidOperation},
+		{name: "root requires explicit mode", expectedError: ErrInvalidMachineInput},
+		{name: "root cannot push a branch", useRoot: true, pushBranch: &pushBranch, expectedError: ErrInvalidMachineInput},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store := &devMachineStoreFake{
@@ -252,6 +263,14 @@ func TestValidMachineName(t *testing.T) {
 	}
 }
 
+func TestListRejectsInvalidMachineStatusWithoutQueryingRepository(t *testing.T) {
+	_, _, err := newTestDevMachineService(&devMachineStoreFake{}).List(
+		context.Background(), uuid.New(), uuid.New(), dto.DevMachineListParams{Status: "invalid-status"},
+	)
+
+	require.ErrorIs(t, err, ErrInvalidMachineInput)
+}
+
 func TestNameAvailabilityUsesCaseInsensitiveStore(t *testing.T) {
 	workspaceID, userID := uuid.New(), uuid.New()
 	store := &devMachineStoreFake{nameExists: map[string]bool{"builder-01": true}}
@@ -297,6 +316,28 @@ func TestCreateGenericMachineDoesNotRequireRepositoryOrTTL(t *testing.T) {
 	require.NotContains(t, string(machine.ServicesConfig), "app_preview")
 	for _, service := range store.createdServices {
 		require.NotEqual(t, "app_preview", service.ServiceType)
+	}
+}
+
+func TestCreateMapsRepositoryMachineConflicts(t *testing.T) {
+	workspaceID, userID := uuid.New(), uuid.New()
+	for _, test := range []struct {
+		name     string
+		storeErr error
+		expected error
+	}{
+		{name: "name", storeErr: repository.ErrMachineNameConflict, expected: ErrMachineNameConflict},
+		{name: "quota", storeErr: repository.ErrMachineQuota, expected: ErrMachineQuota},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := &devMachineStoreFake{policy: testPolicy(workspaceID), createBundleErr: test.storeErr}
+
+			_, _, err := newTestDevMachineService(store).Create(context.Background(), workspaceID, userID, dto.CreateDevMachineRequest{
+				Name: "typed-conflict", Size: "small",
+			})
+
+			require.ErrorIs(t, err, test.expected)
+		})
 	}
 }
 
@@ -943,6 +984,7 @@ type devMachineStoreFake struct {
 	envVars                     []domain.DevMachineEnvVar
 	runtimeCredentials          []domain.DevMachineRuntimeCredential
 	authenticatedToken          *domain.DevMachineToken
+	authenticateMachineTokenErr error
 	createdTicket               *domain.DevMachineAccessTicket
 	createAccessTicketErr       error
 	checkouts                   []domain.DevMachineCheckout
@@ -1175,6 +1217,9 @@ func (f *devMachineStoreFake) ListRuntimeCredentials(_ context.Context, machineI
 }
 
 func (f *devMachineStoreFake) AuthenticateMachineToken(_ context.Context, _, _ string) (*domain.DevMachineToken, *domain.DevMachine, error) {
+	if f.authenticateMachineTokenErr != nil {
+		return nil, nil, f.authenticateMachineTokenErr
+	}
 	if f.authenticatedToken == nil || f.machine == nil {
 		return nil, nil, nil
 	}

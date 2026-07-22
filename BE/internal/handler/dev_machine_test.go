@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -85,6 +86,45 @@ func TestMachineErrorMapsEnvironmentDeletionStates(t *testing.T) {
 			var response dto.ErrorResponse
 			require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
 			require.Equal(t, test.code, response.Error.Code)
+		})
+	}
+}
+
+func TestMachineErrorUsesTypedClassificationOnly(t *testing.T) {
+	for _, test := range []struct {
+		name            string
+		err             error
+		status          int
+		code            string
+		messageContains string
+		messageExcludes string
+	}{
+		{name: "invalid input", err: fmt.Errorf("%w: invalid branch", service.ErrInvalidMachineInput), status: http.StatusBadRequest, code: "BAD_REQUEST", messageContains: "invalid branch"},
+		{name: "state conflict", err: fmt.Errorf("%w: machine must be running", service.ErrInvalidOperation), status: http.StatusConflict, code: "INVALID_OPERATION"},
+		{name: "quota", err: service.ErrMachineQuota, status: http.StatusConflict, code: "QUOTA_EXCEEDED"},
+		{name: "name conflict", err: service.ErrMachineNameConflict, status: http.StatusConflict, code: "MACHINE_NAME_CONFLICT"},
+		{name: "authentication", err: service.ErrMachineAuthentication, status: http.StatusUnauthorized, code: "UNAUTHORIZED"},
+		{name: "authorization", err: service.ErrProviderNotAllowed, status: http.StatusForbidden, code: "FORBIDDEN"},
+		{name: "private missing resource", err: service.ErrMachineNotFound, status: http.StatusNotFound, code: "NOT_FOUND"},
+		{name: "raw invalid error", err: errors.New("invalid provider database secret"), status: http.StatusInternalServerError, code: "INTERNAL_ERROR", messageExcludes: "database secret"},
+		{name: "raw unique error", err: errors.New("idx_dev_machines_workspace_name secret detail"), status: http.StatusInternalServerError, code: "INTERNAL_ERROR", messageExcludes: "secret detail"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			e := echo.New()
+			recorder := httptest.NewRecorder()
+			ctx := e.NewContext(httptest.NewRequest(http.MethodPost, "/machines", nil), recorder)
+
+			require.NoError(t, machineError(ctx, test.err))
+			require.Equal(t, test.status, recorder.Code)
+			var response dto.ErrorResponse
+			require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+			require.Equal(t, test.code, response.Error.Code)
+			if test.messageContains != "" {
+				require.Contains(t, response.Error.Message, test.messageContains)
+			}
+			if test.messageExcludes != "" {
+				require.NotContains(t, response.Error.Message, test.messageExcludes)
+			}
 		})
 	}
 }

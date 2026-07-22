@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jmoiron/sqlx"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 )
@@ -87,6 +88,8 @@ var ErrIdempotencyKeyConflict = errors.New("idempotency key was already used for
 var ErrCheckoutMachineConflict = errors.New("machine is not running or uses another repository")
 var ErrActiveAgentRun = errors.New("machine has an active agent run")
 var ErrMachineStateConflict = errors.New("machine state changed while queuing operation")
+var ErrMachineQuota = errors.New("dev machine quota exceeded")
+var ErrMachineNameConflict = errors.New("dev machine name already exists")
 var ErrEnvironmentInUse = errors.New("development environment is in use")
 var ErrEnvironmentUnavailable = errors.New("development environment is not available")
 var ErrEnvironmentInvalidState = errors.New("development environment cannot be deleted in its current state")
@@ -142,7 +145,7 @@ func (r *DevMachineRepository) CreateBundle(
 		return err
 	}
 	if workspaceCount >= maxWorkspace || userCount >= maxUser {
-		return fmt.Errorf("dev machine quota exceeded")
+		return ErrMachineQuota
 	}
 	if machine.ProjectID != nil {
 		var exists bool
@@ -179,6 +182,10 @@ func (r *DevMachineRepository) CreateBundle(
 		machine.PidsLimit, machine.MaxRuntimeMinutes, machine.ServicesConfig, machine.Labels, machine.ExpiresAt,
 		machine.EnvironmentID, machine.RepositoryAffinityID, machine.KeepRunning, machine.EnvironmentBuilder, machine.LastActivityAt,
 	).Scan(&machine.CreatedAt, &machine.UpdatedAt); err != nil {
+		var postgresError *pgconn.PgError
+		if errors.As(err, &postgresError) && postgresError.Code == "23505" && postgresError.ConstraintName == "idx_dev_machines_workspace_name" {
+			return ErrMachineNameConflict
+		}
 		return err
 	}
 
@@ -417,7 +424,7 @@ func (r *DevMachineRepository) SetDesiredAndEnqueue(ctx context.Context, workspa
 				return err
 			}
 			if workspaceCount >= maxWorkspace || userCount >= maxUser {
-				return fmt.Errorf("dev machine quota exceeded")
+				return ErrMachineQuota
 			}
 		}
 	}

@@ -643,7 +643,10 @@ func (h *DevMachineHandler) IngestEvent(c echo.Context) error {
 		return err
 	}
 	if err := h.service.IngestEvent(c.Request().Context(), bearerToken(c), input); err != nil {
-		return response.Unauthorized(c)
+		if errors.Is(err, service.ErrMachineAuthentication) {
+			return response.Unauthorized(c)
+		}
+		return machineError(c, err)
 	}
 	return c.NoContent(http.StatusAccepted)
 }
@@ -655,7 +658,10 @@ func (h *DevMachineHandler) IngestLog(c echo.Context) error {
 		return err
 	}
 	if err := h.service.IngestLog(c.Request().Context(), bearerToken(c), input); err != nil {
-		return response.Unauthorized(c)
+		if errors.Is(err, service.ErrMachineAuthentication) {
+			return response.Unauthorized(c)
+		}
+		return machineError(c, err)
 	}
 	return c.NoContent(http.StatusAccepted)
 }
@@ -697,9 +703,11 @@ func machineError(c echo.Context, err error) error {
 		return response.NotFound(c, "Dev Machine")
 	case errors.Is(err, service.ErrDevMachinesDisabled), errors.Is(err, service.ErrProviderNotAllowed), errors.Is(err, service.ErrRepositoryNotAllowed):
 		return response.Error(c, http.StatusForbidden, "FORBIDDEN", err.Error())
-	case errors.Is(err, service.ErrMachineQuota), strings.Contains(err.Error(), "active agent run already exists"), strings.Contains(err.Error(), "dev machine quota exceeded"):
+	case errors.Is(err, service.ErrMachineAuthentication):
+		return response.Unauthorized(c)
+	case errors.Is(err, service.ErrMachineQuota):
 		return response.Error(c, http.StatusConflict, "QUOTA_EXCEEDED", err.Error())
-	case strings.Contains(err.Error(), "machine name already exists"), strings.Contains(err.Error(), "idx_dev_machines_workspace_name"):
+	case errors.Is(err, service.ErrMachineNameConflict):
 		return response.Error(c, http.StatusConflict, "MACHINE_NAME_CONFLICT", "Machine name is already in use")
 	case errors.Is(err, service.ErrInvalidOperation):
 		return response.Error(c, http.StatusConflict, "INVALID_OPERATION", err.Error())
@@ -711,7 +719,7 @@ func machineError(c echo.Context, err error) error {
 		return response.Error(c, http.StatusConflict, "TERMINAL_SESSION_REQUIRED", err.Error())
 	case errors.Is(err, service.ErrServiceNotAvailable):
 		return response.Error(c, http.StatusNotFound, "SERVICE_NOT_AVAILABLE", err.Error())
-	case strings.Contains(err.Error(), "invalid") || strings.Contains(err.Error(), "exceeds") || strings.Contains(err.Error(), "must"):
+	case errors.Is(err, service.ErrInvalidMachineInput):
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
 	default:
 		return response.InternalError(c)

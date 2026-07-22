@@ -35,6 +35,9 @@ var (
 	ErrCheckoutNotEligible     = errors.New("machine is not eligible for this issue checkout")
 	ErrCheckoutNotReady        = errors.New("repository checkout is not ready")
 	ErrTerminalSessionRequired = errors.New("terminal must be launched through a native session")
+	ErrInvalidMachineInput     = errors.New("invalid dev machine request")
+	ErrMachineNameConflict     = errors.New("dev machine name is already in use")
+	ErrMachineAuthentication   = errors.New("machine authentication failed")
 )
 
 type DevMachineImages struct {
@@ -69,11 +72,11 @@ func NewDevMachineService(store repository.DevMachineStore, agents *agent.Regist
 func (s *DevMachineService) Create(ctx context.Context, workspaceID, userID uuid.UUID, req dto.CreateDevMachineRequest) (*domain.DevMachine, *domain.DevMachineOperation, error) {
 	if req.Repo != nil {
 		if err := validateRepository(*req.Repo); err != nil {
-			return nil, nil, err
+			return nil, nil, fmt.Errorf("%w: %v", ErrInvalidMachineInput, err)
 		}
 	}
 	if (req.BaseBranch != "" && !validGitRef(req.BaseBranch)) || (req.WorkingBranch != "" && !validGitRef(req.WorkingBranch)) {
-		return nil, nil, fmt.Errorf("invalid base or working branch")
+		return nil, nil, fmt.Errorf("%w: invalid base or working branch", ErrInvalidMachineInput)
 	}
 	req.Services.IDE = true
 	policy, err := s.enabledPolicy(ctx, workspaceID)
@@ -94,10 +97,10 @@ func (s *DevMachineService) Create(ctx context.Context, workspaceID, userID uuid
 
 	cpuMillis, memoryMB, diskGB, _, ok := domain.DevMachineSize(req.Size)
 	if !ok {
-		return nil, nil, fmt.Errorf("unsupported machine size %q", req.Size)
+		return nil, nil, fmt.Errorf("%w: unsupported machine size %q", ErrInvalidMachineInput, req.Size)
 	}
 	if diskGB > policy.MaxDiskGB {
-		return nil, nil, fmt.Errorf("machine disk request exceeds workspace limit")
+		return nil, nil, fmt.Errorf("%w: machine disk request exceeds workspace limit", ErrMachineQuota)
 	}
 	maxRuntime := policy.MaxRuntimeMinutes
 	name := normalizeMachineName(req.Name)
@@ -108,14 +111,14 @@ func (s *DevMachineService) Create(ctx context.Context, workspaceID, userID uuid
 		}
 	}
 	if !validMachineName(name) {
-		return nil, nil, fmt.Errorf("invalid machine name")
+		return nil, nil, fmt.Errorf("%w: invalid machine name", ErrInvalidMachineInput)
 	}
 	nameExists, err := s.store.MachineNameExistsForUser(ctx, workspaceID, userID, name)
 	if err != nil {
 		return nil, nil, err
 	}
 	if nameExists {
-		return nil, nil, fmt.Errorf("machine name already exists")
+		return nil, nil, ErrMachineNameConflict
 	}
 
 	issue, project, issueID, projectID, err := s.resolveRequestedContext(ctx, workspaceID, req.IssueID, req.ProjectID)
@@ -131,7 +134,7 @@ func (s *DevMachineService) Create(ctx context.Context, workspaceID, userID uuid
 	if req.EnvironmentID != nil {
 		parsed, parseErr := uuid.Parse(*req.EnvironmentID)
 		if parseErr != nil {
-			return nil, nil, fmt.Errorf("invalid environment_id")
+			return nil, nil, fmt.Errorf("%w: invalid environment_id", ErrInvalidMachineInput)
 		}
 		if err := s.validateReadyEnvironment(ctx, workspaceID, parsed); err != nil {
 			return nil, nil, err
@@ -153,7 +156,7 @@ func (s *DevMachineService) Create(ctx context.Context, workspaceID, userID uuid
 			return nil, nil, err
 		}
 		if repositoryModel == nil {
-			return nil, nil, fmt.Errorf("invalid linked repository")
+			return nil, nil, fmt.Errorf("%w: invalid linked repository", ErrInvalidMachineInput)
 		}
 	} else if defaults.GitHubRepoID != nil {
 		repositoryModel, err = s.store.GetLinkedRepository(ctx, workspaceID, *defaults.GitHubRepoID)
@@ -161,7 +164,7 @@ func (s *DevMachineService) Create(ctx context.Context, workspaceID, userID uuid
 			return nil, nil, err
 		}
 		if repositoryModel == nil {
-			return nil, nil, fmt.Errorf("invalid linked repository")
+			return nil, nil, fmt.Errorf("%w: invalid linked repository", ErrInvalidMachineInput)
 		}
 	}
 	if repositoryModel != nil {
@@ -180,10 +183,10 @@ func (s *DevMachineService) Create(ctx context.Context, workspaceID, userID uuid
 			workingBranch = defaultWorkingBranch(name, issue)
 		}
 		if !validGitRef(baseBranch) || !validGitRef(workingBranch) {
-			return nil, nil, fmt.Errorf("invalid base or working branch")
+			return nil, nil, fmt.Errorf("%w: invalid base or working branch", ErrInvalidMachineInput)
 		}
 	} else if req.BaseBranch != "" || req.WorkingBranch != "" {
-		return nil, nil, fmt.Errorf("repository is required when branch is provided")
+		return nil, nil, fmt.Errorf("%w: repository is required when branch is provided", ErrInvalidMachineInput)
 	}
 
 	routingKey, err := randomHex(10)
@@ -260,6 +263,12 @@ func (s *DevMachineService) Create(ctx context.Context, workspaceID, userID uuid
 		if errors.Is(err, repository.ErrEnvironmentUnavailable) {
 			return nil, nil, fmt.Errorf("%w: %v", ErrInvalidOperation, err)
 		}
+		if errors.Is(err, repository.ErrMachineQuota) {
+			return nil, nil, ErrMachineQuota
+		}
+		if errors.Is(err, repository.ErrMachineNameConflict) {
+			return nil, nil, ErrMachineNameConflict
+		}
 		return nil, nil, err
 	}
 	s.emit(ctx, machine, nil, &userID, "lifecycle", "machine.queued", map[string]any{"operation_id": operation.ID})
@@ -274,14 +283,14 @@ func (s *DevMachineService) resolveRequestedContext(ctx context.Context, workspa
 	if rawIssueID != nil {
 		parsed, err := uuid.Parse(*rawIssueID)
 		if err != nil {
-			return nil, nil, nil, nil, fmt.Errorf("invalid issue_id")
+			return nil, nil, nil, nil, fmt.Errorf("%w: invalid issue_id", ErrInvalidMachineInput)
 		}
 		loaded, err := s.store.GetIssueDevelopmentContext(ctx, workspaceID, parsed)
 		if err != nil {
 			return nil, nil, nil, nil, err
 		}
 		if loaded == nil {
-			return nil, nil, nil, nil, fmt.Errorf("invalid issue_id for workspace")
+			return nil, nil, nil, nil, fmt.Errorf("%w: invalid issue_id for workspace", ErrInvalidMachineInput)
 		}
 		issue = loaded
 		issueID = &parsed
@@ -289,14 +298,14 @@ func (s *DevMachineService) resolveRequestedContext(ctx context.Context, workspa
 	if rawProjectID != nil {
 		parsed, err := uuid.Parse(*rawProjectID)
 		if err != nil {
-			return nil, nil, nil, nil, fmt.Errorf("invalid project_id")
+			return nil, nil, nil, nil, fmt.Errorf("%w: invalid project_id", ErrInvalidMachineInput)
 		}
 		loaded, err := s.store.GetProjectDevelopmentContext(ctx, workspaceID, parsed)
 		if err != nil {
 			return nil, nil, nil, nil, err
 		}
 		if loaded == nil {
-			return nil, nil, nil, nil, fmt.Errorf("invalid project_id for workspace")
+			return nil, nil, nil, nil, fmt.Errorf("%w: invalid project_id for workspace", ErrInvalidMachineInput)
 		}
 		project = loaded
 		projectID = &parsed
@@ -304,13 +313,13 @@ func (s *DevMachineService) resolveRequestedContext(ctx context.Context, workspa
 	if issue != nil {
 		if issue.ProjectID != nil {
 			if projectID != nil && *projectID != *issue.ProjectID {
-				return nil, nil, nil, nil, fmt.Errorf("issue does not belong to project_id")
+				return nil, nil, nil, nil, fmt.Errorf("%w: issue does not belong to project_id", ErrInvalidMachineInput)
 			}
 			if projectID == nil {
 				projectID = issue.ProjectID
 			}
 		} else if projectID != nil {
-			return nil, nil, nil, nil, fmt.Errorf("issue does not belong to project_id")
+			return nil, nil, nil, nil, fmt.Errorf("%w: issue does not belong to project_id", ErrInvalidMachineInput)
 		}
 	}
 	if project == nil && projectID != nil {
@@ -319,7 +328,7 @@ func (s *DevMachineService) resolveRequestedContext(ctx context.Context, workspa
 			return nil, nil, nil, nil, err
 		}
 		if loaded == nil {
-			return nil, nil, nil, nil, fmt.Errorf("invalid project_id for workspace")
+			return nil, nil, nil, nil, fmt.Errorf("%w: invalid project_id for workspace", ErrInvalidMachineInput)
 		}
 		project = loaded
 	}
@@ -332,10 +341,10 @@ func (s *DevMachineService) validateReadyEnvironment(ctx context.Context, worksp
 		return err
 	}
 	if environment == nil || environment.Status != "ready" {
-		return fmt.Errorf("invalid development environment")
+		return fmt.Errorf("%w: invalid development environment", ErrInvalidMachineInput)
 	}
 	if !strings.HasPrefix(readyEnvironmentImageRef(environment), "sha256:") {
-		return fmt.Errorf("invalid development environment")
+		return fmt.Errorf("%w: invalid development environment", ErrInvalidMachineInput)
 	}
 	return nil
 }
@@ -395,7 +404,7 @@ func (s *DevMachineService) buildProviders(machineID uuid.UUID, policy *domain.D
 			Mode: agent.Mode(input.Mode), Prompt: "configuration validation", WorkspacePath: "/workspace", Config: config,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("invalid %s provider configuration: %w", input.Provider, err)
+			return nil, fmt.Errorf("%w: invalid %s provider configuration", ErrInvalidMachineInput, input.Provider)
 		}
 		modes, _ := json.Marshal(metadata.SupportedModes)
 		secrets, _ := json.Marshal(invocation.SecretNames)
@@ -438,13 +447,13 @@ func (s *DevMachineService) buildEnvVars(machineID uuid.UUID, inputs []dto.DevMa
 	envVars := make([]domain.DevMachineEnvVar, 0, len(inputs))
 	for _, input := range inputs {
 		if input.Name == "GITHUB_TOKEN" || strings.HasPrefix(input.Name, "KUAYLE_") {
-			return nil, fmt.Errorf("invalid environment variable %s: name is reserved", input.Name)
+			return nil, fmt.Errorf("%w: environment variable %s is reserved", ErrInvalidMachineInput, input.Name)
 		}
 		if !validEnvName(input.Name) {
-			return nil, fmt.Errorf("invalid environment variable name %q", input.Name)
+			return nil, fmt.Errorf("%w: invalid environment variable name %q", ErrInvalidMachineInput, input.Name)
 		}
 		if input.Provider != nil && input.TargetService != "agent" {
-			return nil, fmt.Errorf("provider-scoped variables must target agent services")
+			return nil, fmt.Errorf("%w: provider-scoped variables must target agent services", ErrInvalidMachineInput)
 		}
 		encrypted, err := cryptoutil.Encrypt(input.Value, s.encryptionKey)
 		if err != nil {
@@ -485,11 +494,14 @@ func (s *DevMachineService) GetForUser(ctx context.Context, workspaceID, machine
 
 func (s *DevMachineService) List(ctx context.Context, workspaceID, userID uuid.UUID, params dto.DevMachineListParams) ([]domain.DevMachine, int, error) {
 	params.Defaults()
+	if params.Status != "" && !validMachineStatus(params.Status) {
+		return nil, 0, fmt.Errorf("%w: invalid machine status", ErrInvalidMachineInput)
+	}
 	var issueID *uuid.UUID
 	if params.IssueID != "" {
 		parsed, err := uuid.Parse(params.IssueID)
 		if err != nil {
-			return nil, 0, fmt.Errorf("invalid issue_id")
+			return nil, 0, fmt.Errorf("%w: invalid issue_id", ErrInvalidMachineInput)
 		}
 		issueID = &parsed
 	}
@@ -583,13 +595,13 @@ func (s *DevMachineService) BulkDelete(ctx context.Context, workspaceID, userID 
 		if request.OldOnly {
 			return 0, nil
 		}
-		return 0, fmt.Errorf("invalid bulk delete request")
+		return 0, fmt.Errorf("%w: machine_ids are required", ErrInvalidMachineInput)
 	}
 	machineIDs := make([]uuid.UUID, 0, len(request.MachineIDs))
 	for _, raw := range request.MachineIDs {
 		machineID, err := uuid.Parse(raw)
 		if err != nil {
-			return 0, fmt.Errorf("invalid machine id")
+			return 0, fmt.Errorf("%w: invalid machine id", ErrInvalidMachineInput)
 		}
 		machineIDs = append(machineIDs, machineID)
 	}
@@ -611,7 +623,7 @@ func (s *DevMachineService) BulkPermanentDelete(ctx context.Context, workspaceID
 	for _, raw := range request.MachineIDs {
 		machineID, err := uuid.Parse(raw)
 		if err != nil {
-			return 0, fmt.Errorf("invalid machine id")
+			return 0, fmt.Errorf("%w: invalid machine id", ErrInvalidMachineInput)
 		}
 		machineIDs = append(machineIDs, machineID)
 	}
@@ -653,7 +665,7 @@ func (s *DevMachineService) UpdateScopeSetting(ctx context.Context, workspaceID 
 		return nil, err
 	}
 	if !exists {
-		return nil, fmt.Errorf("invalid development setting scope")
+		return nil, fmt.Errorf("%w: invalid development setting scope", ErrInvalidMachineInput)
 	}
 	setting := &domain.DevMachineScopeSetting{WorkspaceID: workspaceID, TeamID: teamID, ProjectID: projectID, IssueID: issueID}
 	if request.GitHubRepoID != nil {
@@ -663,7 +675,7 @@ func (s *DevMachineService) UpdateScopeSetting(ctx context.Context, workspaceID 
 			return nil, err
 		}
 		if repository == nil {
-			return nil, fmt.Errorf("invalid linked repository")
+			return nil, fmt.Errorf("%w: invalid linked repository", ErrInvalidMachineInput)
 		}
 		setting.GitHubRepoID = &repositoryID
 		baseBranch := repository.DefaultBranch
@@ -671,11 +683,11 @@ func (s *DevMachineService) UpdateScopeSetting(ctx context.Context, workspaceID 
 			baseBranch = strings.TrimSpace(*request.BaseBranch)
 		}
 		if !validGitRef(baseBranch) {
-			return nil, fmt.Errorf("invalid base branch")
+			return nil, fmt.Errorf("%w: invalid base branch", ErrInvalidMachineInput)
 		}
 		setting.BaseBranch = &baseBranch
 	} else if request.BaseBranch != nil {
-		return nil, fmt.Errorf("github_repo_id is required when base_branch is provided")
+		return nil, fmt.Errorf("%w: github_repo_id is required when base_branch is provided", ErrInvalidMachineInput)
 	}
 	if request.EnvironmentID != nil {
 		environmentID, _ := uuid.Parse(*request.EnvironmentID)
@@ -684,7 +696,7 @@ func (s *DevMachineService) UpdateScopeSetting(ctx context.Context, workspaceID 
 			return nil, err
 		}
 		if environment == nil || environment.Status != "ready" {
-			return nil, fmt.Errorf("invalid development environment")
+			return nil, fmt.Errorf("%w: invalid development environment", ErrInvalidMachineInput)
 		}
 		setting.EnvironmentID = &environmentID
 	}
@@ -715,7 +727,7 @@ func scopePointers(scopeType string, scopeID *uuid.UUID) (teamID, projectID, iss
 	switch scopeType {
 	case "workspace":
 		if scopeID != nil {
-			err = fmt.Errorf("workspace scope does not accept scope_id")
+			err = fmt.Errorf("%w: workspace scope does not accept scope_id", ErrInvalidMachineInput)
 		}
 	case "team":
 		teamID = scopeID
@@ -724,10 +736,10 @@ func scopePointers(scopeType string, scopeID *uuid.UUID) (teamID, projectID, iss
 	case "issue":
 		issueID = scopeID
 	default:
-		err = fmt.Errorf("invalid development setting scope")
+		err = fmt.Errorf("%w: invalid development setting scope", ErrInvalidMachineInput)
 	}
 	if scopeType != "workspace" && scopeID == nil {
-		err = fmt.Errorf("scope_id is required")
+		err = fmt.Errorf("%w: scope_id is required", ErrInvalidMachineInput)
 	}
 	return
 }
@@ -780,10 +792,10 @@ func (s *DevMachineService) CheckoutIssue(ctx context.Context, workspaceID, mach
 		return nil, err
 	}
 	if issue == nil {
-		return nil, fmt.Errorf("invalid issue")
+		return nil, fmt.Errorf("%w: issue does not exist in this workspace", ErrInvalidMachineInput)
 	}
 	if machine.Status != domain.DevMachineStatusRunning || machine.DesiredStatus != domain.DevMachineStatusRunning {
-		return nil, fmt.Errorf("machine must be running")
+		return nil, fmt.Errorf("%w: machine must be running", ErrInvalidOperation)
 	}
 	var project *domain.Project
 	if issue.ProjectID != nil {
@@ -806,7 +818,14 @@ func (s *DevMachineService) CheckoutIssue(ctx context.Context, workspaceID, mach
 	if err != nil {
 		return nil, err
 	}
-	if linkedRepository == nil || !repositoryAllowedMust(s, ctx, workspaceID, linkedRepository.FullName) {
+	if linkedRepository == nil {
+		return nil, ErrRepositoryNotAllowed
+	}
+	policy, err := s.enabledPolicy(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	if !repositoryAllowed(policy.AllowedRepositories, linkedRepository.FullName) {
 		return nil, ErrRepositoryNotAllowed
 	}
 	if machine.RepositoryAffinityID != nil && *machine.RepositoryAffinityID != linkedRepository.ID {
@@ -863,11 +882,6 @@ func (s *DevMachineService) CheckoutIssue(ctx context.Context, workspaceID, mach
 	return checkout, nil
 }
 
-func repositoryAllowedMust(s *DevMachineService, ctx context.Context, workspaceID uuid.UUID, fullName string) bool {
-	policy, err := s.enabledPolicy(ctx, workspaceID)
-	return err == nil && repositoryAllowed(policy.AllowedRepositories, fullName)
-}
-
 func (s *DevMachineService) ListCheckouts(ctx context.Context, workspaceID, machineID, userID uuid.UUID) ([]domain.DevMachineCheckout, error) {
 	if _, err := s.GetForUser(ctx, workspaceID, machineID, userID); err != nil {
 		return nil, err
@@ -911,7 +925,7 @@ func (s *DevMachineService) SnapshotEnvironment(ctx context.Context, workspaceID
 		return nil, fmt.Errorf("%w: machine must be stably paused or stopped before saving an environment", ErrInvalidOperation)
 	}
 	if !machine.EnvironmentBuilder {
-		return nil, fmt.Errorf("only an Environment Builder can be saved as a development environment")
+		return nil, fmt.Errorf("%w: only an Environment Builder can be saved as a development environment", ErrInvalidOperation)
 	}
 	environmentID := uuid.New()
 	environment := &domain.DevMachineEnvironment{
@@ -920,7 +934,7 @@ func (s *DevMachineService) SnapshotEnvironment(ctx context.Context, workspaceID
 		SourceMachineID: &machineID, CreatedByUserID: &userID,
 	}
 	if environment.Name == "" || strings.ContainsAny(environment.Name, "\x00\r\n") {
-		return nil, fmt.Errorf("invalid development environment name")
+		return nil, fmt.Errorf("%w: invalid development environment name", ErrInvalidMachineInput)
 	}
 	operation := &domain.DevMachineOperation{
 		ID: uuid.New(), MachineID: machineID, EnvironmentID: &environmentID, WorkspaceID: workspaceID,
@@ -944,7 +958,7 @@ func (s *DevMachineService) Lifecycle(ctx context.Context, workspaceID, machineI
 	}
 	if idempotencyKey != "" {
 		if len(idempotencyKey) > 255 || strings.TrimSpace(idempotencyKey) == "" || strings.ContainsAny(idempotencyKey, "\x00\r\n") {
-			return nil, fmt.Errorf("invalid idempotency key")
+			return nil, fmt.Errorf("%w: invalid idempotency key", ErrInvalidMachineInput)
 		}
 		existing, err := s.store.GetOperationByIdempotency(ctx, workspaceID, machineID, idempotencyKey)
 		if err != nil {
@@ -1026,6 +1040,9 @@ func (s *DevMachineService) Lifecycle(ctx context.Context, workspaceID, machineI
 		if errors.Is(err, repository.ErrActiveAgentRun) || errors.Is(err, repository.ErrMachineStateConflict) || errors.Is(err, repository.ErrEnvironmentUnavailable) {
 			return nil, fmt.Errorf("%w: %v", ErrInvalidOperation, err)
 		}
+		if errors.Is(err, repository.ErrMachineQuota) {
+			return nil, ErrMachineQuota
+		}
 		return nil, err
 	}
 	s.emit(ctx, machine, nil, &userID, "lifecycle", "operation.queued", map[string]any{"action": action, "operation_id": operation.ID})
@@ -1104,10 +1121,10 @@ func (s *DevMachineService) CreateAgentRun(ctx context.Context, workspaceID, mac
 		pushBranch = *req.PushBranch
 	}
 	if req.UseRootWorkspace && pushBranch {
-		return nil, fmt.Errorf("%w: root workspace runs cannot push a repository branch", ErrInvalidOperation)
+		return nil, fmt.Errorf("%w: root workspace runs cannot push a repository branch", ErrInvalidMachineInput)
 	}
 	if req.OpenPullRequest && !pushBranch {
-		return nil, fmt.Errorf("%w: opening a pull request requires pushing the working branch", ErrInvalidOperation)
+		return nil, fmt.Errorf("%w: opening a pull request requires pushing the working branch", ErrInvalidMachineInput)
 	}
 	policy, err := s.enabledPolicy(ctx, workspaceID)
 	if err != nil {
@@ -1126,17 +1143,17 @@ func (s *DevMachineService) CreateAgentRun(ctx context.Context, workspaceID, mac
 		return nil, fmt.Errorf("%w: daily agent run limit reached", ErrMachineQuota)
 	}
 	if machine.Status != domain.DevMachineStatusRunning || machine.DesiredStatus != domain.DevMachineStatusRunning {
-		return nil, fmt.Errorf("machine must be running")
+		return nil, fmt.Errorf("%w: machine must be running", ErrInvalidOperation)
 	}
 	var checkoutID *uuid.UUID
 	var selectedCheckout *domain.DevMachineCheckout
 	if req.CheckoutID != nil && req.UseRootWorkspace {
-		return nil, fmt.Errorf("%w: checkout_id and use_root_workspace cannot be combined", ErrInvalidOperation)
+		return nil, fmt.Errorf("%w: checkout_id and use_root_workspace cannot be combined", ErrInvalidMachineInput)
 	}
 	if req.CheckoutID != nil {
 		parsed, err := uuid.Parse(*req.CheckoutID)
 		if err != nil {
-			return nil, fmt.Errorf("%w: invalid checkout_id", ErrInvalidOperation)
+			return nil, fmt.Errorf("%w: invalid checkout_id", ErrInvalidMachineInput)
 		}
 		checkout, err := s.store.GetCheckout(ctx, workspaceID, machineID, parsed)
 		if err != nil {
@@ -1166,11 +1183,11 @@ func (s *DevMachineService) CreateAgentRun(ctx context.Context, workspaceID, mac
 		checkoutID = &selectedCheckout.ID
 	}
 	if selectedCheckout == nil && !req.UseRootWorkspace {
-		return nil, fmt.Errorf("%w: set use_root_workspace to run without a repository checkout", ErrInvalidOperation)
+		return nil, fmt.Errorf("%w: set use_root_workspace to run without a repository checkout", ErrInvalidMachineInput)
 	}
 	remainingRuntime := int(time.Until(machine.ExpiresAt).Seconds())
 	if remainingRuntime < 30 {
-		return nil, fmt.Errorf("machine has expired or has insufficient runtime remaining")
+		return nil, fmt.Errorf("%w: machine has expired or has insufficient runtime remaining", ErrInvalidOperation)
 	}
 	active, err := s.store.HasActiveAgentRun(ctx, machineID)
 	if err != nil {
@@ -1191,15 +1208,15 @@ func (s *DevMachineService) CreateAgentRun(ctx context.Context, workspaceID, mac
 	}
 	provider, ok := s.agents.Get(req.Provider)
 	if !ok {
-		return nil, fmt.Errorf("unknown provider %s", req.Provider)
+		return nil, fmt.Errorf("%w: %s", ErrProviderNotAllowed, req.Provider)
 	}
 	allowedSecretSet := make(map[string]bool, len(req.AllowedSecrets))
 	for _, name := range req.AllowedSecrets {
 		if !validEnvName(name) {
-			return nil, fmt.Errorf("invalid secret name %q", name)
+			return nil, fmt.Errorf("%w: invalid secret name %q", ErrInvalidMachineInput, name)
 		}
 		if name == "GITHUB_TOKEN" || strings.HasPrefix(name, "KUAYLE_") {
-			return nil, fmt.Errorf("secret %s is managed by Kuayle and cannot be selected", name)
+			return nil, fmt.Errorf("%w: secret %s is managed by Kuayle and cannot be selected", ErrInvalidMachineInput, name)
 		}
 		allowedSecretSet[name] = true
 	}
@@ -1207,7 +1224,7 @@ func (s *DevMachineService) CreateAgentRun(ctx context.Context, workspaceID, mac
 	_ = json.Unmarshal(registered.RequiredSecrets, &requiredSecrets)
 	for _, required := range requiredSecrets {
 		if !allowedSecretSet[required] {
-			return nil, fmt.Errorf("invalid allowed secrets: provider %s requires %s", req.Provider, required)
+			return nil, fmt.Errorf("%w: provider %s requires secret %s to be selected", ErrInvalidMachineInput, req.Provider, required)
 		}
 	}
 	activeSecrets, err := s.store.ListEnvVarsInternal(ctx, machineID, &req.Provider, "agent")
@@ -1220,11 +1237,11 @@ func (s *DevMachineService) CreateAgentRun(ctx context.Context, workspaceID, mac
 	}
 	for _, required := range requiredSecrets {
 		if !activeSecretNames[required] {
-			return nil, fmt.Errorf("provider %s requires an active %s secret", req.Provider, required)
+			return nil, fmt.Errorf("%w: provider %s requires an active %s secret", ErrInvalidOperation, req.Provider, required)
 		}
 	}
 	if req.Config != nil {
-		return nil, fmt.Errorf("invalid run-specific provider config: configure the provider when creating the machine")
+		return nil, fmt.Errorf("%w: configure the provider when creating the machine", ErrInvalidMachineInput)
 	}
 	config := registered.Config
 	prompt := buildAgentPrompt(machine, selectedCheckout, req)
@@ -1239,7 +1256,7 @@ func (s *DevMachineService) CreateAgentRun(ctx context.Context, workspaceID, mac
 		AcceptanceCriteria: req.AcceptanceCriteria, TestCommand: req.TestCommand, ExtraArgs: req.ExtraArgs, Config: config,
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: provider rejected the agent run configuration", ErrInvalidMachineInput)
 	}
 	commandArgv, _ := json.Marshal(invocation.Argv)
 	criteria, _ := json.Marshal(req.AcceptanceCriteria)
@@ -1254,10 +1271,10 @@ func (s *DevMachineService) CreateAgentRun(ctx context.Context, workspaceID, mac
 		timeout = 3600
 	}
 	if timeout > machine.MaxRuntimeMinutes*60 {
-		return nil, fmt.Errorf("agent runtime exceeds machine maximum")
+		return nil, fmt.Errorf("%w: agent runtime exceeds machine maximum", ErrInvalidMachineInput)
 	}
 	if timeout > remainingRuntime {
-		return nil, fmt.Errorf("agent runtime exceeds machine lifetime")
+		return nil, fmt.Errorf("%w: agent runtime exceeds machine lifetime", ErrInvalidMachineInput)
 	}
 	run := &domain.DevMachineAgentRun{
 		ID: runID, MachineID: machineID, WorkspaceID: workspaceID, IssueID: runIssueID, CheckoutID: checkoutID,
@@ -1442,7 +1459,7 @@ func (s *DevMachineService) LaunchService(ctx context.Context, workspaceID, mach
 			return nil, err
 		}
 		if checkout == nil || checkout.Status != "ready" {
-			return nil, fmt.Errorf("checkout must be ready")
+			return nil, fmt.Errorf("%w: selected checkout must be ready", ErrCheckoutNotReady)
 		}
 	}
 	host := machine.RoutingKey + "." + s.domain
@@ -1540,14 +1557,14 @@ func (s *DevMachineService) CreateTerminalSession(ctx context.Context, workspace
 	if req.CheckoutID != nil {
 		parsed, err := uuid.Parse(*req.CheckoutID)
 		if err != nil {
-			return nil, fmt.Errorf("invalid checkout_id")
+			return nil, fmt.Errorf("%w: invalid checkout_id", ErrInvalidMachineInput)
 		}
 		checkout, err = s.store.GetCheckout(ctx, workspaceID, machineID, parsed)
 		if err != nil {
 			return nil, err
 		}
 		if checkout == nil || checkout.Status != "ready" {
-			return nil, fmt.Errorf("checkout must be ready")
+			return nil, fmt.Errorf("%w: selected checkout must be ready", ErrCheckoutNotReady)
 		}
 		checkoutID = &parsed
 	}
@@ -1563,7 +1580,7 @@ func (s *DevMachineService) CreateTerminalSession(ctx context.Context, workspace
 		name = "Terminal"
 	}
 	if strings.ContainsAny(name, "\x00\r\n") {
-		return nil, fmt.Errorf("invalid terminal session name")
+		return nil, fmt.Errorf("%w: invalid terminal session name", ErrInvalidMachineInput)
 	}
 	runtimeName := "term-" + uuid.NewString()
 	session := &domain.DevMachineTerminalSession{
@@ -1713,7 +1730,10 @@ func (s *DevMachineService) IngestEvent(ctx context.Context, rawToken string, in
 	if input.AgentRunID != nil {
 		parsed, _ := uuid.Parse(*input.AgentRunID)
 		run, err := s.store.GetAgentRun(ctx, machine.WorkspaceID, parsed)
-		if err != nil || run == nil || run.MachineID != token.MachineID {
+		if err != nil {
+			return err
+		}
+		if run == nil || run.MachineID != token.MachineID {
 			return ErrAgentRunNotFound
 		}
 		runID = &parsed
@@ -1748,7 +1768,10 @@ func (s *DevMachineService) IngestLog(ctx context.Context, rawToken string, inpu
 	if input.AgentRunID != nil {
 		parsed, _ := uuid.Parse(*input.AgentRunID)
 		run, err := s.store.GetAgentRun(ctx, machine.WorkspaceID, parsed)
-		if err != nil || run == nil || run.MachineID != machine.ID {
+		if err != nil {
+			return err
+		}
+		if run == nil || run.MachineID != machine.ID {
 			return ErrAgentRunNotFound
 		}
 		runID = &parsed
@@ -1783,7 +1806,7 @@ func (s *DevMachineService) IngestLog(ctx context.Context, rawToken string, inpu
 
 func (s *DevMachineService) authenticateMachineToken(ctx context.Context, rawToken, scope string) (*domain.DevMachineToken, *domain.DevMachine, error) {
 	if len(rawToken) != 64 {
-		return nil, nil, errors.New("invalid machine token")
+		return nil, nil, ErrMachineAuthentication
 	}
 	hash := sha256.Sum256([]byte(rawToken))
 	token, machine, err := s.store.AuthenticateMachineToken(ctx, hex.EncodeToString(hash[:]), scope)
@@ -1791,7 +1814,7 @@ func (s *DevMachineService) authenticateMachineToken(ctx context.Context, rawTok
 		return nil, nil, err
 	}
 	if token == nil || machine == nil {
-		return nil, nil, errors.New("invalid machine token")
+		return nil, nil, ErrMachineAuthentication
 	}
 	return token, machine, nil
 }
@@ -1983,6 +2006,18 @@ func validMachineName(value string) bool {
 		}
 	}
 	return true
+}
+
+func validMachineStatus(value string) bool {
+	switch domain.DevMachineStatus(value) {
+	case domain.DevMachineStatusConfiguring, domain.DevMachineStatusQueued, domain.DevMachineStatusSpawning,
+		domain.DevMachineStatusRunning, domain.DevMachineStatusPaused, domain.DevMachineStatusStopping,
+		domain.DevMachineStatusStopped, domain.DevMachineStatusTearingDown, domain.DevMachineStatusDestroyed,
+		domain.DevMachineStatusFailed, domain.DevMachineStatusExpired:
+		return true
+	default:
+		return false
+	}
 }
 
 func validGitRef(value string) bool {

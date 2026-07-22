@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -89,4 +90,35 @@ func TestWorkspaceDeleteWaitsForEnvironmentImageCleanup(t *testing.T) {
 	require.NoError(t, repository.Delete(context.Background(), fixture.workspaceID))
 	require.NoError(t, db.Get(&workspaceCount, `SELECT COUNT(*) FROM workspaces WHERE id=$1`, fixture.workspaceID))
 	require.Zero(t, workspaceCount)
+}
+
+func TestCreateBundleReturnsTypedMachineNameConflict(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is not configured")
+	}
+	db, err := sqlx.Connect("pgx", databaseURL)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	fixture := newEnvironmentRaceFixture(t, db)
+	existingID := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning, false)
+	var existingName string
+	require.NoError(t, db.Get(&existingName, `SELECT name FROM dev_machines WHERE id=$1`, existingID))
+	machineID := uuid.New()
+	routingKey := strings.ReplaceAll(machineID.String(), "-", "")[:16]
+	machine := &domain.DevMachine{
+		ID: machineID, WorkspaceID: fixture.workspaceID, CreatedByUserID: &fixture.userID,
+		RoutingKey: routingKey, Name: existingName, Status: domain.DevMachineStatusQueued,
+		DesiredStatus: domain.DevMachineStatusRunning, Generation: 1, RepoProvider: "github",
+		MachineSize: "small", CPUMillis: 1000, MemoryMB: 2048, DiskGB: 20, PidsLimit: 512,
+		MaxRuntimeMinutes: 480, ServicesConfig: []byte(`{}`), Labels: []byte(`{}`), ExpiresAt: time.Now().Add(time.Hour),
+	}
+	operation := &domain.DevMachineOperation{
+		ID: uuid.New(), MachineID: machineID, WorkspaceID: fixture.workspaceID, Action: domain.DevMachineOpSpawn,
+		Status: domain.DevMachineOpStatusPending, Generation: 1, IdempotencyKey: "spawn:1", MaxAttempts: 5,
+	}
+
+	err = fixture.repository.CreateBundle(context.Background(), machine, nil, nil, nil, nil, nil, operation)
+
+	require.ErrorIs(t, err, ErrMachineNameConflict)
 }
