@@ -260,5 +260,56 @@ export const selfHosting: ContentRegistry = {
 				]
 			}
 		]
+	},
+
+	'dev-machines': {
+		slug: 'dev-machines',
+		title: 'Dev Machines Setup — Self-Hosting Kuayle',
+		description:
+			'Enable the opt-in Dev Machines subsystem: a separate wildcard domain, wildcard TLS, encrypted secrets, runtime images, and the gateway/manager control plane.',
+		heading: 'Dev Machines Setup',
+		intro:
+			'Dev Machines remain disabled in the default five-service deployment. Enabling them adds a machine gateway, a Docker manager and per-machine container runtimes. Read TECHNICAL.md in the repository before enabling the subsystem.',
+		sections: [
+			{
+				heading: 'Prerequisites',
+				body: 'Machine workloads run on a separate registrable domain — not a sibling subdomain of the main application — with wildcard DNS pointing to the host. Production wildcard TLS requires a custom Caddy build with a DNS-01 module or an operator-provided wildcard certificate; stock Caddy cannot issue wildcard certificates over HTTP-01.',
+				list: [
+					'DEV_MACHINE_DOMAIN on a separate registrable domain',
+					'Wildcard DNS for *.DEV_MACHINE_DOMAIN',
+					'Wildcard TLS via DNS-01 Caddy build or an imported certificate',
+					'A GitHub App with scoped write permissions for agent push/PR workflows'
+				]
+			},
+			{
+				heading: 'Required configuration',
+				body: 'The API validates these values when DEV_MACHINES_ENABLED=true. FRONTEND_URL must be the exact public Kuayle origin; the gateway requires the native terminal WebSocket Origin header to match it exactly.',
+				list: [
+					'DEV_MACHINES_ENABLED=true',
+					'DEV_MACHINE_ENCRYPTION_KEY — independent random value, at least 32 characters',
+					'DEV_MACHINE_INGEST_URL — public HTTPS collector ingestion URL',
+					'FRONTEND_URL — exact public origin, scheme included'
+				]
+			},
+			{
+				heading: 'Build and start',
+				body: 'Runtime images are built locally, migrations applied, and the optional control plane started through Compose profiles.',
+				list: [
+					'docker compose --profile dev-machine-images build',
+					'docker compose exec backend /app/server migrate up',
+					'docker compose --profile dev-machines up -d'
+				]
+			},
+			{
+				heading: 'Security model',
+				body: 'The Machine Manager is the sole Docker socket holder; the gateway is unprivileged. Machine services publish no host ports and run on isolated per-machine networks with an egress policy proxy. Docker hardening reduces risk but is not hostile multi-tenant isolation — the subsystem targets trusted self-hosted workspaces.',
+				list: [
+					'One-time launch tickets and host-restricted machine sessions',
+					'AES-256-GCM encrypted secrets delivered through tmpfs',
+					'Egress proxy blocks private address ranges; optional domain allowlists',
+					'Workspace policies control concurrency, runtime, providers and repositories'
+				]
+			}
+		]
 	}
 };

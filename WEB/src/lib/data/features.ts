@@ -101,7 +101,7 @@ export const features: ContentRegistry = {
 			'Group issues from multiple teams in a project, track completion, set project dates, and review issue due dates in a Gantt view.',
 		heading: 'Projects',
 		intro:
-			'Projects group issues from across a workspace. Each project has a status, lead, members, start and target dates, an issue list and a Gantt view.',
+			'Projects group issues from across a workspace. Each project has a status, a lead, start and target dates, an issue list and a Gantt view.',
 		sections: [
 			{
 				heading: 'Cross-team coordination',
@@ -273,11 +273,11 @@ export const features: ContentRegistry = {
 		sections: [
 			{
 				heading: 'Saved views',
-				body: 'Save issue filters as personal, team or workspace views. Views retain their filter definition and can be reordered in the sidebar or exposed through a read-only public link.',
+				body: 'Save issue filters as personal, team or workspace views. Views retain their filter definition and layout, and a saved view can be exposed through a read-only public link.',
 				list: [
 					'Complex filters: status, assignee, priority, labels, due date',
 					'Personal, team, and workspace view scoping',
-					'Drag-and-drop reorder',
+					'List and board layouts',
 					'Shareable — views can be made public with a link'
 				]
 			},
@@ -292,11 +292,11 @@ export const features: ContentRegistry = {
 			},
 			{
 				heading: 'Hierarchical labels',
-				body: 'Workspace labels can have parent-child relationships, such as a Bug parent with UI Bug and Backend Bug children. Labels support soft deletion and restoration.',
+				body: 'Workspace labels can have parent-child relationships, such as a Bug parent with UI Bug and Backend Bug children. Labels support soft deletion.',
 				list: [
 					'Parent-child label hierarchy',
 					'Workspace-scoped labels',
-					'Soft delete with restore',
+					'Soft delete',
 					'Default labels created with a new workspace'
 				]
 			},
@@ -348,6 +348,98 @@ export const features: ContentRegistry = {
 					'Workspace, team, project or view scope',
 					'Optional expiry date',
 					'No Kuayle account required for recipients'
+				]
+			}
+		]
+	},
+
+	'analytics-insights': {
+		slug: 'analytics-insights',
+		title: 'Analytics & Insights — Kuayle',
+		description:
+			'Workspace and team overviews, burn-up trends, and configurable issue insights computed from durable lifecycle events.',
+		heading: 'Analytics & Insights',
+		intro:
+			'Kuayle records durable issue lifecycle events and computes analytics from them. The Insights page offers workspace and team overviews, burn-up trends, and a configurable insight builder.',
+		sections: [
+			{
+				heading: 'Workspace and team overviews',
+				body: 'The overview summarizes total, completed, open and overdue issues alongside project and member counts. A team scope narrows the same metrics to one team.',
+				list: [
+					'Total, completed, open and overdue issue counts',
+					'Project and member counts',
+					'Workspace-wide or team-scoped views'
+				]
+			},
+			{
+				heading: 'Burn-up trends',
+				body: 'The burn-up chart plots created and completed issues over a selected date range, so scope growth is visible next to completed work.',
+				list: [
+					'Created and completed series per date',
+					'Scope line for total work',
+					'Configurable date range'
+				]
+			},
+			{
+				heading: 'Configurable issue insights',
+				body: 'The insight builder groups issues by a chosen slice and measures them by count, age, lead time, cycle time or triage time. Results can be segmented for comparison.',
+				list: [
+					'Measures: issue count, age, lead time, cycle time, triage time',
+					'Slices: status, priority, assignee, team, project, cycle, label',
+					'Optional segment and date range',
+					'Backed by durable lifecycle events, not estimates'
+				]
+			}
+		]
+	},
+
+	'dev-machines': {
+		slug: 'dev-machines',
+		title: 'Dev Machines — Kuayle',
+		description:
+			'Opt-in multi-container development environments with code-server, a native terminal, agent providers, an in-browser Chrome, and issue worktrees.',
+		heading: 'Dev Machines',
+		intro:
+			'Dev Machines are an opt-in self-hosted subsystem for agentic coding. Each machine is a set of cooperating containers on an isolated network — a developer environment, agents, a browser, and an activity collector — routed through an authenticated gateway. The subsystem is disabled by default.',
+		sections: [
+			{
+				heading: 'A full environment per machine',
+				body: 'The developer container runs code-server and a tmux-backed terminal that the Kuayle UI renders natively with xterm. A separate browser container provides Chrome over KasmVNC, and an app-preview service exposes the dev server. No host ports are published; access goes through the Machine Gateway with one-time launch tickets.',
+				list: [
+					'code-server IDE and native xterm terminal',
+					'In-browser Chrome via KasmVNC',
+					'Dev-server app preview',
+					'Authenticated wildcard routing — no public ports'
+				]
+			},
+			{
+				heading: 'Agent providers',
+				body: 'Machines can run Claude Code, OpenCode, Codex or an admin-configured custom CLI, either interactively or as bounded autonomous runs. Provider output is normalized into a common result model with a summary, changed files, commits, branch and pull-request URL.',
+				list: [
+					'Claude Code, OpenCode, Codex and custom CLI providers',
+					'Interactive and autonomous modes',
+					'Normalized run results with commits and PR links',
+					'Scoped secrets delivered through tmpfs, redacted in logs'
+				]
+			},
+			{
+				heading: 'Issue worktrees and environments',
+				body: 'Machines start generic and attach issue worktrees when work begins. Repository and environment defaults resolve from the issue, then project, team and workspace. Owner/admins can snapshot a customized builder machine into an immutable local Development Environment image.',
+				list: [
+					'Idempotent issue worktrees under /workspace/tasks/{issue-key}',
+					'One repository affinity per machine',
+					'Scoped defaults: issue → project → team → workspace',
+					'Environment Builder snapshots as immutable local OCI images'
+				]
+			},
+			{
+				heading: 'Policy, sizes and lifecycle',
+				body: 'Workspace policy controls concurrency, providers, repositories, maximum runtime and idle pause (default 240 minutes). A per-machine Keep running switch bypasses idle pause. Machines pause, stop and tear down as separate lifecycle operations recorded durably in PostgreSQL.',
+				list: [
+					'Small 2 vCPU/4 GB, medium 4 vCPU/8 GB, large 8 vCPU/16 GB',
+					'Idle pause with per-machine keep-running bypass',
+					'Filesystem, shell, Git, browser and agent activity events',
+					'Disabled by default; requires a separate wildcard domain'
 				]
 			}
 		]

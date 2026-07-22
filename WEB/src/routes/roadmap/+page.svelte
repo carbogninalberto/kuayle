@@ -2,17 +2,20 @@
 	import StandalonePage from '$lib/components/StandalonePage.svelte';
 	import { url } from '$lib/config/site';
 	import { breadcrumbsFrom } from '$lib/data/routes';
+	import { useLatestRelease } from '$lib/release.svelte';
+
+	const release = useLatestRelease();
 
 	const meta = {
 		title: 'Kuayle Roadmap and Development Status',
-		description: 'Kuayle development status, known product gaps, the Dev Machines design track, and where to follow proposed work.',
+		description: 'Kuayle development status, known product gaps, the implemented Dev Machines subsystem, and where to follow proposed work.',
 		canonical: url('/roadmap'),
 		modifiedAt: '2026-07-11'
 	};
 
 	const crumbs = breadcrumbsFrom('roadmap', 'Roadmap');
 
-	const sections = [
+	const sections = $derived([
 		{
 			heading: 'No invented release dates',
 			body: 'Kuayle does not publish committed release dates or promise features against version numbers. Open issues and merged pull requests are the reliable record of proposed and completed work. This page documents the current product boundary rather than a sales roadmap.',
@@ -24,8 +27,8 @@
 			]
 		},
 		{
-			heading: 'Available in v0.1.0',
-			body: 'The current MVP includes the issue workflow, workspace roles, teams, custom statuses, comments, sub-issues, relations, labels, cycles, projects, saved views, analytics, notifications, public sharing, webhooks and GitHub integration.',
+			heading: `Available in ${release.version}`,
+			body: 'The current release includes the issue workflow, workspace roles, teams, custom statuses, comments, sub-issues, relations, labels, cycles, projects, saved views, analytics, notifications, public sharing, webhooks and GitHub integration.',
 			list: [
 				'Cycle burndown and velocity charts',
 				'Project issue list and Gantt view',
@@ -62,7 +65,7 @@
 				'Implementation status: verify merged code and release notes'
 			]
 		}
-	];
+	]);
 </script>
 
 <StandalonePage

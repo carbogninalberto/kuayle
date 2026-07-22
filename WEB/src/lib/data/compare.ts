@@ -35,7 +35,7 @@ export const compare: ContentRegistry = {
 				body: 'Both products support time-boxed work and project grouping, but Linear’s planning layer is broader.',
 				list: [
 					'Linear: cycles, projects, roadmaps, and initiatives for grouping work across teams.',
-					'Kuayle has cycles with burndown and velocity charts, plus projects with progress and a Gantt view. It has no initiatives layer.'
+					'Kuayle has cycles with burndown and velocity charts, projects with progress and a Gantt view, and workspace/team analytics with configurable insights. It has no initiatives layer.'
 				]
 			},
 			{
@@ -43,7 +43,7 @@ export const compare: ContentRegistry = {
 				body: 'Check required integrations before choosing either product.',
 				list: [
 					'Linear: documents integrations for GitHub, GitLab, Slack, its API, and enterprise identity features.',
-					'Kuayle integrates with GitHub and generic webhooks. It does not currently provide GitLab, Slack, SSO, SCIM or LDAP integrations.'
+					'Kuayle integrates with GitHub and generic webhooks, and ships an opt-in Dev Machines subsystem for agentic coding runs. It does not currently provide GitLab, Slack, SSO, SCIM or LDAP integrations.'
 				]
 			},
 			{
@@ -97,7 +97,7 @@ export const compare: ContentRegistry = {
 				body: 'Plane covers more workflows; Kuayle deliberately covers fewer.',
 				list: [
 					'Plane includes work items, cycles, modules, initiatives, pages, wiki, intake, dashboards and multiple layouts.',
-					'Kuayle focuses on issues, cycles, projects, saved views, public sharing and GitHub activity. It has no wiki, modules or dashboard UI.'
+					'Kuayle focuses on issues, cycles, projects, saved views, analytics insights, public sharing and GitHub activity. It has no wiki, modules or customizable dashboards.'
 				]
 			},
 			{
@@ -113,7 +113,7 @@ export const compare: ContentRegistry = {
 				body: 'Plane offers more layouts and planning layers. Kuayle keeps planning closer to issues.',
 				list: [
 					'Plane: cycles, modules, multiple layout views (list, board, Gantt, calendar).',
-					'Kuayle: cycles with burndown/velocity, projects with Gantt view, saved views with team/personal scoping.'
+					'Kuayle: cycles with burndown/velocity, projects with Gantt view, list and board issue views, and a built-in insights page with burn-up trends.'
 				]
 			},
 			{
@@ -121,7 +121,7 @@ export const compare: ContentRegistry = {
 				body: 'Plane documents a wider integration and migration catalog.',
 				list: [
 					'Plane: GitHub, GitLab, Slack integrations. Importer for multiple platforms. API and webhooks.',
-					'Kuayle: self-configuring GitHub App with auto-linking, auto-transitions, and real-time WebSocket events. Webhooks. Import/export not yet available.'
+					'Kuayle: self-configuring GitHub App with auto-linking, auto-transitions, and real-time WebSocket events. Webhooks. Opt-in Dev Machines for agentic coding. Import/export not yet available.'
 				]
 			},
 			{

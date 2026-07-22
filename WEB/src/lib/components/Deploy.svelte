@@ -38,27 +38,28 @@ docker compose exec backend /app/server seed`;
 			</p>
 		</div>
 
-		<div use:reveal={{ delay: 150 }} class="mt-10 text-left">
-			<div
-				class="overflow-hidden rounded-2xl border border-white/10 bg-black/60 shadow-2xl shadow-black/50 ring-1 ring-brand-400/20"
-			>
-				<div class="flex items-center justify-between border-b border-white/5 px-4 py-2.5">
-					<div class="flex items-center gap-1.5">
-						<span class="size-3 rounded-full bg-white/10"></span>
-						<span class="size-3 rounded-full bg-white/10"></span>
-						<span class="size-3 rounded-full bg-white/10"></span>
-					</div>
-					<button
-						onclick={copy}
-						class="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground"
-					>
-						{#if copied}
-							<Check class="size-3.5 text-green-400" /> Copied
-						{:else}
-							<Copy class="size-3.5" /> Copy
-						{/if}
-					</button>
+	<div use:reveal={{ delay: 150 }} class="mt-10 text-left">
+		<div
+			class="ring-gradient overflow-hidden rounded-2xl border border-white/10 bg-black/60 shadow-2xl shadow-black/50"
+		>
+			<div class="flex items-center justify-between border-b border-white/5 px-4 py-2.5">
+				<div class="flex items-center gap-1.5">
+					<span class="size-3 rounded-full bg-[#ff5f57]/80"></span>
+					<span class="size-3 rounded-full bg-[#febc2e]/80"></span>
+					<span class="size-3 rounded-full bg-[#28c840]/80"></span>
+					<span class="ml-3 font-mono text-[10px] text-muted-foreground">~/kuayle — zsh</span>
 				</div>
+				<button
+					onclick={copy}
+					class="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground"
+				>
+					{#if copied}
+						<Check class="size-3.5 text-green-400" /> Copied
+					{:else}
+						<Copy class="size-3.5" /> Copy
+					{/if}
+				</button>
+			</div>
 				<pre class="overflow-x-auto p-5 font-mono text-sm leading-7"><code
 						><span class="text-muted-foreground">$</span> <span class="text-brand-200">git</span> clone https://github.com/carbogninalberto/kuayle
 <span class="text-muted-foreground">$</span> <span class="text-brand-200">cd</span> kuayle/selfhosting

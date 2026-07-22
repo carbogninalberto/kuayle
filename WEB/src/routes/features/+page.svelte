@@ -30,9 +30,9 @@
 			<div use:reveal>
 				<h1 class="text-4xl font-bold tracking-tight">Features</h1>
 				<p class="mt-4 text-lg leading-relaxed text-muted-foreground">
-					The current release covers issue tracking, team workflows, cycles, projects, GitHub
-					automation and WebSocket updates. Each page below describes implemented behavior and
-					known boundaries.
+					The current release covers issue tracking, team workflows, cycles, projects, analytics,
+					GitHub automation, WebSocket updates and opt-in Dev Machines. Each page below describes
+					implemented behavior and known boundaries.
 				</p>
 			</div>
 

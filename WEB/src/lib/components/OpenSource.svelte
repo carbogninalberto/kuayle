@@ -43,7 +43,7 @@
 			{#each facts as fact, i (fact.title)}
 				<div
 					use:reveal={{ delay: i * 100 }}
-					class="rounded-2xl border border-border bg-card/60 p-6"
+					class="rounded-2xl border border-border bg-card/60 p-6 transition-all duration-300 hover:-translate-y-1 hover:border-brand-400/40 hover:bg-card hover:shadow-xl hover:shadow-brand-400/10"
 				>
 					<div
 						class="flex size-11 items-center justify-center rounded-xl border border-brand-400/25 bg-brand-400/10 text-brand-300"

@@ -4,6 +4,7 @@
 	import Seo from '$lib/components/Seo.svelte';
 	import Breadcrumbs from '$lib/components/Breadcrumbs.svelte';
 	import CtaSection from '$lib/components/CtaSection.svelte';
+	import Check from '@lucide/svelte/icons/check';
 	import { reveal } from '$lib/actions/reveal';
 	import { url, type PageMeta } from '$lib/config/site';
 	import { webPageLd, type Crumb } from '$lib/data/routes';
@@ -45,7 +46,9 @@
 
 	<article>
 		<div use:reveal>
-			<h1 class="text-4xl font-bold tracking-tight">{heading}</h1>
+			<h1 class="text-4xl font-bold tracking-tight sm:text-5xl">
+				<span class="gradient-text">{heading}</span>
+			</h1>
 			{#if intro}
 				<p class="mt-4 text-lg leading-relaxed text-muted-foreground">{intro}</p>
 			{/if}
@@ -55,15 +58,21 @@
 			{#each sections as section, i}
 				<section use:reveal={{ delay: i * 50 }}>
 					{#if section.heading}
-						<h2 class="text-2xl font-semibold tracking-tight">{section.heading}</h2>
+						<h2 class="flex items-center gap-3 text-2xl font-semibold tracking-tight">
+							<span class="h-px w-6 bg-brand-400/60"></span>
+							{section.heading}
+						</h2>
 					{/if}
 					{#if section.body}
 						<p class="mt-3 leading-relaxed text-muted-foreground">{section.body}</p>
 					{/if}
 					{#if section.list && section.list.length > 0}
-						<ul class="mt-4 ml-5 space-y-2 text-sm text-muted-foreground list-disc">
+						<ul class="mt-4 space-y-2.5 text-sm text-muted-foreground">
 							{#each section.list as item}
-								<li>{item}</li>
+								<li class="flex items-start gap-2.5">
+									<Check class="mt-0.5 size-4 shrink-0 text-brand-300" />
+									<span>{item}</span>
+								</li>
 							{/each}
 						</ul>
 					{/if}
