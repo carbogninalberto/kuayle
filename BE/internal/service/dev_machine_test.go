@@ -522,6 +522,40 @@ func TestLaunchServiceMapsAccessTicketNoRowsToServiceUnavailable(t *testing.T) {
 	require.Nil(t, store.createdTicket)
 }
 
+func TestLaunchServiceRejectsTerminalWithoutMintingBrowserTicket(t *testing.T) {
+	workspaceID, userID, machineID := uuid.New(), uuid.New(), uuid.New()
+	for _, test := range []struct {
+		name       string
+		status     domain.DevMachineStatus
+		desired    domain.DevMachineStatus
+		serviceKey string
+	}{
+		{name: "running terminal", status: domain.DevMachineStatusRunning, desired: domain.DevMachineStatusRunning, serviceKey: "terminal"},
+		{name: "paused terminal", status: domain.DevMachineStatusPaused, desired: domain.DevMachineStatusPaused, serviceKey: "terminal"},
+		{name: "terminal type under another key", status: domain.DevMachineStatusRunning, desired: domain.DevMachineStatusRunning, serviceKey: "shell"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := &devMachineStoreFake{
+				policy: testPolicy(workspaceID),
+				machine: &domain.DevMachine{
+					ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID,
+					RoutingKey: "0123456789abcdef0123", Status: test.status, DesiredStatus: test.desired,
+					ExpiresAt: time.Now().Add(time.Hour),
+				},
+				service: &domain.DevMachineService{
+					ID: uuid.New(), MachineID: machineID, ServiceKey: test.serviceKey, ServiceType: "terminal", Status: "running",
+				},
+			}
+
+			_, err := newTestDevMachineService(store).LaunchService(context.Background(), workspaceID, machineID, userID, test.serviceKey, nil)
+
+			require.ErrorIs(t, err, ErrTerminalSessionRequired)
+			require.Nil(t, store.createdTicket)
+			require.Nil(t, store.queuedOperation)
+		})
+	}
+}
+
 func TestCreateTerminalSessionMapsAccessTicketNoRowsToServiceUnavailable(t *testing.T) {
 	workspaceID, userID, machineID := uuid.New(), uuid.New(), uuid.New()
 	store := &devMachineStoreFake{

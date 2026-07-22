@@ -34,6 +34,7 @@ var (
 	ErrServiceNotAvailable     = errors.New("machine service is not available")
 	ErrCheckoutNotEligible     = errors.New("machine is not eligible for this issue checkout")
 	ErrCheckoutNotReady        = errors.New("repository checkout is not ready")
+	ErrTerminalSessionRequired = errors.New("terminal must be launched through a native session")
 )
 
 type DevMachineImages struct {
@@ -1409,6 +1410,9 @@ func (s *DevMachineService) LaunchService(ctx context.Context, workspaceID, mach
 	if err != nil {
 		return nil, err
 	}
+	if serviceKey == "terminal" {
+		return nil, ErrTerminalSessionRequired
+	}
 	if s.domain == "" {
 		return nil, fmt.Errorf("dev machine domain is not configured")
 	}
@@ -1422,7 +1426,13 @@ func (s *DevMachineService) LaunchService(ctx context.Context, workspaceID, mach
 	if err != nil {
 		return nil, err
 	}
-	if service == nil || service.MachineID != machineID || service.ServiceKey != serviceKey || service.Status != "running" || (service.ServiceType != "ide" && service.ServiceType != "terminal" && service.ServiceType != "browser") {
+	if service == nil || service.MachineID != machineID || service.ServiceKey != serviceKey || service.Status != "running" {
+		return nil, ErrServiceNotAvailable
+	}
+	if service.ServiceType == "terminal" {
+		return nil, ErrTerminalSessionRequired
+	}
+	if service.ServiceType != "ide" && service.ServiceType != "browser" {
 		return nil, ErrServiceNotAvailable
 	}
 	var checkout *domain.DevMachineCheckout
@@ -1438,8 +1448,6 @@ func (s *DevMachineService) LaunchService(ctx context.Context, workspaceID, mach
 	host := machine.RoutingKey + "." + s.domain
 	if service.ServiceType == "browser" {
 		host = machine.RoutingKey + "-browser." + s.domain
-	} else if service.ServiceType == "terminal" {
-		host = machine.RoutingKey + "-terminal." + s.domain
 	}
 	raw, err := randomHex(32)
 	if err != nil {
@@ -1472,8 +1480,6 @@ func (s *DevMachineService) LaunchService(ctx context.Context, workspaceID, mach
 	}
 	if checkout != nil && service.ServiceType == "ide" {
 		query.Set("folder", checkout.WorkspacePath)
-	} else if checkout != nil && service.ServiceType == "terminal" {
-		query.Set("arg", checkout.WorkspacePath)
 	}
 	launchURL := (&url.URL{Scheme: "https", Host: host, Path: launchPath, RawQuery: query.Encode()}).String()
 	return &dto.LaunchServiceResponse{Status: "ready", LaunchURL: launchURL, ExpiresAt: ticket.ExpiresAt}, nil
