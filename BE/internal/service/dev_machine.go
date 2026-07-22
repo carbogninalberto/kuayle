@@ -1347,7 +1347,7 @@ func (s *DevMachineService) LaunchService(ctx context.Context, workspaceID, mach
 	if err != nil {
 		return nil, err
 	}
-	if service == nil || service.Status != "running" || (service.ServiceType != "ide" && service.ServiceType != "terminal" && service.ServiceType != "browser") {
+	if service == nil || service.MachineID != machineID || service.ServiceKey != serviceKey || service.Status != "running" || (service.ServiceType != "ide" && service.ServiceType != "terminal" && service.ServiceType != "browser") {
 		return nil, ErrServiceNotAvailable
 	}
 	var checkout *domain.DevMachineCheckout
@@ -1381,6 +1381,9 @@ func (s *DevMachineService) LaunchService(ctx context.Context, workspaceID, mach
 		BoundHost: host, ExpiresAt: expiresAt,
 	}
 	if err := s.store.CreateAccessTicket(ctx, ticket); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrServiceNotAvailable
+		}
 		return nil, err
 	}
 	_ = s.store.TouchMachineActivity(ctx, machine.ID, time.Now().UTC())
@@ -1471,7 +1474,7 @@ func (s *DevMachineService) CreateTerminalSession(ctx context.Context, workspace
 	if err != nil {
 		return nil, err
 	}
-	if terminalService == nil || terminalService.Status != "running" {
+	if terminalService == nil || terminalService.MachineID != machineID || terminalService.ServiceKey != "terminal" || terminalService.ServiceType != "terminal" || terminalService.Status != "running" {
 		return nil, ErrServiceNotAvailable
 	}
 	name := strings.TrimSpace(req.Name)
@@ -1505,6 +1508,9 @@ func (s *DevMachineService) CreateTerminalSession(ctx context.Context, workspace
 		BoundHost: host, ExpiresAt: expiresAt,
 	}
 	if err := s.store.CreateAccessTicket(ctx, ticket); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrServiceNotAvailable
+		}
 		return nil, err
 	}
 	_ = s.store.TouchMachineActivity(ctx, machine.ID, time.Now().UTC())

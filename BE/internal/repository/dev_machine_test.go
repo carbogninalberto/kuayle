@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -144,6 +145,125 @@ func TestMachineNameExistsForUserScopesByCreator(t *testing.T) {
 	require.Equal(t, workspaceID.String(), args[0].Value)
 	require.Equal(t, userID.String(), args[1].Value)
 	require.Equal(t, "builder-01", args[2].Value)
+}
+
+func TestCreateAccessTicketQueryRevalidatesCreatorAndTuple(t *testing.T) {
+	repo, conn := newCaptureDevMachineRepository(t, 0)
+	conn.queryColumns = []string{"created_at"}
+	conn.queryValues = []driver.Value{time.Now().UTC()}
+	workspaceID, machineID, serviceID, userID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+
+	err := repo.CreateAccessTicket(context.Background(), &domain.DevMachineAccessTicket{
+		ID: uuid.New(), WorkspaceID: workspaceID, MachineID: machineID, ServiceID: serviceID, UserID: userID,
+		TokenHash: strings.Repeat("a", 64), Status: domain.DevMachineAccessTicketStatusActive,
+		BoundHost: "0123456789abcdef0123.machines.example.com", ExpiresAt: time.Now().Add(time.Minute),
+	})
+
+	require.NoError(t, err)
+	query, _ := conn.captured()
+	require.Contains(t, query, "SELECT $1, m.workspace_id, m.id, s.id, $5")
+	require.Contains(t, query, "JOIN dev_machine_services s ON s.id=$4 AND s.machine_id=m.id")
+	require.Contains(t, query, "JOIN workspace_members wm ON wm.workspace_id=m.workspace_id AND wm.user_id=$5")
+	require.Contains(t, query, "m.workspace_id=$2 AND m.id=$3 AND m.created_by_user_id=$5")
+	require.Contains(t, query, "m.status='running' AND m.desired_status='running' AND m.expires_at>NOW()")
+	require.Contains(t, query, "s.status='running' AND $9>NOW() AND $9<=m.expires_at")
+}
+
+func TestConsumeAccessTicketQueryRevalidatesCreatorAndTuple(t *testing.T) {
+	repo, conn := newCaptureDevMachineRepository(t, 0)
+	conn.queryColumns, conn.queryValues = accessTicketColumnsAndValuesForTest()
+
+	ticket, err := repo.ConsumeAccessTicket(context.Background(), strings.Repeat("b", 64), "0123456789abcdef0123.machines.example.com")
+
+	require.NoError(t, err)
+	require.NotNil(t, ticket)
+	query, _ := conn.captured()
+	requireAccessTicketAuthorizationQuery(t, query, "t")
+}
+
+func TestCreateAccessSessionQueryRevalidatesCreatorAndTuple(t *testing.T) {
+	repo, conn := newCaptureDevMachineRepository(t, 0)
+	conn.queryColumns = []string{"created_at", "last_seen_at"}
+	now := time.Now().UTC()
+	conn.queryValues = []driver.Value{now, now}
+	workspaceID, machineID, serviceID, userID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+
+	err := repo.CreateAccessSession(context.Background(), &domain.DevMachineAccessSession{
+		ID: uuid.New(), WorkspaceID: workspaceID, MachineID: machineID, ServiceID: serviceID, UserID: userID,
+		TokenHash: strings.Repeat("c", 64), BoundHost: "0123456789abcdef0123.machines.example.com",
+		ExpiresAt: time.Now().Add(time.Hour),
+	})
+
+	require.NoError(t, err)
+	query, _ := conn.captured()
+	require.Contains(t, query, "SELECT $1, m.workspace_id, m.id, s.id, $5")
+	require.Contains(t, query, "JOIN dev_machine_services s ON s.id=$4 AND s.machine_id=m.id")
+	require.Contains(t, query, "JOIN workspace_members wm ON wm.workspace_id=m.workspace_id AND wm.user_id=$5")
+	require.Contains(t, query, "m.workspace_id=$2 AND m.id=$3 AND m.created_by_user_id=$5")
+	require.Contains(t, query, "m.status='running' AND m.desired_status='running' AND m.expires_at>NOW()")
+	require.Contains(t, query, "s.status='running' AND $8>NOW() AND $8<=m.expires_at")
+}
+
+func TestGetAccessSessionQueryRevalidatesCreatorAndTuple(t *testing.T) {
+	repo, conn := newCaptureDevMachineRepository(t, 0)
+	conn.queryColumns, conn.queryValues = accessSessionColumnsAndValuesForTest()
+
+	session, err := repo.GetAccessSession(context.Background(), strings.Repeat("d", 64), "0123456789abcdef0123.machines.example.com")
+
+	require.NoError(t, err)
+	require.NotNil(t, session)
+	query, _ := conn.captured()
+	requireAccessSessionAuthorizationQuery(t, query, "a")
+}
+
+func accessTicketColumnsAndValuesForTest() ([]string, []driver.Value) {
+	now := time.Now().UTC()
+	return []string{
+			"id", "workspace_id", "machine_id", "service_id", "user_id", "token_hash",
+			"status", "bound_host", "expires_at", "used_at", "created_at", "revoked_at",
+		}, []driver.Value{
+			uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String(),
+			strings.Repeat("b", 64), string(domain.DevMachineAccessTicketStatusUsed), "0123456789abcdef0123.machines.example.com",
+			now.Add(time.Minute), now, now, nil,
+		}
+}
+
+func accessSessionColumnsAndValuesForTest() ([]string, []driver.Value) {
+	now := time.Now().UTC()
+	return []string{
+			"id", "workspace_id", "machine_id", "service_id", "user_id", "token_hash",
+			"bound_host", "expires_at", "last_seen_at", "created_at", "revoked_at",
+		}, []driver.Value{
+			uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String(),
+			strings.Repeat("d", 64), "0123456789abcdef0123.machines.example.com", now.Add(time.Hour), now, now, nil,
+		}
+}
+
+func requireAccessTicketAuthorizationQuery(t *testing.T, query, alias string) {
+	t.Helper()
+	require.Contains(t, query, alias+".bound_host=$2")
+	require.Contains(t, query, alias+".status='active'")
+	require.Contains(t, query, alias+".expires_at>NOW()")
+	requireAccessAuthorizationQuery(t, query, alias)
+}
+
+func requireAccessSessionAuthorizationQuery(t *testing.T, query, alias string) {
+	t.Helper()
+	require.Contains(t, query, alias+".bound_host=$2")
+	require.Contains(t, query, alias+".revoked_at IS NULL")
+	require.Contains(t, query, alias+".expires_at>NOW()")
+	requireAccessAuthorizationQuery(t, query, alias)
+}
+
+func requireAccessAuthorizationQuery(t *testing.T, query, alias string) {
+	t.Helper()
+	require.Contains(t, query, "m.id="+alias+".machine_id")
+	require.Contains(t, query, alias+".workspace_id=m.workspace_id")
+	require.Contains(t, query, "m.created_by_user_id="+alias+".user_id")
+	require.Contains(t, query, "m.status='running' AND m.desired_status='running' AND m.expires_at>NOW()")
+	require.Contains(t, query, "s.id="+alias+".service_id AND s.machine_id=m.id AND s.status='running'")
+	require.Contains(t, query, "wm.workspace_id=m.workspace_id AND wm.user_id="+alias+".user_id")
+	require.Contains(t, query, "wm.role IN ('owner','admin','member')")
 }
 
 func TestDevMachineNameUniqueIndexIsCreatorScoped(t *testing.T) {

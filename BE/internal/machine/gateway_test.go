@@ -2,6 +2,7 @@ package machine
 
 import (
 	"context"
+	"database/sql"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -17,15 +18,16 @@ import (
 )
 
 type gatewayStoreFake struct {
-	machine       *domain.DevMachine
-	service       *domain.DevMachineService
-	session       *domain.DevMachineAccessSession
-	ticket        *domain.DevMachineAccessTicket
-	expectedHash  string
-	expectedHost  string
-	consumedHosts []string
-	ticketUsed    bool
-	accessLogs    []domain.DevMachineAccessLog
+	machine          *domain.DevMachine
+	service          *domain.DevMachineService
+	session          *domain.DevMachineAccessSession
+	ticket           *domain.DevMachineAccessTicket
+	expectedHash     string
+	expectedHost     string
+	consumedHosts    []string
+	ticketUsed       bool
+	createSessionErr error
+	accessLogs       []domain.DevMachineAccessLog
 }
 
 func (f *gatewayStoreFake) GetRoute(context.Context, string, string) (*domain.DevMachine, *domain.DevMachineService, error) {
@@ -41,11 +43,21 @@ func (f *gatewayStoreFake) ConsumeAccessTicket(_ context.Context, tokenHash, hos
 	if f.ticketUsed {
 		return nil, nil
 	}
+	if f.ticket == nil {
+		return nil, nil
+	}
 	f.ticketUsed = true
 	f.consumedHosts = append(f.consumedHosts, host)
-	return f.ticket, nil
+	ticket := *f.ticket
+	ticket.Status = domain.DevMachineAccessTicketStatusUsed
+	usedAt := time.Now().UTC()
+	ticket.UsedAt = &usedAt
+	return &ticket, nil
 }
 func (f *gatewayStoreFake) CreateAccessSession(_ context.Context, session *domain.DevMachineAccessSession) error {
+	if f.createSessionErr != nil {
+		return f.createSessionErr
+	}
 	f.session = session
 	return nil
 }
@@ -58,6 +70,31 @@ func (f *gatewayStoreFake) CreateAccessLog(_ context.Context, accessLog *domain.
 }
 func (f *gatewayStoreFake) TouchMachineActivity(context.Context, uuid.UUID, time.Time) error {
 	return nil
+}
+
+func gatewayMachine(workspaceID, machineID, userID uuid.UUID, routingKey string) *domain.DevMachine {
+	return &domain.DevMachine{
+		ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID, RoutingKey: routingKey,
+		Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour),
+	}
+}
+
+func gatewayService(serviceID, machineID uuid.UUID, serviceType string) *domain.DevMachineService {
+	return &domain.DevMachineService{ID: serviceID, MachineID: machineID, ServiceKey: serviceType, ServiceType: serviceType, Status: "running"}
+}
+
+func gatewayTicket(workspaceID, machineID, serviceID, userID uuid.UUID, host string) *domain.DevMachineAccessTicket {
+	return &domain.DevMachineAccessTicket{
+		WorkspaceID: workspaceID, MachineID: machineID, ServiceID: serviceID, UserID: userID,
+		Status: domain.DevMachineAccessTicketStatusActive, BoundHost: host, ExpiresAt: time.Now().Add(time.Minute),
+	}
+}
+
+func gatewaySession(workspaceID, machineID, serviceID, userID uuid.UUID, host string) *domain.DevMachineAccessSession {
+	return &domain.DevMachineAccessSession{
+		WorkspaceID: workspaceID, MachineID: machineID, ServiceID: serviceID, UserID: userID,
+		BoundHost: host, ExpiresAt: time.Now().Add(time.Hour),
+	}
 }
 
 func TestGatewayParsesOnlyConfiguredHosts(t *testing.T) {
@@ -83,16 +120,20 @@ func TestGatewayStripsKuayleCredentialsBeforeProxy(t *testing.T) {
 	upstreamURL := strings.TrimPrefix(upstream.URL, "http://")
 	host, rawPort, _ := net.SplitHostPort(upstreamURL)
 	port, _ := strconv.Atoi(rawPort)
-	machineID, serviceID, userID := uuid.New(), uuid.New(), uuid.New()
+	workspaceID, machineID, serviceID, userID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	machineHost := "0123456789abcdef0123.machines.example.com"
+	service := gatewayService(serviceID, machineID, "ide")
+	service.InternalHost = host
+	service.InternalPort = port
 	store := &gatewayStoreFake{
-		machine: &domain.DevMachine{ID: machineID, WorkspaceID: uuid.New(), RoutingKey: "0123456789abcdef0123", Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour)},
-		service: &domain.DevMachineService{ID: serviceID, MachineID: machineID, ServiceType: "ide", InternalHost: host, InternalPort: port},
-		session: &domain.DevMachineAccessSession{MachineID: machineID, ServiceID: serviceID, UserID: userID},
+		machine: gatewayMachine(workspaceID, machineID, userID, "0123456789abcdef0123"),
+		service: service,
+		session: gatewaySession(workspaceID, machineID, serviceID, userID, machineHost),
 	}
 	gateway, err := NewGateway(store, "machines.example.com", time.Hour)
 	require.NoError(t, err)
-	request := httptest.NewRequest(http.MethodGet, "http://0123456789abcdef0123.machines.example.com/", nil)
-	request.Host = "0123456789abcdef0123.machines.example.com"
+	request := httptest.NewRequest(http.MethodGet, "http://"+machineHost+"/", nil)
+	request.Host = machineHost
 	request.AddCookie(&http.Cookie{Name: machineSessionCookie, Value: strings.Repeat("a", 64)})
 	request.Header.Set("Authorization", "Bearer user-token")
 	request.Header.Set("X-Kuayle-Internal", "secret")
@@ -106,27 +147,125 @@ func TestGatewayStripsKuayleCredentialsBeforeProxy(t *testing.T) {
 }
 
 func TestGatewayLaunchTicketIsSingleUse(t *testing.T) {
-	machineID, serviceID, userID := uuid.New(), uuid.New(), uuid.New()
+	workspaceID, machineID, serviceID, userID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	machineHost := "0123456789abcdef0123.machines.example.com"
 	store := &gatewayStoreFake{
-		machine: &domain.DevMachine{ID: machineID, WorkspaceID: uuid.New(), RoutingKey: "0123456789abcdef0123", Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour)},
-		service: &domain.DevMachineService{ID: serviceID, MachineID: machineID, ServiceType: "ide"},
-		ticket:  &domain.DevMachineAccessTicket{MachineID: machineID, ServiceID: serviceID, UserID: userID, WorkspaceID: uuid.New()},
+		machine: gatewayMachine(workspaceID, machineID, userID, "0123456789abcdef0123"),
+		service: gatewayService(serviceID, machineID, "ide"),
+		ticket:  gatewayTicket(workspaceID, machineID, serviceID, userID, machineHost),
 	}
 	gateway, err := NewGateway(store, "machines.example.com", time.Hour)
 	require.NoError(t, err)
-	launchURL := "https://0123456789abcdef0123.machines.example.com/?ticket=" + strings.Repeat("b", 64)
+	launchURL := "https://" + machineHost + "/?ticket=" + strings.Repeat("b", 64)
 	first := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, launchURL, nil)
-	request.Host = "0123456789abcdef0123.machines.example.com"
+	request.Host = machineHost
 	gateway.ServeHTTP(first, request)
 	require.Equal(t, http.StatusSeeOther, first.Code)
 	require.Contains(t, first.Header().Get("Set-Cookie"), machineSessionCookie)
 	require.Contains(t, first.Header().Get("Set-Cookie"), "SameSite=Lax")
+	require.NotNil(t, store.session)
+	require.Equal(t, workspaceID, store.session.WorkspaceID)
+	require.Equal(t, machineID, store.session.MachineID)
+	require.Equal(t, serviceID, store.session.ServiceID)
+	require.Equal(t, userID, store.session.UserID)
 	second := httptest.NewRecorder()
 	request = httptest.NewRequest(http.MethodGet, launchURL, nil)
-	request.Host = "0123456789abcdef0123.machines.example.com"
+	request.Host = machineHost
 	gateway.ServeHTTP(second, request)
 	require.Equal(t, http.StatusUnauthorized, second.Code)
+}
+
+func TestGatewayRejectsMalformedTicketTuples(t *testing.T) {
+	workspaceID, machineID, serviceID, userID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	machineHost := "0123456789abcdef0123.machines.example.com"
+	for _, test := range []struct {
+		name   string
+		mutate func(*domain.DevMachineAccessTicket)
+	}{
+		{name: "cross-workspace", mutate: func(ticket *domain.DevMachineAccessTicket) { ticket.WorkspaceID = uuid.New() }},
+		{name: "noncreator", mutate: func(ticket *domain.DevMachineAccessTicket) { ticket.UserID = uuid.New() }},
+		{name: "wrong-service", mutate: func(ticket *domain.DevMachineAccessTicket) { ticket.ServiceID = uuid.New() }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ticket := gatewayTicket(workspaceID, machineID, serviceID, userID, machineHost)
+			test.mutate(ticket)
+			store := &gatewayStoreFake{
+				machine: gatewayMachine(workspaceID, machineID, userID, "0123456789abcdef0123"),
+				service: gatewayService(serviceID, machineID, "ide"),
+				ticket:  ticket,
+			}
+			gateway, err := NewGateway(store, "machines.example.com", time.Hour)
+			require.NoError(t, err)
+			request := httptest.NewRequest(http.MethodGet, "https://"+machineHost+"/?ticket="+strings.Repeat("b", 64), nil)
+			request.Host = machineHost
+			recorder := httptest.NewRecorder()
+
+			gateway.ServeHTTP(recorder, request)
+
+			require.Equal(t, http.StatusUnauthorized, recorder.Code)
+			require.True(t, store.ticketUsed, "ticket should be atomically consumed before tuple validation rejects it")
+			require.Nil(t, store.session)
+		})
+	}
+}
+
+func TestGatewayTicketExchangeMapsSessionNoRowsToUnauthorized(t *testing.T) {
+	workspaceID, machineID, serviceID, userID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	machineHost := "0123456789abcdef0123.machines.example.com"
+	store := &gatewayStoreFake{
+		machine:          gatewayMachine(workspaceID, machineID, userID, "0123456789abcdef0123"),
+		service:          gatewayService(serviceID, machineID, "ide"),
+		ticket:           gatewayTicket(workspaceID, machineID, serviceID, userID, machineHost),
+		createSessionErr: sql.ErrNoRows,
+	}
+	gateway, err := NewGateway(store, "machines.example.com", time.Hour)
+	require.NoError(t, err)
+	request := httptest.NewRequest(http.MethodGet, "https://"+machineHost+"/?ticket="+strings.Repeat("b", 64), nil)
+	request.Host = machineHost
+	recorder := httptest.NewRecorder()
+
+	gateway.ServeHTTP(recorder, request)
+
+	require.Equal(t, http.StatusUnauthorized, recorder.Code)
+	require.True(t, store.ticketUsed)
+	require.Equal(t, "invalid_ticket", *store.accessLogs[len(store.accessLogs)-1].Reason)
+}
+
+func TestGatewayRejectsMalformedSessionTuples(t *testing.T) {
+	workspaceID, machineID, serviceID, userID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	machineHost := "0123456789abcdef0123.machines.example.com"
+	for _, test := range []struct {
+		name   string
+		mutate func(*domain.DevMachineAccessSession)
+	}{
+		{name: "cross-workspace", mutate: func(session *domain.DevMachineAccessSession) { session.WorkspaceID = uuid.New() }},
+		{name: "noncreator", mutate: func(session *domain.DevMachineAccessSession) { session.UserID = uuid.New() }},
+		{name: "wrong-service", mutate: func(session *domain.DevMachineAccessSession) { session.ServiceID = uuid.New() }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			session := gatewaySession(workspaceID, machineID, serviceID, userID, machineHost)
+			test.mutate(session)
+			service := gatewayService(serviceID, machineID, "ide")
+			service.InternalHost = "127.0.0.1"
+			service.InternalPort = 1
+			store := &gatewayStoreFake{
+				machine: gatewayMachine(workspaceID, machineID, userID, "0123456789abcdef0123"),
+				service: service,
+				session: session,
+			}
+			gateway, err := NewGateway(store, "machines.example.com", time.Hour)
+			require.NoError(t, err)
+			request := httptest.NewRequest(http.MethodGet, "https://"+machineHost+"/", nil)
+			request.Host = machineHost
+			request.AddCookie(&http.Cookie{Name: machineSessionCookie, Value: strings.Repeat("a", 64)})
+			recorder := httptest.NewRecorder()
+
+			gateway.ServeHTTP(recorder, request)
+
+			require.Equal(t, http.StatusUnauthorized, recorder.Code)
+		})
+	}
 }
 
 func TestGatewayTerminalWebSocketTicketRequiresFrontendOriginAndStripsTicket(t *testing.T) {
@@ -140,21 +279,25 @@ func TestGatewayTerminalWebSocketTicketRequiresFrontendOriginAndStripsTicket(t *
 	defer upstream.Close()
 	host, rawPort, _ := net.SplitHostPort(strings.TrimPrefix(upstream.URL, "http://"))
 	port, _ := strconv.Atoi(rawPort)
-	machineID, serviceID, userID := uuid.New(), uuid.New(), uuid.New()
+	workspaceID, machineID, serviceID, userID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	rawTicket := strings.Repeat("c", 64)
 	frontendOrigin := "https://app.example.com"
 	runtimeSession, cwd := "term-123", "/workspace/tasks/eng-1"
+	machineHost := "0123456789abcdef0123-terminal.machines.example.net"
+	service := gatewayService(serviceID, machineID, "terminal")
+	service.InternalHost = host
+	service.InternalPort = port
 	store := &gatewayStoreFake{
-		machine:      &domain.DevMachine{ID: machineID, WorkspaceID: uuid.New(), RoutingKey: "0123456789abcdef0123", Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour)},
-		service:      &domain.DevMachineService{ID: serviceID, MachineID: machineID, ServiceType: "terminal", InternalHost: host, InternalPort: port},
-		ticket:       &domain.DevMachineAccessTicket{MachineID: machineID, ServiceID: serviceID, UserID: userID, WorkspaceID: uuid.New()},
+		machine:      gatewayMachine(workspaceID, machineID, userID, "0123456789abcdef0123"),
+		service:      service,
+		ticket:       gatewayTicket(workspaceID, machineID, serviceID, userID, machineHost),
 		expectedHash: terminalTicketHash(rawTicket, frontendOrigin, runtimeSession, cwd),
-		expectedHost: "0123456789abcdef0123-terminal.machines.example.net",
+		expectedHost: machineHost,
 	}
 	gateway, err := NewGateway(store, "machines.example.net", time.Hour, frontendOrigin)
 	require.NoError(t, err)
-	request := httptest.NewRequest(http.MethodGet, "https://0123456789abcdef0123-terminal.machines.example.net/ws?ticket="+rawTicket+"&session="+runtimeSession+"&cwd="+url.QueryEscape(cwd), nil)
-	request.Host = "0123456789abcdef0123-terminal.machines.example.net"
+	request := httptest.NewRequest(http.MethodGet, "https://"+machineHost+"/ws?ticket="+rawTicket+"&session="+runtimeSession+"&cwd="+url.QueryEscape(cwd), nil)
+	request.Host = machineHost
 	request.Header.Set("Origin", frontendOrigin)
 	request.Header.Set("Upgrade", "websocket")
 	request.Header.Set("Authorization", "Bearer should-not-forward")
@@ -168,22 +311,26 @@ func TestGatewayTerminalWebSocketTicketRequiresFrontendOriginAndStripsTicket(t *
 	require.Empty(t, upstreamCookie)
 	require.Empty(t, upstreamAuth)
 	require.True(t, store.ticketUsed)
-	require.Equal(t, []string{"0123456789abcdef0123-terminal.machines.example.net"}, store.consumedHosts)
+	require.Equal(t, []string{machineHost}, store.consumedHosts)
 }
 
 func TestGatewayTerminalWebSocketTicketRejectsWrongOriginWithoutConsuming(t *testing.T) {
-	machineID, serviceID, userID := uuid.New(), uuid.New(), uuid.New()
+	workspaceID, machineID, serviceID, userID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	rawTicket := strings.Repeat("d", 64)
+	machineHost := "0123456789abcdef0123-terminal.machines.example.net"
+	service := gatewayService(serviceID, machineID, "terminal")
+	service.InternalHost = "127.0.0.1"
+	service.InternalPort = 1
 	store := &gatewayStoreFake{
-		machine:      &domain.DevMachine{ID: machineID, WorkspaceID: uuid.New(), RoutingKey: "0123456789abcdef0123", Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour)},
-		service:      &domain.DevMachineService{ID: serviceID, MachineID: machineID, ServiceType: "terminal", InternalHost: "127.0.0.1", InternalPort: 1},
-		ticket:       &domain.DevMachineAccessTicket{MachineID: machineID, ServiceID: serviceID, UserID: userID, WorkspaceID: uuid.New()},
+		machine:      gatewayMachine(workspaceID, machineID, userID, "0123456789abcdef0123"),
+		service:      service,
+		ticket:       gatewayTicket(workspaceID, machineID, serviceID, userID, machineHost),
 		expectedHash: terminalTicketHash(rawTicket, "https://app.example.com", "term-123", "/workspace/tasks/eng-1"),
 	}
 	gateway, err := NewGateway(store, "machines.example.net", time.Hour, "https://app.example.com")
 	require.NoError(t, err)
-	request := httptest.NewRequest(http.MethodGet, "https://0123456789abcdef0123-terminal.machines.example.net/ws?ticket="+rawTicket+"&session=term-123&cwd=%2Fworkspace%2Ftasks%2Feng-1", nil)
-	request.Host = "0123456789abcdef0123-terminal.machines.example.net"
+	request := httptest.NewRequest(http.MethodGet, "https://"+machineHost+"/ws?ticket="+rawTicket+"&session=term-123&cwd=%2Fworkspace%2Ftasks%2Feng-1", nil)
+	request.Host = machineHost
 	request.Header.Set("Origin", "https://evil.example.com")
 	request.Header.Set("Upgrade", "websocket")
 	recorder := httptest.NewRecorder()
@@ -195,16 +342,20 @@ func TestGatewayTerminalWebSocketTicketRejectsWrongOriginWithoutConsuming(t *tes
 }
 
 func TestGatewayRejectsCrossOriginMutation(t *testing.T) {
-	machineID, serviceID, userID := uuid.New(), uuid.New(), uuid.New()
+	workspaceID, machineID, serviceID, userID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	machineHost := "0123456789abcdef0123.machines.example.net"
+	service := gatewayService(serviceID, machineID, "ide")
+	service.InternalHost = "127.0.0.1"
+	service.InternalPort = 1
 	store := &gatewayStoreFake{
-		machine: &domain.DevMachine{ID: machineID, WorkspaceID: uuid.New(), RoutingKey: "0123456789abcdef0123", Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour)},
-		service: &domain.DevMachineService{ID: serviceID, MachineID: machineID, ServiceType: "ide", InternalHost: "127.0.0.1", InternalPort: 1},
-		session: &domain.DevMachineAccessSession{MachineID: machineID, ServiceID: serviceID, UserID: userID},
+		machine: gatewayMachine(workspaceID, machineID, userID, "0123456789abcdef0123"),
+		service: service,
+		session: gatewaySession(workspaceID, machineID, serviceID, userID, machineHost),
 	}
 	gateway, err := NewGateway(store, "machines.example.net", time.Hour)
 	require.NoError(t, err)
-	request := httptest.NewRequest(http.MethodPost, "https://0123456789abcdef0123.machines.example.net/action", nil)
-	request.Host = "0123456789abcdef0123.machines.example.net"
+	request := httptest.NewRequest(http.MethodPost, "https://"+machineHost+"/action", nil)
+	request.Host = machineHost
 	request.Header.Set("Origin", "https://other.machines.example.net")
 	request.AddCookie(&http.Cookie{Name: machineSessionCookie, Value: strings.Repeat("a", 64)})
 	recorder := httptest.NewRecorder()
@@ -216,18 +367,19 @@ func TestGatewayRejectsCrossOriginMutation(t *testing.T) {
 }
 
 func TestGatewayDemoModeBlocksNonSysAdminTicketExchange(t *testing.T) {
-	machineID, serviceID, userID := uuid.New(), uuid.New(), uuid.New()
+	workspaceID, machineID, serviceID, userID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	machineHost := "0123456789abcdef0123.machines.example.com"
 	store := &gatewayStoreFake{
-		machine: &domain.DevMachine{ID: machineID, WorkspaceID: uuid.New(), RoutingKey: "0123456789abcdef0123", Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour)},
-		service: &domain.DevMachineService{ID: serviceID, MachineID: machineID, ServiceType: "ide"},
-		ticket:  &domain.DevMachineAccessTicket{MachineID: machineID, ServiceID: serviceID, UserID: userID, WorkspaceID: uuid.New()},
+		machine: gatewayMachine(workspaceID, machineID, userID, "0123456789abcdef0123"),
+		service: gatewayService(serviceID, machineID, "ide"),
+		ticket:  gatewayTicket(workspaceID, machineID, serviceID, userID, machineHost),
 	}
 	gateway, err := NewGateway(store, "machines.example.com", time.Hour)
 	require.NoError(t, err)
 	gateway.SetDemoRestriction(true, func(id uuid.UUID) bool { return false })
 
-	request := httptest.NewRequest(http.MethodGet, "https://0123456789abcdef0123.machines.example.com/?ticket="+strings.Repeat("b", 64), nil)
-	request.Host = "0123456789abcdef0123.machines.example.com"
+	request := httptest.NewRequest(http.MethodGet, "https://"+machineHost+"/?ticket="+strings.Repeat("b", 64), nil)
+	request.Host = machineHost
 	recorder := httptest.NewRecorder()
 
 	gateway.ServeHTTP(recorder, request)
@@ -238,18 +390,19 @@ func TestGatewayDemoModeBlocksNonSysAdminTicketExchange(t *testing.T) {
 }
 
 func TestGatewayDemoModeAllowsSysAdminTicketExchange(t *testing.T) {
-	machineID, serviceID, sysAdminID := uuid.New(), uuid.New(), uuid.New()
+	workspaceID, machineID, serviceID, sysAdminID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	machineHost := "0123456789abcdef0123.machines.example.com"
 	store := &gatewayStoreFake{
-		machine: &domain.DevMachine{ID: machineID, WorkspaceID: uuid.New(), RoutingKey: "0123456789abcdef0123", Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour)},
-		service: &domain.DevMachineService{ID: serviceID, MachineID: machineID, ServiceType: "ide"},
-		ticket:  &domain.DevMachineAccessTicket{MachineID: machineID, ServiceID: serviceID, UserID: sysAdminID, WorkspaceID: uuid.New()},
+		machine: gatewayMachine(workspaceID, machineID, sysAdminID, "0123456789abcdef0123"),
+		service: gatewayService(serviceID, machineID, "ide"),
+		ticket:  gatewayTicket(workspaceID, machineID, serviceID, sysAdminID, machineHost),
 	}
 	gateway, err := NewGateway(store, "machines.example.com", time.Hour)
 	require.NoError(t, err)
 	gateway.SetDemoRestriction(true, func(id uuid.UUID) bool { return id == sysAdminID })
 
-	request := httptest.NewRequest(http.MethodGet, "https://0123456789abcdef0123.machines.example.com/?ticket="+strings.Repeat("b", 64), nil)
-	request.Host = "0123456789abcdef0123.machines.example.com"
+	request := httptest.NewRequest(http.MethodGet, "https://"+machineHost+"/?ticket="+strings.Repeat("b", 64), nil)
+	request.Host = machineHost
 	recorder := httptest.NewRecorder()
 
 	gateway.ServeHTTP(recorder, request)
@@ -258,18 +411,19 @@ func TestGatewayDemoModeAllowsSysAdminTicketExchange(t *testing.T) {
 }
 
 func TestGatewayDemoModeBlocksNonSysAdminExistingSession(t *testing.T) {
-	machineID, serviceID, userID := uuid.New(), uuid.New(), uuid.New()
+	workspaceID, machineID, serviceID, userID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	machineHost := "0123456789abcdef0123.machines.example.com"
 	store := &gatewayStoreFake{
-		machine: &domain.DevMachine{ID: machineID, WorkspaceID: uuid.New(), RoutingKey: "0123456789abcdef0123", Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour)},
-		service: &domain.DevMachineService{ID: serviceID, MachineID: machineID, ServiceType: "ide"},
-		session: &domain.DevMachineAccessSession{MachineID: machineID, ServiceID: serviceID, UserID: userID},
+		machine: gatewayMachine(workspaceID, machineID, userID, "0123456789abcdef0123"),
+		service: gatewayService(serviceID, machineID, "ide"),
+		session: gatewaySession(workspaceID, machineID, serviceID, userID, machineHost),
 	}
 	gateway, err := NewGateway(store, "machines.example.com", time.Hour)
 	require.NoError(t, err)
 	gateway.SetDemoRestriction(true, func(id uuid.UUID) bool { return false })
 
-	request := httptest.NewRequest(http.MethodGet, "https://0123456789abcdef0123.machines.example.com/some-path", nil)
-	request.Host = "0123456789abcdef0123.machines.example.com"
+	request := httptest.NewRequest(http.MethodGet, "https://"+machineHost+"/some-path", nil)
+	request.Host = machineHost
 	request.AddCookie(&http.Cookie{Name: machineSessionCookie, Value: strings.Repeat("a", 64)})
 	recorder := httptest.NewRecorder()
 
@@ -280,17 +434,18 @@ func TestGatewayDemoModeBlocksNonSysAdminExistingSession(t *testing.T) {
 }
 
 func TestGatewayWithoutDemoRestrictionAllowsEveryone(t *testing.T) {
-	machineID, serviceID, userID := uuid.New(), uuid.New(), uuid.New()
+	workspaceID, machineID, serviceID, userID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	machineHost := "0123456789abcdef0123.machines.example.com"
 	store := &gatewayStoreFake{
-		machine: &domain.DevMachine{ID: machineID, WorkspaceID: uuid.New(), RoutingKey: "0123456789abcdef0123", Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour)},
-		service: &domain.DevMachineService{ID: serviceID, MachineID: machineID, ServiceType: "ide"},
-		ticket:  &domain.DevMachineAccessTicket{MachineID: machineID, ServiceID: serviceID, UserID: userID, WorkspaceID: uuid.New()},
+		machine: gatewayMachine(workspaceID, machineID, userID, "0123456789abcdef0123"),
+		service: gatewayService(serviceID, machineID, "ide"),
+		ticket:  gatewayTicket(workspaceID, machineID, serviceID, userID, machineHost),
 	}
 	gateway, err := NewGateway(store, "machines.example.com", time.Hour)
 	require.NoError(t, err)
 
-	request := httptest.NewRequest(http.MethodGet, "https://0123456789abcdef0123.machines.example.com/?ticket="+strings.Repeat("b", 64), nil)
-	request.Host = "0123456789abcdef0123.machines.example.com"
+	request := httptest.NewRequest(http.MethodGet, "https://"+machineHost+"/?ticket="+strings.Repeat("b", 64), nil)
+	request.Host = machineHost
 	recorder := httptest.NewRecorder()
 
 	gateway.ServeHTTP(recorder, request)
@@ -307,16 +462,20 @@ func TestGatewayOnlyForwardsHostOnlyUpstreamCookies(t *testing.T) {
 	defer upstream.Close()
 	host, rawPort, _ := net.SplitHostPort(strings.TrimPrefix(upstream.URL, "http://"))
 	port, _ := strconv.Atoi(rawPort)
-	machineID, serviceID, userID := uuid.New(), uuid.New(), uuid.New()
+	workspaceID, machineID, serviceID, userID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	machineHost := "0123456789abcdef0123.machines.example.net"
+	service := gatewayService(serviceID, machineID, "ide")
+	service.InternalHost = host
+	service.InternalPort = port
 	store := &gatewayStoreFake{
-		machine: &domain.DevMachine{ID: machineID, WorkspaceID: uuid.New(), RoutingKey: "0123456789abcdef0123", Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour)},
-		service: &domain.DevMachineService{ID: serviceID, MachineID: machineID, ServiceType: "ide", InternalHost: host, InternalPort: port},
-		session: &domain.DevMachineAccessSession{MachineID: machineID, ServiceID: serviceID, UserID: userID},
+		machine: gatewayMachine(workspaceID, machineID, userID, "0123456789abcdef0123"),
+		service: service,
+		session: gatewaySession(workspaceID, machineID, serviceID, userID, machineHost),
 	}
 	gateway, err := NewGateway(store, "machines.example.net", time.Hour)
 	require.NoError(t, err)
-	request := httptest.NewRequest(http.MethodGet, "http://0123456789abcdef0123.machines.example.net/", nil)
-	request.Host = "0123456789abcdef0123.machines.example.net"
+	request := httptest.NewRequest(http.MethodGet, "http://"+machineHost+"/", nil)
+	request.Host = machineHost
 	request.AddCookie(&http.Cookie{Name: machineSessionCookie, Value: strings.Repeat("a", 64)})
 	recorder := httptest.NewRecorder()
 

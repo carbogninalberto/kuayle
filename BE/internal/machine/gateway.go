@@ -5,7 +5,9 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -129,6 +131,11 @@ func (g *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		http.Error(writer, "not found", http.StatusNotFound)
 		return
 	}
+	if !routeMatchesHost(machine, service, routingKey, serviceType) {
+		g.audit(request, machine, service, nil, "denied", "route_mismatch", http.StatusNotFound)
+		http.Error(writer, "not found", http.StatusNotFound)
+		return
+	}
 	if machine.Status != domain.DevMachineStatusRunning || machine.DesiredStatus != domain.DevMachineStatusRunning || !machine.ExpiresAt.After(time.Now().UTC()) {
 		g.audit(request, machine, service, nil, "denied", "machine_not_running", http.StatusServiceUnavailable)
 		http.Error(writer, "machine is not running", http.StatusServiceUnavailable)
@@ -220,7 +227,7 @@ func (g *Gateway) exchangeTicket(writer http.ResponseWriter, request *http.Reque
 		return
 	}
 	ticket, err := g.store.ConsumeAccessTicket(request.Context(), hashToken(rawTicket), host)
-	if err != nil || ticket == nil || ticket.MachineID != machine.ID || ticket.ServiceID != service.ID {
+	if err != nil || !accessTicketMatchesRoute(ticket, host, machine, service) {
 		g.audit(request, machine, service, nil, "denied", "invalid_ticket", http.StatusUnauthorized)
 		http.Error(writer, "invalid or expired ticket", http.StatusUnauthorized)
 		return
@@ -245,6 +252,11 @@ func (g *Gateway) exchangeTicket(writer http.ResponseWriter, request *http.Reque
 		ExpiresAt: expiresAt,
 	}
 	if err := g.store.CreateAccessSession(request.Context(), session); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			g.audit(request, machine, service, &ticket.UserID, "denied", "invalid_ticket", http.StatusUnauthorized)
+			http.Error(writer, "invalid or expired ticket", http.StatusUnauthorized)
+			return
+		}
 		log.WithError(err).WithField("event_type", "gateway.session_create_failed").Error("create machine session")
 		http.Error(writer, "gateway unavailable", http.StatusServiceUnavailable)
 		return
@@ -285,7 +297,7 @@ func (g *Gateway) proxyTerminalTicket(writer http.ResponseWriter, request *http.
 		return
 	}
 	ticket, err := g.store.ConsumeAccessTicket(request.Context(), terminalTicketHash(rawTicket, origin, sessionName, workingDirectory), host)
-	if err != nil || ticket == nil || ticket.MachineID != machine.ID || ticket.ServiceID != service.ID {
+	if err != nil || !accessTicketMatchesRoute(ticket, host, machine, service) {
 		g.audit(request, machine, service, nil, "denied", "invalid_ticket", http.StatusUnauthorized)
 		http.Error(writer, "invalid or expired ticket", http.StatusUnauthorized)
 		return
@@ -345,7 +357,35 @@ func (g *Gateway) authorize(request *http.Request, host string, machine *domain.
 	if err != nil || session == nil {
 		return nil, false
 	}
-	return session, session.MachineID == machine.ID && session.ServiceID == service.ID
+	return session, accessSessionMatchesRoute(session, host, machine, service)
+}
+
+func routeMatchesHost(machine *domain.DevMachine, service *domain.DevMachineService, routingKey, serviceType string) bool {
+	if machine == nil || service == nil || machine.ID == uuid.Nil || machine.WorkspaceID == uuid.Nil || machine.CreatedByUserID == nil || *machine.CreatedByUserID == uuid.Nil {
+		return false
+	}
+	return machine.RoutingKey == routingKey && service.ID != uuid.Nil && service.MachineID == machine.ID && service.ServiceType == serviceType && service.Status == "running"
+}
+
+func accessTicketMatchesRoute(ticket *domain.DevMachineAccessTicket, host string, machine *domain.DevMachine, service *domain.DevMachineService) bool {
+	if ticket == nil || !routeMatchesAccess(machine, service, ticket.WorkspaceID, ticket.MachineID, ticket.ServiceID, ticket.UserID, ticket.BoundHost, ticket.ExpiresAt, host) {
+		return false
+	}
+	return ticket.Status == domain.DevMachineAccessTicketStatusUsed
+}
+
+func accessSessionMatchesRoute(session *domain.DevMachineAccessSession, host string, machine *domain.DevMachine, service *domain.DevMachineService) bool {
+	return session != nil && session.RevokedAt == nil && routeMatchesAccess(machine, service, session.WorkspaceID, session.MachineID, session.ServiceID, session.UserID, session.BoundHost, session.ExpiresAt, host)
+}
+
+func routeMatchesAccess(machine *domain.DevMachine, service *domain.DevMachineService, workspaceID, machineID, serviceID, userID uuid.UUID, boundHost string, expiresAt time.Time, host string) bool {
+	if machine == nil || service == nil {
+		return false
+	}
+	if !routeMatchesHost(machine, service, machine.RoutingKey, service.ServiceType) || !expiresAt.After(time.Now().UTC()) {
+		return false
+	}
+	return workspaceID == machine.WorkspaceID && machineID == machine.ID && serviceID == service.ID && userID == *machine.CreatedByUserID && boundHost == host
 }
 
 func (g *Gateway) parseHost(host string) (string, string, bool) {

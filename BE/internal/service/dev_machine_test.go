@@ -301,6 +301,46 @@ func TestLaunchBrowserOpensResponsiveKasmClient(t *testing.T) {
 	require.NotEmpty(t, parsed.Query().Get("ticket"))
 }
 
+func TestLaunchServiceMapsAccessTicketNoRowsToServiceUnavailable(t *testing.T) {
+	workspaceID, userID, machineID := uuid.New(), uuid.New(), uuid.New()
+	store := &devMachineStoreFake{
+		policy: testPolicy(workspaceID),
+		machine: &domain.DevMachine{
+			ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID,
+			RoutingKey: "0123456789abcdef0123", Status: domain.DevMachineStatusRunning,
+			DesiredStatus: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour),
+		},
+		service:               &domain.DevMachineService{ID: uuid.New(), MachineID: machineID, ServiceKey: "ide", ServiceType: "ide", Status: "running"},
+		createAccessTicketErr: sql.ErrNoRows,
+	}
+	svc := newTestDevMachineService(store)
+
+	_, err := svc.LaunchService(context.Background(), workspaceID, machineID, userID, "ide", nil)
+
+	require.ErrorIs(t, err, ErrServiceNotAvailable)
+	require.Nil(t, store.createdTicket)
+}
+
+func TestCreateTerminalSessionMapsAccessTicketNoRowsToServiceUnavailable(t *testing.T) {
+	workspaceID, userID, machineID := uuid.New(), uuid.New(), uuid.New()
+	store := &devMachineStoreFake{
+		policy: testPolicy(workspaceID),
+		machine: &domain.DevMachine{
+			ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID,
+			RoutingKey: "0123456789abcdef0123", Status: domain.DevMachineStatusRunning,
+			DesiredStatus: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour),
+		},
+		service:               &domain.DevMachineService{ID: uuid.New(), MachineID: machineID, ServiceKey: "terminal", ServiceType: "terminal", Status: "running"},
+		createAccessTicketErr: sql.ErrNoRows,
+	}
+	svc := NewDevMachineService(store, agent.NewRegistry(), true, "machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, DevMachineImages{}, "https://app.example.test")
+
+	_, err := svc.CreateTerminalSession(context.Background(), workspaceID, machineID, userID, dto.CreateTerminalSessionRequest{Name: "Terminal"})
+
+	require.ErrorIs(t, err, ErrServiceNotAvailable)
+	require.Nil(t, store.createdTicket)
+}
+
 func TestPermanentDeleteRunningMachineRequestsPurgeAndQueuesTeardown(t *testing.T) {
 	workspaceID, userID, machineID := uuid.New(), uuid.New(), uuid.New()
 	store := &devMachineStoreFake{
@@ -576,6 +616,7 @@ type devMachineStoreFake struct {
 	service                     *domain.DevMachineService
 	services                    []domain.DevMachineService
 	createdTicket               *domain.DevMachineAccessTicket
+	createAccessTicketErr       error
 	checkouts                   []domain.DevMachineCheckout
 	agentRuns                   []domain.DevMachineAgentRun
 	agentRunSteps               []domain.DevMachineAgentRunStep
@@ -678,6 +719,9 @@ func (f *devMachineStoreFake) ListServices(_ context.Context, _ uuid.UUID, machi
 }
 
 func (f *devMachineStoreFake) CreateAccessTicket(_ context.Context, ticket *domain.DevMachineAccessTicket) error {
+	if f.createAccessTicketErr != nil {
+		return f.createAccessTicketErr
+	}
 	f.createdTicket = ticket
 	return nil
 }

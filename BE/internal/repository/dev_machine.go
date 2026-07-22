@@ -901,7 +901,14 @@ func (r *DevMachineRepository) ListLogs(ctx context.Context, workspaceID, machin
 func (r *DevMachineRepository) CreateAccessTicket(ctx context.Context, ticket *domain.DevMachineAccessTicket) error {
 	return r.db.QueryRowContext(ctx, `INSERT INTO dev_machine_access_tickets
 		(id, workspace_id, machine_id, service_id, user_id, token_hash, status, bound_host, expires_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING created_at`, ticket.ID, ticket.WorkspaceID,
+		SELECT $1, m.workspace_id, m.id, s.id, $5, $6, $7, $8, $9
+		FROM dev_machines m
+		JOIN dev_machine_services s ON s.id=$4 AND s.machine_id=m.id
+		JOIN workspace_members wm ON wm.workspace_id=m.workspace_id AND wm.user_id=$5 AND wm.role IN ('owner','admin','member')
+		WHERE m.workspace_id=$2 AND m.id=$3 AND m.created_by_user_id=$5
+		AND m.status='running' AND m.desired_status='running' AND m.expires_at>NOW()
+		AND s.status='running' AND $9>NOW() AND $9<=m.expires_at
+		RETURNING created_at`, ticket.ID, ticket.WorkspaceID,
 		ticket.MachineID, ticket.ServiceID, ticket.UserID, ticket.TokenHash, ticket.Status, ticket.BoundHost, ticket.ExpiresAt,
 	).Scan(&ticket.CreatedAt)
 }
@@ -911,8 +918,10 @@ func (r *DevMachineRepository) ConsumeAccessTicket(ctx context.Context, tokenHas
 	err := r.db.GetContext(ctx, &ticket, `UPDATE dev_machine_access_tickets t SET status='used', used_at=NOW()
 		FROM dev_machines m, dev_machine_services s, workspace_members wm
 		WHERE t.token_hash=$1 AND t.bound_host=$2 AND t.status='active' AND t.expires_at>NOW()
-		AND m.id=t.machine_id AND m.status='running' AND m.desired_status='running' AND s.id=t.service_id AND s.machine_id=m.id
-		AND wm.workspace_id=t.workspace_id AND wm.user_id=t.user_id AND wm.role IN ('owner','admin','member')
+		AND m.id=t.machine_id AND t.workspace_id=m.workspace_id AND m.created_by_user_id=t.user_id
+		AND m.status='running' AND m.desired_status='running' AND m.expires_at>NOW()
+		AND s.id=t.service_id AND s.machine_id=m.id AND s.status='running'
+		AND wm.workspace_id=m.workspace_id AND wm.user_id=t.user_id AND wm.role IN ('owner','admin','member')
 		RETURNING t.*`, tokenHash, host)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -923,7 +932,14 @@ func (r *DevMachineRepository) ConsumeAccessTicket(ctx context.Context, tokenHas
 func (r *DevMachineRepository) CreateAccessSession(ctx context.Context, session *domain.DevMachineAccessSession) error {
 	return r.db.QueryRowContext(ctx, `INSERT INTO dev_machine_access_sessions
 		(id, workspace_id, machine_id, service_id, user_id, token_hash, bound_host, expires_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING created_at, last_seen_at`, session.ID, session.WorkspaceID,
+		SELECT $1, m.workspace_id, m.id, s.id, $5, $6, $7, $8
+		FROM dev_machines m
+		JOIN dev_machine_services s ON s.id=$4 AND s.machine_id=m.id
+		JOIN workspace_members wm ON wm.workspace_id=m.workspace_id AND wm.user_id=$5 AND wm.role IN ('owner','admin','member')
+		WHERE m.workspace_id=$2 AND m.id=$3 AND m.created_by_user_id=$5
+		AND m.status='running' AND m.desired_status='running' AND m.expires_at>NOW()
+		AND s.status='running' AND $8>NOW() AND $8<=m.expires_at
+		RETURNING created_at, last_seen_at`, session.ID, session.WorkspaceID,
 		session.MachineID, session.ServiceID, session.UserID, session.TokenHash, session.BoundHost, session.ExpiresAt,
 	).Scan(&session.CreatedAt, &session.LastSeenAt)
 }
@@ -933,8 +949,10 @@ func (r *DevMachineRepository) GetAccessSession(ctx context.Context, tokenHash, 
 	err := r.db.GetContext(ctx, &session, `UPDATE dev_machine_access_sessions a SET last_seen_at=NOW()
 		FROM dev_machines m, dev_machine_services s, workspace_members wm
 		WHERE a.token_hash=$1 AND a.bound_host=$2 AND a.revoked_at IS NULL AND a.expires_at>NOW()
-		AND m.id=a.machine_id AND m.status='running' AND m.desired_status='running' AND s.id=a.service_id AND s.machine_id=m.id
-		AND wm.workspace_id=a.workspace_id AND wm.user_id=a.user_id AND wm.role IN ('owner','admin','member')
+		AND m.id=a.machine_id AND a.workspace_id=m.workspace_id AND m.created_by_user_id=a.user_id
+		AND m.status='running' AND m.desired_status='running' AND m.expires_at>NOW()
+		AND s.id=a.service_id AND s.machine_id=m.id AND s.status='running'
+		AND wm.workspace_id=m.workspace_id AND wm.user_id=a.user_id AND wm.role IN ('owner','admin','member')
 		RETURNING a.*`, tokenHash, host)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
