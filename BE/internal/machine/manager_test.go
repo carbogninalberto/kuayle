@@ -50,6 +50,8 @@ type managerStoreFake struct {
 	completedOperations       int
 	orphanedEnvironmentCount  int
 	orphanReconcileCalls      int
+	orphanedCheckoutCount     int
+	checkoutReconcileCalls    int
 	updateAgentRunStarted     func() error
 	envVarListCalls           int
 	runtimeServicesCreated    int
@@ -244,6 +246,10 @@ func (f *managerStoreFake) UpdateEnvironmentState(_ context.Context, _ uuid.UUID
 func (f *managerStoreFake) ReconcileOrphanedEnvironments(context.Context, int) (int, error) {
 	f.orphanReconcileCalls++
 	return f.orphanedEnvironmentCount, nil
+}
+func (f *managerStoreFake) ReconcileOrphanedCheckouts(context.Context, int) (int, error) {
+	f.checkoutReconcileCalls++
+	return f.orphanedCheckoutCount, nil
 }
 func (f *managerStoreFake) ListDeleteRequestedEnvironments(context.Context, int) ([]domain.DevMachineEnvironment, error) {
 	return f.deleteRequestedEnvs, nil
@@ -523,6 +529,27 @@ func TestManagerCheckoutTokenUsesCheckoutRepository(t *testing.T) {
 	require.Equal(t, []string{"selected/repo"}, store.installationFullNameCalls)
 }
 
+func TestManagerKeepsCheckoutPreparingWhileOperationRetries(t *testing.T) {
+	machineID, workspaceID, checkoutID := uuid.New(), uuid.New(), uuid.New()
+	store := &managerStoreFake{
+		machine:  &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, Generation: 2},
+		checkout: &domain.DevMachineCheckout{ID: checkoutID, WorkspaceID: workspaceID, MachineID: machineID, RepositoryFullName: "selected/repo", Status: "queued"},
+	}
+	manager := NewManager(store, &runtimeFake{}, agent.NewRegistry(), nil, make([]byte, 32), nil, "test")
+
+	manager.operationSlots <- struct{}{}
+	manager.operations.Add(1)
+	manager.processLeasedOperation(context.Background(), domain.DevMachineOperation{
+		ID: uuid.New(), MachineID: machineID, WorkspaceID: workspaceID, Action: domain.DevMachineOpCheckoutIssue,
+		CheckoutID: &checkoutID, Generation: 2,
+	})
+
+	require.Equal(t, "preparing", store.checkoutStatus)
+	require.Nil(t, store.checkoutError)
+	require.NotNil(t, store.failedOperationRetryable)
+	require.True(t, *store.failedOperationRetryable)
+}
+
 func TestRepositoryTokenRegistersRuntimeCredentialBeforeReturning(t *testing.T) {
 	machineID, workspaceID := uuid.New(), uuid.New()
 	token := "ghs_" + strings.Repeat("runtime-token", 4)
@@ -563,12 +590,13 @@ func TestRepositoryTokenRegistersRuntimeCredentialBeforeReturning(t *testing.T) 
 }
 
 func TestReconcilePurgesExpiredRuntimeCredentials(t *testing.T) {
-	store := &managerStoreFake{orphanedEnvironmentCount: 2}
+	store := &managerStoreFake{orphanedEnvironmentCount: 2, orphanedCheckoutCount: 3}
 	manager := NewManager(store, &runtimeFake{}, agent.NewRegistry(), nil, nil, nil, "test")
 
 	require.NoError(t, manager.reconcile(context.Background()))
 	require.NotNil(t, store.purgedCredentialNow)
 	require.Equal(t, 1, store.orphanReconcileCalls)
+	require.Equal(t, 1, store.checkoutReconcileCalls)
 }
 
 func TestManagerMarksStaleCheckoutFailed(t *testing.T) {

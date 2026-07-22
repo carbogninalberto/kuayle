@@ -1702,6 +1702,75 @@ func (r *DevMachineRepository) ReconcileOrphanedEnvironments(ctx context.Context
 	return reconciled, nil
 }
 
+func (r *DevMachineRepository) ReconcileOrphanedCheckouts(ctx context.Context, limit int) (int, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	var checkoutIDs []uuid.UUID
+	if err := tx.SelectContext(ctx, &checkoutIDs, `SELECT id FROM dev_machine_checkouts
+		WHERE status IN ('queued','preparing') ORDER BY updated_at,id LIMIT $1 FOR UPDATE SKIP LOCKED`, limit); err != nil {
+		return 0, err
+	}
+	reconciled := 0
+	for _, checkoutID := range checkoutIDs {
+		var operations []struct {
+			Status            domain.DevMachineOperationStatus `db:"status"`
+			Generation        int64                            `db:"generation"`
+			MachineGeneration int64                            `db:"machine_generation"`
+			MachineStatus     domain.DevMachineStatus          `db:"machine_status"`
+			DesiredStatus     domain.DevMachineStatus          `db:"desired_status"`
+			LeaseActive       bool                             `db:"lease_active"`
+		}
+		if err := tx.SelectContext(ctx, &operations, `SELECT o.status,o.generation,
+			m.generation AS machine_generation,m.status AS machine_status,m.desired_status,
+			COALESCE(o.status='leased' AND o.lease_expires_at>=NOW(),FALSE) AS lease_active
+			FROM dev_machine_operations o JOIN dev_machines m ON m.id=o.machine_id
+			WHERE o.checkout_id=$1 AND o.action='checkout_issue' FOR UPDATE OF o`, checkoutID); err != nil {
+			return 0, err
+		}
+		viable := false
+		for _, operation := range operations {
+			if operation.LeaseActive {
+				viable = true
+				break
+			}
+			if operation.Status == domain.DevMachineOpStatusPending && operation.Generation == operation.MachineGeneration &&
+				operation.MachineStatus == domain.DevMachineStatusRunning && operation.DesiredStatus == domain.DevMachineStatusRunning {
+				viable = true
+				break
+			}
+		}
+		if viable {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE dev_machine_operations SET status='cancelled',
+			error_code='checkout_preparation_orphaned',error_message='checkout preparation is no longer runnable',
+			lease_owner=NULL,lease_expires_at=NULL,completed_at=NOW()
+			WHERE checkout_id=$1 AND action='checkout_issue'
+			AND (status='pending' OR (status='leased' AND (lease_expires_at IS NULL OR lease_expires_at<NOW())))`, checkoutID); err != nil {
+			return 0, err
+		}
+		result, err := tx.ExecContext(ctx, `UPDATE dev_machine_checkouts SET status='failed',
+			last_error='checkout preparation was interrupted; try again'
+			WHERE id=$1 AND status IN ('queued','preparing')`, checkoutID)
+		if err != nil {
+			return 0, err
+		}
+		if rows, _ := result.RowsAffected(); rows == 1 {
+			reconciled++
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return reconciled, nil
+}
+
 func (r *DevMachineRepository) GetCheckout(ctx context.Context, workspaceID, machineID, checkoutID uuid.UUID) (*domain.DevMachineCheckout, error) {
 	var checkout domain.DevMachineCheckout
 	err := r.db.GetContext(ctx, &checkout, `SELECT * FROM dev_machine_checkouts WHERE workspace_id=$1 AND machine_id=$2 AND id=$3`, workspaceID, machineID, checkoutID)

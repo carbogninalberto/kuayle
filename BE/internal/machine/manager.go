@@ -58,6 +58,7 @@ type ManagerStore interface {
 	GetEnvironment(context.Context, uuid.UUID, uuid.UUID) (*domain.DevMachineEnvironment, error)
 	UpdateEnvironmentState(context.Context, uuid.UUID, string, string, *string) error
 	ReconcileOrphanedEnvironments(context.Context, int) (int, error)
+	ReconcileOrphanedCheckouts(context.Context, int) (int, error)
 	ListDeleteRequestedEnvironments(context.Context, int) ([]domain.DevMachineEnvironment, error)
 	DeleteEnvironment(context.Context, uuid.UUID, uuid.UUID) error
 	ListIdleMachines(context.Context, int) ([]domain.DevMachine, error)
@@ -407,13 +408,9 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 		}
 		_, token, err := m.repositoryToken(ctx, machine, checkout.RepositoryFullName)
 		if err != nil {
-			message := safeError(err)
-			_ = m.store.UpdateCheckoutState(ctx, checkout.ID, "failed", &message)
 			return fmt.Errorf("github_token_failed: %w", err)
 		}
 		if err := m.runtime.PrepareCheckout(ctx, machine, services, checkout, token); err != nil {
-			message := safeError(err)
-			_ = m.store.UpdateCheckoutState(ctx, checkout.ID, "failed", &message)
 			return err
 		}
 		if err := m.store.UpdateCheckoutState(ctx, checkout.ID, "ready", nil); err != nil {
@@ -856,6 +853,9 @@ func (m *Manager) reconcile(ctx context.Context) error {
 	}
 
 	if _, err := m.store.ReconcileOrphanedEnvironments(ctx, 100); err != nil {
+		return err
+	}
+	if _, err := m.store.ReconcileOrphanedCheckouts(ctx, 100); err != nil {
 		return err
 	}
 	deleteRequestedEnvironments, err := m.store.ListDeleteRequestedEnvironments(ctx, 100)

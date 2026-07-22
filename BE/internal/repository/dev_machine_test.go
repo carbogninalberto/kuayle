@@ -1008,6 +1008,127 @@ func TestReconcileOrphanedEnvironments(t *testing.T) {
 	}
 }
 
+func TestReconcileOrphanedCheckouts(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is not configured")
+	}
+	db, err := sqlx.Connect("pgx", databaseURL)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	fixture := newEnvironmentRaceFixture(t, db)
+	machineID := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning, false)
+	teamID, statusID, installationID, repositoryID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	_, err = db.Exec(`INSERT INTO teams (id,workspace_id,name,key) VALUES ($1,$2,'Checkout Test','CHK')`, teamID, fixture.workspaceID)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO team_statuses (id,team_id,name,slug,category,is_default)
+		VALUES ($1,$2,'Todo','todo','unstarted',TRUE)`, statusID, teamID)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO github_installations
+		(id,workspace_id,installation_id,account_login,account_type,installed_by)
+		VALUES ($1,$2,$3,'checkout-test','Organization',$4)`, installationID, fixture.workspaceID, time.Now().UnixNano(), fixture.userID)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO github_repos
+		(id,installation_id,workspace_id,github_repo_id,full_name,default_branch)
+		VALUES ($1,$2,$3,$4,'kuayle/checkout-test','main')`, repositoryID, installationID, fixture.workspaceID, time.Now().UnixNano())
+	require.NoError(t, err)
+
+	issueNumber := 0
+	insertCheckout := func(status string) (uuid.UUID, uuid.UUID) {
+		issueNumber++
+		issueID, checkoutID := uuid.New(), uuid.New()
+		identifier := fmt.Sprintf("CHK-%d", issueNumber)
+		_, insertErr := db.Exec(`INSERT INTO issues
+			(id,workspace_id,team_id,number,identifier_text,title,creator_id,status_id)
+			VALUES ($1,$2,$3,$4,$5,'Checkout test',$6,$7)`,
+			issueID, fixture.workspaceID, teamID, issueNumber, identifier, fixture.userID, statusID)
+		require.NoError(t, insertErr)
+		_, insertErr = db.Exec(`INSERT INTO dev_machine_checkouts
+			(id,workspace_id,machine_id,issue_id,github_repo_id,repository_full_name,base_branch,working_branch,workspace_path,status)
+			VALUES ($1,$2,$3,$4,$5,'kuayle/checkout-test','main',$6,$7,$8)`,
+			checkoutID, fixture.workspaceID, machineID, issueID, repositoryID,
+			"kuayle/"+strings.ToLower(identifier), "/workspace/tasks/"+strings.ToLower(identifier), status)
+		require.NoError(t, insertErr)
+		return checkoutID, issueID
+	}
+	insertOperation := func(checkoutID uuid.UUID, status domain.DevMachineOperationStatus, generation int64, leaseExpiresAt *time.Time) uuid.UUID {
+		operationID := uuid.New()
+		var leaseOwner *string
+		if status == domain.DevMachineOpStatusLeased {
+			owner := "checkout-test"
+			leaseOwner = &owner
+		}
+		_, insertErr := db.Exec(`INSERT INTO dev_machine_operations
+			(id,machine_id,workspace_id,action,status,generation,idempotency_key,requested_by_user_id,checkout_id,lease_owner,lease_expires_at)
+			VALUES ($1,$2,$3,'checkout_issue',$4,$5,$6,$7,$8,$9,$10)`,
+			operationID, machineID, fixture.workspaceID, status, generation, "checkout:"+operationID.String(),
+			fixture.userID, checkoutID, leaseOwner, leaseExpiresAt)
+		require.NoError(t, insertErr)
+		return operationID
+	}
+
+	missingID, missingIssueID := insertCheckout("queued")
+	terminalCheckoutID, _ := insertCheckout("preparing")
+	terminalOperationID := insertOperation(terminalCheckoutID, domain.DevMachineOpStatusFailed, 1, nil)
+	supersededID, _ := insertCheckout("queued")
+	supersededOperationID := insertOperation(supersededID, domain.DevMachineOpStatusPending, 2, nil)
+	expiredLeaseID, _ := insertCheckout("preparing")
+	expiredOperationID := insertOperation(expiredLeaseID, domain.DevMachineOpStatusLeased, 1, dmTimePtr(time.Now().Add(-time.Minute)))
+	validPendingID, _ := insertCheckout("queued")
+	validOperationID := insertOperation(validPendingID, domain.DevMachineOpStatusPending, 1, nil)
+	activeLeaseID, _ := insertCheckout("preparing")
+	activeOperationID := insertOperation(activeLeaseID, domain.DevMachineOpStatusLeased, 2, dmTimePtr(time.Now().Add(time.Minute)))
+
+	count, err := fixture.repository.ReconcileOrphanedCheckouts(context.Background(), 100)
+
+	require.NoError(t, err)
+	require.Equal(t, 4, count)
+	for _, checkoutID := range []uuid.UUID{missingID, terminalCheckoutID, supersededID, expiredLeaseID} {
+		var status string
+		var lastError *string
+		require.NoError(t, db.QueryRow(`SELECT status,last_error FROM dev_machine_checkouts WHERE id=$1`, checkoutID).Scan(&status, &lastError))
+		require.Equal(t, "failed", status)
+		require.NotNil(t, lastError)
+		require.Contains(t, *lastError, "try again")
+	}
+	for checkoutID, expected := range map[uuid.UUID]string{validPendingID: "queued", activeLeaseID: "preparing"} {
+		var status string
+		require.NoError(t, db.Get(&status, `SELECT status FROM dev_machine_checkouts WHERE id=$1`, checkoutID))
+		require.Equal(t, expected, status)
+	}
+	for operationID, expected := range map[uuid.UUID]domain.DevMachineOperationStatus{
+		terminalOperationID:   domain.DevMachineOpStatusFailed,
+		supersededOperationID: domain.DevMachineOpStatusCancelled,
+		expiredOperationID:    domain.DevMachineOpStatusCancelled,
+		validOperationID:      domain.DevMachineOpStatusPending,
+		activeOperationID:     domain.DevMachineOpStatusLeased,
+	} {
+		var status domain.DevMachineOperationStatus
+		require.NoError(t, db.Get(&status, `SELECT status FROM dev_machine_operations WHERE id=$1`, operationID))
+		require.Equal(t, expected, status)
+	}
+
+	retryCheckout := &domain.DevMachineCheckout{
+		ID: uuid.New(), WorkspaceID: fixture.workspaceID, MachineID: machineID, IssueID: missingIssueID,
+		GitHubRepoID: repositoryID, RepositoryFullName: "kuayle/checkout-test", BaseBranch: "main",
+		WorkingBranch: "kuayle/chk-1", WorkspacePath: "/workspace/tasks/chk-1", Status: "queued",
+	}
+	retryOperation := &domain.DevMachineOperation{
+		ID: uuid.New(), MachineID: machineID, WorkspaceID: fixture.workspaceID, Action: domain.DevMachineOpCheckoutIssue,
+		Status: domain.DevMachineOpStatusPending, Generation: 1, IdempotencyKey: "checkout-retry:" + uuid.NewString(),
+		RequestedByUserID: &fixture.userID, MaxAttempts: 3,
+	}
+	require.NoError(t, fixture.repository.CreateCheckout(context.Background(), retryCheckout, retryOperation))
+	require.Equal(t, missingID, retryCheckout.ID)
+	require.NotNil(t, retryOperation.CheckoutID)
+	require.Equal(t, missingID, *retryOperation.CheckoutID)
+	var retryStatus string
+	var retryLastError *string
+	require.NoError(t, db.QueryRow(`SELECT status,last_error FROM dev_machine_checkouts WHERE id=$1`, missingID).Scan(&retryStatus, &retryLastError))
+	require.Equal(t, "queued", retryStatus)
+	require.Nil(t, retryLastError)
+}
+
 func TestListAgentRunsScansPersistedRows(t *testing.T) {
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {
