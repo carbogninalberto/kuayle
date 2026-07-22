@@ -1,7 +1,9 @@
 package middleware
 
 import (
+	"math"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -72,10 +74,15 @@ func (rl *RateLimiter) allow(ip string) bool {
 // rate: requests refilled per second, burst: max requests in a burst.
 func RateLimit(rate float64, burst int) echo.MiddlewareFunc {
 	rl := NewRateLimiter(rate, burst)
+	retryAfter := 1
+	if rate > 0 {
+		retryAfter = max(1, int(math.Ceil(1/rate)))
+	}
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			ip := c.RealIP()
 			if !rl.allow(ip) {
+				c.Response().Header().Set("Retry-After", strconv.Itoa(retryAfter))
 				return response.Error(c, http.StatusTooManyRequests, "RATE_LIMITED", "Too many requests, please try again later")
 			}
 			return next(c)

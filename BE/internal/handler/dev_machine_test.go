@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -165,6 +166,84 @@ func TestMachineErrorUsesTypedClassificationOnly(t *testing.T) {
 	}
 }
 
+func TestCollectorIngestionReturnsAccurateFailures(t *testing.T) {
+	workspaceID, machineID := uuid.New(), uuid.New()
+	validToken := strings.Repeat("a", 64)
+	runID, serviceID := uuid.New(), uuid.New()
+	storageErr := errors.New("collector database secret detail")
+	validEvent := `{"source":"collector","event_type":"heartbeat","payload":{}}`
+
+	newStore := func() *collectorHandlerStoreFake {
+		return &collectorHandlerStoreFake{
+			token:   &domain.DevMachineToken{MachineID: machineID},
+			machine: &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID},
+		}
+	}
+	missingRunStore := newStore()
+	missingServiceStore := newStore()
+	storageFailureStore := newStore()
+	storageFailureStore.createEventErr = storageErr
+	decryptionFailureStore := newStore()
+	decryptionFailureStore.runtimeCredentials = []domain.DevMachineRuntimeCredential{{EncryptedValue: "invalid"}}
+	successStore := newStore()
+	authFailureStore := newStore()
+	authFailureStore.authenticateErr = storageErr
+	missingMachineStore := newStore()
+	missingMachineStore.machine = nil
+
+	for _, test := range []struct {
+		name            string
+		body            string
+		token           string
+		log             bool
+		store           *collectorHandlerStoreFake
+		status          int
+		code            string
+		messageExcludes string
+	}{
+		{name: "invalid payload", body: `{}`, token: validToken, store: newStore(), status: http.StatusBadRequest, code: "VALIDATION_ERROR"},
+		{name: "invalid token", body: validEvent, token: "short", store: newStore(), status: http.StatusUnauthorized, code: "UNAUTHORIZED"},
+		{name: "missing machine is private safe", body: validEvent, token: validToken, store: missingMachineStore, status: http.StatusUnauthorized, code: "UNAUTHORIZED"},
+		{name: "authentication storage failure", body: validEvent, token: validToken, store: authFailureStore, status: http.StatusInternalServerError, code: "INTERNAL_ERROR", messageExcludes: "database secret"},
+		{name: "missing agent run", body: fmt.Sprintf(`{"agent_run_id":%q,"source":"collector","event_type":"heartbeat","payload":{}}`, runID), token: validToken, store: missingRunStore, status: http.StatusNotFound, code: "NOT_FOUND"},
+		{name: "missing service", body: fmt.Sprintf(`{"service_id":%q,"stream":"stdout","sequence":1,"content":"test"}`, serviceID), token: validToken, log: true, store: missingServiceStore, status: http.StatusNotFound, code: "SERVICE_NOT_AVAILABLE"},
+		{name: "credential decryption failure", body: validEvent, token: validToken, store: decryptionFailureStore, status: http.StatusInternalServerError, code: "INTERNAL_ERROR"},
+		{name: "temporary storage failure", body: validEvent, token: validToken, store: storageFailureStore, status: http.StatusInternalServerError, code: "INTERNAL_ERROR", messageExcludes: "database secret"},
+		{name: "accepted", body: validEvent, token: validToken, store: successStore, status: http.StatusAccepted},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			handler := NewDevMachineHandler(service.NewDevMachineService(
+				test.store, agent.NewRegistry(), true, "machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, service.DevMachineImages{},
+			))
+			request := httptest.NewRequest(http.MethodPost, "/api/dev-machine-ingest/events", strings.NewReader(test.body))
+			request.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			request.Header.Set(echo.HeaderAuthorization, "Bearer "+test.token)
+			recorder := httptest.NewRecorder()
+			ctx := echo.New().NewContext(request, recorder)
+
+			var err error
+			if test.log {
+				err = handler.IngestLog(ctx)
+			} else {
+				err = handler.IngestEvent(ctx)
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, test.status, recorder.Code)
+			if test.code == "" {
+				require.Empty(t, recorder.Body.String())
+				return
+			}
+			var body dto.ErrorResponse
+			require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &body))
+			require.Equal(t, test.code, body.Error.Code)
+			if test.messageExcludes != "" {
+				require.NotContains(t, body.Error.Message, test.messageExcludes)
+			}
+		})
+	}
+}
+
 func TestAgentRunTraceRejectsInvalidRunID(t *testing.T) {
 	e := echo.New()
 	recorder := httptest.NewRecorder()
@@ -233,6 +312,43 @@ func TestDevMachineGetIsCreatorScoped(t *testing.T) {
 type handlerDevMachineStoreFake struct {
 	repository.DevMachineStore
 	machine *domain.DevMachine
+}
+
+type collectorHandlerStoreFake struct {
+	repository.DevMachineStore
+	token              *domain.DevMachineToken
+	machine            *domain.DevMachine
+	authenticateErr    error
+	createEventErr     error
+	runtimeCredentials []domain.DevMachineRuntimeCredential
+}
+
+func (f *collectorHandlerStoreFake) AuthenticateMachineToken(context.Context, string, string) (*domain.DevMachineToken, *domain.DevMachine, error) {
+	return f.token, f.machine, f.authenticateErr
+}
+
+func (f *collectorHandlerStoreFake) GetAgentRun(context.Context, uuid.UUID, uuid.UUID) (*domain.DevMachineAgentRun, error) {
+	return nil, nil
+}
+
+func (f *collectorHandlerStoreFake) ListServices(context.Context, uuid.UUID, uuid.UUID) ([]domain.DevMachineService, error) {
+	return nil, nil
+}
+
+func (f *collectorHandlerStoreFake) ListEnvVarsInternal(context.Context, uuid.UUID, *string, string) ([]domain.DevMachineEnvVar, error) {
+	return nil, nil
+}
+
+func (f *collectorHandlerStoreFake) ListRuntimeCredentials(context.Context, uuid.UUID) ([]domain.DevMachineRuntimeCredential, error) {
+	return f.runtimeCredentials, nil
+}
+
+func (f *collectorHandlerStoreFake) CreateEvent(context.Context, *domain.DevMachineEvent) error {
+	return f.createEventErr
+}
+
+func (f *collectorHandlerStoreFake) CreateLogChunk(context.Context, *domain.DevMachineLogChunk) error {
+	return nil
 }
 
 func (f *handlerDevMachineStoreFake) GetMachineForUser(_ context.Context, workspaceID, machineID, userID uuid.UUID) (*domain.DevMachine, error) {
