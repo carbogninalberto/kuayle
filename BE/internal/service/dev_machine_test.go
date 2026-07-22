@@ -566,6 +566,37 @@ func TestLaunchServiceMapsAccessTicketNoRowsToServiceUnavailable(t *testing.T) {
 	require.Nil(t, store.createdTicket)
 }
 
+func TestLaunchServiceDistinguishesMissingAndPendingCheckouts(t *testing.T) {
+	workspaceID, userID, machineID, checkoutID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	for _, test := range []struct {
+		name      string
+		checkouts []domain.DevMachineCheckout
+		expected  error
+	}{
+		{name: "missing", expected: ErrCheckoutNotFound},
+		{name: "pending", checkouts: []domain.DevMachineCheckout{{
+			ID: checkoutID, WorkspaceID: workspaceID, MachineID: machineID, Status: "preparing",
+		}}, expected: ErrCheckoutNotReady},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := &devMachineStoreFake{
+				policy: testPolicy(workspaceID), checkouts: test.checkouts,
+				machine: &domain.DevMachine{
+					ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID,
+					RoutingKey: "0123456789abcdef0123", Status: domain.DevMachineStatusRunning,
+					DesiredStatus: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour),
+				},
+				service: &domain.DevMachineService{ID: uuid.New(), MachineID: machineID, ServiceKey: "ide", ServiceType: "ide", Status: "running"},
+			}
+
+			_, err := newTestDevMachineService(store).LaunchService(context.Background(), workspaceID, machineID, userID, "ide", &checkoutID)
+
+			require.ErrorIs(t, err, test.expected)
+			require.Nil(t, store.createdTicket)
+		})
+	}
+}
+
 func TestLaunchServiceRejectsTerminalWithoutMintingBrowserTicket(t *testing.T) {
 	workspaceID, userID, machineID := uuid.New(), uuid.New(), uuid.New()
 	for _, test := range []struct {
@@ -715,18 +746,20 @@ func TestLifecycleMapsTransactionalConflicts(t *testing.T) {
 	}
 }
 
-func TestEnvironmentRepositoryConflictsMapToInvalidOperation(t *testing.T) {
-	for _, conflict := range []error{
-		repository.ErrEnvironmentInUse,
-		repository.ErrEnvironmentInvalidState,
-		repository.ErrEnvironmentDeletionConflict,
+func TestEnvironmentRepositoryConflictsKeepSpecificTypes(t *testing.T) {
+	for _, test := range []struct {
+		repositoryError error
+		serviceError    error
+	}{
+		{repositoryError: repository.ErrEnvironmentInUse, serviceError: ErrEnvironmentInUse},
+		{repositoryError: repository.ErrEnvironmentInvalidState, serviceError: ErrEnvironmentInvalidState},
+		{repositoryError: repository.ErrEnvironmentDeletionConflict, serviceError: ErrEnvironmentCleanupActive},
 	} {
-		store := &devMachineStoreFake{deleteEnvironmentErr: conflict}
+		store := &devMachineStoreFake{deleteEnvironmentErr: test.repositoryError}
 
 		err := newTestDevMachineService(store).RequestEnvironmentDeletion(context.Background(), uuid.New(), uuid.New())
 
-		require.ErrorIs(t, err, ErrInvalidOperation)
-		require.Contains(t, err.Error(), conflict.Error())
+		require.ErrorIs(t, err, test.serviceError)
 	}
 }
 

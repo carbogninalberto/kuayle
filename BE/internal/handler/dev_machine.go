@@ -699,8 +699,16 @@ func operationResponse(operation *domain.DevMachineOperation) dto.DevMachineOper
 
 func machineError(c echo.Context, err error) error {
 	switch {
-	case errors.Is(err, service.ErrMachineNotFound), errors.Is(err, service.ErrAgentRunNotFound), errors.Is(err, service.ErrEnvironmentNotFound), errors.Is(err, service.ErrTerminalSessionNotFound):
+	case errors.Is(err, service.ErrMachineNotFound):
 		return response.NotFound(c, "Dev Machine")
+	case errors.Is(err, service.ErrAgentRunNotFound):
+		return response.NotFound(c, "Agent Run")
+	case errors.Is(err, service.ErrEnvironmentNotFound):
+		return response.NotFound(c, "Development Environment")
+	case errors.Is(err, service.ErrCheckoutNotFound):
+		return response.NotFound(c, "Checkout")
+	case errors.Is(err, service.ErrTerminalSessionNotFound):
+		return response.NotFound(c, "Terminal Session")
 	case errors.Is(err, service.ErrDevMachinesDisabled), errors.Is(err, service.ErrProviderNotAllowed), errors.Is(err, service.ErrRepositoryNotAllowed):
 		return response.Error(c, http.StatusForbidden, "FORBIDDEN", err.Error())
 	case errors.Is(err, service.ErrMachineAuthentication):
@@ -717,6 +725,12 @@ func machineError(c echo.Context, err error) error {
 		return response.Error(c, http.StatusConflict, "CHECKOUT_NOT_READY", err.Error())
 	case errors.Is(err, service.ErrTerminalSessionRequired):
 		return response.Error(c, http.StatusConflict, "TERMINAL_SESSION_REQUIRED", err.Error())
+	case errors.Is(err, service.ErrEnvironmentInUse):
+		return response.Error(c, http.StatusConflict, "ENVIRONMENT_IN_USE", err.Error())
+	case errors.Is(err, service.ErrEnvironmentInvalidState):
+		return response.Error(c, http.StatusConflict, "ENVIRONMENT_INVALID_STATE", err.Error())
+	case errors.Is(err, service.ErrEnvironmentCleanupActive):
+		return response.Error(c, http.StatusConflict, "ENVIRONMENT_CLEANUP_ACTIVE", err.Error())
 	case errors.Is(err, service.ErrServiceNotAvailable):
 		return response.Error(c, http.StatusNotFound, "SERVICE_NOT_AVAILABLE", err.Error())
 	case errors.Is(err, service.ErrInvalidMachineInput):

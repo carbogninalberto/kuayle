@@ -68,13 +68,17 @@ func TestMachineErrorMapsNativeTerminalRequirement(t *testing.T) {
 
 func TestMachineErrorMapsEnvironmentDeletionStates(t *testing.T) {
 	for _, test := range []struct {
-		name   string
-		err    error
-		status int
-		code   string
+		name            string
+		err             error
+		status          int
+		code            string
+		messageContains string
 	}{
-		{name: "missing", err: service.ErrEnvironmentNotFound, status: http.StatusNotFound, code: "NOT_FOUND"},
-		{name: "conflict", err: fmt.Errorf("%w: environment build is active", service.ErrInvalidOperation), status: http.StatusConflict, code: "INVALID_OPERATION"},
+		{name: "missing", err: service.ErrEnvironmentNotFound, status: http.StatusNotFound, code: "NOT_FOUND", messageContains: "Development Environment"},
+		{name: "in use", err: service.ErrEnvironmentInUse, status: http.StatusConflict, code: "ENVIRONMENT_IN_USE"},
+		{name: "invalid lifecycle state", err: service.ErrEnvironmentInvalidState, status: http.StatusConflict, code: "ENVIRONMENT_INVALID_STATE"},
+		{name: "active cleanup work", err: service.ErrEnvironmentCleanupActive, status: http.StatusConflict, code: "ENVIRONMENT_CLEANUP_ACTIVE"},
+		{name: "invalid request", err: fmt.Errorf("%w: invalid environment id", service.ErrInvalidMachineInput), status: http.StatusBadRequest, code: "BAD_REQUEST"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			e := echo.New()
@@ -86,6 +90,38 @@ func TestMachineErrorMapsEnvironmentDeletionStates(t *testing.T) {
 			var response dto.ErrorResponse
 			require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
 			require.Equal(t, test.code, response.Error.Code)
+			if test.messageContains != "" {
+				require.Contains(t, response.Error.Message, test.messageContains)
+			}
+		})
+	}
+}
+
+func TestMachineErrorUsesResourceSpecificNotFoundMessages(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		err      error
+		resource string
+		code     string
+	}{
+		{name: "machine", err: service.ErrMachineNotFound, resource: "Dev Machine", code: "NOT_FOUND"},
+		{name: "agent run", err: service.ErrAgentRunNotFound, resource: "Agent Run", code: "NOT_FOUND"},
+		{name: "environment", err: service.ErrEnvironmentNotFound, resource: "Development Environment", code: "NOT_FOUND"},
+		{name: "checkout", err: service.ErrCheckoutNotFound, resource: "Checkout", code: "NOT_FOUND"},
+		{name: "terminal session", err: service.ErrTerminalSessionNotFound, resource: "Terminal Session", code: "NOT_FOUND"},
+		{name: "service", err: service.ErrServiceNotAvailable, resource: "machine service", code: "SERVICE_NOT_AVAILABLE"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			e := echo.New()
+			recorder := httptest.NewRecorder()
+			ctx := e.NewContext(httptest.NewRequest(http.MethodGet, "/resource", nil), recorder)
+
+			require.NoError(t, machineError(ctx, test.err))
+			require.Equal(t, http.StatusNotFound, recorder.Code)
+			var response dto.ErrorResponse
+			require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+			require.Equal(t, test.code, response.Error.Code)
+			require.Contains(t, response.Error.Message, test.resource)
 		})
 	}
 }

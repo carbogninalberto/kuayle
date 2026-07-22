@@ -22,22 +22,26 @@ import (
 )
 
 var (
-	ErrDevMachinesDisabled     = errors.New("dev machines are disabled")
-	ErrMachineNotFound         = errors.New("dev machine not found")
-	ErrAgentRunNotFound        = errors.New("agent run not found")
-	ErrEnvironmentNotFound     = errors.New("development environment not found")
-	ErrTerminalSessionNotFound = errors.New("terminal session not found")
-	ErrInvalidOperation        = errors.New("operation is not valid for the current machine state")
-	ErrMachineQuota            = errors.New("dev machine quota exceeded")
-	ErrProviderNotAllowed      = errors.New("agent provider is not allowed")
-	ErrRepositoryNotAllowed    = errors.New("repository is not allowed")
-	ErrServiceNotAvailable     = errors.New("machine service is not available")
-	ErrCheckoutNotEligible     = errors.New("machine is not eligible for this issue checkout")
-	ErrCheckoutNotReady        = errors.New("repository checkout is not ready")
-	ErrTerminalSessionRequired = errors.New("terminal must be launched through a native session")
-	ErrInvalidMachineInput     = errors.New("invalid dev machine request")
-	ErrMachineNameConflict     = errors.New("dev machine name is already in use")
-	ErrMachineAuthentication   = errors.New("machine authentication failed")
+	ErrDevMachinesDisabled      = errors.New("dev machines are disabled")
+	ErrMachineNotFound          = errors.New("dev machine not found")
+	ErrAgentRunNotFound         = errors.New("agent run not found")
+	ErrEnvironmentNotFound      = errors.New("development environment not found")
+	ErrEnvironmentInUse         = errors.New("development environment is in use")
+	ErrEnvironmentInvalidState  = errors.New("development environment cannot be deleted in its current state")
+	ErrEnvironmentCleanupActive = errors.New("development environment cleanup is blocked by active work")
+	ErrTerminalSessionNotFound  = errors.New("terminal session not found")
+	ErrInvalidOperation         = errors.New("operation is not valid for the current machine state")
+	ErrMachineQuota             = errors.New("dev machine quota exceeded")
+	ErrProviderNotAllowed       = errors.New("agent provider is not allowed")
+	ErrRepositoryNotAllowed     = errors.New("repository is not allowed")
+	ErrServiceNotAvailable      = errors.New("machine service is not available")
+	ErrCheckoutNotEligible      = errors.New("machine is not eligible for this issue checkout")
+	ErrCheckoutNotReady         = errors.New("repository checkout is not ready")
+	ErrCheckoutNotFound         = errors.New("repository checkout not found")
+	ErrTerminalSessionRequired  = errors.New("terminal must be launched through a native session")
+	ErrInvalidMachineInput      = errors.New("invalid dev machine request")
+	ErrMachineNameConflict      = errors.New("dev machine name is already in use")
+	ErrMachineAuthentication    = errors.New("machine authentication failed")
 )
 
 type DevMachineImages struct {
@@ -903,8 +907,14 @@ func (s *DevMachineService) GetEnvironment(ctx context.Context, workspaceID, env
 
 func (s *DevMachineService) RequestEnvironmentDeletion(ctx context.Context, workspaceID, environmentID uuid.UUID) error {
 	if err := s.store.RequestEnvironmentDeletion(ctx, workspaceID, environmentID); err != nil {
-		if errors.Is(err, repository.ErrEnvironmentInUse) || errors.Is(err, repository.ErrEnvironmentInvalidState) || errors.Is(err, repository.ErrEnvironmentDeletionConflict) {
-			return fmt.Errorf("%w: %v", ErrInvalidOperation, err)
+		if errors.Is(err, repository.ErrEnvironmentInUse) {
+			return ErrEnvironmentInUse
+		}
+		if errors.Is(err, repository.ErrEnvironmentInvalidState) {
+			return ErrEnvironmentInvalidState
+		}
+		if errors.Is(err, repository.ErrEnvironmentDeletionConflict) {
+			return ErrEnvironmentCleanupActive
 		}
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrEnvironmentNotFound
@@ -1160,7 +1170,7 @@ func (s *DevMachineService) CreateAgentRun(ctx context.Context, workspaceID, mac
 			return nil, err
 		}
 		if checkout == nil {
-			return nil, fmt.Errorf("%w: selected checkout does not exist", ErrCheckoutNotReady)
+			return nil, ErrCheckoutNotFound
 		}
 		selectedCheckout, err = selectReadyAgentCheckout([]domain.DevMachineCheckout{*checkout})
 		if err != nil {
@@ -1458,7 +1468,10 @@ func (s *DevMachineService) LaunchService(ctx context.Context, workspaceID, mach
 		if err != nil {
 			return nil, err
 		}
-		if checkout == nil || checkout.Status != "ready" {
+		if checkout == nil {
+			return nil, ErrCheckoutNotFound
+		}
+		if checkout.Status != "ready" {
 			return nil, fmt.Errorf("%w: selected checkout must be ready", ErrCheckoutNotReady)
 		}
 	}
@@ -1563,7 +1576,10 @@ func (s *DevMachineService) CreateTerminalSession(ctx context.Context, workspace
 		if err != nil {
 			return nil, err
 		}
-		if checkout == nil || checkout.Status != "ready" {
+		if checkout == nil {
+			return nil, ErrCheckoutNotFound
+		}
+		if checkout.Status != "ready" {
 			return nil, fmt.Errorf("%w: selected checkout must be ready", ErrCheckoutNotReady)
 		}
 		checkoutID = &parsed
