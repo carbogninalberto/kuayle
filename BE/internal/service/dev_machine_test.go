@@ -485,6 +485,27 @@ func TestDeleteScopeSettingIsIdempotent(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestLifecycleMapsTransactionalConflicts(t *testing.T) {
+	workspaceID, userID, machineID := uuid.New(), uuid.New(), uuid.New()
+	for _, conflict := range []error{repository.ErrActiveAgentRun, repository.ErrMachineStateConflict} {
+		store := &devMachineStoreFake{
+			machine: &domain.DevMachine{
+				ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID,
+				Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning,
+				Generation: 1, ExpiresAt: time.Now().Add(time.Hour),
+			},
+			setDesiredErr: conflict,
+		}
+
+		_, err := newTestDevMachineService(store).Lifecycle(
+			context.Background(), workspaceID, machineID, userID, domain.DevMachineOpPause, "pause:2",
+		)
+
+		require.ErrorIs(t, err, ErrInvalidOperation)
+		require.Contains(t, err.Error(), conflict.Error())
+	}
+}
+
 func TestUserScopedMachineAccessRequiresCreator(t *testing.T) {
 	workspaceID, ownerID, otherID, machineID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	store := &devMachineStoreFake{
@@ -705,6 +726,7 @@ type devMachineStoreFake struct {
 	permanentDeleteRequests     int
 	permanentDeleteQueued       int
 	deleteScopeSettingErr       error
+	setDesiredErr               error
 	queuedOperation             *domain.DevMachineOperation
 	queuedDesired               domain.DevMachineStatus
 }
@@ -815,6 +837,9 @@ func (f *devMachineStoreFake) GetOperationByIdempotency(context.Context, uuid.UU
 }
 
 func (f *devMachineStoreFake) SetDesiredAndEnqueue(_ context.Context, _ uuid.UUID, _ uuid.UUID, desired domain.DevMachineStatus, operation *domain.DevMachineOperation) error {
+	if f.setDesiredErr != nil {
+		return f.setDesiredErr
+	}
 	f.queuedDesired = desired
 	f.queuedOperation = operation
 	if f.machine != nil {
@@ -822,6 +847,10 @@ func (f *devMachineStoreFake) SetDesiredAndEnqueue(_ context.Context, _ uuid.UUI
 		f.machine.Generation = operation.Generation
 	}
 	return nil
+}
+
+func (f *devMachineStoreFake) HasActiveAgentRun(context.Context, uuid.UUID) (bool, error) {
+	return false, nil
 }
 
 func (f *devMachineStoreFake) GetPolicy(context.Context, uuid.UUID) (*domain.DevMachineWorkspacePolicy, error) {

@@ -85,6 +85,8 @@ type DevMachineStore interface {
 
 var ErrIdempotencyKeyConflict = errors.New("idempotency key was already used for another operation")
 var ErrCheckoutMachineConflict = errors.New("machine is not running or uses another repository")
+var ErrActiveAgentRun = errors.New("machine has an active agent run")
+var ErrMachineStateConflict = errors.New("machine state changed while queuing operation")
 
 type DevMachineRepository struct {
 	db *sqlx.DB
@@ -330,6 +332,9 @@ func (r *DevMachineRepository) SetDesiredAndEnqueue(ctx context.Context, workspa
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`, workspaceID); err != nil {
 		return err
 	}
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`, machineID); err != nil {
+		return err
+	}
 	var existing domain.DevMachineOperation
 	err = tx.GetContext(ctx, &existing, `SELECT * FROM dev_machine_operations WHERE workspace_id=$1 AND machine_id=$2 AND idempotency_key=$3`, workspaceID, machineID, operation.IdempotencyKey)
 	if err == nil {
@@ -342,12 +347,28 @@ func (r *DevMachineRepository) SetDesiredAndEnqueue(ctx context.Context, workspa
 	if !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
-	if desired == domain.DevMachineStatusRunning {
-		var status domain.DevMachineStatus
-		var creatorID *uuid.UUID
-		if err := tx.QueryRowContext(ctx, `SELECT status, created_by_user_id FROM dev_machines WHERE workspace_id=$1 AND id=$2`, workspaceID, machineID).Scan(&status, &creatorID); err != nil {
+	var status domain.DevMachineStatus
+	var creatorID *uuid.UUID
+	var generation int64
+	if err := tx.QueryRowContext(ctx, `SELECT status, generation, created_by_user_id
+		FROM dev_machines WHERE workspace_id=$1 AND id=$2 FOR UPDATE`, workspaceID, machineID).
+		Scan(&status, &generation, &creatorID); err != nil {
+		return err
+	}
+	if generation >= operation.Generation {
+		return ErrMachineStateConflict
+	}
+	if operation.Action == domain.DevMachineOpPause || operation.Action == domain.DevMachineOpStop {
+		var active bool
+		if err := tx.GetContext(ctx, &active, `SELECT EXISTS(SELECT 1 FROM dev_machine_agent_runs
+			WHERE machine_id=$1 AND status IN ('queued','starting','running','waiting_input'))`, machineID); err != nil {
 			return err
 		}
+		if active {
+			return ErrActiveAgentRun
+		}
+	}
+	if desired == domain.DevMachineStatusRunning {
 		if status == domain.DevMachineStatusStopped || status == domain.DevMachineStatusFailed {
 			var maxWorkspace, maxUser, workspaceCount, userCount int
 			if err := tx.QueryRowContext(ctx, `SELECT max_concurrent_machines, max_machines_per_user
@@ -709,6 +730,18 @@ func (r *DevMachineRepository) CreateAgentRun(ctx context.Context, run *domain.D
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`, run.MachineID); err != nil {
 		return err
 	}
+	var status, desiredStatus domain.DevMachineStatus
+	var generation int64
+	if err := tx.QueryRowContext(ctx, `SELECT status, desired_status, generation FROM dev_machines
+		WHERE workspace_id=$1 AND id=$2 FOR UPDATE`, run.WorkspaceID, run.MachineID).
+		Scan(&status, &desiredStatus, &generation); errors.Is(err, sql.ErrNoRows) {
+		return ErrMachineStateConflict
+	} else if err != nil {
+		return err
+	}
+	if status != domain.DevMachineStatusRunning || desiredStatus != domain.DevMachineStatusRunning || generation != operation.Generation {
+		return ErrMachineStateConflict
+	}
 	var maxDailyRuns int
 	if err := tx.GetContext(ctx, &maxDailyRuns, `SELECT max_daily_agent_runs FROM dev_machine_workspace_policies
 		WHERE workspace_id=$1 AND enabled`, run.WorkspaceID); err != nil {
@@ -728,7 +761,7 @@ func (r *DevMachineRepository) CreateAgentRun(ctx context.Context, run *domain.D
 		return err
 	}
 	if active {
-		return fmt.Errorf("active agent run already exists")
+		return ErrActiveAgentRun
 	}
 	if err := tx.QueryRowContext(ctx, `INSERT INTO dev_machine_agent_runs
 		(id, machine_id, workspace_id, issue_id, checkout_id, requested_by_user_id, provider_id, mode, status, prompt,

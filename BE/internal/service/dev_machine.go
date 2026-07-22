@@ -1008,6 +1008,9 @@ func (s *DevMachineService) Lifecycle(ctx context.Context, workspaceID, machineI
 		if errors.Is(err, repository.ErrIdempotencyKeyConflict) {
 			return nil, fmt.Errorf("%w: %v", ErrInvalidOperation, err)
 		}
+		if errors.Is(err, repository.ErrActiveAgentRun) || errors.Is(err, repository.ErrMachineStateConflict) {
+			return nil, fmt.Errorf("%w: %v", ErrInvalidOperation, err)
+		}
 		return nil, err
 	}
 	s.emit(ctx, machine, nil, &userID, "lifecycle", "operation.queued", map[string]any{"action": action, "operation_id": operation.ID})
@@ -1235,6 +1238,9 @@ func (s *DevMachineService) CreateAgentRun(ctx context.Context, workspaceID, mac
 		IdempotencyKey: "run-agent:" + runID.String(), RequestedByUserID: &userID, MaxAttempts: 3,
 	}
 	if err := s.store.CreateAgentRun(ctx, run, operation); err != nil {
+		if errors.Is(err, repository.ErrMachineStateConflict) || errors.Is(err, repository.ErrActiveAgentRun) {
+			return nil, fmt.Errorf("%w: %v", ErrInvalidOperation, err)
+		}
 		return nil, err
 	}
 	_ = s.store.TouchMachineActivity(ctx, machineID, time.Now().UTC())

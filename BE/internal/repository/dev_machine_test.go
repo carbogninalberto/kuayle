@@ -386,6 +386,102 @@ func TestRuntimeCredentialsSchemaHasCascadeUniqueAndExpiryIndex(t *testing.T) {
 	require.Contains(t, indexDef, "expires_at")
 }
 
+func TestAgentRunCreationSerializesWithPauseAndStop(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is not configured")
+	}
+	db, err := sqlx.Connect("pgx", databaseURL)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	for _, test := range []struct {
+		name    string
+		action  domain.DevMachineOperationAction
+		desired domain.DevMachineStatus
+	}{
+		{name: "pause", action: domain.DevMachineOpPause, desired: domain.DevMachineStatusPaused},
+		{name: "stop", action: domain.DevMachineOpStop, desired: domain.DevMachineStatusStopped},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			userID, workspaceID, machineID := uuid.New(), uuid.New(), uuid.New()
+			suffix := strings.ReplaceAll(machineID.String(), "-", "")
+			t.Cleanup(func() {
+				_, _ = db.Exec(`DELETE FROM workspaces WHERE id=$1`, workspaceID)
+				_, _ = db.Exec(`DELETE FROM users WHERE id=$1`, userID)
+			})
+			_, err := db.Exec(`INSERT INTO users (id,email,name,password_hash) VALUES ($1,$2,'Lifecycle Test','test')`,
+				userID, suffix+"@example.test")
+			require.NoError(t, err)
+			_, err = db.Exec(`INSERT INTO workspaces (id,name,slug,owner_id) VALUES ($1,'Lifecycle Test',$2,$3)`,
+				workspaceID, "lifecycle-"+suffix, userID)
+			require.NoError(t, err)
+			_, err = db.Exec(`INSERT INTO workspace_members (workspace_id,user_id,role) VALUES ($1,$2,'owner')`, workspaceID, userID)
+			require.NoError(t, err)
+			_, err = db.Exec(`INSERT INTO dev_machine_workspace_policies (workspace_id,enabled) VALUES ($1,TRUE)`, workspaceID)
+			require.NoError(t, err)
+			_, err = db.Exec(`INSERT INTO dev_machines
+				(id,workspace_id,created_by_user_id,routing_key,name,status,desired_status,generation,
+				 repo_url,repo_provider,repo_owner,repo_name,base_branch,working_branch,
+				 machine_size,cpu_millis,memory_mb,disk_gb,max_runtime_minutes,expires_at)
+				VALUES ($1,$2,$3,$4,$5,'running','running',1,'','github','','','','',
+				 'small',1000,2048,20,480,NOW()+INTERVAL '1 hour')`,
+				machineID, workspaceID, userID, suffix[:16], "machine-"+suffix)
+			require.NoError(t, err)
+
+			repo := NewDevMachineRepository(db)
+			run := &domain.DevMachineAgentRun{
+				ID: uuid.New(), MachineID: machineID, WorkspaceID: workspaceID, RequestedByUserID: &userID,
+				ProviderID: "opencode", Mode: "autonomous", Status: domain.DevMachineAgentRunStatusQueued,
+				Prompt: "test", AcceptanceCriteria: []byte(`[]`), AllowedCommands: []byte(`[]`),
+				ForbiddenPaths: []byte(`[]`), AllowedSecrets: []byte(`[]`), CommandArgv: []byte(`["true"]`),
+				MaxRuntimeSeconds: 60,
+			}
+			runOperation := &domain.DevMachineOperation{
+				ID: uuid.New(), MachineID: machineID, WorkspaceID: workspaceID, Action: domain.DevMachineOpRunAgent,
+				Status: domain.DevMachineOpStatusPending, Generation: 1, IdempotencyKey: "run-agent:" + run.ID.String(),
+				RequestedByUserID: &userID, MaxAttempts: 3,
+			}
+			lifecycleOperation := &domain.DevMachineOperation{
+				ID: uuid.New(), MachineID: machineID, WorkspaceID: workspaceID, Action: test.action,
+				Status: domain.DevMachineOpStatusPending, Generation: 2, IdempotencyKey: string(test.action) + ":2",
+				RequestedByUserID: &userID, MaxAttempts: 5,
+			}
+
+			start := make(chan struct{})
+			runResult, lifecycleResult := make(chan error, 1), make(chan error, 1)
+			go func() {
+				<-start
+				runResult <- repo.CreateAgentRun(context.Background(), run, runOperation)
+			}()
+			go func() {
+				<-start
+				lifecycleResult <- repo.SetDesiredAndEnqueue(context.Background(), workspaceID, machineID, test.desired, lifecycleOperation)
+			}()
+			close(start)
+			runErr, lifecycleErr := <-runResult, <-lifecycleResult
+			require.NotEqual(t, runErr == nil, lifecycleErr == nil, "exactly one conflicting transaction must commit")
+
+			var desired domain.DevMachineStatus
+			var generation, runCount int
+			require.NoError(t, db.QueryRow(`SELECT desired_status,generation FROM dev_machines WHERE id=$1`, machineID).Scan(&desired, &generation))
+			require.NoError(t, db.Get(&runCount, `SELECT COUNT(*) FROM dev_machine_agent_runs WHERE machine_id=$1`, machineID))
+			if runErr == nil {
+				require.ErrorIs(t, lifecycleErr, ErrActiveAgentRun)
+				require.Equal(t, domain.DevMachineStatusRunning, desired)
+				require.Equal(t, 1, generation)
+				require.Equal(t, 1, runCount)
+			} else {
+				require.ErrorIs(t, runErr, ErrMachineStateConflict)
+				require.NoError(t, lifecycleErr)
+				require.Equal(t, test.desired, desired)
+				require.Equal(t, 2, generation)
+				require.Zero(t, runCount)
+			}
+		})
+	}
+}
+
 func TestListAgentRunsScansPersistedRows(t *testing.T) {
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {
