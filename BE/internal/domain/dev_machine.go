@@ -187,6 +187,24 @@ type DevMachineEnvVar struct {
 	CreatedAt            time.Time  `json:"created_at" db:"created_at"`
 }
 
+const (
+	DevMachineRuntimeCredentialScopeMachine    = "machine"
+	DevMachineRuntimeCredentialTypeGitHubToken = "github_installation_token"
+)
+
+type DevMachineRuntimeCredential struct {
+	ID                   uuid.UUID `json:"id" db:"id"`
+	MachineID            uuid.UUID `json:"machine_id" db:"machine_id"`
+	Scope                string    `json:"scope" db:"scope"`
+	CredentialType       string    `json:"credential_type" db:"credential_type"`
+	FingerprintSHA256    string    `json:"-" db:"fingerprint_sha256"`
+	EncryptedValue       string    `json:"-" db:"encrypted_value"`
+	EncryptionKeyVersion int       `json:"encryption_key_version" db:"encryption_key_version"`
+	ExpiresAt            time.Time `json:"expires_at" db:"expires_at"`
+	CreatedAt            time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt            time.Time `json:"updated_at" db:"updated_at"`
+}
+
 type DevMachineToken struct {
 	ID         uuid.UUID       `json:"id" db:"id"`
 	MachineID  uuid.UUID       `json:"machine_id" db:"machine_id"`

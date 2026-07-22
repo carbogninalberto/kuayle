@@ -2,13 +2,19 @@ package machine
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"strings"
+	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/agent"
 	"github.com/kuayle/kuayle-backend/internal/domain"
+	cryptoutil "github.com/kuayle/kuayle-backend/pkg/crypto"
+	githubclient "github.com/kuayle/kuayle-backend/pkg/github"
 	"github.com/stretchr/testify/require"
-	"testing"
 )
 
 type managerStoreFake struct {
@@ -29,9 +35,12 @@ type managerStoreFake struct {
 	deleteRequestedEnvs       []domain.DevMachineEnvironment
 	deletedEnvironmentIDs     []uuid.UUID
 	installationFullNameCalls []string
+	githubInstallationID      int64
 	agentRun                  *domain.DevMachineAgentRun
 	provider                  *domain.DevMachineAgentProvider
 	completedRun              *domain.DevMachineAgentRun
+	runtimeCredentials        []domain.DevMachineRuntimeCredential
+	purgedCredentialNow       *time.Time
 }
 
 func (f *managerStoreFake) LeaseOperations(context.Context, string, int, time.Duration) ([]domain.DevMachineOperation, error) {
@@ -171,7 +180,7 @@ func (f *managerStoreFake) UpdateVolumeUsage(context.Context, uuid.UUID, int64) 
 func (f *managerStoreFake) CreateGitRef(context.Context, *domain.DevMachineGitRef) error { return nil }
 func (f *managerStoreFake) GetGitHubInstallationID(_ context.Context, _ uuid.UUID, fullName string) (int64, error) {
 	f.installationFullNameCalls = append(f.installationFullNameCalls, fullName)
-	return 0, nil
+	return f.githubInstallationID, nil
 }
 func (f *managerStoreFake) GetGitHubAppConfig(context.Context, uuid.UUID) (*domain.GitHubAppConfig, error) {
 	return nil, nil
@@ -210,6 +219,31 @@ func (f *managerStoreFake) DeleteEnvironment(_ context.Context, _ uuid.UUID, env
 }
 func (f *managerStoreFake) ListIdleMachines(context.Context, int) ([]domain.DevMachine, error) {
 	return f.idle, nil
+}
+func (f *managerStoreFake) UpsertRuntimeCredential(_ context.Context, credential *domain.DevMachineRuntimeCredential) error {
+	f.runtimeCredentials = append(f.runtimeCredentials, *credential)
+	return nil
+}
+func (f *managerStoreFake) PurgeExpiredRuntimeCredentials(_ context.Context, now time.Time) (int, error) {
+	f.purgedCredentialNow = &now
+	return 0, nil
+}
+
+type githubAPIFake struct {
+	token          string
+	expiresAt      time.Time
+	installationID int64
+	repository     string
+}
+
+func (f *githubAPIFake) GetRepositoryInstallationToken(installationID int64, repository string) (string, time.Time, error) {
+	f.installationID = installationID
+	f.repository = repository
+	return f.token, f.expiresAt, nil
+}
+
+func (f *githubAPIFake) CreatePullRequest(string, string, string, string, string, string, string) (*githubclient.PullRequest, error) {
+	return &githubclient.PullRequest{HTMLURL: "https://github.com/kuayle/api/pull/1", Number: 1}, nil
 }
 
 type runtimeFake struct {
@@ -386,6 +420,53 @@ func TestManagerCheckoutTokenUsesCheckoutRepository(t *testing.T) {
 
 	require.Error(t, err)
 	require.Equal(t, []string{"selected/repo"}, store.installationFullNameCalls)
+}
+
+func TestRepositoryTokenRegistersRuntimeCredentialBeforeReturning(t *testing.T) {
+	machineID, workspaceID := uuid.New(), uuid.New()
+	token := "ghs_" + strings.Repeat("runtime-token", 4)
+	expiresAt := time.Date(2026, 7, 22, 10, 30, 0, 0, time.UTC)
+	key := cryptoutil.DeriveKey("manager-runtime-credential-test")
+	store := &managerStoreFake{
+		machine:              &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, RepoOwner: "kuayle", RepoName: "api"},
+		githubInstallationID: 42,
+	}
+	github := &githubAPIFake{token: token, expiresAt: expiresAt}
+	manager := NewManager(store, &runtimeFake{}, agent.NewRegistry(), github, key, nil, "test")
+
+	client, returnedToken, err := manager.repositoryToken(context.Background(), store.machine, "kuayle/api")
+
+	require.NoError(t, err)
+	require.Same(t, github, client)
+	require.Equal(t, token, returnedToken)
+	require.Equal(t, int64(42), github.installationID)
+	require.Equal(t, "api", github.repository)
+	require.Len(t, store.runtimeCredentials, 1)
+	credential := store.runtimeCredentials[0]
+	require.Equal(t, machineID, credential.MachineID)
+	require.Equal(t, domain.DevMachineRuntimeCredentialScopeMachine, credential.Scope)
+	require.Equal(t, domain.DevMachineRuntimeCredentialTypeGitHubToken, credential.CredentialType)
+	require.Equal(t, expiresAt, credential.ExpiresAt)
+	require.NotEmpty(t, credential.EncryptedValue)
+	require.NotEqual(t, token, credential.EncryptedValue)
+	decrypted, err := cryptoutil.Decrypt(credential.EncryptedValue, key)
+	require.NoError(t, err)
+	require.Equal(t, token, decrypted)
+	fingerprint := sha256.Sum256([]byte(token))
+	require.Equal(t, hex.EncodeToString(fingerprint[:]), credential.FingerprintSHA256)
+	encoded, err := json.Marshal(credential)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), credential.EncryptedValue)
+	require.NotContains(t, string(encoded), credential.FingerprintSHA256)
+	require.NotContains(t, string(encoded), token)
+}
+
+func TestReconcilePurgesExpiredRuntimeCredentials(t *testing.T) {
+	store := &managerStoreFake{}
+	manager := NewManager(store, &runtimeFake{}, agent.NewRegistry(), nil, nil, nil, "test")
+
+	require.NoError(t, manager.reconcile(context.Background()))
+	require.NotNil(t, store.purgedCredentialNow)
 }
 
 func TestManagerMarksStaleCheckoutFailed(t *testing.T) {

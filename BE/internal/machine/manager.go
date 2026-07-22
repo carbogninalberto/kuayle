@@ -2,7 +2,9 @@ package machine
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -58,13 +60,20 @@ type ManagerStore interface {
 	ListDeleteRequestedEnvironments(context.Context, int) ([]domain.DevMachineEnvironment, error)
 	DeleteEnvironment(context.Context, uuid.UUID, uuid.UUID) error
 	ListIdleMachines(context.Context, int) ([]domain.DevMachine, error)
+	UpsertRuntimeCredential(context.Context, *domain.DevMachineRuntimeCredential) error
+	PurgeExpiredRuntimeCredentials(context.Context, time.Time) (int, error)
+}
+
+type githubAPI interface {
+	GetRepositoryInstallationToken(int64, string) (string, time.Time, error)
+	CreatePullRequest(string, string, string, string, string, string, string) (*githubclient.PullRequest, error)
 }
 
 type Manager struct {
 	store         ManagerStore
 	runtime       Runtime
 	agents        *agent.Registry
-	github        *githubclient.Client
+	github        githubAPI
 	encryptionKey []byte
 	githubKey     []byte
 	owner         string
@@ -80,7 +89,7 @@ type Manager struct {
 	activeRuns          map[uuid.UUID]map[uuid.UUID]context.CancelFunc
 }
 
-func NewManager(store ManagerStore, runtime Runtime, agents *agent.Registry, github *githubclient.Client, encryptionKey, githubKey []byte, owner string) *Manager {
+func NewManager(store ManagerStore, runtime Runtime, agents *agent.Registry, github githubAPI, encryptionKey, githubKey []byte, owner string) *Manager {
 	return &Manager{
 		store: store, runtime: runtime, agents: agents, github: github, encryptionKey: encryptionKey,
 		githubKey: githubKey, owner: owner, pollInterval: time.Second, operationSlots: make(chan struct{}, 8),
@@ -757,7 +766,11 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 }
 
 func (m *Manager) reconcile(ctx context.Context) error {
-	m.lastReconcileUnix.Store(time.Now().Unix())
+	now := time.Now().UTC()
+	m.lastReconcileUnix.Store(now.Unix())
+	if _, err := m.store.PurgeExpiredRuntimeCredentials(ctx, now); err != nil {
+		log.WithError(err).Warn("expired runtime credential purge failed")
+	}
 	timedOutRuns, err := m.store.ListTimedOutAgentRuns(ctx, 100)
 	if err != nil {
 		return err
@@ -1133,7 +1146,7 @@ func errorCode(err error) string {
 	return "runtime_error"
 }
 
-func (m *Manager) repositoryToken(ctx context.Context, machine *domain.DevMachine, repositoryFullName string) (*githubclient.Client, string, error) {
+func (m *Manager) repositoryToken(ctx context.Context, machine *domain.DevMachine, repositoryFullName string) (githubAPI, string, error) {
 	if repositoryFullName == "" {
 		repositoryFullName = checkoutRepositoryFullName(machine, nil)
 	}
@@ -1163,8 +1176,34 @@ func (m *Manager) repositoryToken(ctx context.Context, machine *domain.DevMachin
 			return nil, "", err
 		}
 	}
-	token, _, err := client.GetRepositoryInstallationToken(installationID, repoName)
-	return client, token, err
+	token, expiresAt, err := client.GetRepositoryInstallationToken(installationID, repoName)
+	if err != nil {
+		return nil, "", err
+	}
+	if token == "" {
+		return nil, "", errors.New("empty GitHub installation token")
+	}
+	if err := m.registerRuntimeCredential(ctx, machine.ID, token, expiresAt); err != nil {
+		return nil, "", fmt.Errorf("runtime_credential_registration_failed: %w", err)
+	}
+	return client, token, nil
+}
+
+func (m *Manager) registerRuntimeCredential(ctx context.Context, machineID uuid.UUID, token string, expiresAt time.Time) error {
+	fingerprint := sha256.Sum256([]byte(token))
+	encrypted, err := cryptoutil.Encrypt(token, m.encryptionKey)
+	if err != nil {
+		return fmt.Errorf("credential_encryption_failed: %w", err)
+	}
+	return m.store.UpsertRuntimeCredential(ctx, &domain.DevMachineRuntimeCredential{
+		ID: uuid.New(), MachineID: machineID,
+		Scope:                domain.DevMachineRuntimeCredentialScopeMachine,
+		CredentialType:       domain.DevMachineRuntimeCredentialTypeGitHubToken,
+		FingerprintSHA256:    hex.EncodeToString(fingerprint[:]),
+		EncryptedValue:       encrypted,
+		EncryptionKeyVersion: 1,
+		ExpiresAt:            expiresAt.UTC(),
+	})
 }
 
 func checkoutRepositoryFullName(machine *domain.DevMachine, checkout *domain.DevMachineCheckout) string {

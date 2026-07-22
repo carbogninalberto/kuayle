@@ -1,3 +1,6 @@
+DROP TRIGGER IF EXISTS dev_machine_runtime_credentials_touch ON dev_machine_runtime_credentials;
+DROP TABLE IF EXISTS dev_machine_runtime_credentials;
+
 DROP INDEX IF EXISTS idx_dev_machine_log_chunks_agent_run_cursor;
 DROP INDEX IF EXISTS idx_dev_machine_events_agent_run_cursor;
 

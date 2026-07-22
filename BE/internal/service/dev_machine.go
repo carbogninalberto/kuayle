@@ -1950,9 +1950,22 @@ func (s *DevMachineService) machineSecretValues(ctx context.Context, machineID u
 	if err != nil {
 		return nil, err
 	}
-	values := make([]string, 0, len(envVars))
+	runtimeCredentials, err := s.store.ListRuntimeCredentials(ctx, machineID)
+	if err != nil {
+		return nil, err
+	}
+	values := make([]string, 0, len(envVars)+len(runtimeCredentials))
 	for _, envVar := range envVars {
 		value, err := cryptoutil.Decrypt(envVar.EncryptedValue, s.encryptionKey)
+		if err != nil {
+			return nil, err
+		}
+		if value != "" {
+			values = append(values, value)
+		}
+	}
+	for _, credential := range runtimeCredentials {
+		value, err := cryptoutil.Decrypt(credential.EncryptedValue, s.encryptionKey)
 		if err != nil {
 			return nil, err
 		}

@@ -204,6 +204,72 @@ func TestCreateAccessSessionQueryRevalidatesCreatorAndTuple(t *testing.T) {
 	require.Contains(t, query, "s.status='running' AND $8>NOW() AND $8<=m.expires_at")
 }
 
+func TestUpsertRuntimeCredentialQueryUsesMachineFingerprintConflict(t *testing.T) {
+	repo, conn := newCaptureDevMachineRepository(t, 0)
+	conn.queryColumns = []string{"id", "created_at", "updated_at"}
+	now := time.Now().UTC()
+	conn.queryValues = []driver.Value{uuid.New().String(), now, now}
+	machineID := uuid.New()
+	fingerprint := strings.Repeat("a", 64)
+
+	err := repo.UpsertRuntimeCredential(context.Background(), &domain.DevMachineRuntimeCredential{
+		ID: uuid.New(), MachineID: machineID, Scope: domain.DevMachineRuntimeCredentialScopeMachine,
+		CredentialType: domain.DevMachineRuntimeCredentialTypeGitHubToken, FingerprintSHA256: fingerprint,
+		EncryptedValue: "encrypted-runtime-token", EncryptionKeyVersion: 1, ExpiresAt: now.Add(time.Hour),
+	})
+
+	require.NoError(t, err)
+	query, args := conn.captured()
+	require.Contains(t, query, "INSERT INTO dev_machine_runtime_credentials")
+	require.Contains(t, query, "ON CONFLICT (machine_id, fingerprint_sha256) DO UPDATE")
+	require.Contains(t, query, "encrypted_value=EXCLUDED.encrypted_value")
+	require.Contains(t, query, "expires_at=EXCLUDED.expires_at")
+	require.Len(t, args, 8)
+	require.Equal(t, machineID.String(), args[1].Value)
+	require.Equal(t, domain.DevMachineRuntimeCredentialScopeMachine, args[2].Value)
+	require.Equal(t, domain.DevMachineRuntimeCredentialTypeGitHubToken, args[3].Value)
+	require.Equal(t, fingerprint, args[4].Value)
+	require.Equal(t, "encrypted-runtime-token", args[5].Value)
+}
+
+func TestListRuntimeCredentialsQueryReturnsOnlyUnexpired(t *testing.T) {
+	repo, conn := newCaptureDevMachineRepository(t, 0)
+	machineID := uuid.New()
+	now := time.Now().UTC()
+	conn.queryColumns = []string{
+		"id", "machine_id", "scope", "credential_type", "fingerprint_sha256",
+		"encrypted_value", "encryption_key_version", "expires_at", "created_at", "updated_at",
+	}
+	conn.queryValues = []driver.Value{
+		uuid.New().String(), machineID.String(), domain.DevMachineRuntimeCredentialScopeMachine,
+		domain.DevMachineRuntimeCredentialTypeGitHubToken, strings.Repeat("b", 64), "encrypted", int64(1), now.Add(time.Hour), now, now,
+	}
+
+	credentials, err := repo.ListRuntimeCredentials(context.Background(), machineID)
+
+	require.NoError(t, err)
+	require.Len(t, credentials, 1)
+	query, args := conn.captured()
+	require.Contains(t, query, "FROM dev_machine_runtime_credentials")
+	require.Contains(t, query, "expires_at>NOW()")
+	require.Len(t, args, 1)
+	require.Equal(t, machineID.String(), args[0].Value)
+}
+
+func TestPurgeExpiredRuntimeCredentialsDeletesByExpiry(t *testing.T) {
+	repo, conn := newCaptureDevMachineRepository(t, 3)
+	now := time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)
+
+	count, err := repo.PurgeExpiredRuntimeCredentials(context.Background(), now)
+
+	require.NoError(t, err)
+	require.Equal(t, 3, count)
+	query, args := conn.captured()
+	require.Contains(t, query, "DELETE FROM dev_machine_runtime_credentials WHERE expires_at<=$1")
+	require.Len(t, args, 1)
+	require.Equal(t, now, args[0].Value)
+}
+
 func TestGetAccessSessionQueryRevalidatesCreatorAndTuple(t *testing.T) {
 	repo, conn := newCaptureDevMachineRepository(t, 0)
 	conn.queryColumns, conn.queryValues = accessSessionColumnsAndValuesForTest()
@@ -281,6 +347,43 @@ func TestDevMachineNameUniqueIndexIsCreatorScoped(t *testing.T) {
 	require.Contains(t, indexDef, "workspace_id")
 	require.Contains(t, indexDef, "created_by_user_id")
 	require.Contains(t, indexDef, "lower")
+}
+
+func TestRuntimeCredentialsSchemaHasCascadeUniqueAndExpiryIndex(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is not configured")
+	}
+	db, err := sqlx.Connect("pgx", databaseURL)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	var fkDeleteAction string
+	err = db.Get(&fkDeleteAction, `
+		SELECT confdeltype
+		FROM pg_constraint
+		WHERE conrelid = 'dev_machine_runtime_credentials'::regclass
+		AND contype = 'f'
+		AND conname = 'dev_machine_runtime_credentials_machine_id_fkey'
+	`)
+	require.NoError(t, err)
+	require.Equal(t, "c", fkDeleteAction)
+
+	var uniqueDef string
+	err = db.Get(&uniqueDef, `
+		SELECT pg_get_constraintdef(oid)
+		FROM pg_constraint
+		WHERE conrelid = 'dev_machine_runtime_credentials'::regclass
+		AND contype = 'u'
+	`)
+	require.NoError(t, err)
+	require.Contains(t, uniqueDef, "machine_id")
+	require.Contains(t, uniqueDef, "fingerprint_sha256")
+
+	var indexDef string
+	err = db.Get(&indexDef, `SELECT pg_get_indexdef('idx_dev_machine_runtime_credentials_expiry'::regclass)`)
+	require.NoError(t, err)
+	require.Contains(t, indexDef, "expires_at")
 }
 
 func TestListAgentRunsScansPersistedRows(t *testing.T) {

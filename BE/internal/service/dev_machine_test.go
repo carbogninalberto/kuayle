@@ -49,6 +49,63 @@ func TestRedactPayloadReplacesNestedSecrets(t *testing.T) {
 	require.Equal(t, "key", redacted["[REDACTED]"])
 }
 
+func TestIngestEventRedactsActiveRuntimeCredential(t *testing.T) {
+	workspaceID, machineID := uuid.New(), uuid.New()
+	runtimeToken := "ghs_runtime_event_secret"
+	encrypted, err := cryptoutil.Encrypt(runtimeToken, cryptoutil.DeriveKey("test"))
+	require.NoError(t, err)
+	store := &devMachineStoreFake{
+		machine:            &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, Status: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour)},
+		authenticatedToken: &domain.DevMachineToken{ID: uuid.New(), MachineID: machineID, Scopes: json.RawMessage(`{"events:write":true}`), ExpiresAt: time.Now().Add(time.Hour)},
+		runtimeCredentials: []domain.DevMachineRuntimeCredential{{
+			ID: uuid.New(), MachineID: machineID, Scope: domain.DevMachineRuntimeCredentialScopeMachine,
+			CredentialType: domain.DevMachineRuntimeCredentialTypeGitHubToken, EncryptedValue: encrypted,
+			EncryptionKeyVersion: 1, ExpiresAt: time.Now().Add(time.Hour),
+		}},
+	}
+	svc := newTestDevMachineService(store)
+
+	err = svc.IngestEvent(context.Background(), strings.Repeat("a", 64), dto.CollectorEventInput{
+		Source: "agent", EventType: "secret.seen",
+		Payload: map[string]any{
+			"message": "token=" + runtimeToken,
+			"nested":  []any{map[string]any{"key-" + runtimeToken: runtimeToken}},
+		},
+	})
+
+	require.NoError(t, err)
+	require.Len(t, store.events, 1)
+	persisted := string(store.events[0].Payload)
+	require.NotContains(t, persisted, runtimeToken)
+	require.Contains(t, persisted, "[REDACTED]")
+}
+
+func TestIngestLogRedactsActiveRuntimeCredential(t *testing.T) {
+	workspaceID, machineID := uuid.New(), uuid.New()
+	runtimeToken := "ghs_runtime_log_secret"
+	encrypted, err := cryptoutil.Encrypt(runtimeToken, cryptoutil.DeriveKey("test"))
+	require.NoError(t, err)
+	store := &devMachineStoreFake{
+		machine:            &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, Status: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour)},
+		authenticatedToken: &domain.DevMachineToken{ID: uuid.New(), MachineID: machineID, Scopes: json.RawMessage(`{"logs:write":true}`), ExpiresAt: time.Now().Add(time.Hour)},
+		runtimeCredentials: []domain.DevMachineRuntimeCredential{{
+			ID: uuid.New(), MachineID: machineID, Scope: domain.DevMachineRuntimeCredentialScopeMachine,
+			CredentialType: domain.DevMachineRuntimeCredentialTypeGitHubToken, EncryptedValue: encrypted,
+			EncryptionKeyVersion: 1, ExpiresAt: time.Now().Add(time.Hour),
+		}},
+	}
+	svc := newTestDevMachineService(store)
+
+	err = svc.IngestLog(context.Background(), strings.Repeat("b", 64), dto.CollectorLogInput{
+		Stream: "stdout", Sequence: 1, Content: "git push with " + runtimeToken,
+	})
+
+	require.NoError(t, err)
+	require.Len(t, store.logs, 1)
+	require.NotContains(t, store.logs[0].Content, runtimeToken)
+	require.Contains(t, store.logs[0].Content, "[REDACTED]")
+}
+
 func TestValidMachineName(t *testing.T) {
 	for _, name := range []string{"quiet-orchid-7f3a", "builder-01", "abc"} {
 		require.True(t, validMachineName(name), name)
@@ -615,6 +672,9 @@ type devMachineStoreFake struct {
 	machines                    []domain.DevMachine
 	service                     *domain.DevMachineService
 	services                    []domain.DevMachineService
+	envVars                     []domain.DevMachineEnvVar
+	runtimeCredentials          []domain.DevMachineRuntimeCredential
+	authenticatedToken          *domain.DevMachineToken
 	createdTicket               *domain.DevMachineAccessTicket
 	createAccessTicketErr       error
 	checkouts                   []domain.DevMachineCheckout
@@ -785,7 +845,42 @@ func (f *devMachineStoreFake) UpdateMachinePreferencesForUser(_ context.Context,
 	return machine, nil
 }
 
-func (f *devMachineStoreFake) CreateEvent(context.Context, *domain.DevMachineEvent) error { return nil }
+func (f *devMachineStoreFake) ListEnvVarsInternal(_ context.Context, machineID uuid.UUID, _ *string, _ string) ([]domain.DevMachineEnvVar, error) {
+	filtered := make([]domain.DevMachineEnvVar, 0, len(f.envVars))
+	for _, envVar := range f.envVars {
+		if envVar.MachineID == machineID {
+			filtered = append(filtered, envVar)
+		}
+	}
+	return filtered, nil
+}
+
+func (f *devMachineStoreFake) ListRuntimeCredentials(_ context.Context, machineID uuid.UUID) ([]domain.DevMachineRuntimeCredential, error) {
+	filtered := make([]domain.DevMachineRuntimeCredential, 0, len(f.runtimeCredentials))
+	for _, credential := range f.runtimeCredentials {
+		if credential.MachineID == machineID {
+			filtered = append(filtered, credential)
+		}
+	}
+	return filtered, nil
+}
+
+func (f *devMachineStoreFake) AuthenticateMachineToken(_ context.Context, _, _ string) (*domain.DevMachineToken, *domain.DevMachine, error) {
+	if f.authenticatedToken == nil || f.machine == nil {
+		return nil, nil, nil
+	}
+	return f.authenticatedToken, f.machine, nil
+}
+
+func (f *devMachineStoreFake) CreateEvent(_ context.Context, event *domain.DevMachineEvent) error {
+	f.events = append(f.events, *event)
+	return nil
+}
+
+func (f *devMachineStoreFake) CreateLogChunk(_ context.Context, chunk *domain.DevMachineLogChunk) error {
+	f.logs = append(f.logs, *chunk)
+	return nil
+}
 
 func (f *devMachineStoreFake) GetScopeSetting(_ context.Context, _ uuid.UUID, teamID, projectID, issueID *uuid.UUID) (*domain.DevMachineScopeSetting, error) {
 	if f.scopeSettings == nil {

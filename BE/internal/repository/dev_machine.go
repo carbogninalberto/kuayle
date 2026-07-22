@@ -30,6 +30,7 @@ type DevMachineStore interface {
 	GetProvider(context.Context, uuid.UUID, uuid.UUID, string) (*domain.DevMachineAgentProvider, error)
 	ListProviders(context.Context, uuid.UUID, uuid.UUID) ([]domain.DevMachineAgentProvider, error)
 	ListEnvVarsInternal(context.Context, uuid.UUID, *string, string) ([]domain.DevMachineEnvVar, error)
+	ListRuntimeCredentials(context.Context, uuid.UUID) ([]domain.DevMachineRuntimeCredential, error)
 	CreateAgentRun(context.Context, *domain.DevMachineAgentRun, *domain.DevMachineOperation) error
 	GetAgentRun(context.Context, uuid.UUID, uuid.UUID) (*domain.DevMachineAgentRun, error)
 	GetAgentRunForUser(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (*domain.DevMachineAgentRun, error)
@@ -646,6 +647,54 @@ func (r *DevMachineRepository) ListEnvVarsInternal(ctx context.Context, machineI
 		AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>NOW()) AND ($3::text IS NULL OR provider_id IS NULL OR provider_id=$3)
 		ORDER BY name`, machineID, target, providerID)
 	return envVars, err
+}
+
+func (r *DevMachineRepository) UpsertRuntimeCredential(ctx context.Context, credential *domain.DevMachineRuntimeCredential) error {
+	if credential.ID == uuid.Nil {
+		credential.ID = uuid.New()
+	}
+	if credential.Scope == "" {
+		credential.Scope = domain.DevMachineRuntimeCredentialScopeMachine
+	}
+	if credential.CredentialType == "" {
+		credential.CredentialType = domain.DevMachineRuntimeCredentialTypeGitHubToken
+	}
+	if credential.EncryptionKeyVersion == 0 {
+		credential.EncryptionKeyVersion = 1
+	}
+	return r.db.QueryRowContext(ctx, `INSERT INTO dev_machine_runtime_credentials
+		(id, machine_id, scope, credential_type, fingerprint_sha256, encrypted_value, encryption_key_version, expires_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+		ON CONFLICT (machine_id, fingerprint_sha256) DO UPDATE SET
+			scope=EXCLUDED.scope,
+			credential_type=EXCLUDED.credential_type,
+			encrypted_value=EXCLUDED.encrypted_value,
+			encryption_key_version=EXCLUDED.encryption_key_version,
+			expires_at=EXCLUDED.expires_at,
+			updated_at=NOW()
+		RETURNING id, created_at, updated_at`, credential.ID, credential.MachineID, credential.Scope,
+		credential.CredentialType, credential.FingerprintSHA256, credential.EncryptedValue,
+		credential.EncryptionKeyVersion, credential.ExpiresAt.UTC(),
+	).Scan(&credential.ID, &credential.CreatedAt, &credential.UpdatedAt)
+}
+
+func (r *DevMachineRepository) ListRuntimeCredentials(ctx context.Context, machineID uuid.UUID) ([]domain.DevMachineRuntimeCredential, error) {
+	var credentials []domain.DevMachineRuntimeCredential
+	err := r.db.SelectContext(ctx, &credentials, `SELECT * FROM dev_machine_runtime_credentials
+		WHERE machine_id=$1 AND expires_at>NOW() ORDER BY expires_at ASC, created_at ASC`, machineID)
+	if credentials == nil {
+		credentials = []domain.DevMachineRuntimeCredential{}
+	}
+	return credentials, err
+}
+
+func (r *DevMachineRepository) PurgeExpiredRuntimeCredentials(ctx context.Context, now time.Time) (int, error) {
+	result, err := r.db.ExecContext(ctx, `DELETE FROM dev_machine_runtime_credentials WHERE expires_at<=$1`, now.UTC())
+	if err != nil {
+		return 0, err
+	}
+	rows, _ := result.RowsAffected()
+	return int(rows), nil
 }
 
 func (r *DevMachineRepository) CreateAgentRun(ctx context.Context, run *domain.DevMachineAgentRun, operation *domain.DevMachineOperation) error {
