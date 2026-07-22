@@ -756,6 +756,61 @@ func TestEnvironmentDeletionChecksDesiredStateAndPendingOperations(t *testing.T)
 	})
 }
 
+func TestSnapshotCreationSerializesWithResume(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is not configured")
+	}
+	db, err := sqlx.Connect("pgx", databaseURL)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	fixture := newEnvironmentRaceFixture(t, db)
+	machineID := fixture.insertMachine(t, domain.DevMachineStatusPaused, domain.DevMachineStatusPaused, true)
+	snapshotID := uuid.New()
+	environment := &domain.DevMachineEnvironment{
+		ID: snapshotID, WorkspaceID: fixture.workspaceID, Name: "snapshot-" + snapshotID.String(),
+		ImageRef: "snapshot:" + snapshotID.String(), Status: "pending", SourceMachineID: &machineID,
+		CreatedByUserID: &fixture.userID,
+	}
+	snapshotOperation := &domain.DevMachineOperation{
+		ID: uuid.New(), MachineID: machineID, EnvironmentID: &snapshotID, WorkspaceID: fixture.workspaceID,
+		Action: domain.DevMachineOpSnapshotEnvironment, Status: domain.DevMachineOpStatusPending,
+		Generation: 1, IdempotencyKey: "snapshot:" + snapshotID.String(), RequestedByUserID: &fixture.userID, MaxAttempts: 2,
+	}
+	resumeOperation := &domain.DevMachineOperation{
+		ID: uuid.New(), MachineID: machineID, WorkspaceID: fixture.workspaceID, Action: domain.DevMachineOpStart,
+		Status: domain.DevMachineOpStatusPending, Generation: 2, IdempotencyKey: "start:2",
+		RequestedByUserID: &fixture.userID, MaxAttempts: 5,
+	}
+
+	snapshotErr, resumeErr := runEnvironmentRace(
+		func() error {
+			return fixture.repository.CreateEnvironment(context.Background(), environment, snapshotOperation)
+		},
+		func() error {
+			return fixture.repository.SetDesiredAndEnqueue(
+				context.Background(), fixture.workspaceID, machineID, domain.DevMachineStatusRunning, resumeOperation,
+			)
+		},
+	)
+	require.NotEqual(t, snapshotErr == nil, resumeErr == nil, "exactly one conflicting transaction must commit")
+
+	var snapshotCount int
+	var desired domain.DevMachineStatus
+	require.NoError(t, db.Get(&snapshotCount, `SELECT COUNT(*) FROM dev_machine_environments WHERE id=$1`, snapshotID))
+	require.NoError(t, db.Get(&desired, `SELECT desired_status FROM dev_machines WHERE id=$1`, machineID))
+	if snapshotErr == nil {
+		require.ErrorIs(t, resumeErr, ErrMachineStateConflict)
+		require.Equal(t, 1, snapshotCount)
+		require.Equal(t, domain.DevMachineStatusPaused, desired)
+	} else {
+		require.ErrorIs(t, snapshotErr, ErrMachineStateConflict)
+		require.NoError(t, resumeErr)
+		require.Zero(t, snapshotCount)
+		require.Equal(t, domain.DevMachineStatusRunning, desired)
+	}
+}
+
 func TestListAgentRunsScansPersistedRows(t *testing.T) {
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {

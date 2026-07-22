@@ -306,10 +306,20 @@ func TestSnapshotEnvironmentRequiresPausedBuilderAndCreatesPending(t *testing.T)
 	svc := newTestDevMachineService(store)
 
 	_, err := svc.SnapshotEnvironment(context.Background(), workspaceID, userID, dto.CreateDevMachineEnvironmentRequest{Name: "base", SourceMachineID: machineID.String()})
-	require.ErrorContains(t, err, "paused or stopped")
+	require.ErrorIs(t, err, ErrInvalidOperation)
+	require.ErrorContains(t, err, "stably paused or stopped")
 
 	store.machine.Status = domain.DevMachineStatusPaused
 	store.machine.EnvironmentBuilder = true
+	_, err = svc.SnapshotEnvironment(context.Background(), workspaceID, userID, dto.CreateDevMachineEnvironmentRequest{Name: "base", SourceMachineID: machineID.String()})
+	require.ErrorIs(t, err, ErrInvalidOperation)
+
+	store.machine.DesiredStatus = domain.DevMachineStatusPaused
+	store.createEnvironmentErr = repository.ErrMachineStateConflict
+	_, err = svc.SnapshotEnvironment(context.Background(), workspaceID, userID, dto.CreateDevMachineEnvironmentRequest{Name: "base", SourceMachineID: machineID.String()})
+	require.ErrorIs(t, err, ErrInvalidOperation)
+
+	store.createEnvironmentErr = nil
 	environment, err := svc.SnapshotEnvironment(context.Background(), workspaceID, userID, dto.CreateDevMachineEnvironmentRequest{Name: "base", SourceMachineID: machineID.String()})
 	require.NoError(t, err)
 	require.Equal(t, "pending", environment.Status)
@@ -746,6 +756,7 @@ type devMachineStoreFake struct {
 	createdOperation            *domain.DevMachineOperation
 	createdEnvironment          *domain.DevMachineEnvironment
 	createdEnvironmentOperation *domain.DevMachineOperation
+	createEnvironmentErr        error
 	createBundleErr             error
 	scopeSettings               map[string]*domain.DevMachineScopeSetting
 	reposByID                   map[uuid.UUID]*domain.GitHubRepoModel
@@ -1108,6 +1119,9 @@ func (f *devMachineStoreFake) ListAgentRunLogs(context.Context, uuid.UUID, int64
 }
 
 func (f *devMachineStoreFake) CreateEnvironment(_ context.Context, environment *domain.DevMachineEnvironment, operation *domain.DevMachineOperation) error {
+	if f.createEnvironmentErr != nil {
+		return f.createEnvironmentErr
+	}
 	f.createdEnvironment = environment
 	f.createdEnvironmentOperation = operation
 	return nil

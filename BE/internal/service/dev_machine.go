@@ -904,8 +904,9 @@ func (s *DevMachineService) SnapshotEnvironment(ctx context.Context, workspaceID
 	if err != nil {
 		return nil, err
 	}
-	if machine.Status != domain.DevMachineStatusPaused && machine.Status != domain.DevMachineStatusStopped {
-		return nil, fmt.Errorf("machine must be paused or stopped before saving an environment")
+	stable := machine.Status == machine.DesiredStatus && (machine.Status == domain.DevMachineStatusPaused || machine.Status == domain.DevMachineStatusStopped)
+	if !stable {
+		return nil, fmt.Errorf("%w: machine must be stably paused or stopped before saving an environment", ErrInvalidOperation)
 	}
 	if !machine.EnvironmentBuilder {
 		return nil, fmt.Errorf("only an Environment Builder can be saved as a development environment")
@@ -926,6 +927,9 @@ func (s *DevMachineService) SnapshotEnvironment(ctx context.Context, workspaceID
 		RequestedByUserID: &userID, MaxAttempts: 2,
 	}
 	if err := s.store.CreateEnvironment(ctx, environment, operation); err != nil {
+		if errors.Is(err, repository.ErrMachineStateConflict) {
+			return nil, fmt.Errorf("%w: %v", ErrInvalidOperation, err)
+		}
 		return nil, err
 	}
 	return environment, nil

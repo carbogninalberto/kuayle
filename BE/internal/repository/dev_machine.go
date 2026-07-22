@@ -371,6 +371,14 @@ func (r *DevMachineRepository) SetDesiredAndEnqueue(ctx context.Context, workspa
 	if generation >= operation.Generation {
 		return ErrMachineStateConflict
 	}
+	var snapshotActive bool
+	if err := tx.GetContext(ctx, &snapshotActive, `SELECT EXISTS(SELECT 1 FROM dev_machine_operations
+		WHERE machine_id=$1 AND action='snapshot_environment' AND status IN ('pending','leased'))`, machineID); err != nil {
+		return err
+	}
+	if snapshotActive {
+		return ErrMachineStateConflict
+	}
 	if operation.Action == domain.DevMachineOpPause || operation.Action == domain.DevMachineOpStop || operation.Action == domain.DevMachineOpTeardown {
 		var active bool
 		if err := tx.GetContext(ctx, &active, `SELECT EXISTS(SELECT 1 FROM dev_machine_agent_runs
@@ -1485,6 +1493,35 @@ func (r *DevMachineRepository) CreateEnvironment(ctx context.Context, environmen
 	defer tx.Rollback()
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`, environment.WorkspaceID); err != nil {
 		return err
+	}
+	if environment.SourceMachineID == nil || operation.MachineID != *environment.SourceMachineID || operation.WorkspaceID != environment.WorkspaceID ||
+		operation.Action != domain.DevMachineOpSnapshotEnvironment || operation.EnvironmentID == nil || *operation.EnvironmentID != environment.ID {
+		return ErrMachineStateConflict
+	}
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`, environment.SourceMachineID); err != nil {
+		return err
+	}
+	var status, desiredStatus domain.DevMachineStatus
+	var generation int64
+	var environmentBuilder, lifecycleActive bool
+	if err := tx.QueryRowContext(ctx, `SELECT status,desired_status,generation,environment_builder FROM dev_machines
+		WHERE workspace_id=$1 AND id=$2 FOR UPDATE`, environment.WorkspaceID, environment.SourceMachineID).
+		Scan(&status, &desiredStatus, &generation, &environmentBuilder); errors.Is(err, sql.ErrNoRows) {
+		return ErrMachineStateConflict
+	} else if err != nil {
+		return err
+	}
+	stable := status == desiredStatus && (status == domain.DevMachineStatusPaused || status == domain.DevMachineStatusStopped)
+	if !environmentBuilder || !stable || generation != operation.Generation {
+		return ErrMachineStateConflict
+	}
+	if err := tx.GetContext(ctx, &lifecycleActive, `SELECT EXISTS(SELECT 1 FROM dev_machine_operations
+		WHERE machine_id=$1 AND status IN ('pending','leased')
+		AND action IN ('spawn','start','stop','pause','teardown','reconcile'))`, environment.SourceMachineID); err != nil {
+		return err
+	}
+	if lifecycleActive {
+		return ErrMachineStateConflict
 	}
 	if err := tx.QueryRowContext(ctx, `INSERT INTO dev_machine_environments
 		(id,workspace_id,name,image_ref,status,source_machine_id,created_by_user_id)
