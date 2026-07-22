@@ -73,7 +73,7 @@ SET last_activity_at = COALESCE(last_activity_at, started_at, created_at);
 
 WITH duplicates AS (
     SELECT id, ROW_NUMBER() OVER (
-        PARTITION BY workspace_id, LOWER(name)
+        PARTITION BY workspace_id, created_by_user_id, LOWER(name)
         ORDER BY created_at, id
     ) AS position
     FROM dev_machines
@@ -84,7 +84,7 @@ FROM duplicates
 WHERE duplicates.id = machine.id AND duplicates.position > 1;
 
 CREATE UNIQUE INDEX idx_dev_machines_workspace_name
-    ON dev_machines(workspace_id, LOWER(name));
+    ON dev_machines(workspace_id, created_by_user_id, LOWER(name));
 CREATE INDEX idx_dev_machines_idle
     ON dev_machines(workspace_id, last_activity_at)
     WHERE status = 'running' AND keep_running = FALSE;

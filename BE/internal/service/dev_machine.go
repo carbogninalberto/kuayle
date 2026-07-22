@@ -100,7 +100,7 @@ func (s *DevMachineService) Create(ctx context.Context, workspaceID, userID uuid
 	maxRuntime := policy.MaxRuntimeMinutes
 	name := normalizeMachineName(req.Name)
 	if name == "" {
-		name, err = s.GenerateName(ctx, workspaceID)
+		name, err = s.GenerateName(ctx, workspaceID, userID)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -108,7 +108,7 @@ func (s *DevMachineService) Create(ctx context.Context, workspaceID, userID uuid
 	if !validMachineName(name) {
 		return nil, nil, fmt.Errorf("invalid machine name")
 	}
-	nameExists, err := s.store.MachineNameExists(ctx, workspaceID, name)
+	nameExists, err := s.store.MachineNameExistsForUser(ctx, workspaceID, userID, name)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -470,7 +470,15 @@ func (s *DevMachineService) Get(ctx context.Context, workspaceID, machineID uuid
 	return machine, err
 }
 
-func (s *DevMachineService) List(ctx context.Context, workspaceID uuid.UUID, params dto.DevMachineListParams) ([]domain.DevMachine, int, error) {
+func (s *DevMachineService) GetForUser(ctx context.Context, workspaceID, machineID, userID uuid.UUID) (*domain.DevMachine, error) {
+	machine, err := s.store.GetMachineForUser(ctx, workspaceID, machineID, userID)
+	if err == nil && machine == nil {
+		return nil, ErrMachineNotFound
+	}
+	return machine, err
+}
+
+func (s *DevMachineService) List(ctx context.Context, workspaceID, userID uuid.UUID, params dto.DevMachineListParams) ([]domain.DevMachine, int, error) {
 	params.Defaults()
 	var issueID *uuid.UUID
 	if params.IssueID != "" {
@@ -480,10 +488,10 @@ func (s *DevMachineService) List(ctx context.Context, workspaceID uuid.UUID, par
 		}
 		issueID = &parsed
 	}
-	return s.store.ListMachines(ctx, workspaceID, params.Status, issueID, params.PerPage, params.Offset())
+	return s.store.ListMachinesForUser(ctx, workspaceID, userID, params.Status, issueID, params.PerPage, params.Offset())
 }
 
-func (s *DevMachineService) GenerateName(ctx context.Context, workspaceID uuid.UUID) (string, error) {
+func (s *DevMachineService) GenerateName(ctx context.Context, workspaceID, userID uuid.UUID) (string, error) {
 	adjectives := []string{"amber", "brisk", "calm", "clear", "quiet", "rapid", "silver", "steady", "swift", "vivid"}
 	nouns := []string{"badger", "cedar", "comet", "falcon", "harbor", "maple", "orchid", "otter", "summit", "willow"}
 	for attempt := 0; attempt < 20; attempt++ {
@@ -492,7 +500,7 @@ func (s *DevMachineService) GenerateName(ctx context.Context, workspaceID uuid.U
 			return "", err
 		}
 		name := adjectives[int(suffix[0])%len(adjectives)] + "-" + nouns[int(suffix[1])%len(nouns)] + "-" + suffix
-		exists, err := s.store.MachineNameExists(ctx, workspaceID, name)
+		exists, err := s.store.MachineNameExistsForUser(ctx, workspaceID, userID, name)
 		if err != nil {
 			return "", err
 		}
@@ -503,17 +511,17 @@ func (s *DevMachineService) GenerateName(ctx context.Context, workspaceID uuid.U
 	return "", fmt.Errorf("unable to allocate a unique machine name")
 }
 
-func (s *DevMachineService) NameAvailable(ctx context.Context, workspaceID uuid.UUID, name string) (bool, error) {
+func (s *DevMachineService) NameAvailable(ctx context.Context, workspaceID, userID uuid.UUID, name string) (bool, error) {
 	name = normalizeMachineName(name)
 	if !validMachineName(name) {
 		return false, nil
 	}
-	exists, err := s.store.MachineNameExists(ctx, workspaceID, name)
+	exists, err := s.store.MachineNameExistsForUser(ctx, workspaceID, userID, name)
 	return !exists, err
 }
 
-func (s *DevMachineService) Update(ctx context.Context, workspaceID, machineID uuid.UUID, request dto.UpdateDevMachineRequest) (*domain.DevMachine, error) {
-	machine, err := s.store.UpdateMachinePreferences(ctx, workspaceID, machineID, request.KeepRunning)
+func (s *DevMachineService) Update(ctx context.Context, workspaceID, machineID, userID uuid.UUID, request dto.UpdateDevMachineRequest) (*domain.DevMachine, error) {
+	machine, err := s.store.UpdateMachinePreferencesForUser(ctx, workspaceID, machineID, userID, request.KeepRunning)
 	if err != nil {
 		return nil, err
 	}
@@ -523,8 +531,8 @@ func (s *DevMachineService) Update(ctx context.Context, workspaceID, machineID u
 	return machine, nil
 }
 
-func (s *DevMachineService) TouchActivity(ctx context.Context, workspaceID, machineID uuid.UUID) error {
-	if _, err := s.Get(ctx, workspaceID, machineID); err != nil {
+func (s *DevMachineService) TouchActivity(ctx context.Context, workspaceID, machineID, userID uuid.UUID) error {
+	if _, err := s.GetForUser(ctx, workspaceID, machineID, userID); err != nil {
 		return err
 	}
 	return s.store.TouchMachineActivity(ctx, machineID, time.Now().UTC())
@@ -755,16 +763,16 @@ func (s *DevMachineService) resolveDevelopmentSetting(ctx context.Context, works
 
 func (s *DevMachineService) CheckoutIssue(ctx context.Context, workspaceID, machineID, userID uuid.UUID, request dto.CheckoutIssueRequest) (*domain.DevMachineCheckout, error) {
 	issueID, _ := uuid.Parse(request.IssueID)
+	machine, err := s.GetForUser(ctx, workspaceID, machineID, userID)
+	if err != nil {
+		return nil, err
+	}
 	issue, err := s.store.GetIssueDevelopmentContext(ctx, workspaceID, issueID)
 	if err != nil {
 		return nil, err
 	}
 	if issue == nil {
 		return nil, fmt.Errorf("invalid issue")
-	}
-	machine, err := s.Get(ctx, workspaceID, machineID)
-	if err != nil {
-		return nil, err
 	}
 	if machine.Status != domain.DevMachineStatusRunning || machine.DesiredStatus != domain.DevMachineStatusRunning {
 		return nil, fmt.Errorf("machine must be running")
@@ -852,8 +860,8 @@ func repositoryAllowedMust(s *DevMachineService, ctx context.Context, workspaceI
 	return err == nil && repositoryAllowed(policy.AllowedRepositories, fullName)
 }
 
-func (s *DevMachineService) ListCheckouts(ctx context.Context, workspaceID, machineID uuid.UUID) ([]domain.DevMachineCheckout, error) {
-	if _, err := s.Get(ctx, workspaceID, machineID); err != nil {
+func (s *DevMachineService) ListCheckouts(ctx context.Context, workspaceID, machineID, userID uuid.UUID) ([]domain.DevMachineCheckout, error) {
+	if _, err := s.GetForUser(ctx, workspaceID, machineID, userID); err != nil {
 		return nil, err
 	}
 	return s.store.ListCheckouts(ctx, workspaceID, machineID)
@@ -883,7 +891,7 @@ func (s *DevMachineService) RequestEnvironmentDeletion(ctx context.Context, work
 
 func (s *DevMachineService) SnapshotEnvironment(ctx context.Context, workspaceID, userID uuid.UUID, request dto.CreateDevMachineEnvironmentRequest) (*domain.DevMachineEnvironment, error) {
 	machineID, _ := uuid.Parse(request.SourceMachineID)
-	machine, err := s.Get(ctx, workspaceID, machineID)
+	machine, err := s.GetForUser(ctx, workspaceID, machineID, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -915,7 +923,7 @@ func (s *DevMachineService) SnapshotEnvironment(ctx context.Context, workspaceID
 }
 
 func (s *DevMachineService) Lifecycle(ctx context.Context, workspaceID, machineID, userID uuid.UUID, action domain.DevMachineOperationAction, idempotencyKey string) (*domain.DevMachineOperation, error) {
-	machine, err := s.Get(ctx, workspaceID, machineID)
+	machine, err := s.GetForUser(ctx, workspaceID, machineID, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -1006,11 +1014,17 @@ func (s *DevMachineService) Lifecycle(ctx context.Context, workspaceID, machineI
 	return operation, nil
 }
 
-func (s *DevMachineService) ListServices(ctx context.Context, workspaceID, machineID uuid.UUID) ([]domain.DevMachineService, error) {
+func (s *DevMachineService) ListServices(ctx context.Context, workspaceID, machineID, userID uuid.UUID) ([]domain.DevMachineService, error) {
+	if _, err := s.GetForUser(ctx, workspaceID, machineID, userID); err != nil {
+		return nil, err
+	}
 	return s.store.ListServices(ctx, workspaceID, machineID)
 }
 
-func (s *DevMachineService) ListProviders(ctx context.Context, workspaceID, machineID uuid.UUID) ([]domain.DevMachineAgentProvider, error) {
+func (s *DevMachineService) ListProviders(ctx context.Context, workspaceID, machineID, userID uuid.UUID) ([]domain.DevMachineAgentProvider, error) {
+	if _, err := s.GetForUser(ctx, workspaceID, machineID, userID); err != nil {
+		return nil, err
+	}
 	return s.store.ListProviders(ctx, workspaceID, machineID)
 }
 
@@ -1042,8 +1056,8 @@ func (s *DevMachineService) AvailableProviders(ctx context.Context, workspaceID 
 	return responses, nil
 }
 
-func (s *DevMachineService) ConfiguredProviders(ctx context.Context, workspaceID, machineID uuid.UUID) ([]dto.AgentProviderResponse, error) {
-	if _, err := s.Get(ctx, workspaceID, machineID); err != nil {
+func (s *DevMachineService) ConfiguredProviders(ctx context.Context, workspaceID, machineID, userID uuid.UUID) ([]dto.AgentProviderResponse, error) {
+	if _, err := s.GetForUser(ctx, workspaceID, machineID, userID); err != nil {
 		return nil, err
 	}
 	providers, err := s.store.ListProviders(ctx, workspaceID, machineID)
@@ -1071,6 +1085,10 @@ func (s *DevMachineService) CreateAgentRun(ctx context.Context, workspaceID, mac
 	if err != nil {
 		return nil, err
 	}
+	machine, err := s.GetForUser(ctx, workspaceID, machineID, userID)
+	if err != nil {
+		return nil, err
+	}
 	startOfDay := time.Now().UTC().Truncate(24 * time.Hour)
 	dailyRuns, err := s.store.CountAgentRunsSince(ctx, workspaceID, startOfDay)
 	if err != nil {
@@ -1078,10 +1096,6 @@ func (s *DevMachineService) CreateAgentRun(ctx context.Context, workspaceID, mac
 	}
 	if dailyRuns >= policy.MaxDailyAgentRuns {
 		return nil, fmt.Errorf("%w: daily agent run limit reached", ErrMachineQuota)
-	}
-	machine, err := s.Get(ctx, workspaceID, machineID)
-	if err != nil {
-		return nil, err
 	}
 	if machine.Status != domain.DevMachineStatusRunning || machine.DesiredStatus != domain.DevMachineStatusRunning {
 		return nil, fmt.Errorf("machine must be running")
@@ -1224,18 +1238,23 @@ func (s *DevMachineService) CreateAgentRun(ctx context.Context, workspaceID, mac
 	return run, nil
 }
 
-func (s *DevMachineService) ListAgentRuns(ctx context.Context, workspaceID uuid.UUID, machineID *uuid.UUID, page, perPage int) ([]domain.DevMachineAgentRun, int, error) {
+func (s *DevMachineService) ListAgentRuns(ctx context.Context, workspaceID, userID uuid.UUID, machineID *uuid.UUID, page, perPage int) ([]domain.DevMachineAgentRun, int, error) {
 	if page < 1 {
 		page = 1
 	}
 	if perPage < 1 || perPage > 100 {
 		perPage = 50
 	}
-	return s.store.ListAgentRuns(ctx, workspaceID, machineID, perPage, (page-1)*perPage)
+	if machineID != nil {
+		if _, err := s.GetForUser(ctx, workspaceID, *machineID, userID); err != nil {
+			return nil, 0, err
+		}
+	}
+	return s.store.ListAgentRunsForUser(ctx, workspaceID, userID, machineID, perPage, (page-1)*perPage)
 }
 
-func (s *DevMachineService) GetAgentRun(ctx context.Context, workspaceID, runID uuid.UUID) (*domain.DevMachineAgentRun, error) {
-	run, err := s.store.GetAgentRun(ctx, workspaceID, runID)
+func (s *DevMachineService) GetAgentRun(ctx context.Context, workspaceID, runID, userID uuid.UUID) (*domain.DevMachineAgentRun, error) {
+	run, err := s.store.GetAgentRunForUser(ctx, workspaceID, runID, userID)
 	if err == nil && run == nil {
 		return nil, ErrAgentRunNotFound
 	}
@@ -1243,12 +1262,15 @@ func (s *DevMachineService) GetAgentRun(ctx context.Context, workspaceID, runID 
 }
 
 func (s *DevMachineService) CancelAgentRun(ctx context.Context, workspaceID, runID, userID uuid.UUID) error {
-	run, err := s.GetAgentRun(ctx, workspaceID, runID)
+	run, err := s.GetAgentRun(ctx, workspaceID, runID, userID)
 	if err != nil {
 		return err
 	}
-	machine, err := s.Get(ctx, workspaceID, run.MachineID)
+	machine, err := s.GetForUser(ctx, workspaceID, run.MachineID, userID)
 	if err != nil {
+		if errors.Is(err, ErrMachineNotFound) {
+			return ErrAgentRunNotFound
+		}
 		return err
 	}
 	operation := &domain.DevMachineOperation{
@@ -1259,8 +1281,8 @@ func (s *DevMachineService) CancelAgentRun(ctx context.Context, workspaceID, run
 	return s.store.CancelAgentRun(ctx, workspaceID, runID, operation)
 }
 
-func (s *DevMachineService) GetAgentRunTrace(ctx context.Context, workspaceID, runID uuid.UUID, params dto.TraceListParams) (*dto.AgentRunTraceResponse, error) {
-	run, err := s.GetAgentRun(ctx, workspaceID, runID)
+func (s *DevMachineService) GetAgentRunTrace(ctx context.Context, workspaceID, runID, userID uuid.UUID, params dto.TraceListParams) (*dto.AgentRunTraceResponse, error) {
+	run, err := s.GetAgentRun(ctx, workspaceID, runID, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -1308,12 +1330,12 @@ func (s *DevMachineService) LaunchService(ctx context.Context, workspaceID, mach
 	if _, err := s.enabledPolicy(ctx, workspaceID); err != nil {
 		return nil, err
 	}
-	if s.domain == "" {
-		return nil, fmt.Errorf("dev machine domain is not configured")
-	}
-	machine, err := s.Get(ctx, workspaceID, machineID)
+	machine, err := s.GetForUser(ctx, workspaceID, machineID, userID)
 	if err != nil {
 		return nil, err
+	}
+	if s.domain == "" {
+		return nil, fmt.Errorf("dev machine domain is not configured")
 	}
 	if !machine.ExpiresAt.After(time.Now().UTC()) {
 		return nil, fmt.Errorf("%w: machine has expired", ErrInvalidOperation)
@@ -1410,15 +1432,15 @@ func (s *DevMachineService) CreateTerminalSession(ctx context.Context, workspace
 	if _, err := s.enabledPolicy(ctx, workspaceID); err != nil {
 		return nil, err
 	}
+	machine, err := s.GetForUser(ctx, workspaceID, machineID, userID)
+	if err != nil {
+		return nil, err
+	}
 	if s.domain == "" {
 		return nil, fmt.Errorf("dev machine domain is not configured")
 	}
 	if s.frontendOrigin == "" {
 		return nil, fmt.Errorf("frontend origin is not configured")
-	}
-	machine, err := s.Get(ctx, workspaceID, machineID)
-	if err != nil {
-		return nil, err
 	}
 	if !machine.ExpiresAt.After(time.Now().UTC()) {
 		return nil, fmt.Errorf("%w: machine has expired", ErrInvalidOperation)
@@ -1498,8 +1520,8 @@ func (s *DevMachineService) CreateTerminalSession(ctx context.Context, workspace
 	}, nil
 }
 
-func (s *DevMachineService) ListTerminalSessions(ctx context.Context, workspaceID, machineID uuid.UUID) ([]dto.TerminalSessionResponse, error) {
-	if _, err := s.Get(ctx, workspaceID, machineID); err != nil {
+func (s *DevMachineService) ListTerminalSessions(ctx context.Context, workspaceID, machineID, userID uuid.UUID) ([]dto.TerminalSessionResponse, error) {
+	if _, err := s.GetForUser(ctx, workspaceID, machineID, userID); err != nil {
 		return nil, err
 	}
 	sessions, err := s.store.ListTerminalSessions(ctx, workspaceID, machineID)
@@ -1513,7 +1535,10 @@ func (s *DevMachineService) ListTerminalSessions(ctx context.Context, workspaceI
 	return responses, nil
 }
 
-func (s *DevMachineService) CloseTerminalSession(ctx context.Context, workspaceID, machineID, sessionID uuid.UUID) (*dto.TerminalSessionResponse, error) {
+func (s *DevMachineService) CloseTerminalSession(ctx context.Context, workspaceID, machineID, userID, sessionID uuid.UUID) (*dto.TerminalSessionResponse, error) {
+	if _, err := s.GetForUser(ctx, workspaceID, machineID, userID); err != nil {
+		return nil, err
+	}
 	session, err := s.store.CloseTerminalSession(ctx, workspaceID, machineID, sessionID)
 	if err != nil {
 		return nil, err
@@ -1565,15 +1590,24 @@ func terminalTicketHash(rawTicket, frontendOrigin, runtimeSessionName, workingDi
 	return hex.EncodeToString(hash[:])
 }
 
-func (s *DevMachineService) ListEvents(ctx context.Context, workspaceID, machineID uuid.UUID, afterID int64, limit int) ([]domain.DevMachineEvent, error) {
+func (s *DevMachineService) ListEvents(ctx context.Context, workspaceID, machineID, userID uuid.UUID, afterID int64, limit int) ([]domain.DevMachineEvent, error) {
+	if _, err := s.GetForUser(ctx, workspaceID, machineID, userID); err != nil {
+		return nil, err
+	}
 	return s.store.ListEvents(ctx, workspaceID, machineID, afterID, limit)
 }
 
-func (s *DevMachineService) ListLogs(ctx context.Context, workspaceID, machineID uuid.UUID, runID *uuid.UUID, afterID int64, limit int) ([]domain.DevMachineLogChunk, error) {
+func (s *DevMachineService) ListLogs(ctx context.Context, workspaceID, machineID, userID uuid.UUID, runID *uuid.UUID, afterID int64, limit int) ([]domain.DevMachineLogChunk, error) {
+	if _, err := s.GetForUser(ctx, workspaceID, machineID, userID); err != nil {
+		return nil, err
+	}
 	return s.store.ListLogs(ctx, workspaceID, machineID, runID, afterID, limit)
 }
 
-func (s *DevMachineService) ListResourceSamples(ctx context.Context, workspaceID, machineID uuid.UUID, limit int) ([]domain.DevMachineResourceSample, error) {
+func (s *DevMachineService) ListResourceSamples(ctx context.Context, workspaceID, machineID, userID uuid.UUID, limit int) ([]domain.DevMachineResourceSample, error) {
+	if _, err := s.GetForUser(ctx, workspaceID, machineID, userID); err != nil {
+		return nil, err
+	}
 	if limit <= 0 || limit > 500 {
 		limit = 120
 	}

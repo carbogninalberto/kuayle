@@ -33,7 +33,7 @@ func (h *DevMachineHandler) List(c echo.Context) error {
 	if err := validate.Struct(&params); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid pagination parameters")
 	}
-	machines, total, err := h.service.List(c.Request().Context(), workspace.ID, params)
+	machines, total, err := h.service.List(c.Request().Context(), workspace.ID, middleware.GetUserID(c), params)
 	if err != nil {
 		return machineError(c, err)
 	}
@@ -67,7 +67,7 @@ func (h *DevMachineHandler) Create(c echo.Context) error {
 
 func (h *DevMachineHandler) NameSuggestion(c echo.Context) error {
 	workspace := middleware.GetWorkspace(c)
-	name, err := h.service.GenerateName(c.Request().Context(), workspace.ID)
+	name, err := h.service.GenerateName(c.Request().Context(), workspace.ID, middleware.GetUserID(c))
 	if err != nil {
 		return machineError(c, err)
 	}
@@ -77,7 +77,7 @@ func (h *DevMachineHandler) NameSuggestion(c echo.Context) error {
 func (h *DevMachineHandler) NameAvailability(c echo.Context) error {
 	workspace := middleware.GetWorkspace(c)
 	name := strings.TrimSpace(c.QueryParam("name"))
-	available, err := h.service.NameAvailable(c.Request().Context(), workspace.ID, name)
+	available, err := h.service.NameAvailable(c.Request().Context(), workspace.ID, middleware.GetUserID(c), name)
 	if err != nil {
 		return machineError(c, err)
 	}
@@ -90,7 +90,7 @@ func (h *DevMachineHandler) Get(c echo.Context) error {
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid machine ID")
 	}
-	machine, err := h.service.Get(c.Request().Context(), workspace.ID, machineID)
+	machine, err := h.service.GetForUser(c.Request().Context(), workspace.ID, machineID, middleware.GetUserID(c))
 	if err != nil {
 		return machineError(c, err)
 	}
@@ -106,7 +106,7 @@ func (h *DevMachineHandler) Update(c echo.Context) error {
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid machine ID")
 	}
-	machine, err := h.service.Update(c.Request().Context(), middleware.GetWorkspace(c).ID, machineID, request)
+	machine, err := h.service.Update(c.Request().Context(), middleware.GetWorkspace(c).ID, machineID, middleware.GetUserID(c), request)
 	if err != nil {
 		return machineError(c, err)
 	}
@@ -168,7 +168,7 @@ func (h *DevMachineHandler) TouchActivity(c echo.Context) error {
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid machine ID")
 	}
-	if err := h.service.TouchActivity(c.Request().Context(), middleware.GetWorkspace(c).ID, machineID); err != nil {
+	if err := h.service.TouchActivity(c.Request().Context(), middleware.GetWorkspace(c).ID, machineID, middleware.GetUserID(c)); err != nil {
 		return machineError(c, err)
 	}
 	return c.NoContent(http.StatusNoContent)
@@ -240,7 +240,7 @@ func (h *DevMachineHandler) Checkouts(c echo.Context) error {
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid machine ID")
 	}
-	checkouts, err := h.service.ListCheckouts(c.Request().Context(), middleware.GetWorkspace(c).ID, machineID)
+	checkouts, err := h.service.ListCheckouts(c.Request().Context(), middleware.GetWorkspace(c).ID, machineID, middleware.GetUserID(c))
 	if err != nil {
 		return machineError(c, err)
 	}
@@ -343,7 +343,7 @@ func (h *DevMachineHandler) Events(c echo.Context) error {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid query parameters")
 	}
 	params.Defaults()
-	events, err := h.service.ListEvents(c.Request().Context(), workspace.ID, machineID, params.AfterID, params.Limit)
+	events, err := h.service.ListEvents(c.Request().Context(), workspace.ID, machineID, middleware.GetUserID(c), params.AfterID, params.Limit)
 	if err != nil {
 		return machineError(c, err)
 	}
@@ -369,7 +369,7 @@ func (h *DevMachineHandler) Logs(c echo.Context) error {
 		}
 		runID = &parsed
 	}
-	logs, err := h.service.ListLogs(c.Request().Context(), workspace.ID, machineID, runID, params.AfterID, params.Limit)
+	logs, err := h.service.ListLogs(c.Request().Context(), workspace.ID, machineID, middleware.GetUserID(c), runID, params.AfterID, params.Limit)
 	if err != nil {
 		return machineError(c, err)
 	}
@@ -382,7 +382,7 @@ func (h *DevMachineHandler) Services(c echo.Context) error {
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid machine ID")
 	}
-	services, err := h.service.ListServices(c.Request().Context(), workspace.ID, machineID)
+	services, err := h.service.ListServices(c.Request().Context(), workspace.ID, machineID, middleware.GetUserID(c))
 	if err != nil {
 		return machineError(c, err)
 	}
@@ -395,7 +395,7 @@ func (h *DevMachineHandler) MachineProviders(c echo.Context) error {
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid machine ID")
 	}
-	providers, err := h.service.ConfiguredProviders(c.Request().Context(), workspace.ID, machineID)
+	providers, err := h.service.ConfiguredProviders(c.Request().Context(), workspace.ID, machineID, middleware.GetUserID(c))
 	if err != nil {
 		return machineError(c, err)
 	}
@@ -408,7 +408,7 @@ func (h *DevMachineHandler) ResourceUsage(c echo.Context) error {
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid machine ID")
 	}
-	samples, err := h.service.ListResourceSamples(c.Request().Context(), workspace.ID, machineID, 120)
+	samples, err := h.service.ListResourceSamples(c.Request().Context(), workspace.ID, machineID, middleware.GetUserID(c), 120)
 	if err != nil {
 		return machineError(c, err)
 	}
@@ -446,7 +446,7 @@ func (h *DevMachineHandler) ListTerminalSessions(c echo.Context) error {
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid machine ID")
 	}
-	sessions, err := h.service.ListTerminalSessions(c.Request().Context(), workspace.ID, machineID)
+	sessions, err := h.service.ListTerminalSessions(c.Request().Context(), workspace.ID, machineID, middleware.GetUserID(c))
 	if err != nil {
 		return machineError(c, err)
 	}
@@ -485,7 +485,7 @@ func (h *DevMachineHandler) CloseTerminalSession(c echo.Context) error {
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid terminal session ID")
 	}
-	session, err := h.service.CloseTerminalSession(c.Request().Context(), workspace.ID, machineID, sessionID)
+	session, err := h.service.CloseTerminalSession(c.Request().Context(), workspace.ID, machineID, middleware.GetUserID(c), sessionID)
 	if err != nil {
 		return machineError(c, err)
 	}
@@ -524,7 +524,7 @@ func (h *DevMachineHandler) ListMachineAgentRuns(c echo.Context) error {
 	if err := validate.Struct(&params); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid pagination parameters")
 	}
-	runs, total, err := h.service.ListAgentRuns(c.Request().Context(), workspace.ID, &machineID, params.Page, params.PerPage)
+	runs, total, err := h.service.ListAgentRuns(c.Request().Context(), workspace.ID, middleware.GetUserID(c), &machineID, params.Page, params.PerPage)
 	if err != nil {
 		return machineError(c, err)
 	}
@@ -543,7 +543,7 @@ func (h *DevMachineHandler) ListAgentRuns(c echo.Context) error {
 	if err := validate.Struct(&params); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid pagination parameters")
 	}
-	runs, total, err := h.service.ListAgentRuns(c.Request().Context(), workspace.ID, nil, params.Page, params.PerPage)
+	runs, total, err := h.service.ListAgentRuns(c.Request().Context(), workspace.ID, middleware.GetUserID(c), nil, params.Page, params.PerPage)
 	if err != nil {
 		return machineError(c, err)
 	}
@@ -558,7 +558,7 @@ func (h *DevMachineHandler) GetAgentRun(c echo.Context) error {
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid agent run ID")
 	}
-	run, err := h.service.GetAgentRun(c.Request().Context(), workspace.ID, runID)
+	run, err := h.service.GetAgentRun(c.Request().Context(), workspace.ID, runID, middleware.GetUserID(c))
 	if err != nil {
 		return machineError(c, err)
 	}
@@ -587,7 +587,7 @@ func (h *DevMachineHandler) AgentRunTrace(c echo.Context) error {
 	if err := c.Bind(&params); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid query parameters")
 	}
-	trace, err := h.service.GetAgentRunTrace(c.Request().Context(), workspace.ID, runID, params)
+	trace, err := h.service.GetAgentRunTrace(c.Request().Context(), workspace.ID, runID, middleware.GetUserID(c), params)
 	if err != nil {
 		return machineError(c, err)
 	}

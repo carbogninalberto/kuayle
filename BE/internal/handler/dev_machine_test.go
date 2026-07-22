@@ -1,14 +1,22 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
+	"github.com/google/uuid"
+	"github.com/kuayle/kuayle-backend/internal/agent"
+	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
+	"github.com/kuayle/kuayle-backend/internal/middleware"
+	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/internal/service"
+	cryptoutil "github.com/kuayle/kuayle-backend/pkg/crypto"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/require"
 )
@@ -62,4 +70,57 @@ func TestAgentRunTraceDefaultsQueryParams(t *testing.T) {
 	require.Equal(t, 500, params.LogsLimit)
 	require.Equal(t, int64(0), params.EventsAfterID)
 	require.Equal(t, int64(0), params.LogsAfterID)
+}
+
+func TestDevMachineGetIsCreatorScoped(t *testing.T) {
+	workspaceID, ownerID, otherID, machineID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	store := &handlerDevMachineStoreFake{machine: &domain.DevMachine{
+		ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &ownerID,
+		Name: "builder-01", Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning,
+	}}
+	h := NewDevMachineHandler(service.NewDevMachineService(
+		store, agent.NewRegistry(), true, "machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, service.DevMachineImages{},
+	))
+
+	recorder := httptest.NewRecorder()
+	ctx := devMachineHandlerContext(httptest.NewRequest(http.MethodGet, "/dev-machines/"+machineID.String(), nil), recorder, workspaceID, otherID)
+	ctx.SetPath("/dev-machines/:machineId")
+	ctx.SetParamNames("machineId")
+	ctx.SetParamValues(machineID.String())
+
+	require.NoError(t, h.Get(ctx))
+	require.Equal(t, http.StatusNotFound, recorder.Code)
+
+	recorder = httptest.NewRecorder()
+	ctx = devMachineHandlerContext(httptest.NewRequest(http.MethodGet, "/dev-machines/"+machineID.String(), nil), recorder, workspaceID, ownerID)
+	ctx.SetPath("/dev-machines/:machineId")
+	ctx.SetParamNames("machineId")
+	ctx.SetParamValues(machineID.String())
+
+	require.NoError(t, h.Get(ctx))
+	require.Equal(t, http.StatusOK, recorder.Code)
+}
+
+type handlerDevMachineStoreFake struct {
+	repository.DevMachineStore
+	machine *domain.DevMachine
+}
+
+func (f *handlerDevMachineStoreFake) GetMachineForUser(_ context.Context, workspaceID, machineID, userID uuid.UUID) (*domain.DevMachine, error) {
+	if f.machine == nil || f.machine.WorkspaceID != workspaceID || f.machine.ID != machineID || f.machine.CreatedByUserID == nil || *f.machine.CreatedByUserID != userID {
+		return nil, nil
+	}
+	return f.machine, nil
+}
+
+func (f *handlerDevMachineStoreFake) CreateEvent(context.Context, *domain.DevMachineEvent) error {
+	return nil
+}
+
+func devMachineHandlerContext(req *http.Request, recorder *httptest.ResponseRecorder, workspaceID, userID uuid.UUID) echo.Context {
+	e := echo.New()
+	ctx := e.NewContext(req, recorder)
+	ctx.Set("workspace", &domain.Workspace{ID: workspaceID})
+	ctx.Set(string(middleware.UserIDKey), userID)
+	return ctx
 }

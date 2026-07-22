@@ -16,8 +16,10 @@ import (
 type DevMachineStore interface {
 	CreateBundle(context.Context, *domain.DevMachine, []domain.DevMachineAgentProvider, []domain.DevMachineService, []domain.DevMachineVolume, []domain.DevMachineEnvVar, []domain.DevMachineToken, *domain.DevMachineOperation) error
 	GetMachine(context.Context, uuid.UUID, uuid.UUID) (*domain.DevMachine, error)
+	GetMachineForUser(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (*domain.DevMachine, error)
 	GetMachineInternal(context.Context, uuid.UUID) (*domain.DevMachine, error)
 	ListMachines(context.Context, uuid.UUID, string, *uuid.UUID, int, int) ([]domain.DevMachine, int, error)
+	ListMachinesForUser(context.Context, uuid.UUID, uuid.UUID, string, *uuid.UUID, int, int) ([]domain.DevMachine, int, error)
 	CountActiveMachines(context.Context, uuid.UUID, *uuid.UUID) (int, error)
 	GetOperationByIdempotency(context.Context, uuid.UUID, uuid.UUID, string) (*domain.DevMachineOperation, error)
 	SetDesiredAndEnqueue(context.Context, uuid.UUID, uuid.UUID, domain.DevMachineStatus, *domain.DevMachineOperation) error
@@ -30,7 +32,9 @@ type DevMachineStore interface {
 	ListEnvVarsInternal(context.Context, uuid.UUID, *string, string) ([]domain.DevMachineEnvVar, error)
 	CreateAgentRun(context.Context, *domain.DevMachineAgentRun, *domain.DevMachineOperation) error
 	GetAgentRun(context.Context, uuid.UUID, uuid.UUID) (*domain.DevMachineAgentRun, error)
+	GetAgentRunForUser(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (*domain.DevMachineAgentRun, error)
 	ListAgentRuns(context.Context, uuid.UUID, *uuid.UUID, int, int) ([]domain.DevMachineAgentRun, int, error)
+	ListAgentRunsForUser(context.Context, uuid.UUID, uuid.UUID, *uuid.UUID, int, int) ([]domain.DevMachineAgentRun, int, error)
 	CountAgentRunsSince(context.Context, uuid.UUID, time.Time) (int, error)
 	HasActiveAgentRun(context.Context, uuid.UUID) (bool, error)
 	CancelAgentRun(context.Context, uuid.UUID, uuid.UUID, *domain.DevMachineOperation) error
@@ -43,7 +47,9 @@ type DevMachineStore interface {
 	ListResourceSamples(context.Context, uuid.UUID, uuid.UUID, int) ([]domain.DevMachineResourceSample, error)
 	CreateGitRef(context.Context, *domain.DevMachineGitRef) error
 	MachineNameExists(context.Context, uuid.UUID, string) (bool, error)
+	MachineNameExistsForUser(context.Context, uuid.UUID, uuid.UUID, string) (bool, error)
 	UpdateMachinePreferences(context.Context, uuid.UUID, uuid.UUID, *bool) (*domain.DevMachine, error)
+	UpdateMachinePreferencesForUser(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, *bool) (*domain.DevMachine, error)
 	TouchMachineActivity(context.Context, uuid.UUID, time.Time) error
 	RequestPermanentDelete(context.Context, uuid.UUID, uuid.UUID, *uuid.UUID) (*domain.DevMachineOperation, error)
 	BulkPurgeMachines(context.Context, uuid.UUID, []uuid.UUID, time.Time, bool, bool) (int, error)
@@ -232,6 +238,16 @@ func (r *DevMachineRepository) GetMachine(ctx context.Context, workspaceID, mach
 	return &machine, err
 }
 
+func (r *DevMachineRepository) GetMachineForUser(ctx context.Context, workspaceID, machineID, userID uuid.UUID) (*domain.DevMachine, error) {
+	var machine domain.DevMachine
+	err := r.db.GetContext(ctx, &machine, `SELECT * FROM dev_machines
+		WHERE workspace_id=$1 AND id=$2 AND created_by_user_id=$3`, workspaceID, machineID, userID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return &machine, err
+}
+
 func (r *DevMachineRepository) GetMachineInternal(ctx context.Context, machineID uuid.UUID) (*domain.DevMachine, error) {
 	var machine domain.DevMachine
 	err := r.db.GetContext(ctx, &machine, `SELECT * FROM dev_machines WHERE id=$1`, machineID)
@@ -260,6 +276,24 @@ func (r *DevMachineRepository) ListMachines(ctx context.Context, workspaceID uui
 	}
 	var machines []domain.DevMachine
 	if err := r.db.SelectContext(ctx, &machines, `SELECT * FROM dev_machines WHERE `+where+` ORDER BY created_at DESC LIMIT $4 OFFSET $5`, workspaceID, status, issueID, limit, offset); err != nil {
+		return nil, 0, err
+	}
+	if machines == nil {
+		machines = []domain.DevMachine{}
+	}
+	return machines, total, nil
+}
+
+func (r *DevMachineRepository) ListMachinesForUser(ctx context.Context, workspaceID, userID uuid.UUID, status string, issueID *uuid.UUID, limit, offset int) ([]domain.DevMachine, int, error) {
+	where := `workspace_id=$1 AND created_by_user_id=$2 AND delete_requested_at IS NULL AND ($3='' OR status::text=$3) AND ($4::uuid IS NULL OR issue_id=$4 OR EXISTS (
+		SELECT 1 FROM dev_machine_checkouts checkout WHERE checkout.machine_id=dev_machines.id AND checkout.issue_id=$4
+	))`
+	var total int
+	if err := r.db.GetContext(ctx, &total, `SELECT COUNT(*) FROM dev_machines WHERE `+where, workspaceID, userID, status, issueID); err != nil {
+		return nil, 0, err
+	}
+	var machines []domain.DevMachine
+	if err := r.db.SelectContext(ctx, &machines, `SELECT * FROM dev_machines WHERE `+where+` ORDER BY created_at DESC LIMIT $5 OFFSET $6`, workspaceID, userID, status, issueID, limit, offset); err != nil {
 		return nil, 0, err
 	}
 	if machines == nil {
@@ -688,6 +722,17 @@ func (r *DevMachineRepository) GetAgentRun(ctx context.Context, workspaceID, run
 	return &run, err
 }
 
+func (r *DevMachineRepository) GetAgentRunForUser(ctx context.Context, workspaceID, runID, userID uuid.UUID) (*domain.DevMachineAgentRun, error) {
+	var run domain.DevMachineAgentRun
+	err := r.db.GetContext(ctx, &run, `SELECT r.* FROM dev_machine_agent_runs r
+		JOIN dev_machines m ON m.id=r.machine_id
+		WHERE r.workspace_id=$1 AND m.workspace_id=$1 AND r.id=$2 AND m.created_by_user_id=$3`, workspaceID, runID, userID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return &run, err
+}
+
 func (r *DevMachineRepository) GetAgentRunInternal(ctx context.Context, runID uuid.UUID) (*domain.DevMachineAgentRun, error) {
 	var run domain.DevMachineAgentRun
 	err := r.db.GetContext(ctx, &run, `SELECT * FROM dev_machine_agent_runs WHERE id=$1`, runID)
@@ -705,6 +750,20 @@ func (r *DevMachineRepository) ListAgentRuns(ctx context.Context, workspaceID uu
 	}
 	var runs []domain.DevMachineAgentRun
 	err := r.db.SelectContext(ctx, &runs, `SELECT * FROM dev_machine_agent_runs WHERE `+where+` ORDER BY created_at DESC LIMIT $3 OFFSET $4`, workspaceID, machineID, limit, offset)
+	return runs, total, err
+}
+
+func (r *DevMachineRepository) ListAgentRunsForUser(ctx context.Context, workspaceID, userID uuid.UUID, machineID *uuid.UUID, limit, offset int) ([]domain.DevMachineAgentRun, int, error) {
+	where := `r.workspace_id=$1 AND m.workspace_id=$1 AND m.created_by_user_id=$2 AND ($3::uuid IS NULL OR r.machine_id=$3)`
+	var total int
+	if err := r.db.GetContext(ctx, &total, `SELECT COUNT(*) FROM dev_machine_agent_runs r JOIN dev_machines m ON m.id=r.machine_id WHERE `+where, workspaceID, userID, machineID); err != nil {
+		return nil, 0, err
+	}
+	var runs []domain.DevMachineAgentRun
+	err := r.db.SelectContext(ctx, &runs, `SELECT r.* FROM dev_machine_agent_runs r JOIN dev_machines m ON m.id=r.machine_id WHERE `+where+` ORDER BY r.created_at DESC LIMIT $4 OFFSET $5`, workspaceID, userID, machineID, limit, offset)
+	if runs == nil {
+		runs = []domain.DevMachineAgentRun{}
+	}
 	return runs, total, err
 }
 
@@ -965,6 +1024,14 @@ func (r *DevMachineRepository) MachineNameExists(ctx context.Context, workspaceI
 	return exists, err
 }
 
+func (r *DevMachineRepository) MachineNameExistsForUser(ctx context.Context, workspaceID, userID uuid.UUID, name string) (bool, error) {
+	var exists bool
+	err := r.db.GetContext(ctx, &exists, `SELECT EXISTS(
+		SELECT 1 FROM dev_machines WHERE workspace_id=$1 AND created_by_user_id=$2 AND LOWER(name)=LOWER($3)
+	)`, workspaceID, userID, name)
+	return exists, err
+}
+
 func (r *DevMachineRepository) UpdateMachinePreferences(ctx context.Context, workspaceID, machineID uuid.UUID, keepRunning *bool) (*domain.DevMachine, error) {
 	if keepRunning != nil {
 		if _, err := r.db.ExecContext(ctx, `UPDATE dev_machines SET keep_running=$1 WHERE workspace_id=$2 AND id=$3`, *keepRunning, workspaceID, machineID); err != nil {
@@ -972,6 +1039,15 @@ func (r *DevMachineRepository) UpdateMachinePreferences(ctx context.Context, wor
 		}
 	}
 	return r.GetMachine(ctx, workspaceID, machineID)
+}
+
+func (r *DevMachineRepository) UpdateMachinePreferencesForUser(ctx context.Context, workspaceID, machineID, userID uuid.UUID, keepRunning *bool) (*domain.DevMachine, error) {
+	if keepRunning != nil {
+		if _, err := r.db.ExecContext(ctx, `UPDATE dev_machines SET keep_running=$1 WHERE workspace_id=$2 AND id=$3 AND created_by_user_id=$4`, *keepRunning, workspaceID, machineID, userID); err != nil {
+			return nil, err
+		}
+	}
+	return r.GetMachineForUser(ctx, workspaceID, machineID, userID)
 }
 
 func (r *DevMachineRepository) TouchMachineActivity(ctx context.Context, machineID uuid.UUID, at time.Time) error {

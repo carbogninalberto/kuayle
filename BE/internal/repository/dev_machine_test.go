@@ -6,6 +6,7 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -34,6 +35,8 @@ type captureExecConn struct {
 	query        string
 	args         []driver.NamedValue
 	rowsAffected int64
+	queryColumns []string
+	queryValues  []driver.Value
 }
 
 func (c *captureExecConn) Prepare(string) (driver.Stmt, error) {
@@ -54,6 +57,22 @@ func (c *captureExecConn) ExecContext(_ context.Context, query string, args []dr
 	return captureExecResult(c.rowsAffected), nil
 }
 
+func (c *captureExecConn) QueryContext(_ context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.query = query
+	c.args = append([]driver.NamedValue(nil), args...)
+	columns := append([]string(nil), c.queryColumns...)
+	if len(columns) == 0 {
+		columns = []string{"value"}
+	}
+	values := append([]driver.Value(nil), c.queryValues...)
+	if values == nil {
+		values = []driver.Value{false}
+	}
+	return &captureRows{columns: columns, values: values}, nil
+}
+
 func (c *captureExecConn) captured() (string, []driver.NamedValue) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -64,6 +83,24 @@ type captureExecResult int64
 
 func (r captureExecResult) LastInsertId() (int64, error) { return 0, nil }
 func (r captureExecResult) RowsAffected() (int64, error) { return int64(r), nil }
+
+type captureRows struct {
+	columns []string
+	values  []driver.Value
+	read    bool
+}
+
+func (r *captureRows) Columns() []string { return r.columns }
+func (r *captureRows) Close() error      { return nil }
+
+func (r *captureRows) Next(dest []driver.Value) error {
+	if r.read {
+		return io.EOF
+	}
+	r.read = true
+	copy(dest, r.values)
+	return nil
+}
 
 func newCaptureDevMachineRepository(t *testing.T, rowsAffected int64) (*DevMachineRepository, *captureExecConn) {
 	t.Helper()
@@ -90,6 +127,40 @@ func TestBulkPurgeMachinesKeepsUnsafeRuntimeRowsGuarded(t *testing.T) {
 	require.Contains(t, query, "NOT EXISTS (SELECT 1 FROM dev_machine_operations")
 	require.Contains(t, query, "m.status='destroyed' OR (m.docker_network_name IS NULL AND m.workspace_volume_name IS NULL)")
 	require.Len(t, args, 6)
+}
+
+func TestMachineNameExistsForUserScopesByCreator(t *testing.T) {
+	repo, conn := newCaptureDevMachineRepository(t, 0)
+	workspaceID, userID := uuid.New(), uuid.New()
+
+	exists, err := repo.MachineNameExistsForUser(context.Background(), workspaceID, userID, "builder-01")
+
+	require.NoError(t, err)
+	require.False(t, exists)
+	query, args := conn.captured()
+	require.Contains(t, query, "created_by_user_id=$2")
+	require.Contains(t, query, "LOWER(name)=LOWER($3)")
+	require.Len(t, args, 3)
+	require.Equal(t, workspaceID.String(), args[0].Value)
+	require.Equal(t, userID.String(), args[1].Value)
+	require.Equal(t, "builder-01", args[2].Value)
+}
+
+func TestDevMachineNameUniqueIndexIsCreatorScoped(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is not configured")
+	}
+	db, err := sqlx.Connect("pgx", databaseURL)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	var indexDef string
+	err = db.Get(&indexDef, `SELECT pg_get_indexdef(indexrelid) FROM pg_index WHERE indexrelid = 'idx_dev_machines_workspace_name'::regclass`)
+	require.NoError(t, err)
+	require.Contains(t, indexDef, "workspace_id")
+	require.Contains(t, indexDef, "created_by_user_id")
+	require.Contains(t, indexDef, "lower")
 }
 
 func TestListAgentRunsScansPersistedRows(t *testing.T) {
