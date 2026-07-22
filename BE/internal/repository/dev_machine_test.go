@@ -482,6 +482,279 @@ func TestAgentRunCreationSerializesWithPauseAndStop(t *testing.T) {
 	}
 }
 
+type environmentRaceFixture struct {
+	repository    *DevMachineRepository
+	db            *sqlx.DB
+	userID        uuid.UUID
+	workspaceID   uuid.UUID
+	environmentID uuid.UUID
+}
+
+func newEnvironmentRaceFixture(t *testing.T, db *sqlx.DB) environmentRaceFixture {
+	t.Helper()
+	fixture := environmentRaceFixture{
+		repository: NewDevMachineRepository(db), db: db,
+		userID: uuid.New(), workspaceID: uuid.New(), environmentID: uuid.New(),
+	}
+	suffix := strings.ReplaceAll(fixture.environmentID.String(), "-", "")
+	t.Cleanup(func() {
+		_, _ = db.Exec(`DELETE FROM workspaces WHERE id=$1`, fixture.workspaceID)
+		_, _ = db.Exec(`DELETE FROM users WHERE id=$1`, fixture.userID)
+	})
+	_, err := db.Exec(`INSERT INTO users (id,email,name,password_hash) VALUES ($1,$2,'Environment Race','test')`,
+		fixture.userID, suffix+"@example.test")
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO workspaces (id,name,slug,owner_id) VALUES ($1,'Environment Race',$2,$3)`,
+		fixture.workspaceID, "environment-race-"+suffix, fixture.userID)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO workspace_members (workspace_id,user_id,role) VALUES ($1,$2,'owner')`, fixture.workspaceID, fixture.userID)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO dev_machine_workspace_policies (workspace_id,enabled) VALUES ($1,TRUE)`, fixture.workspaceID)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO dev_machine_environments
+		(id,workspace_id,name,image_ref,status,created_by_user_id) VALUES ($1,$2,$3,$4,'ready',$5)`,
+		fixture.environmentID, fixture.workspaceID, "environment-"+suffix, "sha256:"+strings.Repeat("a", 64), fixture.userID)
+	require.NoError(t, err)
+	return fixture
+}
+
+func (f environmentRaceFixture) insertMachine(t *testing.T, status, desired domain.DevMachineStatus, builder bool) uuid.UUID {
+	t.Helper()
+	machineID := uuid.New()
+	suffix := strings.ReplaceAll(machineID.String(), "-", "")
+	_, err := f.db.Exec(`INSERT INTO dev_machines
+		(id,workspace_id,created_by_user_id,routing_key,name,status,desired_status,generation,
+		 repo_url,repo_provider,repo_owner,repo_name,base_branch,working_branch,
+		 machine_size,cpu_millis,memory_mb,disk_gb,max_runtime_minutes,expires_at,environment_id,environment_builder)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,1,'','github','','','','','small',1000,2048,20,480,
+		 NOW()+INTERVAL '1 hour',$8,$9)`, machineID, f.workspaceID, f.userID, suffix[:16], "machine-"+suffix,
+		status, desired, f.environmentID, builder)
+	require.NoError(t, err)
+	return machineID
+}
+
+func runEnvironmentRace(left, right func() error) (error, error) {
+	start := make(chan struct{})
+	leftResult, rightResult := make(chan error, 1), make(chan error, 1)
+	go func() {
+		<-start
+		leftResult <- left()
+	}()
+	go func() {
+		<-start
+		rightResult <- right()
+	}()
+	close(start)
+	return <-leftResult, <-rightResult
+}
+
+func TestEnvironmentDeletionSerializesWithMachineCreation(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is not configured")
+	}
+	db, err := sqlx.Connect("pgx", databaseURL)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	fixture := newEnvironmentRaceFixture(t, db)
+	machineID := uuid.New()
+	suffix := strings.ReplaceAll(machineID.String(), "-", "")
+	machine := &domain.DevMachine{
+		ID: machineID, WorkspaceID: fixture.workspaceID, CreatedByUserID: &fixture.userID,
+		RoutingKey: suffix[:16], Name: "machine-" + suffix, Status: domain.DevMachineStatusQueued,
+		DesiredStatus: domain.DevMachineStatusRunning, Generation: 1, RepoProvider: "github",
+		MachineSize: "small", CPUMillis: 1000, MemoryMB: 2048, DiskGB: 20, PidsLimit: 512,
+		MaxRuntimeMinutes: 480, ServicesConfig: []byte(`{}`), Labels: []byte(`{}`),
+		ExpiresAt: time.Now().Add(time.Hour), EnvironmentID: &fixture.environmentID,
+	}
+	operation := &domain.DevMachineOperation{
+		ID: uuid.New(), MachineID: machineID, WorkspaceID: fixture.workspaceID, Action: domain.DevMachineOpSpawn,
+		Status: domain.DevMachineOpStatusPending, Generation: 1, IdempotencyKey: "spawn:1",
+		RequestedByUserID: &fixture.userID, MaxAttempts: 5,
+	}
+
+	createErr, deleteErr := runEnvironmentRace(
+		func() error {
+			return fixture.repository.CreateBundle(context.Background(), machine, nil, nil, nil, nil, nil, operation)
+		},
+		func() error {
+			return fixture.repository.RequestEnvironmentDeletion(context.Background(), fixture.workspaceID, fixture.environmentID)
+		},
+	)
+	require.NotEqual(t, createErr == nil, deleteErr == nil, "exactly one conflicting transaction must commit")
+
+	var environmentStatus string
+	var machineCount int
+	require.NoError(t, db.Get(&environmentStatus, `SELECT status FROM dev_machine_environments WHERE id=$1`, fixture.environmentID))
+	require.NoError(t, db.Get(&machineCount, `SELECT COUNT(*) FROM dev_machines WHERE id=$1`, machineID))
+	if createErr == nil {
+		require.ErrorIs(t, deleteErr, ErrEnvironmentInUse)
+		require.Equal(t, "ready", environmentStatus)
+		require.Equal(t, 1, machineCount)
+	} else {
+		require.ErrorIs(t, createErr, ErrEnvironmentUnavailable)
+		require.NoError(t, deleteErr)
+		require.Equal(t, "delete_requested", environmentStatus)
+		require.Zero(t, machineCount)
+	}
+}
+
+func TestEnvironmentDeletionSerializesWithStartAndRecovery(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is not configured")
+	}
+	db, err := sqlx.Connect("pgx", databaseURL)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	for _, test := range []struct {
+		name          string
+		status        domain.DevMachineStatus
+		desired       domain.DevMachineStatus
+		action        domain.DevMachineOperationAction
+		resultDesired domain.DevMachineStatus
+	}{
+		{name: "start", status: domain.DevMachineStatusStopped, desired: domain.DevMachineStatusStopped, action: domain.DevMachineOpStart, resultDesired: domain.DevMachineStatusRunning},
+		{name: "failed recovery", status: domain.DevMachineStatusFailed, desired: domain.DevMachineStatusFailed, action: domain.DevMachineOpStart, resultDesired: domain.DevMachineStatusRunning},
+		{name: "expired recovery", status: domain.DevMachineStatusExpired, desired: domain.DevMachineStatusExpired, action: domain.DevMachineOpReconcile, resultDesired: domain.DevMachineStatusRunning},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newEnvironmentRaceFixture(t, db)
+			machineID := fixture.insertMachine(t, test.status, test.desired, false)
+			operation := &domain.DevMachineOperation{
+				ID: uuid.New(), MachineID: machineID, WorkspaceID: fixture.workspaceID, Action: test.action,
+				Status: domain.DevMachineOpStatusPending, Generation: 2, IdempotencyKey: string(test.action) + ":2",
+				RequestedByUserID: &fixture.userID, MaxAttempts: 5,
+			}
+
+			lifecycleErr, deleteErr := runEnvironmentRace(
+				func() error {
+					return fixture.repository.SetDesiredAndEnqueue(context.Background(), fixture.workspaceID, machineID, test.resultDesired, operation)
+				},
+				func() error {
+					return fixture.repository.RequestEnvironmentDeletion(context.Background(), fixture.workspaceID, fixture.environmentID)
+				},
+			)
+			require.NoError(t, lifecycleErr)
+			require.ErrorIs(t, deleteErr, ErrEnvironmentInUse)
+
+			var environmentStatus string
+			var desired domain.DevMachineStatus
+			require.NoError(t, db.Get(&environmentStatus, `SELECT status FROM dev_machine_environments WHERE id=$1`, fixture.environmentID))
+			require.NoError(t, db.Get(&desired, `SELECT desired_status FROM dev_machines WHERE id=$1`, machineID))
+			require.Equal(t, "ready", environmentStatus)
+			require.Equal(t, test.resultDesired, desired)
+		})
+	}
+}
+
+func TestEnvironmentDeletionSerializesWithScopeSelection(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is not configured")
+	}
+	db, err := sqlx.Connect("pgx", databaseURL)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	fixture := newEnvironmentRaceFixture(t, db)
+	setting := &domain.DevMachineScopeSetting{WorkspaceID: fixture.workspaceID, EnvironmentID: &fixture.environmentID}
+
+	settingErr, deleteErr := runEnvironmentRace(
+		func() error { return fixture.repository.UpsertScopeSetting(context.Background(), setting) },
+		func() error {
+			return fixture.repository.RequestEnvironmentDeletion(context.Background(), fixture.workspaceID, fixture.environmentID)
+		},
+	)
+	require.NotEqual(t, settingErr == nil, deleteErr == nil, "exactly one conflicting transaction must commit")
+
+	var environmentStatus string
+	var settingCount int
+	require.NoError(t, db.Get(&environmentStatus, `SELECT status FROM dev_machine_environments WHERE id=$1`, fixture.environmentID))
+	require.NoError(t, db.Get(&settingCount, `SELECT COUNT(*) FROM dev_machine_scope_settings WHERE environment_id=$1`, fixture.environmentID))
+	if settingErr == nil {
+		require.ErrorIs(t, deleteErr, ErrEnvironmentInUse)
+		require.Equal(t, "ready", environmentStatus)
+		require.Equal(t, 1, settingCount)
+	} else {
+		require.ErrorIs(t, settingErr, ErrEnvironmentUnavailable)
+		require.NoError(t, deleteErr)
+		require.Equal(t, "delete_requested", environmentStatus)
+		require.Zero(t, settingCount)
+	}
+}
+
+func TestEnvironmentDeletionSerializesWithBuilderSnapshot(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is not configured")
+	}
+	db, err := sqlx.Connect("pgx", databaseURL)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	fixture := newEnvironmentRaceFixture(t, db)
+	machineID := fixture.insertMachine(t, domain.DevMachineStatusStopped, domain.DevMachineStatusStopped, true)
+	snapshotID := uuid.New()
+	environment := &domain.DevMachineEnvironment{
+		ID: snapshotID, WorkspaceID: fixture.workspaceID, Name: "snapshot-" + snapshotID.String(),
+		ImageRef: "snapshot:" + snapshotID.String(), Status: "pending", SourceMachineID: &machineID,
+		CreatedByUserID: &fixture.userID,
+	}
+	operation := &domain.DevMachineOperation{
+		ID: uuid.New(), MachineID: machineID, EnvironmentID: &snapshotID, WorkspaceID: fixture.workspaceID,
+		Action: domain.DevMachineOpSnapshotEnvironment, Status: domain.DevMachineOpStatusPending,
+		Generation: 1, IdempotencyKey: "snapshot:" + snapshotID.String(), RequestedByUserID: &fixture.userID, MaxAttempts: 2,
+	}
+
+	snapshotErr, deleteErr := runEnvironmentRace(
+		func() error {
+			return fixture.repository.CreateEnvironment(context.Background(), environment, operation)
+		},
+		func() error {
+			return fixture.repository.RequestEnvironmentDeletion(context.Background(), fixture.workspaceID, fixture.environmentID)
+		},
+	)
+	require.NoError(t, snapshotErr)
+	require.ErrorIs(t, deleteErr, ErrEnvironmentInUse)
+
+	var snapshotCount int
+	require.NoError(t, db.Get(&snapshotCount, `SELECT COUNT(*) FROM dev_machine_environments WHERE id=$1 AND status='pending'`, snapshotID))
+	require.Equal(t, 1, snapshotCount)
+}
+
+func TestEnvironmentDeletionChecksDesiredStateAndPendingOperations(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is not configured")
+	}
+	db, err := sqlx.Connect("pgx", databaseURL)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	t.Run("desired recovery", func(t *testing.T) {
+		fixture := newEnvironmentRaceFixture(t, db)
+		fixture.insertMachine(t, domain.DevMachineStatusDestroyed, domain.DevMachineStatusRunning, false)
+
+		err := fixture.repository.RequestEnvironmentDeletion(context.Background(), fixture.workspaceID, fixture.environmentID)
+
+		require.ErrorIs(t, err, ErrEnvironmentInUse)
+	})
+
+	t.Run("pending lifecycle operation", func(t *testing.T) {
+		fixture := newEnvironmentRaceFixture(t, db)
+		machineID := fixture.insertMachine(t, domain.DevMachineStatusDestroyed, domain.DevMachineStatusDestroyed, false)
+		operation := &domain.DevMachineOperation{
+			ID: uuid.New(), MachineID: machineID, WorkspaceID: fixture.workspaceID, Action: domain.DevMachineOpStart,
+			Status: domain.DevMachineOpStatusPending, Generation: 2, IdempotencyKey: "start:2", MaxAttempts: 5,
+		}
+		require.NoError(t, fixture.repository.EnqueueInternalOperation(context.Background(), operation))
+
+		err := fixture.repository.RequestEnvironmentDeletion(context.Background(), fixture.workspaceID, fixture.environmentID)
+
+		require.ErrorIs(t, err, ErrEnvironmentInUse)
+	})
+}
+
 func TestListAgentRunsScansPersistedRows(t *testing.T) {
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {

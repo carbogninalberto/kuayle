@@ -87,6 +87,8 @@ var ErrIdempotencyKeyConflict = errors.New("idempotency key was already used for
 var ErrCheckoutMachineConflict = errors.New("machine is not running or uses another repository")
 var ErrActiveAgentRun = errors.New("machine has an active agent run")
 var ErrMachineStateConflict = errors.New("machine state changed while queuing operation")
+var ErrEnvironmentInUse = errors.New("development environment is in use")
+var ErrEnvironmentUnavailable = errors.New("development environment is not available")
 
 type DevMachineRepository struct {
 	db *sqlx.DB
@@ -113,6 +115,16 @@ func (r *DevMachineRepository) CreateBundle(
 	defer tx.Rollback()
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`, machine.WorkspaceID); err != nil {
 		return err
+	}
+	if machine.EnvironmentID != nil {
+		var ready bool
+		if err := tx.GetContext(ctx, &ready, `SELECT EXISTS(SELECT 1 FROM dev_machine_environments
+			WHERE workspace_id=$1 AND id=$2 AND status='ready')`, machine.WorkspaceID, machine.EnvironmentID); err != nil {
+			return err
+		}
+		if !ready {
+			return ErrEnvironmentUnavailable
+		}
 	}
 	var maxWorkspace, maxUser, workspaceCount, userCount int
 	if err := tx.QueryRowContext(ctx, `SELECT max_concurrent_machines, max_machines_per_user
@@ -349,10 +361,11 @@ func (r *DevMachineRepository) SetDesiredAndEnqueue(ctx context.Context, workspa
 	}
 	var status domain.DevMachineStatus
 	var creatorID *uuid.UUID
+	var environmentID *uuid.UUID
 	var generation int64
-	if err := tx.QueryRowContext(ctx, `SELECT status, generation, created_by_user_id
+	if err := tx.QueryRowContext(ctx, `SELECT status, generation, created_by_user_id, environment_id
 		FROM dev_machines WHERE workspace_id=$1 AND id=$2 FOR UPDATE`, workspaceID, machineID).
-		Scan(&status, &generation, &creatorID); err != nil {
+		Scan(&status, &generation, &creatorID, &environmentID); err != nil {
 		return err
 	}
 	if generation >= operation.Generation {
@@ -369,6 +382,16 @@ func (r *DevMachineRepository) SetDesiredAndEnqueue(ctx context.Context, workspa
 		}
 	}
 	if desired == domain.DevMachineStatusRunning {
+		if environmentID != nil {
+			var ready bool
+			if err := tx.GetContext(ctx, &ready, `SELECT EXISTS(SELECT 1 FROM dev_machine_environments
+				WHERE workspace_id=$1 AND id=$2 AND status='ready')`, workspaceID, environmentID); err != nil {
+				return err
+			}
+			if !ready {
+				return ErrEnvironmentUnavailable
+			}
+		}
 		if status == domain.DevMachineStatusStopped || status == domain.DevMachineStatusFailed {
 			var maxWorkspace, maxUser, workspaceCount, userCount int
 			if err := tx.QueryRowContext(ctx, `SELECT max_concurrent_machines, max_machines_per_user
@@ -1343,6 +1366,19 @@ func (r *DevMachineRepository) UpsertScopeSetting(ctx context.Context, setting *
 		return err
 	}
 	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`, setting.WorkspaceID); err != nil {
+		return err
+	}
+	if setting.EnvironmentID != nil {
+		var ready bool
+		if err := tx.GetContext(ctx, &ready, `SELECT EXISTS(SELECT 1 FROM dev_machine_environments
+			WHERE workspace_id=$1 AND id=$2 AND status='ready')`, setting.WorkspaceID, setting.EnvironmentID); err != nil {
+			return err
+		}
+		if !ready {
+			return ErrEnvironmentUnavailable
+		}
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM dev_machine_scope_settings
 		WHERE workspace_id=$1 AND team_id IS NOT DISTINCT FROM $2 AND project_id IS NOT DISTINCT FROM $3
 		AND issue_id IS NOT DISTINCT FROM $4`, setting.WorkspaceID, setting.TeamID, setting.ProjectID, setting.IssueID); err != nil {
@@ -1447,6 +1483,9 @@ func (r *DevMachineRepository) CreateEnvironment(ctx context.Context, environmen
 		return err
 	}
 	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`, environment.WorkspaceID); err != nil {
+		return err
+	}
 	if err := tx.QueryRowContext(ctx, `INSERT INTO dev_machine_environments
 		(id,workspace_id,name,image_ref,status,source_machine_id,created_by_user_id)
 		VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING created_at,updated_at`, environment.ID, environment.WorkspaceID,
@@ -1461,18 +1500,44 @@ func (r *DevMachineRepository) CreateEnvironment(ctx context.Context, environmen
 }
 
 func (r *DevMachineRepository) RequestEnvironmentDeletion(ctx context.Context, workspaceID, environmentID uuid.UUID) error {
-	result, err := r.db.ExecContext(ctx, `UPDATE dev_machine_environments e
-		SET status='delete_requested', delete_requested_at=COALESCE(delete_requested_at,NOW())
-		WHERE e.workspace_id=$1 AND e.id=$2 AND e.status IN ('ready','failed')
-		AND NOT EXISTS (SELECT 1 FROM dev_machine_scope_settings s WHERE s.environment_id=e.id)
-		AND NOT EXISTS (SELECT 1 FROM dev_machines m WHERE m.environment_id=e.id AND m.status NOT IN ('destroyed','expired','failed'))`, workspaceID, environmentID)
+	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	if rows, _ := result.RowsAffected(); rows != 1 {
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`, workspaceID); err != nil {
+		return err
+	}
+	var status string
+	if err := tx.GetContext(ctx, &status, `SELECT status FROM dev_machine_environments
+		WHERE workspace_id=$1 AND id=$2 FOR UPDATE`, workspaceID, environmentID); err != nil {
+		return err
+	}
+	if status != "ready" && status != "failed" {
 		return sql.ErrNoRows
 	}
-	return nil
+	var inUse bool
+	if err := tx.GetContext(ctx, &inUse, `SELECT
+		EXISTS(SELECT 1 FROM dev_machine_scope_settings WHERE environment_id=$1)
+		OR EXISTS(SELECT 1 FROM dev_machines m WHERE m.environment_id=$1 AND (
+			m.status<>'destroyed' OR m.desired_status='running' OR EXISTS(
+				SELECT 1 FROM dev_machine_operations o WHERE o.machine_id=m.id
+				AND o.status IN ('pending','leased') AND o.action IN ('spawn','start','reconcile','snapshot_environment')
+			)
+		))
+		OR EXISTS(SELECT 1 FROM dev_machine_operations WHERE environment_id=$1
+			AND status IN ('pending','leased') AND action='snapshot_environment')`, environmentID); err != nil {
+		return err
+	}
+	if inUse {
+		return ErrEnvironmentInUse
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE dev_machine_environments
+		SET status='delete_requested',delete_requested_at=COALESCE(delete_requested_at,NOW())
+		WHERE workspace_id=$1 AND id=$2`, workspaceID, environmentID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (r *DevMachineRepository) ListDeleteRequestedEnvironments(ctx context.Context, limit int) ([]domain.DevMachineEnvironment, error) {

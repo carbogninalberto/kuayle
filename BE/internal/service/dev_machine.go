@@ -255,6 +255,9 @@ func (s *DevMachineService) Create(ctx context.Context, workspaceID, userID uuid
 		IdempotencyKey: fmt.Sprintf("spawn:%d", machine.Generation), RequestedByUserID: &userID, MaxAttempts: 5,
 	}
 	if err := s.store.CreateBundle(ctx, machine, providers, services, volumes, envVars, tokens, operation); err != nil {
+		if errors.Is(err, repository.ErrEnvironmentUnavailable) {
+			return nil, nil, fmt.Errorf("%w: %v", ErrInvalidOperation, err)
+		}
 		return nil, nil, err
 	}
 	s.emit(ctx, machine, nil, &userID, "lifecycle", "machine.queued", map[string]any{"operation_id": operation.ID})
@@ -684,6 +687,9 @@ func (s *DevMachineService) UpdateScopeSetting(ctx context.Context, workspaceID 
 		setting.EnvironmentID = &environmentID
 	}
 	if err := s.store.UpsertScopeSetting(ctx, setting); err != nil {
+		if errors.Is(err, repository.ErrEnvironmentUnavailable) {
+			return nil, fmt.Errorf("%w: %v", ErrInvalidOperation, err)
+		}
 		return nil, err
 	}
 	return setting, nil
@@ -881,6 +887,9 @@ func (s *DevMachineService) GetEnvironment(ctx context.Context, workspaceID, env
 
 func (s *DevMachineService) RequestEnvironmentDeletion(ctx context.Context, workspaceID, environmentID uuid.UUID) error {
 	if err := s.store.RequestEnvironmentDeletion(ctx, workspaceID, environmentID); err != nil {
+		if errors.Is(err, repository.ErrEnvironmentInUse) {
+			return fmt.Errorf("%w: %v", ErrInvalidOperation, err)
+		}
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("invalid development environment")
 		}
@@ -1008,7 +1017,7 @@ func (s *DevMachineService) Lifecycle(ctx context.Context, workspaceID, machineI
 		if errors.Is(err, repository.ErrIdempotencyKeyConflict) {
 			return nil, fmt.Errorf("%w: %v", ErrInvalidOperation, err)
 		}
-		if errors.Is(err, repository.ErrActiveAgentRun) || errors.Is(err, repository.ErrMachineStateConflict) {
+		if errors.Is(err, repository.ErrActiveAgentRun) || errors.Is(err, repository.ErrMachineStateConflict) || errors.Is(err, repository.ErrEnvironmentUnavailable) {
 			return nil, fmt.Errorf("%w: %v", ErrInvalidOperation, err)
 		}
 		return nil, err

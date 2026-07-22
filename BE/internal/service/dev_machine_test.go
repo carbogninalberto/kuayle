@@ -506,6 +506,56 @@ func TestLifecycleMapsTransactionalConflicts(t *testing.T) {
 	}
 }
 
+func TestEnvironmentRepositoryConflictsMapToInvalidOperation(t *testing.T) {
+	store := &devMachineStoreFake{deleteEnvironmentErr: repository.ErrEnvironmentInUse}
+
+	err := newTestDevMachineService(store).RequestEnvironmentDeletion(context.Background(), uuid.New(), uuid.New())
+
+	require.ErrorIs(t, err, ErrInvalidOperation)
+	require.Contains(t, err.Error(), repository.ErrEnvironmentInUse.Error())
+}
+
+func TestEnvironmentUnavailableMapsToInvalidOperation(t *testing.T) {
+	workspaceID, userID, environmentID := uuid.New(), uuid.New(), uuid.New()
+
+	t.Run("machine creation", func(t *testing.T) {
+		store := &devMachineStoreFake{policy: testPolicy(workspaceID), createBundleErr: repository.ErrEnvironmentUnavailable}
+		_, _, err := newTestDevMachineService(store).Create(
+			context.Background(), workspaceID, userID, dto.CreateDevMachineRequest{Size: "small"},
+		)
+		require.ErrorIs(t, err, ErrInvalidOperation)
+	})
+
+	t.Run("scope setting", func(t *testing.T) {
+		store := &devMachineStoreFake{
+			environments: map[uuid.UUID]*domain.DevMachineEnvironment{
+				environmentID: {ID: environmentID, WorkspaceID: workspaceID, Status: "ready"},
+			},
+			upsertScopeErr: repository.ErrEnvironmentUnavailable,
+		}
+		_, err := newTestDevMachineService(store).UpdateScopeSetting(context.Background(), workspaceID, dto.DevMachineScopeSettingRequest{
+			ScopeType: "workspace", EnvironmentID: dmStrPtr(environmentID.String()),
+		})
+		require.ErrorIs(t, err, ErrInvalidOperation)
+	})
+
+	t.Run("machine lifecycle", func(t *testing.T) {
+		store := &devMachineStoreFake{
+			policy: testPolicy(workspaceID),
+			machine: &domain.DevMachine{
+				ID: uuid.New(), WorkspaceID: workspaceID, CreatedByUserID: &userID,
+				Status: domain.DevMachineStatusStopped, DesiredStatus: domain.DevMachineStatusStopped,
+				Generation: 1, ExpiresAt: time.Now().Add(time.Hour),
+			},
+			setDesiredErr: repository.ErrEnvironmentUnavailable,
+		}
+		_, err := newTestDevMachineService(store).Lifecycle(
+			context.Background(), workspaceID, store.machine.ID, userID, domain.DevMachineOpStart, "start:2",
+		)
+		require.ErrorIs(t, err, ErrInvalidOperation)
+	})
+}
+
 func TestUserScopedMachineAccessRequiresCreator(t *testing.T) {
 	workspaceID, ownerID, otherID, machineID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	store := &devMachineStoreFake{
@@ -696,6 +746,7 @@ type devMachineStoreFake struct {
 	createdOperation            *domain.DevMachineOperation
 	createdEnvironment          *domain.DevMachineEnvironment
 	createdEnvironmentOperation *domain.DevMachineOperation
+	createBundleErr             error
 	scopeSettings               map[string]*domain.DevMachineScopeSetting
 	reposByID                   map[uuid.UUID]*domain.GitHubRepoModel
 	reposByFullName             map[string]*domain.GitHubRepoModel
@@ -726,6 +777,8 @@ type devMachineStoreFake struct {
 	permanentDeleteRequests     int
 	permanentDeleteQueued       int
 	deleteScopeSettingErr       error
+	deleteEnvironmentErr        error
+	upsertScopeErr              error
 	setDesiredErr               error
 	queuedOperation             *domain.DevMachineOperation
 	queuedDesired               domain.DevMachineStatus
@@ -745,6 +798,9 @@ func testPolicy(workspaceID uuid.UUID) *domain.DevMachineWorkspacePolicy {
 }
 
 func (f *devMachineStoreFake) CreateBundle(_ context.Context, machine *domain.DevMachine, _ []domain.DevMachineAgentProvider, services []domain.DevMachineService, _ []domain.DevMachineVolume, _ []domain.DevMachineEnvVar, _ []domain.DevMachineToken, operation *domain.DevMachineOperation) error {
+	if f.createBundleErr != nil {
+		return f.createBundleErr
+	}
 	f.createdMachine = machine
 	f.createdServices = append([]domain.DevMachineService(nil), services...)
 	f.createdOperation = operation
@@ -851,6 +907,18 @@ func (f *devMachineStoreFake) SetDesiredAndEnqueue(_ context.Context, _ uuid.UUI
 
 func (f *devMachineStoreFake) HasActiveAgentRun(context.Context, uuid.UUID) (bool, error) {
 	return false, nil
+}
+
+func (f *devMachineStoreFake) RequestEnvironmentDeletion(context.Context, uuid.UUID, uuid.UUID) error {
+	return f.deleteEnvironmentErr
+}
+
+func (f *devMachineStoreFake) ScopeResourceExists(context.Context, uuid.UUID, string, *uuid.UUID) (bool, error) {
+	return true, nil
+}
+
+func (f *devMachineStoreFake) UpsertScopeSetting(context.Context, *domain.DevMachineScopeSetting) error {
+	return f.upsertScopeErr
 }
 
 func (f *devMachineStoreFake) GetPolicy(context.Context, uuid.UUID) (*domain.DevMachineWorkspacePolicy, error) {
