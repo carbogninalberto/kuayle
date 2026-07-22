@@ -7,18 +7,19 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/containerd/errdefs"
+	"github.com/google/uuid"
+	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
-	"github.com/google/uuid"
-	"github.com/kuayle/kuayle-backend/internal/domain"
 )
 
 const egressNetworkName = "kuayle-machine-egress"
@@ -328,7 +329,9 @@ func (r *DockerRuntime) prepareWorkspaceVolume(ctx context.Context, machine *dom
 	if err != nil {
 		return err
 	}
-	defer func() { _, _ = r.client.ContainerRemove(context.Background(), response.ID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true}) }()
+	defer func() {
+		_, _ = r.client.ContainerRemove(context.Background(), response.ID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+	}()
 	if _, err := r.client.ContainerStart(ctx, response.ID, client.ContainerStartOptions{}); err != nil {
 		return err
 	}
@@ -348,39 +351,122 @@ func (r *DockerRuntime) prepareWorkspaceVolume(ctx context.Context, machine *dom
 }
 
 func (r *DockerRuntime) Start(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService, secrets map[string]map[string]string) error {
-	seen := make(map[string]bool, len(services))
-	for _, service := range services {
-		if service.ServiceType == "agent" && (machine.Status != domain.DevMachineStatusPaused || (service.Status != "running" && service.Status != "paused")) {
-			continue
-		}
+	for _, service := range plannedStartServices(machine.Status, services) {
 		if service.ContainerID == nil || *service.ContainerID == "" {
 			return fmt.Errorf("service %s has no container", service.ServiceKey)
 		}
-		if seen[*service.ContainerID] {
-			continue
-		}
-		seen[*service.ContainerID] = true
 		inspection, err := r.client.ContainerInspect(ctx, *service.ContainerID, client.ContainerInspectOptions{})
 		if err != nil {
 			return err
 		}
-		if inspection.Container.State.Paused {
-			if _, err := r.client.ContainerUnpause(ctx, *service.ContainerID, client.ContainerUnpauseOptions{}); err != nil {
-				return err
-			}
-		} else if !inspection.Container.State.Running {
-			if _, err := r.client.ContainerStart(ctx, *service.ContainerID, client.ContainerStartOptions{}); err != nil {
-				return err
-			}
-			if err := r.copySecrets(ctx, *service.ContainerID, secrets[service.ServiceKey]); err != nil {
-				return err
-			}
+		if err := r.ensureContainerStarted(ctx, *service.ContainerID, machine.Status, inspection.Container.State.Running, inspection.Container.State.Paused, secrets[service.ServiceKey]); err != nil {
+			return err
 		}
 		if err := r.requireRunning(ctx, *service.ContainerID); err != nil {
 			return fmt.Errorf("start %s: %w", service.ServiceKey, err)
 		}
 	}
 	return nil
+}
+
+type containerStartAction int
+
+const (
+	containerStartNone containerStartAction = iota
+	containerStartUnpause
+	containerStartStart
+	containerStartRestart
+)
+
+func plannedStartServices(machineStatus domain.DevMachineStatus, services []domain.DevMachineService) []domain.DevMachineService {
+	planned := make([]domain.DevMachineService, 0, len(services))
+	indexByContainer := make(map[string]int, len(services))
+	for _, service := range services {
+		if !startIncludesService(machineStatus, service) {
+			continue
+		}
+		if service.ContainerID == nil || *service.ContainerID == "" {
+			planned = append(planned, service)
+			continue
+		}
+		containerID := *service.ContainerID
+		if index, ok := indexByContainer[containerID]; ok {
+			if preferStartService(service, planned[index]) {
+				planned[index] = service
+			}
+			continue
+		}
+		indexByContainer[containerID] = len(planned)
+		planned = append(planned, service)
+	}
+	return planned
+}
+
+func startIncludesService(machineStatus domain.DevMachineStatus, service domain.DevMachineService) bool {
+	if service.ServiceType != "agent" {
+		return true
+	}
+	return machineStatus == domain.DevMachineStatusPaused && (service.Status == "running" || service.Status == "paused")
+}
+
+func preferStartService(candidate, current domain.DevMachineService) bool {
+	// The terminal endpoint shares the IDE container. Restart the shared
+	// developer container once and install the IDE secret set that its
+	// entrypoint was configured to consume.
+	return current.ServiceType == "terminal" && candidate.ServiceType == "ide"
+}
+
+func serviceStartAction(machineStatus domain.DevMachineStatus, running, paused bool) containerStartAction {
+	if machineStatus == domain.DevMachineStatusPaused {
+		return containerStartRestart
+	}
+	if paused {
+		return containerStartUnpause
+	}
+	if !running {
+		return containerStartStart
+	}
+	return containerStartNone
+}
+
+func (r *DockerRuntime) ensureContainerStarted(ctx context.Context, containerID string, machineStatus domain.DevMachineStatus, running, paused bool, secrets map[string]string) error {
+	switch serviceStartAction(machineStatus, running, paused) {
+	case containerStartRestart:
+		return r.restartContainerWithSecrets(ctx, containerID, running, paused, secrets)
+	case containerStartUnpause:
+		_, err := r.client.ContainerUnpause(ctx, containerID, client.ContainerUnpauseOptions{})
+		return err
+	case containerStartStart:
+		return r.startContainerWithSecrets(ctx, containerID, secrets)
+	default:
+		return nil
+	}
+}
+
+func (r *DockerRuntime) restartContainerWithSecrets(ctx context.Context, containerID string, running, paused bool, secrets map[string]string) error {
+	if paused {
+		if _, err := r.client.ContainerUnpause(ctx, containerID, client.ContainerUnpauseOptions{}); err != nil {
+			return err
+		}
+		running = true
+	}
+	if running {
+		if err := r.clearSecretFiles(ctx, containerID); err != nil {
+			return err
+		}
+		timeout := 15
+		if _, err := r.client.ContainerStop(ctx, containerID, client.ContainerStopOptions{Timeout: &timeout}); err != nil && !errdefs.IsNotFound(err) && !errdefs.IsConflict(err) {
+			return err
+		}
+	}
+	return r.startContainerWithSecrets(ctx, containerID, secrets)
+}
+
+func (r *DockerRuntime) startContainerWithSecrets(ctx context.Context, containerID string, secrets map[string]string) error {
+	if _, err := r.client.ContainerStart(ctx, containerID, client.ContainerStartOptions{}); err != nil {
+		return err
+	}
+	return r.copySecrets(ctx, containerID, secrets)
 }
 
 func (r *DockerRuntime) Pause(ctx context.Context, _ *domain.DevMachine, services []domain.DevMachineService) error {
@@ -851,18 +937,8 @@ func (r *DockerRuntime) ensureService(ctx context.Context, machine *domain.DevMa
 		if err != nil {
 			return containerID, false, networkAttached, err
 		}
-		if inspection.Container.State.Paused {
-			if _, err := r.client.ContainerUnpause(ctx, inspection.Container.ID, client.ContainerUnpauseOptions{}); err != nil {
-				return containerID, false, networkAttached, err
-			}
-		}
-		if !inspection.Container.State.Running {
-			if _, err := r.client.ContainerStart(ctx, inspection.Container.ID, client.ContainerStartOptions{}); err != nil {
-				return containerID, false, networkAttached, err
-			}
-			if err := r.copySecrets(ctx, inspection.Container.ID, secrets); err != nil {
-				return containerID, false, networkAttached, err
-			}
+		if err := r.ensureContainerStarted(ctx, inspection.Container.ID, machine.Status, inspection.Container.State.Running, inspection.Container.State.Paused, secrets); err != nil {
+			return containerID, false, networkAttached, err
 		}
 		if err := r.requireRunning(ctx, inspection.Container.ID); err != nil {
 			return containerID, false, networkAttached, err
@@ -1157,15 +1233,38 @@ func (r *DockerRuntime) requireRunning(ctx context.Context, containerID string) 
 }
 
 func (r *DockerRuntime) copySecrets(ctx context.Context, containerID string, secrets map[string]string) error {
-	for name, value := range secrets {
-		if !validSecretName(name) {
+	return installSecrets(ctx, containerID, secrets, r.clearSecretFiles, r.writeSecretFile)
+}
+
+type secretFileClearFunc func(context.Context, string) error
+type secretFileWriteFunc func(context.Context, string, string, string) error
+
+func installSecrets(ctx context.Context, containerID string, secrets map[string]string, clear secretFileClearFunc, write secretFileWriteFunc) error {
+	names := make([]string, 0, len(secrets))
+	for name := range secrets {
+		if name == ".ready" || !validSecretName(name) {
 			return fmt.Errorf("invalid secret name")
 		}
-		if err := r.writeSecretFile(ctx, containerID, name, value); err != nil {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	if err := clear(ctx, containerID); err != nil {
+		return err
+	}
+	for _, name := range names {
+		if err := write(ctx, containerID, name, secrets[name]); err != nil {
 			return err
 		}
 	}
-	return r.writeSecretFile(ctx, containerID, ".ready", "")
+	return write(ctx, containerID, ".ready", "")
+}
+
+func (r *DockerRuntime) clearSecretFiles(ctx context.Context, containerID string) error {
+	_, err := r.execOutput(ctx, containerID, []string{"/bin/sh", "-c", "rm -rf /run/kuayle-secrets/* /run/kuayle-secrets/.[!.]* /run/kuayle-secrets/..?*"})
+	if err != nil {
+		return fmt.Errorf("clear scoped secrets: %w", err)
+	}
+	return nil
 }
 
 func (r *DockerRuntime) writeSecretFile(ctx context.Context, containerID, name, value string) error {

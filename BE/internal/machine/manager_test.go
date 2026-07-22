@@ -41,6 +41,7 @@ type managerStoreFake struct {
 	completedRun              *domain.DevMachineAgentRun
 	runtimeCredentials        []domain.DevMachineRuntimeCredential
 	purgedCredentialNow       *time.Time
+	revokedMachineIDs         []uuid.UUID
 }
 
 func (f *managerStoreFake) LeaseOperations(context.Context, string, int, time.Duration) ([]domain.DevMachineOperation, error) {
@@ -112,7 +113,10 @@ func (f *managerStoreFake) CreateEvent(_ context.Context, event *domain.DevMachi
 func (f *managerStoreFake) CreateLogChunk(context.Context, *domain.DevMachineLogChunk) error {
 	return nil
 }
-func (f *managerStoreFake) RevokeMachineAccess(context.Context, uuid.UUID) error { return nil }
+func (f *managerStoreFake) RevokeMachineAccess(_ context.Context, machineID uuid.UUID) error {
+	f.revokedMachineIDs = append(f.revokedMachineIDs, machineID)
+	return nil
+}
 func (f *managerStoreFake) ListExpiredMachines(context.Context, int) ([]domain.DevMachine, error) {
 	return nil, nil
 }
@@ -372,6 +376,32 @@ func TestManagerLifecycleSpawnPauseAndTeardown(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, domain.DevMachineStatusDestroyed, store.machine.Status)
 	require.Equal(t, 1, runtime.tornDown)
+}
+
+func TestManagerPauseRevokesMachineAccess(t *testing.T) {
+	machineID, workspaceID := uuid.New(), uuid.New()
+	containerID := "container-ide"
+	store := &managerStoreFake{
+		machine: &domain.DevMachine{
+			ID: machineID, WorkspaceID: workspaceID, RoutingKey: "0123456789abcdef0123",
+			Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusPaused, Generation: 3,
+		},
+		services: []domain.DevMachineService{{
+			ID: uuid.New(), MachineID: machineID, ServiceKey: "ide", ServiceType: "ide",
+			ContainerID: &containerID, Status: "running",
+		}},
+	}
+	runtime := &runtimeFake{}
+	manager := NewManager(store, runtime, agent.NewRegistry(), nil, make([]byte, 32), make([]byte, 32), "test")
+
+	err := manager.processOperation(context.Background(), &domain.DevMachineOperation{
+		MachineID: machineID, WorkspaceID: workspaceID, Action: domain.DevMachineOpPause, Generation: 3,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, []uuid.UUID{machineID}, store.revokedMachineIDs)
+	require.Equal(t, 1, runtime.paused)
+	require.Equal(t, domain.DevMachineStatusPaused, store.machine.Status)
 }
 
 func TestManagerSkipsStaleOperationGeneration(t *testing.T) {

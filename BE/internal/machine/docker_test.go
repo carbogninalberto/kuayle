@@ -1,6 +1,7 @@
 package machine
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -60,6 +61,45 @@ func TestSpawnCleanupPlanRemovesOnlyNewNetworkAndVolume(t *testing.T) {
 	require.False(t, cleanup.RemoveVolume)
 	require.Empty(t, cleanup.Containers)
 	require.Empty(t, cleanup.NetworkConnections)
+}
+
+func TestPausedStartActionRestartsInsteadOfPureUnpause(t *testing.T) {
+	require.Equal(t, containerStartRestart, serviceStartAction(domain.DevMachineStatusPaused, true, true))
+	require.Equal(t, containerStartRestart, serviceStartAction(domain.DevMachineStatusPaused, true, false))
+	require.Equal(t, containerStartUnpause, serviceStartAction(domain.DevMachineStatusRunning, true, true))
+}
+
+func TestStartPlanDeduplicatesSharedIDEAndTerminalContainer(t *testing.T) {
+	sharedContainer := "developer-container"
+	browserContainer := "browser-container"
+	services := []domain.DevMachineService{
+		{ID: uuid.New(), ServiceKey: "terminal", ServiceType: "terminal", ContainerID: &sharedContainer},
+		{ID: uuid.New(), ServiceKey: "ide", ServiceType: "ide", ContainerID: &sharedContainer},
+		{ID: uuid.New(), ServiceKey: "browser", ServiceType: "browser", ContainerID: &browserContainer},
+	}
+
+	planned := plannedStartServices(domain.DevMachineStatusPaused, services)
+
+	require.Len(t, planned, 2)
+	require.Equal(t, "ide", planned[0].ServiceKey)
+	require.Equal(t, "browser", planned[1].ServiceKey)
+}
+
+func TestInstallSecretsClearsStaleFilesBeforeActiveValuesAndReady(t *testing.T) {
+	var calls []string
+	clear := func(context.Context, string) error {
+		calls = append(calls, "clear")
+		return nil
+	}
+	write := func(_ context.Context, _ string, name, value string) error {
+		calls = append(calls, "write:"+name+"="+value)
+		return nil
+	}
+
+	err := installSecrets(context.Background(), "container-id", map[string]string{"ACTIVE_SECRET": "active-value"}, clear, write)
+
+	require.NoError(t, err)
+	require.Equal(t, []string{"clear", "write:ACTIVE_SECRET=active-value", "write:.ready="}, calls)
 }
 
 func TestMissingImmutableLocalImageRefusesPull(t *testing.T) {

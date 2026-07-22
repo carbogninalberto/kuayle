@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/moby/moby/api/types/container"
-	"github.com/moby/moby/client"
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/client"
 	"github.com/stretchr/testify/require"
 )
 
@@ -51,6 +51,7 @@ func TestDockerRuntimeLifecycle(t *testing.T) {
 
 	machine := &domain.DevMachine{
 		ID: uuid.New(), WorkspaceID: uuid.New(), RoutingKey: routingKey,
+		Status:    domain.DevMachineStatusQueued,
 		CPUMillis: 4000, MemoryMB: 4096, PidsLimit: 1024,
 		BaseBranch: "main", WorkingBranch: "kuayle/integration-test",
 	}
@@ -67,6 +68,7 @@ func TestDockerRuntimeLifecycle(t *testing.T) {
 
 	networkName, volumeName, containers, err := runtime.Spawn(ctx, machine, services, secrets)
 	require.NoError(t, err)
+	machine.Status = domain.DevMachineStatusRunning
 	require.Equal(t, containers["ide"], containers["terminal"])
 	machine.DockerNetworkName = &networkName
 	machine.WorkspaceVolumeName = &volumeName
@@ -114,18 +116,22 @@ func TestDockerRuntimeLifecycle(t *testing.T) {
 	}
 
 	require.NoError(t, runtime.Pause(ctx, machine, services))
+	machine.Status = domain.DevMachineStatusPaused
 	for _, service := range services {
 		inspection, err := runtime.client.ContainerInspect(ctx, *service.ContainerID, client.ContainerInspectOptions{})
 		require.NoError(t, err)
 		require.True(t, inspection.Container.State.Paused)
 	}
 	require.NoError(t, runtime.Start(ctx, machine, services, secrets))
+	machine.Status = domain.DevMachineStatusRunning
 	for _, service := range services {
 		requireContainerRunning(t, ctx, runtime, service.ServiceKey, *service.ContainerID)
 	}
 
 	require.NoError(t, runtime.Stop(ctx, machine, services))
+	machine.Status = domain.DevMachineStatusStopped
 	require.NoError(t, runtime.Start(ctx, machine, services, secrets))
+	machine.Status = domain.DevMachineStatusRunning
 	for _, service := range services {
 		requireContainerRunning(t, ctx, runtime, service.ServiceKey, *service.ContainerID)
 	}
@@ -162,7 +168,9 @@ func TestDockerRuntimeLifecycle(t *testing.T) {
 		ServiceType: "agent", ServiceKey: "custom-agent", ContainerID: &customExecution.ContainerID,
 	})
 	require.NoError(t, runtime.Stop(ctx, machine, services))
+	machine.Status = domain.DevMachineStatusStopped
 	require.NoError(t, runtime.Start(ctx, machine, services, secrets))
+	machine.Status = domain.DevMachineStatusRunning
 	for _, service := range services[:len(services)-2] {
 		requireContainerRunning(t, ctx, runtime, service.ServiceKey, *service.ContainerID)
 	}

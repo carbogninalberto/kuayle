@@ -275,6 +275,11 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 			return m.spawn(ctx, machine, services, operation)
 		}
 		if machine.Status == domain.DevMachineStatusPaused || machine.Status == domain.DevMachineStatusStopped {
+			if machine.Status == domain.DevMachineStatusPaused {
+				if err := m.store.RevokeMachineAccess(ctx, machine.ID); err != nil {
+					return err
+				}
+			}
 			serviceSecrets, err := m.serviceSecrets(ctx, machine, services)
 			if err != nil {
 				return err
@@ -293,7 +298,10 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 		return nil
 	case domain.DevMachineOpPause:
 		if machine.Status == domain.DevMachineStatusPaused {
-			return nil
+			return m.store.RevokeMachineAccess(ctx, machine.ID)
+		}
+		if err := m.store.RevokeMachineAccess(ctx, machine.ID); err != nil {
+			return err
 		}
 		if err := m.runtime.Pause(ctx, machine, services); err != nil {
 			return err
@@ -919,6 +927,10 @@ func (m *Manager) reconcile(ctx context.Context) error {
 					_, _ = m.store.SetMachineStateForOperation(ctx, machine.ID, machine.Generation, false, domain.DevMachineStatusStopped, nil, nil, nil, nil)
 					continue
 				case domain.DevMachineStatusPaused:
+					if err := m.store.RevokeMachineAccess(ctx, machine.ID); err != nil {
+						log.WithField("machine_id", machine.ID).WithError(err).Warn("pause access revocation failed")
+						continue
+					}
 					if err := m.runtime.Pause(ctx, machine, services); err != nil {
 						log.WithField("machine_id", machine.ID).WithError(err).Warn("pause reconciliation failed")
 						continue
