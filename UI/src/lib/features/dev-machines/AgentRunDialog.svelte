@@ -76,6 +76,11 @@
 		allowedSecrets = (p?.required_secrets ?? []).join('\n');
 	}
 
+	function setPushBranch(value: boolean) {
+		pushBranch = value;
+		if (!value) openPullRequest = false;
+	}
+
 	async function submit(event: SubmitEvent) {
 		event.preventDefault();
 		let parsedTest: string[];
@@ -126,7 +131,7 @@
 				<Input bind:value={maxRuntime} type="number" min="30" max={maxRuntimeCap || 86400} />
 				<p class="text-[10px] text-[var(--color-text-tertiary)]">Capped to {maxRuntimeCap} s (machine max {machine.max_runtime_minutes} min, remaining lifetime {Math.round(machineRemainingSeconds / 60)} min)</p>
 			</label>
-			<div class="space-y-3"><label class="flex items-center justify-between gap-4"><span class="text-sm">Push working branch</span><Switch aria-label="Push working branch" bind:checked={pushBranch} /></label><label class="flex items-center justify-between gap-4"><span class="text-sm">Open pull request</span><Switch aria-label="Open pull request" bind:checked={openPullRequest} disabled={!pushBranch} /></label></div>
+			<div class="space-y-3"><label class="flex items-center justify-between gap-4"><span class="text-sm">Push working branch</span><Switch aria-label="Push working branch" checked={pushBranch} onCheckedChange={setPushBranch} /></label><label class="flex items-center justify-between gap-4"><span class="text-sm">Open pull request</span><Switch aria-label="Open pull request" bind:checked={openPullRequest} disabled={!pushBranch} /></label></div>
 			<div class="flex justify-end gap-2 border-t border-[var(--app-border)] pt-4"><Button type="button" variant="outline" onclick={() => (open = false)}>Cancel</Button><Button type="submit" disabled={!submitEnabled}>{loading ? 'Queuing...' : 'Run agent'}</Button></div>
 		</form>
 	</Dialog.Content>

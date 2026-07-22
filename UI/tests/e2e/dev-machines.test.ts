@@ -155,7 +155,16 @@ test('lists a Dev Machine and queues a lifecycle action', async ({ page }) => {
 	await page.getByRole('button', { name: 'Run agent' }).click();
 	await expect(page.getByRole('heading', { name: 'Run Agent' })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Provider' })).toHaveText('OpenCode');
-	await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click();
+	const agentDialog = page.getByRole('dialog');
+	const pushBranch = agentDialog.getByRole('switch', { name: 'Push working branch' });
+	const openPullRequest = agentDialog.getByRole('switch', { name: 'Open pull request' });
+	await openPullRequest.click();
+	await expect(openPullRequest).toBeChecked();
+	await pushBranch.click();
+	await expect(pushBranch).not.toBeChecked();
+	await expect(openPullRequest).not.toBeChecked();
+	await expect(openPullRequest).toBeDisabled();
+	await agentDialog.getByRole('button', { name: 'Cancel' }).click();
 	await page.locator('#agent-runs').getByRole('button', { name: 'Cancel' }).click();
 	await expect.poll(() => cancelRequests).toBe(1);
 	await expect(page.getByText('cancelled', { exact: true })).toBeVisible();

@@ -49,6 +49,19 @@ func TestRedactPayloadReplacesNestedSecrets(t *testing.T) {
 	require.Equal(t, "key", redacted["[REDACTED]"])
 }
 
+func TestCreateAgentRunRejectsPullRequestWithoutPush(t *testing.T) {
+	pushBranch := false
+	svc := newTestDevMachineService(&devMachineStoreFake{})
+
+	_, err := svc.CreateAgentRun(context.Background(), uuid.New(), uuid.New(), uuid.New(), dto.CreateAgentRunRequest{
+		PushBranch:      &pushBranch,
+		OpenPullRequest: true,
+	})
+
+	require.ErrorIs(t, err, ErrInvalidOperation)
+	require.ErrorContains(t, err, "requires pushing the working branch")
+}
+
 func TestIngestEventRedactsActiveRuntimeCredential(t *testing.T) {
 	workspaceID, machineID := uuid.New(), uuid.New()
 	runtimeToken := "ghs_runtime_event_secret"

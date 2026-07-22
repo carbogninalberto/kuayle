@@ -1081,6 +1081,10 @@ func (s *DevMachineService) ConfiguredProviders(ctx context.Context, workspaceID
 }
 
 func (s *DevMachineService) CreateAgentRun(ctx context.Context, workspaceID, machineID, userID uuid.UUID, req dto.CreateAgentRunRequest) (*domain.DevMachineAgentRun, error) {
+	pushBranch := req.PushBranch == nil || *req.PushBranch
+	if req.OpenPullRequest && !pushBranch {
+		return nil, fmt.Errorf("%w: opening a pull request requires pushing the working branch", ErrInvalidOperation)
+	}
 	policy, err := s.enabledPolicy(ctx, workspaceID)
 	if err != nil {
 		return nil, err
@@ -1222,7 +1226,7 @@ func (s *DevMachineService) CreateAgentRun(ctx context.Context, workspaceID, mac
 		RequestedByUserID: &userID, ProviderID: req.Provider, Mode: req.Mode,
 		Status: domain.DevMachineAgentRunStatusQueued, Prompt: prompt, AcceptanceCriteria: criteria,
 		AllowedCommands: allowedCommands, ForbiddenPaths: forbiddenPaths, AllowedSecrets: allowedSecrets, TestCommand: &testCommand,
-		CommandArgv: commandArgv, MaxRuntimeSeconds: timeout, PushBranch: req.PushBranch == nil || *req.PushBranch,
+		CommandArgv: commandArgv, MaxRuntimeSeconds: timeout, PushBranch: pushBranch,
 		OpenPullRequest: req.OpenPullRequest,
 	}
 	operation := &domain.DevMachineOperation{
