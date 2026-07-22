@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -42,6 +43,10 @@ type managerStoreFake struct {
 	runtimeCredentials        []domain.DevMachineRuntimeCredential
 	purgedCredentialNow       *time.Time
 	revokedMachineIDs         []uuid.UUID
+	failedOperationCode       string
+	failedOperationMessage    string
+	failedOperationRetryable  *bool
+	completedOperations       int
 }
 
 func (f *managerStoreFake) LeaseOperations(context.Context, string, int, time.Duration) ([]domain.DevMachineOperation, error) {
@@ -50,9 +55,15 @@ func (f *managerStoreFake) LeaseOperations(context.Context, string, int, time.Du
 func (f *managerStoreFake) RenewOperationLease(context.Context, uuid.UUID, string, time.Duration) error {
 	return nil
 }
-func (f *managerStoreFake) CompleteOperation(context.Context, uuid.UUID, string) error { return nil }
-func (f *managerStoreFake) FailOperation(context.Context, uuid.UUID, string, string, string) (bool, error) {
-	return false, nil
+func (f *managerStoreFake) CompleteOperation(context.Context, uuid.UUID, string) error {
+	f.completedOperations++
+	return nil
+}
+func (f *managerStoreFake) FailOperation(_ context.Context, _ uuid.UUID, _ string, code, message string, retryable bool) (bool, error) {
+	f.failedOperationCode = code
+	f.failedOperationMessage = message
+	f.failedOperationRetryable = &retryable
+	return retryable, nil
 }
 func (f *managerStoreFake) GetMachineInternal(context.Context, uuid.UUID) (*domain.DevMachine, error) {
 	return f.machine, nil
@@ -252,6 +263,7 @@ func (f *githubAPIFake) CreatePullRequest(string, string, string, string, string
 
 type runtimeFake struct {
 	spawned, paused, stopped, tornDown int
+	snapshots                          int
 	deletedEnvironmentIDs              []uuid.UUID
 	onSpawn                            func()
 	agentExecution                     *AgentExecution
@@ -300,6 +312,7 @@ func (f *runtimeFake) PrepareCheckout(context.Context, *domain.DevMachine, []dom
 	return nil
 }
 func (f *runtimeFake) SnapshotEnvironment(context.Context, *domain.DevMachine, []domain.DevMachineService, *domain.DevMachineEnvironment) (string, error) {
+	f.snapshots++
 	return "sha256:test", nil
 }
 func (f *runtimeFake) DeleteEnvironmentImage(_ context.Context, environment *domain.DevMachineEnvironment) error {
@@ -519,7 +532,10 @@ func TestManagerSnapshotEnvironmentTransitionsThroughBuilding(t *testing.T) {
 	machineID, workspaceID, environmentID := uuid.New(), uuid.New(), uuid.New()
 	environment := &domain.DevMachineEnvironment{ID: environmentID, WorkspaceID: workspaceID, Name: "base", ImageRef: "kuayle/dev-environment-test:snapshot", Status: "pending"}
 	store := &managerStoreFake{
-		machine:     &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, RoutingKey: "0123456789abcdef0123", Status: domain.DevMachineStatusPaused, Generation: 3},
+		machine: &domain.DevMachine{
+			ID: machineID, WorkspaceID: workspaceID, RoutingKey: "0123456789abcdef0123",
+			Status: domain.DevMachineStatusPaused, DesiredStatus: domain.DevMachineStatusPaused, Generation: 3,
+		},
 		services:    []domain.DevMachineService{{ID: uuid.New(), MachineID: machineID, ServiceKey: "ide", ServiceType: "ide"}},
 		environment: environment,
 	}
@@ -532,6 +548,78 @@ func TestManagerSnapshotEnvironmentTransitionsThroughBuilding(t *testing.T) {
 	require.NotNil(t, environment.ImageDigest)
 	require.Equal(t, "sha256:test", *environment.ImageDigest)
 	require.Equal(t, "sha256:test", environment.ImageRef)
+}
+
+func TestManagerFailsGenerationMismatchedSnapshotsWithoutRetry(t *testing.T) {
+	for _, generation := range []int64{2, 4} {
+		t.Run(fmt.Sprintf("operation generation %d", generation), func(t *testing.T) {
+			machineID, workspaceID, environmentID := uuid.New(), uuid.New(), uuid.New()
+			environment := &domain.DevMachineEnvironment{
+				ID: environmentID, WorkspaceID: workspaceID, Name: "base",
+				ImageRef: "kuayle/dev-environment-test:snapshot", Status: "pending",
+			}
+			store := &managerStoreFake{
+				machine: &domain.DevMachine{
+					ID: machineID, WorkspaceID: workspaceID, Status: domain.DevMachineStatusPaused,
+					DesiredStatus: domain.DevMachineStatusPaused, Generation: 3,
+				},
+				environment: environment,
+			}
+			runtime := &runtimeFake{}
+			manager := NewManager(store, runtime, agent.NewRegistry(), nil, make([]byte, 32), nil, "test")
+			operation := domain.DevMachineOperation{
+				ID: uuid.New(), MachineID: machineID, WorkspaceID: workspaceID,
+				Action: domain.DevMachineOpSnapshotEnvironment, EnvironmentID: &environmentID,
+				Status: domain.DevMachineOpStatusLeased, Generation: generation, MaxAttempts: 2,
+			}
+			manager.operationSlots <- struct{}{}
+			manager.operations.Add(1)
+
+			manager.processLeasedOperation(context.Background(), operation)
+
+			require.Equal(t, "failed", environment.Status)
+			require.Zero(t, runtime.snapshots)
+			require.NotNil(t, store.failedOperationRetryable)
+			require.False(t, *store.failedOperationRetryable)
+			require.Equal(t, "environment_snapshot_stale", store.failedOperationCode)
+			require.Contains(t, store.failedOperationMessage, "machine generation changed")
+			require.Zero(t, store.completedOperations)
+		})
+	}
+}
+
+func TestManagerFailsSnapshotWhenMachineStateChanged(t *testing.T) {
+	machineID, workspaceID, environmentID := uuid.New(), uuid.New(), uuid.New()
+	environment := &domain.DevMachineEnvironment{
+		ID: environmentID, WorkspaceID: workspaceID, Name: "base",
+		ImageRef: "kuayle/dev-environment-test:snapshot", Status: "building",
+	}
+	store := &managerStoreFake{
+		machine: &domain.DevMachine{
+			ID: machineID, WorkspaceID: workspaceID, Status: domain.DevMachineStatusPaused,
+			DesiredStatus: domain.DevMachineStatusRunning, Generation: 3,
+		},
+		environment: environment,
+	}
+	runtime := &runtimeFake{}
+	manager := NewManager(store, runtime, agent.NewRegistry(), nil, make([]byte, 32), nil, "test")
+	operation := domain.DevMachineOperation{
+		ID: uuid.New(), MachineID: machineID, WorkspaceID: workspaceID,
+		Action: domain.DevMachineOpSnapshotEnvironment, EnvironmentID: &environmentID,
+		Status: domain.DevMachineOpStatusLeased, Generation: 3, MaxAttempts: 2,
+	}
+	manager.operationSlots <- struct{}{}
+	manager.operations.Add(1)
+
+	manager.processLeasedOperation(context.Background(), operation)
+
+	require.Equal(t, "failed", environment.Status)
+	require.Zero(t, runtime.snapshots)
+	require.NotNil(t, store.failedOperationRetryable)
+	require.False(t, *store.failedOperationRetryable)
+	require.Equal(t, "environment_snapshot_state_changed", store.failedOperationCode)
+	require.Contains(t, store.failedOperationMessage, "desired state running")
+	require.Zero(t, store.completedOperations)
 }
 
 func TestManagerSnapshotRetryDoesNotUndoEnvironmentDeletion(t *testing.T) {

@@ -26,7 +26,7 @@ type ManagerStore interface {
 	LeaseOperations(context.Context, string, int, time.Duration) ([]domain.DevMachineOperation, error)
 	RenewOperationLease(context.Context, uuid.UUID, string, time.Duration) error
 	CompleteOperation(context.Context, uuid.UUID, string) error
-	FailOperation(context.Context, uuid.UUID, string, string, string) (bool, error)
+	FailOperation(context.Context, uuid.UUID, string, string, string, bool) (bool, error)
 	GetMachineInternal(context.Context, uuid.UUID) (*domain.DevMachine, error)
 	GetProvider(context.Context, uuid.UUID, uuid.UUID, string) (*domain.DevMachineAgentProvider, error)
 	GetAgentRunInternal(context.Context, uuid.UUID) (*domain.DevMachineAgentRun, error)
@@ -87,6 +87,15 @@ type Manager struct {
 	operations          sync.WaitGroup
 	activeRunsMu        sync.Mutex
 	activeRuns          map[uuid.UUID]map[uuid.UUID]context.CancelFunc
+}
+
+type terminalOperationError struct {
+	code    string
+	message string
+}
+
+func (e *terminalOperationError) Error() string {
+	return e.code + ": " + e.message
 }
 
 func NewManager(store ManagerStore, runtime Runtime, agents *agent.Registry, github githubAPI, encryptionKey, githubKey []byte, owner string) *Manager {
@@ -199,7 +208,9 @@ func (m *Manager) processLeasedOperation(ctx context.Context, operation domain.D
 	defer finalCancel()
 	if err != nil {
 		m.operationsFailed.Add(1)
-		willRetry, failErr := m.store.FailOperation(finalCtx, operation.ID, m.owner, errorCode(err), safeError(err))
+		var terminalErr *terminalOperationError
+		retryable := !errors.As(err, &terminalErr)
+		willRetry, failErr := m.store.FailOperation(finalCtx, operation.ID, m.owner, errorCode(err), safeError(err), retryable)
 		if failErr != nil {
 			log.WithFields(fields).WithError(failErr).Error("failed to record operation failure")
 			return
@@ -243,6 +254,10 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 	}
 	if machine == nil {
 		return fmt.Errorf("machine_not_found: machine does not exist")
+	}
+	if operation.Action == domain.DevMachineOpSnapshotEnvironment && operation.Generation != machine.Generation {
+		return m.failSnapshotOperation(ctx, operation, "environment_snapshot_stale",
+			fmt.Sprintf("machine generation changed from %d to %d before the snapshot completed", operation.Generation, machine.Generation))
 	}
 	if operation.Generation < machine.Generation {
 		switch operation.Action {
@@ -420,6 +435,11 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 		if environment.Status == "ready" {
 			return nil
 		}
+		stable := machine.Status == machine.DesiredStatus && (machine.Status == domain.DevMachineStatusPaused || machine.Status == domain.DevMachineStatusStopped)
+		if !stable {
+			return m.failSnapshotOperation(ctx, operation, "environment_snapshot_state_changed",
+				fmt.Sprintf("machine is %s with desired state %s", machine.Status, machine.DesiredStatus))
+		}
 		if err := m.store.UpdateEnvironmentState(ctx, environment.ID, "building", environment.ImageRef, nil); err != nil {
 			return err
 		}
@@ -447,6 +467,28 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 	default:
 		return fmt.Errorf("invalid_operation: unsupported action %s", operation.Action)
 	}
+}
+
+func (m *Manager) failSnapshotOperation(ctx context.Context, operation *domain.DevMachineOperation, code, message string) error {
+	if operation.EnvironmentID == nil {
+		return &terminalOperationError{code: code, message: message + "; snapshot environment is missing"}
+	}
+	environment, err := m.store.GetEnvironment(ctx, operation.WorkspaceID, *operation.EnvironmentID)
+	if err != nil {
+		return err
+	}
+	if environment == nil {
+		return &terminalOperationError{code: code, message: message + "; snapshot environment no longer exists"}
+	}
+	if environment.Status == "ready" || environment.Status == "delete_requested" {
+		return nil
+	}
+	if environment.Status != "failed" {
+		if err := m.store.UpdateEnvironmentState(ctx, environment.ID, "failed", "", nil); err != nil {
+			return err
+		}
+	}
+	return &terminalOperationError{code: code, message: message}
 }
 
 func (m *Manager) spawn(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService, operation *domain.DevMachineOperation) error {

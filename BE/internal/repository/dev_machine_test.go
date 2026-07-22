@@ -811,6 +811,49 @@ func TestSnapshotCreationSerializesWithResume(t *testing.T) {
 	}
 }
 
+func TestFailOperationHonorsRetryableFlag(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is not configured")
+	}
+	db, err := sqlx.Connect("pgx", databaseURL)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	fixture := newEnvironmentRaceFixture(t, db)
+	machineID := fixture.insertMachine(t, domain.DevMachineStatusPaused, domain.DevMachineStatusPaused, false)
+	operation := &domain.DevMachineOperation{
+		ID: uuid.New(), MachineID: machineID, WorkspaceID: fixture.workspaceID,
+		Action: domain.DevMachineOpReconcile, Status: domain.DevMachineOpStatusPending,
+		Generation: 1, IdempotencyKey: "reconcile:1", MaxAttempts: 5,
+	}
+	require.NoError(t, fixture.repository.EnqueueInternalOperation(context.Background(), operation))
+	_, err = db.Exec(`UPDATE dev_machine_operations SET status='leased',lease_owner='worker',attempts=1 WHERE id=$1`, operation.ID)
+	require.NoError(t, err)
+
+	retry, err := fixture.repository.FailOperation(
+		context.Background(), operation.ID, "worker", "snapshot_stale", "machine generation changed", false,
+	)
+	require.NoError(t, err)
+	require.False(t, retry)
+
+	var status domain.DevMachineOperationStatus
+	var completedAt *time.Time
+	require.NoError(t, db.QueryRow(`SELECT status,completed_at FROM dev_machine_operations WHERE id=$1`, operation.ID).Scan(&status, &completedAt))
+	require.Equal(t, domain.DevMachineOpStatusFailed, status)
+	require.NotNil(t, completedAt)
+
+	_, err = db.Exec(`UPDATE dev_machine_operations SET status='leased',lease_owner='worker',attempts=1,completed_at=NULL WHERE id=$1`, operation.ID)
+	require.NoError(t, err)
+	retry, err = fixture.repository.FailOperation(
+		context.Background(), operation.ID, "worker", "runtime_error", "temporary failure", true,
+	)
+	require.NoError(t, err)
+	require.True(t, retry)
+	require.NoError(t, db.QueryRow(`SELECT status,completed_at FROM dev_machine_operations WHERE id=$1`, operation.ID).Scan(&status, &completedAt))
+	require.Equal(t, domain.DevMachineOpStatusPending, status)
+	require.Nil(t, completedAt)
+}
+
 func TestListAgentRunsScansPersistedRows(t *testing.T) {
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {

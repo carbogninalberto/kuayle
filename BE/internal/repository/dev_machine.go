@@ -524,15 +524,15 @@ func (r *DevMachineRepository) CompleteOperation(ctx context.Context, id uuid.UU
 	return nil
 }
 
-func (r *DevMachineRepository) FailOperation(ctx context.Context, id uuid.UUID, owner, code, message string) (bool, error) {
+func (r *DevMachineRepository) FailOperation(ctx context.Context, id uuid.UUID, owner, code, message string, retryable bool) (bool, error) {
 	var retry bool
 	err := r.db.QueryRowContext(ctx, `UPDATE dev_machine_operations SET
-		status=CASE WHEN attempts < max_attempts THEN 'pending'::dev_machine_operation_status ELSE 'failed'::dev_machine_operation_status END,
+		status=CASE WHEN $5 AND attempts < max_attempts THEN 'pending'::dev_machine_operation_status ELSE 'failed'::dev_machine_operation_status END,
 		error_code=$3, error_message=$4, lease_owner=NULL, lease_expires_at=NULL,
 		available_at=NOW() + make_interval(secs => LEAST(300, attempts * attempts * 5)),
-		completed_at=CASE WHEN attempts < max_attempts THEN NULL ELSE NOW() END
+		completed_at=CASE WHEN $5 AND attempts < max_attempts THEN NULL ELSE NOW() END
 		WHERE id=$1 AND lease_owner=$2
-		RETURNING status='pending'`, id, owner, code, message).Scan(&retry)
+		RETURNING status='pending'`, id, owner, code, message, retryable).Scan(&retry)
 	return retry, err
 }
 
