@@ -338,8 +338,8 @@ func main() {
 	// GitHub integration (conditional)
 	// Public webhook endpoint (no auth, signature-verified internally)
 	e.POST("/api/github/webhook", githubH.HandleWebhook)
-	e.POST("/api/dev-machine-ingest/events", devMachineH.IngestEvent, mw.RateLimit(20, 40))
-	e.POST("/api/dev-machine-ingest/logs", devMachineH.IngestLog, mw.RateLimit(50, 100))
+	e.POST("/api/dev-machine-ingest/events", devMachineH.IngestEvent, mw.MachineTokenRateLimit(20, 40))
+	e.POST("/api/dev-machine-ingest/logs", devMachineH.IngestLog, mw.MachineTokenRateLimit(50, 100))
 
 	// GitHub integration (workspace-scoped)
 	ws.GET("/github/status", githubH.Status)
