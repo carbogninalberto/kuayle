@@ -47,6 +47,8 @@ type managerStoreFake struct {
 	failedOperationMessage    string
 	failedOperationRetryable  *bool
 	completedOperations       int
+	orphanedEnvironmentCount  int
+	orphanReconcileCalls      int
 }
 
 func (f *managerStoreFake) LeaseOperations(context.Context, string, int, time.Duration) ([]domain.DevMachineOperation, error) {
@@ -224,6 +226,10 @@ func (f *managerStoreFake) UpdateEnvironmentState(_ context.Context, _ uuid.UUID
 		f.environment.ImageDigest = digest
 	}
 	return nil
+}
+func (f *managerStoreFake) ReconcileOrphanedEnvironments(context.Context, int) (int, error) {
+	f.orphanReconcileCalls++
+	return f.orphanedEnvironmentCount, nil
 }
 func (f *managerStoreFake) ListDeleteRequestedEnvironments(context.Context, int) ([]domain.DevMachineEnvironment, error) {
 	return f.deleteRequestedEnvs, nil
@@ -505,11 +511,12 @@ func TestRepositoryTokenRegistersRuntimeCredentialBeforeReturning(t *testing.T) 
 }
 
 func TestReconcilePurgesExpiredRuntimeCredentials(t *testing.T) {
-	store := &managerStoreFake{}
+	store := &managerStoreFake{orphanedEnvironmentCount: 2}
 	manager := NewManager(store, &runtimeFake{}, agent.NewRegistry(), nil, nil, nil, "test")
 
 	require.NoError(t, manager.reconcile(context.Background()))
 	require.NotNil(t, store.purgedCredentialNow)
+	require.Equal(t, 1, store.orphanReconcileCalls)
 }
 
 func TestManagerMarksStaleCheckoutFailed(t *testing.T) {

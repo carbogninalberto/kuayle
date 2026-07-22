@@ -918,6 +918,83 @@ func TestFailOperationHonorsRetryableFlag(t *testing.T) {
 	require.Nil(t, completedAt)
 }
 
+func TestReconcileOrphanedEnvironments(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is not configured")
+	}
+	db, err := sqlx.Connect("pgx", databaseURL)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	fixture := newEnvironmentRaceFixture(t, db)
+	machineID := fixture.insertMachine(t, domain.DevMachineStatusStopped, domain.DevMachineStatusStopped, true)
+	_, err = db.Exec(`UPDATE dev_machines SET environment_id=NULL WHERE id=$1`, machineID)
+	require.NoError(t, err)
+
+	insertEnvironment := func(status string) uuid.UUID {
+		environmentID := uuid.New()
+		_, insertErr := db.Exec(`INSERT INTO dev_machine_environments
+			(id,workspace_id,name,image_ref,status,source_machine_id,created_by_user_id)
+			VALUES ($1,$2,$3,$4,$5,$6,$7)`, environmentID, fixture.workspaceID,
+			"orphan-"+environmentID.String(), "snapshot:"+environmentID.String(), status, machineID, fixture.userID)
+		require.NoError(t, insertErr)
+		return environmentID
+	}
+	insertOperation := func(environmentID uuid.UUID, generation int64) uuid.UUID {
+		operation := &domain.DevMachineOperation{
+			ID: uuid.New(), MachineID: machineID, EnvironmentID: &environmentID, WorkspaceID: fixture.workspaceID,
+			Action: domain.DevMachineOpSnapshotEnvironment, Status: domain.DevMachineOpStatusPending,
+			Generation: generation, IdempotencyKey: "snapshot:" + environmentID.String(), MaxAttempts: 2,
+		}
+		require.NoError(t, fixture.repository.EnqueueInternalOperation(context.Background(), operation))
+		return operation.ID
+	}
+
+	missingOperationID := insertEnvironment("pending")
+	terminalOperationID := insertEnvironment("pending")
+	terminalID := insertOperation(terminalOperationID, 1)
+	_, err = db.Exec(`UPDATE dev_machine_operations SET status='failed',completed_at=NOW() WHERE id=$1`, terminalID)
+	require.NoError(t, err)
+	supersededID := insertEnvironment("pending")
+	supersededOperationID := insertOperation(supersededID, 2)
+	expiredLeaseID := insertEnvironment("building")
+	expiredOperationID := insertOperation(expiredLeaseID, 1)
+	_, err = db.Exec(`UPDATE dev_machine_operations SET status='leased',lease_owner='old-worker',lease_expires_at=NOW()-INTERVAL '1 minute' WHERE id=$1`, expiredOperationID)
+	require.NoError(t, err)
+	validPendingID := insertEnvironment("pending")
+	validOperationID := insertOperation(validPendingID, 1)
+	activeLeaseID := insertEnvironment("building")
+	activeOperationID := insertOperation(activeLeaseID, 2)
+	_, err = db.Exec(`UPDATE dev_machine_operations SET status='leased',lease_owner='active-worker',lease_expires_at=NOW()+INTERVAL '1 minute' WHERE id=$1`, activeOperationID)
+	require.NoError(t, err)
+
+	count, err := fixture.repository.ReconcileOrphanedEnvironments(context.Background(), 100)
+
+	require.NoError(t, err)
+	require.Equal(t, 4, count)
+	for _, environmentID := range []uuid.UUID{missingOperationID, terminalOperationID, supersededID, expiredLeaseID} {
+		var status string
+		require.NoError(t, db.Get(&status, `SELECT status FROM dev_machine_environments WHERE id=$1`, environmentID))
+		require.Equal(t, "failed", status)
+	}
+	for environmentID, expected := range map[uuid.UUID]string{validPendingID: "pending", activeLeaseID: "building"} {
+		var status string
+		require.NoError(t, db.Get(&status, `SELECT status FROM dev_machine_environments WHERE id=$1`, environmentID))
+		require.Equal(t, expected, status)
+	}
+	for operationID, expected := range map[uuid.UUID]domain.DevMachineOperationStatus{
+		terminalID:            domain.DevMachineOpStatusFailed,
+		supersededOperationID: domain.DevMachineOpStatusCancelled,
+		expiredOperationID:    domain.DevMachineOpStatusCancelled,
+		validOperationID:      domain.DevMachineOpStatusPending,
+		activeOperationID:     domain.DevMachineOpStatusLeased,
+	} {
+		var status domain.DevMachineOperationStatus
+		require.NoError(t, db.Get(&status, `SELECT status FROM dev_machine_operations WHERE id=$1`, operationID))
+		require.Equal(t, expected, status)
+	}
+}
+
 func TestListAgentRunsScansPersistedRows(t *testing.T) {
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {

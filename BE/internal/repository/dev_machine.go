@@ -1631,6 +1631,75 @@ func (r *DevMachineRepository) UpdateEnvironmentState(ctx context.Context, envir
 	return nil
 }
 
+func (r *DevMachineRepository) ReconcileOrphanedEnvironments(ctx context.Context, limit int) (int, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	var environmentIDs []uuid.UUID
+	if err := tx.SelectContext(ctx, &environmentIDs, `SELECT id FROM dev_machine_environments
+		WHERE status IN ('pending','building') ORDER BY updated_at,id LIMIT $1 FOR UPDATE SKIP LOCKED`, limit); err != nil {
+		return 0, err
+	}
+	reconciled := 0
+	for _, environmentID := range environmentIDs {
+		var operations []struct {
+			Status            domain.DevMachineOperationStatus `db:"status"`
+			Generation        int64                            `db:"generation"`
+			MachineGeneration int64                            `db:"machine_generation"`
+			MachineStatus     domain.DevMachineStatus          `db:"machine_status"`
+			DesiredStatus     domain.DevMachineStatus          `db:"desired_status"`
+			LeaseActive       bool                             `db:"lease_active"`
+		}
+		if err := tx.SelectContext(ctx, &operations, `SELECT o.status,o.generation,
+			m.generation AS machine_generation,m.status AS machine_status,m.desired_status,
+			COALESCE(o.status='leased' AND o.lease_expires_at>=NOW(),FALSE) AS lease_active
+			FROM dev_machine_operations o JOIN dev_machines m ON m.id=o.machine_id
+			WHERE o.environment_id=$1 AND o.action='snapshot_environment' FOR UPDATE OF o`, environmentID); err != nil {
+			return 0, err
+		}
+		viable := false
+		for _, operation := range operations {
+			if operation.LeaseActive {
+				viable = true
+				break
+			}
+			stable := operation.MachineStatus == operation.DesiredStatus &&
+				(operation.MachineStatus == domain.DevMachineStatusPaused || operation.MachineStatus == domain.DevMachineStatusStopped)
+			if operation.Status == domain.DevMachineOpStatusPending && operation.Generation == operation.MachineGeneration && stable {
+				viable = true
+				break
+			}
+		}
+		if viable {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE dev_machine_operations SET status='cancelled',
+			error_code='environment_snapshot_orphaned',error_message='snapshot operation is no longer runnable',
+			lease_owner=NULL,lease_expires_at=NULL,completed_at=NOW()
+			WHERE environment_id=$1 AND action='snapshot_environment'
+			AND (status='pending' OR (status='leased' AND (lease_expires_at IS NULL OR lease_expires_at<NOW())))`, environmentID); err != nil {
+			return 0, err
+		}
+		result, err := tx.ExecContext(ctx, `UPDATE dev_machine_environments SET status='failed'
+			WHERE id=$1 AND status IN ('pending','building')`, environmentID)
+		if err != nil {
+			return 0, err
+		}
+		if rows, _ := result.RowsAffected(); rows == 1 {
+			reconciled++
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return reconciled, nil
+}
+
 func (r *DevMachineRepository) GetCheckout(ctx context.Context, workspaceID, machineID, checkoutID uuid.UUID) (*domain.DevMachineCheckout, error) {
 	var checkout domain.DevMachineCheckout
 	err := r.db.GetContext(ctx, &checkout, `SELECT * FROM dev_machine_checkouts WHERE workspace_id=$1 AND machine_id=$2 AND id=$3`, workspaceID, machineID, checkoutID)

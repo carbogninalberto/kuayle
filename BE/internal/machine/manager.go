@@ -57,6 +57,7 @@ type ManagerStore interface {
 	UpdateCheckoutState(context.Context, uuid.UUID, string, *string) error
 	GetEnvironment(context.Context, uuid.UUID, uuid.UUID) (*domain.DevMachineEnvironment, error)
 	UpdateEnvironmentState(context.Context, uuid.UUID, string, string, *string) error
+	ReconcileOrphanedEnvironments(context.Context, int) (int, error)
 	ListDeleteRequestedEnvironments(context.Context, int) ([]domain.DevMachineEnvironment, error)
 	DeleteEnvironment(context.Context, uuid.UUID, uuid.UUID) error
 	ListIdleMachines(context.Context, int) ([]domain.DevMachine, error)
@@ -853,6 +854,9 @@ func (m *Manager) reconcile(ctx context.Context) error {
 		}
 	}
 
+	if _, err := m.store.ReconcileOrphanedEnvironments(ctx, 100); err != nil {
+		return err
+	}
 	deleteRequestedEnvironments, err := m.store.ListDeleteRequestedEnvironments(ctx, 100)
 	if err != nil {
 		return err
