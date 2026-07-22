@@ -177,6 +177,9 @@ func TestCreateAgentRunUsesOnlyExplicitRootOrReadyCheckout(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, run)
 			require.Equal(t, test.expectedCheckout, run.CheckoutID)
+			if test.useRoot {
+				require.NotContains(t, run.Prompt, "push the working branch")
+			}
 			require.Len(t, store.agentRuns, 1)
 			require.NotNil(t, store.createdAgentOperation)
 		})

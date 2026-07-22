@@ -1922,7 +1922,7 @@ func buildAgentPrompt(machine *domain.DevMachine, checkout *domain.DevMachineChe
 	if len(request.TestCommand) > 0 {
 		fmt.Fprintf(&builder, "- Run this exact test argv: %q\n", request.TestCommand)
 	}
-	if request.PushBranch == nil || *request.PushBranch {
+	if !request.UseRootWorkspace && (request.PushBranch == nil || *request.PushBranch) {
 		builder.WriteString("- Commit the completed changes and push the working branch using the provided GitHub App credential.\n")
 	}
 	builder.WriteString("- Finish with a concise summary, changed files, commits, tests, and risks.\n")
