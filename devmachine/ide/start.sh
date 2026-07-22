@@ -13,25 +13,69 @@ if [ ! -e "$user_settings_dir/settings.json" ]; then
   printf '%s\n' '{"workbench.colorTheme":"Default Dark Modern"}' > "$user_settings_dir/settings.json"
 fi
 
-if [ ! -d /workspace/.git ] && [ -n "${KUAYLE_REPO_URL:-}" ]; then
-  if [ -n "${GITHUB_TOKEN:-}" ]; then
-    askpass="$HOME/.kuayle-git-askpass"
-    cat > "$askpass" <<'SCRIPT'
+home_dir=${HOME:-/home/kuayle}
+credential_helper=${KUAYLE_GIT_CREDENTIAL_HELPER:-$home_dir/.kuayle-git-credential}
+
+install_git_credential_helper() {
+  case "$credential_helper" in /* ) ;; * ) echo "invalid credential helper path" >&2; exit 1 ;; esac
+  helper_dir=${credential_helper%/*}
+  [ "$helper_dir" != "$credential_helper" ] || helper_dir=.
+  mkdir -p "$helper_dir"
+  old_umask=$(umask)
+  umask 077
+  cat > "$credential_helper" <<'SCRIPT'
 #!/bin/sh
-case "$1" in
-  *Username*) printf '%s\n' x-access-token ;;
-  *) printf '%s\n' "$GITHUB_TOKEN" ;;
+case "${1:-get}" in
+  get ) ;;
+  store|erase ) exit 0 ;;
+  * ) exit 0 ;;
 esac
+if [ -z "${GITHUB_TOKEN:-}" ]; then
+  echo "missing active GitHub token" >&2
+  exit 1
+fi
+printf '%s\n' username=x-access-token
+printf '%s\n' "password=$GITHUB_TOKEN"
 SCRIPT
-    chmod 0700 "$askpass"
-    git config --global core.askPass "$askpass"
-    GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0 git clone --branch "${KUAYLE_BASE_BRANCH:-main}" --single-branch "$KUAYLE_REPO_URL" /workspace
-  else
-    GIT_TERMINAL_PROMPT=0 git clone --branch "${KUAYLE_BASE_BRANCH:-main}" --single-branch "$KUAYLE_REPO_URL" /workspace
-  fi
+  chmod 0700 "$credential_helper"
+  umask "$old_umask"
+}
+
+configure_git_helper() {
+  git -C "$1" config --unset-all core.askPass >/dev/null 2>&1 || true
+  git -C "$1" config --unset-all credential.helper >/dev/null 2>&1 || true
+  git -C "$1" config credential.helper "$credential_helper"
+}
+
+configure_bare_git_helper() {
+  git --git-dir="$1" config --unset-all core.askPass >/dev/null 2>&1 || true
+  git --git-dir="$1" config --unset-all credential.helper >/dev/null 2>&1 || true
+  git --git-dir="$1" config credential.helper "$credential_helper"
+}
+
+install_git_credential_helper
+git config --global --unset-all core.askPass >/dev/null 2>&1 || true
+git config --global --unset-all credential.helper >/dev/null 2>&1 || true
+git config --global credential.helper "$credential_helper"
+export GIT_TERMINAL_PROMPT=0
+
+if [ ! -d /workspace/.git ] && [ -n "${KUAYLE_REPO_URL:-}" ]; then
+  git clone --branch "${KUAYLE_BASE_BRANCH:-main}" --single-branch "$KUAYLE_REPO_URL" /workspace
 fi
 
 mkdir -p /workspace/repos /workspace/tasks
+
+if [ -d /workspace/.git ]; then
+  configure_git_helper /workspace
+fi
+for bare_repository in /workspace/repos/*.git; do
+  [ -d "$bare_repository" ] || continue
+  configure_bare_git_helper "$bare_repository"
+done
+for checkout in /workspace/tasks/*; do
+  [ -e "$checkout/.git" ] || continue
+  configure_git_helper "$checkout"
+done
 
 if [ -d /workspace/.git ] && [ -n "${KUAYLE_WORKING_BRANCH:-}" ]; then
   git -C /workspace config --global --add safe.directory /workspace

@@ -46,11 +46,35 @@ for secret_name in ${KUAYLE_SECRET_NAMES:-}; do
 done
 IFS=$old_ifs
 rm -f /run/kuayle-secrets/.ready
-if [ -n "${GITHUB_TOKEN:-}" ]; then
-  credential_helper=/home/kuayle/.kuayle-git-credential
-  printf '%s\n' '#!/bin/sh' 'printf '\''%s\n'\'' username=x-access-token' 'printf '\''%s\n'\'' "password=$GITHUB_TOKEN"' > "$credential_helper"
-  chmod 0700 "$credential_helper"
+home_dir=${HOME:-/home/kuayle}
+credential_helper=${KUAYLE_GIT_CREDENTIAL_HELPER:-$home_dir/.kuayle-git-credential}
+case "$credential_helper" in /*) ;; *) exit 1 ;; esac
+helper_dir=${credential_helper%/*}
+[ "$helper_dir" != "$credential_helper" ] || helper_dir=.
+mkdir -p "$helper_dir"
+old_umask=$(umask)
+umask 077
+cat > "$credential_helper" <<'SCRIPT'
+#!/bin/sh
+case "${1:-get}" in
+  get ) ;;
+  store|erase ) exit 0 ;;
+  * ) exit 0 ;;
+esac
+if [ -z "${GITHUB_TOKEN:-}" ]; then
+  echo "missing active GitHub token" >&2
+  exit 1
+fi
+printf '%s\n' username=x-access-token
+printf '%s\n' "password=$GITHUB_TOKEN"
+SCRIPT
+chmod 0700 "$credential_helper"
+umask "$old_umask"
+if command -v git >/dev/null 2>&1; then
+  git config --global --unset-all core.askPass >/dev/null 2>&1 || true
+  git config --global --unset-all credential.helper >/dev/null 2>&1 || true
   git config --global credential.helper "$credential_helper"
+  export GIT_TERMINAL_PROMPT=0
 fi
 exec "$@"`
 
