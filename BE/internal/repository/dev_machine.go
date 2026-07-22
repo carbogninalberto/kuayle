@@ -75,8 +75,8 @@ type DevMachineStore interface {
 	CreateCheckout(context.Context, *domain.DevMachineCheckout, *domain.DevMachineOperation) error
 	UpdateCheckoutState(context.Context, uuid.UUID, string, *string) error
 	CreateTerminalSession(context.Context, *domain.DevMachineTerminalSession) error
-	ListTerminalSessions(context.Context, uuid.UUID, uuid.UUID) ([]domain.DevMachineTerminalSession, error)
-	CloseTerminalSession(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (*domain.DevMachineTerminalSession, error)
+	ListTerminalSessions(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) ([]domain.DevMachineTerminalSession, error)
+	CloseTerminalSession(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID) (*domain.DevMachineTerminalSession, error)
 	ListAgentRunSteps(context.Context, uuid.UUID) ([]domain.DevMachineAgentRunStep, error)
 	ListAgentRunEvents(context.Context, uuid.UUID, int64, int) ([]domain.DevMachineEvent, error)
 	ListAgentRunLogs(context.Context, uuid.UUID, int64, int) ([]domain.DevMachineLogChunk, error)
@@ -1482,20 +1482,20 @@ func (r *DevMachineRepository) CreateTerminalSession(ctx context.Context, sessio
 	).Scan(&session.CreatedAt, &session.LastActivityAt)
 }
 
-func (r *DevMachineRepository) ListTerminalSessions(ctx context.Context, workspaceID, machineID uuid.UUID) ([]domain.DevMachineTerminalSession, error) {
+func (r *DevMachineRepository) ListTerminalSessions(ctx context.Context, workspaceID, machineID, userID uuid.UUID) ([]domain.DevMachineTerminalSession, error) {
 	var sessions []domain.DevMachineTerminalSession
 	err := r.db.SelectContext(ctx, &sessions, `SELECT * FROM dev_machine_terminal_sessions
-		WHERE workspace_id=$1 AND machine_id=$2 ORDER BY created_at DESC`, workspaceID, machineID)
+		WHERE workspace_id=$1 AND machine_id=$2 AND user_id=$3 ORDER BY created_at DESC`, workspaceID, machineID, userID)
 	if sessions == nil {
 		sessions = []domain.DevMachineTerminalSession{}
 	}
 	return sessions, err
 }
 
-func (r *DevMachineRepository) CloseTerminalSession(ctx context.Context, workspaceID, machineID, sessionID uuid.UUID) (*domain.DevMachineTerminalSession, error) {
+func (r *DevMachineRepository) CloseTerminalSession(ctx context.Context, workspaceID, machineID, userID, sessionID uuid.UUID) (*domain.DevMachineTerminalSession, error) {
 	var session domain.DevMachineTerminalSession
 	err := r.db.GetContext(ctx, &session, `UPDATE dev_machine_terminal_sessions SET status='closed', closed_at=COALESCE(closed_at,NOW())
-		WHERE workspace_id=$1 AND machine_id=$2 AND id=$3 RETURNING *`, workspaceID, machineID, sessionID)
+		WHERE workspace_id=$1 AND machine_id=$2 AND user_id=$3 AND id=$4 RETURNING *`, workspaceID, machineID, userID, sessionID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}

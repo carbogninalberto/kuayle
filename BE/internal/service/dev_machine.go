@@ -1524,7 +1524,7 @@ func (s *DevMachineService) ListTerminalSessions(ctx context.Context, workspaceI
 	if _, err := s.GetForUser(ctx, workspaceID, machineID, userID); err != nil {
 		return nil, err
 	}
-	sessions, err := s.store.ListTerminalSessions(ctx, workspaceID, machineID)
+	sessions, err := s.store.ListTerminalSessions(ctx, workspaceID, machineID, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -1539,7 +1539,7 @@ func (s *DevMachineService) CloseTerminalSession(ctx context.Context, workspaceI
 	if _, err := s.GetForUser(ctx, workspaceID, machineID, userID); err != nil {
 		return nil, err
 	}
-	session, err := s.store.CloseTerminalSession(ctx, workspaceID, machineID, sessionID)
+	session, err := s.store.CloseTerminalSession(ctx, workspaceID, machineID, userID, sessionID)
 	if err != nil {
 		return nil, err
 	}

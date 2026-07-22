@@ -417,7 +417,8 @@ func TestUserScopedMachineAccessRequiresCreator(t *testing.T) {
 }
 
 func TestTerminalEndpointsRequireMachineOwner(t *testing.T) {
-	workspaceID, ownerID, otherID, machineID, sessionID := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	workspaceID, ownerID, otherID, machineID, ownerSessionID, otherSessionID := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	nonexistentID := uuid.New()
 	store := &devMachineStoreFake{
 		policy: testPolicy(workspaceID),
 		machine: &domain.DevMachine{
@@ -426,25 +427,52 @@ func TestTerminalEndpointsRequireMachineOwner(t *testing.T) {
 			DesiredStatus: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour),
 		},
 		service: &domain.DevMachineService{ID: uuid.New(), MachineID: machineID, ServiceKey: "terminal", ServiceType: "terminal", Status: "running"},
-		terminalSessions: []domain.DevMachineTerminalSession{{
-			ID: sessionID, WorkspaceID: workspaceID, MachineID: machineID, UserID: ownerID,
-			Name: "Terminal", RuntimeSessionName: "term-test", Status: "active", CreatedAt: time.Now(), LastActivityAt: time.Now(),
-		}},
+		terminalSessions: []domain.DevMachineTerminalSession{
+			{
+				ID: ownerSessionID, WorkspaceID: workspaceID, MachineID: machineID, UserID: ownerID,
+				Name: "Owner Terminal", RuntimeSessionName: "term-owner", Status: "active", CreatedAt: time.Now(), LastActivityAt: time.Now(),
+			},
+			{
+				ID: otherSessionID, WorkspaceID: workspaceID, MachineID: machineID, UserID: otherID,
+				Name: "Other Terminal", RuntimeSessionName: "term-other", Status: "active", CreatedAt: time.Now(), LastActivityAt: time.Now(),
+			},
+		},
 	}
 	svc := newTestDevMachineService(store)
 
+	// Creator can list and close their own session
 	sessions, err := svc.ListTerminalSessions(context.Background(), workspaceID, machineID, ownerID)
 	require.NoError(t, err)
 	require.Len(t, sessions, 1)
+	require.Equal(t, "Owner Terminal", sessions[0].Name)
 
+	closed, err := svc.CloseTerminalSession(context.Background(), workspaceID, machineID, ownerID, ownerSessionID)
+	require.NoError(t, err)
+	require.Equal(t, "closed", closed.Status)
+
+	// Another user on the same owned machine cannot list or close sessions at all
 	_, err = svc.ListTerminalSessions(context.Background(), workspaceID, machineID, otherID)
 	require.ErrorIs(t, err, ErrMachineNotFound)
 
 	_, err = svc.CreateTerminalSession(context.Background(), workspaceID, machineID, otherID, dto.CreateTerminalSessionRequest{Name: "Terminal"})
 	require.ErrorIs(t, err, ErrMachineNotFound)
 
-	_, err = svc.CloseTerminalSession(context.Background(), workspaceID, machineID, otherID, sessionID)
+	_, err = svc.CloseTerminalSession(context.Background(), workspaceID, machineID, otherID, otherSessionID)
 	require.ErrorIs(t, err, ErrMachineNotFound)
+
+	// Sessions belonging to another user on the same owned machine are not visible
+	// (only the owner's own session appears, not the other user's)
+	sessions, err = svc.ListTerminalSessions(context.Background(), workspaceID, machineID, ownerID)
+	require.NoError(t, err)
+	require.Len(t, sessions, 1)
+
+	// and cannot be closed by the owner (returns same sentinel as nonexistent)
+	_, err = svc.CloseTerminalSession(context.Background(), workspaceID, machineID, ownerID, otherSessionID)
+	require.ErrorIs(t, err, ErrTerminalSessionNotFound)
+
+	// Nonexistent session also returns the same sentinel
+	_, err = svc.CloseTerminalSession(context.Background(), workspaceID, machineID, ownerID, nonexistentID)
+	require.ErrorIs(t, err, ErrTerminalSessionNotFound)
 }
 
 func TestAgentRunsAreScopedByMachineCreator(t *testing.T) {
@@ -889,13 +917,19 @@ func (f *devMachineStoreFake) CreateTerminalSession(_ context.Context, session *
 	return nil
 }
 
-func (f *devMachineStoreFake) ListTerminalSessions(context.Context, uuid.UUID, uuid.UUID) ([]domain.DevMachineTerminalSession, error) {
-	return f.terminalSessions, nil
+func (f *devMachineStoreFake) ListTerminalSessions(_ context.Context, _ uuid.UUID, _ uuid.UUID, userID uuid.UUID) ([]domain.DevMachineTerminalSession, error) {
+	filtered := make([]domain.DevMachineTerminalSession, 0, len(f.terminalSessions))
+	for _, s := range f.terminalSessions {
+		if s.UserID == userID {
+			filtered = append(filtered, s)
+		}
+	}
+	return filtered, nil
 }
 
-func (f *devMachineStoreFake) CloseTerminalSession(_ context.Context, _ uuid.UUID, _ uuid.UUID, sessionID uuid.UUID) (*domain.DevMachineTerminalSession, error) {
+func (f *devMachineStoreFake) CloseTerminalSession(_ context.Context, _ uuid.UUID, _ uuid.UUID, userID, sessionID uuid.UUID) (*domain.DevMachineTerminalSession, error) {
 	for index := range f.terminalSessions {
-		if f.terminalSessions[index].ID == sessionID {
+		if f.terminalSessions[index].ID == sessionID && f.terminalSessions[index].UserID == userID {
 			f.terminalSessions[index].Status = "closed"
 			now := time.Now().UTC()
 			f.terminalSessions[index].ClosedAt = &now
