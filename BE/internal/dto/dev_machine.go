@@ -105,9 +105,9 @@ type TerminalSessionResponse struct {
 }
 
 type TerminalSessionLaunchResponse struct {
-	Status    string                  `json:"status"`
-	Session   TerminalSessionResponse `json:"session"`
-	LaunchURL string                  `json:"launch_url,omitempty"`
+	Status    string                   `json:"status"`
+	Session   *TerminalSessionResponse `json:"session,omitempty"`
+	LaunchURL string                   `json:"launch_url,omitempty"`
 	// WebSocketURL is a one-use, frontend-origin-bound gateway URL for ttyd's
 	// native /ws protocol. Native clients must speak ttyd framing directly: send
 	// ttyd's initial terminal-size JSON message, then ttyd input/resize frames.

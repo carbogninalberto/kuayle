@@ -651,6 +651,26 @@ func TestCreateTerminalSessionMapsAccessTicketNoRowsToServiceUnavailable(t *test
 	require.Nil(t, store.createdTicket)
 }
 
+func TestCreateTerminalSessionPendingResponseHasNoSession(t *testing.T) {
+	workspaceID, userID, machineID := uuid.New(), uuid.New(), uuid.New()
+	store := &devMachineStoreFake{
+		policy: testPolicy(workspaceID),
+		machine: &domain.DevMachine{
+			ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID,
+			RoutingKey: "0123456789abcdef0123", Status: domain.DevMachineStatusSpawning,
+			DesiredStatus: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour),
+		},
+	}
+	svc := NewDevMachineService(store, agent.NewRegistry(), true, "machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, DevMachineImages{}, "https://app.example.test")
+
+	launch, err := svc.CreateTerminalSession(context.Background(), workspaceID, machineID, userID, dto.CreateTerminalSessionRequest{Name: "Terminal"})
+
+	require.NoError(t, err)
+	require.Equal(t, "pending", launch.Status)
+	require.Nil(t, launch.Session)
+	require.Nil(t, store.createdTicket)
+}
+
 func TestPermanentDeleteRunningMachineRequestsPurgeAndQueuesTeardown(t *testing.T) {
 	workspaceID, userID, machineID := uuid.New(), uuid.New(), uuid.New()
 	store := &devMachineStoreFake{

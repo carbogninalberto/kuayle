@@ -1634,8 +1634,9 @@ func (s *DevMachineService) CreateTerminalSession(ctx context.Context, workspace
 	query.Set("session", runtimeName)
 	query.Set("cwd", cwd)
 	websocketURL := url.URL{Scheme: "wss", Host: host, Path: "/ws", RawQuery: query.Encode()}
+	sessionResponse := terminalSessionResponse(*session)
 	return &dto.TerminalSessionLaunchResponse{
-		Status: "ready", Session: terminalSessionResponse(*session), LaunchURL: websocketURL.String(), WebSocketURL: websocketURL.String(),
+		Status: "ready", Session: &sessionResponse, LaunchURL: websocketURL.String(), WebSocketURL: websocketURL.String(),
 		Protocol: "ttyd.v1", ExpiresAt: ticket.ExpiresAt,
 	}, nil
 }
