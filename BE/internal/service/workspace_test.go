@@ -377,6 +377,21 @@ func TestWorkspaceService_Delete_BlocksActiveDevMachines(t *testing.T) {
 	assert.ErrorIs(t, err, ErrWorkspaceHasDevMachineRuntimes)
 }
 
+func TestWorkspaceService_DeleteReportsEnvironmentCleanup(t *testing.T) {
+	wsRepo := new(mockWorkspaceRepo)
+	userRepo := new(mockUserRepo)
+	svc := NewWorkspaceService(wsRepo, userRepo)
+	ctx := context.Background()
+	ownerID := uuid.New()
+	ws := &domain.Workspace{ID: uuid.New(), Slug: "test", OwnerID: ownerID}
+	wsRepo.On("GetBySlug", ctx, "test").Return(ws, nil)
+	wsRepo.On("Delete", ctx, ws.ID).Return(repository.ErrWorkspaceEnvironmentCleanupPending)
+
+	err := svc.Delete(ctx, "test", ownerID)
+
+	assert.ErrorIs(t, err, ErrWorkspaceEnvironmentCleanupPending)
+}
+
 func TestWorkspaceService_UpdateMemberRole_PreventsOwnerDemotion(t *testing.T) {
 	wsRepo := new(mockWorkspaceRepo)
 	userRepo := new(mockUserRepo)

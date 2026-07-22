@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -292,6 +293,8 @@ type runtimeFake struct {
 	snapshots                          int
 	agentRuns                          int
 	deletedEnvironmentIDs              []uuid.UUID
+	deleteEnvironmentImageErr          error
+	environmentDeleteAttempts          int
 	onSpawn                            func()
 	agentExecution                     *AgentExecution
 }
@@ -344,6 +347,10 @@ func (f *runtimeFake) SnapshotEnvironment(context.Context, *domain.DevMachine, [
 	return "sha256:test", nil
 }
 func (f *runtimeFake) DeleteEnvironmentImage(_ context.Context, environment *domain.DevMachineEnvironment) error {
+	f.environmentDeleteAttempts++
+	if f.deleteEnvironmentImageErr != nil {
+		return f.deleteEnvironmentImageErr
+	}
 	f.deletedEnvironmentIDs = append(f.deletedEnvironmentIDs, environment.ID)
 	return nil
 }
@@ -597,6 +604,24 @@ func TestReconcilePurgesExpiredRuntimeCredentials(t *testing.T) {
 	require.NotNil(t, store.purgedCredentialNow)
 	require.Equal(t, 1, store.orphanReconcileCalls)
 	require.Equal(t, 1, store.checkoutReconcileCalls)
+}
+
+func TestReconcileRetriesEnvironmentImageCleanupFailure(t *testing.T) {
+	environmentID, workspaceID := uuid.New(), uuid.New()
+	store := &managerStoreFake{deleteRequestedEnvs: []domain.DevMachineEnvironment{{
+		ID: environmentID, WorkspaceID: workspaceID, Status: "delete_requested", ImageRef: "kuayle/environment:test",
+	}}}
+	runtime := &runtimeFake{deleteEnvironmentImageErr: errors.New("image is busy")}
+	manager := NewManager(store, runtime, agent.NewRegistry(), nil, nil, nil, "test")
+
+	require.NoError(t, manager.reconcile(context.Background()))
+	require.Equal(t, 1, runtime.environmentDeleteAttempts)
+	require.Empty(t, store.deletedEnvironmentIDs)
+
+	runtime.deleteEnvironmentImageErr = nil
+	require.NoError(t, manager.reconcile(context.Background()))
+	require.Equal(t, 2, runtime.environmentDeleteAttempts)
+	require.Equal(t, []uuid.UUID{environmentID}, store.deletedEnvironmentIDs)
 }
 
 func TestManagerMarksStaleCheckoutFailed(t *testing.T) {

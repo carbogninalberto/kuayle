@@ -126,11 +126,13 @@ func TestValidateEnvironmentImageLabelsRequiresExpectedWorkspaceAndEnvironment(t
 	require.Error(t, validateEnvironmentImageLabels(map[string]string{"com.kuayle.managed": "true"}, workspaceID, environmentID))
 }
 
-func TestEnvironmentImmutableImageIDPrefersDigest(t *testing.T) {
+func TestEnvironmentImageReferencesPreferDigestAndCleanupFallsBackToTag(t *testing.T) {
 	digest := "sha256:immutable"
 	environment := &domain.DevMachineEnvironment{ImageRef: "kuayle/dev-environment-test:snapshot", ImageDigest: &digest}
 
 	require.Equal(t, digest, environmentImmutableImageID(environment))
 	require.Equal(t, digest, environmentImmutableImageID(&domain.DevMachineEnvironment{ImageRef: digest}))
 	require.Empty(t, environmentImmutableImageID(&domain.DevMachineEnvironment{ImageRef: "kuayle/dev-environment-test:snapshot"}))
+	require.Equal(t, digest, environmentImageCleanupReference(environment))
+	require.Equal(t, "kuayle/dev-environment-test:snapshot", environmentImageCleanupReference(&domain.DevMachineEnvironment{ImageRef: "kuayle/dev-environment-test:snapshot"}))
 }

@@ -55,6 +55,16 @@ func environmentImmutableImageID(environment *domain.DevMachineEnvironment) stri
 	return ""
 }
 
+func environmentImageCleanupReference(environment *domain.DevMachineEnvironment) string {
+	if reference := environmentImmutableImageID(environment); reference != "" {
+		return reference
+	}
+	if environment == nil {
+		return ""
+	}
+	return strings.TrimSpace(environment.ImageRef)
+}
+
 func validateEnvironmentImageLabels(labels map[string]string, workspaceID, environmentID uuid.UUID) error {
 	if labels == nil {
 		return fmt.Errorf("missing image labels")

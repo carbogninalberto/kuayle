@@ -879,7 +879,7 @@ chown -R 1000:1000 /opt/kuayle-home-template`}, "0:0")
 }
 
 func (r *DockerRuntime) DeleteEnvironmentImage(ctx context.Context, environment *domain.DevMachineEnvironment) error {
-	reference := environmentImmutableImageID(environment)
+	reference := environmentImageCleanupReference(environment)
 	if reference == "" {
 		return nil
 	}
