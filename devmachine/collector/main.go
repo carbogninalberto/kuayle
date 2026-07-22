@@ -2,18 +2,29 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"io/fs"
 	"log"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+)
+
+const (
+	deliveryMaxAttempts = 4
+	deliveryTimeout     = 12 * time.Second
+	deliveryBaseDelay   = 200 * time.Millisecond
+	deliveryMaxDelay    = 5 * time.Second
 )
 
 type fileState struct {
@@ -32,6 +43,21 @@ type collector struct {
 	gitHead          string
 	browserCDP       string
 	browserLocations map[string]string
+	wait             func(context.Context, time.Duration) error
+}
+
+type deliveryError struct {
+	statusCode int
+	attempts   int
+	transient  bool
+	cause      error
+}
+
+func (e *deliveryError) Error() string {
+	if e.statusCode != 0 {
+		return fmt.Sprintf("backend returned HTTP %d after %d attempt(s)", e.statusCode, e.attempts)
+	}
+	return fmt.Sprintf("backend delivery failed after %d attempt(s): %v", e.attempts, e.cause)
 }
 
 func main() {
@@ -65,7 +91,7 @@ func (c *collector) poll() {
 			c.scanGit()
 			c.scanBrowser()
 		case <-heartbeatTicker.C:
-			c.send("collector", "machine.heartbeat", map[string]any{"machine_id": c.machineID})
+			c.sendBackground("collector", "machine.heartbeat", map[string]any{"machine_id": c.machineID})
 		}
 	}
 }
@@ -84,7 +110,16 @@ func (c *collector) receiveEvent(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid event", http.StatusBadRequest)
 		return
 	}
-	c.send(event.Source, event.EventType, event.Payload)
+	if err := c.send(r.Context(), event.Source, event.EventType, event.Payload); err != nil {
+		log.Printf("collector event delivery failed: %v", err)
+		if failure, ok := err.(*deliveryError); ok && failure.transient {
+			w.Header().Set("Retry-After", "1")
+			http.Error(w, "event delivery temporarily unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		http.Error(w, "event delivery rejected", http.StatusBadGateway)
+		return
+	}
 	w.WriteHeader(http.StatusAccepted)
 }
 
@@ -118,14 +153,14 @@ func (c *collector) scanFiles() {
 	for path, state := range next {
 		previous, exists := c.files[path]
 		if !exists {
-			c.send("filesystem", "file.created", map[string]any{"path": path, "size_bytes": state.Size})
+			c.sendBackground("filesystem", "file.created", map[string]any{"path": path, "size_bytes": state.Size})
 		} else if previous.Size != state.Size || !previous.ModTime.Equal(state.ModTime) {
-			c.send("filesystem", "file.modified", map[string]any{"path": path, "size_bytes": state.Size})
+			c.sendBackground("filesystem", "file.modified", map[string]any{"path": path, "size_bytes": state.Size})
 		}
 	}
 	for path := range c.files {
 		if _, exists := next[path]; !exists {
-			c.send("filesystem", "file.deleted", map[string]any{"path": path})
+			c.sendBackground("filesystem", "file.deleted", map[string]any{"path": path})
 		}
 	}
 	c.files = next
@@ -139,7 +174,7 @@ func (c *collector) scanGit() {
 	}
 	head := strings.TrimSpace(string(output))
 	if c.gitHead != "" && c.gitHead != head {
-		c.send("git", "git.commit_created", map[string]any{"commit": head})
+		c.sendBackground("git", "git.commit_created", map[string]any{"commit": head})
 	}
 	c.gitHead = head
 }
@@ -185,20 +220,106 @@ func (c *collector) scanBrowser() {
 		location := parsed.String()
 		if c.browserLocations[target.ID] != location {
 			c.browserLocations[target.ID] = location
-			c.send("browser", "browser.navigation", map[string]any{"url": location, "title": target.Title})
+			c.sendBackground("browser", "browser.navigation", map[string]any{"url": location, "title": target.Title})
 		}
 	}
 }
 
-func (c *collector) send(source, eventType string, payload any) {
-	body, _ := json.Marshal(map[string]any{"source": source, "event_type": eventType, "payload": payload, "occurred_at": time.Now().UTC()})
-	request, _ := http.NewRequest(http.MethodPost, c.endpoint+"/events", bytes.NewReader(body))
-	request.Header.Set("Authorization", "Bearer "+c.token)
-	request.Header.Set("Content-Type", "application/json")
-	response, err := c.client.Do(request)
-	if err != nil {
-		log.Printf("event delivery failed: %v", err)
-		return
+func (c *collector) sendBackground(source, eventType string, payload any) {
+	if err := c.send(context.Background(), source, eventType, payload); err != nil {
+		log.Printf("collector event delivery failed: %v", err)
 	}
-	response.Body.Close()
+}
+
+func (c *collector) send(ctx context.Context, source, eventType string, payload any) error {
+	body, err := json.Marshal(map[string]any{"source": source, "event_type": eventType, "payload": payload, "occurred_at": time.Now().UTC()})
+	if err != nil {
+		return &deliveryError{attempts: 1, cause: fmt.Errorf("encode event: %w", err)}
+	}
+	deliveryContext, cancel := context.WithTimeout(ctx, deliveryTimeout)
+	defer cancel()
+
+	var failure *deliveryError
+	for attempt := 1; attempt <= deliveryMaxAttempts; attempt++ {
+		request, err := http.NewRequestWithContext(deliveryContext, http.MethodPost, c.endpoint+"/events", bytes.NewReader(body))
+		if err != nil {
+			return &deliveryError{attempts: attempt, cause: fmt.Errorf("create request: %w", err)}
+		}
+		request.Header.Set("Authorization", "Bearer "+c.token)
+		request.Header.Set("Content-Type", "application/json")
+
+		response, requestErr := c.client.Do(request)
+		retryAfter := ""
+		if requestErr != nil {
+			failure = &deliveryError{attempts: attempt, transient: true, cause: requestErr}
+		} else {
+			retryAfter = response.Header.Get("Retry-After")
+			_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
+			_ = response.Body.Close()
+			if response.StatusCode >= http.StatusOK && response.StatusCode < http.StatusMultipleChoices {
+				return nil
+			}
+			failure = &deliveryError{
+				statusCode: response.StatusCode,
+				attempts:   attempt,
+				transient:  retryableDeliveryStatus(response.StatusCode),
+			}
+			if !failure.transient {
+				return failure
+			}
+		}
+		if attempt == deliveryMaxAttempts || deliveryContext.Err() != nil {
+			return failure
+		}
+		if err := c.waitForRetry(deliveryContext, deliveryRetryDelay(attempt, retryAfter, time.Now())); err != nil {
+			failure.cause = err
+			return failure
+		}
+	}
+	return failure
+}
+
+func retryableDeliveryStatus(status int) bool {
+	return status == http.StatusRequestTimeout || status == http.StatusTooEarly || status == http.StatusTooManyRequests || status >= http.StatusInternalServerError
+}
+
+func deliveryRetryDelay(attempt int, retryAfter string, now time.Time) time.Duration {
+	if delay, ok := parseRetryAfter(retryAfter, now); ok {
+		return min(delay, deliveryMaxDelay)
+	}
+	delay := deliveryBaseDelay * time.Duration(1<<min(attempt-1, 10))
+	jitter := time.Duration(rand.Int63n(max(1, int64(delay/2))))
+	return min(delay+jitter, deliveryMaxDelay)
+}
+
+func parseRetryAfter(value string, now time.Time) (time.Duration, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, false
+	}
+	if seconds, err := strconv.ParseInt(value, 10, 64); err == nil && seconds >= 0 {
+		if seconds >= int64(deliveryMaxDelay/time.Second) {
+			return deliveryMaxDelay, true
+		}
+		return time.Duration(seconds) * time.Second, true
+	}
+	when, err := http.ParseTime(value)
+	if err != nil {
+		return 0, false
+	}
+	return max(0, when.Sub(now)), true
+}
+
+func (c *collector) waitForRetry(ctx context.Context, delay time.Duration) error {
+	if c.wait != nil {
+		return c.wait(ctx, delay)
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
