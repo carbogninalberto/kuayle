@@ -632,6 +632,24 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	if !ok {
 		return fmt.Errorf("provider_not_found: %s", run.ProviderID)
 	}
+	currentMachine, err := m.store.GetMachineInternal(ctx, machine.ID)
+	if err != nil {
+		return err
+	}
+	if currentMachine == nil || currentMachine.Generation != operation.Generation || currentMachine.DesiredStatus != domain.DevMachineStatusRunning {
+		m.cancelStaleAgentRun(ctx, run.ID)
+		return nil
+	}
+	if err := m.store.UpdateAgentRunStarted(ctx, run.ID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			current, currentErr := m.store.GetAgentRunInternal(ctx, run.ID)
+			if currentErr == nil && current != nil && terminalAgentStatus(current.Status) {
+				return nil
+			}
+		}
+		return err
+	}
+	run.Status = domain.DevMachineAgentRunStatusRunning
 	envVars, err := m.store.ListEnvVarsInternal(ctx, machine.ID, &run.ProviderID, "agent")
 	if err != nil {
 		return err
@@ -670,24 +688,7 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 		ImageRef: providerRecord.ImageRef, InternalHost: "agent-" + run.ID.String(), InternalPort: 8080,
 		Status: "pending", HealthStatus: "unknown",
 	}
-	currentMachine, err := m.store.GetMachineInternal(ctx, machine.ID)
-	if err != nil {
-		return err
-	}
-	if currentMachine == nil || currentMachine.Generation != operation.Generation || currentMachine.DesiredStatus != domain.DevMachineStatusRunning {
-		m.cancelStaleAgentRun(ctx, run.ID)
-		return nil
-	}
 	if err := m.store.CreateRuntimeService(ctx, service); err != nil {
-		return err
-	}
-	if err := m.store.UpdateAgentRunStarted(ctx, run.ID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			current, currentErr := m.store.GetAgentRunInternal(ctx, run.ID)
-			if currentErr == nil && current != nil && terminalAgentStatus(current.Status) {
-				return nil
-			}
-		}
 		return err
 	}
 	runContext, cancel := context.WithTimeout(ctx, time.Duration(run.MaxRuntimeSeconds)*time.Second)

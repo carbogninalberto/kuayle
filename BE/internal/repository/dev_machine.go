@@ -932,7 +932,9 @@ func (r *DevMachineRepository) UpdateAgentRunStarted(ctx context.Context, runID 
 	if err != nil {
 		return err
 	}
-	_, _ = result.RowsAffected()
+	if rows, _ := result.RowsAffected(); rows != 1 {
+		return sql.ErrNoRows
+	}
 	return nil
 }
 

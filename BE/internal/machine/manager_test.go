@@ -3,6 +3,7 @@ package machine
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -49,6 +50,9 @@ type managerStoreFake struct {
 	completedOperations       int
 	orphanedEnvironmentCount  int
 	orphanReconcileCalls      int
+	updateAgentRunStarted     func() error
+	envVarListCalls           int
+	runtimeServicesCreated    int
 }
 
 func (f *managerStoreFake) LeaseOperations(context.Context, string, int, time.Duration) ([]domain.DevMachineOperation, error) {
@@ -80,6 +84,7 @@ func (f *managerStoreFake) ListServices(context.Context, uuid.UUID, uuid.UUID) (
 	return f.services, nil
 }
 func (f *managerStoreFake) ListEnvVarsInternal(context.Context, uuid.UUID, *string, string) ([]domain.DevMachineEnvVar, error) {
+	f.envVarListCalls++
 	return nil, nil
 }
 func (f *managerStoreFake) SetMachineState(_ context.Context, _ uuid.UUID, status domain.DevMachineStatus, network, volume, _, _ *string) error {
@@ -111,9 +116,18 @@ func (f *managerStoreFake) UpdateServiceRuntime(_ context.Context, serviceID uui
 	return nil
 }
 func (f *managerStoreFake) CreateRuntimeService(context.Context, *domain.DevMachineService) error {
+	f.runtimeServicesCreated++
 	return nil
 }
-func (f *managerStoreFake) UpdateAgentRunStarted(context.Context, uuid.UUID) error { return nil }
+func (f *managerStoreFake) UpdateAgentRunStarted(context.Context, uuid.UUID) error {
+	if f.updateAgentRunStarted != nil {
+		return f.updateAgentRunStarted()
+	}
+	if f.agentRun != nil {
+		f.agentRun.Status = domain.DevMachineAgentRunStatusRunning
+	}
+	return nil
+}
 func (f *managerStoreFake) CompleteAgentRun(_ context.Context, run *domain.DevMachineAgentRun) error {
 	copy := *run
 	f.completedRun = &copy
@@ -270,6 +284,7 @@ func (f *githubAPIFake) CreatePullRequest(string, string, string, string, string
 type runtimeFake struct {
 	spawned, paused, stopped, tornDown int
 	snapshots                          int
+	agentRuns                          int
 	deletedEnvironmentIDs              []uuid.UUID
 	onSpawn                            func()
 	agentExecution                     *AgentExecution
@@ -302,6 +317,7 @@ func (f *runtimeFake) Teardown(context.Context, *domain.DevMachine, []domain.Dev
 	return nil
 }
 func (f *runtimeFake) RunAgent(context.Context, *domain.DevMachine, *domain.DevMachineAgentRun, *domain.DevMachineAgentProvider, *domain.DevMachineCheckout, map[string]string) (*AgentExecution, error) {
+	f.agentRuns++
 	return f.agentExecution, nil
 }
 func (f *runtimeFake) CancelAgent(context.Context, *domain.DevMachineAgentRun) error { return nil }
@@ -361,6 +377,42 @@ func TestAgentToolchainFailureOverridesOuterSuccess(t *testing.T) {
 	require.Equal(t, domain.DevMachineAgentRunStatusFailed, store.completedRun.Status)
 	require.Equal(t, "Unable to verify the build", *store.completedRun.Summary)
 	require.Contains(t, string(store.completedRun.RiskNotes), "Build project")
+}
+
+func TestManagerDoesNotLaunchAgentCancelledBeforeStart(t *testing.T) {
+	machineID, workspaceID, runID := uuid.New(), uuid.New(), uuid.New()
+	run := &domain.DevMachineAgentRun{
+		ID: runID, MachineID: machineID, WorkspaceID: workspaceID,
+		ProviderID: "opencode", Mode: "autonomous", Status: domain.DevMachineAgentRunStatusQueued,
+		AllowedSecrets: json.RawMessage(`["API_KEY"]`), MaxRuntimeSeconds: 30,
+	}
+	store := &managerStoreFake{
+		machine: &domain.DevMachine{
+			ID: machineID, WorkspaceID: workspaceID, RoutingKey: "0123456789abcdef0123",
+			Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, Generation: 1,
+		},
+		agentRun: run,
+		provider: &domain.DevMachineAgentProvider{
+			MachineID: machineID, ProviderID: "opencode", ImageRef: "kuayle/opencode:test", Enabled: true,
+		},
+	}
+	store.updateAgentRunStarted = func() error {
+		store.agentRun.Status = domain.DevMachineAgentRunStatusCancelled
+		return sql.ErrNoRows
+	}
+	runtime := &runtimeFake{}
+	manager := NewManager(store, runtime, agent.NewRegistry(agent.NewOpenCodeProvider("kuayle/opencode:test")), nil, make([]byte, 32), nil, "test")
+
+	err := manager.runAgent(context.Background(), store.machine, &domain.DevMachineOperation{
+		MachineID: machineID, WorkspaceID: workspaceID, AgentRunID: &runID,
+		Action: domain.DevMachineOpRunAgent, Generation: 1,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, domain.DevMachineAgentRunStatusCancelled, store.agentRun.Status)
+	require.Zero(t, store.envVarListCalls)
+	require.Zero(t, store.runtimeServicesCreated)
+	require.Zero(t, runtime.agentRuns)
 }
 
 func TestReconcileQueuesIdlePause(t *testing.T) {

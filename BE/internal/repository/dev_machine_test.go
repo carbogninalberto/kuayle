@@ -147,6 +147,19 @@ func TestMachineNameExistsForUserScopesByCreator(t *testing.T) {
 	require.Equal(t, "builder-01", args[2].Value)
 }
 
+func TestUpdateAgentRunStartedRequiresStateTransition(t *testing.T) {
+	repo, conn := newCaptureDevMachineRepository(t, 0)
+
+	err := repo.UpdateAgentRunStarted(context.Background(), uuid.New())
+
+	require.ErrorIs(t, err, sql.ErrNoRows)
+	query, _ := conn.captured()
+	require.Contains(t, query, "status IN ('queued','starting')")
+
+	repo, _ = newCaptureDevMachineRepository(t, 1)
+	require.NoError(t, repo.UpdateAgentRunStarted(context.Background(), uuid.New()))
+}
+
 func TestCreateAccessTicketQueryRevalidatesCreatorAndTuple(t *testing.T) {
 	repo, conn := newCaptureDevMachineRepository(t, 0)
 	conn.queryColumns = []string{"created_at"}
