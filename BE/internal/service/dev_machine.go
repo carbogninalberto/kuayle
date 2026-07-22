@@ -957,7 +957,7 @@ func (s *DevMachineService) Lifecycle(ctx context.Context, workspaceID, machineI
 	if !domain.ValidOperationForStatus(action, machine.Status) {
 		return nil, fmt.Errorf("%w: cannot %s a %s machine", ErrInvalidOperation, action, machine.Status)
 	}
-	if action == domain.DevMachineOpPause || action == domain.DevMachineOpStop {
+	if action == domain.DevMachineOpPause || action == domain.DevMachineOpStop || action == domain.DevMachineOpTeardown {
 		activeRun, err := s.store.HasActiveAgentRun(ctx, machineID)
 		if err != nil {
 			return nil, err

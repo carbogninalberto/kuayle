@@ -371,7 +371,7 @@ func (r *DevMachineRepository) SetDesiredAndEnqueue(ctx context.Context, workspa
 	if generation >= operation.Generation {
 		return ErrMachineStateConflict
 	}
-	if operation.Action == domain.DevMachineOpPause || operation.Action == domain.DevMachineOpStop {
+	if operation.Action == domain.DevMachineOpPause || operation.Action == domain.DevMachineOpStop || operation.Action == domain.DevMachineOpTeardown {
 		var active bool
 		if err := tx.GetContext(ctx, &active, `SELECT EXISTS(SELECT 1 FROM dev_machine_agent_runs
 			WHERE machine_id=$1 AND status IN ('queued','starting','running','waiting_input'))`, machineID); err != nil {

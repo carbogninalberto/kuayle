@@ -386,7 +386,7 @@ func TestRuntimeCredentialsSchemaHasCascadeUniqueAndExpiryIndex(t *testing.T) {
 	require.Contains(t, indexDef, "expires_at")
 }
 
-func TestAgentRunCreationSerializesWithPauseAndStop(t *testing.T) {
+func TestAgentRunCreationSerializesWithLifecycle(t *testing.T) {
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("DATABASE_URL is not configured")
@@ -402,6 +402,7 @@ func TestAgentRunCreationSerializesWithPauseAndStop(t *testing.T) {
 	}{
 		{name: "pause", action: domain.DevMachineOpPause, desired: domain.DevMachineStatusPaused},
 		{name: "stop", action: domain.DevMachineOpStop, desired: domain.DevMachineStatusStopped},
+		{name: "teardown", action: domain.DevMachineOpTeardown, desired: domain.DevMachineStatusDestroyed},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			userID, workspaceID, machineID := uuid.New(), uuid.New(), uuid.New()
