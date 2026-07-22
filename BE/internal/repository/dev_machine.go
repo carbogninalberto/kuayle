@@ -1398,19 +1398,33 @@ func (r *DevMachineRepository) UpsertScopeSetting(ctx context.Context, setting *
 			return ErrEnvironmentUnavailable
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM dev_machine_scope_settings
-		WHERE workspace_id=$1 AND team_id IS NOT DISTINCT FROM $2 AND project_id IS NOT DISTINCT FROM $3
-		AND issue_id IS NOT DISTINCT FROM $4`, setting.WorkspaceID, setting.TeamID, setting.ProjectID, setting.IssueID); err != nil {
-		return err
-	}
 	if setting.ID == uuid.Nil {
 		setting.ID = uuid.New()
 	}
-	if err := tx.QueryRowContext(ctx, `INSERT INTO dev_machine_scope_settings
+	conflictTarget := ""
+	switch {
+	case setting.TeamID == nil && setting.ProjectID == nil && setting.IssueID == nil:
+		conflictTarget = `(workspace_id) WHERE team_id IS NULL AND project_id IS NULL AND issue_id IS NULL`
+	case setting.TeamID != nil && setting.ProjectID == nil && setting.IssueID == nil:
+		conflictTarget = `(team_id) WHERE team_id IS NOT NULL`
+	case setting.TeamID == nil && setting.ProjectID != nil && setting.IssueID == nil:
+		conflictTarget = `(project_id) WHERE project_id IS NOT NULL`
+	case setting.TeamID == nil && setting.ProjectID == nil && setting.IssueID != nil:
+		conflictTarget = `(issue_id) WHERE issue_id IS NOT NULL`
+	default:
+		return errors.New("invalid development setting scope")
+	}
+	query := `INSERT INTO dev_machine_scope_settings
 		(id,workspace_id,team_id,project_id,issue_id,github_repo_id,base_branch,environment_id)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING created_at,updated_at`, setting.ID, setting.WorkspaceID,
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+		ON CONFLICT ` + conflictTarget + ` DO UPDATE SET
+			github_repo_id=EXCLUDED.github_repo_id,base_branch=EXCLUDED.base_branch,
+			environment_id=EXCLUDED.environment_id,updated_at=NOW()
+		WHERE dev_machine_scope_settings.workspace_id=EXCLUDED.workspace_id
+		RETURNING id,created_at,updated_at`
+	if err := tx.QueryRowContext(ctx, query, setting.ID, setting.WorkspaceID,
 		setting.TeamID, setting.ProjectID, setting.IssueID, setting.GitHubRepoID, setting.BaseBranch, setting.EnvironmentID,
-	).Scan(&setting.CreatedAt, &setting.UpdatedAt); err != nil {
+	).Scan(&setting.ID, &setting.CreatedAt, &setting.UpdatedAt); err != nil {
 		return err
 	}
 	return tx.Commit()

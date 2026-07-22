@@ -698,6 +698,87 @@ func TestEnvironmentDeletionSerializesWithScopeSelection(t *testing.T) {
 	}
 }
 
+func TestScopeSettingUpsertPreservesIdentityUnderConcurrentWrites(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is not configured")
+	}
+	db, err := sqlx.Connect("pgx", databaseURL)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	fixture := newEnvironmentRaceFixture(t, db)
+	teamID, statusID, projectID, issueID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	_, err = db.Exec(`INSERT INTO teams (id,workspace_id,name,key) VALUES ($1,$2,'Scope Test','SCP')`, teamID, fixture.workspaceID)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO team_statuses (id,team_id,name,slug,category,is_default)
+		VALUES ($1,$2,'Todo','todo','unstarted',TRUE)`, statusID, teamID)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO projects (id,workspace_id,name) VALUES ($1,$2,'Scope Project')`, projectID, fixture.workspaceID)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO issues
+		(id,workspace_id,team_id,number,identifier_text,title,creator_id,status_id)
+		VALUES ($1,$2,$3,1,'SCP-1','Scope issue',$4,$5)`, issueID, fixture.workspaceID, teamID, fixture.userID, statusID)
+	require.NoError(t, err)
+
+	stringPointer := func(value string) *string { return &value }
+	for _, test := range []struct {
+		name                       string
+		teamID, projectID, issueID *uuid.UUID
+	}{
+		{name: "workspace"},
+		{name: "team", teamID: &teamID},
+		{name: "project", projectID: &projectID},
+		{name: "issue", issueID: &issueID},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			settings := []*domain.DevMachineScopeSetting{
+				{ID: uuid.New(), WorkspaceID: fixture.workspaceID, TeamID: test.teamID, ProjectID: test.projectID, IssueID: test.issueID, BaseBranch: stringPointer("first")},
+				{ID: uuid.New(), WorkspaceID: fixture.workspaceID, TeamID: test.teamID, ProjectID: test.projectID, IssueID: test.issueID, BaseBranch: stringPointer("second")},
+			}
+			candidateIDs := []uuid.UUID{settings[0].ID, settings[1].ID}
+			start := make(chan struct{})
+			results := make(chan error, len(settings))
+			for index := range settings {
+				setting := settings[index]
+				go func() {
+					<-start
+					results <- fixture.repository.UpsertScopeSetting(context.Background(), setting)
+				}()
+			}
+			close(start)
+			for range settings {
+				require.NoError(t, <-results)
+			}
+			require.Equal(t, settings[0].ID, settings[1].ID)
+			require.Contains(t, candidateIDs, settings[0].ID)
+			require.Equal(t, settings[0].CreatedAt, settings[1].CreatedAt)
+
+			var count int
+			require.NoError(t, db.Get(&count, `SELECT COUNT(*) FROM dev_machine_scope_settings
+				WHERE workspace_id=$1 AND team_id IS NOT DISTINCT FROM $2 AND project_id IS NOT DISTINCT FROM $3
+				AND issue_id IS NOT DISTINCT FROM $4`, fixture.workspaceID, test.teamID, test.projectID, test.issueID))
+			require.Equal(t, 1, count)
+
+			time.Sleep(2 * time.Millisecond)
+			updated := &domain.DevMachineScopeSetting{
+				ID: uuid.New(), WorkspaceID: fixture.workspaceID, TeamID: test.teamID, ProjectID: test.projectID, IssueID: test.issueID,
+				BaseBranch: stringPointer("updated"), EnvironmentID: &fixture.environmentID,
+			}
+			require.NoError(t, fixture.repository.UpsertScopeSetting(context.Background(), updated))
+			require.Equal(t, settings[0].ID, updated.ID)
+			require.Equal(t, settings[0].CreatedAt, updated.CreatedAt)
+			require.True(t, updated.UpdatedAt.After(settings[1].UpdatedAt))
+
+			stored, err := fixture.repository.GetScopeSetting(context.Background(), fixture.workspaceID, test.teamID, test.projectID, test.issueID)
+			require.NoError(t, err)
+			require.NotNil(t, stored)
+			require.Equal(t, updated.ID, stored.ID)
+			require.Equal(t, "updated", *stored.BaseBranch)
+			require.Equal(t, fixture.environmentID, *stored.EnvironmentID)
+		})
+	}
+}
+
 func TestEnvironmentDeletionSerializesWithBuilderSnapshot(t *testing.T) {
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {
