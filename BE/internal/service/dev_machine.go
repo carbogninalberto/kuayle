@@ -440,24 +440,24 @@ func (s *DevMachineService) buildProviders(machineID uuid.UUID, policy *domain.D
 func (s *DevMachineService) buildServices(machine *domain.DevMachine) []domain.DevMachineService {
 	base := "kuayle-" + machine.RoutingKey + "-"
 	services := []domain.DevMachineService{
-		newService(machine.ID, "collector", "collector", base+"collector", s.images.Collector, machine.RoutingKey+"-collector", 8091),
-		newService(machine.ID, "egress", "egress", base+"egress", s.images.Egress, machine.RoutingKey+"-egress", 3128),
+		newService(machine.WorkspaceID, machine.ID, "collector", "collector", base+"collector", s.images.Collector, machine.RoutingKey+"-collector", 8091),
+		newService(machine.WorkspaceID, machine.ID, "egress", "egress", base+"egress", s.images.Egress, machine.RoutingKey+"-egress", 3128),
 	}
 	var config dto.DevMachineServicesInput
 	_ = json.Unmarshal(machine.ServicesConfig, &config)
 	if config.IDE {
-		services = append(services, newService(machine.ID, "ide", "ide", base+"ide", s.images.IDE, machine.RoutingKey+"-ide", 8080))
-		services = append(services, newService(machine.ID, "terminal", "terminal", base+"ide", s.images.IDE, machine.RoutingKey+"-ide", 7681))
+		services = append(services, newService(machine.WorkspaceID, machine.ID, "ide", "ide", base+"ide", s.images.IDE, machine.RoutingKey+"-ide", 8080))
+		services = append(services, newService(machine.WorkspaceID, machine.ID, "terminal", "terminal", base+"ide", s.images.IDE, machine.RoutingKey+"-ide", 7681))
 	}
 	if config.Browser {
-		services = append(services, newService(machine.ID, "browser", "browser", base+"browser", s.images.Browser, machine.RoutingKey+"-browser", 3000))
+		services = append(services, newService(machine.WorkspaceID, machine.ID, "browser", "browser", base+"browser", s.images.Browser, machine.RoutingKey+"-browser", 3000))
 	}
 	return services
 }
 
-func newService(machineID uuid.UUID, serviceType, key, name, image, host string, port int) domain.DevMachineService {
+func newService(workspaceID, machineID uuid.UUID, serviceType, key, name, image, host string, port int) domain.DevMachineService {
 	return domain.DevMachineService{
-		ID: uuid.New(), MachineID: machineID, ServiceType: serviceType, ServiceKey: key,
+		ID: uuid.New(), WorkspaceID: workspaceID, MachineID: machineID, ServiceType: serviceType, ServiceKey: key,
 		ContainerName: name, ImageRef: image, InternalHost: host, InternalPort: port,
 		Status: "pending", HealthStatus: "unknown",
 	}

@@ -342,9 +342,9 @@ func TestTerminalCloseRequestRevokesTicketAndReusesOperation(t *testing.T) {
 		machineID, workspaceID, userID, suffix[:16], "machine-"+suffix)
 	require.NoError(t, err)
 	_, err = db.Exec(`INSERT INTO dev_machine_services
-		(id,machine_id,service_type,service_key,container_name,image_ref,internal_host,internal_port,status)
-		VALUES ($1,$2,'terminal','terminal',$3,'test-image',$4,7681,'running')`,
-		serviceID, machineID, "terminal-"+suffix, "terminal-"+suffix)
+		(id,workspace_id,machine_id,service_type,service_key,container_name,image_ref,internal_host,internal_port,status)
+		VALUES ($1,$2,$3,'terminal','terminal',$4,'test-image',$5,7681,'running')`,
+		serviceID, workspaceID, machineID, "terminal-"+suffix, "terminal-"+suffix)
 	require.NoError(t, err)
 	_, err = db.Exec(`INSERT INTO dev_machine_terminal_sessions
 		(id,workspace_id,machine_id,user_id,name,runtime_session_name,status)
@@ -1185,6 +1185,8 @@ func TestEnvironmentDeletionCancelsStuckSnapshotOperations(t *testing.T) {
 			require.NoError(t, err)
 			machineID := fixture.insertMachine(t, domain.DevMachineStatusStopped, domain.DevMachineStatusStopped, true)
 			_, err = db.Exec(`UPDATE dev_machines SET environment_id=NULL WHERE id=$1`, machineID)
+			require.NoError(t, err)
+			_, err = db.Exec(`UPDATE dev_machine_environments SET source_machine_id=$1 WHERE id=$2`, machineID, fixture.environmentID)
 			require.NoError(t, err)
 			operation := &domain.DevMachineOperation{
 				ID: uuid.New(), MachineID: machineID, EnvironmentID: &fixture.environmentID, WorkspaceID: fixture.workspaceID,

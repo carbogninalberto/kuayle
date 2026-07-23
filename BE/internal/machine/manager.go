@@ -714,7 +714,7 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 		secrets["GITHUB_TOKEN"] = githubToken
 	}
 	service := &domain.DevMachineService{
-		ID: uuid.New(), MachineID: machine.ID, AgentRunID: &run.ID, ServiceType: "agent",
+		ID: uuid.New(), WorkspaceID: machine.WorkspaceID, MachineID: machine.ID, AgentRunID: &run.ID, ServiceType: "agent",
 		ServiceKey: "agent-" + run.ID.String(), ContainerName: "kuayle-" + machine.RoutingKey + "-agent-" + run.ID.String(),
 		ImageRef: providerRecord.ImageRef, InternalHost: "agent-" + run.ID.String(), InternalPort: 8080,
 		Status: "pending", HealthStatus: "unknown",
@@ -1089,7 +1089,7 @@ func (m *Manager) reconcile(ctx context.Context) error {
 				continue
 			}
 			_ = m.store.CreateResourceSample(ctx, &domain.DevMachineResourceSample{
-				MachineID: machine.ID, CPUPercent: usage.CPUPercent, MemoryBytes: usage.MemoryBytes,
+				WorkspaceID: machine.WorkspaceID, MachineID: machine.ID, CPUPercent: usage.CPUPercent, MemoryBytes: usage.MemoryBytes,
 				DiskBytes: usage.DiskBytes, Pids: usage.Pids, NetworkRxBytes: usage.NetworkRxBytes,
 				NetworkTxBytes: usage.NetworkTxBytes,
 			})

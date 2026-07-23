@@ -415,23 +415,13 @@ Migration `000033_dev_machines` creates:
 | `dev_machine_access_logs` | Allowed and denied gateway requests |
 | `dev_machine_resource_samples` | CPU, RAM, disk, PID, and network samples |
 | `dev_machine_workspace_policies` | Workspace quota and allowlist configuration |
+| `dev_machine_environments` | Immutable local OCI environment images and two-phase deletion state |
+| `dev_machine_scope_settings` | Workspace/team/project/issue repository, branch, and environment defaults |
+| `dev_machine_checkouts` | Idempotent issue worktrees with repository and branch metadata |
+| `dev_machine_terminal_sessions` | User terminal tabs mapped to runtime tmux sessions and optional checkouts |
+| `dev_machine_runtime_credentials` | Encrypted, expiring runtime-secret registrations used for telemetry redaction |
 
-Forward migration `000034_dev_machine_workspaces` adds the current scoped-workspace model:
-
-| Change | Purpose |
-|---|---|
-| operation enum values `checkout_issue`, `snapshot_environment` | Durable issue checkout and environment snapshot operations |
-| `dev_machine_workspace_policies.idle_pause_minutes` | Per-workspace idle pause policy, default 240 minutes |
-| optional legacy repo defaults on `dev_machines` | Allows generic machines with no repository at creation |
-| `dev_machines.environment_id`, `repository_affinity_id`, `keep_running`, `environment_builder`, `delete_requested_at` | Development environment selection, repository affinity, idle bypass, builder flag, and admin-only permanent-delete convergence request |
-| `dev_machine_environments` | Immutable local OCI environment images with `pending`, `building`, `ready`, `failed`, and `delete_requested` states |
-| `dev_machine_scope_settings` | Workspace/team/project/issue repository, base branch, and environment defaults |
-| `dev_machine_checkouts` | Idempotent issue worktrees with repository, branch, workspace path, and status |
-| `dev_machine_terminal_sessions` | User terminal tabs mapped to runtime tmux session names and optional checkouts |
-| `dev_machine_agent_runs.checkout_id` | Agent runs can target a specific issue worktree |
-| `dev_machine_operations.environment_id`, `checkout_id` | Operation linkage for snapshots and checkout preparation |
-| terminal service type in `dev_machine_services` | Separate route/service record for ttyd on the developer container |
-| uniqueness/indexes on lower machine name, idle machines, environment delete requests, scope rows, checkouts, terminal sessions | Case-insensitive names, idle scans, environment cleanup scans, and scoped uniqueness |
+The migration creates the final scoped-workspace schema directly. Composite foreign keys bind workspace, machine, service, checkout, run, session, and environment tuples so cross-workspace identifiers are rejected by PostgreSQL rather than relying only on application checks. Rolling migration `000033` back is destructive for all Dev Machine control-plane records.
 
 All user-facing repository access is constrained by both `workspace_id` and resource ID. Internal manager lookups are limited to the trusted manager process.
 

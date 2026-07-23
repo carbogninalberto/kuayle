@@ -203,10 +203,11 @@ func (r *DevMachineRepository) CreateBundle(
 
 	for i := range services {
 		service := &services[i]
+		service.WorkspaceID = machine.WorkspaceID
 		if err := tx.QueryRowContext(ctx, `INSERT INTO dev_machine_services
-			(id, machine_id, service_type, service_key, container_name, image_ref, internal_host, internal_port, status, health_status)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING created_at, updated_at`,
-			service.ID, service.MachineID, service.ServiceType, service.ServiceKey, service.ContainerName,
+			(id, workspace_id, machine_id, service_type, service_key, container_name, image_ref, internal_host, internal_port, status, health_status)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING created_at, updated_at`,
+			service.ID, service.WorkspaceID, service.MachineID, service.ServiceType, service.ServiceKey, service.ContainerName,
 			service.ImageRef, service.InternalHost, service.InternalPort, service.Status, service.HealthStatus,
 		).Scan(&service.CreatedAt, &service.UpdatedAt); err != nil {
 			return err
@@ -674,12 +675,12 @@ func (r *DevMachineRepository) UpdateServiceRuntime(ctx context.Context, service
 
 func (r *DevMachineRepository) CreateRuntimeService(ctx context.Context, service *domain.DevMachineService) error {
 	return r.db.QueryRowContext(ctx, `INSERT INTO dev_machine_services
-		(id, machine_id, agent_run_id, service_type, service_key, container_name, image_ref, internal_host,
+		(id, workspace_id, machine_id, agent_run_id, service_type, service_key, container_name, image_ref, internal_host,
 		 internal_port, status, health_status)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
 		ON CONFLICT (machine_id, service_key) DO UPDATE SET image_ref=EXCLUDED.image_ref
 		RETURNING id, created_at, updated_at`,
-		service.ID, service.MachineID, service.AgentRunID, service.ServiceType, service.ServiceKey,
+		service.ID, service.WorkspaceID, service.MachineID, service.AgentRunID, service.ServiceType, service.ServiceKey,
 		service.ContainerName, service.ImageRef, service.InternalHost, service.InternalPort,
 		service.Status, service.HealthStatus,
 	).Scan(&service.ID, &service.CreatedAt, &service.UpdatedAt)
@@ -1136,8 +1137,8 @@ func (r *DevMachineRepository) PurgeAccessLogs(ctx context.Context, before time.
 
 func (r *DevMachineRepository) CreateResourceSample(ctx context.Context, sample *domain.DevMachineResourceSample) error {
 	return r.db.QueryRowContext(ctx, `INSERT INTO dev_machine_resource_samples
-		(machine_id, cpu_percent, memory_bytes, disk_bytes, pids, network_rx_bytes, network_tx_bytes)
-		VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, created_at`, sample.MachineID, sample.CPUPercent,
+		(workspace_id, machine_id, cpu_percent, memory_bytes, disk_bytes, pids, network_rx_bytes, network_tx_bytes)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id, created_at`, sample.WorkspaceID, sample.MachineID, sample.CPUPercent,
 		sample.MemoryBytes, sample.DiskBytes, sample.Pids, sample.NetworkRxBytes, sample.NetworkTxBytes,
 	).Scan(&sample.ID, &sample.CreatedAt)
 }
@@ -1177,8 +1178,8 @@ func (r *DevMachineRepository) GetGitHubAppConfig(ctx context.Context, workspace
 
 func (r *DevMachineRepository) ListResourceSamples(ctx context.Context, workspaceID, machineID uuid.UUID, limit int) ([]domain.DevMachineResourceSample, error) {
 	var samples []domain.DevMachineResourceSample
-	err := r.db.SelectContext(ctx, &samples, `SELECT s.* FROM dev_machine_resource_samples s JOIN dev_machines m ON m.id=s.machine_id
-		WHERE m.workspace_id=$1 AND m.id=$2 ORDER BY s.created_at DESC LIMIT $3`, workspaceID, machineID, limit)
+	err := r.db.SelectContext(ctx, &samples, `SELECT s.* FROM dev_machine_resource_samples s
+		WHERE s.workspace_id=$1 AND s.machine_id=$2 ORDER BY s.created_at DESC LIMIT $3`, workspaceID, machineID, limit)
 	return samples, err
 }
 

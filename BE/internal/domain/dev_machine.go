@@ -143,6 +143,7 @@ type DevMachineAgentProvider struct {
 
 type DevMachineService struct {
 	ID            uuid.UUID  `json:"id" db:"id"`
+	WorkspaceID   uuid.UUID  `json:"workspace_id" db:"workspace_id"`
 	MachineID     uuid.UUID  `json:"machine_id" db:"machine_id"`
 	AgentRunID    *uuid.UUID `json:"agent_run_id,omitempty" db:"agent_run_id"`
 	ServiceType   string     `json:"service_type" db:"service_type"`
@@ -399,6 +400,7 @@ type DevMachineAccessLog struct {
 
 type DevMachineResourceSample struct {
 	ID             int64     `json:"id" db:"id"`
+	WorkspaceID    uuid.UUID `json:"workspace_id" db:"workspace_id"`
 	MachineID      uuid.UUID `json:"machine_id" db:"machine_id"`
 	CPUPercent     float64   `json:"cpu_percent" db:"cpu_percent"`
 	MemoryBytes    int64     `json:"memory_bytes" db:"memory_bytes"`
