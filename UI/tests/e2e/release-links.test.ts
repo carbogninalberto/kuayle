@@ -1,16 +1,22 @@
 import { expect, test } from '@playwright/test';
 
-test('restricts release manifest links to the Kuayle GitHub repository', async ({ page }) => {
+test('retries and restricts release manifest links to the Kuayle GitHub repository', async ({ page }) => {
 	const tagName = 'v99.0.0';
 	const releaseUrl = `https://github.com/carbogninalberto/kuayle/releases/tag/${tagName}`;
 	let requireUpgrade = false;
+	let releaseRequests = 0;
+	const transientFailures = ['http', 'json', 'http'];
 
 	await page.addInitScript((tag) => {
 		localStorage.setItem('kuayle_release_notice_dismissed', tag);
 	}, tagName);
 
-	await page.route('https://raw.githubusercontent.com/carbogninalberto/kuayle/main/UI/static/releases.json', (route) =>
-		route.fulfill({
+	await page.route('https://raw.githubusercontent.com/carbogninalberto/kuayle/main/UI/static/releases.json', (route) => {
+		releaseRequests += 1;
+		const failure = transientFailures.shift();
+		if (failure === 'http') return route.fulfill({ status: 503, body: 'temporarily unavailable' });
+		if (failure === 'json') return route.fulfill({ status: 200, contentType: 'application/json', body: '{' });
+		return route.fulfill({
 			json: [
 				{
 					tag_name: tagName,
@@ -24,8 +30,8 @@ test('restricts release manifest links to the Kuayle GitHub repository', async (
 					upgrade_message: null
 				}
 			]
-		})
-	);
+		});
+	});
 
 	await page.route('**/api/**', async (route) => {
 		const request = route.request();
@@ -82,7 +88,11 @@ test('restricts release manifest links to the Kuayle GitHub repository', async (
 	});
 
 	await page.goto('/test/settings/version');
+	await expect(page.getByText('No releases were found.')).toBeVisible();
+	await expect.poll(() => releaseRequests).toBe(3);
+	await page.getByRole('button', { name: 'Check releases' }).click();
 	await expect(page.getByRole('link', { name: 'Open', exact: true })).toHaveAttribute('href', releaseUrl);
+	await expect.poll(() => releaseRequests).toBe(4);
 	await expect(page.getByRole('link', { name: 'Trusted pull request' })).toHaveAttribute(
 		'href',
 		'https://github.com/carbogninalberto/kuayle/pull/46'

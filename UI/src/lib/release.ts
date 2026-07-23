@@ -10,6 +10,8 @@ export const releasesManifestUrl =
 	'https://raw.githubusercontent.com/carbogninalberto/kuayle/main/UI/static/releases.json';
 
 const RELEASE_VERSION = /^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+const RELEASE_RETRY_DELAYS_MS = [0, 250, 1000];
+let releaseRequest: Promise<GitHubRelease[]> | null = null;
 
 export interface GitHubRelease {
 	tag_name: string;
@@ -86,10 +88,28 @@ export function isTrustedReleaseNoteUrl(value: string): boolean {
 	return safeGitHubRepositoryUrl(value, releaseRepositoryFullName) !== null;
 }
 
-export async function fetchReleases(): Promise<GitHubRelease[]> {
-	const response = await fetch(releasesManifestUrl, { cache: 'no-store' });
-	if (!response.ok) return [];
-	return parseReleaseManifest(await response.json());
+async function fetchReleasesWithRetry(): Promise<GitHubRelease[]> {
+	for (const delay of RELEASE_RETRY_DELAYS_MS) {
+		if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+		try {
+			const response = await fetch(releasesManifestUrl, { cache: 'no-store' });
+			if (!response.ok) continue;
+			const releases = parseReleaseManifest(await response.json());
+			if (releases.length > 0) return releases;
+		} catch {
+			// Retry network and parse failures within the same bounded request.
+		}
+	}
+	return [];
+}
+
+export function fetchReleases(): Promise<GitHubRelease[]> {
+	if (!releaseRequest) {
+		releaseRequest = fetchReleasesWithRetry().finally(() => {
+			releaseRequest = null;
+		});
+	}
+	return releaseRequest;
 }
 
 export function visibleReleases(releases: GitHubRelease[], includePrerelease: boolean): GitHubRelease[] {

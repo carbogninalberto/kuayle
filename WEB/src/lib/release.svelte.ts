@@ -6,8 +6,8 @@
  * non-prerelease entry by semantic version wins.
  *
  * The prerendered static HTML always contains FALLBACK_VERSION (good for
- * SEO and no-JS clients); after hydration the manifest is fetched once and
- * every consumer updates reactively if a newer release exists.
+ * SEO and no-JS clients); after hydration the manifest is fetched with
+ * bounded retries and every consumer updates if a newer release exists.
  */
 
 export const FALLBACK_VERSION = 'v0.1.12';
@@ -16,6 +16,7 @@ export const RELEASES_PAGE_URL = 'https://github.com/carbogninalberto/kuayle/rel
 const RELEASES_MANIFEST_URL =
 	'https://raw.githubusercontent.com/carbogninalberto/kuayle/main/UI/static/releases.json';
 const RELEASE_VERSION = /^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+const RELEASE_RETRY_DELAYS_MS = [0, 250, 1000];
 
 interface GitHubRelease {
 	tag_name: string;
@@ -93,33 +94,45 @@ function releaseUrlFor(tagName: string, value: string | undefined): string {
 
 let version = $state(FALLBACK_VERSION);
 let releaseUrl = $state(`${RELEASES_PAGE_URL}/tag/${FALLBACK_VERSION}`);
-let requested = false;
+let loaded = false;
+let request: Promise<void> | null = null;
 
-async function load() {
+async function loadOnce(): Promise<boolean> {
 	try {
 		const response = await fetch(RELEASES_MANIFEST_URL, { cache: 'no-store' });
-		if (!response.ok) return;
+		if (!response.ok) return false;
 		const releases = parseManifest(await response.json());
 		const latest = releases
 			.filter((release) => !release.prerelease && release.tag_name)
 			.sort((a, b) => compareVersions(b.tag_name, a.tag_name))[0];
-		if (latest) {
-			version = latest.tag_name;
-			releaseUrl = releaseUrlFor(latest.tag_name, latest.html_url);
-		}
+		if (!latest) return false;
+		version = latest.tag_name;
+		releaseUrl = releaseUrlFor(latest.tag_name, latest.html_url);
+		return true;
 	} catch {
-		// Network or parse failure: keep the fallback version.
+		return false;
+	}
+}
+
+async function loadWithRetry() {
+	for (const delay of RELEASE_RETRY_DELAYS_MS) {
+		if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+		if (await loadOnce()) {
+			loaded = true;
+			return;
+		}
 	}
 }
 
 /**
- * Reactive latest-release state. Call once per component; the manifest is
- * fetched at most once per page load, in the browser only.
+ * Reactive latest-release state. Consumers share one browser request at a
+ * time; exhausted requests may be retried by a later component mount.
  */
 export function useLatestRelease() {
-	if (typeof window !== 'undefined' && !requested) {
-		requested = true;
-		void load();
+	if (typeof window !== 'undefined' && !loaded && !request) {
+		request = loadWithRetry().finally(() => {
+			request = null;
+		});
 	}
 	return {
 		get version() {
