@@ -968,6 +968,9 @@ test('opens agent-run trace sheet from card click, activity click, deep link, an
 	const machineId = '00000000-0000-0000-0000-000000000060';
 	const runId = '00000000-0000-0000-0000-000000000061';
 	const runId2 = '00000000-0000-0000-0000-000000000062';
+	const checkoutId = '00000000-0000-0000-0000-000000000063';
+	const pullRequestUrl = 'https://github.com/kuayle/kuayle/pull/46';
+	const untrustedPullRequestUrl = 'https://github.com/attacker/kuayle/pull/46';
 	let traceRequests = 0;
 	let lastTraceEventsAfterId = 0;
 	let lastTraceLogsAfterId = 0;
@@ -980,10 +983,10 @@ test('opens agent-run trace sheet from card click, activity click, deep link, an
 		status: 'running',
 		desired_status: 'running',
 		generation: 1,
-		repo_url: 'https://github.com/kuayle/kuayle',
+		repo_url: 'https://github.com/machine-owner/machine-repo',
 		repo_provider: 'github',
-		repo_owner: 'kuayle',
-		repo_name: 'kuayle',
+		repo_owner: 'machine-owner',
+		repo_name: 'machine-repo',
 		base_branch: 'main',
 		working_branch: 'kuayle/trace',
 		machine_size: 'medium',
@@ -997,6 +1000,13 @@ test('opens agent-run trace sheet from card click, activity click, deep link, an
 		created_at: '2026-07-13T00:00:00Z',
 		updated_at: '2026-07-13T00:00:00Z',
 		expires_at: '2099-07-13T04:00:00Z'
+	};
+	const checkout = {
+		id: checkoutId, workspace_id: machine.workspace_id, machine_id: machineId,
+		issue_id: '00000000-0000-0000-0000-000000000064', github_repo_id: '00000000-0000-0000-0000-000000000065',
+		repository_full_name: 'kuayle/kuayle', base_branch: 'main', working_branch: 'kuayle/trace',
+		workspace_path: '/workspace/tasks/trace', status: 'ready',
+		created_at: '2026-07-13T00:00:00Z', updated_at: '2026-07-13T00:00:00Z'
 	};
 
 	await page.route('https://raw.githubusercontent.com/carbogninalberto/kuayle/main/UI/static/releases.json', (route) => route.fulfill({ json: [] }));
@@ -1032,7 +1042,7 @@ test('opens agent-run trace sheet from card click, activity click, deep link, an
 			return route.fulfill({ json: [] });
 		}
 		if (path === `/api/workspaces/test/dev-machines/${machineId}/checkouts`) {
-			return route.fulfill({ json: [] });
+			return route.fulfill({ json: [checkout] });
 		}
 		if (path === `/api/workspaces/test/dev-machines/${machineId}/resource-usage`) {
 			return route.fulfill({ json: [] });
@@ -1041,8 +1051,8 @@ test('opens agent-run trace sheet from card click, activity click, deep link, an
 			return route.fulfill({
 				json: {
 					data: [
-						{ id: runId, machine_id: machineId, provider_id: 'opencode', mode: 'autonomous', status: 'succeeded', prompt: 'Fix the bug', summary: 'Fixed bug in login', changed_files: ['src/login.ts'], commits: ['abc1234'], branch: 'kuayle/trace', pull_request_url: null, tests_run: ['TestLogin'], test_status: 'passed', risk_notes: ['Minor risk'], exit_code: 0, error_message: null, created_at: '2026-07-13T00:00:00Z', started_at: '2026-07-13T00:01:00Z', completed_at: '2026-07-13T00:05:00Z' },
-						{ id: runId2, machine_id: machineId, provider_id: 'claude-code', mode: 'autonomous', status: 'running', prompt: 'Add tests', summary: null, changed_files: [], commits: [], branch: null, pull_request_url: null, tests_run: [], test_status: 'not_run', risk_notes: [], exit_code: null, error_message: null, created_at: '2026-07-13T01:00:00Z', started_at: '2026-07-13T01:01:00Z', completed_at: null }
+						{ id: runId, machine_id: machineId, checkout_id: checkoutId, provider_id: 'opencode', mode: 'autonomous', status: 'succeeded', prompt: 'Fix the bug', summary: 'Fixed bug in login', changed_files: ['src/login.ts'], commits: ['abc1234'], branch: 'kuayle/trace', pull_request_url: pullRequestUrl, tests_run: ['TestLogin'], test_status: 'passed', risk_notes: ['Minor risk'], exit_code: 0, error_message: null, created_at: '2026-07-13T00:00:00Z', started_at: '2026-07-13T00:01:00Z', completed_at: '2026-07-13T00:05:00Z' },
+						{ id: runId2, machine_id: machineId, checkout_id: checkoutId, provider_id: 'claude-code', mode: 'autonomous', status: 'running', prompt: 'Add tests', summary: null, changed_files: [], commits: [], branch: null, pull_request_url: untrustedPullRequestUrl, tests_run: [], test_status: 'not_run', risk_notes: [], exit_code: null, error_message: null, created_at: '2026-07-13T01:00:00Z', started_at: '2026-07-13T01:01:00Z', completed_at: null }
 					],
 					total_count: 2, page: 1, per_page: 50, has_more: false
 				}
@@ -1079,7 +1089,7 @@ test('opens agent-run trace sheet from card click, activity click, deep link, an
 
 			return route.fulfill({
 				json: {
-					run: { id: runId, machine_id: machineId, provider_id: 'opencode', mode: 'autonomous', status: 'succeeded', prompt: 'Fix the bug', summary: 'Fixed bug in login', changed_files: ['src/login.ts'], commits: ['abc1234'], branch: 'kuayle/trace', pull_request_url: null, tests_run: ['TestLogin'], test_status: 'passed', risk_notes: ['Minor risk'], exit_code: 0, error_message: null, created_at: '2026-07-13T00:00:00Z', started_at: '2026-07-13T00:01:00Z', completed_at: '2026-07-13T00:05:00Z' },
+					run: { id: runId, machine_id: machineId, checkout_id: checkoutId, provider_id: 'opencode', mode: 'autonomous', status: 'succeeded', prompt: 'Fix the bug', summary: 'Fixed bug in login', changed_files: ['src/login.ts'], commits: ['abc1234'], branch: 'kuayle/trace', pull_request_url: pullRequestUrl, tests_run: ['TestLogin'], test_status: 'passed', risk_notes: ['Minor risk'], exit_code: 0, error_message: null, created_at: '2026-07-13T00:00:00Z', started_at: '2026-07-13T00:01:00Z', completed_at: '2026-07-13T00:05:00Z' },
 					steps: [{ id: runId, agent_run_id: runId, sequence: 1, step_type: 'shell', name: 'Run tests', status: 'succeeded', command_argv: null, summary: 'All tests passed', exit_code: 0, started_at: '2026-07-13T00:02:00Z', completed_at: '2026-07-13T00:03:00Z', created_at: '2026-07-13T00:02:00Z' }],
 					events: filteredEvents,
 					logs: [], next_event_id: filteredEvents.at(-1)?.id ?? eventsAfterId, next_log_id: logsAfterId,
@@ -1091,7 +1101,7 @@ test('opens agent-run trace sheet from card click, activity click, deep link, an
 			traceRequests++;
 			return route.fulfill({
 				json: {
-					run: { id: runId2, machine_id: machineId, provider_id: 'claude-code', mode: 'autonomous', status: 'running', prompt: 'Add tests', summary: null, changed_files: [], commits: [], branch: null, pull_request_url: null, tests_run: [], test_status: 'not_run', risk_notes: [], exit_code: null, error_message: null, created_at: '2026-07-13T01:00:00Z', started_at: '2026-07-13T01:01:00Z', completed_at: null },
+					run: { id: runId2, machine_id: machineId, checkout_id: checkoutId, provider_id: 'claude-code', mode: 'autonomous', status: 'running', prompt: 'Add tests', summary: null, changed_files: [], commits: [], branch: null, pull_request_url: untrustedPullRequestUrl, tests_run: [], test_status: 'not_run', risk_notes: [], exit_code: null, error_message: null, created_at: '2026-07-13T01:00:00Z', started_at: '2026-07-13T01:01:00Z', completed_at: null },
 					steps: [],
 					events: [],
 					logs: [], next_event_id: 0, next_log_id: 0, has_more_events: false, has_more_logs: false
@@ -1105,6 +1115,9 @@ test('opens agent-run trace sheet from card click, activity click, deep link, an
 	await page.goto('/test/machines');
 	await page.getByText('Trace test machine').click();
 	await page.waitForURL(`**/machines/${machineId}`);
+	const runList = page.locator('#agent-runs');
+	await expect(runList.getByRole('link', { name: 'Pull request' })).toHaveAttribute('href', pullRequestUrl);
+	await expect(runList.locator(`a[href="${untrustedPullRequestUrl}"]`)).toHaveCount(0);
 
 	// Click the first agent-run card
 	await page.getByRole('button', { name: 'View opencode agent run activity' }).click();
@@ -1119,6 +1132,7 @@ test('opens agent-run trace sheet from card click, activity click, deep link, an
 	await expect(sheetContent.getByText('src/login.ts')).toBeVisible();
 	await expect(sheetContent.getByText('TestLogin')).toBeVisible();
 	await expect(sheetContent.getByText('Minor risk')).toBeVisible();
+	await expect(sheetContent.getByRole('link', { name: 'Pull Request' })).toHaveAttribute('href', pullRequestUrl);
 
 	// Close the sheet via the sheet's close button (data-slot="sheet-close")
 	await page.locator('[data-slot="sheet-close"]').click();
@@ -1144,6 +1158,7 @@ test('opens agent-run trace sheet from card click, activity click, deep link, an
 	await expect(page.getByRole('heading', { name: 'Agent Run Trace' })).toBeVisible();
 	const activeSheetContent = page.locator('[data-slot="sheet-content"]');
 	await expect(activeSheetContent.getByText('claude-code')).toBeVisible({ timeout: 10000 });
+	await expect(activeSheetContent.getByRole('link', { name: 'Pull Request' })).toHaveCount(0);
 
 	// Verify multiple trace requests were made (including cursor polling for active run)
 	await expect.poll(() => traceRequests).toBeGreaterThan(1);

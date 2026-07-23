@@ -83,9 +83,9 @@
 				<!-- Pull Requests -->
 				{#each activity.pull_requests as pr}
 					<a
-						href={pr.html_url}
+						href={pr.html_url || undefined}
 						target="_blank"
-						rel="noopener"
+						rel="noopener noreferrer"
 						class="group flex items-start gap-2 px-3 py-2 text-xs transition-colors hover:bg-[var(--color-bg-hover)]"
 					>
 						<GitPullRequest size={13} class="mt-0.5 shrink-0 {pr.state === 'merged' ? 'text-purple-500' : pr.state === 'open' ? 'text-green-500' : 'text-[var(--color-text-tertiary)]'}" />
@@ -125,7 +125,7 @@
 							{/if}
 						</button>
 						{#if branch.html_url}
-							<a href={branch.html_url} target="_blank" rel="noopener" class="shrink-0 rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-secondary)]">
+							<a href={branch.html_url} target="_blank" rel="noopener noreferrer" class="shrink-0 rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-secondary)]">
 								<ExternalLink size={12} />
 							</a>
 						{/if}
@@ -135,9 +135,9 @@
 				<!-- Commits (show last 5) -->
 				{#each activity.commits.slice(0, 5) as commit}
 					<a
-						href={commit.html_url}
+						href={commit.html_url || undefined}
 						target="_blank"
-						rel="noopener"
+						rel="noopener noreferrer"
 						class="group flex items-start gap-2 px-3 py-2 text-xs transition-colors hover:bg-[var(--color-bg-hover)]"
 					>
 						<GitCommitHorizontal size={13} class="mt-0.5 shrink-0 text-[var(--color-text-tertiary)]" />

@@ -15,6 +15,7 @@
 		listAutoTransitions,
 		updateAutoTransitions
 	} from '$lib/api/github';
+	import { githubRepositoryHomeUrl } from '$lib/security/github-url';
 	import type { GitHubStatus, GitHubAvailableRepo, GitHubAutoTransition } from '$lib/types/github';
 	import { Button } from '$lib/components/ui/button';
 	import { Badge } from '$lib/components/ui/badge';
@@ -114,6 +115,7 @@
 	async function handleInstall() {
 		try {
 			const { url } = await getInstallURL(slug);
+			if (!url) throw new Error('Invalid GitHub install URL');
 			window.location.href = url;
 		} catch {
 			appToast.error('Failed to get install URL');
@@ -395,15 +397,18 @@
 				{:else}
 					<div class="mt-3 space-y-1">
 						{#each status.repos as repo}
+							{@const repositoryUrl = githubRepositoryHomeUrl(repo.full_name)}
 							<div class="flex items-center justify-between rounded-md border border-[var(--app-border)] px-3 py-2">
 								<div class="flex items-center gap-2">
 									<GithubLogoIcon size={14} class="text-[var(--color-text-tertiary)]" />
 									<span class="text-sm text-[var(--color-text-primary)]">{repo.full_name}</span>
 									<span class="text-xs text-[var(--color-text-tertiary)]">{repo.default_branch}</span>
 								</div>
-								<a href="https://github.com/{repo.full_name}" target="_blank" rel="noopener" class="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]">
-									<ExternalLink size={14} />
-								</a>
+								{#if repositoryUrl}
+									<a href={repositoryUrl} target="_blank" rel="noopener noreferrer" class="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]">
+										<ExternalLink size={14} />
+									</a>
+								{/if}
 							</div>
 						{/each}
 					</div>

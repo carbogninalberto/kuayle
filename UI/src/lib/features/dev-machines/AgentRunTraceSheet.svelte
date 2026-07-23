@@ -3,15 +3,18 @@
 	import * as Sheet from '$lib/components/ui/sheet';
 	import { Button } from '$lib/components/ui/button';
 	import { getAgentRunTrace, cancelAgentRun } from '$lib/api/dev-machines';
-	import type { AgentRun, AgentRunTrace, DevMachineEvent, DevMachineLogChunk, AgentRunStep } from '$lib/types/dev-machine';
+	import type { AgentRun, AgentRunTrace, DevMachine, DevMachineCheckout, DevMachineEvent, DevMachineLogChunk, AgentRunStep } from '$lib/types/dev-machine';
 	import { appToast } from '$lib/features/toast/toast';
+	import { safeGitHubPullRequestUrl } from '$lib/security/github-url';
 	import { appendRecentTelemetry, DEV_MACHINE_EVENT_RETENTION, DEV_MACHINE_LOG_RETENTION } from './telemetry-retention';
 	import { Bot, ExternalLink, X, RotateCw, Loader } from 'lucide-svelte';
 
-	let { open = $bindable(false), slug, runId, onclose }: {
+	let { open = $bindable(false), slug, runId, machine, checkouts, onclose }: {
 		open: boolean;
 		slug: string;
 		runId: string | null;
+		machine: DevMachine | null;
+		checkouts: DevMachineCheckout[];
 		onclose?: () => void;
 	} = $props();
 
@@ -32,6 +35,15 @@
 
 	const terminalStatuses = new Set(['succeeded', 'failed', 'cancelled', 'timeout']);
 	const isTerminal = $derived(run ? terminalStatuses.has(run.status) : true);
+	const pullRequestUrl = $derived(run ? safeGitHubPullRequestUrl(run.pull_request_url, repositoryFullNameForRun(run)) : null);
+
+	function repositoryFullNameForRun(agentRun: AgentRun): string {
+		if (agentRun.checkout_id) {
+			return checkouts.find((checkout) => checkout.id === agentRun.checkout_id)?.repository_full_name ?? '';
+		}
+		if (machine?.repo_owner && machine.repo_name) return `${machine.repo_owner}/${machine.repo_name}`;
+		return '';
+	}
 
 	$effect(() => {
 		const currentOpen = open;
@@ -296,9 +308,9 @@
 					{/if}
 
 					<!-- PR -->
-					{#if run.pull_request_url}
+					{#if pullRequestUrl}
 						<section>
-							<a href={run.pull_request_url} target="_blank" rel="noreferrer" class="inline-flex items-center gap-1 text-xs text-[var(--app-accent)] hover:underline">
+							<a href={pullRequestUrl} target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 text-xs text-[var(--app-accent)] hover:underline">
 								Pull Request <ExternalLink size={11} />
 							</a>
 						</section>

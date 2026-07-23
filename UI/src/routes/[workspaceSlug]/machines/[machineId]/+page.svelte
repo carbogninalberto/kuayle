@@ -25,6 +25,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 	import { Switch } from '$lib/components/ui/switch';
+	import { safeGitHubPullRequestUrl } from '$lib/security/github-url';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	const machineId = $derived(page.params.machineId ?? '');
@@ -77,6 +78,16 @@
 	const readyCheckouts = $derived(checkouts.filter((checkout) => checkout.status === 'ready'));
 	const ideService = $derived(services.find((item) => item.service_type === 'ide'));
 	const terminalService = $derived(services.find((item) => item.service_type === 'terminal'));
+
+	function pullRequestUrl(run: AgentRun): string | null {
+		let repositoryFullName = '';
+		if (run.checkout_id) {
+			repositoryFullName = checkouts.find((checkout) => checkout.id === run.checkout_id)?.repository_full_name ?? '';
+		} else if (machine?.repo_owner && machine.repo_name) {
+			repositoryFullName = `${machine.repo_owner}/${machine.repo_name}`;
+		}
+		return safeGitHubPullRequestUrl(run.pull_request_url, repositoryFullName);
+	}
 
 	$effect(() => {
 		const targetSlug = slug;
@@ -656,6 +667,7 @@
 					<div class="mt-3 space-y-2">
 						{#if runs.length === 0}<p class="text-xs text-[var(--color-text-tertiary)]">No agent runs yet.</p>{/if}
 						{#each runs as run}
+							{@const trustedPullRequestUrl = pullRequestUrl(run)}
 							<article id={`agent-run-${run.id}`} class="rounded-lg border border-[var(--app-border)] p-3 transition-colors hover:bg-[var(--color-bg-hover)] scroll-mt-4">
 								<div class="flex items-start gap-2">
 									<button type="button" class="min-w-0 flex-1 text-left" onclick={() => openTrace(run.id)} aria-label={`View ${run.provider_id} agent run activity`}>
@@ -671,7 +683,7 @@
 										</Button>
 									{/if}
 								</div>
-								{#if run.pull_request_url}<a href={run.pull_request_url} target="_blank" rel="noreferrer" class="mt-2 inline-flex items-center gap-1 text-xs text-[var(--app-accent)]">Pull request <ExternalLink size={11} /></a>{/if}
+								{#if trustedPullRequestUrl}<a href={trustedPullRequestUrl} target="_blank" rel="noopener noreferrer" class="mt-2 inline-flex items-center gap-1 text-xs text-[var(--app-accent)]">Pull request <ExternalLink size={11} /></a>{/if}
 								{#if run.risk_notes?.length}<div class="mt-2 text-xs text-amber-400">{run.risk_notes.join(' · ')}</div>{/if}
 							</article>
 						{/each}
@@ -701,7 +713,7 @@
 
 	<AgentRunDialog bind:open={runOpen} {slug} {machine} checkoutId={readyCheckouts[0]?.id} oncreated={handleAgentRunCreated} />
 
-	<AgentRunTraceSheet bind:open={traceOpen} {slug} runId={traceRunId} onclose={closeTrace} />
+	<AgentRunTraceSheet bind:open={traceOpen} {slug} runId={traceRunId} {machine} {checkouts} onclose={closeTrace} />
 
 	<AlertDialog.Root bind:open={teardownConfirm}><AlertDialog.Content><AlertDialog.Header><AlertDialog.Title>Teardown Dev Machine?</AlertDialog.Title><AlertDialog.Description>This removes containers, the isolated network, workspace volume, and active access sessions while retaining the machine history.</AlertDialog.Description></AlertDialog.Header><AlertDialog.Footer><AlertDialog.Cancel>Cancel</AlertDialog.Cancel><AlertDialog.Action onclick={teardown}>Teardown</AlertDialog.Action></AlertDialog.Footer></AlertDialog.Content></AlertDialog.Root>
 	<AlertDialog.Root bind:open={deleteConfirm}><AlertDialog.Content><AlertDialog.Header><AlertDialog.Title>Delete Dev Machine permanently?</AlertDialog.Title><AlertDialog.Description>This tears down any running resources, then permanently removes machine history, logs, agent runs, issue worktrees, and volumes. This cannot be undone.</AlertDialog.Description></AlertDialog.Header><AlertDialog.Footer><AlertDialog.Cancel>Cancel</AlertDialog.Cancel><AlertDialog.Action variant="destructive" onclick={removeMachine} disabled={actionBusy}>{actionBusy ? 'Deleting...' : 'Delete permanently'}</AlertDialog.Action></AlertDialog.Footer></AlertDialog.Content></AlertDialog.Root>

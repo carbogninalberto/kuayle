@@ -757,6 +757,15 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 		})
 	}
 	result := provider.ParseResult(stdout, stderr, execution.ExitCode)
+	repositoryFullName := checkoutRepositoryFullName(machine, checkout)
+	if result.PullRequestURL != "" {
+		if safeURL, ok := safeGitHubPullRequestURL(result.PullRequestURL, repositoryFullName); ok {
+			result.PullRequestURL = safeURL
+		} else {
+			result.PullRequestURL = ""
+			result.RiskNotes = append(result.RiskNotes, "Agent-reported pull request URL was ignored because it did not match the selected GitHub repository.")
+		}
+	}
 	for _, providerEvent := range provider.ParseEvents([]byte(stdout)) {
 		payload := providerEvent.Payload
 		if len(payload) == 0 {
@@ -803,10 +812,12 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 		}
 		if prErr != nil {
 			result.RiskNotes = append(result.RiskNotes, "Pull request creation failed: "+safeError(prErr))
+		} else if safeURL, ok := safeGitHubPullRequestURL(pullRequest.HTMLURL, repositoryFullName); !ok {
+			result.PullRequestURL = ""
+			result.RiskNotes = append(result.RiskNotes, "Created pull request URL was ignored because GitHub returned an unexpected repository URL.")
 		} else {
-			result.PullRequestURL = pullRequest.HTMLURL
-			run.PullRequestURL = &pullRequest.HTMLURL
-			_ = m.persistGitRef(ctx, machine, checkout, run, "pull_request", result.Branch, "", &pullRequest.Number, pullRequest.HTMLURL)
+			result.PullRequestURL = safeURL
+			_ = m.persistGitRef(ctx, machine, checkout, run, "pull_request", result.Branch, "", &pullRequest.Number, safeURL)
 		}
 	}
 	resultJSON, _ := json.Marshal(result)
@@ -827,6 +838,7 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 		run.Branch = &result.Branch
 		_ = m.persistGitRef(ctx, machine, checkout, run, "branch", result.Branch, "", nil, "")
 	}
+	run.PullRequestURL = nil
 	if result.PullRequestURL != "" {
 		run.PullRequestURL = &result.PullRequestURL
 	}

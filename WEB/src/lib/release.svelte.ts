@@ -15,6 +15,7 @@ export const RELEASES_PAGE_URL = 'https://github.com/carbogninalberto/kuayle/rel
 
 const RELEASES_MANIFEST_URL =
 	'https://raw.githubusercontent.com/carbogninalberto/kuayle/main/UI/static/releases.json';
+const RELEASE_VERSION = /^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 
 interface GitHubRelease {
 	tag_name: string;
@@ -42,12 +43,52 @@ function compareVersions(left: string, right: string): number {
 }
 
 function parseManifest(manifest: unknown): GitHubRelease[] {
-	if (Array.isArray(manifest)) return manifest as GitHubRelease[];
+	let releases: unknown[] = [];
+	if (Array.isArray(manifest)) releases = manifest;
 	if (manifest && typeof manifest === 'object') {
-		const releases = (manifest as { releases?: unknown }).releases;
-		if (Array.isArray(releases)) return releases as GitHubRelease[];
+		const nestedReleases = (manifest as { releases?: unknown }).releases;
+		if (Array.isArray(nestedReleases)) releases = nestedReleases;
 	}
-	return [];
+	return releases.flatMap((value): GitHubRelease[] => {
+		if (!value || typeof value !== 'object') return [];
+		const release = value as Record<string, unknown>;
+		if (typeof release.tag_name !== 'string' || !RELEASE_VERSION.test(release.tag_name)) return [];
+		return [
+			{
+				tag_name: release.tag_name,
+				html_url: typeof release.html_url === 'string' ? release.html_url : undefined,
+				prerelease: release.prerelease === true
+			}
+		];
+	});
+}
+
+function releaseUrlFor(tagName: string, value: string | undefined): string {
+	const fallback = `${RELEASES_PAGE_URL}/tag/${encodeURIComponent(tagName)}`;
+	if (!value) return fallback;
+
+	try {
+		const url = new URL(value);
+		const path = url.pathname.split('/').slice(1).map((part) => decodeURIComponent(part));
+		if (
+			url.protocol !== 'https:' ||
+			url.hostname.toLowerCase() !== 'github.com' ||
+			url.username !== '' ||
+			url.password !== '' ||
+			url.port !== '' ||
+			path.length !== 5 ||
+			path[0].toLowerCase() !== 'carbogninalberto' ||
+			path[1].toLowerCase() !== 'kuayle' ||
+			path[2] !== 'releases' ||
+			path[3] !== 'tag' ||
+			path[4] !== tagName
+		) {
+			return fallback;
+		}
+		return url.href;
+	} catch {
+		return fallback;
+	}
 }
 
 let version = $state(FALLBACK_VERSION);
@@ -64,7 +105,7 @@ async function load() {
 			.sort((a, b) => compareVersions(b.tag_name, a.tag_name))[0];
 		if (latest) {
 			version = latest.tag_name;
-			releaseUrl = latest.html_url || `${RELEASES_PAGE_URL}/tag/${latest.tag_name}`;
+			releaseUrl = releaseUrlFor(latest.tag_name, latest.html_url);
 		}
 	} catch {
 		// Network or parse failure: keep the fallback version.
