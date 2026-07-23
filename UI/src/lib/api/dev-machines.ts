@@ -4,7 +4,6 @@ import type {
 	AgentProvider,
 	AgentRun,
 	AgentRunTrace,
-	BulkDeleteDevMachinesResponse,
 	BulkPermanentDeleteDevMachinesInput,
 	CreateAgentRunInput,
 	CreateDevMachineInput,
@@ -55,20 +54,8 @@ export function deleteDevMachine(slug: string, machineId: string): Promise<void>
 	return api.delete(`${base(slug)}/dev-machines/${machineId}`);
 }
 
-export function bulkDeleteDevMachines(slug: string, input: { machine_ids: string[] }): Promise<BulkDeleteDevMachinesResponse> {
-	return api.deleteWithBody(`${base(slug)}/dev-machines/bulk`, input);
-}
-
-export function permanentDeleteDevMachine(slug: string, machineId: string): Promise<void> {
-	return api.post(`${base(slug)}/dev-machines/${machineId}/permanent-delete`);
-}
-
 export function bulkPermanentDeleteDevMachines(slug: string, input: BulkPermanentDeleteDevMachinesInput): Promise<{ count: number }> {
 	return api.post(`${base(slug)}/dev-machines/bulk/permanent-delete`, input);
-}
-
-export function touchDevMachineActivity(slug: string, machineId: string): Promise<void> {
-	return api.post(`${base(slug)}/dev-machines/${machineId}/activity`);
 }
 
 export function startDevMachine(slug: string, machineId: string): Promise<unknown> {
@@ -103,7 +90,7 @@ export function listResourceUsage(slug: string, machineId: string): Promise<Reso
 	return api.get(`${base(slug)}/dev-machines/${machineId}/resource-usage`);
 }
 
-export function launchMachineService(slug: string, machineId: string, service: string, checkoutId?: string): Promise<LaunchMachineServiceResponse> {
+function launchMachineService(slug: string, machineId: string, service: string, checkoutId?: string): Promise<LaunchMachineServiceResponse> {
 	const query = checkoutId ? `?checkout_id=${encodeURIComponent(checkoutId)}` : '';
 	return api.post(`${base(slug)}/dev-machines/${machineId}/services/${service}/launch${query}`);
 }
@@ -157,7 +144,7 @@ export function checkoutIssue(slug: string, machineId: string, issueId: string):
 	return api.post(`${base(slug)}/dev-machines/${machineId}/checkouts`, { issue_id: issueId });
 }
 
-export async function ensureIssueCheckout(slug: string, machineId: string, issueId: string): Promise<DevMachineCheckout> {
+async function ensureIssueCheckout(slug: string, machineId: string, issueId: string): Promise<DevMachineCheckout> {
 	const existing = (await listMachineCheckouts(slug, machineId)).find((item) => item.issue_id === issueId);
 	return existing ?? checkoutIssue(slug, machineId, issueId);
 }
@@ -189,10 +176,6 @@ export function getDevMachineScopeSetting(slug: string, scopeType: 'workspace' |
 	return api.get(`${base(slug)}/dev-machine-scope-setting?${query}`);
 }
 
-export function listDevMachineScopeSettings(slug: string): Promise<DevMachineScopeSetting[]> {
-	return api.get(`${base(slug)}/dev-machine-scope-settings`);
-}
-
 export function updateDevMachineScopeSetting(slug: string, input: { scope_type: 'workspace' | 'team' | 'project' | 'issue'; scope_id?: string; github_repo_id?: string; base_branch?: string; environment_id?: string }): Promise<DevMachineScopeSetting> {
 	return api.put(`${base(slug)}/dev-machine-scope-setting`, input);
 }
@@ -215,11 +198,7 @@ export function deleteDevMachineEnvironment(slug: string, environmentId: string)
 	return api.delete(`${base(slug)}/dev-machine-environments/${environmentId}`);
 }
 
-export function listTerminalSessions(slug: string, machineId: string): Promise<DevMachineTerminalSession[]> {
-	return api.get(`${base(slug)}/dev-machines/${machineId}/terminal-sessions`);
-}
-
-export function createTerminalSession(slug: string, machineId: string, input: CreateTerminalSessionInput): Promise<TerminalSessionLaunchResponse> {
+function createTerminalSession(slug: string, machineId: string, input: CreateTerminalSessionInput): Promise<TerminalSessionLaunchResponse> {
 	return api.post(`${base(slug)}/dev-machines/${machineId}/terminal-sessions`, input);
 }
 
@@ -262,10 +241,6 @@ export function listMachineAgentRuns(slug: string, machineId: string, page = 1, 
 	return api.get(`${base(slug)}/dev-machines/${machineId}/agent-runs?page=${page}&per_page=${perPage}`);
 }
 
-export function getAgentRun(slug: string, runId: string): Promise<AgentRun> {
-	return api.get(`${base(slug)}/agent-runs/${runId}`);
-}
-
 export function cancelAgentRun(slug: string, runId: string): Promise<void> {
 	return api.post(`${base(slug)}/agent-runs/${runId}/cancel`);
 }
@@ -288,14 +263,14 @@ export function updateDevMachinePolicy(slug: string, policy: Omit<DevMachinePoli
 	return api.patch(`${base(slug)}/dev-machine-policy`, policy);
 }
 
-export interface ResumeRetryOptions {
+interface ResumeRetryOptions {
 	timeoutMs?: number;
 	defaultFolder?: boolean;
 	defaultFolderPath?: string;
 	onStatus?: (status: 'resuming' | 'pending', machine?: DevMachine) => void;
 }
 
-export interface CheckoutReadyOptions {
+interface CheckoutReadyOptions {
 	timeoutMs?: number;
 	pollIntervalMs?: number;
 	onStatus?: (checkout: DevMachineCheckout) => void;
