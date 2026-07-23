@@ -580,7 +580,7 @@ func (s *DevMachineService) PermanentDelete(ctx context.Context, workspaceID, ma
 }
 
 func (s *DevMachineService) requestPermanentDelete(ctx context.Context, workspaceID, machineID, userID uuid.UUID) (*domain.DevMachineOperation, error) {
-	machine, err := s.store.GetMachine(ctx, workspaceID, machineID)
+	machine, err := s.store.GetMachineForUser(ctx, workspaceID, machineID, userID)
 	if err != nil || machine == nil {
 		if err == nil {
 			err = ErrMachineNotFound

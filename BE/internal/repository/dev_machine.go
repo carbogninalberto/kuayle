@@ -1203,7 +1203,8 @@ func (r *DevMachineRepository) RequestPermanentDelete(ctx context.Context, works
 		return nil, err
 	}
 	var machine domain.DevMachine
-	if err := tx.GetContext(ctx, &machine, `SELECT * FROM dev_machines WHERE workspace_id=$1 AND id=$2 FOR UPDATE`, workspaceID, machineID); err != nil {
+	if err := tx.GetContext(ctx, &machine, `SELECT * FROM dev_machines
+		WHERE workspace_id=$1 AND id=$2 AND ($3::uuid IS NULL OR created_by_user_id=$3) FOR UPDATE`, workspaceID, machineID, requestedByUserID); err != nil {
 		return nil, err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE dev_machines

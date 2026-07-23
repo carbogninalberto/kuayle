@@ -246,7 +246,7 @@ func TestCollectorIngestionReturnsAccurateFailures(t *testing.T) {
 
 func TestBulkDeleteReturnsStructuredAcceptedResponse(t *testing.T) {
 	workspaceID, userID, machineID := uuid.New(), uuid.New(), uuid.New()
-	store := &handlerDevMachineStoreFake{machine: &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID}}
+	store := &handlerDevMachineStoreFake{machine: &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID}}
 	handler := NewDevMachineHandler(service.NewDevMachineService(
 		store, agent.NewRegistry(), true, "machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, service.DevMachineImages{},
 	))

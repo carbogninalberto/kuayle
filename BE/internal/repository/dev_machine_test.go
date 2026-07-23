@@ -847,6 +847,35 @@ func TestUpdateMachinePreferencesRejectsImmutableStates(t *testing.T) {
 	require.Nil(t, machine)
 }
 
+func TestPermanentDeleteRevalidatesCreatorInsideTransaction(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is not configured")
+	}
+	db, err := sqlx.Connect("pgx", databaseURL)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	fixture := newEnvironmentRaceFixture(t, db)
+	machineID := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning, false)
+	otherUserID := uuid.New()
+
+	operation, err := fixture.repository.RequestPermanentDelete(context.Background(), fixture.workspaceID, machineID, &otherUserID)
+	require.ErrorIs(t, err, sql.ErrNoRows)
+	require.Nil(t, operation)
+	var deleteRequestedAt *time.Time
+	var operationCount int
+	require.NoError(t, db.Get(&deleteRequestedAt, `SELECT delete_requested_at FROM dev_machines WHERE id=$1`, machineID))
+	require.Nil(t, deleteRequestedAt)
+	require.NoError(t, db.Get(&operationCount, `SELECT COUNT(*) FROM dev_machine_operations WHERE machine_id=$1`, machineID))
+	require.Zero(t, operationCount)
+
+	operation, err = fixture.repository.RequestPermanentDelete(context.Background(), fixture.workspaceID, machineID, &fixture.userID)
+	require.NoError(t, err)
+	require.NotNil(t, operation)
+	require.Equal(t, domain.DevMachineOpTeardown, operation.Action)
+	require.Equal(t, fixture.userID, *operation.RequestedByUserID)
+}
+
 func runEnvironmentRace(left, right func() error) (error, error) {
 	start := make(chan struct{})
 	leftResult, rightResult := make(chan error, 1), make(chan error, 1)
