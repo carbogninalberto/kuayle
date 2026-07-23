@@ -36,6 +36,7 @@ const (
 	DevMachineOpCancelAgent         DevMachineOperationAction = "cancel_agent"
 	DevMachineOpCheckoutIssue       DevMachineOperationAction = "checkout_issue"
 	DevMachineOpSnapshotEnvironment DevMachineOperationAction = "snapshot_environment"
+	DevMachineOpTerminateTerminal   DevMachineOperationAction = "terminate_terminal"
 )
 
 type DevMachineOperationStatus string
@@ -223,6 +224,7 @@ type DevMachineOperation struct {
 	AgentRunID        *uuid.UUID                `json:"agent_run_id,omitempty" db:"agent_run_id"`
 	CheckoutID        *uuid.UUID                `json:"checkout_id,omitempty" db:"checkout_id"`
 	EnvironmentID     *uuid.UUID                `json:"environment_id,omitempty" db:"environment_id"`
+	TerminalSessionID *uuid.UUID                `json:"terminal_session_id,omitempty" db:"terminal_session_id"`
 	WorkspaceID       uuid.UUID                 `json:"workspace_id" db:"workspace_id"`
 	Action            DevMachineOperationAction `json:"action" db:"action"`
 	Status            DevMachineOperationStatus `json:"status" db:"status"`
@@ -350,18 +352,19 @@ type DevMachineGitRef struct {
 }
 
 type DevMachineAccessTicket struct {
-	ID          uuid.UUID                    `json:"id" db:"id"`
-	WorkspaceID uuid.UUID                    `json:"workspace_id" db:"workspace_id"`
-	MachineID   uuid.UUID                    `json:"machine_id" db:"machine_id"`
-	ServiceID   uuid.UUID                    `json:"service_id" db:"service_id"`
-	UserID      uuid.UUID                    `json:"user_id" db:"user_id"`
-	TokenHash   string                       `json:"-" db:"token_hash"`
-	Status      DevMachineAccessTicketStatus `json:"status" db:"status"`
-	BoundHost   string                       `json:"bound_host" db:"bound_host"`
-	ExpiresAt   time.Time                    `json:"expires_at" db:"expires_at"`
-	UsedAt      *time.Time                   `json:"used_at,omitempty" db:"used_at"`
-	CreatedAt   time.Time                    `json:"created_at" db:"created_at"`
-	RevokedAt   *time.Time                   `json:"revoked_at,omitempty" db:"revoked_at"`
+	ID                uuid.UUID                    `json:"id" db:"id"`
+	WorkspaceID       uuid.UUID                    `json:"workspace_id" db:"workspace_id"`
+	MachineID         uuid.UUID                    `json:"machine_id" db:"machine_id"`
+	ServiceID         uuid.UUID                    `json:"service_id" db:"service_id"`
+	TerminalSessionID *uuid.UUID                   `json:"terminal_session_id,omitempty" db:"terminal_session_id"`
+	UserID            uuid.UUID                    `json:"user_id" db:"user_id"`
+	TokenHash         string                       `json:"-" db:"token_hash"`
+	Status            DevMachineAccessTicketStatus `json:"status" db:"status"`
+	BoundHost         string                       `json:"bound_host" db:"bound_host"`
+	ExpiresAt         time.Time                    `json:"expires_at" db:"expires_at"`
+	UsedAt            *time.Time                   `json:"used_at,omitempty" db:"used_at"`
+	CreatedAt         time.Time                    `json:"created_at" db:"created_at"`
+	RevokedAt         *time.Time                   `json:"revoked_at,omitempty" db:"revoked_at"`
 }
 
 type DevMachineAccessSession struct {

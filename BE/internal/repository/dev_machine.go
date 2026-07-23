@@ -78,7 +78,7 @@ type DevMachineStore interface {
 	UpdateCheckoutState(context.Context, uuid.UUID, string, *string) error
 	CreateTerminalSession(context.Context, *domain.DevMachineTerminalSession) error
 	ListTerminalSessions(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) ([]domain.DevMachineTerminalSession, error)
-	CloseTerminalSession(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID) (*domain.DevMachineTerminalSession, error)
+	RequestTerminalSessionClose(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID, *domain.DevMachineOperation) (*domain.DevMachineTerminalSession, error)
 	ListAgentRunSteps(context.Context, uuid.UUID) ([]domain.DevMachineAgentRunStep, error)
 	ListAgentRunEvents(context.Context, uuid.UUID, int64, int) ([]domain.DevMachineEvent, error)
 	ListAgentRunLogs(context.Context, uuid.UUID, int64, int) ([]domain.DevMachineLogChunk, error)
@@ -472,13 +472,13 @@ func (r *DevMachineRepository) LeaseOperations(ctx context.Context, owner string
 	err := r.db.SelectContext(ctx, &operations, `WITH ranked AS (
 		SELECT o.id, ROW_NUMBER() OVER (
 			PARTITION BY o.machine_id
-			ORDER BY CASE WHEN o.action IN ('teardown','cancel_agent') THEN 0 ELSE 1 END,
+			ORDER BY CASE WHEN o.action IN ('teardown','cancel_agent','terminate_terminal') THEN 0 ELSE 1 END,
 				o.generation DESC, o.created_at
 		) AS rn
 		FROM dev_machine_operations o
 		WHERE ((o.status='pending' AND o.available_at <= NOW())
 		   OR (o.status='leased' AND o.lease_expires_at < NOW()))
-		AND (o.action IN ('teardown','cancel_agent') OR NOT EXISTS (
+		AND (o.action IN ('teardown','cancel_agent','terminate_terminal') OR NOT EXISTS (
 			SELECT 1 FROM dev_machine_operations leased
 			WHERE leased.machine_id=o.machine_id AND leased.id<>o.id
 			AND leased.status='leased' AND leased.lease_expires_at >= NOW()
@@ -488,7 +488,7 @@ func (r *DevMachineRepository) LeaseOperations(ctx context.Context, owner string
 		JOIN dev_machine_operations o ON o.id=r.id
 		JOIN dev_machines m ON m.id=o.machine_id
 		WHERE r.rn=1
-		ORDER BY CASE WHEN o.action IN ('teardown','cancel_agent') THEN 0 ELSE 1 END,
+		ORDER BY CASE WHEN o.action IN ('teardown','cancel_agent','terminate_terminal') THEN 0 ELSE 1 END,
 			o.generation DESC, o.created_at
 		LIMIT $1 FOR UPDATE OF o, m SKIP LOCKED
 	) UPDATE dev_machine_operations o SET status='leased', lease_owner=$2,
@@ -1024,16 +1024,21 @@ func (r *DevMachineRepository) ListLogs(ctx context.Context, workspaceID, machin
 
 func (r *DevMachineRepository) CreateAccessTicket(ctx context.Context, ticket *domain.DevMachineAccessTicket) error {
 	return r.db.QueryRowContext(ctx, `INSERT INTO dev_machine_access_tickets
-		(id, workspace_id, machine_id, service_id, user_id, token_hash, status, bound_host, expires_at)
-		SELECT $1, m.workspace_id, m.id, s.id, $5, $6, $7, $8, $9
+		(id, workspace_id, machine_id, service_id, user_id, token_hash, status, bound_host, expires_at, terminal_session_id)
+		SELECT $1, m.workspace_id, m.id, s.id, $5, $6, $7, $8, $9, $10
 		FROM dev_machines m
 		JOIN dev_machine_services s ON s.id=$4 AND s.machine_id=m.id
 		JOIN workspace_members wm ON wm.workspace_id=m.workspace_id AND wm.user_id=$5 AND wm.role IN ('owner','admin','member')
 		WHERE m.workspace_id=$2 AND m.id=$3 AND m.created_by_user_id=$5
 		AND m.status='running' AND m.desired_status='running' AND m.expires_at>NOW()
 		AND s.status='running' AND $9>NOW() AND $9<=m.expires_at
+		AND ($10::uuid IS NULL OR (s.service_type='terminal' AND EXISTS (
+			SELECT 1 FROM dev_machine_terminal_sessions ts
+			WHERE ts.id=$10 AND ts.workspace_id=m.workspace_id AND ts.machine_id=m.id
+			AND ts.user_id=$5 AND ts.status='active'
+		)))
 		RETURNING created_at`, ticket.ID, ticket.WorkspaceID,
-		ticket.MachineID, ticket.ServiceID, ticket.UserID, ticket.TokenHash, ticket.Status, ticket.BoundHost, ticket.ExpiresAt,
+		ticket.MachineID, ticket.ServiceID, ticket.UserID, ticket.TokenHash, ticket.Status, ticket.BoundHost, ticket.ExpiresAt, ticket.TerminalSessionID,
 	).Scan(&ticket.CreatedAt)
 }
 
@@ -1046,6 +1051,11 @@ func (r *DevMachineRepository) ConsumeAccessTicket(ctx context.Context, tokenHas
 		AND m.status='running' AND m.desired_status='running' AND m.expires_at>NOW()
 		AND s.id=t.service_id AND s.machine_id=m.id AND s.status='running'
 		AND wm.workspace_id=m.workspace_id AND wm.user_id=t.user_id AND wm.role IN ('owner','admin','member')
+		AND (t.terminal_session_id IS NULL OR EXISTS (
+			SELECT 1 FROM dev_machine_terminal_sessions ts
+			WHERE ts.id=t.terminal_session_id AND ts.workspace_id=t.workspace_id
+			AND ts.machine_id=t.machine_id AND ts.user_id=t.user_id AND ts.status='active'
+		))
 		RETURNING t.*`, tokenHash, host)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -1905,14 +1915,104 @@ func (r *DevMachineRepository) ListTerminalSessions(ctx context.Context, workspa
 	return sessions, err
 }
 
-func (r *DevMachineRepository) CloseTerminalSession(ctx context.Context, workspaceID, machineID, userID, sessionID uuid.UUID) (*domain.DevMachineTerminalSession, error) {
+func (r *DevMachineRepository) RequestTerminalSessionClose(ctx context.Context, workspaceID, machineID, userID, sessionID uuid.UUID, operation *domain.DevMachineOperation) (*domain.DevMachineTerminalSession, error) {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
 	var session domain.DevMachineTerminalSession
-	err := r.db.GetContext(ctx, &session, `UPDATE dev_machine_terminal_sessions SET status='closed', closed_at=COALESCE(closed_at,NOW())
-		WHERE workspace_id=$1 AND machine_id=$2 AND user_id=$3 AND id=$4 RETURNING *`, workspaceID, machineID, userID, sessionID)
+	err = tx.GetContext(ctx, &session, `SELECT * FROM dev_machine_terminal_sessions
+		WHERE workspace_id=$1 AND machine_id=$2 AND user_id=$3 AND id=$4 FOR UPDATE`, workspaceID, machineID, userID, sessionID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if session.Status == "closed" {
+		if err := tx.Commit(); err != nil {
+			return nil, err
+		}
+		return &session, nil
+	}
+
+	if err := tx.GetContext(ctx, &operation.Generation, `SELECT generation FROM dev_machines
+		WHERE workspace_id=$1 AND id=$2`, workspaceID, machineID); err != nil {
+		return nil, err
+	}
+	session.Status = "closing"
+	if _, err := tx.ExecContext(ctx, `UPDATE dev_machine_terminal_sessions SET status='closing',closed_at=NULL WHERE id=$1`, session.ID); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE dev_machine_access_tickets SET status='revoked',revoked_at=COALESCE(revoked_at,NOW())
+		WHERE terminal_session_id=$1 AND status IN ('active','used')`, session.ID); err != nil {
+		return nil, err
+	}
+
+	operation.TerminalSessionID = &session.ID
+	if operation.ID == uuid.Nil {
+		operation.ID = uuid.New()
+	}
+	if operation.MaxAttempts == 0 {
+		operation.MaxAttempts = 5
+	}
+	err = tx.QueryRowContext(ctx, `INSERT INTO dev_machine_operations
+		(id,machine_id,terminal_session_id,workspace_id,action,status,generation,idempotency_key,requested_by_user_id,max_attempts)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+		ON CONFLICT (machine_id,idempotency_key) DO UPDATE SET
+			status=CASE WHEN dev_machine_operations.status IN ('completed','failed','cancelled') THEN 'pending'::dev_machine_operation_status ELSE dev_machine_operations.status END,
+			attempts=CASE WHEN dev_machine_operations.status IN ('completed','failed','cancelled') THEN 0 ELSE dev_machine_operations.attempts END,
+			lease_owner=CASE WHEN dev_machine_operations.status IN ('completed','failed','cancelled') THEN NULL ELSE dev_machine_operations.lease_owner END,
+			lease_expires_at=CASE WHEN dev_machine_operations.status IN ('completed','failed','cancelled') THEN NULL ELSE dev_machine_operations.lease_expires_at END,
+			available_at=CASE WHEN dev_machine_operations.status IN ('completed','failed','cancelled') THEN NOW() ELSE dev_machine_operations.available_at END,
+			completed_at=CASE WHEN dev_machine_operations.status IN ('completed','failed','cancelled') THEN NULL ELSE dev_machine_operations.completed_at END,
+			error_code=CASE WHEN dev_machine_operations.status IN ('completed','failed','cancelled') THEN NULL ELSE dev_machine_operations.error_code END,
+			error_message=CASE WHEN dev_machine_operations.status IN ('completed','failed','cancelled') THEN NULL ELSE dev_machine_operations.error_message END
+		RETURNING id,status,attempts,available_at,created_at,updated_at`,
+		operation.ID, operation.MachineID, operation.TerminalSessionID, operation.WorkspaceID, operation.Action,
+		operation.Status, operation.Generation, operation.IdempotencyKey, operation.RequestedByUserID, operation.MaxAttempts,
+	).Scan(&operation.ID, &operation.Status, &operation.Attempts, &operation.AvailableAt, &operation.CreatedAt, &operation.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return &session, nil
+}
+
+func (r *DevMachineRepository) GetTerminalSessionInternal(ctx context.Context, sessionID uuid.UUID) (*domain.DevMachineTerminalSession, error) {
+	var session domain.DevMachineTerminalSession
+	err := r.db.GetContext(ctx, &session, `SELECT * FROM dev_machine_terminal_sessions WHERE id=$1`, sessionID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	return &session, err
+}
+
+func (r *DevMachineRepository) CompleteTerminalSessionClose(ctx context.Context, sessionID uuid.UUID) error {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `UPDATE dev_machine_access_tickets SET status='revoked',revoked_at=COALESCE(revoked_at,NOW())
+		WHERE terminal_session_id=$1 AND status IN ('active','used')`, sessionID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE dev_machine_terminal_sessions SET status='closed',closed_at=COALESCE(closed_at,NOW())
+		WHERE id=$1 AND status<>'closed'`, sessionID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (r *DevMachineRepository) FailTerminalSessionClose(ctx context.Context, sessionID uuid.UUID) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE dev_machine_terminal_sessions SET status='close_failed'
+		WHERE id=$1 AND status='closing'`, sessionID)
+	return err
 }
 
 func (r *DevMachineRepository) ListAgentRunSteps(ctx context.Context, runID uuid.UUID) ([]domain.DevMachineAgentRunStep, error) {

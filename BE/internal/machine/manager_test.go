@@ -34,6 +34,9 @@ type managerStoreFake struct {
 	checkout                  *domain.DevMachineCheckout
 	checkoutStatus            string
 	checkoutError             *string
+	terminalSession           *domain.DevMachineTerminalSession
+	completedTerminalIDs      []uuid.UUID
+	failedTerminalIDs         []uuid.UUID
 	environment               *domain.DevMachineEnvironment
 	deleteRequestedEnvs       []domain.DevMachineEnvironment
 	deletedEnvironmentIDs     []uuid.UUID
@@ -48,6 +51,7 @@ type managerStoreFake struct {
 	failedOperationCode       string
 	failedOperationMessage    string
 	failedOperationRetryable  *bool
+	failOperationWillRetry    *bool
 	completedOperations       int
 	orphanedEnvironmentCount  int
 	orphanReconcileCalls      int
@@ -72,6 +76,9 @@ func (f *managerStoreFake) FailOperation(_ context.Context, _ uuid.UUID, _ strin
 	f.failedOperationCode = code
 	f.failedOperationMessage = message
 	f.failedOperationRetryable = &retryable
+	if f.failOperationWillRetry != nil {
+		return *f.failOperationWillRetry, nil
+	}
 	return retryable, nil
 }
 func (f *managerStoreFake) GetMachineInternal(context.Context, uuid.UUID) (*domain.DevMachine, error) {
@@ -231,6 +238,23 @@ func (f *managerStoreFake) UpdateCheckoutState(_ context.Context, _ uuid.UUID, s
 	}
 	return nil
 }
+func (f *managerStoreFake) GetTerminalSessionInternal(context.Context, uuid.UUID) (*domain.DevMachineTerminalSession, error) {
+	return f.terminalSession, nil
+}
+func (f *managerStoreFake) CompleteTerminalSessionClose(_ context.Context, sessionID uuid.UUID) error {
+	f.completedTerminalIDs = append(f.completedTerminalIDs, sessionID)
+	if f.terminalSession != nil {
+		f.terminalSession.Status = "closed"
+	}
+	return nil
+}
+func (f *managerStoreFake) FailTerminalSessionClose(_ context.Context, sessionID uuid.UUID) error {
+	f.failedTerminalIDs = append(f.failedTerminalIDs, sessionID)
+	if f.terminalSession != nil {
+		f.terminalSession.Status = "close_failed"
+	}
+	return nil
+}
 func (f *managerStoreFake) GetEnvironment(context.Context, uuid.UUID, uuid.UUID) (*domain.DevMachineEnvironment, error) {
 	return f.environment, nil
 }
@@ -292,6 +316,9 @@ type runtimeFake struct {
 	spawned, paused, stopped, tornDown int
 	snapshots                          int
 	agentRuns                          int
+	terminatedTerminals                int
+	terminatedSession                  *domain.DevMachineTerminalSession
+	terminateTerminalErr               error
 	deletedEnvironmentIDs              []uuid.UUID
 	deleteEnvironmentImageErr          error
 	environmentDeleteAttempts          int
@@ -330,6 +357,11 @@ func (f *runtimeFake) RunAgent(context.Context, *domain.DevMachine, *domain.DevM
 	return f.agentExecution, nil
 }
 func (f *runtimeFake) CancelAgent(context.Context, *domain.DevMachineAgentRun) error { return nil }
+func (f *runtimeFake) TerminateTerminal(_ context.Context, _ *domain.DevMachine, _ []domain.DevMachineService, session *domain.DevMachineTerminalSession) error {
+	f.terminatedTerminals++
+	f.terminatedSession = session
+	return f.terminateTerminalErr
+}
 func (f *runtimeFake) Inspect(context.Context, *domain.DevMachine, []domain.DevMachineService) (RuntimeInspection, error) {
 	return RuntimeInspection{NetworkExists: true, VolumeExists: true, GatewayAttached: true}, nil
 }
@@ -555,6 +587,62 @@ func TestManagerKeepsCheckoutPreparingWhileOperationRetries(t *testing.T) {
 	require.Nil(t, store.checkoutError)
 	require.NotNil(t, store.failedOperationRetryable)
 	require.True(t, *store.failedOperationRetryable)
+}
+
+func TestManagerTerminatesStaleTerminalSessionAndCompletesClose(t *testing.T) {
+	machineID, workspaceID, sessionID := uuid.New(), uuid.New(), uuid.New()
+	store := &managerStoreFake{
+		machine: &domain.DevMachine{
+			ID: machineID, WorkspaceID: workspaceID, Status: domain.DevMachineStatusRunning,
+			DesiredStatus: domain.DevMachineStatusRunning, Generation: 4,
+		},
+		terminalSession: &domain.DevMachineTerminalSession{
+			ID: sessionID, MachineID: machineID, WorkspaceID: workspaceID, RuntimeSessionName: "term-test", Status: "closing",
+		},
+	}
+	runtime := &runtimeFake{}
+	manager := NewManager(store, runtime, agent.NewRegistry(), nil, nil, nil, "test")
+
+	err := manager.processOperation(context.Background(), &domain.DevMachineOperation{
+		MachineID: machineID, WorkspaceID: workspaceID, Action: domain.DevMachineOpTerminateTerminal,
+		TerminalSessionID: &sessionID, Generation: 3,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, 1, runtime.terminatedTerminals)
+	require.Same(t, store.terminalSession, runtime.terminatedSession)
+	require.Equal(t, []uuid.UUID{sessionID}, store.completedTerminalIDs)
+	require.Equal(t, "closed", store.terminalSession.Status)
+}
+
+func TestManagerTerminalCloseFailureRemainsExplicitAfterRetriesExhausted(t *testing.T) {
+	machineID, workspaceID, sessionID := uuid.New(), uuid.New(), uuid.New()
+	willRetry := false
+	store := &managerStoreFake{
+		machine: &domain.DevMachine{
+			ID: machineID, WorkspaceID: workspaceID, Status: domain.DevMachineStatusRunning,
+			DesiredStatus: domain.DevMachineStatusRunning, Generation: 1,
+		},
+		terminalSession: &domain.DevMachineTerminalSession{
+			ID: sessionID, MachineID: machineID, WorkspaceID: workspaceID, RuntimeSessionName: "term-test", Status: "closing",
+		},
+		failOperationWillRetry: &willRetry,
+	}
+	runtime := &runtimeFake{terminateTerminalErr: errors.New("docker unavailable")}
+	manager := NewManager(store, runtime, agent.NewRegistry(), nil, nil, nil, "test")
+	manager.operationSlots <- struct{}{}
+	manager.operations.Add(1)
+
+	manager.processLeasedOperation(context.Background(), domain.DevMachineOperation{
+		ID: uuid.New(), MachineID: machineID, WorkspaceID: workspaceID, Action: domain.DevMachineOpTerminateTerminal,
+		TerminalSessionID: &sessionID, Generation: 1,
+	})
+
+	require.NotNil(t, store.failedOperationRetryable)
+	require.True(t, *store.failedOperationRetryable)
+	require.Equal(t, []uuid.UUID{sessionID}, store.failedTerminalIDs)
+	require.Equal(t, "close_failed", store.terminalSession.Status)
+	require.Empty(t, store.completedTerminalIDs)
 }
 
 func TestRepositoryTokenRegistersRuntimeCredentialBeforeReturning(t *testing.T) {

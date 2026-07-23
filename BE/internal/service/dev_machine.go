@@ -1638,7 +1638,8 @@ func (s *DevMachineService) CreateTerminalSession(ctx context.Context, workspace
 	}
 	ticket := &domain.DevMachineAccessTicket{
 		ID: uuid.New(), WorkspaceID: workspaceID, MachineID: machineID, ServiceID: terminalService.ID, UserID: userID,
-		TokenHash: terminalTicketHash(raw, s.frontendOrigin, runtimeName, cwd), Status: domain.DevMachineAccessTicketStatusActive,
+		TerminalSessionID: &session.ID,
+		TokenHash:         terminalTicketHash(raw, s.frontendOrigin, runtimeName, cwd), Status: domain.DevMachineAccessTicketStatusActive,
 		BoundHost: host, ExpiresAt: expiresAt,
 	}
 	if err := s.store.CreateAccessTicket(ctx, ticket); err != nil {
@@ -1677,10 +1678,16 @@ func (s *DevMachineService) ListTerminalSessions(ctx context.Context, workspaceI
 }
 
 func (s *DevMachineService) CloseTerminalSession(ctx context.Context, workspaceID, machineID, userID, sessionID uuid.UUID) (*dto.TerminalSessionResponse, error) {
-	if _, err := s.GetForUser(ctx, workspaceID, machineID, userID); err != nil {
+	machine, err := s.GetForUser(ctx, workspaceID, machineID, userID)
+	if err != nil {
 		return nil, err
 	}
-	session, err := s.store.CloseTerminalSession(ctx, workspaceID, machineID, userID, sessionID)
+	operation := &domain.DevMachineOperation{
+		MachineID: machineID, WorkspaceID: workspaceID, Action: domain.DevMachineOpTerminateTerminal,
+		Status: domain.DevMachineOpStatusPending, Generation: machine.Generation,
+		IdempotencyKey: "terminal-close:" + sessionID.String(), RequestedByUserID: &userID, MaxAttempts: 5,
+	}
+	session, err := s.store.RequestTerminalSessionClose(ctx, workspaceID, machineID, userID, sessionID, operation)
 	if err != nil {
 		return nil, err
 	}

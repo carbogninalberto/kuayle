@@ -164,11 +164,12 @@ func TestCreateAccessTicketQueryRevalidatesCreatorAndTuple(t *testing.T) {
 	repo, conn := newCaptureDevMachineRepository(t, 0)
 	conn.queryColumns = []string{"created_at"}
 	conn.queryValues = []driver.Value{time.Now().UTC()}
-	workspaceID, machineID, serviceID, userID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	workspaceID, machineID, serviceID, userID, terminalSessionID := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
 
 	err := repo.CreateAccessTicket(context.Background(), &domain.DevMachineAccessTicket{
 		ID: uuid.New(), WorkspaceID: workspaceID, MachineID: machineID, ServiceID: serviceID, UserID: userID,
-		TokenHash: strings.Repeat("a", 64), Status: domain.DevMachineAccessTicketStatusActive,
+		TerminalSessionID: &terminalSessionID,
+		TokenHash:         strings.Repeat("a", 64), Status: domain.DevMachineAccessTicketStatusActive,
 		BoundHost: "0123456789abcdef0123.machines.example.com", ExpiresAt: time.Now().Add(time.Minute),
 	})
 
@@ -180,6 +181,8 @@ func TestCreateAccessTicketQueryRevalidatesCreatorAndTuple(t *testing.T) {
 	require.Contains(t, query, "m.workspace_id=$2 AND m.id=$3 AND m.created_by_user_id=$5")
 	require.Contains(t, query, "m.status='running' AND m.desired_status='running' AND m.expires_at>NOW()")
 	require.Contains(t, query, "s.status='running' AND $9>NOW() AND $9<=m.expires_at")
+	require.Contains(t, query, "$10::uuid IS NULL OR (s.service_type='terminal' AND EXISTS")
+	require.Contains(t, query, "ts.id=$10")
 }
 
 func TestConsumeAccessTicketQueryRevalidatesCreatorAndTuple(t *testing.T) {
@@ -192,6 +195,8 @@ func TestConsumeAccessTicketQueryRevalidatesCreatorAndTuple(t *testing.T) {
 	require.NotNil(t, ticket)
 	query, _ := conn.captured()
 	requireAccessTicketAuthorizationQuery(t, query, "t")
+	require.Contains(t, query, "t.terminal_session_id IS NULL OR EXISTS")
+	require.Contains(t, query, "ts.status='active'")
 }
 
 func TestCreateAccessSessionQueryRevalidatesCreatorAndTuple(t *testing.T) {
@@ -299,12 +304,128 @@ func accessTicketColumnsAndValuesForTest() ([]string, []driver.Value) {
 	now := time.Now().UTC()
 	return []string{
 			"id", "workspace_id", "machine_id", "service_id", "user_id", "token_hash",
-			"status", "bound_host", "expires_at", "used_at", "created_at", "revoked_at",
+			"status", "bound_host", "expires_at", "used_at", "created_at", "revoked_at", "terminal_session_id",
 		}, []driver.Value{
 			uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String(),
 			strings.Repeat("b", 64), string(domain.DevMachineAccessTicketStatusUsed), "0123456789abcdef0123.machines.example.com",
-			now.Add(time.Minute), now, now, nil,
+			now.Add(time.Minute), now, now, nil, nil,
 		}
+}
+
+func TestTerminalCloseRequestRevokesTicketAndReusesOperation(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is not configured")
+	}
+	db, err := sqlx.Connect("pgx", databaseURL)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	userID, workspaceID, machineID, serviceID, sessionID, ticketID := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	suffix := strings.ReplaceAll(machineID.String(), "-", "")
+	t.Cleanup(func() {
+		_, _ = db.Exec(`DELETE FROM workspaces WHERE id=$1`, workspaceID)
+		_, _ = db.Exec(`DELETE FROM users WHERE id=$1`, userID)
+	})
+	_, err = db.Exec(`INSERT INTO users (id,email,name,password_hash) VALUES ($1,$2,'Terminal Close','test')`, userID, suffix+"@example.test")
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO workspaces (id,name,slug,owner_id) VALUES ($1,'Terminal Close',$2,$3)`, workspaceID, "terminal-close-"+suffix, userID)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO workspace_members (workspace_id,user_id,role) VALUES ($1,$2,'owner')`, workspaceID, userID)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO dev_machines
+		(id,workspace_id,created_by_user_id,routing_key,name,status,desired_status,generation,
+		 repo_url,repo_provider,repo_owner,repo_name,base_branch,working_branch,
+		 machine_size,cpu_millis,memory_mb,disk_gb,max_runtime_minutes,expires_at)
+		VALUES ($1,$2,$3,$4,$5,'running','running',7,'','github','','','','',
+		 'small',1000,2048,20,480,NOW()+INTERVAL '1 hour')`,
+		machineID, workspaceID, userID, suffix[:16], "machine-"+suffix)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO dev_machine_services
+		(id,machine_id,service_type,service_key,container_name,image_ref,internal_host,internal_port,status)
+		VALUES ($1,$2,'terminal','terminal',$3,'test-image',$4,7681,'running')`,
+		serviceID, machineID, "terminal-"+suffix, "terminal-"+suffix)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO dev_machine_terminal_sessions
+		(id,workspace_id,machine_id,user_id,name,runtime_session_name,status)
+		VALUES ($1,$2,$3,$4,'Terminal',$5,'active')`, sessionID, workspaceID, machineID, userID, "term-"+suffix)
+	require.NoError(t, err)
+	repo := NewDevMachineRepository(db)
+	ticket := &domain.DevMachineAccessTicket{
+		ID: ticketID, WorkspaceID: workspaceID, MachineID: machineID, ServiceID: serviceID,
+		TerminalSessionID: &sessionID, UserID: userID, TokenHash: strings.Repeat("a", 64),
+		Status: domain.DevMachineAccessTicketStatusActive, BoundHost: suffix[:16] + "-terminal.example.test",
+		ExpiresAt: time.Now().Add(time.Minute),
+	}
+	require.NoError(t, repo.CreateAccessTicket(context.Background(), ticket))
+
+	request := func() (*domain.DevMachineTerminalSession, *domain.DevMachineOperation, error) {
+		operation := &domain.DevMachineOperation{
+			MachineID: machineID, WorkspaceID: workspaceID, Action: domain.DevMachineOpTerminateTerminal,
+			Status: domain.DevMachineOpStatusPending, IdempotencyKey: "terminal-close:" + sessionID.String(),
+			RequestedByUserID: &userID, MaxAttempts: 5,
+		}
+		session, requestErr := repo.RequestTerminalSessionClose(context.Background(), workspaceID, machineID, userID, sessionID, operation)
+		return session, operation, requestErr
+	}
+
+	session, operation, err := request()
+	require.NoError(t, err)
+	require.Equal(t, "closing", session.Status)
+	require.Equal(t, int64(7), operation.Generation)
+	require.Equal(t, sessionID, *operation.TerminalSessionID)
+	firstOperationID := operation.ID
+	var ticketStatus domain.DevMachineAccessTicketStatus
+	require.NoError(t, db.Get(&ticketStatus, `SELECT status FROM dev_machine_access_tickets WHERE id=$1`, ticketID))
+	require.Equal(t, domain.DevMachineAccessTicketStatusRevoked, ticketStatus)
+	_, err = db.Exec(`UPDATE dev_machine_access_tickets SET status='active',revoked_at=NULL WHERE id=$1`, ticketID)
+	require.NoError(t, err)
+	consumed, err := repo.ConsumeAccessTicket(context.Background(), ticket.TokenHash, ticket.BoundHost)
+	require.NoError(t, err)
+	require.Nil(t, consumed, "a closing terminal session must invalidate even an otherwise active ticket")
+	blockingOperationID := uuid.New()
+	_, err = db.Exec(`INSERT INTO dev_machine_operations
+		(id,machine_id,workspace_id,action,status,generation,idempotency_key,lease_owner,lease_expires_at)
+		VALUES ($1,$2,$3,'reconcile','leased',7,'blocking-work','another-manager',NOW()+INTERVAL '1 minute')`,
+		blockingOperationID, machineID, workspaceID)
+	require.NoError(t, err)
+	leased, err := repo.LeaseOperations(context.Background(), "terminal-test", 1, time.Minute)
+	require.NoError(t, err)
+	require.Len(t, leased, 1)
+	require.Equal(t, firstOperationID, leased[0].ID, "terminal cleanup must not wait behind long-running machine work")
+	require.Equal(t, domain.DevMachineOpTerminateTerminal, leased[0].Action)
+
+	_, repeatedOperation, err := request()
+	require.NoError(t, err)
+	require.Equal(t, firstOperationID, repeatedOperation.ID)
+	var operationCount int
+	require.NoError(t, db.Get(&operationCount, `SELECT COUNT(*) FROM dev_machine_operations WHERE terminal_session_id=$1`, sessionID))
+	require.Equal(t, 1, operationCount)
+
+	require.NoError(t, repo.FailTerminalSessionClose(context.Background(), sessionID))
+	willRetry, err := repo.FailOperation(context.Background(), firstOperationID, "terminal-test", "terminal_termination_failed", "docker unavailable", false)
+	require.NoError(t, err)
+	require.False(t, willRetry)
+	failedSession, err := repo.GetTerminalSessionInternal(context.Background(), sessionID)
+	require.NoError(t, err)
+	require.Equal(t, "close_failed", failedSession.Status)
+
+	_, retriedOperation, err := request()
+	require.NoError(t, err)
+	require.Equal(t, firstOperationID, retriedOperation.ID)
+	require.Equal(t, domain.DevMachineOpStatusPending, retriedOperation.Status)
+	require.Zero(t, retriedOperation.Attempts)
+
+	require.NoError(t, repo.CompleteTerminalSessionClose(context.Background(), sessionID))
+	_, err = db.Exec(`UPDATE dev_machine_operations SET status='completed',completed_at=NOW() WHERE id=$1`, firstOperationID)
+	require.NoError(t, err)
+	closedSession, _, err := request()
+	require.NoError(t, err)
+	require.Equal(t, "closed", closedSession.Status)
+	require.NotNil(t, closedSession.ClosedAt)
+	var finalOperationStatus domain.DevMachineOperationStatus
+	require.NoError(t, db.Get(&finalOperationStatus, `SELECT status FROM dev_machine_operations WHERE id=$1`, firstOperationID))
+	require.Equal(t, domain.DevMachineOpStatusCompleted, finalOperationStatus)
 }
 
 func accessSessionColumnsAndValuesForTest() ([]string, []driver.Value) {

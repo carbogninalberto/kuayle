@@ -55,6 +55,7 @@ type Runtime interface {
 	Teardown(context.Context, *domain.DevMachine, []domain.DevMachineService) error
 	RunAgent(context.Context, *domain.DevMachine, *domain.DevMachineAgentRun, *domain.DevMachineAgentProvider, *domain.DevMachineCheckout, map[string]string) (*AgentExecution, error)
 	CancelAgent(context.Context, *domain.DevMachineAgentRun) error
+	TerminateTerminal(context.Context, *domain.DevMachine, []domain.DevMachineService, *domain.DevMachineTerminalSession) error
 	Inspect(context.Context, *domain.DevMachine, []domain.DevMachineService) (RuntimeInspection, error)
 	Stats(context.Context, *domain.DevMachine, []domain.DevMachineService) (ResourceUsage, error)
 	GitState(context.Context, *domain.DevMachine, []domain.DevMachineService, *domain.DevMachineCheckout) (GitState, error)

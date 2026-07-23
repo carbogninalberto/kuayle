@@ -1,5 +1,6 @@
 ALTER TYPE dev_machine_operation_action ADD VALUE IF NOT EXISTS 'checkout_issue';
 ALTER TYPE dev_machine_operation_action ADD VALUE IF NOT EXISTS 'snapshot_environment';
+ALTER TYPE dev_machine_operation_action ADD VALUE IF NOT EXISTS 'terminate_terminal';
 
 ALTER TABLE dev_machine_workspace_policies
     ADD COLUMN idle_pause_minutes INT NOT NULL DEFAULT 240
@@ -137,7 +138,7 @@ CREATE TABLE dev_machine_terminal_sessions (
     name VARCHAR(128) NOT NULL,
     runtime_session_name VARCHAR(128) NOT NULL,
     status VARCHAR(16) NOT NULL DEFAULT 'active'
-        CHECK (status IN ('active', 'closed')),
+        CHECK (status IN ('active', 'closing', 'close_failed', 'closed')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_activity_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     closed_at TIMESTAMPTZ,
@@ -147,12 +148,19 @@ CREATE TABLE dev_machine_terminal_sessions (
 CREATE INDEX idx_dev_machine_terminal_sessions_machine
     ON dev_machine_terminal_sessions(workspace_id, machine_id, created_at DESC);
 
+ALTER TABLE dev_machine_access_tickets
+    ADD COLUMN terminal_session_id UUID REFERENCES dev_machine_terminal_sessions(id) ON DELETE CASCADE;
+CREATE INDEX idx_dev_machine_access_tickets_terminal
+    ON dev_machine_access_tickets(terminal_session_id)
+    WHERE terminal_session_id IS NOT NULL AND status IN ('active', 'used');
+
 ALTER TABLE dev_machine_agent_runs
     ADD COLUMN checkout_id UUID REFERENCES dev_machine_checkouts(id) ON DELETE SET NULL;
 
 ALTER TABLE dev_machine_operations
     ADD COLUMN environment_id UUID REFERENCES dev_machine_environments(id) ON DELETE CASCADE,
-    ADD COLUMN checkout_id UUID REFERENCES dev_machine_checkouts(id) ON DELETE CASCADE;
+    ADD COLUMN checkout_id UUID REFERENCES dev_machine_checkouts(id) ON DELETE CASCADE,
+    ADD COLUMN terminal_session_id UUID REFERENCES dev_machine_terminal_sessions(id) ON DELETE CASCADE;
 
 ALTER TABLE dev_machine_services
     DROP CONSTRAINT IF EXISTS dev_machine_services_service_type_check;

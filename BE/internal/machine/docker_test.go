@@ -85,6 +85,15 @@ func TestStartPlanDeduplicatesSharedIDEAndTerminalContainer(t *testing.T) {
 	require.Equal(t, "browser", planned[1].ServiceKey)
 }
 
+func TestTerminateTerminalTreatsAbsentStoppedRuntimeAsClosed(t *testing.T) {
+	runtime := &DockerRuntime{}
+	session := &domain.DevMachineTerminalSession{RuntimeSessionName: "term-test"}
+
+	require.NoError(t, runtime.TerminateTerminal(context.Background(), &domain.DevMachine{Status: domain.DevMachineStatusStopped}, nil, session))
+	require.NoError(t, runtime.TerminateTerminal(context.Background(), &domain.DevMachine{Status: domain.DevMachineStatusDestroyed}, nil, session))
+	require.ErrorContains(t, runtime.TerminateTerminal(context.Background(), &domain.DevMachine{Status: domain.DevMachineStatusRunning}, nil, session), "developer container is unavailable")
+}
+
 func TestInstallSecretsClearsStaleFilesBeforeActiveValuesAndReady(t *testing.T) {
 	var calls []string
 	clear := func(context.Context, string) error {

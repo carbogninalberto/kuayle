@@ -818,6 +818,40 @@ func (r *DockerRuntime) PrepareCheckout(ctx context.Context, _ *domain.DevMachin
 	return nil
 }
 
+func (r *DockerRuntime) TerminateTerminal(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService, session *domain.DevMachineTerminalSession) (resultErr error) {
+	developerContainer := developerContainerID(services)
+	if developerContainer == "" {
+		if machine.Status == domain.DevMachineStatusStopped || machine.Status == domain.DevMachineStatusDestroyed || machine.Status == domain.DevMachineStatusTearingDown {
+			return nil
+		}
+		return fmt.Errorf("developer container is unavailable")
+	}
+	inspection, err := r.client.ContainerInspect(ctx, developerContainer, client.ContainerInspectOptions{})
+	if errdefs.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !inspection.Container.State.Running {
+		return nil
+	}
+	if inspection.Container.State.Paused {
+		if _, err := r.client.ContainerUnpause(ctx, developerContainer, client.ContainerUnpauseOptions{}); err != nil {
+			return err
+		}
+		defer func() {
+			if _, err := r.client.ContainerPause(context.Background(), developerContainer, client.ContainerPauseOptions{}); err != nil && !errdefs.IsNotFound(err) && resultErr == nil {
+				resultErr = fmt.Errorf("restore paused developer container: %w", err)
+			}
+		}()
+	}
+	if _, err := r.execOutput(ctx, developerContainer, []string{"/usr/local/bin/kuayle-terminal-session", "--close", session.RuntimeSessionName}); err != nil {
+		return fmt.Errorf("close tmux session: %w", err)
+	}
+	return nil
+}
+
 func (r *DockerRuntime) SnapshotEnvironment(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService, environment *domain.DevMachineEnvironment) (string, error) {
 	developerContainer := developerContainerID(services)
 	if developerContainer == "" {

@@ -330,10 +330,31 @@ func TestDevMachineGetIsCreatorScoped(t *testing.T) {
 	require.Equal(t, http.StatusOK, recorder.Code)
 }
 
+func TestTerminalCloseReturnsAcceptedWhileRuntimeCleanupIsPending(t *testing.T) {
+	workspaceID, userID, machineID, sessionID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	store := &handlerDevMachineStoreFake{machine: &domain.DevMachine{
+		ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID, Generation: 3,
+	}}
+	h := NewDevMachineHandler(service.NewDevMachineService(
+		store, agent.NewRegistry(), true, "machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, service.DevMachineImages{},
+	))
+	recorder := httptest.NewRecorder()
+	ctx := devMachineHandlerContext(httptest.NewRequest(http.MethodPost, "/dev-machines/"+machineID.String()+"/terminal-sessions/"+sessionID.String()+"/close", nil), recorder, workspaceID, userID)
+	ctx.SetPath("/dev-machines/:machineId/terminal-sessions/:sessionId/close")
+	ctx.SetParamNames("machineId", "sessionId")
+	ctx.SetParamValues(machineID.String(), sessionID.String())
+
+	require.NoError(t, h.CloseTerminalSession(ctx))
+	require.Equal(t, http.StatusAccepted, recorder.Code)
+	require.NotNil(t, store.terminalCloseOperation)
+	require.Equal(t, domain.DevMachineOpTerminateTerminal, store.terminalCloseOperation.Action)
+}
+
 type handlerDevMachineStoreFake struct {
 	repository.DevMachineStore
 	machine                 *domain.DevMachine
 	permanentDeleteRequests int
+	terminalCloseOperation  *domain.DevMachineOperation
 }
 
 type collectorHandlerStoreFake struct {
@@ -392,6 +413,15 @@ func (f *handlerDevMachineStoreFake) RequestPermanentDelete(_ context.Context, w
 	return &domain.DevMachineOperation{
 		ID: uuid.New(), WorkspaceID: workspaceID, MachineID: machineID, RequestedByUserID: requestedByUserID,
 		Action: domain.DevMachineOpTeardown, Status: domain.DevMachineOpStatusPending,
+	}, nil
+}
+
+func (f *handlerDevMachineStoreFake) RequestTerminalSessionClose(_ context.Context, workspaceID, machineID, userID, sessionID uuid.UUID, operation *domain.DevMachineOperation) (*domain.DevMachineTerminalSession, error) {
+	operation.TerminalSessionID = &sessionID
+	f.terminalCloseOperation = operation
+	return &domain.DevMachineTerminalSession{
+		ID: sessionID, WorkspaceID: workspaceID, MachineID: machineID, UserID: userID,
+		RuntimeSessionName: "term-test", Status: "closing", CreatedAt: time.Now(), LastActivityAt: time.Now(),
 	}, nil
 }
 

@@ -10,7 +10,9 @@ ALTER TABLE dev_machine_services
         service_type IN ('ide', 'agent', 'browser', 'collector', 'egress')
     );
 
+ALTER TABLE dev_machine_access_tickets DROP COLUMN IF EXISTS terminal_session_id;
 ALTER TABLE dev_machine_operations
+    DROP COLUMN IF EXISTS terminal_session_id,
     DROP COLUMN IF EXISTS checkout_id,
     DROP COLUMN IF EXISTS environment_id;
 ALTER TABLE dev_machine_agent_runs DROP COLUMN IF EXISTS checkout_id;

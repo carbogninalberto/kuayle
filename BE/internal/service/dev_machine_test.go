@@ -703,6 +703,28 @@ func TestCreateTerminalSessionPendingResponseHasNoSession(t *testing.T) {
 	require.Nil(t, store.createdTicket)
 }
 
+func TestCreateTerminalSessionLinksTicketToSession(t *testing.T) {
+	workspaceID, userID, machineID := uuid.New(), uuid.New(), uuid.New()
+	store := &devMachineStoreFake{
+		policy: testPolicy(workspaceID),
+		machine: &domain.DevMachine{
+			ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID,
+			RoutingKey: "0123456789abcdef0123", Status: domain.DevMachineStatusRunning,
+			DesiredStatus: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour),
+		},
+		service: &domain.DevMachineService{ID: uuid.New(), MachineID: machineID, ServiceKey: "terminal", ServiceType: "terminal", Status: "running"},
+	}
+	svc := NewDevMachineService(store, agent.NewRegistry(), true, "machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, DevMachineImages{}, "https://app.example.test")
+
+	launch, err := svc.CreateTerminalSession(context.Background(), workspaceID, machineID, userID, dto.CreateTerminalSessionRequest{Name: "Terminal"})
+
+	require.NoError(t, err)
+	require.NotNil(t, launch.Session)
+	require.NotNil(t, store.createdTicket)
+	require.NotNil(t, store.createdTicket.TerminalSessionID)
+	require.Equal(t, launch.Session.ID, store.createdTicket.TerminalSessionID.String())
+}
+
 func TestPermanentDeleteRunningMachineRequestsPurgeAndQueuesTeardown(t *testing.T) {
 	workspaceID, userID, machineID := uuid.New(), uuid.New(), uuid.New()
 	store := &devMachineStoreFake{
@@ -1010,7 +1032,10 @@ func TestTerminalEndpointsRequireMachineOwner(t *testing.T) {
 
 	closed, err := svc.CloseTerminalSession(context.Background(), workspaceID, machineID, ownerID, ownerSessionID)
 	require.NoError(t, err)
-	require.Equal(t, "closed", closed.Status)
+	require.Equal(t, "closing", closed.Status)
+	require.NotNil(t, store.terminalCloseOperation)
+	require.Equal(t, domain.DevMachineOpTerminateTerminal, store.terminalCloseOperation.Action)
+	require.Equal(t, ownerSessionID, *store.terminalCloseOperation.TerminalSessionID)
 
 	// Another user on the same owned machine cannot list or close sessions at all
 	_, err = svc.ListTerminalSessions(context.Background(), workspaceID, machineID, otherID)
@@ -1167,6 +1192,7 @@ type devMachineStoreFake struct {
 	logs                        []domain.DevMachineLogChunk
 	resourceSamples             []domain.DevMachineResourceSample
 	terminalSessions            []domain.DevMachineTerminalSession
+	terminalCloseOperation      *domain.DevMachineOperation
 	createCheckoutCalled        bool
 	checkoutOperation           *domain.DevMachineOperation
 	deleteMachineCalled         bool
@@ -1606,12 +1632,13 @@ func (f *devMachineStoreFake) ListTerminalSessions(_ context.Context, _ uuid.UUI
 	return filtered, nil
 }
 
-func (f *devMachineStoreFake) CloseTerminalSession(_ context.Context, _ uuid.UUID, _ uuid.UUID, userID, sessionID uuid.UUID) (*domain.DevMachineTerminalSession, error) {
+func (f *devMachineStoreFake) RequestTerminalSessionClose(_ context.Context, _ uuid.UUID, _ uuid.UUID, userID, sessionID uuid.UUID, operation *domain.DevMachineOperation) (*domain.DevMachineTerminalSession, error) {
 	for index := range f.terminalSessions {
 		if f.terminalSessions[index].ID == sessionID && f.terminalSessions[index].UserID == userID {
-			f.terminalSessions[index].Status = "closed"
-			now := time.Now().UTC()
-			f.terminalSessions[index].ClosedAt = &now
+			f.terminalSessions[index].Status = "closing"
+			operation.TerminalSessionID = &f.terminalSessions[index].ID
+			copy := *operation
+			f.terminalCloseOperation = &copy
 			return &f.terminalSessions[index], nil
 		}
 	}

@@ -114,6 +114,17 @@ func TestDockerRuntimeLifecycle(t *testing.T) {
 			break
 		}
 	}
+	terminalSession := &domain.DevMachineTerminalSession{RuntimeSessionName: "term-" + routingKey}
+	_, err = runtime.execOutput(ctx, developerContainerID(services), []string{"tmux", "new-session", "-d", "-s", terminalSession.RuntimeSessionName, "sleep", "120"})
+	require.NoError(t, err)
+	require.NoError(t, runtime.TerminateTerminal(ctx, machine, services, terminalSession))
+	require.NoError(t, runtime.TerminateTerminal(ctx, machine, services, terminalSession), "repeated terminal close must be idempotent")
+	_, err = runtime.execOutput(ctx, developerContainerID(services), []string{"tmux", "has-session", "-t", terminalSession.RuntimeSessionName})
+	require.Error(t, err)
+
+	pausedTerminal := &domain.DevMachineTerminalSession{RuntimeSessionName: "term-paused-" + routingKey}
+	_, err = runtime.execOutput(ctx, developerContainerID(services), []string{"tmux", "new-session", "-d", "-s", pausedTerminal.RuntimeSessionName, "sleep", "120"})
+	require.NoError(t, err)
 
 	require.NoError(t, runtime.Pause(ctx, machine, services))
 	machine.Status = domain.DevMachineStatusPaused
@@ -122,8 +133,14 @@ func TestDockerRuntimeLifecycle(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, inspection.Container.State.Paused)
 	}
+	require.NoError(t, runtime.TerminateTerminal(ctx, machine, services, pausedTerminal))
+	pausedInspection, err := runtime.client.ContainerInspect(ctx, developerContainerID(services), client.ContainerInspectOptions{})
+	require.NoError(t, err)
+	require.True(t, pausedInspection.Container.State.Paused, "terminal close must restore the paused state")
 	require.NoError(t, runtime.Start(ctx, machine, services, secrets))
 	machine.Status = domain.DevMachineStatusRunning
+	_, err = runtime.execOutput(ctx, developerContainerID(services), []string{"tmux", "has-session", "-t", pausedTerminal.RuntimeSessionName})
+	require.Error(t, err)
 	for _, service := range services {
 		requireContainerRunning(t, ctx, runtime, service.ServiceKey, *service.ContainerID)
 	}

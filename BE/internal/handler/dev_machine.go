@@ -489,7 +489,11 @@ func (h *DevMachineHandler) CloseTerminalSession(c echo.Context) error {
 	if err != nil {
 		return machineError(c, err)
 	}
-	return response.Success(c, http.StatusOK, session)
+	status := http.StatusOK
+	if session.Status == "closing" {
+		status = http.StatusAccepted
+	}
+	return response.Success(c, status, session)
 }
 
 func (h *DevMachineHandler) CreateAgentRun(c echo.Context) error {

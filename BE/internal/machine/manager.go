@@ -55,6 +55,9 @@ type ManagerStore interface {
 	GetGitHubAppConfig(context.Context, uuid.UUID) (*domain.GitHubAppConfig, error)
 	GetCheckoutInternal(context.Context, uuid.UUID) (*domain.DevMachineCheckout, error)
 	UpdateCheckoutState(context.Context, uuid.UUID, string, *string) error
+	GetTerminalSessionInternal(context.Context, uuid.UUID) (*domain.DevMachineTerminalSession, error)
+	CompleteTerminalSessionClose(context.Context, uuid.UUID) error
+	FailTerminalSessionClose(context.Context, uuid.UUID) error
 	GetEnvironment(context.Context, uuid.UUID, uuid.UUID) (*domain.DevMachineEnvironment, error)
 	UpdateEnvironmentState(context.Context, uuid.UUID, string, string, *string) error
 	ReconcileOrphanedEnvironments(context.Context, int) (int, error)
@@ -226,6 +229,11 @@ func (m *Manager) processLeasedOperation(ctx context.Context, operation domain.D
 				log.WithFields(fields).WithError(checkoutErr).Error("failed to record checkout failure")
 			}
 		}
+		if !willRetry && operation.Action == domain.DevMachineOpTerminateTerminal && operation.TerminalSessionID != nil {
+			if terminalErr := m.store.FailTerminalSessionClose(finalCtx, *operation.TerminalSessionID); terminalErr != nil {
+				log.WithFields(fields).WithError(terminalErr).Error("failed to record terminal close failure")
+			}
+		}
 		if !willRetry && lifecycleFailureAffectsMachine(operation.Action) {
 			code, message := errorCode(err), safeError(err)
 			_, _ = m.store.SetMachineStateForOperation(finalCtx, operation.MachineID, operation.Generation, false, domain.DevMachineStatusFailed, nil, nil, &code, &message)
@@ -263,7 +271,7 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 	}
 	if operation.Generation < machine.Generation {
 		switch operation.Action {
-		case domain.DevMachineOpTeardown, domain.DevMachineOpCancelAgent:
+		case domain.DevMachineOpTeardown, domain.DevMachineOpCancelAgent, domain.DevMachineOpTerminateTerminal:
 			// Destructive cleanup must still converge after a newer generation.
 		case domain.DevMachineOpCheckoutIssue:
 			if operation.CheckoutID != nil {
@@ -419,6 +427,24 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 		return m.createEvent(ctx, machine, nil, "git", "checkout.ready", map[string]any{
 			"checkout_id": checkout.ID, "issue_id": checkout.IssueID, "branch": checkout.WorkingBranch,
 		})
+	case domain.DevMachineOpTerminateTerminal:
+		if operation.TerminalSessionID == nil {
+			return fmt.Errorf("invalid_operation: terminal close operation has no session")
+		}
+		session, err := m.store.GetTerminalSessionInternal(ctx, *operation.TerminalSessionID)
+		if err != nil || session == nil {
+			return err
+		}
+		if session.MachineID != machine.ID || session.WorkspaceID != machine.WorkspaceID {
+			return &terminalOperationError{code: "terminal_session_mismatch", message: "terminal session does not belong to the operation machine"}
+		}
+		if session.Status == "closed" {
+			return nil
+		}
+		if err := m.runtime.TerminateTerminal(ctx, machine, services, session); err != nil {
+			return fmt.Errorf("terminal_termination_failed: %w", err)
+		}
+		return m.store.CompleteTerminalSessionClose(ctx, session.ID)
 	case domain.DevMachineOpSnapshotEnvironment:
 		if operation.EnvironmentID == nil {
 			return fmt.Errorf("invalid_operation: snapshot operation has no environment")
