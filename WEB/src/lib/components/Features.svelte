@@ -96,9 +96,8 @@
 			<p class="text-sm font-semibold tracking-widest text-brand-300 uppercase">Features</p>
 			<h2 class="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">Implemented in Kuayle today</h2>
 			<p class="mt-4 text-lg text-muted-foreground">
-				The current {release.version} release covers the core issue-tracking workflow and analytics. Dev
-				Machines are {DEV_MACHINES_RELEASE_STATUS.toLowerCase()} development-branch functionality. The source
-				for each feature is available in the public repository.
+				The current {release.version} release covers the core issue-tracking workflow and analytics. Dev Machines are {DEV_MACHINES_RELEASE_STATUS.toLowerCase()}
+				development-branch functionality. The source for each feature is available in the public repository.
 			</p>
 		</div>
 
@@ -132,7 +131,9 @@
 							{/each}
 						</div>
 					{/if}
-					<span class="mt-4 flex items-center gap-1 text-xs font-medium text-brand-300 opacity-0 transition-opacity group-hover:opacity-100">
+					<span
+						class="mt-4 flex items-center gap-1 text-xs font-medium text-brand-300 opacity-0 transition-opacity group-hover:opacity-100"
+					>
 						View feature <ArrowRight class="size-3" />
 					</span>
 				</a>
@@ -140,7 +141,10 @@
 		</div>
 
 		<div class="mt-8 text-center" use:reveal>
-			<a href="/features" class="inline-flex items-center gap-1.5 text-sm font-medium text-brand-300 transition-colors hover:text-brand-200">
+			<a
+				href="/features"
+				class="inline-flex items-center gap-1.5 text-sm font-medium text-brand-300 transition-colors hover:text-brand-200"
+			>
 				All features <ArrowRight class="size-3.5" />
 			</a>
 		</div>

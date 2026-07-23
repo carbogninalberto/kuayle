@@ -48,7 +48,9 @@
 		relatedLinks?: HubLink[];
 	} = $props();
 
-	const jsonLd = $derived(webPageLd(meta.title, meta.description, meta.canonical ?? url('/'), breadcrumbs, meta.modifiedAt));
+	const jsonLd = $derived(
+		webPageLd(meta.title, meta.description, meta.canonical ?? url('/'), breadcrumbs, meta.modifiedAt)
+	);
 </script>
 
 <Seo meta={{ ...meta, jsonLd }} />
@@ -94,7 +96,14 @@
 						{#if section.links && section.links.length > 0}
 							<ul class="mt-4 space-y-2 text-sm">
 								{#each section.links as link}
-									<li><a class="text-brand-300 underline-offset-4 hover:underline" href={link.href} target="_blank" rel="noopener noreferrer">{link.label}</a></li>
+									<li>
+										<a
+											class="text-brand-300 underline-offset-4 hover:underline"
+											href={link.href}
+											target="_blank"
+											rel="noopener noreferrer">{link.label}</a
+										>
+									</li>
 								{/each}
 							</ul>
 						{/if}

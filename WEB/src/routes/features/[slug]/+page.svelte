@@ -11,13 +11,17 @@
 	const content = $derived(slug ? features[slug] : undefined);
 	const parent = $derived(HUBS.features);
 
-	const meta = $derived(content ? {
-		title: content.title,
-		description: content.description,
-		canonical: url(`/features/${slug}`),
-		ogType: 'article' as const,
-		modifiedAt: contentModifiedAt(`/features/${slug}`)
-	} : metaForStandalone('features')!);
+	const meta = $derived(
+		content
+			? {
+					title: content.title,
+					description: content.description,
+					canonical: url(`/features/${slug}`),
+					ogType: 'article' as const,
+					modifiedAt: contentModifiedAt(`/features/${slug}`)
+				}
+			: metaForStandalone('features')!
+	);
 
 	const crumbs = $derived(breadcrumbsFrom('features', 'Features', content?.heading, slug));
 </script>

@@ -32,7 +32,9 @@
 		breadcrumbs: Crumb[];
 	} = $props();
 
-	const jsonLd = $derived(webPageLd(metaInput.title, metaInput.description, metaInput.canonical ?? url('/'), crumbs, metaInput.modifiedAt));
+	const jsonLd = $derived(
+		webPageLd(metaInput.title, metaInput.description, metaInput.canonical ?? url('/'), crumbs, metaInput.modifiedAt)
+	);
 </script>
 
 <Seo meta={{ ...metaInput, ogType: metaInput.ogType ?? 'article', jsonLd }} />
@@ -79,7 +81,14 @@
 					{#if section.links && section.links.length > 0}
 						<ul class="mt-4 space-y-2 text-sm">
 							{#each section.links as link}
-								<li><a class="text-brand-300 underline-offset-4 hover:underline" href={link.href} target="_blank" rel="noopener noreferrer">{link.label}</a></li>
+								<li>
+									<a
+										class="text-brand-300 underline-offset-4 hover:underline"
+										href={link.href}
+										target="_blank"
+										rel="noopener noreferrer">{link.label}</a
+									>
+								</li>
 							{/each}
 						</ul>
 					{/if}

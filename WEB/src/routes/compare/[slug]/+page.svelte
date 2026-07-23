@@ -10,13 +10,17 @@
 	const content = $derived(slug ? compare[slug] : undefined);
 	const parent = $derived(HUBS.compare);
 
-	const meta = $derived(content ? {
-		title: content.title,
-		description: content.description,
-		canonical: url(`/compare/${slug}`),
-		ogType: 'article' as const,
-		modifiedAt: contentModifiedAt(`/compare/${slug}`)
-	} : { title: '', description: '', canonical: url('/') });
+	const meta = $derived(
+		content
+			? {
+					title: content.title,
+					description: content.description,
+					canonical: url(`/compare/${slug}`),
+					ogType: 'article' as const,
+					modifiedAt: contentModifiedAt(`/compare/${slug}`)
+				}
+			: { title: '', description: '', canonical: url('/') }
+	);
 
 	const crumbs = $derived(breadcrumbsFrom('compare', 'Compare', content?.heading, slug));
 </script>
