@@ -576,6 +576,143 @@ test('uses guarded permanent-delete routes for old-machine cleanup', async ({ pa
 	await expect.poll(() => bulkPayload).toMatchObject({ include_failed: true, include_expired: true });
 });
 
+test('cancels Issue Machine Picker work when the dialog is dismissed', async ({ page }) => {
+	const workspaceId = '00000000-0000-0000-0000-000000000002';
+	const teamId = '00000000-0000-0000-0000-000000000010';
+	const issueId = '00000000-0000-0000-0000-000000000100';
+	const machineId = '00000000-0000-0000-0000-000000000110';
+	const checkoutId = '00000000-0000-0000-0000-000000000111';
+	let machineGets = 0;
+	let startRequests = 0;
+	let checkoutRequests = 0;
+	let terminalRequests = 0;
+	let checkoutDelay: ReturnType<typeof createRequestDelay> | null = null;
+	let launchDelay: ReturnType<typeof createRequestDelay> | null = null;
+	const issue = {
+		id: issueId, identifier: 'TST-43', title: 'Picker cancellation test', description: null,
+		status: 'backlog', team_id: teamId, project_id: null, cycle_id: null, creator_id: 'u1',
+		assignee_id: null, parent_id: null, due_date: null, sort_order: 0,
+		created_at: '2026-07-13T00:00:00Z', updated_at: '2026-07-13T00:00:00Z'
+	};
+	const machine = {
+		id: machineId, workspace_id: workspaceId, routing_key: 'pickercancellation001', name: 'Picker machine',
+		status: 'paused', desired_status: 'paused', generation: 1, repo_owner: 'kuayle', repo_name: 'kuayle',
+		base_branch: 'main', working_branch: 'kuayle/picker', machine_size: 'medium', cpu_millis: 4000,
+		memory_mb: 8192, disk_gb: 50, pids_limit: 1024, max_runtime_minutes: 240, keep_running: false,
+		environment_builder: false, created_at: '2026-07-13T00:00:00Z', updated_at: '2026-07-13T00:00:00Z',
+		expires_at: '2099-07-13T04:00:00Z'
+	};
+	const checkout = {
+		id: checkoutId, workspace_id: workspaceId, machine_id: machineId, issue_id: issueId,
+		github_repo_id: '00000000-0000-0000-0000-000000000112', repository_full_name: 'kuayle/kuayle',
+		base_branch: 'main', working_branch: 'kuayle/TST-43-picker', workspace_path: '/workspace/tasks/TST-43-picker',
+		status: 'ready', created_at: '2026-07-13T00:00:00Z', updated_at: '2026-07-13T00:00:00Z'
+	};
+
+	await page.route('https://raw.githubusercontent.com/carbogninalberto/kuayle/main/UI/static/releases.json', (route) => route.fulfill({ json: [] }));
+	await page.route('**/api/**', async (route) => {
+		const request = route.request();
+		const path = new URL(request.url()).pathname;
+		if (path === '/api/auth/me') return route.fulfill({ json: { id: 'u1', email: 'test@example.com', name: 'Test User', display_name: 'Test User', avatar_url: null } });
+		if (path === '/api/preferences') return route.fulfill({ json: { font_size: 'default', pointer_cursors: true, theme_mode: 'dark', light_theme: 'light', dark_theme: 'dark', workflow_sort_mode: 'default', workflow_sort_order: ['backlog', 'unstarted', 'started', 'completed', 'cancelled'], team_workflow_sort_overrides: {}, issues_group_by: 'status' } });
+		if (path === '/api/workspaces') return route.fulfill({ json: [{ id: workspaceId, name: 'Test Workspace', slug: 'test' }] });
+		if (path === '/api/workspaces/test') return route.fulfill({ json: { id: workspaceId, name: 'Test Workspace', slug: 'test', current_user_role: 'owner' } });
+		if (path === '/api/workspaces/test/teams') return route.fulfill({ json: [{ id: teamId, name: 'Engineering', key: 'ENG', color: '#6366f1', icon: 'layers', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' }] });
+		if (['/api/workspaces/test/projects', '/api/workspaces/test/labels', '/api/workspaces/test/members', '/api/workspaces/test/views'].includes(path)) return route.fulfill({ json: [] });
+		if (path === '/api/notifications') return route.fulfill({ json: { notifications: [], unread_count: 0 } });
+		if (path === `/api/workspaces/test/teams/${teamId}/statuses` || path === `/api/workspaces/test/teams/${teamId}/cycles`) return route.fulfill({ json: [] });
+		if (path === `/api/workspaces/test/issues/${issue.identifier}` && request.method() === 'GET') return route.fulfill({ json: issue });
+		if (path === `/api/workspaces/test/issues/${issue.identifier}/comments` || path === `/api/workspaces/test/issues/${issue.identifier}/history`) return route.fulfill({ json: [] });
+		if (path === '/api/workspaces/test/issues' && request.method() === 'GET') return route.fulfill({ json: { data: [], total_count: 0, page: 1, has_more: false } });
+		if (path === '/api/workspaces/test/dev-machines' && request.method() === 'GET') return route.fulfill({ json: { data: [machine], total_count: 1, page: 1, has_more: false } });
+		if (path === `/api/workspaces/test/dev-machines/${machineId}` && request.method() === 'GET') {
+			machineGets += 1;
+			return route.fulfill({ json: machine });
+		}
+		if (path === `/api/workspaces/test/dev-machines/${machineId}/start` && request.method() === 'POST') {
+			startRequests += 1;
+			Object.assign(machine, { status: 'running', desired_status: 'running', generation: 2 });
+			return route.fulfill({ status: 202, json: { status: 'pending' } });
+		}
+		if (path === `/api/workspaces/test/dev-machines/${machineId}/checkouts` && request.method() === 'GET') {
+			checkoutRequests += 1;
+			const delay = checkoutDelay;
+			if (delay) {
+				checkoutDelay = null;
+				delay.markStarted();
+				await delay.released;
+			}
+			await route.fulfill({ json: [checkout] });
+			delay?.markCompleted();
+			return;
+		}
+		if (path === `/api/workspaces/test/dev-machines/${machineId}/services/ide/launch` && request.method() === 'POST') {
+			const delay = launchDelay;
+			if (delay) {
+				launchDelay = null;
+				delay.markStarted();
+				await delay.released;
+			}
+			await route.fulfill({ status: 201, json: { status: 'ready', launch_url: 'https://code.example.test/?ticket=redacted', expires_at: '2099-07-13T04:00:00Z' } });
+			delay?.markCompleted();
+			return;
+		}
+		if (path === `/api/workspaces/test/dev-machines/${machineId}/terminal-sessions` && request.method() === 'POST') {
+			terminalRequests += 1;
+			return route.fulfill({ status: 202, json: { status: 'pending' } });
+		}
+		return route.fulfill({ status: 404, json: { error: { message: `Unhandled ${request.method()} ${path}` } } });
+	});
+
+	async function openPicker(action: 'Open Code Editor' | 'Open Terminal' | 'Run Agent') {
+		await page.getByTitle('Issue actions').click();
+		await page.getByRole('button', { name: action }).click();
+		const picker = page.getByRole('dialog', { name: 'Choose Dev Machine' });
+		await expect(picker).toBeVisible();
+		return picker;
+	}
+
+	await page.goto('/test/issue/TST-43');
+	await expect(page.getByText('Picker cancellation test')).toBeVisible();
+	const terminalPicker = await openPicker('Open Terminal');
+	await terminalPicker.getByRole('button', { name: 'Open Terminal' }).click();
+	await expect.poll(() => startRequests).toBe(1);
+	await page.keyboard.press('Escape');
+	await expect(page.getByRole('heading', { name: 'Choose Dev Machine' })).toHaveCount(0);
+	await expect.poll(() => machineGets).toBeGreaterThan(1);
+	await page.waitForTimeout(50);
+	expect(checkoutRequests).toBe(0);
+	expect(terminalRequests).toBe(0);
+	await expect(page.getByTestId('terminal-dock')).toHaveCount(0);
+
+	checkoutDelay = createRequestDelay();
+	const delayedCheckout = checkoutDelay;
+	const agentPicker = await openPicker('Run Agent');
+	await agentPicker.getByRole('button', { name: 'Continue to Agent' }).click();
+	await delayedCheckout.started;
+	await page.keyboard.press('Escape');
+	delayedCheckout.release();
+	await delayedCheckout.completed;
+	await page.waitForTimeout(50);
+	await expect(page.getByRole('heading', { name: 'Run Agent' })).toHaveCount(0);
+
+	launchDelay = createRequestDelay();
+	const delayedLaunch = launchDelay;
+	const idePicker = await openPicker('Open Code Editor');
+	const popupPromise = page.waitForEvent('popup');
+	await idePicker.getByRole('button', { name: 'Open Code Editor' }).click();
+	const popup = await popupPromise;
+	await delayedLaunch.started;
+	await page.keyboard.press('Escape');
+	await expect.poll(() => popup.isClosed()).toBe(true);
+	delayedLaunch.release();
+	await delayedLaunch.completed;
+	await page.waitForTimeout(50);
+	expect(popup.isClosed()).toBe(true);
+	await expect(page.getByRole('heading', { name: 'Choose Dev Machine' })).toHaveCount(0);
+	await expect(page).toHaveURL('/test/issue/TST-43');
+});
+
 test('searches linked repositories in IssueRepositoryDialog and saves selection', async ({ page }) => {
 	const workspaceId = '00000000-0000-0000-0000-000000000002';
 	const teamId = '00000000-0000-0000-0000-000000000010';

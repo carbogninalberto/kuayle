@@ -40,41 +40,63 @@
 	let selectedMachineId = $state('');
 	let loading = $state(false);
 	let submitting = $state(false);
-	let loadKey = '';
 	let errorMessage = $state('');
+	let requestGeneration = 0;
+	let activePopup: Window | null = null;
+	let activePopupGeneration = 0;
 
 	const selectedMachine = $derived(machines.find((machine) => machine.id === selectedMachineId));
 	const actionLabel = $derived(intent === 'ide' ? 'Open Code Editor' : intent === 'terminal' ? 'Open Terminal' : 'Continue to Agent');
 
 	$effect(() => {
-		if (!open) {
-			loadKey = '';
-			return;
-		}
-		const key = `${slug}:${issue.id}:${intent}`;
-		if (loadKey === key) return;
-		loadKey = key;
-		void loadMachines();
+		const currentOpen = open;
+		const currentSlug = slug;
+		const currentIssueId = issue.id;
+		const currentIntent = intent;
+		const generation = ++requestGeneration;
+		closePopup();
+		machines = [];
+		selectedMachineId = '';
+		loading = currentOpen;
+		submitting = false;
+		errorMessage = '';
+		if (!currentOpen) return;
+		void loadMachines(currentSlug, currentIssueId, currentIntent, generation);
+		return () => {
+			if (requestGeneration === generation) requestGeneration++;
+			closePopup(generation);
+		};
 	});
 
-	async function loadMachines() {
-		loading = true;
-		errorMessage = '';
+	function isCurrentRequest(currentSlug: string, currentIssueId: string, currentIntent: IssueMachineIntent, generation: number) {
+		return open && slug === currentSlug && issue.id === currentIssueId && intent === currentIntent && requestGeneration === generation;
+	}
+
+	function closePopup(generation?: number) {
+		if (!activePopup || (generation !== undefined && activePopupGeneration !== generation)) return;
+		activePopup.close();
+		activePopup = null;
+		activePopupGeneration = 0;
+	}
+
+	async function loadMachines(currentSlug: string, currentIssueId: string, currentIntent: IssueMachineIntent, generation: number) {
 		try {
-			const response = await listDevMachines(slug, undefined, 1, 100);
+			const response = await listDevMachines(currentSlug, undefined, 1, 100);
+			if (!isCurrentRequest(currentSlug, currentIssueId, currentIntent, generation)) return;
 			machines = (response.data ?? []).filter((machine) => !machine.delete_requested_at && !['destroyed', 'expired', 'tearing_down'].includes(machine.status));
-			const preferred = machines.find((machine) => !disabledReason(machine));
+			const preferred = machines.find((machine) => !disabledReason(machine, currentIntent));
 			selectedMachineId = preferred?.id ?? '';
 		} catch (error) {
+			if (!isCurrentRequest(currentSlug, currentIssueId, currentIntent, generation)) return;
 			machines = [];
 			errorMessage = messageFromError(error, 'Unable to load Dev Machines');
 		} finally {
-			loading = false;
+			if (isCurrentRequest(currentSlug, currentIssueId, currentIntent, generation)) loading = false;
 		}
 	}
 
-	function disabledReason(machine: DevMachine): string {
-		if (intent === 'agent' && (machine.status !== 'running' || machine.desired_status !== 'running')) {
+	function disabledReason(machine: DevMachine, currentIntent = intent): string {
+		if (currentIntent === 'agent' && (machine.status !== 'running' || machine.desired_status !== 'running')) {
 			return 'Agent runs require a running machine';
 		}
 		if (machine.status === 'running' && machine.desired_status === 'running') return '';
@@ -85,38 +107,50 @@
 	}
 
 	async function confirmSelection() {
-		if (!selectedMachine || disabledReason(selectedMachine)) return;
+		if (!selectedMachine || disabledReason(selectedMachine) || submitting) return;
+		const currentSlug = slug;
+		const currentIssueId = issue.id;
+		const currentIntent = intent;
+		const generation = requestGeneration;
 		submitting = true;
 		errorMessage = '';
-		const popup = intent === 'ide' ? window.open('about:blank', '_blank') : null;
+		const popup = currentIntent === 'ide' ? window.open('about:blank', '_blank') : null;
 		if (popup) popup.opener = null;
+		activePopup = popup;
+		activePopupGeneration = popup ? generation : 0;
 		try {
 			let machine = selectedMachine;
 			if (machine.status === 'paused') {
-				machine = await resumePausedMachine(slug, machine.id);
+				machine = await resumePausedMachine(currentSlug, machine.id);
+				if (!isCurrentRequest(currentSlug, currentIssueId, currentIntent, generation)) return;
 			}
-			const checkout = await ensureIssueCheckoutReady(slug, machine.id, issue.id);
-			if (intent === 'terminal') {
+			const checkout = await ensureIssueCheckoutReady(currentSlug, machine.id, currentIssueId);
+			if (!isCurrentRequest(currentSlug, currentIssueId, currentIntent, generation)) return;
+			if (currentIntent === 'terminal') {
 				dock.open({
-					slug,
+					slug: currentSlug,
 					machineId: machine.id,
 					machineName: machine.name,
 					checkoutId: checkout.id,
 					checkoutLabel: `${checkout.repository_full_name} - ${checkout.working_branch}`
 				});
-			} else if (intent === 'agent') {
+			} else if (currentIntent === 'agent') {
 				onagent?.(machine, checkout.id);
 			} else {
-				const launch = await launchMachineServiceWithResume(slug, machine.id, 'ide', checkout.id);
+				const launch = await launchMachineServiceWithResume(currentSlug, machine.id, 'ide', checkout.id);
+				if (!isCurrentRequest(currentSlug, currentIssueId, currentIntent, generation)) return;
 				if (popup && launch.launch_url) popup.location.replace(launch.launch_url);
 				else throw new Error('Pop-up blocked. Allow pop-ups for this site and try again.');
+				activePopup = null;
+				activePopupGeneration = 0;
 			}
 			open = false;
 		} catch (error) {
-			popup?.close();
+			if (!isCurrentRequest(currentSlug, currentIssueId, currentIntent, generation)) return;
 			errorMessage = messageFromError(error, 'Unable to prepare this Dev Machine');
 		} finally {
-			submitting = false;
+			closePopup(generation);
+			if (isCurrentRequest(currentSlug, currentIssueId, currentIntent, generation)) submitting = false;
 		}
 	}
 
