@@ -135,10 +135,12 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-kuayle}
       GATEWAY_DB_USER: ${DEV_MACHINE_GATEWAY_DB_USER:-kuayle_gateway}
       GATEWAY_DB_PASSWORD: ${DEV_MACHINE_GATEWAY_DB_PASSWORD:-}
+      DEV_MACHINES_ENABLED: ${DEV_MACHINES_ENABLED:-false}
     command:
       - sh
       - -ec
       - |
+        test "$$DEV_MACHINES_ENABLED" = true || { echo "DEV_MACHINES_ENABLED must be true for the dev-machines profile" >&2; exit 1; }
         test -n "$$GATEWAY_DB_PASSWORD" || { echo "DEV_MACHINE_GATEWAY_DB_PASSWORD is required" >&2; exit 1; }
         exec psql --host postgres --username "$$POSTGRES_USER" --dbname "$$POSTGRES_DB" \
           --file=/etc/kuayle/gateway-role.sql
@@ -170,7 +172,7 @@ services:
       FRONTEND_URL: ${FRONTEND_URL:-https://localhost}
       SYSADMINS: ${SYSADMINS:-}
       PUBLIC_DEMO_MODE: ${PUBLIC_DEMO_MODE:-false}
-      DEV_MACHINES_ENABLED: "true"
+      DEV_MACHINES_ENABLED: ${DEV_MACHINES_ENABLED:-false}
       DEV_MACHINE_DOMAIN: ${DEV_MACHINE_DOMAIN:-machines.localhost}
       DEV_MACHINE_SESSION_TTL_MINUTES: ${DEV_MACHINE_SESSION_TTL_MINUTES:-480}
     healthcheck:
@@ -212,7 +214,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       ENVIRONMENT: ${ENVIRONMENT:-production}
       FRONTEND_URL: ${FRONTEND_URL:-https://localhost}
-      DEV_MACHINES_ENABLED: "true"
+      DEV_MACHINES_ENABLED: ${DEV_MACHINES_ENABLED:-false}
       DEV_MACHINE_DOMAIN: ${DEV_MACHINE_DOMAIN:-machines.localhost}
       DEV_MACHINE_ENCRYPTION_KEY: ${DEV_MACHINE_ENCRYPTION_KEY:-}
       DEV_MACHINE_INGEST_URL: ${DEV_MACHINE_INGEST_URL:-}
