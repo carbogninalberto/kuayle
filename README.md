@@ -76,15 +76,14 @@ You (browser)
   │
   ├─ f8k2m9.kuayle-machines.example.net         → code-server
   ├─ f8k2m9-terminal.kuayle-machines.example.net → native xterm over ttyd.v1
-  ├─ f8k2m9-browser.kuayle-machines.example.net → Chrome via KasmVNC (in-browser web navigation)
-  └─ f8k2m9-app.kuayle-machines.example.net     → Dev server preview
+  └─ f8k2m9-browser.kuayle-machines.example.net → Chrome via KasmVNC (in-browser web navigation)
         │
         └── All routed through Machine Gateway auth — no public ports, no port management
 ```
 
 The implementation:
 
-1. **Orchestrate multiple containers** per machine, with code-server on `8080` and ttyd on `7681` sharing one developer container (`/workspace`, `HOME`, tools, processes, and tmux), while agent(s), browser, app preview, collector, and egress services run separately on a per-machine isolated bridge network. The Kuayle UI renders `@xterm/xterm` natively and speaks `ttyd.v1`; it does not expose ttyd's web page.
+1. **Orchestrate multiple containers** per machine, with code-server on `8080` and ttyd on `7681` sharing one developer container (`/workspace`, `HOME`, tools, processes, and tmux), while agent(s), browser, collector, and egress services run separately on a per-machine isolated bridge network. The Kuayle UI renders `@xterm/xterm` natively and speaks `ttyd.v1`; it does not expose ttyd's web page.
 2. **Support multiple agent providers** — Claude Code, OpenCode, Codex, or admin-configured generic CLIs — selected at machine creation and normalised into a common activity format. The shared developer image includes pinned OpenCode, Claude Code, and Codex CLIs; provider-specific agent images remain pinned separately.
 3. **Assign random subdomains** through a separate registrable wildcard domain (`*.kuayle-machines.example.net`) with launch-ticket auth and host-restricted machine session cookies. The machine domain must be a completely separate registrable domain to prevent cookie leakage between the main application and machine workloads.
 4. **Authenticate** through a dedicated unprivileged Machine Gateway; the privileged Machine Manager is the sole Docker socket holder
@@ -234,7 +233,7 @@ docker compose --profile dev-machines run --rm machine-gateway-db-provision
 docker compose --profile dev-machines up -d
 ```
 
-The API rejects a production machine domain that shares the main application's registrable domain. `machines.localhost` is supported only for local development. The gateway rejects parent-domain and reserved session cookies from workloads. Browser-cookie launches for code-server, browser, and app preview require exact machine origins for mutations and service WebSockets; native terminal WebSockets use a separate one-use ticket bound to exact `FRONTEND_URL`, host, user/service, tmux session, and working directory.
+The API rejects a production machine domain that shares the main application's registrable domain. `machines.localhost` is supported only for local development. The gateway rejects parent-domain and reserved session cookies from workloads. Browser-cookie launches for code-server and browser require exact machine origins for mutations and service WebSockets; native terminal WebSockets use a separate one-use ticket bound to exact `FRONTEND_URL`, host, user/service, tmux session, and working directory.
 
 For DNS-01, replace the stock `caddy:2-alpine` image with a trusted custom Caddy build containing your provider module, replace `tls internal` with a `tls` block using that DNS provider, and pass its scoped API credential through a Compose override. For operator certificates, bind-mount a host directory read-only at `/etc/caddy/certs` through a Compose override and use `tls /etc/caddy/certs/machines.pem /etc/caddy/certs/machines.key` in the wildcard block. Keep private keys outside the repository and container image.
 

@@ -405,11 +405,10 @@ export const features: ContentRegistry = {
 		sections: [
 			{
 				heading: 'A full environment per machine',
-				body: 'The developer container runs code-server and a tmux-backed terminal that the Kuayle UI renders natively with xterm. A separate browser container provides Chrome over KasmVNC, and an app-preview service exposes the dev server. No host ports are published; access goes through the Machine Gateway with one-time launch tickets.',
+				body: 'The developer container runs code-server and a tmux-backed terminal that the Kuayle UI renders natively with xterm. A separate browser container provides Chrome over KasmVNC. No host ports are published; access goes through the Machine Gateway with one-time launch tickets.',
 				list: [
 					'code-server IDE and native xterm terminal',
 					'In-browser Chrome via KasmVNC',
-					'Dev-server app preview',
 					'Authenticated wildcard routing — no public ports'
 				]
 			},

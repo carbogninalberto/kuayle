@@ -283,7 +283,7 @@ Every reconciliation pass inspects Docker networks, volumes, gateway attachment,
 
 Resource names and labels are deterministic. Missing resources during teardown count as success. A partial spawn removes containers, disconnects the gateway, and removes the private network and workspace volume before retrying.
 
-Services start in dependency order: egress, collector, developer checkout, browser, then app preview. Developer and preview containers publish file-based Docker health checks; the preview does not choose a project command until checkout has completed.
+Services start in dependency order: egress, collector, developer checkout, then browser. Developer and browser containers publish file-based Docker health checks.
 
 Idle pause and hard runtime are separate controls. Workspace policy defaults idle pause to 240 minutes; `keep_running=true` bypasses idle pause for that machine. Gateway requests, native terminal WebSockets, API activity touches, checkouts, and agent runs update `last_activity_at`. The manager queues idempotent pause operations for idle running machines, but it does not automatically delete machines. Maximum hard runtime is policy-controlled through `expires_at`; expired machines transition to `expired` and teardown is queued.
 
@@ -335,7 +335,7 @@ Secret flow:
 3. Agent runs receive only names explicitly selected in `allowed_secrets`; required provider names must also resolve to active, unexpired, non-revoked stored secrets before a run is queued.
 4. The manager creates a tmpfs at `/run/kuayle-secrets` and copies files after container start, so secret values do not appear in Docker container configuration.
 5. A small entrypoint loads values only into the target child process and removes the files.
-6. Browser and egress containers receive no workspace secrets. App-preview receives secrets only when explicitly targeted.
+6. Browser and egress containers receive no workspace secrets.
 7. Manager-captured provider logs are redacted with the exact injected values. IDE command telemetry redacts common key/token/secret/password patterns.
 
 Reserved `KUAYLE_*` variables and `GITHUB_TOKEN` cannot be supplied by users.

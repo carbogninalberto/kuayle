@@ -96,6 +96,8 @@ const DEV_MACHINE_STATUS_ROUTES = [
 
 for (const [route, html] of routeHtml) {
 	if (!html) continue;
+	const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+	if (/\bapp[- ]preview\b/i.test(text)) fail(`${route}: unsupported app-preview claim`);
 
 	const title = html.match(/<title>([\s\S]*?)<\/title>/i)?.[1]?.trim();
 	const description = html.match(/<meta\s+[^>]*name=["']description["'][^>]*>/i)?.[0];
