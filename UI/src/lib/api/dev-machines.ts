@@ -54,7 +54,7 @@ export function deleteDevMachine(slug: string, machineId: string): Promise<void>
 	return api.delete(`${base(slug)}/dev-machines/${machineId}`);
 }
 
-export function bulkDeleteDevMachines(slug: string, input: { machine_ids?: string[]; old_only?: boolean }): Promise<{ count: number }> {
+export function bulkDeleteDevMachines(slug: string, input: { machine_ids: string[] }): Promise<{ count: number }> {
 	return api.deleteWithBody(`${base(slug)}/dev-machines/bulk`, input);
 }
 

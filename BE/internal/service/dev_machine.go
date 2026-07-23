@@ -599,9 +599,6 @@ func (s *DevMachineService) requestPermanentDelete(ctx context.Context, workspac
 
 func (s *DevMachineService) BulkDelete(ctx context.Context, workspaceID, userID uuid.UUID, request dto.BulkDeleteDevMachinesRequest) (int, error) {
 	if len(request.MachineIDs) == 0 {
-		if request.OldOnly {
-			return 0, nil
-		}
 		return 0, fmt.Errorf("%w: machine_ids are required", ErrInvalidMachineInput)
 	}
 	machineIDs := make([]uuid.UUID, 0, len(request.MachineIDs))

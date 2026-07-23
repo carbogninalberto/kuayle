@@ -72,7 +72,6 @@ type UpdateDevMachineRequest struct {
 
 type BulkDeleteDevMachinesRequest struct {
 	MachineIDs []string `json:"machine_ids,omitempty" validate:"omitempty,max=500,dive,uuid"`
-	OldOnly    bool     `json:"old_only"`
 }
 
 type PurgeDevMachinesRequest struct {

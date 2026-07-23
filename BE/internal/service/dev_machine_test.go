@@ -756,13 +756,14 @@ func TestPermanentDeleteRepeatedRequestIsSafe(t *testing.T) {
 	require.False(t, store.deleteMachineCalled)
 }
 
-func TestBulkDeleteOldOnlyWithoutSelectionIsNoop(t *testing.T) {
+func TestBulkDeleteRequiresSelection(t *testing.T) {
 	store := &devMachineStoreFake{}
 	svc := newTestDevMachineService(store)
 
-	count, err := svc.BulkDelete(context.Background(), uuid.New(), uuid.New(), dto.BulkDeleteDevMachinesRequest{OldOnly: true})
+	count, err := svc.BulkDelete(context.Background(), uuid.New(), uuid.New(), dto.BulkDeleteDevMachinesRequest{})
 
-	require.NoError(t, err)
+	require.ErrorIs(t, err, ErrInvalidMachineInput)
+	require.ErrorContains(t, err, "machine_ids are required")
 	require.Zero(t, count)
 	require.False(t, store.deleteMachineCalled)
 	require.Nil(t, store.queuedOperation)
