@@ -33,6 +33,14 @@ test('lists a Dev Machine and queues a lifecycle action', async ({ page }) => {
 		updated_at: '2026-07-13T00:00:00Z',
 		expires_at: '2099-07-13T04:00:00Z'
 	};
+	const secondMachineId = '00000000-0000-0000-0000-000000000059';
+	const secondMachine = {
+		...machine,
+		id: secondMachineId,
+		routing_key: 'fedcba98765432100123',
+		name: 'Second route machine',
+		working_branch: 'kuayle/second-route'
+	};
 	const checkout = {
 		id: '00000000-0000-0000-0000-000000000053', workspace_id: machine.workspace_id,
 		machine_id: machineId, issue_id: '00000000-0000-0000-0000-000000000054',
@@ -114,10 +122,10 @@ test('lists a Dev Machine and queues a lifecycle action', async ({ page }) => {
 			return route.fulfill({ json: [checkout] });
 		}
 		if (path === `/api/workspaces/test/dev-machines/${machineId}/events`) {
-			return route.fulfill({ json: [] });
+			return route.fulfill({ json: [{ id: 1, workspace_id: machine.workspace_id, machine_id: machineId, source: 'collector', event_type: 'machine_a_event', payload: {}, occurred_at: '2026-07-13T00:00:00Z', created_at: '2026-07-13T00:00:00Z' }] });
 		}
 		if (path === `/api/workspaces/test/dev-machines/${machineId}/logs`) {
-			return route.fulfill({ json: [] });
+			return route.fulfill({ json: [{ id: 1, workspace_id: machine.workspace_id, machine_id: machineId, stream: 'system', sequence: 1, content: 'machine A log', truncated: false, created_at: '2026-07-13T00:00:00Z' }] });
 		}
 		if (path === `/api/workspaces/test/dev-machines/${machineId}/agent-runs`) {
 			return route.fulfill({ json: { data: [{
@@ -139,6 +147,21 @@ test('lists a Dev Machine and queues a lifecycle action', async ({ page }) => {
 			pauseRequests += 1;
 			return route.fulfill({ status: 202, json: { status: 'pending' } });
 		}
+		if (path === `/api/workspaces/test/dev-machines/${secondMachineId}`) {
+			return route.fulfill({ json: secondMachine });
+		}
+		if (
+			path === `/api/workspaces/test/dev-machines/${secondMachineId}/services` ||
+			path === `/api/workspaces/test/dev-machines/${secondMachineId}/checkouts` ||
+			path === `/api/workspaces/test/dev-machines/${secondMachineId}/events` ||
+			path === `/api/workspaces/test/dev-machines/${secondMachineId}/logs` ||
+			path === `/api/workspaces/test/dev-machines/${secondMachineId}/resource-usage`
+		) {
+			return route.fulfill({ json: [] });
+		}
+		if (path === `/api/workspaces/test/dev-machines/${secondMachineId}/agent-runs`) {
+			return route.fulfill({ json: { data: [], total_count: 0, page: 1, has_more: false } });
+		}
 
 		unhandledPaths.push(`${request.method()} ${path}`);
 		return route.fulfill({ status: 404, json: { error: { message: `Unhandled ${path}` } } });
@@ -149,6 +172,8 @@ test('lists a Dev Machine and queues a lifecycle action', async ({ page }) => {
 	await page.getByRole('link', { name: /Runtime smoke machine/ }).click();
 	await expect(page.getByText('Runtime smoke machine', { exact: true })).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Services' })).toBeVisible();
+	await expect(page.getByText('machine a event', { exact: true })).toBeVisible();
+	await expect(page.getByText('[system] machine A log', { exact: true })).toBeVisible();
 	await expect(page.getByTitle('Save development environment')).toHaveCount(0);
 	await page.getByRole('switch', { name: 'Keep running' }).click();
 	await expect.poll(() => keepRunningRequests).toBe(1);
@@ -170,6 +195,20 @@ test('lists a Dev Machine and queues a lifecycle action', async ({ page }) => {
 	await expect(page.getByText('cancelled', { exact: true })).toBeVisible();
 	await page.getByTitle('Pause').click();
 	await expect.poll(() => pauseRequests).toBe(1);
+	await page.evaluate((href) => {
+		const link = document.createElement('a');
+		link.id = 'machine-b-link';
+		link.href = href;
+		link.textContent = 'Open second machine';
+		document.body.append(link);
+	}, `/test/machines/${secondMachineId}`);
+	await page.locator('#machine-b-link').click();
+	await expect(page).toHaveURL(new RegExp(`/test/machines/${secondMachineId}$`));
+	await expect(page.getByText('Second route machine', { exact: true })).toBeVisible();
+	await expect(page.getByText('machine a event', { exact: true })).toHaveCount(0);
+	await expect(page.getByText('[system] machine A log', { exact: true })).toHaveCount(0);
+	await expect(page.getByText('Test run', { exact: true })).toHaveCount(0);
+	await expect(page.getByText('kuayle/runtime-smoke', { exact: true })).toHaveCount(0);
 	expect(unhandledPaths).toEqual([]);
 });
 

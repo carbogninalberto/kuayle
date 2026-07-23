@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
 	import { page } from '$app/state';
 	import { ArrowLeft, Bot, Code2, ExternalLink, GitBranch, Pause, Play, Save, Server, ServerOff, Square, SquareTerminal, Trash2, Loader } from 'lucide-svelte';
 	import { goto, replaceState } from '$app/navigation';
@@ -48,7 +47,6 @@
 	let snapshotBusy = $state(false);
 	let runOpen = $state(false);
 	let cancelBusy = $state<Record<string, boolean>>({});
-	let timer: ReturnType<typeof setInterval> | undefined;
 	let polling = false;
 	let checkoutAttempted = false;
 	let workspaceRole = $state('');
@@ -70,6 +68,16 @@
 	const terminalService = $derived(services.find((item) => item.service_type === 'terminal'));
 
 	$effect(() => {
+		const targetSlug = slug;
+		const targetMachineId = machineId;
+		resetMachineState();
+		if (!targetSlug || !targetMachineId) return;
+		void load(targetSlug, targetMachineId);
+		const pollTimer = setInterval(() => void poll(targetSlug, targetMachineId), 4000);
+		return () => clearInterval(pollTimer);
+	});
+
+	$effect(() => {
 		const queryRunId = page.url.searchParams.get('agent_run_id');
 		const hashMatch = page.url.hash.match(/^#agent-run-([0-9a-fA-F-]{36})$/);
 		const linkedRunId = queryRunId || hashMatch?.[1] || null;
@@ -82,17 +90,42 @@
 		}
 	});
 
-	onMount(() => {
-		void load();
-		timer = setInterval(() => void poll(), 4000);
-	});
-	onDestroy(() => timer && clearInterval(timer));
+	function resetMachineState() {
+		machine = null;
+		services = [];
+		checkouts = [];
+		events = [];
+		eventsAfterId = 0;
+		logs = [];
+		logsAfterId = 0;
+		runs = [];
+		runsPage = 1;
+		runsHasMore = false;
+		usage = [];
+		loading = true;
+		failed = false;
+		actionBusy = false;
+		teardownConfirm = false;
+		deleteConfirm = false;
+		snapshotOpen = false;
+		snapshotName = '';
+		snapshotBusy = false;
+		runOpen = false;
+		cancelBusy = {};
+		polling = false;
+		checkoutAttempted = false;
+		workspaceRole = '';
+		launchBusy = {};
+		terminalQueryConsumed = false;
+		traceRunId = null;
+		traceOpen = false;
+	}
 
-	async function load() {
+	async function load(targetSlug = slug, targetMachineId = machineId) {
 		loading = true;
 		failed = false;
 		try {
-			await refreshAll();
+			await refreshAll(targetSlug, targetMachineId);
 		} catch (error) {
 			failed = true;
 			appToast.apiError(error, 'Failed to load Dev Machine');
@@ -101,15 +134,15 @@
 		}
 	}
 
-	async function refreshAll() {
-		const nextMachine = await getDevMachine(slug, machineId);
+	async function refreshAll(targetSlug = slug, targetMachineId = machineId) {
+		const nextMachine = await getDevMachine(targetSlug, targetMachineId);
 		machine = nextMachine;
 		// Serialized polling per panel — each fetch is independent and resilient
 		await Promise.allSettled([
-			listMachineServices(slug, machineId).then((s) => { services = s ?? []; }).catch(() => {}),
-			listMachineCheckouts(slug, machineId).then((items) => { checkouts = items ?? []; }).catch(() => {}),
-			listResourceUsage(slug, machineId).then((u) => { usage = u ?? []; }).catch(() => {}),
-			listMachineAgentRuns(slug, machineId).then((r) => {
+			listMachineServices(targetSlug, targetMachineId).then((s) => { services = s ?? []; }).catch(() => {}),
+			listMachineCheckouts(targetSlug, targetMachineId).then((items) => { checkouts = items ?? []; }).catch(() => {}),
+			listResourceUsage(targetSlug, targetMachineId).then((u) => { usage = u ?? []; }).catch(() => {}),
+			listMachineAgentRuns(targetSlug, targetMachineId).then((r) => {
 				const latest = r.data ?? [];
 				if (runsPage === 1) runs = latest;
 				else {
@@ -120,16 +153,16 @@
 			}).catch(() => {})
 		]);
 		if (!workspaceRole) {
-			getWorkspace(slug).then((workspace) => { workspaceRole = workspace.current_user_role; }).catch(() => {});
+			getWorkspace(targetSlug).then((workspace) => { workspaceRole = workspace.current_user_role; }).catch(() => {});
 		}
 		if (!checkoutAttempted && nextMachine.status === 'running' && nextMachine.issue_id && checkouts.length === 0) {
 			checkoutAttempted = true;
-			checkoutIssue(slug, machineId, nextMachine.issue_id)
+			checkoutIssue(targetSlug, targetMachineId, nextMachine.issue_id)
 				.then((checkout) => { checkouts = [checkout]; })
 				.catch((error) => appToast.apiError(error, 'Set a development repository before preparing this issue'));
 		}
 		// Append/dedupe events and logs with after_id tracking
-		await listMachineEvents(slug, machineId, eventsAfterId).then((e) => {
+		await listMachineEvents(targetSlug, targetMachineId, eventsAfterId).then((e) => {
 			if (e && e.length > 0) {
 				const existingIds = new Set(events.map((ev) => ev.id));
 				const newEvents = e.filter((ev) => !existingIds.has(ev.id));
@@ -137,7 +170,7 @@
 				eventsAfterId = Math.max(eventsAfterId, ...e.map((ev) => ev.id));
 			}
 		}).catch(() => {});
-		await listMachineLogs(slug, machineId, logsAfterId).then((l) => {
+		await listMachineLogs(targetSlug, targetMachineId, logsAfterId).then((l) => {
 			if (l && l.length > 0) {
 				const existingIds = new Set(logs.map((lg) => lg.id));
 				const newLogs = l.filter((lg) => !existingIds.has(lg.id));
@@ -151,9 +184,9 @@
 			const checkoutId = page.url.searchParams.get('checkout_id') ?? undefined;
 			const checkout = checkoutId ? checkouts.find((c) => c.id === checkoutId) : undefined;
 			dock.open({
-				slug,
-				machineId: machine.id,
-				machineName: machine.name,
+				slug: targetSlug,
+				machineId: nextMachine.id,
+				machineName: nextMachine.name,
 				checkoutId,
 				checkoutLabel: checkout ? `${checkout.repository_full_name} - ${checkout.working_branch}` : undefined
 			});
@@ -164,11 +197,11 @@
 		}
 	}
 
-	async function poll() {
+	async function poll(targetSlug = slug, targetMachineId = machineId) {
 		if (polling) return;
 		polling = true;
 		try {
-			await refreshAll();
+			await refreshAll(targetSlug, targetMachineId);
 		} catch {
 			// Background poll failures are silent, keep stale data
 		} finally {
