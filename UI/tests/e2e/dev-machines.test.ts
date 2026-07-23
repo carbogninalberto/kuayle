@@ -501,6 +501,7 @@ test('keeps multiple docked terminals alive across collapse and navigation', asy
 	const terminalPayloads: Record<string, unknown>[] = [];
 	let closeRequests = 0;
 	let terminalSessions = 0;
+	let listSessionRequests = 0;
 
 	await page.addInitScript(() => {
 		class MockWebSocket extends EventTarget {
@@ -561,7 +562,10 @@ test('keeps multiple docked terminals alive across collapse and navigation', asy
 		if (path === `/api/workspaces/test/dev-machines/${machineId}/logs`) return route.fulfill({ json: [] });
 		if (path === `/api/workspaces/test/dev-machines/${machineId}/agent-runs`) return route.fulfill({ json: { data: [], total_count: 0, page: 1, has_more: false } });
 		if (path === `/api/workspaces/test/dev-machines/${machineId}/resource-usage`) return route.fulfill({ json: [] });
-		if (path === `/api/workspaces/test/dev-machines/${machineId}/terminal-sessions` && request.method() === 'GET') return route.fulfill({ json: [] });
+		if (path === `/api/workspaces/test/dev-machines/${machineId}/terminal-sessions` && request.method() === 'GET') {
+			listSessionRequests += 1;
+			return route.fulfill({ json: [] });
+		}
 		if (path === `/api/workspaces/test/dev-machines/${machineId}/terminal-sessions` && request.method() === 'POST') {
 			terminalPayloads.push(request.postDataJSON());
 			terminalSessions += 1;
@@ -582,6 +586,7 @@ test('keeps multiple docked terminals alive across collapse and navigation', asy
 	await expect(page.getByTestId('terminal-dock')).toBeVisible();
 	await expect(page.getByTestId('native-terminal')).toBeVisible();
 	await expect.poll(() => terminalPayloads.length).toBe(1);
+	expect(listSessionRequests).toBe(0);
 	expect(terminalPayloads[0]).toMatchObject({ checkout_id: checkoutId });
 	await expect.poll(() => page.evaluate(() => (window as any).__terminalSockets?.[0]?.sent.length ?? 0)).toBeGreaterThan(0);
 	const firstFrame = await page.evaluate(() => new TextDecoder().decode(new Uint8Array((window as any).__terminalSockets[0].sent[0])));

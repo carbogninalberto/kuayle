@@ -6,8 +6,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import {
 		closeTerminalSession,
-		createTerminalSessionWithResume,
-		listTerminalSessions
+		createTerminalSessionWithResume
 	} from '$lib/api/dev-machines';
 	import type { DevMachineTerminalSession } from '$lib/types/dev-machine';
 	import {
@@ -37,7 +36,6 @@
 	let gatewayOrigin = $state('');
 	let resizeObserver: ResizeObserver | undefined;
 	let session = $state<DevMachineTerminalSession | null>(null);
-	let existingSessions = $state<DevMachineTerminalSession[]>([]);
 	let status = $state<'idle' | 'creating' | 'resuming' | 'pending' | 'connecting' | 'connected' | 'closed' | 'error'>('idle');
 	let statusMessage = $state('');
 	let title = $state('');
@@ -88,7 +86,6 @@
 		try {
 			await prepareTerminal();
 			if (id !== runId) return;
-			existingSessions = await listTerminalSessions(tab.slug, tab.machineId).catch(() => []);
 			const launch = await createTerminalSessionWithResume(
 				tab.slug,
 				tab.machineId,
@@ -289,7 +286,6 @@
 			status = 'idle';
 			statusMessage = '';
 			title = '';
-			existingSessions = [];
 		}
 	}
 </script>
