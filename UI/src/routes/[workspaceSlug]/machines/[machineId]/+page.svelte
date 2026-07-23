@@ -47,13 +47,19 @@
 	let snapshotBusy = $state(false);
 	let runOpen = $state(false);
 	let cancelBusy = $state<Record<string, boolean>>({});
-	let polling = false;
 	let checkoutAttempted = false;
 	let workspaceRole = $state('');
 	let launchBusy = $state<Record<string, boolean>>({});
+	let runsLoading = $state(false);
+	let machineUpdateBusy = false;
 	let terminalQueryConsumed = false;
 	let traceRunId = $state<string | null>(null);
 	let traceOpen = $state(false);
+	let routeGeneration = 0;
+	let refreshSequence = 0;
+	let runsRequestSequence = 0;
+	let machineUpdateSequence = 0;
+	let pollGeneration = 0;
 	const dock = useTerminalDock();
 
 	// Treat desired_status != status as pending ("transitioning")
@@ -70,11 +76,15 @@
 	$effect(() => {
 		const targetSlug = slug;
 		const targetMachineId = machineId;
+		const generation = ++routeGeneration;
 		resetMachineState();
 		if (!targetSlug || !targetMachineId) return;
-		void load(targetSlug, targetMachineId);
-		const pollTimer = setInterval(() => void poll(targetSlug, targetMachineId), 4000);
-		return () => clearInterval(pollTimer);
+		void load(targetSlug, targetMachineId, generation);
+		const pollTimer = setInterval(() => void poll(targetSlug, targetMachineId, generation), 4000);
+		return () => {
+			if (routeGeneration === generation) routeGeneration++;
+			clearInterval(pollTimer);
+		};
 	});
 
 	$effect(() => {
@@ -112,72 +122,102 @@
 		snapshotBusy = false;
 		runOpen = false;
 		cancelBusy = {};
-		polling = false;
 		checkoutAttempted = false;
 		workspaceRole = '';
 		launchBusy = {};
+		runsLoading = false;
+		machineUpdateBusy = false;
 		terminalQueryConsumed = false;
 		traceRunId = null;
 		traceOpen = false;
+		refreshSequence++;
+		runsRequestSequence++;
+		machineUpdateSequence++;
 	}
 
-	async function load(targetSlug = slug, targetMachineId = machineId) {
+	function isCurrentRoute(targetSlug: string, targetMachineId: string, generation: number) {
+		return routeGeneration === generation && slug === targetSlug && machineId === targetMachineId;
+	}
+
+	function isCurrentRefresh(targetSlug: string, targetMachineId: string, generation: number, sequence: number) {
+		return isCurrentRoute(targetSlug, targetMachineId, generation) && refreshSequence === sequence;
+	}
+
+	async function load(targetSlug = slug, targetMachineId = machineId, generation = routeGeneration) {
+		const sequence = ++refreshSequence;
 		loading = true;
 		failed = false;
 		try {
-			await refreshAll(targetSlug, targetMachineId);
+			await refreshAll(targetSlug, targetMachineId, generation, sequence);
 		} catch (error) {
+			if (!isCurrentRefresh(targetSlug, targetMachineId, generation, sequence)) return;
 			failed = true;
 			appToast.apiError(error, 'Failed to load Dev Machine');
 		} finally {
-			loading = false;
+			if (isCurrentRefresh(targetSlug, targetMachineId, generation, sequence)) loading = false;
 		}
 	}
 
-	async function refreshAll(targetSlug = slug, targetMachineId = machineId) {
+	async function refreshAll(targetSlug = slug, targetMachineId = machineId, generation = routeGeneration, sequence = ++refreshSequence) {
 		const nextMachine = await getDevMachine(targetSlug, targetMachineId);
+		if (!isCurrentRefresh(targetSlug, targetMachineId, generation, sequence)) return;
 		machine = nextMachine;
-		// Serialized polling per panel — each fetch is independent and resilient
-		await Promise.allSettled([
-			listMachineServices(targetSlug, targetMachineId).then((s) => { services = s ?? []; }).catch(() => {}),
-			listMachineCheckouts(targetSlug, targetMachineId).then((items) => { checkouts = items ?? []; }).catch(() => {}),
-			listResourceUsage(targetSlug, targetMachineId).then((u) => { usage = u ?? []; }).catch(() => {}),
-			listMachineAgentRuns(targetSlug, targetMachineId).then((r) => {
-				const latest = r.data ?? [];
-				if (runsPage === 1) runs = latest;
-				else {
-					const latestIds = new Set(latest.map((run) => run.id));
-					runs = [...latest, ...runs.filter((run) => !latestIds.has(run.id))];
-				}
-				runsHasMore = runsPage === 1 ? r.has_more : runsHasMore;
-			}).catch(() => {})
+		const currentRunsPage = runsPage;
+		const [serviceResult, checkoutResult, usageResult, runsResult, workspaceResult] = await Promise.allSettled([
+			listMachineServices(targetSlug, targetMachineId),
+			listMachineCheckouts(targetSlug, targetMachineId),
+			listResourceUsage(targetSlug, targetMachineId),
+			listMachineAgentRuns(targetSlug, targetMachineId),
+			workspaceRole ? Promise.resolve(null) : getWorkspace(targetSlug)
 		]);
-		if (!workspaceRole) {
-			getWorkspace(targetSlug).then((workspace) => { workspaceRole = workspace.current_user_role; }).catch(() => {});
+		if (!isCurrentRefresh(targetSlug, targetMachineId, generation, sequence)) return;
+		if (serviceResult.status === 'fulfilled') services = serviceResult.value ?? [];
+		if (checkoutResult.status === 'fulfilled') checkouts = checkoutResult.value ?? [];
+		if (usageResult.status === 'fulfilled') usage = usageResult.value ?? [];
+		if (runsResult.status === 'fulfilled') {
+			const latest = runsResult.value.data ?? [];
+			if (currentRunsPage === 1) runs = latest;
+			else {
+				const latestIds = new Set(latest.map((run) => run.id));
+				runs = [...latest, ...runs.filter((run) => !latestIds.has(run.id))];
+			}
+			runsHasMore = currentRunsPage === 1 ? runsResult.value.has_more : runsHasMore;
 		}
+		if (workspaceResult.status === 'fulfilled' && workspaceResult.value) workspaceRole = workspaceResult.value.current_user_role;
 		if (!checkoutAttempted && nextMachine.status === 'running' && nextMachine.issue_id && checkouts.length === 0) {
 			checkoutAttempted = true;
-			checkoutIssue(targetSlug, targetMachineId, nextMachine.issue_id)
-				.then((checkout) => { checkouts = [checkout]; })
-				.catch((error) => appToast.apiError(error, 'Set a development repository before preparing this issue'));
+			try {
+				const checkout = await checkoutIssue(targetSlug, targetMachineId, nextMachine.issue_id);
+				if (!isCurrentRefresh(targetSlug, targetMachineId, generation, sequence)) return;
+				checkouts = [checkout];
+			} catch (error) {
+				if (!isCurrentRefresh(targetSlug, targetMachineId, generation, sequence)) return;
+				appToast.apiError(error, 'Set a development repository before preparing this issue');
+			}
 		}
-		// Append/dedupe events and logs with after_id tracking
-		await listMachineEvents(targetSlug, targetMachineId, eventsAfterId).then((e) => {
-			if (e && e.length > 0) {
-				const existingIds = new Set(events.map((ev) => ev.id));
-				const newEvents = e.filter((ev) => !existingIds.has(ev.id));
+		const eventCursor = eventsAfterId;
+		const logCursor = logsAfterId;
+		const [eventResult, logResult] = await Promise.allSettled([
+			listMachineEvents(targetSlug, targetMachineId, eventCursor),
+			listMachineLogs(targetSlug, targetMachineId, logCursor)
+		]);
+		if (!isCurrentRefresh(targetSlug, targetMachineId, generation, sequence)) return;
+		if (eventResult.status === 'fulfilled' && eventResult.value.length > 0) {
+			const existingIds = new Set(events.map((event) => event.id));
+			const newEvents = eventResult.value.filter((event) => !existingIds.has(event.id));
+			if (newEvents.length > 0) {
 				events = [...events, ...newEvents];
-				eventsAfterId = Math.max(eventsAfterId, ...e.map((ev) => ev.id));
+				eventsAfterId = Math.max(eventsAfterId, ...eventResult.value.map((event) => event.id));
 			}
-		}).catch(() => {});
-		await listMachineLogs(targetSlug, targetMachineId, logsAfterId).then((l) => {
-			if (l && l.length > 0) {
-				const existingIds = new Set(logs.map((lg) => lg.id));
-				const newLogs = l.filter((lg) => !existingIds.has(lg.id));
+		}
+		if (logResult.status === 'fulfilled' && logResult.value.length > 0) {
+			const existingIds = new Set(logs.map((log) => log.id));
+			const newLogs = logResult.value.filter((log) => !existingIds.has(log.id));
+			if (newLogs.length > 0) {
 				logs = [...logs, ...newLogs];
-				logsAfterId = Math.max(logsAfterId, ...l.map((lg) => lg.id));
+				logsAfterId = Math.max(logsAfterId, ...logResult.value.map((log) => log.id));
 			}
-		}).catch(() => {});
+		}
 		const terminalParam = page.url.searchParams.get('terminal');
 		if (terminalParam === '1' && !terminalQueryConsumed) {
 			terminalQueryConsumed = true;
@@ -197,15 +237,15 @@
 		}
 	}
 
-	async function poll(targetSlug = slug, targetMachineId = machineId) {
-		if (polling) return;
-		polling = true;
+	async function poll(targetSlug = slug, targetMachineId = machineId, generation = routeGeneration) {
+		if (pollGeneration === generation || !isCurrentRoute(targetSlug, targetMachineId, generation) || loading || actionBusy || runsLoading || machineUpdateBusy) return;
+		pollGeneration = generation;
 		try {
-			await refreshAll(targetSlug, targetMachineId);
+			await refreshAll(targetSlug, targetMachineId, generation);
 		} catch {
 			// Background poll failures are silent, keep stale data
 		} finally {
-			polling = false;
+			if (pollGeneration === generation) pollGeneration = 0;
 		}
 	}
 
@@ -226,22 +266,32 @@
 	}
 
 	async function lifecycle(action: 'start' | 'pause' | 'stop') {
+		const targetSlug = slug;
+		const targetMachineId = machineId;
+		const generation = routeGeneration;
+		refreshSequence++;
 		actionBusy = true;
 		try {
-			if (action === 'start') await startDevMachine(slug, machineId);
-			if (action === 'pause') await pauseDevMachine(slug, machineId);
-			if (action === 'stop') await stopDevMachine(slug, machineId);
+			if (action === 'start') await startDevMachine(targetSlug, targetMachineId);
+			if (action === 'pause') await pauseDevMachine(targetSlug, targetMachineId);
+			if (action === 'stop') await stopDevMachine(targetSlug, targetMachineId);
+			if (!isCurrentRoute(targetSlug, targetMachineId, generation)) return;
 			appToast.success(`Machine ${action} queued`);
-			await refreshAll();
+			await refreshAll(targetSlug, targetMachineId, generation);
 		} catch (error) {
+			if (!isCurrentRoute(targetSlug, targetMachineId, generation)) return;
 			appToast.apiError(error, `Failed to ${action} machine`);
 		} finally {
-			actionBusy = false;
+			if (isCurrentRoute(targetSlug, targetMachineId, generation)) actionBusy = false;
 		}
 	}
 
 	async function launch(service: DevMachineService, checkoutId?: string) {
 		if (!machine) return;
+		const targetSlug = slug;
+		const targetMachineId = machineId;
+		const targetMachine = machine;
+		const generation = routeGeneration;
 		if (!serviceActionAvailable(service)) {
 			appToast.warning(machine.status === 'paused' ? 'Resuming is only available for paused machines.' : 'Service is not ready. Wait until it reports healthy.');
 			return;
@@ -249,9 +299,9 @@
 		if (service.service_type === 'terminal') {
 			const checkout = checkoutId ? checkouts.find((c) => c.id === checkoutId) : undefined;
 			dock.open({
-				slug,
-				machineId: machine.id,
-				machineName: machine.name,
+				slug: targetSlug,
+				machineId: targetMachine.id,
+				machineName: targetMachine.name,
 				checkoutId: checkoutId,
 				checkoutLabel: checkout ? `${checkout.repository_full_name} - ${checkout.working_branch}` : undefined
 			});
@@ -263,101 +313,165 @@
 		const popup = window.open('about:blank', '_blank');
 		if (popup) popup.opener = null;
 		try {
-			const result = await launchMachineServiceWithResume(slug, machineId, service.service_key, checkoutId, {
-				onStatus: (status) => appToast.info(status === 'resuming' ? 'Resuming paused Dev Machine…' : 'Waiting for Dev Machine…')
+			const result = await launchMachineServiceWithResume(targetSlug, targetMachineId, service.service_key, checkoutId, {
+				onStatus: (status) => {
+					if (isCurrentRoute(targetSlug, targetMachineId, generation)) appToast.info(status === 'resuming' ? 'Resuming paused Dev Machine…' : 'Waiting for Dev Machine…');
+				}
 			});
+			if (!isCurrentRoute(targetSlug, targetMachineId, generation)) {
+				popup?.close();
+				return;
+			}
 			if (popup && result.launch_url) popup.location.replace(result.launch_url);
 			else appToast.warning('Pop-up blocked. Please allow pop-ups for this site.');
-			await refreshAll();
+			await refreshAll(targetSlug, targetMachineId, generation);
 		} catch (error) {
 			popup?.close();
+			if (!isCurrentRoute(targetSlug, targetMachineId, generation)) return;
 			appToast.apiError(error, `Failed to open ${service.service_type}`);
 		} finally {
-			launchBusy[busyKey] = false;
-			launchBusy = { ...launchBusy };
+			if (isCurrentRoute(targetSlug, targetMachineId, generation)) {
+				launchBusy[busyKey] = false;
+				launchBusy = { ...launchBusy };
+			}
 		}
 	}
 
 	async function teardown() {
+		const targetSlug = slug;
+		const targetMachineId = machineId;
+		const generation = routeGeneration;
+		refreshSequence++;
 		teardownConfirm = false;
 		actionBusy = true;
 		try {
-			await teardownDevMachine(slug, machineId);
+			await teardownDevMachine(targetSlug, targetMachineId);
+			if (!isCurrentRoute(targetSlug, targetMachineId, generation)) return;
 			appToast.success('Machine teardown queued');
-			await refreshAll();
+			await refreshAll(targetSlug, targetMachineId, generation);
 		} catch (error) {
+			if (!isCurrentRoute(targetSlug, targetMachineId, generation)) return;
 			appToast.apiError(error, 'Failed to teardown machine');
 		} finally {
-			actionBusy = false;
+			if (isCurrentRoute(targetSlug, targetMachineId, generation)) actionBusy = false;
 		}
 	}
 
 	async function removeMachine() {
+		const targetSlug = slug;
+		const targetMachineId = machineId;
+		const generation = routeGeneration;
+		refreshSequence++;
 		deleteConfirm = false;
 		actionBusy = true;
 		try {
-			await deleteDevMachine(slug, machineId);
+			await deleteDevMachine(targetSlug, targetMachineId);
+			if (!isCurrentRoute(targetSlug, targetMachineId, generation)) return;
 			appToast.success('Dev Machine deletion requested');
-			await goto(`/${slug}/machines`);
+			await goto(`/${targetSlug}/machines`);
 		} catch (error) {
+			if (!isCurrentRoute(targetSlug, targetMachineId, generation)) return;
 			appToast.apiError(error, 'Failed to permanently delete machine');
 		} finally {
-			actionBusy = false;
+			if (isCurrentRoute(targetSlug, targetMachineId, generation)) actionBusy = false;
 		}
 	}
 
 	async function toggleKeepRunning(checked: boolean) {
 		if (!machine) return;
+		const targetSlug = slug;
+		const targetMachineId = machineId;
+		const generation = routeGeneration;
+		const updateSequence = ++machineUpdateSequence;
 		const previous = machine.keep_running;
-		machine.keep_running = checked;
+		const stateSequence = ++refreshSequence;
+		machineUpdateBusy = true;
+		machine = { ...machine, keep_running: checked };
 		try {
-			machine = await updateDevMachine(slug, machineId, { keep_running: checked });
+			const updated = await updateDevMachine(targetSlug, targetMachineId, { keep_running: checked });
+			if (!isCurrentRefresh(targetSlug, targetMachineId, generation, stateSequence) || machineUpdateSequence !== updateSequence) return;
+			machine = updated;
 		} catch (error) {
-			machine.keep_running = previous;
+			if (!isCurrentRefresh(targetSlug, targetMachineId, generation, stateSequence) || machineUpdateSequence !== updateSequence) return;
+			if (machine) machine = { ...machine, keep_running: previous };
 			appToast.apiError(error, 'Failed to update inactivity behavior');
+		} finally {
+			if (isCurrentRoute(targetSlug, targetMachineId, generation) && machineUpdateSequence === updateSequence) machineUpdateBusy = false;
 		}
 	}
 
 	async function saveSnapshot() {
 		if (!snapshotName.trim()) return;
+		const targetSlug = slug;
+		const targetMachineId = machineId;
+		const generation = routeGeneration;
+		const name = snapshotName.trim();
 		snapshotBusy = true;
 		try {
-			await snapshotDevMachineEnvironment(slug, { name: snapshotName.trim(), source_machine_id: machineId });
+			await snapshotDevMachineEnvironment(targetSlug, { name, source_machine_id: targetMachineId });
+			if (!isCurrentRoute(targetSlug, targetMachineId, generation)) return;
 			appToast.success('Development environment snapshot queued');
 			snapshotOpen = false;
 		} catch (error) {
+			if (!isCurrentRoute(targetSlug, targetMachineId, generation)) return;
 			appToast.apiError(error, 'Failed to save development environment');
 		} finally {
-			snapshotBusy = false;
+			if (isCurrentRoute(targetSlug, targetMachineId, generation)) snapshotBusy = false;
 		}
 	}
 
 	async function doCancelAgentRun(runId: string) {
+		const targetSlug = slug;
+		const targetMachineId = machineId;
+		const generation = routeGeneration;
+		refreshSequence++;
 		cancelBusy[runId] = true;
 		cancelBusy = { ...cancelBusy };
 		try {
-			await cancelAgentRun(slug, runId);
+			await cancelAgentRun(targetSlug, runId);
+			if (!isCurrentRoute(targetSlug, targetMachineId, generation)) return;
 			appToast.success('Run cancelled');
-			await refreshAll();
+			await refreshAll(targetSlug, targetMachineId, generation);
 		} catch (error) {
+			if (!isCurrentRoute(targetSlug, targetMachineId, generation)) return;
 			appToast.apiError(error, 'Failed to cancel run');
 		} finally {
-			cancelBusy[runId] = false;
-			cancelBusy = { ...cancelBusy };
+			if (isCurrentRoute(targetSlug, targetMachineId, generation)) {
+				cancelBusy[runId] = false;
+				cancelBusy = { ...cancelBusy };
+			}
 		}
 	}
 
 	async function loadMoreRuns() {
+		const targetSlug = slug;
+		const targetMachineId = machineId;
+		const generation = routeGeneration;
+		const requestSequence = ++runsRequestSequence;
 		const nextPage = runsPage + 1;
+		refreshSequence++;
+		runsLoading = true;
 		try {
-			const response = await listMachineAgentRuns(slug, machineId, nextPage);
+			const response = await listMachineAgentRuns(targetSlug, targetMachineId, nextPage);
+			if (!isCurrentRoute(targetSlug, targetMachineId, generation) || runsRequestSequence !== requestSequence) return;
 			const existing = new Set(runs.map((run) => run.id));
 			runs = [...runs, ...(response.data ?? []).filter((run) => !existing.has(run.id))];
 			runsPage = nextPage;
 			runsHasMore = response.has_more;
 		} catch (error) {
+			if (!isCurrentRoute(targetSlug, targetMachineId, generation) || runsRequestSequence !== requestSequence) return;
 			appToast.apiError(error, 'Failed to load older runs');
+		} finally {
+			if (isCurrentRoute(targetSlug, targetMachineId, generation) && runsRequestSequence === requestSequence) runsLoading = false;
 		}
+	}
+
+	function handleAgentRunCreated(run: AgentRun) {
+		const targetSlug = slug;
+		const targetMachineId = machineId;
+		const generation = routeGeneration;
+		void refreshAll(targetSlug, targetMachineId, generation);
+		openTrace(run.id);
 	}
 
 	function bytes(value = 0) {
@@ -516,7 +630,7 @@
 								{#if run.risk_notes?.length}<div class="mt-2 text-xs text-amber-400">{run.risk_notes.join(' · ')}</div>{/if}
 							</article>
 						{/each}
-						{#if runsHasMore}<Button variant="outline" size="sm" onclick={loadMoreRuns}>Load older runs</Button>{/if}
+						{#if runsHasMore}<Button variant="outline" size="sm" disabled={runsLoading} onclick={loadMoreRuns}>{runsLoading ? 'Loading...' : 'Load older runs'}</Button>{/if}
 					</div>
 				</section>
 
@@ -540,7 +654,7 @@
 		</div>
 	</div>
 
-	<AgentRunDialog bind:open={runOpen} {slug} {machine} checkoutId={readyCheckouts[0]?.id} oncreated={(run) => { refreshAll(); openTrace(run.id); }} />
+	<AgentRunDialog bind:open={runOpen} {slug} {machine} checkoutId={readyCheckouts[0]?.id} oncreated={handleAgentRunCreated} />
 
 	<AgentRunTraceSheet bind:open={traceOpen} {slug} runId={traceRunId} onclose={closeTrace} />
 

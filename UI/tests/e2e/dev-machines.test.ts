@@ -1,11 +1,23 @@
 import { expect, test } from '@playwright/test';
 
-test('lists a Dev Machine and queues a lifecycle action', async ({ page }) => {
+function createRequestDelay() {
+	let markStarted!: () => void;
+	let release!: () => void;
+	let markCompleted!: () => void;
+	const started = new Promise<void>((resolve) => { markStarted = resolve; });
+	const released = new Promise<void>((resolve) => { release = resolve; });
+	const completed = new Promise<void>((resolve) => { markCompleted = resolve; });
+	return { started, markStarted, released, release, completed, markCompleted };
+}
+
+test('handles machine actions without applying stale poll, route, or trace responses', async ({ page }) => {
 	const machineId = '00000000-0000-0000-0000-000000000050';
 	let pauseRequests = 0;
 	let cancelRequests = 0;
 	let keepRunningRequests = 0;
 	let runCancelled = false;
+	let machineRequestDelay: ReturnType<typeof createRequestDelay> | null = null;
+	let traceRequestDelay: ReturnType<typeof createRequestDelay> | null = null;
 	const unhandledPaths: string[] = [];
 	const machine = {
 		id: machineId,
@@ -41,6 +53,8 @@ test('lists a Dev Machine and queues a lifecycle action', async ({ page }) => {
 		name: 'Second route machine',
 		working_branch: 'kuayle/second-route'
 	};
+	const firstRunId = '00000000-0000-0000-0000-000000000052';
+	const secondRunId = '00000000-0000-0000-0000-000000000058';
 	const checkout = {
 		id: '00000000-0000-0000-0000-000000000053', workspace_id: machine.workspace_id,
 		machine_id: machineId, issue_id: '00000000-0000-0000-0000-000000000054',
@@ -104,7 +118,17 @@ test('lists a Dev Machine and queues a lifecycle action', async ({ page }) => {
 			return route.fulfill({ json: machine });
 		}
 		if (path === `/api/workspaces/test/dev-machines/${machineId}`) {
-			return route.fulfill({ json: machine });
+			const response = { ...machine };
+			const delay = machineRequestDelay;
+			if (delay) {
+				machineRequestDelay = null;
+				delay.markStarted();
+				await delay.released;
+				await route.fulfill({ json: response });
+				delay.markCompleted();
+				return;
+			}
+			return route.fulfill({ json: response });
 		}
 		if (path === `/api/workspaces/test/dev-machines/${machineId}/services`) {
 			return route.fulfill({
@@ -129,22 +153,52 @@ test('lists a Dev Machine and queues a lifecycle action', async ({ page }) => {
 		}
 		if (path === `/api/workspaces/test/dev-machines/${machineId}/agent-runs`) {
 			return route.fulfill({ json: { data: [{
-				id: '00000000-0000-0000-0000-000000000052', machine_id: machineId,
+				id: firstRunId, machine_id: machineId,
 				workspace_id: machine.workspace_id, provider_id: 'opencode', mode: 'autonomous',
 				status: runCancelled ? 'cancelled' : 'running', prompt: 'Test run', max_runtime_seconds: 600,
 				push_branch: false, open_pull_request: false, created_at: '2026-07-13T00:00:00Z'
-			}], total_count: 1, page: 1, has_more: false } });
+			}, {
+				id: secondRunId, machine_id: machineId,
+				workspace_id: machine.workspace_id, provider_id: 'claude', mode: 'autonomous',
+				status: 'succeeded', prompt: 'Second test run', max_runtime_seconds: 600,
+				push_branch: false, open_pull_request: false, created_at: '2026-07-12T00:00:00Z'
+			}], total_count: 2, page: 1, has_more: false } });
 		}
-		if (path === '/api/workspaces/test/agent-runs/00000000-0000-0000-0000-000000000052/cancel' && request.method() === 'POST') {
+		if (path === `/api/workspaces/test/agent-runs/${firstRunId}/cancel` && request.method() === 'POST') {
 			cancelRequests += 1;
 			runCancelled = true;
 			return route.fulfill({ status: 202, body: '' });
+		}
+		if (path === `/api/workspaces/test/agent-runs/${firstRunId}/trace`) {
+			const delay = traceRequestDelay;
+			if (delay) {
+				traceRequestDelay = null;
+				delay.markStarted();
+				await delay.released;
+			}
+			await route.fulfill({ json: {
+				run: { id: firstRunId, machine_id: machineId, workspace_id: machine.workspace_id, provider_id: 'opencode', mode: 'autonomous', status: 'cancelled', prompt: 'Stale first trace prompt', max_runtime_seconds: 600, push_branch: false, open_pull_request: false, created_at: '2026-07-13T00:00:00Z' },
+				steps: [], events: [], logs: [], next_event_id: 0, next_log_id: 0, has_more_events: false, has_more_logs: false
+			} });
+			delay?.markCompleted();
+			return;
+		}
+		if (path === `/api/workspaces/test/agent-runs/${secondRunId}/trace`) {
+			return route.fulfill({ json: {
+				run: { id: secondRunId, machine_id: machineId, workspace_id: machine.workspace_id, provider_id: 'claude', mode: 'autonomous', status: 'succeeded', prompt: 'Current second trace prompt', max_runtime_seconds: 600, push_branch: false, open_pull_request: false, created_at: '2026-07-12T00:00:00Z' },
+				steps: [], events: [], logs: [], next_event_id: 0, next_log_id: 0, has_more_events: false, has_more_logs: false
+			} });
 		}
 		if (path === `/api/workspaces/test/dev-machines/${machineId}/resource-usage`) {
 			return route.fulfill({ json: [] });
 		}
 		if (path === `/api/workspaces/test/dev-machines/${machineId}/pause` && request.method() === 'POST') {
 			pauseRequests += 1;
+			Object.assign(machine, { status: 'paused', desired_status: 'paused', generation: machine.generation + 1 });
+			return route.fulfill({ status: 202, json: { status: 'pending' } });
+		}
+		if (path === `/api/workspaces/test/dev-machines/${machineId}/start` && request.method() === 'POST') {
+			Object.assign(machine, { status: 'running', desired_status: 'running', generation: machine.generation + 1 });
 			return route.fulfill({ status: 202, json: { status: 'pending' } });
 		}
 		if (path === `/api/workspaces/test/dev-machines/${secondMachineId}`) {
@@ -193,8 +247,42 @@ test('lists a Dev Machine and queues a lifecycle action', async ({ page }) => {
 	await page.locator('#agent-runs').getByRole('button', { name: 'Cancel' }).click();
 	await expect.poll(() => cancelRequests).toBe(1);
 	await expect(page.getByText('cancelled', { exact: true })).toBeVisible();
+	traceRequestDelay = createRequestDelay();
+	const staleTrace = traceRequestDelay;
+	await page.getByRole('button', { name: 'View opencode agent run activity' }).click();
+	await staleTrace.started;
+	await page.evaluate(({ href, runId }) => {
+		const link = document.createElement('a');
+		link.href = href;
+		link.hash = `agent-run-${runId}`;
+		document.body.append(link);
+		link.click();
+		link.remove();
+	}, { href: `/test/machines/${machineId}?agent_run_id=${secondRunId}`, runId: secondRunId });
+	await expect(page.getByText('Current second trace prompt', { exact: true })).toBeVisible();
+	staleTrace.release();
+	await staleTrace.completed;
+	await page.waitForTimeout(50);
+	await expect(page.getByText('Current second trace prompt', { exact: true })).toBeVisible();
+	await expect(page.getByText('Stale first trace prompt', { exact: true })).toHaveCount(0);
+	await page.keyboard.press('Escape');
+	await expect(page.getByRole('heading', { name: 'Agent Run Trace' })).toHaveCount(0);
+
+	machineRequestDelay = createRequestDelay();
+	const stalePoll = machineRequestDelay;
+	await stalePoll.started;
 	await page.getByTitle('Pause').click();
 	await expect.poll(() => pauseRequests).toBe(1);
+	await expect(page.getByTitle('Start')).toBeVisible();
+	stalePoll.release();
+	await stalePoll.completed;
+	await page.waitForTimeout(50);
+	await expect(page.getByTitle('Start')).toBeVisible();
+
+	machineRequestDelay = createRequestDelay();
+	const staleLifecycleRefresh = machineRequestDelay;
+	await page.getByTitle('Start').click();
+	await staleLifecycleRefresh.started;
 	await page.evaluate((href) => {
 		const link = document.createElement('a');
 		link.id = 'machine-b-link';
@@ -205,6 +293,11 @@ test('lists a Dev Machine and queues a lifecycle action', async ({ page }) => {
 	await page.locator('#machine-b-link').click();
 	await expect(page).toHaveURL(new RegExp(`/test/machines/${secondMachineId}$`));
 	await expect(page.getByText('Second route machine', { exact: true })).toBeVisible();
+	staleLifecycleRefresh.release();
+	await staleLifecycleRefresh.completed;
+	await page.waitForTimeout(50);
+	await expect(page.getByText('Second route machine', { exact: true })).toBeVisible();
+	await expect(page.getByText('Runtime smoke machine', { exact: true })).toHaveCount(0);
 	await expect(page.getByText('machine a event', { exact: true })).toHaveCount(0);
 	await expect(page.getByText('[system] machine A log', { exact: true })).toHaveCount(0);
 	await expect(page.getByText('Test run', { exact: true })).toHaveCount(0);

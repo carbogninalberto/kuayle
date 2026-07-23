@@ -24,7 +24,7 @@
 	let logsAfterId = 0;
 	let cancelBusy = $state(false);
 	let timer: ReturnType<typeof setTimeout> | undefined;
-	let polling = false;
+	let pollingVersion = 0;
 	let requestVersion = 0;
 
 	const terminalStatuses = new Set(['succeeded', 'failed', 'cancelled', 'timeout']);
@@ -32,12 +32,13 @@
 
 	$effect(() => {
 		const currentOpen = open;
+		const currentSlug = slug;
 		const currentRunId = runId;
 		const version = ++requestVersion;
 		clearPoll();
 		if (!currentOpen || !currentRunId) return;
 		resetTrace();
-		void loadTrace(currentRunId, version);
+		void loadTrace(currentSlug, currentRunId, version);
 		return () => {
 			if (requestVersion === version) requestVersion++;
 			clearPoll();
@@ -61,21 +62,26 @@
 		logs = [];
 		eventsAfterId = 0;
 		logsAfterId = 0;
+		loading = false;
 		failed = false;
+		cancelBusy = false;
+		pollingVersion = 0;
 	}
 
 	function handleClose() {
 		open = false;
+		requestVersion++;
+		pollingVersion = 0;
 		clearPoll();
 		onclose?.();
 	}
 
-	async function loadTrace(currentRunId = runId, version = requestVersion) {
+	async function loadTrace(currentSlug = slug, currentRunId = runId, version = requestVersion) {
 		if (!currentRunId) return;
 		loading = true;
 		failed = false;
 		try {
-			await fetchAvailableTrace(currentRunId, version);
+			await fetchAvailableTrace(currentSlug, currentRunId, version);
 		} catch (error) {
 			if (version !== requestVersion) return;
 			failed = true;
@@ -83,16 +89,16 @@
 		} finally {
 			if (version === requestVersion) {
 				loading = false;
-				schedulePoll(currentRunId, version);
+				schedulePoll(currentSlug, currentRunId, version);
 			}
 		}
 	}
 
-	async function fetchAvailableTrace(currentRunId: string, version: number) {
+	async function fetchAvailableTrace(currentSlug: string, currentRunId: string, version: number) {
 		let hasMore = false;
 		do {
-			const trace = await getAgentRunTrace(slug, currentRunId, eventsAfterId, 200, logsAfterId, 500);
-			if (version !== requestVersion || !open || runId !== currentRunId) return;
+			const trace = await getAgentRunTrace(currentSlug, currentRunId, eventsAfterId, 200, logsAfterId, 500);
+			if (version !== requestVersion || !open || slug !== currentSlug || runId !== currentRunId) return;
 			applyTrace(trace);
 			hasMore = trace.has_more_events || trace.has_more_logs;
 		} while (hasMore);
@@ -113,36 +119,45 @@
 		logsAfterId = Math.max(logsAfterId, trace.next_log_id ?? 0, ...newLogs.map((l) => l.id));
 	}
 
-	function schedulePoll(currentRunId: string, version: number, delay = 1000) {
+	function schedulePoll(currentSlug: string, currentRunId: string, version: number, delay = 1000) {
 		clearPoll();
-		if (version !== requestVersion || !open || runId !== currentRunId || !run || terminalStatuses.has(run.status)) return;
-		timer = setTimeout(() => void poll(currentRunId, version), delay);
+		if (version !== requestVersion || !open || slug !== currentSlug || runId !== currentRunId || !run || terminalStatuses.has(run.status)) return;
+		timer = setTimeout(() => void poll(currentSlug, currentRunId, version), delay);
 	}
 
-	async function poll(currentRunId = runId, version = requestVersion) {
-		if (polling || !currentRunId || version !== requestVersion) return;
-		polling = true;
+	async function poll(currentSlug = slug, currentRunId = runId, version = requestVersion) {
+		if (pollingVersion === version || !currentRunId || version !== requestVersion || slug !== currentSlug) return;
+		pollingVersion = version;
 		try {
-			await fetchAvailableTrace(currentRunId, version);
+			await fetchAvailableTrace(currentSlug, currentRunId, version);
 		} catch {
 			// Silent background poll
 		} finally {
-			polling = false;
-			schedulePoll(currentRunId, version);
+			if (version !== requestVersion || pollingVersion !== version) return;
+			pollingVersion = 0;
+			schedulePoll(currentSlug, currentRunId, version);
 		}
 	}
 
 	async function doCancel() {
 		if (!runId || cancelBusy) return;
+		const currentSlug = slug;
+		const currentRunId = runId;
+		let version = requestVersion;
 		cancelBusy = true;
 		try {
-			await cancelAgentRun(slug, runId);
+			await cancelAgentRun(currentSlug, currentRunId);
+			if (version !== requestVersion || slug !== currentSlug || runId !== currentRunId) return;
+			version = ++requestVersion;
+			pollingVersion = 0;
+			clearPoll();
 			appToast.success('Run cancelled');
-			await poll();
+			await loadTrace(currentSlug, currentRunId, version);
 		} catch (error) {
+			if (version !== requestVersion || slug !== currentSlug || runId !== currentRunId) return;
 			appToast.apiError(error, 'Failed to cancel run');
 		} finally {
-			cancelBusy = false;
+			if (version === requestVersion && slug === currentSlug && runId === currentRunId) cancelBusy = false;
 		}
 	}
 
