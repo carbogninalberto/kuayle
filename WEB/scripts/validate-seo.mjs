@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -244,6 +244,20 @@ else if (!readFileSync(robotsFile, 'utf8').includes(`Sitemap: ${ORIGIN}/sitemap.
 
 const screenshot = join(BUILD_DIR, 'product-screenshot.png');
 if (existsSync(screenshot) && readFileSync(screenshot).byteLength > 700_000) warn('product-screenshot.png exceeds 700 KB');
+
+const assetsDirectory = join(BUILD_DIR, '_app/immutable/assets');
+const builtCss = existsSync(assetsDirectory)
+	? readdirSync(assetsDirectory)
+			.filter((file) => file.endsWith('.css'))
+			.map((file) => readFileSync(join(assetsDirectory, file), 'utf8'))
+			.join('\n')
+	: '';
+if (!/@media\s*\(forced-colors:\s*active\)/i.test(builtCss)) {
+	fail('production CSS is missing the forced-colors media query');
+}
+if (!/\.gradient-text\{[^}]*color:\s*CanvasText[^}]*-webkit-text-fill-color:\s*CanvasText[^}]*\}/i.test(builtCss)) {
+	fail('production CSS is missing the readable forced-colors gradient-text fallback');
+}
 
 console.log(`SEO validation: ${errors} error(s), ${warnings} warning(s), ${ROUTES.length} routes checked.`);
 if (errors > 0) process.exit(1);

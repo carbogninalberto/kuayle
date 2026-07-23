@@ -243,6 +243,14 @@
 	animation: gradient-pan 8s ease-in-out infinite;
 }
 
+@media (forced-colors: active) {
+	.gradient-text {
+		background: none;
+		color: CanvasText;
+		-webkit-text-fill-color: CanvasText;
+	}
+}
+
 /* Scroll reveal (used with the `reveal` action) */
 .reveal-init {
 	opacity: 0;
