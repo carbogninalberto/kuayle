@@ -88,7 +88,6 @@
 			const workspace = await getWorkspace(s);
 			if (!isCurrentDevelopmentScope(s, pid, version)) return;
 			canManageDevelopment = workspace.current_user_role === 'owner' || workspace.current_user_role === 'admin';
-			if (!canManageDevelopment) return;
 			const [github, developmentSetting, availableEnvironments] = await Promise.all([
 				getGitHubStatus(s), getDevMachineScopeSetting(s, 'project', pid), listDevMachineEnvironments(s)
 			]);
@@ -281,7 +280,7 @@
 				</Popover.Root>
 			</div>
 			<div class="flex items-center gap-2">
-				<Button variant="ghost" size="icon-sm" disabled={!canManageDevelopment || developmentLoading || !developmentReady} onclick={() => (developmentOpen = true)} title={developmentLoading ? 'Loading development settings' : canManageDevelopment && developmentReady ? 'Development settings' : canManageDevelopment ? 'Development settings unavailable' : 'Workspace admin required'}><Settings2 size={15} /></Button>
+				<Button variant="ghost" size="icon-sm" disabled={developmentLoading || !developmentReady} onclick={() => (developmentOpen = true)} title={developmentLoading ? 'Loading development settings' : developmentReady ? canManageDevelopment ? 'Development settings' : 'View development settings' : 'Development settings unavailable'}><Settings2 size={15} /></Button>
 				<!-- View switcher -->
 				<div class="flex rounded-md border border-[var(--app-border)]">
 					<button

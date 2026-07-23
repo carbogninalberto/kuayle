@@ -40,6 +40,7 @@ test('keeps project and team development settings scoped during rapid navigation
 	const scopeDelays = new Map<string, ReturnType<typeof createRequestDelay>>();
 	const savedSettings: Record<string, unknown>[] = [];
 	let deleteRequests = 0;
+	let workspaceRole = 'owner';
 
 	await page.route('https://raw.githubusercontent.com/carbogninalberto/kuayle/main/UI/static/releases.json', (route) => route.fulfill({ json: [] }));
 	await page.route('**/api/**', async (route) => {
@@ -49,7 +50,7 @@ test('keeps project and team development settings scoped during rapid navigation
 		if (path === '/api/auth/me') return route.fulfill({ json: { id: '00000000-0000-0000-0000-000000000001', email: 'owner@example.com', name: 'Owner', display_name: 'Owner', avatar_url: null } });
 		if (path === '/api/preferences') return route.fulfill({ json: { font_size: 'default', pointer_cursors: true, theme_mode: 'dark', light_theme: 'light', dark_theme: 'dark', workflow_sort_mode: 'default', workflow_sort_order: ['backlog', 'unstarted', 'started', 'completed', 'cancelled'], team_workflow_sort_overrides: {}, issues_group_by: 'status' } });
 		if (path === '/api/workspaces') return route.fulfill({ json: [{ id: workspaceId, name: 'Test Workspace', slug: 'test' }] });
-		if (path === '/api/workspaces/test') return route.fulfill({ json: { id: workspaceId, name: 'Test Workspace', slug: 'test', current_user_role: 'owner' } });
+		if (path === '/api/workspaces/test') return route.fulfill({ json: { id: workspaceId, name: 'Test Workspace', slug: 'test', current_user_role: workspaceRole } });
 		if (path === '/api/notifications') return route.fulfill({ json: { notifications: [], unread_count: 0 } });
 		if (path === '/api/workspaces/test/teams') return route.fulfill({ json: teams });
 		if (path === '/api/workspaces/test/projects') return route.fulfill({ json: projects });
@@ -153,5 +154,18 @@ test('keeps project and team development settings scoped during rapid navigation
 	await projectDialog.getByRole('button', { name: 'Save', exact: true }).click();
 	await expect.poll(() => savedSettings.length).toBe(2);
 	expect(savedSettings[1]).toMatchObject({ scope_type: 'project', scope_id: projectBId, github_repo_id: repoBId, environment_id: environmentBId });
+	expect(deleteRequests).toBe(0);
+
+	workspaceRole = 'member';
+	await page.goto(`/test/projects/${projectAId}`);
+	const readOnlySettings = page.getByTitle('View development settings');
+	await expect(readOnlySettings).toBeEnabled();
+	await readOnlySettings.click();
+	const readOnlyDialog = page.getByRole('dialog');
+	await expect(readOnlyDialog.getByText('Workspace owners and admins manage project development defaults.')).toBeVisible();
+	await expect(readOnlyDialog.getByText('kuayle/repo-alpha', { exact: true })).toBeVisible();
+	await expect(readOnlyDialog.getByText('Alpha environment', { exact: true })).toBeVisible();
+	await expect(readOnlyDialog.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
+	expect(savedSettings).toHaveLength(2);
 	expect(deleteRequests).toBe(0);
 });
