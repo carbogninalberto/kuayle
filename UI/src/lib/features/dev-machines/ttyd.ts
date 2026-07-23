@@ -3,16 +3,11 @@ const decoder = new TextDecoder();
 
 export const TTYD_PROTOCOL = 'ttyd.v1';
 
-const enum TtydClientCommand {
-	Input = '0',
-	ResizeTerminal = '1'
-}
-
-const enum TtydServerCommand {
-	Output = '0',
-	SetWindowTitle = '1',
-	SetPreferences = '2'
-}
+const CLIENT_INPUT = '0';
+const CLIENT_RESIZE = '1';
+const SERVER_OUTPUT = '0';
+const SERVER_TITLE = '1';
+const SERVER_PREFERENCES = '2';
 
 interface TtydTerminalSize {
 	columns: number;
@@ -30,28 +25,28 @@ export function encodeInitialTerminalMessage(size: TtydTerminalSize, authToken =
 }
 
 export function encodeInputFrame(data: string | Uint8Array): Uint8Array {
-	return encodeCommandFrame(TtydClientCommand.Input, data);
+	return encodeCommandFrame(CLIENT_INPUT, data);
 }
 
 export function encodeResizeFrame(size: TtydTerminalSize): Uint8Array {
-	return encodeCommandFrame(TtydClientCommand.ResizeTerminal, JSON.stringify(size));
+	return encodeCommandFrame(CLIENT_RESIZE, JSON.stringify(size));
 }
 
 export function decodeServerFrame(data: string | ArrayBuffer | Uint8Array): TtydServerFrame {
 	const { code, payload } = splitFrame(data);
 	switch (code) {
-		case TtydServerCommand.Output:
+		case SERVER_OUTPUT:
 			return { command: 'output', data: payload };
-		case TtydServerCommand.SetWindowTitle:
+		case SERVER_TITLE:
 			return { command: 'title', title: payloadToString(payload) };
-		case TtydServerCommand.SetPreferences:
+		case SERVER_PREFERENCES:
 			return { command: 'preferences', preferences: parsePreferences(payloadToString(payload)) };
 		default:
 			return { command: 'unknown', code, data: payload };
 	}
 }
 
-function encodeCommandFrame(command: TtydClientCommand, data: string | Uint8Array): Uint8Array {
+function encodeCommandFrame(command: string, data: string | Uint8Array): Uint8Array {
 	const payload = typeof data === 'string' ? encoder.encode(data) : data;
 	const frame = new Uint8Array(payload.length + 1);
 	frame[0] = command.charCodeAt(0);
