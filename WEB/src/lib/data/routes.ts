@@ -10,6 +10,7 @@
  */
 
 import { url, type PageMeta } from '$lib/config/site';
+import { DEV_MACHINES_RELEASE_STATUS } from '$lib/config/releases';
 import { FALLBACK_VERSION } from '$lib/release.svelte';
 
 // Re-export url for convenience
@@ -89,7 +90,7 @@ export const HUBS: Record<string, Hub> = {
 			{ slug: 'views-and-triage', label: 'Views & Triage', href: '/features/views-and-triage', description: 'Saved filters, triage inbox, hierarchical labels, and custom workflows.' },
 			{ slug: 'teams-and-access-control', label: 'Teams & Access Control', href: '/features/teams-and-access-control', description: 'Multiple teams per workspace with role-based access control.' },
 			{ slug: 'analytics-insights', label: 'Analytics & Insights', href: '/features/analytics-insights', description: 'Workspace and team overviews, burn-up trends, and configurable issue insights.' },
-			{ slug: 'dev-machines', label: 'Dev Machines', href: '/features/dev-machines', description: 'Opt-in multi-container coding environments with agent providers and issue worktrees.' }
+			{ slug: 'dev-machines', label: 'Dev Machines', href: '/features/dev-machines', description: `${DEV_MACHINES_RELEASE_STATUS} opt-in multi-container coding environments with agent providers and issue worktrees.` }
 		]
 	},
 	selfHosting: {
@@ -103,7 +104,7 @@ export const HUBS: Record<string, Hub> = {
 			{ slug: 'updating', label: 'Updating', href: '/self-hosting/updating', description: 'Rebuild containers and apply migrations with the supplied update script.' },
 			{ slug: 'storage', label: 'Storage', href: '/self-hosting/storage', description: 'Local filesystem and S3-compatible storage backends.' },
 			{ slug: 'github-app', label: 'GitHub App', href: '/self-hosting/github-app', description: 'Set up and configure the GitHub integration.' },
-			{ slug: 'dev-machines', label: 'Dev Machines', href: '/self-hosting/dev-machines', description: 'Enable the opt-in agentic coding subsystem with wildcard TLS.' }
+			{ slug: 'dev-machines', label: 'Dev Machines', href: '/self-hosting/dev-machines', description: `Prepare the ${DEV_MACHINES_RELEASE_STATUS.toLowerCase()} opt-in agentic coding subsystem with wildcard TLS.` }
 		]
 	},
 	compare: {
@@ -138,7 +139,7 @@ export interface StandalonePage {
 
 export const STANDALONE_PAGES: StandalonePage[] = [
 	{ slug: '', title: '', description: '', canonical: url('/'), inSitemap: true },
-	{ slug: 'features', title: 'Kuayle Features — Issues, Cycles, Projects and GitHub', description: `Review the issue tracking, multi-assignee, cycle, project, GitHub, keyboard, real-time, analytics and Dev Machine features implemented in Kuayle ${FALLBACK_VERSION}.`, canonical: url('/features'), inSitemap: true },
+	{ slug: 'features', title: 'Kuayle Features — Issues, Cycles, Projects and GitHub', description: `Review released issue tracking, cycle, project, GitHub and analytics features alongside ${DEV_MACHINES_RELEASE_STATUS.toLowerCase()} Dev Machine development.`, canonical: url('/features'), inSitemap: true },
 	{ slug: 'self-hosting', title: 'Self-Host Kuayle With Docker Compose', description: 'Deploy Kuayle with Caddy, PostgreSQL, Redis, the Go API and SvelteKit frontend; configure storage, updates and GitHub webhooks.', canonical: url('/self-hosting'), inSitemap: true },
 	{ slug: 'compare', title: 'Compare Kuayle — Issue Tracker Comparisons', description: 'Compare Kuayle with Linear and Plane by hosting model, license, workflow coverage, product maturity and operating cost.', canonical: url('/compare'), inSitemap: true },
 	{ slug: 'alternatives', title: 'Issue Tracker Alternatives — Kuayle', description: 'Compare open-source and self-hosted issue trackers by license, edition model, product scope, deployment footprint and operator responsibility.', canonical: url('/alternatives'), inSitemap: true },

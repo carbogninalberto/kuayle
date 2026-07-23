@@ -6,6 +6,7 @@
 	import CodeXml from '@lucide/svelte/icons/code-xml';
 	import SquareTerminal from '@lucide/svelte/icons/square-terminal';
 	import Bot from '@lucide/svelte/icons/bot';
+	import { DEV_MACHINES_RELEASE_STATUS } from '$lib/config/releases';
 
 	const bullets = [
 		'code-server IDE and a native xterm terminal in your browser',
@@ -38,7 +39,7 @@
 	<div class="mx-auto max-w-6xl px-6">
 		<div class="grid items-center gap-14 lg:grid-cols-2">
 			<div use:reveal class="min-w-0">
-				<p class="text-sm font-semibold tracking-widest text-brand-300 uppercase">Dev Machines</p>
+				<p class="text-sm font-semibold tracking-widest text-brand-300 uppercase">Dev Machines · {DEV_MACHINES_RELEASE_STATUS}</p>
 				<h2 class="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">
 					Agentic coding, on your own metal
 				</h2>
@@ -63,7 +64,7 @@
 						How Dev Machines work <ArrowRight class="size-3.5" />
 					</a>
 					<span class="text-xs text-muted-foreground">
-						Opt-in subsystem · disabled by default ·
+						{DEV_MACHINES_RELEASE_STATUS} · opt-in subsystem · disabled by default ·
 						<a href="/self-hosting/dev-machines" class="underline underline-offset-4 hover:text-foreground">setup guide</a>
 					</span>
 				</div>

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import StandalonePage from '$lib/components/StandalonePage.svelte';
+	import { DEV_MACHINES_RELEASE_STATUS } from '$lib/config/releases';
 	import { url } from '$lib/config/site';
 	import { breadcrumbsFrom } from '$lib/data/routes';
 	import { useLatestRelease } from '$lib/release.svelte';
@@ -8,7 +9,7 @@
 
 	const meta = {
 		title: 'Kuayle Roadmap and Development Status',
-		description: 'Kuayle development status, known product gaps, the implemented Dev Machines subsystem, and where to follow proposed work.',
+		description: 'Kuayle development status, known product gaps, the unreleased Dev Machines subsystem, and where to follow proposed work.',
 		canonical: url('/roadmap'),
 		modifiedAt: '2026-07-11'
 	};
@@ -47,8 +48,8 @@
 			]
 		},
 		{
-			heading: 'Dev Machines is opt-in infrastructure',
-			body: 'The repository now includes the opt-in multi-container Dev Machines subsystem: Caddy wildcard ingress, an unprivileged authenticated gateway, a dedicated Docker manager, isolated machine networks, PostgreSQL reconciliation, scoped secrets, activity collection, issue-linked agent runs, and Claude Code, OpenCode, Codex, and custom CLI adapters. Self-hosted operators must explicitly configure the machine domain, TLS, runtime images, GitHub permissions, and capacity.',
+			heading: `Dev Machines is ${DEV_MACHINES_RELEASE_STATUS.toLowerCase()} opt-in infrastructure`,
+			body: 'The development branch includes the opt-in multi-container Dev Machines subsystem, but no published release contains it yet. It adds Caddy wildcard ingress, an unprivileged authenticated gateway, a dedicated Docker manager, isolated machine networks, PostgreSQL reconciliation, scoped secrets, activity collection, issue-linked agent runs, and Claude Code, OpenCode, Codex, and custom CLI adapters. Self-hosted operators must explicitly configure the machine domain, TLS, runtime images, GitHub permissions, and capacity.',
 			list: [
 				'Disabled by default',
 				'Requires wildcard DNS and TLS',

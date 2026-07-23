@@ -1,6 +1,7 @@
 <script lang="ts">
 	import StandalonePage from '$lib/components/StandalonePage.svelte';
 	import { url } from '$lib/config/site';
+	import { DEV_MACHINES_RELEASE_STATUS } from '$lib/config/releases';
 	import { breadcrumbsFrom } from '$lib/data/routes';
 	import { useLatestRelease } from '$lib/release.svelte';
 
@@ -18,7 +19,7 @@
 	const sections = $derived([
 		{
 			heading: 'What Kuayle is',
-			body: 'Kuayle is a self-hosted issue tracker with keyboard shortcuts, multi-assignee issues, cycles, projects, analytics and GitHub automation. An opt-in Dev Machines subsystem adds agentic coding environments. The name comes from 快乐 (kuàilè), the Chinese word for happiness or joy.',
+			body: `Kuayle is a self-hosted issue tracker with keyboard shortcuts, multi-assignee issues, cycles, projects, analytics and GitHub automation. An ${DEV_MACHINES_RELEASE_STATUS.toLowerCase()} opt-in Dev Machines subsystem adds agentic coding environments on the development branch. The name comes from 快乐 (kuàilè), the Chinese word for happiness or joy.`,
 			list: [
 				'Name: 快乐 (kuàilè) — happiness, joy',
 				`Current version: ${release.version}`,
@@ -58,12 +59,12 @@
 		},
 		{
 			heading: 'Current state',
-			body: `Version ${release.version} is a runnable MVP, not a mature enterprise platform. Core issue workflows, cycles, projects, analytics, GitHub integration, public sharing and workspace roles are available, and the Dev Machines subsystem is implemented as opt-in infrastructure. Data import/export and enterprise identity integrations are not implemented.`,
+			body: `Version ${release.version} is a runnable MVP, not a mature enterprise platform. Core issue workflows, cycles, projects, analytics, GitHub integration, public sharing and workspace roles are available. Dev Machines are ${DEV_MACHINES_RELEASE_STATUS.toLowerCase()} development-branch infrastructure. Data import/export and enterprise identity integrations are not implemented.`,
 			list: [
 				'Available: issues, labels, comments, history, sub-issues and relations',
 				'Available: cycles with charts, projects with a Gantt view, and insights analytics',
 				'Available: GitHub activity linking and configurable status transitions',
-				'Available: opt-in Dev Machines with agent providers and issue worktrees',
+				`${DEV_MACHINES_RELEASE_STATUS}: opt-in Dev Machines with agent providers and issue worktrees`,
 				'Not available: SSO, SCIM, LDAP and import/export workflows'
 			]
 		}

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { reveal } from '$lib/actions/reveal';
 	import { Button } from '$lib/components/ui/button';
+	import { DEV_MACHINES_RELEASE_STATUS } from '$lib/config/releases';
 	import Check from '@lucide/svelte/icons/check';
 
 	const included = [
@@ -10,7 +11,7 @@
 		'Real-time sync via WebSockets',
 		'Saved views, triage and labels',
 		'Analytics and configurable insights',
-		'Opt-in Dev Machines subsystem',
+		`${DEV_MACHINES_RELEASE_STATUS} opt-in Dev Machines subsystem`,
 		'Public share links',
 		'Role-based access control',
 		'Apache 2.0 source code'

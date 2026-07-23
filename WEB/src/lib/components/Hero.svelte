@@ -6,6 +6,7 @@
   import Users from "@lucide/svelte/icons/users";
   import Server from "@lucide/svelte/icons/server";
   import Terminal from "@lucide/svelte/icons/terminal";
+  import { DEV_MACHINES_RELEASE_STATUS } from "$lib/config/releases";
   import { useLatestRelease } from "$lib/release.svelte";
 
   const release = useLatestRelease();
@@ -14,7 +15,7 @@
     { icon: ScrollText, label: "Apache 2.0 license" },
     { icon: Users, label: "$0 per user" },
     { icon: Server, label: "Self-hosted" },
-    { icon: Terminal, label: "Agentic Dev Machines" }
+    { icon: Terminal, label: `Dev Machines · ${DEV_MACHINES_RELEASE_STATUS}` }
   ];
 </script>
 
@@ -61,7 +62,7 @@
     >
       Run Kuayle on your own infrastructure. Manage multi-assignee issues, cycles,
       projects, analytics and GitHub activity from one Apache 2.0-licensed
-      codebase — with opt-in agentic Dev Machines when you need them.
+      codebase. Unreleased opt-in Dev Machines are documented separately from the public release.
     </p>
 
     <div

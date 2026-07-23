@@ -82,6 +82,17 @@ function count(html, pattern) {
 }
 
 const routeHtml = new Map(ROUTES.map((route) => [route, htmlFor(route)]));
+const DEV_MACHINE_STATUS_ROUTES = [
+	'/',
+	'/features',
+	'/features/dev-machines',
+	'/self-hosting',
+	'/self-hosting/dev-machines',
+	'/about',
+	'/roadmap',
+	'/compare/kuayle-vs-linear',
+	'/compare/kuayle-vs-plane'
+];
 
 for (const [route, html] of routeHtml) {
 	if (!html) continue;
@@ -148,6 +159,14 @@ for (const [route, html] of routeHtml) {
 			fail(`${route}: broken internal link ${href}`);
 		}
 	}
+}
+
+for (const route of DEV_MACHINE_STATUS_ROUTES) {
+	const html = routeHtml.get(route);
+	if (!html) continue;
+	const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+	if (!/Dev Machines/i.test(text)) fail(`${route}: missing Dev Machines status context`);
+	if (!/unreleased/i.test(text)) fail(`${route}: Dev Machines must be labeled unreleased`);
 }
 
 const sitemapFile = join(BUILD_DIR, 'sitemap.xml');

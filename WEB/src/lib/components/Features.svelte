@@ -9,6 +9,7 @@
 	import SquareTerminal from '@lucide/svelte/icons/square-terminal';
 	import ChartColumn from '@lucide/svelte/icons/chart-column';
 	import ArrowRight from '@lucide/svelte/icons/arrow-right';
+	import { DEV_MACHINES_RELEASE_STATUS } from '$lib/config/releases';
 	import { useLatestRelease } from '$lib/release.svelte';
 
 	const release = useLatestRelease();
@@ -45,10 +46,10 @@
 			icon: SquareTerminal,
 			title: 'Dev Machines',
 			description:
-				'Opt-in multi-container coding environments: code-server, a native terminal, an in-browser Chrome and agent providers working issue worktrees — all behind an authenticated gateway.',
+				'Unreleased opt-in multi-container coding environments: code-server, a native terminal, an in-browser Chrome and agent providers working issue worktrees — all behind an authenticated gateway.',
 			href: '/features/dev-machines',
 			span: 'lg:col-span-3',
-			tags: ['Claude Code', 'OpenCode', 'Codex', 'Custom CLIs']
+			tags: [DEV_MACHINES_RELEASE_STATUS, 'Claude Code', 'OpenCode', 'Codex', 'Custom CLIs']
 		},
 		{
 			icon: ChartColumn,
@@ -95,8 +96,9 @@
 			<p class="text-sm font-semibold tracking-widest text-brand-300 uppercase">Features</p>
 			<h2 class="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">Implemented in Kuayle today</h2>
 			<p class="mt-4 text-lg text-muted-foreground">
-				The current {release.version} release covers the core issue-tracking workflow, analytics and opt-in
-				Dev Machines. The source for each feature is available in the public repository.
+				The current {release.version} release covers the core issue-tracking workflow and analytics. Dev
+				Machines are {DEV_MACHINES_RELEASE_STATUS.toLowerCase()} development-branch functionality. The source
+				for each feature is available in the public repository.
 			</p>
 		</div>
 
