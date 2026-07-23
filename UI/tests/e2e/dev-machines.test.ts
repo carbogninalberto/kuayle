@@ -232,6 +232,8 @@ test('handles machine actions without applying stale poll, route, or trace respo
 	});
 	await machineLink.click();
 	await expect(page.getByText('Runtime smoke machine', { exact: true })).toBeVisible();
+	await expect(page.getByText('Hard limit 20 GB', { exact: true })).toBeVisible();
+	await expect(page.getByText('Soft limit 20 GB', { exact: true })).toHaveCount(0);
 	await expect(page.getByRole('heading', { name: 'Services' })).toBeVisible();
 	await expect(page.getByText('machine a event', { exact: true })).toBeVisible();
 	await expect(page.getByText('[system] machine A log', { exact: true })).toBeVisible();
