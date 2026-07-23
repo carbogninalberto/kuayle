@@ -586,7 +586,7 @@ Valid-looking unknown wildcard hosts are bounded before they can exhaust the dat
 
 The self-hosting `dev-machine-images` profile builds the developer, browser, collector, egress, and built-in provider agent images locally. Environment Builder snapshots are additional local OCI images in the host Docker image store, not PostgreSQL rows or Compose volumes. Backups and host migrations must account for PostgreSQL, Docker named volumes, and any environment images that should survive a host replacement.
 
-`selfhosting/update.sh` detects an active Dev Machines profile without enabling it on other deployments. When active, it rebuilds runtime images, stops the old gateway and manager, applies migrations with the new backend image, and restarts the application and control plane only after the schema is current.
+`selfhosting/update.sh` detects an active Dev Machines profile without enabling it on other deployments. When active, it rebuilds runtime images before stopping the old gateway and manager, applies migrations with the new backend image, and starts the updated application and control plane only after the schema is current. If migration, role provisioning, or a later update step fails after the stop, its EXIT trap removes the upgrade marker, preserves the original failure status and container logs, and uses `docker compose start` to revive the same previous control-plane containers rather than recreating them from new images.
 
 ## Security Limitations
 

@@ -247,7 +247,7 @@ cd kuayle
 bash selfhosting/update.sh
 ```
 
-The update script pulls the latest code, rebuilds images, applies pending migrations, and recreates containers. If Dev Machines services are running, it stops the control plane, rebuilds its binaries and runtime images, reapplies the restricted gateway-role grants, and restarts the gateway and manager after migration. Disabled optional profiles remain disabled.
+The update script pulls the latest code, rebuilds images, applies pending migrations, and recreates containers. If Dev Machines services are running, it rebuilds their control-plane and runtime images first, stops the existing gateway and manager only while migrations and restricted gateway-role grants are applied, then starts the updated control plane. A failure after the stop clears the upgrade marker, preserves logs, restarts the same previous containers, and returns the original nonzero status. Disabled optional profiles remain disabled.
 
 Instance sysadmins can also enable one-click updates from **Settings → Version**:
 
