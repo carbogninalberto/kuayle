@@ -4,6 +4,7 @@ import AppToast, { type AppToastVariant } from '$lib/components/shared/AppToast.
 type ToastOptions = {
 	description?: string;
 	duration?: number;
+	id?: string | number;
 };
 
 const DEFAULT_DURATION: Record<AppToastVariant, number> = {
@@ -14,9 +15,10 @@ const DEFAULT_DURATION: Record<AppToastVariant, number> = {
 };
 
 function showToast(variant: AppToastVariant, title: string, options: ToastOptions = {}) {
-	toast.custom(AppToast, {
+	return toast.custom(AppToast, {
 		class: 'app-toast-shell',
 		duration: options.duration ?? DEFAULT_DURATION[variant],
+		...(options.id !== undefined ? { id: options.id } : {}),
 		componentProps: {
 			variant,
 			title,
@@ -65,5 +67,6 @@ export const appToast = {
 	error: showError,
 	info: showInfo,
 	warning: showWarning,
-	apiError: showApiError
+	apiError: showApiError,
+	dismiss: (id: string | number) => toast.dismiss(id)
 };

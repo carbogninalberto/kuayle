@@ -371,6 +371,8 @@ test('retries a code-server launch while a paused machine resumes', async ({ pag
 	const workspaceId = '00000000-0000-0000-0000-000000000002';
 	const machineId = '00000000-0000-0000-0000-000000000070';
 	let launchRequests = 0;
+	let failedLaunchRequests = 0;
+	let failLaunch = false;
 	let machineGets = 0;
 	const machine = {
 		id: machineId, workspace_id: workspaceId, routing_key: 'pausedmachine00000001', name: 'Paused machine',
@@ -402,8 +404,13 @@ test('retries a code-server launch while a paused machine resumes', async ({ pag
 		if (path === `/api/workspaces/test/dev-machines/${machineId}/agent-runs`) return route.fulfill({ json: { data: [], total_count: 0, page: 1, has_more: false } });
 		if (path === `/api/workspaces/test/dev-machines/${machineId}/resource-usage`) return route.fulfill({ json: [] });
 		if (path === `/api/workspaces/test/dev-machines/${machineId}/services/ide/launch` && request.method() === 'POST') {
+			if (failLaunch) {
+				failedLaunchRequests += 1;
+				if (failedLaunchRequests === 1) return route.fulfill({ status: 202, json: { status: 'pending', retry_after_seconds: 1 } });
+				return route.fulfill({ status: 500, json: { error: { message: 'Resume failed' } } });
+			}
 			launchRequests += 1;
-			if (launchRequests === 1) {
+			if (launchRequests <= 2) {
 				Object.assign(machine, { desired_status: 'running' });
 				return route.fulfill({ status: 202, json: { status: 'resuming', retry_after_seconds: 1, operation: { id: 'op-resume', action: 'start', status: 'pending', generation: 2, idempotency_key: 'launch-resume', attempts: 0, created_at: '2026-07-13T00:00:00Z' } } });
 			}
@@ -418,7 +425,20 @@ test('retries a code-server launch while a paused machine resumes', async ({ pag
 	const popupPromise = page.waitForEvent('popup');
 	await page.getByRole('button', { name: /Code Editor/ }).first().click();
 	await popupPromise;
-	await expect.poll(() => launchRequests).toBe(2);
+	await expect.poll(() => launchRequests).toBeGreaterThanOrEqual(2);
+	await expect(page.locator('.app-toast-shell')).toHaveCount(1);
+	await expect.poll(() => launchRequests).toBe(3);
+	await expect(page.getByText('Dev Machine is ready', { exact: true })).toBeVisible();
+	await expect(page.locator('.app-toast-shell')).toHaveCount(1);
+
+	failLaunch = true;
+	const failedPopupPromise = page.waitForEvent('popup');
+	await page.getByRole('button', { name: /Code Editor/ }).first().click();
+	const failedPopup = await failedPopupPromise;
+	await expect.poll(() => failedLaunchRequests).toBe(2);
+	await expect(page.getByText('Resume failed', { exact: true })).toBeVisible();
+	await expect(page.locator('.app-toast-shell')).toHaveCount(1);
+	await expect.poll(() => failedPopup.isClosed()).toBe(true);
 	expect(unhandledPaths).toEqual([]);
 });
 

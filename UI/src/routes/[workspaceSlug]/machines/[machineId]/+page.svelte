@@ -308,6 +308,8 @@
 			return;
 		}
 		const busyKey = `${service.service_key}:${checkoutId ?? 'root'}`;
+		const resumeToastId = `dev-machine-resume:${targetSlug}:${targetMachineId}:${busyKey}`;
+		let resumeToastVisible = false;
 		launchBusy[busyKey] = true;
 		launchBusy = { ...launchBusy };
 		const popup = window.open('about:blank', '_blank');
@@ -315,20 +317,33 @@
 		try {
 			const result = await launchMachineServiceWithResume(targetSlug, targetMachineId, service.service_key, checkoutId, {
 				onStatus: (status) => {
-					if (isCurrentRoute(targetSlug, targetMachineId, generation)) appToast.info(status === 'resuming' ? 'Resuming paused Dev Machine…' : 'Waiting for Dev Machine…');
+					if (isCurrentRoute(targetSlug, targetMachineId, generation)) {
+						resumeToastVisible = true;
+						appToast.info(status === 'resuming' ? 'Resuming paused Dev Machine…' : 'Waiting for Dev Machine…', { id: resumeToastId, duration: Number.POSITIVE_INFINITY });
+					} else if (resumeToastVisible) {
+						appToast.dismiss(resumeToastId);
+					}
 				}
 			});
 			if (!isCurrentRoute(targetSlug, targetMachineId, generation)) {
 				popup?.close();
+				if (resumeToastVisible) appToast.dismiss(resumeToastId);
 				return;
 			}
-			if (popup && result.launch_url) popup.location.replace(result.launch_url);
-			else appToast.warning('Pop-up blocked. Please allow pop-ups for this site.');
+			if (popup && result.launch_url) {
+				popup.location.replace(result.launch_url);
+				if (resumeToastVisible) appToast.success('Dev Machine is ready', { id: resumeToastId });
+			} else {
+				appToast.warning('Pop-up blocked. Please allow pop-ups for this site.', resumeToastVisible ? { id: resumeToastId } : undefined);
+			}
 			await refreshAll(targetSlug, targetMachineId, generation);
 		} catch (error) {
 			popup?.close();
-			if (!isCurrentRoute(targetSlug, targetMachineId, generation)) return;
-			appToast.apiError(error, `Failed to open ${service.service_type}`);
+			if (!isCurrentRoute(targetSlug, targetMachineId, generation)) {
+				if (resumeToastVisible) appToast.dismiss(resumeToastId);
+				return;
+			}
+			appToast.apiError(error, `Failed to open ${service.service_type}`, { id: resumeToastId });
 		} finally {
 			if (isCurrentRoute(targetSlug, targetMachineId, generation)) {
 				launchBusy[busyKey] = false;
