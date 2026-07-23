@@ -8,13 +8,11 @@
 	const MIN_HEIGHT = 180;
 	const MAX_HEIGHT_PCT = 0.7;
 
-	let containerElement = $state<HTMLDivElement | undefined>();
 	let dragging = $state(false);
 	let dragStartY = 0;
 	let dragStartHeight = 0;
 
 	function onPointerDown(e: PointerEvent) {
-		if (!containerElement) return;
 		dragging = true;
 		dragStartY = e.clientY;
 		dragStartHeight = dock.height;
@@ -34,7 +32,7 @@
 		dock.setHeight(newHeight);
 	}
 
-	function onPointerUp(_e: PointerEvent) {
+	function onPointerUp() {
 		dragging = false;
 	}
 
@@ -57,7 +55,6 @@
 
 {#if hasTabs}
 	<div
-		bind:this={containerElement}
 		class="flex shrink-0 flex-col border-t border-[var(--app-border)] bg-[var(--color-bg)]"
 		style="height: {dock.expanded ? dock.height + 'px' : 'auto'}"
 		role="region"

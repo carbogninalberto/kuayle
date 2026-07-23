@@ -11,11 +11,11 @@ export type DevMachineStatus =
 	| 'failed'
 	| 'expired';
 
-export type DevMachineLaunchStatus = 'ready' | 'resuming' | 'pending';
+type DevMachineLaunchStatus = 'ready' | 'resuming' | 'pending';
 
-export type DevMachineEnvironmentStatus = 'pending' | 'building' | 'ready' | 'failed' | 'delete_requested';
+type DevMachineEnvironmentStatus = 'pending' | 'building' | 'ready' | 'failed' | 'delete_requested';
 
-export interface DevMachineOperation {
+interface DevMachineOperation {
 	id: string;
 	action: string;
 	status: 'pending' | 'leased' | 'completed' | 'failed' | 'cancelled' | string;
@@ -28,7 +28,7 @@ export interface DevMachineOperation {
 	completed_at?: string;
 }
 
-export type AgentRunStatus =
+type AgentRunStatus =
 	| 'queued'
 	| 'starting'
 	| 'running'
@@ -116,14 +116,14 @@ export interface DevMachineLogChunk {
 	created_at: string;
 }
 
-export interface AgentArtifact {
+interface AgentArtifact {
 	type: string;
 	name: string;
 	path: string;
 	content_type?: string;
 }
 
-export interface AgentRunResult {
+interface AgentRunResult {
 	status: 'succeeded' | 'failed' | 'cancelled' | 'timeout';
 	summary: string;
 	changed_files: string[];

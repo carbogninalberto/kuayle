@@ -485,24 +485,6 @@ type DevMachineTerminalSession struct {
 	ClosedAt           *time.Time `json:"closed_at,omitempty" db:"closed_at"`
 }
 
-var validStatusTransitions = map[DevMachineStatus]map[DevMachineStatus]bool{
-	DevMachineStatusConfiguring: {DevMachineStatusQueued: true, DevMachineStatusTearingDown: true},
-	DevMachineStatusQueued:      {DevMachineStatusSpawning: true, DevMachineStatusTearingDown: true, DevMachineStatusFailed: true},
-	DevMachineStatusSpawning:    {DevMachineStatusRunning: true, DevMachineStatusFailed: true, DevMachineStatusTearingDown: true},
-	DevMachineStatusRunning:     {DevMachineStatusPaused: true, DevMachineStatusStopping: true, DevMachineStatusExpired: true, DevMachineStatusFailed: true, DevMachineStatusTearingDown: true},
-	DevMachineStatusPaused:      {DevMachineStatusRunning: true, DevMachineStatusStopping: true, DevMachineStatusExpired: true, DevMachineStatusTearingDown: true},
-	DevMachineStatusStopping:    {DevMachineStatusStopped: true, DevMachineStatusFailed: true, DevMachineStatusTearingDown: true},
-	DevMachineStatusStopped:     {DevMachineStatusQueued: true, DevMachineStatusTearingDown: true, DevMachineStatusExpired: true},
-	DevMachineStatusFailed:      {DevMachineStatusQueued: true, DevMachineStatusTearingDown: true},
-	DevMachineStatusExpired:     {DevMachineStatusTearingDown: true},
-	DevMachineStatusTearingDown: {DevMachineStatusDestroyed: true, DevMachineStatusFailed: true},
-	DevMachineStatusDestroyed:   {},
-}
-
-func ValidStatusTransition(from, to DevMachineStatus) bool {
-	return validStatusTransitions[from][to]
-}
-
 func ValidOperationForStatus(action DevMachineOperationAction, status DevMachineStatus) bool {
 	switch action {
 	case DevMachineOpSpawn:

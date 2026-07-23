@@ -42,7 +42,6 @@ case "$credential_helper" in /* ) ;; * ) echo "invalid credential helper path" >
 
 install_git_credential_helper() {
   helper_dir=${credential_helper%/*}
-  [ "$helper_dir" != "$credential_helper" ] || helper_dir=.
   mkdir -p "$helper_dir"
   old_umask=$(umask)
   umask 077

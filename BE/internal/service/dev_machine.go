@@ -496,14 +496,6 @@ func (s *DevMachineService) buildEnvVars(machineID uuid.UUID, inputs []dto.DevMa
 	return envVars, nil
 }
 
-func (s *DevMachineService) Get(ctx context.Context, workspaceID, machineID uuid.UUID) (*domain.DevMachine, error) {
-	machine, err := s.store.GetMachine(ctx, workspaceID, machineID)
-	if err == nil && machine == nil {
-		return nil, ErrMachineNotFound
-	}
-	return machine, err
-}
-
 func (s *DevMachineService) GetForUser(ctx context.Context, workspaceID, machineID, userID uuid.UUID) (*domain.DevMachine, error) {
 	machine, err := s.store.GetMachineForUser(ctx, workspaceID, machineID, userID)
 	if err == nil && machine == nil {
@@ -1100,13 +1092,6 @@ func (s *DevMachineService) ListServices(ctx context.Context, workspaceID, machi
 		return nil, err
 	}
 	return s.store.ListServices(ctx, workspaceID, machineID)
-}
-
-func (s *DevMachineService) ListProviders(ctx context.Context, workspaceID, machineID, userID uuid.UUID) ([]domain.DevMachineAgentProvider, error) {
-	if _, err := s.GetForUser(ctx, workspaceID, machineID, userID); err != nil {
-		return nil, err
-	}
-	return s.store.ListProviders(ctx, workspaceID, machineID)
 }
 
 func (s *DevMachineService) AvailableProviders(ctx context.Context, workspaceID uuid.UUID) ([]dto.AgentProviderResponse, error) {

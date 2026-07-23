@@ -1402,14 +1402,6 @@ func (f *devMachineStoreFake) GetPolicy(context.Context, uuid.UUID) (*domain.Dev
 	return f.policy, nil
 }
 
-func (f *devMachineStoreFake) MachineNameExists(_ context.Context, _ uuid.UUID, name string) (bool, error) {
-	f.nameChecks++
-	if f.alwaysNameExists {
-		return true, nil
-	}
-	return f.nameExists[strings.ToLower(name)], nil
-}
-
 func (f *devMachineStoreFake) MachineNameExistsForUser(_ context.Context, _ uuid.UUID, userID uuid.UUID, name string) (bool, error) {
 	f.nameChecks++
 	if f.alwaysNameExists {

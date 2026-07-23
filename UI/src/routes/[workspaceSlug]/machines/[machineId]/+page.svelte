@@ -70,8 +70,6 @@
 
 	// Treat desired_status != status as pending ("transitioning")
 	const isPending = $derived(machine ? machine.desired_status !== machine.status : false);
-	// Controls are disabled when pending or action busy
-	const controlsDisabled = $derived(isPending || actionBusy);
 
 	const latestUsage = $derived(usage[0]);
 	const canAdminDevMachines = $derived(workspaceRole === 'owner' || workspaceRole === 'admin');
@@ -541,7 +539,7 @@
 	}
 
 	function machineCanAutoLaunch(): boolean {
-		return !!machine && (machine.status === 'running' || machine.status === 'paused' || (['queued', 'spawning'].includes(machine.status) && machine.desired_status === 'running')) && !['destroyed', 'expired', 'stopped', 'failed'].includes(machine.status);
+		return !!machine && (machine.status === 'running' || machine.status === 'paused' || (['queued', 'spawning'].includes(machine.status) && machine.desired_status === 'running'));
 	}
 
 	function serviceActionAvailable(service: DevMachineService): boolean {
@@ -579,11 +577,11 @@
 					<Button variant="ghost" size="icon-sm" disabled={actionBusy} onclick={() => { snapshotName = `${machine?.name ?? 'Development'} environment`; snapshotOpen = true; }} title="Save development environment"><Save size={15} /></Button>
 				{/if}
 				{#if machine.status === 'running' && !isPending}
-					<Button variant="ghost" size="icon-sm" disabled={controlsDisabled || actionBusy} onclick={() => lifecycle('pause')} title="Pause"><Pause size={15} /></Button>
-					<Button variant="ghost" size="icon-sm" disabled={controlsDisabled || actionBusy} onclick={() => lifecycle('stop')} title="Stop"><Square size={15} /></Button>
+					<Button variant="ghost" size="icon-sm" disabled={actionBusy} onclick={() => lifecycle('pause')} title="Pause"><Pause size={15} /></Button>
+					<Button variant="ghost" size="icon-sm" disabled={actionBusy} onclick={() => lifecycle('stop')} title="Stop"><Square size={15} /></Button>
 				{/if}
 				{#if (machine.status === 'paused' || machine.status === 'stopped' || machine.status === 'failed') && !isPending}
-					<Button variant="ghost" size="icon-sm" disabled={controlsDisabled || actionBusy} onclick={() => lifecycle('start')} title="Start"><Play size={15} /></Button>
+					<Button variant="ghost" size="icon-sm" disabled={actionBusy} onclick={() => lifecycle('start')} title="Start"><Play size={15} /></Button>
 				{/if}
 				<Button variant="ghost" size="icon-sm" disabled={actionBusy || machine.status === 'destroyed'} onclick={() => (teardownConfirm = true)} title="Teardown runtime"><ServerOff size={15} /></Button>
 				{#if canAdminDevMachines}

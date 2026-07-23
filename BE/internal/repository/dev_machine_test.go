@@ -579,11 +579,6 @@ func TestDevMachineOffsetPaginationUsesStableTieBreakers(t *testing.T) {
 		require.Len(t, uniqueUUIDs(actual), len(expectedMachineIDs), "adjacent pages must not contain duplicates")
 	}
 
-	t.Run("machines", func(t *testing.T) {
-		assertMachinePages(t, func(limit, offset int) ([]domain.DevMachine, int, error) {
-			return repo.ListMachines(context.Background(), workspaceID, "", nil, limit, offset)
-		})
-	})
 	t.Run("machines for user", func(t *testing.T) {
 		assertMachinePages(t, func(limit, offset int) ([]domain.DevMachine, int, error) {
 			return repo.ListMachinesForUser(context.Background(), workspaceID, userID, "", nil, limit, offset)
@@ -622,11 +617,6 @@ func TestDevMachineOffsetPaginationUsesStableTieBreakers(t *testing.T) {
 		require.Len(t, uniqueUUIDs(actual), len(expectedRunIDs), "adjacent pages must not contain duplicates")
 	}
 
-	t.Run("agent runs", func(t *testing.T) {
-		assertRunPages(t, func(limit, offset int) ([]domain.DevMachineAgentRun, int, error) {
-			return repo.ListAgentRuns(context.Background(), workspaceID, nil, limit, offset)
-		})
-	})
 	t.Run("agent runs for user", func(t *testing.T) {
 		assertRunPages(t, func(limit, offset int) ([]domain.DevMachineAgentRun, int, error) {
 			return repo.ListAgentRunsForUser(context.Background(), workspaceID, userID, nil, limit, offset)
@@ -852,7 +842,7 @@ func TestUpdateMachinePreferencesRejectsImmutableStates(t *testing.T) {
 	require.Equal(t, updatedAt, machine.UpdatedAt, "an empty preference request must not mutate the machine")
 
 	destroyedID := fixture.insertMachine(t, domain.DevMachineStatusDestroyed, domain.DevMachineStatusDestroyed, false)
-	machine, err = fixture.repository.UpdateMachinePreferences(context.Background(), fixture.workspaceID, destroyedID, &keepRunning)
+	machine, err = fixture.repository.UpdateMachinePreferencesForUser(context.Background(), fixture.workspaceID, destroyedID, fixture.userID, &keepRunning)
 	require.ErrorIs(t, err, ErrMachineStateConflict)
 	require.Nil(t, machine)
 }
@@ -1535,14 +1525,16 @@ func TestListAgentRunsScansPersistedRows(t *testing.T) {
 	require.Nil(t, nullableRun.TestCommand)
 	require.Nil(t, nullableRun.Result)
 
-	var workspaceID, machineID uuid.UUID
-	err = db.QueryRowx(`SELECT workspace_id,machine_id FROM dev_machine_agent_runs ORDER BY created_at DESC LIMIT 1`).Scan(&workspaceID, &machineID)
+	var workspaceID, machineID, userID uuid.UUID
+	err = db.QueryRowx(`SELECT r.workspace_id,r.machine_id,m.created_by_user_id
+		FROM dev_machine_agent_runs r JOIN dev_machines m ON m.id=r.machine_id
+		ORDER BY r.created_at DESC LIMIT 1`).Scan(&workspaceID, &machineID, &userID)
 	if errors.Is(err, sql.ErrNoRows) {
 		t.Skip("no persisted agent runs")
 	}
 	require.NoError(t, err)
 
-	runs, total, err := NewDevMachineRepository(db).ListAgentRuns(context.Background(), workspaceID, &machineID, 50, 0)
+	runs, total, err := NewDevMachineRepository(db).ListAgentRunsForUser(context.Background(), workspaceID, userID, &machineID, 50, 0)
 
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, total, 1)

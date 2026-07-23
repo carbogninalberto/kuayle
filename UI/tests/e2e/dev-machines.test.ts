@@ -655,6 +655,14 @@ test('keeps multiple docked terminals alive across collapse and navigation', asy
 	const dockHeight = await page.getByTestId('terminal-dock').evaluate((element) => element.getBoundingClientRect().height);
 	const terminalHeight = await page.getByTestId('native-terminal').evaluate((element) => element.getBoundingClientRect().height);
 	expect(terminalHeight).toBeLessThanOrEqual(dockHeight);
+	const resizeHandle = page.getByTestId('terminal-resize-handle');
+	const resizeBox = await resizeHandle.boundingBox();
+	expect(resizeBox).not.toBeNull();
+	await page.mouse.move(resizeBox!.x + resizeBox!.width / 2, resizeBox!.y + resizeBox!.height / 2);
+	await page.mouse.down();
+	await page.mouse.move(resizeBox!.x + resizeBox!.width / 2, resizeBox!.y - 40);
+	await page.mouse.up();
+	await expect.poll(() => page.getByTestId('terminal-dock').evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThan(dockHeight);
 
 	await page.getByRole('button', { name: 'Collapse terminal dock' }).click();
 	await expect(page.getByTestId('native-terminal')).toBeHidden();

@@ -132,7 +132,6 @@ export async function resumePausedMachine(
 	options.onStatus?.('resuming', machine);
 	if (machine.desired_status !== 'running') await startDevMachine(slug, machineId);
 	machine = await waitForLaunchRetry(slug, machineId, 2, deadline, options.onStatus);
-	if (machine.status !== 'running' || machine.desired_status !== 'running') throw new Error('Dev Machine is not running');
 	return machine;
 }
 

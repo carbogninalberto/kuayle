@@ -3,25 +3,23 @@ const decoder = new TextDecoder();
 
 export const TTYD_PROTOCOL = 'ttyd.v1';
 
-export const enum TtydClientCommand {
+const enum TtydClientCommand {
 	Input = '0',
-	ResizeTerminal = '1',
-	Pause = '2',
-	Resume = '3'
+	ResizeTerminal = '1'
 }
 
-export const enum TtydServerCommand {
+const enum TtydServerCommand {
 	Output = '0',
 	SetWindowTitle = '1',
 	SetPreferences = '2'
 }
 
-export interface TtydTerminalSize {
+interface TtydTerminalSize {
 	columns: number;
 	rows: number;
 }
 
-export type TtydServerFrame =
+type TtydServerFrame =
 	| { command: 'output'; data: Uint8Array | string }
 	| { command: 'title'; title: string }
 	| { command: 'preferences'; preferences: Record<string, unknown> }
@@ -37,14 +35,6 @@ export function encodeInputFrame(data: string | Uint8Array): Uint8Array {
 
 export function encodeResizeFrame(size: TtydTerminalSize): Uint8Array {
 	return encodeCommandFrame(TtydClientCommand.ResizeTerminal, JSON.stringify(size));
-}
-
-export function encodePauseFrame(): Uint8Array {
-	return encoder.encode(TtydClientCommand.Pause);
-}
-
-export function encodeResumeFrame(): Uint8Array {
-	return encoder.encode(TtydClientCommand.Resume);
 }
 
 export function decodeServerFrame(data: string | ArrayBuffer | Uint8Array): TtydServerFrame {

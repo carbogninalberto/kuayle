@@ -19,7 +19,6 @@ credential_helper=${KUAYLE_GIT_CREDENTIAL_HELPER:-$home_dir/.kuayle-git-credenti
 install_git_credential_helper() {
   case "$credential_helper" in /* ) ;; * ) echo "invalid credential helper path" >&2; exit 1 ;; esac
   helper_dir=${credential_helper%/*}
-  [ "$helper_dir" != "$credential_helper" ] || helper_dir=.
   mkdir -p "$helper_dir"
   old_umask=$(umask)
   umask 077

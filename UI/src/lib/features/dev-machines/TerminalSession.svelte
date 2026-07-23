@@ -39,7 +39,6 @@
 	let session = $state<DevMachineTerminalSession | null>(null);
 	let status = $state<'idle' | 'creating' | 'resuming' | 'pending' | 'connecting' | 'connected' | 'closed' | 'error'>('idle');
 	let statusMessage = $state('');
-	let retrying = $state(false);
 	let runId = 0;
 	const disposables: IDisposable[] = [];
 	let priorVisibility = $state(true);
@@ -72,16 +71,15 @@
 
 	onDestroy(() => {
 		runId += 1;
-		void cleanup(true);
+		void cleanup();
 	});
 
 	async function start(id = ++runId) {
 		if (!browser || !visible) return;
-		retrying = true;
 		status = 'creating';
 		statusMessage = id > 1 ? 'Reconnecting terminal...' : 'Creating a terminal session...';
 		dock.setRuntimeTitle(tab.id, '');
-		await cleanup(true);
+		await cleanup();
 		if (id !== runId) return;
 		status = 'creating';
 		statusMessage = 'Creating a terminal session...';
@@ -118,8 +116,6 @@
 			if (id !== runId) return;
 			status = 'error';
 			statusMessage = error instanceof Error ? error.message : 'Unable to open the terminal';
-		} finally {
-			if (id === runId) retrying = false;
 		}
 	}
 
@@ -285,7 +281,7 @@
 		fitTerminal();
 	}
 
-	async function cleanup(closeBackendSession: boolean) {
+	async function cleanup() {
 		const connection = socketConnection;
 		socketConnection = undefined;
 		disposeSocketConnection(connection, 'ui closed');
@@ -308,7 +304,7 @@
 		fitAddon = undefined;
 		const sessionToClose = session;
 		session = null;
-		if (closeBackendSession && sessionToClose?.id) {
+		if (sessionToClose?.id) {
 			await closeTerminalSession(tab.slug, tab.machineId, sessionToClose.id).catch(() => {});
 		}
 		if (!visible) {
@@ -327,7 +323,7 @@
 			<span class="truncate">{statusMessage || 'Terminal idle'}</span>
 		</span>
 		{#if canRetry}
-			<Button size="xs" variant="outline" disabled={retrying} onclick={() => start()}><RefreshCw class="size-3" />Reconnect</Button>
+			<Button size="xs" variant="outline" onclick={() => start()}><RefreshCw class="size-3" />Reconnect</Button>
 		{/if}
 	</div>
 	{#if status === 'error'}
