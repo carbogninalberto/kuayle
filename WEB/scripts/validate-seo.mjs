@@ -169,6 +169,14 @@ for (const route of DEV_MACHINE_STATUS_ROUTES) {
 	if (!/unreleased/i.test(text)) fail(`${route}: Dev Machines must be labeled unreleased`);
 }
 
+const savedViewsHtml = routeHtml.get('/features/views-and-triage');
+if (savedViewsHtml) {
+	const text = savedViewsHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+	if (!/list\/board layout selection is not stored/i.test(text)) {
+		fail('/features/views-and-triage: saved-view layout persistence must be described accurately');
+	}
+}
+
 const sitemapFile = join(BUILD_DIR, 'sitemap.xml');
 if (!existsSync(sitemapFile)) {
 	fail('sitemap.xml is missing');

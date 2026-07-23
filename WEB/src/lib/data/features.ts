@@ -274,11 +274,11 @@ export const features: ContentRegistry = {
 		sections: [
 			{
 				heading: 'Saved views',
-				body: 'Save issue filters as personal, team or workspace views. Views retain their filter definition and layout, and a saved view can be exposed through a read-only public link.',
+				body: 'Save issue filters as personal, team or workspace views. Views retain their filter definition, grouping and sort order, while list/board layout selection is not stored. A saved view can be exposed through a read-only public link.',
 				list: [
 					'Complex filters: status, assignee, priority, labels, due date',
 					'Personal, team, and workspace view scoping',
-					'List and board layouts',
+					'Grouping and sort order saved with filters',
 					'Shareable — views can be made public with a link'
 				]
 			},
