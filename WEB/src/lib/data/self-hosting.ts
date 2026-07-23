@@ -21,7 +21,7 @@ export const selfHosting: ContentRegistry = {
 				heading: 'Architecture overview',
 				body: 'The Compose file defines Caddy, PostgreSQL 17, Redis 7, the Go API and the SvelteKit frontend. Caddy terminates HTTPS and sends application and API requests to the appropriate container.',
 				list: [
-					'Caddy — reverse proxy with automatic Let\'s Encrypt TLS',
+					"Caddy — reverse proxy with automatic Let's Encrypt TLS",
 					'PostgreSQL 17 — primary data store',
 					'Redis 7 — required configuration value, reserved for future cache and job use',
 					'Backend — Go API server on port 8080',
@@ -42,10 +42,7 @@ export const selfHosting: ContentRegistry = {
 			{
 				heading: 'Initialize the database',
 				body: 'After the containers start, apply the database migrations and run the seed command from the `selfhosting` directory.',
-				list: [
-					'docker compose exec backend /app/server migrate up',
-					'docker compose exec backend /app/server seed'
-				]
+				list: ['docker compose exec backend /app/server migrate up', 'docker compose exec backend /app/server seed']
 			},
 			{
 				heading: 'Volumes and data persistence',
@@ -62,9 +59,11 @@ export const selfHosting: ContentRegistry = {
 	requirements: {
 		slug: 'requirements',
 		title: 'Requirements — Self-Hosting Kuayle',
-		description: 'Server prerequisites for running Kuayle: a host with Docker and Docker Compose, a domain name, and HTTPS connectivity.',
+		description:
+			'Server prerequisites for running Kuayle: a host with Docker and Docker Compose, a domain name, and HTTPS connectivity.',
 		heading: 'Requirements',
-		intro: 'Kuayle’s documented deployment uses Docker Compose. Review the host, DNS, network and storage requirements before exposing an instance.',
+		intro:
+			'Kuayle’s documented deployment uses Docker Compose. Review the host, DNS, network and storage requirements before exposing an instance.',
 		sections: [
 			{
 				heading: 'Server prerequisites',
@@ -88,7 +87,7 @@ export const selfHosting: ContentRegistry = {
 				heading: 'Network requirements',
 				body: 'For a public HTTPS deployment, point the domain to the host and allow inbound traffic on ports 80 and 443. Private deployments can use a different TLS and routing design, but must adapt the supplied Caddy configuration.',
 				list: [
-					'Port 80 open — HTTP challenge for Let\'s Encrypt',
+					"Port 80 open — HTTP challenge for Let's Encrypt",
 					'Port 443 open — HTTPS traffic',
 					'Outbound access — image builds, certificate issuance and optional GitHub API calls'
 				]
@@ -99,9 +98,11 @@ export const selfHosting: ContentRegistry = {
 	configuration: {
 		slug: 'configuration',
 		title: 'Configuration — Self-Hosting Kuayle',
-		description: 'Configure Kuayle via environment variables: domain, database credentials, JWT secret, storage backend, GitHub App, and sysadmin settings.',
+		description:
+			'Configure Kuayle via environment variables: domain, database credentials, JWT secret, storage backend, GitHub App, and sysadmin settings.',
 		heading: 'Configuration',
-		intro: 'Kuayle reads deployment settings from `selfhosting/.env`. Start from `.env.example`; the groups below cover the values that must be reviewed before a public deployment.',
+		intro:
+			'Kuayle reads deployment settings from `selfhosting/.env`. Start from `.env.example`; the groups below cover the values that must be reviewed before a public deployment.',
 		sections: [
 			{
 				heading: 'Production values',
@@ -145,9 +146,11 @@ export const selfHosting: ContentRegistry = {
 	updating: {
 		slug: 'updating',
 		title: 'Updating Kuayle — Self-Hosting',
-		description: 'Update a self-hosted Kuayle instance with the repository script or optional updater sidecar, including image rebuilds and database migrations.',
+		description:
+			'Update a self-hosted Kuayle instance with the repository script or optional updater sidecar, including image rebuilds and database migrations.',
 		heading: 'Updating Kuayle',
-		intro: 'The repository update script fetches the current branch, rebuilds the application images, recreates Caddy and the app services, then applies pending migrations. Back up and review changes before running it.',
+		intro:
+			'The repository update script fetches the current branch, rebuilds the application images, recreates Caddy and the app services, then applies pending migrations. Back up and review changes before running it.',
 		sections: [
 			{
 				heading: 'Manual update via script',
@@ -184,9 +187,11 @@ export const selfHosting: ContentRegistry = {
 	storage: {
 		slug: 'storage',
 		title: 'Storage — Self-Hosting Kuayle',
-		description: 'Configure Kuayle storage: local filesystem (default) or S3-compatible backends including AWS S3, Cloudflare R2, MinIO, and SeaweedFS.',
+		description:
+			'Configure Kuayle storage: local filesystem (default) or S3-compatible backends including AWS S3, Cloudflare R2, MinIO, and SeaweedFS.',
 		heading: 'Storage Configuration',
-		intro: 'Kuayle stores uploads either in a local Docker volume or through an S3-compatible API. Choose based on your backup, access-control and deployment requirements.',
+		intro:
+			'Kuayle stores uploads either in a local Docker volume or through an S3-compatible API. Choose based on your backup, access-control and deployment requirements.',
 		sections: [
 			{
 				heading: 'Local filesystem (default)',
@@ -226,9 +231,11 @@ export const selfHosting: ContentRegistry = {
 	'github-app': {
 		slug: 'github-app',
 		title: 'GitHub App Setup — Self-Hosting Kuayle',
-		description: 'Configure Kuayle’s GitHub App manifest flow, repository access, webhook delivery, issue linking, and status-transition rules.',
+		description:
+			'Configure Kuayle’s GitHub App manifest flow, repository access, webhook delivery, issue linking, and status-transition rules.',
 		heading: 'GitHub App Setup',
-		intro: 'Kuayle uses a GitHub App for repository access and webhook delivery. Public instances can use the generated webhook URL; private instances need a relay or tunnel.',
+		intro:
+			'Kuayle uses a GitHub App for repository access and webhook delivery. Public instances can use the generated webhook URL; private instances need a relay or tunnel.',
 		sections: [
 			{
 				heading: 'Publicly reachable instance',
@@ -269,8 +276,7 @@ export const selfHosting: ContentRegistry = {
 		description:
 			'Prepare the unreleased opt-in Dev Machines subsystem: a separate wildcard domain, wildcard TLS, encrypted secrets, runtime images, and the gateway/manager control plane.',
 		heading: 'Dev Machines Setup',
-		intro:
-			`Dev Machines are ${DEV_MACHINES_RELEASE_STATUS.toLowerCase()} development-branch functionality and remain disabled in the default five-service deployment. Enabling them adds a machine gateway, a Docker manager and per-machine container runtimes. Read TECHNICAL.md in the repository before enabling the subsystem.`,
+		intro: `Dev Machines are ${DEV_MACHINES_RELEASE_STATUS.toLowerCase()} development-branch functionality and remain disabled in the default five-service deployment. Enabling them adds a machine gateway, a Docker manager and per-machine container runtimes. Read TECHNICAL.md in the repository before enabling the subsystem.`,
 		sections: [
 			{
 				heading: 'Prerequisites',
@@ -285,7 +291,7 @@ export const selfHosting: ContentRegistry = {
 			},
 			{
 				heading: 'Required configuration',
-				body: 'The API validates these values when DEV_MACHINES_ENABLED=true. FRONTEND_URL must be the exact public Kuayle origin; the gateway requires the native terminal WebSocket Origin header to match it exactly.',
+				body: 'When DEV_MACHINES_ENABLED=true, the backend validates the machine domain, frontend URL, encryption key, ingestion URL and related runtime settings. The Compose provisioning prerequisite separately requires the gateway database password. FRONTEND_URL must be the exact public Kuayle origin; the gateway requires the native terminal WebSocket Origin header to match it exactly.',
 				list: [
 					'DEV_MACHINES_ENABLED=true',
 					'DEV_MACHINE_ENCRYPTION_KEY — independent random value, at least 32 characters',
@@ -306,7 +312,7 @@ export const selfHosting: ContentRegistry = {
 			},
 			{
 				heading: 'Security model',
-				body: 'The Machine Manager is the sole Docker socket holder; the gateway is unprivileged. Machine services publish no host ports and run on isolated per-machine networks with an egress policy proxy. Docker hardening reduces risk but is not hostile multi-tenant isolation — the subsystem targets trusted self-hosted workspaces.',
+				body: 'The Machine Manager is the only Dev Machines runtime component with Docker socket access; the gateway is unprivileged. The separately optional system updater also mounts the socket when enabled. Machine services publish no host ports and run on isolated per-machine networks with an egress policy proxy. Docker hardening reduces risk but is not hostile multi-tenant isolation — the subsystem targets trusted self-hosted workspaces.',
 				list: [
 					'One-time launch tickets and host-restricted machine sessions',
 					'AES-256-GCM encrypted secrets delivered through tmpfs',

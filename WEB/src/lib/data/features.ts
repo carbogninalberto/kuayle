@@ -125,11 +125,7 @@ export const features: ContentRegistry = {
 			{
 				heading: 'Progress tracking',
 				body: 'Project progress is calculated from the number of completed, cancelled and total issues. The project page displays both the counts and a progress bar.',
-				list: [
-					'Automatic progress calculation',
-					'Project-level status overview',
-					'Filter and sort within projects'
-				]
+				list: ['Automatic progress calculation', 'Project-level status overview', 'Filter and sort within projects']
 			}
 		]
 	},
@@ -254,11 +250,7 @@ export const features: ContentRegistry = {
 			{
 				heading: 'Triage shortcuts',
 				body: 'The team triage queue uses J and K to move through incoming issues. Press 1 to accept the selected issue or 3 to decline it.',
-				list: [
-					'J / K — next or previous issue',
-					'1 — accept selected issue',
-					'3 — decline selected issue'
-				]
+				list: ['J / K — next or previous issue', '1 — accept selected issue', '3 — decline selected issue']
 			}
 		]
 	},
@@ -285,11 +277,7 @@ export const features: ContentRegistry = {
 			{
 				heading: 'Team triage queue',
 				body: 'Teams with triage enabled place incoming issues in a separate queue. Review the selected issue, then accept it into the team workflow or decline it. J/K changes the selection; 1 accepts and 3 declines.',
-				list: [
-					'Triage enabled per team',
-					'Accept or decline decisions',
-					'J/K, 1 and 3 keyboard controls'
-				]
+				list: ['Triage enabled per team', 'Accept or decline decisions', 'J/K, 1 and 3 keyboard controls']
 			},
 			{
 				heading: 'Hierarchical labels',
@@ -304,11 +292,7 @@ export const features: ContentRegistry = {
 			{
 				heading: 'Per-team workflows',
 				body: 'Each team can define its own statuses and triage settings. Engineering may use "In Progress → In Review → Done" while Support uses "New → Triaged → Resolved." Both coexist in the same workspace.',
-				list: [
-					'Custom statuses per team',
-					'Team-specific triage settings',
-					'Independent workflows in shared workspace'
-				]
+				list: ['Custom statuses per team', 'Team-specific triage settings', 'Independent workflows in shared workspace']
 			}
 		]
 	},
@@ -358,10 +342,10 @@ export const features: ContentRegistry = {
 		slug: 'analytics-insights',
 		title: 'Analytics & Insights — Kuayle',
 		description:
-			'Workspace and team overviews, burn-up trends, and configurable issue insights computed from durable lifecycle events.',
+			'Workspace and team overviews, event-based burn-up trends, and configurable issue insights based on issue data and lifecycle timestamps.',
 		heading: 'Analytics & Insights',
 		intro:
-			'Kuayle records durable issue lifecycle events and computes analytics from them. The Insights page offers workspace and team overviews, burn-up trends, and a configurable insight builder.',
+			'The Insights page combines current issue data, stored lifecycle timestamps, and recorded creation/status events to provide workspace and team overviews, burn-up trends, and a configurable insight builder.',
 		sections: [
 			{
 				heading: 'Workspace and team overviews',
@@ -374,21 +358,21 @@ export const features: ContentRegistry = {
 			},
 			{
 				heading: 'Burn-up trends',
-				body: 'The burn-up chart plots created and completed issues over a selected date range, so scope growth is visible next to completed work.',
+				body: 'The burn-up chart plots cumulative created and net-completed totals at each date bucket, with remaining work shown beside completed work.',
 				list: [
-					'Created and completed series per date',
-					'Scope line for total work',
+					'Cumulative total-created and net-total-completed series',
+					'Remaining-work line: total created minus net completed',
 					'Configurable date range'
 				]
 			},
 			{
 				heading: 'Configurable issue insights',
-				body: 'The insight builder groups issues by a chosen slice and measures them by count, age, lead time, cycle time or triage time. Results can be segmented for comparison.',
+				body: 'The insight builder measures issue count; age from creation to now; lead time from creation to completion; cycle time from first start to completion; or triage time from creation to triage. Results can use a supported group and a different comparison segment.',
 				list: [
-					'Measures: issue count, age, lead time, cycle time, triage time',
-					'Slices: status, priority, assignee, team, project, cycle, label',
-					'Optional segment and date range',
-					'Backed by durable lifecycle events, not estimates'
+					'Duration groups report P50, P75 and P95',
+					'Group or segment by status type, priority, assignee, team, project, cycle, label or creator; team scope also offers custom status',
+					'Optional second dimension and date range',
+					'Based on current issue data and stored lifecycle timestamps'
 				]
 			}
 		]
@@ -400,12 +384,11 @@ export const features: ContentRegistry = {
 		description:
 			'Unreleased opt-in multi-container development environments with code-server, a native terminal, agent providers, an in-browser Chrome, and issue worktrees.',
 		heading: 'Dev Machines',
-		intro:
-			`Dev Machines are an ${DEV_MACHINES_RELEASE_STATUS.toLowerCase()} opt-in self-hosted subsystem on the development branch. Each machine is a set of cooperating containers on an isolated network — a developer environment, agents, a browser, and an activity collector — routed through an authenticated gateway. The subsystem is disabled by default.`,
+		intro: `Dev Machines are an ${DEV_MACHINES_RELEASE_STATUS.toLowerCase()} opt-in self-hosted subsystem on the development branch. Every machine has collector and egress services on an isolated network; it may include a shared developer/terminal container and browser, while agent containers are created on demand. Access is routed through an authenticated gateway. The subsystem is disabled by default.`,
 		sections: [
 			{
 				heading: 'A full environment per machine',
-				body: 'The developer container runs code-server and a tmux-backed terminal that the Kuayle UI renders natively with xterm. A separate browser container provides Chrome over KasmVNC. No host ports are published; access goes through the Machine Gateway with one-time launch tickets.',
+				body: 'When configured, the developer container runs code-server and a tmux-backed terminal that the Kuayle UI renders natively with xterm. An optional separate browser container provides Chrome over KasmVNC. No host ports are published; access goes through the Machine Gateway with one-time launch tickets.',
 				list: [
 					'code-server IDE and native xterm terminal',
 					'In-browser Chrome via KasmVNC',
@@ -414,17 +397,18 @@ export const features: ContentRegistry = {
 			},
 			{
 				heading: 'Agent providers',
-				body: 'Machines can run Claude Code, OpenCode, Codex or an admin-configured custom CLI, either interactively or as bounded autonomous runs. Provider output is normalized into a common result model with a summary, changed files, commits, branch and pull-request URL.',
+				body: 'The developer image includes pinned Claude Code, OpenCode and Codex CLIs for direct interactive terminal use. From the machine dashboard, users can launch bounded autonomous runs in provider-specific containers, including an admin-configured custom CLI. Autonomous output is normalized into a common result model with a summary, changed files, commits, branch and pull-request URL.',
 				list: [
 					'Claude Code, OpenCode, Codex and custom CLI providers',
-					'Interactive and autonomous modes',
+					'Interactive built-in CLIs in the developer terminal',
+					'Bounded autonomous provider runs from the dashboard',
 					'Normalized run results with commits and PR links',
 					'Scoped secrets delivered through tmpfs, redacted in logs'
 				]
 			},
 			{
 				heading: 'Issue worktrees and environments',
-				body: 'Machines start generic and attach issue worktrees when work begins. Repository and environment defaults resolve from the issue, then project, team and workspace. Owner/admins can snapshot a customized builder machine into an immutable local Development Environment image.',
+				body: 'Machines can start generic and attach issue worktrees when work begins. Repository and environment defaults resolve from the issue, then project, team and workspace. Owner/admins can snapshot a customized builder machine into an immutable local Development Environment image.',
 				list: [
 					'Idempotent issue worktrees under /workspace/tasks/{issue-key}',
 					'One repository affinity per machine',
@@ -438,7 +422,7 @@ export const features: ContentRegistry = {
 				list: [
 					'Small 2 vCPU/4 GB, medium 4 vCPU/8 GB, large 8 vCPU/16 GB',
 					'Idle pause with per-machine keep-running bypass',
-					'Filesystem, shell, Git, browser and agent activity events',
+					'Filesystem, shell, root-checkout Git, browser and agent activity events',
 					'Disabled by default; requires a separate wildcard domain'
 				]
 			}

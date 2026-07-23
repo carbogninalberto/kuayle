@@ -32,22 +32,19 @@
 </script>
 
 <section id="dev-machines" class="relative overflow-hidden py-24 sm:py-32">
-	<div
-		class="absolute top-1/3 right-0 -z-10 h-[420px] w-[560px] rounded-full bg-brand-600/15 blur-[140px]"
-	></div>
+	<div class="absolute top-1/3 right-0 -z-10 h-[420px] w-[560px] rounded-full bg-brand-600/15 blur-[140px]"></div>
 
 	<div class="mx-auto max-w-6xl px-6">
 		<div class="grid items-center gap-14 lg:grid-cols-2">
 			<div use:reveal class="min-w-0">
-				<p class="text-sm font-semibold tracking-widest text-brand-300 uppercase">Dev Machines · {DEV_MACHINES_RELEASE_STATUS}</p>
-				<h2 class="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">
-					Agentic coding, on your own metal
-				</h2>
+				<p class="text-sm font-semibold tracking-widest text-brand-300 uppercase">
+					Dev Machines · {DEV_MACHINES_RELEASE_STATUS}
+				</p>
+				<h2 class="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">Agentic coding, on your own metal</h2>
 				<p class="mt-5 text-lg leading-relaxed text-muted-foreground">
-					Spin up an isolated multi-container environment per task. Each machine pairs a full
-					developer workspace with the agent provider of your choice and attaches issue worktrees.
-					Agent runs can report commits and pull requests in their normalized results; manual IDE
-					and terminal commits are not automatically attached to issues.
+					Create an isolated multi-container environment that can combine a developer workspace, browser and on-demand
+					agent runs. Machines can attach issue worktrees. Agent runs can report commits and pull requests in their
+					normalized results; manual IDE and terminal commits are not automatically attached to issues.
 				</p>
 				<ul class="mt-7 space-y-3.5">
 					{#each bullets as bullet (bullet)}
@@ -66,7 +63,9 @@
 					</a>
 					<span class="text-xs text-muted-foreground">
 						{DEV_MACHINES_RELEASE_STATUS} · opt-in subsystem · disabled by default ·
-						<a href="/self-hosting/dev-machines" class="underline underline-offset-4 hover:text-foreground">setup guide</a>
+						<a href="/self-hosting/dev-machines" class="underline underline-offset-4 hover:text-foreground"
+							>setup guide</a
+						>
 					</span>
 				</div>
 			</div>
@@ -86,9 +85,15 @@
 								<span class="animate-pulse-dot absolute size-2 rounded-full bg-emerald-400"></span>
 							</span>
 							<span class="truncate font-mono text-sm text-foreground">amber-falcon</span>
-							<span class="hidden shrink-0 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] text-muted-foreground min-[480px]:inline-flex">medium · 4 vCPU · 8 GB</span>
+							<span
+								class="hidden shrink-0 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] text-muted-foreground min-[480px]:inline-flex"
+								>medium · 4 vCPU · 8 GB</span
+							>
 						</div>
-						<span class="shrink-0 rounded-full border border-emerald-400/25 bg-emerald-400/10 px-2.5 py-0.5 text-[10px] font-medium text-emerald-300">running</span>
+						<span
+							class="shrink-0 rounded-full border border-emerald-400/25 bg-emerald-400/10 px-2.5 py-0.5 text-[10px] font-medium text-emerald-300"
+							>running</span
+						>
 					</div>
 
 					<!-- Services -->
@@ -107,7 +112,9 @@
 
 					<!-- Agent run log -->
 					<div class="border-t border-white/5 bg-black/50 px-5 py-4">
-						<p class="mb-2.5 font-mono text-[10px] tracking-widest text-muted-foreground uppercase">agent run · eng-123</p>
+						<p class="mb-2.5 font-mono text-[10px] tracking-widest text-muted-foreground uppercase">
+							agent run · eng-123
+						</p>
 						<div class="space-y-1.5 font-mono text-[11px] leading-relaxed">
 							{#each logLines as line, i (line.text)}
 								<p class="log-line flex items-center gap-2" style="animation-delay: {400 + i * 350}ms">
@@ -120,16 +127,20 @@
 									{/if}
 								</p>
 							{/each}
-						<p class="log-line flex items-center gap-2" style="animation-delay: {400 + logLines.length * 350}ms">
-							<span class="ml-5 inline-block h-3.5 w-1.5 bg-brand-300" style="animation: caret-blink 1.2s step-end infinite"></span>
-						</p>
+							<p class="log-line flex items-center gap-2" style="animation-delay: {400 + logLines.length * 350}ms">
+								<span
+									class="ml-5 inline-block h-3.5 w-1.5 bg-brand-300"
+									style="animation: caret-blink 1.2s step-end infinite"
+								></span>
+							</p>
 						</div>
 					</div>
 
 					<!-- Routing footer -->
 					<div class="border-t border-white/5 px-5 py-3">
 						<p class="truncate font-mono text-[10px] text-muted-foreground">
-							<span class="text-brand-300/80">f8k2m9</span>.kuayle-machines.example.net — routed via Machine Gateway
+							<span class="text-brand-300/80">0123456789abcdef0123</span>.kuayle-machines.example.net — routed via
+							Machine Gateway
 						</p>
 					</div>
 				</div>

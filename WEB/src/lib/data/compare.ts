@@ -72,7 +72,8 @@ export const compare: ContentRegistry = {
 				]
 			}
 		],
-		footnotes: 'Last reviewed: July 11, 2026. Methodology: first-party product documentation was compared with Kuayle’s repository and current implementation. This is a snapshot, not an endorsement; features and pricing change. Kuayle is developed by Bakney and is not affiliated with Linear.'
+		footnotes:
+			'Last reviewed: July 23, 2026. Methodology: first-party product documentation was compared with Kuayle’s repository and current implementation. This is a snapshot, not an endorsement; features and pricing change. Kuayle is developed by Bakney and is not affiliated with Linear.'
 	},
 
 	'kuayle-vs-plane': {
@@ -142,6 +143,7 @@ export const compare: ContentRegistry = {
 				]
 			}
 		],
-		footnotes: 'Last reviewed: July 11, 2026. Methodology: first-party documentation and repositories were compared with Kuayle’s current implementation. This is a snapshot, not an endorsement; features, editions, and licensing can change. Kuayle is not affiliated with Plane.'
+		footnotes:
+			'Last reviewed: July 23, 2026. Methodology: first-party documentation and repositories were compared with Kuayle’s current implementation. This is a snapshot, not an endorsement; features, editions, and licensing can change. Kuayle is not affiliated with Plane.'
 	}
 };

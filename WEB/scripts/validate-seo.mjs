@@ -109,6 +109,8 @@ for (const [route, html] of routeHtml) {
 	if (!html) continue;
 	const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
 	if (/\bapp[- ]preview\b/i.test(text)) fail(`${route}: unsupported app-preview claim`);
+	if (/durable lifecycle events/i.test(text)) fail(`${route}: analytics provenance is overstated`);
+	if (/\bf8k2m9\b/i.test(text)) fail(`${route}: invalid short machine-routing example`);
 
 	const title = html.match(/<title>([\s\S]*?)<\/title>/i)?.[1]?.trim();
 	const description = html.match(/<meta\s+[^>]*name=["']description["'][^>]*>/i)?.[0];
@@ -130,14 +132,22 @@ for (const [route, html] of routeHtml) {
 		titles.set(title, route);
 	}
 	if (descriptionText) {
-		if (descriptions.has(descriptionText)) fail(`${route}: duplicate description also used by ${descriptions.get(descriptionText)}`);
+		if (descriptions.has(descriptionText))
+			fail(`${route}: duplicate description also used by ${descriptions.get(descriptionText)}`);
 		descriptions.set(descriptionText, route);
 	}
 
 	for (const required of ['og:title', 'og:description', 'og:url', 'og:image', 'og:image:alt']) {
-		if (!new RegExp(`<meta\\s+[^>]*property=["']${required}["']`, 'i').test(html)) fail(`${route}: missing ${required}`);
+		if (!new RegExp(`<meta\\s+[^>]*property=["']${required}["']`, 'i').test(html))
+			fail(`${route}: missing ${required}`);
 	}
-	for (const required of ['twitter:card', 'twitter:title', 'twitter:description', 'twitter:image', 'twitter:image:alt']) {
+	for (const required of [
+		'twitter:card',
+		'twitter:title',
+		'twitter:description',
+		'twitter:image',
+		'twitter:image:alt'
+	]) {
 		if (!new RegExp(`<meta\\s+[^>]*name=["']${required}["']`, 'i').test(html)) fail(`${route}: missing ${required}`);
 	}
 
@@ -220,6 +230,45 @@ if (homepageHtml) {
 	if (!/manual IDE and terminal commits are not automatically attached to issues/i.test(text)) {
 		fail('/: manual commit tracking must not be presented as automatic issue activity');
 	}
+	if (!/0123456789abcdef0123\s*\.kuayle-machines\.example\.net/i.test(text)) {
+		fail('/: machine-routing example must use the generated 20-character hexadecimal form');
+	}
+}
+
+const analyticsHtml = routeHtml.get('/features/analytics-insights');
+if (analyticsHtml) {
+	const text = analyticsHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+	if (!/current issue data and stored lifecycle timestamps/i.test(text)) {
+		fail('/features/analytics-insights: insight data provenance must be explicit');
+	}
+	if (!/remaining-work line: total created minus net completed/i.test(text)) {
+		fail('/features/analytics-insights: burn-up scope semantics must be explicit');
+	}
+	if (!/P50, P75 and P95/i.test(text)) {
+		fail('/features/analytics-insights: duration aggregation semantics must be explicit');
+	}
+}
+
+const devMachinesHtml = routeHtml.get('/features/dev-machines');
+if (devMachinesHtml) {
+	const text = devMachinesHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+	if (/interactive and autonomous modes|either interactively or as bounded/i.test(text)) {
+		fail('/features/dev-machines: an interactive agent attachment flow must not be advertised');
+	}
+	if (!/direct interactive terminal use/i.test(text) || !/bounded autonomous runs/i.test(text)) {
+		fail('/features/dev-machines: terminal and dashboard agent modes must be distinguished');
+	}
+}
+
+const devMachinesSetupHtml = routeHtml.get('/self-hosting/dev-machines');
+if (devMachinesSetupHtml) {
+	const text = devMachinesSetupHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+	if (!/Compose provisioning prerequisite separately requires the gateway database password/i.test(text)) {
+		fail('/self-hosting/dev-machines: gateway-password validation boundary must be explicit');
+	}
+	if (!/optional system updater also mounts the socket/i.test(text)) {
+		fail('/self-hosting/dev-machines: Docker socket holders must be described completely');
+	}
 }
 
 const sitemapFile = join(BUILD_DIR, 'sitemap.xml');
@@ -240,10 +289,12 @@ if (!existsSync(sitemapFile)) {
 
 const robotsFile = join(BUILD_DIR, 'robots.txt');
 if (!existsSync(robotsFile)) fail('robots.txt is missing');
-else if (!readFileSync(robotsFile, 'utf8').includes(`Sitemap: ${ORIGIN}/sitemap.xml`)) fail('robots.txt has no canonical sitemap declaration');
+else if (!readFileSync(robotsFile, 'utf8').includes(`Sitemap: ${ORIGIN}/sitemap.xml`))
+	fail('robots.txt has no canonical sitemap declaration');
 
 const screenshot = join(BUILD_DIR, 'product-screenshot.png');
-if (existsSync(screenshot) && readFileSync(screenshot).byteLength > 700_000) warn('product-screenshot.png exceeds 700 KB');
+if (existsSync(screenshot) && readFileSync(screenshot).byteLength > 700_000)
+	warn('product-screenshot.png exceeds 700 KB');
 
 const assetsDirectory = join(BUILD_DIR, '_app/immutable/assets');
 const builtCss = existsSync(assetsDirectory)

@@ -55,7 +55,7 @@
 			icon: ChartColumn,
 			title: 'Analytics & Insights',
 			description:
-				'Workspace and team overviews, burn-up trends and a configurable insight builder — measure count, age, lead, cycle and triage time by any slice.',
+				'Workspace and team overviews, burn-up trends and a configurable insight builder — measure count and defined duration metrics across supported issue dimensions.',
 			href: '/features/analytics-insights',
 			span: 'lg:col-span-3',
 			tags: ['Burn-up', 'Lead time', 'Cycle time']

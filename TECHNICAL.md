@@ -11,11 +11,11 @@ Dev Machines target trusted self-hosted workspaces. Docker hardening reduces ris
 ## Principles
 
 - A Dev Machine is a logical workspace composed of cooperating containers. It is never a monolithic IDE/browser/agent container.
-- Generic machine creation does not require repository, branch, issue, project, or manual TTL input. Friendly random names are case-insensitively unique per workspace and can be checked through the availability API.
+- Generic machine creation does not require repository, branch, issue, project, or manual TTL input. Friendly random names are case-insensitively unique per creator within a workspace and can be checked through the availability API.
 - Repository and environment defaults resolve from issue, then project, then team, then workspace. One machine has affinity to one repository and can host multiple issue worktrees from that repository; use a separate machine for another repository/environment or concurrent conflicting workload.
 - The Kuayle API does not receive the Docker socket.
-- Agent, developer, browser, preview, collector, egress, and gateway containers do not receive the Docker socket.
-- The Machine Manager is the sole Docker control-plane component and is treated as host-privileged.
+- Agent, developer, browser, collector, egress, and gateway containers do not receive the Docker socket.
+- The Machine Manager is the only Dev Machines runtime component with Docker socket access and is treated as host-privileged. The separately optional system updater also mounts the socket when enabled.
 - Machine services never publish host ports. Caddy and the Machine Gateway are the only public ingress path.
 - Every machine has an isolated internal Docker network and a dedicated workspace volume.
 - code-server and ttyd run in the same developer container with a shared filesystem, processes, `HOME`, tools, and tmux.
@@ -43,7 +43,7 @@ Dev Machines target trusted self-hosted workspaces. Docker hardening reduces ris
                                       |
                                       v
                               Machine Manager
-                           sole Docker socket holder
+                    Dev Machines runtime socket holder
                                       |
                 +---------------------+---------------------+
                 |                                           |
@@ -68,23 +68,23 @@ Dev Machines target trusted self-hosted workspaces. Docker hardening reduces ris
 | Machine Manager | Host privileged | Docker networks, volumes, containers, resource limits, secrets handoff, lifecycle, hard runtime, idle pause, cleanup |
 | Machine Gateway | Unprivileged ingress | Host parsing, browser ticket exchange, native terminal ticket exchange, session authorization, header stripping, HTTP/WebSocket proxying, access audit |
 | Caddy | Public ingress | Main-domain and wildcard-machine TLS termination |
-| Collector | Per-machine data plane | Filesystem, Git, command, process, browser CDP, and heartbeat events |
+| Collector | Per-machine data plane | Filesystem, root-checkout Git, browser CDP, and heartbeat events |
 | Egress proxy | Per-machine network policy | Public-destination validation, private-address blocking, optional domain allow/deny lists |
 
 ## Machine Topology
 
 ```text
 Dev Machine
-├── developer           code-server:8080, ttyd:7681, tmux, Git checkouts
-├── agent-*             one container per Claude Code/OpenCode/Codex/custom run
-├── browser             Chrome, CDP, KasmVNC
+├── developer           optional code-server:8080, ttyd:7681, tmux, Git checkouts
+├── agent-*             on-demand container per Claude Code/OpenCode/Codex/custom run
+├── browser             optional Chrome, CDP, KasmVNC
 ├── collector           activity and heartbeat collection
 ├── egress              outbound HTTP/HTTPS policy proxy
 ├── private network     Docker bridge with internal=true
 └── workspace volume    repository worktrees and generated artifacts
 ```
 
-Every container has a deterministic name and labels containing `workspace_id`, `machine_id`, and `routing_key`. Runtime discovery never depends on a publicly exposed port.
+Every created container has a deterministic name and labels containing `workspace_id`, `machine_id`, and `routing_key`. Runtime discovery never depends on a publicly exposed port. Collector and egress services are always represented; developer/terminal and browser services depend on machine configuration, and agent services are created for individual runs.
 
 The shared workspace is writable by developer and agent containers. The collector receives it read-only. Browser and egress containers do not receive the workspace mount. Per-container home, `/tmp`, `/run`, and secret paths use tmpfs scratch mounts.
 
@@ -181,9 +181,8 @@ Initial collector scopes are:
 
 - `events:write`
 - `logs:write`
-- `heartbeat:write`
 
-The raw token is encrypted as a collector-only secret and delivered through tmpfs. Event and log ingestion endpoints reject expired, revoked, incorrectly scoped, or destroyed-machine tokens.
+Heartbeat is submitted through the event-ingestion endpoint. The raw token is encrypted as a collector-only secret and delivered through tmpfs. Event and log ingestion endpoints reject expired, revoked, incorrectly scoped, or destroyed-machine tokens.
 
 ## Provider Abstraction
 
@@ -202,21 +201,21 @@ type Provider interface {
 
 Initial providers:
 
-| ID | CLI | Secret declaration | Modes |
+| ID | CLI | Secret declaration | Adapter modes |
 |---|---|---|---|
 | `claude-code` | Claude Code | `ANTHROPIC_API_KEY` | interactive, autonomous |
 | `opencode` | OpenCode | model/provider dependent | interactive, autonomous |
 | `codex` | Codex | `OPENAI_API_KEY` | interactive, autonomous |
 | `custom` | Admin-configured argv CLI | explicit configuration | interactive, autonomous |
 
-Custom providers must be enabled by workspace policy. The shared developer image pins OpenCode, Claude Code, and Codex CLI versions for human terminal/code-server use. Provider-specific agent images remain separately pinned by tag or digest in configuration and runtime Dockerfiles; custom provider images must also be pinned.
+Provider adapters can construct both invocation modes, but the current product dialogs queue autonomous runs only and there is no UI/gateway endpoint for attaching to an interactive agent container. The shared developer image pins OpenCode, Claude Code, and Codex CLI versions for direct interactive terminal/code-server use. Custom providers must be enabled by workspace policy and are currently launched through the autonomous dashboard flow. Provider-specific agent images remain separately pinned by tag or digest in configuration and runtime Dockerfiles; custom provider images must also be pinned.
 
 ### Normalized Result
 
 ```json
 {
   "status": "succeeded",
-  "summary": "Implemented authenticated preview routing",
+  "summary": "Implemented authenticated machine routing",
   "changed_files": ["BE/internal/machine/gateway.go"],
   "commits": ["abc123"],
   "branch": "kuayle/kua-50",
@@ -228,13 +227,13 @@ Custom providers must be enabled by workspace policy. The shared developer image
 }
 ```
 
-All provider stdout/stderr is collected and redacted before persistence. JSON-line provider events are normalized into `dev_machine_events`.
+Completed autonomous provider stdout/stderr is collected and redacted before persistence. JSON-line provider events are normalized into `dev_machine_events`.
 
 ## Execution Modes
 
 ### Human and Agent
 
-The user opens authenticated IDE, browser, and preview links from Kuayle and attaches native terminal tabs rendered by the main UI. Terminal tabs speak `ttyd.v1` over the dedicated terminal host and attach to tmux sessions inside the developer container. Agents are started as separate containers from the machine dashboard. Interactive agents retain a running PTY-capable container; autonomous agents run to completion under a timeout.
+The user opens authenticated IDE and browser links from Kuayle and attaches native terminal tabs rendered by the main UI. Terminal tabs speak `ttyd.v1` over the dedicated terminal host and attach to tmux sessions inside the developer container. The built-in Claude Code, OpenCode, and Codex CLIs can be used directly from that terminal. Agent runs started from the machine dashboard use separate containers and run autonomously to completion under a timeout.
 
 ### Agent Only
 
@@ -256,16 +255,16 @@ Kuayle adds an execution contract instructing the provider to work only inside t
 Machine status and desired status are persisted separately.
 
 ```text
-configuring -> queued -> spawning -> running
-                                  -> paused -> running
-                                  -> stopping -> stopped -> queued
-                                  -> expired -> tearing_down -> destroyed
-                         failures -> failed -> queued or tearing_down
+queued -> spawning -> running
+                       -> paused -> running
+                       -> stopping -> stopped -> running
+                       -> expired -> tearing_down -> destroyed
+spawn/reconcile failure -> failed -> spawning or tearing_down
 ```
 
 | Status | Meaning |
 |---|---|
-| `configuring` | Configuration is being assembled before queueing |
+| `configuring` | Reserved status; current creation writes `queued` directly |
 | `queued` | A spawn/start operation is waiting for a manager lease |
 | `spawning` | Network, volume, images, and service containers are being created |
 | `running` | Services are started and gateway access is permitted |
@@ -283,7 +282,7 @@ Every reconciliation pass inspects Docker networks, volumes, gateway attachment,
 
 Resource names and labels are deterministic. Missing resources during teardown count as success. A partial spawn removes containers, disconnects the gateway, and removes the private network and workspace volume before retrying.
 
-Services start in dependency order: egress, collector, developer checkout, then browser. Developer and browser containers publish file-based Docker health checks.
+The production repository currently supplies services to the runtime in egress, collector, developer, then browser order; the Docker runtime starts them in caller-provided order rather than computing dependencies itself. Developer and browser containers publish file-based Docker health checks.
 
 Idle pause and hard runtime are separate controls. Workspace policy defaults idle pause to 240 minutes; `keep_running=true` bypasses idle pause for that machine. Gateway requests, native terminal WebSockets, API activity touches, checkouts, and agent runs update `last_activity_at`. The manager queues idempotent pause operations for idle running machines, but it does not automatically delete machines. Maximum hard runtime is policy-controlled through `expires_at`; expired machines transition to `expired` and teardown is queued.
 
@@ -313,7 +312,7 @@ Workspace policy controls:
 - maximum daily agent runs;
 - maximum runtime;
 - idle pause interval (default 240 minutes; bypassed by per-machine `keep_running`);
-- maximum workspace disk usage;
+- maximum per-machine workspace-volume size;
 - allowed providers;
 - allowed repositories;
 - whether custom providers are allowed.
@@ -346,7 +345,7 @@ Development defaults are stored in `dev_machine_scope_settings`. A setting may p
 
 Machine creation accepts optional issue/project/repository information but does not require it. If no repository resolves, legacy repository fields remain empty and the machine starts as a generic developer workspace. When an issue is opened, `POST /dev-machines/:machineId/checkouts` resolves the issue's development settings, enforces the machine's repository affinity, and creates an idempotent issue worktree under `/workspace/tasks/{issue-key}`. A machine can hold multiple ready checkouts from the same repository; checkouts from another repository or environment require a separate machine.
 
-Development Environments are immutable local OCI images created from owner/admin-created Environment Builder machines. Environment Builders run the developer container with a writable root filesystem so tooling can be installed intentionally. Snapshot requests are accepted only while the builder is `paused` or `stopped`; the environment moves `pending -> building -> ready` or `failed`. The snapshot commits the developer container layer with Kuayle environment/workspace labels, may leave a human-readable local tag (`kuayle/dev-environment-{id}:snapshot`), and records the immutable local image ID (`sha256:...`) as both `image_ref` and `image_digest` once ready. Machine creation uses only that immutable local ID, verifies the image labels match the expected workspace/environment, and never registry-pulls a missing local snapshot ID. The repository workspace named volume, `/run/kuayle-secrets`, `/tmp`, and other tmpfs scratch mounts are not part of the image. Selected home customization is copied into an image template location before commit, while histories, tokens, and credential-looking files are removed.
+Development Environments are immutable local OCI images created from owner/admin-created Environment Builder machines. Environment Builders run the developer container with a writable root filesystem so tooling can be installed intentionally. Snapshot requests are accepted only while the builder is `paused` or `stopped`; the environment moves `pending -> building -> ready` or `failed`. The snapshot commits the developer container layer with Kuayle environment/workspace labels, may leave a human-readable local tag (`kuayle/dev-environment-{id}:snapshot`), and records the immutable local image ID (`sha256:...`) as both `image_ref` and `image_digest` once ready. Machine creation uses only that immutable local ID, verifies the image labels match the expected workspace/environment, and never registry-pulls a missing local snapshot ID. The repository workspace named volume, `/run/kuayle-secrets`, `/tmp`, and other tmpfs scratch mounts are not part of the image. Selected shell and code-server customization is copied into an image template before commit; files in that template whose names contain `history`, `token`, or `credential` are removed. The complete writable developer layer is still committed, so operators must scrub any other sensitive data before snapshotting.
 
 Environment deletion is two-phase. The API marks an environment `delete_requested`; the manager removes only the immutable local image ID after verifying the Kuayle environment/workspace labels and only then deletes the database record. Operators migrating hosts must move any required local OCI images separately from PostgreSQL and Docker volumes.
 
@@ -376,9 +375,9 @@ Each issue checkout is an idempotent `dev_machine_checkouts` record with its own
 |---|---|
 | file created/modified/deleted | collector filesystem scan |
 | command finished and exit code | IDE shell hook |
-| branch changed | Git post-checkout hook |
-| commit created | Git post-commit hook and collector HEAD scan |
-| push started/completed | Git pre-push plus GitHub webhook confirmation |
+| root-checkout branch changed | Git post-checkout hook |
+| root-checkout commit created | Git post-commit hook and collector HEAD scan |
+| root-checkout push started | Git pre-push hook |
 | browser navigation | collector polling Chrome CDP, query and fragment removed |
 | agent provider event | provider JSON-line parser |
 | service and resource state | manager lifecycle and Docker sampling |
@@ -387,7 +386,7 @@ Each issue checkout is an idempotent `dev_machine_checkouts` record with its own
 
 Activity is operational telemetry, not tamper-proof security auditing. Trusted workspace code can bypass in-container hooks.
 
-Structured events use a monotonic `BIGSERIAL` cursor. Raw stdout/stderr/PTY data uses cursor-addressable `dev_machine_log_chunks`. API reads are workspace-scoped. High-volume log retention should be configured and periodically pruned by operators.
+Structured events use a monotonic `BIGSERIAL` cursor. Completed autonomous agent stdout/stderr uses cursor-addressable `dev_machine_log_chunks`. The schema reserves a PTY stream, but native terminal and interactive-agent PTY output is not currently persisted. Issue worktrees do not install the root-checkout Git hooks. API reads are workspace-scoped. High-volume log retention should be configured and periodically pruned by operators.
 
 The UI exposes machine status, services, resource samples, cursor-paginated events and logs, checkouts, terminal sessions, agent runs, normalized results, commits, branches, PRs, and lifecycle/delete controls. Native terminal attachment is implemented in the Kuayle UI with `@xterm/xterm`; ttyd's own web page is not exposed.
 
@@ -407,7 +406,7 @@ Migration `000033_dev_machines` creates:
 | `dev_machine_agent_run_steps` | Ordered provider/run execution steps |
 | `dev_machine_operations` | Durable leased lifecycle and agent operation queue |
 | `dev_machine_events` | Normalized machine/run event cursor |
-| `dev_machine_log_chunks` | Redacted stdout/stderr/PTY/system chunks |
+| `dev_machine_log_chunks` | Redacted stdout/stderr chunks plus reserved PTY/system streams |
 | `dev_machine_artifacts` | Object-storage artifact metadata |
 | `dev_machine_git_refs` | Issue-linked branches, commits, and PRs |
 | `dev_machine_access_tickets` | Hashed, one-time, host/service-bound launch and terminal tickets |
@@ -576,7 +575,7 @@ Compose places the Internet-facing gateway only on an internal `machine-control`
 
 Valid-looking unknown wildcard hosts are bounded before they can exhaust the database: route lookups use a 60-per-second source limit, a 500-per-second process limit, and a 32-query concurrency cap; missing routes are cached for 30 seconds. Attacker-controlled source and negative-route state is capped, and unknown-route audits are limited to one per source per five minutes and ten total writes per minute. The manager deletes access logs older than 90 days in batches of 1,000. Malformed or out-of-domain hosts are rejected before any database operation.
 
-The self-hosting `dev-machine-images` profile builds the developer, browser, collector, egress, and built-in provider agent images locally. Environment Builder snapshots are additional local OCI images in the host Docker image store, not PostgreSQL rows or Compose volumes. Backups and host migrations must account for PostgreSQL, Docker named volumes, and any environment images that should survive a host replacement.
+The self-hosting `dev-machine-images` profile builds the developer, browser, collector, egress, and built-in provider agent images locally. Environment Builder snapshot bytes are additional local OCI images in the host Docker image store, while their references and lifecycle metadata are stored in `dev_machine_environments`; snapshots are not Compose volumes. Backups and host migrations must account for PostgreSQL, Docker named volumes, and any environment images that should survive a host replacement.
 
 `selfhosting/update.sh` detects an active Dev Machines profile without enabling it on other deployments. When active, it rebuilds runtime images before stopping the old gateway and manager, applies migrations with the new backend image, and starts the updated application and control plane only after the schema is current. If migration, role provisioning, or a later update step fails after the stop, its EXIT trap removes the upgrade marker, preserves the original failure status and container logs, and uses `docker compose start` to revive the same previous control-plane containers rather than recreating them from new images.
 
@@ -586,7 +585,7 @@ The self-hosting `dev-machine-images` profile builds the developer, browser, col
 - Pinned Chrome Stable packages for amd64 and arm64 run through KasmVNC in a separately hardened non-root container. The browser's internal sandbox is disabled because Docker namespace restrictions conflict with its setup. The browser must not receive provider or GitHub secrets.
 - Domain egress controls cannot prevent exfiltration to an explicitly allowed destination.
 - Command and filesystem collection is best-effort and can be bypassed by trusted workspace code.
-- Interactive agent containers retain a bounded PTY process and can be cancelled. Native terminal attachment is exposed through Kuayle's own xterm UI; ttyd's web page is not exposed.
+- Provider adapters can construct interactive invocations, but current product dialogs queue autonomous agent runs and no interactive-agent attach endpoint is exposed. Direct interactive use of the built-in CLIs is available through Kuayle's native xterm terminal; ttyd's web page is not exposed.
 - Workspace hard quotas require Docker local-volume project-quota support; the manager intentionally fails startup rather than run machines with an unbounded workspace.
 - A dedicated machine subdomain improves cookie isolation, but a separate registrable domain is required for production deployments to prevent cookie scope ambiguity between the main application and machine workloads. Localhost development is exempt because both domains resolve to 127.0.0.1.
 
