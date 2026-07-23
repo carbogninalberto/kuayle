@@ -47,8 +47,12 @@
 	let developmentEnvironments = $state<DevMachineEnvironment[]>([]);
 	let developmentRepositoryId = $state('inherit');
 	let developmentEnvironmentId = $state('inherit');
+	let developmentLoading = $state(true);
+	let developmentReady = $state(false);
 	let savingDevelopment = $state(false);
 	let canManageDevelopment = $state(false);
+	let developmentRequestVersion = 0;
+	let developmentSaveVersion = 0;
 
 	const PRESET_COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899'];
 	const ICON_PAGE_SIZE = 96;
@@ -177,26 +181,52 @@
 		}
 	});
 
-	$effect(() => {
-		const s = slug;
-		const t = teamId;
-		if (!s || !t) return;
-		Promise.all([getGitHubStatus(s), getDevMachineScopeSetting(s, 'team', t), listDevMachineEnvironments(s)])
-			.then(([github, setting, environments]) => {
-				developmentRepositories = github.repos ?? [];
-				developmentEnvironments = (environments ?? []).filter((item) => item.status === 'ready');
-				developmentRepositoryId = setting.github_repo_id ?? 'inherit';
-				developmentEnvironmentId = setting.environment_id ?? 'inherit';
-			})
-			.catch((error) => appToast.apiError(error, 'Failed to load team development settings'));
-	});
+	function isCurrentDevelopmentScope(s: string, t: string, version: number) {
+		return slug === s && teamId === t && developmentRequestVersion === version;
+	}
+
+	async function loadDevelopmentSettings(s: string, t: string, version: number) {
+		try {
+			const workspace = await getWorkspace(s);
+			if (!isCurrentDevelopmentScope(s, t, version)) return;
+			canManageDevelopment = workspace.current_user_role === 'owner' || workspace.current_user_role === 'admin';
+			if (!canManageDevelopment) return;
+			const [github, setting, environments] = await Promise.all([
+				getGitHubStatus(s), getDevMachineScopeSetting(s, 'team', t), listDevMachineEnvironments(s)
+			]);
+			if (!isCurrentDevelopmentScope(s, t, version)) return;
+			developmentRepositories = github.repos ?? [];
+			developmentEnvironments = (environments ?? []).filter((item) => item.status === 'ready');
+			developmentRepositoryId = setting.github_repo_id ?? 'inherit';
+			developmentEnvironmentId = setting.environment_id ?? 'inherit';
+			developmentReady = true;
+		} catch (error) {
+			if (!isCurrentDevelopmentScope(s, t, version)) return;
+			appToast.apiError(error, 'Failed to load team development settings');
+		} finally {
+			if (isCurrentDevelopmentScope(s, t, version)) developmentLoading = false;
+		}
+	}
 
 	$effect(() => {
 		const s = slug;
-		if (!s) return;
-		getWorkspace(s)
-			.then((workspace) => { canManageDevelopment = workspace.current_user_role === 'owner' || workspace.current_user_role === 'admin'; })
-			.catch(() => { canManageDevelopment = false; });
+		const t = teamId;
+		const version = ++developmentRequestVersion;
+		developmentSaveVersion++;
+		developmentRepositories = [];
+		developmentEnvironments = [];
+		developmentRepositoryId = 'inherit';
+		developmentEnvironmentId = 'inherit';
+		developmentLoading = true;
+		developmentReady = false;
+		savingDevelopment = false;
+		canManageDevelopment = false;
+		if (!s || !t) return;
+		void loadDevelopmentSettings(s, t, version);
+		return () => {
+			if (developmentRequestVersion === version) developmentRequestVersion++;
+			developmentSaveVersion++;
+		};
 	});
 
 	$effect(() => {
@@ -310,24 +340,32 @@
 	}
 
 	async function saveDevelopmentSettings() {
-		if (!canManageDevelopment) return;
+		if (!canManageDevelopment || developmentLoading || !developmentReady || savingDevelopment) return;
+		const s = slug;
+		const t = teamId;
+		const requestVersion = developmentRequestVersion;
+		const saveVersion = ++developmentSaveVersion;
+		const repositoryId = developmentRepositoryId;
+		const environmentId = developmentEnvironmentId;
+		const repository = developmentRepositories.find((item) => item.id === repositoryId);
 		savingDevelopment = true;
 		try {
-			const repository = developmentRepositories.find((item) => item.id === developmentRepositoryId);
-			if (developmentRepositoryId === 'inherit' && developmentEnvironmentId === 'inherit') {
-				await deleteDevMachineScopeSetting(slug, 'team', teamId);
+			if (repositoryId === 'inherit' && environmentId === 'inherit') {
+				await deleteDevMachineScopeSetting(s, 'team', t);
 			} else {
-				await updateDevMachineScopeSetting(slug, {
-					scope_type: 'team', scope_id: teamId,
+				await updateDevMachineScopeSetting(s, {
+					scope_type: 'team', scope_id: t,
 					github_repo_id: repository?.id, base_branch: repository?.default_branch,
-					environment_id: developmentEnvironmentId === 'inherit' ? undefined : developmentEnvironmentId
+					environment_id: environmentId === 'inherit' ? undefined : environmentId
 				});
 			}
+			if (!isCurrentDevelopmentScope(s, t, requestVersion) || developmentSaveVersion !== saveVersion) return;
 			appToast.success('Team development settings saved');
 		} catch (error) {
+			if (!isCurrentDevelopmentScope(s, t, requestVersion) || developmentSaveVersion !== saveVersion) return;
 			appToast.apiError(error, 'Failed to save team development settings');
 		} finally {
-			savingDevelopment = false;
+			if (isCurrentDevelopmentScope(s, t, requestVersion) && developmentSaveVersion === saveVersion) savingDevelopment = false;
 		}
 	}
 </script>
@@ -404,9 +442,9 @@
 			<div class="border-b border-[var(--app-border)] px-5 py-4"><p class="text-sm font-medium text-[var(--color-text-primary)]">Development defaults</p><p class="text-xs text-[var(--color-text-tertiary)]">Projects and issues can override the team repository and environment.</p></div>
 			<div class="grid gap-4 px-5 py-4 sm:grid-cols-2">
 				{#if !canManageDevelopment}<p class="rounded-md border border-[var(--app-border)] p-3 text-xs text-[var(--color-text-tertiary)] sm:col-span-2">Workspace owners and admins manage team development defaults.</p>{/if}
-				<div class="space-y-1"><Label>Repository</Label><Select.Root type="single" value={developmentRepositoryId} disabled={!canManageDevelopment} onValueChange={(value) => value && (developmentRepositoryId = value)}><Select.Trigger class="w-full">{developmentRepositories.find((item) => item.id === developmentRepositoryId)?.full_name ?? 'Use workspace default'}</Select.Trigger><Select.Content><Select.Item value="inherit" label="Use workspace default">Use workspace default</Select.Item>{#each developmentRepositories as repository}<Select.Item value={repository.id} label={repository.full_name}>{repository.full_name}</Select.Item>{/each}</Select.Content></Select.Root></div>
-				<div class="space-y-1"><Label>Environment</Label><Select.Root type="single" value={developmentEnvironmentId} disabled={!canManageDevelopment} onValueChange={(value) => value && (developmentEnvironmentId = value)}><Select.Trigger class="w-full">{developmentEnvironments.find((item) => item.id === developmentEnvironmentId)?.name ?? 'Use workspace default'}</Select.Trigger><Select.Content><Select.Item value="inherit" label="Use workspace default">Use workspace default</Select.Item>{#each developmentEnvironments as environment}<Select.Item value={environment.id} label={environment.name}>{environment.name}</Select.Item>{/each}</Select.Content></Select.Root></div>
-				<div class="flex justify-end sm:col-span-2"><Button size="sm" onclick={saveDevelopmentSettings} disabled={savingDevelopment || !canManageDevelopment}>{savingDevelopment ? 'Saving...' : 'Save development defaults'}</Button></div>
+				<div class="space-y-1"><Label>Repository</Label><Select.Root type="single" value={developmentRepositoryId} disabled={developmentLoading || !developmentReady || !canManageDevelopment} onValueChange={(value) => value && (developmentRepositoryId = value)}><Select.Trigger class="w-full">{developmentLoading ? 'Loading...' : developmentRepositories.find((item) => item.id === developmentRepositoryId)?.full_name ?? 'Use workspace default'}</Select.Trigger><Select.Content><Select.Item value="inherit" label="Use workspace default">Use workspace default</Select.Item>{#each developmentRepositories as repository}<Select.Item value={repository.id} label={repository.full_name}>{repository.full_name}</Select.Item>{/each}</Select.Content></Select.Root></div>
+				<div class="space-y-1"><Label>Environment</Label><Select.Root type="single" value={developmentEnvironmentId} disabled={developmentLoading || !developmentReady || !canManageDevelopment} onValueChange={(value) => value && (developmentEnvironmentId = value)}><Select.Trigger class="w-full">{developmentLoading ? 'Loading...' : developmentEnvironments.find((item) => item.id === developmentEnvironmentId)?.name ?? 'Use workspace default'}</Select.Trigger><Select.Content><Select.Item value="inherit" label="Use workspace default">Use workspace default</Select.Item>{#each developmentEnvironments as environment}<Select.Item value={environment.id} label={environment.name}>{environment.name}</Select.Item>{/each}</Select.Content></Select.Root></div>
+				<div class="flex justify-end sm:col-span-2"><Button size="sm" onclick={saveDevelopmentSettings} disabled={developmentLoading || !developmentReady || savingDevelopment || !canManageDevelopment}>{savingDevelopment ? 'Saving...' : 'Save development defaults'}</Button></div>
 			</div>
 		</div>
 
