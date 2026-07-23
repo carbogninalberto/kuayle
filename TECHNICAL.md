@@ -582,7 +582,7 @@ The self-hosting `dev-machine-images` profile builds the developer, browser, col
 ## Security Limitations
 
 - Docker hardening is not hostile multi-tenant isolation.
-- Chrome Stable on amd64, with native Chromium on arm64 where Google publishes no Linux Chrome binary, runs through KasmVNC in a separately hardened non-root container. The browser's internal sandbox is disabled because Docker namespace restrictions conflict with its setup. The browser must not receive provider or GitHub secrets.
+- Pinned Chrome Stable packages for amd64 and arm64 run through KasmVNC in a separately hardened non-root container. The browser's internal sandbox is disabled because Docker namespace restrictions conflict with its setup. The browser must not receive provider or GitHub secrets.
 - Domain egress controls cannot prevent exfiltration to an explicitly allowed destination.
 - Command and filesystem collection is best-effort and can be bypassed by trusted workspace code.
 - Interactive agent containers retain a bounded PTY process and can be cancelled. Native terminal attachment is exposed through Kuayle's own xterm UI; ttyd's web page is not exposed.
