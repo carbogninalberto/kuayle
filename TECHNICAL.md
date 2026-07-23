@@ -296,7 +296,7 @@ Pause, stop, teardown, and permanent delete are intentionally distinct:
 
 Machine sizes are aggregate admission profiles:
 
-| Size | CPU | RAM | Workspace disk monitor | Maximum runtime |
+| Size | CPU | RAM | Workspace disk hard quota | Maximum runtime |
 |---|---:|---:|---:|---:|
 | small | 2 vCPU | 4 GB | 20 GB | 2 hours |
 | medium | 4 vCPU | 8 GB | 50 GB | 4 hours |
@@ -318,9 +318,9 @@ Workspace policy controls:
 
 ### Disk Limitation
 
-The selected implementation uses a soft disk monitor because portable Docker named-volume hard quotas are unavailable. The manager samples workspace usage and queues a stop when the configured threshold is reached.
+Workspace volumes use Docker's built-in `local` driver with its `size` option set to the machine profile's exact byte limit. Docker enforces that option through XFS project quotas. The Docker data root must therefore reside on XFS mounted with `pquota` or `prjquota`, and the daemon must not run in a user namespace. The manager creates and removes a quota-probe volume during startup; if Docker reports that quota support is unavailable, manager startup fails and its readiness endpoint remains unavailable. Existing volumes without the expected local driver, ownership labels, and exact hard limit are rejected before containers start or runtime reconciliation reuses them.
 
-This can overshoot between samples and is not a hard storage boundary. Operators requiring a strict disk acceptance criterion must deploy an XFS project-quota, Btrfs quota, or fixed-size filesystem runtime implementation. CPU, memory, and process limits are hard Docker limits.
+The manager still samples workspace usage, stores resource telemetry, and queues a stop at the threshold as defense in depth. That delayed monitor is not the primary storage boundary. CPU, memory, process, and workspace disk limits are enforced by the runtime.
 
 ## Secrets
 
@@ -533,6 +533,7 @@ Dev Machines are an opt-in Compose profile.
 Prerequisites:
 
 - Linux Docker Engine and Compose v2;
+- Docker's data root on XFS mounted with project quotas (`pquota` or `prjquota`); rootless or user-namespace Docker is not supported because the local volume driver cannot apply project quotas there;
 - `FRONTEND_URL` set to the exact public Kuayle origin, including scheme and any non-default port, for native terminal WebSocket `Origin` validation;
 - a separate registrable domain for machine workloads (e.g. `kuayle-machines.example.net`), NOT a sibling subdomain of the main application domain;
 - wildcard DNS for `*.${DEV_MACHINE_DOMAIN}`;
@@ -586,7 +587,7 @@ The self-hosting `dev-machine-images` profile builds the developer, browser, col
 - Domain egress controls cannot prevent exfiltration to an explicitly allowed destination.
 - Command and filesystem collection is best-effort and can be bypassed by trusted workspace code.
 - Interactive agent containers retain a bounded PTY process and can be cancelled. Native terminal attachment is exposed through Kuayle's own xterm UI; ttyd's web page is not exposed.
-- The selected disk monitor is soft rather than a hard quota.
+- Workspace hard quotas require Docker local-volume project-quota support; the manager intentionally fails startup rather than run machines with an unbounded workspace.
 - A dedicated machine subdomain improves cookie isolation, but a separate registrable domain is required for production deployments to prevent cookie scope ambiguity between the main application and machine workloads. Localhost development is exempt because both domains resolve to 127.0.0.1.
 
 These limitations are deployment facts and must not be represented as stronger guarantees in product or security documentation.

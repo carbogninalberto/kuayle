@@ -48,6 +48,12 @@ func main() {
 	if err != nil {
 		log.WithError(err).Fatal("initialize Docker runtime")
 	}
+	runtimeCheckCtx, cancelRuntimeCheck := context.WithTimeout(context.Background(), 10*time.Second)
+	if err := runtime.Ping(runtimeCheckCtx); err != nil {
+		cancelRuntimeCheck()
+		log.WithError(err).Fatal("verify Docker workspace quota support")
+	}
+	cancelRuntimeCheck()
 	registry := agent.NewRegistry(
 		agent.NewClaudeCodeProvider(configValue.DevMachine.ClaudeCodeImage),
 		agent.NewOpenCodeProvider(configValue.DevMachine.OpenCodeImage),

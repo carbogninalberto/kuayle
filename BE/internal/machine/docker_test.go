@@ -8,8 +8,48 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
+	volumetypes "github.com/moby/moby/api/types/volume"
 	"github.com/stretchr/testify/require"
 )
+
+func TestWorkspaceVolumeOptionsApplyExactHardQuota(t *testing.T) {
+	labels := map[string]string{"com.kuayle.managed": "true", "com.kuayle.machine-id": uuid.NewString()}
+
+	options, err := workspaceVolumeCreateOptions("workspace-test", labels, 20)
+
+	require.NoError(t, err)
+	require.Equal(t, "local", options.Driver)
+	require.Equal(t, "21474836480", options.DriverOpts["size"])
+	require.Equal(t, "21474836480", options.Labels[workspaceQuotaLabel])
+	require.NotContains(t, labels, workspaceQuotaLabel)
+	require.NoError(t, validateWorkspaceVolume(volumetypes.Volume{
+		Name: options.Name, Driver: options.Driver, Labels: options.Labels, Options: options.DriverOpts,
+	}, options))
+}
+
+func TestWorkspaceVolumeValidationRejectsUnboundedOrMismatchedVolumes(t *testing.T) {
+	options, err := workspaceVolumeCreateOptions("workspace-test", map[string]string{"com.kuayle.managed": "true"}, 50)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name   string
+		volume volumetypes.Volume
+		error  string
+	}{
+		{name: "wrong driver", volume: volumetypes.Volume{Driver: "custom", Labels: options.Labels, Options: options.DriverOpts}, error: "uses driver"},
+		{name: "missing ownership", volume: volumetypes.Volume{Driver: options.Driver, Labels: map[string]string{}, Options: options.DriverOpts}, error: "incompatible label"},
+		{name: "missing quota", volume: volumetypes.Volume{Driver: options.Driver, Labels: options.Labels, Options: map[string]string{}}, error: "hard quota"},
+		{name: "wrong quota", volume: volumetypes.Volume{Driver: options.Driver, Labels: options.Labels, Options: map[string]string{"size": "21474836480"}}, error: "hard quota"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			require.ErrorContains(t, validateWorkspaceVolume(test.volume, options), test.error)
+		})
+	}
+
+	_, err = workspaceVolumeCreateOptions("workspace-test", nil, 0)
+	require.ErrorContains(t, err, "must be positive")
+}
 
 func TestInteractiveToolingTmpfsAllowsExecutables(t *testing.T) {
 	machine := &domain.DevMachine{MemoryMB: 4096, PidsLimit: 512}

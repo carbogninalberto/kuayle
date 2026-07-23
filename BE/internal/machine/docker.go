@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/containerd/errdefs"
@@ -19,10 +20,13 @@ import (
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/api/types/network"
+	volumetypes "github.com/moby/moby/api/types/volume"
 	"github.com/moby/moby/client"
 )
 
 const egressNetworkName = "kuayle-machine-egress"
+
+const workspaceQuotaLabel = "com.kuayle.workspace-quota-bytes"
 
 const maxCapturedLogBytes = 4 * 1024 * 1024
 
@@ -91,8 +95,10 @@ type DockerConfig struct {
 }
 
 type DockerRuntime struct {
-	client *client.Client
-	config DockerConfig
+	client     *client.Client
+	config     DockerConfig
+	quotaMu    sync.Mutex
+	quotaReady bool
 }
 
 func NewDockerRuntime(config DockerConfig) (*DockerRuntime, error) {
@@ -110,8 +116,10 @@ func NewDockerRuntime(config DockerConfig) (*DockerRuntime, error) {
 }
 
 func (r *DockerRuntime) Ping(ctx context.Context) error {
-	_, err := r.client.Ping(ctx, client.PingOptions{})
-	return err
+	if _, err := r.client.Ping(ctx, client.PingOptions{}); err != nil {
+		return err
+	}
+	return r.ensureWorkspaceQuotaSupport(ctx)
 }
 
 func (r *DockerRuntime) Inspect(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService) (RuntimeInspection, error) {
@@ -135,9 +143,7 @@ func (r *DockerRuntime) Inspect(ctx context.Context, machine *domain.DevMachine,
 	} else if !errdefs.IsNotFound(err) {
 		return RuntimeInspection{}, err
 	}
-	if _, err := r.client.VolumeInspect(ctx, volumeName, client.VolumeInspectOptions{}); err == nil {
-		result.VolumeExists = true
-	} else if !errdefs.IsNotFound(err) {
+	if result.VolumeExists, err = r.inspectWorkspaceVolume(ctx, volumeName, machineLabels(machine), machine.DiskGB); err != nil {
 		return RuntimeInspection{}, err
 	}
 	for _, service := range services {
@@ -210,7 +216,7 @@ func (r *DockerRuntime) Spawn(ctx context.Context, machine *domain.DevMachine, s
 	if _, err := r.ensureNetwork(ctx, egressNetworkName, false, map[string]string{"com.kuayle.kind": "machine-egress"}); err != nil {
 		return "", "", nil, fmt.Errorf("create egress network: %w", err)
 	}
-	if volumeCreated, err = r.ensureVolume(ctx, volumeName, labels); err != nil {
+	if volumeCreated, err = r.ensureVolume(ctx, volumeName, labels, machine.DiskGB); err != nil {
 		return "", "", nil, fmt.Errorf("create workspace volume: %w", err)
 	}
 	var initImage string
@@ -351,6 +357,16 @@ func (r *DockerRuntime) prepareWorkspaceVolume(ctx context.Context, machine *dom
 }
 
 func (r *DockerRuntime) Start(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService, secrets map[string]map[string]string) error {
+	if machine.WorkspaceVolumeName == nil || *machine.WorkspaceVolumeName == "" {
+		return fmt.Errorf("machine workspace volume is unavailable")
+	}
+	volumeExists, err := r.inspectWorkspaceVolume(ctx, *machine.WorkspaceVolumeName, machineLabels(machine), machine.DiskGB)
+	if err != nil {
+		return err
+	}
+	if !volumeExists {
+		return fmt.Errorf("machine workspace volume does not exist")
+	}
 	for _, service := range plannedStartServices(machine.Status, services) {
 		if service.ContainerID == nil || *service.ContainerID == "" {
 			return fmt.Errorf("service %s has no container", service.ServiceKey)
@@ -1220,19 +1236,99 @@ func (r *DockerRuntime) ensureNetwork(ctx context.Context, name string, internal
 	return err == nil, err
 }
 
-func (r *DockerRuntime) ensureVolume(ctx context.Context, name string, labels map[string]string) (bool, error) {
-	if inspection, err := r.client.VolumeInspect(ctx, name, client.VolumeInspectOptions{}); err == nil {
-		for key, value := range labels {
-			if inspection.Volume.Labels[key] != value {
-				return false, fmt.Errorf("existing volume %s is not managed by Kuayle", name)
-			}
-		}
-		return false, nil
-	} else if !errdefs.IsNotFound(err) {
+func (r *DockerRuntime) ensureVolume(ctx context.Context, name string, labels map[string]string, diskGB int) (bool, error) {
+	options, err := workspaceVolumeCreateOptions(name, labels, diskGB)
+	if err != nil {
 		return false, err
 	}
-	_, err := r.client.VolumeCreate(ctx, client.VolumeCreateOptions{Name: name, Labels: labels})
-	return err == nil, err
+	if exists, err := r.inspectWorkspaceVolumeWithOptions(ctx, options); err != nil || exists {
+		return false, err
+	}
+	created, err := r.client.VolumeCreate(ctx, options)
+	if err != nil {
+		return false, fmt.Errorf("create hard-quota workspace volume: %w", err)
+	}
+	if err := validateWorkspaceVolume(created.Volume, options); err != nil {
+		_, _ = r.client.VolumeRemove(context.Background(), name, client.VolumeRemoveOptions{Force: true})
+		return false, fmt.Errorf("created workspace volume did not retain its hard quota: %w", err)
+	}
+	return true, nil
+}
+
+func (r *DockerRuntime) inspectWorkspaceVolume(ctx context.Context, name string, labels map[string]string, diskGB int) (bool, error) {
+	options, err := workspaceVolumeCreateOptions(name, labels, diskGB)
+	if err != nil {
+		return false, err
+	}
+	return r.inspectWorkspaceVolumeWithOptions(ctx, options)
+}
+
+func (r *DockerRuntime) inspectWorkspaceVolumeWithOptions(ctx context.Context, expected client.VolumeCreateOptions) (bool, error) {
+	inspection, err := r.client.VolumeInspect(ctx, expected.Name, client.VolumeInspectOptions{})
+	if errdefs.IsNotFound(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if err := validateWorkspaceVolume(inspection.Volume, expected); err != nil {
+		return false, fmt.Errorf("workspace volume %s: %w", expected.Name, err)
+	}
+	return true, nil
+}
+
+func workspaceVolumeCreateOptions(name string, labels map[string]string, diskGB int) (client.VolumeCreateOptions, error) {
+	if diskGB <= 0 {
+		return client.VolumeCreateOptions{}, fmt.Errorf("workspace disk quota must be positive")
+	}
+	quotaBytes := strconv.FormatInt(int64(diskGB)*1024*1024*1024, 10)
+	volumeLabels := make(map[string]string, len(labels)+1)
+	for key, value := range labels {
+		volumeLabels[key] = value
+	}
+	volumeLabels[workspaceQuotaLabel] = quotaBytes
+	return client.VolumeCreateOptions{
+		Name: name, Driver: "local", DriverOpts: map[string]string{"size": quotaBytes}, Labels: volumeLabels,
+	}, nil
+}
+
+func validateWorkspaceVolume(existing volumetypes.Volume, expected client.VolumeCreateOptions) error {
+	if existing.Driver != expected.Driver {
+		return fmt.Errorf("uses driver %q instead of %q", existing.Driver, expected.Driver)
+	}
+	for key, value := range expected.Labels {
+		if existing.Labels[key] != value {
+			return fmt.Errorf("has incompatible label %s", key)
+		}
+	}
+	if existing.Options["size"] != expected.DriverOpts["size"] {
+		return fmt.Errorf("hard quota is %q instead of %q", existing.Options["size"], expected.DriverOpts["size"])
+	}
+	return nil
+}
+
+func (r *DockerRuntime) ensureWorkspaceQuotaSupport(ctx context.Context) error {
+	r.quotaMu.Lock()
+	defer r.quotaMu.Unlock()
+	if r.quotaReady {
+		return nil
+	}
+	name := "kuayle-workspace-quota-probe-" + uuid.NewString()
+	created, err := r.ensureVolume(ctx, name, map[string]string{
+		"com.kuayle.managed": "true",
+		"com.kuayle.kind":    "workspace-quota-probe",
+	}, 1)
+	if err != nil {
+		return fmt.Errorf("workspace hard quotas are unavailable; Docker's local volume driver requires an XFS data root mounted with project quotas: %w", err)
+	}
+	if !created {
+		return fmt.Errorf("workspace quota probe volume already exists")
+	}
+	if _, err := r.client.VolumeRemove(ctx, name, client.VolumeRemoveOptions{Force: true}); err != nil {
+		return fmt.Errorf("remove workspace quota probe: %w", err)
+	}
+	r.quotaReady = true
+	return nil
 }
 
 func (r *DockerRuntime) requireRunning(ctx context.Context, containerID string) error {

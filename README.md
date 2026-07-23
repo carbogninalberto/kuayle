@@ -102,11 +102,13 @@ The implementation:
 
 Machines are created without requiring a repository, branch, issue, project, or manual TTL. Friendly random names are case-insensitively unique per workspace and have an availability API. Opening an issue resolves its repository and environment using issue, project, team, then workspace defaults and creates an isolated Git worktree. Workspace policies control concurrency, maximum hard runtime, a default 240-minute idle pause, providers, repositories, and custom CLI access. A per-machine **Keep running** switch bypasses idle pause; no automatic deletion is performed. Owners and admins can create a writable Environment Builder, pause or stop it, and save selected tooling/home customization as an immutable local OCI Development Environment image.
 
-| Size   | CPU     | Memory | PIDs  | Disk (soft quota) |
+| Size   | CPU     | Memory | PIDs  | Disk (hard quota) |
 | ------ | ------- | ------ | ----- | ----------------- |
 | Small  | 2 cores | 4 GB   | 512   | 20 GB             |
 | Medium | 4 cores | 8 GB   | 512   | 50 GB             |
 | Large  | 8 cores | 16 GB  | 512   | 100 GB            |
+
+Workspace limits use Docker local-volume project quotas. Self-hosted Dev Machines require Docker's data root on XFS mounted with `pquota` or `prjquota`; the manager fails its startup quota probe instead of running an unbounded workspace when the host does not support this boundary.
 
 ## 🛠️ Tech Stack
 

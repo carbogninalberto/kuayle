@@ -33,6 +33,7 @@ func TestDockerRuntimeLifecycle(t *testing.T) {
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = runtime.client.Close() })
+	require.NoError(t, runtime.Ping(ctx), "Docker data root must support XFS project quotas")
 
 	gateway, err := runtime.client.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config: &container.Config{
@@ -52,7 +53,7 @@ func TestDockerRuntimeLifecycle(t *testing.T) {
 	machine := &domain.DevMachine{
 		ID: uuid.New(), WorkspaceID: uuid.New(), RoutingKey: routingKey,
 		Status:    domain.DevMachineStatusQueued,
-		CPUMillis: 4000, MemoryMB: 4096, PidsLimit: 1024,
+		CPUMillis: 4000, MemoryMB: 4096, DiskGB: 20, PidsLimit: 1024,
 		BaseBranch: "main", WorkingBranch: "kuayle/integration-test",
 	}
 	services := []domain.DevMachineService{
@@ -68,6 +69,10 @@ func TestDockerRuntimeLifecycle(t *testing.T) {
 
 	networkName, volumeName, containers, err := runtime.Spawn(ctx, machine, services, secrets)
 	require.NoError(t, err)
+	volumeInspection, err := runtime.client.VolumeInspect(ctx, volumeName, client.VolumeInspectOptions{})
+	require.NoError(t, err)
+	require.Equal(t, "21474836480", volumeInspection.Volume.Options["size"])
+	require.Equal(t, "21474836480", volumeInspection.Volume.Labels[workspaceQuotaLabel])
 	machine.Status = domain.DevMachineStatusRunning
 	require.Equal(t, containers["ide"], containers["terminal"])
 	machine.DockerNetworkName = &networkName
