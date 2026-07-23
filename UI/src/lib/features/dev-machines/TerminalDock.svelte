@@ -88,12 +88,12 @@
 							onclick={() => dock.setActiveTab(t.id)}
 						>
 							<SquareTerminal class="size-3 shrink-0" />
-							<span class="truncate">{t.sessionName ?? t.machineName}</span>
+							<span class="truncate">{t.runtimeTitle ?? t.sessionName ?? t.machineName}</span>
 						</button>
 						<button
 							type="button"
 							class="ml-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-zinc-500 hover:bg-red-500/10 hover:text-red-400"
-							aria-label="Close tab: {t.sessionName ?? t.machineName}"
+							aria-label="Close tab: {t.runtimeTitle ?? t.sessionName ?? t.machineName}"
 							data-testid="close-tab"
 							onclick={(e) => handleCloseTab(t.id, e)}
 						>

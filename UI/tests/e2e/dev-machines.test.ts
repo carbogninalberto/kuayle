@@ -519,6 +519,7 @@ test('keeps multiple docked terminals alive across collapse and navigation', asy
 				this.record = {
 					url, sent: [], closed: false, deferClose: false,
 					open: () => this.open(), fail: () => this.dispatchEvent(new Event('error')),
+					message: (data: string) => this.dispatchEvent(new MessageEvent('message', { data })),
 					finishClose: () => this.finishClose()
 				};
 				if (url.startsWith('wss://terminal.example.test')) {
@@ -643,6 +644,14 @@ test('keeps multiple docked terminals alive across collapse and navigation', asy
 	await expect.poll(() => page.evaluate(() => (window as any).__terminalSockets?.length ?? 0)).toBe(4);
 	await page.evaluate(() => (window as any).__terminalSockets[3].open());
 	await expect(page.getByText('Terminal connected', { exact: true })).toBeVisible();
+	await page.evaluate(() => (window as any).__terminalSockets[3].message('1 TST-1 shell\u0007 '));
+	await expect(page.getByRole('tab', { name: 'TST-1 shell' })).toBeVisible();
+	await page.evaluate(() => (window as any).__terminalSockets[2].message('1Stale socket title'));
+	await expect(page.getByRole('tab', { name: 'TST-1 shell' })).toBeVisible();
+	await expect(page.getByRole('tab', { name: 'Stale socket title' })).toHaveCount(0);
+	await page.evaluate(() => (window as any).__terminalSockets[3].message('1Ready shell'));
+	await expect(page.getByRole('tab', { name: 'Ready shell' })).toBeVisible();
+	await expect(page.getByRole('tab', { name: 'TST-1 shell' })).toHaveCount(0);
 	await page.evaluate(() => (window as any).__terminalSockets[2].finishClose());
 	await expect(page.getByText('Terminal connected', { exact: true })).toBeVisible();
 	await expect.poll(() => closeRequests).toBe(3);

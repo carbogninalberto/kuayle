@@ -8,6 +8,7 @@ export interface TerminalTab {
 	checkoutId?: string;
 	checkoutLabel?: string;
 	sessionName?: string;
+	runtimeTitle?: string;
 }
 
 class TerminalDockState {
@@ -54,6 +55,13 @@ class TerminalDockState {
 	setActiveTab(id: string) {
 		this.activeTabId = id;
 		this.expanded = true;
+	}
+
+	setRuntimeTitle(id: string, title: string) {
+		const tab = this.tabs.find((item) => item.id === id);
+		const runtimeTitle = title || undefined;
+		if (!tab || tab.runtimeTitle === runtimeTitle) return;
+		this.tabs = this.tabs.map((item) => item.id === id ? { ...item, runtimeTitle } : item);
 	}
 
 	toggle() {

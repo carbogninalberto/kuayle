@@ -19,6 +19,7 @@
 	import '@xterm/xterm/css/xterm.css';
 	import type { Terminal as XTerminal, IDisposable } from '@xterm/xterm';
 	import type { FitAddon as XFitAddon } from '@xterm/addon-fit';
+	import { useTerminalDock } from './terminal-dock-context.svelte';
 	type SocketConnection = { socket: WebSocket; timer?: ReturnType<typeof setTimeout>; expectedClose: boolean };
 
 	let {
@@ -38,11 +39,11 @@
 	let session = $state<DevMachineTerminalSession | null>(null);
 	let status = $state<'idle' | 'creating' | 'resuming' | 'pending' | 'connecting' | 'connected' | 'closed' | 'error'>('idle');
 	let statusMessage = $state('');
-	let title = $state('');
 	let retrying = $state(false);
 	let runId = 0;
 	const disposables: IDisposable[] = [];
 	let priorVisibility = $state(true);
+	const dock = useTerminalDock();
 
 	const canRetry = $derived(status === 'error' || status === 'closed');
 
@@ -79,11 +80,11 @@
 		retrying = true;
 		status = 'creating';
 		statusMessage = id > 1 ? 'Reconnecting terminal...' : 'Creating a terminal session...';
+		dock.setRuntimeTitle(tab.id, '');
 		await cleanup(true);
 		if (id !== runId) return;
 		status = 'creating';
 		statusMessage = 'Creating a terminal session...';
-		title = '';
 		try {
 			await prepareTerminal();
 			if (id !== runId) return;
@@ -202,7 +203,7 @@
 			if (frame.command === 'output') {
 				terminal.write(frame.data);
 			} else if (frame.command === 'title') {
-				title = frame.title;
+				dock.setRuntimeTitle(tab.id, normalizedWindowTitle(frame.title));
 			} else if (frame.command === 'preferences') {
 				applyPreferences(frame.preferences);
 			}
@@ -244,7 +245,12 @@
 	function closeCurrentSession() {
 		const disconnectedSession = session;
 		session = null;
+		dock.setRuntimeTitle(tab.id, '');
 		if (disconnectedSession?.id) closeTerminalSession(tab.slug, tab.machineId, disconnectedSession.id).catch(() => {});
+	}
+
+	function normalizedWindowTitle(value: string) {
+		return value.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 128);
 	}
 
 	function failSocketConnection(connection: SocketConnection, id: number, message: string) {
@@ -308,7 +314,6 @@
 		if (!visible) {
 			status = 'idle';
 			statusMessage = '';
-			title = '';
 		}
 	}
 </script>
