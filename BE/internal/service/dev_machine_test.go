@@ -311,11 +311,43 @@ func TestCreateGenericMachineDoesNotRequireRepositoryOrTTL(t *testing.T) {
 	require.Empty(t, machine.RepoOwner)
 	require.Empty(t, machine.RepoName)
 	require.Nil(t, machine.RepositoryAffinityID)
-	require.WithinDuration(t, time.Now().UTC().Add(480*time.Minute), machine.ExpiresAt, 5*time.Second)
+	require.Equal(t, 120, machine.MaxRuntimeMinutes)
+	require.WithinDuration(t, time.Now().UTC().Add(120*time.Minute), machine.ExpiresAt, 5*time.Second)
 	require.True(t, store.createdMachine.KeepRunning)
 	require.NotContains(t, string(machine.ServicesConfig), "app_preview")
 	for _, service := range store.createdServices {
 		require.NotEqual(t, "app_preview", service.ServiceType)
+	}
+}
+
+func TestCreateAppliesSizeAndWorkspaceRuntimeLimits(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		size          string
+		policyMinutes int
+		expected      int
+	}{
+		{name: "small size cap", size: "small", policyMinutes: 480, expected: 120},
+		{name: "medium workspace cap", size: "medium", policyMinutes: 180, expected: 180},
+		{name: "large size cap", size: "large", policyMinutes: 1440, expected: 480},
+		{name: "small workspace cap", size: "small", policyMinutes: 30, expected: 30},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			workspaceID, userID := uuid.New(), uuid.New()
+			policy := testPolicy(workspaceID)
+			policy.MaxRuntimeMinutes = test.policyMinutes
+			store := &devMachineStoreFake{policy: policy}
+			before := time.Now().UTC()
+
+			machine, _, err := newTestDevMachineService(store).Create(context.Background(), workspaceID, userID, dto.CreateDevMachineRequest{
+				Name: "runtime-limit", Size: test.size,
+			})
+
+			require.NoError(t, err)
+			require.Equal(t, test.expected, machine.MaxRuntimeMinutes)
+			require.Equal(t, test.expected, store.createdMachine.MaxRuntimeMinutes)
+			require.WithinDuration(t, before.Add(time.Duration(test.expected)*time.Minute), machine.ExpiresAt, time.Second)
+		})
 	}
 }
 

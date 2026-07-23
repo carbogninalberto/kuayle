@@ -99,14 +99,14 @@ func (s *DevMachineService) Create(ctx context.Context, workspaceID, userID uuid
 		return nil, nil, ErrMachineQuota
 	}
 
-	cpuMillis, memoryMB, diskGB, _, ok := domain.DevMachineSize(req.Size)
+	cpuMillis, memoryMB, diskGB, sizeMaxRuntime, ok := domain.DevMachineSize(req.Size)
 	if !ok {
 		return nil, nil, fmt.Errorf("%w: unsupported machine size %q", ErrInvalidMachineInput, req.Size)
 	}
 	if diskGB > policy.MaxDiskGB {
 		return nil, nil, fmt.Errorf("%w: machine disk request exceeds workspace limit", ErrMachineQuota)
 	}
-	maxRuntime := policy.MaxRuntimeMinutes
+	maxRuntime := min(sizeMaxRuntime, policy.MaxRuntimeMinutes)
 	name := normalizeMachineName(req.Name)
 	if name == "" {
 		name, err = s.GenerateName(ctx, workspaceID, userID)
