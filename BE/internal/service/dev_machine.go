@@ -253,6 +253,22 @@ func (s *DevMachineService) Create(ctx context.Context, workspaceID, userID uuid
 		ID: uuid.New(), MachineID: machineID, TargetService: "collector", Name: "KUAYLE_MACHINE_TOKEN",
 		EncryptedValue: encryptedCollectorToken, EncryptionKeyVersion: 1, IsSecret: true, ExpiresAt: &machine.ExpiresAt,
 	})
+	if req.Services.Browser {
+		browserCDPToken, err := randomHex(32)
+		if err != nil {
+			return nil, nil, err
+		}
+		encryptedBrowserCDPToken, err := cryptoutil.Encrypt(browserCDPToken, s.encryptionKey)
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, targetService := range []string{"browser", "collector"} {
+			envVars = append(envVars, domain.DevMachineEnvVar{
+				ID: uuid.New(), MachineID: machineID, TargetService: targetService, Name: "KUAYLE_BROWSER_CDP_TOKEN",
+				EncryptedValue: encryptedBrowserCDPToken, EncryptionKeyVersion: 1, IsSecret: true, ExpiresAt: &machine.ExpiresAt,
+			})
+		}
+	}
 	collectorTokenHash := sha256.Sum256([]byte(collectorToken))
 	tokens := []domain.DevMachineToken{{
 		ID: uuid.New(), MachineID: machineID, TokenHash: hex.EncodeToString(collectorTokenHash[:]),

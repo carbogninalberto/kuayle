@@ -142,6 +142,37 @@ func TestReceiveEventReflectsDeliveryOutcome(t *testing.T) {
 	}
 }
 
+func TestScanBrowserUsesDedicatedCDPCredential(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if r.Header.Get("Authorization") != "Bearer browser-cdp-secret" {
+			t.Errorf("unexpected CDP authorization header")
+		}
+		if r.Host != "127.0.0.1" {
+			t.Errorf("unexpected CDP host header %q", r.Host)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer server.Close()
+
+	c := &collector{
+		client: server.Client(), browserCDP: server.URL, browserCDPToken: "browser-cdp-secret",
+		browserLocations: make(map[string]string),
+	}
+	c.scanBrowser()
+	if requests != 1 {
+		t.Fatalf("expected one authenticated CDP request, got %d", requests)
+	}
+
+	c.browserCDPToken = ""
+	c.scanBrowser()
+	if requests != 1 {
+		t.Fatalf("collector contacted CDP without a credential")
+	}
+}
+
 func TestParseRetryAfterHTTPDate(t *testing.T) {
 	now := time.Date(2026, time.July, 23, 12, 0, 0, 0, time.UTC)
 	delay, ok := parseRetryAfter(now.Add(3*time.Second).Format(http.TimeFormat), now)

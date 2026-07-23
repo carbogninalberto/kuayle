@@ -98,6 +98,8 @@ The manager creates `kuayle-machine-{routing-key}` with Docker's `Internal` opti
 
 No machine workload joins the PostgreSQL, Redis, API, or Compose control network. The egress container is the only machine service also attached to the shared external `kuayle-machine-egress` network.
 
+Chrome's debugging endpoint binds only to browser-container loopback. Browser-enabled machines receive a dedicated encrypted credential scoped to the browser and collector services; an authenticated relay exposes only the read-only target-list endpoint needed for navigation telemetry and does not proxy CDP control or WebSocket endpoints.
+
 Workloads receive `HTTP_PROXY` and `HTTPS_PROXY` pointing to their machine's egress container. The proxy:
 
 - rejects IP-literal destinations;

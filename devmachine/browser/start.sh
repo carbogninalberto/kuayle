@@ -28,7 +28,7 @@ else
 fi
 
 "$browser" --no-sandbox --disable-background-networking --no-first-run --no-default-browser-check \
-  --remote-debugging-address=0.0.0.0 --remote-debugging-port=9222 \
+  --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 \
   --user-data-dir="$HOME/browser-profile" --start-maximized about:blank &
 browser_pid=$!
 
@@ -41,19 +41,19 @@ done
 
 set -- $(hostname -i)
 container_ip=$1
-socat "TCP4-LISTEN:9222,bind=$container_ip,fork,reuseaddr" TCP4:127.0.0.1:9222 &
-cdp_pid=$!
+KUAYLE_BROWSER_CDP_LISTEN="$container_ip:9222" kuayle-browser-cdp-proxy &
+cdp_proxy_pid=$!
 
 cleanup() {
-  kill "$xvnc_pid" "$openbox_pid" "$browser_pid" "$cdp_pid" 2>/dev/null || true
-  wait "$xvnc_pid" "$openbox_pid" "$browser_pid" "$cdp_pid" 2>/dev/null || true
+  kill "$xvnc_pid" "$openbox_pid" "$browser_pid" "$cdp_proxy_pid" 2>/dev/null || true
+  wait "$xvnc_pid" "$openbox_pid" "$browser_pid" "$cdp_proxy_pid" 2>/dev/null || true
 }
 trap cleanup TERM INT EXIT
 
 while kill -0 "$xvnc_pid" 2>/dev/null \
   && kill -0 "$openbox_pid" 2>/dev/null \
   && kill -0 "$browser_pid" 2>/dev/null \
-  && kill -0 "$cdp_pid" 2>/dev/null; do
+  && kill -0 "$cdp_proxy_pid" 2>/dev/null; do
   sleep 1
 done
 

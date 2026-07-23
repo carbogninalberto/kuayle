@@ -64,7 +64,8 @@ func TestDockerRuntimeLifecycle(t *testing.T) {
 		integrationService(machine, "browser", "browser", "kuayle/dev-machine-browser:0.1.0", 3000),
 	}
 	secrets := map[string]map[string]string{
-		"collector": {"KUAYLE_MACHINE_TOKEN": "integration-test-token"},
+		"collector": {"KUAYLE_MACHINE_TOKEN": "integration-test-token", "KUAYLE_BROWSER_CDP_TOKEN": "integration-cdp-token"},
+		"browser":   {"KUAYLE_BROWSER_CDP_TOKEN": "integration-cdp-token"},
 	}
 
 	networkName, volumeName, containers, err := runtime.Spawn(ctx, machine, services, secrets)

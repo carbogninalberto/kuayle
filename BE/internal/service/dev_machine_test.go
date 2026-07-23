@@ -318,6 +318,44 @@ func TestCreateGenericMachineDoesNotRequireRepositoryOrTTL(t *testing.T) {
 	for _, service := range store.createdServices {
 		require.NotEqual(t, "app_preview", service.ServiceType)
 	}
+	for _, envVar := range store.createdEnvVars {
+		require.NotEqual(t, "KUAYLE_BROWSER_CDP_TOKEN", envVar.Name)
+	}
+}
+
+func TestCreateScopesDedicatedCDPTokenToBrowserAndCollector(t *testing.T) {
+	workspaceID, userID := uuid.New(), uuid.New()
+	store := &devMachineStoreFake{policy: testPolicy(workspaceID)}
+
+	_, _, err := newTestDevMachineService(store).Create(context.Background(), workspaceID, userID, dto.CreateDevMachineRequest{
+		Name: "browser-token", Size: "small", Services: dto.DevMachineServicesInput{Browser: true},
+	})
+
+	require.NoError(t, err)
+	var tokensByService = map[string]string{}
+	var collectorToken string
+	cdpTokenCount := 0
+	for _, envVar := range store.createdEnvVars {
+		if envVar.Name == "KUAYLE_MACHINE_TOKEN" {
+			var decryptErr error
+			collectorToken, decryptErr = cryptoutil.Decrypt(envVar.EncryptedValue, cryptoutil.DeriveKey("test"))
+			require.NoError(t, decryptErr)
+		}
+		if envVar.Name != "KUAYLE_BROWSER_CDP_TOKEN" {
+			continue
+		}
+		cdpTokenCount++
+		value, decryptErr := cryptoutil.Decrypt(envVar.EncryptedValue, cryptoutil.DeriveKey("test"))
+		require.NoError(t, decryptErr)
+		tokensByService[envVar.TargetService] = value
+		require.True(t, envVar.IsSecret)
+		require.Equal(t, store.createdMachine.ExpiresAt, *envVar.ExpiresAt)
+	}
+	require.Len(t, tokensByService["browser"], 64)
+	require.Equal(t, tokensByService["browser"], tokensByService["collector"])
+	require.Len(t, tokensByService, 2)
+	require.Equal(t, 2, cdpTokenCount)
+	require.NotEqual(t, collectorToken, tokensByService["browser"])
 }
 
 func TestCreateAppliesSizeAndWorkspaceRuntimeLimits(t *testing.T) {
@@ -1160,6 +1198,7 @@ type devMachineStoreFake struct {
 	nameChecks                  int
 	createdMachine              *domain.DevMachine
 	createdServices             []domain.DevMachineService
+	createdEnvVars              []domain.DevMachineEnvVar
 	createdOperation            *domain.DevMachineOperation
 	createdEnvironment          *domain.DevMachineEnvironment
 	createdEnvironmentOperation *domain.DevMachineOperation
@@ -1220,12 +1259,13 @@ func testPolicy(workspaceID uuid.UUID) *domain.DevMachineWorkspacePolicy {
 	}
 }
 
-func (f *devMachineStoreFake) CreateBundle(_ context.Context, machine *domain.DevMachine, _ []domain.DevMachineAgentProvider, services []domain.DevMachineService, _ []domain.DevMachineVolume, _ []domain.DevMachineEnvVar, _ []domain.DevMachineToken, operation *domain.DevMachineOperation) error {
+func (f *devMachineStoreFake) CreateBundle(_ context.Context, machine *domain.DevMachine, _ []domain.DevMachineAgentProvider, services []domain.DevMachineService, _ []domain.DevMachineVolume, envVars []domain.DevMachineEnvVar, _ []domain.DevMachineToken, operation *domain.DevMachineOperation) error {
 	if f.createBundleErr != nil {
 		return f.createBundleErr
 	}
 	f.createdMachine = machine
 	f.createdServices = append([]domain.DevMachineService(nil), services...)
+	f.createdEnvVars = append([]domain.DevMachineEnvVar(nil), envVars...)
 	f.createdOperation = operation
 	machine.CreatedAt = time.Now().UTC()
 	machine.UpdatedAt = machine.CreatedAt

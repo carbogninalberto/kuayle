@@ -1032,7 +1032,9 @@ func (r *DockerRuntime) ensureService(ctx context.Context, machine *domain.DevMa
 	}
 	if service.ServiceType == "collector" {
 		environment = append(environment, "KUAYLE_INGEST_URL="+r.config.IngestURL)
-		environment = append(environment, "KUAYLE_BROWSER_CDP_URL=http://"+machine.RoutingKey+"-browser:9222")
+		if _, browserEnabled := secrets["KUAYLE_BROWSER_CDP_TOKEN"]; browserEnabled {
+			environment = append(environment, "KUAYLE_BROWSER_CDP_URL=http://"+machine.RoutingKey+"-browser:9222")
+		}
 	}
 	if service.ServiceType == "egress" {
 		environment = append(environment, "KUAYLE_EGRESS_ALLOWLIST="+r.config.EgressAllowlist, "KUAYLE_EGRESS_DENYLIST="+r.config.EgressDenylist)

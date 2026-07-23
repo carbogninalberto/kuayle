@@ -42,6 +42,7 @@ type collector struct {
 	initialized      bool
 	gitHead          string
 	browserCDP       string
+	browserCDPToken  string
 	browserLocations map[string]string
 	wait             func(context.Context, time.Duration) error
 }
@@ -64,10 +65,14 @@ func main() {
 	c := &collector{
 		client: &http.Client{Timeout: 10 * time.Second}, endpoint: strings.TrimRight(os.Getenv("KUAYLE_INGEST_URL"), "/"),
 		token: os.Getenv("KUAYLE_MACHINE_TOKEN"), machineID: os.Getenv("KUAYLE_MACHINE_ID"), files: make(map[string]fileState),
-		browserCDP: strings.TrimRight(os.Getenv("KUAYLE_BROWSER_CDP_URL"), "/"), browserLocations: make(map[string]string),
+		browserCDP: strings.TrimRight(os.Getenv("KUAYLE_BROWSER_CDP_URL"), "/"), browserCDPToken: os.Getenv("KUAYLE_BROWSER_CDP_TOKEN"),
+		browserLocations: make(map[string]string),
 	}
 	if c.endpoint == "" || c.token == "" {
 		log.Fatal("collector ingest URL and machine token are required")
+	}
+	if c.browserCDP != "" && c.browserCDPToken == "" {
+		log.Fatal("browser CDP token is required when browser collection is enabled")
 	}
 	go c.poll()
 	http.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
@@ -180,7 +185,7 @@ func (c *collector) scanGit() {
 }
 
 func (c *collector) scanBrowser() {
-	if c.browserCDP == "" {
+	if c.browserCDP == "" || c.browserCDPToken == "" {
 		return
 	}
 	request, err := http.NewRequest(http.MethodGet, c.browserCDP+"/json", nil)
@@ -189,6 +194,7 @@ func (c *collector) scanBrowser() {
 	}
 	// Chrome rejects internal DNS names in the Host header as a DNS-rebinding defense.
 	request.Host = "127.0.0.1"
+	request.Header.Set("Authorization", "Bearer "+c.browserCDPToken)
 	response, err := c.client.Do(request)
 	if err != nil {
 		return
