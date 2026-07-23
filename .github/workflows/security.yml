@@ -149,6 +149,7 @@ jobs:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
           build-args: ${{ matrix.build_args }}
+          pull: true
           load: true
           tags: kuayle-dev-machine-${{ matrix.id }}:scan
           cache-from: type=gha,scope=dev-machine-scan-${{ matrix.id }}

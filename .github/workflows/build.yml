@@ -104,6 +104,7 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
+          pull: true
           push: ${{ github.event_name == 'release' }}
           tags: |
             ${{ env.IMAGE_PREFIX }}/kuayle:latest
@@ -117,6 +118,7 @@ jobs:
         with:
           context: ./BE
           file: ./BE/Dockerfile
+          pull: true
           push: ${{ github.event_name == 'release' }}
           tags: |
             ${{ env.IMAGE_PREFIX }}/kuayle-api:latest
@@ -130,6 +132,7 @@ jobs:
         with:
           context: ./UI
           file: ./UI/Dockerfile
+          pull: true
           push: ${{ github.event_name == 'release' }}
           tags: |
             ${{ env.IMAGE_PREFIX }}/kuayle-web:latest
@@ -206,6 +209,7 @@ jobs:
           file: ${{ matrix.dockerfile }}
           platforms: linux/amd64,linux/arm64
           build-args: ${{ matrix.build_args }}
+          pull: true
           push: false
           cache-from: type=gha,scope=dev-machine-${{ matrix.id }}
           cache-to: type=gha,mode=min,scope=dev-machine-${{ matrix.id }}
