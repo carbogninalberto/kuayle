@@ -544,7 +544,7 @@ Prerequisites:
 - a GitHub App with scoped write permissions for autonomous push/PR workflows;
 - runtime images built locally or available from a trusted registry.
 
-The checked-in Caddy wildcard block uses `tls internal` (Caddy's local CA), which is suitable for local or internal-network installations but will not work for public production deployments without replacement. `machines.localhost` is the local-development exception to the separate-registrable-domain rule.
+The checked-in Caddy wildcard block uses `tls internal` (Caddy's local CA), which is suitable for local or internal-network installations. For a public production machine domain, the profile prerequisite inspects the mounted Caddyfile and fails before grants or control-plane startup while an active `tls internal`, `issuer internal`, or `local_certs` directive remains. Replace it with a DNS-01 issuer supported by a custom Caddy build or mount an operator-provided wildcard certificate. `machines.localhost` is the local-development exception.
 
 Build and start:
 
