@@ -323,6 +323,8 @@ test('handles machine actions without applying stale poll, route, or trace respo
 test('creates a generic machine with an accessible size and inactivity controls', async ({ page }) => {
 	let createPayload: Record<string, unknown> | undefined;
 	const availabilityRequests: string[] = [];
+	const takenNameDelay = createRequestDelay();
+	let suggestionDelay: ReturnType<typeof createRequestDelay> | null = null;
 	const workspaceId = '00000000-0000-0000-0000-000000000002';
 
 	await page.route('https://raw.githubusercontent.com/carbogninalberto/kuayle/main/UI/static/releases.json', (route) =>
@@ -339,12 +341,27 @@ test('creates a generic machine with an accessible size and inactivity controls'
 		if (['teams', 'projects', 'labels', 'members', 'views'].some((part) => path === `/api/workspaces/test/${part}`)) return route.fulfill({ json: [] });
 		if (path === '/api/notifications') return route.fulfill({ json: { notifications: [], unread_count: 0 } });
 		if (path === '/api/workspaces/test/dev-machines' && request.method() === 'GET') return route.fulfill({ json: { data: [], total_count: 0, page: 1, has_more: false } });
-		if (path === '/api/workspaces/test/dev-machine-names/suggestion') return route.fulfill({ json: { name: 'quiet-orchid-7f3a', available: true } });
+		if (path === '/api/workspaces/test/dev-machine-names/suggestion') {
+			const delay = suggestionDelay;
+			if (delay) {
+				suggestionDelay = null;
+				delay.markStarted();
+				await delay.released;
+			}
+			await route.fulfill({ json: { name: 'quiet-orchid-7f3a', available: true } });
+			delay?.markCompleted();
+			return;
+		}
 		if (path === '/api/workspaces/test/dev-machine-names/availability') {
 			const requestedName = url.searchParams.get('name') ?? '';
 			availabilityRequests.push(requestedName);
-			if (requestedName === 'taken-machine') await new Promise((resolve) => setTimeout(resolve, 550));
-			return route.fulfill({ json: { name: requestedName, available: requestedName !== 'taken-machine' } });
+			if (requestedName === 'taken-machine') {
+				takenNameDelay.markStarted();
+				await takenNameDelay.released;
+			}
+			await route.fulfill({ json: { name: requestedName, available: requestedName !== 'taken-machine' } });
+			if (requestedName === 'taken-machine') takenNameDelay.markCompleted();
+			return;
 		}
 		if (path === '/api/workspaces/test/dev-machine-providers') return route.fulfill({ json: [{ id: 'opencode', display_name: 'OpenCode', default_image: 'kuayle/opencode:1', required_secrets: [], supported_modes: ['autonomous'], custom: false }] });
 		if (path === '/api/workspaces/test/dev-machine-policy') return route.fulfill({ json: { workspace_id: workspaceId, enabled: true, max_concurrent_machines: 5, max_machines_per_user: 2, max_daily_agent_runs: 25, max_runtime_minutes: 480, max_disk_gb: 100, idle_pause_minutes: 240, allowed_providers: ['opencode'], allowed_repositories: [], allow_custom_providers: false } });
@@ -362,8 +379,28 @@ test('creates a generic machine with an accessible size and inactivity controls'
 	await expect(dialog.getByRole('heading', { name: 'New Dev Machine' })).toBeVisible();
 	await expect(dialog.getByLabel('Repository')).toHaveCount(0);
 	await expect(dialog.getByLabel('Machine name')).toHaveValue('quiet-orchid-7f3a');
-	await dialog.getByLabel('Machine name').fill('taken-machine');
+	await dialog.getByLabel('Machine name').fill('pending-close');
+	await dialog.getByRole('button', { name: 'Cancel' }).click();
 	await page.waitForTimeout(350);
+	expect(availabilityRequests).not.toContain('pending-close');
+
+	await page.locator('header').getByRole('button', { name: 'New machine' }).click();
+	await expect(dialog.getByLabel('Machine name')).toHaveValue('quiet-orchid-7f3a');
+	await dialog.getByLabel('Machine name').fill('taken-machine');
+	await takenNameDelay.started;
+	await dialog.getByRole('button', { name: 'Cancel' }).click();
+	suggestionDelay = createRequestDelay();
+	const delayedSuggestion = suggestionDelay;
+	await page.locator('header').getByRole('button', { name: 'New machine' }).click();
+	await delayedSuggestion.started;
+	await expect(dialog.getByLabel('Machine name')).toHaveValue('');
+	takenNameDelay.release();
+	await takenNameDelay.completed;
+	await page.waitForTimeout(50);
+	await expect(dialog.getByLabel('Machine name')).toHaveValue('');
+	delayedSuggestion.release();
+	await delayedSuggestion.completed;
+	await expect(dialog.getByLabel('Machine name')).toHaveValue('quiet-orchid-7f3a');
 	await dialog.getByLabel('Machine name').fill('fresh-machine');
 	await expect(dialog.getByText('Name is available')).toBeVisible();
 	await expect(dialog.locator('[data-selected="true"]')).toContainText('medium');

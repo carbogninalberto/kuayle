@@ -62,6 +62,7 @@
 	let loadingOptions = $state(false);
 	let checkTimer: ReturnType<typeof setTimeout> | undefined;
 	let checkSequence = 0;
+	let dialogGeneration = 0;
 
 	const selectedProvider = $derived(providers.find((item) => item.id === provider));
 	const selectedEnvironment = $derived(environments.find((item) => item.id === environmentId));
@@ -80,35 +81,73 @@
 	);
 
 	$effect(() => {
-		if (!open) return;
-		void resetAndLoad();
+		const currentOpen = open;
+		const currentSlug = slug;
+		const generation = ++dialogGeneration;
+		cancelNameCheck();
+		name = '';
+		nameStatus = 'idle';
+		loadingOptions = currentOpen;
+		if (!currentOpen) return;
+		void resetAndLoad(currentSlug, generation);
+		return () => {
+			if (dialogGeneration === generation) dialogGeneration++;
+			cancelNameCheck();
+		};
 	});
 
 	$effect(() => {
-		if (!open) return;
+		const currentOpen = open;
+		const currentSlug = slug;
+		const generation = dialogGeneration;
 		const candidate = name.trim();
-		if (checkTimer) clearTimeout(checkTimer);
+		cancelNameCheck();
+		const sequence = ++checkSequence;
+		if (!currentOpen) {
+			nameStatus = 'idle';
+			return;
+		}
 		if (!/^[a-z][a-z0-9-]{1,253}[a-z0-9]$/.test(candidate)) {
 			nameStatus = candidate ? 'unavailable' : 'idle';
 			return;
 		}
-		const sequence = ++checkSequence;
 		nameStatus = 'checking';
-		checkTimer = setTimeout(async () => {
+		const timer = setTimeout(async () => {
 			try {
-				const result = await checkMachineName(slug, candidate);
-				if (sequence === checkSequence && candidate === name.trim()) {
+				const result = await checkMachineName(currentSlug, candidate);
+				if (isCurrentDialog(currentSlug, generation) && sequence === checkSequence && candidate === name.trim()) {
 					nameStatus = result.available ? 'available' : 'unavailable';
 				}
 			} catch {
-				if (sequence === checkSequence) nameStatus = 'unavailable';
+				if (isCurrentDialog(currentSlug, generation) && sequence === checkSequence) nameStatus = 'unavailable';
 			}
 		}, 300);
+		checkTimer = timer;
+		return () => {
+			if (checkTimer === timer) {
+				clearTimeout(timer);
+				checkTimer = undefined;
+			}
+			if (checkSequence === sequence) checkSequence++;
+		};
 	});
 
-	onDestroy(() => checkTimer && clearTimeout(checkTimer));
+	onDestroy(() => {
+		dialogGeneration++;
+		cancelNameCheck();
+	});
 
-	async function resetAndLoad() {
+	function isCurrentDialog(currentSlug: string, generation: number) {
+		return open && slug === currentSlug && dialogGeneration === generation;
+	}
+
+	function cancelNameCheck() {
+		checkSequence++;
+		if (checkTimer) clearTimeout(checkTimer);
+		checkTimer = undefined;
+	}
+
+	async function resetAndLoad(currentSlug: string, generation: number) {
 		loadingOptions = true;
 		providers = [];
 		environments = [];
@@ -120,11 +159,12 @@
 		size = 'medium';
 		try {
 			const [suggestion, availableProviders, machinePolicy, availableEnvironments] = await Promise.all([
-				getMachineNameSuggestion(slug),
-				listAgentProviders(slug),
-				getDevMachinePolicy(slug),
-				listDevMachineEnvironments(slug)
+				getMachineNameSuggestion(currentSlug),
+				listAgentProviders(currentSlug),
+				getDevMachinePolicy(currentSlug),
+				listDevMachineEnvironments(currentSlug)
 			]);
+			if (!isCurrentDialog(currentSlug, generation)) return;
 			name = suggestion.name;
 			nameStatus = 'available';
 			providers = (availableProviders ?? []).map((item) => ({
@@ -141,19 +181,25 @@
 			if (providers.length > 0 && !providers.some((item) => item.id === provider)) provider = providers[0].id;
 			if (providers.length === 0) useAgent = false;
 		} catch (error) {
+			if (!isCurrentDialog(currentSlug, generation)) return;
 			appToast.apiError(error, 'Failed to load Dev Machine options');
 		} finally {
-			loadingOptions = false;
+			if (isCurrentDialog(currentSlug, generation)) loadingOptions = false;
 		}
 	}
 
 	async function regenerateName() {
+		const currentSlug = slug;
+		const generation = dialogGeneration;
+		cancelNameCheck();
 		try {
 			nameStatus = 'checking';
-			const suggestion = await getMachineNameSuggestion(slug);
+			const suggestion = await getMachineNameSuggestion(currentSlug);
+			if (!isCurrentDialog(currentSlug, generation)) return;
 			name = suggestion.name;
 			nameStatus = 'available';
 		} catch (error) {
+			if (!isCurrentDialog(currentSlug, generation)) return;
 			nameStatus = 'unavailable';
 			appToast.apiError(error, 'Failed to generate a machine name');
 		}
