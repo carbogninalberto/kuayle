@@ -33,6 +33,10 @@
 	let environmentToDelete = $state<DevMachineEnvironment | null>(null);
 	let environmentDeleteOpen = $state(false);
 	let environmentDeleteBusy = $state(false);
+	const builderSizes = [
+		{ id: 'medium', diskGb: 50 },
+		{ id: 'small', diskGb: 20 }
+	] as const;
 
 	const readyEnvironments = $derived(environments.filter((item) => item.status === 'ready'));
 
@@ -106,10 +110,15 @@
 	}
 
 	async function createEnvironmentBuilder() {
+		const builderSize = builderSizes.find((size) => size.diskGb <= (policy?.max_disk_gb ?? 0))?.id;
+		if (!builderSize) {
+			appToast.error('Increase the workspace maximum disk policy to at least 20 GB before creating an Environment Builder');
+			return;
+		}
 		builderBusy = true;
 		try {
 			const machine = await createDevMachine(slug, {
-				size: 'medium', services: { ide: true, browser: false },
+				size: builderSize, services: { ide: true, browser: false },
 				agents: [], env_vars: [], keep_running: true, environment_builder: true
 			});
 			appToast.success('Environment Builder queued');

@@ -419,6 +419,53 @@ test('creates a generic machine with an accessible size and inactivity controls'
 	expect(createPayload).not.toHaveProperty('ttl_minutes');
 });
 
+test('selects a policy-compatible size for environment builders', async ({ page }) => {
+	const workspaceId = '00000000-0000-0000-0000-000000000002';
+	let maxDiskGb = 10;
+	let createPayload: Record<string, unknown> | undefined;
+
+	await page.route('https://raw.githubusercontent.com/carbogninalberto/kuayle/main/UI/static/releases.json', (route) => route.fulfill({ json: [] }));
+	await page.route('**/api/**', async (route) => {
+		const request = route.request();
+		const url = new URL(request.url());
+		const path = url.pathname;
+		if (path === '/api/auth/me') return route.fulfill({ json: { id: '00000000-0000-0000-0000-000000000001', email: 'owner@example.com', name: 'Owner', display_name: 'Owner', avatar_url: null } });
+		if (path === '/api/preferences') return route.fulfill({ json: { font_size: 'default', pointer_cursors: true, theme_mode: 'dark', light_theme: 'light', dark_theme: 'dark', workflow_sort_mode: 'default', workflow_sort_order: ['backlog', 'unstarted', 'started', 'completed', 'cancelled'], team_workflow_sort_overrides: {}, issues_group_by: 'status' } });
+		if (path === '/api/workspaces') return route.fulfill({ json: [{ id: workspaceId, name: 'Test Workspace', slug: 'test' }] });
+		if (path === '/api/workspaces/test') return route.fulfill({ json: { id: workspaceId, name: 'Test Workspace', slug: 'test', current_user_role: 'owner' } });
+		if (['teams', 'projects', 'labels', 'members', 'views'].some((part) => path === `/api/workspaces/test/${part}`)) return route.fulfill({ json: [] });
+		if (path === '/api/notifications') return route.fulfill({ json: { notifications: [], unread_count: 0 } });
+		if (path === '/api/workspaces/test/dev-machine-policy') return route.fulfill({ json: { workspace_id: workspaceId, enabled: true, max_concurrent_machines: 5, max_machines_per_user: 2, max_daily_agent_runs: 25, max_runtime_minutes: 480, max_disk_gb: maxDiskGb, idle_pause_minutes: 240, allowed_providers: ['opencode'], allowed_repositories: [], allow_custom_providers: false } });
+		if (path === '/api/workspaces/test/github/status') return route.fulfill({ json: { configured: true, installed: true, global_app: false, repos: [] } });
+		if (path === '/api/workspaces/test/dev-machine-scope-setting') return route.fulfill({ json: { workspace_id: workspaceId } });
+		if (path === '/api/workspaces/test/dev-machine-environments') return route.fulfill({ json: [] });
+		if (path === '/api/workspaces/test/dev-machines' && request.method() === 'POST') {
+			createPayload = request.postDataJSON();
+			return route.fulfill({ status: 201, json: { id: '00000000-0000-0000-0000-000000000061', ...createPayload } });
+		}
+		return route.fulfill({ status: 404, json: { error: { message: `Unhandled ${request.method()} ${path}` } } });
+	});
+
+	await page.goto('/test/settings/dev-machines');
+	const builderButton = page.getByRole('button', { name: 'New Environment Builder' });
+	await builderButton.click();
+	await expect(page.getByText('Increase the workspace maximum disk policy to at least 20 GB before creating an Environment Builder', { exact: true })).toBeVisible();
+	expect(createPayload).toBeUndefined();
+
+	maxDiskGb = 40;
+	await page.reload();
+	await page.getByRole('button', { name: 'New Environment Builder' }).click();
+	await expect.poll(() => createPayload).toBeTruthy();
+	expect(createPayload).toMatchObject({
+		size: 'small',
+		services: { ide: true, browser: false },
+		agents: [],
+		env_vars: [],
+		keep_running: true,
+		environment_builder: true
+	});
+});
+
 test('retries a code-server launch while a paused machine resumes', async ({ page }) => {
 	const workspaceId = '00000000-0000-0000-0000-000000000002';
 	const machineId = '00000000-0000-0000-0000-000000000070';
