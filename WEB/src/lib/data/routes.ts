@@ -216,7 +216,7 @@ export const SOFTWARE_APP_LD = {
 	license: 'https://www.apache.org/licenses/LICENSE-2.0'
 };
 
-export function webPageLd(name: string, description: string, pageUrl: string, breadcrumbs?: Crumb[]) {
+export function webPageLd(name: string, description: string, pageUrl: string, breadcrumbs?: Crumb[], modifiedAt?: string) {
 	const ld: Record<string, unknown> = {
 		'@context': 'https://schema.org',
 		'@type': 'WebPage',
@@ -224,6 +224,7 @@ export function webPageLd(name: string, description: string, pageUrl: string, br
 		description,
 		url: pageUrl
 	};
+	if (modifiedAt) ld.dateModified = modifiedAt;
 	if (breadcrumbs && breadcrumbs.length > 0) {
 		ld.breadcrumb = {
 			'@type': 'BreadcrumbList',

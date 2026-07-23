@@ -32,10 +32,10 @@
 		breadcrumbs: Crumb[];
 	} = $props();
 
-	const jsonLd = $derived(webPageLd(metaInput.title, metaInput.description, metaInput.canonical ?? url('/'), crumbs));
+	const jsonLd = $derived(webPageLd(metaInput.title, metaInput.description, metaInput.canonical ?? url('/'), crumbs, metaInput.modifiedAt));
 </script>
 
-<Seo meta={{ ...metaInput, jsonLd }} />
+<Seo meta={{ ...metaInput, ogType: metaInput.ogType ?? 'article', jsonLd }} />
 
 <Nav />
 

@@ -2,7 +2,7 @@
 	import { page } from '$app/state';
 	import PageLayout from '$lib/components/PageLayout.svelte';
 	import { HUBS, breadcrumbsFrom } from '$lib/data/routes';
-	import { url } from '$lib/config/site';
+	import { contentModifiedAt, url } from '$lib/config/site';
 	import { selfHosting } from '$lib/data/self-hosting';
 	import { metaForStandalone } from '$lib/data/routes';
 
@@ -16,7 +16,7 @@
 		description: content.description,
 		canonical: url(`/self-hosting/${slug}`),
 		ogType: 'article' as const,
-		modifiedAt: '2026-07-11'
+		modifiedAt: contentModifiedAt(`/self-hosting/${slug}`)
 	} : metaForStandalone('self-hosting')!);
 
 	const crumbs = $derived(breadcrumbsFrom('self-hosting', 'Self-Hosting', content?.heading, slug));

@@ -57,6 +57,13 @@ function warn(message) {
 	warnings += 1;
 }
 
+let contentModifiedDates = {};
+try {
+	contentModifiedDates = JSON.parse(readFileSync(join(ROOT, 'src/lib/data/content-modified.json'), 'utf8'));
+} catch (error) {
+	fail(`content modification registry is invalid (${error.message})`);
+}
+
 function routeFile(route) {
 	if (route === '/') return join(BUILD_DIR, 'index.html');
 	const relative = route.slice(1);
@@ -93,6 +100,10 @@ const DEV_MACHINE_STATUS_ROUTES = [
 	'/compare/kuayle-vs-linear',
 	'/compare/kuayle-vs-plane'
 ];
+
+for (const route of Object.keys(contentModifiedDates)) {
+	if (!ROUTES.includes(route)) fail(`content modification registry contains unknown route ${route}`);
+}
 
 for (const [route, html] of routeHtml) {
 	if (!html) continue;
@@ -131,13 +142,37 @@ for (const [route, html] of routeHtml) {
 	}
 
 	const jsonLdBlocks = [...html.matchAll(/<script\s+type=["']application\/ld\+json["']>([\s\S]*?)<\/script>/gi)];
+	const jsonLdItems = [];
 	if (jsonLdBlocks.length === 0) fail(`${route}: missing JSON-LD`);
 	for (const block of jsonLdBlocks) {
 		try {
-			JSON.parse(block[1]);
+			const parsed = JSON.parse(block[1]);
+			jsonLdItems.push(...(Array.isArray(parsed) ? parsed : [parsed]));
 		} catch (error) {
 			fail(`${route}: invalid JSON-LD (${error.message})`);
 		}
+	}
+
+	const ogTypeTag = html.match(/<meta\s+[^>]*property=["']og:type["'][^>]*>/i)?.[0];
+	const isArticle = ogTypeTag && attribute(ogTypeTag, 'content') === 'article';
+	const expectedModifiedAt = contentModifiedDates[route];
+	if (isArticle) {
+		if (!expectedModifiedAt) {
+			fail(`${route}: article is missing from the content modification registry`);
+		} else {
+			if (!/^\d{4}-\d{2}-\d{2}$/.test(expectedModifiedAt)) {
+				fail(`${route}: modification date must use YYYY-MM-DD`);
+			}
+			const modifiedTag = html.match(/<meta\s+[^>]*property=["']article:modified_time["'][^>]*>/i)?.[0];
+			if (!modifiedTag || attribute(modifiedTag, 'content') !== expectedModifiedAt) {
+				fail(`${route}: article modification metadata must be ${expectedModifiedAt}`);
+			}
+			if (!jsonLdItems.some((item) => item && typeof item === 'object' && item.dateModified === expectedModifiedAt)) {
+				fail(`${route}: JSON-LD dateModified must be ${expectedModifiedAt}`);
+			}
+		}
+	} else if (expectedModifiedAt) {
+		fail(`${route}: modification registry entry is not rendered as an article`);
 	}
 
 	for (const match of html.matchAll(/<img\b[^>]*>/gi)) {

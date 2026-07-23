@@ -1,6 +1,6 @@
 <script lang="ts">
 	import StandalonePage from '$lib/components/StandalonePage.svelte';
-	import { url } from '$lib/config/site';
+	import { contentModifiedAt, url } from '$lib/config/site';
 	import { DEV_MACHINES_RELEASE_STATUS } from '$lib/config/releases';
 	import { breadcrumbsFrom } from '$lib/data/routes';
 	import { useLatestRelease } from '$lib/release.svelte';
@@ -11,7 +11,7 @@
 		title: 'About Kuayle — Product, Maintainer and Current State',
 		description: 'Learn why Kuayle exists, who maintains it, how it is built, and what is implemented in the current release.',
 		canonical: url('/about'),
-		modifiedAt: '2026-07-11'
+		modifiedAt: contentModifiedAt('/about')
 	};
 
 	const crumbs = breadcrumbsFrom('about', 'About');

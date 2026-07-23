@@ -2,7 +2,7 @@
 	import { page } from '$app/state';
 	import PageLayout from '$lib/components/PageLayout.svelte';
 	import { HUBS, breadcrumbsFrom } from '$lib/data/routes';
-	import { url } from '$lib/config/site';
+	import { contentModifiedAt, url } from '$lib/config/site';
 	import { alternatives } from '$lib/data/alternatives';
 
 	const slug = $derived(page.params.slug ?? '');
@@ -15,7 +15,7 @@
 		description: content.description,
 		canonical: url(`/alternatives/${slug}`),
 		ogType: 'article' as const,
-		modifiedAt: '2026-07-11'
+		modifiedAt: contentModifiedAt(`/alternatives/${slug}`)
 	} : { title: '', description: '', canonical: url('/') });
 
 	const crumbs = $derived(breadcrumbsFrom('alternatives', 'Alternatives', content?.heading, slug));

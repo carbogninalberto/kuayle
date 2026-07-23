@@ -1,7 +1,7 @@
 <script lang="ts">
 	import StandalonePage from '$lib/components/StandalonePage.svelte';
 	import { DEV_MACHINES_RELEASE_STATUS } from '$lib/config/releases';
-	import { url } from '$lib/config/site';
+	import { contentModifiedAt, url } from '$lib/config/site';
 	import { breadcrumbsFrom } from '$lib/data/routes';
 	import { useLatestRelease } from '$lib/release.svelte';
 
@@ -11,7 +11,7 @@
 		title: 'Kuayle Roadmap and Development Status',
 		description: 'Kuayle development status, known product gaps, the unreleased Dev Machines subsystem, and where to follow proposed work.',
 		canonical: url('/roadmap'),
-		modifiedAt: '2026-07-11'
+		modifiedAt: contentModifiedAt('/roadmap')
 	};
 
 	const crumbs = breadcrumbsFrom('roadmap', 'Roadmap');
@@ -24,7 +24,7 @@
 				'Open issues describe proposed work',
 				'Pull requests and releases describe shipped work',
 				'No feature on this page has a guaranteed delivery date',
-				'Last reviewed: July 11, 2026'
+				'Last reviewed: July 23, 2026'
 			]
 		},
 		{

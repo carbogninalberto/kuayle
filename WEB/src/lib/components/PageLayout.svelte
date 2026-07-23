@@ -48,7 +48,7 @@
 		relatedLinks?: HubLink[];
 	} = $props();
 
-	const jsonLd = $derived(webPageLd(meta.title, meta.description, meta.canonical ?? url('/'), breadcrumbs));
+	const jsonLd = $derived(webPageLd(meta.title, meta.description, meta.canonical ?? url('/'), breadcrumbs, meta.modifiedAt));
 </script>
 
 <Seo meta={{ ...meta, jsonLd }} />
