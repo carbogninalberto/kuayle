@@ -19,6 +19,7 @@
 	import '@xterm/xterm/css/xterm.css';
 	import type { Terminal as XTerminal, IDisposable } from '@xterm/xterm';
 	import type { FitAddon as XFitAddon } from '@xterm/addon-fit';
+	type SocketConnection = { socket: WebSocket; timer?: ReturnType<typeof setTimeout>; expectedClose: boolean };
 
 	let {
 		tab,
@@ -31,8 +32,7 @@
 	let terminalElement: HTMLDivElement | undefined;
 	let terminal: XTerminal | undefined;
 	let fitAddon: XFitAddon | undefined;
-	let socket: WebSocket | undefined;
-	let socketConnectTimer: ReturnType<typeof setTimeout> | undefined;
+	let socketConnection: SocketConnection | undefined;
 	let gatewayOrigin = $state('');
 	let resizeObserver: ResizeObserver | undefined;
 	let session = $state<DevMachineTerminalSession | null>(null);
@@ -41,7 +41,6 @@
 	let title = $state('');
 	let retrying = $state(false);
 	let runId = 0;
-	let expectedClose = false;
 	const disposables: IDisposable[] = [];
 	let priorVisibility = $state(true);
 
@@ -78,6 +77,8 @@
 	async function start(id = ++runId) {
 		if (!browser || !visible) return;
 		retrying = true;
+		status = 'creating';
+		statusMessage = id > 1 ? 'Reconnecting terminal...' : 'Creating a terminal session...';
 		await cleanup(true);
 		if (id !== runId) return;
 		status = 'creating';
@@ -117,7 +118,7 @@
 			status = 'error';
 			statusMessage = error instanceof Error ? error.message : 'Unable to open the terminal';
 		} finally {
-			retrying = false;
+			if (id === runId) retrying = false;
 		}
 	}
 
@@ -159,36 +160,35 @@
 	}
 
 	function connectSocket(webSocketUrl: string, id: number) {
-		expectedClose = false;
 		try {
-			gatewayOrigin = new URL(webSocketUrl).origin;
+			const recoveryUrl = new URL(webSocketUrl);
+			if (recoveryUrl.protocol === 'wss:') recoveryUrl.protocol = 'https:';
+			else if (recoveryUrl.protocol === 'ws:') recoveryUrl.protocol = 'http:';
+			gatewayOrigin = ['http:', 'https:'].includes(recoveryUrl.protocol) ? recoveryUrl.origin : '';
 		} catch {
 			gatewayOrigin = '';
 		}
-		const prevSocket = socket;
-		if (prevSocket) {
-			try { prevSocket.close(1000, 'reconnect'); } catch { /* ignore */ }
-		}
+		disposeSocketConnection(socketConnection, 'reconnect');
+		socketConnection = undefined;
+		let activeSocket: WebSocket;
 		try {
-			socket = new WebSocket(webSocketUrl, ['tty']);
+			activeSocket = new WebSocket(webSocketUrl, ['tty']);
 		} catch {
+			closeCurrentSession();
 			status = 'error';
 			statusMessage = 'Unable to connect to the terminal gateway';
 			return;
 		}
-		const activeSocket = socket;
+		const connection: SocketConnection = { socket: activeSocket, expectedClose: false };
+		socketConnection = connection;
 		activeSocket.binaryType = 'arraybuffer';
-		socketConnectTimer = setTimeout(() => {
-			if (activeSocket !== socket || activeSocket.readyState !== WebSocket.CONNECTING || id !== runId) return;
-			expectedClose = true;
-			activeSocket.close();
-			status = 'error';
-			statusMessage = 'Terminal gateway connection timed out. Check the machine TLS certificate and retry.';
+		connection.timer = setTimeout(() => {
+			if (!isCurrentConnection(connection, id) || activeSocket.readyState !== WebSocket.CONNECTING) return;
+			failSocketConnection(connection, id, 'Terminal gateway connection timed out. Check the machine TLS certificate and retry.');
 		}, 10_000);
 		activeSocket.addEventListener('open', () => {
-			if (!terminal || activeSocket !== socket || id !== runId) return;
-			if (socketConnectTimer) clearTimeout(socketConnectTimer);
-			socketConnectTimer = undefined;
+			if (!terminal || !isCurrentConnection(connection, id)) return;
+			clearSocketTimer(connection);
 			activeSocket.send(encodeInitialTerminalMessage({ columns: terminal.cols, rows: terminal.rows }));
 			fitTerminal();
 			terminal.clear();
@@ -197,7 +197,7 @@
 			if (visible) terminal.focus();
 		});
 		activeSocket.addEventListener('message', (event) => {
-			if (!terminal || activeSocket !== socket || id !== runId) return;
+			if (!terminal || !isCurrentConnection(connection, id)) return;
 			const frame = decodeServerFrame(event.data as ArrayBuffer | Uint8Array | string);
 			if (frame.command === 'output') {
 				terminal.write(frame.data);
@@ -208,28 +208,57 @@
 			}
 		});
 		activeSocket.addEventListener('close', () => {
-			if (socketConnectTimer) clearTimeout(socketConnectTimer);
-			socketConnectTimer = undefined;
-			if (activeSocket !== socket || id !== runId || expectedClose) return;
-			const disconnectedSession = session;
-			session = null;
-			if (disconnectedSession?.id) {
-				closeTerminalSession(tab.slug, tab.machineId, disconnectedSession.id).catch(() => {});
-			}
+			clearSocketTimer(connection);
+			if (!isCurrentConnection(connection, id) || connection.expectedClose) return;
+			socketConnection = undefined;
+			closeCurrentSession();
 			status = 'closed';
 			statusMessage = 'Terminal connection closed. Reconnect to start a new shell.';
 		});
 		activeSocket.addEventListener('error', () => {
-			if (socketConnectTimer) clearTimeout(socketConnectTimer);
-			socketConnectTimer = undefined;
-			if (activeSocket !== socket || id !== runId || expectedClose) return;
-			status = 'error';
-			statusMessage = 'Unable to connect to the terminal gateway. Check the machine TLS certificate and retry.';
+			if (!isCurrentConnection(connection, id) || connection.expectedClose) return;
+			failSocketConnection(connection, id, 'Unable to connect to the terminal gateway. Check the machine TLS certificate and retry.');
 		});
 	}
 
+	function isCurrentConnection(connection: SocketConnection, id: number) {
+		return socketConnection === connection && id === runId;
+	}
+
+	function clearSocketTimer(connection: SocketConnection) {
+		if (connection.timer) clearTimeout(connection.timer);
+		connection.timer = undefined;
+	}
+
+	function disposeSocketConnection(connection: SocketConnection | undefined, reason: string) {
+		if (!connection) return;
+		connection.expectedClose = true;
+		clearSocketTimer(connection);
+		try {
+			connection.socket.close(1000, reason);
+		} catch {
+			// ignore
+		}
+	}
+
+	function closeCurrentSession() {
+		const disconnectedSession = session;
+		session = null;
+		if (disconnectedSession?.id) closeTerminalSession(tab.slug, tab.machineId, disconnectedSession.id).catch(() => {});
+	}
+
+	function failSocketConnection(connection: SocketConnection, id: number, message: string) {
+		if (!isCurrentConnection(connection, id)) return;
+		socketConnection = undefined;
+		disposeSocketConnection(connection, 'connection failed');
+		closeCurrentSession();
+		status = 'error';
+		statusMessage = message;
+	}
+
 	function sendFrame(frame: Uint8Array) {
-		if (socket?.readyState === WebSocket.OPEN) socket.send(frame);
+		const activeSocket = socketConnection?.socket;
+		if (activeSocket?.readyState === WebSocket.OPEN) activeSocket.send(frame);
 	}
 
 	function fitTerminal() {
@@ -251,15 +280,9 @@
 	}
 
 	async function cleanup(closeBackendSession: boolean) {
-		expectedClose = true;
-		if (socketConnectTimer) clearTimeout(socketConnectTimer);
-		socketConnectTimer = undefined;
-		try {
-			socket?.close(1000, 'ui closed');
-		} catch {
-			// ignore
-		}
-		socket = undefined;
+		const connection = socketConnection;
+		socketConnection = undefined;
+		disposeSocketConnection(connection, 'ui closed');
 		resizeObserver?.disconnect();
 		resizeObserver = undefined;
 		window.removeEventListener('resize', fitTerminal);

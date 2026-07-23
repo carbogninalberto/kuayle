@@ -512,27 +512,36 @@ test('keeps multiple docked terminals alive across collapse and navigation', asy
 			readyState = MockWebSocket.CONNECTING;
 			binaryType = 'arraybuffer';
 			url: string;
+			record: any;
 			constructor(url: string) {
 				super();
 				this.url = url;
+				this.record = {
+					url, sent: [], closed: false, deferClose: false,
+					open: () => this.open(), fail: () => this.dispatchEvent(new Event('error')),
+					finishClose: () => this.finishClose()
+				};
 				if (url.startsWith('wss://terminal.example.test')) {
 					(window as any).__terminalSockets ??= [];
-					(window as any).__terminalSockets.push({ url, sent: [], closed: false });
+					(window as any).__terminalSockets.push(this.record);
 				}
-				setTimeout(() => {
-					this.readyState = MockWebSocket.OPEN;
-					this.dispatchEvent(new Event('open'));
-				}, 0);
+				if ((window as any).__terminalAutoOpen !== false) setTimeout(() => this.open(), 0);
+			}
+			open() {
+				if (this.readyState !== MockWebSocket.CONNECTING) return;
+				this.readyState = MockWebSocket.OPEN;
+				this.dispatchEvent(new Event('open'));
 			}
 			send(data: string | ArrayBuffer | Uint8Array) {
 				const bytes = typeof data === 'string' ? Array.from(new TextEncoder().encode(data)) : Array.from(new Uint8Array(data instanceof ArrayBuffer ? data : data.buffer));
-				const record = (window as any).__terminalSockets?.find((item: { url: string }) => item.url === this.url);
-				if (record) record.sent.push(bytes);
+				this.record.sent.push(bytes);
 			}
 			close() {
 				this.readyState = MockWebSocket.CLOSED;
-				const record = (window as any).__terminalSockets?.find((item: { url: string }) => item.url === this.url);
-				if (record) record.closed = true;
+				this.record.closed = true;
+				if (!this.record.deferClose) this.finishClose();
+			}
+			finishClose() {
 				this.dispatchEvent(new CloseEvent('close', { code: 1000 }));
 			}
 		}
@@ -569,7 +578,7 @@ test('keeps multiple docked terminals alive across collapse and navigation', asy
 		if (path === `/api/workspaces/test/dev-machines/${machineId}/terminal-sessions` && request.method() === 'POST') {
 			terminalPayloads.push(request.postDataJSON());
 			terminalSessions += 1;
-			const suffix = terminalSessions === 1 ? '84' : '85';
+			const suffix = String(83 + terminalSessions).padStart(2, '0');
 			const sessionId = `00000000-0000-0000-0000-0000000000${suffix}`;
 			return route.fulfill({ status: 201, json: { status: 'ready', protocol: 'ttyd.v1', web_socket_url: `wss://terminal.example.test/ws?ticket=secret-${terminalSessions}&session=term-${terminalSessions}&cwd=/workspace/tasks/TST-1-terminal`, expires_at: '2099-07-13T04:00:00Z', session: { id: sessionId, machine_id: machineId, checkout_id: checkoutId, name: 'Terminal', runtime_session_name: `term-${terminalSessions}`, status: 'active', created_at: '2026-07-13T00:00:00Z', last_activity_at: '2026-07-13T00:00:00Z' } } });
 		}
@@ -605,24 +614,60 @@ test('keeps multiple docked terminals alive across collapse and navigation', asy
 	await page.getByRole('button', { name: 'Expand terminal dock' }).click();
 	await expect(page.getByTestId('native-terminal')).toBeVisible();
 
-	await page.getByRole('button', { name: 'Terminal', exact: true }).click();
+	await page.evaluate(() => {
+		(window as any).__terminalSockets[0].deferClose = true;
+		(window as any).__terminalSockets[0].fail();
+	});
+	await expect(page.getByText('Unable to connect to the terminal gateway. Check the machine TLS certificate and retry.', { exact: true })).toBeVisible();
+	await expect(page.getByRole('link', { name: 'Open the terminal gateway' })).toHaveAttribute('href', 'https://terminal.example.test');
+	await page.evaluate(() => (window as any).__terminalSockets[0].finishClose());
+	await expect(page.getByText('Unable to connect to the terminal gateway. Check the machine TLS certificate and retry.', { exact: true })).toBeVisible();
+
+	await page.clock.install();
+	await page.evaluate(() => { (window as any).__terminalAutoOpen = false; });
+	await page.getByRole('button', { name: 'Reconnect' }).click();
 	await expect.poll(() => terminalPayloads.length).toBe(2);
+	await expect.poll(() => page.evaluate(() => (window as any).__terminalSockets?.length ?? 0)).toBe(2);
+	await page.clock.fastForward(10_000);
+	await expect(page.getByText('Terminal gateway connection timed out. Check the machine TLS certificate and retry.', { exact: true })).toBeVisible();
+
+	await page.getByRole('button', { name: 'Reconnect' }).click();
+	await expect.poll(() => terminalPayloads.length).toBe(3);
+	await expect.poll(() => page.evaluate(() => (window as any).__terminalSockets?.length ?? 0)).toBe(3);
+	await page.evaluate(() => (window as any).__terminalSockets[1].finishClose());
+	await page.clock.fastForward(10_000);
+	await expect(page.getByText('Terminal gateway connection timed out. Check the machine TLS certificate and retry.', { exact: true })).toBeVisible();
+
+	await page.getByRole('button', { name: 'Reconnect' }).click();
+	await expect.poll(() => terminalPayloads.length).toBe(4);
+	await expect.poll(() => page.evaluate(() => (window as any).__terminalSockets?.length ?? 0)).toBe(4);
+	await page.evaluate(() => (window as any).__terminalSockets[3].open());
+	await expect(page.getByText('Terminal connected', { exact: true })).toBeVisible();
+	await page.evaluate(() => (window as any).__terminalSockets[2].finishClose());
+	await expect(page.getByText('Terminal connected', { exact: true })).toBeVisible();
+	await expect.poll(() => closeRequests).toBe(3);
+	const closeRequestsBeforeTabClose = closeRequests;
+
+	await page.getByRole('button', { name: 'Terminal', exact: true }).click();
+	await expect.poll(() => terminalPayloads.length).toBe(5);
 	await expect(page.getByRole('tab')).toHaveCount(2);
-	await expect.poll(() => page.evaluate(() => (window as any).__terminalSockets?.[1]?.sent.length ?? 0)).toBeGreaterThan(0);
+	await expect.poll(() => page.evaluate(() => (window as any).__terminalSockets?.length ?? 0)).toBe(5);
+	await page.evaluate(() => (window as any).__terminalSockets[4].open());
+	await expect.poll(() => page.evaluate(() => (window as any).__terminalSockets?.[4]?.sent.length ?? 0)).toBeGreaterThan(0);
 	await page.getByRole('tab').first().click();
-	await expect.poll(() => page.evaluate(() => (window as any).__terminalSockets?.filter((item: { closed: boolean }) => item.closed).length ?? 0)).toBe(0);
+	await expect.poll(() => page.evaluate(() => [(window as any).__terminalSockets[3].closed, (window as any).__terminalSockets[4].closed])).toEqual([false, false]);
 
 	await page.getByRole('link', { name: 'Dev Machines' }).click();
 	await expect(page).toHaveURL(/\/test\/machines$/);
 	await expect(page.getByTestId('terminal-dock')).toBeVisible();
 	await expect(page.getByRole('tab')).toHaveCount(2);
-	await expect.poll(() => closeRequests).toBe(0);
+	await expect.poll(() => closeRequests).toBe(closeRequestsBeforeTabClose);
 
 	await page.getByTestId('close-tab').first().click();
-	await expect.poll(() => closeRequests).toBe(1);
+	await expect.poll(() => closeRequests).toBe(closeRequestsBeforeTabClose + 1);
 	await expect(page.getByRole('tab')).toHaveCount(1);
 	await page.getByTestId('close-tab').click();
-	await expect.poll(() => closeRequests).toBe(2);
+	await expect.poll(() => closeRequests).toBe(closeRequestsBeforeTabClose + 2);
 	await expect(page.getByTestId('terminal-dock')).toHaveCount(0);
 });
 
