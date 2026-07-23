@@ -223,11 +223,26 @@ test('handles machine actions without applying stale poll, route, or trace respo
 
 	await page.goto('/test/machines');
 	await expect(page.getByRole('heading', { name: 'Dev Machines' })).toBeVisible();
-	await page.getByRole('link', { name: /Runtime smoke machine/ }).click();
+	const machineLink = page.getByRole('link', { name: /Runtime smoke machine/ });
+	await machineLink.evaluate((element) => {
+		const link = element as HTMLAnchorElement;
+		const url = new URL(link.href);
+		url.hash = 'activity';
+		link.href = url.toString();
+	});
+	await machineLink.click();
 	await expect(page.getByText('Runtime smoke machine', { exact: true })).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Services' })).toBeVisible();
 	await expect(page.getByText('machine a event', { exact: true })).toBeVisible();
 	await expect(page.getByText('[system] machine A log', { exact: true })).toBeVisible();
+	await expect.poll(() => page.locator('#activity').evaluate((target) => {
+		let container = target.parentElement;
+		while (container && !['auto', 'scroll'].includes(getComputedStyle(container).overflowY)) container = container.parentElement;
+		if (!container) return false;
+		const targetRect = target.getBoundingClientRect();
+		const containerRect = container.getBoundingClientRect();
+		return container.scrollTop > 0 && targetRect.top < containerRect.bottom && targetRect.bottom > containerRect.top;
+	})).toBe(true);
 	await expect(page.getByTitle('Save development environment')).toHaveCount(0);
 	await page.getByRole('switch', { name: 'Keep running' }).click();
 	await expect.poll(() => keepRunningRequests).toBe(1);

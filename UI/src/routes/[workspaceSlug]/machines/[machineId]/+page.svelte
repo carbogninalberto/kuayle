@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import { tick } from 'svelte';
 	import { ArrowLeft, Bot, Code2, ExternalLink, GitBranch, Pause, Play, Save, Server, ServerOff, Square, SquareTerminal, Trash2, Loader } from 'lucide-svelte';
 	import { goto, replaceState } from '$app/navigation';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
@@ -60,6 +61,7 @@
 	let runsRequestSequence = 0;
 	let machineUpdateSequence = 0;
 	let pollGeneration = 0;
+	let fragmentScrollVersion = 0;
 	const dock = useTerminalDock();
 
 	// Treat desired_status != status as pending ("transitioning")
@@ -100,6 +102,19 @@
 		}
 	});
 
+	$effect(() => {
+		const hash = page.url.hash;
+		const targetSlug = slug;
+		const targetMachineId = machineId;
+		const currentLoading = loading;
+		if (currentLoading || (hash !== '#agent-runs' && hash !== '#activity')) return;
+		const version = ++fragmentScrollVersion;
+		void scrollToFragment(hash.slice(1), targetSlug, targetMachineId, version);
+		return () => {
+			if (fragmentScrollVersion === version) fragmentScrollVersion++;
+		};
+	});
+
 	function resetMachineState() {
 		machine = null;
 		services = [];
@@ -133,6 +148,20 @@
 		refreshSequence++;
 		runsRequestSequence++;
 		machineUpdateSequence++;
+		fragmentScrollVersion++;
+	}
+
+	async function scrollToFragment(targetId: string, targetSlug: string, targetMachineId: string, version: number) {
+		for (let attempt = 0; attempt < 8; attempt++) {
+			await tick();
+			if (fragmentScrollVersion !== version || slug !== targetSlug || machineId !== targetMachineId || page.url.hash !== `#${targetId}`) return;
+			const target = document.getElementById(targetId);
+			if (target) {
+				target.scrollIntoView({ block: 'start' });
+				return;
+			}
+			await new Promise((resolve) => setTimeout(resolve, 50));
+		}
 	}
 
 	function isCurrentRoute(targetSlug: string, targetMachineId: string, generation: number) {
