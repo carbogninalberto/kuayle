@@ -1,3 +1,5 @@
+import contentModifiedDates from '$lib/data/content-modified.json';
+
 /**
  * Centralized site configuration.
  * The single source of truth for canonical origin, default metadata,
@@ -46,6 +48,12 @@ export function url(path: string): string {
 	const base = ORIGIN.replace(/\/+$/, '');
 	const p = path.startsWith('/') ? path : `/${path}`;
 	return `${base}${p}`;
+}
+
+export function contentModifiedAt(path: string): string {
+	const modifiedAt = (contentModifiedDates as Record<string, string>)[path];
+	if (!modifiedAt) throw new Error(`Missing content modification date for ${path}`);
+	return modifiedAt;
 }
 
 /**

@@ -181,6 +181,39 @@
 	}
 }
 
+@keyframes pulse-dot {
+	0%,
+	100% {
+		opacity: 1;
+		transform: scale(1);
+	}
+	50% {
+		opacity: 0.55;
+		transform: scale(0.8);
+	}
+}
+
+@keyframes beam-sweep {
+	0% {
+		transform: translateX(-120%) skewX(-18deg);
+	}
+	55%,
+	100% {
+		transform: translateX(320%) skewX(-18deg);
+	}
+}
+
+@keyframes log-line {
+	from {
+		opacity: 0;
+		transform: translateY(6px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
 .animate-fade-up {
 	animation: fade-up 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
@@ -197,6 +230,10 @@
 	animation: float-slow 7s ease-in-out infinite;
 }
 
+.animate-pulse-dot {
+	animation: pulse-dot 2.2s ease-in-out infinite;
+}
+
 .gradient-text {
 	background: linear-gradient(110deg, #f5f5f5 20%, var(--primary-300) 45%, var(--primary-400) 55%, #f5f5f5 80%);
 	background-size: 200% auto;
@@ -204,6 +241,14 @@
 	background-clip: text;
 	color: transparent;
 	animation: gradient-pan 8s ease-in-out infinite;
+}
+
+@media (forced-colors: active) {
+	.gradient-text {
+		background: none;
+		color: CanvasText;
+		-webkit-text-fill-color: CanvasText;
+	}
 }
 
 /* Scroll reveal (used with the `reveal` action) */
@@ -226,6 +271,9 @@
 	.animate-marquee,
 	.animate-glow,
 	.animate-float,
+	.animate-pulse-dot,
+	.log-line,
+	.beam,
 	.gradient-text {
 		animation: none;
 	}
@@ -243,6 +291,54 @@
 		linear-gradient(to bottom, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
 	background-size: 56px 56px;
 	mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, black 40%, transparent 100%);
+}
+
+/* Film-grain noise overlay for large dark surfaces */
+.noise-overlay {
+	position: relative;
+}
+.noise-overlay::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	opacity: 0.05;
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='0.6'/%3E%3C/svg%3E");
+}
+
+/* Gradient ring used on highlighted cards */
+.ring-gradient {
+	position: relative;
+}
+.ring-gradient::before {
+	content: '';
+	position: absolute;
+	inset: 0;
+	border-radius: inherit;
+	padding: 1px;
+	background: linear-gradient(135deg, color-mix(in srgb, var(--primary-400) 55%, transparent), transparent 40%, transparent 60%, color-mix(in srgb, var(--primary-300) 35%, transparent));
+	-webkit-mask:
+		linear-gradient(#fff 0 0) content-box,
+		linear-gradient(#fff 0 0);
+	-webkit-mask-composite: xor;
+	mask-composite: exclude;
+	pointer-events: none;
+}
+
+/* Beam of light sweeping across a frame */
+.beam {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	width: 28%;
+	background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.07), transparent);
+	animation: beam-sweep 7s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+	pointer-events: none;
+}
+
+/* Terminal log lines used in the Dev Machines showcase */
+.log-line {
+	animation: log-line 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 kbd.key {

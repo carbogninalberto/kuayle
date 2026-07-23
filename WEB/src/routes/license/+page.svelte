@@ -1,13 +1,13 @@
 <script lang="ts">
 	import StandalonePage from '$lib/components/StandalonePage.svelte';
-	import { url } from '$lib/config/site';
+	import { contentModifiedAt, url } from '$lib/config/site';
 	import { breadcrumbsFrom } from '$lib/data/routes';
 
 	const meta = {
 		title: 'Kuayle License — Apache 2.0',
 		description: 'A plain-language summary of Kuayle’s Apache 2.0 license, including permissions, redistribution conditions, patent terms, and warranty limits.',
 		canonical: url('/license'),
-		modifiedAt: '2026-07-11'
+		modifiedAt: contentModifiedAt('/license')
 	};
 
 	const crumbs = breadcrumbsFrom('license', 'License');

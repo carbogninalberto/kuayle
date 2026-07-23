@@ -3,6 +3,7 @@
 	import Hero from '$lib/components/Hero.svelte';
 	import OpenSource from '$lib/components/OpenSource.svelte';
 	import Features from '$lib/components/Features.svelte';
+	import DevMachines from '$lib/components/DevMachines.svelte';
 	import Keyboard from '$lib/components/Keyboard.svelte';
 	import Pricing from '$lib/components/Pricing.svelte';
 	import Deploy from '$lib/components/Deploy.svelte';
@@ -38,6 +39,7 @@
 	<Hero />
 	<OpenSource />
 	<Features />
+	<DevMachines />
 	<Keyboard />
 	<Pricing />
 	<Deploy />

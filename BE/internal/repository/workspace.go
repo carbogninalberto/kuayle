@@ -4,11 +4,15 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 )
+
+var ErrWorkspaceHasDevMachineRuntimes = errors.New("workspace has non-destroyed dev machine runtimes")
+var ErrWorkspaceEnvironmentCleanupPending = errors.New("workspace environment cleanup is pending")
 
 type WorkspaceRepository struct {
 	db *sqlx.DB
@@ -84,8 +88,52 @@ func (r *WorkspaceRepository) Update(ctx context.Context, ws *domain.Workspace) 
 }
 
 func (r *WorkspaceRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM workspaces WHERE id = $1`, id)
-	return err
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`, id); err != nil {
+		return err
+	}
+	var activeRuntimes int
+	if err := tx.GetContext(ctx, &activeRuntimes, `SELECT COUNT(*) FROM dev_machines
+		WHERE workspace_id=$1 AND status <> 'destroyed'`, id); err != nil {
+		return err
+	}
+	if activeRuntimes > 0 {
+		return fmt.Errorf("%w: %d", ErrWorkspaceHasDevMachineRuntimes, activeRuntimes)
+	}
+	var environments int
+	if err := tx.GetContext(ctx, &environments, `SELECT COUNT(*) FROM dev_machine_environments WHERE workspace_id=$1`, id); err != nil {
+		return err
+	}
+	if environments > 0 {
+		if _, err := tx.ExecContext(ctx, `UPDATE dev_machine_operations SET status='cancelled',
+			error_code='workspace_deletion_requested',error_message='snapshot cancelled because workspace deletion was requested',
+			lease_owner=NULL,lease_expires_at=NULL,completed_at=NOW()
+			WHERE workspace_id=$1 AND environment_id IS NOT NULL AND action='snapshot_environment'
+			AND (status='pending' OR (status='leased' AND lease_expires_at<NOW()))`, id); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE dev_machine_environments environment
+			SET status='delete_requested',delete_requested_at=COALESCE(delete_requested_at,NOW())
+			WHERE workspace_id=$1 AND NOT EXISTS (
+				SELECT 1 FROM dev_machine_operations operation WHERE operation.environment_id=environment.id
+				AND operation.action='snapshot_environment' AND operation.status='leased'
+				AND (operation.lease_expires_at IS NULL OR operation.lease_expires_at>=NOW())
+			)`, id); err != nil {
+			return err
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+		return ErrWorkspaceEnvironmentCleanupPending
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM workspaces WHERE id = $1`, id); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (r *WorkspaceRepository) ListByUser(ctx context.Context, userID uuid.UUID) ([]domain.Workspace, error) {

@@ -30,7 +30,10 @@ class ApiClient {
 			throw error;
 		}
 
-		return res.json();
+		if (res.status === 204) return undefined as T;
+		const body = await res.text();
+		if (!body) return undefined as T;
+		return JSON.parse(body) as T;
 	}
 
 	private async refresh(): Promise<void> {
@@ -51,6 +54,10 @@ class ApiClient {
 
 	patch<T>(path: string, body?: unknown): Promise<T> {
 		return this.fetch<T>(path, { method: 'PATCH', body: body ? JSON.stringify(body) : undefined });
+	}
+
+	put<T>(path: string, body?: unknown): Promise<T> {
+		return this.fetch<T>(path, { method: 'PUT', body: body ? JSON.stringify(body) : undefined });
 	}
 
 	delete<T>(path: string): Promise<T> {

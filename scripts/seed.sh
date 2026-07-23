@@ -79,9 +79,9 @@ INSERT INTO users (id, email, name, display_name, password_hash) VALUES
 -- ============================================================
 -- WORKSPACES
 -- ============================================================
-INSERT INTO workspaces (id, name, slug) VALUES
-    ('b0000000-0000-0000-0000-000000000001', 'Acme Corp', 'acme'),
-    ('b0000000-0000-0000-0000-000000000002', 'Side Project', 'side-project');
+INSERT INTO workspaces (id, name, slug, owner_id) VALUES
+    ('b0000000-0000-0000-0000-000000000001', 'Acme Corp', 'acme', 'a0000000-0000-0000-0000-000000000001'),
+    ('b0000000-0000-0000-0000-000000000002', 'Side Project', 'side-project', 'a0000000-0000-0000-0000-000000000001');
 
 -- Workspace Members
 INSERT INTO workspace_members (workspace_id, user_id, role) VALUES

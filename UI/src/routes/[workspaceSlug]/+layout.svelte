@@ -34,6 +34,8 @@
 	import { createShortcutEngine, type ShortcutDef } from '$lib/utils/keyboard';
 	import { Menu, Search, SquarePen } from 'lucide-svelte';
 	import { appToast } from '$lib/features/toast/toast';
+	import TerminalDock from '$lib/features/dev-machines/TerminalDock.svelte';
+	import { setTerminalDock } from '$lib/features/dev-machines/terminal-dock-context.svelte';
 
 	let { children } = $props();
 	let workspace = $state<Workspace | null>(null);
@@ -55,9 +57,13 @@
 	let authReady = $state(false);
 	let workspaceLoadId = 0;
 	const isMobile = new IsMobile();
-
+	const terminalDock = setTerminalDock();
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	const isSettings = $derived(page.url.pathname.includes('/settings'));
+
+	$effect(() => {
+		terminalDock.setWorkspace(slug);
+	});
 
 	async function loadWorkspaceData(workspaceSlug: string) {
 		const loadId = ++workspaceLoadId;
@@ -536,6 +542,7 @@
 			<div class="min-h-0 flex-1 overflow-auto">
 				{@render children()}
 			</div>
+			<TerminalDock />
 		</main>
 	</div>
 

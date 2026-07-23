@@ -10,5 +10,5 @@ test('login page loads', async ({ page }) => {
 test('login form has required fields', async ({ page }) => {
 	await page.goto('/login');
 	await expect(page.getByLabel('Email')).toBeVisible();
-	await expect(page.getByLabel('Password')).toBeVisible();
+	await expect(page.getByRole('textbox', { name: 'Password', exact: true })).toBeVisible();
 });

@@ -1,0 +1,15 @@
+FROM golang:1.25.12-alpine AS builder
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /machine-manager ./cmd/machine-manager
+
+FROM alpine:3.22
+RUN apk add --no-cache ca-certificates tzdata \
+    && addgroup -g 1000 kuayle \
+    && adduser -D -u 1000 -G kuayle kuayle
+COPY --from=builder /machine-manager /usr/local/bin/machine-manager
+EXPOSE 8092
+USER 1000:1000
+ENTRYPOINT ["/usr/local/bin/machine-manager"]

@@ -5,7 +5,7 @@
 	import Breadcrumbs from '$lib/components/Breadcrumbs.svelte';
 	import { consent } from '$lib/cookieConsent.svelte';
 	import { Button } from '$lib/components/ui/button';
-	import { url } from '$lib/config/site';
+	import { contentModifiedAt, url } from '$lib/config/site';
 	import { breadcrumbsFrom, webPageLd } from '$lib/data/routes';
 
 	let resetOpen = $state(false);
@@ -16,10 +16,11 @@
 	const updated = 'July 11, 2026';
 	const canonical = url('/privacy');
 	const crumbs = breadcrumbsFrom('privacy', 'Privacy');
-	const jsonLd = webPageLd(title, description, canonical, crumbs);
+	const modifiedAt = contentModifiedAt('/privacy');
+	const jsonLd = webPageLd(title, description, canonical, crumbs, modifiedAt);
 </script>
 
-<Seo meta={{ title, description, canonical, ogType: 'article', jsonLd }} />
+<Seo meta={{ title, description, canonical, ogType: 'article', modifiedAt, jsonLd }} />
 
 <Nav />
 

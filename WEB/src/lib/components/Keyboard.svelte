@@ -30,22 +30,22 @@
 				</p>
 			</div>
 
-			<div use:reveal={{ delay: 150 }} class="grid grid-cols-2 gap-4">
-				{#each shortcuts as shortcut, i (shortcut.label)}
-					<div
-						class="flex items-center justify-between gap-3 rounded-xl border border-border bg-card/60 px-4 py-3.5"
-					>
-						<span class="text-sm text-muted-foreground">{shortcut.label}</span>
-						<span class="flex shrink-0 gap-1">
-							{#each shortcut.keys as key (key)}
-								<kbd class="key" style="animation: key-press 4s ease-in-out {i * 0.65}s infinite"
-									>{key}</kbd
-								>
-							{/each}
-						</span>
-					</div>
-				{/each}
-			</div>
+		<div use:reveal={{ delay: 150 }} class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+			{#each shortcuts as shortcut, i (shortcut.label)}
+				<div
+					class="group flex items-center justify-between gap-3 rounded-xl border border-border bg-card/60 px-4 py-3.5 transition-all duration-300 hover:-translate-y-0.5 hover:border-brand-400/40 hover:bg-card"
+				>
+					<span class="text-sm text-muted-foreground transition-colors group-hover:text-foreground">{shortcut.label}</span>
+					<span class="flex shrink-0 gap-1">
+						{#each shortcut.keys as key (key)}
+							<kbd class="key" style="animation: key-press 4s ease-in-out {i * 0.65}s infinite"
+								>{key}</kbd
+							>
+						{/each}
+					</span>
+				</div>
+			{/each}
+		</div>
 		</div>
 	</div>
 </section>

@@ -12,8 +12,8 @@ RUN npm run build
 
 FROM golang:1.26.5-alpine AS caddy-builder
 RUN apk add --no-cache git
-RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
-RUN xcaddy build latest
+RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@v0.4.6
+RUN xcaddy build v2.11.4 --with google.golang.org/grpc@v1.82.1
 
 FROM alpine:3.23
 RUN apk update && apk upgrade --no-cache

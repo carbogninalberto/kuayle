@@ -1,24 +1,28 @@
 <script lang="ts">
 	import StandalonePage from '$lib/components/StandalonePage.svelte';
-	import { url } from '$lib/config/site';
+	import { contentModifiedAt, url } from '$lib/config/site';
+	import { DEV_MACHINES_RELEASE_STATUS } from '$lib/config/releases';
 	import { breadcrumbsFrom } from '$lib/data/routes';
+	import { useLatestRelease } from '$lib/release.svelte';
+
+	const release = useLatestRelease();
 
 	const meta = {
 		title: 'About Kuayle — Product, Maintainer and Current State',
 		description: 'Learn why Kuayle exists, who maintains it, how it is built, and what is implemented in the current release.',
 		canonical: url('/about'),
-		modifiedAt: '2026-07-11'
+		modifiedAt: contentModifiedAt('/about')
 	};
 
 	const crumbs = breadcrumbsFrom('about', 'About');
 
-	const sections = [
+	const sections = $derived([
 		{
 			heading: 'What Kuayle is',
-			body: 'Kuayle is a self-hosted issue tracker with keyboard shortcuts, multi-assignee issues, cycles, projects and GitHub automation. The name comes from 快乐 (kuàilè), the Chinese word for happiness or joy.',
+			body: `Kuayle is a self-hosted issue tracker with keyboard shortcuts, multi-assignee issues, cycles, projects, analytics and GitHub automation. An ${DEV_MACHINES_RELEASE_STATUS.toLowerCase()} opt-in Dev Machines subsystem adds agentic coding environments on the development branch. The name comes from 快乐 (kuàilè), the Chinese word for happiness or joy.`,
 			list: [
 				'Name: 快乐 (kuàilè) — happiness, joy',
-				'Current version: v0.1.0',
+				`Current version: ${release.version}`,
 				'Deployment: self-hosted with Docker Compose',
 				'License: Apache 2.0'
 			]
@@ -45,7 +49,7 @@
 		},
 		{
 			heading: 'How it is built',
-			body: 'The application uses a Go API with SQL repositories, a SvelteKit frontend, PostgreSQL for application data and Redis for cache and coordination. The self-hosting configuration adds Caddy for reverse proxying and TLS.',
+			body: 'The application uses a Go API with SQL repositories, a SvelteKit frontend, PostgreSQL for application data and Redis as a required service reserved for cache and job use. The self-hosting configuration adds Caddy for reverse proxying and TLS; the opt-in Dev Machines profile adds a Go gateway and manager for container runtimes.',
 			list: [
 				'Go API and explicit SQL migrations',
 				'SvelteKit user interface',
@@ -55,15 +59,16 @@
 		},
 		{
 			heading: 'Current state',
-			body: 'Version 0.1.0 is a runnable MVP, not a mature enterprise platform. Core issue workflows, cycles, projects, GitHub integration, public sharing and workspace roles are available. A dedicated analytics interface, data import/export and enterprise identity integrations are not implemented.',
+			body: `Version ${release.version} is a runnable MVP, not a mature enterprise platform. Core issue workflows, cycles, projects, analytics, GitHub integration, public sharing and workspace roles are available. Dev Machines are ${DEV_MACHINES_RELEASE_STATUS.toLowerCase()} development-branch infrastructure. Data import/export and enterprise identity integrations are not implemented.`,
 			list: [
 				'Available: issues, labels, comments, history, sub-issues and relations',
-				'Available: cycles with charts and projects with a Gantt view',
+				'Available: cycles with charts, projects with a Gantt view, and insights analytics',
 				'Available: GitHub activity linking and configurable status transitions',
-				'Not available: SSO, SCIM, LDAP, import/export and analytics UI'
+				`${DEV_MACHINES_RELEASE_STATUS}: opt-in Dev Machines with agent providers and issue worktrees`,
+				'Not available: SSO, SCIM, LDAP and import/export workflows'
 			]
 		}
-	];
+	]);
 </script>
 
 <StandalonePage

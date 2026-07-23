@@ -11,9 +11,11 @@
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"validate-seo": "node scripts/validate-seo.mjs",
-		"validate": "npm run build && npm run validate-seo"
+		"validate": "npm run build && npm run validate-seo",
+		"test:responsive": "playwright test"
 	},
 	"devDependencies": {
+		"@playwright/test": "^1.58.2",
 		"@sveltejs/adapter-auto": "^7.0.1",
 		"@sveltejs/adapter-static": "^3.0.10",
 		"@sveltejs/kit": "^2.63.0",

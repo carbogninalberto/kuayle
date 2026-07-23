@@ -1,13 +1,13 @@
 <script lang="ts">
 	import StandalonePage from '$lib/components/StandalonePage.svelte';
-	import { url } from '$lib/config/site';
+	import { contentModifiedAt, url } from '$lib/config/site';
 	import { breadcrumbsFrom } from '$lib/data/routes';
 
 	const meta = {
 		title: 'Kuayle Security and Self-Hosting Responsibilities',
 		description: 'Technical security details for Kuayle self-hosting: authentication, network exposure, credential storage, updates, and vulnerability reporting.',
 		canonical: url('/security'),
-		modifiedAt: '2026-07-11'
+		modifiedAt: contentModifiedAt('/security')
 	};
 
 	const crumbs = breadcrumbsFrom('security', 'Security');

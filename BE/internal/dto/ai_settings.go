@@ -15,6 +15,11 @@ type AISettingsResponse struct {
 	UpdatedAt               time.Time `json:"updated_at"`
 }
 
+type IssueCopyPromptResponse struct {
+	IssueCopyPrompt        string `json:"issue_copy_prompt"`
+	DefaultIssueCopyPrompt string `json:"default_issue_copy_prompt"`
+}
+
 type UpdateAISettingsRequest struct {
 	Provider                *string        `json:"provider" validate:"omitempty,oneof=openai_compatible"`
 	BaseURL                 *string        `json:"base_url" validate:"omitempty,max=500"`

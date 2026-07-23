@@ -1,18 +1,22 @@
 <script lang="ts">
 	import StandalonePage from '$lib/components/StandalonePage.svelte';
-	import { url } from '$lib/config/site';
+	import { DEV_MACHINES_RELEASE_STATUS } from '$lib/config/releases';
+	import { contentModifiedAt, url } from '$lib/config/site';
 	import { breadcrumbsFrom } from '$lib/data/routes';
+	import { useLatestRelease } from '$lib/release.svelte';
+
+	const release = useLatestRelease();
 
 	const meta = {
 		title: 'Kuayle Roadmap and Development Status',
-		description: 'Kuayle development status, known product gaps, the Dev Machines design track, and where to follow proposed work.',
+		description: 'Kuayle development status, known product gaps, the unreleased Dev Machines subsystem, and where to follow proposed work.',
 		canonical: url('/roadmap'),
-		modifiedAt: '2026-07-11'
+		modifiedAt: contentModifiedAt('/roadmap')
 	};
 
 	const crumbs = breadcrumbsFrom('roadmap', 'Roadmap');
 
-	const sections = [
+	const sections = $derived([
 		{
 			heading: 'No invented release dates',
 			body: 'Kuayle does not publish committed release dates or promise features against version numbers. Open issues and merged pull requests are the reliable record of proposed and completed work. This page documents the current product boundary rather than a sales roadmap.',
@@ -20,12 +24,12 @@
 				'Open issues describe proposed work',
 				'Pull requests and releases describe shipped work',
 				'No feature on this page has a guaranteed delivery date',
-				'Last reviewed: July 11, 2026'
+				'Last reviewed: July 23, 2026'
 			]
 		},
 		{
-			heading: 'Available in v0.1.0',
-			body: 'The current MVP includes the issue workflow, workspace roles, teams, custom statuses, comments, sub-issues, relations, labels, cycles, projects, saved views, analytics, notifications, public sharing, webhooks and GitHub integration.',
+			heading: `Available in ${release.version}`,
+			body: 'The current release includes the issue workflow, workspace roles, teams, custom statuses, comments, sub-issues, relations, labels, cycles, projects, saved views, analytics, notifications, public sharing, webhooks and GitHub integration.',
 			list: [
 				'Cycle burndown and velocity charts',
 				'Project issue list and Gantt view',
@@ -44,12 +48,12 @@
 			]
 		},
 		{
-			heading: 'Dev Machines is a design, not a feature',
-			body: 'TECHNICAL.md contains a design for disposable development environments connected to issues. The runtime container manager, authentication gateway and product UI described there are not implemented in the application.',
+			heading: `Dev Machines is ${DEV_MACHINES_RELEASE_STATUS.toLowerCase()} opt-in infrastructure`,
+			body: 'The development branch includes the opt-in multi-container Dev Machines subsystem, but no published release contains it yet. It adds Caddy wildcard ingress, an unprivileged authenticated gateway, a dedicated Docker manager, isolated machine networks, PostgreSQL reconciliation, scoped secrets, activity collection, issue-linked agent runs, and Claude Code, OpenCode, Codex, and custom CLI adapters. Self-hosted operators must explicitly configure the machine domain, TLS, runtime images, GitHub permissions, and capacity.',
 			list: [
-				'Specification only',
-				'Not included in v0.1.0',
-				'No delivery date assigned'
+				'Disabled by default',
+				'Requires wildcard DNS and TLS',
+				'Trusted self-hosted workspace model'
 			]
 		},
 		{
@@ -62,7 +66,7 @@
 				'Implementation status: verify merged code and release notes'
 			]
 		}
-	];
+	]);
 </script>
 
 <StandalonePage

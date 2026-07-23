@@ -26,20 +26,20 @@ type CompleteCycleRequest struct {
 }
 
 type CycleResponse struct {
-	ID            string     `json:"id"`
-	TeamID        string     `json:"team_id"`
-	Name          string     `json:"name"`
-	Number        int        `json:"number"`
-	Status        string     `json:"status"`
-	Description   *string    `json:"description"`
-	Goals         *string    `json:"goals"`
-	Retrospective *string    `json:"retrospective"`
-	StartDate     *time.Time `json:"start_date"`
-	EndDate       *time.Time `json:"end_date"`
-	CompletedAt   *time.Time `json:"completed_at"`
+	ID            string                 `json:"id"`
+	TeamID        string                 `json:"team_id"`
+	Name          string                 `json:"name"`
+	Number        int                    `json:"number"`
+	Status        string                 `json:"status"`
+	Description   *string                `json:"description"`
+	Goals         *string                `json:"goals"`
+	Retrospective *string                `json:"retrospective"`
+	StartDate     *time.Time             `json:"start_date"`
+	EndDate       *time.Time             `json:"end_date"`
+	CompletedAt   *time.Time             `json:"completed_at"`
 	Progress      *CycleProgressResponse `json:"progress,omitempty"`
-	CreatedAt     time.Time  `json:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at"`
+	CreatedAt     time.Time              `json:"created_at"`
+	UpdatedAt     time.Time              `json:"updated_at"`
 }
 
 type CycleProgressResponse struct {

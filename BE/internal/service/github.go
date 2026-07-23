@@ -150,8 +150,8 @@ func (s *GitHubService) GetManifest(workspaceID uuid.UUID, slug string) (map[str
 		"setup_on_update": true,
 		"public":          false,
 		"default_permissions": map[string]string{
-			"pull_requests": "read",
-			"contents":      "read",
+			"pull_requests": "write",
+			"contents":      "write",
 			"metadata":      "read",
 			"issues":        "read",
 		},

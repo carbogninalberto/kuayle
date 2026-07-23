@@ -1,6 +1,7 @@
 package github
 
 import (
+	"bytes"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base64"
@@ -26,8 +27,85 @@ type Client struct {
 	httpClient *http.Client
 
 	// Token cache
-	mu          sync.Mutex
-	tokenCache  map[int64]cachedToken
+	mu         sync.Mutex
+	tokenCache map[int64]cachedToken
+}
+
+// GetRepositoryInstallationToken creates a short-lived installation token
+// restricted to one repository and the permissions required by Dev Machines.
+func (c *Client) GetRepositoryInstallationToken(installationID int64, repository string) (string, time.Time, error) {
+	appJWT, err := c.generateAppJWT()
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("generating app JWT: %w", err)
+	}
+	body, err := json.Marshal(map[string]any{
+		"repositories": []string{repository},
+		"permissions": map[string]string{
+			"contents":      "write",
+			"pull_requests": "write",
+			"metadata":      "read",
+		},
+	})
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	endpoint := fmt.Sprintf("%s/app/installations/%d/access_tokens", githubAPIBaseURL, installationID)
+	request, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	request.Header.Set("Authorization", "Bearer "+appJWT)
+	request.Header.Set("Accept", "application/vnd.github+json")
+	request.Header.Set("Content-Type", "application/json")
+	response, err := c.httpClient.Do(request)
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("requesting repository installation token: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusCreated {
+		responseBody, _ := io.ReadAll(response.Body)
+		return "", time.Time{}, fmt.Errorf("GitHub API error %d: %s", response.StatusCode, responseBody)
+	}
+	var result struct {
+		Token     string    `json:"token"`
+		ExpiresAt time.Time `json:"expires_at"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		return "", time.Time{}, err
+	}
+	return result.Token, result.ExpiresAt, nil
+}
+
+// CreatePullRequest opens a pull request using a repository-scoped installation token.
+func (c *Client) CreatePullRequest(token, owner, repository, title, head, base, body string) (*PullRequest, error) {
+	payload, err := json.Marshal(map[string]any{
+		"title": title, "head": head, "base": base, "body": body,
+	})
+	if err != nil {
+		return nil, err
+	}
+	endpoint := fmt.Sprintf("%s/repos/%s/%s/pulls", githubAPIBaseURL, owner, repository)
+	request, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(payload))
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Authorization", "Bearer "+token)
+	request.Header.Set("Accept", "application/vnd.github+json")
+	request.Header.Set("Content-Type", "application/json")
+	response, err := c.httpClient.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusCreated {
+		responseBody, _ := io.ReadAll(response.Body)
+		return nil, fmt.Errorf("GitHub API error %d: %s", response.StatusCode, responseBody)
+	}
+	var pullRequest PullRequest
+	if err := json.NewDecoder(response.Body).Decode(&pullRequest); err != nil {
+		return nil, err
+	}
+	return &pullRequest, nil
 }
 
 type cachedToken struct {
@@ -74,9 +152,9 @@ type GitHubUser struct {
 
 // Commit represents a GitHub commit.
 type Commit struct {
-	SHA     string     `json:"sha"`
-	HTMLURL string     `json:"html_url"`
-	Commit  CommitData `json:"commit"`
+	SHA     string      `json:"sha"`
+	HTMLURL string      `json:"html_url"`
+	Commit  CommitData  `json:"commit"`
 	Author  *GitHubUser `json:"author"`
 }
 
@@ -86,8 +164,8 @@ type CommitData struct {
 }
 
 type CommitAuthor struct {
-	Name  string    `json:"name"`
-	Date  time.Time `json:"date"`
+	Name string    `json:"name"`
+	Date time.Time `json:"date"`
 }
 
 // NewClient creates a GitHub App API client.

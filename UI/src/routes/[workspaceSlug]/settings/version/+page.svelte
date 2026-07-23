@@ -14,6 +14,7 @@
 		currentVersion,
 		currentVersionLabel,
 		fetchReleases,
+		isTrustedReleaseNoteUrl,
 		visibleReleases as getVisibleReleases,
 		type GitHubRelease
 	} from '$lib/release';
@@ -32,7 +33,7 @@
 	const visible = $derived(getVisibleReleases(releases, includePrerelease));
 	const latestRelease = $derived(visible[0] ?? null);
 	const releaseIsNewer = $derived(latestRelease ? compareVersions(latestRelease.tag_name, currentVersion) > 0 : false);
-	const changelogHtml = $derived(renderMarkdown(buildChangelog(visible)));
+	const changelogHtml = $derived(renderMarkdown(buildChangelog(visible), isTrustedReleaseNoteUrl));
 	const canStartUpdate = $derived(
 		isSysadmin && updateStatus?.enabled === true && updateStatus?.running !== true && !startingUpdate
 	);

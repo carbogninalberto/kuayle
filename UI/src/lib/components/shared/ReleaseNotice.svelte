@@ -5,10 +5,11 @@
 	import {
 		buildChangelog,
 		compareVersions,
+		currentReleaseUrl,
 		currentVersion,
 		currentVersionLabel,
 		fetchReleases,
-		releasesManifestUrl,
+		isTrustedReleaseNoteUrl,
 		requiredUpgradeRelease as findRequiredUpgradeRelease,
 		visibleReleases as getVisibleReleases,
 		type GitHubRelease
@@ -31,7 +32,7 @@
 
 	const releaseIsNewer = $derived(latestRelease ? compareVersions(latestRelease.tag_name, currentVersion) > 0 : false);
 	const requiredVersionLabel = $derived(requiredRelease?.minimum_supported_version || requiredRelease?.tag_name || '');
-	const upgradeUrl = $derived(requiredRelease?.upgrade_url || requiredRelease?.html_url || releasesManifestUrl);
+	const upgradeUrl = $derived(requiredRelease?.upgrade_url || requiredRelease?.html_url || currentReleaseUrl);
 
 	$effect(() => {
 		if (requiredRelease) {
@@ -102,7 +103,7 @@
 		const latest = visible[0] ?? null;
 		latestRelease = latest;
 		requiredRelease = requiredUpgradeRelease();
-		changelogHtml = latest ? renderMarkdown(buildChangelog(visible)) : '';
+		changelogHtml = latest ? renderMarkdown(buildChangelog(visible), isTrustedReleaseNoteUrl) : '';
 
 		if (
 			autoOpen &&

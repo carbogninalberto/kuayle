@@ -8,6 +8,7 @@
 	import { reveal } from '$lib/actions/reveal';
 	import { HUBS, breadcrumbsFrom, metaForStandalone, webPageLd } from '$lib/data/routes';
 	import { url } from '$lib/config/site';
+	import { DEV_MACHINES_RELEASE_STATUS } from '$lib/config/releases';
 	import ArrowRight from '@lucide/svelte/icons/arrow-right';
 
 	const hub = HUBS.selfHosting;
@@ -26,13 +27,13 @@
 	</div>
 
 	<div class="grid gap-10 lg:grid-cols-[1fr_260px]">
-		<article>
+		<article class="min-w-0 [overflow-wrap:anywhere]">
 			<div use:reveal>
 				<h1 class="text-4xl font-bold tracking-tight">Self-Hosting Kuayle</h1>
 				<p class="mt-4 text-lg leading-relaxed text-muted-foreground">
-					The reference Docker Compose stack runs Caddy, PostgreSQL 17, Redis 7, the Go API and
-					the SvelteKit frontend. These guides cover configuration, storage, updates and GitHub
-					webhook delivery—including the work that remains with the operator.
+					The reference Docker Compose stack runs Caddy, PostgreSQL 17, Redis 7, the Go API and the SvelteKit frontend.
+					These guides cover configuration, storage, updates, GitHub webhook delivery and the {DEV_MACHINES_RELEASE_STATUS.toLowerCase()}
+					opt-in Dev Machines subsystem—including the work that remains with the operator.
 				</p>
 			</div>
 
@@ -47,7 +48,9 @@
 						{#if child.description}
 							<p class="mt-1.5 text-sm text-muted-foreground">{child.description}</p>
 						{/if}
-						<span class="mt-3 inline-flex items-center gap-1 text-xs font-medium text-brand-300 opacity-0 transition-opacity group-hover:opacity-100">
+						<span
+							class="mt-3 inline-flex items-center gap-1 text-xs font-medium text-brand-300 opacity-0 transition-opacity group-hover:opacity-100"
+						>
 							Open guide <ArrowRight class="size-3" />
 						</span>
 					</a>

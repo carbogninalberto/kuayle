@@ -24,7 +24,7 @@
   {
     "tag_name": "v0.1.10",
     "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.10",
-    "body": "## What's Changed\r\n* fix(issues): prevent loading state flicker on WebSocket updates by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/42\r\n* Alberto/kua 48 addanalytics wire backend with frontend for analyt by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/43\r\n\r\n\r\n**Full Changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.1.9...v0.1.10",
+    "body": "## What's Changed\r\n* fix(issues): prevent loading state flicker on WebSocket updates by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/42\r\n* feat(analytics): add workspace/team overviews, burn-up, and configurable issue insights by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/43\r\n\r\n\r\n**Full Changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.1.9...v0.1.10",
     "published_at": "2026-07-13T06:12:21Z",
     "prerelease": false,
     "force_upgrade": false,

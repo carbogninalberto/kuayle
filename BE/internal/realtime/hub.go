@@ -18,11 +18,11 @@ type Event struct {
 }
 
 type Client struct {
-	conn          *websocket.Conn
-	workspaceID   uuid.UUID
-	userID        uuid.UUID
-	send          chan []byte
-	viewingIssue  string // issue ID currently being viewed (empty if none)
+	conn         *websocket.Conn
+	workspaceID  uuid.UUID
+	userID       uuid.UUID
+	send         chan []byte
+	viewingIssue string // issue ID currently being viewed (empty if none)
 }
 
 // Incoming message types from clients

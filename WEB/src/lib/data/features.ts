@@ -3,6 +3,7 @@
  * Each entry maps to /features/[slug].
  */
 import type { ContentRegistry } from './routes';
+import { DEV_MACHINES_RELEASE_STATUS } from '$lib/config/releases';
 
 export const features: ContentRegistry = {
 	'issue-tracking': {
@@ -101,7 +102,7 @@ export const features: ContentRegistry = {
 			'Group issues from multiple teams in a project, track completion, set project dates, and review issue due dates in a Gantt view.',
 		heading: 'Projects',
 		intro:
-			'Projects group issues from across a workspace. Each project has a status, lead, members, start and target dates, an issue list and a Gantt view.',
+			'Projects group issues from across a workspace. Each project has a status, a lead, start and target dates, an issue list and a Gantt view.',
 		sections: [
 			{
 				heading: 'Cross-team coordination',
@@ -124,11 +125,7 @@ export const features: ContentRegistry = {
 			{
 				heading: 'Progress tracking',
 				body: 'Project progress is calculated from the number of completed, cancelled and total issues. The project page displays both the counts and a progress bar.',
-				list: [
-					'Automatic progress calculation',
-					'Project-level status overview',
-					'Filter and sort within projects'
-				]
+				list: ['Automatic progress calculation', 'Project-level status overview', 'Filter and sort within projects']
 			}
 		]
 	},
@@ -253,11 +250,7 @@ export const features: ContentRegistry = {
 			{
 				heading: 'Triage shortcuts',
 				body: 'The team triage queue uses J and K to move through incoming issues. Press 1 to accept the selected issue or 3 to decline it.',
-				list: [
-					'J / K — next or previous issue',
-					'1 — accept selected issue',
-					'3 — decline selected issue'
-				]
+				list: ['J / K — next or previous issue', '1 — accept selected issue', '3 — decline selected issue']
 			}
 		]
 	},
@@ -273,41 +266,33 @@ export const features: ContentRegistry = {
 		sections: [
 			{
 				heading: 'Saved views',
-				body: 'Save issue filters as personal, team or workspace views. Views retain their filter definition and can be reordered in the sidebar or exposed through a read-only public link.',
+				body: 'Save issue filters as personal, team or workspace views. Views retain their filter definition, grouping and sort order, while list/board layout selection is not stored. A saved view can be exposed through a read-only public link.',
 				list: [
 					'Complex filters: status, assignee, priority, labels, due date',
 					'Personal, team, and workspace view scoping',
-					'Drag-and-drop reorder',
+					'Grouping and sort order saved with filters',
 					'Shareable — views can be made public with a link'
 				]
 			},
 			{
 				heading: 'Team triage queue',
 				body: 'Teams with triage enabled place incoming issues in a separate queue. Review the selected issue, then accept it into the team workflow or decline it. J/K changes the selection; 1 accepts and 3 declines.',
-				list: [
-					'Triage enabled per team',
-					'Accept or decline decisions',
-					'J/K, 1 and 3 keyboard controls'
-				]
+				list: ['Triage enabled per team', 'Accept or decline decisions', 'J/K, 1 and 3 keyboard controls']
 			},
 			{
 				heading: 'Hierarchical labels',
-				body: 'Workspace labels can have parent-child relationships, such as a Bug parent with UI Bug and Backend Bug children. Labels support soft deletion and restoration.',
+				body: 'Workspace labels can have parent-child relationships, such as a Bug parent with UI Bug and Backend Bug children. Labels support soft deletion.',
 				list: [
 					'Parent-child label hierarchy',
 					'Workspace-scoped labels',
-					'Soft delete with restore',
+					'Soft delete',
 					'Default labels created with a new workspace'
 				]
 			},
 			{
 				heading: 'Per-team workflows',
 				body: 'Each team can define its own statuses and triage settings. Engineering may use "In Progress → In Review → Done" while Support uses "New → Triaged → Resolved." Both coexist in the same workspace.',
-				list: [
-					'Custom statuses per team',
-					'Team-specific triage settings',
-					'Independent workflows in shared workspace'
-				]
+				list: ['Custom statuses per team', 'Team-specific triage settings', 'Independent workflows in shared workspace']
 			}
 		]
 	},
@@ -348,6 +333,97 @@ export const features: ContentRegistry = {
 					'Workspace, team, project or view scope',
 					'Optional expiry date',
 					'No Kuayle account required for recipients'
+				]
+			}
+		]
+	},
+
+	'analytics-insights': {
+		slug: 'analytics-insights',
+		title: 'Analytics & Insights — Kuayle',
+		description:
+			'Workspace and team overviews, event-based burn-up trends, and configurable issue insights based on issue data and lifecycle timestamps.',
+		heading: 'Analytics & Insights',
+		intro:
+			'The Insights page combines current issue data, stored lifecycle timestamps, and recorded creation/status events to provide workspace and team overviews, burn-up trends, and a configurable insight builder.',
+		sections: [
+			{
+				heading: 'Workspace and team overviews',
+				body: 'The overview summarizes total, completed, open and overdue issues alongside project and member counts. A team scope narrows the same metrics to one team.',
+				list: [
+					'Total, completed, open and overdue issue counts',
+					'Project and member counts',
+					'Workspace-wide or team-scoped views'
+				]
+			},
+			{
+				heading: 'Burn-up trends',
+				body: 'The burn-up chart plots cumulative created and net-completed totals at each date bucket, with remaining work shown beside completed work.',
+				list: [
+					'Cumulative total-created and net-total-completed series',
+					'Remaining-work line: total created minus net completed',
+					'Configurable date range'
+				]
+			},
+			{
+				heading: 'Configurable issue insights',
+				body: 'The insight builder measures issue count; age from creation to now; lead time from creation to completion; cycle time from first start to completion; or triage time from creation to triage. Results can use a supported group and a different comparison segment.',
+				list: [
+					'Duration groups report P50, P75 and P95',
+					'Group or segment by status type, priority, assignee, team, project, cycle, label or creator; team scope also offers custom status',
+					'Optional second dimension and date range',
+					'Based on current issue data and stored lifecycle timestamps'
+				]
+			}
+		]
+	},
+
+	'dev-machines': {
+		slug: 'dev-machines',
+		title: 'Dev Machines — Kuayle',
+		description:
+			'Unreleased opt-in multi-container development environments with code-server, a native terminal, agent providers, an in-browser Chrome, and issue worktrees.',
+		heading: 'Dev Machines',
+		intro: `Dev Machines are an ${DEV_MACHINES_RELEASE_STATUS.toLowerCase()} opt-in self-hosted subsystem on the development branch. Every machine has collector and egress services on an isolated network; it may include a shared developer/terminal container and browser, while agent containers are created on demand. Access is routed through an authenticated gateway. The subsystem is disabled by default.`,
+		sections: [
+			{
+				heading: 'A full environment per machine',
+				body: 'When configured, the developer container runs code-server and a tmux-backed terminal that the Kuayle UI renders natively with xterm. An optional separate browser container provides Chrome over KasmVNC. No host ports are published; access goes through the Machine Gateway with one-time launch tickets.',
+				list: [
+					'code-server IDE and native xterm terminal',
+					'In-browser Chrome via KasmVNC',
+					'Authenticated wildcard routing — no public ports'
+				]
+			},
+			{
+				heading: 'Agent providers',
+				body: 'The developer image includes pinned Claude Code, OpenCode and Codex CLIs for direct interactive terminal use. From the machine dashboard, users can launch bounded autonomous runs in provider-specific containers, including an admin-configured custom CLI. Autonomous output is normalized into a common result model with a summary, changed files, commits, branch and pull-request URL.',
+				list: [
+					'Claude Code, OpenCode, Codex and custom CLI providers',
+					'Interactive built-in CLIs in the developer terminal',
+					'Bounded autonomous provider runs from the dashboard',
+					'Normalized run results with commits and PR links',
+					'Scoped secrets delivered through tmpfs, redacted in logs'
+				]
+			},
+			{
+				heading: 'Issue worktrees and environments',
+				body: 'Machines can start generic and attach issue worktrees when work begins. Repository and environment defaults resolve from the issue, then project, team and workspace. Owner/admins can snapshot a customized builder machine into an immutable local Development Environment image.',
+				list: [
+					'Idempotent issue worktrees under /workspace/tasks/{issue-key}',
+					'One repository affinity per machine',
+					'Scoped defaults: issue → project → team → workspace',
+					'Environment Builder snapshots as immutable local OCI images'
+				]
+			},
+			{
+				heading: 'Policy, sizes and lifecycle',
+				body: 'Workspace policy controls concurrency, providers, repositories, maximum runtime and idle pause (default 240 minutes). A per-machine Keep running switch bypasses idle pause. Machines pause, stop and tear down as separate lifecycle operations recorded durably in PostgreSQL.',
+				list: [
+					'Small 2 vCPU/4 GB, medium 4 vCPU/8 GB, large 8 vCPU/16 GB',
+					'Idle pause with per-machine keep-running bypass',
+					'Filesystem, shell, root-checkout Git, browser and agent activity events',
+					'Disabled by default; requires a separate wildcard domain'
 				]
 			}
 		]

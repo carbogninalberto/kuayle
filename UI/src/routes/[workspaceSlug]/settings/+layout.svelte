@@ -26,6 +26,8 @@
 	import TeamIcon from '$lib/components/shared/TeamIcon.svelte';
 	import * as Sheet from '$lib/components/ui/sheet';
 	import { Button } from '$lib/components/ui/button';
+	import { authState } from '$lib/features/auth/auth.state.svelte';
+	import { demoMode } from '$lib/demo';
 
 	function slideFade(node: HTMLElement, params: { duration?: number } = {}) {
 		const duration = params.duration ?? 200;
@@ -41,6 +43,7 @@
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	const currentPath = $derived(page.url.pathname);
+	const canUseDevMachines = $derived(!demoMode || authState.user?.is_sysadmin === true);
 
 	let teams = $state<Team[]>([]);
 	let expandedTeams = $state<Set<string>>(new Set());
@@ -93,7 +96,8 @@
 				{ label: 'Webhooks', href: `/${slug}/settings/webhooks`, icon: Webhook },
 				{ label: 'GitHub', href: `/${slug}/settings/github`, icon: GithubLogoIcon },
 				{ label: 'Templates', href: `/${slug}/settings/templates`, icon: FileText },
-				{ label: 'AI', href: `/${slug}/settings/ai`, icon: Sparkles }
+				{ label: 'AI', href: `/${slug}/settings/ai`, icon: Sparkles },
+				...(canUseDevMachines ? [{ label: 'Dev Machines', href: `/${slug}/settings/dev-machines`, icon: SlidersHorizontal }] : [])
 			]
 		},
 		{

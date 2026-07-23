@@ -23,6 +23,11 @@ selfhosting/runtime/upgrading
 
 # Coverage
 coverage/
+/BE/coverage.out
 
 # OS
 .DS_Store
+
+# Editors
+.vscode/
+/.claude/settings.local.json

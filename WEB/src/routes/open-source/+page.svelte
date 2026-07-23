@@ -1,13 +1,13 @@
 <script lang="ts">
 	import StandalonePage from '$lib/components/StandalonePage.svelte';
-	import { url } from '$lib/config/site';
+	import { contentModifiedAt, url } from '$lib/config/site';
 	import { breadcrumbsFrom } from '$lib/data/routes';
 
 	const meta = {
 		title: 'Kuayle Open-Source Model — Apache 2.0, One Edition',
 		description: 'How Kuayle uses the Apache 2.0 license, what is included in its public repository, and which self-hosting costs remain yours.',
 		canonical: url('/open-source'),
-		modifiedAt: '2026-07-11'
+		modifiedAt: contentModifiedAt('/open-source')
 	};
 
 	const crumbs = breadcrumbsFrom('open-source', 'Open Source');

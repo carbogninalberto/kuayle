@@ -38,6 +38,7 @@ Static marketing/landing site for [Kuayle](https://kuayle.com), built with Svelt
 
 - **Route registry**: `src/lib/data/routes.ts` — source of truth for sitemap entries, hubs, breadcrumbs, and shared metadata.
 - **Content registries**: `src/lib/data/features.ts`, `self-hosting.ts`, `compare.ts`, `alternatives.ts` — data-driven content for dynamic routes.
+- **Release version**: `src/lib/release.svelte.ts` — `useLatestRelease()` fetches the `UI/static/releases.json` manifest from the repository's main branch at runtime (same mechanism as the app). Static HTML renders `FALLBACK_VERSION`; bump it when the fallback becomes stale.
 - **Silo architecture**: Each hub (Features, Self-Hosting, Compare, Alternatives) has a hub page + child detail pages using shared `PageLayout.svelte`.
 - **Standalone pages**: `/open-source`, `/license`, `/security`, `/about`, `/roadmap` — each uses `StandalonePage.svelte` wrapper.
 - **Breadcrumbs**: Every page includes a `<Breadcrumbs>` component with structured data.
@@ -50,9 +51,9 @@ Static marketing/landing site for [Kuayle](https://kuayle.com), built with Svelt
 ```
 /                                              Homepage
 /features                                      Features hub
-/features/[slug]                               Feature detail (8 pages)
+/features/[slug]                               Feature detail (10 pages)
 /self-hosting                                  Self-hosting hub
-/self-hosting/[slug]                           Self-hosting guide (6 pages)
+/self-hosting/[slug]                           Self-hosting guide (7 pages)
 /compare                                       Comparison hub
 /compare/[slug]                                Comparison pages (2)
 /alternatives                                  Alternatives hub

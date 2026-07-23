@@ -2,7 +2,7 @@
   <img src="assets/logo_primary.svg" alt="Kuayle" width="250">
   <p><strong>快乐 (kuàilè) · happiness, joy</strong></p>
 	<p><strong>The issue tracker with no paid tier.</strong></p>
-	<p>Keyboard-driven, self-hosted, and available in one public Apache 2.0 repository. <strong>v0.1.0</strong></p>
+	<p>Keyboard-driven, self-hosted, and available in one public Apache 2.0 repository.</p>
 
 [Report Bug](https://github.com/carbogninalberto/kuayle/issues/new?labels=bug) · [Request Feature](https://github.com/carbogninalberto/kuayle/issues/new?labels=enhancement)
 
@@ -14,15 +14,15 @@
 
 ## 🚦 Current Implementation State
 
-Kuayle v0.1.0 is a runnable MVP, not a mature enterprise platform. The repository includes the Go API, SvelteKit frontend, database migrations, development tooling, and reference self-hosting configuration.
+Kuayle's published releases are runnable MVPs, not a mature enterprise platform. This development branch also contains unreleased work described below. The repository includes the Go API, SvelteKit frontend, database migrations, development tooling, and reference self-hosting configuration.
 
 | Area             | State                                                                                                                                                                                                                                                     |
 | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Core tracker** | Available: auth, workspaces, RBAC, teams, custom statuses, issues, multiple assignees, labels, comments, history, sub-issues, relations, triage, templates, favorites, saved views, notifications, public sharing, uploads, and WebSocket events. |
 | **Planning**     | Implemented: cycles with burndown/velocity charts, project management with Gantt view, and full cycle/project UI.                                                                                                                                         |
 | **Integrations** | Available: workspace webhooks and a GitHub App with repository linking, branch/commit/PR activity, configurable status transitions, and WebSocket refresh events. Private networks require a webhook relay or tunnel.                                              |
-| **Analytics**    | Workspace and team overviews, burn-up trends, and configurable issue insights backed by durable lifecycle events.                                                                                                                                              |
-| **Dev Machines** | Specification/design only in this repo today. The runtime container manager and UI flow are not wired into the app yet; see [`TECHNICAL.md`](TECHNICAL.md).                                                                                               |
+| **Analytics**    | Workspace and team overviews, event-based burn-up trends, and configurable issue insights based on current issue data and stored lifecycle timestamps.                                                                                                                                              |
+| **Dev Machines** | Unreleased development-branch functionality implemented as an opt-in self-hosted subsystem: PostgreSQL control plane, multi-container runtime, manager, authenticated gateway, four agent providers, collector, and UI. Disabled by default; see [`TECHNICAL.md`](TECHNICAL.md). |
 | **Self-hosting** | Reference Docker Compose stack with Caddy, PostgreSQL, Redis, backend, frontend, an update script, and dedicated config in [`selfhosting/`](selfhosting/).                                                                                                       |
 
 ## Why Kuayle?
@@ -54,7 +54,7 @@ The product is intentionally smaller than broad project-management suites. It co
 | 🔔  | **Notifications**      | Inbox with snooze, read status, and archive                                      |
 | 🔗  | **Webhooks**           | Plug into external services and integrations                                     |
 | ⚡  | **Real-time**          | Workspace WebSocket events for issues, comments, cycles, views, GitHub, and presence |
-| 🖥️  | **Dev Machines**       | Technical specification for on-demand, single-container development environments |
+| 🖥️  | **Dev Machines**       | Unreleased opt-in multi-container coding environments with agents, browser access, authenticated routing, and work tracking |
 | 🐙  | **GitHub**             | Link repos, match issue IDs in development activity, and apply status rules      |
 | 📊  | **Analytics**          | Workspace/team overview, burn-up, and configurable insights                     |
 | 🔗  | **Public Sharing**     | Token-based read-only links for issues and views                                 |
@@ -65,45 +65,49 @@ The product is intentionally smaller than broad project-management suites. It co
 
 ## 🤖 Dev Machines (Agentic Coding)
 
-The Dev Machines track is currently a **technical specification** for on-demand, single-container development environments on a VPS. The intended design is a disposable workspace with an IDE, agentic coding CLI, and a browser, accessible via auto-generated subdomains.
+Dev Machines are an unreleased opt-in multi-container subsystem for self-hosted Kuayle. Machines can be created generically, then attach issue worktrees when work starts. Every machine has collector and egress services; it may also include a shared code-server/native-terminal developer container and a browser, while agent containers are created on demand for runs. PostgreSQL-backed operations provide durable reconciliation and authenticated wildcard routing.
 
-> See [`TECHNICAL.md`](TECHNICAL.md) for the full specification, architecture diagrams, and API reference.
+> See [`TECHNICAL.md`](TECHNICAL.md) for the full specification, architecture diagrams, schema, and API reference.
 
-### Target design
+### Architecture
 
 ```
 You (browser)
   │
-  ├─ f8k2m9.kuayle.com         → code-server (IDE + Claude Code)
-  ├─ f8k2m9-browser.kuayle.com → Chromium (in-browser web navigation)
-  └─ f8k2m9-app.kuayle.com     → Dev server preview
+  ├─ 0123456789abcdef0123.kuayle-machines.example.net         → code-server
+  ├─ 0123456789abcdef0123-terminal.kuayle-machines.example.net → native xterm over ttyd.v1
+  └─ 0123456789abcdef0123-browser.kuayle-machines.example.net → Chrome via KasmVNC (in-browser web navigation)
         │
-        └── All routed through Kuayle auth — no port management needed
+        └── All routed through Machine Gateway auth — no public ports, no port management
 ```
 
-The proposed design would:
+The implementation:
 
-1. **Spawn a container** with code-server, Claude Code CLI, Chromium, and the repository
-2. **Assign random subdomains** through wildcard DNS (`*.kuayle.com`), without per-container port management
-3. **Authenticate** users and agents through Kuayle's session layer
-4. **Record activity** from the development environment and attach it to project work
+1. **Orchestrate cooperating containers** per machine. Collector and egress services are always represented. The optional developer service runs code-server on `8080` and ttyd on `7681` in one container (`/workspace`, `HOME`, tools, processes, and tmux); browser and on-demand agent services run separately on the isolated bridge network. The Kuayle UI renders `@xterm/xterm` natively and speaks `ttyd.v1`; it does not expose ttyd's web page.
+2. **Support multiple agent providers** — Claude Code, OpenCode, Codex, or admin-configured generic CLIs. The shared developer image includes pinned OpenCode, Claude Code, and Codex CLIs for direct interactive terminal use. Kuayle's dashboard launches bounded autonomous runs in separately pinned provider images and normalizes their results.
+3. **Assign random subdomains** through a separate registrable wildcard domain (`*.kuayle-machines.example.net`) with launch-ticket auth and host-restricted machine session cookies. The machine domain must be a completely separate registrable domain to prevent cookie leakage between the main application and machine workloads.
+4. **Authenticate** through a dedicated unprivileged Machine Gateway; the privileged Machine Manager is the only Dev Machines runtime component with Docker socket access. The separately optional system updater also mounts the socket when enabled.
+5. **Prepare issue worktrees** from issue, project, team, then workspace repository/environment defaults. One machine has affinity to one repository and can hold several independent issue worktrees from that repository; use a separate machine for another repository/environment or concurrent conflicting work.
+6. **Record best-effort activity** from filesystem, shell, root-checkout Git, browser, agent, gateway, and lifecycle telemetry and attach it to project work
 
-### Target modes
+### Modes
 
 | Mode              | Who                             | What happens                                                              |
 | ----------------- | ------------------------------- | ------------------------------------------------------------------------- |
-| **Agent-only**    | Kuayle assigns a task           | Agent works autonomously, pushes results, machine tears down              |
-| **Human + Agent** | Developer clicks "Open Machine" | Gets a browser link to a full IDE with agentic tools, works interactively |
+| **Agent-only**    | A user starts a bounded run      | Agent works autonomously, records a normalized result, and optionally pushes a branch or opens a pull request with a repository-scoped GitHub App token |
+| **Human + Agent** | Developer opens an issue workspace | Uses code-server or the dedicated persistent terminal while launching and monitoring bounded agent runs from Kuayle |
 
-### Target configuration
+### Configuration
 
-Machines would be configured from Kuayle's UI or via API: repo, branch, env vars, tools, and size. Configuration would resolve in order: project defaults → user preferences → spawn-time overrides.
+Machines are created without requiring a repository, branch, issue, project, or manual TTL. Friendly random names are case-insensitively unique per creator within a workspace and have an availability API. Opening an issue resolves its repository and environment using issue, project, team, then workspace defaults and creates an isolated Git worktree. Workspace policies control concurrency, maximum hard runtime, a default 240-minute idle pause, per-machine disk size, providers, repositories, and custom CLI access. A per-machine **Keep running** switch bypasses idle pause; no automatic deletion is performed. Owners and admins can create a writable Environment Builder, pause or stop it, and save selected tooling/home customization as an immutable local OCI Development Environment image.
 
-| Size   | CPU     | Memory | Disk   |
-| ------ | ------- | ------ | ------ |
-| Small  | 2 cores | 4 GB   | 20 GB  |
-| Medium | 4 cores | 8 GB   | 50 GB  |
-| Large  | 8 cores | 16 GB  | 100 GB |
+| Size   | CPU     | Memory | PID basis | Disk (hard quota) |
+| ------ | ------- | ------ | --------- | ----------------- |
+| Small  | 2 cores | 4 GB   | 512       | 20 GB             |
+| Medium | 4 cores | 8 GB   | 512       | 50 GB             |
+| Large  | 8 cores | 16 GB  | 512       | 100 GB            |
+
+Per-container PID limits are derived from the profile basis; 512 is not one aggregate machine-wide process limit. Per-machine workspace-volume limits use Docker local-volume project quotas. Self-hosted Dev Machines require Docker's data root on XFS mounted with `pquota` or `prjquota`; the manager fails its startup quota probe instead of running an unbounded workspace when the host does not support this boundary.
 
 ## 🛠️ Tech Stack
 
@@ -120,7 +124,7 @@ Here's what Kuayle runs on and what each piece does:
 | **Real-time**     | WebSocket (nhooyr.io)                | Workspace events, issue presence, and targeted notifications          |
 | **Storage**       | Local FS or S3-compatible            | AWS S3, Cloudflare R2, MinIO, SeaweedFS                               |
 | **Reverse Proxy** | Caddy                                | Production HTTPS and routing                                          |
-| **Dev Machines**  | code-server + Claude Code + Chromium | Technical specification for single-container agentic dev environments |
+| **Dev Machines**  | Docker + Caddy + Go gateway/manager + code-server + ttyd/xterm + Chrome/KasmVNC | Opt-in multi-container development environments with issue worktrees and provider abstraction |
 | **Infra**         | Docker + Docker Compose              | Local development and reference self-hosting stack                    |
 
 ## 🚀 Quick Start
@@ -170,8 +174,9 @@ Kuayle is designed to be self-hosted. The reference stack in [`selfhosting/`](se
 
 ### Prerequisites
 
-- A Linux server with Docker + Docker Compose
-- A domain pointing to your server (for HTTPS)
+- A Linux server with Docker + Docker Compose v2
+- A domain pointing to your server (for HTTPS via Let's Encrypt HTTP-01)
+- If enabling Dev Machines: a second registrable domain with a wildcard DNS record and either a custom Caddy DNS-01 build or an imported wildcard TLS certificate
 
 ### 1. Clone and configure
 
@@ -185,9 +190,12 @@ Edit `.env` with your domain and production values:
 
 ```env
 DOMAIN=kuayle.yourcompany.com
+FRONTEND_URL=https://kuayle.yourcompany.com
 POSTGRES_PASSWORD=<strong-random-password>
 JWT_SECRET=<random-string-at-least-32-chars>
 ```
+
+`FRONTEND_URL` must be the exact public browser origin, including scheme and any non-default port. Dev Machine native terminal WebSockets use this value for strict `Origin` validation.
 
 ### 2. Launch
 
@@ -204,7 +212,34 @@ docker compose exec backend /app/server migrate up
 docker compose exec backend /app/server seed
 ```
 
-The frontend serves the app and proxies `/api/*` to the backend, so one public origin is enough.
+Caddy handles HTTPS termination and proxies `/api/*` to the backend and all other requests to the frontend, so one public origin is enough.
+
+### Enabling Dev Machines
+
+Dev Machines remain disabled in the default five-service deployment. Before enabling them:
+
+1. Set `DEV_MACHINES_ENABLED=true`, then configure `DEV_MACHINE_DOMAIN` on a separate registrable domain from `DOMAIN`, with wildcard DNS pointing to the host.
+2. Replace the checked-in local `tls internal` wildcard configuration with either a mounted wildcard certificate or a DNS-01-enabled Caddy build for production. Profile startup rejects public production machine domains while Caddy internal TLS remains active. The wildcard route already proxies machine HTTP and WebSocket upgrades to the gateway.
+3. Keep `FRONTEND_URL` set to the exact public Kuayle origin; the gateway uses it for native terminal WebSocket `Origin` checks.
+4. Set `DEV_MACHINE_ENCRYPTION_KEY` to an independent random value of at least 32 characters and set `DEV_MACHINE_INGEST_URL` to the public HTTPS API URL.
+5. Set an independent `DEV_MACHINE_GATEWAY_DB_PASSWORD`; Compose provisions a restricted `kuayle_gateway` login and the gateway rejects the application database credential in production.
+6. On Linux, set `DEV_MACHINE_DOCKER_GID` to the numeric group owner reported by `stat -c '%g' /var/run/docker.sock`; Docker Desktop commonly uses the default `0`.
+7. Build the runtime images, migrate, provision gateway grants, and start the optional control plane:
+
+```sh
+docker compose --profile dev-machine-images build
+docker compose exec backend /app/server migrate up
+docker compose --profile dev-machines run --rm machine-gateway-db-provision
+docker compose --profile dev-machines up -d
+```
+
+The API rejects a production machine domain that shares the main application's registrable domain. `machines.localhost` is supported only for local development. The gateway rejects parent-domain and reserved session cookies from workloads. Browser-cookie launches for code-server and browser require exact machine origins for mutations and service WebSockets; native terminal WebSockets use a separate one-use ticket bound to exact `FRONTEND_URL`, host, user/service, tmux session, and working directory.
+
+For DNS-01, replace the stock `caddy:2-alpine` image with a trusted custom Caddy build containing your provider module, replace `tls internal` with a `tls` block using that DNS provider, and pass its scoped API credential through a Compose override. For operator certificates, bind-mount a host directory read-only at `/etc/caddy/certs` through a Compose override and use `tls /etc/caddy/certs/machines.pem /etc/caddy/certs/machines.key` in the wildcard block. Keep private keys outside the repository and container image.
+
+Environment snapshot bytes are local OCI images stored in the host Docker image store, while their image references and lifecycle metadata are PostgreSQL rows. Snapshots exclude the repository workspace named volume and tmpfs secret mounts; plan backup, migration, pruning, and host disk monitoring accordingly.
+
+The manager process runs as UID/GID 1000 with only the Docker socket's host group added. Access to that socket remains host-root-equivalent despite the non-root container UID, so never expose it to machine workloads or general application services.
 
 ### Updating
 
@@ -213,7 +248,7 @@ cd kuayle
 bash selfhosting/update.sh
 ```
 
-The update script pulls the latest code, rebuilds images, recreates containers, and applies pending migrations.
+The update script pulls the latest code, rebuilds images, applies pending migrations, and recreates containers. If Dev Machines services are running, it rebuilds their control-plane and runtime images first, stops the existing gateway and manager only while migrations and restricted gateway-role grants are applied, then starts the updated control plane. A failure after the stop clears the upgrade marker, preserves logs, restarts the same previous containers, and returns the original nonzero status. Disabled optional profiles remain disabled.
 
 Instance sysadmins can also enable one-click updates from **Settings → Version**:
 
@@ -226,7 +261,7 @@ The updater sidecar is internal-only and runs the same `selfhosting/update.sh` f
 
 ### Storage options
 
-By default, uploads use a local Docker volume. The alternative S3 backend accepts a configurable endpoint and path-style requests:
+By default, uploads use a local Docker volume (`STORAGE_TYPE=local`). The alternative S3 backend accepts a configurable endpoint and path-style requests:
 
 ```env
 STORAGE_TYPE=s3
@@ -390,7 +425,7 @@ View the full contributor graph on GitHub: [contributors](https://github.com/car
 
 ---
 
-> **Project note:** Kuayle has been developed with AI-assisted tooling under human direction and review. Version 0.1.0 is an MVP; evaluate and test it against your requirements before production use.
+> **Project note:** Kuayle has been developed with AI-assisted tooling under human direction and review. Published releases remain MVPs; evaluate and test them against your requirements before production use.
 
 <!-- MARKDOWN LINKS & IMAGES -->
 

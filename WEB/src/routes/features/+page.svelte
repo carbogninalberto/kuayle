@@ -8,6 +8,7 @@
 	import { reveal } from '$lib/actions/reveal';
 	import { HUBS, breadcrumbsFrom, metaForStandalone, webPageLd } from '$lib/data/routes';
 	import { url } from '$lib/config/site';
+	import { DEV_MACHINES_RELEASE_STATUS } from '$lib/config/releases';
 	import ArrowRight from '@lucide/svelte/icons/arrow-right';
 
 	const hub = HUBS.features;
@@ -26,13 +27,13 @@
 	</div>
 
 	<div class="grid gap-10 lg:grid-cols-[1fr_260px]">
-		<article>
+		<article class="min-w-0 [overflow-wrap:anywhere]">
 			<div use:reveal>
 				<h1 class="text-4xl font-bold tracking-tight">Features</h1>
 				<p class="mt-4 text-lg leading-relaxed text-muted-foreground">
-					The current release covers issue tracking, team workflows, cycles, projects, GitHub
-					automation and WebSocket updates. Each page below describes implemented behavior and
-					known boundaries.
+					The current release covers issue tracking, team workflows, cycles, projects, analytics, GitHub automation and
+					WebSocket updates. Dev Machines are {DEV_MACHINES_RELEASE_STATUS.toLowerCase()}
+					development-branch functionality. Each page below describes implemented behavior and known boundaries.
 				</p>
 			</div>
 
@@ -47,7 +48,9 @@
 						{#if child.description}
 							<p class="mt-1.5 text-sm text-muted-foreground">{child.description}</p>
 						{/if}
-						<span class="mt-3 inline-flex items-center gap-1 text-xs font-medium text-brand-300 opacity-0 transition-opacity group-hover:opacity-100">
+						<span
+							class="mt-3 inline-flex items-center gap-1 text-xs font-medium text-brand-300 opacity-0 transition-opacity group-hover:opacity-100"
+						>
 							View feature <ArrowRight class="size-3" />
 						</span>
 					</a>

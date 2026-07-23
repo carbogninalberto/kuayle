@@ -10,6 +10,8 @@
  */
 
 import { url, type PageMeta } from '$lib/config/site';
+import { DEV_MACHINES_RELEASE_STATUS } from '$lib/config/releases';
+import { FALLBACK_VERSION } from '$lib/release.svelte';
 
 // Re-export url for convenience
 export { url };
@@ -86,7 +88,9 @@ export const HUBS: Record<string, Hub> = {
 			{ slug: 'real-time-sync', label: 'Real-Time Sync', href: '/features/real-time-sync', description: 'Workspace WebSocket events for issues, comments, cycles, views and GitHub activity.' },
 			{ slug: 'keyboard-shortcuts', label: 'Keyboard Shortcuts', href: '/features/keyboard-shortcuts', description: 'Global navigation, issue search, property controls and triage shortcuts.' },
 			{ slug: 'views-and-triage', label: 'Views & Triage', href: '/features/views-and-triage', description: 'Saved filters, triage inbox, hierarchical labels, and custom workflows.' },
-			{ slug: 'teams-and-access-control', label: 'Teams & Access Control', href: '/features/teams-and-access-control', description: 'Multiple teams per workspace with role-based access control.' }
+			{ slug: 'teams-and-access-control', label: 'Teams & Access Control', href: '/features/teams-and-access-control', description: 'Multiple teams per workspace with role-based access control.' },
+			{ slug: 'analytics-insights', label: 'Analytics & Insights', href: '/features/analytics-insights', description: 'Workspace and team overviews, burn-up trends, and configurable issue insights.' },
+			{ slug: 'dev-machines', label: 'Dev Machines', href: '/features/dev-machines', description: `${DEV_MACHINES_RELEASE_STATUS} opt-in multi-container coding environments with agent providers and issue worktrees.` }
 		]
 	},
 	selfHosting: {
@@ -99,7 +103,8 @@ export const HUBS: Record<string, Hub> = {
 			{ slug: 'configuration', label: 'Configuration', href: '/self-hosting/configuration', description: 'Environment variables, secrets, and deployment settings.' },
 			{ slug: 'updating', label: 'Updating', href: '/self-hosting/updating', description: 'Rebuild containers and apply migrations with the supplied update script.' },
 			{ slug: 'storage', label: 'Storage', href: '/self-hosting/storage', description: 'Local filesystem and S3-compatible storage backends.' },
-			{ slug: 'github-app', label: 'GitHub App', href: '/self-hosting/github-app', description: 'Set up and configure the GitHub integration.' }
+			{ slug: 'github-app', label: 'GitHub App', href: '/self-hosting/github-app', description: 'Set up and configure the GitHub integration.' },
+			{ slug: 'dev-machines', label: 'Dev Machines', href: '/self-hosting/dev-machines', description: `Prepare the ${DEV_MACHINES_RELEASE_STATUS.toLowerCase()} opt-in agentic coding subsystem with wildcard TLS.` }
 		]
 	},
 	compare: {
@@ -134,15 +139,15 @@ export interface StandalonePage {
 
 export const STANDALONE_PAGES: StandalonePage[] = [
 	{ slug: '', title: '', description: '', canonical: url('/'), inSitemap: true },
-	{ slug: 'features', title: 'Kuayle Features — Issues, Cycles, Projects and GitHub', description: 'Review the issue tracking, multi-assignee, cycle, project, GitHub, keyboard and real-time features implemented in Kuayle v0.1.0.', canonical: url('/features'), inSitemap: true },
+	{ slug: 'features', title: 'Kuayle Features — Issues, Cycles, Projects and GitHub', description: `Review released issue tracking, cycle, project, GitHub and analytics features alongside ${DEV_MACHINES_RELEASE_STATUS.toLowerCase()} Dev Machine development.`, canonical: url('/features'), inSitemap: true },
 	{ slug: 'self-hosting', title: 'Self-Host Kuayle With Docker Compose', description: 'Deploy Kuayle with Caddy, PostgreSQL, Redis, the Go API and SvelteKit frontend; configure storage, updates and GitHub webhooks.', canonical: url('/self-hosting'), inSitemap: true },
 	{ slug: 'compare', title: 'Compare Kuayle — Issue Tracker Comparisons', description: 'Compare Kuayle with Linear and Plane by hosting model, license, workflow coverage, product maturity and operating cost.', canonical: url('/compare'), inSitemap: true },
 	{ slug: 'alternatives', title: 'Issue Tracker Alternatives — Kuayle', description: 'Compare open-source and self-hosted issue trackers by license, edition model, product scope, deployment footprint and operator responsibility.', canonical: url('/alternatives'), inSitemap: true },
 	{ slug: 'open-source', title: 'Kuayle Open-Source Model — Apache 2.0, One Edition', description: 'Understand Kuayle’s Apache 2.0 license, single public repository, ungated feature model and self-hosting costs.', canonical: url('/open-source'), inSitemap: true },
 	{ slug: 'license', title: 'Kuayle License — Apache 2.0', description: 'A plain-language summary of Kuayle’s Apache 2.0 permissions, redistribution conditions, patent grant and warranty limits.', canonical: url('/license'), inSitemap: true },
 	{ slug: 'security', title: 'Kuayle Security and Self-Hosting Responsibilities', description: 'Review Kuayle authentication, network exposure, credential storage, update flow and operator security responsibilities.', canonical: url('/security'), inSitemap: true },
-	{ slug: 'about', title: 'About Kuayle — Product, Maintainer and Current State', description: 'Why Kuayle exists, who maintains it, how it is built and what the current v0.1.0 release implements.', canonical: url('/about'), inSitemap: true },
-	{ slug: 'roadmap', title: 'Kuayle Roadmap and Development Status', description: 'See what Kuayle v0.1.0 implements, which product gaps remain and where proposed work is tracked.', canonical: url('/roadmap'), inSitemap: true },
+	{ slug: 'about', title: 'About Kuayle — Product, Maintainer and Current State', description: `Why Kuayle exists, who maintains it, how it is built and what the current ${FALLBACK_VERSION} release implements.`, canonical: url('/about'), inSitemap: true },
+	{ slug: 'roadmap', title: 'Kuayle Roadmap and Development Status', description: `See what Kuayle ${FALLBACK_VERSION} implements, which product gaps remain and where proposed work is tracked.`, canonical: url('/roadmap'), inSitemap: true },
 	{ slug: 'privacy', title: 'Privacy Policy — Kuayle', description: 'Kuayle privacy policy: what we collect, the cookies we use, your GDPR rights, and how to contact us.', canonical: url('/privacy'), inSitemap: true }
 ];
 
@@ -211,7 +216,7 @@ export const SOFTWARE_APP_LD = {
 	license: 'https://www.apache.org/licenses/LICENSE-2.0'
 };
 
-export function webPageLd(name: string, description: string, pageUrl: string, breadcrumbs?: Crumb[]) {
+export function webPageLd(name: string, description: string, pageUrl: string, breadcrumbs?: Crumb[], modifiedAt?: string) {
 	const ld: Record<string, unknown> = {
 		'@context': 'https://schema.org',
 		'@type': 'WebPage',
@@ -219,6 +224,7 @@ export function webPageLd(name: string, description: string, pageUrl: string, br
 		description,
 		url: pageUrl
 	};
+	if (modifiedAt) ld.dateModified = modifiedAt;
 	if (breadcrumbs && breadcrumbs.length > 0) {
 		ld.breadcrumb = {
 			'@type': 'BreadcrumbList',
