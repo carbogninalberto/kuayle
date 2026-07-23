@@ -60,6 +60,9 @@ fi
 # 4. Apply additive migrations before starting the new application image.
 echo "Applying database migrations..."
 docker compose run --rm --no-deps backend /app/server migrate up
+if [ "$DEV_MACHINES_ACTIVE" = true ]; then
+	docker compose --profile dev-machines run --rm machine-gateway-db-provision
+fi
 
 # 5. Restart the application without removing optional-profile services.
 docker compose up -d caddy backend frontend

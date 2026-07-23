@@ -549,6 +549,7 @@ Build and start:
 ```sh
 docker compose --profile dev-machine-images build
 docker compose run --rm backend /app/server migrate up
+docker compose --profile dev-machines run --rm machine-gateway-db-provision
 docker compose --profile dev-machines up -d
 ```
 
@@ -562,7 +563,9 @@ Required configuration when enabled:
 | `DEV_MACHINE_ENCRYPTION_KEY` | Independent secret-encryption passphrase, at least 32 characters |
 | `DEV_MACHINE_INGEST_URL` | Public HTTPS collector ingestion base URL |
 | `DEV_MACHINE_GATEWAY_CONTAINER` | Stable gateway container name attached to private networks |
-| `DEV_MACHINE_GATEWAY_DATABASE_URL` | Optional restricted PostgreSQL credential for the Internet-facing gateway |
+| `DEV_MACHINE_GATEWAY_DB_USER` | Dedicated PostgreSQL login provisioned for the Internet-facing gateway |
+| `DEV_MACHINE_GATEWAY_DB_PASSWORD` | Independent gateway database password used by the provisioning job |
+| `DEV_MACHINE_GATEWAY_DATABASE_URL` | Optional explicit URL override; required in production outside Compose and must use a different login from `DATABASE_URL` |
 | `DEV_MACHINE_SESSION_TTL_MINUTES` | Browser machine-session lifetime |
 | `DEV_MACHINE_ACCESS_TICKET_TTL_SECONDS` | One-time launch ticket lifetime |
 | `DEV_MACHINE_EGRESS_ALLOWLIST` | Optional comma-separated public domain suffixes |
@@ -574,7 +577,7 @@ Required configuration when enabled:
 
 The manager's Docker socket mount is a host-administrator boundary. It must not be reused for general API traffic or exposed to any machine workload.
 
-Compose places the Internet-facing gateway only on an internal `machine-control` network shared with Caddy and PostgreSQL; it does not join the backend/Redis application network. Operators should also provide `DEV_MACHINE_GATEWAY_DATABASE_URL` for a database role restricted to route, ticket/session, and access-audit operations.
+Compose places the Internet-facing gateway only on an internal `machine-control` network shared with Caddy and PostgreSQL; it does not join the backend/Redis application network or receive the application's database-owner URL. `machine-gateway-db-provision` creates or re-hardens a `NOINHERIT` login after migrations, revokes broad schema/table/sequence/function privileges and role memberships, and grants only route reads, ticket/session transitions, activity timestamp updates, and access-log inserts. The gateway refuses production startup without a separate URL and rejects roles with superuser, role/database creation, replication, row-security bypass, object-creation, or inherited-role powers. Rerun provisioning after schema changes before restarting the gateway; `selfhosting/update.sh` does this automatically while the profile is active.
 
 The self-hosting `dev-machine-images` profile builds the developer, browser, collector, egress, and built-in provider agent images locally. Environment Builder snapshots are additional local OCI images in the host Docker image store, not PostgreSQL rows or Compose volumes. Backups and host migrations must account for PostgreSQL, Docker named volumes, and any environment images that should survive a host replacement.
 

@@ -125,11 +125,53 @@ func TestLoadMachineGatewayRejectsMissingAndInvalidGatewayValues(t *testing.T) {
 
 		require.ErrorContains(t, err, "DEV_MACHINE_SESSION_TTL_MINUTES")
 	})
+
+	t.Run("production requires separate gateway credential", func(t *testing.T) {
+		setMachineGatewayEnv(t)
+		t.Setenv("ENVIRONMENT", "production")
+		t.Setenv("DEV_MACHINE_GATEWAY_DATABASE_URL", "")
+
+		_, err := LoadMachineGateway()
+
+		require.ErrorContains(t, err, "DEV_MACHINE_GATEWAY_DATABASE_URL is required")
+	})
+
+	t.Run("production rejects application database user", func(t *testing.T) {
+		setMachineGatewayEnv(t)
+		t.Setenv("ENVIRONMENT", "production")
+		t.Setenv("DEV_MACHINE_GATEWAY_DATABASE_URL", "postgres://postgres:gateway@postgres/kuayle?sslmode=disable")
+
+		_, err := LoadMachineGateway()
+
+		require.ErrorContains(t, err, "distinct from DATABASE_URL")
+	})
+
+	t.Run("production rejects malformed gateway URL", func(t *testing.T) {
+		setMachineGatewayEnv(t)
+		t.Setenv("ENVIRONMENT", "production")
+		t.Setenv("DATABASE_URL", "")
+		t.Setenv("DEV_MACHINE_GATEWAY_DATABASE_URL", "postgres://postgres/kuayle")
+
+		_, err := LoadMachineGateway()
+
+		require.ErrorContains(t, err, "PostgreSQL URL with a username")
+	})
+
+	t.Run("production accepts restricted gateway credential", func(t *testing.T) {
+		setMachineGatewayEnv(t)
+		t.Setenv("ENVIRONMENT", "production")
+		t.Setenv("DEV_MACHINE_GATEWAY_DATABASE_URL", "postgres://kuayle_gateway:gateway@postgres/kuayle?sslmode=disable")
+
+		cfg, err := LoadMachineGateway()
+
+		require.NoError(t, err)
+		require.Equal(t, "postgres://kuayle_gateway:gateway@postgres/kuayle?sslmode=disable", cfg.DatabaseURL)
+	})
 }
 
 func setMachineGatewayEnv(t *testing.T) {
 	t.Helper()
-	t.Setenv("DATABASE_URL", "postgres://postgres/kuayle?sslmode=disable")
+	t.Setenv("DATABASE_URL", "postgres://postgres@postgres/kuayle?sslmode=disable")
 	t.Setenv("DEV_MACHINE_GATEWAY_DATABASE_URL", "")
 	t.Setenv("FRONTEND_URL", "https://app.example.com")
 	t.Setenv("DEV_MACHINES_ENABLED", "true")

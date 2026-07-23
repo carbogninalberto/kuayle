@@ -273,11 +273,12 @@ export const selfHosting: ContentRegistry = {
 		sections: [
 			{
 				heading: 'Prerequisites',
-				body: 'Machine workloads run on a separate registrable domain — not a sibling subdomain of the main application — with wildcard DNS pointing to the host. Production wildcard TLS requires a custom Caddy build with a DNS-01 module or an operator-provided wildcard certificate; stock Caddy cannot issue wildcard certificates over HTTP-01.',
+				body: 'Machine workloads run on a separate registrable domain — not a sibling subdomain of the main application — with wildcard DNS pointing to the host. Production wildcard TLS requires a custom Caddy build with a DNS-01 module or an operator-provided wildcard certificate; stock Caddy cannot issue wildcard certificates over HTTP-01. The Docker data root must use XFS project quotas.',
 				list: [
 					'DEV_MACHINE_DOMAIN on a separate registrable domain',
 					'Wildcard DNS for *.DEV_MACHINE_DOMAIN',
 					'Wildcard TLS via DNS-01 Caddy build or an imported certificate',
+					'Docker data root on XFS mounted with pquota or prjquota',
 					'A GitHub App with scoped write permissions for agent push/PR workflows'
 				]
 			},
@@ -288,6 +289,7 @@ export const selfHosting: ContentRegistry = {
 					'DEV_MACHINES_ENABLED=true',
 					'DEV_MACHINE_ENCRYPTION_KEY — independent random value, at least 32 characters',
 					'DEV_MACHINE_INGEST_URL — public HTTPS collector ingestion URL',
+					'DEV_MACHINE_GATEWAY_DB_PASSWORD — independent credential for the restricted gateway role',
 					'FRONTEND_URL — exact public origin, scheme included'
 				]
 			},
@@ -297,6 +299,7 @@ export const selfHosting: ContentRegistry = {
 				list: [
 					'docker compose --profile dev-machine-images build',
 					'docker compose exec backend /app/server migrate up',
+					'docker compose --profile dev-machines run --rm machine-gateway-db-provision',
 					'docker compose --profile dev-machines up -d'
 				]
 			},

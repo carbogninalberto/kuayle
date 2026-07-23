@@ -189,9 +189,30 @@ func LoadMachineGateway() (*Config, error) {
 	if err := envconfig.Process("", &gatewayCfg); err != nil {
 		return nil, fmt.Errorf("loading gateway config: %w", err)
 	}
-	databaseURL := gatewayCfg.DatabaseURL
-	if gatewayCfg.GatewayDatabaseURL != "" {
-		databaseURL = gatewayCfg.GatewayDatabaseURL
+	applicationDatabaseURL := strings.TrimSpace(gatewayCfg.DatabaseURL)
+	gatewayDatabaseURL := strings.TrimSpace(gatewayCfg.GatewayDatabaseURL)
+	production := strings.EqualFold(strings.TrimSpace(gatewayCfg.Environment), "production")
+	if production && gatewayDatabaseURL == "" {
+		return nil, fmt.Errorf("DEV_MACHINE_GATEWAY_DATABASE_URL is required for the machine gateway in production")
+	}
+	if production {
+		gatewayUser, gatewayErr := databaseURLUsername(gatewayDatabaseURL)
+		if gatewayErr != nil {
+			return nil, fmt.Errorf("DEV_MACHINE_GATEWAY_DATABASE_URL must be a PostgreSQL URL with a username in production")
+		}
+		if applicationDatabaseURL != "" {
+			applicationUser, appErr := databaseURLUsername(applicationDatabaseURL)
+			if appErr != nil {
+				return nil, fmt.Errorf("DATABASE_URL must be a PostgreSQL URL with a username in production")
+			}
+			if applicationUser == gatewayUser {
+				return nil, fmt.Errorf("DEV_MACHINE_GATEWAY_DATABASE_URL must use a database user distinct from DATABASE_URL in production")
+			}
+		}
+	}
+	databaseURL := applicationDatabaseURL
+	if gatewayDatabaseURL != "" {
+		databaseURL = gatewayDatabaseURL
 	}
 	if strings.TrimSpace(databaseURL) == "" {
 		return nil, fmt.Errorf("DATABASE_URL or DEV_MACHINE_GATEWAY_DATABASE_URL is required for the machine gateway")
@@ -219,6 +240,14 @@ func LoadMachineGateway() (*Config, error) {
 	}
 	cfg.DevMachine.Domain = strings.Trim(strings.ToLower(cfg.DevMachine.Domain), ".")
 	return cfg, nil
+}
+
+func databaseURLUsername(raw string) (string, error) {
+	parsed, err := url.Parse(raw)
+	if err != nil || (parsed.Scheme != "postgres" && parsed.Scheme != "postgresql") || parsed.Hostname() == "" || parsed.User == nil || parsed.User.Username() == "" {
+		return "", fmt.Errorf("invalid PostgreSQL URL")
+	}
+	return parsed.User.Username(), nil
 }
 
 func (c *Config) IsSysAdmin(userID uuid.UUID) bool {

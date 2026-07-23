@@ -223,11 +223,13 @@ Dev Machines remain disabled in the default five-service deployment. Before enab
 2. Replace the checked-in local `tls internal` wildcard configuration with either a mounted wildcard certificate or a DNS-01-enabled Caddy build for production. The wildcard route already proxies machine HTTP and WebSocket upgrades to the gateway.
 3. Keep `FRONTEND_URL` set to the exact public Kuayle origin; the gateway uses it for native terminal WebSocket `Origin` checks.
 4. Set `DEV_MACHINE_ENCRYPTION_KEY` to an independent random value of at least 32 characters and set `DEV_MACHINE_INGEST_URL` to the public HTTPS API URL.
-5. Build the runtime images, migrate, and start the optional control plane:
+5. Set an independent `DEV_MACHINE_GATEWAY_DB_PASSWORD`; Compose provisions a restricted `kuayle_gateway` login and the gateway rejects the application database credential in production.
+6. Build the runtime images, migrate, provision gateway grants, and start the optional control plane:
 
 ```sh
 docker compose --profile dev-machine-images build
 docker compose exec backend /app/server migrate up
+docker compose --profile dev-machines run --rm machine-gateway-db-provision
 docker compose --profile dev-machines up -d
 ```
 
@@ -242,7 +244,7 @@ cd kuayle
 bash selfhosting/update.sh
 ```
 
-The update script pulls the latest code, rebuilds images, applies pending migrations, and recreates containers. If Dev Machines services are running, it stops the control plane, rebuilds its binaries and runtime images, and restarts the gateway and manager after migration. Disabled optional profiles remain disabled.
+The update script pulls the latest code, rebuilds images, applies pending migrations, and recreates containers. If Dev Machines services are running, it stops the control plane, rebuilds its binaries and runtime images, reapplies the restricted gateway-role grants, and restarts the gateway and manager after migration. Disabled optional profiles remain disabled.
 
 Instance sysadmins can also enable one-click updates from **Settings → Version**:
 
