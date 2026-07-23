@@ -83,3 +83,81 @@ jobs:
           format: table
           exit-code: 1
           severity: CRITICAL,HIGH
+
+  dev-machine-security:
+    name: Dev Machine Security Scan (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: gateway
+            name: Gateway
+            context: ./BE
+            dockerfile: ./BE/Dockerfile.machine-gateway
+            build_args: ''
+          - id: manager
+            name: Manager
+            context: ./BE
+            dockerfile: ./BE/Dockerfile.machine-manager
+            build_args: ''
+          - id: ide
+            name: IDE
+            context: ./devmachine
+            dockerfile: ./devmachine/ide/Dockerfile
+            build_args: ''
+          - id: browser
+            name: Browser
+            context: ./devmachine
+            dockerfile: ./devmachine/browser/Dockerfile
+            build_args: ''
+          - id: collector
+            name: Collector
+            context: ./devmachine
+            dockerfile: ./devmachine/collector/Dockerfile
+            build_args: ''
+          - id: egress
+            name: Egress
+            context: ./devmachine
+            dockerfile: ./devmachine/egress/Dockerfile
+            build_args: ''
+          - id: agent-claude
+            name: Agent Claude
+            context: ./devmachine
+            dockerfile: ./devmachine/agent/Dockerfile
+            build_args: PROVIDER=claude-code
+          - id: agent-opencode
+            name: Agent OpenCode
+            context: ./devmachine
+            dockerfile: ./devmachine/agent/Dockerfile
+            build_args: PROVIDER=opencode
+          - id: agent-codex
+            name: Agent Codex
+            context: ./devmachine
+            dockerfile: ./devmachine/agent/Dockerfile
+            build_args: PROVIDER=codex
+
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4.2.0
+
+      - name: Build image for scanning
+        uses: docker/build-push-action@v7.3.0
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          build-args: ${{ matrix.build_args }}
+          load: true
+          tags: kuayle-dev-machine-${{ matrix.id }}:scan
+          cache-from: type=gha,scope=dev-machine-scan-${{ matrix.id }}
+          cache-to: type=gha,mode=min,scope=dev-machine-scan-${{ matrix.id }}
+
+      - name: Scan image
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: kuayle-dev-machine-${{ matrix.id }}:scan
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
