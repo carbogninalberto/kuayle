@@ -67,6 +67,60 @@ jobs:
           name: backend-coverage
           path: BE/coverage.out
 
+  docker-integration:
+    name: Docker Runtime Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: ./BE
+
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - uses: actions/setup-go@v6.4.0
+        with:
+          go-version-file: BE/go.mod
+
+      - name: Configure quota-capable Docker storage
+        working-directory: .
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes xfsprogs
+          sudo systemctl stop docker.service docker.socket
+          sudo truncate --size 32G /var/lib/docker-integration.xfs
+          sudo mkfs.xfs --force /var/lib/docker-integration.xfs
+          sudo mkdir --parents /mnt/docker-integration
+          sudo mount --options loop,prjquota /var/lib/docker-integration.xfs /mnt/docker-integration
+
+          if sudo test -f /etc/docker/daemon.json; then
+            sudo jq '. + {"data-root": "/mnt/docker-integration"}' /etc/docker/daemon.json > /tmp/docker-daemon.json
+          else
+            jq --null-input '{"data-root": "/mnt/docker-integration"}' > /tmp/docker-daemon.json
+          fi
+          sudo install --mode 0644 /tmp/docker-daemon.json /etc/docker/daemon.json
+          sudo systemctl start docker.socket docker.service
+
+          backing_filesystem=$(docker info --format '{{range .DriverStatus}}{{if eq (index . 0) "Backing Filesystem"}}{{index . 1}}{{end}}{{end}}')
+          test "$backing_filesystem" = xfs
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4.2.0
+
+      - name: Build integration runtime images
+        working-directory: .
+        run: |
+          docker buildx build --load --platform linux/amd64 --cache-from type=gha,scope=dev-machine-ide --tag kuayle/dev-machine-ide:0.1.0 --file devmachine/ide/Dockerfile devmachine
+          docker buildx build --load --platform linux/amd64 --cache-from type=gha,scope=dev-machine-browser --tag kuayle/dev-machine-browser:0.1.0 --file devmachine/browser/Dockerfile devmachine
+          docker buildx build --load --platform linux/amd64 --cache-from type=gha,scope=dev-machine-collector --tag kuayle/dev-machine-collector:0.1.0 --file devmachine/collector/Dockerfile devmachine
+          docker buildx build --load --platform linux/amd64 --cache-from type=gha,scope=dev-machine-egress --tag kuayle/dev-machine-egress:0.1.0 --file devmachine/egress/Dockerfile devmachine
+          docker buildx build --load --platform linux/amd64 --cache-from type=gha,scope=dev-machine-agent-claude --build-arg PROVIDER=claude-code --tag kuayle/dev-machine-agent-claude:0.1.0 --file devmachine/agent/Dockerfile devmachine
+
+      - name: Run Docker lifecycle integration test
+        env:
+          KUAYLE_DOCKER_INTEGRATION: '1'
+        run: go test ./internal/machine -run '^TestDockerRuntimeLifecycle$' -race -count=1 -v -timeout=5m
+
   frontend-check:
     name: Frontend Checks
     runs-on: ubuntu-latest
