@@ -1092,3 +1092,177 @@ test('opens agent-run trace sheet from card click, activity click, deep link, an
 	// Verify multiple trace requests were made (including cursor polling for active run)
 	await expect.poll(() => traceRequests).toBeGreaterThan(1);
 });
+
+test('bounds machine and agent trace telemetry during long-running sessions', async ({ page }) => {
+	const machineId = '00000000-0000-0000-0000-000000000070';
+	const runId = '00000000-0000-0000-0000-000000000071';
+	let machineEventRequests = 0;
+	let machineLogRequests = 0;
+	let traceRequests = 0;
+	const machine = {
+		id: machineId,
+		workspace_id: '00000000-0000-0000-0000-000000000002',
+		routing_key: '0123456789abcdef0070',
+		name: 'Bounded telemetry machine',
+		status: 'running',
+		desired_status: 'running',
+		generation: 1,
+		repo_url: '',
+		repo_provider: 'github',
+		repo_owner: '',
+		repo_name: '',
+		base_branch: '',
+		working_branch: '',
+		machine_size: 'medium',
+		cpu_millis: 4000,
+		memory_mb: 8192,
+		disk_gb: 20,
+		pids_limit: 1024,
+		max_runtime_minutes: 240,
+		keep_running: false,
+		environment_builder: false,
+		created_at: '2026-07-13T00:00:00Z',
+		updated_at: '2026-07-13T00:00:00Z',
+		expires_at: '2099-07-13T04:00:00Z'
+	};
+	const run = {
+		id: runId,
+		machine_id: machineId,
+		workspace_id: machine.workspace_id,
+		provider_id: 'opencode',
+		mode: 'autonomous',
+		status: 'succeeded',
+		prompt: 'Exercise bounded telemetry',
+		summary: 'Telemetry completed',
+		changed_files: [],
+		commits: [],
+		tests_run: [],
+		test_status: 'passed',
+		risk_notes: [],
+		push_branch: false,
+		open_pull_request: false,
+		max_runtime_seconds: 600,
+		created_at: '2026-07-13T00:00:00Z',
+		completed_at: '2026-07-13T01:00:00Z'
+	};
+	const machineEvents = Array.from({ length: 450 }, (_, index) => ({
+		id: index + 1,
+		machine_id: machineId,
+		source: 'manager',
+		event_type: `machine_event_${index + 1}`,
+		payload: {},
+		occurred_at: '2026-07-13T00:00:00Z'
+	}));
+	const machineLogs = Array.from({ length: 750 }, (_, index) => ({
+		id: index + 1,
+		stream: 'stdout',
+		sequence: index + 1,
+		content: index === 0 ? 'MACHINE_OLDEST_LOG' : index === 749 ? 'MACHINE_LATEST_LOG' : `machine-log-${index + 1}`,
+		truncated: false,
+		created_at: '2026-07-13T00:00:00Z'
+	}));
+	const traceEvents = Array.from({ length: 450 }, (_, index) => ({
+		id: 10_001 + index,
+		machine_id: machineId,
+		agent_run_id: runId,
+		source: 'agent',
+		event_type: `trace_event_${index + 1}`,
+		payload: {},
+		occurred_at: '2026-07-13T00:00:00Z'
+	}));
+	const traceLogs = Array.from({ length: 750 }, (_, index) => ({
+		id: 20_001 + index,
+		agent_run_id: runId,
+		stream: 'stdout',
+		sequence: index + 1,
+		content: index === 0 ? 'TRACE_OLDEST_LOG' : index === 749 ? 'TRACE_LATEST_LOG' : `trace-log-${index + 1}`,
+		truncated: false,
+		created_at: '2026-07-13T00:00:00Z'
+	}));
+
+	await page.clock.install();
+	await page.route('https://raw.githubusercontent.com/carbogninalberto/kuayle/main/UI/static/releases.json', (route) => route.fulfill({ json: [] }));
+	await page.route('**/api/**', async (route) => {
+		const request = route.request();
+		const url = new URL(request.url());
+		const path = url.pathname;
+		if (path === '/api/auth/me') return route.fulfill({ json: { id: '00000000-0000-0000-0000-000000000001', email: 'test@example.com', name: 'Test User', display_name: 'Test User', avatar_url: null } });
+		if (path === '/api/preferences') return route.fulfill({ json: { font_size: 'default', pointer_cursors: true, theme_mode: 'dark', light_theme: 'light', dark_theme: 'dark', workflow_sort_mode: 'default', workflow_sort_order: ['backlog', 'unstarted', 'started', 'completed', 'cancelled'], team_workflow_sort_overrides: {}, issues_group_by: 'status' } });
+		if (path === '/api/workspaces') return route.fulfill({ json: [{ id: machine.workspace_id, name: 'Test Workspace', slug: 'test' }] });
+		if (path === '/api/workspaces/test') return route.fulfill({ json: { id: machine.workspace_id, name: 'Test Workspace', slug: 'test', current_user_role: 'admin' } });
+		if (['teams', 'projects', 'labels', 'members', 'views'].some((part) => path === `/api/workspaces/test/${part}`)) return route.fulfill({ json: [] });
+		if (path === '/api/notifications') return route.fulfill({ json: { notifications: [], unread_count: 0 } });
+		if (path === `/api/workspaces/test/dev-machines/${machineId}` && request.method() === 'GET') return route.fulfill({ json: machine });
+		if (path === `/api/workspaces/test/dev-machines/${machineId}/services`) return route.fulfill({ json: [] });
+		if (path === `/api/workspaces/test/dev-machines/${machineId}/checkouts`) return route.fulfill({ json: [] });
+		if (path === `/api/workspaces/test/dev-machines/${machineId}/resource-usage`) return route.fulfill({ json: [] });
+		if (path === `/api/workspaces/test/dev-machines/${machineId}/agent-runs`) return route.fulfill({ json: { data: [run], total_count: 1, page: 1, per_page: 50, has_more: false } });
+		if (path === `/api/workspaces/test/dev-machines/${machineId}/events`) {
+			machineEventRequests++;
+			const afterId = Number(url.searchParams.get('after_id') ?? 0);
+			return route.fulfill({ json: machineEvents.filter((event) => event.id > afterId).slice(0, 100) });
+		}
+		if (path === `/api/workspaces/test/dev-machines/${machineId}/logs`) {
+			machineLogRequests++;
+			const afterId = Number(url.searchParams.get('after_id') ?? 0);
+			return route.fulfill({ json: machineLogs.filter((log) => log.id > afterId).slice(0, 250) });
+		}
+		if (path === `/api/workspaces/test/agent-runs/${runId}/trace`) {
+			traceRequests++;
+			const eventsAfterId = Number(url.searchParams.get('events_after_id') ?? 0);
+			const logsAfterId = Number(url.searchParams.get('logs_after_id') ?? 0);
+			const eventsLimit = Number(url.searchParams.get('events_limit') ?? 200);
+			const logsLimit = Number(url.searchParams.get('logs_limit') ?? 500);
+			const availableEvents = traceEvents.filter((event) => event.id > eventsAfterId);
+			const availableLogs = traceLogs.filter((log) => log.id > logsAfterId);
+			const events = availableEvents.slice(0, eventsLimit);
+			const logs = availableLogs.slice(0, logsLimit);
+			return route.fulfill({
+				json: {
+					run,
+					steps: [],
+					events,
+					logs,
+					next_event_id: events.at(-1)?.id ?? eventsAfterId,
+					next_log_id: logs.at(-1)?.id ?? logsAfterId,
+					has_more_events: availableEvents.length > events.length,
+					has_more_logs: availableLogs.length > logs.length
+				}
+			});
+		}
+		return route.fulfill({ status: 404, json: { error: { message: `Unhandled ${request.method()} ${path}` } } });
+	});
+
+	await page.goto(`/test/machines/${machineId}`);
+	await expect.poll(() => machineEventRequests).toBe(1);
+	await expect.poll(() => machineLogRequests).toBe(1);
+	for (let requestCount = 2; requestCount <= 5; requestCount++) {
+		await page.clock.fastForward(4_000);
+		await expect.poll(() => machineEventRequests).toBe(requestCount);
+		await expect.poll(() => machineLogRequests).toBe(requestCount);
+		await expect(page.locator('#activity').getByText(`machine event ${Math.min(requestCount * 100, 450)}`, { exact: true })).toBeVisible();
+	}
+
+	const activity = page.locator('#activity').locator('> div').first();
+	const machineLogPanel = page.locator('#activity').locator('> div').nth(1);
+	await expect(activity.getByRole('heading', { name: 'Activity (200)' })).toBeVisible();
+	await expect(activity.getByTestId('machine-events-retention')).toContainText('older activity is omitted');
+	await expect(activity.getByText('machine event 1', { exact: true })).toHaveCount(0);
+	await expect(activity.getByText('machine event 450', { exact: true })).toBeVisible();
+	await expect(machineLogPanel.getByRole('heading', { name: 'Logs (500)' })).toBeVisible();
+	await expect(machineLogPanel.getByTestId('machine-logs-retention')).toContainText('older logs are omitted');
+	await expect(machineLogPanel.locator('pre')).not.toContainText('MACHINE_OLDEST_LOG');
+	await expect(machineLogPanel.locator('pre')).toContainText('MACHINE_LATEST_LOG');
+
+	await page.getByRole('button', { name: 'View opencode agent run activity' }).click();
+	await expect.poll(() => traceRequests).toBe(3);
+	const trace = page.locator('[data-slot="sheet-content"]');
+	await expect(trace.getByRole('heading', { name: 'Events (200)' })).toBeVisible();
+	await expect(trace.getByTestId('trace-events-retention')).toContainText('older events are omitted');
+	await expect(trace.getByText('trace event 1', { exact: true })).toHaveCount(0);
+	await expect(trace.getByText('trace event 450', { exact: true })).toBeVisible();
+	await expect(trace.getByRole('heading', { name: 'Logs (500)' })).toBeVisible();
+	await expect(trace.getByTestId('trace-logs-retention')).toContainText('older logs are omitted');
+	await expect(trace.locator('pre').filter({ hasText: 'TRACE_LATEST_LOG' })).toContainText('TRACE_LATEST_LOG');
+	await expect(trace).not.toContainText('TRACE_OLDEST_LOG');
+});

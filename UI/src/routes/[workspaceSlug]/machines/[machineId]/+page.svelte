@@ -18,6 +18,7 @@
 	import MachineStatusBadge from '$lib/features/dev-machines/MachineStatusBadge.svelte';
 	import AgentRunDialog from '$lib/features/dev-machines/AgentRunDialog.svelte';
 	import AgentRunTraceSheet from '$lib/features/dev-machines/AgentRunTraceSheet.svelte';
+	import { appendRecentTelemetry, DEV_MACHINE_EVENT_RETENTION, DEV_MACHINE_LOG_RETENTION } from '$lib/features/dev-machines/telemetry-retention';
 	import { useTerminalDock } from '$lib/features/dev-machines/terminal-dock-context.svelte';
 	import { appToast } from '$lib/features/toast/toast';
 	import { Button } from '$lib/components/ui/button';
@@ -31,8 +32,10 @@
 	let services = $state<DevMachineService[]>([]);
 	let checkouts = $state<DevMachineCheckout[]>([]);
 	let events = $state<DevMachineEvent[]>([]);
+	let eventsLimited = $state(false);
 	let eventsAfterId = 0;
 	let logs = $state<DevMachineLogChunk[]>([]);
+	let logsLimited = $state(false);
 	let logsAfterId = 0;
 	let runs = $state<AgentRun[]>([]);
 	let runsPage = $state(1);
@@ -120,8 +123,10 @@
 		services = [];
 		checkouts = [];
 		events = [];
+		eventsLimited = false;
 		eventsAfterId = 0;
 		logs = [];
+		logsLimited = false;
 		logsAfterId = 0;
 		runs = [];
 		runsPage = 1;
@@ -232,20 +237,16 @@
 		]);
 		if (!isCurrentRefresh(targetSlug, targetMachineId, generation, sequence)) return;
 		if (eventResult.status === 'fulfilled' && eventResult.value.length > 0) {
-			const existingIds = new Set(events.map((event) => event.id));
-			const newEvents = eventResult.value.filter((event) => !existingIds.has(event.id));
-			if (newEvents.length > 0) {
-				events = [...events, ...newEvents];
-				eventsAfterId = Math.max(eventsAfterId, ...eventResult.value.map((event) => event.id));
-			}
+			const retained = appendRecentTelemetry(events, eventResult.value, DEV_MACHINE_EVENT_RETENTION);
+			events = retained.items;
+			eventsLimited ||= retained.dropped > 0;
+			eventsAfterId = Math.max(eventsAfterId, ...eventResult.value.map((event) => event.id));
 		}
 		if (logResult.status === 'fulfilled' && logResult.value.length > 0) {
-			const existingIds = new Set(logs.map((log) => log.id));
-			const newLogs = logResult.value.filter((log) => !existingIds.has(log.id));
-			if (newLogs.length > 0) {
-				logs = [...logs, ...newLogs];
-				logsAfterId = Math.max(logsAfterId, ...logResult.value.map((log) => log.id));
-			}
+			const retained = appendRecentTelemetry(logs, logResult.value, DEV_MACHINE_LOG_RETENTION);
+			logs = retained.items;
+			logsLimited ||= retained.dropped > 0;
+			logsAfterId = Math.max(logsAfterId, ...logResult.value.map((log) => log.id));
 		}
 		const terminalParam = page.url.searchParams.get('terminal');
 		if (terminalParam === '1' && !terminalQueryConsumed) {
@@ -679,7 +680,7 @@
 				</section>
 
 				<section id="activity" class="grid gap-5 lg:grid-cols-2 scroll-mt-4">
-					<div class="rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-4"><h2 class="text-sm font-semibold">Activity</h2><div class="mt-3 max-h-96 space-y-3 overflow-y-auto">{#if events.length === 0}<p class="text-xs text-[var(--color-text-tertiary)]">No activity yet.</p>{/if}{#each events as event}
+					<div class="rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-4"><h2 class="text-sm font-semibold">Activity ({events.length})</h2>{#if eventsLimited}<p class="mt-1 text-[10px] text-[var(--color-text-tertiary)]" data-testid="machine-events-retention">Showing the latest {DEV_MACHINE_EVENT_RETENTION} entries; older activity is omitted from this live view.</p>{/if}<div class="mt-3 max-h-96 space-y-3 overflow-y-auto">{#if events.length === 0}<p class="text-xs text-[var(--color-text-tertiary)]">No activity yet.</p>{/if}{#each events as event}
 						{#if event.agent_run_id}
 							<button type="button" class="block w-full border-l border-[var(--app-border)] pl-3 text-left transition-colors hover:border-[var(--app-accent)]" onclick={() => openTrace(event.agent_run_id!)} aria-label={`View agent activity for ${event.event_type}`}>
 								<span class="block text-xs font-medium">{event.event_type.replaceAll('_', ' ')}</span>
@@ -692,7 +693,7 @@
 							</div>
 						{/if}
 					{/each}</div></div>
-					<div class="rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-4"><h2 class="text-sm font-semibold">Logs</h2><pre class="mt-3 max-h-96 overflow-auto whitespace-pre-wrap rounded-lg bg-black/30 p-3 text-[11px] leading-relaxed text-zinc-300">{logs.length ? logs.map((chunk) => `[${chunk.stream}] ${chunk.content}`).join('\n') : 'No logs yet.'}</pre></div>
+					<div class="rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-4"><h2 class="text-sm font-semibold">Logs ({logs.length})</h2>{#if logsLimited}<p class="mt-1 text-[10px] text-[var(--color-text-tertiary)]" data-testid="machine-logs-retention">Showing the latest {DEV_MACHINE_LOG_RETENTION} chunks; older logs are omitted from this live view.</p>{/if}<pre class="mt-3 max-h-96 overflow-auto whitespace-pre-wrap rounded-lg bg-black/30 p-3 text-[11px] leading-relaxed text-zinc-300">{logs.length ? logs.map((chunk) => `[${chunk.stream}] ${chunk.content}`).join('\n') : 'No logs yet.'}</pre></div>
 				</section>
 			</div>
 		</div>

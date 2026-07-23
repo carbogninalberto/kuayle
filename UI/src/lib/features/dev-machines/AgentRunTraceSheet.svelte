@@ -5,6 +5,7 @@
 	import { getAgentRunTrace, cancelAgentRun } from '$lib/api/dev-machines';
 	import type { AgentRun, AgentRunTrace, DevMachineEvent, DevMachineLogChunk, AgentRunStep } from '$lib/types/dev-machine';
 	import { appToast } from '$lib/features/toast/toast';
+	import { appendRecentTelemetry, DEV_MACHINE_EVENT_RETENTION, DEV_MACHINE_LOG_RETENTION } from './telemetry-retention';
 	import { Bot, ExternalLink, X, RotateCw, Loader } from 'lucide-svelte';
 
 	let { open = $bindable(false), slug, runId, onclose }: {
@@ -17,7 +18,9 @@
 	let run = $state<AgentRun | null>(null);
 	let steps = $state<AgentRunStep[]>([]);
 	let events = $state<DevMachineEvent[]>([]);
+	let eventsLimited = $state(false);
 	let logs = $state<DevMachineLogChunk[]>([]);
+	let logsLimited = $state(false);
 	let loading = $state(false);
 	let failed = $state(false);
 	let eventsAfterId = 0;
@@ -59,7 +62,9 @@
 		run = null;
 		steps = [];
 		events = [];
+		eventsLimited = false;
 		logs = [];
+		logsLimited = false;
 		eventsAfterId = 0;
 		logsAfterId = 0;
 		loading = false;
@@ -107,16 +112,14 @@
 	function applyTrace(trace: AgentRunTrace) {
 		run = trace.run;
 		steps = trace.steps ?? [];
-		// Dedupe events by id
-		const eventIds = new Set(events.map((e) => e.id));
-		const newEvents = (trace.events ?? []).filter((e) => !eventIds.has(e.id));
-		events = [...events, ...newEvents];
-		eventsAfterId = Math.max(eventsAfterId, trace.next_event_id ?? 0, ...newEvents.map((e) => e.id));
-		// Dedupe logs by id
-		const logIds = new Set(logs.map((l) => l.id));
-		const newLogs = (trace.logs ?? []).filter((l) => !logIds.has(l.id));
-		logs = [...logs, ...newLogs];
-		logsAfterId = Math.max(logsAfterId, trace.next_log_id ?? 0, ...newLogs.map((l) => l.id));
+		const retainedEvents = appendRecentTelemetry(events, trace.events ?? [], DEV_MACHINE_EVENT_RETENTION);
+		events = retainedEvents.items;
+		eventsLimited ||= retainedEvents.dropped > 0;
+		eventsAfterId = Math.max(eventsAfterId, trace.next_event_id ?? 0, ...(trace.events ?? []).map((event) => event.id));
+		const retainedLogs = appendRecentTelemetry(logs, trace.logs ?? [], DEV_MACHINE_LOG_RETENTION);
+		logs = retainedLogs.items;
+		logsLimited ||= retainedLogs.dropped > 0;
+		logsAfterId = Math.max(logsAfterId, trace.next_log_id ?? 0, ...(trace.logs ?? []).map((log) => log.id));
 	}
 
 	function schedulePoll(currentSlug: string, currentRunId: string, version: number, delay = 1000) {
@@ -337,6 +340,7 @@
 					{#if events.length}
 						<section>
 							<h3 class="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-tertiary)]">Events ({events.length})</h3>
+							{#if eventsLimited}<p class="mt-1 text-[10px] text-[var(--color-text-tertiary)]" data-testid="trace-events-retention">Showing the latest {DEV_MACHINE_EVENT_RETENTION} entries; older events are omitted from this live view.</p>{/if}
 							<div class="mt-1 space-y-1 max-h-64 overflow-y-auto">
 								{#each events.toReversed() as event}
 									<div class="rounded border border-[var(--app-border)] p-2">
@@ -358,6 +362,7 @@
 					{#if logs.length}
 						<section>
 							<h3 class="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-tertiary)]">Logs ({logs.length})</h3>
+							{#if logsLimited}<p class="mt-1 text-[10px] text-[var(--color-text-tertiary)]" data-testid="trace-logs-retention">Showing the latest {DEV_MACHINE_LOG_RETENTION} chunks; older logs are omitted from this live view.</p>{/if}
 							<pre class="mt-1 max-h-64 overflow-auto whitespace-pre-wrap rounded-md bg-black/30 p-3 text-[11px] leading-relaxed text-zinc-300 font-mono">{logs.map((chunk) => `[${chunk.stream}] ${chunk.content}`).join('')}</pre>
 						</section>
 					{/if}
