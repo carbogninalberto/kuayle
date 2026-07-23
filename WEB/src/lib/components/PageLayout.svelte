@@ -63,7 +63,7 @@
 
 	<div class="grid gap-10 lg:grid-cols-[1fr_260px]">
 		<!-- Main content -->
-		<article>
+		<article class="min-w-0 [overflow-wrap:anywhere]">
 			<div use:reveal>
 				<h1 class="text-4xl font-bold tracking-tight sm:text-5xl">
 					<span class="gradient-text">{heading}</span>

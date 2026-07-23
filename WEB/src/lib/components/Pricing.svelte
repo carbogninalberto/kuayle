@@ -18,7 +18,7 @@
 	];
 </script>
 
-<section id="pricing" class="relative py-24 sm:py-32">
+<section id="pricing" class="relative overflow-hidden py-24 sm:py-32">
 	<div class="mx-auto max-w-6xl px-6">
 		<div class="grid items-start gap-14 lg:grid-cols-2">
 			<div use:reveal>
@@ -36,16 +36,16 @@
 				</p>
 			</div>
 
-		<div use:reveal={{ delay: 100 }} class="relative">
+		<div use:reveal={{ delay: 100 }} class="relative min-w-0">
 			<div
 				class="animate-glow absolute -inset-4 -z-10 rounded-3xl bg-gradient-to-tr from-brand-600/30 via-brand-400/20 to-transparent blur-2xl"
 			></div>
 			<div
-				class="ring-gradient rounded-2xl border border-brand-400/30 bg-card p-8 shadow-2xl shadow-black/40"
+				class="ring-gradient rounded-2xl border border-brand-400/30 bg-card p-5 shadow-2xl shadow-black/40 sm:p-8"
 			>
-				<div class="flex items-baseline justify-between">
+				<div class="flex flex-col gap-2 sm:flex-row sm:items-baseline sm:justify-between">
 					<h3 class="text-xl font-semibold">Self-hosted</h3>
-					<div class="text-right">
+					<div class="sm:text-right">
 						<span class="gradient-text text-5xl font-bold tracking-tight">$0</span>
 						<span class="ml-1 text-sm text-muted-foreground">software license</span>
 					</div>

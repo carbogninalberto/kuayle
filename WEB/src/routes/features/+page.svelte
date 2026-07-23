@@ -27,7 +27,7 @@
 	</div>
 
 	<div class="grid gap-10 lg:grid-cols-[1fr_260px]">
-		<article>
+		<article class="min-w-0 [overflow-wrap:anywhere]">
 			<div use:reveal>
 				<h1 class="text-4xl font-bold tracking-tight">Features</h1>
 				<p class="mt-4 text-lg leading-relaxed text-muted-foreground">
