@@ -1697,3 +1697,37 @@ func TestCreateLogChunkOnConflictMatchesSchema(t *testing.T) {
 	require.Contains(t, constraintDef, "stream")
 	require.Contains(t, constraintDef, "sequence")
 }
+
+func TestPurgeAccessLogsAppliesAgeAndBatchBounds(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is not configured")
+	}
+	db, err := sqlx.Connect("pgx", databaseURL)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	now := time.Now().UTC()
+	ids := make([]int64, 0, 3)
+	for index, createdAt := range []time.Time{now.Add(-100 * 24 * time.Hour), now.Add(-99 * 24 * time.Hour), now.Add(-24 * time.Hour)} {
+		var id int64
+		err = db.QueryRow(`INSERT INTO dev_machine_access_logs (decision,method,path,created_at)
+			VALUES ('denied','GET',$1,$2) RETURNING id`, fmt.Sprintf("/retention-test-%d", index), createdAt).Scan(&id)
+		require.NoError(t, err)
+		ids = append(ids, id)
+	}
+	t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM dev_machine_access_logs WHERE id=ANY($1)`, ids) })
+	repository := NewDevMachineRepository(db)
+
+	count, err := repository.PurgeAccessLogs(context.Background(), now.Add(-90*24*time.Hour), 1)
+	require.NoError(t, err)
+	require.Equal(t, 1, count)
+	var remaining []int64
+	require.NoError(t, db.Select(&remaining, `SELECT id FROM dev_machine_access_logs WHERE id=ANY($1) ORDER BY created_at,id`, ids))
+	require.Equal(t, ids[1:], remaining)
+
+	count, err = repository.PurgeAccessLogs(context.Background(), now.Add(-90*24*time.Hour), 1000)
+	require.NoError(t, err)
+	require.Equal(t, 1, count)
+	require.NoError(t, db.Select(&remaining, `SELECT id FROM dev_machine_access_logs WHERE id=ANY($1) ORDER BY created_at,id`, ids))
+	require.Equal(t, []int64{ids[2]}, remaining)
+}

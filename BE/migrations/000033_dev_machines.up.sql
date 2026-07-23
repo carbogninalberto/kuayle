@@ -387,6 +387,7 @@ CREATE TABLE dev_machine_access_logs (
 );
 
 CREATE INDEX idx_dev_machine_access_logs_machine ON dev_machine_access_logs(machine_id, created_at DESC);
+CREATE INDEX idx_dev_machine_access_logs_retention ON dev_machine_access_logs(created_at, id);
 
 CREATE TABLE dev_machine_resource_samples (
     id BIGSERIAL PRIMARY KEY,

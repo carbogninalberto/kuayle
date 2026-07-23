@@ -47,6 +47,8 @@ type managerStoreFake struct {
 	completedRun              *domain.DevMachineAgentRun
 	runtimeCredentials        []domain.DevMachineRuntimeCredential
 	purgedCredentialNow       *time.Time
+	purgedAccessLogBefore     *time.Time
+	purgedAccessLogLimit      int
 	revokedMachineIDs         []uuid.UUID
 	failedOperationCode       string
 	failedOperationMessage    string
@@ -292,6 +294,11 @@ func (f *managerStoreFake) UpsertRuntimeCredential(_ context.Context, credential
 }
 func (f *managerStoreFake) PurgeExpiredRuntimeCredentials(_ context.Context, now time.Time) (int, error) {
 	f.purgedCredentialNow = &now
+	return 0, nil
+}
+func (f *managerStoreFake) PurgeAccessLogs(_ context.Context, before time.Time, limit int) (int, error) {
+	f.purgedAccessLogBefore = &before
+	f.purgedAccessLogLimit = limit
 	return 0, nil
 }
 
@@ -690,6 +697,9 @@ func TestReconcilePurgesExpiredRuntimeCredentials(t *testing.T) {
 
 	require.NoError(t, manager.reconcile(context.Background()))
 	require.NotNil(t, store.purgedCredentialNow)
+	require.NotNil(t, store.purgedAccessLogBefore)
+	require.WithinDuration(t, store.purgedCredentialNow.Add(-gatewayAccessLogRetention), *store.purgedAccessLogBefore, time.Second)
+	require.Equal(t, gatewayAccessLogPurgeBatch, store.purgedAccessLogLimit)
 	require.Equal(t, 1, store.orphanReconcileCalls)
 	require.Equal(t, 1, store.checkoutReconcileCalls)
 }

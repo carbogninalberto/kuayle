@@ -42,6 +42,8 @@ type Gateway struct {
 	frontendOrigin string
 	sessionTTL     time.Duration
 	transport      http.RoundTripper
+	abuseGuard     *gatewayAbuseGuard
+	routeSlots     chan struct{}
 	demoMode       bool
 	isSysAdmin     func(uuid.UUID) bool
 }
@@ -66,6 +68,7 @@ func NewGateway(store GatewayStore, machineDomain string, sessionTTL time.Durati
 			ForceAttemptHTTP2: true, MaxIdleConns: 200, MaxIdleConnsPerHost: 20,
 			IdleConnTimeout: 90 * time.Second, TLSHandshakeTimeout: 10 * time.Second,
 		},
+		abuseGuard: newGatewayAbuseGuard(), routeSlots: make(chan struct{}, 32),
 		isSysAdmin: func(uuid.UUID) bool { return true },
 	}
 	return gw, nil
@@ -120,14 +123,37 @@ func (g *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		http.Error(writer, "not found", http.StatusNotFound)
 		return
 	}
+	now := time.Now().UTC()
+	routeKey := routingKey + ":" + serviceType
+	if !g.abuseGuard.allowRouteLookup(requestRemoteIP(request), now) {
+		g.auditUnknown(request, "route_rate_limited", http.StatusTooManyRequests, now)
+		writer.Header().Set("Retry-After", "1")
+		http.Error(writer, "too many requests", http.StatusTooManyRequests)
+		return
+	}
+	if g.abuseGuard.negativeRoute(routeKey, now) {
+		g.auditUnknown(request, "route_not_found", http.StatusNotFound, now)
+		http.Error(writer, "not found", http.StatusNotFound)
+		return
+	}
+	select {
+	case g.routeSlots <- struct{}{}:
+	default:
+		g.auditUnknown(request, "route_capacity_exceeded", http.StatusTooManyRequests, now)
+		writer.Header().Set("Retry-After", "1")
+		http.Error(writer, "too many requests", http.StatusTooManyRequests)
+		return
+	}
 	machine, service, err := g.store.GetRoute(request.Context(), routingKey, serviceType)
+	<-g.routeSlots
 	if err != nil {
 		log.WithError(err).WithField("event_type", "gateway.route_error").Error("machine route lookup failed")
 		http.Error(writer, "gateway unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	if machine == nil || service == nil {
-		g.audit(request, nil, nil, nil, "denied", "route_not_found", http.StatusNotFound)
+		g.abuseGuard.rememberNegativeRoute(routeKey, now)
+		g.auditUnknown(request, "route_not_found", http.StatusNotFound, now)
 		http.Error(writer, "not found", http.StatusNotFound)
 		return
 	}
@@ -218,6 +244,12 @@ func (g *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		"event_type": "gateway.request", "service": service.ServiceType, "status": statusWriter.status,
 		"duration_ms": time.Since(started).Milliseconds(),
 	}).Info("machine request proxied")
+}
+
+func (g *Gateway) auditUnknown(request *http.Request, reason string, status int, now time.Time) {
+	if g.abuseGuard.allowUnknownAudit(requestRemoteIP(request), now) {
+		g.audit(request, nil, nil, nil, "denied", reason, status)
+	}
 }
 
 func (g *Gateway) exchangeTicket(writer http.ResponseWriter, request *http.Request, host string, machine *domain.DevMachine, service *domain.DevMachineService, rawTicket string) {

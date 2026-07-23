@@ -67,7 +67,12 @@ type ManagerStore interface {
 	ListIdleMachines(context.Context, int) ([]domain.DevMachine, error)
 	UpsertRuntimeCredential(context.Context, *domain.DevMachineRuntimeCredential) error
 	PurgeExpiredRuntimeCredentials(context.Context, time.Time) (int, error)
+	PurgeAccessLogs(context.Context, time.Time, int) (int, error)
 }
+
+const gatewayAccessLogRetention = 90 * 24 * time.Hour
+
+const gatewayAccessLogPurgeBatch = 1000
 
 type githubAPI interface {
 	GetRepositoryInstallationToken(int64, string) (string, time.Time, error)
@@ -848,6 +853,9 @@ func (m *Manager) reconcile(ctx context.Context) error {
 	m.lastReconcileUnix.Store(now.Unix())
 	if _, err := m.store.PurgeExpiredRuntimeCredentials(ctx, now); err != nil {
 		log.WithError(err).Warn("expired runtime credential purge failed")
+	}
+	if _, err := m.store.PurgeAccessLogs(ctx, now.Add(-gatewayAccessLogRetention), gatewayAccessLogPurgeBatch); err != nil {
+		log.WithError(err).Warn("gateway access log purge failed")
 	}
 	timedOutRuns, err := m.store.ListTimedOutAgentRuns(ctx, 100)
 	if err != nil {

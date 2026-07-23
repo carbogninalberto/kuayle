@@ -3,12 +3,15 @@ package machine
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -28,9 +31,25 @@ type gatewayStoreFake struct {
 	ticketUsed       bool
 	createSessionErr error
 	accessLogs       []domain.DevMachineAccessLog
+	routeLookups     int
+}
+
+type blockingGatewayStore struct {
+	*gatewayStoreFake
+	started chan struct{}
+	release chan struct{}
+	lookups atomic.Int64
+}
+
+func (f *blockingGatewayStore) GetRoute(context.Context, string, string) (*domain.DevMachine, *domain.DevMachineService, error) {
+	f.lookups.Add(1)
+	f.started <- struct{}{}
+	<-f.release
+	return nil, nil, nil
 }
 
 func (f *gatewayStoreFake) GetRoute(context.Context, string, string) (*domain.DevMachine, *domain.DevMachineService, error) {
+	f.routeLookups++
 	return f.machine, f.service, nil
 }
 func (f *gatewayStoreFake) ConsumeAccessTicket(_ context.Context, tokenHash, host string) (*domain.DevMachineAccessTicket, error) {
@@ -106,6 +125,105 @@ func TestGatewayParsesOnlyConfiguredHosts(t *testing.T) {
 	require.Equal(t, "browser", service)
 	_, _, ok = gateway.parseHost("0123456789abcdef0123.machines.example.com.attacker.test")
 	require.False(t, ok)
+}
+
+func TestGatewayCachesAndSamplesUnknownRoutes(t *testing.T) {
+	store := &gatewayStoreFake{}
+	gateway, err := NewGateway(store, "machines.example.com", time.Hour)
+	require.NoError(t, err)
+	host := "0123456789abcdef0123.machines.example.com"
+
+	for range 50 {
+		request := httptest.NewRequest(http.MethodGet, "https://"+host+"/", nil)
+		request.Host = host
+		recorder := httptest.NewRecorder()
+		gateway.ServeHTTP(recorder, request)
+		require.Equal(t, http.StatusNotFound, recorder.Code)
+	}
+
+	require.Equal(t, 1, store.routeLookups)
+	require.Len(t, store.accessLogs, 1)
+	require.Equal(t, "route_not_found", *store.accessLogs[0].Reason)
+}
+
+func TestGatewayRateLimitsWildcardRouteLookupsBeforeDatabase(t *testing.T) {
+	store := &gatewayStoreFake{}
+	gateway, err := NewGateway(store, "machines.example.com", time.Hour)
+	require.NoError(t, err)
+	source := "192.0.2.1"
+	future := time.Now().Add(time.Hour)
+	for range gatewayRoutesPerSource {
+		require.True(t, gateway.abuseGuard.allowRouteLookup(source, future))
+	}
+	host := "0123456789abcdef0123.machines.example.com"
+	request := httptest.NewRequest(http.MethodGet, "https://"+host+"/", nil)
+	request.Host = host
+	request.RemoteAddr = source + ":1234"
+	recorder := httptest.NewRecorder()
+
+	gateway.ServeHTTP(recorder, request)
+
+	require.Equal(t, http.StatusTooManyRequests, recorder.Code)
+	require.Equal(t, "1", recorder.Header().Get("Retry-After"))
+	require.Zero(t, store.routeLookups)
+}
+
+func TestGatewayAbuseGuardBoundsAttackerControlledState(t *testing.T) {
+	guard := newGatewayAbuseGuard()
+	now := time.Now().UTC()
+	for index := 0; index < 20_000; index++ {
+		source := fmt.Sprintf("198.51.%d.%d", (index/256)%256, index%256)
+		guard.allowRouteLookup(source, now.Add(time.Duration(index)*gatewayRouteWindow))
+		guard.allowUnknownAudit(source, now)
+		guard.rememberNegativeRoute(fmt.Sprintf("%020d:ide", index), now)
+	}
+
+	require.LessOrEqual(t, len(guard.routeSources), gatewayMaxTrackedSources)
+	require.LessOrEqual(t, len(guard.auditAfter), gatewayMaxTrackedSources)
+	require.LessOrEqual(t, len(guard.negativeUntil), gatewayMaxNegativeRoutes)
+}
+
+func TestGatewayAbuseGuardAppliesGlobalRouteLimit(t *testing.T) {
+	guard := newGatewayAbuseGuard()
+	now := time.Now().UTC()
+	for index := range gatewayRoutesGlobal {
+		require.True(t, guard.allowRouteLookup(fmt.Sprintf("source-%d", index), now))
+	}
+	require.False(t, guard.allowRouteLookup("one-source-too-many", now))
+}
+
+func TestGatewayCapsConcurrentRouteQueries(t *testing.T) {
+	store := &blockingGatewayStore{
+		gatewayStoreFake: &gatewayStoreFake{},
+		started:          make(chan struct{}, 32),
+		release:          make(chan struct{}),
+	}
+	gateway, err := NewGateway(store, "machines.example.com", time.Hour)
+	require.NoError(t, err)
+	host := "0123456789abcdef0123.machines.example.com"
+	var requests sync.WaitGroup
+	for range cap(gateway.routeSlots) {
+		requests.Add(1)
+		go func() {
+			defer requests.Done()
+			request := httptest.NewRequest(http.MethodGet, "https://"+host+"/", nil)
+			request.Host = host
+			gateway.ServeHTTP(httptest.NewRecorder(), request)
+		}()
+	}
+	for range cap(gateway.routeSlots) {
+		<-store.started
+	}
+	request := httptest.NewRequest(http.MethodGet, "https://"+host+"/", nil)
+	request.Host = host
+	recorder := httptest.NewRecorder()
+
+	gateway.ServeHTTP(recorder, request)
+
+	require.Equal(t, http.StatusTooManyRequests, recorder.Code)
+	require.Equal(t, int64(cap(gateway.routeSlots)), store.lookups.Load())
+	close(store.release)
+	requests.Wait()
 }
 
 func TestGatewayStripsKuayleCredentialsBeforeProxy(t *testing.T) {

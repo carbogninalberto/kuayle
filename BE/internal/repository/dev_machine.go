@@ -1120,6 +1120,20 @@ func (r *DevMachineRepository) CreateAccessLog(ctx context.Context, accessLog *d
 	).Scan(&accessLog.ID, &accessLog.CreatedAt)
 }
 
+func (r *DevMachineRepository) PurgeAccessLogs(ctx context.Context, before time.Time, limit int) (int, error) {
+	if limit <= 0 {
+		return 0, nil
+	}
+	result, err := r.db.ExecContext(ctx, `WITH expired AS (
+		SELECT id FROM dev_machine_access_logs WHERE created_at<$1 ORDER BY created_at,id LIMIT $2
+	) DELETE FROM dev_machine_access_logs logs USING expired WHERE logs.id=expired.id`, before.UTC(), limit)
+	if err != nil {
+		return 0, err
+	}
+	count, err := result.RowsAffected()
+	return int(count), err
+}
+
 func (r *DevMachineRepository) CreateResourceSample(ctx context.Context, sample *domain.DevMachineResourceSample) error {
 	return r.db.QueryRowContext(ctx, `INSERT INTO dev_machine_resource_samples
 		(machine_id, cpu_percent, memory_bytes, disk_bytes, pids, network_rx_bytes, network_tx_bytes)
