@@ -305,6 +305,16 @@ export interface CreateTerminalSessionInput {
 	checkout_id?: string;
 }
 
+export interface BulkDeleteDevMachinesResponse {
+	count: number;
+	requested: number;
+	results: Array<{
+		machine_id: string;
+		status: 'accepted' | 'not_found' | 'conflict' | 'failed';
+		error_code?: 'NOT_FOUND' | 'INVALID_OPERATION' | 'INTERNAL_ERROR';
+	}>;
+}
+
 export interface TerminalSessionLaunchResponse {
 	status: DevMachineLaunchStatus;
 	session?: DevMachineTerminalSession;

@@ -74,6 +74,18 @@ type BulkDeleteDevMachinesRequest struct {
 	MachineIDs []string `json:"machine_ids,omitempty" validate:"omitempty,max=500,dive,uuid"`
 }
 
+type BulkDeleteDevMachineResult struct {
+	MachineID string `json:"machine_id"`
+	Status    string `json:"status"`
+	ErrorCode string `json:"error_code,omitempty"`
+}
+
+type BulkDeleteDevMachinesResponse struct {
+	Count     int                          `json:"count"`
+	Requested int                          `json:"requested"`
+	Results   []BulkDeleteDevMachineResult `json:"results"`
+}
+
 type PurgeDevMachinesRequest struct {
 	MachineIDs     []string `json:"machine_ids,omitempty" validate:"omitempty,max=500,dive,uuid"`
 	OlderThanDays  int      `json:"older_than_days,omitempty" validate:"omitempty,min=1,max=3650"`

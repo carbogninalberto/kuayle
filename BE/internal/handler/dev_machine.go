@@ -144,11 +144,11 @@ func (h *DevMachineHandler) BulkDelete(c echo.Context) error {
 	if err := bindAndValidate(c, &request); err != nil {
 		return err
 	}
-	count, err := h.service.BulkDelete(c.Request().Context(), middleware.GetWorkspace(c).ID, middleware.GetUserID(c), request)
+	result, err := h.service.BulkDelete(c.Request().Context(), middleware.GetWorkspace(c).ID, middleware.GetUserID(c), request)
 	if err != nil {
 		return machineError(c, err)
 	}
-	return response.Success(c, http.StatusAccepted, map[string]int{"count": count})
+	return response.Success(c, http.StatusAccepted, result)
 }
 
 func (h *DevMachineHandler) BulkPermanentDelete(c echo.Context) error {

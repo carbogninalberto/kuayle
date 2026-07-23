@@ -4,6 +4,7 @@ import type {
 	AgentProvider,
 	AgentRun,
 	AgentRunTrace,
+	BulkDeleteDevMachinesResponse,
 	BulkPermanentDeleteDevMachinesInput,
 	CreateAgentRunInput,
 	CreateDevMachineInput,
@@ -54,7 +55,7 @@ export function deleteDevMachine(slug: string, machineId: string): Promise<void>
 	return api.delete(`${base(slug)}/dev-machines/${machineId}`);
 }
 
-export function bulkDeleteDevMachines(slug: string, input: { machine_ids: string[] }): Promise<{ count: number }> {
+export function bulkDeleteDevMachines(slug: string, input: { machine_ids: string[] }): Promise<BulkDeleteDevMachinesResponse> {
 	return api.deleteWithBody(`${base(slug)}/dev-machines/bulk`, input);
 }
 

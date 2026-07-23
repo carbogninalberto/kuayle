@@ -244,6 +244,27 @@ func TestCollectorIngestionReturnsAccurateFailures(t *testing.T) {
 	}
 }
 
+func TestBulkDeleteReturnsStructuredAcceptedResponse(t *testing.T) {
+	workspaceID, userID, machineID := uuid.New(), uuid.New(), uuid.New()
+	store := &handlerDevMachineStoreFake{machine: &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID}}
+	handler := NewDevMachineHandler(service.NewDevMachineService(
+		store, agent.NewRegistry(), true, "machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, service.DevMachineImages{},
+	))
+	request := httptest.NewRequest(http.MethodDelete, "/dev-machines/bulk", strings.NewReader(fmt.Sprintf(`{"machine_ids":[%q,%q]}`, machineID, machineID)))
+	request.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	recorder := httptest.NewRecorder()
+	ctx := devMachineHandlerContext(request, recorder, workspaceID, userID)
+
+	require.NoError(t, handler.BulkDelete(ctx))
+	require.Equal(t, http.StatusAccepted, recorder.Code)
+	var result dto.BulkDeleteDevMachinesResponse
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &result))
+	require.Equal(t, 1, result.Count)
+	require.Equal(t, 1, result.Requested)
+	require.Equal(t, []dto.BulkDeleteDevMachineResult{{MachineID: machineID.String(), Status: "accepted"}}, result.Results)
+	require.Equal(t, 1, store.permanentDeleteRequests)
+}
+
 func TestAgentRunTraceRejectsInvalidRunID(t *testing.T) {
 	e := echo.New()
 	recorder := httptest.NewRecorder()
@@ -311,7 +332,8 @@ func TestDevMachineGetIsCreatorScoped(t *testing.T) {
 
 type handlerDevMachineStoreFake struct {
 	repository.DevMachineStore
-	machine *domain.DevMachine
+	machine                 *domain.DevMachine
+	permanentDeleteRequests int
 }
 
 type collectorHandlerStoreFake struct {
@@ -356,6 +378,21 @@ func (f *handlerDevMachineStoreFake) GetMachineForUser(_ context.Context, worksp
 		return nil, nil
 	}
 	return f.machine, nil
+}
+
+func (f *handlerDevMachineStoreFake) GetMachine(_ context.Context, workspaceID, machineID uuid.UUID) (*domain.DevMachine, error) {
+	if f.machine == nil || f.machine.WorkspaceID != workspaceID || f.machine.ID != machineID {
+		return nil, nil
+	}
+	return f.machine, nil
+}
+
+func (f *handlerDevMachineStoreFake) RequestPermanentDelete(_ context.Context, workspaceID, machineID uuid.UUID, requestedByUserID *uuid.UUID) (*domain.DevMachineOperation, error) {
+	f.permanentDeleteRequests++
+	return &domain.DevMachineOperation{
+		ID: uuid.New(), WorkspaceID: workspaceID, MachineID: machineID, RequestedByUserID: requestedByUserID,
+		Action: domain.DevMachineOpTeardown, Status: domain.DevMachineOpStatusPending,
+	}, nil
 }
 
 func (f *handlerDevMachineStoreFake) CreateEvent(context.Context, *domain.DevMachineEvent) error {

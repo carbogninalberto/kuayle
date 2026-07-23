@@ -760,14 +760,86 @@ func TestBulkDeleteRequiresSelection(t *testing.T) {
 	store := &devMachineStoreFake{}
 	svc := newTestDevMachineService(store)
 
-	count, err := svc.BulkDelete(context.Background(), uuid.New(), uuid.New(), dto.BulkDeleteDevMachinesRequest{})
+	result, err := svc.BulkDelete(context.Background(), uuid.New(), uuid.New(), dto.BulkDeleteDevMachinesRequest{})
 
 	require.ErrorIs(t, err, ErrInvalidMachineInput)
 	require.ErrorContains(t, err, "machine_ids are required")
-	require.Zero(t, count)
+	require.Zero(t, result.Count)
+	require.Zero(t, result.Requested)
+	require.Empty(t, result.Results)
 	require.False(t, store.deleteMachineCalled)
 	require.Nil(t, store.queuedOperation)
 }
+
+func TestBulkDeleteDeduplicatesAndReportsPartialResults(t *testing.T) {
+	workspaceID, userID := uuid.New(), uuid.New()
+	acceptedID, missingID, conflictID, failedID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	storageErr := errors.New("database unavailable")
+	store := &bulkDeleteStoreFake{
+		machines: map[uuid.UUID]domain.DevMachine{
+			acceptedID: {ID: acceptedID, WorkspaceID: workspaceID},
+			conflictID: {ID: conflictID, WorkspaceID: workspaceID},
+			failedID:   {ID: failedID, WorkspaceID: workspaceID},
+		},
+		failures: map[uuid.UUID]error{
+			conflictID: repository.ErrIdempotencyKeyConflict,
+			failedID:   storageErr,
+		},
+		calls: map[uuid.UUID]int{},
+	}
+
+	result, err := newTestDevMachineService(store).BulkDelete(context.Background(), workspaceID, userID, dto.BulkDeleteDevMachinesRequest{MachineIDs: []string{
+		acceptedID.String(), acceptedID.String(), missingID.String(), conflictID.String(), failedID.String(),
+	}})
+
+	require.NoError(t, err)
+	require.Equal(t, 1, result.Count)
+	require.Equal(t, 4, result.Requested)
+	require.Equal(t, []dto.BulkDeleteDevMachineResult{
+		{MachineID: acceptedID.String(), Status: "accepted"},
+		{MachineID: missingID.String(), Status: "not_found", ErrorCode: "NOT_FOUND"},
+		{MachineID: conflictID.String(), Status: "conflict", ErrorCode: "INVALID_OPERATION"},
+		{MachineID: failedID.String(), Status: "failed", ErrorCode: "INTERNAL_ERROR"},
+	}, result.Results)
+	require.Equal(t, 1, store.calls[acceptedID], "a duplicate machine ID must execute once")
+	require.Zero(t, store.calls[missingID])
+	require.Equal(t, 1, store.calls[conflictID])
+	require.Equal(t, 1, store.calls[failedID])
+
+	invalidStore := &bulkDeleteStoreFake{machines: store.machines, calls: map[uuid.UUID]int{}}
+	result, err = newTestDevMachineService(invalidStore).BulkDelete(context.Background(), workspaceID, userID, dto.BulkDeleteDevMachinesRequest{MachineIDs: []string{acceptedID.String(), "invalid"}})
+	require.ErrorIs(t, err, ErrInvalidMachineInput)
+	require.Zero(t, result.Count)
+	require.Empty(t, invalidStore.calls, "all IDs must be validated before side effects")
+}
+
+type bulkDeleteStoreFake struct {
+	repository.DevMachineStore
+	machines map[uuid.UUID]domain.DevMachine
+	failures map[uuid.UUID]error
+	calls    map[uuid.UUID]int
+}
+
+func (f *bulkDeleteStoreFake) GetMachine(_ context.Context, workspaceID, machineID uuid.UUID) (*domain.DevMachine, error) {
+	machine, exists := f.machines[machineID]
+	if !exists || machine.WorkspaceID != workspaceID {
+		return nil, nil
+	}
+	return &machine, nil
+}
+
+func (f *bulkDeleteStoreFake) RequestPermanentDelete(_ context.Context, workspaceID, machineID uuid.UUID, requestedByUserID *uuid.UUID) (*domain.DevMachineOperation, error) {
+	f.calls[machineID]++
+	if err := f.failures[machineID]; err != nil {
+		return nil, err
+	}
+	return &domain.DevMachineOperation{
+		ID: uuid.New(), WorkspaceID: workspaceID, MachineID: machineID, RequestedByUserID: requestedByUserID,
+		Action: domain.DevMachineOpTeardown, Status: domain.DevMachineOpStatusPending,
+	}, nil
+}
+
+func (f *bulkDeleteStoreFake) CreateEvent(context.Context, *domain.DevMachineEvent) error { return nil }
 
 func TestDeleteScopeSettingIsIdempotent(t *testing.T) {
 	store := &devMachineStoreFake{deleteScopeSettingErr: sql.ErrNoRows}
@@ -1109,7 +1181,7 @@ type devMachineStoreFake struct {
 	queuedDesired               domain.DevMachineStatus
 }
 
-func newTestDevMachineService(store *devMachineStoreFake) *DevMachineService {
+func newTestDevMachineService(store repository.DevMachineStore) *DevMachineService {
 	return NewDevMachineService(store, agent.NewRegistry(), true, "machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, DevMachineImages{})
 }
 

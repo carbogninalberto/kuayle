@@ -492,7 +492,7 @@ POST /api/dev-machine-ingest/events
 POST /api/dev-machine-ingest/logs
 ```
 
-Lifecycle APIs return `202 Accepted` with an operation record. `/teardown` retains history; admin DELETE and `/permanent-delete` routes record a purge request and return `202 Accepted` while the manager performs the safe hard purge. Create returns the queued machine. Service launches and terminal sessions may return `ready`, `pending`, or `resuming` with `retry_after_seconds`. Events and logs use `after_id` cursors.
+Lifecycle APIs return `202 Accepted` with an operation record. `/teardown` retains history; admin DELETE and `/permanent-delete` routes record a purge request and return `202 Accepted` while the manager performs the safe hard purge. Selected bulk deletion deduplicates machine IDs and returns per-item `accepted`, `not_found`, `conflict`, or `failed` results. Create returns the queued machine. Service launches and terminal sessions may return `ready`, `pending`, or `resuming` with `retry_after_seconds`. Events and logs use `after_id` cursors.
 
 Example create payload:
 

@@ -597,29 +597,49 @@ func (s *DevMachineService) requestPermanentDelete(ctx context.Context, workspac
 	return operation, nil
 }
 
-func (s *DevMachineService) BulkDelete(ctx context.Context, workspaceID, userID uuid.UUID, request dto.BulkDeleteDevMachinesRequest) (int, error) {
+func (s *DevMachineService) BulkDelete(ctx context.Context, workspaceID, userID uuid.UUID, request dto.BulkDeleteDevMachinesRequest) (dto.BulkDeleteDevMachinesResponse, error) {
+	response := dto.BulkDeleteDevMachinesResponse{Results: []dto.BulkDeleteDevMachineResult{}}
 	if len(request.MachineIDs) == 0 {
-		return 0, fmt.Errorf("%w: machine_ids are required", ErrInvalidMachineInput)
+		return response, fmt.Errorf("%w: machine_ids are required", ErrInvalidMachineInput)
 	}
 	machineIDs := make([]uuid.UUID, 0, len(request.MachineIDs))
+	seen := make(map[uuid.UUID]struct{}, len(request.MachineIDs))
 	for _, raw := range request.MachineIDs {
 		machineID, err := uuid.Parse(raw)
 		if err != nil {
-			return 0, fmt.Errorf("%w: invalid machine id", ErrInvalidMachineInput)
+			return response, fmt.Errorf("%w: invalid machine id", ErrInvalidMachineInput)
 		}
+		if _, exists := seen[machineID]; exists {
+			continue
+		}
+		seen[machineID] = struct{}{}
 		machineIDs = append(machineIDs, machineID)
 	}
-	count := 0
+	response.Requested = len(machineIDs)
+	response.Results = make([]dto.BulkDeleteDevMachineResult, 0, len(machineIDs))
 	for _, machineID := range machineIDs {
+		result := dto.BulkDeleteDevMachineResult{MachineID: machineID.String()}
 		if _, err := s.Delete(ctx, workspaceID, machineID, userID); err != nil {
-			if errors.Is(err, ErrMachineNotFound) {
-				continue
+			switch {
+			case errors.Is(err, ErrMachineNotFound):
+				result.Status = "not_found"
+				result.ErrorCode = "NOT_FOUND"
+			case errors.Is(err, ErrInvalidOperation):
+				result.Status = "conflict"
+				result.ErrorCode = "INVALID_OPERATION"
+			case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+				return response, err
+			default:
+				result.Status = "failed"
+				result.ErrorCode = "INTERNAL_ERROR"
 			}
-			return count, err
+		} else {
+			result.Status = "accepted"
+			response.Count++
 		}
-		count++
+		response.Results = append(response.Results, result)
 	}
-	return count, nil
+	return response, nil
 }
 
 func (s *DevMachineService) BulkPermanentDelete(ctx context.Context, workspaceID uuid.UUID, request dto.PurgeDevMachinesRequest) (int, error) {
