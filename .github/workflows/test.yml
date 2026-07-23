@@ -95,6 +95,23 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Dev Machine browser tests
+        run: npm run test:e2e
+
+      - name: Upload Playwright failure artifacts
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: ui-playwright-failure
+          path: |
+            UI/playwright-report
+            UI/test-results
+          if-no-files-found: ignore
+          retention-days: 7
+
   web-check:
     name: Marketing Site Checks
     runs-on: ubuntu-latest
