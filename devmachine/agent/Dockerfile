@@ -1,18 +1,18 @@
-FROM golang:1.25.12-bookworm AS go-stage
+FROM golang:1.25.12-alpine AS go-stage
 
-FROM node:22.17.0-bookworm-slim
+FROM node:22.23.1-alpine3.23
 
 ARG PROVIDER
-ARG CLAUDE_CODE_VERSION=2.1.14
-ARG OPENCODE_VERSION=1.1.25
-ARG CODEX_VERSION=0.80.0
+ARG NPM_VERSION=12.0.1
+ARG CLAUDE_CODE_VERSION=2.1.218
+ARG OPENCODE_VERSION=1.18.4
+ARG CODEX_VERSION=0.145.0
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates git curl make openssh-client \
-    && rm -rf /var/lib/apt/lists/* \
+RUN apk add --no-cache bash ca-certificates curl git make openssh-client \
+    && npm install -g "npm@${NPM_VERSION}" \
     && case "$PROVIDER" in \
-         claude-code) npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" ;; \
-         opencode) npm install -g "opencode-ai@${OPENCODE_VERSION}" ;; \
+         claude-code) npm install -g --allow-scripts=@anthropic-ai/claude-code "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" ;; \
+         opencode) npm install -g --allow-scripts=opencode-ai "opencode-ai@${OPENCODE_VERSION}" ;; \
          codex) npm install -g "@openai/codex@${CODEX_VERSION}" ;; \
          *) echo "unsupported provider: $PROVIDER" >&2; exit 1 ;; \
        esac \
