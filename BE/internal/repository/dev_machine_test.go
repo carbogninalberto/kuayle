@@ -669,6 +669,73 @@ func (f environmentRaceFixture) insertMachine(t *testing.T, status, desired doma
 	return machineID
 }
 
+func TestUpdateMachinePreferencesRejectsImmutableStates(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is not configured")
+	}
+	db, err := sqlx.Connect("pgx", databaseURL)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	fixture := newEnvironmentRaceFixture(t, db)
+	keepRunning := true
+	var mutableMachineID uuid.UUID
+
+	for _, test := range []struct {
+		name            string
+		status          domain.DevMachineStatus
+		desired         domain.DevMachineStatus
+		deleteRequested bool
+		allowed         bool
+	}{
+		{name: "running", status: domain.DevMachineStatusRunning, desired: domain.DevMachineStatusRunning, allowed: true},
+		{name: "destroyed", status: domain.DevMachineStatusDestroyed, desired: domain.DevMachineStatusDestroyed},
+		{name: "tearing down", status: domain.DevMachineStatusTearingDown, desired: domain.DevMachineStatusDestroyed},
+		{name: "expired", status: domain.DevMachineStatusExpired, desired: domain.DevMachineStatusStopped},
+		{name: "teardown desired", status: domain.DevMachineStatusRunning, desired: domain.DevMachineStatusDestroyed},
+		{name: "permanent deletion requested", status: domain.DevMachineStatusRunning, desired: domain.DevMachineStatusRunning, deleteRequested: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			machineID := fixture.insertMachine(t, test.status, test.desired, false)
+			if test.allowed {
+				mutableMachineID = machineID
+			}
+			if test.deleteRequested {
+				_, err := db.Exec(`UPDATE dev_machines SET delete_requested_at=NOW() WHERE id=$1`, machineID)
+				require.NoError(t, err)
+			}
+
+			machine, err := fixture.repository.UpdateMachinePreferencesForUser(context.Background(), fixture.workspaceID, machineID, fixture.userID, &keepRunning)
+			if test.allowed {
+				require.NoError(t, err)
+				require.NotNil(t, machine)
+				require.True(t, machine.KeepRunning)
+				return
+			}
+			require.ErrorIs(t, err, ErrMachineStateConflict)
+			require.Nil(t, machine)
+			var persisted bool
+			require.NoError(t, db.Get(&persisted, `SELECT keep_running FROM dev_machines WHERE id=$1`, machineID))
+			require.False(t, persisted)
+		})
+	}
+
+	stopRunning := false
+	machine, err := fixture.repository.UpdateMachinePreferencesForUser(context.Background(), fixture.workspaceID, mutableMachineID, uuid.New(), &stopRunning)
+	require.NoError(t, err)
+	require.Nil(t, machine, "another user's machine must remain private-safe missing")
+	var updatedAt time.Time
+	require.NoError(t, db.Get(&updatedAt, `SELECT updated_at FROM dev_machines WHERE id=$1`, mutableMachineID))
+	machine, err = fixture.repository.UpdateMachinePreferencesForUser(context.Background(), fixture.workspaceID, mutableMachineID, fixture.userID, nil)
+	require.NoError(t, err)
+	require.Equal(t, updatedAt, machine.UpdatedAt, "an empty preference request must not mutate the machine")
+
+	destroyedID := fixture.insertMachine(t, domain.DevMachineStatusDestroyed, domain.DevMachineStatusDestroyed, false)
+	machine, err = fixture.repository.UpdateMachinePreferences(context.Background(), fixture.workspaceID, destroyedID, &keepRunning)
+	require.ErrorIs(t, err, ErrMachineStateConflict)
+	require.Nil(t, machine)
+}
+
 func runEnvironmentRace(left, right func() error) (error, error) {
 	start := make(chan struct{})
 	leftResult, rightResult := make(chan error, 1), make(chan error, 1)

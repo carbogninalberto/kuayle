@@ -1175,21 +1175,46 @@ func (r *DevMachineRepository) MachineNameExistsForUser(ctx context.Context, wor
 }
 
 func (r *DevMachineRepository) UpdateMachinePreferences(ctx context.Context, workspaceID, machineID uuid.UUID, keepRunning *bool) (*domain.DevMachine, error) {
-	if keepRunning != nil {
-		if _, err := r.db.ExecContext(ctx, `UPDATE dev_machines SET keep_running=$1 WHERE workspace_id=$2 AND id=$3`, *keepRunning, workspaceID, machineID); err != nil {
-			return nil, err
-		}
-	}
-	return r.GetMachine(ctx, workspaceID, machineID)
+	return r.updateMachinePreferences(ctx, workspaceID, machineID, nil, keepRunning)
 }
 
 func (r *DevMachineRepository) UpdateMachinePreferencesForUser(ctx context.Context, workspaceID, machineID, userID uuid.UUID, keepRunning *bool) (*domain.DevMachine, error) {
-	if keepRunning != nil {
-		if _, err := r.db.ExecContext(ctx, `UPDATE dev_machines SET keep_running=$1 WHERE workspace_id=$2 AND id=$3 AND created_by_user_id=$4`, *keepRunning, workspaceID, machineID, userID); err != nil {
-			return nil, err
-		}
+	return r.updateMachinePreferences(ctx, workspaceID, machineID, &userID, keepRunning)
+}
+
+func (r *DevMachineRepository) updateMachinePreferences(ctx context.Context, workspaceID, machineID uuid.UUID, userID *uuid.UUID, keepRunning *bool) (*domain.DevMachine, error) {
+	var machine domain.DevMachine
+	var err error
+	if keepRunning == nil {
+		err = r.db.GetContext(ctx, &machine, `SELECT * FROM dev_machines
+			WHERE workspace_id=$1 AND id=$2 AND ($3::uuid IS NULL OR created_by_user_id=$3)
+			AND delete_requested_at IS NULL
+			AND status NOT IN ('tearing_down','destroyed','expired')
+			AND desired_status NOT IN ('tearing_down','destroyed','expired')`, workspaceID, machineID, userID)
+	} else {
+		err = r.db.GetContext(ctx, &machine, `UPDATE dev_machines SET keep_running=$1
+			WHERE workspace_id=$2 AND id=$3 AND ($4::uuid IS NULL OR created_by_user_id=$4)
+			AND delete_requested_at IS NULL
+			AND status NOT IN ('tearing_down','destroyed','expired')
+			AND desired_status NOT IN ('tearing_down','destroyed','expired')
+			RETURNING *`, *keepRunning, workspaceID, machineID, userID)
 	}
-	return r.GetMachineForUser(ctx, workspaceID, machineID, userID)
+	if err == nil {
+		return &machine, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+	var existing *domain.DevMachine
+	if userID == nil {
+		existing, err = r.GetMachine(ctx, workspaceID, machineID)
+	} else {
+		existing, err = r.GetMachineForUser(ctx, workspaceID, machineID, *userID)
+	}
+	if err != nil || existing == nil {
+		return existing, err
+	}
+	return nil, ErrMachineStateConflict
 }
 
 func (r *DevMachineRepository) TouchMachineActivity(ctx context.Context, machineID uuid.UUID, at time.Time) error {

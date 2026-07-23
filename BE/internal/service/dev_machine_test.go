@@ -1025,6 +1025,17 @@ func TestMachineNamesAreCreatorScoped(t *testing.T) {
 	require.Equal(t, "builder-01", machine.Name)
 }
 
+func TestUpdateMachineRejectsImmutableState(t *testing.T) {
+	store := &devMachineStoreFake{updatePreferencesErr: repository.ErrMachineStateConflict}
+	keepRunning := true
+
+	machine, err := newTestDevMachineService(store).Update(context.Background(), uuid.New(), uuid.New(), uuid.New(), dto.UpdateDevMachineRequest{KeepRunning: &keepRunning})
+
+	require.Nil(t, machine)
+	require.ErrorIs(t, err, ErrInvalidOperation)
+	require.ErrorContains(t, err, "no longer accepts preference updates")
+}
+
 func TestSnapshotEnvironmentRequiresSourceBuilderOwner(t *testing.T) {
 	workspaceID, ownerID, otherID, machineID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	store := &devMachineStoreFake{machine: &domain.DevMachine{
@@ -1092,6 +1103,7 @@ type devMachineStoreFake struct {
 	deleteEnvironmentErr        error
 	upsertScopeErr              error
 	setDesiredErr               error
+	updatePreferencesErr        error
 	queuedOperation             *domain.DevMachineOperation
 	queuedDesired               domain.DevMachineStatus
 }
@@ -1271,6 +1283,9 @@ func (f *devMachineStoreFake) MachineNameExistsForUser(_ context.Context, _ uuid
 }
 
 func (f *devMachineStoreFake) UpdateMachinePreferencesForUser(_ context.Context, workspaceID, machineID, userID uuid.UUID, keepRunning *bool) (*domain.DevMachine, error) {
+	if f.updatePreferencesErr != nil {
+		return nil, f.updatePreferencesErr
+	}
 	machine, err := f.GetMachineForUser(context.Background(), workspaceID, machineID, userID)
 	if err != nil || machine == nil {
 		return nil, err

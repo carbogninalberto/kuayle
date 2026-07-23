@@ -544,6 +544,9 @@ func (s *DevMachineService) NameAvailable(ctx context.Context, workspaceID, user
 func (s *DevMachineService) Update(ctx context.Context, workspaceID, machineID, userID uuid.UUID, request dto.UpdateDevMachineRequest) (*domain.DevMachine, error) {
 	machine, err := s.store.UpdateMachinePreferencesForUser(ctx, workspaceID, machineID, userID, request.KeepRunning)
 	if err != nil {
+		if errors.Is(err, repository.ErrMachineStateConflict) {
+			return nil, fmt.Errorf("%w: machine no longer accepts preference updates", ErrInvalidOperation)
+		}
 		return nil, err
 	}
 	if machine == nil {
