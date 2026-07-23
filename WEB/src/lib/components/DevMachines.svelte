@@ -45,8 +45,9 @@
 				</h2>
 				<p class="mt-5 text-lg leading-relaxed text-muted-foreground">
 					Spin up an isolated multi-container environment per task. Each machine pairs a full
-					developer workspace with the agent provider of your choice, attaches issue worktrees,
-					and records every commit back to the issue.
+					developer workspace with the agent provider of your choice and attaches issue worktrees.
+					Agent runs can report commits and pull requests in their normalized results; manual IDE
+					and terminal commits are not automatically attached to issues.
 				</p>
 				<ul class="mt-7 space-y-3.5">
 					{#each bullets as bullet (bullet)}

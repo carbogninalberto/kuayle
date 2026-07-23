@@ -177,6 +177,14 @@ if (savedViewsHtml) {
 	}
 }
 
+const homepageHtml = routeHtml.get('/');
+if (homepageHtml) {
+	const text = homepageHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+	if (!/manual IDE and terminal commits are not automatically attached to issues/i.test(text)) {
+		fail('/: manual commit tracking must not be presented as automatic issue activity');
+	}
+}
+
 const sitemapFile = join(BUILD_DIR, 'sitemap.xml');
 if (!existsSync(sitemapFile)) {
 	fail('sitemap.xml is missing');
