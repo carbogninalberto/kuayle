@@ -191,9 +191,16 @@ services:
         condition: service_healthy
       machine-gateway:
         condition: service_healthy
+    user: "1000:1000"
+    group_add:
+      - "${DEV_MACHINE_DOCKER_GID:-0}"
     read_only: true
     tmpfs:
       - /tmp:size=64m,noexec,nosuid
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     networks:

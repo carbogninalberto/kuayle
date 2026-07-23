@@ -575,9 +575,10 @@ Required configuration when enabled:
 | `DEV_MACHINE_SECCOMP_PROFILE` | Docker default, unconfined, or an inline JSON profile |
 | `DEV_MACHINE_APPARMOR_PROFILE` | Docker default or an operator-loaded host profile name |
 | `DEV_MACHINE_DOCKER_HOST` | Docker daemon address (default: unix:///var/run/docker.sock) |
+| `DEV_MACHINE_DOCKER_GID` | Numeric host group owner of the mounted Docker socket; obtain it on Linux with `stat -c '%g' /var/run/docker.sock` (Docker Desktop commonly uses `0`) |
 | `DEV_MACHINE_*_IMAGE` | Pinned runtime image references; the developer image contains pinned OpenCode/Claude Code/Codex CLIs and provider-specific agent images are pinned separately |
 
-The manager's Docker socket mount is a host-administrator boundary. It must not be reused for general API traffic or exposed to any machine workload.
+The manager image and Compose service run the process as UID/GID 1000 with all Linux capabilities dropped and only the Docker socket's numeric host group added. Docker socket access remains host-root-equivalent despite the non-root UID: it is a host-administrator boundary that must not be reused for general API traffic or exposed to any machine workload.
 
 Compose places the Internet-facing gateway only on an internal `machine-control` network shared with Caddy and PostgreSQL; it does not join the backend/Redis application network or receive the application's database-owner URL. `machine-gateway-db-provision` creates or re-hardens a `NOINHERIT` login after migrations, revokes broad schema/table/sequence/function privileges and role memberships, and grants only route reads, ticket/session transitions, activity timestamp updates, and access-log inserts. The gateway refuses production startup without a separate URL and rejects roles with superuser, role/database creation, replication, row-security bypass, object-creation, or inherited-role powers. Rerun provisioning after schema changes before restarting the gateway; `selfhosting/update.sh` does this automatically while the profile is active.
 
