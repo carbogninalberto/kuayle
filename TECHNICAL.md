@@ -104,7 +104,7 @@ Workloads receive `HTTP_PROXY` and `HTTPS_PROXY` pointing to their machine's egr
 
 - rejects IP-literal destinations;
 - resolves hostnames itself and rejects private, loopback, link-local, multicast, and unspecified addresses;
-- permits only HTTP and HTTPS proxy ports;
+- permits ordinary HTTP on port 80 and HTTPS on port 443, while allowing CONNECT tunnels only to port 443;
 - applies optional suffix-based domain allow and deny lists;
 - resolves and dials the validated public address to reduce DNS-rebinding exposure.
 

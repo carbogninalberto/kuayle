@@ -17,6 +17,8 @@ type proxy struct {
 	allow     []string
 	deny      []string
 	transport *http.Transport
+	lookupIP  func(context.Context, string) ([]net.IPAddr, error)
+	dial      func(context.Context, string, string) (net.Conn, error)
 }
 
 var carrierGradeNAT = mustCIDR("100.64.0.0/10")
@@ -70,8 +72,7 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (p *proxy) connect(w http.ResponseWriter, r *http.Request) {
-	host, port, err := net.SplitHostPort(r.Host)
-	if err != nil || (port != "443" && port != "80") || !p.allowed(host) {
+	if !p.connectAllowed(r.Host) {
 		http.Error(w, "egress denied", http.StatusForbidden)
 		return
 	}
@@ -97,27 +98,44 @@ func (p *proxy) connect(w http.ResponseWriter, r *http.Request) {
 	go transfer(client, upstream)
 }
 
+func (p *proxy) connectAllowed(authority string) bool {
+	host, port, err := net.SplitHostPort(authority)
+	return err == nil && port == "443" && p.allowed(host)
+}
+
 func (p *proxy) dialContext(ctx context.Context, _, address string) (net.Conn, error) {
 	host, port, err := net.SplitHostPort(address)
 	if err != nil || (port != "80" && port != "443") || !p.allowed(host) {
 		return nil, fmt.Errorf("egress denied")
 	}
-	addresses, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	lookupIP := p.lookupIP
+	if lookupIP == nil {
+		lookupIP = net.DefaultResolver.LookupIPAddr
+	}
+	addresses, err := lookupIP(ctx, host)
 	if err != nil {
 		return nil, err
+	}
+	dial := p.dial
+	if dial == nil {
+		dial = (&net.Dialer{Timeout: 10 * time.Second}).DialContext
 	}
 	for _, address := range addresses {
 		if privateIP(address.IP) {
 			continue
 		}
-		return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, "tcp", net.JoinHostPort(address.IP.String(), port))
+		return dial(ctx, "tcp", net.JoinHostPort(address.IP.String(), port))
 	}
 	return nil, fmt.Errorf("no public address for host")
 }
 
 func (p *proxy) allowed(host string) bool {
 	host = strings.ToLower(strings.TrimSuffix(host, "."))
-	if net.ParseIP(host) != nil {
+	ipHost := host
+	if value, _, zoned := strings.Cut(host, "%"); zoned {
+		ipHost = value
+	}
+	if host == "" || net.ParseIP(ipHost) != nil {
 		return false
 	}
 	for _, denied := range p.deny {
