@@ -47,6 +47,16 @@ type WorkspaceRepo interface {
 	CountMembersByRole(ctx context.Context, workspaceID uuid.UUID, role string) (int, error)
 }
 
+type WorkspaceInviteLinkRepo interface {
+	Create(ctx context.Context, link *domain.WorkspaceInviteLink) error
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.WorkspaceInviteLink, error)
+	GetByTokenHash(ctx context.Context, hash string) (*domain.WorkspaceInviteLink, error)
+	ListByWorkspace(ctx context.Context, workspaceID uuid.UUID) ([]domain.WorkspaceInviteLink, error)
+	Revoke(ctx context.Context, id uuid.UUID) error
+	TryConsumeUse(ctx context.Context, id uuid.UUID) (bool, error)
+	ReleaseUse(ctx context.Context, id uuid.UUID) error
+}
+
 type TeamRepo interface {
 	Create(ctx context.Context, team *domain.Team) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Team, error)

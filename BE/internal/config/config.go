@@ -39,6 +39,10 @@ type Config struct {
 	Sysadmins      string `envconfig:"SYSADMINS"`
 	PublicDemoMode bool   `envconfig:"PUBLIC_DEMO_MODE"`
 
+	// DisableRegistration gates public registration behind a valid invite-link
+	// token. Defaults to false, preserving open registration.
+	DisableRegistration bool `envconfig:"DISABLE_REGISTRATION" default:"false"`
+
 	SystemUpdaterURL   string `envconfig:"SYSTEM_UPDATER_URL"`
 	SystemUpdaterToken string `envconfig:"SYSTEM_UPDATER_TOKEN"`
 

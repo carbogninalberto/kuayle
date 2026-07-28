@@ -73,12 +73,17 @@ func main() {
 	prefsRepo := repository.NewUserPreferencesRepository(db)
 	assetRepo := repository.NewAssetRepository(db)
 	aiSettingsRepo := repository.NewAISettingsRepository(db)
+	inviteLinkRepo := repository.NewWorkspaceInviteLinkRepository(db)
 
 	// Dev Machine control-plane store
 	devMachineRepo := repository.NewDevMachineRepository(db)
 
 	// Services
-	authSvc := service.NewAuthService(userRepo, refreshRepo, cfg.JWTSecret)
+	inviteLinkSvc := service.NewInviteLinkService(inviteLinkRepo, workspaceRepo)
+	authSvc := service.NewAuthService(userRepo, refreshRepo, cfg.JWTSecret,
+		service.WithRegistrationDisabled(cfg.DisableRegistration),
+		service.WithInviteRedeemer(inviteLinkSvc),
+	)
 	workspaceSvc := service.NewWorkspaceService(workspaceRepo, userRepo)
 	teamSvc := service.NewTeamService(teamRepo, teamStatusRepo)
 	notifSvc := service.NewNotificationService(notifRepo)
@@ -122,6 +127,8 @@ func main() {
 	loginThrottle := mw.NewLoginThrottle(5, 15*time.Minute)
 	authH := handler.NewAuthHandler(authSvc, cfg.Environment != "development", loginThrottle, cfg.IsSysAdmin)
 	workspaceH := handler.NewWorkspaceHandler(workspaceSvc)
+	inviteLinkH := handler.NewInviteLinkHandler(inviteLinkSvc, cfg.FrontendURL)
+	configH := handler.NewConfigHandler(!cfg.DisableRegistration)
 	teamH := handler.NewTeamHandler(teamSvc)
 	issueH := handler.NewIssueHandler(issueSvc, commentSvc, userRepo, teamStatusRepo, projectRepo, cycleRepo, relationSvc)
 	labelH := handler.NewLabelHandler(labelSvc)
@@ -216,6 +223,10 @@ func main() {
 	pub.GET("/share/:token/issues", sharedLinkH.ListPublicIssues)
 	e.GET("/api/public/assets/:token", uploadH.PublicAsset, mw.RateLimit(10, 20))
 
+	// Public instance config + invite preview (no auth, rate limited)
+	e.GET("/api/config", configH.Get, mw.RateLimit(10, 20))
+	e.GET("/api/invite/:token", inviteLinkH.Preview, mw.RateLimit(5, 10))
+
 	// Authenticated routes
 	api := e.Group("/api", mw.Auth(cfg.JWTSecret))
 
@@ -233,6 +244,9 @@ func main() {
 	api.POST("/workspaces/import/preview", workspaceTransferH.Preview)
 	api.POST("/workspaces/import", workspaceTransferH.Import)
 
+	// Invite link acceptance (authenticated, no workspace context yet)
+	api.POST("/invite/:token/accept", inviteLinkH.Accept)
+
 	// Workspace-scoped routes
 	ws := api.Group("/workspaces/:slug", mw.WorkspaceMembership(workspaceRepo))
 	ws.GET("", workspaceH.Get)
@@ -240,6 +254,9 @@ func main() {
 	ws.DELETE("", workspaceH.Delete, mw.RequireOwner())
 	ws.GET("/export", workspaceTransferH.Export, mw.RequirePermission(domain.PermWorkspaceTransfer))
 	ws.POST("/invite", workspaceH.Invite, mw.RequirePermission("member:invite"))
+	ws.POST("/invite-links", inviteLinkH.Create, mw.RequirePermission("member:invite"))
+	ws.GET("/invite-links", inviteLinkH.List, mw.RequirePermission("member:invite"))
+	ws.DELETE("/invite-links/:id", inviteLinkH.Revoke, mw.RequirePermission("member:invite"))
 	ws.GET("/members", workspaceH.ListMembers)
 	ws.PATCH("/members/:userId", workspaceH.UpdateMemberRole, mw.RequirePermission("member:invite"))
 	ws.DELETE("/members/:userId", workspaceH.RemoveMember, mw.RequirePermission("member:invite"))

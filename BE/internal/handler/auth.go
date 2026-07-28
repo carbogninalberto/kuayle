@@ -50,6 +50,15 @@ func (h *AuthHandler) Register(c echo.Context) error {
 		if errors.Is(err, service.ErrWeakPassword) {
 			return response.Error(c, http.StatusBadRequest, "WEAK_PASSWORD", err.Error())
 		}
+		if errors.Is(err, service.ErrRegistrationDisabled) {
+			log.WithFields(log.Fields{"event": "auth.register_failed", "email": req.Email, "reason": "registration_disabled", "ip": c.RealIP()}).Warn("registration failed")
+			return response.Error(c, http.StatusForbidden, "REGISTRATION_DISABLED", "Public registration is disabled on this instance")
+		}
+		if errors.Is(err, service.ErrInviteLinkInvalid) || errors.Is(err, service.ErrInviteLinkExpired) ||
+			errors.Is(err, service.ErrInviteLinkRevoked) || errors.Is(err, service.ErrInviteLinkExhausted) {
+			log.WithFields(log.Fields{"event": "auth.register_failed", "email": req.Email, "reason": "invalid_invite_token", "ip": c.RealIP()}).Warn("registration failed")
+			return response.Error(c, http.StatusForbidden, "INVALID_INVITE_TOKEN", err.Error())
+		}
 		if errors.Is(err, service.ErrEmailTaken) {
 			log.WithFields(log.Fields{"event": "auth.register_failed", "email": req.Email, "reason": "email_taken", "ip": c.RealIP()}).Warn("registration failed")
 			return response.Error(c, http.StatusConflict, "EMAIL_TAKEN", "Email already registered")
