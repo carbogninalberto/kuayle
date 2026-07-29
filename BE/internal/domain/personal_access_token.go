@@ -113,4 +113,5 @@ var validTokenScopes = map[string]bool{
 	PermNotificationsRead: true,
 	PermWorkspacesRead:    true,
 	PermAccountRead:       true,
+	PermAssetsRead:        true,
 }

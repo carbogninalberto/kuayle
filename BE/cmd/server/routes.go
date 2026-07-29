@@ -310,7 +310,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 
 	// Uploads
 	scoped(ws, http.MethodPost, "/upload", h.upload.Upload, "issue:create")
-	sessionOnly(ws, http.MethodGet, "/assets/:assetId", h.upload.GetAsset)
+	scoped(ws, http.MethodGet, "/assets/:assetId", h.upload.GetAsset, "assets:read")
 	sessionOnly(ws, http.MethodPost, "/issues/:identifier/prompt-assets", h.upload.SignIssuePromptAssets)
 
 	// WebSocket

@@ -34,7 +34,7 @@ func TestIsValidScope(t *testing.T) {
 		"issues:read", "comments:read", "projects:read", "cycles:read",
 		"labels:read", "teams:read", "members:read", "templates:read",
 		"views:read", "analytics:read", "notifications:read",
-		"workspaces:read", "account:read",
+		"workspaces:read", "account:read", "assets:read",
 		"issue:create", "issue:update", "issue:delete_own",
 		"project:manage", "label:manage", "team:manage", "member:invite",
 		"workspace:manage",

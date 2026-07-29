@@ -37,13 +37,14 @@ const (
 	PermNotificationsRead = "notifications:read"
 	PermWorkspacesRead    = "workspaces:read"
 	PermAccountRead       = "account:read"
+	PermAssetsRead        = "assets:read"
 )
 
 var readPermissions = []string{
 	PermIssuesRead, PermCommentsRead, PermProjectsRead, PermCyclesRead,
 	PermLabelsRead, PermTeamsRead, PermMembersRead, PermTemplatesRead,
 	PermViewsRead, PermAnalyticsRead, PermNotificationsRead, PermWorkspacesRead,
-	PermAccountRead,
+	PermAccountRead, PermAssetsRead,
 }
 
 var RolePermissions = map[string][]string{
