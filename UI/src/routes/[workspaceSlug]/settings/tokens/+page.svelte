@@ -54,17 +54,22 @@
 	let creating = $state(false);
 
 	let createdToken = $state<CreatedPersonalAccessToken | null>(null);
+	let showCloseConfirm = $state(false);
 	let tokenToRevoke = $state<PersonalAccessToken | null>(null);
 	let revoking = $state(false);
 
 	const preset = $derived(matchPreset(selectedScopes));
 	const mainRows = RESOURCE_ROWS.filter((row) => !row.advanced);
 	const advancedRows = RESOURCE_ROWS.filter((row) => row.advanced);
-	const customDateValid = $derived(customDate !== '' && new Date(customDate).getTime() > Date.now());
+	const todayStr = toLocalDateStr(new Date());
+	const customDateValid = $derived(customDate !== '' && customDate >= todayStr);
 	const canSubmit = $derived(
 		name.trim().length > 0 && selectedScopes.size > 0 && (expiryChoice !== 'custom' || customDateValid) && !creating
 	);
-	const minCustomDate = new Date(Date.now() + DAY_MS).toISOString().slice(0, 10);
+
+	function toLocalDateStr(d: Date): string {
+		return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+	}
 
 	onMount(async () => {
 		try {
@@ -411,14 +416,16 @@
 					{#if workspaces.length > 0}
 						<div class="grid grid-cols-2 gap-2">
 							{#each workspaces as workspace (workspace.id)}
-								<button
-									type="button"
-									onclick={() => toggleWorkspace(workspace.slug)}
-									class="flex items-center gap-2 rounded-md border border-[var(--app-border)] px-3 py-2 text-left hover:bg-[var(--color-bg-hover)]"
+								<div
+									class="flex items-center gap-2 rounded-md border border-[var(--app-border)] px-3 py-2 hover:bg-[var(--color-bg-hover)]"
 								>
-									<Checkbox checked={selectedWorkspaces.includes(workspace.slug)} />
+									<Checkbox
+										checked={selectedWorkspaces.includes(workspace.slug)}
+										onCheckedChange={() => toggleWorkspace(workspace.slug)}
+										aria-label={workspace.name}
+									/>
 									<span class="truncate text-xs text-[var(--color-text-primary)]">{workspace.name}</span>
-								</button>
+								</div>
 							{/each}
 						</div>
 					{/if}
@@ -446,7 +453,7 @@
 						<Input
 							type="date"
 							bind:value={customDate}
-							min={minCustomDate}
+							min={todayStr}
 							required
 							class="border-[var(--app-border)] bg-[var(--color-bg)] text-[var(--color-text-primary)]"
 						/>
@@ -474,9 +481,12 @@
 	</Dialog.Content>
 </Dialog.Root>
 
-<Dialog.Root open={createdToken !== null} onOpenChange={(open) => !open && (createdToken = null)}>
+<Dialog.Root open={createdToken !== null}>
 	<Dialog.Content
 		class="overflow-hidden rounded-xl border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-0 sm:max-w-[480px]"
+		interactOutsideBehavior="ignore"
+		escapeKeydownBehavior="ignore"
+		showCloseButton={false}
 	>
 		<div class="space-y-4 px-5 pt-5 pb-4">
 			<div>
@@ -503,10 +513,25 @@
 			</div>
 		</div>
 		<div class="flex justify-end gap-2 border-t border-[var(--app-border)] px-5 py-3">
-			<Button size="sm" onclick={() => (createdToken = null)}>{i18n.t('settings.tokens.done')}</Button>
+			<Button size="sm" onclick={() => (showCloseConfirm = true)}>{i18n.t('settings.tokens.done')}</Button>
 		</div>
 	</Dialog.Content>
 </Dialog.Root>
+
+<AlertDialog.Root bind:open={showCloseConfirm}>
+	<AlertDialog.Content>
+		<AlertDialog.Header>
+			<AlertDialog.Title>{i18n.t('settings.tokens.close_confirm_title')}</AlertDialog.Title>
+			<AlertDialog.Description>{i18n.t('settings.tokens.close_confirm_desc')}</AlertDialog.Description>
+		</AlertDialog.Header>
+		<AlertDialog.Footer>
+			<AlertDialog.Cancel>{i18n.t('settings.cancel')}</AlertDialog.Cancel>
+			<AlertDialog.Action onclick={() => (createdToken = null)}>
+				{i18n.t('settings.tokens.close_confirm_button')}
+			</AlertDialog.Action>
+		</AlertDialog.Footer>
+	</AlertDialog.Content>
+</AlertDialog.Root>
 
 <AlertDialog.Root open={tokenToRevoke !== null} onOpenChange={(open) => !open && (tokenToRevoke = null)}>
 	<AlertDialog.Content>
