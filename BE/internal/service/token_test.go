@@ -163,6 +163,38 @@ func TestTokenService_Create_PastExpiry(t *testing.T) {
 	tokenRepo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
 }
 
+func TestTokenService_Revoke(t *testing.T) {
+	tokenRepo := new(mockPersonalAccessTokenRepo)
+	svc := NewTokenService(tokenRepo, new(mockWorkspaceRepo))
+	ctx := context.Background()
+	id := uuid.New()
+	userID := uuid.New()
+
+	tokenRepo.On("Revoke", ctx, id, userID).Return(nil)
+
+	assert.NoError(t, svc.Revoke(ctx, id, userID))
+	tokenRepo.AssertExpectations(t)
+}
+
+func TestTokenService_List(t *testing.T) {
+	tokenRepo := new(mockPersonalAccessTokenRepo)
+	svc := NewTokenService(tokenRepo, new(mockWorkspaceRepo))
+	ctx := context.Background()
+	userID := uuid.New()
+	tokens := []domain.PersonalAccessToken{
+		{ID: uuid.New(), UserID: userID, Name: "ci"},
+		{ID: uuid.New(), UserID: userID, Name: "laptop"},
+	}
+
+	tokenRepo.On("ListByUser", ctx, userID).Return(tokens, nil)
+
+	got, err := svc.List(ctx, userID)
+
+	require.NoError(t, err)
+	assert.Equal(t, tokens, got)
+	tokenRepo.AssertExpectations(t)
+}
+
 func TestTokenService_Revoke_NotFound(t *testing.T) {
 	tokenRepo := new(mockPersonalAccessTokenRepo)
 	svc := NewTokenService(tokenRepo, new(mockWorkspaceRepo))

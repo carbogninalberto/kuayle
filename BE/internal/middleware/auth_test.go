@@ -95,6 +95,25 @@ func TestAuthPATSuccess(t *testing.T) {
 	}
 }
 
+func TestAuthPATViaCookie(t *testing.T) {
+	repo := newFakePATRepo()
+	userID := uuid.New()
+	repo.add("kuayle_pat_cookie", &domain.PersonalAccessToken{
+		ID:     uuid.New(),
+		UserID: userID,
+		Scopes: []string{"issues:read"},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
+	req.AddCookie(&http.Cookie{Name: "access_token", Value: "kuayle_pat_cookie"})
+
+	rec, c := runAuth(t, repo, req)
+
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+	assert.Equal(t, userID, c.Get(string(UserIDKey)))
+	assert.Equal(t, []string{"issues:read"}, c.Get(TokenScopesKey))
+}
+
 func TestAuthPATRevoked(t *testing.T) {
 	repo := newFakePATRepo()
 	now := time.Now()
