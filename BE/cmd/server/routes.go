@@ -246,7 +246,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	scoped(ws, http.MethodGet, "/github/repos", h.github.ListRepos, "workspace:manage")
 	scoped(ws, http.MethodPost, "/github/repos", h.github.LinkRepos, "workspace:manage")
 	scoped(ws, http.MethodDelete, "/github/repos/:id", h.github.UnlinkRepo, "workspace:manage")
-	sessionOnly(ws, http.MethodGet, "/github/auto-transitions", h.github.ListAutoTransitions)
+	scoped(ws, http.MethodGet, "/github/auto-transitions", h.github.ListAutoTransitions, "workspace:manage")
 	scoped(ws, http.MethodPatch, "/github/auto-transitions", h.github.UpdateAutoTransitions, "workspace:manage")
 	scoped(ws, http.MethodGet, "/issues/:identifier/github", h.github.IssueGitHubActivity, "issues:read")
 	scoped(ws, http.MethodGet, "/github/issue-links", h.github.AgentIssueLinks, "issues:read")
