@@ -1,10 +1,32 @@
 package main
 
 import (
+	"net/http"
+
 	"github.com/kuayle/kuayle-backend/internal/handler"
 	mw "github.com/kuayle/kuayle-backend/internal/middleware"
 	"github.com/labstack/echo/v4"
 )
+
+// Route registration helpers make the permission annotation and its
+// enforcement structurally inseparable: the same call attaches the
+// middleware and records the annotation as the route's Name, which the
+// manifest test in routes_test.go audits.
+//
+//	scoped      PAT needs perm in scopes, then RBAC decides (scope ∩ RBAC)
+//	sessionOnly interactive sessions (JWT) only; PATs denied by default
+//	ownerOnly   workspace owner, interactive sessions only
+func scoped(g *echo.Group, method, path string, h echo.HandlerFunc, perm string) {
+	g.Add(method, path, h, mw.RequirePermission(perm)).Name = "perm:" + perm
+}
+
+func sessionOnly(g *echo.Group, method, path string, h echo.HandlerFunc) {
+	g.Add(method, path, h, mw.RequireSession()).Name = "session"
+}
+
+func ownerOnly(g *echo.Group, method, path string, h echo.HandlerFunc) {
+	g.Add(method, path, h, mw.RequireOwner()).Name = "owner"
+}
 
 // appHandlers groups every HTTP handler so route registration can run
 // without a database (tests enumerate e.Routes() with zero-value handlers).
@@ -53,255 +75,255 @@ type appMiddleware struct {
 
 func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	// Health
-	e.GET("/health", h.health.Health)
-	e.GET("/ready", h.health.Ready)
+	e.GET("/health", h.health.Health).Name = "public"
+	e.GET("/ready", h.health.Ready).Name = "public"
 
 	// Auth (public) — rate limited: 5 requests/sec, burst of 10
 	auth := e.Group("/api/auth", m.authRateLimit)
-	auth.GET("/config", h.auth.Config)
-	auth.POST("/register", h.auth.Register)
-	auth.POST("/login", h.auth.Login)
-	auth.POST("/refresh", h.auth.Refresh)
-	auth.POST("/logout", h.auth.Logout)
+	auth.GET("/config", h.auth.Config).Name = "public"
+	auth.POST("/register", h.auth.Register).Name = "public"
+	auth.POST("/login", h.auth.Login).Name = "public"
+	auth.POST("/refresh", h.auth.Refresh).Name = "public"
+	auth.POST("/logout", h.auth.Logout).Name = "public"
 
 	// Public share routes (no auth, rate limited)
 	pub := e.Group("/api/public", m.publicRateLimit)
-	pub.GET("/invite/:token", h.inviteLink.Preview)
-	pub.GET("/share/:token", h.sharedLink.GetPublicMeta)
-	pub.GET("/share/:token/issues", h.sharedLink.ListPublicIssues)
-	e.GET("/api/public/assets/:token", h.upload.PublicAsset, m.publicAssetRateLimit)
+	pub.GET("/invite/:token", h.inviteLink.Preview).Name = "public"
+	pub.GET("/share/:token", h.sharedLink.GetPublicMeta).Name = "public"
+	pub.GET("/share/:token/issues", h.sharedLink.ListPublicIssues).Name = "public"
+	e.GET("/api/public/assets/:token", h.upload.PublicAsset, m.publicAssetRateLimit).Name = "public"
 
 	// Authenticated routes
 	api := e.Group("/api", m.auth)
 
 	// User
-	api.GET("/auth/me", h.auth.Me, mw.RequirePermission("account:read"))
-	api.PATCH("/auth/me", h.auth.UpdateProfile, mw.RequireSession())
-	api.GET("/preferences", h.prefs.Get, mw.RequirePermission("account:read"))
-	api.PATCH("/preferences", h.prefs.Update, mw.RequireSession())
+	scoped(api, http.MethodGet, "/auth/me", h.auth.Me, "account:read")
+	sessionOnly(api, http.MethodPatch, "/auth/me", h.auth.UpdateProfile)
+	scoped(api, http.MethodGet, "/preferences", h.prefs.Get, "account:read")
+	sessionOnly(api, http.MethodPatch, "/preferences", h.prefs.Update)
 
 	// Personal access tokens (PAT callers are rejected by the handler)
-	api.GET("/tokens", h.token.List)
-	api.POST("/tokens", h.token.Create)
-	api.DELETE("/tokens/:id", h.token.Revoke)
-	api.GET("/system/update-status", h.system.UpdateStatus, mw.RequireSession())
-	api.POST("/system/update", h.system.StartUpdate, mw.RequireSession())
+	api.GET("/tokens", h.token.List).Name = "token"
+	api.POST("/tokens", h.token.Create).Name = "token"
+	api.DELETE("/tokens/:id", h.token.Revoke).Name = "token"
+	sessionOnly(api, http.MethodGet, "/system/update-status", h.system.UpdateStatus)
+	sessionOnly(api, http.MethodPost, "/system/update", h.system.StartUpdate)
 
 	// Workspaces (no workspace context needed for list/create)
-	api.GET("/workspaces", h.workspace.List, mw.RequirePermission("workspaces:read"))
-	api.POST("/workspaces", h.workspace.Create, mw.RequireSession())
+	scoped(api, http.MethodGet, "/workspaces", h.workspace.List, "workspaces:read")
+	sessionOnly(api, http.MethodPost, "/workspaces", h.workspace.Create)
 
-	api.POST("/workspaces/import/preview", h.workspaceTransfer.Preview, mw.RequireSession())
-	api.POST("/workspaces/import", h.workspaceTransfer.Import, mw.RequireSession())
-	api.POST("/invite/:token/accept", h.inviteLink.Accept, mw.RequireSession())
+	sessionOnly(api, http.MethodPost, "/workspaces/import/preview", h.workspaceTransfer.Preview)
+	sessionOnly(api, http.MethodPost, "/workspaces/import", h.workspaceTransfer.Import)
+	sessionOnly(api, http.MethodPost, "/invite/:token/accept", h.inviteLink.Accept)
 
 	// Workspace-scoped routes
 	ws := api.Group("/workspaces/:slug", m.workspaceMembership)
-	ws.GET("", h.workspace.Get, mw.RequirePermission("workspaces:read"))
-	ws.PATCH("", h.workspace.Update, mw.RequireOwner())
-	ws.DELETE("", h.workspace.Delete, mw.RequireOwner())
-	ws.GET("/export", h.workspaceTransfer.Export, mw.RequirePermission("workspace:transfer"))
-	ws.POST("/invite-links", h.inviteLink.Create, mw.RequirePermission("member:invite"))
-	ws.GET("/invite-links", h.inviteLink.List, mw.RequirePermission("member:invite"))
-	ws.DELETE("/invite-links/:id", h.inviteLink.Revoke, mw.RequirePermission("member:invite"))
-	ws.POST("/invite", h.workspace.Invite, mw.RequirePermission("member:invite"))
-	ws.GET("/members", h.workspace.ListMembers, mw.RequirePermission("members:read"))
-	ws.PATCH("/members/:userId", h.workspace.UpdateMemberRole, mw.RequirePermission("member:invite"))
-	ws.DELETE("/members/:userId", h.workspace.RemoveMember, mw.RequirePermission("member:invite"))
+	scoped(ws, http.MethodGet, "", h.workspace.Get, "workspaces:read")
+	ownerOnly(ws, http.MethodPatch, "", h.workspace.Update)
+	ownerOnly(ws, http.MethodDelete, "", h.workspace.Delete)
+	scoped(ws, http.MethodGet, "/export", h.workspaceTransfer.Export, "workspace:transfer")
+	scoped(ws, http.MethodPost, "/invite-links", h.inviteLink.Create, "member:invite")
+	scoped(ws, http.MethodGet, "/invite-links", h.inviteLink.List, "member:invite")
+	scoped(ws, http.MethodDelete, "/invite-links/:id", h.inviteLink.Revoke, "member:invite")
+	scoped(ws, http.MethodPost, "/invite", h.workspace.Invite, "member:invite")
+	scoped(ws, http.MethodGet, "/members", h.workspace.ListMembers, "members:read")
+	scoped(ws, http.MethodPatch, "/members/:userId", h.workspace.UpdateMemberRole, "member:invite")
+	scoped(ws, http.MethodDelete, "/members/:userId", h.workspace.RemoveMember, "member:invite")
 
 	// Teams
-	ws.GET("/teams", h.team.List, mw.RequirePermission("teams:read"))
-	ws.POST("/teams", h.team.Create, mw.RequirePermission("team:manage"))
-	ws.GET("/teams/:teamId", h.team.Get, mw.RequirePermission("teams:read"))
-	ws.PATCH("/teams/:teamId", h.team.Update, mw.RequirePermission("team:manage"))
-	ws.DELETE("/teams/:teamId", h.team.Delete, mw.RequirePermission("team:manage"))
-	ws.POST("/teams/:teamId/leave", h.team.Leave, mw.RequireSession())
+	scoped(ws, http.MethodGet, "/teams", h.team.List, "teams:read")
+	scoped(ws, http.MethodPost, "/teams", h.team.Create, "team:manage")
+	scoped(ws, http.MethodGet, "/teams/:teamId", h.team.Get, "teams:read")
+	scoped(ws, http.MethodPatch, "/teams/:teamId", h.team.Update, "team:manage")
+	scoped(ws, http.MethodDelete, "/teams/:teamId", h.team.Delete, "team:manage")
+	sessionOnly(ws, http.MethodPost, "/teams/:teamId/leave", h.team.Leave)
 
 	// Team Statuses
-	ws.GET("/teams/:teamId/statuses", h.teamStatus.List, mw.RequirePermission("teams:read"))
-	ws.POST("/teams/:teamId/statuses", h.teamStatus.Create, mw.RequirePermission("team:manage"))
-	ws.PATCH("/teams/:teamId/statuses/:statusId", h.teamStatus.Update, mw.RequirePermission("team:manage"))
-	ws.DELETE("/teams/:teamId/statuses/:statusId", h.teamStatus.Delete, mw.RequirePermission("team:manage"))
+	scoped(ws, http.MethodGet, "/teams/:teamId/statuses", h.teamStatus.List, "teams:read")
+	scoped(ws, http.MethodPost, "/teams/:teamId/statuses", h.teamStatus.Create, "team:manage")
+	scoped(ws, http.MethodPatch, "/teams/:teamId/statuses/:statusId", h.teamStatus.Update, "team:manage")
+	scoped(ws, http.MethodDelete, "/teams/:teamId/statuses/:statusId", h.teamStatus.Delete, "team:manage")
 
 	// Cycles (team-scoped)
-	ws.GET("/teams/:teamId/cycles", h.cycle.List, mw.RequirePermission("cycles:read"))
-	ws.POST("/teams/:teamId/cycles", h.cycle.Create, mw.RequireSession())
-	ws.GET("/teams/:teamId/cycles/velocity", h.cycle.Velocity, mw.RequirePermission("cycles:read"))
-	ws.GET("/teams/:teamId/cycles/:cycleId", h.cycle.Get, mw.RequirePermission("cycles:read"))
-	ws.PATCH("/teams/:teamId/cycles/:cycleId", h.cycle.Update, mw.RequireSession())
-	ws.POST("/teams/:teamId/cycles/:cycleId/complete", h.cycle.Complete, mw.RequireSession())
-	ws.GET("/teams/:teamId/cycles/:cycleId/burndown", h.cycle.Burndown, mw.RequirePermission("cycles:read"))
-	ws.DELETE("/teams/:teamId/cycles/:cycleId", h.cycle.Delete, mw.RequireSession())
+	scoped(ws, http.MethodGet, "/teams/:teamId/cycles", h.cycle.List, "cycles:read")
+	sessionOnly(ws, http.MethodPost, "/teams/:teamId/cycles", h.cycle.Create)
+	scoped(ws, http.MethodGet, "/teams/:teamId/cycles/velocity", h.cycle.Velocity, "cycles:read")
+	scoped(ws, http.MethodGet, "/teams/:teamId/cycles/:cycleId", h.cycle.Get, "cycles:read")
+	sessionOnly(ws, http.MethodPatch, "/teams/:teamId/cycles/:cycleId", h.cycle.Update)
+	sessionOnly(ws, http.MethodPost, "/teams/:teamId/cycles/:cycleId/complete", h.cycle.Complete)
+	scoped(ws, http.MethodGet, "/teams/:teamId/cycles/:cycleId/burndown", h.cycle.Burndown, "cycles:read")
+	sessionOnly(ws, http.MethodDelete, "/teams/:teamId/cycles/:cycleId", h.cycle.Delete)
 
 	// Issues
-	ws.GET("/issues", h.issue.List, mw.RequirePermission("issues:read"))
-	ws.POST("/issues", h.issue.Create, mw.RequirePermission("issue:create"))
-	ws.PATCH("/issues/bulk", h.issue.BulkUpdate, mw.RequirePermission("issue:update"))
-	ws.DELETE("/issues/bulk", h.issue.BulkDelete, mw.RequirePermission("issue:delete_own"))
-	ws.GET("/issues/:identifier", h.issue.Get, mw.RequirePermission("issues:read"))
-	ws.PATCH("/issues/:identifier", h.issue.Update, mw.RequirePermission("issue:update"))
-	ws.DELETE("/issues/:identifier", h.issue.Delete, mw.RequirePermission("issue:delete_own"))
-	ws.POST("/issues/:identifier/subscribe", h.issue.Subscribe, mw.RequireSession())
-	ws.DELETE("/issues/:identifier/subscribe", h.issue.Unsubscribe, mw.RequireSession())
-	ws.POST("/issues/:identifier/duplicate", h.issue.Duplicate, mw.RequirePermission("issue:create"))
-	ws.POST("/issues/:identifier/convert-to-project", h.issue.ConvertToProject, mw.RequirePermission("project:manage"))
-	ws.POST("/issues/:identifier/expand-description", h.aiSettings.ExpandIssueDescription, mw.RequirePermission("issue:update"))
-	ws.GET("/issues/:identifier/comments", h.issue.ListComments, mw.RequirePermission("comments:read"))
-	ws.POST("/issues/:identifier/comments", h.issue.CreateComment, mw.RequirePermission("issue:create"))
-	ws.POST("/issues/:identifier/comments/:commentId/resolve", h.issue.ResolveComment, mw.RequirePermission("issue:update"))
-	ws.POST("/issues/:identifier/comments/:commentId/reopen", h.issue.ReopenComment, mw.RequirePermission("issue:update"))
-	ws.GET("/issues/:identifier/sub-issues", h.issue.ListSubIssues, mw.RequirePermission("issues:read"))
-	ws.POST("/issues/:identifier/sub-issues", h.issue.CreateSubIssue, mw.RequirePermission("issue:create"))
-	ws.POST("/issues/:identifier/sub-issues/bulk", h.issue.BulkCreateSubIssues, mw.RequirePermission("issue:create"))
-	ws.GET("/issues/:identifier/history", h.issue.GetHistory, mw.RequirePermission("issues:read"))
-	ws.POST("/issues/:identifier/triage/accept", h.issue.TriageAccept, mw.RequirePermission("issue:update"))
-	ws.POST("/issues/:identifier/triage/decline", h.issue.TriageDecline, mw.RequirePermission("issue:update"))
+	scoped(ws, http.MethodGet, "/issues", h.issue.List, "issues:read")
+	scoped(ws, http.MethodPost, "/issues", h.issue.Create, "issue:create")
+	scoped(ws, http.MethodPatch, "/issues/bulk", h.issue.BulkUpdate, "issue:update")
+	scoped(ws, http.MethodDelete, "/issues/bulk", h.issue.BulkDelete, "issue:delete_own")
+	scoped(ws, http.MethodGet, "/issues/:identifier", h.issue.Get, "issues:read")
+	scoped(ws, http.MethodPatch, "/issues/:identifier", h.issue.Update, "issue:update")
+	scoped(ws, http.MethodDelete, "/issues/:identifier", h.issue.Delete, "issue:delete_own")
+	sessionOnly(ws, http.MethodPost, "/issues/:identifier/subscribe", h.issue.Subscribe)
+	sessionOnly(ws, http.MethodDelete, "/issues/:identifier/subscribe", h.issue.Unsubscribe)
+	scoped(ws, http.MethodPost, "/issues/:identifier/duplicate", h.issue.Duplicate, "issue:create")
+	scoped(ws, http.MethodPost, "/issues/:identifier/convert-to-project", h.issue.ConvertToProject, "project:manage")
+	scoped(ws, http.MethodPost, "/issues/:identifier/expand-description", h.aiSettings.ExpandIssueDescription, "issue:update")
+	scoped(ws, http.MethodGet, "/issues/:identifier/comments", h.issue.ListComments, "comments:read")
+	scoped(ws, http.MethodPost, "/issues/:identifier/comments", h.issue.CreateComment, "issue:create")
+	scoped(ws, http.MethodPost, "/issues/:identifier/comments/:commentId/resolve", h.issue.ResolveComment, "issue:update")
+	scoped(ws, http.MethodPost, "/issues/:identifier/comments/:commentId/reopen", h.issue.ReopenComment, "issue:update")
+	scoped(ws, http.MethodGet, "/issues/:identifier/sub-issues", h.issue.ListSubIssues, "issues:read")
+	scoped(ws, http.MethodPost, "/issues/:identifier/sub-issues", h.issue.CreateSubIssue, "issue:create")
+	scoped(ws, http.MethodPost, "/issues/:identifier/sub-issues/bulk", h.issue.BulkCreateSubIssues, "issue:create")
+	scoped(ws, http.MethodGet, "/issues/:identifier/history", h.issue.GetHistory, "issues:read")
+	scoped(ws, http.MethodPost, "/issues/:identifier/triage/accept", h.issue.TriageAccept, "issue:update")
+	scoped(ws, http.MethodPost, "/issues/:identifier/triage/decline", h.issue.TriageDecline, "issue:update")
 
 	// Issue Relations
-	ws.POST("/issues/:identifier/relations", h.relation.Create, mw.RequirePermission("issue:update"))
-	ws.GET("/issues/:identifier/relations", h.relation.List, mw.RequirePermission("issues:read"))
-	ws.DELETE("/issues/:identifier/relations/:relationId", h.relation.Delete, mw.RequirePermission("issue:update"))
+	scoped(ws, http.MethodPost, "/issues/:identifier/relations", h.relation.Create, "issue:update")
+	scoped(ws, http.MethodGet, "/issues/:identifier/relations", h.relation.List, "issues:read")
+	scoped(ws, http.MethodDelete, "/issues/:identifier/relations/:relationId", h.relation.Delete, "issue:update")
 
 	// Issue Templates
-	ws.GET("/issue-templates", h.template.List, mw.RequirePermission("templates:read"))
-	ws.POST("/issue-templates", h.template.Create, mw.RequirePermission("issue:create"))
-	ws.GET("/issue-templates/:id", h.template.Get, mw.RequirePermission("templates:read"))
-	ws.PATCH("/issue-templates/:id", h.template.Update, mw.RequirePermission("issue:create"))
-	ws.DELETE("/issue-templates/:id", h.template.Delete, mw.RequirePermission("issue:create"))
+	scoped(ws, http.MethodGet, "/issue-templates", h.template.List, "templates:read")
+	scoped(ws, http.MethodPost, "/issue-templates", h.template.Create, "issue:create")
+	scoped(ws, http.MethodGet, "/issue-templates/:id", h.template.Get, "templates:read")
+	scoped(ws, http.MethodPatch, "/issue-templates/:id", h.template.Update, "issue:create")
+	scoped(ws, http.MethodDelete, "/issue-templates/:id", h.template.Delete, "issue:create")
 
 	// Labels
-	ws.GET("/labels", h.label.List, mw.RequirePermission("labels:read"))
-	ws.POST("/labels", h.label.Create, mw.RequirePermission("label:manage"))
-	ws.PATCH("/labels/:id", h.label.Update, mw.RequirePermission("label:manage"))
-	ws.DELETE("/labels/:id", h.label.Delete, mw.RequirePermission("label:manage"))
+	scoped(ws, http.MethodGet, "/labels", h.label.List, "labels:read")
+	scoped(ws, http.MethodPost, "/labels", h.label.Create, "label:manage")
+	scoped(ws, http.MethodPatch, "/labels/:id", h.label.Update, "label:manage")
+	scoped(ws, http.MethodDelete, "/labels/:id", h.label.Delete, "label:manage")
 
 	// Projects
-	ws.GET("/projects", h.project.List, mw.RequirePermission("projects:read"))
-	ws.POST("/projects", h.project.Create, mw.RequirePermission("project:manage"))
-	ws.GET("/projects/:id", h.project.Get, mw.RequirePermission("projects:read"))
-	ws.PATCH("/projects/:id", h.project.Update, mw.RequirePermission("project:manage"))
-	ws.DELETE("/projects/:id", h.project.Delete, mw.RequirePermission("project:manage"))
-	ws.GET("/teams/:teamId/projects", h.project.ListByTeam, mw.RequirePermission("projects:read"))
+	scoped(ws, http.MethodGet, "/projects", h.project.List, "projects:read")
+	scoped(ws, http.MethodPost, "/projects", h.project.Create, "project:manage")
+	scoped(ws, http.MethodGet, "/projects/:id", h.project.Get, "projects:read")
+	scoped(ws, http.MethodPatch, "/projects/:id", h.project.Update, "project:manage")
+	scoped(ws, http.MethodDelete, "/projects/:id", h.project.Delete, "project:manage")
+	scoped(ws, http.MethodGet, "/teams/:teamId/projects", h.project.ListByTeam, "projects:read")
 
 	// Views
-	ws.GET("/views", h.view.List, mw.RequirePermission("views:read"))
-	ws.POST("/views", h.view.Create, mw.RequireSession())
-	ws.GET("/views/:id", h.view.Get, mw.RequirePermission("views:read"))
-	ws.PATCH("/views/:id", h.view.Update, mw.RequireSession())
-	ws.DELETE("/views/:id", h.view.Delete, mw.RequireSession())
+	scoped(ws, http.MethodGet, "/views", h.view.List, "views:read")
+	sessionOnly(ws, http.MethodPost, "/views", h.view.Create)
+	scoped(ws, http.MethodGet, "/views/:id", h.view.Get, "views:read")
+	sessionOnly(ws, http.MethodPatch, "/views/:id", h.view.Update)
+	sessionOnly(ws, http.MethodDelete, "/views/:id", h.view.Delete)
 
 	// Analytics
-	ws.GET("/analytics/overview", h.analytics.Overview, mw.RequirePermission("analytics:read"))
-	ws.GET("/analytics/distribution", h.analytics.IssueDistribution, mw.RequirePermission("analytics:read"))
-	ws.GET("/analytics/insights", h.analytics.Insights, mw.RequirePermission("analytics:read"))
-	ws.GET("/analytics/burnup", h.analytics.Burnup, mw.RequirePermission("analytics:read"))
+	scoped(ws, http.MethodGet, "/analytics/overview", h.analytics.Overview, "analytics:read")
+	scoped(ws, http.MethodGet, "/analytics/distribution", h.analytics.IssueDistribution, "analytics:read")
+	scoped(ws, http.MethodGet, "/analytics/insights", h.analytics.Insights, "analytics:read")
+	scoped(ws, http.MethodGet, "/analytics/burnup", h.analytics.Burnup, "analytics:read")
 
 	// Webhooks
-	ws.GET("/webhooks", h.webhook.List, mw.RequirePermission("workspace:manage"))
-	ws.POST("/webhooks", h.webhook.Create, mw.RequirePermission("workspace:manage"))
-	ws.PATCH("/webhooks/:id", h.webhook.Update, mw.RequirePermission("workspace:manage"))
-	ws.DELETE("/webhooks/:id", h.webhook.Delete, mw.RequirePermission("workspace:manage"))
+	scoped(ws, http.MethodGet, "/webhooks", h.webhook.List, "workspace:manage")
+	scoped(ws, http.MethodPost, "/webhooks", h.webhook.Create, "workspace:manage")
+	scoped(ws, http.MethodPatch, "/webhooks/:id", h.webhook.Update, "workspace:manage")
+	scoped(ws, http.MethodDelete, "/webhooks/:id", h.webhook.Delete, "workspace:manage")
 
 	// AI settings
-	ws.GET("/ai-settings", h.aiSettings.Get, mw.RequireOwner())
-	ws.GET("/ai-settings/issue-copy-prompt", h.aiSettings.GetIssueCopyPrompt, mw.RequirePermission("issues:read"))
-	ws.PATCH("/ai-settings", h.aiSettings.Update, mw.RequireOwner())
+	ownerOnly(ws, http.MethodGet, "/ai-settings", h.aiSettings.Get)
+	scoped(ws, http.MethodGet, "/ai-settings/issue-copy-prompt", h.aiSettings.GetIssueCopyPrompt, "issues:read")
+	ownerOnly(ws, http.MethodPatch, "/ai-settings", h.aiSettings.Update)
 
 	// GitHub integration (conditional)
 	// Public webhook endpoint (no auth, signature-verified internally)
-	e.POST("/api/github/webhook", h.github.HandleWebhook)
-	e.POST("/api/dev-machine-ingest/events", h.devMachine.IngestEvent, m.machineEventsRateLimit)
-	e.POST("/api/dev-machine-ingest/logs", h.devMachine.IngestLog, m.machineLogsRateLimit)
+	e.POST("/api/github/webhook", h.github.HandleWebhook).Name = "public"
+	e.POST("/api/dev-machine-ingest/events", h.devMachine.IngestEvent, m.machineEventsRateLimit).Name = "public"
+	e.POST("/api/dev-machine-ingest/logs", h.devMachine.IngestLog, m.machineLogsRateLimit).Name = "public"
 
 	// GitHub integration (workspace-scoped)
-	ws.GET("/github/status", h.github.Status, mw.RequireSession())
-	ws.GET("/github/setup", h.github.Setup, mw.RequirePermission("workspace:manage"))
-	ws.GET("/github/setup/callback", h.github.SetupCallback, mw.RequirePermission("workspace:manage"))
-	ws.GET("/github/install", h.github.InstallURL, mw.RequirePermission("workspace:manage"))
-	ws.GET("/github/callback", h.github.Callback, mw.RequirePermission("workspace:manage"))
-	ws.DELETE("/github/disconnect", h.github.Disconnect, mw.RequirePermission("workspace:manage"))
-	ws.DELETE("/github/app", h.github.DeleteApp, mw.RequirePermission("workspace:manage"))
-	ws.GET("/github/repos", h.github.ListRepos, mw.RequirePermission("workspace:manage"))
-	ws.POST("/github/repos", h.github.LinkRepos, mw.RequirePermission("workspace:manage"))
-	ws.DELETE("/github/repos/:id", h.github.UnlinkRepo, mw.RequirePermission("workspace:manage"))
-	ws.GET("/github/auto-transitions", h.github.ListAutoTransitions, mw.RequireSession())
-	ws.PATCH("/github/auto-transitions", h.github.UpdateAutoTransitions, mw.RequirePermission("workspace:manage"))
-	ws.GET("/issues/:identifier/github", h.github.IssueGitHubActivity, mw.RequirePermission("issues:read"))
-	ws.GET("/github/issue-links", h.github.AgentIssueLinks, mw.RequirePermission("issues:read"))
+	sessionOnly(ws, http.MethodGet, "/github/status", h.github.Status)
+	scoped(ws, http.MethodGet, "/github/setup", h.github.Setup, "workspace:manage")
+	scoped(ws, http.MethodGet, "/github/setup/callback", h.github.SetupCallback, "workspace:manage")
+	scoped(ws, http.MethodGet, "/github/install", h.github.InstallURL, "workspace:manage")
+	scoped(ws, http.MethodGet, "/github/callback", h.github.Callback, "workspace:manage")
+	scoped(ws, http.MethodDelete, "/github/disconnect", h.github.Disconnect, "workspace:manage")
+	scoped(ws, http.MethodDelete, "/github/app", h.github.DeleteApp, "workspace:manage")
+	scoped(ws, http.MethodGet, "/github/repos", h.github.ListRepos, "workspace:manage")
+	scoped(ws, http.MethodPost, "/github/repos", h.github.LinkRepos, "workspace:manage")
+	scoped(ws, http.MethodDelete, "/github/repos/:id", h.github.UnlinkRepo, "workspace:manage")
+	sessionOnly(ws, http.MethodGet, "/github/auto-transitions", h.github.ListAutoTransitions)
+	scoped(ws, http.MethodPatch, "/github/auto-transitions", h.github.UpdateAutoTransitions, "workspace:manage")
+	scoped(ws, http.MethodGet, "/issues/:identifier/github", h.github.IssueGitHubActivity, "issues:read")
+	scoped(ws, http.MethodGet, "/github/issue-links", h.github.AgentIssueLinks, "issues:read")
 
 	// Dev Machines — guarded by demo-mode restriction when active
 	dm := ws.Group("", m.devMachineDemoGuard)
-	dm.GET("/dev-machines", h.devMachine.List, mw.RequirePermission("dev_machine:read"))
-	dm.POST("/dev-machines", h.devMachine.Create, mw.RequirePermission("dev_machine:create"))
-	dm.DELETE("/dev-machines/bulk", h.devMachine.BulkDelete, mw.RequirePermission("dev_machine:admin"))
-	dm.POST("/dev-machines/bulk/permanent-delete", h.devMachine.BulkPermanentDelete, mw.RequirePermission("dev_machine:admin"))
-	dm.GET("/dev-machine-names/suggestion", h.devMachine.NameSuggestion, mw.RequirePermission("dev_machine:create"))
-	dm.GET("/dev-machine-names/availability", h.devMachine.NameAvailability, mw.RequirePermission("dev_machine:create"))
-	dm.GET("/dev-machine-policy", h.devMachine.GetPolicy, mw.RequirePermission("dev_machine:read"))
-	dm.PATCH("/dev-machine-policy", h.devMachine.UpdatePolicy, mw.RequirePermission("dev_machine:admin"))
-	dm.GET("/dev-machine-scope-settings", h.devMachine.ScopeSettings, mw.RequirePermission("dev_machine:read"))
-	dm.GET("/dev-machine-scope-setting", h.devMachine.ScopeSetting, mw.RequirePermission("dev_machine:read"))
-	dm.PUT("/dev-machine-scope-setting", h.devMachine.UpdateScopeSetting, mw.RequirePermission("dev_machine:manage"))
-	dm.DELETE("/dev-machine-scope-setting", h.devMachine.DeleteScopeSetting, mw.RequirePermission("dev_machine:manage"))
-	dm.GET("/dev-machine-environments", h.devMachine.Environments, mw.RequirePermission("dev_machine:read"))
-	dm.POST("/dev-machine-environments", h.devMachine.SnapshotEnvironment, mw.RequirePermission("dev_machine:admin"))
-	dm.GET("/dev-machine-environments/:environmentId", h.devMachine.GetEnvironment, mw.RequirePermission("dev_machine:read"))
-	dm.DELETE("/dev-machine-environments/:environmentId", h.devMachine.DeleteEnvironment, mw.RequirePermission("dev_machine:admin"))
-	dm.GET("/dev-machine-providers", h.devMachine.Providers, mw.RequirePermission("dev_machine:read"))
-	dm.GET("/dev-machines/:machineId", h.devMachine.Get, mw.RequirePermission("dev_machine:read"))
-	dm.PATCH("/dev-machines/:machineId", h.devMachine.Update, mw.RequirePermission("dev_machine:manage"))
-	dm.DELETE("/dev-machines/:machineId", h.devMachine.Delete, mw.RequirePermission("dev_machine:admin"))
-	dm.POST("/dev-machines/:machineId/permanent-delete", h.devMachine.PermanentDelete, mw.RequirePermission("dev_machine:admin"))
-	dm.POST("/dev-machines/:machineId/start", h.devMachine.Start, mw.RequirePermission("dev_machine:manage"))
-	dm.POST("/dev-machines/:machineId/stop", h.devMachine.Stop, mw.RequirePermission("dev_machine:manage"))
-	dm.POST("/dev-machines/:machineId/pause", h.devMachine.Pause, mw.RequirePermission("dev_machine:manage"))
-	dm.POST("/dev-machines/:machineId/teardown", h.devMachine.Teardown, mw.RequirePermission("dev_machine:manage"))
-	dm.POST("/dev-machines/:machineId/activity", h.devMachine.TouchActivity, mw.RequirePermission("dev_machine:read"))
-	dm.GET("/dev-machines/:machineId/checkouts", h.devMachine.Checkouts, mw.RequirePermission("dev_machine:read"))
-	dm.POST("/dev-machines/:machineId/checkouts", h.devMachine.CheckoutIssue, mw.RequirePermission("dev_machine:manage"))
-	dm.GET("/dev-machines/:machineId/events", h.devMachine.Events, mw.RequirePermission("dev_machine:read"))
-	dm.GET("/dev-machines/:machineId/logs", h.devMachine.Logs, mw.RequirePermission("dev_machine:read"))
-	dm.GET("/dev-machines/:machineId/services", h.devMachine.Services, mw.RequirePermission("dev_machine:read"))
-	dm.GET("/dev-machines/:machineId/providers", h.devMachine.MachineProviders, mw.RequirePermission("dev_machine:read"))
-	dm.GET("/dev-machines/:machineId/resource-usage", h.devMachine.ResourceUsage, mw.RequirePermission("dev_machine:read"))
-	dm.POST("/dev-machines/:machineId/services/:service/launch", h.devMachine.LaunchService, mw.RequirePermission("dev_machine:read"))
-	dm.GET("/dev-machines/:machineId/terminal-sessions", h.devMachine.ListTerminalSessions, mw.RequirePermission("dev_machine:read"))
-	dm.POST("/dev-machines/:machineId/terminal-sessions", h.devMachine.CreateTerminalSession, mw.RequirePermission("dev_machine:read"))
-	dm.POST("/dev-machines/:machineId/terminal-sessions/:sessionId/close", h.devMachine.CloseTerminalSession, mw.RequirePermission("dev_machine:read"))
-	dm.GET("/dev-machines/:machineId/agent-runs", h.devMachine.ListMachineAgentRuns, mw.RequirePermission("dev_machine:read"))
-	dm.POST("/dev-machines/:machineId/agent-runs", h.devMachine.CreateAgentRun, mw.RequirePermission("dev_machine:manage"))
-	dm.GET("/agent-runs", h.devMachine.ListAgentRuns, mw.RequirePermission("dev_machine:read"))
-	dm.GET("/agent-runs/:agentRunId", h.devMachine.GetAgentRun, mw.RequirePermission("dev_machine:read"))
-	dm.POST("/agent-runs/:agentRunId/cancel", h.devMachine.CancelAgentRun, mw.RequirePermission("dev_machine:manage"))
-	dm.GET("/agent-runs/:agentRunId/trace", h.devMachine.AgentRunTrace, mw.RequirePermission("dev_machine:read"))
+	scoped(dm, http.MethodGet, "/dev-machines", h.devMachine.List, "dev_machine:read")
+	scoped(dm, http.MethodPost, "/dev-machines", h.devMachine.Create, "dev_machine:create")
+	scoped(dm, http.MethodDelete, "/dev-machines/bulk", h.devMachine.BulkDelete, "dev_machine:admin")
+	scoped(dm, http.MethodPost, "/dev-machines/bulk/permanent-delete", h.devMachine.BulkPermanentDelete, "dev_machine:admin")
+	scoped(dm, http.MethodGet, "/dev-machine-names/suggestion", h.devMachine.NameSuggestion, "dev_machine:create")
+	scoped(dm, http.MethodGet, "/dev-machine-names/availability", h.devMachine.NameAvailability, "dev_machine:create")
+	scoped(dm, http.MethodGet, "/dev-machine-policy", h.devMachine.GetPolicy, "dev_machine:read")
+	scoped(dm, http.MethodPatch, "/dev-machine-policy", h.devMachine.UpdatePolicy, "dev_machine:admin")
+	scoped(dm, http.MethodGet, "/dev-machine-scope-settings", h.devMachine.ScopeSettings, "dev_machine:read")
+	scoped(dm, http.MethodGet, "/dev-machine-scope-setting", h.devMachine.ScopeSetting, "dev_machine:read")
+	scoped(dm, http.MethodPut, "/dev-machine-scope-setting", h.devMachine.UpdateScopeSetting, "dev_machine:manage")
+	scoped(dm, http.MethodDelete, "/dev-machine-scope-setting", h.devMachine.DeleteScopeSetting, "dev_machine:manage")
+	scoped(dm, http.MethodGet, "/dev-machine-environments", h.devMachine.Environments, "dev_machine:read")
+	scoped(dm, http.MethodPost, "/dev-machine-environments", h.devMachine.SnapshotEnvironment, "dev_machine:admin")
+	scoped(dm, http.MethodGet, "/dev-machine-environments/:environmentId", h.devMachine.GetEnvironment, "dev_machine:read")
+	scoped(dm, http.MethodDelete, "/dev-machine-environments/:environmentId", h.devMachine.DeleteEnvironment, "dev_machine:admin")
+	scoped(dm, http.MethodGet, "/dev-machine-providers", h.devMachine.Providers, "dev_machine:read")
+	scoped(dm, http.MethodGet, "/dev-machines/:machineId", h.devMachine.Get, "dev_machine:read")
+	scoped(dm, http.MethodPatch, "/dev-machines/:machineId", h.devMachine.Update, "dev_machine:manage")
+	scoped(dm, http.MethodDelete, "/dev-machines/:machineId", h.devMachine.Delete, "dev_machine:admin")
+	scoped(dm, http.MethodPost, "/dev-machines/:machineId/permanent-delete", h.devMachine.PermanentDelete, "dev_machine:admin")
+	scoped(dm, http.MethodPost, "/dev-machines/:machineId/start", h.devMachine.Start, "dev_machine:manage")
+	scoped(dm, http.MethodPost, "/dev-machines/:machineId/stop", h.devMachine.Stop, "dev_machine:manage")
+	scoped(dm, http.MethodPost, "/dev-machines/:machineId/pause", h.devMachine.Pause, "dev_machine:manage")
+	scoped(dm, http.MethodPost, "/dev-machines/:machineId/teardown", h.devMachine.Teardown, "dev_machine:manage")
+	scoped(dm, http.MethodPost, "/dev-machines/:machineId/activity", h.devMachine.TouchActivity, "dev_machine:read")
+	scoped(dm, http.MethodGet, "/dev-machines/:machineId/checkouts", h.devMachine.Checkouts, "dev_machine:read")
+	scoped(dm, http.MethodPost, "/dev-machines/:machineId/checkouts", h.devMachine.CheckoutIssue, "dev_machine:manage")
+	scoped(dm, http.MethodGet, "/dev-machines/:machineId/events", h.devMachine.Events, "dev_machine:read")
+	scoped(dm, http.MethodGet, "/dev-machines/:machineId/logs", h.devMachine.Logs, "dev_machine:read")
+	scoped(dm, http.MethodGet, "/dev-machines/:machineId/services", h.devMachine.Services, "dev_machine:read")
+	scoped(dm, http.MethodGet, "/dev-machines/:machineId/providers", h.devMachine.MachineProviders, "dev_machine:read")
+	scoped(dm, http.MethodGet, "/dev-machines/:machineId/resource-usage", h.devMachine.ResourceUsage, "dev_machine:read")
+	scoped(dm, http.MethodPost, "/dev-machines/:machineId/services/:service/launch", h.devMachine.LaunchService, "dev_machine:read")
+	scoped(dm, http.MethodGet, "/dev-machines/:machineId/terminal-sessions", h.devMachine.ListTerminalSessions, "dev_machine:read")
+	scoped(dm, http.MethodPost, "/dev-machines/:machineId/terminal-sessions", h.devMachine.CreateTerminalSession, "dev_machine:read")
+	scoped(dm, http.MethodPost, "/dev-machines/:machineId/terminal-sessions/:sessionId/close", h.devMachine.CloseTerminalSession, "dev_machine:read")
+	scoped(dm, http.MethodGet, "/dev-machines/:machineId/agent-runs", h.devMachine.ListMachineAgentRuns, "dev_machine:read")
+	scoped(dm, http.MethodPost, "/dev-machines/:machineId/agent-runs", h.devMachine.CreateAgentRun, "dev_machine:manage")
+	scoped(dm, http.MethodGet, "/agent-runs", h.devMachine.ListAgentRuns, "dev_machine:read")
+	scoped(dm, http.MethodGet, "/agent-runs/:agentRunId", h.devMachine.GetAgentRun, "dev_machine:read")
+	scoped(dm, http.MethodPost, "/agent-runs/:agentRunId/cancel", h.devMachine.CancelAgentRun, "dev_machine:manage")
+	scoped(dm, http.MethodGet, "/agent-runs/:agentRunId/trace", h.devMachine.AgentRunTrace, "dev_machine:read")
 
 	// Favorites
-	ws.GET("/favorites", h.fav.List, mw.RequirePermission("account:read"))
-	ws.POST("/favorites", h.fav.Create, mw.RequireSession())
-	ws.DELETE("/favorites/:id", h.fav.Delete, mw.RequireSession())
+	scoped(ws, http.MethodGet, "/favorites", h.fav.List, "account:read")
+	sessionOnly(ws, http.MethodPost, "/favorites", h.fav.Create)
+	sessionOnly(ws, http.MethodDelete, "/favorites/:id", h.fav.Delete)
 
 	// Shared Links
-	ws.GET("/shared-links", h.sharedLink.List, mw.RequirePermission("account:read"))
-	ws.POST("/shared-links", h.sharedLink.Create, mw.RequireSession())
-	ws.PATCH("/shared-links/:id", h.sharedLink.Update, mw.RequireSession())
-	ws.DELETE("/shared-links/:id", h.sharedLink.Delete, mw.RequireSession())
+	scoped(ws, http.MethodGet, "/shared-links", h.sharedLink.List, "account:read")
+	sessionOnly(ws, http.MethodPost, "/shared-links", h.sharedLink.Create)
+	sessionOnly(ws, http.MethodPatch, "/shared-links/:id", h.sharedLink.Update)
+	sessionOnly(ws, http.MethodDelete, "/shared-links/:id", h.sharedLink.Delete)
 
 	// Uploads
-	ws.POST("/upload", h.upload.Upload, mw.RequirePermission("issue:create"))
-	ws.GET("/assets/:assetId", h.upload.GetAsset, mw.RequireSession())
-	ws.POST("/issues/:identifier/prompt-assets", h.upload.SignIssuePromptAssets, mw.RequireSession())
+	scoped(ws, http.MethodPost, "/upload", h.upload.Upload, "issue:create")
+	sessionOnly(ws, http.MethodGet, "/assets/:assetId", h.upload.GetAsset)
+	sessionOnly(ws, http.MethodPost, "/issues/:identifier/prompt-assets", h.upload.SignIssuePromptAssets)
 
 	// WebSocket
-	ws.GET("/ws", h.ws.Handle, mw.RequireSession())
+	sessionOnly(ws, http.MethodGet, "/ws", h.ws.Handle)
 
 	// Notifications (user-scoped, not workspace-scoped)
-	api.GET("/notifications", h.notif.List, mw.RequirePermission("notifications:read"))
-	api.PATCH("/notifications/:id", h.notif.Update, mw.RequireSession())
-	api.POST("/notifications/:id/read", h.notif.MarkRead, mw.RequireSession())
-	api.POST("/notifications/:id/unread", h.notif.MarkUnread, mw.RequireSession())
-	api.POST("/notifications/:id/snooze", h.notif.Snooze, mw.RequireSession())
-	api.POST("/notifications/:id/unsnooze", h.notif.Unsnooze, mw.RequireSession())
-	api.POST("/notifications/:id/archive", h.notif.Archive, mw.RequireSession())
-	api.POST("/notifications/:id/unarchive", h.notif.Unarchive, mw.RequireSession())
-	api.POST("/notifications/mark-all-read", h.notif.MarkAllRead, mw.RequireSession())
+	scoped(api, http.MethodGet, "/notifications", h.notif.List, "notifications:read")
+	sessionOnly(api, http.MethodPatch, "/notifications/:id", h.notif.Update)
+	sessionOnly(api, http.MethodPost, "/notifications/:id/read", h.notif.MarkRead)
+	sessionOnly(api, http.MethodPost, "/notifications/:id/unread", h.notif.MarkUnread)
+	sessionOnly(api, http.MethodPost, "/notifications/:id/snooze", h.notif.Snooze)
+	sessionOnly(api, http.MethodPost, "/notifications/:id/unsnooze", h.notif.Unsnooze)
+	sessionOnly(api, http.MethodPost, "/notifications/:id/archive", h.notif.Archive)
+	sessionOnly(api, http.MethodPost, "/notifications/:id/unarchive", h.notif.Unarchive)
+	sessionOnly(api, http.MethodPost, "/notifications/mark-all-read", h.notif.MarkAllRead)
 }
