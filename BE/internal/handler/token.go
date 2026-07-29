@@ -77,6 +77,9 @@ func (h *TokenHandler) Revoke(c echo.Context) error {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid token ID")
 	}
 	if err := h.tokenSvc.Revoke(c.Request().Context(), id, middleware.GetUserID(c)); err != nil {
+		if errors.Is(err, service.ErrTokenNotFound) {
+			return response.NotFound(c, "Token")
+		}
 		return response.InternalError(c)
 	}
 	return c.NoContent(http.StatusNoContent)

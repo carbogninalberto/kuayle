@@ -170,10 +170,10 @@ func TestTokenService_Revoke_NotFound(t *testing.T) {
 	id := uuid.New()
 	userID := uuid.New()
 
-	// Unknown id or another user's token: both surface as "token not found".
+	// Unknown id or another user's token: both surface as ErrTokenNotFound.
 	tokenRepo.On("Revoke", ctx, id, userID).Return(sql.ErrNoRows)
 
 	err := svc.Revoke(ctx, id, userID)
 
-	assert.EqualError(t, err, "token not found")
+	assert.ErrorIs(t, err, ErrTokenNotFound)
 }

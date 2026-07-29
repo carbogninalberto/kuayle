@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -17,6 +18,7 @@ var (
 	ErrInvalidTokenScope     = errors.New("invalid token scope")
 	ErrInvalidTokenWorkspace = errors.New("invalid or inaccessible workspace")
 	ErrInvalidTokenExpiry    = errors.New("expires_at must be in the future")
+	ErrTokenNotFound         = errors.New("token not found")
 )
 
 type TokenService struct {
@@ -90,8 +92,11 @@ func (s *TokenService) List(ctx context.Context, userID uuid.UUID) ([]domain.Per
 
 func (s *TokenService) Revoke(ctx context.Context, id, userID uuid.UUID) error {
 	if err := s.tokenRepo.Revoke(ctx, id, userID); err != nil {
-		// Unknown id or another user's token: deliberately indistinguishable.
-		return fmt.Errorf("token not found")
+		if errors.Is(err, sql.ErrNoRows) {
+			// Unknown id or another user's token: deliberately indistinguishable.
+			return ErrTokenNotFound
+		}
+		return err
 	}
 	return nil
 }
