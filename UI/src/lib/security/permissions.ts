@@ -5,7 +5,7 @@ const ROLE_PERMISSIONS: Record<Role, string[]> = {
 		'workspace:manage',
 		'team:manage',
 		'issue:create',
-		'issue:read',
+		'issues:read',
 		'issue:update',
 		'issue:delete',
 		'issue:delete_own',
@@ -18,7 +18,7 @@ const ROLE_PERMISSIONS: Record<Role, string[]> = {
 	admin: [
 		'team:manage',
 		'issue:create',
-		'issue:read',
+		'issues:read',
 		'issue:update',
 		'issue:delete',
 		'issue:delete_own',
@@ -30,7 +30,7 @@ const ROLE_PERMISSIONS: Record<Role, string[]> = {
 	],
 	member: [
 		'issue:create',
-		'issue:read',
+		'issues:read',
 		'issue:update',
 		'issue:delete_own',
 		'project:manage',
@@ -38,7 +38,7 @@ const ROLE_PERMISSIONS: Record<Role, string[]> = {
 		'cycle:manage',
 		'view:manage'
 	],
-	guest: ['issue:read']
+	guest: ['issues:read']
 };
 
 export function hasPermission(role: Role, permission: string): boolean {
