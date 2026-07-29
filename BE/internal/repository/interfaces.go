@@ -30,6 +30,14 @@ type RefreshTokenRepo interface {
 	DeleteExpired(ctx context.Context) error
 }
 
+type PersonalAccessTokenRepo interface {
+	Create(ctx context.Context, token *domain.PersonalAccessToken) error
+	GetByHash(ctx context.Context, hash string) (*domain.PersonalAccessToken, error)
+	ListByUser(ctx context.Context, userID uuid.UUID) ([]domain.PersonalAccessToken, error)
+	Revoke(ctx context.Context, id, userID uuid.UUID) error
+	UpdateLastUsed(ctx context.Context, id uuid.UUID) error
+}
+
 type WorkspaceRepo interface {
 	Create(ctx context.Context, ws *domain.Workspace) error
 	CreateWithMemberAndLabels(ctx context.Context, ws *domain.Workspace, member *domain.WorkspaceMember, labels []domain.Label) error
