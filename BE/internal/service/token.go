@@ -18,6 +18,7 @@ var (
 	ErrInvalidTokenScope     = errors.New("invalid token scope")
 	ErrInvalidTokenWorkspace = errors.New("invalid or inaccessible workspace")
 	ErrInvalidTokenExpiry    = errors.New("expires_at must be in the future")
+	ErrInvalidTokenName      = errors.New("name must not be empty")
 	ErrTokenNotFound         = errors.New("token not found")
 )
 
@@ -33,6 +34,11 @@ func NewTokenService(tokenRepo repository.PersonalAccessTokenRepo, workspaceRepo
 // Create validates the request and returns the stored token plus the
 // plaintext token, which is only available here.
 func (s *TokenService) Create(ctx context.Context, userID uuid.UUID, req dto.CreateTokenRequest) (*domain.PersonalAccessToken, string, error) {
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		return nil, "", ErrInvalidTokenName
+	}
+
 	for _, scope := range req.Scopes {
 		if !domain.IsValidScope(scope) {
 			return nil, "", fmt.Errorf("%w: %s", ErrInvalidTokenScope, scope)
@@ -73,7 +79,7 @@ func (s *TokenService) Create(ctx context.Context, userID uuid.UUID, req dto.Cre
 	token := &domain.PersonalAccessToken{
 		ID:             uuid.New(),
 		UserID:         userID,
-		Name:           strings.TrimSpace(req.Name),
+		Name:           name,
 		TokenHash:      hash,
 		TokenPrefix:    prefix,
 		Scopes:         req.Scopes,

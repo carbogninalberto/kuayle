@@ -56,6 +56,8 @@ func (h *TokenHandler) Create(c echo.Context) error {
 	token, plaintext, err := h.tokenSvc.Create(c.Request().Context(), middleware.GetUserID(c), req)
 	if err != nil {
 		switch {
+		case errors.Is(err, service.ErrInvalidTokenName):
+			return response.ValidationError(c, []dto.ErrorDetail{{Field: "name", Message: err.Error()}})
 		case errors.Is(err, service.ErrInvalidTokenScope):
 			return response.ValidationError(c, []dto.ErrorDetail{{Field: "scopes", Message: err.Error()}})
 		case errors.Is(err, service.ErrInvalidTokenWorkspace):

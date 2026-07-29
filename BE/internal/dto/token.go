@@ -9,7 +9,7 @@ import (
 type CreateTokenRequest struct {
 	Name           string     `json:"name" validate:"required,min=1,max=100"`
 	Scopes         []string   `json:"scopes" validate:"required,min=1"`
-	WorkspaceSlugs []string   `json:"workspace_slugs"`
+	WorkspaceSlugs []string   `json:"workspace_slugs" validate:"omitempty,max=50"`
 	ExpiresAt      *time.Time `json:"expires_at"`
 }
 
