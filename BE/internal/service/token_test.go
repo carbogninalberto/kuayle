@@ -75,6 +75,27 @@ func TestTokenService_Create(t *testing.T) {
 	workspaceRepo.AssertExpectations(t)
 }
 
+func TestTokenService_Create_EmptyWorkspaceSlugsMeansAll(t *testing.T) {
+	tokenRepo := new(mockPersonalAccessTokenRepo)
+	svc := NewTokenService(tokenRepo, new(mockWorkspaceRepo))
+	ctx := context.Background()
+
+	// An explicit [] must persist as NULL (all workspaces), not '{}',
+	// or the middleware would deny every workspace.
+	tokenRepo.On("Create", ctx, mock.MatchedBy(func(token *domain.PersonalAccessToken) bool {
+		return token.WorkspaceSlugs == nil
+	})).Return(nil)
+
+	_, _, err := svc.Create(ctx, uuid.New(), dto.CreateTokenRequest{
+		Name:           "ci",
+		Scopes:         []string{"issues:read"},
+		WorkspaceSlugs: []string{},
+	})
+
+	require.NoError(t, err)
+	tokenRepo.AssertExpectations(t)
+}
+
 func TestTokenService_Create_InvalidScope(t *testing.T) {
 	tokenRepo := new(mockPersonalAccessTokenRepo)
 	svc := NewTokenService(tokenRepo, new(mockWorkspaceRepo))

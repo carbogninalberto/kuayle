@@ -37,6 +37,11 @@ func (s *TokenService) Create(ctx context.Context, userID uuid.UUID, req dto.Cre
 		}
 	}
 
+	// An empty list means "all workspaces" (NULL), same as omitting the field.
+	if len(req.WorkspaceSlugs) == 0 {
+		req.WorkspaceSlugs = nil
+	}
+
 	for _, slug := range req.WorkspaceSlugs {
 		ws, err := s.workspaceRepo.GetBySlug(ctx, slug)
 		if err != nil {
