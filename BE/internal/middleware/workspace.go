@@ -10,7 +10,7 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-func WorkspaceMembership(workspaceRepo *repository.WorkspaceRepository) echo.MiddlewareFunc {
+func WorkspaceMembership(workspaceRepo repository.WorkspaceRepo) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			slug := c.Param("slug")

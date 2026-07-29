@@ -209,261 +209,44 @@ func main() {
 	e.Use(mw.CORS(cfg.FrontendURL))
 	e.Use(mw.SecureHeaders())
 
-	// Health
-	e.GET("/health", healthH.Health)
-	e.GET("/ready", healthH.Ready)
-
-	// Auth (public) — rate limited: 5 requests/sec, burst of 10
-	auth := e.Group("/api/auth", mw.RateLimit(5, 10))
-	auth.POST("/register", authH.Register)
-	auth.POST("/login", authH.Login)
-	auth.POST("/refresh", authH.Refresh)
-	auth.POST("/logout", authH.Logout)
-
-	// Public share routes (no auth, rate limited)
-	pub := e.Group("/api/public", mw.RateLimit(2, 5))
-	pub.GET("/share/:token", sharedLinkH.GetPublicMeta)
-	pub.GET("/share/:token/issues", sharedLinkH.ListPublicIssues)
-	e.GET("/api/public/assets/:token", uploadH.PublicAsset, mw.RateLimit(10, 20))
-
-	// Public instance config + invite preview (no auth, rate limited)
-	e.GET("/api/config", configH.Get, mw.RateLimit(10, 20))
-	e.GET("/api/invite/:token", inviteLinkH.Preview, mw.RateLimit(5, 10))
-
-	// Authenticated routes
-	api := e.Group("/api", mw.Auth(cfg.JWTSecret, patRepo))
-
-	// User
-	api.GET("/auth/me", authH.Me, mw.RequirePermission("account:read"))
-	api.PATCH("/auth/me", authH.UpdateProfile, mw.RequireSession())
-	api.GET("/preferences", prefsH.Get, mw.RequirePermission("account:read"))
-	api.PATCH("/preferences", prefsH.Update, mw.RequireSession())
-
-	// Personal access tokens (PAT callers are rejected by the handler)
-	api.GET("/tokens", tokenH.List)
-	api.POST("/tokens", tokenH.Create)
-	api.DELETE("/tokens/:id", tokenH.Revoke)
-	api.GET("/system/update-status", systemH.UpdateStatus, mw.RequireSession())
-	api.POST("/system/update", systemH.StartUpdate, mw.RequireSession())
-
-	// Workspaces (no workspace context needed for list/create)
-	api.GET("/workspaces", workspaceH.List, mw.RequirePermission("workspaces:read"))
-	api.POST("/workspaces", workspaceH.Create, mw.RequireSession())
-	api.POST("/workspaces/import/preview", workspaceTransferH.Preview, mw.RequireSession())
-	api.POST("/workspaces/import", workspaceTransferH.Import, mw.RequireSession())
-
-	// Invite link acceptance requires a signed-in interactive session.
-	api.POST("/invite/:token/accept", inviteLinkH.Accept, mw.RequireSession())
-
-	// Workspace-scoped routes
-	ws := api.Group("/workspaces/:slug", mw.WorkspaceMembership(workspaceRepo))
-	ws.GET("", workspaceH.Get, mw.RequirePermission("workspaces:read"))
-	ws.PATCH("", workspaceH.Update, mw.RequireOwner())
-	ws.DELETE("", workspaceH.Delete, mw.RequireOwner())
-	ws.GET("/export", workspaceTransferH.Export, mw.RequirePermission(domain.PermWorkspaceTransfer))
-	ws.POST("/invite", workspaceH.Invite, mw.RequirePermission("member:invite"))
-	ws.POST("/invite-links", inviteLinkH.Create, mw.RequirePermission("member:invite"))
-	ws.GET("/invite-links", inviteLinkH.List, mw.RequirePermission("member:invite"))
-	ws.DELETE("/invite-links/:id", inviteLinkH.Revoke, mw.RequirePermission("member:invite"))
-	ws.GET("/members", workspaceH.ListMembers, mw.RequirePermission("members:read"))
-	ws.PATCH("/members/:userId", workspaceH.UpdateMemberRole, mw.RequirePermission("member:invite"))
-	ws.DELETE("/members/:userId", workspaceH.RemoveMember, mw.RequirePermission("member:invite"))
-
-	// Teams
-	ws.GET("/teams", teamH.List, mw.RequirePermission("teams:read"))
-	ws.POST("/teams", teamH.Create, mw.RequirePermission("team:manage"))
-	ws.GET("/teams/:teamId", teamH.Get, mw.RequirePermission("teams:read"))
-	ws.PATCH("/teams/:teamId", teamH.Update, mw.RequirePermission("team:manage"))
-	ws.DELETE("/teams/:teamId", teamH.Delete, mw.RequirePermission("team:manage"))
-	ws.POST("/teams/:teamId/leave", teamH.Leave, mw.RequireSession())
-
-	// Team Statuses
-	ws.GET("/teams/:teamId/statuses", teamStatusH.List, mw.RequirePermission("teams:read"))
-	ws.POST("/teams/:teamId/statuses", teamStatusH.Create, mw.RequirePermission("team:manage"))
-	ws.PATCH("/teams/:teamId/statuses/:statusId", teamStatusH.Update, mw.RequirePermission("team:manage"))
-	ws.DELETE("/teams/:teamId/statuses/:statusId", teamStatusH.Delete, mw.RequirePermission("team:manage"))
-
-	// Cycles (team-scoped)
-	ws.GET("/teams/:teamId/cycles", cycleH.List, mw.RequirePermission("cycles:read"))
-	ws.POST("/teams/:teamId/cycles", cycleH.Create, mw.RequireSession())
-	ws.GET("/teams/:teamId/cycles/velocity", cycleH.Velocity, mw.RequirePermission("cycles:read"))
-	ws.GET("/teams/:teamId/cycles/:cycleId", cycleH.Get, mw.RequirePermission("cycles:read"))
-	ws.PATCH("/teams/:teamId/cycles/:cycleId", cycleH.Update, mw.RequireSession())
-	ws.POST("/teams/:teamId/cycles/:cycleId/complete", cycleH.Complete, mw.RequireSession())
-	ws.GET("/teams/:teamId/cycles/:cycleId/burndown", cycleH.Burndown, mw.RequirePermission("cycles:read"))
-	ws.DELETE("/teams/:teamId/cycles/:cycleId", cycleH.Delete, mw.RequireSession())
-
-	// Issues
-	ws.GET("/issues", issueH.List, mw.RequirePermission("issues:read"))
-	ws.POST("/issues", issueH.Create, mw.RequirePermission("issue:create"))
-	ws.PATCH("/issues/bulk", issueH.BulkUpdate, mw.RequirePermission("issue:update"))
-	ws.DELETE("/issues/bulk", issueH.BulkDelete, mw.RequirePermission("issue:delete_own"))
-	ws.GET("/issues/:identifier", issueH.Get, mw.RequirePermission("issues:read"))
-	ws.PATCH("/issues/:identifier", issueH.Update, mw.RequirePermission("issue:update"))
-	ws.DELETE("/issues/:identifier", issueH.Delete, mw.RequirePermission("issue:delete_own"))
-	ws.POST("/issues/:identifier/subscribe", issueH.Subscribe, mw.RequireSession())
-	ws.DELETE("/issues/:identifier/subscribe", issueH.Unsubscribe, mw.RequireSession())
-	ws.POST("/issues/:identifier/duplicate", issueH.Duplicate, mw.RequirePermission("issue:create"))
-	ws.POST("/issues/:identifier/convert-to-project", issueH.ConvertToProject, mw.RequirePermission("project:manage"))
-	ws.POST("/issues/:identifier/expand-description", aiSettingsH.ExpandIssueDescription, mw.RequirePermission("issue:update"))
-	ws.GET("/issues/:identifier/comments", issueH.ListComments, mw.RequirePermission("comments:read"))
-	ws.POST("/issues/:identifier/comments", issueH.CreateComment, mw.RequirePermission("issue:create"))
-	ws.POST("/issues/:identifier/comments/:commentId/resolve", issueH.ResolveComment, mw.RequirePermission("issue:update"))
-	ws.POST("/issues/:identifier/comments/:commentId/reopen", issueH.ReopenComment, mw.RequirePermission("issue:update"))
-	ws.GET("/issues/:identifier/sub-issues", issueH.ListSubIssues, mw.RequirePermission("issues:read"))
-	ws.POST("/issues/:identifier/sub-issues", issueH.CreateSubIssue, mw.RequirePermission("issue:create"))
-	ws.POST("/issues/:identifier/sub-issues/bulk", issueH.BulkCreateSubIssues, mw.RequirePermission("issue:create"))
-	ws.GET("/issues/:identifier/history", issueH.GetHistory, mw.RequirePermission("issues:read"))
-	ws.POST("/issues/:identifier/triage/accept", issueH.TriageAccept, mw.RequirePermission("issue:update"))
-	ws.POST("/issues/:identifier/triage/decline", issueH.TriageDecline, mw.RequirePermission("issue:update"))
-
-	// Issue Relations
-	ws.POST("/issues/:identifier/relations", relationH.Create, mw.RequirePermission("issue:update"))
-	ws.GET("/issues/:identifier/relations", relationH.List, mw.RequirePermission("issues:read"))
-	ws.DELETE("/issues/:identifier/relations/:relationId", relationH.Delete, mw.RequirePermission("issue:update"))
-
-	// Issue Templates
-	ws.GET("/issue-templates", templateH.List, mw.RequirePermission("templates:read"))
-	ws.POST("/issue-templates", templateH.Create, mw.RequirePermission("issue:create"))
-	ws.GET("/issue-templates/:id", templateH.Get, mw.RequirePermission("templates:read"))
-	ws.PATCH("/issue-templates/:id", templateH.Update, mw.RequirePermission("issue:create"))
-	ws.DELETE("/issue-templates/:id", templateH.Delete, mw.RequirePermission("issue:create"))
-
-	// Labels
-	ws.GET("/labels", labelH.List, mw.RequirePermission("labels:read"))
-	ws.POST("/labels", labelH.Create, mw.RequirePermission("label:manage"))
-	ws.PATCH("/labels/:id", labelH.Update, mw.RequirePermission("label:manage"))
-	ws.DELETE("/labels/:id", labelH.Delete, mw.RequirePermission("label:manage"))
-
-	// Projects
-	ws.GET("/projects", projectH.List, mw.RequirePermission("projects:read"))
-	ws.POST("/projects", projectH.Create, mw.RequirePermission("project:manage"))
-	ws.GET("/projects/:id", projectH.Get, mw.RequirePermission("projects:read"))
-	ws.PATCH("/projects/:id", projectH.Update, mw.RequirePermission("project:manage"))
-	ws.DELETE("/projects/:id", projectH.Delete, mw.RequirePermission("project:manage"))
-	ws.GET("/teams/:teamId/projects", projectH.ListByTeam, mw.RequirePermission("projects:read"))
-
-	// Views
-	ws.GET("/views", viewH.List, mw.RequirePermission("views:read"))
-	ws.POST("/views", viewH.Create, mw.RequireSession())
-	ws.GET("/views/:id", viewH.Get, mw.RequirePermission("views:read"))
-	ws.PATCH("/views/:id", viewH.Update, mw.RequireSession())
-	ws.DELETE("/views/:id", viewH.Delete, mw.RequireSession())
-
-	// Analytics
-	ws.GET("/analytics/overview", analyticsH.Overview, mw.RequirePermission("analytics:read"))
-	ws.GET("/analytics/distribution", analyticsH.IssueDistribution, mw.RequirePermission("analytics:read"))
-	ws.GET("/analytics/insights", analyticsH.Insights, mw.RequirePermission("analytics:read"))
-	ws.GET("/analytics/burnup", analyticsH.Burnup, mw.RequirePermission("analytics:read"))
-
-	// Webhooks
-	ws.GET("/webhooks", webhookH.List, mw.RequirePermission("workspace:manage"))
-	ws.POST("/webhooks", webhookH.Create, mw.RequirePermission("workspace:manage"))
-	ws.PATCH("/webhooks/:id", webhookH.Update, mw.RequirePermission("workspace:manage"))
-	ws.DELETE("/webhooks/:id", webhookH.Delete, mw.RequirePermission("workspace:manage"))
-
-	// AI settings
-	ws.GET("/ai-settings", aiSettingsH.Get, mw.RequireOwner())
-	ws.GET("/ai-settings/issue-copy-prompt", aiSettingsH.GetIssueCopyPrompt, mw.RequirePermission("issues:read"))
-	ws.PATCH("/ai-settings", aiSettingsH.Update, mw.RequireOwner())
-
-	// GitHub integration (conditional)
-	// Public webhook endpoint (no auth, signature-verified internally)
-	e.POST("/api/github/webhook", githubH.HandleWebhook)
-	e.POST("/api/dev-machine-ingest/events", devMachineH.IngestEvent, mw.MachineTokenRateLimit(20, 40))
-	e.POST("/api/dev-machine-ingest/logs", devMachineH.IngestLog, mw.MachineTokenRateLimit(50, 100))
-
-	// GitHub integration (workspace-scoped)
-	ws.GET("/github/status", githubH.Status, mw.RequireSession())
-	ws.GET("/github/setup", githubH.Setup, mw.RequirePermission("workspace:manage"))
-	ws.GET("/github/setup/callback", githubH.SetupCallback, mw.RequirePermission("workspace:manage"))
-	ws.GET("/github/install", githubH.InstallURL, mw.RequirePermission("workspace:manage"))
-	ws.GET("/github/callback", githubH.Callback, mw.RequirePermission("workspace:manage"))
-	ws.DELETE("/github/disconnect", githubH.Disconnect, mw.RequirePermission("workspace:manage"))
-	ws.DELETE("/github/app", githubH.DeleteApp, mw.RequirePermission("workspace:manage"))
-	ws.GET("/github/repos", githubH.ListRepos, mw.RequirePermission("workspace:manage"))
-	ws.POST("/github/repos", githubH.LinkRepos, mw.RequirePermission("workspace:manage"))
-	ws.DELETE("/github/repos/:id", githubH.UnlinkRepo, mw.RequirePermission("workspace:manage"))
-	ws.GET("/github/auto-transitions", githubH.ListAutoTransitions, mw.RequireSession())
-	ws.PATCH("/github/auto-transitions", githubH.UpdateAutoTransitions, mw.RequirePermission("workspace:manage"))
-	ws.GET("/issues/:identifier/github", githubH.IssueGitHubActivity, mw.RequirePermission("issues:read"))
-	ws.GET("/github/issue-links", githubH.AgentIssueLinks, mw.RequirePermission("issues:read"))
-
-	// Dev Machines — guarded by demo-mode restriction when active
-	dm := ws.Group("", mw.DevMachineDemoGuard(cfg.DemoDevMachineAllowed))
-	dm.GET("/dev-machines", devMachineH.List, mw.RequirePermission("dev_machine:read"))
-	dm.POST("/dev-machines", devMachineH.Create, mw.RequirePermission("dev_machine:create"))
-	dm.DELETE("/dev-machines/bulk", devMachineH.BulkDelete, mw.RequirePermission("dev_machine:admin"))
-	dm.POST("/dev-machines/bulk/permanent-delete", devMachineH.BulkPermanentDelete, mw.RequirePermission("dev_machine:admin"))
-	dm.GET("/dev-machine-names/suggestion", devMachineH.NameSuggestion, mw.RequirePermission("dev_machine:create"))
-	dm.GET("/dev-machine-names/availability", devMachineH.NameAvailability, mw.RequirePermission("dev_machine:create"))
-	dm.GET("/dev-machine-policy", devMachineH.GetPolicy, mw.RequirePermission("dev_machine:read"))
-	dm.PATCH("/dev-machine-policy", devMachineH.UpdatePolicy, mw.RequirePermission("dev_machine:admin"))
-	dm.GET("/dev-machine-scope-settings", devMachineH.ScopeSettings, mw.RequirePermission("dev_machine:read"))
-	dm.GET("/dev-machine-scope-setting", devMachineH.ScopeSetting, mw.RequirePermission("dev_machine:read"))
-	dm.PUT("/dev-machine-scope-setting", devMachineH.UpdateScopeSetting, mw.RequirePermission("dev_machine:manage"))
-	dm.DELETE("/dev-machine-scope-setting", devMachineH.DeleteScopeSetting, mw.RequirePermission("dev_machine:manage"))
-	dm.GET("/dev-machine-environments", devMachineH.Environments, mw.RequirePermission("dev_machine:read"))
-	dm.POST("/dev-machine-environments", devMachineH.SnapshotEnvironment, mw.RequirePermission("dev_machine:admin"))
-	dm.GET("/dev-machine-environments/:environmentId", devMachineH.GetEnvironment, mw.RequirePermission("dev_machine:read"))
-	dm.DELETE("/dev-machine-environments/:environmentId", devMachineH.DeleteEnvironment, mw.RequirePermission("dev_machine:admin"))
-	dm.GET("/dev-machine-providers", devMachineH.Providers, mw.RequirePermission("dev_machine:read"))
-	dm.GET("/dev-machines/:machineId", devMachineH.Get, mw.RequirePermission("dev_machine:read"))
-	dm.PATCH("/dev-machines/:machineId", devMachineH.Update, mw.RequirePermission("dev_machine:manage"))
-	dm.DELETE("/dev-machines/:machineId", devMachineH.Delete, mw.RequirePermission("dev_machine:admin"))
-	dm.POST("/dev-machines/:machineId/permanent-delete", devMachineH.PermanentDelete, mw.RequirePermission("dev_machine:admin"))
-	dm.POST("/dev-machines/:machineId/start", devMachineH.Start, mw.RequirePermission("dev_machine:manage"))
-	dm.POST("/dev-machines/:machineId/stop", devMachineH.Stop, mw.RequirePermission("dev_machine:manage"))
-	dm.POST("/dev-machines/:machineId/pause", devMachineH.Pause, mw.RequirePermission("dev_machine:manage"))
-	dm.POST("/dev-machines/:machineId/teardown", devMachineH.Teardown, mw.RequirePermission("dev_machine:manage"))
-	dm.POST("/dev-machines/:machineId/activity", devMachineH.TouchActivity, mw.RequirePermission("dev_machine:read"))
-	dm.GET("/dev-machines/:machineId/checkouts", devMachineH.Checkouts, mw.RequirePermission("dev_machine:read"))
-	dm.POST("/dev-machines/:machineId/checkouts", devMachineH.CheckoutIssue, mw.RequirePermission("dev_machine:manage"))
-	dm.GET("/dev-machines/:machineId/events", devMachineH.Events, mw.RequirePermission("dev_machine:read"))
-	dm.GET("/dev-machines/:machineId/logs", devMachineH.Logs, mw.RequirePermission("dev_machine:read"))
-	dm.GET("/dev-machines/:machineId/services", devMachineH.Services, mw.RequirePermission("dev_machine:read"))
-	dm.GET("/dev-machines/:machineId/providers", devMachineH.MachineProviders, mw.RequirePermission("dev_machine:read"))
-	dm.GET("/dev-machines/:machineId/resource-usage", devMachineH.ResourceUsage, mw.RequirePermission("dev_machine:read"))
-	dm.POST("/dev-machines/:machineId/services/:service/launch", devMachineH.LaunchService, mw.RequirePermission("dev_machine:read"))
-	dm.GET("/dev-machines/:machineId/terminal-sessions", devMachineH.ListTerminalSessions, mw.RequirePermission("dev_machine:read"))
-	dm.POST("/dev-machines/:machineId/terminal-sessions", devMachineH.CreateTerminalSession, mw.RequirePermission("dev_machine:read"))
-	dm.POST("/dev-machines/:machineId/terminal-sessions/:sessionId/close", devMachineH.CloseTerminalSession, mw.RequirePermission("dev_machine:read"))
-	dm.GET("/dev-machines/:machineId/agent-runs", devMachineH.ListMachineAgentRuns, mw.RequirePermission("dev_machine:read"))
-	dm.POST("/dev-machines/:machineId/agent-runs", devMachineH.CreateAgentRun, mw.RequirePermission("dev_machine:manage"))
-	dm.GET("/agent-runs", devMachineH.ListAgentRuns, mw.RequirePermission("dev_machine:read"))
-	dm.GET("/agent-runs/:agentRunId", devMachineH.GetAgentRun, mw.RequirePermission("dev_machine:read"))
-	dm.POST("/agent-runs/:agentRunId/cancel", devMachineH.CancelAgentRun, mw.RequirePermission("dev_machine:manage"))
-	dm.GET("/agent-runs/:agentRunId/trace", devMachineH.AgentRunTrace, mw.RequirePermission("dev_machine:read"))
-
-	// Favorites
-	ws.GET("/favorites", favH.List, mw.RequirePermission("account:read"))
-	ws.POST("/favorites", favH.Create, mw.RequireSession())
-	ws.DELETE("/favorites/:id", favH.Delete, mw.RequireSession())
-
-	// Shared Links
-	ws.GET("/shared-links", sharedLinkH.List, mw.RequirePermission("account:read"))
-	ws.POST("/shared-links", sharedLinkH.Create, mw.RequireSession())
-	ws.PATCH("/shared-links/:id", sharedLinkH.Update, mw.RequireSession())
-	ws.DELETE("/shared-links/:id", sharedLinkH.Delete, mw.RequireSession())
-
-	// Uploads
-	ws.POST("/upload", uploadH.Upload, mw.RequirePermission("issue:create"))
-	ws.GET("/assets/:assetId", uploadH.GetAsset, mw.RequireSession())
-	ws.POST("/issues/:identifier/prompt-assets", uploadH.SignIssuePromptAssets, mw.RequireSession())
-
-	// WebSocket
-	ws.GET("/ws", wsH.Handle, mw.RequireSession())
-
-	// Notifications (user-scoped, not workspace-scoped)
-	api.GET("/notifications", notifH.List, mw.RequirePermission("notifications:read"))
-	api.PATCH("/notifications/:id", notifH.Update, mw.RequireSession())
-	api.POST("/notifications/:id/read", notifH.MarkRead, mw.RequireSession())
-	api.POST("/notifications/:id/unread", notifH.MarkUnread, mw.RequireSession())
-	api.POST("/notifications/:id/snooze", notifH.Snooze, mw.RequireSession())
-	api.POST("/notifications/:id/unsnooze", notifH.Unsnooze, mw.RequireSession())
-	api.POST("/notifications/:id/archive", notifH.Archive, mw.RequireSession())
-	api.POST("/notifications/:id/unarchive", notifH.Unarchive, mw.RequireSession())
-	api.POST("/notifications/mark-all-read", notifH.MarkAllRead, mw.RequireSession())
+	registerRoutes(e, &appHandlers{
+		health:            healthH,
+		inviteLink:        inviteLinkH,
+		workspaceTransfer: workspaceTransferH,
+		auth:              authH,
+		workspace:         workspaceH,
+		team:              teamH,
+		issue:             issueH,
+		label:             labelH,
+		project:           projectH,
+		notif:             notifH,
+		ws:                wsH,
+		relation:          relationH,
+		template:          templateH,
+		view:              viewH,
+		cycle:             cycleH,
+		teamStatus:        teamStatusH,
+		fav:               favH,
+		prefs:             prefsH,
+		token:             tokenH,
+		aiSettings:        aiSettingsH,
+		devMachine:        devMachineH,
+		analytics:         analyticsH,
+		system:            systemH,
+		webhook:           webhookH,
+		sharedLink:        sharedLinkH,
+		upload:            uploadH,
+		github:            githubH,
+	}, &appMiddleware{
+		auth:                   mw.Auth(cfg.JWTSecret, patRepo),
+		authRateLimit:          mw.RateLimit(5, 10),
+		publicRateLimit:        mw.RateLimit(2, 5),
+		publicAssetRateLimit:   mw.RateLimit(10, 20),
+		workspaceMembership:    mw.WorkspaceMembership(workspaceRepo),
+		devMachineDemoGuard:    mw.DevMachineDemoGuard(cfg.DemoDevMachineAllowed),
+		machineEventsRateLimit: mw.MachineTokenRateLimit(20, 40),
+		machineLogsRateLimit:   mw.MachineTokenRateLimit(50, 100),
+	})
 
 	// Start
 	addr := fmt.Sprintf(":%d", cfg.Port)
