@@ -85,7 +85,7 @@ func (h *TokenHandler) Revoke(c echo.Context) error {
 // rejectPATCaller keeps token management interactive-session-only, so a
 // leaked token cannot mint or inspect other tokens.
 func rejectPATCaller(c echo.Context) error {
-	if c.Get("token_scopes") != nil {
+	if c.Get(middleware.TokenScopesKey) != nil {
 		return response.Forbidden(c)
 	}
 	return nil

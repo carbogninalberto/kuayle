@@ -23,9 +23,14 @@ func RequirePermission(permission string) echo.MiddlewareFunc {
 }
 
 // RequireOwner restricts access to the workspace owner only.
+// PAT callers are always rejected: owner-only operations (e.g. deleting a
+// workspace) stay interactive-session-only as defense in depth.
 func RequireOwner() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
+			if c.Get(TokenScopesKey) != nil {
+				return response.Forbidden(c)
+			}
 			ws, ok := c.Get("workspace").(*domain.Workspace)
 			if !ok || ws.OwnerID == uuid.Nil || ws.OwnerID != GetUserID(c) {
 				return response.Forbidden(c)
