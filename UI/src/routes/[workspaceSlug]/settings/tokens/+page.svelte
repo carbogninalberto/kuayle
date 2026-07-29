@@ -132,6 +132,7 @@
 			const { token: _plaintext, ...listed } = created;
 			tokens = [listed, ...tokens];
 			createdToken = created;
+			showCloseConfirm = false;
 			showCreate = false;
 			resetForm();
 		} catch (err: any) {
@@ -164,6 +165,11 @@
 		} catch {
 			appToast.error(i18n.t('settings.tokens.failed_copy'));
 		}
+	}
+
+	function confirmTokenSaved() {
+		showCloseConfirm = false;
+		createdToken = null;
 	}
 
 	function setRowLevel(row: ResourceRow, level: AccessLevel) {
@@ -488,50 +494,50 @@
 		escapeKeydownBehavior="ignore"
 		showCloseButton={false}
 	>
-		<div class="space-y-4 px-5 pt-5 pb-4">
-			<div>
+		{#if showCloseConfirm}
+			<div class="space-y-4 px-5 pt-5 pb-4">
 				<h2 class="text-base font-semibold text-[var(--color-text-primary)]">
-					{i18n.t('settings.tokens.created_title')}
+					{i18n.t('settings.tokens.close_confirm_title')}
 				</h2>
+				<p class="text-xs text-[var(--color-text-secondary)]">{i18n.t('settings.tokens.close_confirm_desc')}</p>
 			</div>
-			<p
-				class="flex items-start gap-1.5 rounded-md border border-[var(--color-error)]/40 bg-[var(--color-error)]/10 px-3 py-2 text-xs text-[var(--color-error)]"
-			>
-				<TriangleAlert size={13} class="mt-0.5 shrink-0" />
-				{i18n.t('settings.tokens.created_warning')}
-			</p>
-			<div class="flex items-center gap-2">
-				<code
-					class="min-w-0 flex-1 truncate rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-2 font-mono text-xs text-[var(--color-text-primary)]"
-				>
-					{createdToken?.token ?? ''}
-				</code>
-				<Button variant="outline" size="sm" onclick={copyCreatedToken}>
-					<Copy size={13} />
-					{i18n.t('settings.tokens.copy')}
+			<div class="flex justify-end gap-2 border-t border-[var(--app-border)] px-5 py-3">
+				<Button variant="outline" size="sm" onclick={() => (showCloseConfirm = false)}>
+					{i18n.t('settings.cancel')}
 				</Button>
+				<Button size="sm" onclick={confirmTokenSaved}>{i18n.t('settings.tokens.close_confirm_button')}</Button>
 			</div>
-		</div>
-		<div class="flex justify-end gap-2 border-t border-[var(--app-border)] px-5 py-3">
-			<Button size="sm" onclick={() => (showCloseConfirm = true)}>{i18n.t('settings.tokens.done')}</Button>
-		</div>
+		{:else}
+			<div class="space-y-4 px-5 pt-5 pb-4">
+				<div>
+					<h2 class="text-base font-semibold text-[var(--color-text-primary)]">
+						{i18n.t('settings.tokens.created_title')}
+					</h2>
+				</div>
+				<p
+					class="flex items-start gap-1.5 rounded-md border border-[var(--color-error)]/40 bg-[var(--color-error)]/10 px-3 py-2 text-xs text-[var(--color-error)]"
+				>
+					<TriangleAlert size={13} class="mt-0.5 shrink-0" />
+					{i18n.t('settings.tokens.created_warning')}
+				</p>
+				<div class="flex items-center gap-2">
+					<code
+						class="min-w-0 flex-1 truncate rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-2 font-mono text-xs text-[var(--color-text-primary)]"
+					>
+						{createdToken?.token ?? ''}
+					</code>
+					<Button variant="outline" size="sm" onclick={copyCreatedToken}>
+						<Copy size={13} />
+						{i18n.t('settings.tokens.copy')}
+					</Button>
+				</div>
+			</div>
+			<div class="flex justify-end gap-2 border-t border-[var(--app-border)] px-5 py-3">
+				<Button size="sm" onclick={() => (showCloseConfirm = true)}>{i18n.t('settings.tokens.done')}</Button>
+			</div>
+		{/if}
 	</Dialog.Content>
 </Dialog.Root>
-
-<AlertDialog.Root bind:open={showCloseConfirm}>
-	<AlertDialog.Content>
-		<AlertDialog.Header>
-			<AlertDialog.Title>{i18n.t('settings.tokens.close_confirm_title')}</AlertDialog.Title>
-			<AlertDialog.Description>{i18n.t('settings.tokens.close_confirm_desc')}</AlertDialog.Description>
-		</AlertDialog.Header>
-		<AlertDialog.Footer>
-			<AlertDialog.Cancel>{i18n.t('settings.cancel')}</AlertDialog.Cancel>
-			<AlertDialog.Action onclick={() => (createdToken = null)}>
-				{i18n.t('settings.tokens.close_confirm_button')}
-			</AlertDialog.Action>
-		</AlertDialog.Footer>
-	</AlertDialog.Content>
-</AlertDialog.Root>
 
 <AlertDialog.Root open={tokenToRevoke !== null} onOpenChange={(open) => !open && (tokenToRevoke = null)}>
 	<AlertDialog.Content>
