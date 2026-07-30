@@ -39,9 +39,10 @@ func (r *PersonalAccessTokenRepository) GetByHash(ctx context.Context, hash stri
 	return &token, nil
 }
 
+// ListByUser returns the user's non-revoked tokens, newest first.
 func (r *PersonalAccessTokenRepository) ListByUser(ctx context.Context, userID uuid.UUID) ([]domain.PersonalAccessToken, error) {
 	var tokens []domain.PersonalAccessToken
-	err := r.db.SelectContext(ctx, &tokens, `SELECT * FROM personal_access_tokens WHERE user_id = $1 ORDER BY created_at DESC`, userID)
+	err := r.db.SelectContext(ctx, &tokens, `SELECT * FROM personal_access_tokens WHERE user_id = $1 AND revoked_at IS NULL ORDER BY created_at DESC`, userID)
 	return tokens, err
 }
 
