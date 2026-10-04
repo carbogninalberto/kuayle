@@ -114,3 +114,50 @@ func TestRequireOwner(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusForbidden, patOwner)
 }
+
+func TestRequireUnrestrictedTokenWorkspaces(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		pat   bool
+		slugs []string
+		want  int
+	}{
+		{"session", false, nil, http.StatusNoContent},
+		{"unrestricted PAT", true, nil, http.StatusNoContent},
+		{"restricted PAT", true, []string{"acme"}, http.StatusForbidden},
+		{"empty stored restriction", true, []string{}, http.StatusForbidden},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			code := runMiddleware(t, RequireUnrestrictedTokenWorkspaces(), func(c echo.Context) {
+				if tc.pat {
+					c.Set(TokenWorkspacesKey, tc.slugs)
+				}
+			})
+			assert.Equal(t, tc.want, code)
+		})
+	}
+}
+
+func TestRequireTokenWritePermissionPreservesSessionPolicy(t *testing.T) {
+	assert.Equal(t, http.StatusNoContent, runMiddleware(t, RequireTokenPermission(domain.PermDevMachineManage), nil))
+	assert.Equal(t, http.StatusForbidden, runMiddleware(t, RequireTokenPermission(domain.PermDevMachineManage), patContext(domain.PermDevMachineRead)))
+	assert.Equal(t, http.StatusNoContent, runMiddleware(t, RequireTokenPermission(domain.PermDevMachineManage), patContext(domain.PermDevMachineRead, domain.PermDevMachineManage)))
+}
+
+func TestRequireTokenWritePermissionIntersectsWorkspaceRole(t *testing.T) {
+	for _, tc := range []struct {
+		role string
+		want int
+	}{
+		{domain.RoleGuest, http.StatusForbidden}, {domain.RoleMember, http.StatusNoContent},
+		{domain.RoleOwner, http.StatusNoContent},
+	} {
+		t.Run(tc.role, func(t *testing.T) {
+			code := runMiddleware(t, RequireTokenPermission(domain.PermDevMachineManage), func(c echo.Context) {
+				patContext(domain.PermDevMachineRead, domain.PermDevMachineManage)(c)
+				c.Set("workspace_role", tc.role)
+			})
+			assert.Equal(t, tc.want, code)
+		})
+	}
+}

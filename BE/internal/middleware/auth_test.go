@@ -95,7 +95,7 @@ func TestAuthPATSuccess(t *testing.T) {
 	}
 }
 
-func TestAuthPATViaCookie(t *testing.T) {
+func TestAuthPATCookieRejected(t *testing.T) {
 	repo := newFakePATRepo()
 	userID := uuid.New()
 	repo.add("kuayle_pat_cookie", &domain.PersonalAccessToken{
@@ -109,9 +109,9 @@ func TestAuthPATViaCookie(t *testing.T) {
 
 	rec, c := runAuth(t, repo, req)
 
-	assert.Equal(t, http.StatusNoContent, rec.Code)
-	assert.Equal(t, userID, c.Get(string(UserIDKey)))
-	assert.Equal(t, []string{"issues:read"}, c.Get(TokenScopesKey))
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	assert.Nil(t, c.Get(string(UserIDKey)))
+	assert.Nil(t, c.Get(TokenScopesKey))
 }
 
 func TestAuthPATRevoked(t *testing.T) {
@@ -157,4 +157,29 @@ func TestAuthJWTUnaffected(t *testing.T) {
 	assert.Equal(t, userID, c.Get(string(UserIDKey)))
 	assert.Nil(t, c.Get(TokenScopesKey), "JWT requests must not be marked as PAT")
 	assert.Nil(t, c.Get(TokenWorkspacesKey))
+}
+
+func TestAuthBearerPATOverridesSessionCookie(t *testing.T) {
+	repo := newFakePATRepo()
+	patUserID := uuid.New()
+	repo.add("kuayle_pat_explicit", &domain.PersonalAccessToken{
+		ID: uuid.New(), UserID: patUserID, Scopes: []string{"issues:read"},
+	})
+	jwt, err := jwtpkg.GenerateAccessToken(uuid.New(), "test-secret")
+	require.NoError(t, err)
+	req := bearerRequest("kuayle_pat_explicit")
+	req.AddCookie(&http.Cookie{Name: "access_token", Value: jwt})
+	rec, c := runAuth(t, repo, req)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+	assert.Equal(t, patUserID, c.Get(string(UserIDKey)))
+	assert.Equal(t, []string{"issues:read"}, c.Get(TokenScopesKey))
+}
+
+func TestAuthInvalidBearerPATDoesNotFallbackToSessionCookie(t *testing.T) {
+	jwt, err := jwtpkg.GenerateAccessToken(uuid.New(), "test-secret")
+	require.NoError(t, err)
+	req := bearerRequest("kuayle_pat_unknown")
+	req.AddCookie(&http.Cookie{Name: "access_token", Value: jwt})
+	rec, _ := runAuth(t, newFakePATRepo(), req)
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
 }

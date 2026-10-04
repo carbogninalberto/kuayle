@@ -16,8 +16,9 @@ import (
 //	scoped      PAT needs perm in scopes, then RBAC decides (scope ∩ RBAC)
 //	sessionOnly interactive sessions (JWT) only; PATs denied by default
 //	ownerOnly   workspace owner, interactive sessions only
-func scoped(g *echo.Group, method, path string, h echo.HandlerFunc, perm string) {
-	g.Add(method, path, h, mw.RequirePermission(perm)).Name = "perm:" + perm
+func scoped(g *echo.Group, method, path string, h echo.HandlerFunc, perm string, extra ...echo.MiddlewareFunc) {
+	middleware := append([]echo.MiddlewareFunc{mw.RequirePermission(perm)}, extra...)
+	g.Add(method, path, h, middleware...).Name = "perm:" + perm
 }
 
 func sessionOnly(g *echo.Group, method, path string, h echo.HandlerFunc) {
@@ -31,6 +32,7 @@ func ownerOnly(g *echo.Group, method, path string, h echo.HandlerFunc) {
 // appHandlers groups every HTTP handler so route registration can run
 // without a database (tests enumerate e.Routes() with zero-value handlers).
 type appHandlers struct {
+	config            *handler.ConfigHandler
 	inviteLink        *handler.InviteLinkHandler
 	workspaceTransfer *handler.WorkspaceTransferHandler
 	health            *handler.HealthHandler
@@ -80,7 +82,6 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 
 	// Auth (public) — rate limited: 5 requests/sec, burst of 10
 	auth := e.Group("/api/auth", m.authRateLimit)
-	auth.GET("/config", h.auth.Config).Name = "public"
 	auth.POST("/register", h.auth.Register).Name = "public"
 	auth.POST("/login", h.auth.Login).Name = "public"
 	auth.POST("/refresh", h.auth.Refresh).Name = "public"
@@ -88,10 +89,12 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 
 	// Public share routes (no auth, rate limited)
 	pub := e.Group("/api/public", m.publicRateLimit)
-	pub.GET("/invite/:token", h.inviteLink.Preview).Name = "public"
 	pub.GET("/share/:token", h.sharedLink.GetPublicMeta).Name = "public"
 	pub.GET("/share/:token/issues", h.sharedLink.ListPublicIssues).Name = "public"
 	e.GET("/api/public/assets/:token", h.upload.PublicAsset, m.publicAssetRateLimit).Name = "public"
+
+	e.GET("/api/config", h.config.Get, m.publicAssetRateLimit).Name = "public"
+	e.GET("/api/invite/:token", h.inviteLink.Preview, m.authRateLimit).Name = "public"
 
 	// Authenticated routes
 	api := e.Group("/api", m.auth)
@@ -99,7 +102,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	// User
 	scoped(api, http.MethodGet, "/auth/me", h.auth.Me, "account:read")
 	sessionOnly(api, http.MethodPatch, "/auth/me", h.auth.UpdateProfile)
-	scoped(api, http.MethodGet, "/preferences", h.prefs.Get, "account:read")
+	scoped(api, http.MethodGet, "/preferences", h.prefs.Get, "account:read", mw.RequireUnrestrictedTokenWorkspaces())
 	sessionOnly(api, http.MethodPatch, "/preferences", h.prefs.Update)
 
 	// Personal access tokens (PAT callers are rejected by the handler)
@@ -278,7 +281,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	scoped(dm, http.MethodPost, "/dev-machines/:machineId/stop", h.devMachine.Stop, "dev_machine:manage")
 	scoped(dm, http.MethodPost, "/dev-machines/:machineId/pause", h.devMachine.Pause, "dev_machine:manage")
 	scoped(dm, http.MethodPost, "/dev-machines/:machineId/teardown", h.devMachine.Teardown, "dev_machine:manage")
-	scoped(dm, http.MethodPost, "/dev-machines/:machineId/activity", h.devMachine.TouchActivity, "dev_machine:read")
+	scoped(dm, http.MethodPost, "/dev-machines/:machineId/activity", h.devMachine.TouchActivity, "dev_machine:read", mw.RequireTokenPermission("dev_machine:manage"))
 	scoped(dm, http.MethodGet, "/dev-machines/:machineId/checkouts", h.devMachine.Checkouts, "dev_machine:read")
 	scoped(dm, http.MethodPost, "/dev-machines/:machineId/checkouts", h.devMachine.CheckoutIssue, "dev_machine:manage")
 	scoped(dm, http.MethodGet, "/dev-machines/:machineId/events", h.devMachine.Events, "dev_machine:read")
@@ -286,10 +289,10 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	scoped(dm, http.MethodGet, "/dev-machines/:machineId/services", h.devMachine.Services, "dev_machine:read")
 	scoped(dm, http.MethodGet, "/dev-machines/:machineId/providers", h.devMachine.MachineProviders, "dev_machine:read")
 	scoped(dm, http.MethodGet, "/dev-machines/:machineId/resource-usage", h.devMachine.ResourceUsage, "dev_machine:read")
-	scoped(dm, http.MethodPost, "/dev-machines/:machineId/services/:service/launch", h.devMachine.LaunchService, "dev_machine:read")
+	scoped(dm, http.MethodPost, "/dev-machines/:machineId/services/:service/launch", h.devMachine.LaunchService, "dev_machine:read", mw.RequireTokenPermission("dev_machine:manage"))
 	scoped(dm, http.MethodGet, "/dev-machines/:machineId/terminal-sessions", h.devMachine.ListTerminalSessions, "dev_machine:read")
-	scoped(dm, http.MethodPost, "/dev-machines/:machineId/terminal-sessions", h.devMachine.CreateTerminalSession, "dev_machine:read")
-	scoped(dm, http.MethodPost, "/dev-machines/:machineId/terminal-sessions/:sessionId/close", h.devMachine.CloseTerminalSession, "dev_machine:read")
+	scoped(dm, http.MethodPost, "/dev-machines/:machineId/terminal-sessions", h.devMachine.CreateTerminalSession, "dev_machine:read", mw.RequireTokenPermission("dev_machine:manage"))
+	scoped(dm, http.MethodPost, "/dev-machines/:machineId/terminal-sessions/:sessionId/close", h.devMachine.CloseTerminalSession, "dev_machine:read", mw.RequireTokenPermission("dev_machine:manage"))
 	scoped(dm, http.MethodGet, "/dev-machines/:machineId/agent-runs", h.devMachine.ListMachineAgentRuns, "dev_machine:read")
 	scoped(dm, http.MethodPost, "/dev-machines/:machineId/agent-runs", h.devMachine.CreateAgentRun, "dev_machine:manage")
 	scoped(dm, http.MethodGet, "/agent-runs", h.devMachine.ListAgentRuns, "dev_machine:read")
@@ -303,7 +306,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(ws, http.MethodDelete, "/favorites/:id", h.fav.Delete)
 
 	// Shared Links
-	scoped(ws, http.MethodGet, "/shared-links", h.sharedLink.List, "account:read")
+	sessionOnly(ws, http.MethodGet, "/shared-links", h.sharedLink.List)
 	sessionOnly(ws, http.MethodPost, "/shared-links", h.sharedLink.Create)
 	sessionOnly(ws, http.MethodPatch, "/shared-links/:id", h.sharedLink.Update)
 	sessionOnly(ws, http.MethodDelete, "/shared-links/:id", h.sharedLink.Delete)
@@ -317,7 +320,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(ws, http.MethodGet, "/ws", h.ws.Handle)
 
 	// Notifications (user-scoped, not workspace-scoped)
-	scoped(api, http.MethodGet, "/notifications", h.notif.List, "notifications:read")
+	scoped(api, http.MethodGet, "/notifications", h.notif.List, "notifications:read", mw.RequireUnrestrictedTokenWorkspaces())
 	sessionOnly(api, http.MethodPatch, "/notifications/:id", h.notif.Update)
 	sessionOnly(api, http.MethodPost, "/notifications/:id/read", h.notif.MarkRead)
 	sessionOnly(api, http.MethodPost, "/notifications/:id/unread", h.notif.MarkUnread)

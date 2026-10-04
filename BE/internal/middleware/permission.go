@@ -76,3 +76,35 @@ func GetWorkspaceRole(c echo.Context) string {
 	role, _ := c.Get("workspace_role").(string)
 	return role
 }
+
+// RequireTokenPermission adds a scope ceiling while preserving existing JWT RBAC.
+// Machine operations that launch code require a write scope even where browser
+// sessions historically use the read permission to reach the machine.
+func RequireTokenPermission(permission string) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			if scopes, ok := c.Get(TokenScopesKey).([]string); ok {
+				if !slices.Contains(scopes, permission) {
+					return response.Forbidden(c)
+				}
+				if role, ok := c.Get("workspace_role").(string); ok && !domain.HasPermission(role, permission) {
+					return response.Forbidden(c)
+				}
+			}
+			return next(c)
+		}
+	}
+}
+
+// RequireUnrestrictedTokenWorkspaces protects user-level responses containing
+// data from multiple workspaces when the handler cannot filter its response.
+func RequireUnrestrictedTokenWorkspaces() echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			if slugs, ok := c.Get(TokenWorkspacesKey).([]string); ok && slugs != nil {
+				return response.Forbidden(c)
+			}
+			return next(c)
+		}
+	}
+}

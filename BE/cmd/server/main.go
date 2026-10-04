@@ -16,7 +16,6 @@ import (
 
 	"github.com/kuayle/kuayle-backend/internal/agent"
 	"github.com/kuayle/kuayle-backend/internal/config"
-	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/handler"
 	mw "github.com/kuayle/kuayle-backend/internal/middleware"
 	"github.com/kuayle/kuayle-backend/internal/realtime"
@@ -212,6 +211,7 @@ func main() {
 	registerRoutes(e, &appHandlers{
 		health:            healthH,
 		inviteLink:        inviteLinkH,
+		config:            configH,
 		workspaceTransfer: workspaceTransferH,
 		auth:              authH,
 		workspace:         workspaceH,

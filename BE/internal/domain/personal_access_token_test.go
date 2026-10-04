@@ -37,7 +37,7 @@ func TestIsValidScope(t *testing.T) {
 		"workspaces:read", "account:read", "assets:read",
 		"issue:create", "issue:update", "issue:delete_own",
 		"project:manage", "label:manage", "team:manage", "member:invite",
-		"workspace:manage",
+		"workspace:manage", "workspace:transfer",
 		"dev_machine:read", "dev_machine:create", "dev_machine:manage", "dev_machine:admin",
 	}
 	for _, scope := range valid {
