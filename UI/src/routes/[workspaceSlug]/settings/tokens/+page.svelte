@@ -73,7 +73,7 @@
 		expiry_custom: m['settings.tokens.expiry_custom'],
 		expiry_never: m['settings.tokens.expiry_never'],
 		expiry_invalid: m['settings.tokens.expiry_invalid'],
-		expiry_never_warning: m['settings.tokens.expiry_never_warning'],
+		expiry_never_warning: m['settings.tokens.expiry_never_warning']
 	};
 	const EXPIRY_CHOICES: ExpiryChoice[] = ['30d', '90d', '1y', 'custom', 'never'];
 
@@ -140,17 +140,20 @@
 	async function openCreate() {
 		resetForm();
 		showCreate = true;
-		if (workspaces.length === 0 || workspacesFailed) {
-			workspacesLoading = true;
-			workspacesFailed = false;
-			try {
-				workspaces = await listWorkspaces();
-			} catch (err: any) {
-				workspacesFailed = true;
-				appToast.apiError(err, m['settings.tokens.failed_load_workspaces']());
-			} finally {
-				workspacesLoading = false;
-			}
+		if (workspaces.length === 0 || workspacesFailed) await loadWorkspaces();
+	}
+
+	async function loadWorkspaces() {
+		if (workspacesLoading) return;
+		workspacesLoading = true;
+		workspacesFailed = false;
+		try {
+			workspaces = await listWorkspaces();
+		} catch (err: any) {
+			workspacesFailed = true;
+			appToast.apiError(err, m['settings.tokens.failed_load_workspaces']());
+		} finally {
+			workspacesLoading = false;
 		}
 	}
 
@@ -246,7 +249,7 @@
 		<h1 class="text-2xl font-semibold text-[var(--color-text-primary)]">{m['settings.tokens.title']()}</h1>
 		<button
 			onclick={openCreate}
-			disabled={loading || creating}
+			disabled={loading || loadFailed || creating}
 			class="flex items-center gap-1 rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)]"
 		>
 			<Plus size={14} />
@@ -257,7 +260,7 @@
 
 	<div class="mt-8">
 		{#if loading}
-			<div class="flex h-64 items-center justify-center"></div>
+			<div role="status" class="flex h-64 items-center justify-center">{m['common.loading']()}</div>
 		{:else if loadFailed}
 			<p role="alert">{m['settings.tokens.failed_load']()}</p>
 			<Button onclick={loadTokens}>{m['settings.tokens.retry']()}</Button>
@@ -285,7 +288,7 @@
 									{m['settings.tokens.n_scopes']({ n: token.scopes.length })}
 								</Badge>
 								<Badge variant="secondary" class="text-[10px]" title={token.workspace_slugs?.join(', ') ?? ''}>
-									{token.workspace_slugs && token.workspace_slugs.length > 0
+									{token.workspace_slugs !== null
 										? m['settings.tokens.n_workspaces']({ n: token.workspace_slugs.length })
 										: m['settings.tokens.all_workspaces']()}
 								</Badge>
@@ -493,7 +496,7 @@
 						<p role="status">{m['common.loading']()}</p>
 					{:else if workspacesFailed}
 						<p role="alert">{m['settings.tokens.failed_load_workspaces']()}</p>
-						<Button type="button" onclick={openCreate}>{m['settings.tokens.retry']()}</Button>
+						<Button type="button" onclick={loadWorkspaces}>{m['settings.tokens.retry']()}</Button>
 					{:else if workspaces.length > 0}
 						<div class="grid grid-cols-2 gap-2">
 							{#each workspaces as workspace (workspace.id)}
