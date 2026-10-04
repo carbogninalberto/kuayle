@@ -31,7 +31,7 @@
 			registrationEnabled = config.registration_enabled;
 			// With an invite token, registration stays available even when
 			// public registration is disabled (the backend accepts the token).
-			if (!registrationEnabled) mode = inviteToken ? 'register' : 'login';
+			if (!registrationEnabled && !inviteToken) mode = 'login';
 		} catch {
 			// Config unavailable — keep registration visible.
 		}
@@ -39,6 +39,7 @@
 
 	async function handleSubmit(e: Event) {
 		e.preventDefault();
+		if (loading) return;
 		loading = true;
 
 		try {
@@ -55,13 +56,11 @@
 			}
 			authState.setUser(user);
 
-			if (inviteToken && mode === 'login') {
-				// Login does not redeem the invite — let the invite accept page finish joining.
-				goto(`/invite/${encodeURIComponent(inviteToken)}`);
+			if (inviteToken) {
+				// The invite route resolves the intended workspace, including after atomic signup.
+				await goto(`/invite/${encodeURIComponent(inviteToken)}`);
 				return;
 			}
-			// For register, the backend already redeemed the invite token and added the
-			// membership, so fall through to the normal workspace landing below.
 
 			const workspaces = await listWorkspaces();
 			if (workspaces.length > 0) {
@@ -93,7 +92,9 @@
 				{mode === 'login' ? m['login.subtitle.signin']() : m['login.subtitle.register']()}
 			</p>
 			{#if inviteToken}
-				<p class="mt-3 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-xs text-[var(--color-text-secondary)]">
+				<p
+					class="mt-3 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-xs text-[var(--color-text-secondary)]"
+				>
 					{m['login.invite_notice']()}
 				</p>
 			{/if}
@@ -133,6 +134,7 @@
 				{mode === 'login' ? m['login.no_account']() : m['login.has_account']()}
 				<button
 					onclick={() => (mode = mode === 'login' ? 'register' : 'login')}
+					disabled={loading}
 					class="text-[var(--app-accent)] hover:underline"
 				>
 					{mode === 'login' ? m['login.button.sign_up']() : m['login.button.signin']()}
@@ -142,7 +144,9 @@
 	</div>
 
 	{#if demoMode && mode === 'login'}
-		<div class="fixed right-4 bottom-4 z-50 flex w-[calc(100vw-2rem)] max-w-sm flex-col items-end gap-3 sm:right-6 sm:bottom-6">
+		<div
+			class="fixed right-4 bottom-4 z-50 flex w-[calc(100vw-2rem)] max-w-sm flex-col items-end gap-3 sm:right-6 sm:bottom-6"
+		>
 			{#if demoDrawerOpen}
 				<section
 					aria-label={m['login.demo.aria_details']()}

@@ -42,10 +42,7 @@ export interface AppConfig {
 	registration_enabled: boolean;
 }
 
-export async function createInviteLink(
-	slug: string,
-	req: CreateInviteLinkRequest
-): Promise<InviteLink> {
+export async function createInviteLink(slug: string, req: CreateInviteLinkRequest): Promise<InviteLink> {
 	const result = await api.post<InviteLink>(`/api/workspaces/${slug}/invite-links`, req);
 	emitAppRefresh(['invite-links'], slug);
 	return result;
@@ -62,11 +59,13 @@ export async function revokeInviteLink(slug: string, id: string): Promise<{ stat
 }
 
 export function getInvitePreview(token: string): Promise<InvitePreview> {
-	return api.get<InvitePreview>(`/api/invite/${token}`);
+	return api.get<InvitePreview>(`/api/invite/${encodeURIComponent(token)}`);
 }
 
 export function acceptInvite(token: string): Promise<InviteAcceptResponse> {
-	return api.post<InviteAcceptResponse>(`/api/invite/${token}/accept`);
+	return api.post<InviteAcceptResponse>(`/api/invite/${encodeURIComponent(token)}/accept`, undefined, {
+		redirectOnUnauthorized: false
+	});
 }
 
 export function getConfig(): Promise<AppConfig> {

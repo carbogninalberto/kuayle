@@ -32,8 +32,16 @@
 	let linksLoading = $state(true);
 	let inviteTab = $state<'email' | 'link'>('email');
 	let linkRole = $state<InviteLinkRole>('member');
-	let linkExpiryDays = $state(7);
-	let linkMaxUses = $state('');
+	let linkExpiryDays = $state<number | null | undefined>(7);
+	let linkMaxUses = $state<number | null | undefined>();
+	let linksFailed = $state(false);
+	let revokingLinkId = $state<string | null>(null);
+	const validLinkSettings = $derived(
+		Number.isInteger(linkExpiryDays) &&
+			linkExpiryDays! >= 1 &&
+			linkExpiryDays! <= 365 &&
+			(linkMaxUses == null || (Number.isSafeInteger(linkMaxUses) && linkMaxUses > 0))
+	);
 	let linkSubmitting = $state(false);
 	let createdLinkUrl = $state<string | null>(null);
 
@@ -42,17 +50,25 @@
 	onMount(async () => {
 		try {
 			members = await listMembers(slug);
+		} catch (err: any) {
+			appToast.apiError(err, m['settings.members.failed_invite']());
 		} finally {
 			loading = false;
 		}
+		await loadInviteLinks();
+	});
+
+	async function loadInviteLinks() {
+		linksLoading = true;
+		linksFailed = false;
 		try {
 			inviteLinks = await listInviteLinks(slug);
 		} catch {
-			// User may lack member:invite permission — hide the section content quietly.
+			linksFailed = true;
 		} finally {
 			linksLoading = false;
 		}
-	});
+	}
 
 	async function handleRoleChange(userId: string, role: string) {
 		try {
@@ -109,20 +125,20 @@
 		if (tab === 'link') {
 			linkRole = 'member';
 			linkExpiryDays = 7;
-			linkMaxUses = '';
+			linkMaxUses = undefined;
 		}
 		showInvite = true;
 	}
 
 	async function handleCreateLink() {
+		if (linkSubmitting || !validLinkSettings) return;
 		linkSubmitting = true;
 		try {
 			const req: CreateInviteLinkRequest = {
 				role: linkRole,
-				expires_in_days: linkExpiryDays > 0 ? linkExpiryDays : 7
+				expires_in_days: linkExpiryDays ?? undefined
 			};
-			const max = parseInt(linkMaxUses, 10);
-			if (!Number.isNaN(max) && max > 0) req.max_uses = max;
+			if (linkMaxUses != null) req.max_uses = linkMaxUses;
 			const link = await createInviteLink(slug, req);
 			inviteLinks = [link, ...inviteLinks];
 			createdLinkUrl = link.invite_url ?? null;
@@ -135,21 +151,27 @@
 	}
 
 	async function handleRevokeLink(id: string) {
+		if (revokingLinkId) return;
+		revokingLinkId = id;
 		try {
 			await revokeInviteLink(slug, id);
-			inviteLinks = inviteLinks.map((l) =>
-				l.id === id ? { ...l, revoked_at: new Date().toISOString() } : l
-			);
+			inviteLinks = inviteLinks.map((l) => (l.id === id ? { ...l, revoked_at: new Date().toISOString() } : l));
 			appToast.success(m['invite.links.revoked_toast']());
 		} catch (err: any) {
 			appToast.apiError(err, m['invite.links.failed_revoke']());
+		} finally {
+			revokingLinkId = null;
 		}
 	}
 
-	function copyCreatedLink() {
+	async function copyCreatedLink() {
 		if (!createdLinkUrl) return;
-		navigator.clipboard.writeText(createdLinkUrl);
-		appToast.success(m['invite.links.copied']());
+		try {
+			await navigator.clipboard.writeText(createdLinkUrl);
+			appToast.success(m['invite.links.copied']());
+		} catch {
+			appToast.error(m['invite.links.failed_copy']());
+		}
 	}
 </script>
 
@@ -173,20 +195,28 @@
 		{:else}
 			<div class="overflow-hidden rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
 				{#each members as member, i}
-					<div class="flex items-center justify-between px-5 py-3.5 {i > 0 ? 'border-t border-[var(--app-border)]' : ''}">
+					<div
+						class="flex items-center justify-between px-5 py-3.5 {i > 0 ? 'border-t border-[var(--app-border)]' : ''}"
+					>
 						<div class="flex items-center gap-3">
-							<div class="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--app-accent)] text-xs font-medium text-[var(--app-accent-foreground)]">
+							<div
+								class="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--app-accent)] text-xs font-medium text-[var(--app-accent-foreground)]"
+							>
 								{(member.name || member.email).charAt(0).toUpperCase()}
 							</div>
 							<div>
-								<p class="text-sm font-medium text-[var(--color-text-primary)]">{member.name || m['settings.members.unnamed']()}</p>
+								<p class="text-sm font-medium text-[var(--color-text-primary)]">
+									{member.name || m['settings.members.unnamed']()}
+								</p>
 								<p class="text-xs text-[var(--color-text-tertiary)]">{member.email}</p>
 							</div>
 						</div>
 						<div class="flex items-center gap-2">
 							<Popover.Root>
 								<Popover.Trigger>
-									<button class="rounded-md border border-[var(--app-border)] px-2.5 py-1 text-xs capitalize text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
+									<button
+										class="rounded-md border border-[var(--app-border)] px-2.5 py-1 text-xs capitalize text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+									>
 										{(m as unknown as Record<string, () => string>)['common.role.' + member.role]()}
 									</button>
 								</Popover.Trigger>
@@ -194,7 +224,10 @@
 									{#each roles as role}
 										<button
 											onclick={() => handleRoleChange(member.user_id, role)}
-											class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm capitalize text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {member.role === role ? 'bg-[var(--color-bg-hover)]' : ''}"
+											class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm capitalize text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {member.role ===
+											role
+												? 'bg-[var(--color-bg-hover)]'
+												: ''}"
 										>
 											{(m as unknown as Record<string, () => string>)['common.role.' + role]()}
 										</button>
@@ -234,18 +267,27 @@
 		<div class="mt-4">
 			{#if linksLoading}
 				<p class="text-sm text-[var(--color-text-tertiary)]"></p>
+			{:else if linksFailed}
+				<p role="alert" class="text-sm text-[var(--color-text-secondary)]">{m['invite.links.failed_load']()}</p>
+				<button onclick={loadInviteLinks} class="text-sm text-[var(--app-accent)] hover:underline"
+					>{m['invite.retry']()}</button
+				>
 			{:else if inviteLinks.length === 0}
 				<p class="text-sm text-[var(--color-text-secondary)]">{m['invite.links.empty']()}</p>
 			{:else}
 				<div class="overflow-hidden rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
 					{#each inviteLinks as link, i}
 						{@const status = linkStatus(link)}
-						<div class="flex items-center justify-between px-5 py-3.5 {i > 0 ? 'border-t border-[var(--app-border)]' : ''}">
+						<div
+							class="flex items-center justify-between px-5 py-3.5 {i > 0 ? 'border-t border-[var(--app-border)]' : ''}"
+						>
 							<div class="flex min-w-0 items-center gap-3">
 								<Link2 size={14} class="shrink-0 text-[var(--color-text-tertiary)]" />
 								<div class="min-w-0">
 									<div class="flex items-center gap-2">
-										<span class="text-sm font-medium text-[var(--color-text-primary)]">{(m as unknown as Record<string, () => string>)['common.role.' + link.role]()}</span>
+										<span class="text-sm font-medium text-[var(--color-text-primary)]"
+											>{(m as unknown as Record<string, () => string>)['common.role.' + link.role]()}</span
+										>
 										<span
 											class="rounded-full px-2 py-0.5 text-[10px] font-medium {status === 'active'
 												? 'bg-[var(--app-accent)]/10 text-[var(--app-accent)]'
@@ -262,6 +304,7 @@
 							{#if status === 'active'}
 								<button
 									onclick={() => handleRevokeLink(link.id)}
+									disabled={revokingLinkId !== null}
 									class="rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-red-500"
 									title={m['invite.links.revoke']()}
 								>
@@ -278,7 +321,12 @@
 
 <!-- Invite Dialog (email / invite link tabs) -->
 <Dialog.Root bind:open={showInvite}>
-	<Dialog.Content class="sm:max-w-md">
+	<Dialog.Content
+		class="sm:max-w-md"
+		showCloseButton={!linkSubmitting}
+		interactOutsideBehavior={linkSubmitting ? 'ignore' : 'close'}
+		escapeKeydownBehavior={linkSubmitting ? 'ignore' : 'close'}
+	>
 		{#if createdLinkUrl}
 			<Dialog.Header>
 				<Dialog.Title>{m['invite.links.created_title']()}</Dialog.Title>
@@ -288,6 +336,7 @@
 				<div class="flex items-center gap-2">
 					<input
 						readonly
+						aria-label={m['invite.links.created_title']()}
 						value={createdLinkUrl}
 						class="w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-2 font-mono text-xs text-[var(--color-text-primary)] outline-none"
 						onfocus={(e) => (e.target as HTMLInputElement).select()}
@@ -312,6 +361,8 @@
 			<div class="mt-4 flex rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] p-0.5">
 				<button
 					onclick={() => (inviteTab = 'email')}
+					aria-pressed={inviteTab === 'email'}
+					disabled={linkSubmitting}
 					class="flex-1 rounded px-3 py-1.5 text-sm {inviteTab === 'email'
 						? 'bg-[var(--color-bg-secondary)] font-medium text-[var(--color-text-primary)]'
 						: 'text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]'}"
@@ -320,6 +371,8 @@
 				</button>
 				<button
 					onclick={() => (inviteTab = 'link')}
+					aria-pressed={inviteTab === 'link'}
+					disabled={linkSubmitting}
 					class="flex-1 rounded px-3 py-1.5 text-sm {inviteTab === 'link'
 						? 'bg-[var(--color-bg-secondary)] font-medium text-[var(--color-text-primary)]'
 						: 'text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]'}"
@@ -331,7 +384,9 @@
 			<div class="space-y-4 py-4">
 				{#if inviteTab === 'email'}
 					<div>
-						<label for="invite-email" class="mb-1 block text-sm text-[var(--color-text-secondary)]">{m['settings.members.email']()}</label>
+						<label for="invite-email" class="mb-1 block text-sm text-[var(--color-text-secondary)]"
+							>{m['settings.members.email']()}</label
+						>
 						<input
 							id="invite-email"
 							type="email"
@@ -341,7 +396,9 @@
 						/>
 					</div>
 					<div>
-						<label for="invite-role" class="mb-1 block text-sm text-[var(--color-text-secondary)]">{m['settings.members.role']()}</label>
+						<label for="invite-role" class="mb-1 block text-sm text-[var(--color-text-secondary)]"
+							>{m['settings.members.role']()}</label
+						>
 						<select
 							id="invite-role"
 							bind:value={inviteRole}
@@ -354,7 +411,9 @@
 					</div>
 				{:else}
 					<div>
-						<label for="link-role" class="mb-1 block text-sm text-[var(--color-text-secondary)]">{m['invite.links.role']()}</label>
+						<label for="link-role" class="mb-1 block text-sm text-[var(--color-text-secondary)]"
+							>{m['invite.links.role']()}</label
+						>
 						<select
 							id="link-role"
 							bind:value={linkRole}
@@ -365,17 +424,23 @@
 						</select>
 					</div>
 					<div>
-						<label for="link-expiry" class="mb-1 block text-sm text-[var(--color-text-secondary)]">{m['invite.links.expires_in_days']()}</label>
+						<label for="link-expiry" class="mb-1 block text-sm text-[var(--color-text-secondary)]"
+							>{m['invite.links.expires_in_days']()}</label
+						>
 						<input
 							id="link-expiry"
 							type="number"
+							max="365"
+							step="1"
 							min="1"
 							bind:value={linkExpiryDays}
 							class="w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
 						/>
 					</div>
 					<div>
-						<label for="link-max-uses" class="mb-1 block text-sm text-[var(--color-text-secondary)]">{m['invite.links.max_uses']()}</label>
+						<label for="link-max-uses" class="mb-1 block text-sm text-[var(--color-text-secondary)]"
+							>{m['invite.links.max_uses']()}</label
+						>
 						<input
 							id="link-max-uses"
 							type="number"
@@ -388,11 +453,15 @@
 				{/if}
 			</div>
 			<Dialog.Footer>
-				<Button variant="outline" onclick={() => (showInvite = false)}>{m['settings.cancel']()}</Button>
+				<Button variant="outline" disabled={linkSubmitting} onclick={() => (showInvite = false)}
+					>{m['settings.cancel']()}</Button
+				>
 				{#if inviteTab === 'email'}
 					<Button onclick={handleInvite} disabled={!inviteEmail.trim()}>{m['settings.members.send_invite']()}</Button>
 				{:else}
-					<Button onclick={handleCreateLink} disabled={linkSubmitting}>{m['invite.links.create_button']()}</Button>
+					<Button onclick={handleCreateLink} disabled={linkSubmitting || !validLinkSettings}
+						>{m['invite.links.create_button']()}</Button
+					>
 				{/if}
 			</Dialog.Footer>
 		{/if}
