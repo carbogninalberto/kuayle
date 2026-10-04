@@ -53,8 +53,7 @@ type WorkspaceInviteLinkRepo interface {
 	GetByTokenHash(ctx context.Context, hash string) (*domain.WorkspaceInviteLink, error)
 	ListByWorkspace(ctx context.Context, workspaceID uuid.UUID) ([]domain.WorkspaceInviteLink, error)
 	Revoke(ctx context.Context, id uuid.UUID) error
-	TryConsumeUse(ctx context.Context, id uuid.UUID) (bool, error)
-	ReleaseUse(ctx context.Context, id uuid.UUID) error
+	Join(ctx context.Context, id, userID uuid.UUID, newUser *domain.User) (string, error)
 }
 
 type TeamRepo interface {

@@ -14,7 +14,6 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	jwtpkg "github.com/kuayle/kuayle-backend/pkg/jwt"
-	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -30,7 +29,7 @@ var (
 // registration. Implemented by InviteLinkService.
 type InviteRedeemer interface {
 	Validate(ctx context.Context, token string) (*domain.WorkspaceInviteLink, *domain.Workspace, error)
-	Accept(ctx context.Context, token string, userID uuid.UUID) (*domain.Workspace, string, error)
+	Register(ctx context.Context, token string, user *domain.User) error
 }
 
 type AuthServiceOption func(*AuthService)
@@ -81,7 +80,10 @@ func (s *AuthService) Register(ctx context.Context, req dto.RegisterRequest) (*d
 		}
 	}
 
-	existing, _ := s.userRepo.GetByEmail(ctx, req.Email)
+	existing, err := s.userRepo.GetByEmail(ctx, req.Email)
+	if err != nil {
+		return nil, "", "", err
+	}
 	if existing != nil {
 		return nil, "", "", ErrEmailTaken
 	}
@@ -99,7 +101,12 @@ func (s *AuthService) Register(ctx context.Context, req dto.RegisterRequest) (*d
 		PasswordHash: string(hash),
 	}
 
-	if err := s.userRepo.Create(ctx, user); err != nil {
+	if inviteToken != "" {
+		err = s.inviteRedeemer.Register(ctx, inviteToken, user)
+	} else {
+		err = s.userRepo.Create(ctx, user)
+	}
+	if err != nil {
 		if errors.Is(err, repository.ErrDuplicateEmail) {
 			return nil, "", "", ErrEmailTaken
 		}
@@ -125,14 +132,6 @@ func (s *AuthService) Register(ctx context.Context, req dto.RegisterRequest) (*d
 	}
 	if err := s.refreshRepo.Create(ctx, rt); err != nil {
 		return nil, "", "", err
-	}
-
-	if inviteToken != "" {
-		// The account exists now; a consume failure here (e.g. a use-count
-		// race) must not fail the registration itself.
-		if _, _, err := s.inviteRedeemer.Accept(ctx, inviteToken, user.ID); err != nil {
-			log.WithError(err).WithField("user_id", user.ID).Warn("failed to redeem invite token after registration")
-		}
 	}
 
 	return user, accessToken, refreshToken, nil

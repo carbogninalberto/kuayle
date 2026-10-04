@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"time"
 
@@ -20,10 +19,10 @@ import (
 const defaultInviteLinkExpiryDays = 7
 
 var (
-	ErrInviteLinkInvalid   = errors.New("invite link is invalid")
-	ErrInviteLinkExpired   = errors.New("invite link has expired")
-	ErrInviteLinkRevoked   = errors.New("invite link has been revoked")
-	ErrInviteLinkExhausted = errors.New("invite link has reached its maximum uses")
+	ErrInviteLinkInvalid   = repository.ErrInviteLinkInvalid
+	ErrInviteLinkExpired   = repository.ErrInviteLinkExpired
+	ErrInviteLinkRevoked   = repository.ErrInviteLinkRevoked
+	ErrInviteLinkExhausted = repository.ErrInviteLinkExhausted
 )
 
 type InviteLinkService struct {
@@ -143,7 +142,7 @@ func (s *InviteLinkService) Preview(ctx context.Context, token string) (*dto.Inv
 	switch {
 	case link.RevokedAt != nil:
 		status = dto.InviteStatusRevoked
-	case time.Now().After(link.ExpiresAt):
+	case !time.Now().Before(link.ExpiresAt):
 		status = dto.InviteStatusExpired
 	case link.MaxUses != nil && link.UseCount >= *link.MaxUses:
 		status = dto.InviteStatusExhausted
@@ -161,52 +160,56 @@ func (s *InviteLinkService) Preview(ctx context.Context, token string) (*dto.Inv
 // Accept adds the user to the link's workspace. Accepting while already a
 // member is idempotent and does not consume a use.
 func (s *InviteLinkService) Accept(ctx context.Context, token string, userID uuid.UUID) (*domain.Workspace, string, error) {
-	link, ws, err := s.Validate(ctx, token)
+	link, err := s.inviteLinkRepo.GetByTokenHash(ctx, hashInviteToken(token))
 	if err != nil {
 		return nil, "", err
 	}
-
-	existing, err := s.workspaceRepo.GetMember(ctx, ws.ID, userID)
+	if link == nil {
+		return nil, "", ErrInviteLinkInvalid
+	}
+	ws, err := s.workspaceRepo.GetByID(ctx, link.WorkspaceID)
 	if err != nil {
 		return nil, "", err
 	}
-	if existing != nil {
-		return ws, existing.Role, nil
+	if ws == nil {
+		return nil, "", ErrInviteLinkInvalid
 	}
-
-	consumed, err := s.inviteLinkRepo.TryConsumeUse(ctx, link.ID)
+	role, err := s.inviteLinkRepo.Join(ctx, link.ID, userID, nil)
 	if err != nil {
-		return nil, "", err
-	}
-	if !consumed {
-		return nil, "", ErrInviteLinkExhausted
-	}
-
-	member := &domain.WorkspaceMember{
-		WorkspaceID: ws.ID,
-		UserID:      userID,
-		Role:        link.Role,
-	}
-	if err := s.workspaceRepo.AddMember(ctx, member); err != nil {
-		// Compensate the consumed use so a failed join does not burn a slot.
-		if releaseErr := s.inviteLinkRepo.ReleaseUse(ctx, link.ID); releaseErr != nil {
-			return nil, "", fmt.Errorf("add member: %w (additionally failed to release invite use: %v)", err, releaseErr)
-		}
 		return nil, "", err
 	}
 
 	audit.Log("invite_link.accepted", userID, map[string]interface{}{
-		"workspace_id": ws.ID, "invite_link_id": link.ID, "role": link.Role,
+		"workspace_id": ws.ID, "invite_link_id": link.ID, "role": role,
 	})
 
-	return ws, link.Role, nil
+	return ws, role, nil
+}
+
+// Register creates an invited user and membership atomically with invite use.
+func (s *InviteLinkService) Register(ctx context.Context, token string, user *domain.User) error {
+	link, err := s.inviteLinkRepo.GetByTokenHash(ctx, hashInviteToken(token))
+	if err != nil {
+		return err
+	}
+	if link == nil {
+		return ErrInviteLinkInvalid
+	}
+	role, err := s.inviteLinkRepo.Join(ctx, link.ID, user.ID, user)
+	if err != nil {
+		return err
+	}
+	audit.Log("invite_link.accepted", user.ID, map[string]interface{}{
+		"workspace_id": link.WorkspaceID, "invite_link_id": link.ID, "role": role,
+	})
+	return nil
 }
 
 func checkInviteLinkUsable(link *domain.WorkspaceInviteLink) error {
 	switch {
 	case link.RevokedAt != nil:
 		return ErrInviteLinkRevoked
-	case time.Now().After(link.ExpiresAt):
+	case !time.Now().Before(link.ExpiresAt):
 		return ErrInviteLinkExpired
 	case link.MaxUses != nil && link.UseCount >= *link.MaxUses:
 		return ErrInviteLinkExhausted

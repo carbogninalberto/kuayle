@@ -50,14 +50,9 @@ func (m *mockInviteLinkRepo) Revoke(ctx context.Context, id uuid.UUID) error {
 	return args.Error(0)
 }
 
-func (m *mockInviteLinkRepo) TryConsumeUse(ctx context.Context, id uuid.UUID) (bool, error) {
-	args := m.Called(ctx, id)
-	return args.Bool(0), args.Error(1)
-}
-
-func (m *mockInviteLinkRepo) ReleaseUse(ctx context.Context, id uuid.UUID) error {
-	args := m.Called(ctx, id)
-	return args.Error(0)
+func (m *mockInviteLinkRepo) Join(ctx context.Context, id, userID uuid.UUID, newUser *domain.User) (string, error) {
+	args := m.Called(ctx, id, userID, newUser)
+	return args.String(0), args.Error(1)
 }
 
 // --- Helpers ---
@@ -262,168 +257,60 @@ func TestInviteLinkService_Preview_Statuses(t *testing.T) {
 
 // --- Accept ---
 
-func TestInviteLinkService_Accept_Happy(t *testing.T) {
-	linkRepo := new(mockInviteLinkRepo)
-	wsRepo := new(mockWorkspaceRepo)
-	svc := NewInviteLinkService(linkRepo, wsRepo)
-
-	ctx := context.Background()
-	wsID := uuid.New()
-	userID := uuid.New()
-	link := validInviteLink(wsID)
-	ws := &domain.Workspace{ID: wsID, Name: "Acme", Slug: "acme"}
-
-	linkRepo.On("GetByTokenHash", ctx, mock.Anything).Return(link, nil)
-	wsRepo.On("GetByID", ctx, wsID).Return(ws, nil)
-	wsRepo.On("GetMember", ctx, wsID, userID).Return(nil, nil)
-	linkRepo.On("TryConsumeUse", ctx, link.ID).Return(true, nil)
-	wsRepo.On("AddMember", ctx, mock.MatchedBy(func(m *domain.WorkspaceMember) bool {
-		return m.WorkspaceID == wsID && m.UserID == userID && m.Role == domain.RoleMember
-	})).Return(nil)
-
-	gotWS, role, err := svc.Accept(ctx, "tok", userID)
-
-	assert.NoError(t, err)
-	assert.Equal(t, ws, gotWS)
-	assert.Equal(t, domain.RoleMember, role)
-	linkRepo.AssertCalled(t, "TryConsumeUse", ctx, link.ID)
-}
-
-func TestInviteLinkService_Accept_IdempotentForMember(t *testing.T) {
-	linkRepo := new(mockInviteLinkRepo)
-	wsRepo := new(mockWorkspaceRepo)
-	svc := NewInviteLinkService(linkRepo, wsRepo)
-
-	ctx := context.Background()
-	wsID := uuid.New()
-	userID := uuid.New()
-	link := validInviteLink(wsID)
-	ws := &domain.Workspace{ID: wsID, Name: "Acme", Slug: "acme"}
-
-	linkRepo.On("GetByTokenHash", ctx, mock.Anything).Return(link, nil)
-	wsRepo.On("GetByID", ctx, wsID).Return(ws, nil)
-	wsRepo.On("GetMember", ctx, wsID, userID).Return(&domain.WorkspaceMember{
-		WorkspaceID: wsID, UserID: userID, Role: domain.RoleAdmin,
-	}, nil)
-
-	gotWS, role, err := svc.Accept(ctx, "tok", userID)
-
-	assert.NoError(t, err)
-	assert.Equal(t, ws, gotWS)
-	assert.Equal(t, domain.RoleAdmin, role) // keeps the existing role
-	linkRepo.AssertNotCalled(t, "TryConsumeUse", mock.Anything, mock.Anything)
-	wsRepo.AssertNotCalled(t, "AddMember", mock.Anything, mock.Anything)
-}
-
-func TestInviteLinkService_Accept_Expired(t *testing.T) {
-	linkRepo := new(mockInviteLinkRepo)
-	wsRepo := new(mockWorkspaceRepo)
-	svc := NewInviteLinkService(linkRepo, wsRepo)
-
-	ctx := context.Background()
-	link := validInviteLink(uuid.New())
-	link.ExpiresAt = time.Now().Add(-time.Hour)
-
-	linkRepo.On("GetByTokenHash", ctx, mock.Anything).Return(link, nil)
-
-	_, _, err := svc.Accept(ctx, "tok", uuid.New())
-
-	assert.ErrorIs(t, err, ErrInviteLinkExpired)
-	linkRepo.AssertNotCalled(t, "TryConsumeUse", mock.Anything, mock.Anything)
-}
-
-func TestInviteLinkService_Accept_Revoked(t *testing.T) {
-	linkRepo := new(mockInviteLinkRepo)
-	wsRepo := new(mockWorkspaceRepo)
-	svc := NewInviteLinkService(linkRepo, wsRepo)
-
-	ctx := context.Background()
-	now := time.Now()
-	link := validInviteLink(uuid.New())
-	link.RevokedAt = &now
-
-	linkRepo.On("GetByTokenHash", ctx, mock.Anything).Return(link, nil)
-
-	_, _, err := svc.Accept(ctx, "tok", uuid.New())
-
-	assert.ErrorIs(t, err, ErrInviteLinkRevoked)
-}
-
-func TestInviteLinkService_Accept_MaxUsesReached(t *testing.T) {
-	linkRepo := new(mockInviteLinkRepo)
-	wsRepo := new(mockWorkspaceRepo)
-	svc := NewInviteLinkService(linkRepo, wsRepo)
-
-	ctx := context.Background()
-	maxUses := 2
-	link := validInviteLink(uuid.New())
-	link.MaxUses = &maxUses
-	link.UseCount = 2
-
-	linkRepo.On("GetByTokenHash", ctx, mock.Anything).Return(link, nil)
-
-	_, _, err := svc.Accept(ctx, "tok", uuid.New())
-
-	assert.ErrorIs(t, err, ErrInviteLinkExhausted)
-}
-
-func TestInviteLinkService_Accept_UseCountRace(t *testing.T) {
-	linkRepo := new(mockInviteLinkRepo)
-	wsRepo := new(mockWorkspaceRepo)
-	svc := NewInviteLinkService(linkRepo, wsRepo)
-
-	ctx := context.Background()
-	wsID := uuid.New()
-	userID := uuid.New()
-	// passes the stale-read check but loses the atomic consume race
-	link := validInviteLink(wsID)
-	ws := &domain.Workspace{ID: wsID, Name: "Acme", Slug: "acme"}
-
-	linkRepo.On("GetByTokenHash", ctx, mock.Anything).Return(link, nil)
-	wsRepo.On("GetByID", ctx, wsID).Return(ws, nil)
-	wsRepo.On("GetMember", ctx, wsID, userID).Return(nil, nil)
-	linkRepo.On("TryConsumeUse", ctx, link.ID).Return(false, nil)
-
-	_, _, err := svc.Accept(ctx, "tok", userID)
-
-	assert.ErrorIs(t, err, ErrInviteLinkExhausted)
-	wsRepo.AssertNotCalled(t, "AddMember", mock.Anything, mock.Anything)
-}
-
-func TestInviteLinkService_Accept_AddMemberFailureReleasesUse(t *testing.T) {
-	linkRepo := new(mockInviteLinkRepo)
-	wsRepo := new(mockWorkspaceRepo)
-	svc := NewInviteLinkService(linkRepo, wsRepo)
-
-	ctx := context.Background()
-	wsID := uuid.New()
-	userID := uuid.New()
-	link := validInviteLink(wsID)
-	ws := &domain.Workspace{ID: wsID, Name: "Acme", Slug: "acme"}
-	addErr := errors.New("db boom")
-
-	linkRepo.On("GetByTokenHash", ctx, mock.Anything).Return(link, nil)
-	wsRepo.On("GetByID", ctx, wsID).Return(ws, nil)
-	wsRepo.On("GetMember", ctx, wsID, userID).Return(nil, nil)
-	linkRepo.On("TryConsumeUse", ctx, link.ID).Return(true, nil)
-	wsRepo.On("AddMember", ctx, mock.AnythingOfType("*domain.WorkspaceMember")).Return(addErr)
-	linkRepo.On("ReleaseUse", ctx, link.ID).Return(nil)
-
-	_, _, err := svc.Accept(ctx, "tok", userID)
-
-	assert.ErrorIs(t, err, addErr)
-	linkRepo.AssertCalled(t, "ReleaseUse", ctx, link.ID)
+func TestInviteLinkService_Accept(t *testing.T) {
+	for _, tc := range []struct {
+		name, role string
+		joinErr    error
+	}{
+		{"new member", domain.RoleMember, nil},
+		{"existing admin", domain.RoleAdmin, nil},
+		{"expired", "", ErrInviteLinkExpired},
+		{"revoked", "", ErrInviteLinkRevoked},
+		{"exhausted", "", ErrInviteLinkExhausted},
+		{"database failure", "", errors.New("database failure")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			linkRepo := new(mockInviteLinkRepo)
+			wsRepo := new(mockWorkspaceRepo)
+			svc := NewInviteLinkService(linkRepo, wsRepo)
+			wsID, userID := uuid.New(), uuid.New()
+			link := validInviteLink(wsID)
+			ws := &domain.Workspace{ID: wsID, Name: "Acme", Slug: "acme"}
+			linkRepo.On("GetByTokenHash", ctx, hashInviteToken("tok")).Return(link, nil)
+			wsRepo.On("GetByID", ctx, wsID).Return(ws, nil)
+			linkRepo.On("Join", ctx, link.ID, userID, (*domain.User)(nil)).Return(tc.role, tc.joinErr)
+			gotWS, role, err := svc.Accept(ctx, "tok", userID)
+			if tc.joinErr != nil {
+				assert.ErrorIs(t, err, tc.joinErr)
+				assert.Nil(t, gotWS)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, ws, gotWS)
+				assert.Equal(t, tc.role, role)
+			}
+			linkRepo.AssertExpectations(t)
+		})
+	}
 }
 
 func TestInviteLinkService_Accept_InvalidToken(t *testing.T) {
 	linkRepo := new(mockInviteLinkRepo)
-	wsRepo := new(mockWorkspaceRepo)
-	svc := NewInviteLinkService(linkRepo, wsRepo)
-
+	svc := NewInviteLinkService(linkRepo, new(mockWorkspaceRepo))
 	ctx := context.Background()
 	linkRepo.On("GetByTokenHash", ctx, mock.Anything).Return(nil, nil)
-
 	_, _, err := svc.Accept(ctx, "nope", uuid.New())
-
 	assert.ErrorIs(t, err, ErrInviteLinkInvalid)
+}
+
+func TestInviteLinkService_Register(t *testing.T) {
+	linkRepo := new(mockInviteLinkRepo)
+	svc := NewInviteLinkService(linkRepo, new(mockWorkspaceRepo))
+	ctx := context.Background()
+	link := validInviteLink(uuid.New())
+	user := &domain.User{ID: uuid.New(), Email: "invited@example.com"}
+	linkRepo.On("GetByTokenHash", ctx, hashInviteToken("tok")).Return(link, nil)
+	linkRepo.On("Join", ctx, link.ID, user.ID, user).Return(domain.RoleMember, nil)
+	assert.NoError(t, svc.Register(ctx, "tok", user))
+	linkRepo.AssertExpectations(t)
 }
