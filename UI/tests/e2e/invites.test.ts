@@ -121,7 +121,8 @@ test('invited signup submits token and reaches the invited workspace after singl
 	await expect(page).toHaveURL('/invited/inbox');
 	expect(requests.find((r) => r.path === '/api/auth/register')?.body).toMatchObject({ invite_token: token });
 	expect(requests.some((r) => r.path === `/api/invite/${token}/accept`)).toBe(true);
-	expect(requests.some((r) => r.path === '/api/workspaces')).toBe(false);
+	// The destination sidebar may load memberships; invited signup must never create a workspace.
+	expect(requests.some((r) => r.path === '/api/workspaces' && r.method === 'POST')).toBe(false);
 });
 
 test('failed invited signup stays on the form without creating a workspace', async ({ page }) => {
