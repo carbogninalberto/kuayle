@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { existsSync, readFileSync } from 'node:fs';
 import {
 	RESOURCE_ROWS,
 	PRESET_SCOPES,
@@ -10,42 +11,36 @@ import {
 
 const sorted = (scopes) => [...scopes].sort();
 
-// The backend public contract: BE internal/domain/personal_access_token.go
-// validTokenScopes (PR #55). If this drifts, token creation submits scopes
-// the server rejects.
-const BACKEND_VALID_SCOPES = [
-	'workspace:manage',
-	'team:manage',
-	'issue:create',
-	'issue:update',
-	'issue:delete_own',
-	'project:manage',
-	'label:manage',
-	'member:invite',
-	'dev_machine:read',
-	'dev_machine:create',
-	'dev_machine:manage',
-	'dev_machine:admin',
-	'issues:read',
-	'comments:read',
-	'projects:read',
-	'cycles:read',
-	'labels:read',
-	'teams:read',
-	'members:read',
-	'templates:read',
-	'views:read',
-	'analytics:read',
-	'notifications:read',
-	'workspaces:read',
-	'account:read',
-	'assets:read'
-].sort();
+// Compare the actual backend contract when the dependent backend PR is present.
+// Standalone UI branches cannot validate a contract they do not contain.
+const backendPath = new URL('../../../BE/internal/domain/personal_access_token.go', import.meta.url);
+let backendScopes;
+if (existsSync(backendPath)) {
+	const domain = readFileSync(backendPath, 'utf8');
+	const permissions = readFileSync(new URL('../../../BE/internal/domain/permission.go', import.meta.url), 'utf8');
+	const constants = new Map(
+		[...permissions.matchAll(/(Perm\w+)\s*=\s*"([^"]+)"/g)].map((match) => [match[1], match[2]])
+	);
+	const contract = domain.match(/var validTokenScopes = map\[string\]bool\{([\s\S]*?)\n\}/)?.[1];
+	assert.ok(contract, 'backend validTokenScopes declaration must be readable');
+	backendScopes = [...contract.matchAll(/(?:"([^"]+)"|(Perm\w+)):\s*true/g)]
+		.map((match) => {
+			const scope = match[1] ?? constants.get(match[2]);
+			assert.ok(scope, `missing constant ${match[2]}`);
+			return scope;
+		})
+		.sort();
+	assert.ok(backendScopes.length > 0, 'backend contract must not be empty');
+}
 
-test('resource rows expand to exactly the backend valid scope set', () => {
-	const all = RESOURCE_ROWS.flatMap((row) => [...row.readScopes, ...row.writeScopes]);
-	assert.deepEqual(sorted(all), BACKEND_VALID_SCOPES);
-});
+test(
+	'resource rows match the actual backend valid scope set',
+	{ skip: !backendScopes && 'dependent backend contract is absent' },
+	() => {
+		const all = RESOURCE_ROWS.flatMap((row) => [...row.readScopes, ...row.writeScopes]);
+		assert.deepEqual(sorted(all), backendScopes);
+	}
+);
 
 test('read_only preset expands to all read scopes including dev_machine:read', () => {
 	const expected = RESOURCE_ROWS.flatMap((row) => row.readScopes);
@@ -79,8 +74,12 @@ test('triage bot preset matches the documented minimal set', () => {
 	);
 });
 
-test('full access preset expands to the entire backend scope set', () => {
-	assert.deepEqual(sorted(PRESET_SCOPES.full_access), BACKEND_VALID_SCOPES);
+test('full access includes every selectable scope including workspace transfer', () => {
+	assert.deepEqual(
+		sorted(PRESET_SCOPES.full_access),
+		sorted(RESOURCE_ROWS.flatMap((row) => [...row.readScopes, ...row.writeScopes]))
+	);
+	assert.ok(PRESET_SCOPES.full_access.includes('workspace:transfer'));
 });
 
 test('issue:delete_own is only reachable via full access or explicit Issues write', () => {

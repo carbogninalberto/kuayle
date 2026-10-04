@@ -28,7 +28,7 @@ export const RESOURCE_ROWS: ResourceRow[] = [
 	{ key: 'labels', readScopes: ['labels:read'], writeScopes: ['label:manage'] },
 	{ key: 'teams', readScopes: ['teams:read'], writeScopes: ['team:manage'] },
 	{ key: 'members', readScopes: ['members:read'], writeScopes: ['member:invite'] },
-	{ key: 'workspace', readScopes: ['workspaces:read'], writeScopes: ['workspace:manage'] },
+	{ key: 'workspace', readScopes: ['workspaces:read'], writeScopes: ['workspace:manage', 'workspace:transfer'] },
 	{ key: 'templates', readScopes: ['templates:read'], writeScopes: [] },
 	{ key: 'views', readScopes: ['views:read'], writeScopes: [] },
 	{ key: 'analytics', readScopes: ['analytics:read'], writeScopes: [] },
