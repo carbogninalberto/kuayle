@@ -15,11 +15,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// INVITE_TEST_DATABASE_URL must point to a disposable database with all migrations applied.
+// The test database must have all migrations applied. INVITE_TEST_DATABASE_URL
+// can override the shared DATABASE_URL used by backend CI.
 func TestWorkspaceInviteLinkRepositoryPostgres(t *testing.T) {
 	databaseURL := os.Getenv("INVITE_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("INVITE_TEST_DATABASE_URL is not set")
+		databaseURL = os.Getenv("DATABASE_URL")
+	}
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL and INVITE_TEST_DATABASE_URL are not set")
 	}
 	db, err := sqlx.Connect("pgx", databaseURL)
 	require.NoError(t, err)
