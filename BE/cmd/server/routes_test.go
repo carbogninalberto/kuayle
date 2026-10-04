@@ -87,6 +87,9 @@ func TestRegisteredRoutesRejectPATOutsideBoundaries(t *testing.T) {
 		scopes       []string
 		restricted   bool
 	}{
+		{"GET", "/api/tokens", []string{"account:read"}, false},
+		{"POST", "/api/tokens", []string{"account:read"}, false},
+		{"DELETE", "/api/tokens/example", []string{"account:read"}, false},
 		{"POST", "/api/invite/example/accept", []string{"member:invite"}, false},
 		{"POST", "/api/workspaces/import", []string{"workspace:transfer"}, false},
 		{"POST", "/api/workspaces/import/preview", []string{"workspace:transfer"}, false},

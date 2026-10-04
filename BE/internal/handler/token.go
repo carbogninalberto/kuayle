@@ -23,8 +23,8 @@ func NewTokenHandler(tokenSvc *service.TokenService) *TokenHandler {
 }
 
 func (h *TokenHandler) List(c echo.Context) error {
-	if err := rejectPATCaller(c); err != nil {
-		return err
+	if c.Get(middleware.TokenScopesKey) != nil {
+		return response.Forbidden(c)
 	}
 	tokens, err := h.tokenSvc.List(c.Request().Context(), middleware.GetUserID(c))
 	if err != nil {
@@ -38,8 +38,8 @@ func (h *TokenHandler) List(c echo.Context) error {
 }
 
 func (h *TokenHandler) Create(c echo.Context) error {
-	if err := rejectPATCaller(c); err != nil {
-		return err
+	if c.Get(middleware.TokenScopesKey) != nil {
+		return response.Forbidden(c)
 	}
 	var req dto.CreateTokenRequest
 	if err := c.Bind(&req); err != nil {
@@ -71,8 +71,8 @@ func (h *TokenHandler) Create(c echo.Context) error {
 }
 
 func (h *TokenHandler) Revoke(c echo.Context) error {
-	if err := rejectPATCaller(c); err != nil {
-		return err
+	if c.Get(middleware.TokenScopesKey) != nil {
+		return response.Forbidden(c)
 	}
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -85,15 +85,6 @@ func (h *TokenHandler) Revoke(c echo.Context) error {
 		return response.InternalError(c)
 	}
 	return c.NoContent(http.StatusNoContent)
-}
-
-// rejectPATCaller keeps token management interactive-session-only, so a
-// leaked token cannot mint or inspect other tokens.
-func rejectPATCaller(c echo.Context) error {
-	if c.Get(middleware.TokenScopesKey) != nil {
-		return response.Forbidden(c)
-	}
-	return nil
 }
 
 func toPersonalAccessTokenResponse(t domain.PersonalAccessToken, plaintext string) dto.PersonalAccessTokenResponse {

@@ -105,10 +105,10 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	scoped(api, http.MethodGet, "/preferences", h.prefs.Get, "account:read", mw.RequireUnrestrictedTokenWorkspaces())
 	sessionOnly(api, http.MethodPatch, "/preferences", h.prefs.Update)
 
-	// Personal access tokens (PAT callers are rejected by the handler)
-	api.GET("/tokens", h.token.List).Name = "token"
-	api.POST("/tokens", h.token.Create).Name = "token"
-	api.DELETE("/tokens/:id", h.token.Revoke).Name = "token"
+	// Token management requires a session; handlers also guard direct calls.
+	sessionOnly(api, http.MethodGet, "/tokens", h.token.List)
+	sessionOnly(api, http.MethodPost, "/tokens", h.token.Create)
+	sessionOnly(api, http.MethodDelete, "/tokens/:id", h.token.Revoke)
 	sessionOnly(api, http.MethodGet, "/system/update-status", h.system.UpdateStatus)
 	sessionOnly(api, http.MethodPost, "/system/update", h.system.StartUpdate)
 
