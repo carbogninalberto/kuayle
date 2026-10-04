@@ -81,7 +81,7 @@ test('creates a workspace-restricted token with exact preset scopes and protects
 	await page.getByRole('button', { name: 'New token', exact: true }).first().click();
 	const createDialog = page.getByRole('dialog', { name: 'Create token', exact: true });
 	await createDialog.getByLabel('Name', { exact: true }).fill('CLI token');
-	await createDialog.getByRole('combobox', { name: 'Preset', exact: true }).click();
+	await createDialog.getByRole('button', { name: 'Preset', exact: true }).click();
 	await page.getByRole('option', { name: 'Developer (CLI)' }).click();
 	await createDialog.getByRole('checkbox', { name: 'Test Workspace' }).check();
 	await createDialog.getByRole('button', { name: 'Create token', exact: true }).click();
@@ -178,10 +178,10 @@ test('validates custom expiration and preserves custom permissions across a fail
 	await page.getByRole('button', { name: 'New token', exact: true }).first().click();
 	const dialog = page.getByRole('dialog', { name: 'Create token', exact: true });
 	await dialog.getByLabel('Name', { exact: true }).fill('Custom workflow');
-	await dialog.getByRole('combobox', { name: 'Issues', exact: true }).click();
+	await dialog.getByRole('button', { name: 'Issues', exact: true }).click();
 	await page.getByRole('option', { name: 'No access', exact: true }).click();
-	await expect(dialog.getByRole('combobox', { name: 'Preset', exact: true })).toHaveText(/Custom/);
-	await dialog.getByRole('combobox', { name: 'Expiration', exact: true }).click();
+	await expect(dialog.getByRole('button', { name: 'Preset', exact: true })).toHaveText(/Custom/);
+	await dialog.getByRole('button', { name: 'Expiration', exact: true }).click();
 	await page.getByRole('option', { name: 'Custom date', exact: true }).click();
 	await expect(dialog.getByRole('button', { name: 'Create token', exact: true })).toBeDisabled();
 	const date = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
@@ -209,11 +209,11 @@ test('retries a failed token list without treating it as an empty list', async (
 			: route.fulfill({ json: [token] });
 	});
 	await page.goto('/test/settings/tokens');
-	await expect(page.getByRole('alert')).toHaveText('Failed to load tokens');
+	await expect(page.getByRole('main').getByRole('alert')).toHaveText('Failed to load tokens');
 	await expect(page.getByText('No tokens yet', { exact: true })).toHaveCount(0);
 	await expect(page.getByRole('button', { name: 'New token', exact: true })).toBeDisabled();
 	await page.getByRole('button', { name: 'Retry', exact: true }).click();
 	await expect(page.getByText('CLI token', { exact: true })).toBeVisible();
-	await expect(page.getByRole('alert')).toHaveCount(0);
+	await expect(page.getByRole('main').getByRole('alert')).toHaveCount(0);
 	expect(attempts).toBe(2);
 });
