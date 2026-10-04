@@ -67,6 +67,7 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       ENVIRONMENT: ${ENVIRONMENT:-production}
+      DISABLE_REGISTRATION: ${DISABLE_REGISTRATION:-false}
       FRONTEND_URL: ${FRONTEND_URL:-https://localhost}
       SYSADMINS: ${SYSADMINS:-}
       PUBLIC_DEMO_MODE: ${PUBLIC_DEMO_MODE:-false}

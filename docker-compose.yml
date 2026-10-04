@@ -49,6 +49,7 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-kuayle}:${POSTGRES_PASSWORD:-kuayle}@postgres:5432/${POSTGRES_DB:-kuayle}?sslmode=disable
       REDIS_URL: redis://redis:6379
       JWT_SECRET: ${JWT_SECRET:-local_dev_jwt_secret_32_chars_minimum_do_not_use_prod}
+      DISABLE_REGISTRATION: ${DISABLE_REGISTRATION:-false}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
       ENVIRONMENT: ${ENVIRONMENT:-development}
       SYSADMINS: ${SYSADMINS:-a0000000-0000-0000-0000-000000000001}
