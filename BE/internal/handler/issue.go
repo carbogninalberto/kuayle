@@ -42,6 +42,34 @@ func (h *IssueHandler) List(c echo.Context) error {
 	if err := c.Bind(&params); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid parameters")
 	}
+	// Validate only UUID filters here: shared-link lists apply their own filter
+	// allowlist and error semantics, and other list filters retain their behavior.
+	var details []dto.ErrorDetail
+	for _, filter := range []struct {
+		name      string
+		value     string
+		allowNone bool
+	}{
+		{"assignee", params.AssigneeID, true},
+		{"creator", params.CreatorID, false},
+		{"team", params.TeamID, false},
+		{"project", params.ProjectID, true},
+		{"cycle", params.CycleID, true},
+		{"label", params.LabelID, true},
+		{"parent_id", params.ParentID, true},
+	} {
+		if filter.value == "" || (filter.allowNone && filter.value == "none") {
+			continue
+		}
+		// Require the standard UUID form; Parse also accepts URNs, which
+		// cannot be passed unchanged to PostgreSQL UUID comparisons.
+		if _, err := uuid.Parse(filter.value); len(filter.value) != 36 || err != nil {
+			details = append(details, dto.ErrorDetail{Field: filter.name, Message: "must be a valid UUID"})
+		}
+	}
+	if len(details) > 0 {
+		return response.ValidationError(c, details)
+	}
 	params.Defaults()
 
 	issues, total, err := h.issueSvc.List(c.Request().Context(), ws.ID, params)

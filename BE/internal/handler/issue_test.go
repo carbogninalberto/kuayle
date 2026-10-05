@@ -2,17 +2,22 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/jmoiron/sqlx"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/realtime"
+	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -514,4 +519,137 @@ func TestIssueHandler_CreateComment_ValidationError(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// Observe the actual repository boundary while retaining either the test fake
+// or PostgreSQL implementation for successful requests.
+type issueFilterTrackingRepo struct {
+	repository.IssueRepo
+	listCalls  int
+	listParams dto.IssueFilterParams
+}
+
+func (r *issueFilterTrackingRepo) List(ctx context.Context, workspaceID uuid.UUID, params dto.IssueFilterParams) ([]domain.Issue, int, error) {
+	r.listCalls++
+	r.listParams = params
+	return r.IssueRepo.List(ctx, workspaceID, params)
+}
+
+func TestIssueHandler_List_UUIDFilters(t *testing.T) {
+	testIssueListUUIDFilters(t, func() repository.IssueRepo { return newTestIssueRepo() })
+}
+
+func TestIssueHandler_List_UUIDFiltersPostgres(t *testing.T) {
+	databaseURL := os.Getenv("ISSUE_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		databaseURL = os.Getenv("DATABASE_URL") // Available in the backend CI job.
+	}
+	if databaseURL == "" {
+		t.Skip("ISSUE_TEST_DATABASE_URL or DATABASE_URL is not configured")
+	}
+	db, err := sqlx.Connect("pgx", databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	// Random workspace IDs keep these read-only cases independent of existing data.
+	testIssueListUUIDFilters(t, func() repository.IssueRepo { return repository.NewIssueRepository(db) })
+}
+
+func testIssueListUUIDFilters(t *testing.T, newRepo func() repository.IssueRepo) {
+	t.Helper()
+	const validUUID = "aabbccdd-1234-4567-89ab-123456789abc"
+	fields := []struct {
+		name      string
+		allowNone bool
+	}{
+		{"assignee", true}, {"creator", false}, {"team", false},
+		{"project", true}, {"cycle", true}, {"label", true}, {"parent_id", true},
+	}
+	type testCase struct {
+		name    string
+		query   url.Values
+		invalid []string
+	}
+	tests := []testCase{{name: "omitted"}}
+	values := []struct {
+		name, value string
+		valid       bool
+	}{
+		{"email", "alice@example.com", false},
+		{"display name", "Alice", false},
+		{"short", "123", false},
+		{"invalid hex", "aabbccdd-1234-4567-89ab-123456789abz", false},
+		{"invalid separators", "aabbccdd_1234-4567-89ab-123456789abc", false},
+		{"URN", "urn:uuid:" + validUUID, false},
+		{"whitespace", " ", false},
+		{"padded UUID", " " + validUUID + " ", false},
+		{"uppercase sentinel", "NONE", false},
+		{"empty", "", true},
+		{"UUID", validUUID, true},
+		{"uppercase UUID", strings.ToUpper(validUUID), true},
+		{"nil UUID", uuid.Nil.String(), true},
+	}
+	allInvalid, allValid := url.Values{}, url.Values{}
+	var invalidFields []string
+	for _, field := range fields {
+		for _, value := range values {
+			var invalid []string
+			if !value.valid {
+				invalid = []string{field.name}
+			}
+			tests = append(tests, testCase{field.name + "/" + value.name, url.Values{field.name: {value.value}}, invalid})
+		}
+		var invalidNone []string
+		if !field.allowNone {
+			invalidNone = []string{field.name}
+		}
+		tests = append(tests, testCase{field.name + "/none", url.Values{field.name: {"none"}}, invalidNone})
+		allInvalid.Set(field.name, "invalid")
+		allValid.Set(field.name, validUUID)
+		invalidFields = append(invalidFields, field.name)
+	}
+	tests = append(tests,
+		testCase{"multiple invalid filters", allInvalid, invalidFields},
+		testCase{"combined valid filters", allValid, nil},
+		testCase{"mixed valid and invalid filters", url.Values{"assignee": {validUUID}, "team": {"invalid"}, "parent_id": {"none"}}, []string{"team"}},
+		// UUID validation must not enable unrelated DTO validation tags.
+		testCase{"other filters unchanged", url.Values{"sort": {"custom"}, "group_by": {"custom"}, "order": {"custom"}}, nil},
+	)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &issueFilterTrackingRepo{IssueRepo: newRepo()}
+			svc := service.NewIssueService(repo, nil, nil, nil, nil, nil)
+			h := NewIssueHandler(svc, nil, &testUserRepo{}, nil, nil, nil, nil)
+			c, rec := setupIssueContext(echo.New(), http.MethodGet, "/api/workspaces/test/issues?"+tt.query.Encode(), "")
+			setWorkspaceContext(c)
+			if !assert.NoError(t, h.List(c)) {
+				return
+			}
+			if len(tt.invalid) > 0 {
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+				assert.Zero(t, repo.listCalls, "invalid filters must not reach the repository")
+				var body dto.ErrorResponse
+				if !assert.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body)) {
+					return
+				}
+				assert.Equal(t, "VALIDATION_ERROR", body.Error.Code)
+				assert.Equal(t, "Request validation failed", body.Error.Message)
+				expected := make([]dto.ErrorDetail, 0, len(tt.invalid))
+				for _, field := range tt.invalid {
+					expected = append(expected, dto.ErrorDetail{Field: field, Message: "must be a valid UUID"})
+				}
+				assert.ElementsMatch(t, expected, body.Error.Details)
+			} else {
+				assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+				assert.Equal(t, 1, repo.listParams.Page)
+				assert.Equal(t, 50, repo.listParams.PerPage)
+				assert.Equal(t, 1, repo.listCalls)
+				got := map[string]string{"assignee": repo.listParams.AssigneeID, "creator": repo.listParams.CreatorID, "team": repo.listParams.TeamID, "project": repo.listParams.ProjectID, "cycle": repo.listParams.CycleID, "label": repo.listParams.LabelID, "parent_id": repo.listParams.ParentID, "sort": repo.listParams.Sort, "group_by": repo.listParams.GroupBy, "order": repo.listParams.Order}
+				for field, value := range got {
+					assert.Equal(t, tt.query.Get(field), value, "filter %s must pass through unchanged", field)
+				}
+			}
+		})
+	}
 }
