@@ -42,6 +42,7 @@
 	import type { IssueStatus, IssuePriority, RelationType } from '$lib/types/issue';
 	import AddRelationDialog from '$lib/features/issues/AddRelationDialog.svelte';
 	import { preferencesState } from '$lib/features/preferences/preferences.state.svelte';
+	import { viewLayoutState } from '$lib/features/issues/view-layout.state.svelte';
 	import { loadCollapsedGroups, saveCollapsedGroups } from '$lib/features/issues/collapsed-groups';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
@@ -57,7 +58,7 @@
 	let quickAddDefaults = $state<{ statusId?: string; priority?: IssuePriority; assigneeIds?: string[] }>({});
 	let filters = $state<ViewFilter>({});
 	let hasActiveFilters = $derived(Object.values(filters).some((value) => value !== undefined && value !== ''));
-	let layout = $state<ViewLayout>('list');
+	let layout = $state<ViewLayout>(viewLayoutState.layout);
 	let groupByOpen = $state(false);
 	let collapsedGroups = $state<Set<string>>(new Set());
 	let loadedCollapsedScope = '';
@@ -164,6 +165,7 @@
 
 	function handleLayoutChange(l: ViewLayout) {
 		layout = l;
+		viewLayoutState.layout = l;
 		loadIssues();
 	}
 

@@ -115,6 +115,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set image security refresh date
+        id: security-refresh
+        run: echo "day=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+
       # All-in-one image
       - name: Build & push all-in-one
         uses: docker/build-push-action@v7.2.0
@@ -122,6 +126,7 @@ jobs:
           context: .
           file: ./Dockerfile
           pull: true
+          build-args: SECURITY_REFRESH=${{ steps.security-refresh.outputs.day }}
           push: ${{ github.event_name == 'release' }}
           tags: |
             ${{ env.IMAGE_PREFIX }}/kuayle:latest
@@ -136,6 +141,7 @@ jobs:
           context: ./BE
           file: ./BE/Dockerfile
           pull: true
+          build-args: SECURITY_REFRESH=${{ steps.security-refresh.outputs.day }}
           push: ${{ github.event_name == 'release' }}
           tags: |
             ${{ env.IMAGE_PREFIX }}/kuayle-api:latest
@@ -150,6 +156,7 @@ jobs:
           context: ./UI
           file: ./UI/Dockerfile
           pull: true
+          build-args: SECURITY_REFRESH=${{ steps.security-refresh.outputs.day }}
           push: ${{ github.event_name == 'release' }}
           tags: |
             ${{ env.IMAGE_PREFIX }}/kuayle-web:latest
@@ -158,12 +165,13 @@ jobs:
           cache-to: type=gha,mode=max,scope=web
 
   dev-machine-images:
-    name: Dev Machine Image (${{ matrix.name }})
-    runs-on: ubuntu-latest
+    name: Dev Machine Image (${{ matrix.image.name }}, ${{ matrix.architecture }})
+    runs-on: ${{ matrix.architecture == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
-        include:
+        architecture: [amd64, arm64]
+        image:
           - id: gateway
             name: Gateway
             context: ./BE
@@ -213,20 +221,37 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.0
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4.2.0
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4.2.0
 
-      - name: Build amd64 and arm64 image
+      - name: Set image security refresh date
+        id: security-refresh
+        run: echo "day=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+
+      - name: Build native architecture image
         uses: docker/build-push-action@v7.3.0
         with:
-          context: ${{ matrix.context }}
-          file: ${{ matrix.dockerfile }}
-          platforms: linux/amd64,linux/arm64
-          build-args: ${{ matrix.build_args }}
+          context: ${{ matrix.image.context }}
+          file: ${{ matrix.image.dockerfile }}
+          platforms: linux/${{ matrix.architecture }}
+          build-args: |
+            ${{ matrix.image.build_args }}
+            SECURITY_REFRESH=${{ steps.security-refresh.outputs.day }}
           pull: true
           push: false
-          cache-from: type=gha,scope=dev-machine-${{ matrix.id }}
-          cache-to: type=gha,mode=min,scope=dev-machine-${{ matrix.id }}
+          load: true
+          tags: kuayle-dev-machine-${{ matrix.image.id }}:${{ matrix.architecture }}-ci
+          cache-from: type=gha,scope=dev-machine-${{ matrix.image.id }}-${{ matrix.architecture }}
+          cache-to: type=gha,mode=min,scope=dev-machine-${{ matrix.image.id }}-${{ matrix.architecture }}
+
+      - name: Smoke test native IDE runtime
+        if: matrix.image.id == 'ide'
+        run: ./devmachine/ide/smoke-test.sh kuayle-dev-machine-ide:${{ matrix.architecture }}-ci
+
+      - name: Scan native architecture image
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: kuayle-dev-machine-${{ matrix.image.id }}:${{ matrix.architecture }}-ci
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH

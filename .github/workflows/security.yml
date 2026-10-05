@@ -24,7 +24,7 @@ jobs:
 
       - name: Run govulncheck
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@latest
+          GOTOOLCHAIN=auto go install golang.org/x/vuln/cmd/govulncheck@latest
           govulncheck ./...
 
       - name: Run go vet
@@ -65,10 +65,10 @@ jobs:
       - uses: actions/checkout@v7.0.0
 
       - name: Build backend image
-        run: docker build -t kuayle-backend:scan ./BE
+        run: docker build --pull --build-arg SECURITY_REFRESH="$(date -u +%F)" -t kuayle-backend:scan ./BE
 
       - name: Build frontend image
-        run: docker build -t kuayle-frontend:scan ./UI
+        run: docker build --pull --build-arg SECURITY_REFRESH="$(date -u +%F)" -t kuayle-frontend:scan ./UI
 
       - name: Scan backend image
         uses: aquasecurity/trivy-action@v0.36.0
@@ -145,17 +145,27 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4.2.0
 
+      - name: Set image security refresh date
+        id: security-refresh
+        run: echo "day=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+
       - name: Build image for scanning
         uses: docker/build-push-action@v7.3.0
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
-          build-args: ${{ matrix.build_args }}
+          build-args: |
+            ${{ matrix.build_args }}
+            SECURITY_REFRESH=${{ steps.security-refresh.outputs.day }}
           pull: true
           load: true
           tags: kuayle-dev-machine-${{ matrix.id }}:scan
           cache-from: type=gha,scope=dev-machine-scan-${{ matrix.id }}
           cache-to: type=gha,mode=min,scope=dev-machine-scan-${{ matrix.id }}
+
+      - name: Smoke test IDE runtime
+        if: matrix.id == 'ide'
+        run: ./devmachine/ide/smoke-test.sh kuayle-dev-machine-ide:scan
 
       - name: Scan image
         uses: aquasecurity/trivy-action@v0.36.0

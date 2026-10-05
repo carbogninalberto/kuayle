@@ -37,7 +37,9 @@
 	function handleNavigate(direction: 'prev' | 'next') {
 		const adj = issuesState.getAdjacentIdentifier(identifier, direction);
 		if (adj) {
-			goto(`/${slug}/issue/${adj}`);
+			// Replace history so browser back returns to the view the
+			// issue was opened from instead of the previous issue.
+			goto(`/${slug}/issue/${adj}`, { replaceState: true });
 		}
 	}
 

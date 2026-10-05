@@ -1,15 +1,18 @@
-FROM golang:1.25.12-alpine AS go-stage
+FROM golang:1.25.13-alpine AS go-stage
 
-FROM node:22.23.1-alpine3.23
+FROM node:22.23.3-alpine3.23@sha256:baf676f7d0e552f3231945c2f979055ca121bce128c152f7a34e6bd1728b1c5a
 
 ARG PROVIDER
-ARG NPM_VERSION=12.0.1
-ARG BRACE_EXPANSION_VERSION=5.0.8
-ARG CLAUDE_CODE_VERSION=2.1.218
-ARG OPENCODE_VERSION=1.18.4
-ARG CODEX_VERSION=0.145.0
+ARG NPM_VERSION=12.2.0
+ARG CLAUDE_CODE_VERSION=2.1.289
+ARG OPENCODE_VERSION=1.18.34
+ARG CODEX_VERSION=0.160.0
 
-RUN apk add --no-cache bash ca-certificates curl git make openssh-client \
+COPY common/patch-npm-security.cjs common/test-http-cache-semantics.cjs /usr/local/lib/kuayle/
+
+ARG SECURITY_REFRESH=initial
+RUN apk upgrade --no-cache \
+    && apk add --no-cache bash ca-certificates curl git make openssh-client \
     && npm install -g "npm@${NPM_VERSION}" \
     && case "$PROVIDER" in \
          claude-code) npm install -g --allow-scripts=@anthropic-ai/claude-code "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" ;; \
@@ -17,11 +20,8 @@ RUN apk add --no-cache bash ca-certificates curl git make openssh-client \
          codex) npm install -g "@openai/codex@${CODEX_VERSION}" ;; \
          *) echo "unsupported provider: $PROVIDER" >&2; exit 1 ;; \
        esac \
-    && npm install --prefix /tmp/npm-patches --ignore-scripts --package-lock=false "brace-expansion@${BRACE_EXPANSION_VERSION}" \
-    && rm -rf /usr/local/lib/node_modules/npm/node_modules/brace-expansion \
-    && cp -a /tmp/npm-patches/node_modules/brace-expansion /usr/local/lib/node_modules/npm/node_modules/ \
-    && node -e 'const actual=require("/usr/local/lib/node_modules/npm/node_modules/brace-expansion/package.json").version;if(actual!==process.argv[1])throw new Error(`unexpected brace-expansion ${actual}`)' "${BRACE_EXPANSION_VERSION}" \
-    && rm -rf /tmp/npm-patches /root/.npm \
+    && node /usr/local/lib/kuayle/patch-npm-security.cjs \
+    && rm -rf /root/.npm \
     && case "$PROVIDER" in \
          claude-code) claude --version ;; \
          opencode) opencode --version ;; \

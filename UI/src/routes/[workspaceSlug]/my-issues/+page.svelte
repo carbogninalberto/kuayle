@@ -21,6 +21,7 @@
 	import type { Label } from '$lib/types/label';
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import type { ViewFilter, ViewLayout } from '$lib/types/view';
+	import { viewLayoutState } from '$lib/features/issues/view-layout.state.svelte';
 	import type { Issue, RelationType } from '$lib/types/issue';
 	import AddRelationDialog from '$lib/features/issues/AddRelationDialog.svelte';
 	import { CircleUser, PenLine } from 'lucide-svelte';
@@ -57,7 +58,7 @@
 	const initialDrillDownFilters = initialFilters();
 	let filters = $state<ViewFilter>(initialDrillDownFilters);
 	let drillDownMode = $state(Object.keys(initialDrillDownFilters).length > 0);
-	let layout = $state<ViewLayout>('list');
+	let layout = $state<ViewLayout>(viewLayoutState.layout);
 	let projects = $state<Project[]>([]);
 	let labels = $state<Label[]>([]);
 	let members = $state<WorkspaceMember[]>([]);
@@ -132,6 +133,7 @@
 
 	function handleLayoutChange(l: ViewLayout) {
 		layout = l;
+		viewLayoutState.layout = l;
 		loadIssues();
 	}
 

@@ -1,10 +1,11 @@
-FROM golang:1.25.12-alpine AS build
+FROM golang:1.25.13-alpine AS build
 WORKDIR /src
 COPY collector/main.go .
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /collector main.go
 
-FROM alpine:3.22
-RUN apk add --no-cache ca-certificates coreutils git \
+FROM alpine:3.23
+ARG SECURITY_REFRESH=initial
+RUN apk upgrade --no-cache && apk add --no-cache ca-certificates coreutils git \
     && addgroup -g 1000 kuayle \
     && adduser -D -u 1000 -G kuayle kuayle
 COPY --from=build /collector /usr/local/bin/kuayle-collector
