@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { Editor } from 'svelte-tiptap';
-	import { EditorContent, BubbleMenu } from 'svelte-tiptap';
+	import { EditorContent } from 'svelte-tiptap';
+	import BubbleMenu from './EditorBubbleMenu.svelte';
+	import type { BubbleMenuPluginProps } from '@tiptap/extension-bubble-menu';
 	import StarterKit from '@tiptap/starter-kit';
 	import Placeholder from '@tiptap/extension-placeholder';
 	import TaskList from '@tiptap/extension-task-list';
@@ -101,6 +103,8 @@
 
 	let editor = $state<Editor | null>(null);
 	let isFocused = $state(false);
+	let imageSelected = $state(false);
+	let lastSyncedContent: string | undefined;
 	let linkInputVisible = $state(false);
 	let linkUrl = $state('');
 	let cursorElements: HTMLElement[] = [];
@@ -640,6 +644,7 @@
 			...(imagePasteExt ? [imagePasteExt] : []),
 		];
 
+		lastSyncedContent = content;
 		editor = new Editor({
 			extensions,
 			content,
@@ -648,6 +653,7 @@
 				onupdate?.(sanitizeEditorOutput(e.getHTML()));
 			},
 			onSelectionUpdate: ({ editor: e }) => {
+				imageSelected = e.isActive('image');
 				const { from, to, head, anchor } = e.state.selection;
 				const selectedText = e.state.doc.textBetween(from, to, ' ').trim();
 				lastSelection = selectedText ? { from, to, text: selectedText } : null;
@@ -775,11 +781,14 @@
 		};
 	});
 
+	// Only apply changed external content. Moving focus into the bubble must not
+	// reapply a stale prop while the parent is still debouncing the local save.
 	// Sync content from outside (e.g. real-time updates) without losing cursor.
 	// Only sync when content prop has a non-empty value (skip for comment editors
 	// where content="" is just the initial value, not an ongoing binding).
 	$effect(() => {
-		if (editor && !isFocused && content) {
+		if (editor && !isFocused && content && content !== lastSyncedContent) {
+			lastSyncedContent = content;
 			const current = sanitizeEditorOutput(editor.getHTML());
 			if (current !== content) {
 				editor.commands.setContent(content, { emitUpdate: false });
@@ -918,13 +927,17 @@
 		editor?.chain().focus().run();
 	}
 
-	function shouldShowBubble(props: { from: number; to: number; editor: any }): boolean {
-		if (!props.editor.isFocused) return false;
-		if (props.editor.isActive('image')) return true;
-		if (props.from === props.to) return false;
-		if (props.editor.isActive('codeBlock')) return false;
-		return true;
-	}
+	const shouldShowBubble: NonNullable<BubbleMenuPluginProps['shouldShow']> = ({ editor, view, state, element, from, to }) => {
+		if (editor.isDestroyed || !editor.isEditable || state.selection.empty) return false;
+		// The link field and keyboard-focused controls belong to this editor too.
+		const menuFocused = element.contains(document.activeElement);
+		if (!view.hasFocus() && !menuFocused) return false;
+		if (editor.isActive('image')) return true;
+		if (editor.isActive('codeBlock') || !state.doc.textBetween(from, to).trim()) return false;
+		const selection = view.dom.ownerDocument.getSelection();
+		return menuFocused || !!(selection && !selection.isCollapsed
+			&& view.dom.contains(selection.anchorNode) && view.dom.contains(selection.focusNode));
+	};
 
 	function btnClass(active: boolean): string {
 		return active
@@ -1055,7 +1068,7 @@
 		<BubbleMenu {editor} shouldShow={shouldShowBubble}>
 			{#snippet children()}
 				<div class="bubble-toolbar" role="toolbar" aria-label={m['sharedComponents.rich_editor.editor_formatting']()} tabindex="-1" onpointerdown={(event) => event.preventDefault()}>
-					{#if editor?.isActive('image')}
+					{#if imageSelected}
 						<span class="bubble-image-label">{m['sharedComponents.rich_editor.image_size']()}</span>
 						{#each ['25%', '50%', '75%', '100%'] as width}
 							<button type="button" onclick={() => setImageWidth(width)} class={btnClass(editor?.getAttributes('image').width === width)} title={m['sharedComponents.rich_editor.set_image_width']({ width })}>
