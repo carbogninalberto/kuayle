@@ -17,7 +17,8 @@
 		CircleDot,
 		ChevronDown,
 		Menu,
-		RefreshCw
+		RefreshCw,
+		KeyRound
 	} from 'lucide-svelte';
 	import { GithubLogoIcon } from 'phosphor-svelte';
 	import type { Snippet } from 'svelte';
@@ -86,7 +87,8 @@
 			label: m['settings.nav.personal'](),
 			items: [
 				{ label: m['settings.nav.profile'](), href: `/${slug}/settings/profile`, icon: User },
-				{ label: m['settings.nav.preferences'](), href: `/${slug}/settings/preferences`, icon: Settings2 }
+				{ label: m['settings.nav.preferences'](), href: `/${slug}/settings/preferences`, icon: Settings2 },
+				{ label: m['settings.nav.api_tokens'](), href: `/${slug}/settings/tokens`, icon: KeyRound }
 			]
 		},
 		{
