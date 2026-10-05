@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -34,9 +35,13 @@ func (h *WorkspaceHandler) List(c echo.Context) error {
 	if err != nil {
 		return response.InternalError(c)
 	}
-	resp := make([]dto.WorkspaceResponse, len(workspaces))
-	for i, ws := range workspaces {
-		resp[i] = h.toWorkspaceResponse(c, ws)
+	resp := make([]dto.WorkspaceResponse, 0, len(workspaces))
+	slugs, restricted := c.Get(middleware.TokenWorkspacesKey).([]string)
+	for _, ws := range workspaces {
+		if restricted && slugs != nil && !slices.Contains(slugs, ws.Slug) {
+			continue
+		}
+		resp = append(resp, h.toWorkspaceResponse(c, ws))
 	}
 	return response.Success(c, http.StatusOK, resp)
 }

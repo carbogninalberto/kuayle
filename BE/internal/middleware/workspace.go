@@ -1,6 +1,8 @@
 package middleware
 
 import (
+	"slices"
+
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/repository"
@@ -8,7 +10,7 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-func WorkspaceMembership(workspaceRepo *repository.WorkspaceRepository) echo.MiddlewareFunc {
+func WorkspaceMembership(workspaceRepo repository.WorkspaceRepo) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			slug := c.Param("slug")
@@ -29,6 +31,13 @@ func WorkspaceMembership(workspaceRepo *repository.WorkspaceRepository) echo.Mid
 			member, err := workspaceRepo.GetMember(c.Request().Context(), ws.ID, userID)
 			if err != nil || member == nil {
 				return response.Forbidden(c)
+			}
+
+			// A PAT restricted to specific workspaces may not cross into others.
+			if slugs, ok := c.Get(TokenWorkspacesKey).([]string); ok && slugs != nil {
+				if !slices.Contains(slugs, slug) {
+					return response.Forbidden(c)
+				}
 			}
 
 			c.Set("workspace", ws)
