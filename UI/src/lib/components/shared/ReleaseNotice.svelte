@@ -1,5 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { page } from '$app/state';
+	import { getCurrentWorkspace } from '$lib/features/workspaces/current-workspace.svelte';
+	import { ROLE_HIERARCHY, type Role } from '$lib/security/roles';
 	import { Button } from '$lib/components/ui/button';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import {
@@ -28,7 +31,13 @@
 	let requiredRelease = $state<GitHubRelease | null>(null);
 	let changelogHtml = $state('');
 	let dialogOpen = $state(false);
-	let hasOpened = $state(false);
+	const currentWorkspace = getCurrentWorkspace();
+	const canSeeOrdinaryNotice = $derived(
+		!authState.loading && authState.authenticated &&
+		currentWorkspace.membership?.userId === authState.user?.id &&
+		currentWorkspace.membership?.workspace.slug === page.params.workspaceSlug &&
+		(ROLE_HIERARCHY[currentWorkspace.membership?.workspace.current_user_role as Role] ?? 0) >= ROLE_HIERARCHY.admin
+	);
 	let includePrerelease = $state(false);
 	let loaded = $state(false);
 
@@ -36,25 +45,16 @@
 	const requiredVersionLabel = $derived(requiredRelease?.minimum_supported_version || requiredRelease?.tag_name || '');
 	const upgradeUrl = $derived(requiredRelease?.upgrade_url || requiredRelease?.html_url || currentReleaseUrl);
 
-	$effect(() => {
-		if (requiredRelease) {
-			dialogOpen = false;
-			hasOpened = false;
-			return;
-		}
-
-		if (dialogOpen) {
-			hasOpened = true;
-			return;
-		}
-
-		if (hasOpened && latestRelease) {
+	function onDialogOpenChange(open: boolean) {
+		// Only a user-driven close dismisses a release. Permission/loading changes
+		// close it separately and must leave it available on the next eligible visit.
+		if (!open && dialogOpen && canSeeOrdinaryNotice && !requiredRelease && latestRelease) {
 			persistDismissed(latestRelease.tag_name);
 			latestRelease = null;
 			changelogHtml = '';
-			hasOpened = false;
 		}
-	});
+		dialogOpen = open;
+	}
 
 	function isDismissed(tagName: string) {
 		if (typeof localStorage === 'undefined') return false;
@@ -109,7 +109,7 @@
 
 		if (
 			autoOpen &&
-			authState.authenticated &&
+			canSeeOrdinaryNotice &&
 			!requiredRelease &&
 			latest &&
 			compareVersions(latest.tag_name, currentVersion) > 0 &&
@@ -151,9 +151,8 @@
 	});
 
 	$effect(() => {
-		if (!authState.authenticated) {
+		if (!canSeeOrdinaryNotice || requiredRelease) {
 			dialogOpen = false;
-			hasOpened = false;
 			return;
 		}
 
@@ -205,8 +204,8 @@
 			</div>
 		</div>
 	</div>
-{:else if latestRelease}
-	<Dialog.Root bind:open={dialogOpen}>
+{:else if latestRelease && canSeeOrdinaryNotice}
+	<Dialog.Root open={dialogOpen} onOpenChange={onDialogOpenChange}>
 		<Dialog.Content
 			class="top-4 max-h-[calc(100dvh-2rem)] border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-0 sm:top-[10dvh] sm:max-h-[80dvh] sm:max-w-xl"
 		>
@@ -266,7 +265,7 @@
 					class="flex flex-col-reverse gap-2 border-t border-[var(--app-border)] bg-[var(--color-bg)] px-5 py-4 sm:flex-row sm:justify-end"
 				>
 					<Button variant="outline" onclick={() => void loadReleases(false)}>{m['sharedComponents.release_notice.check_again']()}</Button>
-					<Button variant="outline" onclick={() => (dialogOpen = false)}>{m['sharedComponents.release_notice.dismiss']()}</Button>
+					<Button variant="outline" onclick={() => onDialogOpenChange(false)}>{m['sharedComponents.release_notice.dismiss']()}</Button>
 					<Button href={latestRelease.html_url} target="_blank" rel="noopener">{m['sharedComponents.release_notice.release']()}</Button>
 				</div>
 			</div>

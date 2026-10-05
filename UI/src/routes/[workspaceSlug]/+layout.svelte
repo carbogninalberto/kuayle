@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
+	import { getCurrentWorkspace } from '$lib/features/workspaces/current-workspace.svelte';
 	import { getWorkspace } from '$lib/api/workspaces';
 	import { listTeams, createTeam, deleteTeam, leaveTeam } from '$lib/api/teams';
 	import { listProjects } from '$lib/api/projects';
@@ -58,6 +59,20 @@
 	let confirmSubmitting = $state(false);
 	let authReady = $state(false);
 	let workspaceLoadId = 0;
+	const currentWorkspace = getCurrentWorkspace();
+	let membershipLoadId = 0;
+
+	async function loadMembership(workspaceSlug: string) {
+		const loadId = ++membershipLoadId;
+		const userId = authState.user?.id;
+		currentWorkspace.membership = null;
+		const ws = await getWorkspace(workspaceSlug);
+		if (loadId === membershipLoadId && workspaceSlug === slug && userId && userId === authState.user?.id) {
+			currentWorkspace.membership = { workspace: ws, userId };
+			return ws;
+		}
+		return null;
+	}
 	const isMobile = new IsMobile();
 	const terminalDock = setTerminalDock();
 	const slug = $derived(page.params.workspaceSlug ?? '');
@@ -70,11 +85,15 @@
 	async function loadWorkspaceData(workspaceSlug: string) {
 		const loadId = ++workspaceLoadId;
 		try {
-			const workspaceRequest = getWorkspace(workspaceSlug);
+			const workspaceRequest = loadMembership(workspaceSlug);
 			const teamsRequest = listTeams(workspaceSlug);
-			const renderRequest = Promise.all([workspaceRequest, teamsRequest]).then(([ws, t]) => {
+			const renderRequest = Promise.all([workspaceRequest, teamsRequest]).then(([, t]) => {
 				if (loadId !== workspaceLoadId) return;
-				workspace = ws;
+				// A members refresh may supersede this request while teams are loading.
+				// Keep the latest membership and still apply this workspace's team list.
+				if (currentWorkspace.membership?.workspace.slug === workspaceSlug) {
+					workspace = currentWorkspace.membership.workspace;
+				}
 				teams = t;
 				sidebarState.teams = t;
 			});
@@ -122,8 +141,11 @@
 		if (resources.includes('issues') && issuesState.issues.length > 0) {
 			issuesState.load(slug, issuesState.filters);
 		}
-		if (resources.includes('workspace')) {
-			getWorkspace(slug).then((ws) => { workspace = ws; }).catch(() => {});
+		if (resources.includes('workspace') || resources.includes('members')) {
+			const refreshSlug = slug;
+			loadMembership(refreshSlug).then((ws) => {
+				if (ws && refreshSlug === slug) workspace = ws;
+			}).catch(() => {});
 		}
 		if (resources.includes('teams')) {
 			listTeams(slug).then((t) => {
@@ -363,6 +385,8 @@
 
 	onDestroy(() => {
 		wsDestroyed = true;
+		membershipLoadId++;
+		currentWorkspace.membership = null;
 		clearWebSocketReconnect();
 		ws_conn?.close();
 		window.removeEventListener('ws:send', handleWSSend as EventListener);
