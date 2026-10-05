@@ -41,3 +41,20 @@ const (
 	RoleMember = "member"
 	RoleGuest  = "guest"
 )
+
+// WorkspaceInviteLink is a shareable invite link. Only the SHA-256 hash of the
+// token is stored; the raw token appears solely in the generated invite URL.
+// Link roles are limited to member/guest — privileged roles stay on the
+// email-invite path where the invitee is a confirmed existing account.
+type WorkspaceInviteLink struct {
+	ID          uuid.UUID  `json:"id" db:"id"`
+	WorkspaceID uuid.UUID  `json:"workspace_id" db:"workspace_id"`
+	TokenHash   string     `json:"-" db:"token_hash"`
+	Role        string     `json:"role" db:"role"`
+	CreatedBy   uuid.UUID  `json:"created_by" db:"created_by"`
+	ExpiresAt   time.Time  `json:"expires_at" db:"expires_at"`
+	MaxUses     *int       `json:"max_uses" db:"max_uses"`
+	UseCount    int        `json:"use_count" db:"use_count"`
+	RevokedAt   *time.Time `json:"revoked_at" db:"revoked_at"`
+	CreatedAt   time.Time  `json:"created_at" db:"created_at"`
+}

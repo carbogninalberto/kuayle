@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -341,4 +342,143 @@ func TestGetUserByID_NotFound(t *testing.T) {
 func bcryptGenerateHelper(password string) (string, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
 	return string(hash), err
+}
+
+// --- Registration toggle / invite-token redemption ---
+
+type mockInviteRedeemer struct {
+	mock.Mock
+}
+
+func (m *mockInviteRedeemer) Validate(ctx context.Context, token string) (*domain.WorkspaceInviteLink, *domain.Workspace, error) {
+	args := m.Called(ctx, token)
+	var link *domain.WorkspaceInviteLink
+	if args.Get(0) != nil {
+		link = args.Get(0).(*domain.WorkspaceInviteLink)
+	}
+	var ws *domain.Workspace
+	if args.Get(1) != nil {
+		ws = args.Get(1).(*domain.Workspace)
+	}
+	return link, ws, args.Error(2)
+}
+
+func (m *mockInviteRedeemer) Register(ctx context.Context, token string, user *domain.User) error {
+	args := m.Called(ctx, token, user)
+	return args.Error(0)
+}
+
+func TestRegister_RegistrationDisabled_NoToken(t *testing.T) {
+	userRepo := new(mockUserRepo)
+	refreshRepo := new(mockRefreshTokenRepo)
+	redeemer := new(mockInviteRedeemer)
+	svc := NewAuthService(userRepo, refreshRepo, "test-secret",
+		WithRegistrationDisabled(true), WithInviteRedeemer(redeemer))
+
+	ctx := context.Background()
+	req := dto.RegisterRequest{Email: "new@example.com", Password: "Password123!!", Name: "New User"}
+
+	user, _, _, err := svc.Register(ctx, req)
+
+	assert.ErrorIs(t, err, ErrRegistrationDisabled)
+	assert.Nil(t, user)
+	userRepo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+}
+
+func TestRegister_RegistrationDisabled_ValidInviteToken(t *testing.T) {
+	userRepo := new(mockUserRepo)
+	refreshRepo := new(mockRefreshTokenRepo)
+	redeemer := new(mockInviteRedeemer)
+	svc := NewAuthService(userRepo, refreshRepo, "test-secret",
+		WithRegistrationDisabled(true), WithInviteRedeemer(redeemer))
+
+	ctx := context.Background()
+	req := dto.RegisterRequest{
+		Email: "invited@example.com", Password: "Password123!!", Name: "Invited User",
+		InviteToken: "invite-tok",
+	}
+	link := &domain.WorkspaceInviteLink{ID: uuid.New()}
+	ws := &domain.Workspace{ID: uuid.New(), Name: "Acme"}
+
+	redeemer.On("Validate", ctx, "invite-tok").Return(link, ws, nil)
+	userRepo.On("GetByEmail", ctx, "invited@example.com").Return(nil, nil)
+	refreshRepo.On("Create", ctx, mock.AnythingOfType("*repository.RefreshToken")).Return(nil)
+	redeemer.On("Register", ctx, "invite-tok", mock.AnythingOfType("*domain.User")).Return(nil)
+
+	user, accessToken, refreshToken, err := svc.Register(ctx, req)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, user)
+	assert.NotEmpty(t, accessToken)
+	assert.NotEmpty(t, refreshToken)
+	redeemer.AssertCalled(t, "Register", ctx, "invite-tok", user)
+	userRepo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+}
+
+func TestRegister_RegistrationDisabled_InvalidInviteToken(t *testing.T) {
+	userRepo := new(mockUserRepo)
+	refreshRepo := new(mockRefreshTokenRepo)
+	redeemer := new(mockInviteRedeemer)
+	svc := NewAuthService(userRepo, refreshRepo, "test-secret",
+		WithRegistrationDisabled(true), WithInviteRedeemer(redeemer))
+
+	ctx := context.Background()
+	req := dto.RegisterRequest{
+		Email: "invited@example.com", Password: "Password123!!", Name: "Invited User",
+		InviteToken: "bad-tok",
+	}
+	redeemer.On("Validate", ctx, "bad-tok").Return(nil, nil, ErrInviteLinkExpired)
+
+	user, _, _, err := svc.Register(ctx, req)
+
+	assert.ErrorIs(t, err, ErrInviteLinkExpired)
+	assert.Nil(t, user)
+	userRepo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+}
+
+func TestRegister_RegistrationEnabled_InvalidInviteTokenStillRejected(t *testing.T) {
+	userRepo := new(mockUserRepo)
+	refreshRepo := new(mockRefreshTokenRepo)
+	redeemer := new(mockInviteRedeemer)
+	svc := NewAuthService(userRepo, refreshRepo, "test-secret",
+		WithRegistrationDisabled(false), WithInviteRedeemer(redeemer))
+
+	ctx := context.Background()
+	req := dto.RegisterRequest{
+		Email: "new@example.com", Password: "Password123!!", Name: "New User",
+		InviteToken: "bad-tok",
+	}
+	redeemer.On("Validate", ctx, "bad-tok").Return(nil, nil, ErrInviteLinkInvalid)
+
+	user, _, _, err := svc.Register(ctx, req)
+
+	assert.ErrorIs(t, err, ErrInviteLinkInvalid)
+	assert.Nil(t, user)
+	userRepo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+}
+
+func TestRegister_InviteRedemptionFailureRejectsRegistration(t *testing.T) {
+	for _, disabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("registration_disabled=%t", disabled), func(t *testing.T) {
+			userRepo := new(mockUserRepo)
+			refreshRepo := new(mockRefreshTokenRepo)
+			redeemer := new(mockInviteRedeemer)
+			svc := NewAuthService(userRepo, refreshRepo, "test-secret",
+				WithRegistrationDisabled(disabled), WithInviteRedeemer(redeemer))
+			ctx := context.Background()
+			req := dto.RegisterRequest{Email: "new@example.com", Password: "Password123!!", Name: "New User", InviteToken: "invite-tok"}
+			link := &domain.WorkspaceInviteLink{ID: uuid.New()}
+			ws := &domain.Workspace{ID: uuid.New(), Name: "Acme"}
+			redeemer.On("Validate", ctx, "invite-tok").Return(link, ws, nil)
+			userRepo.On("GetByEmail", ctx, "new@example.com").Return(nil, nil)
+			redeemer.On("Register", ctx, "invite-tok", mock.AnythingOfType("*domain.User")).Return(ErrInviteLinkExhausted)
+			user, accessToken, refreshToken, err := svc.Register(ctx, req)
+			assert.ErrorIs(t, err, ErrInviteLinkExhausted)
+			assert.Nil(t, user)
+			assert.Empty(t, accessToken)
+			assert.Empty(t, refreshToken)
+			userRepo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+			refreshRepo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+		})
+	}
 }

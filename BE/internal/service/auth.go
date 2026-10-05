@@ -18,20 +18,46 @@ import (
 )
 
 var (
-	ErrInvalidCredentials = errors.New("invalid credentials")
-	ErrEmailTaken         = errors.New("email already taken")
-	ErrInvalidToken       = errors.New("invalid or expired token")
-	ErrWeakPassword       = errors.New("password must contain at least one uppercase letter, one lowercase letter, and one digit")
+	ErrInvalidCredentials   = errors.New("invalid credentials")
+	ErrEmailTaken           = errors.New("email already taken")
+	ErrInvalidToken         = errors.New("invalid or expired token")
+	ErrWeakPassword         = errors.New("password must contain at least one uppercase letter, one lowercase letter, and one digit")
+	ErrRegistrationDisabled = errors.New("public registration is disabled")
 )
 
-type AuthService struct {
-	userRepo    repository.UserRepo
-	refreshRepo repository.RefreshTokenRepo
-	jwtSecret   string
+// InviteRedeemer validates and consumes workspace invite links during
+// registration. Implemented by InviteLinkService.
+type InviteRedeemer interface {
+	Validate(ctx context.Context, token string) (*domain.WorkspaceInviteLink, *domain.Workspace, error)
+	Register(ctx context.Context, token string, user *domain.User) error
 }
 
-func NewAuthService(userRepo repository.UserRepo, refreshRepo repository.RefreshTokenRepo, jwtSecret string) *AuthService {
-	return &AuthService{userRepo: userRepo, refreshRepo: refreshRepo, jwtSecret: jwtSecret}
+type AuthServiceOption func(*AuthService)
+
+// WithRegistrationDisabled gates public registration behind a valid invite token.
+func WithRegistrationDisabled(disabled bool) AuthServiceOption {
+	return func(s *AuthService) { s.disableRegistration = disabled }
+}
+
+// WithInviteRedeemer enables invite-token redemption on registration.
+func WithInviteRedeemer(redeemer InviteRedeemer) AuthServiceOption {
+	return func(s *AuthService) { s.inviteRedeemer = redeemer }
+}
+
+type AuthService struct {
+	userRepo            repository.UserRepo
+	refreshRepo         repository.RefreshTokenRepo
+	jwtSecret           string
+	disableRegistration bool
+	inviteRedeemer      InviteRedeemer
+}
+
+func NewAuthService(userRepo repository.UserRepo, refreshRepo repository.RefreshTokenRepo, jwtSecret string, opts ...AuthServiceOption) *AuthService {
+	s := &AuthService{userRepo: userRepo, refreshRepo: refreshRepo, jwtSecret: jwtSecret}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 func (s *AuthService) Register(ctx context.Context, req dto.RegisterRequest) (*domain.User, string, string, error) {
@@ -39,7 +65,25 @@ func (s *AuthService) Register(ctx context.Context, req dto.RegisterRequest) (*d
 		return nil, "", "", err
 	}
 
-	existing, _ := s.userRepo.GetByEmail(ctx, req.Email)
+	inviteToken := strings.TrimSpace(req.InviteToken)
+	if s.disableRegistration && inviteToken == "" {
+		return nil, "", "", ErrRegistrationDisabled
+	}
+	if inviteToken != "" {
+		if s.inviteRedeemer == nil {
+			return nil, "", "", ErrInviteLinkInvalid
+		}
+		// Validate before creating the account so a bad token never
+		// leaves a dangling registration behind.
+		if _, _, err := s.inviteRedeemer.Validate(ctx, inviteToken); err != nil {
+			return nil, "", "", err
+		}
+	}
+
+	existing, err := s.userRepo.GetByEmail(ctx, req.Email)
+	if err != nil {
+		return nil, "", "", err
+	}
 	if existing != nil {
 		return nil, "", "", ErrEmailTaken
 	}
@@ -57,7 +101,12 @@ func (s *AuthService) Register(ctx context.Context, req dto.RegisterRequest) (*d
 		PasswordHash: string(hash),
 	}
 
-	if err := s.userRepo.Create(ctx, user); err != nil {
+	if inviteToken != "" {
+		err = s.inviteRedeemer.Register(ctx, inviteToken, user)
+	} else {
+		err = s.userRepo.Create(ctx, user)
+	}
+	if err != nil {
 		if errors.Is(err, repository.ErrDuplicateEmail) {
 			return nil, "", "", ErrEmailTaken
 		}
