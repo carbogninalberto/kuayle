@@ -1,11 +1,14 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import { login, register } from '$lib/api/auth';
 	import { ChevronDown, ChevronUp, Loader2 } from 'lucide-svelte';
 	import { Input } from '$lib/components/ui/input';
 	import { Password } from '$lib/components/ui/password';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { listWorkspaces } from '$lib/api/workspaces';
+	import { getConfig } from '$lib/api/invite';
 	import { demoMode, demoUsers, type DemoUser } from '$lib/demo';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/paraglide/messages.js';
@@ -17,11 +20,26 @@
 	let name = $state('');
 	let loading = $state(false);
 	let demoDrawerOpen = $state(false);
+	let registrationEnabled = $state(true);
+	const inviteToken = $derived(page.url.searchParams.get('invite') ?? '');
 	const authInputClass =
 		'mt-1 h-auto w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)] focus-visible:border-[var(--app-accent)] focus-visible:ring-0';
 
+	onMount(async () => {
+		try {
+			const config = await getConfig();
+			registrationEnabled = config.registration_enabled;
+			// With an invite token, registration stays available even when
+			// public registration is disabled (the backend accepts the token).
+			if (!registrationEnabled && !inviteToken) mode = 'login';
+		} catch {
+			// Config unavailable — keep registration visible.
+		}
+	});
+
 	async function handleSubmit(e: Event) {
 		e.preventDefault();
+		if (loading) return;
 		loading = true;
 
 		try {
@@ -29,9 +47,20 @@
 			if (mode === 'login') {
 				user = await login({ email, password });
 			} else {
-				user = await register({ email, password, name });
+				user = await register({
+					email,
+					password,
+					name,
+					...(inviteToken ? { invite_token: inviteToken } : {})
+				});
 			}
 			authState.setUser(user);
+
+			if (inviteToken) {
+				// The invite route resolves the intended workspace, including after atomic signup.
+				await goto(`/invite/${encodeURIComponent(inviteToken)}`);
+				return;
+			}
 
 			const workspaces = await listWorkspaces();
 			if (workspaces.length > 0) {
@@ -62,6 +91,13 @@
 			<p class="mt-1 text-sm text-[var(--color-text-secondary)]">
 				{mode === 'login' ? m['login.subtitle.signin']() : m['login.subtitle.register']()}
 			</p>
+			{#if inviteToken}
+				<p
+					class="mt-3 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-xs text-[var(--color-text-secondary)]"
+				>
+					{m['login.invite_notice']()}
+				</p>
+			{/if}
 		</div>
 
 		<form onsubmit={handleSubmit} class="space-y-4">
@@ -93,19 +129,24 @@
 			</button>
 		</form>
 
-		<p class="text-center text-sm text-[var(--color-text-secondary)]">
-			{mode === 'login' ? m['login.no_account']() : m['login.has_account']()}
-			<button
-				onclick={() => (mode = mode === 'login' ? 'register' : 'login')}
-				class="text-[var(--app-accent)] hover:underline"
-			>
-				{mode === 'login' ? m['login.button.sign_up']() : m['login.button.signin']()}
-			</button>
-		</p>
+		{#if registrationEnabled || inviteToken}
+			<p class="text-center text-sm text-[var(--color-text-secondary)]">
+				{mode === 'login' ? m['login.no_account']() : m['login.has_account']()}
+				<button
+					onclick={() => (mode = mode === 'login' ? 'register' : 'login')}
+					disabled={loading}
+					class="text-[var(--app-accent)] hover:underline"
+				>
+					{mode === 'login' ? m['login.button.sign_up']() : m['login.button.signin']()}
+				</button>
+			</p>
+		{/if}
 	</div>
 
 	{#if demoMode && mode === 'login'}
-		<div class="fixed right-4 bottom-4 z-50 flex w-[calc(100vw-2rem)] max-w-sm flex-col items-end gap-3 sm:right-6 sm:bottom-6">
+		<div
+			class="fixed right-4 bottom-4 z-50 flex w-[calc(100vw-2rem)] max-w-sm flex-col items-end gap-3 sm:right-6 sm:bottom-6"
+		>
 			{#if demoDrawerOpen}
 				<section
 					aria-label={m['login.demo.aria_details']()}

@@ -1,10 +1,17 @@
 import { goto } from '$app/navigation';
 
+export interface ApiRequestOptions extends RequestInit {
+	/** Let public onboarding routes preserve their own destination on a missing session. */
+	redirectOnUnauthorized?: boolean;
+	/** Credential submissions must report their error without attempting a session refresh. */
+	retryUnauthorized?: boolean;
+}
+
 class ApiClient {
 	private baseUrl = '';
 	private refreshing: Promise<void> | null = null;
 
-	async fetch<T>(path: string, options: RequestInit = {}): Promise<T> {
+	async fetch<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
 		const res = await this.fetchResponse(path, options);
 
 		if (!res.ok) {
@@ -20,24 +27,29 @@ class ApiClient {
 		return JSON.parse(body) as T;
 	}
 
-	private async fetchResponse(path: string, options: RequestInit = {}): Promise<Response> {
+	private async fetchResponse(path: string, options: ApiRequestOptions = {}, refreshed = false): Promise<Response> {
+		const { redirectOnUnauthorized = true, retryUnauthorized = true, ...requestOptions } = options;
 		const headers = new Headers(options.headers);
 		if (options.body && !(options.body instanceof FormData) && !headers.has('Content-Type')) {
 			headers.set('Content-Type', 'application/json');
 		}
 		const res = await fetch(`${this.baseUrl}${path}`, {
-			...options,
+			...requestOptions,
 			credentials: 'include',
 			headers
 		});
 
 		if (res.status === 401) {
-			if (!path.includes('/auth/refresh')) {
-				await this.refresh();
-				return this.fetchResponse(path, options);
+			if (retryUnauthorized && !refreshed && !path.includes('/auth/refresh')) {
+				try {
+					await this.refresh();
+				} catch (error) {
+					if (redirectOnUnauthorized) void goto('/login');
+					throw error;
+				}
+				return this.fetchResponse(path, options, true);
 			}
-			goto('/login');
-			throw new Error('Unauthorized');
+			if (redirectOnUnauthorized) void goto('/login');
 		}
 
 		return res;
@@ -45,18 +57,20 @@ class ApiClient {
 
 	private async refresh(): Promise<void> {
 		if (this.refreshing) return this.refreshing;
-		this.refreshing = this.fetch<void>('/api/auth/refresh', { method: 'POST' }).finally(() => {
-			this.refreshing = null;
-		});
+		this.refreshing = this.fetch<void>('/api/auth/refresh', { method: 'POST', redirectOnUnauthorized: false }).finally(
+			() => {
+				this.refreshing = null;
+			}
+		);
 		return this.refreshing;
 	}
 
-	get<T>(path: string): Promise<T> {
-		return this.fetch<T>(path);
+	get<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
+		return this.fetch<T>(path, options);
 	}
 
-	post<T>(path: string, body?: unknown): Promise<T> {
-		return this.fetch<T>(path, { method: 'POST', body: body ? JSON.stringify(body) : undefined });
+	post<T>(path: string, body?: unknown, options: ApiRequestOptions = {}): Promise<T> {
+		return this.fetch<T>(path, { ...options, method: 'POST', body: body ? JSON.stringify(body) : undefined });
 	}
 
 	patch<T>(path: string, body?: unknown): Promise<T> {

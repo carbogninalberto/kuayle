@@ -6,9 +6,9 @@ class AuthState {
 	loading = $state(true);
 	authenticated = $derived(this.user !== null);
 
-	async init() {
+	async init(redirectOnUnauthorized = true) {
 		try {
-			this.user = await getMe();
+			this.user = await getMe(redirectOnUnauthorized);
 		} catch {
 			this.user = null;
 		} finally {

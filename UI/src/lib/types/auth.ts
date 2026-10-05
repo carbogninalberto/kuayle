@@ -16,6 +16,7 @@ export interface RegisterRequest {
 	email: string;
 	password: string;
 	name: string;
+	invite_token?: string;
 }
 
 export interface UpdateProfileRequest {
