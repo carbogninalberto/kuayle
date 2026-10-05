@@ -1141,6 +1141,7 @@
 	"sharedComponents.create_issue.team": "Team",
 	"sharedComponents.create_issue.template": "Template",
 	"sharedComponents.create_issue.untitled_template": "Template senza titolo",
+	"sharedComponents.create_issue.uploading_attachments": "Caricamento allegati…",
 	"sharedComponents.due_date_picker.next_week": "Settimana prossima",
 	"sharedComponents.due_date_picker.no_due_date": "Nessuna scadenza",
 	"sharedComponents.due_date_picker.presets": "Preimpostazioni",

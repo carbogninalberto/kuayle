@@ -1141,6 +1141,7 @@
 	"sharedComponents.create_issue.team": "团队",
 	"sharedComponents.create_issue.template": "模板",
 	"sharedComponents.create_issue.untitled_template": "未命名模板",
+	"sharedComponents.create_issue.uploading_attachments": "正在上传附件…",
 	"sharedComponents.due_date_picker.next_week": "下周",
 	"sharedComponents.due_date_picker.no_due_date": "无截止日期",
 	"sharedComponents.due_date_picker.presets": "预设",
