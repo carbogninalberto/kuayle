@@ -1,5 +1,16 @@
 [
   {
+    "tag_name": "v0.1.17",
+    "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.17",
+    "body": "## What's Changed\r\n* fix(issues): return to the same list/board layout after viewing an issue by @MarioGK in https://github.com/carbogninalberto/kuayle/pull/66\r\n* feat(issues): paste screenshot uploads in the create issue modal by @MarioGK in https://github.com/carbogninalberto/kuayle/pull/65\r\n* feat(workspace): add invite links and option to disable public registration by @uiYzzi in https://github.com/carbogninalberto/kuayle/pull/54\r\n* feat(workspace): add invite links onboarding UI by @uiYzzi in https://github.com/carbogninalberto/kuayle/pull/59\r\n* feat(auth): add Personal Access Token (PAT) authentication by @uiYzzi in https://github.com/carbogninalberto/kuayle/pull/55\r\n* feat(settings): add Personal Access Token management UI by @uiYzzi in https://github.com/carbogninalberto/kuayle/pull/60\r\n\r\n## New Contributors\r\n* @MarioGK made their first contribution in https://github.com/carbogninalberto/kuayle/pull/66\r\n\r\n**Full Changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.1.16...v0.1.17",
+    "published_at": "2026-10-05T16:57:42Z",
+    "prerelease": false,
+    "force_upgrade": false,
+    "minimum_supported_version": null,
+    "upgrade_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.17",
+    "upgrade_message": null
+  },
+  {
     "tag_name": "v0.1.16",
     "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.16",
     "body": "## What's Changed\r\n* fix: cycle issue search dropdown has transparent background & missing prosemirror deps by @uiYzzi in https://github.com/carbogninalberto/kuayle/pull/57\r\n\r\n\r\n**Full Changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.1.15...v0.1.16",
