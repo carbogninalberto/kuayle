@@ -5,7 +5,7 @@
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev",
-		"build": "NODE_OPTIONS=--max-old-space-size=8192 vite build",
+		"build": "NODE_OPTIONS=\"${NODE_OPTIONS:---max-old-space-size=8192}\" vite build",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide --strategy localStorage cookie baseLocale --emit-ts-declarations && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",

@@ -4,6 +4,7 @@ WORKDIR /app
 COPY UI/package*.json ./
 RUN npm ci
 COPY UI/ .
+ARG NODE_OPTIONS=--max-old-space-size=4096
 RUN npm run build
 
 # Stage 2: Build Caddy from source with patched Go
@@ -36,10 +37,6 @@ RUN mkdir -p /app/uploads
 
 COPY <<'EOF' /etc/caddy/Caddyfile
 :3000 {
-	root * /srv
-	file_server
-	try_files {path} /index.html
-
 	header {
 		X-Content-Type-Options nosniff
 		X-Frame-Options DENY
@@ -60,6 +57,13 @@ COPY <<'EOF' /etc/caddy/Caddyfile
 
 	handle /ready {
 		reverse_proxy localhost:8080
+	}
+
+	# Keep the SPA rewrite inside the fallback, after backend routing.
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
 	}
 }
 EOF
