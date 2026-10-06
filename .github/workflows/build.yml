@@ -30,6 +30,9 @@ jobs:
       - name: Checkout pull request
         if: github.event_name == 'pull_request'
         uses: actions/checkout@v7.0.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
 
       - name: Extract version
         id: version
@@ -169,6 +172,8 @@ jobs:
     runs-on: ${{ matrix.architecture == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
+      # Bound image fan-out while preserving every architecture and scan.
+      max-parallel: 4
       matrix:
         architecture: [amd64, arm64]
         image:
@@ -220,6 +225,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7.0.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4.2.0

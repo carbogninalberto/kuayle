@@ -17,6 +17,9 @@ jobs:
         working-directory: ./BE
     steps:
       - uses: actions/checkout@v7.0.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
 
       - uses: actions/setup-go@v6.4.0
         with:
@@ -44,6 +47,9 @@ jobs:
         working-directory: ./UI
     steps:
       - uses: actions/checkout@v7.0.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
 
       - uses: actions/setup-node@v6.4.0
         with:
@@ -63,6 +69,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
 
       - name: Build backend image
         run: docker build --pull --build-arg SECURITY_REFRESH="$(date -u +%F)" -t kuayle-backend:scan ./BE
@@ -91,6 +100,8 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
+      # Bound image fan-out while preserving every architecture and scan.
+      max-parallel: 4
       matrix:
         include:
           - id: gateway
@@ -141,6 +152,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7.0.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4.2.0
