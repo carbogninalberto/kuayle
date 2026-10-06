@@ -18,7 +18,7 @@ func NewNotificationService(notifRepo repository.NotificationRepo) *Notification
 	return &NotificationService{notifRepo: notifRepo}
 }
 
-func (s *NotificationService) Create(ctx context.Context, userID, workspaceID uuid.UUID, issueID *uuid.UUID, notifType, title string) error {
+func (s *NotificationService) Create(ctx context.Context, userID, workspaceID uuid.UUID, issueID *uuid.UUID, notifType, title string, sourceTeams ...uuid.UUID) error {
 	n := &domain.Notification{
 		ID:          uuid.New(),
 		UserID:      userID,
@@ -27,10 +27,13 @@ func (s *NotificationService) Create(ctx context.Context, userID, workspaceID uu
 		Type:        notifType,
 		Title:       title,
 	}
+	for _, team := range sourceTeams {
+		n.SourceTeamIDs = append(n.SourceTeamIDs, team.String())
+	}
 	return s.notifRepo.Create(ctx, n)
 }
 
-func (s *NotificationService) CreateOrRefresh(ctx context.Context, userID, workspaceID uuid.UUID, issueID *uuid.UUID, notifType, title string, window time.Duration) error {
+func (s *NotificationService) CreateOrRefresh(ctx context.Context, userID, workspaceID uuid.UUID, issueID *uuid.UUID, notifType, title string, window time.Duration, sourceTeams ...uuid.UUID) error {
 	n := &domain.Notification{
 		ID:          uuid.New(),
 		UserID:      userID,
@@ -38,6 +41,9 @@ func (s *NotificationService) CreateOrRefresh(ctx context.Context, userID, works
 		IssueID:     issueID,
 		Type:        notifType,
 		Title:       title,
+	}
+	for _, team := range sourceTeams {
+		n.SourceTeamIDs = append(n.SourceTeamIDs, team.String())
 	}
 	return s.notifRepo.CreateOrRefresh(ctx, n, window)
 }

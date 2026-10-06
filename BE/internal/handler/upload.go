@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -74,6 +75,14 @@ func NewUploadHandler(store storage.Backend, assetRepo repository.AssetRepo, iss
 func (h *UploadHandler) Upload(c echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	userID := middleware.GetUserID(c)
+	var teamID *uuid.UUID
+	if raw := c.QueryParam("team_id"); raw != "" {
+		id, err := uuid.Parse(raw)
+		if err != nil {
+			return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid team")
+		}
+		teamID = &id
+	}
 	c.Request().Body = http.MaxBytesReader(c.Response().Writer, c.Request().Body, maxUploadSize+1024*1024)
 
 	file, err := c.FormFile("file")
@@ -123,6 +132,7 @@ func (h *UploadHandler) Upload(c echo.Context) error {
 	asset := &domain.Asset{
 		ID:          uuid.New(),
 		WorkspaceID: ws.ID,
+		TeamID:      teamID,
 		StorageKey:  key,
 		Filename:    filepath.Base(file.Filename),
 		ContentType: contentType,
@@ -130,6 +140,10 @@ func (h *UploadHandler) Upload(c echo.Context) error {
 		UploadedBy:  userID,
 	}
 	if err := h.assetRepo.Create(c.Request().Context(), asset); err != nil {
+		_ = h.store.Delete(c.Request().Context(), key)
+		if errors.Is(err, sql.ErrNoRows) {
+			return response.NotFound(c, "Team")
+		}
 		return response.InternalError(c)
 	}
 
@@ -144,6 +158,7 @@ func (h *UploadHandler) Upload(c echo.Context) error {
 }
 
 func (h *UploadHandler) GetAsset(c echo.Context) error {
+	c.Response().Header().Set("Cache-Control", "private, no-store")
 	ws := c.Get("workspace").(*domain.Workspace)
 	assetID, err := uuid.Parse(c.Param("assetId"))
 	if err != nil {
@@ -155,23 +170,30 @@ func (h *UploadHandler) GetAsset(c echo.Context) error {
 		return response.NotFound(c, "Asset")
 	}
 
-	c.Response().Header().Set("Cache-Control", "private, max-age=300")
 	h.setAssetDisposition(c, asset)
 	return h.streamAsset(c, asset)
 }
 
 func (h *UploadHandler) PublicAsset(c echo.Context) error {
+	c.Response().Header().Set("Cache-Control", "private, no-store")
 	claims, err := assettoken.Validate(c.Param("token"), h.tokenSecret)
 	if err != nil {
 		return response.NotFound(c, "Asset")
 	}
 
-	asset, err := h.assetRepo.GetByID(c.Request().Context(), claims.AssetID)
+	ctx := domain.PublicContext(c.Request().Context())
+	if h.issueRepo == nil {
+		return response.NotFound(c, "Asset")
+	}
+	issue, err := h.issueRepo.GetByID(ctx, claims.IssueID)
+	if err != nil || issue == nil || issue.WorkspaceID != claims.WorkspaceID {
+		return response.NotFound(c, "Asset")
+	}
+	asset, err := h.assetRepo.GetByID(ctx, claims.AssetID)
 	if err != nil || asset == nil || asset.WorkspaceID != claims.WorkspaceID {
 		return response.NotFound(c, "Asset")
 	}
 
-	c.Response().Header().Set("Cache-Control", "private, max-age=3600")
 	h.setAssetDisposition(c, asset)
 	return h.streamAsset(c, asset)
 }
@@ -202,17 +224,23 @@ func (h *UploadHandler) setAssetDisposition(c echo.Context, asset *domain.Asset)
 }
 
 func (h *UploadHandler) SignIssuePromptAssets(c echo.Context) error {
+	c.Response().Header().Set("Cache-Control", "private, no-store")
 	ws := c.Get("workspace").(*domain.Workspace)
 	issue, err := h.issueRepo.GetByIdentifier(c.Request().Context(), ws.ID, c.Param("identifier"))
 	if err != nil || issue == nil {
 		return response.NotFound(c, "Issue")
 	}
 
+	// Even an administrator may not mint anonymous URLs for private issues.
+	publicIssue, err := h.issueRepo.GetByID(domain.PublicContext(c.Request().Context()), issue.ID)
+	if err != nil || publicIssue == nil {
+		return response.Error(c, http.StatusForbidden, "FORBIDDEN", "Public asset links are unavailable for private issues")
+	}
 	signed := make(map[string]string)
 	expiresAt := time.Now().Add(time.Hour)
 	if issue.Description != nil {
 		for _, source := range extractProtectedAssetSources(*issue.Description) {
-			asset, err := h.assetRepo.GetByID(c.Request().Context(), source.assetID)
+			asset, err := h.assetRepo.GetByID(domain.PublicContext(c.Request().Context()), source.assetID)
 			if err != nil || asset == nil || asset.WorkspaceID != ws.ID {
 				continue
 			}

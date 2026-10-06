@@ -122,7 +122,7 @@ func (r *GitHubRepository) UpsertPullRequest(ctx context.Context, pr *domain.Git
 
 func (r *GitHubRepository) ListPRsByIssue(ctx context.Context, issueID uuid.UUID) ([]domain.GitHubPullRequest, error) {
 	var prs []domain.GitHubPullRequest
-	err := r.db.SelectContext(ctx, &prs, `SELECT * FROM github_pull_requests WHERE issue_id = $1 ORDER BY created_at DESC`, issueID)
+	err := r.db.SelectContext(ctx, &prs, `SELECT * FROM github_pull_requests WHERE issue_id = $1 AND `+issueVisible(domain.PublicContext(ctx), "github_pull_requests.issue_id")+` AND `+workspaceVisible(ctx, "github_pull_requests.workspace_id")+` ORDER BY created_at DESC`, issueID)
 	return prs, err
 }
 
@@ -150,7 +150,7 @@ func (r *GitHubRepository) UpsertBranch(ctx context.Context, b *domain.GitHubBra
 
 func (r *GitHubRepository) ListBranchesByIssue(ctx context.Context, issueID uuid.UUID) ([]domain.GitHubBranch, error) {
 	var branches []domain.GitHubBranch
-	err := r.db.SelectContext(ctx, &branches, `SELECT * FROM github_branches WHERE issue_id = $1 ORDER BY created_at DESC`, issueID)
+	err := r.db.SelectContext(ctx, &branches, `SELECT * FROM github_branches WHERE issue_id = $1 AND `+issueVisible(domain.PublicContext(ctx), "github_branches.issue_id")+` AND `+workspaceVisible(ctx, "github_branches.workspace_id")+` ORDER BY created_at DESC`, issueID)
 	return branches, err
 }
 
@@ -171,7 +171,7 @@ func (r *GitHubRepository) UpsertCommit(ctx context.Context, c *domain.GitHubCom
 
 func (r *GitHubRepository) ListCommitsByIssue(ctx context.Context, issueID uuid.UUID) ([]domain.GitHubCommit, error) {
 	var commits []domain.GitHubCommit
-	err := r.db.SelectContext(ctx, &commits, `SELECT * FROM github_commits WHERE issue_id = $1 ORDER BY committed_at DESC`, issueID)
+	err := r.db.SelectContext(ctx, &commits, `SELECT * FROM github_commits WHERE issue_id = $1 AND `+issueVisible(domain.PublicContext(ctx), "github_commits.issue_id")+` AND `+workspaceVisible(ctx, "github_commits.workspace_id")+` ORDER BY committed_at DESC`, issueID)
 	return commits, err
 }
 
@@ -220,21 +220,21 @@ type CommitWithRepo struct {
 
 func (r *GitHubRepository) ListPRsWithRepoByIssue(ctx context.Context, issueID uuid.UUID) ([]PRWithRepo, error) {
 	var prs []PRWithRepo
-	query := `SELECT p.*, r.full_name AS repo_full_name FROM github_pull_requests p JOIN github_repos r ON r.id = p.github_repo_id WHERE p.issue_id = $1 ORDER BY p.created_at DESC`
+	query := `SELECT p.*, r.full_name AS repo_full_name FROM github_pull_requests p JOIN github_repos r ON r.id = p.github_repo_id WHERE p.issue_id = $1 AND ` + issueVisible(domain.PublicContext(ctx), "p.issue_id") + ` AND ` + workspaceVisible(ctx, "p.workspace_id") + ` ORDER BY p.created_at DESC`
 	err := r.db.SelectContext(ctx, &prs, query, issueID)
 	return prs, err
 }
 
 func (r *GitHubRepository) ListBranchesWithRepoByIssue(ctx context.Context, issueID uuid.UUID) ([]BranchWithRepo, error) {
 	var branches []BranchWithRepo
-	query := `SELECT b.*, r.full_name AS repo_full_name FROM github_branches b JOIN github_repos r ON r.id = b.github_repo_id WHERE b.issue_id = $1 ORDER BY b.created_at DESC`
+	query := `SELECT b.*, r.full_name AS repo_full_name FROM github_branches b JOIN github_repos r ON r.id = b.github_repo_id WHERE b.issue_id = $1 AND ` + issueVisible(domain.PublicContext(ctx), "b.issue_id") + ` AND ` + workspaceVisible(ctx, "b.workspace_id") + ` ORDER BY b.created_at DESC`
 	err := r.db.SelectContext(ctx, &branches, query, issueID)
 	return branches, err
 }
 
 func (r *GitHubRepository) ListCommitsWithRepoByIssue(ctx context.Context, issueID uuid.UUID) ([]CommitWithRepo, error) {
 	var commits []CommitWithRepo
-	query := `SELECT c.*, r.full_name AS repo_full_name FROM github_commits c JOIN github_repos r ON r.id = c.github_repo_id WHERE c.issue_id = $1 ORDER BY c.committed_at DESC LIMIT 50`
+	query := `SELECT c.*, r.full_name AS repo_full_name FROM github_commits c JOIN github_repos r ON r.id = c.github_repo_id WHERE c.issue_id = $1 AND ` + issueVisible(domain.PublicContext(ctx), "c.issue_id") + ` AND ` + workspaceVisible(ctx, "c.workspace_id") + ` ORDER BY c.committed_at DESC LIMIT 50`
 	err := r.db.SelectContext(ctx, &commits, query, issueID)
 	return commits, err
 }

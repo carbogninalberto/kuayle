@@ -23,10 +23,10 @@ func NewAnalyticsRepository(db *sqlx.DB) *AnalyticsRepository {
 func (r *AnalyticsRepository) Overview(ctx context.Context, workspaceID, teamID string) (*dto.AnalyticsOverview, error) {
 	var o dto.AnalyticsOverview
 	statusCategory := issueStatusCategoryExpr("i", "ts")
-	issueScope := ""
+	issueScope := " AND " + teamVisible(ctx, "i.team_id")
 	args := []interface{}{workspaceID}
 	if teamID != "" {
-		issueScope = " AND i.team_id = $2"
+		issueScope += " AND i.team_id = $2"
 		args = append(args, teamID)
 	}
 
@@ -66,9 +66,9 @@ func (r *AnalyticsRepository) Overview(ctx context.Context, workspaceID, teamID 
 		return nil, err
 	}
 
-	projectScope := ""
+	projectScope := " AND " + projectVisible(ctx, "projects.workspace_id", "projects.team_id")
 	if teamID != "" {
-		projectScope = " AND team_id = $2"
+		projectScope += " AND team_id = $2"
 	}
 	err = r.db.GetContext(ctx, &o.TotalProjects,
 		`SELECT COUNT(*) FROM projects WHERE workspace_id = $1`+projectScope, args...)
@@ -83,7 +83,7 @@ func (r *AnalyticsRepository) Overview(ctx context.Context, workspaceID, teamID 
 		err = r.db.GetContext(ctx, &o.TotalMembers,
 			`SELECT COUNT(*) FROM team_members tm
 			 INNER JOIN teams t ON t.id = tm.team_id
-			 WHERE t.workspace_id = $1 AND tm.team_id = $2`, workspaceID, teamID)
+			 WHERE t.workspace_id = $1 AND tm.team_id = $2 AND `+teamVisible(ctx, "t.id"), workspaceID, teamID)
 	}
 	if err != nil {
 		return nil, err
@@ -135,15 +135,15 @@ func (r *AnalyticsRepository) Overview(ctx context.Context, workspaceID, teamID 
 }
 
 func (r *AnalyticsRepository) Distribution(ctx context.Context, workspaceID, teamID string) (*dto.AnalyticsIssueDistribution, error) {
-	teamScope := ""
+	teamScope := " AND " + teamVisible(ctx, "t.id")
 	args := []interface{}{workspaceID}
 	if teamID != "" {
-		teamScope = " AND t.id = $2"
+		teamScope += " AND t.id = $2"
 		args = append(args, teamID)
 	}
-	issueTeamScope := ""
+	issueTeamScope := " AND " + teamVisible(ctx, "i.team_id")
 	if teamID != "" {
-		issueTeamScope = " AND i.team_id = $2"
+		issueTeamScope += " AND i.team_id = $2"
 	}
 	var byStatus []dto.StatusCount
 	err := r.db.SelectContext(ctx, &byStatus,
@@ -373,6 +373,7 @@ func ValidateBurnupParams(params *dto.AnalyticsBurnupParams) error {
 
 func (r *AnalyticsRepository) Insights(ctx context.Context, workspaceID string, params *dto.AnalyticsInsightsParams) (*dto.AnalyticsInsightsResponse, error) {
 	where, whereArgs, err := r.buildInsightWhere(workspaceID, params)
+	where = append(where, teamVisible(ctx, "i.team_id"))
 	if err != nil {
 		return nil, err
 	}
@@ -992,12 +993,13 @@ func (r *AnalyticsRepository) buildInsightWhere(workspaceID string, params *dto.
 	return where, args, nil
 }
 
-func (r *AnalyticsRepository) buildBurnupQuery(workspaceID string, params *dto.AnalyticsBurnupParams) (string, []interface{}) {
+func (r *AnalyticsRepository) buildBurnupQuery(workspaceID string, params *dto.AnalyticsBurnupParams, visibility ...string) (string, []interface{}) {
 	interval := params.Interval
 	intervalSQL := map[string]string{"day": "1 day", "week": "1 week", "month": "1 month"}[interval]
 
 	// Base issue filter conditions (for created scope)
 	issueWhere := []string{"i.workspace_id = $1"}
+	issueWhere = append(issueWhere, visibility...)
 	whereArgs := []interface{}{workspaceID}
 	idx := 2
 
@@ -1126,7 +1128,7 @@ func (r *AnalyticsRepository) buildBurnupQuery(workspaceID string, params *dto.A
 }
 
 func (r *AnalyticsRepository) Burnup(ctx context.Context, workspaceID string, params *dto.AnalyticsBurnupParams) (*dto.AnalyticsBurnupResponse, error) {
-	query, allArgs := r.buildBurnupQuery(workspaceID, params)
+	query, allArgs := r.buildBurnupQuery(workspaceID, params, teamVisible(ctx, "i.team_id"))
 
 	type burnupRow struct {
 		Dt             string `db:"dt"`

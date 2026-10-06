@@ -21,8 +21,9 @@ func scoped(g *echo.Group, method, path string, h echo.HandlerFunc, perm string,
 	g.Add(method, path, h, middleware...).Name = "perm:" + perm
 }
 
-func sessionOnly(g *echo.Group, method, path string, h echo.HandlerFunc) {
-	g.Add(method, path, h, mw.RequireSession()).Name = "session"
+func sessionOnly(g *echo.Group, method, path string, h echo.HandlerFunc, extra ...echo.MiddlewareFunc) {
+	middlewares := append([]echo.MiddlewareFunc{mw.RequireSession()}, extra...)
+	g.Add(method, path, h, middlewares...).Name = "session"
 }
 
 func ownerOnly(g *echo.Group, method, path string, h echo.HandlerFunc) {
@@ -140,6 +141,10 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	scoped(ws, http.MethodGet, "/teams/:teamId", h.team.Get, "teams:read")
 	scoped(ws, http.MethodPatch, "/teams/:teamId", h.team.Update, "team:manage")
 	scoped(ws, http.MethodDelete, "/teams/:teamId", h.team.Delete, "team:manage")
+	scoped(ws, http.MethodPatch, "/teams/:teamId/visibility", h.team.SetVisibility, "team:manage")
+	scoped(ws, http.MethodGet, "/teams/:teamId/members", h.team.Members, "members:read", mw.RequirePermission("teams:read"))
+	scoped(ws, http.MethodPost, "/teams/:teamId/members", h.team.AddMember, "team:manage")
+	scoped(ws, http.MethodDelete, "/teams/:teamId/members/:userId", h.team.RemoveMember, "team:manage")
 	sessionOnly(ws, http.MethodPost, "/teams/:teamId/leave", h.team.Leave)
 
 	// Team Statuses
@@ -150,13 +155,13 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 
 	// Cycles (team-scoped)
 	scoped(ws, http.MethodGet, "/teams/:teamId/cycles", h.cycle.List, "cycles:read")
-	sessionOnly(ws, http.MethodPost, "/teams/:teamId/cycles", h.cycle.Create)
+	sessionOnly(ws, http.MethodPost, "/teams/:teamId/cycles", h.cycle.Create, mw.RequirePermission("cycle:manage"))
 	scoped(ws, http.MethodGet, "/teams/:teamId/cycles/velocity", h.cycle.Velocity, "cycles:read")
 	scoped(ws, http.MethodGet, "/teams/:teamId/cycles/:cycleId", h.cycle.Get, "cycles:read")
-	sessionOnly(ws, http.MethodPatch, "/teams/:teamId/cycles/:cycleId", h.cycle.Update)
-	sessionOnly(ws, http.MethodPost, "/teams/:teamId/cycles/:cycleId/complete", h.cycle.Complete)
+	sessionOnly(ws, http.MethodPatch, "/teams/:teamId/cycles/:cycleId", h.cycle.Update, mw.RequirePermission("cycle:manage"))
+	sessionOnly(ws, http.MethodPost, "/teams/:teamId/cycles/:cycleId/complete", h.cycle.Complete, mw.RequirePermission("cycle:manage"))
 	scoped(ws, http.MethodGet, "/teams/:teamId/cycles/:cycleId/burndown", h.cycle.Burndown, "cycles:read")
-	sessionOnly(ws, http.MethodDelete, "/teams/:teamId/cycles/:cycleId", h.cycle.Delete)
+	sessionOnly(ws, http.MethodDelete, "/teams/:teamId/cycles/:cycleId", h.cycle.Delete, mw.RequirePermission("cycle:manage"))
 
 	// Issues
 	scoped(ws, http.MethodGet, "/issues", h.issue.List, "issues:read")

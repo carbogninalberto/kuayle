@@ -119,3 +119,22 @@ func TestTeamService_Leave_NotMember(t *testing.T) {
 	assert.False(t, deleted)
 	repo.AssertExpectations(t)
 }
+
+func TestPrivateTeamLeaveNeverDeletesContent(t *testing.T) {
+	for _, role := range []string{domain.RoleOwner, domain.RoleAdmin, domain.RoleMember, domain.RoleGuest} {
+		t.Run(role, func(t *testing.T) {
+			repo := new(mockTeamRepo)
+			svc := NewTeamService(repo, new(mockTeamStatusRepo))
+			ctx := context.Background()
+			workspace, team, user := uuid.New(), uuid.New(), uuid.New()
+			repo.On("GetByID", ctx, team).Return(&domain.Team{ID: team, WorkspaceID: workspace, IsPrivate: true}, nil)
+			repo.On("GetMember", ctx, team, user).Return(&domain.TeamMember{TeamID: team, UserID: user}, nil)
+			repo.On("RemoveMember", ctx, team, user).Return(nil)
+			deleted, err := svc.Leave(ctx, workspace, team, user, role)
+			assert.NoError(t, err)
+			assert.False(t, deleted)
+			repo.AssertNotCalled(t, "Delete", ctx, team)
+			repo.AssertExpectations(t)
+		})
+	}
+}

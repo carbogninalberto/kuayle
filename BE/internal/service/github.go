@@ -1057,7 +1057,7 @@ func (s *GitHubService) issueStatusCategory(ctx context.Context, issue *domain.I
 // --- Data Access ---
 
 func (s *GitHubService) GetIssueActivity(ctx context.Context, workspaceID uuid.UUID, identifier string) (*dto.GitHubIssueActivityResponse, error) {
-	issue, err := s.issueRepo.GetByIdentifier(ctx, workspaceID, identifier)
+	issue, err := s.issueRepo.GetByIdentifier(domain.PublicContext(ctx), workspaceID, identifier)
 	if err != nil || issue == nil {
 		return nil, fmt.Errorf("issue not found")
 	}

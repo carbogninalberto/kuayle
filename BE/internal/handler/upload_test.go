@@ -253,7 +253,9 @@ func TestPublicAssetRequiresValidToken(t *testing.T) {
 			ContentType: "image/png",
 		},
 	}}
-	h := NewUploadHandler(store, assetRepo, nil, "secret-32-characters-minimum-value")
+	issues := newTestIssueRepo()
+	issues.issues["PUB-1"] = &domain.Issue{ID: issueID, WorkspaceID: workspaceID}
+	h := NewUploadHandler(store, assetRepo, issues, "secret-32-characters-minimum-value")
 	token, _, err := assettoken.Generate("secret-32-characters-minimum-value:prompt-assets", assetID, workspaceID, issueID, time.Hour)
 	require.NoError(t, err)
 
@@ -282,7 +284,9 @@ func TestPublicAssetCanForceSafeDownload(t *testing.T) {
 			Filename: "public plan.pdf", ContentType: "application/pdf",
 		},
 	}}
-	h := NewUploadHandler(store, assetRepo, nil, "secret-32-characters-minimum-value")
+	issues := newTestIssueRepo()
+	issues.issues["PUB-1"] = &domain.Issue{ID: issueID, WorkspaceID: workspaceID}
+	h := NewUploadHandler(store, assetRepo, issues, "secret-32-characters-minimum-value")
 	token, _, err := assettoken.Generate("secret-32-characters-minimum-value:prompt-assets", assetID, workspaceID, issueID, time.Hour)
 	require.NoError(t, err)
 

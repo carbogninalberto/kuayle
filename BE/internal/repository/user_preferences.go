@@ -20,7 +20,15 @@ func NewUserPreferencesRepository(db *sqlx.DB) *UserPreferencesRepository {
 
 func (r *UserPreferencesRepository) Get(ctx context.Context, userID uuid.UUID) (*domain.UserPreferences, error) {
 	var prefs domain.UserPreferences
-	err := r.db.GetContext(ctx, &prefs, `SELECT * FROM user_preferences WHERE user_id = $1`, userID)
+	err := r.db.GetContext(ctx, &prefs, `SELECT p.user_id,p.font_size,p.pointer_cursors,p.theme_mode,p.light_theme,p.dark_theme,
+ p.workflow_sort_mode,p.workflow_sort_order,p.recent_due_dates,p.issues_group_by,p.updated_at,
+ COALESCE((SELECT jsonb_object_agg(entry.key,entry.value)
+ FROM jsonb_each(p.team_workflow_sort_overrides) entry
+ JOIN teams preference_team ON preference_team.id::text=split_part(entry.key,'/',2)
+ JOIN workspaces preference_workspace ON preference_workspace.id=preference_team.workspace_id
+ WHERE entry.key=preference_workspace.slug||'/'||preference_team.id::text
+ AND `+teamVisible(ctx, "preference_team.id")+`),'{}'::jsonb) AS team_workflow_sort_overrides
+ FROM user_preferences p WHERE p.user_id = $1`, userID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}

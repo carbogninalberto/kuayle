@@ -30,7 +30,7 @@ func main() {
 	if !configValue.DevMachine.Enabled {
 		log.Fatal("DEV_MACHINES_ENABLED must be true for the machine manager")
 	}
-	database, err := sqlx.Connect("pgx", configValue.DatabaseURL)
+	database, err := repository.Open(configValue.DatabaseURL)
 	if err != nil {
 		log.WithError(err).Fatal("connect database")
 	}

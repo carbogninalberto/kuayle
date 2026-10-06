@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/realtime"
 	"github.com/kuayle/kuayle-backend/internal/repository"
-	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -240,7 +240,7 @@ func (s *CycleService) broadcastAndNotifyTeam(ctx context.Context, cycle *domain
 	}
 
 	for _, m := range members {
-		if err := s.notifSvc.Create(ctx, m.UserID, team.WorkspaceID, nil, "cycle_changed", title); err != nil {
+		if err := s.notifSvc.Create(ctx, m.UserID, team.WorkspaceID, nil, "cycle_changed", title, team.ID); err != nil {
 			log.WithError(err).Warn("failed to create cycle notification")
 			continue
 		}

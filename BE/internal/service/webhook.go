@@ -9,12 +9,12 @@ import (
 	"slices"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/pkg/crypto"
 	"github.com/kuayle/kuayle-backend/pkg/validate"
-	"github.com/google/uuid"
 	"github.com/lib/pq"
 	log "github.com/sirupsen/logrus"
 )
@@ -120,6 +120,18 @@ func (s *WebhookService) Dispatch(ctx context.Context, workspaceID uuid.UUID, ev
 		}
 
 		go func(w domain.Webhook) {
+			// Queued payloads must recheck privacy at delivery, holding the
+			// transition lock until the external request is finished.
+			releaseSlot, err := acquirePublicationSlot(ctx)
+			if err != nil {
+				return
+			}
+			defer releaseSlot()
+			guard, err := s.webhookRepo.BeginPublicOperation(ctx, workspaceID)
+			if err != nil {
+				return
+			}
+			defer func() { _ = guard.Rollback() }()
 			secret, err := crypto.Decrypt(w.Secret, s.encryptionKey)
 			if err != nil {
 				log.WithError(err).WithField("webhook_id", w.ID).Warn("failed to decrypt webhook secret")

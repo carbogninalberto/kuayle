@@ -43,6 +43,7 @@ func WorkspaceMembership(workspaceRepo repository.WorkspaceRepo) echo.Middleware
 			c.Set("workspace", ws)
 			c.Set("workspace_id", ws.ID)
 			c.Set("workspace_role", member.Role)
+			c.SetRequest(c.Request().WithContext(domain.WithAccess(c.Request().Context(), domain.Access{UserID: userID, WorkspaceID: ws.ID})))
 			return next(c)
 		}
 	}

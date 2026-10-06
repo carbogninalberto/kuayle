@@ -166,6 +166,16 @@ func (s *AISettingsService) ExpandIssueDescription(ctx context.Context, workspac
 	if selected != "" {
 		userPrompt += fmt.Sprintf("\n\nSelected text to rewrite. Return only the replacement HTML for this selected text, not the full issue description:\n%s", selected)
 	}
+	releaseSlot, err := acquirePublicationSlot(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer releaseSlot()
+	guard, err := s.aiRepo.BeginPublicOperation(ctx, workspaceID)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = guard.Rollback() }()
 	content, err := s.complete(ctx, settings.BaseURL, settings.Model, apiKey, userPrompt)
 	if err != nil {
 		return "", err
@@ -259,7 +269,7 @@ func (s *AISettingsService) complete(ctx context.Context, baseURL, model, apiKey
 	if err != nil {
 		return "", fmt.Errorf("%w: %v", ErrAIProviderRequestFailed, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	var parsed chatCompletionResponse

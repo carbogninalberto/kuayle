@@ -18,6 +18,7 @@ type UserRepo interface {
 }
 
 type AISettingsRepo interface {
+	BeginPublicOperation(ctx context.Context, workspaceID uuid.UUID) (*sqlx.Tx, error)
 	GetByWorkspaceID(ctx context.Context, workspaceID uuid.UUID) (*domain.AISettings, error)
 	Upsert(ctx context.Context, settings *domain.AISettings) error
 }
