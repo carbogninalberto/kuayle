@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import BellIcon from '@lucide/svelte/icons/bell';
 	import type { Issue, Comment, IssueHistory, IssuePriority } from '$lib/types/issue';
 	import { getPriorityLabel } from '$lib/types/issue';
@@ -51,15 +51,20 @@
 		isSubscribed = issue.is_subscribed ?? false;
 	});
 
+	let disposed = false;
+	onDestroy(() => { disposed = true; });
 	onMount(async () => {
+		try {
 		const [c, h, m] = await Promise.all([
 			listComments(slug, issue.identifier),
 			getIssueHistory(slug, issue.identifier),
 			listMembers(slug)
 		]);
+		if (disposed) return;
 		comments = c;
 		history = h;
 		members = m;
+		} catch { if (!disposed) { comments = []; history = []; members = []; } }
 	});
 
 	async function handleAddComment(e: Event) {

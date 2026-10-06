@@ -6,6 +6,8 @@ test('redirects to login when not authenticated', async ({ page }) => {
 });
 
 test('loads more on scroll without duplicating the initial request', async ({ page }) => {
+	// Keep the live channel open: disconnects intentionally revalidate membership.
+	await page.routeWebSocket('**/ws', () => {});
 	const teamId = '00000000-0000-0000-0000-000000000010';
 	const issueRequests: URL[] = [];
 	const unhandledPaths: string[] = [];

@@ -844,6 +844,7 @@
 											>
 												<TeamIcon {team} />
 												<span class="truncate">{team.name}</span>
+												{#if team.is_private}<span class="text-[10px] text-[var(--color-text-tertiary)]">{m['privacy.private']()}</span>{/if}
 												<ChevronDown
 													size={12}
 													class="shrink-0 text-[var(--color-text-tertiary)] transition-transform {teamExpanded

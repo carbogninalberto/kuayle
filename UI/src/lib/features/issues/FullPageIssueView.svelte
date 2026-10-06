@@ -120,7 +120,7 @@
 	let cycleExpanded = $state(true);
 
 	const priorityValues: IssuePriority[] = [0, 1, 2, 3, 4];
-	const imageUploadUrl = $derived(`/api/workspaces/${slug}/upload`);
+	const imageUploadUrl = $derived(`/api/workspaces/${slug}/upload?team_id=${issue.team_id}`);
 
 	let issueProject = $derived(projects.find(p => p.id === issue.project_id));
 	let issueCycle = $derived(cycles.find(c => c.id === issue.cycle_id));
@@ -134,9 +134,12 @@
 	const descriptionCursors = $derived(getRemoteCursors('description'));
 	const newCommentViewers = $derived(presenceState.getViewersForField('new-comment'));
 
+	let disposed = false;
 	onMount(async () => {
+		try {
 		// Load team statuses (needed on direct navigation / refresh)
 		await teamStatusesState.load(slug, issue.team_id);
+		if (disposed) return;
 
 		const [c, h, m, l, p] = await Promise.all([
 			listComments(slug, issue.identifier),
@@ -145,6 +148,7 @@
 			listLabels(slug),
 			listProjects(slug)
 		]);
+		if (disposed) return;
 		comments = c ?? [];
 		history = h ?? [];
 		members = m ?? [];
@@ -156,6 +160,9 @@
 
 		// Join presence AFTER members are loaded so names resolve correctly
 		presenceState.join(issue.id, m ?? []);
+		} catch {
+			if (!disposed) { comments = []; history = []; members = []; labels = []; projects = []; }
+		}
 	});
 
 	// --- Real-time event listeners ---
@@ -213,6 +220,7 @@
 	});
 
 	onDestroy(() => {
+		disposed = true;
 		window.removeEventListener('keydown', issueKeyHandler);
 		presenceState.leave();
 		if (descriptionSaveTimer) {
@@ -477,6 +485,7 @@
 	async function refreshIssue() {
 		try {
 			const fresh = await getIssue(slug, issue.identifier);
+			if (disposed) return;
 			const idx = issuesState.issues.findIndex(i => i.identifier === issue.identifier);
 			if (idx >= 0) issuesState.issues[idx] = fresh;
 			if (issuesState.selectedIssue?.identifier === issue.identifier) {
@@ -572,6 +581,7 @@
 			try {
 				await issuesState.update(slug, issue.identifier, { status_id: startedStatus.id });
 				const fresh = await getIssue(slug, issue.identifier);
+			if (disposed) return;
 				onupdated?.(fresh);
 				appToast.success(m['issue.toast.branch_copied_moved']());
 			} catch {
