@@ -4,6 +4,7 @@
 	import type { Team } from '$lib/types/team';
 	import { listTeams, updateTeam } from '$lib/api/teams';
 	import { getWorkspace } from '$lib/api/workspaces';
+	import TeamPrivacySettings from '$lib/features/teams/TeamPrivacySettings.svelte';
 	import TeamIcon from '$lib/components/shared/TeamIcon.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
@@ -53,6 +54,7 @@
 	let developmentReady = $state(false);
 	let savingDevelopment = $state(false);
 	let canManageDevelopment = $state(false);
+	let privacyEnabled = $state(false);
 	let developmentRequestVersion = 0;
 	let developmentSaveVersion = 0;
 
@@ -192,7 +194,8 @@
 		try {
 			const workspace = await getWorkspace(s);
 			if (!isCurrentDevelopmentScope(s, t, version)) return;
-			canManageDevelopment = workspace.current_user_role === 'owner' || workspace.current_user_role === 'admin';
+			privacyEnabled = !!workspace.privacy_enabled;
+			canManageDevelopment = !workspace.privacy_enabled && (workspace.current_user_role === 'owner' || workspace.current_user_role === 'admin');
 			if (!canManageDevelopment) return;
 			const [github, setting, environments] = await Promise.all([
 				getGitHubStatus(s), getDevMachineScopeSetting(s, 'team', t), listDevMachineEnvironments(s)
@@ -252,23 +255,28 @@
 		loadEmojiResults();
 	});
 
+	let teamRefresh = $state(0);
+	onMount(() => {
+		const refresh = (event: Event) => {
+			const detail = (event as CustomEvent).detail;
+			if ((!detail?.slug || detail.slug === slug) && (detail?.resources ?? []).some((r: string) => ['teams', 'workspace', 'members'].includes(r))) teamRefresh++;
+		};
+		window.addEventListener('app:refresh', refresh);
+		return () => window.removeEventListener('app:refresh', refresh);
+	});
 	$effect(() => {
-		const s = slug;
-		const t = teamId;
+		const s = slug, t = teamId;
+		teamRefresh;
+		let active = true;
+		team = null; loading = true; editingDetails = false; issueCopyPrompt = '';
 		if (!s || !t) return;
-		loading = true;
-		editingDetails = false;
-		listTeams(s)
-			.then((teams) => {
-				team = teams.find((tm) => tm.id === t) ?? null;
-				issueCopyPrompt = team?.issue_copy_prompt ?? '';
-			})
-			.catch(() => {
-				appToast.error(m['team_settings.toast.load_team_error']());
-			})
-			.finally(() => {
-				loading = false;
-			});
+		void listTeams(s).then((teams) => {
+			if (!active) return;
+			team = teams.find(tm => tm.id === t) ?? null;
+			issueCopyPrompt = team?.issue_copy_prompt ?? '';
+		}).catch(() => { if (active) appToast.error(m['privacy.unavailable']()); })
+		.finally(() => { if (active) loading = false; });
+		return () => { active = false; };
 	});
 
 	function startEditDetails() {
@@ -386,6 +394,7 @@
 			></div>
 		</div>
 	{:else if team}
+		<TeamPrivacySettings {slug} {team} onupdated={(updated) => team = updated} />
 		<div class="mt-6 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
 			<div class="flex items-center justify-between gap-4 border-b border-[var(--app-border)] px-5 py-4">
 				<div class="flex items-center gap-3">
@@ -444,7 +453,7 @@
 		<div class="mt-6 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
 			<div class="border-b border-[var(--app-border)] px-5 py-4"><p class="text-sm font-medium text-[var(--color-text-primary)]">{m['team_settings.development_defaults']()}</p><p class="text-xs text-[var(--color-text-tertiary)]">{m['team_settings.development_defaults_desc']()}</p></div>
 			<div class="grid gap-4 px-5 py-4 sm:grid-cols-2">
-				{#if !canManageDevelopment}<p class="rounded-md border border-[var(--app-border)] p-3 text-xs text-[var(--color-text-tertiary)] sm:col-span-2">{m['team_settings.development_admin_only']()}</p>{/if}
+				{#if !canManageDevelopment}<p class="rounded-md border border-[var(--app-border)] p-3 text-xs text-[var(--color-text-tertiary)] sm:col-span-2">{privacyEnabled ? m['privacy.disabled_feature']() : m['team_settings.development_admin_only']()}</p>{/if}
 				<div class="space-y-1"><Label>{m['team_settings.repository']()}</Label><Select.Root type="single" value={developmentRepositoryId} disabled={developmentLoading || !developmentReady || !canManageDevelopment} onValueChange={(value) => value && (developmentRepositoryId = value)}><Select.Trigger class="w-full">{developmentLoading ? m['team_settings.loading']() : developmentRepositories.find((item) => item.id === developmentRepositoryId)?.full_name ?? m['team_settings.use_workspace_default']()}</Select.Trigger><Select.Content><Select.Item value="inherit" label={m['team_settings.use_workspace_default']()}>{m['team_settings.use_workspace_default']()}</Select.Item>{#each developmentRepositories as repository}<Select.Item value={repository.id} label={repository.full_name}>{repository.full_name}</Select.Item>{/each}</Select.Content></Select.Root></div>
 				<div class="space-y-1"><Label>{m['team_settings.environment']()}</Label><Select.Root type="single" value={developmentEnvironmentId} disabled={developmentLoading || !developmentReady || !canManageDevelopment} onValueChange={(value) => value && (developmentEnvironmentId = value)}><Select.Trigger class="w-full">{developmentLoading ? m['team_settings.loading']() : developmentEnvironments.find((item) => item.id === developmentEnvironmentId)?.name ?? m['team_settings.use_workspace_default']()}</Select.Trigger><Select.Content><Select.Item value="inherit" label={m['team_settings.use_workspace_default']()}>{m['team_settings.use_workspace_default']()}</Select.Item>{#each developmentEnvironments as environment}<Select.Item value={environment.id} label={environment.name}>{environment.name}</Select.Item>{/each}</Select.Content></Select.Root></div>
 				<div class="flex justify-end sm:col-span-2"><Button size="sm" onclick={saveDevelopmentSettings} disabled={developmentLoading || !developmentReady || savingDevelopment || !canManageDevelopment}>{savingDevelopment ? m['team_settings.saving']() : m['team_settings.save_development_defaults']()}</Button></div>

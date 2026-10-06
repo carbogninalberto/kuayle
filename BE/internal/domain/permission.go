@@ -21,7 +21,7 @@ const (
 )
 
 // Read permission codes for read routes. Every workspace role holds all of
-// them (today any member can read everything), so annotating read routes with
+// them as a role ceiling; team visibility is enforced separately. Read routes with
 // RequirePermission does not change JWT authorization; the codes exist so
 // personal access tokens can be limited to a subset.
 const (

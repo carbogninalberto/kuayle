@@ -27,6 +27,7 @@ const (
 func Auth(jwtSecret string, patRepo repository.PersonalAccessTokenRepo) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
+			c.Response().Header().Set("Cache-Control", "private, no-store")
 			var tokenString string
 
 			// A bearer PAT is explicit API authentication and must not be
@@ -67,6 +68,7 @@ func Auth(jwtSecret string, patRepo repository.PersonalAccessTokenRepo) echo.Mid
 			}
 
 			c.Set(string(UserIDKey), claims.UserID)
+			c.SetRequest(c.Request().WithContext(domain.WithAccess(c.Request().Context(), domain.Access{UserID: claims.UserID})))
 			return next(c)
 		}
 	}
@@ -85,6 +87,7 @@ func authenticatePAT(c echo.Context, patRepo repository.PersonalAccessTokenRepo,
 	}
 
 	c.Set(string(UserIDKey), token.UserID)
+	c.SetRequest(c.Request().WithContext(domain.WithAccess(c.Request().Context(), domain.Access{UserID: token.UserID})))
 	c.Set(TokenScopesKey, []string(token.Scopes))
 	c.Set(TokenWorkspacesKey, []string(token.WorkspaceSlugs))
 

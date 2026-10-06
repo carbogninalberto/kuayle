@@ -1,0 +1,13 @@
+.git
+**/node_modules
+**/.svelte-kit
+**/build
+**/dist
+**/tmp
+**/coverage
+**/test-results
+**/playwright-report
+**/.env
+**/.env.*
+**/uploads
+**/.DS_Store

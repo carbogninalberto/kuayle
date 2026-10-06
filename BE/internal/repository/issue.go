@@ -24,7 +24,7 @@ func NewIssueRepository(db *sqlx.DB) *IssueRepository {
 func (r *IssueRepository) Create(ctx context.Context, tx *sqlx.Tx, issue *domain.Issue) error {
 	query := `
 		INSERT INTO issues (id, workspace_id, team_id, project_id, cycle_id, number, identifier_text, title, description, status, status_id, priority, creator_id, assignee_id, parent_id, due_date, sort_order, triaged)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+		SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18 WHERE ` + issueReferencesVisible(ctx, issue) + `
 		RETURNING created_at, updated_at`
 	return tx.QueryRowContext(ctx, query,
 		issue.ID, issue.WorkspaceID, issue.TeamID, issue.ProjectID, issue.CycleID,
@@ -47,7 +47,7 @@ func (r *IssueRepository) NextNumber(ctx context.Context, tx *sqlx.Tx, teamID uu
 
 func (r *IssueRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Issue, error) {
 	var issue domain.Issue
-	err := r.db.GetContext(ctx, &issue, `SELECT * FROM issues WHERE id = $1`, id)
+	err := r.db.GetContext(ctx, &issue, `SELECT * FROM issues WHERE id = $1 AND `+teamVisible(ctx, "issues.team_id"), id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -56,7 +56,7 @@ func (r *IssueRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Is
 
 func (r *IssueRepository) GetByIdentifier(ctx context.Context, workspaceID uuid.UUID, identifier string) (*domain.Issue, error) {
 	var issue domain.Issue
-	err := r.db.GetContext(ctx, &issue, `SELECT * FROM issues WHERE workspace_id = $1 AND identifier_text = $2`, workspaceID, identifier)
+	err := r.db.GetContext(ctx, &issue, `SELECT * FROM issues WHERE workspace_id = $1 AND identifier_text = $2 AND `+teamVisible(ctx, "issues.team_id"), workspaceID, identifier)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -64,7 +64,7 @@ func (r *IssueRepository) GetByIdentifier(ctx context.Context, workspaceID uuid.
 }
 
 func (r *IssueRepository) List(ctx context.Context, workspaceID uuid.UUID, params dto.IssueFilterParams) ([]domain.Issue, int, error) {
-	where := []string{"i.workspace_id = :workspace_id"}
+	where := []string{"i.workspace_id = :workspace_id", teamVisible(ctx, "i.team_id")}
 	args := map[string]interface{}{"workspace_id": workspaceID}
 
 	// Multi-value status filter (comma-separated) — supports both legacy slugs and status_id UUIDs
@@ -326,7 +326,7 @@ func (r *IssueRepository) Update(ctx context.Context, issue *domain.Issue) error
 			assignee_id = $5, project_id = $6, cycle_id = $7, parent_id = $8,
 			due_date = $9, sort_order = $10, triaged = $11,
 			status_id = $12, updated_at = NOW()
-		WHERE id = $13
+		WHERE id = $13 AND ` + teamVisible(ctx, "issues.team_id") + " AND " + issueReferencesVisible(ctx, issue) + `
 		RETURNING updated_at`
 	return r.db.QueryRowContext(ctx, query,
 		issue.Title, issue.Description, issue.Status, issue.Priority,
@@ -337,7 +337,7 @@ func (r *IssueRepository) Update(ctx context.Context, issue *domain.Issue) error
 }
 
 func (r *IssueRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM issues WHERE id = $1`, id)
+	_, err := r.db.ExecContext(ctx, `DELETE FROM issues WHERE id = $1 AND `+teamVisible(ctx, "issues.team_id"), id)
 	return err
 }
 
@@ -347,6 +347,9 @@ func (r *IssueRepository) SetLabels(ctx context.Context, issueID uuid.UUID, labe
 		return err
 	}
 	defer tx.Rollback()
+	if err := requireVisible(ctx, tx, issueVisible(ctx, uuidSQL(issueID))); err != nil {
+		return err
+	}
 
 	if _, err := tx.ExecContext(ctx, `DELETE FROM issue_labels WHERE issue_id = $1`, issueID); err != nil {
 		return err
@@ -363,7 +366,7 @@ func (r *IssueRepository) SetLabels(ctx context.Context, issueID uuid.UUID, labe
 
 func (r *IssueRepository) GetLabels(ctx context.Context, issueID uuid.UUID) ([]domain.Label, error) {
 	var labels []domain.Label
-	query := `SELECT l.* FROM labels l INNER JOIN issue_labels il ON l.id = il.label_id WHERE il.issue_id = $1 ORDER BY l.name`
+	query := `SELECT l.* FROM labels l INNER JOIN issue_labels il ON l.id = il.label_id WHERE il.issue_id = $1 AND ` + issueVisible(ctx, "il.issue_id") + ` ORDER BY l.name`
 	err := r.db.SelectContext(ctx, &labels, query, issueID)
 	return labels, err
 }
@@ -381,8 +384,7 @@ func (r *IssueRepository) GetLabelsForIssues(ctx context.Context, issueIDs []uui
 
 	query, args, err := sqlx.In(`SELECT l.*, il.issue_id FROM labels l
 		INNER JOIN issue_labels il ON l.id = il.label_id
-		WHERE il.issue_id IN (?) AND (l.deleted_at IS NULL)
-		ORDER BY l.name`, issueIDs)
+		WHERE il.issue_id IN (?) AND (l.deleted_at IS NULL) AND `+issueVisible(ctx, "il.issue_id")+` ORDER BY l.name`, issueIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -401,13 +403,13 @@ func (r *IssueRepository) GetLabelsForIssues(ctx context.Context, issueIDs []uui
 
 func (r *IssueRepository) ListSubIssues(ctx context.Context, parentID uuid.UUID) ([]domain.Issue, error) {
 	var issues []domain.Issue
-	err := r.db.SelectContext(ctx, &issues, `SELECT * FROM issues WHERE parent_id = $1 ORDER BY sort_order, created_at`, parentID)
+	err := r.db.SelectContext(ctx, &issues, `SELECT * FROM issues WHERE parent_id = $1 AND `+teamVisible(ctx, "issues.team_id")+` ORDER BY sort_order, created_at`, parentID)
 	return issues, err
 }
 
 func (r *IssueRepository) CountSubIssues(ctx context.Context, parentID uuid.UUID) (int, int, error) {
 	var total, done int
-	query := fmt.Sprintf(`SELECT COUNT(*), COUNT(*) FILTER (WHERE %s IN ('completed', 'cancelled')) FROM issues i LEFT JOIN team_statuses ts ON ts.id = i.status_id WHERE i.parent_id = $1`, issueStatusCategoryExpr("i", "ts"))
+	query := fmt.Sprintf(`SELECT COUNT(*), COUNT(*) FILTER (WHERE %s IN ('completed', 'cancelled')) FROM issues i LEFT JOIN team_statuses ts ON ts.id = i.status_id WHERE i.parent_id = $1`, issueStatusCategoryExpr("i", "ts")) + " AND " + teamVisible(ctx, "i.team_id")
 	err := r.db.QueryRowContext(ctx, query, parentID).Scan(&total, &done)
 	return total, done, err
 }
@@ -424,8 +426,8 @@ func (r *IssueRepository) CountSubIssuesForIssues(ctx context.Context, issueIDs 
 			COUNT(*) FILTER (WHERE %s IN ('completed', 'cancelled')) AS done
 		FROM issues i
 		LEFT JOIN team_statuses ts ON ts.id = i.status_id
-		WHERE i.parent_id IN (?)
-		GROUP BY i.parent_id`, issueStatusCategoryExpr("i", "ts")), issueIDs)
+		WHERE i.parent_id IN (?) AND %s
+		GROUP BY i.parent_id`, issueStatusCategoryExpr("i", "ts"), teamVisible(ctx, "i.team_id")), issueIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -519,7 +521,7 @@ func (r *IssueRepository) BulkUpdate(ctx context.Context, workspaceID uuid.UUID,
 	}
 
 	query := fmt.Sprintf(
-		`UPDATE issues SET %s WHERE workspace_id = $1 AND id IN (%s)`,
+		`UPDATE issues SET %s WHERE workspace_id = $1 AND id IN (%s) AND `+teamVisible(ctx, "issues.team_id"),
 		strings.Join(setClauses, ", "),
 		strings.Join(idPlaceholders, ", "),
 	)
@@ -542,7 +544,7 @@ func (r *IssueRepository) BulkDelete(ctx context.Context, workspaceID uuid.UUID,
 		placeholders[i] = fmt.Sprintf("$%d", i+2)
 		args = append(args, id)
 	}
-	query := fmt.Sprintf(`DELETE FROM issues WHERE workspace_id = $1 AND id IN (%s)`, strings.Join(placeholders, ", "))
+	query := fmt.Sprintf(`DELETE FROM issues WHERE workspace_id = $1 AND id IN (%s) AND `+teamVisible(ctx, "issues.team_id"), strings.Join(placeholders, ", "))
 	result, err := r.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		return 0, err
@@ -557,6 +559,9 @@ func (r *IssueRepository) SetAssignees(ctx context.Context, issueID uuid.UUID, u
 		return err
 	}
 	defer tx.Rollback()
+	if err := requireVisible(ctx, tx, issueVisible(ctx, uuidSQL(issueID))); err != nil {
+		return err
+	}
 
 	if _, err := tx.ExecContext(ctx, `DELETE FROM issue_assignees WHERE issue_id = $1`, issueID); err != nil {
 		return err
@@ -570,9 +575,9 @@ func (r *IssueRepository) SetAssignees(ctx context.Context, issueID uuid.UUID, u
 
 	// Keep assignee_id in sync: set to first assignee or NULL
 	if len(userIDs) > 0 {
-		_, err = tx.ExecContext(ctx, `UPDATE issues SET assignee_id = $1, updated_at = NOW() WHERE id = $2`, userIDs[0], issueID)
+		_, err = tx.ExecContext(ctx, `UPDATE issues SET assignee_id = $1, updated_at = NOW() WHERE id = $2 AND `+teamVisible(ctx, "issues.team_id"), userIDs[0], issueID)
 	} else {
-		_, err = tx.ExecContext(ctx, `UPDATE issues SET assignee_id = NULL, updated_at = NOW() WHERE id = $1`, issueID)
+		_, err = tx.ExecContext(ctx, `UPDATE issues SET assignee_id = NULL, updated_at = NOW() WHERE id = $1 AND `+teamVisible(ctx, "issues.team_id"), issueID)
 	}
 	if err != nil {
 		return err
@@ -583,7 +588,7 @@ func (r *IssueRepository) SetAssignees(ctx context.Context, issueID uuid.UUID, u
 
 func (r *IssueRepository) GetAssignees(ctx context.Context, issueID uuid.UUID) ([]uuid.UUID, error) {
 	var ids []uuid.UUID
-	err := r.db.SelectContext(ctx, &ids, `SELECT user_id FROM issue_assignees WHERE issue_id = $1 ORDER BY created_at`, issueID)
+	err := r.db.SelectContext(ctx, &ids, `SELECT user_id FROM issue_assignees WHERE issue_id = $1 AND `+issueVisible(ctx, "issue_assignees.issue_id")+` ORDER BY created_at`, issueID)
 	return ids, err
 }
 
@@ -598,7 +603,7 @@ func (r *IssueRepository) GetAssigneesForIssues(ctx context.Context, issueIDs []
 	}
 	var rows []row
 
-	query, args, err := sqlx.In(`SELECT issue_id, user_id FROM issue_assignees WHERE issue_id IN (?) ORDER BY created_at`, issueIDs)
+	query, args, err := sqlx.In(`SELECT issue_id, user_id FROM issue_assignees WHERE issue_id IN (?) AND `+issueVisible(ctx, "issue_assignees.issue_id")+` ORDER BY created_at`, issueIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -616,7 +621,7 @@ func (r *IssueRepository) GetAssigneesForIssues(ctx context.Context, issueIDs []
 }
 
 func (r *IssueRepository) Subscribe(ctx context.Context, issueID, userID uuid.UUID) error {
-	_, err := r.db.ExecContext(ctx, `INSERT INTO issue_subscribers (issue_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, issueID, userID)
+	_, err := r.db.ExecContext(ctx, `INSERT INTO issue_subscribers (issue_id, user_id) SELECT $1, $2 WHERE `+issueVisible(ctx, "$1")+` ON CONFLICT DO NOTHING`, issueID, userID)
 	return err
 }
 
@@ -627,13 +632,13 @@ func (r *IssueRepository) Unsubscribe(ctx context.Context, issueID, userID uuid.
 
 func (r *IssueRepository) IsSubscribed(ctx context.Context, issueID, userID uuid.UUID) (bool, error) {
 	var exists bool
-	err := r.db.GetContext(ctx, &exists, `SELECT EXISTS (SELECT 1 FROM issue_subscribers WHERE issue_id = $1 AND user_id = $2)`, issueID, userID)
+	err := r.db.GetContext(ctx, &exists, `SELECT EXISTS (SELECT 1 FROM issue_subscribers WHERE issue_id = $1 AND user_id = $2 AND `+issueVisible(ctx, "issue_id")+`)`, issueID, userID)
 	return exists, err
 }
 
 func (r *IssueRepository) GetSubscribers(ctx context.Context, issueID uuid.UUID) ([]uuid.UUID, error) {
 	var userIDs []uuid.UUID
-	err := r.db.SelectContext(ctx, &userIDs, `SELECT user_id FROM issue_subscribers WHERE issue_id = $1`, issueID)
+	err := r.db.SelectContext(ctx, &userIDs, `SELECT user_id FROM issue_subscribers WHERE issue_id = $1 AND `+issueVisible(ctx, "issue_id"), issueID)
 	return userIDs, err
 }
 
@@ -642,7 +647,7 @@ func (r *IssueRepository) GetSubscribedIssueIDs(ctx context.Context, issueIDs []
 	if len(issueIDs) == 0 {
 		return result, nil
 	}
-	query, args, err := sqlx.In(`SELECT issue_id FROM issue_subscribers WHERE user_id = ? AND issue_id IN (?)`, userID, issueIDs)
+	query, args, err := sqlx.In(`SELECT issue_id FROM issue_subscribers WHERE user_id = ? AND issue_id IN (?) AND `+issueVisible(ctx, "issue_id"), userID, issueIDs)
 	if err != nil {
 		return nil, err
 	}

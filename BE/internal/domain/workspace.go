@@ -7,6 +7,7 @@ import (
 )
 
 type Workspace struct {
+	PrivacyEnabled   bool      `json:"privacy_enabled" db:"privacy_enabled"`
 	ID               uuid.UUID `json:"id" db:"id"`
 	Name             string    `json:"name" db:"name"`
 	Slug             string    `json:"slug" db:"slug"`

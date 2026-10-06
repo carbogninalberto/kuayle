@@ -4,13 +4,13 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo/v4"
 	log "github.com/sirupsen/logrus"
 
@@ -40,7 +40,7 @@ func main() {
 	}
 
 	// Database
-	db, err := sqlx.Connect("pgx", cfg.DatabaseURL)
+	db, err := repository.Open(cfg.DatabaseURL)
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
@@ -48,14 +48,12 @@ func main() {
 	db.SetMaxOpenConns(25)
 	db.SetMaxIdleConns(5)
 
-	// Realtime hub
-	hub := realtime.NewHub()
-
 	// Repositories
 	userRepo := repository.NewUserRepository(db)
 	refreshRepo := repository.NewRefreshTokenRepository(db)
 	patRepo := repository.NewPersonalAccessTokenRepository(db)
 	workspaceRepo := repository.NewWorkspaceRepository(db)
+	hub := realtime.NewHub(workspaceRepo.RealtimeAccess)
 	teamRepo := repository.NewTeamRepository(db)
 	issueRepo := repository.NewIssueRepository(db)
 	labelRepo := repository.NewLabelRepository(db)
@@ -84,8 +82,8 @@ func main() {
 		service.WithRegistrationDisabled(cfg.DisableRegistration),
 		service.WithInviteRedeemer(inviteLinkSvc),
 	)
-	workspaceSvc := service.NewWorkspaceService(workspaceRepo, userRepo)
-	teamSvc := service.NewTeamService(teamRepo, teamStatusRepo)
+	workspaceSvc := service.NewWorkspaceService(workspaceRepo, userRepo, hub)
+	teamSvc := service.NewTeamService(teamRepo, teamStatusRepo, hub)
 	notifSvc := service.NewNotificationService(notifRepo)
 	issueSvc := service.NewIssueService(issueRepo, teamRepo, teamStatusRepo, historyRepo, hub, notifSvc, projectRepo)
 	labelSvc := service.NewLabelService(labelRepo)
@@ -258,7 +256,7 @@ func main() {
 
 func runMigrate(args []string) {
 	if len(args) == 0 {
-		fmt.Println("Usage: server migrate [up|down|version]")
+		fmt.Println("Usage: server migrate [up|down|version|force <version>]")
 		os.Exit(1)
 	}
 
@@ -284,6 +282,20 @@ func runMigrate(args []string) {
 			log.Fatalf("Migration down failed: %v", err)
 		}
 		log.Info("Rolled back one migration")
+	case "force":
+		// Recovery only: after a failed migration rolled back, mark the last
+		// verified version clean. Inspect the schema before forcing a version.
+		if len(args) != 2 {
+			log.Fatal("Usage: server migrate force <version>")
+		}
+		version, err := strconv.Atoi(args[1])
+		if err != nil || version < 0 {
+			log.Fatalf("Invalid migration version: %s", args[1])
+		}
+		if err := m.Force(version); err != nil {
+			log.Fatalf("Migration force failed: %v", err)
+		}
+		log.Infof("Marked migration version %d as clean", version)
 	case "version":
 		version, dirty, err := m.Version()
 		if err != nil {
@@ -292,7 +304,7 @@ func runMigrate(args []string) {
 		fmt.Printf("Version: %d, Dirty: %v\n", version, dirty)
 	default:
 		fmt.Printf("Unknown migrate command: %s\n", args[0])
-		fmt.Println("Usage: server migrate [up|down|version]")
+		fmt.Println("Usage: server migrate [up|down|version|force <version>]")
 		os.Exit(1)
 	}
 }

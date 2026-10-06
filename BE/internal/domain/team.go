@@ -9,6 +9,7 @@ import (
 type Team struct {
 	ID                       uuid.UUID `json:"id" db:"id"`
 	WorkspaceID              uuid.UUID `json:"workspace_id" db:"workspace_id"`
+	IsPrivate                bool      `json:"is_private" db:"is_private"`
 	Name                     string    `json:"name" db:"name"`
 	Key                      string    `json:"key" db:"key"`
 	Description              *string   `json:"description" db:"description"`

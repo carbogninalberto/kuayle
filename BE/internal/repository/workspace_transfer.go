@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/kuayle/kuayle-backend/internal/dto"
+	"github.com/lib/pq"
 )
 
 type WorkspaceTransferTableSpec struct {
@@ -65,7 +66,30 @@ func WorkspaceTransferTableSpecs() []WorkspaceTransferTableSpec {
 }
 
 type WorkspaceTransferRepository struct {
-	db *sqlx.DB
+	db       *sqlx.DB
+	exportTx *sqlx.Tx
+}
+
+// ExportReader reuses the lock transaction's connection for all archive reads.
+// Concurrent exports must not exhaust the pool holding one connection while
+// waiting for a second connection to perform their raw table queries.
+func (r *WorkspaceTransferRepository) ExportReader(tx *sqlx.Tx) *WorkspaceTransferRepository {
+	return &WorkspaceTransferRepository{db: r.db, exportTx: tx}
+}
+
+func (r *WorkspaceTransferRepository) reader() sqlx.QueryerContext {
+	if r.exportTx != nil {
+		return r.exportTx
+	}
+	return r.db
+}
+
+var ErrPrivateWorkspaceTransfer = ErrPrivateWorkspaceOperation
+
+// Hold the same workspace lock as privacy transitions until the archive has
+// been assembled. A preflight check alone could race raw table/asset reads.
+func (r *WorkspaceTransferRepository) BeginPublicExport(ctx context.Context, workspaceID uuid.UUID) (*sqlx.Tx, error) {
+	return beginPublicWorkspaceOperation(ctx, r.db, workspaceID)
 }
 
 func NewWorkspaceTransferRepository(db *sqlx.DB) *WorkspaceTransferRepository {
@@ -82,7 +106,7 @@ func decodeTransferRow(raw string) (dto.WorkspaceTransferRow, error) {
 
 func (r *WorkspaceTransferRepository) WorkspaceRow(ctx context.Context, workspaceID uuid.UUID) (dto.WorkspaceTransferRow, error) {
 	var raw string
-	if err := r.db.GetContext(ctx, &raw, `SELECT to_jsonb(x)::text FROM workspaces x WHERE id=$1`, workspaceID); err != nil {
+	if err := sqlx.GetContext(ctx, r.reader(), &raw, `SELECT to_jsonb(x)::text FROM workspaces x WHERE id=$1`, workspaceID); err != nil {
 		return nil, err
 	}
 	return decodeTransferRow(raw)
@@ -90,7 +114,7 @@ func (r *WorkspaceTransferRepository) WorkspaceRow(ctx context.Context, workspac
 
 func (r *WorkspaceTransferRepository) TableRows(ctx context.Context, spec WorkspaceTransferTableSpec, workspaceID uuid.UUID) ([]dto.WorkspaceTransferRow, error) {
 	var rawRows []string
-	if err := r.db.SelectContext(ctx, &rawRows, spec.SelectSQL, workspaceID); err != nil {
+	if err := sqlx.SelectContext(ctx, r.reader(), &rawRows, spec.SelectSQL, workspaceID); err != nil {
 		return nil, err
 	}
 	rows := make([]dto.WorkspaceTransferRow, 0, len(rawRows))
@@ -115,7 +139,7 @@ func (r *WorkspaceTransferRepository) UsersByIDs(ctx context.Context, ids []uuid
 		return nil, err
 	}
 	var rawRows []string
-	if err := r.db.SelectContext(ctx, &rawRows, r.db.Rebind(query), args...); err != nil {
+	if err := sqlx.SelectContext(ctx, r.reader(), &rawRows, r.db.Rebind(query), args...); err != nil {
 		return nil, err
 	}
 	rows := make([]dto.WorkspaceTransferRow, 0, len(rawRows))
@@ -165,14 +189,25 @@ func (r *WorkspaceTransferRepository) SlugExists(ctx context.Context, slug strin
 
 func (r *WorkspaceTransferRepository) SchemaVersion(ctx context.Context) uint {
 	var version uint
-	if err := r.db.GetContext(ctx, &version, `SELECT version FROM schema_migrations LIMIT 1`); err != nil {
+	if err := sqlx.GetContext(ctx, r.reader(), &version, `SELECT version FROM schema_migrations LIMIT 1`); err != nil {
 		return 0
 	}
 	return version
 }
 
 func (r *WorkspaceTransferRepository) Begin(ctx context.Context) (*sqlx.Tx, error) {
-	return r.db.BeginTxx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	tx, err := r.db.BeginTxx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	if err != nil {
+		return nil, err
+	}
+	// Import creates teams and assets after other rows. Acquire classification
+	// exclusivity before its first write instead of upgrading a shared barrier.
+	// Asset bytes have already been staged before the service begins this tx.
+	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(610046,0)`); err != nil {
+		_ = tx.Rollback()
+		return nil, err
+	}
+	return tx, nil
 }
 
 func (r *WorkspaceTransferRepository) Columns(ctx context.Context, tx *sqlx.Tx, table string) (map[string]bool, error) {
@@ -230,6 +265,14 @@ func transferDBValue(table, column string, value any) any {
 			parts = append(parts, fmt.Sprint(item))
 		}
 		return "{" + strings.Join(parts, ",") + "}"
+	}
+	if table == "notifications" && column == "source_team_ids" {
+		items, _ := value.([]any)
+		parts := make([]string, 0, len(items))
+		for _, item := range items {
+			parts = append(parts, fmt.Sprint(item))
+		}
+		return pq.Array(parts)
 	}
 	switch value.(type) {
 	case map[string]any, []any:

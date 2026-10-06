@@ -41,15 +41,45 @@ type CursorPayload struct {
 	Y       float64 `json:"y"`
 }
 
+type AccessCheck func(context.Context, uuid.UUID, uuid.UUID) (member bool, private bool, err error)
+
 type Hub struct {
+	access  AccessCheck
 	mu      sync.RWMutex
 	clients map[uuid.UUID]map[*Client]bool // workspaceID -> clients
 }
 
-func NewHub() *Hub {
-	return &Hub{
-		clients: make(map[uuid.UUID]map[*Client]bool),
+func NewHub(access ...AccessCheck) *Hub {
+	hub := &Hub{clients: make(map[uuid.UUID]map[*Client]bool)}
+	if len(access) > 0 {
+		hub.access = access[0]
 	}
+	return hub
+}
+
+func (h *Hub) policy(ctx context.Context, client *Client) (bool, bool) {
+	if h.access == nil {
+		return false, true
+	}
+	checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	member, private, err := h.access(checkCtx, client.workspaceID, client.userID)
+	return err == nil && member, private
+}
+
+var privateRefresh = []byte(`{"type":"app.refresh","payload":{"resources":["workspace","teams","projects","issues","members","views","notifications","favorites","cycles"],"privacy":true}}`)
+
+// Read policy at dequeue: authorization when enqueuing is insufficient for
+// messages buffered before removal or a visibility transition.
+func (h *Hub) delivery(ctx context.Context, client *Client, msg []byte) ([]byte, bool) {
+	member, private := h.policy(ctx, client)
+	if !member {
+		return nil, false
+	}
+	if private {
+		return privateRefresh, true
+	}
+	return msg, true
 }
 
 func (h *Hub) Register(conn *websocket.Conn, workspaceID, userID uuid.UUID) *Client {
@@ -72,14 +102,14 @@ func (h *Hub) Register(conn *websocket.Conn, workspaceID, userID uuid.UUID) *Cli
 
 func (h *Hub) Unregister(client *Client) {
 	h.mu.Lock()
-	if clients, ok := h.clients[client.workspaceID]; ok {
+	defer h.mu.Unlock()
+	if clients, ok := h.clients[client.workspaceID]; ok && clients[client] {
 		delete(clients, client)
+		close(client.send)
 		if len(clients) == 0 {
 			delete(h.clients, client.workspaceID)
 		}
 	}
-	h.mu.Unlock()
-	close(client.send)
 }
 
 func (h *Hub) Broadcast(workspaceID uuid.UUID, event Event) {
@@ -92,8 +122,8 @@ func (h *Hub) Broadcast(workspaceID uuid.UUID, event Event) {
 	}
 
 	h.mu.RLock()
+	defer h.mu.RUnlock()
 	clients := h.clients[workspaceID]
-	h.mu.RUnlock()
 
 	for client := range clients {
 		select {
@@ -114,8 +144,8 @@ func (h *Hub) BroadcastToUser(workspaceID, userID uuid.UUID, event Event) {
 	}
 
 	h.mu.RLock()
+	defer h.mu.RUnlock()
 	clients := h.clients[workspaceID]
-	h.mu.RUnlock()
 
 	for client := range clients {
 		if client.userID == userID {
@@ -128,14 +158,28 @@ func (h *Hub) BroadcastToUser(workspaceID, userID uuid.UUID, event Event) {
 }
 
 func (h *Hub) WritePump(ctx context.Context, client *Client) {
+	// Idle sockets are also revalidated; removal need not wait for a new event.
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+	defer func() { _ = client.conn.Close(websocket.StatusPolicyViolation, "Connection access changed") }()
 	for {
 		select {
 		case msg, ok := <-client.send:
 			if !ok {
 				return
 			}
+			var allowed bool
+			msg, allowed = h.delivery(ctx, client, msg)
+			if !allowed {
+				return
+			}
 			err := client.conn.Write(ctx, websocket.MessageText, msg)
 			if err != nil {
+				return
+			}
+		case <-ticker.C:
+			member, _ := h.policy(ctx, client)
+			if !member {
 				return
 			}
 		case <-ctx.Done():
@@ -145,11 +189,7 @@ func (h *Hub) WritePump(ctx context.Context, client *Client) {
 }
 
 func (h *Hub) ReadPump(ctx context.Context, client *Client) {
-	defer func() {
-		if client.viewingIssue != "" {
-			h.handlePresenceLeave(client)
-		}
-	}()
+	defer h.handlePresenceLeave(client)
 
 	for {
 		_, data, err := client.conn.Read(ctx)
@@ -157,6 +197,18 @@ func (h *Hub) ReadPump(ctx context.Context, client *Client) {
 			return
 		}
 
+		member, private := h.policy(ctx, client)
+		if !member {
+			return
+		}
+		if private {
+			// Presence, cursor and arbitrary focus payloads cannot safely be
+			// relayed across team boundaries in this increment.
+			h.mu.Lock()
+			client.viewingIssue = ""
+			h.mu.Unlock()
+			continue
+		}
 		var msg IncomingMessage
 		if err := json.Unmarshal(data, &msg); err != nil {
 			continue
@@ -199,11 +251,15 @@ func (h *Hub) ReadPump(ctx context.Context, client *Client) {
 
 func (h *Hub) handlePresenceJoin(client *Client, issueID string) {
 	// Leave previous issue if any
-	if client.viewingIssue != "" && client.viewingIssue != issueID {
+	h.mu.RLock()
+	previous := client.viewingIssue
+	h.mu.RUnlock()
+	if previous != "" && previous != issueID {
 		h.handlePresenceLeave(client)
 	}
-
+	h.mu.Lock()
 	client.viewingIssue = issueID
+	h.mu.Unlock()
 
 	// Broadcast join to workspace (excluding sender)
 	h.BroadcastExcluding(client.workspaceID, client, Event{
@@ -230,11 +286,13 @@ func (h *Hub) handlePresenceJoin(client *Client, issueID string) {
 }
 
 func (h *Hub) handlePresenceLeave(client *Client) {
+	h.mu.Lock()
 	issueID := client.viewingIssue
+	client.viewingIssue = ""
+	h.mu.Unlock()
 	if issueID == "" {
 		return
 	}
-	client.viewingIssue = ""
 
 	h.BroadcastExcluding(client.workspaceID, client, Event{
 		Type: "presence.leave",
@@ -255,8 +313,8 @@ func (h *Hub) BroadcastExcluding(workspaceID uuid.UUID, exclude *Client, event E
 	}
 
 	h.mu.RLock()
+	defer h.mu.RUnlock()
 	clients := h.clients[workspaceID]
-	h.mu.RUnlock()
 
 	for client := range clients {
 		if client == exclude {
@@ -286,6 +344,11 @@ func (h *Hub) sendToClient(client *Client, event Event) {
 	event.Timestamp = time.Now()
 	data, err := json.Marshal(event)
 	if err != nil {
+		return
+	}
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if !h.clients[client.workspaceID][client] {
 		return
 	}
 	select {

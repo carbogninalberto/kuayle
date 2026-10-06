@@ -126,3 +126,28 @@ func TestRegisteredRoutesRejectPATOutsideBoundaries(t *testing.T) {
 		})
 	}
 }
+
+// These routes were historically session-only, which does not constrain a guest.
+// Exercise registered middleware before nil handlers can run.
+func TestCycleWritesRejectGuestSessions(t *testing.T) {
+	for _, target := range []struct{ method, path string }{
+		{"POST", "/teams/team/cycles"},
+		{"PATCH", "/teams/team/cycles/cycle"},
+		{"POST", "/teams/team/cycles/cycle/complete"},
+		{"DELETE", "/teams/team/cycles/cycle"},
+	} {
+		t.Run(target.method+target.path, func(t *testing.T) {
+			e := echo.New()
+			auth := func(next echo.HandlerFunc) echo.HandlerFunc {
+				return func(c echo.Context) error {
+					c.Set("workspace_role", domain.RoleGuest)
+					return next(c)
+				}
+			}
+			registerRoutes(e, &appHandlers{}, testMiddleware(auth))
+			recorder := httptest.NewRecorder()
+			e.ServeHTTP(recorder, httptest.NewRequest(target.method, "/api/workspaces/example"+target.path, nil))
+			require.Equal(t, http.StatusForbidden, recorder.Code)
+		})
+	}
+}

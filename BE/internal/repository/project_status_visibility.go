@@ -22,6 +22,14 @@ func (r *ProjectStatusVisibilityRepository) SetVisibleStatuses(ctx context.Conte
 	}
 	defer tx.Rollback()
 
+	if err := requireVisible(ctx, tx, "EXISTS(SELECT 1 FROM projects p WHERE p.id="+uuidSQL(projectID)+" AND "+projectVisible(ctx, "p.workspace_id", "p.team_id")+")"); err != nil {
+		return err
+	}
+	for _, sid := range statusIDs {
+		if err := requireVisible(ctx, tx, projectStatusReferenceVisible(ctx, uuidSQL(projectID), uuidSQL(sid))); err != nil {
+			return err
+		}
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM project_status_visibility WHERE project_id = $1`, projectID); err != nil {
 		return err
 	}
@@ -37,13 +45,13 @@ func (r *ProjectStatusVisibilityRepository) SetVisibleStatuses(ctx context.Conte
 
 func (r *ProjectStatusVisibilityRepository) ListVisibleStatuses(ctx context.Context, projectID uuid.UUID) ([]uuid.UUID, error) {
 	var ids []uuid.UUID
-	err := r.db.SelectContext(ctx, &ids, `SELECT status_id FROM project_status_visibility WHERE project_id = $1`, projectID)
+	err := r.db.SelectContext(ctx, &ids, `SELECT status_id FROM project_status_visibility WHERE project_id = $1 AND `+projectStatusReferenceVisible(ctx, "project_status_visibility.project_id", "project_status_visibility.status_id"), projectID)
 	return ids, err
 }
 
 func (r *ProjectStatusVisibilityRepository) ListProjectsForStatus(ctx context.Context, statusID uuid.UUID) ([]uuid.UUID, error) {
 	var ids []uuid.UUID
-	err := r.db.SelectContext(ctx, &ids, `SELECT project_id FROM project_status_visibility WHERE status_id = $1`, statusID)
+	err := r.db.SelectContext(ctx, &ids, `SELECT project_id FROM project_status_visibility WHERE status_id = $1 AND `+projectStatusReferenceVisible(ctx, "project_status_visibility.project_id", "project_status_visibility.status_id"), statusID)
 	return ids, err
 }
 
@@ -58,7 +66,7 @@ func (r *ProjectStatusVisibilityRepository) ListProjectIDsByStatuses(ctx context
 	}
 	var rows []row
 
-	query, args, err := sqlx.In(`SELECT status_id, project_id FROM project_status_visibility WHERE status_id IN (?)`, statusIDs)
+	query, args, err := sqlx.In(`SELECT status_id, project_id FROM project_status_visibility WHERE status_id IN (?) AND `+projectStatusReferenceVisible(ctx, "project_status_visibility.project_id", "project_status_visibility.status_id"), statusIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -73,4 +81,8 @@ func (r *ProjectStatusVisibilityRepository) ListProjectIDsByStatuses(ctx context
 		result[r.StatusID] = append(result[r.StatusID], r.ProjectID)
 	}
 	return result, nil
+}
+
+func projectStatusReferenceVisible(ctx context.Context, project, status string) string {
+	return "EXISTS(SELECT 1 FROM projects psv_project JOIN team_statuses psv_status ON psv_status.id=" + status + " JOIN teams psv_team ON psv_team.id=psv_status.team_id WHERE psv_project.id=" + project + " AND psv_project.workspace_id=psv_team.workspace_id AND " + projectVisible(ctx, "psv_project.workspace_id", "psv_project.team_id") + " AND " + teamVisible(ctx, "psv_team.id") + " AND " + compatibleTeams("psv_project.team_id", "psv_team.id") + ")"
 }

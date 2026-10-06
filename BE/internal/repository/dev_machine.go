@@ -575,7 +575,17 @@ func (r *DevMachineRepository) GetPolicy(ctx context.Context, workspaceID uuid.U
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
-	return &policy, err
+	if err != nil {
+		return nil, err
+	}
+	var private bool
+	if err := r.db.GetContext(ctx, &private, `SELECT EXISTS(SELECT 1 FROM workspace_privacy WHERE workspace_id=$1)`, workspaceID); err != nil {
+		return nil, err
+	}
+	if private {
+		policy.Enabled = false
+	}
+	return &policy, nil
 }
 
 func (r *DevMachineRepository) UpsertPolicy(ctx context.Context, policy *domain.DevMachineWorkspacePolicy) error {
@@ -1438,6 +1448,13 @@ func (r *DevMachineRepository) DeleteScopeSetting(ctx context.Context, workspace
 }
 
 func (r *DevMachineRepository) ScopeResourceExists(ctx context.Context, workspaceID uuid.UUID, scopeType string, scopeID *uuid.UUID) (bool, error) {
+	var allowed bool
+	if err := r.db.GetContext(ctx, &allowed, "SELECT "+workspaceVisible(ctx, uuidSQL(workspaceID))+" AND "+publicMetadataAllowed(uuidSQL(workspaceID))); err != nil {
+		return false, err
+	}
+	if !allowed {
+		return false, nil
+	}
 	if scopeType == "workspace" {
 		return scopeID == nil, nil
 	}
@@ -1473,7 +1490,7 @@ func (r *DevMachineRepository) GetLinkedRepositoryByFullName(ctx context.Context
 
 func (r *DevMachineRepository) GetIssueDevelopmentContext(ctx context.Context, workspaceID, issueID uuid.UUID) (*domain.Issue, error) {
 	var issue domain.Issue
-	err := r.db.GetContext(ctx, &issue, `SELECT * FROM issues WHERE workspace_id=$1 AND id=$2`, workspaceID, issueID)
+	err := r.db.GetContext(ctx, &issue, `SELECT * FROM issues WHERE workspace_id=$1 AND id=$2 AND `+teamVisible(domain.PublicContext(ctx), "issues.team_id")+` AND `+workspaceVisible(ctx, "issues.workspace_id"), workspaceID, issueID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -1482,7 +1499,7 @@ func (r *DevMachineRepository) GetIssueDevelopmentContext(ctx context.Context, w
 
 func (r *DevMachineRepository) GetProjectDevelopmentContext(ctx context.Context, workspaceID, projectID uuid.UUID) (*domain.Project, error) {
 	var project domain.Project
-	err := r.db.GetContext(ctx, &project, `SELECT * FROM projects WHERE workspace_id=$1 AND id=$2`, workspaceID, projectID)
+	err := r.db.GetContext(ctx, &project, `SELECT * FROM projects WHERE workspace_id=$1 AND id=$2 AND `+projectVisible(domain.PublicContext(ctx), "projects.workspace_id", "projects.team_id")+` AND `+workspaceVisible(ctx, "projects.workspace_id"), workspaceID, projectID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}

@@ -12,7 +12,7 @@
 	import { listViews } from '$lib/api/views';
 	import { listNotifications } from '$lib/api/notifications';
 	import type { Workspace } from '$lib/types/workspace';
-	import type { Team } from '$lib/types/team';
+	import type { Team, CreateTeamInput } from '$lib/types/team';
 	import type { Project } from '$lib/types/project';
 	import type { Label } from '$lib/types/label';
 	import type { WorkspaceMember } from '$lib/types/workspace';
@@ -58,7 +58,6 @@
 	let confirmOpen = $state(false);
 	let confirmSubmitting = $state(false);
 	let authReady = $state(false);
-	let workspaceLoadId = 0;
 	const currentWorkspace = getCurrentWorkspace();
 	let membershipLoadId = 0;
 
@@ -82,95 +81,94 @@
 		terminalDock.setWorkspace(slug);
 	});
 
+	// Every navigation request is scoped to both workspace and resource generation.
+	// Access changes remount page-local caches after the authoritative lists arrive.
+	let accessEpoch = $state(0);
+	let teamsReady = $state(false);
+	let projectsReady = $state(false);
+	const inaccessibleRoute = $derived(
+		(!!page.params.teamId && teamsReady && !teams.some(team => team.id === page.params.teamId)) ||
+		(!!page.params.projectId && projectsReady && !projects.some(project => project.id === page.params.projectId))
+	);
+	const resourceVersions = new Map<string, number>();
+	function invalidateContent() {
+		accessEpoch++;
+		issuesState.clear();
+		teamStatusesState.clear();
+		showCreateIssue = false;
+		showCommandPalette = false;
+		confirmOpen = false;
+	}
+	function applyTeams(next: Team[]) {
+		const hadTeams = teamsReady;
+		teamsReady = true;
+		const key = (items: Team[]) => items.map(t => `${t.id}:${!!t.is_private}`).sort().join(',');
+		if (hadTeams && key(teams) !== key(next)) invalidateContent();
+		teams = next;
+		sidebarState.teams = next;
+	}
+	function applyProjects(next: Project[]) {
+		const hadProjects = projectsReady;
+		projectsReady = true;
+		if (hadProjects && projects.map(p => p.id).sort().join(',') !== next.map(p => p.id).sort().join(',')) invalidateContent();
+		projects = next;
+		sidebarState.projects = next;
+	}
+	async function refreshResource<T>(workspaceSlug: string, resource: string, read: () => Promise<T>, apply: (value: T) => void, empty: T) {
+		const version = (resourceVersions.get(resource) ?? 0) + 1;
+		resourceVersions.set(resource, version);
+		const isCurrent = () => slug === workspaceSlug && resourceVersions.get(resource) === version;
+		try {
+			const value = await read();
+			if (isCurrent()) apply(value);
+		} catch {
+			if (isCurrent()) apply(empty);
+		}
+	}
+	async function refreshMembership(workspaceSlug: string) {
+		try {
+			const ws = await loadMembership(workspaceSlug);
+			if (ws && workspaceSlug === slug) {
+				if (workspace && workspace.privacy_enabled !== ws.privacy_enabled) invalidateContent();
+				workspace = ws;
+			}
+		} catch {
+			if (workspaceSlug === slug && !currentWorkspace.membership) {
+				workspace = null;
+				applyTeams([]);
+				applyProjects([]);
+				invalidateContent();
+				void goto('/');
+			}
+		}
+	}
+	function refreshNavigation(workspaceSlug: string, resources: string[]) {
+		const tasks: Promise<unknown>[] = [];
+		if (resources.includes('teams')) tasks.push(refreshResource(workspaceSlug, 'teams', () => listTeams(workspaceSlug), applyTeams, []));
+		if (resources.includes('projects')) tasks.push(refreshResource(workspaceSlug, 'projects', () => listProjects(workspaceSlug), applyProjects, []));
+		if (resources.includes('labels')) tasks.push(refreshResource(workspaceSlug, 'labels', () => listLabels(workspaceSlug), value => { labels = value; }, []));
+		if (resources.includes('members')) tasks.push(refreshResource(workspaceSlug, 'members', () => listMembers(workspaceSlug), value => { members = value; }, []));
+		if (resources.includes('views')) tasks.push(reloadViews(workspaceSlug));
+		if (resources.includes('notifications')) tasks.push(refreshResource(workspaceSlug, 'notifications', async () => (await listNotifications()).unread_count, value => { unreadCount = value; }, 0));
+		return Promise.all(tasks);
+	}
 	async function loadWorkspaceData(workspaceSlug: string) {
-		const loadId = ++workspaceLoadId;
-		try {
-			const workspaceRequest = loadMembership(workspaceSlug);
-			const teamsRequest = listTeams(workspaceSlug);
-			const renderRequest = Promise.all([workspaceRequest, teamsRequest]).then(([, t]) => {
-				if (loadId !== workspaceLoadId) return;
-				// A members refresh may supersede this request while teams are loading.
-				// Keep the latest membership and still apply this workspace's team list.
-				if (currentWorkspace.membership?.workspace.slug === workspaceSlug) {
-					workspace = currentWorkspace.membership.workspace;
-				}
-				teams = t;
-				sidebarState.teams = t;
-			});
-			const navigationRequest = Promise.all([
-				listProjects(workspaceSlug),
-				listLabels(workspaceSlug),
-				listMembers(workspaceSlug),
-				listViews(workspaceSlug),
-				listNotifications()
-			]).then(([p, l, m, v, notifRes]) => {
-				if (loadId !== workspaceLoadId) return;
-				projects = p;
-				sidebarState.projects = p;
-				labels = l;
-				members = m;
-				views = v;
-				unreadCount = notifRes.unread_count;
-			});
-			await Promise.all([renderRequest, navigationRequest]);
-		} catch {
-			if (loadId === workspaceLoadId) goto('/login');
-		}
+		await Promise.all([
+			refreshMembership(workspaceSlug),
+			refreshNavigation(workspaceSlug, ['teams', 'projects', 'labels', 'members', 'views', 'notifications'])
+		]);
 	}
-
-	async function reloadViews(workspaceSlug: string) {
-		try {
-			views = await listViews(workspaceSlug);
-		} catch {
-			// Keep the current navigation list if a background refresh fails.
-		}
+	function reloadViews(workspaceSlug: string) {
+		return refreshResource(workspaceSlug, 'views', () => listViews(workspaceSlug), value => { views = value; }, []);
 	}
-
 	function handleAppRefresh(e: Event) {
 		const detail = (e as CustomEvent<{ slug?: string; resources?: string[] }>).detail;
 		if (detail?.slug && detail.slug !== slug) return;
-		const resources = detail?.resources;
 		if (!slug) return;
-		if (!resources || resources.length === 0) {
-			loadWorkspaceData(slug);
-			if (issuesState.issues.length > 0) {
-				issuesState.load(slug, issuesState.filters);
-			}
-			return;
-		}
-		if (resources.includes('issues') && issuesState.issues.length > 0) {
-			issuesState.load(slug, issuesState.filters);
-		}
-		if (resources.includes('workspace') || resources.includes('members')) {
-			const refreshSlug = slug;
-			loadMembership(refreshSlug).then((ws) => {
-				if (ws && refreshSlug === slug) workspace = ws;
-			}).catch(() => {});
-		}
-		if (resources.includes('teams')) {
-			listTeams(slug).then((t) => {
-				teams = t;
-				sidebarState.teams = t;
-			}).catch(() => {});
-		}
-		if (resources.includes('projects')) {
-			listProjects(slug).then((p) => {
-				projects = p;
-				sidebarState.projects = p;
-			}).catch(() => {});
-		}
-		if (resources.includes('labels')) {
-			listLabels(slug).then((l) => { labels = l; }).catch(() => {});
-		}
-		if (resources.includes('members')) {
-			listMembers(slug).then((m) => { members = m; }).catch(() => {});
-		}
-		if (resources.includes('views')) {
-			reloadViews(slug);
-		}
-		if (resources.includes('notifications')) {
-			listNotifications().then((r) => { unreadCount = r.unread_count; }).catch(() => {});
-		}
+		const resources = detail?.resources?.length ? detail.resources : ['workspace', 'teams', 'projects', 'labels', 'members', 'views', 'notifications', 'issues'];
+		if (resources.includes('issues')) void issuesState.load(slug, issuesState.filters, false);
+		if (resources.includes('workspace') || resources.includes('members')) void refreshMembership(slug);
+		void refreshNavigation(slug, resources);
 	}
 
 	onMount(async () => {
@@ -188,6 +186,9 @@
 	$effect(() => {
 		if (authReady && slug && slug !== loadedSlug) {
 			loadedSlug = slug;
+			teamsReady = false; projectsReady = false;
+			invalidateContent();
+			showCreateTeam = false;
 			workspace = null;
 			teams = [];
 			projects = [];
@@ -236,20 +237,27 @@
 	onMount(() => {
 		document.addEventListener('keydown', shortcutEngine.handler);
 		window.addEventListener('app:refresh', handleAppRefresh);
+		const restored = (event: PageTransitionEvent) => { if (event.persisted) window.dispatchEvent(new CustomEvent('app:refresh', {detail: {slug}})); };
+		window.addEventListener('pageshow', restored);
 		return () => {
 			document.removeEventListener('keydown', shortcutEngine.handler);
 			window.removeEventListener('app:refresh', handleAppRefresh);
+			window.removeEventListener('pageshow', restored);
 		};
 	});
 
-	async function handleCreateTeam(data: { name: string; key: string; description?: string }) {
+	async function handleCreateTeam(data: CreateTeamInput): Promise<boolean> {
+		const requestSlug = slug;
 		try {
-			const team = await createTeam(slug, data);
+			const team = await createTeam(requestSlug, data);
+			if (slug !== requestSlug) return true;
 			teams = [...teams, team];
 			sidebarState.teams = teams;
 			appToast.success(m['sidebar.team_created']());
+			return true;
 		} catch (err: any) {
-			appToast.apiError(err, m['sidebar.failed_create_team']());
+			if (slug === requestSlug) appToast.apiError(err, m['sidebar.failed_create_team']());
+			return false;
 		}
 	}
 
@@ -371,6 +379,7 @@
 	// WebSocket connection — reconnects when slug changes
 	let ws_conn: WebSocket | null = null;
 	let wsSlug = '';
+	let connectedSlug = '';
 	let wsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
 	let wsDestroyed = false;
 
@@ -421,14 +430,24 @@
 		socket.onopen = () => {
 			if (socket !== ws_conn) return;
 			window.dispatchEvent(new CustomEvent('ws:reconnected'));
+			if (connectedSlug === workspaceSlug) window.dispatchEvent(new CustomEvent('app:refresh', { detail: { slug: workspaceSlug } }));
+			connectedSlug = workspaceSlug;
 		};
 
 		socket.onerror = () => {
 			socket.close();
 		};
 
-		socket.onclose = () => {
+		socket.onclose = (event) => {
 			if (socket !== ws_conn) return;
+			if (event.code === 1008) {
+				workspace = null;
+				currentWorkspace.membership = null;
+				applyTeams([]); applyProjects([]); invalidateContent();
+			}
+			// Proxies can turn a policy close into an abnormal disconnect. Check
+			// access on every close so cached content cannot survive revocation.
+			void refreshMembership(workspaceSlug);
 			// Only reconnect if still on the same workspace
 			if (!wsDestroyed && wsSlug === workspaceSlug) {
 				wsReconnectTimer = setTimeout(() => connectWebSocket(workspaceSlug), 3000);
@@ -547,6 +566,9 @@
 			</Sheet.Root>
 		{/if}
 		<main class="flex min-w-0 flex-1 flex-col overflow-hidden">
+			{#if workspace.privacy_enabled}
+				<details class="shrink-0 border-b border-[var(--app-border)] px-4 py-2 text-xs text-[var(--color-text-secondary)]"><summary class="cursor-pointer">{m['privacy.workspace_limits']()}</summary><p class="mt-2 max-w-3xl">{m['privacy.limits']()}</p></details>
+			{/if}
 			{#if !isSettings}
 				<div class="flex h-12 shrink-0 items-center justify-between border-b border-[var(--app-border)] bg-[var(--color-bg)] px-3 md:hidden">
 					<div class="flex min-w-0 items-center gap-2">
@@ -566,7 +588,9 @@
 				</div>
 			{/if}
 			<div class="min-h-0 flex-1 overflow-auto">
-				{@render children()}
+				{#key accessEpoch}
+				{#if inaccessibleRoute}<p class="p-6 text-sm text-[var(--color-text-secondary)]">{m['privacy.unavailable']()}</p>{:else}{@render children()}{/if}
+			{/key}
 			</div>
 			<TerminalDock />
 		</main>

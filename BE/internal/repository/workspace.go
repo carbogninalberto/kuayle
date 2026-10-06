@@ -76,7 +76,7 @@ func (r *WorkspaceRepository) CreateWithMemberAndLabels(ctx context.Context, ws 
 
 func (r *WorkspaceRepository) GetBySlug(ctx context.Context, slug string) (*domain.Workspace, error) {
 	var ws domain.Workspace
-	err := r.db.GetContext(ctx, &ws, `SELECT * FROM workspaces WHERE slug = $1`, slug)
+	err := r.db.GetContext(ctx, &ws, `SELECT w.*,EXISTS(SELECT 1 FROM workspace_privacy p WHERE p.workspace_id=w.id) AS privacy_enabled FROM workspaces w WHERE slug = $1`, slug)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -85,7 +85,7 @@ func (r *WorkspaceRepository) GetBySlug(ctx context.Context, slug string) (*doma
 
 func (r *WorkspaceRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Workspace, error) {
 	var ws domain.Workspace
-	err := r.db.GetContext(ctx, &ws, `SELECT * FROM workspaces WHERE id = $1`, id)
+	err := r.db.GetContext(ctx, &ws, `SELECT w.*,EXISTS(SELECT 1 FROM workspace_privacy p WHERE p.workspace_id=w.id) AS privacy_enabled FROM workspaces w WHERE id = $1`, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -102,7 +102,7 @@ func (r *WorkspaceRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`, id); err != nil {
 		return err
 	}
@@ -148,7 +148,7 @@ func (r *WorkspaceRepository) Delete(ctx context.Context, id uuid.UUID) error {
 
 func (r *WorkspaceRepository) ListByUser(ctx context.Context, userID uuid.UUID) ([]domain.Workspace, error) {
 	var workspaces []domain.Workspace
-	query := `SELECT w.* FROM workspaces w INNER JOIN workspace_members wm ON w.id = wm.workspace_id WHERE wm.user_id = $1 ORDER BY w.name`
+	query := `SELECT w.*,EXISTS(SELECT 1 FROM workspace_privacy p WHERE p.workspace_id=w.id) AS privacy_enabled FROM workspaces w INNER JOIN workspace_members wm ON w.id = wm.workspace_id WHERE wm.user_id = $1 ORDER BY w.name`
 	err := r.db.SelectContext(ctx, &workspaces, query, userID)
 	return workspaces, err
 }
@@ -179,8 +179,23 @@ func (r *WorkspaceRepository) UpdateMemberRole(ctx context.Context, workspaceID,
 }
 
 func (r *WorkspaceRepository) RemoveMember(ctx context.Context, workspaceID, userID uuid.UUID) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM workspace_members WHERE workspace_id = $1 AND user_id = $2`, workspaceID, userID)
-	return err
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	// A later workspace invitation must not revive old private-team grants or
+	// subscriptions. Remove all three memberships atomically.
+	for _, query := range []string{
+		`DELETE FROM team_members WHERE user_id=$2 AND team_id IN (SELECT id FROM teams WHERE workspace_id=$1)`,
+		`DELETE FROM issue_subscribers WHERE user_id=$2 AND issue_id IN (SELECT id FROM issues WHERE workspace_id=$1)`,
+		`DELETE FROM workspace_members WHERE workspace_id=$1 AND user_id=$2`,
+	} {
+		if _, err := tx.ExecContext(ctx, query, workspaceID, userID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (r *WorkspaceRepository) CountMembersByRole(ctx context.Context, workspaceID uuid.UUID, role string) (int, error) {

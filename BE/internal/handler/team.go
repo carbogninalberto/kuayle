@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"database/sql"
 	"errors"
+	"github.com/jackc/pgx/v5/pgconn"
 	"net/http"
 
 	"github.com/google/uuid"
@@ -52,7 +54,7 @@ func (h *TeamHandler) Create(c echo.Context) error {
 	userID := middleware.GetUserID(c)
 	team, err := h.teamSvc.Create(c.Request().Context(), ws.ID, userID, req)
 	if err != nil {
-		return response.Error(c, http.StatusConflict, "CONFLICT", err.Error())
+		return teamOperationError(c, err)
 	}
 	return response.Success(c, http.StatusCreated, toTeamResponse(*team))
 }
@@ -130,6 +132,7 @@ func (h *TeamHandler) Leave(c echo.Context) error {
 
 func toTeamResponse(t domain.Team) dto.TeamResponse {
 	return dto.TeamResponse{
+		IsPrivate:                t.IsPrivate,
 		ID:                       t.ID.String(),
 		Name:                     t.Name,
 		Key:                      t.Key,
@@ -143,4 +146,88 @@ func toTeamResponse(t domain.Team) dto.TeamResponse {
 		CreatedAt:                t.CreatedAt,
 		UpdatedAt:                t.UpdatedAt,
 	}
+}
+
+func (h *TeamHandler) SetVisibility(c echo.Context) error {
+	id, err := uuid.Parse(c.Param("teamId"))
+	if err != nil {
+		return response.NotFound(c, "Team")
+	}
+	var req dto.SetTeamVisibilityRequest
+	if err := c.Bind(&req); err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
+	}
+	team, err := h.teamSvc.SetVisibility(c.Request().Context(), id, req)
+	if err != nil {
+		return teamOperationError(c, err)
+	}
+	return response.Success(c, http.StatusOK, toTeamResponse(*team))
+}
+
+func (h *TeamHandler) Members(c echo.Context) error {
+	id, err := uuid.Parse(c.Param("teamId"))
+	if err != nil {
+		return response.NotFound(c, "Team")
+	}
+	members, err := h.teamSvc.Members(c.Request().Context(), id)
+	if err != nil {
+		return teamOperationError(c, err)
+	}
+	if members == nil {
+		members = []domain.TeamMember{}
+	}
+	return response.Success(c, http.StatusOK, members)
+}
+
+func (h *TeamHandler) AddMember(c echo.Context) error {
+	id, err := uuid.Parse(c.Param("teamId"))
+	if err != nil {
+		return response.NotFound(c, "Team")
+	}
+	var req dto.AddTeamMemberRequest
+	if err := c.Bind(&req); err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
+	}
+	userID, err := uuid.Parse(req.UserID)
+	if err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid user ID")
+	}
+	if err := h.teamSvc.AddMember(c.Request().Context(), id, userID); err != nil {
+		return teamOperationError(c, err)
+	}
+	return response.Success(c, http.StatusOK, map[string]string{"status": "added"})
+}
+
+func (h *TeamHandler) RemoveMember(c echo.Context) error {
+	id, err := uuid.Parse(c.Param("teamId"))
+	if err != nil {
+		return response.NotFound(c, "Team")
+	}
+	userID, err := uuid.Parse(c.Param("userId"))
+	if err != nil {
+		return response.NotFound(c, "Member")
+	}
+	if err := h.teamSvc.RemoveMember(c.Request().Context(), id, userID); err != nil {
+		return teamOperationError(c, err)
+	}
+	return response.Success(c, http.StatusOK, map[string]string{"status": "removed"})
+}
+
+func teamOperationError(c echo.Context, err error) error {
+	if errors.Is(err, service.ErrPrivacyConfirmation) {
+		return response.Error(c, http.StatusBadRequest, "PRIVACY_CONFIRMATION_REQUIRED", err.Error())
+	}
+	if errors.Is(err, service.ErrTeamNotFound) || errors.Is(err, sql.ErrNoRows) {
+		return response.NotFound(c, "Team or workspace member")
+	}
+	var constraint *pgconn.PgError
+	if errors.As(err, &constraint) {
+		if constraint.Code == "23514" {
+			return response.Error(c, http.StatusConflict, "PRIVATE_TEAM_CONFLICT", constraint.Message)
+		}
+		if constraint.Code == "23505" {
+			return response.Error(c, http.StatusConflict, "CONFLICT", "A team with this key already exists")
+		}
+	}
+	return response.InternalError(c)
 }

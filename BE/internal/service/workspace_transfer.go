@@ -68,7 +68,16 @@ type ExportedWorkspaceArchive struct {
 }
 
 func (s *WorkspaceTransferService) Export(ctx context.Context, workspace *domain.Workspace, actorID uuid.UUID) (*ExportedWorkspaceArchive, error) {
-	workspaceRow, err := s.repo.WorkspaceRow(ctx, workspace.ID)
+	guard, err := s.repo.BeginPublicExport(ctx, workspace.ID)
+	if err != nil {
+		if errors.Is(err, repository.ErrPrivateWorkspaceTransfer) {
+			return nil, &WorkspaceTransferError{Code: "PRIVATE_WORKSPACE_TRANSFER_DISABLED", Message: err.Error(), Cause: err}
+		}
+		return nil, err
+	}
+	defer func() { _ = guard.Rollback() }()
+	exportRepo := s.repo.ExportReader(guard)
+	workspaceRow, err := exportRepo.WorkspaceRow(ctx, workspace.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +87,7 @@ func (s *WorkspaceTransferService) Export(ctx context.Context, workspace *domain
 	assetStorageKeys := make(map[string]string)
 
 	for _, spec := range repository.WorkspaceTransferTableSpecs() {
-		rows, err := s.repo.TableRows(ctx, spec, workspace.ID)
+		rows, err := exportRepo.TableRows(ctx, spec, workspace.ID)
 		if err != nil {
 			return nil, fmt.Errorf("export %s: %w", spec.Name, err)
 		}
@@ -106,7 +115,7 @@ func (s *WorkspaceTransferService) Export(ctx context.Context, workspace *domain
 	for id := range userIDs {
 		ids = append(ids, id)
 	}
-	data.Users, err = s.repo.UsersByIDs(ctx, ids)
+	data.Users, err = exportRepo.UsersByIDs(ctx, ids)
 	if err != nil {
 		return nil, err
 	}
@@ -146,7 +155,7 @@ func (s *WorkspaceTransferService) Export(ctx context.Context, workspace *domain
 		Format:              dto.WorkspaceExportFormat,
 		Version:             dto.WorkspaceExportVersion,
 		ExportedAt:          time.Now().UTC(),
-		SourceSchemaVersion: s.repo.SchemaVersion(ctx),
+		SourceSchemaVersion: exportRepo.SchemaVersion(ctx),
 		SourceWorkspaceID:   workspace.ID.String(),
 		SourceWorkspaceName: workspace.Name,
 		SourceWorkspaceSlug: workspace.Slug,
@@ -421,6 +430,14 @@ func readZIPEntry(file *zip.File, limit int64) ([]byte, error) {
 func validateWorkspaceArchive(parsed *parsedWorkspaceArchive) error {
 	if parsed.data.Workspace == nil || parsed.data.Tables == nil {
 		return invalidArchive("workspace data is incomplete", nil)
+	}
+	for _, team := range parsed.data.Tables["teams"] {
+		if value, present := team["is_private"]; present {
+			private, valid := value.(bool)
+			if !valid || private {
+				return &WorkspaceTransferError{Code: "PRIVATE_WORKSPACE_TRANSFER_DISABLED", Message: "Importing private teams is not supported", Cause: ErrUnsupportedArchive}
+			}
+		}
 	}
 	if parsed.manifest.SourceWorkspaceID == "" || transferString(parsed.data.Workspace["id"]) != parsed.manifest.SourceWorkspaceID {
 		return invalidArchive("workspace identity does not match the manifest", nil)

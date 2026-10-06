@@ -6,6 +6,7 @@ export interface WorkspaceOwner {
 }
 
 export interface Workspace {
+	privacy_enabled?: boolean;
 	id: string;
 	name: string;
 	slug: string;

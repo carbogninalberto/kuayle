@@ -248,7 +248,7 @@ func TestWorkspaceTransferRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	_, err = db.ExecContext(ctx, `INSERT INTO shared_links(id,token,workspace_id,created_by,scope,scope_id,filters,include_description,is_active) VALUES($1,$2,$3,$4,'team',$5,'{}',true,true)`, orphanedTeamSharedLinkID, randomTransferToken(32), workspaceID, userID, orphanedTeamID)
 	require.NoError(t, err)
-	_, err = db.ExecContext(ctx, `INSERT INTO notifications(id,user_id,workspace_id,issue_id,type,title) VALUES(gen_random_uuid(),$1,$2,$3,'issue_updated','Portable notification')`, userID, workspaceID, issueID)
+	_, err = db.ExecContext(ctx, `INSERT INTO notifications(id,user_id,workspace_id,issue_id,type,title,source_team_ids) VALUES(gen_random_uuid(),$1,$2,$3,'issue_updated','Portable notification',ARRAY[$4::uuid])`, userID, workspaceID, issueID, teamID)
 	require.NoError(t, err)
 	_, err = db.ExecContext(ctx, `INSERT INTO webhooks(id,workspace_id,url,secret,events,is_active) VALUES(gen_random_uuid(),$1,'https://example.test/hook','top-secret',ARRAY['issue.created','issue.updated'],true)`, workspaceID)
 	require.NoError(t, err)
@@ -278,12 +278,17 @@ func TestWorkspaceTransferRoundTrip(t *testing.T) {
 	assetBody := "portable asset bytes"
 	_, err = backend.Put(ctx, assetKey, strings.NewReader(assetBody), "text/plain")
 	require.NoError(t, err)
-	_, err = db.ExecContext(ctx, `INSERT INTO assets(id,workspace_id,storage_key,filename,content_type,size,uploaded_by) VALUES($1,$2,$3,'portable.txt','text/plain',$4,$5)`, assetID, workspaceID, assetKey, len(assetBody), userID)
+	_, err = db.ExecContext(ctx, `INSERT INTO assets(id,workspace_id,storage_key,filename,content_type,size,uploaded_by,team_id) VALUES($1,$2,$3,'portable.txt','text/plain',$4,$5,$6)`, assetID, workspaceID, assetKey, len(assetBody), userID, teamID)
 	require.NoError(t, err)
 
 	transferRepo := repository.NewWorkspaceTransferRepository(db)
 	transferService := NewWorkspaceTransferService(transferRepo, backend)
-	archive, err := transferService.Export(ctx, &domain.Workspace{ID: workspaceID, Name: "Transfer Source", Slug: sourceSlug, OwnerID: userID}, userID)
+	// The export lock and all archive reads must share one connection.
+	db.SetMaxOpenConns(1)
+	exportCtx, cancelExport := context.WithTimeout(ctx, 10*time.Second)
+	defer cancelExport()
+	archive, err := transferService.Export(exportCtx, &domain.Workspace{ID: workspaceID, Name: "Transfer Source", Slug: sourceSlug, OwnerID: userID}, userID)
+	db.SetMaxOpenConns(0)
 	require.NoError(t, err)
 	defer os.Remove(archive.Path)
 	exported, err := parseWorkspaceArchive(archive.Path)
@@ -409,6 +414,18 @@ func TestWorkspaceTransferRoundTrip(t *testing.T) {
 	require.False(t, importedSharedLinkActive)
 	require.NotEmpty(t, importedSharedLinkToken)
 	require.NotEqual(t, validTeamSharedLinkToken, importedSharedLinkToken)
+	var importedAssetTeam, importedNotificationTeam uuid.UUID
+	require.NoError(t, db.Get(&importedAssetTeam, `SELECT team_id FROM assets WHERE workspace_id=$1`, targetWorkspaceID))
+	require.Equal(t, importedTeamID, importedAssetTeam)
+	require.NoError(t, db.Get(&importedNotificationTeam, `SELECT source_team_ids[1] FROM notifications WHERE workspace_id=$1`, targetWorkspaceID))
+	require.Equal(t, importedTeamID, importedNotificationTeam)
+	privateArchive := mutateWorkspaceArchive(t, archive.Path, func(_ *dto.WorkspaceExportManifest, data *dto.WorkspaceTransferData) {
+		data.Tables["teams"][0]["is_private"] = true
+	})
+	_, err = transferService.Preview(ctx, privateArchive, userID)
+	require.ErrorIs(t, err, ErrUnsupportedArchive)
+	_, err = transferService.Import(ctx, privateArchive, "Private import", "private-import-"+uuid.NewString()[:8], userID)
+	require.ErrorIs(t, err, ErrUnsupportedArchive)
 	var importedScopeRepoID uuid.UUID
 	require.NoError(t, db.Get(&importedScopeRepoID, `SELECT github_repo_id FROM dev_machine_scope_settings WHERE workspace_id=$1 AND team_id=$2`, targetWorkspaceID, importedTeamID))
 	require.Equal(t, importedRepoID, importedScopeRepoID)
@@ -528,4 +545,11 @@ func regularFileCount(t *testing.T, root string) int {
 		return err
 	}))
 	return count
+}
+
+func TestPrivateArchiveVisibilityMustBeExplicitBooleanFalse(t *testing.T) {
+	for _, value := range []any{true, "false", nil, map[string]any{}, []any{}, json.Number("0")} {
+		parsed := &parsedWorkspaceArchive{data: dto.WorkspaceTransferData{Workspace: dto.WorkspaceTransferRow{}, Tables: map[string][]dto.WorkspaceTransferRow{"teams": {{"is_private": value}}}}}
+		require.ErrorIs(t, validateWorkspaceArchive(parsed), ErrUnsupportedArchive)
+	}
 }

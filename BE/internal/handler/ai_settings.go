@@ -7,6 +7,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/middleware"
+	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/kuayle/kuayle-backend/pkg/validate"
@@ -88,6 +89,8 @@ func (h *AISettingsHandler) ExpandIssueDescription(c echo.Context) error {
 	description, err := h.aiSvc.ExpandIssueDescription(c.Request().Context(), ws.ID, c.Param("identifier"), req.SelectedText)
 	if err != nil {
 		switch {
+		case errors.Is(err, repository.ErrPrivateWorkspaceOperation):
+			return response.Error(c, http.StatusForbidden, "PRIVATE_WORKSPACE_OPERATION_DISABLED", "AI expansion is unavailable after private teams are enabled")
 		case errors.Is(err, service.ErrIssueNotFound):
 			return response.NotFound(c, "Issue")
 		case errors.Is(err, service.ErrAISettingsNotConfigured):

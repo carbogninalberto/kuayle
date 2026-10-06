@@ -1,15 +1,17 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 
+	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/middleware"
+	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/kuayle/kuayle-backend/pkg/validate"
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 )
 
@@ -44,6 +46,9 @@ func (h *SharedLinkHandler) Create(c echo.Context) error {
 	}
 
 	link, err := h.sharedLinkSvc.Create(c.Request().Context(), ws.ID, userID, req)
+	if errors.Is(err, repository.ErrPrivateWorkspaceOperation) {
+		return response.Error(c, http.StatusForbidden, "PRIVATE_WORKSPACE_OPERATION_DISABLED", "Filtered and view-based share links are unavailable after private teams are enabled")
+	}
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
 	}
@@ -122,6 +127,7 @@ func (h *SharedLinkHandler) Delete(c echo.Context) error {
 // --- Public endpoints (no auth required) ---
 
 func (h *SharedLinkHandler) GetPublicMeta(c echo.Context) error {
+	c.Response().Header().Set("Cache-Control", "no-store")
 	token := c.Param("token")
 	if token == "" {
 		return response.NotFound(c, "Share link")
@@ -136,6 +142,7 @@ func (h *SharedLinkHandler) GetPublicMeta(c echo.Context) error {
 }
 
 func (h *SharedLinkHandler) ListPublicIssues(c echo.Context) error {
+	c.Response().Header().Set("Cache-Control", "no-store")
 	token := c.Param("token")
 	if token == "" {
 		return response.NotFound(c, "Share link")

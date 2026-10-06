@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kuayle/kuayle-backend/internal/domain"
-	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"github.com/kuayle/kuayle-backend/internal/domain"
+	"github.com/kuayle/kuayle-backend/internal/dto"
 )
 
 type CycleRepository struct {
@@ -22,13 +22,13 @@ func NewCycleRepository(db *sqlx.DB) *CycleRepository {
 }
 
 func (r *CycleRepository) Create(ctx context.Context, cycle *domain.Cycle) error {
-	query := `INSERT INTO cycles (id, team_id, name, number, status, description, goals, start_date, end_date) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING created_at, updated_at`
+	query := `INSERT INTO cycles (id, team_id, name, number, status, description, goals, start_date, end_date) SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9 WHERE ` + teamVisible(ctx, "$2") + ` RETURNING created_at, updated_at`
 	return r.db.QueryRowContext(ctx, query, cycle.ID, cycle.TeamID, cycle.Name, cycle.Number, cycle.Status, cycle.Description, cycle.Goals, cycle.StartDate, cycle.EndDate).Scan(&cycle.CreatedAt, &cycle.UpdatedAt)
 }
 
 func (r *CycleRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Cycle, error) {
 	var cycle domain.Cycle
-	err := r.db.GetContext(ctx, &cycle, `SELECT * FROM cycles WHERE id = $1`, id)
+	err := r.db.GetContext(ctx, &cycle, `SELECT * FROM cycles WHERE id = $1 AND `+teamVisible(ctx, "cycles.team_id"), id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -37,23 +37,23 @@ func (r *CycleRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Cy
 
 func (r *CycleRepository) ListByTeam(ctx context.Context, teamID uuid.UUID) ([]domain.Cycle, error) {
 	var cycles []domain.Cycle
-	err := r.db.SelectContext(ctx, &cycles, `SELECT * FROM cycles WHERE team_id = $1 ORDER BY number DESC`, teamID)
+	err := r.db.SelectContext(ctx, &cycles, `SELECT * FROM cycles WHERE team_id = $1 AND `+teamVisible(ctx, "cycles.team_id")+` ORDER BY number DESC`, teamID)
 	return cycles, err
 }
 
 func (r *CycleRepository) NextNumber(ctx context.Context, teamID uuid.UUID) (int, error) {
 	var num int
-	err := r.db.GetContext(ctx, &num, `SELECT COALESCE(MAX(number), 0) + 1 FROM cycles WHERE team_id = $1`, teamID)
+	err := r.db.GetContext(ctx, &num, `SELECT COALESCE(MAX(number), 0) + 1 FROM cycles WHERE team_id = $1 AND `+teamVisible(ctx, "cycles.team_id"), teamID)
 	return num, err
 }
 
 func (r *CycleRepository) Update(ctx context.Context, cycle *domain.Cycle) error {
-	query := `UPDATE cycles SET name = $1, description = $2, goals = $3, retrospective = $4, status = $5, start_date = $6, end_date = $7, completed_at = $8, updated_at = NOW() WHERE id = $9 RETURNING updated_at`
+	query := `UPDATE cycles SET name = $1, description = $2, goals = $3, retrospective = $4, status = $5, start_date = $6, end_date = $7, completed_at = $8, updated_at = NOW() WHERE id = $9 AND ` + teamVisible(ctx, "cycles.team_id") + ` RETURNING updated_at`
 	return r.db.QueryRowContext(ctx, query, cycle.Name, cycle.Description, cycle.Goals, cycle.Retrospective, cycle.Status, cycle.StartDate, cycle.EndDate, cycle.CompletedAt, cycle.ID).Scan(&cycle.UpdatedAt)
 }
 
 func (r *CycleRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM cycles WHERE id = $1`, id)
+	_, err := r.db.ExecContext(ctx, `DELETE FROM cycles WHERE id = $1 AND `+teamVisible(ctx, "cycles.team_id"), id)
 	return err
 }
 
@@ -61,7 +61,7 @@ func (r *CycleRepository) Delete(ctx context.Context, id uuid.UUID) error {
 func (r *CycleRepository) ExistsByName(ctx context.Context, teamID uuid.UUID, name string) (bool, error) {
 	var exists bool
 	err := r.db.GetContext(ctx, &exists,
-		`SELECT EXISTS(SELECT 1 FROM cycles WHERE team_id = $1 AND LOWER(name) = LOWER($2))`, teamID, name)
+		`SELECT EXISTS(SELECT 1 FROM cycles WHERE team_id = $1 AND LOWER(name) = LOWER($2) AND `+teamVisible(ctx, "cycles.team_id")+`)`, teamID, name)
 	return exists, err
 }
 
@@ -74,7 +74,7 @@ func (r *CycleRepository) HasOverlap(ctx context.Context, teamID uuid.UUID, star
 				AND status != 'completed'
 				AND start_date IS NOT NULL AND end_date IS NOT NULL
 				AND start_date < $3 AND end_date > $2
-				AND ($4::uuid IS NULL OR id != $4)
+				AND ($4::uuid IS NULL OR id != $4) AND `+teamVisible(ctx, "cycles.team_id")+`
 		)`, teamID, startDate, endDate, excludeID)
 	return exists, err
 }
@@ -82,7 +82,7 @@ func (r *CycleRepository) HasOverlap(ctx context.Context, teamID uuid.UUID, star
 // IssueStats returns total, completed, and cancelled issue counts for a cycle.
 func (r *CycleRepository) IssueStats(ctx context.Context, cycleID uuid.UUID) (total int, completed int, cancelled int, err error) {
 	err = r.db.QueryRowContext(ctx,
-		`SELECT COUNT(*), COUNT(*) FILTER (WHERE status = 'done'), COUNT(*) FILTER (WHERE status = 'cancelled') FROM issues WHERE cycle_id = $1`,
+		`SELECT COUNT(*), COUNT(*) FILTER (WHERE status = 'done'), COUNT(*) FILTER (WHERE status = 'cancelled') FROM issues WHERE cycle_id = $1 AND `+teamVisible(ctx, "issues.team_id"),
 		cycleID,
 	).Scan(&total, &completed, &cancelled)
 	return
@@ -91,7 +91,7 @@ func (r *CycleRepository) IssueStats(ctx context.Context, cycleID uuid.UUID) (to
 func (r *CycleRepository) GetNextUpcoming(ctx context.Context, teamID uuid.UUID) (*domain.Cycle, error) {
 	var cycle domain.Cycle
 	err := r.db.GetContext(ctx, &cycle,
-		`SELECT * FROM cycles WHERE team_id = $1 AND status = 'upcoming' ORDER BY start_date ASC NULLS LAST LIMIT 1`, teamID)
+		`SELECT * FROM cycles WHERE team_id = $1 AND `+teamVisible(ctx, "cycles.team_id")+` AND status = 'upcoming' ORDER BY start_date ASC NULLS LAST LIMIT 1`, teamID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -100,7 +100,7 @@ func (r *CycleRepository) GetNextUpcoming(ctx context.Context, teamID uuid.UUID)
 
 func (r *CycleRepository) CarryOverIssues(ctx context.Context, fromCycleID, toCycleID uuid.UUID) (int, error) {
 	result, err := r.db.ExecContext(ctx,
-		`UPDATE issues SET cycle_id = $2, updated_at = NOW() WHERE cycle_id = $1 AND status NOT IN ('done', 'cancelled')`,
+		`UPDATE issues SET cycle_id = $2, updated_at = NOW() WHERE cycle_id = $1 AND status NOT IN ('done', 'cancelled') AND `+teamVisible(ctx, "issues.team_id")+` AND EXISTS(SELECT 1 FROM cycles src WHERE src.id=$1 AND `+teamVisible(ctx, "src.team_id")+`) AND EXISTS(SELECT 1 FROM cycles dest WHERE dest.id=$2 AND `+teamVisible(ctx, "dest.team_id")+`)`,
 		fromCycleID, toCycleID)
 	if err != nil {
 		return 0, err
@@ -118,8 +118,8 @@ func (r *CycleRepository) VelocityData(ctx context.Context, teamID uuid.UUID, li
 			COUNT(i.id) FILTER (WHERE i.status = 'cancelled') as cancelled,
 			c.start_date, c.end_date
 		FROM cycles c
-		LEFT JOIN issues i ON i.cycle_id = c.id
-		WHERE c.team_id = $1 AND c.status = 'completed'
+		LEFT JOIN issues i ON i.cycle_id = c.id AND `+teamVisible(ctx, "i.team_id")+`
+		WHERE c.team_id = $1 AND `+teamVisible(ctx, "c.team_id")+` AND c.status = 'completed'
 		GROUP BY c.id
 		ORDER BY c.number ASC
 		LIMIT $2`, teamID, limit)
@@ -164,7 +164,7 @@ func (r *CycleRepository) BurndownData(ctx context.Context, cycleID uuid.UUID, s
 	}
 	var currentIssues []issueRow
 	err := r.db.SelectContext(ctx, &currentIssues,
-		`SELECT id, status FROM issues WHERE cycle_id = $1`, cycleID)
+		`SELECT id, status FROM issues WHERE cycle_id = $1 AND `+teamVisible(ctx, "issues.team_id"), cycleID)
 	if err != nil {
 		return nil, err
 	}
@@ -183,7 +183,7 @@ func (r *CycleRepository) BurndownData(ctx context.Context, cycleID uuid.UUID, s
 	err = r.db.SelectContext(ctx, &cycleEvents,
 		`SELECT issue_id, field, old_value, new_value, created_at
 		 FROM issue_history
-		 WHERE field = 'cycle' AND (old_value = $1 OR new_value = $1)
+		 WHERE field = 'cycle' AND (old_value = $1 OR new_value = $1) AND `+issueVisible(ctx, "issue_history.issue_id")+`
 		 ORDER BY created_at ASC`, cycleIDStr)
 	if err != nil {
 		return nil, err

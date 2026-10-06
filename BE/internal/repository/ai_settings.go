@@ -49,3 +49,7 @@ func (r *AISettingsRepository) Upsert(ctx context.Context, settings *domain.AISe
 		settings.IssueCopyPrompt,
 	).Scan(&settings.CreatedAt, &settings.UpdatedAt)
 }
+
+func (r *AISettingsRepository) BeginPublicOperation(ctx context.Context, workspaceID uuid.UUID) (*sqlx.Tx, error) {
+	return beginPublicWorkspaceOperation(ctx, r.db, workspaceID)
+}

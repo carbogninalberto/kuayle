@@ -91,16 +91,16 @@ func (s *SharedLinkService) Create(ctx context.Context, workspaceID, userID uuid
 		if scopeID == nil {
 			return nil, fmt.Errorf("scope_id is required for team scope")
 		}
-		team, err := s.teamRepo.GetByID(ctx, *scopeID)
-		if err != nil || team == nil {
+		team, err := s.teamRepo.GetByID(domain.PublicContext(ctx), *scopeID)
+		if err != nil || team == nil || team.WorkspaceID != workspaceID || team.IsPrivate {
 			return nil, fmt.Errorf("team not found")
 		}
 	case domain.SharedLinkScopeProject:
 		if scopeID == nil {
 			return nil, fmt.Errorf("scope_id is required for project scope")
 		}
-		project, err := s.projectRepo.GetByID(ctx, *scopeID)
-		if err != nil || project == nil {
+		project, err := s.projectRepo.GetByID(domain.PublicContext(ctx), *scopeID)
+		if err != nil || project == nil || project.WorkspaceID != workspaceID {
 			return nil, fmt.Errorf("project not found")
 		}
 	case domain.SharedLinkScopeView:
@@ -108,7 +108,7 @@ func (s *SharedLinkService) Create(ctx context.Context, workspaceID, userID uuid
 			return nil, fmt.Errorf("scope_id is required for view scope")
 		}
 		view, err := s.viewRepo.GetByID(ctx, *scopeID)
-		if err != nil || view == nil {
+		if err != nil || view == nil || view.WorkspaceID != workspaceID {
 			return nil, fmt.Errorf("view not found")
 		}
 	default:
@@ -202,6 +202,7 @@ func (s *SharedLinkService) Delete(ctx context.Context, id uuid.UUID) error {
 
 // GetPublicMeta returns metadata about a shared link for the public view.
 func (s *SharedLinkService) GetPublicMeta(ctx context.Context, token string) (*dto.PublicShareMetaResponse, error) {
+	ctx = domain.PublicContext(ctx)
 	link, err := s.resolveActiveLink(ctx, token)
 	if err != nil {
 		return nil, err
@@ -219,24 +220,27 @@ func (s *SharedLinkService) GetPublicMeta(ctx context.Context, token string) (*d
 	case domain.SharedLinkScopeTeam:
 		if link.ScopeID != nil {
 			team, err := s.teamRepo.GetByID(ctx, *link.ScopeID)
-			if err == nil && team != nil {
-				scopeName = team.Name
-				statuses = s.loadTeamStatuses(ctx, team.ID)
+			if err != nil || team == nil {
+				return nil, fmt.Errorf("not found")
 			}
+			scopeName = team.Name
+			statuses = s.loadTeamStatuses(ctx, team.ID)
 		}
 	case domain.SharedLinkScopeProject:
 		if link.ScopeID != nil {
 			project, err := s.projectRepo.GetByID(ctx, *link.ScopeID)
-			if err == nil && project != nil {
-				scopeName = project.Name
+			if err != nil || project == nil {
+				return nil, fmt.Errorf("not found")
 			}
+			scopeName = project.Name
 		}
 	case domain.SharedLinkScopeView:
 		if link.ScopeID != nil {
 			view, err := s.viewRepo.GetByID(ctx, *link.ScopeID)
-			if err == nil && view != nil {
-				scopeName = view.Name
+			if err != nil || view == nil {
+				return nil, fmt.Errorf("not found")
 			}
+			scopeName = view.Name
 		}
 	}
 
@@ -258,6 +262,7 @@ func (s *SharedLinkService) GetPublicMeta(ctx context.Context, token string) (*d
 
 // ListPublicIssues returns sanitized issues for a public shared link.
 func (s *SharedLinkService) ListPublicIssues(ctx context.Context, token string, queryParams dto.IssueFilterParams) (*dto.ListResponse[dto.PublicIssueResponse], error) {
+	ctx = domain.PublicContext(ctx)
 	link, err := s.resolveActiveLink(ctx, token)
 	if err != nil {
 		return nil, err
@@ -430,6 +435,10 @@ func (s *SharedLinkService) buildPublicFilterParams(link *domain.SharedLink, que
 		// For view scope, apply the view's stored filters
 		if link.ScopeID != nil {
 			view, err := s.viewRepo.GetByID(context.Background(), *link.ScopeID)
+			if err != nil || view == nil {
+				// A deleted/disabled view must never become an unfiltered share.
+				params.TeamID = uuid.Nil.String()
+			}
 			if err == nil && view != nil {
 				var viewFilters map[string]string
 				if err := json.Unmarshal(view.Filters, &viewFilters); err == nil {

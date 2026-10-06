@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
+	"github.com/kuayle/kuayle-backend/internal/realtime"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/pkg/audit"
 )
@@ -24,10 +25,21 @@ var (
 type WorkspaceService struct {
 	workspaceRepo repository.WorkspaceRepo
 	userRepo      repository.UserRepo
+	hub           *realtime.Hub
 }
 
-func NewWorkspaceService(workspaceRepo repository.WorkspaceRepo, userRepo repository.UserRepo) *WorkspaceService {
-	return &WorkspaceService{workspaceRepo: workspaceRepo, userRepo: userRepo}
+func NewWorkspaceService(workspaceRepo repository.WorkspaceRepo, userRepo repository.UserRepo, hubs ...*realtime.Hub) *WorkspaceService {
+	s := &WorkspaceService{workspaceRepo: workspaceRepo, userRepo: userRepo}
+	if len(hubs) > 0 {
+		s.hub = hubs[0]
+	}
+	return s
+}
+
+func (s *WorkspaceService) refreshAccess(workspaceID uuid.UUID) {
+	if s.hub != nil {
+		s.hub.Broadcast(workspaceID, realtime.Event{Type: "app.refresh", Payload: map[string]any{"resources": []string{"workspace", "members", "teams", "projects", "issues", "views", "favorites", "notifications"}}})
+	}
 }
 
 type defaultWorkspaceLabel struct {
@@ -241,6 +253,7 @@ func (s *WorkspaceService) UpdateMemberRole(ctx context.Context, workspaceID, us
 		return err
 	}
 
+	s.refreshAccess(workspaceID)
 	audit.Log("member.role_changed", userID, map[string]interface{}{
 		"workspace_id": workspaceID, "new_role": role, "old_role": member.Role,
 	})
@@ -267,6 +280,7 @@ func (s *WorkspaceService) RemoveMember(ctx context.Context, workspaceID, userID
 		return err
 	}
 
+	s.refreshAccess(workspaceID)
 	audit.Log("member.removed", userID, map[string]interface{}{
 		"workspace_id": workspaceID,
 	})

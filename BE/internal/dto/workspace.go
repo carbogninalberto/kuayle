@@ -43,6 +43,7 @@ type WorkspaceOwnerResponse struct {
 }
 
 type WorkspaceResponse struct {
+	PrivacyEnabled   bool                    `json:"privacy_enabled"`
 	ID               string                  `json:"id"`
 	Name             string                  `json:"name"`
 	Slug             string                  `json:"slug"`

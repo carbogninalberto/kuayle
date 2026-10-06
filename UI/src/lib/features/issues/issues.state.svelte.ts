@@ -158,6 +158,9 @@ class IssuesState {
 	}
 
 	clear() {
+		this.loadRequestId++;
+		this.loading = false;
+		this.loadingMore = false;
 		this.issues = [];
 		this.totalCount = 0;
 		this.hasMore = false;
@@ -192,6 +195,8 @@ class IssuesState {
 			this.totalCount = res.total_count;
 			this.currentPage = res.page;
 			this.hasMore = res.has_more;
+		} catch {
+			if (requestId === this.loadRequestId) this.clear();
 		} finally {
 			if (requestId === this.loadRequestId) {
 				this.loading = false;
@@ -215,6 +220,8 @@ class IssuesState {
 			this.totalCount = res.total_count;
 			this.currentPage = res.page;
 			this.hasMore = res.has_more;
+		} catch {
+			if (requestId === this.loadRequestId) this.clear();
 		} finally {
 			if (requestId === this.loadRequestId) {
 				this.loadingMore = false;
@@ -223,7 +230,9 @@ class IssuesState {
 	}
 
 	async create(slug: string, req: CreateIssueRequest): Promise<Issue> {
+		const requestId = this.loadRequestId;
 		const issue = await issueApi.createIssue(slug, req);
+		if (requestId !== this.loadRequestId || slug !== this.currentSlug) return issue;
 		// Only add to local list if it matches the current team filter
 		const teamFilter = this.filters.team;
 		if (!teamFilter || issue.team_id === teamFilter) {
@@ -239,6 +248,7 @@ class IssuesState {
 	}
 
 	async update(slug: string, identifier: string, req: UpdateIssueRequest): Promise<Issue> {
+		const requestId = this.loadRequestId;
 		// Optimistic update
 		const idx = this.issues.findIndex((i) => i.identifier === identifier);
 		const original = idx >= 0 ? { ...this.issues[idx] } : null;
@@ -249,6 +259,7 @@ class IssuesState {
 
 		try {
 			const updated = await issueApi.updateIssue(slug, identifier, req);
+			if (requestId !== this.loadRequestId || slug !== this.currentSlug) return updated;
 			if (idx >= 0) {
 				this.issues[idx] = updated;
 			}
@@ -258,7 +269,7 @@ class IssuesState {
 			return updated;
 		} catch (err) {
 			// Rollback
-			if (idx >= 0 && original) {
+			if (requestId === this.loadRequestId && slug === this.currentSlug && idx >= 0 && original) {
 				this.issues[idx] = original as Issue;
 			}
 			throw err;
@@ -266,7 +277,9 @@ class IssuesState {
 	}
 
 	async remove(slug: string, identifier: string) {
+		const requestId = this.loadRequestId;
 		await issueApi.deleteIssue(slug, identifier);
+		if (requestId !== this.loadRequestId || slug !== this.currentSlug) return;
 		this.issues = this.issues.filter((i) => i.identifier !== identifier);
 		this.totalCount--;
 		if (this.selectedIssue?.identifier === identifier) {
@@ -288,7 +301,9 @@ class IssuesState {
 		const issueIds = Array.from(this.selectedIds);
 		if (issueIds.length === 0) return;
 
+		const requestId = this.loadRequestId;
 		await issueApi.bulkUpdateIssues(slug, { issue_ids: issueIds, ...updates });
+		if (requestId !== this.loadRequestId || slug !== this.currentSlug) return;
 
 		// Apply optimistic updates locally
 		for (const issue of this.issues) {

@@ -33,6 +33,10 @@ func (h *WorkspaceTransferHandler) Export(c echo.Context) error {
 	}
 	archive, err := h.service.Export(c.Request().Context(), workspace, middleware.GetUserID(c))
 	if err != nil {
+		var transferErr *service.WorkspaceTransferError
+		if errors.As(err, &transferErr) {
+			return transferHTTPError(c, err)
+		}
 		log.WithError(err).WithFields(log.Fields{
 			"workspace_id":   workspace.ID.String(),
 			"workspace_slug": workspace.Slug,
@@ -131,6 +135,8 @@ func transferHTTPError(c echo.Context, err error) error {
 		status = http.StatusConflict
 	case "UNSUPPORTED_WORKSPACE_ARCHIVE":
 		status = http.StatusUnprocessableEntity
+	case "PRIVATE_WORKSPACE_TRANSFER_DISABLED":
+		status = http.StatusForbidden
 	}
 	details := make([]dto.ErrorDetail, 0, len(transferErr.MissingUsers))
 	for _, email := range transferErr.MissingUsers {

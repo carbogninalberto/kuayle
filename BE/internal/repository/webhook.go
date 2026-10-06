@@ -5,9 +5,9 @@ import (
 	"database/sql"
 	"errors"
 
-	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"github.com/kuayle/kuayle-backend/internal/domain"
 )
 
 type WebhookRepository struct {
@@ -25,7 +25,7 @@ func (r *WebhookRepository) Create(ctx context.Context, w *domain.Webhook) error
 
 func (r *WebhookRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Webhook, error) {
 	var w domain.Webhook
-	err := r.db.GetContext(ctx, &w, `SELECT * FROM webhooks WHERE id = $1`, id)
+	err := r.db.GetContext(ctx, &w, `SELECT * FROM webhooks WHERE id = $1 AND `+workspaceVisible(ctx, "webhooks.workspace_id"), id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -34,16 +34,20 @@ func (r *WebhookRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.
 
 func (r *WebhookRepository) ListByWorkspace(ctx context.Context, workspaceID uuid.UUID) ([]domain.Webhook, error) {
 	var webhooks []domain.Webhook
-	err := r.db.SelectContext(ctx, &webhooks, `SELECT * FROM webhooks WHERE workspace_id = $1 ORDER BY created_at DESC`, workspaceID)
+	err := r.db.SelectContext(ctx, &webhooks, `SELECT * FROM webhooks WHERE workspace_id = $1 AND `+workspaceVisible(ctx, "webhooks.workspace_id")+` ORDER BY created_at DESC`, workspaceID)
 	return webhooks, err
 }
 
 func (r *WebhookRepository) Update(ctx context.Context, w *domain.Webhook) error {
-	query := `UPDATE webhooks SET url = $1, events = $2, is_active = $3, updated_at = NOW() WHERE id = $4 RETURNING updated_at`
+	query := `UPDATE webhooks SET url = $1, events = $2, is_active = $3, updated_at = NOW() WHERE id = $4 AND ` + workspaceVisible(ctx, "webhooks.workspace_id") + ` RETURNING updated_at`
 	return r.db.QueryRowContext(ctx, query, w.URL, w.Events, w.IsActive, w.ID).Scan(&w.UpdatedAt)
 }
 
 func (r *WebhookRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM webhooks WHERE id = $1`, id)
+	_, err := r.db.ExecContext(ctx, `DELETE FROM webhooks WHERE id = $1 AND `+workspaceVisible(ctx, "webhooks.workspace_id"), id)
 	return err
+}
+
+func (r *WebhookRepository) BeginPublicOperation(ctx context.Context, workspaceID uuid.UUID) (*sqlx.Tx, error) {
+	return beginPublicWorkspaceOperation(ctx, r.db, workspaceID)
 }

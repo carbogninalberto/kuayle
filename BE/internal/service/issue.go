@@ -432,6 +432,36 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 		return nil, fmt.Errorf("issue not found")
 	}
 
+	// Validate all changed references before recording any history or changing
+	// junction rows. The repository repeats this check in the final SQL write.
+	if validator, ok := s.issueRepo.(interface {
+		ValidateIssueReferences(context.Context, *domain.Issue) error
+	}); ok {
+		candidate := *issue
+		for _, ref := range []struct {
+			raw    *string
+			target **uuid.UUID
+		}{
+			{req.ProjectID, &candidate.ProjectID}, {req.CycleID, &candidate.CycleID},
+			{req.ParentID, &candidate.ParentID}, {req.StatusID, &candidate.StatusID},
+		} {
+			if ref.raw == nil {
+				continue
+			}
+			if *ref.raw == "" {
+				*ref.target = nil
+				continue
+			}
+			id, err := uuid.Parse(*ref.raw)
+			if err != nil {
+				return nil, fmt.Errorf("invalid resource reference")
+			}
+			*ref.target = &id
+		}
+		if err := validator.ValidateIssueReferences(ctx, &candidate); err != nil {
+			return nil, fmt.Errorf("resource reference is unavailable or crosses a private-team boundary")
+		}
+	}
 	// Sanitize user input
 	if req.Title != nil {
 		clean := sanitize.PlainText(*req.Title)
@@ -900,6 +930,7 @@ func (s *IssueService) BulkUpdate(ctx context.Context, workspaceID, userID uuid.
 		return 0, err
 	}
 	recipientCounts := make(map[uuid.UUID]int)
+	recipientTeams := make(map[uuid.UUID][]uuid.UUID)
 	for _, id := range issueIDs {
 		issue, err := s.issueRepo.GetByID(ctx, id)
 		if err == nil && issue != nil && issue.WorkspaceID == workspaceID {
@@ -908,6 +939,7 @@ func (s *IssueService) BulkUpdate(ctx context.Context, workspaceID, userID uuid.
 			}
 			for _, uid := range s.issueNotificationRecipients(ctx, issue, userID, true) {
 				recipientCounts[uid]++
+				recipientTeams[uid] = append(recipientTeams[uid], issue.TeamID)
 			}
 		}
 	}
@@ -920,7 +952,7 @@ func (s *IssueService) BulkUpdate(ctx context.Context, workspaceID, userID uuid.
 	if n > 0 && len(fields) > 0 {
 		for uid, count := range recipientCounts {
 			title := fmt.Sprintf("%d issues updated: %s", count, strings.Join(fields, ", "))
-			s.notifyWorkspace(ctx, workspaceID, uid, "issues_updated", title, true)
+			s.notifyWorkspace(ctx, workspaceID, uid, "issues_updated", title, true, recipientTeams[uid]...)
 		}
 	}
 
@@ -1167,6 +1199,7 @@ func (s *IssueService) BulkDelete(ctx context.Context, workspaceID, userID uuid.
 	}
 
 	recipientCounts := make(map[uuid.UUID]int)
+	recipientTeams := make(map[uuid.UUID][]uuid.UUID)
 	for _, id := range issueIDs {
 		issue, err := s.issueRepo.GetByID(ctx, id)
 		if err != nil || issue == nil || issue.WorkspaceID != workspaceID {
@@ -1177,6 +1210,7 @@ func (s *IssueService) BulkDelete(ctx context.Context, workspaceID, userID uuid.
 		}
 		for _, uid := range s.issueNotificationRecipients(ctx, issue, userID, true) {
 			recipientCounts[uid]++
+			recipientTeams[uid] = append(recipientTeams[uid], issue.TeamID)
 		}
 	}
 
@@ -1191,7 +1225,7 @@ func (s *IssueService) BulkDelete(ctx context.Context, workspaceID, userID uuid.
 	})
 	if n > 0 {
 		for uid, count := range recipientCounts {
-			s.notifyWorkspace(ctx, workspaceID, uid, "issues_deleted", fmt.Sprintf("%d issues deleted", count), false)
+			s.notifyWorkspace(ctx, workspaceID, uid, "issues_deleted", fmt.Sprintf("%d issues deleted", count), false, recipientTeams[uid]...)
 		}
 	}
 
@@ -1215,9 +1249,9 @@ func (s *IssueService) notifyIssue(ctx context.Context, userID uuid.UUID, issue 
 	}
 	var err error
 	if notifType == "issue_updated" {
-		err = s.notifSvc.CreateOrRefresh(ctx, userID, issue.WorkspaceID, issueID, notifType, title, issueUpdateNotificationWindow)
+		err = s.notifSvc.CreateOrRefresh(ctx, userID, issue.WorkspaceID, issueID, notifType, title, issueUpdateNotificationWindow, issue.TeamID)
 	} else {
-		err = s.notifSvc.Create(ctx, userID, issue.WorkspaceID, issueID, notifType, title)
+		err = s.notifSvc.Create(ctx, userID, issue.WorkspaceID, issueID, notifType, title, issue.TeamID)
 	}
 	if err != nil {
 		log.WithError(err).Warn("failed to create notification")
@@ -1229,12 +1263,12 @@ func (s *IssueService) notifyIssue(ctx context.Context, userID uuid.UUID, issue 
 	})
 }
 
-func (s *IssueService) notifyWorkspace(ctx context.Context, workspaceID, userID uuid.UUID, notifType, title string, dedupe bool) {
+func (s *IssueService) notifyWorkspace(ctx context.Context, workspaceID, userID uuid.UUID, notifType, title string, dedupe bool, sourceTeams ...uuid.UUID) {
 	var err error
 	if dedupe {
-		err = s.notifSvc.CreateOrRefresh(ctx, userID, workspaceID, nil, notifType, title, issueUpdateNotificationWindow)
+		err = s.notifSvc.CreateOrRefresh(ctx, userID, workspaceID, nil, notifType, title, issueUpdateNotificationWindow, sourceTeams...)
 	} else {
-		err = s.notifSvc.Create(ctx, userID, workspaceID, nil, notifType, title)
+		err = s.notifSvc.Create(ctx, userID, workspaceID, nil, notifType, title, sourceTeams...)
 	}
 	if err != nil {
 		log.WithError(err).Warn("failed to create notification")

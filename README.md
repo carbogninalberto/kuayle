@@ -194,6 +194,74 @@ selfhosting `kuayle-machine-gateway` name.
 
 Kuayle is designed to be self-hosted. The reference stack in [`selfhosting/`](selfhosting/) includes Caddy, PostgreSQL, Redis, the backend, the frontend, and an update script. Review secrets, backups, monitoring, and host security before production use.
 
+### Private teams
+
+Existing teams remain public. Workspace owners and admins can create private teams,
+manage their membership, and change visibility in team settings. Owners and admins
+always have access to private content; ordinary members and guests need explicit
+team membership. Workspace roles and personal access token scopes still limit actions.
+Removing membership affects subsequent requests, including existing tokens.
+
+Issues, projects, cycles, statuses, comments and attachments inherit their team's
+visibility. Teamless projects remain public within the workspace. Relationships
+involving a private team must stay within that team; private resource moves are
+unsupported. Resolve incompatible relationships before making an existing team
+private. Making a team public requires confirmation and can reactivate old public links.
+
+This first version has workspace-wide restrictions after private teams are enabled:
+saved views, filtered/view-based public links, workspace export, AI expansion, outgoing
+webhooks, development machines and live presence are disabled. These restrictions
+remain after teams become public or are deleted. Unfiltered shares of public resources
+remain available. Remove existing development machines, environments and development
+defaults before enabling privacy. GitHub installation-to-workspace mapping is unchanged;
+private issue activity and automation references are removed locally. Already published
+or downloaded copies cannot be recalled.
+
+Migrations 39–46 default existing teams to public and add authorization-boundary guards.
+Legacy attachments with exactly one referencing team are assigned to that team.
+Ambiguous or unattributed attachments become unavailable in privacy-enabled workspaces;
+references that cross a private boundary block conversion. Review these attachments
+before enabling privacy. Imports reject archives containing private teams.
+
+Migration 46 indexes attachment references from descriptions, comments and history;
+it validates affected rows during normal edits and audits the graph during visibility
+changes. Apply it with application writers stopped: it backfills existing content and
+changes both authorization functions and publication coordination. Start only the new
+backend afterward; mixed old/new backends are not supported.
+
+Ordinary database statements share a graph barrier acquired before row locks.
+Classification, team deletion/creation and late asset insertion take its exclusive side.
+This barrier is global to handle statements spanning workspaces; those uncommon
+operations and imports can briefly delay other writes. AI, webhook and export requests
+hold a separate per-workspace publication lock, allowing ordinary edits while visibility
+changes wait. Direct SQL transactions that attempt a conflicting lock upgrade or a
+visibility change during publication fail closed with SQLSTATE 40001 and must retry
+from a fresh transaction. The API orders visibility/import locks before its first write.
+Access functions recheck current membership after lock waits under READ COMMITTED
+isolation. The backend pins every database session to READ COMMITTED, even when the
+database or role default is stricter; imports request SERIALIZABLE explicitly. At most
+eight AI/webhook publications run at once, so slow providers cannot exhaust the pool. New migrations adding
+application tables must install the statement guard before introducing new write paths.
+
+For a real browser regression, start an isolated migrated backend on port 8080 and
+`npm --prefix UI run dev -- --host 127.0.0.1 --port 4176`, then run
+`node UI/tests/live/private-teams.mjs`. Override the UI URL with `KUAYLE_LIVE_URL`.
+The test creates temporary accounts/workspace, exercises live WebSockets, removes its
+workspace, and writes evidence to `tmp/reports/`. Use a disposable database for test accounts.
+
+Back up PostgreSQL and asset storage before upgrading. `selfhosting/update.sh` stops
+the backend before `migrate up` and starts only the new image afterwards. If a migration
+fails, it leaves the backend stopped behind the upgrade page instead of restarting a
+previous version against a partially migrated schema. Deploy the new backend and
+migrations together, and do not run an older backend against data that has enabled
+privacy. Down migrations refuse while private teams exist; attachment rollback also
+refuses quarantined legacy assets. A downgrade requires deliberate declassification
+and removal of quarantined assets, and may restore features disabled by this version.
+It is an administrative disclosure decision, not a routine rollback. A refused
+`server migrate down` rolls back its SQL but leaves `schema_migrations` dirty at the
+target version; confirm the schema is unchanged and run `server migrate force <previous
+version>` before continuing.
+
 ### Portable workspace transfer
 
 Workspace owners and admins can download a versioned `.kuayle.zip` archive from **Settings → General → Workspace transfer**. An authenticated user with no workspace can choose **Import workspace** during workspace setup; an owner or admin can also start an import from the transfer settings. Import always creates a separate workspace and never overwrites an existing one.
@@ -211,6 +279,37 @@ This feature transfers one logical workspace. It is not a replacement for an ope
 - A Linux server with Docker + Docker Compose v2
 - A domain pointing to your server (for HTTPS via Let's Encrypt HTTP-01)
 - If enabling Dev Machines: a second registrable domain with a wildcard DNS record and either a custom Caddy DNS-01 build or an imported wildcard TLS certificate
+
+### Release candidate validation
+
+The **Release Readiness** workflow builds the all-in-one, API and web images on
+native amd64 and arm64 runners without publishing. It checks the PR head commit
+(or the selected workflow-dispatch revision), runs the packaged runtime smoke
+test, and fails on HIGH or CRITICAL image scan findings. Each job uploads the
+source commit, build digest/metadata, local image identity, runtime log, Trivy
+JSON report and an archive of the exact image tested. Require all six image jobs and the **Tests** workflow to pass for
+the same reviewed commit before declaring a candidate ready.
+The existing **Security Scan** and **Build & Push** PR checks also remain
+required, including the native Dev Machine image builds and scans. PR builds
+do not publish images.
+
+The smoke check can also run against a locally built image:
+
+```sh
+python3 selfhosting/image_smoke_test.py kuayle:candidate all-in-one
+```
+
+Use `api` or `web` for the other image types. Docker and Python 3 are required.
+The check creates and removes disposable containers and a network. API and
+all-in-one checks apply the packaged migrations to PostgreSQL 17 and exercise
+the real API; the web check uses a fixture upstream to verify proxy routing.
+Both Caddy images verify SPA deep links and static assets as well as backend
+routes. Container UI builds default to a 4 GB Node heap; use
+`--build-arg NODE_OPTIONS=--max-old-space-size=6144` to override it. Host builds
+retain their 8 GB default unless `NODE_OPTIONS` is set.
+A successful candidate run does not authorize publishing. The existing
+release-publishing workflow updates source files on `main`; its output must be
+revalidated if its revision differs from the reviewed candidate.
 
 ### 1. Clone and configure
 

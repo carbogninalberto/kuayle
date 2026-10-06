@@ -22,6 +22,7 @@ class TeamStatusesState {
 	statuses = $state<TeamStatus[]>([]);
 	loading = $state(false);
 	private loadedTeamId = '';
+	private requestId = 0;
 
 	/** Statuses sorted by position. */
 	statusOrder = $derived(
@@ -53,15 +54,20 @@ class TeamStatusesState {
 	});
 
 	async load(slug: string, teamId: string) {
-		if (this.loadedTeamId === teamId && this.statuses.length > 0) return;
+		const key = `${slug}/${teamId}`;
+		if (this.loadedTeamId === key && this.statuses.length > 0) return;
+		const requestId = ++this.requestId;
+		this.statuses = [];
 		this.loading = true;
 		try {
-			this.statuses = await listTeamStatuses(slug, teamId);
-			this.loadedTeamId = teamId;
+			const statuses = await listTeamStatuses(slug, teamId);
+			if (requestId !== this.requestId) return;
+			this.statuses = statuses;
+			this.loadedTeamId = key;
 		} catch {
-			this.statuses = [];
+			if (requestId === this.requestId) this.clear();
 		} finally {
-			this.loading = false;
+			if (requestId === this.requestId) this.loading = false;
 		}
 	}
 
@@ -106,6 +112,8 @@ class TeamStatusesState {
 	}
 
 	clear() {
+		this.requestId++;
+		this.loading = false;
 		this.statuses = [];
 		this.loadedTeamId = '';
 	}

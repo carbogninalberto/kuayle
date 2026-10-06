@@ -122,7 +122,7 @@
 	let cycleOpen = $state(false);
 
 	let descriptionEditor = $state<{ insertFiles: (files: File[]) => void } | null>(null);
-	const uploadUrl = $derived(slug ? `/api/workspaces/${slug}/upload` : undefined);
+	const uploadUrl = $derived(slug && teamId ? `/api/workspaces/${slug}/upload?team_id=${teamId}` : undefined);
 	// Uploads started in the description editor that have not been inserted yet.
 	let pendingUploads = $state(0);
 

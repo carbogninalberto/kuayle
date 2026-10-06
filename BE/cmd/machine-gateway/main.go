@@ -24,7 +24,7 @@ func main() {
 	if err != nil {
 		log.WithError(err).Fatal("load configuration")
 	}
-	database, err := sqlx.Connect("pgx", configValue.DatabaseURL)
+	database, err := repository.Open(configValue.DatabaseURL)
 	if err != nil {
 		log.WithError(err).Fatal("connect database")
 	}
