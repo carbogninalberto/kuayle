@@ -65,7 +65,14 @@
 		const loadId = ++membershipLoadId;
 		const userId = authState.user?.id;
 		currentWorkspace.membership = null;
-		const ws = await getWorkspace(workspaceSlug);
+		let ws: Workspace;
+		try {
+			ws = await getWorkspace(workspaceSlug);
+		} catch (error) {
+			// A superseded failure must not tear down the workspace a newer load is restoring.
+			if (loadId === membershipLoadId) throw error;
+			return null;
+		}
 		if (loadId === membershipLoadId && workspaceSlug === slug && userId && userId === authState.user?.id) {
 			currentWorkspace.membership = { workspace: ws, userId };
 			return ws;
@@ -132,7 +139,11 @@
 				if (workspace && workspace.privacy_enabled !== ws.privacy_enabled) invalidateContent();
 				workspace = ws;
 			}
-		} catch {
+		} catch (error) {
+			// Only an authoritative denial means access is gone. Transient server or
+			// network failures keep privileged UI closed until a later refresh succeeds.
+			const status = (error as { status?: number } | null)?.status;
+			if (status !== 401 && status !== 403 && status !== 404) return;
 			if (workspaceSlug === slug && !currentWorkspace.membership) {
 				workspace = null;
 				applyTeams([]);
