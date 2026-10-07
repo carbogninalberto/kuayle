@@ -315,10 +315,42 @@ test('a failed membership refresh closes the notice until a successful retry', a
 	);
 	await refresh(page);
 	await expect(notice(page)).toHaveCount(0);
+	// A transient server failure is not a revocation; the user stays in place.
+	await expect(page).toHaveURL(/\/alpha\/settings\/version$/);
 	expect(await dismissed(page)).toBeNull();
 	await page.unroute('**/api/workspaces/alpha');
 	await refresh(page);
 	await expect(notice(page)).toBeVisible();
+});
+
+test('a superseded failed membership refresh does not override a successful retry', async ({ page }) => {
+	const state = await setup(page);
+	await page.goto('/alpha/settings/version');
+	await expect(notice(page)).toBeVisible();
+	const failure = deferred();
+	let failedRequests = 0;
+	await page.route('**/api/workspaces/alpha', async (route) => {
+		failedRequests++;
+		await failure.promise;
+		return route.fulfill({ status: 503, json: { error: { message: 'Unavailable' } } });
+	});
+	await refresh(page);
+	await expect.poll(() => failedRequests).toBe(1);
+	await expect(notice(page)).toHaveCount(0);
+	// Start the retry while the failing request is still in flight, then let the
+	// stale failure resolve before the retry. It must not discard the workspace.
+	await page.unroute('**/api/workspaces/alpha');
+	const retry = deferred();
+	state.workspaceGate = retry;
+	const before = state.workspaceRequests;
+	await refresh(page);
+	await expect.poll(() => state.workspaceRequests).toBe(before + 1);
+	failure.resolve();
+	await page.waitForTimeout(250);
+	retry.resolve();
+	await expect(notice(page)).toBeVisible();
+	await expect(page).toHaveURL(/\/alpha\/settings\/version$/);
+	expect(await dismissed(page)).toBeNull();
 });
 
 test('overlapping membership refresh does not discard the initial team navigation', async ({ page }) => {

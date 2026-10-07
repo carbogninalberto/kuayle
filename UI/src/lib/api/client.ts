@@ -18,7 +18,8 @@ class ApiClient {
 			const error = await res.json().catch(() => ({
 				error: { code: 'UNKNOWN', message: res.statusText }
 			}));
-			throw error;
+			// Callers distinguish lost access (401/403/404) from transient failures.
+			throw Object.assign(error ?? {}, { status: res.status });
 		}
 
 		if (res.status === 204) return undefined as T;
