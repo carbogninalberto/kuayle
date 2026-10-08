@@ -1,5 +1,27 @@
 [
   {
+    "tag_name": "v0.1.19",
+    "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.19",
+    "body": "## What's Changed\r\n\r\n* **Private teams:** Added privacy controls and membership-based access across issues, projects, cycles, comments, attachments, and real-time updates. Access is revoked when membership is removed; workspace owners and admins retain access. By @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/67\r\n* **More reliable navigation:** Temporary membership-check failures no longer redirect users or leave them stuck on the splash screen. Older failed requests also no longer override a successful retry. By @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/68\r\n* **Safer self-hosted upgrades:** The updater stops backend writers before privacy migrations and keeps the backend stopped if a migration fails, preventing an older version from running against a partially migrated database.\r\n* **Fixed Docker routing:** API requests, uploads, and health/readiness endpoints now reach the backend correctly instead of being intercepted by the frontend fallback.\r\n* **Configurable build memory:** Docker UI builds now default to a configurable 4 GB Node heap.\r\n* **Dependency fixes:** Updated `source-map-js` to address a denial-of-service flaw, refreshed vulnerable marketing-site build dependencies, and patched a code-server compression memory leak in the Dev Machines IDE image.\r\n* **Updated self-hosting documentation:** Added private-team setup, legacy attachment handling, migration requirements, and downgrade guidance.\r\n\r\n### Upgrade Notes\r\n\r\nExisting teams remain public after upgrading. Enabling private teams introduces persistent workspace-wide restrictions: saved views, filtered/view-based public links, workspace export, AI expansion, outgoing webhooks, Dev Machines, and live presence are disabled—even if all teams are later made public or deleted.\r\n\r\nBack up PostgreSQL and asset storage before upgrading. Apply migrations with backend writers stopped, and deploy the new backend and migrations together. See the [private-team documentation](https://github.com/carbogninalberto/kuayle#private-teams) before enabling privacy.\r\n\r\n**Full Changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.1.18...v0.1.19",
+    "published_at": "2026-10-08T11:23:02Z",
+    "prerelease": false,
+    "force_upgrade": false,
+    "minimum_supported_version": null,
+    "upgrade_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.19",
+    "upgrade_message": null
+  },
+  {
+    "tag_name": "v0.1.18",
+    "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.18",
+    "body": "**Full Changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.1.17...v0.1.18",
+    "published_at": "2026-10-05T20:19:44Z",
+    "prerelease": false,
+    "force_upgrade": false,
+    "minimum_supported_version": null,
+    "upgrade_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.18",
+    "upgrade_message": null
+  },
+  {
     "tag_name": "v0.1.17",
     "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.17",
     "body": "## What's Changed\r\n* fix(issues): return to the same list/board layout after viewing an issue by @MarioGK in https://github.com/carbogninalberto/kuayle/pull/66\r\n* feat(issues): paste screenshot uploads in the create issue modal by @MarioGK in https://github.com/carbogninalberto/kuayle/pull/65\r\n* feat(workspace): add invite links and option to disable public registration by @uiYzzi in https://github.com/carbogninalberto/kuayle/pull/54\r\n* feat(workspace): add invite links onboarding UI by @uiYzzi in https://github.com/carbogninalberto/kuayle/pull/59\r\n* feat(auth): add Personal Access Token (PAT) authentication by @uiYzzi in https://github.com/carbogninalberto/kuayle/pull/55\r\n* feat(settings): add Personal Access Token management UI by @uiYzzi in https://github.com/carbogninalberto/kuayle/pull/60\r\n\r\n## New Contributors\r\n* @MarioGK made their first contribution in https://github.com/carbogninalberto/kuayle/pull/66\r\n\r\n**Full Changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.1.16...v0.1.17",
