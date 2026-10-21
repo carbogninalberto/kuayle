@@ -155,10 +155,17 @@ func queuedPrivatizationEdit(t *testing.T, db *sqlx.DB, actor context.Context, w
 	require.NoError(t, transition.Get(&transitionPID, `SELECT pg_backend_pid()`))
 	memberCtx, cancel := context.WithTimeout(domain.WithAccess(context.Background(), domain.Access{UserID: member, WorkspaceID: ws}), 5*time.Second)
 	defer cancel()
+	// Observe this writer specifically: other test packages can be queued on the
+	// same global privacy barrier and must not satisfy our synchronization gate.
+	writer, e := db.Connx(memberCtx)
+	require.NoError(t, e)
+	defer writer.Close()
+	var writerPID int
+	require.NoError(t, writer.QueryRowxContext(memberCtx, `SELECT pg_backend_pid()`).Scan(&writerPID))
 	result := make(chan int64, 1)
 	errors := make(chan error, 1)
 	go func() {
-		r, err := db.ExecContext(memberCtx, `UPDATE issues SET title='must not persist' WHERE id=$1 AND `+teamVisible(memberCtx, "issues.team_id"), issue)
+		r, err := writer.ExecContext(memberCtx, `UPDATE issues SET title='must not persist' WHERE id=$1 AND `+teamVisible(memberCtx, "issues.team_id"), issue)
 		if err != nil {
 			errors <- err
 			return
@@ -172,7 +179,7 @@ func queuedPrivatizationEdit(t *testing.T, db *sqlx.DB, actor context.Context, w
 	}()
 	require.Eventually(t, func() bool {
 		var waiting bool
-		err := db.Get(&waiting, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))`, transitionPID)
+		err := db.Get(&waiting, `SELECT $1=ANY(pg_blocking_pids($2))`, transitionPID, writerPID)
 		return err == nil && waiting
 	}, 2*time.Second, 10*time.Millisecond)
 	require.NoError(t, transition.Commit())

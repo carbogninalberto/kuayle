@@ -84,6 +84,7 @@ type IssueRepo interface {
 	GetByIdentifier(ctx context.Context, workspaceID uuid.UUID, identifier string) (*domain.Issue, error)
 	List(ctx context.Context, workspaceID uuid.UUID, params dto.IssueFilterParams) ([]domain.Issue, int, error)
 	Update(ctx context.Context, issue *domain.Issue) error
+	UpdateContent(ctx context.Context, issue *domain.Issue, titleChanged, descriptionChanged bool) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	SetLabels(ctx context.Context, issueID uuid.UUID, labelIDs []uuid.UUID) error
 	GetLabels(ctx context.Context, issueID uuid.UUID) ([]domain.Label, error)

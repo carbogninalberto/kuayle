@@ -50,6 +50,7 @@
 	import { listTeams } from '$lib/api/teams';
 	import { getIssueCopyPrompt } from '$lib/api/ai-settings';
 	import HistoryAssignees from './HistoryAssignees.svelte';
+	import IssueVersionHistory from './IssueVersionHistory.svelte';
 	import IssueMachineActions from '$lib/features/dev-machines/IssueMachineActions.svelte';
 	import IssueMachinePickerDialog, { type IssueMachineIntent } from '$lib/features/dev-machines/IssueMachinePickerDialog.svelte';
 	import CreateMachineDialog from '$lib/features/dev-machines/CreateMachineDialog.svelte';
@@ -1019,6 +1020,8 @@
 				<div class="mt-2">
 					<IssueGitHubActivity {slug} identifier={issue.identifier} />
 				</div>
+
+			<div class="mt-5"><IssueVersionHistory {slug} identifier={issue.identifier} {members} /></div>
 
 				<!-- Activity -->
 				<div class="mt-6 border-t border-[var(--app-border)] pt-4">
