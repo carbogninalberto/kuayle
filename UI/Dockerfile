@@ -20,7 +20,8 @@ RUN xcaddy build v2.11.4 \
     --with google.golang.org/grpc@v1.83.2 \
     --replace golang.org/x/text=golang.org/x/text@v0.42.0 \
     --replace golang.org/x/net=golang.org/x/net@v0.60.0 \
-    --replace golang.org/x/crypto=golang.org/x/crypto@v0.57.0
+    --replace golang.org/x/crypto=golang.org/x/crypto@v0.57.0 \
+    --replace github.com/klauspost/compress=github.com/klauspost/compress@v1.18.7
 
 FROM alpine:3.23
 ARG SECURITY_REFRESH=initial
