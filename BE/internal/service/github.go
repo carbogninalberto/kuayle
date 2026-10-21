@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -634,12 +636,18 @@ func (s *GitHubService) processPullRequestEvent(ctx context.Context, payload []b
 	}
 
 	inst, err := s.ghRepo.GetInstallationByGitHubID(ctx, event.Installation.ID)
-	if err != nil || inst == nil {
+	if err != nil {
+		return err
+	}
+	if inst == nil {
 		return nil
 	}
 
 	repo, err := s.ghRepo.GetRepoByGitHubID(ctx, inst.WorkspaceID, event.Repository.ID)
-	if err != nil || repo == nil {
+	if err != nil {
+		return err
+	}
+	if repo == nil || !repo.IsActive || repo.InstallationID != inst.ID {
 		return nil
 	}
 
@@ -651,11 +659,15 @@ func (s *GitHubService) processPullRequestEvent(ctx context.Context, payload []b
 		state = "merged"
 	}
 
-	issue := s.resolveIssueFromRef(ctx, inst.WorkspaceID,
+	issue, err := s.resolvePullRequestIssue(ctx, inst.WorkspaceID,
 		event.PullRequest.Head.Ref,
 		event.PullRequest.Title,
 		event.PullRequest.Body,
 	)
+
+	if err != nil {
+		return err
+	}
 
 	var issueID *uuid.UUID
 	if issue != nil {
@@ -703,6 +715,9 @@ func (s *GitHubService) processPullRequestEvent(ctx context.Context, payload []b
 			Payload: map[string]any{"issue_id": issue.ID, "pr_number": pr.Number, "state": state},
 		})
 		s.broadcastAppRefresh(inst.WorkspaceID, "issues")
+		if event.Action == "opened" {
+			return s.commentOnPullRequest(ctx, inst, repo, pr, issue)
+		}
 	}
 
 	return nil
@@ -900,6 +915,34 @@ func (s *GitHubService) resolveIssueFromRef(ctx context.Context, workspaceID uui
 		}
 	}
 	return nil
+}
+
+// resolvePullRequestIssue deliberately requires one distinct, complete identifier.
+// A branch/title/body disagreement is ambiguous, even if only one issue exists locally.
+func (s *GitHubService) resolvePullRequestIssue(ctx context.Context, workspaceID uuid.UUID, texts ...string) (*domain.Issue, error) {
+	identifiers := make(map[string]bool)
+	for _, text := range texts {
+		for _, loc := range issueIdentifierRegex.FindAllStringIndex(text, -1) {
+			isWord := func(c byte) bool {
+				return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_'
+			}
+			if loc[0] > 0 && isWord(text[loc[0]-1]) || loc[1] < len(text) && isWord(text[loc[1]]) {
+				continue
+			}
+			identifiers[strings.ToUpper(text[loc[0]:loc[1]])] = true
+		}
+	}
+	if len(identifiers) != 1 {
+		return nil, nil
+	}
+	for identifier := range identifiers {
+		issue, err := s.issueRepo.GetByIdentifier(domain.PublicContext(ctx), workspaceID, identifier)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return issue, err
+	}
+	return nil, nil
 }
 
 // --- Auto-Transitions ---

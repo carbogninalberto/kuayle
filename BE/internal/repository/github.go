@@ -263,3 +263,48 @@ func (r *GitHubRepository) DeleteAppConfig(ctx context.Context, workspaceID uuid
 	_, err := r.db.ExecContext(ctx, `DELETE FROM github_app_configs WHERE workspace_id = $1`, workspaceID)
 	return err
 }
+
+// WithPullRequestCommentLock serializes comment reconciliation across API replicas.
+// The existing PR row is the durable lock key; no process-local mutex or delivery
+// ID can protect distinct deliveries of the same PR. Keep the transaction open
+// until GitHub reconciliation finishes, and release it on all error paths.
+func (r *GitHubRepository) WithPullRequestCommentLock(ctx context.Context, inst *domain.GitHubInstallation, repo *domain.GitHubRepoModel, number int, issueID uuid.UUID, comment func(slug string) error) error {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var id uuid.UUID
+	err = tx.GetContext(ctx, &id, `SELECT id FROM github_pull_requests WHERE workspace_id=$1 AND github_repo_id=$2 AND number=$3 FOR UPDATE`, inst.WorkspaceID, repo.ID, number)
+	if err != nil {
+		return err
+	}
+	// Recheck installation, active repository and public-team visibility after
+	// waiting for the lock. Hold row locks on the issue and team through the
+	// external write so a privacy change or team move cannot race the comment.
+	var teamID uuid.UUID
+	err = tx.GetContext(ctx, &teamID, `SELECT t.id FROM teams t JOIN issues i ON i.team_id=t.id WHERE i.id=$1 AND i.workspace_id=$2 FOR SHARE OF i,t`, issueID, inst.WorkspaceID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var slug string
+	err = tx.GetContext(ctx, &slug, `SELECT w.slug FROM workspaces w
+ JOIN github_installations gi ON gi.workspace_id=w.id
+ JOIN github_repos r ON r.installation_id=gi.id AND r.workspace_id=w.id
+ JOIN issues i ON i.workspace_id=w.id
+ WHERE w.id=$1 AND gi.id=$2 AND gi.installation_id=$3 AND r.id=$4
+ AND r.is_active=true AND i.id=$5 AND `+teamVisible(domain.PublicContext(ctx), "i.team_id"), inst.WorkspaceID, inst.ID, inst.InstallationID, repo.ID, issueID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if err := comment(slug); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
