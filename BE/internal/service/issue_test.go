@@ -57,6 +57,11 @@ func (m *mockIssueRepo) Update(ctx context.Context, issue *domain.Issue) error {
 	return args.Error(0)
 }
 
+func (m *mockIssueRepo) UpdateContent(ctx context.Context, issue *domain.Issue, titleChanged, descriptionChanged bool) error {
+	args := m.Called(ctx, issue, titleChanged, descriptionChanged)
+	return args.Error(0)
+}
+
 func (m *mockIssueRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	args := m.Called(ctx, id)
 	return args.Error(0)
@@ -434,7 +439,7 @@ func TestIssueService_Update(t *testing.T) {
 	}
 
 	issueRepo.On("GetByIdentifier", ctx, wsID, "ENG-1").Return(issue, nil)
-	issueRepo.On("Update", repository.WithIssueHistoryActor(ctx, userID), mock.AnythingOfType("*domain.Issue")).Return(nil)
+	issueRepo.On("UpdateContent", repository.WithIssueHistoryActor(ctx, userID), mock.AnythingOfType("*domain.Issue"), true, false).Return(nil)
 	issueRepo.On("GetAssignees", ctx, issueID).Return([]uuid.UUID{}, nil)
 	teamStatusRepo.On("GetByTeamAndSlug", ctx, issue.TeamID, "todo").Return(nil, nil)
 
@@ -471,7 +476,7 @@ func TestIssueService_Update_NoOpDescriptionDoesNotNotify(t *testing.T) {
 	issue := &domain.Issue{ID: issueID, WorkspaceID: wsID, Identifier: "ENG-1", Title: "Issue", Description: &description}
 
 	issueRepo.On("GetByIdentifier", ctx, wsID, "ENG-1").Return(issue, nil)
-	issueRepo.On("Update", repository.WithIssueHistoryActor(ctx, userID), mock.AnythingOfType("*domain.Issue")).Return(nil)
+	issueRepo.On("UpdateContent", repository.WithIssueHistoryActor(ctx, userID), mock.AnythingOfType("*domain.Issue"), false, false).Return(nil)
 
 	result, err := svc.Update(ctx, wsID, userID, "ENG-1", dto.UpdateIssueRequest{Description: &description})
 
@@ -502,7 +507,7 @@ func TestIssueService_Update_ConsolidatesFieldNotifications(t *testing.T) {
 	newTitle := "New Title"
 	newStatus := "todo"
 	issueRepo.On("GetByIdentifier", ctx, wsID, "ENG-1").Return(issue, nil)
-	issueRepo.On("Update", repository.WithIssueHistoryActor(ctx, userID), mock.AnythingOfType("*domain.Issue")).Return(nil)
+	issueRepo.On("UpdateContent", repository.WithIssueHistoryActor(ctx, userID), mock.AnythingOfType("*domain.Issue"), true, false).Return(nil)
 	issueRepo.On("GetAssignees", ctx, issueID).Return([]uuid.UUID{}, nil)
 	teamStatusRepo.On("GetByTeamAndSlug", ctx, issue.TeamID, "todo").Return(nil, nil)
 	historyRepo.On("Create", ctx, issueID, userID, "status", mock.AnythingOfType("*string"), &newStatus).Return(nil)
@@ -538,7 +543,7 @@ func TestIssueService_Update_MentionNotificationStaysSeparate(t *testing.T) {
 	issue := &domain.Issue{ID: issueID, WorkspaceID: wsID, Identifier: "ENG-1", Title: "Issue", Description: &oldDescription, AssigneeID: &assigneeID}
 
 	issueRepo.On("GetByIdentifier", ctx, wsID, "ENG-1").Return(issue, nil)
-	issueRepo.On("Update", repository.WithIssueHistoryActor(ctx, userID), mock.AnythingOfType("*domain.Issue")).Return(nil)
+	issueRepo.On("UpdateContent", repository.WithIssueHistoryActor(ctx, userID), mock.AnythingOfType("*domain.Issue"), false, true).Return(nil)
 	issueRepo.On("GetAssignees", ctx, issueID).Return([]uuid.UUID{}, nil)
 	notifRepo.On("CreateOrRefresh", ctx, mock.MatchedBy(func(n *domain.Notification) bool {
 		return n.UserID == assigneeID && n.Type == "issue_updated"
@@ -575,7 +580,7 @@ func TestIssueService_Update_SetParent(t *testing.T) {
 	issueRepo.On("GetByIdentifier", ctx, wsID, "ENG-2").Return(issue, nil)
 	issueRepo.On("GetByID", ctx, parentID).Return(parent, nil)
 	issueRepo.On("WouldCreateCycle", ctx, issueID, parentID).Return(false, nil)
-	issueRepo.On("Update", repository.WithIssueHistoryActor(ctx, userID), mock.AnythingOfType("*domain.Issue")).Return(nil)
+	issueRepo.On("UpdateContent", repository.WithIssueHistoryActor(ctx, userID), mock.AnythingOfType("*domain.Issue"), false, false).Return(nil)
 	issueRepo.On("GetAssignees", ctx, issueID).Return([]uuid.UUID{}, nil)
 	historyRepo.On("Create", ctx, issueID, userID, "parent", mock.AnythingOfType("*string"), mock.AnythingOfType("*string")).Return(nil)
 

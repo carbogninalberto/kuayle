@@ -84,6 +84,8 @@ that were never recorded cannot be reconstructed.
 Migration 47 captures content changes atomically with the issue update, including
 integration writes. It does not backfill history. Deploy the migration with the
 new backend to avoid duplicate entries from older service-level history writes.
+API clients should accept `null` for `user_id` in history responses when no editor
+can be identified.
 Rolling back migration 47 removes automatic capture but preserves historical
 records, including nullable authors for writes without an identified editor.
 

@@ -150,11 +150,11 @@ async function mockWorkspace(page: Page, history: unknown[] = []) {
 
 const versions = [
  { id: 'a', issue_id: 'issue', user_id: userId, field: 'title', old_value: 'Original title', new_value: 'Updated title', created_at: '2026-01-01T01:00:00Z' },
- { id: 'b', issue_id: 'issue', user_id: userId, field: 'description', old_value: '<p>Old <strong>description</strong></p>', new_value: '<p>New description</p><img src="x" onerror="window.historyXss=true"><script>window.historyXss=true</script>', created_at: '2026-01-02T01:00:00Z' },
+ { id: 'b', issue_id: 'issue', user_id: userId, field: 'description', old_value: '<p>Old <strong>description</strong></p><input type="checkbox" checked>', new_value: '<p>New description</p><img src="x" onerror="window.historyXss=true"><script>window.historyXss=true</script>', created_at: '2026-01-02T01:00:00Z' },
  { id: 'c', issue_id: 'issue', user_id: null, field: 'description', old_value: '<p>New description</p>', new_value: '', created_at: '2026-01-03T01:00:00Z' }
 ];
 
-test('reviews complete changes in order and safely renders historical HTML', async ({ page }) => {
+test('reviews complete changes in order and safely renders historical HTML', async ({ page }, testInfo) => {
  const healthy = await mockWorkspace(page, [...versions].reverse());
  await page.goto('/test/issue/ENG-1');
  await page.getByRole('button', { name: 'Version history', exact: true }).click();
@@ -165,6 +165,7 @@ test('reviews complete changes in order and safely renders historical HTML', asy
  await dialog.getByRole('button', { name: 'Previous change' }).click();
  await expect(dialog.getByRole('region', { name: 'Before', exact: true })).toContainText('Old description');
  await expect(dialog.getByRole('region', { name: 'After', exact: true })).toContainText('New description');
+ await expect(dialog.getByRole('region', { name: 'Before', exact: true }).getByRole('checkbox')).toBeDisabled();
  expect(await page.evaluate(() => (window as any).historyXss)).toBeUndefined();
  await expect(dialog.locator('script, [onerror]')).toHaveCount(0);
  await dialog.getByLabel('Show HTML source').check();
@@ -174,7 +175,7 @@ test('reviews complete changes in order and safely renders historical HTML', asy
  await expect(dialog.getByRole('region', { name: 'After', exact: true })).toContainText('Updated title');
  await expect(dialog.getByText(/Test Editor changed the title/)).toBeVisible();
  await expect(dialog.getByRole('button', { name: 'Previous change' })).toBeDisabled();
- await page.screenshot({ path: '/tmp/kua57-version-history-desktop.png' });
+ await page.screenshot({ path: testInfo.outputPath('version-history-desktop.png') });
  await page.keyboard.press('Escape');
  await expect(dialog).not.toBeVisible();
  healthy();
@@ -194,7 +195,7 @@ test('distinguishes empty history from a failed request and retries', async ({ p
  await expect(page.getByRole('combobox', { name: 'Recorded change' })).toBeVisible();
 });
 
-test('keeps long descriptions readable within a mobile viewport', async ({ page }) => {
+test('keeps long descriptions readable within a mobile viewport', async ({ page }, testInfo) => {
  await page.setViewportSize({ width: 390, height: 844 });
  await mockWorkspace(page, [{ ...versions[1], new_value: '<p>' + 'long-content'.repeat(3000) + '</p>' }]);
  await page.goto('/test/issue/ENG-1');
@@ -206,5 +207,42 @@ test('keeps long descriptions readable within a mobile viewport', async ({ page 
  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390);
  expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(844);
  expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
- await page.screenshot({ path: '/tmp/kua57-version-history-mobile.png' });
+ await page.screenshot({ path: testInfo.outputPath('version-history-mobile.png') });
+});
+
+test('reviews history from the project issue sheet', async ({ page }) => {
+ const healthy = await mockWorkspace(page, [...versions].reverse());
+ const projectId = '00000000-0000-0000-0000-000000000030';
+ const project = {
+  id: projectId, name: 'History project', description: null, status: 'planned', team_id: teamId,
+  lead_id: null, start_date: null, target_date: null, sort_order: 0, created_at: createdAt, updated_at: createdAt
+ };
+ await page.route(`**/api/workspaces/test/projects/${projectId}`, route => route.fulfill({ json: project }));
+ // Navigation checks the accessible project list before rendering this route.
+ await page.route('**/api/workspaces/test/projects', route => route.fulfill({ json: [project] }));
+ await page.route('**/api/workspaces/test/github/status', route => route.fulfill({ json: { repos: [] } }));
+ await page.route('**/api/workspaces/test/dev-machine-scope-setting?*', route => route.fulfill({ json: {} }));
+ await page.route('**/api/workspaces/test/dev-machine-environments', route => route.fulfill({ json: [] }));
+ await page.goto(`/test/projects/${projectId}`);
+ await page.getByText('Navigation issue 1', { exact: true }).click();
+ const sheet = page.getByRole('dialog', { name: 'ENG-1', exact: true });
+ await expect(sheet).toBeVisible();
+ await sheet.getByRole('button', { name: 'Version history', exact: true }).click();
+ const history = page.getByRole('dialog', { name: 'ENG-1 version history', exact: true });
+ await expect(history.getByRole('region', { name: 'After', exact: true })).toContainText('Empty');
+ await page.keyboard.press('Escape');
+ await expect(history).not.toBeVisible();
+ await expect(sheet).toBeVisible();
+ healthy();
+});
+
+test('uses the selected application language for history', async ({ page }) => {
+ await page.addInitScript(() => localStorage.setItem('PARAGLIDE_LOCALE', 'it'));
+ await mockWorkspace(page, [...versions].reverse());
+ await page.goto('/test/issue/ENG-1');
+ await page.getByRole('button', { name: 'Cronologia delle versioni', exact: true }).click();
+ const history = page.getByRole('dialog', { name: 'Cronologia delle versioni di ENG-1' });
+ await expect(history.getByRole('region', { name: 'Dopo', exact: true })).toContainText('Vuoto');
+ await expect(history.getByRole('button', { name: 'Modifica precedente' })).toBeVisible();
+ await expect(history.getByText(/Autore sconosciuto ha modificato la descrizione/)).toBeVisible();
 });

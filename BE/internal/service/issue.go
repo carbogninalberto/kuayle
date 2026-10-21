@@ -653,7 +653,7 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 		issue.SortOrder = *req.SortOrder
 	}
 
-	if err := s.issueRepo.Update(repository.WithIssueHistoryActor(ctx, userID), issue); err != nil {
+	if err := s.issueRepo.UpdateContent(repository.WithIssueHistoryActor(ctx, userID), issue, changes.fieldSet["title"], changes.fieldSet["description"]); err != nil {
 		return nil, err
 	}
 

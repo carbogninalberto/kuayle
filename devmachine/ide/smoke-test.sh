@@ -77,4 +77,8 @@ server.listen(0, '127.0.0.1', async () => {
 });
 JS
 
+# Verify both cross-origin credential stripping security fixes in the shipped code.
+docker exec --interactive "$container" /usr/lib/code-server/lib/node - /usr/lib/code-server/node_modules/follow-redirects \
+  < "$(dirname "$0")/test-follow-redirects.cjs"
+
 echo 'IDE startup, HTTP services, providers and dependency smoke tests passed'

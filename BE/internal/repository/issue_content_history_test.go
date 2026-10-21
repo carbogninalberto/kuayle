@@ -50,7 +50,7 @@ func TestIssueContentHistoryPostgres(t *testing.T) {
 	desc := "<p>Complete description</p>"
 	issue.Title = "Revised"
 	issue.Description = &desc
-	require.NoError(t, repo.Update(ctx, issue))
+	require.NoError(t, repo.UpdateContent(ctx, issue, true, true))
 	entries := read()
 	require.Len(t, entries, 2)
 	fields := map[string]domain.IssueHistory{}
@@ -63,11 +63,11 @@ func TestIssueContentHistoryPostgres(t *testing.T) {
 	require.Equal(t, "Revised", *fields["title"].NewValue)
 	require.Nil(t, fields["description"].OldValue)
 	require.Equal(t, desc, *fields["description"].NewValue)
-	require.NoError(t, repo.Update(ctx, issue))
+	require.NoError(t, repo.UpdateContent(ctx, issue, true, true))
 	require.Len(t, read(), 2, "no-op saves must not create revisions")
 	// An invalid actor fails the history insert and must roll back the issue too.
 	issue.Title = "Must roll back"
-	require.Error(t, repo.Update(WithIssueHistoryActor(ctx, uuid.New()), issue))
+	require.Error(t, repo.UpdateContent(WithIssueHistoryActor(ctx, uuid.New()), issue, true, false))
 	persisted, err := repo.GetByID(ctx, id)
 	require.NoError(t, err)
 	require.Equal(t, "Revised", persisted.Title)
@@ -98,14 +98,19 @@ func TestIssueContentHistoryPostgres(t *testing.T) {
 	require.NoError(t, tx.Get(&pid, `SELECT pg_backend_pid()`))
 	deadline, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+	writer, err := db.Connx(deadline)
+	require.NoError(t, err)
+	defer writer.Close()
+	var writerPID int
+	require.NoError(t, writer.QueryRowxContext(deadline, `SELECT pg_backend_pid()`).Scan(&writerPID))
 	done := make(chan error, 1)
 	go func() {
-		_, e := db.ExecContext(deadline, `UPDATE issues SET title='Second concurrent edit' WHERE id=$1`, id)
+		_, e := writer.ExecContext(deadline, `UPDATE issues SET title='Second concurrent edit' WHERE id=$1`, id)
 		done <- e
 	}()
 	require.Eventually(t, func() bool {
 		var blocked bool
-		e := db.Get(&blocked, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))`, pid)
+		e := db.Get(&blocked, `SELECT $1=ANY(pg_blocking_pids($2))`, pid, writerPID)
 		return e == nil && blocked
 	}, 2*time.Second, 10*time.Millisecond)
 	require.NoError(t, tx.Commit())

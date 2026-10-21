@@ -31,7 +31,7 @@ func (r *IssueHistoryRepository) Create(ctx context.Context, issueID, userID uui
 
 func (r *IssueHistoryRepository) ListByIssue(ctx context.Context, issueID uuid.UUID) ([]domain.IssueHistory, error) {
 	var entries []domain.IssueHistory
-	err := r.db.SelectContext(ctx, &entries, `SELECT h.id,h.issue_id,h.user_id,h.field,`+historyReference(ctx, "h.old_value")+` AS old_value,`+historyReference(ctx, "h.new_value")+` AS new_value,h.created_at FROM issue_history h WHERE h.issue_id = $1 AND `+issueVisible(ctx, "h.issue_id")+` ORDER BY h.created_at DESC, h.id DESC`, issueID)
+	err := r.db.SelectContext(ctx, &entries, `SELECT h.id,h.issue_id,h.user_id,h.field,`+historyReference(ctx, "h.old_value")+` AS old_value,`+historyReference(ctx, "h.new_value")+` AS new_value,h.created_at FROM issue_history h WHERE h.issue_id = $1 AND `+issueVisible(ctx, "h.issue_id")+` ORDER BY h.created_at DESC, h.field ASC, h.id DESC`, issueID)
 	return entries, err
 }
 

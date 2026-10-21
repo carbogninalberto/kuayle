@@ -72,6 +72,10 @@ func (r *testIssueRepo) Update(_ context.Context, issue *domain.Issue) error {
 	return nil
 }
 
+func (r *testIssueRepo) UpdateContent(ctx context.Context, issue *domain.Issue, _, _ bool) error {
+	return r.Update(ctx, issue)
+}
+
 func (r *testIssueRepo) Delete(_ context.Context, id uuid.UUID) error {
 	for k, issue := range r.issues {
 		if issue.ID == id {
