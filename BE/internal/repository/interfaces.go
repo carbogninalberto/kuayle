@@ -237,7 +237,7 @@ type GitHubRepo interface {
 	GetRepoByGitHubID(ctx context.Context, workspaceID uuid.UUID, githubRepoID int64) (*domain.GitHubRepoModel, error)
 	DeleteRepo(ctx context.Context, id uuid.UUID) error
 
-	UpsertPullRequest(ctx context.Context, pr *domain.GitHubPullRequest) error
+	UpsertPullRequest(ctx context.Context, pr *domain.GitHubPullRequest) (bool, error)
 	ListPRsWithRepoByIssue(ctx context.Context, issueID uuid.UUID) ([]PRWithRepo, error)
 
 	UpsertBranch(ctx context.Context, b *domain.GitHubBranch) error

@@ -698,13 +698,14 @@ func (s *GitHubService) processPullRequestEvent(ctx context.Context, payload []b
 		ClosedAt:        event.PullRequest.ClosedAt,
 	}
 
-	if err := s.ghRepo.UpsertPullRequest(ctx, pr); err != nil {
+	inserted, err := s.ghRepo.UpsertPullRequest(ctx, pr)
+	if err != nil {
 		return fmt.Errorf("upserting PR: %w", err)
 	}
 
 	if issue != nil {
 		switch {
-		case event.Action == "opened" || event.Action == "ready_for_review":
+		case (event.Action == "opened" && inserted) || event.Action == "ready_for_review":
 			s.applyAutoTransition(ctx, inst.WorkspaceID, "pr_opened", issue)
 		case event.PullRequest.Merged:
 			s.applyAutoTransition(ctx, inst.WorkspaceID, "pr_merged", issue)
@@ -917,32 +918,41 @@ func (s *GitHubService) resolveIssueFromRef(ctx context.Context, workspaceID uui
 	return nil
 }
 
-// resolvePullRequestIssue deliberately requires one distinct, complete identifier.
-// A branch/title/body disagreement is ambiguous, even if only one issue exists locally.
+// resolvePullRequestIssue requires exactly one visible issue among the candidate
+// identifiers. Words such as SHA-256 and node-18 are not issues unless they exist
+// in this workspace. Bound the work without choosing a partial/ambiguous result.
 func (s *GitHubService) resolvePullRequestIssue(ctx context.Context, workspaceID uuid.UUID, texts ...string) (*domain.Issue, error) {
 	identifiers := make(map[string]bool)
 	for _, text := range texts {
 		for _, loc := range issueIdentifierRegex.FindAllStringIndex(text, -1) {
-			isWord := func(c byte) bool {
-				return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_'
-			}
+			isWord := func(c byte) bool { return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' }
 			if loc[0] > 0 && isWord(text[loc[0]-1]) || loc[1] < len(text) && isWord(text[loc[1]]) {
 				continue
 			}
 			identifiers[strings.ToUpper(text[loc[0]:loc[1]])] = true
+			if len(identifiers) > 20 {
+				return nil, nil
+			}
 		}
 	}
-	if len(identifiers) != 1 {
-		return nil, nil
-	}
+	var resolved *domain.Issue
 	for identifier := range identifiers {
 		issue, err := s.issueRepo.GetByIdentifier(domain.PublicContext(ctx), workspaceID, identifier)
 		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if issue == nil {
+			continue
+		}
+		if resolved != nil && resolved.ID != issue.ID {
 			return nil, nil
 		}
-		return issue, err
+		resolved = issue
 	}
-	return nil, nil
+	return resolved, nil
 }
 
 // --- Auto-Transitions ---

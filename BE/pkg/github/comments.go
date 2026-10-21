@@ -23,7 +23,10 @@ func (c *Client) EnsurePullRequestComment(ctx context.Context, token, fullName s
 	for page := 1; ; page++ {
 		var comments []struct {
 			Body string `json:"body"`
-			App  *struct {
+			User struct {
+				Type string `json:"type"`
+			} `json:"user"`
+			App *struct {
 				ID int64 `json:"id"`
 			} `json:"performed_via_github_app"`
 		}
@@ -31,7 +34,7 @@ func (c *Client) EnsurePullRequestComment(ctx context.Context, token, fullName s
 			return err
 		}
 		for _, comment := range comments {
-			if comment.App != nil && comment.App.ID == c.appID && strings.HasPrefix(comment.Body, marker+"\n") {
+			if comment.App != nil && comment.App.ID == c.appID && comment.User.Type == "Bot" && (strings.HasPrefix(comment.Body, marker+"\n") || strings.HasPrefix(comment.Body, marker+"\r\n")) {
 				return nil
 			}
 		}

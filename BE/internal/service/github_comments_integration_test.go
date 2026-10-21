@@ -22,6 +22,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/repository"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -74,11 +76,12 @@ func TestPullRequestCommentWebhookPostgres(t *testing.T) {
 	comments := []map[string]any{}
 	posts, requests := 0, 0
 	failStatus := 0
+	postArrived, releasePost := make(chan struct{}), make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()
 		requests++
-		require.NotEmpty(t, r.Header.Get("Authorization"))
+		assert.NotEmpty(t, r.Header.Get("Authorization"))
 		if r.URL.Path == fmt.Sprintf("/app/installations/%d/access_tokens", inst.InstallationID) {
 			w.WriteHeader(201)
 			fmt.Fprint(w, `{"token":"test-token","expires_at":"2099-01-01T00:00:00Z"}`)
@@ -90,15 +93,21 @@ func TestPullRequestCommentWebhookPostgres(t *testing.T) {
 			return
 		}
 		if r.Method == http.MethodGet {
-			require.NoError(t, json.NewEncoder(w).Encode(comments))
+			assert.NoError(t, json.NewEncoder(w).Encode(comments))
 			return
 		}
 		posts++
+		if posts == 1 {
+			close(postArrived)
+			mu.Unlock()
+			<-releasePost
+			mu.Lock()
+		}
 		var payload map[string]string
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&payload))
-		require.Contains(t, payload["body"], "[BOT-60](https://kuayle.test/"+ws.String()+"/issue/BOT-60)")
-		require.NotContains(t, payload["body"], "PRIVATE")
-		comments = append(comments, map[string]any{"body": payload["body"], "performed_via_github_app": map[string]any{"id": 42}})
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&payload))
+		assert.Contains(t, payload["body"], "[BOT-60](https://kuayle.test/"+ws.String()+"/issue/BOT-60)")
+		assert.NotContains(t, payload["body"], "PRIVATE")
+		comments = append(comments, map[string]any{"body": payload["body"], "user": map[string]any{"type": "Bot"}, "performed_via_github_app": map[string]any{"id": 42}})
 		w.WriteHeader(201)
 		fmt.Fprint(w, `{"id":1}`)
 	}))
@@ -110,7 +119,13 @@ func TestPullRequestCommentWebhookPostgres(t *testing.T) {
 	t.Cleanup(func() { http.DefaultTransport = original })
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
-	svc := NewGitHubService(repo, repository.NewIssueRepository(db), nil, nil, nil, nil, nil, "https://kuayle.test", "", &GlobalGitHubAppConfig{AppID: 42, PrivateKey: string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})), WebhookSecret: "webhook-secret"})
+	history := new(mockIssueHistoryRepo)
+	history.On("Create", mock.Anything, issue, uuid.Nil, "status", mock.Anything, mock.Anything).Return(nil).Once()
+	reviewStatus := uuid.New()
+	_, err = db.Exec(`INSERT INTO team_statuses(id,team_id,name,slug,category) VALUES($1,$2,'Review','in_review','started')`, reviewStatus, team)
+	require.NoError(t, err)
+	require.NoError(t, repo.UpsertAutoTransition(ctx, &domain.GitHubAutoTransition{ID: uuid.New(), WorkspaceID: ws, Event: "pr_opened", TargetStatus: "in_review", TargetStatusID: &reviewStatus, IsActive: true}))
+	svc := NewGitHubService(repo, repository.NewIssueRepository(db), nil, nil, history, nil, nil, "https://kuayle.test", "", &GlobalGitHubAppConfig{AppID: 42, PrivateKey: string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})), WebhookSecret: "webhook-secret"})
 	event := ghWebhookPR{Action: "opened"}
 	event.Installation.ID = inst.InstallationID
 	event.Repository.ID = 123
@@ -135,6 +150,22 @@ func TestPullRequestCommentWebhookPostgres(t *testing.T) {
 	for i := 0; i < 4; i++ {
 		go func() { copy := *svc; errs <- copy.HandleWebhookEvent(ctx, "pull_request", payload) }()
 	}
+	select {
+	case <-postArrived:
+	case err := <-errs:
+		t.Fatalf("delivery completed before comment POST: %v", err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("comment POST did not start")
+	}
+	// Keep the first remote POST in flight until a competing delivery is visibly
+	// blocked in PostgreSQL. This proves replica serialization deterministically.
+	serialized := assert.Eventually(t, func() bool {
+		var blocked bool
+		err := db.Get(&blocked, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE query LIKE '%github_pull_requests%' AND wait_event_type='Lock')`)
+		return err == nil && blocked
+	}, 2*time.Second, 10*time.Millisecond)
+	close(releasePost)
+	require.True(t, serialized)
 	for i := 0; i < 4; i++ {
 		require.NoError(t, <-errs)
 	}
@@ -143,6 +174,13 @@ func TestPullRequestCommentWebhookPostgres(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, issue, *pr.IssueID)
 	require.Equal(t, "draft", pr.State)
+	var currentStatus string
+	require.NoError(t, db.Get(&currentStatus, `SELECT status FROM issues WHERE id=$1`, issue))
+	require.Equal(t, "in_review", currentStatus)
+	// A user can move the issue after initial delivery. Comment redelivery must
+	// not overwrite that decision or write another status history entry.
+	_, err = db.Exec(`UPDATE issues SET status='todo', status_id=$2 WHERE id=$1`, issue, status)
+	require.NoError(t, err)
 	before := requests
 	// No comments for ordinary updates, missing/ambiguous references, inactive repos,
 	// unknown installations or private teams (even with an owner's context).
@@ -158,6 +196,8 @@ func TestPullRequestCommentWebhookPostgres(t *testing.T) {
 		require.NoError(t, svc.HandleWebhookEvent(ctx, "pull_request", payload))
 		require.Equal(t, before, requests)
 	}
+	_, err = db.Exec(`INSERT INTO issues(id,workspace_id,team_id,status_id,number,identifier_text,title,creator_id) VALUES($1,$2,$3,$4,61,'BOT-61','Another issue',$5)`, uuid.New(), ws, team, status, owner)
+	require.NoError(t, err)
 	event.PullRequest.Title = "BOT-60 BOT-61"
 	payload, _ = json.Marshal(event)
 	require.NoError(t, svc.HandleWebhookEvent(ctx, "pull_request", payload))
@@ -188,15 +228,39 @@ func TestPullRequestCommentWebhookPostgres(t *testing.T) {
 	mu.Unlock()
 	require.NoError(t, svc.HandleWebhookEvent(ctx, "pull_request", payload))
 	require.Equal(t, 1, posts)
-	// A privacy change cannot complete while the publication callback holds
-	// the issue/team locks. A fresh delivery after release still succeeds.
+	// A queued API privacy transition must wait before the global graph barrier,
+	// permitting unrelated writes (including edits to this issue) during I/O.
+	privacyResult := make(chan error, 1)
+	actor := domain.WithAccess(ctx, domain.Access{UserID: owner, WorkspaceID: ws})
 	require.NoError(t, repo.WithPullRequestCommentLock(ctx, inst, linked, 7, issue, func(string) error {
-		changeCtx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
+		go func() {
+			changeCtx, cancel := context.WithTimeout(actor, 5*time.Second)
+			defer cancel()
+			_, err := repository.NewTeamRepository(db).SetVisibility(changeCtx, team, true, false, true)
+			privacyResult <- err
+		}()
+		require.Eventually(t, func() bool {
+			var waiting bool
+			e := db.Get(&waiting, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE query LIKE 'SELECT pg_advisory_xact_lock(hashtextextended%' AND wait_event_type='Lock')`)
+			return e == nil && waiting
+		}, 2*time.Second, 10*time.Millisecond)
+		writeCtx, cancel := context.WithTimeout(ctx, time.Second)
 		defer cancel()
-		_, err := db.ExecContext(changeCtx, `UPDATE teams SET is_private=true WHERE id=$1`, team)
-		require.Error(t, err)
+		_, err := db.ExecContext(writeCtx, `UPDATE issues SET title='edit during publication' WHERE id=$1`, issue)
+		require.NoError(t, err)
+		select {
+		case err := <-privacyResult:
+			t.Fatalf("privacy transition completed during publication: %v", err)
+		default:
+		}
 		return nil
 	}))
+	require.NoError(t, <-privacyResult)
+	_, err = repository.NewTeamRepository(db).SetVisibility(actor, team, false, true, false)
+	require.NoError(t, err)
+	require.NoError(t, db.Get(&currentStatus, `SELECT status FROM issues WHERE id=$1`, issue))
+	require.Equal(t, "todo", currentStatus)
+	history.AssertExpectations(t)
 	// Lock cancellation does not poison future deliveries.
 	cancelled, cancel := context.WithCancel(ctx)
 	cancel()

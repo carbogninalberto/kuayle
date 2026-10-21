@@ -2,12 +2,15 @@ package github
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -42,7 +45,7 @@ func TestCommentReconcilesPaginatedAppMarker(t *testing.T) {
 					if own {
 						app = 42
 					}
-					b, _ := json.Marshal([]map[string]any{{"body": marker + "\n\nold body", "performed_via_github_app": map[string]any{"id": app}}})
+					b, _ := json.Marshal([]map[string]any{{"body": marker + "\r\n\r\nold body", "user": map[string]any{"type": "Bot"}, "performed_via_github_app": map[string]any{"id": app}}})
 					return commentResponse(200, string(b)), nil
 				}
 				posts++
@@ -73,7 +76,7 @@ func TestCommentRecoversLostPostResponse(t *testing.T) {
 		if posts == 0 {
 			return commentResponse(200, `[]`), nil
 		}
-		b, _ := json.Marshal([]map[string]any{{"body": marker + "\n\nlink", "performed_via_github_app": map[string]any{"id": 42}}})
+		b, _ := json.Marshal([]map[string]any{{"body": marker + "\n\nlink", "user": map[string]any{"type": "Bot"}, "performed_via_github_app": map[string]any{"id": 42}}})
 		return commentResponse(200, string(b)), nil
 	})}}
 	err := c.EnsurePullRequestComment(context.Background(), "secret", "owner/repo", 7, marker, "link")
@@ -106,4 +109,30 @@ func TestCommentFailuresNeverBlindlyPostOrExposeContent(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestCommentDoesNotTrustSameAppHumanAuthor(t *testing.T) {
+	posts := 0
+	c := &Client{appID: 42, httpClient: &http.Client{Transport: commentTransport(func(r *http.Request) (*http.Response, error) {
+		if r.Method == http.MethodGet {
+			return commentResponse(200, `[{"body":"marker\n\nlink","user":{"type":"User"},"performed_via_github_app":{"id":42}}]`), nil
+		}
+		posts++
+		return commentResponse(201, `{}`), nil
+	})}}
+	require.NoError(t, c.EnsurePullRequestComment(context.Background(), "secret", "owner/repo", 7, "marker", "link"))
+	require.Equal(t, 1, posts)
+}
+
+func TestInstallationTokenHonorsCommentDeadline(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	c := &Client{appID: 42, privateKey: key, httpClient: &http.Client{Transport: commentTransport(func(r *http.Request) (*http.Response, error) {
+		<-r.Context().Done()
+		return nil, r.Context().Err()
+	})}}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	_, _, err = c.GetInstallationTokenContext(ctx, 123)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
