@@ -19,6 +19,7 @@
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import { mentionInteractivity } from '$lib/components/shared/mention/mention-interactivity.action';
 	import HistoryAssignees from './HistoryAssignees.svelte';
+	import IssueVersionHistory from './IssueVersionHistory.svelte';
 
 	let {
 		issue,
@@ -204,6 +205,8 @@
 					</PrioritySelector>
 				</div>
 			</div>
+
+			<div class="mt-5"><IssueVersionHistory {slug} identifier={issue.identifier} {members} /></div>
 
 			<!-- Tabs -->
 			<div class="mt-8 flex gap-4 border-b border-[var(--app-border)]">

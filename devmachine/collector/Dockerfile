@@ -1,4 +1,4 @@
-FROM golang:1.26.9-alpine AS build
+FROM golang:1.26.10-alpine AS build
 WORKDIR /src
 COPY collector/main.go .
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /collector main.go

@@ -319,21 +319,52 @@ func (r *IssueRepository) List(ctx context.Context, workspaceID uuid.UUID, param
 	return issues, total, nil
 }
 
+// Update changes issue properties without writing a previously loaded content snapshot.
+// Automations and relationship changes must preserve concurrent content edits.
 func (r *IssueRepository) Update(ctx context.Context, issue *domain.Issue) error {
+	return r.UpdateContent(ctx, issue, false, false)
+}
+
+// UpdateContent writes only the content fields explicitly changed by the editor.
+func (r *IssueRepository) UpdateContent(ctx context.Context, issue *domain.Issue, titleChanged, descriptionChanged bool) error {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	actor, _ := ctx.Value(issueHistoryActorKey{}).(uuid.UUID)
+	if actor == uuid.Nil {
+		if access, ok := domain.AccessFromContext(ctx); ok {
+			actor = access.UserID
+		}
+	}
+	actorValue := ""
+	if actor != uuid.Nil {
+		actorValue = actor.String()
+	}
+	// Transaction-local: an actor must never leak to the next pooled request.
+	if _, err = tx.ExecContext(ctx, `SELECT set_config('kuayle.history_actor', $1, true)`, actorValue); err != nil {
+		return err
+	}
 	query := `
 		UPDATE issues SET
-			title = $1, description = $2, status = $3, priority = $4,
+			title = CASE WHEN $14 THEN $1 ELSE title END,
+			description = CASE WHEN $15 THEN $2 ELSE description END, status = $3, priority = $4,
 			assignee_id = $5, project_id = $6, cycle_id = $7, parent_id = $8,
 			due_date = $9, sort_order = $10, triaged = $11,
 			status_id = $12, updated_at = NOW()
 		WHERE id = $13 AND ` + teamVisible(ctx, "issues.team_id") + " AND " + issueReferencesVisible(ctx, issue) + `
-		RETURNING updated_at`
-	return r.db.QueryRowContext(ctx, query,
+		RETURNING title, description, updated_at`
+	err = tx.QueryRowContext(ctx, query,
 		issue.Title, issue.Description, issue.Status, issue.Priority,
 		issue.AssigneeID, issue.ProjectID, issue.CycleID, issue.ParentID,
 		issue.DueDate, issue.SortOrder, issue.Triaged,
-		issue.StatusID, issue.ID,
-	).Scan(&issue.UpdatedAt)
+		issue.StatusID, issue.ID, titleChanged, descriptionChanged,
+	).Scan(&issue.Title, &issue.Description, &issue.UpdatedAt)
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (r *IssueRepository) Delete(ctx context.Context, id uuid.UUID) error {

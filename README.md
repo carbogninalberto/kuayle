@@ -73,6 +73,22 @@ The product is intentionally smaller than broad project-management suites. It co
 | 🎨  | **Rich Text Editor**   | Tiptap-based with code blocks, slash commands, mentions, task lists              |
 | 🚀  | **Release Changelog**  | Multi-release changelog modal with markdown rendering from static manifest       |
 
+## Issue version history
+
+Open **Version history** in an issue to browse recorded title and description
+changes in chronological order. Each change shows its author when known, its
+time, and the complete before/after values. Descriptions support both rendered
+content and HTML source. Existing stored changes remain available; versions
+that were never recorded cannot be reconstructed.
+
+Migration 47 captures content changes atomically with the issue update, including
+integration writes. It does not backfill history. Deploy the migration with the
+new backend to avoid duplicate entries from older service-level history writes.
+API clients should accept `null` for `user_id` in history responses when no editor
+can be identified.
+Rolling back migration 47 removes automatic capture but preserves historical
+records, including nullable authors for writes without an identified editor.
+
 ## 🤖 Dev Machines (Agentic Coding)
 
 Dev Machines are an unreleased opt-in multi-container subsystem for self-hosted Kuayle. Machines can be created generically, then attach issue worktrees when work starts. Every machine has collector and egress services; it may also include a shared code-server/native-terminal developer container and a browser, while agent containers are created on demand for runs. PostgreSQL-backed operations provide durable reconciliation and authenticated wildcard routing.

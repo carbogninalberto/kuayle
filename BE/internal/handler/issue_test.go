@@ -21,6 +21,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // --- Test issue repos ---
@@ -69,6 +70,10 @@ func (r *testIssueRepo) List(_ context.Context, _ uuid.UUID, _ dto.IssueFilterPa
 func (r *testIssueRepo) Update(_ context.Context, issue *domain.Issue) error {
 	r.issues[issue.Identifier] = issue
 	return nil
+}
+
+func (r *testIssueRepo) UpdateContent(ctx context.Context, issue *domain.Issue, _, _ bool) error {
+	return r.Update(ctx, issue)
 }
 
 func (r *testIssueRepo) Delete(_ context.Context, id uuid.UUID) error {
@@ -652,4 +657,18 @@ func testIssueListUUIDFilters(t *testing.T, newRepo func() repository.IssueRepo)
 			}
 		})
 	}
+}
+
+func TestIssueHistoryResponseOptionalActor(t *testing.T) {
+	h := &IssueHandler{}
+	oldValue, newValue := "Before", "After"
+	entry := domain.IssueHistory{ID: uuid.New(), IssueID: uuid.New(), Field: "title", OldValue: &oldValue, NewValue: &newValue}
+	result := h.toIssueHistoryResponse(context.Background(), entry)
+	require.Nil(t, result.UserID)
+	require.Equal(t, &oldValue, result.OldValue)
+	require.Equal(t, &newValue, result.NewValue)
+	entry.UserID = uuid.New()
+	result = h.toIssueHistoryResponse(context.Background(), entry)
+	require.NotNil(t, result.UserID)
+	require.Equal(t, entry.UserID.String(), *result.UserID)
 }

@@ -1,4 +1,4 @@
-FROM golang:1.26.9-alpine AS cdp-proxy-build
+FROM golang:1.26.10-alpine AS cdp-proxy-build
 WORKDIR /src
 COPY browser/cdp-proxy/main.go .
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /cdp-proxy main.go

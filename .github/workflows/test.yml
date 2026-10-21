@@ -106,14 +106,20 @@ jobs:
           sudo mkdir --parents /mnt/docker-integration
           sudo mount --options loop,prjquota /var/lib/docker-integration.xfs /mnt/docker-integration
 
+          # Docker 29 defaults to containerd, whose image store ignores data-root.
+          # Use the classic driver so workspace volume quotas run on the XFS mount.
           if sudo test -f /etc/docker/daemon.json; then
-            sudo jq '. + {"data-root": "/mnt/docker-integration"}' /etc/docker/daemon.json > /tmp/docker-daemon.json
+            sudo cat /etc/docker/daemon.json > /tmp/docker-daemon-existing.json
           else
-            jq --null-input '{"data-root": "/mnt/docker-integration"}' > /tmp/docker-daemon.json
+            printf '{}\n' > /tmp/docker-daemon-existing.json
           fi
+          jq '. + {"data-root": "/mnt/docker-integration", "storage-driver": "overlay2"}
+            | .features = ((.features // {}) + {"containerd-snapshotter": false})' \
+            /tmp/docker-daemon-existing.json > /tmp/docker-daemon.json
           sudo install --mode 0644 /tmp/docker-daemon.json /etc/docker/daemon.json
           sudo systemctl start docker.socket docker.service
 
+          test "$(docker info --format '{{.Driver}}')" = overlay2
           backing_filesystem=$(docker info --format '{{range .DriverStatus}}{{if eq (index . 0) "Backing Filesystem"}}{{index . 1}}{{end}}{{end}}')
           test "$backing_filesystem" = xfs
 
@@ -136,7 +142,8 @@ jobs:
 
   frontend-check:
     name: Frontend Checks
-    runs-on: ubuntu-latest
+    # Playwright 1.58 supports Ubuntu 24.04, not the moving latest image.
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: ./UI
@@ -181,7 +188,7 @@ jobs:
 
   web-check:
     name: Marketing Site Checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: ./WEB

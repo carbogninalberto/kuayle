@@ -596,10 +596,15 @@ func (h *IssueHandler) GetHistory(c echo.Context) error {
 }
 
 func (h *IssueHandler) toIssueHistoryResponse(ctx context.Context, entry domain.IssueHistory) dto.IssueHistoryResponse {
+	var actor *string
+	if entry.UserID != uuid.Nil {
+		value := entry.UserID.String()
+		actor = &value
+	}
 	return dto.IssueHistoryResponse{
 		ID:              entry.ID.String(),
 		IssueID:         entry.IssueID.String(),
-		UserID:          entry.UserID.String(),
+		UserID:          actor,
 		Field:           entry.Field,
 		OldValue:        entry.OldValue,
 		NewValue:        entry.NewValue,
