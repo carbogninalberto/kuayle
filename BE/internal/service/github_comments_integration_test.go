@@ -48,7 +48,13 @@ func TestPullRequestCommentWebhookPostgres(t *testing.T) {
 	if dsn == "" {
 		t.Skip("DATABASE_URL is not set")
 	}
-	db, err := repository.Open(dsn)
+	databaseURL, err := url.Parse(dsn)
+	require.NoError(t, err)
+	applicationName := "kua60-" + uuid.NewString()
+	options := databaseURL.Query()
+	options.Set("application_name", applicationName)
+	databaseURL.RawQuery = options.Encode()
+	db, err := repository.Open(databaseURL.String())
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
 	ctx := context.Background()
@@ -161,7 +167,7 @@ func TestPullRequestCommentWebhookPostgres(t *testing.T) {
 	// blocked in PostgreSQL. This proves replica serialization deterministically.
 	serialized := assert.Eventually(t, func() bool {
 		var blocked bool
-		err := db.Get(&blocked, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE query LIKE '%github_pull_requests%' AND wait_event_type='Lock')`)
+		err := db.Get(&blocked, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND application_name=$1 AND pid<>pg_backend_pid() AND query LIKE 'SELECT pg_advisory_xact_lock(610060,%' AND wait_event_type='Lock')`, applicationName)
 		return err == nil && blocked
 	}, 2*time.Second, 10*time.Millisecond)
 	close(releasePost)
@@ -241,12 +247,16 @@ func TestPullRequestCommentWebhookPostgres(t *testing.T) {
 		}()
 		require.Eventually(t, func() bool {
 			var waiting bool
-			e := db.Get(&waiting, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE query LIKE 'SELECT pg_advisory_xact_lock(hashtextextended%' AND wait_event_type='Lock')`)
+			e := db.Get(&waiting, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND application_name=$1 AND pid<>pg_backend_pid() AND query LIKE 'SELECT pg_advisory_xact_lock(hashtextextended%,63))' AND wait_event_type='Lock')`, applicationName)
 			return e == nil && waiting
 		}, 2*time.Second, 10*time.Millisecond)
 		writeCtx, cancel := context.WithTimeout(ctx, time.Second)
 		defer cancel()
-		_, err := db.ExecContext(writeCtx, `UPDATE issues SET title='edit during publication' WHERE id=$1`, issue)
+		_, err := repo.UpsertPullRequest(writeCtx, pr)
+		require.NoError(t, err, "PR updates must not wait on GitHub I/O")
+		_, err = db.ExecContext(writeCtx, `INSERT INTO teams(id,workspace_id,name,key) VALUES($1,$2,'Unrelated','OTHER')`, uuid.New(), ws)
+		require.NoError(t, err, "exclusive graph writes must not wait on GitHub I/O")
+		_, err = db.ExecContext(writeCtx, `UPDATE issues SET title='edit during publication' WHERE id=$1`, issue)
 		require.NoError(t, err)
 		select {
 		case err := <-privacyResult:

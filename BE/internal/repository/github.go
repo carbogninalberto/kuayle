@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -267,23 +268,28 @@ func (r *GitHubRepository) DeleteAppConfig(ctx context.Context, workspaceID uuid
 }
 
 // WithPullRequestCommentLock serializes comment reconciliation across API replicas.
-// The existing PR row is the durable lock key; no process-local mutex or delivery
-// ID can protect distinct deliveries of the same PR. Keep the transaction open
-// until GitHub reconciliation finishes, and release it on all error paths.
+// An advisory key per PR coordinates replicas without holding a tuple lock that
+// ordinary writes or cascading deletes need. The two-int namespace is separate
+// from bigint publication locks. Hash collisions only serialize unrelated PRs.
+// Release the transaction on every error path.
 func (r *GitHubRepository) WithPullRequestCommentLock(ctx context.Context, inst *domain.GitHubInstallation, repo *domain.GitHubRepoModel, number int, issueID uuid.UUID, comment func(slug string) error) error {
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	// Match SetVisibility lock order: publication guard before any tuple locks.
+	// Match SetVisibility lock order: publication guard before PR serialization.
 	// Do not use the workspace-wide publicMetadataAllowed predicate: public issues
 	// may still be linked when another team in this workspace is private.
 	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock_shared(hashtextextended($1::text,63))`, inst.WorkspaceID); err != nil {
 		return err
 	}
+	key := repo.ID.String() + ":" + strconv.Itoa(number)
+	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(610060, hashtext($1))`, key); err != nil {
+		return err
+	}
 	var id uuid.UUID
-	err = tx.GetContext(ctx, &id, `SELECT id FROM github_pull_requests WHERE workspace_id=$1 AND github_repo_id=$2 AND number=$3 FOR UPDATE`, inst.WorkspaceID, repo.ID, number)
+	err = tx.GetContext(ctx, &id, `SELECT id FROM github_pull_requests WHERE workspace_id=$1 AND github_repo_id=$2 AND number=$3`, inst.WorkspaceID, repo.ID, number)
 	if err != nil {
 		return err
 	}
