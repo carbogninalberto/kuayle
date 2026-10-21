@@ -129,7 +129,7 @@
 							{/each}
 							<p class="log-line flex items-center gap-2" style="animation-delay: {400 + logLines.length * 350}ms">
 								<span
-									class="ml-5 inline-block h-3.5 w-1.5 bg-brand-300"
+									class="caret ml-5 inline-block h-3.5 w-1.5 bg-brand-300"
 									style="animation: caret-blink 1.2s step-end infinite"
 								></span>
 							</p>

@@ -8,6 +8,10 @@
 	import Users from '@lucide/svelte/icons/users';
 	import SquareTerminal from '@lucide/svelte/icons/square-terminal';
 	import ChartColumn from '@lucide/svelte/icons/chart-column';
+	import FolderKanban from '@lucide/svelte/icons/folder-kanban';
+	import History from '@lucide/svelte/icons/history';
+	import Lock from '@lucide/svelte/icons/lock';
+	import ArrowRightLeft from '@lucide/svelte/icons/arrow-right-left';
 	import ArrowRight from '@lucide/svelte/icons/arrow-right';
 	import { DEV_MACHINES_RELEASE_STATUS } from '$lib/config/releases';
 	import { useLatestRelease } from '$lib/release.svelte';
@@ -28,17 +32,17 @@
 			icon: RefreshCw,
 			title: 'Cycles',
 			description:
-				'Time-box work, review burndown and velocity, and choose whether unfinished issues move to the next cycle.',
+				'Time-box work with the full issue list, a searchable issue picker, burndown and velocity charts, and optional carry-over.',
 			href: '/features/cycles',
 			span: 'lg:col-span-2',
 			tags: []
 		},
 		{
-			icon: GitPullRequest,
-			title: 'GitHub integration',
+			icon: FolderKanban,
+			title: 'Projects',
 			description:
-				'Link repositories through a GitHub App. Match issue IDs in branches, commits and pull requests, with configurable status transitions.',
-			href: '/features/github-integration',
+				'Group issues across teams and work them in list, board or Gantt layouts with project dates, a lead and progress.',
+			href: '/features/projects',
 			span: 'lg:col-span-2',
 			tags: []
 		},
@@ -52,20 +56,38 @@
 			tags: [DEV_MACHINES_RELEASE_STATUS, 'Claude Code', 'OpenCode', 'Codex', 'Custom CLIs']
 		},
 		{
+			icon: GitPullRequest,
+			title: 'GitHub integration',
+			description:
+				'Match issue IDs in branches, commits and pull requests, move issues with configurable rules, and get a bot comment linking each new pull request to its issue.',
+			href: '/features/github-integration',
+			span: 'lg:col-span-3',
+			tags: ['Auto-linking', 'Status rules', 'PR comments']
+		},
+		{
+			icon: Lock,
+			title: 'Private teams',
+			description:
+				'Limit issues, projects, cycles, comments and attachments to team members. Owners and admins keep access.',
+			href: '/features/teams-and-access-control',
+			span: 'lg:col-span-2',
+			tags: []
+		},
+		{
+			icon: History,
+			title: 'Version history',
+			description:
+				'Review every recorded title and description edit with its author, time and full before/after values.',
+			href: '/features/issue-tracking',
+			span: 'lg:col-span-2',
+			tags: []
+		},
+		{
 			icon: ChartColumn,
 			title: 'Analytics & Insights',
 			description:
-				'Workspace and team overviews, burn-up trends and a configurable insight builder — measure count and defined duration metrics across supported issue dimensions.',
+				'Workspace and team overviews, burn-up trends and an insight builder for count, lead time and cycle time.',
 			href: '/features/analytics-insights',
-			span: 'lg:col-span-3',
-			tags: ['Burn-up', 'Lead time', 'Cycle time']
-		},
-		{
-			icon: Zap,
-			title: 'Real-time sync',
-			description:
-				'WebSocket events notify connected workspace clients about issue, comment, cycle and GitHub changes.',
-			href: '/features/real-time-sync',
 			span: 'lg:col-span-2',
 			tags: []
 		},
@@ -75,16 +97,34 @@
 			description:
 				'Saved filters as shareable views, a triage inbox for incoming work, hierarchical labels and per-team custom workflows.',
 			href: '/features/views-and-triage',
-			span: 'lg:col-span-2',
+			span: 'lg:col-span-3',
 			tags: []
 		},
 		{
 			icon: Users,
-			title: 'Teams and access control',
+			title: 'Roles, invites and tokens',
 			description:
-				'Multiple teams per workspace, owner/admin/member/guest roles, and read-only public links for sharing outside the team.',
+				'Owner, admin, member and guest roles, invite links, optional invite-only sign-up and scoped personal access tokens.',
 			href: '/features/teams-and-access-control',
-			span: 'lg:col-span-2',
+			span: 'lg:col-span-3',
+			tags: []
+		},
+		{
+			icon: Zap,
+			title: 'Real-time sync',
+			description:
+				'WebSocket events notify connected workspace clients about issue, comment, cycle and GitHub changes.',
+			href: '/features/real-time-sync',
+			span: 'lg:col-span-3',
+			tags: []
+		},
+		{
+			icon: ArrowRightLeft,
+			title: 'Workspace transfer',
+			description:
+				'Export a workspace as a portable archive and import it on another instance, with secrets left behind.',
+			href: '/self-hosting/workspace-transfer',
+			span: 'lg:col-span-3',
 			tags: []
 		}
 	];
@@ -96,7 +136,8 @@
 			<p class="text-sm font-semibold tracking-widest text-brand-300 uppercase">Features</p>
 			<h2 class="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">Implemented in Kuayle today</h2>
 			<p class="mt-4 text-lg text-muted-foreground">
-				The current {release.version} release covers the core issue-tracking workflow and analytics. Dev Machines are {DEV_MACHINES_RELEASE_STATUS.toLowerCase()}
+				The current {release.version} release covers issue tracking, cycles and projects, private teams, GitHub automation
+				and analytics. Dev Machines are {DEV_MACHINES_RELEASE_STATUS.toLowerCase()}
 				development-branch functionality. The source for each feature is available in the public repository.
 			</p>
 		</div>

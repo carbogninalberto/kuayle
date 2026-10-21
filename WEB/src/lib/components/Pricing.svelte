@@ -7,13 +7,15 @@
 	const included = [
 		'No software-enforced user or workspace limit',
 		'No software-enforced issue, project or cycle limit',
-		'GitHub integration with auto-transitions',
+		'Private teams and role-based access control',
+		'Issue version history',
+		'GitHub integration with auto-transitions and PR comments',
 		'Real-time sync via WebSockets',
 		'Saved views, triage and labels',
 		'Analytics and configurable insights',
+		'Workspace export and import',
 		`${DEV_MACHINES_RELEASE_STATUS} opt-in Dev Machines subsystem`,
-		'Public share links',
-		'Role-based access control',
+		'Public share links and personal access tokens',
 		'Apache 2.0 source code'
 	];
 </script>

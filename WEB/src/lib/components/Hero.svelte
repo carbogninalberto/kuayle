@@ -60,9 +60,10 @@
       class="animate-fade-up mx-auto mt-6 max-w-2xl text-lg text-muted-foreground sm:text-xl"
       style="animation-delay: 200ms"
     >
-      Run Kuayle on your own infrastructure. Manage multi-assignee issues, cycles,
-      projects, analytics and GitHub activity from one Apache 2.0-licensed
-      codebase. Unreleased opt-in Dev Machines are documented separately from the public release.
+      Run Kuayle on your own infrastructure. Plan multi-assignee issues in cycles
+      and projects, keep private teams private and link GitHub pull requests to
+      issues, all from one Apache 2.0-licensed codebase. Unreleased opt-in Dev
+      Machines are documented separately from the public release.
     </p>
 
     <div
@@ -145,7 +146,7 @@
             src="/product-screenshot.png"
             srcset="/product-screenshot-720.png 720w, /product-screenshot-1440.png 1440w, /product-screenshot.png 3600w"
             sizes="(max-width: 640px) 100vw, (max-width: 1200px) 92vw, 1152px"
-            alt="Kuayle issue tracker interface showing the board view with issues"
+            alt="Kuayle team issue list grouped by status, with priorities, labels, due dates and assignees"
             width="3600"
             height="1886"
             class="w-full h-auto"

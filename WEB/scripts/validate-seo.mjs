@@ -28,6 +28,7 @@ const ROUTES = [
 	'/self-hosting/storage',
 	'/self-hosting/github-app',
 	'/self-hosting/dev-machines',
+	'/self-hosting/workspace-transfer',
 	'/open-source',
 	'/license',
 	'/security',

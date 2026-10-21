@@ -57,7 +57,7 @@
 
 <Nav />
 
-<main class="mx-auto max-w-6xl px-6 pt-28 pb-20">
+<main id="main" tabindex="-1" class="outline-none mx-auto max-w-6xl px-6 pt-28 pb-20">
 	<!-- Breadcrumbs -->
 	<div class="mb-8">
 		<Breadcrumbs {breadcrumbs} />

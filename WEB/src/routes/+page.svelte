@@ -3,6 +3,7 @@
 	import Hero from '$lib/components/Hero.svelte';
 	import OpenSource from '$lib/components/OpenSource.svelte';
 	import Features from '$lib/components/Features.svelte';
+	import ProductTour from '$lib/components/ProductTour.svelte';
 	import DevMachines from '$lib/components/DevMachines.svelte';
 	import Keyboard from '$lib/components/Keyboard.svelte';
 	import Pricing from '$lib/components/Pricing.svelte';
@@ -35,10 +36,11 @@
 
 <Nav />
 
-<main>
+<main id="main" tabindex="-1" class="outline-none">
 	<Hero />
 	<OpenSource />
 	<Features />
+	<ProductTour />
 	<DevMachines />
 	<Keyboard />
 	<Pricing />

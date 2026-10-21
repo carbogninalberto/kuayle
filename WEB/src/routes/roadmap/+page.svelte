@@ -24,27 +24,32 @@
 				'Open issues describe proposed work',
 				'Pull requests and releases describe shipped work',
 				'No feature on this page has a guaranteed delivery date',
-				'Last reviewed: July 23, 2026'
+				'Last reviewed: October 22, 2026'
 			]
 		},
 		{
 			heading: `Available in ${release.version}`,
-			body: 'The current release includes the issue workflow, workspace roles, teams, custom statuses, comments, sub-issues, relations, labels, cycles, projects, saved views, analytics, notifications, public sharing, webhooks and GitHub integration.',
+			body: 'The current release includes the issue workflow, workspace roles, public and private teams, custom statuses, comments, sub-issues, relations, labels, issue version history, cycles, projects, saved views, analytics, notifications, public sharing, webhooks, personal access tokens, invite links, workspace transfer and GitHub integration.',
 			list: [
-				'Cycle burndown and velocity charts',
-				'Project issue list and Gantt view',
-				'Workspace insights, lifecycle metrics and burn-up trends',
-				'GitHub activity linking and configurable status transitions',
-				'WebSocket updates and issue presence'
+				'Private teams with membership-based access (v0.1.19)',
+				'Issue title and description version history (v0.1.22)',
+				'Cycle and project pages with the full issue list, list/board layouts and an issue picker (v0.1.23)',
+				'GitHub pull-request comments linking the matching issue (v0.1.24)',
+				'Workspace export/import, invite links and personal access tokens (v0.1.17)',
+				'Cycle burndown and velocity charts, project Gantt view and workspace insights',
+				'Interface in English, Italian, Simplified and Traditional Chinese'
 			]
 		},
 		{
 			heading: 'Known gaps',
 			body: 'These capabilities are not available in the current user interface. Their absence is documented so teams can evaluate Kuayle against present requirements rather than future assumptions.',
 			list: [
-				'Data import and export workflows',
+				'Importers from other trackers (workspace transfer only moves data between Kuayle instances)',
 				'Enterprise identity: SSO, SAML, SCIM and LDAP',
-				'GitLab and chat integrations'
+				'GitLab and chat integrations',
+				'Email notifications (notifications are delivered in-app)',
+				'Restoring an earlier issue version (history is read-only)',
+				'Saved views, view-based public links, workspace export, AI expansion, outgoing webhooks, Dev Machines and live presence in workspaces that use private teams'
 			]
 		},
 		{

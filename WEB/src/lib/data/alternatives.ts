@@ -39,6 +39,7 @@ export const alternatives: ContentRegistry = {
 					'Multiple assignees on one issue',
 					'Keyboard shortcuts and issue search',
 					'Cycles, projects and GitHub automation',
+					'Private teams and issue version history',
 					'Reference Docker Compose deployment'
 				]
 			},
@@ -53,7 +54,7 @@ export const alternatives: ContentRegistry = {
 				]
 			}
 		],
-		footnotes: 'Last reviewed: July 11, 2026. This is an informational overview, not an endorsement. Tool availability, features, and licensing can change. Always review the latest project documentation directly.'
+		footnotes: 'Kuayle details updated: October 22, 2026. Other projects last reviewed: July 11, 2026. This is an informational overview, not an endorsement. Tool availability, features, and licensing can change. Always review the latest project documentation directly.'
 	},
 
 	'self-hosted-issue-trackers': {
@@ -79,7 +80,7 @@ export const alternatives: ContentRegistry = {
 				heading: 'Different product scopes',
 				body: 'The main alternatives do not target exactly the same workflow. Verify current editions and deployment support in first-party documentation.',
 				list: [
-					'Kuayle — focused issue tracking, cycles, projects and GitHub automation; Apache 2.0',
+					'Kuayle — focused issue tracking, cycles, projects, private teams and GitHub automation; Apache 2.0',
 					'Plane — project-management suite with pages, modules, dashboards and commercial plans; AGPL-3.0 public repository',
 					'Taiga — Scrum and Kanban-oriented project management',
 					'OpenProject — broader project management including Gantt and time-related workflows',
@@ -88,9 +89,10 @@ export const alternatives: ContentRegistry = {
 			},
 			{
 				heading: 'What to consider',
-				body: 'Evaluate the deployment you will actually operate, not only a product screenshot. Kuayle’s reference stack uses five services in one Compose file; other products may support additional deployment methods or require more services.',
+				body: 'Evaluate the deployment you will actually operate, not only a product screenshot. Kuayle’s reference stack uses five services in one Compose file, with an update script and an optional in-app updater; other products may support additional deployment methods or require more services.',
 				list: [
 					'Deployment and update procedure',
+					'Moving data between instances (Kuayle: workspace export and import)',
 					'Database, upload and certificate backups',
 					'Authentication and integration requirements',
 					'Product scope: focused issue tracking or broader project management'
@@ -107,6 +109,6 @@ export const alternatives: ContentRegistry = {
 				]
 			}
 		],
-		footnotes: 'Last reviewed: July 11, 2026. This overview reflects publicly available information and is not a guarantee of current accuracy. Features, deployment options, and licensing change. Always consult each project\'s official documentation.'
+		footnotes: 'Kuayle details updated: October 22, 2026. Other projects last reviewed: July 11, 2026. This overview reflects publicly available information and is not a guarantee of current accuracy. Features, deployment options, and licensing change. Always consult each project\'s official documentation.'
 	}
 };

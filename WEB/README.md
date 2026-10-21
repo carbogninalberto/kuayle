@@ -24,6 +24,7 @@ Static marketing/landing site for [Kuayle](https://kuayle.com), built with Svelt
 | `npm run check`      | Run `svelte-check` for type errors                     |
 | `npm run validate-seo` | Run SEO validation on `build/` output               |
 | `npm run validate`   | Build + validate (CI-ready)                            |
+| `npm run test:responsive` | Playwright check that every route fits a 320 px viewport |
 
 ## SEO conventions
 
@@ -43,7 +44,7 @@ Static marketing/landing site for [Kuayle](https://kuayle.com), built with Svelt
 - **Standalone pages**: `/open-source`, `/license`, `/security`, `/about`, `/roadmap` — each uses `StandalonePage.svelte` wrapper.
 - **Breadcrumbs**: Every page includes a `<Breadcrumbs>` component with structured data.
 - **CTA**: Every content page ends with a `<CtaSection>`.
-- **Comparisons**: Neutral language, visible last-reviewed date (July 11, 2026), methodology notes.
+- **Comparisons**: Neutral language, methodology notes, and separate visible dates for Kuayle details (October 22, 2026) and competitor details (last reviewed July 2026).
 - **Self-hosting pages**: Aligned with the actual README and `selfhosting/` configs. No secrets exposed.
 
 ## Route map
@@ -53,7 +54,7 @@ Static marketing/landing site for [Kuayle](https://kuayle.com), built with Svelt
 /features                                      Features hub
 /features/[slug]                               Feature detail (10 pages)
 /self-hosting                                  Self-hosting hub
-/self-hosting/[slug]                           Self-hosting guide (7 pages)
+/self-hosting/[slug]                           Self-hosting guide (8 pages)
 /compare                                       Comparison hub
 /compare/[slug]                                Comparison pages (2)
 /alternatives                                  Alternatives hub
@@ -84,4 +85,6 @@ The script at `scripts/validate-seo.mjs` checks:
 7. Internal links resolve to existing files
 8. Bare fragment links (`#...`) on non-homepages are flagged
 
-The homepage screenshot has responsive 720 px and 1440 px variants. Social metadata uses the dedicated 1200 × 630 `static/social-card.png` asset.
+The homepage screenshot has responsive 720 px and 1440 px variants. The product tour uses `static/tour-*-{720,1440,2160}.webp` (16:10). Social metadata uses the dedicated 1200 × 630 `static/social-card.png` asset.
+
+Screenshots are captured from a local instance (`make dev` + `make seed`, dark theme, signed in as the seeded owner) with Playwright, then resized and optimized at the same pixel dimensions.

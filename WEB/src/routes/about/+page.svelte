@@ -24,6 +24,7 @@
 				'Name: 快乐 (kuàilè) — happiness, joy',
 				`Current version: ${release.version}`,
 				'Deployment: self-hosted with Docker Compose',
+				'Interface languages: English, Italian, Simplified and Traditional Chinese',
 				'License: Apache 2.0'
 			]
 		},
@@ -39,7 +40,7 @@
 		},
 		{
 			heading: 'Who is behind it',
-			body: 'Kuayle is developed and maintained by Bakney srl, an Italian software company based in Monteforte d\'Alpone (VR). The project is led by Alberto Carbognin.',
+			body: 'Kuayle is developed and maintained by Bakney srl, an Italian software company based in Monteforte d\'Alpone (VR). The project is led by Alberto Carbognin and accepts contributions from the community through GitHub pull requests.',
 			list: [
 				'Company: Bakney srl (Italy, EU)',
 				'Founder: Alberto Carbognin',
@@ -59,13 +60,14 @@
 		},
 		{
 			heading: 'Current state',
-			body: `Version ${release.version} is a runnable MVP, not a mature enterprise platform. Core issue workflows, cycles, projects, analytics, GitHub integration, public sharing and workspace roles are available. Dev Machines are ${DEV_MACHINES_RELEASE_STATUS.toLowerCase()} development-branch infrastructure. Data import/export and enterprise identity integrations are not implemented.`,
+			body: `Version ${release.version} is a runnable MVP, not a mature enterprise platform. Core issue workflows, cycles, projects, analytics, GitHub integration, public sharing, private teams and workspace roles are available. Dev Machines are ${DEV_MACHINES_RELEASE_STATUS.toLowerCase()} development-branch infrastructure. Importers from other trackers and enterprise identity integrations are not implemented.`,
 			list: [
-				'Available: issues, labels, comments, history, sub-issues and relations',
-				'Available: cycles with charts, projects with a Gantt view, and insights analytics',
-				'Available: GitHub activity linking and configurable status transitions',
+				'Available: issues, labels, comments, version history, sub-issues and relations',
+				'Available: cycles and projects with the full issue list, charts, a Gantt view and insights analytics',
+				'Available: private teams, invite links, personal access tokens and workspace export/import',
+				'Available: GitHub activity linking, status transitions and pull-request issue-link comments',
 				`${DEV_MACHINES_RELEASE_STATUS}: opt-in Dev Machines with agent providers and issue worktrees`,
-				'Not available: SSO, SCIM, LDAP and import/export workflows'
+				'Not available: SSO, SCIM, LDAP and importers from other tools'
 			]
 		}
 	]);

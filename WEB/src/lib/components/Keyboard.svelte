@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { reveal } from '$lib/actions/reveal';
+	import ArrowRight from '@lucide/svelte/icons/arrow-right';
 
 	const shortcuts = [
 		{ keys: ['C'], label: 'Create issue' },
@@ -7,7 +8,9 @@
 		{ keys: ['A'], label: 'Set assignees' },
 		{ keys: ['S'], label: 'Set status' },
 		{ keys: ['L'], label: 'Add label' },
-		{ keys: ['P'], label: 'Set priority' }
+		{ keys: ['P'], label: 'Set priority' },
+		{ keys: ['G', 'I'], label: 'Go to Inbox' },
+		{ keys: ['?'], label: 'All shortcuts' }
 	];
 </script>
 
@@ -26,8 +29,15 @@
 				<p class="mt-5 text-lg leading-relaxed text-muted-foreground">
 					Use C to create an issue and Cmd/Ctrl+K to search issues or open workspace destinations.
 					Inside an issue, S, P, A and L open the status, priority, assignee and label controls.
-					The triage queue uses J/K for navigation and number keys to accept or decline work.
+					G then I, M, A, P or S jumps to Inbox, My Issues, Insights, Projects or Settings, and ? lists every
+					shortcut. Triage and the inbox use J/K for navigation.
 				</p>
+				<a
+					href="/features/keyboard-shortcuts"
+					class="mt-6 inline-flex items-center gap-1.5 text-sm font-medium text-brand-300 transition-colors hover:text-brand-200"
+				>
+					See every shortcut <ArrowRight class="size-3.5" />
+				</a>
 			</div>
 
 		<div use:reveal={{ delay: 150 }} class="grid grid-cols-1 gap-4 sm:grid-cols-2">

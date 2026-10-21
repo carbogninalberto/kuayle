@@ -81,14 +81,14 @@ export const HUBS: Record<string, Hub> = {
 		label: 'Features',
 		href: '/features',
 		children: [
-			{ slug: 'issue-tracking', label: 'Issue Tracking', href: '/features/issue-tracking', description: 'Multiple assignees, sub-issues, relations, comments, labels and history.' },
-			{ slug: 'cycles', label: 'Cycles', href: '/features/cycles', description: 'Date-bound work with burndown, velocity and optional carry-over.' },
-			{ slug: 'projects', label: 'Projects', href: '/features/projects', description: 'Cross-team issue grouping, progress and a due-date Gantt view.' },
-			{ slug: 'github-integration', label: 'GitHub Integration', href: '/features/github-integration', description: 'Match issue IDs in branches, commits and pull requests; configure status changes.' },
+			{ slug: 'issue-tracking', label: 'Issue Tracking', href: '/features/issue-tracking', description: 'Multiple assignees, sub-issues, relations, labels, comments and version history.' },
+			{ slug: 'cycles', label: 'Cycles', href: '/features/cycles', description: 'Date-bound work with a full issue list, burndown, velocity and optional carry-over.' },
+			{ slug: 'projects', label: 'Projects', href: '/features/projects', description: 'Cross-team issue grouping with list, board and Gantt layouts and progress tracking.' },
+			{ slug: 'github-integration', label: 'GitHub Integration', href: '/features/github-integration', description: 'Match issue IDs in branches, commits and pull requests; bot comments and status changes.' },
 			{ slug: 'real-time-sync', label: 'Real-Time Sync', href: '/features/real-time-sync', description: 'Workspace WebSocket events for issues, comments, cycles, views and GitHub activity.' },
-			{ slug: 'keyboard-shortcuts', label: 'Keyboard Shortcuts', href: '/features/keyboard-shortcuts', description: 'Global navigation, issue search, property controls and triage shortcuts.' },
+			{ slug: 'keyboard-shortcuts', label: 'Keyboard Shortcuts', href: '/features/keyboard-shortcuts', description: 'Global navigation, issue search, property controls, triage and inbox shortcuts.' },
 			{ slug: 'views-and-triage', label: 'Views & Triage', href: '/features/views-and-triage', description: 'Saved filters, triage inbox, hierarchical labels, and custom workflows.' },
-			{ slug: 'teams-and-access-control', label: 'Teams & Access Control', href: '/features/teams-and-access-control', description: 'Multiple teams per workspace with role-based access control.' },
+			{ slug: 'teams-and-access-control', label: 'Teams & Access Control', href: '/features/teams-and-access-control', description: 'Public and private teams, workspace roles, invite links and scoped API tokens.' },
 			{ slug: 'analytics-insights', label: 'Analytics & Insights', href: '/features/analytics-insights', description: 'Workspace and team overviews, burn-up trends, and configurable issue insights.' },
 			{ slug: 'dev-machines', label: 'Dev Machines', href: '/features/dev-machines', description: `${DEV_MACHINES_RELEASE_STATUS} opt-in multi-container coding environments with agent providers and issue worktrees.` }
 		]
@@ -101,9 +101,10 @@ export const HUBS: Record<string, Hub> = {
 			{ slug: 'docker-compose', label: 'Docker Compose', href: '/self-hosting/docker-compose', description: 'Reference stack with Caddy, PostgreSQL, Redis, API and frontend.' },
 			{ slug: 'requirements', label: 'Requirements', href: '/self-hosting/requirements', description: 'Server prerequisites and deployment dependencies.' },
 			{ slug: 'configuration', label: 'Configuration', href: '/self-hosting/configuration', description: 'Environment variables, secrets, and deployment settings.' },
-			{ slug: 'updating', label: 'Updating', href: '/self-hosting/updating', description: 'Rebuild containers and apply migrations with the supplied update script.' },
+			{ slug: 'updating', label: 'Updating', href: '/self-hosting/updating', description: 'Update with the supplied script or the optional in-app updater.' },
 			{ slug: 'storage', label: 'Storage', href: '/self-hosting/storage', description: 'Local filesystem and S3-compatible storage backends.' },
-			{ slug: 'github-app', label: 'GitHub App', href: '/self-hosting/github-app', description: 'Set up and configure the GitHub integration.' },
+			{ slug: 'github-app', label: 'GitHub App', href: '/self-hosting/github-app', description: 'Set up the GitHub integration, webhook delivery and pull-request bot comments.' },
+			{ slug: 'workspace-transfer', label: 'Workspace Transfer', href: '/self-hosting/workspace-transfer', description: 'Export a workspace archive and import it into another instance.' },
 			{ slug: 'dev-machines', label: 'Dev Machines', href: '/self-hosting/dev-machines', description: `Prepare the ${DEV_MACHINES_RELEASE_STATUS.toLowerCase()} opt-in agentic coding subsystem with wildcard TLS.` }
 		]
 	},
@@ -139,8 +140,8 @@ export interface StandalonePage {
 
 export const STANDALONE_PAGES: StandalonePage[] = [
 	{ slug: '', title: '', description: '', canonical: url('/'), inSitemap: true },
-	{ slug: 'features', title: 'Kuayle Features — Issues, Cycles, Projects and GitHub', description: `Review released issue tracking, cycle, project, GitHub and analytics features alongside ${DEV_MACHINES_RELEASE_STATUS.toLowerCase()} Dev Machine development.`, canonical: url('/features'), inSitemap: true },
-	{ slug: 'self-hosting', title: 'Self-Host Kuayle With Docker Compose', description: 'Deploy Kuayle with Caddy, PostgreSQL, Redis, the Go API and SvelteKit frontend; configure storage, updates and GitHub webhooks.', canonical: url('/self-hosting'), inSitemap: true },
+	{ slug: 'features', title: 'Kuayle Features — Issues, Cycles, Projects and GitHub', description: `Review released issue tracking, version history, private teams, cycle, project, GitHub and analytics features alongside ${DEV_MACHINES_RELEASE_STATUS.toLowerCase()} Dev Machine development.`, canonical: url('/features'), inSitemap: true },
+	{ slug: 'self-hosting', title: 'Self-Host Kuayle With Docker Compose', description: 'Deploy Kuayle with Caddy, PostgreSQL, Redis, the Go API and SvelteKit frontend; configure storage, updates, GitHub webhooks and workspace transfer.', canonical: url('/self-hosting'), inSitemap: true },
 	{ slug: 'compare', title: 'Compare Kuayle — Issue Tracker Comparisons', description: 'Compare Kuayle with Linear and Plane by hosting model, license, workflow coverage, product maturity and operating cost.', canonical: url('/compare'), inSitemap: true },
 	{ slug: 'alternatives', title: 'Issue Tracker Alternatives — Kuayle', description: 'Compare open-source and self-hosted issue trackers by license, edition model, product scope, deployment footprint and operator responsibility.', canonical: url('/alternatives'), inSitemap: true },
 	{ slug: 'open-source', title: 'Kuayle Open-Source Model — Apache 2.0, One Edition', description: 'Understand Kuayle’s Apache 2.0 license, single public repository, ungated feature model and self-hosting costs.', canonical: url('/open-source'), inSitemap: true },
@@ -208,6 +209,17 @@ export const SOFTWARE_APP_LD = {
 	description: 'A keyboard-driven, self-hosted issue tracker licensed under Apache 2.0.',
 	applicationCategory: 'BusinessApplication',
 	operatingSystem: 'Linux, Docker',
+	softwareVersion: FALLBACK_VERSION.replace(/^v/, ''),
+	featureList: [
+		'Multi-assignee issues with sub-issues, relations and version history',
+		'Cycles with burndown and velocity charts',
+		'Cross-team projects with list, board and Gantt layouts',
+		'Private teams and role-based access control',
+		'GitHub App integration with status automation and pull-request comments',
+		'Saved views, triage and analytics insights',
+		'Workspace export and import',
+		'Self-hosted Docker Compose deployment'
+	],
 	offers: {
 		'@type': 'Offer',
 		price: '0',
