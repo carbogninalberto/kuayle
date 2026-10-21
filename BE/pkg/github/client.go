@@ -2,6 +2,7 @@ package github
 
 import (
 	"bytes"
+	"context"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base64"
@@ -222,6 +223,11 @@ func (c *Client) generateAppJWT() (string, error) {
 
 // GetInstallationToken retrieves (or returns cached) an installation access token.
 func (c *Client) GetInstallationToken(installationID int64) (string, time.Time, error) {
+	return c.GetInstallationTokenContext(context.Background(), installationID)
+}
+
+// GetInstallationTokenContext includes token acquisition in the caller deadline.
+func (c *Client) GetInstallationTokenContext(ctx context.Context, installationID int64) (string, time.Time, error) {
 	c.mu.Lock()
 	if cached, ok := c.tokenCache[installationID]; ok && time.Now().Before(cached.ExpiresAt.Add(-5*time.Minute)) {
 		c.mu.Unlock()
@@ -235,7 +241,7 @@ func (c *Client) GetInstallationToken(installationID int64) (string, time.Time, 
 	}
 
 	url := fmt.Sprintf("%s/app/installations/%d/access_tokens", githubAPIBaseURL, installationID)
-	req, _ := http.NewRequest("POST", url, nil)
+	req, _ := http.NewRequestWithContext(ctx, "POST", url, nil)
 	req.Header.Set("Authorization", "Bearer "+appJWT)
 	req.Header.Set("Accept", "application/vnd.github+json")
 

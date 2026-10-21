@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -105,19 +106,21 @@ func (r *GitHubRepository) DeleteRepo(ctx context.Context, id uuid.UUID) error {
 
 // --- Pull Requests ---
 
-func (r *GitHubRepository) UpsertPullRequest(ctx context.Context, pr *domain.GitHubPullRequest) error {
+func (r *GitHubRepository) UpsertPullRequest(ctx context.Context, pr *domain.GitHubPullRequest) (bool, error) {
 	query := `INSERT INTO github_pull_requests (id, workspace_id, issue_id, github_repo_id, github_pr_id, number, title, state, author_login, author_avatar_url, html_url, head_branch, base_branch, additions, deletions, merged_at, closed_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 		ON CONFLICT (github_repo_id, github_pr_id) DO UPDATE SET
 			issue_id = COALESCE(EXCLUDED.issue_id, github_pull_requests.issue_id),
 			title = EXCLUDED.title, state = EXCLUDED.state, additions = EXCLUDED.additions, deletions = EXCLUDED.deletions,
 			merged_at = EXCLUDED.merged_at, closed_at = EXCLUDED.closed_at, updated_at = NOW()
-		RETURNING created_at, updated_at`
-	return r.db.QueryRowContext(ctx, query,
+		RETURNING created_at, updated_at, (xmax = 0)`
+	var inserted bool
+	err := r.db.QueryRowContext(ctx, query,
 		pr.ID, pr.WorkspaceID, pr.IssueID, pr.GitHubRepoID, pr.GitHubPRID, pr.Number,
 		pr.Title, pr.State, pr.AuthorLogin, pr.AuthorAvatarURL, pr.HTMLURL,
 		pr.HeadBranch, pr.BaseBranch, pr.Additions, pr.Deletions, pr.MergedAt, pr.ClosedAt,
-	).Scan(&pr.CreatedAt, &pr.UpdatedAt)
+	).Scan(&pr.CreatedAt, &pr.UpdatedAt, &inserted)
+	return inserted, err
 }
 
 func (r *GitHubRepository) ListPRsByIssue(ctx context.Context, issueID uuid.UUID) ([]domain.GitHubPullRequest, error) {
@@ -262,4 +265,51 @@ func (r *GitHubRepository) GetAppConfigByWorkspace(ctx context.Context, workspac
 func (r *GitHubRepository) DeleteAppConfig(ctx context.Context, workspaceID uuid.UUID) error {
 	_, err := r.db.ExecContext(ctx, `DELETE FROM github_app_configs WHERE workspace_id = $1`, workspaceID)
 	return err
+}
+
+// WithPullRequestCommentLock serializes comment reconciliation across API replicas.
+// An advisory key per PR coordinates replicas without holding a tuple lock that
+// ordinary writes or cascading deletes need. The two-int namespace is separate
+// from bigint publication locks. Hash collisions only serialize unrelated PRs.
+// Release the transaction on every error path.
+func (r *GitHubRepository) WithPullRequestCommentLock(ctx context.Context, inst *domain.GitHubInstallation, repo *domain.GitHubRepoModel, number int, issueID uuid.UUID, comment func(slug string) error) error {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	// Match SetVisibility lock order: publication guard before PR serialization.
+	// Do not use the workspace-wide publicMetadataAllowed predicate: public issues
+	// may still be linked when another team in this workspace is private.
+	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock_shared(hashtextextended($1::text,63))`, inst.WorkspaceID); err != nil {
+		return err
+	}
+	key := repo.ID.String() + ":" + strconv.Itoa(number)
+	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(610060, hashtext($1))`, key); err != nil {
+		return err
+	}
+	var id uuid.UUID
+	err = tx.GetContext(ctx, &id, `SELECT id FROM github_pull_requests WHERE workspace_id=$1 AND github_repo_id=$2 AND number=$3`, inst.WorkspaceID, repo.ID, number)
+	if err != nil {
+		return err
+	}
+	// Recheck installation, active repository and public-team visibility after
+	// waiting for the publication and PR locks. Ordinary issue edits remain free.
+	var slug string
+	err = tx.GetContext(ctx, &slug, `SELECT w.slug FROM workspaces w
+ JOIN github_installations gi ON gi.workspace_id=w.id
+ JOIN github_repos r ON r.installation_id=gi.id AND r.workspace_id=w.id
+ JOIN issues i ON i.workspace_id=w.id
+ WHERE w.id=$1 AND gi.id=$2 AND gi.installation_id=$3 AND r.id=$4
+ AND r.is_active=true AND i.id=$5 AND `+teamVisible(domain.PublicContext(ctx), "i.team_id"), inst.WorkspaceID, inst.ID, inst.InstallationID, repo.ID, issueID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if err := comment(slug); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
