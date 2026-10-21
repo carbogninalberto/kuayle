@@ -496,18 +496,11 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 
 	// Track changes for history
 	if req.Title != nil && *req.Title != issue.Title {
-		old := issue.Title
 		issue.Title = *req.Title
-		s.recordHistory(ctx, issue.ID, userID, "title", &old, req.Title)
 		changes.addField("title")
 	}
 	if req.Description != nil && *req.Description != oldDescription {
-		old := ""
-		if issue.Description != nil {
-			old = *issue.Description
-		}
 		issue.Description = req.Description
-		s.recordHistory(ctx, issue.ID, userID, "description", &old, req.Description)
 		changes.addField("description")
 		changes.newMentions = newMentionedUserIDs(oldDescription, *req.Description)
 	}
@@ -660,7 +653,7 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 		issue.SortOrder = *req.SortOrder
 	}
 
-	if err := s.issueRepo.Update(ctx, issue); err != nil {
+	if err := s.issueRepo.Update(repository.WithIssueHistoryActor(ctx, userID), issue); err != nil {
 		return nil, err
 	}
 

@@ -107,7 +107,7 @@ export interface UpdateIssueRequest {
 export interface IssueHistory {
 	id: string;
 	issue_id: string;
-	user_id: string;
+	user_id: string | null;
 	field: string;
 	old_value: string | null;
 	new_value: string | null;

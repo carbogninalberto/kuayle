@@ -116,7 +116,7 @@ type IssueSummaryResponse struct {
 type IssueHistoryResponse struct {
 	ID              string    `json:"id"`
 	IssueID         string    `json:"issue_id"`
-	UserID          string    `json:"user_id"`
+	UserID          *string   `json:"user_id"`
 	Field           string    `json:"field"`
 	OldValue        *string   `json:"old_value"`
 	NewValue        *string   `json:"new_value"`

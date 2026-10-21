@@ -320,6 +320,25 @@ func (r *IssueRepository) List(ctx context.Context, workspaceID uuid.UUID, param
 }
 
 func (r *IssueRepository) Update(ctx context.Context, issue *domain.Issue) error {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	actor, _ := ctx.Value(issueHistoryActorKey{}).(uuid.UUID)
+	if actor == uuid.Nil {
+		if access, ok := domain.AccessFromContext(ctx); ok {
+			actor = access.UserID
+		}
+	}
+	actorValue := ""
+	if actor != uuid.Nil {
+		actorValue = actor.String()
+	}
+	// Transaction-local: an actor must never leak to the next pooled request.
+	if _, err = tx.ExecContext(ctx, `SELECT set_config('kuayle.history_actor', $1, true)`, actorValue); err != nil {
+		return err
+	}
 	query := `
 		UPDATE issues SET
 			title = $1, description = $2, status = $3, priority = $4,
@@ -328,12 +347,16 @@ func (r *IssueRepository) Update(ctx context.Context, issue *domain.Issue) error
 			status_id = $12, updated_at = NOW()
 		WHERE id = $13 AND ` + teamVisible(ctx, "issues.team_id") + " AND " + issueReferencesVisible(ctx, issue) + `
 		RETURNING updated_at`
-	return r.db.QueryRowContext(ctx, query,
+	err = tx.QueryRowContext(ctx, query,
 		issue.Title, issue.Description, issue.Status, issue.Priority,
 		issue.AssigneeID, issue.ProjectID, issue.CycleID, issue.ParentID,
 		issue.DueDate, issue.SortOrder, issue.Triaged,
 		issue.StatusID, issue.ID,
 	).Scan(&issue.UpdatedAt)
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (r *IssueRepository) Delete(ctx context.Context, id uuid.UUID) error {

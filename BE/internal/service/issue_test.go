@@ -10,6 +10,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/realtime"
+	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -433,13 +434,12 @@ func TestIssueService_Update(t *testing.T) {
 	}
 
 	issueRepo.On("GetByIdentifier", ctx, wsID, "ENG-1").Return(issue, nil)
-	issueRepo.On("Update", ctx, mock.AnythingOfType("*domain.Issue")).Return(nil)
+	issueRepo.On("Update", repository.WithIssueHistoryActor(ctx, userID), mock.AnythingOfType("*domain.Issue")).Return(nil)
 	issueRepo.On("GetAssignees", ctx, issueID).Return([]uuid.UUID{}, nil)
 	teamStatusRepo.On("GetByTeamAndSlug", ctx, issue.TeamID, "todo").Return(nil, nil)
 
 	newTitle := "New Title"
 	newStatus := "todo"
-	historyRepo.On("Create", ctx, issueID, userID, "title", mock.AnythingOfType("*string"), &newTitle).Return(nil)
 	historyRepo.On("Create", ctx, issueID, userID, "status", mock.AnythingOfType("*string"), &newStatus).Return(nil)
 
 	req := dto.UpdateIssueRequest{
@@ -471,7 +471,7 @@ func TestIssueService_Update_NoOpDescriptionDoesNotNotify(t *testing.T) {
 	issue := &domain.Issue{ID: issueID, WorkspaceID: wsID, Identifier: "ENG-1", Title: "Issue", Description: &description}
 
 	issueRepo.On("GetByIdentifier", ctx, wsID, "ENG-1").Return(issue, nil)
-	issueRepo.On("Update", ctx, mock.AnythingOfType("*domain.Issue")).Return(nil)
+	issueRepo.On("Update", repository.WithIssueHistoryActor(ctx, userID), mock.AnythingOfType("*domain.Issue")).Return(nil)
 
 	result, err := svc.Update(ctx, wsID, userID, "ENG-1", dto.UpdateIssueRequest{Description: &description})
 
@@ -502,10 +502,9 @@ func TestIssueService_Update_ConsolidatesFieldNotifications(t *testing.T) {
 	newTitle := "New Title"
 	newStatus := "todo"
 	issueRepo.On("GetByIdentifier", ctx, wsID, "ENG-1").Return(issue, nil)
-	issueRepo.On("Update", ctx, mock.AnythingOfType("*domain.Issue")).Return(nil)
+	issueRepo.On("Update", repository.WithIssueHistoryActor(ctx, userID), mock.AnythingOfType("*domain.Issue")).Return(nil)
 	issueRepo.On("GetAssignees", ctx, issueID).Return([]uuid.UUID{}, nil)
 	teamStatusRepo.On("GetByTeamAndSlug", ctx, issue.TeamID, "todo").Return(nil, nil)
-	historyRepo.On("Create", ctx, issueID, userID, "title", mock.AnythingOfType("*string"), &newTitle).Return(nil)
 	historyRepo.On("Create", ctx, issueID, userID, "status", mock.AnythingOfType("*string"), &newStatus).Return(nil)
 	notifRepo.On("CreateOrRefresh", ctx, mock.MatchedBy(func(n *domain.Notification) bool {
 		return n.UserID == assigneeID && n.WorkspaceID == wsID && n.IssueID != nil && *n.IssueID == issueID && n.Type == "issue_updated" && n.Title == "ENG-1 updated: title, status"
@@ -539,9 +538,8 @@ func TestIssueService_Update_MentionNotificationStaysSeparate(t *testing.T) {
 	issue := &domain.Issue{ID: issueID, WorkspaceID: wsID, Identifier: "ENG-1", Title: "Issue", Description: &oldDescription, AssigneeID: &assigneeID}
 
 	issueRepo.On("GetByIdentifier", ctx, wsID, "ENG-1").Return(issue, nil)
-	issueRepo.On("Update", ctx, mock.AnythingOfType("*domain.Issue")).Return(nil)
+	issueRepo.On("Update", repository.WithIssueHistoryActor(ctx, userID), mock.AnythingOfType("*domain.Issue")).Return(nil)
 	issueRepo.On("GetAssignees", ctx, issueID).Return([]uuid.UUID{}, nil)
-	historyRepo.On("Create", ctx, issueID, userID, "description", mock.AnythingOfType("*string"), mock.AnythingOfType("*string")).Return(nil)
 	notifRepo.On("CreateOrRefresh", ctx, mock.MatchedBy(func(n *domain.Notification) bool {
 		return n.UserID == assigneeID && n.Type == "issue_updated"
 	}), issueUpdateNotificationWindow).Return(nil).Once()
@@ -577,7 +575,7 @@ func TestIssueService_Update_SetParent(t *testing.T) {
 	issueRepo.On("GetByIdentifier", ctx, wsID, "ENG-2").Return(issue, nil)
 	issueRepo.On("GetByID", ctx, parentID).Return(parent, nil)
 	issueRepo.On("WouldCreateCycle", ctx, issueID, parentID).Return(false, nil)
-	issueRepo.On("Update", ctx, mock.AnythingOfType("*domain.Issue")).Return(nil)
+	issueRepo.On("Update", repository.WithIssueHistoryActor(ctx, userID), mock.AnythingOfType("*domain.Issue")).Return(nil)
 	issueRepo.On("GetAssignees", ctx, issueID).Return([]uuid.UUID{}, nil)
 	historyRepo.On("Create", ctx, issueID, userID, "parent", mock.AnythingOfType("*string"), mock.AnythingOfType("*string")).Return(nil)
 
