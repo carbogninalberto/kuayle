@@ -1,4 +1,8 @@
 <script lang="ts">
+	import ScopeDeleteDialog from '$lib/features/issues/ScopeDeleteDialog.svelte';
+	import { getWorkspace } from '$lib/api/workspaces';
+	import { hasPermission } from '$lib/security/permissions';
+	import type { Role } from '$lib/security/roles';
 	import { page } from '$app/state';
 	import {
 		listCycles,
@@ -39,6 +43,11 @@
 	const teamId = $derived(page.params.teamId ?? '');
 
 	let cycles = $state<Cycle[]>([]);
+	let role = $state<Role>('guest');
+	const canManage = $derived(hasPermission(role, 'cycle:manage'));
+	let deletingId = $state<string | null>(null);
+	let loadVersion = 0;
+	let loadFailed = $state(false);
 	let loading = $state(true);
 	let showCreate = $state(false);
 	let burndownData = $state<CycleBurndownPoint[]>([]);
@@ -110,15 +119,34 @@
 		const t = teamId;
 		if (!s || !t) return;
 		loading = true;
-		Promise.all([listCycles(s, t), getCycleVelocity(s, t).catch(() => [] as VelocityPoint[])])
-			.then(([c, v]) => {
+		role = 'guest';
+		showCreate = false;
+		showEdit = false;
+		showComplete = false;
+		deletingId = null;
+		loadFailed = false;
+		const version = ++loadVersion;
+		Promise.all([listCycles(s, t), getCycleVelocity(s, t).catch(() => [] as VelocityPoint[]), getWorkspace(s)])
+			.then(([c, v, workspace]) => {
+				if (version !== loadVersion) return;
+				role = workspace.current_user_role as Role;
 				cycles = c;
 				velocityData = v ?? [];
 				burndownVersion++;
 			})
+			.catch((error) => {
+				if (version === loadVersion) {
+					loadFailed = true;
+					appToast.apiError(error, m['cycles.toast.not_found']());
+				}
+			})
 			.finally(() => {
+				if (version !== loadVersion) return;
 				loading = false;
 			});
+		return () => {
+			loadVersion++;
+		};
 	});
 
 	// Fetch burndown for the active cycle
@@ -143,6 +171,7 @@
 	});
 
 	async function handleCreate(data: { name: string; description?: string; start_date: string; end_date: string }) {
+		if (!canManage) return;
 		try {
 			const cycle = await createCycle(slug, teamId, data);
 			cycles = [cycle, ...cycles];
@@ -153,6 +182,7 @@
 	}
 
 	function handleComplete(cycleId: string) {
+		if (!canManage) return;
 		const cycle = cycles.find((c) => c.id === cycleId);
 		if (!cycle) return;
 		completingCycle = cycle;
@@ -160,7 +190,7 @@
 	}
 
 	async function handleCompleteSubmit(data: { retrospective?: string; carry_over: boolean }) {
-		if (!completingCycle) return;
+		if (!completingCycle || !canManage) return;
 		try {
 			const result = await completeCycle(slug, teamId, completingCycle.id, {
 				retrospective: data.retrospective,
@@ -175,6 +205,7 @@
 	}
 
 	async function handleActivate(cycleId: string) {
+		if (!canManage) return;
 		try {
 			const updated = await updateCycle(slug, teamId, cycleId, { status: 'active' });
 			cycles = cycles.map((c) => (c.id === cycleId ? updated : c));
@@ -185,8 +216,10 @@
 	}
 
 	async function handleDelete(cycleId: string) {
+		if (!canManage) return;
 		try {
 			await deleteCycle(slug, teamId, cycleId);
+			deletingId = null;
 			cycles = cycles.filter((c) => c.id !== cycleId);
 			appToast.success(m['cycles.toast.deleted']());
 		} catch (err: any) {
@@ -198,6 +231,7 @@
 	let showEdit = $state(false);
 
 	function handleEdit(cycle: Cycle) {
+		if (!canManage) return;
 		editingCycle = cycle;
 		showEdit = true;
 	}
@@ -210,7 +244,7 @@
 		start_date?: string;
 		end_date?: string;
 	}) {
-		if (!editingCycle) return;
+		if (!editingCycle || !canManage) return;
 		try {
 			const updated = await updateCycle(slug, teamId, editingCycle.id, {
 				name: data.name,
@@ -245,10 +279,6 @@
 			end: formatTimelineDate(cycle.end_date)
 		};
 	}
-
-	function navigateToCycle(cycleId: string) {
-		window.location.href = `/${slug}/teams/${teamId}/cycles/${cycleId}`;
-	}
 </script>
 
 <div class="flex h-full min-w-0 flex-col">
@@ -272,21 +302,29 @@
 				</span>
 			</nav>
 		</div>
-		<button
-			onclick={() => (showCreate = true)}
-			class="shrink-0 rounded-md p-1 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
-			title={m['cycles.new_cycle']()}
-		>
-			<Plus size={16} />
-		</button>
+		{#if canManage}
+			<button
+				onclick={() => (showCreate = true)}
+				class="shrink-0 rounded-md p-1 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+				title={m['cycles.new_cycle']()}
+			>
+				<Plus size={16} />
+			</button>
+		{/if}
 	</div>
 
 	<div class="flex-1 overflow-y-auto">
-		{#if !loading && cycles.length === 0}
+		{#if loading}
+			<div role="status" class="animate-pulse p-4 text-sm text-[var(--color-text-tertiary)]">
+				{m['common.loading']()}
+			</div>
+		{:else if loadFailed}
+			<EmptyState title={m['cycles.toast.not_found']()} />
+		{:else if cycles.length === 0}
 			<EmptyState
 				title={m['cycles.no_cycles']()}
 				description={m['cycles.no_cycles_desc']()}
-				action={{ label: m['cycles.new_cycle'](), onclick: () => (showCreate = true) }}
+				action={canManage ? { label: m['cycles.new_cycle'](), onclick: () => (showCreate = true) } : undefined}
 			/>
 		{:else if !loading}
 			<div class="pt-2">
@@ -361,27 +399,15 @@
 						</div>
 
 						<!-- Cycle content (full row clickable + hover) -->
-						<div
-							role="button"
-							tabindex="0"
-							class="group my-2 mr-2 min-w-0 flex-1 cursor-pointer rounded-md hover:bg-[var(--color-bg-hover)]/30"
-							onclick={() => navigateToCycle(cycle.id)}
-							onkeydown={(e) => {
-								if (e.key === 'Enter' || e.key === ' ') {
-									e.preventDefault();
-									navigateToCycle(cycle.id);
-								}
-							}}
-						>
+						<div class="group my-2 mr-2 min-w-0 flex-1 rounded-md">
 							<CycleTimelineRow
 								{cycle}
 								{slug}
 								{teamId}
-								clickable={false}
-								onedit={handleEdit}
-								onactivate={handleActivate}
-								oncomplete={handleComplete}
-								ondelete={handleDelete}
+								onedit={canManage ? handleEdit : undefined}
+								onactivate={canManage ? handleActivate : undefined}
+								oncomplete={canManage ? handleComplete : undefined}
+								ondelete={canManage ? (id) => (deletingId = id) : undefined}
 							/>
 
 							<!-- Chart shown only for active cycle -->
@@ -446,7 +472,13 @@
 												</div>
 											</div>
 											<div class="min-w-0 flex-1 opacity-60">
-												<CycleTimelineRow {cycle} {slug} {teamId} />
+												<CycleTimelineRow
+													{cycle}
+													{slug}
+													{teamId}
+													onedit={canManage ? handleEdit : undefined}
+													ondelete={canManage ? (id) => (deletingId = id) : undefined}
+												/>
 											</div>
 										</div>
 									{/each}
@@ -490,3 +522,14 @@
 	{nextUpcomingCycle}
 	onsubmit={handleCompleteSubmit}
 />
+
+{#if deletingId && canManage}
+	<ScopeDeleteDialog
+		title={m['cycles.delete_cycle']()}
+		message={m['cycles.delete_confirm']()}
+		oncancel={() => (deletingId = null)}
+		onconfirm={async () => {
+			if (deletingId) await handleDelete(deletingId);
+		}}
+	/>
+{/if}

@@ -9,6 +9,7 @@ class IssuesState {
 	issues = $state<Issue[]>([]);
 	totalCount = $state(0);
 	loading = $state(false);
+	loadError = $state(false);
 	loadingMore = $state(false);
 	hasMore = $state(false);
 	selectedIssue = $state<Issue | null>(null);
@@ -112,11 +113,7 @@ class IssuesState {
 	});
 
 	/** Flat issue order matching the visual rendering (respects grouping). */
-	private visibleOrder = $derived<Issue[]>(
-		this.groupBy
-			? this.groupedIssues.flatMap((g) => g.issues)
-			: this.issues
-	);
+	private visibleOrder = $derived<Issue[]>(this.groupBy ? this.groupedIssues.flatMap((g) => g.issues) : this.issues);
 
 	getAdjacentIdentifier(current: string, direction: 'prev' | 'next'): string | null {
 		const idx = this.issueIdentifiers.indexOf(current);
@@ -187,6 +184,7 @@ class IssuesState {
 
 	async load(slug: string, params?: Record<string, string>, showLoading = true) {
 		this.beginLoad(slug, params, showLoading);
+		this.loadError = false;
 		const requestId = this.loadRequestId;
 		try {
 			const res = await issueApi.listIssues(slug, params);
@@ -196,7 +194,10 @@ class IssuesState {
 			this.currentPage = res.page;
 			this.hasMore = res.has_more;
 		} catch {
-			if (requestId === this.loadRequestId) this.clear();
+			if (requestId === this.loadRequestId) {
+				this.clear();
+				this.loadError = true;
+			}
 		} finally {
 			if (requestId === this.loadRequestId) {
 				this.loading = false;
@@ -221,7 +222,10 @@ class IssuesState {
 			this.currentPage = res.page;
 			this.hasMore = res.has_more;
 		} catch {
-			if (requestId === this.loadRequestId) this.clear();
+			if (requestId === this.loadRequestId) {
+				this.clear();
+				this.loadError = true;
+			}
 		} finally {
 			if (requestId === this.loadRequestId) {
 				this.loadingMore = false;
@@ -297,7 +301,18 @@ class IssuesState {
 		}
 	}
 
-	async bulkUpdate(slug: string, updates: { status?: string; status_id?: string; priority?: number; assignee_id?: string; label_ids?: string[]; cycle_id?: string; parent_id?: string }) {
+	async bulkUpdate(
+		slug: string,
+		updates: {
+			status?: string;
+			status_id?: string;
+			priority?: number;
+			assignee_id?: string;
+			label_ids?: string[];
+			cycle_id?: string;
+			parent_id?: string;
+		}
+	) {
 		const issueIds = Array.from(this.selectedIds);
 		if (issueIds.length === 0) return;
 

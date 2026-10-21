@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import { onMount } from 'svelte';
 	import { issuesState } from './issues.state.svelte';
 
@@ -26,7 +27,7 @@
 			disabled={issuesState.loadingMore}
 			class="rounded-md border border-[var(--app-border)] px-4 py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] disabled:opacity-60"
 		>
-			{issuesState.loadingMore ? 'Loading...' : 'Load more'}
+			{issuesState.loadingMore ? m['common.loading']() : m['issuePicker.load_more']()}
 		</button>
 	{/if}
 </div>

@@ -210,7 +210,7 @@ test('keeps long descriptions readable within a mobile viewport', async ({ page 
  await page.screenshot({ path: testInfo.outputPath('version-history-mobile.png') });
 });
 
-test('reviews history from the project issue sheet', async ({ page }) => {
+test('reviews history for an issue opened from a project', async ({ page }) => {
  const healthy = await mockWorkspace(page, [...versions].reverse());
  const projectId = '00000000-0000-0000-0000-000000000030';
  const project = {
@@ -224,15 +224,15 @@ test('reviews history from the project issue sheet', async ({ page }) => {
  await page.route('**/api/workspaces/test/dev-machine-scope-setting?*', route => route.fulfill({ json: {} }));
  await page.route('**/api/workspaces/test/dev-machine-environments', route => route.fulfill({ json: [] }));
  await page.goto(`/test/projects/${projectId}`);
+ // Project issues open on the full issue page, like the team issue list.
  await page.getByText('Navigation issue 1', { exact: true }).click();
- const sheet = page.getByRole('dialog', { name: 'ENG-1', exact: true });
- await expect(sheet).toBeVisible();
- await sheet.getByRole('button', { name: 'Version history', exact: true }).click();
+ await expect(page).toHaveURL(/\/test\/issue\/ENG-1$/);
+ await page.getByRole('button', { name: 'Version history', exact: true }).click();
  const history = page.getByRole('dialog', { name: 'ENG-1 version history', exact: true });
  await expect(history.getByRole('region', { name: 'After', exact: true })).toContainText('Empty');
  await page.keyboard.press('Escape');
  await expect(history).not.toBeVisible();
- await expect(sheet).toBeVisible();
+ await expect(page).toHaveURL(/\/test\/issue\/ENG-1$/);
  healthy();
 });
 

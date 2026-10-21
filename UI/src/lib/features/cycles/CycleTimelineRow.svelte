@@ -21,7 +21,6 @@
 		cycle,
 		slug,
 		teamId,
-		clickable = true,
 		onactivate,
 		oncomplete,
 		ondelete,
@@ -30,7 +29,6 @@
 		cycle: Cycle;
 		slug: string;
 		teamId: string;
-		clickable?: boolean;
 		onactivate?: (cycleId: string) => void;
 		oncomplete?: (cycleId: string) => void;
 		ondelete?: (cycleId: string) => void;
@@ -54,7 +52,11 @@
 	);
 
 	const badgeLabel = $derived(
-		cycle.status === 'active' ? m['cycles.status.current']() : cycle.status === 'completed' ? m['cycles.status.completed']() : m['cycles.status.upcoming']()
+		cycle.status === 'active'
+			? m['cycles.status.current']()
+			: cycle.status === 'completed'
+				? m['cycles.status.completed']()
+				: m['cycles.status.upcoming']()
 	);
 
 	const successPct = $derived(
@@ -74,9 +76,12 @@
 	{@const StatusIcon = statusIcon}
 	<StatusIcon size={14} class="mt-0.5 shrink-0 text-[var(--color-text-tertiary)] sm:mt-0"></StatusIcon>
 
-	<span class="min-w-0 flex-1 truncate text-sm font-medium text-[var(--color-text-primary)]">
+	<a
+		href="/{slug}/teams/{teamId}/cycles/{cycle.id}"
+		class="min-w-0 flex-1 truncate text-sm font-medium text-[var(--color-text-primary)] after:absolute after:inset-0 after:rounded-md focus-visible:outline-2 focus-visible:outline-[var(--app-accent)]"
+	>
 		{cycle.name}
-	</span>
+	</a>
 
 	<div
 		class="col-start-2 col-end-4 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-[var(--color-text-tertiary)] sm:col-auto sm:shrink-0 sm:flex-nowrap"
@@ -99,110 +104,120 @@
 						stroke-linecap="round"
 					/>
 				</svg>
-				<span><span class="font-semibold text-[var(--color-text-secondary)]">{ringPct}%</span>{m['cycles.timeline.complete']()}</span>
+				<span
+					><span class="font-semibold text-[var(--color-text-secondary)]">{ringPct}%</span>{m[
+						'cycles.timeline.complete'
+					]()}</span
+				>
 			</div>
-			<span><span class="font-semibold text-[var(--color-text-secondary)]">{cycle.progress.total}</span>{m['cycles.timeline.scope']()}</span>
-		{:else if cycle.status === 'completed' && cycle.progress}
-			<span><span class="font-semibold text-[var(--color-text-secondary)]">{successPct}%</span>{m['cycles.timeline.success']()}</span>
 			<span
-				><span class="font-semibold text-[var(--color-text-secondary)]">{cycle.progress.completed}</span>{m['cycles.timeline.completed']()}</span
+				><span class="font-semibold text-[var(--color-text-secondary)]">{cycle.progress.total}</span>{m[
+					'cycles.timeline.scope'
+				]()}</span
 			>
-			<span><span class="font-semibold text-[var(--color-text-secondary)]">{cycle.progress.total}</span>{m['cycles.timeline.scope']()}</span>
+		{:else if cycle.status === 'completed' && cycle.progress}
+			<span
+				><span class="font-semibold text-[var(--color-text-secondary)]">{successPct}%</span>{m[
+					'cycles.timeline.success'
+				]()}</span
+			>
+			<span
+				><span class="font-semibold text-[var(--color-text-secondary)]">{cycle.progress.completed}</span>{m[
+					'cycles.timeline.completed'
+				]()}</span
+			>
+			<span
+				><span class="font-semibold text-[var(--color-text-secondary)]">{cycle.progress.total}</span>{m[
+					'cycles.timeline.scope'
+				]()}</span
+			>
 		{:else if cycle.progress}
-			<span><span class="font-semibold text-[var(--color-text-secondary)]">{successPct}%</span>{m['cycles.timeline.of_capacity']()}</span>
-			<span><span class="font-semibold text-[var(--color-text-secondary)]">{cycle.progress.total}</span>{m['cycles.timeline.scope']()}</span>
+			<span
+				><span class="font-semibold text-[var(--color-text-secondary)]">{successPct}%</span>{m[
+					'cycles.timeline.of_capacity'
+				]()}</span
+			>
+			<span
+				><span class="font-semibold text-[var(--color-text-secondary)]">{cycle.progress.total}</span>{m[
+					'cycles.timeline.scope'
+				]()}</span
+			>
 		{:else}
 			<span><span class="font-semibold text-[var(--color-text-secondary)]">0</span>{m['cycles.timeline.scope']()}</span>
 		{/if}
 	</div>
 
-	<div class="col-start-3 row-start-1 self-start sm:ml-auto sm:self-center">
-		<!-- 3-dot menu: visible on hover or when open -->
-		<Popover.Root bind:open={menuOpen}>
-			<Popover.Trigger>
-				<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-				<button
-					onclick={(e) => {
-						e.stopPropagation();
-						e.preventDefault();
-					}}
-					class="rounded p-0.5 text-[var(--color-text-tertiary)] opacity-100 transition-opacity hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)] sm:opacity-0 sm:group-hover:opacity-100 {menuOpen
-						? '!opacity-100'
-						: ''}"
+	{#if onedit || ondelete || (cycle.status === 'upcoming' && onactivate) || (cycle.status === 'active' && oncomplete)}
+		<div class="relative z-10 col-start-3 row-start-1 self-start sm:ml-auto sm:self-center">
+			<Popover.Root bind:open={menuOpen}>
+				<Popover.Trigger
+					aria-label={m['cycles.actions']({ name: cycle.name })}
+					class="rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] focus-visible:outline-2 focus-visible:outline-[var(--app-accent)]"
 				>
 					<MoreHorizontal size={14} />
-				</button>
-			</Popover.Trigger>
-			<Popover.Content class="w-48 p-1" align="end" side="bottom">
-				{#if onedit}
-					<button
-						onclick={(e) => {
-							e.stopPropagation();
-							menuOpen = false;
-							onedit?.(cycle);
-						}}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
-					>
-						<Pencil size={14} />
-						{m['cycles.edit_cycle']()}
-					</button>
-				{/if}
-				{#if cycle.status === 'upcoming' && onactivate}
-					<button
-						onclick={(e) => {
-							e.stopPropagation();
-							menuOpen = false;
-							onactivate?.(cycle.id);
-						}}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
-					>
-						<Play size={14} />
-						{m['cycles.start_cycle']()}
-					</button>
-				{/if}
-				{#if cycle.status === 'active' && oncomplete}
-					<button
-						onclick={(e) => {
-							e.stopPropagation();
-							menuOpen = false;
-							oncomplete?.(cycle.id);
-						}}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
-					>
-						<CheckCircle2 size={14} />
-						{m['cycles.complete_cycle']()}
-					</button>
-				{/if}
-				{#if ondelete}
-					<div class="my-1 border-t border-[var(--app-border)]"></div>
-					<button
-						onclick={(e) => {
-							e.stopPropagation();
-							menuOpen = false;
-							ondelete?.(cycle.id);
-						}}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-error)] hover:bg-[var(--color-bg-hover)]"
-					>
-						<Trash2 size={14} />
-						{m['cycles.delete_cycle']()}
-					</button>
-				{/if}
-			</Popover.Content>
-		</Popover.Root>
-	</div>
+				</Popover.Trigger>
+				<Popover.Content class="w-48 p-1" align="end" side="bottom">
+					{#if onedit}
+						<button
+							onclick={(e) => {
+								e.stopPropagation();
+								menuOpen = false;
+								onedit?.(cycle);
+							}}
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+						>
+							<Pencil size={14} />
+							{m['cycles.edit_cycle']()}
+						</button>
+					{/if}
+					{#if cycle.status === 'upcoming' && onactivate}
+						<button
+							onclick={(e) => {
+								e.stopPropagation();
+								menuOpen = false;
+								onactivate?.(cycle.id);
+							}}
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+						>
+							<Play size={14} />
+							{m['cycles.start_cycle']()}
+						</button>
+					{/if}
+					{#if cycle.status === 'active' && oncomplete}
+						<button
+							onclick={(e) => {
+								e.stopPropagation();
+								menuOpen = false;
+								oncomplete?.(cycle.id);
+							}}
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+						>
+							<CheckCircle2 size={14} />
+							{m['cycles.complete_cycle']()}
+						</button>
+					{/if}
+					{#if ondelete}
+						<div class="my-1 border-t border-[var(--app-border)]"></div>
+						<button
+							onclick={(e) => {
+								e.stopPropagation();
+								menuOpen = false;
+								ondelete?.(cycle.id);
+							}}
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-error)] hover:bg-[var(--color-bg-hover)]"
+						>
+							<Trash2 size={14} />
+							{m['cycles.delete_cycle']()}
+						</button>
+					{/if}
+				</Popover.Content>
+			</Popover.Root>
+		</div>
+	{/if}
 {/snippet}
 
-{#if clickable}
-	<a
-		href="/{slug}/teams/{teamId}/cycles/{cycle.id}"
-		class="group grid min-h-16 min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2 rounded-md px-3 py-3 hover:bg-[var(--color-bg-hover)] sm:flex sm:min-h-0 sm:items-center sm:gap-3 sm:py-4"
-	>
-		{@render content()}
-	</a>
-{:else}
-	<div
-		class="grid min-h-16 min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2 px-3 py-3 sm:flex sm:min-h-0 sm:items-center sm:gap-3 sm:py-4"
-	>
-		{@render content()}
-	</div>
-{/if}
+<div
+	class="group relative grid min-h-16 min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2 rounded-md px-3 py-3 hover:bg-[var(--color-bg-hover)] sm:flex sm:min-h-0 sm:items-center sm:gap-3 sm:py-4"
+>
+	{@render content()}
+</div>

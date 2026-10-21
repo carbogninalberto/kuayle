@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import type { IssueStatus, IssuePriority } from '$lib/types/issue';
 	import { getPriorityLabel } from '$lib/types/issue';
 	import { teamStatusesState } from './team-statuses.state.svelte';
@@ -42,13 +43,13 @@
 			case 'priority':
 				return getPriorityLabel(Number(groupKey) as IssuePriority) ?? groupKey;
 			case 'assignee': {
-				if (groupKey === 'unassigned') return 'Unassigned';
-				const member = members.find(m => m.user_id === groupKey);
-				return member ? (member.name || member.email) : groupKey;
+				if (groupKey === 'unassigned') return m['sharedComponents.filter_builder.unassigned']();
+				const member = members.find((m) => m.user_id === groupKey);
+				return member ? member.name || member.email : groupKey;
 			}
 			case 'project': {
-				if (groupKey === 'no-project') return 'No Project';
-				const project = projects.find(p => p.id === groupKey);
+				if (groupKey === 'no-project') return m['sharedComponents.filter_builder.no_project']();
+				const project = projects.find((p) => p.id === groupKey);
 				return project ? project.name : groupKey;
 			}
 			default:
@@ -65,7 +66,12 @@
 		aria-expanded={!collapsed}
 		class="flex w-full items-center gap-2 rounded-md bg-[var(--color-bg-secondary)] px-4 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] cursor-default"
 		onclick={ontoggle}
-		onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); ontoggle?.(); } }}
+		onkeydown={(e) => {
+			if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+				e.preventDefault();
+				ontoggle?.();
+			}
+		}}
 	>
 		{#if collapsed}
 			<ChevronRight size={12} class="text-[var(--color-text-tertiary)]" />
@@ -80,7 +86,9 @@
 			<IssuePriorityIcon priority={Number(groupKey) as IssuePriority} size={14} />
 		{:else if groupBy === 'assignee'}
 			{#if groupKey !== 'unassigned'}
-				<div class="flex h-4 w-4 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] font-medium text-[var(--app-accent-foreground)]">
+				<div
+					class="flex h-4 w-4 items-center justify-center rounded-full bg-[var(--app-accent)] text-[8px] font-medium text-[var(--app-accent-foreground)]"
+				>
 					{label.charAt(0).toUpperCase()}
 				</div>
 			{:else}
@@ -92,7 +100,11 @@
 		<span class="text-[10px] font-normal text-[var(--color-text-tertiary)]">{count}</span>
 		{#if onquickadd}
 			<button
-				onclick={(e) => { e.stopPropagation(); onquickadd?.(groupKey); }}
+				aria-label={m['sidebar.new_issue']()}
+				onclick={(e) => {
+					e.stopPropagation();
+					onquickadd?.(groupKey);
+				}}
 				class="ml-auto rounded p-0.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)] transition-colors"
 			>
 				<Plus size={14} />

@@ -7,9 +7,11 @@
 
 	let {
 		layout = $bindable<ViewLayout>('list'),
-		onchange
+		onchange,
+		inactive = false
 	}: {
 		layout: ViewLayout;
+		inactive?: boolean;
 		onchange?: (layout: ViewLayout) => void;
 	} = $props();
 
@@ -23,7 +25,7 @@
 
 <ToggleGroup.Root
 	type="single"
-	value={layout}
+	value={inactive ? undefined : layout}
 	onValueChange={handleChange}
 	variant="outline"
 	size="sm"
