@@ -12,7 +12,7 @@ ENV PUBLIC_DEMO_USERS=$PUBLIC_DEMO_USERS
 ARG NODE_OPTIONS=--max-old-space-size=4096
 RUN npm run build
 
-FROM golang:1.26.9-alpine AS caddy-builder
+FROM golang:1.26.10-alpine AS caddy-builder
 ARG SECURITY_REFRESH=initial
 RUN apk add --no-cache git
 RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@v0.4.6

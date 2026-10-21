@@ -8,7 +8,7 @@ ARG NODE_OPTIONS=--max-old-space-size=4096
 RUN npm run build
 
 # Stage 2: Build Caddy from source with patched Go
-FROM golang:1.26.9-alpine AS caddy-builder
+FROM golang:1.26.10-alpine AS caddy-builder
 ARG SECURITY_REFRESH=initial
 RUN apk add --no-cache git
 RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@v0.4.6
@@ -17,7 +17,7 @@ RUN xcaddy build v2.11.4 --with google.golang.org/grpc@v1.83.2 --replace golang.
     --replace golang.org/x/crypto=golang.org/x/crypto@v0.57.0
 
 # Stage 3: Build backend
-FROM golang:1.26.9-alpine AS be-builder
+FROM golang:1.26.10-alpine AS be-builder
 WORKDIR /app
 COPY BE/go.mod BE/go.sum ./
 RUN go mod download
