@@ -1,7 +1,11 @@
 <script lang="ts">
-	import type { Issue } from '$lib/types/issue';
+	import { appToast } from '$lib/features/toast/toast';
+	import { m } from '$lib/paraglide/messages.js';
+	import type { Issue, RelationType } from '$lib/types/issue';
 	import type { TeamStatus } from '$lib/types/team-status';
 	import type { WorkspaceMember } from '$lib/types/workspace';
+	import type { Project } from '$lib/types/project';
+	import type { Cycle } from '$lib/types/cycle';
 	import type { Label } from '$lib/types/label';
 	import KanbanColumn from './KanbanColumn.svelte';
 	import { issuesState } from './issues.state.svelte';
@@ -12,12 +16,34 @@
 		slug = '',
 		members = [],
 		labels = [],
+		projects = [],
+		cycles = [],
+		membershipClearValue = null,
+		readOnly = false,
+		restrictToTeam = false,
+		accessibleRow = false,
+		canDeleteIssue,
+		onremove,
+		removeLabel,
+		onchanged,
+		onaddrelation,
 		onissueclick
 	}: {
 		issuesByStatus: Record<string, Issue[]>;
 		slug?: string;
 		members?: WorkspaceMember[];
 		labels?: Label[];
+		projects?: Project[];
+		cycles?: Cycle[];
+		readOnly?: boolean;
+		membershipClearValue?: '' | null;
+		restrictToTeam?: boolean;
+		accessibleRow?: boolean;
+		canDeleteIssue?: (issue: Issue) => boolean;
+		onremove?: (issue: Issue) => void;
+		removeLabel?: string;
+		onchanged?: () => void;
+		onaddrelation?: (issue: Issue, type: RelationType) => void;
 		onissueclick: (issue: Issue) => void;
 	} = $props();
 
@@ -37,8 +63,10 @@
 	}
 
 	function handleFinalize(statusId: string, items: Issue[]) {
+		if (readOnly) return;
 		localByStatus[statusId] = items;
 
+		const updates: Promise<unknown>[] = [];
 		// Detect moved issues and update
 		for (let i = 0; i < items.length; i++) {
 			const issue = items[i];
@@ -46,16 +74,24 @@
 			if (originalStatusId !== statusId) {
 				// Cross-column move: update status_id
 				const sortOrder = calculateSortOrder(items, i);
-				issuesState.update(slug, issue.identifier, { status_id: statusId, sort_order: sortOrder });
+				updates.push(issuesState.update(slug, issue.identifier, { status_id: statusId, sort_order: sortOrder }));
 			} else {
 				// Same column reorder: check if position changed
 				const originalItems = issuesByStatus[statusId] ?? [];
 				const originalIdx = originalItems.findIndex((it) => it.id === issue.id);
 				if (originalIdx !== i) {
 					const sortOrder = calculateSortOrder(items, i);
-					issuesState.update(slug, issue.identifier, { sort_order: sortOrder });
+					updates.push(issuesState.update(slug, issue.identifier, { sort_order: sortOrder }));
 				}
 			}
+		}
+		if (onchanged) {
+			void Promise.all(updates)
+				.then(onchanged)
+				.catch((error) => {
+					appToast.apiError(error, m['common.toast.failed_move_issue']());
+					onchanged?.();
+				});
 		}
 	}
 
@@ -78,6 +114,17 @@
 			{slug}
 			{members}
 			{labels}
+			{projects}
+			{cycles}
+			{readOnly}
+			{membershipClearValue}
+			{restrictToTeam}
+			{accessibleRow}
+			{canDeleteIssue}
+			{onremove}
+			{removeLabel}
+			{onchanged}
+			{onaddrelation}
 			{onissueclick}
 			onconsider={handleConsider}
 			onfinalize={handleFinalize}

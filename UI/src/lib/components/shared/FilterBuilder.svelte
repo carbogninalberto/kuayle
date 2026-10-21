@@ -24,6 +24,7 @@
 		labels = [],
 		members = [],
 		readonly = false,
+		excludedFilters = [],
 		onchange
 	}: {
 		filters: ViewFilter;
@@ -32,6 +33,7 @@
 		labels?: Label[];
 		members?: WorkspaceMember[];
 		readonly?: boolean;
+		excludedFilters?: string[];
 		onchange: (filters: ViewFilter) => void;
 	} = $props();
 
@@ -84,7 +86,9 @@
 		{ value: 'has_sub_issues', label: m['sharedComponents.filter_builder.has_sub_issues']() }
 	]);
 
-	let availableFilters = $derived(FILTER_OPTIONS.filter((f) => !visibleFilters.has(f.key)));
+	let availableFilters = $derived(
+		FILTER_OPTIONS.filter((f) => !excludedFilters.includes(f.key) && !visibleFilters.has(f.key))
+	);
 
 	// Helpers for multi-value filters
 	function getStatusValues(): string[] {
@@ -226,7 +230,10 @@
 	}
 
 	function getSubIssuesChipLabel(): string {
-		return SUB_ISSUE_FILTERS.find((option) => option.value === filters.sub_issues)?.label ?? m['sharedComponents.filter_builder.sub_issues']();
+		return (
+			SUB_ISSUE_FILTERS.find((option) => option.value === filters.sub_issues)?.label ??
+			m['sharedComponents.filter_builder.sub_issues']()
+		);
 	}
 
 	function getChipLabel(key: string): string {
@@ -244,7 +251,9 @@
 			case 'status_type':
 				return m['sharedComponents.filter_builder.status_type']({ type: filters.status_type ?? '' });
 			case 'cycle':
-				return filters.cycle === 'none' ? m['sharedComponents.filter_builder.no_cycle']() : m['sharedComponents.filter_builder.cycle']();
+				return filters.cycle === 'none'
+					? m['sharedComponents.filter_builder.no_cycle']()
+					: m['sharedComponents.filter_builder.cycle']();
 			case 'team':
 				return m['sharedComponents.filter_builder.team']();
 			case 'creator':
@@ -351,7 +360,9 @@
 					</div>
 				{/each}
 				{#if labels.length === 0}
-					<p class="px-2 py-3 text-center text-xs text-[var(--color-text-tertiary)]">{m['sharedComponents.filter_builder.no_labels']()}</p>
+					<p class="px-2 py-3 text-center text-xs text-[var(--color-text-tertiary)]">
+						{m['sharedComponents.filter_builder.no_labels']()}
+					</p>
 				{/if}
 			{:else if key === 'sub_issues'}
 				{#each SUB_ISSUE_FILTERS as option}
@@ -455,7 +466,7 @@
 							? 'bg-[var(--color-bg-hover)]'
 							: ''}"
 					>
-					{m['sharedComponents.filter_builder.unassigned']()}
+						{m['sharedComponents.filter_builder.unassigned']()}
 					</button>
 					{#each members as member}
 						<button
@@ -545,7 +556,9 @@
 						</button>
 					{/each}
 					{#if labels.length === 0}
-						<p class="px-2 py-3 text-center text-xs text-[var(--color-text-tertiary)]">{m['sharedComponents.filter_builder.no_labels']()}</p>
+						<p class="px-2 py-3 text-center text-xs text-[var(--color-text-tertiary)]">
+							{m['sharedComponents.filter_builder.no_labels']()}
+						</p>
 					{/if}
 					<Separator class="my-1" />
 					<button
@@ -594,7 +607,11 @@
 
 		{#each Array.from(visibleFilters).filter((key) => !FILTER_OPTIONS.some((option) => option.key === key)) as key}
 			{#if filters[key]}
-				<button class={chipClass(true)} onclick={() => removeFilter(key)} title="{m['sharedComponents.filter_builder.remove_filter']()}">
+				<button
+					class={chipClass(true)}
+					onclick={() => removeFilter(key)}
+					title={m['sharedComponents.filter_builder.remove_filter']()}
+				>
 					{getChipLabel(key)}
 					<X size={12} />
 				</button>

@@ -26,7 +26,14 @@ export async function createProject(
 export async function updateProject(
 	slug: string,
 	id: string,
-	data: { name?: string; description?: string; status?: string; team_id?: string | null }
+	data: {
+		name?: string;
+		description?: string;
+		status?: string;
+		team_id?: string | null;
+		start_date?: string | null;
+		target_date?: string | null;
+	}
 ): Promise<Project> {
 	const project = await api.patch<Project>(`/api/workspaces/${slug}/projects/${id}`, data);
 	emitAppRefresh(['projects'], slug);
