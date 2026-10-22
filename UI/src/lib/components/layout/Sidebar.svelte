@@ -655,7 +655,7 @@
 		</div>
 		<div class="flex shrink-0 items-center gap-1">
 			{#if onsearch}
-				<Button variant="ghost" size="sm"
+				<Button variant="ghost" size="icon-sm"
 					onclick={onsearch}
 					class="rounded-md p-1 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
 					title={m['sidebar.search']()}
@@ -664,7 +664,7 @@
 				</Button>
 			{/if}
 			{#if oncreateissue}
-				<Button variant="ghost" size="sm"
+				<Button variant="ghost" size="icon-sm"
 					onclick={oncreateissue}
 					class="rounded-md p-1 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
 					title={m['sidebar.new_issue']()}
@@ -737,13 +737,13 @@
 				<div class="mt-4">
 					<Button variant="ghost" size="sm"
 						onclick={() => (favoritesCollapsed = toggleSection('favorites', favoritesCollapsed))}
-						class="flex w-full items-center px-2 py-1"
+						class="flex h-auto w-full items-center justify-start border-0 px-2 py-1"
 					>
 						<span class="flex items-center gap-1">
 							<span class="text-[11px] font-semibold text-[var(--color-text-secondary)]">{m['sidebar.favorites']()}</span>
 							<ChevronDown
 								size={12}
-								class="text-[var(--color-text-tertiary)] transition-transform {favoritesCollapsed ? '-rotate-90' : ''}"
+								class="size-3 text-[var(--color-text-tertiary)] transition-transform {favoritesCollapsed ? '-rotate-90' : ''}"
 							/>
 						</span>
 					</Button>
@@ -775,13 +775,13 @@
 
 			<!-- Teams -->
 			<div class="group/teams mt-4">
-				<div class="flex items-center justify-between px-2 py-1">
-					<Button variant="ghost" size="sm" class="flex-1 justify-start px-0" aria-expanded={!teamsCollapsed} onclick={() => (teamsCollapsed = toggleSection('teams', teamsCollapsed))}>
+				<div class="flex items-center justify-between px-2">
+					<Button variant="ghost" size="sm" class="h-auto flex-1 justify-start border-0 px-0 py-1" aria-expanded={!teamsCollapsed} onclick={() => (teamsCollapsed = toggleSection('teams', teamsCollapsed))}>
 					<span class="flex items-center gap-1">
 						<span class="text-[11px] font-semibold text-[var(--color-text-secondary)]">{m['sidebar.teams']()}</span>
 						<ChevronDown
 							size={12}
-							class="text-[var(--color-text-tertiary)] transition-transform {teamsCollapsed ? '-rotate-90' : ''}"
+							class="size-3 text-[var(--color-text-tertiary)] transition-transform {teamsCollapsed ? '-rotate-90' : ''}"
 						/>
 					</span>
 					</Button>
@@ -824,14 +824,14 @@
 										>
 											<Button variant="ghost" size="sm"
 												onclick={() => toggleTeam(team.id)}
-												class="flex min-w-0 flex-1 items-center gap-2 px-2 py-1 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+												class="flex min-w-0 flex-1 items-center justify-start gap-2 border-0 px-2 py-1 text-sm font-normal text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
 											>
-												<TeamIcon {team} />
+												<TeamIcon {team} class="size-4 shrink-0" />
 												<span class="truncate">{team.name}</span>
 												{#if team.is_private}<span class="text-[10px] text-[var(--color-text-tertiary)]">{m['privacy.private']()}</span>{/if}
 												<ChevronDown
 													size={12}
-													class="shrink-0 text-[var(--color-text-tertiary)] transition-transform {teamExpanded
+													class="size-3 shrink-0 text-[var(--color-text-tertiary)] transition-transform {teamExpanded
 														? ''
 														: '-rotate-90'}"
 												/>
@@ -1074,7 +1074,7 @@
 						{#if teams.length === 0}
 							<Button variant="ghost" size="sm"
 								onclick={oncreateteam}
-								class="flex w-full items-center gap-2 rounded-md px-2 py-1 text-sm text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
+								class="flex w-full items-center justify-start gap-2 rounded-md px-2 py-1 text-sm text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
 							>
 								<Plus size={14} />
 								{m['sidebar.create_first_team']()}
@@ -1089,13 +1089,13 @@
 				<div class="mt-4">
 					<Button variant="ghost" size="sm"
 						onclick={() => (viewsCollapsed = toggleSection('views', viewsCollapsed))}
-						class="flex w-full items-center px-2 py-1"
+						class="flex h-auto w-full items-center justify-start border-0 px-2 py-1"
 					>
 						<span class="flex items-center gap-1">
 							<span class="text-[11px] font-semibold text-[var(--color-text-secondary)]">{m['sidebar.views']()}</span>
 							<ChevronDown
 								size={12}
-								class="text-[var(--color-text-tertiary)] transition-transform {viewsCollapsed ? '-rotate-90' : ''}"
+								class="size-3 text-[var(--color-text-tertiary)] transition-transform {viewsCollapsed ? '-rotate-90' : ''}"
 							/>
 						</span>
 					</Button>
@@ -1179,14 +1179,14 @@
 			<div class="mt-4">
 				<Button variant="ghost" size="sm"
 					type="button"
-					class="flex w-full cursor-pointer items-center justify-between px-2 py-1"
+					class="flex h-auto w-full cursor-pointer items-center justify-start border-0 px-2 py-1"
 					onclick={() => (projectsCollapsed = toggleSection('projects', projectsCollapsed))}
 				>
 					<span class="flex items-center gap-1">
 						<span class="text-[11px] font-semibold text-[var(--color-text-secondary)]">{m['sidebar.projects']()}</span>
 						<ChevronDown
 							size={12}
-							class="text-[var(--color-text-tertiary)] transition-transform {projectsCollapsed ? '-rotate-90' : ''}"
+							class="size-3 text-[var(--color-text-tertiary)] transition-transform {projectsCollapsed ? '-rotate-90' : ''}"
 						/>
 					</span>
 				</Button>
@@ -1245,7 +1245,7 @@
 					</a>
 					<Button variant="ghost" size="sm"
 						onclick={handleLogout}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)]"
+						class="flex w-full items-center justify-start gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)]"
 					>
 						<LogOut size={14} />
 						{m['sidebar.log_out']()}
