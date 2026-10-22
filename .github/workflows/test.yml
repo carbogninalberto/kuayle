@@ -11,8 +11,17 @@ concurrency:
   group: tests-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
+  changes:
+    name: CI Impact
+    uses: ./.github/workflows/ci-impact.yml
+
   agent-harness:
+    needs: changes
+    if: ${{ fromJSON(needs.changes.outputs.plan).harness }}
     name: Agent Harness
     runs-on: ubuntu-latest
     steps:
@@ -29,6 +38,8 @@ jobs:
         run: node AGENTS/TOOLS/check-harness.mjs
 
   backend-test:
+    needs: changes
+    if: ${{ fromJSON(needs.changes.outputs.plan).backend }}
     name: Backend Tests
     runs-on: ubuntu-latest
     defaults:
@@ -93,6 +104,8 @@ jobs:
           path: BE/coverage.out
 
   docker-integration:
+    needs: changes
+    if: ${{ fromJSON(needs.changes.outputs.plan).runtime }}
     name: Docker Runtime Integration
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -157,6 +170,8 @@ jobs:
         run: go test ./internal/machine -run '^TestDockerRuntimeLifecycle$' -race -count=1 -v -timeout=5m
 
   frontend-check:
+    needs: changes
+    if: ${{ fromJSON(needs.changes.outputs.plan).frontend }}
     name: Frontend Checks
     # Playwright 1.58 supports Ubuntu 24.04, not the moving latest image.
     runs-on: ubuntu-24.04
@@ -203,6 +218,8 @@ jobs:
           retention-days: 7
 
   web-check:
+    needs: changes
+    if: ${{ fromJSON(needs.changes.outputs.plan).web }}
     name: Marketing Site Checks
     runs-on: ubuntu-24.04
     defaults:
@@ -235,3 +252,57 @@ jobs:
 
       - name: Responsive layout tests
         run: npm run test:responsive
+
+  ci-validation:
+    name: CI Routing and Workflow Validation
+    needs: changes
+    if: ${{ fromJSON(needs.changes.outputs.plan).ci }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v6.4.0
+        with:
+          node-version: 22
+      - uses: actions/setup-go@v6.4.0
+        with:
+          go-version-file: BE/go.mod
+          cache-dependency-path: BE/go.sum
+      - name: Test routing, full PR diffs and result gates
+        run: node --test scripts/ci/*.test.mjs
+      - name: Validate workflow syntax and expressions
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -shellcheck= -pyflakes=
+
+  selfhosting-check:
+    name: Self-hosting Checks
+    needs: changes
+    if: ${{ fromJSON(needs.changes.outputs.plan).selfhosting }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Test update recovery and profile preflight
+        run: |
+          bash selfhosting/update_test.sh
+          bash selfhosting/profile_preflight_test.sh
+
+  result:
+    name: Tests CI Result
+    if: always()
+    needs: [changes, agent-harness, backend-test, docker-integration, frontend-check, web-check, ci-validation, selfhosting-check]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Require every selected check to pass
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: node scripts/ci/check-results.mjs tests

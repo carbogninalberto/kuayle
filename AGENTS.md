@@ -31,6 +31,9 @@ Kuayle has three independently built areas: `BE/` (Go/Echo API and PostgreSQL),
 - Follow the [worktree and PR skill](AGENTS/SKILLS/kuayle-worktree-pr/SKILL.md):
   isolated worktrees, draft PRs while incomplete, configured git persona,
   conventional commits, and explicit user authorization before merging.
+- CI changes must preserve the [change-impact map](scripts/ci/README.md), its
+  scenario tests and stable result gates. Verify selected jobs and intentional
+  omissions on the complete PR diff before declaring CI green.
 - Keep this harness current in the same change whenever paths, architecture,
   commands, UI conventions, or workflows change. Keep each rule in one source;
   update the indexes when adding/removing tools or skills. Validate with

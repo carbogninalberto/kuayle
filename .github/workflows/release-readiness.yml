@@ -13,7 +13,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: CI Impact
+    uses: ./.github/workflows/ci-impact.yml
+
   images:
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.plan).required.readiness, 'images') }}
     name: Release image (${{ matrix.image.id }}, ${{ matrix.architecture }})
     runs-on: ${{ matrix.architecture == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     timeout-minutes: 60
@@ -22,16 +28,7 @@ jobs:
       max-parallel: 2
       matrix:
         architecture: [amd64, arm64]
-        image:
-          - id: all-in-one
-            context: .
-            dockerfile: ./Dockerfile
-          - id: api
-            context: ./BE
-            dockerfile: ./BE/Dockerfile
-          - id: web
-            context: ./UI
-            dockerfile: ./UI/Dockerfile
+        image: ${{ fromJSON(needs.changes.outputs.plan).releaseImages }}
     steps:
       - uses: actions/checkout@v7.0.0
         with:
@@ -102,3 +99,20 @@ jobs:
           path: evidence/
           retention-days: 30
           compression-level: 0
+
+  result:
+    name: Readiness CI Result
+    if: always()
+    needs: [changes, images]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Require every selected check to pass
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: node scripts/ci/check-results.mjs readiness

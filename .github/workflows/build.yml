@@ -11,12 +11,21 @@ env:
   IMAGE_PREFIX: ghcr.io/carbogninalberto
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 jobs:
+  changes:
+    name: CI Impact
+    uses: ./.github/workflows/ci-impact.yml
+
   build:
+    needs: changes
+    if: github.event_name == 'release'
     name: Build Images
+    # PR application images are built, smoke-tested and scanned by Release Readiness.
+    permissions:
+      contents: write
+      packages: write
     runs-on: ubuntu-latest
 
     steps:
@@ -168,6 +177,8 @@ jobs:
           cache-to: type=gha,mode=max,scope=web
 
   dev-machine-images:
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.plan).required.build, 'dev-machine-images') }}
     name: Dev Machine Image (${{ matrix.image.name }}, ${{ matrix.architecture }})
     runs-on: ${{ matrix.architecture == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     strategy:
@@ -176,52 +187,7 @@ jobs:
       max-parallel: 4
       matrix:
         architecture: [amd64, arm64]
-        image:
-          - id: gateway
-            name: Gateway
-            context: ./BE
-            dockerfile: ./BE/Dockerfile.machine-gateway
-            build_args: ''
-          - id: manager
-            name: Manager
-            context: ./BE
-            dockerfile: ./BE/Dockerfile.machine-manager
-            build_args: ''
-          - id: ide
-            name: IDE
-            context: ./devmachine
-            dockerfile: ./devmachine/ide/Dockerfile
-            build_args: ''
-          - id: browser
-            name: Browser
-            context: ./devmachine
-            dockerfile: ./devmachine/browser/Dockerfile
-            build_args: ''
-          - id: collector
-            name: Collector
-            context: ./devmachine
-            dockerfile: ./devmachine/collector/Dockerfile
-            build_args: ''
-          - id: egress
-            name: Egress
-            context: ./devmachine
-            dockerfile: ./devmachine/egress/Dockerfile
-            build_args: ''
-          - id: agent-claude
-            name: Agent Claude
-            context: ./devmachine
-            dockerfile: ./devmachine/agent/Dockerfile
-            build_args: PROVIDER=claude-code
-          - id: agent-opencode
-            name: Agent OpenCode
-            context: ./devmachine
-            dockerfile: ./devmachine/agent/Dockerfile
-            build_args: PROVIDER=opencode
-          - id: agent-codex
-            name: Agent Codex
-            context: ./devmachine
-            dockerfile: ./devmachine/agent/Dockerfile
-            build_args: PROVIDER=codex
+        image: ${{ fromJSON(needs.changes.outputs.plan).devImages }}
 
     steps:
       - uses: actions/checkout@v7.0.0
@@ -263,3 +229,20 @@ jobs:
           format: table
           exit-code: 1
           severity: CRITICAL,HIGH
+
+  result:
+    name: Build CI Result
+    if: always()
+    needs: [changes, build, dev-machine-images]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Require every selected check to pass
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: node scripts/ci/check-results.mjs build

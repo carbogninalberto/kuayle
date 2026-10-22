@@ -5,6 +5,7 @@ The [testing skill](SKILLS/kuayle-testing/SKILL.md) owns the verification matrix
 
 | Resource | Purpose and contract |
 | --- | --- |
+| [CI planner and result gates](../scripts/ci/README.md) | Reusable full-PR change detection, image selection and result validation. The linked guide owns inputs, outputs, commands, prerequisites, failure behavior and the impact map. |
 | [check-harness.mjs](TOOLS/check-harness.mjs) | Run `node AGENTS/TOOLS/check-harness.mjs` with Node 22. No packages, arguments, credentials, or services required. Locates the checkout relative to itself, reads root instructions and Markdown under `AGENTS/`, and checks local inline link targets, required entrypoints, skill metadata, and index discovery. Prints success or file-specific errors; exits 0/1. Writes nothing. |
 | [check-harness.test.mjs](TOOLS/check-harness.test.mjs) | Run `node --test AGENTS/TOOLS/check-harness.test.mjs` to exercise valid and broken fixture trees. Uses Node's standard library and temporary directories, removed after each test. Emits test results; exits nonzero on failure. |
 | [UI/package.json](../UI/package.json), [WEB/package.json](../WEB/package.json) | Authoritative npm scripts. Run in the corresponding package after `npm ci`; output/build directories and browser prerequisites are described in the testing skill. Failures propagate through npm. |
