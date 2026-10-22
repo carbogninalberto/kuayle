@@ -776,8 +776,8 @@
 
 			<!-- Teams -->
 			<div class="group/teams mt-4">
-				<div class="flex items-center justify-between px-2 py-1">
-					<Button variant="plain" class="flex flex-1 cursor-pointer items-center" aria-expanded={!teamsCollapsed} onclick={() => (teamsCollapsed = toggleSection('teams', teamsCollapsed))}>
+				<div class="flex items-center justify-between px-2 py-1 has-[[aria-expanded]:focus-visible]:[outline:auto]">
+					<Button variant="plain" class="flex flex-1 cursor-pointer items-center focus-visible:outline-none" aria-expanded={!teamsCollapsed} onclick={() => (teamsCollapsed = toggleSection('teams', teamsCollapsed))}>
 					<span class="flex items-center gap-1">
 						<span class="text-[11px] font-semibold text-[var(--color-text-secondary)]">{m['sidebar.teams']()}</span>
 						<ChevronDown
