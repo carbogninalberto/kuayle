@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Input } from '$lib/components/ui/input/index.js';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { getWorkspace, updateWorkspace, deleteWorkspace, downloadWorkspaceExport } from '$lib/api/workspaces';
@@ -9,7 +10,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import * as Select from '$lib/components/ui/select';
-	import { Trash2, Download, Loader2 } from 'lucide-svelte';
+	import { Trash2, Download, Loader2 } from '@lucide/svelte';
 	import WorkspaceImportDialog from '$lib/features/workspaces/WorkspaceImportDialog.svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
@@ -140,12 +141,12 @@
 					<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['settings.general.workspace_name']()}</p>
 					<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.general.workspace_name_desc']()}</p>
 				</div>
-				<input
+				<Input
 					type="text"
 					bind:value={wsName}
 					onblur={handleNameBlur}
 					disabled={!isOwner || savingName}
-					class="w-[200px] rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)] disabled:cursor-not-allowed disabled:opacity-60"
+					class="w-[200px] py-1.5 disabled:cursor-not-allowed disabled:opacity-60"
 				/>
 			</div>
 
@@ -168,13 +169,13 @@
 					<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['settings.general.logo_url']()}</p>
 					<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.general.logo_url_desc']()}</p>
 				</div>
-				<input
+				<Input
 					type="url"
 					bind:value={logoUrl}
 					onblur={handleLogoBlur}
 					placeholder="https://"
 					disabled={!isOwner || savingLogo}
-					class="w-[240px] rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)] disabled:cursor-not-allowed disabled:opacity-60"
+					class="w-[240px] py-1.5 disabled:cursor-not-allowed disabled:opacity-60"
 				/>
 			</div>
 
@@ -294,12 +295,12 @@
 			<label for="delete-confirm" class="block text-sm text-[var(--color-text-secondary)]">
 				{m['settings.general.type_slug_confirm']({ slug: workspace?.slug ?? '' })}
 			</label>
-			<input
+			<Input
 				id="delete-confirm"
 				type="text"
 				bind:value={deleteConfirm}
 				placeholder={workspace?.slug}
-				class="w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
+				class="w-full"
 			/>
 		</div>
 		<Dialog.Footer>

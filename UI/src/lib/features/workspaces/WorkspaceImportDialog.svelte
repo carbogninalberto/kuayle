@@ -1,6 +1,7 @@
 <script lang="ts">
+	import { Input } from '$lib/components/ui/input/index.js';
 	import { goto } from '$app/navigation';
-	import { Upload, Loader2, AlertTriangle } from 'lucide-svelte';
+	import { Upload, Loader2, AlertTriangle } from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { appToast } from '$lib/features/toast/toast';
@@ -12,7 +13,7 @@
 	import { m } from '$lib/paraglide/messages.js';
 
 	let { compact = false }: { compact?: boolean } = $props();
-	let input: HTMLInputElement;
+	let input = $state<HTMLInputElement | null>(null);
 	let file = $state<File | null>(null);
 	let preview = $state<WorkspaceImportPreview | null>(null);
 	let name = $state('');
@@ -41,7 +42,7 @@
 	);
 
 	function chooseFile() {
-		input.click();
+		input?.click();
 	}
 
 	async function selected(event: Event) {
@@ -89,7 +90,7 @@
 	}
 </script>
 
-<input bind:this={input} type="file" accept=".zip,.kuayle.zip,application/zip" class="hidden" onchange={selected} />
+<Input bind:ref={input} type="file" accept=".zip,.kuayle.zip,application/zip" class="hidden" onchange={selected} />
 <Button variant={compact ? 'outline' : 'default'} onclick={chooseFile} disabled={loadingPreview}>
 	{#if loadingPreview}<Loader2 size={14} class="animate-spin" />{:else}<Upload size={14} />{/if}
 	{m['workspace_transfer.import_button']()}
@@ -136,16 +137,16 @@
 				<div class="grid grid-cols-2 gap-3">
 					<label class="text-sm text-[var(--color-text-secondary)]">
 						{m['workspace_transfer.workspace_name']()}
-						<input bind:value={name} maxlength="100" class="mt-1 w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-2 text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]" />
+						<Input bind:value={name} maxlength={100} class="mt-1 w-full" />
 					</label>
 					<label class="text-sm text-[var(--color-text-secondary)]">
 						{m['workspace_transfer.workspace_slug']()}
-						<input bind:value={slug} maxlength="50" class="mt-1 w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-2 font-mono text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]" />
+						<Input bind:value={slug} maxlength={50} class="mt-1 w-full font-mono" />
 					</label>
 				</div>
 				<label class="block text-sm text-[var(--color-text-secondary)]">
 					{m['workspace_transfer.confirm_slug']({ slug })}
-					<input bind:value={confirmation} class="mt-1 w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-2 font-mono text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]" />
+					<Input bind:value={confirmation} class="mt-1 w-full font-mono" />
 				</label>
 			</div>
 		{/if}

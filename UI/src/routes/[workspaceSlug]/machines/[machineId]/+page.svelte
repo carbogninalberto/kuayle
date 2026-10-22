@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { tick } from 'svelte';
-	import { ArrowLeft, Bot, Code2, ExternalLink, GitBranch, Pause, Play, Save, Server, ServerOff, Square, SquareTerminal, Trash2, Loader } from 'lucide-svelte';
+	import { ArrowLeft, Bot, Code2, ExternalLink, GitBranch, Pause, Play, Save, Server, ServerOff, Square, SquareTerminal, Trash2, Loader } from '@lucide/svelte';
 	import { goto, replaceState } from '$app/navigation';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import * as Card from '$lib/components/ui/card';
@@ -672,13 +672,13 @@
 							{@const trustedPullRequestUrl = pullRequestUrl(run)}
 							<article id={`agent-run-${run.id}`} class="rounded-lg border border-[var(--app-border)] p-3 transition-colors hover:bg-[var(--color-bg-hover)] scroll-mt-4">
 								<div class="flex items-start gap-2">
-									<button type="button" class="min-w-0 flex-1 text-left" onclick={() => openTrace(run.id)} aria-label={m['machines.view_agent_activity']({ provider: run.provider_id })}>
+									<Button variant="ghost" size="sm" type="button" class="h-auto justify-start whitespace-normal min-w-0 flex-1 text-left" onclick={() => openTrace(run.id)} aria-label={m['machines.view_agent_activity']({ provider: run.provider_id })}>
 										<span class="flex items-center justify-between gap-2">
 											<span><span class="text-xs font-medium">{run.provider_id}</span><span class="ml-2 text-[10px] uppercase text-[var(--color-text-tertiary)]">{run.mode}</span></span>
 											<span class="text-[10px] font-semibold uppercase">{run.status}</span>
 										</span>
 										{#if run.summary}<span class="mt-2 block whitespace-pre-wrap text-xs text-[var(--color-text-secondary)]">{run.summary}</span>{/if}
-									</button>
+									</Button>
 									{#if ['queued', 'starting', 'running', 'waiting_input'].includes(run.status)}
 										<Button variant="ghost" size="xs" disabled={cancelBusy[run.id]} onclick={() => doCancelAgentRun(run.id)} class="shrink-0 text-red-400">
 											{cancelBusy[run.id] ? m['machines.cancelling']() : m['common.cancel']()}
@@ -696,10 +696,10 @@
 				<section id="activity" class="grid gap-5 lg:grid-cols-2 scroll-mt-4">
 					<div class="rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-4"><h2 class="text-sm font-semibold">{m['machines.activity']()} ({events.length})</h2>{#if eventsLimited}<p class="mt-1 text-[10px] text-[var(--color-text-tertiary)]" data-testid="machine-events-retention">{m['machines.events_retention']({ count: DEV_MACHINE_EVENT_RETENTION })}</p>{/if}<div class="mt-3 max-h-96 space-y-3 overflow-y-auto">{#if events.length === 0}<p class="text-xs text-[var(--color-text-tertiary)]">{m['machines.no_activity']()}</p>{/if}{#each events as event}
 						{#if event.agent_run_id}
-							<button type="button" class="block w-full border-l border-[var(--app-border)] pl-3 text-left transition-colors hover:border-[var(--app-accent)]" onclick={() => openTrace(event.agent_run_id!)} aria-label={`View agent activity for ${event.event_type}`}>
+							<Button variant="outline" size="sm" type="button" class="h-auto justify-start whitespace-normal block w-full border-l pl-3 text-left transition-colors hover:border-[var(--app-accent)]" onclick={() => openTrace(event.agent_run_id!)} aria-label={`View agent activity for ${event.event_type}`}>
 								<span class="block text-xs font-medium">{event.event_type.replaceAll('_', ' ')}</span>
 								<span class="block text-[10px] text-[var(--color-text-tertiary)]">{event.source} · {new Date(event.occurred_at).toLocaleString()}</span>
-							</button>
+							</Button>
 						{:else}
 							<div class="border-l border-[var(--app-border)] pl-3">
 								<p class="text-xs font-medium">{event.event_type.replaceAll('_', ' ')}</p>

@@ -1,9 +1,10 @@
 <script lang="ts">
+	import { Button } from '$lib/components/ui/button/index.js';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { login, register } from '$lib/api/auth';
-	import { ChevronDown, ChevronUp, Loader2 } from 'lucide-svelte';
+	import { ChevronDown, ChevronUp, Loader2 } from '@lucide/svelte';
 	import { Input } from '$lib/components/ui/input';
 	import { Password } from '$lib/components/ui/password';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
@@ -118,27 +119,27 @@
 				<Password id="password" bind:value={password} required minlength={8} class={authInputClass} />
 			</div>
 
-			<button
+			<Button variant="default" size="sm"
 				type="submit"
 				disabled={loading}
-				class="w-full rounded-md bg-[var(--app-accent)] px-4 py-2 text-sm font-medium text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)] disabled:opacity-50"
+				class="w-full rounded-md px-4 py-2 text-sm font-medium disabled:opacity-50"
 			>
 				{#if loading}<Loader2 size={14} class="animate-spin" />{:else}{mode === 'login'
 						? m['login.button.signin']()
 						: m['login.button.create_account']()}{/if}
-			</button>
+			</Button>
 		</form>
 
 		{#if registrationEnabled || inviteToken}
 			<p class="text-center text-sm text-[var(--color-text-secondary)]">
 				{mode === 'login' ? m['login.no_account']() : m['login.has_account']()}
-				<button
+				<Button variant="link" size="sm"
 					onclick={() => (mode = mode === 'login' ? 'register' : 'login')}
 					disabled={loading}
 					class="text-[var(--app-accent)] hover:underline"
 				>
 					{mode === 'login' ? m['login.button.sign_up']() : m['login.button.signin']()}
-				</button>
+				</Button>
 			</p>
 		{/if}
 	</div>
@@ -157,22 +158,22 @@
 							<h2 class="font-medium text-[var(--color-text-primary)]">{m['login.demo.title']()}</h2>
 							<p class="mt-1 text-xs">{m['login.demo.description']()}</p>
 						</div>
-						<button
+						<Button variant="ghost" size="sm"
 							type="button"
 							onclick={() => (demoDrawerOpen = false)}
 							aria-label={m['login.demo.aria_close']()}
 							class="rounded px-2 py-1 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg)] hover:text-[var(--color-text-primary)]"
 						>
 							{m['login.demo.close']()}
-						</button>
+						</Button>
 					</div>
 
 					<div class="max-h-[60vh] space-y-2 overflow-y-auto pr-1">
 						{#each demoUsers as user}
-							<button
+							<Button variant="outline" size="sm"
 								type="button"
 								onclick={() => useDemoUser(user)}
-								class="w-full rounded-lg border border-[var(--app-border)] bg-[var(--color-bg)] p-3 text-left transition hover:border-[var(--app-accent)] hover:bg-[var(--color-bg-secondary)]"
+								class="h-auto justify-start whitespace-normal w-full rounded-lg border p-3 text-left transition hover:border-[var(--app-accent)] hover:bg-[var(--color-bg-secondary)]"
 							>
 								<div class="flex items-center justify-between gap-3">
 									<p class="font-medium text-[var(--color-text-primary)]">{user.label}</p>
@@ -188,17 +189,17 @@
 										<dd class="font-mono text-[var(--color-text-primary)]">{user.password}</dd>
 									</div>
 								</dl>
-							</button>
+							</Button>
 						{/each}
 					</div>
 				</section>
 			{/if}
 
-			<button
+			<Button variant="default" size="sm"
 				type="button"
 				onclick={() => (demoDrawerOpen = !demoDrawerOpen)}
 				aria-expanded={demoDrawerOpen}
-				class="inline-flex items-center gap-2 rounded-full bg-[var(--app-accent)] px-4 py-2 text-sm font-medium text-[var(--app-accent-foreground)] shadow-lg transition hover:bg-[var(--app-accent-hover)]"
+				class="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium shadow-lg transition"
 			>
 				{#if demoDrawerOpen}
 					<ChevronDown size={14} aria-hidden="true" />
@@ -206,7 +207,7 @@
 					<ChevronUp size={14} aria-hidden="true" />
 				{/if}
 				{m['login.demo.users_button']()}
-			</button>
+			</Button>
 		</div>
 	{/if}
 </div>

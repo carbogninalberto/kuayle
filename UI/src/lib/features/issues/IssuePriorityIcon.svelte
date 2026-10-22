@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { IssuePriority } from '$lib/types/issue';
-	import { Minus } from 'lucide-svelte';
+	import { Minus } from '@lucide/svelte';
 
 	let { priority, size = 16 }: { priority: IssuePriority; size?: number } = $props();
 </script>

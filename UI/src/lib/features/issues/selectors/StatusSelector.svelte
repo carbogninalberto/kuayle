@@ -21,7 +21,7 @@
 		statuses: TeamStatus[];
 		value: string | undefined;
 		onchange: (statusId: string) => void;
-		trigger: Snippet;
+		trigger: Snippet<[Record<string, unknown>]>;
 		width?: string;
 		align?: 'start' | 'center' | 'end';
 		shortcutKey?: string;

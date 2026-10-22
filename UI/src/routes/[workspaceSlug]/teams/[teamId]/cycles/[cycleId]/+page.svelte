@@ -26,7 +26,7 @@
 		SquareUser,
 		RefreshCcwDot,
 		ChevronRight
-	} from 'lucide-svelte';
+	} from '@lucide/svelte';
 	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
 	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
 	import { hasPermission } from '$lib/security/permissions';
@@ -205,23 +205,23 @@
 							class="rounded-md p-1.5 hover:bg-[var(--color-bg-hover)]"><MoreHorizontal size={14} /></Popover.Trigger
 						>
 						<Popover.Content class="w-40 p-1" align="end">
-							<button
-								class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-[var(--color-bg-hover)]"
+							<Button variant="ghost" size="sm"
+								class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm"
 								onclick={() => {
 									actionsOpen = false;
 									showEdit = true;
-								}}><Pencil size={14} />{m['cycles.edit_cycle']()}</button
+								}}><Pencil size={14} />{m['cycles.edit_cycle']()}</Button
 							>
-							<button
+							<Button variant="destructive" size="sm"
 								onclick={() => {
 									actionsOpen = false;
 									showDelete = true;
 								}}
-								class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-error)] hover:bg-[var(--color-bg-hover)]"
+								class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-error)]"
 							>
 								<Trash2 size={14} />
 								{m['cycles.delete_cycle']()}
-							</button>
+							</Button>
 						</Popover.Content>
 					</Popover.Root>
 				</div>

@@ -18,7 +18,7 @@
 		Timer,
 		User,
 		Users
-	} from 'lucide-svelte';
+	} from '@lucide/svelte';
 	import * as Select from '$lib/components/ui/select';
 	import {
 		getAnalyticsInsights,

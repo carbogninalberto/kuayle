@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { CalendarDate } from '@internationalized/date';
 	import type { DateValue } from '@internationalized/date';
-	import { CalendarRange, X } from 'lucide-svelte';
+	import { CalendarRange, X } from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button';
 	import * as Popover from '$lib/components/ui/popover';
 	import { RangeCalendar } from '$lib/components/ui/range-calendar';

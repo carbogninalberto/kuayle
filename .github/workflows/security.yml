@@ -9,8 +9,17 @@ on:
   schedule:
     - cron: '0 0 * * *'
 
+permissions:
+  contents: read
+
 jobs:
+  changes:
+    name: CI Impact
+    uses: ./.github/workflows/ci-impact.yml
+
   go-security:
+    needs: changes
+    if: ${{ fromJSON(needs.changes.outputs.plan).backend }}
     name: Go Security Scan
     runs-on: ubuntu-latest
     defaults:
@@ -37,10 +46,14 @@ jobs:
       - name: Build check
         run: go build ./...
 
+      # PR race tests already run with a database and coverage in Tests.
       - name: Run tests
+        if: github.event_name != 'pull_request'
         run: go test ./... -race -count=1
 
   frontend-security:
+    needs: changes
+    if: ${{ fromJSON(needs.changes.outputs.plan).frontend }}
     name: Frontend Security Scan
     runs-on: ubuntu-latest
     defaults:
@@ -62,10 +75,14 @@ jobs:
       - name: Run npm audit
         run: npm audit --audit-level=high
 
+      # Frontend Checks builds before its PR browser suite.
       - name: Build check
+        if: github.event_name != 'pull_request'
         run: npm run build
 
   docker-security:
+    needs: changes
+    if: github.event_name != 'pull_request'
     name: Container Security Scan
     runs-on: ubuntu-latest
     steps:
@@ -97,6 +114,8 @@ jobs:
           severity: CRITICAL,HIGH
 
   dev-machine-security:
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.plan).required.security, 'dev-machine-security') }}
     name: Dev Machine Security Scan (${{ matrix.name }})
     runs-on: ubuntu-latest
     strategy:
@@ -104,57 +123,9 @@ jobs:
       # Bound image fan-out while preserving every architecture and scan.
       max-parallel: 4
       matrix:
-        include:
-          - id: updater
-            name: Updater
-            context: ./BE
-            dockerfile: ./BE/Dockerfile.updater
-            build_args: ''
-          - id: gateway
-            name: Gateway
-            context: ./BE
-            dockerfile: ./BE/Dockerfile.machine-gateway
-            build_args: ''
-          - id: manager
-            name: Manager
-            context: ./BE
-            dockerfile: ./BE/Dockerfile.machine-manager
-            build_args: ''
-          - id: ide
-            name: IDE
-            context: ./devmachine
-            dockerfile: ./devmachine/ide/Dockerfile
-            build_args: ''
-          - id: browser
-            name: Browser
-            context: ./devmachine
-            dockerfile: ./devmachine/browser/Dockerfile
-            build_args: ''
-          - id: collector
-            name: Collector
-            context: ./devmachine
-            dockerfile: ./devmachine/collector/Dockerfile
-            build_args: ''
-          - id: egress
-            name: Egress
-            context: ./devmachine
-            dockerfile: ./devmachine/egress/Dockerfile
-            build_args: ''
-          - id: agent-claude
-            name: Agent Claude
-            context: ./devmachine
-            dockerfile: ./devmachine/agent/Dockerfile
-            build_args: PROVIDER=claude-code
-          - id: agent-opencode
-            name: Agent OpenCode
-            context: ./devmachine
-            dockerfile: ./devmachine/agent/Dockerfile
-            build_args: PROVIDER=opencode
-          - id: agent-codex
-            name: Agent Codex
-            context: ./devmachine
-            dockerfile: ./devmachine/agent/Dockerfile
-            build_args: PROVIDER=codex
+        # On PRs only updater remains here; Build & Push scans the other
+        # selected runtime images on both native architectures.
+        include: ${{ fromJSON(needs.changes.outputs.plan).securityImages }}
 
     steps:
       - uses: actions/checkout@v7.0.0
@@ -194,3 +165,20 @@ jobs:
           format: table
           exit-code: 1
           severity: CRITICAL,HIGH
+
+  result:
+    name: Security CI Result
+    if: always()
+    needs: [changes, go-security, frontend-security, docker-security, dev-machine-security]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Require every selected check to pass
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: node scripts/ci/check-results.mjs security

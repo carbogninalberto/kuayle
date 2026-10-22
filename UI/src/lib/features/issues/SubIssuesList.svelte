@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Button } from '$lib/components/ui/button/index.js';
 	import type { Issue, IssuePriority, UpdateIssueRequest } from '$lib/types/issue';
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import { listSubIssues } from '$lib/api/issue-relations';
@@ -10,7 +11,7 @@
 	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
 	import * as Collapsible from '$lib/components/ui/collapsible';
 	import { appToast } from '$lib/features/toast/toast';
-	import { ChevronRight, Plus, UserCircle } from 'lucide-svelte';
+	import { ChevronRight, Plus, UserCircle } from '@lucide/svelte';
 
 	let {
 		slug,
@@ -135,14 +136,14 @@
 							width="w-44"
 							onchange={(statusId) => updateSubIssue(subIssue, { status_id: statusId })}
 						>
-							{#snippet trigger()}
-								<button
+							{#snippet trigger(props)}
+								<Button {...props} variant="ghost" size="sm"
 									type="button"
 									class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
 									title={subIssue.status_info?.name ?? subIssue.status}
 								>
 									<IssueStatusIcon status={subIssue.status} category={subIssue.status_info?.category} color={subIssue.status_info?.color} size={14} />
-								</button>
+								</Button>
 							{/snippet}
 						</StatusSelector>
 					{:else}
@@ -151,14 +152,14 @@
 						</span>
 					{/if}
 
-					<button
+					<Button variant="ghost" size="sm"
 						type="button"
-						class="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-[var(--color-bg-tertiary)]"
+						class="h-auto justify-start whitespace-normal flex min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-[var(--color-bg-tertiary)]"
 						onclick={() => onclickissue?.(subIssue)}
 					>
 						<span class="shrink-0 text-xs tabular-nums text-[var(--color-text-tertiary)]">{subIssue.identifier}</span>
 						<span class="min-w-0 flex-1 truncate text-sm text-[var(--color-text-primary)]">{subIssue.title}</span>
-					</button>
+					</Button>
 
 					{#if subIssue.labels && subIssue.labels.length > 0}
 						<div class="hidden shrink-0 items-center gap-1 sm:flex">
@@ -181,14 +182,14 @@
 							align="end"
 							onchange={(priority: IssuePriority) => updateSubIssue(subIssue, { priority })}
 						>
-							{#snippet trigger()}
-								<button
+							{#snippet trigger(props)}
+								<Button {...props} variant="ghost" size="sm"
 									type="button"
 									class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
 									title="Change priority"
 								>
 									<IssuePriorityIcon priority={subIssue.priority} size={14} />
-								</button>
+								</Button>
 							{/snippet}
 						</PrioritySelector>
 					{:else}
@@ -205,8 +206,8 @@
 							align="end"
 							onchange={(userId) => toggleAssignee(subIssue, userId)}
 						>
-							{#snippet trigger()}
-								<button
+							{#snippet trigger(props)}
+								<Button {...props} variant="ghost" size="sm"
 									type="button"
 									class="flex min-w-6 shrink-0 items-center justify-center rounded-full text-[var(--color-text-tertiary)] transition-colors hover:text-[var(--color-text-primary)]"
 									title={assigneeTitle(subIssue)}
@@ -227,7 +228,7 @@
 									{:else}
 										<UserCircle size={15} />
 									{/if}
-								</button>
+								</Button>
 							{/snippet}
 						</AssigneeSelector>
 					{:else if assignees.length > 0}
@@ -309,13 +310,13 @@
 				</Collapsible.Trigger>
 
 				{#if onaddsubissue}
-					<button
+					<Button variant="ghost" size="sm"
 						onclick={onaddsubissue}
-						class="ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+						class="ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[var(--color-text-tertiary)] transition-colors hover:text-[var(--color-text-primary)]"
 						title="Add sub-issue"
 					>
 						<Plus size={13} />
-					</button>
+					</Button>
 				{/if}
 			</div>
 

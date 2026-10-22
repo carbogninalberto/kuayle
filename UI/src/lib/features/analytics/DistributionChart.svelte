@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Button } from '$lib/components/ui/button/index.js';
 	import { onMount } from 'svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
@@ -184,22 +185,22 @@
 
 <div class="rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
 	<div class="flex items-center gap-1 border-b border-[var(--app-border)] px-3 py-2">
-		<button
+		<Button variant="ghost" size="sm"
 			onclick={() => (activeTab = 'status')}
 			class="rounded px-2 py-0.5 text-xs {activeTab === 'status'
 				? 'bg-[var(--app-accent)]/10 text-[var(--color-text-primary)]'
 				: 'text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]'}"
 		>
 			{teamScoped ? m['insights.by_status']() : m['insights.by_status_type']()}
-		</button>
-		<button
+		</Button>
+		<Button variant="ghost" size="sm"
 			onclick={() => (activeTab = 'priority')}
 			class="rounded px-2 py-0.5 text-xs {activeTab === 'priority'
 				? 'bg-[var(--app-accent)]/10 text-[var(--color-text-primary)]'
 				: 'text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]'}"
 		>
 			{m['insights.by_priority']()}
-		</button>
+		</Button>
 	</div>
 	<div bind:this={container} class="h-60 w-full"></div>
 </div>

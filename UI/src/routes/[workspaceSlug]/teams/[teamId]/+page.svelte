@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Button } from '$lib/components/ui/button/index.js';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
@@ -31,7 +32,7 @@
 	import type { ViewFilter, ViewLayout } from '$lib/types/view';
 	import { createKeyboardHandler } from '$lib/utils/keyboard';
 	import { appToast } from '$lib/features/toast/toast';
-	import { Layers, SquareUser, SquaresSubtract, ChevronRight, Share2 } from 'lucide-svelte';
+	import { Layers, SquareUser, SquaresSubtract, ChevronRight, Share2 } from '@lucide/svelte';
 	import ShareLinkDialog from '$lib/components/shared/ShareLinkDialog.svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
@@ -425,30 +426,32 @@
 					{m['common.issues']()}
 				</span>
 			</nav>
-			<button
+			<Button variant="ghost" size="sm"
 				onclick={() => (showShareLink = true)}
-				class="rounded-md p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] transition-colors"
+				class="rounded-md p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors"
 				title={m['sharedComponents.share_link.title']()}
 			>
 				<Share2 size={14} />
-			</button>
+			</Button>
 		</div>
 		<div class="flex shrink-0 items-center gap-2">
 			<!-- Group by -->
 			{#if layout === 'list'}
 				<Popover.Root bind:open={groupByOpen}>
 					<Popover.Trigger>
-						<button
-							class="flex items-center gap-1 rounded-md border border-[var(--app-border)] px-2 py-1 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]"
-							title={m['common.group_by']()}
-						>
-							<Layers size={12} />
-							{m['common.group']()}
-						</button>
+						{#snippet child({ props })}
+							<Button {...props} variant="outline" size="sm"
+								class="flex items-center gap-1 rounded-md border px-2 py-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
+								title={m['common.group_by']()}
+							>
+								<Layers size={12} />
+								{m['common.group']()}
+							</Button>
+						{/snippet}
 					</Popover.Trigger>
 					<Popover.Content class="w-40 p-1" align="end">
 						{#each groupByOptions as opt}
-							<button
+							<Button variant="ghost" size="sm"
 								onclick={() => handleGroupByChange(opt.value)}
 								class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {issuesState.groupBy ===
 								opt.value
@@ -456,7 +459,7 @@
 									: ''}"
 							>
 								{opt.label}
-							</button>
+							</Button>
 						{/each}
 					</Popover.Content>
 				</Popover.Root>

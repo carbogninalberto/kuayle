@@ -1,4 +1,9 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
+	import SelectField from '$lib/components/shared/SelectField.svelte';
+	import { Input } from '$lib/components/ui/input/index.js';
+	import { Textarea } from '$lib/components/ui/textarea/index.js';
+	import { Button } from '$lib/components/ui/button/index.js';
 	import type { CreateIssueRequest, IssuePriority } from '$lib/types/issue';
 	import type { Team } from '$lib/types/team';
 	import { getPriorityLabels } from '$lib/types/issue';
@@ -35,67 +40,55 @@
 
 <form onsubmit={handleSubmit} class="space-y-4 p-4">
 	<div>
-		<input
+		<Input
 			type="text"
 			bind:value={title}
 			placeholder="Issue title"
 			required
-			class="w-full bg-transparent text-lg font-medium text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)]"
+			class="w-full bg-transparent text-lg font-medium"
 		/>
 	</div>
 
 	<div>
-		<textarea
+		<Textarea
 			bind:value={description}
 			placeholder="Add description..."
 			rows={3}
-			class="w-full rounded border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)] focus:border-[var(--app-accent)]"
-		></textarea>
+			class="w-full"
+		></Textarea>
 	</div>
 
 	<div class="flex flex-wrap gap-3">
-		<select
-			bind:value={teamId}
+		<SelectField
+			aria-label={m['sharedComponents.create_issue.team']()} bind:value={teamId}
 			class="rounded border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-2 py-1.5 text-sm text-[var(--color-text-secondary)]"
-		>
-			{#each teams as team}
-				<option value={team.id}>{team.name}</option>
-			{/each}
-		</select>
+		 options={teams.map(team => ({ value: team.id, label: team.name }))} />
 
-		<select
-			bind:value={statusId}
+		<SelectField
+			aria-label={m['sharedComponents.create_issue.status']()} bind:value={statusId}
 			class="rounded border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-2 py-1.5 text-sm text-[var(--color-text-secondary)]"
-		>
-			{#each teamStatusesState.statusOrder as ts}
-				<option value={ts.id}>{ts.name}</option>
-			{/each}
-		</select>
+		 options={teamStatusesState.statusOrder.map(status => ({ value: status.id, label: status.name }))} />
 
-		<select
-			bind:value={priority}
+		<SelectField
+			aria-label={m['issue.priority']()} bind:value={priority}
 			class="rounded border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-2 py-1.5 text-sm text-[var(--color-text-secondary)]"
-		>
-			{#each Object.entries(getPriorityLabels()) as [value, label]}
-				<option value={Number(value)}>{label}</option>
-			{/each}
-		</select>
+		 options={Object.entries(getPriorityLabels()).map(([value, label]) => ({ value: Number(value) as IssuePriority, label }))} />
 	</div>
 
 	<div class="flex justify-end gap-2">
-		<button
+		<Button variant="outline" size="sm"
 			type="button"
 			onclick={oncancel}
-			class="rounded-md border border-[var(--app-border)] px-3 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+			class="rounded-md border px-3 py-1.5 text-sm text-[var(--color-text-secondary)]"
 		>
 			Cancel
-		</button>
-		<button
+		</Button>
+		<Button variant="default" size="sm"
 			type="submit"
 			disabled={!title.trim() || !teamId}
-			class="rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)] disabled:opacity-50"
+			class="rounded-md px-3 py-1.5 text-sm disabled:opacity-50"
 		>
 			Create issue
-		</button>
+		</Button>
 	</div>
 </form>

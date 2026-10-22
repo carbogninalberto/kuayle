@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { Button } from '$lib/components/ui/button/index.js';
+	import { Input } from '$lib/components/ui/input/index.js';
 	import { flip } from 'svelte/animate';
 	import { page } from '$app/state';
 	import type { TeamStatus, StatusCategory } from '$lib/types/team-status';
@@ -10,7 +12,7 @@
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
-	import { Plus, Trash2, Pencil, X, Check, GripVertical, ArrowUp, ArrowDown } from 'lucide-svelte';
+	import { Plus, Trash2, Pencil, X, Check, GripVertical, ArrowUp, ArrowDown } from '@lucide/svelte';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	const teamId = $derived(page.params.teamId ?? '');
@@ -356,22 +358,22 @@
 							<div
 								class="flex items-center gap-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
 							>
-								<button
+								<Button variant="ghost" size="sm"
 									onclick={() => moveTeamWorkflowCategory(category, -1)}
 									disabled={index === 0}
-									class="rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-30"
+									class="rounded p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] disabled:opacity-30"
 									aria-label={m['team_settings.move_category_up_aria']({ name: getCategoryLabel(category) })}
 								>
 									<ArrowUp size={13} />
-								</button>
-								<button
+								</Button>
+								<Button variant="ghost" size="sm"
 									onclick={() => moveTeamWorkflowCategory(category, 1)}
 									disabled={index === teamWorkflowOrder.length - 1}
-									class="rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-30"
+									class="rounded p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] disabled:opacity-30"
 									aria-label={m['team_settings.move_category_down_aria']({ name: getCategoryLabel(category) })}
 								>
 									<ArrowDown size={13} />
-								</button>
+								</Button>
 							</div>
 						</div>
 					{/each}
@@ -402,13 +404,13 @@
 					>
 						<div class="flex items-center justify-between px-5 py-2.5">
 							<span class="text-xs font-medium text-[var(--color-text-tertiary)]">{getCategoryLabel(cat)}</span>
-							<button
+							<Button variant="ghost" size="sm"
 								onclick={() => startAdd(cat)}
-								class="rounded p-0.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
+								class="rounded p-0.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
 								title={m['team_settings.add_status_to_aria']({ name: getCategoryLabel(cat) })}
 							>
 								<Plus size={14} />
-							</button>
+							</Button>
 						</div>
 
 						{#each catStatuses as status (status.id)}
@@ -444,39 +446,39 @@
 
 									{#if editingId === status.id}
 										<div class="flex flex-1 items-center gap-2">
-											<input
+											<Input
 												type="text"
 												bind:value={editName}
 												onkeydown={(e) => {
 													if (e.key === 'Enter') saveEdit();
 													if (e.key === 'Escape') editingId = null;
 												}}
-												class="flex-1 rounded border border-[var(--app-border)] bg-[var(--color-bg)] px-2 py-0.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
+												class="flex-1 py-0.5"
 											/>
 											<div class="flex items-center gap-0.5">
 												{#each PRESET_COLORS as c}
-													<button
+													<Button variant="ghost" size="sm"
 														onclick={() => (editColor = c)}
 														class="h-3.5 w-3.5 rounded-full {editColor === c
 															? 'ring-2 ring-[var(--app-accent)] ring-offset-1 ring-offset-[var(--color-bg)]'
 															: ''}"
 														style="background-color: {c}"
 														aria-label={m['team_settings.select_color_aria']({ color: c })}
-													></button>
+													></Button>
 												{/each}
 											</div>
-											<button
+											<Button aria-label={m['common.save']()} variant="ghost" size="sm"
 												onclick={saveEdit}
 												class="rounded p-0.5 text-[var(--color-success)] hover:bg-[var(--color-bg-tertiary)]"
 											>
 												<Check size={14} />
-											</button>
-											<button
+											</Button>
+											<Button aria-label={m['common.close']()} variant="ghost" size="sm"
 												onclick={() => (editingId = null)}
 												class="rounded p-0.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-tertiary)]"
 											>
 												<X size={14} />
-											</button>
+											</Button>
 										</div>
 									{:else}
 										<div class="flex-1 min-w-0">
@@ -488,19 +490,19 @@
 											</div>
 										</div>
 										<div class="flex items-center gap-1">
-											<button
+											<Button variant="ghost" size="sm"
 												onclick={() => startEdit(status)}
 												class="hidden rounded p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)] group-hover:block transition-colors"
 											>
 												<Pencil size={12} />
-											</button>
+											</Button>
 											{#if !status.is_default}
-												<button
+												<Button aria-label={m['common.delete']()} variant="destructive" size="sm"
 													onclick={() => handleDelete(status.id)}
 													class="hidden rounded p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-error)] hover:bg-[var(--color-bg-tertiary)] group-hover:block transition-colors"
 												>
 													<Trash2 size={12} />
-												</button>
+												</Button>
 											{/if}
 										</div>
 									{/if}
@@ -513,7 +515,7 @@
 								class="flex items-center gap-3 px-5 py-2.5 border-t border-[var(--app-border)] bg-[var(--color-bg-hover)]/30"
 							>
 								<IssueStatusIcon category={cat} size={18} />
-								<input
+								<Input
 									type="text"
 									bind:value={addName}
 									placeholder={m['team_settings.status_name_placeholder']()}
@@ -521,33 +523,33 @@
 										if (e.key === 'Enter') handleAdd();
 										if (e.key === 'Escape') addingCategory = null;
 									}}
-									class="flex-1 rounded border border-[var(--app-border)] bg-[var(--color-bg)] px-2 py-1 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
+									class="flex-1"
 								/>
 								<div class="flex items-center gap-0.5">
 									{#each PRESET_COLORS as c}
-										<button
+										<Button variant="ghost" size="sm"
 											onclick={() => (addColor = c)}
 											class="h-3.5 w-3.5 rounded-full {addColor === c
 												? 'ring-2 ring-[var(--app-accent)] ring-offset-1 ring-offset-[var(--color-bg)]'
 												: ''}"
 											style="background-color: {c}"
 											aria-label={m['team_settings.select_color_only_aria']()}
-										></button>
+										></Button>
 									{/each}
 								</div>
-								<button
+								<Button variant="default" size="sm"
 									onclick={handleAdd}
 									disabled={!addName.trim()}
-									class="rounded-md bg-[var(--app-accent)] px-2.5 py-1 text-xs text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)] disabled:opacity-50"
+									class="rounded-md px-2.5 py-1 text-xs disabled:opacity-50"
 								>
 									{m['team_settings.add']()}
-								</button>
-								<button
+								</Button>
+								<Button aria-label={m['common.close']()} variant="ghost" size="sm"
 									onclick={() => (addingCategory = null)}
 									class="rounded p-0.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-tertiary)]"
 								>
 									<X size={14} />
-								</button>
+								</Button>
 							</div>
 						{/if}
 					</div>

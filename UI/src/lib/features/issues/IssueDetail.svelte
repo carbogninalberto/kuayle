@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { Button } from '$lib/components/ui/button/index.js';
+	import { Input } from '$lib/components/ui/input/index.js';
 	import { onMount, onDestroy } from 'svelte';
 	import BellIcon from '@lucide/svelte/icons/bell';
 	import type { Issue, Comment, IssueHistory, IssuePriority } from '$lib/types/issue';
@@ -145,7 +147,7 @@
 		<Sheet.Header class="sticky top-0 z-10 border-b border-[var(--app-border)] bg-[var(--color-bg)] px-4 py-3 text-left sm:px-6">
 			<div class="flex items-center justify-between gap-3 pr-8">
 				<Sheet.Title class="truncate text-sm font-medium text-[var(--color-text-tertiary)]">{issue.identifier}</Sheet.Title>
-				<button
+				<Button variant="ghost" size="sm"
 					type="button"
 					onclick={toggleSubscription}
 					disabled={subscriptionBusy}
@@ -155,7 +157,7 @@
 					class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[var(--app-border)] transition-colors hover:bg-[var(--color-bg-hover)] disabled:opacity-50 {isSubscribed ? 'bg-[var(--app-accent)] text-[var(--app-accent-foreground)] border-[var(--app-accent)]' : 'bg-[var(--color-bg-secondary)] text-[var(--color-text-tertiary)]'}"
 				>
 					<BellIcon size={16} />
-				</button>
+				</Button>
 				<Sheet.Description class="sr-only">Issue details for {issue.identifier}</Sheet.Description>
 			</div>
 		</Sheet.Header>
@@ -181,11 +183,11 @@
 						value={issue.status_id}
 						onchange={(id) => { updateStatus(id); }}
 					>
-						{#snippet trigger()}
-							<button class="flex items-center gap-1.5 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-2.5 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
+						{#snippet trigger(props)}
+							<Button {...props} variant="outline" size="sm" class="flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs text-[var(--color-text-secondary)]">
 								<IssueStatusIcon status={issue.status} category={issue.status_info?.category} color={issue.status_info?.color} size={12} />
 								{issue.status_info?.name ?? issue.status}
-							</button>
+							</Button>
 						{/snippet}
 					</StatusSelector>
 				</div>
@@ -196,11 +198,11 @@
 						value={issue.priority}
 						onchange={(p) => { updatePriority(p); }}
 					>
-						{#snippet trigger()}
-							<button class="flex items-center gap-1.5 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-2.5 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
+						{#snippet trigger(props)}
+							<Button {...props} variant="outline" size="sm" class="flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs text-[var(--color-text-secondary)]">
 								<IssuePriorityIcon priority={issue.priority} size={12} />
 								{getPriorityLabel(issue.priority)}
-							</button>
+							</Button>
 						{/snippet}
 					</PrioritySelector>
 				</div>
@@ -210,22 +212,22 @@
 
 			<!-- Tabs -->
 			<div class="mt-8 flex gap-4 border-b border-[var(--app-border)]">
-				<button
+				<Button variant="outline" size="sm"
 					onclick={() => (tab = 'comments')}
 					class="pb-2 text-sm {tab === 'comments'
 						? 'border-b-2 border-[var(--app-accent)] text-[var(--color-text-primary)]'
 						: 'text-[var(--color-text-tertiary)]'}"
 				>
 					Comments ({comments.length})
-				</button>
-				<button
+				</Button>
+				<Button variant="outline" size="sm"
 					onclick={() => (tab = 'activity')}
 					class="pb-2 text-sm {tab === 'activity'
 						? 'border-b-2 border-[var(--app-accent)] text-[var(--color-text-primary)]'
 						: 'text-[var(--color-text-tertiary)]'}"
 				>
 					Activity ({history.length})
-				</button>
+				</Button>
 			</div>
 
 			{#if tab === 'comments'}
@@ -247,19 +249,19 @@
 					{/each}
 
 					<form onsubmit={handleAddComment} class="sticky bottom-0 -mx-4 flex gap-2 border-t border-[var(--app-border)] bg-[var(--color-bg)] px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:p-0">
-						<input
+						<Input
 							type="text"
 							bind:value={newComment}
 							placeholder="Write a comment..."
-							class="flex-1 rounded border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
+							class="flex-1"
 						/>
-						<button
+						<Button variant="default" size="sm"
 							type="submit"
 							disabled={!newComment.trim()}
-							class="rounded bg-[var(--app-accent)] px-3 py-2 text-sm text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)] disabled:opacity-50"
+							class="rounded px-3 py-2 text-sm disabled:opacity-50"
 						>
 							Send
-						</button>
+						</Button>
 					</form>
 				</div>
 			{:else}
@@ -269,12 +271,12 @@
 					{/if}
 
 					{#if hiddenHistoryCount > 0}
-						<button
+						<Button variant="outline" size="sm"
 							onclick={() => showAllActivity = true}
-							class="relative z-10 mb-2 rounded-full border border-[var(--app-border)] bg-[var(--color-bg)] px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)] transition-colors"
+							class="relative z-10 mb-2 rounded-full border px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors"
 						>
 							Show {hiddenHistoryCount} earlier {hiddenHistoryCount === 1 ? 'event' : 'events'}
-						</button>
+						</Button>
 					{/if}
 
 					<div class="space-y-0">
@@ -311,12 +313,12 @@
 					</div>
 
 					{#if showAllActivity && sortedHistory.length > RECENT_ACTIVITY_COUNT}
-						<button
+						<Button variant="outline" size="sm"
 							onclick={() => showAllActivity = false}
-							class="relative z-10 mt-2 rounded-full border border-[var(--app-border)] bg-[var(--color-bg)] px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)] transition-colors"
+							class="relative z-10 mt-2 rounded-full border px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors"
 						>
 							Show less
-						</button>
+						</Button>
 					{/if}
 
 					{#if history.length === 0}

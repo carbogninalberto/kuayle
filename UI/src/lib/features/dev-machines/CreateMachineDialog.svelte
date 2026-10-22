@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
-	import { Check, LoaderCircle, RefreshCw, X } from 'lucide-svelte';
+	import { Check, LoaderCircle, RefreshCw, X } from '@lucide/svelte';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import * as RadioGroup from '$lib/components/ui/radio-group';
 	import * as Select from '$lib/components/ui/select';

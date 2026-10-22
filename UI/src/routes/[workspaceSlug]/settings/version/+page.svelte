@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { AlertTriangle, ExternalLink, RefreshCw, ShieldCheck } from 'lucide-svelte';
+	import { AlertTriangle, ExternalLink, RefreshCw, ShieldCheck } from '@lucide/svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
 	import { Button } from '$lib/components/ui/button';
@@ -162,13 +162,13 @@
 					{m['settings.version.changelog_desc']({ version: currentVersionLabel })}
 				</p>
 			</div>
-			<button
+			<Button variant="ghost" size="sm"
 				type="button"
-				class="w-fit rounded-md px-2 py-1 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+				class="w-fit rounded-md px-2 py-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
 				onclick={() => (includePrerelease = !includePrerelease)}
 			>
 				{m['settings.version.pre_releases']()}
-			</button>
+			</Button>
 		</div>
 		<div class="px-5 py-4">
 			{#if loadingReleases}

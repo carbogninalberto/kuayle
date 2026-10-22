@@ -1,11 +1,12 @@
 <script lang="ts">
+	import { Input } from '$lib/components/ui/input/index.js';
 	import { goto } from '$app/navigation';
 	import type { Workspace } from '$lib/types/workspace';
 	import { createWorkspace, listWorkspaces } from '$lib/api/workspaces';
 	import * as Popover from '$lib/components/ui/popover';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Button } from '$lib/components/ui/button';
-	import { Plus, ChevronsUpDown, Check, Loader2 } from 'lucide-svelte';
+	import { Plus, ChevronsUpDown, Check, Loader2 } from '@lucide/svelte';
 	import { onMount } from 'svelte';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/paraglide/messages.js';
@@ -78,26 +79,28 @@
 
 <Popover.Root bind:open>
 	<Popover.Trigger class="min-w-0 w-full">
-		<button class="flex w-full min-w-0 items-center gap-2 rounded-md px-1 py-0.5 hover:bg-[var(--color-bg-hover)]">
-			<div
-				class="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-[var(--app-accent)] text-xs font-bold text-[var(--app-accent-foreground)]"
-			>
-				{currentWorkspace.name.charAt(0).toUpperCase()}
-			</div>
-			<span class="flex-1 truncate text-left text-sm font-medium text-[var(--color-text-primary)]">
-				{currentWorkspace.name}
-			</span>
-			<ChevronsUpDown size={14} class="shrink-0 text-[var(--color-text-tertiary)]" />
-		</button>
+		{#snippet child({ props })}
+			<Button {...props} variant="ghost" size="sm" class="flex w-full min-w-0 items-center gap-2 rounded-md px-1 py-0.5">
+				<div
+					class="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-[var(--app-accent)] text-xs font-bold text-[var(--app-accent-foreground)]"
+				>
+					{currentWorkspace.name.charAt(0).toUpperCase()}
+				</div>
+				<span class="flex-1 truncate text-left text-sm font-medium text-[var(--color-text-primary)]">
+					{currentWorkspace.name}
+				</span>
+				<ChevronsUpDown size={14} class="shrink-0 text-[var(--color-text-tertiary)]" />
+			</Button>
+		{/snippet}
 	</Popover.Trigger>
 	<Popover.Content class="w-56 p-1" align="start">
 		<div class="px-2 py-1">
 			<span class="text-[10px] font-medium uppercase text-[var(--color-text-tertiary)]">{m['sidebar.workspaces']()}</span>
 		</div>
 		{#each workspaces as ws}
-			<button
+			<Button variant="ghost" size="sm"
 				onclick={() => switchWorkspace(ws)}
-				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)]"
 			>
 				<div
 					class="flex h-5 w-5 items-center justify-center rounded bg-[var(--app-accent)] text-[9px] font-bold text-[var(--app-accent-foreground)]"
@@ -108,16 +111,16 @@
 				{#if ws.slug === slug}
 					<Check size={14} class="text-[var(--app-accent)]" />
 				{/if}
-			</button>
+			</Button>
 		{/each}
 		<div class="mt-1 border-t border-[var(--app-border)] pt-1">
-			<button
+			<Button variant="ghost" size="sm"
 				onclick={openCreateWorkspace}
-				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-secondary)]"
 			>
 				<Plus size={14} />
 				{m['sidebar.create_workspace']()}
-			</button>
+			</Button>
 		</div>
 	</Popover.Content>
 </Popover.Root>
@@ -132,21 +135,21 @@
 		<form onsubmit={handleCreateWorkspace} class="space-y-4 py-2">
 			<div>
 				<label for="workspace-name" class="mb-1 block text-sm text-[var(--color-text-secondary)]">{m['sidebar.workspace_name']()}</label>
-				<input
+				<Input
 					id="workspace-name"
 					type="text"
 					bind:value={newWorkspaceName}
 					oninput={handleNameInput}
 					required
-					maxlength="100"
+					maxlength={100}
 					placeholder={m['sidebar.workspace_name_placeholder']()}
-					class="w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
+					class="w-full"
 				/>
 			</div>
 
 			<div>
 				<label for="workspace-slug" class="mb-1 block text-sm text-[var(--color-text-secondary)]">{m['sidebar.workspace_url']()}</label>
-				<input
+				<Input
 					id="workspace-slug"
 					type="text"
 					bind:value={newWorkspaceSlug}
@@ -155,9 +158,9 @@
 						newWorkspaceSlug = toSlug(newWorkspaceSlug);
 					}}
 					required
-					maxlength="50"
+					maxlength={50}
 					placeholder={m['sidebar.workspace_url_placeholder']()}
-					class="w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
+					class="w-full"
 				/>
 				<p class="mt-1 text-xs text-[var(--color-text-tertiary)]">{m['sidebar.workspace_url_desc']()}</p>
 			</div>

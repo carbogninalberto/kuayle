@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Checkbox } from '$lib/components/ui/checkbox/index.js';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Button } from '$lib/components/ui/button';
 	import { Label } from '$lib/components/ui/label';
@@ -69,10 +70,10 @@
 
 				{#if incompleteCount > 0 && nextUpcomingCycle}
 					<label class="flex items-start gap-2 cursor-pointer">
-						<input
-							type="checkbox"
+						<Checkbox
+
 							bind:checked={carryOver}
-							class="mt-0.5 rounded border-[var(--app-border)]"
+							class="mt-0.5"
 						/>
 						<span class="text-xs text-[var(--color-text-secondary)]">
 							{m['cycles.complete.carry_over_prefix']()}{incompleteCount}{incompleteCount > 1 ? m['cycles.complete.incomplete_to']() : m['cycles.complete.incomplete_to']()}{m['cycles.complete.to']()}<strong>{nextUpcomingCycle.name}</strong>
@@ -90,7 +91,7 @@
 						bind:value={retrospective}
 						placeholder={m['cycles.edit.retrospective_placeholder']()}
 						rows={3}
-						class="bg-[var(--color-bg)] border-[var(--app-border)] text-[var(--color-text-primary)] resize-none text-sm"
+						class="resize-none"
 					/>
 				</div>
 			</div>

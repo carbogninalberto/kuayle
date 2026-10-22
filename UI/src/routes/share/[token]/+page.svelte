@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { Input } from '$lib/components/ui/input/index.js';
+	import { Button } from '$lib/components/ui/button/index.js';
 	import { page } from '$app/stores';
 	import { onMount } from 'svelte';
 	import { getShareMeta, listShareIssues } from '$lib/api/public';
@@ -15,7 +17,7 @@
 	import IssuePriorityIcon from '$lib/features/issues/IssuePriorityIcon.svelte';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import * as Popover from '$lib/components/ui/popover';
-	import { Globe, Search, CircleDashed, Signal, Plus, X, ChevronDown, ChevronRight } from 'lucide-svelte';
+	import { Globe, Search, CircleDashed, Signal, Plus, X, ChevronDown, ChevronRight } from '@lucide/svelte';
 	import type { StatusCategory } from '$lib/types/team-status';
 
 	let meta = $state<PublicShareMeta | null>(null);
@@ -215,12 +217,12 @@
 		<!-- Search -->
 		<div class="relative">
 			<Search size={14} class="absolute left-2 top-1/2 -translate-y-1/2 text-[var(--color-text-tertiary)]" />
-			<input
+			<Input
 				type="text"
 				value={searchValue}
 				oninput={handleSearchInput}
 				placeholder="Search..."
-				class="h-7 w-40 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] pl-7 pr-2 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)] focus:border-[var(--app-accent)]"
+				class="h-7 w-40 pl-7 pr-2 text-xs"
 			/>
 		</div>
 
@@ -228,28 +230,30 @@
 		{#if meta.statuses && meta.statuses.length > 0}
 			<Popover.Root bind:open={statusOpen}>
 				<Popover.Trigger>
-					<button class="flex items-center gap-1 rounded-md border {filters.status ? 'border-[var(--app-accent)]/30 bg-[var(--app-accent)]/10 text-[var(--app-accent-light)]' : 'border-[var(--app-border)] text-[var(--color-text-tertiary)]'} px-2 py-0.5 text-xs hover:bg-[var(--color-bg-hover)]">
-						<CircleDashed size={12} />
-						{#if getStatusValues().length === 0}
-							Status
-						{:else if getStatusValues().length === 1}
-							{@const st = meta.statuses?.find(s => s.id === getStatusValues()[0])}
-							{st?.name ?? 'Status'}
-						{:else}
-							{getStatusValues().length} statuses
-						{/if}
-					</button>
+					{#snippet child({ props })}
+						<Button {...props} variant="ghost" size="sm" class="flex items-center gap-1 rounded-md border {filters.status ? 'border-[var(--app-accent)]/30 bg-[var(--app-accent)]/10 text-[var(--app-accent-light)]' : 'border-[var(--app-border)] text-[var(--color-text-tertiary)]'} px-2 py-0.5 text-xs hover:bg-[var(--color-bg-hover)]">
+							<CircleDashed size={12} />
+							{#if getStatusValues().length === 0}
+								Status
+							{:else if getStatusValues().length === 1}
+								{@const st = meta?.statuses?.find(s => s.id === getStatusValues()[0])}
+								{st?.name ?? 'Status'}
+							{:else}
+								{getStatusValues().length} statuses
+							{/if}
+						</Button>
+					{/snippet}
 				</Popover.Trigger>
 				<Popover.Content class="w-44 p-1" align="start">
 					{#each meta.statuses as st}
-						<button
+						<Button variant="ghost" size="sm"
 							onclick={() => toggleStatus(st.id)}
-							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)]"
 						>
 							<Checkbox checked={getStatusValues().includes(st.id)} />
 							<IssueStatusIcon category={st.category as StatusCategory} color={st.color} />
 							{st.name}
-						</button>
+						</Button>
 					{/each}
 				</Popover.Content>
 			</Popover.Root>
@@ -258,27 +262,29 @@
 		<!-- Priority filter -->
 		<Popover.Root bind:open={priorityOpen}>
 			<Popover.Trigger>
-				<button class="flex items-center gap-1 rounded-md border {filters.priority ? 'border-[var(--app-accent)]/30 bg-[var(--app-accent)]/10 text-[var(--app-accent-light)]' : 'border-[var(--app-border)] text-[var(--color-text-tertiary)]'} px-2 py-0.5 text-xs hover:bg-[var(--color-bg-hover)]">
-					<Signal size={12} />
-					{#if getPriorityValues().length === 0}
-						Priority
-					{:else if getPriorityValues().length === 1}
-						{getPriorityLabel(Number(getPriorityValues()[0]) as IssuePriority)}
-					{:else}
-						{getPriorityValues().length} priorities
-					{/if}
-				</button>
+				{#snippet child({ props })}
+					<Button {...props} variant="ghost" size="sm" class="flex items-center gap-1 rounded-md border {filters.priority ? 'border-[var(--app-accent)]/30 bg-[var(--app-accent)]/10 text-[var(--app-accent-light)]' : 'border-[var(--app-border)] text-[var(--color-text-tertiary)]'} px-2 py-0.5 text-xs hover:bg-[var(--color-bg-hover)]">
+						<Signal size={12} />
+						{#if getPriorityValues().length === 0}
+							Priority
+						{:else if getPriorityValues().length === 1}
+							{getPriorityLabel(Number(getPriorityValues()[0]) as IssuePriority)}
+						{:else}
+							{getPriorityValues().length} priorities
+						{/if}
+					</Button>
+				{/snippet}
 			</Popover.Trigger>
 			<Popover.Content class="w-44 p-1" align="start">
 				{#each Object.entries(getPriorityLabels()) as [value, label]}
-					<button
+					<Button variant="ghost" size="sm"
 						onclick={() => togglePriority(value)}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)]"
 					>
 						<Checkbox checked={getPriorityValues().includes(value)} />
 						<IssuePriorityIcon priority={Number(value) as IssuePriority} />
 						{label}
-					</button>
+					</Button>
 				{/each}
 			</Popover.Content>
 		</Popover.Root>
@@ -286,9 +292,9 @@
 		<div class="flex-1"></div>
 
 		{#if hasFilters}
-			<button onclick={clearFilters} class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]">
+			<Button variant="ghost" size="sm" onclick={clearFilters} class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]">
 				Clear filters
-			</button>
+			</Button>
 		{/if}
 	</div>
 
@@ -306,7 +312,7 @@
 					{@const collapsed = collapsedGroups.has(group.statusId)}
 					<!-- Group header -->
 					<div class="mt-1 first:mt-0 mx-2">
-						<button
+						<Button variant="ghost" size="sm"
 							class="flex w-full items-center gap-2 rounded-md bg-[var(--color-bg-secondary)] px-4 py-1.5 text-xs font-medium text-[var(--color-text-secondary)]"
 							onclick={() => {
 								const next = new Set(collapsedGroups);
@@ -323,7 +329,7 @@
 							<IssueStatusIcon category={group.category as StatusCategory} color={group.color} size={14} />
 							<span>{group.name}</span>
 							<span class="text-[10px] font-normal text-[var(--color-text-tertiary)]">{group.issues.length}</span>
-						</button>
+						</Button>
 					</div>
 					{#if !collapsed}
 						{#each group.issues as issue (issue.identifier)}
@@ -338,9 +344,9 @@
 			{/if}
 			{#if hasMore}
 				<div class="flex justify-center py-4">
-					<button onclick={loadMore} class="rounded-md border border-[var(--app-border)] px-4 py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
+					<Button variant="outline" size="sm" onclick={loadMore} class="rounded-md border px-4 py-1.5 text-xs text-[var(--color-text-secondary)]">
 						Load more
-					</button>
+					</Button>
 				</div>
 			{/if}
 		</div>

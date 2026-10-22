@@ -1,4 +1,6 @@
 <script lang="ts">
+	import SelectField from '$lib/components/shared/SelectField.svelte';
+	import { Input } from '$lib/components/ui/input/index.js';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import type { WorkspaceMember } from '$lib/types/workspace';
@@ -18,7 +20,7 @@
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale } from '$lib/paraglide/runtime.js';
 	import { formatDate } from '$lib/utils/format';
-	import { UserPlus, Trash2, Link2, Copy, Ban } from 'lucide-svelte';
+	import { UserPlus, Trash2, Link2, Copy, Ban } from '@lucide/svelte';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 
@@ -178,13 +180,13 @@
 <div class="mx-auto max-w-2xl px-8 py-10">
 	<div class="flex items-center justify-between">
 		<h1 class="text-2xl font-semibold text-[var(--color-text-primary)]">{m['settings.members.title']()}</h1>
-		<button
+		<Button variant="default" size="sm"
 			onclick={() => openInvite('email')}
-			class="flex items-center gap-1.5 rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)]"
+			class="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm"
 		>
 			<UserPlus size={14} />
 			{m['settings.members.invite']()}
-		</button>
+		</Button>
 	</div>
 
 	<div class="mt-8">
@@ -214,15 +216,17 @@
 						<div class="flex items-center gap-2">
 							<Popover.Root>
 								<Popover.Trigger>
-									<button
-										class="rounded-md border border-[var(--app-border)] px-2.5 py-1 text-xs capitalize text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
-									>
-										{(m as unknown as Record<string, () => string>)['common.role.' + member.role]()}
-									</button>
+									{#snippet child({ props })}
+										<Button {...props} variant="outline" size="sm"
+											class="rounded-md border px-2.5 py-1 text-xs capitalize text-[var(--color-text-secondary)]"
+										>
+											{(m as unknown as Record<string, () => string>)['common.role.' + member.role]()}
+										</Button>
+									{/snippet}
 								</Popover.Trigger>
 								<Popover.Content class="w-36 p-1" align="end">
 									{#each roles as role}
-										<button
+										<Button variant="ghost" size="sm"
 											onclick={() => handleRoleChange(member.user_id, role)}
 											class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm capitalize text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {member.role ===
 											role
@@ -230,17 +234,17 @@
 												: ''}"
 										>
 											{(m as unknown as Record<string, () => string>)['common.role.' + role]()}
-										</button>
+										</Button>
 									{/each}
 								</Popover.Content>
 							</Popover.Root>
-							<button
+							<Button variant="destructive" size="sm"
 								onclick={() => handleRemove(member.user_id)}
-								class="rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-red-500"
+								class="rounded p-1 text-[var(--color-text-tertiary)] hover:text-red-500"
 								title={m['settings.members.remove']()}
 							>
 								<Trash2 size={14} />
-							</button>
+							</Button>
 						</div>
 					</div>
 				{/each}
@@ -255,13 +259,13 @@
 				<h2 class="text-lg font-semibold text-[var(--color-text-primary)]">{m['invite.links.title']()}</h2>
 				<p class="mt-0.5 text-xs text-[var(--color-text-tertiary)]">{m['invite.links.desc']()}</p>
 			</div>
-			<button
+			<Button variant="outline" size="sm"
 				onclick={() => openInvite('link')}
-				class="flex items-center gap-1.5 rounded-md border border-[var(--app-border)] px-3 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+				class="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm text-[var(--color-text-secondary)]"
 			>
 				<Link2 size={14} />
 				{m['invite.links.create']()}
-			</button>
+			</Button>
 		</div>
 
 		<div class="mt-4">
@@ -269,8 +273,8 @@
 				<p class="text-sm text-[var(--color-text-tertiary)]"></p>
 			{:else if linksFailed}
 				<p role="alert" class="text-sm text-[var(--color-text-secondary)]">{m['invite.links.failed_load']()}</p>
-				<button onclick={loadInviteLinks} class="text-sm text-[var(--app-accent)] hover:underline"
-					>{m['invite.retry']()}</button
+				<Button variant="link" size="sm" onclick={loadInviteLinks} class="text-sm text-[var(--app-accent)] hover:underline"
+					>{m['invite.retry']()}</Button
 				>
 			{:else if inviteLinks.length === 0}
 				<p class="text-sm text-[var(--color-text-secondary)]">{m['invite.links.empty']()}</p>
@@ -302,14 +306,14 @@
 								</div>
 							</div>
 							{#if status === 'active'}
-								<button
+								<Button variant="destructive" size="sm"
 									onclick={() => handleRevokeLink(link.id)}
 									disabled={revokingLinkId !== null}
-									class="rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-red-500"
+									class="rounded p-1 text-[var(--color-text-tertiary)] hover:text-red-500"
 									title={m['invite.links.revoke']()}
 								>
 									<Ban size={14} />
-								</button>
+								</Button>
 							{/if}
 						</div>
 					{/each}
@@ -334,11 +338,11 @@
 			</Dialog.Header>
 			<div class="space-y-4 py-4">
 				<div class="flex items-center gap-2">
-					<input
+					<Input
 						readonly
 						aria-label={m['invite.links.created_title']()}
 						value={createdLinkUrl}
-						class="w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-2 font-mono text-xs text-[var(--color-text-primary)] outline-none"
+						class="w-full font-mono text-xs"
 						onfocus={(e) => (e.target as HTMLInputElement).select()}
 					/>
 					<Button variant="outline" onclick={copyCreatedLink} class="shrink-0">
@@ -359,7 +363,7 @@
 			</Dialog.Header>
 
 			<div class="mt-4 flex rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] p-0.5">
-				<button
+				<Button variant="ghost" size="sm"
 					onclick={() => (inviteTab = 'email')}
 					aria-pressed={inviteTab === 'email'}
 					disabled={linkSubmitting}
@@ -368,8 +372,8 @@
 						: 'text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]'}"
 				>
 					{m['settings.members.email']()}
-				</button>
-				<button
+				</Button>
+				<Button variant="ghost" size="sm"
 					onclick={() => (inviteTab = 'link')}
 					aria-pressed={inviteTab === 'link'}
 					disabled={linkSubmitting}
@@ -378,7 +382,7 @@
 						: 'text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]'}"
 				>
 					{m['invite.links.tab']()}
-				</button>
+				</Button>
 			</div>
 
 			<div class="space-y-4 py-4">
@@ -387,67 +391,60 @@
 						<label for="invite-email" class="mb-1 block text-sm text-[var(--color-text-secondary)]"
 							>{m['settings.members.email']()}</label
 						>
-						<input
+						<Input
 							id="invite-email"
 							type="email"
 							bind:value={inviteEmail}
 							placeholder={m['settings.members.email_placeholder']()}
-							class="w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
+							class="w-full"
 						/>
 					</div>
 					<div>
 						<label for="invite-role" class="mb-1 block text-sm text-[var(--color-text-secondary)]"
 							>{m['settings.members.role']()}</label
 						>
-						<select
+						<SelectField
 							id="invite-role"
 							bind:value={inviteRole}
 							class="w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none"
-						>
-							<option value="admin">{m['settings.role_admin']()}</option>
-							<option value="member">{m['settings.role_member']()}</option>
-							<option value="guest">{m['common.role.guest']()}</option>
-						</select>
+						 options={[{ value: 'admin' as const, label: m['settings.role_admin']() }, { value: 'member' as const, label: m['settings.role_member']() }, { value: 'guest' as const, label: m['common.role.guest']() }]} />
 					</div>
 				{:else}
 					<div>
 						<label for="link-role" class="mb-1 block text-sm text-[var(--color-text-secondary)]"
 							>{m['invite.links.role']()}</label
 						>
-						<select
+						<SelectField
 							id="link-role"
 							bind:value={linkRole}
 							class="w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none"
-						>
-							<option value="member">{m['common.role.member']()}</option>
-							<option value="guest">{m['common.role.guest']()}</option>
-						</select>
+						 options={[{ value: 'member' as const, label: m['common.role.member']() }, { value: 'guest' as const, label: m['common.role.guest']() }]} />
 					</div>
 					<div>
 						<label for="link-expiry" class="mb-1 block text-sm text-[var(--color-text-secondary)]"
 							>{m['invite.links.expires_in_days']()}</label
 						>
-						<input
+						<Input
 							id="link-expiry"
 							type="number"
 							max="365"
 							step="1"
 							min="1"
 							bind:value={linkExpiryDays}
-							class="w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
+							class="w-full"
 						/>
 					</div>
 					<div>
 						<label for="link-max-uses" class="mb-1 block text-sm text-[var(--color-text-secondary)]"
 							>{m['invite.links.max_uses']()}</label
 						>
-						<input
+						<Input
 							id="link-max-uses"
 							type="number"
 							min="1"
 							bind:value={linkMaxUses}
 							placeholder={m['invite.links.max_uses_placeholder']()}
-							class="w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
+							class="w-full"
 						/>
 					</div>
 				{/if}

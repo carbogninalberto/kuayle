@@ -235,12 +235,21 @@ test('an older successful issue response cannot restore a revoked page', async (
 test('an administrator can add and remove an explicit team member', async ({page}) => {
  const server = await mockWorkspace(page);
  await page.goto(`/test/settings/teams/${teamId}`);
- await page.getByRole('combobox', {name: 'Choose a workspace member'}).selectOption(userId);
+ const memberPicker = page.getByRole('combobox', {name: 'Choose a workspace member'});
+ await memberPicker.focus();
+ await memberPicker.press('Enter');
+ await expect(page.getByRole('option', {name: 'Test User (member)', exact: true})).toBeVisible();
+ await page.keyboard.press('t');
+ await page.keyboard.press('Enter');
+ await expect(memberPicker).toBeFocused();
  await page.getByRole('button', {name: 'Add member', exact: true}).click();
  await expect(page.getByRole('button', {name: 'Remove Test User from team'})).toBeVisible();
  await page.getByRole('button', {name: 'Remove Test User from team'}).click();
  await expect(page.getByRole('button', {name: 'Remove Test User from team'})).toHaveCount(0);
- await expect(page.getByRole('combobox', {name: 'Choose a workspace member'}).getByRole('option', {name: 'Test User (member)'})).toHaveCount(1);
+ await memberPicker.click();
+ await expect(page.getByRole('option', {name: 'Test User (member)', exact: true})).toBeVisible();
+ await page.keyboard.press('Escape');
+ await expect(memberPicker).toBeFocused();
  server.assertHealthy();
 });
 
@@ -254,3 +263,34 @@ test('a non-policy WebSocket close still rechecks workspace access and clears ca
  await expect(page.getByText('Engineering', {exact:true})).toHaveCount(0);
  server.assertHealthy();
 });
+
+for (const width of [390, 1280]) {
+ test(`invitation controls preserve numeric validation and role selection at ${width}px`, async ({ page }, testInfo) => {
+  const server = await mockWorkspace(page);
+  let payload: unknown;
+  await page.route('**/api/workspaces/test/invite-links', async route => {
+   if (route.request().method() === 'GET') return route.fulfill({ json: [] });
+   payload = route.request().postDataJSON();
+   return route.fulfill({ json: { id: 'link', role: 'guest', created_by: userId, expires_at: '2099-01-01T00:00:00Z', max_uses: 3, use_count: 0, revoked_at: null, created_at: createdAt, invite_url: 'https://example.test/invite/new' } });
+  });
+  await page.setViewportSize({ width, height: 900 });
+  await page.goto('/test/settings/members');
+  await page.getByRole('button', { name: 'Create link', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Invite member', exact: true });
+  const role = dialog.getByRole('combobox', { name: 'Role', exact: true });
+  await role.click();
+  await page.getByRole('option', { name: 'Guest', exact: true }).click();
+  await expect(role).toBeFocused();
+  await dialog.getByLabel('Expires in (days)', { exact: true }).fill('0');
+  await expect(dialog.getByRole('button', { name: 'Create link', exact: true })).toBeDisabled();
+  await dialog.getByLabel('Expires in (days)', { exact: true }).fill('14');
+  await dialog.getByLabel('Max uses', { exact: true }).fill('3');
+  await expect(page.getByRole('option')).toHaveCount(0);
+  await page.screenshot({ animations: 'disabled', path: testInfo.outputPath(`invitation-${width}.png`) });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await dialog.getByRole('button', { name: 'Create link', exact: true }).click();
+  await expect.poll(() => payload).toEqual({ role: 'guest', expires_in_days: 14, max_uses: 3 });
+  await expect(page.getByText('Invite link created', { exact: true }).first()).toBeVisible();
+  server.assertHealthy();
+ });
+}

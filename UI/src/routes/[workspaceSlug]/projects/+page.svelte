@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Button } from '$lib/components/ui/button/index.js';
 	import { getWorkspace } from '$lib/api/workspaces';
 	import { hasPermission } from '$lib/security/permissions';
 	import type { Role } from '$lib/security/roles';
@@ -12,7 +13,7 @@
 	import { Badge } from '$lib/components/ui/badge';
 	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
 	import { appToast } from '$lib/features/toast/toast';
-	import { Plus } from 'lucide-svelte';
+	import { Plus } from '@lucide/svelte';
 	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
@@ -98,13 +99,13 @@
 			<h1 class="text-sm font-medium text-[var(--color-text-primary)]">{m['projects.title']()}</h1>
 		</div>
 		{#if canManage}
-			<button
+			<Button variant="ghost" size="sm"
 				onclick={() => (showCreateProject = true)}
-				class="rounded-md p-1 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+				class="rounded-md p-1 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
 				title={m['projects.new_project']()}
 			>
 				<Plus size={16} />
-			</button>
+			</Button>
 		{/if}
 	</div>
 

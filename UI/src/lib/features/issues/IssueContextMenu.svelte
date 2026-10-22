@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { Button } from '$lib/components/ui/button/index.js';
+	import { Checkbox } from '$lib/components/ui/checkbox/index.js';
 	import type { Issue, IssuePriority, RelationType } from '$lib/types/issue';
 	import { getPriorityLabel } from '$lib/types/issue';
 	import { teamStatusesState } from './team-statuses.state.svelte';
@@ -35,7 +37,7 @@
 		Tag,
 		Trash2,
 		X
-	} from 'lucide-svelte';
+	} from '@lucide/svelte';
 
 	let {
 		issue,
@@ -455,13 +457,13 @@
 {#if dueDateOpen}
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div class="fixed inset-0 z-50 flex items-start justify-center px-3 pt-[12vh]" onkeydown={handleDueDateKeydown}>
-		<button
-			class="fixed inset-0 cursor-default"
+		<Button variant="ghost" size="sm"
+			class="fixed inset-0 h-full w-full rounded-none border-0 p-0 active:not-aria-[haspopup]:translate-y-0 cursor-default"
 			style="background: rgba(0,0,0,{dueDateVisible ? 0.5 : 0}); transition: background {ANIM_DURATION}ms ease;"
 			onclick={closeDueDatePicker}
 			tabindex={-1}
 			aria-label={m['common.context_menu.close_due_date_picker']()}
-		></button>
+		></Button>
 
 		<div
 			class="relative z-10 w-full max-w-[31rem] overflow-hidden rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] shadow-2xl"
@@ -476,13 +478,13 @@
 					</h2>
 					<p class="text-xs text-[var(--color-text-tertiary)]">{issue.identifier}</p>
 				</div>
-				<button
+				<Button variant="ghost" size="sm"
 					onclick={closeDueDatePicker}
-					class="inline-flex h-8 w-8 items-center justify-center rounded-md text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+					class="inline-flex h-8 w-8 items-center justify-center rounded-md text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
 					title={m['common.close']()}
 				>
 					<X size={16} />
-				</button>
+				</Button>
 			</div>
 
 			<DueDatePickerPanel
@@ -542,7 +544,7 @@
 			<label
 				class="flex items-center gap-2 rounded-md border border-[var(--app-border)] p-2 text-sm text-[var(--color-text-secondary)]"
 			>
-				<input type="checkbox" bind:checked={includeSubIssues} class="h-4 w-4 accent-[var(--app-accent)]" />
+				<Checkbox bind:checked={includeSubIssues} class="h-4 w-4" />
 				{m['common.context_menu.include_sub_issues']()}
 			</label>
 		{/if}

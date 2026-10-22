@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Input } from '$lib/components/ui/input/index.js';
 	import { untrack } from 'svelte';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Button } from '$lib/components/ui/button';
@@ -32,7 +33,7 @@
 		FileText,
 		ImagePlus,
 		Paperclip
-	} from 'lucide-svelte';
+	} from '@lucide/svelte';
 
 	let {
 		open = $bindable(false),
@@ -343,6 +344,7 @@
 			input?.focus();
 		}}
 	>
+		<Dialog.Title class="sr-only">{m['sidebar.new_issue']()}</Dialog.Title>
 		<!-- Top bar: Team + Template -->
 		<div class="flex items-center gap-1.5 px-3 pr-10 py-2 max-sm:shrink-0">
 			<TeamSelector
@@ -351,40 +353,42 @@
 				value={teamId}
 				onchange={handleTeamChange}
 			>
-				{#snippet trigger()}
-					<button tabindex="-1" class="flex items-center gap-1.5 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-tertiary)] px-2.5 py-1 text-xs font-medium text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]">
+				{#snippet trigger(props)}
+					<Button {...props} variant="outline" size="sm" class="flex items-center gap-1.5 rounded-md border bg-[var(--color-bg-tertiary)] px-2.5 py-1 text-xs font-medium text-[var(--color-text-primary)]">
 						<span class="flex h-4 w-4 items-center justify-center rounded bg-[var(--app-accent)] text-[9px] font-bold text-[var(--app-accent-foreground)]">
 							{selectedTeam?.key?.charAt(0) ?? 'T'}
 						</span>
 						{selectedTeam?.key ?? m['sharedComponents.create_issue.team']()}
-					</button>
+					</Button>
 				{/snippet}
 			</TeamSelector>
 			<span class="text-xs text-[var(--color-text-tertiary)]">›</span>
 			{#if templates.length > 0}
 				<Popover.Root bind:open={templateOpen}>
 					<Popover.Trigger>
-						<button tabindex="-1" class="flex max-w-52 items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
-							<FileText size={12} class="shrink-0 text-[var(--color-text-tertiary)]" />
-							<span class="truncate">{selectedTemplate?.title || m['sharedComponents.create_issue.template']()}</span>
-						</button>
+						{#snippet child({ props })}
+							<Button {...props} variant="ghost" size="sm" class="flex max-w-52 items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-[var(--color-text-secondary)]">
+								<FileText size={12} class="shrink-0 text-[var(--color-text-tertiary)]" />
+								<span class="truncate">{selectedTemplate?.title || m['sharedComponents.create_issue.template']()}</span>
+							</Button>
+						{/snippet}
 					</Popover.Trigger>
 					<Popover.Content class="w-56 p-1" align="start">
-						<button
+						<Button variant="ghost" size="sm"
 							onclick={clearTemplateSelection}
-							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)]"
 						>
 							<FileText size={14} class="shrink-0 text-[var(--color-text-tertiary)]" />
 							<span class="truncate">{m['sharedComponents.create_issue.no_template']()}</span>
-						</button>
+						</Button>
 						{#each templates as tmpl (tmpl.id)}
-							<button
+							<Button variant="ghost" size="sm"
 								onclick={() => applyTemplate(tmpl)}
-								class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+								class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)]"
 							>
 								<FileText size={14} class="shrink-0 text-[var(--color-text-tertiary)]" />
 								<span class="truncate">{tmpl.title || m['sharedComponents.create_issue.untitled_template']()}</span>
-							</button>
+							</Button>
 						{/each}
 					</Popover.Content>
 				</Popover.Root>
@@ -399,13 +403,13 @@
 		<!-- svelte-ignore a11y_autofocus -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div class="px-4 py-3 max-sm:flex max-sm:flex-col max-sm:flex-1 max-sm:min-h-0 max-sm:overflow-y-auto" onkeydown={handleKeydown}>
-			<input
+			<Input
 				id="create-issue-title"
 				type="text"
 				bind:value={title}
 				onpaste={handleTitlePaste}
 				placeholder={m['sharedComponents.create_issue.issue_title_placeholder']()}
-				class="w-full bg-transparent text-lg font-semibold text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)] max-sm:shrink-0"
+				class="w-full bg-transparent text-lg font-semibold max-sm:shrink-0"
 			/>
 			<div class="mt-4 max-h-[calc(60vh-120px)] overflow-y-auto max-sm:flex-1 max-sm:[max-height:none] max-sm:overflow-y-auto">
 				{#key descriptionVersion}
@@ -441,11 +445,11 @@
 				onchange={(id) => { statusId = id; }}
 				width="w-44"
 			>
-				{#snippet trigger()}
-					<button class="flex items-center gap-1.5 rounded-full border border-[var(--app-border)] px-2.5 py-1 max-sm:px-3 max-sm:py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
+				{#snippet trigger(props)}
+					<Button {...props} variant="outline" size="sm" class="flex items-center gap-1.5 rounded-full border px-2.5 py-1 max-sm:px-3 max-sm:py-1.5 text-xs text-[var(--color-text-secondary)]">
 						<IssueStatusIcon category={selectedStatus?.category} color={selectedStatus?.color} size={12} />
 						{selectedStatus?.name ?? m['sharedComponents.create_issue.status']()}
-					</button>
+					</Button>
 				{/snippet}
 			</StatusSelector>
 
@@ -455,11 +459,11 @@
 				value={priority}
 				onchange={(p) => { priority = p; }}
 			>
-				{#snippet trigger()}
-					<button class="flex items-center gap-1.5 rounded-full border border-[var(--app-border)] px-2.5 py-1 max-sm:px-3 max-sm:py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
+				{#snippet trigger(props)}
+					<Button {...props} variant="outline" size="sm" class="flex items-center gap-1.5 rounded-full border px-2.5 py-1 max-sm:px-3 max-sm:py-1.5 text-xs text-[var(--color-text-secondary)]">
 						<IssuePriorityIcon {priority} size={12} />
 						{getPriorityLabel(priority)}
-					</button>
+					</Button>
 				{/snippet}
 			</PrioritySelector>
 
@@ -470,11 +474,11 @@
 				value={projectId}
 				onchange={(id) => { projectId = id; }}
 			>
-				{#snippet trigger()}
-					<button class="flex items-center gap-1.5 rounded-full border border-[var(--app-border)] px-2.5 py-1 max-sm:px-3 max-sm:py-1.5 text-xs {selectedProject ? 'text-[var(--color-text-secondary)]' : 'text-[var(--color-text-tertiary)]'} hover:bg-[var(--color-bg-hover)]">
+				{#snippet trigger(props)}
+					<Button {...props} variant="outline" size="sm" class="flex items-center gap-1.5 rounded-full border border-[var(--app-border)] px-2.5 py-1 max-sm:px-3 max-sm:py-1.5 text-xs {selectedProject ? 'text-[var(--color-text-secondary)]' : 'text-[var(--color-text-tertiary)]'} hover:bg-[var(--color-bg-hover)]">
 						<FolderKanban size={12} />
 						{selectedProject?.name ?? m['sharedComponents.create_issue.project']()}
-					</button>
+					</Button>
 				{/snippet}
 			</ProjectSelector>
 
@@ -491,8 +495,8 @@
 					}
 				}}
 			>
-				{#snippet trigger()}
-					<button class="flex items-center gap-1.5 rounded-full border border-[var(--app-border)] px-2.5 py-1 max-sm:px-3 max-sm:py-1.5 text-xs {selectedAssignees.length > 0 ? 'text-[var(--color-text-secondary)]' : 'text-[var(--color-text-tertiary)]'} hover:bg-[var(--color-bg-hover)]">
+				{#snippet trigger(props)}
+					<Button {...props} variant="outline" size="sm" class="flex items-center gap-1.5 rounded-full border border-[var(--app-border)] px-2.5 py-1 max-sm:px-3 max-sm:py-1.5 text-xs {selectedAssignees.length > 0 ? 'text-[var(--color-text-secondary)]' : 'text-[var(--color-text-tertiary)]'} hover:bg-[var(--color-bg-hover)]">
 						<User size={12} />
 						{#if selectedAssignees.length === 0}
 							{m['sharedComponents.create_issue.assignee']()}
@@ -501,7 +505,7 @@
 						{:else}
 							{m['sharedComponents.create_issue.assignees_count']({ count: selectedAssignees.length })}
 						{/if}
-					</button>
+					</Button>
 				{/snippet}
 			</AssigneeSelector>
 
@@ -514,8 +518,8 @@
 				oncreated={(label) => onlabelcreated?.(label)}
 				{slug}
 			>
-				{#snippet trigger()}
-					<button class="flex items-center gap-1.5 rounded-full border border-[var(--app-border)] px-2.5 py-1 max-sm:px-3 max-sm:py-1.5 text-xs {selectedLabels.length > 0 ? 'text-[var(--color-text-secondary)]' : 'text-[var(--color-text-tertiary)]'} hover:bg-[var(--color-bg-hover)]">
+				{#snippet trigger(props)}
+					<Button {...props} variant="outline" size="sm" class="flex items-center gap-1.5 rounded-full border border-[var(--app-border)] px-2.5 py-1 max-sm:px-3 max-sm:py-1.5 text-xs {selectedLabels.length > 0 ? 'text-[var(--color-text-secondary)]' : 'text-[var(--color-text-tertiary)]'} hover:bg-[var(--color-bg-hover)]">
 						<Tag size={12} />
 						{#if selectedLabels.length === 0}
 							{m['sharedComponents.create_issue.labels']()}
@@ -524,7 +528,7 @@
 						{:else}
 							{m['sharedComponents.create_issue.labels_count']({ count: selectedLabels.length })}
 						{/if}
-					</button>
+					</Button>
 				{/snippet}
 			</LabelSelector>
 
@@ -535,14 +539,14 @@
 				value={cycleId}
 				onchange={(id) => { cycleId = id; }}
 			>
-				{#snippet trigger()}
-					<button class="flex items-center gap-1.5 rounded-full border border-[var(--app-border)] px-2.5 py-1 max-sm:px-3 max-sm:py-1.5 text-xs {cycleId ? 'text-[var(--color-text-secondary)]' : 'text-[var(--color-text-tertiary)]'} hover:bg-[var(--color-bg-hover)]">
+				{#snippet trigger(props)}
+					<Button {...props} variant="outline" size="sm" class="flex items-center gap-1.5 rounded-full border border-[var(--app-border)] px-2.5 py-1 max-sm:px-3 max-sm:py-1.5 text-xs {cycleId ? 'text-[var(--color-text-secondary)]' : 'text-[var(--color-text-tertiary)]'} hover:bg-[var(--color-bg-hover)]">
 						{#if cycleId}
 							{cycles?.find(c => c.id === cycleId)?.name ?? m['sharedComponents.create_issue.cycle']()}
 						{:else}
 							{m['sharedComponents.create_issue.cycle']()}
 						{/if}
-					</button>
+					</Button>
 				{/snippet}
 			</CycleSelector>
 
@@ -559,24 +563,24 @@
 		<div class="flex items-center gap-3 px-4 py-2.5 max-sm:sticky max-sm:bottom-0 max-sm:shrink-0 max-sm:flex-col max-sm:items-stretch max-sm:border-t max-sm:border-[var(--app-border)] max-sm:bg-[var(--color-bg-secondary)] max-sm:pb-[calc(1rem+env(safe-area-inset-bottom,0px))] {uploadUrl ? 'justify-between' : 'justify-end'}">
 			{#if uploadUrl}
 				<div class="flex items-center gap-1 max-sm:order-2">
-					<button
+					<Button variant="ghost" size="sm"
 						type="button"
 						onclick={() => chooseFiles(true)}
-						class="flex h-7 w-7 items-center justify-center rounded text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]"
+						class="flex h-7 w-7 items-center justify-center rounded text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
 						title={m['sharedComponents.rich_editor.upload_image']()}
 						aria-label={m['sharedComponents.rich_editor.upload_image']()}
 					>
 						<ImagePlus size={14} />
-					</button>
-					<button
+					</Button>
+					<Button variant="ghost" size="sm"
 						type="button"
 						onclick={() => chooseFiles()}
-						class="flex h-7 w-7 items-center justify-center rounded text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]"
+						class="flex h-7 w-7 items-center justify-center rounded text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
 						title={m['sharedComponents.rich_editor.attach_files']()}
 						aria-label={m['sharedComponents.rich_editor.attach_files']()}
 					>
 						<Paperclip size={14} />
-					</button>
+					</Button>
 				</div>
 			{/if}
 			<div class="flex items-center gap-3 max-sm:order-1 max-sm:justify-between">

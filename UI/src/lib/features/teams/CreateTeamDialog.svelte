@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Checkbox } from '$lib/components/ui/checkbox/index.js';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
@@ -78,7 +79,7 @@
 						bind:value={name}
 						placeholder="e.g. Engineering"
 						required
-						class="bg-[var(--color-bg)] border-[var(--app-border)] text-[var(--color-text-primary)]"
+						class=""
 					/>
 				</div>
 
@@ -90,7 +91,7 @@
 						required
 						maxlength={10}
 						oninput={() => (keyManuallyEdited = true)}
-						class="bg-[var(--color-bg)] border-[var(--app-border)] text-[var(--color-text-primary)] uppercase"
+						class="uppercase"
 					/>
 					<p class="text-[10px] text-[var(--color-text-tertiary)]">{m['sidebar.identifier_desc']()}</p>
 				</div>
@@ -100,14 +101,14 @@
 					<Input
 						bind:value={description}
 						placeholder={m['sidebar.team_desc_placeholder']()}
-						class="bg-[var(--color-bg)] border-[var(--app-border)] text-[var(--color-text-primary)]"
+						class=""
 					/>
 				</div>
 				<div class="space-y-3 border-t border-[var(--app-border)] pt-3">
-					<label class="flex items-center gap-2 text-sm"><input type="checkbox" bind:checked={isPrivate} disabled={submitting} /><span>{m['privacy.private']()}</span></label>
+					<label class="flex items-center gap-2 text-sm"><Checkbox bind:checked={isPrivate} disabled={submitting} /><span>{m['privacy.private']()}</span></label>
 					{#if isPrivate}
 						<PrivacyNotice />
-						<label class="flex items-start gap-2 text-xs"><input type="checkbox" bind:checked={acknowledged} disabled={submitting} class="mt-0.5" /><span>{m['privacy.acknowledge']()}</span></label>
+						<label class="flex items-start gap-2 text-xs"><Checkbox bind:checked={acknowledged} disabled={submitting} class="mt-0.5" /><span>{m['privacy.acknowledge']()}</span></label>
 					{:else}<p class="text-xs text-[var(--color-text-secondary)]">{m['privacy.public_description']()}</p>{/if}
 				</div>
 			</div>

@@ -51,8 +51,7 @@ docker compose exec backend /app/server seed`;
 					<span class="size-3 rounded-full bg-[#28c840]/80"></span>
 					<span class="ml-3 font-mono text-[10px] text-muted-foreground">~/kuayle — zsh</span>
 				</div>
-				<button
-					type="button"
+				<Button variant="ghost" size="sm"
 					onclick={copy}
 					class="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground"
 				>
@@ -61,7 +60,7 @@ docker compose exec backend /app/server seed`;
 					{:else}
 						<Copy class="size-3.5" /> Copy
 					{/if}
-				</button>
+				</Button>
 				<span class="sr-only" aria-live="polite">{copied ? 'Commands copied to the clipboard' : ''}</span>
 			</div>
 				<pre class="overflow-x-auto p-5 font-mono text-sm leading-7"><code

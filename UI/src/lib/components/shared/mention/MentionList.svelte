@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Button } from '$lib/components/ui/button/index.js';
 	import { onMount, onDestroy } from 'svelte';
 	import type { MentionItem } from './mention.extension';
 	import IssueStatusIcon from '$lib/features/issues/IssueStatusIcon.svelte';
@@ -73,11 +74,11 @@
 		{/if}
 		{#each users as item (item.id)}
 			{@const idx = globalIndex(item)}
-			<button
+			<Button variant="ghost" size="sm"
 				type="button"
 				data-index={idx}
-				class="mention-item"
-				class:selected={idx === selectedIndex}
+				class={`mention-item ${idx === selectedIndex ? 'selected' : ''}`}
+
 				onpointerdown={(e) => { e.preventDefault(); onselect(item); }}
 			>
 				<div class="mention-avatar">
@@ -89,7 +90,7 @@
 						<span class="mention-email">{item.email}</span>
 					{/if}
 				</div>
-			</button>
+			</Button>
 		{/each}
 	{/if}
 
@@ -100,11 +101,11 @@
 		<div class="mention-section-label">{m['sharedComponents.mention_list.issues']()}</div>
 		{#each issues as item (item.id)}
 			{@const idx = globalIndex(item)}
-			<button
+			<Button variant="ghost" size="sm"
 				type="button"
 				data-index={idx}
-				class="mention-item"
-				class:selected={idx === selectedIndex}
+				class={`mention-item ${idx === selectedIndex ? 'selected' : ''}`}
+
 				onpointerdown={(e) => { e.preventDefault(); onselect(item); }}
 			>
 				<div class="mention-issue-icon">
@@ -120,7 +121,7 @@
 						{/if}
 					</span>
 				</div>
-			</button>
+			</Button>
 		{/each}
 	{/if}
 
@@ -157,7 +158,7 @@
 		margin: 4px 0;
 	}
 
-	.mention-item {
+	.mention-menu :global(.mention-item) {
 		display: flex;
 		align-items: center;
 		gap: 8px;
@@ -172,8 +173,8 @@
 		text-align: left;
 	}
 
-	.mention-item:hover,
-	.mention-item.selected {
+	.mention-menu :global(.mention-item):hover,
+	.mention-menu :global(.mention-item.selected) {
 		background: var(--color-bg-hover);
 	}
 
