@@ -167,9 +167,8 @@
 			<div class="mt-4">
 				{#each teams as team}
 					{@const expanded = expandedTeams.has(team.id)}
-					<Button variant="ghost" size="sm"
-						type="button"
-						class="h-auto justify-start whitespace-normal flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-left text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+					<Button variant="plain" type="button"
+						class="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-left text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
 						onclick={() => toggleTeam(team.id)}
 					>
 						<ChevronDown

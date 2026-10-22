@@ -761,8 +761,7 @@
 		</div>
 		<div class="no-scrollbar flex shrink-0 items-center gap-0.5 overflow-x-auto">
 			<!-- Actions -->
-			<Button variant="ghost" size="sm"
-				onclick={toggleSubscription}
+			<Button variant="plain" onclick={toggleSubscription}
 				disabled={subscriptionBusy}
 				aria-pressed={isSubscribed}
 				class="rounded p-1.5 transition-colors disabled:opacity-50 {isSubscribed ? 'bg-[var(--app-accent)] text-[var(--app-accent-foreground)]' : 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
@@ -770,30 +769,26 @@
 			>
 				<Bell size={14} />
 			</Button>
-			<Button variant="ghost" size="sm"
-				onclick={() => { navigator.clipboard.writeText(issue.identifier); appToast.success(m['issue.toast.label_copied']({ label: 'ID' })) }}
-				class="rounded p-1.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+			<Button variant="plain" onclick={() => { navigator.clipboard.writeText(issue.identifier); appToast.success(m['issue.toast.label_copied']({ label: 'ID' })) }}
+				class="rounded p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
 				title={m['issue.copy_id']()}
 			>
 				<Copy size={14} />
 			</Button>
-			<Button variant="ghost" size="sm"
-				onclick={() => { navigator.clipboard.writeText(window.location.href); appToast.success(m['issue.toast.label_copied']({ label: 'Link' })) }}
-				class="rounded p-1.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+			<Button variant="plain" onclick={() => { navigator.clipboard.writeText(window.location.href); appToast.success(m['issue.toast.label_copied']({ label: 'Link' })) }}
+				class="rounded p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
 				title={m['issue.copy_link']()}
 			>
 				<LinkIcon size={14} />
 			</Button>
-			<Button variant="ghost" size="sm"
-				onclick={copyBranchAndMoveToProgress}
-				class="rounded p-1.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+			<Button variant="plain" onclick={copyBranchAndMoveToProgress}
+				class="rounded p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
 				title={m['issue.copy_branch_move']()}
 			>
 				<GitBranch size={14} />
 			</Button>
-			<Button variant="ghost" size="sm"
-				onclick={copyAIPrompt}
-				class="rounded p-1.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+			<Button variant="plain" onclick={copyAIPrompt}
+				class="rounded p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
 				title={m['issue.copy_ai_prompt']()}
 			>
 				<SquareMousePointer size={14} />
@@ -801,9 +796,9 @@
 			<Popover.Root bind:open={issueActionsOpen}>
 				<Popover.Trigger>
 					{#snippet child({ props })}
-						<Button {...props} variant="ghost" size="sm"
+						<Button {...props} variant="plain"
 							type="button"
-							class="rounded p-1.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+							class="rounded p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
 							title={m['issue.issue_actions']()}
 						>
 							<MoreHorizontal size={14} />
@@ -813,43 +808,38 @@
 				<Popover.Content class="w-64 max-w-[calc(100vw-1rem)] p-1" align="end">
 					<IssueMachineActions {slug} {issue} bind:repositoryOpen={issueActionsRepositoryOpen} bind:pickerOpen={issueActionsMachinePickerOpen} bind:pickerIntent={issueActionsMachineIntent} onaction={() => (issueActionsOpen = false)} />
 					<div class="my-1 h-px bg-[var(--app-border)]"></div>
-					<Button variant="ghost" size="sm"
-						type="button"
+					<Button variant="plain" type="button"
 						onclick={() => { issueActionsOpen = false; parentPickerOpen = true; }}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] transition-colors"
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
 					>
 						<CornerDownRight size={14} />
 						{issue.parent ? m['issue.change_parent']() : m['issue.add_parent']()}
 					</Button>
 					<div class="my-1 h-px bg-[var(--app-border)]"></div>
-					<Button variant="ghost" size="sm"
-						type="button"
+					<Button variant="plain" type="button"
 						onclick={() => { issueActionsOpen = false; openAddRelation('related'); }}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] transition-colors"
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
 					>
 						<LinkIcon size={14} />
 						{m['issue.add_relation']()}
 					</Button>
-					<Button variant="ghost" size="sm"
-						type="button"
+					<Button variant="plain" type="button"
 						onclick={() => { issueActionsOpen = false; openAddRelation('blocked_by'); }}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] transition-colors"
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
 					>
 						<Ban size={14} />
 						{m['issue.blocked_by']()}
 					</Button>
-					<Button variant="ghost" size="sm"
-						type="button"
+					<Button variant="plain" type="button"
 						onclick={() => { issueActionsOpen = false; openAddRelation('blocking'); }}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] transition-colors"
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
 					>
 						<ArrowRight size={14} />
 						{m['issue.blocking']()}
 					</Button>
-					<Button variant="ghost" size="sm"
-						type="button"
+					<Button variant="plain" type="button"
 						onclick={() => { issueActionsOpen = false; openAddRelation('duplicate'); }}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] transition-colors"
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
 					>
 						<Copy size={14} />
 						{m['issue.duplicate']()}
@@ -879,16 +869,14 @@
 			{#if onnavigate && issueCount > 0}
 				<div class="ml-1 flex items-center gap-0.5 border-l border-[var(--app-border)] pl-2">
 					<span class="text-[11px] text-[var(--color-text-tertiary)] mr-1">{currentIndex + 1}/{issueCount}</span>
-					<Button variant="ghost" size="sm"
-						onclick={() => onnavigate?.('prev')}
-						class="rounded p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+					<Button variant="plain" onclick={() => onnavigate?.('prev')}
+						class="rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
 						title={m['issue.previous_issue']()}
 					>
 						<ChevronUp size={16} />
 					</Button>
-					<Button variant="ghost" size="sm"
-						onclick={() => onnavigate?.('next')}
-						class="rounded p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+					<Button variant="plain" onclick={() => onnavigate?.('next')}
+						class="rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
 						title={m['issue.next_issue']()}
 					>
 						<ChevronDown size={16} />
@@ -907,7 +895,7 @@
 				<!-- svelte-ignore a11y_autofocus -->
 				<div class="relative">
 					{#if editingTitle}
-						<Input
+						<Input variant="plain"
 							type="text"
 							bind:value={titleValue}
 							onblur={() => { saveTitle(); presenceState.sendFocusLeave(issue.id); }}
@@ -915,12 +903,11 @@
 							oninput={(e) => presenceState.sendFocus(issue.id, 'title', (e.currentTarget as HTMLInputElement).selectionStart ?? 0)}
 							onkeydown={(e) => { if (e.key === 'Enter') saveTitle(); if (e.key === 'Escape') { titleValue = issue.title; editingTitle = false; } }}
 							autofocus
-							class="w-full bg-transparent text-lg font-semibold"
+							class="w-full bg-transparent text-lg font-semibold text-[var(--color-text-primary)] outline-none"
 						/>
 					{:else}
-						<Button variant="ghost" size="sm"
-							onclick={() => (editingTitle = true)}
-							class="h-auto justify-start whitespace-normal w-full text-left text-lg font-semibold text-[var(--color-text-primary)] hover:text-[var(--color-text-primary)] transition-colors"
+						<Button variant="plain" onclick={() => (editingTitle = true)}
+							class="w-full text-left text-lg font-semibold text-[var(--color-text-primary)] hover:text-[var(--color-text-primary)] transition-colors"
 						>
 							{issue.title}
 						</Button>
@@ -934,10 +921,10 @@
 							<div class="group/parent relative inline-flex max-w-full">
 								<ContextMenu.Trigger>
 									{#snippet child({ props })}
-										<Button {...props} variant="outline" size="sm"
+										<Button {...props} variant="plain"
 											type="button"
 											onclick={goToParentIssue}
-											class="inline-flex max-w-full items-center gap-1.5 rounded-md border border-transparent px-1.5 py-1 text-[var(--color-text-secondary)] transition-colors hover:border-[var(--app-border)] hover:text-[var(--color-text-primary)]"
+											class="inline-flex max-w-full items-center gap-1.5 rounded-md border border-transparent px-1.5 py-1 text-[var(--color-text-secondary)] transition-colors hover:border-[var(--app-border)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
 										>
 											<IssueStatusIcon status={issue.parent?.status ?? 'backlog'} category={issue.parent?.status_info?.category} color={issue.parent?.status_info?.color} size={13} />
 											<span class="shrink-0 tabular-nums text-[var(--color-text-tertiary)]">{issue.parent?.identifier}</span>
@@ -1005,8 +992,7 @@
 							onupdated={refreshIssue}
 						/>
 					{:else}
-						<Button variant="ghost" size="sm"
-							onclick={openCreateSubIssueDialog}
+						<Button variant="plain" onclick={openCreateSubIssueDialog}
 							class="flex items-center gap-2 text-xs text-[var(--color-text-tertiary)] transition-colors hover:text-[var(--color-text-secondary)]"
 						>
 							<span class="flex h-6 w-6 items-center justify-center rounded-full border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
@@ -1055,9 +1041,8 @@
 							{/if}
 
 							{#if hiddenCount > 0}
-								<Button variant="outline" size="sm"
-									onclick={() => showAllActivity = true}
-									class="relative z-10 mb-2 rounded-full border px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors"
+								<Button variant="plain" onclick={() => showAllActivity = true}
+									class="relative z-10 mb-2 rounded-full border border-[var(--app-border)] bg-[var(--color-bg)] px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)] transition-colors"
 								>
 									{m['issue.show_earlier']({ n: hiddenCount })}
 								</Button>
@@ -1107,9 +1092,8 @@
 						</div>
 
 						{#if showAllActivity && historyGroups.length > RECENT_COUNT}
-							<Button variant="outline" size="sm"
-								onclick={() => showAllActivity = false}
-								class="relative z-10 mt-2 rounded-full border px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors"
+							<Button variant="plain" onclick={() => showAllActivity = false}
+								class="relative z-10 mt-2 rounded-full border border-[var(--app-border)] bg-[var(--color-bg)] px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)] transition-colors"
 							>
 								{m['issue.show_less']()}
 							</Button>
@@ -1148,11 +1132,11 @@
 									{/if}
 									<div class="ml-auto opacity-0 group-hover/comment:opacity-100 transition-opacity">
 										{#if comment.resolved_at}
-											<Button variant="outline" size="sm" onclick={() => handleReopen(comment.id)} class="flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors" title={m['issue.reopen_thread']()}>
+											<Button variant="plain" onclick={() => handleReopen(comment.id)} class="flex items-center gap-1 rounded-full border border-[var(--app-border)] px-2 py-0.5 text-[11px] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors" title={m['issue.reopen_thread']()}>
 												{m['issue.reopen_thread']()}
 											</Button>
 										{:else}
-											<Button variant="ghost" size="sm" onclick={() => handleResolve(comment.id)} class="rounded p-1 text-[var(--color-text-tertiary)] hover:text-green-400" title={m['issue.resolve_thread']()}>
+											<Button variant="plain" onclick={() => handleResolve(comment.id)} class="rounded p-1 text-[var(--color-text-tertiary)] hover:text-green-400 hover:bg-[var(--color-bg-hover)]" title={m['issue.resolve_thread']()}>
 												<Check size={14} />
 											</Button>
 										{/if}
@@ -1210,10 +1194,9 @@
 											{/key}
 										</div>
 										<div class="flex shrink-0 items-center gap-1.5">
-											<Button variant="default" size="sm"
-												onclick={() => handleReply(comment.id)}
+											<Button variant="plain" onclick={() => handleReply(comment.id)}
 												disabled={!(replyContents[comment.id]?.trim()) || replyContents[comment.id] === '<p></p>'}
-												class="rounded-full p-1.5 disabled:opacity-30 transition-colors"
+												class="rounded-full bg-[var(--app-accent)] p-1.5 text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)] disabled:opacity-30 transition-colors"
 												title={m['issue.send']()}
 											>
 												<ArrowUp size={12} />
@@ -1258,10 +1241,9 @@
 							{/key}
 						</div>
 						<div class="flex shrink-0 items-center gap-1.5">
-							<Button variant="default" size="sm"
-								onclick={handleAddComment}
+							<Button variant="plain" onclick={handleAddComment}
 								disabled={!newComment.trim() || newComment === '<p></p>'}
-								class="rounded-full p-1.5 disabled:opacity-30 transition-colors"
+								class="rounded-full bg-[var(--app-accent)] p-1.5 text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)] disabled:opacity-30 transition-colors"
 								title={m['issue.send']()}
 							>
 								<ArrowUp size={14} />
@@ -1276,8 +1258,7 @@
 		<div class="w-full space-y-2 border-t border-[var(--app-border)] p-3 md:w-[300px] md:shrink-0 md:overflow-y-auto md:border-t-0">
 			<!-- Details card -->
 			<div class="rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
-				<Button variant="ghost" size="sm"
-					onclick={() => detailsExpanded = !detailsExpanded}
+				<Button variant="plain" onclick={() => detailsExpanded = !detailsExpanded}
 					class="flex w-full items-center gap-1.5 px-3 py-2.5 text-[11px] font-medium uppercase tracking-wider text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors"
 				>
 					<ChevronRight size={12} class="transition-transform {detailsExpanded ? 'rotate-90' : ''}" />
@@ -1296,7 +1277,7 @@
 								shortcutKey="S"
 							>
 								{#snippet trigger(props)}
-									<Button {...props} variant="ghost" size="sm" class="flex items-center gap-1.5 text-sm text-[var(--color-text-primary)]">
+									<Button {...props} variant="plain" class="flex items-center gap-1.5 text-sm text-[var(--color-text-primary)]">
 										<IssueStatusIcon status={issue.status} category={issue.status_info?.category} color={issue.status_info?.color} size={14} />
 										{issue.status_info?.name ?? issue.status}
 									</Button>
@@ -1314,7 +1295,7 @@
 								shortcutKey="P"
 							>
 								{#snippet trigger(props)}
-									<Button {...props} variant="ghost" size="sm" class="flex items-center gap-1.5 text-sm text-[var(--color-text-primary)]">
+									<Button {...props} variant="plain" class="flex items-center gap-1.5 text-sm text-[var(--color-text-primary)]">
 										<IssuePriorityIcon priority={issue.priority} size={14} />
 										{getPriorityLabel(issue.priority)}
 									</Button>
@@ -1343,7 +1324,8 @@
 									}}
 								>
 									{#snippet trigger(props)}
-										<Button {...props} variant="ghost" size="sm" class="h-auto justify-start whitespace-normal flex min-h-5 flex-wrap items-center gap-1 rounded-md text-left transition-colors">
+										<!-- inline-flex keeps the line box the former nested trigger button produced. -->
+										<Button {...props} variant="plain" class="inline-flex min-h-5 flex-wrap items-center gap-1 rounded-md text-left align-baseline transition-colors">
 											{#if issue.assignees && issue.assignees.length > 0}
 												{#each issue.assignees as a}
 													<span class="flex items-center gap-1.5 rounded-full bg-[var(--color-bg-tertiary)] px-2 py-0.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]">
@@ -1390,8 +1372,7 @@
 
 			<!-- Labels card -->
 			<div class="rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
-				<Button variant="ghost" size="sm"
-					onclick={() => labelsExpanded = !labelsExpanded}
+				<Button variant="plain" onclick={() => labelsExpanded = !labelsExpanded}
 					class="flex w-full items-center gap-1.5 px-3 py-2.5 text-[11px] font-medium uppercase tracking-wider text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors"
 				>
 					<ChevronRight size={12} class="transition-transform {labelsExpanded ? 'rotate-90' : ''}" />
@@ -1402,7 +1383,7 @@
 						<div class="flex flex-wrap items-center gap-1">
 							{#if issue.labels && issue.labels.length > 0}
 								{#each issue.labels as lbl}
-									<Button variant="ghost" size="sm" onclick={() => labelsOpen = true} class="flex items-center gap-1.5 rounded-full bg-[var(--color-bg-tertiary)] px-2.5 py-1 text-sm text-[var(--color-text-primary)] transition-colors cursor-pointer">
+									<Button variant="plain" onclick={() => labelsOpen = true} class="flex items-center gap-1.5 rounded-full bg-[var(--color-bg-tertiary)] px-2.5 py-1 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors cursor-pointer">
 										<span class="h-2.5 w-2.5 rounded-full shrink-0" style="background-color: {lbl.color}"></span>
 										{lbl.name}
 									</Button>
@@ -1428,11 +1409,11 @@
 							>
 								{#snippet trigger(props)}
 									{#if issue.labels && issue.labels.length > 0}
-										<Button {...props} aria-label={m['issue.add_label']()} variant="ghost" size="icon-sm" class="flex h-6 w-6 items-center justify-center rounded-full text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors">
+										<Button {...props} aria-label={m['issue.add_label']()} variant="plain" class="flex h-6 w-6 items-center justify-center rounded-full hover:bg-[var(--color-bg-hover)] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors">
 											<Plus size={14} />
 										</Button>
 									{:else}
-										<Button {...props} variant="ghost" size="sm" class="flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors">
+										<Button {...props} variant="plain" class="flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)] transition-colors">
 											<Plus size={12} />
 											{m['issue.add_label']()}
 										</Button>
@@ -1446,8 +1427,7 @@
 
 			<!-- Project card -->
 			<div class="rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
-				<Button variant="ghost" size="sm"
-					onclick={() => projectExpanded = !projectExpanded}
+				<Button variant="plain" onclick={() => projectExpanded = !projectExpanded}
 					class="flex w-full items-center gap-1.5 px-3 py-2.5 text-[11px] font-medium uppercase tracking-wider text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors"
 				>
 					<ChevronRight size={12} class="transition-transform {projectExpanded ? 'rotate-90' : ''}" />
@@ -1463,12 +1443,12 @@
 						>
 							{#snippet trigger(props)}
 								{#if issueProject}
-									<Button {...props} variant="ghost" size="sm" class="h-auto justify-start whitespace-normal flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] transition-colors w-full text-left">
+									<Button {...props} variant="plain" class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors w-full text-left">
 										<FolderKanban size={14} class="text-[var(--color-text-tertiary)] shrink-0" />
 										<span class="truncate">{issueProject.name}</span>
 									</Button>
 								{:else}
-									<Button {...props} variant="ghost" size="sm" class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-tertiary)] transition-colors">
+									<Button {...props} variant="plain" class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] transition-colors">
 										<FolderKanban size={14} />
 										{m['issue.add_project']()}
 									</Button>
@@ -1493,7 +1473,7 @@
 									onchange={(id) => updateField('cycle_id', id ?? '')}
 								>
 									{#snippet trigger(props)}
-										<Button {...props} variant="ghost" size="sm" class="flex items-center gap-2 rounded-md px-2 py-1 text-xs hover:bg-[var(--color-bg-hover)] transition-colors {issueCycle ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-tertiary)]'}">
+										<Button {...props} variant="plain" class="flex items-center gap-2 rounded-md px-2 py-1 text-xs hover:bg-[var(--color-bg-hover)] transition-colors {issueCycle ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-tertiary)]'}">
 											<RefreshCw size={12} class="shrink-0 text-[var(--color-text-tertiary)]" />
 											{issueCycle ? issueCycle.name : m['issue.no_cycle']()}
 										</Button>

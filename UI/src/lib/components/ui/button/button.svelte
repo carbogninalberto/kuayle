@@ -1,6 +1,7 @@
 <script lang="ts" module>
 	import { type VariantProps, tv } from "tailwind-variants";
 	import { cn, type WithElementRef } from "$lib/utils.js";
+	import type { ClassValue } from "clsx";
 	import type { HTMLAnchorAttributes, HTMLButtonAttributes } from "svelte/elements";
 
 	export const buttonVariants = tv({
@@ -31,8 +32,14 @@
 		},
 	});
 
-	export type ButtonVariant = VariantProps<typeof buttonVariants>["variant"];
+	// Kuayle extension: `plain` renders the Button element and semantics without any
+	// variant, size or base classes, so product controls keep their own crafted styling.
+	export type ButtonVariant = VariantProps<typeof buttonVariants>["variant"] | "plain";
 	export type ButtonSize = VariantProps<typeof buttonVariants>["size"];
+
+	export function buttonClass(variant: ButtonVariant, size: ButtonSize, className?: ClassValue) {
+		return variant === "plain" ? cn(className) : cn(buttonVariants({ variant, size }), className);
+	}
 
 	export type ButtonProps = WithElementRef<HTMLButtonAttributes> &
 		WithElementRef<HTMLAnchorAttributes> & {
@@ -59,7 +66,7 @@
 	<a
 		bind:this={ref}
 		data-slot="button"
-		class={cn(buttonVariants({ variant, size }), className)}
+		class={buttonClass(variant, size, className)}
 		href={disabled ? undefined : href}
 		aria-disabled={disabled}
 		role={disabled ? "link" : undefined}
@@ -72,7 +79,7 @@
 	<button
 		bind:this={ref}
 		data-slot="button"
-		class={cn(buttonVariants({ variant, size }), className)}
+		class={buttonClass(variant, size, className)}
 		{type}
 		{disabled}
 		{...restProps}

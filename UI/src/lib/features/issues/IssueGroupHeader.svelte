@@ -60,8 +60,8 @@
 </script>
 
 <div class="sticky top-0 z-20 mx-2 mt-1 bg-[var(--color-bg)] first:mt-0">
-	<div class="flex w-full items-center gap-2 rounded-md bg-[var(--color-bg-secondary)] px-4 py-1.5">
-		<Button variant="ghost" size="sm" class="h-auto min-w-0 flex-1 justify-start gap-2 p-0 text-xs" aria-expanded={!collapsed} onclick={ontoggle}>
+	<div class="flex w-full items-center gap-2 rounded-md bg-[var(--color-bg-secondary)] px-4 py-1.5 text-xs font-medium text-[var(--color-text-secondary)]">
+		<Button variant="plain" class="flex min-w-0 flex-1 cursor-default items-center gap-2 text-left" aria-expanded={!collapsed} onclick={ontoggle}>
 		{#if collapsed}
 			<ChevronRight size={12} class="text-[var(--color-text-tertiary)]" />
 		{:else}
@@ -89,7 +89,7 @@
 		<span class="text-[10px] font-normal text-[var(--color-text-tertiary)]">{count}</span>
 		</Button>
 		{#if onquickadd}
-			<Button variant="ghost" size="sm"
+			<Button variant="plain"
 				aria-label={m['sidebar.new_issue']()}
 				onclick={(e) => {
 					e.stopPropagation();

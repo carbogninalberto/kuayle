@@ -75,10 +75,10 @@
 		<div class="mt-6 flex items-center justify-between gap-4">
 		<div class="relative w-full max-w-sm">
 			<Search size={14} class="absolute left-2 top-1/2 -translate-y-1/2 text-[var(--color-text-tertiary)]" />
-			<Input
+			<Input variant="plain"
 				bind:value={query}
 				placeholder={m['settings.licenses.search']()}
-				class="h-8 w-full pl-7 pr-2"
+				class="h-8 w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] pl-7 pr-2 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)] focus:border-[var(--app-accent)]"
 			/>
 		</div>
 		<p class="shrink-0 text-xs text-[var(--color-text-tertiary)]">{m['settings.licenses.n_packages']({ n: filteredEntries.length })}</p>

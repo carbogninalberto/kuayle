@@ -74,11 +74,9 @@
 		{/if}
 		{#each users as item (item.id)}
 			{@const idx = globalIndex(item)}
-			<Button variant="ghost" size="sm"
-				type="button"
+			<Button variant="plain" type="button"
 				data-index={idx}
-				class={`mention-item ${idx === selectedIndex ? 'selected' : ''}`}
-
+				class={`mention-item ${idx === selectedIndex ? "selected" : ""}`}
 				onpointerdown={(e) => { e.preventDefault(); onselect(item); }}
 			>
 				<div class="mention-avatar">
@@ -101,11 +99,9 @@
 		<div class="mention-section-label">{m['sharedComponents.mention_list.issues']()}</div>
 		{#each issues as item (item.id)}
 			{@const idx = globalIndex(item)}
-			<Button variant="ghost" size="sm"
-				type="button"
+			<Button variant="plain" type="button"
 				data-index={idx}
-				class={`mention-item ${idx === selectedIndex ? 'selected' : ''}`}
-
+				class={`mention-item ${idx === selectedIndex ? "selected" : ""}`}
 				onpointerdown={(e) => { e.preventDefault(); onselect(item); }}
 			>
 				<div class="mention-issue-icon">

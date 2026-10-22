@@ -102,9 +102,8 @@
 <div class="mx-auto max-w-2xl px-8 py-10">
 	<div class="flex items-center justify-between">
 		<h1 class="text-2xl font-semibold text-[var(--color-text-primary)]">{m['settings.templates.title']()}</h1>
-		<Button variant="default" size="sm"
-			onclick={openCreateDialog}
-			class="flex items-center gap-1 rounded-md px-3 py-1.5 text-sm"
+		<Button variant="plain" onclick={openCreateDialog}
+			class="flex items-center gap-1 rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)]"
 		>
 			<Plus size={14} />
 			{m['settings.templates.new']()}
@@ -156,12 +155,12 @@
 		<div class="flex flex-col gap-4 py-4">
 			<div class="flex flex-col gap-1.5">
 				<label for="tpl-title" class="text-sm text-[var(--color-text-secondary)]">{m['settings.templates.title_field']()}</label>
-				<Input
+				<Input variant="plain"
 					id="tpl-title"
 					type="text"
 					bind:value={formTitle}
 					placeholder={m['settings.templates.title_placeholder']()}
-					class=""
+					class="rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
 				/>
 			</div>
 			<div class="flex flex-col gap-1.5">

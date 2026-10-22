@@ -46,7 +46,8 @@ for (const theme of ['light', 'dark'] as const) {
 			await expect(title).toBeFocused();
 			await expect(title).toHaveCSS('font-size', '18px');
 			await expect(title).toHaveCSS('font-weight', '600');
-			await expect(title).not.toHaveCSS('box-shadow', 'none');
+			// The crafted title has no focus ring; focus is shown by the caret, as before KUA-62.
+			await expect(title).toHaveCSS('box-shadow', 'none');
 			await expect(title).toHaveCSS('border-top-width', '0px');
 			await expect(title).toHaveCSS('padding-left', '0px');
 			await expect(title).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');

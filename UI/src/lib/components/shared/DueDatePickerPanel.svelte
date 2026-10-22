@@ -72,9 +72,8 @@
 				<div class="px-2 pb-1 text-[10px] font-medium uppercase text-[var(--color-text-tertiary)]">{m['sharedComponents.due_date_picker.recent']()}</div>
 				<div class="space-y-0.5">
 					{#each recentDueDates as date (date)}
-						<Button variant="ghost" size="sm"
-							type="button"
-							class="h-auto justify-start whitespace-normal flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+						<Button variant="plain" type="button"
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
 							onclick={() => selectDate(date)}
 						>
 							<CalendarDays size={13} />
@@ -89,9 +88,8 @@
 			<div class="px-2 pb-1 text-[10px] font-medium uppercase text-[var(--color-text-tertiary)]">{m['sharedComponents.due_date_picker.presets']()}</div>
 			<div class="space-y-0.5">
 				{#each presets as preset (preset.label)}
-					<Button variant="ghost" size="sm"
-						type="button"
-						class="h-auto justify-start whitespace-normal flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+					<Button variant="plain" type="button"
+						class="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
 						onclick={() => selectDate(preset.value)}
 					>
 						<span>{preset.label}</span>
@@ -99,9 +97,8 @@
 					</Button>
 				{/each}
 
-				<Button variant="ghost" size="sm"
-					type="button"
-					class="h-auto justify-start whitespace-normal flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
+				<Button variant="plain" type="button"
+					class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
 					onclick={() => selectDate(null)}
 				>
 					<X size={13} />

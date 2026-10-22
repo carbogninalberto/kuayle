@@ -205,19 +205,17 @@
 							class="rounded-md p-1.5 hover:bg-[var(--color-bg-hover)]"><MoreHorizontal size={14} /></Popover.Trigger
 						>
 						<Popover.Content class="w-40 p-1" align="end">
-							<Button variant="ghost" size="sm"
-								class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm"
+							<Button variant="plain" class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-[var(--color-bg-hover)]"
 								onclick={() => {
 									actionsOpen = false;
 									showEdit = true;
 								}}><Pencil size={14} />{m['cycles.edit_cycle']()}</Button
 							>
-							<Button variant="destructive" size="sm"
-								onclick={() => {
+							<Button variant="plain" onclick={() => {
 									actionsOpen = false;
 									showDelete = true;
 								}}
-								class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-error)]"
+								class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-error)] hover:bg-[var(--color-bg-hover)]"
 							>
 								<Trash2 size={14} />
 								{m['cycles.delete_cycle']()}

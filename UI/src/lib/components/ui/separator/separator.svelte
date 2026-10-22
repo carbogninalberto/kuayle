@@ -14,7 +14,9 @@
 	bind:ref
 	data-slot={dataSlot}
 	class={cn(
-		"shrink-0 bg-border data-horizontal:h-px data-horizontal:w-full data-vertical:w-px data-vertical:self-stretch",
+		"shrink-0 bg-border data-horizontal:h-px data-horizontal:w-full data-vertical:w-px",
+		// Kuayle: upstream uses self-stretch, which breaks vertical separators in our toolbars.
+		"data-vertical:h-full",
 		className
 	)}
 	{...restProps}

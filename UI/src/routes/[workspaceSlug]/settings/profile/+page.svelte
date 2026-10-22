@@ -96,10 +96,10 @@
 					<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['settings.profile.name']()}</p>
 					<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.profile.name_desc']()}</p>
 				</div>
-				<Input
+				<Input variant="plain"
 					type="text"
 					bind:value={name}
-					class="w-[240px] py-1.5"
+					class="w-[240px] rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
 				/>
 			</div>
 
@@ -110,10 +110,10 @@
 					<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['settings.profile.display_name']()}</p>
 					<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.profile.display_name_desc']()}</p>
 				</div>
-				<Input
+				<Input variant="plain"
 					type="text"
 					bind:value={displayName}
-					class="w-[240px] py-1.5"
+					class="w-[240px] rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
 				/>
 			</div>
 
@@ -124,11 +124,11 @@
 					<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['settings.profile.avatar_url']()}</p>
 					<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.profile.avatar_url_desc']()}</p>
 				</div>
-				<Input
+				<Input variant="plain"
 					type="url"
 					bind:value={avatarUrl}
 					placeholder="https://"
-					class="w-[240px] py-1.5"
+					class="w-[240px] rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
 				/>
 			</div>
 		</div>

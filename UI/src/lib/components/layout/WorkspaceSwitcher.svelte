@@ -80,7 +80,7 @@
 <Popover.Root bind:open>
 	<Popover.Trigger class="min-w-0 w-full">
 		{#snippet child({ props })}
-			<Button {...props} variant="ghost" size="sm" class="flex w-full min-w-0 items-center gap-2 rounded-md px-1 py-0.5">
+			<Button {...props} variant="plain" class="flex w-full min-w-0 items-center gap-2 rounded-md px-1 py-0.5 hover:bg-[var(--color-bg-hover)]">
 				<div
 					class="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-[var(--app-accent)] text-xs font-bold text-[var(--app-accent-foreground)]"
 				>
@@ -98,9 +98,8 @@
 			<span class="text-[10px] font-medium uppercase text-[var(--color-text-tertiary)]">{m['sidebar.workspaces']()}</span>
 		</div>
 		{#each workspaces as ws}
-			<Button variant="ghost" size="sm"
-				onclick={() => switchWorkspace(ws)}
-				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)]"
+			<Button variant="plain" onclick={() => switchWorkspace(ws)}
+				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
 			>
 				<div
 					class="flex h-5 w-5 items-center justify-center rounded bg-[var(--app-accent)] text-[9px] font-bold text-[var(--app-accent-foreground)]"
@@ -114,9 +113,8 @@
 			</Button>
 		{/each}
 		<div class="mt-1 border-t border-[var(--app-border)] pt-1">
-			<Button variant="ghost" size="sm"
-				onclick={openCreateWorkspace}
-				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-secondary)]"
+			<Button variant="plain" onclick={openCreateWorkspace}
+				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
 			>
 				<Plus size={14} />
 				{m['sidebar.create_workspace']()}
@@ -135,7 +133,7 @@
 		<form onsubmit={handleCreateWorkspace} class="space-y-4 py-2">
 			<div>
 				<label for="workspace-name" class="mb-1 block text-sm text-[var(--color-text-secondary)]">{m['sidebar.workspace_name']()}</label>
-				<Input
+				<Input variant="plain"
 					id="workspace-name"
 					type="text"
 					bind:value={newWorkspaceName}
@@ -143,13 +141,13 @@
 					required
 					maxlength={100}
 					placeholder={m['sidebar.workspace_name_placeholder']()}
-					class="w-full"
+					class="w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
 				/>
 			</div>
 
 			<div>
 				<label for="workspace-slug" class="mb-1 block text-sm text-[var(--color-text-secondary)]">{m['sidebar.workspace_url']()}</label>
-				<Input
+				<Input variant="plain"
 					id="workspace-slug"
 					type="text"
 					bind:value={newWorkspaceSlug}
@@ -160,7 +158,7 @@
 					required
 					maxlength={50}
 					placeholder={m['sidebar.workspace_url_placeholder']()}
-					class="w-full"
+					class="w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
 				/>
 				<p class="mt-1 text-xs text-[var(--color-text-tertiary)]">{m['sidebar.workspace_url_desc']()}</p>
 			</div>

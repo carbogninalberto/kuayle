@@ -91,11 +91,9 @@
 				{#each group.items as item}
 					{@const idx = flatItems.indexOf(item)}
 					{@const Icon = item.icon}
-					<Button variant="ghost" size="sm"
-						type="button"
+					<Button variant="plain" type="button"
 						data-index={idx}
-						class={`slash-item ${idx === selectedIndex ? 'selected' : ''}`}
-
+						class={`slash-item ${idx === selectedIndex ? "selected" : ""}`}
 						onpointerdown={(e) => { e.preventDefault(); onselect(item); onclose(); }}
 					>
 						<span class="slash-item-icon">

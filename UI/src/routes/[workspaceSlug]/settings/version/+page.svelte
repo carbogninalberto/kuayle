@@ -162,9 +162,8 @@
 					{m['settings.version.changelog_desc']({ version: currentVersionLabel })}
 				</p>
 			</div>
-			<Button variant="ghost" size="sm"
-				type="button"
-				class="w-fit rounded-md px-2 py-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
+			<Button variant="plain" type="button"
+				class="w-fit rounded-md px-2 py-1 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
 				onclick={() => (includePrerelease = !includePrerelease)}
 			>
 				{m['settings.version.pre_releases']()}

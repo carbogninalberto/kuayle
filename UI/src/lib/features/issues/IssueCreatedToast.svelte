@@ -50,7 +50,7 @@
 	<div class="content">
 		<div class="header">
 			<div class="title">Issue created</div>
-			<Button variant="ghost" size="icon-sm" class="close" type="button" aria-label="Close toast" onclick={dismiss}>
+			<Button variant="plain" class="close" type="button" aria-label="Close toast" onclick={dismiss}>
 				<X size={16} />
 			</Button>
 		</div>
@@ -66,22 +66,21 @@
 			<a {href} class="view-link" onclick={dismiss}>View issue</a>
 
 			<div class="commands" aria-label="Issue commands">
-				<Button variant="ghost" size="sm" type="button" aria-label="Copy issue link" title="Copy issue link" onclick={() => copy(url, 'link')}>
+				<Button variant="plain" type="button" aria-label="Copy issue link" title="Copy issue link" onclick={() => copy(url, 'link')}>
 					{#if copied === 'link'}
 						<Check size={12} />
 					{:else}
 						<LinkIcon size={12} />
 					{/if}
 				</Button>
-				<Button variant="ghost" size="sm" type="button" aria-label="Copy issue ID" title="Copy issue ID" onclick={() => copy(identifier, 'id')}>
+				<Button variant="plain" type="button" aria-label="Copy issue ID" title="Copy issue ID" onclick={() => copy(identifier, 'id')}>
 					{#if copied === 'id'}
 						<Check size={12} />
 					{:else}
 						<Copy size={12} />
 					{/if}
 				</Button>
-				<Button variant="ghost" size="sm"
-					type="button"
+				<Button variant="plain" type="button"
 					aria-label="Copy branch name"
 					title="Copy branch name"
 					onclick={() => copy(branchName, 'branch')}

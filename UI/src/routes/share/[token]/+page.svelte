@@ -217,12 +217,12 @@
 		<!-- Search -->
 		<div class="relative">
 			<Search size={14} class="absolute left-2 top-1/2 -translate-y-1/2 text-[var(--color-text-tertiary)]" />
-			<Input
+			<Input variant="plain"
 				type="text"
 				value={searchValue}
 				oninput={handleSearchInput}
 				placeholder="Search..."
-				class="h-7 w-40 pl-7 pr-2 text-xs"
+				class="h-7 w-40 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] pl-7 pr-2 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)] focus:border-[var(--app-accent)]"
 			/>
 		</div>
 
@@ -231,7 +231,7 @@
 			<Popover.Root bind:open={statusOpen}>
 				<Popover.Trigger>
 					{#snippet child({ props })}
-						<Button {...props} variant="ghost" size="sm" class="flex items-center gap-1 rounded-md border {filters.status ? 'border-[var(--app-accent)]/30 bg-[var(--app-accent)]/10 text-[var(--app-accent-light)]' : 'border-[var(--app-border)] text-[var(--color-text-tertiary)]'} px-2 py-0.5 text-xs hover:bg-[var(--color-bg-hover)]">
+						<Button {...props} variant="plain" class="flex items-center gap-1 rounded-md border {filters.status ? 'border-[var(--app-accent)]/30 bg-[var(--app-accent)]/10 text-[var(--app-accent-light)]' : 'border-[var(--app-border)] text-[var(--color-text-tertiary)]'} px-2 py-0.5 text-xs hover:bg-[var(--color-bg-hover)]">
 							<CircleDashed size={12} />
 							{#if getStatusValues().length === 0}
 								Status
@@ -246,9 +246,8 @@
 				</Popover.Trigger>
 				<Popover.Content class="w-44 p-1" align="start">
 					{#each meta.statuses as st}
-						<Button variant="ghost" size="sm"
-							onclick={() => toggleStatus(st.id)}
-							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)]"
+						<Button variant="plain" onclick={() => toggleStatus(st.id)}
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
 						>
 							<Checkbox checked={getStatusValues().includes(st.id)} />
 							<IssueStatusIcon category={st.category as StatusCategory} color={st.color} />
@@ -263,7 +262,7 @@
 		<Popover.Root bind:open={priorityOpen}>
 			<Popover.Trigger>
 				{#snippet child({ props })}
-					<Button {...props} variant="ghost" size="sm" class="flex items-center gap-1 rounded-md border {filters.priority ? 'border-[var(--app-accent)]/30 bg-[var(--app-accent)]/10 text-[var(--app-accent-light)]' : 'border-[var(--app-border)] text-[var(--color-text-tertiary)]'} px-2 py-0.5 text-xs hover:bg-[var(--color-bg-hover)]">
+					<Button {...props} variant="plain" class="flex items-center gap-1 rounded-md border {filters.priority ? 'border-[var(--app-accent)]/30 bg-[var(--app-accent)]/10 text-[var(--app-accent-light)]' : 'border-[var(--app-border)] text-[var(--color-text-tertiary)]'} px-2 py-0.5 text-xs hover:bg-[var(--color-bg-hover)]">
 						<Signal size={12} />
 						{#if getPriorityValues().length === 0}
 							Priority
@@ -277,9 +276,8 @@
 			</Popover.Trigger>
 			<Popover.Content class="w-44 p-1" align="start">
 				{#each Object.entries(getPriorityLabels()) as [value, label]}
-					<Button variant="ghost" size="sm"
-						onclick={() => togglePriority(value)}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)]"
+					<Button variant="plain" onclick={() => togglePriority(value)}
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
 					>
 						<Checkbox checked={getPriorityValues().includes(value)} />
 						<IssuePriorityIcon priority={Number(value) as IssuePriority} />
@@ -292,7 +290,7 @@
 		<div class="flex-1"></div>
 
 		{#if hasFilters}
-			<Button variant="ghost" size="sm" onclick={clearFilters} class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]">
+			<Button variant="plain" onclick={clearFilters} class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]">
 				Clear filters
 			</Button>
 		{/if}
@@ -312,8 +310,7 @@
 					{@const collapsed = collapsedGroups.has(group.statusId)}
 					<!-- Group header -->
 					<div class="mt-1 first:mt-0 mx-2">
-						<Button variant="ghost" size="sm"
-							class="flex w-full items-center gap-2 rounded-md bg-[var(--color-bg-secondary)] px-4 py-1.5 text-xs font-medium text-[var(--color-text-secondary)]"
+						<Button variant="plain" class="flex w-full items-center gap-2 rounded-md bg-[var(--color-bg-secondary)] px-4 py-1.5 text-xs font-medium text-[var(--color-text-secondary)]"
 							onclick={() => {
 								const next = new Set(collapsedGroups);
 								if (collapsed) next.delete(group.statusId);
@@ -344,7 +341,7 @@
 			{/if}
 			{#if hasMore}
 				<div class="flex justify-center py-4">
-					<Button variant="outline" size="sm" onclick={loadMore} class="rounded-md border px-4 py-1.5 text-xs text-[var(--color-text-secondary)]">
+					<Button variant="plain" onclick={loadMore} class="rounded-md border border-[var(--app-border)] px-4 py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
 						Load more
 					</Button>
 				</div>

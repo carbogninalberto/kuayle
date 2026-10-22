@@ -190,7 +190,7 @@
 			<RadioGroup.Root bind:value={selectedMachineId} class="max-h-[min(50vh,420px)] space-y-2 overflow-y-auto pr-1" aria-label="Existing Dev Machines">
 				{#each machines as machine (machine.id)}
 					{@const reason = disabledReason(machine)}
-					<label class="flex w-full cursor-pointer items-start gap-3 rounded-lg border border-border p-3 has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50 has-data-[state=checked]:border-primary">
+					<label class="flex w-full cursor-pointer items-start gap-3 rounded-lg border p-3 text-left transition-colors {selectedMachineId === machine.id ? 'border-[var(--app-accent)] bg-[var(--app-accent)]/5' : 'border-[var(--app-border)] hover:bg-[var(--color-bg-hover)]'} has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50">
 					<RadioGroup.Item value={machine.id} aria-label={machine.name} class="mt-1" disabled={!!reason} />
 					<div
 						class="flex min-w-0 flex-1 items-start justify-between gap-4 text-left"

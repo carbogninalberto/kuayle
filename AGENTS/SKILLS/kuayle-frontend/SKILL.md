@@ -33,6 +33,20 @@ selectors accept a trigger snippet with those props. Run the
 [control audit](../../../UI/scripts/audit-controls.mjs) after a control migration;
 review [documented editor and terminal exceptions](../../../docs/kua-62-controls.md).
 
+### Preserve crafted styling when migrating controls
+
+Migrating a hand-styled control to a primitive must not change how it looks. Use
+`variant="plain"` on Button, Input, Textarea or Select.Trigger (SelectField does
+this when given a `class`) and keep the original classes verbatim; plain renders
+the primitive's element, semantics and focus behaviour without its base, variant
+or size classes. Do not add `size="sm"` (or any size) to a crafted control: sizes
+inject height, gap, padding and font metrics. Never use a ghost/outline Button
+for a disclosure or row toggle that carries `aria-expanded` unless it is plain:
+those variants paint `aria-expanded:bg-muted`, a permanent highlight. Base
+classes also inject `justify-center`, `select-none`, `font-medium` and a
+`ring-3` focus ring. Compare before/after screenshots in both themes, including
+hover and keyboard focus, before declaring a migration done.
+
 ## Add a missing primitive
 
 - The application is already initialized: [UI/components.json](../../../UI/components.json)

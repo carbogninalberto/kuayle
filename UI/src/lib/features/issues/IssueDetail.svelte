@@ -147,8 +147,7 @@
 		<Sheet.Header class="sticky top-0 z-10 border-b border-[var(--app-border)] bg-[var(--color-bg)] px-4 py-3 text-left sm:px-6">
 			<div class="flex items-center justify-between gap-3 pr-8">
 				<Sheet.Title class="truncate text-sm font-medium text-[var(--color-text-tertiary)]">{issue.identifier}</Sheet.Title>
-				<Button variant="ghost" size="sm"
-					type="button"
+				<Button variant="plain" type="button"
 					onclick={toggleSubscription}
 					disabled={subscriptionBusy}
 					aria-pressed={isSubscribed}
@@ -184,7 +183,7 @@
 						onchange={(id) => { updateStatus(id); }}
 					>
 						{#snippet trigger(props)}
-							<Button {...props} variant="outline" size="sm" class="flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs text-[var(--color-text-secondary)]">
+							<Button {...props} variant="plain" class="flex items-center gap-1.5 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-2.5 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
 								<IssueStatusIcon status={issue.status} category={issue.status_info?.category} color={issue.status_info?.color} size={12} />
 								{issue.status_info?.name ?? issue.status}
 							</Button>
@@ -199,7 +198,7 @@
 						onchange={(p) => { updatePriority(p); }}
 					>
 						{#snippet trigger(props)}
-							<Button {...props} variant="outline" size="sm" class="flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs text-[var(--color-text-secondary)]">
+							<Button {...props} variant="plain" class="flex items-center gap-1.5 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-2.5 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
 								<IssuePriorityIcon priority={issue.priority} size={12} />
 								{getPriorityLabel(issue.priority)}
 							</Button>
@@ -212,16 +211,14 @@
 
 			<!-- Tabs -->
 			<div class="mt-8 flex gap-4 border-b border-[var(--app-border)]">
-				<Button variant="outline" size="sm"
-					onclick={() => (tab = 'comments')}
+				<Button variant="plain" onclick={() => (tab = 'comments')}
 					class="pb-2 text-sm {tab === 'comments'
 						? 'border-b-2 border-[var(--app-accent)] text-[var(--color-text-primary)]'
 						: 'text-[var(--color-text-tertiary)]'}"
 				>
 					Comments ({comments.length})
 				</Button>
-				<Button variant="outline" size="sm"
-					onclick={() => (tab = 'activity')}
+				<Button variant="plain" onclick={() => (tab = 'activity')}
 					class="pb-2 text-sm {tab === 'activity'
 						? 'border-b-2 border-[var(--app-accent)] text-[var(--color-text-primary)]'
 						: 'text-[var(--color-text-tertiary)]'}"
@@ -249,16 +246,15 @@
 					{/each}
 
 					<form onsubmit={handleAddComment} class="sticky bottom-0 -mx-4 flex gap-2 border-t border-[var(--app-border)] bg-[var(--color-bg)] px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:p-0">
-						<Input
+						<Input variant="plain"
 							type="text"
 							bind:value={newComment}
 							placeholder="Write a comment..."
-							class="flex-1"
+							class="flex-1 rounded border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
 						/>
-						<Button variant="default" size="sm"
-							type="submit"
+						<Button variant="plain" type="submit"
 							disabled={!newComment.trim()}
-							class="rounded px-3 py-2 text-sm disabled:opacity-50"
+							class="rounded bg-[var(--app-accent)] px-3 py-2 text-sm text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)] disabled:opacity-50"
 						>
 							Send
 						</Button>
@@ -271,9 +267,8 @@
 					{/if}
 
 					{#if hiddenHistoryCount > 0}
-						<Button variant="outline" size="sm"
-							onclick={() => showAllActivity = true}
-							class="relative z-10 mb-2 rounded-full border px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors"
+						<Button variant="plain" onclick={() => showAllActivity = true}
+							class="relative z-10 mb-2 rounded-full border border-[var(--app-border)] bg-[var(--color-bg)] px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)] transition-colors"
 						>
 							Show {hiddenHistoryCount} earlier {hiddenHistoryCount === 1 ? 'event' : 'events'}
 						</Button>
@@ -313,9 +308,8 @@
 					</div>
 
 					{#if showAllActivity && sortedHistory.length > RECENT_ACTIVITY_COUNT}
-						<Button variant="outline" size="sm"
-							onclick={() => showAllActivity = false}
-							class="relative z-10 mt-2 rounded-full border px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors"
+						<Button variant="plain" onclick={() => showAllActivity = false}
+							class="relative z-10 mt-2 rounded-full border border-[var(--app-border)] bg-[var(--color-bg)] px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)] transition-colors"
 						>
 							Show less
 						</Button>

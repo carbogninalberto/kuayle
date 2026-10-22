@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { AlertDialog as AlertDialogPrimitive } from "bits-ui";
 	import {
-		buttonVariants,
+		buttonClass,
 		type ButtonVariant,
 		type ButtonSize,
 	} from "$lib/components/ui/button/index.js";
@@ -22,6 +22,6 @@
 <AlertDialogPrimitive.Action
 	bind:ref
 	data-slot="alert-dialog-action"
-	class={cn(buttonVariants({ variant, size }), "cn-alert-dialog-action", className)}
+	class={cn(buttonClass(variant, size), "cn-alert-dialog-action", className)}
 	{...restProps}
 />

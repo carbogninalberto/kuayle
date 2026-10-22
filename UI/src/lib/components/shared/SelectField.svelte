@@ -11,6 +11,7 @@
 		name,
 		required,
 		disabled,
+		class: className,
 		...triggerProps
 	}: Omit<ComponentProps<typeof Select.Trigger>, 'value' | 'children' | 'child' | 'name'> & {
 		value?: T;
@@ -20,7 +21,11 @@
 		required?: boolean;
 	} = $props();
 
-	const items = $derived(options.map((option) => ({ ...option, value: String(option.value) })));
+	// An empty-value option is the native select's prompt: show it as the placeholder.
+	const prompt = $derived(options.find((option) => String(option.value) === '')?.label);
+	const items = $derived(
+		options.filter((option) => String(option.value) !== '').map((option) => ({ ...option, value: String(option.value) }))
+	);
 </script>
 
 <Select.Root
@@ -35,8 +40,9 @@
 	{required}
 	disabled={disabled ?? false}
 >
-	<Select.Trigger {...triggerProps}>
-		<Select.Value {placeholder} />
+	<!-- A caller class carries the crafted look of the native select this replaced. -->
+	<Select.Trigger {...triggerProps} variant={className ? 'plain' : 'default'} class={className}>
+		<Select.Value placeholder={placeholder ?? prompt} />
 	</Select.Trigger>
 	<Select.Content>
 		{#each items as item (item.value)}

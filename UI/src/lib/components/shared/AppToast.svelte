@@ -41,7 +41,7 @@
 	<div class="content">
 		<div class="header">
 			<div class="title">{title}</div>
-			<Button variant="ghost" size="icon-sm" class="close" type="button" aria-label={m['sharedComponents.app_toast.close']()} onclick={dismiss}>
+			<Button variant="plain" class="close" type="button" aria-label={m['sharedComponents.app_toast.close']()} onclick={dismiss}>
 				<X size={16} />
 			</Button>
 		</div>

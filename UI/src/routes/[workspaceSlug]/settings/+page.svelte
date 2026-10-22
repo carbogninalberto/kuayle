@@ -141,12 +141,12 @@
 					<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['settings.general.workspace_name']()}</p>
 					<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.general.workspace_name_desc']()}</p>
 				</div>
-				<Input
+				<Input variant="plain"
 					type="text"
 					bind:value={wsName}
 					onblur={handleNameBlur}
 					disabled={!isOwner || savingName}
-					class="w-[200px] py-1.5 disabled:cursor-not-allowed disabled:opacity-60"
+					class="w-[200px] rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)] disabled:cursor-not-allowed disabled:opacity-60"
 				/>
 			</div>
 
@@ -169,13 +169,13 @@
 					<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['settings.general.logo_url']()}</p>
 					<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.general.logo_url_desc']()}</p>
 				</div>
-				<Input
+				<Input variant="plain"
 					type="url"
 					bind:value={logoUrl}
 					onblur={handleLogoBlur}
 					placeholder="https://"
 					disabled={!isOwner || savingLogo}
-					class="w-[240px] py-1.5 disabled:cursor-not-allowed disabled:opacity-60"
+					class="w-[240px] rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)] disabled:cursor-not-allowed disabled:opacity-60"
 				/>
 			</div>
 
@@ -295,12 +295,12 @@
 			<label for="delete-confirm" class="block text-sm text-[var(--color-text-secondary)]">
 				{m['settings.general.type_slug_confirm']({ slug: workspace?.slug ?? '' })}
 			</label>
-			<Input
+			<Input variant="plain"
 				id="delete-confirm"
 				type="text"
 				bind:value={deleteConfirm}
 				placeholder={workspace?.slug}
-				class="w-full"
+				class="w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
 			/>
 		</div>
 		<Dialog.Footer>

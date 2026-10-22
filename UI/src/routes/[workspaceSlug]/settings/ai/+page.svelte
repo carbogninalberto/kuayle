@@ -96,11 +96,11 @@
 					<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['settings.ai.base_url']()}</p>
 					<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.ai.base_url_example']()}</p>
 				</div>
-				<Input
+				<Input variant="plain"
 					type="url"
 					bind:value={baseUrl}
 					placeholder={m['settings.ai.base_url_placeholder']()}
-					class="w-[300px] py-1.5"
+					class="w-[300px] rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
 				/>
 			</div>
 
@@ -111,11 +111,11 @@
 					<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['settings.ai.model']()}</p>
 					<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.ai.model_desc']()}</p>
 				</div>
-				<Input
+				<Input variant="plain"
 					type="text"
 					bind:value={model}
 					placeholder={m['settings.ai.model_placeholder']()}
-					class="w-[240px] py-1.5"
+					class="w-[240px] rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
 				/>
 			</div>
 
@@ -128,11 +128,11 @@
 						{settings.has_api_key ? m['settings.ai.key_configured']() : m['settings.ai.key_not_configured']()}
 					</p>
 				</div>
-				<Input
+				<Input variant="plain"
 					type="password"
 					bind:value={apiKey}
 					placeholder={settings.has_api_key ? m['settings.ai.key_configured_placeholder']() : m['settings.ai.key_placeholder']()}
-					class="w-[240px] py-1.5"
+					class="w-[240px] rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
 				/>
 			</div>
 		</div>
@@ -145,10 +145,10 @@
 				</div>
 				<Button variant="outline" size="sm" onclick={resetPrompt}>{m['settings.ai.reset']()}</Button>
 			</div>
-			<Textarea
+			<Textarea variant="plain"
 				bind:value={prompt}
 				rows={8}
-				class="mt-3 w-full"
+				class="mt-3 w-full rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
 			></Textarea>
 		</div>
 
@@ -162,10 +162,10 @@
 				</div>
 				<Button variant="outline" size="sm" onclick={resetIssueCopyPrompt}>{m['settings.ai.reset']()}</Button>
 			</div>
-			<Textarea
+			<Textarea variant="plain"
 				bind:value={issueCopyPrompt}
 				rows={8}
-				class="mt-3 w-full font-mono"
+				class="mt-3 w-full rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2 font-mono text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
 			></Textarea>
 		</div>
 

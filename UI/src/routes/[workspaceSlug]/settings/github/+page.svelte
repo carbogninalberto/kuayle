@@ -274,8 +274,7 @@
 			</div>
 
 			{#if !status?.global_app}
-				<Button variant="destructive" size="sm"
-					onclick={handleDeleteApp}
+				<Button variant="plain" onclick={handleDeleteApp}
 					class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-error)]"
 				>
 					{m['settings.github.remove_app']()}
@@ -311,9 +310,8 @@
 				<div class="flex items-center justify-between">
 					<h3 class="text-sm font-medium text-[var(--color-text-primary)]">{m['settings.github.linked_repos']()}</h3>
 					{#if !showRepoSelector}
-						<Button variant="ghost" size="sm"
-							onclick={loadAvailableRepos}
-							class="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors"
+						<Button variant="plain" onclick={loadAvailableRepos}
+							class="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
 						>
 							<Plus size={13} />
 							{m['settings.github.manage']()}
@@ -340,9 +338,8 @@
 							</div>
 
 							<!-- Select all -->
-							<Button variant="ghost" size="sm"
-								onclick={toggleSelectAll}
-								class="mt-2 flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-secondary)]"
+							<Button variant="plain" onclick={toggleSelectAll}
+								class="mt-2 flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
 							>
 								<Checkbox
 									checked={allFilteredSelected}
@@ -355,8 +352,7 @@
 							<!-- Repo list -->
 							<div class="mt-1 max-h-64 space-y-0.5 overflow-y-auto">
 								{#each filteredRepos as repo}
-									<Button variant="ghost" size="sm"
-										onclick={() => toggleRepo(repo.github_repo_id)}
+									<Button variant="plain" onclick={() => toggleRepo(repo.github_repo_id)}
 										class="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-sm hover:bg-[var(--color-bg-hover)] {selectedRepoIds.has(repo.github_repo_id) ? 'bg-[var(--color-bg-hover)]/50' : ''}"
 									>
 										<Checkbox
@@ -442,8 +438,7 @@
 			<!-- Danger zone -->
 			{#if !status?.global_app}
 				<div class="border-t border-[var(--app-border)] pt-4">
-					<Button variant="destructive" size="sm"
-						onclick={handleDeleteApp}
+					<Button variant="plain" onclick={handleDeleteApp}
 						class="flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-error)]"
 					>
 						<Trash2 size={12} />

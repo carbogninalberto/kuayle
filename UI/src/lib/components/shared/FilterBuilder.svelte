@@ -282,12 +282,12 @@
 		<!-- Search input -->
 		<div class="relative shrink-0">
 			<Search size={14} class="absolute left-2 top-1/2 -translate-y-1/2 text-[var(--color-text-tertiary)]" />
-			<Input
+			<Input variant="plain"
 				type="text"
 				value={searchValue}
 				oninput={handleSearchInput}
 				placeholder={m['sharedComponents.filter_builder.search_placeholder']()}
-				class="h-8 w-[min(58vw,14rem)] pl-7 pr-2 text-xs sm:h-7 sm:w-40"
+				class="h-8 w-[min(58vw,14rem)] rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] pl-7 pr-2 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)] focus:border-[var(--app-accent)] sm:h-7 sm:w-40"
 			/>
 		</div>
 	{/if}
@@ -394,7 +394,7 @@
 			<Popover.Root bind:open={statusOpen} onOpenChange={(open) => handlePopoverClose('status', open)}>
 				<Popover.Trigger>
 					{#snippet child({ props })}
-						<Button {...props} variant="ghost" size="sm" class={chipClass(!!filters.status)}>
+						<Button {...props} variant="plain" class={chipClass(!!filters.status)}>
 							<CircleDashed size={12} />
 							{getStatusChipLabel()}
 						</Button>
@@ -402,9 +402,8 @@
 				</Popover.Trigger>
 				<Popover.Content class="w-44 p-1" align="start">
 					{#each teamStatusesState.statusOrder as ts}
-						<Button variant="ghost" size="sm"
-							onclick={() => toggleStatus(ts.id)}
-							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)]"
+						<Button variant="plain" onclick={() => toggleStatus(ts.id)}
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
 						>
 							<Checkbox checked={getStatusValues().includes(ts.id)} />
 							<IssueStatusIcon category={ts.category} color={ts.color} />
@@ -412,9 +411,8 @@
 						</Button>
 					{/each}
 					<Separator class="my-1" />
-					<Button variant="ghost" size="sm"
-						onclick={() => removeFilter('status')}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--color-text-tertiary)]"
+					<Button variant="plain" onclick={() => removeFilter('status')}
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
 					>
 						<X size={12} />
 						{m['sharedComponents.filter_builder.remove_filter']()}
@@ -427,7 +425,7 @@
 			<Popover.Root bind:open={priorityOpen} onOpenChange={(open) => handlePopoverClose('priority', open)}>
 				<Popover.Trigger>
 					{#snippet child({ props })}
-						<Button {...props} variant="ghost" size="sm" class={chipClass(!!filters.priority)}>
+						<Button {...props} variant="plain" class={chipClass(!!filters.priority)}>
 							<Signal size={12} />
 							{getPriorityChipLabel()}
 						</Button>
@@ -435,9 +433,8 @@
 				</Popover.Trigger>
 				<Popover.Content class="w-44 p-1" align="start">
 					{#each Object.entries(getPriorityLabels()) as [value, label]}
-						<Button variant="ghost" size="sm"
-							onclick={() => togglePriority(value)}
-							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)]"
+						<Button variant="plain" onclick={() => togglePriority(value)}
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
 						>
 							<Checkbox checked={getPriorityValues().includes(value)} />
 							<IssuePriorityIcon priority={Number(value) as IssuePriority} />
@@ -445,9 +442,8 @@
 						</Button>
 					{/each}
 					<Separator class="my-1" />
-					<Button variant="ghost" size="sm"
-						onclick={() => removeFilter('priority')}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--color-text-tertiary)]"
+					<Button variant="plain" onclick={() => removeFilter('priority')}
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
 					>
 						<X size={12} />
 						{m['sharedComponents.filter_builder.remove_filter']()}
@@ -460,15 +456,14 @@
 			<Popover.Root bind:open={assigneeOpen} onOpenChange={(open) => handlePopoverClose('assignee', open)}>
 				<Popover.Trigger>
 					{#snippet child({ props })}
-						<Button {...props} variant="ghost" size="sm" class={chipClass(!!filters.assignee)}>
+						<Button {...props} variant="plain" class={chipClass(!!filters.assignee)}>
 							<User size={12} />
 							{getAssigneeChipLabel()}
 						</Button>
 					{/snippet}
 				</Popover.Trigger>
 				<Popover.Content class="w-48 p-1" align="start">
-					<Button variant="ghost" size="sm"
-						onclick={() => updateFilter('assignee', 'none')}
+					<Button variant="plain" onclick={() => updateFilter('assignee', 'none')}
 						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] {filters.assignee ===
 						'none'
 							? 'bg-[var(--color-bg-hover)]'
@@ -477,8 +472,7 @@
 						{m['sharedComponents.filter_builder.unassigned']()}
 					</Button>
 					{#each members as member}
-						<Button variant="ghost" size="sm"
-							onclick={() => updateFilter('assignee', member.user_id)}
+						<Button variant="plain" onclick={() => updateFilter('assignee', member.user_id)}
 							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {filters.assignee ===
 							member.user_id
 								? 'bg-[var(--color-bg-hover)]'
@@ -489,9 +483,8 @@
 						</Button>
 					{/each}
 					<Separator class="my-1" />
-					<Button variant="ghost" size="sm"
-						onclick={() => removeFilter('assignee')}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--color-text-tertiary)]"
+					<Button variant="plain" onclick={() => removeFilter('assignee')}
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
 					>
 						<X size={12} />
 						{m['sharedComponents.filter_builder.remove_filter']()}
@@ -504,15 +497,14 @@
 			<Popover.Root bind:open={projectOpen} onOpenChange={(open) => handlePopoverClose('project', open)}>
 				<Popover.Trigger>
 					{#snippet child({ props })}
-						<Button {...props} variant="ghost" size="sm" class={chipClass(!!filters.project)}>
+						<Button {...props} variant="plain" class={chipClass(!!filters.project)}>
 							<FolderKanban size={12} />
 							{getProjectChipLabel()}
 						</Button>
 					{/snippet}
 				</Popover.Trigger>
 				<Popover.Content class="w-48 p-1" align="start">
-					<Button variant="ghost" size="sm"
-						onclick={() => updateFilter('project', 'none')}
+					<Button variant="plain" onclick={() => updateFilter('project', 'none')}
 						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] {filters.project ===
 						'none'
 							? 'bg-[var(--color-bg-hover)]'
@@ -521,8 +513,7 @@
 						{m['sharedComponents.filter_builder.no_project']()}
 					</Button>
 					{#each projects as project}
-						<Button variant="ghost" size="sm"
-							onclick={() => updateFilter('project', project.id)}
+						<Button variant="plain" onclick={() => updateFilter('project', project.id)}
 							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {filters.project ===
 							project.id
 								? 'bg-[var(--color-bg-hover)]'
@@ -533,9 +524,8 @@
 						</Button>
 					{/each}
 					<Separator class="my-1" />
-					<Button variant="ghost" size="sm"
-						onclick={() => removeFilter('project')}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--color-text-tertiary)]"
+					<Button variant="plain" onclick={() => removeFilter('project')}
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
 					>
 						<X size={12} />
 						{m['sharedComponents.filter_builder.remove_filter']()}
@@ -548,7 +538,7 @@
 			<Popover.Root bind:open={labelOpen} onOpenChange={(open) => handlePopoverClose('label', open)}>
 				<Popover.Trigger>
 					{#snippet child({ props })}
-						<Button {...props} variant="ghost" size="sm" class={chipClass(!!filters.label)}>
+						<Button {...props} variant="plain" class={chipClass(!!filters.label)}>
 							<Tag size={12} />
 							{getLabelChipLabel()}
 						</Button>
@@ -556,8 +546,7 @@
 				</Popover.Trigger>
 				<Popover.Content class="w-48 p-1" align="start">
 					{#each labels as label}
-						<Button variant="ghost" size="sm"
-							onclick={() => updateFilter('label', label.id)}
+						<Button variant="plain" onclick={() => updateFilter('label', label.id)}
 							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {filters.label ===
 							label.id
 								? 'bg-[var(--color-bg-hover)]'
@@ -573,9 +562,8 @@
 						</p>
 					{/if}
 					<Separator class="my-1" />
-					<Button variant="ghost" size="sm"
-						onclick={() => removeFilter('label')}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--color-text-tertiary)]"
+					<Button variant="plain" onclick={() => removeFilter('label')}
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
 					>
 						<X size={12} />
 						{m['sharedComponents.filter_builder.remove_filter']()}
@@ -588,7 +576,7 @@
 			<Popover.Root bind:open={subIssuesOpen} onOpenChange={(open) => handlePopoverClose('sub_issues', open)}>
 				<Popover.Trigger>
 					{#snippet child({ props })}
-						<Button {...props} variant="ghost" size="sm" class={chipClass(!!filters.sub_issues)}>
+						<Button {...props} variant="plain" class={chipClass(!!filters.sub_issues)}>
 							<CornerDownRight size={12} />
 							{getSubIssuesChipLabel()}
 						</Button>
@@ -596,8 +584,7 @@
 				</Popover.Trigger>
 				<Popover.Content class="w-52 p-1" align="start">
 					{#each SUB_ISSUE_FILTERS as option}
-						<Button variant="ghost" size="sm"
-							onclick={() => updateFilter('sub_issues', option.value)}
+						<Button variant="plain" onclick={() => updateFilter('sub_issues', option.value)}
 							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {filters.sub_issues ===
 							option.value
 								? 'bg-[var(--color-bg-hover)]'
@@ -608,9 +595,8 @@
 						</Button>
 					{/each}
 					<Separator class="my-1" />
-					<Button variant="ghost" size="sm"
-						onclick={() => removeFilter('sub_issues')}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--color-text-tertiary)]"
+					<Button variant="plain" onclick={() => removeFilter('sub_issues')}
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
 					>
 						<X size={12} />
 						{m['sharedComponents.filter_builder.remove_filter']()}
@@ -621,8 +607,7 @@
 
 		{#each Array.from(visibleFilters).filter((key) => !FILTER_OPTIONS.some((option) => option.key === key)) as key}
 			{#if filters[key]}
-				<Button variant="ghost" size="sm"
-					class={chipClass(true)}
+				<Button variant="plain" class={chipClass(true)}
 					onclick={() => removeFilter(key)}
 					title={m['sharedComponents.filter_builder.remove_filter']()}
 				>
@@ -637,8 +622,8 @@
 			<Popover.Root bind:open={addFilterOpen}>
 				<Popover.Trigger>
 					{#snippet child({ props })}
-						<Button {...props} variant="ghost" size="sm"
-							class="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
+						<Button {...props} variant="plain"
+							class="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]"
 						>
 							<Plus size={14} />
 							{m['sharedComponents.filter_builder.filter']()}
@@ -647,9 +632,8 @@
 				</Popover.Trigger>
 				<Popover.Content class="w-44 p-1" align="start">
 					{#each availableFilters as option}
-						<Button variant="ghost" size="sm"
-							onclick={() => addFilter(option.key)}
-							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)]"
+						<Button variant="plain" onclick={() => addFilter(option.key)}
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
 						>
 							<option.icon size={14} class="text-[var(--color-text-tertiary)]" />
 							{option.label}
@@ -664,8 +648,7 @@
 
 		<!-- Clear all -->
 		{#if visibleFilters.size > 0}
-			<Button variant="ghost" size="sm"
-				onclick={clearAll}
+			<Button variant="plain" onclick={clearAll}
 				class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
 			>
 				{m['sharedComponents.filter_builder.clear_filters']()}

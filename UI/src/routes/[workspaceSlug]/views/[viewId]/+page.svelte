@@ -179,19 +179,18 @@
 		<div class="flex h-[49px] items-center justify-between border-b border-[var(--app-border)] px-6">
 			<div class="flex items-center gap-3">
 				<SidebarToggle />
-				<Button variant="ghost" size="sm"
-					onclick={() => history.back()}
+				<Button variant="plain" onclick={() => history.back()}
 					class="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
 				>
 					<ArrowLeft size={16} />
 				</Button>
 				{#if editingName}
 					<div class="flex items-center gap-1">
-						<Input
+						<Input variant="plain"
 							type="text"
 							bind:value={editNameValue}
 							onkeydown={handleEditNameKeydown}
-							class="py-0.5"
+							class="rounded border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-2 py-0.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
 						/>
 						<Button aria-label={m['common.save']()} variant="ghost" size="icon-sm" onclick={saveName}>
 							<Check size={14} />
@@ -202,8 +201,7 @@
 					</div>
 				{:else}
 					<h1 class="text-sm font-medium text-[var(--color-text-primary)]">{view.name}</h1>
-					<Button variant="ghost" size="sm"
-						onclick={startEditName}
+					<Button variant="plain" onclick={startEditName}
 						class="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
 					>
 						<Pencil size={12} />
@@ -245,22 +243,20 @@
 						{/snippet}
 					</Popover.Trigger>
 					<Popover.Content class="w-40 p-1" align="end">
-						<Button variant="ghost" size="sm"
-							onclick={() => {
+						<Button variant="plain" onclick={() => {
 								actionsOpen = false;
 								showShareLink = true;
 							}}
-							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)]"
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
 						>
 							<Share2 size={14} />
 							{m['views.share_link']()}
 						</Button>
-						<Button variant="destructive" size="sm"
-							onclick={() => {
+						<Button variant="plain" onclick={() => {
 								actionsOpen = false;
 								deleteOpen = true;
 							}}
-							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-error)]"
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-error)] hover:bg-[var(--color-bg-hover)]"
 						>
 							<Trash2 size={14} />
 							{m['views.delete_view']()}

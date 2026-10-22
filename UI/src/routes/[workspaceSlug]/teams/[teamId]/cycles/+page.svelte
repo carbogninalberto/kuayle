@@ -304,9 +304,8 @@
 			</nav>
 		</div>
 		{#if canManage}
-			<Button variant="ghost" size="sm"
-				onclick={() => (showCreate = true)}
-				class="shrink-0 rounded-md p-1 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+			<Button variant="plain" onclick={() => (showCreate = true)}
+				class="shrink-0 rounded-md p-1 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
 				title={m['cycles.new_cycle']()}
 			>
 				<Plus size={16} />
@@ -438,9 +437,8 @@
 							<div class="absolute top-0 bottom-0 right-[3.25px] bg-[var(--app-border)]" style="width: 1.5px;"></div>
 						</div>
 						<div class="min-w-0 flex-1 py-1">
-							<Button variant="ghost" size="sm"
-								onclick={() => (archivedExpanded = !archivedExpanded)}
-								class="flex items-center gap-2 rounded-md px-3 py-2 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
+							<Button variant="plain" onclick={() => (archivedExpanded = !archivedExpanded)}
+								class="flex items-center gap-2 rounded-md px-3 py-2 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]"
 							>
 								<Clock size={12} />
 								{m['cycles.older_cycles']({ count: archivedCycles.length })}
@@ -493,8 +491,7 @@
 			<!-- Velocity chart -->
 			{#if velocityData.length > 0}
 				<div class="mt-4 px-3 pb-4 sm:px-6">
-					<Button variant="ghost" size="sm"
-						onclick={() => (velocityExpanded = !velocityExpanded)}
+					<Button variant="plain" onclick={() => (velocityExpanded = !velocityExpanded)}
 						class="flex items-center gap-2 text-xs font-medium text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
 					>
 						<ChevronRight size={12} class="transition-transform {velocityExpanded ? 'rotate-90' : ''}" />

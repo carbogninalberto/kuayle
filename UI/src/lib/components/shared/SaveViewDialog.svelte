@@ -156,10 +156,9 @@
 					<div class="grid gap-2">
 						{#each visibleScopeOptions as option}
 							{@const Icon = option.icon}
-							<Button variant="ghost" size="sm"
-								type="button"
+							<Button variant="plain" type="button"
 								onclick={() => (scope = option.value)}
-								class="h-auto justify-start whitespace-normal flex items-center gap-3 rounded-lg border p-3 text-left transition-colors {scope === option.value
+								class="flex items-center gap-3 rounded-lg border p-3 text-left transition-colors {scope === option.value
 									? 'border-[var(--app-accent)] bg-[var(--app-accent)]/10'
 									: 'border-[var(--app-border)] bg-[var(--color-bg)] hover:bg-[var(--color-bg-hover)]'}"
 							>

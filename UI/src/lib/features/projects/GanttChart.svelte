@@ -415,8 +415,7 @@
 <div bind:this={containerEl} class="flex h-full flex-col">
 	<!-- Toolbar -->
 	<div class="flex items-center gap-2 pb-3">
-		<Button variant="outline" size="sm"
-			onclick={() => showFilters = !showFilters}
+		<Button variant="plain" onclick={() => showFilters = !showFilters}
 			class="flex items-center gap-1.5 rounded-md border border-[var(--app-border)] px-2.5 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] {hasActiveFilters ? 'border-[var(--app-accent)] text-[var(--app-accent)]' : ''}"
 		>
 			<Filter size={12} />
@@ -426,8 +425,7 @@
 			{/if}
 		</Button>
 		{#if hasActiveFilters}
-			<Button variant="ghost" size="sm"
-				onclick={clearFilters}
+			<Button variant="plain" onclick={clearFilters}
 				class="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
 			>
 				<X size={12} />
@@ -443,8 +441,7 @@
 			<div class="flex items-center gap-1.5">
 				<span class="text-[10px] font-medium uppercase text-[var(--color-text-tertiary)]">{m['projects.gantt.status']()}</span>
 				{#each statusOptions as s}
-					<Button variant="ghost" size="sm"
-						onclick={() => toggleStatus(s)}
+					<Button variant="plain" onclick={() => toggleStatus(s)}
 						class="rounded-md px-2 py-0.5 text-[11px] {filterStatus.has(s) ? 'bg-[var(--app-accent)] text-white' : 'bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]'}"
 					>
 						{getStatusLabel(s)}
@@ -455,8 +452,7 @@
 			<div class="flex items-center gap-1.5">
 				<span class="text-[10px] font-medium uppercase text-[var(--color-text-tertiary)]">{m['projects.gantt.due_date']()}</span>
 				{#each [['all', m['projects.gantt.all']()], ['yes', m['projects.gantt.has_due']()], ['no', m['projects.gantt.no_due']()]] as [val, label]}
-					<Button variant="ghost" size="sm"
-						onclick={() => filterHasDueDate = val as any}
+					<Button variant="plain" onclick={() => filterHasDueDate = val as any}
 						class="rounded-md px-2 py-0.5 text-[11px] {filterHasDueDate === val ? 'bg-[var(--app-accent)] text-white' : 'bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]'}"
 					>
 						{label}

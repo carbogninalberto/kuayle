@@ -40,7 +40,7 @@
 	<Popover.Root bind:open={statusOpen}>
 		<Popover.Trigger>
 			{#snippet child({ props })}
-				<Button {...props} variant="outline" size="sm" class="flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs text-[var(--color-text-secondary)]">
+				<Button {...props} variant="plain" class="flex items-center gap-1.5 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
 					{#if filters.status}
 						{@const ts = teamStatusesState.statusById.get(filters.status)}
 						<IssueStatusIcon category={ts?.category} color={ts?.color} size={12} />
@@ -50,15 +50,13 @@
 			{/snippet}
 		</Popover.Trigger>
 		<Popover.Content class="w-40 p-1" align="start">
-			<Button variant="ghost" size="sm"
-				onclick={() => { setFilter('status', ''); statusOpen = false; }}
+			<Button variant="plain" onclick={() => { setFilter('status', ''); statusOpen = false; }}
 				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {!filters.status ? 'bg-[var(--color-bg-hover)]' : ''}"
 			>
 				All statuses
 			</Button>
 			{#each teamStatusesState.statusOrder as ts}
-				<Button variant="ghost" size="sm"
-					onclick={() => { setFilter('status', ts.id); statusOpen = false; }}
+				<Button variant="plain" onclick={() => { setFilter('status', ts.id); statusOpen = false; }}
 					class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {filters.status === ts.id ? 'bg-[var(--color-bg-hover)]' : ''}"
 				>
 					<IssueStatusIcon category={ts.category} color={ts.color} size={14} />
@@ -71,7 +69,7 @@
 	<Popover.Root bind:open={priorityOpen}>
 		<Popover.Trigger>
 			{#snippet child({ props })}
-				<Button {...props} variant="outline" size="sm" class="flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs text-[var(--color-text-secondary)]">
+				<Button {...props} variant="plain" class="flex items-center gap-1.5 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
 					{#if filters.priority}
 						<IssuePriorityIcon priority={Number(filters.priority) as IssuePriority} size={12} />
 					{/if}
@@ -80,15 +78,13 @@
 			{/snippet}
 		</Popover.Trigger>
 		<Popover.Content class="w-40 p-1" align="start">
-			<Button variant="ghost" size="sm"
-				onclick={() => { setFilter('priority', ''); priorityOpen = false; }}
+			<Button variant="plain" onclick={() => { setFilter('priority', ''); priorityOpen = false; }}
 				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {!filters.priority ? 'bg-[var(--color-bg-hover)]' : ''}"
 			>
 				All priorities
 			</Button>
 			{#each Object.entries(getPriorityLabels()) as [value, label]}
-				<Button variant="ghost" size="sm"
-					onclick={() => { setFilter('priority', value); priorityOpen = false; }}
+				<Button variant="plain" onclick={() => { setFilter('priority', value); priorityOpen = false; }}
 					class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {filters.priority === value ? 'bg-[var(--color-bg-hover)]' : ''}"
 				>
 					<IssuePriorityIcon priority={Number(value) as IssuePriority} size={14} />
@@ -99,8 +95,7 @@
 	</Popover.Root>
 
 	{#if Object.keys(filters).length > 0}
-		<Button variant="ghost" size="sm"
-			onclick={() => {
+		<Button variant="plain" onclick={() => {
 				filters = {};
 				onchange({});
 			}}

@@ -116,9 +116,8 @@
 			</nav>
 		</div>
 		{#if canManage}
-			<Button variant="ghost" size="sm"
-				onclick={() => (showCreateProject = true)}
-				class="rounded-md p-1 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+			<Button variant="plain" onclick={() => (showCreateProject = true)}
+				class="rounded-md p-1 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
 				title={m['projects.new_project']()}
 			>
 				<Plus size={16} />

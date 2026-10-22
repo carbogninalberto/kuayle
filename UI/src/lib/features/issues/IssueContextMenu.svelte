@@ -457,8 +457,7 @@
 {#if dueDateOpen}
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div class="fixed inset-0 z-50 flex items-start justify-center px-3 pt-[12vh]" onkeydown={handleDueDateKeydown}>
-		<Button variant="ghost" size="sm"
-			class="fixed inset-0 h-full w-full rounded-none border-0 p-0 active:not-aria-[haspopup]:translate-y-0 cursor-default"
+		<Button variant="plain" class="fixed inset-0 cursor-default"
 			style="background: rgba(0,0,0,{dueDateVisible ? 0.5 : 0}); transition: background {ANIM_DURATION}ms ease;"
 			onclick={closeDueDatePicker}
 			tabindex={-1}
@@ -478,9 +477,8 @@
 					</h2>
 					<p class="text-xs text-[var(--color-text-tertiary)]">{issue.identifier}</p>
 				</div>
-				<Button variant="ghost" size="sm"
-					onclick={closeDueDatePicker}
-					class="inline-flex h-8 w-8 items-center justify-center rounded-md text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
+				<Button variant="plain" onclick={closeDueDatePicker}
+					class="inline-flex h-8 w-8 items-center justify-center rounded-md text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
 					title={m['common.close']()}
 				>
 					<X size={16} />
