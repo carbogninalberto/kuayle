@@ -14,6 +14,10 @@ Static marketing/landing site for [Kuayle](https://kuayle.com), built with Svelt
 - **shadcn-svelte** primitives (button, badge)
 - **Lucide** icons
 
+Agent implementation guidance lives in the repository's [WEB skill](../AGENTS/SKILLS/kuayle-web/SKILL.md).
+The existing shadcn-svelte primitives are configured by [components.json](components.json);
+run component additions from this package and preserve the site's custom theme.
+
 ## Scripts
 
 | Command              | What it does                                           |
