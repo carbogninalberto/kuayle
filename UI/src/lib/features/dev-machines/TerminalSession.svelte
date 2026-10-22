@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { onDestroy, tick } from 'svelte';
-	import { LoaderCircle, RefreshCw } from 'lucide-svelte';
+	import { LoaderCircle, RefreshCw } from '@lucide/svelte';
 	import { Alert, AlertDescription } from '$lib/components/ui/alert';
 	import { Button } from '$lib/components/ui/button';
 	import {

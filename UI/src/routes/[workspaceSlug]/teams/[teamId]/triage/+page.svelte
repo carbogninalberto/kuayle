@@ -14,7 +14,7 @@
 	import { formatRelativeTime } from '$lib/utils/format';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
-	import { CheckCircle2, XCircle, SquareUser, ShieldCheck, ChevronRight } from 'lucide-svelte';
+	import { CheckCircle2, XCircle, SquareUser, ShieldCheck, ChevronRight } from '@lucide/svelte';
 	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
 	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
 
@@ -127,9 +127,9 @@
 				/>
 			{:else}
 				{#each issues as issue, i}
-					<button
+					<Button variant="outline" size="sm"
 						onclick={() => (selectedIndex = i)}
-						class="flex w-full flex-col gap-1 border-b border-[var(--app-border)] px-4 py-3 text-left {selectedIndex === i ? 'bg-[var(--color-bg-hover)]' : 'hover:bg-[var(--color-bg-hover)]'}"
+						class="h-auto justify-start whitespace-normal flex w-full flex-col gap-1 border-b border-[var(--app-border)] px-4 py-3 text-left {selectedIndex === i ? 'bg-[var(--color-bg-hover)]' : 'hover:bg-[var(--color-bg-hover)]'}"
 					>
 						<div class="flex items-center gap-2">
 							<IssuePriorityIcon priority={issue.priority} size={13} />
@@ -137,7 +137,7 @@
 							<span class="ml-auto text-xs text-[var(--color-text-tertiary)]">{formatRelativeTime(issue.created_at, getLocale())}</span>
 						</div>
 						<p class="line-clamp-2 text-sm text-[var(--color-text-primary)]">{issue.title}</p>
-					</button>
+					</Button>
 				{/each}
 			{/if}
 		</div>

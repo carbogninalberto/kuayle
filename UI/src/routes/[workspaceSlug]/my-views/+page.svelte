@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Button } from '$lib/components/ui/button/index.js';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { listViews, deleteView } from '$lib/api/views';
@@ -8,7 +9,7 @@
 	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import { appToast } from '$lib/features/toast/toast';
-	import { Bookmark, CircleUser, Trash2 } from 'lucide-svelte';
+	import { Bookmark, CircleUser, Trash2 } from '@lucide/svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
 
@@ -102,13 +103,13 @@
 							{/if}
 						</div>
 					</a>
-					<button
+					<Button variant="destructive" size="sm"
 						onclick={() => requestDelete(view)}
 						class="shrink-0 rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-tertiary)] hover:text-red-500"
 						title={m['views.delete_view']()}
 					>
 						<Trash2 size={14} />
-					</button>
+					</Button>
 				</div>
 			{/each}
 		</div>

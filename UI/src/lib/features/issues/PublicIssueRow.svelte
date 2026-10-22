@@ -1,11 +1,12 @@
 <script lang="ts">
+	import { Button } from '$lib/components/ui/button/index.js';
 	import type { PublicIssue } from '$lib/types/shared-link';
 	import type { IssuePriority } from '$lib/types/issue';
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
 	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
 	import IssueLabelChips from './IssueLabelChips.svelte';
 	import { formatDate, formatIssueListDate, formatIssueListRelativeTime } from '$lib/utils/format';
-	import { CalendarDays } from 'lucide-svelte';
+	import { CalendarDays } from '@lucide/svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
 
@@ -21,8 +22,8 @@
 	const createdAtTooltip = $derived(createdAtText ? `${createdAtText} • ${formatDate(issue.created_at, getLocale())}` : '');
 </script>
 
-<button
-	class="mx-2 flex w-[calc(100%-1rem)] items-center gap-2 rounded-md px-3 py-1.5 text-left transition-colors duration-100 hover:bg-black/[0.02] dark:hover:bg-white/[0.02]"
+<Button variant="ghost" size="sm"
+	class="h-auto justify-start whitespace-normal mx-2 flex w-[calc(100%-1rem)] items-center gap-2 rounded-md px-3 py-1.5 text-left transition-colors duration-100 hover:bg-black/[0.02] dark:hover:bg-white/[0.02]"
 	onclick={() => onclick(issue)}
 >
 	<!-- Priority -->
@@ -89,4 +90,4 @@
 			{createdAtText}
 		</span>
 	{/if}
-</button>
+</Button>

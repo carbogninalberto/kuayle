@@ -10,7 +10,7 @@
 		SlidersHorizontal,
 		TrendingUp,
 		UsersRound
-	} from 'lucide-svelte';
+	} from '@lucide/svelte';
 	import * as Select from '$lib/components/ui/select';
 	import * as Tabs from '$lib/components/ui/tabs';
 	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';

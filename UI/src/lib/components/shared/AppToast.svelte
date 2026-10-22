@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { AlertTriangle, Check, Info, X, XCircle } from 'lucide-svelte';
+	import { Button } from '$lib/components/ui/button/index.js';
+	import { AlertTriangle, Check, Info, X, XCircle } from '@lucide/svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
 
@@ -40,9 +41,9 @@
 	<div class="content">
 		<div class="header">
 			<div class="title">{title}</div>
-			<button class="close" type="button" aria-label={m['sharedComponents.app_toast.close']()} onclick={dismiss}>
+			<Button variant="ghost" size="icon-sm" class="close" type="button" aria-label={m['sharedComponents.app_toast.close']()} onclick={dismiss}>
 				<X size={16} />
-			</button>
+			</Button>
 		</div>
 
 		{#if description}
@@ -132,7 +133,7 @@
 		text-overflow: ellipsis;
 	}
 
-	.close {
+	.app-toast :global(.close) {
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
@@ -148,12 +149,12 @@
 			opacity 120ms ease;
 	}
 
-	.close:hover {
+	.app-toast :global(.close):hover {
 		background: var(--color-bg-hover);
 		color: var(--color-text-primary);
 	}
 
-	.close :global(svg) {
+	.app-toast :global(.close) :global(svg) {
 		display: block;
 	}
 

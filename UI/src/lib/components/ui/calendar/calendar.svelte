@@ -1,12 +1,10 @@
 <script lang="ts">
-	import { Calendar as CalendarPrimitive } from "bits-ui";
-	import * as Calendar from "./index.js";
-	import { cn, type WithoutChildrenOrChild } from "$lib/utils.js";
-	import type { ButtonVariant } from "../button/button.svelte";
 	import { isEqualMonth, type DateValue } from "@internationalized/date";
+	import { Calendar as CalendarPrimitive } from "bits-ui";
+	import { cn, type WithoutChildrenOrChild } from "$lib/utils.js";
+	import * as Calendar from "./index.js";
+	import type { ButtonVariant } from "../button/button.svelte";
 	import type { Snippet } from "svelte";
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
 
 	let {
 		ref = $bindable(null),
@@ -16,7 +14,7 @@
 		weekdayFormat = "short",
 		buttonVariant = "ghost",
 		captionLayout = "label",
-		locale = getLocale(),
+		locale = "en-US",
 		months: monthsProp,
 		years,
 		monthFormat: monthFormatProp,
@@ -52,7 +50,7 @@ get along, so we shut typescript up by casting `value` to `never`.
 	{weekdayFormat}
 	{disableDaysOutsideMonth}
 	class={cn(
-		"p-2 [--cell-radius:var(--radius-md)] [--cell-size:--spacing(7)] bg-background group/calendar in-data-[slot=card-content]:bg-transparent in-data-[slot=popover-content]:bg-transparent",
+		"p-2 [--cell-radius:var(--radius-md)] [--cell-size:--spacing(7)] group/calendar bg-background in-data-[slot=card-content]:bg-transparent in-data-[slot=popover-content]:bg-transparent",
 		className
 	)}
 	{locale}
@@ -84,7 +82,7 @@ get along, so we shut typescript up by casting `value` to `never`.
 					<Calendar.Grid>
 						<Calendar.GridHead>
 							<Calendar.GridRow class="select-none">
-								{#each weekdays as weekday (weekday)}
+								{#each weekdays as weekday, i (i)}
 									<Calendar.HeadCell>
 										{weekday.slice(0, 2)}
 									</Calendar.HeadCell>

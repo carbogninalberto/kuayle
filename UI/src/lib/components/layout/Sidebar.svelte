@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Button } from '$lib/components/ui/button/index.js';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { flip } from 'svelte/animate';
@@ -61,7 +62,7 @@
 		Info,
 		CircleQuestionMark,
 		BarChart3
-	} from 'lucide-svelte';
+	} from '@lucide/svelte';
 
 	let {
 		workspace,
@@ -607,19 +608,11 @@
 		<div class="fixed left-0 top-0 z-20 h-full w-[6px]" onmouseenter={openDrawer}></div>
 
 		<!-- Drawer overlay sidebar (below page header) -->
-		<div
-			role="button"
-			tabindex="0"
-			aria-label={m['sidebar.close_sidebar']()}
-			class="fixed inset-0 top-[49px] z-40 transition-[background-color] duration-300 {drawerOpen
-				? 'pointer-events-auto'
-				: 'pointer-events-none'}"
-			style="background-color: {drawerOpen ? 'rgba(0,0,0,0.15)' : 'transparent'};"
-			onclick={() => (drawerOpen = false)}
-			onkeydown={(e) => {
-				if (e.key === 'Enter' || e.key === 'Escape') drawerOpen = false;
-			}}
-		>
+		<div class="fixed inset-0 top-[49px] z-40 {drawerOpen ? 'pointer-events-auto' : 'pointer-events-none'}">
+			<Button variant="ghost" aria-label={m['sidebar.close_sidebar']()} tabindex={drawerOpen ? 0 : -1}
+				class="absolute inset-0 h-full w-full rounded-none border-0 p-0 transition-colors"
+				style="background-color: {drawerOpen ? 'rgba(0,0,0,0.15)' : 'transparent'};"
+				onclick={() => (drawerOpen = false)} onkeydown={(e) => { if (e.key === 'Escape') drawerOpen = false; }} />
 			<div
 				role="presentation"
 				class="absolute left-0 top-0 h-full flex flex-col border-r border-[var(--app-border)] bg-[var(--color-bg-secondary)] shadow-xl transition-transform duration-300"
@@ -662,22 +655,22 @@
 		</div>
 		<div class="flex shrink-0 items-center gap-1">
 			{#if onsearch}
-				<button
+				<Button variant="ghost" size="sm"
 					onclick={onsearch}
-					class="rounded-md p-1 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+					class="rounded-md p-1 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
 					title={m['sidebar.search']()}
 				>
 					<Search size={16} />
-				</button>
+				</Button>
 			{/if}
 			{#if oncreateissue}
-				<button
+				<Button variant="ghost" size="sm"
 					onclick={oncreateissue}
-					class="rounded-md p-1 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+					class="rounded-md p-1 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
 					title={m['sidebar.new_issue']()}
 				>
 					<SquarePen size={16} />
-				</button>
+				</Button>
 			{/if}
 		</div>
 	</div>
@@ -742,7 +735,7 @@
 			<!-- Favorites -->
 			{#if favorites.length > 0}
 				<div class="mt-4">
-					<button
+					<Button variant="ghost" size="sm"
 						onclick={() => (favoritesCollapsed = toggleSection('favorites', favoritesCollapsed))}
 						class="flex w-full items-center px-2 py-1"
 					>
@@ -753,7 +746,7 @@
 								class="text-[var(--color-text-tertiary)] transition-transform {favoritesCollapsed ? '-rotate-90' : ''}"
 							/>
 						</span>
-					</button>
+					</Button>
 					{#if !favoritesCollapsed}
 						<div transition:slideFade>
 							{#each favorites as fav}
@@ -782,18 +775,8 @@
 
 			<!-- Teams -->
 			<div class="group/teams mt-4">
-				<div
-					role="button"
-					tabindex="0"
-					class="flex cursor-pointer items-center justify-between px-2 py-1"
-					onclick={() => (teamsCollapsed = toggleSection('teams', teamsCollapsed))}
-					onkeydown={(e) => {
-						if (e.key === 'Enter' || e.key === ' ') {
-							e.preventDefault();
-							teamsCollapsed = toggleSection('teams', teamsCollapsed);
-						}
-					}}
-				>
+				<div class="flex items-center justify-between px-2 py-1">
+					<Button variant="ghost" size="sm" class="flex-1 justify-start px-0" aria-expanded={!teamsCollapsed} onclick={() => (teamsCollapsed = toggleSection('teams', teamsCollapsed))}>
 					<span class="flex items-center gap-1">
 						<span class="text-[11px] font-semibold text-[var(--color-text-secondary)]">{m['sidebar.teams']()}</span>
 						<ChevronDown
@@ -801,17 +784,18 @@
 							class="text-[var(--color-text-tertiary)] transition-transform {teamsCollapsed ? '-rotate-90' : ''}"
 						/>
 					</span>
+					</Button>
 					{#if oncreateteam}
-						<button
+						<Button variant="ghost" size="sm"
 							onclick={(e) => {
 								e.stopPropagation();
 								oncreateteam?.();
 							}}
-							class="rounded p-0.5 text-[var(--color-text-tertiary)] opacity-0 transition-opacity group-hover/teams:opacity-100 hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]"
+							class="rounded p-0.5 text-[var(--color-text-tertiary)] opacity-0 transition-opacity group-hover/teams:opacity-100 hover:text-[var(--color-text-secondary)]"
 							title={m['sidebar.create_team']()}
 						>
 							<Plus size={14} />
-						</button>
+						</Button>
 					{/if}
 				</div>
 				{#if !teamsCollapsed}
@@ -838,7 +822,7 @@
 											data-sidebar-drag-row
 											class="group/team flex items-center rounded-md hover:bg-[var(--color-bg-hover)]"
 										>
-											<button
+											<Button variant="ghost" size="sm"
 												onclick={() => toggleTeam(team.id)}
 												class="flex min-w-0 flex-1 items-center gap-2 px-2 py-1 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
 											>
@@ -851,7 +835,7 @@
 														? ''
 														: '-rotate-90'}"
 												/>
-											</button>
+											</Button>
 											<DropdownMenu.Root>
 												<DropdownMenu.Trigger
 													class="mr-1 shrink-0 rounded p-0.5 text-[var(--color-text-tertiary)] opacity-0 group-hover/team:opacity-100 data-[state=open]:opacity-100 hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-secondary)]"
@@ -1088,13 +1072,13 @@
 							</div>
 						{/each}
 						{#if teams.length === 0}
-							<button
+							<Button variant="ghost" size="sm"
 								onclick={oncreateteam}
-								class="flex w-full items-center gap-2 rounded-md px-2 py-1 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+								class="flex w-full items-center gap-2 rounded-md px-2 py-1 text-sm text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
 							>
 								<Plus size={14} />
 								{m['sidebar.create_first_team']()}
-							</button>
+							</Button>
 						{/if}
 					</div>
 				{/if}
@@ -1103,7 +1087,7 @@
 			<!-- Views -->
 			{#if personalViews.length > 0 || workspaceViews.length > 0}
 				<div class="mt-4">
-					<button
+					<Button variant="ghost" size="sm"
 						onclick={() => (viewsCollapsed = toggleSection('views', viewsCollapsed))}
 						class="flex w-full items-center px-2 py-1"
 					>
@@ -1114,7 +1098,7 @@
 								class="text-[var(--color-text-tertiary)] transition-transform {viewsCollapsed ? '-rotate-90' : ''}"
 							/>
 						</span>
-					</button>
+					</Button>
 					{#if !viewsCollapsed}
 						<div transition:slideFade>
 							<a
@@ -1193,7 +1177,7 @@
 
 			<!-- Projects -->
 			<div class="mt-4">
-				<button
+				<Button variant="ghost" size="sm"
 					type="button"
 					class="flex w-full cursor-pointer items-center justify-between px-2 py-1"
 					onclick={() => (projectsCollapsed = toggleSection('projects', projectsCollapsed))}
@@ -1205,7 +1189,7 @@
 							class="text-[var(--color-text-tertiary)] transition-transform {projectsCollapsed ? '-rotate-90' : ''}"
 						/>
 					</span>
-				</button>
+				</Button>
 				{#if !projectsCollapsed}
 					<div transition:slideFade>
 						<a
@@ -1259,23 +1243,23 @@
 						<Info size={14} />
 						{currentVersionLabel}
 					</a>
-					<button
+					<Button variant="ghost" size="sm"
 						onclick={handleLogout}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)]"
 					>
 						<LogOut size={14} />
 						{m['sidebar.log_out']()}
-					</button>
+					</Button>
 				</div>
 			</Popover.Content>
 		</Popover.Root>
-		<button
+		<Button variant="outline" size="sm"
 			onclick={() => onshortcutshelp?.()}
-			class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[var(--app-border)] text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+			class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-[var(--color-text-secondary)] transition-colors hover:text-[var(--color-text-primary)]"
 			aria-label={m['sidebar.keyboard_shortcuts']()}
 			title={m['sidebar.keyboard_shortcuts_hint']()}
 		>
 			<CircleQuestionMark size={16} />
-		</button>
+		</Button>
 	</div>
 {/snippet}

@@ -1,7 +1,8 @@
 <script lang="ts">
+	import { Button } from '$lib/components/ui/button/index.js';
 	import { goto } from '$app/navigation';
 	import { login } from '$lib/api/auth';
-	import { Loader2 } from 'lucide-svelte';
+	import { Loader2 } from '@lucide/svelte';
 	import { Input } from '$lib/components/ui/input';
 	import { Password } from '$lib/components/ui/password';
 	import { authState } from './auth.state.svelte';
@@ -42,11 +43,11 @@
 		required
 		class={authInputClass}
 	/>
-	<button
+	<Button variant="default" size="sm"
 		type="submit"
 		disabled={loading}
-		class="w-full rounded bg-[var(--app-accent)] py-2 text-sm text-[var(--app-accent-foreground)] disabled:opacity-50"
+		class="w-full rounded py-2 text-sm disabled:opacity-50"
 	>
 		{#if loading}<Loader2 size={14} class="animate-spin" />{:else}Sign in{/if}
-	</button>
+	</Button>
 </form>

@@ -6,7 +6,7 @@
 	import { createView } from '$lib/api/views';
 	import type { Team } from '$lib/types/team';
 	import type { ViewFilter, ViewScope } from '$lib/types/view';
-	import { Bookmark, Building2, Check, CircleUser, SquareUser } from 'lucide-svelte';
+	import { Bookmark, Building2, Check, CircleUser, SquareUser } from '@lucide/svelte';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
@@ -136,7 +136,7 @@
 						bind:value={name}
 						placeholder={m['sharedComponents.save_view.name_placeholder']()}
 						required
-						class="bg-[var(--color-bg)] border-[var(--app-border)] text-[var(--color-text-primary)]"
+						class=""
 					/>
 				</div>
 
@@ -147,7 +147,7 @@
 					<Input
 						bind:value={description}
 						placeholder={m['sharedComponents.save_view.description_placeholder']()}
-						class="bg-[var(--color-bg)] border-[var(--app-border)] text-[var(--color-text-primary)]"
+						class=""
 					/>
 				</div>
 
@@ -156,10 +156,10 @@
 					<div class="grid gap-2">
 						{#each visibleScopeOptions as option}
 							{@const Icon = option.icon}
-							<button
+							<Button variant="ghost" size="sm"
 								type="button"
 								onclick={() => (scope = option.value)}
-								class="flex items-center gap-3 rounded-lg border p-3 text-left transition-colors {scope === option.value
+								class="h-auto justify-start whitespace-normal flex items-center gap-3 rounded-lg border p-3 text-left transition-colors {scope === option.value
 									? 'border-[var(--app-accent)] bg-[var(--app-accent)]/10'
 									: 'border-[var(--app-border)] bg-[var(--color-bg)] hover:bg-[var(--color-bg-hover)]'}"
 							>
@@ -173,7 +173,7 @@
 								{#if scope === option.value}
 									<Check size={15} class="shrink-0 text-[var(--app-accent-light)]" />
 								{/if}
-							</button>
+							</Button>
 						{/each}
 					</div>
 				</div>

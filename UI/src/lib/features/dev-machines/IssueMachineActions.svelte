@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { Activity, Bot, Box, Code2, GitBranch, SquareTerminal } from 'lucide-svelte';
+	import { Activity, Bot, Box, Code2, GitBranch, SquareTerminal } from '@lucide/svelte';
 	import { listDevMachines } from '$lib/api/dev-machines';
 	import type { Issue } from '$lib/types/issue';
 	import type { DevMachine } from '$lib/types/dev-machine';

@@ -1,4 +1,6 @@
 <script lang="ts">
+	import SelectField from '$lib/components/shared/SelectField.svelte';
+	import { Checkbox } from '$lib/components/ui/checkbox/index.js';
  import { onMount } from 'svelte';
  import type { Team, TeamMember } from '$lib/types/team';
  import type { WorkspaceMember } from '$lib/types/workspace';
@@ -92,10 +94,7 @@
     {/each}
    </ul>
    <div class="flex flex-wrap gap-2">
-    <select bind:value={selected} aria-label={m['privacy.choose_member']()} disabled={busy} class="min-w-0 flex-1 rounded border border-[var(--app-border)] bg-[var(--color-bg)] p-2 text-sm">
-     <option value="">{m['privacy.choose_member']()}</option>
-     {#each candidates as member (member.user_id)}<option value={member.user_id}>{member.name} ({member.role})</option>{/each}
-    </select>
+    <SelectField bind:value={selected} aria-label={m['privacy.choose_member']()} disabled={busy} class="min-w-0 flex-1 rounded border border-[var(--app-border)] bg-[var(--color-bg)] p-2 text-sm" options={[{ value: '', label: m['privacy.choose_member']() }, ...candidates.map(member => ({ value: member.user_id, label: `${member.name} (${member.role})` }))]} />
     <Button size="sm" disabled={busy || !selected} onclick={() => changeMember(selected, false)}>{m['privacy.add_member']()}</Button>
    </div>
   {/if}
@@ -105,7 +104,7 @@
  <Dialog.Content class="max-h-[85dvh] overflow-y-auto sm:max-w-xl">
   <Dialog.Header><Dialog.Title>{targetPrivate ? m['privacy.make_private']() : m['privacy.make_public']()}</Dialog.Title><Dialog.Description>{targetPrivate ? m['privacy.policy']() : m['privacy.public_confirmation']()}</Dialog.Description></Dialog.Header>
   {#if targetPrivate}<PrivacyNotice />{/if}
-  <label class="flex items-start gap-2 text-sm"><input type="checkbox" bind:checked={acknowledged} disabled={busy} class="mt-1" /><span>{targetPrivate ? m['privacy.acknowledge']() : m['privacy.confirm_public']()}</span></label>
+  <label class="flex items-start gap-2 text-sm"><Checkbox bind:checked={acknowledged} disabled={busy} class="mt-1" /><span>{targetPrivate ? m['privacy.acknowledge']() : m['privacy.confirm_public']()}</span></label>
   <Dialog.Footer><Button variant="outline" disabled={busy} onclick={() => confirmOpen = false}>{m['common.cancel']()}</Button><Button disabled={busy || !acknowledged || !canManage} onclick={changeVisibility}>{busy ? m['team_settings.saving']() : m['common.save']()}</Button></Dialog.Footer>
  </Dialog.Content>
 </Dialog.Root>

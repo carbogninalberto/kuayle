@@ -1,7 +1,8 @@
 <script lang="ts">
+	import { Input } from '$lib/components/ui/input/index.js';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { Plus, Loader2 } from 'lucide-svelte';
+	import { Plus, Loader2 } from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import WorkspaceImportDialog from '$lib/features/workspaces/WorkspaceImportDialog.svelte';
@@ -69,11 +70,11 @@
 					<div class="mt-4 space-y-3">
 						<label class="block text-sm text-[var(--color-text-secondary)]">
 							{m['workspace_transfer.workspace_name']()}
-							<input value={name} oninput={(event) => updateName(event.currentTarget.value)} maxlength="100" class="mt-1 w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-2 text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]" />
+							<Input value={name} oninput={(event) => updateName(event.currentTarget.value)} maxlength={100} class="mt-1 w-full" />
 						</label>
 						<label class="block text-sm text-[var(--color-text-secondary)]">
 							{m['workspace_transfer.workspace_slug']()}
-							<input bind:value={slug} oninput={() => (slugTouched = true)} maxlength="50" class="mt-1 w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-2 font-mono text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]" />
+							<Input bind:value={slug} oninput={() => (slugTouched = true)} maxlength={50} class="mt-1 w-full font-mono" />
 						</label>
 						<Button class="w-full" onclick={create} disabled={creating || !name.trim() || !slug.trim()}>
 							{#if creating}<Loader2 size={14} class="animate-spin" />{/if}

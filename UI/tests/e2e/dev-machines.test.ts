@@ -250,7 +250,7 @@ test('handles machine actions without applying stale poll, route, or trace respo
 	await expect.poll(() => keepRunningRequests).toBe(1);
 	await page.getByRole('button', { name: 'Run agent' }).click();
 	await expect(page.getByRole('heading', { name: 'Run Agent' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Provider' })).toHaveText('OpenCode');
+	await expect(page.getByRole('combobox', { name: 'Provider' })).toHaveText('OpenCode');
 	const agentDialog = page.getByRole('dialog');
 	const pushBranch = agentDialog.getByRole('switch', { name: 'Push working branch' });
 	const openPullRequest = agentDialog.getByRole('switch', { name: 'Open pull request' });

@@ -15,7 +15,7 @@
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
 	import { formatRelativeTime } from '$lib/utils/format';
-	import { Plus, Trash2, ExternalLink } from 'lucide-svelte';
+	import { Plus, Trash2, ExternalLink } from '@lucide/svelte';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	let webhooks = $state<Webhook[]>([]);
@@ -100,13 +100,13 @@
 <div class="mx-auto max-w-2xl px-8 py-10">
 	<div class="flex items-center justify-between">
 		<h1 class="text-2xl font-semibold text-[var(--color-text-primary)]">{m['settings.webhooks.title']()}</h1>
-		<button
+		<Button variant="default" size="sm"
 			onclick={() => { resetForm(); showCreate = true; }}
-			class="flex items-center gap-1 rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)]"
+			class="flex items-center gap-1 rounded-md px-3 py-1.5 text-sm"
 		>
 			<Plus size={14} />
 			{m['settings.webhooks.new']()}
-		</button>
+		</Button>
 	</div>
 
 	<div class="mt-8">
@@ -145,7 +145,7 @@
 								checked={webhook.is_active}
 								onCheckedChange={() => handleToggleActive(webhook)}
 							/>
-							<Button
+							<Button aria-label={m['common.delete']()}
 								variant="ghost"
 								size="icon-sm"
 								onclick={() => handleDelete(webhook.id)}
@@ -176,7 +176,7 @@
 						bind:value={newUrl}
 						placeholder={m['settings.webhooks.payload_placeholder']()}
 						required
-						class="bg-[var(--color-bg)] border-[var(--app-border)] text-[var(--color-text-primary)]"
+						class=""
 					/>
 				</div>
 
@@ -195,14 +195,14 @@
 					<Label class="text-xs text-[var(--color-text-secondary)]">{m['settings.webhooks.events']()}</Label>
 					<div class="grid grid-cols-2 gap-2">
 						{#each ALL_EVENTS as event}
-							<button
+							<Button variant="outline" size="sm"
 								type="button"
 								onclick={() => toggleEvent(event)}
-								class="flex items-center gap-2 rounded-md border border-[var(--app-border)] px-3 py-2 text-left hover:bg-[var(--color-bg-hover)]"
+								class="h-auto justify-start whitespace-normal flex items-center gap-2 rounded-md border px-3 py-2 text-left"
 							>
 								<Checkbox checked={newEvents.includes(event)} />
 								<span class="text-xs text-[var(--color-text-primary)]">{event}</span>
-							</button>
+							</Button>
 						{/each}
 					</div>
 				</div>

@@ -1,11 +1,12 @@
 <script lang="ts">
+	import { Button } from '$lib/components/ui/button/index.js';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { getInvitePreview, acceptInvite, type InvitePreview } from '$lib/api/invite';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/paraglide/messages.js';
-	import { Loader2, Link2Off } from 'lucide-svelte';
+	import { Loader2, Link2Off } from '@lucide/svelte';
 
 	const token = $derived(page.params.token ?? '');
 
@@ -102,8 +103,8 @@
 	{:else if loadFailed}
 		<div class="w-full max-w-sm space-y-4 p-8 text-center" role="alert">
 			<p class="text-sm text-[var(--color-text-secondary)]">{m['invite.failed_load']()}</p>
-			<button onclick={() => loadInvite(token)} class="text-sm text-[var(--app-accent)] hover:underline"
-				>{m['invite.retry']()}</button
+			<Button variant="link" size="sm" onclick={() => loadInvite(token)} class="text-sm text-[var(--app-accent)] hover:underline"
+				>{m['invite.retry']()}</Button
 			>
 		</div>
 	{:else if invalidReason}
@@ -113,9 +114,9 @@
 			<p class="text-sm text-[var(--color-text-secondary)]">
 				{(m as unknown as Record<string, () => string>)['invite.invalid.' + invalidReason]()}
 			</p>
-			<button onclick={() => goto('/login')} class="text-sm text-[var(--app-accent)] hover:underline">
+			<Button variant="link" size="sm" onclick={() => goto('/login')} class="text-sm text-[var(--app-accent)] hover:underline">
 				{m['invite.back_to_login']()}
-			</button>
+			</Button>
 		</div>
 	{:else if preview}
 		<div class="w-full max-w-sm space-y-6 p-8 text-center">
@@ -138,10 +139,10 @@
 					})}
 				</p>
 			</div>
-			<button
+			<Button variant="default" size="sm"
 				onclick={handleJoin}
 				disabled={joining}
-				class="flex w-full items-center justify-center gap-2 rounded-md bg-[var(--app-accent)] px-4 py-2 text-sm font-medium text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)] disabled:opacity-50"
+				class="flex w-full items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium disabled:opacity-50"
 			>
 				{#if joining}
 					<Loader2 size={14} class="animate-spin" />
@@ -149,7 +150,7 @@
 				{:else}
 					{m['invite.join']()}
 				{/if}
-			</button>
+			</Button>
 		</div>
 	{/if}
 </div>

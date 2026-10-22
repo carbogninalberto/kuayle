@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Input } from '$lib/components/ui/input/index.js';
 	import { untrack } from 'svelte';
 	import type { Issue } from '$lib/types/issue';
 	import { listIssues } from '$lib/api/issues';
@@ -253,7 +254,7 @@
 			<Dialog.Title>{title}</Dialog.Title>
 			<Dialog.Description>{description}</Dialog.Description>
 		</Dialog.Header>
-		<input
+		<Input
 			type="search"
 			aria-label={m['issuePicker.search']()}
 			placeholder={m['issuePicker.search']()}
@@ -265,7 +266,7 @@
 			aria-activedescendant={searchResults.length ? `${uid}-${selectedIndex}` : undefined}
 			aria-autocomplete="list"
 			onkeydown={handleKeydown}
-			class="w-full rounded-md border border-[var(--app-border)] bg-transparent px-3 py-2 text-sm"
+			class="w-full bg-transparent"
 		/>
 		<div
 			id={`${uid}-results`}
@@ -277,13 +278,13 @@
 		>
 			{#each searchResults as result, i (result.id)}
 				{@const snippet = descriptionSnippet(result.description, searchQuery)}
-				<button
+				<Button variant="ghost" size="sm"
 					id={`${uid}-${i}`}
 					type="button"
 					role="option"
 					aria-selected={multiple ? selected.some((issue) => issue.id === result.id) : i === selectedIndex}
 					disabled={submitting}
-					class="flex w-full items-start gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-[var(--color-bg-hover)] {i ===
+					class="h-auto justify-start whitespace-normal flex w-full items-start gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-[var(--color-bg-hover)] {i ===
 					selectedIndex
 						? 'bg-[var(--color-bg-hover)]'
 						: ''}"
@@ -308,7 +309,7 @@
 							>{/if}
 					</span>
 					{#if !multiple}<span class="hidden text-xs sm:inline">{actionLabel}</span>{/if}
-				</button>
+				</Button>
 			{/each}
 		</div>
 		{#if searching}<p role="status" class="text-sm text-[var(--color-text-tertiary)]">{m['common.loading']()}</p>

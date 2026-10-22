@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { Button } from '$lib/components/ui/button/index.js';
+	import { Input } from '$lib/components/ui/input/index.js';
 	import { onMount, onDestroy } from 'svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
@@ -32,7 +34,7 @@
 		CircleDot, ArrowUpCircle, UserCircle, FolderKanban, Pencil, Layers,
 		Tag, RefreshCw, ArrowUp, MoreHorizontal, Check, Bell,
 		Trash2, CornerDownRight, Ban, ArrowRight
-	} from 'lucide-svelte';
+	} from '@lucide/svelte';
 	import { listCycles } from '$lib/api/cycles';
 	import type { Cycle } from '$lib/types/cycle';
 	import IssueRelations from './IssueRelations.svelte';
@@ -352,7 +354,7 @@
 	}
 
 	function goToParentIssue() {
-		if (issue.parent) goto(`/${slug}/issue/${issue.parent.identifier}`);
+		if (issue.parent) goto(`/${slug}/issue/${issue.parent?.identifier}`);
 	}
 
 	function openAddRelation(type: RelationType = 'related') {
@@ -759,7 +761,7 @@
 		</div>
 		<div class="no-scrollbar flex shrink-0 items-center gap-0.5 overflow-x-auto">
 			<!-- Actions -->
-			<button
+			<Button variant="ghost" size="sm"
 				onclick={toggleSubscription}
 				disabled={subscriptionBusy}
 				aria-pressed={isSubscribed}
@@ -767,89 +769,91 @@
 				title={isSubscribed ? m['issue.disable_notifications']() : m['issue.enable_notifications']()}
 			>
 				<Bell size={14} />
-			</button>
-			<button
+			</Button>
+			<Button variant="ghost" size="sm"
 				onclick={() => { navigator.clipboard.writeText(issue.identifier); appToast.success(m['issue.toast.label_copied']({ label: 'ID' })) }}
-				class="rounded p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
+				class="rounded p-1.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
 				title={m['issue.copy_id']()}
 			>
 				<Copy size={14} />
-			</button>
-			<button
+			</Button>
+			<Button variant="ghost" size="sm"
 				onclick={() => { navigator.clipboard.writeText(window.location.href); appToast.success(m['issue.toast.label_copied']({ label: 'Link' })) }}
-				class="rounded p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
+				class="rounded p-1.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
 				title={m['issue.copy_link']()}
 			>
 				<LinkIcon size={14} />
-			</button>
-			<button
+			</Button>
+			<Button variant="ghost" size="sm"
 				onclick={copyBranchAndMoveToProgress}
-				class="rounded p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
+				class="rounded p-1.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
 				title={m['issue.copy_branch_move']()}
 			>
 				<GitBranch size={14} />
-			</button>
-			<button
+			</Button>
+			<Button variant="ghost" size="sm"
 				onclick={copyAIPrompt}
-				class="rounded p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
+				class="rounded p-1.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
 				title={m['issue.copy_ai_prompt']()}
 			>
 				<SquareMousePointer size={14} />
-			</button>
+			</Button>
 			<Popover.Root bind:open={issueActionsOpen}>
 				<Popover.Trigger>
-					<button
-						type="button"
-						class="rounded p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
-						title={m['issue.issue_actions']()}
-					>
-						<MoreHorizontal size={14} />
-					</button>
+					{#snippet child({ props })}
+						<Button {...props} variant="ghost" size="sm"
+							type="button"
+							class="rounded p-1.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+							title={m['issue.issue_actions']()}
+						>
+							<MoreHorizontal size={14} />
+						</Button>
+					{/snippet}
 				</Popover.Trigger>
 				<Popover.Content class="w-64 max-w-[calc(100vw-1rem)] p-1" align="end">
 					<IssueMachineActions {slug} {issue} bind:repositoryOpen={issueActionsRepositoryOpen} bind:pickerOpen={issueActionsMachinePickerOpen} bind:pickerIntent={issueActionsMachineIntent} onaction={() => (issueActionsOpen = false)} />
 					<div class="my-1 h-px bg-[var(--app-border)]"></div>
-					<button
+					<Button variant="ghost" size="sm"
 						type="button"
 						onclick={() => { issueActionsOpen = false; parentPickerOpen = true; }}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] transition-colors"
 					>
 						<CornerDownRight size={14} />
 						{issue.parent ? m['issue.change_parent']() : m['issue.add_parent']()}
-					</button>
+					</Button>
 					<div class="my-1 h-px bg-[var(--app-border)]"></div>
-					<button
+					<Button variant="ghost" size="sm"
 						type="button"
 						onclick={() => { issueActionsOpen = false; openAddRelation('related'); }}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] transition-colors"
 					>
 						<LinkIcon size={14} />
 						{m['issue.add_relation']()}
-					</button>
-					<button
+					</Button>
+					<Button variant="ghost" size="sm"
 						type="button"
 						onclick={() => { issueActionsOpen = false; openAddRelation('blocked_by'); }}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] transition-colors"
 					>
 						<Ban size={14} />
 						{m['issue.blocked_by']()}
-					</button>
-					<button
+					</Button>
+					<Button variant="ghost" size="sm"
 						type="button"
 						onclick={() => { issueActionsOpen = false; openAddRelation('blocking'); }}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] transition-colors"
 					>
 						<ArrowRight size={14} />
 						{m['issue.blocking']()}
-					</button>
-					<button
+					</Button>
+					<Button variant="ghost" size="sm"
 						type="button"
 						onclick={() => { issueActionsOpen = false; openAddRelation('duplicate'); }}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] transition-colors"
 					>
 						<Copy size={14} />
 						{m['issue.duplicate']()}
-					</button>
+					</Button>
 				</Popover.Content>
 			</Popover.Root>
 
@@ -875,20 +879,20 @@
 			{#if onnavigate && issueCount > 0}
 				<div class="ml-1 flex items-center gap-0.5 border-l border-[var(--app-border)] pl-2">
 					<span class="text-[11px] text-[var(--color-text-tertiary)] mr-1">{currentIndex + 1}/{issueCount}</span>
-					<button
+					<Button variant="ghost" size="sm"
 						onclick={() => onnavigate?.('prev')}
-						class="rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
+						class="rounded p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
 						title={m['issue.previous_issue']()}
 					>
 						<ChevronUp size={16} />
-					</button>
-					<button
+					</Button>
+					<Button variant="ghost" size="sm"
 						onclick={() => onnavigate?.('next')}
-						class="rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
+						class="rounded p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
 						title={m['issue.next_issue']()}
 					>
 						<ChevronDown size={16} />
-					</button>
+					</Button>
 				</div>
 			{/if}
 		</div>
@@ -903,7 +907,7 @@
 				<!-- svelte-ignore a11y_autofocus -->
 				<div class="relative">
 					{#if editingTitle}
-						<input
+						<Input
 							type="text"
 							bind:value={titleValue}
 							onblur={() => { saveTitle(); presenceState.sendFocusLeave(issue.id); }}
@@ -911,15 +915,15 @@
 							oninput={(e) => presenceState.sendFocus(issue.id, 'title', (e.currentTarget as HTMLInputElement).selectionStart ?? 0)}
 							onkeydown={(e) => { if (e.key === 'Enter') saveTitle(); if (e.key === 'Escape') { titleValue = issue.title; editingTitle = false; } }}
 							autofocus
-							class="w-full bg-transparent text-lg font-semibold text-[var(--color-text-primary)] outline-none"
+							class="w-full bg-transparent text-lg font-semibold"
 						/>
 					{:else}
-						<button
+						<Button variant="ghost" size="sm"
 							onclick={() => (editingTitle = true)}
-							class="w-full text-left text-lg font-semibold text-[var(--color-text-primary)] hover:text-[var(--color-text-primary)] transition-colors"
+							class="h-auto justify-start whitespace-normal w-full text-left text-lg font-semibold text-[var(--color-text-primary)] hover:text-[var(--color-text-primary)] transition-colors"
 						>
 							{issue.title}
-						</button>
+						</Button>
 					{/if}
 				</div>
 
@@ -929,22 +933,24 @@
 						<ContextMenu.Root>
 							<div class="group/parent relative inline-flex max-w-full">
 								<ContextMenu.Trigger>
-									<button
-										type="button"
-										onclick={goToParentIssue}
-										class="inline-flex max-w-full items-center gap-1.5 rounded-md border border-transparent px-1.5 py-1 text-[var(--color-text-secondary)] transition-colors hover:border-[var(--app-border)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
-									>
-										<IssueStatusIcon status={issue.parent.status ?? 'backlog'} category={issue.parent.status_info?.category} color={issue.parent.status_info?.color} size={13} />
-										<span class="shrink-0 tabular-nums text-[var(--color-text-tertiary)]">{issue.parent.identifier}</span>
-										<span class="min-w-0 truncate">{issue.parent.title}</span>
-									</button>
+									{#snippet child({ props })}
+										<Button {...props} variant="outline" size="sm"
+											type="button"
+											onclick={goToParentIssue}
+											class="inline-flex max-w-full items-center gap-1.5 rounded-md border border-transparent px-1.5 py-1 text-[var(--color-text-secondary)] transition-colors hover:border-[var(--app-border)] hover:text-[var(--color-text-primary)]"
+										>
+											<IssueStatusIcon status={issue.parent?.status ?? 'backlog'} category={issue.parent?.status_info?.category} color={issue.parent?.status_info?.color} size={13} />
+											<span class="shrink-0 tabular-nums text-[var(--color-text-tertiary)]">{issue.parent?.identifier}</span>
+											<span class="min-w-0 truncate">{issue.parent?.title}</span>
+										</Button>
+									{/snippet}
 								</ContextMenu.Trigger>
 								<div class="pointer-events-none absolute left-0 top-full z-40 mt-2 hidden w-72 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-3 shadow-xl group-hover/parent:block">
 									<div class="flex items-start gap-2">
-										<IssueStatusIcon status={issue.parent.status ?? 'backlog'} category={issue.parent.status_info?.category} color={issue.parent.status_info?.color} size={14} />
+										<IssueStatusIcon status={issue.parent?.status ?? 'backlog'} category={issue.parent?.status_info?.category} color={issue.parent?.status_info?.color} size={14} />
 										<div class="min-w-0 flex-1">
-											<div class="text-xs text-[var(--color-text-tertiary)]">{issue.parent.identifier}</div>
-											<div class="mt-0.5 text-sm font-medium leading-5 text-[var(--color-text-primary)]">{issue.parent.title}</div>
+											<div class="text-xs text-[var(--color-text-tertiary)]">{issue.parent?.identifier}</div>
+											<div class="mt-0.5 text-sm font-medium leading-5 text-[var(--color-text-primary)]">{issue.parent?.title}</div>
 											{#if currentParentPreview}
 												<p class="mt-2 line-clamp-3 text-xs leading-5 text-[var(--color-text-tertiary)]">{currentParentPreview}</p>
 											{/if}
@@ -999,7 +1005,7 @@
 							onupdated={refreshIssue}
 						/>
 					{:else}
-						<button
+						<Button variant="ghost" size="sm"
 							onclick={openCreateSubIssueDialog}
 							class="flex items-center gap-2 text-xs text-[var(--color-text-tertiary)] transition-colors hover:text-[var(--color-text-secondary)]"
 						>
@@ -1007,7 +1013,7 @@
 								<Plus size={12} />
 							</span>
 							{m['issue.add_sub_issue']()}
-						</button>
+						</Button>
 					{/if}
 				</div>
 
@@ -1049,12 +1055,12 @@
 							{/if}
 
 							{#if hiddenCount > 0}
-								<button
+								<Button variant="outline" size="sm"
 									onclick={() => showAllActivity = true}
-									class="relative z-10 mb-2 rounded-full border border-[var(--app-border)] bg-[var(--color-bg)] px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)] transition-colors"
+									class="relative z-10 mb-2 rounded-full border px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors"
 								>
 									{m['issue.show_earlier']({ n: hiddenCount })}
-								</button>
+								</Button>
 							{/if}
 
 							<div>
@@ -1101,12 +1107,12 @@
 						</div>
 
 						{#if showAllActivity && historyGroups.length > RECENT_COUNT}
-							<button
+							<Button variant="outline" size="sm"
 								onclick={() => showAllActivity = false}
-								class="relative z-10 mt-2 rounded-full border border-[var(--app-border)] bg-[var(--color-bg)] px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)] transition-colors"
+								class="relative z-10 mt-2 rounded-full border px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors"
 							>
 								{m['issue.show_less']()}
-							</button>
+							</Button>
 						{/if}
 
 						{#if historyGroups.length === 0}
@@ -1142,13 +1148,13 @@
 									{/if}
 									<div class="ml-auto opacity-0 group-hover/comment:opacity-100 transition-opacity">
 										{#if comment.resolved_at}
-											<button onclick={() => handleReopen(comment.id)} class="flex items-center gap-1 rounded-full border border-[var(--app-border)] px-2 py-0.5 text-[11px] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors" title={m['issue.reopen_thread']()}>
+											<Button variant="outline" size="sm" onclick={() => handleReopen(comment.id)} class="flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors" title={m['issue.reopen_thread']()}>
 												{m['issue.reopen_thread']()}
-											</button>
+											</Button>
 										{:else}
-											<button onclick={() => handleResolve(comment.id)} class="rounded p-1 text-[var(--color-text-tertiary)] hover:text-green-400 hover:bg-[var(--color-bg-hover)]" title={m['issue.resolve_thread']()}>
+											<Button variant="ghost" size="sm" onclick={() => handleResolve(comment.id)} class="rounded p-1 text-[var(--color-text-tertiary)] hover:text-green-400" title={m['issue.resolve_thread']()}>
 												<Check size={14} />
-											</button>
+											</Button>
 										{/if}
 									</div>
 								</div>
@@ -1204,14 +1210,14 @@
 											{/key}
 										</div>
 										<div class="flex shrink-0 items-center gap-1.5">
-											<button
+											<Button variant="default" size="sm"
 												onclick={() => handleReply(comment.id)}
 												disabled={!(replyContents[comment.id]?.trim()) || replyContents[comment.id] === '<p></p>'}
-												class="rounded-full bg-[var(--app-accent)] p-1.5 text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)] disabled:opacity-30 transition-colors"
+												class="rounded-full p-1.5 disabled:opacity-30 transition-colors"
 												title={m['issue.send']()}
 											>
 												<ArrowUp size={12} />
-											</button>
+											</Button>
 										</div>
 									</div>
 								</div>
@@ -1252,14 +1258,14 @@
 							{/key}
 						</div>
 						<div class="flex shrink-0 items-center gap-1.5">
-							<button
+							<Button variant="default" size="sm"
 								onclick={handleAddComment}
 								disabled={!newComment.trim() || newComment === '<p></p>'}
-								class="rounded-full bg-[var(--app-accent)] p-1.5 text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)] disabled:opacity-30 transition-colors"
+								class="rounded-full p-1.5 disabled:opacity-30 transition-colors"
 								title={m['issue.send']()}
 							>
 								<ArrowUp size={14} />
-							</button>
+							</Button>
 						</div>
 					</div>
 				</div>
@@ -1270,13 +1276,13 @@
 		<div class="w-full space-y-2 border-t border-[var(--app-border)] p-3 md:w-[300px] md:shrink-0 md:overflow-y-auto md:border-t-0">
 			<!-- Details card -->
 			<div class="rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
-				<button
+				<Button variant="ghost" size="sm"
 					onclick={() => detailsExpanded = !detailsExpanded}
 					class="flex w-full items-center gap-1.5 px-3 py-2.5 text-[11px] font-medium uppercase tracking-wider text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors"
 				>
 					<ChevronRight size={12} class="transition-transform {detailsExpanded ? 'rotate-90' : ''}" />
 						{m['issue.details']()}
-				</button>
+				</Button>
 				{#if detailsExpanded}
 					<div class="px-1.5 pb-2 space-y-0.5">
 						<!-- Status row -->
@@ -1289,11 +1295,11 @@
 								onchange={(id) => updateField('status_id', id)}
 								shortcutKey="S"
 							>
-								{#snippet trigger()}
-									<button class="flex items-center gap-1.5 text-sm text-[var(--color-text-primary)]">
+								{#snippet trigger(props)}
+									<Button {...props} variant="ghost" size="sm" class="flex items-center gap-1.5 text-sm text-[var(--color-text-primary)]">
 										<IssueStatusIcon status={issue.status} category={issue.status_info?.category} color={issue.status_info?.color} size={14} />
 										{issue.status_info?.name ?? issue.status}
-									</button>
+									</Button>
 								{/snippet}
 							</StatusSelector>
 						</div>
@@ -1307,11 +1313,11 @@
 								onchange={(p) => updateField('priority', p)}
 								shortcutKey="P"
 							>
-								{#snippet trigger()}
-									<button class="flex items-center gap-1.5 text-sm text-[var(--color-text-primary)]">
+								{#snippet trigger(props)}
+									<Button {...props} variant="ghost" size="sm" class="flex items-center gap-1.5 text-sm text-[var(--color-text-primary)]">
 										<IssuePriorityIcon priority={issue.priority} size={14} />
 										{getPriorityLabel(issue.priority)}
-									</button>
+									</Button>
 								{/snippet}
 							</PrioritySelector>
 						</div>
@@ -1336,8 +1342,8 @@
 										} catch { appToast.error(m['issue.toast.failed_assignees']()); }
 									}}
 								>
-									{#snippet trigger()}
-										<button class="flex min-h-5 flex-wrap items-center gap-1 rounded-md text-left transition-colors">
+									{#snippet trigger(props)}
+										<Button {...props} variant="ghost" size="sm" class="h-auto justify-start whitespace-normal flex min-h-5 flex-wrap items-center gap-1 rounded-md text-left transition-colors">
 											{#if issue.assignees && issue.assignees.length > 0}
 												{#each issue.assignees as a}
 													<span class="flex items-center gap-1.5 rounded-full bg-[var(--color-bg-tertiary)] px-2 py-0.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]">
@@ -1360,7 +1366,7 @@
 											{:else}
 												<span class="text-sm text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]">{m['issue.assignee']()}</span>
 											{/if}
-										</button>
+										</Button>
 									{/snippet}
 								</AssigneeSelector>
 							</div>
@@ -1384,22 +1390,22 @@
 
 			<!-- Labels card -->
 			<div class="rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
-				<button
+				<Button variant="ghost" size="sm"
 					onclick={() => labelsExpanded = !labelsExpanded}
 					class="flex w-full items-center gap-1.5 px-3 py-2.5 text-[11px] font-medium uppercase tracking-wider text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors"
 				>
 					<ChevronRight size={12} class="transition-transform {labelsExpanded ? 'rotate-90' : ''}" />
 						{m['issue.labels']()}
-				</button>
+				</Button>
 				{#if labelsExpanded}
 					<div class="px-3 pb-3">
 						<div class="flex flex-wrap items-center gap-1">
 							{#if issue.labels && issue.labels.length > 0}
 								{#each issue.labels as lbl}
-									<button onclick={() => labelsOpen = true} class="flex items-center gap-1.5 rounded-full bg-[var(--color-bg-tertiary)] px-2.5 py-1 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors cursor-pointer">
+									<Button variant="ghost" size="sm" onclick={() => labelsOpen = true} class="flex items-center gap-1.5 rounded-full bg-[var(--color-bg-tertiary)] px-2.5 py-1 text-sm text-[var(--color-text-primary)] transition-colors cursor-pointer">
 										<span class="h-2.5 w-2.5 rounded-full shrink-0" style="background-color: {lbl.color}"></span>
 										{lbl.name}
-									</button>
+									</Button>
 								{/each}
 							{/if}
 							<LabelSelector
@@ -1420,16 +1426,16 @@
 									} catch { appToast.error(m['issue.toast.failed_labels']()); }
 								}}
 							>
-								{#snippet trigger()}
+								{#snippet trigger(props)}
 									{#if issue.labels && issue.labels.length > 0}
-										<button class="flex h-6 w-6 items-center justify-center rounded-full hover:bg-[var(--color-bg-hover)] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors">
+										<Button {...props} aria-label={m['issue.add_label']()} variant="ghost" size="icon-sm" class="flex h-6 w-6 items-center justify-center rounded-full text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors">
 											<Plus size={14} />
-										</button>
+										</Button>
 									{:else}
-										<button class="flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)] transition-colors">
+										<Button {...props} variant="ghost" size="sm" class="flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors">
 											<Plus size={12} />
 											{m['issue.add_label']()}
-										</button>
+										</Button>
 									{/if}
 								{/snippet}
 							</LabelSelector>
@@ -1440,13 +1446,13 @@
 
 			<!-- Project card -->
 			<div class="rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
-				<button
+				<Button variant="ghost" size="sm"
 					onclick={() => projectExpanded = !projectExpanded}
 					class="flex w-full items-center gap-1.5 px-3 py-2.5 text-[11px] font-medium uppercase tracking-wider text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors"
 				>
 					<ChevronRight size={12} class="transition-transform {projectExpanded ? 'rotate-90' : ''}" />
 						{m['issue.project']()}
-				</button>
+				</Button>
 				{#if projectExpanded}
 					<div class="px-3 pb-3">
 						<ProjectSelector
@@ -1455,17 +1461,17 @@
 							value={issue.project_id}
 							onchange={(id) => { updateField('project_id', id ?? ''); if (!id && issue.cycle_id) updateField('cycle_id', ''); }}
 						>
-							{#snippet trigger()}
+							{#snippet trigger(props)}
 								{#if issueProject}
-									<button class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors w-full text-left">
+									<Button {...props} variant="ghost" size="sm" class="h-auto justify-start whitespace-normal flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] transition-colors w-full text-left">
 										<FolderKanban size={14} class="text-[var(--color-text-tertiary)] shrink-0" />
 										<span class="truncate">{issueProject.name}</span>
-									</button>
+									</Button>
 								{:else}
-									<button class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] transition-colors">
+									<Button {...props} variant="ghost" size="sm" class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-tertiary)] transition-colors">
 										<FolderKanban size={14} />
 										{m['issue.add_project']()}
-									</button>
+									</Button>
 								{/if}
 							{/snippet}
 						</ProjectSelector>
@@ -1486,11 +1492,11 @@
 									value={issue.cycle_id}
 									onchange={(id) => updateField('cycle_id', id ?? '')}
 								>
-									{#snippet trigger()}
-										<button class="flex items-center gap-2 rounded-md px-2 py-1 text-xs hover:bg-[var(--color-bg-hover)] transition-colors {issueCycle ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-tertiary)]'}">
+									{#snippet trigger(props)}
+										<Button {...props} variant="ghost" size="sm" class="flex items-center gap-2 rounded-md px-2 py-1 text-xs hover:bg-[var(--color-bg-hover)] transition-colors {issueCycle ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-tertiary)]'}">
 											<RefreshCw size={12} class="shrink-0 text-[var(--color-text-tertiary)]" />
 											{issueCycle ? issueCycle.name : m['issue.no_cycle']()}
-										</button>
+										</Button>
 									{/snippet}
 								</CycleSelector>
 							</div>

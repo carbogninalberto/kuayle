@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Input } from '$lib/components/ui/input/index.js';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
@@ -25,7 +26,7 @@
 	import * as Tooltip from '$lib/components/ui/tooltip';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import { appToast } from '$lib/features/toast/toast';
-	import { ArrowLeft, Pencil, Trash2, MoreHorizontal, Check, X, Share2 } from 'lucide-svelte';
+	import { ArrowLeft, Pencil, Trash2, MoreHorizontal, Check, X, Share2 } from '@lucide/svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
 	import FilterBuilder from '$lib/components/shared/FilterBuilder.svelte';
@@ -178,35 +179,35 @@
 		<div class="flex h-[49px] items-center justify-between border-b border-[var(--app-border)] px-6">
 			<div class="flex items-center gap-3">
 				<SidebarToggle />
-				<button
+				<Button variant="ghost" size="sm"
 					onclick={() => history.back()}
 					class="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
 				>
 					<ArrowLeft size={16} />
-				</button>
+				</Button>
 				{#if editingName}
 					<div class="flex items-center gap-1">
-						<input
+						<Input
 							type="text"
 							bind:value={editNameValue}
 							onkeydown={handleEditNameKeydown}
-							class="rounded border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-2 py-0.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
+							class="py-0.5"
 						/>
-						<Button variant="ghost" size="icon-sm" onclick={saveName}>
+						<Button aria-label={m['common.save']()} variant="ghost" size="icon-sm" onclick={saveName}>
 							<Check size={14} />
 						</Button>
-						<Button variant="ghost" size="icon-sm" onclick={cancelEditName}>
+						<Button aria-label={m['common.close']()} variant="ghost" size="icon-sm" onclick={cancelEditName}>
 							<X size={14} />
 						</Button>
 					</div>
 				{:else}
 					<h1 class="text-sm font-medium text-[var(--color-text-primary)]">{view.name}</h1>
-					<button
+					<Button variant="ghost" size="sm"
 						onclick={startEditName}
 						class="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
 					>
 						<Pencil size={12} />
-					</button>
+					</Button>
 				{/if}
 				{#if view.is_shared}
 					<span
@@ -237,31 +238,33 @@
 				{/if}
 				<Popover.Root bind:open={actionsOpen}>
 					<Popover.Trigger>
-						<Button variant="ghost" size="icon-sm">
-							<MoreHorizontal size={14} />
-						</Button>
+						{#snippet child({ props })}
+							<Button {...props} variant="ghost" size="icon-sm">
+								<MoreHorizontal size={14} />
+							</Button>
+						{/snippet}
 					</Popover.Trigger>
 					<Popover.Content class="w-40 p-1" align="end">
-						<button
+						<Button variant="ghost" size="sm"
 							onclick={() => {
 								actionsOpen = false;
 								showShareLink = true;
 							}}
-							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)]"
 						>
 							<Share2 size={14} />
 							{m['views.share_link']()}
-						</button>
-						<button
+						</Button>
+						<Button variant="destructive" size="sm"
 							onclick={() => {
 								actionsOpen = false;
 								deleteOpen = true;
 							}}
-							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-error)] hover:bg-[var(--color-bg-hover)]"
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-error)]"
 						>
 							<Trash2 size={14} />
 							{m['views.delete_view']()}
-						</button>
+						</Button>
 					</Popover.Content>
 				</Popover.Root>
 			</div>

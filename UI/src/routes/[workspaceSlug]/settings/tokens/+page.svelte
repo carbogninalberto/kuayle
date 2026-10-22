@@ -35,7 +35,7 @@
 	import { getLocale } from '$lib/paraglide/runtime.js';
 	import { expiresAt, localDateString, type ExpiryChoice } from '$lib/features/tokens/expiry';
 	import { formatDate, formatRelativeTime } from '$lib/utils/format';
-	import { Plus, Trash2, KeyRound, Copy, ChevronDown, TriangleAlert } from 'lucide-svelte';
+	import { Plus, Trash2, KeyRound, Copy, ChevronDown, TriangleAlert } from '@lucide/svelte';
 
 	const tokenMessages: Record<string, () => string> = {
 		preset_read_only: m['settings.tokens.preset_read_only'],
@@ -247,14 +247,14 @@
 <div class="mx-auto max-w-2xl px-4 py-10 sm:px-8">
 	<div class="flex items-center justify-between">
 		<h1 class="text-2xl font-semibold text-[var(--color-text-primary)]">{m['settings.tokens.title']()}</h1>
-		<button
+		<Button variant="default" size="sm"
 			onclick={openCreate}
 			disabled={loading || loadFailed || creating}
-			class="flex items-center gap-1 rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)]"
+			class="flex items-center gap-1 rounded-md px-3 py-1.5 text-sm"
 		>
 			<Plus size={14} />
 			{m['settings.tokens.new']()}
-		</button>
+		</Button>
 	</div>
 	<p class="mt-1 text-sm text-[var(--color-text-secondary)]">{m['settings.tokens.desc']()}</p>
 
@@ -355,7 +355,7 @@
 						placeholder={m['settings.tokens.name_placeholder']()}
 						required
 						maxlength={100}
-						class="border-[var(--app-border)] bg-[var(--color-bg)] text-[var(--color-text-primary)]"
+						class=""
 					/>
 				</div>
 
@@ -436,9 +436,9 @@
 							</div>
 						{/each}
 						<div class="border-t border-[var(--app-border)]">
-							<button
+							<Button variant="ghost" size="sm"
 								type="button"
-								class="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left hover:bg-[var(--color-bg-hover)]"
+								class="h-auto justify-start whitespace-normal flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left"
 								onclick={() => (showAdvanced = !showAdvanced)}
 							>
 								<ChevronDown
@@ -448,7 +448,7 @@
 										: '-rotate-90'}"
 								/>
 								<span class="text-xs text-[var(--color-text-secondary)]">{m['settings.tokens.advanced']()}</span>
-							</button>
+							</Button>
 							{#if showAdvanced}
 								{#each advancedRows as row (row.key)}
 									{@const level = levelForScopes(row, selectedScopes)}
@@ -543,7 +543,7 @@
 							bind:value={customDate}
 							min={todayStr}
 							required
-							class="border-[var(--app-border)] bg-[var(--color-bg)] text-[var(--color-text-primary)]"
+							class=""
 						/>
 						{#if customDate !== '' && !customDateValid}
 							<p class="text-xs text-[var(--color-error)]">{m['settings.tokens.expiry_invalid']()}</p>

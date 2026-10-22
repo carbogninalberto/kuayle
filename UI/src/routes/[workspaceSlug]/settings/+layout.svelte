@@ -19,7 +19,7 @@
 		Menu,
 		RefreshCw,
 		KeyRound
-	} from 'lucide-svelte';
+	} from '@lucide/svelte';
 	import { GithubLogoIcon } from 'phosphor-svelte';
 	import type { Snippet } from 'svelte';
 	import type { Team } from '$lib/types/team';
@@ -167,9 +167,9 @@
 			<div class="mt-4">
 				{#each teams as team}
 					{@const expanded = expandedTeams.has(team.id)}
-					<button
+					<Button variant="ghost" size="sm"
 						type="button"
-						class="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-left text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+						class="h-auto justify-start whitespace-normal flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-left text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
 						onclick={() => toggleTeam(team.id)}
 					>
 						<ChevronDown
@@ -178,7 +178,7 @@
 						/>
 						<TeamIcon {team} />
 						<span class="truncate">{team.name}</span>
-					</button>
+					</Button>
 					{#if expanded}
 						<div transition:slideFade>
 							<a

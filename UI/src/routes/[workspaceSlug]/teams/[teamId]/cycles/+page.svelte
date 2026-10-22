@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Button } from '$lib/components/ui/button/index.js';
 	import ScopeDeleteDialog from '$lib/features/issues/ScopeDeleteDialog.svelte';
 	import { getWorkspace } from '$lib/api/workspaces';
 	import { hasPermission } from '$lib/security/permissions';
@@ -24,7 +25,7 @@
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
-	import { Plus, SquareUser, RefreshCcwDot, ChevronRight, Clock } from 'lucide-svelte';
+	import { Plus, SquareUser, RefreshCcwDot, ChevronRight, Clock } from '@lucide/svelte';
 	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
 	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
 	import { cubicOut } from 'svelte/easing';
@@ -303,13 +304,13 @@
 			</nav>
 		</div>
 		{#if canManage}
-			<button
+			<Button variant="ghost" size="sm"
 				onclick={() => (showCreate = true)}
-				class="shrink-0 rounded-md p-1 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+				class="shrink-0 rounded-md p-1 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
 				title={m['cycles.new_cycle']()}
 			>
 				<Plus size={16} />
-			</button>
+			</Button>
 		{/if}
 	</div>
 
@@ -437,13 +438,13 @@
 							<div class="absolute top-0 bottom-0 right-[3.25px] bg-[var(--app-border)]" style="width: 1.5px;"></div>
 						</div>
 						<div class="min-w-0 flex-1 py-1">
-							<button
+							<Button variant="ghost" size="sm"
 								onclick={() => (archivedExpanded = !archivedExpanded)}
-								class="flex items-center gap-2 rounded-md px-3 py-2 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]"
+								class="flex items-center gap-2 rounded-md px-3 py-2 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
 							>
 								<Clock size={12} />
 								{m['cycles.older_cycles']({ count: archivedCycles.length })}
-							</button>
+							</Button>
 
 							{#if archivedExpanded}
 								<div transition:slideFade>
@@ -492,13 +493,13 @@
 			<!-- Velocity chart -->
 			{#if velocityData.length > 0}
 				<div class="mt-4 px-3 pb-4 sm:px-6">
-					<button
+					<Button variant="ghost" size="sm"
 						onclick={() => (velocityExpanded = !velocityExpanded)}
 						class="flex items-center gap-2 text-xs font-medium text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
 					>
 						<ChevronRight size={12} class="transition-transform {velocityExpanded ? 'rotate-90' : ''}" />
 						{m['cycles.velocity']({ count: velocityData.length })}
-					</button>
+					</Button>
 					{#if velocityExpanded}
 						<div
 							class="mt-2 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-3"

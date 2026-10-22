@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { Button } from '$lib/components/ui/button/index.js';
+	import { Input } from '$lib/components/ui/input/index.js';
 	import type { Issue, RelationType, IssuePriority } from '$lib/types/issue';
 	import { getPriorityLabel } from '$lib/types/issue';
 	import { teamStatusesState } from './team-statuses.state.svelte';
@@ -17,7 +19,7 @@
 	import { issuesState } from './issues.state.svelte';
 	import { formatDate, formatIssueListDate, formatIssueListRelativeTime } from '$lib/utils/format';
 	import { IsMobile } from '$lib/hooks/is-mobile.svelte';
-	import { Ban, CalendarDays, CircleUser, Copy, Link, OctagonAlert, RefreshCw } from 'lucide-svelte';
+	import { Ban, CalendarDays, CircleUser, Copy, Link, OctagonAlert, RefreshCw } from '@lucide/svelte';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
@@ -198,19 +200,9 @@
 	{onchanged}
 	onaddrelation={(type) => onaddrelation?.(issue, type)}
 >
-	<svelte:element
-		this={accessibleRow ? 'div' : 'button'}
-		role={accessibleRow ? 'button' : undefined}
-		tabindex={accessibleRow ? 0 : undefined}
-		onfocus={() => {
-			if (accessibleRow) onlastselected?.(issue.id);
-		}}
-		onkeydown={(e: KeyboardEvent) => {
-			if (accessibleRow && e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
-				e.preventDefault();
-				onclick(issue);
-			}
-		}}
+	<!-- A row groups independent controls; the title Button supplies keyboard activation. -->
+	<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
+	<div role="group" aria-label={issue.identifier}
 		class="group flex min-h-12 w-full items-center gap-2 rounded-none border-b border-[var(--app-border)] px-3 py-2 text-left transition-colors duration-100 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] sm:mx-2 sm:min-h-0 sm:w-[calc(100%-1rem)] sm:rounded-md sm:border-b-0 sm:py-1.5 {isSelected
 			? 'bg-black/[0.02] dark:bg-white/[0.02]'
 			: ''}"
@@ -224,20 +216,11 @@
 	>
 		{#if !singleSelect && !readOnly}
 			<!-- Checkbox hover zone -->
-			<span
-				class="-ml-1 flex h-8 shrink-0 items-center justify-center pr-1 transition-opacity duration-100 sm:-my-1.5 sm:-ml-3 sm:h-auto sm:self-stretch sm:pl-3 {isSelected
+			<div class="-ml-1 flex h-8 shrink-0 items-center justify-center pr-1 transition-opacity duration-100 sm:-my-1.5 sm:-ml-3 sm:h-auto sm:self-stretch sm:pl-3 {isSelected
 					? 'opacity-100'
-					: 'opacity-100 sm:opacity-0 sm:hover:opacity-100'}"
-				onclick={handleCheckboxChange}
-				onkeydown={(e) => {
-					if (e.key === 'Enter' || e.key === ' ') handleCheckboxChange(e);
-				}}
-				role="checkbox"
-				aria-checked={isSelected}
-				tabindex={0}
-			>
-				<Checkbox checked={isSelected} />
-			</span>
+					: 'opacity-100 sm:opacity-0 sm:hover:opacity-100 sm:focus-within:opacity-100'}">
+				<Checkbox checked={isSelected} onclick={handleCheckboxChange} aria-label={issue.identifier} />
+			</div>
 		{/if}
 
 		<!-- Priority -->
@@ -253,7 +236,7 @@
 				</Popover.Trigger>
 				<Popover.Content class="w-40 p-1" align="start">
 					{#each priorityValues as value}
-						<button
+						<Button variant="ghost" size="sm"
 							onclick={() => {
 								updateField('priority', value);
 								priorityOpen = false;
@@ -265,7 +248,7 @@
 						>
 							<IssuePriorityIcon priority={value} size={14} />
 							{getPriorityLabel(value)}
-						</button>
+						</Button>
 					{/each}
 				</Popover.Content>
 			</Popover.Root>
@@ -294,7 +277,7 @@
 				</Popover.Trigger>
 				<Popover.Content class="w-44 p-1" align="start">
 					{#each teamStatusesState.statusOrder.filter((status) => !restrictToTeam || status.team_id === issue.team_id) as ts}
-						<button
+						<Button variant="ghost" size="sm"
 							onclick={() => {
 								updateField('status_id', ts.id);
 								statusOpen = false;
@@ -306,7 +289,7 @@
 						>
 							<IssueStatusIcon category={ts.category} color={ts.color} size={14} />
 							{ts.name}
-						</button>
+						</Button>
 					{/each}
 				</Popover.Content>
 			</Popover.Root>
@@ -315,7 +298,7 @@
 		<!-- Title -->
 		<div class="min-w-0 flex-1">
 			{#if editingTitle}
-				<input
+				<Input
 					type="text"
 					bind:value={titleValue}
 					onblur={saveTitle}
@@ -326,16 +309,15 @@
 						}
 					}}
 					onclick={(e) => e.stopPropagation()}
-					class="w-full truncate text-[13px] text-[var(--color-text-primary)] bg-transparent outline-none border-b border-[var(--app-accent)]"
+					class="w-full truncate text-[13px] bg-transparent border-b border-[var(--app-accent)]"
 				/>
 			{:else}
 				<div class="flex min-w-0 flex-1 items-center gap-1">
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
-					<span
-						role="textbox"
-						tabindex={0}
-						class="min-w-0 shrink truncate text-sm leading-5 text-[var(--color-text-primary)] sm:text-[13px] sm:leading-normal"
-						ondblclick={startEditing}>{issue.title}</span
+					<Button variant="ghost" size="sm"
+						class="h-auto justify-start whitespace-normal h-auto min-w-0 shrink justify-start truncate p-0 text-left text-sm leading-5 sm:text-[13px] sm:leading-normal"
+						onfocus={() => { if (accessibleRow) onlastselected?.(issue.id); }}
+						ondblclick={startEditing}>{issue.title}</Button
 					>
 
 					<SubIssueCounterTag {issue} {slug} {members} onclickissue={onclick} compact />
@@ -478,18 +460,18 @@
 					{/if}
 				</Popover.Trigger>
 				<Popover.Content class="w-48 p-1" align="end">
-					<button
+					<Button variant="ghost" size="sm"
 						onclick={() => {
 							updateField('assignee_ids', []);
 							assigneeOpen = false;
 						}}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--color-text-primary)]"
 					>
 						{m['common.clear_all']()}
-					</button>
+					</Button>
 					{#each members as member}
 						{@const isAssigned = (issue.assignees ?? []).some((a) => a.id === member.user_id)}
-						<button
+						<Button variant="ghost" size="sm"
 							onclick={() => {
 								const currentIds = (issue.assignees ?? []).map((a) => a.id);
 								const newIds = isAssigned
@@ -509,7 +491,7 @@
 								{isAssigned ? '✓' : (member.name || member.email || 'U').charAt(0).toUpperCase()}
 							</div>
 							{member.name || member.email}
-						</button>
+						</Button>
 					{/each}
 				</Popover.Content>
 			</Popover.Root>
@@ -523,5 +505,5 @@
 				aria-label={createdAtTooltip}>{createdAtText}</span
 			>
 		{/if}
-	</svelte:element>
+	</div>
 </IssueContextMenu>

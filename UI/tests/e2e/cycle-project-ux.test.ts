@@ -330,3 +330,28 @@ test('existing single-select parent picker still applies one selection immediate
 	});
 	expect(state.errors).toEqual([]);
 });
+
+for (const theme of ['light', 'dark', 'cyber-77']) {
+ test(`calendar and selector triggers preserve keyboard focus in ${theme}`, async ({ page }, testInfo) => {
+  await page.addInitScript((theme) => {
+   localStorage.setItem('kuayle-preferences', JSON.stringify({ themeMode: theme === 'light' ? 'light' : 'dark', lightTheme: 'light', darkTheme: theme === 'cyber-77' ? theme : 'dark', localDirty: true }));
+  }, theme);
+  const state = await mockWorkspace(page);
+  await page.goto(`/test/projects/${projectId}`);
+  const trigger = page.getByRole('button', { name: 'Set start', exact: true });
+  await trigger.focus();
+  await trigger.press('Enter');
+  await expect(page.getByRole('grid').first()).toBeVisible();
+  await expect(page.locator('button button')).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath(`calendar-${theme}.png`) });
+  await page.keyboard.press('Escape');
+  await expect(trigger).toBeFocused();
+  await page.getByTestId('scoped-issues').locator('button', { hasText: 'New issue' }).click();
+  const dialog = page.getByRole('dialog', { name: 'New issue', exact: true });
+  await expect(dialog).toBeVisible();
+  await expect(page.locator('button button')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(dialog).not.toBeVisible();
+  expect(state.errors).toEqual([]);
+ });
+}

@@ -1,8 +1,9 @@
 <script lang="ts">
+	import { Button } from '$lib/components/ui/button/index.js';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { flip } from 'svelte/animate';
-	import { Monitor, Sun, Moon, ArrowUp, ArrowDown, GripVertical } from 'lucide-svelte';
+	import { Monitor, Sun, Moon, ArrowUp, ArrowDown, GripVertical } from '@lucide/svelte';
 	import * as Select from '$lib/components/ui/select';
 	import { Switch } from '$lib/components/ui/switch';
 	import { Checkbox } from '$lib/components/ui/checkbox';
@@ -413,22 +414,22 @@
 								<span class="text-sm text-[var(--color-text-primary)] transition-colors group-hover:text-[var(--color-text-primary)]">{getCategoryLabel(category)}</span>
 							</div>
 							<div class="flex items-center gap-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
-								<button
+								<Button variant="ghost" size="sm"
 									onclick={() => moveWorkflowCategory(category, -1)}
 									disabled={index === 0}
-									class="rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-30"
+									class="rounded p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] disabled:opacity-30"
 									aria-label={m['prefs.move_up']({ name: getCategoryLabel(category) })}
 								>
 									<ArrowUp size={13} />
-								</button>
-								<button
+								</Button>
+								<Button variant="ghost" size="sm"
 									onclick={() => moveWorkflowCategory(category, 1)}
 									disabled={index === preferencesState.workflowSortOrder.length - 1}
-									class="rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-30"
+									class="rounded p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] disabled:opacity-30"
 									aria-label={m['prefs.move_down']({ name: getCategoryLabel(category) })}
 								>
 									<ArrowDown size={13} />
-								</button>
+								</Button>
 							</div>
 						</div>
 					{/each}
@@ -446,14 +447,14 @@
 				<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['prefs.default_prefill']()}</p>
 				<p class="text-xs text-[var(--color-text-tertiary)]">{m['prefs.default_prefill_desc']()}</p>
 			</div>
-			<button
+			<Button variant="outline" size="sm"
 				type="button"
 				disabled={issueDefaultsLoading || Object.keys(issueDefaults).length === 0}
 				onclick={clearDefaults}
-				class="rounded-md border border-[var(--app-border)] px-2 py-1 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)] disabled:opacity-40"
+				class="rounded-md border px-2 py-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] disabled:opacity-40"
 			>
 				{m['prefs.clear_defaults']()}
-			</button>
+			</Button>
 		</div>
 
 		<div class="border-t border-[var(--app-border)]"></div>
@@ -544,14 +545,14 @@
 				<p class="mb-2 text-xs text-[var(--color-text-tertiary)]">{m['prefs.assignees']()}</p>
 				<div class="max-h-44 space-y-1 overflow-y-auto rounded-md border border-[var(--app-border)] p-1">
 					{#each members as member (member.user_id)}
-						<button
+						<Button variant="ghost" size="sm"
 							type="button"
 							onclick={() => toggleDefaultAssignee(member.user_id)}
-							class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+							class="h-auto justify-start whitespace-normal flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-[var(--color-text-primary)]"
 						>
 							<Checkbox checked={issueDefaults.assigneeIds?.includes(member.user_id) ?? false} />
 							<span class="truncate">{member.name || member.email}</span>
-						</button>
+						</Button>
 					{/each}
 					{#if members.length === 0}
 						<p class="px-2 py-1.5 text-sm text-[var(--color-text-tertiary)]">{m['prefs.no_members']()}</p>
@@ -563,15 +564,15 @@
 				<p class="mb-2 text-xs text-[var(--color-text-tertiary)]">{m['prefs.labels']()}</p>
 				<div class="max-h-44 space-y-1 overflow-y-auto rounded-md border border-[var(--app-border)] p-1">
 					{#each labels as label (label.id)}
-						<button
+						<Button variant="ghost" size="sm"
 							type="button"
 							onclick={() => toggleDefaultLabel(label.id)}
-							class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+							class="h-auto justify-start whitespace-normal flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-[var(--color-text-primary)]"
 						>
 							<Checkbox checked={issueDefaults.labelIds?.includes(label.id) ?? false} />
 							<span class="h-2.5 w-2.5 rounded-full" style="background-color: {label.color}"></span>
 							<span class="truncate">{label.name}</span>
-						</button>
+						</Button>
 					{/each}
 					{#if labels.length === 0}
 						<p class="px-2 py-1.5 text-sm text-[var(--color-text-tertiary)]">{m['prefs.no_labels']()}</p>

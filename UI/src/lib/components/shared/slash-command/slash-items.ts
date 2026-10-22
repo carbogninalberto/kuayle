@@ -13,7 +13,7 @@ import {
 	GitBranch,
 	ChevronsDownUp,
 	Quote
-} from 'lucide-svelte';
+} from '@lucide/svelte';
 import { appToast } from '$lib/features/toast/toast';
 
 export interface SlashMenuItem {

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Button } from '$lib/components/ui/button/index.js';
 	import type { HTMLInputAttributes } from "svelte/elements";
 	import { cn, type WithElementRef } from "$lib/utils.js";
 	import { Input } from "$lib/components/ui/input";
@@ -36,11 +37,10 @@
 		{disabled}
 		{...restProps}
 	/>
-	<button
+	<Button variant="ghost" size="sm"
 		type="button"
 		class="absolute inset-y-0 right-0 grid w-8 place-items-center border-0 bg-transparent p-0 text-muted-foreground hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
 		onclick={togglePassword}
-		tabindex={-1}
 		aria-label={showPassword ? "Hide password" : "Show password"}
 		{disabled}
 	>
@@ -49,5 +49,5 @@
 		{:else}
 			<Eye class="size-4 translate-y-px" />
 		{/if}
-	</button>
+	</Button>
 </div>

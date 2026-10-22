@@ -21,7 +21,7 @@
 		cycles: Cycle[];
 		value: string | null | undefined;
 		onchange: (cycleId: string | null) => void;
-		trigger: Snippet;
+		trigger: Snippet<[Record<string, unknown>]>;
 		showNone?: boolean;
 		width?: string;
 		align?: 'start' | 'center' | 'end';

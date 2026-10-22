@@ -5,7 +5,7 @@
 	import { createLabel } from '$lib/api/labels';
 	import type { Label } from '$lib/types/label';
 	import type { Snippet } from 'svelte';
-	import { Plus } from 'lucide-svelte';
+	import { Plus } from '@lucide/svelte';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
@@ -26,7 +26,7 @@
 		labels: Label[];
 		value: string[];
 		onchange: (labelId: string) => void;
-		trigger: Snippet;
+		trigger: Snippet<[Record<string, unknown>]>;
 		width?: string;
 		align?: 'start' | 'center' | 'end';
 		shortcutKey?: string;

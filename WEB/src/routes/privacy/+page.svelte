@@ -4,6 +4,7 @@
 	import Seo from '$lib/components/Seo.svelte';
 	import Breadcrumbs from '$lib/components/Breadcrumbs.svelte';
 	import { consent } from '$lib/cookieConsent.svelte';
+	import * as Dialog from '$lib/components/ui/dialog/index.js';
 	import { Button } from '$lib/components/ui/button';
 	import { contentModifiedAt, url } from '$lib/config/site';
 	import { breadcrumbsFrom, webPageLd } from '$lib/data/routes';
@@ -213,40 +214,18 @@
 	</article>
 </main>
 
-{#if resetOpen}
-	<div
-		class="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
-	>
-		<button
-			type="button"
-			class="absolute inset-0 cursor-default"
-			aria-label="Close reset confirmation"
-			onclick={() => (resetOpen = false)}
-		></button>
-		<div
-			class="relative w-full max-w-sm rounded-2xl border border-white/10 bg-card p-6 shadow-2xl"
-			role="dialog"
-			aria-modal="true"
-			aria-labelledby="reset-title"
-			tabindex="-1"
-		>
-			<h2 id="reset-title" class="text-lg font-semibold">Reset consent?</h2>
-			<p class="mt-2 text-sm text-muted-foreground">
-				This clears your saved choice. The cookie banner will be shown again on your next visit.
-			</p>
-			<div class="mt-6 flex items-center justify-end gap-2">
-				<Button variant="ghost" size="sm" onclick={() => (resetOpen = false)}>Cancel</Button>
-				<Button
-					size="sm"
-					class="bg-destructive/80 text-white hover:bg-destructive"
-					onclick={() => {
-						consent.reset();
-						resetOpen = false;
-					}}>Reset</Button
-				>
-			</div>
-		</div>
-	</div>
-{/if}
+
+<Dialog.Root bind:open={resetOpen}>
+	<Dialog.Content class="max-w-[calc(100vw-2rem)] sm:max-w-sm">
+		<Dialog.Header>
+			<Dialog.Title>Reset consent?</Dialog.Title>
+			<Dialog.Description>This clears your saved choice. The cookie banner will be shown again on your next visit.</Dialog.Description>
+		</Dialog.Header>
+		<Dialog.Footer>
+			<Button variant="ghost" size="sm" onclick={() => (resetOpen = false)}>Cancel</Button>
+			<Button variant="destructive" size="sm" onclick={() => { consent.reset(); resetOpen = false; }}>Reset</Button>
+		</Dialog.Footer>
+	</Dialog.Content>
+</Dialog.Root>
 
 <Footer />

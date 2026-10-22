@@ -68,7 +68,7 @@
 		</div>
 
 		<!-- Mobile hamburger toggle -->
-		<button
+		<Button variant="ghost" size="sm"
 			class="inline-flex items-center justify-center rounded-md p-2 text-muted-foreground transition-colors hover:text-foreground md:hidden"
 			aria-label={menuOpen ? 'Close menu' : 'Open menu'}
 			onclick={() => (menuOpen = !menuOpen)}
@@ -78,7 +78,7 @@
 			{:else}
 				<Menu class="size-5" />
 			{/if}
-		</button>
+		</Button>
 	</nav>
 
 	<!-- Mobile menu -->

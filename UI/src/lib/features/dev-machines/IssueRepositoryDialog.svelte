@@ -5,7 +5,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Label } from '$lib/components/ui/label';
 	import ComboboxPopover from '$lib/components/shared/ComboboxPopover.svelte';
-	import { ChevronsUpDown, GitBranch } from 'lucide-svelte';
+	import { ChevronsUpDown, GitBranch } from '@lucide/svelte';
 	import { getGitHubStatus } from '$lib/api/github';
 	import { deleteDevMachineScopeSetting, getDevMachineScopeSetting, listDevMachineEnvironments, updateDevMachineScopeSetting } from '$lib/api/dev-machines';
 	import type { GitHubRepo } from '$lib/types/github';
@@ -79,8 +79,8 @@
 			<div class="space-y-1.5">
 				<Label>{m['machines.repository']()}</Label>
 				<ComboboxPopover bind:open={repositoryOpen} placeholder={m['machines.search_repositories']()} emptyMessage={m['machines.no_repositories']()} width="w-[min(28rem,calc(100vw-2rem))]">
-					{#snippet trigger()}
-						<Button type="button" variant="outline" class="w-full justify-between gap-2 font-normal" disabled={loading} aria-label={m['machines.repository']()}>
+					{#snippet trigger(props)}
+						<Button {...props} type="button" variant="outline" class="w-full justify-between gap-2 font-normal" disabled={loading} aria-label={m['machines.repository']()}>
 							<span class="flex min-w-0 items-center gap-2"><GitBranch class="size-3.5 shrink-0 text-[var(--color-text-tertiary)]" /><span class="truncate">{selectedRepository?.full_name ?? m['machines.use_workspace_default']()}</span></span>
 							<ChevronsUpDown class="size-3.5 shrink-0 text-[var(--color-text-tertiary)]" />
 						</Button>

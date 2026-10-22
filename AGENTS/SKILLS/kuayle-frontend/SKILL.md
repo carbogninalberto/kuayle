@@ -26,6 +26,13 @@ description: Implement Kuayle application UI and reusable Svelte components usin
    sections, lists and content links remain semantic HTML. A primitive's own
    internal `<button>`/`<input>` implementation is expected.
 
+Use [SelectField](../../../UI/src/lib/components/shared/SelectField.svelte) for
+simple typed option lists. Forward trigger props through `child` snippets when
+composing Button with Popover/Select/Dialog; never nest buttons. Shared issue
+selectors accept a trigger snippet with those props. Run the
+[control audit](../../../UI/scripts/audit-controls.mjs) after a control migration;
+review [documented editor and terminal exceptions](../../../docs/kua-62-controls.md).
+
 ## Add a missing primitive
 
 - The application is already initialized: [UI/components.json](../../../UI/components.json)

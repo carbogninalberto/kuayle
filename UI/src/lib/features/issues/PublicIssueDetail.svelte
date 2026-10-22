@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Button } from '$lib/components/ui/button/index.js';
 	import type { PublicIssue } from '$lib/types/shared-link';
 	import type { IssuePriority } from '$lib/types/issue';
 	import { getPriorityLabel } from '$lib/types/issue';
@@ -6,7 +7,7 @@
 	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
 	import { formatRelativeTime } from '$lib/utils/format';
 	import { sanitizeHtml } from '$lib/security/sanitize';
-	import { X, CalendarDays, ChevronUp, ChevronDown } from 'lucide-svelte';
+	import { X, CalendarDays, ChevronUp, ChevronDown } from '@lucide/svelte';
 	import * as Tooltip from '$lib/components/ui/tooltip';
 	import { onMount, onDestroy } from 'svelte';
 	import { m } from '$lib/paraglide/messages.js';
@@ -75,13 +76,13 @@
 <!-- Overlay -->
 <div class="fixed inset-0 z-40 flex justify-end">
 	<!-- Backdrop -->
-	<button
+	<Button variant="ghost" size="sm"
 		class="flex-1 cursor-default"
 		style="background: transparent;"
 		onclick={close}
 		tabindex={-1}
 		aria-label="Close issue detail"
-	></button>
+	></Button>
 
 	<!-- Drawer -->
 	<div
@@ -94,29 +95,29 @@
 			<div class="flex items-center gap-1">
 				<span class="text-xs text-[var(--color-text-tertiary)] mr-1">{formatRelativeTime(issue.created_at, getLocale())}</span>
 				{#if issues.length > 1}
-					<button
+					<Button variant="ghost" size="sm"
 						onclick={goUp}
 						disabled={!hasPrev}
-						class="shrink-0 rounded-md p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors disabled:opacity-25 disabled:pointer-events-none"
+						class="shrink-0 rounded-md p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors disabled:opacity-25 disabled:pointer-events-none"
 						title="Previous issue"
 					>
 						<ChevronUp size={16} />
-					</button>
-					<button
+					</Button>
+					<Button variant="ghost" size="sm"
 						onclick={goDown}
 						disabled={!hasNext}
-						class="shrink-0 rounded-md p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors disabled:opacity-25 disabled:pointer-events-none"
+						class="shrink-0 rounded-md p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors disabled:opacity-25 disabled:pointer-events-none"
 						title="Next issue"
 					>
 						<ChevronDown size={16} />
-					</button>
+					</Button>
 				{/if}
-				<button
+				<Button aria-label={m['common.close']()} variant="ghost" size="sm"
 					onclick={close}
-					class="shrink-0 rounded-md p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
+					class="shrink-0 rounded-md p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
 				>
 					<X size={16} />
-				</button>
+				</Button>
 			</div>
 		</div>
 

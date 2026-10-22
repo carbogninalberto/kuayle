@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { Team } from '$lib/types/team';
 	import { getStableTeamColor } from '$lib/features/layout/sidebar.state.svelte';
-	import * as LucideIcons from 'lucide-svelte';
+	import * as LucideIcons from '@lucide/svelte';
 	import type { Component } from 'svelte';
 
 	const LEGACY_ICON_NAMES: Record<string, string> = {

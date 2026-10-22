@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { Button } from '$lib/components/ui/button/index.js';
+	import { Input } from '$lib/components/ui/input/index.js';
 	import { goto } from '$app/navigation';
 	import type { Team } from '$lib/types/team';
 	import type { Issue } from '$lib/types/issue';
@@ -6,7 +8,7 @@
 	import { Kbd } from '$lib/components/ui/kbd';
 	import IssueStatusIcon from '$lib/features/issues/IssueStatusIcon.svelte';
 	import IssuePriorityIcon from '$lib/features/issues/IssuePriorityIcon.svelte';
-	import { LoaderCircle } from 'lucide-svelte';
+	import { LoaderCircle } from '@lucide/svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
 	import { onMount } from 'svelte';
@@ -221,13 +223,13 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="fixed inset-0 z-50 flex items-start justify-center px-3 pt-[6vh]" onkeydown={handleKeydown}>
 	<!-- Backdrop -->
-	<button
+	<Button variant="ghost" size="sm"
 		class="fixed inset-0 cursor-default"
 		style="background: rgba(0,0,0,{visible ? 0.5 : 0}); transition: background {ANIM_DURATION}ms ease;"
 		onclick={close}
 		tabindex={-1}
 		aria-label={m['sidebar.cmd_close']()}
-	></button>
+	></Button>
 
 	<!-- Dialog -->
 	<div
@@ -239,12 +241,12 @@
 		<div class="grid md:grid-cols-[minmax(0,1fr)_15rem]">
 			<div class="min-w-0">
 				<!-- svelte-ignore a11y_autofocus -->
-				<input
+				<Input
 					type="text"
 					bind:value={search}
 					placeholder={m['sidebar.type_command']()}
 					autofocus
-					class="w-full border-b border-[var(--app-border)] bg-transparent px-4 py-4 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)]"
+					class="w-full border-b bg-transparent px-4 py-4"
 				/>
 				<div class="max-h-[68vh] min-h-[28rem] overflow-y-auto py-2">
 					{#if commands.length > 0}
@@ -252,8 +254,8 @@
 							<span class="text-[10px] font-medium uppercase text-[var(--color-text-tertiary)]">{m['sidebar.commands']()}</span>
 						</div>
 						{#each commands as cmd, i}
-							<button
-								class="flex w-full items-center gap-3 px-4 py-2 text-left text-sm {i === selectedIndex
+							<Button variant="ghost" size="sm"
+								class="h-auto justify-start whitespace-normal flex w-full items-center gap-3 px-4 py-2 text-left text-sm {i === selectedIndex
 									? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
 									: 'text-[var(--color-text-secondary)]'}"
 								onmouseenter={() => (selectedIndex = i)}
@@ -274,7 +276,7 @@
 										{/each}
 									</span>
 								{/if}
-							</button>
+							</Button>
 						{/each}
 					{/if}
 
@@ -290,8 +292,8 @@
 							{#each issueResults as issue, i}
 								{@const idx = commands.length + i}
 								{@const snippet = descriptionSnippet(issue.description, search)}
-								<button
-									class="flex w-full items-start gap-2 px-4 py-2 text-left text-sm {idx === selectedIndex
+								<Button variant="ghost" size="sm"
+									class="h-auto justify-start whitespace-normal flex w-full items-start gap-2 px-4 py-2 text-left text-sm {idx === selectedIndex
 										? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]'
 										: 'text-[var(--color-text-secondary)]'}"
 									onmouseenter={() => (selectedIndex = idx)}
@@ -322,7 +324,7 @@
 											</p>
 										{/if}
 									</div>
-								</button>
+								</Button>
 							{/each}
 						{:else}
 							<p class="px-4 py-2 text-sm text-[var(--color-text-tertiary)]">{m['sidebar.no_issues_found']()}</p>

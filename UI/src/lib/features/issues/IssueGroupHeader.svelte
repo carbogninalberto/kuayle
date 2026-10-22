@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Button } from '$lib/components/ui/button/index.js';
 	import { m } from '$lib/paraglide/messages.js';
 	import type { IssueStatus, IssuePriority } from '$lib/types/issue';
 	import { getPriorityLabel } from '$lib/types/issue';
@@ -8,7 +9,7 @@
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
 	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
 	import type { GroupByField } from './issues.state.svelte';
-	import { ChevronDown, ChevronRight, User, Plus } from 'lucide-svelte';
+	import { ChevronDown, ChevronRight, User, Plus } from '@lucide/svelte';
 
 	let {
 		groupKey,
@@ -59,20 +60,8 @@
 </script>
 
 <div class="sticky top-0 z-20 mx-2 mt-1 bg-[var(--color-bg)] first:mt-0">
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div
-		role="button"
-		tabindex={0}
-		aria-expanded={!collapsed}
-		class="flex w-full items-center gap-2 rounded-md bg-[var(--color-bg-secondary)] px-4 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] cursor-default"
-		onclick={ontoggle}
-		onkeydown={(e) => {
-			if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
-				e.preventDefault();
-				ontoggle?.();
-			}
-		}}
-	>
+	<div class="flex w-full items-center gap-2 rounded-md bg-[var(--color-bg-secondary)] px-4 py-1.5">
+		<Button variant="ghost" size="sm" class="h-auto min-w-0 flex-1 justify-start gap-2 p-0 text-xs" aria-expanded={!collapsed} onclick={ontoggle}>
 		{#if collapsed}
 			<ChevronRight size={12} class="text-[var(--color-text-tertiary)]" />
 		{:else}
@@ -98,8 +87,9 @@
 
 		<span>{label}</span>
 		<span class="text-[10px] font-normal text-[var(--color-text-tertiary)]">{count}</span>
+		</Button>
 		{#if onquickadd}
-			<button
+			<Button variant="ghost" size="sm"
 				aria-label={m['sidebar.new_issue']()}
 				onclick={(e) => {
 					e.stopPropagation();
@@ -108,7 +98,7 @@
 				class="ml-auto rounded p-0.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)] transition-colors"
 			>
 				<Plus size={14} />
-			</button>
+			</Button>
 		{/if}
 	</div>
 </div>

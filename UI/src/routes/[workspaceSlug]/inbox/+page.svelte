@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Button } from '$lib/components/ui/button/index.js';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
@@ -41,7 +42,7 @@
 		Eye,
 		Tag,
 		RefreshCw
-	} from 'lucide-svelte';
+	} from '@lucide/svelte';
 	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
 	import { IsMobile } from '$lib/hooks/is-mobile.svelte';
 
@@ -339,12 +340,12 @@
 			{/if}
 		</div>
 		{#if activeTab === 'inbox' && notifications.length > 0}
-			<button
+			<Button variant="ghost" size="sm"
 				onclick={handleMarkAllRead}
 				class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
 			>
 				{m['inbox.mark_all_read']()}
-			</button>
+			</Button>
 		{/if}
 	</div>
 
@@ -402,17 +403,10 @@
 						{@const Icon = style.icon}
 						<ContextMenu.Root>
 							<ContextMenu.Trigger>
-								<div
-									role="button"
-									tabindex="0"
-									class="flex min-h-16 w-full cursor-pointer items-start gap-2.5 px-3 py-3 text-left transition-colors {selectedId === notification.id ? 'bg-[var(--color-bg-hover)]' : ''} {notification.read_at ? 'opacity-60' : ''} hover:bg-[var(--color-bg-hover)] md:min-h-0 md:py-2.5"
+								{#snippet child({ props })}
+								<Button {...props} variant="ghost"
+									class="h-auto justify-start whitespace-normal flex min-h-16 w-full cursor-pointer items-start gap-2.5 px-3 py-3 text-left transition-colors {selectedId === notification.id ? 'bg-[var(--color-bg-hover)]' : ''} {notification.read_at ? 'opacity-60' : ''} hover:bg-[var(--color-bg-hover)] md:min-h-0 md:py-2.5"
 									onclick={() => selectNotification(notification)}
-									onkeydown={(e) => {
-										if (e.key === 'Enter' || e.key === ' ') {
-											e.preventDefault();
-											selectNotification(notification);
-										}
-									}}
 								>
 									<div
 										class="relative mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
@@ -438,7 +432,8 @@
 											</span>
 										</div>
 									</div>
-								</div>
+								</Button>
+								{/snippet}
 							</ContextMenu.Trigger>
 
 							<ContextMenu.Content class="w-48 p-1">
@@ -517,12 +512,12 @@
 
 {#if snoozeDateNotification}
 	<div class="fixed inset-0 z-50 flex items-start justify-center px-3 pt-[12vh]" role="dialog" aria-modal="true">
-		<button
+		<Button variant="ghost" size="sm"
 			class="fixed inset-0 cursor-default bg-black/50"
 			onclick={closeSnoozeDatePicker}
 			tabindex={-1}
 			aria-label={m['inbox.snooze_dialog.close_aria']()}
-		></button>
+		></Button>
 
 		<div class="relative z-10 w-full max-w-[31rem] overflow-hidden rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] shadow-2xl">
 			<div class="flex items-center justify-between gap-3 border-b border-[var(--app-border)] px-4 py-3">
@@ -530,13 +525,13 @@
 					<h2 class="text-sm font-medium text-[var(--color-text-primary)]">{m['inbox.snooze_dialog.title']()}</h2>
 					<p class="line-clamp-1 text-xs text-[var(--color-text-tertiary)]">{snoozeDateNotification.title}</p>
 				</div>
-				<button
+				<Button variant="ghost" size="sm"
 					onclick={closeSnoozeDatePicker}
-					class="inline-flex h-8 w-8 items-center justify-center rounded-md text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+					class="inline-flex h-8 w-8 items-center justify-center rounded-md text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
 					title={m['inbox.snooze_dialog.close']()}
 				>
 					X
-				</button>
+				</Button>
 			</div>
 
 			<DueDatePickerPanel
