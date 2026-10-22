@@ -24,7 +24,9 @@
 	// An empty-value option is the native select's prompt: show it as the placeholder.
 	const prompt = $derived(options.find((option) => String(option.value) === '')?.label);
 	const items = $derived(
-		options.filter((option) => String(option.value) !== '').map((option) => ({ ...option, value: String(option.value) }))
+		options
+			.filter((option) => String(option.value) !== '')
+			.map((option) => ({ ...option, value: String(option.value) }))
 	);
 </script>
 
