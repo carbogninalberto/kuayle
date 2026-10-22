@@ -8,7 +8,6 @@
 	import { reveal } from '$lib/actions/reveal';
 	import { HUBS, breadcrumbsFrom, metaForStandalone, webPageLd } from '$lib/data/routes';
 	import { url } from '$lib/config/site';
-	import { DEV_MACHINES_RELEASE_STATUS } from '$lib/config/releases';
 	import ArrowRight from '@lucide/svelte/icons/arrow-right';
 
 	const hub = HUBS.selfHosting;
@@ -32,7 +31,7 @@
 				<h1 class="text-4xl font-bold tracking-tight">Self-Hosting Kuayle</h1>
 				<p class="mt-4 text-lg leading-relaxed text-muted-foreground">
 					The reference Docker Compose stack runs Caddy, PostgreSQL 17, Redis 7, the Go API and the SvelteKit frontend.
-					These guides cover configuration, storage, updates, GitHub webhook delivery and the {DEV_MACHINES_RELEASE_STATUS.toLowerCase()}
+					These guides cover configuration, storage, updates, GitHub webhook delivery and the
 					opt-in Dev Machines subsystem—including the work that remains with the operator.
 				</p>
 			</div>

@@ -62,8 +62,8 @@
     >
       Run Kuayle on your own infrastructure. Plan multi-assignee issues in cycles
       and projects, keep private teams private and link GitHub pull requests to
-      issues, all from one Apache 2.0-licensed codebase. Unreleased opt-in Dev
-      Machines are documented separately from the public release.
+      issues, all from one Apache 2.0-licensed codebase. Opt-in Dev Machines add
+      self-hosted agentic coding environments.
     </p>
 
     <div

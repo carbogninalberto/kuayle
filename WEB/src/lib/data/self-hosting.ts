@@ -5,7 +5,6 @@
  * Content is aligned with the actual README and selfhosting/ configs.
  */
 import type { ContentRegistry } from './routes';
-import { DEV_MACHINES_RELEASE_STATUS } from '$lib/config/releases';
 
 export const selfHosting: ContentRegistry = {
 	'docker-compose': {
@@ -305,9 +304,9 @@ export const selfHosting: ContentRegistry = {
 		slug: 'dev-machines',
 		title: 'Dev Machines Setup — Self-Hosting Kuayle',
 		description:
-			'Prepare the unreleased opt-in Dev Machines subsystem: a separate wildcard domain, wildcard TLS, encrypted secrets, runtime images, and the gateway/manager control plane.',
+			'Enable the opt-in Dev Machines subsystem: a separate wildcard domain, wildcard TLS, encrypted secrets, runtime images, and the gateway/manager control plane.',
 		heading: 'Dev Machines Setup',
-		intro: `Dev Machines are ${DEV_MACHINES_RELEASE_STATUS.toLowerCase()} development-branch functionality and remain disabled in the default five-service deployment. Enabling them adds a machine gateway, a Docker manager and per-machine container runtimes. Read TECHNICAL.md in the repository before enabling the subsystem.`,
+		intro: `Dev Machines are an opt-in subsystem, included in releases since v0.1.13, and remain disabled in the default five-service deployment. Enabling them adds a machine gateway, a Docker manager and per-machine container runtimes. Read TECHNICAL.md in the repository before enabling the subsystem.`,
 		sections: [
 			{
 				heading: 'Prerequisites',

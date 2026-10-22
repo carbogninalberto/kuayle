@@ -62,7 +62,7 @@
 						How Dev Machines work <ArrowRight class="size-3.5" />
 					</a>
 					<span class="text-xs text-muted-foreground">
-						{DEV_MACHINES_RELEASE_STATUS} · opt-in subsystem · disabled by default ·
+						Opt-in subsystem · disabled by default ·
 						<a href="/self-hosting/dev-machines" class="underline underline-offset-4 hover:text-foreground"
 							>setup guide</a
 						>

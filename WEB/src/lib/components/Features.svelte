@@ -50,7 +50,7 @@
 			icon: SquareTerminal,
 			title: 'Dev Machines',
 			description:
-				'Unreleased opt-in multi-container coding environments: code-server, a native terminal, an in-browser Chrome and agent providers working issue worktrees — all behind an authenticated gateway.',
+				'Opt-in multi-container coding environments: code-server, a native terminal, an in-browser Chrome and agent providers working issue worktrees — all behind an authenticated gateway.',
 			href: '/features/dev-machines',
 			span: 'lg:col-span-3',
 			tags: [DEV_MACHINES_RELEASE_STATUS, 'Claude Code', 'OpenCode', 'Codex', 'Custom CLIs']
@@ -137,8 +137,7 @@
 			<h2 class="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">Implemented in Kuayle today</h2>
 			<p class="mt-4 text-lg text-muted-foreground">
 				The current {release.version} release covers issue tracking, cycles and projects, private teams, GitHub automation
-				and analytics. Dev Machines are {DEV_MACHINES_RELEASE_STATUS.toLowerCase()}
-				development-branch functionality. The source for each feature is available in the public repository.
+				and analytics, plus opt-in Dev Machines for agentic coding. The source for each feature is available in the public repository.
 			</p>
 		</div>
 

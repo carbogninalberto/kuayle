@@ -3,7 +3,6 @@
  * Each entry maps to /features/[slug].
  */
 import type { ContentRegistry } from './routes';
-import { DEV_MACHINES_RELEASE_STATUS } from '$lib/config/releases';
 
 export const features: ContentRegistry = {
 	'issue-tracking': {
@@ -461,9 +460,9 @@ export const features: ContentRegistry = {
 		slug: 'dev-machines',
 		title: 'Dev Machines — Kuayle',
 		description:
-			'Unreleased opt-in multi-container development environments with code-server, a native terminal, agent providers, an in-browser Chrome, and issue worktrees.',
+			'Opt-in multi-container development environments with code-server, a native terminal, agent providers, an in-browser Chrome, and issue worktrees.',
 		heading: 'Dev Machines',
-		intro: `Dev Machines are an ${DEV_MACHINES_RELEASE_STATUS.toLowerCase()} opt-in self-hosted subsystem on the development branch. Every machine has collector and egress services on an isolated network; it may include a shared developer/terminal container and browser, while agent containers are created on demand. Access is routed through an authenticated gateway. The subsystem is disabled by default.`,
+		intro: `Dev Machines are an opt-in self-hosted subsystem, included in releases since v0.1.13. Every machine has collector and egress services on an isolated network; it may include a shared developer/terminal container and browser, while agent containers are created on demand. Access is routed through an authenticated gateway. The subsystem is disabled by default.`,
 		sections: [
 			{
 				heading: 'A full environment per machine',

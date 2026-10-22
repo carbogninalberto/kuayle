@@ -43,7 +43,7 @@ export const compare: ContentRegistry = {
 				body: 'Check required integrations before choosing either product.',
 				list: [
 					'Linear: documents integrations for GitHub, GitLab, Slack, its API, and enterprise identity features.',
-					'Kuayle integrates with GitHub (activity linking, status automation and pull-request issue-link comments), generic webhooks and a personal-access-token API. Its development branch includes an unreleased opt-in Dev Machines subsystem for agentic coding runs. It does not currently provide GitLab, Slack, SSO, SCIM or LDAP integrations.'
+					'Kuayle integrates with GitHub (activity linking, status automation and pull-request issue-link comments), generic webhooks and a personal-access-token API. It also ships an opt-in Dev Machines subsystem for agentic coding runs. It does not currently provide GitLab, Slack, SSO, SCIM or LDAP integrations.'
 				]
 			},
 			{
@@ -122,7 +122,7 @@ export const compare: ContentRegistry = {
 				body: 'Plane documents a wider integration and migration catalog.',
 				list: [
 					'Plane: GitHub, GitLab, Slack integrations. Importer for multiple platforms. API and webhooks.',
-					'Kuayle: self-configuring GitHub App with auto-linking, auto-transitions, pull-request issue-link comments and real-time WebSocket events. Webhooks and personal access tokens. Unreleased opt-in Dev Machines development. Workspace export/import between Kuayle instances; no importers from other tools.'
+					'Kuayle: self-configuring GitHub App with auto-linking, auto-transitions, pull-request issue-link comments and real-time WebSocket events. Webhooks and personal access tokens. Opt-in Dev Machines for agentic coding. Workspace export/import between Kuayle instances; no importers from other tools.'
 				]
 			},
 			{
