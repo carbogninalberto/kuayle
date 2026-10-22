@@ -129,7 +129,7 @@
 		position: fixed;
 		right: 1rem;
 		bottom: 1rem;
-		z-index: 60;
+		z-index: 40;
 		width: 17rem;
 		border: 1px solid var(--border);
 		border-radius: 1rem;

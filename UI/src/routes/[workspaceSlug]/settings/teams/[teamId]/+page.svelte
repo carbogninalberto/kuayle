@@ -7,6 +7,8 @@
 	import { getWorkspace } from '$lib/api/workspaces';
 	import TeamPrivacySettings from '$lib/features/teams/TeamPrivacySettings.svelte';
 	import TeamIcon from '$lib/components/shared/TeamIcon.svelte';
+	import TeamIconGlyph from '$lib/components/shared/TeamIconGlyph.svelte';
+	import { legacyTeamIconNodes } from '$lib/components/shared/legacy-team-icons';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
@@ -81,9 +83,13 @@
 		return name.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/([A-Z])([A-Z][a-z])/g, '$1 $2');
 	}
 
-	const TEAM_ICON_OPTIONS = Object.entries(lucideExports)
-		.filter(([name, value]) => /^[A-Z]/.test(name) && !excludedLucideExports.has(name) && typeof value === 'function')
-		.map(([name, icon]) => ({ value: name, label: formatIconLabel(name), icon }))
+	const TEAM_ICON_OPTIONS = [...new Set([
+		...Object.entries(lucideExports)
+			.filter(([name, value]) => /^[A-Z]/.test(name) && !excludedLucideExports.has(name) && typeof value === 'function')
+			.map(([name]) => name),
+		...Object.keys(legacyTeamIconNodes)
+	])]
+		.map((name) => ({ value: name, label: formatIconLabel(name) }))
 		.sort((a, b) => a.label.localeCompare(b.label));
 
 	const filteredIcons = $derived(
@@ -531,7 +537,6 @@
 									</p>
 									<div class="grid grid-cols-8 gap-1">
 										{#each visibleIcons as option}
-											{@const Icon = option.icon}
 											<Button variant="ghost" size="sm"
 												type="button"
 												onclick={() => selectIcon(option.value)}
@@ -541,7 +546,7 @@
 													: 'border-transparent hover:border-[var(--app-border)] hover:bg-[var(--color-bg-hover)]'}"
 												aria-label={m['team_settings.use_icon_aria']({ label: option.label })}
 											>
-												<Icon size={15} style="color: {selectedColor}" />
+												<TeamIconGlyph name={option.value} size={15} style="color: {selectedColor}" />
 											</Button>
 										{/each}
 									</div>

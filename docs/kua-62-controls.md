@@ -18,7 +18,7 @@ Registry: shadcn-svelte CLI 1.7.0, Nova style, fetched 2026-10-22. Refreshed but
 
 Official references: [CLI](https://shadcn-svelte.com/docs/cli), [changelog](https://shadcn-svelte.com/docs/changelog), [Select](https://shadcn-svelte.com/docs/components/select), [Input](https://shadcn-svelte.com/docs/components/input).
 
-The UI foundation upgrades to Bits UI 2.20.0, Svelte 5.57.2, @lucide/svelte 1.61.0, Tailwind 4.3.3, tailwind-merge 3.7.0, tailwind-variants 3.3.1, @internationalized/date 3.12.4 and svelte-sonner 1.2.1. The deprecated lucide-svelte package is removed; application icons use @lucide/svelte. Both lockfiles are updated. Kuayle's top-positioned application Dialog and overflow constraints are retained after reviewing registry changes. Unrelated framework-major migrations (SvelteKit/Vite/TypeScript) and editor/table package upgrades are outside this UI-component refresh.
+The UI foundation upgrades to Bits UI 2.20.0, Svelte 5.57.2, @lucide/svelte 1.61.0, Tailwind 4.3.3, tailwind-merge 3.7.0, tailwind-variants 3.3.1, @internationalized/date 3.12.4 and svelte-sonner 1.2.1. The deprecated lucide-svelte package is removed; application icons use @lucide/svelte. Both lockfiles are updated. The 18 team glyphs removed upstream are preserved from Lucide 0.577.0 as licensed SVG nodes rendered by the current Icon primitive, so stored selections and the picker remain compatible. Kuayle's compact popover spacing, top-positioned application Dialog and overflow constraints are retained after reviewing registry changes. Unrelated framework-major migrations (SvelteKit/Vite/TypeScript) and editor/table package upgrades are outside this UI-component refresh.
 
 ## Explicit native internals and exceptions
 

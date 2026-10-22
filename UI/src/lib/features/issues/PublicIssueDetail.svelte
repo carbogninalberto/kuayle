@@ -77,7 +77,7 @@
 <div class="fixed inset-0 z-40 flex justify-end">
 	<!-- Backdrop -->
 	<Button variant="ghost" size="sm"
-		class="flex-1 cursor-default"
+		class="h-full flex-1 rounded-none border-0 p-0 active:not-aria-[haspopup]:translate-y-0 cursor-default"
 		style="background: transparent;"
 		onclick={close}
 		tabindex={-1}

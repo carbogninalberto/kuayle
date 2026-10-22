@@ -513,7 +513,7 @@
 {#if snoozeDateNotification}
 	<div class="fixed inset-0 z-50 flex items-start justify-center px-3 pt-[12vh]" role="dialog" aria-modal="true">
 		<Button variant="ghost" size="sm"
-			class="fixed inset-0 cursor-default bg-black/50"
+			class="fixed inset-0 h-full w-full rounded-none border-0 p-0 active:not-aria-[haspopup]:translate-y-0 cursor-default bg-black/50 hover:bg-black/50 dark:hover:bg-black/50"
 			onclick={closeSnoozeDatePicker}
 			tabindex={-1}
 			aria-label={m['inbox.snooze_dialog.close_aria']()}
