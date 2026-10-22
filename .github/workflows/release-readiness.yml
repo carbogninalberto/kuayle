@@ -110,7 +110,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.0
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.sha }}
           persist-credentials: false
       - name: Require every selected check to pass
         env:

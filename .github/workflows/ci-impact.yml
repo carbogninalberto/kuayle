@@ -19,7 +19,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.0
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          # Use the workflow revision (the merge commit on PRs) for routing.
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@v6.4.0

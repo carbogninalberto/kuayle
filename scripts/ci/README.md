@@ -6,7 +6,10 @@ and expected jobs. It reads a NUL-delimited, rename-disabled `git diff base...he
 from a full checkout: earlier PR commits, deletions, both rename paths and diffs
 larger than GitHub's path-filter limits are included. Base-only changes since the
 branch diverged are excluded. Invalid SHAs or a failed comparison select broad
-coverage; a failed detection job fails the workflow's result gate.
+coverage; a failed detection job fails the workflow's result gate. Detection,
+workflow-contract validation and result scripts use `github.sha` (the workflow
+merge revision on PRs), keeping their catalog aligned with the YAML when main
+advances. Product checks and images continue to verify the recorded PR head.
 
 ## Impact map
 
@@ -14,6 +17,7 @@ coverage; a failed detection job fails the workflow's result gate.
 | --- | --- |
 | Root documentation, README files, `BE/docs/`, `docs/`, `assets/`, `AGENTS.md`, `AGENTS/` | Agent Harness only, plus lightweight planning/result jobs. Harness runs on every PR because its links reference all repository areas. |
 | `BE/` code, migrations, module dependencies | Backend tests and Go security; Docker lifecycle; API and all-in-one readiness on amd64/arm64; gateway/manager builds and scans on both architectures; updater scan. Backend dependencies are conservatively shared across its Go binaries. |
+| Backend token/permission definitions | Also Frontend Checks: the UI PAT scope contract test reads both backend files. |
 | `BE/**/*_test.go` | Backend tests and Go security. Docker lifecycle is also selected for its integration test file; no production image builds for test-only changes. |
 | `UI/` runtime, translations, assets and dependencies | Frontend type/unit/browser checks and npm audit; web and all-in-one readiness on both architectures. `UI/static/releases.json` also selects WEB, which consumes that manifest. |
 | `UI/tests/`, `UI/playwright*.ts` | Frontend checks and audit; no production container checks. |
@@ -63,7 +67,9 @@ Only the release publishing job retains write permissions.
 Each workflow ends in an `always()` result job. [check-results.mjs](check-results.mjs)
 requires successful detection, successful execution of every selected job, and
 no failed/cancelled dependency. An unexpected skip or missing selected job fails;
-an intentional omission is permitted. Existing fixed job names remain visible
+an intentional omission is permitted. The full job catalog must match the gate's
+dependencies; unknown jobs cannot silently skip. Workflow contract tests also
+check catalog/needs completeness and planner selectors. Existing fixed job names remain visible
 as skipped when not selected; dynamic matrix names exist only for selected images.
 
 At implementation time main had no enforced protection rules. If checks are made
@@ -87,7 +93,10 @@ git diff --check
 
 The Node tests create disposable Git histories without changing git identity and
 cover docs/harness, BE/UI/WEB, dependencies, shared inputs, workflows, mixed edits,
-renames/deletions, earlier commits, base advancement, >300 files and failed gates.
+renames/deletions, earlier commits, base advancement, >300 files, CLI output,
+unreachable comparison SHAs, cross-package scope contracts and failed gates.
+Workflow contract tests inspect our simple job-block/inline-needs conventions;
+actionlint supplies full YAML/expression validation.
 Actionlint validates workflow syntax/expressions; it does not run shell or Python
 linters. Existing self-hosting tests run via `bash selfhosting/update_test.sh` and
 `bash selfhosting/profile_preflight_test.sh` (Docker Compose and jq required).

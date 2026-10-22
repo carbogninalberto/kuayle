@@ -3,18 +3,25 @@ import { fileURLToPath } from 'node:url';
 
 export function checkResults(workflow, needs) {
   if (needs.changes?.result !== 'success') return ['Change detection did not succeed'];
-  let required;
+  let required, catalog;
   try {
-    required = JSON.parse(needs.changes.outputs.plan).required[workflow];
-    if (!Array.isArray(required)) throw new Error('Missing workflow selection');
+    const plan = JSON.parse(needs.changes.outputs.plan);
+    required = plan.required[workflow];
+    catalog = plan.jobs[workflow];
+    if (!Array.isArray(required) || !Array.isArray(catalog) ||
+      !required.every((job) => catalog.includes(job))) throw new Error('Invalid workflow selection');
   } catch {
     return ['Change detection did not produce a valid job selection'];
   }
   const errors = [];
+  for (const job of catalog) {
+    if (!Object.hasOwn(needs, job)) errors.push(`${job}: missing from result dependencies`);
+  }
   for (const job of required) {
     if (needs[job]?.result !== 'success') errors.push(`${job}: expected success, got ${needs[job]?.result ?? 'missing'}`);
   }
   for (const [job, value] of Object.entries(needs)) {
+    if (job !== 'changes' && !catalog.includes(job)) errors.push(`${job}: not registered in the job catalog`);
     if (!['success', 'skipped'].includes(value.result)) errors.push(`${job}: ${value.result}`);
   }
   return errors;

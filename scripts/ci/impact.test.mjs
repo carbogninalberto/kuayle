@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync, renameSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync, renameSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -89,7 +89,7 @@ test('self-hosting scripts and smoke tests retain their checks and packaged runt
 test('workflow, routing, unknown and shared root changes conservatively exercise all areas', () => {
   for (const path of ['.github/workflows/test.yml', 'scripts/ci/impact.mjs', 'docker-compose.yml', '.dockerignore', 'new-shared-input.config']) {
     const plan = planForPaths([path]);
-    assert.equal(plan.backend && plan.frontend && plan.web && plan.runtime && plan.selfhosting, true);
+    assert.equal(plan.ci && plan.backend && plan.frontend && plan.web && plan.runtime && plan.selfhosting, true);
     assert.equal(plan.releaseImages.length, 3);
     assert.equal(plan.devImages.length, 9);
   }
@@ -184,4 +184,40 @@ test('gates allow intentional omissions but reject failed detection or selected 
   assert.ok(checkResults('tests', { ...needs, changes: { result: 'failure', outputs: {} } }).length);
   assert.ok(checkResults('tests', { ...needs, changes: { result: 'success', outputs: {} } }).length);
   assert.ok(checkResults('tests', { ...needs, 'backend-test': { result: 'failure' } }).length);
+});
+
+test('backend token scope contracts also exercise the UI consumer', () => {
+  for (const path of ['BE/internal/domain/personal_access_token.go', 'BE/internal/domain/permission.go']) {
+    assert.equal(planForPaths([path]).frontend, true);
+  }
+});
+
+test('gates reject unregistered jobs and incomplete dependency declarations', () => {
+  const plan = planForPaths(['README.md']);
+  const needs = { changes: { result: 'success', outputs: { plan: JSON.stringify(plan) } }, 'agent-harness': { result: 'success' } };
+  assert.ok(checkResults('tests', { ...needs, 'unregistered-job': { result: 'skipped' } }).length);
+  assert.ok(checkResults('tests', needs).length);
+});
+
+test('unreachable SHAs and absent comparison data retain full PR coverage', () => {
+  for (const args of [{ base: 'a'.repeat(40), head: 'b'.repeat(40) }, {}]) {
+    const plan = detectPlan({ cwd: tmpdir(), event: 'pull_request', ...args });
+    assert.ok(plan.reason.startsWith('fallback'));
+    assert.equal(plan.ci && plan.backend && plan.frontend && plan.runtime, true);
+  }
+});
+
+
+test('CLI writes one parseable plan output and an inspectable summary', (t) => {
+  const repo = repository(t);
+  const output = join(repo.cwd, 'output');
+  const summary = join(repo.cwd, 'summary');
+  execFileSync(process.execPath, [join(import.meta.dirname, 'impact.mjs')], {
+    cwd: repo.cwd,
+    env: { ...process.env, GITHUB_EVENT_NAME: 'pull_request', PR_BASE_SHA: repo.base, PR_HEAD_SHA: repo.base, GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: summary }
+  });
+  const lines = readFileSync(output, 'utf8').trim().split('\n');
+  assert.equal(lines.length, 1);
+  assert.deepEqual(JSON.parse(lines[0].slice('plan='.length)).required.tests, ['agent-harness']);
+  assert.ok(readFileSync(summary, 'utf8').includes('agent-harness'));
 });

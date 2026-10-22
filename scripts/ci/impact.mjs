@@ -54,6 +54,8 @@ export function planForPaths(paths, event = 'pull_request') {
     }
     if (path.startsWith('BE/')) {
       flags.backend = true;
+      // The UI PAT scope contract test reads these backend definitions.
+      if (['BE/internal/domain/personal_access_token.go', 'BE/internal/domain/permission.go'].includes(path)) flags.frontend = true;
       if (path.endsWith('_test.go')) {
         if (path === 'BE/internal/machine/docker_integration_test.go') flags.runtime = true;
       } else {
@@ -89,12 +91,14 @@ export function planForPaths(paths, event = 'pull_request') {
   }
   const plan = { ...flags, reason, releaseImages: releaseImages.filter((image) => release.has(image.id)), devImages: devImages.filter((image) => dev.has(image.id)), securityImages: pr ? [updater].filter((image) => security.has(image.id)) : [updater, ...devImages] };
   const enabled = (jobs) => Object.entries(jobs).filter(([, run]) => run).map(([id]) => id);
-  plan.required = {
-    tests: enabled({ 'agent-harness': plan.harness, 'backend-test': plan.backend, 'frontend-check': plan.frontend, 'web-check': plan.web, 'docker-integration': plan.runtime, 'selfhosting-check': plan.selfhosting, 'ci-validation': plan.ci }),
-    security: enabled({ 'go-security': plan.backend, 'frontend-security': plan.frontend, 'docker-security': !pr, 'dev-machine-security': plan.securityImages.length > 0 }),
-    build: enabled({ build: !pr, 'dev-machine-images': plan.devImages.length > 0 }),
-    readiness: enabled({ images: plan.releaseImages.length > 0 })
+  const jobs = {
+    tests: { 'agent-harness': plan.harness, 'backend-test': plan.backend, 'frontend-check': plan.frontend, 'web-check': plan.web, 'docker-integration': plan.runtime, 'selfhosting-check': plan.selfhosting, 'ci-validation': plan.ci },
+    security: { 'go-security': plan.backend, 'frontend-security': plan.frontend, 'docker-security': !pr, 'dev-machine-security': plan.securityImages.length > 0 },
+    build: { build: !pr, 'dev-machine-images': plan.devImages.length > 0 },
+    readiness: { images: plan.releaseImages.length > 0 }
   };
+  plan.jobs = Object.fromEntries(Object.entries(jobs).map(([scope, entries]) => [scope, Object.keys(entries)]));
+  plan.required = Object.fromEntries(Object.entries(jobs).map(([scope, entries]) => [scope, enabled(entries)]));
   return plan;
 }
 
