@@ -40,7 +40,7 @@ export function planForPaths(paths, event = 'pull_request') {
     if (path === 'UI/Dockerfile' || path === 'UI/Caddyfile') { release.add('web'); continue; }
     if (path.startsWith('BE/Dockerfile')) {
       const image = [updater, ...devImages].find((item) => item.dockerfile === `./${path}`);
-      if (image) { (image.id === 'updater' ? security : dev).add(image.id); flags.runtime ||= image.id !== 'updater'; }
+      if (image) { (image.id === 'updater' ? security : dev).add(image.id); }
       else if (path === 'BE/Dockerfile') release.add('api');
       else all();
       continue;
@@ -49,7 +49,6 @@ export function planForPaths(paths, event = 'pull_request') {
     if (path.startsWith('UI/')) {
       flags.frontend = true;
       if (!path.startsWith('UI/tests/') && !/^UI\/playwright.*\.ts$/.test(path)) add(release, ['all-in-one', 'web']);
-      if (path === 'UI/static/releases.json') flags.web = true;
       continue;
     }
     if (path.startsWith('BE/')) {

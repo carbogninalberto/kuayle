@@ -19,12 +19,12 @@ advances. Product checks and images continue to verify the recorded PR head.
 | `BE/` code, migrations, module dependencies | Backend tests and Go security; Docker lifecycle; API and all-in-one readiness on amd64/arm64; gateway/manager builds and scans on both architectures; updater scan. Backend dependencies are conservatively shared across its Go binaries. |
 | Backend token/permission definitions | Also Frontend Checks: the UI PAT scope contract test reads both backend files. |
 | `BE/**/*_test.go` | Backend tests and Go security. Docker lifecycle is also selected for its integration test file; no production image builds for test-only changes. |
-| `UI/` runtime, translations, assets and dependencies | Frontend type/unit/browser checks and npm audit; web and all-in-one readiness on both architectures. `UI/static/releases.json` also selects WEB, which consumes that manifest. |
+| `UI/` runtime, translations, assets and dependencies | Frontend type/unit/browser checks and npm audit; web and all-in-one readiness on both architectures. WEB fetches the release manifest from main at runtime, so a PR manifest edit does not select WEB. |
 | `UI/tests/`, `UI/playwright*.ts` | Frontend checks and audit; no production container checks. |
 | `WEB/` source (including Markdown content), assets and dependencies | Marketing type/build/SEO/responsive checks. WEB is not the UI application image. |
 | Root `Dockerfile` | All-in-one readiness. |
 | `UI/Dockerfile`, `UI/Caddyfile` | Web-image readiness. |
-| `BE/Dockerfile*` | The corresponding API, gateway, manager or updater image; gateway/manager also select Docker lifecycle. |
+| `BE/Dockerfile*` | The corresponding API, gateway, manager or updater image. Docker lifecycle uses separate runtime images and is not selected for these Dockerfile-only edits. |
 | `devmachine/{ide,browser,collector,egress}/` | That image on both architectures, backend script tests and Docker lifecycle. |
 | `devmachine/agent/`, shared agent runner | All three provider images on both architectures, backend tests and Docker lifecycle. |
 | Shared service entrypoint | IDE, browser, collector and egress images; backend tests and Docker lifecycle. |
@@ -57,7 +57,7 @@ Go test files and README files do not enter the built application.
 
 Pushes to main, security tag/schedule runs, releases and manual readiness runs
 keep their existing full job/image coverage. Release publishing/version updates
-remain release-only. The new self-hosting and CI-validation jobs also run with
+remain release-only; publishing does not depend on the change-detection job. The new self-hosting and CI-validation jobs also run with
 full Tests coverage on main. PR execution uses read-only contents permission,
 no persisted checkout credentials, and no `pull_request_target` or secrets handoff.
 Only the release publishing job retains write permissions.

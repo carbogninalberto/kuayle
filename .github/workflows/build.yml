@@ -19,7 +19,6 @@ jobs:
     uses: ./.github/workflows/ci-impact.yml
 
   build:
-    needs: changes
     if: github.event_name == 'release'
     name: Build Images
     # PR application images are built, smoke-tested and scanned by Release Readiness.

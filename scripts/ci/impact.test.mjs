@@ -221,3 +221,12 @@ test('CLI writes one parseable plan output and an inspectable summary', (t) => {
   assert.deepEqual(JSON.parse(lines[0].slice('plan='.length)).required.tests, ['agent-harness']);
   assert.ok(readFileSync(summary, 'utf8').includes('agent-harness'));
 });
+
+test('manifest and Go control-plane Dockerfiles do not select unrelated consumers', () => {
+  assert.equal(planForPaths(['UI/static/releases.json']).web, false);
+  for (const path of ['BE/Dockerfile.machine-gateway', 'BE/Dockerfile.machine-manager']) {
+    const plan = planForPaths([path]);
+    assert.equal(plan.runtime, false);
+    assert.equal(plan.devImages.length, 1);
+  }
+});
