@@ -181,6 +181,34 @@ test.describe('login controls', () => {
 	});
 });
 
+test('sidebar teams still reorder by dragging and persist the order', async ({ page }) => {
+	const design = { ...team, id: '00000000-0000-0000-0000-000000000011', name: 'Design', key: 'DES' };
+	await page.setViewportSize({ width: 1280, height: 900 });
+	await mockWorkspace(page);
+	await page.route('**/api/workspaces/test/teams', (route) => route.fulfill({ json: [team, design] }));
+	await page.goto(`/test/teams/${teamId}`);
+	const nav = page.locator('nav:visible');
+	const names = () =>
+		nav
+			.getByRole('button', { name: /^(Engineering|Design)$/ })
+			.evaluateAll((buttons) => buttons.map((button) => button.textContent?.trim()));
+	await expect.poll(names).toEqual(['Engineering', 'Design']);
+
+	const source = await nav.getByRole('button', { name: 'Design', exact: true }).boundingBox();
+	const target = await nav.getByRole('button', { name: 'Engineering', exact: true }).boundingBox();
+	await page.mouse.move(source!.x + 20, source!.y + source!.height / 2);
+	await page.mouse.down();
+	for (let step = 1; step <= 12; step++) {
+		await page.mouse.move(source!.x + 20, source!.y + source!.height / 2 - ((source!.y - target!.y + 6) * step) / 12);
+		await page.waitForTimeout(30);
+	}
+	await page.mouse.up();
+
+	await expect.poll(names).toEqual(['Design', 'Engineering']);
+	const stored = await page.evaluate(() => localStorage.getItem('sidebar_order_test_teams'));
+	expect(JSON.parse(stored ?? '[]')).toEqual([design.id, teamId]);
+});
+
 test.describe('workspace controls', () => {
 	test.beforeEach(async ({ page }) => {
 		await page.setViewportSize({ width: 1280, height: 900 });
