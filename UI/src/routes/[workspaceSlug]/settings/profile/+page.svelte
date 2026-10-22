@@ -1,11 +1,12 @@
 <script lang="ts">
+	import { Input } from '$lib/components/ui/input/index.js';
 	import { onMount } from 'svelte';
 	import { appToast } from '$lib/features/toast/toast';
 	import { Button } from '$lib/components/ui/button';
 	import { getMe, updateProfile } from '$lib/api/auth';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import type { User } from '$lib/types/auth';
-	import { Copy } from 'lucide-svelte';
+	import { Copy } from '@lucide/svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
 
@@ -95,10 +96,10 @@
 					<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['settings.profile.name']()}</p>
 					<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.profile.name_desc']()}</p>
 				</div>
-				<input
+				<Input
 					type="text"
 					bind:value={name}
-					class="w-[240px] rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
+					class="w-[240px] py-1.5"
 				/>
 			</div>
 
@@ -109,10 +110,10 @@
 					<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['settings.profile.display_name']()}</p>
 					<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.profile.display_name_desc']()}</p>
 				</div>
-				<input
+				<Input
 					type="text"
 					bind:value={displayName}
-					class="w-[240px] rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
+					class="w-[240px] py-1.5"
 				/>
 			</div>
 
@@ -123,11 +124,11 @@
 					<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['settings.profile.avatar_url']()}</p>
 					<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.profile.avatar_url_desc']()}</p>
 				</div>
-				<input
+				<Input
 					type="url"
 					bind:value={avatarUrl}
 					placeholder="https://"
-					class="w-[240px] rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
+					class="w-[240px] py-1.5"
 				/>
 			</div>
 		</div>

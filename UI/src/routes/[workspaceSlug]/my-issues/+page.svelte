@@ -24,7 +24,7 @@
 	import { viewLayoutState } from '$lib/features/issues/view-layout.state.svelte';
 	import type { Issue, RelationType } from '$lib/types/issue';
 	import AddRelationDialog from '$lib/features/issues/AddRelationDialog.svelte';
-	import { CircleUser, PenLine } from 'lucide-svelte';
+	import { CircleUser, PenLine } from '@lucide/svelte';
 	import { createKeyboardHandler } from '$lib/utils/keyboard';
 	import BulkActionBar from '$lib/features/issues/BulkActionBar.svelte';
 	import { m } from '$lib/paraglide/messages.js';

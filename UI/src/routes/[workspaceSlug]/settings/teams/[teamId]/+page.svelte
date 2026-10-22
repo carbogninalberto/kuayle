@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Textarea } from '$lib/components/ui/textarea/index.js';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import type { Team } from '$lib/types/team';
@@ -6,6 +7,8 @@
 	import { getWorkspace } from '$lib/api/workspaces';
 	import TeamPrivacySettings from '$lib/features/teams/TeamPrivacySettings.svelte';
 	import TeamIcon from '$lib/components/shared/TeamIcon.svelte';
+	import TeamIconGlyph from '$lib/components/shared/TeamIconGlyph.svelte';
+	import { legacyTeamIconNodes } from '$lib/components/shared/legacy-team-icons';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
@@ -19,8 +22,8 @@
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
-	import { Check, Search, X } from 'lucide-svelte';
-	import * as LucideIcons from 'lucide-svelte';
+	import { Check, Search, X } from '@lucide/svelte';
+	import * as LucideIcons from '@lucide/svelte';
 	import type { Component } from 'svelte';
 	import Database from 'emoji-picker-element/database';
 	import type { Emoji } from 'emoji-picker-element/shared';
@@ -80,9 +83,13 @@
 		return name.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/([A-Z])([A-Z][a-z])/g, '$1 $2');
 	}
 
-	const TEAM_ICON_OPTIONS = Object.entries(lucideExports)
-		.filter(([name, value]) => /^[A-Z]/.test(name) && !excludedLucideExports.has(name) && typeof value === 'function')
-		.map(([name, icon]) => ({ value: name, label: formatIconLabel(name), icon }))
+	const TEAM_ICON_OPTIONS = [...new Set([
+		...Object.entries(lucideExports)
+			.filter(([name, value]) => /^[A-Z]/.test(name) && !excludedLucideExports.has(name) && typeof value === 'function')
+			.map(([name]) => name),
+		...Object.keys(legacyTeamIconNodes)
+	])]
+		.map((name) => ({ value: name, label: formatIconLabel(name) }))
 		.sort((a, b) => a.label.localeCompare(b.label));
 
 	const filteredIcons = $derived(
@@ -416,7 +423,7 @@
 						<Label class="text-xs text-[var(--color-text-secondary)]">{m['team_settings.name']()}</Label>
 						<Input
 							bind:value={editName}
-							class="bg-[var(--color-bg)] border-[var(--app-border)] text-[var(--color-text-primary)]"
+							class=""
 						/>
 					</div>
 					<div class="space-y-1.5">
@@ -424,7 +431,7 @@
 						<Input
 							bind:value={editDescription}
 							placeholder={m['team_settings.description_placeholder']()}
-							class="bg-[var(--color-bg)] border-[var(--app-border)] text-[var(--color-text-primary)]"
+							class=""
 						/>
 					</div>
 					<div class="flex justify-end gap-2">
@@ -470,20 +477,22 @@
 					<p class="mb-2 text-xs font-medium text-[var(--color-text-secondary)]">{m['team_settings.icon']()}</p>
 					<Popover.Root bind:open={pickerOpen}>
 						<Popover.Trigger>
-							<button
-								type="button"
-								class="flex items-center gap-3 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-2 text-left transition-colors hover:bg-[var(--color-bg-hover)]"
-							>
-								<span class="flex h-9 w-9 items-center justify-center rounded-md bg-[var(--color-bg-secondary)]">
-									<TeamIcon {team} size={20} />
-								</span>
-								<span>
-									<span class="block text-sm text-[var(--color-text-primary)]">{m['team_settings.choose_icon_or_emoji']()}</span>
-									<span class="block text-xs text-[var(--color-text-tertiary)]"
-										>{m['team_settings.icons_preview_desc']()}</span
-									>
-								</span>
-							</button>
+							{#snippet child({ props })}
+								<Button {...props} variant="outline" size="sm"
+									type="button"
+									class="h-auto justify-start whitespace-normal flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-colors"
+								>
+									<span class="flex h-9 w-9 items-center justify-center rounded-md bg-[var(--color-bg-secondary)]">
+										{#if team}<TeamIcon {team} size={20} />{/if}
+									</span>
+									<span>
+										<span class="block text-sm text-[var(--color-text-primary)]">{m['team_settings.choose_icon_or_emoji']()}</span>
+										<span class="block text-xs text-[var(--color-text-tertiary)]"
+											>{m['team_settings.icons_preview_desc']()}</span
+										>
+									</span>
+								</Button>
+							{/snippet}
 						</Popover.Trigger>
 						<Popover.Content class="w-72 p-0" align="start">
 							<div class="border-b border-[var(--app-border)] p-2">
@@ -492,14 +501,14 @@
 										size={14}
 										class="absolute left-2 top-1/2 -translate-y-1/2 text-[var(--color-text-tertiary)]"
 									/>
-									<input
+									<Input
 										bind:value={pickerQuery}
 										placeholder={pickerTab === 'icons' ? m['team_settings.search_lucide_icons']() : m['team_settings.search_emoji']()}
-										class="h-8 w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] pl-7 pr-2 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)] focus:border-[var(--app-accent)]"
+										class="h-8 w-full pl-7 pr-2"
 									/>
 								</div>
 								<div class="mt-2 grid grid-cols-2 gap-1 rounded-md bg-[var(--color-bg)] p-0.5">
-									<button
+									<Button variant="ghost" size="sm"
 										type="button"
 										onclick={() => showPickerTab('icons')}
 										class="rounded px-2 py-1 text-xs {pickerTab === 'icons'
@@ -507,8 +516,8 @@
 											: 'text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]'}"
 									>
 										{m['team_settings.icons_tab']()}
-									</button>
-									<button
+									</Button>
+									<Button variant="ghost" size="sm"
 										type="button"
 										onclick={() => showPickerTab('emoji')}
 										class="rounded px-2 py-1 text-xs {pickerTab === 'emoji'
@@ -516,7 +525,7 @@
 											: 'text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]'}"
 									>
 										{m['team_settings.emoji_tab']()}
-									</button>
+									</Button>
 								</div>
 							</div>
 							<div class="max-h-72 overflow-y-auto p-2" onscroll={handlePickerScroll}>
@@ -528,8 +537,7 @@
 									</p>
 									<div class="grid grid-cols-8 gap-1">
 										{#each visibleIcons as option}
-											{@const Icon = option.icon}
-											<button
+											<Button variant="ghost" size="sm"
 												type="button"
 												onclick={() => selectIcon(option.value)}
 												class="flex h-7 items-center justify-center rounded border transition-colors {selectedIconName ===
@@ -538,8 +546,8 @@
 													: 'border-transparent hover:border-[var(--app-border)] hover:bg-[var(--color-bg-hover)]'}"
 												aria-label={m['team_settings.use_icon_aria']({ label: option.label })}
 											>
-												<Icon size={15} style="color: {selectedColor}" />
-											</button>
+												<TeamIconGlyph name={option.value} size={15} style="color: {selectedColor}" />
+											</Button>
 										{/each}
 									</div>
 									{#if visibleIcons.length < filteredIcons.length}
@@ -550,7 +558,7 @@
 									{#if !pickerQuery.trim()}
 										<div class="mb-2 flex gap-1 overflow-x-auto pb-3" onwheel={handleHorizontalWheel}>
 											{#each EMOJI_GROUPS as group}
-												<button
+												<Button variant="ghost" size="sm"
 													type="button"
 													onclick={() => {
 														emojiGroup = group.id;
@@ -561,7 +569,7 @@
 														: 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
 													>
 														{dynamicMessage[group.labelKey]()}
-												</button>
+												</Button>
 											{/each}
 										</div>
 									{/if}
@@ -582,7 +590,7 @@
 										<div class="grid grid-cols-9 gap-1">
 											{#each visibleEmojis as emoji}
 												{@const unicode = emojiUnicode(emoji)}
-												<button
+												<Button variant="ghost" size="sm"
 													type="button"
 													onclick={() => selectEmoji(emoji)}
 													class="flex h-8 items-center justify-center rounded-md border text-lg transition-colors {selectedEmoji ===
@@ -592,7 +600,7 @@
 													aria-label={m['team_settings.use_emoji_aria']({ label: emojiLabel(emoji) })}
 												>
 													{unicode}
-												</button>
+												</Button>
 											{/each}
 										</div>
 										{#if visibleEmojis.length < emojiResults.length}
@@ -610,7 +618,7 @@
 					<p class="mb-2 text-xs font-medium text-[var(--color-text-secondary)]">{m['team_settings.color']()}</p>
 					<div class="flex flex-wrap gap-1.5">
 						{#each PRESET_COLORS as c}
-							<button
+							<Button variant="ghost" size="sm"
 								type="button"
 								onclick={() => updateTeamVisual({ color: c })}
 								class="h-6 w-6 rounded-full transition-transform hover:scale-110 {team.color === c
@@ -618,7 +626,7 @@
 									: ''}"
 								style="background-color: {c}"
 								aria-label={m['team_settings.use_color_aria']({ color: c })}
-							></button>
+							></Button>
 						{/each}
 					</div>
 				</div>
@@ -666,12 +674,12 @@
 				</p>
 			</div>
 			<div class="space-y-3 px-5 py-4">
-				<textarea
+				<Textarea
 					bind:value={issueCopyPrompt}
-					rows="8"
+					rows={8}
 					placeholder={m['team_settings.issue_copy_prompt_placeholder']()}
-					class="w-full rounded-lg border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-2 font-mono text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)] focus:border-[var(--app-accent)]"
-				></textarea>
+					class="w-full font-mono"
+				></Textarea>
 				<p class="text-xs text-[var(--color-text-tertiary)]">
 					{m['team_settings.available_placeholders']()} {'{{issue_identifier}}'}, {'{{issue_title}}'}, {'{{team_key}}'}, {'{{team_name}}'}, {'{{issue_xml}}'}.
 				</p>

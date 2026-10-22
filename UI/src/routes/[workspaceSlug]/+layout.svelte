@@ -33,7 +33,7 @@
 	import { teamStatusesState } from '$lib/features/issues/team-statuses.state.svelte';
 	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
 	import { createShortcutEngine, type ShortcutDef } from '$lib/utils/keyboard';
-	import { Menu, Search, SquarePen } from 'lucide-svelte';
+	import { Menu, Search, SquarePen } from '@lucide/svelte';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';

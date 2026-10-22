@@ -246,3 +246,20 @@ test('uses the selected application language for history', async ({ page }) => {
  await expect(history.getByRole('button', { name: 'Modifica precedente' })).toBeVisible();
  await expect(history.getByText(/Autore sconosciuto ha modificato la descrizione/)).toBeVisible();
 });
+
+test('conditional full-page selectors open and return focus through the shared trigger', async ({ page }) => {
+ await mockWorkspace(page);
+ await page.goto('/test/issue/ENG-1');
+ for (const [label, placeholder] of [['Add label', 'Search labels...'], ['Add project', 'Search projects...']]) {
+  const trigger = page.getByRole('button', { name: label, exact: true });
+  await trigger.focus();
+  await trigger.press('Enter');
+  const search = page.getByPlaceholder(placeholder, { exact: true });
+  await expect(search).toBeVisible();
+  await expect(search).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(search).not.toBeVisible();
+  await expect(trigger).toBeFocused();
+ }
+ await expect(page.locator('button button')).toHaveCount(0);
+});

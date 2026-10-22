@@ -44,7 +44,7 @@
 		SquareUser,
 		Box,
 		Settings2
-	} from 'lucide-svelte';
+	} from '@lucide/svelte';
 	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
 	import SidebarToggle from '$lib/components/layout/SidebarToggle.svelte';
 
@@ -289,7 +289,7 @@
 					<Popover.Content class="w-40 p-1" align="start">
 						{#each STATUS_OPTIONS as option}
 							{@const StatusIcon = option.icon}
-							<button
+							<Button variant="ghost" size="sm"
 								onclick={() => handleStatusChange(option.value)}
 								class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {project.status ===
 								option.value
@@ -298,7 +298,7 @@
 							>
 								<StatusIcon size={14} />
 								{option.label}
-							</button>
+							</Button>
 						{/each}
 					</Popover.Content>
 				</Popover.Root>
@@ -325,16 +325,16 @@
 							class="rounded-md p-1.5 hover:bg-[var(--color-bg-hover)]"><MoreHorizontal size={14} /></Popover.Trigger
 						>
 						<Popover.Content class="w-40 p-1" align="end">
-							<button
+							<Button variant="destructive" size="sm"
 								onclick={() => {
 									actionsOpen = false;
 									showDelete = true;
 								}}
-								class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-error)] hover:bg-[var(--color-bg-hover)]"
+								class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-error)]"
 							>
 								<Trash2 size={14} />
 								{m['projects.delete']()}
-							</button>
+							</Button>
 						</Popover.Content>
 					</Popover.Root>
 				{/if}

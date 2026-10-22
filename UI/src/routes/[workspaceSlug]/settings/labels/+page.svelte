@@ -10,7 +10,7 @@
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
 	import { appToast } from '$lib/features/toast/toast';
-	import { Plus, Trash2, Pencil, MoreHorizontal } from 'lucide-svelte';
+	import { Plus, Trash2, Pencil, MoreHorizontal } from '@lucide/svelte';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	let labels = $state<Label[]>([]);
@@ -70,13 +70,13 @@
 <div class="mx-auto max-w-2xl px-8 py-10">
 	<div class="flex items-center justify-between">
 		<h1 class="text-2xl font-semibold text-[var(--color-text-primary)]">{m['settings.labels.title']()}</h1>
-		<button
+		<Button variant="default" size="sm"
 			onclick={() => (showCreate = true)}
-			class="flex items-center gap-1 rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)]"
+			class="flex items-center gap-1 rounded-md px-3 py-1.5 text-sm"
 		>
 			<Plus size={14} />
 			{m['settings.labels.new_label']()}
-		</button>
+		</Button>
 	</div>
 
 	<div class="mt-8">
@@ -105,25 +105,27 @@
 						<div class="flex items-center gap-1 opacity-0 group-hover:opacity-100">
 							<Popover.Root open={menuOpenId === label.id} onOpenChange={(open) => { menuOpenId = open ? label.id : null; }}>
 								<Popover.Trigger>
-									<Button variant="ghost" size="icon-sm" class="h-7 w-7">
-										<MoreHorizontal size={14} />
-									</Button>
+									{#snippet child({ props })}
+										<Button {...props} variant="ghost" size="icon-sm" class="h-7 w-7">
+											<MoreHorizontal size={14} />
+										</Button>
+									{/snippet}
 								</Popover.Trigger>
 								<Popover.Content class="w-36 p-1" align="end">
-									<button
+									<Button variant="ghost" size="sm"
 										onclick={() => openEdit(label)}
-										class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+										class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)]"
 									>
 										<Pencil size={13} />
 										{m['settings.edit']()}
-									</button>
-									<button
+									</Button>
+									<Button variant="destructive" size="sm"
 										onclick={() => { menuOpenId = null; handleDelete(label.id); }}
-										class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-error)] hover:bg-[var(--color-bg-hover)]"
+										class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-error)]"
 									>
 										<Trash2 size={13} />
 										{m['settings.delete']()}
-									</button>
+									</Button>
 								</Popover.Content>
 							</Popover.Root>
 						</div>

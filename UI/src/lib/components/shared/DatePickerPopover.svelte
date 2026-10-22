@@ -1,10 +1,11 @@
 <script lang="ts">
+	import { Button } from '$lib/components/ui/button/index.js';
 	import * as Popover from '$lib/components/ui/popover';
 	import { Calendar } from '$lib/components/ui/calendar';
 	import DueDatePickerPanel from './DueDatePickerPanel.svelte';
 	import { CalendarDate } from '@internationalized/date';
 	import type { DateValue } from '@internationalized/date';
-	import { CalendarIcon, X } from 'lucide-svelte';
+	import { CalendarIcon, X } from '@lucide/svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
 
@@ -63,25 +64,23 @@
 </script>
 
 <Popover.Root bind:open>
+	<div class="inline-flex items-center gap-1">
 	<Popover.Trigger>
-		<button class="flex items-center gap-1.5 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-2.5 py-1 text-xs hover:bg-[var(--color-bg-hover)] {displayDate && colorClass ? colorClass : 'text-[var(--color-text-secondary)]'}">
-			<CalendarIcon size={12} />
-			{#if displayDate}
-				{displayDate}
-				<span
-					onclick={handleClear}
-					onkeydown={(e) => { if (e.key === 'Enter') handleClear(e as unknown as MouseEvent); }}
-					role="button"
-					tabindex={0}
-					class="ml-1 inline-flex rounded p-0.5 hover:bg-[var(--color-bg-hover)]"
-				>
-					<X size={10} />
-				</span>
-			{:else}
-				{placeholder}
-			{/if}
-		</button>
+		{#snippet child({ props })}
+			<Button {...props} variant="outline" size="sm" class="flex items-center gap-1.5 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-2.5 py-1 text-xs hover:bg-[var(--color-bg-hover)] {displayDate && colorClass ? colorClass : 'text-[var(--color-text-secondary)]'}">
+				<CalendarIcon size={12} />
+				{#if displayDate}
+					{displayDate}
+				{:else}
+					{placeholder}
+				{/if}
+			</Button>
+		{/snippet}
 	</Popover.Trigger>
+	{#if displayDate}
+		<Button variant="ghost" size="icon-sm" aria-label={m['insights.clear']()} onclick={handleClear}><X class="size-3" /></Button>
+	{/if}
+	</div>
 	<Popover.Content class="w-auto p-0" align="start">
 		{#if dueDateMode}
 			<DueDatePickerPanel {value} {onchange} close={() => (open = false)} />

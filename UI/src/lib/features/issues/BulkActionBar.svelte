@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { Button } from '$lib/components/ui/button/index.js';
+	import { Input } from '$lib/components/ui/input/index.js';
 	import type { Issue, IssuePriority, RelationType } from '$lib/types/issue';
 	import { getPriorityLabel } from '$lib/types/issue';
 	import type { Label } from '$lib/types/label';
@@ -25,7 +27,7 @@
 		Trash2,
 		Users,
 		X
-	} from 'lucide-svelte';
+	} from '@lucide/svelte';
 	import * as issueApi from '$lib/api/issues';
 	import { createLabel } from '$lib/api/labels';
 	import { createRelation } from '$lib/api/issue-relations';
@@ -676,45 +678,45 @@
 
 		<div class="mx-0.5 h-5 w-px bg-[var(--app-border)] max-sm:hidden"></div>
 
-		<button
+		<Button variant="outline" size="sm"
 			onclick={() => (actionsOpen = true)}
-			class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--app-border)] px-2.5 text-xs font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+			class="inline-flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium text-[var(--color-text-secondary)] transition-colors hover:text-[var(--color-text-primary)]"
 		>
 			<Command size={12} />
 			{m['bulkActions.actions_button']()}
-		</button>
+		</Button>
 
 		<div class="mx-0.5 h-5 w-px bg-[var(--app-border)] max-sm:hidden"></div>
 
 		{#if canDelete}
-			<button
+			<Button variant="destructive" size="sm"
 				onclick={() => (deleteOpen = true)}
 				class="inline-flex h-7 items-center rounded-md border border-red-500/30 px-2 text-xs text-red-500 transition-colors hover:bg-red-500/10"
 				title={m['bulkActions.delete_selected']()}
 			>
 				<Trash2 size={12} />
-			</button>
+			</Button>
 		{/if}
 
-		<button
+		<Button variant="ghost" size="sm"
 			onclick={() => issuesState.clearSelection()}
-			class="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+			class="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--color-text-tertiary)] transition-colors hover:text-[var(--color-text-primary)]"
 			title={m['bulkActions.clear_selection']()}
 		>
 			<X size={16} />
-		</button>
+		</Button>
 	</div>
 
 	{#if actionsOpen}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div class="fixed inset-0 z-50 flex items-start justify-center px-3 pt-[12vh]" onkeydown={handleActionsKeydown}>
-			<button
-				class="fixed inset-0 cursor-default"
+			<Button variant="ghost" size="sm"
+				class="fixed inset-0 h-full w-full rounded-none border-0 p-0 active:not-aria-[haspopup]:translate-y-0 cursor-default"
 				style="background: rgba(0,0,0,{actionsVisible ? 0.5 : 0}); transition: background {ANIM_DURATION}ms ease;"
 				onclick={closeActions}
 				tabindex={-1}
 				aria-label={m['bulkActions.close_bulk']()}
-			></button>
+			></Button>
 
 			<div
 				class="relative z-10 w-full overflow-hidden rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] shadow-2xl {activeCommand ===
@@ -732,13 +734,13 @@
 
 				<div class="flex items-center gap-2 border-b border-[var(--app-border)] px-3">
 					{#if activeCommand}
-						<button
+						<Button variant="ghost" size="sm"
 							onclick={backToCommands}
-							class="inline-flex h-8 w-8 items-center justify-center rounded-md text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+							class="inline-flex h-8 w-8 items-center justify-center rounded-md text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
 							title={m['bulkActions.back']()}
 						>
 							<ChevronLeft size={16} />
-						</button>
+						</Button>
 					{:else}
 						<Search size={16} class="text-[var(--color-text-tertiary)]" />
 					{/if}
@@ -752,23 +754,23 @@
 						</div>
 					{:else}
 						<!-- svelte-ignore a11y_autofocus -->
-						<input
+						<Input
 							id="bulk-actions-search"
 							type="text"
 							aria-label={activeTitle}
 							bind:value={searchQuery}
 							placeholder={searchPlaceholder}
 							autofocus
-							class="min-w-0 flex-1 bg-transparent py-4 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)]"
+							class="h-auto min-w-0 flex-1 bg-transparent py-4"
 						/>
 					{/if}
-					<button
+					<Button variant="ghost" size="sm"
 						onclick={closeActions}
-						class="inline-flex h-8 w-8 items-center justify-center rounded-md text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+						class="inline-flex h-8 w-8 items-center justify-center rounded-md text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
 						title={m['bulkActions.close']()}
 					>
 						<X size={16} />
-					</button>
+					</Button>
 				</div>
 
 				<div class="max-h-[60vh] min-h-72 overflow-y-auto p-2">
@@ -779,7 +781,7 @@
 							</div>
 						{:else}
 							{#each filteredCommands as command, index (command.id)}
-								<button
+								<Button variant="ghost" size="sm"
 									id={`bulk-action-row-${index}`}
 									class={commandButtonClass}
 									data-selected={selectedIndex === index}
@@ -817,7 +819,7 @@
 										<span class="block truncate font-medium text-[var(--color-text-primary)]">{command.title}</span>
 										<span class="block truncate text-xs text-[var(--color-text-tertiary)]">{command.description}</span>
 									</span>
-								</button>
+								</Button>
 							{/each}
 						{/if}
 					{:else if activeCommand === 'assignee'}
@@ -830,15 +832,15 @@
 									s: _s(selectedAssigneeIds.length)
 								})}</span
 							>
-							<button
-								class="rounded-md bg-[var(--app-accent)] px-2.5 py-1 text-xs font-medium text-[var(--app-accent-foreground)] disabled:opacity-50"
+							<Button variant="default" size="sm"
+								class="rounded-md px-2.5 py-1 text-xs font-medium disabled:opacity-50"
 								disabled={selectedAssigneeIds.length === 0}
 								onclick={() => bulkSetAssignees()}
 							>
 								{m['bulkActions.assignee.assign']()}
-							</button>
+							</Button>
 						</div>
-						<button
+						<Button variant="ghost" size="sm"
 							id="bulk-action-row-0"
 							class={optionButtonClass}
 							data-selected={selectedIndex === 0}
@@ -847,7 +849,7 @@
 						>
 							<X size={14} class="text-[var(--color-text-tertiary)]" />
 							<span class="truncate text-[var(--color-text-tertiary)]">{m['bulkActions.assignee.clear']()}</span>
-						</button>
+						</Button>
 						{#if filteredMembers.length === 0}
 							<div class="py-8 text-center text-xs text-[var(--color-text-tertiary)]">
 								{m['bulkActions.assignee.no_members']()}
@@ -856,7 +858,7 @@
 							{#each filteredMembers as member, index (member.user_id)}
 								{@const rowIndex = index + 1}
 								{@const isSelected = selectedAssigneeIds.includes(member.user_id)}
-								<button
+								<Button variant="ghost" size="sm"
 									id={`bulk-action-row-${rowIndex}`}
 									class={optionButtonClass}
 									data-selected={selectedIndex === rowIndex}
@@ -873,7 +875,7 @@
 											? 'bg-[var(--app-accent)] text-[var(--app-accent-foreground)]'
 											: 'text-transparent'}">✓</span
 									>
-								</button>
+								</Button>
 							{/each}
 						{/if}
 					{:else if activeCommand === 'status'}
@@ -883,7 +885,7 @@
 							</div>
 						{:else}
 							{#each filteredStatuses as status, index (status.id)}
-								<button
+								<Button variant="ghost" size="sm"
 									id={`bulk-action-row-${index}`}
 									class={optionButtonClass}
 									data-selected={selectedIndex === index}
@@ -892,7 +894,7 @@
 								>
 									<IssueStatusIcon category={status.category} color={status.color} size={14} />
 									<span class="truncate">{status.name}</span>
-								</button>
+								</Button>
 							{/each}
 						{/if}
 					{:else if activeCommand === 'priority'}
@@ -902,7 +904,7 @@
 							</div>
 						{:else}
 							{#each filteredPriorities as priority, index (priority)}
-								<button
+								<Button variant="ghost" size="sm"
 									id={`bulk-action-row-${index}`}
 									class={optionButtonClass}
 									data-selected={selectedIndex === index}
@@ -911,12 +913,12 @@
 								>
 									<IssuePriorityIcon {priority} size={14} />
 									<span class="truncate">{getPriorityLabel(priority)}</span>
-								</button>
+								</Button>
 							{/each}
 						{/if}
 					{:else if activeCommand === 'label'}
 						{#if canCreateLabel}
-							<button
+							<Button variant="ghost" size="sm"
 								id="bulk-action-row-0"
 								class={optionButtonClass}
 								data-selected={selectedIndex === 0}
@@ -930,7 +932,7 @@
 										? m['bulkActions.label.creating']()
 										: m['bulkActions.label.create']({ name: searchQuery.trim() })}</span
 								>
-							</button>
+							</Button>
 						{/if}
 						{#if filteredLabels.length === 0 && !canCreateLabel}
 							<div class="py-12 text-center text-xs text-[var(--color-text-tertiary)]">
@@ -939,7 +941,7 @@
 						{:else}
 							{#each filteredLabels as label, index (label.id)}
 								{@const rowIndex = index + (canCreateLabel ? 1 : 0)}
-								<button
+								<Button variant="ghost" size="sm"
 									id={`bulk-action-row-${rowIndex}`}
 									class={optionButtonClass}
 									data-selected={selectedIndex === rowIndex}
@@ -948,11 +950,11 @@
 								>
 									<span class="h-2.5 w-2.5 shrink-0 rounded-full" style="background-color: {label.color}"></span>
 									<span class="truncate">{label.name}</span>
-								</button>
+								</Button>
 							{/each}
 						{/if}
 					{:else if activeCommand === 'cycle'}
-						<button
+						<Button variant="ghost" size="sm"
 							id="bulk-action-row-0"
 							class={optionButtonClass}
 							data-selected={selectedIndex === 0}
@@ -961,7 +963,7 @@
 						>
 							<RefreshCw size={14} class="text-[var(--color-text-tertiary)]" />
 							<span class="truncate text-[var(--color-text-tertiary)]">{m['bulkActions.cycle.no_cycle']()}</span>
-						</button>
+						</Button>
 						{#if filteredCycles.length === 0}
 							<div class="py-8 text-center text-xs text-[var(--color-text-tertiary)]">
 								{m['bulkActions.no_cycles']()}
@@ -969,7 +971,7 @@
 						{:else}
 							{#each filteredCycles as cycle, index (cycle.id)}
 								{@const rowIndex = index + 1}
-								<button
+								<Button variant="ghost" size="sm"
 									id={`bulk-action-row-${rowIndex}`}
 									class={optionButtonClass}
 									data-selected={selectedIndex === rowIndex}
@@ -978,7 +980,7 @@
 								>
 									<RefreshCw size={14} class="text-[var(--color-text-tertiary)]" />
 									<span class="truncate">{cycle.name}</span>
-								</button>
+								</Button>
 							{/each}
 						{/if}
 					{:else if activeCommand === 'due_date'}

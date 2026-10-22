@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Button } from '$lib/components/ui/button/index.js';
 	import { m } from '$lib/paraglide/messages.js';
 	import { onMount } from 'svelte';
 	import { issuesState } from './issues.state.svelte';
@@ -21,13 +22,13 @@
 
 <div bind:this={sentinel} class={issuesState.hasMore ? 'flex justify-center py-4' : 'hidden'}>
 	{#if issuesState.hasMore}
-		<button
+		<Button variant="outline" size="sm"
 			type="button"
 			onclick={() => issuesState.loadMore()}
 			disabled={issuesState.loadingMore}
-			class="rounded-md border border-[var(--app-border)] px-4 py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] disabled:opacity-60"
+			class="rounded-md border px-4 py-1.5 text-xs text-[var(--color-text-secondary)] disabled:opacity-60"
 		>
 			{issuesState.loadingMore ? m['common.loading']() : m['issuePicker.load_more']()}
-		</button>
+		</Button>
 	{/if}
 </div>

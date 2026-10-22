@@ -6,7 +6,7 @@
 	import type { SharedLink, CreateSharedLinkRequest } from '$lib/types/shared-link';
 	import type { ViewFilter } from '$lib/types/view';
 	import { createSharedLink, listSharedLinks, updateSharedLink, deleteSharedLink } from '$lib/api/shared-links';
-	import { Copy, ExternalLink, Trash2, Link, Info } from 'lucide-svelte';
+	import { Copy, ExternalLink, Trash2, Link, Info } from '@lucide/svelte';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
@@ -111,12 +111,12 @@
 				<div class="flex items-center justify-between">
 					<div class="flex items-center gap-1.5">
 						<span class="text-sm text-[var(--color-text-secondary)]">{m['sharedComponents.share_link.include_descriptions']()}</span>
-						<button
+						<Button variant="ghost" size="sm"
 							class="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors"
 							onclick={() => (showDescriptionHint = !showDescriptionHint)}
 						>
 							<Info size={13} />
-						</button>
+						</Button>
 					</div>
 					<Switch bind:checked={includeDescription} />
 				</div>
@@ -150,13 +150,13 @@
 									{/if}
 								</p>
 								<div class="flex-1"></div>
-								<button
+								<Button variant="ghost" size="sm"
 									onclick={() => copyUrl(link.url)}
-									class="shrink-0 rounded p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+									class="shrink-0 rounded p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
 									title={m['sharedComponents.share_link.copy_link']()}
 								>
 									<Copy size={14} />
-								</button>
+								</Button>
 								<a
 									href={link.url}
 									target="_blank"
@@ -166,19 +166,19 @@
 								>
 									<ExternalLink size={14} />
 								</a>
-								<button
+								<Button variant="outline" size="sm"
 									onclick={() => handleToggle(link)}
-									class="shrink-0 rounded px-1.5 py-0.5 text-[10px] border border-[var(--app-border)] text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
+									class="shrink-0 rounded px-1.5 py-0.5 text-[10px] border text-[var(--color-text-tertiary)]"
 								>
 									{link.is_active ? m['sharedComponents.share_link.disable']() : m['sharedComponents.share_link.enable']()}
-								</button>
-								<button
+								</Button>
+								<Button variant="destructive" size="sm"
 									onclick={() => handleDelete(link)}
-									class="shrink-0 rounded p-1 text-[var(--color-text-tertiary)] hover:text-red-500 hover:bg-[var(--color-bg-hover)]"
+									class="shrink-0 rounded p-1 text-[var(--color-text-tertiary)] hover:text-red-500"
 									title={m['sharedComponents.share_link.delete_link']()}
 								>
 									<Trash2 size={14} />
-								</button>
+								</Button>
 							</div>
 						</div>
 					{/each}

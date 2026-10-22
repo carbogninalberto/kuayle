@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { Checkbox } from '$lib/components/ui/checkbox/index.js';
+	import * as Dialog from '$lib/components/ui/dialog/index.js';
 	import { consent } from '$lib/cookieConsent.svelte';
 	import { Button } from '$lib/components/ui/button';
 
@@ -46,30 +48,16 @@
 
 {#if showPrefs}
 	{@const prefs = consent.value}
-	<div
-		class="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
-	>
-		<button
-			type="button"
-			class="absolute inset-0 cursor-default"
-			aria-label="Close cookie preferences"
-			onclick={() => (showPrefs = false)}
-		></button>
-		<div
-			class="relative w-full max-w-md rounded-2xl border border-white/10 bg-card p-6 shadow-2xl"
-			role="dialog"
-			aria-modal="true"
-			aria-labelledby="cookie-prefs-title"
-			tabindex="-1"
-		>
-			<h2 id="cookie-prefs-title" class="text-lg font-semibold">Cookie preferences</h2>
-			<p class="mt-1 text-sm text-muted-foreground">
+	<Dialog.Root bind:open={showPrefs}>
+		<Dialog.Content class="max-h-[85dvh] max-w-[calc(100vw-2rem)] overflow-y-auto p-6 sm:max-w-md">
+			<Dialog.Title>Cookie preferences</Dialog.Title>
+			<Dialog.Description class="mt-1">
 				Choose which categories to allow. You can change this any time.
-			</p>
+			</Dialog.Description>
 
 			<div class="mt-5 space-y-3">
 				<label class="flex items-start gap-3 rounded-lg border border-white/5 bg-white/[0.02] p-3">
-					<input type="checkbox" checked disabled class="mt-0.5 size-4 accent-brand-400" />
+					<Checkbox checked disabled class="mt-0.5 size-4" />
 					<span>
 						<span class="text-sm font-medium">Essential</span>
 						<span class="block text-xs text-muted-foreground">
@@ -79,11 +67,11 @@
 				</label>
 
 				<label class="flex items-start gap-3 rounded-lg border border-white/5 bg-white/[0.02] p-3">
-					<input
-						type="checkbox"
-						class="mt-0.5 size-4 accent-brand-400"
+					<Checkbox
+
+						class="mt-0.5 size-4"
 						checked={!!prefs.analytics}
-						onchange={(e) => consent.save({ analytics: e.currentTarget.checked })}
+						onCheckedChange={(checked) => consent.save({ analytics: checked })}
 					/>
 					<span>
 						<span class="text-sm font-medium">Analytics</span>
@@ -94,11 +82,11 @@
 				</label>
 
 				<label class="flex items-start gap-3 rounded-lg border border-white/5 bg-white/[0.02] p-3">
-					<input
-						type="checkbox"
-						class="mt-0.5 size-4 accent-brand-400"
+					<Checkbox
+
+						class="mt-0.5 size-4"
 						checked={!!prefs.preferences}
-						onchange={(e) => consent.save({ preferences: e.currentTarget.checked })}
+						onCheckedChange={(checked) => consent.save({ preferences: checked })}
 					/>
 					<span>
 						<span class="text-sm font-medium">Preferences</span>
@@ -109,11 +97,11 @@
 				</label>
 
 				<label class="flex items-start gap-3 rounded-lg border border-white/5 bg-white/[0.02] p-3">
-					<input
-						type="checkbox"
-						class="mt-0.5 size-4 accent-brand-400"
+					<Checkbox
+
+						class="mt-0.5 size-4"
 						checked={!!prefs.marketing}
-						onchange={(e) => consent.save({ marketing: e.currentTarget.checked })}
+						onCheckedChange={(checked) => consent.save({ marketing: checked })}
 					/>
 					<span>
 						<span class="text-sm font-medium">Marketing</span>
@@ -132,8 +120,8 @@
 					class="bg-brand-400 text-white hover:bg-brand-500">Save selection</Button
 				>
 			</div>
-		</div>
-	</div>
+		</Dialog.Content>
+	</Dialog.Root>
 {/if}
 
 <style>
@@ -141,7 +129,7 @@
 		position: fixed;
 		right: 1rem;
 		bottom: 1rem;
-		z-index: 60;
+		z-index: 40;
 		width: 17rem;
 		border: 1px solid var(--border);
 		border-radius: 1rem;

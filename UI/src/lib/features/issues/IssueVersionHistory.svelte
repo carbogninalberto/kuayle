@@ -1,4 +1,7 @@
 <script lang="ts">
+	import SelectField from '$lib/components/shared/SelectField.svelte';
+	import { Button } from '$lib/components/ui/button/index.js';
+	import { Checkbox } from '$lib/components/ui/checkbox/index.js';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale } from '$lib/paraglide/runtime.js';
 	import * as Dialog from '$lib/components/ui/dialog';
@@ -61,27 +64,23 @@
 		{#if loading}
 			<p role="status">{m['issue.versions.loading']()}</p>
 		{:else if error}
-			<div role="alert">{m['issue.versions.error']()} <button class="underline" onclick={load}>{m['issue.versions.retry']()}</button></div>
+			<div role="alert">{m['issue.versions.error']()} <Button variant="link" size="sm" class="underline" onclick={load}>{m['issue.versions.retry']()}</Button></div>
 		{:else if versions.length === 0}
 			<p>{m['issue.versions.empty']()}</p>
 		{:else}
 			<label class="grid gap-2 text-sm">
 				{m['issue.versions.change']()}
-				<select class="w-full min-w-0 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-2" bind:value={selectedId}>
-					{#each versions as entry, index (entry.id)}
-						<option value={entry.id}>{index + 1}. {fieldName(entry.field)} · {timestamp(entry.created_at)} · {author(entry)}</option>
-					{/each}
-				</select>
+				<SelectField class="w-full min-w-0 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-2" bind:value={selectedId} options={versions.map((entry, index) => ({ value: entry.id, label: `${index + 1}. ${fieldName(entry.field)} · ${timestamp(entry.created_at)} · ${author(entry)}` }))} />
 			</label>
 			<div class="flex flex-wrap items-center justify-between gap-2">
-				<button class="rounded border border-[var(--app-border)] px-3 py-1 disabled:opacity-40" disabled={selectedIndex <= 0} onclick={() => selectedId = versions[selectedIndex - 1].id}>{m['issue.versions.previous']()}</button>
+				<Button variant="outline" size="sm" class="rounded border px-3 py-1 disabled:opacity-40" disabled={selectedIndex <= 0} onclick={() => selectedId = versions[selectedIndex - 1].id}>{m['issue.versions.previous']()}</Button>
 				<span>{m['issue.versions.position']({ current: selectedIndex + 1, total: versions.length })}</span>
-				<button class="rounded border border-[var(--app-border)] px-3 py-1 disabled:opacity-40" disabled={selectedIndex >= versions.length - 1} onclick={() => selectedId = versions[selectedIndex + 1].id}>{m['issue.versions.next']()}</button>
+				<Button variant="outline" size="sm" class="rounded border px-3 py-1 disabled:opacity-40" disabled={selectedIndex >= versions.length - 1} onclick={() => selectedId = versions[selectedIndex + 1].id}>{m['issue.versions.next']()}</Button>
 			</div>
 			{#if selected}
 				<p class="text-sm break-words">{m['issue.versions.edited']({ author: author(selected), field: fieldName(selected.field) })} · <time datetime={selected.created_at}>{timestamp(selected.created_at)}</time></p>
 				{#if selected.field === 'description'}
-					<label class="flex items-center gap-2"><input type="checkbox" bind:checked={source} /> {m['issue.versions.source']()}</label>
+					<label class="flex items-center gap-2"><Checkbox bind:checked={source} /> {m['issue.versions.source']()}</label>
 				{/if}
 				<div class="grid min-w-0 gap-4 md:grid-cols-2">
 					{#each [{ label: m['issue.versions.before'](), value: selected.old_value }, { label: m['issue.versions.after'](), value: selected.new_value }] as side}

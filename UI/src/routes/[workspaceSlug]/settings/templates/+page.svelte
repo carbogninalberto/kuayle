@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Input } from '$lib/components/ui/input/index.js';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { listTemplates, createTemplate, deleteTemplate } from '$lib/api/issue-templates';
@@ -14,7 +15,7 @@
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
-	import { Plus, Trash2, FileText } from 'lucide-svelte';
+	import { Plus, Trash2, FileText } from '@lucide/svelte';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 
@@ -101,13 +102,13 @@
 <div class="mx-auto max-w-2xl px-8 py-10">
 	<div class="flex items-center justify-between">
 		<h1 class="text-2xl font-semibold text-[var(--color-text-primary)]">{m['settings.templates.title']()}</h1>
-		<button
+		<Button variant="default" size="sm"
 			onclick={openCreateDialog}
-			class="flex items-center gap-1 rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)]"
+			class="flex items-center gap-1 rounded-md px-3 py-1.5 text-sm"
 		>
 			<Plus size={14} />
 			{m['settings.templates.new']()}
-		</button>
+		</Button>
 	</div>
 
 	<div class="mt-8">
@@ -131,7 +132,7 @@
 						{#if template.priority != null}
 							<Badge variant="outline" class="text-[10px]">{priorityLabel(template.priority)}</Badge>
 						{/if}
-						<Button
+						<Button aria-label={m['common.delete']()}
 							variant="ghost"
 							size="icon-sm"
 							onclick={() => handleDelete(template.id)}
@@ -155,12 +156,12 @@
 		<div class="flex flex-col gap-4 py-4">
 			<div class="flex flex-col gap-1.5">
 				<label for="tpl-title" class="text-sm text-[var(--color-text-secondary)]">{m['settings.templates.title_field']()}</label>
-				<input
+				<Input
 					id="tpl-title"
 					type="text"
 					bind:value={formTitle}
 					placeholder={m['settings.templates.title_placeholder']()}
-					class="rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
+					class=""
 				/>
 			</div>
 			<div class="flex flex-col gap-1.5">

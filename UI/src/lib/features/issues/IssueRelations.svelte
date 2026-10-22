@@ -1,11 +1,12 @@
 <script lang="ts">
+	import { Button } from '$lib/components/ui/button/index.js';
 	import { onMount } from 'svelte';
 	import type { IssueRelation, RelationType } from '$lib/types/issue';
 	import { listRelations, deleteRelation } from '$lib/api/issue-relations';
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
 	import AddRelationDialog from './AddRelationDialog.svelte';
 	import * as Collapsible from '$lib/components/ui/collapsible';
-	import { Link, X, Plus, Ban, Copy, ArrowRight, ChevronRight } from 'lucide-svelte';
+	import { Link, X, Plus, Ban, Copy, ArrowRight, ChevronRight } from '@lucide/svelte';
 	import { appToast } from '$lib/features/toast/toast';
 
 	let {
@@ -102,13 +103,13 @@
 						{/if}
 					</Collapsible.Trigger>
 
-					<button
+					<Button variant="ghost" size="sm"
 						onclick={(e) => { e.stopPropagation(); openAdd(); }}
-						class="ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+						class="ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[var(--color-text-tertiary)] transition-colors hover:text-[var(--color-text-primary)]"
 						title="Add relation"
 					>
 						<Plus size={13} />
-					</button>
+					</Button>
 				</div>
 
 				<Collapsible.Content>
@@ -136,13 +137,13 @@
 														<span>Unavailable issue</span>
 													</div>
 												{/if}
-												<button
+												<Button variant="ghost" size="sm"
 													onclick={() => handleRemoveRelation(relation.id)}
 													class="ml-1 shrink-0 rounded p-1 text-[var(--color-text-tertiary)] opacity-0 transition-opacity hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] group-hover/relation:opacity-100"
 													title="Remove relation"
 												>
 													<X size={12} />
-												</button>
+												</Button>
 											</div>
 										{/each}
 									</div>

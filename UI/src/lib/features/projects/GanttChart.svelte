@@ -1,9 +1,10 @@
 <script lang="ts">
+	import { Button } from '$lib/components/ui/button/index.js';
 	import type { Issue, IssueStatus } from '$lib/types/issue';
 	import { getStatusLabel } from '$lib/types/issue';
 	import type { Cycle } from '$lib/types/cycle';
 	import * as echarts from 'echarts';
-	import { Filter, X } from 'lucide-svelte';
+	import { Filter, X } from '@lucide/svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
 
@@ -414,7 +415,7 @@
 <div bind:this={containerEl} class="flex h-full flex-col">
 	<!-- Toolbar -->
 	<div class="flex items-center gap-2 pb-3">
-		<button
+		<Button variant="outline" size="sm"
 			onclick={() => showFilters = !showFilters}
 			class="flex items-center gap-1.5 rounded-md border border-[var(--app-border)] px-2.5 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] {hasActiveFilters ? 'border-[var(--app-accent)] text-[var(--app-accent)]' : ''}"
 		>
@@ -423,15 +424,15 @@
 			{#if hasActiveFilters}
 				<span class="rounded-full bg-[var(--app-accent)] px-1.5 text-[9px] font-medium text-white">{filterStatus.size + (filterHasDueDate !== 'all' ? 1 : 0)}</span>
 			{/if}
-		</button>
+		</Button>
 		{#if hasActiveFilters}
-			<button
+			<Button variant="ghost" size="sm"
 				onclick={clearFilters}
 				class="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
 			>
 				<X size={12} />
 				{m['projects.gantt.clear']()}
-			</button>
+			</Button>
 		{/if}
 		<span class="text-[11px] text-[var(--color-text-tertiary)]">{m['projects.gantt.issues_count']({ count: filteredIssues.length, plural: filteredIssues.length !== 1 ? 's' : '' })}</span>
 	</div>
@@ -442,24 +443,24 @@
 			<div class="flex items-center gap-1.5">
 				<span class="text-[10px] font-medium uppercase text-[var(--color-text-tertiary)]">{m['projects.gantt.status']()}</span>
 				{#each statusOptions as s}
-					<button
+					<Button variant="ghost" size="sm"
 						onclick={() => toggleStatus(s)}
 						class="rounded-md px-2 py-0.5 text-[11px] {filterStatus.has(s) ? 'bg-[var(--app-accent)] text-white' : 'bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]'}"
 					>
 						{getStatusLabel(s)}
-					</button>
+					</Button>
 				{/each}
 			</div>
 			<div class="h-4 w-px bg-[var(--app-border)]"></div>
 			<div class="flex items-center gap-1.5">
 				<span class="text-[10px] font-medium uppercase text-[var(--color-text-tertiary)]">{m['projects.gantt.due_date']()}</span>
 				{#each [['all', m['projects.gantt.all']()], ['yes', m['projects.gantt.has_due']()], ['no', m['projects.gantt.no_due']()]] as [val, label]}
-					<button
+					<Button variant="ghost" size="sm"
 						onclick={() => filterHasDueDate = val as any}
 						class="rounded-md px-2 py-0.5 text-[11px] {filterHasDueDate === val ? 'bg-[var(--app-accent)] text-white' : 'bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]'}"
 					>
 						{label}
-					</button>
+					</Button>
 				{/each}
 			</div>
 		</div>

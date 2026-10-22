@@ -7,13 +7,13 @@ const cycleId = '00000000-0000-0000-0000-000000000040';
 const cyclePath = `/test/teams/${teamId}/cycles`;
 const now = '2026-01-01T00:00:00Z';
 
-async function mockWorkspace(page: Page, role = 'owner') {
+async function mockWorkspace(page: Page, role = 'owner', icon = 'layers') {
 	await page.routeWebSocket('**/ws', () => {});
 	const errors: string[] = [];
 	page.on('pageerror', (error) => errors.push(error.message));
 	const mutations: { method: string; path: string; body: any }[] = [];
 	const queries: URLSearchParams[] = [];
-	const team = { id: teamId, name: 'Engineering', key: 'ENG', color: '#6366f1', icon: 'layers', created_at: now };
+	const team = { id: teamId, name: 'Engineering', key: 'ENG', color: '#6366f1', icon, created_at: now };
 	const project = { id: projectId, name: 'Launch', team_id: teamId, status: 'planned', created_at: now };
 	const cycles = Array.from({ length: 7 }, (_, i) => ({
 		id: i === 0 ? cycleId : `00000000-0000-0000-0000-${String(40 + i).padStart(12, '0')}`,
@@ -62,6 +62,10 @@ async function mockWorkspace(page: Page, role = 'owner') {
 			return route.fulfill({ json: { id: 'workspace', slug: 'test', name: 'Test', current_user_role: role } });
 		if (path === '/api/notifications') return route.fulfill({ json: { notifications: [], unread_count: 0 } });
 		if (path === '/api/workspaces/test/teams') return route.fulfill({ json: [team] });
+		if (path === `/api/workspaces/test/teams/${teamId}`) {
+			if (request.method() === 'PATCH') Object.assign(team, request.postDataJSON());
+			return route.fulfill({ json: team });
+		}
 		if (path.endsWith('/statuses'))
 			return route.fulfill({
 				json: [
@@ -329,4 +333,71 @@ test('existing single-select parent picker still applies one selection immediate
 		parent_id: '00000000-0000-0000-0000-000000000164'
 	});
 	expect(state.errors).toEqual([]);
+});
+
+for (const theme of ['light', 'dark', 'cyber-77']) {
+ test(`calendar and selector triggers preserve keyboard focus in ${theme}`, async ({ page }, testInfo) => {
+  await page.addInitScript((theme) => {
+   localStorage.setItem('kuayle-preferences', JSON.stringify({ themeMode: theme === 'light' ? 'light' : 'dark', lightTheme: 'light', darkTheme: theme === 'cyber-77' ? theme : 'dark', localDirty: true }));
+  }, theme);
+  const state = await mockWorkspace(page);
+  await page.goto(`/test/projects/${projectId}`);
+  const trigger = page.getByRole('button', { name: 'Set start', exact: true });
+  await trigger.focus();
+  await trigger.press('Enter');
+  await expect(page.getByRole('grid').first()).toBeVisible();
+  await expect(page.locator('button button')).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath(`calendar-${theme}.png`) });
+  await page.keyboard.press('Escape');
+  await expect(trigger).toBeFocused();
+  await page.getByTestId('scoped-issues').locator('button', { hasText: 'New issue' }).click();
+  const dialog = page.getByRole('dialog', { name: 'New issue', exact: true });
+  await expect(dialog).toBeVisible();
+  await expect(page.locator('button button')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(dialog).not.toBeVisible();
+  expect(state.errors).toEqual([]);
+ });
+}
+
+test('review regression: command backdrop dismisses from the bottom of the viewport', async ({ page }, testInfo) => {
+	await mockWorkspace(page);
+	await page.goto(cyclePath);
+	await page.getByRole('link', { name: 'Current cycle', exact: true }).waitFor();
+	await page.keyboard.press('ControlOrMeta+k');
+	const search = page.getByPlaceholder('Type a command or search...');
+	await expect(search).toBeVisible();
+	await page.screenshot({ path: testInfo.outputPath('command-backdrop.png'), animations: 'disabled' });
+	await page.mouse.click(20, page.viewportSize()!.height - 20);
+	await expect(search).not.toBeVisible();
+});
+
+test('review regression: saved legacy team icons render and remain selectable', async ({ page }) => {
+	const state = await mockWorkspace(page, 'owner', 'Github');
+	await page.goto(`/test/settings/teams/${teamId}`);
+	const picker = page.getByRole('button', { name: /Choose icon or emoji/ });
+	await expect(picker.locator('svg path').first()).toHaveAttribute('d', /^M15 22v-4/);
+	await picker.click();
+	const search = page.getByPlaceholder('Search Lucide icons', { exact: true });
+	for (const name of ['Github', 'Gitlab', 'Figma', 'Slack', 'Trello', 'Twitter', 'Youtube', 'Linkedin', 'Facebook', 'Instagram', 'Dribbble', 'Codepen', 'Codesandbox', 'Framer', 'Pocket', 'Twitch', 'Chromium', 'RailSymbol']) {
+		await search.fill(name);
+		const label = name.replace(/([a-z0-9])([A-Z])/g, '$1 $2');
+		await expect(page.getByRole('button', { name: `Use ${label} icon`, exact: true })).toBeVisible();
+	}
+	await search.fill('Slack');
+	await page.getByRole('button', { name: 'Use Slack icon', exact: true }).click();
+	await expect.poll(() => state.mutations.some((m) => m.method === 'PATCH' && m.body.icon === 'Slack')).toBe(true);
+	await expect(picker.locator('svg path').first()).toHaveAttribute('d', /^M19 8\.5V10/);
+	expect(state.errors).toEqual([]);
+});
+
+test('review regression: action menus retain compact item spacing', async ({ page }) => {
+	await mockWorkspace(page);
+	await page.goto(cyclePath);
+	await page.getByRole('button', { name: 'Actions for Current cycle' }).click();
+	await expect.poll(async () => {
+		const edit = await page.getByRole('button', { name: 'Edit cycle', exact: true }).boundingBox();
+		const complete = await page.getByRole('button', { name: 'Complete cycle', exact: true }).boundingBox();
+		return complete!.y - (edit!.y + edit!.height);
+	}).toBeLessThanOrEqual(4);
 });

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Button } from '$lib/components/ui/button/index.js';
 	import type { Cycle } from '$lib/types/cycle';
 	import { Badge } from '$lib/components/ui/badge';
 	import * as Popover from '$lib/components/ui/popover';
@@ -15,7 +16,7 @@
 		Play,
 		CheckCircle2,
 		Trash2
-	} from 'lucide-svelte';
+	} from '@lucide/svelte';
 
 	let {
 		cycle,
@@ -158,57 +159,57 @@
 				</Popover.Trigger>
 				<Popover.Content class="w-48 p-1" align="end" side="bottom">
 					{#if onedit}
-						<button
+						<Button variant="ghost" size="sm"
 							onclick={(e) => {
 								e.stopPropagation();
 								menuOpen = false;
 								onedit?.(cycle);
 							}}
-							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
 						>
 							<Pencil size={14} />
 							{m['cycles.edit_cycle']()}
-						</button>
+						</Button>
 					{/if}
 					{#if cycle.status === 'upcoming' && onactivate}
-						<button
+						<Button variant="ghost" size="sm"
 							onclick={(e) => {
 								e.stopPropagation();
 								menuOpen = false;
 								onactivate?.(cycle.id);
 							}}
-							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
 						>
 							<Play size={14} />
 							{m['cycles.start_cycle']()}
-						</button>
+						</Button>
 					{/if}
 					{#if cycle.status === 'active' && oncomplete}
-						<button
+						<Button variant="ghost" size="sm"
 							onclick={(e) => {
 								e.stopPropagation();
 								menuOpen = false;
 								oncomplete?.(cycle.id);
 							}}
-							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
 						>
 							<CheckCircle2 size={14} />
 							{m['cycles.complete_cycle']()}
-						</button>
+						</Button>
 					{/if}
 					{#if ondelete}
 						<div class="my-1 border-t border-[var(--app-border)]"></div>
-						<button
+						<Button variant="destructive" size="sm"
 							onclick={(e) => {
 								e.stopPropagation();
 								menuOpen = false;
 								ondelete?.(cycle.id);
 							}}
-							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-error)] hover:bg-[var(--color-bg-hover)]"
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-error)]"
 						>
 							<Trash2 size={14} />
 							{m['cycles.delete_cycle']()}
-						</button>
+						</Button>
 					{/if}
 				</Popover.Content>
 			</Popover.Root>

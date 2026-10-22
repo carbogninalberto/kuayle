@@ -3,7 +3,8 @@
 </script>
 
 <script lang="ts">
-	import { ExternalLink, LoaderCircle, Plus, Settings2, SquareTerminal } from 'lucide-svelte';
+	import * as RadioGroup from '$lib/components/ui/radio-group/index.js';
+	import { ExternalLink, LoaderCircle, Plus, Settings2, SquareTerminal } from '@lucide/svelte';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Button } from '$lib/components/ui/button';
 	import {
@@ -186,16 +187,13 @@
 		{#if loading}
 			<div class="flex min-h-40 items-center justify-center text-sm text-[var(--color-text-tertiary)]"><LoaderCircle class="mr-2 size-4 animate-spin" />{m['machines.loading_machines']()}</div>
 		{:else}
-			<div class="max-h-[min(50vh,420px)] space-y-2 overflow-y-auto pr-1" role="radiogroup" aria-label="Existing Dev Machines">
+			<RadioGroup.Root bind:value={selectedMachineId} class="max-h-[min(50vh,420px)] space-y-2 overflow-y-auto pr-1" aria-label="Existing Dev Machines">
 				{#each machines as machine (machine.id)}
 					{@const reason = disabledReason(machine)}
-					<button
-						type="button"
-						role="radio"
-						aria-checked={selectedMachineId === machine.id}
-						disabled={!!reason}
-						class="flex w-full items-start justify-between gap-4 rounded-lg border p-3 text-left transition-colors {selectedMachineId === machine.id ? 'border-[var(--app-accent)] bg-[var(--app-accent)]/5' : 'border-[var(--app-border)] hover:bg-[var(--color-bg-hover)]'} disabled:cursor-not-allowed disabled:opacity-50"
-						onclick={() => (selectedMachineId = machine.id)}
+					<label class="flex w-full cursor-pointer items-start gap-3 rounded-lg border border-border p-3 has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50 has-data-[state=checked]:border-primary">
+					<RadioGroup.Item value={machine.id} aria-label={machine.name} class="mt-1" disabled={!!reason} />
+					<div
+						class="flex min-w-0 flex-1 items-start justify-between gap-4 text-left"
 					>
 						<span class="min-w-0">
 							<span class="block truncate text-sm font-medium">{machine.name}</span>
@@ -205,12 +203,13 @@
 							{#if reason}<span class="mt-1 block text-xs text-amber-500">{reason}</span>{/if}
 						</span>
 						<MachineStatusBadge status={machine.status} />
-					</button>
+					</div>
+					</label>
 				{/each}
 				{#if machines.length === 0 && !errorMessage}
 					<div class="rounded-lg border border-dashed border-[var(--app-border)] p-6 text-center text-sm text-[var(--color-text-tertiary)]">{m['machines.no_reusable_machines']()}</div>
 				{/if}
-			</div>
+			</RadioGroup.Root>
 		{/if}
 
 		{#if errorMessage}

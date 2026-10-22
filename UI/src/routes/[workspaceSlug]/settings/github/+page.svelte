@@ -23,7 +23,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { appToast } from '$lib/features/toast/toast';
-	import { ExternalLink, Plus, Trash2, Loader2, Search } from 'lucide-svelte';
+	import { ExternalLink, Plus, Trash2, Loader2, Search } from '@lucide/svelte';
 	import { GithubLogoIcon } from 'phosphor-svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
@@ -274,12 +274,12 @@
 			</div>
 
 			{#if !status?.global_app}
-				<button
+				<Button variant="destructive" size="sm"
 					onclick={handleDeleteApp}
 					class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-error)]"
 				>
 					{m['settings.github.remove_app']()}
-				</button>
+				</Button>
 			{/if}
 		</div>
 	{:else}
@@ -311,13 +311,13 @@
 				<div class="flex items-center justify-between">
 					<h3 class="text-sm font-medium text-[var(--color-text-primary)]">{m['settings.github.linked_repos']()}</h3>
 					{#if !showRepoSelector}
-						<button
+						<Button variant="ghost" size="sm"
 							onclick={loadAvailableRepos}
-							class="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
+							class="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors"
 						>
 							<Plus size={13} />
 							{m['settings.github.manage']()}
-						</button>
+						</Button>
 					{/if}
 				</div>
 
@@ -335,14 +335,14 @@
 									type="text"
 									placeholder={m['settings.github.search_repos']()}
 									bind:value={repoSearch}
-									class="pl-8 h-8 text-sm"
+									class="pl-8 h-8"
 								/>
 							</div>
 
 							<!-- Select all -->
-							<button
+							<Button variant="ghost" size="sm"
 								onclick={toggleSelectAll}
-								class="mt-2 flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+								class="mt-2 flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-secondary)]"
 							>
 								<Checkbox
 									checked={allFilteredSelected}
@@ -350,12 +350,12 @@
 									class="pointer-events-none"
 								/>
 								<span class="text-xs">{repoSearch ? m['settings.github.select_all_filtered']({ n: filteredRepos.length }) : m['settings.github.select_all']()} ({filteredRepos.length})</span>
-							</button>
+							</Button>
 
 							<!-- Repo list -->
 							<div class="mt-1 max-h-64 space-y-0.5 overflow-y-auto">
 								{#each filteredRepos as repo}
-									<button
+									<Button variant="ghost" size="sm"
 										onclick={() => toggleRepo(repo.github_repo_id)}
 										class="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-sm hover:bg-[var(--color-bg-hover)] {selectedRepoIds.has(repo.github_repo_id) ? 'bg-[var(--color-bg-hover)]/50' : ''}"
 									>
@@ -368,7 +368,7 @@
 										{#if repo.private}
 											<Badge variant="outline" class="ml-auto shrink-0 text-[9px]">{m['settings.github.private']()}</Badge>
 										{/if}
-									</button>
+									</Button>
 								{:else}
 									<p class="py-4 text-center text-xs text-[var(--color-text-tertiary)]">
 										{repoSearch ? m['settings.github.no_repos_match']() : m['settings.github.no_repos_available']()}
@@ -442,13 +442,13 @@
 			<!-- Danger zone -->
 			{#if !status?.global_app}
 				<div class="border-t border-[var(--app-border)] pt-4">
-					<button
+					<Button variant="destructive" size="sm"
 						onclick={handleDeleteApp}
 						class="flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-error)]"
 					>
 						<Trash2 size={12} />
 						{m['settings.github.remove_app_entirely']()}
-					</button>
+					</Button>
 				</div>
 			{/if}
 		</div>

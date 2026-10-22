@@ -1,11 +1,13 @@
 <script lang="ts">
+	import { Button } from '$lib/components/ui/button/index.js';
+	import { Input } from '$lib/components/ui/input/index.js';
 	import type { Issue, RelationType } from '$lib/types/issue';
 	import type { PaginatedResponse } from '$lib/types/common';
 	import { createRelation } from '$lib/api/issue-relations';
 	import { listIssues } from '$lib/api/issues';
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
 	import IssuePriorityIcon from './IssuePriorityIcon.svelte';
-	import { Ban, Copy, Link, LoaderCircle, OctagonAlert } from 'lucide-svelte';
+	import { Ban, Copy, Link, LoaderCircle, OctagonAlert } from '@lucide/svelte';
 	import { appToast } from '$lib/features/toast/toast';
 
 	let {
@@ -209,13 +211,13 @@
 {#if open}
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div class="fixed inset-0 z-50 flex items-start justify-center px-3 pt-[6vh]" onkeydown={handleKeydown}>
-		<button
-			class="fixed inset-0 cursor-default"
+		<Button variant="ghost" size="sm"
+			class="fixed inset-0 h-full w-full rounded-none border-0 p-0 active:not-aria-[haspopup]:translate-y-0 cursor-default"
 			style="background: rgba(0,0,0,{visible ? 0.5 : 0}); transition: background {ANIM_DURATION}ms ease;"
 			onclick={close}
 			tabindex={-1}
 			aria-label="Close"
-		></button>
+		></Button>
 
 		<div
 			class="relative z-10 w-full max-w-2xl overflow-hidden rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] shadow-2xl"
@@ -232,10 +234,10 @@
 				<div class="grid grid-cols-2 gap-1 sm:grid-cols-4">
 					{#each RELATION_OPTIONS as option}
 						{@const Icon = option.Icon}
-						<button
+						<Button variant="outline" size="sm"
 							type="button"
 							onclick={() => (selectedType = option.type)}
-							class="flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors {selectedType === option.type
+							class="h-auto justify-start whitespace-normal flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors {selectedType === option.type
 								? option.activeClass
 								: 'border-transparent bg-[var(--color-bg)]/60 text-[var(--color-text-tertiary)] hover:border-[var(--app-border)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
 						>
@@ -244,20 +246,20 @@
 								<span class="block truncate text-xs font-medium">{option.label}</span>
 								<span class="hidden truncate text-[10px] text-[var(--color-text-tertiary)] sm:block">{option.description}</span>
 							</span>
-						</button>
+						</Button>
 					{/each}
 				</div>
 			</div>
 
 			<!-- svelte-ignore a11y_autofocus -->
-			<input
+			<Input
 				id="relation-picker-search"
 				type="text"
 				aria-label="Search issues"
 				bind:value={searchQuery}
 				placeholder="Search issues..."
 				autofocus
-				class="w-full border-b border-[var(--app-border)] bg-transparent px-4 py-4 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)]"
+				class="h-auto w-full border-b bg-transparent px-4 py-4"
 			/>
 
 			<div class="max-h-[58vh] min-h-[20rem] overflow-y-auto py-2">
@@ -272,8 +274,8 @@
 						</div>
 					{:else if searchResults.length > 0}
 						{#each searchResults as result, i (result.id)}
-							<button
-								class="flex w-full items-start gap-2 px-4 py-2 text-left text-sm {i === selectedIndex ? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]' : 'text-[var(--color-text-secondary)]'}"
+							<Button variant="ghost" size="sm"
+								class="h-auto justify-start whitespace-normal flex w-full items-start gap-2 px-4 py-2 text-left text-sm {i === selectedIndex ? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]' : 'text-[var(--color-text-secondary)]'}"
 								onmouseenter={() => (selectedIndex = i)}
 								onclick={() => selectIssue(result)}
 							>
@@ -296,7 +298,7 @@
 									</div>
 								</div>
 								<span class="mt-0.5 hidden shrink-0 text-xs text-[var(--color-text-tertiary)] sm:inline">{selectedOption.label}</span>
-							</button>
+							</Button>
 						{/each}
 					{:else}
 						<p class="px-4 py-2 text-sm text-[var(--color-text-tertiary)]">No issues found</p>

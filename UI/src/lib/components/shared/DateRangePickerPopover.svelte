@@ -1,9 +1,10 @@
 <script lang="ts">
+	import { Button } from '$lib/components/ui/button/index.js';
 	import * as Popover from '$lib/components/ui/popover';
 	import { RangeCalendar } from '$lib/components/ui/range-calendar';
 	import { CalendarDate } from '@internationalized/date';
 	import type { DateValue } from '@internationalized/date';
-	import { CalendarIcon, X } from 'lucide-svelte';
+	import { CalendarIcon } from '@lucide/svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
 
@@ -70,32 +71,20 @@
 		}
 	}
 
-	function handleClear(e: MouseEvent) {
-		e.stopPropagation();
-		// Reset to empty — parent handles the state
-		open = false;
-	}
 </script>
 
 <Popover.Root bind:open>
 	<Popover.Trigger>
-		<button class="flex items-center gap-1.5 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-2.5 py-1 text-xs hover:bg-[var(--color-bg-hover)] {displayText ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-secondary)]'}">
-			<CalendarIcon size={12} />
-			{#if displayText}
-				{displayText}
-				<span
-					onclick={handleClear}
-					onkeydown={(e) => { if (e.key === 'Enter') handleClear(e as unknown as MouseEvent); }}
-					role="button"
-					tabindex={0}
-					class="ml-1 inline-flex rounded p-0.5 hover:bg-[var(--color-bg-hover)]"
-				>
-					<X size={10} />
-				</span>
-			{:else}
-				{placeholder}
-			{/if}
-		</button>
+		{#snippet child({ props })}
+			<Button {...props} variant="outline" size="sm" class="flex items-center gap-1.5 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-2.5 py-1 text-xs hover:bg-[var(--color-bg-hover)] {displayText ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-secondary)]'}">
+				<CalendarIcon size={12} />
+				{#if displayText}
+					{displayText}
+				{:else}
+					{placeholder}
+				{/if}
+			</Button>
+		{/snippet}
 	</Popover.Trigger>
 	<Popover.Content class="w-auto p-0" align="start">
 		{#key `${startDate}-${endDate}`}

@@ -81,7 +81,7 @@ test('creates a workspace-restricted token with exact preset scopes and protects
 	await page.getByRole('button', { name: 'New token', exact: true }).first().click();
 	const createDialog = page.getByRole('dialog', { name: 'Create token', exact: true });
 	await createDialog.getByLabel('Name', { exact: true }).fill('CLI token');
-	await createDialog.getByRole('button', { name: 'Preset', exact: true }).click();
+	await createDialog.getByRole('combobox', { name: 'Preset', exact: true }).click();
 	await page.getByRole('option', { name: 'Developer (CLI)' }).click();
 	await createDialog.getByRole('checkbox', { name: 'Test Workspace' }).check();
 	await createDialog.getByRole('button', { name: 'Create token', exact: true }).click();
@@ -178,10 +178,10 @@ test('validates custom expiration and preserves custom permissions across a fail
 	await page.getByRole('button', { name: 'New token', exact: true }).first().click();
 	const dialog = page.getByRole('dialog', { name: 'Create token', exact: true });
 	await dialog.getByLabel('Name', { exact: true }).fill('Custom workflow');
-	await dialog.getByRole('button', { name: 'Issues', exact: true }).click();
+	await dialog.getByRole('combobox', { name: 'Issues', exact: true }).click();
 	await page.getByRole('option', { name: 'No access', exact: true }).click();
-	await expect(dialog.getByRole('button', { name: 'Preset', exact: true })).toHaveText(/Custom/);
-	await dialog.getByRole('button', { name: 'Expiration', exact: true }).click();
+	await expect(dialog.getByRole('combobox', { name: 'Preset', exact: true })).toHaveText(/Custom/);
+	await dialog.getByRole('combobox', { name: 'Expiration', exact: true }).click();
 	await page.getByRole('option', { name: 'Custom date', exact: true }).click();
 	await expect(dialog.getByRole('button', { name: 'Create token', exact: true })).toBeDisabled();
 	const date = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);

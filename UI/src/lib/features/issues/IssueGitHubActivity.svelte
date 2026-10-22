@@ -1,11 +1,12 @@
 <script lang="ts">
+	import { Button } from '$lib/components/ui/button/index.js';
 	import { onMount } from 'svelte';
 	import { getIssueGitHubActivity } from '$lib/api/github';
 	import type { GitHubIssueActivity } from '$lib/types/github';
 	import { formatRelativeTime } from '$lib/utils/format';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
-	import { GitBranch, GitPullRequest, GitCommitHorizontal, ExternalLink, Copy, Check, ChevronRight } from 'lucide-svelte';
+	import { GitBranch, GitPullRequest, GitCommitHorizontal, ExternalLink, Copy, Check, ChevronRight } from '@lucide/svelte';
 	import { appToast } from '$lib/features/toast/toast';
 
 	let { slug, identifier }: { slug: string; identifier: string } = $props();
@@ -68,7 +69,7 @@
 
 {#if !loading && hasActivity}
 	<div class="overflow-hidden rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]/60">
-		<button
+		<Button variant="ghost" size="sm"
 			onclick={() => (expanded = !expanded)}
 			class="flex w-full items-center gap-2 px-3 py-2 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
 		>
@@ -78,7 +79,7 @@
 			<span class="rounded-full bg-[var(--color-bg-tertiary)] px-2 py-0.5 text-xs text-[var(--color-text-tertiary)]">
 				{referenceCount}
 			</span>
-		</button>
+		</Button>
 
 		{#if expanded && activity}
 			<div class="border-t border-[var(--app-border)]">
@@ -115,7 +116,7 @@
 							<code class="block truncate text-[var(--color-text-primary)]">{branch.name}</code>
 							<div class="mt-0.5 truncate text-[var(--color-text-tertiary)]">{branch.repo_full_name}</div>
 						</div>
-						<button
+						<Button variant="ghost" size="sm"
 							onclick={() => copyBranch(branch.name)}
 							class="shrink-0 rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-secondary)]"
 							title="Copy branch name"
@@ -125,7 +126,7 @@
 							{:else}
 								<Copy size={12} />
 							{/if}
-						</button>
+						</Button>
 						{#if branch.html_url}
 							<a href={branch.html_url} target="_blank" rel="noopener noreferrer" class="shrink-0 rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-secondary)]">
 								<ExternalLink size={12} />

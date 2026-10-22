@@ -1,9 +1,10 @@
 <script lang="ts">
+	import { Button } from '$lib/components/ui/button/index.js';
 	import { Calendar } from '$lib/components/ui/calendar';
 	import { preferencesState } from '$lib/features/preferences/preferences.state.svelte';
 	import { CalendarDate } from '@internationalized/date';
 	import type { DateValue } from '@internationalized/date';
-	import { CalendarDays, X } from 'lucide-svelte';
+	import { CalendarDays, X } from '@lucide/svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
 
@@ -71,14 +72,14 @@
 				<div class="px-2 pb-1 text-[10px] font-medium uppercase text-[var(--color-text-tertiary)]">{m['sharedComponents.due_date_picker.recent']()}</div>
 				<div class="space-y-0.5">
 					{#each recentDueDates as date (date)}
-						<button
+						<Button variant="ghost" size="sm"
 							type="button"
-							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+							class="h-auto justify-start whitespace-normal flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
 							onclick={() => selectDate(date)}
 						>
 							<CalendarDays size={13} />
 							<span class="truncate">{formatDisplayDate(date)}</span>
-						</button>
+						</Button>
 					{/each}
 				</div>
 			</div>
@@ -88,24 +89,24 @@
 			<div class="px-2 pb-1 text-[10px] font-medium uppercase text-[var(--color-text-tertiary)]">{m['sharedComponents.due_date_picker.presets']()}</div>
 			<div class="space-y-0.5">
 				{#each presets as preset (preset.label)}
-					<button
+					<Button variant="ghost" size="sm"
 						type="button"
-						class="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+						class="h-auto justify-start whitespace-normal flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
 						onclick={() => selectDate(preset.value)}
 					>
 						<span>{preset.label}</span>
 						<span class="text-[10px] text-[var(--color-text-tertiary)]">{formatDisplayDate(preset.value)}</span>
-					</button>
+					</Button>
 				{/each}
 
-				<button
+				<Button variant="ghost" size="sm"
 					type="button"
-					class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+					class="h-auto justify-start whitespace-normal flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
 					onclick={() => selectDate(null)}
 				>
 					<X size={13} />
 					{effectiveClearLabel}
-				</button>
+				</Button>
 			</div>
 		</div>
 	</div>

@@ -170,7 +170,7 @@
 			aria-modal="true"
 			aria-labelledby="upgrade-required-title"
 			aria-describedby="upgrade-required-description"
-			tabindex="-1"
+			tabindex={-1}
 		>
 			<div class="space-y-6 p-6 pb-4">
 				<div class="flex items-center gap-2 text-sm font-semibold">
@@ -241,14 +241,14 @@
 								>
 								{m['sharedComponents.release_notice.to']()} <strong class="font-semibold text-[var(--color-text-secondary)]">{latestRelease.tag_name}</strong>
 							</span>
-							<button
+							<Button variant="ghost" size="sm"
 								type="button"
 								class="cursor-pointer select-none rounded px-1.5 py-0.5 text-[var(--color-text-tertiary)] transition-colors hover:text-[var(--color-text-secondary)]"
 								onclick={togglePrerelease}
 								title={m['sharedComponents.release_notice.toggle_prerelease']()}
 							>
 								{includePrerelease ? m['sharedComponents.release_notice.hide_prereleases']() : m['sharedComponents.release_notice.show_prereleases']()}
-							</button>
+							</Button>
 						</div>
 						{#if changelogHtml}
 							<!-- eslint-disable svelte/no-at-html-tags -->

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import ComboboxPopover from '$lib/components/shared/ComboboxPopover.svelte';
 	import * as Command from '$lib/components/ui/command/index.js';
-	import { FolderKanban } from 'lucide-svelte';
+	import { FolderKanban } from '@lucide/svelte';
 	import type { Project } from '$lib/types/project';
 	import type { Snippet } from 'svelte';
 	import { m } from '$lib/paraglide/messages.js';
@@ -22,7 +22,7 @@
 		projects: Project[];
 		value: string | null | undefined;
 		onchange: (projectId: string | null) => void;
-		trigger: Snippet;
+		trigger: Snippet<[Record<string, unknown>]>;
 		showNone?: boolean;
 		width?: string;
 		align?: 'start' | 'center' | 'end';

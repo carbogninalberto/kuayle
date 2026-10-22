@@ -66,7 +66,7 @@
 						bind:value={name}
 						placeholder="e.g. Bug, Feature, Documentation"
 						required
-						class="bg-[var(--color-bg)] border-[var(--app-border)] text-[var(--color-text-primary)]"
+						class=""
 					/>
 				</div>
 
@@ -75,19 +75,19 @@
 					<div class="flex items-center gap-2">
 						<div class="flex gap-1.5">
 							{#each PRESET_COLORS as preset}
-								<button
+								<Button variant="outline" size="sm"
 									type="button"
 									onclick={() => (color = preset)}
 									class="h-6 w-6 rounded-full border-2 transition-transform {color === preset ? 'border-white scale-110' : 'border-transparent'}"
 									style="background-color: {preset}"
 									aria-label="Select color {preset}"
-								></button>
+								></Button>
 							{/each}
 						</div>
-						<input
+						<Input
 							type="color"
 							bind:value={color}
-							class="h-6 w-6 cursor-pointer rounded border-0 p-0"
+							class="h-6 w-6 cursor-pointer border-0 p-0"
 						/>
 					</div>
 				</div>
@@ -97,7 +97,7 @@
 					<Input
 						bind:value={description}
 						placeholder="What is this label for?"
-						class="bg-[var(--color-bg)] border-[var(--app-border)] text-[var(--color-text-primary)]"
+						class=""
 					/>
 				</div>
 

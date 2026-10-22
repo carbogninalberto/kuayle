@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import { Plus, Server, GitBranch, Clock3, ChevronLeft, ChevronRight, Trash2 } from 'lucide-svelte';
+	import { Plus, Server, GitBranch, Clock3, ChevronLeft, ChevronRight, Trash2 } from '@lucide/svelte';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import * as Card from '$lib/components/ui/card';
 	import { bulkPermanentDeleteDevMachines, listDevMachines } from '$lib/api/dev-machines';

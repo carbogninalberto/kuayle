@@ -41,7 +41,7 @@
 	import { createKeyboardHandler } from '$lib/utils/keyboard';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/paraglide/messages.js';
-	import { Plus, Layers, BarChart3 } from 'lucide-svelte';
+	import { Plus, Layers, BarChart3 } from '@lucide/svelte';
 
 	let {
 		slug,
@@ -286,13 +286,13 @@
 						aria-label={m['common.group_by']()}><Layers size={12} />{m['common.group']()}</Popover.Trigger
 					>
 					<Popover.Content class="w-40 p-1" align="end">
-						{#each groupOptions as option}<button
-								class="w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-[var(--color-bg-hover)]"
+						{#each groupOptions as option}<Button variant="ghost" size="sm"
+								class="h-auto justify-start whitespace-normal w-full rounded-md px-2 py-1.5 text-left text-sm"
 								onclick={() => {
 									groupBy = option.value;
 									groupOpen = false;
 									void loadIssues();
-								}}>{option.label}</button
+								}}>{option.label}</Button
 							>{/each}
 					</Popover.Content>
 				</Popover.Root>

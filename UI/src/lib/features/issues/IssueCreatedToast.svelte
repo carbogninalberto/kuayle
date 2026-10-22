@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { Check, Copy, GitBranch, Link as LinkIcon, X } from 'lucide-svelte';
+	import { Button } from '$lib/components/ui/button/index.js';
+	import { Check, Copy, GitBranch, Link as LinkIcon, X } from '@lucide/svelte';
 	import IssueStatusIcon from './IssueStatusIcon.svelte';
 
 	let {
@@ -49,9 +50,9 @@
 	<div class="content">
 		<div class="header">
 			<div class="title">Issue created</div>
-			<button class="close" type="button" aria-label="Close toast" onclick={dismiss}>
+			<Button variant="ghost" size="icon-sm" class="close" type="button" aria-label="Close toast" onclick={dismiss}>
 				<X size={16} />
-			</button>
+			</Button>
 		</div>
 
 		<a {href} class="issue-line" onclick={dismiss}>
@@ -65,21 +66,21 @@
 			<a {href} class="view-link" onclick={dismiss}>View issue</a>
 
 			<div class="commands" aria-label="Issue commands">
-				<button type="button" aria-label="Copy issue link" title="Copy issue link" onclick={() => copy(url, 'link')}>
+				<Button variant="ghost" size="sm" type="button" aria-label="Copy issue link" title="Copy issue link" onclick={() => copy(url, 'link')}>
 					{#if copied === 'link'}
 						<Check size={12} />
 					{:else}
 						<LinkIcon size={12} />
 					{/if}
-				</button>
-				<button type="button" aria-label="Copy issue ID" title="Copy issue ID" onclick={() => copy(identifier, 'id')}>
+				</Button>
+				<Button variant="ghost" size="sm" type="button" aria-label="Copy issue ID" title="Copy issue ID" onclick={() => copy(identifier, 'id')}>
 					{#if copied === 'id'}
 						<Check size={12} />
 					{:else}
 						<Copy size={12} />
 					{/if}
-				</button>
-				<button
+				</Button>
+				<Button variant="ghost" size="sm"
 					type="button"
 					aria-label="Copy branch name"
 					title="Copy branch name"
@@ -90,7 +91,7 @@
 					{:else}
 						<GitBranch size={12} />
 					{/if}
-				</button>
+				</Button>
 			</div>
 		</div>
 	</div>
@@ -149,8 +150,8 @@
 		letter-spacing: -0.02em;
 	}
 
-	.close,
-	.commands button {
+	.issue-created-toast :global(.close),
+	.commands :global(button) {
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
@@ -163,14 +164,14 @@
 			opacity 120ms ease;
 	}
 
-	.close {
+	.issue-created-toast :global(.close) {
 		margin: -2px -3px 0 0;
 		padding: 2px;
 		border-radius: 6px;
 	}
 
-	.close:hover,
-	.commands button:hover {
+	.issue-created-toast :global(.close):hover,
+	.commands :global(button):hover {
 		background: var(--color-bg-hover);
 		color: var(--color-text-primary);
 	}
@@ -257,7 +258,7 @@
 		visibility: visible;
 	}
 
-	.commands button {
+	.commands :global(button) {
 		width: 18px;
 		height: 18px;
 		flex: 0 0 18px;
@@ -266,8 +267,8 @@
 		line-height: 1;
 	}
 
-	.commands button :global(svg),
-	.close :global(svg) {
+	.commands :global(button) :global(svg),
+	.issue-created-toast :global(.close) :global(svg) {
 		display: block;
 	}
 

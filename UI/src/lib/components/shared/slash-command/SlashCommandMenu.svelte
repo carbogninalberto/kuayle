@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Button } from '$lib/components/ui/button/index.js';
 	import { onMount, onDestroy } from 'svelte';
 	import type { SlashGroup, SlashMenuItem } from './slash-items';
 	import { m } from '$lib/paraglide/messages.js';
@@ -90,11 +91,11 @@
 				{#each group.items as item}
 					{@const idx = flatItems.indexOf(item)}
 					{@const Icon = item.icon}
-					<button
+					<Button variant="ghost" size="sm"
 						type="button"
 						data-index={idx}
-						class="slash-item"
-						class:selected={idx === selectedIndex}
+						class={`slash-item ${idx === selectedIndex ? 'selected' : ''}`}
+
 						onpointerdown={(e) => { e.preventDefault(); onselect(item); onclose(); }}
 					>
 						<span class="slash-item-icon">
@@ -104,7 +105,7 @@
 					{#if item.shortcut}
 						<span class="slash-item-shortcut">{item.shortcut}</span>
 					{/if}
-				</button>
+				</Button>
 			{/each}
 		</div>
 	{/each}
@@ -136,7 +137,7 @@
 		padding-top: 4px;
 	}
 
-	.slash-item {
+	.slash-command-menu :global(.slash-item) {
 		display: flex;
 		align-items: center;
 		gap: 10px;
@@ -151,8 +152,8 @@
 		text-align: left;
 	}
 
-	.slash-item:hover,
-	.slash-item.selected {
+	.slash-command-menu :global(.slash-item):hover,
+	.slash-command-menu :global(.slash-item.selected) {
 		background: var(--color-bg-hover);
 	}
 
