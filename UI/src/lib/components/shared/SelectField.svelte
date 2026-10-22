@@ -1,6 +1,7 @@
 <script lang="ts" generics="T extends string | number">
 	import * as Select from '$lib/components/ui/select/index.js';
 	import type { ComponentProps } from 'svelte';
+	import { cn } from '$lib/utils.js';
 
 	// Keep domain values (including numeric priorities) at the boundary while
 	// Bits UI owns keyboard navigation, focus return and form serialization.
@@ -42,8 +43,18 @@
 	{required}
 	disabled={disabled ?? false}
 >
-	<!-- A caller class carries the crafted look of the native select this replaced. -->
-	<Select.Trigger {...triggerProps} variant={className ? 'plain' : 'default'} class={className}>
+	<!-- A caller class carries the crafted look of the native select this replaced;
+	     the inner offsets mirror the native control's text inset and chevron position. -->
+	<Select.Trigger
+		{...triggerProps}
+		variant={className ? 'plain' : 'default'}
+		class={className
+			? cn(
+					'*:data-[slot=select-value]:pl-1 *:data-[slot=select-value]:leading-[19px] [&>svg:last-child]:-mr-[7px] [&>svg:last-child]:size-3.5 [&>svg:last-child]:stroke-[3] [&>svg:last-child]:text-current',
+					className
+				)
+			: undefined}
+	>
 		<Select.Value placeholder={placeholder ?? prompt} />
 	</Select.Trigger>
 	<Select.Content>
