@@ -18,7 +18,7 @@
 <Seo meta={{ ...meta, jsonLd }} />
 <Nav />
 
-<main class="mx-auto max-w-5xl px-6 pt-28 pb-20">
+<main id="main" tabindex="-1" class="outline-none mx-auto max-w-5xl px-6 pt-28 pb-20">
 	<Breadcrumbs breadcrumbs={crumbs} />
 	<article class="mt-8">
 		<div use:reveal>

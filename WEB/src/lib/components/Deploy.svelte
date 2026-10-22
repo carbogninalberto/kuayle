@@ -35,6 +35,8 @@ docker compose exec backend /app/server seed`;
 			<p class="mt-4 text-lg text-muted-foreground">
 				The self-hosting stack runs Caddy, PostgreSQL 17, Redis 7, the Go API and the SvelteKit app.
 				Set the required secrets, start the services, then run the database migration and seed commands.
+				Later updates use <code class="font-mono text-base text-brand-200">selfhosting/update.sh</code> or the optional
+				in-app updater.
 			</p>
 		</div>
 
@@ -59,6 +61,7 @@ docker compose exec backend /app/server seed`;
 						<Copy class="size-3.5" /> Copy
 					{/if}
 				</Button>
+				<span class="sr-only" aria-live="polite">{copied ? 'Commands copied to the clipboard' : ''}</span>
 			</div>
 				<pre class="overflow-x-auto p-5 font-mono text-sm leading-7"><code
 						><span class="text-muted-foreground">$</span> <span class="text-brand-200">git</span> clone https://github.com/carbogninalberto/kuayle
@@ -68,7 +71,7 @@ docker compose exec backend /app/server seed`;
 <span class="text-muted-foreground">$</span> <span class="text-brand-200">docker</span> compose up --build -d
 <span class="text-muted-foreground">$</span> <span class="text-brand-200">docker</span> compose exec backend /app/server migrate up
 <span class="text-muted-foreground">$</span> <span class="text-brand-200">docker</span> compose exec backend /app/server seed<span
-							class="ml-1 inline-block h-4 w-2 translate-y-0.5 bg-brand-300"
+							class="caret ml-1 inline-block h-4 w-2 translate-y-0.5 bg-brand-300"
 							style="animation: caret-blink 1.2s step-end infinite"
 						></span></code
 					></pre>

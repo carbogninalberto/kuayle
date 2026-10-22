@@ -23,7 +23,7 @@
 
 ## 🚦 Current Implementation State
 
-Kuayle's published releases are runnable MVPs, not a mature enterprise platform. This development branch also contains unreleased work described below. The repository includes the Go API, SvelteKit frontend, database migrations, development tooling, and reference self-hosting configuration.
+Kuayle's published releases are runnable MVPs, not a mature enterprise platform. The repository includes the Go API, SvelteKit frontend, database migrations, development tooling, and reference self-hosting configuration.
 
 | Area             | State                                                                                                                                                                                                                                                     |
 | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -31,7 +31,7 @@ Kuayle's published releases are runnable MVPs, not a mature enterprise platform.
 | **Planning**     | Implemented: cycles with burndown/velocity charts, project management with Gantt view, and full cycle/project UI.                                                                                                                                         |
 | **Integrations** | Available: workspace webhooks and a GitHub App with repository linking, branch/commit/PR activity, configurable status transitions, and WebSocket refresh events. Private networks require a webhook relay or tunnel.                                              |
 | **Analytics**    | Workspace and team overviews, event-based burn-up trends, and configurable issue insights based on current issue data and stored lifecycle timestamps.                                                                                                                                              |
-| **Dev Machines** | Unreleased development-branch functionality implemented as an opt-in self-hosted subsystem: PostgreSQL control plane, multi-container runtime, manager, authenticated gateway, four agent providers, collector, and UI. Disabled by default; see [`TECHNICAL.md`](TECHNICAL.md). |
+| **Dev Machines** | Available since v0.1.13 as an opt-in self-hosted subsystem: PostgreSQL control plane, multi-container runtime, manager, authenticated gateway, four agent providers, collector, and UI. Disabled by default; see [`TECHNICAL.md`](TECHNICAL.md). |
 | **Self-hosting** | Reference Docker Compose stack with Caddy, PostgreSQL, Redis, backend, frontend, an update script, and dedicated config in [`selfhosting/`](selfhosting/).                                                                                                       |
 
 ## Why Kuayle?
@@ -63,7 +63,7 @@ The product is intentionally smaller than broad project-management suites. It co
 | 🔔  | **Notifications**      | Inbox with snooze, read status, and archive                                      |
 | 🔗  | **Webhooks**           | Plug into external services and integrations                                     |
 | ⚡  | **Real-time**          | Workspace WebSocket events for issues, comments, cycles, views, GitHub, and presence |
-| 🖥️  | **Dev Machines**       | Unreleased opt-in multi-container coding environments with agents, browser access, authenticated routing, and work tracking |
+| 🖥️  | **Dev Machines**       | Opt-in multi-container coding environments with agents, browser access, authenticated routing, and work tracking |
 | 🐙  | **GitHub**             | Link repos, match issue IDs in development activity, and apply status rules      |
 | 📊  | **Analytics**          | Workspace/team overview, burn-up, and configurable insights                     |
 | 🔗  | **Public Sharing**     | Token-based read-only links for issues and views                                 |
@@ -91,7 +91,7 @@ records, including nullable authors for writes without an identified editor.
 
 ## 🤖 Dev Machines (Agentic Coding)
 
-Dev Machines are an unreleased opt-in multi-container subsystem for self-hosted Kuayle. Machines can be created generically, then attach issue worktrees when work starts. Every machine has collector and egress services; it may also include a shared code-server/native-terminal developer container and a browser, while agent containers are created on demand for runs. PostgreSQL-backed operations provide durable reconciliation and authenticated wildcard routing.
+Dev Machines are an opt-in multi-container subsystem for self-hosted Kuayle, included in releases since v0.1.13. Machines can be created generically, then attach issue worktrees when work starts. Every machine has collector and egress services; it may also include a shared code-server/native-terminal developer container and a browser, while agent containers are created on demand for runs. PostgreSQL-backed operations provide durable reconciliation and authenticated wildcard routing.
 
 > See [`TECHNICAL.md`](TECHNICAL.md) for the full specification, architecture diagrams, schema, and API reference.
 

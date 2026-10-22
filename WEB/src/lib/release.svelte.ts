@@ -10,7 +10,7 @@
  * bounded retries and every consumer updates if a newer release exists.
  */
 
-export const FALLBACK_VERSION = 'v0.1.12';
+export const FALLBACK_VERSION = 'v0.1.24';
 export const RELEASES_PAGE_URL = 'https://github.com/carbogninalberto/kuayle/releases';
 
 const RELEASES_MANIFEST_URL =

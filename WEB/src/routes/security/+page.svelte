@@ -25,12 +25,23 @@
 		},
 		{
 			heading: 'Authentication',
-			body: 'Kuayle hashes passwords with bcrypt. Authentication uses signed access and refresh tokens; refresh-token hashes and expiry times are stored in PostgreSQL. Set a unique JWT_SECRET of at least 32 characters before starting the backend.',
+			body: 'Kuayle hashes passwords with bcrypt. Authentication uses signed access and refresh tokens; refresh-token hashes and expiry times are stored in PostgreSQL. Set a unique JWT_SECRET of at least 32 characters before starting the backend. Set DISABLE_REGISTRATION=true to require a valid invite link for new accounts.',
 			list: [
 				'Access and refresh tokens signed with JWT_SECRET',
 				'Passwords hashed with bcrypt before storage',
 				'Expiring access and refresh tokens',
-				'Role-based access control: Owner, Admin, Member, Guest'
+				'Role-based access control: Owner, Admin, Member, Guest',
+				'Optional invite-only registration'
+			]
+		},
+		{
+			heading: 'Authorization boundaries',
+			body: 'Private teams restrict issues, projects, cycles, statuses, comments, attachments and real-time events to team members, while owners and admins keep access. Removing a membership takes effect on the next request. Personal access tokens are stored as hashes; their scopes act as a ceiling on the owner’s role, and they can be limited to workspaces, given an expiry and revoked.',
+			list: [
+				'Private-team checks apply to API, attachments and WebSocket events',
+				'Private-team issues are never posted to GitHub pull requests',
+				'Token permissions are the intersection of scopes and role',
+				'Copies already published or downloaded cannot be recalled'
 			]
 		},
 		{
@@ -65,10 +76,10 @@
 		},
 		{
 			heading: 'Updates and dependency checks',
-			body: 'The repository runs backend tests, frontend checks and security scanning in GitHub Actions. The self-hosting update script fetches the current branch, rebuilds the backend and frontend containers, recreates the application services and applies database migrations.',
+			body: 'The repository runs backend tests, frontend checks, image smoke tests and security scanning in GitHub Actions. The self-hosting update script fetches the current branch, rebuilds the backend and frontend containers, stops the backend while database migrations run and then starts the new version.',
 			list: [
 				'CI configuration is public under .github/workflows',
-				'Update flow rebuilds images and applies migrations',
+				'Update flow rebuilds images, stops old writers and applies migrations',
 				'Review release changes and back up data before updating',
 				'No published uptime or patch-response SLA'
 			]

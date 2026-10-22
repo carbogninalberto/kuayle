@@ -35,12 +35,18 @@
 
 <svelte:window onscroll={onScroll} />
 
+<a
+	href="#main"
+	class="sr-only fixed top-3 left-3 z-[60] rounded-md bg-brand-400 px-4 py-2 text-sm font-medium text-white focus:not-sr-only"
+	>Skip to content</a
+>
+
 <header
 	class="fixed inset-x-0 top-0 z-50 transition-all duration-300 {scrolled
 		? 'border-b border-border bg-background/70 backdrop-blur-xl'
 		: 'border-b border-transparent bg-transparent'}"
 >
-	<nav class="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
+	<nav aria-label="Main" class="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
 		<a href="/" class="flex items-center gap-2" aria-label="Kuayle home">
 			<img src="/logo_white.svg" alt="Kuayle" class="h-7 w-auto" width={112} height={28} />
 		</a>
@@ -71,6 +77,8 @@
 		<Button variant="ghost" size="sm"
 			class="inline-flex items-center justify-center rounded-md p-2 text-muted-foreground transition-colors hover:text-foreground md:hidden"
 			aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+			aria-expanded={menuOpen}
+			aria-controls="mobile-menu"
 			onclick={() => (menuOpen = !menuOpen)}
 		>
 			{#if menuOpen}
@@ -83,7 +91,7 @@
 
 	<!-- Mobile menu -->
 	{#if menuOpen}
-		<div class="border-b border-border bg-background/95 backdrop-blur-xl md:hidden">
+		<div id="mobile-menu" class="border-b border-border bg-background/95 backdrop-blur-xl md:hidden">
 			<div class="mx-auto max-w-6xl space-y-1 px-6 pb-4 pt-2">
 				{#each links as link}
 					<a href={linkHref(link)} class="block rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground" onclick={closeMenu}>{link.label}</a>

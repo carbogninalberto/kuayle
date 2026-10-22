@@ -5,7 +5,6 @@
  * Content is aligned with the actual README and selfhosting/ configs.
  */
 import type { ContentRegistry } from './routes';
-import { DEV_MACHINES_RELEASE_STATUS } from '$lib/config/releases';
 
 export const selfHosting: ContentRegistry = {
 	'docker-compose': {
@@ -124,11 +123,22 @@ export const selfHosting: ContentRegistry = {
 			},
 			{
 				heading: 'Backend settings',
-				body: 'FRONTEND_URL controls public callbacks and allowed origins. SYSADMINS accepts user UUIDs that may access the system update controls.',
+				body: 'FRONTEND_URL must be the exact public browser origin, including scheme and any non-default port; it controls public callbacks, allowed origins, GitHub webhook URLs and pull-request comment links. SYSADMINS accepts user UUIDs that may access the system update controls.',
 				list: [
 					'ENVIRONMENT — production or development (default: production)',
-					'FRONTEND_URL — the public URL of your instance',
-					'SYSADMINS — comma-separated user IDs allowed to trigger updates'
+					'FRONTEND_URL — the exact public origin of your instance',
+					'SYSADMINS — comma-separated user IDs allowed to trigger updates',
+					'DISABLE_REGISTRATION=true — require a valid invite link to sign up (default: open registration)'
+				]
+			},
+			{
+				heading: 'Optional: shared GitHub App',
+				body: 'By default each workspace creates its own GitHub App through the manifest flow. Deployments that prefer one preconfigured App can set the GITHUB_APP_* variables; workspaces then only install that App on their account or organization.',
+				list: [
+					'GITHUB_APP_ID and GITHUB_APP_SLUG',
+					'GITHUB_APP_PRIVATE_KEY — base64-encoded PEM',
+					'GITHUB_APP_CLIENT_ID and GITHUB_APP_CLIENT_SECRET',
+					'GITHUB_APP_WEBHOOK_SECRET'
 				]
 			},
 			{
@@ -150,15 +160,15 @@ export const selfHosting: ContentRegistry = {
 			'Update a self-hosted Kuayle instance with the repository script or optional updater sidecar, including image rebuilds and database migrations.',
 		heading: 'Updating Kuayle',
 		intro:
-			'The repository update script fetches the current branch, rebuilds the application images, recreates Caddy and the app services, then applies pending migrations. Back up and review changes before running it.',
+			'The repository update script fetches the current branch, rebuilds the application images, stops the backend while pending migrations run, then starts only the new version. Back up PostgreSQL and upload storage and review the release notes before running it.',
 		sections: [
 			{
 				heading: 'Manual update via script',
-				body: 'Run the script from a clean repository checkout. It uses `git pull --ff-only`, serves a maintenance page, rebuilds the backend and frontend, recreates the application containers and runs migrations.',
+				body: 'Run the script from a clean repository checkout. It uses `git pull --ff-only`, serves an upgrade page, rebuilds the backend and frontend, stops the backend, applies migrations and then starts the new containers.',
 				list: [
 					'cd kuayle',
 					'bash selfhosting/update.sh',
-					'The script: pulls latest code → rebuilds images → recreates containers → runs migrations'
+					'The script: pulls latest code → rebuilds images → stops the backend → runs migrations → starts the new version'
 				]
 			},
 			{
@@ -173,12 +183,22 @@ export const selfHosting: ContentRegistry = {
 			},
 			{
 				heading: 'What happens during an update',
-				body: 'The script leaves the PostgreSQL and Redis services running while it recreates Caddy, the backend and the frontend. Application requests receive a maintenance page during the refresh.',
+				body: 'Application requests receive an upgrade page while the update runs. No old backend writes to the database during migrations. If a migration fails, the script leaves the backend stopped behind the upgrade page instead of restarting an older version against a partially migrated schema; failures before that point restore the previous containers. A running Dev Machines control plane is rebuilt, paused during migrations and restarted.',
 				list: [
-					'Maintenance page served during update',
-					'Backend and frontend images rebuilt',
-					'Pending migrations applied after container recreation',
-					'PostgreSQL and Redis are not recreated by the script'
+					'Upgrade page served during the update',
+					'Backend stopped before migrations, so mixed old/new writers cannot run',
+					'Failed migrations keep the backend stopped and preserve logs for inspection',
+					'PostgreSQL and Redis are not recreated by the script',
+					'Disabled optional profiles stay disabled'
+				]
+			},
+			{
+				heading: 'Version notices and changelog',
+				body: 'The application reads the published release manifest to show a multi-release changelog and the latest version in Settings → Version. Release notes list required migrations and upgrade steps; read them before updating, especially for releases that change authorization or privacy rules.',
+				list: [
+					'In-app changelog rendered from the release manifest',
+					'Settings → Version shows the update command or the Update button',
+					'Upgrade notes call out migrations and configuration changes'
 				]
 			}
 		]
@@ -266,6 +286,16 @@ export const selfHosting: ContentRegistry = {
 					'Webhook signature verification before processing',
 					'Linked activity displayed in the issue detail view'
 				]
+			},
+			{
+				heading: 'Pull-request bot comments',
+				body: 'On pull_request.opened, the App comments with a link to the matching public-team issue. The App needs Pull requests: Read and write and the Pull request webhook subscription, and the repository must be linked and active. Set FRONTEND_URL to the externally reachable Kuayle URL so links resolve. GitHub does not redeliver failed webhooks automatically: after fixing a permission or API failure, redeliver the failed opened event from the App’s webhook delivery page.',
+				list: [
+					'Permissions: Pull requests read/write, Contents read/write, Metadata read, Issues read',
+					'Events: Pull request, Push, Create',
+					'No historical backfill; edits and reopens do not add comments',
+					'Private-team issues are never linked'
+				]
 			}
 		]
 	},
@@ -274,9 +304,9 @@ export const selfHosting: ContentRegistry = {
 		slug: 'dev-machines',
 		title: 'Dev Machines Setup — Self-Hosting Kuayle',
 		description:
-			'Prepare the unreleased opt-in Dev Machines subsystem: a separate wildcard domain, wildcard TLS, encrypted secrets, runtime images, and the gateway/manager control plane.',
+			'Enable the opt-in Dev Machines subsystem: a separate wildcard domain, wildcard TLS, encrypted secrets, runtime images, and the gateway/manager control plane.',
 		heading: 'Dev Machines Setup',
-		intro: `Dev Machines are ${DEV_MACHINES_RELEASE_STATUS.toLowerCase()} development-branch functionality and remain disabled in the default five-service deployment. Enabling them adds a machine gateway, a Docker manager and per-machine container runtimes. Read TECHNICAL.md in the repository before enabling the subsystem.`,
+		intro: `Dev Machines are an opt-in subsystem, included in releases since v0.1.13, and remain disabled in the default five-service deployment. Enabling them adds a machine gateway, a Docker manager and per-machine container runtimes. Read TECHNICAL.md in the repository before enabling the subsystem.`,
 		sections: [
 			{
 				heading: 'Prerequisites',
@@ -318,6 +348,65 @@ export const selfHosting: ContentRegistry = {
 					'AES-256-GCM encrypted secrets delivered through tmpfs',
 					'Egress proxy blocks private address ranges; optional domain allowlists',
 					'Workspace policies control concurrency, runtime, providers and repositories'
+				]
+			},
+			{
+				heading: 'Private teams',
+				body: 'Dev Machines are disabled in workspaces that use private teams, and the restriction remains if those teams are later made public or deleted. Remove existing development machines, environments and development defaults before enabling team privacy.',
+				list: [
+					'Tear down machines and environments before enabling private teams',
+					'The restriction is workspace-wide and persistent'
+				]
+			}
+		]
+	},
+
+	'workspace-transfer': {
+		slug: 'workspace-transfer',
+		title: 'Workspace Transfer — Self-Hosting Kuayle',
+		description:
+			'Export a Kuayle workspace as a portable .kuayle.zip archive and import it into another instance, with ID remapping, asset copies and explicit secret exclusions.',
+		heading: 'Workspace Transfer',
+		intro:
+			'Workspace owners and admins can export one workspace as a versioned `.kuayle.zip` archive and import it on another Kuayle instance. Import always creates a separate workspace and never overwrites an existing one. Transfer is not a substitute for operator backups.',
+		sections: [
+			{
+				heading: 'Export',
+				body: 'Download the archive from Settings → General → Workspace transfer. It contains a logical manifest, the workspace data and the uploaded asset bytes. Workspace export is disabled in workspaces that use private teams, and imports reject archives containing private teams.',
+				list: [
+					'Teams, statuses, labels, projects, cycles and issues with relationships and history',
+					'Templates, views, favorites, shared links and workspace notifications',
+					'Integration metadata, AI prompts and safe Dev Machine policy settings',
+					'Uploaded files and images'
+				]
+			},
+			{
+				heading: 'Import',
+				body: 'A signed-in user without a workspace can choose Import workspace during setup; an owner or admin can also start an import from the transfer settings. Database and asset IDs are regenerated, and references, including protected asset URLs, are remapped.',
+				list: [
+					'Users are matched to existing accounts by normalized email',
+					'The importing user becomes the owner of the new workspace',
+					'Other referenced users must register on the target instance first',
+					'The preview lists missing emails without creating partial data'
+				]
+			},
+			{
+				heading: 'What is never exported',
+				body: 'Credentials and runtime state stay on the source instance. Imported webhooks, shared links, GitHub repositories and automation, and Dev Machine policy are disabled or rotated where appropriate, so integrations must be reconfigured on the target.',
+				list: [
+					'Password hashes, refresh tokens and personal preferences',
+					'Webhook secrets, GitHub App credentials and access tokens, AI API keys',
+					'Dev Machine credentials, active machines, volumes, networks and environment images',
+					'Logs, sessions and runtime artifacts'
+				]
+			},
+			{
+				heading: 'Transfer is not a backup',
+				body: 'The archive moves one logical workspace. Disaster recovery and whole-instance migration still require PostgreSQL backups, object-storage or upload-volume backups, deployment configuration and secrets, and any required Docker volumes or Development Environment images.',
+				list: [
+					'Back up PostgreSQL and uploads on a schedule',
+					'Store deployment secrets separately',
+					'Test restores, not only exports'
 				]
 			}
 		]

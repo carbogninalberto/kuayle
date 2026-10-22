@@ -8,7 +8,6 @@
 	import { reveal } from '$lib/actions/reveal';
 	import { HUBS, breadcrumbsFrom, metaForStandalone, webPageLd } from '$lib/data/routes';
 	import { url } from '$lib/config/site';
-	import { DEV_MACHINES_RELEASE_STATUS } from '$lib/config/releases';
 	import ArrowRight from '@lucide/svelte/icons/arrow-right';
 
 	const hub = HUBS.features;
@@ -21,7 +20,7 @@
 
 <Nav />
 
-<main class="mx-auto max-w-6xl px-6 pt-28 pb-20">
+<main id="main" tabindex="-1" class="outline-none mx-auto max-w-6xl px-6 pt-28 pb-20">
 	<div class="mb-8">
 		<Breadcrumbs breadcrumbs={crumbs} />
 	</div>
@@ -32,8 +31,7 @@
 				<h1 class="text-4xl font-bold tracking-tight">Features</h1>
 				<p class="mt-4 text-lg leading-relaxed text-muted-foreground">
 					The current release covers issue tracking, team workflows, cycles, projects, analytics, GitHub automation and
-					WebSocket updates. Dev Machines are {DEV_MACHINES_RELEASE_STATUS.toLowerCase()}
-					development-branch functionality. Each page below describes implemented behavior and known boundaries.
+					WebSocket updates, plus opt-in Dev Machines for agentic coding. Each page below describes implemented behavior and known boundaries.
 				</p>
 			</div>
 

@@ -27,7 +27,7 @@ export const compare: ContentRegistry = {
 				body: 'Kuayle covers a smaller product surface but differs on issue ownership.',
 				list: [
 					'Linear provides a mature issue workflow, command menu, filters and keyboard shortcuts.',
-					'Kuayle provides multiple assignees per issue, sub-issues, relations, labels, comments, saved views and team-specific statuses.'
+					'Kuayle provides multiple assignees per issue, sub-issues, relations, labels, comments, title and description version history, saved views, team-specific statuses and private teams.'
 				]
 			},
 			{
@@ -35,7 +35,7 @@ export const compare: ContentRegistry = {
 				body: 'Both products support time-boxed work and project grouping, but Linear’s planning layer is broader.',
 				list: [
 					'Linear: cycles, projects, roadmaps, and initiatives for grouping work across teams.',
-					'Kuayle has cycles with burndown and velocity charts, projects with progress and a Gantt view, and workspace/team analytics with configurable insights. It has no initiatives layer.'
+					'Kuayle has cycles and projects that share the team issue list (filters, list and board layouts, bulk actions), cycle burndown and velocity charts, a project Gantt view, and workspace/team analytics with configurable insights. It has no initiatives layer.'
 				]
 			},
 			{
@@ -43,7 +43,7 @@ export const compare: ContentRegistry = {
 				body: 'Check required integrations before choosing either product.',
 				list: [
 					'Linear: documents integrations for GitHub, GitLab, Slack, its API, and enterprise identity features.',
-					'Kuayle integrates with GitHub and generic webhooks. Its development branch includes an unreleased opt-in Dev Machines subsystem for agentic coding runs. It does not currently provide GitLab, Slack, SSO, SCIM or LDAP integrations.'
+					'Kuayle integrates with GitHub (activity linking, status automation and pull-request issue-link comments), generic webhooks and a personal-access-token API. It also ships an opt-in Dev Machines subsystem for agentic coding runs. It does not currently provide GitLab, Slack, SSO, SCIM or LDAP integrations.'
 				]
 			},
 			{
@@ -73,7 +73,7 @@ export const compare: ContentRegistry = {
 			}
 		],
 		footnotes:
-			'Last reviewed: July 23, 2026. Methodology: first-party product documentation was compared with Kuayle’s repository and current implementation. This is a snapshot, not an endorsement; features and pricing change. Kuayle is developed by Bakney and is not affiliated with Linear.'
+			'Kuayle details updated: October 22, 2026 (v0.1.24). Linear details last reviewed: July 23, 2026. Methodology: first-party product documentation was compared with Kuayle’s repository and current implementation. This is a snapshot, not an endorsement; features and pricing change. Kuayle is developed by Bakney and is not affiliated with Linear.'
 	},
 
 	'kuayle-vs-plane': {
@@ -98,7 +98,7 @@ export const compare: ContentRegistry = {
 				body: 'Plane covers more workflows; Kuayle deliberately covers fewer.',
 				list: [
 					'Plane includes work items, cycles, modules, initiatives, pages, wiki, intake, dashboards and multiple layouts.',
-					'Kuayle focuses on issues, cycles, projects, saved views, analytics insights, public sharing and GitHub activity. It has no wiki, modules or customizable dashboards.'
+					'Kuayle focuses on issues, cycles, projects, saved views, analytics insights, private teams, public sharing and GitHub activity. It has no wiki, modules or customizable dashboards.'
 				]
 			},
 			{
@@ -106,7 +106,7 @@ export const compare: ContentRegistry = {
 				body: 'Both support structured work, but their ownership and customization models differ.',
 				list: [
 					'Plane: documents multiple work-item views, properties, and project-management workflows.',
-					'Kuayle includes multiple assignees, sub-issues, relations, hierarchical labels, issue templates, favorites and read-only public links.'
+					'Kuayle includes multiple assignees, sub-issues, relations, hierarchical labels, issue templates, favorites, issue version history and read-only public links.'
 				]
 			},
 			{
@@ -114,7 +114,7 @@ export const compare: ContentRegistry = {
 				body: 'Plane offers more layouts and planning layers. Kuayle keeps planning closer to issues.',
 				list: [
 					'Plane: cycles, modules, multiple layout views (list, board, Gantt, calendar).',
-					'Kuayle: cycles with burndown/velocity, projects with Gantt view, list and board issue views, and a built-in insights page with burn-up trends.'
+					'Kuayle: cycles with burndown/velocity, projects with list, board and Gantt layouts, list and board issue views, and a built-in insights page with burn-up trends.'
 				]
 			},
 			{
@@ -122,7 +122,7 @@ export const compare: ContentRegistry = {
 				body: 'Plane documents a wider integration and migration catalog.',
 				list: [
 					'Plane: GitHub, GitLab, Slack integrations. Importer for multiple platforms. API and webhooks.',
-					'Kuayle: self-configuring GitHub App with auto-linking, auto-transitions, and real-time WebSocket events. Webhooks. Unreleased opt-in Dev Machines development. Import/export not yet available.'
+					'Kuayle: self-configuring GitHub App with auto-linking, auto-transitions, pull-request issue-link comments and real-time WebSocket events. Webhooks and personal access tokens. Opt-in Dev Machines for agentic coding. Workspace export/import between Kuayle instances; no importers from other tools.'
 				]
 			},
 			{
@@ -144,6 +144,6 @@ export const compare: ContentRegistry = {
 			}
 		],
 		footnotes:
-			'Last reviewed: July 23, 2026. Methodology: first-party documentation and repositories were compared with Kuayle’s current implementation. This is a snapshot, not an endorsement; features, editions, and licensing can change. Kuayle is not affiliated with Plane.'
+			'Kuayle details updated: October 22, 2026 (v0.1.24). Plane details last reviewed: July 23, 2026. Methodology: first-party documentation and repositories were compared with Kuayle’s current implementation. This is a snapshot, not an endorsement; features, editions, and licensing can change. Kuayle is not affiliated with Plane.'
 	}
 };

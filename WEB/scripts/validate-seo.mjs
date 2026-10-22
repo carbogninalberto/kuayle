@@ -28,6 +28,7 @@ const ROUTES = [
 	'/self-hosting/storage',
 	'/self-hosting/github-app',
 	'/self-hosting/dev-machines',
+	'/self-hosting/workspace-transfer',
 	'/open-source',
 	'/license',
 	'/security',
@@ -213,7 +214,8 @@ for (const route of DEV_MACHINE_STATUS_ROUTES) {
 	if (!html) continue;
 	const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
 	if (!/Dev Machines/i.test(text)) fail(`${route}: missing Dev Machines status context`);
-	if (!/unreleased/i.test(text)) fail(`${route}: Dev Machines must be labeled unreleased`);
+	if (!/opt-in/i.test(text)) fail(`${route}: Dev Machines must be labeled opt-in`);
+	if (/\bunreleased\b|development[- ]branch/i.test(text)) fail(`${route}: Dev Machines ship in releases since v0.1.13`);
 }
 
 const savedViewsHtml = routeHtml.get('/features/views-and-triage');

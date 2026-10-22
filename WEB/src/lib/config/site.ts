@@ -17,7 +17,7 @@ export const SITE = {
 	tagline: 'The issue tracker with no paid tier',
 	origin: ORIGIN,
 	defaultImage: `${ORIGIN}/social-card.png`,
-	defaultImageAlt: 'Kuayle issue tracker board interface',
+	defaultImageAlt: 'Kuayle team issue list grouped by status',
 	ogImageWidth: 1200,
 	ogImageHeight: 630,
 	locale: 'en_US',

@@ -277,6 +277,11 @@
 	.gradient-text {
 		animation: none;
 	}
+	/* Keycaps and carets animate through inline styles */
+	kbd.key,
+	.caret {
+		animation: none !important;
+	}
 	.reveal-init {
 		opacity: 1;
 		transform: none;

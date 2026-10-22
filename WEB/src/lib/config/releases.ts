@@ -1,1 +1,1 @@
-export const DEV_MACHINES_RELEASE_STATUS = 'Unreleased';
+export const DEV_MACHINES_RELEASE_STATUS = 'Opt-in';

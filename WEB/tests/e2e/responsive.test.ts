@@ -5,7 +5,7 @@ test('all indexable routes fit a 320px viewport', async ({ page, request }) => {
 	expect(sitemap.ok()).toBe(true);
 	const xml = await sitemap.text();
 	const routes = [...xml.matchAll(/<loc>([^<]+)<\/loc>/g)].map((match) => new URL(match[1]).pathname);
-	expect(routes).toHaveLength(32);
+	expect(routes).toHaveLength(33);
 	const overflowingRoutes: Array<{ route: string; overflow: number; offenders: unknown[] }> = [];
 
 	for (const route of routes) {
