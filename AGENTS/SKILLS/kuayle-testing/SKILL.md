@@ -19,6 +19,7 @@ with `npm ci` in each package. Commands below run in the stated directory.
 
 | Scope / cwd | Commands | Prerequisites and coverage |
 | --- | --- | --- |
+| CI routing / root | `node --test scripts/ci/*.test.mjs` and `go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -shellcheck= -pyflakes=` | Full-diff selection and result-gate tests; workflow syntax/expressions. See [CI routing](../../../scripts/ci/README.md). |
 | Harness / root | `node --test AGENTS/TOOLS/check-harness.test.mjs` and `node AGENTS/TOOLS/check-harness.mjs` | Node only; fixtures and instruction integrity. Also inspect command accuracy and realistic task routing. |
 | UI types / UI | `npm run check` | Compiles Paraglide declarations, syncs SvelteKit, runs svelte-check. |
 | UI logic / UI | `npm run test:unit` | Node test runner over `tests/unit/*.test.mjs`; no Vitest/Jest setup. |
@@ -74,5 +75,8 @@ task and verify the linked sources and commands support each decision.
 PR checks also include [security](../../../.github/workflows/security.yml),
 [image builds](../../../.github/workflows/build.yml), and
 [release readiness](../../../.github/workflows/release-readiness.yml). These run
-on PRs even without a release request. Inspect all checks on the final PR commit;
-do not disable or bypass a failing gate. A skipped suite is not a passing suite.
+on PRs according to the [change-impact map](../../../scripts/ci/README.md), even
+without a release request. Check each workflow's plan and stable result gate on the
+final commit. Intentional omissions are not evidence that a suite ran; unexpected
+skips, failures and cancellations fail the gate. Update routing and scenario
+tests whenever shared inputs, images or verification jobs change.
