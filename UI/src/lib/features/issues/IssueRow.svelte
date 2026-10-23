@@ -201,7 +201,6 @@
 	onaddrelation={(type) => onaddrelation?.(issue, type)}
 >
 	<!-- The row stays a single focusable activation target, as before KUA-62, without nesting a native button around its controls. -->
-	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 	<div
 		role="button"
 		tabindex={0}
@@ -229,7 +228,7 @@
 		{#if !singleSelect && !readOnly}
 			<!-- Checkbox hover zone -->
 			<!-- The whole hover zone toggles selection; Checkbox clicks and Space bubble here once. -->
-			<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
 				data-testid="issue-select-zone"
 				class="-ml-1 flex h-8 shrink-0 items-center justify-center pr-1 transition-opacity duration-100 sm:-my-1.5 sm:-ml-3 sm:h-auto sm:self-stretch sm:pl-3 {isSelected
