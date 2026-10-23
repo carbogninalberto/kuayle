@@ -2,13 +2,13 @@
 	import { onDestroy } from 'svelte';
 	import { Check, LoaderCircle, RefreshCw, X } from '@lucide/svelte';
 	import * as Dialog from '$lib/components/ui/dialog';
-	import * as RadioGroup from '$lib/components/ui/radio-group';
 	import * as Select from '$lib/components/ui/select';
 	import { Alert, AlertDescription } from '$lib/components/ui/alert';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 	import { Switch } from '$lib/components/ui/switch';
+	import MachineResourceSliders from '$lib/features/dev-machines/MachineResourceSliders.svelte';
 	import {
 		checkMachineName,
 		createDevMachine,
@@ -24,33 +24,16 @@
 		DevMachineEnvironment,
 		DevMachinePolicy
 	} from '$lib/types/dev-machine';
+	import {
+		DEFAULT_MACHINE_RESOURCES,
+		MACHINE_DISK_GB,
+		normalizeMachineResources,
+		resolveMachineSizeOptions
+	} from '$lib/features/dev-machines/machine-size';
 	import type { Issue } from '$lib/types/issue';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
-
-	const SIZE_DISK_GB: Record<string, number> = { small: 20, medium: 50, large: 100 };
-	const sizes = [
-		{ id: 'small', resources: '2 CPU / 4 GB', disk: '20 GB workspace' },
-		{ id: 'medium', resources: '4 CPU / 8 GB', disk: '50 GB workspace' },
-		{ id: 'large', resources: '8 CPU / 16 GB', disk: '100 GB workspace' }
-	] as const;
-
-	const SIZE_LABELS: Record<string, string> = $derived({
-		small: m['machines.size_small'](),
-		medium: m['machines.size_medium'](),
-		large: m['machines.size_large']()
-	});
-
-	const resourcesLabel = (resources: string) => {
-		const match = resources.match(/^(\d+)\s*CPU\s*\/\s*(\d+)\s*GB$/);
-		return match ? m['machines.size_resources']({ cpu: match[1], mem: match[2] }) : resources;
-	};
-
-	const diskLabel = (disk: string) => {
-		const match = disk.match(/^(\d+)\s*GB\sworkspace$/);
-		return match ? m['machines.size_disk']({ disk: match[1] }) : disk;
-	};
 
 	let {
 		open = $bindable(false),
@@ -65,7 +48,9 @@
 	let name = $state('');
 	let nameStatus = $state<'idle' | 'checking' | 'available' | 'unavailable'>('idle');
 	let environmentId = $state('standard');
-	let size = $state<'small' | 'medium' | 'large'>('medium');
+	let cpuMillis = $state(DEFAULT_MACHINE_RESOURCES.cpu_millis);
+	let memoryMb = $state(DEFAULT_MACHINE_RESOURCES.memory_mb);
+	let diskGb = $state(DEFAULT_MACHINE_RESOURCES.disk_gb);
 	let useAgent = $state(true);
 	let provider = $state<AgentProvider['id']>('opencode');
 	let browser = $state(true);
@@ -84,16 +69,19 @@
 
 	const selectedProvider = $derived(providers.find((item) => item.id === provider));
 	const selectedEnvironment = $derived(environments.find((item) => item.id === environmentId));
+	const sizeOptions = $derived(
+		resolveMachineSizeOptions(policy?.size_options, policy?.max_disk_gb ?? MACHINE_DISK_GB[MACHINE_DISK_GB.length - 1])
+	);
+	const resources = $derived(normalizeMachineResources({ cpu_millis: cpuMillis, memory_mb: memoryMb, disk_gb: diskGb }, sizeOptions));
 	const allRequiredSecretsFilled = $derived(
 		(selectedProvider?.required_secrets ?? []).every((secret) => !!secretValues[secret]?.trim())
 	);
-	const sizeAllowed = $derived(!policy || SIZE_DISK_GB[size] <= policy.max_disk_gb);
 	const canSubmit = $derived(
 		!loading &&
 		!loadingOptions &&
 		policy?.enabled !== false &&
 		nameStatus === 'available' &&
-		sizeAllowed &&
+		sizeOptions.disk_gb.length > 0 &&
 		(!useAgent || (!!selectedProvider && allRequiredSecretsFilled)) &&
 		(!useAgent || !selectedProvider?.custom || (!!customImage.trim() && !!customEntrypoint.trim()))
 	);
@@ -174,7 +162,9 @@
 		extraSecretName = '';
 		extraSecretValue = '';
 		keepRunning = false;
-		size = 'medium';
+		cpuMillis = DEFAULT_MACHINE_RESOURCES.cpu_millis;
+		memoryMb = DEFAULT_MACHINE_RESOURCES.memory_mb;
+		diskGb = DEFAULT_MACHINE_RESOURCES.disk_gb;
 		try {
 			const [suggestion, availableProviders, machinePolicy, availableEnvironments] = await Promise.all([
 				getMachineNameSuggestion(currentSlug),
@@ -193,9 +183,6 @@
 			policy = machinePolicy;
 			environments = (availableEnvironments ?? []).filter((item) => item.status === 'ready');
 			environmentId = 'standard';
-			if (policy && SIZE_DISK_GB[size] > policy.max_disk_gb) {
-				size = (sizes.find((candidate) => SIZE_DISK_GB[candidate.id] <= policy!.max_disk_gb)?.id ?? 'small');
-			}
 			if (providers.length > 0 && !providers.some((item) => item.id === provider)) provider = providers[0].id;
 			if (providers.length === 0) useAgent = false;
 		} catch (error) {
@@ -270,7 +257,10 @@
 				name: name.trim(),
 				issue_id: issue?.id,
 				project_id: issue?.project_id ?? undefined,
-				size,
+				size: 'custom',
+				cpu_millis: resources.cpu_millis,
+				memory_mb: resources.memory_mb,
+				disk_gb: resources.disk_gb,
 				services: { ide: true, browser },
 				agents: useAgent ? [{ provider, mode: 'autonomous', config: providerConfig }] : [],
 				env_vars: envVars,
@@ -329,21 +319,7 @@
 				</Select.Root>
 			</div>
 
-			<div class="space-y-2">
-				<Label>{m['machines.machine_size']()}</Label>
-				<RadioGroup.Root bind:value={size} class="grid grid-cols-1 gap-2 sm:grid-cols-3">
-					{#each sizes as option}
-						<label class="relative cursor-pointer">
-							<RadioGroup.Item value={option.id} disabled={!!policy && SIZE_DISK_GB[option.id] > policy.max_disk_gb} class="peer sr-only" />
-							<div data-selected={size === option.id} class="rounded-lg border border-border bg-background p-3 transition data-[selected=true]:border-primary data-[selected=true]:bg-primary/10 peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-disabled:cursor-not-allowed peer-disabled:opacity-50">
-								<span class="block text-sm font-semibold">{SIZE_LABELS[option.id] ?? option.id}</span>
-								<span class="mt-1 block text-xs text-muted-foreground">{resourcesLabel(option.resources)}</span>
-								<span class="block text-xs text-muted-foreground">{diskLabel(option.disk)}</span>
-							</div>
-						</label>
-					{/each}
-				</RadioGroup.Root>
-			</div>
+			<MachineResourceSliders bind:cpu_millis={cpuMillis} bind:memory_mb={memoryMb} bind:disk_gb={diskGb} {sizeOptions} />
 
 			<div class="space-y-3 rounded-lg border border-border p-4">
 				<div class="flex items-center justify-between gap-4"><div><Label>{m['machines.browser']()}</Label><p class="text-xs text-muted-foreground">{m['machines.browser_desc']()}</p></div><Switch aria-label={m['machines.browser']()} bind:checked={browser} /></div>
