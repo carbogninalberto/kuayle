@@ -22,11 +22,14 @@ import (
 	"github.com/moby/moby/api/types/network"
 	volumetypes "github.com/moby/moby/api/types/volume"
 	"github.com/moby/moby/client"
+	"golang.org/x/sys/unix"
 )
 
 const egressNetworkName = "kuayle-machine-egress"
 
 const workspaceQuotaLabel = "com.kuayle.workspace-quota-bytes"
+
+const workspaceQuotaModeLabel = "com.kuayle.workspace-quota-mode"
 
 const maxCapturedLogBytes = 4 * 1024 * 1024
 
@@ -84,19 +87,24 @@ fi
 exec "$@"`
 
 type DockerConfig struct {
-	Host                 string
-	GatewayContainerName string
-	SeccompProfile       string
-	AppArmorProfile      string
-	PullImages           bool
-	IngestURL            string
-	EgressAllowlist      string
-	EgressDenylist       string
+	Host                   string
+	GatewayContainerName   string
+	SeccompProfile         string
+	AppArmorProfile        string
+	PullImages             bool
+	IngestURL              string
+	EgressAllowlist        string
+	EgressDenylist         string
+	DiskQuotaMode          string
+	HostDiskMinFreePercent int
+	HostDiskMinFreeGB      int
+	HostDiskPath           string
 }
 
 type DockerRuntime struct {
-	client     *client.Client
+	client     client.APIClient
 	config     DockerConfig
+	statfs     func(string, *unix.Statfs_t) error
 	quotaMu    sync.Mutex
 	quotaReady bool
 }
@@ -119,7 +127,78 @@ func (r *DockerRuntime) Ping(ctx context.Context) error {
 	if _, err := r.client.Ping(ctx, client.PingOptions{}); err != nil {
 		return err
 	}
+	if monitoredDiskQuotaMode(r.config.DiskQuotaMode) {
+		return nil
+	}
 	return r.ensureWorkspaceQuotaSupport(ctx)
+}
+
+func (r *DockerRuntime) HostDiskUsage(ctx context.Context) (HostDiskUsage, error) {
+	if r.config.HostDiskPath != "" {
+		return r.hostDiskUsageFromPath()
+	}
+	filters := client.Filters{}.
+		Add("label", "com.kuayle.managed=true").
+		Add("label", "com.kuayle.service=collector")
+	containers, err := r.client.ContainerList(ctx, client.ContainerListOptions{Filters: filters})
+	if err != nil {
+		return HostDiskUsage{}, fmt.Errorf("list collector containers: %w", err)
+	}
+	var collectorID string
+	for _, candidate := range containers.Items {
+		if candidate.State != container.StateRunning ||
+			candidate.Labels["com.kuayle.managed"] != "true" ||
+			candidate.Labels["com.kuayle.service"] != "collector" {
+			continue
+		}
+		collectorID = candidate.ID
+		break
+	}
+	if collectorID == "" {
+		return HostDiskUsage{}, ErrHostDiskUnknown
+	}
+	output, err := r.execOutput(ctx, collectorID, []string{"df", "-B1", "-P", "/workspace"})
+	if err != nil {
+		return HostDiskUsage{}, fmt.Errorf("read host disk usage: %w", err)
+	}
+	return parseHostDiskUsage(output)
+}
+
+func (r *DockerRuntime) hostDiskUsageFromPath() (HostDiskUsage, error) {
+	statfs := r.statfs
+	if statfs == nil {
+		statfs = unix.Statfs
+	}
+	var stat unix.Statfs_t
+	if err := statfs(r.config.HostDiskPath, &stat); err != nil {
+		return HostDiskUsage{}, fmt.Errorf("statfs host disk path %q: %w", r.config.HostDiskPath, err)
+	}
+	total, err := statfsByteCount(stat.Blocks, uint64(stat.Bsize))
+	if err != nil {
+		return HostDiskUsage{}, fmt.Errorf("statfs host disk path %q total: %w", r.config.HostDiskPath, err)
+	}
+	free, err := statfsByteCount(stat.Bavail, uint64(stat.Bsize))
+	if err != nil {
+		return HostDiskUsage{}, fmt.Errorf("statfs host disk path %q free space: %w", r.config.HostDiskPath, err)
+	}
+	if total <= 0 || free < 0 || free > total {
+		return HostDiskUsage{}, fmt.Errorf(
+			"statfs host disk path %q returned invalid usage: total=%d free=%d",
+			r.config.HostDiskPath, total, free,
+		)
+	}
+	return HostDiskUsage{TotalBytes: total, FreeBytes: free}, nil
+}
+
+func statfsByteCount(blocks, blockSize uint64) (int64, error) {
+	const maxInt64 = uint64(1<<63 - 1)
+	if blockSize == 0 {
+		return 0, fmt.Errorf("block size is zero")
+	}
+	if blocks > maxInt64/blockSize {
+		return 0, fmt.Errorf("byte count overflows int64")
+	}
+	return int64(blocks * blockSize), nil
 }
 
 func (r *DockerRuntime) Inspect(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService) (RuntimeInspection, error) {
@@ -1239,7 +1318,7 @@ func (r *DockerRuntime) ensureNetwork(ctx context.Context, name string, internal
 }
 
 func (r *DockerRuntime) ensureVolume(ctx context.Context, name string, labels map[string]string, diskGB int) (bool, error) {
-	options, err := workspaceVolumeCreateOptions(name, labels, diskGB)
+	options, err := workspaceVolumeCreateOptions(name, labels, diskGB, r.config.DiskQuotaMode)
 	if err != nil {
 		return false, err
 	}
@@ -1248,17 +1327,23 @@ func (r *DockerRuntime) ensureVolume(ctx context.Context, name string, labels ma
 	}
 	created, err := r.client.VolumeCreate(ctx, options)
 	if err != nil {
+		if monitoredDiskQuotaMode(r.config.DiskQuotaMode) {
+			return false, fmt.Errorf("create monitored workspace volume: %w", err)
+		}
 		return false, fmt.Errorf("create hard-quota workspace volume: %w", err)
 	}
 	if err := validateWorkspaceVolume(created.Volume, options); err != nil {
 		_, _ = r.client.VolumeRemove(context.Background(), name, client.VolumeRemoveOptions{Force: true})
+		if monitoredDiskQuotaMode(r.config.DiskQuotaMode) {
+			return false, fmt.Errorf("created workspace volume did not retain its monitored quota metadata: %w", err)
+		}
 		return false, fmt.Errorf("created workspace volume did not retain its hard quota: %w", err)
 	}
 	return true, nil
 }
 
 func (r *DockerRuntime) inspectWorkspaceVolume(ctx context.Context, name string, labels map[string]string, diskGB int) (bool, error) {
-	options, err := workspaceVolumeCreateOptions(name, labels, diskGB)
+	options, err := workspaceVolumeCreateOptions(name, labels, diskGB, r.config.DiskQuotaMode)
 	if err != nil {
 		return false, err
 	}
@@ -1279,34 +1364,68 @@ func (r *DockerRuntime) inspectWorkspaceVolumeWithOptions(ctx context.Context, e
 	return true, nil
 }
 
-func workspaceVolumeCreateOptions(name string, labels map[string]string, diskGB int) (client.VolumeCreateOptions, error) {
+func workspaceVolumeCreateOptions(name string, labels map[string]string, diskGB int, modes ...string) (client.VolumeCreateOptions, error) {
 	if diskGB <= 0 {
 		return client.VolumeCreateOptions{}, fmt.Errorf("workspace disk quota must be positive")
 	}
 	quotaBytes := strconv.FormatInt(int64(diskGB)*1024*1024*1024, 10)
-	volumeLabels := make(map[string]string, len(labels)+1)
+	volumeLabels := make(map[string]string, len(labels)+2)
 	for key, value := range labels {
 		volumeLabels[key] = value
 	}
 	volumeLabels[workspaceQuotaLabel] = quotaBytes
-	return client.VolumeCreateOptions{
-		Name: name, Driver: "local", DriverOpts: map[string]string{"size": quotaBytes}, Labels: volumeLabels,
-	}, nil
+	options := client.VolumeCreateOptions{Name: name, Driver: "local", Labels: volumeLabels}
+	mode := ""
+	if len(modes) > 0 {
+		mode = modes[0]
+	}
+	if monitoredDiskQuotaMode(mode) {
+		volumeLabels[workspaceQuotaModeLabel] = "monitored"
+	} else {
+		options.DriverOpts = map[string]string{"size": quotaBytes}
+	}
+	return options, nil
 }
 
 func validateWorkspaceVolume(existing volumetypes.Volume, expected client.VolumeCreateOptions) error {
 	if existing.Driver != expected.Driver {
 		return fmt.Errorf("uses driver %q instead of %q", existing.Driver, expected.Driver)
 	}
+	expectedQuotaMode := expected.Labels[workspaceQuotaModeLabel]
+	monitored := expectedQuotaMode == "monitored"
 	for key, value := range expected.Labels {
+		if key == workspaceQuotaModeLabel && monitored {
+			continue
+		}
 		if existing.Labels[key] != value {
 			return fmt.Errorf("has incompatible label %s", key)
 		}
 	}
-	if existing.Options["size"] != expected.DriverOpts["size"] {
+	if !monitored {
+		if existing.Options["size"] != expected.DriverOpts["size"] {
+			return fmt.Errorf("hard quota is %q instead of %q", existing.Options["size"], expected.DriverOpts["size"])
+		}
+		return nil
+	}
+	actualQuotaMode := existing.Labels[workspaceQuotaModeLabel]
+	if actualQuotaMode != "" && actualQuotaMode != expectedQuotaMode {
+		return fmt.Errorf("has incompatible label %s", workspaceQuotaModeLabel)
+	}
+	actualSize := existing.Options["size"]
+	if actualSize == "" {
+		if actualQuotaMode != "monitored" {
+			return fmt.Errorf("monitored quota mode label is missing")
+		}
+		return nil
+	}
+	if actualSize != expected.Labels[workspaceQuotaLabel] {
 		return fmt.Errorf("hard quota is %q instead of %q", existing.Options["size"], expected.DriverOpts["size"])
 	}
 	return nil
+}
+
+func monitoredDiskQuotaMode(mode string) bool {
+	return strings.EqualFold(strings.TrimSpace(mode), "monitored")
 }
 
 func (r *DockerRuntime) ensureWorkspaceQuotaSupport(ctx context.Context) error {
@@ -1490,6 +1609,29 @@ func (r *DockerRuntime) workspaceSize(ctx context.Context, collectorID string) (
 		return 0, fmt.Errorf("workspace size unavailable")
 	}
 	return strconv.ParseInt(fields[0], 10, 64)
+}
+
+func parseHostDiskUsage(output string) (HostDiskUsage, error) {
+	lines := nonEmptyLines(output)
+	if len(lines) == 0 || strings.Contains(lines[0], "Filesystem") && len(lines) == 1 {
+		return HostDiskUsage{}, fmt.Errorf("host disk usage unavailable")
+	}
+	fields := strings.Fields(lines[len(lines)-1])
+	if len(fields) < 4 {
+		return HostDiskUsage{}, fmt.Errorf("invalid host disk usage output")
+	}
+	total, err := strconv.ParseInt(fields[1], 10, 64)
+	if err != nil {
+		return HostDiskUsage{}, fmt.Errorf("invalid host disk total %q: %w", fields[1], err)
+	}
+	free, err := strconv.ParseInt(fields[3], 10, 64)
+	if err != nil {
+		return HostDiskUsage{}, fmt.Errorf("invalid host disk free bytes %q: %w", fields[3], err)
+	}
+	if total <= 0 || free < 0 || free > total {
+		return HostDiskUsage{}, fmt.Errorf("invalid host disk usage: total=%d free=%d", total, free)
+	}
+	return HostDiskUsage{TotalBytes: total, FreeBytes: free}, nil
 }
 
 func (r *DockerRuntime) execOutput(ctx context.Context, containerID string, command []string) (string, error) {
