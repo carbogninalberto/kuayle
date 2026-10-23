@@ -2,9 +2,12 @@ package machine
 
 import (
 	"context"
+	"errors"
 
 	"github.com/kuayle/kuayle-backend/internal/domain"
 )
+
+var ErrHostDiskUnknown = errors.New("host disk usage is unknown")
 
 type AgentExecution struct {
 	ContainerID string
@@ -20,6 +23,11 @@ type ResourceUsage struct {
 	Pids           int
 	NetworkRxBytes int64
 	NetworkTxBytes int64
+}
+
+type HostDiskUsage struct {
+	TotalBytes int64
+	FreeBytes  int64
 }
 
 type GitState struct {
@@ -58,6 +66,7 @@ type Runtime interface {
 	TerminateTerminal(context.Context, *domain.DevMachine, []domain.DevMachineService, *domain.DevMachineTerminalSession) error
 	Inspect(context.Context, *domain.DevMachine, []domain.DevMachineService) (RuntimeInspection, error)
 	Stats(context.Context, *domain.DevMachine, []domain.DevMachineService) (ResourceUsage, error)
+	HostDiskUsage(context.Context) (HostDiskUsage, error)
 	GitState(context.Context, *domain.DevMachine, []domain.DevMachineService, *domain.DevMachineCheckout) (GitState, error)
 	PrepareCheckout(context.Context, *domain.DevMachine, []domain.DevMachineService, *domain.DevMachineCheckout, string) error
 	SnapshotEnvironment(context.Context, *domain.DevMachine, []domain.DevMachineService, *domain.DevMachineEnvironment) (string, error)
