@@ -222,3 +222,42 @@ func TestLoadMachineGatewayReadsDemoConfig(t *testing.T) {
 	assert.True(t, cfg.IsSysAdmin(sysAdminID))
 	assert.False(t, cfg.IsSysAdmin(uuid.New()))
 }
+
+func TestDevMachineDiskQuotaModeDefaultsToHardAndValidatesMonitoredFloor(t *testing.T) {
+	config := DevMachineConfig{
+		Enabled: true, Domain: "machines.example.net", EncryptionKey: strings.Repeat("x", 32),
+		TicketTTLSeconds: 60, SessionTTLMinutes: 60, IngestURL: "https://app.example.com/api/dev-machine-ingest",
+	}
+	require.NoError(t, config.Validate("https://app.example.com"))
+	require.Equal(t, DiskQuotaModeHard, config.EffectiveDiskQuotaMode())
+	require.False(t, config.MonitoredDiskQuota())
+
+	config.DiskQuotaMode = "soft"
+	require.ErrorContains(t, config.Validate("https://app.example.com"), "DEV_MACHINE_DISK_QUOTA_MODE must be hard or monitored")
+
+	config.DiskQuotaMode = "Monitored"
+	config.HostDiskMinFreePercent, config.HostDiskMinFreeGB = 15, 25
+	require.NoError(t, config.Validate("https://app.example.com"))
+	require.Equal(t, DiskQuotaModeMonitored, config.EffectiveDiskQuotaMode())
+	require.True(t, config.MonitoredDiskQuota())
+
+	config.HostDiskMinFreePercent = 0
+	require.ErrorContains(t, config.Validate("https://app.example.com"), "DEV_MACHINE_HOST_DISK_MIN_FREE_PERCENT must be between 1 and 90")
+	config.HostDiskMinFreePercent = 91
+	require.ErrorContains(t, config.Validate("https://app.example.com"), "DEV_MACHINE_HOST_DISK_MIN_FREE_PERCENT must be between 1 and 90")
+	config.HostDiskMinFreePercent = 15
+	config.HostDiskMinFreeGB = 0
+	require.ErrorContains(t, config.Validate("https://app.example.com"), "DEV_MACHINE_HOST_DISK_MIN_FREE_GB must be at least 1")
+}
+
+func TestLoadReadsDiskQuotaModeDefaults(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/kuayle")
+	t.Setenv("REDIS_URL", "redis://localhost:6379")
+	t.Setenv("JWT_SECRET", strings.Repeat("j", 32))
+	t.Setenv("DEV_MACHINE_DISK_QUOTA_MODE", "")
+	config, err := Load()
+	require.NoError(t, err)
+	require.Equal(t, DiskQuotaModeHard, config.DevMachine.EffectiveDiskQuotaMode())
+	require.Equal(t, 15, config.DevMachine.HostDiskMinFreePercent)
+	require.Equal(t, 25, config.DevMachine.HostDiskMinFreeGB)
+}

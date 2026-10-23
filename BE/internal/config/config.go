@@ -80,6 +80,47 @@ type DevMachineConfig struct {
 	OpenCodeImage        string `envconfig:"DEV_MACHINE_OPENCODE_IMAGE" default:"ghcr.io/kuayle/dev-machine-agent-opencode:0.1.0"`
 	CodexImage           string `envconfig:"DEV_MACHINE_CODEX_IMAGE" default:"ghcr.io/kuayle/dev-machine-agent-codex:0.1.0"`
 	CustomImage          string `envconfig:"DEV_MACHINE_CUSTOM_IMAGE"`
+	// DiskQuotaMode selects how workspace disk limits are enforced: "hard" uses
+	// Docker local-volume size quotas (XFS project quotas); "monitored" measures
+	// usage, warns and stops machines, and guards the host free-space floor.
+	DiskQuotaMode          string `envconfig:"DEV_MACHINE_DISK_QUOTA_MODE" default:"hard"`
+	HostDiskMinFreePercent int    `envconfig:"DEV_MACHINE_HOST_DISK_MIN_FREE_PERCENT" default:"15"`
+	HostDiskMinFreeGB      int    `envconfig:"DEV_MACHINE_HOST_DISK_MIN_FREE_GB" default:"25"`
+}
+
+const (
+	DiskQuotaModeHard      = "hard"
+	DiskQuotaModeMonitored = "monitored"
+)
+
+// EffectiveDiskQuotaMode normalizes the configured mode; empty means hard.
+func (c DevMachineConfig) EffectiveDiskQuotaMode() string {
+	mode := strings.ToLower(strings.TrimSpace(c.DiskQuotaMode))
+	if mode == "" {
+		return DiskQuotaModeHard
+	}
+	return mode
+}
+
+func (c DevMachineConfig) MonitoredDiskQuota() bool {
+	return c.EffectiveDiskQuotaMode() == DiskQuotaModeMonitored
+}
+
+func (c DevMachineConfig) validateDiskQuota() error {
+	switch c.EffectiveDiskQuotaMode() {
+	case DiskQuotaModeHard:
+		return nil
+	case DiskQuotaModeMonitored:
+		if c.HostDiskMinFreePercent < 1 || c.HostDiskMinFreePercent > 90 {
+			return fmt.Errorf("DEV_MACHINE_HOST_DISK_MIN_FREE_PERCENT must be between 1 and 90")
+		}
+		if c.HostDiskMinFreeGB < 1 {
+			return fmt.Errorf("DEV_MACHINE_HOST_DISK_MIN_FREE_GB must be at least 1")
+		}
+		return nil
+	default:
+		return fmt.Errorf("DEV_MACHINE_DISK_QUOTA_MODE must be hard or monitored")
+	}
 }
 
 type machineGatewayEnvConfig struct {
@@ -112,7 +153,7 @@ func (c DevMachineConfig) Validate(frontendURL string) error {
 	if strings.ContainsAny(c.AppArmorProfile, "\x00\r\n\t ") {
 		return fmt.Errorf("DEV_MACHINE_APPARMOR_PROFILE must be a profile name without whitespace")
 	}
-	return nil
+	return c.validateDiskQuota()
 }
 
 func (c DevMachineConfig) ValidateGateway(frontendURL string) error {
