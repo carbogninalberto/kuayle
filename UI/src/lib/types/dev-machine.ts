@@ -234,6 +234,7 @@ export interface DevMachinePolicy {
 	allowed_repositories: string[];
 	allow_custom_providers: boolean;
 	idle_pause_minutes: number;
+	disk_quota_mode: 'hard' | 'monitored';
 }
 
 export interface DevMachineCheckout {

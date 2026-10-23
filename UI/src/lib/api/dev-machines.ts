@@ -258,7 +258,7 @@ export function getDevMachinePolicy(slug: string): Promise<DevMachinePolicy> {
 	return api.get(`${base(slug)}/dev-machine-policy`);
 }
 
-export function updateDevMachinePolicy(slug: string, policy: Omit<DevMachinePolicy, 'workspace_id'>): Promise<DevMachinePolicy> {
+export function updateDevMachinePolicy(slug: string, policy: Omit<DevMachinePolicy, 'workspace_id' | 'disk_quota_mode'>): Promise<DevMachinePolicy> {
 	return api.patch(`${base(slug)}/dev-machine-policy`, policy);
 }
 

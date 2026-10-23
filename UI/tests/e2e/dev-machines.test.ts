@@ -217,6 +217,10 @@ test('handles machine actions without applying stale poll, route, or trace respo
 			return route.fulfill({ json: { data: [], total_count: 0, page: 1, has_more: false } });
 		}
 
+		// The machine page reads the policy to label the workspace disk limit.
+		if (path === '/api/workspaces/test/dev-machine-policy') {
+			return route.fulfill({ json: { workspace_id: '00000000-0000-0000-0000-000000000002', enabled: true, max_concurrent_machines: 5, max_machines_per_user: 2, max_daily_agent_runs: 25, max_runtime_minutes: 480, max_disk_gb: 100, idle_pause_minutes: 240, allowed_providers: ['opencode'], allowed_repositories: [], allow_custom_providers: false, disk_quota_mode: 'hard' } });
+		}
 		unhandledPaths.push(`${request.method()} ${path}`);
 		return route.fulfill({ status: 404, json: { error: { message: `Unhandled ${path}` } } });
 	});
@@ -516,6 +520,10 @@ test('retries a code-server launch while a paused machine resumes', async ({ pag
 				return route.fulfill({ status: 202, json: { status: 'resuming', retry_after_seconds: 1, operation: { id: 'op-resume', action: 'start', status: 'pending', generation: 2, idempotency_key: 'launch-resume', attempts: 0, created_at: '2026-07-13T00:00:00Z' } } });
 			}
 			return route.fulfill({ status: 201, json: { status: 'ready', launch_url: 'https://code.example.test/?ticket=redacted', expires_at: '2099-07-13T04:00:00Z' } });
+		}
+		// The machine page reads the policy to label the workspace disk limit.
+		if (path === '/api/workspaces/test/dev-machine-policy') {
+			return route.fulfill({ json: { workspace_id: '00000000-0000-0000-0000-000000000002', enabled: true, max_concurrent_machines: 5, max_machines_per_user: 2, max_daily_agent_runs: 25, max_runtime_minutes: 480, max_disk_gb: 100, idle_pause_minutes: 240, allowed_providers: ['opencode'], allowed_repositories: [], allow_custom_providers: false, disk_quota_mode: 'hard' } });
 		}
 		unhandledPaths.push(`${request.method()} ${path}`);
 		return route.fulfill({ status: 404, json: { error: { message: `Unhandled ${path}` } } });
