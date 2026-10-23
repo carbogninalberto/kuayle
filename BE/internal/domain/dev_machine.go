@@ -423,6 +423,7 @@ type DevMachineWorkspacePolicy struct {
 	AllowedRepositories   json.RawMessage `json:"allowed_repositories" db:"allowed_repositories"`
 	AllowCustomProviders  bool            `json:"allow_custom_providers" db:"allow_custom_providers"`
 	IdlePauseMinutes      int             `json:"idle_pause_minutes" db:"idle_pause_minutes"`
+	DiskQuotaMode         string          `json:"disk_quota_mode" db:"-"`
 	CreatedAt             time.Time       `json:"created_at" db:"created_at"`
 	UpdatedAt             time.Time       `json:"updated_at" db:"updated_at"`
 }

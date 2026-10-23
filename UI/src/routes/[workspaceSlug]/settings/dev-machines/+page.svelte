@@ -2,6 +2,8 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
+	import { TriangleAlert } from '@lucide/svelte';
+	import * as Alert from '$lib/components/ui/alert';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import * as Select from '$lib/components/ui/select';
 	import { Button } from '$lib/components/ui/button';
@@ -154,6 +156,13 @@
 {:else}
 	<form onsubmit={save} class="mx-auto max-w-3xl space-y-6 p-6">
 		<div><h1 class="text-lg font-semibold">{m['settings.dev_machines.title']()}</h1><p class="mt-1 text-sm text-[var(--color-text-tertiary)]">{m['settings.dev_machines.desc']()}</p></div>
+		{#if policy.disk_quota_mode === 'monitored'}
+			<Alert.Root class="border-[var(--color-warning)] bg-[var(--color-bg-secondary)] text-[var(--color-warning)]">
+				<TriangleAlert />
+				<Alert.Title>{m['settings.dev_machines.monitored_quota_title']()}</Alert.Title>
+				<Alert.Description class="text-[var(--color-text-secondary)]">{m['settings.dev_machines.monitored_quota_description']()}</Alert.Description>
+			</Alert.Root>
+		{/if}
 		{#if !canAdmin}<p class="rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-3 text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.admin_only']()}</p>{/if}
 		<fieldset disabled={!canAdmin} class="space-y-6">
 		<section class="space-y-4 rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-5">

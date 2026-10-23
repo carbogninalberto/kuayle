@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/agent"
+	"github.com/kuayle/kuayle-backend/internal/config"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/middleware"
@@ -330,6 +331,61 @@ func TestDevMachineGetIsCreatorScoped(t *testing.T) {
 	require.Equal(t, http.StatusOK, recorder.Code)
 }
 
+func TestDevMachinePolicyIncludesConfiguredDiskQuotaMode(t *testing.T) {
+	workspaceID := uuid.New()
+	for _, test := range []struct {
+		mode       string
+		clientMode string
+	}{
+		{mode: config.DiskQuotaModeHard, clientMode: config.DiskQuotaModeMonitored},
+		{mode: config.DiskQuotaModeMonitored, clientMode: config.DiskQuotaModeHard},
+	} {
+		t.Run(test.mode, func(t *testing.T) {
+			store := &handlerDevMachineStoreFake{policy: &domain.DevMachineWorkspacePolicy{
+				WorkspaceID: workspaceID, Enabled: true, MaxConcurrentMachines: 5, MaxMachinesPerUser: 2,
+				MaxDailyAgentRuns: 25, MaxRuntimeMinutes: 480, MaxDiskGB: 100, IdlePauseMinutes: 240,
+				AllowedProviders:    json.RawMessage(`["claude-code","opencode","codex"]`),
+				AllowedRepositories: json.RawMessage(`[]`),
+			}}
+			h := NewDevMachineHandler(service.NewDevMachineService(
+				store, agent.NewRegistry(), true, "machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, service.DevMachineImages{},
+			), test.mode)
+
+			recorder := httptest.NewRecorder()
+			ctx := devMachineHandlerContext(httptest.NewRequest(http.MethodGet, "/dev-machine-policy", nil), recorder, workspaceID, uuid.New())
+			require.NoError(t, h.GetPolicy(ctx))
+			require.Equal(t, http.StatusOK, recorder.Code)
+			var current domain.DevMachineWorkspacePolicy
+			require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &current))
+			require.Equal(t, test.mode, current.DiskQuotaMode)
+
+			body := fmt.Sprintf(`{
+				"enabled": true,
+				"max_concurrent_machines": 5,
+				"max_machines_per_user": 2,
+				"max_daily_agent_runs": 25,
+				"max_runtime_minutes": 480,
+				"max_disk_gb": 100,
+				"allowed_providers": ["opencode"],
+				"allowed_repositories": [],
+				"allow_custom_providers": false,
+				"idle_pause_minutes": 240,
+				"disk_quota_mode": %q
+			}`, test.clientMode)
+			recorder = httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPatch, "/dev-machine-policy", strings.NewReader(body))
+			request.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			ctx = devMachineHandlerContext(request, recorder, workspaceID, uuid.New())
+			require.NoError(t, h.UpdatePolicy(ctx))
+			require.Equal(t, http.StatusOK, recorder.Code)
+			var updated domain.DevMachineWorkspacePolicy
+			require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &updated))
+			require.Equal(t, test.mode, updated.DiskQuotaMode)
+			require.Empty(t, store.policy.DiskQuotaMode)
+		})
+	}
+}
+
 func TestTerminalCloseReturnsAcceptedWhileRuntimeCleanupIsPending(t *testing.T) {
 	workspaceID, userID, machineID, sessionID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	store := &handlerDevMachineStoreFake{machine: &domain.DevMachine{
@@ -353,8 +409,18 @@ func TestTerminalCloseReturnsAcceptedWhileRuntimeCleanupIsPending(t *testing.T) 
 type handlerDevMachineStoreFake struct {
 	repository.DevMachineStore
 	machine                 *domain.DevMachine
+	policy                  *domain.DevMachineWorkspacePolicy
 	permanentDeleteRequests int
 	terminalCloseOperation  *domain.DevMachineOperation
+}
+
+func (f *handlerDevMachineStoreFake) GetPolicy(context.Context, uuid.UUID) (*domain.DevMachineWorkspacePolicy, error) {
+	return f.policy, nil
+}
+
+func (f *handlerDevMachineStoreFake) UpsertPolicy(_ context.Context, policy *domain.DevMachineWorkspacePolicy) error {
+	f.policy = policy
+	return nil
 }
 
 type collectorHandlerStoreFake struct {
