@@ -409,7 +409,7 @@
 				bind:value={title}
 				onpaste={handleTitlePaste}
 				placeholder={m['sharedComponents.create_issue.issue_title_placeholder']()}
-				class="w-full bg-transparent text-lg font-semibold max-sm:shrink-0"
+				class="h-auto w-full rounded-none border-0 bg-transparent p-0 text-lg font-semibold text-[var(--color-text-primary)] shadow-none placeholder:text-[var(--color-text-tertiary)] dark:bg-transparent md:text-lg max-sm:shrink-0"
 			/>
 			<div class="mt-4 max-h-[calc(60vh-120px)] overflow-y-auto max-sm:flex-1 max-sm:[max-height:none] max-sm:overflow-y-auto">
 				{#key descriptionVersion}
