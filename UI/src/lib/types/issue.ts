@@ -155,6 +155,17 @@ export interface CreateIssueTemplateRequest {
 	team_id?: string;
 }
 
+export interface UpdateIssueTemplateRequest {
+	title?: string;
+	description?: string;
+	status?: IssueStatus;
+	priority?: IssuePriority;
+	label_ids?: string[];
+	assignee_id?: string;
+	team_id?: string;
+	is_active?: boolean;
+}
+
 export interface Comment {
 	id: string;
 	issue_id: string;
