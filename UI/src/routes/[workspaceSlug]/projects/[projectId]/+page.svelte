@@ -289,8 +289,7 @@
 					<Popover.Content class="w-40 p-1" align="start">
 						{#each STATUS_OPTIONS as option}
 							{@const StatusIcon = option.icon}
-							<Button variant="ghost" size="sm"
-								onclick={() => handleStatusChange(option.value)}
+							<Button variant="plain" onclick={() => handleStatusChange(option.value)}
 								class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {project.status ===
 								option.value
 									? 'bg-[var(--color-bg-hover)]'
@@ -325,12 +324,11 @@
 							class="rounded-md p-1.5 hover:bg-[var(--color-bg-hover)]"><MoreHorizontal size={14} /></Popover.Trigger
 						>
 						<Popover.Content class="w-40 p-1" align="end">
-							<Button variant="destructive" size="sm"
-								onclick={() => {
+							<Button variant="plain" onclick={() => {
 									actionsOpen = false;
 									showDelete = true;
 								}}
-								class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-error)]"
+								class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-error)] hover:bg-[var(--color-bg-hover)]"
 							>
 								<Trash2 size={14} />
 								{m['projects.delete']()}

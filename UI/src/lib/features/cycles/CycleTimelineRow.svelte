@@ -159,39 +159,36 @@
 				</Popover.Trigger>
 				<Popover.Content class="w-48 p-1" align="end" side="bottom">
 					{#if onedit}
-						<Button variant="ghost" size="sm"
-							onclick={(e) => {
+						<Button variant="plain" onclick={(e) => {
 								e.stopPropagation();
 								menuOpen = false;
 								onedit?.(cycle);
 							}}
-							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
 						>
 							<Pencil size={14} />
 							{m['cycles.edit_cycle']()}
 						</Button>
 					{/if}
 					{#if cycle.status === 'upcoming' && onactivate}
-						<Button variant="ghost" size="sm"
-							onclick={(e) => {
+						<Button variant="plain" onclick={(e) => {
 								e.stopPropagation();
 								menuOpen = false;
 								onactivate?.(cycle.id);
 							}}
-							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
 						>
 							<Play size={14} />
 							{m['cycles.start_cycle']()}
 						</Button>
 					{/if}
 					{#if cycle.status === 'active' && oncomplete}
-						<Button variant="ghost" size="sm"
-							onclick={(e) => {
+						<Button variant="plain" onclick={(e) => {
 								e.stopPropagation();
 								menuOpen = false;
 								oncomplete?.(cycle.id);
 							}}
-							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
 						>
 							<CheckCircle2 size={14} />
 							{m['cycles.complete_cycle']()}
@@ -199,13 +196,12 @@
 					{/if}
 					{#if ondelete}
 						<div class="my-1 border-t border-[var(--app-border)]"></div>
-						<Button variant="destructive" size="sm"
-							onclick={(e) => {
+						<Button variant="plain" onclick={(e) => {
 								e.stopPropagation();
 								menuOpen = false;
 								ondelete?.(cycle.id);
 							}}
-							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-error)]"
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-error)] hover:bg-[var(--color-bg-hover)]"
 						>
 							<Trash2 size={14} />
 							{m['cycles.delete_cycle']()}

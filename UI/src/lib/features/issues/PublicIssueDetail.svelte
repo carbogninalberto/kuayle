@@ -76,8 +76,7 @@
 <!-- Overlay -->
 <div class="fixed inset-0 z-40 flex justify-end">
 	<!-- Backdrop -->
-	<Button variant="ghost" size="sm"
-		class="h-full flex-1 rounded-none border-0 p-0 active:not-aria-[haspopup]:translate-y-0 cursor-default"
+	<Button variant="plain" class="flex-1 cursor-default"
 		style="background: transparent;"
 		onclick={close}
 		tabindex={-1}
@@ -95,26 +94,24 @@
 			<div class="flex items-center gap-1">
 				<span class="text-xs text-[var(--color-text-tertiary)] mr-1">{formatRelativeTime(issue.created_at, getLocale())}</span>
 				{#if issues.length > 1}
-					<Button variant="ghost" size="sm"
-						onclick={goUp}
+					<Button variant="plain" onclick={goUp}
 						disabled={!hasPrev}
-						class="shrink-0 rounded-md p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors disabled:opacity-25 disabled:pointer-events-none"
+						class="shrink-0 rounded-md p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors disabled:opacity-25 disabled:pointer-events-none"
 						title="Previous issue"
 					>
 						<ChevronUp size={16} />
 					</Button>
-					<Button variant="ghost" size="sm"
-						onclick={goDown}
+					<Button variant="plain" onclick={goDown}
 						disabled={!hasNext}
-						class="shrink-0 rounded-md p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors disabled:opacity-25 disabled:pointer-events-none"
+						class="shrink-0 rounded-md p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors disabled:opacity-25 disabled:pointer-events-none"
 						title="Next issue"
 					>
 						<ChevronDown size={16} />
 					</Button>
 				{/if}
-				<Button aria-label={m['common.close']()} variant="ghost" size="sm"
+				<Button aria-label={m['common.close']()} variant="plain"
 					onclick={close}
-					class="shrink-0 rounded-md p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+					class="shrink-0 rounded-md p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
 				>
 					<X size={16} />
 				</Button>

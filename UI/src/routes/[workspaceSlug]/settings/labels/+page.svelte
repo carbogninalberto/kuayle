@@ -70,9 +70,8 @@
 <div class="mx-auto max-w-2xl px-8 py-10">
 	<div class="flex items-center justify-between">
 		<h1 class="text-2xl font-semibold text-[var(--color-text-primary)]">{m['settings.labels.title']()}</h1>
-		<Button variant="default" size="sm"
-			onclick={() => (showCreate = true)}
-			class="flex items-center gap-1 rounded-md px-3 py-1.5 text-sm"
+		<Button variant="plain" onclick={() => (showCreate = true)}
+			class="flex items-center gap-1 rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)]"
 		>
 			<Plus size={14} />
 			{m['settings.labels.new_label']()}
@@ -112,16 +111,14 @@
 									{/snippet}
 								</Popover.Trigger>
 								<Popover.Content class="w-36 p-1" align="end">
-									<Button variant="ghost" size="sm"
-										onclick={() => openEdit(label)}
-										class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)]"
+									<Button variant="plain" onclick={() => openEdit(label)}
+										class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
 									>
 										<Pencil size={13} />
 										{m['settings.edit']()}
 									</Button>
-									<Button variant="destructive" size="sm"
-										onclick={() => { menuOpenId = null; handleDelete(label.id); }}
-										class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-error)]"
+									<Button variant="plain" onclick={() => { menuOpenId = null; handleDelete(label.id); }}
+										class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-error)] hover:bg-[var(--color-bg-hover)]"
 									>
 										<Trash2 size={13} />
 										{m['settings.delete']()}

@@ -111,8 +111,7 @@
 				<div class="flex items-center justify-between">
 					<div class="flex items-center gap-1.5">
 						<span class="text-sm text-[var(--color-text-secondary)]">{m['sharedComponents.share_link.include_descriptions']()}</span>
-						<Button variant="ghost" size="sm"
-							class="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors"
+						<Button variant="plain" class="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors"
 							onclick={() => (showDescriptionHint = !showDescriptionHint)}
 						>
 							<Info size={13} />
@@ -150,9 +149,8 @@
 									{/if}
 								</p>
 								<div class="flex-1"></div>
-								<Button variant="ghost" size="sm"
-									onclick={() => copyUrl(link.url)}
-									class="shrink-0 rounded p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
+								<Button variant="plain" onclick={() => copyUrl(link.url)}
+									class="shrink-0 rounded p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
 									title={m['sharedComponents.share_link.copy_link']()}
 								>
 									<Copy size={14} />
@@ -166,15 +164,13 @@
 								>
 									<ExternalLink size={14} />
 								</a>
-								<Button variant="outline" size="sm"
-									onclick={() => handleToggle(link)}
-									class="shrink-0 rounded px-1.5 py-0.5 text-[10px] border text-[var(--color-text-tertiary)]"
+								<Button variant="plain" onclick={() => handleToggle(link)}
+									class="shrink-0 rounded px-1.5 py-0.5 text-[10px] border border-[var(--app-border)] text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)]"
 								>
 									{link.is_active ? m['sharedComponents.share_link.disable']() : m['sharedComponents.share_link.enable']()}
 								</Button>
-								<Button variant="destructive" size="sm"
-									onclick={() => handleDelete(link)}
-									class="shrink-0 rounded p-1 text-[var(--color-text-tertiary)] hover:text-red-500"
+								<Button variant="plain" onclick={() => handleDelete(link)}
+									class="shrink-0 rounded p-1 text-[var(--color-text-tertiary)] hover:text-red-500 hover:bg-[var(--color-bg-hover)]"
 									title={m['sharedComponents.share_link.delete_link']()}
 								>
 									<Trash2 size={14} />

@@ -69,8 +69,7 @@
 
 {#if !loading && hasActivity}
 	<div class="overflow-hidden rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]/60">
-		<Button variant="ghost" size="sm"
-			onclick={() => (expanded = !expanded)}
+		<Button variant="plain" onclick={() => (expanded = !expanded)}
 			class="flex w-full items-center gap-2 px-3 py-2 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
 		>
 			<ChevronRight size={14} class="transition-transform {expanded ? 'rotate-90' : ''}" />
@@ -116,8 +115,7 @@
 							<code class="block truncate text-[var(--color-text-primary)]">{branch.name}</code>
 							<div class="mt-0.5 truncate text-[var(--color-text-tertiary)]">{branch.repo_full_name}</div>
 						</div>
-						<Button variant="ghost" size="sm"
-							onclick={() => copyBranch(branch.name)}
+						<Button variant="plain" onclick={() => copyBranch(branch.name)}
 							class="shrink-0 rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-secondary)]"
 							title="Copy branch name"
 						>

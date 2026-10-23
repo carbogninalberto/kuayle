@@ -64,7 +64,7 @@
 		{#if loading}
 			<p role="status">{m['issue.versions.loading']()}</p>
 		{:else if error}
-			<div role="alert">{m['issue.versions.error']()} <Button variant="link" size="sm" class="underline" onclick={load}>{m['issue.versions.retry']()}</Button></div>
+			<div role="alert">{m['issue.versions.error']()} <Button variant="plain" class="underline" onclick={load}>{m['issue.versions.retry']()}</Button></div>
 		{:else if versions.length === 0}
 			<p>{m['issue.versions.empty']()}</p>
 		{:else}
@@ -73,9 +73,9 @@
 				<SelectField class="w-full min-w-0 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-2" bind:value={selectedId} options={versions.map((entry, index) => ({ value: entry.id, label: `${index + 1}. ${fieldName(entry.field)} · ${timestamp(entry.created_at)} · ${author(entry)}` }))} />
 			</label>
 			<div class="flex flex-wrap items-center justify-between gap-2">
-				<Button variant="outline" size="sm" class="rounded border px-3 py-1 disabled:opacity-40" disabled={selectedIndex <= 0} onclick={() => selectedId = versions[selectedIndex - 1].id}>{m['issue.versions.previous']()}</Button>
+				<Button variant="plain" class="rounded border border-[var(--app-border)] px-3 py-1 disabled:opacity-40" disabled={selectedIndex <= 0} onclick={() => selectedId = versions[selectedIndex - 1].id}>{m['issue.versions.previous']()}</Button>
 				<span>{m['issue.versions.position']({ current: selectedIndex + 1, total: versions.length })}</span>
-				<Button variant="outline" size="sm" class="rounded border px-3 py-1 disabled:opacity-40" disabled={selectedIndex >= versions.length - 1} onclick={() => selectedId = versions[selectedIndex + 1].id}>{m['issue.versions.next']()}</Button>
+				<Button variant="plain" class="rounded border border-[var(--app-border)] px-3 py-1 disabled:opacity-40" disabled={selectedIndex >= versions.length - 1} onclick={() => selectedId = versions[selectedIndex + 1].id}>{m['issue.versions.next']()}</Button>
 			</div>
 			{#if selected}
 				<p class="text-sm break-words">{m['issue.versions.edited']({ author: author(selected), field: fieldName(selected.field) })} · <time datetime={selected.created_at}>{timestamp(selected.created_at)}</time></p>

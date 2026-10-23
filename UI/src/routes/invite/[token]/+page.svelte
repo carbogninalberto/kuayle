@@ -103,7 +103,7 @@
 	{:else if loadFailed}
 		<div class="w-full max-w-sm space-y-4 p-8 text-center" role="alert">
 			<p class="text-sm text-[var(--color-text-secondary)]">{m['invite.failed_load']()}</p>
-			<Button variant="link" size="sm" onclick={() => loadInvite(token)} class="text-sm text-[var(--app-accent)] hover:underline"
+			<Button variant="plain" onclick={() => loadInvite(token)} class="text-sm text-[var(--app-accent)] hover:underline"
 				>{m['invite.retry']()}</Button
 			>
 		</div>
@@ -114,7 +114,7 @@
 			<p class="text-sm text-[var(--color-text-secondary)]">
 				{(m as unknown as Record<string, () => string>)['invite.invalid.' + invalidReason]()}
 			</p>
-			<Button variant="link" size="sm" onclick={() => goto('/login')} class="text-sm text-[var(--app-accent)] hover:underline">
+			<Button variant="plain" onclick={() => goto('/login')} class="text-sm text-[var(--app-accent)] hover:underline">
 				{m['invite.back_to_login']()}
 			</Button>
 		</div>
@@ -139,10 +139,9 @@
 					})}
 				</p>
 			</div>
-			<Button variant="default" size="sm"
-				onclick={handleJoin}
+			<Button variant="plain" onclick={handleJoin}
 				disabled={joining}
-				class="flex w-full items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium disabled:opacity-50"
+				class="flex w-full items-center justify-center gap-2 rounded-md bg-[var(--app-accent)] px-4 py-2 text-sm font-medium text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)] disabled:opacity-50"
 			>
 				{#if joining}
 					<Loader2 size={14} class="animate-spin" />

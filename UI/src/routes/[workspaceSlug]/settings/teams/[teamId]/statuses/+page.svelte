@@ -358,18 +358,16 @@
 							<div
 								class="flex items-center gap-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
 							>
-								<Button variant="ghost" size="sm"
-									onclick={() => moveTeamWorkflowCategory(category, -1)}
+								<Button variant="plain" onclick={() => moveTeamWorkflowCategory(category, -1)}
 									disabled={index === 0}
-									class="rounded p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] disabled:opacity-30"
+									class="rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-30"
 									aria-label={m['team_settings.move_category_up_aria']({ name: getCategoryLabel(category) })}
 								>
 									<ArrowUp size={13} />
 								</Button>
-								<Button variant="ghost" size="sm"
-									onclick={() => moveTeamWorkflowCategory(category, 1)}
+								<Button variant="plain" onclick={() => moveTeamWorkflowCategory(category, 1)}
 									disabled={index === teamWorkflowOrder.length - 1}
-									class="rounded p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] disabled:opacity-30"
+									class="rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-30"
 									aria-label={m['team_settings.move_category_down_aria']({ name: getCategoryLabel(category) })}
 								>
 									<ArrowDown size={13} />
@@ -404,9 +402,8 @@
 					>
 						<div class="flex items-center justify-between px-5 py-2.5">
 							<span class="text-xs font-medium text-[var(--color-text-tertiary)]">{getCategoryLabel(cat)}</span>
-							<Button variant="ghost" size="sm"
-								onclick={() => startAdd(cat)}
-								class="rounded p-0.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+							<Button variant="plain" onclick={() => startAdd(cat)}
+								class="rounded p-0.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
 								title={m['team_settings.add_status_to_aria']({ name: getCategoryLabel(cat) })}
 							>
 								<Plus size={14} />
@@ -446,19 +443,18 @@
 
 									{#if editingId === status.id}
 										<div class="flex flex-1 items-center gap-2">
-											<Input
+											<Input variant="plain"
 												type="text"
 												bind:value={editName}
 												onkeydown={(e) => {
 													if (e.key === 'Enter') saveEdit();
 													if (e.key === 'Escape') editingId = null;
 												}}
-												class="flex-1 py-0.5"
+												class="flex-1 rounded border border-[var(--app-border)] bg-[var(--color-bg)] px-2 py-0.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
 											/>
 											<div class="flex items-center gap-0.5">
 												{#each PRESET_COLORS as c}
-													<Button variant="ghost" size="sm"
-														onclick={() => (editColor = c)}
+													<Button variant="plain" onclick={() => (editColor = c)}
 														class="h-3.5 w-3.5 rounded-full {editColor === c
 															? 'ring-2 ring-[var(--app-accent)] ring-offset-1 ring-offset-[var(--color-bg)]'
 															: ''}"
@@ -467,13 +463,13 @@
 													></Button>
 												{/each}
 											</div>
-											<Button aria-label={m['common.save']()} variant="ghost" size="sm"
+											<Button aria-label={m['common.save']()} variant="plain"
 												onclick={saveEdit}
 												class="rounded p-0.5 text-[var(--color-success)] hover:bg-[var(--color-bg-tertiary)]"
 											>
 												<Check size={14} />
 											</Button>
-											<Button aria-label={m['common.close']()} variant="ghost" size="sm"
+											<Button aria-label={m['common.close']()} variant="plain"
 												onclick={() => (editingId = null)}
 												class="rounded p-0.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-tertiary)]"
 											>
@@ -490,14 +486,13 @@
 											</div>
 										</div>
 										<div class="flex items-center gap-1">
-											<Button variant="ghost" size="sm"
-												onclick={() => startEdit(status)}
+											<Button variant="plain" onclick={() => startEdit(status)}
 												class="hidden rounded p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)] group-hover:block transition-colors"
 											>
 												<Pencil size={12} />
 											</Button>
 											{#if !status.is_default}
-												<Button aria-label={m['common.delete']()} variant="destructive" size="sm"
+												<Button aria-label={m['common.delete']()} variant="plain"
 													onclick={() => handleDelete(status.id)}
 													class="hidden rounded p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-error)] hover:bg-[var(--color-bg-tertiary)] group-hover:block transition-colors"
 												>
@@ -515,7 +510,7 @@
 								class="flex items-center gap-3 px-5 py-2.5 border-t border-[var(--app-border)] bg-[var(--color-bg-hover)]/30"
 							>
 								<IssueStatusIcon category={cat} size={18} />
-								<Input
+								<Input variant="plain"
 									type="text"
 									bind:value={addName}
 									placeholder={m['team_settings.status_name_placeholder']()}
@@ -523,12 +518,11 @@
 										if (e.key === 'Enter') handleAdd();
 										if (e.key === 'Escape') addingCategory = null;
 									}}
-									class="flex-1"
+									class="flex-1 rounded border border-[var(--app-border)] bg-[var(--color-bg)] px-2 py-1 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
 								/>
 								<div class="flex items-center gap-0.5">
 									{#each PRESET_COLORS as c}
-										<Button variant="ghost" size="sm"
-											onclick={() => (addColor = c)}
+										<Button variant="plain" onclick={() => (addColor = c)}
 											class="h-3.5 w-3.5 rounded-full {addColor === c
 												? 'ring-2 ring-[var(--app-accent)] ring-offset-1 ring-offset-[var(--color-bg)]'
 												: ''}"
@@ -537,14 +531,13 @@
 										></Button>
 									{/each}
 								</div>
-								<Button variant="default" size="sm"
-									onclick={handleAdd}
+								<Button variant="plain" onclick={handleAdd}
 									disabled={!addName.trim()}
-									class="rounded-md px-2.5 py-1 text-xs disabled:opacity-50"
+									class="rounded-md bg-[var(--app-accent)] px-2.5 py-1 text-xs text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)] disabled:opacity-50"
 								>
 									{m['team_settings.add']()}
 								</Button>
-								<Button aria-label={m['common.close']()} variant="ghost" size="sm"
+								<Button aria-label={m['common.close']()} variant="plain"
 									onclick={() => (addingCategory = null)}
 									class="rounded p-0.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-tertiary)]"
 								>

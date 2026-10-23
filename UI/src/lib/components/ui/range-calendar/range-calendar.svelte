@@ -3,6 +3,7 @@
 	import { RangeCalendar as RangeCalendarPrimitive } from "bits-ui";
 	import type { ButtonVariant } from "$lib/components/ui/button/index.js";
 	import { cn, type WithoutChildrenOrChild } from "$lib/utils.js";
+	import { getLocale } from "$lib/paraglide/runtime.js";
 	import * as RangeCalendar from "./index.js";
 	import type { Snippet } from "svelte";
 
@@ -14,7 +15,7 @@
 		class: className,
 		buttonVariant = "ghost",
 		captionLayout = "label",
-		locale = "en-US",
+		locale = getLocale(),
 		months: monthsProp,
 		years,
 		monthFormat: monthFormatProp,

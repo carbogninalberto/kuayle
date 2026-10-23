@@ -70,11 +70,11 @@
 					<div class="mt-4 space-y-3">
 						<label class="block text-sm text-[var(--color-text-secondary)]">
 							{m['workspace_transfer.workspace_name']()}
-							<Input value={name} oninput={(event) => updateName(event.currentTarget.value)} maxlength={100} class="mt-1 w-full" />
+							<Input variant="plain" value={name} oninput={(event) => updateName(event.currentTarget.value)} maxlength={100} class="mt-1 w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-2 text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]" />
 						</label>
 						<label class="block text-sm text-[var(--color-text-secondary)]">
 							{m['workspace_transfer.workspace_slug']()}
-							<Input bind:value={slug} oninput={() => (slugTouched = true)} maxlength={50} class="mt-1 w-full font-mono" />
+							<Input variant="plain" bind:value={slug} oninput={() => (slugTouched = true)} maxlength={50} class="mt-1 w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-2 font-mono text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]" />
 						</label>
 						<Button class="w-full" onclick={create} disabled={creating || !name.trim() || !slug.trim()}>
 							{#if creating}<Loader2 size={14} class="animate-spin" />{/if}

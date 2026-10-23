@@ -76,7 +76,7 @@
 <Popover.Root bind:open>
 	<Popover.Trigger>
 		{#snippet child({ props })}
-			<Button {...props} variant="outline" size="sm" class="flex items-center gap-1.5 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-2.5 py-1 text-xs hover:bg-[var(--color-bg-hover)] {displayText ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-secondary)]'}">
+			<Button {...props} variant="plain" class="flex items-center gap-1.5 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-2.5 py-1 text-xs hover:bg-[var(--color-bg-hover)] {displayText ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-secondary)]'}">
 				<CalendarIcon size={12} />
 				{#if displayText}
 					{displayText}

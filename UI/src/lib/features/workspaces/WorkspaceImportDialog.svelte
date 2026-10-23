@@ -90,7 +90,7 @@
 	}
 </script>
 
-<Input bind:ref={input} type="file" accept=".zip,.kuayle.zip,application/zip" class="hidden" onchange={selected} />
+<Input variant="plain" bind:ref={input} type="file" accept=".zip,.kuayle.zip,application/zip" class="hidden" onchange={selected} />
 <Button variant={compact ? 'outline' : 'default'} onclick={chooseFile} disabled={loadingPreview}>
 	{#if loadingPreview}<Loader2 size={14} class="animate-spin" />{:else}<Upload size={14} />{/if}
 	{m['workspace_transfer.import_button']()}
@@ -137,16 +137,16 @@
 				<div class="grid grid-cols-2 gap-3">
 					<label class="text-sm text-[var(--color-text-secondary)]">
 						{m['workspace_transfer.workspace_name']()}
-						<Input bind:value={name} maxlength={100} class="mt-1 w-full" />
+						<Input variant="plain" bind:value={name} maxlength={100} class="mt-1 w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-2 text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]" />
 					</label>
 					<label class="text-sm text-[var(--color-text-secondary)]">
 						{m['workspace_transfer.workspace_slug']()}
-						<Input bind:value={slug} maxlength={50} class="mt-1 w-full font-mono" />
+						<Input variant="plain" bind:value={slug} maxlength={50} class="mt-1 w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-2 font-mono text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]" />
 					</label>
 				</div>
 				<label class="block text-sm text-[var(--color-text-secondary)]">
 					{m['workspace_transfer.confirm_slug']({ slug })}
-					<Input bind:value={confirmation} class="mt-1 w-full font-mono" />
+					<Input variant="plain" bind:value={confirmation} class="mt-1 w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-2 font-mono text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]" />
 				</label>
 			</div>
 		{/if}

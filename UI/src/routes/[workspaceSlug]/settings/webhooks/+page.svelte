@@ -100,9 +100,8 @@
 <div class="mx-auto max-w-2xl px-8 py-10">
 	<div class="flex items-center justify-between">
 		<h1 class="text-2xl font-semibold text-[var(--color-text-primary)]">{m['settings.webhooks.title']()}</h1>
-		<Button variant="default" size="sm"
-			onclick={() => { resetForm(); showCreate = true; }}
-			class="flex items-center gap-1 rounded-md px-3 py-1.5 text-sm"
+		<Button variant="plain" onclick={() => { resetForm(); showCreate = true; }}
+			class="flex items-center gap-1 rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)]"
 		>
 			<Plus size={14} />
 			{m['settings.webhooks.new']()}
@@ -195,10 +194,9 @@
 					<Label class="text-xs text-[var(--color-text-secondary)]">{m['settings.webhooks.events']()}</Label>
 					<div class="grid grid-cols-2 gap-2">
 						{#each ALL_EVENTS as event}
-							<Button variant="outline" size="sm"
-								type="button"
+							<Button variant="plain" type="button"
 								onclick={() => toggleEvent(event)}
-								class="h-auto justify-start whitespace-normal flex items-center gap-2 rounded-md border px-3 py-2 text-left"
+								class="flex items-center gap-2 rounded-md border border-[var(--app-border)] px-3 py-2 text-left hover:bg-[var(--color-bg-hover)]"
 							>
 								<Checkbox checked={newEvents.includes(event)} />
 								<span class="text-xs text-[var(--color-text-primary)]">{event}</span>

@@ -40,21 +40,21 @@
 
 <form onsubmit={handleSubmit} class="space-y-4 p-4">
 	<div>
-		<Input
+		<Input variant="plain"
 			type="text"
 			bind:value={title}
 			placeholder="Issue title"
 			required
-			class="w-full bg-transparent text-lg font-medium"
+			class="w-full bg-transparent text-lg font-medium text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)]"
 		/>
 	</div>
 
 	<div>
-		<Textarea
+		<Textarea variant="plain"
 			bind:value={description}
 			placeholder="Add description..."
 			rows={3}
-			class="w-full"
+			class="w-full rounded border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)] focus:border-[var(--app-accent)]"
 		></Textarea>
 	</div>
 
@@ -76,17 +76,15 @@
 	</div>
 
 	<div class="flex justify-end gap-2">
-		<Button variant="outline" size="sm"
-			type="button"
+		<Button variant="plain" type="button"
 			onclick={oncancel}
-			class="rounded-md border px-3 py-1.5 text-sm text-[var(--color-text-secondary)]"
+			class="rounded-md border border-[var(--app-border)] px-3 py-1.5 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
 		>
 			Cancel
 		</Button>
-		<Button variant="default" size="sm"
-			type="submit"
+		<Button variant="plain" type="submit"
 			disabled={!title.trim() || !teamId}
-			class="rounded-md px-3 py-1.5 text-sm disabled:opacity-50"
+			class="rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)] disabled:opacity-50"
 		>
 			Create issue
 		</Button>

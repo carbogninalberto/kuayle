@@ -137,7 +137,7 @@
 							onchange={(statusId) => updateSubIssue(subIssue, { status_id: statusId })}
 						>
 							{#snippet trigger(props)}
-								<Button {...props} variant="ghost" size="sm"
+								<Button {...props} variant="plain"
 									type="button"
 									class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
 									title={subIssue.status_info?.name ?? subIssue.status}
@@ -152,9 +152,8 @@
 						</span>
 					{/if}
 
-					<Button variant="ghost" size="sm"
-						type="button"
-						class="h-auto justify-start whitespace-normal flex min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-[var(--color-bg-tertiary)]"
+					<Button variant="plain" type="button"
+						class="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-[var(--color-bg-tertiary)]"
 						onclick={() => onclickissue?.(subIssue)}
 					>
 						<span class="shrink-0 text-xs tabular-nums text-[var(--color-text-tertiary)]">{subIssue.identifier}</span>
@@ -183,7 +182,7 @@
 							onchange={(priority: IssuePriority) => updateSubIssue(subIssue, { priority })}
 						>
 							{#snippet trigger(props)}
-								<Button {...props} variant="ghost" size="sm"
+								<Button {...props} variant="plain"
 									type="button"
 									class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
 									title="Change priority"
@@ -207,7 +206,7 @@
 							onchange={(userId) => toggleAssignee(subIssue, userId)}
 						>
 							{#snippet trigger(props)}
-								<Button {...props} variant="ghost" size="sm"
+								<Button {...props} variant="plain"
 									type="button"
 									class="flex min-w-6 shrink-0 items-center justify-center rounded-full text-[var(--color-text-tertiary)] transition-colors hover:text-[var(--color-text-primary)]"
 									title={assigneeTitle(subIssue)}
@@ -310,9 +309,8 @@
 				</Collapsible.Trigger>
 
 				{#if onaddsubissue}
-					<Button variant="ghost" size="sm"
-						onclick={onaddsubissue}
-						class="ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[var(--color-text-tertiary)] transition-colors hover:text-[var(--color-text-primary)]"
+					<Button variant="plain" onclick={onaddsubissue}
+						class="ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
 						title="Add sub-issue"
 					>
 						<Plus size={13} />

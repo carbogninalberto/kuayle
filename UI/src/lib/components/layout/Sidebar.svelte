@@ -609,8 +609,8 @@
 
 		<!-- Drawer overlay sidebar (below page header) -->
 		<div class="fixed inset-0 top-[49px] z-40 {drawerOpen ? 'pointer-events-auto' : 'pointer-events-none'}">
-			<Button variant="ghost" aria-label={m['sidebar.close_sidebar']()} tabindex={drawerOpen ? 0 : -1}
-				class="absolute inset-0 h-full w-full rounded-none border-0 p-0 transition-colors"
+			<Button variant="plain" aria-label={m['sidebar.close_sidebar']()} tabindex={drawerOpen ? 0 : -1}
+				class="absolute inset-0 cursor-default transition-[background-color] duration-300"
 				style="background-color: {drawerOpen ? 'rgba(0,0,0,0.15)' : 'transparent'};"
 				onclick={() => (drawerOpen = false)} onkeydown={(e) => { if (e.key === 'Escape') drawerOpen = false; }} />
 			<div
@@ -655,18 +655,18 @@
 		</div>
 		<div class="flex shrink-0 items-center gap-1">
 			{#if onsearch}
-				<Button variant="ghost" size="icon-sm"
+				<Button variant="plain"
 					onclick={onsearch}
-					class="rounded-md p-1 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+					class="rounded-md p-1 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
 					title={m['sidebar.search']()}
 				>
 					<Search size={16} />
 				</Button>
 			{/if}
 			{#if oncreateissue}
-				<Button variant="ghost" size="icon-sm"
+				<Button variant="plain"
 					onclick={oncreateissue}
-					class="rounded-md p-1 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+					class="rounded-md p-1 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
 					title={m['sidebar.new_issue']()}
 				>
 					<SquarePen size={16} />
@@ -735,9 +735,10 @@
 			<!-- Favorites -->
 			{#if favorites.length > 0}
 				<div class="mt-4">
-					<Button variant="ghost" size="sm"
+					<Button variant="plain"
+						aria-expanded={!favoritesCollapsed}
 						onclick={() => (favoritesCollapsed = toggleSection('favorites', favoritesCollapsed))}
-						class="flex h-auto w-full items-center justify-start border-0 px-2 py-1"
+						class="flex w-full items-center px-2 py-1"
 					>
 						<span class="flex items-center gap-1">
 							<span class="text-[11px] font-semibold text-[var(--color-text-secondary)]">{m['sidebar.favorites']()}</span>
@@ -775,8 +776,8 @@
 
 			<!-- Teams -->
 			<div class="group/teams mt-4">
-				<div class="flex items-center justify-between px-2">
-					<Button variant="ghost" size="sm" class="h-auto flex-1 justify-start border-0 px-0 py-1" aria-expanded={!teamsCollapsed} onclick={() => (teamsCollapsed = toggleSection('teams', teamsCollapsed))}>
+				<div class="flex items-center justify-between px-2 py-1 has-[[aria-expanded]:focus-visible]:[outline:auto]">
+					<Button variant="plain" class="flex flex-1 cursor-pointer items-center focus-visible:outline-none" aria-expanded={!teamsCollapsed} onclick={() => (teamsCollapsed = toggleSection('teams', teamsCollapsed))}>
 					<span class="flex items-center gap-1">
 						<span class="text-[11px] font-semibold text-[var(--color-text-secondary)]">{m['sidebar.teams']()}</span>
 						<ChevronDown
@@ -786,12 +787,12 @@
 					</span>
 					</Button>
 					{#if oncreateteam}
-						<Button variant="ghost" size="sm"
+						<Button variant="plain"
 							onclick={(e) => {
 								e.stopPropagation();
 								oncreateteam?.();
 							}}
-							class="rounded p-0.5 text-[var(--color-text-tertiary)] opacity-0 transition-opacity group-hover/teams:opacity-100 hover:text-[var(--color-text-secondary)]"
+							class="rounded p-0.5 text-[var(--color-text-tertiary)] opacity-0 transition-opacity group-hover/teams:opacity-100 focus-visible:opacity-100 hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]"
 							title={m['sidebar.create_team']()}
 						>
 							<Plus size={14} />
@@ -822,9 +823,10 @@
 											data-sidebar-drag-row
 											class="group/team flex items-center rounded-md hover:bg-[var(--color-bg-hover)]"
 										>
-											<Button variant="ghost" size="sm"
+											<Button variant="plain"
+												aria-expanded={teamExpanded}
 												onclick={() => toggleTeam(team.id)}
-												class="flex min-w-0 flex-1 items-center justify-start gap-2 border-0 px-2 py-1 text-sm font-normal text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+												class="flex min-w-0 flex-1 items-center gap-2 px-2 py-1 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
 											>
 												<TeamIcon {team} class="size-4 shrink-0" />
 												<span class="truncate">{team.name}</span>
@@ -1072,9 +1074,9 @@
 							</div>
 						{/each}
 						{#if teams.length === 0}
-							<Button variant="ghost" size="sm"
+							<Button variant="plain"
 								onclick={oncreateteam}
-								class="flex w-full items-center justify-start gap-2 rounded-md px-2 py-1 text-sm text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
+								class="flex w-full items-center gap-2 rounded-md px-2 py-1 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
 							>
 								<Plus size={14} />
 								{m['sidebar.create_first_team']()}
@@ -1087,9 +1089,10 @@
 			<!-- Views -->
 			{#if personalViews.length > 0 || workspaceViews.length > 0}
 				<div class="mt-4">
-					<Button variant="ghost" size="sm"
+					<Button variant="plain"
+						aria-expanded={!viewsCollapsed}
 						onclick={() => (viewsCollapsed = toggleSection('views', viewsCollapsed))}
-						class="flex h-auto w-full items-center justify-start border-0 px-2 py-1"
+						class="flex w-full items-center px-2 py-1"
 					>
 						<span class="flex items-center gap-1">
 							<span class="text-[11px] font-semibold text-[var(--color-text-secondary)]">{m['sidebar.views']()}</span>
@@ -1177,9 +1180,9 @@
 
 			<!-- Projects -->
 			<div class="mt-4">
-				<Button variant="ghost" size="sm"
-					type="button"
-					class="flex h-auto w-full cursor-pointer items-center justify-start border-0 px-2 py-1"
+				<Button variant="plain"
+					aria-expanded={!projectsCollapsed}
+					class="flex w-full cursor-pointer items-center justify-between px-2 py-1"
 					onclick={() => (projectsCollapsed = toggleSection('projects', projectsCollapsed))}
 				>
 					<span class="flex items-center gap-1">
@@ -1243,9 +1246,9 @@
 						<Info size={14} />
 						{currentVersionLabel}
 					</a>
-					<Button variant="ghost" size="sm"
+					<Button variant="plain"
 						onclick={handleLogout}
-						class="flex w-full items-center justify-start gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)]"
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
 					>
 						<LogOut size={14} />
 						{m['sidebar.log_out']()}
@@ -1253,9 +1256,9 @@
 				</div>
 			</Popover.Content>
 		</Popover.Root>
-		<Button variant="outline" size="sm"
+		<Button variant="plain"
 			onclick={() => onshortcutshelp?.()}
-			class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-[var(--color-text-secondary)] transition-colors hover:text-[var(--color-text-primary)]"
+			class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[var(--app-border)] text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
 			aria-label={m['sidebar.keyboard_shortcuts']()}
 			title={m['sidebar.keyboard_shortcuts_hint']()}
 		>

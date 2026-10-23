@@ -200,9 +200,20 @@
 	{onchanged}
 	onaddrelation={(type) => onaddrelation?.(issue, type)}
 >
-	<!-- A row groups independent controls; the title Button supplies keyboard activation. -->
-	<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
-	<div role="group" aria-label={issue.identifier}
+	<!-- The row stays a single focusable activation target, as before KUA-62, without nesting a native button around its controls. -->
+	<div
+		role="button"
+		tabindex={0}
+		aria-label={issue.identifier}
+		onfocus={() => {
+			if (accessibleRow) onlastselected?.(issue.id);
+		}}
+		onkeydown={(e: KeyboardEvent) => {
+			if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+				e.preventDefault();
+				onclick(issue);
+			}
+		}}
 		class="group flex min-h-12 w-full items-center gap-2 rounded-none border-b border-[var(--app-border)] px-3 py-2 text-left transition-colors duration-100 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] sm:mx-2 sm:min-h-0 sm:w-[calc(100%-1rem)] sm:rounded-md sm:border-b-0 sm:py-1.5 {isSelected
 			? 'bg-black/[0.02] dark:bg-white/[0.02]'
 			: ''}"
@@ -216,10 +227,17 @@
 	>
 		{#if !singleSelect && !readOnly}
 			<!-- Checkbox hover zone -->
-			<div class="-ml-1 flex h-8 shrink-0 items-center justify-center pr-1 transition-opacity duration-100 sm:-my-1.5 sm:-ml-3 sm:h-auto sm:self-stretch sm:pl-3 {isSelected
+			<!-- The whole hover zone toggles selection; Checkbox clicks and Space bubble here once. -->
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<div
+				data-testid="issue-select-zone"
+				class="-ml-1 flex h-8 shrink-0 items-center justify-center pr-1 transition-opacity duration-100 sm:-my-1.5 sm:-ml-3 sm:h-auto sm:self-stretch sm:pl-3 {isSelected
 					? 'opacity-100'
-					: 'opacity-100 sm:opacity-0 sm:hover:opacity-100 sm:focus-within:opacity-100'}">
-				<Checkbox checked={isSelected} onclick={handleCheckboxChange} aria-label={issue.identifier} />
+					: 'opacity-100 sm:opacity-0 sm:hover:opacity-100 sm:focus-within:opacity-100'}"
+				onclick={handleCheckboxChange}
+				onkeydown={(e) => e.stopPropagation()}
+			>
+				<Checkbox checked={isSelected} aria-label={issue.identifier} />
 			</div>
 		{/if}
 
@@ -236,8 +254,7 @@
 				</Popover.Trigger>
 				<Popover.Content class="w-40 p-1" align="start">
 					{#each priorityValues as value}
-						<Button variant="ghost" size="sm"
-							onclick={() => {
+						<Button variant="plain" onclick={() => {
 								updateField('priority', value);
 								priorityOpen = false;
 							}}
@@ -277,8 +294,7 @@
 				</Popover.Trigger>
 				<Popover.Content class="w-44 p-1" align="start">
 					{#each teamStatusesState.statusOrder.filter((status) => !restrictToTeam || status.team_id === issue.team_id) as ts}
-						<Button variant="ghost" size="sm"
-							onclick={() => {
+						<Button variant="plain" onclick={() => {
 								updateField('status_id', ts.id);
 								statusOpen = false;
 							}}
@@ -298,7 +314,7 @@
 		<!-- Title -->
 		<div class="min-w-0 flex-1">
 			{#if editingTitle}
-				<Input
+				<Input variant="plain"
 					type="text"
 					bind:value={titleValue}
 					onblur={saveTitle}
@@ -309,15 +325,14 @@
 						}
 					}}
 					onclick={(e) => e.stopPropagation()}
-					class="w-full truncate text-[13px] bg-transparent border-b border-[var(--app-accent)]"
+					class="w-full truncate text-[13px] text-[var(--color-text-primary)] bg-transparent outline-none border-b border-[var(--app-accent)]"
 				/>
 			{:else}
 				<div class="flex min-w-0 flex-1 items-center gap-1">
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
-					<Button variant="ghost" size="sm"
-						class="h-auto justify-start whitespace-normal h-auto min-w-0 shrink justify-start truncate p-0 text-left text-sm leading-5 sm:text-[13px] sm:leading-normal"
-						onfocus={() => { if (accessibleRow) onlastselected?.(issue.id); }}
-						ondblclick={startEditing}>{issue.title}</Button
+					<span
+						class="min-w-0 shrink truncate text-sm leading-5 text-[var(--color-text-primary)] sm:text-[13px] sm:leading-normal"
+						ondblclick={startEditing}>{issue.title}</span
 					>
 
 					<SubIssueCounterTag {issue} {slug} {members} onclickissue={onclick} compact />
@@ -460,19 +475,17 @@
 					{/if}
 				</Popover.Trigger>
 				<Popover.Content class="w-48 p-1" align="end">
-					<Button variant="ghost" size="sm"
-						onclick={() => {
+					<Button variant="plain" onclick={() => {
 							updateField('assignee_ids', []);
 							assigneeOpen = false;
 						}}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--color-text-primary)]"
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
 					>
 						{m['common.clear_all']()}
 					</Button>
 					{#each members as member}
 						{@const isAssigned = (issue.assignees ?? []).some((a) => a.id === member.user_id)}
-						<Button variant="ghost" size="sm"
-							onclick={() => {
+						<Button variant="plain" onclick={() => {
 								const currentIds = (issue.assignees ?? []).map((a) => a.id);
 								const newIds = isAssigned
 									? currentIds.filter((id) => id !== member.user_id)

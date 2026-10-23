@@ -17,9 +17,8 @@
 		<p class="text-sm text-[var(--color-text-secondary)]">{description}</p>
 	{/if}
 	{#if action}
-		<Button variant="default" size="sm"
-			onclick={action.onclick}
-			class="mt-2 rounded-md px-3 py-1.5 text-sm"
+		<Button variant="plain" onclick={action.onclick}
+			class="mt-2 rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)]"
 		>
 			{action.label}
 		</Button>

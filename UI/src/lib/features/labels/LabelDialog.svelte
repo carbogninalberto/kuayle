@@ -75,8 +75,7 @@
 					<div class="flex items-center gap-2">
 						<div class="flex gap-1.5">
 							{#each PRESET_COLORS as preset}
-								<Button variant="outline" size="sm"
-									type="button"
+								<Button variant="plain" type="button"
 									onclick={() => (color = preset)}
 									class="h-6 w-6 rounded-full border-2 transition-transform {color === preset ? 'border-white scale-110' : 'border-transparent'}"
 									style="background-color: {preset}"
@@ -84,10 +83,10 @@
 								></Button>
 							{/each}
 						</div>
-						<Input
+						<Input variant="plain"
 							type="color"
 							bind:value={color}
-							class="h-6 w-6 cursor-pointer border-0 p-0"
+							class="h-6 w-6 cursor-pointer rounded border-0 p-0"
 						/>
 					</div>
 				</div>

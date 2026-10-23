@@ -678,9 +678,8 @@
 
 		<div class="mx-0.5 h-5 w-px bg-[var(--app-border)] max-sm:hidden"></div>
 
-		<Button variant="outline" size="sm"
-			onclick={() => (actionsOpen = true)}
-			class="inline-flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium text-[var(--color-text-secondary)] transition-colors hover:text-[var(--color-text-primary)]"
+		<Button variant="plain" onclick={() => (actionsOpen = true)}
+			class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--app-border)] px-2.5 text-xs font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
 		>
 			<Command size={12} />
 			{m['bulkActions.actions_button']()}
@@ -689,8 +688,7 @@
 		<div class="mx-0.5 h-5 w-px bg-[var(--app-border)] max-sm:hidden"></div>
 
 		{#if canDelete}
-			<Button variant="destructive" size="sm"
-				onclick={() => (deleteOpen = true)}
+			<Button variant="plain" onclick={() => (deleteOpen = true)}
 				class="inline-flex h-7 items-center rounded-md border border-red-500/30 px-2 text-xs text-red-500 transition-colors hover:bg-red-500/10"
 				title={m['bulkActions.delete_selected']()}
 			>
@@ -698,9 +696,8 @@
 			</Button>
 		{/if}
 
-		<Button variant="ghost" size="sm"
-			onclick={() => issuesState.clearSelection()}
-			class="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--color-text-tertiary)] transition-colors hover:text-[var(--color-text-primary)]"
+		<Button variant="plain" onclick={() => issuesState.clearSelection()}
+			class="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
 			title={m['bulkActions.clear_selection']()}
 		>
 			<X size={16} />
@@ -710,8 +707,7 @@
 	{#if actionsOpen}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div class="fixed inset-0 z-50 flex items-start justify-center px-3 pt-[12vh]" onkeydown={handleActionsKeydown}>
-			<Button variant="ghost" size="sm"
-				class="fixed inset-0 h-full w-full rounded-none border-0 p-0 active:not-aria-[haspopup]:translate-y-0 cursor-default"
+			<Button variant="plain" class="fixed inset-0 cursor-default"
 				style="background: rgba(0,0,0,{actionsVisible ? 0.5 : 0}); transition: background {ANIM_DURATION}ms ease;"
 				onclick={closeActions}
 				tabindex={-1}
@@ -734,9 +730,8 @@
 
 				<div class="flex items-center gap-2 border-b border-[var(--app-border)] px-3">
 					{#if activeCommand}
-						<Button variant="ghost" size="sm"
-							onclick={backToCommands}
-							class="inline-flex h-8 w-8 items-center justify-center rounded-md text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
+						<Button variant="plain" onclick={backToCommands}
+							class="inline-flex h-8 w-8 items-center justify-center rounded-md text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
 							title={m['bulkActions.back']()}
 						>
 							<ChevronLeft size={16} />
@@ -754,19 +749,18 @@
 						</div>
 					{:else}
 						<!-- svelte-ignore a11y_autofocus -->
-						<Input
+						<Input variant="plain"
 							id="bulk-actions-search"
 							type="text"
 							aria-label={activeTitle}
 							bind:value={searchQuery}
 							placeholder={searchPlaceholder}
 							autofocus
-							class="h-auto min-w-0 flex-1 bg-transparent py-4"
+							class="min-w-0 flex-1 bg-transparent py-4 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)]"
 						/>
 					{/if}
-					<Button variant="ghost" size="sm"
-						onclick={closeActions}
-						class="inline-flex h-8 w-8 items-center justify-center rounded-md text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
+					<Button variant="plain" onclick={closeActions}
+						class="inline-flex h-8 w-8 items-center justify-center rounded-md text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
 						title={m['bulkActions.close']()}
 					>
 						<X size={16} />
@@ -781,8 +775,7 @@
 							</div>
 						{:else}
 							{#each filteredCommands as command, index (command.id)}
-								<Button variant="ghost" size="sm"
-									id={`bulk-action-row-${index}`}
+								<Button variant="plain" id={`bulk-action-row-${index}`}
 									class={commandButtonClass}
 									data-selected={selectedIndex === index}
 									onpointerenter={() => (selectedIndex = index)}
@@ -832,16 +825,14 @@
 									s: _s(selectedAssigneeIds.length)
 								})}</span
 							>
-							<Button variant="default" size="sm"
-								class="rounded-md px-2.5 py-1 text-xs font-medium disabled:opacity-50"
+							<Button variant="plain" class="rounded-md bg-[var(--app-accent)] px-2.5 py-1 text-xs font-medium text-[var(--app-accent-foreground)] disabled:opacity-50"
 								disabled={selectedAssigneeIds.length === 0}
 								onclick={() => bulkSetAssignees()}
 							>
 								{m['bulkActions.assignee.assign']()}
 							</Button>
 						</div>
-						<Button variant="ghost" size="sm"
-							id="bulk-action-row-0"
+						<Button variant="plain" id="bulk-action-row-0"
 							class={optionButtonClass}
 							data-selected={selectedIndex === 0}
 							onpointerenter={() => (selectedIndex = 0)}
@@ -858,8 +849,7 @@
 							{#each filteredMembers as member, index (member.user_id)}
 								{@const rowIndex = index + 1}
 								{@const isSelected = selectedAssigneeIds.includes(member.user_id)}
-								<Button variant="ghost" size="sm"
-									id={`bulk-action-row-${rowIndex}`}
+								<Button variant="plain" id={`bulk-action-row-${rowIndex}`}
 									class={optionButtonClass}
 									data-selected={selectedIndex === rowIndex}
 									onpointerenter={() => (selectedIndex = rowIndex)}
@@ -885,8 +875,7 @@
 							</div>
 						{:else}
 							{#each filteredStatuses as status, index (status.id)}
-								<Button variant="ghost" size="sm"
-									id={`bulk-action-row-${index}`}
+								<Button variant="plain" id={`bulk-action-row-${index}`}
 									class={optionButtonClass}
 									data-selected={selectedIndex === index}
 									onpointerenter={() => (selectedIndex = index)}
@@ -904,8 +893,7 @@
 							</div>
 						{:else}
 							{#each filteredPriorities as priority, index (priority)}
-								<Button variant="ghost" size="sm"
-									id={`bulk-action-row-${index}`}
+								<Button variant="plain" id={`bulk-action-row-${index}`}
 									class={optionButtonClass}
 									data-selected={selectedIndex === index}
 									onpointerenter={() => (selectedIndex = index)}
@@ -918,8 +906,7 @@
 						{/if}
 					{:else if activeCommand === 'label'}
 						{#if canCreateLabel}
-							<Button variant="ghost" size="sm"
-								id="bulk-action-row-0"
+							<Button variant="plain" id="bulk-action-row-0"
 								class={optionButtonClass}
 								data-selected={selectedIndex === 0}
 								onpointerenter={() => (selectedIndex = 0)}
@@ -941,8 +928,7 @@
 						{:else}
 							{#each filteredLabels as label, index (label.id)}
 								{@const rowIndex = index + (canCreateLabel ? 1 : 0)}
-								<Button variant="ghost" size="sm"
-									id={`bulk-action-row-${rowIndex}`}
+								<Button variant="plain" id={`bulk-action-row-${rowIndex}`}
 									class={optionButtonClass}
 									data-selected={selectedIndex === rowIndex}
 									onpointerenter={() => (selectedIndex = rowIndex)}
@@ -954,8 +940,7 @@
 							{/each}
 						{/if}
 					{:else if activeCommand === 'cycle'}
-						<Button variant="ghost" size="sm"
-							id="bulk-action-row-0"
+						<Button variant="plain" id="bulk-action-row-0"
 							class={optionButtonClass}
 							data-selected={selectedIndex === 0}
 							onpointerenter={() => (selectedIndex = 0)}
@@ -971,8 +956,7 @@
 						{:else}
 							{#each filteredCycles as cycle, index (cycle.id)}
 								{@const rowIndex = index + 1}
-								<Button variant="ghost" size="sm"
-									id={`bulk-action-row-${rowIndex}`}
+								<Button variant="plain" id={`bulk-action-row-${rowIndex}`}
 									class={optionButtonClass}
 									data-selected={selectedIndex === rowIndex}
 									onpointerenter={() => (selectedIndex = rowIndex)}

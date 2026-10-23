@@ -119,10 +119,9 @@
 				<Password id="password" bind:value={password} required minlength={8} class={authInputClass} />
 			</div>
 
-			<Button variant="default" size="sm"
-				type="submit"
+			<Button variant="plain" type="submit"
 				disabled={loading}
-				class="w-full rounded-md px-4 py-2 text-sm font-medium disabled:opacity-50"
+				class="w-full rounded-md bg-[var(--app-accent)] px-4 py-2 text-sm font-medium text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)] disabled:opacity-50"
 			>
 				{#if loading}<Loader2 size={14} class="animate-spin" />{:else}{mode === 'login'
 						? m['login.button.signin']()
@@ -133,8 +132,7 @@
 		{#if registrationEnabled || inviteToken}
 			<p class="text-center text-sm text-[var(--color-text-secondary)]">
 				{mode === 'login' ? m['login.no_account']() : m['login.has_account']()}
-				<Button variant="link" size="sm"
-					onclick={() => (mode = mode === 'login' ? 'register' : 'login')}
+				<Button variant="plain" onclick={() => (mode = mode === 'login' ? 'register' : 'login')}
 					disabled={loading}
 					class="text-[var(--app-accent)] hover:underline"
 				>
@@ -158,8 +156,7 @@
 							<h2 class="font-medium text-[var(--color-text-primary)]">{m['login.demo.title']()}</h2>
 							<p class="mt-1 text-xs">{m['login.demo.description']()}</p>
 						</div>
-						<Button variant="ghost" size="sm"
-							type="button"
+						<Button variant="plain" type="button"
 							onclick={() => (demoDrawerOpen = false)}
 							aria-label={m['login.demo.aria_close']()}
 							class="rounded px-2 py-1 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg)] hover:text-[var(--color-text-primary)]"
@@ -170,10 +167,9 @@
 
 					<div class="max-h-[60vh] space-y-2 overflow-y-auto pr-1">
 						{#each demoUsers as user}
-							<Button variant="outline" size="sm"
-								type="button"
+							<Button variant="plain" type="button"
 								onclick={() => useDemoUser(user)}
-								class="h-auto justify-start whitespace-normal w-full rounded-lg border p-3 text-left transition hover:border-[var(--app-accent)] hover:bg-[var(--color-bg-secondary)]"
+								class="w-full rounded-lg border border-[var(--app-border)] bg-[var(--color-bg)] p-3 text-left transition hover:border-[var(--app-accent)] hover:bg-[var(--color-bg-secondary)]"
 							>
 								<div class="flex items-center justify-between gap-3">
 									<p class="font-medium text-[var(--color-text-primary)]">{user.label}</p>
@@ -195,11 +191,10 @@
 				</section>
 			{/if}
 
-			<Button variant="default" size="sm"
-				type="button"
+			<Button variant="plain" type="button"
 				onclick={() => (demoDrawerOpen = !demoDrawerOpen)}
 				aria-expanded={demoDrawerOpen}
-				class="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium shadow-lg transition"
+				class="inline-flex items-center gap-2 rounded-full bg-[var(--app-accent)] px-4 py-2 text-sm font-medium text-[var(--app-accent-foreground)] shadow-lg transition hover:bg-[var(--app-accent-hover)]"
 			>
 				{#if demoDrawerOpen}
 					<ChevronDown size={14} aria-hidden="true" />

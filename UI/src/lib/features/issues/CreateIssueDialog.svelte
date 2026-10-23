@@ -354,7 +354,7 @@
 				onchange={handleTeamChange}
 			>
 				{#snippet trigger(props)}
-					<Button {...props} variant="outline" size="sm" class="flex items-center gap-1.5 rounded-md border bg-[var(--color-bg-tertiary)] px-2.5 py-1 text-xs font-medium text-[var(--color-text-primary)]">
+					<Button {...props} variant="plain" tabindex={-1} class="flex items-center gap-1.5 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-tertiary)] px-2.5 py-1 text-xs font-medium text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]">
 						<span class="flex h-4 w-4 items-center justify-center rounded bg-[var(--app-accent)] text-[9px] font-bold text-[var(--app-accent-foreground)]">
 							{selectedTeam?.key?.charAt(0) ?? 'T'}
 						</span>
@@ -367,24 +367,22 @@
 				<Popover.Root bind:open={templateOpen}>
 					<Popover.Trigger>
 						{#snippet child({ props })}
-							<Button {...props} variant="ghost" size="sm" class="flex max-w-52 items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-[var(--color-text-secondary)]">
+							<Button {...props} variant="plain" tabindex={-1} class="flex max-w-52 items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
 								<FileText size={12} class="shrink-0 text-[var(--color-text-tertiary)]" />
 								<span class="truncate">{selectedTemplate?.title || m['sharedComponents.create_issue.template']()}</span>
 							</Button>
 						{/snippet}
 					</Popover.Trigger>
 					<Popover.Content class="w-56 p-1" align="start">
-						<Button variant="ghost" size="sm"
-							onclick={clearTemplateSelection}
-							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)]"
+						<Button variant="plain" onclick={clearTemplateSelection}
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
 						>
 							<FileText size={14} class="shrink-0 text-[var(--color-text-tertiary)]" />
 							<span class="truncate">{m['sharedComponents.create_issue.no_template']()}</span>
 						</Button>
 						{#each templates as tmpl (tmpl.id)}
-							<Button variant="ghost" size="sm"
-								onclick={() => applyTemplate(tmpl)}
-								class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)]"
+							<Button variant="plain" onclick={() => applyTemplate(tmpl)}
+								class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
 							>
 								<FileText size={14} class="shrink-0 text-[var(--color-text-tertiary)]" />
 								<span class="truncate">{tmpl.title || m['sharedComponents.create_issue.untitled_template']()}</span>
@@ -403,13 +401,13 @@
 		<!-- svelte-ignore a11y_autofocus -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div class="px-4 py-3 max-sm:flex max-sm:flex-col max-sm:flex-1 max-sm:min-h-0 max-sm:overflow-y-auto" onkeydown={handleKeydown}>
-			<Input
+			<Input variant="plain"
 				id="create-issue-title"
 				type="text"
 				bind:value={title}
 				onpaste={handleTitlePaste}
 				placeholder={m['sharedComponents.create_issue.issue_title_placeholder']()}
-				class="h-auto w-full rounded-none border-0 bg-transparent p-0 text-lg font-semibold text-[var(--color-text-primary)] shadow-none placeholder:text-[var(--color-text-tertiary)] dark:bg-transparent md:text-lg max-sm:shrink-0"
+				class="w-full bg-transparent text-lg font-semibold text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)] max-sm:shrink-0"
 			/>
 			<div class="mt-4 max-h-[calc(60vh-120px)] overflow-y-auto max-sm:flex-1 max-sm:[max-height:none] max-sm:overflow-y-auto">
 				{#key descriptionVersion}
@@ -446,7 +444,7 @@
 				width="w-44"
 			>
 				{#snippet trigger(props)}
-					<Button {...props} variant="outline" size="sm" class="flex items-center gap-1.5 rounded-full border px-2.5 py-1 max-sm:px-3 max-sm:py-1.5 text-xs text-[var(--color-text-secondary)]">
+					<Button {...props} variant="plain" class="flex items-center gap-1.5 rounded-full border border-[var(--app-border)] px-2.5 py-1 max-sm:px-3 max-sm:py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
 						<IssueStatusIcon category={selectedStatus?.category} color={selectedStatus?.color} size={12} />
 						{selectedStatus?.name ?? m['sharedComponents.create_issue.status']()}
 					</Button>
@@ -460,7 +458,7 @@
 				onchange={(p) => { priority = p; }}
 			>
 				{#snippet trigger(props)}
-					<Button {...props} variant="outline" size="sm" class="flex items-center gap-1.5 rounded-full border px-2.5 py-1 max-sm:px-3 max-sm:py-1.5 text-xs text-[var(--color-text-secondary)]">
+					<Button {...props} variant="plain" class="flex items-center gap-1.5 rounded-full border border-[var(--app-border)] px-2.5 py-1 max-sm:px-3 max-sm:py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
 						<IssuePriorityIcon {priority} size={12} />
 						{getPriorityLabel(priority)}
 					</Button>
@@ -475,7 +473,7 @@
 				onchange={(id) => { projectId = id; }}
 			>
 				{#snippet trigger(props)}
-					<Button {...props} variant="outline" size="sm" class="flex items-center gap-1.5 rounded-full border border-[var(--app-border)] px-2.5 py-1 max-sm:px-3 max-sm:py-1.5 text-xs {selectedProject ? 'text-[var(--color-text-secondary)]' : 'text-[var(--color-text-tertiary)]'} hover:bg-[var(--color-bg-hover)]">
+					<Button {...props} variant="plain" class="flex items-center gap-1.5 rounded-full border border-[var(--app-border)] px-2.5 py-1 max-sm:px-3 max-sm:py-1.5 text-xs {selectedProject ? 'text-[var(--color-text-secondary)]' : 'text-[var(--color-text-tertiary)]'} hover:bg-[var(--color-bg-hover)]">
 						<FolderKanban size={12} />
 						{selectedProject?.name ?? m['sharedComponents.create_issue.project']()}
 					</Button>
@@ -496,7 +494,7 @@
 				}}
 			>
 				{#snippet trigger(props)}
-					<Button {...props} variant="outline" size="sm" class="flex items-center gap-1.5 rounded-full border border-[var(--app-border)] px-2.5 py-1 max-sm:px-3 max-sm:py-1.5 text-xs {selectedAssignees.length > 0 ? 'text-[var(--color-text-secondary)]' : 'text-[var(--color-text-tertiary)]'} hover:bg-[var(--color-bg-hover)]">
+					<Button {...props} variant="plain" class="flex items-center gap-1.5 rounded-full border border-[var(--app-border)] px-2.5 py-1 max-sm:px-3 max-sm:py-1.5 text-xs {selectedAssignees.length > 0 ? 'text-[var(--color-text-secondary)]' : 'text-[var(--color-text-tertiary)]'} hover:bg-[var(--color-bg-hover)]">
 						<User size={12} />
 						{#if selectedAssignees.length === 0}
 							{m['sharedComponents.create_issue.assignee']()}
@@ -519,7 +517,7 @@
 				{slug}
 			>
 				{#snippet trigger(props)}
-					<Button {...props} variant="outline" size="sm" class="flex items-center gap-1.5 rounded-full border border-[var(--app-border)] px-2.5 py-1 max-sm:px-3 max-sm:py-1.5 text-xs {selectedLabels.length > 0 ? 'text-[var(--color-text-secondary)]' : 'text-[var(--color-text-tertiary)]'} hover:bg-[var(--color-bg-hover)]">
+					<Button {...props} variant="plain" class="flex items-center gap-1.5 rounded-full border border-[var(--app-border)] px-2.5 py-1 max-sm:px-3 max-sm:py-1.5 text-xs {selectedLabels.length > 0 ? 'text-[var(--color-text-secondary)]' : 'text-[var(--color-text-tertiary)]'} hover:bg-[var(--color-bg-hover)]">
 						<Tag size={12} />
 						{#if selectedLabels.length === 0}
 							{m['sharedComponents.create_issue.labels']()}
@@ -540,7 +538,7 @@
 				onchange={(id) => { cycleId = id; }}
 			>
 				{#snippet trigger(props)}
-					<Button {...props} variant="outline" size="sm" class="flex items-center gap-1.5 rounded-full border border-[var(--app-border)] px-2.5 py-1 max-sm:px-3 max-sm:py-1.5 text-xs {cycleId ? 'text-[var(--color-text-secondary)]' : 'text-[var(--color-text-tertiary)]'} hover:bg-[var(--color-bg-hover)]">
+					<Button {...props} variant="plain" class="flex items-center gap-1.5 rounded-full border border-[var(--app-border)] px-2.5 py-1 max-sm:px-3 max-sm:py-1.5 text-xs {cycleId ? 'text-[var(--color-text-secondary)]' : 'text-[var(--color-text-tertiary)]'} hover:bg-[var(--color-bg-hover)]">
 						{#if cycleId}
 							{cycles?.find(c => c.id === cycleId)?.name ?? m['sharedComponents.create_issue.cycle']()}
 						{:else}
@@ -563,19 +561,17 @@
 		<div class="flex items-center gap-3 px-4 py-2.5 max-sm:sticky max-sm:bottom-0 max-sm:shrink-0 max-sm:flex-col max-sm:items-stretch max-sm:border-t max-sm:border-[var(--app-border)] max-sm:bg-[var(--color-bg-secondary)] max-sm:pb-[calc(1rem+env(safe-area-inset-bottom,0px))] {uploadUrl ? 'justify-between' : 'justify-end'}">
 			{#if uploadUrl}
 				<div class="flex items-center gap-1 max-sm:order-2">
-					<Button variant="ghost" size="sm"
-						type="button"
+					<Button variant="plain" type="button"
 						onclick={() => chooseFiles(true)}
-						class="flex h-7 w-7 items-center justify-center rounded text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
+						class="flex h-7 w-7 items-center justify-center rounded text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]"
 						title={m['sharedComponents.rich_editor.upload_image']()}
 						aria-label={m['sharedComponents.rich_editor.upload_image']()}
 					>
 						<ImagePlus size={14} />
 					</Button>
-					<Button variant="ghost" size="sm"
-						type="button"
+					<Button variant="plain" type="button"
 						onclick={() => chooseFiles()}
-						class="flex h-7 w-7 items-center justify-center rounded text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
+						class="flex h-7 w-7 items-center justify-center rounded text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]"
 						title={m['sharedComponents.rich_editor.attach_files']()}
 						aria-label={m['sharedComponents.rich_editor.attach_files']()}
 					>

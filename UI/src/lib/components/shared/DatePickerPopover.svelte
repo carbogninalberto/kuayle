@@ -64,10 +64,11 @@
 </script>
 
 <Popover.Root bind:open>
-	<div class="inline-flex items-center gap-1">
+	<!-- The clear action sits inside the original pill frame as a sibling, never nested in the trigger. -->
+	<div class="inline-flex items-center rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] text-xs hover:bg-[var(--color-bg-hover)] {displayDate && colorClass ? colorClass : 'text-[var(--color-text-secondary)]'}">
 	<Popover.Trigger>
 		{#snippet child({ props })}
-			<Button {...props} variant="outline" size="sm" class="flex items-center gap-1.5 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-2.5 py-1 text-xs hover:bg-[var(--color-bg-hover)] {displayDate && colorClass ? colorClass : 'text-[var(--color-text-secondary)]'}">
+			<Button {...props} variant="plain" class="flex items-center gap-1.5 py-1 pl-2.5 {displayDate ? 'pr-0' : 'pr-2.5'}">
 				<CalendarIcon size={12} />
 				{#if displayDate}
 					{displayDate}
@@ -78,7 +79,7 @@
 		{/snippet}
 	</Popover.Trigger>
 	{#if displayDate}
-		<Button variant="ghost" size="icon-sm" aria-label={m['insights.clear']()} onclick={handleClear}><X class="size-3" /></Button>
+		<Button variant="plain" aria-label={m['insights.clear']()} onclick={handleClear} class="mr-2.5 ml-2.5 inline-flex rounded p-0.5 hover:bg-[var(--color-bg-hover)]"><X size={10} /></Button>
 	{/if}
 	</div>
 	<Popover.Content class="w-auto p-0" align="start">

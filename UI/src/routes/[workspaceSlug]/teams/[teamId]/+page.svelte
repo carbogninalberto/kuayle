@@ -426,9 +426,8 @@
 					{m['common.issues']()}
 				</span>
 			</nav>
-			<Button variant="ghost" size="sm"
-				onclick={() => (showShareLink = true)}
-				class="rounded-md p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors"
+			<Button variant="plain" onclick={() => (showShareLink = true)}
+				class="rounded-md p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] transition-colors"
 				title={m['sharedComponents.share_link.title']()}
 			>
 				<Share2 size={14} />
@@ -440,8 +439,8 @@
 				<Popover.Root bind:open={groupByOpen}>
 					<Popover.Trigger>
 						{#snippet child({ props })}
-							<Button {...props} variant="outline" size="sm"
-								class="flex items-center gap-1 rounded-md border px-2 py-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
+							<Button {...props} variant="plain"
+								class="flex items-center gap-1 rounded-md border border-[var(--app-border)] px-2 py-1 text-xs text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]"
 								title={m['common.group_by']()}
 							>
 								<Layers size={12} />
@@ -451,8 +450,7 @@
 					</Popover.Trigger>
 					<Popover.Content class="w-40 p-1" align="end">
 						{#each groupByOptions as opt}
-							<Button variant="ghost" size="sm"
-								onclick={() => handleGroupByChange(opt.value)}
+							<Button variant="plain" onclick={() => handleGroupByChange(opt.value)}
 								class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {issuesState.groupBy ===
 								opt.value
 									? 'bg-[var(--color-bg-hover)]'

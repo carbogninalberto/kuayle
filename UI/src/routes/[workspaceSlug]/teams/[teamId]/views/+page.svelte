@@ -118,8 +118,7 @@
 							{/if}
 						</div>
 					</a>
-					<Button variant="destructive" size="sm"
-						onclick={() => requestDelete(view)}
+					<Button variant="plain" onclick={() => requestDelete(view)}
 						class="shrink-0 rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-tertiary)] hover:text-red-500"
 						title={m['views.delete_view']()}
 					>

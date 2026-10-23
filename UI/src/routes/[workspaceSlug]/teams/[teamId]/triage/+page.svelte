@@ -127,9 +127,8 @@
 				/>
 			{:else}
 				{#each issues as issue, i}
-					<Button variant="outline" size="sm"
-						onclick={() => (selectedIndex = i)}
-						class="h-auto justify-start whitespace-normal flex w-full flex-col gap-1 border-b border-[var(--app-border)] px-4 py-3 text-left {selectedIndex === i ? 'bg-[var(--color-bg-hover)]' : 'hover:bg-[var(--color-bg-hover)]'}"
+					<Button variant="plain" onclick={() => (selectedIndex = i)}
+						class="flex w-full flex-col gap-1 border-b border-[var(--app-border)] px-4 py-3 text-left {selectedIndex === i ? 'bg-[var(--color-bg-hover)]' : 'hover:bg-[var(--color-bg-hover)]'}"
 					>
 						<div class="flex items-center gap-2">
 							<IssuePriorityIcon priority={issue.priority} size={13} />

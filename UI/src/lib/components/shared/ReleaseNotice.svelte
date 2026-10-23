@@ -241,8 +241,7 @@
 								>
 								{m['sharedComponents.release_notice.to']()} <strong class="font-semibold text-[var(--color-text-secondary)]">{latestRelease.tag_name}</strong>
 							</span>
-							<Button variant="ghost" size="sm"
-								type="button"
+							<Button variant="plain" type="button"
 								class="cursor-pointer select-none rounded px-1.5 py-0.5 text-[var(--color-text-tertiary)] transition-colors hover:text-[var(--color-text-secondary)]"
 								onclick={togglePrerelease}
 								title={m['sharedComponents.release_notice.toggle_prerelease']()}

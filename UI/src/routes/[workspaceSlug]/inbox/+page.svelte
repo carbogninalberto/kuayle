@@ -340,7 +340,7 @@
 			{/if}
 		</div>
 		{#if activeTab === 'inbox' && notifications.length > 0}
-			<Button variant="ghost" size="sm"
+			<Button variant="plain"
 				onclick={handleMarkAllRead}
 				class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
 			>
@@ -404,8 +404,8 @@
 						<ContextMenu.Root>
 							<ContextMenu.Trigger>
 								{#snippet child({ props })}
-								<Button {...props} variant="ghost"
-									class="h-auto justify-start whitespace-normal flex min-h-16 w-full cursor-pointer items-start gap-2.5 px-3 py-3 text-left transition-colors {selectedId === notification.id ? 'bg-[var(--color-bg-hover)]' : ''} {notification.read_at ? 'opacity-60' : ''} hover:bg-[var(--color-bg-hover)] md:min-h-0 md:py-2.5"
+								<Button {...props} variant="plain"
+									class="flex min-h-16 w-full cursor-pointer items-start gap-2.5 px-3 py-3 text-left transition-colors {selectedId === notification.id ? 'bg-[var(--color-bg-hover)]' : ''} {notification.read_at ? 'opacity-60' : ''} hover:bg-[var(--color-bg-hover)] md:min-h-0 md:py-2.5"
 									onclick={() => selectNotification(notification)}
 								>
 									<div
@@ -512,8 +512,8 @@
 
 {#if snoozeDateNotification}
 	<div class="fixed inset-0 z-50 flex items-start justify-center px-3 pt-[12vh]" role="dialog" aria-modal="true">
-		<Button variant="ghost" size="sm"
-			class="fixed inset-0 h-full w-full rounded-none border-0 p-0 active:not-aria-[haspopup]:translate-y-0 cursor-default bg-black/50 hover:bg-black/50 dark:hover:bg-black/50"
+		<Button variant="plain"
+			class="fixed inset-0 cursor-default bg-black/50"
 			onclick={closeSnoozeDatePicker}
 			tabindex={-1}
 			aria-label={m['inbox.snooze_dialog.close_aria']()}
@@ -525,9 +525,9 @@
 					<h2 class="text-sm font-medium text-[var(--color-text-primary)]">{m['inbox.snooze_dialog.title']()}</h2>
 					<p class="line-clamp-1 text-xs text-[var(--color-text-tertiary)]">{snoozeDateNotification.title}</p>
 				</div>
-				<Button variant="ghost" size="sm"
+				<Button variant="plain"
 					onclick={closeSnoozeDatePicker}
-					class="inline-flex h-8 w-8 items-center justify-center rounded-md text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
+					class="inline-flex h-8 w-8 items-center justify-center rounded-md text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
 					title={m['inbox.snooze_dialog.close']()}
 				>
 					X

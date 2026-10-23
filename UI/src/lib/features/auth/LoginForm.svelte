@@ -43,10 +43,9 @@
 		required
 		class={authInputClass}
 	/>
-	<Button variant="default" size="sm"
-		type="submit"
+	<Button variant="plain" type="submit"
 		disabled={loading}
-		class="w-full rounded py-2 text-sm disabled:opacity-50"
+		class="w-full rounded bg-[var(--app-accent)] py-2 text-sm text-[var(--app-accent-foreground)] disabled:opacity-50"
 	>
 		{#if loading}<Loader2 size={14} class="animate-spin" />{:else}Sign in{/if}
 	</Button>

@@ -26,21 +26,31 @@
 	}
 
 	let inputType = $derived(showPassword ? "text" : "password");
+
+	// Kuayle: margins position the whole field, so they move to the wrapper; the
+	// absolutely positioned toggle then spans exactly the input's border box.
+	const marginClass = /^(?:[\w[\]=-]+:)*-?m[trblxyse]?-/;
+	let classTokens = $derived((className ?? "").split(/\s+/).filter(Boolean));
+	let wrapperClass = $derived(classTokens.filter((token) => marginClass.test(token)).join(" "));
+	let inputClass = $derived(classTokens.filter((token) => !marginClass.test(token)).join(" "));
 </script>
 
-<div class="relative" data-slot={dataSlot}>
+<div class={cn("relative flex", wrapperClass)} data-slot={dataSlot}>
 	<Input
 		bind:ref
 		bind:value
 		type={inputType}
-		class={cn(className, "pr-8")}
+		class={cn(inputClass, "pr-8")}
 		{disabled}
 		{...restProps}
 	/>
-	<Button variant="ghost" size="sm"
+	<!-- Kuayle: plain keeps the toggle a full-height, vertically centered overlay; it stays out of the tab order as before. -->
+	<Button variant="plain"
 		type="button"
-		class="absolute inset-y-0 right-0 grid w-8 place-items-center border-0 bg-transparent p-0 text-muted-foreground hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+		data-slot="password-toggle"
+		class="absolute inset-y-0 right-0 grid w-8 place-items-center text-muted-foreground hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
 		onclick={togglePassword}
+		tabindex={-1}
 		aria-label={showPassword ? "Hide password" : "Show password"}
 		{disabled}
 	>

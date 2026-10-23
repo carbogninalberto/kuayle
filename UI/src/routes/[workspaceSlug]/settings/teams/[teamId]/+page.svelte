@@ -478,9 +478,9 @@
 					<Popover.Root bind:open={pickerOpen}>
 						<Popover.Trigger>
 							{#snippet child({ props })}
-								<Button {...props} variant="outline" size="sm"
+								<Button {...props} variant="plain"
 									type="button"
-									class="h-auto justify-start whitespace-normal flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-colors"
+									class="flex items-center gap-3 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-2 text-left transition-colors hover:bg-[var(--color-bg-hover)]"
 								>
 									<span class="flex h-9 w-9 items-center justify-center rounded-md bg-[var(--color-bg-secondary)]">
 										{#if team}<TeamIcon {team} size={20} />{/if}
@@ -501,15 +501,14 @@
 										size={14}
 										class="absolute left-2 top-1/2 -translate-y-1/2 text-[var(--color-text-tertiary)]"
 									/>
-									<Input
+									<Input variant="plain"
 										bind:value={pickerQuery}
 										placeholder={pickerTab === 'icons' ? m['team_settings.search_lucide_icons']() : m['team_settings.search_emoji']()}
-										class="h-8 w-full pl-7 pr-2"
+										class="h-8 w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] pl-7 pr-2 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)] focus:border-[var(--app-accent)]"
 									/>
 								</div>
 								<div class="mt-2 grid grid-cols-2 gap-1 rounded-md bg-[var(--color-bg)] p-0.5">
-									<Button variant="ghost" size="sm"
-										type="button"
+									<Button variant="plain" type="button"
 										onclick={() => showPickerTab('icons')}
 										class="rounded px-2 py-1 text-xs {pickerTab === 'icons'
 											? 'bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)]'
@@ -517,8 +516,7 @@
 									>
 										{m['team_settings.icons_tab']()}
 									</Button>
-									<Button variant="ghost" size="sm"
-										type="button"
+									<Button variant="plain" type="button"
 										onclick={() => showPickerTab('emoji')}
 										class="rounded px-2 py-1 text-xs {pickerTab === 'emoji'
 											? 'bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)]'
@@ -537,8 +535,7 @@
 									</p>
 									<div class="grid grid-cols-8 gap-1">
 										{#each visibleIcons as option}
-											<Button variant="ghost" size="sm"
-												type="button"
+											<Button variant="plain" type="button"
 												onclick={() => selectIcon(option.value)}
 												class="flex h-7 items-center justify-center rounded border transition-colors {selectedIconName ===
 												option.value
@@ -558,8 +555,7 @@
 									{#if !pickerQuery.trim()}
 										<div class="mb-2 flex gap-1 overflow-x-auto pb-3" onwheel={handleHorizontalWheel}>
 											{#each EMOJI_GROUPS as group}
-												<Button variant="ghost" size="sm"
-													type="button"
+												<Button variant="plain" type="button"
 													onclick={() => {
 														emojiGroup = group.id;
 														visibleEmojiCount = EMOJI_PAGE_SIZE;
@@ -590,8 +586,7 @@
 										<div class="grid grid-cols-9 gap-1">
 											{#each visibleEmojis as emoji}
 												{@const unicode = emojiUnicode(emoji)}
-												<Button variant="ghost" size="sm"
-													type="button"
+												<Button variant="plain" type="button"
 													onclick={() => selectEmoji(emoji)}
 													class="flex h-8 items-center justify-center rounded-md border text-lg transition-colors {selectedEmoji ===
 													unicode
@@ -618,8 +613,7 @@
 					<p class="mb-2 text-xs font-medium text-[var(--color-text-secondary)]">{m['team_settings.color']()}</p>
 					<div class="flex flex-wrap gap-1.5">
 						{#each PRESET_COLORS as c}
-							<Button variant="ghost" size="sm"
-								type="button"
+							<Button variant="plain" type="button"
 								onclick={() => updateTeamVisual({ color: c })}
 								class="h-6 w-6 rounded-full transition-transform hover:scale-110 {team.color === c
 									? 'ring-2 ring-[var(--app-accent)] ring-offset-2 ring-offset-[var(--color-bg-secondary)]'
@@ -674,11 +668,11 @@
 				</p>
 			</div>
 			<div class="space-y-3 px-5 py-4">
-				<Textarea
+				<Textarea variant="plain"
 					bind:value={issueCopyPrompt}
 					rows={8}
 					placeholder={m['team_settings.issue_copy_prompt_placeholder']()}
-					class="w-full font-mono"
+					class="w-full rounded-lg border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-2 font-mono text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)] focus:border-[var(--app-accent)]"
 				></Textarea>
 				<p class="text-xs text-[var(--color-text-tertiary)]">
 					{m['team_settings.available_placeholders']()} {'{{issue_identifier}}'}, {'{{issue_title}}'}, {'{{team_key}}'}, {'{{team_name}}'}, {'{{issue_xml}}'}.

@@ -65,9 +65,8 @@
 		data-testid="terminal-dock"
 	>
 		<div class="flex items-center border-b border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-1">
-			<Button variant="ghost" size="sm"
-				type="button"
-				class="flex h-7 w-7 items-center justify-center rounded text-zinc-400 hover:text-zinc-200"
+			<Button variant="plain" type="button"
+				class="flex h-7 w-7 items-center justify-center rounded text-zinc-400 hover:bg-[var(--color-bg-hover)] hover:text-zinc-200"
 				aria-label={dock.expanded ? m['machines.collapse_dock']() : m['machines.expand_dock']()}
 				onclick={() => dock.toggle()}
 			>
@@ -80,8 +79,7 @@
 			<div class="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto px-1" role="tablist" aria-label={m['machines.terminal_sessions']()}>
 				{#each dock.tabs as t (t.id)}
 					<div class="flex min-w-0 max-w-[200px] shrink-0 items-center gap-1 rounded-t border border-b-0 px-2.5 py-1 text-xs transition-colors {dock.activeTabId === t.id ? 'border-[var(--app-border)] border-b-transparent bg-zinc-950 text-zinc-200' : 'border-transparent text-zinc-500'}">
-						<Button variant="ghost" size="sm"
-							type="button"
+						<Button variant="plain" type="button"
 							class="flex min-w-0 items-center gap-1 truncate hover:text-zinc-300"
 							role="tab"
 							aria-selected={dock.activeTabId === t.id}
@@ -90,8 +88,7 @@
 							<SquareTerminal class="size-3 shrink-0" />
 							<span class="truncate">{t.runtimeTitle ?? t.sessionName ?? t.machineName}</span>
 						</Button>
-						<Button variant="destructive" size="sm"
-							type="button"
+						<Button variant="plain" type="button"
 							class="ml-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-zinc-500 hover:bg-red-500/10 hover:text-red-400"
 							aria-label={m['machines.close_tab']({ name: t.runtimeTitle ?? t.sessionName ?? t.machineName })}
 							data-testid="close-tab"
@@ -104,8 +101,7 @@
 			</div>
 			<div class="flex shrink-0 items-center gap-0.5 pr-0.5">
 				{#if dock.tabs.length > 1 && dock.expanded}
-					<Button variant="destructive" size="sm"
-						type="button"
+					<Button variant="plain" type="button"
 						class="flex h-6 w-6 items-center justify-center rounded text-zinc-500 hover:bg-red-500/10 hover:text-red-400"
 						aria-label={m['machines.close_all_tabs']()}
 						data-testid="close-all-tabs"

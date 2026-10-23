@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { reveal } from '$lib/actions/reveal';
+	import { Button } from '$lib/components/ui/button/index.js';
 	import ArrowRight from '@lucide/svelte/icons/arrow-right';
 	import RefreshCw from '@lucide/svelte/icons/refresh-cw';
 	import FolderKanban from '@lucide/svelte/icons/folder-kanban';
@@ -77,7 +78,8 @@
 				onkeydown={onKeydown}
 			>
 				{#each tabs as tab, i (tab.id)}
-					<button
+					<Button
+						variant="plain"
 						type="button"
 						role="tab"
 						id="tour-tab-{tab.id}"
@@ -91,7 +93,7 @@
 					>
 						<tab.icon class="size-4 {active === i ? 'text-brand-300' : ''}" />
 						{tab.label}
-					</button>
+					</Button>
 				{/each}
 			</div>
 

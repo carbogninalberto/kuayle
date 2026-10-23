@@ -211,8 +211,7 @@
 {#if open}
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div class="fixed inset-0 z-50 flex items-start justify-center px-3 pt-[6vh]" onkeydown={handleKeydown}>
-		<Button variant="ghost" size="sm"
-			class="fixed inset-0 h-full w-full rounded-none border-0 p-0 active:not-aria-[haspopup]:translate-y-0 cursor-default"
+		<Button variant="plain" class="fixed inset-0 cursor-default"
 			style="background: rgba(0,0,0,{visible ? 0.5 : 0}); transition: background {ANIM_DURATION}ms ease;"
 			onclick={close}
 			tabindex={-1}
@@ -234,10 +233,9 @@
 				<div class="grid grid-cols-2 gap-1 sm:grid-cols-4">
 					{#each RELATION_OPTIONS as option}
 						{@const Icon = option.Icon}
-						<Button variant="outline" size="sm"
-							type="button"
+						<Button variant="plain" type="button"
 							onclick={() => (selectedType = option.type)}
-							class="h-auto justify-start whitespace-normal flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors {selectedType === option.type
+							class="flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors {selectedType === option.type
 								? option.activeClass
 								: 'border-transparent bg-[var(--color-bg)]/60 text-[var(--color-text-tertiary)] hover:border-[var(--app-border)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
 						>
@@ -252,14 +250,14 @@
 			</div>
 
 			<!-- svelte-ignore a11y_autofocus -->
-			<Input
+			<Input variant="plain"
 				id="relation-picker-search"
 				type="text"
 				aria-label="Search issues"
 				bind:value={searchQuery}
 				placeholder="Search issues..."
 				autofocus
-				class="h-auto w-full border-b bg-transparent px-4 py-4"
+				class="w-full border-b border-[var(--app-border)] bg-transparent px-4 py-4 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)]"
 			/>
 
 			<div class="max-h-[58vh] min-h-[20rem] overflow-y-auto py-2">
@@ -274,8 +272,7 @@
 						</div>
 					{:else if searchResults.length > 0}
 						{#each searchResults as result, i (result.id)}
-							<Button variant="ghost" size="sm"
-								class="h-auto justify-start whitespace-normal flex w-full items-start gap-2 px-4 py-2 text-left text-sm {i === selectedIndex ? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]' : 'text-[var(--color-text-secondary)]'}"
+							<Button variant="plain" class="flex w-full items-start gap-2 px-4 py-2 text-left text-sm {i === selectedIndex ? 'bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]' : 'text-[var(--color-text-secondary)]'}"
 								onmouseenter={() => (selectedIndex = i)}
 								onclick={() => selectIssue(result)}
 							>

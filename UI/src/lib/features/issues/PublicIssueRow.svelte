@@ -22,8 +22,7 @@
 	const createdAtTooltip = $derived(createdAtText ? `${createdAtText} • ${formatDate(issue.created_at, getLocale())}` : '');
 </script>
 
-<Button variant="ghost" size="sm"
-	class="h-auto justify-start whitespace-normal mx-2 flex w-[calc(100%-1rem)] items-center gap-2 rounded-md px-3 py-1.5 text-left transition-colors duration-100 hover:bg-black/[0.02] dark:hover:bg-white/[0.02]"
+<Button variant="plain" class="mx-2 flex w-[calc(100%-1rem)] items-center gap-2 rounded-md px-3 py-1.5 text-left transition-colors duration-100 hover:bg-black/[0.02] dark:hover:bg-white/[0.02]"
 	onclick={() => onclick(issue)}
 >
 	<!-- Priority -->

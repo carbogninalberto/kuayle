@@ -20,6 +20,17 @@ Official references: [CLI](https://shadcn-svelte.com/docs/cli), [changelog](http
 
 The UI foundation upgrades to Bits UI 2.20.0, Svelte 5.57.2, @lucide/svelte 1.61.0, Tailwind 4.3.3, tailwind-merge 3.7.0, tailwind-variants 3.3.1, @internationalized/date 3.12.4 and svelte-sonner 1.2.1. The deprecated lucide-svelte package is removed; application icons use @lucide/svelte. Both lockfiles are updated. The 18 team glyphs removed upstream are preserved from Lucide 0.577.0 as licensed SVG nodes rendered by the current Icon primitive, so stored selections and the picker remain compatible. Kuayle's compact popover spacing, top-positioned application Dialog and overflow constraints are retained after reviewing registry changes. Unrelated framework-major migrations (SvelteKit/Vite/TypeScript) and editor/table package upgrades are outside this UI-component refresh.
 
+### Kuayle customizations to keep on every refresh
+
+The registry refresh above overwrote some customizations; KUA-63 restored them.
+Re-apply or re-check these after any `shadcn-svelte add` overwrite:
+
+- `plain` variant on Button (`buttonClass`, also used by AlertDialog Action/Cancel and calendar navigation), Input, Textarea and Select.Trigger: renders the element without primitive styling so crafted product controls keep their own classes.
+- Password: margin utilities move to the wrapper and the reveal toggle is a plain, full-height overlay with `tabindex={-1}`, so it stays centered on the input and out of the tab order.
+- Dialog: `bg-background` content and a `bg-black/50` overlay without backdrop blur.
+- Separator: vertical separators use `h-full` instead of upstream `self-stretch`.
+- Calendar and RangeCalendar: `locale` defaults to the Paraglide `getLocale()`.
+
 ## Explicit native internals and exceptions
 
 - `components/ui/` contains the upstream native button, input and textarea elements behind the canonical component API; these are the intended accessible implementation, not application-level exceptions.

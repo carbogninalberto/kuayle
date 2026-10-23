@@ -247,10 +247,9 @@
 <div class="mx-auto max-w-2xl px-4 py-10 sm:px-8">
 	<div class="flex items-center justify-between">
 		<h1 class="text-2xl font-semibold text-[var(--color-text-primary)]">{m['settings.tokens.title']()}</h1>
-		<Button variant="default" size="sm"
-			onclick={openCreate}
+		<Button variant="plain" onclick={openCreate}
 			disabled={loading || loadFailed || creating}
-			class="flex items-center gap-1 rounded-md px-3 py-1.5 text-sm"
+			class="flex items-center gap-1 rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)]"
 		>
 			<Plus size={14} />
 			{m['settings.tokens.new']()}
@@ -436,9 +435,8 @@
 							</div>
 						{/each}
 						<div class="border-t border-[var(--app-border)]">
-							<Button variant="ghost" size="sm"
-								type="button"
-								class="h-auto justify-start whitespace-normal flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left"
+							<Button variant="plain" type="button"
+								class="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left hover:bg-[var(--color-bg-hover)]"
 								onclick={() => (showAdvanced = !showAdvanced)}
 							>
 								<ChevronDown
