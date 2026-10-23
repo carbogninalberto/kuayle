@@ -2,26 +2,31 @@ package repository
 
 import (
 	"context"
+	"errors"
+	"net/url"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/golang-migrate/migrate/v4"
+	_ "github.com/golang-migrate/migrate/v4/database/postgres"
+	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jmoiron/sqlx"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/stretchr/testify/require"
 )
 
-// Run against the same migrated PostgreSQL used by the CI database job.
 // Every wait is bounded and transactions roll back before fixture cleanup.
 func TestPrivatePrivacyGuardConcurrency(t *testing.T) {
-	url := os.Getenv("DATABASE_URL")
-	if url == "" {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
 		t.Skip("DATABASE_URL is not set")
 	}
-	db, err := sqlx.Connect("pgx", url)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
+	db := isolatedPrivacyDatabase(t, databaseURL)
+	var err error
 	owner, ws, team, status := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	_, err = db.Exec(`INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,'Concurrency','hash')`, owner, owner.String()+"@test.invalid")
 	require.NoError(t, err)
@@ -192,4 +197,40 @@ func queuedPrivatizationEdit(t *testing.T, db *sqlx.DB, actor context.Context, w
 		t.Fatal("queued member edit did not finish")
 	}
 	return 0
+}
+
+// The privacy barrier is one database-wide advisory key. Other test packages run
+// concurrently against DATABASE_URL and may queue an exclusive request (team,
+// workspace, user or asset writes) behind this test's open shared lock; FIFO lock
+// queuing then makes the independent write wait for reasons unrelated to the
+// guard. A private, fully migrated database keeps these timing assertions exact.
+func isolatedPrivacyDatabase(t *testing.T, databaseURL string) *sqlx.DB {
+	t.Helper()
+	admin, err := sqlx.Connect("pgx", databaseURL)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = admin.Close() })
+	name := "kuayle_privacy_concurrency_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	_, err = admin.Exec(`CREATE DATABASE "` + name + `"`)
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "42501" {
+		t.Skip("DATABASE_URL user cannot create an isolated concurrency database")
+	}
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = admin.ExecContext(context.Background(), `DROP DATABASE "`+name+`" WITH (FORCE)`)
+	})
+	parsed, err := url.Parse(databaseURL)
+	require.NoError(t, err)
+	parsed.Path, parsed.RawPath = "/"+name, ""
+	migrator, err := migrate.New("file://../../migrations", parsed.String())
+	require.NoError(t, err)
+	err = migrator.Up()
+	sourceErr, databaseErr := migrator.Close()
+	require.NoError(t, err)
+	require.NoError(t, sourceErr)
+	require.NoError(t, databaseErr)
+	db, err := sqlx.Connect("pgx", parsed.String())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	return db
 }
