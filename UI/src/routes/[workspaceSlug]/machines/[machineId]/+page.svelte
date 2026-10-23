@@ -9,10 +9,10 @@
 	import {
 		getDevMachine, launchMachineServiceWithResume, listMachineServices, listMachineEvents, listMachineLogs,
 		listMachineAgentRuns, listResourceUsage, pauseDevMachine, startDevMachine, stopDevMachine, teardownDevMachine, cancelAgentRun,
-		checkoutIssue, deleteDevMachine, listMachineCheckouts, snapshotDevMachineEnvironment, updateDevMachine
+		checkoutIssue, deleteDevMachine, getDevMachinePolicy, listMachineCheckouts, snapshotDevMachineEnvironment, updateDevMachine
 	} from '$lib/api/dev-machines';
 	import { getWorkspace } from '$lib/api/workspaces';
-	import type { AgentRun, DevMachine, DevMachineCheckout, DevMachineEvent, DevMachineLogChunk, DevMachineService, ResourceSample } from '$lib/types/dev-machine';
+	import type { AgentRun, DevMachine, DevMachineCheckout, DevMachineEvent, DevMachineLogChunk, DevMachinePolicy, DevMachineService, ResourceSample } from '$lib/types/dev-machine';
 	import LoadingState from '$lib/components/shared/LoadingState.svelte';
 	import ErrorState from '$lib/components/shared/ErrorState.svelte';
 	import MachineStatusBadge from '$lib/features/dev-machines/MachineStatusBadge.svelte';
@@ -32,6 +32,11 @@
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	const machineId = $derived(page.params.machineId ?? '');
 	let machine = $state<DevMachine | null>(null);
+	let policy = $state<DevMachinePolicy | null>(null);
+	// Plain (non-reactive) cache: reading reactive state inside refreshAll would make the route effect
+	// depend on it and re-run on every assignment. The policy only labels the disk limit, so a failed
+	// fetch falls back to the hard-limit label instead of blocking the page.
+	let policyRequest: Promise<DevMachinePolicy | null> | null = null;
 	let services = $state<DevMachineService[]>([]);
 	let checkouts = $state<DevMachineCheckout[]>([]);
 	let events = $state<DevMachineEvent[]>([]);
@@ -74,6 +79,12 @@
 	const isPending = $derived(machine ? machine.desired_status !== machine.status : false);
 
 	const latestUsage = $derived(usage[0]);
+	const diskUsageNearLimit = $derived(
+		machine !== null &&
+			latestUsage !== undefined &&
+			machine.disk_gb > 0 &&
+			latestUsage.disk_bytes >= machine.disk_gb * 1024 ** 3 * 0.9
+	);
 	const canAdminDevMachines = $derived(workspaceRole === 'owner' || workspaceRole === 'admin');
 	const readyCheckouts = $derived(checkouts.filter((checkout) => checkout.status === 'ready'));
 	const ideService = $derived(services.find((item) => item.service_type === 'ide'));
@@ -131,6 +142,8 @@
 
 	function resetMachineState() {
 		machine = null;
+		policy = null;
+		policyRequest = null;
 		services = [];
 		checkouts = [];
 		events = [];
@@ -204,9 +217,11 @@
 	}
 
 	async function refreshAll(targetSlug = slug, targetMachineId = machineId, generation = routeGeneration, sequence = ++refreshSequence) {
-		const nextMachine = await getDevMachine(targetSlug, targetMachineId);
+		policyRequest ??= getDevMachinePolicy(targetSlug).catch(() => null);
+		const [nextMachine, nextPolicy] = await Promise.all([getDevMachine(targetSlug, targetMachineId), policyRequest]);
 		if (!isCurrentRefresh(targetSlug, targetMachineId, generation, sequence)) return;
 		machine = nextMachine;
+		policy = nextPolicy;
 		const currentRunsPage = runsPage;
 		const [serviceResult, checkoutResult, usageResult, runsResult, workspaceResult] = await Promise.allSettled([
 			listMachineServices(targetSlug, targetMachineId),
@@ -599,7 +614,12 @@
 				<section class="grid gap-3 md:grid-cols-4">
 					<div class="rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-4 md:col-span-2"><p class="text-[10px] uppercase tracking-wider text-[var(--color-text-tertiary)]">{m['machines.repository_affinity']()}</p>{#if machine.repo_owner && machine.repo_name}<p class="mt-2 text-sm font-medium">{machine.repo_owner}/{machine.repo_name}</p><p class="mt-1 flex items-center gap-1 text-xs text-[var(--color-text-tertiary)]"><GitBranch size={12} />{checkouts.length} issue {checkouts.length === 1 ? 'branch' : 'branches'}</p>{:else}<p class="mt-2 text-sm text-[var(--color-text-tertiary)]">{m['machines.no_repository_attached']()}</p>{/if}</div>
 					<div class="rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-4"><p class="text-[10px] uppercase tracking-wider text-[var(--color-text-tertiary)]">{m['machines.cpu_memory']()}</p><p class="mt-2 text-sm font-medium">{latestUsage?.cpu_percent.toFixed(1) ?? '0.0'}% · {bytes(latestUsage?.memory_bytes)}</p><p class="mt-1 text-xs text-[var(--color-text-tertiary)]">Limit {machine.cpu_millis / 1000} CPU / {machine.memory_mb / 1024} GB</p></div>
-					<div class="rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-4"><p class="text-[10px] uppercase tracking-wider text-[var(--color-text-tertiary)]">{m['machines.workspace_disk']()}</p><p class="mt-2 text-sm font-medium">{bytes(latestUsage?.disk_bytes)}</p><p class="mt-1 text-xs text-[var(--color-text-tertiary)]">{m['machines.hard_limit']({ disk: machine.disk_gb })}</p></div>
+					<div class="rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-4">
+						<p class="text-[10px] uppercase tracking-wider text-[var(--color-text-tertiary)]">{m['machines.workspace_disk']()}</p>
+						<p class={`mt-2 text-sm font-medium ${diskUsageNearLimit ? 'text-[var(--color-warning)]' : ''}`}>{bytes(latestUsage?.disk_bytes)}</p>
+						<p class="mt-1 text-xs text-[var(--color-text-tertiary)]">{policy?.disk_quota_mode === 'monitored' ? m['machines.monitored_limit']({ disk: machine.disk_gb }) : m['machines.hard_limit']({ disk: machine.disk_gb })}</p>
+						{#if diskUsageNearLimit}<p class="mt-1 text-xs font-medium text-[var(--color-warning)]">{m['machines.disk_near_limit']()}</p>{/if}
+					</div>
 				</section>
 
 				<Card.Root>

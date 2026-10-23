@@ -2,7 +2,10 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
+	import { TriangleAlert } from '@lucide/svelte';
+	import * as Alert from '$lib/components/ui/alert';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
+	import * as Dialog from '$lib/components/ui/dialog';
 	import * as Select from '$lib/components/ui/select';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
@@ -11,8 +14,15 @@
 	import { Textarea } from '$lib/components/ui/textarea';
 	import LoadingState from '$lib/components/shared/LoadingState.svelte';
 	import ErrorState from '$lib/components/shared/ErrorState.svelte';
+	import MachineResourceSliders from '$lib/features/dev-machines/MachineResourceSliders.svelte';
 	import { getGitHubStatus } from '$lib/api/github';
 	import { createDevMachine, deleteDevMachineEnvironment, deleteDevMachineScopeSetting, getDevMachinePolicy, getDevMachineScopeSetting, listDevMachineEnvironments, updateDevMachinePolicy, updateDevMachineScopeSetting } from '$lib/api/dev-machines';
+	import {
+		DEFAULT_MACHINE_RESOURCES,
+		MACHINE_DISK_GB,
+		normalizeMachineResources,
+		resolveMachineSizeOptions
+	} from '$lib/features/dev-machines/machine-size';
 	import { getWorkspace } from '$lib/api/workspaces';
 	import type { DevMachineEnvironment, DevMachinePolicy } from '$lib/types/dev-machine';
 	import type { GitHubRepo } from '$lib/types/github';
@@ -35,12 +45,27 @@
 	let environmentToDelete = $state<DevMachineEnvironment | null>(null);
 	let environmentDeleteOpen = $state(false);
 	let environmentDeleteBusy = $state(false);
-	const builderSizes = [
-		{ id: 'medium', diskGb: 50 },
-		{ id: 'small', diskGb: 20 }
-	] as const;
+	let environmentBuilderOpen = $state(false);
+	let builderCpuMillis = $state(DEFAULT_MACHINE_RESOURCES.cpu_millis);
+	let builderMemoryMb = $state(DEFAULT_MACHINE_RESOURCES.memory_mb);
+	let builderDiskGb = $state(DEFAULT_MACHINE_RESOURCES.disk_gb);
 
 	const readyEnvironments = $derived(environments.filter((item) => item.status === 'ready'));
+	const builderSizeOptions = $derived(
+		resolveMachineSizeOptions(
+			policy?.size_options,
+			policy?.max_disk_gb ?? MACHINE_DISK_GB[MACHINE_DISK_GB.length - 1]
+		)
+	);
+	const builderResources = $derived(
+		normalizeMachineResources(
+			{ cpu_millis: builderCpuMillis, memory_mb: builderMemoryMb, disk_gb: builderDiskGb },
+			builderSizeOptions
+		)
+	);
+	const canCreateEnvironmentBuilder = $derived(
+		canAdmin && !builderBusy && builderSizeOptions.disk_gb.length > 0
+	);
 
 	onMount(() => void load());
 
@@ -111,19 +136,29 @@
 			: [...policy.allowed_providers, provider];
 	}
 
-	async function createEnvironmentBuilder() {
-		const builderSize = builderSizes.find((size) => size.diskGb <= (policy?.max_disk_gb ?? 0))?.id;
-		if (!builderSize) {
-			appToast.error(m['settings.dev_machines.increase_disk']());
-			return;
-		}
+	function openEnvironmentBuilder() {
+		if (!canAdmin) return;
+		builderCpuMillis = DEFAULT_MACHINE_RESOURCES.cpu_millis;
+		builderMemoryMb = DEFAULT_MACHINE_RESOURCES.memory_mb;
+		builderDiskGb = DEFAULT_MACHINE_RESOURCES.disk_gb;
+		environmentBuilderOpen = true;
+	}
+
+	async function createEnvironmentBuilder(event: SubmitEvent) {
+		event.preventDefault();
+		if (!canCreateEnvironmentBuilder) return;
 		builderBusy = true;
 		try {
 			const machine = await createDevMachine(slug, {
-				size: builderSize, services: { ide: true, browser: false },
+				size: 'custom',
+				cpu_millis: builderResources.cpu_millis,
+				memory_mb: builderResources.memory_mb,
+				disk_gb: builderResources.disk_gb,
+				services: { ide: true, browser: false },
 				agents: [], env_vars: [], keep_running: true, environment_builder: true
 			});
 			appToast.success(m['settings.dev_machines.env_queued']());
+			environmentBuilderOpen = false;
 			await goto(`/${slug}/machines/${machine.id}`);
 		} catch (error) {
 			appToast.apiError(error, m['settings.dev_machines.failed_create_env']());
@@ -154,6 +189,13 @@
 {:else}
 	<form onsubmit={save} class="mx-auto max-w-3xl space-y-6 p-6">
 		<div><h1 class="text-lg font-semibold">{m['settings.dev_machines.title']()}</h1><p class="mt-1 text-sm text-[var(--color-text-tertiary)]">{m['settings.dev_machines.desc']()}</p></div>
+		{#if policy.disk_quota_mode === 'monitored'}
+			<Alert.Root class="border-[var(--color-warning)] bg-[var(--color-bg-secondary)] text-[var(--color-warning)]">
+				<TriangleAlert />
+				<Alert.Title>{m['settings.dev_machines.monitored_quota_title']()}</Alert.Title>
+				<Alert.Description class="text-[var(--color-text-secondary)]">{m['settings.dev_machines.monitored_quota_description']()}</Alert.Description>
+			</Alert.Root>
+		{/if}
 		{#if !canAdmin}<p class="rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-3 text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.admin_only']()}</p>{/if}
 		<fieldset disabled={!canAdmin} class="space-y-6">
 		<section class="space-y-4 rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-5">
@@ -168,7 +210,7 @@
 			</div>
 		</section>
 		<section class="space-y-4 rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-5">
-			<div class="flex items-start justify-between gap-4"><div><h2 class="text-sm font-semibold">{m['settings.dev_machines.environments']()}</h2><p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.environments_desc']()}</p></div><Button type="button" variant="outline" onclick={createEnvironmentBuilder} disabled={builderBusy}>{builderBusy ? m['settings.creating']() : m['settings.dev_machines.new_env']()}</Button></div>
+			<div class="flex items-start justify-between gap-4"><div><h2 class="text-sm font-semibold">{m['settings.dev_machines.environments']()}</h2><p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.environments_desc']()}</p></div><Button type="button" variant="outline" onclick={openEnvironmentBuilder} disabled={builderBusy}>{m['settings.dev_machines.new_env']()}</Button></div>
 			{#if environments.length === 0}<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.no_envs']()}</p>{:else}<div class="space-y-2">{#each environments as environment}<div class="flex items-center justify-between gap-3 rounded-lg border border-[var(--app-border)] p-3"><div class="min-w-0"><p class="truncate text-sm font-medium">{environment.name}</p><p class="truncate text-xs text-[var(--color-text-tertiary)]">{environment.image_ref}</p><p class="mt-1 text-[10px] capitalize text-[var(--color-text-tertiary)]">{environment.status.replaceAll('_', ' ')}</p></div><Button type="button" size="sm" variant="outline" disabled={environment.status === 'delete_requested'} onclick={() => { environmentToDelete = environment; environmentDeleteOpen = true; }}>{m['settings.dev_machines.delete']()}</Button></div>{/each}</div>{/if}
 		</section>
 		<section class="space-y-4 rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-5">
@@ -187,5 +229,30 @@
 		<div class="flex justify-end"><Button type="submit" disabled={saving}>{saving ? m['settings.saving']() : m['settings.dev_machines.save_policy']()}</Button></div>
 		</fieldset>
 	</form>
+	<Dialog.Root bind:open={environmentBuilderOpen}>
+		<Dialog.Content class="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+			<form onsubmit={createEnvironmentBuilder} class="space-y-5">
+				<Dialog.Header>
+					<Dialog.Title>{m['settings.dev_machines.new_env']()}</Dialog.Title>
+					<Dialog.Description>{m['settings.dev_machines.new_env_desc']()}</Dialog.Description>
+				</Dialog.Header>
+				<MachineResourceSliders
+					bind:cpu_millis={builderCpuMillis}
+					bind:memory_mb={builderMemoryMb}
+					bind:disk_gb={builderDiskGb}
+					sizeOptions={builderSizeOptions}
+				/>
+				{#if builderSizeOptions.disk_gb.length === 0}
+					<Alert.Root variant="destructive">
+						<Alert.Description>{m['settings.dev_machines.increase_disk']()}</Alert.Description>
+					</Alert.Root>
+				{/if}
+				<Dialog.Footer>
+					<Button type="button" variant="outline" onclick={() => (environmentBuilderOpen = false)}>{m['common.cancel']()}</Button>
+					<Button type="submit" disabled={!canCreateEnvironmentBuilder}>{builderBusy ? m['common.creating']() : m['common.create']()}</Button>
+				</Dialog.Footer>
+			</form>
+		</Dialog.Content>
+	</Dialog.Root>
 	<AlertDialog.Root bind:open={environmentDeleteOpen}><AlertDialog.Content><AlertDialog.Header><AlertDialog.Title>{m['settings.dev_machines.delete_env_title']()}</AlertDialog.Title><AlertDialog.Description>{m['settings.dev_machines.delete_env_desc']({ name: environmentToDelete?.name ?? '' })}</AlertDialog.Description></AlertDialog.Header><AlertDialog.Footer><AlertDialog.Cancel onclick={() => (environmentToDelete = null)}>{m['settings.cancel']()}</AlertDialog.Cancel><AlertDialog.Action variant="destructive" onclick={deleteEnvironment} disabled={environmentDeleteBusy}>{environmentDeleteBusy ? m['settings.deleting']() : m['settings.dev_machines.delete_env_button']()}</AlertDialog.Action></AlertDialog.Footer></AlertDialog.Content></AlertDialog.Root>
 {/if}

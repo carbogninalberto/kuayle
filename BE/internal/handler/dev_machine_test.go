@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/agent"
+	"github.com/kuayle/kuayle-backend/internal/config"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/middleware"
@@ -330,6 +331,148 @@ func TestDevMachineGetIsCreatorScoped(t *testing.T) {
 	require.Equal(t, http.StatusOK, recorder.Code)
 }
 
+func TestDevMachinePolicyIncludesConfiguredDiskQuotaMode(t *testing.T) {
+	workspaceID := uuid.New()
+	for _, test := range []struct {
+		mode       string
+		clientMode string
+	}{
+		{mode: config.DiskQuotaModeHard, clientMode: config.DiskQuotaModeMonitored},
+		{mode: config.DiskQuotaModeMonitored, clientMode: config.DiskQuotaModeHard},
+	} {
+		t.Run(test.mode, func(t *testing.T) {
+			store := &handlerDevMachineStoreFake{policy: &domain.DevMachineWorkspacePolicy{
+				WorkspaceID: workspaceID, Enabled: true, MaxConcurrentMachines: 5, MaxMachinesPerUser: 2,
+				MaxDailyAgentRuns: 25, MaxRuntimeMinutes: 480, MaxDiskGB: 100, IdlePauseMinutes: 240,
+				AllowedProviders:    json.RawMessage(`["claude-code","opencode","codex"]`),
+				AllowedRepositories: json.RawMessage(`[]`),
+			}}
+			h := NewDevMachineHandler(service.NewDevMachineService(
+				store, agent.NewRegistry(), true, "machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, service.DevMachineImages{},
+			), test.mode)
+
+			recorder := httptest.NewRecorder()
+			ctx := devMachineHandlerContext(httptest.NewRequest(http.MethodGet, "/dev-machine-policy", nil), recorder, workspaceID, uuid.New())
+			require.NoError(t, h.GetPolicy(ctx))
+			require.Equal(t, http.StatusOK, recorder.Code)
+			var current domain.DevMachineWorkspacePolicy
+			require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &current))
+			require.Equal(t, test.mode, current.DiskQuotaMode)
+			require.Equal(t, []int{20, 30, 40, 50, 75, 100}, current.SizeOptions.DiskGB)
+			require.Equal(t, []int{1000, 2000, 4000, 6000, 8000, 12000, 16000}, current.SizeOptions.CPUMillis)
+
+			body := fmt.Sprintf(`{
+				"enabled": true,
+				"max_concurrent_machines": 5,
+				"max_machines_per_user": 2,
+				"max_daily_agent_runs": 25,
+				"max_runtime_minutes": 480,
+				"max_disk_gb": 100,
+				"allowed_providers": ["opencode"],
+				"allowed_repositories": [],
+				"allow_custom_providers": false,
+				"idle_pause_minutes": 240,
+				"disk_quota_mode": %q,
+				"size_options": {"cpu_millis": [16000], "memory_mb": [65536], "disk_gb": [2048]}
+			}`, test.clientMode)
+			recorder = httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPatch, "/dev-machine-policy", strings.NewReader(body))
+			request.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			ctx = devMachineHandlerContext(request, recorder, workspaceID, uuid.New())
+			require.NoError(t, h.UpdatePolicy(ctx))
+			require.Equal(t, http.StatusOK, recorder.Code)
+			var updated domain.DevMachineWorkspacePolicy
+			require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &updated))
+			require.Equal(t, test.mode, updated.DiskQuotaMode)
+			require.Equal(t, []int{20, 30, 40, 50, 75, 100}, updated.SizeOptions.DiskGB)
+			require.Empty(t, store.policy.DiskQuotaMode)
+		})
+	}
+}
+
+func TestDevMachineCreateRejectsInvalidCustomResources(t *testing.T) {
+	workspaceID, userID := uuid.New(), uuid.New()
+	for _, test := range []struct {
+		name       string
+		body       string
+		errMessage string
+	}{
+		{
+			name: "cpu", body: `{"name":"custom-builder","size":"custom","cpu_millis":1500,"memory_mb":4096,"disk_gb":20}`,
+			errMessage: "cpu_millis 1500 is not a supported option",
+		},
+		{
+			name: "memory ratio", body: `{"name":"custom-builder","size":"custom","cpu_millis":4000,"memory_mb":2048,"disk_gb":20}`,
+			errMessage: "memory_mb 2048 must be at least 4096 for cpu_millis 4000 (1 GiB per vCPU)",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := &handlerDevMachineStoreFake{policy: testPolicyForHandler(workspaceID)}
+			h := NewDevMachineHandler(service.NewDevMachineService(
+				store, agent.NewRegistry(), true, "machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, service.DevMachineImages{},
+			))
+			request := httptest.NewRequest(http.MethodPost, "/dev-machines", strings.NewReader(test.body))
+			request.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			recorder := httptest.NewRecorder()
+			ctx := devMachineHandlerContext(request, recorder, workspaceID, userID)
+
+			require.NoError(t, h.Create(ctx))
+			require.Equal(t, http.StatusBadRequest, recorder.Code)
+			var body dto.ErrorResponse
+			require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &body), recorder.Body.String())
+			require.Equal(t, "BAD_REQUEST", body.Error.Code)
+			require.Contains(t, body.Error.Message, test.errMessage)
+		})
+	}
+}
+
+func TestDevMachineCreateReturnsSpecificQuotaMessages(t *testing.T) {
+	workspaceID, userID := uuid.New(), uuid.New()
+	for _, test := range []struct {
+		name           string
+		body           string
+		workspaceCount int
+		userCount      int
+		errMessage     string
+	}{
+		{
+			name: "workspace", body: `{"name":"quota-builder","size":"small"}`,
+			workspaceCount: 10, userCount: 1,
+			errMessage: "the workspace already has 10 of 10 allowed active Dev Machines",
+		},
+		{
+			name: "per user", body: `{"name":"quota-builder","size":"small"}`,
+			workspaceCount: 1, userCount: 2,
+			errMessage: "you already have 2 of 2 allowed Dev Machines; delete or stop one, or ask an admin to raise the per-user limit",
+		},
+		{
+			name: "custom disk", body: `{"name":"quota-builder","size":"custom","cpu_millis":2000,"memory_mb":4096,"disk_gb":150}`,
+			errMessage: "machine disk request of 150 GB exceeds the workspace limit of 100 GB",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			policy := testPolicyForHandler(workspaceID)
+			store := &handlerDevMachineStoreFake{
+				policy: policy, workspaceActiveCount: test.workspaceCount, userActiveCount: test.userCount,
+			}
+			h := NewDevMachineHandler(service.NewDevMachineService(
+				store, agent.NewRegistry(), true, "machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, service.DevMachineImages{},
+			))
+			request := httptest.NewRequest(http.MethodPost, "/dev-machines", strings.NewReader(test.body))
+			request.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			recorder := httptest.NewRecorder()
+			ctx := devMachineHandlerContext(request, recorder, workspaceID, userID)
+
+			require.NoError(t, h.Create(ctx))
+			require.Equal(t, http.StatusConflict, recorder.Code)
+			var body dto.ErrorResponse
+			require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &body), recorder.Body.String())
+			require.Equal(t, "QUOTA_EXCEEDED", body.Error.Code)
+			require.Equal(t, test.errMessage, body.Error.Message)
+		})
+	}
+}
+
 func TestTerminalCloseReturnsAcceptedWhileRuntimeCleanupIsPending(t *testing.T) {
 	workspaceID, userID, machineID, sessionID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	store := &handlerDevMachineStoreFake{machine: &domain.DevMachine{
@@ -353,8 +496,27 @@ func TestTerminalCloseReturnsAcceptedWhileRuntimeCleanupIsPending(t *testing.T) 
 type handlerDevMachineStoreFake struct {
 	repository.DevMachineStore
 	machine                 *domain.DevMachine
+	policy                  *domain.DevMachineWorkspacePolicy
+	workspaceActiveCount    int
+	userActiveCount         int
 	permanentDeleteRequests int
 	terminalCloseOperation  *domain.DevMachineOperation
+}
+
+func (f *handlerDevMachineStoreFake) GetPolicy(context.Context, uuid.UUID) (*domain.DevMachineWorkspacePolicy, error) {
+	return f.policy, nil
+}
+
+func (f *handlerDevMachineStoreFake) UpsertPolicy(_ context.Context, policy *domain.DevMachineWorkspacePolicy) error {
+	f.policy = policy
+	return nil
+}
+
+func (f *handlerDevMachineStoreFake) CountActiveMachines(_ context.Context, _ uuid.UUID, userID *uuid.UUID) (int, error) {
+	if userID != nil {
+		return f.userActiveCount, nil
+	}
+	return f.workspaceActiveCount, nil
 }
 
 type collectorHandlerStoreFake struct {
@@ -435,4 +597,12 @@ func devMachineHandlerContext(req *http.Request, recorder *httptest.ResponseReco
 	ctx.Set("workspace", &domain.Workspace{ID: workspaceID})
 	ctx.Set(string(middleware.UserIDKey), userID)
 	return ctx
+}
+
+func testPolicyForHandler(workspaceID uuid.UUID) *domain.DevMachineWorkspacePolicy {
+	return &domain.DevMachineWorkspacePolicy{
+		WorkspaceID: workspaceID, Enabled: true, MaxConcurrentMachines: 10, MaxMachinesPerUser: 2,
+		MaxDailyAgentRuns: 25, MaxRuntimeMinutes: 480, MaxDiskGB: 100, IdlePauseMinutes: 240,
+		AllowedProviders: json.RawMessage(`[]`), AllowedRepositories: json.RawMessage(`[]`),
+	}
 }

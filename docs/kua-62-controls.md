@@ -30,6 +30,7 @@ Re-apply or re-check these after any `shadcn-svelte add` overwrite:
 - Dialog: `bg-background` content and a `bg-black/50` overlay without backdrop blur.
 - Separator: vertical separators use `h-full` instead of upstream `self-stretch`.
 - Calendar and RangeCalendar: `locale` defaults to the Paraglide `getLocale()`.
+- Slider: the thumb receives the Root's `aria-label` and `aria-valuetext`, so each snapped slider has an accessible name and announces its value with units (Dev Machine resource sliders).
 
 ## Explicit native internals and exceptions
 

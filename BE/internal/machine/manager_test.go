@@ -26,11 +26,13 @@ type managerStoreFake struct {
 	states                    []domain.DevMachineStatus
 	events                    []domain.DevMachineEvent
 	idle                      []domain.DevMachine
+	runtimeMachines           []domain.DevMachine
 	permanentDeleteMachines   []domain.DevMachine
 	permanentDeleteRequests   int
 	purgedMachineIDs          []uuid.UUID
 	desired                   []domain.DevMachineStatus
 	actions                   []domain.DevMachineOperationAction
+	operations                []*domain.DevMachineOperation
 	checkout                  *domain.DevMachineCheckout
 	checkoutStatus            string
 	checkoutError             *string
@@ -163,12 +165,13 @@ func (f *managerStoreFake) ListTimedOutAgentRuns(context.Context, int) ([]domain
 	return nil, nil
 }
 func (f *managerStoreFake) ListRuntimeMachines(context.Context, int, int) ([]domain.DevMachine, error) {
-	return nil, nil
+	return f.runtimeMachines, nil
 }
 
 func (f *managerStoreFake) SetDesiredAndEnqueue(_ context.Context, _ uuid.UUID, _ uuid.UUID, desired domain.DevMachineStatus, operation *domain.DevMachineOperation) error {
 	f.desired = append(f.desired, desired)
 	f.actions = append(f.actions, operation.Action)
+	f.operations = append(f.operations, operation)
 	return nil
 }
 
@@ -320,17 +323,21 @@ func (f *githubAPIFake) CreatePullRequest(string, string, string, string, string
 }
 
 type runtimeFake struct {
-	spawned, paused, stopped, tornDown int
-	snapshots                          int
-	agentRuns                          int
-	terminatedTerminals                int
-	terminatedSession                  *domain.DevMachineTerminalSession
-	terminateTerminalErr               error
-	deletedEnvironmentIDs              []uuid.UUID
-	deleteEnvironmentImageErr          error
-	environmentDeleteAttempts          int
-	onSpawn                            func()
-	agentExecution                     *AgentExecution
+	spawned, started, paused, stopped, tornDown int
+	snapshots                                   int
+	agentRuns                                   int
+	terminatedTerminals                         int
+	terminatedSession                           *domain.DevMachineTerminalSession
+	terminateTerminalErr                        error
+	deletedEnvironmentIDs                       []uuid.UUID
+	deleteEnvironmentImageErr                   error
+	environmentDeleteAttempts                   int
+	onSpawn                                     func()
+	agentExecution                              *AgentExecution
+	stats                                       map[uuid.UUID]ResourceUsage
+	hostDiskUsage                               HostDiskUsage
+	hostDiskUsageErr                            error
+	hostDiskUsageCalls                          int
 }
 
 func (f *runtimeFake) Spawn(_ context.Context, _ *domain.DevMachine, services []domain.DevMachineService, _ map[string]map[string]string) (string, string, map[string]string, error) {
@@ -345,6 +352,7 @@ func (f *runtimeFake) Spawn(_ context.Context, _ *domain.DevMachine, services []
 	return "machine-network", "workspace-volume", containers, nil
 }
 func (f *runtimeFake) Start(context.Context, *domain.DevMachine, []domain.DevMachineService, map[string]map[string]string) error {
+	f.started++
 	return nil
 }
 func (f *runtimeFake) Pause(context.Context, *domain.DevMachine, []domain.DevMachineService) error {
@@ -372,8 +380,15 @@ func (f *runtimeFake) TerminateTerminal(_ context.Context, _ *domain.DevMachine,
 func (f *runtimeFake) Inspect(context.Context, *domain.DevMachine, []domain.DevMachineService) (RuntimeInspection, error) {
 	return RuntimeInspection{NetworkExists: true, VolumeExists: true, GatewayAttached: true}, nil
 }
-func (f *runtimeFake) Stats(context.Context, *domain.DevMachine, []domain.DevMachineService) (ResourceUsage, error) {
+func (f *runtimeFake) Stats(_ context.Context, machine *domain.DevMachine, _ []domain.DevMachineService) (ResourceUsage, error) {
+	if usage, ok := f.stats[machine.ID]; ok {
+		return usage, nil
+	}
 	return ResourceUsage{}, nil
+}
+func (f *runtimeFake) HostDiskUsage(context.Context) (HostDiskUsage, error) {
+	f.hostDiskUsageCalls++
+	return f.hostDiskUsage, f.hostDiskUsageErr
 }
 func (f *runtimeFake) GitState(context.Context, *domain.DevMachine, []domain.DevMachineService, *domain.DevMachineCheckout) (GitState, error) {
 	return GitState{}, nil
@@ -478,6 +493,328 @@ func TestReconcileQueuesIdlePause(t *testing.T) {
 	require.NoError(t, manager.reconcile(context.Background()))
 	require.Equal(t, []domain.DevMachineStatus{domain.DevMachineStatusPaused}, store.desired)
 	require.Equal(t, []domain.DevMachineOperationAction{domain.DevMachineOpPause}, store.actions)
+}
+
+func TestReconcileEmitsDiskQuotaWarningOncePerGenerationAndStillStopsAtLimit(t *testing.T) {
+	machine := domain.DevMachine{
+		ID: uuid.New(), WorkspaceID: uuid.New(), Status: domain.DevMachineStatusRunning,
+		DesiredStatus: domain.DevMachineStatusRunning, Generation: 2, DiskGB: 10,
+	}
+	store := &managerStoreFake{machine: &machine, runtimeMachines: []domain.DevMachine{machine}}
+	runtime := &runtimeFake{stats: map[uuid.UUID]ResourceUsage{}}
+	manager := NewManager(store, runtime, agent.NewRegistry(), nil, nil, nil, "test")
+	const gib = int64(1024 * 1024 * 1024)
+
+	runtime.stats[machine.ID] = ResourceUsage{DiskBytes: 8 * gib}
+	require.NoError(t, manager.reconcile(context.Background()))
+	require.Empty(t, store.events)
+	require.Empty(t, store.actions)
+
+	runtime.stats[machine.ID] = ResourceUsage{DiskBytes: 9 * gib}
+	require.NoError(t, manager.reconcile(context.Background()))
+	require.NoError(t, manager.reconcile(context.Background()))
+	require.Len(t, store.events, 1)
+	require.Equal(t, "resource.disk_quota_warning", store.events[0].EventType)
+	require.JSONEq(t, `{"used_bytes":9663676416,"limit_bytes":10737418240,"percent":90}`, string(store.events[0].Payload))
+	require.Empty(t, store.actions)
+
+	machine.Generation = 3
+	store.runtimeMachines[0].Generation = 3
+	require.NoError(t, manager.reconcile(context.Background()))
+	require.Len(t, store.events, 2)
+	require.Equal(t, "resource.disk_quota_warning", store.events[1].EventType)
+
+	runtime.stats[machine.ID] = ResourceUsage{DiskBytes: 10 * gib}
+	require.NoError(t, manager.reconcile(context.Background()))
+	require.Equal(t, []domain.DevMachineStatus{domain.DevMachineStatusStopped}, store.desired)
+	require.Equal(t, []domain.DevMachineOperationAction{domain.DevMachineOpStop}, store.actions)
+	require.Equal(t, "resource.disk_quota_exceeded", store.events[2].EventType)
+}
+
+func TestReconcileStopsRunningMachinesOnHostDiskFloorBreach(t *testing.T) {
+	const gib = int64(1024 * 1024 * 1024)
+	machines := []domain.DevMachine{
+		{
+			ID: uuid.New(), WorkspaceID: uuid.New(), Status: domain.DevMachineStatusRunning,
+			DesiredStatus: domain.DevMachineStatusRunning, Generation: 4, DiskGB: 10,
+		},
+		{
+			ID: uuid.New(), WorkspaceID: uuid.New(), Status: domain.DevMachineStatusRunning,
+			DesiredStatus: domain.DevMachineStatusRunning, Generation: 7, DiskGB: 20,
+		},
+	}
+	tests := []struct {
+		name      string
+		usage     HostDiskUsage
+		minFreeGB int
+		minFree   int
+	}{
+		{name: "minimum free GB", usage: HostDiskUsage{TotalBytes: 100 * gib, FreeBytes: 20 * gib}, minFreeGB: 25, minFree: 10},
+		{name: "minimum free percent", usage: HostDiskUsage{TotalBytes: 100 * gib, FreeBytes: 10 * gib}, minFreeGB: 1, minFree: 15},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store := &managerStoreFake{runtimeMachines: machines}
+			runtime := &runtimeFake{hostDiskUsage: test.usage}
+			manager := NewManager(store, runtime, agent.NewRegistry(), nil, nil, nil, "test", DiskQuotaConfig{
+				Mode: "monitored", HostMinFreePercent: test.minFree, HostMinFreeGB: test.minFreeGB,
+			})
+
+			require.NoError(t, manager.reconcile(context.Background()))
+			require.Equal(t, 1, runtime.hostDiskUsageCalls)
+			require.Equal(t, []domain.DevMachineStatus{
+				domain.DevMachineStatusStopped,
+				domain.DevMachineStatusStopped,
+			}, store.desired)
+			require.Equal(t, []domain.DevMachineOperationAction{
+				domain.DevMachineOpStop,
+				domain.DevMachineOpStop,
+			}, store.actions)
+			require.Len(t, store.operations, 2)
+			require.Equal(t, fmt.Sprintf("host-disk-floor:%d", machines[0].Generation), store.operations[0].IdempotencyKey)
+			require.Equal(t, fmt.Sprintf("host-disk-floor:%d", machines[1].Generation), store.operations[1].IdempotencyKey)
+
+			var floorEvents []domain.DevMachineEvent
+			for _, event := range store.events {
+				if event.EventType == "resource.host_disk_floor" {
+					floorEvents = append(floorEvents, event)
+				}
+			}
+			require.Len(t, floorEvents, 2)
+			require.JSONEq(t, fmt.Sprintf(
+				`{"free_bytes":%d,"total_bytes":%d,"min_free_bytes":%d,"min_free_percent":%d}`,
+				test.usage.FreeBytes, test.usage.TotalBytes, int64(test.minFreeGB)*gib, test.minFree,
+			), string(floorEvents[0].Payload))
+			metrics := manager.Metrics()
+			require.Equal(t, uint64(test.usage.FreeBytes), metrics["host_disk_free_bytes"])
+			require.Equal(t, uint64(test.usage.TotalBytes), metrics["host_disk_total_bytes"])
+			require.Equal(t, uint64(1), metrics["host_disk_floor_breached"])
+		})
+	}
+}
+
+func TestReconcileHostDiskFloorOnlyStopsMachinesDesiredToRun(t *testing.T) {
+	const gib = int64(1024 * 1024 * 1024)
+	stopping := domain.DevMachine{
+		ID: uuid.New(), WorkspaceID: uuid.New(), Status: domain.DevMachineStatusRunning,
+		DesiredStatus: domain.DevMachineStatusStopped, Generation: 4, DiskGB: 10,
+	}
+	running := domain.DevMachine{
+		ID: uuid.New(), WorkspaceID: uuid.New(), Status: domain.DevMachineStatusRunning,
+		DesiredStatus: domain.DevMachineStatusRunning, Generation: 7, DiskGB: 20,
+	}
+	store := &managerStoreFake{machine: &stopping, runtimeMachines: []domain.DevMachine{stopping, running}}
+	runtime := &runtimeFake{hostDiskUsage: HostDiskUsage{TotalBytes: 100 * gib, FreeBytes: 20 * gib}}
+	manager := NewManager(store, runtime, agent.NewRegistry(), nil, nil, nil, "test", DiskQuotaConfig{
+		Mode: "monitored", HostMinFreePercent: 10, HostMinFreeGB: 25,
+	})
+
+	require.NoError(t, manager.reconcile(context.Background()))
+
+	require.Equal(t, []domain.DevMachineStatus{domain.DevMachineStatusStopped}, store.desired)
+	require.Equal(t, []domain.DevMachineOperationAction{domain.DevMachineOpStop}, store.actions)
+	require.Len(t, store.operations, 1)
+	require.Equal(t, running.ID, store.operations[0].MachineID)
+
+	var floorEvents []domain.DevMachineEvent
+	for _, event := range store.events {
+		if event.EventType == "resource.host_disk_floor" {
+			floorEvents = append(floorEvents, event)
+		}
+	}
+	require.Len(t, floorEvents, 1)
+	require.Equal(t, running.ID, floorEvents[0].MachineID)
+}
+
+func TestReconcileHostDiskFloorNoBreachAndUnknownDoNotStopMachines(t *testing.T) {
+	const gib = int64(1024 * 1024 * 1024)
+	machine := domain.DevMachine{
+		ID: uuid.New(), WorkspaceID: uuid.New(), Status: domain.DevMachineStatusRunning,
+		DesiredStatus: domain.DevMachineStatusRunning, Generation: 4, DiskGB: 10,
+	}
+	tests := []struct {
+		name  string
+		usage HostDiskUsage
+		err   error
+	}{
+		{name: "no breach", usage: HostDiskUsage{TotalBytes: 100 * gib, FreeBytes: 50 * gib}},
+		{name: "unknown", err: ErrHostDiskUnknown},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store := &managerStoreFake{runtimeMachines: []domain.DevMachine{machine}}
+			runtime := &runtimeFake{hostDiskUsage: test.usage, hostDiskUsageErr: test.err}
+			manager := NewManager(store, runtime, agent.NewRegistry(), nil, nil, nil, "test", DiskQuotaConfig{
+				Mode: "monitored", HostMinFreePercent: 15, HostMinFreeGB: 25,
+			})
+
+			require.NoError(t, manager.reconcile(context.Background()))
+			require.Equal(t, 1, runtime.hostDiskUsageCalls)
+			require.Empty(t, store.actions)
+			for _, event := range store.events {
+				require.NotEqual(t, "resource.host_disk_floor", event.EventType)
+			}
+			require.Equal(t, uint64(0), manager.Metrics()["host_disk_floor_breached"])
+		})
+	}
+}
+
+func TestReconcileHostDiskFloorRetainsBreachWhenMeasurementFails(t *testing.T) {
+	const gib = int64(1024 * 1024 * 1024)
+	breached := HostDiskUsage{TotalBytes: 100 * gib, FreeBytes: 20 * gib}
+	healthy := HostDiskUsage{TotalBytes: 100 * gib, FreeBytes: 50 * gib}
+	tests := []struct {
+		name      string
+		status    domain.DevMachineStatus
+		action    domain.DevMachineOperationAction
+		wantSpawn int
+		wantStart int
+	}{
+		{name: "spawn", status: domain.DevMachineStatusQueued, action: domain.DevMachineOpSpawn, wantSpawn: 1},
+		{name: "start", status: domain.DevMachineStatusPaused, action: domain.DevMachineOpStart, wantStart: 1},
+	}
+	measurementErrors := []struct {
+		name string
+		err  error
+	}{
+		{name: "unknown", err: ErrHostDiskUnknown},
+		{name: "error", err: errors.New("statfs failed")},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			machineID, workspaceID := uuid.New(), uuid.New()
+			store := &managerStoreFake{machine: &domain.DevMachine{
+				ID: machineID, WorkspaceID: workspaceID, RoutingKey: "0123456789abcdef0123",
+				Status: test.status, DesiredStatus: domain.DevMachineStatusRunning, Generation: 3,
+			}}
+			runtime := &runtimeFake{hostDiskUsage: breached}
+			manager := NewManager(store, runtime, agent.NewRegistry(), nil, nil, nil, "test", DiskQuotaConfig{
+				Mode: "monitored", HostMinFreePercent: 15, HostMinFreeGB: 25,
+			})
+
+			require.NoError(t, manager.reconcile(context.Background()))
+			require.Equal(t, uint64(1), manager.Metrics()["host_disk_floor_breached"])
+
+			for _, measurementError := range measurementErrors {
+				runtime.hostDiskUsageErr = measurementError.err
+				require.NoError(t, manager.reconcile(context.Background()))
+				metrics := manager.Metrics()
+				require.Equal(t, uint64(1), metrics["host_disk_floor_breached"], measurementError.name)
+				require.Equal(t, uint64(breached.FreeBytes), metrics["host_disk_free_bytes"], measurementError.name)
+				require.Equal(t, uint64(breached.TotalBytes), metrics["host_disk_total_bytes"], measurementError.name)
+
+				err := manager.processOperation(context.Background(), &domain.DevMachineOperation{
+					MachineID: machineID, WorkspaceID: workspaceID, Action: test.action, Generation: 3,
+				})
+				var terminalErr *terminalOperationError
+				require.ErrorAs(t, err, &terminalErr)
+				require.Equal(t, "host_disk_low", terminalErr.code)
+				require.Zero(t, runtime.spawned)
+				require.Zero(t, runtime.started)
+			}
+
+			runtime.hostDiskUsage = healthy
+			runtime.hostDiskUsageErr = nil
+			require.NoError(t, manager.reconcile(context.Background()))
+			require.Equal(t, uint64(0), manager.Metrics()["host_disk_floor_breached"])
+
+			err := manager.processOperation(context.Background(), &domain.DevMachineOperation{
+				MachineID: machineID, WorkspaceID: workspaceID, Action: test.action, Generation: 3,
+			})
+			require.NoError(t, err)
+			require.Equal(t, test.wantSpawn, runtime.spawned)
+			require.Equal(t, test.wantStart, runtime.started)
+		})
+	}
+}
+
+func TestReconcileHardModeNeverReadsHostDiskUsage(t *testing.T) {
+	machine := domain.DevMachine{
+		ID: uuid.New(), WorkspaceID: uuid.New(), Status: domain.DevMachineStatusRunning,
+		DesiredStatus: domain.DevMachineStatusRunning, Generation: 4, DiskGB: 10,
+	}
+	store := &managerStoreFake{runtimeMachines: []domain.DevMachine{machine}}
+	runtime := &runtimeFake{hostDiskUsage: HostDiskUsage{TotalBytes: 100, FreeBytes: 0}}
+	manager := NewManager(store, runtime, agent.NewRegistry(), nil, nil, nil, "test")
+
+	require.NoError(t, manager.reconcile(context.Background()))
+	require.Zero(t, runtime.hostDiskUsageCalls)
+	require.Empty(t, store.actions)
+}
+
+func TestManagerRejectsSpawnAndStartDuringHostDiskFloorBreach(t *testing.T) {
+	tests := []struct {
+		name      string
+		status    domain.DevMachineStatus
+		action    domain.DevMachineOperationAction
+		wantSpawn int
+		wantStart int
+	}{
+		{name: "spawn", status: domain.DevMachineStatusQueued, action: domain.DevMachineOpSpawn, wantSpawn: 0, wantStart: 0},
+		{name: "start", status: domain.DevMachineStatusPaused, action: domain.DevMachineOpStart, wantSpawn: 0, wantStart: 0},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			machineID, workspaceID := uuid.New(), uuid.New()
+			store := &managerStoreFake{machine: &domain.DevMachine{
+				ID: machineID, WorkspaceID: workspaceID, RoutingKey: "0123456789abcdef0123",
+				Status: test.status, DesiredStatus: domain.DevMachineStatusRunning, Generation: 3,
+			}}
+			runtime := &runtimeFake{}
+			manager := NewManager(store, runtime, agent.NewRegistry(), nil, nil, nil, "test", DiskQuotaConfig{
+				Mode: "monitored", HostMinFreePercent: 15, HostMinFreeGB: 25,
+			})
+			manager.hostDiskBreached.Store(true)
+
+			err := manager.processOperation(context.Background(), &domain.DevMachineOperation{
+				MachineID: machineID, WorkspaceID: workspaceID, Action: test.action, Generation: 3,
+			})
+
+			var terminalErr *terminalOperationError
+			require.ErrorAs(t, err, &terminalErr)
+			require.Equal(t, "host_disk_low", terminalErr.code)
+			require.Contains(t, terminalErr.message, "free disk space")
+			require.Equal(t, test.wantSpawn, runtime.spawned)
+			require.Equal(t, test.wantStart, runtime.started)
+			require.NotEqual(t, domain.DevMachineStatusSpawning, store.machine.Status)
+			require.True(t, store.failedOperationRetryable == nil)
+		})
+	}
+}
+
+func TestManagerAllowsSpawnAndStartWithoutHostDiskFloorBreach(t *testing.T) {
+	tests := []struct {
+		name      string
+		status    domain.DevMachineStatus
+		action    domain.DevMachineOperationAction
+		wantSpawn int
+		wantStart int
+	}{
+		{name: "spawn", status: domain.DevMachineStatusQueued, action: domain.DevMachineOpSpawn, wantSpawn: 1, wantStart: 0},
+		{name: "start", status: domain.DevMachineStatusPaused, action: domain.DevMachineOpStart, wantSpawn: 0, wantStart: 1},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			machineID, workspaceID := uuid.New(), uuid.New()
+			store := &managerStoreFake{machine: &domain.DevMachine{
+				ID: machineID, WorkspaceID: workspaceID, RoutingKey: "0123456789abcdef0123",
+				Status: test.status, DesiredStatus: domain.DevMachineStatusRunning, Generation: 3,
+			}}
+			runtime := &runtimeFake{}
+			manager := NewManager(store, runtime, agent.NewRegistry(), nil, nil, nil, "test", DiskQuotaConfig{
+				Mode: "monitored", HostMinFreePercent: 15, HostMinFreeGB: 25,
+			})
+
+			err := manager.processOperation(context.Background(), &domain.DevMachineOperation{
+				MachineID: machineID, WorkspaceID: workspaceID, Action: test.action, Generation: 3,
+			})
+
+			require.NoError(t, err)
+			require.Equal(t, test.wantSpawn, runtime.spawned)
+			require.Equal(t, test.wantStart, runtime.started)
+			require.Equal(t, domain.DevMachineStatusRunning, store.machine.Status)
+		})
+	}
 }
 
 func TestManagerLifecycleSpawnPauseAndTeardown(t *testing.T) {

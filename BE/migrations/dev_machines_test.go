@@ -44,6 +44,80 @@ func TestDevMachineMigrationsAreConsolidated(t *testing.T) {
 	require.Contains(t, string(down), "rollback intentionally destroys all Dev Machine control-plane data")
 }
 
+func TestDevMachineCustomSizeMigrationDefinesRollback(t *testing.T) {
+	up, err := os.ReadFile("000048_dev_machine_custom_size.up.sql")
+	require.NoError(t, err)
+	down, err := os.ReadFile("000048_dev_machine_custom_size.down.sql")
+	require.NoError(t, err)
+
+	require.Contains(t, string(up), "DROP CONSTRAINT IF EXISTS dev_machines_machine_size_check")
+	require.Contains(t, string(up), "'small', 'medium', 'large', 'custom'")
+	require.Contains(t, string(down), "SET machine_size='large' WHERE machine_size='custom'")
+	require.Contains(t, string(down), "'small', 'medium', 'large'")
+}
+
+func TestDevMachineCustomSizeMigrationRoundTrip(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is not configured")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	admin, err := sql.Open("pgx", databaseURL)
+	require.NoError(t, err)
+	require.NoError(t, admin.PingContext(ctx))
+	databaseName := "kuayle_custom_size_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	_, err = admin.ExecContext(ctx, `CREATE DATABASE "`+databaseName+`"`)
+	if postgresCode(err) == "42501" {
+		_ = admin.Close()
+		t.Skip("DATABASE_URL user cannot create an isolated migration database")
+	}
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = admin.ExecContext(context.Background(), `DROP DATABASE "`+databaseName+`" WITH (FORCE)`)
+		_ = admin.Close()
+	})
+
+	testURL := databaseURLWithName(t, databaseURL, databaseName)
+	migrator, err := migrate.New("file://.", testURL)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = migrator.Close()
+	})
+	require.NoError(t, migrator.Migrate(32))
+	db, err := sql.Open("pgx", testURL)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	fixture := insertBaseMigrationFixture(t, db)
+	require.NoError(t, migrator.Migrate(48))
+
+	insertMachine := func() uuid.UUID {
+		machineID := uuid.New()
+		routingKey := strings.ReplaceAll(machineID.String(), "-", "")[:16]
+		_, insertErr := db.Exec(`INSERT INTO dev_machines
+			(id,workspace_id,created_by_user_id,routing_key,name,status,desired_status,
+			 machine_size,cpu_millis,memory_mb,disk_gb,max_runtime_minutes,expires_at)
+			VALUES ($1,$2,$3,$4,$5,'queued','running','custom',6000,12288,100,480,NOW()+INTERVAL '1 hour')`,
+			machineID, fixture.workspaceA, fixture.userA, routingKey, "custom-"+routingKey)
+		require.NoError(t, insertErr)
+		return machineID
+	}
+	machineID := insertMachine()
+
+	require.NoError(t, migrator.Steps(-1))
+	requireMigrationVersion(t, migrator, 47)
+	var machineSize string
+	require.NoError(t, db.QueryRow(`SELECT machine_size FROM dev_machines WHERE id=$1`, machineID).Scan(&machineSize))
+	require.Equal(t, "large", machineSize)
+	_, err = db.Exec(`UPDATE dev_machines SET machine_size='custom' WHERE id=$1`, machineID)
+	require.Equal(t, "23514", postgresCode(err))
+
+	require.NoError(t, migrator.Steps(1))
+	requireMigrationVersion(t, migrator, 48)
+	insertMachine()
+}
+
 func TestDevMachineMigrationRoundTripAndTenantConstraints(t *testing.T) {
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {

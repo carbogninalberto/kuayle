@@ -389,6 +389,150 @@ func TestCreateAppliesSizeAndWorkspaceRuntimeLimits(t *testing.T) {
 	}
 }
 
+func TestCreateCustomMachinePersistsExactResources(t *testing.T) {
+	workspaceID, userID := uuid.New(), uuid.New()
+	policy := testPolicy(workspaceID)
+	policy.MaxDiskGB = 200
+	policy.MaxRuntimeMinutes = 1440
+	store := &devMachineStoreFake{policy: policy}
+
+	machine, _, err := newTestDevMachineService(store).Create(context.Background(), workspaceID, userID, dto.CreateDevMachineRequest{
+		Name: "custom-builder", Size: "custom", CPUMillis: 6000, MemoryMB: 12288, DiskGB: 150,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, "custom", machine.MachineSize)
+	require.Equal(t, 6000, machine.CPUMillis)
+	require.Equal(t, 12288, machine.MemoryMB)
+	require.Equal(t, 150, machine.DiskGB)
+	require.Equal(t, 512, machine.PidsLimit)
+	require.Equal(t, 480, machine.MaxRuntimeMinutes)
+	require.Equal(t, machine, store.createdMachine)
+}
+
+func TestCreateCustomMachineUsesShorterWorkspaceRuntimeLimit(t *testing.T) {
+	workspaceID, userID := uuid.New(), uuid.New()
+	policy := testPolicy(workspaceID)
+	policy.MaxRuntimeMinutes = 180
+	store := &devMachineStoreFake{policy: policy}
+
+	machine, _, err := newTestDevMachineService(store).Create(context.Background(), workspaceID, userID, dto.CreateDevMachineRequest{
+		Name: "custom-runtime", Size: "custom", CPUMillis: 2000, MemoryMB: 4096, DiskGB: 20,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, 180, machine.MaxRuntimeMinutes)
+}
+
+func TestCreatePresetIgnoresRequestedCustomResources(t *testing.T) {
+	for _, test := range []struct {
+		size      string
+		cpuMillis int
+		memoryMB  int
+		diskGB    int
+		maxRun    int
+	}{
+		{size: "small", cpuMillis: 2000, memoryMB: 4096, diskGB: 20, maxRun: 120},
+		{size: "medium", cpuMillis: 4000, memoryMB: 8192, diskGB: 50, maxRun: 240},
+		{size: "large", cpuMillis: 8000, memoryMB: 16384, diskGB: 100, maxRun: 480},
+	} {
+		t.Run(test.size, func(t *testing.T) {
+			workspaceID, userID := uuid.New(), uuid.New()
+			store := &devMachineStoreFake{policy: testPolicy(workspaceID)}
+
+			machine, _, err := newTestDevMachineService(store).Create(context.Background(), workspaceID, userID, dto.CreateDevMachineRequest{
+				Name: "preset-builder", Size: test.size, CPUMillis: 16000, MemoryMB: 65536, DiskGB: 2048,
+			})
+
+			require.NoError(t, err)
+			require.Equal(t, test.size, machine.MachineSize)
+			require.Equal(t, test.cpuMillis, machine.CPUMillis)
+			require.Equal(t, test.memoryMB, machine.MemoryMB)
+			require.Equal(t, test.diskGB, machine.DiskGB)
+			require.Equal(t, test.maxRun, machine.MaxRuntimeMinutes)
+		})
+	}
+}
+
+func TestCreateRejectsInvalidCustomResourcesWithSpecificMessages(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		cpuMillis  int
+		memoryMB   int
+		diskGB     int
+		errMessage string
+	}{
+		{name: "cpu option", cpuMillis: 1500, memoryMB: 4096, diskGB: 20, errMessage: "cpu_millis 1500 is not a supported option"},
+		{name: "memory option", cpuMillis: 2000, memoryMB: 3000, diskGB: 20, errMessage: "memory_mb 3000 is not a supported option"},
+		{name: "disk option", cpuMillis: 2000, memoryMB: 4096, diskGB: 25, errMessage: "disk_gb 25 is not a supported option"},
+		{name: "memory ratio", cpuMillis: 4000, memoryMB: 2048, diskGB: 20, errMessage: "memory_mb 2048 must be at least 4096 for cpu_millis 4000 (1 GiB per vCPU)"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			workspaceID, userID := uuid.New(), uuid.New()
+			store := &devMachineStoreFake{policy: testPolicy(workspaceID)}
+
+			_, _, err := newTestDevMachineService(store).Create(context.Background(), workspaceID, userID, dto.CreateDevMachineRequest{
+				Name: "invalid-custom", Size: "custom", CPUMillis: test.cpuMillis, MemoryMB: test.memoryMB, DiskGB: test.diskGB,
+			})
+
+			require.ErrorIs(t, err, ErrInvalidMachineInput)
+			require.ErrorContains(t, err, test.errMessage)
+			require.Nil(t, store.createdMachine)
+		})
+	}
+}
+
+func TestCreateRejectsCustomDiskAbovePolicyWithSpecificQuotaMessage(t *testing.T) {
+	workspaceID, userID := uuid.New(), uuid.New()
+	policy := testPolicy(workspaceID)
+	policy.MaxDiskGB = 100
+	store := &devMachineStoreFake{policy: policy}
+
+	_, _, err := newTestDevMachineService(store).Create(context.Background(), workspaceID, userID, dto.CreateDevMachineRequest{
+		Name: "too-large-disk", Size: "custom", CPUMillis: 2000, MemoryMB: 4096, DiskGB: 150,
+	})
+
+	require.ErrorIs(t, err, ErrMachineQuota)
+	require.EqualError(t, err, "machine disk request of 150 GB exceeds the workspace limit of 100 GB")
+	require.Nil(t, store.createdMachine)
+}
+
+func TestCreateReturnsSpecificQuotaMessages(t *testing.T) {
+	for _, test := range []struct {
+		name           string
+		workspaceCount int
+		userCount      int
+		errMessage     string
+	}{
+		{
+			name: "workspace", workspaceCount: 10, userCount: 1,
+			errMessage: "the workspace already has 10 of 10 allowed active Dev Machines",
+		},
+		{
+			name: "per user", workspaceCount: 1, userCount: 2,
+			errMessage: "you already have 2 of 2 allowed Dev Machines; delete or stop one, or ask an admin to raise the per-user limit",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			workspaceID, userID := uuid.New(), uuid.New()
+			policy := testPolicy(workspaceID)
+			policy.MaxConcurrentMachines = 10
+			policy.MaxMachinesPerUser = 2
+			store := &devMachineStoreFake{
+				policy: policy, workspaceActiveCount: test.workspaceCount, userActiveCount: test.userCount,
+			}
+
+			_, _, err := newTestDevMachineService(store).Create(context.Background(), workspaceID, userID, dto.CreateDevMachineRequest{
+				Name: "quota-builder", Size: "small",
+			})
+
+			require.ErrorIs(t, err, ErrMachineQuota)
+			require.EqualError(t, err, test.errMessage)
+			require.Nil(t, store.createdMachine)
+		})
+	}
+}
+
 func TestCreateMapsRepositoryMachineConflicts(t *testing.T) {
 	workspaceID, userID := uuid.New(), uuid.New()
 	for _, test := range []struct {
@@ -1330,6 +1474,8 @@ func TestSnapshotEnvironmentRequiresSourceBuilderOwner(t *testing.T) {
 type devMachineStoreFake struct {
 	repository.DevMachineStore
 	policy                      *domain.DevMachineWorkspacePolicy
+	workspaceActiveCount        int
+	userActiveCount             int
 	nameExists                  map[string]bool
 	nameExistsByUser            map[uuid.UUID]map[string]bool
 	alwaysNameExists            bool
@@ -1482,8 +1628,11 @@ func (f *devMachineStoreFake) TouchMachineActivity(context.Context, uuid.UUID, t
 	return nil
 }
 
-func (f *devMachineStoreFake) CountActiveMachines(context.Context, uuid.UUID, *uuid.UUID) (int, error) {
-	return 0, nil
+func (f *devMachineStoreFake) CountActiveMachines(_ context.Context, _ uuid.UUID, userID *uuid.UUID) (int, error) {
+	if userID != nil {
+		return f.userActiveCount, nil
+	}
+	return f.workspaceActiveCount, nil
 }
 
 func (f *devMachineStoreFake) GetOperationByIdempotency(context.Context, uuid.UUID, uuid.UUID, string) (*domain.DevMachineOperation, error) {

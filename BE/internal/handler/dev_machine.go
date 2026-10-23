@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/kuayle/kuayle-backend/internal/config"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/middleware"
@@ -16,11 +17,16 @@ import (
 )
 
 type DevMachineHandler struct {
-	service *service.DevMachineService
+	service       *service.DevMachineService
+	diskQuotaMode string
 }
 
-func NewDevMachineHandler(machineService *service.DevMachineService) *DevMachineHandler {
-	return &DevMachineHandler{service: machineService}
+func NewDevMachineHandler(machineService *service.DevMachineService, diskQuotaMode ...string) *DevMachineHandler {
+	mode := config.DiskQuotaModeHard
+	if len(diskQuotaMode) > 0 && diskQuotaMode[0] != "" {
+		mode = diskQuotaMode[0]
+	}
+	return &DevMachineHandler{service: machineService, diskQuotaMode: mode}
 }
 
 func (h *DevMachineHandler) List(c echo.Context) error {
@@ -48,6 +54,9 @@ func (h *DevMachineHandler) Create(c echo.Context) error {
 	var request dto.CreateDevMachineRequest
 	if err := bindAndValidate(c, &request); err != nil {
 		return err
+	}
+	if c.Response().Committed {
+		return nil
 	}
 	if request.EnvironmentBuilder && middleware.GetWorkspaceRole(c) != domain.RoleOwner && middleware.GetWorkspaceRole(c) != domain.RoleAdmin {
 		return response.Error(c, http.StatusForbidden, "FORBIDDEN", "Environment Builders require workspace administration")
@@ -623,7 +632,7 @@ func (h *DevMachineHandler) GetPolicy(c echo.Context) error {
 	if err != nil {
 		return machineError(c, err)
 	}
-	return response.Success(c, http.StatusOK, policy)
+	return response.Success(c, http.StatusOK, h.policyResponse(policy))
 }
 
 func (h *DevMachineHandler) UpdatePolicy(c echo.Context) error {
@@ -637,7 +646,17 @@ func (h *DevMachineHandler) UpdatePolicy(c echo.Context) error {
 	if err != nil {
 		return machineError(c, err)
 	}
-	return response.Success(c, http.StatusOK, policy)
+	return response.Success(c, http.StatusOK, h.policyResponse(policy))
+}
+
+func (h *DevMachineHandler) policyResponse(policy *domain.DevMachineWorkspacePolicy) *domain.DevMachineWorkspacePolicy {
+	if policy == nil {
+		return nil
+	}
+	current := *policy
+	current.DiskQuotaMode = h.diskQuotaMode
+	current.SizeOptions = domain.DevMachineOptionsForWorkspace(policy.MaxDiskGB)
+	return &current
 }
 
 func (h *DevMachineHandler) IngestEvent(c echo.Context) error {

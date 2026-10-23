@@ -143,7 +143,7 @@ func main() {
 	prefsH := handler.NewPreferencesHandler(prefsSvc)
 	tokenH := handler.NewTokenHandler(tokenSvc)
 	aiSettingsH := handler.NewAISettingsHandler(aiSettingsSvc)
-	devMachineH := handler.NewDevMachineHandler(devMachineSvc)
+	devMachineH := handler.NewDevMachineHandler(devMachineSvc, cfg.DevMachine.EffectiveDiskQuotaMode())
 	analyticsRepo := repository.NewAnalyticsRepository(db)
 	analyticsH := handler.NewAnalyticsHandler(analyticsRepo)
 	systemH := handler.NewSystemHandler(cfg.SystemUpdaterURL, cfg.SystemUpdaterToken, cfg.IsSysAdmin)

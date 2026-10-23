@@ -44,6 +44,10 @@ func main() {
 		SeccompProfile: configValue.DevMachine.SeccompProfile, AppArmorProfile: configValue.DevMachine.AppArmorProfile,
 		PullImages: strings.EqualFold(os.Getenv("DEV_MACHINE_PULL_IMAGES"), "true"), IngestURL: configValue.DevMachine.IngestURL,
 		EgressAllowlist: configValue.DevMachine.EgressAllowlist, EgressDenylist: configValue.DevMachine.EgressDenylist,
+		DiskQuotaMode:          configValue.DevMachine.EffectiveDiskQuotaMode(),
+		HostDiskMinFreePercent: configValue.DevMachine.HostDiskMinFreePercent,
+		HostDiskMinFreeGB:      configValue.DevMachine.HostDiskMinFreeGB,
+		HostDiskPath:           configValue.DevMachine.HostDiskPath,
 	})
 	if err != nil {
 		log.WithError(err).Fatal("initialize Docker runtime")
@@ -54,6 +58,13 @@ func main() {
 		log.WithError(err).Fatal("verify Docker workspace quota support")
 	}
 	cancelRuntimeCheck()
+	if configValue.DevMachine.MonitoredDiskQuota() {
+		log.WithFields(log.Fields{
+			"quota_mode":                 configValue.DevMachine.EffectiveDiskQuotaMode(),
+			"host_disk_min_free_percent": configValue.DevMachine.HostDiskMinFreePercent,
+			"host_disk_min_free_gb":      configValue.DevMachine.HostDiskMinFreeGB,
+		}).Warn("workspace disk limits are monitored, not hard-enforced")
+	}
 	registry := agent.NewRegistry(
 		agent.NewClaudeCodeProvider(configValue.DevMachine.ClaudeCodeImage),
 		agent.NewOpenCodeProvider(configValue.DevMachine.OpenCodeImage),
@@ -70,7 +81,11 @@ func main() {
 	}
 	manager := machine.NewManager(repository.NewDevMachineRepository(database), runtime, registry, gitHubClient,
 		cryptoutil.DeriveKey(configValue.DevMachine.EncryptionKey), cryptoutil.DeriveKey(configValue.JWTSecret+":github"),
-		hostname+":"+fmt.Sprint(os.Getpid()))
+		hostname+":"+fmt.Sprint(os.Getpid()), machine.DiskQuotaConfig{
+			Mode:               configValue.DevMachine.EffectiveDiskQuotaMode(),
+			HostMinFreePercent: configValue.DevMachine.HostDiskMinFreePercent,
+			HostMinFreeGB:      configValue.DevMachine.HostDiskMinFreeGB,
+		})
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

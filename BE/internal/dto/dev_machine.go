@@ -40,7 +40,10 @@ type CreateDevMachineRequest struct {
 	Repo               *DevMachineRepoInput    `json:"repo,omitempty"`
 	BaseBranch         string                  `json:"base_branch,omitempty" validate:"omitempty,max=255"`
 	WorkingBranch      string                  `json:"working_branch,omitempty" validate:"omitempty,max=255"`
-	Size               string                  `json:"size" validate:"required,oneof=small medium large"`
+	Size               string                  `json:"size" validate:"required,oneof=small medium large custom"`
+	CPUMillis          int                     `json:"cpu_millis"`
+	MemoryMB           int                     `json:"memory_mb"`
+	DiskGB             int                     `json:"disk_gb"`
 	Services           DevMachineServicesInput `json:"services"`
 	Agents             []DevMachineAgentInput  `json:"agents" validate:"max=4,dive"`
 	EnvVars            []DevMachineEnvVarInput `json:"env_vars" validate:"max=64,dive"`

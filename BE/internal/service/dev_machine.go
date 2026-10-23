@@ -44,6 +44,43 @@ var (
 	ErrMachineAuthentication    = errors.New("machine authentication failed")
 )
 
+type machineQuotaError struct {
+	message string
+	causes  []error
+}
+
+func (e *machineQuotaError) Error() string {
+	return e.message
+}
+
+func (e *machineQuotaError) Unwrap() []error {
+	return e.causes
+}
+
+func newMachineQuotaError(message string, causes ...error) error {
+	return fmt.Errorf("%w", &machineQuotaError{
+		message: message,
+		causes:  append([]error{ErrMachineQuota}, causes...),
+	})
+}
+
+func machineQuotaCountError(workspaceCount, workspaceLimit, userCount, userLimit int) error {
+	switch {
+	case workspaceCount >= workspaceLimit:
+		return newMachineQuotaError(fmt.Sprintf(
+			"the workspace already has %d of %d allowed active Dev Machines",
+			workspaceCount, workspaceLimit,
+		))
+	case userCount >= userLimit:
+		return newMachineQuotaError(fmt.Sprintf(
+			"you already have %d of %d allowed Dev Machines; delete or stop one, or ask an admin to raise the per-user limit",
+			userCount, userLimit,
+		))
+	default:
+		return nil
+	}
+}
+
 type DevMachineImages struct {
 	IDE       string
 	Browser   string
@@ -87,6 +124,23 @@ func (s *DevMachineService) Create(ctx context.Context, workspaceID, userID uuid
 	if err != nil {
 		return nil, nil, err
 	}
+
+	cpuMillis, memoryMB, diskGB, sizeMaxRuntime, ok := domain.DevMachineSize(req.Size)
+	if req.Size == "custom" {
+		if err := domain.DevMachineCustomSize(req.CPUMillis, req.MemoryMB, req.DiskGB); err != nil {
+			return nil, nil, fmt.Errorf("%w: %v", ErrInvalidMachineInput, err)
+		}
+		cpuMillis, memoryMB, diskGB, sizeMaxRuntime, ok = req.CPUMillis, req.MemoryMB, req.DiskGB, 480, true
+	}
+	if !ok {
+		return nil, nil, fmt.Errorf("%w: unsupported machine size %q", ErrInvalidMachineInput, req.Size)
+	}
+	if diskGB > policy.MaxDiskGB {
+		return nil, nil, newMachineQuotaError(fmt.Sprintf(
+			"machine disk request of %d GB exceeds the workspace limit of %d GB",
+			diskGB, policy.MaxDiskGB,
+		))
+	}
 	workspaceCount, err := s.store.CountActiveMachines(ctx, workspaceID, nil)
 	if err != nil {
 		return nil, nil, err
@@ -95,16 +149,11 @@ func (s *DevMachineService) Create(ctx context.Context, workspaceID, userID uuid
 	if err != nil {
 		return nil, nil, err
 	}
-	if workspaceCount >= policy.MaxConcurrentMachines || userCount >= policy.MaxMachinesPerUser {
-		return nil, nil, ErrMachineQuota
-	}
-
-	cpuMillis, memoryMB, diskGB, sizeMaxRuntime, ok := domain.DevMachineSize(req.Size)
-	if !ok {
-		return nil, nil, fmt.Errorf("%w: unsupported machine size %q", ErrInvalidMachineInput, req.Size)
-	}
-	if diskGB > policy.MaxDiskGB {
-		return nil, nil, fmt.Errorf("%w: machine disk request exceeds workspace limit", ErrMachineQuota)
+	if err := machineQuotaCountError(
+		workspaceCount, policy.MaxConcurrentMachines,
+		userCount, policy.MaxMachinesPerUser,
+	); err != nil {
+		return nil, nil, err
 	}
 	maxRuntime := min(sizeMaxRuntime, policy.MaxRuntimeMinutes)
 	name := normalizeMachineName(req.Name)
@@ -284,7 +333,7 @@ func (s *DevMachineService) Create(ctx context.Context, workspaceID, userID uuid
 			return nil, nil, fmt.Errorf("%w: %v", ErrInvalidOperation, err)
 		}
 		if errors.Is(err, repository.ErrMachineQuota) {
-			return nil, nil, ErrMachineQuota
+			return nil, nil, newMachineQuotaError(err.Error(), err)
 		}
 		if errors.Is(err, repository.ErrMachineNameConflict) {
 			return nil, nil, ErrMachineNameConflict
@@ -1046,8 +1095,11 @@ func (s *DevMachineService) Lifecycle(ctx context.Context, workspaceID, machineI
 		if err != nil {
 			return nil, err
 		}
-		if workspaceCount >= policy.MaxConcurrentMachines || userCount >= policy.MaxMachinesPerUser {
-			return nil, ErrMachineQuota
+		if err := machineQuotaCountError(
+			workspaceCount, policy.MaxConcurrentMachines,
+			userCount, policy.MaxMachinesPerUser,
+		); err != nil {
+			return nil, err
 		}
 	}
 	desired := machine.DesiredStatus
@@ -1081,7 +1133,7 @@ func (s *DevMachineService) Lifecycle(ctx context.Context, workspaceID, machineI
 			return nil, fmt.Errorf("%w: %v", ErrInvalidOperation, err)
 		}
 		if errors.Is(err, repository.ErrMachineQuota) {
-			return nil, ErrMachineQuota
+			return nil, newMachineQuotaError(err.Error(), err)
 		}
 		return nil, err
 	}

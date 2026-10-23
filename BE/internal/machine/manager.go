@@ -79,6 +79,16 @@ type githubAPI interface {
 	CreatePullRequest(string, string, string, string, string, string, string) (*githubclient.PullRequest, error)
 }
 
+type DiskQuotaConfig struct {
+	Mode               string
+	HostMinFreePercent int
+	HostMinFreeGB      int
+}
+
+func (c DiskQuotaConfig) monitored() bool {
+	return monitoredDiskQuotaMode(c.Mode)
+}
+
 type Manager struct {
 	store         ManagerStore
 	runtime       Runtime
@@ -88,15 +98,21 @@ type Manager struct {
 	githubKey     []byte
 	owner         string
 	pollInterval  time.Duration
+	diskQuota     DiskQuotaConfig
 
 	operationsCompleted atomic.Uint64
 	operationsFailed    atomic.Uint64
 	agentRunsCompleted  atomic.Uint64
 	lastReconcileUnix   atomic.Int64
+	hostDiskFreeBytes   atomic.Int64
+	hostDiskTotalBytes  atomic.Int64
+	hostDiskBreached    atomic.Bool
 	operationSlots      chan struct{}
 	operations          sync.WaitGroup
 	activeRunsMu        sync.Mutex
 	activeRuns          map[uuid.UUID]map[uuid.UUID]context.CancelFunc
+	diskQuotaWarnMu     sync.Mutex
+	diskQuotaWarnings   map[uuid.UUID]int64
 }
 
 type terminalOperationError struct {
@@ -108,11 +124,17 @@ func (e *terminalOperationError) Error() string {
 	return e.code + ": " + e.message
 }
 
-func NewManager(store ManagerStore, runtime Runtime, agents *agent.Registry, github githubAPI, encryptionKey, githubKey []byte, owner string) *Manager {
+func NewManager(store ManagerStore, runtime Runtime, agents *agent.Registry, github githubAPI, encryptionKey, githubKey []byte, owner string, diskQuotas ...DiskQuotaConfig) *Manager {
+	var diskQuota DiskQuotaConfig
+	if len(diskQuotas) > 0 {
+		diskQuota = diskQuotas[0]
+	}
 	return &Manager{
 		store: store, runtime: runtime, agents: agents, github: github, encryptionKey: encryptionKey,
 		githubKey: githubKey, owner: owner, pollInterval: time.Second, operationSlots: make(chan struct{}, 8),
-		activeRuns: make(map[uuid.UUID]map[uuid.UUID]context.CancelFunc),
+		activeRuns:        make(map[uuid.UUID]map[uuid.UUID]context.CancelFunc),
+		diskQuotaWarnings: make(map[uuid.UUID]int64),
+		diskQuota:         diskQuota,
 	}
 }
 
@@ -148,6 +170,9 @@ func (m *Manager) Metrics() map[string]uint64 {
 		"operations_failed_total":    m.operationsFailed.Load(),
 		"agent_runs_completed_total": m.agentRunsCompleted.Load(),
 		"last_reconcile_unix":        uint64(max(m.lastReconcileUnix.Load(), 0)),
+		"host_disk_free_bytes":       uint64(max(m.hostDiskFreeBytes.Load(), 0)),
+		"host_disk_total_bytes":      uint64(max(m.hostDiskTotalBytes.Load(), 0)),
+		"host_disk_floor_breached":   boolMetric(m.hostDiskBreached.Load()),
 	}
 }
 
@@ -291,6 +316,15 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 			return nil
 		default:
 			return nil
+		}
+	}
+	if operation.Action == domain.DevMachineOpSpawn || operation.Action == domain.DevMachineOpStart {
+		if m.diskQuota.monitored() && m.hostDiskBreached.Load() {
+			return &terminalOperationError{
+				code: "host_disk_low",
+				message: "host free disk space is below the configured Dev Machine floor; " +
+					"wait for disk usage to fall before starting another machine",
+			}
 		}
 	}
 	services, err := m.store.ListServices(ctx, machine.WorkspaceID, machine.ID)
@@ -979,6 +1013,7 @@ func (m *Manager) reconcile(ctx context.Context) error {
 		_ = m.createEvent(ctx, machine, nil, "lifecycle", "machine.expired", nil)
 	}
 
+	hostDiskFloorBreached := m.reconcileHostDiskFloor(ctx)
 	const runtimePageSize = 100
 	for offset := 0; ; offset += runtimePageSize {
 		machines, err := m.store.ListRuntimeMachines(ctx, runtimePageSize, offset)
@@ -989,6 +1024,33 @@ func (m *Manager) reconcile(ctx context.Context) error {
 			machine := &machines[i]
 			services, err := m.store.ListServices(ctx, machine.WorkspaceID, machine.ID)
 			if err != nil {
+				continue
+			}
+			if hostDiskFloorBreached &&
+				machine.Status == domain.DevMachineStatusRunning &&
+				machine.DesiredStatus == domain.DevMachineStatusRunning {
+				hostDisk := HostDiskUsage{
+					TotalBytes: m.hostDiskTotalBytes.Load(),
+					FreeBytes:  m.hostDiskFreeBytes.Load(),
+				}
+				minFreeBytes := int64(m.diskQuota.HostMinFreeGB) * 1024 * 1024 * 1024
+				operation := &domain.DevMachineOperation{
+					ID: uuid.New(), MachineID: machine.ID, WorkspaceID: machine.WorkspaceID,
+					Action: domain.DevMachineOpStop, Status: domain.DevMachineOpStatusPending,
+					Generation: machine.Generation + 1, IdempotencyKey: fmt.Sprintf("host-disk-floor:%d", machine.Generation), MaxAttempts: 3,
+				}
+				if err := m.store.SetDesiredAndEnqueue(ctx, machine.WorkspaceID, machine.ID, domain.DevMachineStatusStopped, operation); err != nil && !errors.Is(err, sql.ErrNoRows) {
+					log.WithFields(log.Fields{"machine_id": machine.ID, "workspace_id": machine.WorkspaceID}).WithError(err).Warn("host disk floor stop queue failed")
+				}
+				_ = m.createEvent(ctx, machine, nil, "collector", "resource.host_disk_floor", map[string]any{
+					"free_bytes": hostDisk.FreeBytes, "total_bytes": hostDisk.TotalBytes,
+					"min_free_bytes": minFreeBytes, "min_free_percent": m.diskQuota.HostMinFreePercent,
+				})
+				log.WithFields(log.Fields{
+					"machine_id": machine.ID, "workspace_id": machine.WorkspaceID,
+					"free_bytes": hostDisk.FreeBytes, "total_bytes": hostDisk.TotalBytes,
+					"min_free_bytes": minFreeBytes, "min_free_percent": m.diskQuota.HostMinFreePercent,
+				}).Warn("host disk free-space floor breached; stopping dev machine")
 				continue
 			}
 			if machine.Status != machine.DesiredStatus {
@@ -1107,6 +1169,11 @@ func (m *Manager) reconcile(ctx context.Context) error {
 			})
 			_ = m.store.UpdateVolumeUsage(ctx, machine.ID, usage.DiskBytes)
 			limit := int64(machine.DiskGB) * 1024 * 1024 * 1024
+			if usage.DiskBytes >= limit*9/10 && usage.DiskBytes < limit && m.claimDiskQuotaWarning(machine.ID, machine.Generation) {
+				_ = m.createEvent(ctx, machine, nil, "collector", "resource.disk_quota_warning", map[string]any{
+					"used_bytes": usage.DiskBytes, "limit_bytes": limit, "percent": usage.DiskBytes * 100 / limit,
+				})
+			}
 			if usage.DiskBytes >= limit {
 				operation := &domain.DevMachineOperation{
 					ID: uuid.New(), MachineID: machine.ID, WorkspaceID: machine.WorkspaceID,
@@ -1122,6 +1189,43 @@ func (m *Manager) reconcile(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func (m *Manager) reconcileHostDiskFloor(ctx context.Context) bool {
+	if !m.diskQuota.monitored() {
+		return false
+	}
+	usage, err := m.runtime.HostDiskUsage(ctx)
+	if err != nil {
+		if !errors.Is(err, ErrHostDiskUnknown) {
+			log.WithError(err).Warn("host disk usage unavailable")
+		}
+		return m.hostDiskBreached.Load()
+	}
+	m.hostDiskFreeBytes.Store(usage.FreeBytes)
+	m.hostDiskTotalBytes.Store(usage.TotalBytes)
+	minFreeBytes := int64(m.diskQuota.HostMinFreeGB) * 1024 * 1024 * 1024
+	breached := usage.FreeBytes < minFreeBytes ||
+		usage.TotalBytes > 0 && usage.FreeBytes*100/usage.TotalBytes < int64(m.diskQuota.HostMinFreePercent)
+	m.hostDiskBreached.Store(breached)
+	return breached
+}
+
+func boolMetric(value bool) uint64 {
+	if value {
+		return 1
+	}
+	return 0
+}
+
+func (m *Manager) claimDiskQuotaWarning(machineID uuid.UUID, generation int64) bool {
+	m.diskQuotaWarnMu.Lock()
+	defer m.diskQuotaWarnMu.Unlock()
+	if warnedGeneration, warned := m.diskQuotaWarnings[machineID]; warned && warnedGeneration == generation {
+		return false
+	}
+	m.diskQuotaWarnings[machineID] = generation
+	return true
 }
 
 func runtimeReady(inspection RuntimeInspection, services []domain.DevMachineService) bool {
