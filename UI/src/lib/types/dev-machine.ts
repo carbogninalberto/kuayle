@@ -55,7 +55,7 @@ export interface DevMachine {
 	repo_name?: string;
 	base_branch?: string;
 	working_branch?: string;
-	machine_size: 'small' | 'medium' | 'large';
+	machine_size: 'small' | 'medium' | 'large' | 'custom';
 	cpu_millis: number;
 	memory_mb: number;
 	disk_gb: number;
@@ -184,14 +184,13 @@ export interface ResourceSample {
 	created_at: string;
 }
 
-export interface CreateDevMachineInput {
+interface CreateDevMachineBaseInput {
 	name?: string;
 	issue_id?: string;
 	project_id?: string;
 	repo?: { provider: 'github'; owner: string; name: string; url: string };
 	base_branch?: string;
 	working_branch?: string;
-	size: 'small' | 'medium' | 'large';
 	services: { ide: boolean; browser: boolean };
 	agents: Array<{ provider: AgentProvider['id']; mode: 'interactive' | 'autonomous'; config?: unknown }>;
 	env_vars: Array<{
@@ -205,6 +204,15 @@ export interface CreateDevMachineInput {
 	keep_running: boolean;
 	environment_builder?: boolean;
 }
+
+export type CreateDevMachineInput =
+	| (CreateDevMachineBaseInput & { size: 'small' | 'medium' | 'large' })
+	| (CreateDevMachineBaseInput & {
+			size: 'custom';
+			cpu_millis: number;
+			memory_mb: number;
+			disk_gb: number;
+	  });
 
 export interface CreateAgentRunInput {
 	checkout_id?: string;
@@ -235,6 +243,11 @@ export interface DevMachinePolicy {
 	allow_custom_providers: boolean;
 	idle_pause_minutes: number;
 	disk_quota_mode: 'hard' | 'monitored';
+	size_options?: {
+		cpu_millis: number[];
+		memory_mb: number[];
+		disk_gb: number[];
+	};
 }
 
 export interface DevMachineCheckout {
