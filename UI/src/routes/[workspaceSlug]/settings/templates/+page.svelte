@@ -2,8 +2,8 @@
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import { listTemplates, createTemplate, deleteTemplate } from '$lib/api/issue-templates';
-	import type { IssueTemplate, CreateIssueTemplateRequest } from '$lib/types/issue';
+	import { listTemplates, createTemplate, updateTemplate, deleteTemplate } from '$lib/api/issue-templates';
+	import type { IssueTemplate, CreateIssueTemplateRequest, UpdateIssueTemplateRequest } from '$lib/types/issue';
 	import { getStatusLabel, getPriorityLabel } from '$lib/types/issue';
 	import type { IssueStatus, IssuePriority } from '$lib/types/issue';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
@@ -15,20 +15,24 @@
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
-	import { Plus, Trash2, FileText } from '@lucide/svelte';
+	import { Plus, Trash2, FileText, Pencil } from '@lucide/svelte';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 
 	let templates = $state<IssueTemplate[]>([]);
 	let loading = $state(true);
-	let showCreate = $state(false);
+	let showDialog = $state(false);
+	let editingTemplate = $state<IssueTemplate | null>(null);
 
 	let formTitle = $state('');
 	let formDescription = $state('');
 	let formStatus = $state<IssueStatus>('backlog');
 	let formPriority = $state<IssuePriority>(0);
-	let creating = $state(false);
+	let saving = $state(false);
 	let editorVersion = $state(0);
+	const dialogTitle = $derived(
+		editingTemplate ? m['settings.templates.edit_title']() : m['settings.templates.create_title']()
+	);
 
 	onMount(async () => {
 		try {
@@ -47,32 +51,65 @@
 	}
 
 	function openCreateDialog() {
+		editingTemplate = null;
 		resetForm();
-		showCreate = true;
+		showDialog = true;
 	}
 
-	async function handleCreate() {
+	function openEditDialog(template: IssueTemplate) {
+		editingTemplate = template;
+		formTitle = template.title;
+		formDescription = template.description ?? '';
+		formStatus = template.status ?? 'backlog';
+		formPriority = template.priority ?? 0;
+		editorVersion++;
+		showDialog = true;
+	}
+
+	function normalizedDescription(html: string): string {
+		const value = html.trim();
+		return /^<p>(?:\s|&nbsp;|<br\s*\/?>)*<\/p>$/i.test(value) ? '' : value;
+	}
+
+	async function handleSave() {
 		if (!formTitle.trim()) {
 			appToast.error(m['settings.templates.title_required']());
 			return;
 		}
-		creating = true;
+		saving = true;
 		try {
-			const data: CreateIssueTemplateRequest = {
-				title: formTitle.trim(),
-				description: formDescription.trim() || undefined,
-				status: formStatus,
-				priority: formPriority
-			};
-			const template = await createTemplate(slug, data);
-			templates = [template, ...templates];
-			showCreate = false;
+			const description = normalizedDescription(formDescription);
+			if (editingTemplate) {
+				const data: UpdateIssueTemplateRequest = {
+					title: formTitle.trim(),
+					description,
+					status: formStatus,
+					priority: formPriority
+				};
+				const template = await updateTemplate(slug, editingTemplate.id, data);
+				templates = templates.map((item) => (item.id === template.id ? template : item));
+				appToast.success(m['settings.templates.updated']());
+			} else {
+				const data: CreateIssueTemplateRequest = {
+					title: formTitle.trim(),
+					description: description || undefined,
+					status: formStatus,
+					priority: formPriority
+				};
+				const template = await createTemplate(slug, data);
+				templates = [template, ...templates];
+				appToast.success(m['settings.templates.created']());
+			}
+			showDialog = false;
+			editingTemplate = null;
 			resetForm();
-			appToast.success(m['settings.templates.created']());
 		} catch (err: any) {
-			appToast.apiError(err, m['settings.templates.failed_create']());
+			appToast.apiError(
+				err,
+				editingTemplate ? m['settings.templates.failed_update']() : m['settings.templates.failed_create']()
+			);
 		} finally {
-			creating = false;
+			saving = false;
 		}
 	}
 
@@ -87,11 +124,11 @@
 	}
 
 	function statusLabel(status: IssueStatus | null): string {
-		return status ? (getStatusLabel(status) || status) : '';
+		return status ? getStatusLabel(status) || status : '';
 	}
 
 	function priorityLabel(priority: IssuePriority | null): string {
-		return priority != null ? (getPriorityLabel(priority) || `P${priority}`) : '';
+		return priority != null ? getPriorityLabel(priority) || `P${priority}` : '';
 	}
 
 	function setFormPriority(value: string | undefined) {
@@ -102,7 +139,9 @@
 <div class="mx-auto max-w-2xl px-8 py-10">
 	<div class="flex items-center justify-between">
 		<h1 class="text-2xl font-semibold text-[var(--color-text-primary)]">{m['settings.templates.title']()}</h1>
-		<Button variant="plain" onclick={openCreateDialog}
+		<Button
+			variant="plain"
+			onclick={openCreateDialog}
 			class="flex items-center gap-1 rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)]"
 		>
 			<Plus size={14} />
@@ -123,7 +162,9 @@
 					<div class="group flex items-center gap-4 px-5 py-3.5 {i > 0 ? 'border-t border-[var(--app-border)]' : ''}">
 						<FileText size={16} class="shrink-0 text-[var(--color-text-tertiary)]" />
 						<div class="flex-1 min-w-0">
-							<span class="text-sm font-medium text-[var(--color-text-primary)]">{template.title || m['settings.templates.untitled']()}</span>
+							<span class="text-sm font-medium text-[var(--color-text-primary)]"
+								>{template.title || m['settings.templates.untitled']()}</span
+							>
 						</div>
 						{#if template.status}
 							<Badge variant="outline" class="text-[10px]">{statusLabel(template.status)}</Badge>
@@ -131,11 +172,23 @@
 						{#if template.priority != null}
 							<Badge variant="outline" class="text-[10px]">{priorityLabel(template.priority)}</Badge>
 						{/if}
-						<Button aria-label={m['common.delete']()}
+						<Button
+							aria-label={m['settings.templates.edit_action']({
+								title: template.title || m['settings.templates.untitled']()
+							})}
+							variant="ghost"
+							size="icon-sm"
+							onclick={() => openEditDialog(template)}
+							class="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
+						>
+							<Pencil size={14} />
+						</Button>
+						<Button
+							aria-label={m['common.delete']()}
 							variant="ghost"
 							size="icon-sm"
 							onclick={() => handleDelete(template.id)}
-							class="opacity-0 group-hover:opacity-100 text-[var(--color-text-tertiary)] hover:text-[var(--color-error)]"
+							class="opacity-0 group-hover:opacity-100 text-[var(--color-text-tertiary)] hover:text-[var(--color-error)] focus:opacity-100 max-sm:opacity-100"
 						>
 							<Trash2 size={14} />
 						</Button>
@@ -146,16 +199,21 @@
 	</div>
 </div>
 
-<Dialog.Root bind:open={showCreate}>
+<Dialog.Root bind:open={showDialog}>
 	<Dialog.Content class="sm:max-w-md">
 		<Dialog.Header>
-			<Dialog.Title>{m['settings.templates.create_title']()}</Dialog.Title>
-			<Dialog.Description>{m['settings.templates.create_desc']()}</Dialog.Description>
+			<Dialog.Title>{dialogTitle}</Dialog.Title>
+			<Dialog.Description>
+				{editingTemplate ? m['settings.templates.edit_desc']() : m['settings.templates.create_desc']()}
+			</Dialog.Description>
 		</Dialog.Header>
 		<div class="flex flex-col gap-4 py-4">
 			<div class="flex flex-col gap-1.5">
-				<label for="tpl-title" class="text-sm text-[var(--color-text-secondary)]">{m['settings.templates.title_field']()}</label>
-				<Input variant="plain"
+				<label for="tpl-title" class="text-sm text-[var(--color-text-secondary)]"
+					>{m['settings.templates.title_field']()}</label
+				>
+				<Input
+					variant="plain"
 					id="tpl-title"
 					type="text"
 					bind:value={formTitle}
@@ -164,17 +222,19 @@
 				/>
 			</div>
 			<div class="flex flex-col gap-1.5">
-				<label for="tpl-desc" class="text-sm text-[var(--color-text-secondary)]">{m['settings.templates.description']()}</label>
+				<label for="tpl-desc" class="text-sm text-[var(--color-text-secondary)]"
+					>{m['settings.templates.description']()}</label
+				>
 				{#key editorVersion}
-				<RichEditor
-					content={formDescription}
-					workspaceSlug={slug}
-					placeholder={m['settings.templates.description_placeholder']()}
-					bubbleMenu={true}
-					borderless={true}
-					minHeight="120px"
-					onupdate={(html: string) => (formDescription = html)}
-				/>
+					<RichEditor
+						content={formDescription}
+						workspaceSlug={slug}
+						placeholder={m['settings.templates.description_placeholder']()}
+						bubbleMenu={true}
+						borderless={true}
+						minHeight="120px"
+						onupdate={(html: string) => (formDescription = html)}
+					/>
 				{/key}
 			</div>
 			<div class="flex gap-4">
@@ -187,7 +247,10 @@
 							if (value) formStatus = value as IssueStatus;
 						}}
 					>
-						<Select.Trigger class="w-full border-[var(--app-border)] bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)]">
+						<Select.Trigger
+							aria-label={m['settings.templates.default_status']()}
+							class="w-full border-[var(--app-border)] bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)]"
+						>
 							{statusLabel(formStatus)}
 						</Select.Trigger>
 						<Select.Content>
@@ -202,12 +265,11 @@
 				</div>
 				<div class="flex flex-1 flex-col gap-1.5">
 					<span class="text-sm text-[var(--color-text-secondary)]">{m['settings.templates.default_priority']()}</span>
-					<Select.Root
-						type="single"
-						value={String(formPriority)}
-						onValueChange={setFormPriority}
-					>
-						<Select.Trigger class="w-full border-[var(--app-border)] bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)]">
+					<Select.Root type="single" value={String(formPriority)} onValueChange={setFormPriority}>
+						<Select.Trigger
+							aria-label={m['settings.templates.default_priority']()}
+							class="w-full border-[var(--app-border)] bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)]"
+						>
 							{priorityLabel(formPriority)}
 						</Select.Trigger>
 						<Select.Content>
@@ -222,9 +284,13 @@
 			</div>
 		</div>
 		<Dialog.Footer>
-			<Button variant="outline" onclick={() => (showCreate = false)}>{m['settings.cancel']()}</Button>
-			<Button onclick={handleCreate} disabled={creating}>
-				{creating ? m['settings.creating']() : m['settings.templates.create_title']()}
+			<Button variant="outline" onclick={() => (showDialog = false)} disabled={saving}>{m['settings.cancel']()}</Button>
+			<Button onclick={handleSave} disabled={saving}>
+				{saving
+					? m['settings.saving']()
+					: editingTemplate
+						? m['settings.templates.save_changes']()
+						: m['settings.templates.create_title']()}
 			</Button>
 		</Dialog.Footer>
 	</Dialog.Content>
