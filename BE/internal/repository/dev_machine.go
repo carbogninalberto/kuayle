@@ -91,6 +91,40 @@ var ErrEnvironmentUnavailable = errors.New("development environment is not avail
 var ErrEnvironmentInvalidState = errors.New("development environment cannot be deleted in its current state")
 var ErrEnvironmentDeletionConflict = errors.New("development environment build is still active")
 
+type machineQuotaError struct {
+	message string
+}
+
+func (e *machineQuotaError) Error() string {
+	return e.message
+}
+
+func (e *machineQuotaError) Unwrap() error {
+	return ErrMachineQuota
+}
+
+func newMachineQuotaError(workspaceCount, workspaceLimit, userCount, userLimit int) error {
+	var message string
+	switch {
+	case workspaceCount >= workspaceLimit:
+		message = fmt.Sprintf(
+			"the workspace already has %d of %d allowed active Dev Machines",
+			workspaceCount, workspaceLimit,
+		)
+	case userCount >= userLimit:
+		message = fmt.Sprintf(
+			"you already have %d of %d allowed Dev Machines; delete or stop one, or ask an admin to raise the per-user limit",
+			userCount, userLimit,
+		)
+	default:
+		return nil
+	}
+	return fmt.Errorf("%w", &machineQuotaError{message: message})
+}
+
+const activeDevMachineCountPredicate = `(status NOT IN ('destroyed','failed','expired','stopped') OR desired_status='running')
+	AND NOT (status='queued' AND desired_status IN ('destroyed','stopped'))`
+
 type DevMachineRepository struct {
 	db *sqlx.DB
 }
@@ -133,15 +167,15 @@ func (r *DevMachineRepository) CreateBundle(
 		return err
 	}
 	if err := tx.GetContext(ctx, &workspaceCount, `SELECT COUNT(*) FROM dev_machines WHERE workspace_id=$1
-		AND (status NOT IN ('destroyed','failed','expired','stopped') OR desired_status='running')`, machine.WorkspaceID); err != nil {
+		AND `+activeDevMachineCountPredicate, machine.WorkspaceID); err != nil {
 		return err
 	}
 	if err := tx.GetContext(ctx, &userCount, `SELECT COUNT(*) FROM dev_machines WHERE workspace_id=$1 AND created_by_user_id=$2
-		AND (status NOT IN ('destroyed','failed','expired','stopped') OR desired_status='running')`, machine.WorkspaceID, machine.CreatedByUserID); err != nil {
+		AND `+activeDevMachineCountPredicate, machine.WorkspaceID, machine.CreatedByUserID); err != nil {
 		return err
 	}
-	if workspaceCount >= maxWorkspace || userCount >= maxUser {
-		return ErrMachineQuota
+	if err := newMachineQuotaError(workspaceCount, maxWorkspace, userCount, maxUser); err != nil {
+		return err
 	}
 	if machine.ProjectID != nil {
 		var exists bool
@@ -300,7 +334,7 @@ func (r *DevMachineRepository) CountActiveMachines(ctx context.Context, workspac
 	var count int
 	err := r.db.GetContext(ctx, &count, `SELECT COUNT(*) FROM dev_machines
 		WHERE workspace_id=$1 AND ($2::uuid IS NULL OR created_by_user_id=$2)
-		AND (status NOT IN ('destroyed','failed','expired','stopped') OR desired_status='running')`, workspaceID, userID)
+		AND `+activeDevMachineCountPredicate, workspaceID, userID)
 	return count, err
 }
 
@@ -386,15 +420,15 @@ func (r *DevMachineRepository) SetDesiredAndEnqueue(ctx context.Context, workspa
 				return err
 			}
 			if err := tx.GetContext(ctx, &workspaceCount, `SELECT COUNT(*) FROM dev_machines WHERE workspace_id=$1
-				AND (status NOT IN ('destroyed','failed','expired','stopped') OR desired_status='running')`, workspaceID); err != nil {
+				AND `+activeDevMachineCountPredicate, workspaceID); err != nil {
 				return err
 			}
 			if err := tx.GetContext(ctx, &userCount, `SELECT COUNT(*) FROM dev_machines WHERE workspace_id=$1 AND created_by_user_id=$2
-				AND (status NOT IN ('destroyed','failed','expired','stopped') OR desired_status='running')`, workspaceID, creatorID); err != nil {
+				AND `+activeDevMachineCountPredicate, workspaceID, creatorID); err != nil {
 				return err
 			}
-			if workspaceCount >= maxWorkspace || userCount >= maxUser {
-				return ErrMachineQuota
+			if err := newMachineQuotaError(workspaceCount, maxWorkspace, userCount, maxUser); err != nil {
+				return err
 			}
 		}
 	}

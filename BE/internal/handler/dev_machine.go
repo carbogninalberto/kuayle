@@ -55,6 +55,9 @@ func (h *DevMachineHandler) Create(c echo.Context) error {
 	if err := bindAndValidate(c, &request); err != nil {
 		return err
 	}
+	if c.Response().Committed {
+		return nil
+	}
 	if request.EnvironmentBuilder && middleware.GetWorkspaceRole(c) != domain.RoleOwner && middleware.GetWorkspaceRole(c) != domain.RoleAdmin {
 		return response.Error(c, http.StatusForbidden, "FORBIDDEN", "Environment Builders require workspace administration")
 	}
@@ -652,6 +655,7 @@ func (h *DevMachineHandler) policyResponse(policy *domain.DevMachineWorkspacePol
 	}
 	current := *policy
 	current.DiskQuotaMode = h.diskQuotaMode
+	current.SizeOptions = domain.DevMachineOptionsForWorkspace(policy.MaxDiskGB)
 	return &current
 }
 

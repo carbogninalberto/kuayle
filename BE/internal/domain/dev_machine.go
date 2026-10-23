@@ -2,6 +2,7 @@ package domain
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -412,21 +413,34 @@ type DevMachineResourceSample struct {
 }
 
 type DevMachineWorkspacePolicy struct {
-	WorkspaceID           uuid.UUID       `json:"workspace_id" db:"workspace_id"`
-	Enabled               bool            `json:"enabled" db:"enabled"`
-	MaxConcurrentMachines int             `json:"max_concurrent_machines" db:"max_concurrent_machines"`
-	MaxMachinesPerUser    int             `json:"max_machines_per_user" db:"max_machines_per_user"`
-	MaxDailyAgentRuns     int             `json:"max_daily_agent_runs" db:"max_daily_agent_runs"`
-	MaxRuntimeMinutes     int             `json:"max_runtime_minutes" db:"max_runtime_minutes"`
-	MaxDiskGB             int             `json:"max_disk_gb" db:"max_disk_gb"`
-	AllowedProviders      json.RawMessage `json:"allowed_providers" db:"allowed_providers"`
-	AllowedRepositories   json.RawMessage `json:"allowed_repositories" db:"allowed_repositories"`
-	AllowCustomProviders  bool            `json:"allow_custom_providers" db:"allow_custom_providers"`
-	IdlePauseMinutes      int             `json:"idle_pause_minutes" db:"idle_pause_minutes"`
-	DiskQuotaMode         string          `json:"disk_quota_mode" db:"-"`
-	CreatedAt             time.Time       `json:"created_at" db:"created_at"`
-	UpdatedAt             time.Time       `json:"updated_at" db:"updated_at"`
+	WorkspaceID           uuid.UUID             `json:"workspace_id" db:"workspace_id"`
+	Enabled               bool                  `json:"enabled" db:"enabled"`
+	MaxConcurrentMachines int                   `json:"max_concurrent_machines" db:"max_concurrent_machines"`
+	MaxMachinesPerUser    int                   `json:"max_machines_per_user" db:"max_machines_per_user"`
+	MaxDailyAgentRuns     int                   `json:"max_daily_agent_runs" db:"max_daily_agent_runs"`
+	MaxRuntimeMinutes     int                   `json:"max_runtime_minutes" db:"max_runtime_minutes"`
+	MaxDiskGB             int                   `json:"max_disk_gb" db:"max_disk_gb"`
+	AllowedProviders      json.RawMessage       `json:"allowed_providers" db:"allowed_providers"`
+	AllowedRepositories   json.RawMessage       `json:"allowed_repositories" db:"allowed_repositories"`
+	AllowCustomProviders  bool                  `json:"allow_custom_providers" db:"allow_custom_providers"`
+	IdlePauseMinutes      int                   `json:"idle_pause_minutes" db:"idle_pause_minutes"`
+	DiskQuotaMode         string                `json:"disk_quota_mode" db:"-"`
+	SizeOptions           DevMachineSizeOptions `json:"size_options" db:"-"`
+	CreatedAt             time.Time             `json:"created_at" db:"created_at"`
+	UpdatedAt             time.Time             `json:"updated_at" db:"updated_at"`
 }
+
+type DevMachineSizeOptions struct {
+	CPUMillis []int `json:"cpu_millis"`
+	MemoryMB  []int `json:"memory_mb"`
+	DiskGB    []int `json:"disk_gb"`
+}
+
+var (
+	devMachineCPUOptions    = []int{1000, 2000, 4000, 6000, 8000, 12000, 16000}
+	devMachineMemoryOptions = []int{2048, 4096, 8192, 12288, 16384, 24576, 32768, 49152, 65536}
+	devMachineDiskOptions   = []int{20, 30, 40, 50, 75, 100, 150, 200, 300, 500, 750, 1000, 1500, 2048}
+)
 
 type DevMachineEnvironment struct {
 	ID                uuid.UUID  `json:"id" db:"id"`
@@ -533,4 +547,47 @@ func DevMachineSize(size string) (cpuMillis, memoryMB, diskGB, maxRuntimeMinutes
 	default:
 		return 0, 0, 0, 0, false
 	}
+}
+
+func DevMachineOptionsForWorkspace(maxDiskGB int) DevMachineSizeOptions {
+	diskOptions := make([]int, 0, len(devMachineDiskOptions))
+	for _, diskGB := range devMachineDiskOptions {
+		if diskGB <= maxDiskGB {
+			diskOptions = append(diskOptions, diskGB)
+		}
+	}
+	return DevMachineSizeOptions{
+		CPUMillis: append([]int(nil), devMachineCPUOptions...),
+		MemoryMB:  append([]int(nil), devMachineMemoryOptions...),
+		DiskGB:    diskOptions,
+	}
+}
+
+func DevMachineCustomSize(cpuMillis, memoryMB, diskGB int) error {
+	if !containsDevMachineOption(devMachineCPUOptions, cpuMillis) {
+		return fmt.Errorf("cpu_millis %d is not a supported option", cpuMillis)
+	}
+	if !containsDevMachineOption(devMachineMemoryOptions, memoryMB) {
+		return fmt.Errorf("memory_mb %d is not a supported option", memoryMB)
+	}
+	if !containsDevMachineOption(devMachineDiskOptions, diskGB) {
+		return fmt.Errorf("disk_gb %d is not a supported option", diskGB)
+	}
+	minimumMemoryMB := cpuMillis * 1024 / 1000
+	if memoryMB < minimumMemoryMB {
+		return fmt.Errorf(
+			"memory_mb %d must be at least %d for cpu_millis %d (1 GiB per vCPU)",
+			memoryMB, minimumMemoryMB, cpuMillis,
+		)
+	}
+	return nil
+}
+
+func containsDevMachineOption(options []int, value int) bool {
+	for _, option := range options {
+		if option == value {
+			return true
+		}
+	}
+	return false
 }

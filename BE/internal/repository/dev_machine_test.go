@@ -483,6 +483,133 @@ func TestDevMachineNameUniqueIndexIsCreatorScoped(t *testing.T) {
 	require.Contains(t, indexDef, "lower")
 }
 
+func TestCountActiveMachinesExcludesUnprovisionedPendingTeardown(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is not configured")
+	}
+	db, err := sqlx.Connect("pgx", databaseURL)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	fixture := newEnvironmentRaceFixture(t, db)
+
+	fixture.insertMachine(t, domain.DevMachineStatusQueued, domain.DevMachineStatusDestroyed, false)
+	fixture.insertMachine(t, domain.DevMachineStatusQueued, domain.DevMachineStatusStopped, false)
+	fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusDestroyed, false)
+	fixture.insertMachine(t, domain.DevMachineStatusPaused, domain.DevMachineStatusDestroyed, false)
+
+	count, err := fixture.repository.CountActiveMachines(context.Background(), fixture.workspaceID, nil)
+	require.NoError(t, err)
+	require.Equal(t, 2, count)
+	count, err = fixture.repository.CountActiveMachines(context.Background(), fixture.workspaceID, &fixture.userID)
+	require.NoError(t, err)
+	require.Equal(t, 2, count)
+}
+
+func TestTransactionalMachineQuotaExcludesUnprovisionedPendingTeardown(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is not configured")
+	}
+	db, err := sqlx.Connect("pgx", databaseURL)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	setQuota := func(t *testing.T, fixture environmentRaceFixture) {
+		t.Helper()
+		_, err := db.Exec(`UPDATE dev_machine_workspace_policies
+			SET max_concurrent_machines=1,max_machines_per_user=1 WHERE workspace_id=$1`, fixture.workspaceID)
+		require.NoError(t, err)
+	}
+	newMachine := func(fixture environmentRaceFixture, size string, cpuMillis, memoryMB, diskGB int) (*domain.DevMachine, *domain.DevMachineOperation) {
+		machineID := uuid.New()
+		routingKey := strings.ReplaceAll(machineID.String(), "-", "")[:16]
+		return &domain.DevMachine{
+				ID: machineID, WorkspaceID: fixture.workspaceID, CreatedByUserID: &fixture.userID,
+				RoutingKey: routingKey, Name: "quota-" + routingKey, Status: domain.DevMachineStatusQueued,
+				DesiredStatus: domain.DevMachineStatusRunning, Generation: 1, RepoProvider: "github",
+				MachineSize: size, CPUMillis: cpuMillis, MemoryMB: memoryMB, DiskGB: diskGB, PidsLimit: 512,
+				MaxRuntimeMinutes: 480, ServicesConfig: []byte(`{}`), Labels: []byte(`{}`), ExpiresAt: time.Now().Add(time.Hour),
+			}, &domain.DevMachineOperation{
+				ID: uuid.New(), MachineID: machineID, WorkspaceID: fixture.workspaceID, Action: domain.DevMachineOpSpawn,
+				Status: domain.DevMachineOpStatusPending, Generation: 1, IdempotencyKey: "spawn:1",
+				RequestedByUserID: &fixture.userID, MaxAttempts: 5,
+			}
+	}
+
+	t.Run("create ignores queued teardown and persists custom sizing", func(t *testing.T) {
+		fixture := newEnvironmentRaceFixture(t, db)
+		setQuota(t, fixture)
+		fixture.insertMachine(t, domain.DevMachineStatusQueued, domain.DevMachineStatusDestroyed, false)
+		machine, operation := newMachine(fixture, "custom", 6000, 12288, 100)
+
+		require.NoError(t, fixture.repository.CreateBundle(
+			context.Background(), machine, nil, nil, nil, nil, nil, operation,
+		))
+
+		var stored struct {
+			MachineSize string `db:"machine_size"`
+			CPUMillis   int    `db:"cpu_millis"`
+			MemoryMB    int    `db:"memory_mb"`
+			DiskGB      int    `db:"disk_gb"`
+		}
+		require.NoError(t, db.Get(&stored, `SELECT machine_size,cpu_millis,memory_mb,disk_gb
+			FROM dev_machines WHERE id=$1`, machine.ID))
+		require.Equal(t, "custom", stored.MachineSize)
+		require.Equal(t, 6000, stored.CPUMillis)
+		require.Equal(t, 12288, stored.MemoryMB)
+		require.Equal(t, 100, stored.DiskGB)
+	})
+
+	t.Run("create counts running teardown", func(t *testing.T) {
+		fixture := newEnvironmentRaceFixture(t, db)
+		setQuota(t, fixture)
+		fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusDestroyed, false)
+		machine, operation := newMachine(fixture, "small", 2000, 4096, 20)
+
+		err := fixture.repository.CreateBundle(context.Background(), machine, nil, nil, nil, nil, nil, operation)
+
+		require.ErrorIs(t, err, ErrMachineQuota)
+		require.EqualError(t, err, "the workspace already has 1 of 1 allowed active Dev Machines")
+	})
+
+	t.Run("restart ignores queued teardown", func(t *testing.T) {
+		fixture := newEnvironmentRaceFixture(t, db)
+		setQuota(t, fixture)
+		machineID := fixture.insertMachine(t, domain.DevMachineStatusStopped, domain.DevMachineStatusStopped, false)
+		fixture.insertMachine(t, domain.DevMachineStatusQueued, domain.DevMachineStatusDestroyed, false)
+		fixture.insertMachine(t, domain.DevMachineStatusQueued, domain.DevMachineStatusStopped, false)
+		operation := &domain.DevMachineOperation{
+			ID: uuid.New(), MachineID: machineID, WorkspaceID: fixture.workspaceID, Action: domain.DevMachineOpStart,
+			Status: domain.DevMachineOpStatusPending, Generation: 2, IdempotencyKey: "start:2",
+			RequestedByUserID: &fixture.userID, MaxAttempts: 5,
+		}
+
+		require.NoError(t, fixture.repository.SetDesiredAndEnqueue(
+			context.Background(), fixture.workspaceID, machineID, domain.DevMachineStatusRunning, operation,
+		))
+	})
+
+	t.Run("restart counts running teardown", func(t *testing.T) {
+		fixture := newEnvironmentRaceFixture(t, db)
+		setQuota(t, fixture)
+		machineID := fixture.insertMachine(t, domain.DevMachineStatusStopped, domain.DevMachineStatusStopped, false)
+		fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusDestroyed, false)
+		operation := &domain.DevMachineOperation{
+			ID: uuid.New(), MachineID: machineID, WorkspaceID: fixture.workspaceID, Action: domain.DevMachineOpStart,
+			Status: domain.DevMachineOpStatusPending, Generation: 2, IdempotencyKey: "start:2",
+			RequestedByUserID: &fixture.userID, MaxAttempts: 5,
+		}
+
+		err := fixture.repository.SetDesiredAndEnqueue(
+			context.Background(), fixture.workspaceID, machineID, domain.DevMachineStatusRunning, operation,
+		)
+
+		require.ErrorIs(t, err, ErrMachineQuota)
+		require.EqualError(t, err, "the workspace already has 1 of 1 allowed active Dev Machines")
+	})
+}
+
 func TestRuntimeCredentialsSchemaHasCascadeUniqueAndExpiryIndex(t *testing.T) {
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {
