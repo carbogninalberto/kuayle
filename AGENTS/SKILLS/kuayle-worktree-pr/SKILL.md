@@ -13,11 +13,16 @@ description: Start isolated Kuayle worktrees, commit and push with the configure
    branch, e.g. `git worktree add -b <task-branch> <new-path> origin/main` when
    `main` is the confirmed base. Use an existing task worktree only when continuing
    that same task. Keep service ports and disposable databases isolated too.
-2. Confirm `git config user.name` and `git config user.email`. Use that configured
-   identity; never set author/committer environment variables, pass `--author`,
-   or change git identity. Follow the environment's `git-commit-as-me` skill when
-   available; the portable requirements are recorded here so other agents do not
-   depend on one developer's home directory.
+2. Confirm the effective author and committer with `git var GIT_AUTHOR_IDENT`
+   and `git var GIT_COMMITTER_IDENT`. Honor an identity explicitly configured by
+   the user for the agent session, including harness-supplied `GIT_AUTHOR_*` and
+   `GIT_COMMITTER_*`; otherwise use the repository's configured identity. If an
+   explicitly requested identity is missing or differs, stop before committing
+   and report the mismatch. Do not pass `--author` or change persistent Git
+   identity settings unless the user requests identity setup or repair. Preserve
+   existing authors when replaying commits. Follow the environment's
+   `git-commit-as-me` skill when available; these portable requirements also
+   apply when that developer-specific skill is unavailable.
 3. Commit a coherent, validated first increment, push the dedicated branch with
    `git push -u origin HEAD`, and open a PR with `gh pr create --draft --base main
    --head <task-branch> --title '<type>(<scope>): <change>' --body-file <file>`
@@ -35,8 +40,8 @@ description: Start isolated Kuayle worktrees, commit and push with the configure
   explicit task-owned paths. Never stage others' work, secrets, `.env`, keys,
   local databases, `data/`, or generated output. Avoid `git add .`/`git add -A`.
 - Commit and push verified work without another confirmation. After each commit,
-  verify `git log -1 --format='%an <%ae>%n%B'`. Subsequent pushes use `git push` to
-  the task upstream. Ask before force-pushing, rewriting/deleting published history,
+  verify `git log -1 --format='%an <%ae>%n%cn <%ce>%n%B'`. Subsequent pushes use
+  `git push` to the task upstream. Ask before force-pushing, rewriting/deleting published history,
   deleting branches, changing push destination, or committing others' work.
 
 ## Review and merge gate
