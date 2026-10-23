@@ -203,6 +203,8 @@ services:
       - ALL
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      # Read-only view of Docker's data root so monitored disk mode can measure host free space.
+      - ${DEV_MACHINE_DOCKER_ROOT:-/var/lib/docker}:/var/lib/kuayle-host-docker:ro
     networks:
       - default
       - machine-control
@@ -230,6 +232,7 @@ services:
       DEV_MACHINE_DISK_QUOTA_MODE: ${DEV_MACHINE_DISK_QUOTA_MODE:-hard}
       DEV_MACHINE_HOST_DISK_MIN_FREE_PERCENT: ${DEV_MACHINE_HOST_DISK_MIN_FREE_PERCENT:-15}
       DEV_MACHINE_HOST_DISK_MIN_FREE_GB: ${DEV_MACHINE_HOST_DISK_MIN_FREE_GB:-25}
+      DEV_MACHINE_HOST_DISK_PATH: ${DEV_MACHINE_HOST_DISK_PATH:-/var/lib/kuayle-host-docker}
       DEV_MACHINE_IDE_IMAGE: ${DEV_MACHINE_IDE_IMAGE:-kuayle/dev-machine-ide:dev}
       DEV_MACHINE_BROWSER_IMAGE: ${DEV_MACHINE_BROWSER_IMAGE:-kuayle/dev-machine-browser:dev}
       DEV_MACHINE_COLLECTOR_IMAGE: ${DEV_MACHINE_COLLECTOR_IMAGE:-kuayle/dev-machine-collector:dev}
