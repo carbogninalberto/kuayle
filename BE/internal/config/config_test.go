@@ -261,3 +261,16 @@ func TestLoadReadsDiskQuotaModeDefaults(t *testing.T) {
 	require.Equal(t, 15, config.DevMachine.HostDiskMinFreePercent)
 	require.Equal(t, 25, config.DevMachine.HostDiskMinFreeGB)
 }
+
+func TestDevMachineHostDiskPathMustBeAbsoluteInMonitoredMode(t *testing.T) {
+	config := DevMachineConfig{
+		Enabled: true, Domain: "machines.example.net", EncryptionKey: strings.Repeat("x", 32),
+		TicketTTLSeconds: 60, SessionTTLMinutes: 60, IngestURL: "https://app.example.com/api/dev-machine-ingest",
+		DiskQuotaMode: DiskQuotaModeMonitored, HostDiskMinFreePercent: 15, HostDiskMinFreeGB: 25,
+	}
+	require.NoError(t, config.Validate("https://app.example.com"))
+	config.HostDiskPath = "/var/lib/kuayle-host-docker"
+	require.NoError(t, config.Validate("https://app.example.com"))
+	config.HostDiskPath = "relative/path"
+	require.ErrorContains(t, config.Validate("https://app.example.com"), "DEV_MACHINE_HOST_DISK_PATH must be an absolute path")
+}

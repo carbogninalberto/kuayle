@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"path"
 	"strings"
 
 	"github.com/google/uuid"
@@ -86,6 +87,10 @@ type DevMachineConfig struct {
 	DiskQuotaMode          string `envconfig:"DEV_MACHINE_DISK_QUOTA_MODE" default:"hard"`
 	HostDiskMinFreePercent int    `envconfig:"DEV_MACHINE_HOST_DISK_MIN_FREE_PERCENT" default:"15"`
 	HostDiskMinFreeGB      int    `envconfig:"DEV_MACHINE_HOST_DISK_MIN_FREE_GB" default:"25"`
+	// HostDiskPath is an optional path inside the manager container on the same
+	// filesystem as Docker's data root (e.g. a read-only bind mount of it), used
+	// to measure host free space even when no machine is running.
+	HostDiskPath string `envconfig:"DEV_MACHINE_HOST_DISK_PATH"`
 }
 
 const (
@@ -116,6 +121,9 @@ func (c DevMachineConfig) validateDiskQuota() error {
 		}
 		if c.HostDiskMinFreeGB < 1 {
 			return fmt.Errorf("DEV_MACHINE_HOST_DISK_MIN_FREE_GB must be at least 1")
+		}
+		if c.HostDiskPath != "" && !path.IsAbs(c.HostDiskPath) {
+			return fmt.Errorf("DEV_MACHINE_HOST_DISK_PATH must be an absolute path")
 		}
 		return nil
 	default:
