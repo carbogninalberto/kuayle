@@ -199,6 +199,9 @@ func (r *DevMachineRepository) CreateBundle(
 		}
 	}
 
+	if machine.Profile == "" {
+		machine.Profile = domain.DevMachineProfileStandard
+	}
 	const machineQuery = `INSERT INTO dev_machines (
 		id, workspace_id, project_id, issue_id, created_by_user_id, routing_key, name,
 		status, desired_status, generation, repo_url, repo_provider, repo_owner, repo_name,
@@ -855,6 +858,9 @@ func (r *DevMachineRepository) CreateAgentRun(ctx context.Context, run *domain.D
 	}
 	if active {
 		return ErrActiveAgentRun
+	}
+	if len(run.CommandEnvironment) == 0 {
+		run.CommandEnvironment = json.RawMessage(`{}`)
 	}
 	if err := tx.QueryRowContext(ctx, `INSERT INTO dev_machine_agent_runs
 		(id, machine_id, workspace_id, issue_id, checkout_id, requested_by_user_id, provider_id, mode, status, prompt,

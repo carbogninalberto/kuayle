@@ -251,7 +251,7 @@ func TestDeepSeekWorkspaceModelCredentialMigrationRoundTrip(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = migrator.Close()
 	})
-	require.NoError(t, migrator.Migrate(48))
+	require.NoError(t, migrator.Migrate(49))
 	db, err := sql.Open("pgx", testURL)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
@@ -289,7 +289,7 @@ func TestDeepSeekWorkspaceModelCredentialMigrationRoundTrip(t *testing.T) {
 	require.Equal(t, "23514", postgresCode(err))
 
 	require.NoError(t, migrator.Steps(-1))
-	requireMigrationVersion(t, migrator, 48)
+	requireMigrationVersion(t, migrator, 49)
 	var tableCount int
 	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM information_schema.tables
 		WHERE table_schema='public' AND table_name='dev_machine_workspace_model_credentials'`).Scan(&tableCount))
