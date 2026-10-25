@@ -17,8 +17,8 @@
 <!-- contributors:start -->
 <a href="https://github.com/carbogninalberto"><img src="https://avatars.githubusercontent.com/u/17618905?v=4&amp;s=64" width="64" height="64" alt="@carbogninalberto" title="@carbogninalberto"></a>
 <a href="https://github.com/uiYzzi"><img src="https://avatars.githubusercontent.com/u/40852301?v=4&amp;s=64" width="64" height="64" alt="@uiYzzi" title="@uiYzzi"></a>
-<a href="https://github.com/MarioGK"><img src="https://avatars.githubusercontent.com/u/8379079?v=4&amp;s=64" width="64" height="64" alt="@MarioGK" title="@MarioGK"></a>
 <a href="https://github.com/carbninai"><img src="https://avatars.githubusercontent.com/u/346896133?v=4&amp;s=64" width="64" height="64" alt="@carbninai" title="@carbninai"></a>
+<a href="https://github.com/MarioGK"><img src="https://avatars.githubusercontent.com/u/8379079?v=4&amp;s=64" width="64" height="64" alt="@MarioGK" title="@MarioGK"></a>
 <a href="https://github.com/manelpb"><img src="https://avatars.githubusercontent.com/u/1784206?v=4&amp;s=64" width="64" height="64" alt="@manelpb" title="@manelpb"></a>
 <!-- contributors:end -->
 
@@ -112,7 +112,7 @@ The implementation:
 
 1. **Orchestrate cooperating containers** per machine. Collector and egress services are always represented. The optional developer service runs code-server on `8080` and ttyd on `7681` in one container (`/workspace`, `HOME`, tools, processes, and tmux); browser and on-demand agent services run separately on the isolated bridge network. The Kuayle UI renders `@xterm/xterm` natively and speaks `ttyd.v1`; it does not expose ttyd's web page.
 2. **Support multiple agent providers** — Claude Code, OpenCode, Codex, or admin-configured generic CLIs. The shared developer image includes pinned OpenCode, Claude Code, and Codex CLIs for direct interactive terminal use. Kuayle's dashboard launches bounded autonomous runs in separately pinned provider images and normalizes their results.
-3. **Assign random subdomains** through a separate registrable wildcard domain (`*.kuayle-machines.example.net`) with launch-ticket auth and host-restricted machine session cookies. The machine domain must be a completely separate registrable domain to prevent cookie leakage between the main application and machine workloads.
+3. **Assign random subdomains** through a separate registrable wildcard domain (`*.kuayle-machines.example.net`) with launch-ticket auth and host-restricted machine session cookies. Use a separate registrable domain for browser site isolation by default. Personal/trusted installations may explicitly enable `DEV_MACHINE_ALLOW_SAME_SITE=true`; see the same-site setup below.
 4. **Authenticate** through a dedicated unprivileged Machine Gateway; the privileged Machine Manager is the only Dev Machines runtime component with Docker socket access. The separately optional system updater also mounts the socket when enabled.
 5. **Prepare issue worktrees** from issue, project, team, then workspace repository/environment defaults. One machine has affinity to one repository and can hold several independent issue worktrees from that repository; use a separate machine for another repository/environment or concurrent conflicting work.
 6. **Record best-effort activity** from filesystem, shell, root-checkout Git, browser, agent, gateway, and lifecycle telemetry and attach it to project work
@@ -295,7 +295,7 @@ This feature transfers one logical workspace. It is not a replacement for an ope
 
 - A Linux server with Docker + Docker Compose v2
 - A domain pointing to your server (for HTTPS via Let's Encrypt HTTP-01)
-- If enabling Dev Machines: a second registrable domain with a wildcard DNS record and either a custom Caddy DNS-01 build or an imported wildcard TLS certificate
+- If enabling Dev Machines: wildcard DNS and public TLS. A separate registrable domain is the default; the explicit personal-instance alternative and DNS-provider-independent HTTPS setup are documented below.
 
 ### Release candidate validation
 
@@ -368,7 +368,7 @@ Caddy handles HTTPS termination and proxies `/api/*` to the backend and all othe
 
 Dev Machines remain disabled in the default five-service deployment. Before enabling them:
 
-1. Set `DEV_MACHINES_ENABLED=true`, then configure `DEV_MACHINE_DOMAIN` on a separate registrable domain from `DOMAIN`, with wildcard DNS pointing to the host.
+1. Set `DEV_MACHINES_ENABLED=true`, then configure `DEV_MACHINE_DOMAIN` on a separate registrable domain from `DOMAIN` (or explicitly opt into the same-site setup below), with wildcard DNS pointing to the host.
 2. Replace the checked-in local `tls internal` wildcard configuration with either a mounted wildcard certificate or a DNS-01-enabled Caddy build for production. Profile startup rejects public production machine domains while Caddy internal TLS remains active. The wildcard route already proxies machine HTTP and WebSocket upgrades to the gateway.
 3. Keep `FRONTEND_URL` set to the exact public Kuayle origin; the gateway uses it for native terminal WebSocket `Origin` checks.
 4. Set `DEV_MACHINE_ENCRYPTION_KEY` to an independent random value of at least 32 characters and set `DEV_MACHINE_INGEST_URL` to the public HTTPS API URL.
@@ -585,3 +585,64 @@ Alberto Carbognin, [@carbogninalberto](https://github.com/carbogninalberto)
 [license-shield]: https://img.shields.io/github/license/carbogninalberto/kuayle.svg?style=for-the-badge
 [license-url]: https://github.com/carbogninalberto/kuayle/blob/main/LICENSE
 [product-screenshot]: assets/screenshot.png
+
+### Personal instances: same-site machines and HTTPS without DNS API credentials
+
+Separate registrable domains remain the default and recommended isolation boundary for
+untrusted workloads. For a personal/trusted installation, explicitly set:
+
+```env
+FRONTEND_URL=https://app.example.com
+DEV_MACHINE_DOMAIN=app.example.com
+DEV_MACHINE_ALLOW_SAME_SITE=true
+```
+
+Add `A *.app` pointing to the server at whichever DNS provider hosts `example.com`.
+The option requires an exact HTTPS frontend origin (no path). Enabling it switches
+app authentication to Secure, HttpOnly, host-prefixed cookies and rejects browser
+mutations/WebSockets from other origins, including sibling workloads. Sign in again
+after switching this option; legacy session cookies are deliberately not accepted.
+Non-browser bearer clients and webhooks without browser cookies remain supported.
+A startup warning records the reduced browser site isolation. This option does not
+make untrusted workloads equivalent to a separate site.
+
+You can use individual on-demand certificates instead of a wildcard certificate,
+with stock Caddy and no DNS-provider credentials. Ports 80/443 must reach Caddy.
+In the global Caddy options, configure:
+
+```caddy
+{
+    on_demand_tls {
+        ask http://machine-gateway:8091/
+    }
+}
+```
+
+Replace the checked-in machine wildcard block with the following (retain the main
+application's explicit site block):
+
+```caddy
+https:// {
+    tls {
+        on_demand
+    }
+    @machine host *.app.example.com
+    handle @machine {
+        reverse_proxy machine-gateway:8090 {
+            flush_interval -1
+        }
+    }
+    respond 404
+}
+```
+
+The catch-all obtains individual certificates, not a wildcard certificate. The
+private approval listener on port 8091 allows only exact, existing running machine
+service hostnames, rejects unknown/stopped/expired services, and fails closed when
+the database is unavailable. Keep it on the private control network: do not publish
+8091 or proxy it publicly. With a shared edge proxy, attach it to the control network
+and adjust the gateway hostname. Certificate issuance can delay the first connection
+and remains subject to CA rate limits; frequent machine churn favors DNS-01 wildcard
+certificates. Existing certificates may be retained after teardown, but the gateway
+still rejects access to stopped/deleted machines. Approval is not user authorization;
+every machine request still uses the existing tickets, sessions and access checks.

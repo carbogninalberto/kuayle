@@ -21,15 +21,17 @@ import (
 type AuthHandler struct {
 	authService   *service.AuthService
 	secureCookie  bool
+	hostCookies   bool
 	loginThrottle *middleware.LoginThrottle
 	isSysAdmin    func(uuid.UUID) bool
 }
 
-func NewAuthHandler(authService *service.AuthService, secureCookie bool, loginThrottle *middleware.LoginThrottle, isSysAdmin func(uuid.UUID) bool) *AuthHandler {
+func NewAuthHandler(authService *service.AuthService, secureCookie bool, loginThrottle *middleware.LoginThrottle, isSysAdmin func(uuid.UUID) bool, hostCookies ...bool) *AuthHandler {
 	if isSysAdmin == nil {
 		isSysAdmin = func(uuid.UUID) bool { return false }
 	}
-	return &AuthHandler{authService: authService, secureCookie: secureCookie, loginThrottle: loginThrottle, isSysAdmin: isSysAdmin}
+	useHostCookies := len(hostCookies) > 0 && hostCookies[0]
+	return &AuthHandler{hostCookies: useHostCookies, authService: authService, secureCookie: secureCookie || useHostCookies, loginThrottle: loginThrottle, isSysAdmin: isSysAdmin}
 }
 
 func (h *AuthHandler) Register(c echo.Context) error {
@@ -108,7 +110,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 }
 
 func (h *AuthHandler) Refresh(c echo.Context) error {
-	cookie, err := c.Cookie("refresh_token")
+	cookie, err := c.Cookie(h.refreshCookieName())
 	if err != nil || cookie.Value == "" {
 		return response.Unauthorized(c)
 	}
@@ -116,7 +118,7 @@ func (h *AuthHandler) Refresh(c echo.Context) error {
 	accessToken, refreshToken, err := h.authService.RefreshTokens(c.Request().Context(), cookie.Value)
 	if err != nil {
 		log.WithFields(log.Fields{"event": "auth.refresh_failed", "ip": c.RealIP()}).Warn("token refresh failed")
-		clearAuthCookies(c)
+		h.clearAuthCookies(c)
 		return response.Unauthorized(c)
 	}
 
@@ -126,12 +128,12 @@ func (h *AuthHandler) Refresh(c echo.Context) error {
 }
 
 func (h *AuthHandler) Logout(c echo.Context) error {
-	cookie, err := c.Cookie("refresh_token")
+	cookie, err := c.Cookie(h.refreshCookieName())
 	if err == nil && cookie.Value != "" {
 		_ = h.authService.Logout(c.Request().Context(), cookie.Value)
 	}
 	log.WithFields(log.Fields{"event": "auth.logout", "ip": c.RealIP()}).Info("user logged out")
-	clearAuthCookies(c)
+	h.clearAuthCookies(c)
 	return response.Success(c, http.StatusOK, map[string]string{"status": "logged out"})
 }
 
@@ -183,7 +185,7 @@ func (h *AuthHandler) userResponse(user *domain.User) dto.UserResponse {
 
 func (h *AuthHandler) setAuthCookies(c echo.Context, accessToken, refreshToken string) {
 	c.SetCookie(&http.Cookie{
-		Name:     "access_token",
+		Name:     h.accessCookieName(),
 		Value:    accessToken,
 		Path:     "/",
 		HttpOnly: true,
@@ -192,9 +194,9 @@ func (h *AuthHandler) setAuthCookies(c echo.Context, accessToken, refreshToken s
 		MaxAge:   900, // 15 min
 	})
 	c.SetCookie(&http.Cookie{
-		Name:     "refresh_token",
+		Name:     h.refreshCookieName(),
 		Value:    refreshToken,
-		Path:     "/api/auth",
+		Path:     h.refreshCookiePath(),
 		HttpOnly: true,
 		Secure:   h.secureCookie,
 		SameSite: http.SameSiteStrictMode,
@@ -202,20 +204,24 @@ func (h *AuthHandler) setAuthCookies(c echo.Context, accessToken, refreshToken s
 	})
 }
 
-func clearAuthCookies(c echo.Context) {
+func (h *AuthHandler) clearAuthCookies(c echo.Context) {
 	c.SetCookie(&http.Cookie{
-		Name:     "access_token",
+		Name:     h.accessCookieName(),
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
 		MaxAge:   -1,
+		Secure:   h.secureCookie,
+		SameSite: http.SameSiteStrictMode,
 	})
 	c.SetCookie(&http.Cookie{
-		Name:     "refresh_token",
+		Name:     h.refreshCookieName(),
 		Value:    "",
-		Path:     "/api/auth",
+		Path:     h.refreshCookiePath(),
 		HttpOnly: true,
 		MaxAge:   -1,
+		Secure:   h.secureCookie,
+		SameSite: http.SameSiteStrictMode,
 	})
 }
 
@@ -229,4 +235,23 @@ func validateProfileURL(rawURL string) error {
 		return errors.New("must be an http or https URL")
 	}
 	return nil
+}
+
+func (h *AuthHandler) accessCookieName() string {
+	if h.hostCookies {
+		return "__Host-kuayle-access"
+	}
+	return "access_token"
+}
+func (h *AuthHandler) refreshCookieName() string {
+	if h.hostCookies {
+		return "__Host-kuayle-refresh"
+	}
+	return "refresh_token"
+}
+func (h *AuthHandler) refreshCookiePath() string {
+	if h.hostCookies {
+		return "/"
+	}
+	return "/api/auth"
 }

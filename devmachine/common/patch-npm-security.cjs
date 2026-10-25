@@ -10,7 +10,7 @@ const { execFileSync } = require('node:child_process');
 
 const patches = {
   'brace-expansion': '5.0.12',
-  undici: '6.28.1',
+  undici: '6.29.1',
   tar: '7.5.22',
   'ip-address': '10.5.0',
   'http-cache-semantics': '4.3.0',

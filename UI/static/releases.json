@@ -1,5 +1,27 @@
 [
   {
+    "tag_name": "v0.1.29",
+    "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.29",
+    "body": "Fix permanent Dev Machine deletion after IDE or gateway access creates audit entries. Migration 49 clears dependent references together, preserving audit history and workspace ownership checks. Workspace deletion receives the same correction.\n\nValidated against PostgreSQL with existing access logs, transaction rollback, service and workspace deletion, migration downgrade/upgrade, and cross-workspace integrity checks.\n\nSelf-hosted upgrades must run database migrations (`./server migrate up`) before relying on the corrected cleanup behavior. Back up the database before upgrading.\n\n- Fix: https://github.com/carbogninalberto/kuayle/pull/84\n- Same-site Dev Machines and automatic HTTPS introduced in v0.1.28: https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.28\n",
+    "published_at": "2026-10-25T18:25:14Z",
+    "prerelease": false,
+    "force_upgrade": false,
+    "minimum_supported_version": null,
+    "upgrade_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.29",
+    "upgrade_message": null
+  },
+  {
+    "tag_name": "v0.1.28",
+    "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.28",
+    "body": "## Dev Machines for personal instances\n\n- Explicit same-site hosting with `DEV_MACHINE_ALLOW_SAME_SITE=true`, keeping separate domains as the default.\n- HTTPS-only configuration, host-prefixed session cookies, and exact-origin protection for browser mutations and WebSocket upgrades. Sign in again when enabling the option.\n- Private certificate approval for stock Caddy on-demand HTTPS: wildcard DNS can work with any DNS provider, without DNS API credentials. Certificates are approved only for running machine services.\n\n## Security and maintenance\n\n- Update Echo to 4.16.1 and code-server to 4.143.1.\n- Refresh Undici, body-parser and Zod dependencies; preserve Zod v3 consumers and backport collection-bound protection with regression tests.\n\nNo database migration. See the README's personal-instance setup for configuration and certificate rate-limit considerations.\n\nImplemented and reviewed in #83.\n",
+    "published_at": "2026-10-25T17:43:13Z",
+    "prerelease": false,
+    "force_upgrade": false,
+    "minimum_supported_version": null,
+    "upgrade_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.28",
+    "upgrade_message": null
+  },
+  {
     "tag_name": "v0.1.27",
     "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.27",
     "body": "## What's Changed\n\n- **Dev Machines without XFS (monitored disk mode):** Set `DEV_MACHINE_DISK_QUOTA_MODE=monitored` to run Dev Machines on hosts whose Docker data root has no XFS project quotas (for example ext4). Workspace disk limits are then measured every 30 seconds instead of enforced by the kernel. Machines warn at 90 %, stop at 100 %, and all machines stop (with new starts refused) when the host's free space falls below a configurable floor. Administrators see a banner in Dev Machine settings, and machine pages label the limit as monitored. Hard mode remains the default.\n- **Custom machine sizes:** Choose vCPU, memory and disk with sliders that snap to sensible values, instead of fixed Small/Medium/Large presets. Memory stays at least 1 GB per vCPU and disk within the workspace limit. Environment Builders now open the same resource dialog.\n- **Clearer limits:** Machines that never started and are no longer wanted no longer count towards workspace or per-user limits. Quota errors say which limit was reached and how to proceed.\n- **Disk usage visibility:** Machine pages highlight workspace disk usage at 90 % or more of the limit.\n\n## Upgrade Notes\n\n- Migration `000048` allows the new `custom` machine size; its rollback converts custom machines to `large`.\n- The self-hosting Compose file now mounts Docker's data root read-only into the machine manager (`DEV_MACHINE_DOCKER_ROOT`, default `/var/lib/docker`) and passes `DEV_MACHINE_DISK_QUOTA_MODE`, `DEV_MACHINE_HOST_DISK_MIN_FREE_PERCENT` (15) and `DEV_MACHINE_HOST_DISK_MIN_FREE_GB` (25).\n- Existing installations stay in hard mode unless they opt in. In monitored mode a fast writer can briefly exceed its limit between checks, so size the free-space floor to absorb that.\n\n[PR #81](https://github.com/carbogninalberto/kuayle/pull/81) · [Disk limitation docs](https://github.com/carbogninalberto/kuayle/blob/main/TECHNICAL.md#disk-limitation)\n\n**Full Changelog:** https://github.com/carbogninalberto/kuayle/compare/v0.1.26...v0.1.27\n\n## Validation\n\nPR #81 passed all of its CI jobs on `824d070`, including:\n- backend tests against PostgreSQL;\n- Docker runtime integration;\n- every Dev Machine image and every release image (amd64 and arm64);\n- the frontend, Go and updater security scans;\n- self-hosting checks.\n\nUI: 42 unit tests and 144 browser tests. Candidate `277d7ae` (the merge commit on `main`) passed the full Tests and Security Scan runs. The publishing workflow updates version files on `main`. If its resulting commit differs from this candidate, revalidate that commit before rollout.\n",

@@ -183,3 +183,22 @@ func TestAuthInvalidBearerPATDoesNotFallbackToSessionCookie(t *testing.T) {
 	rec, _ := runAuth(t, newFakePATRepo(), req)
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
 }
+
+func TestHostCookieAuthRejectsLegacyCookie(t *testing.T) {
+	userID := uuid.New()
+	token, err := jwtpkg.GenerateAccessToken(userID, "test-secret")
+	require.NoError(t, err)
+	for _, name := range []string{"access_token", "__Host-kuayle-access"} {
+		e := echo.New()
+		e.GET("/", func(c echo.Context) error { return c.NoContent(204) }, Auth("test-secret", nil, true))
+		req := httptest.NewRequest("GET", "/", nil)
+		req.AddCookie(&http.Cookie{Name: name, Value: token})
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if name == "access_token" {
+			require.Equal(t, 401, rec.Code)
+		} else {
+			require.Equal(t, 204, rec.Code)
+		}
+	}
+}
