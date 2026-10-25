@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/ui/button/index.js';
-	import { ChevronDown, ChevronUp, SquareTerminal, X } from '@lucide/svelte';
+	import { ChevronDown, ChevronUp, Maximize2, Minimize2, SquareTerminal, X } from '@lucide/svelte';
 	import { useTerminalDock } from './terminal-dock-context.svelte';
 	import TerminalSession from './TerminalSession.svelte';
 	import { m } from '$lib/paraglide/messages.js';
@@ -48,18 +48,35 @@
 		dock.closeAll();
 	}
 
+	function handleKeydown(event: KeyboardEvent) {
+		if (
+			event.repeat ||
+			!event.ctrlKey ||
+			!event.shiftKey ||
+			event.altKey ||
+			event.metaKey ||
+			event.key.toLowerCase() !== 'f' ||
+			!dock.expanded
+		) return;
+		event.preventDefault();
+		dock.toggleFullscreen();
+	}
+
 	const hasTabs = $derived(dock.tabs.length > 0);
 </script>
 
 <svelte:window
 	onpointermove={dragging ? onPointerMove : undefined}
 	onpointerup={dragging ? onPointerUp : undefined}
+	onkeydowncapture={handleKeydown}
 />
 
 {#if hasTabs}
 	<div
-		class="flex shrink-0 flex-col border-t border-[var(--app-border)] bg-[var(--color-bg)]"
-		style="height: {dock.expanded ? dock.height + 'px' : 'auto'}"
+		class={dock.fullscreen
+			? 'fixed inset-0 z-50 flex flex-col bg-[var(--color-bg)]'
+			: 'flex shrink-0 flex-col border-t border-[var(--app-border)] bg-[var(--color-bg)]'}
+		style={dock.fullscreen ? undefined : `height: ${dock.expanded ? dock.height + 'px' : 'auto'}`}
 		role="region"
 		aria-label="Terminal dock"
 		data-testid="terminal-dock"
@@ -100,6 +117,23 @@
 				{/each}
 			</div>
 			<div class="flex shrink-0 items-center gap-0.5 pr-0.5">
+				{#if dock.expanded}
+					<Button
+						variant="ghost"
+						size="icon"
+						aria-label={dock.fullscreen ? m['machines.exit_full_screen']() : m['machines.enter_full_screen']()}
+						aria-pressed={dock.fullscreen}
+						aria-keyshortcuts="Control+Shift+F"
+						data-testid="toggle-terminal-fullscreen"
+						onclick={() => dock.toggleFullscreen()}
+					>
+						{#if dock.fullscreen}
+							<Minimize2 />
+						{:else}
+							<Maximize2 />
+						{/if}
+					</Button>
+				{/if}
 				{#if dock.tabs.length > 1 && dock.expanded}
 					<Button variant="plain" type="button"
 						class="flex h-6 w-6 items-center justify-center rounded text-zinc-500 hover:bg-red-500/10 hover:text-red-400"
@@ -113,7 +147,7 @@
 			</div>
 		</div>
 
-		{#if dock.expanded}
+		{#if dock.expanded && !dock.fullscreen}
 			<div
 				class="h-1 cursor-ns-resize bg-zinc-800 hover:bg-zinc-600 active:bg-zinc-500"
 				role="separator"
@@ -125,7 +159,11 @@
 		{/if}
 		<div class="flex min-h-0 flex-1 overflow-hidden" class:hidden={!dock.expanded}>
 			{#each dock.tabs as t (t.id)}
-				<TerminalSession tab={t} visible={dock.expanded && dock.activeTabId === t.id} />
+				<TerminalSession
+					tab={t}
+					visible={dock.expanded && dock.activeTabId === t.id}
+					fullscreen={dock.fullscreen}
+				/>
 			{/each}
 		</div>
 	</div>

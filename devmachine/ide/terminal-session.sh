@@ -40,4 +40,5 @@ if [ ! -d "$workspace" ]; then
   workspace=/workspace/tasks
 fi
 
-exec tmux new-session -A -s "$session" -c "$workspace"
+export COLORTERM=truecolor
+exec tmux -u new-session -A -s "$session" -c "$workspace"

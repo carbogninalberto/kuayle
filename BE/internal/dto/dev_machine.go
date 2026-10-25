@@ -19,7 +19,7 @@ type DevMachineServicesInput struct {
 }
 
 type DevMachineAgentInput struct {
-	Provider string `json:"provider" validate:"required,oneof=claude-code opencode codex custom"`
+	Provider string `json:"provider" validate:"required,oneof=claude-code opencode codex qwen-code crush kimi goose custom"`
 	Mode     string `json:"mode" validate:"required,oneof=interactive autonomous"`
 	Config   any    `json:"config,omitempty"`
 }
@@ -27,7 +27,7 @@ type DevMachineAgentInput struct {
 type DevMachineEnvVarInput struct {
 	Name          string  `json:"name" validate:"required,max=255"`
 	Value         string  `json:"value" validate:"required,max=65536"`
-	TargetService string  `json:"target_service" validate:"required,oneof=ide agent collector"`
+	TargetService string  `json:"target_service" validate:"required,oneof=ide terminal agent collector"`
 	Provider      *string `json:"provider,omitempty"`
 	Secret        *bool   `json:"secret,omitempty"`
 	TTLMinutes    *int    `json:"ttl_minutes,omitempty" validate:"omitempty,min=1,max=1440"`
@@ -50,6 +50,7 @@ type CreateDevMachineRequest struct {
 	EnvironmentID      *string                 `json:"environment_id,omitempty" validate:"omitempty,uuid"`
 	KeepRunning        bool                    `json:"keep_running"`
 	EnvironmentBuilder bool                    `json:"environment_builder"`
+	Profile            string                  `json:"profile,omitempty" validate:"omitempty,oneof=standard headless"`
 }
 
 type DevMachineNameAvailabilityResponse struct {
@@ -154,7 +155,7 @@ type DevMachineOperationResponse struct {
 type CreateAgentRunRequest struct {
 	CheckoutID         *string  `json:"checkout_id,omitempty" validate:"omitempty,uuid"`
 	UseRootWorkspace   bool     `json:"use_root_workspace"`
-	Provider           string   `json:"provider" validate:"required,oneof=claude-code opencode codex custom"`
+	Provider           string   `json:"provider" validate:"required,oneof=claude-code opencode codex qwen-code crush kimi goose custom"`
 	Mode               string   `json:"mode" validate:"required,oneof=interactive autonomous"`
 	Prompt             string   `json:"prompt" validate:"required,min=1,max=100000"`
 	AcceptanceCriteria []string `json:"acceptance_criteria"`
@@ -167,6 +168,24 @@ type CreateAgentRunRequest struct {
 	AllowedSecrets     []string `json:"allowed_secrets"`
 	PushBranch         *bool    `json:"push_branch,omitempty"`
 	OpenPullRequest    bool     `json:"open_pull_request"`
+	Model              string   `json:"model,omitempty" validate:"omitempty,oneof=deepseek-flash deepseek-v4-pro"`
+	Thinking           string   `json:"thinking,omitempty" validate:"omitempty,oneof=off low high max"`
+}
+
+type UpdateWorkspaceModelProviderRequest struct {
+	APIKey       *string `json:"api_key,omitempty"`
+	DefaultModel string  `json:"default_model" validate:"required,oneof=deepseek-flash deepseek-v4-pro"`
+	Thinking     string  `json:"thinking" validate:"required,oneof=off low high max"`
+}
+
+type WorkspaceModelProviderResponse struct {
+	Provider       string     `json:"provider"`
+	Configured     bool       `json:"configured"`
+	DefaultModel   string     `json:"default_model"`
+	Thinking       string     `json:"thinking"`
+	Models         []string   `json:"models"`
+	ThinkingLevels []string   `json:"thinking_levels"`
+	UpdatedAt      *time.Time `json:"updated_at"`
 }
 
 type AgentProviderResponse struct {
@@ -174,6 +193,7 @@ type AgentProviderResponse struct {
 	DisplayName     string   `json:"display_name"`
 	DefaultImage    string   `json:"default_image"`
 	RequiredSecrets []string `json:"required_secrets"`
+	OptionalSecrets []string `json:"optional_secrets"`
 	SupportedModes  []string `json:"supported_modes"`
 	Custom          bool     `json:"custom"`
 }
@@ -216,7 +236,7 @@ type DevMachinePolicyRequest struct {
 	MaxDailyAgentRuns     int      `json:"max_daily_agent_runs" validate:"min=0,max=10000"`
 	MaxRuntimeMinutes     int      `json:"max_runtime_minutes" validate:"min=5,max=1440"`
 	MaxDiskGB             int      `json:"max_disk_gb" validate:"min=20,max=2048"`
-	AllowedProviders      []string `json:"allowed_providers"`
+	AllowedProviders      []string `json:"allowed_providers" validate:"omitempty,max=7,dive,oneof=claude-code opencode codex qwen-code crush kimi goose"`
 	AllowedRepositories   []string `json:"allowed_repositories"`
 	AllowCustomProviders  bool     `json:"allow_custom_providers"`
 	IdlePauseMinutes      int      `json:"idle_pause_minutes" validate:"omitempty,min=5,max=10080"`

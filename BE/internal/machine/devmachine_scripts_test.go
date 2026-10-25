@@ -2,6 +2,7 @@ package machine
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -75,6 +77,348 @@ func TestCredentialHelperScriptsDoNotReferencePersistentCheckoutToken(t *testing
 		require.NotContains(t, content, removedCheckoutTokenPath, path)
 		require.NotContains(t, content, "cat /run/kuayle-secrets/github-token", path)
 	}
+}
+
+func TestTerminalRuntimeConfiguresFullColorTUI(t *testing.T) {
+	repoRoot := repoRootFromCaller(t)
+	tmuxConfigBytes, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", "ide", "tmux.conf"))
+	require.NoError(t, err)
+	tmuxConfig := string(tmuxConfigBytes)
+	expectedTmuxOptions := []string{
+		`set -g default-terminal "tmux-256color"`,
+		`set -as terminal-features ",xterm-256color:RGB"`,
+		`set -g focus-events on`,
+		`set -g extended-keys on`,
+		`set -g allow-passthrough on`,
+		`set -g history-limit 50000`,
+		`set-option -g destroy-unattached on`,
+	}
+	for _, option := range expectedTmuxOptions {
+		require.Contains(t, tmuxConfig, option+"\n")
+	}
+	// Browser terminals receive escape sequences over a WebSocket, so a sequence can arrive
+	// split across frames. A short escape-time makes tmux treat the ESC as a keypress and
+	// type the rest (for example "[<35;59;28M") into the TUI; keep tmux's default. Mouse
+	// mode would also make xterm.js stream motion reports and take over text selection.
+	require.NotContains(t, tmuxConfig, "escape-time")
+	require.NotContains(t, tmuxConfig, "mouse on")
+
+	sessionScriptBytes, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", "ide", "terminal-session.sh"))
+	require.NoError(t, err)
+	require.Contains(t, string(sessionScriptBytes), "export COLORTERM=truecolor\n")
+
+	dockerfileBytes, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", "ide", "Dockerfile"))
+	require.NoError(t, err)
+	require.Contains(t, string(dockerfileBytes), "ncurses-term")
+}
+
+func TestAgentCLIInstallerRejectsUnknownArchitecture(t *testing.T) {
+	repoRoot := repoRootFromCaller(t)
+	installer := filepath.Join(repoRoot, "devmachine", "common", "install-agent-clis.sh")
+	cmd := exec.Command("sh", installer, "riscv64")
+	cmd.Env = []string{"PATH=" + os.Getenv("PATH")}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+
+	require.Error(t, err)
+	require.Contains(t, stderr.String(), "unsupported architecture: riscv64")
+}
+
+// Crush release binaries are built with a Go toolchain that has known stdlib CVEs,
+// so both developer images build it from source with a patched toolchain.
+// Without a UTF-8 locale tmux replaces every non-ASCII glyph (prompt chevrons, box and
+// block characters) with "_", which breaks Codex, OpenCode and other TUIs.
+func TestDeveloperTerminalsUseUTF8(t *testing.T) {
+	repoRoot := repoRootFromCaller(t)
+	for _, image := range []string{"ide", "headless"} {
+		dockerfile, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", image, "Dockerfile"))
+		require.NoError(t, err)
+		require.Regexp(t, `(?m)^ENV HOME=/home/kuayle \\\n\s+LANG=C\.UTF-8`, string(dockerfile), image)
+	}
+	session, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", "ide", "terminal-session.sh"))
+	require.NoError(t, err)
+	require.Contains(t, string(session), "exec tmux -u new-session")
+}
+
+func TestDeveloperImagesBuildCrushWithPatchedGo(t *testing.T) {
+	repoRoot := repoRootFromCaller(t)
+	for _, image := range []string{"ide", "headless"} {
+		dockerfileBytes, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", image, "Dockerfile"))
+		require.NoError(t, err)
+		dockerfile := string(dockerfileBytes)
+		require.Contains(t, dockerfile, "FROM golang:1.27.3-bookworm AS crush-build", image)
+		require.Contains(t, dockerfile, "ARG CRUSH_VERSION=0.98.2", image)
+		require.Contains(t, dockerfile, "github.com/charmbracelet/crush@v${CRUSH_VERSION}", image)
+		require.Contains(t, dockerfile, "COPY --from=crush-build /out/crush /usr/local/bin/crush", image)
+	}
+	headless, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", "headless", "Dockerfile"))
+	require.NoError(t, err)
+	// build-essential pulls linux-libc-dev, whose kernel CVEs fail the image scan.
+	require.NotContains(t, string(headless), "build-essential")
+}
+
+func TestAgentCLIInstallerRejectsDigestMismatchBeforeExtraction(t *testing.T) {
+	repoRoot := repoRootFromCaller(t)
+	tempDir := t.TempDir()
+	fakeBin := filepath.Join(tempDir, "bin")
+	require.NoError(t, os.MkdirAll(fakeBin, 0o700))
+	npmRoot := filepath.Join(tempDir, "npm-root")
+	require.NoError(t, os.MkdirAll(filepath.Join(npmRoot, "@qwen-code", "qwen-code"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(fakeBin, "npm"), []byte("#!/bin/sh\nif [ \"$1\" = root ]; then echo '"+npmRoot+"'; fi\nexit 0\n"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(fakeBin, "curl"), []byte(`#!/bin/sh
+set -eu
+output=
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "-o" ]; then
+    shift
+    output=$1
+  fi
+  shift
+done
+printf 'tampered release' > "$output"
+`), 0o700))
+
+	cmd := exec.Command("sh", filepath.Join(repoRoot, "devmachine", "common", "install-agent-clis.sh"), "amd64")
+	cmd.Env = []string{"PATH=" + fakeBin + string(os.PathListSeparator) + os.Getenv("PATH")}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+
+	require.Error(t, err)
+	require.Contains(t, stderr.String(), "sha256 mismatch for goose")
+	require.Contains(t, stderr.String(), "225a929b35b5130fb691eafdb50be236f2c0a150019b53973775938f8f19c281")
+}
+
+func TestAgentCLIInstallerPinsEveryCLIAndReleaseDigest(t *testing.T) {
+	repoRoot := repoRootFromCaller(t)
+	installerBytes, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", "common", "install-agent-clis.sh"))
+	require.NoError(t, err)
+	installer := string(installerBytes)
+
+	for _, pin := range []string{
+		"CLAUDE_CODE_VERSION=2.1.289",
+		"--allow-scripts=@anthropic-ai/claude-code",
+		"OPENCODE_VERSION=1.18.34",
+		"--allow-scripts=opencode-ai",
+		"CODEX_VERSION=0.160.0",
+		"@qwen-code/qwen-code",
+		"QWEN_VERSION=0.26.1",
+		// qwen-code 0.26.1 bundles sharp 0.35.4 (GHSA-wq5f-xc86-pv6w).
+		"sharp@0.35.5",
+		"goose-${goose_arch}-unknown-linux-gnu.tar.gz",
+		"GOOSE_VERSION=1.56.0",
+		"225a929b35b5130fb691eafdb50be236f2c0a150019b53973775938f8f19c281",
+		"26bcb7d3f55aac485a91d81cbdecd8d90e5af1acadeca6e580b4d58b64a888e4",
+		"kimi-${KIMI_VERSION}-${kimi_arch}-unknown-linux-gnu.tar.gz",
+		"KIMI_VERSION=1.52.0",
+		"a676204f7804ed5dae87652a9d66f578e0718d5026c9cb1bfa32b9a5eace4208",
+		"9e06eea96273600aed485b1f0bedda95b7084db4f22cf28614fe20138933507a",
+	} {
+		require.Contains(t, installer, pin)
+	}
+}
+
+func TestDeveloperStartScriptsShareWorkspaceSetup(t *testing.T) {
+	repoRoot := repoRootFromCaller(t)
+	commonBytes, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", "common", "start-common.sh"))
+	require.NoError(t, err)
+	common := string(commonBytes)
+	for _, function := range []string{
+		"reset_ready_marker()",
+		"install_git_credential_helper()",
+		"prepare_developer_workspace()",
+	} {
+		require.Contains(t, common, function)
+	}
+
+	for _, relativePath := range []string{
+		filepath.Join("devmachine", "ide", "start.sh"),
+		filepath.Join("devmachine", "headless", "kuayle-headless-start"),
+	} {
+		scriptBytes, err := os.ReadFile(filepath.Join(repoRoot, relativePath))
+		require.NoError(t, err)
+		script := string(scriptBytes)
+		require.Contains(t, script, `KUAYLE_START_COMMON=${KUAYLE_START_COMMON:-/usr/local/lib/kuayle/start-common.sh}`)
+		require.Contains(t, script, `. "$KUAYLE_START_COMMON"`)
+		require.Contains(t, script, "reset_ready_marker")
+		require.Contains(t, script, "prepare_developer_workspace")
+		require.NotContains(t, script, "username=x-access-token", relativePath)
+	}
+}
+
+func TestRuntimeImagesBundleTheSharedStartHelper(t *testing.T) {
+	repoRoot := repoRootFromCaller(t)
+	for _, relativePath := range []string{
+		filepath.Join("devmachine", "agent", "Dockerfile"),
+		filepath.Join("devmachine", "browser", "Dockerfile"),
+		filepath.Join("devmachine", "collector", "Dockerfile"),
+		filepath.Join("devmachine", "egress", "Dockerfile"),
+		filepath.Join("devmachine", "headless", "Dockerfile"),
+		filepath.Join("devmachine", "ide", "Dockerfile"),
+	} {
+		content, err := os.ReadFile(filepath.Join(repoRoot, relativePath))
+		require.NoError(t, err)
+		require.Contains(t, string(content), "common/start-common.sh", relativePath)
+	}
+	// Images that write the DeepSeek Codex config also need its catalog generator.
+	for _, image := range []string{"agent", "headless", "ide"} {
+		content, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", image, "Dockerfile"))
+		require.NoError(t, err)
+		require.Contains(t, string(content), "common/codex-deepseek-catalog.cjs", image)
+	}
+}
+
+func TestHeadlessStartUsesSharedSetupAndWritesReadyMarker(t *testing.T) {
+	repoRoot := repoRootFromCaller(t)
+	tempDir := t.TempDir()
+	workspace := filepath.Join(tempDir, "workspace")
+	homeDir := filepath.Join(tempDir, "home")
+	fakeBin := filepath.Join(tempDir, "bin")
+	for _, dir := range []string{workspace, homeDir, fakeBin} {
+		require.NoError(t, os.MkdirAll(dir, 0o700))
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(fakeBin, "curl"), []byte("#!/bin/sh\nexit 0\n"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(fakeBin, "git"), []byte("#!/bin/sh\nexit 0\n"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(fakeBin, "ttyd"), []byte(`#!/bin/sh
+exec >/dev/null 2>&1
+trap 'exit 0' TERM INT
+while :; do sleep 1; done
+`), 0o700))
+
+	cmd := exec.Command("sh", filepath.Join(repoRoot, "devmachine", "headless", "kuayle-headless-start"))
+	cmd.Env = []string{
+		"PATH=" + fakeBin + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"HOME=" + homeDir,
+		"KUAYLE_START_COMMON=" + filepath.Join(repoRoot, "devmachine", "common", "start-common.sh"),
+		"KUAYLE_WORKSPACE_ROOT=" + workspace,
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	require.NoError(t, cmd.Start())
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	t.Cleanup(func() {
+		if cmd.ProcessState == nil || !cmd.ProcessState.Exited() {
+			_ = cmd.Process.Kill()
+			<-done
+		}
+	})
+
+	readyMarker := filepath.Join(workspace, ".kuayle-ready")
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(readyMarker); err == nil {
+			break
+		}
+		select {
+		case err := <-done:
+			t.Fatalf("headless start exited before ready: %v\n%s", err, stderr.String())
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("headless start did not write ready marker\n%s", stderr.String())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	require.NoFileExists(t, filepath.Join(homeDir, ".codex", "config.toml"))
+}
+
+func TestStartCommonWritesDeepSeekCodexConfigOnlyWhenAbsent(t *testing.T) {
+	repoRoot := repoRootFromCaller(t)
+	homeDir := t.TempDir()
+	common := filepath.Join(repoRoot, "devmachine", "common", "start-common.sh")
+	run := func(model, thinking string) {
+		cmd := exec.Command("sh", "-eu", "-c", `. "$1"; configure_codex_deepseek`, "kuayle", common)
+		cmd.Env = append(os.Environ(),
+			"HOME="+homeDir,
+			"DEEPSEEK_API_KEY=not-written-to-disk",
+			"KUAYLE_DEEPSEEK_MODEL="+model,
+			"KUAYLE_DEEPSEEK_THINKING="+thinking,
+		)
+		output, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(output))
+	}
+
+	run("deepseek-flash", "off")
+	configPath := filepath.Join(homeDir, ".codex", "config.toml")
+	configBytes, err := os.ReadFile(configPath)
+	require.NoError(t, err)
+	config := string(configBytes)
+	require.Contains(t, config, `model = "deepseek-flash"`)
+	require.Contains(t, config, `model_reasoning_effort = "none"`)
+	require.Contains(t, config, `base_url = "https://api.deepseek.com"`)
+	require.NotContains(t, config, "not-written-to-disk")
+	info, err := os.Stat(configPath)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+
+	userConfig := "model = \"user-owned\"\n"
+	require.NoError(t, os.WriteFile(configPath, []byte(userConfig), 0o600))
+	run("deepseek-v4-pro", "high")
+	configBytes, err = os.ReadFile(configPath)
+	require.NoError(t, err)
+	require.Equal(t, userConfig, string(configBytes))
+}
+
+// Codex's /model picker lists its bundled OpenAI catalog; under DeepSeek those models are
+// rejected, so the generated config points Codex at a DeepSeek-only catalog.
+func TestStartCommonWritesDeepSeekOnlyCodexModelCatalog(t *testing.T) {
+	repoRoot := repoRootFromCaller(t)
+	homeDir := t.TempDir()
+	fakeBin := filepath.Join(t.TempDir(), "bin")
+	require.NoError(t, os.MkdirAll(fakeBin, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(fakeBin, "codex"), []byte(`#!/bin/sh
+[ "$1 $2" = "debug models" ] || exit 2
+printf '%s' '{"models":[{"slug":"gpt-5.5","display_name":"GPT","visibility":"list","priority":13,"shell_type":"unified_exec","context_window":272000,"base_instructions":"bundled"}]}'
+`), 0o700))
+	nodePath, err := exec.LookPath("node")
+	require.NoError(t, err)
+	common := filepath.Join(repoRoot, "devmachine", "common", "start-common.sh")
+	cmd := exec.Command("sh", "-eu", "-c", `. "$1"; configure_codex_deepseek`, "kuayle", common)
+	cmd.Env = []string{
+		"PATH=" + fakeBin + string(os.PathListSeparator) + filepath.Dir(nodePath) + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"HOME=" + homeDir, "DEEPSEEK_API_KEY=not-written-to-disk",
+		"KUAYLE_DEEPSEEK_MODEL=deepseek-v4-pro", "KUAYLE_DEEPSEEK_THINKING=max",
+		"KUAYLE_CODEX_CATALOG_GENERATOR=" + filepath.Join(repoRoot, "devmachine", "common", "codex-deepseek-catalog.cjs"),
+	}
+	output, err := cmd.CombinedOutput()
+	require.NoError(t, err, string(output))
+
+	catalogPath := filepath.Join(homeDir, ".codex", "model-catalogs", "deepseek.json")
+	catalogBytes, err := os.ReadFile(catalogPath)
+	require.NoError(t, err)
+	var catalog struct {
+		Models []map[string]any `json:"models"`
+	}
+	require.NoError(t, json.Unmarshal(catalogBytes, &catalog))
+	slugs := []string{}
+	for _, model := range catalog.Models {
+		slugs = append(slugs, model["slug"].(string))
+		require.Equal(t, "bundled", model["base_instructions"])
+		require.Equal(t, "shell_command", model["shell_type"])
+	}
+	require.Equal(t, []string{"deepseek-flash", "deepseek-v4-pro"}, slugs)
+
+	configBytes, err := os.ReadFile(filepath.Join(homeDir, ".codex", "config.toml"))
+	require.NoError(t, err)
+	config := string(configBytes)
+	catalogLine := `model_catalog_json = "` + catalogPath + `"`
+	require.Contains(t, config, catalogLine)
+	require.Less(t, strings.Index(config, catalogLine), strings.Index(config, "[model_providers.deepseek]"))
+}
+
+func TestStartCommonSkipsDeepSeekCodexConfigWithoutKey(t *testing.T) {
+	repoRoot := repoRootFromCaller(t)
+	homeDir := t.TempDir()
+	common := filepath.Join(repoRoot, "devmachine", "common", "start-common.sh")
+	cmd := exec.Command("sh", "-eu", "-c", `. "$1"; configure_codex_deepseek`, "kuayle", common)
+	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + homeDir, "KUAYLE_DEEPSEEK_MODEL=deepseek-flash", "KUAYLE_DEEPSEEK_THINKING=high"}
+	output, err := cmd.CombinedOutput()
+	require.NoError(t, err, string(output))
+	require.NoFileExists(t, filepath.Join(homeDir, ".codex", "config.toml"))
 }
 
 func TestTerminalSessionCloseKillsOnlyTheNamedSessionAndIsIdempotent(t *testing.T) {

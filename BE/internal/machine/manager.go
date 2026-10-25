@@ -32,6 +32,7 @@ type ManagerStore interface {
 	GetAgentRunInternal(context.Context, uuid.UUID) (*domain.DevMachineAgentRun, error)
 	ListServices(context.Context, uuid.UUID, uuid.UUID) ([]domain.DevMachineService, error)
 	ListEnvVarsInternal(context.Context, uuid.UUID, *string, string) ([]domain.DevMachineEnvVar, error)
+	GetWorkspaceModelCredential(context.Context, uuid.UUID, string) (*domain.DevMachineWorkspaceModelCredential, error)
 	SetMachineState(context.Context, uuid.UUID, domain.DevMachineStatus, *string, *string, *string, *string) error
 	SetMachineStateForOperation(context.Context, uuid.UUID, int64, bool, domain.DevMachineStatus, *string, *string, *string, *string) (bool, error)
 	UpdateServiceRuntime(context.Context, uuid.UUID, string, string, string, *string) error
@@ -635,9 +636,13 @@ func (m *Manager) cancelActiveRuns(ctx context.Context, machineID uuid.UUID, run
 
 func (m *Manager) serviceSecrets(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService) (map[string]map[string]string, error) {
 	serviceSecrets := make(map[string]map[string]string, len(services))
+	includeWorkspaceModel := false
 	for _, service := range services {
 		if service.ServiceType == "agent" {
 			continue
+		}
+		if service.ServiceType == "ide" || service.ServiceType == "terminal" {
+			includeWorkspaceModel = true
 		}
 		envVars, err := m.store.ListEnvVarsInternal(ctx, machine.ID, nil, service.ServiceType)
 		if err != nil {
@@ -653,16 +658,63 @@ func (m *Manager) serviceSecrets(ctx context.Context, machine *domain.DevMachine
 		}
 		serviceSecrets[service.ServiceKey] = values
 	}
+	if includeWorkspaceModel {
+		modelSecrets, err := m.workspaceModelSecrets(ctx, machine.WorkspaceID)
+		if err != nil {
+			return nil, err
+		}
+		for _, service := range services {
+			if service.ServiceType != "ide" && service.ServiceType != "terminal" {
+				continue
+			}
+			for name, value := range modelSecrets {
+				serviceSecrets[service.ServiceKey][name] = value
+			}
+		}
+	}
 	_, hasIDE := serviceSecrets["ide"]
-	if hasIDE {
+	_, hasTerminal := serviceSecrets["terminal"]
+	if hasIDE || hasTerminal {
 		_, githubToken, err := m.repositoryToken(ctx, machine, "")
 		if err == nil && githubToken != "" {
-			serviceSecrets["ide"]["GITHUB_TOKEN"] = githubToken
+			if hasIDE {
+				serviceSecrets["ide"]["GITHUB_TOKEN"] = githubToken
+			} else {
+				serviceSecrets["terminal"]["GITHUB_TOKEN"] = githubToken
+			}
 		} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("github_token_failed: %w", err)
 		}
 	}
 	return serviceSecrets, nil
+}
+
+func (m *Manager) workspaceModelSecrets(ctx context.Context, workspaceID uuid.UUID) (map[string]string, error) {
+	credential, err := m.store.GetWorkspaceModelCredential(ctx, workspaceID, "deepseek")
+	if err != nil || credential == nil {
+		return nil, err
+	}
+	apiKey, err := cryptoutil.Decrypt(credential.EncryptedAPIKey, m.encryptionKey)
+	if err != nil {
+		return nil, fmt.Errorf("secret_decryption_failed: %w", err)
+	}
+	secrets := map[string]string{
+		"DEEPSEEK_API_KEY":                         apiKey,
+		"KUAYLE_DEEPSEEK_MODEL":                    credential.DefaultModel,
+		"KUAYLE_DEEPSEEK_THINKING":                 credential.Thinking,
+		"ANTHROPIC_BASE_URL":                       "https://api.deepseek.com/anthropic",
+		"ANTHROPIC_AUTH_TOKEN":                     apiKey,
+		"ANTHROPIC_MODEL":                          credential.DefaultModel,
+		"ANTHROPIC_DEFAULT_OPUS_MODEL":             credential.DefaultModel,
+		"ANTHROPIC_DEFAULT_SONNET_MODEL":           credential.DefaultModel,
+		"ANTHROPIC_DEFAULT_HAIKU_MODEL":            "deepseek-flash",
+		"CLAUDE_CODE_SUBAGENT_MODEL":               "deepseek-flash",
+		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+	}
+	if credential.Thinking != "off" {
+		secrets["CLAUDE_CODE_EFFORT_LEVEL"] = credential.Thinking
+	}
+	return secrets, nil
 }
 
 func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, operation *domain.DevMachineOperation) error {
@@ -735,6 +787,21 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 			return fmt.Errorf("secret_decryption_failed: %w", err)
 		}
 		secrets[envVar.Name] = value
+	}
+	if run.ProviderID == "codex" || run.ProviderID == "claude-code" {
+		modelSecrets, modelErr := m.workspaceModelSecrets(ctx, machine.WorkspaceID)
+		if modelErr != nil {
+			return modelErr
+		}
+		if run.Thinking != "" && len(modelSecrets) > 0 {
+			delete(modelSecrets, "CLAUDE_CODE_EFFORT_LEVEL")
+			if run.Thinking != "off" {
+				modelSecrets["CLAUDE_CODE_EFFORT_LEVEL"] = run.Thinking
+			}
+		}
+		for name, value := range modelSecrets {
+			secrets[name] = value
+		}
 	}
 	githubToken := ""
 	if run.PushBranch || run.OpenPullRequest {

@@ -221,6 +221,10 @@ test('handles machine actions without applying stale poll, route, or trace respo
 		if (path === '/api/workspaces/test/dev-machine-policy') {
 			return route.fulfill({ json: { workspace_id: '00000000-0000-0000-0000-000000000002', enabled: true, max_concurrent_machines: 5, max_machines_per_user: 2, max_daily_agent_runs: 25, max_runtime_minutes: 480, max_disk_gb: 100, idle_pause_minutes: 240, allowed_providers: ['opencode'], allowed_repositories: [], allow_custom_providers: false, disk_quota_mode: 'hard' } });
 		}
+		// The run dialog reads whether DeepSeek overrides are available.
+		if (path === '/api/workspaces/test/dev-machine-model-providers/deepseek') {
+			return route.fulfill({ json: { provider: 'deepseek', configured: false, default_model: 'deepseek-flash', thinking: 'high', models: ['deepseek-flash', 'deepseek-v4-pro'], thinking_levels: ['off', 'low', 'high', 'max'], updated_at: null } });
+		}
 		unhandledPaths.push(`${request.method()} ${path}`);
 		return route.fulfill({ status: 404, json: { error: { message: `Unhandled ${path}` } } });
 	});
@@ -653,6 +657,10 @@ test('retries a code-server launch while a paused machine resumes', async ({ pag
 		if (path === '/api/workspaces/test/dev-machine-policy') {
 			return route.fulfill({ json: { workspace_id: '00000000-0000-0000-0000-000000000002', enabled: true, max_concurrent_machines: 5, max_machines_per_user: 2, max_daily_agent_runs: 25, max_runtime_minutes: 480, max_disk_gb: 100, idle_pause_minutes: 240, allowed_providers: ['opencode'], allowed_repositories: [], allow_custom_providers: false, disk_quota_mode: 'hard' } });
 		}
+		// The run dialog reads whether DeepSeek overrides are available.
+		if (path === '/api/workspaces/test/dev-machine-model-providers/deepseek') {
+			return route.fulfill({ json: { provider: 'deepseek', configured: false, default_model: 'deepseek-flash', thinking: 'high', models: ['deepseek-flash', 'deepseek-v4-pro'], thinking_levels: ['off', 'low', 'high', 'max'], updated_at: null } });
+		}
 		unhandledPaths.push(`${request.method()} ${path}`);
 		return route.fulfill({ status: 404, json: { error: { message: `Unhandled ${path}` } } });
 	});
@@ -790,6 +798,39 @@ test('keeps multiple docked terminals alive across collapse and navigation', asy
 	expect(initialSize.columns).toBeGreaterThan(20);
 	expect(initialSize.rows).toBeGreaterThan(5);
 	expect(initialSize.rows).toBeLessThan(100);
+	const terminalDock = page.getByTestId('terminal-dock');
+	const nativeTerminal = page.getByTestId('native-terminal');
+	// Full-screen TUIs draw logos and borders with block glyphs; the WebGL renderer draws them seamlessly.
+	await expect(nativeTerminal.locator('.xterm-screen canvas').first()).toBeAttached();
+	const enterFullScreen = page.getByRole('button', { name: 'Enter full screen' });
+	await expect(enterFullScreen).toHaveAttribute('aria-pressed', 'false');
+	await enterFullScreen.click();
+	const exitFullScreen = page.getByRole('button', { name: 'Exit full screen' });
+	await expect(exitFullScreen).toHaveAttribute('aria-pressed', 'true');
+	const viewport = page.viewportSize();
+	expect(viewport).not.toBeNull();
+	await expect.poll(() => terminalDock.evaluate((element) => {
+		const rect = element.getBoundingClientRect();
+		return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+	})).toEqual({ x: 0, y: 0, width: viewport!.width, height: viewport!.height });
+	await expect(nativeTerminal.locator('.xterm-helper-textarea')).toBeFocused();
+	await expect.poll(() => page.evaluate(() => {
+		const decoder = new TextDecoder();
+		const frames = ((window as any).__terminalSockets?.[0]?.sent ?? [])
+			.map((bytes: number[]) => decoder.decode(new Uint8Array(bytes)));
+		const resize = frames
+			.filter((frame: string) => frame.startsWith('1{'))
+			.map((frame: string) => JSON.parse(frame.slice(1)));
+		return resize.at(-1)?.rows ?? 0;
+	})).toBeGreaterThan(initialSize.rows);
+	await page.keyboard.press('Escape');
+	await expect(exitFullScreen).toHaveAttribute('aria-pressed', 'true');
+	await exitFullScreen.click();
+	await expect(page.getByRole('button', { name: 'Enter full screen' })).toHaveAttribute('aria-pressed', 'false');
+	await page.keyboard.press('Control+Shift+F');
+	await expect(page.getByRole('button', { name: 'Exit full screen' })).toHaveAttribute('aria-pressed', 'true');
+	await page.keyboard.press('Control+Shift+F');
+	await expect(page.getByRole('button', { name: 'Enter full screen' })).toHaveAttribute('aria-pressed', 'false');
 	const dockHeight = await page.getByTestId('terminal-dock').evaluate((element) => element.getBoundingClientRect().height);
 	const terminalHeight = await page.getByTestId('native-terminal').evaluate((element) => element.getBoundingClientRect().height);
 	expect(terminalHeight).toBeLessThanOrEqual(dockHeight);
@@ -1482,4 +1523,133 @@ test('bounds machine and agent trace telemetry during long-running sessions', as
 	await expect(trace.getByTestId('trace-logs-retention')).toContainText('older logs are omitted');
 	await expect(trace.locator('pre').filter({ hasText: 'TRACE_LATEST_LOG' })).toContainText('TRACE_LATEST_LOG');
 	await expect(trace).not.toContainText('TRACE_OLDEST_LOG');
+});
+
+test('creates a headless machine with a new built-in provider', async ({ page }) => {
+	const workspaceId = '00000000-0000-0000-0000-000000000002';
+	let createPayload: Record<string, unknown> | undefined;
+	const providers = [
+		['claude-code', 'Claude Code'],
+		['opencode', 'OpenCode'],
+		['codex', 'Codex'],
+		['qwen-code', 'Qwen Code'],
+		['crush', 'Crush'],
+		['kimi', 'Kimi'],
+		['goose', 'Goose']
+	].map(([id, display_name]) => ({
+		id,
+		display_name,
+		default_image: 'kuayle/dev-machine-headless:dev',
+		required_secrets: [],
+		supported_modes: ['interactive', 'autonomous'],
+		custom: false
+	}));
+
+	await page.route('https://raw.githubusercontent.com/carbogninalberto/kuayle/main/UI/static/releases.json', (route) =>
+		route.fulfill({ json: [] })
+	);
+	await page.route('**/api/**', async (route) => {
+		const request = route.request();
+		const path = new URL(request.url()).pathname;
+		if (path === '/api/auth/me') return route.fulfill({ json: { id: '00000000-0000-0000-0000-000000000001', email: 'owner@example.com', name: 'Owner', display_name: 'Owner', avatar_url: null } });
+		if (path === '/api/preferences') return route.fulfill({ json: { font_size: 'default', pointer_cursors: true, theme_mode: 'dark', light_theme: 'light', dark_theme: 'dark', workflow_sort_mode: 'default', workflow_sort_order: ['backlog', 'unstarted', 'started', 'completed', 'cancelled'], team_workflow_sort_overrides: {}, issues_group_by: 'status' } });
+		if (path === '/api/workspaces') return route.fulfill({ json: [{ id: workspaceId, name: 'Test Workspace', slug: 'test' }] });
+		if (path === '/api/workspaces/test') return route.fulfill({ json: { id: workspaceId, name: 'Test Workspace', slug: 'test', current_user_role: 'owner' } });
+		if (['teams', 'projects', 'labels', 'members', 'views'].some((part) => path === `/api/workspaces/test/${part}`)) return route.fulfill({ json: [] });
+		if (path === '/api/notifications') return route.fulfill({ json: { notifications: [], unread_count: 0 } });
+		if (path === '/api/workspaces/test/dev-machines' && request.method() === 'GET') return route.fulfill({ json: { data: [], total_count: 0, page: 1, has_more: false } });
+		if (path === '/api/workspaces/test/dev-machine-names/suggestion') return route.fulfill({ json: { name: 'headless-machine', available: true } });
+		if (path === '/api/workspaces/test/dev-machine-names/availability') return route.fulfill({ json: { name: 'headless-machine', available: true } });
+		if (path === '/api/workspaces/test/dev-machine-providers') return route.fulfill({ json: providers });
+		if (path === '/api/workspaces/test/dev-machine-policy') return route.fulfill({ json: { workspace_id: workspaceId, enabled: true, max_concurrent_machines: 5, max_machines_per_user: 2, max_daily_agent_runs: 25, max_runtime_minutes: 480, max_disk_gb: 100, idle_pause_minutes: 240, allowed_providers: providers.map((provider) => provider.id), allowed_repositories: [], allow_custom_providers: false } });
+		if (path === '/api/workspaces/test/dev-machine-environments') return route.fulfill({ json: [] });
+		if (path === '/api/workspaces/test/dev-machines' && request.method() === 'POST') {
+			createPayload = request.postDataJSON();
+			return route.fulfill({ status: 201, json: { id: '00000000-0000-0000-0000-000000000064', ...createPayload } });
+		}
+		return route.fulfill({ status: 404, json: { error: { message: `Unhandled ${request.method()} ${path}` } } });
+	});
+
+	await page.goto('/test/machines');
+	await page.locator('header').getByRole('button', { name: 'New machine' }).click();
+	const dialog = page.getByRole('dialog');
+	await dialog.getByRole('radio', { name: 'Headless (terminal + agents)' }).click();
+	await expect(dialog.getByRole('switch', { name: 'Browser' })).toHaveCount(0);
+
+	const provider = dialog.getByRole('combobox', { name: 'Provider' });
+	await provider.click();
+	for (const displayName of ['Qwen Code', 'Crush', 'Kimi', 'Goose']) {
+		await expect(page.getByRole('option', { name: displayName, exact: true })).toBeVisible();
+	}
+	await page.getByRole('option', { name: 'Kimi', exact: true }).click();
+	await dialog.getByRole('button', { name: 'Create machine' }).click();
+
+	await expect.poll(() => createPayload).toBeTruthy();
+	expect(createPayload).toMatchObject({
+		profile: 'headless',
+		services: { ide: false, browser: false },
+		agents: [{ provider: 'kimi', mode: 'autonomous' }]
+	});
+});
+
+test('creates a Codex machine without an API key for subscription sign-in', async ({ page }) => {
+	const workspaceId = '00000000-0000-0000-0000-000000000002';
+	let createPayload: Record<string, unknown> | undefined;
+	const providers = [
+		['claude-code', 'Claude Code'],
+		['opencode', 'OpenCode'],
+		['codex', 'Codex'],
+		['qwen-code', 'Qwen Code'],
+		['crush', 'Crush'],
+		['kimi', 'Kimi'],
+		['goose', 'Goose']
+	].map(([id, display_name]) => ({
+		id,
+		display_name,
+		default_image: 'kuayle/dev-machine-headless:dev',
+		required_secrets: [],
+		optional_secrets: id === 'codex' ? ['OPENAI_API_KEY'] : id === 'claude-code' ? ['ANTHROPIC_API_KEY'] : [],
+		supported_modes: ['interactive', 'autonomous'],
+		custom: false
+	}));
+
+	await page.route('https://raw.githubusercontent.com/carbogninalberto/kuayle/main/UI/static/releases.json', (route) =>
+		route.fulfill({ json: [] })
+	);
+	await page.route('**/api/**', async (route) => {
+		const request = route.request();
+		const path = new URL(request.url()).pathname;
+		if (path === '/api/auth/me') return route.fulfill({ json: { id: '00000000-0000-0000-0000-000000000001', email: 'owner@example.com', name: 'Owner', display_name: 'Owner', avatar_url: null } });
+		if (path === '/api/preferences') return route.fulfill({ json: { font_size: 'default', pointer_cursors: true, theme_mode: 'dark', light_theme: 'light', dark_theme: 'dark', workflow_sort_mode: 'default', workflow_sort_order: ['backlog', 'unstarted', 'started', 'completed', 'cancelled'], team_workflow_sort_overrides: {}, issues_group_by: 'status' } });
+		if (path === '/api/workspaces') return route.fulfill({ json: [{ id: workspaceId, name: 'Test Workspace', slug: 'test' }] });
+		if (path === '/api/workspaces/test') return route.fulfill({ json: { id: workspaceId, name: 'Test Workspace', slug: 'test', current_user_role: 'owner' } });
+		if (['teams', 'projects', 'labels', 'members', 'views'].some((part) => path === `/api/workspaces/test/${part}`)) return route.fulfill({ json: [] });
+		if (path === '/api/notifications') return route.fulfill({ json: { notifications: [], unread_count: 0 } });
+		if (path === '/api/workspaces/test/dev-machines' && request.method() === 'GET') return route.fulfill({ json: { data: [], total_count: 0, page: 1, has_more: false } });
+		if (path === '/api/workspaces/test/dev-machine-names/suggestion') return route.fulfill({ json: { name: 'headless-machine', available: true } });
+		if (path === '/api/workspaces/test/dev-machine-names/availability') return route.fulfill({ json: { name: 'headless-machine', available: true } });
+		if (path === '/api/workspaces/test/dev-machine-providers') return route.fulfill({ json: providers });
+		if (path === '/api/workspaces/test/dev-machine-policy') return route.fulfill({ json: { workspace_id: workspaceId, enabled: true, max_concurrent_machines: 5, max_machines_per_user: 2, max_daily_agent_runs: 25, max_runtime_minutes: 480, max_disk_gb: 100, idle_pause_minutes: 240, allowed_providers: providers.map((provider) => provider.id), allowed_repositories: [], allow_custom_providers: false } });
+		if (path === '/api/workspaces/test/dev-machine-environments') return route.fulfill({ json: [] });
+		if (path === '/api/workspaces/test/dev-machines' && request.method() === 'POST') {
+			createPayload = request.postDataJSON();
+			return route.fulfill({ status: 201, json: { id: '00000000-0000-0000-0000-000000000064', ...createPayload } });
+		}
+		return route.fulfill({ status: 404, json: { error: { message: `Unhandled ${request.method()} ${path}` } } });
+	});
+
+	await page.goto('/test/machines');
+	await page.locator('header').getByRole('button', { name: 'New machine' }).click();
+	const dialog = page.getByRole('dialog');
+	await dialog.getByRole('combobox', { name: 'Provider' }).click();
+	await page.getByRole('option', { name: 'Codex', exact: true }).click();
+	const apiKey = dialog.getByLabel('OPENAI_API_KEY (optional)');
+	await expect(apiKey).toBeVisible();
+	await expect(apiKey).not.toHaveAttribute('required', '');
+	await expect(dialog.getByText('Leave empty to sign in with a subscription from the terminal.')).toBeVisible();
+	await dialog.getByRole('button', { name: 'Create machine' }).click();
+
+	await expect.poll(() => createPayload).toBeTruthy();
+	expect(createPayload).toMatchObject({ agents: [{ provider: 'codex', mode: 'autonomous' }] });
+	expect((createPayload as { env_vars?: unknown[] }).env_vars ?? []).toEqual([]);
 });

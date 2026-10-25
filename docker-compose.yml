@@ -63,6 +63,7 @@ services:
       DEV_MACHINE_ACCESS_TICKET_TTL_SECONDS: ${DEV_MACHINE_ACCESS_TICKET_TTL_SECONDS:-60}
       DEV_MACHINE_GATEWAY_CONTAINER: ${DEV_MACHINE_GATEWAY_CONTAINER:-kuayle-dev-machine-gateway}
       DEV_MACHINE_IDE_IMAGE: ${DEV_MACHINE_IDE_IMAGE:-kuayle/dev-machine-ide:dev}
+      DEV_MACHINE_HEADLESS_IMAGE: ${DEV_MACHINE_HEADLESS_IMAGE:-kuayle/dev-machine-headless:dev}
       DEV_MACHINE_BROWSER_IMAGE: ${DEV_MACHINE_BROWSER_IMAGE:-kuayle/dev-machine-browser:dev}
       DEV_MACHINE_COLLECTOR_IMAGE: ${DEV_MACHINE_COLLECTOR_IMAGE:-kuayle/dev-machine-collector:dev}
       DEV_MACHINE_EGRESS_IMAGE: ${DEV_MACHINE_EGRESS_IMAGE:-kuayle/dev-machine-egress:dev}
@@ -234,6 +235,7 @@ services:
       DEV_MACHINE_HOST_DISK_MIN_FREE_GB: ${DEV_MACHINE_HOST_DISK_MIN_FREE_GB:-25}
       DEV_MACHINE_HOST_DISK_PATH: ${DEV_MACHINE_HOST_DISK_PATH:-/var/lib/kuayle-host-docker}
       DEV_MACHINE_IDE_IMAGE: ${DEV_MACHINE_IDE_IMAGE:-kuayle/dev-machine-ide:dev}
+      DEV_MACHINE_HEADLESS_IMAGE: ${DEV_MACHINE_HEADLESS_IMAGE:-kuayle/dev-machine-headless:dev}
       DEV_MACHINE_BROWSER_IMAGE: ${DEV_MACHINE_BROWSER_IMAGE:-kuayle/dev-machine-browser:dev}
       DEV_MACHINE_COLLECTOR_IMAGE: ${DEV_MACHINE_COLLECTOR_IMAGE:-kuayle/dev-machine-collector:dev}
       DEV_MACHINE_EGRESS_IMAGE: ${DEV_MACHINE_EGRESS_IMAGE:-kuayle/dev-machine-egress:dev}
@@ -283,6 +285,14 @@ services:
     build:
       context: ./devmachine
       dockerfile: ide/Dockerfile
+    entrypoint: ["/bin/true"]
+
+  dev-machine-headless:
+    profiles: ["dev-machine-images"]
+    image: ${DEV_MACHINE_HEADLESS_IMAGE:-kuayle/dev-machine-headless:dev}
+    build:
+      context: ./devmachine
+      dockerfile: headless/Dockerfile
     entrypoint: ["/bin/true"]
 
   dev-machine-browser:

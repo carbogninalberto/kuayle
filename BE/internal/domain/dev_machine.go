@@ -11,6 +11,11 @@ import (
 type DevMachineStatus string
 
 const (
+	DevMachineProfileStandard = "standard"
+	DevMachineProfileHeadless = "headless"
+)
+
+const (
 	DevMachineStatusConfiguring DevMachineStatus = "configuring"
 	DevMachineStatusQueued      DevMachineStatus = "queued"
 	DevMachineStatusSpawning    DevMachineStatus = "spawning"
@@ -101,6 +106,7 @@ type DevMachine struct {
 	BaseBranch           string           `json:"base_branch" db:"base_branch"`
 	WorkingBranch        string           `json:"working_branch" db:"working_branch"`
 	MachineSize          string           `json:"machine_size" db:"machine_size"`
+	Profile              string           `json:"profile" db:"profile"`
 	CPUMillis            int              `json:"cpu_millis" db:"cpu_millis"`
 	MemoryMB             int              `json:"memory_mb" db:"memory_mb"`
 	DiskGB               int              `json:"disk_gb" db:"disk_gb"`
@@ -190,6 +196,18 @@ type DevMachineEnvVar struct {
 	CreatedAt            time.Time  `json:"created_at" db:"created_at"`
 }
 
+type DevMachineWorkspaceModelCredential struct {
+	WorkspaceID          uuid.UUID  `json:"workspace_id" db:"workspace_id"`
+	Provider             string     `json:"provider" db:"provider"`
+	EncryptedAPIKey      string     `json:"-" db:"encrypted_api_key"`
+	EncryptionKeyVersion int        `json:"encryption_key_version" db:"encryption_key_version"`
+	DefaultModel         string     `json:"default_model" db:"default_model"`
+	Thinking             string     `json:"thinking" db:"thinking"`
+	UpdatedBy            *uuid.UUID `json:"-" db:"updated_by"`
+	CreatedAt            time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt            time.Time  `json:"updated_at" db:"updated_at"`
+}
+
 const (
 	DevMachineRuntimeCredentialScopeMachine    = "machine"
 	DevMachineRuntimeCredentialTypeGitHubToken = "github_installation_token"
@@ -262,6 +280,9 @@ type DevMachineAgentRun struct {
 	AllowedSecrets     json.RawMessage          `json:"allowed_secrets" db:"allowed_secrets"`
 	TestCommand        *json.RawMessage         `json:"test_command,omitempty" db:"test_command"`
 	CommandArgv        json.RawMessage          `json:"command_argv" db:"command_argv"`
+	CommandEnvironment json.RawMessage          `json:"command_environment" db:"command_environment"`
+	Model              string                   `json:"model,omitempty" db:"model"`
+	Thinking           string                   `json:"thinking,omitempty" db:"thinking"`
 	MaxRuntimeSeconds  int                      `json:"max_runtime_seconds" db:"max_runtime_seconds"`
 	PushBranch         bool                     `json:"push_branch" db:"push_branch"`
 	OpenPullRequest    bool                     `json:"open_pull_request" db:"open_pull_request"`

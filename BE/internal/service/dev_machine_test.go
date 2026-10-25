@@ -62,6 +62,162 @@ func TestCreateAgentRunRejectsPullRequestWithoutPush(t *testing.T) {
 	require.ErrorContains(t, err, "requires pushing the working branch")
 }
 
+func TestDeepSeekWorkspaceCredentialEncryptsKeyAndDefaults(t *testing.T) {
+	workspaceID, userID := uuid.New(), uuid.New()
+	store := &devMachineStoreFake{}
+	svc := newTestDevMachineService(store)
+
+	response, err := svc.UpdateWorkspaceModelProvider(context.Background(), workspaceID, userID, dto.UpdateWorkspaceModelProviderRequest{
+		APIKey: dmStrPtr("sk-deepseek-secret"), DefaultModel: "deepseek-v4-pro", Thinking: "max",
+	})
+	require.NoError(t, err)
+	require.True(t, response.Configured)
+	require.Equal(t, "deepseek-v4-pro", response.DefaultModel)
+	require.Equal(t, "max", response.Thinking)
+	require.NotNil(t, store.workspaceModelCredential)
+	require.NotContains(t, store.workspaceModelCredential.EncryptedAPIKey, "sk-deepseek-secret")
+	decrypted, err := cryptoutil.Decrypt(store.workspaceModelCredential.EncryptedAPIKey, cryptoutil.DeriveKey("test"))
+	require.NoError(t, err)
+	require.Equal(t, "sk-deepseek-secret", decrypted)
+	encoded, err := json.Marshal(response)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "sk-deepseek-secret")
+	require.NotContains(t, string(encoded), "encrypted")
+}
+
+func TestDeepSeekWorkspaceCredentialUpdateWithoutKeyKeepsStoredKey(t *testing.T) {
+	workspaceID := uuid.New()
+	existingEncrypted, err := cryptoutil.Encrypt("sk-existing", cryptoutil.DeriveKey("test"))
+	require.NoError(t, err)
+	store := &devMachineStoreFake{workspaceModelCredential: &domain.DevMachineWorkspaceModelCredential{
+		WorkspaceID: workspaceID, Provider: "deepseek", EncryptedAPIKey: existingEncrypted,
+		DefaultModel: "deepseek-flash", Thinking: "high", EncryptionKeyVersion: 1,
+	}}
+
+	_, err = newTestDevMachineService(store).UpdateWorkspaceModelProvider(context.Background(), workspaceID, uuid.New(), dto.UpdateWorkspaceModelProviderRequest{
+		DefaultModel: "deepseek-v4-pro", Thinking: "low",
+	})
+	require.NoError(t, err)
+	require.Equal(t, existingEncrypted, store.workspaceModelCredential.EncryptedAPIKey)
+	require.Equal(t, "deepseek-v4-pro", store.workspaceModelCredential.DefaultModel)
+	require.Equal(t, "low", store.workspaceModelCredential.Thinking)
+}
+
+func TestDeepSeekWorkspaceCredentialRequiresKeyOnFirstSave(t *testing.T) {
+	_, err := newTestDevMachineService(&devMachineStoreFake{}).UpdateWorkspaceModelProvider(
+		context.Background(), uuid.New(), uuid.New(), dto.UpdateWorkspaceModelProviderRequest{
+			DefaultModel: "deepseek-flash", Thinking: "high",
+		},
+	)
+	require.ErrorIs(t, err, ErrInvalidMachineInput)
+	require.ErrorContains(t, err, "api_key is required")
+}
+
+func TestDeepSeekWorkspaceCredentialRejectsInvalidValues(t *testing.T) {
+	for _, test := range []dto.UpdateWorkspaceModelProviderRequest{
+		{APIKey: dmStrPtr("has whitespace"), DefaultModel: "deepseek-flash", Thinking: "high"},
+		{APIKey: dmStrPtr(""), DefaultModel: "deepseek-flash", Thinking: "high"},
+		{APIKey: dmStrPtr("valid-key"), DefaultModel: "unknown", Thinking: "high"},
+		{APIKey: dmStrPtr("valid-key"), DefaultModel: "deepseek-flash", Thinking: "medium"},
+	} {
+		_, err := newTestDevMachineService(&devMachineStoreFake{}).UpdateWorkspaceModelProvider(
+			context.Background(), uuid.New(), uuid.New(), test,
+		)
+		require.ErrorIs(t, err, ErrInvalidMachineInput)
+	}
+}
+
+func TestCreateAgentRunAppliesDeepSeekOverrides(t *testing.T) {
+	workspaceID, machineID, userID := uuid.New(), uuid.New(), uuid.New()
+	policy := testPolicy(workspaceID)
+	policy.AllowedProviders = json.RawMessage(`["codex"]`)
+	store := &devMachineStoreFake{
+		policy: policy,
+		machine: &domain.DevMachine{
+			ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID,
+			Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning,
+			ExpiresAt: time.Now().Add(time.Hour), MaxRuntimeMinutes: 60,
+		},
+		agentProvider: &domain.DevMachineAgentProvider{
+			ProviderID: "codex", Enabled: true, SupportedModes: json.RawMessage(`["autonomous"]`),
+			RequiredSecrets: json.RawMessage(`[]`), Config: json.RawMessage(`{}`),
+		},
+		workspaceModelCredential: &domain.DevMachineWorkspaceModelCredential{
+			WorkspaceID: workspaceID, Provider: "deepseek", EncryptedAPIKey: "encrypted",
+			DefaultModel: "deepseek-flash", Thinking: "high",
+		},
+	}
+	service := NewDevMachineService(store, agent.NewRegistry(agent.NewCodexProvider("")), true,
+		"machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, DevMachineImages{})
+
+	run, err := service.CreateAgentRun(context.Background(), workspaceID, machineID, userID, dto.CreateAgentRunRequest{
+		UseRootWorkspace: true, PushBranch: dmBoolPtr(false), Provider: "codex", Mode: "autonomous",
+		Prompt: "Implement it", MaxRuntimeSeconds: 30, Model: "deepseek-v4-pro", Thinking: "off",
+	})
+	require.NoError(t, err)
+	var argv []string
+	require.NoError(t, json.Unmarshal(run.CommandArgv, &argv))
+	require.Contains(t, argv, `model="deepseek-v4-pro"`)
+	require.Contains(t, argv, `model_provider="deepseek"`)
+	require.Contains(t, argv, `model_reasoning_effort="none"`)
+	require.JSONEq(t, `{}`, string(run.CommandEnvironment))
+	require.Equal(t, "deepseek-v4-pro", run.Model)
+	require.Equal(t, "off", run.Thinking)
+}
+
+func TestCreateAgentRunClaudeOverrideStoresNonSecretEnvironment(t *testing.T) {
+	workspaceID, machineID, userID := uuid.New(), uuid.New(), uuid.New()
+	policy := testPolicy(workspaceID)
+	policy.AllowedProviders = json.RawMessage(`["claude-code"]`)
+	store := &devMachineStoreFake{
+		policy: policy,
+		machine: &domain.DevMachine{
+			ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID,
+			Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning,
+			ExpiresAt: time.Now().Add(time.Hour), MaxRuntimeMinutes: 60,
+		},
+		agentProvider: &domain.DevMachineAgentProvider{
+			ProviderID: "claude-code", Enabled: true, SupportedModes: json.RawMessage(`["autonomous"]`),
+			RequiredSecrets: json.RawMessage(`[]`), Config: json.RawMessage(`{}`),
+		},
+		workspaceModelCredential: &domain.DevMachineWorkspaceModelCredential{
+			WorkspaceID: workspaceID, Provider: "deepseek", EncryptedAPIKey: "encrypted",
+			DefaultModel: "deepseek-flash", Thinking: "high",
+		},
+	}
+	service := NewDevMachineService(store, agent.NewRegistry(agent.NewClaudeCodeProvider("")), true,
+		"machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, DevMachineImages{})
+
+	run, err := service.CreateAgentRun(context.Background(), workspaceID, machineID, userID, dto.CreateAgentRunRequest{
+		UseRootWorkspace: true, PushBranch: dmBoolPtr(false), Provider: "claude-code", Mode: "autonomous",
+		Prompt: "Implement it", MaxRuntimeSeconds: 30, Model: "deepseek-flash", Thinking: "max",
+	})
+	require.NoError(t, err)
+	require.JSONEq(t, `{"CLAUDE_CODE_EFFORT_LEVEL":"max"}`, string(run.CommandEnvironment))
+	require.NotContains(t, string(run.CommandEnvironment), "KEY")
+	require.Equal(t, "max", run.Thinking)
+}
+
+func TestCreateAgentRunRejectsOverridesForOtherProviders(t *testing.T) {
+	_, err := newTestDevMachineService(&devMachineStoreFake{}).CreateAgentRun(
+		context.Background(), uuid.New(), uuid.New(), uuid.New(), dto.CreateAgentRunRequest{
+			Provider: "opencode", Mode: "autonomous", Prompt: "test", Model: "deepseek-flash",
+		},
+	)
+	require.ErrorIs(t, err, ErrInvalidMachineInput)
+	require.ErrorContains(t, err, "codex and claude-code")
+}
+
+func TestCreateAgentRunRequiresConfiguredDeepSeekForModelOverride(t *testing.T) {
+	_, err := newTestDevMachineService(&devMachineStoreFake{}).CreateAgentRun(
+		context.Background(), uuid.New(), uuid.New(), uuid.New(), dto.CreateAgentRunRequest{
+			Provider: "codex", Mode: "autonomous", Prompt: "test", Model: "deepseek-flash",
+		},
+	)
+	require.ErrorIs(t, err, ErrInvalidOperation)
+	require.ErrorContains(t, err, "DeepSeek")
+}
+
 func TestMachineTokenAuthenticationDistinguishesCredentialsFromStorageFailure(t *testing.T) {
 	storageErr := errors.New("token database unavailable")
 	service := newTestDevMachineService(&devMachineStoreFake{authenticateMachineTokenErr: storageErr})
@@ -320,6 +476,141 @@ func TestCreateGenericMachineDoesNotRequireRepositoryOrTTL(t *testing.T) {
 	}
 	for _, envVar := range store.createdEnvVars {
 		require.NotEqual(t, "KUAYLE_BROWSER_CDP_TOKEN", envVar.Name)
+	}
+}
+
+func TestCreateStandardMachinePersistsProfileAndIDE(t *testing.T) {
+	workspaceID, userID := uuid.New(), uuid.New()
+	store := &devMachineStoreFake{policy: testPolicy(workspaceID)}
+
+	machine, _, err := newTestDevMachineService(store).Create(context.Background(), workspaceID, userID, dto.CreateDevMachineRequest{
+		Name: "standard-machine", Size: "small",
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, domain.DevMachineProfileStandard, machine.Profile)
+	require.Equal(t, domain.DevMachineProfileStandard, store.createdMachine.Profile)
+	serviceTypes := make(map[string]bool)
+	for _, service := range store.createdServices {
+		serviceTypes[service.ServiceType] = true
+	}
+	require.True(t, serviceTypes["ide"])
+	require.True(t, serviceTypes["terminal"])
+}
+
+func TestDefaultPolicyAllowsAllBuiltInProviders(t *testing.T) {
+	workspaceID := uuid.New()
+	policy, err := newTestDevMachineService(&devMachineStoreFake{}).GetPolicy(context.Background(), workspaceID)
+
+	require.NoError(t, err)
+	require.JSONEq(t, `["claude-code","opencode","codex","qwen-code","crush","kimi","goose"]`, string(policy.AllowedProviders))
+}
+
+func TestCreateHeadlessMachineBuildsTerminalOnlyDeveloperServices(t *testing.T) {
+	workspaceID, userID := uuid.New(), uuid.New()
+	store := &devMachineStoreFake{policy: testPolicy(workspaceID)}
+	service := NewDevMachineService(
+		store, agent.NewRegistry(), true, "machines.example.test", cryptoutil.DeriveKey("test"), time.Minute,
+		DevMachineImages{IDE: "registry.example/ide:test", Headless: "registry.example/headless:test"},
+	)
+
+	machine, _, err := service.Create(context.Background(), workspaceID, userID, dto.CreateDevMachineRequest{
+		Name: "headless-machine", Size: "small", Profile: "headless",
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, domain.DevMachineProfileHeadless, machine.Profile)
+	serviceTypes := make(map[string]string)
+	for _, created := range store.createdServices {
+		serviceTypes[created.ServiceType] = created.ImageRef
+	}
+	require.Equal(t, "registry.example/headless:test", serviceTypes["terminal"])
+	require.Contains(t, serviceTypes, "collector")
+	require.Contains(t, serviceTypes, "egress")
+	require.NotContains(t, serviceTypes, "ide")
+	require.NotContains(t, serviceTypes, "browser")
+}
+
+func TestCreateHeadlessMachineRejectsIDEAndBrowser(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		services dto.DevMachineServicesInput
+	}{
+		{name: "ide", services: dto.DevMachineServicesInput{IDE: true}},
+		{name: "browser", services: dto.DevMachineServicesInput{Browser: true}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			workspaceID, userID := uuid.New(), uuid.New()
+			store := &devMachineStoreFake{policy: testPolicy(workspaceID)}
+
+			_, _, err := newTestDevMachineService(store).Create(context.Background(), workspaceID, userID, dto.CreateDevMachineRequest{
+				Name: "invalid-headless", Size: "small", Profile: "headless", Services: test.services,
+			})
+
+			require.ErrorIs(t, err, ErrInvalidMachineInput)
+			require.EqualError(t, err, "invalid dev machine request: headless machines do not include the IDE or browser")
+			require.Nil(t, store.createdMachine)
+		})
+	}
+}
+
+func TestCreateHeadlessMachineKeepsHeadlessDeveloperImage(t *testing.T) {
+	workspaceID, userID, environmentID := uuid.New(), uuid.New(), uuid.New()
+	const headlessImage = "registry.example/headless:test"
+	environmentImage := "sha256:environment-image"
+	store := &devMachineStoreFake{
+		policy: testPolicy(workspaceID),
+		environments: map[uuid.UUID]*domain.DevMachineEnvironment{
+			environmentID: {
+				ID: environmentID, WorkspaceID: workspaceID, Name: "environment",
+				ImageRef: environmentImage, ImageDigest: &environmentImage, Status: "ready",
+			},
+		},
+	}
+	service := NewDevMachineService(
+		store, agent.NewRegistry(), true, "machines.example.test", cryptoutil.DeriveKey("test"), time.Minute,
+		DevMachineImages{Headless: headlessImage},
+	)
+
+	_, _, err := service.Create(context.Background(), workspaceID, userID, dto.CreateDevMachineRequest{
+		Name: "headless-image", Size: "small", Profile: "headless", EnvironmentID: dmStrPtr(environmentID.String()),
+	})
+
+	require.NoError(t, err)
+	for _, created := range store.createdServices {
+		if created.ServiceType == "terminal" {
+			require.Equal(t, headlessImage, created.ImageRef)
+		}
+	}
+}
+
+func TestHeadlessProviderImagesUseHeadlessImage(t *testing.T) {
+	workspaceID := uuid.New()
+	policy := testPolicy(workspaceID)
+	policy.AllowedProviders = json.RawMessage(`["qwen-code","crush","kimi","goose"]`)
+	const headlessImage = "registry.example/headless:test"
+	registry := agent.NewRegistry(
+		agent.NewQwenCodeProvider(headlessImage),
+		agent.NewCrushProvider(headlessImage),
+		agent.NewKimiProvider(headlessImage),
+		agent.NewGooseProvider(headlessImage),
+	)
+	service := NewDevMachineService(
+		&devMachineStoreFake{}, registry, true, "machines.example.test", cryptoutil.DeriveKey("test"), time.Minute,
+		DevMachineImages{},
+	)
+
+	providers, err := service.buildProviders(uuid.New(), policy, []dto.DevMachineAgentInput{
+		{Provider: "qwen-code", Mode: "autonomous"},
+		{Provider: "crush", Mode: "autonomous"},
+		{Provider: "kimi", Mode: "autonomous"},
+		{Provider: "goose", Mode: "autonomous"},
+	})
+
+	require.NoError(t, err)
+	require.Len(t, providers, 4)
+	for _, provider := range providers {
+		require.Equal(t, headlessImage, provider.ImageRef)
 	}
 }
 
@@ -1528,6 +1819,7 @@ type devMachineStoreFake struct {
 	updatePreferencesErr        error
 	queuedOperation             *domain.DevMachineOperation
 	queuedDesired               domain.DevMachineStatus
+	workspaceModelCredential    *domain.DevMachineWorkspaceModelCredential
 }
 
 func newTestDevMachineService(store repository.DevMachineStore) *DevMachineService {
@@ -1729,6 +2021,21 @@ func (f *devMachineStoreFake) ListEnvVarsInternal(_ context.Context, machineID u
 		}
 	}
 	return filtered, nil
+}
+
+func (f *devMachineStoreFake) GetWorkspaceModelCredential(context.Context, uuid.UUID, string) (*domain.DevMachineWorkspaceModelCredential, error) {
+	return f.workspaceModelCredential, nil
+}
+
+func (f *devMachineStoreFake) UpsertWorkspaceModelCredential(_ context.Context, credential *domain.DevMachineWorkspaceModelCredential) error {
+	copy := *credential
+	f.workspaceModelCredential = &copy
+	return nil
+}
+
+func (f *devMachineStoreFake) DeleteWorkspaceModelCredential(context.Context, uuid.UUID, string) error {
+	f.workspaceModelCredential = nil
+	return nil
 }
 
 func (f *devMachineStoreFake) ListRuntimeCredentials(_ context.Context, machineID uuid.UUID) ([]domain.DevMachineRuntimeCredential, error) {
@@ -1986,3 +2293,35 @@ func scopeKey(teamID, projectID, issueID *uuid.UUID) string {
 }
 
 func dmStrPtr(value string) *string { return &value }
+func dmBoolPtr(value bool) *bool    { return &value }
+
+func TestProviderListingsOfferOptionalAPIKeys(t *testing.T) {
+	workspaceID, userID := uuid.New(), uuid.New()
+	store := &devMachineStoreFake{policy: testPolicy(workspaceID)}
+	store.policy.AllowedProviders = json.RawMessage(`["claude-code","codex"]`)
+	service := NewDevMachineService(
+		store, agent.NewRegistry(agent.NewClaudeCodeProvider(""), agent.NewCodexProvider("")), true,
+		"machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, DevMachineImages{},
+	)
+
+	providers, err := service.AvailableProviders(context.Background(), workspaceID)
+	require.NoError(t, err)
+	optional := map[string][]string{}
+	for _, provider := range providers {
+		require.Empty(t, provider.RequiredSecrets, provider.ID)
+		optional[provider.ID] = provider.OptionalSecrets
+	}
+	require.Equal(t, []string{"ANTHROPIC_API_KEY"}, optional["claude-code"])
+	require.Equal(t, []string{"OPENAI_API_KEY"}, optional["codex"])
+
+	machineID := uuid.New()
+	store.machine = &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID}
+	store.agentProvider = &domain.DevMachineAgentProvider{
+		ID: uuid.New(), MachineID: machineID, ProviderID: "codex", DisplayName: "Codex", Enabled: true,
+		RequiredSecrets: json.RawMessage(`[]`), SupportedModes: json.RawMessage(`["autonomous"]`),
+	}
+	configured, err := service.ConfiguredProviders(context.Background(), workspaceID, machineID, userID)
+	require.NoError(t, err)
+	require.Len(t, configured, 1)
+	require.Equal(t, []string{"OPENAI_API_KEY"}, configured[0].OptionalSecrets)
+}

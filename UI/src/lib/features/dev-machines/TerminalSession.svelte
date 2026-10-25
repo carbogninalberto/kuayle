@@ -20,6 +20,7 @@
 	import type { Terminal as XTerminal, IDisposable } from '@xterm/xterm';
 	import type { FitAddon as XFitAddon } from '@xterm/addon-fit';
 	import { useTerminalDock } from './terminal-dock-context.svelte';
+	import { TERMINAL_OPTIONS, TERMINAL_UNICODE_VERSION } from './terminal-options';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
 	type SocketConnection = { socket: WebSocket; timer?: ReturnType<typeof setTimeout>; expectedClose: boolean };
@@ -27,9 +28,11 @@
 	let {
 		tab,
 		visible = true,
+		fullscreen = false,
 	}: {
 		tab: import('./terminal-dock-context.svelte').TerminalTab;
 		visible?: boolean;
+		fullscreen?: boolean;
 	} = $props();
 
 	let terminalElement: HTMLDivElement | undefined;
@@ -69,6 +72,17 @@
 
 		const id = ++runId;
 		void start(id);
+	});
+
+	$effect(() => {
+		const layoutIsFullscreen = fullscreen;
+		if (!visible || !terminal || !fitAddon) return;
+		const restoreFocus = layoutIsFullscreen || !!terminalElement?.contains(document.activeElement);
+		void tick().then(() => {
+			if (!visible || !terminal || !fitAddon) return;
+			fitTerminal();
+			if (restoreFocus) terminal.focus();
+		});
 	});
 
 	onDestroy(() => {
@@ -121,31 +135,34 @@
 		}
 	}
 
+	// The WebGL renderer draws block and box glyphs itself, so TUI logos and borders have no
+	// font gaps. The DOM renderer remains the fallback when WebGL is unavailable or lost.
+	async function loadWebglRenderer(target: XTerminal) {
+		try {
+			const { WebglAddon } = await import('@xterm/addon-webgl');
+			const webgl = new WebglAddon();
+			webgl.onContextLoss(() => webgl.dispose());
+			target.loadAddon(webgl);
+		} catch {
+			// Keep the DOM renderer.
+		}
+	}
+
 	async function prepareTerminal() {
-		const [{ Terminal }, { FitAddon }] = await Promise.all([
+		const [{ Terminal }, { FitAddon }, { Unicode11Addon }] = await Promise.all([
 			import('@xterm/xterm'),
-			import('@xterm/addon-fit')
+			import('@xterm/addon-fit'),
+			import('@xterm/addon-unicode11')
 		]);
 		await tick();
 		if (!terminalElement) throw new Error('Terminal container is not ready');
-		terminal = new Terminal({
-			cursorBlink: true,
-			convertEol: true,
-			fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
-			fontSize: 13,
-			letterSpacing: 0,
-			lineHeight: 1.1,
-			scrollback: 5000,
-			theme: {
-				background: '#09090b',
-				foreground: '#e4e4e7',
-				cursor: '#fafafa',
-				selectionBackground: '#3f3f46'
-			}
-		});
+		terminal = new Terminal(TERMINAL_OPTIONS);
 		fitAddon = new FitAddon();
 		terminal.loadAddon(fitAddon);
+		terminal.loadAddon(new Unicode11Addon());
+		terminal.unicode.activeVersion = TERMINAL_UNICODE_VERSION;
 		terminal.open(terminalElement);
+		await loadWebglRenderer(terminal);
 		fitTerminal();
 		terminal.writeln('\x1b[90mPreparing terminal session...\x1b[0m');
 		disposables.push(

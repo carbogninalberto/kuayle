@@ -69,6 +69,10 @@ func main() {
 		agent.NewClaudeCodeProvider(configValue.DevMachine.ClaudeCodeImage),
 		agent.NewOpenCodeProvider(configValue.DevMachine.OpenCodeImage),
 		agent.NewCodexProvider(configValue.DevMachine.CodexImage),
+		agent.NewQwenCodeProvider(configValue.DevMachine.HeadlessImage),
+		agent.NewCrushProvider(configValue.DevMachine.HeadlessImage),
+		agent.NewKimiProvider(configValue.DevMachine.HeadlessImage),
+		agent.NewGooseProvider(configValue.DevMachine.HeadlessImage),
 		agent.NewCustomCLIProvider(configValue.DevMachine.CustomImage),
 	)
 	hostname, _ := os.Hostname()

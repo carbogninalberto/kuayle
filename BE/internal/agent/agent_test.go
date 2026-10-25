@@ -20,6 +20,134 @@ func TestBuiltinProvidersBuildArgvWithoutShell(t *testing.T) {
 	}
 }
 
+func TestNewBuiltinProvidersBuildExactArgv(t *testing.T) {
+	const headlessImage = "registry.example/kuayle/dev-machine-headless:test"
+	tests := []struct {
+		name            string
+		provider        Provider
+		interactiveArgv []string
+		autonomousArgv  []string
+	}{
+
+		{
+			name:            "qwen-code",
+			provider:        NewQwenCodeProvider(headlessImage),
+			interactiveArgv: []string{"qwen"},
+			autonomousArgv:  []string{"qwen", "--yolo", "--output-format", "stream-json", "fix the issue"},
+		},
+		{
+			name:            "crush",
+			provider:        NewCrushProvider(headlessImage),
+			interactiveArgv: []string{"crush"},
+			autonomousArgv:  []string{"crush", "--yolo", "run", "--quiet", "fix the issue"},
+		},
+		{
+			name:            "kimi",
+			provider:        NewKimiProvider(headlessImage),
+			interactiveArgv: []string{"kimi"},
+			autonomousArgv:  []string{"kimi", "--print", "--yolo", "--output-format", "stream-json", "--prompt", "fix the issue"},
+		},
+		{
+			name:            "goose",
+			provider:        NewGooseProvider(headlessImage),
+			interactiveArgv: []string{"goose", "session"},
+			autonomousArgv:  []string{"goose", "run", "--no-session", "--quiet", "--output-format", "stream-json", "--text", "fix the issue"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			interactive, err := test.provider.BuildInvocation(RunInput{Mode: ModeInteractive, Prompt: "fix the issue"})
+			require.NoError(t, err)
+			require.Equal(t, test.interactiveArgv, interactive.Argv)
+			require.True(t, interactive.Interactive)
+
+			autonomous, err := test.provider.BuildInvocation(RunInput{Mode: ModeAutonomous, Prompt: "fix the issue"})
+			require.NoError(t, err)
+			require.Equal(t, test.autonomousArgv, autonomous.Argv)
+			require.False(t, autonomous.Interactive)
+			require.Equal(t, headlessImage, autonomous.Image)
+		})
+	}
+}
+
+func TestNewBuiltinProvidersUseHeadlessImageDefaults(t *testing.T) {
+	const headlessImage = "ghcr.io/kuayle/dev-machine-headless:0.1.0"
+	providers := []Provider{
+		NewQwenCodeProvider(""),
+		NewCrushProvider(""),
+		NewKimiProvider(""),
+		NewGooseProvider(""),
+	}
+
+	for _, provider := range providers {
+		metadata := provider.Metadata()
+		require.Equal(t, headlessImage, metadata.DefaultImage)
+		require.Empty(t, metadata.RequiredSecrets)
+		require.ElementsMatch(t, []Mode{ModeInteractive, ModeAutonomous}, metadata.SupportedModes)
+	}
+}
+
+func TestStreamJSONProvidersExtractLastAssistantText(t *testing.T) {
+	const headlessImage = "registry.example/kuayle/dev-machine-headless:test"
+	stdout := strings.Join([]string{
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"First message"}]}}`,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Final provider answer"}]}}`,
+	}, "\n")
+	for _, provider := range []Provider{
+		NewQwenCodeProvider(headlessImage),
+		NewKimiProvider(headlessImage),
+		NewGooseProvider(headlessImage),
+	} {
+		t.Run(provider.Metadata().ID, func(t *testing.T) {
+			require.Equal(t, "Final provider answer", provider.ParseResult(stdout, "", 0).Summary)
+		})
+	}
+}
+
+func TestCodexRunOverridesBuildDeepSeekArgs(t *testing.T) {
+	provider := NewCodexProvider("")
+
+	invocation, err := provider.BuildInvocation(RunInput{
+		Mode: ModeAutonomous, Prompt: "fix the issue", Model: "deepseek-v4-pro", Thinking: "off",
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, []string{
+		"codex", "exec", "--json", "--full-auto",
+		"-c", `model="deepseek-v4-pro"`,
+		"-c", `model_provider="deepseek"`,
+		"-c", `model_reasoning_effort="none"`,
+		"fix the issue",
+	}, invocation.Argv)
+	require.Empty(t, invocation.Environment)
+}
+
+func TestClaudeCodeRunOverridesUseArgvModelAndEnvironmentEffort(t *testing.T) {
+	provider := NewClaudeCodeProvider("")
+
+	invocation, err := provider.BuildInvocation(RunInput{
+		Mode: ModeAutonomous, Prompt: "fix the issue", Model: "deepseek-flash", Thinking: "max",
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, []string{
+		"claude", "--print", "--output-format", "stream-json", "--verbose",
+		"--model", "deepseek-flash", "-p", "fix the issue",
+	}, invocation.Argv)
+	require.Equal(t, map[string]string{"CLAUDE_CODE_EFFORT_LEVEL": "max"}, invocation.Environment)
+}
+
+func TestClaudeCodeThinkingOffOmitsEffortEnvironment(t *testing.T) {
+	invocation, err := NewClaudeCodeProvider("").BuildInvocation(RunInput{
+		Mode: ModeAutonomous, Prompt: "fix the issue", Thinking: "off",
+	})
+
+	require.NoError(t, err)
+	require.Empty(t, invocation.Environment)
+	require.NotContains(t, invocation.Argv, "--effort")
+}
+
 func TestCustomProviderRejectsShell(t *testing.T) {
 	provider := NewCustomCLIProvider("")
 	for _, entrypoint := range []string{"/bin/sh", "/bin/zsh", "pwsh"} {
@@ -184,4 +312,23 @@ func TestOpenCodeParseResultSummaryTruncation(t *testing.T) {
 
 	result := p.ParseResult(stdout, "", 0)
 	require.LessOrEqual(t, len(result.Summary), 4000)
+}
+
+// Claude Code and Codex also work with a subscription login, so their API keys are optional.
+func TestSubscriptionCapableProvidersDoNotRequireAPIKeys(t *testing.T) {
+	for _, testCase := range []struct {
+		provider Provider
+		key      string
+	}{
+		{NewClaudeCodeProvider(""), "ANTHROPIC_API_KEY"},
+		{NewCodexProvider(""), "OPENAI_API_KEY"},
+	} {
+		metadata := testCase.provider.Metadata()
+		require.Empty(t, metadata.RequiredSecrets, metadata.ID)
+		require.Equal(t, []string{testCase.key}, metadata.OptionalSecrets, metadata.ID)
+
+		invocation, err := testCase.provider.BuildInvocation(RunInput{Mode: ModeAutonomous, Prompt: "fix the issue"})
+		require.NoError(t, err)
+		require.Empty(t, invocation.SecretNames, metadata.ID)
+	}
 }

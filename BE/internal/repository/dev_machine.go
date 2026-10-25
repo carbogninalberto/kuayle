@@ -30,6 +30,9 @@ type DevMachineStore interface {
 	GetProvider(context.Context, uuid.UUID, uuid.UUID, string) (*domain.DevMachineAgentProvider, error)
 	ListProviders(context.Context, uuid.UUID, uuid.UUID) ([]domain.DevMachineAgentProvider, error)
 	ListEnvVarsInternal(context.Context, uuid.UUID, *string, string) ([]domain.DevMachineEnvVar, error)
+	GetWorkspaceModelCredential(context.Context, uuid.UUID, string) (*domain.DevMachineWorkspaceModelCredential, error)
+	UpsertWorkspaceModelCredential(context.Context, *domain.DevMachineWorkspaceModelCredential) error
+	DeleteWorkspaceModelCredential(context.Context, uuid.UUID, string) error
 	ListRuntimeCredentials(context.Context, uuid.UUID) ([]domain.DevMachineRuntimeCredential, error)
 	CreateAgentRun(context.Context, *domain.DevMachineAgentRun, *domain.DevMachineOperation) error
 	GetAgentRun(context.Context, uuid.UUID, uuid.UUID) (*domain.DevMachineAgentRun, error)
@@ -196,19 +199,22 @@ func (r *DevMachineRepository) CreateBundle(
 		}
 	}
 
+	if machine.Profile == "" {
+		machine.Profile = domain.DevMachineProfileStandard
+	}
 	const machineQuery = `INSERT INTO dev_machines (
 		id, workspace_id, project_id, issue_id, created_by_user_id, routing_key, name,
 		status, desired_status, generation, repo_url, repo_provider, repo_owner, repo_name,
-		base_branch, working_branch, machine_size, cpu_millis, memory_mb, disk_gb, pids_limit,
+		base_branch, working_branch, machine_size, profile, cpu_millis, memory_mb, disk_gb, pids_limit,
 		max_runtime_minutes, services_config, labels, expires_at, environment_id,
 		repository_affinity_id, keep_running, environment_builder, last_activity_at
-	) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30)
+	) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31)
 	RETURNING created_at, updated_at`
 	if err := tx.QueryRowContext(ctx, machineQuery,
 		machine.ID, machine.WorkspaceID, machine.ProjectID, machine.IssueID, machine.CreatedByUserID,
 		machine.RoutingKey, machine.Name, machine.Status, machine.DesiredStatus, machine.Generation,
 		machine.RepoURL, machine.RepoProvider, machine.RepoOwner, machine.RepoName, machine.BaseBranch,
-		machine.WorkingBranch, machine.MachineSize, machine.CPUMillis, machine.MemoryMB, machine.DiskGB,
+		machine.WorkingBranch, machine.MachineSize, machine.Profile, machine.CPUMillis, machine.MemoryMB, machine.DiskGB,
 		machine.PidsLimit, machine.MaxRuntimeMinutes, machine.ServicesConfig, machine.Labels, machine.ExpiresAt,
 		machine.EnvironmentID, machine.RepositoryAffinityID, machine.KeepRunning, machine.EnvironmentBuilder, machine.LastActivityAt,
 	).Scan(&machine.CreatedAt, &machine.UpdatedAt); err != nil {
@@ -724,6 +730,42 @@ func (r *DevMachineRepository) ListEnvVarsInternal(ctx context.Context, machineI
 	return envVars, err
 }
 
+func (r *DevMachineRepository) GetWorkspaceModelCredential(ctx context.Context, workspaceID uuid.UUID, provider string) (*domain.DevMachineWorkspaceModelCredential, error) {
+	var credential domain.DevMachineWorkspaceModelCredential
+	err := r.db.GetContext(ctx, &credential, `SELECT * FROM dev_machine_workspace_model_credentials
+		WHERE workspace_id=$1 AND provider=$2`, workspaceID, provider)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return &credential, err
+}
+
+func (r *DevMachineRepository) UpsertWorkspaceModelCredential(ctx context.Context, credential *domain.DevMachineWorkspaceModelCredential) error {
+	if credential.EncryptionKeyVersion == 0 {
+		credential.EncryptionKeyVersion = 1
+	}
+	return r.db.QueryRowContext(ctx, `INSERT INTO dev_machine_workspace_model_credentials
+		(workspace_id, provider, encrypted_api_key, encryption_key_version, default_model, thinking, updated_by)
+		VALUES ($1,$2,$3,$4,$5,$6,$7)
+		ON CONFLICT (workspace_id, provider) DO UPDATE SET
+			encrypted_api_key=EXCLUDED.encrypted_api_key,
+			encryption_key_version=EXCLUDED.encryption_key_version,
+			default_model=EXCLUDED.default_model,
+			thinking=EXCLUDED.thinking,
+			updated_by=EXCLUDED.updated_by,
+			updated_at=NOW()
+		RETURNING created_at, updated_at`,
+		credential.WorkspaceID, credential.Provider, credential.EncryptedAPIKey, credential.EncryptionKeyVersion,
+		credential.DefaultModel, credential.Thinking, credential.UpdatedBy,
+	).Scan(&credential.CreatedAt, &credential.UpdatedAt)
+}
+
+func (r *DevMachineRepository) DeleteWorkspaceModelCredential(ctx context.Context, workspaceID uuid.UUID, provider string) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM dev_machine_workspace_model_credentials
+		WHERE workspace_id=$1 AND provider=$2`, workspaceID, provider)
+	return err
+}
+
 func (r *DevMachineRepository) UpsertRuntimeCredential(ctx context.Context, credential *domain.DevMachineRuntimeCredential) error {
 	if credential.ID == uuid.Nil {
 		credential.ID = uuid.New()
@@ -817,14 +859,18 @@ func (r *DevMachineRepository) CreateAgentRun(ctx context.Context, run *domain.D
 	if active {
 		return ErrActiveAgentRun
 	}
+	if len(run.CommandEnvironment) == 0 {
+		run.CommandEnvironment = json.RawMessage(`{}`)
+	}
 	if err := tx.QueryRowContext(ctx, `INSERT INTO dev_machine_agent_runs
 		(id, machine_id, workspace_id, issue_id, checkout_id, requested_by_user_id, provider_id, mode, status, prompt,
-		 acceptance_criteria, allowed_commands, forbidden_paths, allowed_secrets, test_command, command_argv,
-		 max_runtime_seconds, push_branch, open_pull_request)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING created_at`,
+		 acceptance_criteria, allowed_commands, forbidden_paths, allowed_secrets, test_command, command_argv, command_environment,
+		 model, thinking, max_runtime_seconds, push_branch, open_pull_request)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22) RETURNING created_at`,
 		run.ID, run.MachineID, run.WorkspaceID, run.IssueID, run.CheckoutID, run.RequestedByUserID, run.ProviderID,
 		run.Mode, run.Status, run.Prompt, run.AcceptanceCriteria, run.AllowedCommands, run.ForbiddenPaths,
-		run.AllowedSecrets, nullJSONPointer(run.TestCommand), run.CommandArgv, run.MaxRuntimeSeconds, run.PushBranch, run.OpenPullRequest,
+		run.AllowedSecrets, nullJSONPointer(run.TestCommand), run.CommandArgv, run.CommandEnvironment, run.Model, run.Thinking,
+		run.MaxRuntimeSeconds, run.PushBranch, run.OpenPullRequest,
 	).Scan(&run.CreatedAt); err != nil {
 		return err
 	}

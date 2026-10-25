@@ -331,6 +331,122 @@ func TestDevMachineGetIsCreatorScoped(t *testing.T) {
 	require.Equal(t, http.StatusOK, recorder.Code)
 }
 
+func TestDeepSeekModelProviderResponsesNeverExposeAPIKey(t *testing.T) {
+	workspaceID, userID := uuid.New(), uuid.New()
+	encrypted, err := cryptoutil.Encrypt("sk-handler-secret", cryptoutil.DeriveKey("test"))
+	require.NoError(t, err)
+	store := &handlerDevMachineStoreFake{
+		workspaceModelCredential: &domain.DevMachineWorkspaceModelCredential{
+			WorkspaceID: workspaceID, Provider: "deepseek", EncryptedAPIKey: encrypted,
+			DefaultModel: "deepseek-flash", Thinking: "high", UpdatedBy: &userID,
+		},
+	}
+	h := NewDevMachineHandler(service.NewDevMachineService(
+		store, agent.NewRegistry(), true, "machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, service.DevMachineImages{},
+	))
+
+	recorder := httptest.NewRecorder()
+	ctx := devMachineHandlerContext(httptest.NewRequest(http.MethodGet, "/dev-machine-model-providers/deepseek", nil), recorder, workspaceID, userID)
+	ctx.Set("workspace_role", domain.RoleOwner)
+	require.NoError(t, h.GetWorkspaceModelProvider(ctx))
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.NotContains(t, recorder.Body.String(), "sk-handler-secret")
+	require.NotContains(t, recorder.Body.String(), encrypted)
+	var response dto.WorkspaceModelProviderResponse
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+	require.True(t, response.Configured)
+	require.Equal(t, []string{"deepseek-flash", "deepseek-v4-pro"}, response.Models)
+
+	recorder = httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPut, "/dev-machine-model-providers/deepseek", strings.NewReader(
+		`{"default_model":"deepseek-v4-pro","thinking":"low"}`,
+	))
+	request.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	ctx = devMachineHandlerContext(request, recorder, workspaceID, userID)
+	ctx.Set("workspace_role", domain.RoleAdmin)
+	require.NoError(t, h.UpdateWorkspaceModelProvider(ctx))
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.NotContains(t, recorder.Body.String(), "sk-handler-secret")
+	require.NotContains(t, recorder.Body.String(), encrypted)
+	require.Equal(t, encrypted, store.workspaceModelCredential.EncryptedAPIKey)
+}
+
+func TestDeepSeekModelProviderStatusIsReadableByMembersWithoutKey(t *testing.T) {
+	workspaceID, userID := uuid.New(), uuid.New()
+	encrypted, err := cryptoutil.Encrypt("sk-member-secret", cryptoutil.DeriveKey("test"))
+	require.NoError(t, err)
+	store := &handlerDevMachineStoreFake{
+		workspaceModelCredential: &domain.DevMachineWorkspaceModelCredential{
+			WorkspaceID: workspaceID, Provider: "deepseek", EncryptedAPIKey: encrypted,
+			DefaultModel: "deepseek-v4-pro", Thinking: "low", UpdatedBy: &userID,
+		},
+	}
+	h := NewDevMachineHandler(service.NewDevMachineService(
+		store, agent.NewRegistry(), true, "machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, service.DevMachineImages{},
+	))
+
+	recorder := httptest.NewRecorder()
+	ctx := devMachineHandlerContext(httptest.NewRequest(http.MethodGet, "/dev-machine-model-providers/deepseek", nil), recorder, workspaceID, userID)
+	ctx.Set("workspace_role", domain.RoleMember)
+	require.NoError(t, h.GetWorkspaceModelProvider(ctx))
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.NotContains(t, recorder.Body.String(), "sk-member-secret")
+	require.NotContains(t, recorder.Body.String(), encrypted)
+	var response dto.WorkspaceModelProviderResponse
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+	require.True(t, response.Configured)
+	require.Equal(t, "deepseek-v4-pro", response.DefaultModel)
+}
+
+func TestDeepSeekModelProviderWriteRejectsNonAdmin(t *testing.T) {
+	workspaceID, userID := uuid.New(), uuid.New()
+	h := NewDevMachineHandler(service.NewDevMachineService(
+		&handlerDevMachineStoreFake{}, agent.NewRegistry(), true, "machines.example.test",
+		cryptoutil.DeriveKey("test"), time.Minute, service.DevMachineImages{},
+	))
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPut, "/dev-machine-model-providers/deepseek", strings.NewReader(
+		`{"api_key":"sk-test","default_model":"deepseek-flash","thinking":"high"}`,
+	))
+	request.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	ctx := devMachineHandlerContext(request, recorder, workspaceID, userID)
+	ctx.Set("workspace_role", domain.RoleMember)
+
+	require.NoError(t, h.UpdateWorkspaceModelProvider(ctx))
+	require.Equal(t, http.StatusForbidden, recorder.Code)
+}
+
+func TestDeepSeekModelProviderRequiresFirstKeyButAllowsOmittedKeyOnUpdate(t *testing.T) {
+	workspaceID, userID := uuid.New(), uuid.New()
+	store := &handlerDevMachineStoreFake{}
+	h := NewDevMachineHandler(service.NewDevMachineService(
+		store, agent.NewRegistry(), true, "machines.example.test",
+		cryptoutil.DeriveKey("test"), time.Minute, service.DevMachineImages{},
+	))
+	send := func(body string) *httptest.ResponseRecorder {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPut, "/dev-machine-model-providers/deepseek", strings.NewReader(body))
+		request.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		ctx := devMachineHandlerContext(request, recorder, workspaceID, userID)
+		ctx.Set("workspace_role", domain.RoleOwner)
+		require.NoError(t, h.UpdateWorkspaceModelProvider(ctx))
+		return recorder
+	}
+
+	recorder := send(`{"default_model":"deepseek-flash","thinking":"high"}`)
+	require.Equal(t, http.StatusBadRequest, recorder.Code)
+	require.Nil(t, store.workspaceModelCredential)
+
+	recorder = send(`{"api_key":"sk-first","default_model":"deepseek-flash","thinking":"high"}`)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	firstEncrypted := store.workspaceModelCredential.EncryptedAPIKey
+
+	recorder = send(`{"default_model":"deepseek-v4-pro","thinking":"low"}`)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.Equal(t, firstEncrypted, store.workspaceModelCredential.EncryptedAPIKey)
+}
+
 func TestDevMachinePolicyIncludesConfiguredDiskQuotaMode(t *testing.T) {
 	workspaceID := uuid.New()
 	for _, test := range []struct {
@@ -495,12 +611,13 @@ func TestTerminalCloseReturnsAcceptedWhileRuntimeCleanupIsPending(t *testing.T) 
 
 type handlerDevMachineStoreFake struct {
 	repository.DevMachineStore
-	machine                 *domain.DevMachine
-	policy                  *domain.DevMachineWorkspacePolicy
-	workspaceActiveCount    int
-	userActiveCount         int
-	permanentDeleteRequests int
-	terminalCloseOperation  *domain.DevMachineOperation
+	machine                  *domain.DevMachine
+	policy                   *domain.DevMachineWorkspacePolicy
+	workspaceActiveCount     int
+	userActiveCount          int
+	permanentDeleteRequests  int
+	terminalCloseOperation   *domain.DevMachineOperation
+	workspaceModelCredential *domain.DevMachineWorkspaceModelCredential
 }
 
 func (f *handlerDevMachineStoreFake) GetPolicy(context.Context, uuid.UUID) (*domain.DevMachineWorkspacePolicy, error) {
@@ -517,6 +634,21 @@ func (f *handlerDevMachineStoreFake) CountActiveMachines(_ context.Context, _ uu
 		return f.userActiveCount, nil
 	}
 	return f.workspaceActiveCount, nil
+}
+
+func (f *handlerDevMachineStoreFake) GetWorkspaceModelCredential(context.Context, uuid.UUID, string) (*domain.DevMachineWorkspaceModelCredential, error) {
+	return f.workspaceModelCredential, nil
+}
+
+func (f *handlerDevMachineStoreFake) UpsertWorkspaceModelCredential(_ context.Context, credential *domain.DevMachineWorkspaceModelCredential) error {
+	copy := *credential
+	f.workspaceModelCredential = &copy
+	return nil
+}
+
+func (f *handlerDevMachineStoreFake) DeleteWorkspaceModelCredential(context.Context, uuid.UUID, string) error {
+	f.workspaceModelCredential = nil
+	return nil
 }
 
 type collectorHandlerStoreFake struct {

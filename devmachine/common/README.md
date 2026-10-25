@@ -1,5 +1,11 @@
 # npm security backports in development images
 
+`install-agent-clis.sh` is the single pin list for the eight interactive agent
+CLIs. It maps Docker's `amd64` and `arm64` values to the release archive names,
+checks each release SHA-256 before extraction, installs binaries into
+`/usr/local/bin`, and runs every CLI's version check. The IDE and headless images
+share this installer.
+
 `patch-npm-security.cjs` replaces pinned dependencies bundled by npm. Its versions
 stay within npm's existing dependency major versions. Run it after installing npm
 and the agent providers. Optional directory arguments locate and patch additional

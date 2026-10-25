@@ -88,7 +88,7 @@ docker compose build --pull backend frontend
 if [ "$DEV_MACHINES_ACTIVE" = true ]; then
 	docker compose --profile dev-machines build --pull machine-gateway machine-manager
 	docker compose --profile dev-machine-images build --pull \
-		dev-machine-ide dev-machine-browser dev-machine-collector \
+		dev-machine-ide dev-machine-headless dev-machine-browser dev-machine-collector \
 		dev-machine-egress dev-machine-agent-claude dev-machine-agent-opencode dev-machine-agent-codex
 	CONTROL_PLANE_STOPPED=true
 	docker compose --profile dev-machines stop machine-manager machine-gateway

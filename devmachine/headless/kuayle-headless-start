@@ -1,0 +1,35 @@
+#!/bin/sh
+set -eu
+
+KUAYLE_START_COMMON=${KUAYLE_START_COMMON:-/usr/local/lib/kuayle/start-common.sh}
+. "$KUAYLE_START_COMMON"
+
+reset_ready_marker
+seed_home_template
+configure_codex_deepseek
+prepare_developer_workspace
+
+ttyd --port 7681 --writable --url-arg --terminal-type xterm-256color /usr/local/bin/kuayle-terminal-session &
+ttyd_pid=$!
+
+cleanup() {
+  kill "$ttyd_pid" 2>/dev/null || true
+  wait "$ttyd_pid" 2>/dev/null || true
+}
+trap cleanup INT TERM EXIT
+
+attempt=0
+while ! curl -fsS http://127.0.0.1:7681/ >/dev/null 2>&1 || ! kill -0 "$ttyd_pid" 2>/dev/null; do
+  attempt=$((attempt + 1))
+  if [ "$attempt" -ge 300 ]; then
+    echo "headless terminal did not become ready" >&2
+    exit 1
+  fi
+  sleep 0.1
+done
+touch "$workspace_root/.kuayle-ready"
+
+while kill -0 "$ttyd_pid" 2>/dev/null; do
+  sleep 1
+done
+exit 1

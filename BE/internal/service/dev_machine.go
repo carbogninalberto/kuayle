@@ -12,6 +12,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/agent"
@@ -42,6 +44,11 @@ var (
 	ErrInvalidMachineInput      = errors.New("invalid dev machine request")
 	ErrMachineNameConflict      = errors.New("dev machine name is already in use")
 	ErrMachineAuthentication    = errors.New("machine authentication failed")
+)
+
+var (
+	deepSeekModels         = []string{"deepseek-flash", "deepseek-v4-pro"}
+	deepSeekThinkingLevels = []string{"off", "low", "high", "max"}
 )
 
 type machineQuotaError struct {
@@ -83,6 +90,7 @@ func machineQuotaCountError(workspaceCount, workspaceLimit, userCount, userLimit
 
 type DevMachineImages struct {
 	IDE       string
+	Headless  string
 	Browser   string
 	Collector string
 	Egress    string
@@ -111,6 +119,22 @@ func NewDevMachineService(store repository.DevMachineStore, agents *agent.Regist
 }
 
 func (s *DevMachineService) Create(ctx context.Context, workspaceID, userID uuid.UUID, req dto.CreateDevMachineRequest) (*domain.DevMachine, *domain.DevMachineOperation, error) {
+	profile := req.Profile
+	if profile == "" {
+		profile = domain.DevMachineProfileStandard
+	}
+	switch profile {
+	case domain.DevMachineProfileStandard:
+		req.Services.IDE = true
+	case domain.DevMachineProfileHeadless:
+		if req.Services.IDE || req.Services.Browser {
+			return nil, nil, fmt.Errorf("%w: headless machines do not include the IDE or browser", ErrInvalidMachineInput)
+		}
+		req.Services.IDE = false
+		req.Services.Browser = false
+	default:
+		return nil, nil, fmt.Errorf("%w: unsupported machine profile %q", ErrInvalidMachineInput, profile)
+	}
 	if req.Repo != nil {
 		if err := validateRepository(*req.Repo); err != nil {
 			return nil, nil, fmt.Errorf("%w: %v", ErrInvalidMachineInput, err)
@@ -119,7 +143,6 @@ func (s *DevMachineService) Create(ctx context.Context, workspaceID, userID uuid
 	if (req.BaseBranch != "" && !validGitRef(req.BaseBranch)) || (req.WorkingBranch != "" && !validGitRef(req.WorkingBranch)) {
 		return nil, nil, fmt.Errorf("%w: invalid base or working branch", ErrInvalidMachineInput)
 	}
-	req.Services.IDE = true
 	policy, err := s.enabledPolicy(ctx, workspaceID)
 	if err != nil {
 		return nil, nil, err
@@ -253,7 +276,7 @@ func (s *DevMachineService) Create(ctx context.Context, workspaceID, userID uuid
 		ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID, RoutingKey: routingKey,
 		Name: name, Status: domain.DevMachineStatusQueued, DesiredStatus: domain.DevMachineStatusRunning,
 		Generation: 1, ProjectID: projectID, IssueID: issueID, BaseBranch: baseBranch, WorkingBranch: workingBranch,
-		MachineSize: req.Size, CPUMillis: cpuMillis, MemoryMB: memoryMB, DiskGB: diskGB, PidsLimit: 512,
+		MachineSize: req.Size, Profile: profile, CPUMillis: cpuMillis, MemoryMB: memoryMB, DiskGB: diskGB, PidsLimit: 512,
 		MaxRuntimeMinutes: maxRuntime, ServicesConfig: servicesConfig, Labels: json.RawMessage(`{}`),
 		ExpiresAt: now.Add(time.Duration(maxRuntime) * time.Minute), EnvironmentID: environmentID,
 		KeepRunning: req.KeepRunning, EnvironmentBuilder: req.EnvironmentBuilder, LastActivityAt: &now,
@@ -270,7 +293,7 @@ func (s *DevMachineService) Create(ctx context.Context, workspaceID, userID uuid
 		return nil, nil, err
 	}
 	services := s.buildServices(machine)
-	if machine.EnvironmentID != nil {
+	if machine.EnvironmentID != nil && machine.Profile != domain.DevMachineProfileHeadless {
 		environment, _ := s.store.GetEnvironment(ctx, workspaceID, *machine.EnvironmentID)
 		if environment != nil {
 			environmentImageRef := readyEnvironmentImageRef(environment)
@@ -494,6 +517,10 @@ func (s *DevMachineService) buildServices(machine *domain.DevMachine) []domain.D
 	}
 	var config dto.DevMachineServicesInput
 	_ = json.Unmarshal(machine.ServicesConfig, &config)
+	if machine.Profile == domain.DevMachineProfileHeadless {
+		services = append(services, newService(machine.WorkspaceID, machine.ID, "terminal", "terminal", base+"terminal", s.images.Headless, machine.RoutingKey+"-terminal", 7681))
+		return services
+	}
 	if config.IDE {
 		services = append(services, newService(machine.WorkspaceID, machine.ID, "ide", "ide", base+"ide", s.images.IDE, machine.RoutingKey+"-ide", 8080))
 		services = append(services, newService(machine.WorkspaceID, machine.ID, "terminal", "terminal", base+"ide", s.images.IDE, machine.RoutingKey+"-ide", 7681))
@@ -1171,10 +1198,17 @@ func (s *DevMachineService) AvailableProviders(ctx context.Context, workspaceID 
 		}
 		responses = append(responses, dto.AgentProviderResponse{
 			ID: metadata.ID, DisplayName: metadata.DisplayName, DefaultImage: metadata.DefaultImage,
-			RequiredSecrets: metadata.RequiredSecrets, SupportedModes: modes, Custom: metadata.Custom,
+			RequiredSecrets: metadata.RequiredSecrets, OptionalSecrets: optionalSecrets(metadata), SupportedModes: modes, Custom: metadata.Custom,
 		})
 	}
 	return responses, nil
+}
+
+func optionalSecrets(metadata agent.Metadata) []string {
+	if metadata.OptionalSecrets == nil {
+		return []string{}
+	}
+	return append([]string(nil), metadata.OptionalSecrets...)
 }
 
 func (s *DevMachineService) ConfiguredProviders(ctx context.Context, workspaceID, machineID, userID uuid.UUID) ([]dto.AgentProviderResponse, error) {
@@ -1193,15 +1227,125 @@ func (s *DevMachineService) ConfiguredProviders(ctx context.Context, workspaceID
 		var requiredSecrets, supportedModes []string
 		_ = json.Unmarshal(provider.RequiredSecrets, &requiredSecrets)
 		_ = json.Unmarshal(provider.SupportedModes, &supportedModes)
+		var optional []string
+		if registered, ok := s.agents.Get(provider.ProviderID); ok {
+			optional = optionalSecrets(registered.Metadata())
+		}
 		responses = append(responses, dto.AgentProviderResponse{
 			ID: provider.ProviderID, DisplayName: provider.DisplayName, DefaultImage: provider.ImageRef,
-			RequiredSecrets: requiredSecrets, SupportedModes: supportedModes, Custom: provider.IsCustom,
+			RequiredSecrets: requiredSecrets, OptionalSecrets: optional, SupportedModes: supportedModes, Custom: provider.IsCustom,
 		})
 	}
 	return responses, nil
 }
 
+func (s *DevMachineService) GetWorkspaceModelProvider(ctx context.Context, workspaceID uuid.UUID) (*dto.WorkspaceModelProviderResponse, error) {
+	credential, err := s.store.GetWorkspaceModelCredential(ctx, workspaceID, "deepseek")
+	if err != nil {
+		return nil, err
+	}
+	response := &dto.WorkspaceModelProviderResponse{
+		Provider:       "deepseek",
+		DefaultModel:   "deepseek-flash",
+		Thinking:       "high",
+		Models:         append([]string(nil), deepSeekModels...),
+		ThinkingLevels: append([]string(nil), deepSeekThinkingLevels...),
+	}
+	if credential != nil {
+		response.Configured = true
+		response.DefaultModel = credential.DefaultModel
+		response.Thinking = credential.Thinking
+		updatedAt := credential.UpdatedAt
+		response.UpdatedAt = &updatedAt
+	}
+	return response, nil
+}
+
+func (s *DevMachineService) UpdateWorkspaceModelProvider(ctx context.Context, workspaceID, userID uuid.UUID, request dto.UpdateWorkspaceModelProviderRequest) (*dto.WorkspaceModelProviderResponse, error) {
+	if !containsString(deepSeekModels, request.DefaultModel) {
+		return nil, fmt.Errorf("%w: unsupported DeepSeek default model", ErrInvalidMachineInput)
+	}
+	if !containsString(deepSeekThinkingLevels, request.Thinking) {
+		return nil, fmt.Errorf("%w: unsupported DeepSeek thinking level", ErrInvalidMachineInput)
+	}
+	credential, err := s.store.GetWorkspaceModelCredential(ctx, workspaceID, "deepseek")
+	if err != nil {
+		return nil, err
+	}
+	if request.APIKey == nil {
+		if credential == nil {
+			return nil, fmt.Errorf("%w: api_key is required before DeepSeek is configured", ErrInvalidMachineInput)
+		}
+	} else {
+		if !validDeepSeekAPIKey(*request.APIKey) {
+			return nil, fmt.Errorf("%w: api_key must be 1-512 printable characters without whitespace", ErrInvalidMachineInput)
+		}
+		encrypted, encryptErr := cryptoutil.Encrypt(*request.APIKey, s.encryptionKey)
+		if encryptErr != nil {
+			return nil, fmt.Errorf("encrypt DeepSeek API key: %w", encryptErr)
+		}
+		if credential == nil {
+			credential = &domain.DevMachineWorkspaceModelCredential{WorkspaceID: workspaceID, Provider: "deepseek"}
+		}
+		credential.EncryptedAPIKey = encrypted
+		credential.EncryptionKeyVersion = 1
+	}
+	credential.DefaultModel = request.DefaultModel
+	credential.Thinking = request.Thinking
+	credential.UpdatedBy = &userID
+	if err := s.store.UpsertWorkspaceModelCredential(ctx, credential); err != nil {
+		return nil, err
+	}
+	return s.GetWorkspaceModelProvider(ctx, workspaceID)
+}
+
+func (s *DevMachineService) DeleteWorkspaceModelProvider(ctx context.Context, workspaceID uuid.UUID) error {
+	return s.store.DeleteWorkspaceModelCredential(ctx, workspaceID, "deepseek")
+}
+
+func validDeepSeekAPIKey(value string) bool {
+	length := utf8.RuneCountInString(value)
+	if length < 1 || length > 512 {
+		return false
+	}
+	for _, character := range value {
+		if !unicode.IsPrint(character) || unicode.IsSpace(character) {
+			return false
+		}
+	}
+	return true
+}
+
+func containsString(values []string, candidate string) bool {
+	for _, value := range values {
+		if value == candidate {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *DevMachineService) CreateAgentRun(ctx context.Context, workspaceID, machineID, userID uuid.UUID, req dto.CreateAgentRunRequest) (*domain.DevMachineAgentRun, error) {
+	if req.Model != "" || req.Thinking != "" {
+		if req.Provider != "codex" && req.Provider != "claude-code" {
+			return nil, fmt.Errorf("%w: model and thinking overrides are supported only for codex and claude-code", ErrInvalidMachineInput)
+		}
+	}
+	if req.Model != "" {
+		if !containsString(deepSeekModels, req.Model) {
+			return nil, fmt.Errorf("%w: unsupported DeepSeek model", ErrInvalidMachineInput)
+		}
+		credential, credentialErr := s.store.GetWorkspaceModelCredential(ctx, workspaceID, "deepseek")
+		if credentialErr != nil {
+			return nil, credentialErr
+		}
+		if credential == nil {
+			return nil, fmt.Errorf("%w: configure DeepSeek for this workspace before selecting a model", ErrInvalidOperation)
+		}
+	}
+	if req.Thinking != "" && !containsString(deepSeekThinkingLevels, req.Thinking) {
+		return nil, fmt.Errorf("%w: unsupported DeepSeek thinking level", ErrInvalidMachineInput)
+	}
 	pushBranch := !req.UseRootWorkspace
 	if req.PushBranch != nil {
 		pushBranch = *req.PushBranch
@@ -1340,11 +1484,16 @@ func (s *DevMachineService) CreateAgentRun(ctx context.Context, workspaceID, mac
 	invocation, err := provider.BuildInvocation(agent.RunInput{
 		Mode: agent.Mode(req.Mode), Prompt: prompt, WorkspacePath: workspacePath,
 		AcceptanceCriteria: req.AcceptanceCriteria, TestCommand: req.TestCommand, ExtraArgs: req.ExtraArgs, Config: config,
+		Model: req.Model, Thinking: req.Thinking,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("%w: provider rejected the agent run configuration", ErrInvalidMachineInput)
 	}
 	commandArgv, _ := json.Marshal(invocation.Argv)
+	commandEnvironment := []byte(`{}`)
+	if len(invocation.Environment) > 0 {
+		commandEnvironment, _ = json.Marshal(invocation.Environment)
+	}
 	criteria, _ := json.Marshal(req.AcceptanceCriteria)
 	allowedCommands, _ := json.Marshal(req.AllowedCommands)
 	forbiddenPaths, _ := json.Marshal(req.ForbiddenPaths)
@@ -1367,7 +1516,8 @@ func (s *DevMachineService) CreateAgentRun(ctx context.Context, workspaceID, mac
 		RequestedByUserID: &userID, ProviderID: req.Provider, Mode: req.Mode,
 		Status: domain.DevMachineAgentRunStatusQueued, Prompt: prompt, AcceptanceCriteria: criteria,
 		AllowedCommands: allowedCommands, ForbiddenPaths: forbiddenPaths, AllowedSecrets: allowedSecrets, TestCommand: &testCommand,
-		CommandArgv: commandArgv, MaxRuntimeSeconds: timeout, PushBranch: pushBranch,
+		CommandArgv: commandArgv, CommandEnvironment: commandEnvironment, Model: req.Model, Thinking: req.Thinking,
+		MaxRuntimeSeconds: timeout, PushBranch: pushBranch,
 		OpenPullRequest: req.OpenPullRequest,
 	}
 	operation := &domain.DevMachineOperation{
@@ -1937,7 +2087,7 @@ func (s *DevMachineService) GetPolicy(ctx context.Context, workspaceID uuid.UUID
 	return &domain.DevMachineWorkspacePolicy{
 		WorkspaceID: workspaceID, MaxConcurrentMachines: 5, MaxMachinesPerUser: 2, MaxDailyAgentRuns: 25,
 		MaxRuntimeMinutes: 480, MaxDiskGB: 100, IdlePauseMinutes: 240,
-		AllowedProviders:    json.RawMessage(`["claude-code","opencode","codex"]`),
+		AllowedProviders:    json.RawMessage(`["claude-code","opencode","codex","qwen-code","crush","kimi","goose"]`),
 		AllowedRepositories: json.RawMessage(`[]`),
 	}, nil
 }

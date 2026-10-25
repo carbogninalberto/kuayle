@@ -25,10 +25,13 @@ advances. Product checks and images continue to verify the recorded PR head.
 | Root `Dockerfile` | All-in-one readiness. |
 | `UI/Dockerfile`, `UI/Caddyfile` | Web-image readiness. |
 | `BE/Dockerfile*` | The corresponding API, gateway, manager or updater image. Docker lifecycle uses separate runtime images and is not selected for these Dockerfile-only edits. |
-| `devmachine/{ide,browser,collector,egress}/` | That image on both architectures, backend script tests and Docker lifecycle. |
+| `devmachine/{ide,headless,browser,collector,egress}/` | That image on both architectures, backend script tests and Docker lifecycle. |
 | `devmachine/agent/`, shared agent runner | All three provider images on both architectures, backend tests and Docker lifecycle. |
-| Shared service entrypoint | IDE, browser, collector and egress images; backend tests and Docker lifecycle. |
-| Shared npm security patch/cache tests | IDE and all three provider images; backend tests and Docker lifecycle. |
+| Shared agent CLI installer | IDE and headless images; backend tests and Docker lifecycle. |
+| Shared scoped startup and agent runner logic | IDE, headless, browser, collector, egress and all three provider images; backend tests and Docker lifecycle. |
+| Shared service entrypoint | IDE, headless, browser, collector and egress images; backend tests and Docker lifecycle. |
+| Shared terminal, checkout and shell scripts | IDE and headless images; backend tests and Docker lifecycle. |
+| Shared npm security patch/cache tests | IDE, headless and all three provider images; backend tests and Docker lifecycle. |
 | `devmachine/security/` | Backend and Docker lifecycle checks for host policy; no independent image build. |
 | `selfhosting/` scripts/configuration/smoke tests | Update-recovery and profile-preflight tests; all three application images' readiness on both architectures. |
 | Workflows, CI helpers, shared root configuration and unmapped inputs | Broad verification. Workflow/helper edits exercise the routing tests and actionlint as well. |
@@ -45,7 +48,8 @@ Go test files and README files do not enter the built application.
   and source/image evidence on both native architectures. The duplicate PR
   `Build Images` and `Container Security Scan` jobs are intentionally skipped.
 - [Build & Push](../../.github/workflows/build.yml) owns selected dev-machine image
-  builds and HIGH/CRITICAL scans on amd64 and arm64, including IDE smoke tests.
+  builds and HIGH/CRITICAL scans on amd64 and arm64, including IDE and headless
+  smoke tests.
   [Security Scan](../../.github/workflows/security.yml) retains the updater image;
   the nine duplicate PR runtime-image scans are omitted there.
 - PR Go race tests run in [Tests](../../.github/workflows/test.yml) with database

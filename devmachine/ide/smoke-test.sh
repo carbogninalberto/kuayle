@@ -19,7 +19,7 @@ done
 docker exec "$container" curl --fail --silent http://127.0.0.1:8080/healthz
 docker exec "$container" sh -c 'curl --fail --silent --location http://127.0.0.1:8080/ | grep -q "workbench"'
 docker exec "$container" curl --fail --silent --output /dev/null http://127.0.0.1:7681/
-for command in code-server node npm claude opencode codex ttyd; do
+for command in code-server node npm claude opencode codex qwen crush goose kimi ttyd; do
   docker exec "$container" "$command" --version
 done
 

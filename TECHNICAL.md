@@ -75,8 +75,8 @@ Dev Machines target trusted self-hosted workspaces. Docker hardening reduces ris
 
 ```text
 Dev Machine
-├── developer           optional code-server:8080, ttyd:7681, tmux, Git checkouts
-├── agent-*             on-demand container per Claude Code/OpenCode/Codex/custom run
+├── developer           code-server:8080 (standard) or ttyd:7681 (headless), tmux, Git checkouts
+├── agent-*             on-demand container per built-in provider or custom run
 ├── browser             optional Chrome, CDP, KasmVNC
 ├── collector           activity and heartbeat collection
 ├── egress              outbound HTTP/HTTPS policy proxy
@@ -88,7 +88,7 @@ Every created container has a deterministic name and labels containing `workspac
 
 The shared workspace is writable by developer and agent containers. The collector receives it read-only. Browser and egress containers do not receive the workspace mount. Per-container home, `/tmp`, `/run`, and secret paths use tmpfs scratch mounts.
 
-The developer service is represented by separate `ide` and `terminal` service records but both point at one container: code-server listens on `8080`, ttyd listens on `7681`, and terminal sessions attach to named tmux sessions under the same `HOME`, process tree, tools, and `/workspace` used by code-server.
+Standard machines represent the developer container as separate `ide` and `terminal` service records that point at one container: code-server listens on `8080`, ttyd listens on `7681`, and terminal sessions attach to named tmux sessions under the same `HOME`, process tree, tools, and `/workspace` used by code-server. Headless machines expose only the `terminal` developer-service record plus collector and egress; the terminal uses the headless developer image, which also serves as the autonomous image for the five new built-in CLIs. Development Environment image selection does not replace that headless image. Headless developer containers retain the standard developer security, tmpfs executable scratch space, workspace mount, and terminal-session scripts.
 
 Agent containers are created on demand. Multiple runs are represented separately, although workspaces should default to one mutating autonomous agent at a time to avoid conflicting writes.
 
@@ -173,6 +173,10 @@ Opening a paused machine service queues an idempotent resume operation and retur
 
 Machine access decisions are persisted in `dev_machine_access_logs` without query strings.
 
+The xterm client preserves the PTY byte stream by disabling end-of-line conversion, uses a line height of `1`, and enables the Unicode 11 addon with `allowProposedApi` for full-screen TUIs. End-of-line conversion must remain off because rewriting LF as CRLF returns the cursor to column zero and corrupts TUIs that use LF to move rows while preserving their column. The developer image installs `ncurses-term`, configures tmux for `tmux-256color` with RGB support, focus and extended-key events, passthrough, and a 50,000-line history, and exports `COLORTERM=truecolor` for terminal sessions. tmux keeps its default escape time and mouse mode stays off: escape sequences cross a WebSocket and may arrive split, and a short escape time would turn the tail of a split sequence into typed text.
+
+The terminal dock can cover the viewport as an in-page full-screen layer. The layer refits xterm and restores terminal focus without reserving browser fullscreen. Its button and `Ctrl+Shift+F` toggle the mode; Escape remains available to the attached TUI and does not exit the layer.
+
 ## Machine and Collector Tokens
 
 Collectors use random machine tokens rather than user sessions. Token hashes, scopes, expiry, revocation, and last-use timestamps are stored in `dev_machine_tokens`.
@@ -203,12 +207,18 @@ Initial providers:
 
 | ID | CLI | Secret declaration | Adapter modes |
 |---|---|---|---|
-| `claude-code` | Claude Code | `ANTHROPIC_API_KEY` | interactive, autonomous |
+| `claude-code` | Claude Code | optional `ANTHROPIC_API_KEY` (or a subscription sign-in) | interactive, autonomous |
 | `opencode` | OpenCode | model/provider dependent | interactive, autonomous |
-| `codex` | Codex | `OPENAI_API_KEY` | interactive, autonomous |
+| `codex` | Codex | optional `OPENAI_API_KEY` (or a subscription sign-in) | interactive, autonomous |
+| `qwen-code` | Qwen Code | none | interactive, autonomous |
+| `crush` | Crush | none | interactive, autonomous |
+| `kimi` | Kimi | none | interactive, autonomous |
+| `goose` | Goose | none | interactive, autonomous |
 | `custom` | Admin-configured argv CLI | explicit configuration | interactive, autonomous |
 
-Provider adapters can construct both invocation modes, but the current product dialogs queue autonomous runs only and there is no UI/gateway endpoint for attaching to an interactive agent container. The shared developer image pins OpenCode, Claude Code, and Codex CLI versions for direct interactive terminal/code-server use. Custom providers must be enabled by workspace policy and are currently launched through the autonomous dashboard flow. Provider-specific agent images remain separately pinned by tag or digest in configuration and runtime Dockerfiles; custom provider images must also be pinned.
+Provider adapters can construct both invocation modes, but the current product dialogs queue autonomous runs only and there is no UI/gateway endpoint for attaching to an interactive agent container. The IDE developer image pins all seven built-in CLI versions for terminal use. Qwen Code, Crush, Kimi, and Goose use `DEV_MACHINE_HEADLESS_IMAGE` for both developer-terminal and autonomous execution. The existing three built-ins retain their provider-specific agent images. Custom providers must be enabled by workspace policy and are currently launched through the autonomous dashboard flow. Provider-specific agent images remain separately pinned by tag or digest in configuration and runtime Dockerfiles; custom provider images must also be pinned.
+
+Codex and Claude Code runs accept optional DeepSeek `model` and `thinking` overrides. They are rejected for other providers. A model override requires a configured workspace DeepSeek credential; thinking levels are `off`, `low`, `high`, and `max`. Codex receives the override as argv `-c` values. Claude Code receives the model as argv and the thinking level through the validated non-secret `CLAUDE_CODE_EFFORT_LEVEL` container environment; `off` omits that variable.
 
 ### Normalized Result
 
@@ -233,7 +243,7 @@ Completed autonomous provider stdout/stderr is collected and redacted before per
 
 ### Human and Agent
 
-The user opens authenticated IDE and browser links from Kuayle and attaches native terminal tabs rendered by the main UI. Terminal tabs speak `ttyd.v1` over the dedicated terminal host and attach to tmux sessions inside the developer container. The built-in Claude Code, OpenCode, and Codex CLIs can be used directly from that terminal. Agent runs started from the machine dashboard use separate containers and run autonomously to completion under a timeout.
+The user opens authenticated IDE and browser links from Kuayle and attaches native terminal tabs rendered by the main UI. Terminal tabs speak `ttyd.v1` over the dedicated terminal host and attach to tmux sessions inside the developer container. All seven built-in CLIs are available directly from that terminal. Headless machines omit code-server and browser access and expose only the terminal plus agent workflow. Agent runs started from the machine dashboard use separate containers and run autonomously to completion under a timeout.
 
 ### Agent Only
 
@@ -303,7 +313,7 @@ Machine sizes are aggregate admission profiles:
 | medium | 4 vCPU | 8 GB | 50 GB | 4 hours |
 | large | 8 vCPU | 16 GB | 100 GB | 8 hours |
 
-The manager assigns a bounded percentage of the profile to each service and applies Docker `NanoCPUs`, memory, memory-swap, and PID limits. Non-builder workloads use a read-only root filesystem, tmpfs scratch paths, `CapDrop=ALL`, `no-new-privileges`, the Docker default seccomp profile or a configured replacement, and AppArmor where available. Environment Builder deliberately relaxes the developer container root filesystem so owners/admins can install tooling before snapshot. Docker's `json-file` logs rotate at 10 MiB with three files per container, and removal paths also remove anonymous image volumes.
+The manager assigns a bounded percentage of the profile to each service and applies Docker `NanoCPUs`, memory, memory-swap, and PID limits. The IDE and browser each receive 25%, an agent run 35%, and the collector and egress 5% each; a headless machine's terminal container receives 50%, the IDE and browser shares it replaces. Non-builder workloads use a read-only root filesystem, tmpfs scratch paths, `CapDrop=ALL`, `no-new-privileges`, the Docker default seccomp profile or a configured replacement, and AppArmor where available. Environment Builder deliberately relaxes the developer container root filesystem so owners/admins can install tooling before snapshot. Docker's `json-file` logs rotate at 10 MiB with three files per container, and removal paths also remove anonymous image volumes.
 
 Workspace policy controls:
 
@@ -344,6 +354,14 @@ Secret flow:
 7. Manager-captured provider logs are redacted with the exact injected values. IDE command telemetry redacts common key/token/secret/password patterns.
 
 Reserved `KUAYLE_*` variables and `GITHUB_TOKEN` cannot be supplied by users.
+
+### DeepSeek workspace configuration
+
+Workspace owners and admins can store one DeepSeek credential per workspace through the Dev Machine settings API. Saving and removing it requires `dev_machine:admin`; members with `dev_machine:read` can read its status (configured, default model, thinking) so the agent-run dialog can offer DeepSeek overrides. The API key is encrypted with `cryptoutil.Encrypt` and `DEV_MACHINE_ENCRYPTION_KEY`; it is never returned, including in error and update responses. The default model is `deepseek-flash` or `deepseek-v4-pro`, and the default thinking level is `off`, `low`, `high`, or `max`.
+
+The credential is workspace data rather than a machine snapshot. On every developer-container start, and for every Codex or Claude Code agent run, the manager resolves and decrypts the current row. It copies the DeepSeek key, model, thinking level, Claude Code DeepSeek endpoint/model aliases, and Codex configuration inputs into `/run/kuayle-secrets`; browser, collector, and egress containers never receive them. Rotating the credential therefore applies the next time the developer or agent container starts.
+
+The IDE and headless start scripts and the autonomous agent runner create `$HOME/.codex/config.toml` (mode 0600) only when the file is absent. They configure the DeepSeek Responses provider, map Codex `off` to `none`, and leave an existing user-managed Codex configuration unchanged. They also generate `$HOME/.codex/model-catalogs/deepseek.json` from the installed Codex's bundled catalog (`codex-deepseek-catalog.cjs`) and reference it with `model_catalog_json`, so Codex's `/model` picker offers only `deepseek-flash` and `deepseek-v4-pro`; if generation fails, the config omits the catalog and the configured model still works.
 
 ## Scoped Settings, Worktrees, and Environments
 
@@ -425,8 +443,13 @@ Migration `000033_dev_machines` creates:
 | `dev_machine_checkouts` | Idempotent issue worktrees with repository and branch metadata |
 | `dev_machine_terminal_sessions` | User terminal tabs mapped to runtime tmux sessions and optional checkouts |
 | `dev_machine_runtime_credentials` | Encrypted, expiring runtime-secret registrations used for telemetry redaction |
+| `dev_machine_workspace_model_credentials` | Encrypted workspace DeepSeek API key, default model, and thinking level |
 
 The migration creates the final scoped-workspace schema directly. Composite foreign keys bind workspace, machine, service, checkout, run, session, and environment tuples so cross-workspace identifiers are rejected by PostgreSQL rather than relying only on application checks. Rolling migration `000033` back is destructive for all Dev Machine control-plane records.
+
+Migration `000051_dev_machine_agents_headless` adds the `dev_machines.profile` value (`standard` or `headless`) and expands only the default workspace-policy provider allowlist to all seven built-ins. Existing workspace policies are not rewritten, so administrators retain their current allowlists until they opt in. The down migration removes the profile column and restores the previous default allowlist.
+
+Migration `000052_dev_machine_deepseek` adds workspace model credentials and persists each agent run's non-secret command environment so a Claude Code effort override survives queueing.
 
 All user-facing repository access is constrained by both `workspace_id` and resource ID. Internal manager lookups are limited to the trusted manager process.
 
@@ -453,6 +476,9 @@ POST   /api/workspaces/:slug/dev-machine-environments
 GET    /api/workspaces/:slug/dev-machine-environments/:environmentId
 DELETE /api/workspaces/:slug/dev-machine-environments/:environmentId
 GET    /api/workspaces/:slug/dev-machine-providers
+GET    /api/workspaces/:slug/dev-machine-model-providers/deepseek
+PUT    /api/workspaces/:slug/dev-machine-model-providers/deepseek
+DELETE /api/workspaces/:slug/dev-machine-model-providers/deepseek
 
 GET    /api/workspaces/:slug/dev-machines/:machineId
 PATCH  /api/workspaces/:slug/dev-machines/:machineId
@@ -496,12 +522,15 @@ Example create payload:
 ```json
 {
   "size": "medium",
+  "profile": "standard",
   "services": { "ide": true, "browser": true },
   "agents": [{ "provider": "opencode", "mode": "autonomous" }],
   "env_vars": [],
   "keep_running": false
 }
 ```
+
+Create requests accept `profile: "standard" | "headless"`; omission means standard. Headless requests must omit both `services.ide` and `services.browser`.
 
 ## Failure Handling
 
@@ -577,7 +606,8 @@ Required configuration when enabled:
 | `DEV_MACHINE_DOCKER_ROOT` | Host path of Docker's data root, mounted read-only into the manager (default `/var/lib/docker`) |
 | `DEV_MACHINE_HOST_DISK_PATH` | In-container path measured for host free space (Compose sets the mount point; falls back to a running collector when empty) |
 | `DEV_MACHINE_DOCKER_GID` | Numeric host group owner of the mounted Docker socket; obtain it on Linux with `stat -c '%g' /var/run/docker.sock` (Docker Desktop commonly uses `0`) |
-| `DEV_MACHINE_*_IMAGE` | Pinned runtime image references; the developer image contains pinned OpenCode/Claude Code/Codex CLIs and provider-specific agent images are pinned separately |
+| `DEV_MACHINE_HEADLESS_IMAGE` | Headless developer and new built-in provider image (default `ghcr.io/kuayle/dev-machine-headless:0.1.0`) |
+| `DEV_MACHINE_*_IMAGE` | Other pinned runtime image references; the IDE developer image contains all built-in CLIs and the existing provider-specific agent images remain separately pinned |
 
 Compose passes the same `DEV_MACHINES_ENABLED` value to the backend, gateway, and manager. The `dev-machines` profile's database-provisioning prerequisite exits before modifying grants or starting the control plane unless that value is exactly `true`; the gateway and manager also retain their own fail-closed startup checks.
 
@@ -587,7 +617,7 @@ Compose places the Internet-facing gateway only on an internal `machine-control`
 
 Valid-looking unknown wildcard hosts are bounded before they can exhaust the database: route lookups use a 60-per-second source limit, a 500-per-second process limit, and a 32-query concurrency cap; missing routes are cached for 30 seconds. Attacker-controlled source and negative-route state is capped, and unknown-route audits are limited to one per source per five minutes and ten total writes per minute. The manager deletes access logs older than 90 days in batches of 1,000. Malformed or out-of-domain hosts are rejected before any database operation.
 
-The self-hosting `dev-machine-images` profile builds the developer, browser, collector, egress, and built-in provider agent images locally. Environment Builder snapshot bytes are additional local OCI images in the host Docker image store, while their references and lifecycle metadata are stored in `dev_machine_environments`; snapshots are not Compose volumes. Backups and host migrations must account for PostgreSQL, Docker named volumes, and any environment images that should survive a host replacement.
+The self-hosting `dev-machine-images` profile builds the IDE, headless developer, browser, collector, egress, and built-in provider agent images locally. The headless image combines the ttyd developer terminal with the autonomous agent-run entrypoint, while the IDE image retains code-server and ttyd. Environment Builder snapshot bytes are additional local OCI images in the host Docker image store, while their references and lifecycle metadata are stored in `dev_machine_environments`; snapshots are not Compose volumes. Backups and host migrations must account for PostgreSQL, Docker named volumes, and any environment images that should survive a host replacement.
 
 `selfhosting/update.sh` detects an active Dev Machines profile without enabling it on other deployments. When active, it rebuilds runtime images before stopping the old gateway and manager, applies migrations with the new backend image, and starts the updated application and control plane only after the schema is current. If migration, role provisioning, or a later update step fails after the stop, its EXIT trap removes the upgrade marker, preserves the original failure status and container logs, and uses `docker compose start` to revive the same previous control-plane containers rather than recreating them from new images.
 

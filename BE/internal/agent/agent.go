@@ -20,6 +20,9 @@ type Metadata struct {
 	DisplayName     string   `json:"display_name"`
 	DefaultImage    string   `json:"default_image"`
 	RequiredSecrets []string `json:"required_secrets"`
+	// OptionalSecrets are offered at machine creation but may be omitted, for example
+	// when the CLI is signed in with a subscription instead of an API key.
+	OptionalSecrets []string `json:"optional_secrets"`
 	SupportedModes  []Mode   `json:"supported_modes"`
 	Custom          bool     `json:"custom"`
 }
@@ -32,6 +35,8 @@ type RunInput struct {
 	TestCommand        []string        `json:"test_command"`
 	ExtraArgs          []string        `json:"extra_args"`
 	Config             json.RawMessage `json:"config"`
+	Model              string          `json:"model,omitempty"`
+	Thinking           string          `json:"thinking,omitempty"`
 }
 
 type Invocation struct {

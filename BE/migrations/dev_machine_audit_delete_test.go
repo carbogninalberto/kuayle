@@ -53,10 +53,7 @@ func TestMachineAuditSurvivesParentDeletion(t *testing.T) {
 	}
 	a, serviceA, logA := insert(fixture.workspaceA, fixture.userA)
 	b, serviceB, logB := insert(fixture.workspaceB, fixture.userB)
-	err = m.Up()
-	if err != migrate.ErrNoChange {
-		require.NoError(t, err)
-	}
+	require.NoError(t, m.Migrate(50))
 	// Keep composite ownership validation and null-dependency checks intact.
 	_, err = db.Exec(`INSERT INTO dev_machine_access_logs(workspace_id,machine_id,service_id,decision,method,path) VALUES($1,$2,$3,'denied','GET','/')`, fixture.workspaceB, a, serviceA)
 	require.Equal(t, "23503", postgresCode(err))

@@ -304,15 +304,80 @@ func TestInteractiveToolingTmpfsAllowsExecutables(t *testing.T) {
 
 	agentConfig := runtime.secureHostConfig(machine, "agent", "network", "volume")
 	ideConfig := runtime.secureHostConfig(machine, "ide", "network", "volume")
+	terminalConfig := runtime.secureHostConfig(machine, "terminal", "network", "volume")
 	collectorConfig := runtime.secureHostConfig(machine, "collector", "network", "volume")
 
 	require.False(t, strings.Contains(agentConfig.Tmpfs["/tmp"], "noexec"))
 	require.True(t, strings.Contains(agentConfig.Tmpfs["/tmp"], "exec"))
 	require.False(t, strings.Contains(ideConfig.Tmpfs["/tmp"], "noexec"))
 	require.True(t, strings.Contains(ideConfig.Tmpfs["/tmp"], "exec"))
+	require.False(t, strings.Contains(terminalConfig.Tmpfs["/tmp"], "noexec"))
+	require.True(t, strings.Contains(terminalConfig.Tmpfs["/tmp"], "exec"))
 	require.True(t, strings.Contains(collectorConfig.Tmpfs["/tmp"], "noexec"))
 	require.True(t, strings.Contains(agentConfig.Tmpfs["/run/kuayle-secrets"], "noexec"))
 	require.True(t, strings.Contains(ideConfig.Tmpfs["/run/kuayle-secrets"], "noexec"))
+	// Docker mounts tmpfs noexec unless exec is explicit; tools such as Codex
+	// install and run managed binaries from the home directory.
+	require.Contains(t, strings.Split(agentConfig.Tmpfs["/home/kuayle"], ","), "exec")
+	require.Contains(t, strings.Split(ideConfig.Tmpfs["/home/kuayle"], ","), "exec")
+	require.Contains(t, strings.Split(collectorConfig.Tmpfs["/home/kuayle"], ","), "noexec")
+	require.True(t, strings.Contains(terminalConfig.Tmpfs["/run/kuayle-secrets"], "noexec"))
+}
+
+func TestHeadlessTerminalUsesDeveloperContainerSecurityAndResources(t *testing.T) {
+	machine := &domain.DevMachine{MemoryMB: 8192, CPUMillis: 4000, PidsLimit: 512}
+	runtime := &DockerRuntime{}
+
+	ideConfig := runtime.secureHostConfig(machine, "ide", "network", "volume")
+	terminalConfig := runtime.secureHostConfig(machine, "terminal", "network", "volume")
+
+	require.True(t, terminalConfig.ReadonlyRootfs)
+	require.Equal(t, []string{"ALL"}, terminalConfig.CapDrop)
+	require.Contains(t, strings.Split(terminalConfig.Tmpfs["/home/kuayle"], ","), "exec")
+	// A headless developer container receives the IDE and browser shares, which it replaces.
+	require.Equal(t, 2*ideConfig.Resources.Memory, terminalConfig.Resources.Memory)
+	require.Equal(t, 2*ideConfig.Resources.NanoCPUs, terminalConfig.Resources.NanoCPUs)
+	require.Equal(t, 2*(*ideConfig.Resources.PidsLimit), *terminalConfig.Resources.PidsLimit)
+	require.Len(t, terminalConfig.Mounts, 1)
+	require.Equal(t, "/workspace", terminalConfig.Mounts[0].Target)
+	require.False(t, terminalConfig.Mounts[0].ReadOnly)
+}
+
+func TestDeveloperContainerIDSupportsHeadlessTerminalOnlyMachines(t *testing.T) {
+	terminalContainer := "headless-developer"
+	collectorContainer := "collector"
+	services := []domain.DevMachineService{
+		{ServiceKey: "collector", ServiceType: "collector", ContainerID: &collectorContainer},
+		{ServiceKey: "terminal", ServiceType: "terminal", ContainerID: &terminalContainer},
+	}
+
+	require.Equal(t, terminalContainer, developerContainerID(services))
+}
+
+func TestOnlyStandardTerminalSharesTheIDEContainerDuringSpawn(t *testing.T) {
+	terminal := domain.DevMachineService{ServiceKey: "terminal", ServiceType: "terminal"}
+	ide := domain.DevMachineService{ServiceKey: "ide", ServiceType: "ide"}
+
+	require.False(t, terminalUsesSharedIDEContainer(terminal, []domain.DevMachineService{terminal}))
+	require.True(t, terminalUsesSharedIDEContainer(terminal, []domain.DevMachineService{ide, terminal}))
+}
+
+func TestAgentRuntimeEnvironmentAppliesNonSecretInvocationValues(t *testing.T) {
+	environment, err := agentRuntimeEnvironment(map[string]string{
+		"CLAUDE_CODE_EFFORT_LEVEL": "high",
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, []string{"CLAUDE_CODE_EFFORT_LEVEL=high"}, environment)
+
+	for _, invalid := range []map[string]string{
+		{"DEEPSEEK_API_KEY": "secret"},
+		{"CLAUDE_CODE_EFFORT_LEVEL": "high\nINJECTED=1"},
+		{"claude_effort": "high"},
+	} {
+		_, err = agentRuntimeEnvironment(invalid)
+		require.Error(t, err)
+	}
 }
 
 func TestSpawnCleanupPlanOnlyIncludesInvocationOwnedResources(t *testing.T) {

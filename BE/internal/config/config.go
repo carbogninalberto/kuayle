@@ -75,6 +75,7 @@ type DevMachineConfig struct {
 	SeccompProfile       string `envconfig:"DEV_MACHINE_SECCOMP_PROFILE" default:"default"`
 	AppArmorProfile      string `envconfig:"DEV_MACHINE_APPARMOR_PROFILE" default:"default"`
 	IDEImage             string `envconfig:"DEV_MACHINE_IDE_IMAGE" default:"ghcr.io/kuayle/dev-machine-ide:0.1.0"`
+	HeadlessImage        string `envconfig:"DEV_MACHINE_HEADLESS_IMAGE" default:"ghcr.io/kuayle/dev-machine-headless:0.1.0"`
 	BrowserImage         string `envconfig:"DEV_MACHINE_BROWSER_IMAGE" default:"ghcr.io/kuayle/dev-machine-browser:0.1.0"`
 	CollectorImage       string `envconfig:"DEV_MACHINE_COLLECTOR_IMAGE" default:"ghcr.io/kuayle/dev-machine-collector:0.1.0"`
 	EgressImage          string `envconfig:"DEV_MACHINE_EGRESS_IMAGE" default:"ghcr.io/kuayle/dev-machine-egress:0.1.0"`

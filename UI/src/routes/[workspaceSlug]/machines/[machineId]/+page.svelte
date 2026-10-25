@@ -584,6 +584,7 @@
 				<Server size={15} />
 				<span class="truncate text-sm font-medium">{machine.name}</span>
 				<MachineStatusBadge status={machine.status} />
+				{#if machine.profile === 'headless'}<span class="rounded-full border border-[var(--app-border)] px-2 py-0.5 text-[10px] font-semibold uppercase text-[var(--color-text-tertiary)]">{m['machines.profile_headless_short']()}</span>{/if}
 				{#if machine.environment_builder}<span class="text-[10px] font-semibold uppercase text-[var(--app-accent)]">{m['machines.environment_builder']()}</span>{/if}
 				{#if isPending}
 					<span class="inline-flex items-center gap-1 rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase text-blue-400">
@@ -625,14 +626,16 @@
 				<Card.Root>
 					<Card.Header>
 						<Card.Title class="text-sm">{m['machines.developer_environment']()}</Card.Title>
-						<Card.Description>{m['machines.developer_environment_desc']()}</Card.Description>
+						<Card.Description>{machine.profile === 'headless' ? m['machines.developer_environment_headless_desc']() : m['machines.developer_environment_desc']()}</Card.Description>
 					</Card.Header>
 					<Card.Content>
 						<div class="grid gap-3 sm:grid-cols-2">
-							<Button variant="outline" class="h-auto justify-start gap-3 p-4" disabled={!ideService || !machineCanAutoLaunch() || (!!ideService && launchBusyFor(ideService))} onclick={() => ideService && launch(ideService)}>
-								<Code2 class="size-5" />
-								<span class="text-left"><span class="block text-sm font-medium">{m['machines.code_editor']()}</span><span class="block text-xs text-muted-foreground">{m['machines.code_editor_desc']()}</span></span>
-							</Button>
+							{#if machine.profile !== 'headless'}
+								<Button variant="outline" class="h-auto justify-start gap-3 p-4" disabled={!ideService || !machineCanAutoLaunch() || (!!ideService && launchBusyFor(ideService))} onclick={() => ideService && launch(ideService)}>
+									<Code2 class="size-5" />
+									<span class="text-left"><span class="block text-sm font-medium">{m['machines.code_editor']()}</span><span class="block text-xs text-muted-foreground">{m['machines.code_editor_desc']()}</span></span>
+								</Button>
+							{/if}
 							<Button variant="outline" class="h-auto justify-start gap-3 p-4" disabled={!terminalService || !machineCanAutoLaunch()} onclick={() => terminalService && launch(terminalService)}>
 								<SquareTerminal class="size-5" />
 								<span class="text-left"><span class="block text-sm font-medium">{m['machines.native_terminal']()}</span><span class="block text-xs text-muted-foreground">{m['machines.native_terminal_desc']()}</span></span>
@@ -653,7 +656,7 @@
 							<div class="flex flex-col justify-between gap-3 rounded-lg border border-[var(--app-border)] p-3 sm:flex-row sm:items-center">
 								<div class="min-w-0"><p class="truncate text-xs font-medium">{checkout.repository_full_name}</p><p class="mt-1 truncate text-[10px] text-[var(--color-text-tertiary)]">{checkout.working_branch} · {checkout.status}</p>{#if checkout.last_error}<p class="mt-1 text-[10px] text-red-400">{checkout.last_error}</p>{/if}</div>
 								{#if checkout.status === 'ready' && machineCanAutoLaunch()}
-									<div class="flex gap-2"><Button size="sm" variant="outline" disabled={!ideService || (!!ideService && launchBusyFor(ideService, checkout.id))} onclick={() => { if (ideService) launch(ideService, checkout.id); }}><Code2 size={13} />{m['machines.code_editor']()}</Button><Button size="sm" variant="outline" disabled={!terminalService} onclick={() => { if (terminalService) launch(terminalService, checkout.id); }}><SquareTerminal size={13} />{m['machines.terminal']()}</Button></div>
+									<div class="flex gap-2">{#if machine.profile !== 'headless'}<Button size="sm" variant="outline" disabled={!ideService || (!!ideService && launchBusyFor(ideService, checkout.id))} onclick={() => { if (ideService) launch(ideService, checkout.id); }}><Code2 size={13} />{m['machines.code_editor']()}</Button>{/if}<Button size="sm" variant="outline" disabled={!terminalService} onclick={() => { if (terminalService) launch(terminalService, checkout.id); }}><SquareTerminal size={13} />{m['machines.terminal']()}</Button></div>
 								{/if}
 							</div>
 						{/each}
@@ -676,7 +679,7 @@
 								</div>
 								{#if serviceActionAvailable(service) && service.service_type !== 'ide' && service.service_type !== 'terminal'}
 									<Button variant="ghost" size="icon-sm" disabled={launchBusyFor(service)} onclick={() => launch(service)} title={m['machines.open_service']()}><ExternalLink size={14} /></Button>
-								{:else if serviceActionAvailable(service) && (machine.environment_builder || checkouts.length === 0) && (service.service_type === 'ide' || service.service_type === 'terminal')}
+								{:else if serviceActionAvailable(service) && (machine.environment_builder || checkouts.length === 0) && (service.service_type === 'ide' || service.service_type === 'terminal') && !(machine.profile === 'headless' && service.service_type === 'ide')}
 									<Button variant="ghost" size="icon-sm" disabled={launchBusyFor(service)} onclick={() => launch(service)} title={service.service_type === 'ide' ? m['machines.open_code_editor']() : m['machines.open_terminal']()}>{#if service.service_type === 'ide'}<Code2 size={14} />{:else}<SquareTerminal size={14} />{/if}</Button>
 								{/if}
 							</div>

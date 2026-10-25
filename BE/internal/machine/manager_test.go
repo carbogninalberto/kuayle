@@ -64,6 +64,7 @@ type managerStoreFake struct {
 	updateAgentRunStarted     func() error
 	envVarListCalls           int
 	runtimeServicesCreated    int
+	workspaceModelCredential  *domain.DevMachineWorkspaceModelCredential
 }
 
 func (f *managerStoreFake) LeaseOperations(context.Context, string, int, time.Duration) ([]domain.DevMachineOperation, error) {
@@ -100,6 +101,9 @@ func (f *managerStoreFake) ListServices(context.Context, uuid.UUID, uuid.UUID) (
 func (f *managerStoreFake) ListEnvVarsInternal(context.Context, uuid.UUID, *string, string) ([]domain.DevMachineEnvVar, error) {
 	f.envVarListCalls++
 	return nil, nil
+}
+func (f *managerStoreFake) GetWorkspaceModelCredential(context.Context, uuid.UUID, string) (*domain.DevMachineWorkspaceModelCredential, error) {
+	return f.workspaceModelCredential, nil
 }
 func (f *managerStoreFake) SetMachineState(_ context.Context, _ uuid.UUID, status domain.DevMachineStatus, network, volume, _, _ *string) error {
 	f.machine.Status = status
@@ -338,10 +342,13 @@ type runtimeFake struct {
 	hostDiskUsage                               HostDiskUsage
 	hostDiskUsageErr                            error
 	hostDiskUsageCalls                          int
+	spawnSecrets                                map[string]map[string]string
+	agentSecrets                                map[string]string
 }
 
-func (f *runtimeFake) Spawn(_ context.Context, _ *domain.DevMachine, services []domain.DevMachineService, _ map[string]map[string]string) (string, string, map[string]string, error) {
+func (f *runtimeFake) Spawn(_ context.Context, _ *domain.DevMachine, services []domain.DevMachineService, secrets map[string]map[string]string) (string, string, map[string]string, error) {
 	f.spawned++
+	f.spawnSecrets = secrets
 	if f.onSpawn != nil {
 		f.onSpawn()
 	}
@@ -367,8 +374,9 @@ func (f *runtimeFake) Teardown(context.Context, *domain.DevMachine, []domain.Dev
 	f.tornDown++
 	return nil
 }
-func (f *runtimeFake) RunAgent(context.Context, *domain.DevMachine, *domain.DevMachineAgentRun, *domain.DevMachineAgentProvider, *domain.DevMachineCheckout, map[string]string) (*AgentExecution, error) {
+func (f *runtimeFake) RunAgent(_ context.Context, _ *domain.DevMachine, _ *domain.DevMachineAgentRun, _ *domain.DevMachineAgentProvider, _ *domain.DevMachineCheckout, secrets map[string]string) (*AgentExecution, error) {
 	f.agentRuns++
+	f.agentSecrets = secrets
 	return f.agentExecution, nil
 }
 func (f *runtimeFake) CancelAgent(context.Context, *domain.DevMachineAgentRun) error { return nil }
@@ -1057,6 +1065,197 @@ func TestReconcileRetriesEnvironmentImageCleanupFailure(t *testing.T) {
 	require.NoError(t, manager.reconcile(context.Background()))
 	require.Equal(t, 2, runtime.environmentDeleteAttempts)
 	require.Equal(t, []uuid.UUID{environmentID}, store.deletedEnvironmentIDs)
+}
+
+func TestManagerInjectsDeepSeekOnlyIntoDeveloperServices(t *testing.T) {
+	workspaceID := uuid.New()
+	key := cryptoutil.DeriveKey("deepseek-manager-test")
+	encrypted, err := cryptoutil.Encrypt("sk-deepseek-test", key)
+	require.NoError(t, err)
+	store := &managerStoreFake{
+		machine: &domain.DevMachine{ID: uuid.New(), WorkspaceID: workspaceID},
+		workspaceModelCredential: &domain.DevMachineWorkspaceModelCredential{
+			WorkspaceID: workspaceID, Provider: "deepseek", EncryptedAPIKey: encrypted,
+			DefaultModel: "deepseek-v4-pro", Thinking: "high",
+		},
+	}
+	services := []domain.DevMachineService{
+		{ServiceKey: "ide", ServiceType: "ide"},
+		{ServiceKey: "terminal", ServiceType: "terminal"},
+		{ServiceKey: "collector", ServiceType: "collector"},
+		{ServiceKey: "browser", ServiceType: "browser"},
+		{ServiceKey: "egress", ServiceType: "egress"},
+	}
+	manager := NewManager(store, &runtimeFake{}, agent.NewRegistry(), nil, key, nil, "test")
+
+	secrets, err := manager.serviceSecrets(context.Background(), store.machine, services)
+	require.NoError(t, err)
+
+	expected := map[string]string{
+		"DEEPSEEK_API_KEY":                         "sk-deepseek-test",
+		"KUAYLE_DEEPSEEK_MODEL":                    "deepseek-v4-pro",
+		"KUAYLE_DEEPSEEK_THINKING":                 "high",
+		"ANTHROPIC_BASE_URL":                       "https://api.deepseek.com/anthropic",
+		"ANTHROPIC_AUTH_TOKEN":                     "sk-deepseek-test",
+		"ANTHROPIC_MODEL":                          "deepseek-v4-pro",
+		"ANTHROPIC_DEFAULT_OPUS_MODEL":             "deepseek-v4-pro",
+		"ANTHROPIC_DEFAULT_SONNET_MODEL":           "deepseek-v4-pro",
+		"ANTHROPIC_DEFAULT_HAIKU_MODEL":            "deepseek-flash",
+		"CLAUDE_CODE_SUBAGENT_MODEL":               "deepseek-flash",
+		"CLAUDE_CODE_EFFORT_LEVEL":                 "high",
+		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+	}
+	require.Equal(t, expected, secrets["ide"])
+	require.Equal(t, expected, secrets["terminal"])
+	for _, service := range []string{"collector", "browser", "egress"} {
+		for name := range expected {
+			require.NotContains(t, secrets[service], name, service)
+		}
+	}
+}
+
+func TestManagerOmitsClaudeEffortForDeepSeekThinkingOff(t *testing.T) {
+	workspaceID := uuid.New()
+	key := cryptoutil.DeriveKey("deepseek-manager-off-test")
+	encrypted, err := cryptoutil.Encrypt("sk-deepseek-test", key)
+	require.NoError(t, err)
+	store := &managerStoreFake{
+		machine: &domain.DevMachine{ID: uuid.New(), WorkspaceID: workspaceID},
+		workspaceModelCredential: &domain.DevMachineWorkspaceModelCredential{
+			WorkspaceID: workspaceID, Provider: "deepseek", EncryptedAPIKey: encrypted,
+			DefaultModel: "deepseek-flash", Thinking: "off",
+		},
+	}
+	manager := NewManager(store, &runtimeFake{}, agent.NewRegistry(), nil, key, nil, "test")
+
+	secrets, err := manager.serviceSecrets(context.Background(), store.machine, []domain.DevMachineService{{ServiceKey: "ide", ServiceType: "ide"}})
+	require.NoError(t, err)
+	require.NotContains(t, secrets["ide"], "CLAUDE_CODE_EFFORT_LEVEL")
+	require.Equal(t, "off", secrets["ide"]["KUAYLE_DEEPSEEK_THINKING"])
+}
+
+func TestManagerAddsNoDeepSeekSecretsWithoutWorkspaceCredential(t *testing.T) {
+	workspaceID := uuid.New()
+	store := &managerStoreFake{machine: &domain.DevMachine{ID: uuid.New(), WorkspaceID: workspaceID}}
+	manager := NewManager(store, &runtimeFake{}, agent.NewRegistry(), nil, cryptoutil.DeriveKey("deepseek-manager-empty-test"), nil, "test")
+
+	secrets, err := manager.serviceSecrets(context.Background(), store.machine, []domain.DevMachineService{{ServiceKey: "ide", ServiceType: "ide"}})
+	require.NoError(t, err)
+	for _, name := range []string{"DEEPSEEK_API_KEY", "KUAYLE_DEEPSEEK_MODEL", "KUAYLE_DEEPSEEK_THINKING", "ANTHROPIC_AUTH_TOKEN"} {
+		require.NotContains(t, secrets["ide"], name)
+	}
+}
+
+func TestManagerInjectsWorkspaceDeepSeekCredentialIntoAgentRun(t *testing.T) {
+	machineID, workspaceID, runID := uuid.New(), uuid.New(), uuid.New()
+	key := cryptoutil.DeriveKey("deepseek-agent-run-test")
+	encrypted, err := cryptoutil.Encrypt("sk-deepseek-agent", key)
+	require.NoError(t, err)
+	run := &domain.DevMachineAgentRun{
+		ID: runID, MachineID: machineID, WorkspaceID: workspaceID,
+		ProviderID: "codex", Mode: "autonomous", Status: domain.DevMachineAgentRunStatusQueued,
+		AllowedSecrets: json.RawMessage(`[]`), CommandArgv: json.RawMessage(`["codex"]`), MaxRuntimeSeconds: 30,
+	}
+	store := &managerStoreFake{
+		machine: &domain.DevMachine{
+			ID: machineID, WorkspaceID: workspaceID, RoutingKey: "0123456789abcdef0123",
+			Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, Generation: 1,
+			DockerNetworkName: ptr("network"), WorkspaceVolumeName: ptr("volume"),
+		},
+		agentRun: run,
+		provider: &domain.DevMachineAgentProvider{MachineID: machineID, ProviderID: "codex", ImageRef: "kuayle/codex:test", Enabled: true},
+		workspaceModelCredential: &domain.DevMachineWorkspaceModelCredential{
+			WorkspaceID: workspaceID, Provider: "deepseek", EncryptedAPIKey: encrypted,
+			DefaultModel: "deepseek-v4-pro", Thinking: "max",
+		},
+	}
+	runtime := &runtimeFake{agentExecution: &AgentExecution{ContainerID: "agent-container", ExitCode: 0}}
+	manager := NewManager(store, runtime, agent.NewRegistry(agent.NewCodexProvider("kuayle/codex:test")), nil, key, nil, "test")
+
+	err = manager.runAgent(context.Background(), store.machine, &domain.DevMachineOperation{
+		MachineID: machineID, WorkspaceID: workspaceID, AgentRunID: &runID, Generation: 1,
+	})
+	require.NoError(t, err)
+	require.Equal(t, map[string]string{
+		"DEEPSEEK_API_KEY":                         "sk-deepseek-agent",
+		"KUAYLE_DEEPSEEK_MODEL":                    "deepseek-v4-pro",
+		"KUAYLE_DEEPSEEK_THINKING":                 "max",
+		"ANTHROPIC_BASE_URL":                       "https://api.deepseek.com/anthropic",
+		"ANTHROPIC_AUTH_TOKEN":                     "sk-deepseek-agent",
+		"ANTHROPIC_MODEL":                          "deepseek-v4-pro",
+		"ANTHROPIC_DEFAULT_OPUS_MODEL":             "deepseek-v4-pro",
+		"ANTHROPIC_DEFAULT_SONNET_MODEL":           "deepseek-v4-pro",
+		"ANTHROPIC_DEFAULT_HAIKU_MODEL":            "deepseek-flash",
+		"CLAUDE_CODE_SUBAGENT_MODEL":               "deepseek-flash",
+		"CLAUDE_CODE_EFFORT_LEVEL":                 "max",
+		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+	}, runtime.agentSecrets)
+}
+
+func TestManagerPerRunThinkingOffSuppressesWorkspaceClaudeEffort(t *testing.T) {
+	machineID, workspaceID, runID := uuid.New(), uuid.New(), uuid.New()
+	key := cryptoutil.DeriveKey("deepseek-agent-thinking-off-test")
+	encrypted, err := cryptoutil.Encrypt("sk-deepseek-agent", key)
+	require.NoError(t, err)
+	run := &domain.DevMachineAgentRun{
+		ID: runID, MachineID: machineID, WorkspaceID: workspaceID,
+		ProviderID: "claude-code", Mode: "autonomous", Status: domain.DevMachineAgentRunStatusQueued,
+		AllowedSecrets: json.RawMessage(`[]`), CommandArgv: json.RawMessage(`["claude"]`),
+		CommandEnvironment: json.RawMessage(`{}`), Thinking: "off", MaxRuntimeSeconds: 30,
+	}
+	store := &managerStoreFake{
+		machine: &domain.DevMachine{
+			ID: machineID, WorkspaceID: workspaceID, RoutingKey: "0123456789abcdef0123",
+			Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, Generation: 1,
+			DockerNetworkName: ptr("network"), WorkspaceVolumeName: ptr("volume"),
+		},
+		agentRun: run,
+		provider: &domain.DevMachineAgentProvider{MachineID: machineID, ProviderID: "claude-code", ImageRef: "kuayle/claude:test", Enabled: true},
+		workspaceModelCredential: &domain.DevMachineWorkspaceModelCredential{
+			WorkspaceID: workspaceID, Provider: "deepseek", EncryptedAPIKey: encrypted,
+			DefaultModel: "deepseek-v4-pro", Thinking: "high",
+		},
+	}
+	runtime := &runtimeFake{agentExecution: &AgentExecution{ContainerID: "agent-container", ExitCode: 0}}
+	manager := NewManager(store, runtime, agent.NewRegistry(agent.NewClaudeCodeProvider("kuayle/claude:test")), nil, key, nil, "test")
+
+	err = manager.runAgent(context.Background(), store.machine, &domain.DevMachineOperation{
+		MachineID: machineID, WorkspaceID: workspaceID, AgentRunID: &runID, Generation: 1,
+	})
+	require.NoError(t, err)
+	require.NotContains(t, runtime.agentSecrets, "CLAUDE_CODE_EFFORT_LEVEL")
+	require.Equal(t, "high", runtime.agentSecrets["KUAYLE_DEEPSEEK_THINKING"])
+}
+
+func TestManagerAddsNoDeepSeekSecretsToAgentWithoutWorkspaceCredential(t *testing.T) {
+	machineID, workspaceID, runID := uuid.New(), uuid.New(), uuid.New()
+	run := &domain.DevMachineAgentRun{
+		ID: runID, MachineID: machineID, WorkspaceID: workspaceID,
+		ProviderID: "codex", Mode: "autonomous", Status: domain.DevMachineAgentRunStatusQueued,
+		AllowedSecrets: json.RawMessage(`[]`), CommandArgv: json.RawMessage(`["codex"]`),
+		CommandEnvironment: json.RawMessage(`{}`), MaxRuntimeSeconds: 30,
+	}
+	store := &managerStoreFake{
+		machine: &domain.DevMachine{
+			ID: machineID, WorkspaceID: workspaceID, RoutingKey: "0123456789abcdef0123",
+			Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, Generation: 1,
+			DockerNetworkName: ptr("network"), WorkspaceVolumeName: ptr("volume"),
+		},
+		agentRun: run,
+		provider: &domain.DevMachineAgentProvider{MachineID: machineID, ProviderID: "codex", ImageRef: "kuayle/codex:test", Enabled: true},
+	}
+	runtime := &runtimeFake{agentExecution: &AgentExecution{ContainerID: "agent-container", ExitCode: 0}}
+	manager := NewManager(store, runtime, agent.NewRegistry(agent.NewCodexProvider("kuayle/codex:test")), nil, cryptoutil.DeriveKey("empty-agent-test"), nil, "test")
+
+	err := manager.runAgent(context.Background(), store.machine, &domain.DevMachineOperation{
+		MachineID: machineID, WorkspaceID: workspaceID, AgentRunID: &runID, Generation: 1,
+	})
+	require.NoError(t, err)
+	require.Empty(t, runtime.agentSecrets)
+}
+
+func ptr[T any](value T) *T {
+	return &value
 }
 
 func TestManagerMarksStaleCheckoutFailed(t *testing.T) {

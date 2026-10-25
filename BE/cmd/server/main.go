@@ -104,6 +104,10 @@ func main() {
 		agent.NewClaudeCodeProvider(cfg.DevMachine.ClaudeCodeImage),
 		agent.NewOpenCodeProvider(cfg.DevMachine.OpenCodeImage),
 		agent.NewCodexProvider(cfg.DevMachine.CodexImage),
+		agent.NewQwenCodeProvider(cfg.DevMachine.HeadlessImage),
+		agent.NewCrushProvider(cfg.DevMachine.HeadlessImage),
+		agent.NewKimiProvider(cfg.DevMachine.HeadlessImage),
+		agent.NewGooseProvider(cfg.DevMachine.HeadlessImage),
 		agent.NewCustomCLIProvider(cfg.DevMachine.CustomImage),
 	)
 
@@ -115,7 +119,7 @@ func main() {
 		devMachineRepo, devMachineAgentReg, cfg.DevMachine.Enabled, cfg.DevMachine.Domain,
 		devMachineEncKey, time.Duration(cfg.DevMachine.TicketTTLSeconds)*time.Second,
 		service.DevMachineImages{
-			IDE: cfg.DevMachine.IDEImage, Browser: cfg.DevMachine.BrowserImage,
+			IDE: cfg.DevMachine.IDEImage, Headless: cfg.DevMachine.HeadlessImage, Browser: cfg.DevMachine.BrowserImage,
 			Collector: cfg.DevMachine.CollectorImage,
 			Egress:    cfg.DevMachine.EgressImage,
 		}, cfg.FrontendURL,

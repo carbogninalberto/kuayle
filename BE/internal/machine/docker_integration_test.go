@@ -117,6 +117,9 @@ func TestDockerRuntimeLifecycle(t *testing.T) {
 		if service.ServiceType == "ide" {
 			_, err := runtime.execOutput(ctx, *service.ContainerID, []string{"/bin/sh", "-c", "touch /workspace/.kuayle-write-test && rm /workspace/.kuayle-write-test"})
 			require.NoError(t, err)
+			output, err := runtime.execOutput(ctx, *service.ContainerID, []string{"/bin/sh", "-c", "printf '#!/bin/sh\\necho home-exec-ok\\n' > /home/kuayle/.kuayle-exec-test && chmod +x /home/kuayle/.kuayle-exec-test && /home/kuayle/.kuayle-exec-test; status=$?; rm -f /home/kuayle/.kuayle-exec-test; exit $status"})
+			require.NoError(t, err)
+			require.Contains(t, output, "home-exec-ok")
 			break
 		}
 	}

@@ -158,6 +158,10 @@ jobs:
         if: matrix.id == 'ide'
         run: ./devmachine/ide/smoke-test.sh kuayle-dev-machine-ide:scan
 
+      - name: Smoke test headless runtime
+        if: matrix.id == 'headless'
+        run: ./devmachine/headless/smoke-test.sh kuayle-dev-machine-headless:scan
+
       - name: Scan image
         uses: aquasecurity/trivy-action@v0.36.0
         with:

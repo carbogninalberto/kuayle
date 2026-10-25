@@ -4,10 +4,19 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
+	import SelectField from '$lib/components/shared/SelectField.svelte';
 	import { Switch } from '$lib/components/ui/switch';
 	import { Textarea } from '$lib/components/ui/textarea';
-	import { createAgentRun, listMachineAgentProviders } from '$lib/api/dev-machines';
-	import type { AgentProvider, AgentRun, DevMachine } from '$lib/types/dev-machine';
+	import { createAgentRun, getWorkspaceModelProvider, listMachineAgentProviders } from '$lib/api/dev-machines';
+	import type {
+		AgentProvider,
+		AgentRun,
+		CreateAgentRunInput,
+		DeepSeekModel,
+		DeepSeekThinking,
+		DevMachine,
+		WorkspaceModelProvider
+	} from '$lib/types/dev-machine';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
@@ -33,9 +42,15 @@
 	let loading = $state(false);
 	let machineRemainingSeconds = $state(0);
 	let maxRuntimeCap = $state(0);
+	let modelProvider = $state<WorkspaceModelProvider | null>(null);
+	let modelOverride = $state<DeepSeekModel | ''>('');
+	let thinkingOverride = $state<DeepSeekThinking | ''>('');
 
 	const selectedProvider = $derived(providers.find((item) => item.id === provider));
 	const selectedProviderLabel = $derived(selectedProvider?.display_name ?? (providers.length === 0 ? 'Loading providers...' : 'Select provider'));
+	const showDeepSeekOptions = $derived(
+		!!modelProvider?.configured && (provider === 'codex' || provider === 'claude-code')
+	);
 	const submitEnabled = $derived(providersLoaded && !providersError && !loading && !!prompt.trim() && !!selectedProvider && maxRuntime >= 30 && maxRuntime <= maxRuntimeCap);
 
 	$effect(() => {
@@ -46,7 +61,10 @@
 		maxRuntime = maxRuntimeCap >= 30 ? Math.min(3600, maxRuntimeCap) : 0;
 		pushBranch = !!checkoutId || !!machine.repository_affinity_id;
 		openPullRequest = false;
+		modelOverride = '';
+		thinkingOverride = '';
 		void loadProviders();
+		void loadDeepSeek();
 	});
 
 	async function loadProviders() {
@@ -62,7 +80,7 @@
 			const configured = providers.find((item) => item.id === provider) ?? providers[0];
 			if (configured) {
 				provider = configured.id;
-				allowedSecrets = configured.required_secrets.join('\n');
+				allowedSecrets = [...configured.required_secrets, ...(configured.optional_secrets ?? [])].join('\n');
 			} else {
 				providersError = true;
 			}
@@ -74,10 +92,20 @@
 		}
 	}
 
+	async function loadDeepSeek() {
+		try {
+			modelProvider = await getWorkspaceModelProvider(slug);
+		} catch {
+			modelProvider = null;
+		}
+	}
+
 	function selectProvider(value: AgentProvider['id']) {
 		provider = value;
 		const p = providers.find((item) => item.id === value);
-		allowedSecrets = (p?.required_secrets ?? []).join('\n');
+		allowedSecrets = [...(p?.required_secrets ?? []), ...(p?.optional_secrets ?? [])].join('\n');
+		modelOverride = '';
+		thinkingOverride = '';
 	}
 
 	function setPushBranch(value: boolean) {
@@ -97,13 +125,18 @@
 		}
 		loading = true;
 		try {
-			const run = await createAgentRun(slug, machine.id, {
+			const input: CreateAgentRunInput = {
 				checkout_id: checkoutId, use_root_workspace: !checkoutId && !machine.repository_affinity_id,
 				provider, mode, prompt, acceptance_criteria: criteria.split('\n').map((line) => line.trim()).filter(Boolean),
 				allowed_commands: [], forbidden_paths: forbiddenPaths.split('\n').map((line) => line.trim()).filter(Boolean),
 				test_command: parsedTest, max_runtime_seconds: maxRuntime,
 				allowed_secrets: allowedSecrets.split('\n').map((line) => line.trim()).filter(Boolean), push_branch: pushBranch, open_pull_request: openPullRequest
-			});
+			};
+			if (showDeepSeekOptions) {
+				if (modelOverride) input.model = modelOverride;
+				if (thinkingOverride) input.thinking = thinkingOverride;
+			}
+			const run = await createAgentRun(slug, machine.id, input);
 			appToast.success('Agent run queued');
 			open = false;
 			oncreated?.(run);
@@ -126,6 +159,37 @@
 				<div class="space-y-1"><Label>{m['machines.provider']()}</Label><Select.Root type="single" value={provider} disabled={!providersLoaded || providersError} onValueChange={(value) => value && selectProvider(value as AgentProvider['id'])}><Select.Trigger aria-label={m['machines.provider']()} class="w-full">{selectedProviderLabel}</Select.Trigger><Select.Content>{#each providers as item}<Select.Item value={item.id} label={item.display_name}>{item.display_name}</Select.Item>{/each}</Select.Content></Select.Root></div>
 				<div class="space-y-1"><Label>{m['machines.mode']()}</Label><div class="flex h-9 items-center rounded-md border border-[var(--app-border)] px-3 text-sm">{m['machines.autonomous']()}</div></div>
 			</div>
+			{#if showDeepSeekOptions}
+				<div class="grid gap-3 rounded-lg border border-[var(--app-border)] p-3 sm:grid-cols-2">
+					<div class="space-y-1">
+						<Label>{m['machines.deepseek_model']()}</Label>
+						<SelectField
+							bind:value={modelOverride}
+							options={[
+								{ value: '', label: m['machines.workspace_default']() },
+								...(modelProvider?.models ?? []).map((model) => ({ value: model, label: model }))
+							]}
+							aria-label={m['machines.deepseek_model']()}
+							class="w-full"
+						/>
+					</div>
+					<div class="space-y-1">
+						<Label>{m['machines.deepseek_thinking']()}</Label>
+						<SelectField
+							bind:value={thinkingOverride}
+							options={[
+								{ value: '', label: m['machines.workspace_default']() },
+								...(modelProvider?.thinking_levels ?? []).map((level) => ({
+									value: level,
+									label: m[`machines.deepseek_thinking_${level}`]()
+								}))
+							]}
+							aria-label={m['machines.deepseek_thinking']()}
+							class="w-full"
+						/>
+					</div>
+				</div>
+			{/if}
 			<label class="block space-y-1"><Label>{m['machines.prompt_context']()}</Label><Textarea bind:value={prompt} required rows={6} /></label>
 			<label class="block space-y-1"><Label>{m['machines.acceptance_criteria']()}</Label><Textarea bind:value={criteria} rows={3} /></label>
 			<label class="block space-y-1"><Label>{m['machines.test_command']()}</Label><Input bind:value={testArgv} placeholder='["go","test","./..."]' /></label>

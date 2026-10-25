@@ -17,9 +17,12 @@ import type {
 	DevMachineCheckout,
 	DevMachineEnvironment,
 	DevMachineScopeSetting,
+	DeepSeekModel,
+	DeepSeekThinking,
 	LaunchMachineServiceResponse,
 	ResourceSample,
-	TerminalSessionLaunchResponse
+	TerminalSessionLaunchResponse,
+	WorkspaceModelProvider
 } from '$lib/types/dev-machine';
 
 const base = (slug: string) => `/api/workspaces/${slug}`;
@@ -230,6 +233,21 @@ export function listAgentProviders(slug: string): Promise<AgentProvider[]> {
 
 export function listMachineAgentProviders(slug: string, machineId: string): Promise<AgentProvider[]> {
 	return api.get(`${base(slug)}/dev-machines/${machineId}/providers`);
+}
+
+export function getWorkspaceModelProvider(slug: string): Promise<WorkspaceModelProvider> {
+	return api.get(`${base(slug)}/dev-machine-model-providers/deepseek`);
+}
+
+export function updateWorkspaceModelProvider(
+	slug: string,
+	input: { api_key?: string; default_model: DeepSeekModel; thinking: DeepSeekThinking }
+): Promise<WorkspaceModelProvider> {
+	return api.put(`${base(slug)}/dev-machine-model-providers/deepseek`, input);
+}
+
+export function deleteWorkspaceModelProvider(slug: string): Promise<void> {
+	return api.delete(`${base(slug)}/dev-machine-model-providers/deepseek`);
 }
 
 export function createAgentRun(slug: string, machineId: string, input: CreateAgentRunInput): Promise<AgentRun> {
