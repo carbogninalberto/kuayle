@@ -39,10 +39,19 @@ configure_codex_deepseek() {
   if ! (umask 077; set -C; : > "$codex_config") 2>/dev/null; then
     return 0
   fi
+  # Codex's /model picker otherwise lists OpenAI models that DeepSeek rejects. A failed
+  # generation only loses the picker list; the configured model still works.
+  catalog_line=
+  catalog_path="$HOME/.codex/model-catalogs/deepseek.json"
+  catalog_generator=${KUAYLE_CODEX_CATALOG_GENERATOR:-/usr/local/lib/kuayle/codex-deepseek-catalog.cjs}
+  if mkdir -p "${catalog_path%/*}" && node "$catalog_generator" "$catalog_path" 2>/dev/null; then
+    catalog_line="model_catalog_json = \"${catalog_path}\""
+  fi
   cat > "$codex_config" <<EOF
 model = "${model}"
 model_provider = "deepseek"
 model_reasoning_effort = "${reasoning_effort}"
+${catalog_line}
 
 [model_providers.deepseek]
 name = "DeepSeek"

@@ -2,6 +2,7 @@ package machine
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -262,6 +263,12 @@ func TestRuntimeImagesBundleTheSharedStartHelper(t *testing.T) {
 		require.NoError(t, err)
 		require.Contains(t, string(content), "common/start-common.sh", relativePath)
 	}
+	// Images that write the DeepSeek Codex config also need its catalog generator.
+	for _, image := range []string{"agent", "headless", "ide"} {
+		content, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", image, "Dockerfile"))
+		require.NoError(t, err)
+		require.Contains(t, string(content), "common/codex-deepseek-catalog.cjs", image)
+	}
 }
 
 func TestHeadlessStartUsesSharedSetupAndWritesReadyMarker(t *testing.T) {
@@ -354,6 +361,53 @@ func TestStartCommonWritesDeepSeekCodexConfigOnlyWhenAbsent(t *testing.T) {
 	configBytes, err = os.ReadFile(configPath)
 	require.NoError(t, err)
 	require.Equal(t, userConfig, string(configBytes))
+}
+
+// Codex's /model picker lists its bundled OpenAI catalog; under DeepSeek those models are
+// rejected, so the generated config points Codex at a DeepSeek-only catalog.
+func TestStartCommonWritesDeepSeekOnlyCodexModelCatalog(t *testing.T) {
+	repoRoot := repoRootFromCaller(t)
+	homeDir := t.TempDir()
+	fakeBin := filepath.Join(t.TempDir(), "bin")
+	require.NoError(t, os.MkdirAll(fakeBin, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(fakeBin, "codex"), []byte(`#!/bin/sh
+[ "$1 $2" = "debug models" ] || exit 2
+printf '%s' '{"models":[{"slug":"gpt-5.5","display_name":"GPT","visibility":"list","priority":13,"shell_type":"unified_exec","context_window":272000,"base_instructions":"bundled"}]}'
+`), 0o700))
+	nodePath, err := exec.LookPath("node")
+	require.NoError(t, err)
+	common := filepath.Join(repoRoot, "devmachine", "common", "start-common.sh")
+	cmd := exec.Command("sh", "-eu", "-c", `. "$1"; configure_codex_deepseek`, "kuayle", common)
+	cmd.Env = []string{
+		"PATH=" + fakeBin + string(os.PathListSeparator) + filepath.Dir(nodePath) + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"HOME=" + homeDir, "DEEPSEEK_API_KEY=not-written-to-disk",
+		"KUAYLE_DEEPSEEK_MODEL=deepseek-v4-pro", "KUAYLE_DEEPSEEK_THINKING=max",
+		"KUAYLE_CODEX_CATALOG_GENERATOR=" + filepath.Join(repoRoot, "devmachine", "common", "codex-deepseek-catalog.cjs"),
+	}
+	output, err := cmd.CombinedOutput()
+	require.NoError(t, err, string(output))
+
+	catalogPath := filepath.Join(homeDir, ".codex", "model-catalogs", "deepseek.json")
+	catalogBytes, err := os.ReadFile(catalogPath)
+	require.NoError(t, err)
+	var catalog struct {
+		Models []map[string]any `json:"models"`
+	}
+	require.NoError(t, json.Unmarshal(catalogBytes, &catalog))
+	slugs := []string{}
+	for _, model := range catalog.Models {
+		slugs = append(slugs, model["slug"].(string))
+		require.Equal(t, "bundled", model["base_instructions"])
+		require.Equal(t, "shell_command", model["shell_type"])
+	}
+	require.Equal(t, []string{"deepseek-flash", "deepseek-v4-pro"}, slugs)
+
+	configBytes, err := os.ReadFile(filepath.Join(homeDir, ".codex", "config.toml"))
+	require.NoError(t, err)
+	config := string(configBytes)
+	catalogLine := `model_catalog_json = "` + catalogPath + `"`
+	require.Contains(t, config, catalogLine)
+	require.Less(t, strings.Index(config, catalogLine), strings.Index(config, "[model_providers.deepseek]"))
 }
 
 func TestStartCommonSkipsDeepSeekCodexConfigWithoutKey(t *testing.T) {

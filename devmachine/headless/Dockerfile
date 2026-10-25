@@ -20,7 +20,7 @@ COPY --from=node-stage /usr/local /usr/local
 COPY --from=crush-build /out/crush /usr/local/bin/crush
 COPY --from=go-stage /usr/local/go /usr/local/go
 COPY common/install-agent-clis.sh common/kuayle-service-entrypoint common/kuayle-agent-runner /usr/local/bin/
-COPY common/start-common.sh common/patch-npm-security.cjs common/test-http-cache-semantics.cjs /usr/local/lib/kuayle/
+COPY common/start-common.sh common/codex-deepseek-catalog.cjs common/patch-npm-security.cjs common/test-http-cache-semantics.cjs /usr/local/lib/kuayle/
 COPY headless/kuayle-headless-start /usr/local/bin/kuayle-headless-start
 COPY ide/shell.sh /usr/local/bin/kuayle-shell
 COPY ide/checkout.sh /usr/local/bin/kuayle-checkout

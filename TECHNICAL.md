@@ -361,7 +361,7 @@ Workspace owners and admins can store one DeepSeek credential per workspace thro
 
 The credential is workspace data rather than a machine snapshot. On every developer-container start, and for every Codex or Claude Code agent run, the manager resolves and decrypts the current row. It copies the DeepSeek key, model, thinking level, Claude Code DeepSeek endpoint/model aliases, and Codex configuration inputs into `/run/kuayle-secrets`; browser, collector, and egress containers never receive them. Rotating the credential therefore applies the next time the developer or agent container starts.
 
-The IDE start script and autonomous agent runner create `$HOME/.codex/config.toml` only when the file is absent. They configure the DeepSeek Responses provider, map Codex `off` to `none`, and leave an existing user-managed Codex configuration unchanged.
+The IDE and headless start scripts and the autonomous agent runner create `$HOME/.codex/config.toml` (mode 0600) only when the file is absent. They configure the DeepSeek Responses provider, map Codex `off` to `none`, and leave an existing user-managed Codex configuration unchanged. They also generate `$HOME/.codex/model-catalogs/deepseek.json` from the installed Codex's bundled catalog (`codex-deepseek-catalog.cjs`) and reference it with `model_catalog_json`, so Codex's `/model` picker offers only `deepseek-flash` and `deepseek-v4-pro`; if generation fails, the config omits the catalog and the configured model still works.
 
 ## Scoped Settings, Worktrees, and Environments
 
