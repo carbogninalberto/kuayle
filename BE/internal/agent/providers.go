@@ -266,24 +266,6 @@ func newStreamJSONBuiltinProvider(metadata Metadata, build func(RunInput) []stri
 	}
 }
 
-func NewPiProvider(image string) Provider {
-	return &builtinProvider{
-		metadata: Metadata{
-			ID:              "pi",
-			DisplayName:     "Pi",
-			DefaultImage:    headlessProviderImage(image),
-			RequiredSecrets: []string{},
-			SupportedModes:  []Mode{ModeInteractive, ModeAutonomous},
-		},
-		build: func(input RunInput) []string {
-			if input.Mode == ModeInteractive {
-				return []string{"pi"}
-			}
-			return []string{"pi", "--print", "--mode", "json", "--no-session", input.Prompt}
-		},
-	}
-}
-
 func NewQwenCodeProvider(image string) Provider {
 	return newStreamJSONBuiltinProvider(Metadata{
 		ID:              "qwen-code",

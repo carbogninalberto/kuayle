@@ -168,7 +168,7 @@ export interface AgentRun {
 }
 
 export interface AgentProvider {
-	id: 'claude-code' | 'opencode' | 'codex' | 'pi' | 'qwen-code' | 'crush' | 'kimi' | 'goose' | 'custom';
+	id: 'claude-code' | 'opencode' | 'codex' | 'qwen-code' | 'crush' | 'kimi' | 'goose' | 'custom';
 	display_name: string;
 	default_image: string;
 	required_secrets: string[];

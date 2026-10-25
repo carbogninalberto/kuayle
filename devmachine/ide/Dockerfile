@@ -75,7 +75,6 @@ RUN rm -f /usr/bin/pebble \
     && opencode --version \
     && claude --version \
     && codex --version \
-    && pi --version \
     && qwen --version \
     && crush --version \
     && goose --version \

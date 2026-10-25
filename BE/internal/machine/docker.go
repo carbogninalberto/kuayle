@@ -1211,8 +1211,12 @@ func (r *DockerRuntime) ensureService(ctx context.Context, machine *domain.DevMa
 func (r *DockerRuntime) secureHostConfig(machine *domain.DevMachine, serviceType, networkName, volumeName string) *container.HostConfig {
 	fraction := int64(5)
 	switch serviceType {
-	case "ide", "terminal":
+	case "ide":
 		fraction = 25
+	case "terminal":
+		// Only headless machines run a standalone terminal container; it takes the IDE and
+		// browser shares because neither exists there.
+		fraction = 50
 	case "browser":
 		fraction = 25
 	case "agent":

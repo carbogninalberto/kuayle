@@ -334,9 +334,10 @@ func TestHeadlessTerminalUsesDeveloperContainerSecurityAndResources(t *testing.T
 	require.True(t, terminalConfig.ReadonlyRootfs)
 	require.Equal(t, []string{"ALL"}, terminalConfig.CapDrop)
 	require.Contains(t, strings.Split(terminalConfig.Tmpfs["/home/kuayle"], ","), "exec")
-	require.Equal(t, ideConfig.Resources.Memory, terminalConfig.Resources.Memory)
-	require.Equal(t, ideConfig.Resources.NanoCPUs, terminalConfig.Resources.NanoCPUs)
-	require.Equal(t, ideConfig.Resources.PidsLimit, terminalConfig.Resources.PidsLimit)
+	// A headless developer container receives the IDE and browser shares, which it replaces.
+	require.Equal(t, 2*ideConfig.Resources.Memory, terminalConfig.Resources.Memory)
+	require.Equal(t, 2*ideConfig.Resources.NanoCPUs, terminalConfig.Resources.NanoCPUs)
+	require.Equal(t, 2*(*ideConfig.Resources.PidsLimit), *terminalConfig.Resources.PidsLimit)
 	require.Len(t, terminalConfig.Mounts, 1)
 	require.Equal(t, "/workspace", terminalConfig.Mounts[0].Target)
 	require.False(t, terminalConfig.Mounts[0].ReadOnly)

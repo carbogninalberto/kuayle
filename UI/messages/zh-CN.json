@@ -620,6 +620,7 @@
 	"machines.delete_title": "永久删除开发机器？",
 	"machines.deleting": "删除中...",
 	"machines.developer_environment": "开发环境",
+	"machines.developer_environment_headless_desc": "在工作区中打开原生终端；已安装所有内置智能体 CLI。暂停的机器会自动恢复；已停止的机器必须手动启动。",
 	"machines.developer_environment_desc": "在此工作区中打开 code-server 或原生终端。暂停的机器会自动恢复；已停止的机器需显式启动。",
 	"machines.development_environment": "开发环境",
 	"machines.disk_near_limit": "磁盘使用量已接近限制。",

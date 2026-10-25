@@ -28,12 +28,7 @@ func TestNewBuiltinProvidersBuildExactArgv(t *testing.T) {
 		interactiveArgv []string
 		autonomousArgv  []string
 	}{
-		{
-			name:            "pi",
-			provider:        NewPiProvider(headlessImage),
-			interactiveArgv: []string{"pi"},
-			autonomousArgv:  []string{"pi", "--print", "--mode", "json", "--no-session", "fix the issue"},
-		},
+
 		{
 			name:            "qwen-code",
 			provider:        NewQwenCodeProvider(headlessImage),
@@ -79,7 +74,6 @@ func TestNewBuiltinProvidersBuildExactArgv(t *testing.T) {
 func TestNewBuiltinProvidersUseHeadlessImageDefaults(t *testing.T) {
 	const headlessImage = "ghcr.io/kuayle/dev-machine-headless:0.1.0"
 	providers := []Provider{
-		NewPiProvider(""),
 		NewQwenCodeProvider(""),
 		NewCrushProvider(""),
 		NewKimiProvider(""),

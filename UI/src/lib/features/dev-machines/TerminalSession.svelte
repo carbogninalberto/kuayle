@@ -135,6 +135,19 @@
 		}
 	}
 
+	// The WebGL renderer draws block and box glyphs itself, so TUI logos and borders have no
+	// font gaps. The DOM renderer remains the fallback when WebGL is unavailable or lost.
+	async function loadWebglRenderer(target: XTerminal) {
+		try {
+			const { WebglAddon } = await import('@xterm/addon-webgl');
+			const webgl = new WebglAddon();
+			webgl.onContextLoss(() => webgl.dispose());
+			target.loadAddon(webgl);
+		} catch {
+			// Keep the DOM renderer.
+		}
+	}
+
 	async function prepareTerminal() {
 		const [{ Terminal }, { FitAddon }, { Unicode11Addon }] = await Promise.all([
 			import('@xterm/xterm'),
@@ -149,6 +162,7 @@
 		terminal.loadAddon(new Unicode11Addon());
 		terminal.unicode.activeVersion = TERMINAL_UNICODE_VERSION;
 		terminal.open(terminalElement);
+		await loadWebglRenderer(terminal);
 		fitTerminal();
 		terminal.writeln('\x1b[90mPreparing terminal session...\x1b[0m');
 		disposables.push(

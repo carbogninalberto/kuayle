@@ -19,7 +19,7 @@ type DevMachineServicesInput struct {
 }
 
 type DevMachineAgentInput struct {
-	Provider string `json:"provider" validate:"required,oneof=claude-code opencode codex pi qwen-code crush kimi goose custom"`
+	Provider string `json:"provider" validate:"required,oneof=claude-code opencode codex qwen-code crush kimi goose custom"`
 	Mode     string `json:"mode" validate:"required,oneof=interactive autonomous"`
 	Config   any    `json:"config,omitempty"`
 }
@@ -155,7 +155,7 @@ type DevMachineOperationResponse struct {
 type CreateAgentRunRequest struct {
 	CheckoutID         *string  `json:"checkout_id,omitempty" validate:"omitempty,uuid"`
 	UseRootWorkspace   bool     `json:"use_root_workspace"`
-	Provider           string   `json:"provider" validate:"required,oneof=claude-code opencode codex pi qwen-code crush kimi goose custom"`
+	Provider           string   `json:"provider" validate:"required,oneof=claude-code opencode codex qwen-code crush kimi goose custom"`
 	Mode               string   `json:"mode" validate:"required,oneof=interactive autonomous"`
 	Prompt             string   `json:"prompt" validate:"required,min=1,max=100000"`
 	AcceptanceCriteria []string `json:"acceptance_criteria"`
@@ -235,7 +235,7 @@ type DevMachinePolicyRequest struct {
 	MaxDailyAgentRuns     int      `json:"max_daily_agent_runs" validate:"min=0,max=10000"`
 	MaxRuntimeMinutes     int      `json:"max_runtime_minutes" validate:"min=5,max=1440"`
 	MaxDiskGB             int      `json:"max_disk_gb" validate:"min=20,max=2048"`
-	AllowedProviders      []string `json:"allowed_providers" validate:"omitempty,max=8,dive,oneof=claude-code opencode codex pi qwen-code crush kimi goose"`
+	AllowedProviders      []string `json:"allowed_providers" validate:"omitempty,max=7,dive,oneof=claude-code opencode codex qwen-code crush kimi goose"`
 	AllowedRepositories   []string `json:"allowed_repositories"`
 	AllowCustomProviders  bool     `json:"allow_custom_providers"`
 	IdlePauseMinutes      int      `json:"idle_pause_minutes" validate:"omitempty,min=5,max=10080"`

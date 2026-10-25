@@ -620,6 +620,7 @@
 	"machines.delete_title": "永久刪除開發機器？",
 	"machines.deleting": "刪除中...",
 	"machines.developer_environment": "開發環境",
+	"machines.developer_environment_headless_desc": "在工作區中開啟原生終端機；已安裝所有內建代理 CLI。暫停的機器會自動恢復；已停止的機器必須手動啟動。",
 	"machines.developer_environment_desc": "在此工作區中開啟 code-server 或原生終端。暫停的機器會自動恢復；已停止的機器需顯式啟動。",
 	"machines.development_environment": "開發環境",
 	"machines.disk_near_limit": "磁碟使用量已接近限制。",

@@ -800,6 +800,8 @@ test('keeps multiple docked terminals alive across collapse and navigation', asy
 	expect(initialSize.rows).toBeLessThan(100);
 	const terminalDock = page.getByTestId('terminal-dock');
 	const nativeTerminal = page.getByTestId('native-terminal');
+	// Full-screen TUIs draw logos and borders with block glyphs; the WebGL renderer draws them seamlessly.
+	await expect(nativeTerminal.locator('.xterm-screen canvas').first()).toBeAttached();
 	const enterFullScreen = page.getByRole('button', { name: 'Enter full screen' });
 	await expect(enterFullScreen).toHaveAttribute('aria-pressed', 'false');
 	await enterFullScreen.click();
@@ -1530,7 +1532,6 @@ test('creates a headless machine with a new built-in provider', async ({ page })
 		['claude-code', 'Claude Code'],
 		['opencode', 'OpenCode'],
 		['codex', 'Codex'],
-		['pi', 'Pi'],
 		['qwen-code', 'Qwen Code'],
 		['crush', 'Crush'],
 		['kimi', 'Kimi'],

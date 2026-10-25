@@ -69,7 +69,6 @@ func main() {
 		agent.NewClaudeCodeProvider(configValue.DevMachine.ClaudeCodeImage),
 		agent.NewOpenCodeProvider(configValue.DevMachine.OpenCodeImage),
 		agent.NewCodexProvider(configValue.DevMachine.CodexImage),
-		agent.NewPiProvider(configValue.DevMachine.HeadlessImage),
 		agent.NewQwenCodeProvider(configValue.DevMachine.HeadlessImage),
 		agent.NewCrushProvider(configValue.DevMachine.HeadlessImage),
 		agent.NewKimiProvider(configValue.DevMachine.HeadlessImage),

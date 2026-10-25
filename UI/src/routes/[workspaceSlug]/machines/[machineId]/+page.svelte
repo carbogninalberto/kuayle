@@ -626,7 +626,7 @@
 				<Card.Root>
 					<Card.Header>
 						<Card.Title class="text-sm">{m['machines.developer_environment']()}</Card.Title>
-						<Card.Description>{m['machines.developer_environment_desc']()}</Card.Description>
+						<Card.Description>{machine.profile === 'headless' ? m['machines.developer_environment_headless_desc']() : m['machines.developer_environment_desc']()}</Card.Description>
 					</Card.Header>
 					<Card.Content>
 						<div class="grid gap-3 sm:grid-cols-2">

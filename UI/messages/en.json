@@ -620,6 +620,7 @@
 	"machines.delete_title": "Delete Dev Machine permanently?",
 	"machines.deleting": "Deleting...",
 	"machines.developer_environment": "Developer environment",
+	"machines.developer_environment_headless_desc": "Open a native terminal into the workspace; every built-in agent CLI is installed. Paused machines resume automatically; stopped machines must be started explicitly.",
 	"machines.developer_environment_desc": "Open code-server or a native terminal into the same workspace. Paused machines resume automatically; stopped machines must be started explicitly.",
 	"machines.development_environment": "Development environment",
 	"machines.disk_near_limit": "Disk usage is near the limit.",

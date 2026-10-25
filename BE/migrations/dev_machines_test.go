@@ -64,7 +64,7 @@ func TestDevMachineHeadlessMigrationDefinesDefaultAndRollback(t *testing.T) {
 
 	upSQL := string(up)
 	require.Contains(t, upSQL, `ALTER COLUMN allowed_providers SET DEFAULT`)
-	require.Contains(t, upSQL, `"pi"`)
+	require.Contains(t, upSQL, `"qwen-code"`)
 	require.Contains(t, upSQL, `"qwen-code"`)
 	require.Contains(t, upSQL, `"crush"`)
 	require.Contains(t, upSQL, `"kimi"`)
@@ -127,7 +127,7 @@ func TestDevMachineHeadlessMigrationPreservesPoliciesAndAddsProfile(t *testing.T
 	require.NoError(t, err)
 	var defaultAllowed string
 	require.NoError(t, db.QueryRow(`SELECT allowed_providers::text FROM dev_machine_workspace_policies WHERE workspace_id=$1`, fixture.workspaceB).Scan(&defaultAllowed))
-	require.JSONEq(t, `["claude-code","opencode","codex","pi","qwen-code","crush","kimi","goose"]`, defaultAllowed)
+	require.JSONEq(t, `["claude-code","opencode","codex","qwen-code","crush","kimi","goose"]`, defaultAllowed)
 
 	machineID := uuid.New()
 	_, err = db.Exec(`INSERT INTO dev_machines
@@ -157,7 +157,7 @@ func TestDevMachineHeadlessMigrationPreservesPoliciesAndAddsProfile(t *testing.T
 	require.NoError(t, db.QueryRow(`SELECT column_default FROM information_schema.columns
 		WHERE table_schema='public' AND table_name='dev_machine_workspace_policies' AND column_name='allowed_providers'`).Scan(&restoredDefault))
 	require.Contains(t, restoredDefault, `"claude-code"`)
-	require.NotContains(t, restoredDefault, `"pi"`)
+	require.NotContains(t, restoredDefault, `"qwen-code"`)
 }
 
 func TestDevMachineCustomSizeMigrationRoundTrip(t *testing.T) {

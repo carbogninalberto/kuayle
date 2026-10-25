@@ -2076,7 +2076,7 @@ func (s *DevMachineService) GetPolicy(ctx context.Context, workspaceID uuid.UUID
 	return &domain.DevMachineWorkspacePolicy{
 		WorkspaceID: workspaceID, MaxConcurrentMachines: 5, MaxMachinesPerUser: 2, MaxDailyAgentRuns: 25,
 		MaxRuntimeMinutes: 480, MaxDiskGB: 100, IdlePauseMinutes: 240,
-		AllowedProviders:    json.RawMessage(`["claude-code","opencode","codex","pi","qwen-code","crush","kimi","goose"]`),
+		AllowedProviders:    json.RawMessage(`["claude-code","opencode","codex","qwen-code","crush","kimi","goose"]`),
 		AllowedRepositories: json.RawMessage(`[]`),
 	}, nil
 }

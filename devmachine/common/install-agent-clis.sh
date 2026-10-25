@@ -28,7 +28,6 @@ esac
 CLAUDE_CODE_VERSION=2.1.289
 OPENCODE_VERSION=1.18.34
 CODEX_VERSION=0.160.0
-PI_VERSION=0.73.1
 QWEN_VERSION=0.26.1
 CRUSH_VERSION=0.98.2
 GOOSE_VERSION=1.56.0
@@ -37,7 +36,6 @@ KIMI_VERSION=1.52.0
 npm install --global --allow-scripts=@anthropic-ai/claude-code "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
 npm install --global --allow-scripts=opencode-ai "opencode-ai@${OPENCODE_VERSION}"
 npm install --global "@openai/codex@${CODEX_VERSION}"
-npm install --global --allow-scripts=@mariozechner/pi-coding-agent "@mariozechner/pi-coding-agent@${PI_VERSION}"
 npm install --global --allow-scripts=@qwen-code/qwen-code "@qwen-code/qwen-code@${QWEN_VERSION}"
 
 download_dir=$(mktemp -d "${TMPDIR:-/tmp}/kuayle-agent-clis.XXXXXX")
@@ -96,6 +94,6 @@ extract_and_install crush
 extract_and_install goose
 extract_and_install kimi
 
-for cli in claude opencode codex pi qwen crush goose kimi; do
+for cli in claude opencode codex qwen crush goose kimi; do
   "$cli" --version
 done

@@ -164,8 +164,6 @@ func TestAgentCLIInstallerPinsEveryCLIAndReleaseDigest(t *testing.T) {
 		"OPENCODE_VERSION=1.18.34",
 		"--allow-scripts=opencode-ai",
 		"CODEX_VERSION=0.160.0",
-		"@mariozechner/pi-coding-agent",
-		"PI_VERSION=0.73.1",
 		"@qwen-code/qwen-code",
 		"QWEN_VERSION=0.26.1",
 		"crush_${CRUSH_VERSION}_Linux_${release_arch}.tar.gz",

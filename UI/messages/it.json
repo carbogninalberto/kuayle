@@ -620,6 +620,7 @@
 	"machines.delete_title": "Eliminare definitivamente la macchina di sviluppo?",
 	"machines.deleting": "Eliminazione...",
 	"machines.developer_environment": "Ambiente sviluppatore",
+	"machines.developer_environment_headless_desc": "Apri un terminale nativo nello spazio di lavoro; tutte le CLI degli agenti integrati sono installate. Le macchine in pausa riprendono automaticamente; quelle arrestate vanno avviate esplicitamente.",
 	"machines.developer_environment_desc": "Apri code-server o un terminale nativo nello stesso workspace. Le macchine in pausa riprendono automaticamente; quelle arrestate devono essere avviate esplicitamente.",
 	"machines.development_environment": "Ambiente di sviluppo",
 	"machines.disk_near_limit": "L'utilizzo del disco è prossimo al limite.",
