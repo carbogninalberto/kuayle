@@ -654,10 +654,15 @@ func (m *Manager) serviceSecrets(ctx context.Context, machine *domain.DevMachine
 		serviceSecrets[service.ServiceKey] = values
 	}
 	_, hasIDE := serviceSecrets["ide"]
-	if hasIDE {
+	_, hasTerminal := serviceSecrets["terminal"]
+	if hasIDE || hasTerminal {
 		_, githubToken, err := m.repositoryToken(ctx, machine, "")
 		if err == nil && githubToken != "" {
-			serviceSecrets["ide"]["GITHUB_TOKEN"] = githubToken
+			if hasIDE {
+				serviceSecrets["ide"]["GITHUB_TOKEN"] = githubToken
+			} else {
+				serviceSecrets["terminal"]["GITHUB_TOKEN"] = githubToken
+			}
 		} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("github_token_failed: %w", err)
 		}

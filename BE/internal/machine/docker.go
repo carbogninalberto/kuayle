@@ -319,7 +319,7 @@ func (r *DockerRuntime) Spawn(ctx context.Context, machine *domain.DevMachine, s
 
 	terminalServices := make([]domain.DevMachineService, 0)
 	for _, service := range services {
-		if service.ServiceType == "terminal" {
+		if service.ServiceType == "terminal" && terminalUsesSharedIDEContainer(service, services) {
 			terminalServices = append(terminalServices, service)
 			continue
 		}
@@ -342,12 +342,27 @@ func (r *DockerRuntime) Spawn(ctx context.Context, machine *domain.DevMachine, s
 	for _, service := range terminalServices {
 		containerID := containers["ide"]
 		if containerID == "" {
+			containerID = containers["terminal"]
+		}
+		if containerID == "" {
 			return "", "", nil, fmt.Errorf("start terminal: developer container is unavailable")
 		}
 		recordSpawnServiceContainer(containers, createdContainers, service.ServiceKey, containerID, false)
 	}
 	completed = true
 	return networkName, volumeName, containers, nil
+}
+
+func terminalUsesSharedIDEContainer(service domain.DevMachineService, services []domain.DevMachineService) bool {
+	if service.ServiceType != "terminal" {
+		return false
+	}
+	for _, candidate := range services {
+		if candidate.ServiceType == "ide" {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *DockerRuntime) connectNetwork(ctx context.Context, networkName, containerID string, endpoint *network.EndpointSettings) (bool, error) {
@@ -873,26 +888,20 @@ func (r *DockerRuntime) Stats(ctx context.Context, _ *domain.DevMachine, service
 }
 
 func (r *DockerRuntime) GitState(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService, checkout *domain.DevMachineCheckout) (GitState, error) {
-	var ideContainer string
-	for _, service := range services {
-		if service.ServiceType == "ide" && service.ContainerID != nil {
-			ideContainer = *service.ContainerID
-			break
-		}
-	}
-	if ideContainer == "" {
-		return GitState{}, fmt.Errorf("IDE container is unavailable")
+	developerContainer := developerContainerID(services)
+	if developerContainer == "" {
+		return GitState{}, fmt.Errorf("developer container is unavailable")
 	}
 	workspacePath, baseBranch := "/workspace", machine.BaseBranch
 	if checkout != nil {
 		workspacePath, baseBranch = checkout.WorkspacePath, checkout.BaseBranch
 	}
-	branch, err := r.execOutput(ctx, ideContainer, []string{"git", "-C", workspacePath, "branch", "--show-current"})
+	branch, err := r.execOutput(ctx, developerContainer, []string{"git", "-C", workspacePath, "branch", "--show-current"})
 	if err != nil {
 		return GitState{}, err
 	}
-	commits, _ := r.execOutput(ctx, ideContainer, []string{"git", "-C", workspacePath, "rev-list", "origin/" + baseBranch + "..HEAD"})
-	changed, _ := r.execOutput(ctx, ideContainer, []string{"git", "-C", workspacePath, "diff", "--name-only", "origin/" + baseBranch + "...HEAD"})
+	commits, _ := r.execOutput(ctx, developerContainer, []string{"git", "-C", workspacePath, "rev-list", "origin/" + baseBranch + "..HEAD"})
+	changed, _ := r.execOutput(ctx, developerContainer, []string{"git", "-C", workspacePath, "diff", "--name-only", "origin/" + baseBranch + "...HEAD"})
 	return GitState{Branch: strings.TrimSpace(branch), Commits: nonEmptyLines(commits), ChangedFiles: nonEmptyLines(changed)}, nil
 }
 
@@ -1039,7 +1048,16 @@ func developerContainerID(services []domain.DevMachineService) string {
 			return *service.ContainerID
 		}
 	}
+	for _, service := range services {
+		if service.ServiceType == "terminal" && service.ContainerID != nil {
+			return *service.ContainerID
+		}
+	}
 	return ""
+}
+
+func isDeveloperService(serviceType string) bool {
+	return serviceType == "ide" || serviceType == "terminal"
 }
 
 func uniqueContainerIDs(services []domain.DevMachineService) []string {
@@ -1077,7 +1095,7 @@ func (r *DockerRuntime) ensureService(ctx context.Context, machine *domain.DevMa
 	if !errdefs.IsNotFound(err) {
 		return "", false, false, err
 	}
-	if service.ServiceType == "ide" && machine.EnvironmentID != nil {
+	if isDeveloperService(service.ServiceType) && machine.EnvironmentID != nil {
 		if err := r.ensureEnvironmentImage(ctx, service.ImageRef, machine.WorkspaceID, *machine.EnvironmentID); err != nil {
 			return "", false, false, err
 		}
@@ -1102,10 +1120,10 @@ func (r *DockerRuntime) ensureService(ctx context.Context, machine *domain.DevMa
 	}
 	environment = append(environment, "KUAYLE_SECRET_NAMES="+strings.Join(secretNames, ","))
 	if service.ServiceType != "egress" {
-		environment = append(environment, "HTTP_PROXY=http://"+machine.RoutingKey+"-egress:3128", "HTTPS_PROXY=http://"+machine.RoutingKey+"-egress:3128", "NO_PROXY=localhost,127.0.0.1,"+machine.RoutingKey+"-collector,"+machine.RoutingKey+"-ide,"+machine.RoutingKey+"-browser")
+		environment = append(environment, "HTTP_PROXY=http://"+machine.RoutingKey+"-egress:3128", "HTTPS_PROXY=http://"+machine.RoutingKey+"-egress:3128", "NO_PROXY=localhost,127.0.0.1,"+machine.RoutingKey+"-collector,"+machine.RoutingKey+"-ide,"+machine.RoutingKey+"-terminal,"+machine.RoutingKey+"-browser")
 		environment = append(environment, "KUAYLE_COLLECTOR_URL=http://"+machine.RoutingKey+"-collector:8091")
 	}
-	if service.ServiceType == "ide" {
+	if isDeveloperService(service.ServiceType) {
 		environment = append(environment, "KUAYLE_REPO_URL="+machine.RepoURL, "KUAYLE_BASE_BRANCH="+machine.BaseBranch, "KUAYLE_WORKING_BRANCH="+machine.WorkingBranch)
 		environment = append(environment, "SHELL=/usr/local/bin/kuayle-shell")
 	}
@@ -1124,6 +1142,8 @@ func (r *DockerRuntime) ensureService(ctx context.Context, machine *domain.DevMa
 	}
 	if service.ServiceType == "ide" {
 		containerConfig.Healthcheck = &container.HealthConfig{Test: []string{"CMD", "test", "-f", "/workspace/.kuayle-ready"}, Interval: time.Second, Timeout: time.Second, Retries: 300}
+	} else if service.ServiceType == "terminal" && machine.Profile == domain.DevMachineProfileHeadless {
+		containerConfig.Healthcheck = &container.HealthConfig{Test: []string{"CMD", "curl", "-fsS", "http://127.0.0.1:7681/"}, Interval: 10 * time.Second, Timeout: 2 * time.Second, StartPeriod: 10 * time.Second, Retries: 12}
 	} else if service.ServiceType == "browser" {
 		containerConfig.Healthcheck = &container.HealthConfig{Test: []string{"CMD", "/usr/local/bin/kuayle-browser-healthcheck"}, Interval: 10 * time.Second, Timeout: 2 * time.Second, StartPeriod: 10 * time.Second, Retries: 6}
 	}
@@ -1158,7 +1178,7 @@ func (r *DockerRuntime) ensureService(ctx context.Context, machine *domain.DevMa
 func (r *DockerRuntime) secureHostConfig(machine *domain.DevMachine, serviceType, networkName, volumeName string) *container.HostConfig {
 	fraction := int64(5)
 	switch serviceType {
-	case "ide":
+	case "ide", "terminal":
 		fraction = 25
 	case "browser":
 		fraction = 25
@@ -1191,7 +1211,7 @@ func (r *DockerRuntime) secureHostConfig(machine *domain.DevMachine, serviceType
 		})
 	}
 	tmpOptions := "rw,noexec,nosuid,uid=1000,gid=1000,size=256m"
-	if serviceType == "agent" || serviceType == "ide" {
+	if serviceType == "agent" || serviceType == "ide" || serviceType == "terminal" {
 		// Compilers and OpenCode's native TUI renderer execute from temporary storage.
 		tmpOptions = "rw,exec,nosuid,uid=1000,gid=1000,size=256m"
 	}

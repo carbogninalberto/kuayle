@@ -304,15 +304,56 @@ func TestInteractiveToolingTmpfsAllowsExecutables(t *testing.T) {
 
 	agentConfig := runtime.secureHostConfig(machine, "agent", "network", "volume")
 	ideConfig := runtime.secureHostConfig(machine, "ide", "network", "volume")
+	terminalConfig := runtime.secureHostConfig(machine, "terminal", "network", "volume")
 	collectorConfig := runtime.secureHostConfig(machine, "collector", "network", "volume")
 
 	require.False(t, strings.Contains(agentConfig.Tmpfs["/tmp"], "noexec"))
 	require.True(t, strings.Contains(agentConfig.Tmpfs["/tmp"], "exec"))
 	require.False(t, strings.Contains(ideConfig.Tmpfs["/tmp"], "noexec"))
 	require.True(t, strings.Contains(ideConfig.Tmpfs["/tmp"], "exec"))
+	require.False(t, strings.Contains(terminalConfig.Tmpfs["/tmp"], "noexec"))
+	require.True(t, strings.Contains(terminalConfig.Tmpfs["/tmp"], "exec"))
 	require.True(t, strings.Contains(collectorConfig.Tmpfs["/tmp"], "noexec"))
 	require.True(t, strings.Contains(agentConfig.Tmpfs["/run/kuayle-secrets"], "noexec"))
 	require.True(t, strings.Contains(ideConfig.Tmpfs["/run/kuayle-secrets"], "noexec"))
+	require.True(t, strings.Contains(terminalConfig.Tmpfs["/run/kuayle-secrets"], "noexec"))
+}
+
+func TestHeadlessTerminalUsesDeveloperContainerSecurityAndResources(t *testing.T) {
+	machine := &domain.DevMachine{MemoryMB: 8192, CPUMillis: 4000, PidsLimit: 512}
+	runtime := &DockerRuntime{}
+
+	ideConfig := runtime.secureHostConfig(machine, "ide", "network", "volume")
+	terminalConfig := runtime.secureHostConfig(machine, "terminal", "network", "volume")
+
+	require.True(t, terminalConfig.ReadonlyRootfs)
+	require.Equal(t, []string{"ALL"}, terminalConfig.CapDrop)
+	require.NotEmpty(t, terminalConfig.Tmpfs["/home/kuayle"])
+	require.Equal(t, ideConfig.Resources.Memory, terminalConfig.Resources.Memory)
+	require.Equal(t, ideConfig.Resources.NanoCPUs, terminalConfig.Resources.NanoCPUs)
+	require.Equal(t, ideConfig.Resources.PidsLimit, terminalConfig.Resources.PidsLimit)
+	require.Len(t, terminalConfig.Mounts, 1)
+	require.Equal(t, "/workspace", terminalConfig.Mounts[0].Target)
+	require.False(t, terminalConfig.Mounts[0].ReadOnly)
+}
+
+func TestDeveloperContainerIDSupportsHeadlessTerminalOnlyMachines(t *testing.T) {
+	terminalContainer := "headless-developer"
+	collectorContainer := "collector"
+	services := []domain.DevMachineService{
+		{ServiceKey: "collector", ServiceType: "collector", ContainerID: &collectorContainer},
+		{ServiceKey: "terminal", ServiceType: "terminal", ContainerID: &terminalContainer},
+	}
+
+	require.Equal(t, terminalContainer, developerContainerID(services))
+}
+
+func TestOnlyStandardTerminalSharesTheIDEContainerDuringSpawn(t *testing.T) {
+	terminal := domain.DevMachineService{ServiceKey: "terminal", ServiceType: "terminal"}
+	ide := domain.DevMachineService{ServiceKey: "ide", ServiceType: "ide"}
+
+	require.False(t, terminalUsesSharedIDEContainer(terminal, []domain.DevMachineService{terminal}))
+	require.True(t, terminalUsesSharedIDEContainer(terminal, []domain.DevMachineService{ide, terminal}))
 }
 
 func TestSpawnCleanupPlanOnlyIncludesInvocationOwnedResources(t *testing.T) {

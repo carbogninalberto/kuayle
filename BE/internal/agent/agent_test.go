@@ -20,6 +20,97 @@ func TestBuiltinProvidersBuildArgvWithoutShell(t *testing.T) {
 	}
 }
 
+func TestNewBuiltinProvidersBuildExactArgv(t *testing.T) {
+	const headlessImage = "registry.example/kuayle/dev-machine-headless:test"
+	tests := []struct {
+		name            string
+		provider        Provider
+		interactiveArgv []string
+		autonomousArgv  []string
+	}{
+		{
+			name:            "pi",
+			provider:        NewPiProvider(headlessImage),
+			interactiveArgv: []string{"pi"},
+			autonomousArgv:  []string{"pi", "--print", "--mode", "json", "--no-session", "fix the issue"},
+		},
+		{
+			name:            "qwen-code",
+			provider:        NewQwenCodeProvider(headlessImage),
+			interactiveArgv: []string{"qwen"},
+			autonomousArgv:  []string{"qwen", "--yolo", "--output-format", "stream-json", "fix the issue"},
+		},
+		{
+			name:            "crush",
+			provider:        NewCrushProvider(headlessImage),
+			interactiveArgv: []string{"crush"},
+			autonomousArgv:  []string{"crush", "--yolo", "run", "--quiet", "fix the issue"},
+		},
+		{
+			name:            "kimi",
+			provider:        NewKimiProvider(headlessImage),
+			interactiveArgv: []string{"kimi"},
+			autonomousArgv:  []string{"kimi", "--print", "--yolo", "--output-format", "stream-json", "--prompt", "fix the issue"},
+		},
+		{
+			name:            "goose",
+			provider:        NewGooseProvider(headlessImage),
+			interactiveArgv: []string{"goose", "session"},
+			autonomousArgv:  []string{"goose", "run", "--no-session", "--quiet", "--output-format", "stream-json", "--text", "fix the issue"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			interactive, err := test.provider.BuildInvocation(RunInput{Mode: ModeInteractive, Prompt: "fix the issue"})
+			require.NoError(t, err)
+			require.Equal(t, test.interactiveArgv, interactive.Argv)
+			require.True(t, interactive.Interactive)
+
+			autonomous, err := test.provider.BuildInvocation(RunInput{Mode: ModeAutonomous, Prompt: "fix the issue"})
+			require.NoError(t, err)
+			require.Equal(t, test.autonomousArgv, autonomous.Argv)
+			require.False(t, autonomous.Interactive)
+			require.Equal(t, headlessImage, autonomous.Image)
+		})
+	}
+}
+
+func TestNewBuiltinProvidersUseHeadlessImageDefaults(t *testing.T) {
+	const headlessImage = "ghcr.io/kuayle/dev-machine-headless:0.1.0"
+	providers := []Provider{
+		NewPiProvider(""),
+		NewQwenCodeProvider(""),
+		NewCrushProvider(""),
+		NewKimiProvider(""),
+		NewGooseProvider(""),
+	}
+
+	for _, provider := range providers {
+		metadata := provider.Metadata()
+		require.Equal(t, headlessImage, metadata.DefaultImage)
+		require.Empty(t, metadata.RequiredSecrets)
+		require.ElementsMatch(t, []Mode{ModeInteractive, ModeAutonomous}, metadata.SupportedModes)
+	}
+}
+
+func TestStreamJSONProvidersExtractLastAssistantText(t *testing.T) {
+	const headlessImage = "registry.example/kuayle/dev-machine-headless:test"
+	stdout := strings.Join([]string{
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"First message"}]}}`,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Final provider answer"}]}}`,
+	}, "\n")
+	for _, provider := range []Provider{
+		NewQwenCodeProvider(headlessImage),
+		NewKimiProvider(headlessImage),
+		NewGooseProvider(headlessImage),
+	} {
+		t.Run(provider.Metadata().ID, func(t *testing.T) {
+			require.Equal(t, "Final provider answer", provider.ParseResult(stdout, "", 0).Summary)
+		})
+	}
+}
+
 func TestCustomProviderRejectsShell(t *testing.T) {
 	provider := NewCustomCLIProvider("")
 	for _, entrypoint := range []string{"/bin/sh", "/bin/zsh", "pwsh"} {

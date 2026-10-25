@@ -11,6 +11,8 @@ export type DevMachineStatus =
 	| 'failed'
 	| 'expired';
 
+export type DevMachineProfile = 'standard' | 'headless';
+
 type DevMachineLaunchStatus = 'ready' | 'resuming' | 'pending';
 
 type DevMachineEnvironmentStatus = 'pending' | 'building' | 'ready' | 'failed' | 'delete_requested';
@@ -56,6 +58,7 @@ export interface DevMachine {
 	base_branch?: string;
 	working_branch?: string;
 	machine_size: 'small' | 'medium' | 'large' | 'custom';
+	profile: DevMachineProfile;
 	cpu_millis: number;
 	memory_mb: number;
 	disk_gb: number;
@@ -165,7 +168,7 @@ export interface AgentRun {
 }
 
 export interface AgentProvider {
-	id: 'claude-code' | 'opencode' | 'codex' | 'custom';
+	id: 'claude-code' | 'opencode' | 'codex' | 'pi' | 'qwen-code' | 'crush' | 'kimi' | 'goose' | 'custom';
 	display_name: string;
 	default_image: string;
 	required_secrets: string[];
@@ -191,12 +194,13 @@ interface CreateDevMachineBaseInput {
 	repo?: { provider: 'github'; owner: string; name: string; url: string };
 	base_branch?: string;
 	working_branch?: string;
+	profile?: DevMachineProfile;
 	services: { ide: boolean; browser: boolean };
 	agents: Array<{ provider: AgentProvider['id']; mode: 'interactive' | 'autonomous'; config?: unknown }>;
 	env_vars: Array<{
 		name: string;
 		value: string;
-		target_service: 'ide' | 'agent' | 'collector';
+		target_service: 'ide' | 'terminal' | 'agent' | 'collector';
 		provider?: string;
 		secret?: boolean;
 	}>;

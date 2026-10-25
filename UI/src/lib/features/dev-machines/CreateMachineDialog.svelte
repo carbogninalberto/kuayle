@@ -7,6 +7,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
+	import * as RadioGroup from '$lib/components/ui/radio-group';
 	import { Switch } from '$lib/components/ui/switch';
 	import MachineResourceSliders from '$lib/features/dev-machines/MachineResourceSliders.svelte';
 	import {
@@ -53,6 +54,7 @@
 	let diskGb = $state(DEFAULT_MACHINE_RESOURCES.disk_gb);
 	let useAgent = $state(true);
 	let provider = $state<AgentProvider['id']>('opencode');
+	let profile = $state<'standard' | 'headless'>('standard');
 	let browser = $state(true);
 	let keepRunning = $state(false);
 	let secretValues = $state<Record<string, string>>({});
@@ -69,6 +71,7 @@
 
 	const selectedProvider = $derived(providers.find((item) => item.id === provider));
 	const selectedEnvironment = $derived(environments.find((item) => item.id === environmentId));
+	const headless = $derived(profile === 'headless');
 	const sizeOptions = $derived(
 		resolveMachineSizeOptions(policy?.size_options, policy?.max_disk_gb ?? MACHINE_DISK_GB[MACHINE_DISK_GB.length - 1])
 	);
@@ -162,6 +165,8 @@
 		extraSecretName = '';
 		extraSecretValue = '';
 		keepRunning = false;
+		profile = 'standard';
+		browser = true;
 		cpuMillis = DEFAULT_MACHINE_RESOURCES.cpu_millis;
 		memoryMb = DEFAULT_MACHINE_RESOURCES.memory_mb;
 		diskGb = DEFAULT_MACHINE_RESOURCES.disk_gb;
@@ -238,17 +243,18 @@
 		}
 
 		const envVars: CreateDevMachineInput['env_vars'] = [];
+		const developerSecretTarget = headless ? 'terminal' : 'ide';
 		if (useAgent) {
 			for (const requiredSecret of selectedProvider?.required_secrets ?? []) {
 				const value = secretValues[requiredSecret];
 				if (!value) continue;
 				envVars.push({ name: requiredSecret, value, target_service: 'agent', provider, secret: true });
-				envVars.push({ name: requiredSecret, value, target_service: 'ide', secret: true });
+				envVars.push({ name: requiredSecret, value, target_service: developerSecretTarget, secret: true });
 			}
 		}
 		if (useAgent && extraSecretName.trim() && extraSecretValue) {
 			envVars.push({ name: extraSecretName.trim(), value: extraSecretValue, target_service: 'agent', provider, secret: true });
-			envVars.push({ name: extraSecretName.trim(), value: extraSecretValue, target_service: 'ide', secret: true });
+			envVars.push({ name: extraSecretName.trim(), value: extraSecretValue, target_service: developerSecretTarget, secret: true });
 		}
 
 		loading = true;
@@ -261,7 +267,8 @@
 				cpu_millis: resources.cpu_millis,
 				memory_mb: resources.memory_mb,
 				disk_gb: resources.disk_gb,
-				services: { ide: true, browser },
+				profile,
+				services: { ide: !headless, browser: headless ? false : browser },
 				agents: useAgent ? [{ provider, mode: 'autonomous', config: providerConfig }] : [],
 				env_vars: envVars,
 				environment_id: selectedEnvironment?.id,
@@ -308,6 +315,26 @@
 				</p>
 			</div>
 
+			<div class="space-y-2">
+				<Label>{m['machines.profile']()}</Label>
+				<RadioGroup.Root bind:value={profile} class="grid gap-3 sm:grid-cols-2" aria-label={m['machines.profile']()}>
+					<label class="flex cursor-pointer items-start gap-3 rounded-lg border p-3 {profile === 'standard' ? 'border-[var(--app-accent)]' : 'border-[var(--app-border)]'}">
+						<RadioGroup.Item value="standard" aria-label={m['machines.profile_standard']()} class="mt-0.5" />
+						<span>
+							<span class="block text-sm font-medium">{m['machines.profile_standard']()}</span>
+							<span class="mt-1 block text-xs text-muted-foreground">{m['machines.profile_standard_desc']()}</span>
+						</span>
+					</label>
+					<label class="flex cursor-pointer items-start gap-3 rounded-lg border p-3 {profile === 'headless' ? 'border-[var(--app-accent)]' : 'border-[var(--app-border)]'}">
+						<RadioGroup.Item value="headless" aria-label={m['machines.profile_headless']()} class="mt-0.5" />
+						<span>
+							<span class="block text-sm font-medium">{m['machines.profile_headless']()}</span>
+							<span class="mt-1 block text-xs text-muted-foreground">{m['machines.profile_headless_desc']()}</span>
+						</span>
+					</label>
+				</RadioGroup.Root>
+			</div>
+
 			<div class="space-y-1.5">
 				<Label>{m['machines.development_environment']()}</Label>
 				<Select.Root type="single" value={environmentId} onValueChange={(value) => value && (environmentId = value)}>
@@ -322,7 +349,7 @@
 			<MachineResourceSliders bind:cpu_millis={cpuMillis} bind:memory_mb={memoryMb} bind:disk_gb={diskGb} {sizeOptions} />
 
 			<div class="space-y-3 rounded-lg border border-border p-4">
-				<div class="flex items-center justify-between gap-4"><div><Label>{m['machines.browser']()}</Label><p class="text-xs text-muted-foreground">{m['machines.browser_desc']()}</p></div><Switch aria-label={m['machines.browser']()} bind:checked={browser} /></div>
+				{#if !headless}<div class="flex items-center justify-between gap-4"><div><Label>{m['machines.browser']()}</Label><p class="text-xs text-muted-foreground">{m['machines.browser_desc']()}</p></div><Switch aria-label={m['machines.browser']()} bind:checked={browser} /></div>{/if}
 				<div class="flex items-center justify-between gap-4"><div><Label>{m['machines.keep_running']()}</Label><p class="text-xs text-muted-foreground">{m['machines.keep_running_desc']({ minutes: policy?.idle_pause_minutes ?? 240 })}</p></div><Switch aria-label={m['machines.keep_running']()} bind:checked={keepRunning} /></div>
 			</div>
 

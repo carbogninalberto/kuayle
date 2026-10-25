@@ -8,8 +8,9 @@ import (
 )
 
 type builtinProvider struct {
-	metadata Metadata
-	build    func(RunInput) []string
+	metadata    Metadata
+	build       func(RunInput) []string
+	parseResult func(stdout, stderr string, exitCode int) RunResult
 }
 
 func (p *builtinProvider) Metadata() Metadata { return p.metadata }
@@ -35,6 +36,9 @@ func (p *builtinProvider) BuildInvocation(input RunInput) (Invocation, error) {
 
 func (p *builtinProvider) ParseEvents(raw []byte) []Event { return parseJSONLines(raw) }
 func (p *builtinProvider) ParseResult(stdout, stderr string, exitCode int) RunResult {
+	if p.parseResult != nil {
+		return p.parseResult(stdout, stderr, exitCode)
+	}
 	return defaultResult(stdout, stderr, exitCode)
 }
 
@@ -88,6 +92,10 @@ func (p *openCodeProvider) BuildInvocation(input RunInput) (Invocation, error) {
 func (p *openCodeProvider) ParseEvents(raw []byte) []Event { return parseJSONLines(raw) }
 
 func (p *openCodeProvider) ParseResult(stdout, stderr string, exitCode int) RunResult {
+	return parseAssistantJSONResult(stdout, stderr, exitCode)
+}
+
+func parseAssistantJSONResult(stdout, stderr string, exitCode int) RunResult {
 	result := defaultResult(stdout, stderr, exitCode)
 
 	lines := strings.Split(strings.TrimSpace(stdout), "\n")
@@ -217,6 +225,102 @@ func NewCodexProvider(image string) Provider {
 			return []string{"codex", "exec", "--json", "--full-auto", input.Prompt}
 		},
 	}
+}
+
+func headlessProviderImage(image string) string {
+	if image == "" {
+		return "ghcr.io/kuayle/dev-machine-headless:0.1.0"
+	}
+	return image
+}
+
+func newStreamJSONBuiltinProvider(metadata Metadata, build func(RunInput) []string) Provider {
+	return &builtinProvider{
+		metadata:    metadata,
+		build:       build,
+		parseResult: parseAssistantJSONResult,
+	}
+}
+
+func NewPiProvider(image string) Provider {
+	return &builtinProvider{
+		metadata: Metadata{
+			ID:              "pi",
+			DisplayName:     "Pi",
+			DefaultImage:    headlessProviderImage(image),
+			RequiredSecrets: []string{},
+			SupportedModes:  []Mode{ModeInteractive, ModeAutonomous},
+		},
+		build: func(input RunInput) []string {
+			if input.Mode == ModeInteractive {
+				return []string{"pi"}
+			}
+			return []string{"pi", "--print", "--mode", "json", "--no-session", input.Prompt}
+		},
+	}
+}
+
+func NewQwenCodeProvider(image string) Provider {
+	return newStreamJSONBuiltinProvider(Metadata{
+		ID:              "qwen-code",
+		DisplayName:     "Qwen Code",
+		DefaultImage:    headlessProviderImage(image),
+		RequiredSecrets: []string{},
+		SupportedModes:  []Mode{ModeInteractive, ModeAutonomous},
+	}, func(input RunInput) []string {
+		if input.Mode == ModeInteractive {
+			return []string{"qwen"}
+		}
+		return []string{"qwen", "--yolo", "--output-format", "stream-json", input.Prompt}
+	})
+}
+
+func NewCrushProvider(image string) Provider {
+	return &builtinProvider{
+		metadata: Metadata{
+			ID:              "crush",
+			DisplayName:     "Crush",
+			DefaultImage:    headlessProviderImage(image),
+			RequiredSecrets: []string{},
+			SupportedModes:  []Mode{ModeInteractive, ModeAutonomous},
+		},
+		build: func(input RunInput) []string {
+			if input.Mode == ModeInteractive {
+				return []string{"crush"}
+			}
+			return []string{"crush", "--yolo", "run", "--quiet", input.Prompt}
+		},
+	}
+}
+
+func NewKimiProvider(image string) Provider {
+	return newStreamJSONBuiltinProvider(Metadata{
+		ID:              "kimi",
+		DisplayName:     "Kimi",
+		DefaultImage:    headlessProviderImage(image),
+		RequiredSecrets: []string{},
+		SupportedModes:  []Mode{ModeInteractive, ModeAutonomous},
+	}, func(input RunInput) []string {
+		if input.Mode == ModeInteractive {
+			return []string{"kimi"}
+		}
+		return []string{"kimi", "--print", "--yolo", "--output-format", "stream-json", "--prompt", input.Prompt}
+	})
+}
+
+func NewGooseProvider(image string) Provider {
+	return newStreamJSONBuiltinProvider(Metadata{
+		ID:              "goose",
+		DisplayName:     "Goose",
+		DefaultImage:    headlessProviderImage(image),
+		RequiredSecrets: []string{},
+		SupportedModes:  []Mode{ModeInteractive, ModeAutonomous},
+	}, func(input RunInput) []string {
+		if input.Mode == ModeInteractive {
+			return []string{"goose", "session"}
+		}
+		return []string{"goose", "run", "--no-session", "--quiet", "--output-format", "stream-json", "--text", input.Prompt}
+	})
 }
 
 type CustomCLIProvider struct {

@@ -11,6 +11,11 @@ import (
 type DevMachineStatus string
 
 const (
+	DevMachineProfileStandard = "standard"
+	DevMachineProfileHeadless = "headless"
+)
+
+const (
 	DevMachineStatusConfiguring DevMachineStatus = "configuring"
 	DevMachineStatusQueued      DevMachineStatus = "queued"
 	DevMachineStatusSpawning    DevMachineStatus = "spawning"
@@ -101,6 +106,7 @@ type DevMachine struct {
 	BaseBranch           string           `json:"base_branch" db:"base_branch"`
 	WorkingBranch        string           `json:"working_branch" db:"working_branch"`
 	MachineSize          string           `json:"machine_size" db:"machine_size"`
+	Profile              string           `json:"profile" db:"profile"`
 	CPUMillis            int              `json:"cpu_millis" db:"cpu_millis"`
 	MemoryMB             int              `json:"memory_mb" db:"memory_mb"`
 	DiskGB               int              `json:"disk_gb" db:"disk_gb"`

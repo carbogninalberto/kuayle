@@ -323,6 +323,143 @@ func TestCreateGenericMachineDoesNotRequireRepositoryOrTTL(t *testing.T) {
 	}
 }
 
+func TestCreateStandardMachinePersistsProfileAndIDE(t *testing.T) {
+	workspaceID, userID := uuid.New(), uuid.New()
+	store := &devMachineStoreFake{policy: testPolicy(workspaceID)}
+
+	machine, _, err := newTestDevMachineService(store).Create(context.Background(), workspaceID, userID, dto.CreateDevMachineRequest{
+		Name: "standard-machine", Size: "small",
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, domain.DevMachineProfileStandard, machine.Profile)
+	require.Equal(t, domain.DevMachineProfileStandard, store.createdMachine.Profile)
+	serviceTypes := make(map[string]bool)
+	for _, service := range store.createdServices {
+		serviceTypes[service.ServiceType] = true
+	}
+	require.True(t, serviceTypes["ide"])
+	require.True(t, serviceTypes["terminal"])
+}
+
+func TestDefaultPolicyAllowsAllBuiltInProviders(t *testing.T) {
+	workspaceID := uuid.New()
+	policy, err := newTestDevMachineService(&devMachineStoreFake{}).GetPolicy(context.Background(), workspaceID)
+
+	require.NoError(t, err)
+	require.JSONEq(t, `["claude-code","opencode","codex","pi","qwen-code","crush","kimi","goose"]`, string(policy.AllowedProviders))
+}
+
+func TestCreateHeadlessMachineBuildsTerminalOnlyDeveloperServices(t *testing.T) {
+	workspaceID, userID := uuid.New(), uuid.New()
+	store := &devMachineStoreFake{policy: testPolicy(workspaceID)}
+	service := NewDevMachineService(
+		store, agent.NewRegistry(), true, "machines.example.test", cryptoutil.DeriveKey("test"), time.Minute,
+		DevMachineImages{IDE: "registry.example/ide:test", Headless: "registry.example/headless:test"},
+	)
+
+	machine, _, err := service.Create(context.Background(), workspaceID, userID, dto.CreateDevMachineRequest{
+		Name: "headless-machine", Size: "small", Profile: "headless",
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, domain.DevMachineProfileHeadless, machine.Profile)
+	serviceTypes := make(map[string]string)
+	for _, created := range store.createdServices {
+		serviceTypes[created.ServiceType] = created.ImageRef
+	}
+	require.Equal(t, "registry.example/headless:test", serviceTypes["terminal"])
+	require.Contains(t, serviceTypes, "collector")
+	require.Contains(t, serviceTypes, "egress")
+	require.NotContains(t, serviceTypes, "ide")
+	require.NotContains(t, serviceTypes, "browser")
+}
+
+func TestCreateHeadlessMachineRejectsIDEAndBrowser(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		services dto.DevMachineServicesInput
+	}{
+		{name: "ide", services: dto.DevMachineServicesInput{IDE: true}},
+		{name: "browser", services: dto.DevMachineServicesInput{Browser: true}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			workspaceID, userID := uuid.New(), uuid.New()
+			store := &devMachineStoreFake{policy: testPolicy(workspaceID)}
+
+			_, _, err := newTestDevMachineService(store).Create(context.Background(), workspaceID, userID, dto.CreateDevMachineRequest{
+				Name: "invalid-headless", Size: "small", Profile: "headless", Services: test.services,
+			})
+
+			require.ErrorIs(t, err, ErrInvalidMachineInput)
+			require.EqualError(t, err, "invalid dev machine request: headless machines do not include the IDE or browser")
+			require.Nil(t, store.createdMachine)
+		})
+	}
+}
+
+func TestCreateHeadlessMachineKeepsHeadlessDeveloperImage(t *testing.T) {
+	workspaceID, userID, environmentID := uuid.New(), uuid.New(), uuid.New()
+	const headlessImage = "registry.example/headless:test"
+	environmentImage := "sha256:environment-image"
+	store := &devMachineStoreFake{
+		policy: testPolicy(workspaceID),
+		environments: map[uuid.UUID]*domain.DevMachineEnvironment{
+			environmentID: {
+				ID: environmentID, WorkspaceID: workspaceID, Name: "environment",
+				ImageRef: environmentImage, ImageDigest: &environmentImage, Status: "ready",
+			},
+		},
+	}
+	service := NewDevMachineService(
+		store, agent.NewRegistry(), true, "machines.example.test", cryptoutil.DeriveKey("test"), time.Minute,
+		DevMachineImages{Headless: headlessImage},
+	)
+
+	_, _, err := service.Create(context.Background(), workspaceID, userID, dto.CreateDevMachineRequest{
+		Name: "headless-image", Size: "small", Profile: "headless", EnvironmentID: dmStrPtr(environmentID.String()),
+	})
+
+	require.NoError(t, err)
+	for _, created := range store.createdServices {
+		if created.ServiceType == "terminal" {
+			require.Equal(t, headlessImage, created.ImageRef)
+		}
+	}
+}
+
+func TestHeadlessProviderImagesUseHeadlessImage(t *testing.T) {
+	workspaceID := uuid.New()
+	policy := testPolicy(workspaceID)
+	policy.AllowedProviders = json.RawMessage(`["pi","qwen-code","crush","kimi","goose"]`)
+	const headlessImage = "registry.example/headless:test"
+	registry := agent.NewRegistry(
+		agent.NewPiProvider(headlessImage),
+		agent.NewQwenCodeProvider(headlessImage),
+		agent.NewCrushProvider(headlessImage),
+		agent.NewKimiProvider(headlessImage),
+		agent.NewGooseProvider(headlessImage),
+	)
+	service := NewDevMachineService(
+		&devMachineStoreFake{}, registry, true, "machines.example.test", cryptoutil.DeriveKey("test"), time.Minute,
+		DevMachineImages{},
+	)
+
+	providers, err := service.buildProviders(uuid.New(), policy, []dto.DevMachineAgentInput{
+		{Provider: "pi", Mode: "autonomous"},
+		{Provider: "qwen-code", Mode: "autonomous"},
+		{Provider: "crush", Mode: "autonomous"},
+		{Provider: "kimi", Mode: "autonomous"},
+		{Provider: "goose", Mode: "autonomous"},
+	})
+
+	require.NoError(t, err)
+	require.Len(t, providers, 5)
+	for _, provider := range providers {
+		require.Equal(t, headlessImage, provider.ImageRef)
+	}
+}
+
 func TestCreateScopesDedicatedCDPTokenToBrowserAndCollector(t *testing.T) {
 	workspaceID, userID := uuid.New(), uuid.New()
 	store := &devMachineStoreFake{policy: testPolicy(workspaceID)}
