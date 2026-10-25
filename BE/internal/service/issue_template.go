@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
+	"unicode/utf8"
 
+	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/repository"
-	"github.com/google/uuid"
 )
 
 type IssueTemplateService struct {
@@ -73,24 +75,48 @@ func (s *IssueTemplateService) Update(ctx context.Context, id uuid.UUID, req dto
 	}
 
 	if req.Title != nil {
-		tmpl.Title = *req.Title
+		title := strings.TrimSpace(*req.Title)
+		if title == "" || utf8.RuneCountInString(title) > 500 {
+			return nil, fmt.Errorf("title must be between 1 and 500 characters")
+		}
+		tmpl.Title = title
 	}
 	if req.Description != nil {
 		tmpl.Description = req.Description
 	}
-	if req.Status != nil {
-		tmpl.Status = req.Status
+	if req.Status.Set {
+		if req.Status.Value != nil && !validTemplateStatus(*req.Status.Value) {
+			return nil, fmt.Errorf("invalid template status")
+		}
+		tmpl.Status = req.Status.Value
 	}
-	if req.Priority != nil {
-		tmpl.Priority = req.Priority
+	if req.Priority.Set {
+		if req.Priority.Value != nil && (*req.Priority.Value < 0 || *req.Priority.Value > 4) {
+			return nil, fmt.Errorf("invalid template priority")
+		}
+		tmpl.Priority = req.Priority.Value
 	}
-	if req.TeamID != nil {
-		tid, _ := uuid.Parse(*req.TeamID)
-		tmpl.TeamID = &tid
+	if req.TeamID.Set {
+		if req.TeamID.Value == nil {
+			tmpl.TeamID = nil
+		} else {
+			tid, err := uuid.Parse(*req.TeamID.Value)
+			if err != nil {
+				return nil, fmt.Errorf("invalid team ID")
+			}
+			tmpl.TeamID = &tid
+		}
 	}
-	if req.AssigneeID != nil {
-		aid, _ := uuid.Parse(*req.AssigneeID)
-		tmpl.AssigneeID = &aid
+	if req.AssigneeID.Set {
+		if req.AssigneeID.Value == nil {
+			tmpl.AssigneeID = nil
+		} else {
+			aid, err := uuid.Parse(*req.AssigneeID.Value)
+			if err != nil {
+				return nil, fmt.Errorf("invalid assignee ID")
+			}
+			tmpl.AssigneeID = &aid
+		}
 	}
 	if req.LabelIDs != nil {
 		labelIDsJSON, _ := json.Marshal(req.LabelIDs)
@@ -107,6 +133,15 @@ func (s *IssueTemplateService) Update(ctx context.Context, id uuid.UUID, req dto
 		return nil, err
 	}
 	return tmpl, nil
+}
+
+func validTemplateStatus(status string) bool {
+	switch status {
+	case "backlog", "todo", "in_progress", "in_review", "done", "cancelled":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *IssueTemplateService) Delete(ctx context.Context, id uuid.UUID) error {

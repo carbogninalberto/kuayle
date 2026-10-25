@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -118,6 +118,73 @@ func TestIssueTemplateService_Update(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Equal(t, "New Title", result.Title)
+}
+
+func TestIssueTemplateService_Update_ClearsOptionalFields(t *testing.T) {
+	repo := new(mockIssueTemplateRepo)
+	svc := NewIssueTemplateService(repo)
+
+	ctx := context.Background()
+	tmplID := uuid.New()
+	teamID := uuid.New()
+	assigneeID := uuid.New()
+	status := "todo"
+	priority := 2
+	existing := &domain.IssueTemplate{
+		ID:         tmplID,
+		Title:      "Bug Report",
+		Status:     &status,
+		Priority:   &priority,
+		TeamID:     &teamID,
+		AssigneeID: &assigneeID,
+		LabelIDs:   json.RawMessage("[]"),
+	}
+
+	repo.On("GetByID", ctx, tmplID).Return(existing, nil)
+	repo.On("Update", ctx, existing).Return(nil)
+
+	result, err := svc.Update(ctx, tmplID, dto.UpdateIssueTemplateRequest{
+		Status:     dto.OptionalString{Set: true},
+		Priority:   dto.OptionalInt{Set: true},
+		TeamID:     dto.OptionalString{Set: true},
+		AssigneeID: dto.OptionalString{Set: true},
+		LabelIDs:   []string{},
+	})
+
+	assert.NoError(t, err)
+	assert.Nil(t, result.Status)
+	assert.Nil(t, result.Priority)
+	assert.Nil(t, result.TeamID)
+	assert.Nil(t, result.AssigneeID)
+	assert.Equal(t, json.RawMessage("[]"), result.LabelIDs)
+}
+
+func TestIssueTemplateService_Update_RejectsInvalidOptionalFields(t *testing.T) {
+	invalidStatus := "unknown"
+	invalidPriority := 9
+
+	tests := []dto.UpdateIssueTemplateRequest{
+		{Title: strPtr("   ")},
+		{Status: dto.OptionalString{Set: true, Value: &invalidStatus}},
+		{Priority: dto.OptionalInt{Set: true, Value: &invalidPriority}},
+	}
+
+	for _, req := range tests {
+		repo := new(mockIssueTemplateRepo)
+		svc := NewIssueTemplateService(repo)
+		tmplID := uuid.New()
+		existing := &domain.IssueTemplate{
+			ID:       tmplID,
+			Title:    "Existing",
+			LabelIDs: json.RawMessage("[]"),
+		}
+		repo.On("GetByID", mock.Anything, tmplID).Return(existing, nil)
+
+		_, err := svc.Update(context.Background(), tmplID, req)
+
+		assert.Error(t, err)
+		repo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+	}
 }
 
 func TestIssueTemplateService_Update_NotFound(t *testing.T) {

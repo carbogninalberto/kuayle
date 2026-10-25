@@ -158,11 +158,11 @@ export interface CreateIssueTemplateRequest {
 export interface UpdateIssueTemplateRequest {
 	title?: string;
 	description?: string;
-	status?: IssueStatus;
-	priority?: IssuePriority;
+	status?: IssueStatus | null;
+	priority?: IssuePriority | null;
 	label_ids?: string[];
-	assignee_id?: string;
-	team_id?: string;
+	assignee_id?: string | null;
+	team_id?: string | null;
 	is_active?: boolean;
 }
 
