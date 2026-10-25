@@ -64,6 +64,8 @@
 		borderless = false,
 		hideUploadButtons = false,
 		minHeight,
+		ariaLabel,
+		ariaDescribedBy,
 		onupdate,
 		onsubmit,
 		uploadUrl,
@@ -87,6 +89,8 @@
 		borderless?: boolean;
 		hideUploadButtons?: boolean;
 		minHeight?: string;
+		ariaLabel?: string;
+		ariaDescribedBy?: string;
 		onupdate?: (html: string) => void;
 		onsubmit?: () => void;
 		uploadUrl?: string;
@@ -665,7 +669,11 @@
 			onBlur: () => { isFocused = false; onBlurProp?.(); },
 			editorProps: {
 				attributes: {
-					class: editorClass
+						class: editorClass,
+						role: 'textbox',
+						'aria-multiline': 'true',
+						...(ariaLabel ? { 'aria-label': ariaLabel } : {}),
+						...(ariaDescribedBy ? { 'aria-describedby': ariaDescribedBy } : {})
 				}
 			}
 		});

@@ -67,6 +67,11 @@ async function mockWorkspace(page: Page) {
 		created_at: createdAt,
 		updated_at: createdAt
 	}));
+	const templates = [
+		{ id: 'engineering-template', team_id: teamId, title: 'Engineering template', label_ids: [] },
+		{ id: 'design-template', team_id: secondTeamId, title: 'Design template', label_ids: [] },
+		{ id: 'shared-template', team_id: null, title: 'Shared template', label_ids: [] }
+	];
 	await page.route('https://raw.githubusercontent.com/carbogninalberto/kuayle/main/UI/static/releases.json', (route) =>
 		route.fulfill({ json: [] })
 	);
@@ -102,6 +107,7 @@ async function mockWorkspace(page: Page) {
 					has_more: false
 				}
 			});
+		if (path === '/api/workspaces/test/issue-templates') return route.fulfill({ json: templates });
 		if (path === '/api/workspaces/test/dev-machines')
 			return route.fulfill({ json: { data: [], total_count: 0, page: 1, has_more: false } });
 		if (path.match(/^\/api\/workspaces\/test\/teams\/[^/]+\/statuses$/))
@@ -222,5 +228,20 @@ test('loads adjacent issues when opening a direct link in a fresh session', asyn
 	await page.getByRole('button', { name: 'Previous issue (K)' }).click();
 	await expect(page).toHaveURL('/test/issue/ENG-2');
 	await expect(page.getByText('Navigation issue 2', { exact: true })).toBeVisible();
+	assertHealthy();
+});
+
+test('only offers parent-team and shared templates for sub-issues', async ({ page }) => {
+	const assertHealthy = await mockWorkspace(page);
+	await page.goto('/test/issue/ENG-1');
+	await expect(page.getByText('Navigation issue 1', { exact: true })).toBeVisible();
+
+	await page.getByRole('button', { name: 'Add sub-issue', exact: true }).click();
+	const dialog = page.getByRole('dialog');
+	await dialog.getByRole('button', { name: 'Template', exact: true }).click();
+
+	await expect(page.getByRole('button', { name: 'Engineering template', exact: true })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Shared template', exact: true })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Design template', exact: true })).toHaveCount(0);
 	assertHealthy();
 });

@@ -1,85 +1,93 @@
 <script lang="ts">
-	import { Input } from '$lib/components/ui/input/index.js';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import { listTemplates, createTemplate, deleteTemplate } from '$lib/api/issue-templates';
-	import type { IssueTemplate, CreateIssueTemplateRequest } from '$lib/types/issue';
+	import { listTemplates, createTemplate, updateTemplate, deleteTemplate } from '$lib/api/issue-templates';
+	import { listTeams } from '$lib/api/teams';
+	import { listLabels } from '$lib/api/labels';
+	import { listMembers } from '$lib/api/members';
+	import type {
+		IssueTemplate,
+		CreateIssueTemplateRequest,
+		UpdateIssueTemplateRequest,
+		IssueStatus,
+		IssuePriority
+	} from '$lib/types/issue';
 	import { getStatusLabel, getPriorityLabel } from '$lib/types/issue';
-	import type { IssueStatus, IssuePriority } from '$lib/types/issue';
+	import type { Team } from '$lib/types/team';
+	import type { Label } from '$lib/types/label';
+	import type { WorkspaceMember } from '$lib/types/workspace';
 	import EmptyState from '$lib/components/shared/EmptyState.svelte';
-	import RichEditor from '$lib/components/shared/RichEditor.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { Badge } from '$lib/components/ui/badge';
-	import * as Dialog from '$lib/components/ui/dialog';
-	import * as Select from '$lib/components/ui/select';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
-	import { Plus, Trash2, FileText } from '@lucide/svelte';
+	import { Plus, Trash2, FileText, Pencil } from '@lucide/svelte';
+	import IssueTemplateDialog from './IssueTemplateDialog.svelte';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 
 	let templates = $state<IssueTemplate[]>([]);
+	let teams = $state<Team[]>([]);
+	let labels = $state<Label[]>([]);
+	let members = $state<WorkspaceMember[]>([]);
 	let loading = $state(true);
-	let showCreate = $state(false);
-
-	let formTitle = $state('');
-	let formDescription = $state('');
-	let formStatus = $state<IssueStatus>('backlog');
-	let formPriority = $state<IssuePriority>(0);
-	let creating = $state(false);
-	let editorVersion = $state(0);
+	let showDialog = $state(false);
+	let editingTemplate = $state<IssueTemplate | null>(null);
+	let saving = $state(false);
 
 	onMount(async () => {
-		try {
-			templates = await listTemplates(slug);
-		} finally {
-			loading = false;
-		}
+		const [templateResult, teamResult, labelResult, memberResult] = await Promise.allSettled([
+			listTemplates(slug),
+			listTeams(slug),
+			listLabels(slug),
+			listMembers(slug)
+		]);
+		if (templateResult.status === 'fulfilled') templates = templateResult.value;
+		if (teamResult.status === 'fulfilled') teams = teamResult.value;
+		if (labelResult.status === 'fulfilled') labels = labelResult.value;
+		if (memberResult.status === 'fulfilled') members = memberResult.value;
+		loading = false;
 	});
 
-	function resetForm() {
-		formTitle = '';
-		formDescription = '';
-		formStatus = 'backlog';
-		formPriority = 0;
-		editorVersion++;
-	}
-
 	function openCreateDialog() {
-		resetForm();
-		showCreate = true;
+		editingTemplate = null;
+		showDialog = true;
 	}
 
-	async function handleCreate() {
-		if (!formTitle.trim()) {
-			appToast.error(m['settings.templates.title_required']());
-			return;
-		}
-		creating = true;
+	function openEditDialog(template: IssueTemplate) {
+		editingTemplate = template;
+		showDialog = true;
+	}
+
+	async function handleSave(data: CreateIssueTemplateRequest | UpdateIssueTemplateRequest) {
+		const target = editingTemplate;
+		saving = true;
 		try {
-			const data: CreateIssueTemplateRequest = {
-				title: formTitle.trim(),
-				description: formDescription.trim() || undefined,
-				status: formStatus,
-				priority: formPriority
-			};
-			const template = await createTemplate(slug, data);
-			templates = [template, ...templates];
-			showCreate = false;
-			resetForm();
-			appToast.success(m['settings.templates.created']());
+			if (target) {
+				const template = await updateTemplate(slug, target.id, data as UpdateIssueTemplateRequest);
+				templates = templates.map((item) => (item.id === template.id ? template : item));
+				appToast.success(m['settings.templates.updated']());
+			} else {
+				const template = await createTemplate(slug, data as CreateIssueTemplateRequest);
+				templates = [template, ...templates];
+				appToast.success(m['settings.templates.created']());
+			}
+			showDialog = false;
+			editingTemplate = null;
 		} catch (err: any) {
-			appToast.apiError(err, m['settings.templates.failed_create']());
+			appToast.apiError(
+				err,
+				target ? m['settings.templates.failed_update']() : m['settings.templates.failed_create']()
+			);
 		} finally {
-			creating = false;
+			saving = false;
 		}
 	}
 
 	async function handleDelete(id: string) {
 		try {
 			await deleteTemplate(slug, id);
-			templates = templates.filter((t) => t.id !== id);
+			templates = templates.filter((template) => template.id !== id);
 			appToast.success(m['settings.templates.deleted']());
 		} catch (err: any) {
 			appToast.apiError(err, m['settings.templates.failed_delete']());
@@ -87,22 +95,26 @@
 	}
 
 	function statusLabel(status: IssueStatus | null): string {
-		return status ? (getStatusLabel(status) || status) : '';
+		return status ? getStatusLabel(status) || status : '';
 	}
 
 	function priorityLabel(priority: IssuePriority | null): string {
-		return priority != null ? (getPriorityLabel(priority) || `P${priority}`) : '';
+		return priority !== null ? getPriorityLabel(priority) || `P${priority}` : '';
 	}
 
-	function setFormPriority(value: string | undefined) {
-		if (value) formPriority = Number(value) as IssuePriority;
+	function templateTeam(template: IssueTemplate): Team | undefined {
+		return teams.find((team) => team.id === template.team_id);
 	}
 </script>
 
 <div class="mx-auto max-w-2xl px-8 py-10">
 	<div class="flex items-center justify-between">
-		<h1 class="text-2xl font-semibold text-[var(--color-text-primary)]">{m['settings.templates.title']()}</h1>
-		<Button variant="plain" onclick={openCreateDialog}
+		<h1 class="text-2xl font-semibold text-[var(--color-text-primary)]">
+			{m['settings.templates.title']()}
+		</h1>
+		<Button
+			variant="plain"
+			onclick={openCreateDialog}
 			class="flex items-center gap-1 rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)]"
 		>
 			<Plus size={14} />
@@ -119,23 +131,48 @@
 			/>
 		{:else}
 			<div class="rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
-				{#each templates as template, i (template.id)}
-					<div class="group flex items-center gap-4 px-5 py-3.5 {i > 0 ? 'border-t border-[var(--app-border)]' : ''}">
+				{#each templates as template, index (template.id)}
+					{@const templateGroup = templateTeam(template)}
+					<div
+						class="group flex items-center gap-4 px-5 py-3.5 {index > 0 ? 'border-t border-[var(--app-border)]' : ''}"
+					>
 						<FileText size={16} class="shrink-0 text-[var(--color-text-tertiary)]" />
-						<div class="flex-1 min-w-0">
-							<span class="text-sm font-medium text-[var(--color-text-primary)]">{template.title || m['settings.templates.untitled']()}</span>
+						<div class="min-w-0 flex-1">
+							<div class="text-sm font-medium text-[var(--color-text-primary)]">
+								{template.title || m['settings.templates.untitled']()}
+							</div>
+							{#if template.default_issue_title}
+								<div class="mt-0.5 truncate text-xs text-[var(--color-text-tertiary)]">
+									{m['settings.templates.issue_title_field']()}: {template.default_issue_title}
+								</div>
+							{/if}
 						</div>
+						{#if templateGroup}
+							<Badge variant="outline" class="text-[10px]">{templateGroup.key}</Badge>
+						{/if}
 						{#if template.status}
 							<Badge variant="outline" class="text-[10px]">{statusLabel(template.status)}</Badge>
 						{/if}
 						{#if template.priority != null}
 							<Badge variant="outline" class="text-[10px]">{priorityLabel(template.priority)}</Badge>
 						{/if}
-						<Button aria-label={m['common.delete']()}
+						<Button
+							aria-label={m['settings.templates.edit_action']({
+								title: template.title || m['settings.templates.untitled']()
+							})}
+							variant="ghost"
+							size="icon-sm"
+							onclick={() => openEditDialog(template)}
+							class="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
+						>
+							<Pencil size={14} />
+						</Button>
+						<Button
+							aria-label={m['common.delete']()}
 							variant="ghost"
 							size="icon-sm"
 							onclick={() => handleDelete(template.id)}
-							class="opacity-0 group-hover:opacity-100 text-[var(--color-text-tertiary)] hover:text-[var(--color-error)]"
+							class="opacity-0 group-hover:opacity-100 text-[var(--color-text-tertiary)] hover:text-[var(--color-error)] focus:opacity-100 max-sm:opacity-100"
 						>
 							<Trash2 size={14} />
 						</Button>
@@ -146,86 +183,16 @@
 	</div>
 </div>
 
-<Dialog.Root bind:open={showCreate}>
-	<Dialog.Content class="sm:max-w-md">
-		<Dialog.Header>
-			<Dialog.Title>{m['settings.templates.create_title']()}</Dialog.Title>
-			<Dialog.Description>{m['settings.templates.create_desc']()}</Dialog.Description>
-		</Dialog.Header>
-		<div class="flex flex-col gap-4 py-4">
-			<div class="flex flex-col gap-1.5">
-				<label for="tpl-title" class="text-sm text-[var(--color-text-secondary)]">{m['settings.templates.title_field']()}</label>
-				<Input variant="plain"
-					id="tpl-title"
-					type="text"
-					bind:value={formTitle}
-					placeholder={m['settings.templates.title_placeholder']()}
-					class="rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
-				/>
-			</div>
-			<div class="flex flex-col gap-1.5">
-				<label for="tpl-desc" class="text-sm text-[var(--color-text-secondary)]">{m['settings.templates.description']()}</label>
-				{#key editorVersion}
-				<RichEditor
-					content={formDescription}
-					workspaceSlug={slug}
-					placeholder={m['settings.templates.description_placeholder']()}
-					bubbleMenu={true}
-					borderless={true}
-					minHeight="120px"
-					onupdate={(html: string) => (formDescription = html)}
-				/>
-				{/key}
-			</div>
-			<div class="flex gap-4">
-				<div class="flex flex-1 flex-col gap-1.5">
-					<span class="text-sm text-[var(--color-text-secondary)]">{m['settings.templates.default_status']()}</span>
-					<Select.Root
-						type="single"
-						value={formStatus}
-						onValueChange={(value) => {
-							if (value) formStatus = value as IssueStatus;
-						}}
-					>
-						<Select.Trigger class="w-full border-[var(--app-border)] bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)]">
-							{statusLabel(formStatus)}
-						</Select.Trigger>
-						<Select.Content>
-							<Select.Item value="backlog">Backlog</Select.Item>
-							<Select.Item value="todo">Todo</Select.Item>
-							<Select.Item value="in_progress">In Progress</Select.Item>
-							<Select.Item value="in_review">In Review</Select.Item>
-							<Select.Item value="done">Done</Select.Item>
-							<Select.Item value="cancelled">Cancelled</Select.Item>
-						</Select.Content>
-					</Select.Root>
-				</div>
-				<div class="flex flex-1 flex-col gap-1.5">
-					<span class="text-sm text-[var(--color-text-secondary)]">{m['settings.templates.default_priority']()}</span>
-					<Select.Root
-						type="single"
-						value={String(formPriority)}
-						onValueChange={setFormPriority}
-					>
-						<Select.Trigger class="w-full border-[var(--app-border)] bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)]">
-							{priorityLabel(formPriority)}
-						</Select.Trigger>
-						<Select.Content>
-							<Select.Item value="0">No priority</Select.Item>
-							<Select.Item value="1">Urgent</Select.Item>
-							<Select.Item value="2">High</Select.Item>
-							<Select.Item value="3">Medium</Select.Item>
-							<Select.Item value="4">Low</Select.Item>
-						</Select.Content>
-					</Select.Root>
-				</div>
-			</div>
-		</div>
-		<Dialog.Footer>
-			<Button variant="outline" onclick={() => (showCreate = false)}>{m['settings.cancel']()}</Button>
-			<Button onclick={handleCreate} disabled={creating}>
-				{creating ? m['settings.creating']() : m['settings.templates.create_title']()}
-			</Button>
-		</Dialog.Footer>
-	</Dialog.Content>
-</Dialog.Root>
+<IssueTemplateDialog
+	bind:open={showDialog}
+	{slug}
+	template={editingTemplate}
+	{teams}
+	{labels}
+	{members}
+	{saving}
+	onlabelcreated={(label) => {
+		labels = [...labels.filter((item) => item.id !== label.id), label];
+	}}
+	onsubmit={handleSave}
+/>
