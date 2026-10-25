@@ -359,7 +359,7 @@
 					<div class="space-y-1.5">
 						<Label>{m['machines.provider']()}</Label>
 						<Select.Root type="single" value={provider} onValueChange={(value) => value && selectProvider(value as AgentProvider['id'])}>
-							<Select.Trigger class="w-full">{selectedProvider?.display_name ?? m['machines.select_provider']()}</Select.Trigger>
+							<Select.Trigger class="w-full" aria-label={m['machines.provider']()}>{selectedProvider?.display_name ?? m['machines.select_provider']()}</Select.Trigger>
 							<Select.Content>{#each providers as item}<Select.Item value={item.id} label={item.display_name}>{item.display_name}</Select.Item>{/each}</Select.Content>
 						</Select.Root>
 					</div>

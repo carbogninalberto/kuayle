@@ -278,7 +278,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	scoped(dm, http.MethodGet, "/dev-machine-environments/:environmentId", h.devMachine.GetEnvironment, "dev_machine:read")
 	scoped(dm, http.MethodDelete, "/dev-machine-environments/:environmentId", h.devMachine.DeleteEnvironment, "dev_machine:admin")
 	scoped(dm, http.MethodGet, "/dev-machine-providers", h.devMachine.Providers, "dev_machine:read")
-	scoped(dm, http.MethodGet, "/dev-machine-model-providers/deepseek", h.devMachine.GetWorkspaceModelProvider, "dev_machine:admin")
+	scoped(dm, http.MethodGet, "/dev-machine-model-providers/deepseek", h.devMachine.GetWorkspaceModelProvider, "dev_machine:read")
 	scoped(dm, http.MethodPut, "/dev-machine-model-providers/deepseek", h.devMachine.UpdateWorkspaceModelProvider, "dev_machine:admin")
 	scoped(dm, http.MethodDelete, "/dev-machine-model-providers/deepseek", h.devMachine.DeleteWorkspaceModelProvider, "dev_machine:admin")
 	scoped(dm, http.MethodGet, "/dev-machines/:machineId", h.devMachine.Get, "dev_machine:read")

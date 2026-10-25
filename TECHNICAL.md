@@ -358,7 +358,7 @@ Reserved `KUAYLE_*` variables and `GITHUB_TOKEN` cannot be supplied by users.
 
 ### DeepSeek workspace configuration
 
-Workspace owners and admins can store one DeepSeek credential per workspace through the Dev Machine settings API. The API key is encrypted with `cryptoutil.Encrypt` and `DEV_MACHINE_ENCRYPTION_KEY`; it is never returned, including in error and update responses. The default model is `deepseek-flash` or `deepseek-v4-pro`, and the default thinking level is `off`, `low`, `high`, or `max`.
+Workspace owners and admins can store one DeepSeek credential per workspace through the Dev Machine settings API. Saving and removing it requires `dev_machine:admin`; members with `dev_machine:read` can read its status (configured, default model, thinking) so the agent-run dialog can offer DeepSeek overrides. The API key is encrypted with `cryptoutil.Encrypt` and `DEV_MACHINE_ENCRYPTION_KEY`; it is never returned, including in error and update responses. The default model is `deepseek-flash` or `deepseek-v4-pro`, and the default thinking level is `off`, `low`, `high`, or `max`.
 
 The credential is workspace data rather than a machine snapshot. On every developer-container start, and for every Codex or Claude Code agent run, the manager resolves and decrypts the current row. It copies the DeepSeek key, model, thinking level, Claude Code DeepSeek endpoint/model aliases, and Codex configuration inputs into `/run/kuayle-secrets`; browser, collector, and egress containers never receive them. Rotating the credential therefore applies the next time the developer or agent container starts.
 

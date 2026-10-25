@@ -626,10 +626,9 @@ func (h *DevMachineHandler) Providers(c echo.Context) error {
 	return response.Success(c, http.StatusOK, providers)
 }
 
+// GetWorkspaceModelProvider reports configuration status only; the key is never returned,
+// so members may read it to offer DeepSeek options when running agents.
 func (h *DevMachineHandler) GetWorkspaceModelProvider(c echo.Context) error {
-	if !canAdministerDevMachines(c) {
-		return response.Forbidden(c)
-	}
 	provider, err := h.service.GetWorkspaceModelProvider(c.Request().Context(), middleware.GetWorkspace(c).ID)
 	if err != nil {
 		return machineError(c, err)

@@ -371,6 +371,33 @@ func TestDeepSeekModelProviderResponsesNeverExposeAPIKey(t *testing.T) {
 	require.Equal(t, encrypted, store.workspaceModelCredential.EncryptedAPIKey)
 }
 
+func TestDeepSeekModelProviderStatusIsReadableByMembersWithoutKey(t *testing.T) {
+	workspaceID, userID := uuid.New(), uuid.New()
+	encrypted, err := cryptoutil.Encrypt("sk-member-secret", cryptoutil.DeriveKey("test"))
+	require.NoError(t, err)
+	store := &handlerDevMachineStoreFake{
+		workspaceModelCredential: &domain.DevMachineWorkspaceModelCredential{
+			WorkspaceID: workspaceID, Provider: "deepseek", EncryptedAPIKey: encrypted,
+			DefaultModel: "deepseek-v4-pro", Thinking: "low", UpdatedBy: &userID,
+		},
+	}
+	h := NewDevMachineHandler(service.NewDevMachineService(
+		store, agent.NewRegistry(), true, "machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, service.DevMachineImages{},
+	))
+
+	recorder := httptest.NewRecorder()
+	ctx := devMachineHandlerContext(httptest.NewRequest(http.MethodGet, "/dev-machine-model-providers/deepseek", nil), recorder, workspaceID, userID)
+	ctx.Set("workspace_role", domain.RoleMember)
+	require.NoError(t, h.GetWorkspaceModelProvider(ctx))
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.NotContains(t, recorder.Body.String(), "sk-member-secret")
+	require.NotContains(t, recorder.Body.String(), encrypted)
+	var response dto.WorkspaceModelProviderResponse
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+	require.True(t, response.Configured)
+	require.Equal(t, "deepseek-v4-pro", response.DefaultModel)
+}
+
 func TestDeepSeekModelProviderWriteRejectsNonAdmin(t *testing.T) {
 	workspaceID, userID := uuid.New(), uuid.New()
 	h := NewDevMachineHandler(service.NewDevMachineService(

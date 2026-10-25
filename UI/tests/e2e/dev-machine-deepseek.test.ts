@@ -114,6 +114,49 @@ test('saves, updates without a key, and removes the workspace DeepSeek credentia
 	await expect(page.getByRole('button', { name: 'Save DeepSeek' })).toBeDisabled();
 });
 
+test('keeps the policy usable when the DeepSeek configuration fails to load', async ({ page }) => {
+	let deepSeekLoads = 0;
+	await mockShell(page);
+	await page.route('**/api/**', async (route) => {
+		const path = new URL(route.request().url()).pathname;
+		if (path === '/api/workspaces/test/dev-machine-policy') {
+			return route.fulfill({
+				json: {
+					workspace_id: workspaceId, enabled: true, max_concurrent_machines: 5, max_machines_per_user: 2,
+					max_daily_agent_runs: 25, max_runtime_minutes: 480, max_disk_gb: 100, idle_pause_minutes: 240,
+					allowed_providers: ['codex'], allowed_repositories: [], allow_custom_providers: false,
+					disk_quota_mode: 'hard'
+				}
+			});
+		}
+		if (path === '/api/workspaces/test/github/status') {
+			return route.fulfill({ json: { configured: true, installed: true, global_app: false, repos: [] } });
+		}
+		if (path === '/api/workspaces/test/dev-machine-scope-setting') return route.fulfill({ json: { workspace_id: workspaceId } });
+		if (path === '/api/workspaces/test/dev-machine-environments') return route.fulfill({ json: [] });
+		if (path === '/api/workspaces/test/dev-machine-model-providers/deepseek') {
+			deepSeekLoads += 1;
+			if (deepSeekLoads === 1) return route.fulfill({ status: 500, json: { error: 'boom' } });
+			return route.fulfill({
+				json: {
+					provider: 'deepseek', configured: false, default_model: 'deepseek-flash', thinking: 'high',
+					models: ['deepseek-flash', 'deepseek-v4-pro'], thinking_levels: ['off', 'low', 'high', 'max'], updated_at: null
+				}
+			});
+		}
+		return route.fallback();
+	});
+
+	await page.goto('/test/settings/dev-machines');
+	await expect(page.getByRole('heading', { name: 'Dev Machines', exact: true })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Save policy' })).toBeVisible();
+	await expect(page.getByText('Unable to load the DeepSeek configuration')).toBeVisible();
+	await expect(page.getByLabel('DeepSeek API key')).toHaveCount(0);
+
+	await page.getByRole('button', { name: 'Retry DeepSeek' }).click();
+	await expect(page.getByLabel('DeepSeek API key')).toBeVisible();
+});
+
 test('run dialog sends DeepSeek model and thinking for Codex', async ({ page }) => {
 	const runBodies: Array<Record<string, unknown>> = [];
 	await mockShell(page);
@@ -138,7 +181,16 @@ test('run dialog sends DeepSeek model and thinking for Codex', async ({ page }) 
 		if (path === `/api/workspaces/test/dev-machines/${machineId}/providers`) {
 			return route.fulfill({ json: [{ id: 'codex', display_name: 'Codex', default_image: 'kuayle/codex:test', required_secrets: [], supported_modes: ['autonomous'], custom: false }] });
 		}
-		if (path === `/api/workspaces/test/dev-machines/${machineId}/checkouts`) return route.fulfill({ json: [] });
+		if (path === `/api/workspaces/test/dev-machines/${machineId}/checkouts`) {
+			return route.fulfill({
+				json: [{
+					id: '00000000-0000-0000-0000-000000000052', workspace_id: workspaceId, machine_id: machineId,
+					issue_id: '00000000-0000-0000-0000-000000000053', github_repo_id: '00000000-0000-0000-0000-000000000054',
+					repository_full_name: 'kuayle/test', base_branch: 'main', working_branch: 'kuayle/deepseek',
+					workspace_path: '/workspace/tasks/deepseek', status: 'ready', created_at: now, updated_at: now
+				}]
+			});
+		}
 		if (path === `/api/workspaces/test/dev-machines/${machineId}/events` || path === `/api/workspaces/test/dev-machines/${machineId}/logs` || path === `/api/workspaces/test/dev-machines/${machineId}/resource-usage`) {
 			return route.fulfill({ json: [] });
 		}

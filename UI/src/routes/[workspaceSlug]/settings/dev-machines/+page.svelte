@@ -75,6 +75,8 @@
 	let deepSeekSaving = $state(false);
 	let deepSeekRemoving = $state(false);
 	let deepSeekRemoveOpen = $state(false);
+	let deepSeekLoadFailed = $state(false);
+	let deepSeekLoading = $state(false);
 
 	const readyEnvironments = $derived(environments.filter((item) => item.status === 'ready'));
 	const builderSizeOptions = $derived(
@@ -104,7 +106,7 @@
 			const [loaded, github, scope, availableEnvironments, availableModelProvider] = await Promise.all([
 				getDevMachinePolicy(slug), getGitHubStatus(slug),
 				getDevMachineScopeSetting(slug, 'workspace'), listDevMachineEnvironments(slug),
-				canAdmin ? getWorkspaceModelProvider(slug) : Promise.resolve(null)
+				canAdmin ? loadDeepSeekProvider() : Promise.resolve(null)
 			]);
 			policy = { ...loaded, allowed_providers: loaded.allowed_providers ?? [], allowed_repositories: loaded.allowed_repositories ?? [] };
 			repositories = policy.allowed_repositories.join('\n');
@@ -215,6 +217,33 @@
 		}
 	}
 
+	// The DeepSeek card loads independently so its failure never blocks the policy form.
+	async function loadDeepSeekProvider() {
+		deepSeekLoadFailed = false;
+		try {
+			return await getWorkspaceModelProvider(slug);
+		} catch {
+			deepSeekLoadFailed = true;
+			return null;
+		}
+	}
+
+	async function retryDeepSeek() {
+		if (deepSeekLoading) return;
+		deepSeekLoading = true;
+		try {
+			const loaded = await loadDeepSeekProvider();
+			if (loaded) {
+				modelProvider = loaded;
+				deepSeekModel = loaded.default_model;
+				deepSeekThinking = loaded.thinking;
+				deepSeekKey = '';
+			}
+		} finally {
+			deepSeekLoading = false;
+		}
+	}
+
 	async function saveDeepSeek(event: SubmitEvent) {
 		event.preventDefault();
 		if (!canAdmin || deepSeekSaving) return;
@@ -307,7 +336,14 @@
 		<div class="flex justify-end"><Button type="submit" disabled={saving}>{saving ? m['settings.saving']() : m['settings.dev_machines.save_policy']()}</Button></div>
 		</fieldset>
 	</form>
-	{#if canAdmin && modelProvider}
+	{#if canAdmin && deepSeekLoadFailed}
+		<div class="mx-auto max-w-3xl px-6 pb-6">
+			<section class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-5">
+				<p class="text-sm text-[var(--color-error)]">{m['settings.dev_machines.deepseek_failed_load']()}</p>
+				<Button type="button" variant="outline" onclick={retryDeepSeek} disabled={deepSeekLoading}>{m['settings.dev_machines.deepseek_retry']()}</Button>
+			</section>
+		</div>
+	{:else if canAdmin && modelProvider}
 		<form onsubmit={saveDeepSeek} class="mx-auto max-w-3xl px-6 pb-6">
 			<section class="space-y-4 rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-5">
 				<div class="flex flex-wrap items-start justify-between gap-3">

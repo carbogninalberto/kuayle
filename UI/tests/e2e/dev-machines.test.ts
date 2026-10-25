@@ -221,6 +221,10 @@ test('handles machine actions without applying stale poll, route, or trace respo
 		if (path === '/api/workspaces/test/dev-machine-policy') {
 			return route.fulfill({ json: { workspace_id: '00000000-0000-0000-0000-000000000002', enabled: true, max_concurrent_machines: 5, max_machines_per_user: 2, max_daily_agent_runs: 25, max_runtime_minutes: 480, max_disk_gb: 100, idle_pause_minutes: 240, allowed_providers: ['opencode'], allowed_repositories: [], allow_custom_providers: false, disk_quota_mode: 'hard' } });
 		}
+		// The run dialog reads whether DeepSeek overrides are available.
+		if (path === '/api/workspaces/test/dev-machine-model-providers/deepseek') {
+			return route.fulfill({ json: { provider: 'deepseek', configured: false, default_model: 'deepseek-flash', thinking: 'high', models: ['deepseek-flash', 'deepseek-v4-pro'], thinking_levels: ['off', 'low', 'high', 'max'], updated_at: null } });
+		}
 		unhandledPaths.push(`${request.method()} ${path}`);
 		return route.fulfill({ status: 404, json: { error: { message: `Unhandled ${path}` } } });
 	});
@@ -652,6 +656,10 @@ test('retries a code-server launch while a paused machine resumes', async ({ pag
 		// The machine page reads the policy to label the workspace disk limit.
 		if (path === '/api/workspaces/test/dev-machine-policy') {
 			return route.fulfill({ json: { workspace_id: '00000000-0000-0000-0000-000000000002', enabled: true, max_concurrent_machines: 5, max_machines_per_user: 2, max_daily_agent_runs: 25, max_runtime_minutes: 480, max_disk_gb: 100, idle_pause_minutes: 240, allowed_providers: ['opencode'], allowed_repositories: [], allow_custom_providers: false, disk_quota_mode: 'hard' } });
+		}
+		// The run dialog reads whether DeepSeek overrides are available.
+		if (path === '/api/workspaces/test/dev-machine-model-providers/deepseek') {
+			return route.fulfill({ json: { provider: 'deepseek', configured: false, default_model: 'deepseek-flash', thinking: 'high', models: ['deepseek-flash', 'deepseek-v4-pro'], thinking_levels: ['off', 'low', 'high', 'max'], updated_at: null } });
 		}
 		unhandledPaths.push(`${request.method()} ${path}`);
 		return route.fulfill({ status: 404, json: { error: { message: `Unhandled ${path}` } } });
@@ -1562,7 +1570,7 @@ test('creates a headless machine with a new built-in provider', async ({ page })
 	});
 
 	await page.goto('/test/machines');
-	await page.getByRole('button', { name: 'New machine' }).click();
+	await page.locator('header').getByRole('button', { name: 'New machine' }).click();
 	const dialog = page.getByRole('dialog');
 	await dialog.getByRole('radio', { name: 'Headless (terminal + agents)' }).click();
 	await expect(dialog.getByRole('switch', { name: 'Browser' })).toHaveCount(0);
