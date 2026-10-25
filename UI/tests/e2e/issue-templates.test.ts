@@ -380,6 +380,9 @@ test('preserves unset status and priority when editing unrelated fields', async 
 
 	await page.getByRole('button', { name: 'Edit Existing bug report', exact: true }).click();
 	const dialog = page.getByRole('dialog', { name: 'Edit Issue Template', exact: true });
+	await expect(
+		dialog.getByRole('button', { name: 'Select a team to upload attachments', exact: true }).first()
+	).toBeDisabled();
 	await dialog.getByRole('textbox', { name: 'Title', exact: true }).fill('Renamed bug report');
 	await dialog.getByRole('button', { name: 'Save changes', exact: true }).click();
 

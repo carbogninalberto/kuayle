@@ -1127,6 +1127,7 @@
 	"settings.templates.no_default_priority": "No default priority",
 	"settings.templates.no_default_status": "No default status",
 	"settings.templates.save_changes": "Save changes",
+	"settings.templates.team_required_for_uploads": "Select a team to upload attachments",
 	"settings.templates.title": "Templates",
 	"settings.templates.title_field": "Title",
 	"settings.templates.title_placeholder": "e.g. Bug Report",

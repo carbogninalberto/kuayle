@@ -73,9 +73,7 @@
 	const selectedTeam = $derived(teams.find((team) => team.id === formTeamId));
 	const selectedAssignee = $derived(members.find((member) => member.user_id === formAssigneeId));
 	const selectedLabels = $derived(labels.filter((label) => formLabelIds.includes(label.id)));
-	const uploadUrl = $derived(
-		slug ? `/api/workspaces/${slug}/upload${formTeamId ? `?team_id=${formTeamId}` : ''}` : undefined
-	);
+	const uploadUrl = $derived(slug && formTeamId ? `/api/workspaces/${slug}/upload?team_id=${formTeamId}` : undefined);
 
 	function initialize(source: IssueTemplate | null) {
 		formTitle = source?.title ?? '';
@@ -369,8 +367,12 @@
 					onclick={() => chooseFiles(true)}
 					disabled={!uploadUrl || saving}
 					class="flex h-7 w-7 items-center justify-center rounded text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)] disabled:opacity-40"
-					title={m['sharedComponents.rich_editor.upload_image']()}
-					aria-label={m['sharedComponents.rich_editor.upload_image']()}
+					title={uploadUrl
+						? m['sharedComponents.rich_editor.upload_image']()
+						: m['settings.templates.team_required_for_uploads']()}
+					aria-label={uploadUrl
+						? m['sharedComponents.rich_editor.upload_image']()
+						: m['settings.templates.team_required_for_uploads']()}
 				>
 					<ImagePlus size={14} />
 				</Button>
@@ -380,8 +382,12 @@
 					onclick={() => chooseFiles()}
 					disabled={!uploadUrl || saving}
 					class="flex h-7 w-7 items-center justify-center rounded text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)] disabled:opacity-40"
-					title={m['sharedComponents.rich_editor.attach_files']()}
-					aria-label={m['sharedComponents.rich_editor.attach_files']()}
+					title={uploadUrl
+						? m['sharedComponents.rich_editor.attach_files']()
+						: m['settings.templates.team_required_for_uploads']()}
+					aria-label={uploadUrl
+						? m['sharedComponents.rich_editor.attach_files']()
+						: m['settings.templates.team_required_for_uploads']()}
 				>
 					<Paperclip size={14} />
 				</Button>

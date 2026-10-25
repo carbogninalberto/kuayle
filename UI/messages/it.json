@@ -1127,6 +1127,7 @@
 	"settings.templates.no_default_priority": "Nessuna priorità predefinita",
 	"settings.templates.no_default_status": "Nessuno stato predefinito",
 	"settings.templates.save_changes": "Salva modifiche",
+	"settings.templates.team_required_for_uploads": "Seleziona un team per caricare allegati",
 	"settings.templates.title": "Template",
 	"settings.templates.title_field": "Titolo",
 	"settings.templates.title_placeholder": "es. Segnalazione bug",

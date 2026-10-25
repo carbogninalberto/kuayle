@@ -1127,6 +1127,7 @@
 	"settings.templates.no_default_priority": "无默认优先级",
 	"settings.templates.no_default_status": "无默认状态",
 	"settings.templates.save_changes": "保存更改",
+	"settings.templates.team_required_for_uploads": "请先选择团队再上传附件",
 	"settings.templates.title": "模板",
 	"settings.templates.title_field": "标题",
 	"settings.templates.title_placeholder": "例如：Bug 报告",
