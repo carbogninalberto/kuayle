@@ -28,7 +28,7 @@ ARG SECURITY_REFRESH=initial
 RUN rm -f /usr/bin/pebble \
     && apt-get update \
     && apt-get upgrade -y \
-    && apt-get install -y --no-install-recommends ca-certificates curl git ripgrep sudo tmux xz-utils \
+    && apt-get install -y --no-install-recommends ca-certificates curl git ncurses-term ripgrep sudo tmux xz-utils \
     && case "${TARGETARCH}" in \
          amd64) package_arch=amd64; code_server_sha="$CODE_SERVER_AMD64_SHA256"; ttyd_arch=x86_64; ttyd_sha="$TTYD_AMD64_SHA256" ;; \
          arm64) package_arch=arm64; code_server_sha="$CODE_SERVER_ARM64_SHA256"; ttyd_arch=aarch64; ttyd_sha="$TTYD_ARM64_SHA256" ;; \

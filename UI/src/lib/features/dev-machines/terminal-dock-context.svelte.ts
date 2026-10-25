@@ -15,6 +15,7 @@ class TerminalDockState {
 	tabs = $state<TerminalTab[]>([]);
 	activeTabId = $state<string | null>(null);
 	expanded = $state(false);
+	fullscreen = $state(false);
 	height = $state(320);
 
 	#slug = '';
@@ -24,6 +25,7 @@ class TerminalDockState {
 			this.tabs = [];
 			this.activeTabId = null;
 			this.expanded = false;
+			this.fullscreen = false;
 			this.#slug = slug;
 		}
 	}
@@ -48,6 +50,7 @@ class TerminalDockState {
 			} else {
 				this.activeTabId = null;
 				this.expanded = false;
+				this.fullscreen = false;
 			}
 		}
 	}
@@ -65,13 +68,19 @@ class TerminalDockState {
 	}
 
 	toggle() {
+		if (this.expanded) this.fullscreen = false;
 		this.expanded = !this.expanded;
+	}
+
+	toggleFullscreen() {
+		if (this.expanded) this.fullscreen = !this.fullscreen;
 	}
 
 	closeAll() {
 		this.tabs = [];
 		this.activeTabId = null;
 		this.expanded = false;
+		this.fullscreen = false;
 	}
 
 	setHeight(h: number) {

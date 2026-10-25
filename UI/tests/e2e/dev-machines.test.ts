@@ -790,6 +790,37 @@ test('keeps multiple docked terminals alive across collapse and navigation', asy
 	expect(initialSize.columns).toBeGreaterThan(20);
 	expect(initialSize.rows).toBeGreaterThan(5);
 	expect(initialSize.rows).toBeLessThan(100);
+	const terminalDock = page.getByTestId('terminal-dock');
+	const nativeTerminal = page.getByTestId('native-terminal');
+	const enterFullScreen = page.getByRole('button', { name: 'Enter full screen' });
+	await expect(enterFullScreen).toHaveAttribute('aria-pressed', 'false');
+	await enterFullScreen.click();
+	const exitFullScreen = page.getByRole('button', { name: 'Exit full screen' });
+	await expect(exitFullScreen).toHaveAttribute('aria-pressed', 'true');
+	const viewport = page.viewportSize();
+	expect(viewport).not.toBeNull();
+	await expect.poll(() => terminalDock.evaluate((element) => {
+		const rect = element.getBoundingClientRect();
+		return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+	})).toEqual({ x: 0, y: 0, width: viewport!.width, height: viewport!.height });
+	await expect(nativeTerminal.locator('.xterm-helper-textarea')).toBeFocused();
+	await expect.poll(() => page.evaluate(() => {
+		const decoder = new TextDecoder();
+		const frames = ((window as any).__terminalSockets?.[0]?.sent ?? [])
+			.map((bytes: number[]) => decoder.decode(new Uint8Array(bytes)));
+		const resize = frames
+			.filter((frame: string) => frame.startsWith('1{'))
+			.map((frame: string) => JSON.parse(frame.slice(1)));
+		return resize.at(-1)?.rows ?? 0;
+	})).toBeGreaterThan(initialSize.rows);
+	await page.keyboard.press('Escape');
+	await expect(exitFullScreen).toHaveAttribute('aria-pressed', 'true');
+	await exitFullScreen.click();
+	await expect(page.getByRole('button', { name: 'Enter full screen' })).toHaveAttribute('aria-pressed', 'false');
+	await page.keyboard.press('Control+Shift+F');
+	await expect(page.getByRole('button', { name: 'Exit full screen' })).toHaveAttribute('aria-pressed', 'true');
+	await page.keyboard.press('Control+Shift+F');
+	await expect(page.getByRole('button', { name: 'Enter full screen' })).toHaveAttribute('aria-pressed', 'false');
 	const dockHeight = await page.getByTestId('terminal-dock').evaluate((element) => element.getBoundingClientRect().height);
 	const terminalHeight = await page.getByTestId('native-terminal').evaluate((element) => element.getBoundingClientRect().height);
 	expect(terminalHeight).toBeLessThanOrEqual(dockHeight);

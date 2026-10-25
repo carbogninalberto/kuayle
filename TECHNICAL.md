@@ -173,6 +173,10 @@ Opening a paused machine service queues an idempotent resume operation and retur
 
 Machine access decisions are persisted in `dev_machine_access_logs` without query strings.
 
+The xterm client preserves the PTY byte stream by disabling end-of-line conversion, uses a line height of `1`, and enables the Unicode 11 addon with `allowProposedApi` for full-screen TUIs. End-of-line conversion must remain off because rewriting LF as CRLF returns the cursor to column zero and corrupts TUIs that use LF to move rows while preserving their column. The developer image installs `ncurses-term`, configures tmux for `tmux-256color` with RGB support, focus and extended-key events, passthrough, a 50,000-line history, and mouse input, and exports `COLORTERM=truecolor` for terminal sessions.
+
+The terminal dock can cover the viewport as an in-page full-screen layer. The layer refits xterm and restores terminal focus without reserving browser fullscreen. Its button and `Ctrl+Shift+F` toggle the mode; Escape remains available to the attached TUI and does not exit the layer.
+
 ## Machine and Collector Tokens
 
 Collectors use random machine tokens rather than user sessions. Token hashes, scopes, expiry, revocation, and last-use timestamps are stored in `dev_machine_tokens`.

@@ -146,6 +146,35 @@ func TestDeepSeekCodexConfigScriptsWriteOnlyWhenAbsent(t *testing.T) {
 	}
 }
 
+func TestTerminalRuntimeConfiguresFullColorTUI(t *testing.T) {
+	repoRoot := repoRootFromCaller(t)
+	tmuxConfigBytes, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", "ide", "tmux.conf"))
+	require.NoError(t, err)
+	tmuxConfig := string(tmuxConfigBytes)
+	expectedTmuxOptions := []string{
+		`set -g default-terminal "tmux-256color"`,
+		`set -as terminal-features ",xterm-256color:RGB"`,
+		`set -sg escape-time 10`,
+		`set -g focus-events on`,
+		`set -g extended-keys on`,
+		`set -g allow-passthrough on`,
+		`set -g history-limit 50000`,
+		`set -g mouse on`,
+		`set-option -g destroy-unattached on`,
+	}
+	for _, option := range expectedTmuxOptions {
+		require.Contains(t, tmuxConfig, option+"\n")
+	}
+
+	sessionScriptBytes, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", "ide", "terminal-session.sh"))
+	require.NoError(t, err)
+	require.Contains(t, string(sessionScriptBytes), "export COLORTERM=truecolor\n")
+
+	dockerfileBytes, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", "ide", "Dockerfile"))
+	require.NoError(t, err)
+	require.Contains(t, string(dockerfileBytes), "ncurses-term")
+}
+
 func TestTerminalSessionCloseKillsOnlyTheNamedSessionAndIsIdempotent(t *testing.T) {
 	repoRoot := repoRootFromCaller(t)
 	tempDir := t.TempDir()
