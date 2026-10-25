@@ -2,6 +2,11 @@ FROM golang:1.26.10-alpine AS go-stage
 
 FROM node:22.23.3-bookworm-slim@sha256:43ac6c60b8f89723f746e8a92ce91abd5017e627ce1ddfe4238355d3a30b772c AS node-stage
 
+FROM golang:1.27.3-bookworm AS crush-build
+# Release binaries embed an older Go standard library with known CVEs; build with patched Go.
+ARG CRUSH_VERSION=0.98.2
+RUN CGO_ENABLED=0 GOBIN=/out go install -trimpath -ldflags="-s -w" "github.com/charmbracelet/crush@v${CRUSH_VERSION}"
+
 FROM ubuntu:26.04@sha256:f144425ff09be612d6d9ad965196e9cdc23dae1f42110a8a11a3e9a8198759f7
 
 ARG TARGETARCH
@@ -12,6 +17,7 @@ ARG TTYD_ARM64_SHA256=b38acadd89d1d396a0f5649aa52c539edbad07f4bc7348b27b4f4b7219
 ARG NPM_VERSION=12.2.0
 
 COPY --from=node-stage /usr/local /usr/local
+COPY --from=crush-build /out/crush /usr/local/bin/crush
 COPY --from=go-stage /usr/local/go /usr/local/go
 COPY common/install-agent-clis.sh common/kuayle-service-entrypoint common/kuayle-agent-runner /usr/local/bin/
 COPY common/start-common.sh common/patch-npm-security.cjs common/test-http-cache-semantics.cjs /usr/local/lib/kuayle/
@@ -27,7 +33,7 @@ RUN rm -f /usr/bin/pebble \
     && apt-get update \
     && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
-         build-essential ca-certificates curl git make ncurses-term python3 ripgrep tmux xz-utils \
+         ca-certificates curl git make ncurses-term python3 ripgrep tmux xz-utils \
     && case "${TARGETARCH}" in \
          amd64) ttyd_arch=x86_64; ttyd_sha="$TTYD_AMD64_SHA256" ;; \
          arm64) ttyd_arch=aarch64; ttyd_sha="$TTYD_ARM64_SHA256" ;; \

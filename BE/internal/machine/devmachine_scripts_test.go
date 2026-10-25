@@ -121,6 +121,25 @@ func TestAgentCLIInstallerRejectsUnknownArchitecture(t *testing.T) {
 	require.Contains(t, stderr.String(), "unsupported architecture: riscv64")
 }
 
+// Crush release binaries are built with a Go toolchain that has known stdlib CVEs,
+// so both developer images build it from source with a patched toolchain.
+func TestDeveloperImagesBuildCrushWithPatchedGo(t *testing.T) {
+	repoRoot := repoRootFromCaller(t)
+	for _, image := range []string{"ide", "headless"} {
+		dockerfileBytes, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", image, "Dockerfile"))
+		require.NoError(t, err)
+		dockerfile := string(dockerfileBytes)
+		require.Contains(t, dockerfile, "FROM golang:1.27.3-bookworm AS crush-build", image)
+		require.Contains(t, dockerfile, "ARG CRUSH_VERSION=0.98.2", image)
+		require.Contains(t, dockerfile, "github.com/charmbracelet/crush@v${CRUSH_VERSION}", image)
+		require.Contains(t, dockerfile, "COPY --from=crush-build /out/crush /usr/local/bin/crush", image)
+	}
+	headless, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", "headless", "Dockerfile"))
+	require.NoError(t, err)
+	// build-essential pulls linux-libc-dev, whose kernel CVEs fail the image scan.
+	require.NotContains(t, string(headless), "build-essential")
+}
+
 func TestAgentCLIInstallerRejectsDigestMismatchBeforeExtraction(t *testing.T) {
 	repoRoot := repoRootFromCaller(t)
 	tempDir := t.TempDir()
@@ -148,8 +167,8 @@ printf 'tampered release' > "$output"
 	err := cmd.Run()
 
 	require.Error(t, err)
-	require.Contains(t, stderr.String(), "sha256 mismatch for crush")
-	require.Contains(t, stderr.String(), "ebc8fb462c0ed749e6bfd66c08c4e5a1408ac477b72f52c831d86d1a419a53b8")
+	require.Contains(t, stderr.String(), "sha256 mismatch for goose")
+	require.Contains(t, stderr.String(), "225a929b35b5130fb691eafdb50be236f2c0a150019b53973775938f8f19c281")
 }
 
 func TestAgentCLIInstallerPinsEveryCLIAndReleaseDigest(t *testing.T) {
@@ -166,10 +185,6 @@ func TestAgentCLIInstallerPinsEveryCLIAndReleaseDigest(t *testing.T) {
 		"CODEX_VERSION=0.160.0",
 		"@qwen-code/qwen-code",
 		"QWEN_VERSION=0.26.1",
-		"crush_${CRUSH_VERSION}_Linux_${release_arch}.tar.gz",
-		"CRUSH_VERSION=0.98.2",
-		"ebc8fb462c0ed749e6bfd66c08c4e5a1408ac477b72f52c831d86d1a419a53b8",
-		"151fb5f109e7277bd2462839b9b92de0409db785fd50b8c80697192f4fb0da9d",
 		"goose-${goose_arch}-unknown-linux-gnu.tar.gz",
 		"GOOSE_VERSION=1.56.0",
 		"225a929b35b5130fb691eafdb50be236f2c0a150019b53973775938f8f19c281",

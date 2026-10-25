@@ -4,16 +4,12 @@ set -eu
 target_arch=${1:-${TARGETARCH:-}}
 case "$target_arch" in
   amd64)
-    release_arch=x86_64
-    crush_sha256=ebc8fb462c0ed749e6bfd66c08c4e5a1408ac477b72f52c831d86d1a419a53b8
     goose_arch=x86_64
     goose_sha256=225a929b35b5130fb691eafdb50be236f2c0a150019b53973775938f8f19c281
     kimi_arch=x86_64
     kimi_sha256=a676204f7804ed5dae87652a9d66f578e0718d5026c9cb1bfa32b9a5eace4208
     ;;
   arm64)
-    release_arch=arm64
-    crush_sha256=151fb5f109e7277bd2462839b9b92de0409db785fd50b8c80697192f4fb0da9d
     goose_arch=aarch64
     goose_sha256=26bcb7d3f55aac485a91d81cbdecd8d90e5af1acadeca6e580b4d58b64a888e4
     kimi_arch=aarch64
@@ -29,10 +25,10 @@ CLAUDE_CODE_VERSION=2.1.289
 OPENCODE_VERSION=1.18.34
 CODEX_VERSION=0.160.0
 QWEN_VERSION=0.26.1
-CRUSH_VERSION=0.98.2
 GOOSE_VERSION=1.56.0
 KIMI_VERSION=1.52.0
 
+# Crush is built from source in the image (see the crush-build stage) and only verified here.
 npm install --global --allow-scripts=@anthropic-ai/claude-code "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
 npm install --global --allow-scripts=opencode-ai "opencode-ai@${OPENCODE_VERSION}"
 npm install --global "@openai/codex@${CODEX_VERSION}"
@@ -80,9 +76,6 @@ extract_and_install() {
   install -m 0755 "$binary_path" "/usr/local/bin/${binary_name}"
 }
 
-download_and_verify crush \
-  "https://github.com/charmbracelet/crush/releases/download/v${CRUSH_VERSION}/crush_${CRUSH_VERSION}_Linux_${release_arch}.tar.gz" \
-  "$crush_sha256"
 download_and_verify goose \
   "https://github.com/block/goose/releases/download/v${GOOSE_VERSION}/goose-${goose_arch}-unknown-linux-gnu.tar.gz" \
   "$goose_sha256"
@@ -90,7 +83,6 @@ download_and_verify kimi \
   "https://github.com/MoonshotAI/kimi-cli/releases/download/${KIMI_VERSION}/kimi-${KIMI_VERSION}-${kimi_arch}-unknown-linux-gnu.tar.gz" \
   "$kimi_sha256"
 
-extract_and_install crush
 extract_and_install goose
 extract_and_install kimi
 
