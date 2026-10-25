@@ -75,10 +75,18 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	// Never publish this listener or route it through the public workload proxy.
+	approvalServer := &http.Server{Addr: ":8091", Handler: http.HandlerFunc(gateway.ApproveCertificate), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192}
+	go func() {
+		if err := approvalServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.WithError(err).Fatal("certificate approval listener failed")
+		}
+	}()
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
+		_ = approvalServer.Shutdown(shutdownCtx)
 		_ = server.Shutdown(shutdownCtx)
 	}()
 	log.WithFields(log.Fields{"port": port, "machine_domain": configValue.DevMachine.Domain, "event_type": "gateway.started"}).Info("machine gateway started")

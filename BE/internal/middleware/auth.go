@@ -24,7 +24,11 @@ const (
 	TokenWorkspacesKey = "token_workspaces"
 )
 
-func Auth(jwtSecret string, patRepo repository.PersonalAccessTokenRepo) echo.MiddlewareFunc {
+func Auth(jwtSecret string, patRepo repository.PersonalAccessTokenRepo, hostCookies ...bool) echo.MiddlewareFunc {
+	cookieName := "access_token"
+	if len(hostCookies) > 0 && hostCookies[0] {
+		cookieName = "__Host-kuayle-access"
+	}
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			c.Response().Header().Set("Cache-Control", "private, no-store")
@@ -38,7 +42,7 @@ func Auth(jwtSecret string, patRepo repository.PersonalAccessTokenRepo) echo.Mid
 			}
 
 			// Try cookie first
-			cookie, err := c.Cookie("access_token")
+			cookie, err := c.Cookie(cookieName)
 			if err == nil && cookie.Value != "" {
 				if strings.HasPrefix(cookie.Value, domain.TokenPrefix) {
 					return response.Unauthorized(c)

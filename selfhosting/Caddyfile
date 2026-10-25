@@ -57,6 +57,9 @@
 #   2. Mount an operator-provided wildcard certificate:
 #      tls /etc/caddy/certs/machines.pem /etc/caddy/certs/machines.key
 #
+#   3. Use restricted on-demand individual certificates (README personal-instance
+#      setup); this requires a catch-all TLS site and the private 8091 ask listener.
+#
 # For local/internal installations, Caddy's internal CA works without
 # additional configuration.
 *.{$DEV_MACHINE_DOMAIN:machines.localhost} {

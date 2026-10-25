@@ -61,6 +61,7 @@ type Config struct {
 }
 
 type DevMachineConfig struct {
+	AllowSameSite        bool   `envconfig:"DEV_MACHINE_ALLOW_SAME_SITE" default:"false"`
 	Enabled              bool   `envconfig:"DEV_MACHINES_ENABLED" default:"false"`
 	Domain               string `envconfig:"DEV_MACHINE_DOMAIN"`
 	EncryptionKey        string `envconfig:"DEV_MACHINE_ENCRYPTION_KEY"`
@@ -142,6 +143,11 @@ type machineGatewayEnvConfig struct {
 }
 
 func (c DevMachineConfig) Validate(frontendURL string) error {
+	if c.AllowSameSite {
+		if err := c.validateSameSiteOrigin(frontendURL); err != nil {
+			return err
+		}
+	}
 	if !c.Enabled {
 		return nil
 	}
@@ -172,7 +178,18 @@ func (c DevMachineConfig) ValidateGateway(frontendURL string) error {
 	if err != nil || frontend.Hostname() == "" {
 		return fmt.Errorf("FRONTEND_URL must be an absolute URL when dev machines are enabled")
 	}
-	if !separateMachineSite(frontend.Hostname(), c.Domain) {
+	if c.AllowSameSite {
+		if err := c.validateSameSiteOrigin(frontendURL); err != nil {
+			return err
+		}
+		if _, err := publicsuffix.EffectiveTLDPlusOne(c.Domain); err != nil {
+			return fmt.Errorf("DEV_MACHINE_DOMAIN must be a registrable hostname")
+		}
+		if strings.HasSuffix(strings.ToLower(frontend.Hostname()), "."+strings.Trim(strings.ToLower(c.Domain), ".")) {
+			return fmt.Errorf("FRONTEND_URL must not overlap machine hostnames")
+		}
+	}
+	if !c.AllowSameSite && !separateMachineSite(frontend.Hostname(), c.Domain) {
 		return fmt.Errorf("DEV_MACHINE_DOMAIN must use a separate registrable domain from FRONTEND_URL")
 	}
 	if c.TicketTTLSeconds < 15 || c.TicketTTLSeconds > 300 {
@@ -336,4 +353,12 @@ func parseSysadmins(raw string) (map[uuid.UUID]struct{}, error) {
 		ids[id] = struct{}{}
 	}
 	return ids, nil
+}
+
+func (c DevMachineConfig) validateSameSiteOrigin(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf("DEV_MACHINE_ALLOW_SAME_SITE requires FRONTEND_URL to be an exact HTTPS origin")
+	}
+	return nil
 }

@@ -601,3 +601,26 @@ func TestGatewayOnlyForwardsHostOnlyUpstreamCookies(t *testing.T) {
 
 	require.Equal(t, []string{"project=value; Path=/"}, recorder.Header().Values("Set-Cookie"))
 }
+
+func TestCertificateApprovalOnlyForLiveRoutes(t *testing.T) {
+	userID, workspaceID, machineID := uuid.New(), uuid.New(), uuid.New()
+	store := &gatewayStoreFake{machine: gatewayMachine(workspaceID, machineID, userID, "abcdefgh1234"), service: &domain.DevMachineService{ID: uuid.New(), MachineID: machineID, ServiceType: "ide", Status: "running"}}
+	g, err := NewGateway(store, "app.example.com", time.Hour)
+	require.NoError(t, err)
+	check := func(host string, status int) {
+		req := httptest.NewRequest("GET", "/?domain="+url.QueryEscape(host), nil)
+		rec := httptest.NewRecorder()
+		g.ApproveCertificate(rec, req)
+		require.Equal(t, status, rec.Code, host)
+	}
+	check("abcdefgh1234.app.example.com", 200)
+	check("app.example.com", 403)
+	check("abcdefgh1234.attacker.com", 403)
+	check("abcdefgh1234.app.example.com:443", 403)
+	check("zzzzzzzz1234.app.example.com", 403)
+	store.machine.DesiredStatus = domain.DevMachineStatusStopped
+	check("abcdefgh1234.app.example.com", 403)
+	store.machine.DesiredStatus = domain.DevMachineStatusRunning
+	store.machine.ExpiresAt = time.Now().Add(-time.Second)
+	check("abcdefgh1234.app.example.com", 403)
+}
