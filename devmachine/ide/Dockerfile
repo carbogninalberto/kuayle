@@ -11,13 +11,10 @@ ARG TTYD_VERSION=1.7.7
 ARG TTYD_AMD64_SHA256=8a217c968aba172e0dbf3f34447218dc015bc4d5e59bf51db2f2cd12b7be4f55
 ARG TTYD_ARM64_SHA256=b38acadd89d1d396a0f5649aa52c539edbad07f4bc7348b27b4f4b7219dd4165
 ARG NPM_VERSION=12.2.0
-ARG CLAUDE_CODE_VERSION=2.1.289
-ARG OPENCODE_VERSION=1.18.34
-ARG CODEX_VERSION=0.160.0
 
 COPY --from=node-stage /usr/local /usr/local
-COPY common/kuayle-service-entrypoint /usr/local/bin/kuayle-service-entrypoint
-COPY common/patch-npm-security.cjs common/test-http-cache-semantics.cjs /usr/local/lib/kuayle/
+COPY common/install-agent-clis.sh common/kuayle-service-entrypoint /usr/local/bin/
+COPY common/start-common.sh common/patch-npm-security.cjs common/test-http-cache-semantics.cjs /usr/local/lib/kuayle/
 COPY ide/start.sh /usr/local/bin/kuayle-ide-start
 COPY ide/shell.sh /usr/local/bin/kuayle-shell
 COPY ide/checkout.sh /usr/local/bin/kuayle-checkout
@@ -28,7 +25,7 @@ ARG SECURITY_REFRESH=initial
 RUN rm -f /usr/bin/pebble \
     && apt-get update \
     && apt-get upgrade -y \
-    && apt-get install -y --no-install-recommends ca-certificates curl git ncurses-term ripgrep sudo tmux xz-utils \
+    && apt-get install -y --no-install-recommends ca-certificates curl git ncurses-term python3 ripgrep sudo tmux xz-utils \
     && case "${TARGETARCH}" in \
          amd64) package_arch=amd64; code_server_sha="$CODE_SERVER_AMD64_SHA256"; ttyd_arch=x86_64; ttyd_sha="$TTYD_AMD64_SHA256" ;; \
          arm64) package_arch=arm64; code_server_sha="$CODE_SERVER_ARM64_SHA256"; ttyd_arch=aarch64; ttyd_sha="$TTYD_ARM64_SHA256" ;; \
@@ -41,9 +38,7 @@ RUN rm -f /usr/bin/pebble \
     && echo "${ttyd_sha}  /usr/local/bin/ttyd" | sha256sum -c - \
     && chmod 0755 /usr/local/bin/ttyd \
     && npm install -g "npm@${NPM_VERSION}" \
-    && npm install -g --allow-scripts=@anthropic-ai/claude-code "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
-    && npm install -g --allow-scripts=opencode-ai "opencode-ai@${OPENCODE_VERSION}" \
-    && npm install -g "@openai/codex@${CODEX_VERSION}" \
+    && sh /usr/local/bin/install-agent-clis.sh "$TARGETARCH" \
     && node /usr/local/lib/kuayle/patch-npm-security.cjs /usr/lib/code-server \
     && npm install --prefix /tmp/code-server-patches --ignore-scripts --package-lock=false \
          "basic-ftp@6.2.2" "js-yaml@5.4.2" "shell-quote@1.12.0" "undici@7.30.0" "ip-address@10.7.3" \
@@ -71,13 +66,18 @@ RUN rm -f /usr/bin/pebble \
          /etc/ssl/private/ssl-cert-snakeoil.key /etc/ssl/certs/ssl-cert-snakeoil.pem \
     && mkdir -p /home/kuayle \
     && chown 1000:1000 /home/kuayle \
-    && chmod 0755 /usr/local/bin/kuayle-service-entrypoint /usr/local/bin/kuayle-ide-start /usr/local/bin/kuayle-shell /usr/local/bin/kuayle-checkout /usr/local/bin/kuayle-terminal-session \
+    && chmod 0755 /usr/local/bin/kuayle-service-entrypoint /usr/local/bin/install-agent-clis.sh /usr/local/bin/kuayle-ide-start /usr/local/bin/kuayle-shell /usr/local/bin/kuayle-checkout /usr/local/bin/kuayle-terminal-session \
     && code-server --version \
     && node --version \
     && npm --version \
     && opencode --version \
     && claude --version \
     && codex --version \
+    && pi --version \
+    && qwen --version \
+    && crush --version \
+    && goose --version \
+    && kimi --version \
     && ttyd --version \
     && rm -rf /root/.config/code-server \
     && user_name=$(getent passwd 1000 | cut -d: -f1) \

@@ -8,7 +8,7 @@ ARG CLAUDE_CODE_VERSION=2.1.289
 ARG OPENCODE_VERSION=1.18.34
 ARG CODEX_VERSION=0.160.0
 
-COPY common/patch-npm-security.cjs common/test-http-cache-semantics.cjs /usr/local/lib/kuayle/
+COPY common/start-common.sh common/patch-npm-security.cjs common/test-http-cache-semantics.cjs /usr/local/lib/kuayle/
 
 ARG SECURITY_REFRESH=initial
 RUN apk upgrade --no-cache \

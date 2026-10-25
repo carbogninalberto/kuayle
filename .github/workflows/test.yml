@@ -159,10 +159,15 @@ jobs:
         working-directory: .
         run: |
           docker buildx build --pull --load --platform linux/amd64 --cache-from type=gha,scope=dev-machine-ide --tag kuayle/dev-machine-ide:0.1.0 --file devmachine/ide/Dockerfile devmachine
+          docker buildx build --pull --load --platform linux/amd64 --cache-from type=gha,scope=dev-machine-headless --tag kuayle/dev-machine-headless:0.1.0 --file devmachine/headless/Dockerfile devmachine
           docker buildx build --pull --load --platform linux/amd64 --cache-from type=gha,scope=dev-machine-browser --tag kuayle/dev-machine-browser:0.1.0 --file devmachine/browser/Dockerfile devmachine
           docker buildx build --pull --load --platform linux/amd64 --cache-from type=gha,scope=dev-machine-collector --tag kuayle/dev-machine-collector:0.1.0 --file devmachine/collector/Dockerfile devmachine
           docker buildx build --pull --load --platform linux/amd64 --cache-from type=gha,scope=dev-machine-egress --tag kuayle/dev-machine-egress:0.1.0 --file devmachine/egress/Dockerfile devmachine
           docker buildx build --pull --load --platform linux/amd64 --cache-from type=gha,scope=dev-machine-agent-claude --build-arg PROVIDER=claude-code --tag kuayle/dev-machine-agent-claude:0.1.0 --file devmachine/agent/Dockerfile devmachine
+
+      - name: Smoke test headless runtime
+        working-directory: .
+        run: ./devmachine/headless/smoke-test.sh kuayle/dev-machine-headless:0.1.0
 
       - name: Run Docker lifecycle integration test
         env:

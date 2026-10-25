@@ -221,6 +221,10 @@ jobs:
         if: matrix.image.id == 'ide'
         run: ./devmachine/ide/smoke-test.sh kuayle-dev-machine-ide:${{ matrix.architecture }}-ci
 
+      - name: Smoke test native headless runtime
+        if: matrix.image.id == 'headless'
+        run: ./devmachine/headless/smoke-test.sh kuayle-dev-machine-headless:${{ matrix.architecture }}-ci
+
       - name: Scan native architecture image
         uses: aquasecurity/trivy-action@v0.36.0
         with:

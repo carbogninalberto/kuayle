@@ -18,7 +18,7 @@ dev-start-services:
 	@echo "Applying migrations required by the Dev Machine gateway role..."
 	$(MAKE) migrate-up
 	@echo "Ensuring local Dev Machine runtime images exist..."
-	$(DEV_MACHINE_COMPOSE) --profile dev-machine-images build dev-machine-ide dev-machine-browser dev-machine-collector dev-machine-egress dev-machine-agent-claude dev-machine-agent-opencode dev-machine-agent-codex
+	$(DEV_MACHINE_COMPOSE) --profile dev-machine-images build dev-machine-ide dev-machine-headless dev-machine-browser dev-machine-collector dev-machine-egress dev-machine-agent-claude dev-machine-agent-opencode dev-machine-agent-codex
 	@echo "Starting Dev Machine control plane and wildcard TLS proxy (*.machines.localhost)..."
 	@echo "Note: this dev proxy binds 127.0.0.1:80 and 127.0.0.1:443; stop the selfhosting stack first if those ports are occupied."
 	$(DEV_MACHINE_COMPOSE) --profile dev-machines rm -sf machine-gateway-db-provision >/dev/null 2>&1 || true

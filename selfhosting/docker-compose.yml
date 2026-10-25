@@ -274,6 +274,14 @@ services:
       dockerfile: ide/Dockerfile
     entrypoint: ["/bin/true"]
 
+  dev-machine-headless:
+    profiles: ["dev-machine-images"]
+    image: ${DEV_MACHINE_HEADLESS_IMAGE:-kuayle/dev-machine-headless:0.1.0}
+    build:
+      context: ../devmachine
+      dockerfile: headless/Dockerfile
+    entrypoint: ["/bin/true"]
+
   dev-machine-browser:
     profiles: ["dev-machine-images"]
     image: ${DEV_MACHINE_BROWSER_IMAGE:-kuayle/dev-machine-browser:0.1.0}
