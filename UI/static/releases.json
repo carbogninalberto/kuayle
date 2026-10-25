@@ -1,5 +1,16 @@
 [
   {
+    "tag_name": "v0.1.30",
+    "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.30",
+    "body": "Issue templates now use the same focused workflow as issue creation. Templates can be edited from settings, include a rich-text description and issue properties, and keep a separate display title and default issue title.\n\n### Improvements\n\n- Add a visible edit action and an issue-style create/edit dialog for templates.\n- Add a rich-text template description plus team, status, priority, assignee, and label defaults.\n- Keep the template title separate from the editable issue title that is prefilled when applying the template.\n- Preserve custom issue titles with **Create more** and keep team, status, cycle, project, and attachment ownership consistent when applying templates.\n- Restrict sub-issue templates to shared templates or templates owned by the parent issue team.\n- Add migration 50 for `default_issue_title`, with API validation and backward-compatible fallback to the template title.\n\n### Upgrade\n\nSelf-hosted installations should back up the database and run `./server migrate up` before using the new template fields. Existing templates remain valid; their issue-title fallback continues to use the template title.\n\n### Validation\n\n- Full Go suite with race detection\n- Frontend type checks and template/issue-navigation Playwright suites\n- PostgreSQL migration validation\n- Release Readiness images and smoke tests on amd64 and arm64\n- PR: https://github.com/carbogninalberto/kuayle/pull/80\n",
+    "published_at": "2026-10-25T20:54:07Z",
+    "prerelease": false,
+    "force_upgrade": false,
+    "minimum_supported_version": null,
+    "upgrade_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.30",
+    "upgrade_message": null
+  },
+  {
     "tag_name": "v0.1.29",
     "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.29",
     "body": "Fix permanent Dev Machine deletion after IDE or gateway access creates audit entries. Migration 49 clears dependent references together, preserving audit history and workspace ownership checks. Workspace deletion receives the same correction.\n\nValidated against PostgreSQL with existing access logs, transaction rollback, service and workspace deletion, migration downgrade/upgrade, and cross-workspace integrity checks.\n\nSelf-hosted upgrades must run database migrations (`./server migrate up`) before relying on the corrected cleanup behavior. Back up the database before upgrading.\n\n- Fix: https://github.com/carbogninalberto/kuayle/pull/84\n- Same-site Dev Machines and automatic HTTPS introduced in v0.1.28: https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.28\n",
