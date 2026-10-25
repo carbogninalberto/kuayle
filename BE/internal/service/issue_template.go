@@ -26,6 +26,16 @@ func (s *IssueTemplateService) Create(ctx context.Context, workspaceID, creatorI
 	if req.LabelIDs == nil {
 		labelIDsJSON = []byte("[]")
 	}
+	var defaultIssueTitle *string
+	if req.DefaultIssueTitle != nil {
+		title := strings.TrimSpace(*req.DefaultIssueTitle)
+		if title != "" {
+			if utf8.RuneCountInString(title) > 500 {
+				return nil, fmt.Errorf("default issue title must be between 1 and 500 characters")
+			}
+			defaultIssueTitle = &title
+		}
+	}
 
 	var recurrence *json.RawMessage
 	if len(req.RecurrenceRule) > 0 {
@@ -36,7 +46,7 @@ func (s *IssueTemplateService) Create(ctx context.Context, workspaceID, creatorI
 		ID:                uuid.New(),
 		WorkspaceID:       workspaceID,
 		Title:             req.Title,
-		DefaultIssueTitle: req.DefaultIssueTitle,
+		DefaultIssueTitle: defaultIssueTitle,
 		Description:       req.Description,
 		Status:            req.Status,
 		Priority:          req.Priority,

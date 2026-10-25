@@ -79,6 +79,39 @@ func TestIssueTemplateService_Create(t *testing.T) {
 	assert.Equal(t, userID, tmpl.CreatedBy)
 }
 
+func TestIssueTemplateService_CreateNormalizesDefaultIssueTitle(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected *string
+	}{
+		{name: "trims whitespace", input: "  [Bug] Describe the problem  ", expected: strPtr("[Bug] Describe the problem")},
+		{name: "clears whitespace only", input: "   ", expected: nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := new(mockIssueTemplateRepo)
+			svc := NewIssueTemplateService(repo)
+			ctx := context.Background()
+			repo.On("Create", ctx, mock.AnythingOfType("*domain.IssueTemplate")).Return(nil)
+
+			tmpl, err := svc.Create(ctx, uuid.New(), uuid.New(), dto.CreateIssueTemplateRequest{
+				Title:             "Bug Report",
+				DefaultIssueTitle: &tt.input,
+				LabelIDs:          []string{},
+			})
+
+			assert.NoError(t, err)
+			if tt.expected == nil {
+				assert.Nil(t, tmpl.DefaultIssueTitle)
+			} else {
+				assert.Equal(t, *tt.expected, *tmpl.DefaultIssueTitle)
+			}
+		})
+	}
+}
+
 func TestIssueTemplateService_ListByWorkspace(t *testing.T) {
 	repo := new(mockIssueTemplateRepo)
 	svc := NewIssueTemplateService(repo)
