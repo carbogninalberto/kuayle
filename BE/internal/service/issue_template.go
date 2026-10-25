@@ -33,16 +33,17 @@ func (s *IssueTemplateService) Create(ctx context.Context, workspaceID, creatorI
 	}
 
 	tmpl := &domain.IssueTemplate{
-		ID:             uuid.New(),
-		WorkspaceID:    workspaceID,
-		Title:          req.Title,
-		Description:    req.Description,
-		Status:         req.Status,
-		Priority:       req.Priority,
-		LabelIDs:       labelIDsJSON,
-		RecurrenceRule: recurrence,
-		IsActive:       true,
-		CreatedBy:      creatorID,
+		ID:                uuid.New(),
+		WorkspaceID:       workspaceID,
+		Title:             req.Title,
+		DefaultIssueTitle: req.DefaultIssueTitle,
+		Description:       req.Description,
+		Status:            req.Status,
+		Priority:          req.Priority,
+		LabelIDs:          labelIDsJSON,
+		RecurrenceRule:    recurrence,
+		IsActive:          true,
+		CreatedBy:         creatorID,
 	}
 
 	if req.TeamID != nil {
@@ -80,6 +81,17 @@ func (s *IssueTemplateService) Update(ctx context.Context, id uuid.UUID, req dto
 			return nil, fmt.Errorf("title must be between 1 and 500 characters")
 		}
 		tmpl.Title = title
+	}
+	if req.DefaultIssueTitle.Set {
+		if req.DefaultIssueTitle.Value == nil || strings.TrimSpace(*req.DefaultIssueTitle.Value) == "" {
+			tmpl.DefaultIssueTitle = nil
+		} else {
+			title := strings.TrimSpace(*req.DefaultIssueTitle.Value)
+			if utf8.RuneCountInString(title) > 500 {
+				return nil, fmt.Errorf("default issue title must be between 1 and 500 characters")
+			}
+			tmpl.DefaultIssueTitle = &title
+		}
 	}
 	if req.Description != nil {
 		tmpl.Description = req.Description

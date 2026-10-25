@@ -132,6 +132,7 @@ export interface IssueTemplate {
 	workspace_id: string;
 	team_id: string | null;
 	title: string;
+	default_issue_title: string | null;
 	description: string | null;
 	status: IssueStatus | null;
 	priority: IssuePriority | null;
@@ -147,6 +148,7 @@ export interface IssueTemplate {
 
 export interface CreateIssueTemplateRequest {
 	title: string;
+	default_issue_title?: string;
 	description?: string;
 	status?: IssueStatus;
 	priority?: IssuePriority;
@@ -157,6 +159,7 @@ export interface CreateIssueTemplateRequest {
 
 export interface UpdateIssueTemplateRequest {
 	title?: string;
+	default_issue_title?: string | null;
 	description?: string;
 	status?: IssueStatus | null;
 	priority?: IssuePriority | null;

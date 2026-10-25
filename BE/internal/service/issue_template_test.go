@@ -65,14 +65,16 @@ func TestIssueTemplateService_Create(t *testing.T) {
 	repo.On("Create", ctx, mock.AnythingOfType("*domain.IssueTemplate")).Return(nil)
 
 	tmpl, err := svc.Create(ctx, wsID, userID, dto.CreateIssueTemplateRequest{
-		Title:       "Bug Report",
-		Description: strPtr("Template for bug reports"),
-		LabelIDs:    []string{},
+		Title:             "Bug Report",
+		DefaultIssueTitle: strPtr("[Bug] Describe the problem"),
+		Description:       strPtr("Template for bug reports"),
+		LabelIDs:          []string{},
 	})
 
 	assert.NoError(t, err)
 	assert.NotNil(t, tmpl)
 	assert.Equal(t, "Bug Report", tmpl.Title)
+	assert.Equal(t, "[Bug] Describe the problem", *tmpl.DefaultIssueTitle)
 	assert.Equal(t, wsID, tmpl.WorkspaceID)
 	assert.Equal(t, userID, tmpl.CreatedBy)
 }
@@ -131,27 +133,30 @@ func TestIssueTemplateService_Update_ClearsOptionalFields(t *testing.T) {
 	status := "todo"
 	priority := 2
 	existing := &domain.IssueTemplate{
-		ID:         tmplID,
-		Title:      "Bug Report",
-		Status:     &status,
-		Priority:   &priority,
-		TeamID:     &teamID,
-		AssigneeID: &assigneeID,
-		LabelIDs:   json.RawMessage("[]"),
+		ID:                tmplID,
+		Title:             "Bug Report",
+		DefaultIssueTitle: strPtr("[Bug] Existing"),
+		Status:            &status,
+		Priority:          &priority,
+		TeamID:            &teamID,
+		AssigneeID:        &assigneeID,
+		LabelIDs:          json.RawMessage("[]"),
 	}
 
 	repo.On("GetByID", ctx, tmplID).Return(existing, nil)
 	repo.On("Update", ctx, existing).Return(nil)
 
 	result, err := svc.Update(ctx, tmplID, dto.UpdateIssueTemplateRequest{
-		Status:     dto.OptionalString{Set: true},
-		Priority:   dto.OptionalInt{Set: true},
-		TeamID:     dto.OptionalString{Set: true},
-		AssigneeID: dto.OptionalString{Set: true},
-		LabelIDs:   []string{},
+		DefaultIssueTitle: dto.OptionalString{Set: true},
+		Status:            dto.OptionalString{Set: true},
+		Priority:          dto.OptionalInt{Set: true},
+		TeamID:            dto.OptionalString{Set: true},
+		AssigneeID:        dto.OptionalString{Set: true},
+		LabelIDs:          []string{},
 	})
 
 	assert.NoError(t, err)
+	assert.Nil(t, result.DefaultIssueTitle)
 	assert.Nil(t, result.Status)
 	assert.Nil(t, result.Priority)
 	assert.Nil(t, result.TeamID)

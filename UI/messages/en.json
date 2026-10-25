@@ -1121,6 +1121,8 @@
 	"settings.templates.failed_create": "Failed to create template",
 	"settings.templates.failed_delete": "Failed to delete template",
 	"settings.templates.failed_update": "Failed to update template",
+	"settings.templates.issue_title_field": "Issue title",
+	"settings.templates.issue_title_hint": "Prefilled when someone creates an issue from this template. Leave empty to use the template title.",
 	"settings.templates.new": "New Template",
 	"settings.templates.no_templates": "No templates yet",
 	"settings.templates.no_templates_desc": "Create issue templates to standardize your team's workflow",

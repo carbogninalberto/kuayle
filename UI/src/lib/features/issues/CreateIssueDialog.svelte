@@ -291,7 +291,7 @@
 
 	function applyTemplate(tmpl: IssueTemplate) {
 		selectedTemplate = tmpl;
-		title = tmpl.title || '';
+		title = tmpl.default_issue_title?.trim() || tmpl.title || '';
 		description = tmpl.description ?? '';
 		descriptionVersion++;
 		// The editor is recreated; counts reported by the previous instance no longer apply.

@@ -49,6 +49,7 @@ type Template = {
 	workspace_id: string;
 	team_id: string | null;
 	title: string;
+	default_issue_title: string | null;
 	description: string | null;
 	status: string | null;
 	priority: number | null;
@@ -68,6 +69,7 @@ function template(overrides: Partial<Template> = {}): Template {
 		workspace_id: workspace.id,
 		team_id: null,
 		title: 'Existing bug report',
+		default_issue_title: null,
 		description: '<p>Existing <strong>details</strong></p>',
 		status: 'todo',
 		priority: 2,
@@ -154,6 +156,7 @@ async function mockTemplateApi(
 			const created = template({
 				id: 'template-created',
 				title: String(data.title),
+				default_issue_title: data.default_issue_title ? String(data.default_issue_title) : null,
 				description: data.description ? String(data.description) : null,
 				status: data.status ? String(data.status) : null,
 				priority: typeof data.priority === 'number' ? data.priority : null,
@@ -228,6 +231,7 @@ test('creates and edits a rich-text issue template', async ({ page }) => {
 	await page.getByRole('button', { name: 'New Template', exact: true }).first().click();
 	const createDialog = page.getByRole('dialog', { name: 'Create Issue Template', exact: true });
 	await createDialog.getByRole('textbox', { name: 'Title', exact: true }).fill('Created template');
+	await createDialog.getByRole('textbox', { name: 'Issue title', exact: true }).fill('[Bug] Created issue');
 	const createEditor = createDialog.getByRole('textbox', { name: 'Description', exact: true });
 	await createEditor.fill('Rich description');
 	await selectEditorText(createEditor);
@@ -260,6 +264,7 @@ test('creates and edits a rich-text issue template', async ({ page }) => {
 	await expect(page.getByText('Created template', { exact: true })).toBeVisible();
 	expect(calls.creates).toHaveLength(1);
 	expect(calls.creates[0].title).toBe('Created template');
+	expect(calls.creates[0].default_issue_title).toBe('[Bug] Created issue');
 	expect(calls.creates[0].description).toContain('<strong>Rich description</strong>');
 	expect(calls.creates[0].team_id).toBe(team.id);
 	expect(calls.creates[0].status).toBe('todo');
@@ -270,11 +275,15 @@ test('creates and edits a rich-text issue template', async ({ page }) => {
 	await page.getByRole('button', { name: 'Edit Created template', exact: true }).click();
 	const editDialog = page.getByRole('dialog', { name: 'Edit Issue Template', exact: true });
 	await expect(editDialog.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue('Created template');
+	await expect(editDialog.getByRole('textbox', { name: 'Issue title', exact: true })).toHaveValue(
+		'[Bug] Created issue'
+	);
 	await expect(editDialog.getByRole('textbox', { name: 'Description', exact: true })).toContainText('Rich description');
 	await expect(editDialog.getByRole('combobox', { name: 'Default status', exact: true })).toContainText('Todo');
 	await expect(editDialog.getByRole('combobox', { name: 'Default priority', exact: true })).toContainText('High');
 
 	await editDialog.getByRole('textbox', { name: 'Title', exact: true }).fill('Updated template');
+	await editDialog.getByRole('textbox', { name: 'Issue title', exact: true }).fill('[Bug] Updated issue');
 	await editDialog.getByRole('textbox', { name: 'Description', exact: true }).fill('Updated description');
 	await editDialog.getByRole('button', { name: 'Save changes', exact: true }).click();
 
@@ -284,6 +293,7 @@ test('creates and edits a rich-text issue template', async ({ page }) => {
 	expect(calls.updates).toHaveLength(1);
 	expect(calls.updates[0].id).toBe('template-created');
 	expect(calls.updates[0].data.title).toBe('Updated template');
+	expect(calls.updates[0].data.default_issue_title).toBe('[Bug] Updated issue');
 	expect(calls.updates[0].data.description).toContain('Updated description');
 });
 

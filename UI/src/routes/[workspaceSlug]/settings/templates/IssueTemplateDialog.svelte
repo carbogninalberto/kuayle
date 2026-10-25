@@ -57,6 +57,7 @@
 	const PRIORITY_OPTIONS: IssuePriority[] = [0, 1, 2, 3, 4];
 
 	let formTitle = $state('');
+	let formDefaultIssueTitle = $state('');
 	let formDescription = $state('');
 	let formTeamId = $state<string | null>(null);
 	let formStatus = $state<IssueStatus | null>(null);
@@ -77,6 +78,7 @@
 
 	function initialize(source: IssueTemplate | null) {
 		formTitle = source?.title ?? '';
+		formDefaultIssueTitle = source?.default_issue_title ?? '';
 		formDescription = source?.description ?? '';
 		formTeamId = source?.team_id ?? null;
 		formStatus = source?.status ?? null;
@@ -111,6 +113,7 @@
 
 		if (!template) {
 			const data: CreateIssueTemplateRequest = { title };
+			if (formDefaultIssueTitle.trim()) data.default_issue_title = formDefaultIssueTitle.trim();
 			if (description) data.description = description;
 			if (formTeamId) data.team_id = formTeamId;
 			if (formStatus) data.status = formStatus;
@@ -122,6 +125,9 @@
 		}
 
 		const data: UpdateIssueTemplateRequest = { title };
+		if (formDefaultIssueTitle.trim() !== (template.default_issue_title ?? '').trim()) {
+			data.default_issue_title = formDefaultIssueTitle.trim() || null;
+		}
 		if (description !== normalizedDescription(template.description ?? '')) {
 			data.description = description;
 		}
@@ -217,6 +223,23 @@
 				placeholder={m['settings.templates.title_placeholder']()}
 				class="w-full bg-transparent text-lg font-semibold text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)] max-sm:shrink-0"
 			/>
+			<div class="mt-3 rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-2">
+				<label for="issue-template-default-title" class="text-xs text-[var(--color-text-tertiary)]">
+					{m['settings.templates.issue_title_field']()}
+				</label>
+				<Input
+					variant="plain"
+					id="issue-template-default-title"
+					type="text"
+					maxlength={500}
+					bind:value={formDefaultIssueTitle}
+					placeholder={formTitle.trim() || m['settings.templates.title_placeholder']()}
+					class="mt-1 w-full bg-transparent text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)]"
+				/>
+				<p class="mt-1 text-[11px] text-[var(--color-text-tertiary)]">
+					{m['settings.templates.issue_title_hint']()}
+				</p>
+			</div>
 			<div class="mt-4 max-h-[calc(55vh-150px)] overflow-y-auto max-sm:flex-1 max-sm:[max-height:none]">
 				{#key editorVersion}
 					{@const currentEditorVersion = editorVersion}

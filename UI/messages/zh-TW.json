@@ -1121,6 +1121,8 @@
 	"settings.templates.failed_create": "建立範本失敗",
 	"settings.templates.failed_delete": "刪除範本失敗",
 	"settings.templates.failed_update": "更新範本失敗",
+	"settings.templates.issue_title_field": "問題標題",
+	"settings.templates.issue_title_hint": "從此範本建立問題時會預填。留空則使用範本標題。",
 	"settings.templates.new": "新增範本",
 	"settings.templates.no_templates": "尚無範本",
 	"settings.templates.no_templates_desc": "建立問題範本以標準化團隊工作流程",

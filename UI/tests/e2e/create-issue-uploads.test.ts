@@ -19,7 +19,7 @@ async function setup(page: Page) {
 		if (path === '/api/workspaces/test') return route.fulfill({ json: workspace });
 		if (path === '/api/workspaces/test/teams') return route.fulfill({ json: [team] });
 		if (path === '/api/workspaces/test/upload') { uploads.push(route); return; }
-		if (path === '/api/workspaces/test/issue-templates') return route.fulfill({ json: [{ id: 'template', title: 'Template issue', description: '<p>Template description</p>', priority: 0, label_ids: [] }] });
+		if (path === '/api/workspaces/test/issue-templates') return route.fulfill({ json: [{ id: 'template', title: 'Bug report', default_issue_title: '[Bug] Describe the problem', description: '<p>Template description</p>', priority: 0, label_ids: [] }] });
 		if (path === '/api/notifications') return route.fulfill({ json: { notifications: [], unread_count: 0 } });
 		if (path === '/api/workspaces/test/issues') {
 			if (request.method() === 'POST') {
@@ -93,7 +93,7 @@ for (const replace of ['template', 'reopen'] as const) {
 		const aborted = page.waitForEvent('requestfailed', { predicate: (request) => new URL(request.url()).pathname === '/api/workspaces/test/upload' });
 		if (replace === 'template') {
 			await page.getByRole('button', { name: 'Template', exact: true }).first().click();
-			await page.getByRole('button', { name: 'Template issue', exact: true }).click();
+			await page.getByRole('button', { name: 'Bug report', exact: true }).click();
 		} else {
 			await page.keyboard.press('Escape');
 			await expect(page.locator('#create-issue-title')).toHaveCount(0);
@@ -138,4 +138,17 @@ test('inserts picker attachments and dropped images before submitting', async ({
 	await expect.poll(() => issues.length).toBe(1);
 	expect(issues[0].description).toContain('/api/workspaces/test/assets/notes.txt?download=1');
 	expect(issues[0].description).toContain('/api/workspaces/test/assets/dropped.png');
+});
+
+test('prefills the template issue title while allowing a custom title', async ({ page }) => {
+	const { issues } = await setup(page);
+
+	await page.getByRole('button', { name: 'Template', exact: true }).first().click();
+	await page.getByRole('button', { name: 'Bug report', exact: true }).click();
+	await expect(page.locator('#create-issue-title')).toHaveValue('[Bug] Describe the problem');
+	await page.locator('#create-issue-title').fill('Custom issue title');
+	await page.getByRole('button', { name: 'Create issue', exact: true }).click();
+
+	await expect.poll(() => issues.length).toBe(1);
+	expect(issues[0].title).toBe('Custom issue title');
 });

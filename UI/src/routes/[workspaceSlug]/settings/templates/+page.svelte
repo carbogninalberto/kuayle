@@ -138,9 +138,14 @@
 					>
 						<FileText size={16} class="shrink-0 text-[var(--color-text-tertiary)]" />
 						<div class="min-w-0 flex-1">
-							<span class="text-sm font-medium text-[var(--color-text-primary)]">
+							<div class="text-sm font-medium text-[var(--color-text-primary)]">
 								{template.title || m['settings.templates.untitled']()}
-							</span>
+							</div>
+							{#if template.default_issue_title}
+								<div class="mt-0.5 truncate text-xs text-[var(--color-text-tertiary)]">
+									{m['settings.templates.issue_title_field']()}: {template.default_issue_title}
+								</div>
+							{/if}
 						</div>
 						{#if templateGroup}
 							<Badge variant="outline" class="text-[10px]">{templateGroup.key}</Badge>

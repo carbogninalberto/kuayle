@@ -1121,6 +1121,8 @@
 	"settings.templates.failed_create": "创建模板失败",
 	"settings.templates.failed_delete": "删除模板失败",
 	"settings.templates.failed_update": "更新模板失败",
+	"settings.templates.issue_title_field": "问题标题",
+	"settings.templates.issue_title_hint": "从此模板创建问题时会预填。留空则使用模板标题。",
 	"settings.templates.new": "新建模板",
 	"settings.templates.no_templates": "暂无模板",
 	"settings.templates.no_templates_desc": "创建问题模板以标准化团队工作流",

@@ -124,19 +124,20 @@ func toIssueTemplateResponse(tmpl *domain.IssueTemplate) dto.IssueTemplateRespon
 		recurrence = *tmpl.RecurrenceRule
 	}
 	resp := dto.IssueTemplateResponse{
-		ID:             tmpl.ID.String(),
-		WorkspaceID:    tmpl.WorkspaceID.String(),
-		Title:          tmpl.Title,
-		Description:    tmpl.Description,
-		Status:         tmpl.Status,
-		Priority:       tmpl.Priority,
-		LabelIDs:       tmpl.LabelIDs,
-		RecurrenceRule: recurrence,
-		NextRunAt:      tmpl.NextRunAt,
-		IsActive:       tmpl.IsActive,
-		CreatedBy:      tmpl.CreatedBy.String(),
-		CreatedAt:      tmpl.CreatedAt,
-		UpdatedAt:      tmpl.UpdatedAt,
+		ID:                tmpl.ID.String(),
+		WorkspaceID:       tmpl.WorkspaceID.String(),
+		Title:             tmpl.Title,
+		DefaultIssueTitle: tmpl.DefaultIssueTitle,
+		Description:       tmpl.Description,
+		Status:            tmpl.Status,
+		Priority:          tmpl.Priority,
+		LabelIDs:          tmpl.LabelIDs,
+		RecurrenceRule:    recurrence,
+		NextRunAt:         tmpl.NextRunAt,
+		IsActive:          tmpl.IsActive,
+		CreatedBy:         tmpl.CreatedBy.String(),
+		CreatedAt:         tmpl.CreatedAt,
+		UpdatedAt:         tmpl.UpdatedAt,
 	}
 	if tmpl.TeamID != nil {
 		s := tmpl.TeamID.String()

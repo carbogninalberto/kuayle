@@ -1121,6 +1121,8 @@
 	"settings.templates.failed_create": "Impossibile creare il template",
 	"settings.templates.failed_delete": "Impossibile eliminare il template",
 	"settings.templates.failed_update": "Impossibile aggiornare il template",
+	"settings.templates.issue_title_field": "Titolo attività",
+	"settings.templates.issue_title_hint": "Precompilato quando qualcuno crea un'attività da questo template. Lascia vuoto per usare il titolo del template.",
 	"settings.templates.new": "Nuovo template",
 	"settings.templates.no_templates": "Ancora nessun template",
 	"settings.templates.no_templates_desc": "Crea template attività per standardizzare il flusso di lavoro del tuo team",
