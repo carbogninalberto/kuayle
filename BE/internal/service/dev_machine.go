@@ -83,6 +83,7 @@ func machineQuotaCountError(workspaceCount, workspaceLimit, userCount, userLimit
 
 type DevMachineImages struct {
 	IDE       string
+	Headless  string
 	Browser   string
 	Collector string
 	Egress    string
@@ -111,6 +112,22 @@ func NewDevMachineService(store repository.DevMachineStore, agents *agent.Regist
 }
 
 func (s *DevMachineService) Create(ctx context.Context, workspaceID, userID uuid.UUID, req dto.CreateDevMachineRequest) (*domain.DevMachine, *domain.DevMachineOperation, error) {
+	profile := req.Profile
+	if profile == "" {
+		profile = domain.DevMachineProfileStandard
+	}
+	switch profile {
+	case domain.DevMachineProfileStandard:
+		req.Services.IDE = true
+	case domain.DevMachineProfileHeadless:
+		if req.Services.IDE || req.Services.Browser {
+			return nil, nil, fmt.Errorf("%w: headless machines do not include the IDE or browser", ErrInvalidMachineInput)
+		}
+		req.Services.IDE = false
+		req.Services.Browser = false
+	default:
+		return nil, nil, fmt.Errorf("%w: unsupported machine profile %q", ErrInvalidMachineInput, profile)
+	}
 	if req.Repo != nil {
 		if err := validateRepository(*req.Repo); err != nil {
 			return nil, nil, fmt.Errorf("%w: %v", ErrInvalidMachineInput, err)
@@ -119,7 +136,6 @@ func (s *DevMachineService) Create(ctx context.Context, workspaceID, userID uuid
 	if (req.BaseBranch != "" && !validGitRef(req.BaseBranch)) || (req.WorkingBranch != "" && !validGitRef(req.WorkingBranch)) {
 		return nil, nil, fmt.Errorf("%w: invalid base or working branch", ErrInvalidMachineInput)
 	}
-	req.Services.IDE = true
 	policy, err := s.enabledPolicy(ctx, workspaceID)
 	if err != nil {
 		return nil, nil, err
@@ -253,7 +269,7 @@ func (s *DevMachineService) Create(ctx context.Context, workspaceID, userID uuid
 		ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID, RoutingKey: routingKey,
 		Name: name, Status: domain.DevMachineStatusQueued, DesiredStatus: domain.DevMachineStatusRunning,
 		Generation: 1, ProjectID: projectID, IssueID: issueID, BaseBranch: baseBranch, WorkingBranch: workingBranch,
-		MachineSize: req.Size, CPUMillis: cpuMillis, MemoryMB: memoryMB, DiskGB: diskGB, PidsLimit: 512,
+		MachineSize: req.Size, Profile: profile, CPUMillis: cpuMillis, MemoryMB: memoryMB, DiskGB: diskGB, PidsLimit: 512,
 		MaxRuntimeMinutes: maxRuntime, ServicesConfig: servicesConfig, Labels: json.RawMessage(`{}`),
 		ExpiresAt: now.Add(time.Duration(maxRuntime) * time.Minute), EnvironmentID: environmentID,
 		KeepRunning: req.KeepRunning, EnvironmentBuilder: req.EnvironmentBuilder, LastActivityAt: &now,
@@ -270,7 +286,7 @@ func (s *DevMachineService) Create(ctx context.Context, workspaceID, userID uuid
 		return nil, nil, err
 	}
 	services := s.buildServices(machine)
-	if machine.EnvironmentID != nil {
+	if machine.EnvironmentID != nil && machine.Profile != domain.DevMachineProfileHeadless {
 		environment, _ := s.store.GetEnvironment(ctx, workspaceID, *machine.EnvironmentID)
 		if environment != nil {
 			environmentImageRef := readyEnvironmentImageRef(environment)
@@ -494,6 +510,10 @@ func (s *DevMachineService) buildServices(machine *domain.DevMachine) []domain.D
 	}
 	var config dto.DevMachineServicesInput
 	_ = json.Unmarshal(machine.ServicesConfig, &config)
+	if machine.Profile == domain.DevMachineProfileHeadless {
+		services = append(services, newService(machine.WorkspaceID, machine.ID, "terminal", "terminal", base+"terminal", s.images.Headless, machine.RoutingKey+"-terminal", 7681))
+		return services
+	}
 	if config.IDE {
 		services = append(services, newService(machine.WorkspaceID, machine.ID, "ide", "ide", base+"ide", s.images.IDE, machine.RoutingKey+"-ide", 8080))
 		services = append(services, newService(machine.WorkspaceID, machine.ID, "terminal", "terminal", base+"ide", s.images.IDE, machine.RoutingKey+"-ide", 7681))
@@ -1937,7 +1957,7 @@ func (s *DevMachineService) GetPolicy(ctx context.Context, workspaceID uuid.UUID
 	return &domain.DevMachineWorkspacePolicy{
 		WorkspaceID: workspaceID, MaxConcurrentMachines: 5, MaxMachinesPerUser: 2, MaxDailyAgentRuns: 25,
 		MaxRuntimeMinutes: 480, MaxDiskGB: 100, IdlePauseMinutes: 240,
-		AllowedProviders:    json.RawMessage(`["claude-code","opencode","codex"]`),
+		AllowedProviders:    json.RawMessage(`["claude-code","opencode","codex","pi","qwen-code","crush","kimi","goose"]`),
 		AllowedRepositories: json.RawMessage(`[]`),
 	}, nil
 }

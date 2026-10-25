@@ -199,16 +199,16 @@ func (r *DevMachineRepository) CreateBundle(
 	const machineQuery = `INSERT INTO dev_machines (
 		id, workspace_id, project_id, issue_id, created_by_user_id, routing_key, name,
 		status, desired_status, generation, repo_url, repo_provider, repo_owner, repo_name,
-		base_branch, working_branch, machine_size, cpu_millis, memory_mb, disk_gb, pids_limit,
+		base_branch, working_branch, machine_size, profile, cpu_millis, memory_mb, disk_gb, pids_limit,
 		max_runtime_minutes, services_config, labels, expires_at, environment_id,
 		repository_affinity_id, keep_running, environment_builder, last_activity_at
-	) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30)
+	) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31)
 	RETURNING created_at, updated_at`
 	if err := tx.QueryRowContext(ctx, machineQuery,
 		machine.ID, machine.WorkspaceID, machine.ProjectID, machine.IssueID, machine.CreatedByUserID,
 		machine.RoutingKey, machine.Name, machine.Status, machine.DesiredStatus, machine.Generation,
 		machine.RepoURL, machine.RepoProvider, machine.RepoOwner, machine.RepoName, machine.BaseBranch,
-		machine.WorkingBranch, machine.MachineSize, machine.CPUMillis, machine.MemoryMB, machine.DiskGB,
+		machine.WorkingBranch, machine.MachineSize, machine.Profile, machine.CPUMillis, machine.MemoryMB, machine.DiskGB,
 		machine.PidsLimit, machine.MaxRuntimeMinutes, machine.ServicesConfig, machine.Labels, machine.ExpiresAt,
 		machine.EnvironmentID, machine.RepositoryAffinityID, machine.KeepRunning, machine.EnvironmentBuilder, machine.LastActivityAt,
 	).Scan(&machine.CreatedAt, &machine.UpdatedAt); err != nil {
