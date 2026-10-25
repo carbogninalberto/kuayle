@@ -151,6 +151,13 @@
 			: [...formLabelIds, labelId];
 	}
 
+	function handleTeamChange(value: string) {
+		formTeamId = value === 'workspace' ? null : value;
+		pendingUploads = 0;
+		// RichEditor configures paste/drop uploads when it mounts.
+		editorVersion++;
+	}
+
 	function chooseFiles(imagesOnly = false) {
 		if (!uploadUrl) return;
 		const input = document.createElement('input');
@@ -235,11 +242,7 @@
 		</div>
 
 		<div class="flex flex-wrap items-center gap-1.5 border-t border-[var(--app-border)] px-4 py-2.5 max-sm:shrink-0">
-			<Select.Root
-				type="single"
-				value={formTeamId ?? 'workspace'}
-				onValueChange={(value) => (formTeamId = value === 'workspace' ? null : value)}
-			>
+			<Select.Root type="single" value={formTeamId ?? 'workspace'} onValueChange={handleTeamChange}>
 				<Select.Trigger
 					variant="plain"
 					aria-label={m['sharedComponents.create_issue.team']()}

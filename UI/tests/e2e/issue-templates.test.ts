@@ -100,6 +100,7 @@ async function mockTemplateApi(
 	const templates = [initialTemplate];
 	const creates: Record<string, unknown>[] = [];
 	const updates: Array<{ id: string; data: Record<string, unknown> }> = [];
+	const uploads: Record<string, unknown>[] = [];
 	let createAttempts = 0;
 	let updateAttempts = 0;
 
@@ -126,6 +127,16 @@ async function mockTemplateApi(
 		}
 		if (path === '/api/workspaces') return route.fulfill({ json: [workspace] });
 		if (path === '/api/workspaces/test') return route.fulfill({ json: workspace });
+		if (path === '/api/workspaces/test/upload' && method === 'POST') {
+			uploads.push({ body: await request.postDataBuffer() });
+			return route.fulfill({
+				json: {
+					url: '/api/workspaces/test/assets/pasted.png',
+					filename: 'pasted.png',
+					content_type: 'image/png'
+				}
+			});
+		}
 		if (path === '/api/notifications') {
 			return route.fulfill({ json: { notifications: [], unread_count: 0 } });
 		}
@@ -182,6 +193,7 @@ async function mockTemplateApi(
 		templates,
 		creates,
 		updates,
+		uploads,
 		get createAttempts() {
 			return createAttempts;
 		},
@@ -223,6 +235,16 @@ test('creates and edits a rich-text issue template', async ({ page }) => {
 
 	await createDialog.getByRole('combobox', { name: 'Team', exact: true }).click();
 	await page.getByRole('option', { name: 'Engineering', exact: true }).click();
+	await createEditor.evaluate((element) => {
+		const data = new DataTransfer();
+		data.items.add(new File(['image'], 'pasted.png', { type: 'image/png' }));
+		element.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+	});
+	await expect.poll(() => calls.uploads).toHaveLength(1);
+	await expect(createEditor.getByRole('img', { name: 'pasted.png', exact: true })).toHaveAttribute(
+		'src',
+		'/api/workspaces/test/assets/pasted.png'
+	);
 	await createDialog.getByRole('combobox', { name: 'Default status', exact: true }).click();
 	await page.getByRole('option', { name: 'Todo', exact: true }).click();
 	await createDialog.getByRole('combobox', { name: 'Default priority', exact: true }).click();
