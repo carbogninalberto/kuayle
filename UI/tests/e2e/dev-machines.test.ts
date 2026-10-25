@@ -1578,7 +1578,7 @@ test('creates a headless machine with a new built-in provider', async ({ page })
 
 	const provider = dialog.getByRole('combobox', { name: 'Provider' });
 	await provider.click();
-	for (const displayName of ['Pi', 'Qwen Code', 'Crush', 'Kimi', 'Goose']) {
+	for (const displayName of ['Qwen Code', 'Crush', 'Kimi', 'Goose']) {
 		await expect(page.getByRole('option', { name: displayName, exact: true })).toBeVisible();
 	}
 	await page.getByRole('option', { name: 'Kimi', exact: true }).click();

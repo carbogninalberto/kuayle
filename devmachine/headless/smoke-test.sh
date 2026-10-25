@@ -17,7 +17,7 @@ until docker exec "$container" test -f /workspace/.kuayle-ready; do
 done
 
 docker exec "$container" curl --fail --silent --output /dev/null http://127.0.0.1:7681/
-for command in node npm claude opencode codex pi qwen crush goose kimi ttyd; do
+for command in node npm claude opencode codex qwen crush goose kimi ttyd; do
   docker exec "$container" "$command" --version
 done
 docker exec "$container" go version

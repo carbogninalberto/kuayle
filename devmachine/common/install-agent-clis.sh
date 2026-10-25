@@ -33,6 +33,8 @@ npm install --global --allow-scripts=@anthropic-ai/claude-code "@anthropic-ai/cl
 npm install --global --allow-scripts=opencode-ai "opencode-ai@${OPENCODE_VERSION}"
 npm install --global "@openai/codex@${CODEX_VERSION}"
 npm install --global --allow-scripts=@qwen-code/qwen-code "@qwen-code/qwen-code@${QWEN_VERSION}"
+# qwen-code 0.26.1 bundles sharp 0.35.4 (GHSA-wq5f-xc86-pv6w); 0.35.5 is the patch release.
+(cd "$(npm root --global)/@qwen-code/qwen-code" && npm install --no-save --no-audit --no-fund --ignore-scripts "sharp@0.35.5")
 
 download_dir=$(mktemp -d "${TMPDIR:-/tmp}/kuayle-agent-clis.XXXXXX")
 cleanup() {

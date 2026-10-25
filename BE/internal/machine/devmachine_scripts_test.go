@@ -145,7 +145,9 @@ func TestAgentCLIInstallerRejectsDigestMismatchBeforeExtraction(t *testing.T) {
 	tempDir := t.TempDir()
 	fakeBin := filepath.Join(tempDir, "bin")
 	require.NoError(t, os.MkdirAll(fakeBin, 0o700))
-	require.NoError(t, os.WriteFile(filepath.Join(fakeBin, "npm"), []byte("#!/bin/sh\nexit 0\n"), 0o700))
+	npmRoot := filepath.Join(tempDir, "npm-root")
+	require.NoError(t, os.MkdirAll(filepath.Join(npmRoot, "@qwen-code", "qwen-code"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(fakeBin, "npm"), []byte("#!/bin/sh\nif [ \"$1\" = root ]; then echo '"+npmRoot+"'; fi\nexit 0\n"), 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(fakeBin, "curl"), []byte(`#!/bin/sh
 set -eu
 output=
@@ -185,6 +187,8 @@ func TestAgentCLIInstallerPinsEveryCLIAndReleaseDigest(t *testing.T) {
 		"CODEX_VERSION=0.160.0",
 		"@qwen-code/qwen-code",
 		"QWEN_VERSION=0.26.1",
+		// qwen-code 0.26.1 bundles sharp 0.35.4 (GHSA-wq5f-xc86-pv6w).
+		"sharp@0.35.5",
 		"goose-${goose_arch}-unknown-linux-gnu.tar.gz",
 		"GOOSE_VERSION=1.56.0",
 		"225a929b35b5130fb691eafdb50be236f2c0a150019b53973775938f8f19c281",
