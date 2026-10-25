@@ -57,9 +57,9 @@ func TestDevMachineCustomSizeMigrationDefinesRollback(t *testing.T) {
 }
 
 func TestDevMachineHeadlessMigrationDefinesDefaultAndRollback(t *testing.T) {
-	up, err := os.ReadFile("000050_dev_machine_agents_headless.up.sql")
+	up, err := os.ReadFile("000051_dev_machine_agents_headless.up.sql")
 	require.NoError(t, err)
-	down, err := os.ReadFile("000050_dev_machine_agents_headless.down.sql")
+	down, err := os.ReadFile("000051_dev_machine_agents_headless.down.sql")
 	require.NoError(t, err)
 
 	upSQL := string(up)
@@ -108,7 +108,7 @@ func TestDevMachineHeadlessMigrationPreservesPoliciesAndAddsProfile(t *testing.T
 	t.Cleanup(func() {
 		_, _ = migrator.Close()
 	})
-	require.NoError(t, migrator.Migrate(49))
+	require.NoError(t, migrator.Migrate(50))
 	db, err := sql.Open("pgx", testURL)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
@@ -117,7 +117,7 @@ func TestDevMachineHeadlessMigrationPreservesPoliciesAndAddsProfile(t *testing.T
 	_, err = db.Exec(`INSERT INTO dev_machine_workspace_policies (workspace_id, enabled) VALUES ($1, TRUE)`, fixture.workspaceA)
 	require.NoError(t, err)
 	require.NoError(t, migrator.Steps(1))
-	requireMigrationVersion(t, migrator, 50)
+	requireMigrationVersion(t, migrator, 51)
 
 	var existingAllowed string
 	require.NoError(t, db.QueryRow(`SELECT allowed_providers::text FROM dev_machine_workspace_policies WHERE workspace_id=$1`, fixture.workspaceA).Scan(&existingAllowed))
@@ -146,7 +146,7 @@ func TestDevMachineHeadlessMigrationPreservesPoliciesAndAddsProfile(t *testing.T
 	require.Equal(t, "23514", postgresCode(err))
 
 	require.NoError(t, migrator.Steps(-1))
-	requireMigrationVersion(t, migrator, 49)
+	requireMigrationVersion(t, migrator, 50)
 	var profileColumnExists bool
 	require.NoError(t, db.QueryRow(`SELECT EXISTS (
 		SELECT 1 FROM information_schema.columns
@@ -251,14 +251,14 @@ func TestDeepSeekWorkspaceModelCredentialMigrationRoundTrip(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = migrator.Close()
 	})
-	require.NoError(t, migrator.Migrate(50))
+	require.NoError(t, migrator.Migrate(51))
 	db, err := sql.Open("pgx", testURL)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	fixture := insertBaseMigrationFixture(t, db)
 
 	require.NoError(t, migrator.Steps(1))
-	requireMigrationVersion(t, migrator, 51)
+	requireMigrationVersion(t, migrator, 52)
 	var modelDefault, thinkingDefault, versionDefault string
 	require.NoError(t, db.QueryRow(`SELECT
 		MAX(column_default) FILTER (WHERE column_name='default_model'),
@@ -289,7 +289,7 @@ func TestDeepSeekWorkspaceModelCredentialMigrationRoundTrip(t *testing.T) {
 	require.Equal(t, "23514", postgresCode(err))
 
 	require.NoError(t, migrator.Steps(-1))
-	requireMigrationVersion(t, migrator, 50)
+	requireMigrationVersion(t, migrator, 51)
 	var tableCount int
 	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM information_schema.tables
 		WHERE table_schema='public' AND table_name='dev_machine_workspace_model_credentials'`).Scan(&tableCount))
