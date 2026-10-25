@@ -1191,9 +1191,12 @@ func (r *DockerRuntime) secureHostConfig(machine *domain.DevMachine, serviceType
 		})
 	}
 	tmpOptions := "rw,noexec,nosuid,uid=1000,gid=1000,size=256m"
+	homeOptions := "rw,noexec,nosuid,uid=1000,gid=1000,size=512m"
 	if serviceType == "agent" || serviceType == "ide" {
 		// Compilers and OpenCode's native TUI renderer execute from temporary storage.
 		tmpOptions = "rw,exec,nosuid,uid=1000,gid=1000,size=256m"
+		// Docker defaults tmpfs to noexec; Codex runs its managed app-server from ~/.codex.
+		homeOptions = "rw,exec,nosuid,uid=1000,gid=1000,size=512m"
 	}
 	hostConfig := &container.HostConfig{
 		NetworkMode: container.NetworkMode(networkName), ReadonlyRootfs: true, Privileged: false,
@@ -1202,7 +1205,7 @@ func (r *DockerRuntime) secureHostConfig(machine *domain.DevMachine, serviceType
 		Tmpfs: map[string]string{
 			"/tmp":                tmpOptions,
 			"/run/kuayle-secrets": "rw,noexec,nosuid,uid=1000,gid=1000,mode=0700,size=8m",
-			"/home/kuayle":        "rw,nosuid,uid=1000,gid=1000,size=512m",
+			"/home/kuayle":        homeOptions,
 		},
 		Mounts: mounts,
 		Resources: container.Resources{

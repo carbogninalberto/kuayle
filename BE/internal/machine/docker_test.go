@@ -313,6 +313,11 @@ func TestInteractiveToolingTmpfsAllowsExecutables(t *testing.T) {
 	require.True(t, strings.Contains(collectorConfig.Tmpfs["/tmp"], "noexec"))
 	require.True(t, strings.Contains(agentConfig.Tmpfs["/run/kuayle-secrets"], "noexec"))
 	require.True(t, strings.Contains(ideConfig.Tmpfs["/run/kuayle-secrets"], "noexec"))
+	// Docker mounts tmpfs noexec unless exec is explicit; tools such as Codex
+	// install and run managed binaries from the home directory.
+	require.Contains(t, strings.Split(agentConfig.Tmpfs["/home/kuayle"], ","), "exec")
+	require.Contains(t, strings.Split(ideConfig.Tmpfs["/home/kuayle"], ","), "exec")
+	require.Contains(t, strings.Split(collectorConfig.Tmpfs["/home/kuayle"], ","), "noexec")
 }
 
 func TestSpawnCleanupPlanOnlyIncludesInvocationOwnedResources(t *testing.T) {
