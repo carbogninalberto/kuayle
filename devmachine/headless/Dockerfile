@@ -52,7 +52,7 @@ RUN rm -f /usr/bin/pebble \
          /usr/local/bin/kuayle-terminal-session \
          /usr/local/bin/install-agent-clis.sh \
     && ttyd --version \
-    && go version
+    && /usr/local/go/bin/go version
 
 USER 1000:1000
 ENV HOME=/home/kuayle \
