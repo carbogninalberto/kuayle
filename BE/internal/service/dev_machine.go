@@ -1198,10 +1198,17 @@ func (s *DevMachineService) AvailableProviders(ctx context.Context, workspaceID 
 		}
 		responses = append(responses, dto.AgentProviderResponse{
 			ID: metadata.ID, DisplayName: metadata.DisplayName, DefaultImage: metadata.DefaultImage,
-			RequiredSecrets: metadata.RequiredSecrets, SupportedModes: modes, Custom: metadata.Custom,
+			RequiredSecrets: metadata.RequiredSecrets, OptionalSecrets: optionalSecrets(metadata), SupportedModes: modes, Custom: metadata.Custom,
 		})
 	}
 	return responses, nil
+}
+
+func optionalSecrets(metadata agent.Metadata) []string {
+	if metadata.OptionalSecrets == nil {
+		return []string{}
+	}
+	return append([]string(nil), metadata.OptionalSecrets...)
 }
 
 func (s *DevMachineService) ConfiguredProviders(ctx context.Context, workspaceID, machineID, userID uuid.UUID) ([]dto.AgentProviderResponse, error) {
@@ -1220,9 +1227,13 @@ func (s *DevMachineService) ConfiguredProviders(ctx context.Context, workspaceID
 		var requiredSecrets, supportedModes []string
 		_ = json.Unmarshal(provider.RequiredSecrets, &requiredSecrets)
 		_ = json.Unmarshal(provider.SupportedModes, &supportedModes)
+		var optional []string
+		if registered, ok := s.agents.Get(provider.ProviderID); ok {
+			optional = optionalSecrets(registered.Metadata())
+		}
 		responses = append(responses, dto.AgentProviderResponse{
 			ID: provider.ProviderID, DisplayName: provider.DisplayName, DefaultImage: provider.ImageRef,
-			RequiredSecrets: requiredSecrets, SupportedModes: supportedModes, Custom: provider.IsCustom,
+			RequiredSecrets: requiredSecrets, OptionalSecrets: optional, SupportedModes: supportedModes, Custom: provider.IsCustom,
 		})
 	}
 	return responses, nil

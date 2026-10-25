@@ -703,6 +703,8 @@
 	"machines.profile_standard_desc": "Code editor, terminal, and optional browser.",
 	"machines.prompt": "Prompt",
 	"machines.prompt_context": "Prompt and context",
+	"machines.optional_secret": "{name} (optional)",
+	"machines.optional_secret_hint": "Leave empty to sign in with a subscription from the terminal.",
 	"machines.provider": "Provider",
 	"machines.pull_request": "Pull Request",
 	"machines.push_branch": "Push working branch",

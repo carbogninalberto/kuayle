@@ -183,6 +183,7 @@
 			providers = (availableProviders ?? []).map((item) => ({
 				...item,
 				required_secrets: item.required_secrets ?? [],
+				optional_secrets: item.optional_secrets ?? [],
 				supported_modes: item.supported_modes ?? []
 			}));
 			policy = machinePolicy;
@@ -245,8 +246,8 @@
 		const envVars: CreateDevMachineInput['env_vars'] = [];
 		const developerSecretTarget = headless ? 'terminal' : 'ide';
 		if (useAgent) {
-			for (const requiredSecret of selectedProvider?.required_secrets ?? []) {
-				const value = secretValues[requiredSecret];
+			for (const requiredSecret of [...(selectedProvider?.required_secrets ?? []), ...(selectedProvider?.optional_secrets ?? [])]) {
+				const value = secretValues[requiredSecret]?.trim();
 				if (!value) continue;
 				envVars.push({ name: requiredSecret, value, target_service: 'agent', provider, secret: true });
 				envVars.push({ name: requiredSecret, value, target_service: developerSecretTarget, secret: true });
@@ -372,6 +373,13 @@
 					{/if}
 					{#each selectedProvider?.required_secrets ?? [] as secret}
 						<label class="block space-y-1.5"><Label>{secret}</Label><Input type="password" value={secretValues[secret] ?? ''} oninput={(event) => (secretValues[secret] = event.currentTarget.value)} autocomplete="off" required /></label>
+					{/each}
+					{#each selectedProvider?.optional_secrets ?? [] as secret}
+						<label class="block space-y-1.5">
+							<Label>{m['machines.optional_secret']({ name: secret })}</Label>
+							<Input type="password" value={secretValues[secret] ?? ''} oninput={(event) => (secretValues[secret] = event.currentTarget.value)} autocomplete="off" />
+							<span class="block text-xs text-[var(--color-text-tertiary)]">{m['machines.optional_secret_hint']()}</span>
+						</label>
 					{/each}
 					<div class="grid gap-3 sm:grid-cols-2">
 						<label class="space-y-1.5"><Label>{m['machines.additional_secret_name']()}</Label><Input bind:value={extraSecretName} placeholder="Optional" /></label>

@@ -207,9 +207,9 @@ Initial providers:
 
 | ID | CLI | Secret declaration | Adapter modes |
 |---|---|---|---|
-| `claude-code` | Claude Code | `ANTHROPIC_API_KEY` | interactive, autonomous |
+| `claude-code` | Claude Code | optional `ANTHROPIC_API_KEY` (or a subscription sign-in) | interactive, autonomous |
 | `opencode` | OpenCode | model/provider dependent | interactive, autonomous |
-| `codex` | Codex | `OPENAI_API_KEY` | interactive, autonomous |
+| `codex` | Codex | optional `OPENAI_API_KEY` (or a subscription sign-in) | interactive, autonomous |
 | `qwen-code` | Qwen Code | none | interactive, autonomous |
 | `crush` | Crush | none | interactive, autonomous |
 | `kimi` | Kimi | none | interactive, autonomous |

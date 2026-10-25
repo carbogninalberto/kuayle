@@ -703,6 +703,8 @@
 	"machines.profile_standard_desc": "程式碼編輯器、終端和可選瀏覽器。",
 	"machines.prompt": "提示詞",
 	"machines.prompt_context": "提示詞與上下文",
+	"machines.optional_secret": "{name}（選填）",
+	"machines.optional_secret_hint": "留空即可在終端機中使用訂閱登入。",
 	"machines.provider": "提供者",
 	"machines.pull_request": "Pull Request",
 	"machines.push_branch": "推送工作分支",

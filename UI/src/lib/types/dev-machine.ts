@@ -172,6 +172,7 @@ export interface AgentProvider {
 	display_name: string;
 	default_image: string;
 	required_secrets: string[];
+	optional_secrets?: string[];
 	supported_modes: Array<'interactive' | 'autonomous'>;
 	custom: boolean;
 }

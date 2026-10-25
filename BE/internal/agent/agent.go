@@ -20,6 +20,9 @@ type Metadata struct {
 	DisplayName     string   `json:"display_name"`
 	DefaultImage    string   `json:"default_image"`
 	RequiredSecrets []string `json:"required_secrets"`
+	// OptionalSecrets are offered at machine creation but may be omitted, for example
+	// when the CLI is signed in with a subscription instead of an API key.
+	OptionalSecrets []string `json:"optional_secrets"`
 	SupportedModes  []Mode   `json:"supported_modes"`
 	Custom          bool     `json:"custom"`
 }

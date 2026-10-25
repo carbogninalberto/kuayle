@@ -193,6 +193,7 @@ type AgentProviderResponse struct {
 	DisplayName     string   `json:"display_name"`
 	DefaultImage    string   `json:"default_image"`
 	RequiredSecrets []string `json:"required_secrets"`
+	OptionalSecrets []string `json:"optional_secrets"`
 	SupportedModes  []string `json:"supported_modes"`
 	Custom          bool     `json:"custom"`
 }

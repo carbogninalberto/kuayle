@@ -703,6 +703,8 @@
 	"machines.profile_standard_desc": "代码编辑器、终端和可选浏览器。",
 	"machines.prompt": "提示词",
 	"machines.prompt_context": "提示词与上下文",
+	"machines.optional_secret": "{name}（可选）",
+	"machines.optional_secret_hint": "留空即可在终端中使用订阅登录。",
 	"machines.provider": "提供者",
 	"machines.pull_request": "Pull Request",
 	"machines.push_branch": "推送工作分支",

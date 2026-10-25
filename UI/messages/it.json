@@ -703,6 +703,8 @@
 	"machines.profile_standard_desc": "Editor di codice, terminale e browser opzionale.",
 	"machines.prompt": "Prompt",
 	"machines.prompt_context": "Prompt e contesto",
+	"machines.optional_secret": "{name} (facoltativo)",
+	"machines.optional_secret_hint": "Lascia vuoto per accedere con un abbonamento dal terminale.",
 	"machines.provider": "Provider",
 	"machines.pull_request": "Pull request",
 	"machines.push_branch": "Pusha branch di lavoro",

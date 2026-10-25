@@ -2294,3 +2294,34 @@ func scopeKey(teamID, projectID, issueID *uuid.UUID) string {
 
 func dmStrPtr(value string) *string { return &value }
 func dmBoolPtr(value bool) *bool    { return &value }
+
+func TestProviderListingsOfferOptionalAPIKeys(t *testing.T) {
+	workspaceID, userID := uuid.New(), uuid.New()
+	store := &devMachineStoreFake{policy: testPolicy(workspaceID)}
+	store.policy.AllowedProviders = json.RawMessage(`["claude-code","codex"]`)
+	service := NewDevMachineService(
+		store, agent.NewRegistry(agent.NewClaudeCodeProvider(""), agent.NewCodexProvider("")), true,
+		"machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, DevMachineImages{},
+	)
+
+	providers, err := service.AvailableProviders(context.Background(), workspaceID)
+	require.NoError(t, err)
+	optional := map[string][]string{}
+	for _, provider := range providers {
+		require.Empty(t, provider.RequiredSecrets, provider.ID)
+		optional[provider.ID] = provider.OptionalSecrets
+	}
+	require.Equal(t, []string{"ANTHROPIC_API_KEY"}, optional["claude-code"])
+	require.Equal(t, []string{"OPENAI_API_KEY"}, optional["codex"])
+
+	machineID := uuid.New()
+	store.machine = &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID}
+	store.agentProvider = &domain.DevMachineAgentProvider{
+		ID: uuid.New(), MachineID: machineID, ProviderID: "codex", DisplayName: "Codex", Enabled: true,
+		RequiredSecrets: json.RawMessage(`[]`), SupportedModes: json.RawMessage(`["autonomous"]`),
+	}
+	configured, err := service.ConfiguredProviders(context.Background(), workspaceID, machineID, userID)
+	require.NoError(t, err)
+	require.Len(t, configured, 1)
+	require.Equal(t, []string{"OPENAI_API_KEY"}, configured[0].OptionalSecrets)
+}

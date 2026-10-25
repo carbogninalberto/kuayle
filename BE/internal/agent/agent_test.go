@@ -313,3 +313,22 @@ func TestOpenCodeParseResultSummaryTruncation(t *testing.T) {
 	result := p.ParseResult(stdout, "", 0)
 	require.LessOrEqual(t, len(result.Summary), 4000)
 }
+
+// Claude Code and Codex also work with a subscription login, so their API keys are optional.
+func TestSubscriptionCapableProvidersDoNotRequireAPIKeys(t *testing.T) {
+	for _, testCase := range []struct {
+		provider Provider
+		key      string
+	}{
+		{NewClaudeCodeProvider(""), "ANTHROPIC_API_KEY"},
+		{NewCodexProvider(""), "OPENAI_API_KEY"},
+	} {
+		metadata := testCase.provider.Metadata()
+		require.Empty(t, metadata.RequiredSecrets, metadata.ID)
+		require.Equal(t, []string{testCase.key}, metadata.OptionalSecrets, metadata.ID)
+
+		invocation, err := testCase.provider.BuildInvocation(RunInput{Mode: ModeAutonomous, Prompt: "fix the issue"})
+		require.NoError(t, err)
+		require.Empty(t, invocation.SecretNames, metadata.ID)
+	}
+}

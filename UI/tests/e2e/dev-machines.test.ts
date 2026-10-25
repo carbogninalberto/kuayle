@@ -1591,3 +1591,65 @@ test('creates a headless machine with a new built-in provider', async ({ page })
 		agents: [{ provider: 'kimi', mode: 'autonomous' }]
 	});
 });
+
+test('creates a Codex machine without an API key for subscription sign-in', async ({ page }) => {
+	const workspaceId = '00000000-0000-0000-0000-000000000002';
+	let createPayload: Record<string, unknown> | undefined;
+	const providers = [
+		['claude-code', 'Claude Code'],
+		['opencode', 'OpenCode'],
+		['codex', 'Codex'],
+		['qwen-code', 'Qwen Code'],
+		['crush', 'Crush'],
+		['kimi', 'Kimi'],
+		['goose', 'Goose']
+	].map(([id, display_name]) => ({
+		id,
+		display_name,
+		default_image: 'kuayle/dev-machine-headless:dev',
+		required_secrets: [],
+		optional_secrets: id === 'codex' ? ['OPENAI_API_KEY'] : id === 'claude-code' ? ['ANTHROPIC_API_KEY'] : [],
+		supported_modes: ['interactive', 'autonomous'],
+		custom: false
+	}));
+
+	await page.route('https://raw.githubusercontent.com/carbogninalberto/kuayle/main/UI/static/releases.json', (route) =>
+		route.fulfill({ json: [] })
+	);
+	await page.route('**/api/**', async (route) => {
+		const request = route.request();
+		const path = new URL(request.url()).pathname;
+		if (path === '/api/auth/me') return route.fulfill({ json: { id: '00000000-0000-0000-0000-000000000001', email: 'owner@example.com', name: 'Owner', display_name: 'Owner', avatar_url: null } });
+		if (path === '/api/preferences') return route.fulfill({ json: { font_size: 'default', pointer_cursors: true, theme_mode: 'dark', light_theme: 'light', dark_theme: 'dark', workflow_sort_mode: 'default', workflow_sort_order: ['backlog', 'unstarted', 'started', 'completed', 'cancelled'], team_workflow_sort_overrides: {}, issues_group_by: 'status' } });
+		if (path === '/api/workspaces') return route.fulfill({ json: [{ id: workspaceId, name: 'Test Workspace', slug: 'test' }] });
+		if (path === '/api/workspaces/test') return route.fulfill({ json: { id: workspaceId, name: 'Test Workspace', slug: 'test', current_user_role: 'owner' } });
+		if (['teams', 'projects', 'labels', 'members', 'views'].some((part) => path === `/api/workspaces/test/${part}`)) return route.fulfill({ json: [] });
+		if (path === '/api/notifications') return route.fulfill({ json: { notifications: [], unread_count: 0 } });
+		if (path === '/api/workspaces/test/dev-machines' && request.method() === 'GET') return route.fulfill({ json: { data: [], total_count: 0, page: 1, has_more: false } });
+		if (path === '/api/workspaces/test/dev-machine-names/suggestion') return route.fulfill({ json: { name: 'headless-machine', available: true } });
+		if (path === '/api/workspaces/test/dev-machine-names/availability') return route.fulfill({ json: { name: 'headless-machine', available: true } });
+		if (path === '/api/workspaces/test/dev-machine-providers') return route.fulfill({ json: providers });
+		if (path === '/api/workspaces/test/dev-machine-policy') return route.fulfill({ json: { workspace_id: workspaceId, enabled: true, max_concurrent_machines: 5, max_machines_per_user: 2, max_daily_agent_runs: 25, max_runtime_minutes: 480, max_disk_gb: 100, idle_pause_minutes: 240, allowed_providers: providers.map((provider) => provider.id), allowed_repositories: [], allow_custom_providers: false } });
+		if (path === '/api/workspaces/test/dev-machine-environments') return route.fulfill({ json: [] });
+		if (path === '/api/workspaces/test/dev-machines' && request.method() === 'POST') {
+			createPayload = request.postDataJSON();
+			return route.fulfill({ status: 201, json: { id: '00000000-0000-0000-0000-000000000064', ...createPayload } });
+		}
+		return route.fulfill({ status: 404, json: { error: { message: `Unhandled ${request.method()} ${path}` } } });
+	});
+
+	await page.goto('/test/machines');
+	await page.locator('header').getByRole('button', { name: 'New machine' }).click();
+	const dialog = page.getByRole('dialog');
+	await dialog.getByRole('combobox', { name: 'Provider' }).click();
+	await page.getByRole('option', { name: 'Codex', exact: true }).click();
+	const apiKey = dialog.getByLabel('OPENAI_API_KEY (optional)');
+	await expect(apiKey).toBeVisible();
+	await expect(apiKey).not.toHaveAttribute('required', '');
+	await expect(dialog.getByText('Leave empty to sign in with a subscription from the terminal.')).toBeVisible();
+	await dialog.getByRole('button', { name: 'Create machine' }).click();
+
+	await expect.poll(() => createPayload).toBeTruthy();
+	expect(createPayload).toMatchObject({ agents: [{ provider: 'codex', mode: 'autonomous' }] });
+	expect((createPayload as { env_vars?: unknown[] }).env_vars ?? []).toEqual([]);
+});

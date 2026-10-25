@@ -80,7 +80,7 @@
 			const configured = providers.find((item) => item.id === provider) ?? providers[0];
 			if (configured) {
 				provider = configured.id;
-				allowedSecrets = configured.required_secrets.join('\n');
+				allowedSecrets = [...configured.required_secrets, ...(configured.optional_secrets ?? [])].join('\n');
 			} else {
 				providersError = true;
 			}
@@ -103,7 +103,7 @@
 	function selectProvider(value: AgentProvider['id']) {
 		provider = value;
 		const p = providers.find((item) => item.id === value);
-		allowedSecrets = (p?.required_secrets ?? []).join('\n');
+		allowedSecrets = [...(p?.required_secrets ?? []), ...(p?.optional_secrets ?? [])].join('\n');
 		modelOverride = '';
 		thinkingOverride = '';
 	}

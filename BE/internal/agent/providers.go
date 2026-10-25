@@ -60,7 +60,8 @@ func NewClaudeCodeProvider(image string) Provider {
 			ID:              "claude-code",
 			DisplayName:     "Claude Code",
 			DefaultImage:    image,
-			RequiredSecrets: []string{"ANTHROPIC_API_KEY"},
+			RequiredSecrets: []string{},
+			OptionalSecrets: []string{"ANTHROPIC_API_KEY"},
 			SupportedModes:  []Mode{ModeInteractive, ModeAutonomous},
 		},
 		build: func(input RunInput) []string {
@@ -237,7 +238,8 @@ func NewCodexProvider(image string) Provider {
 			ID:              "codex",
 			DisplayName:     "Codex",
 			DefaultImage:    image,
-			RequiredSecrets: []string{"OPENAI_API_KEY"},
+			RequiredSecrets: []string{},
+			OptionalSecrets: []string{"OPENAI_API_KEY"},
 			SupportedModes:  []Mode{ModeInteractive, ModeAutonomous},
 		},
 		build: func(input RunInput) []string {
