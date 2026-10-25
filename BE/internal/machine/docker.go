@@ -711,6 +711,16 @@ func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine
 	if err = json.Unmarshal(run.CommandArgv, &argv); err != nil || len(argv) == 0 {
 		return nil, fmt.Errorf("invalid agent argv")
 	}
+	var commandOverrides map[string]string
+	if len(run.CommandEnvironment) > 0 {
+		if err = json.Unmarshal(run.CommandEnvironment, &commandOverrides); err != nil {
+			return nil, fmt.Errorf("invalid agent environment")
+		}
+	}
+	invocationEnvironment, err := agentRuntimeEnvironment(commandOverrides)
+	if err != nil {
+		return nil, err
+	}
 	containerName := "kuayle-" + machine.RoutingKey + "-agent-" + run.ID.String()
 	labels := machineLabels(machine)
 	labels["com.kuayle.service"] = "agent"
@@ -729,6 +739,7 @@ func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine
 		"HTTPS_PROXY=http://" + machine.RoutingKey + "-egress:3128", "NO_PROXY=localhost,127.0.0.1," + machine.RoutingKey + "-collector",
 		"KUAYLE_COLLECTOR_URL=http://" + machine.RoutingKey + "-collector:8091", "KUAYLE_SECRET_NAMES=" + strings.Join(secretNames, ","),
 	}
+	runtimeEnvironment = append(runtimeEnvironment, invocationEnvironment...)
 	if inspection, inspectErr := r.client.ContainerInspect(ctx, containerName, client.ContainerInspectOptions{}); inspectErr == nil {
 		if inspection.Container.Config.Image != provider.ImageRef || inspection.Container.Config.Labels["com.kuayle.agent-run-id"] != run.ID.String() {
 			return nil, fmt.Errorf("existing agent container does not match run")
@@ -772,6 +783,28 @@ func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine
 		return nil, err
 	}
 	return r.resumeAgent(ctx, inspection.Container, run.Mode == "interactive", nil)
+}
+
+func agentRuntimeEnvironment(overrides map[string]string) ([]string, error) {
+	names := make([]string, 0, len(overrides))
+	for name := range overrides {
+		if !validSecretName(name) || name != strings.ToUpper(name) ||
+			strings.Contains(name, "API_KEY") || strings.Contains(name, "TOKEN") ||
+			strings.Contains(name, "SECRET") || strings.Contains(name, "PASSWORD") {
+			return nil, fmt.Errorf("invalid non-secret agent environment name")
+		}
+		value := overrides[name]
+		if len(value) > 4096 || strings.ContainsAny(value, "\x00\r\n") {
+			return nil, fmt.Errorf("invalid non-secret agent environment value")
+		}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	environment := make([]string, 0, len(names))
+	for _, name := range names {
+		environment = append(environment, name+"="+overrides[name])
+	}
+	return environment, nil
 }
 
 func (r *DockerRuntime) resumeAgent(ctx context.Context, inspection container.InspectResponse, interactive bool, secrets map[string]string) (*AgentExecution, error) {

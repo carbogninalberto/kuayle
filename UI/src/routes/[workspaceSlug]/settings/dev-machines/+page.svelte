@@ -14,9 +14,22 @@
 	import { Textarea } from '$lib/components/ui/textarea';
 	import LoadingState from '$lib/components/shared/LoadingState.svelte';
 	import ErrorState from '$lib/components/shared/ErrorState.svelte';
+	import SelectField from '$lib/components/shared/SelectField.svelte';
 	import MachineResourceSliders from '$lib/features/dev-machines/MachineResourceSliders.svelte';
 	import { getGitHubStatus } from '$lib/api/github';
-	import { createDevMachine, deleteDevMachineEnvironment, deleteDevMachineScopeSetting, getDevMachinePolicy, getDevMachineScopeSetting, listDevMachineEnvironments, updateDevMachinePolicy, updateDevMachineScopeSetting } from '$lib/api/dev-machines';
+	import {
+		createDevMachine,
+		deleteDevMachineEnvironment,
+		deleteDevMachineScopeSetting,
+		deleteWorkspaceModelProvider,
+		getDevMachinePolicy,
+		getDevMachineScopeSetting,
+		getWorkspaceModelProvider,
+		listDevMachineEnvironments,
+		updateDevMachinePolicy,
+		updateDevMachineScopeSetting,
+		updateWorkspaceModelProvider
+	} from '$lib/api/dev-machines';
 	import {
 		DEFAULT_MACHINE_RESOURCES,
 		MACHINE_DISK_GB,
@@ -24,7 +37,13 @@
 		resolveMachineSizeOptions
 	} from '$lib/features/dev-machines/machine-size';
 	import { getWorkspace } from '$lib/api/workspaces';
-	import type { DevMachineEnvironment, DevMachinePolicy } from '$lib/types/dev-machine';
+	import type {
+		DeepSeekModel,
+		DeepSeekThinking,
+		DevMachineEnvironment,
+		DevMachinePolicy,
+		WorkspaceModelProvider
+	} from '$lib/types/dev-machine';
 	import type { GitHubRepo } from '$lib/types/github';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/paraglide/messages.js';
@@ -49,6 +68,13 @@
 	let builderCpuMillis = $state(DEFAULT_MACHINE_RESOURCES.cpu_millis);
 	let builderMemoryMb = $state(DEFAULT_MACHINE_RESOURCES.memory_mb);
 	let builderDiskGb = $state(DEFAULT_MACHINE_RESOURCES.disk_gb);
+	let modelProvider = $state<WorkspaceModelProvider | null>(null);
+	let deepSeekKey = $state('');
+	let deepSeekModel = $state<DeepSeekModel>('deepseek-flash');
+	let deepSeekThinking = $state<DeepSeekThinking>('high');
+	let deepSeekSaving = $state(false);
+	let deepSeekRemoving = $state(false);
+	let deepSeekRemoveOpen = $state(false);
 
 	const readyEnvironments = $derived(environments.filter((item) => item.status === 'ready'));
 	const builderSizeOptions = $derived(
@@ -73,17 +99,23 @@
 		loading = true;
 		failed = false;
 		try {
-			const [loaded, workspace, github, scope, availableEnvironments] = await Promise.all([
-				getDevMachinePolicy(slug), getWorkspace(slug), getGitHubStatus(slug),
-				getDevMachineScopeSetting(slug, 'workspace'), listDevMachineEnvironments(slug)
+			const workspace = await getWorkspace(slug);
+			canAdmin = workspace.current_user_role === 'owner' || workspace.current_user_role === 'admin';
+			const [loaded, github, scope, availableEnvironments, availableModelProvider] = await Promise.all([
+				getDevMachinePolicy(slug), getGitHubStatus(slug),
+				getDevMachineScopeSetting(slug, 'workspace'), listDevMachineEnvironments(slug),
+				canAdmin ? getWorkspaceModelProvider(slug) : Promise.resolve(null)
 			]);
 			policy = { ...loaded, allowed_providers: loaded.allowed_providers ?? [], allowed_repositories: loaded.allowed_repositories ?? [] };
 			repositories = policy.allowed_repositories.join('\n');
-			canAdmin = workspace.current_user_role === 'owner' || workspace.current_user_role === 'admin';
 			linkedRepositories = github.repos ?? [];
 			environments = availableEnvironments ?? [];
 			defaultRepositoryId = scope.github_repo_id ?? 'none';
 			defaultEnvironmentId = scope.environment_id ?? 'standard';
+			modelProvider = availableModelProvider;
+			deepSeekModel = availableModelProvider?.default_model ?? 'deepseek-flash';
+			deepSeekThinking = availableModelProvider?.thinking ?? 'high';
+			deepSeekKey = '';
 		} catch (error) {
 			failed = true;
 			appToast.apiError(error, m['settings.dev_machines.failed_load']());
@@ -182,6 +214,52 @@
 			environmentDeleteBusy = false;
 		}
 	}
+
+	async function saveDeepSeek(event: SubmitEvent) {
+		event.preventDefault();
+		if (!canAdmin || deepSeekSaving) return;
+		if (!modelProvider?.configured && deepSeekKey.length === 0) return;
+		deepSeekSaving = true;
+		try {
+			modelProvider = await updateWorkspaceModelProvider(slug, {
+				...(deepSeekKey.length > 0 ? { api_key: deepSeekKey } : {}),
+				default_model: deepSeekModel,
+				thinking: deepSeekThinking
+			});
+			deepSeekKey = '';
+			appToast.success(m['settings.dev_machines.deepseek_saved']());
+		} catch (error) {
+			appToast.apiError(error, m['settings.dev_machines.deepseek_failed_save']());
+		} finally {
+			deepSeekSaving = false;
+		}
+	}
+
+	async function removeDeepSeek() {
+		if (!canAdmin || deepSeekRemoving) return;
+		deepSeekRemoving = true;
+		try {
+			await deleteWorkspaceModelProvider(slug);
+			modelProvider = {
+				provider: 'deepseek',
+				configured: false,
+				default_model: 'deepseek-flash',
+				thinking: 'high',
+				models: ['deepseek-flash', 'deepseek-v4-pro'],
+				thinking_levels: ['off', 'low', 'high', 'max'],
+				updated_at: null
+			};
+			deepSeekModel = 'deepseek-flash';
+			deepSeekThinking = 'high';
+			deepSeekKey = '';
+			deepSeekRemoveOpen = false;
+			appToast.success(m['settings.dev_machines.deepseek_removed']());
+		} catch (error) {
+			appToast.apiError(error, m['settings.dev_machines.deepseek_failed_remove']());
+		} finally {
+			deepSeekRemoving = false;
+		}
+	}
 </script>
 
 {#if loading}<LoadingState />
@@ -229,6 +307,66 @@
 		<div class="flex justify-end"><Button type="submit" disabled={saving}>{saving ? m['settings.saving']() : m['settings.dev_machines.save_policy']()}</Button></div>
 		</fieldset>
 	</form>
+	{#if canAdmin && modelProvider}
+		<form onsubmit={saveDeepSeek} class="mx-auto max-w-3xl px-6 pb-6">
+			<section class="space-y-4 rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-5">
+				<div class="flex flex-wrap items-start justify-between gap-3">
+					<div>
+						<h2 class="text-sm font-semibold">{m['settings.dev_machines.deepseek']()}</h2>
+						<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.deepseek_desc']()}</p>
+					</div>
+					<span class="rounded-full border border-[var(--app-border)] px-2 py-1 text-[10px] text-[var(--color-text-tertiary)]">
+						{modelProvider.configured ? m['settings.dev_machines.deepseek_configured']() : m['settings.dev_machines.deepseek_not_configured']()}
+					</span>
+				</div>
+				<label class="block space-y-1">
+					<Label for="deepseek-api-key">{m['settings.dev_machines.deepseek_api_key']()}</Label>
+					<Input
+						id="deepseek-api-key"
+						type="password"
+						autocomplete="new-password"
+						bind:value={deepSeekKey}
+						placeholder={modelProvider.configured ? m['settings.dev_machines.deepseek_stored']() : m['settings.dev_machines.deepseek_key_placeholder']()}
+						required={!modelProvider.configured}
+					/>
+					<p class="text-[10px] text-[var(--color-text-tertiary)]">{m['settings.dev_machines.deepseek_key_hint']()}</p>
+				</label>
+				<div class="grid gap-4 sm:grid-cols-2">
+					<div class="space-y-1">
+						<Label>{m['settings.dev_machines.deepseek_default_model']()}</Label>
+						<SelectField
+							bind:value={deepSeekModel}
+							options={modelProvider.models.map((model) => ({ value: model, label: model }))}
+							aria-label={m['settings.dev_machines.deepseek_default_model']()}
+							class="w-full"
+						/>
+					</div>
+					<div class="space-y-1">
+						<Label>{m['settings.dev_machines.deepseek_thinking']()}</Label>
+						<SelectField
+							bind:value={deepSeekThinking}
+							options={modelProvider.thinking_levels.map((level) => ({
+								value: level,
+								label: m[`settings.dev_machines.deepseek_thinking_${level}`]()
+							}))}
+							aria-label={m['settings.dev_machines.deepseek_thinking']()}
+							class="w-full"
+						/>
+					</div>
+				</div>
+				<div class="flex flex-wrap justify-end gap-2">
+					{#if modelProvider.configured}
+						<Button type="button" variant="outline" onclick={() => (deepSeekRemoveOpen = true)} disabled={deepSeekSaving || deepSeekRemoving}>
+							{m['settings.dev_machines.deepseek_remove']()}
+						</Button>
+					{/if}
+					<Button type="submit" disabled={deepSeekSaving || (!modelProvider.configured && deepSeekKey.length === 0)}>
+						{deepSeekSaving ? m['settings.saving']() : m['settings.dev_machines.deepseek_save']()}
+					</Button>
+				</div>
+			</section>
+		</form>
+	{/if}
 	<Dialog.Root bind:open={environmentBuilderOpen}>
 		<Dialog.Content class="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
 			<form onsubmit={createEnvironmentBuilder} class="space-y-5">
@@ -255,4 +393,18 @@
 		</Dialog.Content>
 	</Dialog.Root>
 	<AlertDialog.Root bind:open={environmentDeleteOpen}><AlertDialog.Content><AlertDialog.Header><AlertDialog.Title>{m['settings.dev_machines.delete_env_title']()}</AlertDialog.Title><AlertDialog.Description>{m['settings.dev_machines.delete_env_desc']({ name: environmentToDelete?.name ?? '' })}</AlertDialog.Description></AlertDialog.Header><AlertDialog.Footer><AlertDialog.Cancel onclick={() => (environmentToDelete = null)}>{m['settings.cancel']()}</AlertDialog.Cancel><AlertDialog.Action variant="destructive" onclick={deleteEnvironment} disabled={environmentDeleteBusy}>{environmentDeleteBusy ? m['settings.deleting']() : m['settings.dev_machines.delete_env_button']()}</AlertDialog.Action></AlertDialog.Footer></AlertDialog.Content></AlertDialog.Root>
+	<AlertDialog.Root bind:open={deepSeekRemoveOpen}>
+		<AlertDialog.Content>
+			<AlertDialog.Header>
+				<AlertDialog.Title>{m['settings.dev_machines.deepseek_remove_title']()}</AlertDialog.Title>
+				<AlertDialog.Description>{m['settings.dev_machines.deepseek_remove_desc']()}</AlertDialog.Description>
+			</AlertDialog.Header>
+			<AlertDialog.Footer>
+				<AlertDialog.Cancel>{m['common.cancel']()}</AlertDialog.Cancel>
+				<AlertDialog.Action variant="destructive" onclick={removeDeepSeek} disabled={deepSeekRemoving}>
+					{deepSeekRemoving ? m['settings.deleting']() : m['settings.dev_machines.deepseek_remove']()}
+				</AlertDialog.Action>
+			</AlertDialog.Footer>
+		</AlertDialog.Content>
+	</AlertDialog.Root>
 {/if}

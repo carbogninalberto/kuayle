@@ -11,6 +11,7 @@ type builtinProvider struct {
 	metadata    Metadata
 	build       func(RunInput) []string
 	parseResult func(stdout, stderr string, exitCode int) RunResult
+	environment func(RunInput) map[string]string
 }
 
 func (p *builtinProvider) Metadata() Metadata { return p.metadata }
@@ -19,15 +20,23 @@ func (p *builtinProvider) BuildInvocation(input RunInput) (Invocation, error) {
 	if err := validateInput(p.metadata, input); err != nil {
 		return Invocation{}, err
 	}
+	if err := validateDeepSeekOverrides(p.metadata.ID, input); err != nil {
+		return Invocation{}, err
+	}
 	workingDir := input.WorkspacePath
 	if workingDir == "" {
 		workingDir = "/workspace"
 	}
 	argv := p.build(input)
 	argv = append(argv, input.ExtraArgs...)
+	var environment map[string]string
+	if p.environment != nil {
+		environment = p.environment(input)
+	}
 	return Invocation{
 		Image:       p.metadata.DefaultImage,
 		Argv:        argv,
+		Environment: environment,
 		WorkingDir:  workingDir,
 		Interactive: input.Mode == ModeInteractive,
 		SecretNames: append([]string(nil), p.metadata.RequiredSecrets...),
@@ -55,10 +64,23 @@ func NewClaudeCodeProvider(image string) Provider {
 			SupportedModes:  []Mode{ModeInteractive, ModeAutonomous},
 		},
 		build: func(input RunInput) []string {
-			if input.Mode == ModeInteractive {
-				return []string{"claude"}
+			argv := []string{"claude"}
+			if input.Mode == ModeAutonomous {
+				argv = append(argv, "--print", "--output-format", "stream-json", "--verbose")
 			}
-			return []string{"claude", "--print", "--output-format", "stream-json", "--verbose", "-p", input.Prompt}
+			if input.Model != "" {
+				argv = append(argv, "--model", input.Model)
+			}
+			if input.Mode == ModeAutonomous {
+				argv = append(argv, "-p", input.Prompt)
+			}
+			return argv
+		},
+		environment: func(input RunInput) map[string]string {
+			if input.Thinking == "" || input.Thinking == "off" {
+				return nil
+			}
+			return map[string]string{"CLAUDE_CODE_EFFORT_LEVEL": input.Thinking}
 		},
 	}
 }
@@ -220,9 +242,11 @@ func NewCodexProvider(image string) Provider {
 		},
 		build: func(input RunInput) []string {
 			if input.Mode == ModeInteractive {
-				return []string{"codex"}
+				argv := []string{"codex"}
+				return appendCodexOverrides(argv, input)
 			}
-			return []string{"codex", "exec", "--json", "--full-auto", input.Prompt}
+			argv := appendCodexOverrides([]string{"codex", "exec", "--json", "--full-auto"}, input)
+			return append(argv, input.Prompt)
 		},
 	}
 }
@@ -321,6 +345,37 @@ func NewGooseProvider(image string) Provider {
 		}
 		return []string{"goose", "run", "--no-session", "--quiet", "--output-format", "stream-json", "--text", input.Prompt}
 	})
+}
+
+func appendCodexOverrides(argv []string, input RunInput) []string {
+	if input.Model != "" {
+		argv = append(argv, "-c", `model="`+input.Model+`"`, "-c", `model_provider="deepseek"`)
+	}
+	if input.Thinking != "" {
+		effort := input.Thinking
+		if effort == "off" {
+			effort = "none"
+		}
+		argv = append(argv, "-c", `model_reasoning_effort="`+effort+`"`)
+	}
+	return argv
+}
+
+func validateDeepSeekOverrides(providerID string, input RunInput) error {
+	if providerID != "codex" && providerID != "claude-code" {
+		return nil
+	}
+	switch input.Model {
+	case "", "deepseek-flash", "deepseek-v4-pro":
+	default:
+		return fmt.Errorf("unsupported DeepSeek model %q", input.Model)
+	}
+	switch input.Thinking {
+	case "", "off", "low", "high", "max":
+	default:
+		return fmt.Errorf("unsupported DeepSeek thinking level %q", input.Thinking)
+	}
+	return nil
 }
 
 type CustomCLIProvider struct {

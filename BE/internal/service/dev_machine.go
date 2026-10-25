@@ -12,6 +12,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/agent"
@@ -42,6 +44,11 @@ var (
 	ErrInvalidMachineInput      = errors.New("invalid dev machine request")
 	ErrMachineNameConflict      = errors.New("dev machine name is already in use")
 	ErrMachineAuthentication    = errors.New("machine authentication failed")
+)
+
+var (
+	deepSeekModels         = []string{"deepseek-flash", "deepseek-v4-pro"}
+	deepSeekThinkingLevels = []string{"off", "low", "high", "max"}
 )
 
 type machineQuotaError struct {
@@ -1221,7 +1228,113 @@ func (s *DevMachineService) ConfiguredProviders(ctx context.Context, workspaceID
 	return responses, nil
 }
 
+func (s *DevMachineService) GetWorkspaceModelProvider(ctx context.Context, workspaceID uuid.UUID) (*dto.WorkspaceModelProviderResponse, error) {
+	credential, err := s.store.GetWorkspaceModelCredential(ctx, workspaceID, "deepseek")
+	if err != nil {
+		return nil, err
+	}
+	response := &dto.WorkspaceModelProviderResponse{
+		Provider:       "deepseek",
+		DefaultModel:   "deepseek-flash",
+		Thinking:       "high",
+		Models:         append([]string(nil), deepSeekModels...),
+		ThinkingLevels: append([]string(nil), deepSeekThinkingLevels...),
+	}
+	if credential != nil {
+		response.Configured = true
+		response.DefaultModel = credential.DefaultModel
+		response.Thinking = credential.Thinking
+		updatedAt := credential.UpdatedAt
+		response.UpdatedAt = &updatedAt
+	}
+	return response, nil
+}
+
+func (s *DevMachineService) UpdateWorkspaceModelProvider(ctx context.Context, workspaceID, userID uuid.UUID, request dto.UpdateWorkspaceModelProviderRequest) (*dto.WorkspaceModelProviderResponse, error) {
+	if !containsString(deepSeekModels, request.DefaultModel) {
+		return nil, fmt.Errorf("%w: unsupported DeepSeek default model", ErrInvalidMachineInput)
+	}
+	if !containsString(deepSeekThinkingLevels, request.Thinking) {
+		return nil, fmt.Errorf("%w: unsupported DeepSeek thinking level", ErrInvalidMachineInput)
+	}
+	credential, err := s.store.GetWorkspaceModelCredential(ctx, workspaceID, "deepseek")
+	if err != nil {
+		return nil, err
+	}
+	if request.APIKey == nil {
+		if credential == nil {
+			return nil, fmt.Errorf("%w: api_key is required before DeepSeek is configured", ErrInvalidMachineInput)
+		}
+	} else {
+		if !validDeepSeekAPIKey(*request.APIKey) {
+			return nil, fmt.Errorf("%w: api_key must be 1-512 printable characters without whitespace", ErrInvalidMachineInput)
+		}
+		encrypted, encryptErr := cryptoutil.Encrypt(*request.APIKey, s.encryptionKey)
+		if encryptErr != nil {
+			return nil, fmt.Errorf("encrypt DeepSeek API key: %w", encryptErr)
+		}
+		if credential == nil {
+			credential = &domain.DevMachineWorkspaceModelCredential{WorkspaceID: workspaceID, Provider: "deepseek"}
+		}
+		credential.EncryptedAPIKey = encrypted
+		credential.EncryptionKeyVersion = 1
+	}
+	credential.DefaultModel = request.DefaultModel
+	credential.Thinking = request.Thinking
+	credential.UpdatedBy = &userID
+	if err := s.store.UpsertWorkspaceModelCredential(ctx, credential); err != nil {
+		return nil, err
+	}
+	return s.GetWorkspaceModelProvider(ctx, workspaceID)
+}
+
+func (s *DevMachineService) DeleteWorkspaceModelProvider(ctx context.Context, workspaceID uuid.UUID) error {
+	return s.store.DeleteWorkspaceModelCredential(ctx, workspaceID, "deepseek")
+}
+
+func validDeepSeekAPIKey(value string) bool {
+	length := utf8.RuneCountInString(value)
+	if length < 1 || length > 512 {
+		return false
+	}
+	for _, character := range value {
+		if !unicode.IsPrint(character) || unicode.IsSpace(character) {
+			return false
+		}
+	}
+	return true
+}
+
+func containsString(values []string, candidate string) bool {
+	for _, value := range values {
+		if value == candidate {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *DevMachineService) CreateAgentRun(ctx context.Context, workspaceID, machineID, userID uuid.UUID, req dto.CreateAgentRunRequest) (*domain.DevMachineAgentRun, error) {
+	if req.Model != "" || req.Thinking != "" {
+		if req.Provider != "codex" && req.Provider != "claude-code" {
+			return nil, fmt.Errorf("%w: model and thinking overrides are supported only for codex and claude-code", ErrInvalidMachineInput)
+		}
+	}
+	if req.Model != "" {
+		if !containsString(deepSeekModels, req.Model) {
+			return nil, fmt.Errorf("%w: unsupported DeepSeek model", ErrInvalidMachineInput)
+		}
+		credential, credentialErr := s.store.GetWorkspaceModelCredential(ctx, workspaceID, "deepseek")
+		if credentialErr != nil {
+			return nil, credentialErr
+		}
+		if credential == nil {
+			return nil, fmt.Errorf("%w: configure DeepSeek for this workspace before selecting a model", ErrInvalidOperation)
+		}
+	}
+	if req.Thinking != "" && !containsString(deepSeekThinkingLevels, req.Thinking) {
+		return nil, fmt.Errorf("%w: unsupported DeepSeek thinking level", ErrInvalidMachineInput)
+	}
 	pushBranch := !req.UseRootWorkspace
 	if req.PushBranch != nil {
 		pushBranch = *req.PushBranch
@@ -1360,11 +1473,16 @@ func (s *DevMachineService) CreateAgentRun(ctx context.Context, workspaceID, mac
 	invocation, err := provider.BuildInvocation(agent.RunInput{
 		Mode: agent.Mode(req.Mode), Prompt: prompt, WorkspacePath: workspacePath,
 		AcceptanceCriteria: req.AcceptanceCriteria, TestCommand: req.TestCommand, ExtraArgs: req.ExtraArgs, Config: config,
+		Model: req.Model, Thinking: req.Thinking,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("%w: provider rejected the agent run configuration", ErrInvalidMachineInput)
 	}
 	commandArgv, _ := json.Marshal(invocation.Argv)
+	commandEnvironment := []byte(`{}`)
+	if len(invocation.Environment) > 0 {
+		commandEnvironment, _ = json.Marshal(invocation.Environment)
+	}
 	criteria, _ := json.Marshal(req.AcceptanceCriteria)
 	allowedCommands, _ := json.Marshal(req.AllowedCommands)
 	forbiddenPaths, _ := json.Marshal(req.ForbiddenPaths)
@@ -1387,7 +1505,8 @@ func (s *DevMachineService) CreateAgentRun(ctx context.Context, workspaceID, mac
 		RequestedByUserID: &userID, ProviderID: req.Provider, Mode: req.Mode,
 		Status: domain.DevMachineAgentRunStatusQueued, Prompt: prompt, AcceptanceCriteria: criteria,
 		AllowedCommands: allowedCommands, ForbiddenPaths: forbiddenPaths, AllowedSecrets: allowedSecrets, TestCommand: &testCommand,
-		CommandArgv: commandArgv, MaxRuntimeSeconds: timeout, PushBranch: pushBranch,
+		CommandArgv: commandArgv, CommandEnvironment: commandEnvironment, Model: req.Model, Thinking: req.Thinking,
+		MaxRuntimeSeconds: timeout, PushBranch: pushBranch,
 		OpenPullRequest: req.OpenPullRequest,
 	}
 	operation := &domain.DevMachineOperation{

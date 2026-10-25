@@ -222,6 +222,80 @@ func TestDevMachineCustomSizeMigrationRoundTrip(t *testing.T) {
 	insertMachine()
 }
 
+func TestDeepSeekWorkspaceModelCredentialMigrationRoundTrip(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is not configured")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	admin, err := sql.Open("pgx", databaseURL)
+	require.NoError(t, err)
+	require.NoError(t, admin.PingContext(ctx))
+	databaseName := "kuayle_deepseek_model_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	_, err = admin.ExecContext(ctx, `CREATE DATABASE "`+databaseName+`"`)
+	if postgresCode(err) == "42501" {
+		_ = admin.Close()
+		t.Skip("DATABASE_URL user cannot create an isolated migration database")
+	}
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = admin.ExecContext(context.Background(), `DROP DATABASE "`+databaseName+`" WITH (FORCE)`)
+		_ = admin.Close()
+	})
+
+	testURL := databaseURLWithName(t, databaseURL, databaseName)
+	migrator, err := migrate.New("file://.", testURL)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = migrator.Close()
+	})
+	require.NoError(t, migrator.Migrate(48))
+	db, err := sql.Open("pgx", testURL)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	fixture := insertBaseMigrationFixture(t, db)
+
+	require.NoError(t, migrator.Steps(1))
+	requireMigrationVersion(t, migrator, 50)
+	var modelDefault, thinkingDefault, versionDefault string
+	require.NoError(t, db.QueryRow(`SELECT
+		MAX(column_default) FILTER (WHERE column_name='default_model'),
+		MAX(column_default) FILTER (WHERE column_name='thinking'),
+		MAX(column_default) FILTER (WHERE column_name='encryption_key_version')
+		FROM information_schema.columns
+		WHERE table_schema='public' AND table_name='dev_machine_workspace_model_credentials'`).
+		Scan(&modelDefault, &thinkingDefault, &versionDefault))
+	require.Equal(t, "'deepseek-flash'::character varying", modelDefault)
+	require.Equal(t, "'high'::character varying", thinkingDefault)
+	require.Equal(t, "1", versionDefault)
+
+	_, err = db.Exec(`INSERT INTO dev_machine_workspace_model_credentials
+		(workspace_id,provider,encrypted_api_key,updated_by)
+		VALUES ($1,'deepseek','ciphertext',$2)`, fixture.workspaceA, fixture.userA)
+	require.NoError(t, err)
+	var model, thinking string
+	require.NoError(t, db.QueryRow(`SELECT default_model,thinking FROM dev_machine_workspace_model_credentials WHERE workspace_id=$1`, fixture.workspaceA).Scan(&model, &thinking))
+	require.Equal(t, "deepseek-flash", model)
+	require.Equal(t, "high", thinking)
+
+	_, err = db.Exec(`INSERT INTO dev_machine_workspace_model_credentials
+		(workspace_id,provider,encrypted_api_key) VALUES ($1,'other','ciphertext')`, fixture.workspaceB)
+	require.Equal(t, "23514", postgresCode(err))
+	_, err = db.Exec(`UPDATE dev_machine_workspace_model_credentials SET thinking='max' WHERE workspace_id=$1`, fixture.workspaceA)
+	require.NoError(t, err)
+	_, err = db.Exec(`UPDATE dev_machine_workspace_model_credentials SET thinking='medium' WHERE workspace_id=$1`, fixture.workspaceA)
+	require.Equal(t, "23514", postgresCode(err))
+
+	require.NoError(t, migrator.Steps(-1))
+	requireMigrationVersion(t, migrator, 48)
+	var tableCount int
+	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM information_schema.tables
+		WHERE table_schema='public' AND table_name='dev_machine_workspace_model_credentials'`).Scan(&tableCount))
+	require.Zero(t, tableCount)
+}
+
 func TestDevMachineMigrationRoundTripAndTenantConstraints(t *testing.T) {
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {

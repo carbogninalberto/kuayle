@@ -32,6 +32,8 @@ type RunInput struct {
 	TestCommand        []string        `json:"test_command"`
 	ExtraArgs          []string        `json:"extra_args"`
 	Config             json.RawMessage `json:"config"`
+	Model              string          `json:"model,omitempty"`
+	Thinking           string          `json:"thinking,omitempty"`
 }
 
 type Invocation struct {

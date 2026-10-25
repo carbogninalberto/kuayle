@@ -361,6 +361,24 @@ func TestOnlyStandardTerminalSharesTheIDEContainerDuringSpawn(t *testing.T) {
 	require.True(t, terminalUsesSharedIDEContainer(terminal, []domain.DevMachineService{ide, terminal}))
 }
 
+func TestAgentRuntimeEnvironmentAppliesNonSecretInvocationValues(t *testing.T) {
+	environment, err := agentRuntimeEnvironment(map[string]string{
+		"CLAUDE_CODE_EFFORT_LEVEL": "high",
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, []string{"CLAUDE_CODE_EFFORT_LEVEL=high"}, environment)
+
+	for _, invalid := range []map[string]string{
+		{"DEEPSEEK_API_KEY": "secret"},
+		{"CLAUDE_CODE_EFFORT_LEVEL": "high\nINJECTED=1"},
+		{"claude_effort": "high"},
+	} {
+		_, err = agentRuntimeEnvironment(invalid)
+		require.Error(t, err)
+	}
+}
+
 func TestSpawnCleanupPlanOnlyIncludesInvocationOwnedResources(t *testing.T) {
 	containers := map[string]string{}
 	createdContainers := map[string]string{}

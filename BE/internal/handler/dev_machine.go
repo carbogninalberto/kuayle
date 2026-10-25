@@ -626,6 +626,50 @@ func (h *DevMachineHandler) Providers(c echo.Context) error {
 	return response.Success(c, http.StatusOK, providers)
 }
 
+func (h *DevMachineHandler) GetWorkspaceModelProvider(c echo.Context) error {
+	if !canAdministerDevMachines(c) {
+		return response.Forbidden(c)
+	}
+	provider, err := h.service.GetWorkspaceModelProvider(c.Request().Context(), middleware.GetWorkspace(c).ID)
+	if err != nil {
+		return machineError(c, err)
+	}
+	return response.Success(c, http.StatusOK, provider)
+}
+
+func (h *DevMachineHandler) UpdateWorkspaceModelProvider(c echo.Context) error {
+	if !canAdministerDevMachines(c) {
+		return response.Forbidden(c)
+	}
+	c.Request().Body = http.MaxBytesReader(c.Response().Writer, c.Request().Body, 8*1024)
+	var request dto.UpdateWorkspaceModelProviderRequest
+	if err := bindAndValidate(c, &request); err != nil {
+		return err
+	}
+	provider, err := h.service.UpdateWorkspaceModelProvider(
+		c.Request().Context(), middleware.GetWorkspace(c).ID, middleware.GetUserID(c), request,
+	)
+	if err != nil {
+		return machineError(c, err)
+	}
+	return response.Success(c, http.StatusOK, provider)
+}
+
+func (h *DevMachineHandler) DeleteWorkspaceModelProvider(c echo.Context) error {
+	if !canAdministerDevMachines(c) {
+		return response.Forbidden(c)
+	}
+	if err := h.service.DeleteWorkspaceModelProvider(c.Request().Context(), middleware.GetWorkspace(c).ID); err != nil {
+		return machineError(c, err)
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
+func canAdministerDevMachines(c echo.Context) bool {
+	role := middleware.GetWorkspaceRole(c)
+	return role == domain.RoleOwner || role == domain.RoleAdmin
+}
+
 func (h *DevMachineHandler) GetPolicy(c echo.Context) error {
 	workspace := middleware.GetWorkspace(c)
 	policy, err := h.service.GetPolicy(c.Request().Context(), workspace.ID)

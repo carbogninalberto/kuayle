@@ -168,6 +168,24 @@ type CreateAgentRunRequest struct {
 	AllowedSecrets     []string `json:"allowed_secrets"`
 	PushBranch         *bool    `json:"push_branch,omitempty"`
 	OpenPullRequest    bool     `json:"open_pull_request"`
+	Model              string   `json:"model,omitempty" validate:"omitempty,oneof=deepseek-flash deepseek-v4-pro"`
+	Thinking           string   `json:"thinking,omitempty" validate:"omitempty,oneof=off low high max"`
+}
+
+type UpdateWorkspaceModelProviderRequest struct {
+	APIKey       *string `json:"api_key,omitempty"`
+	DefaultModel string  `json:"default_model" validate:"required,oneof=deepseek-flash deepseek-v4-pro"`
+	Thinking     string  `json:"thinking" validate:"required,oneof=off low high max"`
+}
+
+type WorkspaceModelProviderResponse struct {
+	Provider       string     `json:"provider"`
+	Configured     bool       `json:"configured"`
+	DefaultModel   string     `json:"default_model"`
+	Thinking       string     `json:"thinking"`
+	Models         []string   `json:"models"`
+	ThinkingLevels []string   `json:"thinking_levels"`
+	UpdatedAt      *time.Time `json:"updated_at"`
 }
 
 type AgentProviderResponse struct {
