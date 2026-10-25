@@ -638,3 +638,38 @@ func stringPointer(value string) *string {
 }
 
 var _ GatewayStore = (*repository.DevMachineRepository)(nil)
+
+// ApproveCertificate is served only on the private certificate-approval listener.
+// It grants issuance for existing live services, never arbitrary wildcard names.
+func (g *Gateway) ApproveCertificate(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	host := r.URL.Query().Get("domain")
+	key, kind, ok := g.parseHost(host)
+	if !ok {
+		http.Error(w, "unknown machine host", http.StatusForbidden)
+		return
+	}
+	select {
+	case g.routeSlots <- struct{}{}:
+	default:
+		http.Error(w, "busy", http.StatusServiceUnavailable)
+		return
+	}
+	defer func() { <-g.routeSlots }()
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+	m, s, err := g.store.GetRoute(ctx, key, kind)
+	if err != nil {
+		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	if !routeMatchesHost(m, s, key, kind) || m.Status != domain.DevMachineStatusRunning || m.DesiredStatus != domain.DevMachineStatusRunning || !m.ExpiresAt.After(time.Now()) {
+		http.Error(w, "machine service is not running", http.StatusForbidden)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}

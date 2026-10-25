@@ -532,9 +532,9 @@ Prerequisites:
 - Linux Docker Engine and Compose v2;
 - Docker's data root on XFS mounted with project quotas (`pquota` or `prjquota`); rootless or user-namespace Docker is not supported because the local volume driver cannot apply project quotas there. Hosts without project quotas may opt into `DEV_MACHINE_DISK_QUOTA_MODE=monitored` (see Disk Limitation);
 - `FRONTEND_URL` set to the exact public Kuayle origin, including scheme and any non-default port, for native terminal WebSocket `Origin` validation;
-- a separate registrable domain for machine workloads (e.g. `kuayle-machines.example.net`), NOT a sibling subdomain of the main application domain;
+- a separate registrable domain for machine workloads by default (e.g. `kuayle-machines.example.net`), or the explicit personal/trusted `DEV_MACHINE_ALLOW_SAME_SITE` opt-in;
 - wildcard DNS for `*.${DEV_MACHINE_DOMAIN}`;
-- production wildcard TLS via a custom Caddy build with a DNS-01 module or an operator-provided wildcard certificate (stock Caddy cannot issue wildcard certs via HTTP-01);
+- production TLS via DNS-01 wildcard certificates, an operator-provided wildcard certificate, or restricted on-demand individual certificates (see the README setup);
 - sufficient host CPU, memory, and disk for configured concurrency;
 - a GitHub App with scoped write permissions for autonomous push/PR workflows;
 - runtime images built locally or available from a trusted registry.
@@ -556,7 +556,8 @@ Required configuration when enabled:
 |---|---|
 | `FRONTEND_URL` | Exact public frontend origin; the gateway requires native terminal WebSocket `Origin` to match this value exactly |
 | `DEV_MACHINES_ENABLED=true` | Enables API configuration validation and routes |
-| `DEV_MACHINE_DOMAIN` | Separate registrable machine base domain, e.g. `kuayle-machines.example.net` (`machines.localhost` only for local development) |
+| `DEV_MACHINE_DOMAIN` | Machine base domain; separate registrable domain by default (`machines.localhost` for local development) |
+| `DEV_MACHINE_ALLOW_SAME_SITE` | Default false. Explicit personal/trusted opt-in requiring an exact HTTPS frontend origin; enables host-prefixed app cookies and exact-origin browser request protection. Switching requires a new login. |
 | `DEV_MACHINE_ENCRYPTION_KEY` | Independent secret-encryption passphrase, at least 32 characters |
 | `DEV_MACHINE_INGEST_URL` | Public HTTPS collector ingestion base URL |
 | `DEV_MACHINE_GATEWAY_CONTAINER` | Stable gateway container name attached to private networks |
@@ -598,6 +599,23 @@ The self-hosting `dev-machine-images` profile builds the developer, browser, col
 - Command and filesystem collection is best-effort and can be bypassed by trusted workspace code.
 - Provider adapters can construct interactive invocations, but current product dialogs queue autonomous agent runs and no interactive-agent attach endpoint is exposed. Direct interactive use of the built-in CLIs is available through Kuayle's native xterm terminal; ttyd's web page is not exposed.
 - Workspace hard quotas require Docker local-volume project-quota support; the manager intentionally fails startup rather than run machines with an unbounded workspace.
-- A dedicated machine subdomain improves cookie isolation, but a separate registrable domain is required for production deployments to prevent cookie scope ambiguity between the main application and machine workloads. Localhost development is exempt because both domains resolve to 127.0.0.1.
+- A separate registrable domain provides browser site isolation by default. Personal/trusted installations can explicitly opt into same-site machines with host-prefixed app cookies and exact-origin mutation/WebSocket checks. This reduces defense in depth and logs a startup warning. Localhost development remains exempt.
 
 These limitations are deployment facts and must not be represented as stronger guarantees in product or security documentation.
+
+The gateway also serves a private HTTP certificate-approval listener on port 8091.
+It validates the exact requested hostname against a live route and checks running
+status, desired status and expiry with a two-second database deadline and bounded
+concurrency. This listener has no Docker or application credential access. It must
+not be published; Caddy uses it to restrict on-demand issuance. Public workload
+traffic remains on port 8090. See README for a stock-Caddy setup without DNS API keys.
+
+IDE dependency refreshes are pinned in `devmachine/ide/Dockerfile` and
+`devmachine/ide/patch-security.cjs`. The latter installs body-parser with its
+complete nested dependency tree and Zod 4.6.7, preserves v3 root entrypoints for
+v3 consumers, and backports the upstream early collection upper-bound rejection
+to the still-unpatched bundled v3 implementation (GHSA-mrhx-c7xc-m3w5; upstream
+commit a0ebf970f2d752e5f58527cd2942ff48be4f46bd). Both CommonJS and ESM are tested
+during the build, including async parsing and valid inputs; parser smoke tests
+cover normal, malformed, oversized and aborted requests. No scanner exclusion is
+used. Remove/review these overrides when vendor packages incorporate the fixes.

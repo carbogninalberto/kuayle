@@ -274,3 +274,18 @@ func TestDevMachineHostDiskPathMustBeAbsoluteInMonitoredMode(t *testing.T) {
 	config.HostDiskPath = "relative/path"
 	require.ErrorContains(t, config.Validate("https://app.example.com"), "DEV_MACHINE_HOST_DISK_PATH must be an absolute path")
 }
+
+func TestSameSiteMachinesRequireExplicitHTTPSOptIn(t *testing.T) {
+	c := DevMachineConfig{Domain: "app.example.com", TicketTTLSeconds: 60, SessionTTLMinutes: 60}
+	require.Error(t, c.ValidateGateway("https://app.example.com"))
+	c.AllowSameSite = true
+	require.NoError(t, c.ValidateGateway("https://app.example.com"))
+	require.Error(t, c.ValidateGateway("http://app.example.com"))
+	require.Error(t, c.ValidateGateway("https://app.example.com?"))
+	c.Domain = "APP.EXAMPLE.COM."
+	require.NoError(t, c.ValidateGateway("https://app.example.com"))
+	c.Domain = "com"
+	require.Error(t, c.ValidateGateway("https://app.example.com"))
+	c.Domain = "example.com"
+	require.Error(t, c.ValidateGateway("https://abcdefgh1234-ide.example.com"), "frontend must not overlap workload hosts")
+}

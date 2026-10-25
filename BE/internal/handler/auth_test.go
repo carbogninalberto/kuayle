@@ -18,6 +18,7 @@ import (
 	"github.com/kuayle/kuayle-backend/pkg/jwt"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -305,4 +306,42 @@ func (r *testRefreshTokenRepo) DeleteByUser(_ context.Context, _ uuid.UUID) erro
 
 func (r *testRefreshTokenRepo) DeleteExpired(_ context.Context) error {
 	return nil
+}
+
+func TestHostPrefixedSessionCookies(t *testing.T) {
+	h := NewAuthHandler(nil, false, nil, nil, true)
+	e := echo.New()
+	rec := httptest.NewRecorder()
+	c := e.NewContext(httptest.NewRequest("POST", "/api/auth/login", nil), rec)
+	h.setAuthCookies(c, "access", "refresh")
+	cookies := rec.Result().Cookies()
+	require.Len(t, cookies, 2)
+	require.Equal(t, "__Host-kuayle-access", cookies[0].Name)
+	require.Equal(t, "__Host-kuayle-refresh", cookies[1].Name)
+	for _, cookie := range cookies {
+		require.True(t, cookie.Secure)
+		require.True(t, cookie.HttpOnly)
+		require.Equal(t, "/", cookie.Path)
+		require.Empty(t, cookie.Domain)
+		require.Equal(t, http.SameSiteStrictMode, cookie.SameSite)
+	}
+	rec = httptest.NewRecorder()
+	c = e.NewContext(httptest.NewRequest("POST", "/api/auth/logout", nil), rec)
+	h.clearAuthCookies(c)
+	for _, cookie := range rec.Result().Cookies() {
+		require.True(t, cookie.Secure)
+		require.Equal(t, "/", cookie.Path)
+		require.Empty(t, cookie.Domain)
+		require.Equal(t, -1, cookie.MaxAge)
+	}
+}
+
+func TestHostPrefixedRefreshRejectsLegacyCookie(t *testing.T) {
+	h := NewAuthHandler(nil, true, nil, nil, true)
+	e := echo.New()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/api/auth/refresh", nil)
+	req.AddCookie(&http.Cookie{Name: "refresh_token", Value: "injected"})
+	require.NoError(t, h.Refresh(e.NewContext(req, rec)))
+	require.Equal(t, http.StatusUnauthorized, rec.Code)
 }

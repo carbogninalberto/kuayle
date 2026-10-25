@@ -124,7 +124,7 @@ func main() {
 	// Handlers
 	healthH := handler.NewHealthHandler(db)
 	loginThrottle := mw.NewLoginThrottle(5, 15*time.Minute)
-	authH := handler.NewAuthHandler(authSvc, cfg.Environment != "development", loginThrottle, cfg.IsSysAdmin)
+	authH := handler.NewAuthHandler(authSvc, cfg.Environment != "development", loginThrottle, cfg.IsSysAdmin, cfg.DevMachine.AllowSameSite)
 	workspaceH := handler.NewWorkspaceHandler(workspaceSvc)
 	inviteLinkH := handler.NewInviteLinkHandler(inviteLinkSvc, cfg.FrontendURL)
 	configH := handler.NewConfigHandler(!cfg.DisableRegistration)
@@ -204,6 +204,10 @@ func main() {
 	e.Use(mw.Recovery())
 	e.Use(mw.Logging())
 	e.Use(mw.CORS(cfg.FrontendURL))
+	if cfg.DevMachine.AllowSameSite {
+		log.Warn("Same-site Dev Machines enabled: browser site isolation is reduced; host-prefixed cookies and exact-origin checks are active")
+		e.Use(mw.BrowserOrigin(cfg.FrontendURL))
+	}
 	e.Use(mw.SecureHeaders())
 
 	registerRoutes(e, &appHandlers{
@@ -236,7 +240,7 @@ func main() {
 		upload:            uploadH,
 		github:            githubH,
 	}, &appMiddleware{
-		auth:                   mw.Auth(cfg.JWTSecret, patRepo),
+		auth:                   mw.Auth(cfg.JWTSecret, patRepo, cfg.DevMachine.AllowSameSite),
 		authRateLimit:          mw.RateLimit(5, 10),
 		publicRateLimit:        mw.RateLimit(2, 5),
 		publicAssetRateLimit:   mw.RateLimit(10, 20),
