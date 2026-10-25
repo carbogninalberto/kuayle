@@ -77,6 +77,75 @@ func TestCredentialHelperScriptsDoNotReferencePersistentCheckoutToken(t *testing
 	}
 }
 
+func TestDeepSeekCodexConfigScriptsWriteOnlyWhenAbsent(t *testing.T) {
+	repoRoot := repoRootFromCaller(t)
+	scripts := []string{
+		filepath.Join(repoRoot, "devmachine", "ide", "start.sh"),
+		filepath.Join(repoRoot, "devmachine", "common", "kuayle-agent-runner"),
+	}
+	for _, script := range scripts {
+		t.Run(filepath.Base(script), func(t *testing.T) {
+			content, err := os.ReadFile(script)
+			require.NoError(t, err)
+			startMarker := "# BEGIN KUAYLE DEEPSEEK CODEX CONFIG"
+			endMarker := "# END KUAYLE DEEPSEEK CODEX CONFIG"
+			start := bytes.Index(content, []byte(startMarker))
+			end := bytes.Index(content, []byte(endMarker))
+			require.Greater(t, start, -1, "missing codex config start marker")
+			require.Greater(t, end, start, "missing codex config end marker")
+			snippet := string(content[start : end+len(endMarker)])
+
+			run := func(t *testing.T, setup func(home string), environment ...string) (string, error) {
+				t.Helper()
+				home := t.TempDir()
+				if setup != nil {
+					setup(home)
+				}
+				cmd := exec.Command("sh", "-c", snippet)
+				cmd.Env = append([]string{"PATH=" + os.Getenv("PATH"), "HOME=" + home}, environment...)
+				output, runErr := cmd.CombinedOutput()
+				if runErr != nil {
+					return home, fmt.Errorf("%w: %s", runErr, output)
+				}
+				return home, nil
+			}
+
+			home, err := run(t, nil,
+				"DEEPSEEK_API_KEY=sk-script-test",
+				"KUAYLE_DEEPSEEK_MODEL=deepseek-v4-pro",
+				"KUAYLE_DEEPSEEK_THINKING=off",
+			)
+			require.NoError(t, err)
+			config, err := os.ReadFile(filepath.Join(home, ".codex", "config.toml"))
+			require.NoError(t, err)
+			require.Contains(t, string(config), `model = "deepseek-v4-pro"`)
+			require.Contains(t, string(config), `model_provider = "deepseek"`)
+			require.Contains(t, string(config), `model_reasoning_effort = "none"`)
+			require.Contains(t, string(config), `base_url = "https://api.deepseek.com"`)
+			require.Contains(t, string(config), `env_key = "DEEPSEEK_API_KEY"`)
+			require.Contains(t, string(config), `wire_api = "responses"`)
+
+			existing := "user-owned = true\n"
+			home, err = run(t, func(home string) {
+				require.NoError(t, os.MkdirAll(filepath.Join(home, ".codex"), 0o700))
+				require.NoError(t, os.WriteFile(filepath.Join(home, ".codex", "config.toml"), []byte(existing), 0o600))
+			},
+				"DEEPSEEK_API_KEY=sk-script-test",
+				"KUAYLE_DEEPSEEK_MODEL=deepseek-flash",
+				"KUAYLE_DEEPSEEK_THINKING=high",
+			)
+			require.NoError(t, err)
+			config, err = os.ReadFile(filepath.Join(home, ".codex", "config.toml"))
+			require.NoError(t, err)
+			require.Equal(t, existing, string(config))
+
+			home, err = run(t, nil, "KUAYLE_DEEPSEEK_MODEL=deepseek-flash", "KUAYLE_DEEPSEEK_THINKING=high")
+			require.NoError(t, err)
+			require.NoFileExists(t, filepath.Join(home, ".codex", "config.toml"))
+		})
+	}
+}
+
 func TestTerminalSessionCloseKillsOnlyTheNamedSessionAndIsIdempotent(t *testing.T) {
 	repoRoot := repoRootFromCaller(t)
 	tempDir := t.TempDir()

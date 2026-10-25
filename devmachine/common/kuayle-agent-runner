@@ -28,6 +28,42 @@ done
 IFS=$old_ifs
 rm -f /run/kuayle-secrets/.ready
 
+# BEGIN KUAYLE DEEPSEEK CODEX CONFIG
+configure_deepseek_codex() {
+  [ -n "${DEEPSEEK_API_KEY:-}" ] || return 0
+  [ -n "${KUAYLE_DEEPSEEK_MODEL:-}" ] || return 0
+  case "${KUAYLE_DEEPSEEK_MODEL}" in
+    deepseek-flash|deepseek-v4-pro) ;;
+    *) echo "invalid DeepSeek model" >&2; return 1 ;;
+  esac
+  case "${KUAYLE_DEEPSEEK_THINKING:-}" in
+    off) effort=none ;;
+    low|high|max) effort=${KUAYLE_DEEPSEEK_THINKING} ;;
+    *) echo "invalid DeepSeek thinking level" >&2; return 1 ;;
+  esac
+  codex_config=${HOME:?}/.codex/config.toml
+  [ ! -e "$codex_config" ] || return 0
+  mkdir -p "${codex_config%/*}"
+  old_umask=$(umask)
+  umask 077
+  if [ ! -e "$codex_config" ]; then
+    cat > "$codex_config" <<EOF
+model = "${KUAYLE_DEEPSEEK_MODEL}"
+model_provider = "deepseek"
+model_reasoning_effort = "${effort}"
+
+[model_providers.deepseek]
+name = "DeepSeek"
+base_url = "https://api.deepseek.com"
+env_key = "DEEPSEEK_API_KEY"
+wire_api = "responses"
+EOF
+  fi
+  umask "$old_umask"
+}
+configure_deepseek_codex
+# END KUAYLE DEEPSEEK CODEX CONFIG
+
 home_dir=${HOME:-/home/kuayle}
 credential_helper=${KUAYLE_GIT_CREDENTIAL_HELPER:-$home_dir/.kuayle-git-credential}
 case "$credential_helper" in /* ) ;; * ) echo "invalid credential helper path" >&2; exit 1 ;; esac

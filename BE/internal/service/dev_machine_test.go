@@ -62,6 +62,162 @@ func TestCreateAgentRunRejectsPullRequestWithoutPush(t *testing.T) {
 	require.ErrorContains(t, err, "requires pushing the working branch")
 }
 
+func TestDeepSeekWorkspaceCredentialEncryptsKeyAndDefaults(t *testing.T) {
+	workspaceID, userID := uuid.New(), uuid.New()
+	store := &devMachineStoreFake{}
+	svc := newTestDevMachineService(store)
+
+	response, err := svc.UpdateWorkspaceModelProvider(context.Background(), workspaceID, userID, dto.UpdateWorkspaceModelProviderRequest{
+		APIKey: dmStrPtr("sk-deepseek-secret"), DefaultModel: "deepseek-v4-pro", Thinking: "max",
+	})
+	require.NoError(t, err)
+	require.True(t, response.Configured)
+	require.Equal(t, "deepseek-v4-pro", response.DefaultModel)
+	require.Equal(t, "max", response.Thinking)
+	require.NotNil(t, store.workspaceModelCredential)
+	require.NotContains(t, store.workspaceModelCredential.EncryptedAPIKey, "sk-deepseek-secret")
+	decrypted, err := cryptoutil.Decrypt(store.workspaceModelCredential.EncryptedAPIKey, cryptoutil.DeriveKey("test"))
+	require.NoError(t, err)
+	require.Equal(t, "sk-deepseek-secret", decrypted)
+	encoded, err := json.Marshal(response)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "sk-deepseek-secret")
+	require.NotContains(t, string(encoded), "encrypted")
+}
+
+func TestDeepSeekWorkspaceCredentialUpdateWithoutKeyKeepsStoredKey(t *testing.T) {
+	workspaceID := uuid.New()
+	existingEncrypted, err := cryptoutil.Encrypt("sk-existing", cryptoutil.DeriveKey("test"))
+	require.NoError(t, err)
+	store := &devMachineStoreFake{workspaceModelCredential: &domain.DevMachineWorkspaceModelCredential{
+		WorkspaceID: workspaceID, Provider: "deepseek", EncryptedAPIKey: existingEncrypted,
+		DefaultModel: "deepseek-flash", Thinking: "high", EncryptionKeyVersion: 1,
+	}}
+
+	_, err = newTestDevMachineService(store).UpdateWorkspaceModelProvider(context.Background(), workspaceID, uuid.New(), dto.UpdateWorkspaceModelProviderRequest{
+		DefaultModel: "deepseek-v4-pro", Thinking: "low",
+	})
+	require.NoError(t, err)
+	require.Equal(t, existingEncrypted, store.workspaceModelCredential.EncryptedAPIKey)
+	require.Equal(t, "deepseek-v4-pro", store.workspaceModelCredential.DefaultModel)
+	require.Equal(t, "low", store.workspaceModelCredential.Thinking)
+}
+
+func TestDeepSeekWorkspaceCredentialRequiresKeyOnFirstSave(t *testing.T) {
+	_, err := newTestDevMachineService(&devMachineStoreFake{}).UpdateWorkspaceModelProvider(
+		context.Background(), uuid.New(), uuid.New(), dto.UpdateWorkspaceModelProviderRequest{
+			DefaultModel: "deepseek-flash", Thinking: "high",
+		},
+	)
+	require.ErrorIs(t, err, ErrInvalidMachineInput)
+	require.ErrorContains(t, err, "api_key is required")
+}
+
+func TestDeepSeekWorkspaceCredentialRejectsInvalidValues(t *testing.T) {
+	for _, test := range []dto.UpdateWorkspaceModelProviderRequest{
+		{APIKey: dmStrPtr("has whitespace"), DefaultModel: "deepseek-flash", Thinking: "high"},
+		{APIKey: dmStrPtr(""), DefaultModel: "deepseek-flash", Thinking: "high"},
+		{APIKey: dmStrPtr("valid-key"), DefaultModel: "unknown", Thinking: "high"},
+		{APIKey: dmStrPtr("valid-key"), DefaultModel: "deepseek-flash", Thinking: "medium"},
+	} {
+		_, err := newTestDevMachineService(&devMachineStoreFake{}).UpdateWorkspaceModelProvider(
+			context.Background(), uuid.New(), uuid.New(), test,
+		)
+		require.ErrorIs(t, err, ErrInvalidMachineInput)
+	}
+}
+
+func TestCreateAgentRunAppliesDeepSeekOverrides(t *testing.T) {
+	workspaceID, machineID, userID := uuid.New(), uuid.New(), uuid.New()
+	policy := testPolicy(workspaceID)
+	policy.AllowedProviders = json.RawMessage(`["codex"]`)
+	store := &devMachineStoreFake{
+		policy: policy,
+		machine: &domain.DevMachine{
+			ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID,
+			Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning,
+			ExpiresAt: time.Now().Add(time.Hour), MaxRuntimeMinutes: 60,
+		},
+		agentProvider: &domain.DevMachineAgentProvider{
+			ProviderID: "codex", Enabled: true, SupportedModes: json.RawMessage(`["autonomous"]`),
+			RequiredSecrets: json.RawMessage(`[]`), Config: json.RawMessage(`{}`),
+		},
+		workspaceModelCredential: &domain.DevMachineWorkspaceModelCredential{
+			WorkspaceID: workspaceID, Provider: "deepseek", EncryptedAPIKey: "encrypted",
+			DefaultModel: "deepseek-flash", Thinking: "high",
+		},
+	}
+	service := NewDevMachineService(store, agent.NewRegistry(agent.NewCodexProvider("")), true,
+		"machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, DevMachineImages{})
+
+	run, err := service.CreateAgentRun(context.Background(), workspaceID, machineID, userID, dto.CreateAgentRunRequest{
+		UseRootWorkspace: true, PushBranch: dmBoolPtr(false), Provider: "codex", Mode: "autonomous",
+		Prompt: "Implement it", MaxRuntimeSeconds: 30, Model: "deepseek-v4-pro", Thinking: "off",
+	})
+	require.NoError(t, err)
+	var argv []string
+	require.NoError(t, json.Unmarshal(run.CommandArgv, &argv))
+	require.Contains(t, argv, `model="deepseek-v4-pro"`)
+	require.Contains(t, argv, `model_provider="deepseek"`)
+	require.Contains(t, argv, `model_reasoning_effort="none"`)
+	require.JSONEq(t, `{}`, string(run.CommandEnvironment))
+	require.Equal(t, "deepseek-v4-pro", run.Model)
+	require.Equal(t, "off", run.Thinking)
+}
+
+func TestCreateAgentRunClaudeOverrideStoresNonSecretEnvironment(t *testing.T) {
+	workspaceID, machineID, userID := uuid.New(), uuid.New(), uuid.New()
+	policy := testPolicy(workspaceID)
+	policy.AllowedProviders = json.RawMessage(`["claude-code"]`)
+	store := &devMachineStoreFake{
+		policy: policy,
+		machine: &domain.DevMachine{
+			ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID,
+			Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning,
+			ExpiresAt: time.Now().Add(time.Hour), MaxRuntimeMinutes: 60,
+		},
+		agentProvider: &domain.DevMachineAgentProvider{
+			ProviderID: "claude-code", Enabled: true, SupportedModes: json.RawMessage(`["autonomous"]`),
+			RequiredSecrets: json.RawMessage(`[]`), Config: json.RawMessage(`{}`),
+		},
+		workspaceModelCredential: &domain.DevMachineWorkspaceModelCredential{
+			WorkspaceID: workspaceID, Provider: "deepseek", EncryptedAPIKey: "encrypted",
+			DefaultModel: "deepseek-flash", Thinking: "high",
+		},
+	}
+	service := NewDevMachineService(store, agent.NewRegistry(agent.NewClaudeCodeProvider("")), true,
+		"machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, DevMachineImages{})
+
+	run, err := service.CreateAgentRun(context.Background(), workspaceID, machineID, userID, dto.CreateAgentRunRequest{
+		UseRootWorkspace: true, PushBranch: dmBoolPtr(false), Provider: "claude-code", Mode: "autonomous",
+		Prompt: "Implement it", MaxRuntimeSeconds: 30, Model: "deepseek-flash", Thinking: "max",
+	})
+	require.NoError(t, err)
+	require.JSONEq(t, `{"CLAUDE_CODE_EFFORT_LEVEL":"max"}`, string(run.CommandEnvironment))
+	require.NotContains(t, string(run.CommandEnvironment), "KEY")
+	require.Equal(t, "max", run.Thinking)
+}
+
+func TestCreateAgentRunRejectsOverridesForOtherProviders(t *testing.T) {
+	_, err := newTestDevMachineService(&devMachineStoreFake{}).CreateAgentRun(
+		context.Background(), uuid.New(), uuid.New(), uuid.New(), dto.CreateAgentRunRequest{
+			Provider: "opencode", Mode: "autonomous", Prompt: "test", Model: "deepseek-flash",
+		},
+	)
+	require.ErrorIs(t, err, ErrInvalidMachineInput)
+	require.ErrorContains(t, err, "codex and claude-code")
+}
+
+func TestCreateAgentRunRequiresConfiguredDeepSeekForModelOverride(t *testing.T) {
+	_, err := newTestDevMachineService(&devMachineStoreFake{}).CreateAgentRun(
+		context.Background(), uuid.New(), uuid.New(), uuid.New(), dto.CreateAgentRunRequest{
+			Provider: "codex", Mode: "autonomous", Prompt: "test", Model: "deepseek-flash",
+		},
+	)
+	require.ErrorIs(t, err, ErrInvalidOperation)
+	require.ErrorContains(t, err, "DeepSeek")
+}
+
 func TestMachineTokenAuthenticationDistinguishesCredentialsFromStorageFailure(t *testing.T) {
 	storageErr := errors.New("token database unavailable")
 	service := newTestDevMachineService(&devMachineStoreFake{authenticateMachineTokenErr: storageErr})
@@ -1528,6 +1684,7 @@ type devMachineStoreFake struct {
 	updatePreferencesErr        error
 	queuedOperation             *domain.DevMachineOperation
 	queuedDesired               domain.DevMachineStatus
+	workspaceModelCredential    *domain.DevMachineWorkspaceModelCredential
 }
 
 func newTestDevMachineService(store repository.DevMachineStore) *DevMachineService {
@@ -1729,6 +1886,21 @@ func (f *devMachineStoreFake) ListEnvVarsInternal(_ context.Context, machineID u
 		}
 	}
 	return filtered, nil
+}
+
+func (f *devMachineStoreFake) GetWorkspaceModelCredential(context.Context, uuid.UUID, string) (*domain.DevMachineWorkspaceModelCredential, error) {
+	return f.workspaceModelCredential, nil
+}
+
+func (f *devMachineStoreFake) UpsertWorkspaceModelCredential(_ context.Context, credential *domain.DevMachineWorkspaceModelCredential) error {
+	copy := *credential
+	f.workspaceModelCredential = &copy
+	return nil
+}
+
+func (f *devMachineStoreFake) DeleteWorkspaceModelCredential(context.Context, uuid.UUID, string) error {
+	f.workspaceModelCredential = nil
+	return nil
 }
 
 func (f *devMachineStoreFake) ListRuntimeCredentials(_ context.Context, machineID uuid.UUID) ([]domain.DevMachineRuntimeCredential, error) {
@@ -1986,3 +2158,4 @@ func scopeKey(teamID, projectID, issueID *uuid.UUID) string {
 }
 
 func dmStrPtr(value string) *string { return &value }
+func dmBoolPtr(value bool) *bool    { return &value }

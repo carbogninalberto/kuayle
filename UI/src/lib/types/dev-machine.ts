@@ -228,6 +228,21 @@ export interface CreateAgentRunInput {
 	allowed_secrets: string[];
 	push_branch: boolean;
 	open_pull_request: boolean;
+	model?: DeepSeekModel;
+	thinking?: DeepSeekThinking;
+}
+
+export type DeepSeekModel = 'deepseek-flash' | 'deepseek-v4-pro';
+export type DeepSeekThinking = 'off' | 'low' | 'high' | 'max';
+
+export interface WorkspaceModelProvider {
+	provider: 'deepseek';
+	configured: boolean;
+	default_model: DeepSeekModel;
+	thinking: DeepSeekThinking;
+	models: DeepSeekModel[];
+	thinking_levels: DeepSeekThinking[];
+	updated_at: string | null;
 }
 
 export interface DevMachinePolicy {

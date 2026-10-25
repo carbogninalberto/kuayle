@@ -20,6 +20,49 @@ func TestBuiltinProvidersBuildArgvWithoutShell(t *testing.T) {
 	}
 }
 
+func TestCodexRunOverridesBuildDeepSeekArgs(t *testing.T) {
+	provider := NewCodexProvider("")
+
+	invocation, err := provider.BuildInvocation(RunInput{
+		Mode: ModeAutonomous, Prompt: "fix the issue", Model: "deepseek-v4-pro", Thinking: "off",
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, []string{
+		"codex", "exec", "--json", "--full-auto",
+		"-c", `model="deepseek-v4-pro"`,
+		"-c", `model_provider="deepseek"`,
+		"-c", `model_reasoning_effort="none"`,
+		"fix the issue",
+	}, invocation.Argv)
+	require.Empty(t, invocation.Environment)
+}
+
+func TestClaudeCodeRunOverridesUseArgvModelAndEnvironmentEffort(t *testing.T) {
+	provider := NewClaudeCodeProvider("")
+
+	invocation, err := provider.BuildInvocation(RunInput{
+		Mode: ModeAutonomous, Prompt: "fix the issue", Model: "deepseek-flash", Thinking: "max",
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, []string{
+		"claude", "--print", "--output-format", "stream-json", "--verbose",
+		"--model", "deepseek-flash", "-p", "fix the issue",
+	}, invocation.Argv)
+	require.Equal(t, map[string]string{"CLAUDE_CODE_EFFORT_LEVEL": "max"}, invocation.Environment)
+}
+
+func TestClaudeCodeThinkingOffOmitsEffortEnvironment(t *testing.T) {
+	invocation, err := NewClaudeCodeProvider("").BuildInvocation(RunInput{
+		Mode: ModeAutonomous, Prompt: "fix the issue", Thinking: "off",
+	})
+
+	require.NoError(t, err)
+	require.Empty(t, invocation.Environment)
+	require.NotContains(t, invocation.Argv, "--effort")
+}
+
 func TestCustomProviderRejectsShell(t *testing.T) {
 	provider := NewCustomCLIProvider("")
 	for _, entrypoint := range []string{"/bin/sh", "/bin/zsh", "pwsh"} {
