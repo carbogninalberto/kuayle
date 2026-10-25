@@ -120,6 +120,18 @@ run_case() {
 	rm -rf "$test_root"
 }
 
+# Every runtime image in the Compose dev-machine-images profile must be rebuilt on update,
+# otherwise upgraded hosts keep a stale or missing image (e.g. dev-machine-headless).
+image_services=$(awk '/^  [a-z0-9-]+:$/ { service = substr($1, 1, length($1) - 1) } /profiles: \["dev-machine-images"\]/ { print service }' "$SCRIPT_DIR/docker-compose.yml")
+[ -n "$image_services" ] || fail "no dev-machine-images services found in docker-compose.yml"
+build_command=$(awk '/--profile dev-machine-images build --pull/ { capture = 1 } capture { print } capture && !/\\$/ { exit }' "$SCRIPT_DIR/update.sh")
+for service in $image_services; do
+	case " $(printf '%s' "$build_command" | tr -d '\\' | tr -s '[:space:]' ' ') " in
+	*" $service "*) ;;
+	*) fail "update.sh does not rebuild runtime image $service" ;;
+	esac
+done
+
 # name fail-point status control-plane-restore control-restore-fails backend-restore backend-restore-fails backend-held
 run_case runtime-build-failure runtime-build 41 false
 run_case stop-backend-failure stop-backend 46 true false true
