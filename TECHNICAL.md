@@ -609,3 +609,13 @@ status, desired status and expiry with a two-second database deadline and bounde
 concurrency. This listener has no Docker or application credential access. It must
 not be published; Caddy uses it to restrict on-demand issuance. Public workload
 traffic remains on port 8090. See README for a stock-Caddy setup without DNS API keys.
+
+IDE dependency refreshes are pinned in `devmachine/ide/Dockerfile` and
+`devmachine/ide/patch-security.cjs`. The latter installs body-parser with its
+complete nested dependency tree and Zod 4.6.7, preserves v3 root entrypoints for
+v3 consumers, and backports the upstream early collection upper-bound rejection
+to the still-unpatched bundled v3 implementation (GHSA-mrhx-c7xc-m3w5; upstream
+commit a0ebf970f2d752e5f58527cd2942ff48be4f46bd). Both CommonJS and ESM are tested
+during the build, including async parsing and valid inputs; parser smoke tests
+cover normal, malformed, oversized and aborted requests. No scanner exclusion is
+used. Remove/review these overrides when vendor packages incorporate the fixes.

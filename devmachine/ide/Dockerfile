@@ -4,9 +4,9 @@ FROM ubuntu:26.04@sha256:f144425ff09be612d6d9ad965196e9cdc23dae1f42110a8a11a3e9a
 
 ARG TARGETARCH
 ARG DEBIAN_FRONTEND=noninteractive
-ARG CODE_SERVER_VERSION=4.140.0
-ARG CODE_SERVER_AMD64_SHA256=281742720604c6654147186d54d1712f833ed7e41a734cc501ca00d4f20301aa
-ARG CODE_SERVER_ARM64_SHA256=455dece4da82a6f43f455879992d11769137114dbd340611fdea2299cf8566fd
+ARG CODE_SERVER_VERSION=4.143.1
+ARG CODE_SERVER_AMD64_SHA256=e4b771c98fafbe2af3990ecd71d93ba22515588db550007076768a014ae34c02
+ARG CODE_SERVER_ARM64_SHA256=79ca8df2db219b24de75e2a830c5302808124d8c2bf132f4bc6105cea834bb1c
 ARG TTYD_VERSION=1.7.7
 ARG TTYD_AMD64_SHA256=8a217c968aba172e0dbf3f34447218dc015bc4d5e59bf51db2f2cd12b7be4f55
 ARG TTYD_ARM64_SHA256=b38acadd89d1d396a0f5649aa52c539edbad07f4bc7348b27b4f4b7219dd4165
@@ -18,6 +18,7 @@ ARG CODEX_VERSION=0.160.0
 COPY --from=node-stage /usr/local /usr/local
 COPY common/kuayle-service-entrypoint /usr/local/bin/kuayle-service-entrypoint
 COPY common/patch-npm-security.cjs common/test-http-cache-semantics.cjs /usr/local/lib/kuayle/
+COPY ide/patch-security.cjs ide/test-zod-security.cjs ide/test-body-parser-security.cjs /usr/local/lib/kuayle/
 COPY ide/start.sh /usr/local/bin/kuayle-ide-start
 COPY ide/shell.sh /usr/local/bin/kuayle-shell
 COPY ide/checkout.sh /usr/local/bin/kuayle-checkout
@@ -46,7 +47,7 @@ RUN rm -f /usr/bin/pebble \
     && npm install -g "@openai/codex@${CODEX_VERSION}" \
     && node /usr/local/lib/kuayle/patch-npm-security.cjs /usr/lib/code-server \
     && npm install --prefix /tmp/code-server-patches --ignore-scripts --package-lock=false \
-         "basic-ftp@6.2.2" "js-yaml@5.4.2" "shell-quote@1.12.0" "undici@7.30.0" "ip-address@10.7.3" \
+         "basic-ftp@6.2.2" "js-yaml@5.4.2" "shell-quote@1.12.0" "undici@7.30.1" "ip-address@10.7.3" \
          "compression@1.8.2" "destroy@1.2.0" "follow-redirects@1.16.1" \
     && rm -rf /usr/lib/code-server/node_modules/js-yaml \
          /usr/lib/code-server/node_modules/basic-ftp \
@@ -66,6 +67,7 @@ RUN rm -f /usr/bin/pebble \
     && cp -a /tmp/code-server-patches/node_modules/undici /usr/lib/code-server/lib/vscode/node_modules/ \
     && cp -a /tmp/code-server-patches/node_modules/ip-address /usr/lib/code-server/lib/vscode/node_modules/ \
     && cp -a /tmp/code-server-patches/node_modules/ip-address /usr/lib/code-server/node_modules/ \
+    && node /usr/local/lib/kuayle/patch-security.cjs /usr/lib/code-server \
     && rm -rf /root/.npm /tmp/code-server-patches /var/lib/apt/lists/* \
     && rm -f /tmp/code-server.deb /usr/bin/pebble \
          /etc/ssl/private/ssl-cert-snakeoil.key /etc/ssl/certs/ssl-cert-snakeoil.pem \

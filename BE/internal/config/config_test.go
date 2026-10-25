@@ -281,6 +281,9 @@ func TestSameSiteMachinesRequireExplicitHTTPSOptIn(t *testing.T) {
 	c.AllowSameSite = true
 	require.NoError(t, c.ValidateGateway("https://app.example.com"))
 	require.Error(t, c.ValidateGateway("http://app.example.com"))
+	require.Error(t, c.ValidateGateway("https://app.example.com?"))
+	c.Domain = "APP.EXAMPLE.COM."
+	require.NoError(t, c.ValidateGateway("https://app.example.com"))
 	c.Domain = "com"
 	require.Error(t, c.ValidateGateway("https://app.example.com"))
 	c.Domain = "example.com"

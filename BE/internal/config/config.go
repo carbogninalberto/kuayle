@@ -182,10 +182,10 @@ func (c DevMachineConfig) ValidateGateway(frontendURL string) error {
 		if err := c.validateSameSiteOrigin(frontendURL); err != nil {
 			return err
 		}
-		if _, err := publicsuffix.EffectiveTLDPlusOne(c.Domain); err != nil {
+		if _, err := publicsuffix.EffectiveTLDPlusOne(strings.Trim(strings.ToLower(c.Domain), ".")); err != nil {
 			return fmt.Errorf("DEV_MACHINE_DOMAIN must be a registrable hostname")
 		}
-		if strings.HasSuffix(strings.ToLower(frontend.Hostname()), "."+strings.Trim(strings.ToLower(c.Domain), ".")) {
+		if strings.HasSuffix(strings.Trim(strings.ToLower(frontend.Hostname()), "."), "."+strings.Trim(strings.ToLower(c.Domain), ".")) {
 			return fmt.Errorf("FRONTEND_URL must not overlap machine hostnames")
 		}
 	}
@@ -357,7 +357,7 @@ func parseSysadmins(raw string) (map[uuid.UUID]struct{}, error) {
 
 func (c DevMachineConfig) validateSameSiteOrigin(raw string) error {
 	u, err := url.Parse(raw)
-	if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
+	if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || raw != "https://"+u.Host {
 		return fmt.Errorf("DEV_MACHINE_ALLOW_SAME_SITE requires FRONTEND_URL to be an exact HTTPS origin")
 	}
 	return nil
