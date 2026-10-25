@@ -230,7 +230,7 @@ test('creates and edits a rich-text issue template', async ({ page }) => {
 
 	await page.getByRole('button', { name: 'New Template', exact: true }).first().click();
 	const createDialog = page.getByRole('dialog', { name: 'Create Issue Template', exact: true });
-	await createDialog.getByRole('textbox', { name: 'Title', exact: true }).fill('Created template');
+	await createDialog.getByRole('textbox', { name: 'Template title', exact: true }).fill('Created template');
 	await createDialog.getByRole('textbox', { name: 'Issue title', exact: true }).fill('[Bug] Created issue');
 	const createEditor = createDialog.getByRole('textbox', { name: 'Description', exact: true });
 	await createEditor.fill('Rich description');
@@ -274,7 +274,9 @@ test('creates and edits a rich-text issue template', async ({ page }) => {
 
 	await page.getByRole('button', { name: 'Edit Created template', exact: true }).click();
 	const editDialog = page.getByRole('dialog', { name: 'Edit Issue Template', exact: true });
-	await expect(editDialog.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue('Created template');
+	await expect(editDialog.getByRole('textbox', { name: 'Template title', exact: true })).toHaveValue(
+		'Created template'
+	);
 	await expect(editDialog.getByRole('textbox', { name: 'Issue title', exact: true })).toHaveValue(
 		'[Bug] Created issue'
 	);
@@ -282,7 +284,7 @@ test('creates and edits a rich-text issue template', async ({ page }) => {
 	await expect(editDialog.getByRole('combobox', { name: 'Default status', exact: true })).toContainText('Todo');
 	await expect(editDialog.getByRole('combobox', { name: 'Default priority', exact: true })).toContainText('High');
 
-	await editDialog.getByRole('textbox', { name: 'Title', exact: true }).fill('Updated template');
+	await editDialog.getByRole('textbox', { name: 'Template title', exact: true }).fill('Updated template');
 	await editDialog.getByRole('textbox', { name: 'Issue title', exact: true }).fill('[Bug] Updated issue');
 	await editDialog.getByRole('textbox', { name: 'Description', exact: true }).fill('Updated description');
 	await editDialog.getByRole('button', { name: 'Save changes', exact: true }).click();
@@ -304,12 +306,12 @@ test('validates edits, discards cancelled values, and does not leak stale editor
 	const editButton = page.getByRole('button', { name: 'Edit Existing bug report', exact: true });
 	await editButton.click();
 	let dialog = page.getByRole('dialog', { name: 'Edit Issue Template', exact: true });
-	await dialog.getByRole('textbox', { name: 'Title', exact: true }).fill('   ');
+	await dialog.getByRole('textbox', { name: 'Template title', exact: true }).fill('   ');
 	await expect(dialog.getByRole('button', { name: 'Save changes', exact: true })).toBeDisabled();
 	await expect(dialog).toBeVisible();
 	expect(calls.updates).toHaveLength(0);
 
-	await dialog.getByRole('textbox', { name: 'Title', exact: true }).fill('Unsaved title');
+	await dialog.getByRole('textbox', { name: 'Template title', exact: true }).fill('Unsaved title');
 	await dialog.getByRole('textbox', { name: 'Description', exact: true }).fill('Unsaved description');
 	await page.keyboard.press('Escape');
 	await expect(dialog).toHaveCount(0);
@@ -318,7 +320,7 @@ test('validates edits, discards cancelled values, and does not leak stale editor
 
 	await editButton.click();
 	dialog = page.getByRole('dialog', { name: 'Edit Issue Template', exact: true });
-	await expect(dialog.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue('Existing bug report');
+	await expect(dialog.getByRole('textbox', { name: 'Template title', exact: true })).toHaveValue('Existing bug report');
 	await expect(dialog.getByRole('textbox', { name: 'Description', exact: true })).toContainText('Existing details');
 	await expect(dialog.getByRole('combobox', { name: 'Default status', exact: true })).toContainText('Todo');
 	await expect(dialog.getByRole('combobox', { name: 'Default priority', exact: true })).toContainText('High');
@@ -329,7 +331,7 @@ test('validates edits, discards cancelled values, and does not leak stale editor
 	await page.keyboard.press('Escape');
 	await page.getByRole('button', { name: 'New Template', exact: true }).first().click();
 	const createDialog = page.getByRole('dialog', { name: 'Create Issue Template', exact: true });
-	await expect(createDialog.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue('');
+	await expect(createDialog.getByRole('textbox', { name: 'Template title', exact: true })).toHaveValue('');
 	await expect(createDialog.getByRole('textbox', { name: 'Description', exact: true })).not.toContainText(
 		'Existing details'
 	);
@@ -344,17 +346,20 @@ test('clears a description and preserves form values after a failed update', asy
 
 	await page.getByRole('button', { name: 'Edit Existing bug report', exact: true }).click();
 	const dialog = page.getByRole('dialog', { name: 'Edit Issue Template', exact: true });
-	await dialog.getByRole('textbox', { name: 'Title', exact: true }).fill('Retry title');
+	await dialog.getByRole('textbox', { name: 'Template title', exact: true }).fill('Retry title');
 	await dialog.getByRole('textbox', { name: 'Description', exact: true }).fill('Retry description');
 	await dialog.getByRole('button', { name: 'Save changes', exact: true }).click();
 
 	await expect(page.getByText('Update failed', { exact: true })).toBeVisible();
 	await expect(dialog).toBeVisible();
-	await expect(dialog.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue('Retry title');
+	await expect(dialog.getByRole('textbox', { name: 'Template title', exact: true })).toHaveValue('Retry title');
 	await expect(dialog.getByRole('textbox', { name: 'Description', exact: true })).toContainText('Retry description');
 	expect(calls.updateAttempts).toBe(1);
 
-	await dialog.getByRole('textbox', { name: 'Description', exact: true }).fill('');
+	const description = dialog.getByRole('textbox', { name: 'Description', exact: true });
+	await description.click();
+	await description.press('ControlOrMeta+A');
+	await description.press('Backspace');
 	await dialog.getByRole('button', { name: 'Save changes', exact: true }).click();
 	await expect(dialog).toHaveCount(0);
 	await expect(page.getByText('Retry title', { exact: true })).toBeVisible();
@@ -374,7 +379,7 @@ test('keeps a failed create available for retry and disables duplicate submissio
 
 	await page.getByRole('button', { name: 'New Template', exact: true }).first().click();
 	const dialog = page.getByRole('dialog', { name: 'Create Issue Template', exact: true });
-	await dialog.getByRole('textbox', { name: 'Title', exact: true }).fill('Retry create');
+	await dialog.getByRole('textbox', { name: 'Template title', exact: true }).fill('Retry create');
 	await dialog.getByRole('textbox', { name: 'Description', exact: true }).fill('Keep this description');
 	await dialog.getByRole('button', { name: 'Create Issue Template', exact: true }).click();
 
@@ -387,7 +392,7 @@ test('keeps a failed create available for retry and disables duplicate submissio
 
 	await expect(page.getByText('Create failed', { exact: true })).toBeVisible();
 	await expect(dialog).toBeVisible();
-	await expect(dialog.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue('Retry create');
+	await expect(dialog.getByRole('textbox', { name: 'Template title', exact: true })).toHaveValue('Retry create');
 	await expect(dialog.getByRole('textbox', { name: 'Description', exact: true })).toContainText(
 		'Keep this description'
 	);
@@ -415,7 +420,7 @@ test('preserves unset status and priority when editing unrelated fields', async 
 	await expect(
 		dialog.getByRole('button', { name: 'Select a team to upload attachments', exact: true }).first()
 	).toBeDisabled();
-	await dialog.getByRole('textbox', { name: 'Title', exact: true }).fill('Renamed bug report');
+	await dialog.getByRole('textbox', { name: 'Template title', exact: true }).fill('Renamed bug report');
 	await dialog.getByRole('button', { name: 'Save changes', exact: true }).click();
 
 	await expect(page.getByText('Renamed bug report', { exact: true })).toBeVisible();
@@ -434,7 +439,7 @@ test('supports a keyboard-only edit and returns focus to the edit action', async
 	await page.keyboard.press('Enter');
 
 	const dialog = page.getByRole('dialog', { name: 'Edit Issue Template', exact: true });
-	const titleInput = dialog.getByRole('textbox', { name: 'Title', exact: true });
+	const titleInput = dialog.getByRole('textbox', { name: 'Template title', exact: true });
 	await expect(titleInput).toBeFocused();
 	await titleInput.fill('Keyboard edit');
 	await titleInput.press('Control+Enter');
