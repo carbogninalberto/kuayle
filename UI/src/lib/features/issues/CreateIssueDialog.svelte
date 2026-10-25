@@ -233,6 +233,11 @@
 	let selectedLabels = $derived(labels.filter((l) => labelIds.includes(l.id)));
 	let availableProjects = $derived(projects.filter((p) => !p.team_id || p.team_id === teamId));
 	let availableCycles = $derived((cycles ?? []).filter((c) => c.team_id === teamId));
+	let availableTemplates = $derived(
+		parentIssue
+			? templates.filter((tmpl) => !tmpl.team_id || tmpl.team_id === parentIssue.team_id)
+			: templates
+	);
 
 	const priorityValues: IssuePriority[] = [0, 1, 2, 3, 4];
 
@@ -322,6 +327,9 @@
 	};
 
 	function applyTemplate(tmpl: IssueTemplate) {
+		if (parentIssue && tmpl.team_id && tmpl.team_id !== parentIssue.team_id) {
+			return;
+		}
 		selectedTemplate = tmpl;
 		title = templateIssueTitle(tmpl);
 		description = tmpl.description ?? '';
@@ -416,7 +424,7 @@
 				{/snippet}
 			</TeamSelector>
 			<span class="text-xs text-[var(--color-text-tertiary)]">›</span>
-			{#if templates.length > 0}
+			{#if availableTemplates.length > 0}
 				<Popover.Root bind:open={templateOpen}>
 					<Popover.Trigger>
 						{#snippet child({ props })}
@@ -433,7 +441,7 @@
 							<FileText size={14} class="shrink-0 text-[var(--color-text-tertiary)]" />
 							<span class="truncate">{m['sharedComponents.create_issue.no_template']()}</span>
 						</Button>
-						{#each templates as tmpl (tmpl.id)}
+						{#each availableTemplates as tmpl (tmpl.id)}
 							<Button variant="plain" onclick={() => applyTemplate(tmpl)}
 								class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
 							>
