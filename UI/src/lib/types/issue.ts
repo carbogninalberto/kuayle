@@ -132,6 +132,7 @@ export interface IssueTemplate {
 	workspace_id: string;
 	team_id: string | null;
 	title: string;
+	default_issue_title: string | null;
 	description: string | null;
 	status: IssueStatus | null;
 	priority: IssuePriority | null;
@@ -147,12 +148,25 @@ export interface IssueTemplate {
 
 export interface CreateIssueTemplateRequest {
 	title: string;
+	default_issue_title?: string;
 	description?: string;
 	status?: IssueStatus;
 	priority?: IssuePriority;
 	label_ids?: string[];
 	assignee_id?: string;
 	team_id?: string;
+}
+
+export interface UpdateIssueTemplateRequest {
+	title?: string;
+	default_issue_title?: string | null;
+	description?: string;
+	status?: IssueStatus | null;
+	priority?: IssuePriority | null;
+	label_ids?: string[];
+	assignee_id?: string | null;
+	team_id?: string | null;
+	is_active?: boolean;
 }
 
 export interface Comment {

@@ -108,6 +108,10 @@
 	let dueDate = $state<string | null>(null);
 	let cycleId = $state<string | null>(null);
 	let createMore = $state(false);
+	let statusLoadVersion = 0;
+	let statusFallbackId: string | undefined;
+	let statusTeamBeforeOpen = '';
+	let wasOpen = false;
 
 	let templates = $state<IssueTemplate[]>([]);
 	let selectedTemplate = $state<IssueTemplate | null>(null);
@@ -159,21 +163,32 @@
 		return ids.filter((id) => availableLabelIds.has(id));
 	}
 
-	function applyDefaultStatus(preferredStatusId?: string) {
-		statusId = validStatus(preferredStatusId) ?? teamStatusesState.defaultForCategory('backlog')?.id ?? '';
+	function applyDefaultStatus(preferredStatusId?: string, preferredCategory: StatusCategory = 'backlog', preserveCurrentOnMissing = false) {
+		const nextStatusId =
+			validStatus(preferredStatusId) ?? teamStatusesState.defaultForCategory(preferredCategory)?.id;
+		if (nextStatusId) {
+			statusId = nextStatusId;
+			return;
+		}
+		if (preserveCurrentOnMissing && statusId) return;
+		statusId =
+			validStatus(statusFallbackId) ??
+			teamStatusesState.defaultForCategory('backlog')?.id ??
+			'';
 	}
 
-	function loadStatusesForTeam(nextTeamId: string, preferredStatusId?: string) {
+	function loadStatusesForTeam(nextTeamId: string, preferredStatusId?: string, preferredCategory?: StatusCategory, preserveCurrentOnMissing = false) {
+		const version = ++statusLoadVersion;
+		const apply = () => {
+			if (!open || teamId !== nextTeamId || version !== statusLoadVersion) return;
+			applyDefaultStatus(preferredStatusId, preferredCategory, preserveCurrentOnMissing);
+		};
 		if (!slug || !nextTeamId) {
-			applyDefaultStatus(preferredStatusId);
+			apply();
 			return;
 		}
 
-		teamStatusesState.load(slug, nextTeamId).then(() => {
-			if (open && teamId === nextTeamId) {
-				applyDefaultStatus(preferredStatusId);
-			}
-		});
+		teamStatusesState.load(slug, nextTeamId).then(apply);
 	}
 
 	function resetForm() {
@@ -186,29 +201,51 @@
 		priority = defaultPriority ?? savedDefaults.priority ?? 0;
 		teamId = validTeam(defaultTeamId) ?? validTeam(savedDefaults.teamId) ?? teams[0]?.id ?? '';
 		statusId = '';
-		loadStatusesForTeam(teamId, defaultStatusId ?? savedDefaults.statusId);
+		statusFallbackId = defaultStatusId ?? savedDefaults.statusId;
+		loadStatusesForTeam(teamId, statusFallbackId);
 		projectId = defaultProjectId !== undefined ? validProject(defaultProjectId) : validProject(savedDefaults.projectId);
 		assigneeIds = defaultAssigneeIds ? validMemberIds(defaultAssigneeIds) : (defaultAssigneeId ? validMemberIds([defaultAssigneeId]) : validMemberIds(savedDefaults.assigneeIds));
 		labelIds = defaultLabelIds ? validLabelIds(defaultLabelIds) : validLabelIds(savedDefaults.labelIds);
 		dueDate = defaultDueDate !== undefined ? defaultDueDate : savedDefaults.dueDate ?? null;
 		cycleId = defaultCycleId !== undefined ? validCycle(defaultCycleId) : validCycle(savedDefaults.cycleId);
+		clearIncompatibleTeamSelections(teamId);
 		if (slug) listTemplates(slug).then(t => templates = t).catch(() => {});
 	}
 
 	$effect(() => {
-		if (open) {
-			untrack(() => resetForm());
-		}
+		const isOpen = open;
+		if (isOpen === wasOpen) return;
+		wasOpen = isOpen;
+		untrack(() => {
+			if (isOpen) {
+				resetForm();
+				statusTeamBeforeOpen = teamId;
+			} else if (slug && statusTeamBeforeOpen && teamId !== statusTeamBeforeOpen) {
+				void teamStatusesState.load(slug, statusTeamBeforeOpen);
+				statusTeamBeforeOpen = '';
+			}
+		});
 	});
 
 	let selectedTeam = $derived(teams.find((t) => t.id === teamId));
 	let selectedProject = $derived(projects.find((p) => p.id === projectId));
 	let selectedAssignees = $derived(members.filter((m) => assigneeIds.includes(m.user_id)));
 	let selectedLabels = $derived(labels.filter((l) => labelIds.includes(l.id)));
+	let availableProjects = $derived(projects.filter((p) => !p.team_id || p.team_id === teamId));
+	let availableCycles = $derived((cycles ?? []).filter((c) => c.team_id === teamId));
+	let availableTemplates = $derived(
+		parentIssue
+			? templates.filter((tmpl) => !tmpl.team_id || tmpl.team_id === parentIssue.team_id)
+			: templates
+	);
 
 	const priorityValues: IssuePriority[] = [0, 1, 2, 3, 4];
 
 	const selectedStatus = $derived(teamStatusesState.statusById.get(statusId));
+
+	function templateIssueTitle(tmpl: IssueTemplate | null): string {
+		return tmpl?.default_issue_title?.trim() || tmpl?.title || '';
+	}
 
 	function handleSubmit() {
 		if (!title.trim() || !teamId || pendingUploads > 0) return;
@@ -226,7 +263,7 @@
 			cycle_id: cycleId || undefined
 		});
 		if (createMore) {
-			title = selectedTemplate?.title || '';
+			title = templateIssueTitle(selectedTemplate);
 			description = selectedTemplate?.description ?? '';
 			descriptionVersion++;
 		} else {
@@ -290,8 +327,11 @@
 	};
 
 	function applyTemplate(tmpl: IssueTemplate) {
+		if (parentIssue && tmpl.team_id && tmpl.team_id !== parentIssue.team_id) {
+			return;
+		}
 		selectedTemplate = tmpl;
-		title = tmpl.title || '';
+		title = templateIssueTitle(tmpl);
 		description = tmpl.description ?? '';
 		descriptionVersion++;
 		// The editor is recreated; counts reported by the previous instance no longer apply.
@@ -299,12 +339,20 @@
 		priority = tmpl.priority ?? 0;
 		labelIds = Array.isArray(tmpl.label_ids) ? tmpl.label_ids : [];
 		if (tmpl.assignee_id) assigneeIds = [tmpl.assignee_id];
-		if (tmpl.status) {
-			const category = STATUS_TO_CATEGORY[tmpl.status];
-			if (category) {
-				const defaultStatus = teamStatusesState.defaultForCategory(category);
-				if (defaultStatus) statusId = defaultStatus.id;
-			}
+		const templateTeamId = tmpl.team_id && validTeam(tmpl.team_id) ? tmpl.team_id : undefined;
+		let teamChanged = false;
+		if (templateTeamId && templateTeamId !== teamId) {
+			teamChanged = true;
+			teamId = templateTeamId;
+			statusId = '';
+			statusFallbackId = undefined;
+			clearIncompatibleTeamSelections(templateTeamId);
+		}
+		const category = tmpl.status ? STATUS_TO_CATEGORY[tmpl.status] : undefined;
+		if (category) {
+			loadStatusesForTeam(teamId, undefined, category, !teamChanged);
+		} else if (teamChanged) {
+			loadStatusesForTeam(teamId);
 		}
 		templateOpen = false;
 	}
@@ -331,7 +379,20 @@
 	function handleTeamChange(id: string) {
 		teamId = id;
 		statusId = '';
+		statusFallbackId = undefined;
+		clearIncompatibleTeamSelections(id);
 		loadStatusesForTeam(id);
+	}
+
+	function clearIncompatibleTeamSelections(nextTeamId: string) {
+		const project = projects.find((p) => p.id === projectId);
+		if (projectId && (!project || (project.team_id && project.team_id !== nextTeamId))) {
+			projectId = null;
+		}
+		const cycle = cycles?.find((c) => c.id === cycleId);
+		if (cycleId && (!cycle || cycle.team_id !== nextTeamId)) {
+			cycleId = null;
+		}
 	}
 </script>
 
@@ -363,7 +424,7 @@
 				{/snippet}
 			</TeamSelector>
 			<span class="text-xs text-[var(--color-text-tertiary)]">›</span>
-			{#if templates.length > 0}
+			{#if availableTemplates.length > 0}
 				<Popover.Root bind:open={templateOpen}>
 					<Popover.Trigger>
 						{#snippet child({ props })}
@@ -380,7 +441,7 @@
 							<FileText size={14} class="shrink-0 text-[var(--color-text-tertiary)]" />
 							<span class="truncate">{m['sharedComponents.create_issue.no_template']()}</span>
 						</Button>
-						{#each templates as tmpl (tmpl.id)}
+						{#each availableTemplates as tmpl (tmpl.id)}
 							<Button variant="plain" onclick={() => applyTemplate(tmpl)}
 								class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
 							>
@@ -440,7 +501,7 @@
 				bind:open={statusOpen}
 				statuses={teamStatusesState.statusOrder}
 				value={statusId}
-				onchange={(id) => { statusId = id; }}
+				onchange={(id) => { statusLoadVersion++; statusId = id; }}
 				width="w-44"
 			>
 				{#snippet trigger(props)}
@@ -468,7 +529,7 @@
 			<!-- Project -->
 			<ProjectSelector
 				bind:open={projectOpen}
-				{projects}
+				projects={availableProjects}
 				value={projectId}
 				onchange={(id) => { projectId = id; }}
 			>
@@ -533,14 +594,14 @@
 			<!-- Cycle -->
 			<CycleSelector
 				bind:open={cycleOpen}
-				cycles={cycles ?? []}
+				cycles={availableCycles}
 				value={cycleId}
 				onchange={(id) => { cycleId = id; }}
 			>
 				{#snippet trigger(props)}
 					<Button {...props} variant="plain" class="flex items-center gap-1.5 rounded-full border border-[var(--app-border)] px-2.5 py-1 max-sm:px-3 max-sm:py-1.5 text-xs {cycleId ? 'text-[var(--color-text-secondary)]' : 'text-[var(--color-text-tertiary)]'} hover:bg-[var(--color-bg-hover)]">
 						{#if cycleId}
-							{cycles?.find(c => c.id === cycleId)?.name ?? m['sharedComponents.create_issue.cycle']()}
+							{availableCycles.find(c => c.id === cycleId)?.name ?? m['sharedComponents.create_issue.cycle']()}
 						{:else}
 							{m['sharedComponents.create_issue.cycle']()}
 						{/if}
