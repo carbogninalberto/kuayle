@@ -1,5 +1,16 @@
 [
   {
+    "tag_name": "v0.1.29",
+    "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.29",
+    "body": "Fix permanent Dev Machine deletion after IDE or gateway access creates audit entries. Migration 49 clears dependent references together, preserving audit history and workspace ownership checks. Workspace deletion receives the same correction.\n\nValidated against PostgreSQL with existing access logs, transaction rollback, service and workspace deletion, migration downgrade/upgrade, and cross-workspace integrity checks.\n\nSelf-hosted upgrades must run database migrations (`./server migrate up`) before relying on the corrected cleanup behavior. Back up the database before upgrading.\n\n- Fix: https://github.com/carbogninalberto/kuayle/pull/84\n- Same-site Dev Machines and automatic HTTPS introduced in v0.1.28: https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.28\n",
+    "published_at": "2026-10-25T18:25:14Z",
+    "prerelease": false,
+    "force_upgrade": false,
+    "minimum_supported_version": null,
+    "upgrade_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.29",
+    "upgrade_message": null
+  },
+  {
     "tag_name": "v0.1.28",
     "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.28",
     "body": "## Dev Machines for personal instances\n\n- Explicit same-site hosting with `DEV_MACHINE_ALLOW_SAME_SITE=true`, keeping separate domains as the default.\n- HTTPS-only configuration, host-prefixed session cookies, and exact-origin protection for browser mutations and WebSocket upgrades. Sign in again when enabling the option.\n- Private certificate approval for stock Caddy on-demand HTTPS: wildcard DNS can work with any DNS provider, without DNS API credentials. Certificates are approved only for running machine services.\n\n## Security and maintenance\n\n- Update Echo to 4.16.1 and code-server to 4.143.1.\n- Refresh Undici, body-parser and Zod dependencies; preserve Zod v3 consumers and backport collection-bound protection with regression tests.\n\nNo database migration. See the README's personal-instance setup for configuration and certificate rate-limit considerations.\n\nImplemented and reviewed in #83.\n",
