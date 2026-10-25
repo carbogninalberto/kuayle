@@ -212,59 +212,51 @@
 			class="px-4 py-3 max-sm:flex max-sm:min-h-0 max-sm:flex-1 max-sm:flex-col max-sm:overflow-y-auto"
 			onkeydown={handleKeydown}
 		>
-			<div class="flex flex-col gap-3">
-				<div class="flex flex-col gap-1.5">
-					<label for="issue-template-title" class="text-sm text-[var(--color-text-secondary)]">
-						{m['settings.templates.template_title_field']()}
-					</label>
-					<Input
-						id="issue-template-title"
-						type="text"
-						bind:value={formTitle}
-						placeholder={m['settings.templates.title_placeholder']()}
-						class="w-full"
-					/>
-				</div>
-				<div class="flex flex-col gap-1.5">
-					<label for="issue-template-default-title" class="text-sm text-[var(--color-text-secondary)]">
-						{m['settings.templates.issue_title_field']()}
-					</label>
-					<Input
-						id="issue-template-default-title"
-						type="text"
-						maxlength={500}
-						bind:value={formDefaultIssueTitle}
-						placeholder={m['settings.templates.issue_title_placeholder']()}
-						class="w-full"
-					/>
-				</div>
+			<div class="flex flex-col gap-1.5">
+				<label for="issue-template-title" class="text-sm text-[var(--color-text-secondary)]">
+					{m['settings.templates.template_title_field']()}
+				</label>
+				<Input
+					id="issue-template-title"
+					type="text"
+					bind:value={formTitle}
+					placeholder={m['settings.templates.title_placeholder']()}
+					class="w-full"
+				/>
 			</div>
-			<div class="mt-4">
-				<span class="text-sm text-[var(--color-text-secondary)]">
-					{m['settings.templates.description']()}
-				</span>
-				<div class="mt-1.5 max-h-[calc(55vh-200px)] overflow-y-auto max-sm:flex-1 max-sm:[max-height:none]">
-					{#key editorVersion}
-						{@const currentEditorVersion = editorVersion}
-						<RichEditor
-							bind:this={descriptionEditor}
-							content={formDescription}
-							workspaceSlug={slug}
-							{members}
-							ariaLabel={m['settings.templates.description']()}
-							placeholder={m['settings.templates.description_placeholder']()}
-							bubbleMenu={true}
-							borderless={true}
-							minHeight="120px"
-							{uploadUrl}
-							hideUploadButtons={true}
-							onuploadschange={(pending) => {
-								if (open && currentEditorVersion === editorVersion) pendingUploads = pending;
-							}}
-							onupdate={(html) => (formDescription = html)}
-						/>
-					{/key}
-				</div>
+			<label for="issue-template-default-title" class="sr-only">
+				{m['settings.templates.issue_title_field']()}
+			</label>
+			<Input
+				variant="plain"
+				id="issue-template-default-title"
+				type="text"
+				maxlength={500}
+				bind:value={formDefaultIssueTitle}
+				placeholder={m['settings.templates.issue_title_placeholder']()}
+				class="mt-4 w-full bg-transparent text-lg font-semibold text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)]"
+			/>
+			<div class="mt-4 max-h-[calc(55vh-150px)] overflow-y-auto max-sm:flex-1 max-sm:[max-height:none]">
+				{#key editorVersion}
+					{@const currentEditorVersion = editorVersion}
+					<RichEditor
+						bind:this={descriptionEditor}
+						content={formDescription}
+						workspaceSlug={slug}
+						{members}
+						ariaLabel={m['settings.templates.description']()}
+						placeholder={m['settings.templates.description_placeholder']()}
+						bubbleMenu={true}
+						borderless={true}
+						minHeight="120px"
+						{uploadUrl}
+						hideUploadButtons={true}
+						onuploadschange={(pending) => {
+							if (open && currentEditorVersion === editorVersion) pendingUploads = pending;
+						}}
+						onupdate={(html) => (formDescription = html)}
+					/>
+				{/key}
 			</div>
 		</div>
 
