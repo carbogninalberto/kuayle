@@ -62,6 +62,7 @@ RUN rm -f /usr/bin/pebble \
 
 USER 1000:1000
 ENV HOME=/home/kuayle \
+    LANG=C.UTF-8 \
     SHELL=/usr/local/bin/kuayle-shell \
     COLORTERM=truecolor \
     GOPATH=/home/kuayle/go \

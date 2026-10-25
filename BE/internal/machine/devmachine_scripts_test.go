@@ -86,17 +86,21 @@ func TestTerminalRuntimeConfiguresFullColorTUI(t *testing.T) {
 	expectedTmuxOptions := []string{
 		`set -g default-terminal "tmux-256color"`,
 		`set -as terminal-features ",xterm-256color:RGB"`,
-		`set -sg escape-time 10`,
 		`set -g focus-events on`,
 		`set -g extended-keys on`,
 		`set -g allow-passthrough on`,
 		`set -g history-limit 50000`,
-		`set -g mouse on`,
 		`set-option -g destroy-unattached on`,
 	}
 	for _, option := range expectedTmuxOptions {
 		require.Contains(t, tmuxConfig, option+"\n")
 	}
+	// Browser terminals receive escape sequences over a WebSocket, so a sequence can arrive
+	// split across frames. A short escape-time makes tmux treat the ESC as a keypress and
+	// type the rest (for example "[<35;59;28M") into the TUI; keep tmux's default. Mouse
+	// mode would also make xterm.js stream motion reports and take over text selection.
+	require.NotContains(t, tmuxConfig, "escape-time")
+	require.NotContains(t, tmuxConfig, "mouse on")
 
 	sessionScriptBytes, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", "ide", "terminal-session.sh"))
 	require.NoError(t, err)
@@ -123,6 +127,20 @@ func TestAgentCLIInstallerRejectsUnknownArchitecture(t *testing.T) {
 
 // Crush release binaries are built with a Go toolchain that has known stdlib CVEs,
 // so both developer images build it from source with a patched toolchain.
+// Without a UTF-8 locale tmux replaces every non-ASCII glyph (prompt chevrons, box and
+// block characters) with "_", which breaks Codex, OpenCode and other TUIs.
+func TestDeveloperTerminalsUseUTF8(t *testing.T) {
+	repoRoot := repoRootFromCaller(t)
+	for _, image := range []string{"ide", "headless"} {
+		dockerfile, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", image, "Dockerfile"))
+		require.NoError(t, err)
+		require.Regexp(t, `(?m)^ENV HOME=/home/kuayle \\\n\s+LANG=C\.UTF-8`, string(dockerfile), image)
+	}
+	session, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", "ide", "terminal-session.sh"))
+	require.NoError(t, err)
+	require.Contains(t, string(session), "exec tmux -u new-session")
+}
+
 func TestDeveloperImagesBuildCrushWithPatchedGo(t *testing.T) {
 	repoRoot := repoRootFromCaller(t)
 	for _, image := range []string{"ide", "headless"} {

@@ -92,6 +92,7 @@ RUN rm -f /usr/bin/pebble \
     && chmod 0440 /etc/sudoers.d/kuayle-builder
 
 USER 1000:1000
-ENV HOME=/home/kuayle
+ENV HOME=/home/kuayle \
+    LANG=C.UTF-8
 EXPOSE 8080 7681
 CMD ["/usr/local/bin/kuayle-ide-start"]

@@ -41,4 +41,4 @@ if [ ! -d "$workspace" ]; then
 fi
 
 export COLORTERM=truecolor
-exec tmux new-session -A -s "$session" -c "$workspace"
+exec tmux -u new-session -A -s "$session" -c "$workspace"
