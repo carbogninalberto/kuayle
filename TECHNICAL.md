@@ -619,3 +619,10 @@ commit a0ebf970f2d752e5f58527cd2942ff48be4f46bd). Both CommonJS and ESM are test
 during the build, including async parsing and valid inputs; parser smoke tests
 cover normal, malformed, oversized and aborted requests. No scanner exclusion is
 used. Remove/review these overrides when vendor packages incorporate the fixes.
+
+Migration 49 preserves machine access audit rows when machines or workspaces are
+permanently deleted. BEFORE DELETE triggers detach dependent workspace/machine/
+service references atomically, before the existing SET NULL/CASCADE actions run;
+the composite ownership foreign keys and null-dependency checks remain enforced.
+Deleting only a service retains the machine/workspace audit context. Rolling back
+removes the triggers but cannot restore references to parents already deleted.
