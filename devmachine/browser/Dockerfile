@@ -34,6 +34,7 @@ RUN rm -f /usr/bin/pebble \
     && mkdir -p /home/kuayle \
     && chown 1000:1000 /home/kuayle
 COPY common/kuayle-service-entrypoint /usr/local/bin/kuayle-service-entrypoint
+COPY common/start-common.sh /usr/local/lib/kuayle/start-common.sh
 COPY --from=cdp-proxy-build /cdp-proxy /usr/local/bin/kuayle-browser-cdp-proxy
 COPY browser/start.sh /usr/local/bin/kuayle-browser-start
 COPY browser/healthcheck.sh /usr/local/bin/kuayle-browser-healthcheck

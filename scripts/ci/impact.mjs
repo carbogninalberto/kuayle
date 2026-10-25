@@ -10,12 +10,12 @@ const releaseImages = [
 ];
 const goImage = (id, name) => ({ id, name, context: './BE', dockerfile: `./BE/Dockerfile.${id === 'updater' ? id : `machine-${id}`}`, build_args: '' });
 const devImages = [goImage('gateway', 'Gateway'), goImage('manager', 'Manager'),
-  ...['ide', 'browser', 'collector', 'egress'].map((id) => ({ id, name: id === 'ide' ? 'IDE' : id[0].toUpperCase() + id.slice(1), context: './devmachine', dockerfile: `./devmachine/${id}/Dockerfile`, build_args: '' })),
+  ...['ide', 'headless', 'browser', 'collector', 'egress'].map((id) => ({ id, name: id === 'ide' ? 'IDE' : id[0].toUpperCase() + id.slice(1), context: './devmachine', dockerfile: `./devmachine/${id}/Dockerfile`, build_args: '' })),
   ...[['claude', 'Claude', 'claude-code'], ['opencode', 'OpenCode', 'opencode'], ['codex', 'Codex', 'codex']].map(([id, name, provider]) => ({ id: `agent-${id}`, name: `Agent ${name}`, context: './devmachine', dockerfile: './devmachine/agent/Dockerfile', build_args: `PROVIDER=${provider}` }))
 ];
 const updater = goImage('updater', 'Updater');
 const agents = ['agent-claude', 'agent-opencode', 'agent-codex'];
-const runtimeImages = ['ide', 'browser', 'collector', 'egress', ...agents];
+const runtimeImages = ['ide', 'headless', 'browser', 'collector', 'egress', ...agents];
 
 // Match actual consumers, not every file in a broad Docker COPY context.
 // Unknown inputs and changes to the routing/workflow implementation run broadly.
@@ -69,10 +69,20 @@ export function planForPaths(paths, event = 'pull_request') {
       // Go tests inspect and execute checkout/terminal/runner scripts here.
       flags.backend = true;
       flags.runtime = true;
-      if (path === 'devmachine/common/kuayle-service-entrypoint') add(dev, ['ide', 'browser', 'collector', 'egress']);
-      else if (path === 'devmachine/common/kuayle-agent-runner') add(dev, agents);
-      else if (['devmachine/common/patch-npm-security.cjs', 'devmachine/common/test-http-cache-semantics.cjs'].includes(path)) add(dev, ['ide', ...agents]);
+      if (path === 'devmachine/common/install-agent-clis.sh') add(dev, ['ide', 'headless']);
+      else if (path === 'devmachine/common/start-common.sh') add(dev, ['ide', 'headless', 'browser', 'collector', 'egress', ...agents]);
+      else if (path === 'devmachine/common/kuayle-service-entrypoint') add(dev, ['ide', 'headless', 'browser', 'collector', 'egress']);
+      else if (path === 'devmachine/common/kuayle-agent-runner') add(dev, ['headless', ...agents]);
+      else if (['devmachine/common/patch-npm-security.cjs', 'devmachine/common/test-http-cache-semantics.cjs'].includes(path)) add(dev, ['ide', 'headless', ...agents]);
       else if (path.startsWith('devmachine/agent/')) add(dev, agents);
+      else if (path.startsWith('devmachine/headless/')) add(dev, ['headless']);
+      else if ([
+        'devmachine/ide/checkout.sh',
+        'devmachine/ide/command-event.js',
+        'devmachine/ide/shell.sh',
+        'devmachine/ide/terminal-session.sh',
+        'devmachine/ide/tmux.conf',
+      ].includes(path)) add(dev, ['ide', 'headless']);
       else if (path.startsWith('devmachine/security/')) { /* host policy; exercised by runtime tests */ }
       else {
         const area = path.split('/')[1];

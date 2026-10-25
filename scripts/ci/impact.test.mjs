@@ -71,11 +71,22 @@ test('Dockerfiles and shared dev-machine inputs fan out only to their consumers'
   assert.deepEqual(ids(planForPaths(['UI/Dockerfile']).releaseImages), ['web']);
   assert.deepEqual(ids(planForPaths(['BE/Dockerfile.machine-gateway']).devImages), ['gateway']);
   assert.deepEqual(ids(planForPaths(['devmachine/collector/main.go']).devImages), ['collector']);
-  assert.deepEqual(ids(planForPaths(['devmachine/common/patch-npm-security.cjs']).devImages), ['ide', 'agent-claude', 'agent-opencode', 'agent-codex']);
-  assert.deepEqual(ids(planForPaths(['devmachine/common/kuayle-service-entrypoint']).devImages), ['ide', 'browser', 'collector', 'egress']);
+  assert.deepEqual(ids(planForPaths(['devmachine/common/patch-npm-security.cjs']).devImages), ['ide', 'headless', 'agent-claude', 'agent-opencode', 'agent-codex']);
+  assert.deepEqual(ids(planForPaths(['devmachine/common/kuayle-service-entrypoint']).devImages), ['ide', 'headless', 'browser', 'collector', 'egress']);
   assert.equal(planForPaths(['devmachine/ide/checkout.sh']).backend, true);
   assert.equal(planForPaths(['devmachine/ide/checkout.sh', 'BE/Dockerfile.updater']).runtime, true);
   assert.equal(planForPaths(['devmachine/security/apparmor.profile']).runtime, true);
+});
+
+test('headless and shared developer image inputs select only their consumers', () => {
+  const headless = planForPaths(['devmachine/headless/Dockerfile']);
+  assert.equal(headless.backend, true);
+  assert.equal(headless.runtime, true);
+  assert.deepEqual(ids(headless.devImages), ['headless']);
+  assert.deepEqual(ids(planForPaths(['devmachine/common/install-agent-clis.sh']).devImages), ['ide', 'headless']);
+  assert.deepEqual(ids(planForPaths(['devmachine/common/start-common.sh']).devImages), ['ide', 'headless', 'browser', 'collector', 'egress', 'agent-claude', 'agent-opencode', 'agent-codex']);
+  assert.deepEqual(ids(planForPaths(['devmachine/common/kuayle-agent-runner']).devImages), ['headless', 'agent-claude', 'agent-opencode', 'agent-codex']);
+  assert.deepEqual(ids(planForPaths(['devmachine/ide/terminal-session.sh']).devImages), ['ide', 'headless']);
 });
 
 test('self-hosting scripts and smoke tests retain their checks and packaged runtime coverage', () => {
@@ -91,7 +102,7 @@ test('workflow, routing, unknown and shared root changes conservatively exercise
     const plan = planForPaths([path]);
     assert.equal(plan.ci && plan.backend && plan.frontend && plan.web && plan.runtime && plan.selfhosting, true);
     assert.equal(plan.releaseImages.length, 3);
-    assert.equal(plan.devImages.length, 9);
+    assert.equal(plan.devImages.length, 10);
   }
 });
 
@@ -102,8 +113,8 @@ test('mixed changes union their coverage; non-PR events retain the full original
   assert.deepEqual(ids(mixed.devImages), ['collector']);
   for (const event of ['push', 'release', 'schedule', 'workflow_dispatch']) {
     const plan = planForPaths([], event);
-    assert.equal(plan.devImages.length, 9);
-    assert.equal(plan.securityImages.length, 10);
+    assert.equal(plan.devImages.length, 10);
+    assert.equal(plan.securityImages.length, 11);
     assert.deepEqual(plan.required.build, ['build', 'dev-machine-images']);
     assert.ok(plan.required.security.includes('docker-security'));
   }
@@ -166,9 +177,9 @@ test('diff handles more than 300 files and whitespace without truncation', (t) =
 test('missing or invalid comparison data falls back to broad verification', () => {
   const plan = detectPlan({ cwd: tmpdir(), event: 'pull_request', base: '--bad', head: '' });
   assert.ok(plan.reason.includes('fallback'));
-  assert.equal(detectPlan({}).devImages.length, 9);
+  assert.equal(detectPlan({}).devImages.length, 10);
   assert.equal(plan.backend && plan.frontend && plan.web && plan.runtime, true);
-  assert.equal(plan.devImages.length, 9);
+  assert.equal(plan.devImages.length, 10);
 });
 
 test('gates allow intentional omissions but reject failed detection or selected skipped/cancelled jobs', () => {

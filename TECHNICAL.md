@@ -208,7 +208,7 @@ Initial providers:
 | `codex` | Codex | `OPENAI_API_KEY` | interactive, autonomous |
 | `custom` | Admin-configured argv CLI | explicit configuration | interactive, autonomous |
 
-Provider adapters can construct both invocation modes, but the current product dialogs queue autonomous runs only and there is no UI/gateway endpoint for attaching to an interactive agent container. The shared developer image pins OpenCode, Claude Code, and Codex CLI versions for direct interactive terminal/code-server use. Custom providers must be enabled by workspace policy and are currently launched through the autonomous dashboard flow. Provider-specific agent images remain separately pinned by tag or digest in configuration and runtime Dockerfiles; custom provider images must also be pinned.
+Provider adapters can construct both invocation modes, but the current product dialogs queue autonomous runs only and there is no UI/gateway endpoint for attaching to an interactive agent container. The shared IDE and headless images install all eight built-in CLIs from one digest-checked pin list for direct interactive terminal use. Custom providers must be enabled by workspace policy and are currently launched through the autonomous dashboard flow. Provider-specific agent images remain separately pinned by tag or digest in configuration and runtime Dockerfiles; custom provider images must also be pinned.
 
 ### Normalized Result
 
@@ -576,7 +576,7 @@ Required configuration when enabled:
 | `DEV_MACHINE_DOCKER_ROOT` | Host path of Docker's data root, mounted read-only into the manager (default `/var/lib/docker`) |
 | `DEV_MACHINE_HOST_DISK_PATH` | In-container path measured for host free space (Compose sets the mount point; falls back to a running collector when empty) |
 | `DEV_MACHINE_DOCKER_GID` | Numeric host group owner of the mounted Docker socket; obtain it on Linux with `stat -c '%g' /var/run/docker.sock` (Docker Desktop commonly uses `0`) |
-| `DEV_MACHINE_*_IMAGE` | Pinned runtime image references; the developer image contains pinned OpenCode/Claude Code/Codex CLIs and provider-specific agent images are pinned separately |
+| `DEV_MACHINE_*_IMAGE` | Pinned runtime image references; separate IDE and headless developer images share the eight pinned CLIs, and provider-specific agent images are pinned separately |
 
 Compose passes the same `DEV_MACHINES_ENABLED` value to the backend, gateway, and manager. The `dev-machines` profile's database-provisioning prerequisite exits before modifying grants or starting the control plane unless that value is exactly `true`; the gateway and manager also retain their own fail-closed startup checks.
 
@@ -586,7 +586,7 @@ Compose places the Internet-facing gateway only on an internal `machine-control`
 
 Valid-looking unknown wildcard hosts are bounded before they can exhaust the database: route lookups use a 60-per-second source limit, a 500-per-second process limit, and a 32-query concurrency cap; missing routes are cached for 30 seconds. Attacker-controlled source and negative-route state is capped, and unknown-route audits are limited to one per source per five minutes and ten total writes per minute. The manager deletes access logs older than 90 days in batches of 1,000. Malformed or out-of-domain hosts are rejected before any database operation.
 
-The self-hosting `dev-machine-images` profile builds the developer, browser, collector, egress, and built-in provider agent images locally. Environment Builder snapshot bytes are additional local OCI images in the host Docker image store, while their references and lifecycle metadata are stored in `dev_machine_environments`; snapshots are not Compose volumes. Backups and host migrations must account for PostgreSQL, Docker named volumes, and any environment images that should survive a host replacement.
+The self-hosting `dev-machine-images` profile builds the IDE, headless developer, browser, collector, egress, and built-in provider agent images locally. The headless image combines the ttyd developer terminal with the autonomous agent-run entrypoint, while the IDE image retains code-server and ttyd. Environment Builder snapshot bytes are additional local OCI images in the host Docker image store, while their references and lifecycle metadata are stored in `dev_machine_environments`; snapshots are not Compose volumes. Backups and host migrations must account for PostgreSQL, Docker named volumes, and any environment images that should survive a host replacement.
 
 `selfhosting/update.sh` detects an active Dev Machines profile without enabling it on other deployments. When active, it rebuilds runtime images before stopping the old gateway and manager, applies migrations with the new backend image, and starts the updated application and control plane only after the schema is current. If migration, role provisioning, or a later update step fails after the stop, its EXIT trap removes the upgrade marker, preserves the original failure status and container logs, and uses `docker compose start` to revive the same previous control-plane containers rather than recreating them from new images.
 

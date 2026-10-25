@@ -10,6 +10,7 @@ RUN apk upgrade --no-cache && apk add --no-cache ca-certificates coreutils git \
     && adduser -D -u 1000 -G kuayle kuayle
 COPY --from=build /collector /usr/local/bin/kuayle-collector
 COPY common/kuayle-service-entrypoint /usr/local/bin/kuayle-service-entrypoint
+COPY common/start-common.sh /usr/local/lib/kuayle/start-common.sh
 RUN chmod 0755 /usr/local/bin/kuayle-service-entrypoint /usr/local/bin/kuayle-collector
 
 USER 1000:1000
