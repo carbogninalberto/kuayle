@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"testing"
 
@@ -88,6 +89,15 @@ func TestCrossWorkspaceReferencesRejectedPostgres(t *testing.T) {
 	require.Equal(t, 1, count(`SELECT COUNT(*) FROM issue_labels WHERE issue_id=$1 AND label_id=$2`, issueID, ownLabel))
 	require.Equal(t, 1, count(`SELECT COUNT(*) FROM issues WHERE id=$1 AND assignee_id=$2`, issueID, member), "the first valid assignee stays primary")
 
-	template := &domain.IssueTemplate{ID: uuid.New(), WorkspaceID: workspace, Title: "Probe", AssigneeID: &foreigner, CreatedBy: member}
+	template := &domain.IssueTemplate{ID: uuid.New(), WorkspaceID: workspace, Title: "Probe", AssigneeID: &foreigner, LabelIDs: json.RawMessage(`[]`), CreatedBy: member}
 	require.Error(t, NewIssueTemplateRepository(db).Create(ctx, template), "a non-member template assignee must be refused")
+
+	project.ID, project.LeadID = uuid.New(), &member
+	require.NoError(t, NewProjectRepository(db).Create(ctx, project))
+	project.LeadID = &foreigner
+	require.Error(t, NewProjectRepository(db).Update(ctx, project), "a non-member lead must not replace a member")
+	template.ID, template.AssigneeID = uuid.New(), &member
+	require.NoError(t, NewIssueTemplateRepository(db).Create(ctx, template))
+	template.AssigneeID = &foreigner
+	require.Error(t, NewIssueTemplateRepository(db).Update(ctx, template))
 }
