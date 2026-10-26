@@ -144,3 +144,6 @@ run_case backend-restoration-failure stop-backend 46 true false true true
 run_case success '' 0 false
 
 printf 'self-host update recovery tests passed\n'
+
+# Release deployments use a detached checkout and published image digests.
+python3 -m unittest discover -s "$(dirname "$0")/tests" -v
