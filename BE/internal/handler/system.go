@@ -68,6 +68,9 @@ func (h *SystemHandler) UpdateStatus(c echo.Context) error {
 	}
 
 	status.Enabled = true
+	if status.State == "" {
+		status.State = legacyUpdateState(status)
+	}
 	return response.Success(c, http.StatusOK, status)
 }
 
@@ -156,6 +159,21 @@ func (h *SystemHandler) callUpdater(ctx context.Context, method, path string, ta
 	}
 
 	return res.StatusCode, nil
+}
+
+// legacyUpdateState derives the run state from sidecars that predate the state
+// field; update scripts do not recreate the running updater.
+func legacyUpdateState(status dto.SystemUpdateStatusResponse) string {
+	switch {
+	case status.Running:
+		return "running"
+	case status.Message == "Last update failed":
+		return "failed"
+	case status.Message == "Last update completed successfully":
+		return "succeeded"
+	default:
+		return "idle"
+	}
 }
 
 func fallbackMessage(message, fallback string) string {

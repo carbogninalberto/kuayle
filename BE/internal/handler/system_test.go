@@ -134,3 +134,24 @@ func TestSystemHandlerUpdateActivityWithoutUpdater(t *testing.T) {
 	require.NoError(t, NewSystemHandler("", "", nil).UpdateActivity(c))
 	assert.JSONEq(t, `{"running":false}`, rec.Body.String())
 }
+
+func TestSystemHandlerUpdateStatusNormalizesLegacyUpdater(t *testing.T) {
+	userID := uuid.New()
+	for message, state := range map[string]string{
+		"Last update failed":                 "failed",
+		"Last update completed successfully": "succeeded",
+		"Idle":                               "idle",
+	} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(`{"running":false,"message":"` + message + `"}`))
+		}))
+		rec := httptest.NewRecorder()
+		c := echo.New().NewContext(httptest.NewRequest(http.MethodGet, "/api/system/update-status", nil), rec)
+		c.Set("user_id", userID)
+		h := NewSystemHandler(server.URL, "secret", func(id uuid.UUID) bool { return id == userID })
+
+		require.NoError(t, h.UpdateStatus(c))
+		assert.JSONEq(t, `{"enabled":true,"running":false,"message":"`+message+`","state":"`+state+`"}`, rec.Body.String())
+		server.Close()
+	}
+}
