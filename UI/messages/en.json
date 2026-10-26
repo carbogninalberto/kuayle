@@ -1393,6 +1393,7 @@
 	"sharedComponents.release_notice.to": "to",
 	"sharedComponents.release_notice.toggle_prerelease": "Toggle pre-release visibility",
 	"sharedComponents.release_notice.update_available": "Update available",
+	"sharedComponents.release_notice.upgrade_now": "Upgrade now",
 	"sharedComponents.release_notice.upgrade_message": "Ask the instance owner to upgrade Kuayle, then refresh this page to load the new app version.",
 	"sharedComponents.release_notice.upgrade_required": "Upgrade required",
 	"sharedComponents.rich_editor.attach_files": "Attach files",
