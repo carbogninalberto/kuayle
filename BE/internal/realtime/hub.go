@@ -21,8 +21,14 @@ type Client struct {
 	conn         *websocket.Conn
 	workspaceID  uuid.UUID
 	userID       uuid.UUID
-	send         chan []byte
+	send         chan outbound
 	viewingIssue string // issue ID currently being viewed (empty if none)
+}
+
+type outbound struct {
+	data []byte
+	// Instance-wide events carry no workspace data; privacy does not replace them.
+	system bool
 }
 
 // Incoming message types from clients
@@ -71,15 +77,18 @@ var privateRefresh = []byte(`{"type":"app.refresh","payload":{"resources":["work
 
 // Read policy at dequeue: authorization when enqueuing is insufficient for
 // messages buffered before removal or a visibility transition.
-func (h *Hub) delivery(ctx context.Context, client *Client, msg []byte) ([]byte, bool) {
+func (h *Hub) delivery(ctx context.Context, client *Client, msg outbound) ([]byte, bool) {
 	member, private := h.policy(ctx, client)
 	if !member {
 		return nil, false
 	}
+	if msg.system {
+		return msg.data, true
+	}
 	if private {
 		return privateRefresh, true
 	}
-	return msg, true
+	return msg.data, true
 }
 
 func (h *Hub) Register(conn *websocket.Conn, workspaceID, userID uuid.UUID) *Client {
@@ -87,7 +96,7 @@ func (h *Hub) Register(conn *websocket.Conn, workspaceID, userID uuid.UUID) *Cli
 		conn:        conn,
 		workspaceID: workspaceID,
 		userID:      userID,
-		send:        make(chan []byte, 256),
+		send:        make(chan outbound, 256),
 	}
 
 	h.mu.Lock()
@@ -127,9 +136,32 @@ func (h *Hub) Broadcast(workspaceID uuid.UUID, event Event) {
 
 	for client := range clients {
 		select {
-		case client.send <- data:
+		case client.send <- outbound{data: data}:
 		default:
 			// Client buffer full, skip
+		}
+	}
+}
+
+// BroadcastSystem notifies every connected client about instance-wide events,
+// such as a system update. Delivery still requires workspace membership.
+func (h *Hub) BroadcastSystem(event Event) {
+	event.Timestamp = time.Now()
+
+	data, err := json.Marshal(event)
+	if err != nil {
+		log.WithError(err).Error("failed to marshal event")
+		return
+	}
+
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, clients := range h.clients {
+		for client := range clients {
+			select {
+			case client.send <- outbound{data: data, system: true}:
+			default:
+			}
 		}
 	}
 }
@@ -150,7 +182,7 @@ func (h *Hub) BroadcastToUser(workspaceID, userID uuid.UUID, event Event) {
 	for client := range clients {
 		if client.userID == userID {
 			select {
-			case client.send <- data:
+			case client.send <- outbound{data: data}:
 			default:
 			}
 		}
@@ -168,12 +200,11 @@ func (h *Hub) WritePump(ctx context.Context, client *Client) {
 			if !ok {
 				return
 			}
-			var allowed bool
-			msg, allowed = h.delivery(ctx, client, msg)
+			data, allowed := h.delivery(ctx, client, msg)
 			if !allowed {
 				return
 			}
-			err := client.conn.Write(ctx, websocket.MessageText, msg)
+			err := client.conn.Write(ctx, websocket.MessageText, data)
 			if err != nil {
 				return
 			}
@@ -321,7 +352,7 @@ func (h *Hub) BroadcastExcluding(workspaceID uuid.UUID, exclude *Client, event E
 			continue
 		}
 		select {
-		case client.send <- data:
+		case client.send <- outbound{data: data}:
 		default:
 		}
 	}
@@ -352,7 +383,7 @@ func (h *Hub) sendToClient(client *Client, event Event) {
 		return
 	}
 	select {
-	case client.send <- data:
+	case client.send <- outbound{data: data}:
 	default:
 	}
 }

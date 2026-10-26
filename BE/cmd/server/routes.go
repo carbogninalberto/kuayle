@@ -93,6 +93,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	pub.GET("/share/:token", h.sharedLink.GetPublicMeta).Name = "public"
 	pub.GET("/share/:token/issues", h.sharedLink.ListPublicIssues).Name = "public"
 	e.GET("/api/public/assets/:token", h.upload.PublicAsset, m.publicAssetRateLimit).Name = "public"
+	pub.GET("/system/update-activity", h.system.UpdateActivity).Name = "public"
 
 	e.GET("/api/config", h.config.Get, m.publicAssetRateLimit).Name = "public"
 	e.GET("/api/invite/:token", h.inviteLink.Preview, m.authRateLimit).Name = "public"

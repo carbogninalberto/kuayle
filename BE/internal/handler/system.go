@@ -21,6 +21,7 @@ type SystemHandler struct {
 	updaterToken string
 	isSysAdmin   func(uuid.UUID) bool
 	client       *http.Client
+	announce     func()
 }
 
 func NewSystemHandler(updaterURL, updaterToken string, isSysAdmin func(uuid.UUID) bool) *SystemHandler {
@@ -33,6 +34,11 @@ func NewSystemHandler(updaterURL, updaterToken string, isSysAdmin func(uuid.UUID
 		isSysAdmin:   isSysAdmin,
 		client:       &http.Client{Timeout: 10 * time.Second},
 	}
+}
+
+// OnUpdateStarted registers a notification sent after the updater accepts a run.
+func (h *SystemHandler) OnUpdateStarted(announce func()) {
+	h.announce = announce
 }
 
 func (h *SystemHandler) UpdateStatus(c echo.Context) error {
@@ -62,6 +68,9 @@ func (h *SystemHandler) UpdateStatus(c echo.Context) error {
 	}
 
 	status.Enabled = true
+	if status.State == "" {
+		status.State = legacyUpdateState(status)
+	}
 	return response.Success(c, http.StatusOK, status)
 }
 
@@ -90,6 +99,9 @@ func (h *SystemHandler) StartUpdate(c echo.Context) error {
 		if result.Message == "" {
 			result.Message = "System update started"
 		}
+		if h.announce != nil {
+			h.announce()
+		}
 		return response.Success(c, http.StatusAccepted, result)
 	case http.StatusConflict:
 		return response.Error(c, http.StatusConflict, "UPDATE_RUNNING", fallbackMessage(result.Message, "A system update is already running"))
@@ -100,6 +112,25 @@ func (h *SystemHandler) StartUpdate(c echo.Context) error {
 		log.WithField("status", statusCode).Warn("system updater returned unexpected status")
 		return response.Error(c, http.StatusBadGateway, "UPDATER_FAILED", fallbackMessage(result.Message, "System updater failed to start"))
 	}
+}
+
+// UpdateActivity is public so the maintenance page can tell when an update ends,
+// even after the viewer's access token expires. It reveals only the running flag.
+func (h *SystemHandler) UpdateActivity(c echo.Context) error {
+	c.Response().Header().Set("Cache-Control", "no-store")
+	if !h.updaterConfigured() {
+		return response.Success(c, http.StatusOK, dto.SystemUpdateActivityResponse{})
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Second)
+	defer cancel()
+
+	var status dto.SystemUpdateStatusResponse
+	statusCode, err := h.callUpdater(ctx, http.MethodGet, "/status", &status)
+	if err != nil || statusCode != http.StatusOK {
+		return response.Error(c, http.StatusBadGateway, "UPDATER_UNAVAILABLE", "System updater is unavailable")
+	}
+	return response.Success(c, http.StatusOK, dto.SystemUpdateActivityResponse{Running: status.Running})
 }
 
 func (h *SystemHandler) updaterConfigured() bool {
@@ -128,6 +159,21 @@ func (h *SystemHandler) callUpdater(ctx context.Context, method, path string, ta
 	}
 
 	return res.StatusCode, nil
+}
+
+// legacyUpdateState derives the run state from sidecars that predate the state
+// field; update scripts do not recreate the running updater.
+func legacyUpdateState(status dto.SystemUpdateStatusResponse) string {
+	switch {
+	case status.Running:
+		return "running"
+	case status.Message == "Last update failed":
+		return "failed"
+	case status.Message == "Last update completed successfully":
+		return "succeeded"
+	default:
+		return "idle"
+	}
 }
 
 func fallbackMessage(message, fallback string) string {
