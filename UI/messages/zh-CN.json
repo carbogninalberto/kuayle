@@ -1917,5 +1917,8 @@
 	"tasks.state.completed": "已完成",
 	"tasks.state.failed": "失败",
 	"tasks.state.cancelling": "正在取消",
-	"tasks.state.cancelled": "已取消"
+	"tasks.state.cancelled": "已取消",
+	"tasks.test_command": "测试命令",
+	"tasks.test_command_help": "输入 JSON 数组，例如 [\"npm\",\"test\"]。留空以继承；[] 表示未配置检查。",
+	"tasks.test_command_invalid": "请使用最多包含 64 个文本参数的 JSON 数组，并以命令开头。"
 }

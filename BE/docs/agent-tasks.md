@@ -19,6 +19,29 @@ worktrees use the task UUID, so two tasks for the same issue do not share a bran
 Rollback refuses active tasks, retained task worktrees and native attempts still
 using recovery credentials; it does not silently orphan execution.
 
+## Test command configuration
+
+Migration 57 adds a nullable `test_command` override to development defaults and
+tasks, plus the effective `validation_command` snapshot on each task attempt.
+The Settings, team, project and issue development forms accept a JSON argv array;
+task delegation and retry forms can override it. Omitted/null inherits; `[]`
+explicitly means no configured check. Commands are bounded to 64 arguments,
+8 KiB per argument and 32 KiB total; empty executables and NUL are rejected.
+
+New accepted intents resolve issue → project → team → workspace within the
+existing authorized task transaction. The immutable queued receipt retains both
+the requested override and effective command. A replay compares the original
+override, including the distinction between inherit and `[]`, and returns the
+original snapshot even after defaults change. A new retry resolves current
+defaults unless it explicitly supplies an override. Existing attempts migrate
+with no configured command; later defaults are never retroactively applied.
+Rollback refuses configured overrides or nonempty effective snapshots.
+
+The native attempt receives this command in its instructions and existing
+`test_command` field. **Independent execution and trustworthy test results are
+still pending**; command configuration does not advance `validating` or claim a
+passed check. Missing commands are not evidence of success.
+
 ## Authorization and side effects
 
 Tasks belong to their creator's private issue conversation and original team.

@@ -64,6 +64,8 @@ type DevMachineScopeSettingRequest struct {
 	GitHubRepoID  *string `json:"github_repo_id,omitempty" validate:"omitempty,uuid"`
 	BaseBranch    *string `json:"base_branch,omitempty" validate:"omitempty,max=255"`
 	EnvironmentID *string `json:"environment_id,omitempty" validate:"omitempty,uuid"`
+
+	TestCommand []string `json:"test_command" validate:"omitempty,max=64,dive,max=8192"`
 }
 
 type CheckoutIssueRequest struct {

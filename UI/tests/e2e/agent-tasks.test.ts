@@ -330,3 +330,38 @@ test('keeps displaying live output while activity arrives continuously', async (
 		clearInterval(timer);
 	}
 });
+
+test('validates test command overrides and preserves them across transport retries', async ({ page }) => {
+	const { state } = await fixture(page);
+	await page.goto('/test/assistant?conversation=chat-1');
+	await page.getByRole('button', { name: 'Start coding', exact: true }).click();
+	const dialog = page.getByRole('dialog', { name: 'Start coding', exact: true });
+	await dialog.getByRole('textbox', { name: 'Task instructions' }).fill('Implement search');
+	const command = dialog.getByRole('textbox', { name: 'Test command' });
+	await command.fill('npm test');
+	await dialog.getByRole('button', { name: 'Delegate task', exact: true }).click();
+	await expect(dialog.getByRole('alert')).toContainText('JSON array');
+	expect(state.creates).toHaveLength(0);
+	await command.fill('["npm","test"]');
+	state.failAfterCreate = true;
+	await dialog.getByRole('button', { name: 'Delegate task', exact: true }).click();
+	await expect.poll(() => state.creates.length).toBe(1);
+	const request = state.creates[0];
+	await page.reload();
+	await page.getByRole('button', { name: 'Start coding', exact: true }).click();
+	await expect(command).toHaveValue('["npm","test"]');
+	await dialog.getByRole('button', { name: 'Delegate task', exact: true }).click();
+	await expect.poll(() => state.creates.length).toBe(2);
+	expect(state.creates[1]).toEqual(request);
+	expect(request.test_command).toEqual(['npm','test']);
+	await expect(dialog).not.toBeVisible();
+	state.task = { ...state.task, state:'blocked', test_command: ['npm','test'] };
+	await page.reload();
+	await page.getByRole('button', { name:'Retry task', exact:true }).click();
+	const retry = page.getByRole('dialog', { name:'Retry task', exact:true });
+	await expect(retry.getByRole('textbox', { name:'Test command' })).toHaveValue('["npm","test"]');
+	await retry.getByRole('textbox', { name:'Test command' }).fill('[]');
+	await retry.getByRole('button', { name:'Retry task', exact:true }).click();
+	await expect.poll(() => state.retries.length).toBe(1);
+	expect(state.retries[0].test_command).toEqual([]);
+});

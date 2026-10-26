@@ -92,10 +92,11 @@ func TestAgentTaskHTTPPrivateControlsAndRecovery(t *testing.T) {
 		}
 	}
 	path := "/conversations/" + chat.ID.String() + "/tasks"
-	body := fmt.Sprintf(`{"request_id":%q,"prompt":"Implement and test","provider":"codex"}`, uuid.NewString())
+	body := fmt.Sprintf(`{"request_id":%q,"prompt":"Implement and test","provider":"codex","test_command":["npm","test"]}`, uuid.NewString())
 	var task domain.AgentTask
 	request("POST", path, body, token, 202, &task)
 	require.NotEqual(t, uuid.Nil, task.ID)
+	require.JSONEq(t, `["npm","test"]`, string(task.ValidationCommand))
 	var duplicate domain.AgentTask
 	request("POST", path, body, token, 202, &duplicate)
 	require.Equal(t, task.ID, duplicate.ID)
@@ -124,6 +125,8 @@ func TestAgentTaskHTTPPrivateControlsAndRecovery(t *testing.T) {
 	request("POST", path, strings.TrimSuffix(body, "}")+`,"machine_id":"untrusted"}`, token, 400, nil)
 	request("POST", path, body+body, token, 400, nil)
 	newRequestBody := strings.Replace(body, task.RequestID.String(), uuid.NewString(), 1)
+	request("POST", path, strings.Replace(newRequestBody, `["npm","test"]`, `[""]`, 1), token, 400, nil)
+	request("POST", path, strings.Replace(body, `["npm","test"]`, `[]`, 1), token, 409, nil)
 	request("POST", path, strings.Replace(newRequestBody, `"codex"`, `"unknown"`, 1), token, 403, nil)
 	request("POST", path, strings.TrimSuffix(newRequestBody, "}")+`,"model":"unsupported"}`, token, 400, nil)
 	request("POST", path, strings.TrimSuffix(newRequestBody, "}")+`,"model":"deepseek-flash"}`, token, 409, nil)

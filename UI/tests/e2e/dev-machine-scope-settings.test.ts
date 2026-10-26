@@ -75,7 +75,8 @@ test('keeps project and team development settings scoped during rapid navigation
 				team_id: scopeType === 'team' ? scopeId : undefined,
 				project_id: scopeType === 'project' ? scopeId : undefined,
 				github_repo_id: useBeta ? repoBId : repoAId,
-				environment_id: useBeta ? environmentBId : environmentAId
+				environment_id: useBeta ? environmentBId : environmentAId,
+				test_command: useBeta ? ['npm','test'] : ['go','test','./...']
 			} });
 			delay?.markCompleted();
 			return;
@@ -119,9 +120,10 @@ test('keeps project and team development settings scoped during rapid navigation
 	await page.waitForTimeout(50);
 	await expect(page.getByText('kuayle/repo-beta', { exact: true })).toBeVisible();
 	await expect(page.getByText('kuayle/repo-alpha', { exact: true })).toHaveCount(0);
+	await expect(page.getByRole('textbox', { name: 'Test command' })).toHaveValue('["npm","test"]');
 	await teamSave.click();
 	await expect.poll(() => savedSettings.length).toBe(1);
-	expect(savedSettings[0]).toMatchObject({ scope_type: 'team', scope_id: teamBId, github_repo_id: repoBId, environment_id: environmentBId });
+	expect(savedSettings[0]).toMatchObject({ scope_type: 'team', scope_id: teamBId, github_repo_id: repoBId, environment_id: environmentBId, test_command: ['npm','test'] });
 
 	const projectADelay = createRequestDelay();
 	const projectBDelay = createRequestDelay();
@@ -151,9 +153,10 @@ test('keeps project and team development settings scoped during rapid navigation
 	await page.waitForTimeout(50);
 	await expect(projectDialog.getByText('kuayle/repo-beta', { exact: true })).toBeVisible();
 	await expect(projectDialog.getByText('kuayle/repo-alpha', { exact: true })).toHaveCount(0);
+	await expect(projectDialog.getByRole('textbox', { name: 'Test command' })).toHaveValue('["npm","test"]');
 	await projectDialog.getByRole('button', { name: 'Save', exact: true }).click();
 	await expect.poll(() => savedSettings.length).toBe(2);
-	expect(savedSettings[1]).toMatchObject({ scope_type: 'project', scope_id: projectBId, github_repo_id: repoBId, environment_id: environmentBId });
+	expect(savedSettings[1]).toMatchObject({ scope_type: 'project', scope_id: projectBId, github_repo_id: repoBId, environment_id: environmentBId, test_command: ['npm','test'] });
 	expect(deleteRequests).toBe(0);
 
 	workspaceRole = 'member';
@@ -166,6 +169,7 @@ test('keeps project and team development settings scoped during rapid navigation
 	await expect(readOnlyDialog.getByText('kuayle/repo-alpha', { exact: true })).toBeVisible();
 	await expect(readOnlyDialog.getByText('Alpha environment', { exact: true })).toBeVisible();
 	await expect(readOnlyDialog.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
+	await expect(readOnlyDialog.getByRole('textbox', { name: 'Test command' })).toBeDisabled();
 	expect(savedSettings).toHaveLength(2);
 	expect(deleteRequests).toBe(0);
 });

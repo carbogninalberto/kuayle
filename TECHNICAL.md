@@ -374,7 +374,7 @@ The IDE and headless start scripts and the autonomous agent runner create `$HOME
 
 ## Scoped Settings, Worktrees, and Environments
 
-Development defaults are stored in `dev_machine_scope_settings`. A setting may provide a linked GitHub repository, base branch, and/or development environment for a workspace, team, project, or issue. Repository and environment values are resolved independently in this order: issue, project, team, workspace. This lets an issue override only the repository while inheriting an environment, or vice versa.
+Development defaults are stored in `dev_machine_scope_settings`. A setting may provide a linked GitHub repository, base branch, development environment, and/or test command for a workspace, team, project, or issue. Repository, environment and test-command values are resolved independently in this order: issue, project, team, workspace. This lets an issue override only the repository while inheriting an environment, or vice versa.
 
 Machine creation accepts optional issue/project/repository information but does not require it. If no repository resolves, legacy repository fields remain empty and the machine starts as a generic developer workspace. When an issue is opened, `POST /dev-machines/:machineId/checkouts` resolves the issue's development settings, enforces the machine's repository affinity, and creates an idempotent issue worktree under `/workspace/tasks/{issue-key}`. A machine can hold multiple ready checkouts from the same repository; checkouts from another repository or environment require a separate machine.
 

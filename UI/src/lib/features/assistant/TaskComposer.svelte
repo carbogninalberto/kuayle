@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import TestCommandField from '$lib/features/dev-machines/TestCommandField.svelte';
+	import { parseTestCommand, formatTestCommand } from '$lib/features/dev-machines/test-command';
 	import { ChevronDown } from '@lucide/svelte';
 	import * as Dialog from '$lib/components/ui/dialog/index.js';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
@@ -25,6 +27,7 @@
 		onaccepted: (task: AgentTask) => void;
 		onclose: () => void;
 	} = $props();
+	let testCommand = $state('');
 	let prompt = $state(''),
 		provider = $state(''),
 		model = $state(''),
@@ -39,6 +42,7 @@
 	);
 	onMount(() => {
 		prompt = task?.prompt ?? initialPrompt;
+		testCommand = formatTestCommand(task?.test_command);
 		provider = task?.provider ?? options?.providers[0]?.id ?? '';
 		model = options?.model_provider.configured ? options.model_provider.default_model : '';
 		thinking = options?.model_provider.configured ? options.model_provider.thinking : '';
@@ -47,6 +51,7 @@
 			if (saved?.pending && typeof saved.prompt === 'string') {
 				prompt = saved.prompt;
 				pending = saved.pending;
+				testCommand = formatTestCommand(saved.test_command);
 				if (!task && options?.providers.some((p) => p.id === saved.provider)) {
 					provider = saved.provider;
 					model = saved.model;
@@ -62,14 +67,21 @@
 		event?.preventDefault();
 		if (saving || !prompt.trim() || new TextEncoder().encode(prompt).length > 32768 || (!task && !provider)) return;
 		error = '';
+		let command: string[] | undefined;
+		try {
+			command = parseTestCommand(testCommand);
+		} catch {
+			return;
+		}
 		saving = true;
 		const input = {
 			prompt: prompt.trim(),
+			test_command: command,
 			provider,
 			model: canOverride ? model : '',
 			thinking: canOverride ? thinking : ''
 		};
-		const key = JSON.stringify(task ? { prompt: input.prompt, generation: task.generation } : input);
+		const key = JSON.stringify(task ? { prompt: input.prompt, generation: task.generation, test_command: command } : input);
 		if (!pending || pending.key !== key) pending = { key, id: crypto.randomUUID() };
 		try {
 			localStorage.setItem(draftKey, JSON.stringify({ ...input, prompt, pending }));
@@ -79,7 +91,8 @@
 				? await agentTasks.retry(slug, task.id, {
 						request_id: pending.id,
 						generation: task.generation,
-						prompt: input.prompt
+						prompt: input.prompt,
+						test_command: command
 					})
 				: await agentTasks.create(slug, conversation, { ...input, request_id: pending.id } satisfies TaskInput);
 			try {
@@ -178,6 +191,7 @@
 						>{/if}
 				</InputGroup.Addon>
 			</InputGroup.Root>
+			<TestCommandField bind:value={testCommand} disabled={saving} />
 			{#if error}<p role="alert" class="text-sm text-destructive">{error}</p>{/if}
 			<Dialog.Footer
 				><Button type="button" variant="outline" onclick={onclose}>{m['tasks.close']()}</Button><Button

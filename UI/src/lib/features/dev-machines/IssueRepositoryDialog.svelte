@@ -1,4 +1,6 @@
 <script lang="ts">
+	import TestCommandField from '$lib/features/dev-machines/TestCommandField.svelte';
+	import { parseTestCommand, formatTestCommand } from '$lib/features/dev-machines/test-command';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import * as Select from '$lib/components/ui/select';
 	import * as Command from '$lib/components/ui/command';
@@ -20,6 +22,7 @@
 	let environments = $state<DevMachineEnvironment[]>([]);
 	let repositoryId = $state('inherit');
 	let environmentId = $state('inherit');
+	let testCommand = $state('');
 	let loading = $state(false);
 	let saving = $state(false);
 	let repositoryOpen = $state(false);
@@ -42,6 +45,7 @@
 			environments = (availableEnvironments ?? []).filter((item) => item.status === 'ready');
 			repositoryId = setting.github_repo_id ?? 'inherit';
 			environmentId = setting.environment_id ?? 'inherit';
+			testCommand = formatTestCommand(setting.test_command);
 		} catch (error) {
 			appToast.apiError(error, 'Failed to load issue development defaults');
 		} finally {
@@ -52,14 +56,16 @@
 	async function save() {
 		saving = true;
 		try {
-			if (repositoryId === 'inherit' && environmentId === 'inherit') {
+			const command = parseTestCommand(testCommand);
+			if (repositoryId === 'inherit' && environmentId === 'inherit' && command === undefined) {
 				await deleteDevMachineScopeSetting(slug, 'issue', issue.id);
 			} else {
 				await updateDevMachineScopeSetting(slug, {
 					scope_type: 'issue', scope_id: issue.id,
 					github_repo_id: selectedRepository?.id,
 					base_branch: selectedRepository?.default_branch,
-					environment_id: selectedEnvironment?.id
+					environment_id: selectedEnvironment?.id,
+					test_command: command
 				});
 			}
 			appToast.success('Issue development defaults saved');
@@ -92,6 +98,7 @@
 				</ComboboxPopover>
 			</div>
 			<div class="space-y-1.5"><Label>{m['machines.environment']()}</Label><Select.Root type="single" value={environmentId} disabled={loading} onValueChange={(value) => value && (environmentId = value)}><Select.Trigger class="w-full">{selectedEnvironment?.name ?? m['machines.use_workspace_default']()}</Select.Trigger><Select.Content><Select.Item value="inherit" label={m['machines.use_inherited_default']()}>{m['machines.use_inherited_default']()}</Select.Item>{#each environments as environment}<Select.Item value={environment.id} label={environment.name}>{environment.name}</Select.Item>{/each}</Select.Content></Select.Root></div>
+			<TestCommandField bind:value={testCommand} disabled={loading || saving} />
 		</div>
 		<Dialog.Footer><Button variant="outline" onclick={() => (open = false)}>{m['common.cancel']()}</Button><Button onclick={save} disabled={loading || saving}>{saving ? m['common.saving']() : m['machines.save_defaults']()}</Button></Dialog.Footer>
 	</Dialog.Content>

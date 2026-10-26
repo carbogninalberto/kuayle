@@ -178,7 +178,7 @@ export function getDevMachineScopeSetting(slug: string, scopeType: 'workspace' |
 	return api.get(`${base(slug)}/dev-machine-scope-setting?${query}`);
 }
 
-export function updateDevMachineScopeSetting(slug: string, input: { scope_type: 'workspace' | 'team' | 'project' | 'issue'; scope_id?: string; github_repo_id?: string; base_branch?: string; environment_id?: string }): Promise<DevMachineScopeSetting> {
+export function updateDevMachineScopeSetting(slug: string, input: { scope_type: 'workspace' | 'team' | 'project' | 'issue'; scope_id?: string; github_repo_id?: string; base_branch?: string; environment_id?: string; test_command?: string[] }): Promise<DevMachineScopeSetting> {
 	return api.put(`${base(slug)}/dev-machine-scope-setting`, input);
 }
 

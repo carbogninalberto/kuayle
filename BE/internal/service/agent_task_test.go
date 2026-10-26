@@ -2,8 +2,10 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/kuayle/kuayle-backend/internal/agent"
 	"github.com/kuayle/kuayle-backend/internal/realtime"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"testing"
@@ -353,4 +355,49 @@ func TestAgentTaskPreparationPolicyFailureCleansAllocatedRuntime(t *testing.T) {
 			require.True(t, store.finished)
 		})
 	}
+}
+
+func TestVerificationCommandInheritsIndependentlyOfRepositoryAndEnvironment(t *testing.T) {
+	ws, team, projectID, issueID, repoID, envID := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	store := &devMachineStoreFake{scopeSettings: map[string]*domain.DevMachineScopeSetting{
+		scopeKey(nil, nil, &issueID):   {GitHubRepoID: &repoID, EnvironmentID: &envID},
+		scopeKey(nil, &projectID, nil): {TestCommand: rawCommand(`["npm","test"]`)},
+		scopeKey(&team, nil, nil):      {TestCommand: rawCommand(`["go","test","./..."]`)},
+	}}
+	svc := newTestDevMachineService(store)
+	issue := &domain.Issue{ID: issueID, TeamID: team, ProjectID: &projectID}
+	resolved, err := svc.resolveDevelopmentSetting(context.Background(), ws, issue, nil)
+	require.NoError(t, err)
+	require.JSONEq(t, `["npm","test"]`, string(*resolved.TestCommand))
+	store.scopeSettings[scopeKey(nil, nil, &issueID)].TestCommand = rawCommand(`[]`)
+	resolved, err = svc.resolveDevelopmentSetting(context.Background(), ws, issue, nil)
+	require.NoError(t, err)
+	require.JSONEq(t, `[]`, string(*resolved.TestCommand), "explicit empty command must not silently inherit")
+}
+
+func rawCommand(value string) *json.RawMessage { raw := json.RawMessage(value); return &raw }
+
+func TestAgentTaskAttemptPassesAcceptedTestCommandToNativeHarness(t *testing.T) {
+	ws, machine, user, checkout := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	store := &taskPolicyStore{devMachineStoreFake: &devMachineStoreFake{
+		policy:        testPolicy(ws),
+		machine:       &domain.DevMachine{ID: machine, WorkspaceID: ws, CreatedByUserID: &user, Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour), MaxRuntimeMinutes: 60},
+		agentProvider: &domain.DevMachineAgentProvider{ProviderID: "opencode", Enabled: true, RequiredSecrets: json.RawMessage(`[]`), Config: json.RawMessage(`{}`)},
+		checkouts:     []domain.DevMachineCheckout{{ID: checkout, WorkspaceID: ws, MachineID: machine, Status: "ready", WorkspacePath: "/workspace/tasks/check", RepositoryFullName: "example/test", BaseBranch: "main", WorkingBranch: "task/check"}},
+	}}
+	store.policy.AllowedProviders = json.RawMessage(`["opencode"]`)
+	machines := newTestDevMachineService(store)
+	machines.agents = agent.NewRegistry(agent.NewOpenCodeProvider(""))
+	runtime := &devMachineTaskRuntime{machines: machines}
+	task := domain.AgentTask{ID: uuid.New(), WorkspaceID: ws, CreatorID: user, MachineID: &machine, CheckoutID: checkout, RunID: uuid.New(), State: "preparing", Provider: "opencode", Prompt: "Implement", ValidationCommand: json.RawMessage(`["npm","test"]`)}
+	run, err := runtime.Attempt(context.Background(), task)
+	require.NoError(t, err)
+	require.NotNil(t, run.TestCommand)
+	require.JSONEq(t, `["npm","test"]`, string(*run.TestCommand))
+	require.Contains(t, run.Prompt, `["npm" "test"]`)
+	require.False(t, run.PushBranch)
+	task.ValidationCommand = json.RawMessage(`[1]`)
+	_, err = runtime.Attempt(context.Background(), task)
+	require.ErrorIs(t, err, ErrInvalidMachineInput)
+	require.Len(t, store.agentRuns, 1)
 }

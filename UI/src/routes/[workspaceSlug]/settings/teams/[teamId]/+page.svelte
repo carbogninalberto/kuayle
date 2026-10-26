@@ -1,4 +1,6 @@
 <script lang="ts">
+	import TestCommandField from '$lib/features/dev-machines/TestCommandField.svelte';
+	import { parseTestCommand, formatTestCommand } from '$lib/features/dev-machines/test-command';
 	import { Textarea } from '$lib/components/ui/textarea/index.js';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
@@ -53,6 +55,7 @@
 	let developmentEnvironments = $state<DevMachineEnvironment[]>([]);
 	let developmentRepositoryId = $state('inherit');
 	let developmentEnvironmentId = $state('inherit');
+	let developmentTestCommand = $state('');
 	let developmentLoading = $state(true);
 	let developmentReady = $state(false);
 	let savingDevelopment = $state(false);
@@ -212,6 +215,7 @@
 			developmentEnvironments = (environments ?? []).filter((item) => item.status === 'ready');
 			developmentRepositoryId = setting.github_repo_id ?? 'inherit';
 			developmentEnvironmentId = setting.environment_id ?? 'inherit';
+			developmentTestCommand = formatTestCommand(setting.test_command);
 			developmentReady = true;
 		} catch (error) {
 			if (!isCurrentDevelopmentScope(s, t, version)) return;
@@ -230,6 +234,7 @@
 		developmentEnvironments = [];
 		developmentRepositoryId = 'inherit';
 		developmentEnvironmentId = 'inherit';
+		developmentTestCommand = '';
 		developmentLoading = true;
 		developmentReady = false;
 		savingDevelopment = false;
@@ -368,13 +373,15 @@
 		const repository = developmentRepositories.find((item) => item.id === repositoryId);
 		savingDevelopment = true;
 		try {
-			if (repositoryId === 'inherit' && environmentId === 'inherit') {
+			const command = parseTestCommand(developmentTestCommand);
+			if (repositoryId === 'inherit' && environmentId === 'inherit' && command === undefined) {
 				await deleteDevMachineScopeSetting(s, 'team', t);
 			} else {
 				await updateDevMachineScopeSetting(s, {
 					scope_type: 'team', scope_id: t,
 					github_repo_id: repository?.id, base_branch: repository?.default_branch,
-					environment_id: environmentId === 'inherit' ? undefined : environmentId
+					environment_id: environmentId === 'inherit' ? undefined : environmentId,
+					test_command: command
 				});
 			}
 			if (!isCurrentDevelopmentScope(s, t, requestVersion) || developmentSaveVersion !== saveVersion) return;
@@ -463,6 +470,7 @@
 				{#if !canManageDevelopment}<p class="rounded-md border border-[var(--app-border)] p-3 text-xs text-[var(--color-text-tertiary)] sm:col-span-2">{privacyEnabled ? m['privacy.disabled_feature']() : m['team_settings.development_admin_only']()}</p>{/if}
 				<div class="space-y-1"><Label>{m['team_settings.repository']()}</Label><Select.Root type="single" value={developmentRepositoryId} disabled={developmentLoading || !developmentReady || !canManageDevelopment} onValueChange={(value) => value && (developmentRepositoryId = value)}><Select.Trigger class="w-full">{developmentLoading ? m['team_settings.loading']() : developmentRepositories.find((item) => item.id === developmentRepositoryId)?.full_name ?? m['team_settings.use_workspace_default']()}</Select.Trigger><Select.Content><Select.Item value="inherit" label={m['team_settings.use_workspace_default']()}>{m['team_settings.use_workspace_default']()}</Select.Item>{#each developmentRepositories as repository}<Select.Item value={repository.id} label={repository.full_name}>{repository.full_name}</Select.Item>{/each}</Select.Content></Select.Root></div>
 				<div class="space-y-1"><Label>{m['team_settings.environment']()}</Label><Select.Root type="single" value={developmentEnvironmentId} disabled={developmentLoading || !developmentReady || !canManageDevelopment} onValueChange={(value) => value && (developmentEnvironmentId = value)}><Select.Trigger class="w-full">{developmentLoading ? m['team_settings.loading']() : developmentEnvironments.find((item) => item.id === developmentEnvironmentId)?.name ?? m['team_settings.use_workspace_default']()}</Select.Trigger><Select.Content><Select.Item value="inherit" label={m['team_settings.use_workspace_default']()}>{m['team_settings.use_workspace_default']()}</Select.Item>{#each developmentEnvironments as environment}<Select.Item value={environment.id} label={environment.name}>{environment.name}</Select.Item>{/each}</Select.Content></Select.Root></div>
+				<div class="sm:col-span-2"><TestCommandField bind:value={developmentTestCommand} disabled={developmentLoading || !developmentReady || savingDevelopment || !canManageDevelopment} /></div>
 				<div class="flex justify-end sm:col-span-2"><Button size="sm" onclick={saveDevelopmentSettings} disabled={developmentLoading || !developmentReady || savingDevelopment || !canManageDevelopment}>{savingDevelopment ? m['team_settings.saving']() : m['team_settings.save_development_defaults']()}</Button></div>
 			</div>
 		</div>

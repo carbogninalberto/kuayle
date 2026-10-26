@@ -1917,5 +1917,8 @@
 	"tasks.state.completed": "已完成",
 	"tasks.state.failed": "失敗",
 	"tasks.state.cancelling": "正在取消",
-	"tasks.state.cancelled": "已取消"
+	"tasks.state.cancelled": "已取消",
+	"tasks.test_command": "測試命令",
+	"tasks.test_command_help": "輸入 JSON 陣列，例如 [\"npm\",\"test\"]。留空以繼承；[] 表示未設定檢查。",
+	"tasks.test_command_invalid": "請使用最多包含 64 個文字參數的 JSON 陣列，並以命令開頭。"
 }

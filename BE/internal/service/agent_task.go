@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -292,9 +293,16 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 	if timeout < 30 {
 		return nil, ErrInvalidOperation
 	}
+	var command []string
+	if len(task.ValidationCommand) > 0 && json.Unmarshal(task.ValidationCommand, &command) != nil {
+		return nil, ErrInvalidMachineInput
+	}
+	if domain.ValidateTestCommand(command) != nil {
+		return nil, ErrInvalidMachineInput
+	}
 	push := false
 	checkout := task.CheckoutID.String()
-	return s.createAgentRun(ctx, task.WorkspaceID, *task.MachineID, task.CreatorID, dto.CreateAgentRunRequest{Provider: task.Provider, Mode: "autonomous", Prompt: task.Prompt, CheckoutID: &checkout, Model: task.Model, Thinking: task.Thinking, PushBranch: &push, MaxRuntimeSeconds: timeout}, task.RunID)
+	return s.createAgentRun(ctx, task.WorkspaceID, *task.MachineID, task.CreatorID, dto.CreateAgentRunRequest{Provider: task.Provider, Mode: "autonomous", Prompt: task.Prompt, TestCommand: command, CheckoutID: &checkout, Model: task.Model, Thinking: task.Thinking, PushBranch: &push, MaxRuntimeSeconds: timeout}, task.RunID)
 }
 func (r *devMachineTaskRuntime) Cancel(ctx context.Context, task domain.AgentTask) error {
 	return r.tasks.CancelAttempt(ctx, task)

@@ -1917,5 +1917,8 @@
 	"tasks.state.completed": "Completata",
 	"tasks.state.failed": "Non riuscita",
 	"tasks.state.cancelling": "Annullamento",
-	"tasks.state.cancelled": "Annullata"
+	"tasks.state.cancelled": "Annullata",
+	"tasks.test_command": "Comando di test",
+	"tasks.test_command_help": "Inserisci un array JSON, ad esempio [\"npm\",\"test\"]. Lascia vuoto per ereditare; [] indica nessun controllo configurato.",
+	"tasks.test_command_invalid": "Usa un array JSON con massimo 64 argomenti di testo, iniziando con un comando."
 }

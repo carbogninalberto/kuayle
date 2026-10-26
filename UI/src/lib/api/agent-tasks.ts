@@ -14,6 +14,8 @@ export type TaskState =
 	| 'cancelling'
 	| 'cancelled';
 export interface AgentTask {
+	test_command?: string[] | null;
+	validation_command?: string[];
 	id: string;
 	workspace_id: string;
 	conversation_id: string | null;
@@ -53,6 +55,7 @@ export interface TaskTransition {
 	created_at: string;
 }
 export interface TaskInput {
+	test_command?: string[];
 	request_id: string;
 	prompt: string;
 	provider: string;
@@ -75,7 +78,7 @@ export const agentTasks = {
 	create: (slug: string, id: string, input: TaskInput) => api.post<AgentTask>(`${chat(slug, id)}/tasks`, input),
 	get: (slug: string, id: string) => api.get<AgentTask>(task(slug, id)),
 	cancel: (slug: string, id: string) => api.post<void>(`${task(slug, id)}/cancel`, {}),
-	retry: (slug: string, id: string, input: { request_id: string; generation: number; prompt: string }) =>
+	retry: (slug: string, id: string, input: { request_id: string; generation: number; prompt: string; test_command?: string[] }) =>
 		api.post<AgentTask>(`${task(slug, id)}/retry`, input),
 	history: (slug: string, id: string, after = 0) =>
 		api.get<{ transitions: TaskTransition[]; next_after?: number }>(`${task(slug, id)}/history?after=${after}`),

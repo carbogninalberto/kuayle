@@ -54,7 +54,7 @@ func (s *AgentTaskService) validateRequest(ctx context.Context, ws uuid.UUID, in
 		return err
 	}
 	// Use the native provider's mode/prompt checks too; HTTP input never supplies
-	// argv, environment variables, runtime IDs or execution authority.
+	// native harness argv, environment variables, runtime IDs or execution authority.
 	_, err = provider.BuildInvocation(agent.RunInput{Mode: agent.ModeAutonomous, Prompt: input.Prompt, Model: input.Model, Thinking: input.Thinking})
 	if err != nil {
 		return ErrInvalidMachineInput

@@ -51,7 +51,7 @@ func replayAgentTaskCreate(ctx context.Context, tx *sqlx.Tx, c *domain.Conversat
 	if err != nil {
 		return nil, err
 	}
-	if accepted.Prompt != strings.TrimSpace(input.Prompt) || accepted.Provider != input.Provider || accepted.Model != input.Model || accepted.Thinking != input.Thinking {
+	if accepted.Prompt != strings.TrimSpace(input.Prompt) || accepted.Provider != input.Provider || accepted.Model != input.Model || accepted.Thinking != input.Thinking || !sameAgentTaskCommand(accepted.TestCommand, input.TestCommand) {
 		return nil, ErrConversationConflict
 	}
 	return accepted, nil
@@ -72,7 +72,14 @@ func replayAgentTaskRetry(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTa
 	if previous.Generation != input.Generation || previous.Prompt != strings.TrimSpace(input.Prompt) {
 		return nil, ErrConversationConflict
 	}
-	return acceptedAgentTask(ctx, tx, task, previous.Generation+1)
+	accepted, err := acceptedAgentTask(ctx, tx, task, previous.Generation+1)
+	if err != nil {
+		return nil, err
+	}
+	if !sameAgentTaskCommand(accepted.TestCommand, input.TestCommand) {
+		return nil, ErrConversationConflict
+	}
+	return accepted, nil
 }
 
 // Replay checks current conversation authorization, but does not require policy

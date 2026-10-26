@@ -491,6 +491,8 @@ type DevMachineScopeSetting struct {
 	EnvironmentID *uuid.UUID `json:"environment_id,omitempty" db:"environment_id"`
 	CreatedAt     time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at" db:"updated_at"`
+
+	TestCommand *json.RawMessage `json:"test_command" db:"test_command"`
 }
 
 type DevMachineCheckout struct {

@@ -778,7 +778,15 @@ func (s *DevMachineService) UpdateScopeSetting(ctx context.Context, workspaceID 
 	if !exists {
 		return nil, fmt.Errorf("%w: invalid development setting scope", ErrInvalidMachineInput)
 	}
+	if err := domain.ValidateTestCommand(request.TestCommand); err != nil {
+		return nil, ErrInvalidMachineInput
+	}
 	setting := &domain.DevMachineScopeSetting{WorkspaceID: workspaceID, TeamID: teamID, ProjectID: projectID, IssueID: issueID}
+	if request.TestCommand != nil {
+		command, _ := json.Marshal(request.TestCommand)
+		raw := json.RawMessage(command)
+		setting.TestCommand = &raw
+	}
 	if request.GitHubRepoID != nil {
 		repositoryID, _ := uuid.Parse(*request.GitHubRepoID)
 		repository, err := s.store.GetLinkedRepository(ctx, workspaceID, repositoryID)
@@ -872,7 +880,7 @@ func (s *DevMachineService) resolveDevelopmentSetting(ctx context.Context, works
 	}
 	scopes = append(scopes, [3]*uuid.UUID{nil, nil, nil})
 	for _, scope := range scopes {
-		if resolved.GitHubRepoID != nil && resolved.EnvironmentID != nil {
+		if resolved.GitHubRepoID != nil && resolved.EnvironmentID != nil && resolved.TestCommand != nil {
 			break
 		}
 		setting, err := s.store.GetScopeSetting(ctx, workspaceID, scope[0], scope[1], scope[2])
@@ -887,6 +895,10 @@ func (s *DevMachineService) resolveDevelopmentSetting(ctx context.Context, works
 		}
 		if resolved.EnvironmentID == nil && setting.EnvironmentID != nil {
 			resolved.EnvironmentID = setting.EnvironmentID
+		}
+		if resolved.TestCommand == nil && setting.TestCommand != nil {
+			command := append(json.RawMessage(nil), (*setting.TestCommand)...)
+			resolved.TestCommand = &command
 		}
 	}
 	return resolved, nil

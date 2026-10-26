@@ -39,6 +39,9 @@ type AgentTask struct {
 	NextPollAt        time.Time  `json:"-" db:"next_poll_at"`
 	CreatedAt         time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt         time.Time  `json:"updated_at" db:"updated_at"`
+
+	TestCommand       *json.RawMessage `json:"test_command" db:"test_command"`
+	ValidationCommand json.RawMessage  `json:"validation_command" db:"validation_command"`
 }
 
 type AgentTaskRequest struct {
@@ -47,12 +50,16 @@ type AgentTaskRequest struct {
 	Provider  string    `json:"provider"`
 	Model     string    `json:"model"`
 	Thinking  string    `json:"thinking"`
+
+	TestCommand []string `json:"test_command"`
 }
 
 type AgentTaskRetryRequest struct {
 	RequestID  uuid.UUID `json:"request_id"`
 	Generation int64     `json:"generation"`
 	Prompt     string    `json:"prompt"`
+
+	TestCommand []string `json:"test_command"`
 }
 
 type AgentTaskTransition struct {

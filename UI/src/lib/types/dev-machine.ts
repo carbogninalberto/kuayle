@@ -302,6 +302,7 @@ export interface DevMachineEnvironment {
 }
 
 export interface DevMachineScopeSetting {
+	test_command?: string[] | null;
 	id?: string;
 	workspace_id: string;
 	team_id?: string;

@@ -1917,5 +1917,8 @@
 	"tasks.state.completed": "Completed",
 	"tasks.state.failed": "Failed",
 	"tasks.state.cancelling": "Cancelling",
-	"tasks.state.cancelled": "Cancelled"
+	"tasks.state.cancelled": "Cancelled",
+	"tasks.test_command": "Test command",
+	"tasks.test_command_help": "Enter a JSON array, such as [\"npm\",\"test\"]. Leave blank to inherit; [] means no configured check.",
+	"tasks.test_command_invalid": "Use a JSON array of up to 64 text arguments, starting with a command."
 }
