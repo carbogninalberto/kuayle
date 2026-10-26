@@ -39,3 +39,8 @@ description: Implement Kuayle Go API behavior, authorization, persistence and mi
 - Use the toolchain declared by [go.mod](../../../BE/go.mod), format changed Go
   files with `gofmt`, and run the applicable checks. Do not treat skipped integration
   tests as evidence of persistence correctness or use production data for testing.
+
+For persistent chat, follow the [conversation contract](../../../BE/docs/conversations.md).
+Keep conversation cursors serialized by the conversation transaction, generation
+writes fenced by the lease, and reconnects read-only. Conversation audience and
+workspace broadcast audience are different authorization boundaries.

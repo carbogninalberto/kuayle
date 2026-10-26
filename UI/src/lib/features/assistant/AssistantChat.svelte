@@ -1,0 +1,403 @@
+<script lang="ts">
+	import { onMount, tick, untrack } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { ArrowUp, Square, Plus, History, Copy, Check, RefreshCw, MessageCircle, ArrowDown } from '@lucide/svelte';
+	import { Button } from '$lib/components/ui/button/index.js';
+	import { Input } from '$lib/components/ui/input/index.js';
+	import * as Message from '$lib/components/ui/message/index.js';
+	import * as Bubble from '$lib/components/ui/bubble/index.js';
+	import * as MessageScroller from '$lib/components/ui/message-scroller/index.js';
+	import * as InputGroup from '$lib/components/ui/input-group/index.js';
+	import { conversations, type Conversation, type AssistantStatus, type MessageStatus } from '$lib/api/conversations';
+	import { ConversationState } from './conversation-state.svelte';
+	import { renderMarkdown } from '$lib/markdown';
+	import { authState } from '$lib/features/auth/auth.state.svelte';
+	import { m } from '$lib/paraglide/messages.js';
+
+	let { slug, conversationId }: { slug: string; conversationId: string | null } = $props();
+	// This component is keyed by workspace, conversation and authenticated user.
+	const chat = untrack(() => new ConversationState(slug, conversationId ?? ''));
+	const draftKey = untrack(() => `assistant-draft:${authState.user?.id}:${slug}:${conversationId ?? 'new'}`);
+	let history = $state<Conversation[]>([]);
+	let status = $state<AssistantStatus>({ configured: false });
+	let initialized = $state(false);
+	let text = $state('');
+	let search = $state('');
+	let showHistory = $state(false);
+	let sending = $state(false);
+	let error = $state('');
+	let copied = $state<string | null>(null);
+	let textarea = $state<HTMLTextAreaElement | null>(null);
+	let draftLoaded = $state(false);
+	let pending: { id: string; content: string; conversation?: string } | null = null;
+	let retryRequest: { message: string; id: string } | null = null;
+	let disposed = false;
+	let copyTimer: ReturnType<typeof setTimeout> | undefined;
+	const filteredHistory = $derived(
+		history.filter((c) => c.title.toLocaleLowerCase().includes(search.toLocaleLowerCase()))
+	);
+	const canSend = $derived(
+		initialized &&
+			status.configured &&
+			text.trim().length > 0 &&
+			new TextEncoder().encode(text).length <= 16384 &&
+			!sending &&
+			!chat.busy &&
+			!chat.unavailable &&
+			!chat.loading &&
+			!chat.failed
+	);
+
+	onMount(() => {
+		try {
+			text = localStorage.getItem(draftKey) ?? '';
+			const saved = JSON.parse(localStorage.getItem(`${draftKey}:pending`) ?? 'null');
+			if (saved && typeof saved.id === 'string' && saved.content === text) pending = saved;
+		} catch {
+			/* Storage can be disabled. */
+		}
+		draftLoaded = true;
+		void Promise.all([conversations.list(slug), conversations.status(slug)])
+			.then(([items, provider]) => {
+				if (disposed) return;
+				history = items;
+				status = provider;
+				initialized = true;
+			})
+			.catch(() => {
+				if (!disposed) error = m['assistant.error']();
+			});
+		if (conversationId) void chat.load();
+		else chat.loading = false;
+		return () => {
+			disposed = true;
+			chat.dispose();
+			clearTimeout(copyTimer);
+		};
+	});
+	$effect(() => {
+		if (!draftLoaded) return;
+		try {
+			if (text) localStorage.setItem(draftKey, text);
+			else localStorage.removeItem(draftKey);
+		} catch {
+			/* Private browsing may deny storage. */
+		}
+	});
+
+	async function send(event?: SubmitEvent) {
+		event?.preventDefault();
+		if (!canSend) return;
+		sending = true;
+		error = '';
+		if (!pending || pending.content !== text)
+			pending = { id: crypto.randomUUID(), content: text, conversation: pending?.conversation };
+		try {
+			const id =
+				conversationId ?? pending.conversation ?? (await conversations.create(slug, text.trim().slice(0, 100))).id;
+			pending.conversation = id;
+			try {
+				localStorage.setItem(`${draftKey}:pending`, JSON.stringify(pending));
+			} catch {
+				/* Sending still works without storage. */
+			}
+			const submitted = pending.content;
+			const accepted = await conversations.send(slug, id, pending.id, submitted);
+			if (disposed) return;
+			chat.accept(accepted);
+			if (text === submitted) text = '';
+			pending = null;
+			try {
+				if (!text) localStorage.removeItem(draftKey);
+				else if (!conversationId) localStorage.setItem(draftKey.replace(/:new$/, `:${id}`), text);
+				localStorage.removeItem(`${draftKey}:pending`);
+			} catch {
+				/* Storage is optional. */
+			}
+			if (!conversationId) await goto(`/${slug}/assistant?conversation=${encodeURIComponent(id)}`);
+			else await chat.load();
+			await tick();
+			textarea?.focus();
+		} catch {
+			if (!disposed) error = m['assistant.send_error']();
+		} finally {
+			sending = false;
+		}
+	}
+	async function stop() {
+		if (!conversationId) return;
+		try {
+			await conversations.cancel(slug, conversationId);
+			await chat.load();
+		} catch {
+			error = m['assistant.error']();
+		}
+	}
+	async function retry(message: string) {
+		if (!conversationId || sending) return;
+		sending = true;
+		error = '';
+		if (retryRequest?.message !== message) retryRequest = { message, id: crypto.randomUUID() };
+		try {
+			const accepted = await conversations.retry(slug, conversationId, message, retryRequest.id);
+			chat.accept(accepted);
+			retryRequest = null;
+			await chat.load();
+		} catch {
+			error = m['assistant.error']();
+		} finally {
+			sending = false;
+		}
+	}
+	async function copy(id: string, content: string) {
+		try {
+			await navigator.clipboard.writeText(content);
+			copied = id;
+			clearTimeout(copyTimer);
+			copyTimer = setTimeout(() => (copied = null), 2000);
+		} catch {
+			error = m['assistant.error']();
+		}
+	}
+	function statusLabel(value: MessageStatus) {
+		switch (value) {
+			case 'queued':
+				return m['assistant.queued']();
+			case 'streaming':
+				return m['assistant.streaming']();
+			case 'completed':
+				return m['assistant.completed']();
+			case 'failed':
+				return m['assistant.failed']();
+			case 'interrupted':
+				return m['assistant.interrupted']();
+			case 'cancelled':
+				return m['assistant.cancelled']();
+		}
+	}
+</script>
+
+<svelte:head><title>{m['assistant.title']()} · Kuayle</title></svelte:head>
+<div class="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-background text-foreground">
+	<header class="flex h-14 shrink-0 items-center gap-3 border-b px-4 md:px-6">
+		<MessageCircle size={19} class="text-muted-foreground" />
+		<h1 class="min-w-0 flex-1 truncate text-sm font-semibold">{m['assistant.title']()}</h1>
+		<Button
+			variant="ghost"
+			size="icon-sm"
+			class="md:hidden"
+			aria-label={m['assistant.history']()}
+			aria-expanded={showHistory}
+			onclick={() => (showHistory = !showHistory)}><History size={17} /></Button
+		>
+		<Button variant="outline" size="sm" href="/{slug}/assistant"><Plus size={15} />{m['assistant.new']()}</Button>
+	</header>
+	<div class="flex min-h-0 min-w-0 flex-1 flex-col md:flex-row">
+		<aside
+			class="max-h-56 shrink-0 flex-col gap-3 overflow-y-auto border-b bg-muted/20 p-3 md:flex md:max-h-none md:w-56 md:border-r md:border-b-0 {showHistory
+				? 'flex'
+				: 'hidden'}"
+			aria-label={m['assistant.history']()}
+		>
+			<p class="px-1 pt-1 text-xs font-medium text-muted-foreground">{m['assistant.history']()}</p>
+			<Input
+				bind:value={search}
+				aria-label={m['assistant.search']()}
+				placeholder={m['assistant.search']()}
+				class="h-8"
+			/>
+			<nav class="flex flex-col gap-1">
+				{#each filteredHistory as item (item.id)}
+					<a
+						href="/{slug}/assistant?conversation={encodeURIComponent(item.id)}"
+						aria-current={item.id === conversationId ? 'page' : undefined}
+						class="truncate rounded-md px-2 py-2 text-sm hover:bg-muted {item.id === conversationId
+							? 'bg-muted font-medium'
+							: 'text-muted-foreground'}">{item.title}</a
+					>
+				{/each}
+			</nav>
+		</aside>
+		<section class="flex min-h-0 min-w-0 flex-1 flex-col" aria-label={m['assistant.conversation']()}>
+			{#if conversationId && !chat.loading && !chat.unavailable}
+				<div class="flex shrink-0 items-center gap-2 px-5 pt-3 text-xs text-muted-foreground">
+					<span class="min-w-0 flex-1 truncate">{chat.conversation?.title}</span>
+					<span role="status">{chat.connected ? m['assistant.connected']() : m['assistant.reconnecting']()}</span>
+				</div>
+			{/if}
+			<div class="min-h-0 flex-1">
+				<MessageScroller.Provider autoScroll>
+					<MessageScroller.Root>
+						<MessageScroller.Viewport aria-label={m['assistant.messages']()}>
+							{#if chat.hasMore}<div class="mx-auto w-full max-w-3xl px-5 pt-3 md:px-8">
+									<Button variant="ghost" class="w-full" disabled={chat.loadingOlder} onclick={() => void chat.older()}
+										>{chat.loadingOlder ? m['assistant.loading']() : m['assistant.older']()}</Button
+									>
+								</div>{/if}
+							<MessageScroller.Content class="mx-auto w-full max-w-3xl gap-8 px-5 py-6 md:px-8">
+								{#if chat.loading}
+									<p class="text-sm text-muted-foreground" role="status">{m['assistant.loading']()}</p>
+								{:else if chat.unavailable}
+									<p role="alert" class="text-sm text-muted-foreground">{m['assistant.unavailable']()}</p>
+								{:else if chat.messages.length === 0}
+									<div class="my-auto flex flex-col items-start gap-3 py-16">
+										<div class="rounded-xl border bg-muted/40 p-3"><MessageCircle size={24} /></div>
+										<h2 class="text-2xl font-semibold tracking-tight">{m['assistant.welcome']()}</h2>
+										<p class="max-w-md text-sm leading-6 text-muted-foreground">{m['assistant.intro']()}</p>
+									</div>
+								{/if}
+								{#each chat.messages as message (message.id)}
+									<MessageScroller.Item messageId={message.id}>
+										<Message.Root align={message.role === 'user' ? 'end' : 'start'}>
+											<Message.Content>
+												<Message.Header
+													>{message.role === 'user'
+														? m['assistant.you']()
+														: m['assistant.title']()}{#if message.model}<span class="ml-2 font-normal"
+															>· {message.model}</span
+														>{/if}</Message.Header
+												>
+												<Bubble.Root variant={message.role === 'user' ? 'muted' : 'ghost'}>
+													<Bubble.Content>
+														{#if message.role === 'user'}<p class="whitespace-pre-wrap break-words">
+																{message.content}
+															</p>
+														{:else}<div class="assistant-markdown min-w-0 break-words">
+																{@html renderMarkdown(message.content, undefined, { allowImages: false })}
+															</div>{/if}
+													</Bubble.Content>
+												</Bubble.Root>
+												<Message.Footer class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+													<time datetime={message.created_at}
+														>{new Date(message.created_at).toLocaleTimeString([], {
+															hour: '2-digit',
+															minute: '2-digit'
+														})}</time
+													>
+													{#if message.role === 'assistant'}<span
+															role={message.status === 'streaming' ? 'status' : undefined}
+															>{statusLabel(message.status)}</span
+														>{/if}
+													{#if message.content}<Button
+															variant="ghost"
+															size="icon-sm"
+															aria-label={m['assistant.copy']()}
+															onclick={() => void copy(message.id, message.content)}
+															>{#if copied === message.id}<Check size={13} />{:else}<Copy size={13} />{/if}</Button
+														>{/if}
+													{#if ['failed', 'interrupted', 'cancelled'].includes(message.status) && message.id === chat.messages.at(-1)?.id}
+														<Button variant="ghost" size="sm" disabled={sending} onclick={() => void retry(message.id)}
+															><RefreshCw size={13} />{m['assistant.retry']()}</Button
+														>
+													{/if}
+												</Message.Footer>
+											</Message.Content>
+										</Message.Root>
+									</MessageScroller.Item>
+								{/each}
+							</MessageScroller.Content>
+						</MessageScroller.Viewport>
+						<MessageScroller.Button aria-label={m['assistant.latest']()}
+							><ArrowDown size={16} /><span class="sr-only">{m['assistant.latest']()}</span></MessageScroller.Button
+						>
+					</MessageScroller.Root>
+				</MessageScroller.Provider>
+			</div>
+			<div class="mx-auto w-full max-w-3xl shrink-0 px-4 pt-2 pb-4 md:px-8 md:pb-6">
+				{#if error || chat.failed}<p role="alert" class="mb-2 text-sm text-destructive">
+						{error || m['assistant.error']()}
+					</p>{/if}
+				{#if initialized && !status.configured}<p class="mb-3 text-sm text-muted-foreground">
+						{m['assistant.configure']()} <a class="underline" href="/{slug}/settings/ai">{m['assistant.settings']()}</a>
+					</p>{/if}
+				<form onsubmit={send}>
+					<InputGroup.Root>
+						<InputGroup.Textarea
+							bind:ref={textarea}
+							bind:value={text}
+							aria-label={m['assistant.message']()}
+							placeholder={m['assistant.placeholder']()}
+							maxlength={16000}
+							disabled={!initialized || !status.configured || chat.unavailable}
+							class="max-h-40 min-h-20"
+							onkeydown={(event) => {
+								if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+									event.preventDefault();
+									void send();
+								}
+							}}
+						/>
+						<InputGroup.Addon align="block-end" class="justify-between">
+							<span class="truncate text-xs text-muted-foreground">{status.model ?? m['assistant.no_provider']()}</span>
+							{#if chat.busy}<InputGroup.Button
+									size="icon-sm"
+									aria-label={m['assistant.stop']()}
+									onclick={() => void stop()}><Square size={14} /></InputGroup.Button
+								>
+							{:else}<InputGroup.Button
+									type="submit"
+									variant="default"
+									size="icon-sm"
+									disabled={!canSend}
+									aria-label={m['assistant.send']()}><ArrowUp size={16} /></InputGroup.Button
+								>{/if}
+						</InputGroup.Addon>
+					</InputGroup.Root>
+					<p class="mt-2 text-center text-[11px] text-muted-foreground">
+						{sending ? m['assistant.sending']() : m['assistant.hint']()}
+					</p>
+				</form>
+			</div>
+		</section>
+	</div>
+</div>
+
+<style>
+	.assistant-markdown :global(p) {
+		margin-block: 0.4rem;
+		line-height: 1.75;
+	}
+	.assistant-markdown :global(pre) {
+		max-width: 100%;
+		overflow-x: auto;
+		border: 1px solid var(--border);
+		border-radius: 0.5rem;
+		background: var(--muted);
+		padding: 1rem;
+		margin-block: 0.75rem;
+	}
+	.assistant-markdown :global(code) {
+		font-size: 0.85em;
+	}
+	.assistant-markdown :global(a) {
+		text-decoration: underline;
+		text-underline-offset: 3px;
+	}
+	.assistant-markdown :global(ul),
+	.assistant-markdown :global(ol) {
+		padding-left: 1.5rem;
+		margin-block: 0.5rem;
+	}
+	.assistant-markdown :global(ul) {
+		list-style: disc;
+	}
+	.assistant-markdown :global(ol) {
+		list-style: decimal;
+	}
+	.assistant-markdown :global(h1),
+	.assistant-markdown :global(h2),
+	.assistant-markdown :global(h3) {
+		font-weight: 600;
+		margin-block: 1rem 0.5rem;
+	}
+	.assistant-markdown :global(table) {
+		display: block;
+		max-width: 100%;
+		overflow-x: auto;
+	}
+	.assistant-markdown :global(th),
+	.assistant-markdown :global(td) {
+		padding: 0.4rem;
+		border: 1px solid var(--border);
+	}
+</style>

@@ -18,6 +18,7 @@
 		"@internationalized/date": "^3.12.4",
 		"@lucide/svelte": "^1.61.0",
 		"@playwright/test": "^1.58.2",
+		"@shadcn-svelte/primitives": "^0.0.1",
 		"@sveltejs/adapter-auto": "^7.0.0",
 		"@sveltejs/adapter-static": "^3.0.10",
 		"@sveltejs/kit": "^2.50.2",

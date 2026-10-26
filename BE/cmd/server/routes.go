@@ -54,6 +54,7 @@ type appHandlers struct {
 	prefs             *handler.PreferencesHandler
 	token             *handler.TokenHandler
 	aiSettings        *handler.AISettingsHandler
+	conversation      *handler.ConversationHandler
 	devMachine        *handler.DevMachineHandler
 	analytics         *handler.AnalyticsHandler
 	system            *handler.SystemHandler
@@ -237,6 +238,17 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	ownerOnly(ws, http.MethodGet, "/ai-settings", h.aiSettings.Get)
 	scoped(ws, http.MethodGet, "/ai-settings/issue-copy-prompt", h.aiSettings.GetIssueCopyPrompt, "issues:read")
 	ownerOnly(ws, http.MethodPatch, "/ai-settings", h.aiSettings.Update)
+
+	// Conversations are session-only until dedicated PAT scopes are defined.
+	sessionOnly(ws, http.MethodGet, "/assistant/status", h.conversation.Status)
+	sessionOnly(ws, http.MethodGet, "/conversations", h.conversation.List)
+	sessionOnly(ws, http.MethodPost, "/conversations", h.conversation.Create)
+	sessionOnly(ws, http.MethodGet, "/conversations/:conversationId", h.conversation.History)
+	sessionOnly(ws, http.MethodGet, "/conversations/:conversationId/events", h.conversation.Events)
+	sessionOnly(ws, http.MethodGet, "/conversations/:conversationId/stream", h.conversation.Stream)
+	sessionOnly(ws, http.MethodPost, "/conversations/:conversationId/messages", h.conversation.Send)
+	sessionOnly(ws, http.MethodPost, "/conversations/:conversationId/messages/:messageId/retry", h.conversation.Retry)
+	sessionOnly(ws, http.MethodPost, "/conversations/:conversationId/cancel", h.conversation.Cancel)
 
 	// GitHub integration (conditional)
 	// Public webhook endpoint (no auth, signature-verified internally)

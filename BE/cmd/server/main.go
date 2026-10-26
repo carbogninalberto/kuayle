@@ -147,6 +147,8 @@ func main() {
 	prefsH := handler.NewPreferencesHandler(prefsSvc)
 	tokenH := handler.NewTokenHandler(tokenSvc)
 	aiSettingsH := handler.NewAISettingsHandler(aiSettingsSvc)
+	conversationSvc := service.NewConversationService(repository.NewConversationRepository(db), aiSettingsSvc)
+	conversationH := handler.NewConversationHandler(conversationSvc, cfg.FrontendURL)
 	devMachineH := handler.NewDevMachineHandler(devMachineSvc, cfg.DevMachine.EffectiveDiskQuotaMode())
 	analyticsRepo := repository.NewAnalyticsRepository(db)
 	analyticsH := handler.NewAnalyticsHandler(analyticsRepo)
@@ -237,6 +239,7 @@ func main() {
 		prefs:             prefsH,
 		token:             tokenH,
 		aiSettings:        aiSettingsH,
+		conversation:      conversationH,
 		devMachine:        devMachineH,
 		analytics:         analyticsH,
 		system:            systemH,
@@ -254,6 +257,10 @@ func main() {
 		machineEventsRateLimit: mw.MachineTokenRateLimit(20, 40),
 		machineLogsRateLimit:   mw.MachineTokenRateLimit(50, 100),
 	})
+
+	conversationCtx, stopConversations := context.WithCancel(context.Background())
+	defer stopConversations()
+	go conversationSvc.Run(conversationCtx)
 
 	// Start
 	addr := fmt.Sprintf(":%d", cfg.Port)

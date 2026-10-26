@@ -81,3 +81,11 @@ hover and keyboard focus, before declaring a migration done.
 - Define the changed behavior first; test relevant loading, empty, success, failure,
   validation, denied-access, keyboard and responsive states using the
   [testing skill](../kuayle-testing/SKILL.md). UI checks never replace API permissions.
+
+### Assistant interactions
+
+New chat and agent interaction UI follows the official shadcn-svelte AI Elements
+patterns; reuse the installed Message, Bubble, Message Scroller and Input Group
+primitives. The [conversation contract](../../../BE/docs/conversations.md) records
+sources, typed backend events, scrolling and verification. Keep execution state
+on the Go backend and render only actual persisted/live events.
