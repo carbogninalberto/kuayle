@@ -180,6 +180,25 @@ class UpdateFlowTests(unittest.TestCase):
         self.assertFalse(self.updater.marker.exists())
         self.assertEqual(json.loads(self.config.read_text()), self.raw)
 
+    def test_current_healthy_release_is_noop_but_image_drift_is_repaired(self):
+        images = {name: repository + '@sha256:new' for name, repository in m.IMAGES.items()}
+        self.updater.state.write_text(json.dumps({'release': 'v1.2.3', 'images': images}))
+        for name, image in images.items():
+            self.raw['services'][name]['image'] = image
+        containers = [{'Image': repository, 'Config': {'Labels': {'com.docker.compose.service': name}}, 'State': {'Health': {'Status': 'healthy'}}} for name, repository in m.IMAGES.items()]
+        original_run = self.updater.run
+        def run(args, **kwargs):
+            if args[:2] == ['docker', 'inspect']:
+                return json.dumps(containers)
+            return original_run(args, **kwargs)
+        self.updater.run = run
+        self.updater.update()
+        self.assertFalse(self.activated)
+        self.assertFalse(any(c[0] == 'git' for c in self.calls))
+        containers[0]['Image'] = 'wrong-running-image'
+        self.updater.update()
+        self.assertTrue(self.activated)
+
     def test_prerelease_is_rejected_before_commands(self):
         self.response['prerelease'] = True
         with self.assertRaises(ValueError):
