@@ -7,12 +7,14 @@ import (
 )
 
 type Conversation struct {
-	ID          uuid.UUID `json:"id" db:"id"`
-	WorkspaceID uuid.UUID `json:"workspace_id" db:"workspace_id"`
-	CreatorID   uuid.UUID `json:"creator_id" db:"creator_id"`
-	Title       string    `json:"title" db:"title"`
-	CreatedAt   time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`
+	ID          uuid.UUID  `json:"id" db:"id"`
+	WorkspaceID uuid.UUID  `json:"workspace_id" db:"workspace_id"`
+	CreatorID   uuid.UUID  `json:"creator_id" db:"creator_id"`
+	IssueID     *uuid.UUID `json:"issue_id" db:"issue_id"`
+	TeamID      *uuid.UUID `json:"team_id" db:"team_id"`
+	Title       string     `json:"title" db:"title"`
+	CreatedAt   time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at" db:"updated_at"`
 }
 type ConversationMessage struct {
 	ID             uuid.UUID  `json:"id" db:"id"`
@@ -40,6 +42,7 @@ type ConversationEvent struct {
 }
 type ConversationHistory struct {
 	Conversation Conversation          `json:"conversation"`
+	Issue        *ConversationIssue    `json:"issue,omitempty"`
 	Messages     []ConversationMessage `json:"messages"`
 	Cursor       int64                 `json:"cursor"`
 	HasMore      bool                  `json:"has_more"`
@@ -47,4 +50,13 @@ type ConversationHistory struct {
 type ConversationAttempt struct {
 	Conversation Conversation
 	Message      ConversationMessage
+}
+
+// ConversationIssue is a bounded, freshly authorized snapshot for the assistant.
+type ConversationIssue struct {
+	ID          uuid.UUID `json:"id" db:"id"`
+	Identifier  string    `json:"identifier" db:"identifier_text"`
+	Title       string    `json:"title" db:"title"`
+	Description string    `json:"description" db:"description"`
+	Status      string    `json:"status" db:"status"`
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/google/uuid"
+	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/middleware"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/internal/service"
@@ -81,12 +82,19 @@ func (h *ConversationHandler) List(c echo.Context) error {
 }
 func (h *ConversationHandler) Create(c echo.Context) error {
 	var req struct {
-		Title string `json:"title"`
+		Title   string     `json:"title"`
+		IssueID *uuid.UUID `json:"issue_id"`
 	}
 	if err := bindConversation(c, &req); err != nil {
 		return conversationError(c, repository.ErrConversationInvalid)
 	}
-	result, err := h.svc.Repo.Create(c.Request().Context(), middleware.GetWorkspace(c).ID, req.Title)
+	var result *domain.Conversation
+	var err error
+	if req.IssueID != nil {
+		result, err = h.svc.Repo.OpenIssue(c.Request().Context(), middleware.GetWorkspace(c).ID, *req.IssueID)
+	} else {
+		result, err = h.svc.Repo.Create(c.Request().Context(), middleware.GetWorkspace(c).ID, req.Title)
+	}
 	if err != nil {
 		return conversationError(c, err)
 	}

@@ -1,7 +1,18 @@
 <script lang="ts">
 	import { onMount, tick, untrack } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { ArrowUp, Square, Plus, History, Copy, Check, RefreshCw, MessageCircle, ArrowDown } from '@lucide/svelte';
+	import {
+		ArrowUp,
+		Square,
+		Plus,
+		History,
+		Copy,
+		Check,
+		RefreshCw,
+		MessageCircle,
+		ArrowDown,
+		Maximize2
+	} from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import * as Message from '$lib/components/ui/message/index.js';
@@ -14,7 +25,11 @@
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { m } from '$lib/paraglide/messages.js';
 
-	let { slug, conversationId }: { slug: string; conversationId: string | null } = $props();
+	let {
+		slug,
+		conversationId,
+		embedded = false
+	}: { slug: string; conversationId: string | null; embedded?: boolean } = $props();
 	// This component is keyed by workspace, conversation and authenticated user.
 	const chat = untrack(() => new ConversationState(slug, conversationId ?? ''));
 	const draftKey = untrack(() => `assistant-draft:${authState.user?.id}:${slug}:${conversationId ?? 'new'}`);
@@ -57,7 +72,7 @@
 			/* Storage can be disabled. */
 		}
 		draftLoaded = true;
-		void Promise.all([conversations.list(slug), conversations.status(slug)])
+		void Promise.all([embedded ? Promise.resolve([]) : conversations.list(slug), conversations.status(slug)])
 			.then(([items, provider]) => {
 				if (disposed) return;
 				history = items;
@@ -177,51 +192,68 @@
 	}
 </script>
 
-<svelte:head><title>{m['assistant.title']()} · Kuayle</title></svelte:head>
+<svelte:head
+	>{#if !embedded}<title>{m['assistant.title']()} · Kuayle</title>{/if}</svelte:head
+>
 <div class="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-background text-foreground">
 	<header class="flex h-14 shrink-0 items-center gap-3 border-b px-4 md:px-6">
 		<MessageCircle size={19} class="text-muted-foreground" />
-		<h1 class="min-w-0 flex-1 truncate text-sm font-semibold">{m['assistant.title']()}</h1>
-		<Button
-			variant="ghost"
-			size="icon-sm"
-			class="md:hidden"
-			aria-label={m['assistant.history']()}
-			aria-expanded={showHistory}
-			onclick={() => (showHistory = !showHistory)}><History size={17} /></Button
-		>
-		<Button variant="outline" size="sm" href="/{slug}/assistant"><Plus size={15} />{m['assistant.new']()}</Button>
+		<svelte:element this={embedded ? 'h3' : 'h1'} class="min-w-0 flex-1 truncate text-sm font-semibold">{m['assistant.title']()}</svelte:element>
+		{#if embedded}
+			<Button
+				variant="ghost"
+				size="icon-sm"
+				href="/{slug}/assistant?conversation={encodeURIComponent(conversationId ?? '')}"
+				aria-label={m['assistant.open_full']()}><Maximize2 size={16} /></Button
+			>
+		{:else}
+			<Button
+				variant="ghost"
+				size="icon-sm"
+				class="md:hidden"
+				aria-label={m['assistant.history']()}
+				aria-expanded={showHistory}
+				onclick={() => (showHistory = !showHistory)}><History size={17} /></Button
+			>
+			<Button variant="outline" size="sm" href="/{slug}/assistant"><Plus size={15} />{m['assistant.new']()}</Button>
+		{/if}
 	</header>
 	<div class="flex min-h-0 min-w-0 flex-1 flex-col md:flex-row">
-		<aside
-			class="max-h-56 shrink-0 flex-col gap-3 overflow-y-auto border-b bg-muted/20 p-3 md:flex md:max-h-none md:w-56 md:border-r md:border-b-0 {showHistory
-				? 'flex'
-				: 'hidden'}"
-			aria-label={m['assistant.history']()}
-		>
-			<p class="px-1 pt-1 text-xs font-medium text-muted-foreground">{m['assistant.history']()}</p>
-			<Input
-				bind:value={search}
-				aria-label={m['assistant.search']()}
-				placeholder={m['assistant.search']()}
-				class="h-8"
-			/>
-			<nav class="flex flex-col gap-1">
-				{#each filteredHistory as item (item.id)}
-					<a
-						href="/{slug}/assistant?conversation={encodeURIComponent(item.id)}"
-						aria-current={item.id === conversationId ? 'page' : undefined}
-						class="truncate rounded-md px-2 py-2 text-sm hover:bg-muted {item.id === conversationId
-							? 'bg-muted font-medium'
-							: 'text-muted-foreground'}">{item.title}</a
-					>
-				{/each}
-			</nav>
-		</aside>
+		{#if !embedded}
+			<aside
+				class="max-h-56 shrink-0 flex-col gap-3 overflow-y-auto border-b bg-muted/20 p-3 md:flex md:max-h-none md:w-56 md:border-r md:border-b-0 {showHistory
+					? 'flex'
+					: 'hidden'}"
+				aria-label={m['assistant.history']()}
+			>
+				<p class="px-1 pt-1 text-xs font-medium text-muted-foreground">{m['assistant.history']()}</p>
+				<Input
+					bind:value={search}
+					aria-label={m['assistant.search']()}
+					placeholder={m['assistant.search']()}
+					class="h-8"
+				/>
+				<nav class="flex flex-col gap-1">
+					{#each filteredHistory as item (item.id)}
+						<a
+							href="/{slug}/assistant?conversation={encodeURIComponent(item.id)}"
+							aria-current={item.id === conversationId ? 'page' : undefined}
+							class="truncate rounded-md px-2 py-2 text-sm hover:bg-muted {item.id === conversationId
+								? 'bg-muted font-medium'
+								: 'text-muted-foreground'}">{item.title}</a
+						>
+					{/each}
+				</nav>
+			</aside>
+		{/if}
 		<section class="flex min-h-0 min-w-0 flex-1 flex-col" aria-label={m['assistant.conversation']()}>
 			{#if conversationId && !chat.loading && !chat.unavailable}
 				<div class="flex shrink-0 items-center gap-2 px-5 pt-3 text-xs text-muted-foreground">
-					<span class="min-w-0 flex-1 truncate">{chat.conversation?.title}</span>
+					{#if chat.issue}<a
+							class="shrink-0 underline underline-offset-2"
+							href="/{slug}/issue/{encodeURIComponent(chat.issue.identifier)}">{chat.issue.identifier}</a
+						>{/if}
+					<span class="min-w-0 flex-1 truncate">{chat.issue?.title ?? chat.conversation?.title}</span>
 					<span role="status">{chat.connected ? m['assistant.connected']() : m['assistant.reconnecting']()}</span>
 				</div>
 			{/if}

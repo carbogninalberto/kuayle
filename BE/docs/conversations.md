@@ -8,12 +8,13 @@ requests; an already running request finishes or can be stopped.
 
 ## Current scope
 
-This first vertical slice is conversational. It does not yet expose issue,
+This increment remains conversational. It does not yet expose issue mutation,
 repository, machine, approval or publishing tools to the model. The system
 instruction makes that limitation explicit. Conversations currently belong to
 their creator, who must remain a non-guest workspace member. Two browsers signed
-in as that user can view the same stream. Conversation sharing and issue/project
-associations must add authorization predicates before widening this audience.
+in as that user can view the same stream. Issue details now embed the same conversation UI, with a full-page link back to the
+issue. Each creator has one reusable chat per issue and original team. Sharing and
+project-only conversations are not implemented yet.
 
 The native terminal, IDE, issue workflows and existing AI description expansion
 remain separate and retain their existing behavior. There is no new container
@@ -27,7 +28,7 @@ PATs are deliberately denied until dedicated chat scopes are defined.
 | Method | Workspace-relative path | Purpose |
 | --- | --- | --- |
 | GET | `/assistant/status` | Configured provider/model status, never the key |
-| GET / POST | `/conversations` | List the latest 100 conversations / create one |
+| GET / POST | `/conversations` | List the latest 100 visible conversations / create with `{title}`, or open/reuse with `{issue_id}` |
 | GET | `/conversations/:conversationId?before=sequence` | Consistent snapshot, latest 50 messages, pagination flag and replay cursor |
 | POST | `/conversations/:conversationId/messages` | `{request_id, content}`; idempotent user turn and queued reply |
 | POST | `/conversations/:conversationId/messages/:messageId/retry` | `{request_id}`; explicit successor for the latest unsuccessful reply |
@@ -51,6 +52,35 @@ before allocating cursors, preventing a later committed event from hiding an
 earlier uncommitted event during replay. Events carry stable UUIDs and increasing
 cursors; clients discard cursors already applied. Snapshot and pagination reads
 share that lock, so snapshot cursors describe exactly the returned state.
+
+## Issue conversations
+
+Migration 55 associates a conversation with an issue and its original team. The
+composite issue/workspace foreign key prevents cross-workspace associations.
+Opening is idempotent for the creator, issue and team; multiple users retain
+separate private chats. The issue description, comments and chat remain separate.
+No issue lifecycle transition occurs merely by opening or chatting.
+
+Every snapshot, event replay, send, retry, cancellation, worker claim and context
+read rechecks current issue/team visibility and non-guest membership. A team move
+hides the old conversation; opening after a move uses a separate scope. Deleting
+an issue or its original team deletes the scoped chat through foreign keys.
+Rolling back migration 55 deletes **issue conversations**, preserving general
+conversations and issues; it never converts scoped history into general chat.
+
+The snapshot API includes an authorized `issue` summary. The provider receives
+that fresh snapshot (identifier, title, status, and at most 8,000 description
+characters) as untrusted context. It receives no repository data or execution
+authority. Completed turns still use the bounded conversation context window.
+
+Short database transactions acquire the existing privacy graph barrier before row
+locks. Issue conversations pin their issue before taking the conversation cursor
+lock, matching deletion cascades. Authorization pins the relevant team membership until the transaction
+finishes, so a completed revocation or issue move cannot precede a stale write.
+Workspace-member removal locks its parent membership before deleting team grants
+to preserve this lock order. Telegram output
+uses the separate publication barrier, issue row and membership locks around its
+bounded send, without holding the graph-write barrier across network I/O.
 
 ## Execution and recovery
 
@@ -123,7 +153,7 @@ Focused checks, in addition to the repository testing skill's area checks:
 ```sh
 # BE/; DATABASE_URL must identify a disposable migrated PostgreSQL database.
 go test ./internal/service -run 'TestAssistant|TestAICompletion' -race -count=1
-go test ./internal/repository -run TestConversations -race -count=1
+go test ./internal/repository -run 'TestConversations|TestIssueConversations' -race -count=1
 go test ./cmd/server -run TestConversationHTTP -race -count=1
 go test ./migrations -run TestConversationsUpgrade -count=1
 # UI/

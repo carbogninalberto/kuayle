@@ -184,6 +184,16 @@ func (r *WorkspaceRepository) RemoveMember(ctx context.Context, workspaceID, use
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+	// Match authorized readers' workspace -> team membership lock order.
+	// Take the privacy barrier before any row lock, as the DELETE statements do.
+	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock_shared(610046,0)`); err != nil {
+		return err
+	}
+	var member uuid.UUID
+	err = tx.GetContext(ctx, &member, `SELECT user_id FROM workspace_members WHERE workspace_id=$1 AND user_id=$2 FOR UPDATE`, workspaceID, userID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
 	// A later workspace invitation must not revive old private-team grants or
 	// subscriptions. Remove all three memberships atomically.
 	for _, query := range []string{

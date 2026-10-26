@@ -48,6 +48,15 @@ func TestConversationsUpgradeAndRollbackPreserveExistingIssues(t *testing.T) {
 	require.NoError(t, err)
 	_, err = db.Exec(`INSERT INTO telegram_links(workspace_id,user_id,telegram_user_id,conversation_id) VALUES($1,$2,12345,$3)`, fixture.workspaceA, fixture.userA, conversation)
 	require.NoError(t, err)
+	require.NoError(t, m.Steps(1)) // issue conversation scope
+	var issueID, teamID uuid.UUID
+	require.NoError(t, db.QueryRow(`SELECT id,team_id FROM issues WHERE workspace_id=$1 LIMIT 1`, fixture.workspaceA).Scan(&issueID, &teamID))
+	_, err = db.Exec(`INSERT INTO conversations(workspace_id,creator_id,title,issue_id,team_id) VALUES($1,$2,'Scoped history',$3,$4)`, fixture.workspaceA, fixture.userA, issueID, teamID)
+	require.NoError(t, err)
+	require.NoError(t, m.Steps(-1))
+	var remaining int
+	require.NoError(t, db.QueryRow(`SELECT count(*) FROM conversations`).Scan(&remaining))
+	require.Equal(t, 1, remaining, "rollback removes scoped history rather than making it public")
 	require.NoError(t, m.Steps(-1))
 	var chatCount int
 	require.NoError(t, db.QueryRow(`SELECT count(*) FROM conversation_messages`).Scan(&chatCount))

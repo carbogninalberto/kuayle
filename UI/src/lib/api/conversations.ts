@@ -4,6 +4,8 @@ export interface Conversation {
 	id: string;
 	workspace_id: string;
 	creator_id: string;
+	issue_id?: string | null;
+	team_id?: string | null;
 	title: string;
 	created_at: string;
 	updated_at: string;
@@ -30,7 +32,15 @@ export interface ConversationEvent {
 	type: 'message.created' | 'message.delta' | 'message.updated' | 'message.completed';
 	payload: ConversationMessage | { message_id: string; delta?: string; status?: MessageStatus };
 }
+export interface ConversationIssue {
+	id: string;
+	identifier: string;
+	title: string;
+	description: string;
+	status: string;
+}
 export interface ConversationHistory {
+	issue?: ConversationIssue;
 	conversation: Conversation;
 	messages: ConversationMessage[];
 	cursor: number;
@@ -45,6 +55,7 @@ const base = (slug: string) => `/api/workspaces/${encodeURIComponent(slug)}`;
 export const conversations = {
 	status: (slug: string) => api.get<AssistantStatus>(`${base(slug)}/assistant/status`),
 	list: (slug: string) => api.get<Conversation[]>(`${base(slug)}/conversations`),
+	openIssue: (slug: string, issue_id: string) => api.post<Conversation>(`${base(slug)}/conversations`, { issue_id }),
 	create: (slug: string, title: string) => api.post<Conversation>(`${base(slug)}/conversations`, { title }),
 	history: (slug: string, id: string, before = 0) =>
 		api.get<ConversationHistory>(`${base(slug)}/conversations/${encodeURIComponent(id)}?before=${before}`),

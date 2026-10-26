@@ -675,7 +675,8 @@ removes the triggers but cannot restore references to parents already deleted.
 The Global Assistant reuses workspace AI settings, PostgreSQL and the existing
 HTTP/WebSocket stack. Conversations and incremental events survive navigation
 and API restarts. Generation attempts are leased and idempotent, with explicit
-retry after interruption. This conversational phase does not change issue or
+retry after interruption. Issue details embed a creator-private chat with a fresh,
+bounded issue snapshot and original-team visibility checks. This conversational phase does not change issue or
 Dev Machine lifecycles. See [conversation architecture and API](BE/docs/conversations.md)
 for scope, authorization, bounds, UI component sources, recovery and checks.
 

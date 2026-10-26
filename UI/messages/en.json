@@ -1871,5 +1871,8 @@
 	"telegram.open_bot": "Open bot",
 	"telegram.link_failed": "Could not link this ID. Check the allowlist and your workspace access.",
 	"telegram.reload": "Retry",
-	"telegram.loading": "Loading Telegram settings…"
+	"telegram.loading": "Loading Telegram settings…",
+	"assistant.issue_chat": "Issue chat",
+	"assistant.issue_intro": "Discuss this issue with your assistant. This conversation is private to you.",
+	"assistant.open_full": "Open full conversation"
 }

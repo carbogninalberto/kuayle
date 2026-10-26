@@ -1871,5 +1871,8 @@
 	"telegram.open_bot": "Apri bot",
 	"telegram.link_failed": "Impossibile collegare questo ID. Controlla la lista autorizzata e il tuo accesso al workspace.",
 	"telegram.reload": "Riprova",
-	"telegram.loading": "Caricamento impostazioni Telegram…"
+	"telegram.loading": "Caricamento impostazioni Telegram…",
+	"assistant.issue_chat": "Chat della issue",
+	"assistant.issue_intro": "Discuti questa issue con il tuo assistente. Questa conversazione è privata.",
+	"assistant.open_full": "Apri la conversazione completa"
 }

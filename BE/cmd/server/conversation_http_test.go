@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -48,10 +49,20 @@ func TestConversationHTTPStreamingAndReplay(t *testing.T) {
 		_, err = db.Exec(`INSERT INTO workspace_members(workspace_id,user_id,role) VALUES($1,$2,$3)`, ws, id, role)
 		require.NoError(t, err)
 	}
+	team, issue := uuid.New(), uuid.New()
+	_, err = db.Exec(`INSERT INTO teams(id,workspace_id,name,key) VALUES($1,$2,'Issue chat','CHAT')`, team, ws)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO team_statuses(team_id,name,slug,category) VALUES($1,'Todo','todo','unstarted')`, team)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO issues(id,workspace_id,team_id,number,identifier_text,title,description,creator_id,status_id) VALUES($1,$2,$3,1,'CHAT-1','Issue context title','Authorized issue snapshot',$4,(SELECT id FROM team_statuses WHERE team_id=$3 LIMIT 1))`, issue, ws, team, user)
+	require.NoError(t, err)
+	providerRequests := make(chan string, 4)
 	var calls atomic.Int32
 	release := make(chan struct{})
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
+		body, _ := io.ReadAll(r.Body)
+		providerRequests <- string(body)
 		w.Header().Set("Content-Type", "text/event-stream")
 		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"A live response before completion.\"}}]}\n\n")
 		w.(http.Flusher).Flush()
@@ -108,7 +119,11 @@ func TestConversationHTTPStreamingAndReplay(t *testing.T) {
 		}
 	}
 	var conversation domain.Conversation
-	request("POST", "/conversations", `{"title":"Live conversation"}`, token, 201, &conversation)
+	request("POST", "/conversations", fmt.Sprintf(`{"issue_id":%q}`, issue.String()), token, 201, &conversation)
+	require.Equal(t, issue, *conversation.IssueID)
+	var reopened domain.Conversation
+	request("POST", "/conversations", fmt.Sprintf(`{"issue_id":%q}`, issue.String()), token, 201, &reopened)
+	require.Equal(t, conversation.ID, reopened.ID)
 	path := "/conversations/" + conversation.ID.String()
 	request("GET", path, "", tokenFor(other), 404, nil)
 	request("POST", "/conversations", `{"title":"Denied"}`, tokenFor(guest), 404, nil)
@@ -169,6 +184,7 @@ func TestConversationHTTPStreamingAndReplay(t *testing.T) {
 	same := readUntil(second, "message.delta")
 	require.Equal(t, event.ID, same.ID)
 	require.Contains(t, string(event.Payload), "before completion")
+	require.Contains(t, <-providerRequests, "Authorized issue snapshot")
 	require.Equal(t, int32(1), calls.Load())
 	first.CloseNow()
 	resumed := dial(event.Cursor)
@@ -181,6 +197,8 @@ func TestConversationHTTPStreamingAndReplay(t *testing.T) {
 	var history domain.ConversationHistory
 	request("GET", path, "", token, 200, &history)
 	require.Len(t, history.Messages, 2)
+	require.NotNil(t, history.Issue)
+	require.Equal(t, "CHAT-1", history.Issue.Identifier)
 	require.Equal(t, "completed", history.Messages[1].Status)
 	require.Equal(t, "A live response before completion.", history.Messages[1].Content)
 	_, err = db.Exec(`DELETE FROM workspace_members WHERE workspace_id=$1 AND user_id=$2`, ws, user)

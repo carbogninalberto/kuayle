@@ -43,7 +43,9 @@ description: Implement Kuayle Go API behavior, authorization, persistence and mi
 For persistent chat, follow the [conversation contract](../../../BE/docs/conversations.md).
 Keep conversation cursors serialized by the conversation transaction, generation
 writes fenced by the lease, and reconnects read-only. Conversation audience and
-workspace broadcast audience are different authorization boundaries.
+workspace broadcast audience are different authorization boundaries. Issue chats
+also retain their original team scope; preserve the fresh checks and lock ordering
+documented in that contract across Web, workers and Telegram.
 For Telegram changes, preserve the [channel contract](../../../BE/docs/telegram.md):
 current allowlist plus verified Kuayle-account binding, atomic update receipts and
 conversation writes, owner-only encrypted credentials, and fresh outbound permission

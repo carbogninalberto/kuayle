@@ -79,7 +79,10 @@ address filtering and a ten-second timeout; errors never include token-bearing
 request URLs or remote response bodies.
 
 The outgoing worker claims a delivery durably before external I/O and rechecks
-current settings, membership and binding before sending. It holds the relevant
+current settings, membership and binding before sending. For an issue-scoped
+conversation it also checks the original/current team boundary and pins the issue
+and team membership until delivery completes. Revoked or moved issue chats cannot
+accept Telegram input or deliver queued output. It holds the relevant
 configuration/membership locks during the bounded HTTP call so a completed
 revocation cannot be followed by a newly authorized send. Telegram `sendMessage`
 has no application idempotency key: ambiguous HTTP failures and crash-interrupted

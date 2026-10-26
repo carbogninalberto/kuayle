@@ -1,4 +1,5 @@
 <script lang="ts">
+	import IssueAssistant from '$lib/features/assistant/IssueAssistant.svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { onMount, onDestroy } from 'svelte';
@@ -1012,6 +1013,8 @@
 				<div class="mt-2">
 					<IssueGitHubActivity {slug} identifier={issue.identifier} />
 				</div>
+
+			<div class="mt-6"><IssueAssistant {slug} issueId={issue.id} /></div>
 
 			<div class="mt-5"><IssueVersionHistory {slug} identifier={issue.identifier} {members} /></div>
 

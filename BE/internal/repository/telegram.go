@@ -184,7 +184,7 @@ func (r *TelegramRepository) Unlink(ctx context.Context, ws uuid.UUID) error {
 	return tx.Commit()
 }
 func (r *TelegramRepository) Receive(ctx context.Context, ws uuid.UUID, secret string, u domain.TelegramUpdate, codeHash, provider, model string) error {
-	tx, err := r.db.BeginTxx(ctx, nil)
+	tx, err := beginConversationTransaction(ctx, r.db)
 	if err != nil {
 		return err
 	}
@@ -250,7 +250,7 @@ func (r *TelegramRepository) Receive(ctx context.Context, ws uuid.UUID, secret s
 		}
 		err = telegramReply(ctx, tx, ws, user, u.UserID, nil, nil, "Account linked. Send a message to start a conversation. Use /new for a new conversation or /stop to cancel a reply.")
 	} else {
-		err = tx.QueryRowContext(ctx, `SELECT user_id,conversation_id FROM telegram_links WHERE workspace_id=$1 AND telegram_user_id=$2 FOR UPDATE`, ws, u.UserID).Scan(&user, &conversation)
+		err = tx.QueryRowContext(ctx, `SELECT user_id,conversation_id FROM telegram_links WHERE workspace_id=$1 AND telegram_user_id=$2`, ws, u.UserID).Scan(&user, &conversation)
 		if errors.Is(err, sql.ErrNoRows) {
 			return tx.Commit()
 		}
@@ -272,10 +272,20 @@ func (r *TelegramRepository) Receive(ctx context.Context, ws uuid.UUID, secret s
 				return err
 			}
 		}
-		// Acquire the same lock used by Web UI sends and provider event writers.
-		var id uuid.UUID
-		err = tx.GetContext(ctx, &id, `SELECT id FROM conversations WHERE id=$1 AND workspace_id=$2 AND creator_id=$3 FOR UPDATE`, conversation, ws, user)
+		// The settings lock serializes application link changes. Do not lock the
+		// link before its issue: issue deletion also clears this link. Acquire
+		// the same issue/conversation locks used by Web and provider writers.
+		chat, lockErr := lockConversation(ctx, tx, ws, *conversation, user, false)
+		err = lockErr
+		if errors.Is(err, sql.ErrNoRows) {
+			return tx.Commit()
+		}
 		if err != nil {
+			return err
+		}
+		if err = conversationScope(ctx, tx, *chat); errors.Is(err, ErrConversationNotFound) {
+			return tx.Commit()
+		} else if err != nil {
 			return err
 		}
 		switch {
@@ -357,10 +367,26 @@ func (r *TelegramRepository) Deliver(ctx context.Context, d domain.TelegramDeliv
 		return err
 	}
 	defer tx.Rollback()
+	// Publication precedes configuration/row locks, matching team visibility
+	// transitions. It is distinct from the graph-write barrier and permits
+	// unrelated content edits while the bounded outbound request runs.
+	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock_shared(hashtextextended($1::text,63))`, d.WorkspaceID); err != nil {
+		return err
+	}
 	var s domain.TelegramSettings
 	err = tx.GetContext(ctx, &s, `SELECT `+telegramColumns+` FROM telegram_settings WHERE workspace_id=$1 FOR SHARE`, d.WorkspaceID)
 	if err != nil {
 		return err
+	}
+	allowed := s.Enabled && slices.Contains(s.AllowedUserIDs, d.TelegramUserID)
+	if allowed {
+		allowed = conversationMember(ctx, tx, d.WorkspaceID, d.UserID) == nil
+	}
+	if allowed && d.ConversationID != nil {
+		allowed, err = telegramConversationScope(ctx, tx, d)
+		if err != nil {
+			return err
+		}
 	}
 	var pending bool
 	if err = tx.GetContext(ctx, &pending, `SELECT status='sending' FROM telegram_deliveries WHERE id=$1 FOR UPDATE`, d.ID); errors.Is(err, sql.ErrNoRows) {
@@ -370,10 +396,6 @@ func (r *TelegramRepository) Deliver(ctx context.Context, d domain.TelegramDeliv
 	}
 	if !pending {
 		return nil
-	}
-	allowed := s.Enabled && slices.Contains(s.AllowedUserIDs, d.TelegramUserID)
-	if allowed {
-		allowed = conversationMember(ctx, tx, d.WorkspaceID, d.UserID) == nil
 	}
 	var linked bool
 	if err = tx.GetContext(ctx, &linked, `SELECT EXISTS(SELECT 1 FROM telegram_links WHERE workspace_id=$1 AND user_id=$2 AND telegram_user_id=$3)`, d.WorkspaceID, d.UserID, d.TelegramUserID); err != nil {
@@ -426,4 +448,36 @@ func (r *TelegramRepository) Authenticate(ctx context.Context, ws uuid.UUID, sec
 		return ErrTelegramDenied
 	}
 	return nil
+}
+
+// Pin the issue and current team membership until outbound I/O finishes. No
+// conversation row lock is acquired here, avoiding the Web outbox lock order.
+func telegramConversationScope(ctx context.Context, tx *sqlx.Tx, d domain.TelegramDelivery) (bool, error) {
+	var c domain.Conversation
+	err := tx.GetContext(ctx, &c, `SELECT * FROM conversations WHERE id=$1 AND workspace_id=$2 AND creator_id=$3`, d.ConversationID, d.WorkspaceID, d.UserID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if c.IssueID == nil {
+		return true, nil
+	}
+	var team uuid.UUID
+	err = tx.GetContext(ctx, &team, `SELECT team_id FROM issues WHERE id=$1 AND workspace_id=$2 AND team_id=$3 FOR SHARE`, c.IssueID, c.WorkspaceID, c.TeamID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	var members []uuid.UUID
+	err = tx.SelectContext(ctx, &members, `SELECT user_id FROM team_members WHERE team_id=$1 AND user_id=$2 FOR SHARE`, team, d.UserID)
+	if err != nil {
+		return false, err
+	}
+	var allowed bool
+	err = tx.GetContext(ctx, &allowed, `SELECT kuayle_team_access($1,$2,$3)`, team, d.UserID, d.WorkspaceID)
+	return allowed, err
 }

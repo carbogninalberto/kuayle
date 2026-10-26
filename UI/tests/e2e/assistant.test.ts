@@ -308,3 +308,100 @@ test('does not restore delayed older history after access is revoked', async ({ 
 	await page.waitForTimeout(300);
 	await expect(page.locator('[data-slot="message"]')).toHaveCount(0);
 });
+
+test('opens persistent issue chat in place and links its focused view back to the issue', async ({ page }) => {
+	const state = await fixture(page);
+	const issue = {
+		id: 'issue-1',
+		identifier: 'ENG-1',
+		workspace_id: workspace.id,
+		team_id: 'team-1',
+		title: 'Implement issue chat',
+		description: 'Issue context',
+		status: 'todo',
+		priority: 0,
+		number: 1,
+		creator_id: 'user-1',
+		created_at: conversation.created_at,
+		updated_at: conversation.updated_at,
+		labels: [],
+		assignees: []
+	};
+	let opens = 0;
+	await page.route('**/api/workspaces/test/issues/ENG-1', (route) => route.fulfill({ json: issue }));
+	await page.route('**/api/workspaces/test/conversations', (route) => {
+		if (route.request().method() === 'POST') {
+			expect(route.request().postDataJSON()).toEqual({ issue_id: issue.id });
+			opens++;
+			return route.fulfill({ json: { ...conversation, issue_id: issue.id, team_id: issue.team_id } });
+		}
+		return route.fulfill({ json: [{ ...conversation, issue_id: issue.id, team_id: issue.team_id }] });
+	});
+	await page.goto('/test/issue/ENG-1');
+	await page.getByRole('button', { name: 'Issue chat', exact: true }).click();
+	const chat = page.getByRole('region', { name: 'Issue chat', exact: true });
+	await expect(chat.getByRole('textbox', { name: 'Message', exact: true })).toBeVisible();
+	await chat.getByRole('textbox', { name: 'Message', exact: true }).fill('Explain the implementation');
+	await chat.getByRole('textbox', { name: 'Message', exact: true }).press('Enter');
+	await expect.poll(() => state.sends).toEqual(['Explain the implementation']);
+	await expect(page).toHaveURL(/\/issue\/ENG-1$/);
+	await expect(chat.getByRole('link', { name: 'Open full conversation' })).toHaveAttribute(
+		'href',
+		'/test/assistant?conversation=chat-1'
+	);
+	await page.getByRole('button', { name: 'Issue chat', exact: true }).click();
+	await page.getByRole('button', { name: 'Issue chat', exact: true }).click();
+	await expect(chat.getByText('Hello assistant', { exact: true })).toBeVisible();
+	expect(opens).toBe(1);
+	await page.route('**/api/workspaces/test/conversations/chat-1?*', (route) =>
+		route.fulfill({
+			json: {
+				conversation: { ...conversation, issue_id: issue.id, team_id: issue.team_id },
+				issue: {
+					id: issue.id,
+					identifier: issue.identifier,
+					title: issue.title,
+					description: issue.description,
+					status: issue.status
+				},
+				messages: state.messages,
+				cursor: state.cursor,
+				has_more: false
+			}
+		})
+	);
+	await chat.getByRole('link', { name: 'Open full conversation' }).click();
+	await expect(page.getByRole('link', { name: 'ENG-1', exact: true })).toHaveAttribute('href', '/test/issue/ENG-1');
+});
+
+test('denied issue chat stays empty and can retry a temporary opening failure', async ({ page }) => {
+	await fixture(page);
+	const issue = {
+		id: 'issue-1',
+		identifier: 'ENG-1',
+		workspace_id: workspace.id,
+		team_id: 'team-1',
+		title: 'Scoped issue',
+		status: 'todo',
+		priority: 0,
+		creator_id: 'user-1',
+		created_at: conversation.created_at,
+		updated_at: conversation.updated_at,
+		labels: [],
+		assignees: []
+	};
+	await page.route('**/api/workspaces/test/issues/ENG-1', (route) => route.fulfill({ json: issue }));
+	let status = 500;
+	await page.route('**/api/workspaces/test/conversations', (route) =>
+		route.fulfill({ status, json: { error: { code: 'DENIED' } } })
+	);
+	await page.setViewportSize({ width: 390, height: 844 });
+	await page.goto('/test/issue/ENG-1');
+	await page.getByRole('button', { name: 'Issue chat', exact: true }).click();
+	const chat = page.getByRole('region', { name: 'Issue chat', exact: true });
+	await expect(chat.getByRole('button', { name: 'Retry', exact: true })).toBeVisible();
+	status = 404;
+	await chat.getByRole('button', { name: 'Retry', exact: true }).click();
+	await expect(chat.getByText('This conversation is no longer available.')).toBeVisible();
+	await expect(chat.getByRole('textbox')).toHaveCount(0);
+});

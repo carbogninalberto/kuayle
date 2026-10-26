@@ -1,12 +1,14 @@
 import {
 	conversations,
 	type Conversation,
+	type ConversationIssue,
 	type ConversationMessage,
 	type ConversationEvent
 } from '$lib/api/conversations';
 
 export class ConversationState {
 	conversation = $state<Conversation | null>(null);
+	issue = $state<ConversationIssue | null>(null);
 	messages = $state<ConversationMessage[]>([]);
 	cursor = 0;
 	hasMore = $state(false);
@@ -36,6 +38,7 @@ export class ConversationState {
 			const history = await conversations.history(this.slug, this.id);
 			if (this.disposed || version !== this.loadVersion) return;
 			this.conversation = history.conversation;
+			this.issue = history.issue ?? null;
 			this.messages = history.messages;
 			this.cursor = history.cursor;
 			this.hasMore = history.has_more;
@@ -58,6 +61,7 @@ export class ConversationState {
 			this.loading = false;
 			this.messages = [];
 			this.conversation = null;
+			this.issue = null;
 			this.disconnect();
 		} else {
 			this.failed = true;

@@ -1871,5 +1871,8 @@
 	"telegram.open_bot": "開啟機器人",
 	"telegram.link_failed": "無法連結此 ID。請檢查允許清單和工作區存取權限。",
 	"telegram.reload": "重試",
-	"telegram.loading": "正在載入 Telegram 設定…"
+	"telegram.loading": "正在載入 Telegram 設定…",
+	"assistant.issue_chat": "議題聊天",
+	"assistant.issue_intro": "與助理討論此議題。此對話僅對你可見。",
+	"assistant.open_full": "開啟完整對話"
 }

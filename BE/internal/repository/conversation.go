@@ -49,14 +49,16 @@ func (r *ConversationRepository) authorized(ctx context.Context, ws, id uuid.UUI
 	if err != nil {
 		return nil, nil, err
 	}
-	tx, err := r.db.BeginTxx(ctx, nil)
+	tx, err := beginConversationTransaction(ctx, r.db)
 	if err != nil {
 		return nil, nil, err
 	}
-	var c domain.Conversation
-	err = tx.GetContext(ctx, &c, `SELECT * FROM conversations WHERE id=$1 AND workspace_id=$2 AND creator_id=$3 FOR UPDATE`, id, ws, user)
+	c, err := lockConversation(ctx, tx, ws, id, user, false)
 	if err == nil {
 		err = conversationMember(ctx, tx, ws, user)
+	}
+	if err == nil {
+		err = conversationScope(ctx, tx, *c)
 	}
 	if err != nil {
 		tx.Rollback()
@@ -65,7 +67,7 @@ func (r *ConversationRepository) authorized(ctx context.Context, ws, id uuid.UUI
 		}
 		return nil, nil, err
 	}
-	return tx, &c, nil
+	return tx, c, nil
 }
 func (r *ConversationRepository) Create(ctx context.Context, ws uuid.UUID, title string) (*domain.Conversation, error) {
 	title = strings.TrimSpace(title)
@@ -76,7 +78,7 @@ func (r *ConversationRepository) Create(ctx context.Context, ws uuid.UUID, title
 	if err != nil {
 		return nil, err
 	}
-	tx, err := r.db.BeginTxx(ctx, nil)
+	tx, err := beginConversationTransaction(ctx, r.db)
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +98,7 @@ func (r *ConversationRepository) List(ctx context.Context, ws uuid.UUID) ([]doma
 	if err != nil {
 		return nil, err
 	}
-	tx, err := r.db.BeginTxx(ctx, nil)
+	tx, err := beginConversationTransaction(ctx, r.db)
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +107,7 @@ func (r *ConversationRepository) List(ctx context.Context, ws uuid.UUID) ([]doma
 		return nil, err
 	}
 	result := []domain.Conversation{}
-	err = tx.SelectContext(ctx, &result, `SELECT * FROM conversations WHERE workspace_id=$1 AND creator_id=$2 ORDER BY updated_at DESC,id LIMIT 100`, ws, user)
+	err = tx.SelectContext(ctx, &result, `SELECT c.* FROM conversations c WHERE workspace_id=$1 AND creator_id=$2 AND `+conversationScopePredicate("c")+` ORDER BY updated_at DESC,id LIMIT 100`, ws, user)
 	return result, err
 }
 func (r *ConversationRepository) History(ctx context.Context, ws, id uuid.UUID, before int64) (*domain.ConversationHistory, error) {
@@ -115,6 +117,10 @@ func (r *ConversationRepository) History(ctx context.Context, ws, id uuid.UUID, 
 	}
 	defer tx.Rollback()
 	h := &domain.ConversationHistory{Conversation: *c, Messages: []domain.ConversationMessage{}}
+	h.Issue, err = conversationIssue(ctx, tx, *c)
+	if err != nil {
+		return nil, err
+	}
 	err = tx.SelectContext(ctx, &h.Messages, `SELECT * FROM conversation_messages WHERE conversation_id=$1 AND ($2::bigint=0 OR sequence<$2) ORDER BY sequence DESC LIMIT 51`, id, before)
 	if err != nil {
 		return nil, err
@@ -288,23 +294,37 @@ func (r *ConversationRepository) Cancel(ctx context.Context, ws, id uuid.UUID) e
 	return tx.Commit()
 }
 func (r *ConversationRepository) Claim(ctx context.Context) (*domain.ConversationAttempt, error) {
-	tx, err := r.db.BeginTxx(ctx, nil)
+	tx, err := beginConversationTransaction(ctx, r.db)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
 	var a domain.ConversationAttempt
-	err = tx.GetContext(ctx, &a.Conversation, `SELECT c.* FROM conversations c WHERE EXISTS(SELECT 1 FROM conversation_messages m WHERE m.conversation_id=c.id AND m.status='queued') AND EXISTS(SELECT 1 FROM workspace_members wm WHERE wm.workspace_id=c.workspace_id AND wm.user_id=c.creator_id AND wm.role<>'guest') ORDER BY c.updated_at,c.id LIMIT 1 FOR UPDATE SKIP LOCKED`)
+	err = tx.GetContext(ctx, &a.Conversation, `SELECT c.* FROM conversations c WHERE EXISTS(SELECT 1 FROM conversation_messages m WHERE m.conversation_id=c.id AND m.status='queued') AND EXISTS(SELECT 1 FROM workspace_members wm WHERE wm.workspace_id=c.workspace_id AND wm.user_id=c.creator_id AND wm.role<>'guest') AND `+conversationScopePredicate("c")+` ORDER BY c.updated_at,c.id LIMIT 1`)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
+	locked, err := lockConversation(ctx, tx, a.Conversation.WorkspaceID, a.Conversation.ID, a.Conversation.CreatorID, true)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	a.Conversation = *locked
 	if err = conversationMember(ctx, tx, a.Conversation.WorkspaceID, a.Conversation.CreatorID); err != nil {
 		return nil, err
 	}
+	if err = conversationScope(ctx, tx, a.Conversation); err != nil {
+		return nil, err
+	}
 	err = tx.GetContext(ctx, &a.Message, `UPDATE conversation_messages SET status='streaming',lease_token=gen_random_uuid(),lease_expires_at=now()+interval '2 minutes',updated_at=now() WHERE conversation_id=$1 AND status='queued' RETURNING *`, a.Conversation.ID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -364,7 +384,7 @@ func (r *ConversationRepository) Finish(ctx context.Context, a domain.Conversati
 func (r *ConversationRepository) Recover(ctx context.Context) error {
 	// Never retry an ambiguous provider call automatically. A successor requires
 	// an explicit request and receives its own message and idempotency key.
-	tx, err := r.db.BeginTxx(ctx, nil)
+	tx, err := beginConversationTransaction(ctx, r.db)
 	if err != nil {
 		return err
 	}
