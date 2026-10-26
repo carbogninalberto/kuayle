@@ -299,11 +299,18 @@ while :; do sleep 1; done
 	cmd.Stderr = &stderr
 	require.NoError(t, cmd.Start())
 	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
+	exited := make(chan struct{})
+	go func() {
+		done <- cmd.Wait()
+		close(exited)
+	}()
 	t.Cleanup(func() {
-		if cmd.ProcessState == nil || !cmd.ProcessState.Exited() {
+		// Wait owns cmd.ProcessState; synchronize on its completion instead.
+		select {
+		case <-exited:
+		default:
 			_ = cmd.Process.Kill()
-			<-done
+			<-exited
 		}
 	})
 
