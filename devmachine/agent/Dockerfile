@@ -4,9 +4,9 @@ FROM node:22.23.3-alpine3.23@sha256:baf676f7d0e552f3231945c2f979055ca121bce128c1
 
 ARG PROVIDER
 ARG NPM_VERSION=12.2.0
-ARG CLAUDE_CODE_VERSION=2.1.289
-ARG OPENCODE_VERSION=1.18.34
-ARG CODEX_VERSION=0.160.0
+ARG CLAUDE_CODE_VERSION=2.1.310
+ARG OPENCODE_VERSION=1.19.4
+ARG CODEX_VERSION=0.164.0
 
 COPY common/start-common.sh common/codex-deepseek-catalog.cjs common/patch-npm-security.cjs common/test-http-cache-semantics.cjs /usr/local/lib/kuayle/
 
