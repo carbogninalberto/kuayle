@@ -1,5 +1,16 @@
 [
   {
+    "tag_name": "v0.1.36",
+    "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.36",
+    "body": "### Self-hosting\n- **Clearer System update status:** Settings → Version now shows whether the updater is connected and how its last run ended (in progress, completed or failed), with timestamps. The confirmation dialog no longer shows the shell command.\n- **Failure reasons:** a failed update shows why it failed, and a **Failure details** section expands to the updater's recent output.\n- **Everyone sees the upgrade page:** when an update starts, every connected browser goes to the \"Upgrade in progress\" page. The page returns to where each user was once the update ends.\n- **Upgrade page logo:** the logo is now embedded in the page, so it shows on every URL, including deep links such as `/workspace/settings/version`.\n\n### Upgrade\nNo database migrations or configuration changes. The update scripts do not replace the running updater sidecar. To get failure details, rebuild and recreate the `updater` service once, using the same Compose project and files you deploy with.\n\nPR: https://github.com/carbogninalberto/kuayle/pull/91\n\n**Full Changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.1.35...v0.1.36\n",
+    "published_at": "2026-10-26T19:37:21Z",
+    "prerelease": false,
+    "force_upgrade": false,
+    "minimum_supported_version": null,
+    "upgrade_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.36",
+    "upgrade_message": null
+  },
+  {
     "tag_name": "v0.1.35",
     "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.35",
     "body": "### Improvements\n- Release publication now automatically refreshes all seven built-in agent CLIs: Claude Code, OpenCode, Codex, Qwen Code, Crush, Goose, and Kimi.\n- Exact versions remain pinned across the shared installer and runtime Dockerfiles. Goose and Kimi checksums are refreshed for both amd64 and arm64.\n- Release runtime builds and scans use the exact refreshed source commit. Invalid or incomplete upstream metadata stops the refresh before any pins are changed.\n\n### Upgrade\nNo database migrations or configuration changes. CLI updates take effect when runtime images are rebuilt and new containers use them; existing running machines are not modified automatically.\n\nPR: https://github.com/carbogninalberto/kuayle/pull/90\n\n**Full Changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.1.34...v0.1.35\n",
