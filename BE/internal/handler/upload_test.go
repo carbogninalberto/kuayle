@@ -310,3 +310,35 @@ func TestExtractProtectedAssetSourcesIgnoresExternalImages(t *testing.T) {
 	require.Len(t, sources, 1)
 	assert.Equal(t, assetID, sources[0].assetID)
 }
+
+// Stored content types can come from workspace imports. An anonymous asset URL
+// must never be served as script or HTML from the application origin.
+func TestPublicAssetServesUnlistedContentTypesAsDownloads(t *testing.T) {
+	for _, contentType := range []string{"text/javascript", "text/html", "application/xhtml+xml", "image/svg+xml; charset=utf-8"} {
+		t.Run(contentType, func(t *testing.T) {
+			e := echo.New()
+			assetID, workspaceID, issueID := uuid.New(), uuid.New(), uuid.New()
+			store := &memoryStorage{files: map[string]string{"asset.png": "alert(document.domain)"}}
+			assetRepo := &memoryAssetRepo{assets: map[uuid.UUID]*domain.Asset{
+				assetID: {ID: assetID, WorkspaceID: workspaceID, StorageKey: "asset.png", Filename: "asset.png", ContentType: contentType},
+			}}
+			issues := newTestIssueRepo()
+			issues.issues["PUB-1"] = &domain.Issue{ID: issueID, WorkspaceID: workspaceID}
+			h := NewUploadHandler(store, assetRepo, issues, "secret-32-characters-minimum-value")
+			token, _, err := assettoken.Generate("secret-32-characters-minimum-value:prompt-assets", assetID, workspaceID, issueID, time.Hour)
+			require.NoError(t, err)
+			req := httptest.NewRequest(http.MethodGet, "/api/public/assets/"+token, nil)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+			c.SetParamNames("token")
+			c.SetParamValues(token)
+
+			require.NoError(t, h.PublicAsset(c))
+
+			assert.Equal(t, http.StatusOK, rec.Code)
+			assert.Equal(t, "application/octet-stream", rec.Header().Get("Content-Type"))
+			assert.Contains(t, rec.Header().Get("Content-Disposition"), "attachment")
+			assert.Equal(t, "nosniff", rec.Header().Get("X-Content-Type-Options"))
+		})
+	}
+}

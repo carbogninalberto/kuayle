@@ -28,34 +28,6 @@ import (
 
 const maxUploadSize = 10 * 1024 * 1024
 
-var allowedUploadExtensions = map[string]map[string]bool{
-	"image/jpeg":    {".jpg": true, ".jpeg": true},
-	"image/png":     {".png": true},
-	"image/gif":     {".gif": true},
-	"image/webp":    {".webp": true},
-	"image/svg+xml": {".svg": true},
-
-	"application/pdf":  {".pdf": true},
-	"text/plain":       {".txt": true, ".log": true},
-	"text/csv":         {".csv": true},
-	"text/markdown":    {".md": true, ".markdown": true},
-	"application/json": {".json": true},
-	"text/rtf":         {".rtf": true},
-
-	"application/msword": {".doc": true},
-	"application/vnd.openxmlformats-officedocument.wordprocessingml.document": {".docx": true},
-	"application/vnd.ms-excel": {".xls": true},
-	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":         {".xlsx": true},
-	"application/vnd.ms-powerpoint":                                             {".ppt": true},
-	"application/vnd.openxmlformats-officedocument.presentationml.presentation": {".pptx": true},
-
-	"application/zip":             {".zip": true},
-	"application/gzip":            {".gz": true, ".gzip": true},
-	"application/x-tar":           {".tar": true},
-	"application/x-7z-compressed": {".7z": true},
-	"application/vnd.rar":         {".rar": true},
-}
-
 type UploadHandler struct {
 	store       storage.Backend
 	assetRepo   repository.AssetRepo
@@ -207,7 +179,7 @@ func allowedUploadType(detectedType, ext string) (string, bool) {
 			detectedType = "text/markdown"
 		}
 	}
-	extensions, ok := allowedUploadExtensions[detectedType]
+	extensions, ok := domain.AssetContentTypeExtensions[detectedType]
 	if !ok {
 		return "", false
 	}
@@ -218,7 +190,7 @@ func allowedUploadType(detectedType, ext string) (string, bool) {
 }
 
 func (h *UploadHandler) setAssetDisposition(c echo.Context, asset *domain.Asset) {
-	if c.QueryParam("download") == "1" || !strings.HasPrefix(asset.ContentType, "image/") {
+	if c.QueryParam("download") == "1" || !strings.HasPrefix(domain.SafeAssetContentType(asset.ContentType), "image/") {
 		c.Response().Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": asset.Filename}))
 	}
 }
@@ -269,9 +241,10 @@ func (h *UploadHandler) streamAsset(c echo.Context, asset *domain.Asset) error {
 		return response.NotFound(c, "Asset")
 	}
 	defer rc.Close()
-	c.Response().Header().Set("Content-Type", asset.ContentType)
+	contentType := domain.SafeAssetContentType(asset.ContentType)
+	c.Response().Header().Set("Content-Type", contentType)
 	c.Response().Header().Set("X-Content-Type-Options", "nosniff")
-	return c.Stream(http.StatusOK, asset.ContentType, rc)
+	return c.Stream(http.StatusOK, contentType, rc)
 }
 
 type protectedAssetSource struct {

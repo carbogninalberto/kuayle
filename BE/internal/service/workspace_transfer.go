@@ -609,12 +609,13 @@ func (s *WorkspaceTransferService) Import(ctx context.Context, path, name, slug 
 			ext = ""
 		}
 		storageKey := uuid.New().String() + strings.ToLower(ext)
+		contentType := domain.SafeAssetContentType(transferString(row["content_type"]))
 		rc, err := entry.Open()
 		if err != nil {
 			cleanupAssets()
 			return nil, err
 		}
-		size, putErr := s.store.Put(ctx, storageKey, io.LimitReader(rc, maxWorkspaceAssetBytes+1), transferString(row["content_type"]))
+		size, putErr := s.store.Put(ctx, storageKey, io.LimitReader(rc, maxWorkspaceAssetBytes+1), contentType)
 		_ = rc.Close()
 		if putErr != nil || size > maxWorkspaceAssetBytes || size != transferInt64(row["size"]) {
 			_ = s.store.Delete(context.Background(), storageKey)
@@ -626,6 +627,7 @@ func (s *WorkspaceTransferService) Import(ctx context.Context, path, name, slug 
 		}
 		stagedKeys = append(stagedKeys, storageKey)
 		sourceRow["storage_key"] = storageKey
+		sourceRow["content_type"] = contentType
 		delete(sourceRow, "archive_path")
 		_ = assetIDMap
 	}
