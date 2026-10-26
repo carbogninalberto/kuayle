@@ -1,5 +1,16 @@
 [
   {
+    "tag_name": "v0.1.37",
+    "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.37",
+    "body": "### Fixed\n- Fixed a machine-manager crash when GitHub App credentials are configured per workspace instead of globally. Repository operations now use the workspace credentials correctly.\n- This also fixes release updates getting left in maintenance mode when the manager crashed during startup health checks.\n- Updated CLI pin validation tests to support automatic version refreshes while still requiring concrete versions and architecture checksums.\n\n### Upgrade\nNo database migrations or configuration changes. This release includes the permanent fix for the manager hotfix deployed during recovery of kuayle.bakney.com.\n\nPR: https://github.com/carbogninalberto/kuayle/pull/92\n\n**Full Changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.1.36...v0.1.37\n",
+    "published_at": "2026-10-26T19:39:16Z",
+    "prerelease": false,
+    "force_upgrade": false,
+    "minimum_supported_version": null,
+    "upgrade_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.37",
+    "upgrade_message": null
+  },
+  {
     "tag_name": "v0.1.36",
     "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.1.36",
     "body": "### Self-hosting\n- **Clearer System update status:** Settings → Version now shows whether the updater is connected and how its last run ended (in progress, completed or failed), with timestamps. The confirmation dialog no longer shows the shell command.\n- **Failure reasons:** a failed update shows why it failed, and a **Failure details** section expands to the updater's recent output.\n- **Everyone sees the upgrade page:** when an update starts, every connected browser goes to the \"Upgrade in progress\" page. The page returns to where each user was once the update ends.\n- **Upgrade page logo:** the logo is now embedded in the page, so it shows on every URL, including deep links such as `/workspace/settings/version`.\n\n### Upgrade\nNo database migrations or configuration changes. The update scripts do not replace the running updater sidecar. To get failure details, rebuild and recreate the `updater` service once, using the same Compose project and files you deploy with.\n\nPR: https://github.com/carbogninalberto/kuayle/pull/91\n\n**Full Changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.1.35...v0.1.36\n",
