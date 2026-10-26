@@ -175,7 +175,7 @@ func (s *AuthService) Login(ctx context.Context, req dto.LoginRequest) (*domain.
 }
 
 func (s *AuthService) RefreshTokens(ctx context.Context, refreshToken string) (string, string, error) {
-	claims, err := jwtpkg.ValidateToken(refreshToken, s.jwtSecret)
+	claims, err := jwtpkg.ValidateRefreshToken(refreshToken, s.jwtSecret)
 	if err != nil {
 		return "", "", ErrInvalidToken
 	}

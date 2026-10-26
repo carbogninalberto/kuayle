@@ -53,6 +53,12 @@ func issueVisible(ctx context.Context, issueColumn string) string {
 	return "EXISTS (SELECT 1 FROM issues access_issue WHERE access_issue.id = " + issueColumn + " AND " + teamVisible(ctx, "access_issue.team_id") + ")"
 }
 
+// optionalWorkspaceMember allows a NULL user reference or a current member of
+// the workspace, so users from other workspaces cannot be attached.
+func optionalWorkspaceMember(workspace, user string) string {
+	return "(" + user + " IS NULL OR EXISTS (SELECT 1 FROM workspace_members reference_member WHERE reference_member.workspace_id = " + workspace + " AND reference_member.user_id = " + user + "))"
+}
+
 func uuidSQL(id uuid.UUID) string { return "CAST('" + id.String() + "' AS uuid)" }
 
 // requireVisible is also used inside transactions before replacing junction

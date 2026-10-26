@@ -20,7 +20,7 @@ func NewIssueTemplateRepository(db *sqlx.DB) *IssueTemplateRepository {
 
 func (r *IssueTemplateRepository) Create(ctx context.Context, tmpl *domain.IssueTemplate) error {
 	query := `INSERT INTO issue_templates (id, workspace_id, team_id, title, default_issue_title, description, status, priority, assignee_id, label_ids, recurrence_rule, next_run_at, is_active, created_by)
-		SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14 WHERE ` + projectVisible(ctx, "CAST($2 AS uuid)", "CAST($3 AS uuid)") + ` RETURNING created_at, updated_at`
+		SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14 WHERE ` + projectVisible(ctx, "CAST($2 AS uuid)", "CAST($3 AS uuid)") + ` AND ` + optionalWorkspaceMember("CAST($2 AS uuid)", "CAST($9 AS uuid)") + ` RETURNING created_at, updated_at`
 	return r.db.QueryRowContext(ctx, query,
 		tmpl.ID, tmpl.WorkspaceID, tmpl.TeamID, tmpl.Title, tmpl.DefaultIssueTitle, tmpl.Description,
 		tmpl.Status, tmpl.Priority, tmpl.AssigneeID, tmpl.LabelIDs,
@@ -48,7 +48,7 @@ func (r *IssueTemplateRepository) Update(ctx context.Context, tmpl *domain.Issue
 		title = $1, default_issue_title = $2, description = $3, status = $4, priority = $5, assignee_id = $6,
 		team_id = $7, label_ids = $8, recurrence_rule = $9, next_run_at = $10,
 		is_active = $11, updated_at = NOW()
-		WHERE id = $12 AND ` + projectVisible(ctx, "issue_templates.workspace_id", "CAST($7 AS uuid)") + " AND " + projectVisible(ctx, "issue_templates.workspace_id", "issue_templates.team_id") + ` AND ` + compatibleTeams("issue_templates.team_id", "CAST($7 AS uuid)") + ` RETURNING updated_at`
+		WHERE id = $12 AND ` + projectVisible(ctx, "issue_templates.workspace_id", "CAST($7 AS uuid)") + " AND " + projectVisible(ctx, "issue_templates.workspace_id", "issue_templates.team_id") + ` AND ` + compatibleTeams("issue_templates.team_id", "CAST($7 AS uuid)") + ` AND ` + optionalWorkspaceMember("issue_templates.workspace_id", "CAST($6 AS uuid)") + ` RETURNING updated_at`
 	return r.db.QueryRowContext(ctx, query,
 		tmpl.Title, tmpl.DefaultIssueTitle, tmpl.Description, tmpl.Status, tmpl.Priority, tmpl.AssigneeID,
 		tmpl.TeamID, tmpl.LabelIDs, tmpl.RecurrenceRule, tmpl.NextRunAt,

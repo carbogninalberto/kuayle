@@ -34,6 +34,9 @@ func issueReferencesVisible(ctx context.Context, issue *domain.Issue) string {
 	if issue.CycleID != nil {
 		checks = append(checks, "EXISTS (SELECT 1 FROM cycles reference_cycle JOIN teams reference_cycle_team ON reference_cycle_team.id = reference_cycle.team_id WHERE reference_cycle.id = "+uuidSQL(*issue.CycleID)+" AND reference_cycle_team.workspace_id = "+workspace+" AND "+teamVisible(ctx, "reference_cycle.team_id")+" AND "+compatibleTeams(team, "reference_cycle.team_id")+")")
 	}
+	if issue.AssigneeID != nil {
+		checks = append(checks, optionalWorkspaceMember(workspace, uuidSQL(*issue.AssigneeID)))
+	}
 	if issue.StatusID != nil {
 		checks = append(checks, "EXISTS (SELECT 1 FROM team_statuses reference_status WHERE reference_status.id = "+uuidSQL(*issue.StatusID)+" AND reference_status.team_id = "+team+")")
 	}

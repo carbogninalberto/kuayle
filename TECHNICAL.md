@@ -626,12 +626,23 @@ The self-hosting `dev-machine-images` profile builds the IDE, headless developer
 - Docker hardening is not hostile multi-tenant isolation.
 - Pinned Chrome Stable packages for amd64 and arm64 run through KasmVNC in a separately hardened non-root container. The browser's internal sandbox is disabled because Docker namespace restrictions conflict with its setup. The browser must not receive provider or GitHub secrets.
 - Domain egress controls cannot prevent exfiltration to an explicitly allowed destination.
+- The workspace DeepSeek credential is delivered into every developer container, so any member who can create a machine can read it from a terminal or have an agent reveal it. The API never returns it, but treat it as shared with those members (SECURITY_AUDIT.md KS-08).
 - Command and filesystem collection is best-effort and can be bypassed by trusted workspace code.
 - Provider adapters can construct interactive invocations, but current product dialogs queue autonomous agent runs and no interactive-agent attach endpoint is exposed. Direct interactive use of the built-in CLIs is available through Kuayle's native xterm terminal; ttyd's web page is not exposed.
 - Workspace hard quotas require Docker local-volume project-quota support; the manager intentionally fails startup rather than run machines with an unbounded workspace.
 - A separate registrable domain provides browser site isolation by default. Personal/trusted installations can explicitly opt into same-site machines with host-prefixed app cookies and exact-origin mutation/WebSocket checks. This reduces defense in depth and logs a startup warning. Localhost development remains exempt.
 
 These limitations are deployment facts and must not be represented as stronger guarantees in product or security documentation.
+
+### Platform controls outside Dev Machines
+
+The October 2026 audit ([SECURITY_AUDIT.md](SECURITY_AUDIT.md)) added these invariants:
+
+- Session JWTs carry `typ` (`access` or `refresh`). The API authenticates only access tokens; untyped legacy tokens are accepted only with the 15-minute access lifetime.
+- Assets are served with their stored content type only when it is in `domain.AssetContentTypeExtensions`; any other type, including one restored from a workspace import, is served as `application/octet-stream` attachment. Import normalizes the type too.
+- Outbound requests to workspace-chosen URLs (AI provider `base_url`) dial through `validate.PublicAddressControl`, never follow redirects, and keep transport errors server-side. `AI_ALLOW_PRIVATE_NETWORK=true` lets operators use a private-network provider, which trusts every workspace owner with internal access.
+- With the shared GitHub App, installation callbacks require the installing user's OAuth code and the installation in `GET /user/installations`; enable "Request user authorization (OAuth) during installation" and set `GITHUB_APP_CLIENT_ID`/`GITHUB_APP_CLIENT_SECRET`.
+- Issue, project and template writes reject users who are not workspace members and labels, cycles and statuses from other workspaces; repository unlinks are workspace-scoped; the public GitHub webhook body is capped at 25 MB.
 
 The gateway also serves a private HTTP certificate-approval listener on port 8091.
 It validates the exact requested hostname against a live route and checks running

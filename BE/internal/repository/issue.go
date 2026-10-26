@@ -386,8 +386,11 @@ func (r *IssueRepository) SetLabels(ctx context.Context, issueID uuid.UUID, labe
 		return err
 	}
 
+	// Labels from another workspace are ignored rather than attached.
 	for _, labelID := range labelIDs {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO issue_labels (issue_id, label_id) VALUES ($1, $2)`, issueID, labelID); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO issue_labels (issue_id, label_id) SELECT $1, $2 WHERE EXISTS (
+			SELECT 1 FROM issues label_issue JOIN labels l ON l.workspace_id = label_issue.workspace_id
+			WHERE label_issue.id = $1 AND l.id = $2 AND l.deleted_at IS NULL)`, issueID, labelID); err != nil {
 			return err
 		}
 	}
@@ -519,13 +522,17 @@ func (r *IssueRepository) BulkUpdate(ctx context.Context, workspaceID uuid.UUID,
 		args = append(args, *priority)
 		argIdx++
 	}
+	// References must belong to the updated issue's workspace.
+	referenceChecks := []string{}
 	if assigneeID != nil {
 		setClauses = append(setClauses, fmt.Sprintf("assignee_id = $%d", argIdx))
+		referenceChecks = append(referenceChecks, optionalWorkspaceMember("issues.workspace_id", fmt.Sprintf("CAST($%d AS uuid)", argIdx)))
 		args = append(args, *assigneeID)
 		argIdx++
 	}
 	if statusID != nil {
 		setClauses = append(setClauses, fmt.Sprintf("status_id = $%d", argIdx))
+		referenceChecks = append(referenceChecks, fmt.Sprintf("EXISTS (SELECT 1 FROM team_statuses bulk_status JOIN teams bulk_status_team ON bulk_status_team.id = bulk_status.team_id WHERE bulk_status.id = $%d AND bulk_status_team.workspace_id = issues.workspace_id)", argIdx))
 		args = append(args, *statusID)
 		argIdx++
 	}
@@ -534,6 +541,7 @@ func (r *IssueRepository) BulkUpdate(ctx context.Context, workspaceID uuid.UUID,
 		var cycleArg interface{}
 		if cycleID != nil {
 			cycleArg = *cycleID
+			referenceChecks = append(referenceChecks, fmt.Sprintf("EXISTS (SELECT 1 FROM cycles bulk_cycle JOIN teams bulk_cycle_team ON bulk_cycle_team.id = bulk_cycle.team_id WHERE bulk_cycle.id = $%d AND bulk_cycle_team.workspace_id = issues.workspace_id)", argIdx))
 		}
 		args = append(args, cycleArg)
 		argIdx++
@@ -556,6 +564,9 @@ func (r *IssueRepository) BulkUpdate(ctx context.Context, workspaceID uuid.UUID,
 		strings.Join(setClauses, ", "),
 		strings.Join(idPlaceholders, ", "),
 	)
+	for _, check := range referenceChecks {
+		query += " AND " + check
+	}
 
 	result, err := r.db.ExecContext(ctx, query, args...)
 	if err != nil {
@@ -598,15 +609,23 @@ func (r *IssueRepository) SetAssignees(ctx context.Context, issueID uuid.UUID, u
 		return err
 	}
 
+	// Users who are not members of the issue's workspace are ignored.
+	assigned := make([]uuid.UUID, 0, len(userIDs))
 	for _, uid := range userIDs {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO issue_assignees (issue_id, user_id) VALUES ($1, $2)`, issueID, uid); err != nil {
+		result, err := tx.ExecContext(ctx, `INSERT INTO issue_assignees (issue_id, user_id) SELECT $1, $2 WHERE EXISTS (
+			SELECT 1 FROM issues assignee_issue JOIN workspace_members am ON am.workspace_id = assignee_issue.workspace_id
+			WHERE assignee_issue.id = $1 AND am.user_id = $2)`, issueID, uid)
+		if err != nil {
 			return err
+		}
+		if n, _ := result.RowsAffected(); n > 0 {
+			assigned = append(assigned, uid)
 		}
 	}
 
 	// Keep assignee_id in sync: set to first assignee or NULL
-	if len(userIDs) > 0 {
-		_, err = tx.ExecContext(ctx, `UPDATE issues SET assignee_id = $1, updated_at = NOW() WHERE id = $2 AND `+teamVisible(ctx, "issues.team_id"), userIDs[0], issueID)
+	if len(assigned) > 0 {
+		_, err = tx.ExecContext(ctx, `UPDATE issues SET assignee_id = $1, updated_at = NOW() WHERE id = $2 AND `+teamVisible(ctx, "issues.team_id"), assigned[0], issueID)
 	} else {
 		_, err = tx.ExecContext(ctx, `UPDATE issues SET assignee_id = NULL, updated_at = NOW() WHERE id = $1 AND `+teamVisible(ctx, "issues.team_id"), issueID)
 	}

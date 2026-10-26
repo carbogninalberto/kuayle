@@ -78,7 +78,11 @@
 		}
 
 		try {
-			if (code) {
+			// An installation redirect also carries the installing user's OAuth code.
+			if (installationId) {
+				await handleGitHubCallback(slug, parseInt(installationId), code);
+				appToast.success(m['settings.github.connected_toast']());
+			} else if (code) {
 				// Prevent double exchange: check if already handled
 				const key = `gh_code_${code}`;
 				if (sessionStorage.getItem(key)) {
@@ -88,9 +92,6 @@
 					await handleManifestCallback(slug, code);
 					appToast.success(m['settings.github.app_created']());
 				}
-			} else if (installationId) {
-				await handleGitHubCallback(slug, parseInt(installationId));
-				appToast.success(m['settings.github.connected_toast']());
 			}
 
 			// Load current status

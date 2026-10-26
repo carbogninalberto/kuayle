@@ -11,8 +11,10 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/repository"
+	jwtpkg "github.com/kuayle/kuayle-backend/pkg/jwt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -481,4 +483,19 @@ func TestRegister_InviteRedemptionFailureRejectsRegistration(t *testing.T) {
 			refreshRepo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
 		})
 	}
+}
+
+func TestRefreshTokens_RejectsAccessToken(t *testing.T) {
+	userRepo := new(mockUserRepo)
+	refreshRepo := new(mockRefreshTokenRepo)
+	svc := NewAuthService(userRepo, refreshRepo, "test-secret")
+
+	access, err := jwtpkg.GenerateAccessToken(uuid.New(), "test-secret")
+	require.NoError(t, err)
+
+	_, _, err = svc.RefreshTokens(context.Background(), access)
+
+	assert.ErrorIs(t, err, ErrInvalidToken)
+	refreshRepo.AssertNotCalled(t, "GetByHash", mock.Anything, mock.Anything)
+	refreshRepo.AssertNotCalled(t, "DeleteByHash", mock.Anything, mock.Anything)
 }

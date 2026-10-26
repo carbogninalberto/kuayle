@@ -454,6 +454,18 @@ func TestWorkspaceTransferRoundTrip(t *testing.T) {
 	require.Zero(t, rollbackCount)
 	require.Equal(t, filesBefore, regularFileCount(t, storageDir), "staged asset must be removed after transaction rollback")
 
+	// Archive metadata must not choose an executable type for served assets.
+	scriptSlug := "transfer-script-" + strings.ReplaceAll(uuid.New().String(), "-", "")[:8]
+	t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM workspaces WHERE slug=$1`, scriptSlug) })
+	scriptArchive := mutateWorkspaceArchive(t, archive.Path, func(_ *dto.WorkspaceExportManifest, data *dto.WorkspaceTransferData) {
+		data.Tables["assets"][0]["content_type"] = "text/javascript"
+	})
+	_, err = transferService.Import(ctx, scriptArchive, "Script", scriptSlug, userID)
+	require.NoError(t, err)
+	var importedScriptType string
+	require.NoError(t, db.Get(&importedScriptType, `SELECT a.content_type FROM assets a JOIN workspaces w ON w.id=a.workspace_id WHERE w.slug=$1`, scriptSlug))
+	require.Equal(t, "application/octet-stream", importedScriptType)
+
 	missingSlug := "transfer-missing-" + strings.ReplaceAll(uuid.New().String(), "-", "")[:8]
 	missingEmail := "missing-" + uuid.New().String() + "@example.test"
 	missingArchive := mutateWorkspaceArchive(t, archive.Path, func(manifest *dto.WorkspaceExportManifest, data *dto.WorkspaceTransferData) {

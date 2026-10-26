@@ -30,11 +30,13 @@ export function deleteGitHubApp(slug: string): Promise<void> {
 
 export function handleGitHubCallback(
 	slug: string,
-	installationId: number
+	installationId: number,
+	code?: string | null
 ): Promise<{ id: string; account_login: string }> {
-	return api.get<{ id: string; account_login: string }>(
-		`/api/workspaces/${slug}/github/callback?installation_id=${installationId}`
-	);
+	// The shared app's API verifies the installation with the installing user's OAuth code.
+	const params = new URLSearchParams({ installation_id: String(installationId) });
+	if (code) params.set('code', code);
+	return api.get<{ id: string; account_login: string }>(`/api/workspaces/${slug}/github/callback?${params}`);
 }
 
 export function disconnectGitHub(slug: string): Promise<void> {

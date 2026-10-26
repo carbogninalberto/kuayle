@@ -70,7 +70,7 @@ func TestSlowPublicationsDoNotExhaustConnectionPool(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = pool.Close() })
 	pool.SetMaxOpenConns(poolSize)
-	ai := NewAISettingsService(repository.NewAISettingsRepository(pool), repository.NewWorkspaceRepository(pool), repository.NewIssueRepository(pool), key)
+	ai := NewAISettingsService(repository.NewAISettingsRepository(pool), repository.NewWorkspaceRepository(pool), repository.NewIssueRepository(pool), key, WithAIPrivateNetworkAccess(true)) // local provider fixture
 	ownerCtx, cancel := context.WithTimeout(domain.WithAccess(context.Background(), domain.Access{UserID: owner, WorkspaceID: ws}), 20*time.Second)
 	defer cancel()
 	var requests sync.WaitGroup

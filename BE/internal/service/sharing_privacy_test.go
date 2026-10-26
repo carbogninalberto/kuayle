@@ -117,7 +117,7 @@ func TestSharingPrivacyPostgres(t *testing.T) {
 	_, err = db.Exec(`INSERT INTO ai_settings(workspace_id,base_url,model,api_key_encrypted) VALUES($1,$2,'test-model',$3)`, ws, receiver.URL, encrypted)
 	require.NoError(t, err)
 	aiRepo := repository.NewAISettingsRepository(db)
-	ai := NewAISettingsService(aiRepo, repository.NewWorkspaceRepository(db), repository.NewIssueRepository(db), key)
+	ai := NewAISettingsService(aiRepo, repository.NewWorkspaceRepository(db), repository.NewIssueRepository(db), key, WithAIPrivateNetworkAccess(true)) // local provider fixture
 	aiResult := make(chan error, 1)
 	go func() {
 		_, e := ai.ExpandIssueDescription(ownerCtx, ws, "PUBLIC-1", nil)

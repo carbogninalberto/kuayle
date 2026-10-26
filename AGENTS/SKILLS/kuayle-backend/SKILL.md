@@ -19,6 +19,10 @@ description: Implement Kuayle Go API behavior, authorization, persistence and mi
   For access changes cover owner/member/outsider, private teams, workspace scoping,
   and applicable public-share/PAT paths. Check read and write paths; never rely
   solely on a frontend check or an identifier supplied by the caller.
+- Constrain every referenced user, label, cycle or status to the request workspace
+  in SQL, not only the target row. Requests to user-configured URLs must dial
+  through `validate.PublicAddressControl` in [pkg/validate](../../../BE/pkg/validate)
+  and not follow redirects. See [SECURITY_AUDIT.md](../../../SECURITY_AUDIT.md).
 - Preserve [access context](../../../BE/internal/domain/access.go), transaction
   boundaries and repository visibility predicates. For concurrency-sensitive
   access changes inspect [privacy concurrency tests](../../../BE/internal/repository/privacy_concurrency_test.go).

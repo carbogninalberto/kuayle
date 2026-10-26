@@ -66,7 +66,7 @@ func Auth(jwtSecret string, patRepo repository.PersonalAccessTokenRepo, hostCook
 				return authenticatePAT(c, patRepo, tokenString, next)
 			}
 
-			claims, err := jwtpkg.ValidateToken(tokenString, jwtSecret)
+			claims, err := jwtpkg.ValidateAccessToken(tokenString, jwtSecret)
 			if err != nil {
 				return response.Unauthorized(c)
 			}

@@ -4,18 +4,22 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strconv"
 
+	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 )
+
+// GitHub caps webhook payloads at 25 MB.
+const maxGitHubWebhookBytes = 25 * 1024 * 1024
 
 type GitHubHandler struct {
 	ghSvc *service.GitHubService
@@ -121,7 +125,10 @@ func (h *GitHubHandler) Callback(c echo.Context) error {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid installation_id")
 	}
 
-	inst, err := h.ghSvc.HandleInstallationCallback(c.Request().Context(), ws.ID, userID, installationID)
+	inst, err := h.ghSvc.HandleInstallationCallback(c.Request().Context(), ws.ID, userID, installationID, c.QueryParam("code"))
+	if errors.Is(err, service.ErrGitHubInstallationUnverified) {
+		return response.Error(c, http.StatusForbidden, "GITHUB_INSTALLATION_UNVERIFIED", err.Error())
+	}
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
 	}
@@ -182,7 +189,11 @@ func (h *GitHubHandler) UnlinkRepo(c echo.Context) error {
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid repo ID")
 	}
-	if err := h.ghSvc.UnlinkRepo(c.Request().Context(), id); err != nil {
+	ws := c.Get("workspace").(*domain.Workspace)
+	if err := h.ghSvc.UnlinkRepo(c.Request().Context(), ws.ID, id); err != nil {
+		if errors.Is(err, service.ErrGitHubRepoNotFound) {
+			return response.NotFound(c, "Repository")
+		}
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
 	}
 	return response.Success(c, http.StatusOK, map[string]string{"status": "unlinked"})
@@ -244,8 +255,12 @@ func (h *GitHubHandler) HandleWebhook(c echo.Context) error {
 	signature := c.Request().Header.Get("X-Hub-Signature-256")
 	eventType := c.Request().Header.Get("X-GitHub-Event")
 
-	body, err := io.ReadAll(c.Request().Body)
+	body, err := io.ReadAll(http.MaxBytesReader(c.Response().Writer, c.Request().Body, maxGitHubWebhookBytes))
 	if err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			return c.NoContent(http.StatusRequestEntityTooLarge)
+		}
 		return c.NoContent(http.StatusBadRequest)
 	}
 
