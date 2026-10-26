@@ -554,6 +554,8 @@ The manager exposes `/health`, `/ready`, and Prometheus-text `/metrics`. Structu
 
 ## Self-Hosted Deployment
 
+The optional [release updater](selfhosting/RELEASE_UPDATER.md) supports detached release checkouts and digest-pinned production Compose deployments. It exports release source without changing the checkout, prepares images before downtime, stops application/control-plane writers before a database backup and migrations, and waits for health before removing maintenance mode. Failure after migrations begin leaves writers stopped; it never restarts old binaries against a potentially changed schema.
+
 Dev Machines are an opt-in Compose profile.
 
 Prerequisites:

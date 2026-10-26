@@ -409,6 +409,8 @@ Instance sysadmins can also enable one-click updates from **Settings → Version
 
 The updater sidecar is internal-only and runs the same `selfhosting/update.sh` flow. If it is not configured, the Version page shows the manual update command instead.
 
+For a deployment pinned to published release images or a detached Git checkout, use the opt-in [release updater](selfhosting/RELEASE_UPDATER.md) instead. It targets an explicit production Compose project, backs up PostgreSQL and updates application and active Dev Machines components together.
+
 ### Storage options
 
 By default, uploads use a local Docker volume (`STORAGE_TYPE=local`). The alternative S3 backend accepts a configurable endpoint and path-style requests:

@@ -7,7 +7,7 @@ RUN CGO_ENABLED=0 go build -o /out/kuayle-updater ./cmd/updater
 
 FROM alpine:3.23
 ARG SECURITY_REFRESH=initial
-RUN apk upgrade --no-cache && apk add --no-cache bash ca-certificates docker-cli docker-cli-compose git openssh-client
+RUN apk upgrade --no-cache && apk add --no-cache bash ca-certificates docker-cli docker-cli-compose git openssh-client python3 py3-yaml
 WORKDIR /repo
 COPY --from=builder /out/kuayle-updater /usr/local/bin/kuayle-updater
 EXPOSE 8081
