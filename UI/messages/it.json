@@ -1393,6 +1393,7 @@
 	"sharedComponents.release_notice.to": "a",
 	"sharedComponents.release_notice.toggle_prerelease": "Attiva/disattiva visibilità pre-release",
 	"sharedComponents.release_notice.update_available": "Aggiornamento disponibile",
+	"sharedComponents.release_notice.upgrade_now": "Aggiorna ora",
 	"sharedComponents.release_notice.upgrade_message": "Chiedi al proprietario dell'istanza di aggiornare Kuayle, poi aggiorna questa pagina per caricare la nuova versione dell'app.",
 	"sharedComponents.release_notice.upgrade_required": "Aggiornamento richiesto",
 	"sharedComponents.rich_editor.attach_files": "Allega file",

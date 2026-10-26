@@ -183,7 +183,7 @@
 		</div>
 	</div>
 
-	<div class="mt-6 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
+	<div id="system-update" class="mt-6 scroll-mt-6 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
 		<div class="flex items-start gap-3 px-5 py-4">
 			{#if isSysadmin}
 				<ShieldCheck size={18} class="mt-0.5 shrink-0 text-[var(--app-accent-light)]" />

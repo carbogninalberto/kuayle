@@ -22,6 +22,8 @@ async function setup(page: Page, role: string | null = 'owner') {
 	const state = {
 		roles: { alpha: role, beta: 'member' } as Record<string, string | null>,
 		authenticated: true,
+		isSysadmin: true,
+		updateRequests: 0,
 		authGate: null as ReturnType<typeof deferred> | null,
 		workspaceGate: null as ReturnType<typeof deferred> | null,
 		teamsGate: null as ReturnType<typeof deferred> | null,
@@ -51,7 +53,7 @@ async function setup(page: Page, role: string | null = 'owner') {
 								name: 'Test User',
 								display_name: 'Test User',
 								avatar_url: null,
-								is_sysadmin: true
+								is_sysadmin: state.isSysadmin
 							}
 						}
 					: { status: 401, json: { error: { message: 'Unauthorized' } } }
@@ -78,7 +80,11 @@ async function setup(page: Page, role: string | null = 'owner') {
 			await state.workspaceGate?.promise;
 			return route.fulfill({ json: { id: slug, slug, name: `${slug} workspace`, current_user_role: role } });
 		}
-		if (path === '/api/system/update-status') return route.fulfill({ json: { enabled: false, running: false } });
+		if (path === '/api/system/update-status') return route.fulfill({ json: { enabled: true, running: false } });
+		if (path === '/api/system/update') {
+			state.updateRequests++;
+			return route.fulfill({ json: { running: true, message: 'Update started' } });
+		}
 		if (path === '/api/preferences')
 			return route.fulfill({
 				json: {
@@ -392,4 +398,43 @@ test('slow teams cannot restore an obsolete owner role in navigation', async ({ 
 	await expect(page.getByRole('button', { name: 'T', exact: true })).toBeVisible();
 	await expect(page.locator('a[href="/alpha/machines"]')).toHaveCount(0);
 	expect(await dismissed(page)).toBeNull();
+});
+
+for (const scenario of [
+	{ name: 'desktop owner', role: 'owner', workspace: 'alpha', start: 'inbox', mobile: false },
+	{ name: 'mobile admin', role: 'admin', workspace: 'beta', start: 'inbox', mobile: true },
+	{ name: 'owner already in version settings', role: 'owner', workspace: 'alpha', start: 'settings/version', mobile: false }
+]) {
+	test(`Upgrade now takes ${scenario.name} to the current workspace update controls`, async ({ page }) => {
+		const state = await setup(page, scenario.role);
+		state.roles[scenario.workspace] = scenario.role;
+		if (scenario.mobile) await page.setViewportSize({ width: 390, height: 844 });
+		await page.goto(`/${scenario.workspace}/${scenario.start}`);
+		const upgrade = notice(page).getByRole('link', { name: 'Upgrade now', exact: true });
+		await expect(upgrade).toBeVisible();
+		await expect(upgrade).toHaveAttribute('href', `/${scenario.workspace}/settings/version#system-update`);
+		await upgrade.focus();
+		await page.keyboard.press('Enter');
+		await expect(page).toHaveURL(new RegExp(`/${scenario.workspace}/settings/version#system-update$`));
+		await expect(notice(page)).toHaveCount(0);
+		await expect(page.getByRole('heading', { name: 'System update', exact: true })).toBeInViewport();
+		await expect(page.getByRole('button', { name: 'Run update', exact: true })).toBeEnabled();
+		expect(await dismissed(page)).toBe(release.tag_name);
+		expect(state.updateRequests).toBe(0);
+		await page.reload();
+		await expect(page.getByRole('button', { name: 'Run update', exact: true })).toBeEnabled();
+		await expect(notice(page)).toHaveCount(0);
+	});
+}
+
+test('Upgrade now preserves the sysadmin requirement in version settings', async ({ page }) => {
+	const state = await setup(page);
+	state.isSysadmin = false;
+	await page.goto('/alpha/inbox');
+	await notice(page).getByRole('link', { name: 'Upgrade now', exact: true }).click();
+	await expect(page).toHaveURL(/\/alpha\/settings\/version#system-update$/);
+	await expect(notice(page)).toHaveCount(0);
+	await expect(page.getByRole('heading', { name: 'System update', exact: true })).toBeInViewport();
+	await expect(page.getByRole('button', { name: 'Run update', exact: true })).toHaveCount(0);
+	expect(state.updateRequests).toBe(0);
 });

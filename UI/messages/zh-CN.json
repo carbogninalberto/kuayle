@@ -1393,6 +1393,7 @@
 	"sharedComponents.release_notice.to": "到",
 	"sharedComponents.release_notice.toggle_prerelease": "切换预发布版本可见性",
 	"sharedComponents.release_notice.update_available": "有可用更新",
+	"sharedComponents.release_notice.upgrade_now": "立即升级",
 	"sharedComponents.release_notice.upgrade_message": "请联系实例所有者升级 Kuayle，然后刷新此页面以加载新版本。",
 	"sharedComponents.release_notice.upgrade_required": "需要升级",
 	"sharedComponents.rich_editor.attach_files": "附加文件",

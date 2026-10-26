@@ -261,11 +261,16 @@
 				</div>
 
 				<div
-					class="flex flex-col-reverse gap-2 border-t border-[var(--app-border)] bg-[var(--color-bg)] px-5 py-4 sm:flex-row sm:justify-end"
+					class="flex flex-col-reverse gap-2 border-t border-[var(--app-border)] bg-[var(--color-bg)] px-5 py-4 sm:flex-row sm:flex-wrap sm:justify-end"
 				>
 					<Button variant="outline" onclick={() => void loadReleases(false)}>{m['sharedComponents.release_notice.check_again']()}</Button>
 					<Button variant="outline" onclick={() => onDialogOpenChange(false)}>{m['sharedComponents.release_notice.dismiss']()}</Button>
-					<Button href={latestRelease.html_url} target="_blank" rel="noopener">{m['sharedComponents.release_notice.release']()}</Button>
+					<Button variant="outline" href={latestRelease.html_url} target="_blank" rel="noopener">{m['sharedComponents.release_notice.release']()}</Button>
+					{#if releaseIsNewer}
+						<Button href={`/${page.params.workspaceSlug}/settings/version#system-update`} onclick={() => onDialogOpenChange(false)}>
+							{m['sharedComponents.release_notice.upgrade_now']()}
+						</Button>
+					{/if}
 				</div>
 			</div>
 		</Dialog.Content>
