@@ -198,24 +198,27 @@ func TestAgentCLIInstallerPinsEveryCLIAndReleaseDigest(t *testing.T) {
 	require.NoError(t, err)
 	installer := string(installerBytes)
 
+	// Release publishing refreshes exact values; require concrete pins rather than
+	// freezing this test to the versions shipped when it was written.
+	for _, name := range []string{"CLAUDE_CODE", "OPENCODE", "CODEX", "QWEN", "GOOSE", "KIMI"} {
+		require.Regexp(t, `(?m)^`+name+`_VERSION=\d+\.\d+\.\d+$`, installer)
+	}
+	for _, arch := range []string{"amd64", "arm64"} {
+		require.Regexp(t, `(?s)`+arch+`\).*?goose_sha256=[a-f0-9]{64}\n.*?kimi_sha256=[a-f0-9]{64}\n`, installer)
+	}
 	for _, pin := range []string{
-		"CLAUDE_CODE_VERSION=2.1.289",
+
 		"--allow-scripts=@anthropic-ai/claude-code",
-		"OPENCODE_VERSION=1.18.34",
+
 		"--allow-scripts=opencode-ai",
-		"CODEX_VERSION=0.160.0",
+
 		"@qwen-code/qwen-code",
-		"QWEN_VERSION=0.26.1",
+
 		// qwen-code 0.26.1 bundles sharp 0.35.4 (GHSA-wq5f-xc86-pv6w).
 		"sharp@0.35.5",
 		"goose-${goose_arch}-unknown-linux-gnu.tar.gz",
-		"GOOSE_VERSION=1.56.0",
-		"225a929b35b5130fb691eafdb50be236f2c0a150019b53973775938f8f19c281",
-		"26bcb7d3f55aac485a91d81cbdecd8d90e5af1acadeca6e580b4d58b64a888e4",
+
 		"kimi-${KIMI_VERSION}-${kimi_arch}-unknown-linux-gnu.tar.gz",
-		"KIMI_VERSION=1.52.0",
-		"a676204f7804ed5dae87652a9d66f578e0718d5026c9cb1bfa32b9a5eace4208",
-		"9e06eea96273600aed485b1f0bedda95b7084db4f22cf28614fe20138933507a",
 	} {
 		require.Contains(t, installer, pin)
 	}

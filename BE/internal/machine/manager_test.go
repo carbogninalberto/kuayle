@@ -21,6 +21,7 @@ import (
 )
 
 type managerStoreFake struct {
+	githubAppConfigCalls      int
 	machine                   *domain.DevMachine
 	services                  []domain.DevMachineService
 	states                    []domain.DevMachineStatus
@@ -233,6 +234,7 @@ func (f *managerStoreFake) GetGitHubInstallationID(_ context.Context, _ uuid.UUI
 	return f.githubInstallationID, nil
 }
 func (f *managerStoreFake) GetGitHubAppConfig(context.Context, uuid.UUID) (*domain.GitHubAppConfig, error) {
+	f.githubAppConfigCalls++
 	return nil, nil
 }
 func (f *managerStoreFake) GetCheckoutInternal(context.Context, uuid.UUID) (*domain.DevMachineCheckout, error) {
@@ -1502,4 +1504,16 @@ func TestUniqueContainerIDsDeduplicatesSharedDeveloperServices(t *testing.T) {
 		{ServiceType: "terminal", ServiceKey: "terminal", ContainerID: &containerID},
 	})
 	require.Equal(t, []string{containerID}, ids)
+}
+
+func TestRepositoryTokenWithUnsetGlobalClientUsesWorkspaceConfig(t *testing.T) {
+	store := &managerStoreFake{githubInstallationID: 42}
+	var globalClient *githubclient.Client
+	manager := NewManager(store, &runtimeFake{}, agent.NewRegistry(), globalClient, nil, cryptoutil.DeriveKey("workspace-key"), "test")
+	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New()}
+	client, token, err := manager.repositoryToken(context.Background(), machine, "kuayle/api")
+	require.ErrorIs(t, err, sql.ErrNoRows)
+	require.Equal(t, 1, store.githubAppConfigCalls)
+	require.Nil(t, client)
+	require.Empty(t, token)
 }
