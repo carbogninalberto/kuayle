@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -18,6 +19,8 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/pkg/crypto"
 	"github.com/kuayle/kuayle-backend/pkg/sanitize"
+	"github.com/kuayle/kuayle-backend/pkg/validate"
+	log "github.com/sirupsen/logrus"
 )
 
 const DefaultDescriptionExpandPrompt = "Write TipTap-compatible HTML for a Linear-style issue description. Use only an HTML fragment that TipTap StarterKit can parse, such as <p>, <strong>, <em>, <code>, <ul>, <ol>, <li>, <blockquote>, <h2>, and <h3>. Do not return Markdown, code fences, <html>, <body>, scripts, styles, or explanations. Expand or rewrite the given text into clear, actionable issue content with context, expected behavior, acceptance criteria, and relevant edge cases. Keep it concise and practical. Preserve existing meaning and avoid inventing facts."
@@ -37,13 +40,47 @@ type AISettingsService struct {
 	httpClient    *http.Client
 }
 
-func NewAISettingsService(aiRepo repository.AISettingsRepo, workspaceRepo repository.WorkspaceRepo, issueRepo repository.IssueRepo, encryptionKey []byte) *AISettingsService {
+type AISettingsOption func(*aiSettingsOptions)
+
+type aiSettingsOptions struct {
+	allowPrivateNetwork bool
+}
+
+// WithAIPrivateNetworkAccess lets operators use a provider on a private
+// network. Workspace owners choose the base URL, so it is off by default.
+func WithAIPrivateNetworkAccess(allow bool) AISettingsOption {
+	return func(o *aiSettingsOptions) { o.allowPrivateNetwork = allow }
+}
+
+func NewAISettingsService(aiRepo repository.AISettingsRepo, workspaceRepo repository.WorkspaceRepo, issueRepo repository.IssueRepo, encryptionKey []byte, opts ...AISettingsOption) *AISettingsService {
+	options := aiSettingsOptions{}
+	for _, opt := range opts {
+		opt(&options)
+	}
 	return &AISettingsService{
 		aiRepo:        aiRepo,
 		workspaceRepo: workspaceRepo,
 		issueRepo:     issueRepo,
 		encryptionKey: encryptionKey,
-		httpClient:    &http.Client{Timeout: 45 * time.Second},
+		httpClient:    newAIProviderClient(options.allowPrivateNetwork),
+	}
+}
+
+// newAIProviderClient dials only public addresses unless the operator opted in,
+// and never follows redirects, which could otherwise reach internal hosts.
+func newAIProviderClient(allowPrivateNetwork bool) *http.Client {
+	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	if !allowPrivateNetwork {
+		dialer.Control = validate.PublicAddressControl
+	}
+	return &http.Client{
+		Timeout: 45 * time.Second,
+		Transport: &http.Transport{
+			Proxy:               nil,
+			DialContext:         dialer.DialContext,
+			TLSHandshakeTimeout: 10 * time.Second,
+		},
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 }
 
@@ -267,7 +304,9 @@ func (s *AISettingsService) complete(ctx context.Context, baseURL, model, apiKey
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("%w: %v", ErrAIProviderRequestFailed, err)
+		// Transport errors name internal hosts and ports; keep them server-side.
+		log.WithError(err).Warn("AI provider request failed")
+		return "", ErrAIProviderRequestFailed
 	}
 	defer func() { _ = resp.Body.Close() }()
 

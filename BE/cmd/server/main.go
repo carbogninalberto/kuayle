@@ -97,7 +97,7 @@ func main() {
 	favSvc := service.NewFavoriteService(favRepo)
 	prefsSvc := service.NewPreferencesService(prefsRepo)
 	tokenSvc := service.NewTokenService(patRepo, workspaceRepo)
-	aiSettingsSvc := service.NewAISettingsService(aiSettingsRepo, workspaceRepo, issueRepo, crypto.DeriveKey(cfg.JWTSecret+":ai"))
+	aiSettingsSvc := service.NewAISettingsService(aiSettingsRepo, workspaceRepo, issueRepo, crypto.DeriveKey(cfg.JWTSecret+":ai"), service.WithAIPrivateNetworkAccess(cfg.AIAllowPrivateNetwork))
 
 	// Dev Machine agent registry
 	devMachineAgentReg := agent.NewRegistry(

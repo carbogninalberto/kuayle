@@ -44,6 +44,11 @@ type Config struct {
 	// token. Defaults to false, preserving open registration.
 	DisableRegistration bool `envconfig:"DISABLE_REGISTRATION" default:"false"`
 
+	// AIAllowPrivateNetwork lets workspace AI settings target providers on
+	// private or loopback addresses. Off by default: any workspace owner can
+	// set the base URL, so enabling it trusts every owner with internal access.
+	AIAllowPrivateNetwork bool `envconfig:"AI_ALLOW_PRIVATE_NETWORK" default:"false"`
+
 	SystemUpdaterURL   string `envconfig:"SYSTEM_UPDATER_URL"`
 	SystemUpdaterToken string `envconfig:"SYSTEM_UPDATER_TOKEN"`
 
