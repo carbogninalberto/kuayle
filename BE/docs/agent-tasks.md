@@ -67,7 +67,10 @@ persisting output. Missing, revoked, cancelling and superseded tasks deny effect
 Cleanup can still lock and cancel after issue moves, membership removal or chat
 deletion. Cancellation is not complete merely because a run's status changed:
 the task requires the durable cancel operation to finish and pending preparation
-operations to settle.
+operations to settle. Runtime cancellation removes every container associated
+with the run after verifying its workspace and machine ownership. Already removed
+containers are harmless; failures on one container do not prevent cleanup of the
+others, and any remaining cleanup error prevents the operation from succeeding.
 
 ## Failure, cancellation and explicit retries
 

@@ -970,17 +970,25 @@ func (r *DockerRuntime) CancelAgent(ctx context.Context, run *domain.DevMachineA
 	if err != nil {
 		return err
 	}
+	var cleanupErrors []error
 	for _, item := range containers.Items {
 		if item.Labels["com.kuayle.agent-run-id"] != run.ID.String() {
 			continue
 		}
-		if item.Labels["com.kuayle.managed"] != "true" {
-			return fmt.Errorf("agent container %s is not managed by Kuayle", item.ID)
+		if item.Labels["com.kuayle.managed"] != "true" ||
+			item.Labels["com.kuayle.machine-id"] != run.MachineID.String() ||
+			item.Labels["com.kuayle.workspace-id"] != run.WorkspaceID.String() {
+			cleanupErrors = append(cleanupErrors, fmt.Errorf("agent container %s ownership does not match the run", item.ID))
+			continue
 		}
 		_, err := r.client.ContainerRemove(ctx, item.ID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
-		return err
+		// Another cleanup operation may have already removed this container.
+		// Keep cleaning the remaining containers even if one removal fails.
+		if err != nil && !errdefs.IsNotFound(err) {
+			cleanupErrors = append(cleanupErrors, fmt.Errorf("remove agent container %s: %w", item.ID, err))
+		}
 	}
-	return nil
+	return errors.Join(cleanupErrors...)
 }
 
 func (r *DockerRuntime) Stats(ctx context.Context, _ *domain.DevMachine, services []domain.DevMachineService) (ResourceUsage, error) {
