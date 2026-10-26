@@ -21,6 +21,8 @@ jobs:
   build:
     if: github.event_name == 'release'
     name: Build Images
+    outputs:
+      source_sha: ${{ steps.source.outputs.sha }}
     # PR application images are built, smoke-tested and scanned by Release Readiness.
     permissions:
       contents: write
@@ -101,12 +103,19 @@ jobs:
           sed -n '/<!-- contributors:end -->/,$p' README.md >> /tmp/README.md
           mv /tmp/README.md README.md
 
+      - name: Upgrade all built-in agent CLIs to latest stable versions
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci/upgrade-agent-clis.mjs
+
       - name: Commit version bump
         if: github.event_name == 'release'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add README.md UI/package.json UI/package-lock.json UI/static/releases.json
+          git add devmachine/common/install-agent-clis.sh devmachine/{agent,ide,headless}/Dockerfile
 
           if git diff --cached --quiet; then
             echo "Version is already ${{ steps.version.outputs.version }}"
@@ -114,6 +123,10 @@ jobs:
             git commit -m "bump(version): ${{ steps.version.outputs.version }}"
             git push origin HEAD:main
           fi
+
+      - name: Record refreshed release source
+        id: source
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4.1.0
@@ -176,8 +189,8 @@ jobs:
           cache-to: type=gha,mode=max,scope=web
 
   dev-machine-images:
-    needs: changes
-    if: ${{ contains(fromJSON(needs.changes.outputs.plan).required.build, 'dev-machine-images') }}
+    needs: [changes, build]
+    if: ${{ !cancelled() && needs.changes.result == 'success' && (github.event_name != 'release' || needs.build.result == 'success') && contains(fromJSON(needs.changes.outputs.plan).required.build, 'dev-machine-images') }}
     name: Dev Machine Image (${{ matrix.image.name }}, ${{ matrix.architecture }})
     runs-on: ${{ matrix.architecture == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     strategy:
@@ -191,7 +204,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.0
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ needs.build.outputs.source_sha || github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
       - name: Set up Docker Buildx

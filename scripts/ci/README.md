@@ -119,3 +119,29 @@ results on the final commit; distinguish intentionally omitted jobs from verifie
 coverage. A routing change itself selects broad checks so it cannot validate only
 its cheapest scenario. Compare heavyweight execution counts separately from the
 small planning/gate overhead; scenario estimates are not observed wall-clock wins.
+
+## Release agent CLI refresh
+
+On `release.published`, Build & Push runs `node scripts/ci/upgrade-agent-clis.mjs`
+before its existing release commit and image publishing. Node 22 and network
+access to npm and GitHub are required; `GH_TOKEN` authenticates only GitHub
+metadata requests. The helper resolves npm's `latest` versions for Claude Code,
+OpenCode, Codex and Qwen Code, and GitHub's latest stable releases for Crush,
+Goose and Kimi. It updates the shared installer, all provider Dockerfile pins,
+and Goose/Kimi SHA-256 pins for amd64 and arm64 from release asset metadata.
+Missing assets/digests, invalid versions, HTTP failures or unexpected pin layouts
+stop the refresh before any files are written. Run it only when an update is
+intended: it writes four tracked runtime files and prints the resolved versions.
+
+The existing release commit persists these pins on main. Release dev-machine
+builds wait for publishing and check out that exact refreshed commit, so their
+native architecture builds/scans validate the updated CLIs. PR builds retain the
+PR SHA and run despite the intentionally skipped release job. No result gates
+or image selections are removed; workflow/helper edits select broad verification.
+This refresh follows the existing main-based release workflow and does not move
+the published release tag or change running machines. Tests use isolated fixtures
+and mocked metadata (`node --test scripts/ci/upgrade-agent-clis.test.mjs`); they
+require no network and cover success, repeated runs and failure without edits.
+
+Upstream contracts: [npm registry metadata](https://github.com/npm/registry/blob/main/docs/responses/package-metadata.md)
+and [GitHub release assets](https://docs.github.com/en/rest/releases/releases).

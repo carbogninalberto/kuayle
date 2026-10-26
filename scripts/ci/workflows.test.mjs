@@ -32,3 +32,17 @@ for (const [scope, file] of Object.entries(workflows)) {
     }
   });
 }
+
+
+test('release runtime checks consume refreshed source while PR checks survive skipped publishing', () => {
+  const workflow = readFileSync(new URL('../../.github/workflows/build.yml', import.meta.url), 'utf8');
+  const build = workflow.split('  build:\n')[1].split('  dev-machine-images:\n')[0];
+  const runtime = workflow.split('  dev-machine-images:\n')[1].split('  result:\n')[0];
+  assert.ok(build.indexOf('run: node scripts/ci/upgrade-agent-clis.mjs') < build.indexOf('- name: Commit version bump'));
+  assert.match(build, /source_sha: \$\{\{ steps.source.outputs.sha \}\}/);
+  assert.match(build, /git add devmachine\/common\/install-agent-clis.sh devmachine\/\{agent,ide,headless\}\/Dockerfile/);
+  assert.match(runtime, /needs: \[changes, build\]/);
+  assert.match(runtime, /!cancelled\(\)/);
+  assert.match(runtime, /github.event_name != 'release' \|\| needs.build.result == 'success'/);
+  assert.match(runtime, /ref: \$\{\{ needs.build.outputs.source_sha \|\| github.event.pull_request.head.sha \|\| github.sha \}\}/);
+});
