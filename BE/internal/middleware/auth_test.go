@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	jwtpkg "github.com/kuayle/kuayle-backend/pkg/jwt"
@@ -201,4 +202,45 @@ func TestHostCookieAuthRejectsLegacyCookie(t *testing.T) {
 			require.Equal(t, 204, rec.Code)
 		}
 	}
+}
+
+func untypedSessionToken(t *testing.T, userID uuid.UUID, lifetime time.Duration) string {
+	t.Helper()
+	now := time.Now()
+	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwtpkg.Claims{
+		UserID: userID,
+		RegisteredClaims: jwt.RegisteredClaims{
+			IssuedAt:  jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(lifetime)),
+		},
+	}).SignedString([]byte("test-secret"))
+	require.NoError(t, err)
+	return token
+}
+
+// A refresh token survives logout as a JWT for seven days, so it must never
+// authenticate API requests in place of a 15-minute access token.
+func TestAuthRejectsRefreshTokens(t *testing.T) {
+	refresh, _, err := jwtpkg.GenerateRefreshToken(uuid.New(), "test-secret")
+	require.NoError(t, err)
+	legacyRefresh := untypedSessionToken(t, uuid.New(), 7*24*time.Hour)
+
+	for name, token := range map[string]string{"refresh": refresh, "legacy untyped refresh": legacyRefresh} {
+		t.Run(name, func(t *testing.T) {
+			rec, _ := runAuth(t, newFakePATRepo(), bearerRequest(token))
+			assert.Equal(t, http.StatusUnauthorized, rec.Code)
+
+			req := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
+			req.AddCookie(&http.Cookie{Name: "access_token", Value: token})
+			rec, _ = runAuth(t, newFakePATRepo(), req)
+			assert.Equal(t, http.StatusUnauthorized, rec.Code)
+		})
+	}
+}
+
+func TestAuthAcceptsLegacyUntypedAccessToken(t *testing.T) {
+	userID := uuid.New()
+	rec, c := runAuth(t, newFakePATRepo(), bearerRequest(untypedSessionToken(t, userID, 15*time.Minute)))
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+	assert.Equal(t, userID, c.Get(string(UserIDKey)))
 }
