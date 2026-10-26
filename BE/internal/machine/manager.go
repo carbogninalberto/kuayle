@@ -126,6 +126,11 @@ func (e *terminalOperationError) Error() string {
 }
 
 func NewManager(store ManagerStore, runtime Runtime, agents *agent.Registry, github githubAPI, encryptionKey, githubKey []byte, owner string, diskQuotas ...DiskQuotaConfig) *Manager {
+	// The optional global client arrives as a typed nil when only workspace apps
+	// are configured. Normalize it so repositoryToken can use its workspace fallback.
+	if client, ok := github.(*githubclient.Client); ok && client == nil {
+		github = nil
+	}
 	var diskQuota DiskQuotaConfig
 	if len(diskQuotas) > 0 {
 		diskQuota = diskQuotas[0]
