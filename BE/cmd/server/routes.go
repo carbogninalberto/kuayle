@@ -55,6 +55,7 @@ type appHandlers struct {
 	token             *handler.TokenHandler
 	aiSettings        *handler.AISettingsHandler
 	conversation      *handler.ConversationHandler
+	telegram          *handler.TelegramHandler
 	devMachine        *handler.DevMachineHandler
 	analytics         *handler.AnalyticsHandler
 	system            *handler.SystemHandler
@@ -249,6 +250,14 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(ws, http.MethodPost, "/conversations/:conversationId/messages", h.conversation.Send)
 	sessionOnly(ws, http.MethodPost, "/conversations/:conversationId/messages/:messageId/retry", h.conversation.Retry)
 	sessionOnly(ws, http.MethodPost, "/conversations/:conversationId/cancel", h.conversation.Cancel)
+
+	if h.telegram != nil {
+		sessionOnly(ws, http.MethodGet, "/telegram", h.telegram.Status)
+		sessionOnly(ws, http.MethodPatch, "/telegram", h.telegram.Save)
+		sessionOnly(ws, http.MethodPost, "/telegram/link", h.telegram.Link)
+		sessionOnly(ws, http.MethodDelete, "/telegram/link", h.telegram.Unlink)
+		e.POST("/api/telegram/webhook/:workspaceId", h.telegram.Webhook, m.publicRateLimit).Name = "public"
+	}
 
 	// GitHub integration (conditional)
 	// Public webhook endpoint (no auth, signature-verified internally)

@@ -142,9 +142,13 @@ streaming, history, denied access, mobile layout and long transcript scrolling.
 The full platform specification remains the objective: issue creation/delegation,
 AgentTask state transitions, automatically prepared worktrees, native resumable
 sessions, structured execution traces, persisted approvals and GitHub review,
-then synchronized Telegram and authenticated QA previews. Telegram settings must
-include an encrypted bot token with configure/replace/remove and safe status
-responses, plus an allowlist of numeric Telegram user IDs enforced for messages
-and callbacks. Allowlisted identities must still map to authorized Kuayle users.
-Resource-aware scheduling and advanced automation follow only after
-those workflows are reliable.
+then task-aware Telegram notifications/approvals and authenticated QA previews.
+The implemented Telegram chat channel already enforces an ID allowlist and verified
+Kuayle-account links; approval callbacks remain disabled until secure approvals exist.
+Resource-aware scheduling and advanced automation follow only after those workflows
+are reliable.
+
+Telegram is now an additional private channel for these same records. See the
+[Telegram contract](telegram.md) for encrypted settings, numeric user-ID allowlists,
+one-time account linking, webhook deduplication and delivery guarantees. Migration
+54 and its delivery tables are required by the current conversation writer.

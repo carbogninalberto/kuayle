@@ -80,8 +80,10 @@ func TestConversationHTTPStreamingAndReplay(t *testing.T) {
 	secret := "conversation-http-secret-at-least-32-chars"
 	middleware := testMiddleware(mw.Auth(secret, tokens))
 	middleware.workspaceMembership = mw.WorkspaceMembership(workspaces)
+	middleware.publicRateLimit = mw.RateLimit(0.01, 2)
 	e := echo.New()
-	registerRoutes(e, &appHandlers{conversation: handler.NewConversationHandler(svc, "https://kuayle.test")}, middleware)
+	telegramSvc := service.NewTelegramService(repository.NewTelegramRepository(db), workspaces, service.NewAISettingsService(aiRepo, workspaces, nil, key), key, "https://kuayle.test")
+	registerRoutes(e, &appHandlers{conversation: handler.NewConversationHandler(svc, "https://kuayle.test"), telegram: handler.NewTelegramHandler(telegramSvc)}, middleware)
 	server := httptest.NewServer(e)
 	defer server.Close()
 	tokenFor := func(id uuid.UUID) string {
@@ -114,6 +116,26 @@ func TestConversationHTTPStreamingAndReplay(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, tokens.Create(context.Background(), &domain.PersonalAccessToken{ID: uuid.New(), UserID: user, Name: "Chat denied", Scopes: []string{"issues:read"}, TokenHash: hash, TokenPrefix: prefix}))
 	request("GET", path, "", raw, 403, nil)
+	request("GET", "/telegram", "", raw, 403, nil)
+	request("POST", "/telegram/link", `{"telegram_user_id":12345}`, raw, 403, nil)
+	request("GET", "/telegram", "", tokenFor(guest), 403, nil)
+	request("PATCH", "/telegram", `{"enabled":true,"allowed_user_ids":[12345]}`, tokenFor(other), 403, nil)
+	request("GET", "/telegram", "", token, 200, nil)
+	webhookReq, err := http.NewRequest("POST", server.URL+"/api/telegram/webhook/"+ws.String(), strings.NewReader(`{"update_id":1}`))
+	require.NoError(t, err)
+	webhookRes, err := http.DefaultClient.Do(webhookReq)
+	require.NoError(t, err)
+	require.Equal(t, 403, webhookRes.StatusCode)
+	webhookRes.Body.Close()
+	for _, expected := range []int{403, 429} {
+		req, e := http.NewRequest("POST", server.URL+"/api/telegram/webhook/"+ws.String(), strings.NewReader(`{}`))
+		require.NoError(t, e)
+		res, e := http.DefaultClient.Do(req)
+		require.NoError(t, e)
+		require.Equal(t, expected, res.StatusCode)
+		res.Body.Close()
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	dial := func(after int64) *websocket.Conn {

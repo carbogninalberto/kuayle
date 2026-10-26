@@ -149,6 +149,8 @@ func main() {
 	aiSettingsH := handler.NewAISettingsHandler(aiSettingsSvc)
 	conversationSvc := service.NewConversationService(repository.NewConversationRepository(db), aiSettingsSvc)
 	conversationH := handler.NewConversationHandler(conversationSvc, cfg.FrontendURL)
+	telegramSvc := service.NewTelegramService(repository.NewTelegramRepository(db), workspaceRepo, aiSettingsSvc, crypto.DeriveKey(cfg.JWTSecret+":telegram"), cfg.FrontendURL)
+	telegramH := handler.NewTelegramHandler(telegramSvc)
 	devMachineH := handler.NewDevMachineHandler(devMachineSvc, cfg.DevMachine.EffectiveDiskQuotaMode())
 	analyticsRepo := repository.NewAnalyticsRepository(db)
 	analyticsH := handler.NewAnalyticsHandler(analyticsRepo)
@@ -240,6 +242,7 @@ func main() {
 		token:             tokenH,
 		aiSettings:        aiSettingsH,
 		conversation:      conversationH,
+		telegram:          telegramH,
 		devMachine:        devMachineH,
 		analytics:         analyticsH,
 		system:            systemH,
@@ -261,6 +264,7 @@ func main() {
 	conversationCtx, stopConversations := context.WithCancel(context.Background())
 	defer stopConversations()
 	go conversationSvc.Run(conversationCtx)
+	go telegramSvc.Run(conversationCtx)
 
 	// Start
 	addr := fmt.Sprintf(":%d", cfg.Port)

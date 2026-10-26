@@ -678,3 +678,11 @@ and API restarts. Generation attempts are leased and idempotent, with explicit
 retry after interruption. This conversational phase does not change issue or
 Dev Machine lifecycles. See [conversation architecture and API](BE/docs/conversations.md)
 for scope, authorization, bounds, UI component sources, recovery and checks.
+
+### Telegram assistant channel
+
+Workspace Settings → Telegram configures an encrypted bot token and numeric user-ID
+allowlist. Users explicitly link their own Telegram identity to their Kuayle account;
+private bot messages and Web chat share conversation records. See
+[the Telegram channel contract](BE/docs/telegram.md) for setup, authorization,
+webhook and outgoing delivery behavior, migrations and verification.

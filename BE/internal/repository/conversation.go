@@ -164,6 +164,12 @@ func addConversationMessage(ctx context.Context, tx *sqlx.Tx, id, request uuid.U
 		return nil, err
 	}
 	_, err = conversationEvent(ctx, tx, id, "message.created", m)
+	if err == nil && role == "assistant" {
+		// Both Web and Telegram sends use this transaction. Deliver replies to
+		// linked private chats only after completion and fresh authorization.
+		_, err = tx.ExecContext(ctx, `INSERT INTO telegram_deliveries(workspace_id,user_id,telegram_user_id,conversation_id,message_id)
+            SELECT workspace_id,user_id,telegram_user_id,conversation_id,$2 FROM telegram_links WHERE conversation_id=$1`, id, m.ID)
+	}
 	return &m, err
 }
 func (r *ConversationRepository) Send(ctx context.Context, ws, id, request uuid.UUID, content, provider, model string) (*domain.ConversationMessage, error) {

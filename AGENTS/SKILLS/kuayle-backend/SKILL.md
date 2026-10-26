@@ -44,3 +44,7 @@ For persistent chat, follow the [conversation contract](../../../BE/docs/convers
 Keep conversation cursors serialized by the conversation transaction, generation
 writes fenced by the lease, and reconnects read-only. Conversation audience and
 workspace broadcast audience are different authorization boundaries.
+For Telegram changes, preserve the [channel contract](../../../BE/docs/telegram.md):
+current allowlist plus verified Kuayle-account binding, atomic update receipts and
+conversation writes, owner-only encrypted credentials, and fresh outbound permission
+checks. Never log Telegram request URLs, which contain the bot token.
