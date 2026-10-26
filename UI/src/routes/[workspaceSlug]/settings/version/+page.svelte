@@ -1,8 +1,9 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { AlertTriangle, ExternalLink, RefreshCw, ShieldCheck } from '@lucide/svelte';
+	import { onDestroy, onMount } from 'svelte';
+	import { AlertTriangle, CircleCheck, CircleDashed, CircleX, ExternalLink, LoaderCircle, RefreshCw, ShieldCheck } from '@lucide/svelte';
 	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
+	import { getLocale } from '$lib/paraglide/runtime.js';
+	import * as Accordion from '$lib/components/ui/accordion';
 	import { Button } from '$lib/components/ui/button';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { getSystemUpdateStatus, startSystemUpdate, type SystemUpdateStatus } from '$lib/api/system';
@@ -30,6 +31,9 @@
 	let loadedStatus = $state(false);
 	let startingUpdate = $state(false);
 	let confirmOpen = $state(false);
+	let statusUnavailable = $state(false);
+	let statusPoll: ReturnType<typeof setTimeout> | null = null;
+	let destroyed = false;
 
 	const isSysadmin = $derived(authState.user?.is_sysadmin === true);
 	const visible = $derived(getVisibleReleases(releases, includePrerelease));
@@ -42,6 +46,11 @@
 
 	onMount(() => {
 		void loadReleases();
+	});
+
+	onDestroy(() => {
+		destroyed = true;
+		clearStatusPoll();
 	});
 
 	$effect(() => {
@@ -64,26 +73,41 @@
 		}
 	}
 
-	async function loadUpdateStatus() {
+	function clearStatusPoll() {
+		if (statusPoll) clearTimeout(statusPoll);
+		statusPoll = null;
+	}
+
+	async function loadUpdateStatus(quiet = false) {
 		if (!isSysadmin) return;
-		loadingStatus = true;
+		clearStatusPoll();
+		if (!quiet) loadingStatus = true;
 		try {
 			updateStatus = await getSystemUpdateStatus();
+			statusUnavailable = false;
 		} catch (err: any) {
 			updateStatus = null;
-			appToast.apiError(err, m['settings.version.failed_updater_status']());
+			statusUnavailable = true;
+			if (!quiet) appToast.apiError(err, m['settings.version.failed_updater_status']());
 		} finally {
 			loadingStatus = false;
 		}
+		// Follow a running update until it reports success or failure.
+		if (updateStatus?.running && !destroyed) statusPoll = setTimeout(() => void loadUpdateStatus(true), 3000);
+	}
+
+	function formatTime(value?: string) {
+		return value ? new Date(value).toLocaleString(getLocale(), { dateStyle: 'medium', timeStyle: 'short' }) : '';
 	}
 
 	async function runUpdate() {
 		startingUpdate = true;
 		try {
 			const result = await startSystemUpdate();
-			updateStatus = { enabled: true, running: result.running, message: result.message };
+			updateStatus = { enabled: true, running: result.running, message: result.message, state: 'running' };
 			confirmOpen = false;
 			appToast.success(result.message);
+			void loadUpdateStatus(true);
 		} catch (err: any) {
 			appToast.apiError(err, m['settings.version.failed_start_update']());
 		} finally {
@@ -193,28 +217,86 @@
 						{m['settings.version.update_desc']()}
 					</p>
 
-					<div class="mt-4 rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-2 text-xs text-[var(--color-text-secondary)]">
-						{#if loadingStatus}
-							{m['settings.version.checking_updater']()}
-						{:else if updateStatus?.enabled === false}
-							{updateStatus.message ?? m['settings.version.no_updater']()}
-						{:else if updateStatus?.running}
-							{updateStatus.message ?? m['settings.version.update_running']()}
-						{:else if updateStatus}
-							{updateStatus.message ?? m['settings.version.updater_ready']()}
-						{:else}
-							{m['settings.version.updater_unavailable']()}
+					<ul class="mt-4 divide-y divide-[var(--app-border)] rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] text-xs" aria-live="polite">
+						<li class="flex items-start gap-2.5 px-3 py-2.5">
+							{#if loadingStatus && !updateStatus}
+								<LoaderCircle size={15} class="mt-px shrink-0 animate-spin text-[var(--color-text-tertiary)]" aria-hidden="true" />
+							{:else if updateStatus?.enabled}
+								<CircleCheck size={15} class="mt-px shrink-0 text-[var(--color-success)]" aria-hidden="true" />
+							{:else if updateStatus}
+								<CircleDashed size={15} class="mt-px shrink-0 text-[var(--color-text-tertiary)]" aria-hidden="true" />
+							{:else}
+								<AlertTriangle size={15} class="mt-px shrink-0 text-[var(--color-warning)]" aria-hidden="true" />
+							{/if}
+							<span class="font-medium text-[var(--color-text-primary)]">{m['settings.version.status_updater']()}</span>
+							<span class="ml-auto text-right text-[var(--color-text-secondary)]">
+								{#if loadingStatus && !updateStatus}
+									{m['settings.version.checking_updater']()}
+								{:else if updateStatus?.enabled}
+									{m['settings.version.status_connected']()}
+								{:else if updateStatus}
+									{m['settings.version.no_updater']()}
+								{:else if statusUnavailable}
+									{m['settings.version.updater_unavailable']()}
+								{:else}
+									{m['settings.version.checking_updater']()}
+								{/if}
+							</span>
+						</li>
+						{#if updateStatus?.enabled}
+							{@const runState = updateStatus.running ? 'running' : updateStatus.state}
+							<li class="px-3 py-2.5">
+								<div class="flex items-start gap-2.5">
+									{#if runState === 'running'}
+										<LoaderCircle size={15} class="mt-px shrink-0 animate-spin text-[var(--app-accent-light)]" aria-hidden="true" />
+									{:else if runState === 'succeeded'}
+										<CircleCheck size={15} class="mt-px shrink-0 text-[var(--color-success)]" aria-hidden="true" />
+									{:else if runState === 'failed'}
+										<CircleX size={15} class="mt-px shrink-0 text-[var(--color-error)]" aria-hidden="true" />
+									{:else}
+										<CircleDashed size={15} class="mt-px shrink-0 text-[var(--color-text-tertiary)]" aria-hidden="true" />
+									{/if}
+									<span class="font-medium text-[var(--color-text-primary)]">{m['settings.version.status_last_update']()}</span>
+									<span class="ml-auto text-right text-[var(--color-text-secondary)]">
+										<span class="block">
+											{#if runState === 'running'}
+												{m['settings.version.update_running']()}
+											{:else if runState === 'succeeded'}
+												{m['settings.version.status_succeeded']()}
+											{:else if runState === 'failed'}
+												{m['settings.version.status_failed']()}
+											{:else}
+												{m['settings.version.status_never']()}
+											{/if}
+										</span>
+										{#if runState === 'running' && updateStatus.started_at}
+											<span class="block text-[var(--color-text-tertiary)]">{m['settings.version.started_at']({ time: formatTime(updateStatus.started_at) })}</span>
+										{:else if updateStatus.finished_at && runState !== 'idle'}
+											<span class="block text-[var(--color-text-tertiary)]">{m['settings.version.finished_at']({ time: formatTime(updateStatus.finished_at) })}</span>
+										{/if}
+									</span>
+								</div>
+								{#if runState === 'failed'}
+									<p class="mt-2 break-words pl-[25px] text-[var(--color-error)]">{updateStatus.error || updateStatus.message}</p>
+									<Accordion.Root type="single" class="mt-1 pl-[25px]">
+										<Accordion.Item value="details" class="border-none">
+											<Accordion.Trigger class="py-1.5 text-xs text-[var(--color-text-secondary)]">{m['settings.version.failure_details']()}</Accordion.Trigger>
+											<Accordion.Content>
+												{#if updateStatus.output}
+													<pre class="max-h-72 overflow-auto rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-3 font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-words text-[var(--color-text-secondary)]">{updateStatus.output}</pre>
+												{:else}
+													<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.version.no_output']()}</p>
+												{/if}
+											</Accordion.Content>
+										</Accordion.Item>
+									</Accordion.Root>
+								{/if}
+							</li>
 						{/if}
-					</div>
-
-					{#if updateStatus?.enabled === false}
-						<div class="mt-3 rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-2 font-mono text-xs text-[var(--color-text-tertiary)]">
-							bash selfhosting/update.sh
-						</div>
-					{/if}
+					</ul>
 
 					<div class="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
-						<Button variant="outline" onclick={loadUpdateStatus} disabled={loadingStatus}>{m['settings.version.check_updater']()}</Button>
+						<Button variant="outline" onclick={() => loadUpdateStatus()} disabled={loadingStatus}>{m['settings.version.check_updater']()}</Button>
 						<Button onclick={() => (confirmOpen = true)} disabled={!canStartUpdate}>
 							{startingUpdate ? m['settings.starting']() : updateStatus?.running ? m['settings.version.update_running']() : m['settings.version.run_update']()}
 						</Button>
@@ -241,9 +323,6 @@
 					{m['settings.version.run_confirm_desc']()}
 			</Dialog.Description>
 		</Dialog.Header>
-		<div class="rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-2 font-mono text-xs text-[var(--color-text-secondary)]">
-			bash selfhosting/update.sh
-		</div>
 		<Dialog.Footer>
 			<Button variant="outline" onclick={() => (confirmOpen = false)} disabled={startingUpdate}>{m['settings.cancel']()}</Button>
 			<Button onclick={runUpdate} disabled={startingUpdate}>{startingUpdate ? m['settings.starting']() : m['settings.version.start_update']()}</Button>

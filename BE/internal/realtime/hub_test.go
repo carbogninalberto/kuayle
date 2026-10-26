@@ -78,7 +78,7 @@ func TestDeliveryPolicyPreservesPublicEventsAndFailsClosed(t *testing.T) {
 		{"missing authorizer", nil, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			data, allowed := NewHub(tc.check).delivery(context.Background(), client, raw)
+			data, allowed := NewHub(tc.check).delivery(context.Background(), client, outbound{data: raw})
 			require.Equal(t, tc.allowed, allowed)
 			if tc.unchanged {
 				require.Equal(t, raw, data)
@@ -87,6 +87,31 @@ func TestDeliveryPolicyPreservesPublicEventsAndFailsClosed(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSystemEventsReachMembersOfEveryWorkspace(t *testing.T) {
+	var removed atomic.Bool
+	hub := NewHub(func(context.Context, uuid.UUID, uuid.UUID) (bool, bool, error) {
+		return !removed.Load(), true, nil
+	})
+	first := hub.Register(nil, uuid.New(), uuid.New())
+	second := hub.Register(nil, uuid.New(), uuid.New())
+
+	hub.BroadcastSystem(Event{Type: "system.update.started"})
+
+	for _, client := range []*Client{first, second} {
+		msg := <-client.send
+		data, allowed := hub.delivery(context.Background(), client, msg)
+		require.True(t, allowed)
+		var event Event
+		require.NoError(t, json.Unmarshal(data, &event))
+		require.Equal(t, "system.update.started", event.Type, "private workspaces must not replace system events")
+	}
+
+	removed.Store(true)
+	hub.BroadcastSystem(Event{Type: "system.update.started"})
+	_, allowed := hub.delivery(context.Background(), first, <-first.send)
+	require.False(t, allowed, "removed members receive no system events")
 }
 
 func TestPrivateWorkspaceDoesNotRelayIncomingPresence(t *testing.T) {
@@ -138,6 +163,7 @@ func TestConcurrentBroadcastAndUnregister(t *testing.T) {
 			hub.Broadcast(workspace, Event{Type: "test"})
 			hub.BroadcastToUser(workspace, c.userID, Event{Type: "test"})
 			hub.BroadcastExcluding(workspace, c, Event{Type: "test"})
+			hub.BroadcastSystem(Event{Type: "test"})
 			hub.Unregister(c)
 			hub.sendToClient(c, Event{Type: "test"})
 			hub.Unregister(c)

@@ -513,6 +513,12 @@
 				window.dispatchEvent(new CustomEvent(`ws:${msg.type}`, { detail: msg.payload }));
 				break;
 			}
+			case 'system.update.started': {
+				// Show the maintenance page now; it returns here once the update ends.
+				const current = window.location.pathname + window.location.search + window.location.hash;
+				window.location.assign(`/upgrading.html?return=${encodeURIComponent(current)}`);
+				break;
+			}
 			case 'notification.created': {
 				unreadCount++;
 				window.dispatchEvent(new CustomEvent('ws:notification', { detail: msg.payload }));

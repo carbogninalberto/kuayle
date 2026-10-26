@@ -151,6 +151,7 @@ func main() {
 	analyticsRepo := repository.NewAnalyticsRepository(db)
 	analyticsH := handler.NewAnalyticsHandler(analyticsRepo)
 	systemH := handler.NewSystemHandler(cfg.SystemUpdaterURL, cfg.SystemUpdaterToken, cfg.IsSysAdmin)
+	systemH.OnUpdateStarted(func() { hub.BroadcastSystem(realtime.Event{Type: "system.update.started"}) })
 	webhookRepo := repository.NewWebhookRepository(db)
 	webhookSvc := service.NewWebhookService(webhookRepo, cfg.JWTSecret)
 	webhookH := handler.NewWebhookHandler(webhookSvc)
