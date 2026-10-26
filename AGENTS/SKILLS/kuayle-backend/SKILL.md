@@ -50,3 +50,8 @@ For Telegram changes, preserve the [channel contract](../../../BE/docs/telegram.
 current allowlist plus verified Kuayle-account binding, atomic update receipts and
 conversation writes, owner-only encrypted credentials, and fresh outbound permission
 checks. Never log Telegram request URLs, which contain the bot token.
+
+For task/runtime work, follow the [agent task contract](../../../BE/docs/agent-tasks.md).
+Keep native task ownership, pre-dispatch encrypted credential snapshots, atomic
+log/activity persistence and physical cancellation checks intact. Its status
+section distinguishes implemented backend contracts from workflows not yet enabled.

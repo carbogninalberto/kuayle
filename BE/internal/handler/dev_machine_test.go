@@ -738,3 +738,10 @@ func testPolicyForHandler(workspaceID uuid.UUID) *domain.DevMachineWorkspacePoli
 		AllowedProviders: json.RawMessage(`[]`), AllowedRepositories: json.RawMessage(`[]`),
 	}
 }
+
+func (f *collectorHandlerStoreFake) GetWorkspaceModelCredential(context.Context, uuid.UUID, string) (*domain.DevMachineWorkspaceModelCredential, error) {
+	return nil, nil
+}
+func (f *collectorHandlerStoreFake) ListAgentRunSecretSnapshots(context.Context, uuid.UUID, uuid.UUID) ([]string, error) {
+	return nil, nil
+}

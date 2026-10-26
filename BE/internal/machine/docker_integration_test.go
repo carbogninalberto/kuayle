@@ -170,11 +170,11 @@ func TestDockerRuntimeLifecycle(t *testing.T) {
 	provider := &domain.DevMachineAgentProvider{ImageRef: "kuayle/dev-machine-agent-claude:0.1.0"}
 	execution, err := runtime.RunAgent(ctx, machine, run, provider, nil, map[string]string{
 		"GITHUB_TOKEN": "integration-github-token",
-	})
+	}, nil)
 	require.NoError(t, err)
 	require.Zero(t, execution.ExitCode)
 	require.Contains(t, execution.Stdout, "/home/kuayle/.kuayle-git-credential")
-	retriedExecution, err := runtime.RunAgent(ctx, machine, run, provider, nil, nil)
+	retriedExecution, err := runtime.RunAgent(ctx, machine, run, provider, nil, nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, execution.ContainerID, retriedExecution.ContainerID)
 	require.Equal(t, execution.Stdout, retriedExecution.Stdout)
@@ -184,7 +184,7 @@ func TestDockerRuntimeLifecycle(t *testing.T) {
 		ID: uuid.New(), Mode: "task", CommandArgv: customCommand,
 	}, &domain.DevMachineAgentProvider{ImageRef: "kuayle/dev-machine-ide:0.1.0", IsCustom: true}, nil, map[string]string{
 		"TEST_SECRET": "custom-secret-value", "GITHUB_TOKEN": "custom-github-token",
-	})
+	}, nil)
 	require.NoError(t, err)
 	require.Zero(t, customExecution.ExitCode)
 	require.Contains(t, customExecution.Stdout, "TEST_SECRET=custom-secret-value")

@@ -1791,6 +1791,7 @@ type devMachineStoreFake struct {
 	services                    []domain.DevMachineService
 	envVars                     []domain.DevMachineEnvVar
 	runtimeCredentials          []domain.DevMachineRuntimeCredential
+	agentSecretSnapshots        []string
 	authenticatedToken          *domain.DevMachineToken
 	authenticateMachineTokenErr error
 	createdTicket               *domain.DevMachineAccessTicket
@@ -2324,4 +2325,57 @@ func TestProviderListingsOfferOptionalAPIKeys(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, configured, 1)
 	require.Equal(t, []string{"OPENAI_API_KEY"}, configured[0].OptionalSecrets)
+}
+
+func (f *devMachineStoreFake) ListAgentRunSecretSnapshots(context.Context, uuid.UUID, uuid.UUID) ([]string, error) {
+	return f.agentSecretSnapshots, nil
+}
+
+func TestCollectorRedactsWorkspaceAndOriginalNativeCredentials(t *testing.T) {
+	for _, kind := range []string{"event", "log"} {
+		for _, format := range []string{"legacy", "versioned", "corrupt"} {
+			t.Run(kind+"/"+format, func(t *testing.T) {
+				current, err := cryptoutil.Encrypt("fixture-current-model-key", cryptoutil.DeriveKey("test"))
+				require.NoError(t, err)
+				payload := `{"DEEPSEEK_API_KEY":"fixture-original-model-key"}`
+				if format == "versioned" {
+					payload = `{"version":1,"environment":{"DEEPSEEK_API_KEY":"fixture-original-model-key","PUBLIC_FLAG":"1"},"redactions":{"DEEPSEEK_API_KEY":"fixture-original-model-key"}}`
+				}
+				snapshot, err := cryptoutil.Encrypt(payload, cryptoutil.DeriveKey("test"))
+				require.NoError(t, err)
+				if format == "corrupt" {
+					snapshot = "invalid-ciphertext"
+				}
+				machineID, workspaceID := uuid.New(), uuid.New()
+				store := &devMachineStoreFake{
+					machine:                  &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, Status: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour)},
+					authenticatedToken:       &domain.DevMachineToken{ID: uuid.New(), MachineID: machineID, Scopes: json.RawMessage(`{"events:write":true,"logs:write":true}`), ExpiresAt: time.Now().Add(time.Hour)},
+					workspaceModelCredential: &domain.DevMachineWorkspaceModelCredential{EncryptedAPIKey: current},
+					agentSecretSnapshots:     []string{snapshot},
+				}
+				svc := newTestDevMachineService(store)
+				content := "1 fixture-current-model-key fixture-original-model-key"
+				if kind == "event" {
+					err = svc.IngestEvent(context.Background(), strings.Repeat("a", 64), dto.CollectorEventInput{Source: "agent", EventType: "fixture-current-model-key", Payload: map[string]any{"text": content}})
+				} else {
+					err = svc.IngestLog(context.Background(), strings.Repeat("a", 64), dto.CollectorLogInput{Stream: "stdout", Sequence: 1, Content: content})
+				}
+				if format == "corrupt" {
+					require.Error(t, err)
+					require.Empty(t, store.events)
+					require.Empty(t, store.logs)
+					return
+				}
+				require.NoError(t, err)
+				if kind == "event" {
+					require.Len(t, store.events, 1)
+					require.Equal(t, "[REDACTED]", store.events[0].EventType)
+					require.JSONEq(t, `{"text":"1 [REDACTED] [REDACTED]"}`, string(store.events[0].Payload))
+				} else {
+					require.Len(t, store.logs, 1)
+					require.Equal(t, "1 [REDACTED] [REDACTED]", store.logs[0].Content)
+				}
+			})
+		}
+	}
 }

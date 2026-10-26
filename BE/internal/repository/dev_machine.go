@@ -34,6 +34,7 @@ type DevMachineStore interface {
 	UpsertWorkspaceModelCredential(context.Context, *domain.DevMachineWorkspaceModelCredential) error
 	DeleteWorkspaceModelCredential(context.Context, uuid.UUID, string) error
 	ListRuntimeCredentials(context.Context, uuid.UUID) ([]domain.DevMachineRuntimeCredential, error)
+	ListAgentRunSecretSnapshots(context.Context, uuid.UUID, uuid.UUID) ([]string, error)
 	CreateAgentRun(context.Context, *domain.DevMachineAgentRun, *domain.DevMachineOperation) error
 	GetAgentRun(context.Context, uuid.UUID, uuid.UUID) (*domain.DevMachineAgentRun, error)
 	GetAgentRunForUser(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (*domain.DevMachineAgentRun, error)
@@ -146,7 +147,7 @@ func (r *DevMachineRepository) CreateBundle(
 	tokens []domain.DevMachineToken,
 	operation *domain.DevMachineOperation,
 ) error {
-	tx, err := r.db.BeginTxx(ctx, nil)
+	tx, err := beginTaskRuntimeTransaction(ctx, r.db, "machine", machine.WorkspaceID, machine.ID, machine.ID)
 	if err != nil {
 		return err
 	}
@@ -355,7 +356,10 @@ func (r *DevMachineRepository) GetOperationByIdempotency(ctx context.Context, wo
 }
 
 func (r *DevMachineRepository) SetDesiredAndEnqueue(ctx context.Context, workspaceID, machineID uuid.UUID, desired domain.DevMachineStatus, operation *domain.DevMachineOperation) error {
-	tx, err := r.db.BeginTxx(ctx, nil)
+	if _, ok := domain.TaskExecutionFromContext(ctx); ok && (operation.Action != domain.DevMachineOpStart || desired != domain.DevMachineStatusRunning) {
+		return ErrAgentTaskConflict
+	}
+	tx, err := beginTaskRuntimeTransaction(ctx, r.db, "start", workspaceID, machineID, machineID)
 	if err != nil {
 		return err
 	}
@@ -815,11 +819,26 @@ func (r *DevMachineRepository) PurgeExpiredRuntimeCredentials(ctx context.Contex
 }
 
 func (r *DevMachineRepository) CreateAgentRun(ctx context.Context, run *domain.DevMachineAgentRun, operation *domain.DevMachineOperation) error {
-	tx, err := r.db.BeginTxx(ctx, nil)
+	if authority, ok := domain.TaskExecutionFromContext(ctx); ok {
+		run.TaskID = &authority.TaskID
+	} else if run.TaskID != nil {
+		return ErrAgentTaskUnauthorized
+	}
+	tx, err := beginTaskRuntimeTransaction(ctx, r.db, "run", run.WorkspaceID, run.MachineID, run.ID)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+	if run.CheckoutID != nil {
+		var scope string
+		if err := tx.GetContext(ctx, &scope, `SELECT scope_key FROM dev_machine_checkouts WHERE id=$1 AND workspace_id=$2 AND machine_id=$3`, *run.CheckoutID, run.WorkspaceID, run.MachineID); err != nil {
+			return err
+		}
+		if scope != checkoutScope(ctx) {
+			return ErrAgentTaskUnauthorized
+		}
+	}
+
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`, run.WorkspaceID); err != nil {
 		return err
 	}
@@ -865,12 +884,12 @@ func (r *DevMachineRepository) CreateAgentRun(ctx context.Context, run *domain.D
 	if err := tx.QueryRowContext(ctx, `INSERT INTO dev_machine_agent_runs
 		(id, machine_id, workspace_id, issue_id, checkout_id, requested_by_user_id, provider_id, mode, status, prompt,
 		 acceptance_criteria, allowed_commands, forbidden_paths, allowed_secrets, test_command, command_argv, command_environment,
-		 model, thinking, max_runtime_seconds, push_branch, open_pull_request)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22) RETURNING created_at`,
+		 model, thinking, max_runtime_seconds, push_branch, open_pull_request,task_id)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) RETURNING created_at`,
 		run.ID, run.MachineID, run.WorkspaceID, run.IssueID, run.CheckoutID, run.RequestedByUserID, run.ProviderID,
 		run.Mode, run.Status, run.Prompt, run.AcceptanceCriteria, run.AllowedCommands, run.ForbiddenPaths,
 		run.AllowedSecrets, nullJSONPointer(run.TestCommand), run.CommandArgv, run.CommandEnvironment, run.Model, run.Thinking,
-		run.MaxRuntimeSeconds, run.PushBranch, run.OpenPullRequest,
+		run.MaxRuntimeSeconds, run.PushBranch, run.OpenPullRequest, run.TaskID,
 	).Scan(&run.CreatedAt); err != nil {
 		return err
 	}
@@ -904,11 +923,13 @@ func (r *DevMachineRepository) GetAgentRun(ctx context.Context, workspaceID, run
 	return &run, err
 }
 
+// Manual machine routes also accept PATs. Private task attempts and their
+// output must use the task API, which revalidates current conversation scope.
 func (r *DevMachineRepository) GetAgentRunForUser(ctx context.Context, workspaceID, runID, userID uuid.UUID) (*domain.DevMachineAgentRun, error) {
 	var run domain.DevMachineAgentRun
 	err := r.db.GetContext(ctx, &run, `SELECT r.* FROM dev_machine_agent_runs r
 		JOIN dev_machines m ON m.id=r.machine_id
-		WHERE r.workspace_id=$1 AND m.workspace_id=$1 AND r.id=$2 AND m.created_by_user_id=$3`, workspaceID, runID, userID)
+		WHERE r.workspace_id=$1 AND m.workspace_id=$1 AND r.id=$2 AND m.created_by_user_id=$3 AND r.task_id IS NULL`, workspaceID, runID, userID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -925,7 +946,7 @@ func (r *DevMachineRepository) GetAgentRunInternal(ctx context.Context, runID uu
 }
 
 func (r *DevMachineRepository) ListAgentRunsForUser(ctx context.Context, workspaceID, userID uuid.UUID, machineID *uuid.UUID, limit, offset int) ([]domain.DevMachineAgentRun, int, error) {
-	where := `r.workspace_id=$1 AND m.workspace_id=$1 AND m.created_by_user_id=$2 AND ($3::uuid IS NULL OR r.machine_id=$3)`
+	where := `r.workspace_id=$1 AND m.workspace_id=$1 AND m.created_by_user_id=$2 AND ($3::uuid IS NULL OR r.machine_id=$3) AND r.task_id IS NULL`
 	var total int
 	if err := r.db.GetContext(ctx, &total, `SELECT COUNT(*) FROM dev_machine_agent_runs r JOIN dev_machines m ON m.id=r.machine_id WHERE `+where, workspaceID, userID, machineID); err != nil {
 		return nil, 0, err
@@ -982,16 +1003,73 @@ func (r *DevMachineRepository) CancelAgentRun(ctx context.Context, workspaceID, 
 	return tx.Commit()
 }
 
-func (r *DevMachineRepository) UpdateAgentRunStarted(ctx context.Context, runID uuid.UUID) error {
-	result, err := r.db.ExecContext(ctx, `UPDATE dev_machine_agent_runs SET status='running', started_at=COALESCE(started_at,NOW())
-		WHERE id=$1 AND status IN ('queued','starting')`, runID)
+var ErrAgentRunSecretsUnavailable = errors.New("agent recovery credentials unavailable")
+
+// SealAgentRunSecrets stores the encrypted handoff before a native process can
+// start. Concurrent managers receive the first committed snapshot, never replace
+// it with rotated credentials. Legacy active processes cannot invent a snapshot.
+func (r *DevMachineRepository) SealAgentRunSecrets(ctx context.Context, runID uuid.UUID, encrypted string) (string, error) {
+	if encrypted == "" || len(encrypted) > 1024*1024 {
+		return "", ErrAgentRunSecretsUnavailable
+	}
+	tx, err := beginAuthorizedAgentRun(ctx, r.db, runID)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback()
+	var run domain.DevMachineAgentRun
+	if err = tx.GetContext(ctx, &run, `SELECT * FROM dev_machine_agent_runs WHERE id=$1 FOR UPDATE`, runID); err != nil {
+		return "", err
+	}
+	if run.Status == domain.DevMachineAgentRunStatusSucceeded || run.Status == domain.DevMachineAgentRunStatusFailed || run.Status == domain.DevMachineAgentRunStatusTimeout || run.Status == domain.DevMachineAgentRunStatusCancelled {
+		return "", sql.ErrNoRows
+	}
+	if run.EncryptedOutputSecrets != nil {
+		return *run.EncryptedOutputSecrets, tx.Commit()
+	}
+	if run.Status != domain.DevMachineAgentRunStatusQueued && run.Status != domain.DevMachineAgentRunStatusStarting {
+		return "", ErrAgentRunSecretsUnavailable
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE dev_machine_agent_runs SET encrypted_output_secrets=$2 WHERE id=$1`, runID, encrypted); err != nil {
+		return "", err
+	}
+	return encrypted, tx.Commit()
+}
+
+// MarkAgentRunStarting records preparation without claiming native execution.
+// Recovery keeps an existing running/waiting attempt and its original start time.
+func (r *DevMachineRepository) MarkAgentRunStarting(ctx context.Context, runID uuid.UUID) error {
+	tx, err := beginAuthorizedAgentRun(ctx, r.db, runID)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `UPDATE dev_machine_agent_runs SET status=CASE WHEN status='queued' THEN 'starting' ELSE status END
+ WHERE id=$1 AND status IN ('queued','starting','running','waiting_input')`, runID)
 	if err != nil {
 		return err
 	}
 	if rows, _ := result.RowsAffected(); rows != 1 {
 		return sql.ErrNoRows
 	}
-	return nil
+	return tx.Commit()
+}
+
+func (r *DevMachineRepository) UpdateAgentRunStarted(ctx context.Context, runID uuid.UUID) error {
+	tx, err := beginAuthorizedAgentRun(ctx, r.db, runID)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `UPDATE dev_machine_agent_runs SET status=CASE WHEN status='waiting_input' THEN status ELSE 'running' END, started_at=COALESCE(started_at,NOW())
+		WHERE id=$1 AND status IN ('queued','starting','running','waiting_input')`, runID)
+	if err != nil {
+		return err
+	}
+	if rows, _ := result.RowsAffected(); rows != 1 {
+		return sql.ErrNoRows
+	}
+	return tx.Commit()
 }
 
 func (r *DevMachineRepository) CompleteAgentRun(ctx context.Context, run *domain.DevMachineAgentRun) error {
@@ -1049,7 +1127,8 @@ func (r *DevMachineRepository) AuthenticateMachineToken(ctx context.Context, tok
 func (r *DevMachineRepository) ListEvents(ctx context.Context, workspaceID, machineID uuid.UUID, afterID int64, limit int) ([]domain.DevMachineEvent, error) {
 	var events []domain.DevMachineEvent
 	err := r.db.SelectContext(ctx, &events, `SELECT e.* FROM dev_machine_events e JOIN dev_machines m ON m.id=e.machine_id
-		WHERE m.workspace_id=$1 AND m.id=$2 AND ($3=0 OR e.id>$3) ORDER BY e.id ASC LIMIT $4`, workspaceID, machineID, afterID, limit)
+		WHERE m.workspace_id=$1 AND m.id=$2 AND ($3=0 OR e.id>$3)
+ AND (e.agent_run_id IS NULL OR EXISTS(SELECT 1 FROM dev_machine_agent_runs r WHERE r.id=e.agent_run_id AND r.task_id IS NULL)) ORDER BY e.id ASC LIMIT $4`, workspaceID, machineID, afterID, limit)
 	return events, err
 }
 
@@ -1063,11 +1142,82 @@ func (r *DevMachineRepository) CreateLogChunk(ctx context.Context, chunk *domain
 	).Scan(&chunk.ID, &chunk.CreatedAt)
 }
 
+var ErrAgentOutputConflict = errors.New("native output replay does not match persisted history")
+
+// CreateAgentOutput commits a redacted logical log line and its parsed activities
+// together. Replaying a container cannot duplicate activities or lose them after
+// a crash between two independent writes.
+func (r *DevMachineRepository) CreateAgentOutput(ctx context.Context, chunk *domain.DevMachineLogChunk, events []domain.DevMachineEvent) error {
+	if chunk.AgentRunID == nil || chunk.ServiceID == nil {
+		return ErrAgentTaskUnauthorized
+	}
+	tx, err := beginAuthorizedAgentRun(ctx, r.db, *chunk.AgentRunID)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var allowed bool
+	err = tx.GetContext(ctx, &allowed, `SELECT EXISTS(SELECT 1 FROM dev_machine_agent_runs r JOIN dev_machine_services s ON s.agent_run_id=r.id AND s.machine_id=r.machine_id
+ WHERE r.id=$1 AND r.workspace_id=$2 AND r.machine_id=$3 AND s.id=$4 AND r.status IN ('queued','starting','running','waiting_input'))`, *chunk.AgentRunID, chunk.WorkspaceID, chunk.MachineID, *chunk.ServiceID)
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return ErrAgentTaskUnauthorized
+	}
+	err = tx.QueryRowContext(ctx, `INSERT INTO dev_machine_log_chunks(workspace_id,machine_id,agent_run_id,service_id,stream,sequence,content,truncated,source_key)
+ VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(machine_id,agent_run_id,service_id,stream,sequence) DO NOTHING RETURNING id,created_at`, chunk.WorkspaceID, chunk.MachineID, chunk.AgentRunID, chunk.ServiceID, chunk.Stream, chunk.Sequence, chunk.Content, chunk.Truncated, chunk.SourceKey).Scan(&chunk.ID, &chunk.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		var same bool
+		if err = tx.GetContext(ctx, &same, `SELECT content=$6 AND truncated=$7 AND source_key=$8 FROM dev_machine_log_chunks WHERE machine_id=$1 AND agent_run_id=$2 AND service_id=$3 AND stream=$4 AND sequence=$5`, chunk.MachineID, chunk.AgentRunID, chunk.ServiceID, chunk.Stream, chunk.Sequence, chunk.Content, chunk.Truncated, chunk.SourceKey); err != nil {
+			return err
+		}
+		if !same {
+			return ErrAgentOutputConflict
+		}
+		return tx.Commit()
+	}
+	if err != nil {
+		return err
+	}
+	for _, event := range events {
+		payload := event.Payload
+		if len(payload) == 0 {
+			payload = []byte(`{}`)
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO dev_machine_events(workspace_id,machine_id,agent_run_id,source,event_type,payload) VALUES($1,$2,$3,'agent',$4,$5)`, chunk.WorkspaceID, chunk.MachineID, chunk.AgentRunID, event.EventType, payload)
+		if err != nil {
+			return err
+		}
+	}
+	// beginAuthorizedAgentRun already holds the authorized conversation cursor
+	// lock, followed by the task row. Commit replay metadata with the native rows.
+	var task struct {
+		ID             uuid.UUID `db:"id"`
+		ConversationID uuid.UUID `db:"conversation_id"`
+	}
+	err = tx.GetContext(ctx, &task, `SELECT t.id,t.conversation_id FROM agent_tasks t JOIN dev_machine_agent_runs r ON r.task_id=t.id WHERE r.id=$1`, *chunk.AgentRunID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if err == nil {
+		activity := domain.AgentTaskActivity{TaskID: task.ID, RunID: *chunk.AgentRunID, LogID: chunk.ID, Stream: chunk.Stream, Truncated: chunk.Truncated, Events: []domain.AgentTaskActivityEvent{}}
+		for _, event := range events {
+			activity.Events = append(activity.Events, domain.AgentTaskActivityEvent{Type: event.EventType, Payload: event.Payload})
+		}
+		if _, err = conversationEvent(ctx, tx, task.ConversationID, "task.activity", activity); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 func (r *DevMachineRepository) ListLogs(ctx context.Context, workspaceID, machineID uuid.UUID, runID *uuid.UUID, afterID int64, limit int) ([]domain.DevMachineLogChunk, error) {
 	var chunks []domain.DevMachineLogChunk
 	err := r.db.SelectContext(ctx, &chunks, `SELECT l.* FROM dev_machine_log_chunks l JOIN dev_machines m ON m.id=l.machine_id
 		WHERE m.workspace_id=$1 AND m.id=$2 AND ($3::uuid IS NULL OR l.agent_run_id=$3)
-		AND ($4=0 OR l.id>$4) ORDER BY l.id ASC LIMIT $5`, workspaceID, machineID, runID, afterID, limit)
+		AND ($4=0 OR l.id>$4)
+ AND (l.agent_run_id IS NULL OR EXISTS(SELECT 1 FROM dev_machine_agent_runs r WHERE r.id=l.agent_run_id AND r.task_id IS NULL)) ORDER BY l.id ASC LIMIT $5`, workspaceID, machineID, runID, afterID, limit)
 	return chunks, err
 }
 
@@ -1886,9 +2036,18 @@ func (r *DevMachineRepository) ReconcileOrphanedCheckouts(ctx context.Context, l
 	return reconciled, nil
 }
 
+// HTTP callers have only the manual checkout scope. Task preparation uses
+// internal execution authority; its writes still fence the live task lease.
+func checkoutScope(ctx context.Context) string {
+	if authority, ok := domain.TaskExecutionFromContext(ctx); ok {
+		return authority.TaskID.String()
+	}
+	return ""
+}
+
 func (r *DevMachineRepository) GetCheckout(ctx context.Context, workspaceID, machineID, checkoutID uuid.UUID) (*domain.DevMachineCheckout, error) {
 	var checkout domain.DevMachineCheckout
-	err := r.db.GetContext(ctx, &checkout, `SELECT * FROM dev_machine_checkouts WHERE workspace_id=$1 AND machine_id=$2 AND id=$3`, workspaceID, machineID, checkoutID)
+	err := r.db.GetContext(ctx, &checkout, `SELECT * FROM dev_machine_checkouts WHERE workspace_id=$1 AND machine_id=$2 AND id=$3 AND scope_key=$4`, workspaceID, machineID, checkoutID, checkoutScope(ctx))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -1906,7 +2065,7 @@ func (r *DevMachineRepository) GetCheckoutInternal(ctx context.Context, checkout
 
 func (r *DevMachineRepository) ListCheckouts(ctx context.Context, workspaceID, machineID uuid.UUID) ([]domain.DevMachineCheckout, error) {
 	var checkouts []domain.DevMachineCheckout
-	err := r.db.SelectContext(ctx, &checkouts, `SELECT * FROM dev_machine_checkouts WHERE workspace_id=$1 AND machine_id=$2 ORDER BY created_at DESC`, workspaceID, machineID)
+	err := r.db.SelectContext(ctx, &checkouts, `SELECT * FROM dev_machine_checkouts WHERE workspace_id=$1 AND machine_id=$2 AND scope_key=$3 ORDER BY created_at DESC`, workspaceID, machineID, checkoutScope(ctx))
 	if checkouts == nil {
 		checkouts = []domain.DevMachineCheckout{}
 	}
@@ -1914,7 +2073,10 @@ func (r *DevMachineRepository) ListCheckouts(ctx context.Context, workspaceID, m
 }
 
 func (r *DevMachineRepository) CreateCheckout(ctx context.Context, checkout *domain.DevMachineCheckout, operation *domain.DevMachineOperation) error {
-	tx, err := r.db.BeginTxx(ctx, nil)
+	if checkout.ScopeKey != checkoutScope(ctx) {
+		return ErrAgentTaskUnauthorized
+	}
+	tx, err := beginTaskRuntimeTransaction(ctx, r.db, "checkout", checkout.WorkspaceID, checkout.MachineID, checkout.ID)
 	if err != nil {
 		return err
 	}
@@ -1933,12 +2095,12 @@ func (r *DevMachineRepository) CreateCheckout(ctx context.Context, checkout *dom
 		return ErrCheckoutMachineConflict
 	}
 	if err := tx.QueryRowContext(ctx, `INSERT INTO dev_machine_checkouts
-		(id,workspace_id,machine_id,issue_id,github_repo_id,repository_full_name,base_branch,working_branch,workspace_path,status)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-		ON CONFLICT (machine_id,issue_id) DO UPDATE SET status=EXCLUDED.status,last_error=NULL,last_activity_at=NOW()
+		(id,workspace_id,machine_id,issue_id,github_repo_id,repository_full_name,base_branch,working_branch,workspace_path,status,scope_key)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+		ON CONFLICT (machine_id,issue_id,scope_key) DO UPDATE SET status=EXCLUDED.status,last_error=NULL,last_activity_at=NOW()
 		RETURNING id,created_at,updated_at`, checkout.ID, checkout.WorkspaceID, checkout.MachineID, checkout.IssueID,
 		checkout.GitHubRepoID, checkout.RepositoryFullName, checkout.BaseBranch, checkout.WorkingBranch,
-		checkout.WorkspacePath, checkout.Status,
+		checkout.WorkspacePath, checkout.Status, checkout.ScopeKey,
 	).Scan(&checkout.ID, &checkout.CreatedAt, &checkout.UpdatedAt); err != nil {
 		return err
 	}
@@ -2099,4 +2261,12 @@ func (r *DevMachineRepository) ListAgentRunLogs(ctx context.Context, runID uuid.
 		chunks = []domain.DevMachineLogChunk{}
 	}
 	return chunks, err
+}
+
+// Collector output can arrive without an attempt ID. Redact against retained
+// attempt credentials too, including credentials rotated after execution began.
+func (r *DevMachineRepository) ListAgentRunSecretSnapshots(ctx context.Context, workspaceID, machineID uuid.UUID) ([]string, error) {
+	var snapshots []string
+	err := r.db.SelectContext(ctx, &snapshots, `SELECT DISTINCT encrypted_output_secrets FROM dev_machine_agent_runs WHERE workspace_id=$1 AND machine_id=$2 AND encrypted_output_secrets IS NOT NULL`, workspaceID, machineID)
+	return snapshots, err
 }

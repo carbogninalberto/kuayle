@@ -185,3 +185,12 @@ POST /api/workspaces/:slug/webhooks
 POST /api/workspaces/import
 POST /api/workspaces/import/preview
 PUT /api/workspaces/:slug/dev-machine-scope-setting
+GET /api/workspaces/:slug/conversations/:conversationId/task-options
+GET /api/workspaces/:slug/conversations/:conversationId/tasks
+POST /api/workspaces/:slug/conversations/:conversationId/tasks
+GET /api/workspaces/:slug/agent-tasks/:taskId
+GET /api/workspaces/:slug/agent-tasks/:taskId/history
+GET /api/workspaces/:slug/agent-tasks/:taskId/runs
+GET /api/workspaces/:slug/agent-tasks/:taskId/runs/:runId/logs
+POST /api/workspaces/:slug/agent-tasks/:taskId/cancel
+POST /api/workspaces/:slug/agent-tasks/:taskId/retry

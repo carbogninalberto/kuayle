@@ -696,7 +696,7 @@ func (r *DockerRuntime) removeManagedVolume(ctx context.Context, volumeName stri
 	return nil
 }
 
-func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine, run *domain.DevMachineAgentRun, provider *domain.DevMachineAgentProvider, checkout *domain.DevMachineCheckout, secrets map[string]string) (*AgentExecution, error) {
+func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine, run *domain.DevMachineAgentRun, provider *domain.DevMachineAgentProvider, checkout *domain.DevMachineCheckout, secrets map[string]string, observer *AgentObserver) (*AgentExecution, error) {
 	if machine.DockerNetworkName == nil || machine.WorkspaceVolumeName == nil {
 		return nil, fmt.Errorf("machine runtime resources are unavailable")
 	}
@@ -744,7 +744,7 @@ func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine
 		if inspection.Container.Config.Image != provider.ImageRef || inspection.Container.Config.Labels["com.kuayle.agent-run-id"] != run.ID.String() {
 			return nil, fmt.Errorf("existing agent container does not match run")
 		}
-		return r.resumeAgent(ctx, inspection.Container, run.Mode == "interactive", secrets)
+		return r.resumeAgent(ctx, inspection.Container, run.Mode == "interactive", secrets, observer)
 	} else if !errdefs.IsNotFound(inspectErr) {
 		return nil, inspectErr
 	}
@@ -770,9 +770,25 @@ func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine
 		return nil, err
 	}
 	containerID := response.ID
+	if observer != nil && observer.Authorize != nil {
+		if err := observer.Authorize(); err != nil {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			_, cleanupErr := r.client.ContainerRemove(cleanupCtx, containerID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+			if cleanupErr != nil && !errdefs.IsNotFound(cleanupErr) {
+				return nil, fmt.Errorf("agent preparation cleanup failed: %w", cleanupErr)
+			}
+			return nil, err
+		}
+	}
 	if _, err := r.client.ContainerStart(ctx, containerID, client.ContainerStartOptions{}); err != nil {
 		_, _ = r.client.ContainerRemove(ctx, containerID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
 		return nil, err
+	}
+	if observer != nil && observer.Authorize != nil {
+		if err := observer.Authorize(); err != nil {
+			return r.agentOutputFailure(containerID, err)
+		}
 	}
 	if err := r.copySecrets(ctx, containerID, secrets); err != nil {
 		_, _ = r.client.ContainerRemove(ctx, containerID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
@@ -782,7 +798,7 @@ func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine
 	if err != nil {
 		return nil, err
 	}
-	return r.resumeAgent(ctx, inspection.Container, run.Mode == "interactive", nil)
+	return r.resumeAgent(ctx, inspection.Container, run.Mode == "interactive", nil, observer)
 }
 
 func agentRuntimeEnvironment(overrides map[string]string) ([]string, error) {
@@ -807,8 +823,13 @@ func agentRuntimeEnvironment(overrides map[string]string) ([]string, error) {
 	return environment, nil
 }
 
-func (r *DockerRuntime) resumeAgent(ctx context.Context, inspection container.InspectResponse, interactive bool, secrets map[string]string) (*AgentExecution, error) {
+func (r *DockerRuntime) resumeAgent(ctx context.Context, inspection container.InspectResponse, interactive bool, secrets map[string]string, observer *AgentObserver) (*AgentExecution, error) {
 	containerID := inspection.ID
+	if observer != nil && observer.Authorize != nil {
+		if err := observer.Authorize(); err != nil {
+			return r.agentOutputFailure(containerID, err)
+		}
+	}
 	if inspection.State.Paused {
 		if _, err := r.client.ContainerUnpause(ctx, containerID, client.ContainerUnpauseOptions{}); err != nil {
 			return nil, err
@@ -819,10 +840,24 @@ func (r *DockerRuntime) resumeAgent(ctx context.Context, inspection container.In
 		if _, err := r.client.ContainerStart(ctx, containerID, client.ContainerStartOptions{}); err != nil {
 			return nil, err
 		}
+		if observer != nil && observer.Authorize != nil {
+			if err := observer.Authorize(); err != nil {
+				return r.agentOutputFailure(containerID, err)
+			}
+		}
 		if err := r.copySecrets(ctx, containerID, secrets); err != nil {
 			return nil, err
 		}
 		inspection.State.Running = true
+	}
+	var output AgentOutput
+	if observer != nil {
+		if observer.Started != nil {
+			if err := observer.Started(containerID); err != nil {
+				return r.agentOutputFailure(containerID, err)
+			}
+		}
+		output = observer.Output
 	}
 	if interactive && inspection.State.Running {
 		if err := r.requireRunning(ctx, containerID); err != nil {
@@ -830,28 +865,104 @@ func (r *DockerRuntime) resumeAgent(ctx context.Context, inspection container.In
 		}
 		return &AgentExecution{ContainerID: containerID}, nil
 	}
+	// Follow from the beginning on every lease recovery. Stable line sequences in
+	// the manager deduplicate replay without depending on Docker frame boundaries.
+	logCtx, cancelLogs := context.WithCancel(ctx)
+	defer cancelLogs()
+	reader, err := r.client.ContainerLogs(logCtx, containerID, client.ContainerLogsOptions{
+		ShowStdout: true, ShowStderr: true, Follow: inspection.State.Running, Timestamps: output != nil,
+	})
+	if err != nil {
+		return r.agentOutputFailure(containerID, err)
+	}
+	defer reader.Close()
+	stdout, stderr := newCappedBuffer(maxCapturedLogBytes), newCappedBuffer(maxCapturedLogBytes)
+	logDone := make(chan error, 1)
+	logsExited := make(chan struct{})
+	defer func() { cancelLogs(); _ = reader.Close(); <-logsExited }()
+	go func() {
+		defer close(logsExited)
+		_, err := stdcopy.StdCopy(&agentOutputWriter{stream: "stdout", buffer: &stdout, output: output},
+			&agentOutputWriter{stream: "stderr", buffer: &stderr, output: output}, reader)
+		logDone <- err
+	}()
+	var result <-chan container.WaitResponse
+	var waitError <-chan error
 	if inspection.State.Running {
-		waitResult := r.client.ContainerWait(ctx, containerID, client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
-		select {
-		case result := <-waitResult.Result:
-			inspection.State.ExitCode = int(result.StatusCode)
-		case err := <-waitResult.Error:
-			return &AgentExecution{ContainerID: containerID, ExitCode: -1}, err
-		case <-ctx.Done():
-			stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			_, stopErr := r.client.ContainerStop(stopCtx, containerID, client.ContainerStopOptions{})
-			cancel()
-			if stopErr != nil && !errdefs.IsNotFound(stopErr) {
-				return &AgentExecution{ContainerID: containerID, ExitCode: -1}, fmt.Errorf("stop timed out agent: %w", stopErr)
+		results := make(chan container.WaitResponse, 1)
+		failures := make(chan error, 1)
+		waitExited := make(chan struct{})
+		defer func() { cancelLogs(); <-waitExited }()
+		// ContainerWait may wait for HTTP headers before returning its channels.
+		// Observing output failures must not depend on the process already exiting.
+		go func() {
+			defer close(waitExited)
+			wait := r.client.ContainerWait(logCtx, containerID, client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
+			select {
+			case status := <-wait.Result:
+				results <- status
+			case err := <-wait.Error:
+				failures <- err
+			case <-logCtx.Done():
+				failures <- logCtx.Err()
 			}
-			return &AgentExecution{ContainerID: containerID, ExitCode: -1}, ctx.Err()
+		}()
+		result, waitError = results, failures
+	}
+	waiting, logging := inspection.State.Running, true
+	for waiting || logging {
+		select {
+		case status := <-result:
+			inspection.State.ExitCode = int(status.StatusCode)
+			waiting = false
+			result, waitError = nil, nil
+		case err := <-waitError:
+			if ctx.Err() != nil {
+				err = ctx.Err()
+			}
+			cancelLogs()
+			return r.agentOutputFailure(containerID, err)
+		case err := <-logDone:
+			logging = false
+			logDone = nil
+			if err != nil {
+				if ctx.Err() != nil {
+					err = ctx.Err()
+				}
+				return r.agentOutputFailure(containerID, err)
+			}
+		case <-ctx.Done():
+			cancelLogs()
+			return r.agentOutputFailure(containerID, ctx.Err())
 		}
 	}
-	stdout, stderr, err := r.containerLogs(ctx, containerID)
-	if err != nil {
-		return &AgentExecution{ContainerID: containerID, ExitCode: inspection.State.ExitCode}, err
+	return &AgentExecution{ContainerID: containerID, Stdout: stdout.String(), Stderr: stderr.String(), ExitCode: inspection.State.ExitCode}, nil
+}
+
+// A failed observer cannot leave an unmonitored native process running.
+func (r *DockerRuntime) agentOutputFailure(containerID string, cause error) (*AgentExecution, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	_, err := r.client.ContainerStop(ctx, containerID, client.ContainerStopOptions{})
+	if err != nil && !errdefs.IsNotFound(err) {
+		return &AgentExecution{ContainerID: containerID, ExitCode: -1}, fmt.Errorf("agent output cleanup failed: %w", err)
 	}
-	return &AgentExecution{ContainerID: containerID, Stdout: stdout, Stderr: stderr, ExitCode: inspection.State.ExitCode}, nil
+	return &AgentExecution{ContainerID: containerID, ExitCode: -1}, cause
+}
+
+type agentOutputWriter struct {
+	stream string
+	buffer *cappedBuffer
+	output AgentOutput
+}
+
+func (w *agentOutputWriter) Write(data []byte) (int, error) {
+	if w.output != nil {
+		if err := w.output(w.stream, data); err != nil {
+			return 0, err
+		}
+	}
+	return w.buffer.Write(data)
 }
 
 func (r *DockerRuntime) CancelAgent(ctx context.Context, run *domain.DevMachineAgentRun) error {

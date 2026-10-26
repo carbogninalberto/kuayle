@@ -9,6 +9,20 @@ import (
 
 var ErrHostDiskUnknown = errors.New("host disk usage is unknown")
 
+// AgentOutput consumes raw runtime bytes synchronously. The manager must redact
+// them before persistence. Returning an error aborts execution.
+type AgentOutput func(stream string, data []byte) error
+
+// AgentObserver checks authority after preparation and before start/resume or
+// credential handoff, and persists execution milestones. Started is called after
+// container startup (or on recovery of an executed container), before Output.
+// Any callback failing requires the runtime to stop the native process.
+type AgentObserver struct {
+	Authorize func() error
+	Started   func(containerID string) error
+	Output    AgentOutput
+}
+
 type AgentExecution struct {
 	ContainerID string
 	Stdout      string
@@ -61,7 +75,7 @@ type Runtime interface {
 	Pause(context.Context, *domain.DevMachine, []domain.DevMachineService) error
 	Stop(context.Context, *domain.DevMachine, []domain.DevMachineService) error
 	Teardown(context.Context, *domain.DevMachine, []domain.DevMachineService) error
-	RunAgent(context.Context, *domain.DevMachine, *domain.DevMachineAgentRun, *domain.DevMachineAgentProvider, *domain.DevMachineCheckout, map[string]string) (*AgentExecution, error)
+	RunAgent(context.Context, *domain.DevMachine, *domain.DevMachineAgentRun, *domain.DevMachineAgentProvider, *domain.DevMachineCheckout, map[string]string, *AgentObserver) (*AgentExecution, error)
 	CancelAgent(context.Context, *domain.DevMachineAgentRun) error
 	TerminateTerminal(context.Context, *domain.DevMachine, []domain.DevMachineService, *domain.DevMachineTerminalSession) error
 	Inspect(context.Context, *domain.DevMachine, []domain.DevMachineService) (RuntimeInspection, error)

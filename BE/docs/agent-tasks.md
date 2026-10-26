@@ -1,0 +1,208 @@
+# Agent task execution contract
+
+## Implementation status
+
+The task domain, repository, worker and HTTP controls are wired into the API
+process. Issue conversations expose task delegation, retry, cancellation and live
+activity through AI Elements Task/Trace and Model Selector compositions. The assistant remains
+conversational; structured orchestrator delegation is still pending. Independent
+validation, publishing and review are not yet implemented, so native success
+waits in `validating`. This is not a completed autonomous development workflow.
+
+Migration 56 adds tasks and transition history, task-specific checkout scopes,
+immutable native-attempt ownership, encrypted recovery credentials and log-source
+identity. Existing manual checkouts use an empty scope. Ordinary checkout reads
+expose only that manual scope; internal task preparation reads its own scope. Manual native
+run creation cannot target a task-owned checkout, including a known checkout ID.
+Task work remains under task authorization through delegation/retry controls. Task
+worktrees use the task UUID, so two tasks for the same issue do not share a branch or directory.
+Rollback refuses active tasks, retained task worktrees and native attempts still
+using recovery credentials; it does not silently orphan execution.
+
+## Authorization and side effects
+
+Tasks belong to their creator's private issue conversation and original team.
+Reads, requests, transitions, machine reservations, checkout creation and native
+attempt dispatch require the current conversation, issue/team visibility and
+non-guest workspace membership. A moved or deleted issue does not convert its
+old task into a general conversation or unrestricted manual run.
+
+Transactions acquire the privacy graph barrier, issue, conversation, membership
+and task locks in the existing conversation order. Workers claim with
+`SKIP LOCKED`; a generation, lease token and expiry fence their writes. Reserved
+machine, checkout and run IDs are allocated before side effects. Duplicate
+request IDs must have identical input. Creation and retry replay return the
+immutable queued snapshot stored by their accepted transition, even after a later
+attempt or configuration change. Replay still checks current conversation access;
+it does not authorize new execution. These transition events are request receipts
+and must be retained while the task exists. Missing receipt data fails closed.
+State changes, audit records and conversation events commit together.
+
+Native attempts retain `task_id` even after a task switches attempts. The manager
+checks that the attempt remains the task's current run before launch and before
+persisting output. Missing, revoked, cancelling and superseded tasks deny effects.
+Cleanup can still lock and cancel after issue moves, membership removal or chat
+deletion. Cancellation is not complete merely because a run's status changed:
+the task requires the durable cancel operation to finish and pending preparation
+operations to settle.
+
+## Failure, cancellation and explicit retries
+
+Unexpected worker errors back off and are counted durably. Five consecutive
+failures move the task to `cancelling`; capacity waits and stale leases are not
+failures, and a successful step resets the counter. A native failure also enters
+cleanup first. Only confirmed cleanup produces the terminal `failed` state.
+Exhausted cleanup stays visibly pending rather than claiming the process stopped.
+Configuration failures after reserving an environment also enter cleanup: a
+preparing task may already have started native execution between worker polls.
+An authorized repeat cancellation request can retry failed cleanup operations
+once their underlying cause has been repaired.
+
+After native/preparation operations settle, cancellation pauses an automatically
+allocated running machine, or stops an incomplete one, preserving its volume and
+worktrees. It does not pause a reused manual machine or one serving another
+active task. A later manual start superseding an already completed cleanup is
+respected. Completion waits for the queued machine cleanup operation.
+
+Explicit retries of blocked/failed tasks and review follow-ups require the
+expected task generation and a request UUID. Duplicate requests return the same
+attempt; different payloads conflict. Retries allocate a new native run ID and
+invalidate old worker leases while retaining the task's checkout and branch.
+Retried task-owned machines resume through existing lifecycle policy checks and
+task fencing. An exhausted checkout is requeued at most once per explicit task
+generation, so polling cannot silently produce unlimited setup retries.
+
+## Issue lifecycle
+
+Delegation captures the issue status and edit timestamp; it does not change the
+issue. The worker records actual native execution in a transaction that verifies
+the current attempt and lease, then moves an unchanged backlog/unstarted issue
+to its team's `in_progress` status in the started category, or the first configured
+started status by position. Missing started statuses leave the issue unchanged.
+Any intervening issue edit, including a status change away and back, preserves
+the human/GitHub decision. Explicit retry captures a fresh delegation snapshot.
+
+The issue write lock precedes conversation/task locks. Issue history, the task
+transition and conversation event commit together; realtime issue updates are
+published afterward. Concurrent tasks cannot duplicate the issue change.
+A process that started and failed before the next poll still records its start
+before failure cleanup. Native success never moves an issue to Done.
+
+## Native execution and recovery
+
+Preparation records `starting` without setting `started_at`. After potentially
+slow image/container preparation, the Docker runtime rechecks
+execution authority before start/resume and before handing off credentials.
+Cancellation after a successful check still uses durable physical cleanup. The
+Docker runtime reports a confirmed container start before output; only that
+observer records `running` and the service's container ID. Failed persistence stops execution.
+Recovery preserves the original start time and an existing waiting-input state.
+An error does not falsely report that the service has stopped; reconciliation
+and durable cancellation retain responsibility for physical cleanup.
+
+The manager encrypts a per-attempt snapshot of the authorized runtime secrets
+before starting execution. Concurrent managers reuse the first committed
+snapshot. Versioned snapshots distinguish credentials from public model/runtime
+configuration, so values such as numeric flags do not corrupt native JSON output.
+Legacy snapshots retain their original redaction policy for deterministic replay.
+Recovery injects and redacts against that same snapshot, including if workspace
+credentials have since rotated. The encrypted field is excluded from
+JSON responses. Collector event/log ingestion also redacts current workspace
+model credentials and retained native snapshots, including credentials rotated
+since an attempt started. Unreadable snapshots reject ingestion. Native and
+collector output share escaped/multiline and longest-first secret redaction. An
+active legacy attempt without a usable snapshot is stopped; recovery never guesses
+which credentials its container received.
+
+Docker logs are followed while the native process runs. Waiting for process exit
+cannot block handling an output-storage failure. Cancellation or a failed output
+observer stops the native process, cancels the Docker HTTP requests, and waits
+for output goroutines to exit. The full provider result is parsed from sanitized
+captured output, and never establishes independent test success.
+
+The manager buffers logical lines, redacts known secrets before persistence,
+including multiline fragments and JSON-escaped forms, and sanitizes invalid UTF-8
+and NUL. Each stream is capped at 4 MiB and 4,096 logical records, plus a limit
+marker. Lines over 16 KiB are suppressed whole rather than exposing a partial
+secret or interpreting an incomplete structured event. Full terminal text stays
+in the paginated native log store.
+
+Docker supplies an RFC3339Nano timestamp for each log entry; see the
+[Docker log timestamp contract](https://docs.docker.com/reference/cli/docker/container/logs/#retrieve-logs-with-timestamps--t---timestamps).
+The first timestamp identifies the retained stream prefix. Replayed logical line
+numbers must match both that identity and their stored content. A rotated prefix
+fails recovery instead of discarding new output as duplicate old text. Timestamp
+prefixes are removed before provider parsing and display.
+
+Each log record, its actual parsed provider activities and a `task.activity`
+conversation event commit in one transaction. Replaying a record cannot duplicate
+its activities. The conversation payload contains `task_id`, `run_id`, `log_id`,
+`stream`, `truncated`, and an array of `{type, payload}` structured events. It does
+not duplicate plain terminal output. Conversation replay uses the existing
+ordered cursor and authorization checks. Provider payloads remain untrusted;
+they cannot authorize actions, approve operations or assert independent test
+results.
+
+## Remaining workflow work
+
+The worker currently progresses through preparation and native execution to
+`validating`. Independent validation, publishing and human acceptance are not yet
+implemented. Repository-level retry support does not yet provide native session
+resume or a review workflow. Native
+sessions and durable approval flows remain separate work; a successful process
+exit must never mark an issue Done.
+
+
+## HTTP controls and replay
+
+All task routes require an interactive session and the existing Dev Machine demo
+guard. PAT scopes do not grant task access. Current creator/conversation/issue
+permissions apply to every page, including older attempts. Disabling execution
+policy blocks new work and sends running attempts through cleanup; historical reads
+and cancellation remain available to authorized users.
+
+- `GET /conversations/:conversationId/task-options` returns policy-allowed native
+  autonomous providers and the existing workspace model configuration. Custom
+  CLI allocation requires saved command configuration and is not offered yet.
+- `GET|POST /conversations/:conversationId/tasks` lists or delegates tasks.
+- `GET /agent-tasks/:taskId` reads the durable task.
+- `POST /agent-tasks/:taskId/cancel` requests cleanup, including an explicit retry
+  of exhausted cleanup operations.
+- `POST /agent-tasks/:taskId/retry` requires request UUID, expected generation and
+  new instructions; it preserves the task worktree.
+- `GET /agent-tasks/:taskId/history` pages transition records with `after`.
+- `GET /agent-tasks/:taskId/runs` pages native attempts with `before`.
+- `GET /agent-tasks/:taskId/runs/:runId/logs` pages that attempt's logs with `after`.
+
+Paths are workspace-relative. Task/attempt pages contain 25 entries and an
+optional `next_before` UUID; history/log pages contain 100 entries and an optional
+`next_after` integer. Cursors must belong to the requested scope. Native log IDs
+also arrive through the existing authenticated conversation event stream.
+Task attempts, native events and logs are excluded from the older machine read
+endpoints (including PAT reads); their content is available through the task
+endpoints under current conversation permissions. Ordinary manual attempts stay
+on the existing machine routes.
+Encrypted recovery credentials never appear in API output. Mutating task bodies
+reject unknown properties; callers cannot supply runtime IDs or lease authority.
+Provider model/effort validation is shared with direct native execution.
+
+
+## Web task controls
+
+Issue chats and focused issue conversations share the same task panel. It loads
+bounded task pages, applies persisted `task.state_changed`/`task.updated` events,
+and uses `task.activity` log cursors to refresh an expanded execution view. Refreshes
+are throttled from the first event so continuous output remains live. A
+browser refresh or reconnect only reads task state; it never delegates again.
+Task and retry forms retain their request UUID after a transport failure. Native
+output is rendered as text through Code Block; structured event labels and
+transition history use Trace. Long histories, attempts and logs page explicitly.
+No provider text or successful exit is displayed as independent validation proof.
+
+The UI follows the official [Task](https://www.shadcn-svelte.com/docs/ai-elements/task),
+[Model Selector](https://www.shadcn-svelte.com/docs/ai-elements/model-selector),
+[Trace](https://www.shadcn-svelte.com/docs/components/trace) and
+[Code Block](https://www.shadcn-svelte.com/docs/components/code-block) compositions.
+Trace and Code Block were added from the Nova registry without replacing the
+existing Button or Collapsible. The unused optional syntax-highlighting helper
+and Shiki dependency were omitted; native logs render escaped plain text.

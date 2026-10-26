@@ -148,16 +148,53 @@ func TestMachineNameExistsForUserScopesByCreator(t *testing.T) {
 }
 
 func TestUpdateAgentRunStartedRequiresStateTransition(t *testing.T) {
-	repo, conn := newCaptureDevMachineRepository(t, 0)
-
-	err := repo.UpdateAgentRunStarted(context.Background(), uuid.New())
-
-	require.ErrorIs(t, err, sql.ErrNoRows)
-	query, _ := conn.captured()
-	require.Contains(t, query, "status IN ('queued','starting')")
-
-	repo, _ = newCaptureDevMachineRepository(t, 1)
-	require.NoError(t, repo.UpdateAgentRunStarted(context.Background(), uuid.New()))
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is not configured")
+	}
+	db := isolatedPrivacyDatabase(t, databaseURL)
+	fixture := newEnvironmentRaceFixture(t, db)
+	machine := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning, false)
+	runID := uuid.New()
+	_, err := db.Exec(`INSERT INTO dev_machine_agent_runs(id,workspace_id,machine_id,provider_id,mode,prompt,command_argv,max_runtime_seconds) VALUES($1,$2,$3,'codex','autonomous','Test','["codex"]',60)`, runID, fixture.workspaceID, machine)
+	require.NoError(t, err)
+	repo := fixture.repository
+	ctx := context.Background()
+	require.ErrorIs(t, repo.MarkAgentRunStarting(ctx, uuid.New()), sql.ErrNoRows)
+	require.NoError(t, repo.MarkAgentRunStarting(ctx, runID))
+	var preparing struct {
+		Status    string     `db:"status"`
+		StartedAt *time.Time `db:"started_at"`
+	}
+	require.NoError(t, db.Get(&preparing, `SELECT status,started_at FROM dev_machine_agent_runs WHERE id=$1`, runID))
+	require.Equal(t, "starting", preparing.Status)
+	require.Nil(t, preparing.StartedAt)
+	require.ErrorIs(t, repo.UpdateAgentRunStarted(ctx, uuid.New()), sql.ErrNoRows)
+	require.NoError(t, repo.UpdateAgentRunStarted(ctx, runID))
+	var first time.Time
+	require.NoError(t, db.Get(&first, `SELECT started_at FROM dev_machine_agent_runs WHERE id=$1`, runID))
+	require.NoError(t, repo.UpdateAgentRunStarted(ctx, runID), "lease recovery reattaches an existing running attempt")
+	var recovered time.Time
+	require.NoError(t, db.Get(&recovered, `SELECT started_at FROM dev_machine_agent_runs WHERE id=$1`, runID))
+	require.Equal(t, first, recovered)
+	require.NoError(t, repo.MarkAgentRunStarting(ctx, runID))
+	require.NoError(t, db.Get(&preparing, `SELECT status,started_at FROM dev_machine_agent_runs WHERE id=$1`, runID))
+	require.Equal(t, "running", preparing.Status)
+	require.Equal(t, first, *preparing.StartedAt)
+	_, err = db.Exec(`UPDATE dev_machine_agent_runs SET status='waiting_input' WHERE id=$1`, runID)
+	require.NoError(t, err)
+	require.NoError(t, repo.MarkAgentRunStarting(ctx, runID))
+	require.NoError(t, repo.UpdateAgentRunStarted(ctx, runID))
+	require.NoError(t, db.Get(&preparing, `SELECT status,started_at FROM dev_machine_agent_runs WHERE id=$1`, runID))
+	require.Equal(t, "waiting_input", preparing.Status)
+	require.Equal(t, first, *preparing.StartedAt)
+	_, err = db.Exec(`UPDATE dev_machine_agent_runs SET status='cancelled' WHERE id=$1`, runID)
+	require.NoError(t, err)
+	require.ErrorIs(t, repo.UpdateAgentRunStarted(ctx, runID), sql.ErrNoRows)
+	var state string
+	require.NoError(t, db.Get(&state, `SELECT status FROM dev_machine_agent_runs WHERE id=$1`, runID))
+	require.Equal(t, "cancelled", state)
+	require.ErrorIs(t, repo.MarkAgentRunStarting(ctx, runID), sql.ErrNoRows)
 }
 
 func TestCreateAccessTicketQueryRevalidatesCreatorAndTuple(t *testing.T) {

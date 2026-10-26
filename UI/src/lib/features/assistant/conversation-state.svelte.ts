@@ -1,3 +1,4 @@
+import type { AgentTask, TaskActivity } from '$lib/api/agent-tasks';
 import {
 	conversations,
 	type Conversation,
@@ -10,6 +11,8 @@ export class ConversationState {
 	conversation = $state<Conversation | null>(null);
 	issue = $state<ConversationIssue | null>(null);
 	messages = $state<ConversationMessage[]>([]);
+	liveTasks = $state<Record<string, AgentTask>>({});
+	taskActivity = $state<Record<string, TaskActivity>>({});
 	cursor = 0;
 	hasMore = $state(false);
 	loading = $state(true);
@@ -60,6 +63,8 @@ export class ConversationState {
 			this.loadVersion++;
 			this.loading = false;
 			this.messages = [];
+			this.liveTasks = {};
+			this.taskActivity = {};
 			this.conversation = null;
 			this.issue = null;
 			this.disconnect();
@@ -79,7 +84,12 @@ export class ConversationState {
 	}
 	apply(event: ConversationEvent) {
 		if (this.disposed || this.unavailable || event.conversation_id !== this.id || event.cursor <= this.cursor) return;
-		if (event.type === 'message.created') {
+		if (event.type === 'task.state_changed' || event.type === 'task.updated') {
+			this.acceptTask(event.payload as AgentTask, true);
+		} else if (event.type === 'task.activity') {
+			const activity = event.payload as TaskActivity;
+			this.taskActivity = { ...this.taskActivity, [activity.task_id]: activity };
+		} else if (event.type === 'message.created') {
 			const message = event.payload as ConversationMessage;
 			this.accept(message);
 		} else {
@@ -91,6 +101,20 @@ export class ConversationState {
 			);
 		}
 		this.cursor = event.cursor;
+	}
+	acceptTask(task: AgentTask, fromStream = false, expectedCurrent?: AgentTask | null) {
+		if (this.disposed || this.unavailable || task.conversation_id !== this.id) return;
+		const current = this.liveTasks[task.id];
+		if (
+			current &&
+			(current.generation > task.generation ||
+				(!fromStream &&
+					current !== expectedCurrent &&
+					current.generation === task.generation &&
+					Date.parse(current.updated_at) >= Date.parse(task.updated_at)))
+		)
+			return;
+		this.liveTasks = { ...this.liveTasks, [task.id]: task };
 	}
 	private connect() {
 		if (this.disposed || this.unavailable) return;

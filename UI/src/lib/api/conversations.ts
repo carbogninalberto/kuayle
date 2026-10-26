@@ -1,3 +1,4 @@
+import type { AgentTask, TaskActivity } from './agent-tasks';
 import { api } from './client';
 
 export interface Conversation {
@@ -29,8 +30,19 @@ export interface ConversationEvent {
 	id: string;
 	cursor: number;
 	conversation_id: string;
-	type: 'message.created' | 'message.delta' | 'message.updated' | 'message.completed';
-	payload: ConversationMessage | { message_id: string; delta?: string; status?: MessageStatus };
+	type:
+		| 'message.created'
+		| 'message.delta'
+		| 'message.updated'
+		| 'message.completed'
+		| 'task.state_changed'
+		| 'task.updated'
+		| 'task.activity';
+	payload:
+		| AgentTask
+		| TaskActivity
+		| ConversationMessage
+		| { message_id: string; delta?: string; status?: MessageStatus };
 }
 export interface ConversationIssue {
 	id: string;

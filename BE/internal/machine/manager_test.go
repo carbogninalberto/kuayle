@@ -15,12 +15,17 @@ import (
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/agent"
 	"github.com/kuayle/kuayle-backend/internal/domain"
+	"github.com/kuayle/kuayle-backend/internal/repository"
 	cryptoutil "github.com/kuayle/kuayle-backend/pkg/crypto"
 	githubclient "github.com/kuayle/kuayle-backend/pkg/github"
 	"github.com/stretchr/testify/require"
 )
 
 type managerStoreFake struct {
+	onAuthorizeAgentRun       func() error
+	outputChunks              []domain.DevMachineLogChunk
+	outputErr                 error
+	authorizeAgentRunErr      error
 	githubAppConfigCalls      int
 	machine                   *domain.DevMachine
 	services                  []domain.DevMachineService
@@ -62,6 +67,7 @@ type managerStoreFake struct {
 	orphanReconcileCalls      int
 	orphanedCheckoutCount     int
 	checkoutReconcileCalls    int
+	markAgentRunStarting      func() error
 	updateAgentRunStarted     func() error
 	envVarListCalls           int
 	runtimeServicesCreated    int
@@ -138,12 +144,40 @@ func (f *managerStoreFake) CreateRuntimeService(context.Context, *domain.DevMach
 	f.runtimeServicesCreated++
 	return nil
 }
+func (f *managerStoreFake) AuthorizeAgentRun(context.Context, uuid.UUID) error {
+	if f.onAuthorizeAgentRun != nil {
+		return f.onAuthorizeAgentRun()
+	}
+	return f.authorizeAgentRunErr
+}
+func (f *managerStoreFake) SealAgentRunSecrets(_ context.Context, _ uuid.UUID, encrypted string) (string, error) {
+	if f.agentRun.EncryptedOutputSecrets != nil {
+		return *f.agentRun.EncryptedOutputSecrets, nil
+	}
+	f.agentRun.EncryptedOutputSecrets = &encrypted
+	return encrypted, nil
+}
+func (f *managerStoreFake) MarkAgentRunStarting(context.Context, uuid.UUID) error {
+	if f.markAgentRunStarting != nil {
+		return f.markAgentRunStarting()
+	}
+	if f.agentRun != nil && f.agentRun.Status == domain.DevMachineAgentRunStatusQueued {
+		f.agentRun.Status = domain.DevMachineAgentRunStatusStarting
+	}
+	return nil
+}
 func (f *managerStoreFake) UpdateAgentRunStarted(context.Context, uuid.UUID) error {
 	if f.updateAgentRunStarted != nil {
 		return f.updateAgentRunStarted()
 	}
 	if f.agentRun != nil {
-		f.agentRun.Status = domain.DevMachineAgentRunStatusRunning
+		if f.agentRun.Status != domain.DevMachineAgentRunStatusWaitingInput {
+			f.agentRun.Status = domain.DevMachineAgentRunStatusRunning
+		}
+		if f.agentRun.StartedAt == nil {
+			now := time.Now()
+			f.agentRun.StartedAt = &now
+		}
 	}
 	return nil
 }
@@ -159,6 +193,15 @@ func (f *managerStoreFake) CreateEvent(_ context.Context, event *domain.DevMachi
 func (f *managerStoreFake) CreateLogChunk(context.Context, *domain.DevMachineLogChunk) error {
 	return nil
 }
+func (f *managerStoreFake) CreateAgentOutput(_ context.Context, chunk *domain.DevMachineLogChunk, events []domain.DevMachineEvent) error {
+	if f.outputErr != nil {
+		return f.outputErr
+	}
+	f.outputChunks = append(f.outputChunks, *chunk)
+	f.events = append(f.events, events...)
+	return nil
+}
+
 func (f *managerStoreFake) RevokeMachineAccess(_ context.Context, machineID uuid.UUID) error {
 	f.revokedMachineIDs = append(f.revokedMachineIDs, machineID)
 	return nil
@@ -329,6 +372,10 @@ func (f *githubAPIFake) CreatePullRequest(string, string, string, string, string
 }
 
 type runtimeFake struct {
+	beforeAgentStarted func()
+
+	agentCancellations                          int
+	onAgentOutput                               func(AgentOutput) error
 	spawned, started, paused, stopped, tornDown int
 	snapshots                                   int
 	agentRuns                                   int
@@ -376,12 +423,50 @@ func (f *runtimeFake) Teardown(context.Context, *domain.DevMachine, []domain.Dev
 	f.tornDown++
 	return nil
 }
-func (f *runtimeFake) RunAgent(_ context.Context, _ *domain.DevMachine, _ *domain.DevMachineAgentRun, _ *domain.DevMachineAgentProvider, _ *domain.DevMachineCheckout, secrets map[string]string) (*AgentExecution, error) {
+func (f *runtimeFake) RunAgent(_ context.Context, _ *domain.DevMachine, _ *domain.DevMachineAgentRun, _ *domain.DevMachineAgentProvider, _ *domain.DevMachineCheckout, secrets map[string]string, observer *AgentObserver) (*AgentExecution, error) {
 	f.agentRuns++
+	if f.beforeAgentStarted != nil {
+		f.beforeAgentStarted()
+	}
 	f.agentSecrets = secrets
+	var output AgentOutput
+	if observer != nil {
+		if observer.Authorize != nil {
+			if err := observer.Authorize(); err != nil {
+				f.agentCancellations++
+				return f.agentExecution, err
+			}
+		}
+		if observer.Started != nil {
+			containerID := "native"
+			if f.agentExecution != nil {
+				containerID = f.agentExecution.ContainerID
+			}
+			if err := observer.Started(containerID); err != nil {
+				f.agentCancellations++
+				return f.agentExecution, err
+			}
+		}
+		output = observer.Output
+	}
+	if f.onAgentOutput != nil {
+		if err := f.onAgentOutput(output); err != nil {
+			return f.agentExecution, err
+		}
+	} else if output != nil && f.agentExecution != nil {
+		if err := output("stdout", []byte(timestampFixtureLog(f.agentExecution.Stdout))); err != nil {
+			return f.agentExecution, err
+		}
+		if err := output("stderr", []byte(timestampFixtureLog(f.agentExecution.Stderr))); err != nil {
+			return f.agentExecution, err
+		}
+	}
 	return f.agentExecution, nil
 }
-func (f *runtimeFake) CancelAgent(context.Context, *domain.DevMachineAgentRun) error { return nil }
+func (f *runtimeFake) CancelAgent(context.Context, *domain.DevMachineAgentRun) error {
+	f.agentCancellations++
+	return nil
+}
 func (f *runtimeFake) TerminateTerminal(_ context.Context, _ *domain.DevMachine, _ []domain.DevMachineService, session *domain.DevMachineTerminalSession) error {
 	f.terminatedTerminals++
 	f.terminatedSession = session
@@ -473,7 +558,7 @@ func TestManagerDoesNotLaunchAgentCancelledBeforeStart(t *testing.T) {
 			MachineID: machineID, ProviderID: "opencode", ImageRef: "kuayle/opencode:test", Enabled: true,
 		},
 	}
-	store.updateAgentRunStarted = func() error {
+	store.markAgentRunStarting = func() error {
 		store.agentRun.Status = domain.DevMachineAgentRunStatusCancelled
 		return sql.ErrNoRows
 	}
@@ -487,7 +572,7 @@ func TestManagerDoesNotLaunchAgentCancelledBeforeStart(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, domain.DevMachineAgentRunStatusCancelled, store.agentRun.Status)
-	require.Zero(t, store.envVarListCalls)
+	require.Equal(t, 1, store.envVarListCalls)
 	require.Zero(t, store.runtimeServicesCreated)
 	require.Zero(t, runtime.agentRuns)
 }
@@ -1172,6 +1257,20 @@ func TestManagerInjectsWorkspaceDeepSeekCredentialIntoAgentRun(t *testing.T) {
 		},
 	}
 	runtime := &runtimeFake{agentExecution: &AgentExecution{ContainerID: "agent-container", ExitCode: 0}}
+	runtime.onAgentOutput = func(output AgentOutput) error {
+		require.NotNil(t, output)
+		require.NoError(t, output("stdout", []byte(`2026-10-26T20:00:00.000000001Z {"type":"tool.started","message":"sk-deep`)))
+		require.Empty(t, store.outputChunks)
+		require.NoError(t, output("stdout", []byte("seek-agent\"}\n")))
+		require.Len(t, store.outputChunks, 1)
+		require.NotContains(t, store.outputChunks[0].Content, "sk-deepseek-agent")
+		require.Contains(t, store.outputChunks[0].Content, "[REDACTED]")
+		require.Len(t, store.events, 1)
+		require.Equal(t, "tool.started", store.events[0].EventType)
+		require.Nil(t, store.completedRun, "output persisted before native execution returns")
+		return nil
+	}
+
 	manager := NewManager(store, runtime, agent.NewRegistry(agent.NewCodexProvider("kuayle/codex:test")), nil, key, nil, "test")
 
 	err = manager.runAgent(context.Background(), store.machine, &domain.DevMachineOperation{
@@ -1516,4 +1615,158 @@ func TestRepositoryTokenWithUnsetGlobalClientUsesWorkspaceConfig(t *testing.T) {
 	require.Equal(t, 1, store.githubAppConfigCalls)
 	require.Nil(t, client)
 	require.Empty(t, token)
+}
+
+func TestManagerRechecksTaskAuthorityImmediatelyBeforeNativeDispatch(t *testing.T) {
+	machineID, workspaceID, runID := uuid.New(), uuid.New(), uuid.New()
+	run := &domain.DevMachineAgentRun{
+		ID: runID, MachineID: machineID, WorkspaceID: workspaceID,
+		ProviderID: "opencode", Mode: "autonomous", Status: domain.DevMachineAgentRunStatusQueued,
+		AllowedSecrets: json.RawMessage(`["API_KEY"]`), MaxRuntimeSeconds: 30,
+	}
+	store := &managerStoreFake{
+		machine: &domain.DevMachine{
+			ID: machineID, WorkspaceID: workspaceID, RoutingKey: "0123456789abcdef0123",
+			Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, Generation: 1,
+		},
+		agentRun: run,
+		provider: &domain.DevMachineAgentProvider{
+			MachineID: machineID, ProviderID: "opencode", ImageRef: "kuayle/opencode:test", Enabled: true,
+		},
+	}
+	checks := 0
+	store.onAuthorizeAgentRun = func() error {
+		checks++
+		if checks > 1 {
+			return repository.ErrAgentTaskUnauthorized
+		}
+		return nil
+	}
+	runtime := &runtimeFake{}
+	manager := NewManager(store, runtime, agent.NewRegistry(agent.NewOpenCodeProvider("kuayle/opencode:test")), nil, make([]byte, 32), nil, "test")
+
+	err := manager.runAgent(context.Background(), store.machine, &domain.DevMachineOperation{
+		MachineID: machineID, WorkspaceID: workspaceID, AgentRunID: &runID,
+		Action: domain.DevMachineOpRunAgent, Generation: 1,
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, store.completedRun)
+	require.Equal(t, domain.DevMachineAgentRunStatusCancelled, store.completedRun.Status)
+	require.Equal(t, 1, store.envVarListCalls)
+	require.Zero(t, store.runtimeServicesCreated)
+	require.Zero(t, runtime.agentRuns)
+}
+
+func TestManagerRecoveryUsesOriginalSecretsAfterCredentialRotation(t *testing.T) {
+	machineID, workspaceID, runID := uuid.New(), uuid.New(), uuid.New()
+	key := cryptoutil.DeriveKey("snapshot-recovery-test")
+	original := "fixture-original-provider-key"
+	current, _ := cryptoutil.Encrypt("fixture-rotated-provider-key", key)
+	snapshot, _ := cryptoutil.Encrypt(`{"DEEPSEEK_API_KEY":"`+original+`"}`, key)
+	run := &domain.DevMachineAgentRun{ID: runID, MachineID: machineID, WorkspaceID: workspaceID, ProviderID: "codex", Mode: "autonomous", Status: domain.DevMachineAgentRunStatusRunning, EncryptedOutputSecrets: &snapshot, MaxRuntimeSeconds: 30}
+	store := &managerStoreFake{machine: &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, RoutingKey: "0123456789abcdef0123", Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, Generation: 1}, agentRun: run, provider: &domain.DevMachineAgentProvider{ProviderID: "codex", ImageRef: "test"}, workspaceModelCredential: &domain.DevMachineWorkspaceModelCredential{EncryptedAPIKey: current, DefaultModel: "deepseek-flash"}}
+	runtime := &runtimeFake{agentExecution: &AgentExecution{ContainerID: "existing", Stdout: "work " + original + "\n", ExitCode: 0}}
+	manager := NewManager(store, runtime, agent.NewRegistry(agent.NewCodexProvider("test")), nil, key, nil, "test")
+	require.NoError(t, manager.runAgent(context.Background(), store.machine, &domain.DevMachineOperation{AgentRunID: &runID, Generation: 1}))
+	require.Equal(t, original, runtime.agentSecrets["DEEPSEEK_API_KEY"])
+	require.Zero(t, store.envVarListCalls, "recovery does not replace a running container's credentials")
+	require.Len(t, store.outputChunks, 1)
+	require.Equal(t, "work [REDACTED]\n", store.outputChunks[0].Content)
+	encoded, err := json.Marshal(run)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), snapshot)
+	require.NotContains(t, string(encoded), original)
+}
+
+func TestManagerStopsRecoveryWithoutUsableOriginalCredentials(t *testing.T) {
+	for _, scenario := range []string{"missing", "corrupt", "invalid_json", "unknown_version", "missing_redactions", "mismatched_redactions"} {
+		t.Run(scenario, func(t *testing.T) {
+			machineID, workspaceID, runID := uuid.New(), uuid.New(), uuid.New()
+			key := cryptoutil.DeriveKey("recovery-test")
+			run := &domain.DevMachineAgentRun{ID: runID, MachineID: machineID, WorkspaceID: workspaceID, ProviderID: "codex", Mode: "autonomous", Status: domain.DevMachineAgentRunStatusRunning, MaxRuntimeSeconds: 30}
+			if scenario == "corrupt" {
+				run.EncryptedOutputSecrets = ptr("invalid-ciphertext")
+			}
+			if scenario == "invalid_json" {
+				encoded, err := cryptoutil.Encrypt(`{"unexpected":3}`, key)
+				require.NoError(t, err)
+				run.EncryptedOutputSecrets = &encoded
+			}
+			malformed := map[string]string{
+				"unknown_version":       `{"version":2,"environment":{},"redactions":{}}`,
+				"missing_redactions":    `{"version":1,"environment":{"TOKEN":"fixture"}}`,
+				"mismatched_redactions": `{"version":1,"environment":{"TOKEN":"fixture"},"redactions":{"TOKEN":"different"}}`,
+			}
+			if payload, ok := malformed[scenario]; ok {
+				encoded, err := cryptoutil.Encrypt(payload, key)
+				require.NoError(t, err)
+				run.EncryptedOutputSecrets = &encoded
+			}
+			store := &managerStoreFake{machine: &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, Generation: 1}, agentRun: run, provider: &domain.DevMachineAgentProvider{ProviderID: "codex", ImageRef: "test"}}
+			runtime := &runtimeFake{}
+			manager := NewManager(store, runtime, agent.NewRegistry(agent.NewCodexProvider("test")), nil, key, nil, "test")
+			err := manager.runAgent(context.Background(), store.machine, &domain.DevMachineOperation{AgentRunID: &runID, Generation: 1})
+			require.ErrorContains(t, err, "original credentials")
+			require.Equal(t, 1, runtime.agentCancellations)
+			require.Zero(t, runtime.agentRuns)
+			require.Zero(t, store.envVarListCalls)
+			require.Empty(t, store.outputChunks)
+		})
+	}
+}
+
+func timestampFixtureLog(value string) string {
+	if value == "" {
+		return ""
+	}
+	lines := strings.SplitAfter(value, "\n")
+	for i, line := range lines {
+		if line != "" {
+			lines[i] = "2026-10-26T20:00:00.000000001Z " + line
+		}
+	}
+	return strings.Join(lines, "")
+}
+
+func TestManagerWaitsForNativeStartBeforePublishingRunning(t *testing.T) {
+	machineID, workspaceID, runID := uuid.New(), uuid.New(), uuid.New()
+	run := &domain.DevMachineAgentRun{ID: runID, MachineID: machineID, WorkspaceID: workspaceID, ProviderID: "codex", Mode: "autonomous", Status: domain.DevMachineAgentRunStatusQueued, MaxRuntimeSeconds: 30}
+	store := &managerStoreFake{machine: &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, Generation: 1}, agentRun: run, provider: &domain.DevMachineAgentProvider{ProviderID: "codex", ImageRef: "test"}}
+	runtime := &runtimeFake{agentExecution: &AgentExecution{ContainerID: "native", ExitCode: 0}}
+	runtime.beforeAgentStarted = func() {
+		require.Equal(t, domain.DevMachineAgentRunStatusStarting, store.agentRun.Status, "image preparation is not native execution")
+		require.Nil(t, store.agentRun.StartedAt)
+	}
+	runtime.onAgentOutput = func(output AgentOutput) error {
+		require.Equal(t, domain.DevMachineAgentRunStatusRunning, store.agentRun.Status)
+		require.NotNil(t, store.agentRun.StartedAt)
+		return nil
+	}
+	manager := NewManager(store, runtime, agent.NewRegistry(agent.NewCodexProvider("test")), nil, make([]byte, 32), nil, "test")
+	require.NoError(t, manager.runAgent(context.Background(), store.machine, &domain.DevMachineOperation{AgentRunID: &runID, Generation: 1}))
+}
+
+func TestManagerRedactsCredentialsWithoutCorruptingModelConfigurationOrNumbers(t *testing.T) {
+	key := cryptoutil.DeriveKey("public-model-output-test")
+	encrypted, err := cryptoutil.Encrypt("fixture-model-key", key)
+	require.NoError(t, err)
+	run := &domain.DevMachineAgentRun{ID: uuid.New(), MachineID: uuid.New(), WorkspaceID: uuid.New(), ProviderID: "codex", Mode: "autonomous", Status: domain.DevMachineAgentRunStatusQueued, MaxRuntimeSeconds: 30}
+	store := &managerStoreFake{machine: &domain.DevMachine{ID: run.MachineID, WorkspaceID: run.WorkspaceID, Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, Generation: 1}, agentRun: run, provider: &domain.DevMachineAgentProvider{ProviderID: "codex", ImageRef: "test"}, workspaceModelCredential: &domain.DevMachineWorkspaceModelCredential{EncryptedAPIKey: encrypted, DefaultModel: "deepseek-flash", Thinking: "high"}}
+	runtime := &runtimeFake{agentExecution: &AgentExecution{ContainerID: "native", Stdout: `{"type":"tool.started","count":1,"message":"deepseek-flash high fixture-model-key"}` + "\n"}}
+	manager := NewManager(store, runtime, agent.NewRegistry(agent.NewCodexProvider("test")), nil, key, nil, "test")
+	for attempt := 0; attempt < 2; attempt++ {
+		if attempt == 1 {
+			run.Status = domain.DevMachineAgentRunStatusRunning
+			store.workspaceModelCredential = nil
+			store.outputChunks = nil
+			store.events = nil
+		}
+		require.NoError(t, manager.runAgent(context.Background(), store.machine, &domain.DevMachineOperation{AgentRunID: &run.ID, Generation: 1}))
+		require.Len(t, store.outputChunks, 1)
+		require.JSONEq(t, `{"type":"tool.started","count":1,"message":"deepseek-flash high [REDACTED]"}`, store.outputChunks[0].Content)
+		require.Len(t, store.events, 2)
+		require.Equal(t, "tool.started", store.events[0].EventType)
+		require.Equal(t, "fixture-model-key", runtime.agentSecrets["DEEPSEEK_API_KEY"])
+	}
 }

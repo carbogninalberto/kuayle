@@ -303,6 +303,15 @@ Pause, stop, teardown, and permanent delete are intentionally distinct:
 - **Teardown** revokes sessions/tickets and removes containers, the private network, and workspace volume; database history remains.
 - **Permanent delete** is admin-only. `DELETE /dev-machines/:machineId` and selected bulk DELETE record `delete_requested_at`; the manager converges runtime teardown first and purges after the operation completes. The `/permanent-delete` endpoint remains an equivalent explicit route, while bulk permanent delete is a guarded purge for old already-safe rows only.
 
+## Agent task integration
+
+Persistent task execution is being integrated with the existing native run and
+machine operation records. The [agent task contract](BE/docs/agent-tasks.md)
+documents migration 56, authorization/lease ordering, encrypted per-attempt
+recovery credentials, live output capture and conversation events, and the
+session-only task routes, worker wiring and remaining validation/review work. Manual IDE/terminal
+workflows continue to use the existing machine controls.
+
 ## Resource Limits and Quotas
 
 Machine sizes are aggregate admission profiles:

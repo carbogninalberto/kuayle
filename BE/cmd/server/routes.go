@@ -54,6 +54,7 @@ type appHandlers struct {
 	prefs             *handler.PreferencesHandler
 	token             *handler.TokenHandler
 	aiSettings        *handler.AISettingsHandler
+	agentTask         *handler.AgentTaskHandler
 	conversation      *handler.ConversationHandler
 	telegram          *handler.TelegramHandler
 	devMachine        *handler.DevMachineHandler
@@ -283,6 +284,15 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 
 	// Dev Machines — guarded by demo-mode restriction when active
 	dm := ws.Group("", m.devMachineDemoGuard)
+	sessionOnly(dm, http.MethodGet, "/conversations/:conversationId/task-options", h.agentTask.Options)
+	sessionOnly(dm, http.MethodGet, "/conversations/:conversationId/tasks", h.agentTask.List)
+	sessionOnly(dm, http.MethodPost, "/conversations/:conversationId/tasks", h.agentTask.Create)
+	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId", h.agentTask.Get)
+	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/history", h.agentTask.History)
+	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/runs", h.agentTask.Runs)
+	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/runs/:runId/logs", h.agentTask.Logs)
+	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/cancel", h.agentTask.Cancel)
+	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/retry", h.agentTask.Retry)
 	scoped(dm, http.MethodGet, "/dev-machines", h.devMachine.List, "dev_machine:read")
 	scoped(dm, http.MethodPost, "/dev-machines", h.devMachine.Create, "dev_machine:create")
 	scoped(dm, http.MethodDelete, "/dev-machines/bulk", h.devMachine.BulkDelete, "dev_machine:admin")

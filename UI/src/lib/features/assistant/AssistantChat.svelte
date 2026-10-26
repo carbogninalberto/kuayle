@@ -21,6 +21,7 @@
 	import * as InputGroup from '$lib/components/ui/input-group/index.js';
 	import { conversations, type Conversation, type AssistantStatus, type MessageStatus } from '$lib/api/conversations';
 	import { ConversationState } from './conversation-state.svelte';
+	import TaskPanel from './TaskPanel.svelte';
 	import { renderMarkdown } from '$lib/markdown';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { m } from '$lib/paraglide/messages.js';
@@ -198,7 +199,9 @@
 <div class="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-background text-foreground">
 	<header class="flex h-14 shrink-0 items-center gap-3 border-b px-4 md:px-6">
 		<MessageCircle size={19} class="text-muted-foreground" />
-		<svelte:element this={embedded ? 'h3' : 'h1'} class="min-w-0 flex-1 truncate text-sm font-semibold">{m['assistant.title']()}</svelte:element>
+		<svelte:element this={embedded ? 'h3' : 'h1'} class="min-w-0 flex-1 truncate text-sm font-semibold"
+			>{m['assistant.title']()}</svelte:element
+		>
 		{#if embedded}
 			<Button
 				variant="ghost"
@@ -267,11 +270,12 @@
 									>
 								</div>{/if}
 							<MessageScroller.Content class="mx-auto w-full max-w-3xl gap-8 px-5 py-6 md:px-8">
+								{#if chat.issue && !chat.loading && !chat.unavailable}<TaskPanel {chat} />{/if}
 								{#if chat.loading}
 									<p class="text-sm text-muted-foreground" role="status">{m['assistant.loading']()}</p>
 								{:else if chat.unavailable}
 									<p role="alert" class="text-sm text-muted-foreground">{m['assistant.unavailable']()}</p>
-								{:else if chat.messages.length === 0}
+								{:else if chat.messages.length === 0 && !Object.keys(chat.liveTasks).length}
 									<div class="my-auto flex flex-col items-start gap-3 py-16">
 										<div class="rounded-xl border bg-muted/40 p-3"><MessageCircle size={24} /></div>
 										<h2 class="text-2xl font-semibold tracking-tight">{m['assistant.welcome']()}</h2>

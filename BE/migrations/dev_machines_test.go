@@ -352,6 +352,11 @@ func TestDevMachineMigrationRoundTripAndTenantConstraints(t *testing.T) {
 	require.Zero(t, retainedConstraintCount)
 
 	require.NoError(t, migrator.Steps(1))
+	// The down migration drops enum types. Reconnect after re-creating them so
+	// pgx cannot reuse a prepared schema assertion with the old enum OID.
+	require.NoError(t, db.Close())
+	db, err = sql.Open("pgx", testURL)
+	require.NoError(t, err)
 	requireMigrationVersion(t, migrator, 33)
 	requireFinalDevMachineSchema(t, db)
 	var machineCount int
