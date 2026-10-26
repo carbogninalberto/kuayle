@@ -49,6 +49,8 @@ type GitHubService struct {
 	frontendURL    string
 	webhookURL     string                 // optional override (e.g. smee.io for dev)
 	globalApp      *GlobalGitHubAppConfig // nil = self-hosted mode
+	// installationAccess verifies a shared-app installation callback.
+	installationAccess func(ctx context.Context, code string, installationID int64) (bool, error)
 }
 
 // IsGlobalMode returns true when a shared GitHub App is configured via env vars.
@@ -79,6 +81,9 @@ func NewGitHubService(
 		frontendURL:    frontendURL,
 		webhookURL:     webhookURL,
 		globalApp:      globalApp,
+		installationAccess: func(ctx context.Context, code string, installationID int64) (bool, error) {
+			return gh.UserCanAccessInstallation(ctx, nil, globalApp.ClientID, globalApp.ClientSecret, code, installationID)
+		},
 	}
 }
 
@@ -285,14 +290,33 @@ func (s *GitHubService) GetInstallURL(ctx context.Context, workspaceID uuid.UUID
 	return fmt.Sprintf("https://github.com/apps/%s/installations/new?state=%s", slug, workspaceID.String()), nil
 }
 
+// ErrGitHubInstallationUnverified reports a shared-app installation callback
+// that does not prove the installing user can access the installation.
+var ErrGitHubInstallationUnverified = errors.New("GitHub installation could not be verified for this user; enable \"Request user authorization (OAuth) during installation\" on the GitHub App and install again")
+
 // HandleInstallationCallback processes the GitHub App installation callback.
-func (s *GitHubService) HandleInstallationCallback(ctx context.Context, workspaceID, userID uuid.UUID, installationID int64) (*domain.GitHubInstallation, error) {
+// A shared app's installations belong to many workspaces, so in global mode
+// code must be the OAuth code GitHub issued to the installing user.
+func (s *GitHubService) HandleInstallationCallback(ctx context.Context, workspaceID, userID uuid.UUID, installationID int64, code string) (*domain.GitHubInstallation, error) {
 	existing, err := s.ghRepo.GetInstallationByWorkspace(ctx, workspaceID)
 	if err != nil {
 		return nil, err
 	}
 	if existing != nil && existing.InstallationID > 0 {
 		return existing, nil
+	}
+	if s.globalApp != nil {
+		if code == "" || s.globalApp.ClientID == "" || s.globalApp.ClientSecret == "" {
+			return nil, ErrGitHubInstallationUnverified
+		}
+		allowed, err := s.installationAccess(ctx, code, installationID)
+		if err != nil {
+			log.WithError(err).WithField("workspace_id", workspaceID).Warn("GitHub installation verification failed")
+			return nil, ErrGitHubInstallationUnverified
+		}
+		if !allowed {
+			return nil, ErrGitHubInstallationUnverified
+		}
 	}
 
 	client, _, err := s.getClient(ctx, workspaceID)
@@ -492,9 +516,16 @@ func (s *GitHubService) LinkRepos(ctx context.Context, workspaceID uuid.UUID, re
 	return nil
 }
 
-// UnlinkRepo removes a linked repo.
-func (s *GitHubService) UnlinkRepo(ctx context.Context, repoID uuid.UUID) error {
-	return s.ghRepo.DeleteRepo(ctx, repoID)
+// ErrGitHubRepoNotFound reports a repository that is not linked to the workspace.
+var ErrGitHubRepoNotFound = errors.New("linked repository not found")
+
+// UnlinkRepo removes a repo linked to the workspace.
+func (s *GitHubService) UnlinkRepo(ctx context.Context, workspaceID, repoID uuid.UUID) error {
+	err := s.ghRepo.DeleteRepo(ctx, workspaceID, repoID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrGitHubRepoNotFound
+	}
+	return err
 }
 
 // Disconnect removes the GitHub installation (keeps app config).

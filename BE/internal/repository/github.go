@@ -99,9 +99,18 @@ func (r *GitHubRepository) DeactivateRepo(ctx context.Context, id uuid.UUID) err
 	return err
 }
 
-func (r *GitHubRepository) DeleteRepo(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM github_repos WHERE id = $1`, id)
-	return err
+// DeleteRepo returns sql.ErrNoRows when the repository is not linked to the workspace.
+func (r *GitHubRepository) DeleteRepo(ctx context.Context, workspaceID, id uuid.UUID) error {
+	result, err := r.db.ExecContext(ctx, `DELETE FROM github_repos WHERE workspace_id = $1 AND id = $2`, workspaceID, id)
+	if err != nil {
+		return err
+	}
+	if deleted, err := result.RowsAffected(); err != nil {
+		return err
+	} else if deleted == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 // --- Pull Requests ---

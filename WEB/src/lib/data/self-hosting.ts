@@ -137,7 +137,7 @@ export const selfHosting: ContentRegistry = {
 				list: [
 					'GITHUB_APP_ID and GITHUB_APP_SLUG',
 					'GITHUB_APP_PRIVATE_KEY — base64-encoded PEM',
-					'GITHUB_APP_CLIENT_ID and GITHUB_APP_CLIENT_SECRET',
+					'GITHUB_APP_CLIENT_ID and GITHUB_APP_CLIENT_SECRET — required; enable “Request user authorization (OAuth) during installation” so Kuayle can verify each installation',
 					'GITHUB_APP_WEBHOOK_SECRET'
 				]
 			},

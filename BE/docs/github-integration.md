@@ -40,6 +40,11 @@ A single GitHub App is pre-configured and shared across all workspaces. Users on
 
    **Callback URL:** `https://your-domain.com/{workspace-slug}/settings/github`
    **Setup URL:** Same as callback URL (enable "Redirect on update")
+   **Request user authorization (OAuth) during installation:** enabled. Every
+   workspace shares this App, so Kuayle binds an installation only after the
+   installing user's OAuth code proves, via `GET /user/installations`, that the
+   user can access it. Without it, an `installation_id` in the redirect could
+   name another organization's installation.
    **Webhook URL:** `https://your-api-domain.com/api/github/webhook`
 
 2. Set environment variables:
@@ -95,8 +100,8 @@ Users can enable/disable each rule in Settings > GitHub > Automations.
 | `GITHUB_APP_ID` | No | GitHub App ID (enables SaaS mode) |
 | `GITHUB_APP_SLUG` | No | GitHub App slug (for install URL) |
 | `GITHUB_APP_PRIVATE_KEY` | No | Base64-encoded PEM private key |
-| `GITHUB_APP_CLIENT_ID` | No | GitHub App client ID |
-| `GITHUB_APP_CLIENT_SECRET` | No | GitHub App client secret |
+| `GITHUB_APP_CLIENT_ID` | SaaS mode | GitHub App client ID; required to verify installations |
+| `GITHUB_APP_CLIENT_SECRET` | SaaS mode | GitHub App client secret; required to verify installations |
 | `GITHUB_APP_WEBHOOK_SECRET` | No | Webhook signature secret |
 | `GITHUB_WEBHOOK_URL` | No | Override webhook URL (e.g., smee.io for dev) |
 
