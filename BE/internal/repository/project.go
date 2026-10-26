@@ -19,7 +19,7 @@ func NewProjectRepository(db *sqlx.DB) *ProjectRepository {
 }
 
 func (r *ProjectRepository) Create(ctx context.Context, project *domain.Project) error {
-	query := `INSERT INTO projects (id, workspace_id, team_id, name, description, status, lead_id, start_date, target_date, sort_order) SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10 WHERE ` + projectVisible(ctx, "CAST($2 AS uuid)", "CAST($3 AS uuid)") + ` RETURNING created_at, updated_at`
+	query := `INSERT INTO projects (id, workspace_id, team_id, name, description, status, lead_id, start_date, target_date, sort_order) SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10 WHERE ` + projectVisible(ctx, "CAST($2 AS uuid)", "CAST($3 AS uuid)") + ` AND ` + optionalWorkspaceMember("CAST($2 AS uuid)", "CAST($7 AS uuid)") + ` RETURNING created_at, updated_at`
 	return r.db.QueryRowContext(ctx, query, project.ID, project.WorkspaceID, project.TeamID, project.Name, project.Description, project.Status, project.LeadID, project.StartDate, project.TargetDate, project.SortOrder).Scan(&project.CreatedAt, &project.UpdatedAt)
 }
 
@@ -39,7 +39,7 @@ func (r *ProjectRepository) ListByWorkspace(ctx context.Context, workspaceID uui
 }
 
 func (r *ProjectRepository) Update(ctx context.Context, project *domain.Project) error {
-	query := `UPDATE projects SET name = $1, description = $2, status = $3, lead_id = $4, start_date = $5, target_date = $6, sort_order = $7, team_id = $8, updated_at = NOW() WHERE id = $9 AND ` + projectVisible(ctx, "projects.workspace_id", "CAST($8 AS uuid)") + " AND " + projectVisible(ctx, "projects.workspace_id", "projects.team_id") + ` AND ` + compatibleTeams("projects.team_id", "CAST($8 AS uuid)") + ` RETURNING updated_at`
+	query := `UPDATE projects SET name = $1, description = $2, status = $3, lead_id = $4, start_date = $5, target_date = $6, sort_order = $7, team_id = $8, updated_at = NOW() WHERE id = $9 AND ` + projectVisible(ctx, "projects.workspace_id", "CAST($8 AS uuid)") + " AND " + projectVisible(ctx, "projects.workspace_id", "projects.team_id") + ` AND ` + compatibleTeams("projects.team_id", "CAST($8 AS uuid)") + ` AND ` + optionalWorkspaceMember("projects.workspace_id", "CAST($4 AS uuid)") + ` RETURNING updated_at`
 	return r.db.QueryRowContext(ctx, query, project.Name, project.Description, project.Status, project.LeadID, project.StartDate, project.TargetDate, project.SortOrder, project.TeamID, project.ID).Scan(&project.UpdatedAt)
 }
 
