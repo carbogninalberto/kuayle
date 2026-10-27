@@ -267,13 +267,14 @@ func NewCodexProvider(image string) Provider {
 				argv := []string{"codex"}
 				return appendCodexOverrides(argv, input)
 			}
+			// Current Codex CLIs removed --full-auto, so fresh and resumed attempts
+			// pass the same sandbox and approval settings explicitly.
+			// `exec resume` only accepts them as config overrides.
 			if input.Session != nil && input.Session.ResumeID != "" {
-				// `exec resume` has no --full-auto; pass its sandbox and approval
-				// settings explicitly so a resumed attempt keeps the same limits.
 				argv := appendCodexOverrides([]string{"codex", "exec", "resume", "--json", "-c", `sandbox_mode="workspace-write"`, "-c", `approval_policy="never"`}, input)
 				return append(argv, input.Session.ResumeID, input.Prompt)
 			}
-			argv := appendCodexOverrides([]string{"codex", "exec", "--json", "--full-auto"}, input)
+			argv := appendCodexOverrides([]string{"codex", "exec", "--json", "--sandbox", "workspace-write", "-c", `approval_policy="never"`}, input)
 			return append(argv, input.Prompt)
 		},
 	}
