@@ -103,6 +103,7 @@ export interface TaskInput {
 export interface TaskOptions {
 	providers: AgentProvider[];
 	model_provider: WorkspaceModelProvider;
+	default_provider?: string;
 }
 const base = (slug: string) => `/api/workspaces/${encodeURIComponent(slug)}`;
 const task = (slug: string, id: string) => `${base(slug)}/agent-tasks/${encodeURIComponent(id)}`;

@@ -303,6 +303,8 @@ export interface DevMachineEnvironment {
 
 export interface DevMachineScopeSetting {
 	test_command?: string[] | null;
+	agent_provider?: string | null;
+	agent_instructions?: string | null;
 	id?: string;
 	workspace_id: string;
 	team_id?: string;

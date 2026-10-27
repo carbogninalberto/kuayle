@@ -1993,5 +1993,11 @@
 	"assistant.suggest_issue_delegate": "Start a coding agent on {identifier}",
 	"assistant.suggest_review": "Which of my issues are in review?",
 	"assistant.suggest_create": "Help me file an issue",
-	"assistant.suggest_teams": "Which teams can I work in?"
+	"assistant.suggest_teams": "Which teams can I work in?",
+	"tasks.agent_provider": "Preferred coding agent",
+	"tasks.agent_provider_inherit": "Inherit",
+	"tasks.agent_instructions": "Agent instructions",
+	"tasks.agent_instructions_placeholder": "For example: use pnpm, never edit generated files, run the linter before finishing.",
+	"tasks.agent_instructions_help": "Given to coding agents for tasks in this scope. Leave blank to inherit. Snapshotted when a task starts.",
+	"tasks.agent_instructions_too_long": "Use at most 8000 characters."
 }

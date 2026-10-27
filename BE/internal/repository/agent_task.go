@@ -46,7 +46,11 @@ func (r *AgentTaskRepository) Create(ctx context.Context, ws, conversation uuid.
 		return nil, err
 	}
 	var task domain.AgentTask
-	err = tx.GetContext(ctx, &task, `INSERT INTO agent_tasks(workspace_id,conversation_id,creator_id,issue_id,team_id,request_id,prompt,provider,model,thinking,reason,issue_status_id,issue_updated_at,test_command,validation_command) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Waiting for execution',i.status_id,i.updated_at,$11,$12 FROM issues i WHERE i.id=$4 AND i.workspace_id=$1 AND i.team_id=$5 RETURNING *`, ws, conversation, c.CreatorID, c.IssueID, c.TeamID, input.RequestID, input.Prompt, input.Provider, input.Model, input.Thinking, requested, command)
+	instructions, err := resolveScopeDefault(ctx, tx, ws, *c.IssueID, "agent_instructions")
+	if err != nil {
+		return nil, err
+	}
+	err = tx.GetContext(ctx, &task, `INSERT INTO agent_tasks(workspace_id,conversation_id,creator_id,issue_id,team_id,request_id,prompt,provider,model,thinking,reason,issue_status_id,issue_updated_at,test_command,validation_command,agent_instructions) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Waiting for execution',i.status_id,i.updated_at,$11,$12,$13 FROM issues i WHERE i.id=$4 AND i.workspace_id=$1 AND i.team_id=$5 RETURNING *`, ws, conversation, c.CreatorID, c.IssueID, c.TeamID, input.RequestID, input.Prompt, input.Provider, input.Model, input.Thinking, requested, command, instructions)
 	if err != nil {
 		return nil, err
 	}
@@ -728,7 +732,11 @@ func (r *AgentTaskRepository) Retry(ctx context.Context, ws, id uuid.UUID, req d
 	if _, err = tx.ExecContext(ctx, `INSERT INTO agent_task_retries(task_id,request_id,expected_generation,prompt) VALUES($1,$2,$3,$4)`, id, req.RequestID, req.Generation, req.Prompt); err != nil {
 		return nil, err
 	}
-	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks t SET prompt=$2,test_command=$3,validation_command=$4,generation=generation+1,run_id=gen_random_uuid(),failure_count=0,failure_pending=false,lease_token=NULL,lease_expires_at=NULL,next_poll_at=now(),issue_status_id=i.status_id,issue_updated_at=i.updated_at FROM issues i WHERE t.id=$1 AND i.id=t.issue_id AND i.workspace_id=t.workspace_id AND i.team_id=t.team_id RETURNING t.*`, id, req.Prompt, requested, command); err != nil {
+	instructions, err := resolveScopeDefault(ctx, tx, ws, task.IssueID, "agent_instructions")
+	if err != nil {
+		return nil, err
+	}
+	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks t SET prompt=$2,test_command=$3,validation_command=$4,agent_instructions=$5,generation=generation+1,run_id=gen_random_uuid(),failure_count=0,failure_pending=false,lease_token=NULL,lease_expires_at=NULL,next_poll_at=now(),issue_status_id=i.status_id,issue_updated_at=i.updated_at FROM issues i WHERE t.id=$1 AND i.id=t.issue_id AND i.workspace_id=t.workspace_id AND i.team_id=t.team_id RETURNING t.*`, id, req.Prompt, requested, command, instructions); err != nil {
 		return nil, err
 	}
 	if err = transitionAgentTask(ctx, tx, task, "queued", "New execution attempt requested", &task.CreatorID); err != nil {

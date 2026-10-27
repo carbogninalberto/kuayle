@@ -43,7 +43,7 @@
 	onMount(() => {
 		prompt = task?.prompt ?? initialPrompt;
 		testCommand = formatTestCommand(task?.test_command);
-		provider = task?.provider ?? options?.providers[0]?.id ?? '';
+		provider = task?.provider ?? options?.default_provider ?? options?.providers[0]?.id ?? '';
 		model = options?.model_provider.configured ? options.model_provider.default_model : '';
 		thinking = options?.model_provider.configured ? options.model_provider.thinking : '';
 		try {

@@ -353,6 +353,7 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 	if task.Generation > 1 {
 		prompt = withHandoff(prompt, previous, session.ResumeID != "")
 	}
+	prompt = withInstructions(prompt, task.AgentInstructions)
 	push := false
 	checkout := task.CheckoutID.String()
 	return s.createAgentRun(ctx, task.WorkspaceID, *task.MachineID, task.CreatorID, dto.CreateAgentRunRequest{Provider: task.Provider, Mode: "autonomous", Prompt: prompt, TestCommand: command, CheckoutID: &checkout, Model: task.Model, Thinking: task.Thinking, PushBranch: &push, MaxRuntimeSeconds: timeout, Session: session}, task.RunID)
@@ -435,4 +436,22 @@ func taskSession(task domain.AgentTask, previous *domain.AgentHandoff) *agent.Se
 		session.NewID = uuid.NewString()
 	}
 	return session
+}
+
+// withInstructions puts the project's configured agent instructions ahead of the
+// task, labelled as Kuayle configuration. They are shortened, never the task,
+// when both cannot fit the attempt limit.
+func withInstructions(prompt, instructions string) string {
+	instructions = strings.TrimSpace(instructions)
+	if instructions == "" {
+		return prompt
+	}
+	const header, separator = "Project instructions (configured in Kuayle):\n", "\n\n---\nTask:\n"
+	if room := 32000 - len(prompt) - len(header) - len(separator); len(instructions) > room {
+		if room < 64 {
+			return prompt
+		}
+		instructions = truncateRunes(instructions, room/4)
+	}
+	return header + instructions + separator + prompt
 }

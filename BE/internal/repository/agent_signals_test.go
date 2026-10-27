@@ -272,3 +272,32 @@ func TestQueueListsOnlyTheActorsVisibleTasks(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, items)
 }
+
+func TestAgentDefaultsInheritAndAreSnapshotted(t *testing.T) {
+	db, repo, ctx, task, _ := publishingTask(t)
+	store := NewDevMachineRepository(db)
+	provider, err := repo.DefaultProvider(ctx, task.WorkspaceID, task.IssueID)
+	require.NoError(t, err)
+	require.Empty(t, provider)
+	claude, opencode, teamRules, issueRules := "claude-code", "opencode", "Use pnpm.", "Only touch the API."
+	require.NoError(t, store.UpsertScopeSetting(ctx, &domain.DevMachineScopeSetting{ID: uuid.New(), WorkspaceID: task.WorkspaceID, TeamID: &task.TeamID, AgentProvider: &claude, AgentInstructions: &teamRules}))
+	provider, err = repo.DefaultProvider(ctx, task.WorkspaceID, task.IssueID)
+	require.NoError(t, err)
+	require.Equal(t, "claude-code", provider)
+	require.NoError(t, store.UpsertScopeSetting(ctx, &domain.DevMachineScopeSetting{ID: uuid.New(), WorkspaceID: task.WorkspaceID, IssueID: &task.IssueID, AgentProvider: &opencode, AgentInstructions: &issueRules}))
+	provider, err = repo.DefaultProvider(ctx, task.WorkspaceID, task.IssueID)
+	require.NoError(t, err)
+	require.Equal(t, "opencode", provider, "the issue setting overrides the team")
+	var created string
+	require.NoError(t, db.Get(&created, `SELECT agent_instructions FROM agent_tasks WHERE id=$1`, task.ID))
+	require.Empty(t, created, "a task accepted before the setting keeps its snapshot")
+	second, err := repo.Create(ctx, task.WorkspaceID, *task.ConversationID, domain.AgentTaskRequest{RequestID: uuid.New(), Prompt: "Second task", Provider: "codex"})
+	require.NoError(t, err)
+	require.Equal(t, "Only touch the API.", second.AgentInstructions, "new tasks snapshot the nearest instructions")
+	_, err = db.Exec(`UPDATE dev_machine_scope_settings SET agent_instructions='x' WHERE issue_id=$1`, task.IssueID)
+	require.NoError(t, err)
+	_, err = db.Exec(`UPDATE dev_machine_scope_settings SET agent_instructions='' WHERE issue_id=$1`, task.IssueID)
+	require.Error(t, err, "empty instructions are stored as NULL, never ''")
+	_, err = db.Exec(`UPDATE dev_machine_scope_settings SET agent_provider='Bad Provider' WHERE issue_id=$1`, task.IssueID)
+	require.Error(t, err)
+}

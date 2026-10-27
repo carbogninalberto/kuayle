@@ -1,5 +1,6 @@
 <script lang="ts">
 	import TestCommandField from '$lib/features/dev-machines/TestCommandField.svelte';
+	import AgentDefaultsField from '$lib/features/dev-machines/AgentDefaultsField.svelte';
 	import { parseTestCommand, formatTestCommand } from '$lib/features/dev-machines/test-command';
 	import ScopedIssueList from '$lib/features/issues/ScopedIssueList.svelte';
 	import ScopeDeleteDialog from '$lib/features/issues/ScopeDeleteDialog.svelte';
@@ -68,6 +69,8 @@
 	let developmentRepositoryId = $state('inherit');
 	let developmentEnvironmentId = $state('inherit');
 	let developmentTestCommand = $state('');
+	let developmentAgentProvider = $state('inherit');
+	let developmentAgentInstructions = $state('');
 	let developmentLoading = $state(true);
 	let developmentReady = $state(false);
 	let savingDevelopment = $state(false);
@@ -103,7 +106,7 @@
 			developmentEnvironments = (availableEnvironments ?? []).filter((item) => item.status === 'ready');
 			developmentRepositoryId = developmentSetting.github_repo_id ?? 'inherit';
 			developmentEnvironmentId = developmentSetting.environment_id ?? 'inherit';
-			developmentTestCommand = formatTestCommand(developmentSetting.test_command);
+			developmentTestCommand = formatTestCommand(developmentSetting.test_command); developmentAgentProvider = developmentSetting.agent_provider ?? 'inherit'; developmentAgentInstructions = developmentSetting.agent_instructions ?? '';
 			developmentReady = true;
 		} catch (error) {
 			if (!isCurrentDevelopmentScope(s, pid, version)) return;
@@ -163,6 +166,8 @@
 		developmentRepositoryId = 'inherit';
 		developmentEnvironmentId = 'inherit';
 		developmentTestCommand = '';
+		developmentAgentProvider = 'inherit';
+		developmentAgentInstructions = '';
 		developmentLoading = true;
 		developmentReady = false;
 		savingDevelopment = false;
@@ -222,7 +227,7 @@
 		savingDevelopment = true;
 		try {
 			const command = parseTestCommand(developmentTestCommand);
-			if (repositoryId === 'inherit' && environmentId === 'inherit' && command === undefined) {
+			if (repositoryId === 'inherit' && environmentId === 'inherit' && command === undefined && developmentAgentProvider === 'inherit' && !developmentAgentInstructions.trim()) {
 				await deleteDevMachineScopeSetting(s, 'project', pid);
 			} else {
 				await updateDevMachineScopeSetting(s, {
@@ -231,7 +236,7 @@
 					github_repo_id: repository?.id,
 					base_branch: repository?.default_branch,
 					environment_id: environmentId === 'inherit' ? undefined : environmentId,
-					test_command: command
+					test_command: command, agent_provider: developmentAgentProvider === 'inherit' ? undefined : developmentAgentProvider, agent_instructions: developmentAgentInstructions.trim() || undefined
 				});
 			}
 			if (!isCurrentDevelopmentScope(s, pid, requestVersion) || developmentSaveVersion !== saveVersion) return;
@@ -457,7 +462,7 @@
 					></Select.Root
 				>
 			</div>
-			<TestCommandField bind:value={developmentTestCommand} disabled={developmentLoading || !developmentReady || savingDevelopment || !canManageDevelopment} />
+			<TestCommandField bind:value={developmentTestCommand} disabled={developmentLoading || !developmentReady || savingDevelopment || !canManageDevelopment} /><AgentDefaultsField bind:provider={developmentAgentProvider} bind:instructions={developmentAgentInstructions} disabled={developmentLoading || !developmentReady || savingDevelopment || !canManageDevelopment} />
 		</div>
 		<Dialog.Footer
 			><Button variant="outline" onclick={() => (developmentOpen = false)}>{m['common.cancel']()}</Button><Button

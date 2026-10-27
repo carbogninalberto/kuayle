@@ -492,3 +492,13 @@ func TestTaskSessionResumesOnlyASucceededAttemptOnTheSameMachine(t *testing.T) {
 	require.Equal(t, fresh.NewID, resumed.ResumeID)
 	require.Empty(t, resumed.NewID)
 }
+
+func TestProjectInstructionsPrecedeTheTaskWithinTheLimit(t *testing.T) {
+	require.Equal(t, "Fix it", withInstructions("Fix it", "  "))
+	prompt := withInstructions("Fix it", "Use pnpm. Never edit generated files.")
+	require.Equal(t, "Project instructions (configured in Kuayle):\nUse pnpm. Never edit generated files.\n\n---\nTask:\nFix it", prompt)
+	huge := withInstructions(strings.Repeat("t", 30000), strings.Repeat("é", 8000))
+	require.LessOrEqual(t, len(huge), 32768)
+	require.True(t, strings.HasSuffix(huge, strings.Repeat("t", 30000)), "the task itself is never shortened")
+	require.Equal(t, strings.Repeat("t", 31990), withInstructions(strings.Repeat("t", 31990), "x"), "instructions are dropped when no room is left")
+}

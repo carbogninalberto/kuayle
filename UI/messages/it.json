@@ -1993,5 +1993,11 @@
 	"assistant.suggest_issue_delegate": "Avvia un agente di codice su {identifier}",
 	"assistant.suggest_review": "Quali mie issue sono in revisione?",
 	"assistant.suggest_create": "Aiutami a creare un'issue",
-	"assistant.suggest_teams": "In quali team posso lavorare?"
+	"assistant.suggest_teams": "In quali team posso lavorare?",
+	"tasks.agent_provider": "Agente di codice preferito",
+	"tasks.agent_provider_inherit": "Eredita",
+	"tasks.agent_instructions": "Istruzioni per l'agente",
+	"tasks.agent_instructions_placeholder": "Ad esempio: usa pnpm, non modificare i file generati, esegui il linter prima di finire.",
+	"tasks.agent_instructions_help": "Fornite agli agenti di codice per le attività in questo ambito. Lascia vuoto per ereditare. Salvate all'avvio di un'attività.",
+	"tasks.agent_instructions_too_long": "Usa al massimo 8000 caratteri."
 }

@@ -42,6 +42,9 @@ type AgentTask struct {
 
 	TestCommand       *json.RawMessage `json:"test_command" db:"test_command"`
 	ValidationCommand json.RawMessage  `json:"validation_command" db:"validation_command"`
+	// AgentInstructions are the inherited project instructions accepted with
+	// this attempt; trusted configuration set by workspace members.
+	AgentInstructions string `json:"agent_instructions" db:"agent_instructions"`
 }
 
 type AgentTaskRequest struct {

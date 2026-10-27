@@ -1993,5 +1993,11 @@
 	"assistant.suggest_issue_delegate": "在 {identifier} 上啟動編碼代理",
 	"assistant.suggest_review": "我的哪些問題正在審查？",
 	"assistant.suggest_create": "幫我建立一個問題",
-	"assistant.suggest_teams": "我可以在哪些團隊工作？"
+	"assistant.suggest_teams": "我可以在哪些團隊工作？",
+	"tasks.agent_provider": "偏好的編碼代理",
+	"tasks.agent_provider_inherit": "繼承",
+	"tasks.agent_instructions": "代理說明",
+	"tasks.agent_instructions_placeholder": "例如：使用 pnpm，不要編輯產生的檔案，完成前執行 linter。",
+	"tasks.agent_instructions_help": "提供給此範圍內任務的編碼代理。留空以繼承。任務開始時儲存快照。",
+	"tasks.agent_instructions_too_long": "最多 8000 個字元。"
 }

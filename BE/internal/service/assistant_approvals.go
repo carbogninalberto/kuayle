@@ -51,7 +51,11 @@ func (s *AssistantApprovals) Resolve(ctx context.Context, ws, conversation, id u
 	}
 	var task *domain.AgentTask
 	if err == nil {
-		request := domain.AgentTaskRequest{RequestID: approval.RequestID, Prompt: payload.Instructions, Provider: options.Providers[0].ID}
+		provider := options.Providers[0].ID
+		if options.DefaultProvider != "" {
+			provider = options.DefaultProvider
+		}
+		request := domain.AgentTaskRequest{RequestID: approval.RequestID, Prompt: payload.Instructions, Provider: provider}
 		// Match the task composer's defaults: model selection applies only to
 		// harnesses that support the workspace model provider.
 		if mp := options.ModelProvider; mp != nil && mp.Configured && (request.Provider == "codex" || request.Provider == "claude-code") {

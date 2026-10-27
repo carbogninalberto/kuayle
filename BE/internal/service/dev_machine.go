@@ -782,6 +782,22 @@ func (s *DevMachineService) UpdateScopeSetting(ctx context.Context, workspaceID 
 		return nil, ErrInvalidMachineInput
 	}
 	setting := &domain.DevMachineScopeSetting{WorkspaceID: workspaceID, TeamID: teamID, ProjectID: projectID, IssueID: issueID}
+	if request.AgentProvider != nil && *request.AgentProvider != "" {
+		provider, ok := s.agents.Get(*request.AgentProvider)
+		if !ok || provider.Metadata().Custom || !containsString(agentModes(provider), "autonomous") {
+			return nil, fmt.Errorf("%w: unsupported coding agent", ErrInvalidMachineInput)
+		}
+		setting.AgentProvider = request.AgentProvider
+	}
+	if request.AgentInstructions != nil {
+		instructions := strings.TrimSpace(*request.AgentInstructions)
+		if !utf8.ValidString(instructions) || utf8.RuneCountInString(instructions) > 8000 || strings.ContainsRune(instructions, 0) {
+			return nil, fmt.Errorf("%w: agent instructions must be at most 8000 characters", ErrInvalidMachineInput)
+		}
+		if instructions != "" {
+			setting.AgentInstructions = &instructions
+		}
+	}
 	if request.TestCommand != nil {
 		command, _ := json.Marshal(request.TestCommand)
 		raw := json.RawMessage(command)
@@ -880,7 +896,7 @@ func (s *DevMachineService) resolveDevelopmentSetting(ctx context.Context, works
 	}
 	scopes = append(scopes, [3]*uuid.UUID{nil, nil, nil})
 	for _, scope := range scopes {
-		if resolved.GitHubRepoID != nil && resolved.EnvironmentID != nil && resolved.TestCommand != nil {
+		if resolved.GitHubRepoID != nil && resolved.EnvironmentID != nil && resolved.TestCommand != nil && resolved.AgentProvider != nil && resolved.AgentInstructions != nil {
 			break
 		}
 		setting, err := s.store.GetScopeSetting(ctx, workspaceID, scope[0], scope[1], scope[2])
@@ -899,6 +915,12 @@ func (s *DevMachineService) resolveDevelopmentSetting(ctx context.Context, works
 		if resolved.TestCommand == nil && setting.TestCommand != nil {
 			command := append(json.RawMessage(nil), (*setting.TestCommand)...)
 			resolved.TestCommand = &command
+		}
+		if resolved.AgentProvider == nil && setting.AgentProvider != nil {
+			resolved.AgentProvider = setting.AgentProvider
+		}
+		if resolved.AgentInstructions == nil && setting.AgentInstructions != nil {
+			resolved.AgentInstructions = setting.AgentInstructions
 		}
 	}
 	return resolved, nil
@@ -2570,4 +2592,12 @@ func (s *DevMachineService) LaunchPreview(ctx context.Context, workspaceID, mach
 	launch := *developer
 	launch.ServiceType = "preview"
 	return s.issueLaunch(ctx, workspaceID, machine, &launch, userID, nil, "-preview")
+}
+
+func agentModes(provider agent.Provider) []string {
+	modes := []string{}
+	for _, mode := range provider.Metadata().SupportedModes {
+		modes = append(modes, string(mode))
+	}
+	return modes
 }

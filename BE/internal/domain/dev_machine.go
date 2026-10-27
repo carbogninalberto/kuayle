@@ -497,6 +497,9 @@ type DevMachineScopeSetting struct {
 	UpdatedAt     time.Time  `json:"updated_at" db:"updated_at"`
 
 	TestCommand *json.RawMessage `json:"test_command" db:"test_command"`
+
+	AgentProvider     *string `json:"agent_provider" db:"agent_provider"`
+	AgentInstructions *string `json:"agent_instructions" db:"agent_instructions"`
 }
 
 type DevMachineCheckout struct {

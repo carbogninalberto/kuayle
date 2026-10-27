@@ -68,6 +68,9 @@ type DevMachineScopeSettingRequest struct {
 	EnvironmentID *string `json:"environment_id,omitempty" validate:"omitempty,uuid"`
 
 	TestCommand []string `json:"test_command" validate:"omitempty,max=64,dive,max=8192"`
+
+	AgentProvider     *string `json:"agent_provider,omitempty" validate:"omitempty,max=64"`
+	AgentInstructions *string `json:"agent_instructions,omitempty"`
 }
 
 type CheckoutIssueRequest struct {

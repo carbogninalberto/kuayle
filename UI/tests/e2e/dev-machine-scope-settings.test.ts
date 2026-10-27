@@ -121,9 +121,12 @@ test('keeps project and team development settings scoped during rapid navigation
 	await expect(page.getByText('kuayle/repo-beta', { exact: true })).toBeVisible();
 	await expect(page.getByText('kuayle/repo-alpha', { exact: true })).toHaveCount(0);
 	await expect(page.getByRole('textbox', { name: 'Test command' })).toHaveValue('["npm","test"]');
+	await page.getByRole('combobox', { name: 'Preferred coding agent' }).click();
+	await page.getByRole('option', { name: 'Claude Code' }).click();
+	await page.getByRole('textbox', { name: 'Agent instructions' }).fill('  Use pnpm.  ');
 	await teamSave.click();
 	await expect.poll(() => savedSettings.length).toBe(1);
-	expect(savedSettings[0]).toMatchObject({ scope_type: 'team', scope_id: teamBId, github_repo_id: repoBId, environment_id: environmentBId, test_command: ['npm','test'] });
+	expect(savedSettings[0]).toMatchObject({ scope_type: 'team', scope_id: teamBId, github_repo_id: repoBId, environment_id: environmentBId, test_command: ['npm','test'], agent_provider: 'claude-code', agent_instructions: 'Use pnpm.' });
 
 	const projectADelay = createRequestDelay();
 	const projectBDelay = createRequestDelay();

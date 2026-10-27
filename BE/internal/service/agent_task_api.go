@@ -12,6 +12,8 @@ import (
 type AgentTaskOptions struct {
 	Providers     []dto.AgentProviderResponse         `json:"providers"`
 	ModelProvider *dto.WorkspaceModelProviderResponse `json:"model_provider"`
+	// DefaultProvider is the inherited preferred coding agent, when allowed.
+	DefaultProvider string `json:"default_provider,omitempty"`
 }
 
 func (s *AgentTaskService) Options(ctx context.Context, ws, conversation uuid.UUID) (*AgentTaskOptions, error) {
@@ -35,6 +37,15 @@ func (s *AgentTaskService) Options(ctx context.Context, ws, conversation uuid.UU
 		// cannot be inferred when allocating a new task environment.
 		if !p.Custom && containsString(p.SupportedModes, "autonomous") {
 			result.Providers = append(result.Providers, p)
+		}
+	}
+	preferred, err := s.Repo.DefaultProvider(ctx, ws, *c.IssueID)
+	if err != nil {
+		return nil, err
+	}
+	for _, provider := range result.Providers {
+		if provider.ID == preferred {
+			result.DefaultProvider = preferred
 		}
 	}
 	result.ModelProvider, err = s.machines.GetWorkspaceModelProvider(ctx, ws)
