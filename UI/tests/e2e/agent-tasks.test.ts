@@ -22,6 +22,8 @@ async function fixture(page: Page) {
 	const state = {
 		task: null as any,
 		validation: null as any,
+		publication: { step: null } as any,
+		publications: 0,
 		creates: [] as any[],
 		retries: [] as any[],
 		cancels: 0,
@@ -134,6 +136,10 @@ async function fixture(page: Page) {
 					}
 				});
 			if (path.endsWith('/validation')) return route.fulfill({ json: state.validation });
+			if (path.endsWith('/publication')) {
+				state.publications++;
+				return route.fulfill({ json: state.publication });
+			}
 			if (path.endsWith('/logs')) {
 				const logs = state.logs.filter((log) => log.id > Number(url.searchParams.get('after') ?? 0));
 				return route.fulfill({
@@ -405,5 +411,41 @@ test('independent checks update live and retain their actual exit status after r
 	await page.reload();
 	await page.getByRole('button', { name: 'Execution details', exact: true }).click();
 	await expect(checks.getByText('Independent check failed')).toBeVisible();
+	expect(state.creates).toHaveLength(1);
+});
+
+test('opens the recorded pull request only after publication succeeds', async ({ page }) => {
+	const { state, emit } = await fixture(page);
+	await page.goto('/test/assistant?conversation=chat-1');
+	await delegate(page);
+	const link = page.getByRole('link', { name: 'Open pull request', exact: true });
+	state.task = {
+		...state.task,
+		state: 'publishing',
+		reason: 'Independent validation passed; preparing review artifacts'
+	};
+	// An agent-reported URL without a recorded publication is never a review link.
+	state.publication = {
+		step: { id: 'publication-1', agent_run_id: 'run-1', status: 'running', command_argv: [] },
+		pull_request_url: 'https://github.com/attacker/repo/pull/1'
+	};
+	emit('task.state_changed', state.task);
+	await expect.poll(() => state.publications).toBeGreaterThan(0);
+	await expect(link).toHaveCount(0);
+	state.publication = {
+		step: { ...state.publication.step, status: 'succeeded', completed_at: '2026-10-27T10:02:00Z' },
+		branch: 'kuayle/eng-1',
+		pull_request_url: 'https://github.com/acme/app/pull/12'
+	};
+	emit('task.publication_updated', { task_id: 'task-1', run_id: 'run-1', step: state.publication.step });
+	await expect(link).toHaveAttribute('href', 'https://github.com/acme/app/pull/12');
+	await expect(link).toHaveAttribute('rel', /noopener/);
+	state.task = { ...state.task, state: 'awaiting_review', reason: 'Pull request opened; waiting for human review' };
+	emit('task.state_changed', state.task);
+	await expect(page.getByText('Pull request opened; waiting for human review', { exact: true })).toBeVisible();
+	await page.getByRole('button', { name: 'Execution details', exact: true }).click();
+	await expect(page.getByText('Pull request opened', { exact: true })).toBeVisible();
+	await page.reload();
+	await expect(link).toHaveAttribute('href', 'https://github.com/acme/app/pull/12');
 	expect(state.creates).toHaveLength(1);
 });

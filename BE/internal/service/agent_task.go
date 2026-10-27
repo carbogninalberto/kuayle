@@ -28,6 +28,7 @@ type taskLifecycleStore interface {
 }
 type taskExecutionRuntime interface {
 	Validate(context.Context, domain.AgentTask) (*domain.DevMachineAgentRunStep, error)
+	Publish(context.Context, domain.AgentTask) (*domain.DevMachineAgentRunStep, error)
 	Prepare(context.Context, *domain.AgentTask) (bool, error)
 	Attempt(context.Context, domain.AgentTask) (*domain.DevMachineAgentRun, error)
 	Cancel(context.Context, domain.AgentTask) error
@@ -133,6 +134,26 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 			return s.store.Transition(ctx, task, "blocked", "No test command is configured; configure a check and retry")
 		case domain.DevMachineAgentRunStepStatusFailed, domain.DevMachineAgentRunStepStatusCancelled:
 			return s.store.Fail(ctx, task, "Independent validation failed; stopping execution before retry")
+		}
+		return nil
+	}
+	if task.State == "publishing" {
+		result, err := s.runtime.Publish(ctx, task)
+		if err != nil {
+			return s.preparationError(ctx, task, err)
+		}
+		if result == nil {
+			return nil
+		}
+		// Only a recorded pull request reaches review. Publishing failures keep
+		// the validated work in place, so the task blocks instead of failing.
+		switch result.Status {
+		case domain.DevMachineAgentRunStepStatusSucceeded:
+			return s.store.Transition(ctx, task, "awaiting_review", "Pull request opened; waiting for human review")
+		case domain.DevMachineAgentRunStepStatusSkipped:
+			return s.store.Transition(ctx, task, "blocked", "The attempt produced no changes to publish")
+		case domain.DevMachineAgentRunStepStatusFailed, domain.DevMachineAgentRunStepStatusCancelled:
+			return s.store.Transition(ctx, task, "blocked", "Publishing failed; check the repository connection and retry")
 		}
 		return nil
 	}
@@ -332,4 +353,11 @@ func (r *devMachineTaskRuntime) Validate(ctx context.Context, task domain.AgentT
 		return nil, err
 	}
 	return r.tasks.EnsureValidation(ctx, task)
+}
+
+func (r *devMachineTaskRuntime) Publish(ctx context.Context, task domain.AgentTask) (*domain.DevMachineAgentRunStep, error) {
+	if _, err := r.machines.enabledPolicy(ctx, task.WorkspaceID); err != nil {
+		return nil, err
+	}
+	return r.tasks.EnsurePublication(ctx, task)
 }

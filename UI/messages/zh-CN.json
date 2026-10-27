@@ -1931,5 +1931,12 @@
 	"tasks.check_skipped": "无法验证：未配置命令",
 	"tasks.check_exit": "退出代码：{code}",
 	"tasks.check_started": "开始时间：{time}",
-	"tasks.check_finished": "完成时间：{time}"
+	"tasks.check_finished": "完成时间：{time}",
+	"tasks.publication_queued": "等待发布更改",
+	"tasks.publication_running": "正在发布更改",
+	"tasks.publication_succeeded": "已创建拉取请求",
+	"tasks.publication_failed": "发布失败",
+	"tasks.publication_cancelled": "发布已取消",
+	"tasks.publication_skipped": "没有可发布的更改",
+	"tasks.open_pull_request": "打开拉取请求"
 }

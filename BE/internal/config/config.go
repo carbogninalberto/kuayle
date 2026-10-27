@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"unicode"
 
 	"github.com/google/uuid"
 	"github.com/kelseyhightower/envconfig"
@@ -98,6 +99,10 @@ type DevMachineConfig struct {
 	// filesystem as Docker's data root (e.g. a read-only bind mount of it), used
 	// to measure host free space even when no machine is running.
 	HostDiskPath string `envconfig:"DEV_MACHINE_HOST_DISK_PATH"`
+	// AgentGitName and AgentGitEmail are the commit author for agent task
+	// publications. Pull requests are still opened by the GitHub App.
+	AgentGitName  string `envconfig:"DEV_MACHINE_AGENT_GIT_NAME" default:"Kuayle Agent"`
+	AgentGitEmail string `envconfig:"DEV_MACHINE_AGENT_GIT_EMAIL" default:"agent@kuayle.invalid"`
 }
 
 const (
@@ -172,6 +177,11 @@ func (c DevMachineConfig) Validate(frontendURL string) error {
 	}
 	if strings.ContainsAny(c.AppArmorProfile, "\x00\r\n\t ") {
 		return fmt.Errorf("DEV_MACHINE_APPARMOR_PROFILE must be a profile name without whitespace")
+	}
+	for _, value := range []string{c.AgentGitName, c.AgentGitEmail} {
+		if strings.ContainsFunc(value, func(r rune) bool { return unicode.IsControl(r) || r == '<' || r == '>' }) {
+			return fmt.Errorf("DEV_MACHINE_AGENT_GIT_NAME and DEV_MACHINE_AGENT_GIT_EMAIL must not contain control characters or angle brackets")
+		}
 	}
 	return c.validateDiskQuota()
 }

@@ -1931,5 +1931,12 @@
 	"tasks.check_skipped": "Validazione non disponibile: nessun comando configurato",
 	"tasks.check_exit": "Codice di uscita: {code}",
 	"tasks.check_started": "Inizio: {time}",
-	"tasks.check_finished": "Fine: {time}"
+	"tasks.check_finished": "Fine: {time}",
+	"tasks.publication_queued": "In attesa di pubblicare le modifiche",
+	"tasks.publication_running": "Pubblicazione delle modifiche",
+	"tasks.publication_succeeded": "Pull request aperta",
+	"tasks.publication_failed": "Pubblicazione non riuscita",
+	"tasks.publication_cancelled": "Pubblicazione annullata",
+	"tasks.publication_skipped": "Nessuna modifica da pubblicare",
+	"tasks.open_pull_request": "Apri pull request"
 }

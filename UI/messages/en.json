@@ -1931,5 +1931,12 @@
 	"tasks.check_skipped": "Validation unavailable: no command configured",
 	"tasks.check_exit": "Exit code: {code}",
 	"tasks.check_started": "Started: {time}",
-	"tasks.check_finished": "Finished: {time}"
+	"tasks.check_finished": "Finished: {time}",
+	"tasks.publication_queued": "Waiting to publish changes",
+	"tasks.publication_running": "Publishing changes",
+	"tasks.publication_succeeded": "Pull request opened",
+	"tasks.publication_failed": "Publishing failed",
+	"tasks.publication_cancelled": "Publishing cancelled",
+	"tasks.publication_skipped": "No changes to publish",
+	"tasks.open_pull_request": "Open pull request"
 }

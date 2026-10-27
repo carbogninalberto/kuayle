@@ -204,3 +204,19 @@ func (h *AgentTaskHandler) Validation(c echo.Context) error {
 	}
 	return response.Success(c, http.StatusOK, result)
 }
+
+func (h *AgentTaskHandler) Publication(c echo.Context) error {
+	id, err := taskID(c, "taskId")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	run, err := taskID(c, "runId")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	result, err := h.svc.Repo.Publication(c.Request().Context(), middleware.GetWorkspace(c).ID, id, run)
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	return response.Success(c, http.StatusOK, result)
+}

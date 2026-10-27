@@ -27,6 +27,9 @@ type ManagerStore interface {
 	StartValidation(context.Context, domain.DevMachineOperation, string) error
 	CompleteValidation(context.Context, domain.DevMachineOperation, int) error
 	CreateValidationOutput(context.Context, domain.DevMachineOperation, *domain.DevMachineLogChunk) error
+	GetPublication(context.Context, domain.DevMachineOperation) (*domain.AgentPublication, error)
+	StartPublication(context.Context, domain.DevMachineOperation) error
+	CompletePublication(context.Context, domain.DevMachineOperation, domain.AgentPublicationResult) error
 	LeaseOperations(context.Context, string, int, time.Duration) ([]domain.DevMachineOperation, error)
 	RenewOperationLease(context.Context, uuid.UUID, string, time.Duration) error
 	CompleteOperation(context.Context, uuid.UUID, string) error
@@ -86,6 +89,7 @@ const gatewayAccessLogPurgeBatch = 1000
 type githubAPI interface {
 	GetRepositoryInstallationToken(int64, string) (string, time.Time, error)
 	CreatePullRequest(string, string, string, string, string, string, string) (*githubclient.PullRequest, error)
+	FindOpenPullRequest(string, string, string, string, string) (*githubclient.PullRequest, error)
 }
 
 type DiskQuotaConfig struct {
@@ -108,6 +112,8 @@ type Manager struct {
 	owner         string
 	pollInterval  time.Duration
 	diskQuota     DiskQuotaConfig
+
+	agentGitIdentity GitIdentity
 
 	operationsCompleted atomic.Uint64
 	operationsFailed    atomic.Uint64
@@ -215,7 +221,7 @@ func (m *Manager) processLeasedOperation(ctx context.Context, operation domain.D
 	}()
 	started := time.Now()
 	operationCtx, cancel := context.WithCancel(ctx)
-	if (operation.Action == domain.DevMachineOpRunAgent || operation.Action == domain.DevMachineOpValidateAgent) && operation.AgentRunID != nil {
+	if (operation.Action == domain.DevMachineOpRunAgent || operation.Action == domain.DevMachineOpValidateAgent || operation.Action == domain.DevMachineOpPublishAgent) && operation.AgentRunID != nil {
 		m.registerActiveRun(operation.MachineID, *operation.AgentRunID, cancel)
 		defer m.unregisterActiveRun(operation.MachineID, *operation.AgentRunID)
 	}
@@ -325,6 +331,8 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 			return nil
 		case domain.DevMachineOpValidateAgent:
 			return &terminalOperationError{code: "validation_stale", message: "Machine changed during validation"}
+		case domain.DevMachineOpPublishAgent:
+			return &terminalOperationError{code: "publication_stale", message: "Machine changed during publication"}
 		case domain.DevMachineOpRunAgent:
 			if operation.AgentRunID != nil {
 				m.cancelStaleAgentRun(ctx, *operation.AgentRunID)
@@ -437,6 +445,8 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 		return m.setStateAndEventForOperation(ctx, machine, operation, domain.DevMachineStatusDestroyed, "machine.destroyed", nil, true)
 	case domain.DevMachineOpValidateAgent:
 		return m.validateAgent(ctx, machine, operation)
+	case domain.DevMachineOpPublishAgent:
+		return m.publishAgent(ctx, machine, operation)
 	case domain.DevMachineOpRunAgent:
 		return m.runAgent(ctx, machine, operation)
 	case domain.DevMachineOpCancelAgent:

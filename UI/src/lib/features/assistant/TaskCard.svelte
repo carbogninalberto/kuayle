@@ -1,12 +1,26 @@
 <script lang="ts">
 	import { onDestroy, untrack } from 'svelte';
 	import TestResults from './TestResults.svelte';
-	import { Circle, CircleCheck, CircleAlert, LoaderCircle, Terminal, ExternalLink } from '@lucide/svelte';
+	import {
+		Circle,
+		CircleCheck,
+		CircleAlert,
+		LoaderCircle,
+		Terminal,
+		ExternalLink,
+		GitPullRequest
+	} from '@lucide/svelte';
 	import * as Trace from '$lib/components/ui/trace/index.js';
 	import * as CodeBlock from '$lib/components/ui/code-block/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import SelectField from '$lib/components/shared/SelectField.svelte';
-	import { agentTasks, type AgentTask, type TaskTransition, type ValidationStep } from '$lib/api/agent-tasks';
+	import {
+		agentTasks,
+		type AgentTask,
+		type PublicationView,
+		type TaskTransition,
+		type ValidationStep
+	} from '$lib/api/agent-tasks';
 	import type { AgentRun, DevMachineLogChunk } from '$lib/types/dev-machine';
 	import type { ConversationState } from './conversation-state.svelte';
 	import { taskLabel } from './task-labels';
@@ -33,6 +47,7 @@
 		runsBefore = $state<string | undefined>(),
 		logsAfter = $state<number | undefined>();
 	let validation = $state<ValidationStep | null>(null);
+	let publication = $state<PublicationView | null>(null);
 	let selectedRun = $state(untrack(() => task.run_id));
 	let seenAttempt = untrack(() => task.run_id),
 		disposed = false,
@@ -59,6 +74,22 @@
 			.join('')
 	);
 	const selected = $derived(runs.find((run) => run.id === selectedRun));
+	// Review links come only from the recorded publication, never from agent output.
+	const pullRequest = $derived(
+		publication?.step?.status === 'succeeded' ? (publication.pull_request_url ?? undefined) : undefined
+	);
+	const publicationLabel = $derived(
+		publication?.step
+			? {
+					queued: m['tasks.publication_queued'](),
+					running: m['tasks.publication_running'](),
+					succeeded: m['tasks.publication_succeeded'](),
+					failed: m['tasks.publication_failed'](),
+					cancelled: m['tasks.publication_cancelled'](),
+					skipped: m['tasks.publication_skipped']()
+				}[publication.step.status]
+			: ''
+	);
 	const activity = $derived(chat.taskActivity[task.id]);
 	onDestroy(() => {
 		disposed = true;
@@ -150,6 +181,25 @@
 			}, 150);
 		}
 	});
+	// Publication is loaded even while details are collapsed so the review link
+	// stays visible; publication events and state changes refresh it.
+	$effect(() => {
+		const run = task.run_id;
+		const observed = [task.state, chat.taskPublicationCursor[task.id]];
+		if (!['publishing', 'awaiting_review', 'completed', 'blocked'].includes(observed[0] as string)) {
+			untrack(() => (publication = null));
+			return;
+		}
+		untrack(() => void loadPublication(run));
+	});
+	async function loadPublication(run: string) {
+		try {
+			const view = await agentTasks.publication(chat.slug, task.id, run);
+			if (!disposed && !chat.unavailable && task.run_id === run) publication = view;
+		} catch (e) {
+			failure(e);
+		}
+	}
 	async function cancel() {
 		if (busy) return;
 		busy = true;
@@ -226,6 +276,16 @@
 						>{m['tasks.more_runs']()}</Button
 					>{/if}
 				<TestResults step={validation} output={checkOutput} />
+				{#if publication?.step && publication.step.agent_run_id === selectedRun}<Trace.Line
+						status={publication.step.status === 'failed'
+							? 'error'
+							: ['queued', 'running'].includes(publication.step.status)
+								? 'running'
+								: undefined}
+						><Trace.Icon><GitPullRequest /></Trace.Icon><Trace.Title class="whitespace-normal break-words"
+							>{publicationLabel}</Trace.Title
+						></Trace.Line
+					>{/if}
 				{#if selected?.summary}<p class="whitespace-pre-wrap break-words text-sm">{selected.summary}</p>{/if}
 				{#if activity?.run_id === selectedRun}{#each activity.events.slice(-8) as event, i (i)}<Trace.Line
 							><Trace.Title>{event.type}</Trace.Title></Trace.Line
@@ -252,6 +312,9 @@
 			>{/if}
 		{#if canRetry}<Button variant="outline" size="sm" disabled={busy} onclick={() => onretry(task)}
 				>{m['tasks.retry']()}</Button
+			>{/if}
+		{#if pullRequest}<Button variant="outline" size="sm" href={pullRequest} target="_blank" rel="noopener noreferrer"
+				><GitPullRequest />{m['tasks.open_pull_request']()}</Button
 			>{/if}
 		{#if task.machine_id}<a
 				class="inline-flex items-center gap-1 text-xs underline underline-offset-2"

@@ -1851,35 +1851,40 @@ func (r *DockerRuntime) execOutputAs(ctx context.Context, containerID string, co
 }
 
 func (r *DockerRuntime) execWithInput(ctx context.Context, containerID string, command []string, input string) error {
+	_, err := r.execInputOutput(ctx, containerID, command, input)
+	return err
+}
+
+func (r *DockerRuntime) execInputOutput(ctx context.Context, containerID string, command []string, input string) (string, error) {
 	created, err := r.client.ExecCreate(ctx, containerID, client.ExecCreateOptions{
 		Cmd: command, User: "1000:1000", AttachStdin: true, AttachStdout: true, AttachStderr: true,
 	})
 	if err != nil {
-		return err
+		return "", err
 	}
 	attached, err := r.client.ExecAttach(ctx, created.ID, client.ExecAttachOptions{})
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer attached.Close()
 	if _, err := io.WriteString(attached.Conn, input); err != nil {
-		return err
+		return "", err
 	}
 	if err := attached.CloseWrite(); err != nil {
-		return err
+		return "", err
 	}
 	stdout, stderr := newCappedBuffer(maxCapturedLogBytes), newCappedBuffer(maxCapturedLogBytes)
 	if _, err := stdcopy.StdCopy(&stdout, &stderr, attached.Reader); err != nil && !errors.Is(err, io.EOF) {
-		return err
+		return "", err
 	}
 	inspection, err := r.client.ExecInspect(ctx, created.ID, client.ExecInspectOptions{})
 	if err != nil {
-		return err
+		return "", err
 	}
 	if inspection.ExitCode != 0 {
-		return fmt.Errorf("checkout command failed with exit code %d: %s", inspection.ExitCode, strings.TrimSpace(stderr.String()))
+		return "", fmt.Errorf("checkout command failed with exit code %d: %s", inspection.ExitCode, strings.TrimSpace(stderr.String()))
 	}
-	return nil
+	return stdout.String(), nil
 }
 
 type spawnFailureCleanup struct {

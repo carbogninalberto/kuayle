@@ -6,9 +6,10 @@ The task domain, repository, worker and HTTP controls are wired into the API
 process. Issue conversations expose task delegation, retry, cancellation and live
 activity through AI Elements Task/Trace and Model Selector compositions. The assistant remains
 conversational; structured orchestrator delegation is still pending. Native
-success is followed by an independent check (migration 58). Publishing and review
-are not yet implemented, so a passed check waits in `publishing`. This is not a
-completed autonomous development workflow.
+success is followed by an independent check (migration 58) and deterministic
+publication of a pull request (migration 59), after which the task waits in
+`awaiting_review`. Review feedback, CI tracking and acceptance are not yet
+implemented. This is not a completed autonomous development workflow.
 
 Migration 56 adds tasks and transition history, task-specific checkout scopes,
 immutable native-attempt ownership, encrypted recovery credentials and log-source
@@ -69,8 +70,49 @@ operation in the same transaction. A failed or cancelled check goes to cleanup
 and `failed`; an exhausted infrastructure operation marks the step failed rather
 than leaving it queued. Cancellation marks open steps cancelled. Every step change
 emits a `task.tests_updated` conversation event with `{task_id, run_id, step}`.
-Machines with a task in `validating` count as active for pause/stop and new runs.
-Rollback refuses retained validation operations or steps.
+Machines with a task in `validating` or `publishing` count as active for
+pause/stop and new runs. Rollback refuses retained validation operations or steps.
+
+## Publication
+
+Task attempts never receive a GitHub credential (`push_branch` is false), so the
+harness cannot push or open pull requests itself. In `publishing`, the worker
+queues one `publication` step (sequence 1) and a `publish_agent` operation in the
+fenced task transaction, using the same machine locks as validation. The manager
+re-verifies the same phase authority (task still `publishing`, current run,
+creator, machine generation, enabled policy, live operation lease) on every read
+and write, checks that the checkout is the task's own ready checkout, then:
+
+1. Commits pending changes in the developer container **without any credential**,
+   as `DEV_MACHINE_AGENT_GIT_NAME <DEV_MACHINE_AGENT_GIT_EMAIL>` (default
+   `Kuayle Agent <agent@kuayle.invalid>`), with repository hooks, fsmonitor and
+   signing programs disabled and system/global configuration ignored. The message
+   is `<ISSUE-ID>: <issue title>`. A branch with no commits ahead of the base is
+   recorded as `skipped` and blocks the task; it is never reviewable.
+2. Fetches exactly that branch tip into a new temporary repository outside the
+   workspace volume, verifies it is still the recorded commit, and only then reads
+   a fresh repository-scoped GitHub App token from stdin. It pushes the commit to
+   the fixed `https://github.com/<checkout repository>` URL without force. The
+   agent-writable checkout's configuration (hooks, URL rewrites, credential
+   helpers) is never loaded while the token exists, and the token is never written
+   to the workspace volume.
+3. Reuses an open pull request from the task branch into the base branch, or opens
+   one with the GitHub App. The title carries the issue identifier so the existing
+   `pr_opened` GitHub automation moves the issue to In Review; publication does not
+   change the issue status itself. The agent's summary is included only as fenced,
+   explicitly unverified text. GitHub's URL must belong to the checkout repository.
+
+The branch, commit and pull request git refs, the run's `branch`/`pull_request_url`
+and the succeeded step commit together with a `task.publication_updated` event.
+Moving to `awaiting_review` re-checks a succeeded publication step and a completed
+operation in the same transaction, so an agent-reported URL never reaches review.
+Retries after a lost result recommit nothing, push the same commit and reuse the
+open pull request. Push or GitHub errors are retried up to the operation limit with
+the token redacted; exhausted or terminal failures mark the step failed and block
+the task with its validated work intact. Cancellation marks open steps cancelled.
+Agent-controlled git configuration can still run programs during the
+credential-free commit step (for example clean filters); that runs with the same
+privileges the agent already had and no publication credential.
 
 ## Authorization and side effects
 
@@ -201,9 +243,9 @@ results.
 
 ## Remaining workflow work
 
-The worker currently progresses through preparation, native execution and
-independent validation to `publishing`. Publishing (commit, push, PR) and human
-acceptance are not yet implemented. Repository-level retry support does not yet provide native session
+The worker currently progresses through preparation, native execution,
+independent validation and publication to `awaiting_review`. CI status, review
+feedback handling and human acceptance (`completed`) are not yet implemented. Repository-level retry support does not yet provide native session
 resume or a review workflow. Native
 sessions and durable approval flows remain separate work; a successful process
 exit must never mark an issue Done.
@@ -231,6 +273,8 @@ and cancellation remain available to authorized users.
 - `GET /agent-tasks/:taskId/runs/:runId/logs` pages that attempt's logs with `after`.
 - `GET /agent-tasks/:taskId/runs/:runId/validation` returns that attempt's
   independent check step, or `null` when none was recorded.
+- `GET /agent-tasks/:taskId/runs/:runId/publication` returns `{step, branch,
+  pull_request_url}`; `pull_request_url` is present only for a succeeded step.
 
 Paths are workspace-relative. Task/attempt pages contain 25 entries and an
 optional `next_before` UUID; history/log pages contain 100 entries and an optional
@@ -260,7 +304,10 @@ The independent check renders through the AI Elements
 [Test Results](https://www.shadcn-svelte.com/docs/ai-elements/test-results)
 composition (Trace + Code Block) as one check with its real status, exit code and
 timestamps; `task.tests_updated` events refresh it. Its output is split from the
-native output by the step's `service_id`.
+native output by the step's `service_id`. The recorded pull request opens from
+the task card footer (loaded even while details are collapsed) and the
+publication status appears in the execution details; both refresh on
+`task.publication_updated`.
 
 The UI follows the official [Task](https://www.shadcn-svelte.com/docs/ai-elements/task),
 [Model Selector](https://www.shadcn-svelte.com/docs/ai-elements/model-selector),

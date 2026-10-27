@@ -46,6 +46,11 @@ export interface ValidationStep {
 	started_at?: string | null;
 	completed_at?: string | null;
 }
+export interface PublicationView {
+	step: ValidationStep | null;
+	branch?: string | null;
+	pull_request_url?: string | null;
+}
 export interface TaskActivity {
 	task_id: string;
 	run_id: string;
@@ -100,6 +105,8 @@ export const agentTasks = {
 		),
 	validation: (slug: string, id: string, run: string) =>
 		api.get<ValidationStep | null>(`${task(slug, id)}/runs/${encodeURIComponent(run)}/validation`),
+	publication: (slug: string, id: string, run: string) =>
+		api.get<PublicationView>(`${task(slug, id)}/runs/${encodeURIComponent(run)}/publication`),
 	logs: (slug: string, id: string, run: string, after = 0) =>
 		api.get<{ logs: DevMachineLogChunk[]; next_after?: number }>(
 			`${task(slug, id)}/runs/${encodeURIComponent(run)}/logs?after=${after}`

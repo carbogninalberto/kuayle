@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 
@@ -373,6 +374,21 @@ func (c *Client) GetPullRequest(token, owner, repo string, number int) (*PullReq
 		return nil, err
 	}
 	return &pr, nil
+}
+
+// FindOpenPullRequest returns the open PR from head into base in the same
+// repository, or nil. Publication retries use it instead of opening duplicates.
+func (c *Client) FindOpenPullRequest(token, owner, repo, head, base string) (*PullRequest, error) {
+	var prs []PullRequest
+	query := url.Values{"state": {"open"}, "head": {owner + ":" + head}, "base": {base}, "per_page": {"1"}}
+	endpoint := fmt.Sprintf("%s/repos/%s/%s/pulls?%s", githubAPIBaseURL, owner, repo, query.Encode())
+	if err := c.doGet(token, endpoint, &prs); err != nil {
+		return nil, err
+	}
+	if len(prs) == 0 {
+		return nil, nil
+	}
+	return &prs[0], nil
 }
 
 // ListPRCommits lists commits on a PR.

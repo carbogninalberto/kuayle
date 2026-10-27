@@ -38,7 +38,8 @@ export interface ConversationEvent {
 		| 'task.state_changed'
 		| 'task.updated'
 		| 'task.activity'
-		| 'task.tests_updated';
+		| 'task.tests_updated'
+		| 'task.publication_updated';
 	payload:
 		| AgentTask
 		| TaskActivity

@@ -156,3 +156,20 @@ type AgentTaskLogs struct {
 	Logs      []DevMachineLogChunk `json:"logs"`
 	NextAfter *int64               `json:"next_after,omitempty"`
 }
+
+// AgentPublication is the manager's view of a queued publication: the step it
+// fences and the issue reference that links the pull request to the issue.
+type AgentPublication struct {
+	Step            DevMachineAgentRunStep
+	IssueIdentifier string
+	IssueTitle      string
+}
+
+// AgentPublicationResult is recorded only after the branch was pushed and the
+// pull request exists on GitHub. An empty Commit means nothing to publish.
+type AgentPublicationResult struct {
+	Branch            string
+	Commit            string
+	PullRequestNumber int
+	PullRequestURL    string
+}

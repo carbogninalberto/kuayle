@@ -289,3 +289,16 @@ func TestSameSiteMachinesRequireExplicitHTTPSOptIn(t *testing.T) {
 	c.Domain = "example.com"
 	require.Error(t, c.ValidateGateway("https://abcdefgh1234-ide.example.com"), "frontend must not overlap workload hosts")
 }
+
+func TestDevMachineAgentGitIdentityRejectsHeaderInjection(t *testing.T) {
+	config := DevMachineConfig{
+		Enabled: true, Domain: "machines.example.net", EncryptionKey: strings.Repeat("x", 32),
+		TicketTTLSeconds: 60, SessionTTLMinutes: 60, IngestURL: "https://app.example.com/api/dev-machine-ingest",
+		AgentGitName: "carbninai", AgentGitEmail: "agent@example.invalid",
+	}
+	require.NoError(t, config.Validate("https://app.example.com"))
+	config.AgentGitName = "agent\nSigned-off-by: someone"
+	require.ErrorContains(t, config.Validate("https://app.example.com"), "DEV_MACHINE_AGENT_GIT_NAME")
+	config.AgentGitName, config.AgentGitEmail = "agent", "a@b> <c@d"
+	require.ErrorContains(t, config.Validate("https://app.example.com"), "DEV_MACHINE_AGENT_GIT_EMAIL")
+}

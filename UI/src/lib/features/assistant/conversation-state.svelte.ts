@@ -14,6 +14,7 @@ export class ConversationState {
 	liveTasks = $state<Record<string, AgentTask>>({});
 	taskActivity = $state<Record<string, TaskActivity>>({});
 	taskValidationCursor = $state<Record<string, number>>({});
+	taskPublicationCursor = $state<Record<string, number>>({});
 	cursor = 0;
 	hasMore = $state(false);
 	loading = $state(true);
@@ -67,6 +68,7 @@ export class ConversationState {
 			this.liveTasks = {};
 			this.taskActivity = {};
 			this.taskValidationCursor = {};
+			this.taskPublicationCursor = {};
 			this.conversation = null;
 			this.issue = null;
 			this.disconnect();
@@ -91,6 +93,9 @@ export class ConversationState {
 		} else if (event.type === 'task.tests_updated') {
 			const data = event.payload as { task_id: string };
 			this.taskValidationCursor = { ...this.taskValidationCursor, [data.task_id]: event.cursor };
+		} else if (event.type === 'task.publication_updated') {
+			const data = event.payload as { task_id: string };
+			this.taskPublicationCursor = { ...this.taskPublicationCursor, [data.task_id]: event.cursor };
 		} else if (event.type === 'task.activity') {
 			const activity = event.payload as TaskActivity;
 			this.taskActivity = { ...this.taskActivity, [activity.task_id]: activity };

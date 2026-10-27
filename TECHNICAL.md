@@ -309,7 +309,7 @@ Persistent task execution is being integrated with the existing native run and
 machine operation records. The [agent task contract](BE/docs/agent-tasks.md)
 documents migration 56, authorization/lease ordering, encrypted per-attempt
 recovery credentials, live output capture and conversation events, and the
-session-only task routes, worker wiring, independent validation and remaining publishing/review work. Manual IDE/terminal
+session-only task routes, worker wiring, independent validation, pull request publication and remaining review work. Manual IDE/terminal
 workflows continue to use the existing machine controls.
 
 ## Resource Limits and Quotas
@@ -616,6 +616,7 @@ Required configuration when enabled:
 | `DEV_MACHINE_HOST_DISK_MIN_FREE_GB` | Monitored mode: minimum free GiB of the Docker data root (default 25) |
 | `DEV_MACHINE_DOCKER_ROOT` | Host path of Docker's data root, mounted read-only into the manager (default `/var/lib/docker`) |
 | `DEV_MACHINE_HOST_DISK_PATH` | In-container path measured for host free space (Compose sets the mount point; falls back to a running collector when empty) |
+| `DEV_MACHINE_AGENT_GIT_NAME`, `DEV_MACHINE_AGENT_GIT_EMAIL` | Commit author for agent task publications (default `Kuayle Agent <agent@kuayle.invalid>`); pull requests are opened by the GitHub App installation. Control characters are rejected |
 | `DEV_MACHINE_DOCKER_GID` | Numeric host group owner of the mounted Docker socket; obtain it on Linux with `stat -c '%g' /var/run/docker.sock` (Docker Desktop commonly uses `0`) |
 | `DEV_MACHINE_HEADLESS_IMAGE` | Headless developer and new built-in provider image (default `ghcr.io/kuayle/dev-machine-headless:0.1.0`) |
 | `DEV_MACHINE_*_IMAGE` | Other pinned runtime image references; the IDE developer image contains all built-in CLIs and the existing provider-specific agent images remain separately pinned |

@@ -40,6 +40,7 @@ const (
 	DevMachineOpReconcile           DevMachineOperationAction = "reconcile"
 	DevMachineOpRunAgent            DevMachineOperationAction = "run_agent"
 	DevMachineOpValidateAgent       DevMachineOperationAction = "validate_agent"
+	DevMachineOpPublishAgent        DevMachineOperationAction = "publish_agent"
 	DevMachineOpCancelAgent         DevMachineOperationAction = "cancel_agent"
 	DevMachineOpCheckoutIssue       DevMachineOperationAction = "checkout_issue"
 	DevMachineOpSnapshotEnvironment DevMachineOperationAction = "snapshot_environment"

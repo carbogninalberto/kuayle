@@ -368,6 +368,10 @@ func (f *githubAPIFake) GetRepositoryInstallationToken(installationID int64, rep
 	return f.token, f.expiresAt, nil
 }
 
+func (f *githubAPIFake) FindOpenPullRequest(string, string, string, string, string) (*githubclient.PullRequest, error) {
+	return nil, nil
+}
+
 func (f *githubAPIFake) CreatePullRequest(string, string, string, string, string, string, string) (*githubclient.PullRequest, error) {
 	return &githubclient.PullRequest{HTMLURL: "https://github.com/kuayle/api/pull/1", Number: 1}, nil
 }

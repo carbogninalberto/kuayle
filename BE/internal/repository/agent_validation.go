@@ -32,18 +32,8 @@ func (r *AgentTaskRepository) EnsureValidation(ctx context.Context, claimed doma
 	step := &domain.DevMachineAgentRunStep{}
 	err = tx.GetContext(ctx, step, `SELECT * FROM dev_machine_agent_run_steps WHERE agent_run_id=$1 AND sequence=0 AND step_type='validation'`, task.RunID)
 	if err == nil {
-		// An exhausted infrastructure operation is not a passed or indefinitely queued check.
-		var failed bool
-		if err = tx.GetContext(ctx, &failed, `SELECT EXISTS(SELECT 1 FROM dev_machine_operations WHERE agent_run_id=$1 AND action='validate_agent' AND status='failed')`, task.RunID); err != nil {
+		if err = failExhaustedStep(ctx, tx, *task, step, validationPhase, "Independent validation could not finish"); err != nil {
 			return nil, err
-		}
-		if failed && step.Status != domain.DevMachineAgentRunStepStatusFailed && step.Status != domain.DevMachineAgentRunStepStatusCancelled {
-			if err = tx.GetContext(ctx, step, `UPDATE dev_machine_agent_run_steps SET status='failed',completed_at=now(),summary='Independent validation could not finish' WHERE id=$1 RETURNING *`, step.ID); err != nil {
-				return nil, err
-			}
-			if err = validationEvent(ctx, tx, *task, step); err != nil {
-				return nil, err
-			}
 		}
 		return step, tx.Commit()
 	}
@@ -58,22 +48,9 @@ func (r *AgentTaskRepository) EnsureValidation(ctx context.Context, claimed doma
 	if len(command) == 0 {
 		status, summary = "skipped", "No test command is configured; validation is unavailable"
 	}
-	// Match native-run creation's lock order to exclude competing writers.
-	for _, id := range []uuid.UUID{task.WorkspaceID, *task.MachineID} {
-		if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text,0))`, id); err != nil {
-			return nil, err
-		}
-	}
-	var generation int64
-	if err = tx.GetContext(ctx, &generation, `SELECT generation FROM dev_machines WHERE id=$1 AND workspace_id=$2 AND status='running' AND desired_status='running' AND expires_at>now() FOR UPDATE`, task.MachineID, task.WorkspaceID); err != nil {
+	generation, err := lockTaskMachine(ctx, tx, *task)
+	if err != nil {
 		return nil, err
-	}
-	var allowed bool
-	if err = tx.GetContext(ctx, &allowed, `SELECT EXISTS(SELECT 1 FROM dev_machine_workspace_policies WHERE workspace_id=$1 AND enabled) AND NOT EXISTS(SELECT 1 FROM dev_machine_agent_runs WHERE machine_id=$2 AND status IN ('queued','starting','running','waiting_input'))`, task.WorkspaceID, task.MachineID); err != nil {
-		return nil, err
-	}
-	if !allowed {
-		return nil, ErrAgentTaskConflict
 	}
 	err = tx.GetContext(ctx, step, `INSERT INTO dev_machine_agent_run_steps(agent_run_id,sequence,step_type,name,status,command_argv,summary,completed_at) VALUES($1,0,'validation','Independent validation',$2::dev_machine_agent_run_step_status,$3,$4,CASE WHEN $2::dev_machine_agent_run_step_status='skipped' THEN now() END) RETURNING *`, task.RunID, status, task.ValidationCommand, summary)
 	if err != nil {
@@ -91,18 +68,78 @@ func (r *AgentTaskRepository) EnsureValidation(ctx context.Context, claimed doma
 	return step, tx.Commit()
 }
 
+// lockTaskMachine matches native-run creation's lock order to exclude competing
+// writers, then returns the generation a new task-step operation must fence.
+func lockTaskMachine(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask) (int64, error) {
+	for _, id := range []uuid.UUID{task.WorkspaceID, *task.MachineID} {
+		if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text,0))`, id); err != nil {
+			return 0, err
+		}
+	}
+	var generation int64
+	if err := tx.GetContext(ctx, &generation, `SELECT generation FROM dev_machines WHERE id=$1 AND workspace_id=$2 AND status='running' AND desired_status='running' AND expires_at>now() FOR UPDATE`, task.MachineID, task.WorkspaceID); err != nil {
+		return 0, err
+	}
+	var allowed bool
+	if err := tx.GetContext(ctx, &allowed, `SELECT EXISTS(SELECT 1 FROM dev_machine_workspace_policies WHERE workspace_id=$1 AND enabled) AND NOT EXISTS(SELECT 1 FROM dev_machine_agent_runs WHERE machine_id=$2 AND status IN ('queued','starting','running','waiting_input'))`, task.WorkspaceID, task.MachineID); err != nil {
+		return 0, err
+	}
+	if !allowed {
+		return 0, ErrAgentTaskConflict
+	}
+	return generation, nil
+}
+
+// failExhaustedStep marks a step failed once its infrastructure operation has
+// exhausted retries, so it is never reported as passed or indefinitely queued.
+func failExhaustedStep(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask, step *domain.DevMachineAgentRunStep, phase taskStepPhase, summary string) error {
+	var failed bool
+	if err := tx.GetContext(ctx, &failed, `SELECT EXISTS(SELECT 1 FROM dev_machine_operations WHERE agent_run_id=$1 AND action=$2 AND status='failed')`, task.RunID, phase.action); err != nil {
+		return err
+	}
+	if !failed || step.Status == domain.DevMachineAgentRunStepStatusFailed || step.Status == domain.DevMachineAgentRunStepStatusCancelled {
+		return nil
+	}
+	if err := tx.GetContext(ctx, step, `UPDATE dev_machine_agent_run_steps SET status='failed',completed_at=now(),summary=$2 WHERE id=$1 RETURNING *`, step.ID, summary); err != nil {
+		return err
+	}
+	return validationEvent(ctx, tx, task, step)
+}
+
 func validationEvent(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask, step *domain.DevMachineAgentRunStep) error {
 	if task.ConversationID == nil {
 		return ErrAgentTaskUnauthorized
 	}
-	_, err := conversationEvent(ctx, tx, *task.ConversationID, "task.tests_updated", map[string]any{"task_id": task.ID, "run_id": step.AgentRunID, "step": step})
+	event := "task.tests_updated"
+	if step.StepType == publicationPhase.stepType {
+		event = "task.publication_updated"
+	}
+	_, err := conversationEvent(ctx, tx, *task.ConversationID, event, map[string]any{"task_id": task.ID, "run_id": step.AgentRunID, "step": step})
 	return err
 }
+
+// taskStepPhase binds a post-native task state to the single run step and
+// machine operation allowed to act for it.
+type taskStepPhase struct {
+	action   domain.DevMachineOperationAction
+	state    string
+	stepType string
+	sequence int
+}
+
+var (
+	validationPhase  = taskStepPhase{domain.DevMachineOpValidateAgent, "validating", "validation", 0}
+	publicationPhase = taskStepPhase{domain.DevMachineOpPublishAgent, "publishing", "publication", 1}
+)
 
 // Validation has its own phase authority. Native output writers remain forbidden
 // after native completion. Every write also fences the manager's operation lease.
 func (r *DevMachineRepository) validationTransaction(ctx context.Context, op domain.DevMachineOperation) (*sqlx.Tx, *domain.AgentTask, *domain.DevMachineAgentRunStep, error) {
-	if op.AgentRunID == nil || op.LeaseOwner == nil || op.Action != domain.DevMachineOpValidateAgent {
+	return r.taskStepTransaction(ctx, op, validationPhase)
+}
+
+func (r *DevMachineRepository) taskStepTransaction(ctx context.Context, op domain.DevMachineOperation, phase taskStepPhase) (*sqlx.Tx, *domain.AgentTask, *domain.DevMachineAgentRunStep, error) {
+	if op.AgentRunID == nil || op.LeaseOwner == nil || op.Action != phase.action {
 		return nil, nil, nil, ErrAgentTaskUnauthorized
 	}
 	var run domain.DevMachineAgentRun
@@ -121,11 +158,11 @@ func (r *DevMachineRepository) validationTransaction(ctx context.Context, op dom
 		tx.Rollback()
 		return nil, nil, nil, e
 	}
-	if task.State != "validating" || task.RunID != run.ID || task.MachineID == nil || *task.MachineID != run.MachineID || task.CreatorID != *run.RequestedByUserID || op.WorkspaceID != run.WorkspaceID || op.MachineID != run.MachineID {
+	if task.State != phase.state || task.RunID != run.ID || task.MachineID == nil || *task.MachineID != run.MachineID || task.CreatorID != *run.RequestedByUserID || op.WorkspaceID != run.WorkspaceID || op.MachineID != run.MachineID {
 		return fail(ErrAgentTaskUnauthorized)
 	}
 	var current domain.DevMachineOperation
-	err = tx.GetContext(ctx, &current, `SELECT * FROM dev_machine_operations WHERE id=$1 AND action='validate_agent' AND agent_run_id=$2 AND workspace_id=$3 AND machine_id=$4 AND generation=$5 AND status='leased' AND lease_owner=$6 AND attempts=$7 AND lease_expires_at>clock_timestamp() FOR SHARE`, op.ID, run.ID, run.WorkspaceID, run.MachineID, op.Generation, *op.LeaseOwner, op.Attempts)
+	err = tx.GetContext(ctx, &current, `SELECT * FROM dev_machine_operations WHERE id=$1 AND action=$8 AND agent_run_id=$2 AND workspace_id=$3 AND machine_id=$4 AND generation=$5 AND status='leased' AND lease_owner=$6 AND attempts=$7 AND lease_expires_at>clock_timestamp() FOR SHARE`, op.ID, run.ID, run.WorkspaceID, run.MachineID, op.Generation, *op.LeaseOwner, op.Attempts, phase.action)
 	if errors.Is(err, sql.ErrNoRows) {
 		return fail(ErrAgentTaskConflict)
 	}
@@ -148,7 +185,7 @@ func (r *DevMachineRepository) validationTransaction(ctx context.Context, op dom
 		return fail(ErrAgentTaskUnauthorized)
 	}
 	step := &domain.DevMachineAgentRunStep{}
-	if err = tx.GetContext(ctx, step, `SELECT * FROM dev_machine_agent_run_steps WHERE agent_run_id=$1 AND sequence=0 AND step_type='validation' FOR UPDATE`, run.ID); err != nil {
+	if err = tx.GetContext(ctx, step, `SELECT * FROM dev_machine_agent_run_steps WHERE agent_run_id=$1 AND sequence=$2 AND step_type=$3 FOR UPDATE`, run.ID, phase.sequence, phase.stepType); err != nil {
 		return fail(err)
 	}
 	return tx, task, step, nil

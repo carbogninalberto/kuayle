@@ -111,6 +111,7 @@ func (f *taskStoreFake) FinishCancellation(context.Context, domain.AgentTask, st
 type taskRuntimeFake struct {
 	validation                  *domain.DevMachineAgentRunStep
 	validationErr               error
+	publication                 *domain.DevMachineAgentRunStep
 	ready                       bool
 	prepareErr                  error
 	run                         *domain.DevMachineAgentRun
@@ -417,6 +418,27 @@ func TestTaskValidationUsesIndependentOutcome(t *testing.T) {
 			task := domain.AgentTask{ID: uuid.New(), WorkspaceID: uuid.New(), CreatorID: uuid.New(), State: "validating"}
 			store := &taskStoreFake{task: task}
 			runtime := &taskRuntimeFake{validation: &domain.DevMachineAgentRunStep{Status: tc.status}}
+			service := &AgentTaskService{store: store, runtime: runtime}
+			require.NoError(t, service.step(context.Background(), task))
+			require.Equal(t, tc.want, store.task.State)
+			require.Zero(t, runtime.attempts)
+		})
+	}
+}
+
+func (f *taskRuntimeFake) Publish(context.Context, domain.AgentTask) (*domain.DevMachineAgentRunStep, error) {
+	return f.publication, nil
+}
+
+func TestTaskPublicationReachesReviewOnlyFromRecordedPullRequest(t *testing.T) {
+	for _, tc := range []struct {
+		status domain.DevMachineAgentRunStepStatus
+		want   string
+	}{{"queued", "publishing"}, {"running", "publishing"}, {"succeeded", "awaiting_review"}, {"skipped", "blocked"}, {"failed", "blocked"}, {"cancelled", "blocked"}} {
+		t.Run(string(tc.status), func(t *testing.T) {
+			task := domain.AgentTask{ID: uuid.New(), WorkspaceID: uuid.New(), CreatorID: uuid.New(), State: "publishing"}
+			store := &taskStoreFake{task: task}
+			runtime := &taskRuntimeFake{publication: &domain.DevMachineAgentRunStep{Status: tc.status}}
 			service := &AgentTaskService{store: store, runtime: runtime}
 			require.NoError(t, service.step(context.Background(), task))
 			require.Equal(t, tc.want, store.task.State)

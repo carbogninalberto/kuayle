@@ -1931,5 +1931,12 @@
 	"tasks.check_skipped": "無法驗證：未設定命令",
 	"tasks.check_exit": "結束代碼：{code}",
 	"tasks.check_started": "開始時間：{time}",
-	"tasks.check_finished": "完成時間：{time}"
+	"tasks.check_finished": "完成時間：{time}",
+	"tasks.publication_queued": "等待發布變更",
+	"tasks.publication_running": "正在發布變更",
+	"tasks.publication_succeeded": "已建立拉取請求",
+	"tasks.publication_failed": "發布失敗",
+	"tasks.publication_cancelled": "發布已取消",
+	"tasks.publication_skipped": "沒有可發布的變更",
+	"tasks.open_pull_request": "開啟拉取請求"
 }
