@@ -1959,5 +1959,13 @@
 	"assistant.approval_denied": "已拒絕委派 {identifier}",
 	"assistant.approval_expired": "{identifier} 的核准已過期",
 	"assistant.approval_failed": "無法在 {identifier} 上啟動編碼代理：{error}",
-	"assistant.approval_error": "無法儲存決定，請再試一次。"
+	"assistant.approval_error": "無法儲存決定，請再試一次。",
+	"tasks.signals": "GitHub 檢查與審查",
+	"tasks.signal_ci": "CI {name}：{outcome}",
+	"tasks.signal_review": "{name} 的審查：{outcome}",
+	"tasks.signal_follow_up": "已排入後續嘗試",
+	"tasks.signal_budget_exhausted": "已達自動後續嘗試上限",
+	"tasks.signal_not_reviewable": "任務未處於待審查狀態",
+	"tasks.signal_untrusted": "已忽略：審查者沒有寫入權限",
+	"tasks.signal_follow_up_failed": "無法排入後續嘗試"
 }

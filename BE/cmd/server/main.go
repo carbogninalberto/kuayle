@@ -196,6 +196,8 @@ func main() {
 		globalGitHubApp,
 	)
 	githubSvc.SetTaskReviews(repository.NewAgentTaskRepository(db))
+	taskFeedback := service.NewAgentTaskFeedback(repository.NewAgentTaskRepository(db), agentTaskSvc)
+	githubSvc.SetTaskSignals(taskFeedback)
 	githubH := handler.NewGitHubHandler(githubSvc)
 
 	// Background: clean up expired refresh tokens every hour
@@ -271,6 +273,7 @@ func main() {
 	conversationCtx, stopConversations := context.WithCancel(context.Background())
 	defer stopConversations()
 	go conversationSvc.Run(conversationCtx)
+	go taskFeedback.Run(conversationCtx)
 	go agentTaskSvc.Run(conversationCtx)
 	go telegramSvc.Run(conversationCtx)
 

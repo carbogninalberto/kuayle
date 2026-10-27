@@ -1959,5 +1959,13 @@
 	"assistant.approval_denied": "Denied delegation of {identifier}",
 	"assistant.approval_expired": "Approval for {identifier} expired",
 	"assistant.approval_failed": "Could not start a coding agent on {identifier}: {error}",
-	"assistant.approval_error": "The decision could not be saved. Try again."
+	"assistant.approval_error": "The decision could not be saved. Try again.",
+	"tasks.signals": "GitHub checks and reviews",
+	"tasks.signal_ci": "CI {name}: {outcome}",
+	"tasks.signal_review": "Review by {name}: {outcome}",
+	"tasks.signal_follow_up": "Follow-up attempt queued",
+	"tasks.signal_budget_exhausted": "Automatic follow-up limit reached",
+	"tasks.signal_not_reviewable": "Task was not awaiting review",
+	"tasks.signal_untrusted": "Ignored: reviewer has no write access",
+	"tasks.signal_follow_up_failed": "Follow-up could not be queued"
 }

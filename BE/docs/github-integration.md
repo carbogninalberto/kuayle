@@ -32,9 +32,12 @@ A single GitHub App is pre-configured and shared across all workspaces. Users on
    | Contents | Read and write |
    | Metadata | Read |
    | Issues | Read |
+   | Checks | Read |
 
    **Events to subscribe to:**
    - Pull request
+   - Pull request review
+   - Check suite
    - Push
    - Create (branch/tag)
 
@@ -118,3 +121,12 @@ The bot acquires the existing workspace publication guard before the PR advisory
 An API/network/permission failure returns a failed webhook response while retaining the PR's existing linkage. Redelivering an opened event for an already stored PR does not reapply its opened status transition. Sanitized comment failures are logged with workspace, repository, PR number and the comment API HTTP status when available. Fix the app permissions or installation access, or wait for the GitHub rate limit/outage to recover, then redeliver the failed `opened` event from the GitHub App's webhook delivery page. GitHub does **not** automatically redeliver failed deliveries. Token acquisition, lock waits and comment requests share an eight-second deadline. Comments use bounded requests and do not blindly retry POSTs; GitHub supplies no atomic idempotency key, so reconciliation depends on the accepted comment becoming visible to its comments API. Do not delete the marker when editing the bot comment.
 
 References: [GitHub issue-comment API and permissions](https://docs.github.com/en/rest/issues/comments#create-an-issue-comment), [failed webhook deliveries](https://docs.github.com/en/webhooks/using-webhooks/handling-failed-webhook-deliveries).
+
+## Agent task CI and review feedback
+
+Coding-agent pull requests use **Checks: Read** with the **Check suite** and
+**Pull request review** events. Manifest-created apps request them automatically.
+Existing apps and the shared app must add them in the GitHub App settings, and
+each installation owner must accept the updated permissions. Without them, tasks
+still publish and complete on merge but never receive CI or review signals. See
+the [agent task contract](agent-tasks.md#ci-and-review-feedback).

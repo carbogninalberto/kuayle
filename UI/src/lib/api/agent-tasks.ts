@@ -51,6 +51,21 @@ export interface PublicationView {
 	branch?: string | null;
 	pull_request_url?: string | null;
 }
+export interface TaskSignal {
+	id: string;
+	task_id: string;
+	run_id: string;
+	kind: 'ci' | 'review';
+	external_id: string;
+	outcome: string;
+	name: string;
+	summary: string;
+	url: string;
+	action: 'recorded' | 'follow_up' | 'budget_exhausted' | 'not_reviewable' | 'untrusted' | 'follow_up_failed';
+	follow_up_generation?: number;
+	created_at: string;
+	updated_at: string;
+}
 export interface TaskActivity {
 	task_id: string;
 	run_id: string;
@@ -105,6 +120,7 @@ export const agentTasks = {
 		),
 	validation: (slug: string, id: string, run: string) =>
 		api.get<ValidationStep | null>(`${task(slug, id)}/runs/${encodeURIComponent(run)}/validation`),
+	signals: (slug: string, id: string) => api.get<TaskSignal[]>(`${task(slug, id)}/signals`),
 	publication: (slug: string, id: string, run: string) =>
 		api.get<PublicationView>(`${task(slug, id)}/runs/${encodeURIComponent(run)}/publication`),
 	logs: (slug: string, id: string, run: string, after = 0) =>

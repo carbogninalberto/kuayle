@@ -114,6 +114,35 @@ Agent-controlled git configuration can still run programs during the
 credential-free commit step (for example clean filters); that runs with the same
 privileges the agent already had and no publication credential.
 
+## CI and review feedback
+
+Migration 62 adds `agent_task_signals`. Completed `check_suite` events and
+submitted `pull_request_review` events for a linked, active repository are
+recorded for each task whose **current** attempt recorded that pull request; CI
+also has to target the attempt's published commit, so results for older commits
+are ignored. The repository name comes from Kuayle's link, never the payload.
+Each external event is recorded once (redelivery updates the stored outcome) and
+emits `task.signal_recorded`. Outcomes are normalized identifiers; review text is
+bounded, untrusted data. `GET /agent-tasks/:taskId/signals` lists them under
+current task permissions, and the task card shows them in its execution details.
+
+While the task is `awaiting_review`, a CI `failure`/`timed_out` or a
+`changes_requested` review queues a follow-up attempt on the same branch through
+the existing retry path, acting as the task creator under their current
+permissions. Only reviewers with an `OWNER`, `MEMBER` or `COLLABORATOR`
+association can trigger one; other reviews are recorded as `untrusted`. Budgets
+are two automatic CI fixes and five review follow-ups per task; further signals
+are recorded as `budget_exhausted`. The follow-up keeps the original
+instructions, replaces any earlier follow-up section, and explains the failing
+suite or the fenced review text. Its request ID is derived from the task,
+attempt and event, so redelivery and recovery replay the same attempt. A
+permanent refusal records `follow_up_failed`. Because GitHub does not redeliver
+failed webhooks automatically, a background loop resumes follow-ups left
+unqueued by transient errors after 30 seconds. CI logs are not fetched: the
+agent has no GitHub credential and must reproduce failures with the configured
+test command. The new attempt then revalidates and republishes to the same pull
+request.
+
 ## Review completion
 
 GitHub remains the authority for merges, and merging requires the repository's
@@ -258,8 +287,8 @@ results.
 
 The worker currently progresses through preparation, native execution,
 independent validation and publication to `awaiting_review`, and completes when
-the recorded pull request merges. CI status, review feedback handling and explicit
-in-app acceptance are not yet implemented. Repository-level retry support does not yet provide native session
+the recorded pull request merges. CI failures and trusted change requests
+queue bounded follow-up attempts. Explicit in-app acceptance is not implemented. Repository-level retry support does not yet provide native session
 resume or a review workflow. Native
 sessions and durable approval flows remain separate work; a successful process
 exit must never mark an issue Done.

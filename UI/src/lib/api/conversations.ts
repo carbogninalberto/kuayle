@@ -40,6 +40,7 @@ export interface ConversationEvent {
 		| 'task.activity'
 		| 'task.tests_updated'
 		| 'task.publication_updated'
+		| 'task.signal_recorded'
 		| 'tool.started'
 		| 'tool.completed'
 		| 'approval.requested'

@@ -220,3 +220,15 @@ func (h *AgentTaskHandler) Publication(c echo.Context) error {
 	}
 	return response.Success(c, http.StatusOK, result)
 }
+
+func (h *AgentTaskHandler) Signals(c echo.Context) error {
+	id, err := taskID(c, "taskId")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	result, err := h.svc.Repo.Signals(c.Request().Context(), middleware.GetWorkspace(c).ID, id)
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	return response.Success(c, http.StatusOK, result)
+}

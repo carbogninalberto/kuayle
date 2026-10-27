@@ -1959,5 +1959,13 @@
 	"assistant.approval_denied": "已拒绝委派 {identifier}",
 	"assistant.approval_expired": "{identifier} 的批准已过期",
 	"assistant.approval_failed": "无法在 {identifier} 上启动编码代理：{error}",
-	"assistant.approval_error": "无法保存决定，请重试。"
+	"assistant.approval_error": "无法保存决定，请重试。",
+	"tasks.signals": "GitHub 检查与审查",
+	"tasks.signal_ci": "CI {name}：{outcome}",
+	"tasks.signal_review": "{name} 的审查：{outcome}",
+	"tasks.signal_follow_up": "已排队后续尝试",
+	"tasks.signal_budget_exhausted": "已达到自动后续尝试上限",
+	"tasks.signal_not_reviewable": "任务未处于待审查状态",
+	"tasks.signal_untrusted": "已忽略：审查者没有写入权限",
+	"tasks.signal_follow_up_failed": "无法排队后续尝试"
 }

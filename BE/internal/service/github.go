@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -53,10 +54,21 @@ type GitHubService struct {
 	installationAccess func(ctx context.Context, code string, installationID int64) (bool, error)
 	// taskReviews finalizes agent tasks whose recorded pull request merged.
 	taskReviews mergedPullRequestCompleter
+	// taskSignals records CI and review events for agent task pull requests.
+	taskSignals taskSignalRecorder
 }
 
 type mergedPullRequestCompleter interface {
 	CompleteMergedPullRequest(ctx context.Context, workspaceID uuid.UUID, repository string, number int) (int, error)
+}
+
+type taskSignalRecorder interface {
+	Record(ctx context.Context, ws uuid.UUID, repository string, number int, in domain.AgentTaskSignalInput) error
+}
+
+// SetTaskSignals lets CI and review webhooks drive agent task follow-ups.
+func (s *GitHubService) SetTaskSignals(signals taskSignalRecorder) {
+	s.taskSignals = signals
 }
 
 // SetTaskReviews lets merged pull request webhooks complete agent tasks.
@@ -172,9 +184,12 @@ func (s *GitHubService) GetManifest(workspaceID uuid.UUID, slug string) (map[str
 			"contents":      "write",
 			"metadata":      "read",
 			"issues":        "read",
+			"checks":        "read",
 		},
 		"default_events": []string{
 			"pull_request",
+			"pull_request_review",
+			"check_suite",
 			"push",
 			"create",
 		},
@@ -605,6 +620,10 @@ func (s *GitHubService) HandleWebhookEvent(ctx context.Context, eventType string
 	switch eventType {
 	case "pull_request":
 		return s.processPullRequestEvent(ctx, payload)
+	case "check_suite":
+		return s.processCheckSuiteEvent(ctx, payload)
+	case "pull_request_review":
+		return s.processReviewEvent(ctx, payload)
 	case "push":
 		return s.processPushEvent(ctx, payload)
 	case "create":
@@ -1263,6 +1282,123 @@ func (s *GitHubService) UpdateAutoTransitions(ctx context.Context, workspaceID u
 		if err := s.ghRepo.UpsertAutoTransition(ctx, t); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+var signalOutcome = regexp.MustCompile(`^[a-z_]{1,32}$`)
+
+func normalizedOutcome(value string) string {
+	value = strings.ToLower(value)
+	if !signalOutcome.MatchString(value) {
+		return "unknown"
+	}
+	return value
+}
+
+// linkedRepository resolves a webhook's installation and active linked
+// repository. The repository name always comes from Kuayle's link.
+func (s *GitHubService) linkedRepository(ctx context.Context, installationID, repositoryID int64) (*domain.GitHubInstallation, *domain.GitHubRepoModel, error) {
+	inst, err := s.ghRepo.GetInstallationByGitHubID(ctx, installationID)
+	if err != nil || inst == nil {
+		return nil, nil, err
+	}
+	repo, err := s.ghRepo.GetRepoByGitHubID(ctx, inst.WorkspaceID, repositoryID)
+	if err != nil || repo == nil || !repo.IsActive || repo.InstallationID != inst.ID {
+		return nil, nil, err
+	}
+	return inst, repo, nil
+}
+
+func (s *GitHubService) processCheckSuiteEvent(ctx context.Context, payload []byte) error {
+	var event struct {
+		Action     string `json:"action"`
+		CheckSuite struct {
+			ID         int64  `json:"id"`
+			HeadSHA    string `json:"head_sha"`
+			Conclusion string `json:"conclusion"`
+			App        struct {
+				Name string `json:"name"`
+			} `json:"app"`
+			PullRequests []struct {
+				Number int `json:"number"`
+			} `json:"pull_requests"`
+		} `json:"check_suite"`
+		Repository struct {
+			ID int64 `json:"id"`
+		} `json:"repository"`
+		Installation struct {
+			ID int64 `json:"id"`
+		} `json:"installation"`
+	}
+	if err := json.Unmarshal(payload, &event); err != nil {
+		return fmt.Errorf("unmarshaling check suite event: %w", err)
+	}
+	if s.taskSignals == nil || event.Action != "completed" || event.CheckSuite.ID <= 0 || event.CheckSuite.HeadSHA == "" {
+		return nil
+	}
+	inst, repo, err := s.linkedRepository(ctx, event.Installation.ID, event.Repository.ID)
+	if err != nil || repo == nil {
+		return err
+	}
+	for i, pr := range event.CheckSuite.PullRequests {
+		if i >= 10 || pr.Number <= 0 {
+			break
+		}
+		in := domain.AgentTaskSignalInput{
+			Kind: "ci", ExternalID: strconv.FormatInt(event.CheckSuite.ID, 10), Outcome: normalizedOutcome(event.CheckSuite.Conclusion),
+			Name: truncateRunes(event.CheckSuite.App.Name, 200), HeadSHA: event.CheckSuite.HeadSHA,
+			URL: fmt.Sprintf("https://github.com/%s/pull/%d/checks", repo.FullName, pr.Number),
+		}
+		if err := s.taskSignals.Record(ctx, inst.WorkspaceID, repo.FullName, pr.Number, in); err != nil {
+			return fmt.Errorf("recording check suite: %w", err)
+		}
+	}
+	return nil
+}
+
+func (s *GitHubService) processReviewEvent(ctx context.Context, payload []byte) error {
+	var event struct {
+		Action string `json:"action"`
+		Review struct {
+			ID                int64  `json:"id"`
+			State             string `json:"state"`
+			Body              string `json:"body"`
+			AuthorAssociation string `json:"author_association"`
+			User              struct {
+				Login string `json:"login"`
+			} `json:"user"`
+		} `json:"review"`
+		PullRequest struct {
+			Number int `json:"number"`
+		} `json:"pull_request"`
+		Repository struct {
+			ID int64 `json:"id"`
+		} `json:"repository"`
+		Installation struct {
+			ID int64 `json:"id"`
+		} `json:"installation"`
+	}
+	if err := json.Unmarshal(payload, &event); err != nil {
+		return fmt.Errorf("unmarshaling review event: %w", err)
+	}
+	if s.taskSignals == nil || event.Action != "submitted" || event.Review.ID <= 0 || event.PullRequest.Number <= 0 {
+		return nil
+	}
+	inst, repo, err := s.linkedRepository(ctx, event.Installation.ID, event.Repository.ID)
+	if err != nil || repo == nil {
+		return err
+	}
+	// Only reviewers with write association can steer a coding agent.
+	association := event.Review.AuthorAssociation
+	in := domain.AgentTaskSignalInput{
+		Kind: "review", ExternalID: strconv.FormatInt(event.Review.ID, 10), Outcome: normalizedOutcome(event.Review.State),
+		Name: truncateRunes(event.Review.User.Login, 200), Summary: truncateRunes(event.Review.Body, 4000),
+		URL:     fmt.Sprintf("https://github.com/%s/pull/%d", repo.FullName, event.PullRequest.Number),
+		Trusted: association == "OWNER" || association == "MEMBER" || association == "COLLABORATOR",
+	}
+	if err := s.taskSignals.Record(ctx, inst.WorkspaceID, repo.FullName, event.PullRequest.Number, in); err != nil {
+		return fmt.Errorf("recording review: %w", err)
 	}
 	return nil
 }

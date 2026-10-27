@@ -80,3 +80,71 @@ func TestMergedPullRequestWebhookCompletesAgentTasks(t *testing.T) {
 	require.NoError(t, svc.HandleWebhookEvent(ctx, "pull_request", event("closed", true, 8)))
 	require.Len(t, recorder.calls, 1, "inactive repositories cannot complete tasks")
 }
+
+type signalRecorder struct {
+	inputs  []domain.AgentTaskSignalInput
+	repos   []string
+	numbers []int
+}
+
+func (r *signalRecorder) Record(_ context.Context, _ uuid.UUID, repository string, number int, in domain.AgentTaskSignalInput) error {
+	r.inputs, r.repos, r.numbers = append(r.inputs, in), append(r.repos, repository), append(r.numbers, number)
+	return nil
+}
+
+func TestCheckSuiteAndReviewWebhooksRecordTaskSignals(t *testing.T) {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Skip("DATABASE_URL is not set")
+	}
+	db, err := repository.Open(dsn)
+	require.NoError(t, err)
+	t.Cleanup(func() { db.Close() })
+	ctx := context.Background()
+	owner, ws := uuid.New(), uuid.New()
+	_, err = db.Exec(`INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,'Signals test','hash')`, owner, owner.String()+"@test.invalid")
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM users WHERE id=$1`, owner) })
+	_, err = db.Exec(`INSERT INTO workspaces(id,name,slug,owner_id) VALUES($1,'Signals test',$2,$3)`, ws, ws.String(), owner)
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM workspaces WHERE id=$1`, ws) })
+	repo := repository.NewGitHubRepository(db)
+	inst := &domain.GitHubInstallation{ID: uuid.New(), WorkspaceID: ws, InstallationID: time.Now().UnixNano(), AccountLogin: "acme", AccountType: "Organization", InstalledBy: owner}
+	require.NoError(t, repo.CreateInstallation(ctx, inst))
+	linked := &domain.GitHubRepoModel{ID: uuid.New(), WorkspaceID: ws, InstallationID: inst.ID, GitHubRepoID: time.Now().UnixNano(), FullName: "acme/app", DefaultBranch: "main", IsActive: true}
+	require.NoError(t, repo.CreateRepo(ctx, linked))
+	recorder := &signalRecorder{}
+	svc := NewGitHubService(repo, repository.NewIssueRepository(db), nil, nil, nil, nil, nil, "https://kuayle.test", "", nil)
+	svc.SetTaskSignals(recorder)
+	send := func(kind string, body map[string]any) {
+		body["repository"] = map[string]any{"id": linked.GitHubRepoID, "full_name": "attacker/other"}
+		body["installation"] = map[string]any{"id": inst.InstallationID}
+		payload, err := json.Marshal(body)
+		require.NoError(t, err)
+		require.NoError(t, svc.HandleWebhookEvent(ctx, kind, payload))
+	}
+	suite := func(action, conclusion string) map[string]any {
+		return map[string]any{"action": action, "check_suite": map[string]any{"id": 77, "head_sha": "abc123", "conclusion": conclusion, "app": map[string]any{"name": "GitHub Actions"}, "pull_requests": []any{map[string]any{"number": 12}}}}
+	}
+	send("check_suite", suite("requested", ""))
+	require.Empty(t, recorder.inputs, "only completed suites carry an outcome")
+	send("check_suite", suite("completed", "FAILURE"))
+	require.Len(t, recorder.inputs, 1)
+	require.Equal(t, domain.AgentTaskSignalInput{Kind: "ci", ExternalID: "77", Outcome: "failure", Name: "GitHub Actions", HeadSHA: "abc123", URL: "https://github.com/acme/app/pull/12/checks"}, recorder.inputs[0])
+	require.Equal(t, "acme/app", recorder.repos[0], "the repository comes from Kuayle's link, not the payload")
+	require.Equal(t, 12, recorder.numbers[0])
+	review := func(association string) map[string]any {
+		return map[string]any{"action": "submitted", "pull_request": map[string]any{"number": 12}, "review": map[string]any{"id": 5, "state": "changes_requested", "body": "Rename it", "author_association": association, "user": map[string]any{"login": "reviewer"}}}
+	}
+	send("pull_request_review", review("CONTRIBUTOR"))
+	send("pull_request_review", review("MEMBER"))
+	require.Len(t, recorder.inputs, 3)
+	require.False(t, recorder.inputs[1].Trusted)
+	require.True(t, recorder.inputs[2].Trusted)
+	require.Equal(t, "changes_requested", recorder.inputs[2].Outcome)
+	require.Equal(t, "Rename it", recorder.inputs[2].Summary)
+	_, err = db.Exec(`UPDATE github_repos SET is_active=false WHERE id=$1`, linked.ID)
+	require.NoError(t, err)
+	send("check_suite", suite("completed", "failure"))
+	require.Len(t, recorder.inputs, 3, "inactive repositories are ignored")
+}

@@ -173,3 +173,37 @@ type AgentPublicationResult struct {
 	PullRequestNumber int
 	PullRequestURL    string
 }
+
+// AgentTaskSignal is a GitHub CI or review event for a task attempt's recorded
+// pull request. Summary text comes from GitHub and is untrusted.
+type AgentTaskSignal struct {
+	ID                 uuid.UUID `json:"id" db:"id"`
+	TaskID             uuid.UUID `json:"task_id" db:"task_id"`
+	RunID              uuid.UUID `json:"run_id" db:"run_id"`
+	Kind               string    `json:"kind" db:"kind"`
+	ExternalID         string    `json:"external_id" db:"external_id"`
+	Outcome            string    `json:"outcome" db:"outcome"`
+	Name               string    `json:"name" db:"name"`
+	Summary            string    `json:"summary" db:"summary"`
+	URL                string    `json:"url" db:"url"`
+	Action             string    `json:"action" db:"action"`
+	RequestID          uuid.UUID `json:"-" db:"request_id"`
+	FollowUpGeneration *int64    `json:"follow_up_generation,omitempty" db:"follow_up_generation"`
+	CreatedAt          time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at" db:"updated_at"`
+}
+
+// AgentTaskSignalInput is one normalized GitHub event for a pull request.
+type AgentTaskSignalInput struct {
+	Kind, ExternalID, Outcome, Name, Summary, URL string
+	// HeadSHA must match the published commit for CI; reviews leave it empty.
+	HeadSHA string
+	// Trusted is false for reviews by authors without write association.
+	Trusted bool
+}
+
+// AgentTaskFollowUp is a follow-up attempt the caller must request.
+type AgentTaskFollowUp struct {
+	Signal AgentTaskSignal
+	Task   AgentTask
+}

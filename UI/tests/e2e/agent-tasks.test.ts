@@ -24,6 +24,7 @@ async function fixture(page: Page) {
 		validation: null as any,
 		publication: { step: null } as any,
 		publications: 0,
+		signals: [] as any[],
 		creates: [] as any[],
 		retries: [] as any[],
 		cancels: 0,
@@ -136,6 +137,7 @@ async function fixture(page: Page) {
 					}
 				});
 			if (path.endsWith('/validation')) return route.fulfill({ json: state.validation });
+			if (path.endsWith('/signals')) return route.fulfill({ json: state.signals });
 			if (path.endsWith('/publication')) {
 				state.publications++;
 				return route.fulfill({ json: state.publication });
@@ -448,4 +450,50 @@ test('opens the recorded pull request only after publication succeeds', async ({
 	await page.reload();
 	await expect(link).toHaveAttribute('href', 'https://github.com/acme/app/pull/12');
 	expect(state.creates).toHaveLength(1);
+});
+
+test('shows GitHub CI and review signals with the follow-up they caused', async ({ page }) => {
+	const { state, emit } = await fixture(page);
+	await page.goto('/test/assistant?conversation=chat-1');
+	await delegate(page);
+	state.task = { ...state.task, state: 'awaiting_review', reason: 'Pull request opened; waiting for human review' };
+	emit('task.state_changed', state.task);
+	await page.getByRole('button', { name: 'Execution details', exact: true }).click();
+	const section = page.getByRole('region', { name: 'GitHub checks and reviews', exact: true });
+	await expect(section).toHaveCount(0);
+	const base = {
+		task_id: 'task-1',
+		run_id: 'run-1',
+		summary: '',
+		url: 'https://github.com/acme/app/pull/12',
+		created_at: '2026-10-27T10:00:00Z',
+		updated_at: '2026-10-27T10:00:00Z'
+	};
+	state.signals = [
+		{
+			...base,
+			id: 's2',
+			kind: 'review',
+			external_id: '5',
+			outcome: 'changes_requested',
+			name: '<script>window.evil=1</script>',
+			action: 'untrusted'
+		},
+		{
+			...base,
+			id: 's1',
+			kind: 'ci',
+			external_id: '77',
+			outcome: 'failure',
+			name: 'GitHub Actions',
+			action: 'follow_up',
+			follow_up_generation: 2
+		}
+	];
+	emit('task.signal_recorded', state.signals[1]);
+	await expect(section.getByText('CI GitHub Actions: failure', { exact: true })).toBeVisible();
+	await expect(section.getByText('Follow-up attempt queued', { exact: true })).toBeVisible();
+	await expect(section.getByText('Ignored: reviewer has no write access', { exact: true })).toBeVisible();
+	await expect(section.getByText('<script>window.evil=1</script>', { exact: false })).toBeVisible();
+	expect(await page.evaluate(() => (window as any).evil)).toBeUndefined();
 });

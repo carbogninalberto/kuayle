@@ -18,6 +18,7 @@
 		agentTasks,
 		type AgentTask,
 		type PublicationView,
+		type TaskSignal,
 		type TaskTransition,
 		type ValidationStep
 	} from '$lib/api/agent-tasks';
@@ -48,6 +49,15 @@
 		logsAfter = $state<number | undefined>();
 	let validation = $state<ValidationStep | null>(null);
 	let publication = $state<PublicationView | null>(null);
+	let signals = $state<TaskSignal[]>([]);
+	const signalAction: Record<TaskSignal['action'], (() => string) | undefined> = {
+		recorded: undefined,
+		follow_up: m['tasks.signal_follow_up'],
+		budget_exhausted: m['tasks.signal_budget_exhausted'],
+		not_reviewable: m['tasks.signal_not_reviewable'],
+		untrusted: m['tasks.signal_untrusted'],
+		follow_up_failed: m['tasks.signal_follow_up_failed']
+	};
 	let selectedRun = $state(untrack(() => task.run_id));
 	let seenAttempt = untrack(() => task.run_id),
 		disposed = false,
@@ -109,11 +119,13 @@
 		error = '';
 		const runID = selectedRun;
 		try {
-			const [attempts, events] = await Promise.all([
+			const [attempts, events, recorded] = await Promise.all([
 				agentTasks.runs(chat.slug, task.id),
-				agentTasks.history(chat.slug, task.id, history.at(-1)?.sequence ?? 0)
+				agentTasks.history(chat.slug, task.id, history.at(-1)?.sequence ?? 0),
+				agentTasks.signals(chat.slug, task.id)
 			]);
 			if (disposed || chat.unavailable) return;
+			signals = recorded;
 			const existing = new Map(runs.map((run) => [run.id, run]));
 			for (const run of attempts.runs) existing.set(run.id, run);
 			runs = [...existing.values()];
@@ -166,7 +178,15 @@
 		if (!run) return;
 	});
 	$effect(() => {
-		const observed = [open, task.state, task.run_id, selectedRun, activity?.log_id, chat.taskValidationCursor[task.id]];
+		const observed = [
+			open,
+			task.state,
+			task.run_id,
+			selectedRun,
+			activity?.log_id,
+			chat.taskValidationCursor[task.id],
+			chat.taskSignalCursor[task.id]
+		];
 		// Throttle from the first event: a continuous stream must not keep
 		// postponing output until the native process becomes quiet.
 		if (!observed[0]) {
@@ -276,6 +296,29 @@
 						>{m['tasks.more_runs']()}</Button
 					>{/if}
 				<TestResults step={validation} output={checkOutput} />
+				{#if signals.length}<section aria-label={m['tasks.signals']()} class="min-w-0 space-y-1">
+						{#each signals as signal (signal.id)}
+							{@const note = signalAction[signal.action]}
+							<Trace.Line
+								class="items-start"
+								status={signal.outcome === 'failure' ||
+								signal.outcome === 'timed_out' ||
+								signal.outcome === 'changes_requested'
+									? 'error'
+									: undefined}
+								><Trace.Icon
+									>{#if signal.kind === 'ci'}<CircleCheck />{:else}<GitPullRequest />{/if}</Trace.Icon
+								><span class="min-w-0 flex-1"
+									><Trace.Title class="block whitespace-normal break-words"
+										>{signal.kind === 'ci'
+											? m['tasks.signal_ci']({ name: signal.name, outcome: signal.outcome })
+											: m['tasks.signal_review']({ name: signal.name, outcome: signal.outcome })}</Trace.Title
+									>{#if note}<Trace.Description class="block whitespace-normal break-words">{note()}</Trace.Description
+										>{/if}</span
+								></Trace.Line
+							>
+						{/each}
+					</section>{/if}
 				{#if publication?.step && publication.step.agent_run_id === selectedRun}<Trace.Line
 						status={publication.step.status === 'failed'
 							? 'error'

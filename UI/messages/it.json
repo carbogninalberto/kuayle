@@ -1959,5 +1959,13 @@
 	"assistant.approval_denied": "Delega di {identifier} rifiutata",
 	"assistant.approval_expired": "Approvazione per {identifier} scaduta",
 	"assistant.approval_failed": "Impossibile avviare un agente di codice su {identifier}: {error}",
-	"assistant.approval_error": "Impossibile salvare la decisione. Riprova."
+	"assistant.approval_error": "Impossibile salvare la decisione. Riprova.",
+	"tasks.signals": "Controlli e revisioni GitHub",
+	"tasks.signal_ci": "CI {name}: {outcome}",
+	"tasks.signal_review": "Revisione di {name}: {outcome}",
+	"tasks.signal_follow_up": "Nuovo tentativo in coda",
+	"tasks.signal_budget_exhausted": "Limite di tentativi automatici raggiunto",
+	"tasks.signal_not_reviewable": "L'attività non era in revisione",
+	"tasks.signal_untrusted": "Ignorata: il revisore non ha accesso in scrittura",
+	"tasks.signal_follow_up_failed": "Impossibile accodare il nuovo tentativo"
 }
