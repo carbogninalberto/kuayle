@@ -8,8 +8,8 @@ activity through AI Elements Task/Trace and Model Selector compositions. The ass
 conversational; structured orchestrator delegation is still pending. Native
 success is followed by an independent check (migration 58) and deterministic
 publication of a pull request (migration 59), after which the task waits in
-`awaiting_review`. Review feedback, CI tracking and acceptance are not yet
-implemented. This is not a completed autonomous development workflow.
+`awaiting_review` until GitHub reports that pull request merged. Review feedback
+handling and CI tracking are not yet implemented. This is not a completed autonomous development workflow.
 
 Migration 56 adds tasks and transition history, task-specific checkout scopes,
 immutable native-attempt ownership, encrypted recovery credentials and log-source
@@ -113,6 +113,19 @@ the task with its validated work intact. Cancellation marks open steps cancelled
 Agent-controlled git configuration can still run programs during the
 credential-free commit step (for example clean filters); that runs with the same
 privileges the agent already had and no publication credential.
+
+## Review completion
+
+GitHub remains the authority for merges, and merging requires the repository's
+own human review rules. When a `pull_request` webhook for a linked, active
+repository reports `merged`, each task in `awaiting_review` whose **current**
+attempt recorded that repository and pull request number moves to `completed`
+with no user actor and the reason `Pull request #N was merged on GitHub`. The
+repository name comes from Kuayle's repository link, never from the webhook body.
+Each task is re-checked under its own lock, so a concurrent follow-up attempt or a
+redelivered webhook completes nothing. Closing without merging changes nothing;
+the task stays reviewable and can be retried. The issue's own status follows the
+existing `pr_merged` GitHub automation.
 
 ## Authorization and side effects
 
@@ -244,8 +257,9 @@ results.
 ## Remaining workflow work
 
 The worker currently progresses through preparation, native execution,
-independent validation and publication to `awaiting_review`. CI status, review
-feedback handling and human acceptance (`completed`) are not yet implemented. Repository-level retry support does not yet provide native session
+independent validation and publication to `awaiting_review`, and completes when
+the recorded pull request merges. CI status, review feedback handling and explicit
+in-app acceptance are not yet implemented. Repository-level retry support does not yet provide native session
 resume or a review workflow. Native
 sessions and durable approval flows remain separate work; a successful process
 exit must never mark an issue Done.

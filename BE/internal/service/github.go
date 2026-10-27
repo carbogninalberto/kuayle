@@ -51,6 +51,17 @@ type GitHubService struct {
 	globalApp      *GlobalGitHubAppConfig // nil = self-hosted mode
 	// installationAccess verifies a shared-app installation callback.
 	installationAccess func(ctx context.Context, code string, installationID int64) (bool, error)
+	// taskReviews finalizes agent tasks whose recorded pull request merged.
+	taskReviews mergedPullRequestCompleter
+}
+
+type mergedPullRequestCompleter interface {
+	CompleteMergedPullRequest(ctx context.Context, workspaceID uuid.UUID, repository string, number int) (int, error)
+}
+
+// SetTaskReviews lets merged pull request webhooks complete agent tasks.
+func (s *GitHubService) SetTaskReviews(reviews mergedPullRequestCompleter) {
+	s.taskReviews = reviews
 }
 
 // IsGlobalMode returns true when a shared GitHub App is configured via env vars.
@@ -732,6 +743,11 @@ func (s *GitHubService) processPullRequestEvent(ctx context.Context, payload []b
 	inserted, err := s.ghRepo.UpsertPullRequest(ctx, pr)
 	if err != nil {
 		return fmt.Errorf("upserting PR: %w", err)
+	}
+	if event.PullRequest.Merged && s.taskReviews != nil {
+		if _, err := s.taskReviews.CompleteMergedPullRequest(ctx, inst.WorkspaceID, repo.FullName, event.PullRequest.Number); err != nil {
+			return fmt.Errorf("completing merged agent tasks: %w", err)
+		}
 	}
 
 	if issue != nil {

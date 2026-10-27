@@ -177,3 +177,40 @@ func TestPublicationRejectsRevokedAuthority(t *testing.T) {
 		})
 	}
 }
+
+func TestMergedPullRequestCompletesOnlyTheRecordedReviewTask(t *testing.T) {
+	db, repo, ctx, task, claimed := publishingTask(t)
+	_, err := repo.EnsurePublication(ctx, *claimed)
+	require.NoError(t, err)
+	store := NewDevMachineRepository(db)
+	op := leasePublication(t, store, ctx)
+	require.NoError(t, store.StartPublication(ctx, op))
+	require.NoError(t, store.CompletePublication(ctx, op, domain.AgentPublicationResult{Branch: "kuayle/rec-1", Commit: "0123456789abcdef0123456789abcdef01234567", PullRequestNumber: 12, PullRequestURL: "https://github.com/fixture/repo/pull/12"}))
+	require.NoError(t, store.CompleteOperation(ctx, op.ID, *op.LeaseOwner))
+	background := context.Background()
+	n, err := repo.CompleteMergedPullRequest(background, task.WorkspaceID, "fixture/repo", 12)
+	require.NoError(t, err)
+	require.Zero(t, n, "publishing is not yet reviewable")
+	require.NoError(t, repo.Transition(ctx, *claimed, "awaiting_review", "Published"))
+	for _, other := range []struct {
+		workspace uuid.UUID
+		repo      string
+		number    int
+	}{{uuid.New(), "fixture/repo", 12}, {task.WorkspaceID, "other/repo", 12}, {task.WorkspaceID, "fixture/repo", 13}} {
+		n, err = repo.CompleteMergedPullRequest(background, other.workspace, other.repo, other.number)
+		require.NoError(t, err)
+		require.Zero(t, n)
+	}
+	n, err = repo.CompleteMergedPullRequest(background, task.WorkspaceID, "Fixture/Repo", 12)
+	require.NoError(t, err)
+	require.Equal(t, 1, n)
+	n, err = repo.CompleteMergedPullRequest(background, task.WorkspaceID, "fixture/repo", 12)
+	require.NoError(t, err)
+	require.Zero(t, n, "webhook redelivery is idempotent")
+	current, err := repo.Get(ctx, task.WorkspaceID, task.ID)
+	require.NoError(t, err)
+	require.Equal(t, "completed", current.State)
+	var actor *uuid.UUID
+	require.NoError(t, db.Get(&actor, `SELECT actor_id FROM agent_task_transitions WHERE task_id=$1 AND to_state='completed'`, task.ID))
+	require.Nil(t, actor)
+}

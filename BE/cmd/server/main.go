@@ -192,6 +192,7 @@ func main() {
 		crypto.DeriveKey(cfg.JWTSecret+":github"), hub, cfg.FrontendURL, cfg.GitHubWebhookURL,
 		globalGitHubApp,
 	)
+	githubSvc.SetTaskReviews(repository.NewAgentTaskRepository(db))
 	githubH := handler.NewGitHubHandler(githubSvc)
 
 	// Background: clean up expired refresh tokens every hour
