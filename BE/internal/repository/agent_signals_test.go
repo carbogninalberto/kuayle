@@ -137,3 +137,23 @@ func TestPendingFollowUpsResumeOnlyStaleUnqueuedSignals(t *testing.T) {
 	require.NoError(t, db.Get(&action, `SELECT action FROM agent_task_signals WHERE id=$1`, signal.ID))
 	require.Equal(t, "follow_up_failed", action)
 }
+
+func TestRetryFindsThePreviousAttemptsRecordedOutcome(t *testing.T) {
+	_, repo, ctx, task := reviewableTask(t)
+	current, err := repo.Get(ctx, task.WorkspaceID, task.ID)
+	require.NoError(t, err)
+	none, err := repo.PreviousAttempt(ctx, *current)
+	require.NoError(t, err)
+	require.Nil(t, none, "a first attempt has no predecessor")
+	retried, err := repo.Retry(ctx, task.WorkspaceID, task.ID, domain.AgentTaskRetryRequest{RequestID: uuid.New(), Generation: current.Generation, Prompt: "Address review feedback"})
+	require.NoError(t, err)
+	require.NotEqual(t, current.RunID, retried.RunID)
+	previous, err := repo.PreviousAttempt(ctx, *retried)
+	require.NoError(t, err)
+	require.NotNil(t, previous)
+	require.Equal(t, current.RunID, previous.AttemptID)
+	require.Equal(t, "succeeded", previous.Status)
+	require.Equal(t, "succeeded", previous.Validation)
+	require.Equal(t, 0, *previous.ValidationExitCode)
+	require.Equal(t, "https://github.com/fixture/repo/pull/12", previous.PullRequestURL)
+}

@@ -207,3 +207,16 @@ type AgentTaskFollowUp struct {
 	Signal AgentTaskSignal
 	Task   AgentTask
 }
+
+// AgentHandoff summarizes the previous attempt for its successor. Native
+// harness sessions are not restored across attempts, so a successor receives
+// this explicit handoff instead of hidden context.
+type AgentHandoff struct {
+	AttemptID          uuid.UUID
+	Status             string
+	Summary            string
+	ChangedFiles       []string
+	Validation         string
+	ValidationExitCode *int
+	PullRequestURL     string
+}

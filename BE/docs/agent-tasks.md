@@ -114,6 +114,19 @@ Agent-controlled git configuration can still run programs during the
 credential-free commit step (for example clean filters); that runs with the same
 privileges the agent already had and no publication credential.
 
+## Successor attempts and handoff
+
+Native harness sessions are **not** restored across attempts: each attempt runs
+in a new agent container, and harness session state is not persisted. Following
+the platform specification's fallback, every retry or follow-up is an explicitly
+identified successor. Its native prompt keeps the task instructions and appends a
+bounded handoff naming the previous attempt ID, its native outcome, its
+independent check result and exit code, a recorded pull request, and up to 50
+changed files, plus the previous agent's summary fenced as unverified text. An
+older handoff is replaced rather than accumulated, and the prompt stays within
+the attempt limit. The successor works on the same branch and worktree, so code
+changes carry over; only the conversational harness context is summarized.
+
 ## CI and review feedback
 
 Migration 62 adds `agent_task_signals`. Completed `check_suite` events and
