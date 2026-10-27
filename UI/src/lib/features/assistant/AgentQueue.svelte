@@ -4,6 +4,7 @@
 	import * as Trace from '$lib/components/ui/trace/index.js';
 	import { agentTasks, type AgentQueueItem } from '$lib/api/agent-tasks';
 	import { taskLabel } from './task-labels';
+	import { taskTone, toneStatus } from './task-tone';
 	import { useTerminalDock } from '$lib/features/dev-machines/terminal-dock-context.svelte';
 	import { m } from '$lib/paraglide/messages.js';
 
@@ -15,7 +16,6 @@
 	const finished = ['completed', 'cancelled', 'failed'];
 	const todo = $derived(items.filter((item) => !finished.includes(item.state)));
 	const done = $derived(items.filter((item) => finished.includes(item.state)));
-	const running = ['preparing', 'running', 'validating', 'publishing', 'cancelling'];
 
 	async function load() {
 		if (typeof document !== 'undefined' && document.hidden) return;
@@ -42,17 +42,19 @@
 {#snippet itemLine(item: AgentQueueItem)}
 	<a
 		href="/{slug}/assistant?conversation={encodeURIComponent(item.conversation_id)}"
-		class="block rounded-md hover:bg-muted"
+		class="block rounded-md px-2 py-1 hover:bg-muted"
+		title="{item.issue_identifier} · {item.issue_title} — {taskLabel(item.state)}"
 	>
-		<Trace.Line status={running.includes(item.state) ? 'running' : item.state === 'failed' ? 'error' : undefined}>
+		<!-- The narrow sidebar shows the issue; the coloured icon and the tooltip
+		     carry the state, which the screen reader label also includes. -->
+		<Trace.Line status={toneStatus(taskTone(item.state))} class="w-full">
 			<Trace.Icon
 				>{#if item.state === 'completed'}<CircleCheck
 					/>{:else if item.state === 'failed' || item.state === 'blocked'}<CircleAlert />{:else}<CircleDot
 					/>{/if}</Trace.Icon
 			>
-			<!-- In the narrow sidebar the issue keeps the room; the state truncates. -->
 			<Trace.Title class="min-w-0 flex-1 truncate">{item.issue_identifier} · {item.issue_title}</Trace.Title>
-			<Trace.Description class="max-w-[40%] truncate" title={taskLabel(item.state)}>{taskLabel(item.state)}</Trace.Description>
+			<span class="sr-only">{taskLabel(item.state)}</span>
 		</Trace.Line>
 	</a>
 {/snippet}
@@ -60,8 +62,9 @@
 <!-- Official AI Elements Queue composition for the user's agent work across projects. -->
 {#if items.length}
 	<section aria-label={m['tasks.queue']()} class="min-w-0">
-		<p class="px-1 pt-1 text-xs font-medium text-muted-foreground">{m['tasks.queue']()}</p>
-		<Trace.Root class="min-w-0">
+		<!-- Aligned with the conversation links above (px-2). -->
+		<p class="px-2 pt-1 pb-1 text-xs font-medium text-muted-foreground">{m['tasks.queue']()}</p>
+		<Trace.Root class="min-w-0 px-2">
 			{#if todo.length}
 				<Trace.Collapsible open>
 					<Trace.CollapsibleTrigger

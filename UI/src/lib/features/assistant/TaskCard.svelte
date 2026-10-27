@@ -20,6 +20,7 @@
 	} from '@lucide/svelte';
 	import { useTerminalDock } from '$lib/features/dev-machines/terminal-dock-context.svelte';
 	import { agentSessionCommand, resumableStates } from './agent-session';
+	import { taskTone, toneBadge, toneStatus } from './task-tone';
 	import * as Trace from '$lib/components/ui/trace/index.js';
 	import * as CodeBlock from '$lib/components/ui/code-block/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
@@ -300,6 +301,7 @@
 	// A terminal in the task's own worktree, docked at the bottom, for working
 	// directly beside (or instead of) the agent.
 	const dock = useTerminalDock();
+	const tone = $derived(taskTone(task.state));
 	const sessionCommand = $derived(
 		resumableStates.includes(task.state) ? agentSessionCommand(task.provider, task.id) : undefined
 	);
@@ -337,20 +339,17 @@
 <article class="min-w-0 space-y-2 py-3" aria-label={m['tasks.task']()}>
 	<div class="flex items-start justify-between gap-3">
 		<p class="min-w-0 whitespace-pre-wrap break-words text-sm font-medium line-clamp-2">{task.prompt}</p>
-		<Badge
-			variant={failed ? 'destructive' : task.state === 'completed' ? 'default' : 'secondary'}
-			class="shrink-0"
-			role="status">{taskLabel(task.state)}</Badge
-		>
+		<Badge variant="outline" class="shrink-0 {toneBadge[tone]}" role="status">{taskLabel(task.state)}</Badge>
 	</div>
 	<p class="text-xs text-muted-foreground">
 		{task.provider}{task.model ? ` · ${task.model}` : ''} · {m['tasks.attempt']({ number: task.generation })}
 	</p>
 	<Trace.Root>
-		<Trace.Line class="items-start" status={failed ? 'error' : active ? 'running' : undefined}
+		<Trace.Line class="items-start" status={toneStatus(tone)}
 			><Trace.Icon
-				>{#if active}<LoaderCircle class="animate-spin" />{:else if failed}<CircleAlert
-					/>{:else if task.state === 'completed'}<CircleCheck />{:else}<Circle />{/if}</Trace.Icon
+				>{#if active}<LoaderCircle class="animate-spin" />{:else if failed || task.state === 'blocked'}<CircleAlert
+					/>{:else if task.state === 'completed'}<CircleCheck
+					/>{:else if task.state === 'awaiting_review'}<GitPullRequest />{:else}<Circle />{/if}</Trace.Icon
 			><Trace.Title class="overflow-visible text-clip whitespace-normal break-words">{task.reason}</Trace.Title
 			></Trace.Line
 		>
@@ -425,13 +424,27 @@
 				{#if activity?.run_id === selectedRun}{#each activity.events.slice(-8) as event, i (i)}<Trace.Line
 							><Trace.Title>{event.type}</Trace.Title></Trace.Line
 						>{/each}{/if}
-				<CodeBlock.Root
-					><CodeBlock.Header
-						><CodeBlock.Title>{m['tasks.output']()}</CodeBlock.Title><CodeBlock.Actions
-							><CodeBlock.CopyButton value={output} aria-label={m['assistant.copy']()} /></CodeBlock.Actions
-						></CodeBlock.Header
-					><CodeBlock.Content code={output || m['tasks.no_output']()} wrap class="max-h-72 text-xs" /></CodeBlock.Root
-				>
+				<!-- Raw output is long: collapsed by default, still copyable when open. -->
+				<Trace.Collapsible>
+					<Trace.CollapsibleTrigger
+						><Trace.Line
+							><Trace.Icon><Terminal /></Trace.Icon><Trace.Title>{m['tasks.output']()}</Trace.Title></Trace.Line
+						></Trace.CollapsibleTrigger
+					>
+					<Trace.CollapsibleContent>
+						<CodeBlock.Root
+							><CodeBlock.Header
+								><CodeBlock.Title>{m['tasks.output']()}</CodeBlock.Title><CodeBlock.Actions
+									><CodeBlock.CopyButton value={output} aria-label={m['assistant.copy']()} /></CodeBlock.Actions
+								></CodeBlock.Header
+							><CodeBlock.Content
+								code={output || m['tasks.no_output']()}
+								wrap
+								class="max-h-72 text-xs"
+							/></CodeBlock.Root
+						>
+					</Trace.CollapsibleContent>
+				</Trace.Collapsible>
 				{#if logsAfter}<Button variant="ghost" size="sm" disabled={loading} onclick={() => void refresh()}
 						>{m['tasks.more_logs']()}</Button
 					>{/if}

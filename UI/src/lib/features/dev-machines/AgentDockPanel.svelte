@@ -3,6 +3,7 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import type { AgentQueueItem } from '$lib/api/agent-tasks';
 	import { taskLabel } from '$lib/features/assistant/task-labels';
+	import { taskTone, toneText } from '$lib/features/assistant/task-tone';
 	import { useTerminalDock } from './terminal-dock-context.svelte';
 	import { m } from '$lib/paraglide/messages.js';
 
@@ -32,7 +33,7 @@
 		<ul class="divide-y divide-border">
 			{#each items as item (item.id)}
 				<li class="flex items-center gap-3 px-3 py-2">
-					<span class="shrink-0 text-muted-foreground" aria-hidden="true"
+					<span class="shrink-0 {toneText[taskTone(item.state)]}" aria-hidden="true"
 						>{#if running.includes(item.state)}<LoaderCircle
 								class="size-4 animate-spin"
 							/>{:else if item.state === 'completed'}<CircleCheck

@@ -218,6 +218,7 @@ test('delegates from an issue conversation and shows real execution updates', as
 	state.sockets.at(-1)!.send(JSON.stringify(event));
 	await expect(page.getByText('Implement search and add regression coverage', { exact: true })).toHaveCount(1);
 	await page.getByRole('button', { name: 'Execution details', exact: true }).click();
+	await page.getByRole('button', { name: 'Execution output', exact: true }).click(); // raw output starts collapsed
 	state.logs = [
 		{
 			id: 1,
@@ -318,6 +319,7 @@ test('mobile task controls and bounded output stay within the viewport in both t
 		truncated: false
 	}));
 	await page.getByRole('button', { name: 'Execution details', exact: true }).click();
+	await page.getByRole('button', { name: 'Execution output', exact: true }).click(); // raw output starts collapsed
 	await expect(page.getByRole('button', { name: 'Load more output', exact: true })).toBeVisible();
 	await page.getByRole('button', { name: 'Load more output', exact: true }).click();
 	await expect(page.getByText('Log entry 105', { exact: false })).toBeVisible();
@@ -340,6 +342,7 @@ test('keeps displaying live output while activity arrives continuously', async (
 	await delegate(page);
 	await expect(page.getByText('Queued', { exact: true })).toBeVisible();
 	await page.getByRole('button', { name: 'Execution details', exact: true }).click();
+	await page.getByRole('button', { name: 'Execution output', exact: true }).click(); // raw output starts collapsed
 	await expect(page.getByText('No output received yet.', { exact: true })).toBeVisible();
 	let sequence = 0;
 	const timer = setInterval(() => {

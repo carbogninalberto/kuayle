@@ -65,8 +65,13 @@
 				{@const identifier = approval.payload.identifier}
 				{#if approval.status === 'pending'}
 					<!-- Official AI Elements Confirmation composition: Item prompt with Deny/Approve. -->
-					<Item.Root variant="outline" size="sm" class="items-start">
-						<Item.Media variant="icon"><Bot /></Item.Media>
+					<!-- A pending approval is the one thing waiting on the user: give it the warning tone. -->
+					<Item.Root
+						variant="outline"
+						size="sm"
+						class="items-start border-[var(--status-warning)]/40 bg-[var(--status-warning)]/5"
+					>
+						<Item.Media variant="icon" class="text-[var(--status-warning)]"><Bot /></Item.Media>
 						<Item.Content class="min-w-0">
 							<Item.Title>{m['assistant.approval_title']({ identifier })}</Item.Title>
 							<Item.Description class="line-clamp-none"
@@ -99,7 +104,13 @@
 					</Item.Root>
 				{:else}
 					<Trace.Line
-						status={approval.status === 'approving' ? 'running' : approval.status === 'failed' ? 'error' : undefined}
+						status={approval.status === 'approving'
+							? 'running'
+							: approval.status === 'failed'
+								? 'error'
+								: approval.status === 'approved'
+									? 'success'
+									: 'warning'}
 					>
 						<Trace.Icon
 							>{#if approval.status === 'approving'}<LoaderCircle
@@ -135,7 +146,7 @@
 				{@const identifier = created(call)}
 				<Trace.Collapsible>
 					<Trace.CollapsibleTrigger>
-						<Trace.Line status={failed ? 'error' : undefined}>
+						<Trace.Line status={failed ? 'error' : identifier ? 'success' : undefined}>
 							<Trace.Icon
 								>{#if failed}<CircleAlert />{:else}<Wrench />{/if}</Trace.Icon
 							>
