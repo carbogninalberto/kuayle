@@ -414,6 +414,12 @@ parsed client-side from the attempt's stored native output and git state, so the
 survive reloads. File links point to the recorded pull request's repository and
 branch, never to agent-reported URLs. Agent text is rendered as escaped text.
 
+The AI Elements [Checkpoint](https://www.shadcn-svelte.com/docs/ai-elements/checkpoint)
+pattern ("restorable milestones where supported") is intentionally not offered:
+restoring an attempt would rewrite the task's published branch, which Kuayle does
+not do without human review. Attempts, their commits and the recorded pull
+request remain inspectable, and a new attempt continues from the branch head.
+
 The UI follows the official [Task](https://www.shadcn-svelte.com/docs/ai-elements/task),
 [Model Selector](https://www.shadcn-svelte.com/docs/ai-elements/model-selector),
 [Trace](https://www.shadcn-svelte.com/docs/components/trace) and
