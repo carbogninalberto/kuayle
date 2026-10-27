@@ -45,7 +45,7 @@ type ManagerStore interface {
 	GetAgentRunInternal(context.Context, uuid.UUID) (*domain.DevMachineAgentRun, error)
 	ListServices(context.Context, uuid.UUID, uuid.UUID) ([]domain.DevMachineService, error)
 	ListEnvVarsInternal(context.Context, uuid.UUID, *string, string) ([]domain.DevMachineEnvVar, error)
-	GetWorkspaceModelCredential(context.Context, uuid.UUID, string) (*domain.DevMachineWorkspaceModelCredential, error)
+	GetModelServer(context.Context, uuid.UUID, *uuid.UUID) (*domain.AgentModelServer, error)
 	SetMachineState(context.Context, uuid.UUID, domain.DevMachineStatus, *string, *string, *string, *string) error
 	SetMachineStateForOperation(context.Context, uuid.UUID, int64, bool, domain.DevMachineStatus, *string, *string, *string, *string) (bool, error)
 	UpdateServiceRuntime(context.Context, uuid.UUID, string, string, string, *string) error
@@ -716,7 +716,8 @@ func (m *Manager) serviceSecrets(ctx context.Context, machine *domain.DevMachine
 		serviceSecrets[service.ServiceKey] = values
 	}
 	if includeWorkspaceModel {
-		modelSecrets, err := m.workspaceModelSecrets(ctx, machine.WorkspaceID)
+		// Terminals and the IDE get the workspace's default model server.
+		modelSecrets, err := m.modelServerSecrets(ctx, machine.WorkspaceID, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -746,30 +747,43 @@ func (m *Manager) serviceSecrets(ctx context.Context, machine *domain.DevMachine
 	return serviceSecrets, nil
 }
 
-func (m *Manager) workspaceModelSecrets(ctx context.Context, workspaceID uuid.UUID) (map[string]string, error) {
-	credential, err := m.store.GetWorkspaceModelCredential(ctx, workspaceID, "deepseek")
-	if err != nil || credential == nil {
+// modelServerSecrets is the environment that points Codex and Claude Code at a
+// model server: the server with id, or the workspace default when id is nil.
+// Codex reads the OpenAI-compatible URL, Claude Code the Anthropic one.
+func (m *Manager) modelServerSecrets(ctx context.Context, workspaceID uuid.UUID, id *uuid.UUID) (map[string]string, error) {
+	server, err := m.store.GetModelServer(ctx, workspaceID, id)
+	if err != nil || server == nil {
 		return nil, err
 	}
-	apiKey, err := cryptoutil.Decrypt(credential.EncryptedAPIKey, m.encryptionKey)
+	apiKey, err := cryptoutil.Decrypt(server.EncryptedAPIKey, m.encryptionKey)
 	if err != nil {
 		return nil, fmt.Errorf("secret_decryption_failed: %w", err)
 	}
-	secrets := map[string]string{
-		"DEEPSEEK_API_KEY":                         apiKey,
-		"KUAYLE_DEEPSEEK_MODEL":                    credential.DefaultModel,
-		"KUAYLE_DEEPSEEK_THINKING":                 credential.Thinking,
-		"ANTHROPIC_BASE_URL":                       "https://api.deepseek.com/anthropic",
-		"ANTHROPIC_AUTH_TOKEN":                     apiKey,
-		"ANTHROPIC_MODEL":                          credential.DefaultModel,
-		"ANTHROPIC_DEFAULT_OPUS_MODEL":             credential.DefaultModel,
-		"ANTHROPIC_DEFAULT_SONNET_MODEL":           credential.DefaultModel,
-		"ANTHROPIC_DEFAULT_HAIKU_MODEL":            "deepseek-flash",
-		"CLAUDE_CODE_SUBAGENT_MODEL":               "deepseek-flash",
-		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+	fast := server.FastModel
+	if fast == "" {
+		fast = server.DefaultModel
 	}
-	if credential.Thinking != "off" {
-		secrets["CLAUDE_CODE_EFFORT_LEVEL"] = credential.Thinking
+	secrets := map[string]string{
+		"KUAYLE_MODEL_API_KEY":  apiKey,
+		"KUAYLE_MODEL":          server.DefaultModel,
+		"KUAYLE_MODEL_THINKING": server.Thinking,
+		"KUAYLE_MODEL_LIST":     strings.Join(server.ModelList(), ","),
+	}
+	if server.OpenAIBaseURL != nil {
+		secrets["KUAYLE_MODEL_OPENAI_BASE_URL"] = *server.OpenAIBaseURL
+	}
+	if server.AnthropicBaseURL != nil {
+		secrets["ANTHROPIC_BASE_URL"] = *server.AnthropicBaseURL
+		secrets["ANTHROPIC_AUTH_TOKEN"] = apiKey
+		secrets["ANTHROPIC_MODEL"] = server.DefaultModel
+		secrets["ANTHROPIC_DEFAULT_OPUS_MODEL"] = server.DefaultModel
+		secrets["ANTHROPIC_DEFAULT_SONNET_MODEL"] = server.DefaultModel
+		secrets["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = fast
+		secrets["CLAUDE_CODE_SUBAGENT_MODEL"] = fast
+		secrets["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
+		if server.Thinking != "off" {
+			secrets["CLAUDE_CODE_EFFORT_LEVEL"] = server.Thinking
+		}
 	}
 	return secrets, nil
 }
@@ -807,10 +821,18 @@ func (m *Manager) agentRunSecrets(ctx context.Context, machine *domain.DevMachin
 		secrets[envVar.Name] = value
 		redactions[envVar.Name] = value
 	}
-	if run.ProviderID == "codex" || run.ProviderID == "claude-code" {
-		modelSecrets, modelErr := m.workspaceModelSecrets(ctx, machine.WorkspaceID)
+	// A run uses only the model server recorded on it; without one the harness
+	// relies on its own sign-in.
+	if (run.ProviderID == "codex" || run.ProviderID == "claude-code") && run.ModelServerID != nil {
+		modelSecrets, modelErr := m.modelServerSecrets(ctx, machine.WorkspaceID, run.ModelServerID)
 		if modelErr != nil {
 			return nil, modelErr
+		}
+		if run.Model != "" && len(modelSecrets) > 0 {
+			modelSecrets["KUAYLE_MODEL"] = run.Model
+			if _, ok := modelSecrets["ANTHROPIC_MODEL"]; ok {
+				modelSecrets["ANTHROPIC_MODEL"] = run.Model
+			}
 		}
 		if run.Thinking != "" && len(modelSecrets) > 0 {
 			delete(modelSecrets, "CLAUDE_CODE_EFFORT_LEVEL")
@@ -821,7 +843,7 @@ func (m *Manager) agentRunSecrets(ctx context.Context, machine *domain.DevMachin
 		for name, value := range modelSecrets {
 			secrets[name] = value
 			delete(redactions, name)
-			if name == "DEEPSEEK_API_KEY" || name == "ANTHROPIC_AUTH_TOKEN" {
+			if name == "KUAYLE_MODEL_API_KEY" || name == "ANTHROPIC_AUTH_TOKEN" {
 				redactions[name] = value
 			}
 		}

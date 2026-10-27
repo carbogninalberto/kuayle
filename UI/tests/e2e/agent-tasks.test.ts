@@ -62,14 +62,20 @@ async function fixture(page: Page) {
 			return route.fulfill({
 				json: {
 					providers: [{ id: 'codex', display_name: 'Codex', supported_modes: ['autonomous'], custom: false }],
-					model_provider: {
-						provider: 'deepseek',
-						configured: true,
-						default_model: 'deepseek-flash',
-						thinking: 'high',
-						models: ['deepseek-flash', 'deepseek-v4-pro'],
-						thinking_levels: ['off', 'low', 'high', 'max']
-					}
+					model_servers: [
+						{
+							id: 'server-1',
+							name: 'DeepSeek',
+							models: ['deepseek-flash', 'deepseek-v4-pro'],
+							default_model: 'deepseek-flash',
+							fast_model: '',
+							thinking: 'high',
+							is_default: true,
+							harnesses: ['codex', 'claude-code'],
+							thinking_levels: ['off', 'low', 'high', 'max'],
+							updated_at: time
+						}
+					]
 				}
 			});
 		if (path.endsWith('/tasks')) {
@@ -210,11 +216,14 @@ test('delegates from an issue conversation and shows real execution updates', as
 	await page.goto('/test/assistant?conversation=chat-1');
 	await page.getByRole('button', { name: 'Start coding', exact: true }).click();
 	const dialog = page.getByRole('dialog', { name: 'Start coding', exact: true });
+	// The harness is chosen from logo tiles; the default server fits Codex.
+	await expect(dialog.getByRole('radio', { name: 'Codex' })).toHaveAttribute('aria-checked', 'true');
 	await dialog.getByRole('textbox', { name: 'Task instructions' }).fill('Implement search and add regression coverage');
 	await dialog.getByRole('button', { name: 'Delegate task', exact: true }).click();
 	await expect.poll(() => state.creates.length).toBe(1);
 	expect(state.creates[0]).toMatchObject({
 		provider: 'codex',
+		model_server_id: 'server-1',
 		model: 'deepseek-flash',
 		thinking: 'high',
 		prompt: 'Implement search and add regression coverage'

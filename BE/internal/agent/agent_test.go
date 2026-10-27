@@ -106,22 +106,41 @@ func TestStreamJSONProvidersExtractLastAssistantText(t *testing.T) {
 	}
 }
 
-func TestCodexRunOverridesBuildDeepSeekArgs(t *testing.T) {
+func TestCodexRunOverridesPointAtTheModelServer(t *testing.T) {
 	provider := NewCodexProvider("")
 
 	invocation, err := provider.BuildInvocation(RunInput{
-		Mode: ModeAutonomous, Prompt: "fix the issue", Model: "deepseek-v4-pro", Thinking: "off",
+		Mode: ModeAutonomous, Prompt: "fix the issue", Model: "qwen3-coder:30b", Thinking: "off",
+		OpenAIBaseURL: "https://models.example.test/v1",
 	})
 
 	require.NoError(t, err)
 	require.Equal(t, []string{
 		"codex", "exec", "--json", "-c", `sandbox_mode="danger-full-access"`, "-c", `approval_policy="never"`,
-		"-c", `model="deepseek-v4-pro"`,
-		"-c", `model_provider="deepseek"`,
+		"-c", `model_provider="kuayle"`,
+		"-c", `model_providers.kuayle.name="Kuayle model server"`,
+		"-c", `model_providers.kuayle.base_url="https://models.example.test/v1"`,
+		"-c", `model_providers.kuayle.env_key="KUAYLE_MODEL_API_KEY"`,
+		"-c", `model_providers.kuayle.wire_api="responses"`,
+		"-c", `model="qwen3-coder:30b"`,
 		"-c", `model_reasoning_effort="none"`,
 		"fix the issue",
 	}, invocation.Argv)
 	require.Empty(t, invocation.Environment)
+}
+
+func TestModelOverridesCannotInjectConfiguration(t *testing.T) {
+	provider := NewCodexProvider("")
+	for _, input := range []RunInput{
+		{Mode: ModeAutonomous, Prompt: "x", Model: `m" -c sandbox_mode="read-only`},
+		{Mode: ModeAutonomous, Prompt: "x", OpenAIBaseURL: `https://a.test/"x`},
+		{Mode: ModeAutonomous, Prompt: "x", OpenAIBaseURL: "file:///etc/passwd"},
+	} {
+		_, err := provider.BuildInvocation(input)
+		require.Error(t, err, input)
+	}
+	_, err := NewClaudeCodeProvider("").BuildInvocation(RunInput{Mode: ModeAutonomous, Prompt: "x", OpenAIBaseURL: "https://a.test/v1"})
+	require.Error(t, err, "Claude Code uses the Anthropic URL through the environment")
 }
 
 func TestClaudeCodeRunOverridesUseArgvModelAndEnvironmentEffort(t *testing.T) {

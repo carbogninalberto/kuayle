@@ -128,7 +128,9 @@ func TestAgentTaskHTTPPrivateControlsAndRecovery(t *testing.T) {
 	request("POST", path, strings.Replace(newRequestBody, `["npm","test"]`, `[""]`, 1), token, 400, nil)
 	request("POST", path, strings.Replace(body, `["npm","test"]`, `[]`, 1), token, 409, nil)
 	request("POST", path, strings.Replace(newRequestBody, `"codex"`, `"unknown"`, 1), token, 403, nil)
-	request("POST", path, strings.TrimSuffix(newRequestBody, "}")+`,"model":"unsupported"}`, token, 400, nil)
+	request("POST", path, strings.TrimSuffix(newRequestBody, "}")+`,"model":"not a model\" -c x"}`, token, 400, nil)
+	request("POST", path, strings.TrimSuffix(newRequestBody, "}")+`,"model_server_id":"`+uuid.NewString()+`"}`, token, 400, nil)
+	// A well-formed model needs a model server to come from.
 	request("POST", path, strings.TrimSuffix(newRequestBody, "}")+`,"model":"deepseek-flash"}`, token, 409, nil)
 	for _, auth := range []string{tokenFor(other), tokenFor(guest)} {
 		request("POST", path, body, auth, 404, nil)

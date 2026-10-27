@@ -249,7 +249,7 @@ Initial providers:
 
 Provider adapters can construct both invocation modes, but the current product dialogs queue autonomous runs only and there is no UI/gateway endpoint for attaching to an interactive agent container. The IDE developer image pins all seven built-in CLI versions for terminal use. Qwen Code, Crush, Kimi, and Goose use `DEV_MACHINE_HEADLESS_IMAGE` for both developer-terminal and autonomous execution. The existing three built-ins retain their provider-specific agent images. Custom providers must be enabled by workspace policy and are currently launched through the autonomous dashboard flow. Provider-specific agent images remain separately pinned by tag or digest in configuration and runtime Dockerfiles; custom provider images must also be pinned.
 
-Codex and Claude Code runs accept optional DeepSeek `model` and `thinking` overrides. They are rejected for other providers. A model override requires a configured workspace DeepSeek credential; thinking levels are `off`, `low`, `high`, and `max`. Codex receives the override as argv `-c` values. Claude Code receives the model as argv and the thinking level through the validated non-secret `CLAUDE_CODE_EFFORT_LEVEL` container environment; `off` omits that variable.
+Codex and Claude Code runs accept an optional `model_server_id`, `model` and `thinking`. They are rejected for other providers. A run uses the chosen model server, or the workspace default when it speaks the harness's protocol (OpenAI-compatible for Codex, Anthropic-compatible for Claude Code); without one the harness uses its own sign-in. A model must be offered by the server when its model list is known; thinking levels are `off`, `low`, `high`, and `max`. The server is recorded on the run (`model_server_id`). Codex receives the server and model entirely as argv `-c` overrides (`model_provider="kuayle"`, its `base_url`, `env_key="KUAYLE_MODEL_API_KEY"`, `wire_api="responses"`), so a user-managed `config.toml` cannot redirect a run; model names and URLs are restricted to characters that need no TOML quoting. Claude Code receives the model as argv and the thinking level through the validated non-secret `CLAUDE_CODE_EFFORT_LEVEL` container environment; `off` omits that variable.
 
 ### Normalized Result
 
@@ -411,13 +411,17 @@ Secret flow:
 
 Reserved `KUAYLE_*` variables and `GITHUB_TOKEN` cannot be supplied by users.
 
-### DeepSeek workspace configuration
+### Agent model servers
 
-Workspace owners and admins can store one DeepSeek credential per workspace through the Dev Machine settings API. Saving and removing it requires `dev_machine:admin`; members with `dev_machine:read` can read its status (configured, default model, thinking) so the agent-run dialog can offer DeepSeek overrides. The API key is encrypted with `cryptoutil.Encrypt` and `DEV_MACHINE_ENCRYPTION_KEY`; it is never returned, including in error and update responses. The default model is `deepseek-flash` or `deepseek-v4-pro`, and the default thinking level is `off`, `low`, `high`, or `max`.
+Settings → Agent configuration manages workspace model servers and which coding agents members may start. A model server has a name, an OpenAI-compatible base URL (used by Codex, which needs the Responses API) and/or an Anthropic-compatible base URL (used by Claude Code), an API key, a model list, a default and optional fast model, a thinking level, and whether it is the workspace default (one per workspace; the first server becomes the default). Creating, updating, deleting and model discovery require `dev_machine:admin`; members with `dev_machine:read` can list servers (never keys) to choose one when starting work. The key is encrypted with `cryptoutil.Encrypt` and `DEV_MACHINE_ENCRYPTION_KEY` and is never returned; an update without `api_key` keeps the stored key.
 
-The credential is workspace data rather than a machine snapshot. On every developer-container start, and for every Codex or Claude Code agent run, the manager resolves and decrypts the current row. It copies the DeepSeek key, model, thinking level, Claude Code DeepSeek endpoint/model aliases, and Codex configuration inputs into `/run/kuayle-secrets`; browser, collector, and egress containers never receive them. Rotating the credential therefore applies the next time the developer or agent container starts.
+Model discovery calls `GET <openai>/models` with a bearer key, or `GET <anthropic>/v1/models` with `x-api-key`, through a client that dials only public addresses unless `AI_ALLOW_PRIVATE_NETWORK` is set and never follows redirects. A saved server's key is only sent to the URLs saved with it. Model names are limited to `[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}`; at most 500 are kept.
 
-The IDE and headless start scripts and the autonomous agent runner create `$HOME/.codex/config.toml` (mode 0600) only when the file is absent. They configure the DeepSeek Responses provider, map Codex `off` to `none`, and leave an existing user-managed Codex configuration unchanged. They also generate `$HOME/.codex/model-catalogs/deepseek.json` from the installed Codex's bundled catalog (`codex-deepseek-catalog.cjs`) and reference it with `model_catalog_json`, so Codex's `/model` picker offers only `deepseek-flash` and `deepseek-v4-pro`; if generation fails, the config omits the catalog and the configured model still works.
+Servers are workspace data rather than machine snapshots. The IDE and terminal containers receive the default server; an agent run receives only the server recorded on it. The manager copies `KUAYLE_MODEL_API_KEY`, `KUAYLE_MODEL`, `KUAYLE_MODEL_THINKING`, `KUAYLE_MODEL_LIST`, `KUAYLE_MODEL_OPENAI_BASE_URL` and, for an Anthropic-compatible server, `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` and the Claude Code model aliases into `/run/kuayle-secrets`; browser, collector and egress containers never receive them. Rotating a key therefore applies the next time the developer or agent container starts.
+
+The IDE and headless start scripts and the autonomous agent runner create `$HOME/.codex/config.toml` (mode 0600) for the default server only when the file is absent, map Codex `off` to `none`, and leave an existing user-managed configuration unchanged. They also generate `$HOME/.codex/model-catalogs/kuayle.json` from the installed Codex's bundled catalog (`codex-model-catalog.cjs`) for the server's models, so Codex's `/model` picker offers only those; if generation fails, the config omits the catalog and the configured model still works.
+
+Migration `000076_agent_model_servers` converts an existing workspace DeepSeek credential into a default server named DeepSeek with the same encrypted key, models and thinking level; rolling back restores it.
 
 ## Scoped Settings, Worktrees, and Environments
 
@@ -499,7 +503,7 @@ Migration `000033_dev_machines` creates:
 | `dev_machine_checkouts` | Idempotent issue worktrees with repository and branch metadata |
 | `dev_machine_terminal_sessions` | User terminal tabs mapped to runtime tmux sessions and optional checkouts |
 | `dev_machine_runtime_credentials` | Encrypted, expiring runtime-secret registrations used for telemetry redaction |
-| `dev_machine_workspace_model_credentials` | Encrypted workspace DeepSeek API key, default model, and thinking level |
+| `agent_model_servers` | Workspace model servers: protocol URLs, encrypted API key, models, default and fast model, thinking level, default flag |
 
 The migration creates the final scoped-workspace schema directly. Composite foreign keys bind workspace, machine, service, checkout, run, session, and environment tuples so cross-workspace identifiers are rejected by PostgreSQL rather than relying only on application checks. Rolling migration `000033` back is destructive for all Dev Machine control-plane records.
 
@@ -532,9 +536,11 @@ POST   /api/workspaces/:slug/dev-machine-environments
 GET    /api/workspaces/:slug/dev-machine-environments/:environmentId
 DELETE /api/workspaces/:slug/dev-machine-environments/:environmentId
 GET    /api/workspaces/:slug/dev-machine-providers
-GET    /api/workspaces/:slug/dev-machine-model-providers/deepseek
-PUT    /api/workspaces/:slug/dev-machine-model-providers/deepseek
-DELETE /api/workspaces/:slug/dev-machine-model-providers/deepseek
+GET    /api/workspaces/:slug/agent-model-servers
+POST   /api/workspaces/:slug/agent-model-servers
+POST   /api/workspaces/:slug/agent-model-servers/discover
+PUT    /api/workspaces/:slug/agent-model-servers/:serverId
+DELETE /api/workspaces/:slug/agent-model-servers/:serverId
 
 GET    /api/workspaces/:slug/dev-machines/:machineId
 PATCH  /api/workspaces/:slug/dev-machines/:machineId
@@ -687,7 +693,7 @@ The self-hosting `dev-machine-images` profile builds the IDE, headless developer
 - Pinned Chrome Stable packages for amd64 and arm64 run through KasmVNC in a separately hardened non-root container. The browser's internal sandbox is disabled because Docker namespace restrictions conflict with its setup. The browser must not receive provider or GitHub secrets.
 - Domain egress controls cannot prevent exfiltration to an explicitly allowed destination.
 - Compose support for checks is a constrained subset run by the manager, not `docker compose`. Builds, mounts, privileges, host networking and published ports are rejected, because arbitrary untrusted Compose execution needs an isolated Docker daemon. Image pulls run on the host daemon, outside the egress proxy, so `DEV_MACHINE_COMPOSE_IMAGES` restricts them to official Docker Hub images by default.
-- The workspace DeepSeek credential is delivered into every developer container, so any member who can create a machine can read it from a terminal or have an agent reveal it. The API never returns it, but treat it as shared with those members (SECURITY_AUDIT.md KS-08).
+- The default model server's key is delivered into every developer container, and a run's server key into its agent container, so any member who can create a machine can read it from a terminal or have an agent reveal it. The API never returns it, but treat model server keys as shared with those members (SECURITY_AUDIT.md KS-08).
 - Command and filesystem collection is best-effort and can be bypassed by trusted workspace code.
 - Provider adapters can construct interactive invocations, but current product dialogs queue autonomous agent runs and no interactive-agent attach endpoint is exposed. Direct interactive use of the built-in CLIs is available through Kuayle's native xterm terminal; ttyd's web page is not exposed.
 - Workspace hard quotas require Docker local-volume project-quota support; the manager intentionally fails startup rather than run machines with an unbounded workspace.

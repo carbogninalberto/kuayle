@@ -21,7 +21,7 @@ func (p *builtinProvider) BuildInvocation(input RunInput) (Invocation, error) {
 	if err := validateInput(p.metadata, input); err != nil {
 		return Invocation{}, err
 	}
-	if err := validateDeepSeekOverrides(p.metadata.ID, input); err != nil {
+	if err := validateModelOverrides(p.metadata.ID, input); err != nil {
 		return Invocation{}, err
 	}
 	workingDir := input.WorkspacePath
@@ -364,9 +364,19 @@ func NewGooseProvider(image string) Provider {
 	})
 }
 
+// Codex is pointed at the model server entirely through -c overrides, so a
+// user-managed config.toml in the container cannot redirect a run elsewhere.
 func appendCodexOverrides(argv []string, input RunInput) []string {
+	if input.OpenAIBaseURL != "" {
+		argv = append(argv,
+			"-c", `model_provider="kuayle"`,
+			"-c", `model_providers.kuayle.name="Kuayle model server"`,
+			"-c", `model_providers.kuayle.base_url="`+input.OpenAIBaseURL+`"`,
+			"-c", `model_providers.kuayle.env_key="KUAYLE_MODEL_API_KEY"`,
+			"-c", `model_providers.kuayle.wire_api="responses"`)
+	}
 	if input.Model != "" {
-		argv = append(argv, "-c", `model="`+input.Model+`"`, "-c", `model_provider="deepseek"`)
+		argv = append(argv, "-c", `model="`+input.Model+`"`)
 	}
 	if input.Thinking != "" {
 		effort := input.Thinking
@@ -378,19 +388,27 @@ func appendCodexOverrides(argv []string, input RunInput) []string {
 	return argv
 }
 
-func validateDeepSeekOverrides(providerID string, input RunInput) error {
+var (
+	modelOverridePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}$`)
+	baseURLPattern       = regexp.MustCompile(`^https?://[^\s"'\\]{1,500}$`)
+)
+
+// Model values are interpolated into TOML strings, so they are restricted to
+// characters that need no quoting.
+func validateModelOverrides(providerID string, input RunInput) error {
 	if providerID != "codex" && providerID != "claude-code" {
 		return nil
 	}
-	switch input.Model {
-	case "", "deepseek-flash", "deepseek-v4-pro":
-	default:
-		return fmt.Errorf("unsupported DeepSeek model %q", input.Model)
+	if input.Model != "" && !modelOverridePattern.MatchString(input.Model) {
+		return fmt.Errorf("unsupported model %q", input.Model)
+	}
+	if input.OpenAIBaseURL != "" && (providerID != "codex" || !baseURLPattern.MatchString(input.OpenAIBaseURL)) {
+		return fmt.Errorf("unsupported model server URL")
 	}
 	switch input.Thinking {
 	case "", "off", "low", "high", "max":
 	default:
-		return fmt.Errorf("unsupported DeepSeek thinking level %q", input.Thinking)
+		return fmt.Errorf("unsupported thinking level %q", input.Thinking)
 	}
 	return nil
 }

@@ -6,6 +6,9 @@
 	import * as Dialog from '$lib/components/ui/dialog/index.js';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
 	import * as InputGroup from '$lib/components/ui/input-group/index.js';
+	import * as ToggleGroup from '$lib/components/ui/toggle-group/index.js';
+	import AgentLogo from '$lib/features/agents/AgentLogo.svelte';
+	import { preferredServer, serversFor } from '$lib/features/agents/model-choice';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { agentTasks, type AgentTask, type TaskOptions, type TaskInput } from '$lib/api/agent-tasks';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
@@ -30,22 +33,39 @@
 	let testCommand = $state('');
 	let prompt = $state(''),
 		provider = $state(''),
+		serverId = $state(''),
 		model = $state(''),
 		thinking = $state(''),
 		saving = $state(false),
 		error = $state('');
 	let pending: { key: string; id: string } | null = null;
 	let disposed = false;
-	const canOverride = $derived(options?.model_provider.configured && ['codex', 'claude-code'].includes(provider));
+	// Codex and Claude Code use a compatible model server when there is one;
+	// otherwise, like the other agents, their own sign-in.
+	const compatibleServers = $derived(serversFor(options?.model_servers, provider));
+	const server = $derived(compatibleServers.find((item) => item.id === serverId));
+	const canOverride = $derived(!!server);
+	function chooseProvider(value: string) {
+		if (!value) return;
+		provider = value;
+		const preferred = preferredServer(options?.model_servers, value);
+		serverId = preferred?.id ?? '';
+		model = preferred?.default_model ?? '';
+		thinking = preferred?.thinking ?? '';
+	}
+	function chooseServer(value: string) {
+		const next = compatibleServers.find((item) => item.id === value);
+		serverId = next?.id ?? '';
+		model = next?.default_model ?? '';
+		thinking = next?.thinking ?? '';
+	}
 	const draftKey = $derived(
 		`agent-task-draft:${authState.user?.id}:${slug}:${conversation}:${task ? `${task.id}:${task.generation}` : 'new'}`
 	);
 	onMount(() => {
 		prompt = task?.prompt ?? initialPrompt;
 		testCommand = formatTestCommand(task?.test_command);
-		provider = task?.provider ?? options?.default_provider ?? options?.providers[0]?.id ?? '';
-		model = options?.model_provider.configured ? options.model_provider.default_model : '';
-		thinking = options?.model_provider.configured ? options.model_provider.thinking : '';
+		chooseProvider(task?.provider ?? options?.default_provider ?? options?.providers[0]?.id ?? '');
 		try {
 			const saved = JSON.parse(localStorage.getItem(draftKey) ?? 'null');
 			if (saved?.pending && typeof saved.prompt === 'string') {
@@ -53,9 +73,12 @@
 				pending = saved.pending;
 				testCommand = formatTestCommand(saved.test_command);
 				if (!task && options?.providers.some((p) => p.id === saved.provider)) {
-					provider = saved.provider;
-					model = saved.model;
-					thinking = saved.thinking;
+					chooseProvider(saved.provider);
+					if (serversFor(options?.model_servers, saved.provider).some((item) => item.id === saved.model_server_id)) {
+						serverId = saved.model_server_id;
+						model = saved.model;
+						thinking = saved.thinking;
+					}
 				}
 			}
 		} catch {}
@@ -79,9 +102,12 @@
 			test_command: command,
 			provider,
 			model: canOverride ? model : '',
-			thinking: canOverride ? thinking : ''
+			thinking: canOverride ? thinking : '',
+			...(server ? { model_server_id: server.id } : {})
 		};
-		const key = JSON.stringify(task ? { prompt: input.prompt, generation: task.generation, test_command: command } : input);
+		const key = JSON.stringify(
+			task ? { prompt: input.prompt, generation: task.generation, test_command: command } : input
+		);
 		if (!pending || pending.key !== key) pending = { key, id: crypto.randomUUID() };
 		try {
 			localStorage.setItem(draftKey, JSON.stringify({ ...input, prompt, pending }));
@@ -125,6 +151,29 @@
 			></Dialog.Header
 		>
 		<form onsubmit={submit} class="min-w-0 space-y-4">
+			{#if !task}
+				<div class="space-y-1.5">
+					<p id="task-harness-label" class="text-xs font-medium text-muted-foreground">{m['tasks.harness']()}</p>
+					<ToggleGroup.Root
+						type="single"
+						variant="outline"
+						aria-labelledby="task-harness-label"
+						value={provider}
+						onValueChange={chooseProvider}
+						disabled={saving}
+						class="flex w-full flex-wrap justify-start gap-1.5 shadow-none"
+					>
+						{#each options?.providers ?? [] as p (p.id)}
+							<ToggleGroup.Item
+								value={p.id}
+								aria-label={p.display_name}
+								class="h-9 flex-none gap-2 rounded-md border px-2.5 first:rounded-md last:rounded-md data-[state=on]:border-primary data-[state=on]:bg-primary/5"
+								><AgentLogo agent={p.id} size="sm" /><span class="text-xs">{p.display_name}</span></ToggleGroup.Item
+							>
+						{/each}
+					</ToggleGroup.Root>
+				</div>
+			{/if}
 			<InputGroup.Root>
 				<InputGroup.Textarea
 					bind:value={prompt}
@@ -135,24 +184,26 @@
 				/>
 				<InputGroup.Addon align="block-end" class="flex-wrap gap-2">
 					{#if !task}
-						<DropdownMenu.Root
-							><DropdownMenu.Trigger
-								>{#snippet child({ props })}<InputGroup.Button
-										{...props}
-										disabled={saving}
-										aria-label={m['tasks.harness']()}
-										>{options?.providers.find((p) => p.id === provider)?.display_name ??
-											m['tasks.harness']()}<ChevronDown size={14} /></InputGroup.Button
-									>{/snippet}</DropdownMenu.Trigger
+						{#if compatibleServers.length > 1}
+							<DropdownMenu.Root
+								><DropdownMenu.Trigger
+									>{#snippet child({ props })}<InputGroup.Button
+											{...props}
+											disabled={saving}
+											aria-label={m['tasks.model_server']()}>{server?.name}<ChevronDown size={14} /></InputGroup.Button
+										>{/snippet}</DropdownMenu.Trigger
+								><DropdownMenu.Content
+									><DropdownMenu.RadioGroup value={serverId} onValueChange={chooseServer}
+										>{#each compatibleServers as item (item.id)}<DropdownMenu.RadioItem value={item.id} closeOnSelect
+												>{item.name}</DropdownMenu.RadioItem
+											>{/each}</DropdownMenu.RadioGroup
+									></DropdownMenu.Content
+								></DropdownMenu.Root
 							>
-							<DropdownMenu.Content
-								><DropdownMenu.RadioGroup bind:value={provider}
-									>{#each options?.providers ?? [] as p}<DropdownMenu.RadioItem value={p.id} closeOnSelect
-											>{p.display_name}</DropdownMenu.RadioItem
-										>{/each}</DropdownMenu.RadioGroup
-								></DropdownMenu.Content
-							>
-						</DropdownMenu.Root>
+						{/if}
+						{#if !compatibleServers.length && provider}<span class="px-1 text-xs text-muted-foreground"
+								>{m['tasks.own_sign_in']()}</span
+							>{/if}
 						{#if canOverride}
 							<DropdownMenu.Root
 								><DropdownMenu.Trigger
@@ -163,8 +214,9 @@
 										>{/snippet}</DropdownMenu.Trigger
 								><DropdownMenu.Content
 									><DropdownMenu.RadioGroup bind:value={model}
-										>{#each options?.model_provider.models ?? [] as value}<DropdownMenu.RadioItem {value} closeOnSelect
-												>{value}</DropdownMenu.RadioItem
+										>{#each server?.models.length ? server.models : [server?.default_model ?? ''] as value (value)}<DropdownMenu.RadioItem
+												{value}
+												closeOnSelect>{value}</DropdownMenu.RadioItem
 											>{/each}</DropdownMenu.RadioGroup
 									></DropdownMenu.Content
 								></DropdownMenu.Root
@@ -179,9 +231,8 @@
 										>{/snippet}</DropdownMenu.Trigger
 								><DropdownMenu.Content
 									><DropdownMenu.RadioGroup bind:value={thinking}
-										>{#each options?.model_provider.thinking_levels ?? [] as value}<DropdownMenu.RadioItem
-												{value}
-												closeOnSelect>{value}</DropdownMenu.RadioItem
+										>{#each server?.thinking_levels ?? [] as value (value)}<DropdownMenu.RadioItem {value} closeOnSelect
+												>{value}</DropdownMenu.RadioItem
 											>{/each}</DropdownMenu.RadioGroup
 									></DropdownMenu.Content
 								></DropdownMenu.Root

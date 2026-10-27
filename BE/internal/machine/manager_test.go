@@ -72,7 +72,7 @@ type managerStoreFake struct {
 	updateAgentRunStarted     func() error
 	envVarListCalls           int
 	runtimeServicesCreated    int
-	workspaceModelCredential  *domain.DevMachineWorkspaceModelCredential
+	modelServer               *domain.AgentModelServer
 }
 
 func (f *managerStoreFake) LeaseOperations(context.Context, string, int, time.Duration) ([]domain.DevMachineOperation, error) {
@@ -110,8 +110,23 @@ func (f *managerStoreFake) ListEnvVarsInternal(context.Context, uuid.UUID, *stri
 	f.envVarListCalls++
 	return nil, nil
 }
-func (f *managerStoreFake) GetWorkspaceModelCredential(context.Context, uuid.UUID, string) (*domain.DevMachineWorkspaceModelCredential, error) {
-	return f.workspaceModelCredential, nil
+func (f *managerStoreFake) GetModelServer(context.Context, uuid.UUID, *uuid.UUID) (*domain.AgentModelServer, error) {
+	return f.modelServer, nil
+}
+
+// deepSeekServer is the model server migrated from a workspace DeepSeek key.
+func deepSeekServer(workspaceID uuid.UUID, encrypted, model, thinking string) *domain.AgentModelServer {
+	return &domain.AgentModelServer{
+		ID: uuid.New(), WorkspaceID: workspaceID, Name: "DeepSeek", EncryptedAPIKey: encrypted,
+		OpenAIBaseURL: ptr("https://api.deepseek.com"), AnthropicBaseURL: ptr("https://api.deepseek.com/anthropic"),
+		Models: json.RawMessage(`["deepseek-flash","deepseek-v4-pro"]`), DefaultModel: model, FastModel: "deepseek-flash",
+		Thinking: thinking, IsDefault: true,
+	}
+}
+
+func serverRef() *uuid.UUID {
+	id := uuid.New()
+	return &id
 }
 func (f *managerStoreFake) SetMachineState(_ context.Context, _ uuid.UUID, status domain.DevMachineStatus, network, volume, _, _ *string) error {
 	f.machine.Status = status
@@ -1176,17 +1191,14 @@ func TestReconcileRetriesEnvironmentImageCleanupFailure(t *testing.T) {
 	require.Equal(t, []uuid.UUID{environmentID}, store.deletedEnvironmentIDs)
 }
 
-func TestManagerInjectsDeepSeekOnlyIntoDeveloperServices(t *testing.T) {
+func TestManagerInjectsTheDefaultModelServerOnlyIntoDeveloperServices(t *testing.T) {
 	workspaceID := uuid.New()
 	key := cryptoutil.DeriveKey("deepseek-manager-test")
 	encrypted, err := cryptoutil.Encrypt("sk-deepseek-test", key)
 	require.NoError(t, err)
 	store := &managerStoreFake{
-		machine: &domain.DevMachine{ID: uuid.New(), WorkspaceID: workspaceID},
-		workspaceModelCredential: &domain.DevMachineWorkspaceModelCredential{
-			WorkspaceID: workspaceID, Provider: "deepseek", EncryptedAPIKey: encrypted,
-			DefaultModel: "deepseek-v4-pro", Thinking: "high",
-		},
+		machine:     &domain.DevMachine{ID: uuid.New(), WorkspaceID: workspaceID},
+		modelServer: deepSeekServer(workspaceID, encrypted, "deepseek-v4-pro", "high"),
 	}
 	services := []domain.DevMachineService{
 		{ServiceKey: "ide", ServiceType: "ide"},
@@ -1201,9 +1213,11 @@ func TestManagerInjectsDeepSeekOnlyIntoDeveloperServices(t *testing.T) {
 	require.NoError(t, err)
 
 	expected := map[string]string{
-		"DEEPSEEK_API_KEY":                         "sk-deepseek-test",
-		"KUAYLE_DEEPSEEK_MODEL":                    "deepseek-v4-pro",
-		"KUAYLE_DEEPSEEK_THINKING":                 "high",
+		"KUAYLE_MODEL_API_KEY":                     "sk-deepseek-test",
+		"KUAYLE_MODEL":                             "deepseek-v4-pro",
+		"KUAYLE_MODEL_THINKING":                    "high",
+		"KUAYLE_MODEL_OPENAI_BASE_URL":             "https://api.deepseek.com",
+		"KUAYLE_MODEL_LIST":                        "deepseek-flash,deepseek-v4-pro",
 		"ANTHROPIC_BASE_URL":                       "https://api.deepseek.com/anthropic",
 		"ANTHROPIC_AUTH_TOKEN":                     "sk-deepseek-test",
 		"ANTHROPIC_MODEL":                          "deepseek-v4-pro",
@@ -1223,39 +1237,36 @@ func TestManagerInjectsDeepSeekOnlyIntoDeveloperServices(t *testing.T) {
 	}
 }
 
-func TestManagerOmitsClaudeEffortForDeepSeekThinkingOff(t *testing.T) {
+func TestManagerOmitsClaudeEffortWhenThinkingIsOff(t *testing.T) {
 	workspaceID := uuid.New()
 	key := cryptoutil.DeriveKey("deepseek-manager-off-test")
 	encrypted, err := cryptoutil.Encrypt("sk-deepseek-test", key)
 	require.NoError(t, err)
 	store := &managerStoreFake{
-		machine: &domain.DevMachine{ID: uuid.New(), WorkspaceID: workspaceID},
-		workspaceModelCredential: &domain.DevMachineWorkspaceModelCredential{
-			WorkspaceID: workspaceID, Provider: "deepseek", EncryptedAPIKey: encrypted,
-			DefaultModel: "deepseek-flash", Thinking: "off",
-		},
+		machine:     &domain.DevMachine{ID: uuid.New(), WorkspaceID: workspaceID},
+		modelServer: deepSeekServer(workspaceID, encrypted, "deepseek-flash", "off"),
 	}
 	manager := NewManager(store, &runtimeFake{}, agent.NewRegistry(), nil, key, nil, "test")
 
 	secrets, err := manager.serviceSecrets(context.Background(), store.machine, []domain.DevMachineService{{ServiceKey: "ide", ServiceType: "ide"}})
 	require.NoError(t, err)
 	require.NotContains(t, secrets["ide"], "CLAUDE_CODE_EFFORT_LEVEL")
-	require.Equal(t, "off", secrets["ide"]["KUAYLE_DEEPSEEK_THINKING"])
+	require.Equal(t, "off", secrets["ide"]["KUAYLE_MODEL_THINKING"])
 }
 
-func TestManagerAddsNoDeepSeekSecretsWithoutWorkspaceCredential(t *testing.T) {
+func TestManagerAddsNoModelSecretsWithoutAModelServer(t *testing.T) {
 	workspaceID := uuid.New()
 	store := &managerStoreFake{machine: &domain.DevMachine{ID: uuid.New(), WorkspaceID: workspaceID}}
 	manager := NewManager(store, &runtimeFake{}, agent.NewRegistry(), nil, cryptoutil.DeriveKey("deepseek-manager-empty-test"), nil, "test")
 
 	secrets, err := manager.serviceSecrets(context.Background(), store.machine, []domain.DevMachineService{{ServiceKey: "ide", ServiceType: "ide"}})
 	require.NoError(t, err)
-	for _, name := range []string{"DEEPSEEK_API_KEY", "KUAYLE_DEEPSEEK_MODEL", "KUAYLE_DEEPSEEK_THINKING", "ANTHROPIC_AUTH_TOKEN"} {
+	for _, name := range []string{"KUAYLE_MODEL_API_KEY", "KUAYLE_MODEL", "KUAYLE_MODEL_THINKING", "ANTHROPIC_AUTH_TOKEN"} {
 		require.NotContains(t, secrets["ide"], name)
 	}
 }
 
-func TestManagerInjectsWorkspaceDeepSeekCredentialIntoAgentRun(t *testing.T) {
+func TestManagerInjectsTheRunsModelServerIntoAgentRun(t *testing.T) {
 	machineID, workspaceID, runID := uuid.New(), uuid.New(), uuid.New()
 	key := cryptoutil.DeriveKey("deepseek-agent-run-test")
 	encrypted, err := cryptoutil.Encrypt("sk-deepseek-agent", key)
@@ -1264,6 +1275,7 @@ func TestManagerInjectsWorkspaceDeepSeekCredentialIntoAgentRun(t *testing.T) {
 		ID: runID, MachineID: machineID, WorkspaceID: workspaceID,
 		ProviderID: "codex", Mode: "autonomous", Status: domain.DevMachineAgentRunStatusQueued,
 		AllowedSecrets: json.RawMessage(`[]`), CommandArgv: json.RawMessage(`["codex"]`), MaxRuntimeSeconds: 30,
+		ModelServerID: serverRef(),
 	}
 	store := &managerStoreFake{
 		machine: &domain.DevMachine{
@@ -1271,12 +1283,9 @@ func TestManagerInjectsWorkspaceDeepSeekCredentialIntoAgentRun(t *testing.T) {
 			Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, Generation: 1,
 			DockerNetworkName: ptr("network"), WorkspaceVolumeName: ptr("volume"),
 		},
-		agentRun: run,
-		provider: &domain.DevMachineAgentProvider{MachineID: machineID, ProviderID: "codex", ImageRef: "kuayle/codex:test", Enabled: true},
-		workspaceModelCredential: &domain.DevMachineWorkspaceModelCredential{
-			WorkspaceID: workspaceID, Provider: "deepseek", EncryptedAPIKey: encrypted,
-			DefaultModel: "deepseek-v4-pro", Thinking: "max",
-		},
+		agentRun:    run,
+		provider:    &domain.DevMachineAgentProvider{MachineID: machineID, ProviderID: "codex", ImageRef: "kuayle/codex:test", Enabled: true},
+		modelServer: deepSeekServer(workspaceID, encrypted, "deepseek-v4-pro", "max"),
 	}
 	runtime := &runtimeFake{agentExecution: &AgentExecution{ContainerID: "agent-container", ExitCode: 0}}
 	runtime.onAgentOutput = func(output AgentOutput) error {
@@ -1300,9 +1309,11 @@ func TestManagerInjectsWorkspaceDeepSeekCredentialIntoAgentRun(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, map[string]string{
-		"DEEPSEEK_API_KEY":                         "sk-deepseek-agent",
-		"KUAYLE_DEEPSEEK_MODEL":                    "deepseek-v4-pro",
-		"KUAYLE_DEEPSEEK_THINKING":                 "max",
+		"KUAYLE_MODEL_API_KEY":                     "sk-deepseek-agent",
+		"KUAYLE_MODEL":                             "deepseek-v4-pro",
+		"KUAYLE_MODEL_THINKING":                    "max",
+		"KUAYLE_MODEL_OPENAI_BASE_URL":             "https://api.deepseek.com",
+		"KUAYLE_MODEL_LIST":                        "deepseek-flash,deepseek-v4-pro",
 		"ANTHROPIC_BASE_URL":                       "https://api.deepseek.com/anthropic",
 		"ANTHROPIC_AUTH_TOKEN":                     "sk-deepseek-agent",
 		"ANTHROPIC_MODEL":                          "deepseek-v4-pro",
@@ -1324,7 +1335,7 @@ func TestManagerPerRunThinkingOffSuppressesWorkspaceClaudeEffort(t *testing.T) {
 		ID: runID, MachineID: machineID, WorkspaceID: workspaceID,
 		ProviderID: "claude-code", Mode: "autonomous", Status: domain.DevMachineAgentRunStatusQueued,
 		AllowedSecrets: json.RawMessage(`[]`), CommandArgv: json.RawMessage(`["claude"]`),
-		CommandEnvironment: json.RawMessage(`{}`), Thinking: "off", MaxRuntimeSeconds: 30,
+		CommandEnvironment: json.RawMessage(`{}`), Thinking: "off", MaxRuntimeSeconds: 30, ModelServerID: serverRef(),
 	}
 	store := &managerStoreFake{
 		machine: &domain.DevMachine{
@@ -1332,12 +1343,9 @@ func TestManagerPerRunThinkingOffSuppressesWorkspaceClaudeEffort(t *testing.T) {
 			Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, Generation: 1,
 			DockerNetworkName: ptr("network"), WorkspaceVolumeName: ptr("volume"),
 		},
-		agentRun: run,
-		provider: &domain.DevMachineAgentProvider{MachineID: machineID, ProviderID: "claude-code", ImageRef: "kuayle/claude:test", Enabled: true},
-		workspaceModelCredential: &domain.DevMachineWorkspaceModelCredential{
-			WorkspaceID: workspaceID, Provider: "deepseek", EncryptedAPIKey: encrypted,
-			DefaultModel: "deepseek-v4-pro", Thinking: "high",
-		},
+		agentRun:    run,
+		provider:    &domain.DevMachineAgentProvider{MachineID: machineID, ProviderID: "claude-code", ImageRef: "kuayle/claude:test", Enabled: true},
+		modelServer: deepSeekServer(workspaceID, encrypted, "deepseek-v4-pro", "high"),
 	}
 	runtime := &runtimeFake{agentExecution: &AgentExecution{ContainerID: "agent-container", ExitCode: 0}}
 	manager := NewManager(store, runtime, agent.NewRegistry(agent.NewClaudeCodeProvider("kuayle/claude:test")), nil, key, nil, "test")
@@ -1347,10 +1355,10 @@ func TestManagerPerRunThinkingOffSuppressesWorkspaceClaudeEffort(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotContains(t, runtime.agentSecrets, "CLAUDE_CODE_EFFORT_LEVEL")
-	require.Equal(t, "high", runtime.agentSecrets["KUAYLE_DEEPSEEK_THINKING"])
+	require.Equal(t, "high", runtime.agentSecrets["KUAYLE_MODEL_THINKING"])
 }
 
-func TestManagerAddsNoDeepSeekSecretsToAgentWithoutWorkspaceCredential(t *testing.T) {
+func TestManagerAddsNoModelSecretsToAgentWithoutAModelServer(t *testing.T) {
 	machineID, workspaceID, runID := uuid.New(), uuid.New(), uuid.New()
 	run := &domain.DevMachineAgentRun{
 		ID: runID, MachineID: machineID, WorkspaceID: workspaceID,
@@ -1366,6 +1374,9 @@ func TestManagerAddsNoDeepSeekSecretsToAgentWithoutWorkspaceCredential(t *testin
 		},
 		agentRun: run,
 		provider: &domain.DevMachineAgentProvider{MachineID: machineID, ProviderID: "codex", ImageRef: "kuayle/codex:test", Enabled: true},
+		// A default server exists, but a run uses only the server recorded on
+		// it; without one the harness relies on its own sign-in.
+		modelServer: deepSeekServer(workspaceID, "sealed", "deepseek-flash", "high"),
 	}
 	runtime := &runtimeFake{agentExecution: &AgentExecution{ContainerID: "agent-container", ExitCode: 0}}
 	manager := NewManager(store, runtime, agent.NewRegistry(agent.NewCodexProvider("kuayle/codex:test")), nil, cryptoutil.DeriveKey("empty-agent-test"), nil, "test")
@@ -1685,13 +1696,13 @@ func TestManagerRecoveryUsesOriginalSecretsAfterCredentialRotation(t *testing.T)
 	key := cryptoutil.DeriveKey("snapshot-recovery-test")
 	original := "fixture-original-provider-key"
 	current, _ := cryptoutil.Encrypt("fixture-rotated-provider-key", key)
-	snapshot, _ := cryptoutil.Encrypt(`{"DEEPSEEK_API_KEY":"`+original+`"}`, key)
+	snapshot, _ := cryptoutil.Encrypt(`{"KUAYLE_MODEL_API_KEY":"`+original+`"}`, key)
 	run := &domain.DevMachineAgentRun{ID: runID, MachineID: machineID, WorkspaceID: workspaceID, ProviderID: "codex", Mode: "autonomous", Status: domain.DevMachineAgentRunStatusRunning, EncryptedOutputSecrets: &snapshot, MaxRuntimeSeconds: 30}
-	store := &managerStoreFake{machine: &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, RoutingKey: "0123456789abcdef0123", Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, Generation: 1}, agentRun: run, provider: &domain.DevMachineAgentProvider{ProviderID: "codex", ImageRef: "test"}, workspaceModelCredential: &domain.DevMachineWorkspaceModelCredential{EncryptedAPIKey: current, DefaultModel: "deepseek-flash"}}
+	store := &managerStoreFake{machine: &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, RoutingKey: "0123456789abcdef0123", Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, Generation: 1}, agentRun: run, provider: &domain.DevMachineAgentProvider{ProviderID: "codex", ImageRef: "test"}, modelServer: &domain.AgentModelServer{EncryptedAPIKey: current, DefaultModel: "deepseek-flash"}}
 	runtime := &runtimeFake{agentExecution: &AgentExecution{ContainerID: "existing", Stdout: "work " + original + "\n", ExitCode: 0}}
 	manager := NewManager(store, runtime, agent.NewRegistry(agent.NewCodexProvider("test")), nil, key, nil, "test")
 	require.NoError(t, manager.runAgent(context.Background(), store.machine, &domain.DevMachineOperation{AgentRunID: &runID, Generation: 1}))
-	require.Equal(t, original, runtime.agentSecrets["DEEPSEEK_API_KEY"])
+	require.Equal(t, original, runtime.agentSecrets["KUAYLE_MODEL_API_KEY"])
 	require.Zero(t, store.envVarListCalls, "recovery does not replace a running container's credentials")
 	require.Len(t, store.outputChunks, 1)
 	require.Equal(t, "work [REDACTED]\n", store.outputChunks[0].Content)
@@ -1773,14 +1784,14 @@ func TestManagerRedactsCredentialsWithoutCorruptingModelConfigurationOrNumbers(t
 	key := cryptoutil.DeriveKey("public-model-output-test")
 	encrypted, err := cryptoutil.Encrypt("fixture-model-key", key)
 	require.NoError(t, err)
-	run := &domain.DevMachineAgentRun{ID: uuid.New(), MachineID: uuid.New(), WorkspaceID: uuid.New(), ProviderID: "codex", Mode: "autonomous", Status: domain.DevMachineAgentRunStatusQueued, MaxRuntimeSeconds: 30}
-	store := &managerStoreFake{machine: &domain.DevMachine{ID: run.MachineID, WorkspaceID: run.WorkspaceID, Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, Generation: 1}, agentRun: run, provider: &domain.DevMachineAgentProvider{ProviderID: "codex", ImageRef: "test"}, workspaceModelCredential: &domain.DevMachineWorkspaceModelCredential{EncryptedAPIKey: encrypted, DefaultModel: "deepseek-flash", Thinking: "high"}}
+	run := &domain.DevMachineAgentRun{ID: uuid.New(), MachineID: uuid.New(), WorkspaceID: uuid.New(), ProviderID: "codex", Mode: "autonomous", Status: domain.DevMachineAgentRunStatusQueued, MaxRuntimeSeconds: 30, ModelServerID: serverRef()}
+	store := &managerStoreFake{machine: &domain.DevMachine{ID: run.MachineID, WorkspaceID: run.WorkspaceID, Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, Generation: 1}, agentRun: run, provider: &domain.DevMachineAgentProvider{ProviderID: "codex", ImageRef: "test"}, modelServer: &domain.AgentModelServer{EncryptedAPIKey: encrypted, DefaultModel: "deepseek-flash", Thinking: "high"}}
 	runtime := &runtimeFake{agentExecution: &AgentExecution{ContainerID: "native", Stdout: `{"type":"tool.started","count":1,"message":"deepseek-flash high fixture-model-key"}` + "\n"}}
 	manager := NewManager(store, runtime, agent.NewRegistry(agent.NewCodexProvider("test")), nil, key, nil, "test")
 	for attempt := 0; attempt < 2; attempt++ {
 		if attempt == 1 {
 			run.Status = domain.DevMachineAgentRunStatusRunning
-			store.workspaceModelCredential = nil
+			store.modelServer = nil
 			store.outputChunks = nil
 			store.events = nil
 		}
@@ -1789,6 +1800,6 @@ func TestManagerRedactsCredentialsWithoutCorruptingModelConfigurationOrNumbers(t
 		require.JSONEq(t, `{"type":"tool.started","count":1,"message":"deepseek-flash high [REDACTED]"}`, store.outputChunks[0].Content)
 		require.Len(t, store.events, 2)
 		require.Equal(t, "tool.started", store.events[0].EventType)
-		require.Equal(t, "fixture-model-key", runtime.agentSecrets["DEEPSEEK_API_KEY"])
+		require.Equal(t, "fixture-model-key", runtime.agentSecrets["KUAYLE_MODEL_API_KEY"])
 	}
 }

@@ -1,10 +1,10 @@
 package dto
 
 import (
-	"github.com/kuayle/kuayle-backend/internal/agent"
-
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/kuayle/kuayle-backend/internal/agent"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 )
 
@@ -181,24 +181,54 @@ type CreateAgentRunRequest struct {
 	AllowedSecrets    []string            `json:"allowed_secrets"`
 	PushBranch        *bool               `json:"push_branch,omitempty"`
 	OpenPullRequest   bool                `json:"open_pull_request"`
-	Model             string              `json:"model,omitempty" validate:"omitempty,oneof=deepseek-flash deepseek-v4-pro"`
-	Thinking          string              `json:"thinking,omitempty" validate:"omitempty,oneof=off low high max"`
+	// ModelServerID picks a workspace model server; nil uses the default one.
+	ModelServerID *uuid.UUID `json:"model_server_id,omitempty"`
+	Model         string     `json:"model,omitempty" validate:"omitempty,max=128"`
+	Thinking      string     `json:"thinking,omitempty" validate:"omitempty,oneof=off low high max"`
 }
 
-type UpdateWorkspaceModelProviderRequest struct {
-	APIKey       *string `json:"api_key,omitempty"`
-	DefaultModel string  `json:"default_model" validate:"required,oneof=deepseek-flash deepseek-v4-pro"`
-	Thinking     string  `json:"thinking" validate:"required,oneof=off low high max"`
+// SaveModelServerRequest creates or updates a model server. The API key is
+// required when creating and kept when omitted on update.
+type SaveModelServerRequest struct {
+	Name             string   `json:"name" validate:"required,max=64"`
+	OpenAIBaseURL    *string  `json:"openai_base_url,omitempty"`
+	AnthropicBaseURL *string  `json:"anthropic_base_url,omitempty"`
+	APIKey           *string  `json:"api_key,omitempty"`
+	Models           []string `json:"models" validate:"max=500"`
+	DefaultModel     string   `json:"default_model" validate:"required,max=128"`
+	FastModel        string   `json:"fast_model" validate:"max=128"`
+	Thinking         string   `json:"thinking" validate:"required,oneof=off low high max"`
+	IsDefault        bool     `json:"is_default"`
 }
 
-type WorkspaceModelProviderResponse struct {
-	Provider       string     `json:"provider"`
-	Configured     bool       `json:"configured"`
-	DefaultModel   string     `json:"default_model"`
-	Thinking       string     `json:"thinking"`
-	Models         []string   `json:"models"`
-	ThinkingLevels []string   `json:"thinking_levels"`
-	UpdatedAt      *time.Time `json:"updated_at"`
+// DiscoverModelsRequest lists a server's models before or after saving it. A
+// saved server's stored key is used when api_key is omitted.
+type DiscoverModelsRequest struct {
+	ServerID         *uuid.UUID `json:"server_id,omitempty"`
+	OpenAIBaseURL    *string    `json:"openai_base_url,omitempty"`
+	AnthropicBaseURL *string    `json:"anthropic_base_url,omitempty"`
+	APIKey           *string    `json:"api_key,omitempty"`
+}
+
+type DiscoverModelsResponse struct {
+	Models []string `json:"models"`
+}
+
+// ModelServerResponse never includes the API key.
+type ModelServerResponse struct {
+	ID               uuid.UUID `json:"id"`
+	Name             string    `json:"name"`
+	OpenAIBaseURL    *string   `json:"openai_base_url,omitempty"`
+	AnthropicBaseURL *string   `json:"anthropic_base_url,omitempty"`
+	Models           []string  `json:"models"`
+	DefaultModel     string    `json:"default_model"`
+	FastModel        string    `json:"fast_model"`
+	Thinking         string    `json:"thinking"`
+	IsDefault        bool      `json:"is_default"`
+	// Harnesses that can use this server, from the protocols it speaks.
+	Harnesses      []string  `json:"harnesses"`
+	ThinkingLevels []string  `json:"thinking_levels"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 type AgentProviderResponse struct {

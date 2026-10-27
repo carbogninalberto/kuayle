@@ -626,42 +626,78 @@ func (h *DevMachineHandler) Providers(c echo.Context) error {
 	return response.Success(c, http.StatusOK, providers)
 }
 
-// GetWorkspaceModelProvider reports configuration status only; the key is never returned,
-// so members may read it to offer DeepSeek options when running agents.
-func (h *DevMachineHandler) GetWorkspaceModelProvider(c echo.Context) error {
-	provider, err := h.service.GetWorkspaceModelProvider(c.Request().Context(), middleware.GetWorkspace(c).ID)
+// ListModelServers reports configuration only; keys are never returned, so
+// members may read it to choose a server and model when running agents.
+func (h *DevMachineHandler) ListModelServers(c echo.Context) error {
+	servers, err := h.service.ListModelServers(c.Request().Context(), middleware.GetWorkspace(c).ID)
 	if err != nil {
 		return machineError(c, err)
 	}
-	return response.Success(c, http.StatusOK, provider)
+	return response.Success(c, http.StatusOK, servers)
 }
 
-func (h *DevMachineHandler) UpdateWorkspaceModelProvider(c echo.Context) error {
+func (h *DevMachineHandler) CreateModelServer(c echo.Context) error {
+	return h.saveModelServer(c, nil)
+}
+
+func (h *DevMachineHandler) UpdateModelServer(c echo.Context) error {
+	id, err := uuid.Parse(c.Param("serverId"))
+	if err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid model server ID")
+	}
+	return h.saveModelServer(c, &id)
+}
+
+func (h *DevMachineHandler) saveModelServer(c echo.Context, id *uuid.UUID) error {
+	if !canAdministerDevMachines(c) {
+		return response.Forbidden(c)
+	}
+	c.Request().Body = http.MaxBytesReader(c.Response().Writer, c.Request().Body, 96*1024)
+	var request dto.SaveModelServerRequest
+	if err := bindAndValidate(c, &request); err != nil {
+		return err
+	}
+	server, err := h.service.SaveModelServer(c.Request().Context(), middleware.GetWorkspace(c).ID, middleware.GetUserID(c), id, request)
+	if err != nil {
+		return machineError(c, err)
+	}
+	status := http.StatusOK
+	if id == nil {
+		status = http.StatusCreated
+	}
+	return response.Success(c, status, server)
+}
+
+func (h *DevMachineHandler) DeleteModelServer(c echo.Context) error {
+	if !canAdministerDevMachines(c) {
+		return response.Forbidden(c)
+	}
+	id, err := uuid.Parse(c.Param("serverId"))
+	if err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid model server ID")
+	}
+	if err := h.service.DeleteModelServer(c.Request().Context(), middleware.GetWorkspace(c).ID, id); err != nil {
+		return machineError(c, err)
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
+// DiscoverModels lists a server's models for the settings form. It sends the
+// key to an admin-chosen URL, so only admins may call it.
+func (h *DevMachineHandler) DiscoverModels(c echo.Context) error {
 	if !canAdministerDevMachines(c) {
 		return response.Forbidden(c)
 	}
 	c.Request().Body = http.MaxBytesReader(c.Response().Writer, c.Request().Body, 8*1024)
-	var request dto.UpdateWorkspaceModelProviderRequest
+	var request dto.DiscoverModelsRequest
 	if err := bindAndValidate(c, &request); err != nil {
 		return err
 	}
-	provider, err := h.service.UpdateWorkspaceModelProvider(
-		c.Request().Context(), middleware.GetWorkspace(c).ID, middleware.GetUserID(c), request,
-	)
+	models, err := h.service.DiscoverModels(c.Request().Context(), middleware.GetWorkspace(c).ID, request)
 	if err != nil {
 		return machineError(c, err)
 	}
-	return response.Success(c, http.StatusOK, provider)
-}
-
-func (h *DevMachineHandler) DeleteWorkspaceModelProvider(c echo.Context) error {
-	if !canAdministerDevMachines(c) {
-		return response.Forbidden(c)
-	}
-	if err := h.service.DeleteWorkspaceModelProvider(c.Request().Context(), middleware.GetWorkspace(c).ID); err != nil {
-		return machineError(c, err)
-	}
-	return c.NoContent(http.StatusNoContent)
+	return response.Success(c, http.StatusOK, models)
 }
 
 func canAdministerDevMachines(c echo.Context) bool {
@@ -801,6 +837,10 @@ func machineError(c echo.Context, err error) error {
 		return response.Error(c, http.StatusNotFound, "SERVICE_NOT_AVAILABLE", err.Error())
 	case errors.Is(err, service.ErrInvalidMachineInput):
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+	case errors.Is(err, service.ErrModelServerNotFound):
+		return response.Error(c, http.StatusNotFound, "NOT_FOUND", err.Error())
+	case errors.Is(err, service.ErrModelDiscoveryFailed):
+		return response.Error(c, http.StatusBadGateway, "MODEL_DISCOVERY_FAILED", err.Error())
 	default:
 		return response.InternalError(c)
 	}

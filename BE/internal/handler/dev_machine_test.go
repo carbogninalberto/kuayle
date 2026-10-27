@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -331,120 +332,80 @@ func TestDevMachineGetIsCreatorScoped(t *testing.T) {
 	require.Equal(t, http.StatusOK, recorder.Code)
 }
 
-func TestDeepSeekModelProviderResponsesNeverExposeAPIKey(t *testing.T) {
-	workspaceID, userID := uuid.New(), uuid.New()
-	encrypted, err := cryptoutil.Encrypt("sk-handler-secret", cryptoutil.DeriveKey("test"))
-	require.NoError(t, err)
-	store := &handlerDevMachineStoreFake{
-		workspaceModelCredential: &domain.DevMachineWorkspaceModelCredential{
-			WorkspaceID: workspaceID, Provider: "deepseek", EncryptedAPIKey: encrypted,
-			DefaultModel: "deepseek-flash", Thinking: "high", UpdatedBy: &userID,
-		},
-	}
-	h := NewDevMachineHandler(service.NewDevMachineService(
+func modelServerHandler(store *handlerDevMachineStoreFake) *DevMachineHandler {
+	return NewDevMachineHandler(service.NewDevMachineService(
 		store, agent.NewRegistry(), true, "machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, service.DevMachineImages{},
 	))
-
-	recorder := httptest.NewRecorder()
-	ctx := devMachineHandlerContext(httptest.NewRequest(http.MethodGet, "/dev-machine-model-providers/deepseek", nil), recorder, workspaceID, userID)
-	ctx.Set("workspace_role", domain.RoleOwner)
-	require.NoError(t, h.GetWorkspaceModelProvider(ctx))
-	require.Equal(t, http.StatusOK, recorder.Code)
-	require.NotContains(t, recorder.Body.String(), "sk-handler-secret")
-	require.NotContains(t, recorder.Body.String(), encrypted)
-	var response dto.WorkspaceModelProviderResponse
-	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
-	require.True(t, response.Configured)
-	require.Equal(t, []string{"deepseek-flash", "deepseek-v4-pro"}, response.Models)
-
-	recorder = httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPut, "/dev-machine-model-providers/deepseek", strings.NewReader(
-		`{"default_model":"deepseek-v4-pro","thinking":"low"}`,
-	))
-	request.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
-	ctx = devMachineHandlerContext(request, recorder, workspaceID, userID)
-	ctx.Set("workspace_role", domain.RoleAdmin)
-	require.NoError(t, h.UpdateWorkspaceModelProvider(ctx))
-	require.Equal(t, http.StatusOK, recorder.Code)
-	require.NotContains(t, recorder.Body.String(), "sk-handler-secret")
-	require.NotContains(t, recorder.Body.String(), encrypted)
-	require.Equal(t, encrypted, store.workspaceModelCredential.EncryptedAPIKey)
 }
 
-func TestDeepSeekModelProviderStatusIsReadableByMembersWithoutKey(t *testing.T) {
-	workspaceID, userID := uuid.New(), uuid.New()
-	encrypted, err := cryptoutil.Encrypt("sk-member-secret", cryptoutil.DeriveKey("test"))
-	require.NoError(t, err)
-	store := &handlerDevMachineStoreFake{
-		workspaceModelCredential: &domain.DevMachineWorkspaceModelCredential{
-			WorkspaceID: workspaceID, Provider: "deepseek", EncryptedAPIKey: encrypted,
-			DefaultModel: "deepseek-v4-pro", Thinking: "low", UpdatedBy: &userID,
-		},
-	}
-	h := NewDevMachineHandler(service.NewDevMachineService(
-		store, agent.NewRegistry(), true, "machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, service.DevMachineImages{},
-	))
-
+func sendModelServer(t *testing.T, h *DevMachineHandler, method, path, body, role string, workspaceID, userID uuid.UUID, serverID *uuid.UUID) *httptest.ResponseRecorder {
+	t.Helper()
 	recorder := httptest.NewRecorder()
-	ctx := devMachineHandlerContext(httptest.NewRequest(http.MethodGet, "/dev-machine-model-providers/deepseek", nil), recorder, workspaceID, userID)
-	ctx.Set("workspace_role", domain.RoleMember)
-	require.NoError(t, h.GetWorkspaceModelProvider(ctx))
-	require.Equal(t, http.StatusOK, recorder.Code)
-	require.NotContains(t, recorder.Body.String(), "sk-member-secret")
-	require.NotContains(t, recorder.Body.String(), encrypted)
-	var response dto.WorkspaceModelProviderResponse
-	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
-	require.True(t, response.Configured)
-	require.Equal(t, "deepseek-v4-pro", response.DefaultModel)
-}
-
-func TestDeepSeekModelProviderWriteRejectsNonAdmin(t *testing.T) {
-	workspaceID, userID := uuid.New(), uuid.New()
-	h := NewDevMachineHandler(service.NewDevMachineService(
-		&handlerDevMachineStoreFake{}, agent.NewRegistry(), true, "machines.example.test",
-		cryptoutil.DeriveKey("test"), time.Minute, service.DevMachineImages{},
-	))
-
-	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPut, "/dev-machine-model-providers/deepseek", strings.NewReader(
-		`{"api_key":"sk-test","default_model":"deepseek-flash","thinking":"high"}`,
-	))
+	request := httptest.NewRequest(method, path, strings.NewReader(body))
 	request.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	ctx := devMachineHandlerContext(request, recorder, workspaceID, userID)
-	ctx.Set("workspace_role", domain.RoleMember)
-
-	require.NoError(t, h.UpdateWorkspaceModelProvider(ctx))
-	require.Equal(t, http.StatusForbidden, recorder.Code)
+	ctx.Set("workspace_role", role)
+	if serverID != nil {
+		ctx.SetParamNames("serverId")
+		ctx.SetParamValues(serverID.String())
+	}
+	switch {
+	case method == http.MethodGet:
+		require.NoError(t, h.ListModelServers(ctx))
+	case method == http.MethodPost && strings.HasSuffix(path, "/discover"):
+		require.NoError(t, h.DiscoverModels(ctx))
+	case method == http.MethodPost:
+		require.NoError(t, h.CreateModelServer(ctx))
+	case method == http.MethodPut:
+		require.NoError(t, h.UpdateModelServer(ctx))
+	case method == http.MethodDelete:
+		require.NoError(t, h.DeleteModelServer(ctx))
+	}
+	return recorder
 }
 
-func TestDeepSeekModelProviderRequiresFirstKeyButAllowsOmittedKeyOnUpdate(t *testing.T) {
+func TestModelServerResponsesNeverExposeTheAPIKey(t *testing.T) {
 	workspaceID, userID := uuid.New(), uuid.New()
 	store := &handlerDevMachineStoreFake{}
-	h := NewDevMachineHandler(service.NewDevMachineService(
-		store, agent.NewRegistry(), true, "machines.example.test",
-		cryptoutil.DeriveKey("test"), time.Minute, service.DevMachineImages{},
-	))
-	send := func(body string) *httptest.ResponseRecorder {
-		recorder := httptest.NewRecorder()
-		request := httptest.NewRequest(http.MethodPut, "/dev-machine-model-providers/deepseek", strings.NewReader(body))
-		request.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
-		ctx := devMachineHandlerContext(request, recorder, workspaceID, userID)
-		ctx.Set("workspace_role", domain.RoleOwner)
-		require.NoError(t, h.UpdateWorkspaceModelProvider(ctx))
-		return recorder
+	h := modelServerHandler(store)
+
+	created := sendModelServer(t, h, http.MethodPost, "/agent-model-servers", `{"name":"DeepSeek","openai_base_url":"https://api.deepseek.com","anthropic_base_url":"https://api.deepseek.com/anthropic","api_key":"sk-handler-secret","models":["deepseek-flash","deepseek-v4-pro"],"default_model":"deepseek-flash","thinking":"high"}`, domain.RoleOwner, workspaceID, userID, nil)
+	require.Equal(t, http.StatusCreated, created.Code, created.Body.String())
+	require.NotContains(t, created.Body.String(), "sk-handler-secret")
+	var server dto.ModelServerResponse
+	require.NoError(t, json.Unmarshal(created.Body.Bytes(), &server))
+	require.Equal(t, []string{"codex", "claude-code"}, server.Harnesses)
+	encrypted := store.modelServers[0].EncryptedAPIKey
+
+	// Members read configuration so they can choose a server; never the key.
+	listed := sendModelServer(t, h, http.MethodGet, "/agent-model-servers", "", domain.RoleMember, workspaceID, userID, nil)
+	require.Equal(t, http.StatusOK, listed.Code)
+	require.NotContains(t, listed.Body.String(), "sk-handler-secret")
+	require.NotContains(t, listed.Body.String(), encrypted)
+	var servers []dto.ModelServerResponse
+	require.NoError(t, json.Unmarshal(listed.Body.Bytes(), &servers))
+	require.Len(t, servers, 1)
+	require.True(t, servers[0].IsDefault)
+
+	updated := sendModelServer(t, h, http.MethodPut, "/agent-model-servers/"+server.ID.String(), `{"name":"DeepSeek","openai_base_url":"https://api.deepseek.com","default_model":"deepseek-v4-pro","models":["deepseek-flash","deepseek-v4-pro"],"thinking":"low"}`, domain.RoleAdmin, workspaceID, userID, &server.ID)
+	require.Equal(t, http.StatusOK, updated.Code, updated.Body.String())
+	require.Equal(t, encrypted, store.modelServers[0].EncryptedAPIKey, "an omitted key is kept")
+
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
+		denied := sendModelServer(t, h, method, "/agent-model-servers", `{"name":"X","openai_base_url":"https://a.test","api_key":"k","default_model":"m","thinking":"high"}`, domain.RoleMember, workspaceID, userID, &server.ID)
+		require.Equal(t, http.StatusForbidden, denied.Code, method)
 	}
+	denied := sendModelServer(t, h, http.MethodPost, "/agent-model-servers/discover", `{"openai_base_url":"https://a.test","api_key":"k"}`, domain.RoleMember, workspaceID, userID, nil)
+	require.Equal(t, http.StatusForbidden, denied.Code, "only admins send keys to chosen URLs")
 
-	recorder := send(`{"default_model":"deepseek-flash","thinking":"high"}`)
-	require.Equal(t, http.StatusBadRequest, recorder.Code)
-	require.Nil(t, store.workspaceModelCredential)
+	invalid := sendModelServer(t, h, http.MethodPost, "/agent-model-servers", `{"name":"Nowhere","api_key":"k","default_model":"m","thinking":"high"}`, domain.RoleOwner, workspaceID, userID, nil)
+	require.Equal(t, http.StatusBadRequest, invalid.Code)
 
-	recorder = send(`{"api_key":"sk-first","default_model":"deepseek-flash","thinking":"high"}`)
-	require.Equal(t, http.StatusOK, recorder.Code)
-	firstEncrypted := store.workspaceModelCredential.EncryptedAPIKey
-
-	recorder = send(`{"default_model":"deepseek-v4-pro","thinking":"low"}`)
-	require.Equal(t, http.StatusOK, recorder.Code)
-	require.Equal(t, firstEncrypted, store.workspaceModelCredential.EncryptedAPIKey)
+	deleted := sendModelServer(t, h, http.MethodDelete, "/agent-model-servers/"+server.ID.String(), "", domain.RoleOwner, workspaceID, userID, &server.ID)
+	require.Equal(t, http.StatusNoContent, deleted.Code)
+	require.Empty(t, store.modelServers)
+	missing := sendModelServer(t, h, http.MethodDelete, "/agent-model-servers/"+server.ID.String(), "", domain.RoleOwner, workspaceID, userID, &server.ID)
+	require.Equal(t, http.StatusNotFound, missing.Code)
 }
 
 func TestDevMachinePolicyIncludesConfiguredDiskQuotaMode(t *testing.T) {
@@ -611,13 +572,13 @@ func TestTerminalCloseReturnsAcceptedWhileRuntimeCleanupIsPending(t *testing.T) 
 
 type handlerDevMachineStoreFake struct {
 	repository.DevMachineStore
-	machine                  *domain.DevMachine
-	policy                   *domain.DevMachineWorkspacePolicy
-	workspaceActiveCount     int
-	userActiveCount          int
-	permanentDeleteRequests  int
-	terminalCloseOperation   *domain.DevMachineOperation
-	workspaceModelCredential *domain.DevMachineWorkspaceModelCredential
+	machine                 *domain.DevMachine
+	policy                  *domain.DevMachineWorkspacePolicy
+	workspaceActiveCount    int
+	userActiveCount         int
+	permanentDeleteRequests int
+	terminalCloseOperation  *domain.DevMachineOperation
+	modelServers            []domain.AgentModelServer
 }
 
 func (f *handlerDevMachineStoreFake) GetPolicy(context.Context, uuid.UUID) (*domain.DevMachineWorkspacePolicy, error) {
@@ -636,19 +597,42 @@ func (f *handlerDevMachineStoreFake) CountActiveMachines(_ context.Context, _ uu
 	return f.workspaceActiveCount, nil
 }
 
-func (f *handlerDevMachineStoreFake) GetWorkspaceModelCredential(context.Context, uuid.UUID, string) (*domain.DevMachineWorkspaceModelCredential, error) {
-	return f.workspaceModelCredential, nil
+func (f *handlerDevMachineStoreFake) ListModelServers(context.Context, uuid.UUID) ([]domain.AgentModelServer, error) {
+	return append([]domain.AgentModelServer(nil), f.modelServers...), nil
 }
 
-func (f *handlerDevMachineStoreFake) UpsertWorkspaceModelCredential(_ context.Context, credential *domain.DevMachineWorkspaceModelCredential) error {
-	copy := *credential
-	f.workspaceModelCredential = &copy
+func (f *handlerDevMachineStoreFake) GetModelServer(_ context.Context, _ uuid.UUID, id *uuid.UUID) (*domain.AgentModelServer, error) {
+	for _, server := range f.modelServers {
+		if (id == nil && server.IsDefault) || (id != nil && server.ID == *id) {
+			copy := server
+			return &copy, nil
+		}
+	}
+	return nil, nil
+}
+
+func (f *handlerDevMachineStoreFake) SaveModelServer(_ context.Context, server *domain.AgentModelServer) error {
+	if server.ID == uuid.Nil {
+		server.ID = uuid.New()
+	}
+	for i := range f.modelServers {
+		if f.modelServers[i].ID == server.ID {
+			f.modelServers[i] = *server
+			return nil
+		}
+	}
+	f.modelServers = append(f.modelServers, *server)
 	return nil
 }
 
-func (f *handlerDevMachineStoreFake) DeleteWorkspaceModelCredential(context.Context, uuid.UUID, string) error {
-	f.workspaceModelCredential = nil
-	return nil
+func (f *handlerDevMachineStoreFake) DeleteModelServer(_ context.Context, _ uuid.UUID, id uuid.UUID) error {
+	for i := range f.modelServers {
+		if f.modelServers[i].ID == id {
+			f.modelServers = append(f.modelServers[:i], f.modelServers[i+1:]...)
+			return nil
+		}
+	}
+	return sql.ErrNoRows
 }
 
 type collectorHandlerStoreFake struct {
@@ -739,7 +723,7 @@ func testPolicyForHandler(workspaceID uuid.UUID) *domain.DevMachineWorkspacePoli
 	}
 }
 
-func (f *collectorHandlerStoreFake) GetWorkspaceModelCredential(context.Context, uuid.UUID, string) (*domain.DevMachineWorkspaceModelCredential, error) {
+func (f *collectorHandlerStoreFake) ListModelServers(context.Context, uuid.UUID) ([]domain.AgentModelServer, error) {
 	return nil, nil
 }
 func (f *collectorHandlerStoreFake) ListAgentRunSecretSnapshots(context.Context, uuid.UUID, uuid.UUID) ([]string, error) {

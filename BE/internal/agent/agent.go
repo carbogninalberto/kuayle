@@ -37,6 +37,9 @@ type RunInput struct {
 	Config             json.RawMessage `json:"config"`
 	Model              string          `json:"model,omitempty"`
 	Thinking           string          `json:"thinking,omitempty"`
+	// OpenAIBaseURL points Codex at the run's model server; its key arrives as
+	// KUAYLE_MODEL_API_KEY through scoped secrets, never argv.
+	OpenAIBaseURL string `json:"openai_base_url,omitempty"`
 	// Session is set by Kuayle for agent task attempts only, never from HTTP.
 	Session *SessionInput `json:"-"`
 }

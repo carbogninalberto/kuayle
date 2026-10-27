@@ -30,7 +30,7 @@ func (f *approvalTaskFake) Options(context.Context, uuid.UUID, uuid.UUID) (*Agen
 	if f.optionsErr != nil {
 		return nil, f.optionsErr
 	}
-	return &AgentTaskOptions{Providers: []dto.AgentProviderResponse{{ID: "codex"}}, ModelProvider: &dto.WorkspaceModelProviderResponse{Configured: true, DefaultModel: "deepseek-flash", Thinking: "high"}}, nil
+	return &AgentTaskOptions{Providers: []dto.AgentProviderResponse{{ID: "codex"}}, ModelServers: []dto.ModelServerResponse{{IsDefault: true, Harnesses: []string{"codex", "claude-code"}, DefaultModel: "deepseek-flash", Thinking: "high"}}}, nil
 }
 func (f *approvalTaskFake) Create(ctx context.Context, ws, conversation uuid.UUID, input domain.AgentTaskRequest) (*domain.AgentTask, error) {
 	f.mu.Lock()

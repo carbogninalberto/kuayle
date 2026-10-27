@@ -1,5 +1,5 @@
 import { api } from './client';
-import type { AgentProvider, AgentRun, DevMachineLogChunk, WorkspaceModelProvider } from '$lib/types/dev-machine';
+import type { AgentProvider, AgentRun, DevMachineLogChunk, ModelServer } from '$lib/types/dev-machine';
 export type TaskState =
 	| 'queued'
 	| 'preparing'
@@ -112,10 +112,11 @@ export interface TaskInput {
 	provider: string;
 	model: string;
 	thinking: string;
+	model_server_id?: string;
 }
 export interface TaskOptions {
 	providers: AgentProvider[];
-	model_provider: WorkspaceModelProvider;
+	model_servers: ModelServer[];
 	default_provider?: string;
 }
 const base = (slug: string) => `/api/workspaces/${encodeURIComponent(slug)}`;

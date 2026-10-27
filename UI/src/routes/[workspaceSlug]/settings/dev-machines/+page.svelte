@@ -21,21 +21,17 @@
 	import { Textarea } from '$lib/components/ui/textarea';
 	import LoadingState from '$lib/components/shared/LoadingState.svelte';
 	import ErrorState from '$lib/components/shared/ErrorState.svelte';
-	import SelectField from '$lib/components/shared/SelectField.svelte';
 	import MachineResourceSliders from '$lib/features/dev-machines/MachineResourceSliders.svelte';
 	import { getGitHubStatus } from '$lib/api/github';
 	import {
 		createDevMachine,
 		deleteDevMachineEnvironment,
 		deleteDevMachineScopeSetting,
-		deleteWorkspaceModelProvider,
 		getDevMachinePolicy,
 		getDevMachineScopeSetting,
-		getWorkspaceModelProvider,
 		listDevMachineEnvironments,
 		updateDevMachinePolicy,
 		updateDevMachineScopeSetting,
-		updateWorkspaceModelProvider
 	} from '$lib/api/dev-machines';
 	import {
 		DEFAULT_MACHINE_RESOURCES,
@@ -45,11 +41,8 @@
 	} from '$lib/features/dev-machines/machine-size';
 	import { getWorkspace } from '$lib/api/workspaces';
 	import type {
-		DeepSeekModel,
-		DeepSeekThinking,
 		DevMachineEnvironment,
-		DevMachinePolicy,
-		WorkspaceModelProvider
+		DevMachinePolicy
 	} from '$lib/types/dev-machine';
 	import type { GitHubRepo } from '$lib/types/github';
 	import { appToast } from '$lib/features/toast/toast';
@@ -81,15 +74,6 @@
 	let builderCpuMillis = $state(DEFAULT_MACHINE_RESOURCES.cpu_millis);
 	let builderMemoryMb = $state(DEFAULT_MACHINE_RESOURCES.memory_mb);
 	let builderDiskGb = $state(DEFAULT_MACHINE_RESOURCES.disk_gb);
-	let modelProvider = $state<WorkspaceModelProvider | null>(null);
-	let deepSeekKey = $state('');
-	let deepSeekModel = $state<DeepSeekModel>('deepseek-flash');
-	let deepSeekThinking = $state<DeepSeekThinking>('high');
-	let deepSeekSaving = $state(false);
-	let deepSeekRemoving = $state(false);
-	let deepSeekRemoveOpen = $state(false);
-	let deepSeekLoadFailed = $state(false);
-	let deepSeekLoading = $state(false);
 
 	const readyEnvironments = $derived(environments.filter((item) => item.status === 'ready'));
 	const builderSizeOptions = $derived(
@@ -116,10 +100,9 @@
 		try {
 			const workspace = await getWorkspace(slug);
 			canAdmin = workspace.current_user_role === 'owner' || workspace.current_user_role === 'admin';
-			const [loaded, github, scope, availableEnvironments, availableModelProvider] = await Promise.all([
+			const [loaded, github, scope, availableEnvironments] = await Promise.all([
 				getDevMachinePolicy(slug), getGitHubStatus(slug),
-				getDevMachineScopeSetting(slug, 'workspace'), listDevMachineEnvironments(slug),
-				canAdmin ? loadDeepSeekProvider() : Promise.resolve(null)
+				getDevMachineScopeSetting(slug, 'workspace'), listDevMachineEnvironments(slug)
 			]);
 			policy = { ...loaded, allowed_providers: loaded.allowed_providers ?? [], allowed_repositories: loaded.allowed_repositories ?? [], allow_unattended_automations: loaded.allow_unattended_automations ?? false };
 			repositories = policy.allowed_repositories.join('\n');
@@ -128,10 +111,6 @@
 			defaultRepositoryId = scope.github_repo_id ?? 'none';
 			defaultEnvironmentId = scope.environment_id ?? 'standard';
 			defaultTestCommand = formatTestCommand(scope.test_command); defaultAgentProvider = scope.agent_provider ?? 'inherit'; defaultAgentInstructions = scope.agent_instructions ?? ''; defaultComposeFile = scope.compose_file ?? ''; defaultPreviewCommand = scope.preview_command ? JSON.stringify(scope.preview_command) : ''; defaultPreviewPort = scope.preview_port ? String(scope.preview_port) : '';
-			modelProvider = availableModelProvider;
-			deepSeekModel = availableModelProvider?.default_model ?? 'deepseek-flash';
-			deepSeekThinking = availableModelProvider?.thinking ?? 'high';
-			deepSeekKey = '';
 		} catch (error) {
 			failed = true;
 			appToast.apiError(error, m['settings.dev_machines.failed_load']());
@@ -182,12 +161,6 @@
 		}
 	}
 
-	function toggleProvider(provider: string) {
-		if (!policy) return;
-		policy.allowed_providers = policy.allowed_providers.includes(provider)
-			? policy.allowed_providers.filter((item) => item !== provider)
-			: [...policy.allowed_providers, provider];
-	}
 
 	function openEnvironmentBuilder() {
 		if (!canAdmin) return;
@@ -236,78 +209,6 @@
 		}
 	}
 
-	// The DeepSeek card loads independently so its failure never blocks the policy form.
-	async function loadDeepSeekProvider() {
-		deepSeekLoadFailed = false;
-		try {
-			return await getWorkspaceModelProvider(slug);
-		} catch {
-			deepSeekLoadFailed = true;
-			return null;
-		}
-	}
-
-	async function retryDeepSeek() {
-		if (deepSeekLoading) return;
-		deepSeekLoading = true;
-		try {
-			const loaded = await loadDeepSeekProvider();
-			if (loaded) {
-				modelProvider = loaded;
-				deepSeekModel = loaded.default_model;
-				deepSeekThinking = loaded.thinking;
-				deepSeekKey = '';
-			}
-		} finally {
-			deepSeekLoading = false;
-		}
-	}
-
-	async function saveDeepSeek(event: SubmitEvent) {
-		event.preventDefault();
-		if (!canAdmin || deepSeekSaving) return;
-		if (!modelProvider?.configured && deepSeekKey.length === 0) return;
-		deepSeekSaving = true;
-		try {
-			modelProvider = await updateWorkspaceModelProvider(slug, {
-				...(deepSeekKey.length > 0 ? { api_key: deepSeekKey } : {}),
-				default_model: deepSeekModel,
-				thinking: deepSeekThinking
-			});
-			deepSeekKey = '';
-			appToast.success(m['settings.dev_machines.deepseek_saved']());
-		} catch (error) {
-			appToast.apiError(error, m['settings.dev_machines.deepseek_failed_save']());
-		} finally {
-			deepSeekSaving = false;
-		}
-	}
-
-	async function removeDeepSeek() {
-		if (!canAdmin || deepSeekRemoving) return;
-		deepSeekRemoving = true;
-		try {
-			await deleteWorkspaceModelProvider(slug);
-			modelProvider = {
-				provider: 'deepseek',
-				configured: false,
-				default_model: 'deepseek-flash',
-				thinking: 'high',
-				models: ['deepseek-flash', 'deepseek-v4-pro'],
-				thinking_levels: ['off', 'low', 'high', 'max'],
-				updated_at: null
-			};
-			deepSeekModel = 'deepseek-flash';
-			deepSeekThinking = 'high';
-			deepSeekKey = '';
-			deepSeekRemoveOpen = false;
-			appToast.success(m['settings.dev_machines.deepseek_removed']());
-		} catch (error) {
-			appToast.apiError(error, m['settings.dev_machines.deepseek_failed_remove']());
-		} finally {
-			deepSeekRemoving = false;
-		}
-	}
 </script>
 
 {#if loading}<LoadingState />
@@ -348,9 +249,7 @@
 			</div>
 		</section>
 		<section class="space-y-4 rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-5">
-			<div><h2 class="text-sm font-semibold">{m['settings.dev_machines.providers']()}</h2><p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.providers_desc']()}</p></div>
-			<div class="grid gap-3 sm:grid-cols-4">{#each ['claude-code','opencode','codex','qwen-code','crush','kimi','goose'] as provider}<label class="flex items-center justify-between gap-3 rounded-lg border border-[var(--app-border)] p-3"><span class="text-sm">{provider}</span><Switch aria-label={provider} checked={policy.allowed_providers.includes(provider)} onCheckedChange={() => toggleProvider(provider)} /></label>{/each}</div>
-			<label class="flex items-center gap-2 text-sm"><Switch bind:checked={policy.allow_custom_providers} />{m['settings.dev_machines.allow_custom']()}</label>
+			<div><h2 class="text-sm font-semibold">{m['settings.dev_machines.providers']()}</h2><p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.providers_moved']()} <a class="underline underline-offset-2" href="/{slug}/settings/agents">{m['settings.nav.agents']()}</a></p></div>
 			<label class="flex items-center gap-2 text-sm"><Switch bind:checked={policy.allow_unattended_automations} />{m['settings.dev_machines.allow_unattended']()}</label>
 		</section>
 		<section class="space-y-3 rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-5">
@@ -365,73 +264,6 @@
 		</fieldset>
 	</form>
 	{#if canAdmin}<div class="mx-auto max-w-3xl px-6 pb-6"><AutomationsCard {slug} unattendedAllowed={policy?.allow_unattended_automations ?? false} /></div>{/if}
-	{#if canAdmin && deepSeekLoadFailed}
-		<div class="mx-auto max-w-3xl px-6 pb-6">
-			<section class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-5">
-				<p class="text-sm text-[var(--color-error)]">{m['settings.dev_machines.deepseek_failed_load']()}</p>
-				<Button type="button" variant="outline" onclick={retryDeepSeek} disabled={deepSeekLoading}>{m['settings.dev_machines.deepseek_retry']()}</Button>
-			</section>
-		</div>
-	{:else if canAdmin && modelProvider}
-		<form onsubmit={saveDeepSeek} class="mx-auto max-w-3xl px-6 pb-6">
-			<section class="space-y-4 rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-5">
-				<div class="flex flex-wrap items-start justify-between gap-3">
-					<div>
-						<h2 class="text-sm font-semibold">{m['settings.dev_machines.deepseek']()}</h2>
-						<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.deepseek_desc']()}</p>
-					</div>
-					<span class="rounded-full border border-[var(--app-border)] px-2 py-1 text-[10px] text-[var(--color-text-tertiary)]">
-						{modelProvider.configured ? m['settings.dev_machines.deepseek_configured']() : m['settings.dev_machines.deepseek_not_configured']()}
-					</span>
-				</div>
-				<label class="block space-y-1">
-					<Label for="deepseek-api-key">{m['settings.dev_machines.deepseek_api_key']()}</Label>
-					<Input
-						id="deepseek-api-key"
-						type="password"
-						autocomplete="new-password"
-						bind:value={deepSeekKey}
-						placeholder={modelProvider.configured ? m['settings.dev_machines.deepseek_stored']() : m['settings.dev_machines.deepseek_key_placeholder']()}
-						required={!modelProvider.configured}
-					/>
-					<p class="text-[10px] text-[var(--color-text-tertiary)]">{m['settings.dev_machines.deepseek_key_hint']()}</p>
-				</label>
-				<div class="grid gap-4 sm:grid-cols-2">
-					<div class="space-y-1">
-						<Label>{m['settings.dev_machines.deepseek_default_model']()}</Label>
-						<SelectField
-							bind:value={deepSeekModel}
-							options={modelProvider.models.map((model) => ({ value: model, label: model }))}
-							aria-label={m['settings.dev_machines.deepseek_default_model']()}
-							class="w-full"
-						/>
-					</div>
-					<div class="space-y-1">
-						<Label>{m['settings.dev_machines.deepseek_thinking']()}</Label>
-						<SelectField
-							bind:value={deepSeekThinking}
-							options={modelProvider.thinking_levels.map((level) => ({
-								value: level,
-								label: m[`settings.dev_machines.deepseek_thinking_${level}`]()
-							}))}
-							aria-label={m['settings.dev_machines.deepseek_thinking']()}
-							class="w-full"
-						/>
-					</div>
-				</div>
-				<div class="flex flex-wrap justify-end gap-2">
-					{#if modelProvider.configured}
-						<Button type="button" variant="outline" onclick={() => (deepSeekRemoveOpen = true)} disabled={deepSeekSaving || deepSeekRemoving}>
-							{m['settings.dev_machines.deepseek_remove']()}
-						</Button>
-					{/if}
-					<Button type="submit" disabled={deepSeekSaving || (!modelProvider.configured && deepSeekKey.length === 0)}>
-						{deepSeekSaving ? m['settings.saving']() : m['settings.dev_machines.deepseek_save']()}
-					</Button>
-				</div>
-			</section>
-		</form>
-	{/if}
 	<Dialog.Root bind:open={environmentBuilderOpen}>
 		<Dialog.Content class="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
 			<form onsubmit={createEnvironmentBuilder} class="space-y-5">
@@ -458,18 +290,4 @@
 		</Dialog.Content>
 	</Dialog.Root>
 	<AlertDialog.Root bind:open={environmentDeleteOpen}><AlertDialog.Content><AlertDialog.Header><AlertDialog.Title>{m['settings.dev_machines.delete_env_title']()}</AlertDialog.Title><AlertDialog.Description>{m['settings.dev_machines.delete_env_desc']({ name: environmentToDelete?.name ?? '' })}</AlertDialog.Description></AlertDialog.Header><AlertDialog.Footer><AlertDialog.Cancel onclick={() => (environmentToDelete = null)}>{m['settings.cancel']()}</AlertDialog.Cancel><AlertDialog.Action variant="destructive" onclick={deleteEnvironment} disabled={environmentDeleteBusy}>{environmentDeleteBusy ? m['settings.deleting']() : m['settings.dev_machines.delete_env_button']()}</AlertDialog.Action></AlertDialog.Footer></AlertDialog.Content></AlertDialog.Root>
-	<AlertDialog.Root bind:open={deepSeekRemoveOpen}>
-		<AlertDialog.Content>
-			<AlertDialog.Header>
-				<AlertDialog.Title>{m['settings.dev_machines.deepseek_remove_title']()}</AlertDialog.Title>
-				<AlertDialog.Description>{m['settings.dev_machines.deepseek_remove_desc']()}</AlertDialog.Description>
-			</AlertDialog.Header>
-			<AlertDialog.Footer>
-				<AlertDialog.Cancel>{m['common.cancel']()}</AlertDialog.Cancel>
-				<AlertDialog.Action variant="destructive" onclick={removeDeepSeek} disabled={deepSeekRemoving}>
-					{deepSeekRemoving ? m['settings.deleting']() : m['settings.dev_machines.deepseek_remove']()}
-				</AlertDialog.Action>
-			</AlertDialog.Footer>
-		</AlertDialog.Content>
-	</AlertDialog.Root>
 {/if}

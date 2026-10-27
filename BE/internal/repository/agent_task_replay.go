@@ -51,7 +51,7 @@ func replayAgentTaskCreate(ctx context.Context, tx *sqlx.Tx, c *domain.Conversat
 	if err != nil {
 		return nil, err
 	}
-	if accepted.Prompt != strings.TrimSpace(input.Prompt) || accepted.Provider != input.Provider || accepted.Model != input.Model || accepted.Thinking != input.Thinking || !sameAgentTaskCommand(accepted.TestCommand, input.TestCommand) {
+	if accepted.Prompt != strings.TrimSpace(input.Prompt) || accepted.Provider != input.Provider || accepted.Model != input.Model || accepted.Thinking != input.Thinking || !sameUUIDPointer(accepted.ModelServerID, input.ModelServerID) || !sameAgentTaskCommand(accepted.TestCommand, input.TestCommand) {
 		return nil, ErrConversationConflict
 	}
 	return accepted, nil
@@ -102,4 +102,11 @@ func (r *AgentTaskRepository) ReplayRetry(ctx context.Context, ws, id uuid.UUID,
 	}
 	defer tx.Rollback()
 	return replayAgentTaskRetry(ctx, tx, task, input)
+}
+
+func sameUUIDPointer(a, b *uuid.UUID) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
 }

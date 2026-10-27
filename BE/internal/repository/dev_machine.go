@@ -34,9 +34,10 @@ type DevMachineStore interface {
 	GetProvider(context.Context, uuid.UUID, uuid.UUID, string) (*domain.DevMachineAgentProvider, error)
 	ListProviders(context.Context, uuid.UUID, uuid.UUID) ([]domain.DevMachineAgentProvider, error)
 	ListEnvVarsInternal(context.Context, uuid.UUID, *string, string) ([]domain.DevMachineEnvVar, error)
-	GetWorkspaceModelCredential(context.Context, uuid.UUID, string) (*domain.DevMachineWorkspaceModelCredential, error)
-	UpsertWorkspaceModelCredential(context.Context, *domain.DevMachineWorkspaceModelCredential) error
-	DeleteWorkspaceModelCredential(context.Context, uuid.UUID, string) error
+	ListModelServers(context.Context, uuid.UUID) ([]domain.AgentModelServer, error)
+	GetModelServer(context.Context, uuid.UUID, *uuid.UUID) (*domain.AgentModelServer, error)
+	SaveModelServer(context.Context, *domain.AgentModelServer) error
+	DeleteModelServer(context.Context, uuid.UUID, uuid.UUID) error
 	ListRuntimeCredentials(context.Context, uuid.UUID) ([]domain.DevMachineRuntimeCredential, error)
 	ListAgentRunSecretSnapshots(context.Context, uuid.UUID, uuid.UUID) ([]string, error)
 	CreateAgentRun(context.Context, *domain.DevMachineAgentRun, *domain.DevMachineOperation) error
@@ -764,40 +765,72 @@ func (r *DevMachineRepository) ListEnvVarsInternal(ctx context.Context, machineI
 	return envVars, err
 }
 
-func (r *DevMachineRepository) GetWorkspaceModelCredential(ctx context.Context, workspaceID uuid.UUID, provider string) (*domain.DevMachineWorkspaceModelCredential, error) {
-	var credential domain.DevMachineWorkspaceModelCredential
-	err := r.db.GetContext(ctx, &credential, `SELECT * FROM dev_machine_workspace_model_credentials
-		WHERE workspace_id=$1 AND provider=$2`, workspaceID, provider)
+func (r *DevMachineRepository) ListModelServers(ctx context.Context, workspaceID uuid.UUID) ([]domain.AgentModelServer, error) {
+	servers := []domain.AgentModelServer{}
+	err := r.db.SelectContext(ctx, &servers, `SELECT * FROM agent_model_servers WHERE workspace_id=$1 ORDER BY is_default DESC, name`, workspaceID)
+	return servers, err
+}
+
+// GetModelServer returns the workspace's server with id, or its default server
+// when id is nil. It returns nil when there is none.
+func (r *DevMachineRepository) GetModelServer(ctx context.Context, workspaceID uuid.UUID, id *uuid.UUID) (*domain.AgentModelServer, error) {
+	var server domain.AgentModelServer
+	err := r.db.GetContext(ctx, &server, `SELECT * FROM agent_model_servers WHERE workspace_id=$1 AND (($2::uuid IS NULL AND is_default) OR id=$2)`, workspaceID, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
-	return &credential, err
+	return &server, err
 }
 
-func (r *DevMachineRepository) UpsertWorkspaceModelCredential(ctx context.Context, credential *domain.DevMachineWorkspaceModelCredential) error {
-	if credential.EncryptionKeyVersion == 0 {
-		credential.EncryptionKeyVersion = 1
+// SaveModelServer inserts or updates a server. Marking it default clears the
+// previous default in the same transaction.
+func (r *DevMachineRepository) SaveModelServer(ctx context.Context, server *domain.AgentModelServer) error {
+	if server.EncryptionKeyVersion == 0 {
+		server.EncryptionKeyVersion = 1
 	}
-	return r.db.QueryRowContext(ctx, `INSERT INTO dev_machine_workspace_model_credentials
-		(workspace_id, provider, encrypted_api_key, encryption_key_version, default_model, thinking, updated_by)
-		VALUES ($1,$2,$3,$4,$5,$6,$7)
-		ON CONFLICT (workspace_id, provider) DO UPDATE SET
-			encrypted_api_key=EXCLUDED.encrypted_api_key,
-			encryption_key_version=EXCLUDED.encryption_key_version,
-			default_model=EXCLUDED.default_model,
-			thinking=EXCLUDED.thinking,
-			updated_by=EXCLUDED.updated_by,
-			updated_at=NOW()
+	if len(server.Models) == 0 {
+		server.Models = json.RawMessage(`[]`)
+	}
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if server.IsDefault {
+		if _, err = tx.ExecContext(ctx, `UPDATE agent_model_servers SET is_default=false WHERE workspace_id=$1 AND is_default AND id<>$2`, server.WorkspaceID, server.ID); err != nil {
+			return err
+		}
+	}
+	if server.ID == uuid.Nil {
+		server.ID = uuid.New()
+	}
+	if err = tx.QueryRowContext(ctx, `INSERT INTO agent_model_servers
+		(id, workspace_id, name, openai_base_url, anthropic_base_url, encrypted_api_key, encryption_key_version, models, default_model, fast_model, thinking, is_default, updated_by)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+		ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, openai_base_url=EXCLUDED.openai_base_url,
+			anthropic_base_url=EXCLUDED.anthropic_base_url, encrypted_api_key=EXCLUDED.encrypted_api_key,
+			encryption_key_version=EXCLUDED.encryption_key_version, models=EXCLUDED.models,
+			default_model=EXCLUDED.default_model, fast_model=EXCLUDED.fast_model, thinking=EXCLUDED.thinking,
+			is_default=EXCLUDED.is_default, updated_by=EXCLUDED.updated_by
+		WHERE agent_model_servers.workspace_id=EXCLUDED.workspace_id
 		RETURNING created_at, updated_at`,
-		credential.WorkspaceID, credential.Provider, credential.EncryptedAPIKey, credential.EncryptionKeyVersion,
-		credential.DefaultModel, credential.Thinking, credential.UpdatedBy,
-	).Scan(&credential.CreatedAt, &credential.UpdatedAt)
+		server.ID, server.WorkspaceID, server.Name, server.OpenAIBaseURL, server.AnthropicBaseURL, server.EncryptedAPIKey,
+		server.EncryptionKeyVersion, server.Models, server.DefaultModel, server.FastModel, server.Thinking, server.IsDefault, server.UpdatedBy,
+	).Scan(&server.CreatedAt, &server.UpdatedAt); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
-func (r *DevMachineRepository) DeleteWorkspaceModelCredential(ctx context.Context, workspaceID uuid.UUID, provider string) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM dev_machine_workspace_model_credentials
-		WHERE workspace_id=$1 AND provider=$2`, workspaceID, provider)
-	return err
+func (r *DevMachineRepository) DeleteModelServer(ctx context.Context, workspaceID, id uuid.UUID) error {
+	result, err := r.db.ExecContext(ctx, `DELETE FROM agent_model_servers WHERE workspace_id=$1 AND id=$2`, workspaceID, id)
+	if err != nil {
+		return err
+	}
+	if rows, _ := result.RowsAffected(); rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (r *DevMachineRepository) UpsertRuntimeCredential(ctx context.Context, credential *domain.DevMachineRuntimeCredential) error {
@@ -914,12 +947,12 @@ func (r *DevMachineRepository) CreateAgentRun(ctx context.Context, run *domain.D
 	if err := tx.QueryRowContext(ctx, `INSERT INTO dev_machine_agent_runs
 		(id, machine_id, workspace_id, issue_id, checkout_id, requested_by_user_id, provider_id, mode, status, prompt,
 		 acceptance_criteria, allowed_commands, forbidden_paths, allowed_secrets, test_command, command_argv, command_environment,
-		 model, thinking, max_runtime_seconds, push_branch, open_pull_request,task_id,native_session_id)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24) RETURNING created_at`,
+		 model, thinking, max_runtime_seconds, push_branch, open_pull_request,task_id,native_session_id,model_server_id)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25) RETURNING created_at`,
 		run.ID, run.MachineID, run.WorkspaceID, run.IssueID, run.CheckoutID, run.RequestedByUserID, run.ProviderID,
 		run.Mode, run.Status, run.Prompt, run.AcceptanceCriteria, run.AllowedCommands, run.ForbiddenPaths,
 		run.AllowedSecrets, nullJSONPointer(run.TestCommand), run.CommandArgv, run.CommandEnvironment, run.Model, run.Thinking,
-		run.MaxRuntimeSeconds, run.PushBranch, run.OpenPullRequest, run.TaskID, run.NativeSessionID,
+		run.MaxRuntimeSeconds, run.PushBranch, run.OpenPullRequest, run.TaskID, run.NativeSessionID, run.ModelServerID,
 	).Scan(&run.CreatedAt); err != nil {
 		return err
 	}

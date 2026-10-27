@@ -124,6 +124,7 @@ func main() {
 			Egress:    cfg.DevMachine.EgressImage,
 		}, cfg.FrontendURL,
 	)
+	devMachineSvc.SetModelDiscovery(cfg.AIAllowPrivateNetwork)
 
 	// Handlers
 	healthH := handler.NewHealthHandler(db)

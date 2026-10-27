@@ -59,7 +59,7 @@ func (r *AgentTaskRepository) Create(ctx context.Context, ws, conversation uuid.
 	if err != nil {
 		return nil, err
 	}
-	err = tx.GetContext(ctx, &task, `INSERT INTO agent_tasks(workspace_id,conversation_id,creator_id,issue_id,team_id,request_id,prompt,provider,model,thinking,reason,issue_status_id,issue_updated_at,test_command,validation_command,agent_instructions,compose_file,preview_command,preview_port) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Waiting for execution',i.status_id,i.updated_at,$11,$12,$13,$14,$15,$16 FROM issues i WHERE i.id=$4 AND i.workspace_id=$1 AND i.team_id=$5 RETURNING *`, ws, conversation, c.CreatorID, c.IssueID, c.TeamID, input.RequestID, input.Prompt, input.Provider, input.Model, input.Thinking, requested, command, instructions, compose, preview, previewPort)
+	err = tx.GetContext(ctx, &task, `INSERT INTO agent_tasks(workspace_id,conversation_id,creator_id,issue_id,team_id,request_id,prompt,provider,model,thinking,reason,issue_status_id,issue_updated_at,test_command,validation_command,agent_instructions,compose_file,preview_command,preview_port,model_server_id) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Waiting for execution',i.status_id,i.updated_at,$11,$12,$13,$14,$15,$16,$17 FROM issues i WHERE i.id=$4 AND i.workspace_id=$1 AND i.team_id=$5 RETURNING *`, ws, conversation, c.CreatorID, c.IssueID, c.TeamID, input.RequestID, input.Prompt, input.Provider, input.Model, input.Thinking, requested, command, instructions, compose, preview, previewPort, input.ModelServerID)
 	if err != nil {
 		return nil, err
 	}

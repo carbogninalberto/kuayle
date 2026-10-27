@@ -26,6 +26,7 @@ type AgentTask struct {
 	Provider          string     `json:"provider" db:"provider"`
 	Model             string     `json:"model" db:"model"`
 	Thinking          string     `json:"thinking" db:"thinking"`
+	ModelServerID     *uuid.UUID `json:"model_server_id,omitempty" db:"model_server_id"`
 	State             string     `json:"state" db:"state"`
 	Reason            string     `json:"reason" db:"reason"`
 	Generation        int64      `json:"generation" db:"generation"`
@@ -60,6 +61,8 @@ type AgentTaskRequest struct {
 	Provider  string    `json:"provider"`
 	Model     string    `json:"model"`
 	Thinking  string    `json:"thinking"`
+	// ModelServerID picks a workspace model server; nil uses the default.
+	ModelServerID *uuid.UUID `json:"model_server_id,omitempty"`
 
 	TestCommand []string `json:"test_command"`
 }

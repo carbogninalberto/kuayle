@@ -10,8 +10,9 @@ import (
 )
 
 type AgentTaskOptions struct {
-	Providers     []dto.AgentProviderResponse         `json:"providers"`
-	ModelProvider *dto.WorkspaceModelProviderResponse `json:"model_provider"`
+	Providers []dto.AgentProviderResponse `json:"providers"`
+	// ModelServers lists the workspace's model servers; the default comes first.
+	ModelServers []dto.ModelServerResponse `json:"model_servers"`
 	// DefaultProvider is the inherited preferred coding agent, when allowed.
 	DefaultProvider string `json:"default_provider,omitempty"`
 }
@@ -48,7 +49,7 @@ func (s *AgentTaskService) Options(ctx context.Context, ws, conversation uuid.UU
 			result.DefaultProvider = preferred
 		}
 	}
-	result.ModelProvider, err = s.machines.GetWorkspaceModelProvider(ctx, ws)
+	result.ModelServers, err = s.machines.ListModelServers(ctx, ws)
 	return result, err
 }
 
@@ -61,7 +62,7 @@ func (s *AgentTaskService) validateRequest(ctx context.Context, ws uuid.UUID, in
 	if !ok || provider.Metadata().Custom || !providerAllowed(policy.AllowedProviders, input.Provider) {
 		return ErrProviderNotAllowed
 	}
-	if err = s.machines.validateAgentModel(ctx, ws, input.Provider, input.Model, input.Thinking); err != nil {
+	if err = s.machines.validateAgentModel(ctx, ws, input.Provider, input.ModelServerID, input.Model, input.Thinking); err != nil {
 		return err
 	}
 	// Use the native provider's mode/prompt checks too; HTTP input never supplies
@@ -91,7 +92,7 @@ func (s *AgentTaskService) Retry(ctx context.Context, ws, id uuid.UUID, input do
 	if err != nil {
 		return nil, err
 	}
-	if err = s.validateRequest(ctx, ws, domain.AgentTaskRequest{Prompt: input.Prompt, Provider: task.Provider, Model: task.Model, Thinking: task.Thinking}); err != nil {
+	if err = s.validateRequest(ctx, ws, domain.AgentTaskRequest{Prompt: input.Prompt, Provider: task.Provider, Model: task.Model, Thinking: task.Thinking, ModelServerID: task.ModelServerID}); err != nil {
 		return nil, err
 	}
 	return s.Repo.Retry(ctx, ws, id, input)

@@ -362,20 +362,8 @@ test('handles machine actions without applying stale poll, route, or trace respo
 				}
 			});
 		}
-		// The run dialog reads whether DeepSeek overrides are available.
-		if (path === '/api/workspaces/test/dev-machine-model-providers/deepseek') {
-			return route.fulfill({
-				json: {
-					provider: 'deepseek',
-					configured: false,
-					default_model: 'deepseek-flash',
-					thinking: 'high',
-					models: ['deepseek-flash', 'deepseek-v4-pro'],
-					thinking_levels: ['off', 'low', 'high', 'max'],
-					updated_at: null
-				}
-			});
-		}
+		// The run dialog reads the workspace model servers.
+		if (path === '/api/workspaces/test/agent-model-servers') return route.fulfill({ json: [] });
 		if (path.endsWith('/preview')) return route.fulfill({ json: null });
 		unhandledPaths.push(`${request.method()} ${path}`);
 		return route.fulfill({ status: 404, json: { error: { message: `Unhandled ${path}` } } });
@@ -1141,20 +1129,8 @@ test('retries a code-server launch while a paused machine resumes', async ({ pag
 				}
 			});
 		}
-		// The run dialog reads whether DeepSeek overrides are available.
-		if (path === '/api/workspaces/test/dev-machine-model-providers/deepseek') {
-			return route.fulfill({
-				json: {
-					provider: 'deepseek',
-					configured: false,
-					default_model: 'deepseek-flash',
-					thinking: 'high',
-					models: ['deepseek-flash', 'deepseek-v4-pro'],
-					thinking_levels: ['off', 'low', 'high', 'max'],
-					updated_at: null
-				}
-			});
-		}
+		// The run dialog reads the workspace model servers.
+		if (path === '/api/workspaces/test/agent-model-servers') return route.fulfill({ json: [] });
 		if (path.endsWith('/preview')) return route.fulfill({ json: null });
 		unhandledPaths.push(`${request.method()} ${path}`);
 		return route.fulfill({ status: 404, json: { error: { message: `Unhandled ${path}` } } });
@@ -1334,20 +1310,8 @@ test('configures and opens an authenticated application preview', async ({ page 
 				}
 			});
 		}
-		// The run dialog reads whether DeepSeek overrides are available.
-		if (path === '/api/workspaces/test/dev-machine-model-providers/deepseek') {
-			return route.fulfill({
-				json: {
-					provider: 'deepseek',
-					configured: false,
-					default_model: 'deepseek-flash',
-					thinking: 'high',
-					models: ['deepseek-flash', 'deepseek-v4-pro'],
-					thinking_levels: ['off', 'low', 'high', 'max'],
-					updated_at: null
-				}
-			});
-		}
+		// The run dialog reads the workspace model servers.
+		if (path === '/api/workspaces/test/agent-model-servers') return route.fulfill({ json: [] });
 		if (path.endsWith('/preview')) return route.fulfill({ json: null });
 		unhandledPaths.push(`${request.method()} ${path}`);
 		return route.fulfill({ status: 404, json: { error: { message: `Unhandled ${path}` } } });

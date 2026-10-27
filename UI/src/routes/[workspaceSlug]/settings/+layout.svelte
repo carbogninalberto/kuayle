@@ -18,7 +18,8 @@
 		ChevronDown,
 		Menu,
 		RefreshCw,
-		KeyRound
+		KeyRound,
+		Bot
 	} from '@lucide/svelte';
 	import { GithubLogoIcon } from 'phosphor-svelte';
 	import type { Snippet } from 'svelte';
@@ -102,7 +103,12 @@
 				{ label: m['settings.nav.templates'](), href: `/${slug}/settings/templates`, icon: FileText },
 				{ label: m['settings.nav.ai'](), href: `/${slug}/settings/ai`, icon: Sparkles },
 				{ label: m['telegram.title'](), href: `/${slug}/settings/telegram`, icon: Sparkles },
-				...(canUseDevMachines ? [{ label: m['settings.nav.dev_machines'](), href: `/${slug}/settings/dev-machines`, icon: SlidersHorizontal }] : [])
+				...(canUseDevMachines
+					? [
+							{ label: m['settings.nav.dev_machines'](), href: `/${slug}/settings/dev-machines`, icon: SlidersHorizontal },
+							{ label: m['settings.nav.agents'](), href: `/${slug}/settings/agents`, icon: Bot }
+						]
+					: [])
 			]
 		},
 		{

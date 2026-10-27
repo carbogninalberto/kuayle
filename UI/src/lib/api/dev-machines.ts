@@ -17,12 +17,11 @@ import type {
 	DevMachineCheckout,
 	DevMachineEnvironment,
 	DevMachineScopeSetting,
-	DeepSeekModel,
-	DeepSeekThinking,
 	LaunchMachineServiceResponse,
 	ResourceSample,
 	TerminalSessionLaunchResponse,
-	WorkspaceModelProvider
+	ModelServer,
+	ModelServerInput
 } from '$lib/types/dev-machine';
 
 const base = (slug: string) => `/api/workspaces/${slug}`;
@@ -314,20 +313,18 @@ export function listMachineAgentProviders(slug: string, machineId: string): Prom
 	return api.get(`${base(slug)}/dev-machines/${machineId}/providers`);
 }
 
-export function getWorkspaceModelProvider(slug: string): Promise<WorkspaceModelProvider> {
-	return api.get(`${base(slug)}/dev-machine-model-providers/deepseek`);
-}
-
-export function updateWorkspaceModelProvider(
-	slug: string,
-	input: { api_key?: string; default_model: DeepSeekModel; thinking: DeepSeekThinking }
-): Promise<WorkspaceModelProvider> {
-	return api.put(`${base(slug)}/dev-machine-model-providers/deepseek`, input);
-}
-
-export function deleteWorkspaceModelProvider(slug: string): Promise<void> {
-	return api.delete(`${base(slug)}/dev-machine-model-providers/deepseek`);
-}
+export const modelServers = {
+	list: (slug: string) => api.get<ModelServer[]>(`${base(slug)}/agent-model-servers`),
+	create: (slug: string, input: ModelServerInput) => api.post<ModelServer>(`${base(slug)}/agent-model-servers`, input),
+	update: (slug: string, id: string, input: ModelServerInput) =>
+		api.put<ModelServer>(`${base(slug)}/agent-model-servers/${encodeURIComponent(id)}`, input),
+	remove: (slug: string, id: string) => api.delete<void>(`${base(slug)}/agent-model-servers/${encodeURIComponent(id)}`),
+	// Lists the server's models; a saved server's key is used when api_key is omitted.
+	discover: (
+		slug: string,
+		input: { server_id?: string; openai_base_url?: string; anthropic_base_url?: string; api_key?: string }
+	) => api.post<{ models: string[] }>(`${base(slug)}/agent-model-servers/discover`, input)
+};
 
 export function createAgentRun(slug: string, machineId: string, input: CreateAgentRunInput): Promise<AgentRun> {
 	return api.post(`${base(slug)}/dev-machines/${machineId}/agent-runs`, input);

@@ -5,7 +5,7 @@ KUAYLE_START_COMMON=${KUAYLE_START_COMMON:-/usr/local/lib/kuayle/start-common.sh
 . "$KUAYLE_START_COMMON"
 
 load_scoped_secrets
-configure_codex_deepseek
+configure_codex_model
 install_git_credential_helper
 git config --global --unset-all core.askPass >/dev/null 2>&1 || true
 git config --global --unset-all credential.helper >/dev/null 2>&1 || true

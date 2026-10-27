@@ -200,16 +200,42 @@ type DevMachineEnvVar struct {
 	CreatedAt            time.Time  `json:"created_at" db:"created_at"`
 }
 
-type DevMachineWorkspaceModelCredential struct {
-	WorkspaceID          uuid.UUID  `json:"workspace_id" db:"workspace_id"`
-	Provider             string     `json:"provider" db:"provider"`
-	EncryptedAPIKey      string     `json:"-" db:"encrypted_api_key"`
-	EncryptionKeyVersion int        `json:"encryption_key_version" db:"encryption_key_version"`
-	DefaultModel         string     `json:"default_model" db:"default_model"`
-	Thinking             string     `json:"thinking" db:"thinking"`
-	UpdatedBy            *uuid.UUID `json:"-" db:"updated_by"`
-	CreatedAt            time.Time  `json:"created_at" db:"created_at"`
-	UpdatedAt            time.Time  `json:"updated_at" db:"updated_at"`
+// AgentModelServer is a workspace model endpoint for coding agents. Codex uses
+// its OpenAI-compatible URL and Claude Code its Anthropic-compatible URL.
+type AgentModelServer struct {
+	ID                   uuid.UUID       `json:"id" db:"id"`
+	WorkspaceID          uuid.UUID       `json:"workspace_id" db:"workspace_id"`
+	Name                 string          `json:"name" db:"name"`
+	OpenAIBaseURL        *string         `json:"openai_base_url,omitempty" db:"openai_base_url"`
+	AnthropicBaseURL     *string         `json:"anthropic_base_url,omitempty" db:"anthropic_base_url"`
+	EncryptedAPIKey      string          `json:"-" db:"encrypted_api_key"`
+	EncryptionKeyVersion int             `json:"-" db:"encryption_key_version"`
+	Models               json.RawMessage `json:"models" db:"models"`
+	DefaultModel         string          `json:"default_model" db:"default_model"`
+	FastModel            string          `json:"fast_model" db:"fast_model"`
+	Thinking             string          `json:"thinking" db:"thinking"`
+	IsDefault            bool            `json:"is_default" db:"is_default"`
+	UpdatedBy            *uuid.UUID      `json:"-" db:"updated_by"`
+	CreatedAt            time.Time       `json:"created_at" db:"created_at"`
+	UpdatedAt            time.Time       `json:"updated_at" db:"updated_at"`
+}
+
+// ModelList is the server's selectable models, as discovered or entered.
+func (s AgentModelServer) ModelList() []string {
+	var models []string
+	_ = json.Unmarshal(s.Models, &models)
+	return models
+}
+
+// Serves reports whether the server speaks the protocol a harness needs.
+func (s AgentModelServer) Serves(provider string) bool {
+	switch provider {
+	case "codex":
+		return s.OpenAIBaseURL != nil && *s.OpenAIBaseURL != ""
+	case "claude-code":
+		return s.AnthropicBaseURL != nil && *s.AnthropicBaseURL != ""
+	}
+	return false
 }
 
 const (
@@ -289,6 +315,7 @@ type DevMachineAgentRun struct {
 	CommandEnvironment     json.RawMessage          `json:"command_environment" db:"command_environment"`
 	Model                  string                   `json:"model,omitempty" db:"model"`
 	Thinking               string                   `json:"thinking,omitempty" db:"thinking"`
+	ModelServerID          *uuid.UUID               `json:"model_server_id,omitempty" db:"model_server_id"`
 	MaxRuntimeSeconds      int                      `json:"max_runtime_seconds" db:"max_runtime_seconds"`
 	PushBranch             bool                     `json:"push_branch" db:"push_branch"`
 	OpenPullRequest        bool                     `json:"open_pull_request" db:"open_pull_request"`

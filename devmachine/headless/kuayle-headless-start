@@ -6,7 +6,7 @@ KUAYLE_START_COMMON=${KUAYLE_START_COMMON:-/usr/local/lib/kuayle/start-common.sh
 
 reset_ready_marker
 seed_home_template
-configure_codex_deepseek
+configure_codex_model
 prepare_developer_workspace
 
 ttyd --port 7681 --writable --url-arg --terminal-type xterm-256color /usr/local/bin/kuayle-terminal-session &

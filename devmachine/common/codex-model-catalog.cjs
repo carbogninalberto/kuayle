@@ -1,14 +1,15 @@
 'use strict';
 
-// Writes a DeepSeek-only Codex model catalog to argv[2]. Entries reuse a model from the
-// installed Codex's bundled catalog, so prompts and tool settings match that Codex version,
-// and override what DeepSeek's Responses API supports.
+// Writes a Codex model catalog listing only the model server's models (argv[3], comma
+// separated) to argv[2]. Entries reuse a model from the installed Codex's bundled catalog,
+// so prompts and tool settings match that Codex version.
 const fs = require('node:fs');
 const { execFileSync } = require('node:child_process');
 
 const output = process.argv[2];
-if (!output) {
-  console.error('usage: codex-deepseek-catalog.cjs OUTPUT');
+const slugs = (process.argv[3] || '').split(',').filter((slug) => /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}$/.test(slug));
+if (!output || slugs.length === 0) {
+  console.error('usage: codex-model-catalog.cjs OUTPUT MODEL[,MODEL...]');
   process.exit(2);
 }
 
@@ -16,27 +17,25 @@ const bundled = JSON.parse(execFileSync('codex', ['debug', 'models'], { encoding
 const models = Array.isArray(bundled.models) ? bundled.models : [];
 const template = models.find((model) => model.slug === 'gpt-5.5') || models.find((model) => model.visibility === 'list');
 if (!template) {
-  console.error('no bundled Codex model to base the DeepSeek catalog on');
+  console.error('no bundled Codex model to base the catalog on');
   process.exit(1);
 }
 
 const reasoningLevels = [
   { effort: 'none', description: 'Disable thinking mode' },
   { effort: 'low', description: 'Lighter reasoning for fast responses' },
-  { effort: 'high', description: 'High reasoning effort (DeepSeek default)' },
+  { effort: 'high', description: 'High reasoning effort' },
   { effort: 'max', description: 'Maximum reasoning effort' }
 ];
 
-function deepSeekModel(slug, displayName, description, priority) {
+function serverModel(slug, priority) {
   return {
     ...template,
     slug,
-    display_name: displayName,
-    description,
+    display_name: slug,
+    description: 'Model from the workspace model server',
     priority,
     visibility: 'list',
-    context_window: 1048576,
-    max_context_window: 1048576,
     default_reasoning_level: 'high',
     supported_reasoning_levels: reasoningLevels,
     shell_type: 'shell_command',
@@ -50,10 +49,5 @@ function deepSeekModel(slug, displayName, description, priority) {
   };
 }
 
-const catalog = {
-  models: [
-    deepSeekModel('deepseek-flash', 'DeepSeek Flash', 'Fast DeepSeek agentic coding model', 1),
-    deepSeekModel('deepseek-v4-pro', 'DeepSeek V4 Pro', 'DeepSeek flagship model', 2)
-  ]
-};
+const catalog = { models: slugs.map((slug, index) => serverModel(slug, index + 1)) };
 fs.writeFileSync(output, JSON.stringify(catalog), { mode: 0o600 });

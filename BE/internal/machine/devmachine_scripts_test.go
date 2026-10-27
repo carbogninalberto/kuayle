@@ -266,11 +266,11 @@ func TestRuntimeImagesBundleTheSharedStartHelper(t *testing.T) {
 		require.NoError(t, err)
 		require.Contains(t, string(content), "common/start-common.sh", relativePath)
 	}
-	// Images that write the DeepSeek Codex config also need its catalog generator.
+	// Images that write the model server Codex config also need its catalog generator.
 	for _, image := range []string{"agent", "headless", "ide"} {
 		content, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", image, "Dockerfile"))
 		require.NoError(t, err)
-		require.Contains(t, string(content), "common/codex-deepseek-catalog.cjs", image)
+		require.Contains(t, string(content), "common/codex-model-catalog.cjs", image)
 	}
 }
 
@@ -336,30 +336,37 @@ while :; do sleep 1; done
 	require.NoFileExists(t, filepath.Join(homeDir, ".codex", "config.toml"))
 }
 
-func TestStartCommonWritesDeepSeekCodexConfigOnlyWhenAbsent(t *testing.T) {
+func modelServerEnv(homeDir, model, thinking string) []string {
+	return []string{
+		"HOME=" + homeDir,
+		"KUAYLE_MODEL_API_KEY=not-written-to-disk",
+		"KUAYLE_MODEL_OPENAI_BASE_URL=https://models.example.test/v1",
+		"KUAYLE_MODEL=" + model,
+		"KUAYLE_MODEL_THINKING=" + thinking,
+	}
+}
+
+func TestStartCommonWritesModelServerCodexConfigOnlyWhenAbsent(t *testing.T) {
 	repoRoot := repoRootFromCaller(t)
 	homeDir := t.TempDir()
 	common := filepath.Join(repoRoot, "devmachine", "common", "start-common.sh")
 	run := func(model, thinking string) {
-		cmd := exec.Command("sh", "-eu", "-c", `. "$1"; configure_codex_deepseek`, "kuayle", common)
-		cmd.Env = append(os.Environ(),
-			"HOME="+homeDir,
-			"DEEPSEEK_API_KEY=not-written-to-disk",
-			"KUAYLE_DEEPSEEK_MODEL="+model,
-			"KUAYLE_DEEPSEEK_THINKING="+thinking,
-		)
+		cmd := exec.Command("sh", "-eu", "-c", `. "$1"; configure_codex_model`, "kuayle", common)
+		cmd.Env = append(os.Environ(), modelServerEnv(homeDir, model, thinking)...)
 		output, err := cmd.CombinedOutput()
 		require.NoError(t, err, string(output))
 	}
 
-	run("deepseek-flash", "off")
+	run("qwen3-coder:30b", "off")
 	configPath := filepath.Join(homeDir, ".codex", "config.toml")
 	configBytes, err := os.ReadFile(configPath)
 	require.NoError(t, err)
 	config := string(configBytes)
-	require.Contains(t, config, `model = "deepseek-flash"`)
+	require.Contains(t, config, `model = "qwen3-coder:30b"`)
+	require.Contains(t, config, `model_provider = "kuayle"`)
 	require.Contains(t, config, `model_reasoning_effort = "none"`)
-	require.Contains(t, config, `base_url = "https://api.deepseek.com"`)
+	require.Contains(t, config, `base_url = "https://models.example.test/v1"`)
+	require.Contains(t, config, `env_key = "KUAYLE_MODEL_API_KEY"`)
 	require.NotContains(t, config, "not-written-to-disk")
 	info, err := os.Stat(configPath)
 	require.NoError(t, err)
@@ -367,15 +374,33 @@ func TestStartCommonWritesDeepSeekCodexConfigOnlyWhenAbsent(t *testing.T) {
 
 	userConfig := "model = \"user-owned\"\n"
 	require.NoError(t, os.WriteFile(configPath, []byte(userConfig), 0o600))
-	run("deepseek-v4-pro", "high")
+	run("gpt-oss-120b", "high")
 	configBytes, err = os.ReadFile(configPath)
 	require.NoError(t, err)
 	require.Equal(t, userConfig, string(configBytes))
 }
 
-// Codex's /model picker lists its bundled OpenAI catalog; under DeepSeek those models are
-// rejected, so the generated config points Codex at a DeepSeek-only catalog.
-func TestStartCommonWritesDeepSeekOnlyCodexModelCatalog(t *testing.T) {
+// Values are interpolated into TOML strings, so anything needing quoting is refused.
+func TestStartCommonRefusesModelServerValuesThatNeedQuoting(t *testing.T) {
+	repoRoot := repoRootFromCaller(t)
+	common := filepath.Join(repoRoot, "devmachine", "common", "start-common.sh")
+	for name, override := range map[string]string{
+		"quoted URL":   `KUAYLE_MODEL_OPENAI_BASE_URL=https://a.test/" x`,
+		"non-http URL": "KUAYLE_MODEL_OPENAI_BASE_URL=file:///etc/passwd",
+		"quoted model": `KUAYLE_MODEL=m"x`,
+	} {
+		homeDir := t.TempDir()
+		cmd := exec.Command("sh", "-eu", "-c", `. "$1"; configure_codex_model`, "kuayle", common)
+		cmd.Env = append(append(os.Environ(), modelServerEnv(homeDir, "m", "high")...), override)
+		_, err := cmd.CombinedOutput()
+		require.Error(t, err, name)
+		require.NoFileExists(t, filepath.Join(homeDir, ".codex", "config.toml"), name)
+	}
+}
+
+// Codex's /model picker lists its bundled OpenAI catalog; the server may reject
+// those, so the generated config points Codex at a catalog of the server's models.
+func TestStartCommonWritesTheServersCodexModelCatalog(t *testing.T) {
 	repoRoot := repoRootFromCaller(t)
 	homeDir := t.TempDir()
 	fakeBin := filepath.Join(t.TempDir(), "bin")
@@ -387,17 +412,16 @@ printf '%s' '{"models":[{"slug":"gpt-5.5","display_name":"GPT","visibility":"lis
 	nodePath, err := exec.LookPath("node")
 	require.NoError(t, err)
 	common := filepath.Join(repoRoot, "devmachine", "common", "start-common.sh")
-	cmd := exec.Command("sh", "-eu", "-c", `. "$1"; configure_codex_deepseek`, "kuayle", common)
-	cmd.Env = []string{
+	cmd := exec.Command("sh", "-eu", "-c", `. "$1"; configure_codex_model`, "kuayle", common)
+	cmd.Env = append([]string{
 		"PATH=" + fakeBin + string(os.PathListSeparator) + filepath.Dir(nodePath) + string(os.PathListSeparator) + os.Getenv("PATH"),
-		"HOME=" + homeDir, "DEEPSEEK_API_KEY=not-written-to-disk",
-		"KUAYLE_DEEPSEEK_MODEL=deepseek-v4-pro", "KUAYLE_DEEPSEEK_THINKING=max",
-		"KUAYLE_CODEX_CATALOG_GENERATOR=" + filepath.Join(repoRoot, "devmachine", "common", "codex-deepseek-catalog.cjs"),
-	}
+		"KUAYLE_MODEL_LIST=deepseek-flash,deepseek-v4-pro,bad model",
+		"KUAYLE_CODEX_CATALOG_GENERATOR=" + filepath.Join(repoRoot, "devmachine", "common", "codex-model-catalog.cjs"),
+	}, modelServerEnv(homeDir, "deepseek-v4-pro", "max")...)
 	output, err := cmd.CombinedOutput()
 	require.NoError(t, err, string(output))
 
-	catalogPath := filepath.Join(homeDir, ".codex", "model-catalogs", "deepseek.json")
+	catalogPath := filepath.Join(homeDir, ".codex", "model-catalogs", "kuayle.json")
 	catalogBytes, err := os.ReadFile(catalogPath)
 	require.NoError(t, err)
 	var catalog struct {
@@ -410,25 +434,33 @@ printf '%s' '{"models":[{"slug":"gpt-5.5","display_name":"GPT","visibility":"lis
 		require.Equal(t, "bundled", model["base_instructions"])
 		require.Equal(t, "shell_command", model["shell_type"])
 	}
-	require.Equal(t, []string{"deepseek-flash", "deepseek-v4-pro"}, slugs)
+	require.Equal(t, []string{"deepseek-flash", "deepseek-v4-pro"}, slugs, "invalid names are dropped")
 
 	configBytes, err := os.ReadFile(filepath.Join(homeDir, ".codex", "config.toml"))
 	require.NoError(t, err)
 	config := string(configBytes)
 	catalogLine := `model_catalog_json = "` + catalogPath + `"`
 	require.Contains(t, config, catalogLine)
-	require.Less(t, strings.Index(config, catalogLine), strings.Index(config, "[model_providers.deepseek]"))
+	require.Less(t, strings.Index(config, catalogLine), strings.Index(config, "[model_providers.kuayle]"))
 }
 
-func TestStartCommonSkipsDeepSeekCodexConfigWithoutKey(t *testing.T) {
+func TestStartCommonSkipsCodexConfigWithoutAnOpenAIServer(t *testing.T) {
 	repoRoot := repoRootFromCaller(t)
-	homeDir := t.TempDir()
 	common := filepath.Join(repoRoot, "devmachine", "common", "start-common.sh")
-	cmd := exec.Command("sh", "-eu", "-c", `. "$1"; configure_codex_deepseek`, "kuayle", common)
-	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + homeDir, "KUAYLE_DEEPSEEK_MODEL=deepseek-flash", "KUAYLE_DEEPSEEK_THINKING=high"}
-	output, err := cmd.CombinedOutput()
-	require.NoError(t, err, string(output))
-	require.NoFileExists(t, filepath.Join(homeDir, ".codex", "config.toml"))
+	for _, drop := range []string{"KUAYLE_MODEL_API_KEY", "KUAYLE_MODEL_OPENAI_BASE_URL"} {
+		homeDir := t.TempDir()
+		env := []string{"PATH=" + os.Getenv("PATH")}
+		for _, value := range modelServerEnv(homeDir, "m", "high") {
+			if !strings.HasPrefix(value, drop+"=") {
+				env = append(env, value)
+			}
+		}
+		cmd := exec.Command("sh", "-eu", "-c", `. "$1"; configure_codex_model`, "kuayle", common)
+		cmd.Env = env
+		output, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(output))
+		require.NoFileExists(t, filepath.Join(homeDir, ".codex", "config.toml"), drop)
+	}
 }
 
 func TestTerminalSessionCloseKillsOnlyTheNamedSessionAndIsIdempotent(t *testing.T) {

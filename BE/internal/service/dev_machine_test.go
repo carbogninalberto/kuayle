@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -62,72 +64,119 @@ func TestCreateAgentRunRejectsPullRequestWithoutPush(t *testing.T) {
 	require.ErrorContains(t, err, "requires pushing the working branch")
 }
 
-func TestDeepSeekWorkspaceCredentialEncryptsKeyAndDefaults(t *testing.T) {
+func TestModelServerEncryptsKeyAndNeverReturnsIt(t *testing.T) {
 	workspaceID, userID := uuid.New(), uuid.New()
 	store := &devMachineStoreFake{}
 	svc := newTestDevMachineService(store)
 
-	response, err := svc.UpdateWorkspaceModelProvider(context.Background(), workspaceID, userID, dto.UpdateWorkspaceModelProviderRequest{
-		APIKey: dmStrPtr("sk-deepseek-secret"), DefaultModel: "deepseek-v4-pro", Thinking: "max",
+	response, err := svc.SaveModelServer(context.Background(), workspaceID, userID, nil, dto.SaveModelServerRequest{
+		Name: "Local vLLM", OpenAIBaseURL: dmStrPtr("https://models.example.test/v1/"), APIKey: dmStrPtr("sk-model-secret"),
+		Models: []string{"qwen3-coder:30b", "qwen3-coder:30b", "gpt-oss-120b"}, DefaultModel: "qwen3-coder:30b", Thinking: "max",
 	})
 	require.NoError(t, err)
-	require.True(t, response.Configured)
-	require.Equal(t, "deepseek-v4-pro", response.DefaultModel)
-	require.Equal(t, "max", response.Thinking)
-	require.NotNil(t, store.workspaceModelCredential)
-	require.NotContains(t, store.workspaceModelCredential.EncryptedAPIKey, "sk-deepseek-secret")
-	decrypted, err := cryptoutil.Decrypt(store.workspaceModelCredential.EncryptedAPIKey, cryptoutil.DeriveKey("test"))
+	require.True(t, response.IsDefault, "the first server is the default")
+	require.Equal(t, "https://models.example.test/v1", *response.OpenAIBaseURL)
+	require.Equal(t, []string{"qwen3-coder:30b", "gpt-oss-120b"}, response.Models)
+	require.Equal(t, []string{"codex"}, response.Harnesses, "an OpenAI-only server serves Codex")
+	require.Len(t, store.modelServers, 1)
+	require.NotContains(t, store.modelServers[0].EncryptedAPIKey, "sk-model-secret")
+	decrypted, err := cryptoutil.Decrypt(store.modelServers[0].EncryptedAPIKey, cryptoutil.DeriveKey("test"))
 	require.NoError(t, err)
-	require.Equal(t, "sk-deepseek-secret", decrypted)
+	require.Equal(t, "sk-model-secret", decrypted)
 	encoded, err := json.Marshal(response)
 	require.NoError(t, err)
-	require.NotContains(t, string(encoded), "sk-deepseek-secret")
+	require.NotContains(t, string(encoded), "sk-model-secret")
 	require.NotContains(t, string(encoded), "encrypted")
-}
 
-func TestDeepSeekWorkspaceCredentialUpdateWithoutKeyKeepsStoredKey(t *testing.T) {
-	workspaceID := uuid.New()
-	existingEncrypted, err := cryptoutil.Encrypt("sk-existing", cryptoutil.DeriveKey("test"))
-	require.NoError(t, err)
-	store := &devMachineStoreFake{workspaceModelCredential: &domain.DevMachineWorkspaceModelCredential{
-		WorkspaceID: workspaceID, Provider: "deepseek", EncryptedAPIKey: existingEncrypted,
-		DefaultModel: "deepseek-flash", Thinking: "high", EncryptionKeyVersion: 1,
-	}}
-
-	_, err = newTestDevMachineService(store).UpdateWorkspaceModelProvider(context.Background(), workspaceID, uuid.New(), dto.UpdateWorkspaceModelProviderRequest{
-		DefaultModel: "deepseek-v4-pro", Thinking: "low",
+	// An update without a key keeps the stored key; a second default replaces the first.
+	kept := store.modelServers[0].EncryptedAPIKey
+	_, err = svc.SaveModelServer(context.Background(), workspaceID, userID, &response.ID, dto.SaveModelServerRequest{
+		Name: "Local vLLM", OpenAIBaseURL: dmStrPtr("https://models.example.test/v1"), AnthropicBaseURL: dmStrPtr("https://models.example.test/anthropic"),
+		DefaultModel: "gpt-oss-120b", Thinking: "low",
 	})
 	require.NoError(t, err)
-	require.Equal(t, existingEncrypted, store.workspaceModelCredential.EncryptedAPIKey)
-	require.Equal(t, "deepseek-v4-pro", store.workspaceModelCredential.DefaultModel)
-	require.Equal(t, "low", store.workspaceModelCredential.Thinking)
+	require.Equal(t, kept, store.modelServers[0].EncryptedAPIKey)
+	second, err := svc.SaveModelServer(context.Background(), workspaceID, userID, nil, dto.SaveModelServerRequest{
+		Name: "Anthropic", AnthropicBaseURL: dmStrPtr("https://api.anthropic.com"), APIKey: dmStrPtr("sk-ant"),
+		DefaultModel: "claude-sonnet-5-5", Thinking: "high", IsDefault: true,
+	})
+	require.NoError(t, err)
+	require.True(t, second.IsDefault)
+	require.False(t, store.modelServers[0].IsDefault)
+	require.Equal(t, []string{"claude-code"}, second.Harnesses)
 }
 
-func TestDeepSeekWorkspaceCredentialRequiresKeyOnFirstSave(t *testing.T) {
-	_, err := newTestDevMachineService(&devMachineStoreFake{}).UpdateWorkspaceModelProvider(
-		context.Background(), uuid.New(), uuid.New(), dto.UpdateWorkspaceModelProviderRequest{
-			DefaultModel: "deepseek-flash", Thinking: "high",
-		},
-	)
-	require.ErrorIs(t, err, ErrInvalidMachineInput)
-	require.ErrorContains(t, err, "api_key is required")
-}
-
-func TestDeepSeekWorkspaceCredentialRejectsInvalidValues(t *testing.T) {
-	for _, test := range []dto.UpdateWorkspaceModelProviderRequest{
-		{APIKey: dmStrPtr("has whitespace"), DefaultModel: "deepseek-flash", Thinking: "high"},
-		{APIKey: dmStrPtr(""), DefaultModel: "deepseek-flash", Thinking: "high"},
-		{APIKey: dmStrPtr("valid-key"), DefaultModel: "unknown", Thinking: "high"},
-		{APIKey: dmStrPtr("valid-key"), DefaultModel: "deepseek-flash", Thinking: "medium"},
+func TestModelServerRejectsInvalidValues(t *testing.T) {
+	url := dmStrPtr("https://models.example.test/v1")
+	for name, request := range map[string]dto.SaveModelServerRequest{
+		"no key on create":    {Name: "A", OpenAIBaseURL: url, DefaultModel: "m", Thinking: "high"},
+		"key with whitespace": {Name: "A", OpenAIBaseURL: url, APIKey: dmStrPtr("has whitespace"), DefaultModel: "m", Thinking: "high"},
+		"no protocol URL":     {Name: "A", APIKey: dmStrPtr("k"), DefaultModel: "m", Thinking: "high"},
+		"non-http URL":        {Name: "A", OpenAIBaseURL: dmStrPtr("file:///etc"), APIKey: dmStrPtr("k"), DefaultModel: "m", Thinking: "high"},
+		"quoted URL":          {Name: "A", OpenAIBaseURL: dmStrPtr(`https://a.test/"x`), APIKey: dmStrPtr("k"), DefaultModel: "m", Thinking: "high"},
+		"unlisted model":      {Name: "A", OpenAIBaseURL: url, APIKey: dmStrPtr("k"), Models: []string{"a"}, DefaultModel: "b", Thinking: "high"},
+		"injected model name": {Name: "A", OpenAIBaseURL: url, APIKey: dmStrPtr("k"), DefaultModel: `m" x="y`, Thinking: "high"},
+		"unknown thinking":    {Name: "A", OpenAIBaseURL: url, APIKey: dmStrPtr("k"), DefaultModel: "m", Thinking: "medium"},
+		"blank name":          {Name: " ", OpenAIBaseURL: url, APIKey: dmStrPtr("k"), DefaultModel: "m", Thinking: "high"},
 	} {
-		_, err := newTestDevMachineService(&devMachineStoreFake{}).UpdateWorkspaceModelProvider(
-			context.Background(), uuid.New(), uuid.New(), test,
-		)
-		require.ErrorIs(t, err, ErrInvalidMachineInput)
+		_, err := newTestDevMachineService(&devMachineStoreFake{}).SaveModelServer(context.Background(), uuid.New(), uuid.New(), nil, request)
+		require.ErrorIs(t, err, ErrInvalidMachineInput, name)
 	}
 }
 
-func TestCreateAgentRunAppliesDeepSeekOverrides(t *testing.T) {
+func TestDiscoverModelsListsOpenAIAndAnthropicServers(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/models":
+			require.Equal(t, "Bearer sk-openai", r.Header.Get("Authorization"))
+			_, _ = w.Write([]byte(`{"data":[{"id":"z-model"},{"id":"a-model"},{"id":"bad model"}]}`))
+		case "/anthropic/v1/models":
+			require.Equal(t, "sk-ant", r.Header.Get("x-api-key"))
+			require.Equal(t, "2023-06-01", r.Header.Get("anthropic-version"))
+			_, _ = w.Write([]byte(`{"data":[{"id":"claude-sonnet-5-5"}]}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	store := &devMachineStoreFake{}
+	svc := newTestDevMachineService(store)
+	svc.SetModelDiscovery(true)
+	ctx, ws := context.Background(), uuid.New()
+
+	listed, err := svc.DiscoverModels(ctx, ws, dto.DiscoverModelsRequest{OpenAIBaseURL: dmStrPtr(server.URL + "/v1"), APIKey: dmStrPtr("sk-openai")})
+	require.NoError(t, err)
+	require.Equal(t, []string{"a-model", "z-model"}, listed.Models, "sorted, invalid names dropped")
+	listed, err = svc.DiscoverModels(ctx, ws, dto.DiscoverModelsRequest{AnthropicBaseURL: dmStrPtr(server.URL + "/anthropic"), APIKey: dmStrPtr("sk-ant")})
+	require.NoError(t, err)
+	require.Equal(t, []string{"claude-sonnet-5-5"}, listed.Models)
+
+	// A saved server's key is reused only for its own URL.
+	saved, err := svc.SaveModelServer(ctx, ws, uuid.New(), nil, dto.SaveModelServerRequest{
+		Name: "Local", OpenAIBaseURL: dmStrPtr(server.URL + "/v1"), APIKey: dmStrPtr("sk-openai"), DefaultModel: "a-model", Thinking: "high",
+	})
+	require.NoError(t, err)
+	listed, err = svc.DiscoverModels(ctx, ws, dto.DiscoverModelsRequest{ServerID: &saved.ID, OpenAIBaseURL: dmStrPtr(server.URL + "/v1")})
+	require.NoError(t, err)
+	require.Len(t, listed.Models, 2)
+	_, err = svc.DiscoverModels(ctx, ws, dto.DiscoverModelsRequest{ServerID: &saved.ID, OpenAIBaseURL: dmStrPtr("https://attacker.example.test/v1")})
+	require.ErrorIs(t, err, ErrInvalidMachineInput, "the stored key never goes to a different URL")
+
+	_, err = svc.DiscoverModels(ctx, ws, dto.DiscoverModelsRequest{OpenAIBaseURL: dmStrPtr(server.URL + "/missing"), APIKey: dmStrPtr("k")})
+	require.ErrorIs(t, err, ErrModelDiscoveryFailed)
+	_, err = newTestDevMachineService(store).DiscoverModels(ctx, ws, dto.DiscoverModelsRequest{OpenAIBaseURL: dmStrPtr(server.URL + "/v1"), APIKey: dmStrPtr("k")})
+	require.ErrorIs(t, err, ErrModelDiscoveryFailed, "loopback addresses are refused unless the operator allows private networks")
+}
+
+func deepSeekModelServer(workspaceID uuid.UUID) domain.AgentModelServer {
+	return domain.AgentModelServer{
+		ID: uuid.New(), WorkspaceID: workspaceID, Name: "DeepSeek", EncryptedAPIKey: "encrypted",
+		OpenAIBaseURL: dmStrPtr("https://api.deepseek.com"), AnthropicBaseURL: dmStrPtr("https://api.deepseek.com/anthropic"),
+		Models: json.RawMessage(`["deepseek-flash","deepseek-v4-pro"]`), DefaultModel: "deepseek-flash", Thinking: "high", IsDefault: true,
+	}
+}
+
+func TestCreateAgentRunPointsCodexAtTheModelServer(t *testing.T) {
 	workspaceID, machineID, userID := uuid.New(), uuid.New(), uuid.New()
 	policy := testPolicy(workspaceID)
 	policy.AllowedProviders = json.RawMessage(`["codex"]`)
@@ -142,10 +191,7 @@ func TestCreateAgentRunAppliesDeepSeekOverrides(t *testing.T) {
 			ProviderID: "codex", Enabled: true, SupportedModes: json.RawMessage(`["autonomous"]`),
 			RequiredSecrets: json.RawMessage(`[]`), Config: json.RawMessage(`{}`),
 		},
-		workspaceModelCredential: &domain.DevMachineWorkspaceModelCredential{
-			WorkspaceID: workspaceID, Provider: "deepseek", EncryptedAPIKey: "encrypted",
-			DefaultModel: "deepseek-flash", Thinking: "high",
-		},
+		modelServers: []domain.AgentModelServer{deepSeekModelServer(workspaceID)},
 	}
 	service := NewDevMachineService(store, agent.NewRegistry(agent.NewCodexProvider("")), true,
 		"machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, DevMachineImages{})
@@ -158,11 +204,27 @@ func TestCreateAgentRunAppliesDeepSeekOverrides(t *testing.T) {
 	var argv []string
 	require.NoError(t, json.Unmarshal(run.CommandArgv, &argv))
 	require.Contains(t, argv, `model="deepseek-v4-pro"`)
-	require.Contains(t, argv, `model_provider="deepseek"`)
+	require.Contains(t, argv, `model_provider="kuayle"`)
+	require.Contains(t, argv, `model_providers.kuayle.base_url="https://api.deepseek.com"`)
 	require.Contains(t, argv, `model_reasoning_effort="none"`)
 	require.JSONEq(t, `{}`, string(run.CommandEnvironment))
 	require.Equal(t, "deepseek-v4-pro", run.Model)
 	require.Equal(t, "off", run.Thinking)
+	require.Equal(t, store.modelServers[0].ID, *run.ModelServerID)
+
+	_, err = service.CreateAgentRun(context.Background(), workspaceID, machineID, userID, dto.CreateAgentRunRequest{
+		UseRootWorkspace: true, PushBranch: dmBoolPtr(false), Provider: "codex", Mode: "autonomous",
+		Prompt: "Implement it", MaxRuntimeSeconds: 30, Model: "gpt-5.5",
+	})
+	require.ErrorIs(t, err, ErrInvalidMachineInput, "only models the server offers")
+	anthropicOnly := store.modelServers[0]
+	anthropicOnly.ID, anthropicOnly.Name, anthropicOnly.IsDefault, anthropicOnly.OpenAIBaseURL = uuid.New(), "Anthropic", false, nil
+	store.modelServers = append(store.modelServers, anthropicOnly)
+	_, err = service.CreateAgentRun(context.Background(), workspaceID, machineID, userID, dto.CreateAgentRunRequest{
+		UseRootWorkspace: true, PushBranch: dmBoolPtr(false), Provider: "codex", Mode: "autonomous",
+		Prompt: "Implement it", MaxRuntimeSeconds: 30, ModelServerID: &anthropicOnly.ID,
+	})
+	require.ErrorIs(t, err, ErrInvalidMachineInput, "Codex needs an OpenAI-compatible server")
 }
 
 func TestCreateAgentRunClaudeOverrideStoresNonSecretEnvironment(t *testing.T) {
@@ -180,10 +242,7 @@ func TestCreateAgentRunClaudeOverrideStoresNonSecretEnvironment(t *testing.T) {
 			ProviderID: "claude-code", Enabled: true, SupportedModes: json.RawMessage(`["autonomous"]`),
 			RequiredSecrets: json.RawMessage(`[]`), Config: json.RawMessage(`{}`),
 		},
-		workspaceModelCredential: &domain.DevMachineWorkspaceModelCredential{
-			WorkspaceID: workspaceID, Provider: "deepseek", EncryptedAPIKey: "encrypted",
-			DefaultModel: "deepseek-flash", Thinking: "high",
-		},
+		modelServers: []domain.AgentModelServer{deepSeekModelServer(workspaceID)},
 	}
 	service := NewDevMachineService(store, agent.NewRegistry(agent.NewClaudeCodeProvider("")), true,
 		"machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, DevMachineImages{})
@@ -208,14 +267,14 @@ func TestCreateAgentRunRejectsOverridesForOtherProviders(t *testing.T) {
 	require.ErrorContains(t, err, "codex and claude-code")
 }
 
-func TestCreateAgentRunRequiresConfiguredDeepSeekForModelOverride(t *testing.T) {
+func TestCreateAgentRunRequiresAModelServerForModelOverride(t *testing.T) {
 	_, err := newTestDevMachineService(&devMachineStoreFake{}).CreateAgentRun(
 		context.Background(), uuid.New(), uuid.New(), uuid.New(), dto.CreateAgentRunRequest{
 			Provider: "codex", Mode: "autonomous", Prompt: "test", Model: "deepseek-flash",
 		},
 	)
 	require.ErrorIs(t, err, ErrInvalidOperation)
-	require.ErrorContains(t, err, "DeepSeek")
+	require.ErrorContains(t, err, "add a model server")
 }
 
 func TestMachineTokenAuthenticationDistinguishesCredentialsFromStorageFailure(t *testing.T) {
@@ -1821,7 +1880,7 @@ type devMachineStoreFake struct {
 	updatePreferencesErr        error
 	queuedOperation             *domain.DevMachineOperation
 	queuedDesired               domain.DevMachineStatus
-	workspaceModelCredential    *domain.DevMachineWorkspaceModelCredential
+	modelServers                []domain.AgentModelServer
 }
 
 func newTestDevMachineService(store repository.DevMachineStore) *DevMachineService {
@@ -2025,19 +2084,47 @@ func (f *devMachineStoreFake) ListEnvVarsInternal(_ context.Context, machineID u
 	return filtered, nil
 }
 
-func (f *devMachineStoreFake) GetWorkspaceModelCredential(context.Context, uuid.UUID, string) (*domain.DevMachineWorkspaceModelCredential, error) {
-	return f.workspaceModelCredential, nil
+func (f *devMachineStoreFake) ListModelServers(context.Context, uuid.UUID) ([]domain.AgentModelServer, error) {
+	return append([]domain.AgentModelServer(nil), f.modelServers...), nil
 }
 
-func (f *devMachineStoreFake) UpsertWorkspaceModelCredential(_ context.Context, credential *domain.DevMachineWorkspaceModelCredential) error {
-	copy := *credential
-	f.workspaceModelCredential = &copy
+func (f *devMachineStoreFake) GetModelServer(_ context.Context, _ uuid.UUID, id *uuid.UUID) (*domain.AgentModelServer, error) {
+	for _, server := range f.modelServers {
+		if (id == nil && server.IsDefault) || (id != nil && server.ID == *id) {
+			copy := server
+			return &copy, nil
+		}
+	}
+	return nil, nil
+}
+
+func (f *devMachineStoreFake) SaveModelServer(_ context.Context, server *domain.AgentModelServer) error {
+	if server.ID == uuid.Nil {
+		server.ID = uuid.New()
+	}
+	for i := range f.modelServers {
+		if server.IsDefault && f.modelServers[i].ID != server.ID {
+			f.modelServers[i].IsDefault = false
+		}
+	}
+	for i := range f.modelServers {
+		if f.modelServers[i].ID == server.ID {
+			f.modelServers[i] = *server
+			return nil
+		}
+	}
+	f.modelServers = append(f.modelServers, *server)
 	return nil
 }
 
-func (f *devMachineStoreFake) DeleteWorkspaceModelCredential(context.Context, uuid.UUID, string) error {
-	f.workspaceModelCredential = nil
-	return nil
+func (f *devMachineStoreFake) DeleteModelServer(_ context.Context, _ uuid.UUID, id uuid.UUID) error {
+	for i := range f.modelServers {
+		if f.modelServers[i].ID == id {
+			f.modelServers = append(f.modelServers[:i], f.modelServers[i+1:]...)
+			return nil
+		}
+	}
+	return sql.ErrNoRows
 }
 
 func (f *devMachineStoreFake) ListRuntimeCredentials(_ context.Context, machineID uuid.UUID) ([]domain.DevMachineRuntimeCredential, error) {
@@ -2352,9 +2439,9 @@ func TestCollectorRedactsWorkspaceAndOriginalNativeCredentials(t *testing.T) {
 			t.Run(kind+"/"+format, func(t *testing.T) {
 				current, err := cryptoutil.Encrypt("fixture-current-model-key", cryptoutil.DeriveKey("test"))
 				require.NoError(t, err)
-				payload := `{"DEEPSEEK_API_KEY":"fixture-original-model-key"}`
+				payload := `{"KUAYLE_MODEL_API_KEY":"fixture-original-model-key"}`
 				if format == "versioned" {
-					payload = `{"version":1,"environment":{"DEEPSEEK_API_KEY":"fixture-original-model-key","PUBLIC_FLAG":"1"},"redactions":{"DEEPSEEK_API_KEY":"fixture-original-model-key"}}`
+					payload = `{"version":1,"environment":{"KUAYLE_MODEL_API_KEY":"fixture-original-model-key","PUBLIC_FLAG":"1"},"redactions":{"KUAYLE_MODEL_API_KEY":"fixture-original-model-key"}}`
 				}
 				snapshot, err := cryptoutil.Encrypt(payload, cryptoutil.DeriveKey("test"))
 				require.NoError(t, err)
@@ -2363,10 +2450,10 @@ func TestCollectorRedactsWorkspaceAndOriginalNativeCredentials(t *testing.T) {
 				}
 				machineID, workspaceID := uuid.New(), uuid.New()
 				store := &devMachineStoreFake{
-					machine:                  &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, Status: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour)},
-					authenticatedToken:       &domain.DevMachineToken{ID: uuid.New(), MachineID: machineID, Scopes: json.RawMessage(`{"events:write":true,"logs:write":true}`), ExpiresAt: time.Now().Add(time.Hour)},
-					workspaceModelCredential: &domain.DevMachineWorkspaceModelCredential{EncryptedAPIKey: current},
-					agentSecretSnapshots:     []string{snapshot},
+					machine:              &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, Status: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour)},
+					authenticatedToken:   &domain.DevMachineToken{ID: uuid.New(), MachineID: machineID, Scopes: json.RawMessage(`{"events:write":true,"logs:write":true}`), ExpiresAt: time.Now().Add(time.Hour)},
+					modelServers:         []domain.AgentModelServer{{EncryptedAPIKey: current}},
+					agentSecretSnapshots: []string{snapshot},
 				}
 				svc := newTestDevMachineService(store)
 				content := "1 fixture-current-model-key fixture-original-model-key"

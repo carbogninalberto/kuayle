@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
@@ -49,8 +50,7 @@ var (
 )
 
 var (
-	deepSeekModels         = []string{"deepseek-flash", "deepseek-v4-pro"}
-	deepSeekThinkingLevels = []string{"off", "low", "high", "max"}
+	modelThinkingLevels = []string{"off", "low", "high", "max"}
 )
 
 type machineQuotaError struct {
@@ -107,6 +107,8 @@ type DevMachineService struct {
 	encryptionKey  []byte
 	ticketTTL      time.Duration
 	images         DevMachineImages
+	// modelClient lists model server models; see SetModelDiscovery.
+	modelClient *http.Client
 }
 
 func NewDevMachineService(store repository.DevMachineStore, agents *agent.Registry, enabled bool, domain string, encryptionKey []byte, ticketTTL time.Duration, images DevMachineImages, frontendURL ...string) *DevMachineService {
@@ -1323,71 +1325,7 @@ func (s *DevMachineService) ConfiguredProviders(ctx context.Context, workspaceID
 	return responses, nil
 }
 
-func (s *DevMachineService) GetWorkspaceModelProvider(ctx context.Context, workspaceID uuid.UUID) (*dto.WorkspaceModelProviderResponse, error) {
-	credential, err := s.store.GetWorkspaceModelCredential(ctx, workspaceID, "deepseek")
-	if err != nil {
-		return nil, err
-	}
-	response := &dto.WorkspaceModelProviderResponse{
-		Provider:       "deepseek",
-		DefaultModel:   "deepseek-flash",
-		Thinking:       "high",
-		Models:         append([]string(nil), deepSeekModels...),
-		ThinkingLevels: append([]string(nil), deepSeekThinkingLevels...),
-	}
-	if credential != nil {
-		response.Configured = true
-		response.DefaultModel = credential.DefaultModel
-		response.Thinking = credential.Thinking
-		updatedAt := credential.UpdatedAt
-		response.UpdatedAt = &updatedAt
-	}
-	return response, nil
-}
-
-func (s *DevMachineService) UpdateWorkspaceModelProvider(ctx context.Context, workspaceID, userID uuid.UUID, request dto.UpdateWorkspaceModelProviderRequest) (*dto.WorkspaceModelProviderResponse, error) {
-	if !containsString(deepSeekModels, request.DefaultModel) {
-		return nil, fmt.Errorf("%w: unsupported DeepSeek default model", ErrInvalidMachineInput)
-	}
-	if !containsString(deepSeekThinkingLevels, request.Thinking) {
-		return nil, fmt.Errorf("%w: unsupported DeepSeek thinking level", ErrInvalidMachineInput)
-	}
-	credential, err := s.store.GetWorkspaceModelCredential(ctx, workspaceID, "deepseek")
-	if err != nil {
-		return nil, err
-	}
-	if request.APIKey == nil {
-		if credential == nil {
-			return nil, fmt.Errorf("%w: api_key is required before DeepSeek is configured", ErrInvalidMachineInput)
-		}
-	} else {
-		if !validDeepSeekAPIKey(*request.APIKey) {
-			return nil, fmt.Errorf("%w: api_key must be 1-512 printable characters without whitespace", ErrInvalidMachineInput)
-		}
-		encrypted, encryptErr := cryptoutil.Encrypt(*request.APIKey, s.encryptionKey)
-		if encryptErr != nil {
-			return nil, fmt.Errorf("encrypt DeepSeek API key: %w", encryptErr)
-		}
-		if credential == nil {
-			credential = &domain.DevMachineWorkspaceModelCredential{WorkspaceID: workspaceID, Provider: "deepseek"}
-		}
-		credential.EncryptedAPIKey = encrypted
-		credential.EncryptionKeyVersion = 1
-	}
-	credential.DefaultModel = request.DefaultModel
-	credential.Thinking = request.Thinking
-	credential.UpdatedBy = &userID
-	if err := s.store.UpsertWorkspaceModelCredential(ctx, credential); err != nil {
-		return nil, err
-	}
-	return s.GetWorkspaceModelProvider(ctx, workspaceID)
-}
-
-func (s *DevMachineService) DeleteWorkspaceModelProvider(ctx context.Context, workspaceID uuid.UUID) error {
-	return s.store.DeleteWorkspaceModelCredential(ctx, workspaceID, "deepseek")
-}
-
-func validDeepSeekAPIKey(value string) bool {
+func validModelAPIKey(value string) bool {
 	length := utf8.RuneCountInString(value)
 	if length < 1 || length > 512 {
 		return false
@@ -1413,8 +1351,27 @@ func (s *DevMachineService) CreateAgentRun(ctx context.Context, workspaceID, mac
 	return s.createAgentRun(ctx, workspaceID, machineID, userID, req, uuid.New())
 }
 func (s *DevMachineService) createAgentRun(ctx context.Context, workspaceID, machineID, userID uuid.UUID, req dto.CreateAgentRunRequest, runID uuid.UUID) (*domain.DevMachineAgentRun, error) {
-	if err := s.validateAgentModel(ctx, workspaceID, req.Provider, req.Model, req.Thinking); err != nil {
+	if err := s.validateAgentModel(ctx, workspaceID, req.Provider, req.ModelServerID, req.Model, req.Thinking); err != nil {
 		return nil, err
+	}
+	// Codex and Claude Code use the chosen model server, or the workspace
+	// default when it speaks their protocol; otherwise their own sign-in.
+	var modelServer *domain.AgentModelServer
+	if req.Provider == "codex" || req.Provider == "claude-code" {
+		server, err := s.store.GetModelServer(ctx, workspaceID, req.ModelServerID)
+		if err != nil {
+			return nil, err
+		}
+		if server != nil && server.Serves(req.Provider) {
+			modelServer = server
+			if req.Model == "" {
+				req.Model = server.DefaultModel
+			}
+		}
+	}
+	openAIBaseURL := ""
+	if modelServer != nil && req.Provider == "codex" {
+		openAIBaseURL = *modelServer.OpenAIBaseURL
 	}
 	pushBranch := !req.UseRootWorkspace
 	if req.PushBranch != nil {
@@ -1554,7 +1511,7 @@ func (s *DevMachineService) createAgentRun(ctx context.Context, workspaceID, mac
 	invocation, err := provider.BuildInvocation(agent.RunInput{
 		Mode: agent.Mode(req.Mode), Prompt: prompt, WorkspacePath: workspacePath,
 		AcceptanceCriteria: req.AcceptanceCriteria, TestCommand: req.TestCommand, ExtraArgs: req.ExtraArgs, Config: config,
-		Model: req.Model, Thinking: req.Thinking, Session: req.Session,
+		Model: req.Model, Thinking: req.Thinking, Session: req.Session, OpenAIBaseURL: openAIBaseURL,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("%w: provider rejected the agent run configuration", ErrInvalidMachineInput)
@@ -1597,6 +1554,9 @@ func (s *DevMachineService) createAgentRun(ctx context.Context, workspaceID, mac
 		CommandArgv: commandArgv, CommandEnvironment: commandEnvironment, Model: req.Model, Thinking: req.Thinking,
 		MaxRuntimeSeconds: timeout, PushBranch: pushBranch,
 		OpenPullRequest: req.OpenPullRequest, NativeSessionID: nativeSession,
+	}
+	if modelServer != nil {
+		run.ModelServerID = &modelServer.ID
 	}
 	operation := &domain.DevMachineOperation{
 		ID: uuid.New(), MachineID: machineID, AgentRunID: &runID, WorkspaceID: workspaceID,
@@ -2461,12 +2421,12 @@ func (s *DevMachineService) machineSecretValues(ctx context.Context, workspaceID
 			values = append(values, value)
 		}
 	}
-	credential, err := s.store.GetWorkspaceModelCredential(ctx, workspaceID, "deepseek")
+	servers, err := s.store.ListModelServers(ctx, workspaceID)
 	if err != nil {
 		return nil, err
 	}
-	if credential != nil {
-		value, err := cryptoutil.Decrypt(credential.EncryptedAPIKey, s.encryptionKey)
+	for _, server := range servers {
+		value, err := cryptoutil.Decrypt(server.EncryptedAPIKey, s.encryptionKey)
 		if err != nil {
 			return nil, err
 		}
@@ -2515,27 +2475,38 @@ func redactText(value string, secrets []string) string {
 }
 
 // Shared by direct native runs and conversation delegation; model selectors must
-// describe the same overrides that the harness actually accepts.
-func (s *DevMachineService) validateAgentModel(ctx context.Context, workspaceID uuid.UUID, provider, model, thinking string) error {
-	if model != "" || thinking != "" {
+// describe the same overrides that the harness actually accepts. A chosen model
+// must come from a server that speaks the harness's protocol.
+func (s *DevMachineService) validateAgentModel(ctx context.Context, workspaceID uuid.UUID, provider string, serverID *uuid.UUID, model, thinking string) error {
+	if model != "" || thinking != "" || serverID != nil {
 		if provider != "codex" && provider != "claude-code" {
-			return fmt.Errorf("%w: model and thinking overrides are supported only for codex and claude-code", ErrInvalidMachineInput)
+			return fmt.Errorf("%w: model servers and thinking overrides are supported only for codex and claude-code", ErrInvalidMachineInput)
 		}
 	}
-	if model != "" {
-		if !containsString(deepSeekModels, model) {
-			return fmt.Errorf("%w: unsupported DeepSeek model", ErrInvalidMachineInput)
-		}
-		credential, credentialErr := s.store.GetWorkspaceModelCredential(ctx, workspaceID, "deepseek")
-		if credentialErr != nil {
-			return credentialErr
-		}
-		if credential == nil {
-			return fmt.Errorf("%w: configure DeepSeek for this workspace before selecting a model", ErrInvalidOperation)
-		}
+	if thinking != "" && !containsString(modelThinkingLevels, thinking) {
+		return fmt.Errorf("%w: unsupported thinking level", ErrInvalidMachineInput)
 	}
-	if thinking != "" && !containsString(deepSeekThinkingLevels, thinking) {
-		return fmt.Errorf("%w: unsupported DeepSeek thinking level", ErrInvalidMachineInput)
+	if model == "" && serverID == nil {
+		return nil
+	}
+	if model != "" && !modelNamePattern.MatchString(model) {
+		return fmt.Errorf("%w: invalid model name", ErrInvalidMachineInput)
+	}
+	server, err := s.store.GetModelServer(ctx, workspaceID, serverID)
+	if err != nil {
+		return err
+	}
+	if server == nil {
+		if serverID != nil {
+			return fmt.Errorf("%w: model server not found", ErrInvalidMachineInput)
+		}
+		return fmt.Errorf("%w: add a model server for this workspace before selecting a model", ErrInvalidOperation)
+	}
+	if !server.Serves(provider) {
+		return fmt.Errorf("%w: %s does not offer the protocol this agent needs", ErrInvalidMachineInput, server.Name)
+	}
+	if models := server.ModelList(); model != "" && len(models) > 0 && !containsString(models, model) {
+		return fmt.Errorf("%w: %s does not offer model %q", ErrInvalidMachineInput, server.Name, model)
 	}
 	return nil
 }

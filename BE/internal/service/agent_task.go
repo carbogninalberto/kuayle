@@ -386,7 +386,7 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 	prompt = withInstructions(prompt, task.AgentInstructions)
 	push := false
 	checkout := task.CheckoutID.String()
-	return s.createAgentRun(ctx, task.WorkspaceID, *task.MachineID, task.CreatorID, dto.CreateAgentRunRequest{Provider: task.Provider, Mode: "autonomous", Prompt: prompt, TestCommand: command, CheckoutID: &checkout, Model: task.Model, Thinking: task.Thinking, PushBranch: &push, MaxRuntimeSeconds: timeout, Session: session}, task.RunID)
+	return s.createAgentRun(ctx, task.WorkspaceID, *task.MachineID, task.CreatorID, dto.CreateAgentRunRequest{Provider: task.Provider, Mode: "autonomous", Prompt: prompt, TestCommand: command, CheckoutID: &checkout, Model: task.Model, Thinking: task.Thinking, ModelServerID: task.ModelServerID, PushBranch: &push, MaxRuntimeSeconds: timeout, Session: session}, task.RunID)
 }
 func (r *devMachineTaskRuntime) Cancel(ctx context.Context, task domain.AgentTask) error {
 	return r.tasks.CancelAttempt(ctx, task)

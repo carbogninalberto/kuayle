@@ -7,15 +7,15 @@
 	import SelectField from '$lib/components/shared/SelectField.svelte';
 	import { Switch } from '$lib/components/ui/switch';
 	import { Textarea } from '$lib/components/ui/textarea';
-	import { createAgentRun, getWorkspaceModelProvider, listMachineAgentProviders } from '$lib/api/dev-machines';
+	import { createAgentRun, listMachineAgentProviders, modelServers } from '$lib/api/dev-machines';
+	import { preferredServer, serversFor } from '$lib/features/agents/model-choice';
 	import type {
 		AgentProvider,
 		AgentRun,
 		CreateAgentRunInput,
-		DeepSeekModel,
-		DeepSeekThinking,
+		ThinkingLevel,
 		DevMachine,
-		WorkspaceModelProvider
+		ModelServer
 	} from '$lib/types/dev-machine';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/paraglide/messages.js';
@@ -42,15 +42,17 @@
 	let loading = $state(false);
 	let machineRemainingSeconds = $state(0);
 	let maxRuntimeCap = $state(0);
-	let modelProvider = $state<WorkspaceModelProvider | null>(null);
-	let modelOverride = $state<DeepSeekModel | ''>('');
-	let thinkingOverride = $state<DeepSeekThinking | ''>('');
+	let servers = $state<ModelServer[]>([]);
+	let serverId = $state('');
+	let modelOverride = $state('');
+	let thinkingOverride = $state<ThinkingLevel | ''>('');
 
 	const selectedProvider = $derived(providers.find((item) => item.id === provider));
 	const selectedProviderLabel = $derived(selectedProvider?.display_name ?? (providers.length === 0 ? 'Loading providers...' : 'Select provider'));
-	const showDeepSeekOptions = $derived(
-		!!modelProvider?.configured && (provider === 'codex' || provider === 'claude-code')
-	);
+	// Codex and Claude Code can use a compatible model server; without one they
+	// rely on their own sign-in.
+	const compatibleServers = $derived(serversFor(servers, provider));
+	const selectedServer = $derived(compatibleServers.find((server) => server.id === serverId));
 	const submitEnabled = $derived(providersLoaded && !providersError && !loading && !!prompt.trim() && !!selectedProvider && maxRuntime >= 30 && maxRuntime <= maxRuntimeCap);
 
 	$effect(() => {
@@ -64,7 +66,7 @@
 		modelOverride = '';
 		thinkingOverride = '';
 		void loadProviders();
-		void loadDeepSeek();
+		void loadServers();
 	});
 
 	async function loadProviders() {
@@ -92,18 +94,20 @@
 		}
 	}
 
-	async function loadDeepSeek() {
+	async function loadServers() {
 		try {
-			modelProvider = await getWorkspaceModelProvider(slug);
+			servers = await modelServers.list(slug);
 		} catch {
-			modelProvider = null;
+			servers = [];
 		}
+		serverId = preferredServer(servers, provider)?.id ?? '';
 	}
 
 	function selectProvider(value: AgentProvider['id']) {
 		provider = value;
 		const p = providers.find((item) => item.id === value);
 		allowedSecrets = [...(p?.required_secrets ?? []), ...(p?.optional_secrets ?? [])].join('\n');
+		serverId = preferredServer(servers, value)?.id ?? '';
 		modelOverride = '';
 		thinkingOverride = '';
 	}
@@ -132,7 +136,8 @@
 				test_command: parsedTest, max_runtime_seconds: maxRuntime,
 				allowed_secrets: allowedSecrets.split('\n').map((line) => line.trim()).filter(Boolean), push_branch: pushBranch, open_pull_request: openPullRequest
 			};
-			if (showDeepSeekOptions) {
+			if (selectedServer) {
+				input.model_server_id = selectedServer.id;
 				if (modelOverride) input.model = modelOverride;
 				if (thinkingOverride) input.thinking = thinkingOverride;
 			}
@@ -159,36 +164,47 @@
 				<div class="space-y-1"><Label>{m['machines.provider']()}</Label><Select.Root type="single" value={provider} disabled={!providersLoaded || providersError} onValueChange={(value) => value && selectProvider(value as AgentProvider['id'])}><Select.Trigger aria-label={m['machines.provider']()} class="w-full">{selectedProviderLabel}</Select.Trigger><Select.Content>{#each providers as item}<Select.Item value={item.id} label={item.display_name}>{item.display_name}</Select.Item>{/each}</Select.Content></Select.Root></div>
 				<div class="space-y-1"><Label>{m['machines.mode']()}</Label><div class="flex h-9 items-center rounded-md border border-[var(--app-border)] px-3 text-sm">{m['machines.autonomous']()}</div></div>
 			</div>
-			{#if showDeepSeekOptions}
-				<div class="grid gap-3 rounded-lg border border-[var(--app-border)] p-3 sm:grid-cols-2">
+			{#if compatibleServers.length}
+				<div class="grid gap-3 rounded-lg border border-[var(--app-border)] p-3 sm:grid-cols-3">
 					<div class="space-y-1">
-						<Label>{m['machines.deepseek_model']()}</Label>
+						<Label>{m['tasks.model_server']()}</Label>
 						<SelectField
-							bind:value={modelOverride}
-							options={[
-								{ value: '', label: m['machines.workspace_default']() },
-								...(modelProvider?.models ?? []).map((model) => ({ value: model, label: model }))
-							]}
-							aria-label={m['machines.deepseek_model']()}
+							bind:value={serverId}
+							options={compatibleServers.map((server) => ({ value: server.id, label: server.name }))}
+							aria-label={m['tasks.model_server']()}
 							class="w-full"
 						/>
 					</div>
 					<div class="space-y-1">
-						<Label>{m['machines.deepseek_thinking']()}</Label>
+						<Label>{m['tasks.model']()}</Label>
+						<SelectField
+							bind:value={modelOverride}
+							options={[
+								{ value: '', label: m['machines.server_default']({ model: selectedServer?.default_model ?? '' }) },
+								...(selectedServer?.models ?? []).map((model) => ({ value: model, label: model }))
+							]}
+							aria-label={m['tasks.model']()}
+							class="w-full"
+						/>
+					</div>
+					<div class="space-y-1">
+						<Label>{m['tasks.effort']()}</Label>
 						<SelectField
 							bind:value={thinkingOverride}
 							options={[
 								{ value: '', label: m['machines.workspace_default']() },
-								...(modelProvider?.thinking_levels ?? []).map((level) => ({
+								...(selectedServer?.thinking_levels ?? []).map((level) => ({
 									value: level,
-									label: m[`machines.deepseek_thinking_${level}`]()
+									label: m[`settings.agents.thinking_${level}`]()
 								}))
 							]}
-							aria-label={m['machines.deepseek_thinking']()}
+							aria-label={m['tasks.effort']()}
 							class="w-full"
 						/>
 					</div>
 				</div>
+			{:else if provider === 'codex' || provider === 'claude-code'}
+				<p class="text-xs text-[var(--color-text-tertiary)]">{m['tasks.own_sign_in']()}</p>
 			{/if}
 			<label class="block space-y-1"><Label>{m['machines.prompt_context']()}</Label><Textarea bind:value={prompt} required rows={6} /></label>
 			<label class="block space-y-1"><Label>{m['machines.acceptance_criteria']()}</Label><Textarea bind:value={criteria} rows={3} /></label>

@@ -233,21 +233,41 @@ export interface CreateAgentRunInput {
 	allowed_secrets: string[];
 	push_branch: boolean;
 	open_pull_request: boolean;
-	model?: DeepSeekModel;
-	thinking?: DeepSeekThinking;
+	model_server_id?: string;
+	model?: string;
+	thinking?: ThinkingLevel;
 }
 
-export type DeepSeekModel = 'deepseek-flash' | 'deepseek-v4-pro';
-export type DeepSeekThinking = 'off' | 'low' | 'high' | 'max';
+export type ThinkingLevel = 'off' | 'low' | 'high' | 'max';
 
-export interface WorkspaceModelProvider {
-	provider: 'deepseek';
-	configured: boolean;
-	default_model: DeepSeekModel;
-	thinking: DeepSeekThinking;
-	models: DeepSeekModel[];
-	thinking_levels: DeepSeekThinking[];
-	updated_at: string | null;
+// A workspace model server. Codex uses its OpenAI-compatible URL and Claude
+// Code its Anthropic-compatible URL; `harnesses` lists who can use it. The API
+// key is never returned.
+export interface ModelServer {
+	id: string;
+	name: string;
+	openai_base_url?: string;
+	anthropic_base_url?: string;
+	models: string[];
+	default_model: string;
+	fast_model: string;
+	thinking: ThinkingLevel;
+	is_default: boolean;
+	harnesses: string[];
+	thinking_levels: ThinkingLevel[];
+	updated_at: string;
+}
+
+export interface ModelServerInput {
+	name: string;
+	openai_base_url?: string;
+	anthropic_base_url?: string;
+	api_key?: string;
+	models: string[];
+	default_model: string;
+	fast_model: string;
+	thinking: ThinkingLevel;
+	is_default: boolean;
 }
 
 export interface DevMachinePolicy {

@@ -13,8 +13,11 @@ seed_home_template() {
   fi
 }
 
-configure_codex_deepseek() {
-  if [ -z "${DEEPSEEK_API_KEY:-}" ] || [ -z "${KUAYLE_DEEPSEEK_MODEL:-}" ]; then
+# Points an interactive Codex at the workspace's default model server. Agent
+# runs pass the server explicitly as -c overrides, so this file only serves
+# terminals and the IDE, and an existing user-managed config is left unchanged.
+configure_codex_model() {
+  if [ -z "${KUAYLE_MODEL_API_KEY:-}" ] || [ -z "${KUAYLE_MODEL_OPENAI_BASE_URL:-}" ] || [ -z "${KUAYLE_MODEL:-}" ]; then
     return 0
   fi
 
@@ -23,42 +26,50 @@ configure_codex_deepseek() {
     return 0
   fi
 
-  model=$KUAYLE_DEEPSEEK_MODEL
+  # Values are written into TOML strings: refuse anything that needs quoting.
+  model=$KUAYLE_MODEL
   case "$model" in
-    deepseek-flash|deepseek-v4-pro ) ;;
-    * ) echo "invalid DeepSeek model: ${model}" >&2; return 1 ;;
+    ''|*[!A-Za-z0-9._:/@+-]* ) echo "invalid model name" >&2; return 1 ;;
   esac
-  thinking=${KUAYLE_DEEPSEEK_THINKING:-high}
+  base_url=$KUAYLE_MODEL_OPENAI_BASE_URL
+  case "$base_url" in
+    http://*|https://* ) ;;
+    * ) echo "invalid model server URL" >&2; return 1 ;;
+  esac
+  case "$base_url" in
+    *[\"\'\\[:space:]]* ) echo "invalid model server URL" >&2; return 1 ;;
+  esac
+  thinking=${KUAYLE_MODEL_THINKING:-high}
   case "$thinking" in
     off ) reasoning_effort=none ;;
     low|high|max ) reasoning_effort=$thinking ;;
-    * ) echo "invalid DeepSeek thinking level: ${thinking}" >&2; return 1 ;;
+    * ) echo "invalid thinking level: ${thinking}" >&2; return 1 ;;
   esac
 
   mkdir -p "$HOME/.codex"
   if ! (umask 077; set -C; : > "$codex_config") 2>/dev/null; then
     return 0
   fi
-  # Codex's /model picker otherwise lists OpenAI models that DeepSeek rejects. A failed
-  # generation only loses the picker list; the configured model still works.
+  # Codex's /model picker otherwise lists OpenAI models the server may reject.
+  # A failed generation only loses the picker list; the configured model works.
   catalog_line=
-  catalog_path="$HOME/.codex/model-catalogs/deepseek.json"
-  catalog_generator=${KUAYLE_CODEX_CATALOG_GENERATOR:-/usr/local/lib/kuayle/codex-deepseek-catalog.cjs}
-  if mkdir -p "${catalog_path%/*}" && node "$catalog_generator" "$catalog_path" 2>/dev/null; then
+  catalog_path="$HOME/.codex/model-catalogs/kuayle.json"
+  catalog_generator=${KUAYLE_CODEX_CATALOG_GENERATOR:-/usr/local/lib/kuayle/codex-model-catalog.cjs}
+  if [ -n "${KUAYLE_MODEL_LIST:-}" ] && mkdir -p "${catalog_path%/*}" && node "$catalog_generator" "$catalog_path" "$KUAYLE_MODEL_LIST" 2>/dev/null; then
     catalog_line="model_catalog_json = \"${catalog_path}\""
   fi
-  cat > "$codex_config" <<EOF
+  cat > "$codex_config" <<CONFIG
 model = "${model}"
-model_provider = "deepseek"
+model_provider = "kuayle"
 model_reasoning_effort = "${reasoning_effort}"
 ${catalog_line}
 
-[model_providers.deepseek]
-name = "DeepSeek"
-base_url = "https://api.deepseek.com"
-env_key = "DEEPSEEK_API_KEY"
+[model_providers.kuayle]
+name = "Kuayle model server"
+base_url = "${base_url}"
+env_key = "KUAYLE_MODEL_API_KEY"
 wire_api = "responses"
-EOF
+CONFIG
 }
 
 load_scoped_secrets() {

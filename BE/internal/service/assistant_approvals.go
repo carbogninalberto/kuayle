@@ -89,10 +89,12 @@ func delegateIssue(ctx context.Context, conversations *repository.ConversationRe
 		provider = options.DefaultProvider
 	}
 	request := domain.AgentTaskRequest{RequestID: requestID, Prompt: instructions, Provider: provider}
-	// Match the task composer's defaults: model selection applies only to
-	// harnesses that support the workspace model provider.
-	if mp := options.ModelProvider; mp != nil && mp.Configured && (request.Provider == "codex" || request.Provider == "claude-code") {
-		request.Model, request.Thinking = mp.DefaultModel, mp.Thinking
+	// Match the task composer's defaults: the default model server's model and
+	// thinking level, when that server speaks the harness's protocol.
+	for _, server := range options.ModelServers {
+		if server.IsDefault && containsString(server.Harnesses, request.Provider) {
+			request.Model, request.Thinking = server.DefaultModel, server.Thinking
+		}
 	}
 	return tasks.Create(ctx, ws, chat.ID, request)
 }
