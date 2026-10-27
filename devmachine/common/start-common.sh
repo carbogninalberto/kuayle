@@ -114,6 +114,41 @@ load_scoped_secrets() {
   rm -f /run/kuayle-secrets/.ready
 }
 
+# Writes the user's stored agent sign-in, delivered as a scoped secret, into
+# the run's in-memory home where Claude Code or Codex expects it.
+install_agent_sign_in() {
+  sign_in_file=
+  sign_in_value=
+  if [ -n "${KUAYLE_CLAUDE_CREDENTIALS:-}" ]; then
+    sign_in_file="$HOME/.claude/.credentials.json"
+    sign_in_value=$KUAYLE_CLAUDE_CREDENTIALS
+  elif [ -n "${KUAYLE_CODEX_AUTH:-}" ]; then
+    sign_in_file="$HOME/.codex/auth.json"
+    sign_in_value=$KUAYLE_CODEX_AUTH
+  fi
+  unset KUAYLE_CLAUDE_CREDENTIALS KUAYLE_CODEX_AUTH
+  [ -n "$sign_in_file" ] || return 0
+  mkdir -p "${sign_in_file%/*}"
+  (umask 077; printf '%s' "$sign_in_value" > "$sign_in_file")
+  sign_in_value=
+}
+
+# Hands the sign-in back after the run, so Kuayle keeps a token the agent
+# refreshed. The run's home is in memory and disappears when it exits, so the
+# file goes to the run's own path on the workspace volume; the manager reads
+# and deletes it immediately.
+return_agent_sign_in() {
+  [ -n "${sign_in_file:-}" ] && [ -f "$sign_in_file" ] || return 0
+  run_id=${KUAYLE_AGENT_RUN_ID:-}
+  case "$run_id" in
+    ''|*[!0-9a-f-]*) return 0 ;;
+  esac
+  return_dir="$workspace_root/.kuayle/sign-in-return"
+  (umask 077; mkdir -p "$return_dir") || return 0
+  chmod 700 "$return_dir" 2>/dev/null || true
+  (umask 077; cp "$sign_in_file" "$return_dir/$run_id.json.tmp" && mv -f "$return_dir/$run_id.json.tmp" "$return_dir/$run_id.json") || true
+}
+
 install_git_credential_helper() {
   home_dir=${HOME:-/home/kuayle}
   credential_helper=${KUAYLE_GIT_CREDENTIAL_HELPER:-$home_dir/.kuayle-git-credential}

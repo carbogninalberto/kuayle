@@ -26,6 +26,10 @@
 		ChevronDown
 	} from '@lucide/svelte';
 	import TaskActions from './TaskActions.svelte';
+	import * as Alert from '$lib/components/ui/alert/index.js';
+	import { signInCommand } from './agent-session';
+	import { agentInfo } from '$lib/features/agents/agents';
+	const agentLabel = (provider: string) => agentInfo(provider).name;
 	import { approvedBy } from './review-approval';
 	import type { TaskAction } from './task-actions';
 	import { useTerminalDock } from '$lib/features/dev-machines/terminal-dock-context.svelte';
@@ -460,6 +464,32 @@
 		};
 	});
 
+	// The attempt stopped for the agent's own sign-in: sign in from the
+	// machine's terminal, then continue. One request ID per visit converges a
+	// double click on one capture and one new attempt.
+	let signInRequest = crypto.randomUUID(),
+		continuing = $state(false),
+		signInError = $state('');
+	const needsSignIn = $derived(!!task.sign_in_required && task.state === 'failed');
+	async function continueAfterSignIn() {
+		if (continuing) return;
+		continuing = true;
+		signInError = '';
+		try {
+			const next = await agentTasks.continueAfterSignIn(chat.slug, task.id, signInRequest);
+			if (!disposed) chat.acceptTask(next);
+		} catch (e) {
+			if (disposed) return;
+			const status = (e as { status?: number }).status;
+			if (status === 409) {
+				signInError = m['tasks.sign_in_not_found']();
+				signInRequest = crypto.randomUUID();
+			} else failure(e);
+		} finally {
+			if (!disposed) continuing = false;
+		}
+	}
+
 	async function olderRuns() {
 		if (!runsBefore || loading) return;
 		loading = true;
@@ -612,6 +642,29 @@
 					</Trace.CollapsibleContent>
 				</Trace.Collapsible>
 			</Trace.Root>
+			{#if needsSignIn}
+				<Alert.Root class="border-[var(--status-warning)]/40 bg-[var(--status-warning)]/5">
+					<CircleAlert class="text-[var(--status-warning)]" />
+					<Alert.Title>{m['tasks.sign_in_title']({ agent: agentLabel(task.provider) })}</Alert.Title>
+					<Alert.Description class="space-y-3">
+						<p>{m['tasks.sign_in_body']()}</p>
+						<div class="flex flex-wrap gap-2">
+							{#if task.machine_id && dock}<Button
+									size="sm"
+									variant="outline"
+									onclick={() => openTerminal(signInCommand(task.provider))}
+									><SquareTerminal />{m['tasks.sign_in_open']()}</Button
+								>{/if}
+							<Button size="sm" disabled={continuing} onclick={() => void continueAfterSignIn()}
+								>{#if continuing}<LoaderCircle class="animate-spin" />{m['tasks.sign_in_continuing']()}{:else}{m[
+										'tasks.sign_in_continue'
+									]()}{/if}</Button
+							>
+						</div>
+						{#if signInError}<p role="alert" class="text-destructive">{signInError}</p>{/if}
+					</Alert.Description>
+				</Alert.Root>
+			{/if}
 			{#if error}<p role="alert" class="text-sm text-destructive">{error}</p>
 				<Button variant="ghost" size="sm" onclick={() => void refresh()}>{m['tasks.refresh']()}</Button>{/if}
 			<TaskActions {actions} />

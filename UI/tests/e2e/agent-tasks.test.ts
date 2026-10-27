@@ -39,7 +39,9 @@ async function fixture(page: Page) {
 		failAfterCreate: false,
 		logs: [] as any[],
 		messages: [] as any[],
-		missingRun: false
+		missingRun: false,
+		signIns: [] as any[],
+		signInFound: false
 	};
 	await page.routeWebSocket('**/api/workspaces/test/ws', () => {});
 	await page.routeWebSocket('**/conversations/chat-1/stream*', (socket) => state.sockets.push(socket));
@@ -120,6 +122,12 @@ async function fixture(page: Page) {
 				state.cancels++;
 				state.task = { ...state.task, state: 'cancelling', reason: 'Stopping native execution' };
 				return route.fulfill({ status: 204 });
+			}
+			if (path.endsWith('/sign-in')) {
+				state.signIns.push(req.postDataJSON());
+				if (!state.signInFound) return route.fulfill({ status: 409, json: { error: { code: 'SIGN_IN_NOT_FOUND' } } });
+				state.task = { ...state.task, state: 'queued', generation: 2, run_id: 'run-2', sign_in_required: false };
+				return route.fulfill({ status: 202, json: state.task });
 			}
 			if (path.endsWith('/retry')) {
 				state.retries.push(req.postDataJSON());
@@ -776,4 +784,29 @@ test('an attempt whose records are gone keeps the task panel available', async (
 	await expect(tasks.getByText('This attempt’s records are no longer available.')).toBeVisible();
 	await expect(page.getByText('Coding tasks are unavailable for this account.')).toHaveCount(0);
 	await expect(page.getByRole('button', { name: 'Start coding', exact: true })).toBeVisible();
+});
+
+test('a task stopped for the agent’s sign-in continues once the user signed in', async ({ page }) => {
+	const { state, emit } = await fixture(page);
+	await page.goto('/test/assistant?conversation=chat-1');
+	await delegate(page);
+	const tasks = page.getByRole('region', { name: 'Coding tasks' });
+	await expect(tasks.getByText('Queued', { exact: true })).toBeVisible();
+	state.task = {
+		...state.task,
+		state: 'failed',
+		sign_in_required: true,
+		reason: 'Codex needs you to sign in. Sign in from the terminal, then continue'
+	};
+	emit('task.state_changed', state.task);
+	await expect(tasks.getByText('Codex needs you to sign in', { exact: true })).toBeVisible();
+	const proceed = tasks.getByRole('button', { name: 'I’ve signed in — continue' });
+	await proceed.click();
+	await expect(tasks.getByText('No sign-in was found in the terminal yet.', { exact: false })).toBeVisible();
+	state.signInFound = true;
+	await proceed.click();
+	await expect(tasks.getByText('Queued', { exact: true })).toBeVisible();
+	await expect(tasks.getByText('Codex needs you to sign in', { exact: true })).toHaveCount(0);
+	expect(state.signIns).toHaveLength(2);
+	expect(state.signIns[0].request_id).not.toBe(state.signIns[1].request_id);
 });

@@ -34,6 +34,8 @@ export interface AgentTask {
 	machine_id?: string | null;
 	checkout_id: string;
 	run_id: string;
+	// The attempt stopped because the agent needs the creator's own sign-in.
+	sign_in_required?: boolean;
 	created_at: string;
 	updated_at: string;
 }
@@ -131,6 +133,9 @@ export const agentTasks = {
 	create: (slug: string, id: string, input: TaskInput) => api.post<AgentTask>(`${chat(slug, id)}/tasks`, input),
 	get: (slug: string, id: string) => api.get<AgentTask>(task(slug, id)),
 	cancel: (slug: string, id: string) => api.post<void>(`${task(slug, id)}/cancel`, {}),
+	// Keeps the sign-in finished in the machine's terminal and starts a new attempt.
+	continueAfterSignIn: (slug: string, id: string, requestId: string) =>
+		api.post<AgentTask>(`${task(slug, id)}/sign-in`, { request_id: requestId }),
 	retry: (
 		slug: string,
 		id: string,

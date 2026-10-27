@@ -2132,5 +2132,11 @@
 	"settings.dev_machines.providers_moved": "在此選擇成員可以啟動的編碼代理：",
 	"tasks.model_server": "模型伺服器",
 	"tasks.own_sign_in": "使用代理自己的登入",
-	"machines.server_default": "伺服器預設（{model}）"
+	"machines.server_default": "伺服器預設（{model}）",
+	"tasks.sign_in_title": "{agent} 需要你登入",
+	"tasks.sign_in_body": "沒有模型伺服器為此代理提供服務，因此它使用你自己的帳戶。在機器的終端機中登入一次，然後繼續。Kuayle 會加密保存登入資訊供你之後的任務使用。",
+	"tasks.sign_in_open": "在終端機中登入",
+	"tasks.sign_in_continue": "我已登入 — 繼續",
+	"tasks.sign_in_continuing": "正在檢查登入…",
+	"tasks.sign_in_not_found": "終端機中尚未找到登入資訊。請在終端機中完成登入後重試。"
 }

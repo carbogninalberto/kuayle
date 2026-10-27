@@ -43,6 +43,7 @@ const (
 	DevMachineOpPublishAgent        DevMachineOperationAction = "publish_agent"
 	DevMachineOpPurgeTaskSession    DevMachineOperationAction = "purge_task_session"
 	DevMachineOpStartPreview        DevMachineOperationAction = "start_preview"
+	DevMachineOpCaptureSignIn       DevMachineOperationAction = "capture_sign_in"
 	DevMachineOpCancelAgent         DevMachineOperationAction = "cancel_agent"
 	DevMachineOpCheckoutIssue       DevMachineOperationAction = "checkout_issue"
 	DevMachineOpSnapshotEnvironment DevMachineOperationAction = "snapshot_environment"

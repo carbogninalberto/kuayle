@@ -23,3 +23,16 @@ export function agentSessionCommand(provider: string, taskId: string): string | 
 			return undefined;
 	}
 }
+
+// Starts the agent's own sign-in in the machine's terminal. Codex uses the
+// device flow, which works without a browser on the machine.
+export function signInCommand(provider: string): string | undefined {
+	switch (provider) {
+		case 'codex':
+			return 'codex login --device-auth\r';
+		case 'claude-code':
+			return 'claude /login\r';
+		default:
+			return undefined;
+	}
+}

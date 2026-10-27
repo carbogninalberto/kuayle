@@ -7,10 +7,26 @@ KUAYLE_START_COMMON=${KUAYLE_START_COMMON:-/usr/local/lib/kuayle/start-common.sh
 load_scoped_secrets
 configure_codex_model
 link_codex_packages
+install_agent_sign_in
 install_git_credential_helper
 git config --global --unset-all core.askPass >/dev/null 2>&1 || true
 git config --global --unset-all credential.helper >/dev/null 2>&1 || true
 git config --global credential.helper "$credential_helper"
 export GIT_TERMINAL_PROMPT=0
 
+# With a stored sign-in the harness runs as a child, so a refreshed token can
+# be handed back when it exits; stop signals are forwarded to it.
+if [ -n "$sign_in_file" ] && [ ! -t 0 ]; then
+  "$@" &
+  child=$!
+  trap 'kill -TERM "$child" 2>/dev/null' TERM INT
+  status=0
+  wait "$child" || status=$?
+  while kill -0 "$child" 2>/dev/null; do
+    status=0
+    wait "$child" || status=$?
+  done
+  return_agent_sign_in
+  exit "$status"
+fi
 exec "$@"

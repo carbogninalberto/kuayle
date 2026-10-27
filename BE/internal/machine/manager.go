@@ -46,6 +46,8 @@ type ManagerStore interface {
 	ListServices(context.Context, uuid.UUID, uuid.UUID) ([]domain.DevMachineService, error)
 	ListEnvVarsInternal(context.Context, uuid.UUID, *string, string) ([]domain.DevMachineEnvVar, error)
 	GetModelServer(context.Context, uuid.UUID, *uuid.UUID) (*domain.AgentModelServer, error)
+	GetAgentSignIn(context.Context, uuid.UUID, uuid.UUID, string) (string, error)
+	SaveAgentSignIn(context.Context, uuid.UUID, uuid.UUID, string, string) error
 	SetMachineState(context.Context, uuid.UUID, domain.DevMachineStatus, *string, *string, *string, *string) error
 	SetMachineStateForOperation(context.Context, uuid.UUID, int64, bool, domain.DevMachineStatus, *string, *string, *string, *string) (bool, error)
 	UpdateServiceRuntime(context.Context, uuid.UUID, string, string, string, *string) error
@@ -477,6 +479,8 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 		return m.purgeTaskSession(ctx, machine, operation)
 	case domain.DevMachineOpStartPreview:
 		return m.startPreview(ctx, machine, operation)
+	case domain.DevMachineOpCaptureSignIn:
+		return m.captureSignIn(ctx, machine, operation)
 	case domain.DevMachineOpRunAgent:
 		return m.runAgent(ctx, machine, operation)
 	case domain.DevMachineOpCancelAgent:
@@ -848,6 +852,9 @@ func (m *Manager) agentRunSecrets(ctx context.Context, machine *domain.DevMachin
 			}
 		}
 	}
+	if err := m.agentSignInSecrets(ctx, run, secrets, redactions); err != nil {
+		return nil, err
+	}
 	githubToken := ""
 	if run.PushBranch || run.OpenPullRequest {
 		_, githubToken, err = m.repositoryToken(ctx, machine, checkoutRepositoryFullName(machine, checkout))
@@ -1027,6 +1034,13 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 		return m.store.UpdateServiceRuntime(runContext, service.ID, containerID, "running", "healthy", nil)
 	}}
 	execution, executionErr := m.runtime.RunAgent(runContext, machine, run, providerRecord, checkout, secrets.Environment, observer)
+	if used := secrets.Environment[signInSecretNames[run.ProviderID]]; used != "" {
+		returnCtx, cancelReturn := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		if err := m.returnSignIn(returnCtx, machine, run, used); err != nil {
+			log.WithField("agent_run_id", run.ID).WithError(err).Warn("refreshed agent sign-in could not be kept")
+		}
+		cancelReturn()
+	}
 	if executionErr == nil {
 		executionErr = output.Finish()
 	}

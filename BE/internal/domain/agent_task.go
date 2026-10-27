@@ -53,6 +53,9 @@ type AgentTask struct {
 	// reaches review; an empty command means none.
 	PreviewCommand json.RawMessage `json:"preview_command" db:"preview_command"`
 	PreviewPort    *int            `json:"preview_port,omitempty" db:"preview_port"`
+	// SignInRequired means the attempt stopped because the agent needs the
+	// user's own sign-in; capturing it from their terminal continues the task.
+	SignInRequired bool `json:"sign_in_required" db:"sign_in_required"`
 }
 
 type AgentTaskRequest struct {

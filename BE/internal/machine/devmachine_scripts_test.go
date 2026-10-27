@@ -499,6 +499,73 @@ func TestStartCommonKeepsCodexPackagesOnTheWorkspaceVolume(t *testing.T) {
 	}
 }
 
+// A stored sign-in is written only into the run's in-memory home, and the file
+// the agent refreshed is handed back through the run's own return path.
+func TestStartCommonInstallsAndReturnsTheAgentSignIn(t *testing.T) {
+	repoRoot := repoRootFromCaller(t)
+	common := filepath.Join(repoRoot, "devmachine", "common", "start-common.sh")
+	homeDir, workspace := t.TempDir(), t.TempDir()
+	runID := "6f1c2a3b-0000-4000-8000-000000000001"
+	script := `. "$1"
+install_agent_sign_in
+[ -z "${KUAYLE_CLAUDE_CREDENTIALS:-}" ] || { echo "secret still exported" >&2; exit 1; }
+printf '%s' '{"claudeAiOauth":{"refreshToken":"refreshed"}}' > "$HOME/.claude/.credentials.json"
+return_agent_sign_in`
+	cmd := exec.Command("sh", "-eu", "-c", script, "kuayle", common)
+	cmd.Env = []string{
+		"PATH=" + os.Getenv("PATH"), "HOME=" + homeDir, "KUAYLE_WORKSPACE_ROOT=" + workspace,
+		"KUAYLE_AGENT_RUN_ID=" + runID, `KUAYLE_CLAUDE_CREDENTIALS={"claudeAiOauth":{"refreshToken":"original"}}`,
+	}
+	output, err := cmd.CombinedOutput()
+	require.NoError(t, err, string(output))
+	info, err := os.Stat(filepath.Join(homeDir, ".claude", ".credentials.json"))
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	returned := filepath.Join(workspace, ".kuayle", "sign-in-return", runID+".json")
+	content, err := os.ReadFile(returned)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"claudeAiOauth":{"refreshToken":"refreshed"}}`, string(content))
+	info, err = os.Stat(returned)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+
+	// Without a sign-in, or with a malformed run ID, nothing is written back.
+	for name, env := range map[string][]string{
+		"no sign-in":     {"KUAYLE_AGENT_RUN_ID=" + runID},
+		"invalid run id": {"KUAYLE_AGENT_RUN_ID=../escape", `KUAYLE_CODEX_AUTH={"tokens":{}}`},
+	} {
+		otherWorkspace := t.TempDir()
+		cmd := exec.Command("sh", "-eu", "-c", `. "$1"; install_agent_sign_in; return_agent_sign_in`, "kuayle", common)
+		cmd.Env = append([]string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir(), "KUAYLE_WORKSPACE_ROOT=" + otherWorkspace}, env...)
+		output, err := cmd.CombinedOutput()
+		require.NoError(t, err, name+": "+string(output))
+		require.NoDirExists(t, filepath.Join(otherWorkspace, ".kuayle", "sign-in-return"), name)
+	}
+
+	// The runner keeps the harness's exit status and hands the sign-in back.
+	stub := filepath.Join(t.TempDir(), "start-common.sh")
+	require.NoError(t, os.WriteFile(stub, []byte(`. "`+common+`"
+load_scoped_secrets() { :; }
+install_git_credential_helper() { credential_helper=true; }
+`), 0o600))
+	runnerHome, runnerWorkspace := t.TempDir(), t.TempDir()
+	runner := exec.Command("sh", filepath.Join(repoRoot, "devmachine", "common", "kuayle-agent-runner"),
+		"sh", "-c", `printf '%s' '{"tokens":{"refresh_token":"rotated"}}' > "$HOME/.codex/auth.json"; exit 3`)
+	runner.Stdin = strings.NewReader("")
+	runner.Env = []string{
+		"PATH=" + os.Getenv("PATH"), "HOME=" + runnerHome, "KUAYLE_WORKSPACE_ROOT=" + runnerWorkspace,
+		"KUAYLE_START_COMMON=" + stub, "KUAYLE_AGENT_RUN_ID=" + runID, `KUAYLE_CODEX_AUTH={"tokens":{"refresh_token":"original"}}`,
+		"GIT_CONFIG_GLOBAL=" + filepath.Join(runnerHome, ".gitconfig"),
+	}
+	output, err = runner.CombinedOutput()
+	var exitErr *exec.ExitError
+	require.ErrorAs(t, err, &exitErr, string(output))
+	require.Equal(t, 3, exitErr.ExitCode(), "the harness's exit status is kept")
+	content, err = os.ReadFile(filepath.Join(runnerWorkspace, ".kuayle", "sign-in-return", runID+".json"))
+	require.NoError(t, err)
+	require.JSONEq(t, `{"tokens":{"refresh_token":"rotated"}}`, string(content))
+}
+
 func TestTerminalSessionCloseKillsOnlyTheNamedSessionAndIsIdempotent(t *testing.T) {
 	repoRoot := repoRootFromCaller(t)
 	tempDir := t.TempDir()

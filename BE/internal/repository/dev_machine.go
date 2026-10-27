@@ -833,6 +833,22 @@ func (r *DevMachineRepository) DeleteModelServer(ctx context.Context, workspaceI
 	return nil
 }
 
+// GetAgentSignIn returns a user's encrypted sign-in for a coding agent, or "".
+func (r *DevMachineRepository) GetAgentSignIn(ctx context.Context, workspaceID, userID uuid.UUID, provider string) (string, error) {
+	var encrypted string
+	err := r.db.GetContext(ctx, &encrypted, `SELECT encrypted_credential FROM agent_sign_ins WHERE workspace_id=$1 AND user_id=$2 AND provider=$3`, workspaceID, userID, provider)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return encrypted, err
+}
+
+func (r *DevMachineRepository) SaveAgentSignIn(ctx context.Context, workspaceID, userID uuid.UUID, provider, encrypted string) error {
+	_, err := r.db.ExecContext(ctx, `INSERT INTO agent_sign_ins(workspace_id,user_id,provider,encrypted_credential) VALUES($1,$2,$3,$4)
+		ON CONFLICT (workspace_id,user_id,provider) DO UPDATE SET encrypted_credential=EXCLUDED.encrypted_credential, updated_at=now()`, workspaceID, userID, provider, encrypted)
+	return err
+}
+
 func (r *DevMachineRepository) UpsertRuntimeCredential(ctx context.Context, credential *domain.DevMachineRuntimeCredential) error {
 	if credential.ID == uuid.Nil {
 		credential.ID = uuid.New()

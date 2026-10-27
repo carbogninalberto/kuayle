@@ -30,6 +30,7 @@ type taskLifecycleStore interface {
 	Release(context.Context, domain.AgentTask) error
 	RecordStepResult(context.Context, domain.AgentTask, bool) error
 	Fail(context.Context, domain.AgentTask, string) error
+	FailForSignIn(context.Context, domain.AgentTask, string) error
 }
 type taskExecutionRuntime interface {
 	Validate(context.Context, domain.AgentTask) (*domain.DevMachineAgentRunStep, error)
@@ -183,6 +184,11 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 	case domain.DevMachineAgentRunStatusQueued, domain.DevMachineAgentRunStatusStarting:
 		return nil
 	case domain.DevMachineAgentRunStatusFailed, domain.DevMachineAgentRunStatusTimeout:
+		// An agent without a model server needs the user's own sign-in, done
+		// once in their machine's terminal; the task then continues.
+		if run.ErrorMessage != nil && strings.HasPrefix(*run.ErrorMessage, "sign_in_required") {
+			return s.store.FailForSignIn(ctx, task, agentDisplayNames[task.Provider]+" needs you to sign in. Sign in from the terminal, then continue")
+		}
 		return s.store.Fail(ctx, task, "Native coding attempt failed; stopping execution before retry")
 	case domain.DevMachineAgentRunStatusCancelled:
 		return s.store.Transition(ctx, task, "cancelling", "Native coding attempt was cancelled")

@@ -744,6 +744,7 @@ func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine
 		"HOME=/home/kuayle", "HTTP_PROXY=http://" + machine.RoutingKey + "-egress:3128",
 		"HTTPS_PROXY=http://" + machine.RoutingKey + "-egress:3128", "NO_PROXY=localhost,127.0.0.1," + machine.RoutingKey + "-collector",
 		"KUAYLE_COLLECTOR_URL=http://" + machine.RoutingKey + "-collector:8091", "KUAYLE_SECRET_NAMES=" + strings.Join(secretNames, ","),
+		"KUAYLE_AGENT_RUN_ID=" + run.ID.String(),
 	}
 	runtimeEnvironment = append(runtimeEnvironment, invocationEnvironment...)
 	if inspection, inspectErr := r.client.ContainerInspect(ctx, containerName, client.ContainerInspectOptions{}); inspectErr == nil {

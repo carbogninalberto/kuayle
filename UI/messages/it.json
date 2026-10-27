@@ -2132,5 +2132,11 @@
 	"settings.dev_machines.providers_moved": "Scegli quali agenti di codice i membri possono avviare in",
 	"tasks.model_server": "Server di modelli",
 	"tasks.own_sign_in": "Usa l’accesso dell’agente",
-	"machines.server_default": "Predefinito del server ({model})"
+	"machines.server_default": "Predefinito del server ({model})",
+	"tasks.sign_in_title": "{agent} richiede il tuo accesso",
+	"tasks.sign_in_body": "Nessun server di modelli serve questo agente, quindi usa il tuo account. Accedi una volta nel terminale della macchina, poi continua. Kuayle conserva l’accesso cifrato per le tue prossime attività.",
+	"tasks.sign_in_open": "Accedi nel terminale",
+	"tasks.sign_in_continue": "Ho effettuato l’accesso — continua",
+	"tasks.sign_in_continuing": "Verifica dell’accesso…",
+	"tasks.sign_in_not_found": "Nessun accesso trovato nel terminale. Completa l’accesso lì, poi riprova."
 }

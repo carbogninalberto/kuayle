@@ -74,12 +74,13 @@ func TestAgentTaskCheckoutsAreIsolatedAndRecoverable(t *testing.T) {
 }
 
 type taskStoreFake struct {
-	failReason   string
-	waiting      string
-	startedIssue *domain.Issue
-	startErr     error
-	results      []bool
-	releases     int
+	failReason     string
+	signInRequired bool
+	waiting        string
+	startedIssue   *domain.Issue
+	startErr       error
+	results        []bool
+	releases       int
 	taskLifecycleStore
 	task        domain.AgentTask
 	accessErr   error
@@ -225,12 +226,36 @@ func TestAgentTaskWorkerRevocationCancellationAndQuota(t *testing.T) {
 	}
 }
 
+func (f *taskStoreFake) FailForSignIn(ctx context.Context, task domain.AgentTask, reason string) error {
+	f.signInRequired = true
+	return f.Fail(ctx, task, reason)
+}
 func (f *taskStoreFake) Fail(_ context.Context, _ domain.AgentTask, reason string) error {
 	f.failReason = reason
 	f.task.State = "cancelling"
 	f.task.FailurePending = true
 	return nil
 }
+
+// An agent without a model server or sign-in stops for the user to sign in,
+// which the task panel offers; any other native failure stays a plain failure.
+func TestAgentTaskStopsForSignInWhenTheRunNeedsIt(t *testing.T) {
+	message := "sign_in_required: Claude Code needs you to sign in"
+	store := &taskStoreFake{task: domain.AgentTask{State: "running", Provider: "claude-code"}}
+	runtime := &taskRuntimeFake{run: &domain.DevMachineAgentRun{Status: domain.DevMachineAgentRunStatusFailed, ErrorMessage: &message}}
+	svc := &AgentTaskService{store: store, runtime: runtime}
+	require.NoError(t, svc.step(context.Background(), store.task))
+	require.True(t, store.signInRequired)
+	require.Contains(t, store.failReason, "Claude Code needs you to sign in")
+
+	other := "agent_failed: exit 1"
+	store = &taskStoreFake{task: domain.AgentTask{State: "running", Provider: "claude-code"}}
+	runtime = &taskRuntimeFake{run: &domain.DevMachineAgentRun{Status: domain.DevMachineAgentRunStatusFailed, ErrorMessage: &other}}
+	svc = &AgentTaskService{store: store, runtime: runtime}
+	require.NoError(t, svc.step(context.Background(), store.task))
+	require.False(t, store.signInRequired)
+}
+
 func TestAgentTaskFailureWaitsForPhysicalCleanup(t *testing.T) {
 	store := &taskStoreFake{task: domain.AgentTask{State: "running"}}
 	runtime := &taskRuntimeFake{run: &domain.DevMachineAgentRun{Status: domain.DevMachineAgentRunStatusFailed}}

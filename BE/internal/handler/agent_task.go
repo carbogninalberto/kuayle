@@ -30,6 +30,8 @@ func agentTaskError(c echo.Context, err error) error {
 		return response.Error(c, http.StatusConflict, "TASK_CONFLICT", "This request conflicts with the current task")
 	case errors.Is(err, repository.ErrConversationInvalid):
 		return response.Error(c, http.StatusBadRequest, "INVALID_TASK", "Invalid task request")
+	case errors.Is(err, service.ErrSignInNotFound):
+		return response.Error(c, http.StatusConflict, "SIGN_IN_NOT_FOUND", "No sign-in was found in the machine's terminal yet")
 	default:
 		return machineError(c, err)
 	}
@@ -125,6 +127,26 @@ func (h *AgentTaskHandler) Cancel(c echo.Context) error {
 		return agentTaskError(c, err)
 	}
 	return c.NoContent(http.StatusNoContent)
+}
+
+// ContinueAfterSignIn keeps the sign-in the user completed in their terminal
+// and starts a new attempt.
+func (h *AgentTaskHandler) ContinueAfterSignIn(c echo.Context) error {
+	id, err := taskID(c, "taskId")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	var input struct {
+		RequestID uuid.UUID `json:"request_id"`
+	}
+	if err = bindTask(c, &input); err != nil {
+		return agentTaskError(c, err)
+	}
+	task, err := h.svc.ContinueAfterSignIn(c.Request().Context(), middleware.GetWorkspace(c).ID, id, input.RequestID)
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	return response.Success(c, http.StatusAccepted, task)
 }
 func (h *AgentTaskHandler) Retry(c echo.Context) error {
 	id, err := taskID(c, "taskId")

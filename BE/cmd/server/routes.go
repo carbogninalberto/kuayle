@@ -317,6 +317,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	}
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/cancel", h.agentTask.Cancel)
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/retry", h.agentTask.Retry)
+	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/sign-in", h.agentTask.ContinueAfterSignIn)
 	scoped(dm, http.MethodGet, "/dev-machines", h.devMachine.List, "dev_machine:read")
 	scoped(dm, http.MethodPost, "/dev-machines", h.devMachine.Create, "dev_machine:create")
 	scoped(dm, http.MethodDelete, "/dev-machines/bulk", h.devMachine.BulkDelete, "dev_machine:admin")

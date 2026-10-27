@@ -18,3 +18,10 @@ test('unsupported agents and unsafe ids get no command', () => {
 	assert.equal(agentSessionCommand('opencode', task), undefined);
 	assert.equal(agentSessionCommand('codex', '$(rm -rf ~)'), undefined);
 });
+
+test('sign-in starts each agent’s own login in the terminal', async () => {
+	const { signInCommand } = await import('../../src/lib/features/assistant/agent-session.ts');
+	assert.equal(signInCommand('codex'), 'codex login --device-auth\r');
+	assert.equal(signInCommand('claude-code'), 'claude /login\r');
+	assert.equal(signInCommand('goose'), undefined);
+});

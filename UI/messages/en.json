@@ -2132,5 +2132,11 @@
 	"settings.dev_machines.providers_moved": "Choose which coding agents members can start in",
 	"tasks.model_server": "Model server",
 	"tasks.own_sign_in": "Uses the agent’s own sign-in",
-	"machines.server_default": "Server default ({model})"
+	"machines.server_default": "Server default ({model})",
+	"tasks.sign_in_title": "{agent} needs you to sign in",
+	"tasks.sign_in_body": "No model server serves this agent, so it uses your own account. Sign in once in the machine’s terminal, then continue. Kuayle keeps the sign-in encrypted for your later tasks.",
+	"tasks.sign_in_open": "Sign in in the terminal",
+	"tasks.sign_in_continue": "I’ve signed in — continue",
+	"tasks.sign_in_continuing": "Checking the sign-in…",
+	"tasks.sign_in_not_found": "No sign-in was found in the terminal yet. Finish signing in there, then try again."
 }

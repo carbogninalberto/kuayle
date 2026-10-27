@@ -2132,5 +2132,11 @@
 	"settings.dev_machines.providers_moved": "在此选择成员可以启动的编码代理：",
 	"tasks.model_server": "模型服务器",
 	"tasks.own_sign_in": "使用代理自己的登录",
-	"machines.server_default": "服务器默认（{model}）"
+	"machines.server_default": "服务器默认（{model}）",
+	"tasks.sign_in_title": "{agent} 需要你登录",
+	"tasks.sign_in_body": "没有模型服务器为此代理提供服务，因此它使用你自己的账户。在机器的终端中登录一次，然后继续。Kuayle 会加密保存登录信息供你以后的任务使用。",
+	"tasks.sign_in_open": "在终端中登录",
+	"tasks.sign_in_continue": "我已登录 — 继续",
+	"tasks.sign_in_continuing": "正在检查登录…",
+	"tasks.sign_in_not_found": "终端中尚未找到登录信息。请在终端中完成登录后重试。"
 }
