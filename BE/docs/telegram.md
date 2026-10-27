@@ -4,7 +4,7 @@ Telegram uses the same private `conversations`, `conversation_messages` and orde
 `conversation_events` records as the Global Assistant. It is an additional channel,
 not a separate orchestrator. It supports general assistant chat (including the
 assistant's issue tools), new conversations, cancellation, completed replies and
-[approval buttons](#approval-buttons). Task progress notifications are not sent yet.
+[approval buttons](#approval-buttons) and [task notifications](#task-notifications).
 
 ## Setup
 
@@ -99,6 +99,17 @@ Telegram can retry that old endpoint until the bot is reconfigured or its webhoo
 is removed through Telegram. These requests cannot access Kuayle conversations.
 Rolling back migration 54 deletes Telegram configuration, links and delivery state,
 but preserves conversations and issues. Do not run an older schema with a newer API.
+
+## Task notifications
+
+When a coding task becomes ready for review, completed, failed or blocked, its
+creator receives a Telegram notice if they have linked Telegram on an enabled
+bot. The notice is queued in the same transaction as the task transition. It
+names the issue, the new state and the recorded reason, plus the pull request
+link once its publication was recorded, and links to the issue conversation. The
+delivery worker applies the usual allowlist, membership, binding and issue-scope
+checks at send time, so a moved or revoked issue chat is not delivered. Other
+transitions (queued, preparing, running, validating, publishing) do not notify.
 
 ## Approval buttons
 

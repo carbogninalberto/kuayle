@@ -191,7 +191,10 @@ func recordAgentTaskTransition(ctx context.Context, tx *sqlx.Tx, task domain.Age
 		return err
 	}
 	if task.ConversationID != nil {
-		_, err = conversationEvent(ctx, tx, *task.ConversationID, "task.state_changed", task)
+		if _, err = conversationEvent(ctx, tx, *task.ConversationID, "task.state_changed", task); err != nil {
+			return err
+		}
+		err = notifyTaskTelegram(ctx, tx, task)
 	}
 	return err
 }
