@@ -161,15 +161,20 @@ Agent-controlled git configuration can still run programs during the
 credential-free commit step (for example clean filters); that runs with the same
 privileges the agent already had and no publication credential.
 
-## Codex sandbox
+## Agent sandboxing
 
-Codex runs with `sandbox_mode="danger-full-access"` and
-`approval_policy="never"`. Its own workspace-write sandbox uses bubblewrap,
-which needs user namespaces, and the hardened agent container forbids them. In
-a real run every command failed and the agent exited 0 without changes. The
-container is the boundary: capabilities dropped, no-new-privileges, the egress
-proxy, and only the task's checkout and credentials. Codex's documentation
-recommends turning its sandbox off in externally sandboxed environments.
+Autonomous agents cannot answer permission prompts, and their own sandboxes
+conflict with the hardened container. The container is the boundary: all
+capabilities dropped, no-new-privileges, the egress proxy, and only the task's
+checkout and credentials.
+
+- **Codex** runs with `sandbox_mode="danger-full-access"` and
+  `approval_policy="never"`. Its workspace-write sandbox uses bubblewrap, which
+  needs user namespaces that the container forbids; in a real run every command
+  failed.
+- **Claude Code** runs with `--permission-mode bypassPermissions`. In its
+  default mode every edit and write was denied in a real run, and the attempt
+  ended without changes.
 
 ## Native session resume and handoff
 

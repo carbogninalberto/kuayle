@@ -80,7 +80,10 @@ func NewClaudeCodeProvider(image string) Provider {
 		build: func(input RunInput) []string {
 			argv := []string{"claude"}
 			if input.Mode == ModeAutonomous {
-				argv = append(argv, "--print", "--output-format", "stream-json", "--verbose")
+				// Unattended runs cannot answer permission prompts, so the default
+				// mode denies every edit. The hardened agent container is the
+				// sandbox, as for Codex.
+				argv = append(argv, "--print", "--output-format", "stream-json", "--verbose", "--permission-mode", "bypassPermissions")
 			}
 			if input.Model != "" {
 				argv = append(argv, "--model", input.Model)

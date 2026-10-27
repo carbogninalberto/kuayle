@@ -133,7 +133,7 @@ func TestClaudeCodeRunOverridesUseArgvModelAndEnvironmentEffort(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, []string{
-		"claude", "--print", "--output-format", "stream-json", "--verbose",
+		"claude", "--print", "--output-format", "stream-json", "--verbose", "--permission-mode", "bypassPermissions",
 		"--model", "deepseek-flash", "-p", "fix the issue",
 	}, invocation.Argv)
 	require.Equal(t, map[string]string{"CLAUDE_CODE_EFFORT_LEVEL": "max"}, invocation.Environment)
