@@ -2,6 +2,7 @@ package machine
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -98,17 +99,58 @@ func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, 
 	return m.store.CompletePublication(ctx, *op, result)
 }
 
-// publicationBody links the issue for existing GitHub automation. Agent text is
-// untrusted, so it is fenced: mentions and markup cannot act on the repository.
+// publicationBody describes the change for human review from facts Kuayle
+// recorded: the issue, the changed files and commits, and the independent
+// check. Agent output is never included; it is unverified and often noisy.
 func publicationBody(publication *domain.AgentPublication, run *domain.DevMachineAgentRun) string {
 	var body strings.Builder
-	fmt.Fprintf(&body, "Implements %s.\n\nKuayle opened this pull request after the task's independent check passed. Human review is required before merging.\n", publication.IssueIdentifier)
-	if run.Summary != nil && strings.TrimSpace(*run.Summary) != "" {
-		summary := strings.ReplaceAll(truncateText(*run.Summary, 4000), "~~~", "~ ~ ~")
-		fmt.Fprintf(&body, "\nAgent summary (unverified):\n\n~~~text\n%s\n~~~\n", summary)
+	fmt.Fprintf(&body, "Implements %s: %s\n", publication.IssueIdentifier, markdownLine(publication.IssueTitle))
+	var files, commits []string
+	_ = json.Unmarshal(run.ChangedFiles, &files)
+	_ = json.Unmarshal(run.Commits, &commits)
+	if len(files) > 0 {
+		body.WriteString("\n### Changes\n")
+		for i, file := range files {
+			if i == 50 {
+				fmt.Fprintf(&body, "- and %d more files\n", len(files)-50)
+				break
+			}
+			fmt.Fprintf(&body, "- `%s`\n", strings.ReplaceAll(markdownLine(file), "`", "'"))
+		}
 	}
-	fmt.Fprintf(&body, "\nKuayle agent task: %s\n", run.TaskID)
+	if len(commits) > 0 {
+		short := make([]string, 0, len(commits))
+		for _, commit := range commits {
+			if len(commit) >= 7 {
+				short = append(short, "`"+commit[:7]+"`")
+			}
+		}
+		fmt.Fprintf(&body, "\nCommits: %s\n", strings.Join(short, ", "))
+	}
+	body.WriteString("\n### Verification\n")
+	if len(publication.CheckArgv) > 0 && publication.CheckExitCode != nil {
+		fmt.Fprintf(&body, "Kuayle ran `%s` independently on this branch in a clean container without credentials: passed (exit code %d).\n", strings.ReplaceAll(markdownLine(strings.Join(publication.CheckArgv, " ")), "`", "'"), *publication.CheckExitCode)
+	} else {
+		body.WriteString("No independent check is configured for this project.\n")
+	}
+	body.WriteString("\n### Review notes\n")
+	agentName := map[string]string{"codex": "Codex", "claude-code": "Claude Code", "opencode": "OpenCode"}[run.ProviderID]
+	if agentName == "" {
+		agentName = markdownLine(run.ProviderID)
+	}
+	if run.Model != "" {
+		agentName += " (" + markdownLine(run.Model) + ")"
+	}
+	fmt.Fprintf(&body, "- Written by %s through a Kuayle agent task; human review is required before merging.\n", agentName)
+	fmt.Fprintf(&body, "- Review feedback on this pull request is sent back to the same task.\n- Kuayle agent task: %s\n", run.TaskID)
 	return body.String()
+}
+
+// markdownLine keeps recorded values on one line and stops them from
+// mentioning users or teams.
+func markdownLine(value string) string {
+	value = strings.Join(strings.Fields(value), " ")
+	return strings.ReplaceAll(truncateText(value, 300), "@", "@\u200b")
 }
 
 func truncateText(value string, limit int) string {

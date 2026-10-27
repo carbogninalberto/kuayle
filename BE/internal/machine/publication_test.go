@@ -78,9 +78,10 @@ func publicationFixture() (*domain.DevMachine, *publicationStoreFake) {
 	summary := "Done. @maintainers please merge ~~~ now"
 	return machine, &publicationStoreFake{
 		managerStoreFake: &managerStoreFake{machine: machine, githubInstallationID: 7,
-			agentRun: &domain.DevMachineAgentRun{ID: runID, TaskID: &taskID, CheckoutID: &checkoutID, Summary: &summary},
+			agentRun: &domain.DevMachineAgentRun{ID: runID, TaskID: &taskID, CheckoutID: &checkoutID, Summary: &summary, ProviderID: "codex", Model: "deepseek-flash",
+				ChangedFiles: []byte(`["src/text.js","test/text.test.js"]`), Commits: []byte(`["4916a03781dea5f9cec4ddc20df8f6431b39d217"]`)},
 			checkout: &domain.DevMachineCheckout{ID: checkoutID, MachineID: machine.ID, WorkspaceID: machine.WorkspaceID, ScopeKey: taskID.String(), Status: "ready", RepositoryFullName: "acme/app", BaseBranch: "main", WorkingBranch: "kuayle/rec-1"}},
-		publication: domain.AgentPublication{Step: domain.DevMachineAgentRunStep{ID: uuid.New(), AgentRunID: runID, Status: "queued"}, IssueIdentifier: "REC-1", IssueTitle: "Dark mode"},
+		publication: domain.AgentPublication{Step: domain.DevMachineAgentRunStep{ID: uuid.New(), AgentRunID: runID, Status: "queued"}, IssueIdentifier: "REC-1", IssueTitle: "Dark mode", CheckArgv: []string{"npm", "test"}, CheckExitCode: ptr(0)},
 	}
 }
 
@@ -99,7 +100,12 @@ func TestPublishAgentOpensOnePullRequestWithManagerHeldCredential(t *testing.T) 
 	require.Equal(t, "REC-1: Dark mode", github.title, "the issue identifier links the PR for existing GitHub automation")
 	require.Equal(t, "kuayle/rec-1", github.head)
 	require.Equal(t, "main", github.base)
-	require.Contains(t, github.body, "~~~text\nDone. @maintainers please merge ~ ~ ~ now\n~~~", "agent text stays fenced")
+	require.NotContains(t, github.body, "maintainers", "agent output never reaches the pull request")
+	require.Contains(t, github.body, "Implements REC-1: Dark mode")
+	require.Contains(t, github.body, "### Changes\n- `src/text.js`\n- `test/text.test.js`\n")
+	require.Contains(t, github.body, "Commits: `4916a03`")
+	require.Contains(t, github.body, "Kuayle ran `npm test` independently on this branch in a clean container without credentials: passed (exit code 0).")
+	require.Contains(t, github.body, "Written by Codex (deepseek-flash)")
 	require.Equal(t, &domain.AgentPublicationResult{Branch: "kuayle/rec-1", Commit: runtime.commit, PullRequestNumber: 12, PullRequestURL: "https://github.com/acme/app/pull/12"}, store.result)
 }
 

@@ -169,6 +169,9 @@ type AgentPublication struct {
 	Step            DevMachineAgentRunStep
 	IssueIdentifier string
 	IssueTitle      string
+	// The independent check that passed for this attempt, for the PR body.
+	CheckArgv     []string
+	CheckExitCode *int
 }
 
 // AgentPublicationResult is recorded only after the branch was pushed and the

@@ -78,6 +78,8 @@ func TestPublicationRecordsPullRequestOnceAndGatesReview(t *testing.T) {
 	publication, err := store.GetPublication(ctx, op)
 	require.NoError(t, err)
 	require.NotEmpty(t, publication.IssueIdentifier)
+	require.Equal(t, []string{"true"}, publication.CheckArgv, "the PR body cites the check that actually passed")
+	require.Equal(t, 0, *publication.CheckExitCode)
 	result := domain.AgentPublicationResult{Branch: "kuayle/fixture", Commit: "0123456789abcdef0123456789abcdef01234567", PullRequestNumber: 12, PullRequestURL: "https://github.com/acme/app/pull/12"}
 	require.ErrorIs(t, store.CompletePublication(ctx, op, result), ErrAgentTaskConflict, "a result needs a real start")
 	require.NoError(t, store.StartPublication(ctx, op))

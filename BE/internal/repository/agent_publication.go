@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 
 	"github.com/google/uuid"
@@ -65,7 +66,17 @@ func (r *DevMachineRepository) GetPublication(ctx context.Context, op domain.Dev
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrAgentTaskUnauthorized
 	}
-	return publication, err
+	if err != nil {
+		return nil, err
+	}
+	var argv []byte
+	err = tx.QueryRowContext(ctx, `SELECT command_argv,exit_code FROM dev_machine_agent_run_steps WHERE agent_run_id=$1 AND sequence=0 AND step_type='validation' AND status='succeeded'`, task.RunID).Scan(&argv, &publication.CheckExitCode)
+	if err == nil {
+		_ = json.Unmarshal(argv, &publication.CheckArgv)
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+	return publication, nil
 }
 
 func (r *DevMachineRepository) StartPublication(ctx context.Context, op domain.DevMachineOperation) error {
