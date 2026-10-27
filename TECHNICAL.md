@@ -314,6 +314,20 @@ workflows continue to use the existing machine controls.
 
 ## Resource Limits and Quotas
 
+**Host admission.** Before spawning or starting a machine, the manager reads the
+Docker host's CPU count and memory (`/info`) and admits the machine only if the
+sum of live machines' requests (configuring, spawning, running, paused or
+stopping; paused machines keep memory) plus this one fits within the host minus
+`DEV_MACHINE_HOST_RESERVED_MEMORY_MB` / `DEV_MACHINE_HOST_RESERVED_CPU_MILLIS`.
+Memory is never overcommitted; CPU may be, up to `DEV_MACHINE_CPU_OVERCOMMIT`.
+A machine that does not fit stays queued: its operation is deferred for 30
+seconds with a visible `host_capacity_wait` reason and without consuming a
+retry, and agent tasks keep waiting rather than failing. Admission is serialized
+within one manager process, which also counts machines admitted but not yet
+running; multiple manager replicas on one host are not coordinated. An unknown
+host size never blocks. Idle machines are still paused by `IdlePauseMinutes`,
+preserving worktrees, and the workspace/user machine quotas below still apply.
+
 Machine sizes are aggregate admission profiles:
 
 | Size | CPU | RAM | Workspace disk hard quota | Maximum runtime |
@@ -616,6 +630,7 @@ Required configuration when enabled:
 | `DEV_MACHINE_HOST_DISK_MIN_FREE_GB` | Monitored mode: minimum free GiB of the Docker data root (default 25) |
 | `DEV_MACHINE_DOCKER_ROOT` | Host path of Docker's data root, mounted read-only into the manager (default `/var/lib/docker`) |
 | `DEV_MACHINE_HOST_DISK_PATH` | In-container path measured for host free space (Compose sets the mount point; falls back to a running collector when empty) |
+| `DEV_MACHINE_HOST_RESERVED_CPU_MILLIS`, `DEV_MACHINE_HOST_RESERVED_MEMORY_MB`, `DEV_MACHINE_CPU_OVERCOMMIT` | Host admission for spawning/starting machines (defaults 1000, 2048, 2): Docker host CPU/memory minus these reserves bounds the sum of live machines' requests; memory is never overcommitted, CPU up to the factor. Machines that do not fit wait in the queue without consuming retries |
 | `DEV_MACHINE_AGENT_GIT_NAME`, `DEV_MACHINE_AGENT_GIT_EMAIL` | Commit author for agent task publications (default `Kuayle Agent <agent@kuayle.invalid>`); pull requests are opened by the GitHub App installation. Control characters are rejected |
 | `DEV_MACHINE_DOCKER_GID` | Numeric host group owner of the mounted Docker socket; obtain it on Linux with `stat -c '%g' /var/run/docker.sock` (Docker Desktop commonly uses `0`) |
 | `DEV_MACHINE_HEADLESS_IMAGE` | Headless developer and new built-in provider image (default `ghcr.io/kuayle/dev-machine-headless:0.1.0`) |

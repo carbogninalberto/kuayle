@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
@@ -156,4 +157,36 @@ func TestRetryFindsThePreviousAttemptsRecordedOutcome(t *testing.T) {
 	require.Equal(t, "succeeded", previous.Validation)
 	require.Equal(t, 0, *previous.ValidationExitCode)
 	require.Equal(t, "https://github.com/fixture/repo/pull/12", previous.PullRequestURL)
+}
+
+func TestDeferredOperationsWaitWithoutConsumingAttempts(t *testing.T) {
+	db, repo, ctx, _, claimed := publishingTask(t)
+	_, err := repo.EnsurePublication(ctx, *claimed)
+	require.NoError(t, err)
+	store := NewDevMachineRepository(db)
+	op := leasePublication(t, store, ctx)
+	require.Equal(t, 1, op.Attempts)
+	require.NoError(t, store.DeferOperation(ctx, op.ID, *op.LeaseOwner, "host_capacity_wait", "waiting for host memory", time.Minute))
+	var row struct {
+		Status   string `db:"status"`
+		Attempts int    `db:"attempts"`
+		Message  string `db:"error_message"`
+		Future   bool   `db:"future"`
+	}
+	require.NoError(t, db.Get(&row, `SELECT status,attempts,error_message,available_at>now() AS future FROM dev_machine_operations WHERE id=$1`, op.ID))
+	require.Equal(t, "pending", row.Status)
+	require.Zero(t, row.Attempts)
+	require.Equal(t, "waiting for host memory", row.Message)
+	require.True(t, row.Future)
+	again, err := store.LeaseOperations(ctx, "other", 5, time.Minute)
+	require.NoError(t, err)
+	require.Empty(t, again, "a waiting operation is not leased before its retry time")
+	require.NoError(t, store.DeferOperation(ctx, op.ID, "stale-owner", "x", "y", time.Minute), "a non-owner cannot change it")
+	allocations, err := store.ListResourceAllocations(ctx)
+	require.NoError(t, err)
+	found := false
+	for _, a := range allocations {
+		found = found || a.MachineID == *claimed.MachineID
+	}
+	require.True(t, found, "a running machine holds its allocation")
 }

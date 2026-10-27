@@ -90,6 +90,7 @@ func main() {
 			HostMinFreePercent: configValue.DevMachine.HostDiskMinFreePercent,
 			HostMinFreeGB:      configValue.DevMachine.HostDiskMinFreeGB,
 		})
+	manager.SetCapacity(machine.CapacityConfig{ReservedCPUMillis: configValue.DevMachine.HostReservedCPUMillis, ReservedMemoryMB: configValue.DevMachine.HostReservedMemoryMB, CPUOvercommit: configValue.DevMachine.CPUOvercommit})
 	manager.SetAgentGitIdentity(machine.GitIdentity{Name: configValue.DevMachine.AgentGitName, Email: configValue.DevMachine.AgentGitEmail})
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

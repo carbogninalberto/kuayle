@@ -2277,3 +2277,18 @@ func (r *DevMachineRepository) ListAgentRunSecretSnapshots(ctx context.Context, 
 	err := r.db.SelectContext(ctx, &snapshots, `SELECT DISTINCT encrypted_output_secrets FROM dev_machine_agent_runs WHERE workspace_id=$1 AND machine_id=$2 AND encrypted_output_secrets IS NOT NULL`, workspaceID, machineID)
 	return snapshots, err
 }
+
+// ListResourceAllocations returns host resources held by live machines across
+// all workspaces, for host-level admission.
+func (r *DevMachineRepository) ListResourceAllocations(ctx context.Context) ([]domain.DevMachineResourceAllocation, error) {
+	allocations := []domain.DevMachineResourceAllocation{}
+	err := r.db.SelectContext(ctx, &allocations, `SELECT id AS machine_id,cpu_millis,memory_mb FROM dev_machines WHERE status IN ('configuring','spawning','running','paused','stopping')`)
+	return allocations, err
+}
+
+// DeferOperation returns a leased operation to the queue without consuming an
+// attempt, keeping the reason visible, for waits such as host capacity.
+func (r *DevMachineRepository) DeferOperation(ctx context.Context, id uuid.UUID, owner, code, message string, delay time.Duration) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE dev_machine_operations SET status='pending',attempts=GREATEST(attempts-1,0),error_code=$3,error_message=$4,lease_owner=NULL,lease_expires_at=NULL,available_at=NOW()+make_interval(secs => $5) WHERE id=$1 AND lease_owner=$2`, id, owner, code, message, delay.Seconds())
+	return err
+}

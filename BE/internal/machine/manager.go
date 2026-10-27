@@ -27,6 +27,8 @@ type ManagerStore interface {
 	StartValidation(context.Context, domain.DevMachineOperation, string) error
 	CompleteValidation(context.Context, domain.DevMachineOperation, int) error
 	CreateValidationOutput(context.Context, domain.DevMachineOperation, *domain.DevMachineLogChunk) error
+	ListResourceAllocations(context.Context) ([]domain.DevMachineResourceAllocation, error)
+	DeferOperation(context.Context, uuid.UUID, string, string, string, time.Duration) error
 	GetPublication(context.Context, domain.DevMachineOperation) (*domain.AgentPublication, error)
 	StartPublication(context.Context, domain.DevMachineOperation) error
 	CompletePublication(context.Context, domain.DevMachineOperation, domain.AgentPublicationResult) error
@@ -114,6 +116,10 @@ type Manager struct {
 	diskQuota     DiskQuotaConfig
 
 	agentGitIdentity GitIdentity
+
+	capacity    *CapacityConfig
+	admissionMu sync.Mutex
+	admitted    map[uuid.UUID]HostResources
 
 	operationsCompleted atomic.Uint64
 	operationsFailed    atomic.Uint64
@@ -261,6 +267,15 @@ func (m *Manager) processLeasedOperation(ctx context.Context, operation domain.D
 	}
 	finalCtx, finalCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer finalCancel()
+	var waitErr *capacityWaitError
+	if errors.As(err, &waitErr) {
+		if deferErr := m.store.DeferOperation(finalCtx, operation.ID, m.owner, "host_capacity_wait", waitErr.message, capacityRetryDelay); deferErr != nil {
+			log.WithFields(fields).WithError(deferErr).Error("failed to defer operation for host capacity")
+		} else {
+			log.WithFields(fields).Info("operation waiting for host capacity")
+		}
+		return
+	}
 	if err != nil {
 		m.operationsFailed.Add(1)
 		var terminalErr *terminalOperationError
@@ -350,6 +365,13 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 					"wait for disk usage to fall before starting another machine",
 			}
 		}
+	}
+	if operation.Action == domain.DevMachineOpSpawn || (operation.Action == domain.DevMachineOpStart && machine.Status != domain.DevMachineStatusRunning) {
+		release, err := m.admit(ctx, machine)
+		if err != nil {
+			return err
+		}
+		defer release()
 	}
 	services, err := m.store.ListServices(ctx, machine.WorkspaceID, machine.ID)
 	if err != nil {

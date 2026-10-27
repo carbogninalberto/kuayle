@@ -620,3 +620,11 @@ func containsDevMachineOption(options []int, value int) bool {
 	}
 	return false
 }
+
+// DevMachineResourceAllocation is the CPU and memory a live machine holds on
+// the host. Paused machines keep their memory allocated.
+type DevMachineResourceAllocation struct {
+	MachineID uuid.UUID `db:"machine_id"`
+	CPUMillis int       `db:"cpu_millis"`
+	MemoryMB  int       `db:"memory_mb"`
+}

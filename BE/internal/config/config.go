@@ -103,6 +103,11 @@ type DevMachineConfig struct {
 	// publications. Pull requests are still opened by the GitHub App.
 	AgentGitName  string `envconfig:"DEV_MACHINE_AGENT_GIT_NAME" default:"Kuayle Agent"`
 	AgentGitEmail string `envconfig:"DEV_MACHINE_AGENT_GIT_EMAIL" default:"agent@kuayle.invalid"`
+	// Host admission: resources kept for the host and control plane, and the
+	// allowed CPU overcommit. Machine memory is never overcommitted.
+	HostReservedCPUMillis int     `envconfig:"DEV_MACHINE_HOST_RESERVED_CPU_MILLIS" default:"1000"`
+	HostReservedMemoryMB  int     `envconfig:"DEV_MACHINE_HOST_RESERVED_MEMORY_MB" default:"2048"`
+	CPUOvercommit         float64 `envconfig:"DEV_MACHINE_CPU_OVERCOMMIT" default:"2"`
 }
 
 const (
@@ -177,6 +182,12 @@ func (c DevMachineConfig) Validate(frontendURL string) error {
 	}
 	if strings.ContainsAny(c.AppArmorProfile, "\x00\r\n\t ") {
 		return fmt.Errorf("DEV_MACHINE_APPARMOR_PROFILE must be a profile name without whitespace")
+	}
+	if c.HostReservedCPUMillis < 0 || c.HostReservedMemoryMB < 0 {
+		return fmt.Errorf("DEV_MACHINE_HOST_RESERVED_CPU_MILLIS and DEV_MACHINE_HOST_RESERVED_MEMORY_MB must not be negative")
+	}
+	if c.CPUOvercommit != 0 && (c.CPUOvercommit < 1 || c.CPUOvercommit > 10) {
+		return fmt.Errorf("DEV_MACHINE_CPU_OVERCOMMIT must be between 1 and 10")
 	}
 	for _, value := range []string{c.AgentGitName, c.AgentGitEmail} {
 		if strings.ContainsFunc(value, func(r rune) bool { return unicode.IsControl(r) || r == '<' || r == '>' }) {
