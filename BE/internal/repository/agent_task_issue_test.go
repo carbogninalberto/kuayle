@@ -29,7 +29,7 @@ func TestAgentTaskNativeStartMovesUnchangedIssueToConfiguredStartedStatus(t *tes
 	require.Equal(t, domain.IssueStatus("building"), changed.Status)
 	require.NotNil(t, changed.StartedAt)
 	var count int
-	require.NoError(t, db.Get(&count, `SELECT count(*) FROM issue_history WHERE issue_id=$1 AND user_id=$2 AND field='status' AND old_value='Todo' AND new_value='Building'`, task.IssueID, task.CreatorID))
+	require.NoError(t, db.Get(&count, `SELECT count(*) FROM issue_history WHERE issue_id=$1 AND user_id=$2 AND field='status' AND old_value='Todo' AND new_value='Building' AND agent=$3`, task.IssueID, task.CreatorID, task.Provider))
 	require.Equal(t, 1, count)
 	require.NoError(t, repo.Transition(ctx, *claimed, "validating", "Independent validation pending"))
 	require.NoError(t, db.Get(&current, `SELECT status_id FROM issues WHERE id=$1`, task.IssueID))

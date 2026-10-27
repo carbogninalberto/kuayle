@@ -25,13 +25,13 @@ func NewIssueHistoryRepository(db *sqlx.DB) *IssueHistoryRepository {
 
 func (r *IssueHistoryRepository) Create(ctx context.Context, issueID, userID uuid.UUID, field string, oldValue, newValue *string) error {
 	id := uuid.New()
-	_, err := r.db.ExecContext(ctx, `INSERT INTO issue_history (id, issue_id, user_id, field, old_value, new_value) VALUES ($1, $2, $3, $4, $5, $6)`, id, issueID, userID, field, oldValue, newValue)
+	_, err := r.db.ExecContext(ctx, `INSERT INTO issue_history (id, issue_id, user_id, field, old_value, new_value, agent) VALUES ($1, $2, $3, $4, $5, $6, $7)`, id, issueID, userID, field, oldValue, newValue, domain.ActingAgent(ctx))
 	return err
 }
 
 func (r *IssueHistoryRepository) ListByIssue(ctx context.Context, issueID uuid.UUID) ([]domain.IssueHistory, error) {
 	var entries []domain.IssueHistory
-	err := r.db.SelectContext(ctx, &entries, `SELECT h.id,h.issue_id,h.user_id,h.field,`+historyReference(ctx, "h.old_value")+` AS old_value,`+historyReference(ctx, "h.new_value")+` AS new_value,h.created_at FROM issue_history h WHERE h.issue_id = $1 AND `+issueVisible(ctx, "h.issue_id")+` ORDER BY h.created_at DESC, h.field ASC, h.id DESC`, issueID)
+	err := r.db.SelectContext(ctx, &entries, `SELECT h.id,h.issue_id,h.user_id,h.field,`+historyReference(ctx, "h.old_value")+` AS old_value,`+historyReference(ctx, "h.new_value")+` AS new_value,h.agent,h.created_at FROM issue_history h WHERE h.issue_id = $1 AND `+issueVisible(ctx, "h.issue_id")+` ORDER BY h.created_at DESC, h.field ASC, h.id DESC`, issueID)
 	return entries, err
 }
 

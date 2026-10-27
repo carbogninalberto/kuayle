@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { agentName } from './history-agent';
 	import IssueAssistant from '$lib/features/assistant/IssueAssistant.svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
@@ -303,6 +304,7 @@
 											<code class="rounded bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 text-[11px] text-[var(--color-text-secondary)]">{formatHistoryValue(entry.field, entry.new_value, entry.new_display_value)}</code>
 										{/if}
 									{/if}
+									{#if entry.agent}<span class="text-[var(--color-text-secondary)]">{m['issue.via_agent']({ agent: agentName(entry.agent) })}</span>{/if}
 									<span class="text-[var(--color-text-tertiary)]">&middot;</span>
 									<span>{formatRelativeTime(entry.created_at, getLocale())}</span>
 								</div>

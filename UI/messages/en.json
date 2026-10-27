@@ -1999,5 +1999,6 @@
 	"tasks.agent_instructions": "Agent instructions",
 	"tasks.agent_instructions_placeholder": "For example: use pnpm, never edit generated files, run the linter before finishing.",
 	"tasks.agent_instructions_help": "Given to coding agents for tasks in this scope. Leave blank to inherit. Snapshotted when a task starts.",
-	"tasks.agent_instructions_too_long": "Use at most 8000 characters."
+	"tasks.agent_instructions_too_long": "Use at most 8000 characters.",
+	"issue.via_agent": "via {agent}"
 }

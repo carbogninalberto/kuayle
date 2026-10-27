@@ -263,6 +263,16 @@ published afterward. Concurrent tasks cannot duplicate the issue change.
 A process that started and failed before the next poll still records its start
 before failure cleanup. Native success never moves an issue to Done.
 
+Issue activity attributes agent actions (migration 66): the history entry for
+the started status names the task's harness (for example `codex`), and changes
+made through the assistant's issue tools name `assistant`, alongside the user on
+whose behalf they acted. Field changes record the agent through the request
+context; title and description changes pass it to the content-history trigger
+through a transaction-local setting, like the actor. The issue views show
+"via Codex" or "via Assistant". Commit authorship is configured separately
+(`DEV_MACHINE_AGENT_GIT_NAME`/`_EMAIL`), and pull requests are opened by the
+GitHub App.
+
 ## Native execution and recovery
 
 Preparation records `starting` without setting `started_at`. After potentially

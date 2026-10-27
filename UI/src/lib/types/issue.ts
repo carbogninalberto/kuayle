@@ -113,6 +113,7 @@ export interface IssueHistory {
 	new_value: string | null;
 	old_display_value?: string | null;
 	new_display_value?: string | null;
+	agent?: string | null;
 	created_at: string;
 }
 

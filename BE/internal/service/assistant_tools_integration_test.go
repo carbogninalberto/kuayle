@@ -230,6 +230,9 @@ func TestAssistantUpdatesIssuesWithTheUsersPermissions(t *testing.T) {
 	require.NoError(t, f.db.Get(&issue, `SELECT title,priority FROM issues WHERE workspace_id=$1 AND identifier_text='ENG-1'`, f.ws))
 	require.Equal(t, "Add dark mode", issue.Title)
 	require.Equal(t, 1, issue.Priority)
+	var agents []string
+	require.NoError(t, f.db.Select(&agents, `SELECT DISTINCT agent FROM issue_history h JOIN issues i ON i.id=h.issue_id WHERE i.workspace_id=$1 AND i.identifier_text='ENG-1'`, f.ws))
+	require.Equal(t, []string{"assistant"}, agents, "assistant changes are attributed in the issue activity")
 	history := (*requests)[1]["messages"].([]any)
 	require.Contains(t, history[len(history)-1].(map[string]any)["content"], `"untrusted_data"`)
 

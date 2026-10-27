@@ -1999,5 +1999,6 @@
 	"tasks.agent_instructions": "代理说明",
 	"tasks.agent_instructions_placeholder": "例如：使用 pnpm，不要编辑生成的文件，完成前运行 linter。",
 	"tasks.agent_instructions_help": "提供给此范围内任务的编码代理。留空以继承。任务开始时保存快照。",
-	"tasks.agent_instructions_too_long": "最多 8000 个字符。"
+	"tasks.agent_instructions_too_long": "最多 8000 个字符。",
+	"issue.via_agent": "通过 {agent}"
 }

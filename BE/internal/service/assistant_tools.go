@@ -125,6 +125,8 @@ func (t *AssistantTools) run(ctx context.Context, ws, user uuid.UUID, name, argu
 	if !ok {
 		return nil, nil, toolFailure("unknown tool")
 	}
+	// Changes made through these tools are attributed to the assistant.
+	ctx = domain.WithActingAgent(ctx, "assistant")
 	member, err := t.members.GetMember(ctx, ws, user)
 	if err != nil || member == nil || member.Role == domain.RoleGuest || !domain.HasPermission(member.Role, domain.PermIssuesRead) {
 		return nil, nil, toolFailure("you no longer have access to this workspace")

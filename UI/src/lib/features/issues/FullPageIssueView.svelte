@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { agentName } from './history-agent';
 	import IssueAssistant from '$lib/features/assistant/IssueAssistant.svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
@@ -1059,6 +1060,7 @@
 									{@const iconColor = items.length > 1 ? 'text-[var(--color-text-tertiary)]' : historyColor(firstField)}
 									{@const textFields = [...new Set(items.filter(c => c.field === 'title' || c.field === 'description').map(c => c.field))]}
 									{@const valueItems = items.filter((c, i, arr) => c.field !== 'title' && c.field !== 'description' && arr.findIndex(x => x.field === c.field) === i)}
+									{@const agent = items.find((c) => c.agent)?.agent}
 									<div class="relative flex items-center gap-3 pb-2.5">
 										<div class="relative z-10 flex h-5 w-5 shrink-0 items-center justify-center ring-2 ring-[var(--color-bg)] rounded-full bg-[var(--color-bg)] {iconColor}">
 											<IconComponent size={12} />
@@ -1086,6 +1088,7 @@
 													<code class="shrink-0 rounded bg-[var(--color-bg-tertiary)] px-1 py-0.5 text-[11px] text-[var(--color-text-secondary)]">{formatHistoryValue(change.field, change.new_value, change.new_display_value)}</code>
 												{/if}
 											{/each}
+											{#if agent}<span class="shrink-0 text-[var(--color-text-secondary)]">{m['issue.via_agent']({ agent: agentName(agent) })}</span>{/if}
 											<span>&middot;</span>
 											<span class="shrink-0">{formatRelativeTime(entry.time, getLocale())}</span>
 										</div>

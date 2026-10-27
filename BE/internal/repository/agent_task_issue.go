@@ -71,7 +71,7 @@ func (r *AgentTaskRepository) Start(ctx context.Context, claimed domain.AgentTas
 	if err = tx.GetContext(ctx, &issue, `UPDATE issues SET status_id=$2,status=$3,updated_at=now() WHERE id=$1 RETURNING *`, task.IssueID, target.ID, target.Slug); err != nil {
 		return nil, err
 	}
-	if _, err = tx.ExecContext(ctx, `INSERT INTO issue_history(id,issue_id,user_id,field,old_value,new_value) VALUES($1,$2,$3,'status',$4,$5)`, uuid.New(), task.IssueID, task.CreatorID, target.OldName, target.Name); err != nil {
+	if _, err = tx.ExecContext(ctx, `INSERT INTO issue_history(id,issue_id,user_id,field,old_value,new_value,agent) VALUES($1,$2,$3,'status',$4,$5,$6)`, uuid.New(), task.IssueID, task.CreatorID, target.OldName, target.Name, task.Provider); err != nil {
 		return nil, err
 	}
 	if err = tx.Commit(); err != nil {

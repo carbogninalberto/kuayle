@@ -610,6 +610,7 @@ func (h *IssueHandler) toIssueHistoryResponse(ctx context.Context, entry domain.
 		NewValue:        entry.NewValue,
 		OldDisplayValue: h.historyDisplayValue(ctx, entry.Field, entry.OldValue),
 		NewDisplayValue: h.historyDisplayValue(ctx, entry.Field, entry.NewValue),
+		Agent:           entry.Agent,
 		CreatedAt:       entry.CreatedAt,
 	}
 }
