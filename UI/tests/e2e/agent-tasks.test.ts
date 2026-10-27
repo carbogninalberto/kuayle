@@ -25,6 +25,7 @@ async function fixture(page: Page) {
 		publication: { step: null } as any,
 		publications: 0,
 		signals: [] as any[],
+		changedFiles: [] as string[],
 		preview: null as any,
 		previewLaunches: 0,
 		creates: [] as any[],
@@ -135,7 +136,16 @@ async function fixture(page: Page) {
 			if (path.endsWith('/runs'))
 				return route.fulfill({
 					json: {
-						runs: [{ id: 'run-1', provider_id: 'codex', status: 'running', machine_id: 'machine-1', created_at: time }]
+						runs: [
+							{
+								id: 'run-1',
+								provider_id: 'codex',
+								status: 'running',
+								machine_id: 'machine-1',
+								created_at: time,
+								changed_files: state.changedFiles
+							}
+						]
 					}
 				});
 			if (path.endsWith('/validation')) return route.fulfill({ json: state.validation });
@@ -477,8 +487,10 @@ test('opens the recorded pull request only after publication succeeds', async ({
 	await page.getByRole('button', { name: 'Open preview' }).click();
 	await popupPromise;
 	await expect.poll(() => state.previewLaunches).toBe(1);
+	state.changedFiles = ['src/theme.ts'];
 	await page.getByRole('button', { name: 'Execution details', exact: true }).click();
 	await expect(page.getByText('Pull request opened', { exact: true })).toBeVisible();
+	await expect(page.getByRole('link', { name: 'theme.ts' })).toHaveAttribute('href', 'https://github.com/acme/app/blob/kuayle/eng-1/src/theme.ts');
 	await page.reload();
 	await expect(link).toHaveAttribute('href', 'https://github.com/acme/app/pull/12');
 	expect(state.creates).toHaveLength(1);
@@ -528,4 +540,55 @@ test('shows GitHub CI and review signals with the follow-up they caused', async 
 	await expect(section.getByText('Ignored: reviewer has no write access', { exact: true })).toBeVisible();
 	await expect(section.getByText('<script>window.evil=1</script>', { exact: false })).toBeVisible();
 	expect(await page.evaluate(() => (window as any).evil)).toBeUndefined();
+});
+
+test('shows the harness plan, reasoning summaries and changed files from recorded output', async ({ page }) => {
+	const { state, emit } = await fixture(page);
+	await page.goto('/test/assistant?conversation=chat-1');
+	await delegate(page);
+	state.task = { ...state.task, state: 'running', reason: 'Native coding harness started', machine_id: 'machine-1' };
+	emit('task.state_changed', state.task);
+	await page.getByRole('button', { name: 'Execution details', exact: true }).click();
+	await expect(page.getByText('Plan', { exact: true })).toHaveCount(0);
+	const line = (id: number, value: unknown) => ({
+		id,
+		agent_run_id: 'run-1',
+		stream: 'stdout',
+		sequence: id,
+		content: JSON.stringify(value) + '\n',
+		truncated: false
+	});
+	state.changedFiles = ['src/lib/theme.ts', 'src/lib/theme.test.ts', 'README.md'];
+	state.logs = [
+		line(1, { type: 'item.completed', item: { type: 'reasoning', text: 'The theme toggle lives in the header.' } }),
+		line(2, {
+			type: 'item.updated',
+			item: {
+				type: 'todo_list',
+				items: [
+					{ text: 'Add theme store', completed: true },
+					{ text: '<img src=x onerror="window.evil=1">Wire toggle', completed: false }
+				]
+			}
+		})
+	];
+	emit('task.activity', {
+		task_id: 'task-1',
+		run_id: 'run-1',
+		log_id: 2,
+		stream: 'stdout',
+		truncated: false,
+		events: []
+	});
+	await expect(page.getByText('1 of 2 done', { exact: true })).toBeVisible();
+	await expect(page.getByText('Add theme store', { exact: true })).toBeVisible();
+	await expect(page.getByText('<img src=x onerror="window.evil=1">Wire toggle', { exact: true })).toBeVisible();
+	expect(await page.evaluate(() => (window as any).evil)).toBeUndefined();
+	await page.getByRole('button', { name: 'Reasoning summary' }).click();
+	await expect(page.getByText('The theme toggle lives in the header.', { exact: true })).toBeVisible();
+	const files = page.getByRole('region', { name: 'Changed files', exact: true });
+	await expect(files.getByRole('button', { name: 'src' })).toBeVisible();
+	await expect(files.getByRole('button', { name: 'theme.test.ts' })).toBeVisible();
+	await expect(files.getByRole('button', { name: 'README.md' })).toBeDisabled();
+	await expect(files.getByRole('link')).toHaveCount(0, { timeout: 1000 });
 });

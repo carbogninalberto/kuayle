@@ -1977,5 +1977,9 @@
 	"machines.preview_saved": "已儲存預覽連接埠",
 	"machines.preview_not_ready": "機器尚未就緒，請稍後再試。",
 	"assistant.tool_update_issue": "更新問題",
-	"assistant.tool_updated_issue": "已更新 {identifier}"
+	"assistant.tool_updated_issue": "已更新 {identifier}",
+	"tasks.plan": "計畫",
+	"tasks.plan_progress": "已完成 {done}/{total}",
+	"tasks.reasoning": "推理摘要",
+	"tasks.changed_files": "已變更的檔案"
 }

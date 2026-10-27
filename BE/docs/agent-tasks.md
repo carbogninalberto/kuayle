@@ -387,6 +387,17 @@ the task card footer (loaded even while details are collapsed) and the
 publication status appears in the execution details; both refresh on
 `task.publication_updated`.
 
+The execution details also render the harness's own plan with the AI Elements
+[Plan](https://www.shadcn-svelte.com/docs/ai-elements/plan) composition (the
+latest Codex `todo_list` item or Claude `TodoWrite` call), provider-supplied
+reasoning summaries with [Reasoning](https://www.shadcn-svelte.com/docs/ai-elements/reasoning)
+(Codex `reasoning` items, Claude `thinking` blocks; collapsed, never synthesized),
+and the attempt's recorded changed files with
+[File Tree](https://www.shadcn-svelte.com/docs/ai-elements/file-tree). They are
+parsed client-side from the attempt's stored native output and git state, so they
+survive reloads. File links point to the recorded pull request's repository and
+branch, never to agent-reported URLs. Agent text is rendered as escaped text.
+
 The UI follows the official [Task](https://www.shadcn-svelte.com/docs/ai-elements/task),
 [Model Selector](https://www.shadcn-svelte.com/docs/ai-elements/model-selector),
 [Trace](https://www.shadcn-svelte.com/docs/components/trace) and

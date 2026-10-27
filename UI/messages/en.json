@@ -1977,5 +1977,9 @@
 	"machines.preview_saved": "Preview port saved",
 	"machines.preview_not_ready": "The machine is not ready yet. Try again shortly.",
 	"assistant.tool_update_issue": "Update issue",
-	"assistant.tool_updated_issue": "Updated {identifier}"
+	"assistant.tool_updated_issue": "Updated {identifier}",
+	"tasks.plan": "Plan",
+	"tasks.plan_progress": "{done} of {total} done",
+	"tasks.reasoning": "Reasoning summary",
+	"tasks.changed_files": "Changed files"
 }

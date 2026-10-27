@@ -1,6 +1,10 @@
 <script lang="ts">
 	import { onDestroy, untrack } from 'svelte';
 	import TestResults from './TestResults.svelte';
+	import AgentPlan from './AgentPlan.svelte';
+	import AgentReasoning from './AgentReasoning.svelte';
+	import FileTreeNode from './FileTreeNode.svelte';
+	import { fileTree, latestPlan, reasoningSummaries } from './agent-trace';
 	import {
 		Circle,
 		CircleCheck,
@@ -86,6 +90,22 @@
 			.join('')
 	);
 	const selected = $derived(runs.find((run) => run.id === selectedRun));
+	// Derived only from the attempt's recorded native output and git state.
+	const nativeLines = $derived(
+		logs.filter((line) => !isCheck(line) && line.stream === 'stdout').map((line) => line.content)
+	);
+	const plan = $derived(latestPlan(nativeLines));
+	const reasoning = $derived(reasoningSummaries(nativeLines));
+	const changedFiles = $derived(fileTree(selected?.changed_files ?? []));
+	// Repository links come from the recorded publication, never agent output.
+	const fileLink = $derived.by(() => {
+		const url = publication?.step?.status === 'succeeded' ? publication.pull_request_url : undefined;
+		const match = url?.match(/^https:\/\/github\.com\/([A-Za-z0-9-]+\/[A-Za-z0-9._-]+)\/pull\/\d+$/);
+		const branch = publication?.branch;
+		if (!match || !branch || publication?.step?.agent_run_id !== selectedRun) return undefined;
+		return (path: string) =>
+			`https://github.com/${match[1]}/blob/${branch.split('/').map(encodeURIComponent).join('/')}/${path.split('/').map(encodeURIComponent).join('/')}`;
+	});
 	// Review links come only from the recorded publication, never from agent output.
 	const pullRequest = $derived(
 		publication?.step?.status === 'succeeded' ? (publication.pull_request_url ?? undefined) : undefined
@@ -331,7 +351,13 @@
 				{#if runsBefore}<Button variant="ghost" size="sm" disabled={loading} onclick={() => void olderRuns()}
 						>{m['tasks.more_runs']()}</Button
 					>{/if}
+				{#if plan}<AgentPlan steps={plan} />{/if}
+				{#if reasoning.length}<AgentReasoning summaries={reasoning} />{/if}
 				<TestResults step={validation} output={checkOutput} />
+				{#if changedFiles.length}<section aria-label={m['tasks.changed_files']()} class="min-w-0 text-sm">
+						<p class="mb-1 text-xs font-medium text-muted-foreground">{m['tasks.changed_files']()}</p>
+						{#each changedFiles as node (node.path)}<FileTreeNode {node} href={fileLink} />{/each}
+					</section>{/if}
 				{#if signals.length}<section aria-label={m['tasks.signals']()} class="min-w-0 space-y-1">
 						{#each signals as signal (signal.id)}
 							{@const note = signalAction[signal.action]}

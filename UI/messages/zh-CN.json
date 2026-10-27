@@ -1977,5 +1977,9 @@
 	"machines.preview_saved": "已保存预览端口",
 	"machines.preview_not_ready": "机器尚未就绪，请稍后重试。",
 	"assistant.tool_update_issue": "更新问题",
-	"assistant.tool_updated_issue": "已更新 {identifier}"
+	"assistant.tool_updated_issue": "已更新 {identifier}",
+	"tasks.plan": "计划",
+	"tasks.plan_progress": "已完成 {done}/{total}",
+	"tasks.reasoning": "推理摘要",
+	"tasks.changed_files": "已更改的文件"
 }
