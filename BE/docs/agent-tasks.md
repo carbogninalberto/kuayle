@@ -375,16 +375,52 @@ ordered cursor and authorization checks. Provider payloads remain untrusted;
 they cannot authorize actions, approve operations or assert independent test
 results.
 
+## Automations
+
+Migration 69 adds event-driven and scheduled delegation. Workspace
+administrators manage `agent_automations` rules from the coding-agent settings
+page. A rule belongs to one team. It matches open issues that have its label,
+its status, or both, optionally only during one UTC `run_hour`, and
+`max_active` (1–5) caps its pending, starting and active runs.
+
+Rules match current issue state instead of history events, which are recorded
+best-effort. A worker in the API process claims matches every 15 seconds. Each
+rule is locked `FOR UPDATE SKIP LOCKED`, and `agent_automation_runs` is unique
+per (rule, issue), so a crash or several API instances never miss or duplicate
+a match. An issue that already has active agent work is skipped. Nothing is
+claimed while coding agents are disabled for the workspace.
+
+By default a run is `pending_approval`, and the rule owner gets a
+notification. The owner or a workspace administrator can approve or dismiss
+it. Approval starts the task as the approver.
+
+A rule marked unattended starts as its owner without approval, but only if the
+workspace policy enables `allow_unattended_automations`. Otherwise its runs
+also wait for approval.
+
+Starting reuses the chat delegation path: it opens the issue conversation and
+calls `AgentTaskService.Create` with the composer defaults, under the actor's
+current permissions. The run's fixed request ID replays the same task after a
+crash. A transient failure stays `starting` for the worker to retry. A
+permanent one, such as lost access or a disabled provider, becomes `failed`
+with the reason. A rule grants nothing by itself, and removing its owner's
+access stops its unattended runs.
+
+- `GET/POST /agent-automations`, `PATCH /agent-automations/:id` (`{enabled}`)
+  and `DELETE /agent-automations/:id` are administrator-only.
+- `GET /agent-automation-runs` lists recent runs (administrators).
+- `POST /agent-automation-runs/:id/approve|dismiss` is open to the rule owner
+  or an administrator.
+
 ## Remaining workflow work
 
-The worker currently progresses through preparation, native execution,
-independent validation and publication to `awaiting_review`, and completes when
-the recorded pull request merges. CI failures and trusted change requests
-queue bounded follow-up attempts. Explicit in-app acceptance is not implemented. Repository-level retry support does not yet provide native session
-resume or a review workflow. Native
-sessions and durable approval flows remain separate work; a successful process
-exit must never mark an issue Done.
-
+The worker progresses through preparation, native execution (with native
+session resume), independent validation and publication to `awaiting_review`,
+and completes when the recorded pull request merges. CI failures and trusted
+change requests queue bounded follow-up attempts. Explicit in-app acceptance is
+not implemented. Multi-agent collaboration on one issue and dependency-aware
+planning across issues are not implemented. A successful process exit must
+never mark an issue Done.
 
 ## HTTP controls and replay
 

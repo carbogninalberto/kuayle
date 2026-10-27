@@ -261,6 +261,7 @@ export interface DevMachinePolicy {
 	allowed_providers: string[];
 	allowed_repositories: string[];
 	allow_custom_providers: boolean;
+	allow_unattended_automations: boolean;
 	idle_pause_minutes: number;
 	disk_quota_mode: 'hard' | 'monitored';
 	size_options?: {

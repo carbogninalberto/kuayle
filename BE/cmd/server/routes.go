@@ -55,6 +55,7 @@ type appHandlers struct {
 	token             *handler.TokenHandler
 	aiSettings        *handler.AISettingsHandler
 	agentTask         *handler.AgentTaskHandler
+	agentAutomation   *handler.AgentAutomationHandler
 	conversation      *handler.ConversationHandler
 	telegram          *handler.TelegramHandler
 	devMachine        *handler.DevMachineHandler
@@ -298,6 +299,15 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/runs/:runId/publication", h.agentTask.Publication)
 	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/signals", h.agentTask.Signals)
 	sessionOnly(dm, http.MethodGet, "/agent-tasks", h.agentTask.Queue)
+	if h.agentAutomation != nil {
+		sessionOnly(dm, http.MethodGet, "/agent-automations", h.agentAutomation.List)
+		sessionOnly(dm, http.MethodPost, "/agent-automations", h.agentAutomation.Create)
+		sessionOnly(dm, http.MethodPatch, "/agent-automations/:automationId", h.agentAutomation.Update)
+		sessionOnly(dm, http.MethodDelete, "/agent-automations/:automationId", h.agentAutomation.Delete)
+		sessionOnly(dm, http.MethodGet, "/agent-automation-runs", h.agentAutomation.Runs)
+		sessionOnly(dm, http.MethodPost, "/agent-automation-runs/:runId/approve", h.agentAutomation.Approve)
+		sessionOnly(dm, http.MethodPost, "/agent-automation-runs/:runId/dismiss", h.agentAutomation.Dismiss)
+	}
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/cancel", h.agentTask.Cancel)
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/retry", h.agentTask.Retry)
 	scoped(dm, http.MethodGet, "/dev-machines", h.devMachine.List, "dev_machine:read")

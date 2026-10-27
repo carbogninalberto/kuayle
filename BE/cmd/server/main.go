@@ -153,6 +153,8 @@ func main() {
 	agentTaskSvc := service.NewAgentTaskService(repository.NewAgentTaskRepository(db), devMachineSvc, hub)
 	conversationSvc.SetApprovals(service.NewAssistantApprovals(conversationSvc.Repo, agentTaskSvc))
 	agentTaskH := handler.NewAgentTaskHandler(agentTaskSvc)
+	automationSvc := service.NewAgentAutomationService(repository.NewAgentAutomationRepository(db), conversationSvc.Repo, agentTaskSvc, notifSvc, hub)
+	agentAutomationH := handler.NewAgentAutomationHandler(automationSvc)
 	telegramSvc := service.NewTelegramService(repository.NewTelegramRepository(db), workspaceRepo, aiSettingsSvc, crypto.DeriveKey(cfg.JWTSecret+":telegram"), cfg.FrontendURL)
 	telegramSvc.SetApprovals(conversationSvc)
 	telegramH := handler.NewTelegramHandler(telegramSvc)
@@ -251,6 +253,7 @@ func main() {
 		aiSettings:        aiSettingsH,
 		conversation:      conversationH,
 		agentTask:         agentTaskH,
+		agentAutomation:   agentAutomationH,
 		telegram:          telegramH,
 		devMachine:        devMachineH,
 		analytics:         analyticsH,
@@ -275,6 +278,7 @@ func main() {
 	go conversationSvc.Run(conversationCtx)
 	go taskFeedback.Run(conversationCtx)
 	go agentTaskSvc.Run(conversationCtx)
+	go automationSvc.Run(conversationCtx)
 	go telegramSvc.Run(conversationCtx)
 
 	// Start

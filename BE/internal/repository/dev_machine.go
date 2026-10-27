@@ -638,17 +638,17 @@ func (r *DevMachineRepository) GetPolicy(ctx context.Context, workspaceID uuid.U
 func (r *DevMachineRepository) UpsertPolicy(ctx context.Context, policy *domain.DevMachineWorkspacePolicy) error {
 	return r.db.QueryRowContext(ctx, `INSERT INTO dev_machine_workspace_policies
 		(workspace_id, enabled, max_concurrent_machines, max_machines_per_user, max_daily_agent_runs,
-		 max_runtime_minutes, max_disk_gb, allowed_providers, allowed_repositories, allow_custom_providers, idle_pause_minutes)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+		 max_runtime_minutes, max_disk_gb, allowed_providers, allowed_repositories, allow_custom_providers, idle_pause_minutes, allow_unattended_automations)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
 		ON CONFLICT (workspace_id) DO UPDATE SET enabled=EXCLUDED.enabled,
 		max_concurrent_machines=EXCLUDED.max_concurrent_machines, max_machines_per_user=EXCLUDED.max_machines_per_user,
 		max_daily_agent_runs=EXCLUDED.max_daily_agent_runs, max_runtime_minutes=EXCLUDED.max_runtime_minutes,
 		max_disk_gb=EXCLUDED.max_disk_gb, allowed_providers=EXCLUDED.allowed_providers,
 		allowed_repositories=EXCLUDED.allowed_repositories, allow_custom_providers=EXCLUDED.allow_custom_providers,
-		idle_pause_minutes=EXCLUDED.idle_pause_minutes
+		idle_pause_minutes=EXCLUDED.idle_pause_minutes, allow_unattended_automations=EXCLUDED.allow_unattended_automations
 		RETURNING created_at, updated_at`, policy.WorkspaceID, policy.Enabled, policy.MaxConcurrentMachines,
 		policy.MaxMachinesPerUser, policy.MaxDailyAgentRuns, policy.MaxRuntimeMinutes, policy.MaxDiskGB,
-		policy.AllowedProviders, policy.AllowedRepositories, policy.AllowCustomProviders, policy.IdlePauseMinutes,
+		policy.AllowedProviders, policy.AllowedRepositories, policy.AllowCustomProviders, policy.IdlePauseMinutes, policy.AllowUnattendedAutomations,
 	).Scan(&policy.CreatedAt, &policy.UpdatedAt)
 }
 

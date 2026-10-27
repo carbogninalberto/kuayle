@@ -38,31 +38,7 @@ func (s *AssistantApprovals) Resolve(ctx context.Context, ws, conversation, id u
 	if approval.Action != "delegate_issue" || json.Unmarshal(approval.Payload, &payload) != nil {
 		return s.conversations.FinishApproval(ctx, ws, conversation, id, nil, "This approval cannot be executed")
 	}
-	chat, err := s.conversations.OpenIssue(ctx, ws, approval.IssueID)
-	if errors.Is(err, repository.ErrConversationNotFound) {
-		return s.conversations.FinishApproval(ctx, ws, conversation, id, nil, "The issue is no longer available to you")
-	}
-	if err != nil {
-		return nil, err
-	}
-	options, err := s.tasks.Options(ctx, ws, chat.ID)
-	if err == nil && len(options.Providers) == 0 {
-		err = ErrProviderNotAllowed
-	}
-	var task *domain.AgentTask
-	if err == nil {
-		provider := options.Providers[0].ID
-		if options.DefaultProvider != "" {
-			provider = options.DefaultProvider
-		}
-		request := domain.AgentTaskRequest{RequestID: approval.RequestID, Prompt: payload.Instructions, Provider: provider}
-		// Match the task composer's defaults: model selection applies only to
-		// harnesses that support the workspace model provider.
-		if mp := options.ModelProvider; mp != nil && mp.Configured && (request.Provider == "codex" || request.Provider == "claude-code") {
-			request.Model, request.Thinking = mp.DefaultModel, mp.Thinking
-		}
-		task, err = s.tasks.Create(ctx, ws, chat.ID, request)
-	}
+	task, err := delegateIssue(ctx, s.conversations, s.tasks, ws, approval.IssueID, payload.Instructions, approval.RequestID)
 	if err != nil {
 		if message, permanent := delegationFailure(err); permanent {
 			return s.conversations.FinishApproval(ctx, ws, conversation, id, nil, message)
@@ -71,6 +47,33 @@ func (s *AssistantApprovals) Resolve(ctx context.Context, ws, conversation, id u
 		return nil, err
 	}
 	return s.conversations.FinishApproval(ctx, ws, conversation, id, &task.ID, "")
+}
+
+// delegateIssue starts a coding task on an issue for the actor in ctx, with the
+// task composer's defaults. Replaying the same request ID converges on one task.
+func delegateIssue(ctx context.Context, conversations *repository.ConversationRepository, tasks approvalTasks, ws, issue uuid.UUID, instructions string, requestID uuid.UUID) (*domain.AgentTask, error) {
+	chat, err := conversations.OpenIssue(ctx, ws, issue)
+	if err != nil {
+		return nil, err
+	}
+	options, err := tasks.Options(ctx, ws, chat.ID)
+	if err != nil {
+		return nil, err
+	}
+	if len(options.Providers) == 0 {
+		return nil, ErrProviderNotAllowed
+	}
+	provider := options.Providers[0].ID
+	if options.DefaultProvider != "" {
+		provider = options.DefaultProvider
+	}
+	request := domain.AgentTaskRequest{RequestID: requestID, Prompt: instructions, Provider: provider}
+	// Match the task composer's defaults: model selection applies only to
+	// harnesses that support the workspace model provider.
+	if mp := options.ModelProvider; mp != nil && mp.Configured && (request.Provider == "codex" || request.Provider == "claude-code") {
+		request.Model, request.Thinking = mp.DefaultModel, mp.Thinking
+	}
+	return tasks.Create(ctx, ws, chat.ID, request)
 }
 
 func delegationFailure(err error) (string, bool) {

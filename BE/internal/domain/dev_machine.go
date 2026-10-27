@@ -442,21 +442,24 @@ type DevMachineResourceSample struct {
 }
 
 type DevMachineWorkspacePolicy struct {
-	WorkspaceID           uuid.UUID             `json:"workspace_id" db:"workspace_id"`
-	Enabled               bool                  `json:"enabled" db:"enabled"`
-	MaxConcurrentMachines int                   `json:"max_concurrent_machines" db:"max_concurrent_machines"`
-	MaxMachinesPerUser    int                   `json:"max_machines_per_user" db:"max_machines_per_user"`
-	MaxDailyAgentRuns     int                   `json:"max_daily_agent_runs" db:"max_daily_agent_runs"`
-	MaxRuntimeMinutes     int                   `json:"max_runtime_minutes" db:"max_runtime_minutes"`
-	MaxDiskGB             int                   `json:"max_disk_gb" db:"max_disk_gb"`
-	AllowedProviders      json.RawMessage       `json:"allowed_providers" db:"allowed_providers"`
-	AllowedRepositories   json.RawMessage       `json:"allowed_repositories" db:"allowed_repositories"`
-	AllowCustomProviders  bool                  `json:"allow_custom_providers" db:"allow_custom_providers"`
-	IdlePauseMinutes      int                   `json:"idle_pause_minutes" db:"idle_pause_minutes"`
-	DiskQuotaMode         string                `json:"disk_quota_mode" db:"-"`
-	SizeOptions           DevMachineSizeOptions `json:"size_options" db:"-"`
-	CreatedAt             time.Time             `json:"created_at" db:"created_at"`
-	UpdatedAt             time.Time             `json:"updated_at" db:"updated_at"`
+	WorkspaceID           uuid.UUID       `json:"workspace_id" db:"workspace_id"`
+	Enabled               bool            `json:"enabled" db:"enabled"`
+	MaxConcurrentMachines int             `json:"max_concurrent_machines" db:"max_concurrent_machines"`
+	MaxMachinesPerUser    int             `json:"max_machines_per_user" db:"max_machines_per_user"`
+	MaxDailyAgentRuns     int             `json:"max_daily_agent_runs" db:"max_daily_agent_runs"`
+	MaxRuntimeMinutes     int             `json:"max_runtime_minutes" db:"max_runtime_minutes"`
+	MaxDiskGB             int             `json:"max_disk_gb" db:"max_disk_gb"`
+	AllowedProviders      json.RawMessage `json:"allowed_providers" db:"allowed_providers"`
+	AllowedRepositories   json.RawMessage `json:"allowed_repositories" db:"allowed_repositories"`
+	AllowCustomProviders  bool            `json:"allow_custom_providers" db:"allow_custom_providers"`
+	// AllowUnattendedAutomations lets automation rules start tasks without a
+	// human approval; each rule must also opt in.
+	AllowUnattendedAutomations bool                  `json:"allow_unattended_automations" db:"allow_unattended_automations"`
+	IdlePauseMinutes           int                   `json:"idle_pause_minutes" db:"idle_pause_minutes"`
+	DiskQuotaMode              string                `json:"disk_quota_mode" db:"-"`
+	SizeOptions                DevMachineSizeOptions `json:"size_options" db:"-"`
+	CreatedAt                  time.Time             `json:"created_at" db:"created_at"`
+	UpdatedAt                  time.Time             `json:"updated_at" db:"updated_at"`
 }
 
 type DevMachineSizeOptions struct {

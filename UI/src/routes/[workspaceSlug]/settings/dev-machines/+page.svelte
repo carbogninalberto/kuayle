@@ -2,6 +2,7 @@
 	import TestCommandField from '$lib/features/dev-machines/TestCommandField.svelte';
 	import ComposeFileField from '$lib/features/dev-machines/ComposeFileField.svelte';
 	import AgentDefaultsField from '$lib/features/dev-machines/AgentDefaultsField.svelte';
+	import AutomationsCard from '$lib/features/dev-machines/AutomationsCard.svelte';
 	import { parseTestCommand, formatTestCommand } from '$lib/features/dev-machines/test-command';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
@@ -116,7 +117,7 @@
 				getDevMachineScopeSetting(slug, 'workspace'), listDevMachineEnvironments(slug),
 				canAdmin ? loadDeepSeekProvider() : Promise.resolve(null)
 			]);
-			policy = { ...loaded, allowed_providers: loaded.allowed_providers ?? [], allowed_repositories: loaded.allowed_repositories ?? [] };
+			policy = { ...loaded, allowed_providers: loaded.allowed_providers ?? [], allowed_repositories: loaded.allowed_repositories ?? [], allow_unattended_automations: loaded.allow_unattended_automations ?? false };
 			repositories = policy.allowed_repositories.join('\n');
 			linkedRepositories = github.repos ?? [];
 			environments = availableEnvironments ?? [];
@@ -152,6 +153,7 @@
 				allowed_providers: policy.allowed_providers,
 				allowed_repositories: repositories.split('\n').map((line) => line.trim()).filter(Boolean),
 				allow_custom_providers: policy.allow_custom_providers,
+				allow_unattended_automations: policy.allow_unattended_automations,
 				idle_pause_minutes: policy.idle_pause_minutes
 			});
 			const repository = linkedRepositories.find((item) => item.id === defaultRepositoryId);
@@ -343,11 +345,13 @@
 			<div><h2 class="text-sm font-semibold">{m['settings.dev_machines.providers']()}</h2><p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.providers_desc']()}</p></div>
 			<div class="grid gap-3 sm:grid-cols-4">{#each ['claude-code','opencode','codex','qwen-code','crush','kimi','goose'] as provider}<label class="flex items-center justify-between gap-3 rounded-lg border border-[var(--app-border)] p-3"><span class="text-sm">{provider}</span><Switch aria-label={provider} checked={policy.allowed_providers.includes(provider)} onCheckedChange={() => toggleProvider(provider)} /></label>{/each}</div>
 			<label class="flex items-center gap-2 text-sm"><Switch bind:checked={policy.allow_custom_providers} />{m['settings.dev_machines.allow_custom']()}</label>
+			<label class="flex items-center gap-2 text-sm"><Switch bind:checked={policy.allow_unattended_automations} />{m['settings.dev_machines.allow_unattended']()}</label>
 		</section>
 		<section class="space-y-3 rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-5"><div><h2 class="text-sm font-semibold">{m['settings.dev_machines.repo_allowlist']()}</h2><p class="text-xs text-[var(--color-text-tertiary)]">{@html m['settings.dev_machines.repo_allowlist_desc']()}</p></div><Textarea bind:value={repositories} rows={6} class="font-mono text-xs" /></section>
 		<div class="flex justify-end"><Button type="submit" disabled={saving}>{saving ? m['settings.saving']() : m['settings.dev_machines.save_policy']()}</Button></div>
 		</fieldset>
 	</form>
+	{#if canAdmin}<div class="mt-6"><AutomationsCard {slug} unattendedAllowed={policy?.allow_unattended_automations ?? false} /></div>{/if}
 	{#if canAdmin && deepSeekLoadFailed}
 		<div class="mx-auto max-w-3xl px-6 pb-6">
 			<section class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-5">

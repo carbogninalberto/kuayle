@@ -240,16 +240,17 @@ func (p *LogListParams) Defaults() {
 }
 
 type DevMachinePolicyRequest struct {
-	Enabled               bool     `json:"enabled"`
-	MaxConcurrentMachines int      `json:"max_concurrent_machines" validate:"min=0,max=100"`
-	MaxMachinesPerUser    int      `json:"max_machines_per_user" validate:"min=0,max=50"`
-	MaxDailyAgentRuns     int      `json:"max_daily_agent_runs" validate:"min=0,max=10000"`
-	MaxRuntimeMinutes     int      `json:"max_runtime_minutes" validate:"min=5,max=1440"`
-	MaxDiskGB             int      `json:"max_disk_gb" validate:"min=20,max=2048"`
-	AllowedProviders      []string `json:"allowed_providers" validate:"omitempty,max=7,dive,oneof=claude-code opencode codex qwen-code crush kimi goose"`
-	AllowedRepositories   []string `json:"allowed_repositories"`
-	AllowCustomProviders  bool     `json:"allow_custom_providers"`
-	IdlePauseMinutes      int      `json:"idle_pause_minutes" validate:"omitempty,min=5,max=10080"`
+	Enabled                    bool     `json:"enabled"`
+	MaxConcurrentMachines      int      `json:"max_concurrent_machines" validate:"min=0,max=100"`
+	MaxMachinesPerUser         int      `json:"max_machines_per_user" validate:"min=0,max=50"`
+	MaxDailyAgentRuns          int      `json:"max_daily_agent_runs" validate:"min=0,max=10000"`
+	MaxRuntimeMinutes          int      `json:"max_runtime_minutes" validate:"min=5,max=1440"`
+	MaxDiskGB                  int      `json:"max_disk_gb" validate:"min=20,max=2048"`
+	AllowedProviders           []string `json:"allowed_providers" validate:"omitempty,max=7,dive,oneof=claude-code opencode codex qwen-code crush kimi goose"`
+	AllowedRepositories        []string `json:"allowed_repositories"`
+	AllowCustomProviders       bool     `json:"allow_custom_providers"`
+	AllowUnattendedAutomations bool     `json:"allow_unattended_automations"`
+	IdlePauseMinutes           int      `json:"idle_pause_minutes" validate:"omitempty,min=5,max=10080"`
 }
 
 type CollectorEventInput struct {

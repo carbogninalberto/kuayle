@@ -343,6 +343,8 @@ recovery credentials, live output capture and conversation events, and the
 session-only task routes, worker wiring, independent validation, pull request publication and remaining review work. Manual IDE/terminal
 workflows continue to use the existing machine controls.
 
+[Automations](BE/docs/agent-tasks.md#automations) (migration 69) delegate matching issues on a label or status trigger, optionally on a UTC schedule. Runs need approval unless a rule is unattended and the workspace policy allows unattended automations; every start acts for a recorded user under that user's current permissions.
+
 ## Resource Limits and Quotas
 
 **Host admission.** Before spawning or starting a machine, the manager reads the

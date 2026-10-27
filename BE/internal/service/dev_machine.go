@@ -2176,6 +2176,7 @@ func (s *DevMachineService) UpdatePolicy(ctx context.Context, workspaceID uuid.U
 		MaxMachinesPerUser: req.MaxMachinesPerUser, MaxDailyAgentRuns: req.MaxDailyAgentRuns,
 		MaxRuntimeMinutes: req.MaxRuntimeMinutes, MaxDiskGB: req.MaxDiskGB, AllowedProviders: providers,
 		AllowedRepositories: repositories, AllowCustomProviders: req.AllowCustomProviders, IdlePauseMinutes: idlePauseMinutes,
+		AllowUnattendedAutomations: req.AllowUnattendedAutomations,
 	}
 	if err := s.store.UpsertPolicy(ctx, policy); err != nil {
 		return nil, err
