@@ -483,6 +483,19 @@ test('renders recorded tool calls from history and live events as escaped data',
 		.send(JSON.stringify({ id: 'e5', cursor: 5, conversation_id: 'chat-1', type: 'tool.started', payload: search }));
 	await expect(page.getByRole('button', { name: 'Failed to run Search issues' })).toBeVisible();
 	await expect(page.getByText('I created the issue.', { exact: true })).toBeVisible();
+	const updated = {
+		...created,
+		id: 'tool-3',
+		sequence: 2,
+		call_id: 'call_3',
+		name: 'update_issue',
+		input: { identifier: 'ENG-7', priority: 1 },
+		output: { identifier: 'ENG-7', title: 'Dark mode' }
+	};
+	state.sockets
+		.at(-1)!
+		.send(JSON.stringify({ id: 'e7', cursor: 7, conversation_id: 'chat-1', type: 'tool.completed', payload: updated }));
+	await expect(page.getByRole('button', { name: 'Updated ENG-7' })).toBeVisible();
 });
 
 test('asks for approval before delegating and records the decision from the backend', async ({ page }) => {

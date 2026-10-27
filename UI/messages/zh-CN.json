@@ -1975,5 +1975,7 @@
 	"machines.preview_open": "打开预览",
 	"machines.preview_remove": "移除预览",
 	"machines.preview_saved": "已保存预览端口",
-	"machines.preview_not_ready": "机器尚未就绪，请稍后重试。"
+	"machines.preview_not_ready": "机器尚未就绪，请稍后重试。",
+	"assistant.tool_update_issue": "更新问题",
+	"assistant.tool_updated_issue": "已更新 {identifier}"
 }

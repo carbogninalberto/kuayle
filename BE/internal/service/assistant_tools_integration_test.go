@@ -213,3 +213,40 @@ func TestInterruptedToolCallIsReportedAsUnknownOutcome(t *testing.T) {
 	_, err = f.repo.FinishToolCall(f.ctx, a, call.ID, json.RawMessage(`{}`), "", nil)
 	require.Error(t, err, "a finished attempt cannot record late results")
 }
+
+func TestAssistantUpdatesIssuesWithTheUsersPermissions(t *testing.T) {
+	f := newToolFixture(t)
+	var team uuid.UUID
+	require.NoError(t, f.db.Get(&team, `SELECT id FROM teams WHERE workspace_id=$1`, f.ws))
+	_, err := f.db.Exec(`INSERT INTO issues(workspace_id,team_id,number,identifier_text,title,creator_id,status_id) VALUES($1,$2,1,'ENG-1','Old title',$3,(SELECT id FROM team_statuses WHERE team_id=$2 LIMIT 1))`, f.ws, team, f.user)
+	require.NoError(t, err)
+	a := f.attempt(t, "Rename ENG-1 and make it urgent")
+	provider, requests := scriptedProvider(t, toolCallStream("update_issue", `{"identifier":"eng-1","title":"Add dark mode","priority":1}`), finalAnswer)
+	require.NoError(t, f.service.converse(f.ctx, a, provider.URL, "key", []chatCompletionMessage{{Role: "user", Content: "Update"}}, func(string) error { return nil }))
+	var issue struct {
+		Title    string `db:"title"`
+		Priority int    `db:"priority"`
+	}
+	require.NoError(t, f.db.Get(&issue, `SELECT title,priority FROM issues WHERE workspace_id=$1 AND identifier_text='ENG-1'`, f.ws))
+	require.Equal(t, "Add dark mode", issue.Title)
+	require.Equal(t, 1, issue.Priority)
+	history := (*requests)[1]["messages"].([]any)
+	require.Contains(t, history[len(history)-1].(map[string]any)["content"], `"untrusted_data"`)
+
+	for arguments, message := range map[string]string{
+		`{"identifier":"ENG-1","status":"shipped"}`: "invalid status",
+		`{"identifier":"ENG-1"}`:                    "no changes requested",
+		`{"identifier":"ENG-1","creator_id":"x"}`:   "invalid arguments",
+		`{"identifier":"ENG-404","title":"Nope"}`:   "issue not found",
+		`{"identifier":"ENG-1","title":"   "}`:      "invalid issue fields",
+	} {
+		_, _, err := f.service.tools.run(f.ctx, f.ws, f.user, "update_issue", arguments)
+		require.EqualError(t, err, message, arguments)
+	}
+	_, err = f.db.Exec(`UPDATE workspace_members SET role='guest' WHERE workspace_id=$1 AND user_id=$2`, f.ws, f.user)
+	require.NoError(t, err)
+	_, _, err = f.service.tools.run(f.ctx, f.ws, f.user, "update_issue", `{"identifier":"ENG-1","title":"Guest edit"}`)
+	require.Error(t, err)
+	require.NoError(t, f.db.Get(&issue, `SELECT title,priority FROM issues WHERE workspace_id=$1 AND identifier_text='ENG-1'`, f.ws))
+	require.Equal(t, "Add dark mode", issue.Title)
+}

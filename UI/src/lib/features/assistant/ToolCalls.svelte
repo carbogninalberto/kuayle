@@ -37,12 +37,15 @@
 		search_issues: m['assistant.tool_search_issues'],
 		get_issue: m['assistant.tool_get_issue'],
 		create_issue: m['assistant.tool_create_issue'],
+		update_issue: m['assistant.tool_update_issue'],
 		delegate_issue: m['assistant.tool_delegate_issue']
 	};
 	const label = (call: ConversationToolCall) => (names[call.name] ?? (() => call.name))();
 	function created(call: ConversationToolCall) {
 		const identifier = (call.output as { identifier?: unknown } | undefined)?.identifier;
-		return call.name === 'create_issue' && call.status === 'completed' && typeof identifier === 'string'
+		return (call.name === 'create_issue' || call.name === 'update_issue') &&
+			call.status === 'completed' &&
+			typeof identifier === 'string'
 			? identifier
 			: undefined;
 	}
@@ -134,7 +137,9 @@
 							>
 							<Trace.Title class="whitespace-normal break-words"
 								>{identifier
-									? m['assistant.tool_created_issue']({ identifier })
+									? call.name === 'update_issue'
+										? m['assistant.tool_updated_issue']({ identifier })
+										: m['assistant.tool_created_issue']({ identifier })
 									: failed
 										? m['assistant.tool_failed']({ tool: label(call) })
 										: m['assistant.tool_completed']({ tool: label(call) })}</Trace.Title

@@ -1975,5 +1975,7 @@
 	"machines.preview_open": "Apri anteprima",
 	"machines.preview_remove": "Rimuovi anteprima",
 	"machines.preview_saved": "Porta dell'anteprima salvata",
-	"machines.preview_not_ready": "La macchina non è ancora pronta. Riprova tra poco."
+	"machines.preview_not_ready": "La macchina non è ancora pronta. Riprova tra poco.",
+	"assistant.tool_update_issue": "Aggiorna issue",
+	"assistant.tool_updated_issue": "Aggiornata {identifier}"
 }

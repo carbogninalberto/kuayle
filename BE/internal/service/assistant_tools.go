@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -34,6 +35,7 @@ func toolFailure(format string, args ...any) error {
 
 type assistantIssueCreator interface {
 	Create(ctx context.Context, workspaceID, creatorID uuid.UUID, req dto.CreateIssueRequest) (*domain.Issue, error)
+	Update(ctx context.Context, workspaceID, userID uuid.UUID, identifier string, req dto.UpdateIssueRequest) (*domain.Issue, error)
 }
 
 type assistantMemberRepo interface {
@@ -66,6 +68,7 @@ var assistantToolCatalog = []assistantTool{
 	{name: "search_issues", description: "Search issues the user can access by text in the title or identifier.", parameters: `{"type":"object","properties":{"query":{"type":"string","maxLength":200},"limit":{"type":"integer","minimum":1,"maximum":20}},"required":["query"],"additionalProperties":false}`},
 	{name: "get_issue", description: "Read one issue by identifier, such as ENG-12.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32}},"required":["identifier"],"additionalProperties":false}`},
 	{name: "delegate_issue", description: "Ask the user to approve starting a coding agent on an existing issue. The agent only starts after the user approves in Kuayle; never claim work has started.", approval: true, parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"instructions":{"type":"string","minLength":1,"maxLength":16000}},"required":["identifier","instructions"],"additionalProperties":false}`},
+	{name: "update_issue", description: "Change an existing issue's title, description, status or priority. Only call this when the user explicitly asked for that change.", write: true, parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"title":{"type":"string","minLength":1,"maxLength":500},"description":{"type":"string","maxLength":8000},"status":{"type":"string","enum":["backlog","todo","in_progress","in_review","done","cancelled"]},"priority":{"type":"integer","minimum":0,"maximum":4}},"required":["identifier"],"additionalProperties":false}`},
 	{name: "create_issue", description: "Create a new issue. Only call this when the user explicitly asked to create or file an issue.", write: true, parameters: `{"type":"object","properties":{"team_key":{"type":"string","maxLength":16},"title":{"type":"string","minLength":1,"maxLength":500},"description":{"type":"string","maxLength":8000},"priority":{"type":"integer","minimum":0,"maximum":4}},"required":["team_key","title"],"additionalProperties":false}`},
 }
 
@@ -116,9 +119,9 @@ func normalizedToolInput(raw string) json.RawMessage {
 }
 
 // run executes one call for the conversation creator. It returns the result
-// shown to the user and the model, and an issue reference for created issues.
+// shown to the user and the model, and a reference to a created or changed issue.
 func (t *AssistantTools) run(ctx context.Context, ws, user uuid.UUID, name, arguments string) (any, *uuid.UUID, error) {
-	tool, ok := lookupAssistantTool(name)
+	_, ok := lookupAssistantTool(name)
 	if !ok {
 		return nil, nil, toolFailure("unknown tool")
 	}
@@ -126,8 +129,11 @@ func (t *AssistantTools) run(ctx context.Context, ws, user uuid.UUID, name, argu
 	if err != nil || member == nil || member.Role == domain.RoleGuest || !domain.HasPermission(member.Role, domain.PermIssuesRead) {
 		return nil, nil, toolFailure("you no longer have access to this workspace")
 	}
-	if tool.write && !domain.HasPermission(member.Role, domain.PermIssueCreate) {
+	if name == "create_issue" && !domain.HasPermission(member.Role, domain.PermIssueCreate) {
 		return nil, nil, toolFailure("your role cannot create issues")
+	}
+	if name == "update_issue" && !domain.HasPermission(member.Role, domain.PermIssueUpdate) {
+		return nil, nil, toolFailure("your role cannot update issues")
 	}
 	switch name {
 	case "list_teams":
@@ -185,6 +191,47 @@ func (t *AssistantTools) run(ctx context.Context, ws, user uuid.UUID, name, argu
 			result["description"] = truncateRunes(sanitize.StripHTML(*issue.Description), 4000)
 		}
 		return result, nil, nil
+	case "update_issue":
+		var input struct {
+			Identifier  string  `json:"identifier"`
+			Title       *string `json:"title"`
+			Description *string `json:"description"`
+			Status      *string `json:"status"`
+			Priority    *int    `json:"priority"`
+		}
+		if err := decodeToolInput(arguments, &input); err != nil {
+			return nil, nil, err
+		}
+		request := dto.UpdateIssueRequest{Description: input.Description, Priority: input.Priority, Status: input.Status}
+		if input.Title != nil {
+			title := strings.TrimSpace(*input.Title)
+			if title == "" || utf8.RuneCountInString(title) > 500 {
+				return nil, nil, toolFailure("invalid issue fields")
+			}
+			request.Title = &title
+		}
+		if input.Description != nil && utf8.RuneCountInString(*input.Description) > 8000 {
+			return nil, nil, toolFailure("invalid issue fields")
+		}
+		if input.Status != nil && !slices.Contains([]string{"backlog", "todo", "in_progress", "in_review", "done", "cancelled"}, *input.Status) {
+			return nil, nil, toolFailure("invalid status")
+		}
+		if input.Priority != nil && (*input.Priority < 0 || *input.Priority > 4) {
+			return nil, nil, toolFailure("invalid issue fields")
+		}
+		if request.Title == nil && request.Description == nil && request.Status == nil && request.Priority == nil {
+			return nil, nil, toolFailure("no changes requested")
+		}
+		identifier := strings.ToUpper(strings.TrimSpace(input.Identifier))
+		// Resolve with the user's own visibility first; missing and hidden issues look the same.
+		if issue, err := t.issues.GetByIdentifier(ctx, ws, identifier); err != nil || issue == nil {
+			return nil, nil, toolFailure("issue not found")
+		}
+		issue, err := t.creator.Update(ctx, ws, user, identifier, request)
+		if err != nil {
+			return nil, nil, toolFailure("the issue could not be updated")
+		}
+		return issueSummary(*issue), &issue.ID, nil
 	case "create_issue":
 		var input struct {
 			TeamKey     string `json:"team_key"`

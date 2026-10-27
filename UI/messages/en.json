@@ -1975,5 +1975,7 @@
 	"machines.preview_open": "Open preview",
 	"machines.preview_remove": "Remove preview",
 	"machines.preview_saved": "Preview port saved",
-	"machines.preview_not_ready": "The machine is not ready yet. Try again shortly."
+	"machines.preview_not_ready": "The machine is not ready yet. Try again shortly.",
+	"assistant.tool_update_issue": "Update issue",
+	"assistant.tool_updated_issue": "Updated {identifier}"
 }

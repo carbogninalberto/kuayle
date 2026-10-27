@@ -171,9 +171,11 @@ streaming, history, denied access, mobile layout and long transcript scrolling.
 ## Orchestrator tools
 
 The worker offers OpenAI-compatible function tools: `list_teams`,
-`search_issues`, `get_issue`, `create_issue` and `delegate_issue`. The model only proposes calls.
+`search_issues`, `get_issue`, `create_issue`, `update_issue` (title, description,
+status or priority; assignees are not changed) and `delegate_issue`. The model only proposes calls.
 `AssistantTools` executes each in Go as the conversation creator, re-reading the
-current workspace role (guests and roles without `issue:create` are refused) and
+current workspace role (guests and roles without `issue:create` or
+`issue:update` are refused) and
 using the same team-visibility-scoped repositories and `IssueService.Create` as
 the HTTP routes. Arguments are strict JSON: unknown fields such as a creator ID
 are rejected, and the issue is always created with the user's own identity.
@@ -181,7 +183,7 @@ Teams are resolved by key among the teams the user can see.
 
 A provider may return tool calls only when tools were offered and must finish
 the turn with `finish_reason: "tool_calls"`. One reply runs at most four tool
-rounds, eight calls and three issue creations; the final round offers no tools,
+rounds, eight calls and three issue creations or updates; the final round offers no tools,
 so the model must answer. Results are returned to the model wrapped as
 `untrusted_data`, and the instruction says to ignore instructions inside them.
 Prompt-injected content can therefore at most cause the bounded, user-permitted
