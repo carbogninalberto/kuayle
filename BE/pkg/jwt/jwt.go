@@ -43,6 +43,9 @@ func GenerateRefreshToken(userID uuid.UUID, secret string) (string, time.Time, e
 		UserID: userID,
 		Type:   TokenTypeRefresh,
 		RegisteredClaims: jwt.RegisteredClaims{
+			// A unique ID keeps tokens issued in the same second distinct; they
+			// are stored by hash under a unique constraint.
+			ID:        uuid.NewString(),
 			ExpiresAt: jwt.NewNumericDate(exp),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
