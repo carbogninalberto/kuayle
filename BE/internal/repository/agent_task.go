@@ -512,7 +512,15 @@ func (r *AgentTaskRepository) ReserveMachine(ctx context.Context, claimed domain
 		return uuid.Nil, ErrAgentTaskConflict
 	}
 	if task.MachineID != nil {
-		return *task.MachineID, nil
+		// A reservation for a machine that was never created (e.g. blocked by
+		// the machine limit) is revisited, so an idle machine can be reused.
+		var pending bool
+		if err = tx.GetContext(ctx, &pending, `SELECT $1::uuid=$2::uuid AND NOT EXISTS(SELECT 1 FROM dev_machines WHERE id=$1)`, *task.MachineID, task.ReservedMachineID); err != nil {
+			return uuid.Nil, err
+		}
+		if !pending {
+			return *task.MachineID, nil
+		}
 	}
 	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text,0))`, task.WorkspaceID); err != nil {
 		return uuid.Nil, err

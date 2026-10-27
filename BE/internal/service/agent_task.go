@@ -274,7 +274,9 @@ func (r *devMachineTaskRuntime) Prepare(ctx context.Context, task *domain.AgentT
 	if setting.GitHubRepoID == nil {
 		return false, ErrCheckoutNotEligible
 	}
-	if task.MachineID == nil {
+	// The reserved ID is only a placeholder until that machine exists; asking
+	// again lets a now-idle machine be reused instead.
+	if task.MachineID == nil || *task.MachineID == task.ReservedMachineID {
 		id, err := r.tasks.ReserveMachine(ctx, *task, *setting.GitHubRepoID, setting.EnvironmentID)
 		if err != nil {
 			return false, err

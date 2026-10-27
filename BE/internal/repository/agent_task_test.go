@@ -385,6 +385,15 @@ func TestReservationReusesAnIdleMachineWithADifferentAgent(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, repo.Transition(ctx, *claimed, "preparing", "Resolve runtime"))
 	claimed.State = "preparing"
+	// Reserved before the machine became reusable: a placeholder that was never created.
+	_, err = db.Exec(`UPDATE dev_machines SET status='paused' WHERE id=$1`, machine)
+	require.NoError(t, err)
+	placeholder, err := repo.ReserveMachine(ctx, *claimed, uuid.New(), &fixture.environmentID)
+	require.NoError(t, err)
+	require.Equal(t, claimed.ReservedMachineID, placeholder)
+	claimed.MachineID = &placeholder
+	_, err = db.Exec(`UPDATE dev_machines SET status='running' WHERE id=$1`, machine)
+	require.NoError(t, err)
 	id, err := repo.ReserveMachine(ctx, *claimed, uuid.New(), &fixture.environmentID)
 	require.NoError(t, err)
 	require.Equal(t, machine, id, "an idle machine is reused even when it lacks this task's agent")
