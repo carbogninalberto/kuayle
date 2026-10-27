@@ -23,6 +23,7 @@
 		type ValidationStep
 	} from '$lib/api/agent-tasks';
 	import type { AgentRun, DevMachineLogChunk } from '$lib/types/dev-machine';
+	import { getMachinePreview, launchMachinePreview, type DevMachinePreview } from '$lib/api/dev-machines';
 	import type { ConversationState } from './conversation-state.svelte';
 	import { taskLabel } from './task-labels';
 	import { m } from '$lib/paraglide/messages.js';
@@ -50,6 +51,7 @@
 	let validation = $state<ValidationStep | null>(null);
 	let publication = $state<PublicationView | null>(null);
 	let signals = $state<TaskSignal[]>([]);
+	let machinePreview = $state<DevMachinePreview | null>(null);
 	const signalAction: Record<TaskSignal['action'], (() => string) | undefined> = {
 		recorded: undefined,
 		follow_up: m['tasks.signal_follow_up'],
@@ -220,6 +222,40 @@
 			failure(e);
 		}
 	}
+	// The task's machine may expose an application preview for manual QA.
+	$effect(() => {
+		const machine = task.machine_id;
+		if (!machine || !['awaiting_review', 'completed', 'blocked', 'failed'].includes(task.state)) {
+			untrack(() => (machinePreview = null));
+			return;
+		}
+		untrack(() => {
+			void getMachinePreview(chat.slug, machine)
+				.then((value) => {
+					if (!disposed && task.machine_id === machine) machinePreview = value;
+				})
+				.catch(() => (machinePreview = null));
+		});
+	});
+	async function openPreview() {
+		if (!task.machine_id || busy) return;
+		busy = true;
+		const popup = window.open('about:blank', '_blank');
+		if (popup) popup.opener = null;
+		try {
+			const launch = await launchMachinePreview(chat.slug, task.machine_id);
+			if (launch.status === 'ready' && launch.launch_url && popup) popup.location.replace(launch.launch_url);
+			else {
+				popup?.close();
+				error = m['machines.preview_not_ready']();
+			}
+		} catch {
+			popup?.close();
+			error = m['machines.preview_not_ready']();
+		} finally {
+			if (!disposed) busy = false;
+		}
+	}
 	async function cancel() {
 		if (busy) return;
 		busy = true;
@@ -358,6 +394,9 @@
 			>{/if}
 		{#if pullRequest}<Button variant="outline" size="sm" href={pullRequest} target="_blank" rel="noopener noreferrer"
 				><GitPullRequest />{m['tasks.open_pull_request']()}</Button
+			>{/if}
+		{#if machinePreview}<Button variant="outline" size="sm" disabled={busy} onclick={() => void openPreview()}
+				><ExternalLink />{m['machines.preview_open']()}</Button
 			>{/if}
 		{#if task.machine_id}<a
 				class="inline-flex items-center gap-1 text-xs underline underline-offset-2"

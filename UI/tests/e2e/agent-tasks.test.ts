@@ -25,6 +25,8 @@ async function fixture(page: Page) {
 		publication: { step: null } as any,
 		publications: 0,
 		signals: [] as any[],
+		preview: null as any,
+		previewLaunches: 0,
 		creates: [] as any[],
 		retries: [] as any[],
 		cancels: 0,
@@ -138,6 +140,7 @@ async function fixture(page: Page) {
 				});
 			if (path.endsWith('/validation')) return route.fulfill({ json: state.validation });
 			if (path.endsWith('/signals')) return route.fulfill({ json: state.signals });
+
 			if (path.endsWith('/publication')) {
 				state.publications++;
 				return route.fulfill({ json: state.publication });
@@ -150,6 +153,14 @@ async function fixture(page: Page) {
 			}
 
 			return route.fulfill({ json: state.task });
+		}
+		if (path.endsWith('/dev-machines/machine-1/preview')) return route.fulfill({ json: state.preview });
+		if (path.endsWith('/dev-machines/machine-1/preview/launch')) {
+			state.previewLaunches++;
+			return route.fulfill({
+				status: 201,
+				json: { status: 'ready', launch_url: 'https://machine-preview.machines.example.test/?ticket=redacted' }
+			});
 		}
 		if (path === '/api/notifications') return route.fulfill({ json: { notifications: [], unread_count: 0 } });
 		return route.fulfill({ json: [] });
@@ -442,9 +453,30 @@ test('opens the recorded pull request only after publication succeeds', async ({
 	emit('task.publication_updated', { task_id: 'task-1', run_id: 'run-1', step: state.publication.step });
 	await expect(link).toHaveAttribute('href', 'https://github.com/acme/app/pull/12');
 	await expect(link).toHaveAttribute('rel', /noopener/);
-	state.task = { ...state.task, state: 'awaiting_review', reason: 'Pull request opened; waiting for human review' };
+	await expect(page.getByRole('button', { name: 'Open preview' })).toHaveCount(0);
+	state.preview = {
+		machine_id: 'machine-1',
+		port: 5173,
+		created_at: '2026-10-27T10:00:00Z',
+		updated_at: '2026-10-27T10:00:00Z'
+	};
+	state.task = {
+		...state.task,
+		state: 'awaiting_review',
+		reason: 'Pull request opened; waiting for human review',
+		machine_id: 'machine-1'
+	};
 	emit('task.state_changed', state.task);
 	await expect(page.getByText('Pull request opened; waiting for human review', { exact: true })).toBeVisible();
+	await page
+		.context()
+		.route('https://*.machines.example.test/**', (route) =>
+			route.fulfill({ contentType: 'text/html', body: 'preview' })
+		);
+	const popupPromise = page.waitForEvent('popup');
+	await page.getByRole('button', { name: 'Open preview' }).click();
+	await popupPromise;
+	await expect.poll(() => state.previewLaunches).toBe(1);
 	await page.getByRole('button', { name: 'Execution details', exact: true }).click();
 	await expect(page.getByText('Pull request opened', { exact: true })).toBeVisible();
 	await page.reload();

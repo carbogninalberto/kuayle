@@ -165,7 +165,8 @@ is configured and the machine runs. Previews stop with the machine (idle pause
 included). Preview hosts share the machine domain's site with the machine's other
 hosts; cross-host requests are subject to the gateway's origin checks, as between
 any two machine hosts. The machine page provides the port, open and remove
-controls.
+controls; a task card offers **Open preview** once its task is ready for review or
+has stopped and its machine has a preview.
 
 ## Authenticated Machine Access
 
