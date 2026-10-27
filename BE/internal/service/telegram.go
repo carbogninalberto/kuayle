@@ -428,13 +428,7 @@ func (s *TelegramService) Run(ctx context.Context) {
 				}
 				text := telegramText(d.Text, 3200)
 				if d.ConversationID != nil {
-					link := s.frontend + "/" + url.PathEscape(d.Slug) + "/assistant?conversation=" + d.ConversationID.String()
-					// Telegram only makes public addresses clickable.
-					if strings.HasPrefix(link, "https://") {
-						text += "\n\n[Open in Kuayle](" + link + ")"
-					} else {
-						text += "\n\n" + link
-					}
+					text = s.replyText(d.Text, d.Slug, *d.ConversationID)
 				}
 				payload := map[string]any{"chat_id": d.TelegramUserID, "link_preview_options": map[string]any{"is_disabled": true}}
 				if keyboard := approvalKeyboard(d.Approvals); keyboard != nil {
@@ -455,6 +449,18 @@ func (s *TelegramService) Run(ctx context.Context) {
 			cancel()
 		}
 	}
+}
+
+// replyText is a reply with a link back to its conversation. Telegram only
+// links public addresses, and a local address is unreachable from the phone
+// anyway, so the link is left out unless the app is served over HTTPS.
+func (s *TelegramService) replyText(text, slug string, conversation uuid.UUID) string {
+	text = telegramText(text, 3200)
+	link := s.frontend + "/" + url.PathEscape(slug) + "/assistant?conversation=" + conversation.String()
+	if strings.HasPrefix(link, "https://") {
+		text += "\n\n[Open in Kuayle](" + link + ")"
+	}
+	return text
 }
 
 // sendFormatted sends Markdown as Telegram HTML, and as plain text when

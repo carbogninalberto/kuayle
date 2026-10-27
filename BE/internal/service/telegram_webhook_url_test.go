@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -52,4 +53,22 @@ func TestTelegramWebhookAddressMustBePublicHTTPS(t *testing.T) {
 	require.NoError(t, local.SetWebhookURL("https://smee.io/fixture-channel"))
 	require.True(t, publicHTTPSURL(local.webhookURL(ws)))
 	require.False(t, publicHTTPSURL("https://user@example.test/hook"))
+}
+
+func TestTelegramLinksBackOnlyToPublicAddresses(t *testing.T) {
+	for frontend, linked := range map[string]bool{"https://kuayle.example.test": true, "http://localhost:5173": false} {
+		var sent string
+		remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var body map[string]any
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+			sent = body["text"].(string)
+			fmt.Fprint(w, `{"ok":true,"result":{"message_id":1}}`)
+		}))
+		svc := NewTelegramService(nil, nil, nil, nil, frontend)
+		svc.endpoint, svc.client = remote.URL, remote.Client()
+		require.NoError(t, svc.sendFormatted(context.Background(), "token", "sendMessage", map[string]any{"chat_id": 1}, svc.replyText("Done", "acme", uuid.New()), nil))
+		remote.Close()
+		require.Equal(t, linked, strings.Contains(sent, "Open in Kuayle"), frontend)
+		require.NotContains(t, sent, "localhost", frontend)
+	}
 }

@@ -104,8 +104,9 @@ final delivery edits that message (falling back to a new message) and adds any
 approval buttons. Replies are sent as Telegram HTML converted from the assistant's
 Markdown (bold, italic, strikethrough, code, fenced blocks, quotes, lists and
 http(s) links; everything else escaped), and as plain text if Telegram refuses the
-formatting. The link back to the conversation is clickable only when
-`FRONTEND_URL` is HTTPS; Telegram does not link `localhost`.
+formatting. Replies end with an "Open in Kuayle" link to the conversation only
+when `FRONTEND_URL` is HTTPS: Telegram does not link `localhost`, which a phone
+could not reach anyway.
 
 Disabling blocks input and queued output immediately; authenticated updates are
 acknowledged and ignored while disabled. Re-enabling or switching bots uses
