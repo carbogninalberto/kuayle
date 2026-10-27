@@ -1938,5 +1938,15 @@
 	"tasks.publication_failed": "Pubblicazione non riuscita",
 	"tasks.publication_cancelled": "Pubblicazione annullata",
 	"tasks.publication_skipped": "Nessuna modifica da pubblicare",
-	"tasks.open_pull_request": "Apri pull request"
+	"tasks.open_pull_request": "Apri pull request",
+	"assistant.tool_running": "Esecuzione di {tool}",
+	"assistant.tool_completed": "Eseguito {tool}",
+	"assistant.tool_failed": "Esecuzione di {tool} non riuscita",
+	"assistant.tool_list_teams": "Elenca team",
+	"assistant.tool_search_issues": "Cerca issue",
+	"assistant.tool_get_issue": "Leggi issue",
+	"assistant.tool_create_issue": "Crea issue",
+	"assistant.tool_created_issue": "Creata {identifier}",
+	"assistant.tool_input": "Input",
+	"assistant.tool_output": "Risultato"
 }

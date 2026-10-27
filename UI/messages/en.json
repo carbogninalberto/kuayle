@@ -1938,5 +1938,15 @@
 	"tasks.publication_failed": "Publishing failed",
 	"tasks.publication_cancelled": "Publishing cancelled",
 	"tasks.publication_skipped": "No changes to publish",
-	"tasks.open_pull_request": "Open pull request"
+	"tasks.open_pull_request": "Open pull request",
+	"assistant.tool_running": "Running {tool}",
+	"assistant.tool_completed": "Ran {tool}",
+	"assistant.tool_failed": "Failed to run {tool}",
+	"assistant.tool_list_teams": "List teams",
+	"assistant.tool_search_issues": "Search issues",
+	"assistant.tool_get_issue": "Read issue",
+	"assistant.tool_create_issue": "Create issue",
+	"assistant.tool_created_issue": "Created {identifier}",
+	"assistant.tool_input": "Input",
+	"assistant.tool_output": "Result"
 }

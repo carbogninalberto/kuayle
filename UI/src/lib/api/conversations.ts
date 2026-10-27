@@ -39,8 +39,11 @@ export interface ConversationEvent {
 		| 'task.updated'
 		| 'task.activity'
 		| 'task.tests_updated'
-		| 'task.publication_updated';
+		| 'task.publication_updated'
+		| 'tool.started'
+		| 'tool.completed';
 	payload:
+		| ConversationToolCall
 		| AgentTask
 		| TaskActivity
 		| ConversationMessage
@@ -53,10 +56,26 @@ export interface ConversationIssue {
 	description: string;
 	status: string;
 }
+export interface ConversationToolCall {
+	id: string;
+	conversation_id: string;
+	message_id: string;
+	sequence: number;
+	call_id: string;
+	name: string;
+	input: Record<string, unknown>;
+	status: 'running' | 'completed' | 'failed';
+	output?: unknown;
+	error?: string;
+	issue_id?: string;
+	created_at: string;
+	completed_at?: string;
+}
 export interface ConversationHistory {
 	issue?: ConversationIssue;
 	conversation: Conversation;
 	messages: ConversationMessage[];
+	tools?: ConversationToolCall[];
 	cursor: number;
 	has_more: boolean;
 }

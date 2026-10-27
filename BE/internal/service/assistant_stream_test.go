@@ -116,3 +116,28 @@ func TestAssistantStreamingPreservesNetworkBoundary(t *testing.T) {
 	require.ErrorIs(t, svc.streamAssistant(context.Background(), redirect.URL, "model", "key", nil, func(string) error { return nil }), ErrAIProviderRequestFailed)
 	require.Zero(t, hits)
 }
+
+func TestAssistantStreamAcceptsToolCallsOnlyWhenOffered(t *testing.T) {
+	call := "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"function\":{\"name\":\"list_teams\",\"arguments\":\"{}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n"
+	empty := "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n"
+	serve := func(body string) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			fmt.Fprint(w, body)
+		}))
+	}
+	svc := NewAISettingsService(nil, nil, nil, nil, WithAIPrivateNetworkAccess(true))
+	tools := (&AssistantTools{}).specs()
+	provider := serve(call)
+	defer provider.Close()
+	calls, err := svc.streamAssistantTools(context.Background(), provider.URL, "model", "key", nil, tools, func(string) error { return nil })
+	require.NoError(t, err)
+	require.Len(t, calls, 1)
+	require.Equal(t, "list_teams", calls[0].Function.Name)
+	_, err = svc.streamAssistantTools(context.Background(), provider.URL, "model", "key", nil, nil, func(string) error { return nil })
+	require.ErrorIs(t, err, ErrAIProviderRequestFailed, "a provider cannot invoke tools that were not offered")
+	missing := serve(empty)
+	defer missing.Close()
+	_, err = svc.streamAssistantTools(context.Background(), missing.URL, "model", "key", nil, tools, func(string) error { return nil })
+	require.ErrorIs(t, err, ErrAIProviderRequestFailed)
+}

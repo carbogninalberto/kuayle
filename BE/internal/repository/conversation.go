@@ -130,6 +130,9 @@ func (r *ConversationRepository) History(ctx context.Context, ws, id uuid.UUID, 
 		h.Messages = h.Messages[:50]
 	}
 	slices.Reverse(h.Messages)
+	if h.Tools, err = messageToolCalls(ctx, tx, h.Messages); err != nil {
+		return nil, err
+	}
 	err = tx.GetContext(ctx, &h.Cursor, `SELECT COALESCE(MAX(cursor),0) FROM conversation_events WHERE conversation_id=$1`, id)
 	return h, err
 }
@@ -269,6 +272,9 @@ func transitionConversationMessage(ctx context.Context, tx *sqlx.Tx, id uuid.UUI
 	var m domain.ConversationMessage
 	err := tx.GetContext(ctx, &m, `UPDATE conversation_messages SET status=$2,lease_token=NULL,lease_expires_at=NULL,updated_at=now() WHERE id=$1 RETURNING *`, id, status)
 	if err != nil {
+		return err
+	}
+	if err = failRunningToolCalls(ctx, tx, m); err != nil {
 		return err
 	}
 	_, err = conversationEvent(ctx, tx, m.ConversationID, "message.completed", map[string]any{"message_id": m.ID, "status": m.Status})

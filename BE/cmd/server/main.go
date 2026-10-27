@@ -148,6 +148,7 @@ func main() {
 	tokenH := handler.NewTokenHandler(tokenSvc)
 	aiSettingsH := handler.NewAISettingsHandler(aiSettingsSvc)
 	conversationSvc := service.NewConversationService(repository.NewConversationRepository(db), aiSettingsSvc)
+	conversationSvc.SetTools(service.NewAssistantTools(issueRepo, teamRepo, workspaceRepo, issueSvc))
 	conversationH := handler.NewConversationHandler(conversationSvc, cfg.FrontendURL)
 	agentTaskSvc := service.NewAgentTaskService(repository.NewAgentTaskRepository(db), devMachineSvc, hub)
 	agentTaskH := handler.NewAgentTaskHandler(agentTaskSvc)

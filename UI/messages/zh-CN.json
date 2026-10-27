@@ -1938,5 +1938,15 @@
 	"tasks.publication_failed": "发布失败",
 	"tasks.publication_cancelled": "发布已取消",
 	"tasks.publication_skipped": "没有可发布的更改",
-	"tasks.open_pull_request": "打开拉取请求"
+	"tasks.open_pull_request": "打开拉取请求",
+	"assistant.tool_running": "正在运行 {tool}",
+	"assistant.tool_completed": "已运行 {tool}",
+	"assistant.tool_failed": "运行 {tool} 失败",
+	"assistant.tool_list_teams": "列出团队",
+	"assistant.tool_search_issues": "搜索问题",
+	"assistant.tool_get_issue": "读取问题",
+	"assistant.tool_create_issue": "创建问题",
+	"assistant.tool_created_issue": "已创建 {identifier}",
+	"assistant.tool_input": "输入",
+	"assistant.tool_output": "结果"
 }

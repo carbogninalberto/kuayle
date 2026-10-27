@@ -8,9 +8,9 @@ requests; an already running request finishes or can be stopped.
 
 ## Current scope
 
-This increment remains conversational. It does not yet expose issue mutation,
-repository, machine, approval or publishing tools to the model. The system
-instruction makes that limitation explicit. Conversations currently belong to
+The assistant can list teams and search, read and create issues through
+[orchestrator tools](#orchestrator-tools). It has no repository, machine, coding
+agent, approval or publishing tools; the system instruction says so. Conversations currently belong to
 their creator, who must remain a non-guest workspace member. Two browsers signed
 in as that user can view the same stream. Issue details now embed the same conversation UI, with a full-page link back to the
 issue. Each creator has one reusable chat per issue and original team. Sharing and
@@ -89,8 +89,8 @@ The existing API process runs four lightweight generation workers. PostgreSQL
 reconnection, duplicate POST, or additional API process cannot claim the same
 attempt. Requests use the provider's streaming Chat Completions API. The worker
 persists deltas in batches (200 ms or 1 KiB) and checks cancellation/membership
-while awaiting provider output. No tools or direct infrastructure access are
-provided to the model.
+while awaiting provider output. The model only receives the orchestrator tools
+below; it has no direct database, Docker or infrastructure access.
 
 An attempt has a two-minute lease and a provider timeout of 90 seconds. A worker
 that loses its lease cannot append or complete. Recovery marks expired attempts
@@ -166,6 +166,42 @@ output before completion, replay without duplicate execution and revoked access.
 It is not a paid-provider smoke test. Migration tests exercise upgrade and
 rollback with existing issue fixtures. Browser tests cover keyboard, drafts,
 streaming, history, denied access, mobile layout and long transcript scrolling.
+
+## Orchestrator tools
+
+The worker offers OpenAI-compatible function tools: `list_teams`,
+`search_issues`, `get_issue` and `create_issue`. The model only proposes calls.
+`AssistantTools` executes each in Go as the conversation creator, re-reading the
+current workspace role (guests and roles without `issue:create` are refused) and
+using the same team-visibility-scoped repositories and `IssueService.Create` as
+the HTTP routes. Arguments are strict JSON: unknown fields such as a creator ID
+are rejected, and the issue is always created with the user's own identity.
+Teams are resolved by key among the teams the user can see.
+
+A provider may return tool calls only when tools were offered and must finish
+the turn with `finish_reason: "tool_calls"`. One reply runs at most four tool
+rounds, eight calls and three issue creations; the final round offers no tools,
+so the model must answer. Results are returned to the model wrapped as
+`untrusted_data`, and the instruction says to ignore instructions inside them.
+Prompt-injected content can therefore at most cause the bounded, user-permitted
+actions above, which remain visible and attributed in the conversation.
+
+Migration 60 adds `conversation_tool_calls`. Each call is inserted as `running`
+under the generation lease **before** it executes, then completed or failed
+exactly once with bounded output, an optional `issue_id` and a user-safe error
+(internal errors are never shown). Losing the lease or conversation access stops
+the reply before the next effect. A message that ends while a call is still
+running records that call as failed with an explicit unknown outcome; calls are
+never re-executed automatically, and a retry creates a new reply. Calls appear
+in history (`tools`) and as `tool.started`/`tool.completed` events, ordered by
+sequence. The UI renders them with the AI Elements
+[Tool](https://www.shadcn-svelte.com/docs/ai-elements/tool) composition (Trace
+plus escaped Code Block input and output) and links created issues. Telegram
+uses the same worker, so its replies can use the same tools.
+
+Model context includes completed message text only; earlier turns' tool
+results are not replayed, so the assistant relies on its own replies for
+continuity. Delegating coding work from chat and approvals are not implemented.
 
 ## Next phases
 

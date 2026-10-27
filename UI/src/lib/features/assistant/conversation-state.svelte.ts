@@ -4,13 +4,16 @@ import {
 	type Conversation,
 	type ConversationIssue,
 	type ConversationMessage,
-	type ConversationEvent
+	type ConversationEvent,
+	type ConversationToolCall
 } from '$lib/api/conversations';
 
 export class ConversationState {
 	conversation = $state<Conversation | null>(null);
 	issue = $state<ConversationIssue | null>(null);
 	messages = $state<ConversationMessage[]>([]);
+	// Tool calls by assistant message, ordered by their recorded sequence.
+	tools = $state<Record<string, ConversationToolCall[]>>({});
 	liveTasks = $state<Record<string, AgentTask>>({});
 	taskActivity = $state<Record<string, TaskActivity>>({});
 	taskValidationCursor = $state<Record<string, number>>({});
@@ -45,6 +48,8 @@ export class ConversationState {
 			this.conversation = history.conversation;
 			this.issue = history.issue ?? null;
 			this.messages = history.messages;
+			this.tools = {};
+			this.acceptTools(history.tools ?? []);
 			this.cursor = history.cursor;
 			this.hasMore = history.has_more;
 			this.connect();
@@ -65,6 +70,7 @@ export class ConversationState {
 			this.loadVersion++;
 			this.loading = false;
 			this.messages = [];
+			this.tools = {};
 			this.liveTasks = {};
 			this.taskActivity = {};
 			this.taskValidationCursor = {};
@@ -96,6 +102,8 @@ export class ConversationState {
 		} else if (event.type === 'task.publication_updated') {
 			const data = event.payload as { task_id: string };
 			this.taskPublicationCursor = { ...this.taskPublicationCursor, [data.task_id]: event.cursor };
+		} else if (event.type === 'tool.started' || event.type === 'tool.completed') {
+			this.acceptTools([event.payload as ConversationToolCall]);
 		} else if (event.type === 'task.activity') {
 			const activity = event.payload as TaskActivity;
 			this.taskActivity = { ...this.taskActivity, [activity.task_id]: activity };
@@ -111,6 +119,19 @@ export class ConversationState {
 			);
 		}
 		this.cursor = event.cursor;
+	}
+	acceptTools(calls: ConversationToolCall[]) {
+		if (!calls.length) return;
+		const next = { ...this.tools };
+		for (const call of calls) {
+			if (call.conversation_id !== this.id) continue;
+			const existing = (next[call.message_id] ?? []).filter((c) => c.id !== call.id);
+			const previous = next[call.message_id]?.find((c) => c.id === call.id);
+			// A replayed start must not hide an already recorded outcome.
+			const kept = previous && previous.status !== 'running' && call.status === 'running' ? previous : call;
+			next[call.message_id] = [...existing, kept].sort((a, b) => a.sequence - b.sequence);
+		}
+		this.tools = next;
 	}
 	acceptTask(task: AgentTask, fromStream = false, expectedCurrent?: AgentTask | null) {
 		if (this.disposed || this.unavailable || task.conversation_id !== this.id) return;
@@ -180,6 +201,7 @@ export class ConversationState {
 			if (this.disposed || this.unavailable || version !== this.loadVersion) return;
 			const known = new Set(this.messages.map((m) => m.id));
 			this.messages = [...history.messages.filter((m) => !known.has(m.id)), ...this.messages];
+			this.acceptTools(history.tools ?? []);
 			this.hasMore = history.has_more;
 		} catch (error) {
 			if (version === this.loadVersion) this.handleError(error);

@@ -22,6 +22,7 @@
 	import { conversations, type Conversation, type AssistantStatus, type MessageStatus } from '$lib/api/conversations';
 	import { ConversationState } from './conversation-state.svelte';
 	import TaskPanel from './TaskPanel.svelte';
+	import ToolCalls from './ToolCalls.svelte';
 	import { renderMarkdown } from '$lib/markdown';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { m } from '$lib/paraglide/messages.js';
@@ -293,6 +294,10 @@
 															>· {message.model}</span
 														>{/if}</Message.Header
 												>
+												{#if message.role === 'assistant'}<ToolCalls
+														calls={chat.tools[message.id] ?? []}
+														slug={chat.slug}
+													/>{/if}
 												<Bubble.Root variant={message.role === 'user' ? 'muted' : 'ghost'}>
 													<Bubble.Content>
 														{#if message.role === 'user'}<p class="whitespace-pre-wrap break-words">

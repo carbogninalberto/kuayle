@@ -41,11 +41,12 @@ type ConversationEvent struct {
 	CreatedAt      time.Time       `json:"created_at" db:"created_at"`
 }
 type ConversationHistory struct {
-	Conversation Conversation          `json:"conversation"`
-	Issue        *ConversationIssue    `json:"issue,omitempty"`
-	Messages     []ConversationMessage `json:"messages"`
-	Cursor       int64                 `json:"cursor"`
-	HasMore      bool                  `json:"has_more"`
+	Conversation Conversation           `json:"conversation"`
+	Issue        *ConversationIssue     `json:"issue,omitempty"`
+	Messages     []ConversationMessage  `json:"messages"`
+	Tools        []ConversationToolCall `json:"tools"`
+	Cursor       int64                  `json:"cursor"`
+	HasMore      bool                   `json:"has_more"`
 }
 type ConversationAttempt struct {
 	Conversation Conversation
@@ -59,4 +60,22 @@ type ConversationIssue struct {
 	Title       string    `json:"title" db:"title"`
 	Description string    `json:"description" db:"description"`
 	Status      string    `json:"status" db:"status"`
+}
+
+// ConversationToolCall is one assistant tool invocation. Input and output are
+// bounded, sanitized JSON; output is untrusted data, never instructions.
+type ConversationToolCall struct {
+	ID             uuid.UUID        `json:"id" db:"id"`
+	ConversationID uuid.UUID        `json:"conversation_id" db:"conversation_id"`
+	MessageID      uuid.UUID        `json:"message_id" db:"message_id"`
+	Sequence       int              `json:"sequence" db:"sequence"`
+	CallID         string           `json:"call_id" db:"call_id"`
+	Name           string           `json:"name" db:"name"`
+	Input          json.RawMessage  `json:"input" db:"input"`
+	Status         string           `json:"status" db:"status"`
+	Output         *json.RawMessage `json:"output,omitempty" db:"output"`
+	Error          *string          `json:"error,omitempty" db:"error"`
+	IssueID        *uuid.UUID       `json:"issue_id,omitempty" db:"issue_id"`
+	CreatedAt      time.Time        `json:"created_at" db:"created_at"`
+	CompletedAt    *time.Time       `json:"completed_at,omitempty" db:"completed_at"`
 }

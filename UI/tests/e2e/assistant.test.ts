@@ -34,6 +34,7 @@ const reply = {
 async function fixture(page: Page) {
 	const state = {
 		messages: [] as (typeof userMessage)[],
+		tools: [] as any[],
 		cursor: 0,
 		events: [] as Array<{ cursor: number; [key: string]: unknown }>,
 		sends: [] as string[],
@@ -98,7 +99,13 @@ async function fixture(page: Page) {
 			}
 			const messages = state.messages.filter((m) => !before || m.sequence < before);
 			return route.fulfill({
-				json: { conversation, messages: messages.slice(-50), cursor: state.cursor, has_more: messages.length > 50 }
+				json: {
+					conversation,
+					messages: messages.slice(-50),
+					tools: state.tools,
+					cursor: state.cursor,
+					has_more: messages.length > 50
+				}
 			});
 		}
 		return route.fulfill({ json: [] });
@@ -404,4 +411,57 @@ test('denied issue chat stays empty and can retry a temporary opening failure', 
 	await chat.getByRole('button', { name: 'Retry', exact: true }).click();
 	await expect(chat.getByText('This conversation is no longer available.')).toBeVisible();
 	await expect(chat.getByRole('textbox')).toHaveCount(0);
+});
+
+test('renders recorded tool calls from history and live events as escaped data', async ({ page }) => {
+	const state = await fixture(page);
+	const answered = { ...reply, status: 'completed', content: 'I created the issue.' };
+	state.messages = [userMessage, answered];
+	state.cursor = 4;
+	const created = {
+		id: 'tool-1',
+		conversation_id: 'chat-1',
+		message_id: answered.id,
+		sequence: 0,
+		call_id: 'call_1',
+		name: 'create_issue',
+		input: { team_key: 'ENG', title: 'Dark mode' },
+		status: 'completed',
+		output: { identifier: 'ENG-7', title: '<img src=x onerror="window.evil=1">' },
+		created_at: conversation.created_at
+	};
+	state.tools = [created];
+	await page.goto('/test/assistant?conversation=chat-1');
+	const trigger = page.getByRole('button', { name: 'Created ENG-7' });
+	await expect(trigger).toBeVisible();
+	await expect(page.getByRole('link', { name: 'ENG-7' })).toHaveAttribute('href', '/test/issue/ENG-7');
+	await trigger.click();
+	await expect(page.getByText('<img src=x onerror=', { exact: false })).toBeVisible();
+	expect(await page.evaluate(() => (window as any).evil)).toBeUndefined();
+	await expect.poll(() => state.sockets.length).toBeGreaterThan(0);
+	const search = {
+		...created,
+		id: 'tool-2',
+		sequence: 1,
+		call_id: 'call_2',
+		name: 'search_issues',
+		input: { query: 'dark' },
+		status: 'running',
+		output: undefined
+	};
+	state.sockets
+		.at(-1)!
+		.send(JSON.stringify({ id: 'e5', cursor: 5, conversation_id: 'chat-1', type: 'tool.started', payload: search }));
+	await expect(page.getByText('Running Search issues', { exact: true })).toBeVisible();
+	const failed = { ...search, status: 'failed', error: 'query must be 1 to 200 characters' };
+	state.sockets
+		.at(-1)!
+		.send(JSON.stringify({ id: 'e6', cursor: 6, conversation_id: 'chat-1', type: 'tool.completed', payload: failed }));
+	await expect(page.getByRole('button', { name: 'Failed to run Search issues' })).toBeVisible();
+	// A late replay of the start must not hide the recorded failure.
+	state.sockets
+		.at(-1)!
+		.send(JSON.stringify({ id: 'e5', cursor: 5, conversation_id: 'chat-1', type: 'tool.started', payload: search }));
+	await expect(page.getByRole('button', { name: 'Failed to run Search issues' })).toBeVisible();
+	await expect(page.getByText('I created the issue.', { exact: true })).toBeVisible();
 });

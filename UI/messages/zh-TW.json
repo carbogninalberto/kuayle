@@ -1938,5 +1938,15 @@
 	"tasks.publication_failed": "發布失敗",
 	"tasks.publication_cancelled": "發布已取消",
 	"tasks.publication_skipped": "沒有可發布的變更",
-	"tasks.open_pull_request": "開啟拉取請求"
+	"tasks.open_pull_request": "開啟拉取請求",
+	"assistant.tool_running": "正在執行 {tool}",
+	"assistant.tool_completed": "已執行 {tool}",
+	"assistant.tool_failed": "執行 {tool} 失敗",
+	"assistant.tool_list_teams": "列出團隊",
+	"assistant.tool_search_issues": "搜尋問題",
+	"assistant.tool_get_issue": "讀取問題",
+	"assistant.tool_create_issue": "建立問題",
+	"assistant.tool_created_issue": "已建立 {identifier}",
+	"assistant.tool_input": "輸入",
+	"assistant.tool_output": "結果"
 }
