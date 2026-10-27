@@ -91,12 +91,14 @@ func TestPublicationRecordsPullRequestOnceAndGatesReview(t *testing.T) {
 	require.Equal(t, "dev@example.com", publication.AuthorEmail)
 	require.Empty(t, publication.PublishedCommit, "nothing published yet")
 	// Later publications fold agent commits only above what Kuayle published on
-	// this checkout's branch; other branches and repositories do not count.
-	_, err = db.Exec(`INSERT INTO dev_machine_git_refs(workspace_id,machine_id,ref_type,repository_full_name,ref_name,commit_sha,created_at) VALUES
- ($1,$2,'commit','fixture/repo','kuayle/rec-1','1111111111111111111111111111111111111111',now()-interval '2 minutes'),
- ($1,$2,'commit','fixture/repo','kuayle/rec-1','2222222222222222222222222222222222222222',now()-interval '1 minute'),
- ($1,$2,'commit','fixture/repo','kuayle/other','3333333333333333333333333333333333333333',now()),
- ($1,$2,'commit','other/repo','kuayle/rec-1','4444444444444444444444444444444444444444',now())`, task.WorkspaceID, *claimed.MachineID)
+	// this checkout's branch. Commits only observed in the checkout, and other
+	// branches or repositories, do not count.
+	_, err = db.Exec(`INSERT INTO dev_machine_git_refs(workspace_id,machine_id,ref_type,repository_full_name,ref_name,commit_sha,created_at,source) VALUES
+ ($1,$2,'commit','fixture/repo','kuayle/rec-1','1111111111111111111111111111111111111111',now()-interval '2 minutes','published'),
+ ($1,$2,'commit','fixture/repo','kuayle/rec-1','2222222222222222222222222222222222222222',now()-interval '1 minute','published'),
+ ($1,$2,'commit','fixture/repo','kuayle/rec-1','5555555555555555555555555555555555555555',now(),'observed'),
+ ($1,$2,'commit','fixture/repo','kuayle/other','3333333333333333333333333333333333333333',now(),'published'),
+ ($1,$2,'commit','other/repo','kuayle/rec-1','4444444444444444444444444444444444444444',now(),'published')`, task.WorkspaceID, *claimed.MachineID)
 	require.NoError(t, err)
 	publication, err = store.GetPublication(ctx, op)
 	require.NoError(t, err)
@@ -125,6 +127,9 @@ func TestPublicationRecordsPullRequestOnceAndGatesReview(t *testing.T) {
 		Number  *int    `db:"pull_request_number"`
 	}
 	require.NoError(t, db.Select(&refs, `SELECT ref_type,repository_full_name,commit_sha,pull_request_number FROM dev_machine_git_refs WHERE agent_run_id=$1 ORDER BY ref_type`, task.RunID))
+	var published int
+	require.NoError(t, db.Get(&published, `SELECT count(*) FROM dev_machine_git_refs WHERE agent_run_id=$1 AND source='published'`, task.RunID))
+	require.Equal(t, 3, published, "publication refs are marked as pushed by Kuayle")
 	require.Len(t, refs, 3)
 	var checkoutRepo string
 	require.NoError(t, db.Get(&checkoutRepo, `SELECT c.repository_full_name FROM dev_machine_checkouts c JOIN dev_machine_agent_runs r ON r.checkout_id=c.id WHERE r.id=$1`, task.RunID))

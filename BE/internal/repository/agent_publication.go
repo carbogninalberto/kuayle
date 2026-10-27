@@ -74,11 +74,12 @@ func (r *DevMachineRepository) GetPublication(ctx context.Context, op domain.Dev
 		return nil, err
 	}
 	publication.AuthorName, publication.AuthorEmail = name.String, email.String
-	// The branch's last published commit, from Kuayle's own record.
+	// The branch's last commit Kuayle pushed; commits merely observed in the
+	// checkout do not count.
 	var published sql.NullString
 	if err = tx.QueryRowContext(ctx, `SELECT g.commit_sha FROM dev_machine_agent_runs r
  JOIN dev_machine_checkouts c ON c.id=r.checkout_id AND c.workspace_id=r.workspace_id
- JOIN dev_machine_git_refs g ON g.workspace_id=r.workspace_id AND g.repository_full_name=c.repository_full_name AND g.ref_name=c.working_branch AND g.ref_type='commit'
+ JOIN dev_machine_git_refs g ON g.workspace_id=r.workspace_id AND g.repository_full_name=c.repository_full_name AND g.ref_name=c.working_branch AND g.ref_type='commit' AND g.source='published'
  WHERE r.id=$1 AND g.commit_sha IS NOT NULL ORDER BY g.created_at DESC LIMIT 1`, task.RunID).Scan(&published); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
@@ -141,8 +142,8 @@ func (r *DevMachineRepository) CompletePublication(ctx context.Context, op domai
 		}
 		// Git refs reuse the checkout's repository so a manipulated result cannot
 		// attribute the pull request to another repository.
-		refs, err := tx.ExecContext(ctx, `INSERT INTO dev_machine_git_refs(workspace_id,machine_id,agent_run_id,issue_id,ref_type,repository_full_name,ref_name,commit_sha,pull_request_number,url)
- SELECT r.workspace_id,r.machine_id,r.id,c.issue_id,ref.kind,c.repository_full_name,$2,ref.sha,ref.number,ref.url
+		refs, err := tx.ExecContext(ctx, `INSERT INTO dev_machine_git_refs(workspace_id,machine_id,agent_run_id,issue_id,ref_type,repository_full_name,ref_name,commit_sha,pull_request_number,url,source)
+ SELECT r.workspace_id,r.machine_id,r.id,c.issue_id,ref.kind,c.repository_full_name,$2,ref.sha,ref.number,ref.url,'published'
  FROM dev_machine_agent_runs r JOIN dev_machine_checkouts c ON c.id=r.checkout_id AND c.workspace_id=r.workspace_id
  CROSS JOIN (VALUES ('branch',NULL::varchar,NULL::int,NULL::text),('commit',$3::varchar,NULL::int,NULL::text),('pull_request',NULL::varchar,$4::int,$5::text)) AS ref(kind,sha,number,url)
  WHERE r.id=$1`, step.AgentRunID, result.Branch, result.Commit, result.PullRequestNumber, result.PullRequestURL)
