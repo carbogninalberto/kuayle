@@ -42,6 +42,7 @@ const (
 	DevMachineOpValidateAgent       DevMachineOperationAction = "validate_agent"
 	DevMachineOpPublishAgent        DevMachineOperationAction = "publish_agent"
 	DevMachineOpPurgeTaskSession    DevMachineOperationAction = "purge_task_session"
+	DevMachineOpStartPreview        DevMachineOperationAction = "start_preview"
 	DevMachineOpCancelAgent         DevMachineOperationAction = "cancel_agent"
 	DevMachineOpCheckoutIssue       DevMachineOperationAction = "checkout_issue"
 	DevMachineOpSnapshotEnvironment DevMachineOperationAction = "snapshot_environment"
@@ -454,12 +455,15 @@ type DevMachineWorkspacePolicy struct {
 	AllowCustomProviders  bool            `json:"allow_custom_providers" db:"allow_custom_providers"`
 	// AllowUnattendedAutomations lets automation rules start tasks without a
 	// human approval; each rule must also opt in.
-	AllowUnattendedAutomations bool                  `json:"allow_unattended_automations" db:"allow_unattended_automations"`
-	IdlePauseMinutes           int                   `json:"idle_pause_minutes" db:"idle_pause_minutes"`
-	DiskQuotaMode              string                `json:"disk_quota_mode" db:"-"`
-	SizeOptions                DevMachineSizeOptions `json:"size_options" db:"-"`
-	CreatedAt                  time.Time             `json:"created_at" db:"created_at"`
-	UpdatedAt                  time.Time             `json:"updated_at" db:"updated_at"`
+	AllowUnattendedAutomations bool `json:"allow_unattended_automations" db:"allow_unattended_automations"`
+	// AgentGitName and AgentGitEmail optionally author agent commits.
+	AgentGitName     *string               `json:"agent_git_name" db:"agent_git_name"`
+	AgentGitEmail    *string               `json:"agent_git_email" db:"agent_git_email"`
+	IdlePauseMinutes int                   `json:"idle_pause_minutes" db:"idle_pause_minutes"`
+	DiskQuotaMode    string                `json:"disk_quota_mode" db:"-"`
+	SizeOptions      DevMachineSizeOptions `json:"size_options" db:"-"`
+	CreatedAt        time.Time             `json:"created_at" db:"created_at"`
+	UpdatedAt        time.Time             `json:"updated_at" db:"updated_at"`
 }
 
 type DevMachineSizeOptions struct {
@@ -505,6 +509,9 @@ type DevMachineScopeSetting struct {
 	AgentProvider     *string `json:"agent_provider" db:"agent_provider"`
 	AgentInstructions *string `json:"agent_instructions" db:"agent_instructions"`
 	ComposeFile       *string `json:"compose_file" db:"compose_file"`
+
+	PreviewCommand *json.RawMessage `json:"preview_command" db:"preview_command"`
+	PreviewPort    *int             `json:"preview_port" db:"preview_port"`
 }
 
 type DevMachineCheckout struct {

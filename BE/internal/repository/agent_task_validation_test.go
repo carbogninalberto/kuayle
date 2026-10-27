@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"testing"
@@ -190,7 +191,8 @@ func TestComposeFileIsInheritedSnapshottedAndARejectionExplainsTheFailedCheck(t 
 	db, repo, ctx, task, fixture := taskRecoveryFixture(t)
 	store := NewDevMachineRepository(db)
 	compose := "deploy/compose.yaml"
-	require.NoError(t, store.UpsertScopeSetting(ctx, &domain.DevMachineScopeSetting{ID: uuid.New(), WorkspaceID: task.WorkspaceID, TeamID: &task.TeamID, ComposeFile: &compose}))
+	previewCommand, previewPort := json.RawMessage(`["npm","run","dev"]`), 5173
+	require.NoError(t, store.UpsertScopeSetting(ctx, &domain.DevMachineScopeSetting{ID: uuid.New(), WorkspaceID: task.WorkspaceID, TeamID: &task.TeamID, ComposeFile: &compose, PreviewCommand: &previewCommand, PreviewPort: &previewPort}))
 	for _, invalid := range []string{"../compose.yaml", "/etc/compose.yaml", "compose.json", "a/./compose.yml"} {
 		_, err := db.Exec(`UPDATE dev_machine_scope_settings SET compose_file=$1 WHERE team_id=$2`, invalid, task.TeamID)
 		require.Error(t, err, invalid)
@@ -201,6 +203,8 @@ func TestComposeFileIsInheritedSnapshottedAndARejectionExplainsTheFailedCheck(t 
 	second, err := repo.Create(ctx, task.WorkspaceID, *task.ConversationID, domain.AgentTaskRequest{RequestID: uuid.New(), Prompt: "Second task", Provider: "codex"})
 	require.NoError(t, err)
 	require.Equal(t, compose, second.ComposeFile, "new tasks snapshot the nearest compose file")
+	require.JSONEq(t, `["npm","run","dev"]`, string(second.PreviewCommand), "and the inherited preview")
+	require.Equal(t, 5173, *second.PreviewPort)
 	_, err = db.Exec(`UPDATE agent_tasks SET compose_file=$2 WHERE id=$1`, task.ID, compose)
 	require.NoError(t, err)
 	claimed := prepareTaskStart(t, db, repo, ctx, task, fixture)

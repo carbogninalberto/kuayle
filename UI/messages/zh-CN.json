@@ -2045,5 +2045,18 @@
 	"automations.status_failed": "失败",
 	"settings.dev_machines.allow_unattended": "允许无人值守自动化",
 	"assistant.tool_plan_issues": "规划议题",
-	"assistant.tool_link_issues": "关联依赖"
+	"assistant.tool_link_issues": "关联依赖",
+	"settings.dev_machines.commit_author": "智能体提交作者",
+	"settings.dev_machines.commit_author_desc": "可选。智能体的提交将使用此名称和邮箱。请使用在 GitHub 账号上已验证的邮箱（或其 noreply 地址），以便 GitHub 正确归属提交；两者都留空则使用部署默认值。",
+	"settings.dev_machines.commit_author_name": "用户名",
+	"settings.dev_machines.commit_author_email": "已验证邮箱",
+	"tasks.agents": "智能体",
+	"tasks.agents_tab": "智能体 · {working} 个工作中 · 共 {total}",
+	"tasks.agents_empty": "目前没有智能体任务。",
+	"tasks.agents_open": "对话",
+	"tasks.agents_terminal": "终端",
+	"tasks.preview_command": "预览命令",
+	"tasks.preview_port": "预览端口",
+	"tasks.preview_help": "可选。任务进入审查时，Kuayle 会在其工作树中运行此命令（并设置 PORT 和 HOST=0.0.0.0），并为该端口打开经过身份验证的预览，供人工 QA 使用。两者都留空则继承。",
+	"tasks.preview_invalid": "请输入 JSON 数组形式的命令和 1024 到 65535 之间的端口，或两者都留空。"
 }

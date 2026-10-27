@@ -69,6 +69,11 @@ func (r *DevMachineRepository) GetPublication(ctx context.Context, op domain.Dev
 	if err != nil {
 		return nil, err
 	}
+	var name, email sql.NullString
+	if err = tx.QueryRowContext(ctx, `SELECT agent_git_name,agent_git_email FROM dev_machine_workspace_policies WHERE workspace_id=$1`, task.WorkspaceID).Scan(&name, &email); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+	publication.AuthorName, publication.AuthorEmail = name.String, email.String
 	var argv []byte
 	err = tx.QueryRowContext(ctx, `SELECT command_argv,exit_code FROM dev_machine_agent_run_steps WHERE agent_run_id=$1 AND sequence=0 AND step_type='validation' AND status='succeeded'`, task.RunID).Scan(&argv, &publication.CheckExitCode)
 	if err == nil {

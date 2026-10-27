@@ -1,4 +1,6 @@
 <script lang="ts">
+	import Markdown from './Markdown.svelte';
+	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { onDestroy, untrack } from 'svelte';
 	import TestResults from './TestResults.svelte';
 	import AgentPlan from './AgentPlan.svelte';
@@ -12,8 +14,10 @@
 		LoaderCircle,
 		Terminal,
 		ExternalLink,
-		GitPullRequest
+		GitPullRequest,
+		SquareTerminal
 	} from '@lucide/svelte';
+	import { useTerminalDock } from '$lib/features/dev-machines/terminal-dock-context.svelte';
 	import * as Trace from '$lib/components/ui/trace/index.js';
 	import * as CodeBlock from '$lib/components/ui/code-block/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
@@ -291,6 +295,21 @@
 			if (!disposed) busy = false;
 		}
 	}
+	// A terminal in the task's own worktree, docked at the bottom, for working
+	// directly beside (or instead of) the agent.
+	const dock = useTerminalDock();
+	function openTerminal() {
+		if (!task.machine_id || !dock) return;
+		dock.open({
+			slug: chat.slug,
+			machineId: task.machine_id,
+			machineName: chat.issue?.identifier ?? task.machine_id,
+			checkoutId: task.checkout_id,
+			checkoutLabel: chat.issue ? `${chat.issue.identifier} · ${chat.issue.title}` : undefined,
+			sessionName: chat.issue?.identifier
+		});
+	}
+
 	async function olderRuns() {
 		if (!runsBefore || loading) return;
 		loading = true;
@@ -308,10 +327,15 @@
 	}
 </script>
 
-<article class="min-w-0 space-y-3 rounded-lg border bg-background p-3" aria-label={m['tasks.task']()}>
+<!-- A task is a row in the panel's list, not a nested card. -->
+<article class="min-w-0 space-y-2 py-3" aria-label={m['tasks.task']()}>
 	<div class="flex items-start justify-between gap-3">
-		<p class="min-w-0 whitespace-pre-wrap break-words text-sm font-medium line-clamp-3">{task.prompt}</p>
-		<span class="shrink-0 rounded-md bg-muted px-2 py-1 text-xs" role="status">{taskLabel(task.state)}</span>
+		<p class="min-w-0 whitespace-pre-wrap break-words text-sm font-medium line-clamp-2">{task.prompt}</p>
+		<Badge
+			variant={failed ? 'destructive' : task.state === 'completed' ? 'default' : 'secondary'}
+			class="shrink-0"
+			role="status">{taskLabel(task.state)}</Badge
+		>
 	</div>
 	<p class="text-xs text-muted-foreground">
 		{task.provider}{task.model ? ` · ${task.model}` : ''} · {m['tasks.attempt']({ number: task.generation })}
@@ -391,7 +415,7 @@
 							>{publicationLabel}</Trace.Title
 						></Trace.Line
 					>{/if}
-				{#if selected?.summary}<p class="whitespace-pre-wrap break-words text-sm">{selected.summary}</p>{/if}
+				{#if selected?.summary}<Markdown source={selected.summary} class="text-sm" />{/if}
 				{#if activity?.run_id === selectedRun}{#each activity.events.slice(-8) as event, i (i)}<Trace.Line
 							><Trace.Title>{event.type}</Trace.Title></Trace.Line
 						>{/each}{/if}
@@ -423,6 +447,9 @@
 			>{/if}
 		{#if machinePreview}<Button variant="outline" size="sm" disabled={busy} onclick={() => void openPreview()}
 				><ExternalLink />{m['machines.preview_open']()}</Button
+			>{/if}
+		{#if task.machine_id && dock}<Button variant="outline" size="sm" onclick={openTerminal}
+				><SquareTerminal />{m['tasks.agents_terminal']()}</Button
 			>{/if}
 		{#if task.machine_id}<a
 				class="inline-flex items-center gap-1 text-xs underline underline-offset-2"

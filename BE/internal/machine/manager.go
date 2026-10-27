@@ -30,6 +30,8 @@ type ManagerStore interface {
 	ListResourceAllocations(context.Context) ([]domain.DevMachineResourceAllocation, error)
 	RecordNativeSession(context.Context, uuid.UUID, string) error
 	SaveValidationArtifacts(context.Context, domain.DevMachineOperation, []domain.ValidationArtifact) error
+	TaskPreview(ctx context.Context, checkout uuid.UUID) ([]string, int, uuid.UUID, bool, error)
+	SetPreview(context.Context, *domain.DevMachinePreview) error
 	DeferOperation(context.Context, uuid.UUID, string, string, string, time.Duration) error
 	GetPublication(context.Context, domain.DevMachineOperation) (*domain.AgentPublication, error)
 	StartPublication(context.Context, domain.DevMachineOperation) error
@@ -473,6 +475,8 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 		return m.publishAgent(ctx, machine, operation)
 	case domain.DevMachineOpPurgeTaskSession:
 		return m.purgeTaskSession(ctx, machine, operation)
+	case domain.DevMachineOpStartPreview:
+		return m.startPreview(ctx, machine, operation)
 	case domain.DevMachineOpRunAgent:
 		return m.runAgent(ctx, machine, operation)
 	case domain.DevMachineOpCancelAgent:
@@ -1738,4 +1742,37 @@ func (m *Manager) purgeTaskSession(ctx context.Context, machine *domain.DevMachi
 		return &terminalOperationError{code: "session_purge_unavailable", message: "Developer environment image is unknown"}
 	}
 	return m.runtime.PurgeTaskSession(ctx, machine, image, taskID)
+}
+
+// startPreview runs the project's preview command for a task in review and
+// points the machine's authenticated preview at it. A task that left review
+// meanwhile needs no preview.
+func (m *Manager) startPreview(ctx context.Context, machine *domain.DevMachine, op *domain.DevMachineOperation) error {
+	if op.CheckoutID == nil || machine.Status != domain.DevMachineStatusRunning {
+		return nil
+	}
+	argv, port, creator, ok, err := m.store.TaskPreview(ctx, *op.CheckoutID)
+	if err != nil || !ok {
+		return err
+	}
+	checkout, err := m.store.GetCheckoutInternal(ctx, *op.CheckoutID)
+	if err != nil {
+		return err
+	}
+	if checkout == nil || checkout.MachineID != machine.ID || checkout.Status != "ready" {
+		return nil
+	}
+	services, err := m.store.ListServices(ctx, machine.WorkspaceID, machine.ID)
+	if err != nil {
+		return err
+	}
+	for _, service := range services {
+		if service.InternalPort == port {
+			return &terminalOperationError{code: "preview_port_reserved", message: "The preview port is used by a machine service"}
+		}
+	}
+	if err = m.runtime.StartPreview(ctx, machine, services, checkout, argv, port); err != nil {
+		return err
+	}
+	return m.store.SetPreview(ctx, &domain.DevMachinePreview{MachineID: machine.ID, WorkspaceID: machine.WorkspaceID, Port: port, CreatedByUserID: creator})
 }

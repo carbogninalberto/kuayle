@@ -75,6 +75,7 @@ type Runtime interface {
 	HostResources(context.Context) (HostResources, error)
 	CollectValidationArtifacts(context.Context, *domain.DevMachine, *domain.DevMachineAgentRun, *domain.DevMachineCheckout) ([]domain.ValidationArtifact, error)
 	RemoveCheckServices(context.Context, *domain.DevMachine, *domain.DevMachineAgentRun) error
+	StartPreview(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService, checkout *domain.DevMachineCheckout, argv []string, port int) error
 	PurgeTaskSession(context.Context, *domain.DevMachine, string, uuid.UUID) error
 	PublishCheckout(context.Context, *domain.DevMachine, []domain.DevMachineService, *domain.DevMachineCheckout, PublishRequest) (string, error)
 	Spawn(context.Context, *domain.DevMachine, []domain.DevMachineService, map[string]map[string]string) (string, string, map[string]string, error)

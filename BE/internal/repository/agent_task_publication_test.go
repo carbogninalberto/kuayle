@@ -80,6 +80,15 @@ func TestPublicationRecordsPullRequestOnceAndGatesReview(t *testing.T) {
 	require.NotEmpty(t, publication.IssueIdentifier)
 	require.Equal(t, []string{"true"}, publication.CheckArgv, "the PR body cites the check that actually passed")
 	require.Equal(t, 0, *publication.CheckExitCode)
+	require.Empty(t, publication.AuthorName, "no workspace author keeps the deployment default")
+	_, err = db.Exec(`UPDATE dev_machine_workspace_policies SET agent_git_name='carbogninalberto' WHERE workspace_id=$1`, task.WorkspaceID)
+	require.Error(t, err, "a commit author needs both name and email")
+	_, err = db.Exec(`UPDATE dev_machine_workspace_policies SET agent_git_name='carbogninalberto',agent_git_email='dev@example.com' WHERE workspace_id=$1`, task.WorkspaceID)
+	require.NoError(t, err)
+	publication, err = store.GetPublication(ctx, op)
+	require.NoError(t, err)
+	require.Equal(t, "carbogninalberto", publication.AuthorName)
+	require.Equal(t, "dev@example.com", publication.AuthorEmail)
 	result := domain.AgentPublicationResult{Branch: "kuayle/fixture", Commit: "0123456789abcdef0123456789abcdef01234567", PullRequestNumber: 12, PullRequestURL: "https://github.com/acme/app/pull/12"}
 	require.ErrorIs(t, store.CompletePublication(ctx, op, result), ErrAgentTaskConflict, "a result needs a real start")
 	require.NoError(t, store.StartPublication(ctx, op))
@@ -215,4 +224,34 @@ func TestMergedPullRequestCompletesOnlyTheRecordedReviewTask(t *testing.T) {
 	var actor *uuid.UUID
 	require.NoError(t, db.Get(&actor, `SELECT actor_id FROM agent_task_transitions WHERE task_id=$1 AND to_state='completed'`, task.ID))
 	require.Nil(t, actor)
+}
+
+func TestReviewStartsTheConfiguredPreviewOncePerAttempt(t *testing.T) {
+	db, _, ctx, task, _ := publishingTask(t)
+	store := NewDevMachineRepository(db)
+	argv, port, _, ok, err := store.TaskPreview(ctx, task.CheckoutID)
+	require.NoError(t, err)
+	require.False(t, ok, "no preview before review")
+	_, err = db.Exec(`UPDATE agent_tasks SET preview_command='["npm","run","dev"]',preview_port=5173 WHERE id=$1`, task.ID)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO dev_machine_scope_settings(id,workspace_id,issue_id,preview_command) VALUES(gen_random_uuid(),$1,$2,'["npm"]')`, task.WorkspaceID, task.IssueID)
+	require.Error(t, err, "a preview command without a port is refused")
+	var current domain.AgentTask
+	require.NoError(t, db.Get(&current, `SELECT * FROM agent_tasks WHERE id=$1`, task.ID))
+	tx, err := db.BeginTxx(ctx, nil)
+	require.NoError(t, err)
+	current.State = "awaiting_review"
+	require.NoError(t, startTaskPreview(ctx, tx, current))
+	require.NoError(t, startTaskPreview(ctx, tx, current), "the same attempt queues one preview")
+	require.NoError(t, tx.Commit())
+	var ops int
+	require.NoError(t, db.Get(&ops, `SELECT count(*) FROM dev_machine_operations WHERE action='start_preview' AND checkout_id=$1`, task.CheckoutID))
+	require.Equal(t, 1, ops)
+	_, err = db.Exec(`UPDATE agent_tasks SET state='awaiting_review' WHERE id=$1`, task.ID)
+	require.NoError(t, err)
+	argv, port, _, ok, err = store.TaskPreview(ctx, task.CheckoutID)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, []string{"npm", "run", "dev"}, argv)
+	require.Equal(t, 5173, port)
 }

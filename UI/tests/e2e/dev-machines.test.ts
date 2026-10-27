@@ -1386,6 +1386,7 @@ test('keeps multiple docked terminals alive across collapse and navigation', asy
 	let closeRequests = 0;
 	let terminalSessions = 0;
 	let listSessionRequests = 0;
+	let agentQueue: Record<string, unknown>[] = [];
 
 	await page.addInitScript(() => {
 		class MockWebSocket extends EventTarget {
@@ -1551,6 +1552,7 @@ test('keeps multiple docked terminals alive across collapse and navigation', asy
 		if (path === `/api/workspaces/test/dev-machines/${machineId}/agent-runs`)
 			return route.fulfill({ json: { data: [], total_count: 0, page: 1, has_more: false } });
 		if (path === `/api/workspaces/test/dev-machines/${machineId}/resource-usage`) return route.fulfill({ json: [] });
+		if (path === '/api/workspaces/test/agent-tasks') return route.fulfill({ json: agentQueue });
 		if (path === `/api/workspaces/test/dev-machines/${machineId}/terminal-sessions` && request.method() === 'GET') {
 			listSessionRequests += 1;
 			return route.fulfill({ json: [] });
@@ -1784,6 +1786,37 @@ test('keeps multiple docked terminals alive across collapse and navigation', asy
 	await page.getByTestId('close-tab').click();
 	await expect.poll(() => closeRequests).toBe(closeRequestsBeforeTabClose + 2);
 	await expect(page.getByTestId('terminal-dock')).toHaveCount(0);
+
+	// Agent work keeps a pinned Agents tab in the dock, and a task's terminal
+	// opens in its worktree for direct work alongside the agent.
+	// The dock polls agent work only after this browser has seen some.
+	await page.evaluate(() => localStorage.setItem('kuayle.agents.test', '1'));
+	agentQueue = [
+		{
+			id: 'task-1',
+			conversation_id: 'chat-1',
+			state: 'running',
+			reason: 'Native coding harness started',
+			issue_identifier: 'TST-1',
+			issue_title: 'Docked agent work',
+			updated_at: '2026-07-13T00:00:00Z',
+			machine_id: machineId,
+			machine_name: 'Agent machine',
+			checkout_id: checkoutId
+		}
+	];
+	await page.reload();
+	const agentsTab = page.getByRole('tab', { name: 'Agents · 1 working · 1' });
+	await expect(agentsTab).toBeVisible();
+	await agentsTab.click();
+	const panel = page.getByRole('tabpanel', { name: 'Agents' });
+	await expect(panel.getByText('Docked agent work')).toBeVisible();
+	await expect(panel.getByRole('link', { name: 'Conversation' })).toHaveAttribute('href', '/test/assistant?conversation=chat-1');
+	const sessionsBefore = terminalPayloads.length;
+	await panel.getByRole('button', { name: 'Terminal' }).click();
+	await expect.poll(() => terminalPayloads.length).toBe(sessionsBefore + 1);
+	expect(terminalPayloads.at(-1)).toMatchObject({ checkout_id: checkoutId });
+	await expect(page.getByTestId('native-terminal').last()).toBeVisible();
 });
 
 test('uses guarded permanent-delete routes for old-machine cleanup', async ({ page }) => {

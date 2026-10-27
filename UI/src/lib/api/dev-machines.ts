@@ -239,6 +239,8 @@ export function updateDevMachineScopeSetting(
 		agent_provider?: string;
 		agent_instructions?: string;
 		compose_file?: string;
+		preview_command?: string[];
+		preview_port?: number;
 	}
 ): Promise<DevMachineScopeSetting> {
 	return api.put(`${base(slug)}/dev-machine-scope-setting`, input);

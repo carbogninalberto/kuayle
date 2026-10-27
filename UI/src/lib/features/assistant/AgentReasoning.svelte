@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Markdown from './Markdown.svelte';
 	import { CircleCheck } from '@lucide/svelte';
 	import * as Trace from '$lib/components/ui/trace/index.js';
 	import { m } from '$lib/paraglide/messages.js';
@@ -16,7 +17,7 @@
 					<Trace.Title>{m['tasks.reasoning']()}</Trace.Title>
 				</Trace.Line>
 			</Trace.CollapsibleTrigger>
-			<Trace.CollapsibleContent class="whitespace-pre-wrap break-words text-xs">{summary}</Trace.CollapsibleContent>
+			<Trace.CollapsibleContent class="text-xs"><Markdown source={summary} /></Trace.CollapsibleContent>
 		</Trace.Collapsible>
 	{/each}
 </Trace.Root>

@@ -243,6 +243,9 @@ func (s *ConversationService) converse(ctx context.Context, a domain.Conversatio
 		tools = s.tools.specs()
 	}
 	sequence, creates := 0, 0
+	// Text from successive tool rounds is one reply; separate it into
+	// paragraphs so it renders as Markdown rather than run-on sentences.
+	written := ""
 	for round := 0; ; round++ {
 		offered := tools
 		if round >= assistantMaxToolRounds {
@@ -250,7 +253,17 @@ func (s *ConversationService) converse(ctx context.Context, a domain.Conversatio
 		}
 		text := ""
 		requested, err := s.ai.streamAssistantTools(ctx, baseURL, a.Message.Model, key, messages, offered, func(delta string) error {
+			if delta == "" {
+				return nil
+			}
+			if text == "" && written != "" && !strings.HasSuffix(written, "\n\n") {
+				if err := emit("\n\n"); err != nil {
+					return err
+				}
+				written += "\n\n"
+			}
 			text += delta
+			written += delta
 			return emit(delta)
 		})
 		if err != nil || len(requested) == 0 {

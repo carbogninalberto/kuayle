@@ -48,6 +48,10 @@ type AgentTask struct {
 	// ComposeFile is the inherited repository-relative Compose file whose
 	// services run beside the independent check; empty means none.
 	ComposeFile string `json:"compose_file" db:"compose_file"`
+	// PreviewCommand and PreviewPort start a QA preview when the task
+	// reaches review; an empty command means none.
+	PreviewCommand json.RawMessage `json:"preview_command" db:"preview_command"`
+	PreviewPort    *int            `json:"preview_port,omitempty" db:"preview_port"`
 }
 
 type AgentTaskRequest struct {
@@ -172,6 +176,8 @@ type AgentPublication struct {
 	// The independent check that passed for this attempt, for the PR body.
 	CheckArgv     []string
 	CheckExitCode *int
+	// The workspace's configured commit author, when set.
+	AuthorName, AuthorEmail string
 }
 
 // AgentPublicationResult is recorded only after the branch was pushed and the

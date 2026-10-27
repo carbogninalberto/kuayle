@@ -1,6 +1,8 @@
 <script lang="ts">
 	import TestCommandField from '$lib/features/dev-machines/TestCommandField.svelte';
 	import ComposeFileField from '$lib/features/dev-machines/ComposeFileField.svelte';
+	import PreviewSettingField from '$lib/features/dev-machines/PreviewSettingField.svelte';
+	import { previewSettingPayload } from '$lib/features/dev-machines/preview-setting';
 	import AgentDefaultsField from '$lib/features/dev-machines/AgentDefaultsField.svelte';
 	import AutomationsCard from '$lib/features/dev-machines/AutomationsCard.svelte';
 	import { parseTestCommand, formatTestCommand } from '$lib/features/dev-machines/test-command';
@@ -69,6 +71,8 @@
 	let defaultAgentProvider = $state('inherit');
 	let defaultAgentInstructions = $state('');
 	let defaultComposeFile = $state('');
+	let defaultPreviewCommand = $state('');
+	let defaultPreviewPort = $state('');
 	let builderBusy = $state(false);
 	let environmentToDelete = $state<DevMachineEnvironment | null>(null);
 	let environmentDeleteOpen = $state(false);
@@ -123,7 +127,7 @@
 			environments = availableEnvironments ?? [];
 			defaultRepositoryId = scope.github_repo_id ?? 'none';
 			defaultEnvironmentId = scope.environment_id ?? 'standard';
-			defaultTestCommand = formatTestCommand(scope.test_command); defaultAgentProvider = scope.agent_provider ?? 'inherit'; defaultAgentInstructions = scope.agent_instructions ?? ''; defaultComposeFile = scope.compose_file ?? '';
+			defaultTestCommand = formatTestCommand(scope.test_command); defaultAgentProvider = scope.agent_provider ?? 'inherit'; defaultAgentInstructions = scope.agent_instructions ?? ''; defaultComposeFile = scope.compose_file ?? ''; defaultPreviewCommand = scope.preview_command ? JSON.stringify(scope.preview_command) : ''; defaultPreviewPort = scope.preview_port ? String(scope.preview_port) : '';
 			modelProvider = availableModelProvider;
 			deepSeekModel = availableModelProvider?.default_model ?? 'deepseek-flash';
 			deepSeekThinking = availableModelProvider?.thinking ?? 'high';
@@ -154,10 +158,12 @@
 				allowed_repositories: repositories.split('\n').map((line) => line.trim()).filter(Boolean),
 				allow_custom_providers: policy.allow_custom_providers,
 				allow_unattended_automations: policy.allow_unattended_automations,
+				agent_git_name: (policy.agent_git_name ?? '').trim(),
+				agent_git_email: (policy.agent_git_email ?? '').trim(),
 				idle_pause_minutes: policy.idle_pause_minutes
 			});
 			const repository = linkedRepositories.find((item) => item.id === defaultRepositoryId);
-			if (defaultRepositoryId === 'none' && defaultEnvironmentId === 'standard' && command === undefined && defaultAgentProvider === 'inherit' && !defaultAgentInstructions.trim() && !defaultComposeFile.trim()) {
+			if (defaultRepositoryId === 'none' && defaultEnvironmentId === 'standard' && command === undefined && defaultAgentProvider === 'inherit' && !defaultAgentInstructions.trim() && !defaultComposeFile.trim() && !defaultPreviewCommand.trim()) {
 				await deleteDevMachineScopeSetting(slug, 'workspace');
 			} else {
 				await updateDevMachineScopeSetting(slug, {
@@ -165,7 +171,7 @@
 					github_repo_id: repository?.id,
 					base_branch: repository?.default_branch,
 					environment_id: defaultEnvironmentId === 'standard' ? undefined : defaultEnvironmentId,
-					test_command: command, agent_provider: defaultAgentProvider === 'inherit' ? undefined : defaultAgentProvider, agent_instructions: defaultAgentInstructions.trim() || undefined, compose_file: defaultComposeFile.trim() || undefined
+					test_command: command, agent_provider: defaultAgentProvider === 'inherit' ? undefined : defaultAgentProvider, agent_instructions: defaultAgentInstructions.trim() || undefined, compose_file: defaultComposeFile.trim() || undefined, ...previewSettingPayload(defaultPreviewCommand, defaultPreviewPort)
 				});
 			}
 			appToast.success(m['settings.dev_machines.saved']());
@@ -338,7 +344,7 @@
 			<div class="grid gap-4 sm:grid-cols-2">
 				<div class="space-y-1"><Label>{m['settings.dev_machines.repo']()}</Label><Select.Root type="single" value={defaultRepositoryId} onValueChange={(value) => value && (defaultRepositoryId = value)}><Select.Trigger class="w-full">{linkedRepositories.find((item) => item.id === defaultRepositoryId)?.full_name ?? m['settings.dev_machines.no_default_repo']()}</Select.Trigger><Select.Content><Select.Item value="none" label={m['settings.dev_machines.no_default_repo']()}>{m['settings.dev_machines.no_default_repo']()}</Select.Item>{#each linkedRepositories as repository}<Select.Item value={repository.id} label={repository.full_name}>{repository.full_name}</Select.Item>{/each}</Select.Content></Select.Root></div>
 				<div class="space-y-1"><Label>{m['settings.dev_machines.env']()}</Label><Select.Root type="single" value={defaultEnvironmentId} onValueChange={(value) => value && (defaultEnvironmentId = value)}><Select.Trigger class="w-full">{readyEnvironments.find((item) => item.id === defaultEnvironmentId)?.name ?? m['settings.dev_machines.default_env']()}</Select.Trigger><Select.Content><Select.Item value="standard" label={m['settings.dev_machines.default_env']()}>{m['settings.dev_machines.default_env']()}</Select.Item>{#each readyEnvironments as environment}<Select.Item value={environment.id} label={environment.name}>{environment.name}</Select.Item>{/each}</Select.Content></Select.Root></div>
-				<div class="sm:col-span-2"><TestCommandField bind:value={defaultTestCommand} disabled={saving || !canAdmin} /></div><div class="sm:col-span-2"><ComposeFileField bind:value={defaultComposeFile} disabled={saving || !canAdmin} /></div><AgentDefaultsField bind:provider={defaultAgentProvider} bind:instructions={defaultAgentInstructions} disabled={saving || !canAdmin} />
+				<div class="sm:col-span-2"><TestCommandField bind:value={defaultTestCommand} disabled={saving || !canAdmin} /></div><div class="sm:col-span-2"><ComposeFileField bind:value={defaultComposeFile} disabled={saving || !canAdmin} /></div><PreviewSettingField bind:command={defaultPreviewCommand} bind:port={defaultPreviewPort} disabled={saving || !canAdmin} /><AgentDefaultsField bind:provider={defaultAgentProvider} bind:instructions={defaultAgentInstructions} disabled={saving || !canAdmin} />
 			</div>
 		</section>
 		<section class="space-y-4 rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-5">
@@ -346,6 +352,13 @@
 			<div class="grid gap-3 sm:grid-cols-4">{#each ['claude-code','opencode','codex','qwen-code','crush','kimi','goose'] as provider}<label class="flex items-center justify-between gap-3 rounded-lg border border-[var(--app-border)] p-3"><span class="text-sm">{provider}</span><Switch aria-label={provider} checked={policy.allowed_providers.includes(provider)} onCheckedChange={() => toggleProvider(provider)} /></label>{/each}</div>
 			<label class="flex items-center gap-2 text-sm"><Switch bind:checked={policy.allow_custom_providers} />{m['settings.dev_machines.allow_custom']()}</label>
 			<label class="flex items-center gap-2 text-sm"><Switch bind:checked={policy.allow_unattended_automations} />{m['settings.dev_machines.allow_unattended']()}</label>
+		</section>
+		<section class="space-y-3 rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-5">
+			<div><h2 class="text-sm font-semibold">{m['settings.dev_machines.commit_author']()}</h2><p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.commit_author_desc']()}</p></div>
+			<div class="grid gap-3 sm:grid-cols-2">
+				<div class="space-y-1"><Label for="agent-git-name">{m['settings.dev_machines.commit_author_name']()}</Label><Input id="agent-git-name" autocomplete="off" maxlength={100} placeholder="octocat" value={policy.agent_git_name ?? ''} oninput={(event) => policy && (policy.agent_git_name = event.currentTarget.value)} /></div>
+				<div class="space-y-1"><Label for="agent-git-email">{m['settings.dev_machines.commit_author_email']()}</Label><Input id="agent-git-email" type="email" autocomplete="off" maxlength={254} placeholder="octocat@users.noreply.github.com" value={policy.agent_git_email ?? ''} oninput={(event) => policy && (policy.agent_git_email = event.currentTarget.value)} /></div>
+			</div>
 		</section>
 		<section class="space-y-3 rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-5"><div><h2 class="text-sm font-semibold">{m['settings.dev_machines.repo_allowlist']()}</h2><p class="text-xs text-[var(--color-text-tertiary)]">{@html m['settings.dev_machines.repo_allowlist_desc']()}</p></div><Textarea bind:value={repositories} rows={6} class="font-mono text-xs" /></section>
 		<div class="flex justify-end"><Button type="submit" disabled={saving}>{saving ? m['settings.saving']() : m['settings.dev_machines.save_policy']()}</Button></div>

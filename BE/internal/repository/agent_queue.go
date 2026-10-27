@@ -16,6 +16,10 @@ type AgentQueueItem struct {
 	IssueIdentifier string    `json:"issue_identifier" db:"identifier_text"`
 	IssueTitle      string    `json:"issue_title" db:"title"`
 	UpdatedAt       time.Time `json:"updated_at" db:"updated_at"`
+	// The task's machine and worktree, for opening a terminal on its work.
+	MachineID   *uuid.UUID `json:"machine_id,omitempty" db:"machine_id"`
+	MachineName *string    `json:"machine_name,omitempty" db:"machine_name"`
+	CheckoutID  *uuid.UUID `json:"checkout_id,omitempty" db:"checkout_id"`
 }
 
 // Queue lists the actor's most recent tasks across their issue conversations,
@@ -35,8 +39,10 @@ func (r *AgentTaskRepository) Queue(ctx context.Context, ws uuid.UUID) ([]AgentQ
 		return nil, err
 	}
 	items := []AgentQueueItem{}
-	err = tx.SelectContext(ctx, &items, `SELECT t.id,t.conversation_id,t.state,t.reason,t.updated_at,i.identifier_text,i.title
+	err = tx.SelectContext(ctx, &items, `SELECT t.id,t.conversation_id,t.state,t.reason,t.updated_at,i.identifier_text,i.title,t.machine_id,m.name AS machine_name,
+ CASE WHEN t.machine_id IS NOT NULL THEN t.checkout_id END AS checkout_id
  FROM agent_tasks t JOIN conversations c ON c.id=t.conversation_id AND c.workspace_id=t.workspace_id JOIN issues i ON i.id=c.issue_id
+ LEFT JOIN dev_machines m ON m.id=t.machine_id AND m.workspace_id=t.workspace_id AND m.status<>'destroyed'
  WHERE t.workspace_id=$1 AND t.creator_id=$2 AND c.creator_id=$2 AND `+conversationScopePredicate("c")+`
  ORDER BY t.updated_at DESC,t.id LIMIT 50`, ws, actor)
 	return items, err

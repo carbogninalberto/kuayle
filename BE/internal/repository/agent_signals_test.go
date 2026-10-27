@@ -259,6 +259,11 @@ func TestQueueListsOnlyTheActorsVisibleTasks(t *testing.T) {
 	require.Equal(t, task.ID, items[0].ID)
 	require.Equal(t, "REC-1", items[0].IssueIdentifier)
 	require.Equal(t, "awaiting_review", items[0].State)
+	var machine uuid.UUID
+	require.NoError(t, db.Get(&machine, `SELECT machine_id FROM agent_tasks WHERE id=$1`, task.ID))
+	require.Equal(t, machine, *items[0].MachineID, "the dock can open a terminal on the task's machine")
+	require.NotNil(t, items[0].MachineName)
+	require.Equal(t, task.CheckoutID, *items[0].CheckoutID)
 	stranger := domain.WithAccess(context.Background(), domain.Access{WorkspaceID: task.WorkspaceID, UserID: uuid.New()})
 	_, err = repo.Queue(stranger, task.WorkspaceID)
 	require.Error(t, err, "non-members cannot list tasks")

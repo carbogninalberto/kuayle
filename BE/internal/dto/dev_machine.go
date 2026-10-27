@@ -72,6 +72,9 @@ type DevMachineScopeSettingRequest struct {
 	AgentProvider     *string `json:"agent_provider,omitempty" validate:"omitempty,max=64"`
 	AgentInstructions *string `json:"agent_instructions,omitempty"`
 	ComposeFile       *string `json:"compose_file,omitempty"`
+
+	PreviewCommand []string `json:"preview_command" validate:"omitempty,max=64,dive,max=8192"`
+	PreviewPort    *int     `json:"preview_port,omitempty"`
 }
 
 type CheckoutIssueRequest struct {
@@ -250,6 +253,8 @@ type DevMachinePolicyRequest struct {
 	AllowedRepositories        []string `json:"allowed_repositories"`
 	AllowCustomProviders       bool     `json:"allow_custom_providers"`
 	AllowUnattendedAutomations bool     `json:"allow_unattended_automations"`
+	AgentGitName               string   `json:"agent_git_name" validate:"omitempty,max=100"`
+	AgentGitEmail              string   `json:"agent_git_email" validate:"omitempty,max=254"`
 	IdlePauseMinutes           int      `json:"idle_pause_minutes" validate:"omitempty,min=5,max=10080"`
 }
 

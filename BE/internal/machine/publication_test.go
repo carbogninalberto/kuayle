@@ -167,3 +167,15 @@ func TestPublishAgentOutcomesNeverClaimUnrecordedReviewArtifacts(t *testing.T) {
 		require.Zero(t, runtime.calls)
 	})
 }
+
+func TestPublishAgentUsesTheWorkspaceCommitAuthor(t *testing.T) {
+	machine, store := publicationFixture()
+	store.publication.AuthorName, store.publication.AuthorEmail = "carbogninalberto", "dev@example.com"
+	runtime := &publicationRuntimeFake{runtimeFake: &runtimeFake{}, commit: "0123456789abcdef0123456789abcdef01234567"}
+	github := &publicationGitHubFake{created: &githubclient.PullRequest{Number: 12, HTMLURL: "https://github.com/acme/app/pull/12"}}
+	manager := &Manager{store: store, runtime: runtime, github: github, encryptionKey: make([]byte, 32)}
+	manager.SetAgentGitIdentity(GitIdentity{Name: "Deployment default", Email: "agent@example.invalid"})
+	require.NoError(t, manager.publishAgent(context.Background(), machine, &domain.DevMachineOperation{}))
+	require.Equal(t, "carbogninalberto", runtime.request.AuthorName)
+	require.Equal(t, "dev@example.com", runtime.request.AuthorEmail)
+}

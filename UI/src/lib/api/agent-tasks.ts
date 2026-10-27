@@ -69,6 +69,9 @@ export interface AgentQueueItem {
 	issue_identifier: string;
 	issue_title: string;
 	updated_at: string;
+	machine_id?: string | null;
+	machine_name?: string | null;
+	checkout_id?: string | null;
 }
 export interface TaskSignal {
 	id: string;

@@ -4,9 +4,11 @@
 	import * as Trace from '$lib/components/ui/trace/index.js';
 	import { agentTasks, type AgentQueueItem } from '$lib/api/agent-tasks';
 	import { taskLabel } from './task-labels';
+	import { useTerminalDock } from '$lib/features/dev-machines/terminal-dock-context.svelte';
 	import { m } from '$lib/paraglide/messages.js';
 
 	let { slug }: { slug: string } = $props();
+	const dock = useTerminalDock();
 	let items = $state<AgentQueueItem[]>([]);
 	let timer: ReturnType<typeof setInterval> | undefined;
 	let disposed = false;
@@ -20,6 +22,7 @@
 		try {
 			const next = await agentTasks.queue(slug);
 			if (!disposed) items = next;
+			if (next.length) dock?.trackAgents();
 		} catch {
 			// The queue is a convenience; the conversations remain authoritative.
 		}

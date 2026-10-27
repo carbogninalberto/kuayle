@@ -262,6 +262,8 @@ export interface DevMachinePolicy {
 	allowed_repositories: string[];
 	allow_custom_providers: boolean;
 	allow_unattended_automations: boolean;
+	agent_git_name?: string | null;
+	agent_git_email?: string | null;
 	idle_pause_minutes: number;
 	disk_quota_mode: 'hard' | 'monitored';
 	size_options?: {
@@ -307,6 +309,8 @@ export interface DevMachineScopeSetting {
 	agent_provider?: string | null;
 	agent_instructions?: string | null;
 	compose_file?: string | null;
+	preview_command?: string[] | null;
+	preview_port?: number | null;
 	id?: string;
 	workspace_id: string;
 	team_id?: string;

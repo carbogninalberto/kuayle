@@ -128,10 +128,15 @@ test('keeps project and team development settings scoped during rapid navigation
 	await compose.fill('../compose.yaml');
 	await expect(page.getByText('Use a relative .yml or .yaml path inside the repository.')).toBeVisible();
 	await compose.fill(' deploy/compose.yaml ');
+	await page.getByRole('textbox', { name: 'Preview command' }).fill('["npm","run","dev"]');
+	const previewPort = page.getByRole('textbox', { name: 'Preview port' });
+	await previewPort.fill('80');
+	await expect(page.getByText('Enter a JSON array command and a port between 1024 and 65535, or leave both empty.')).toBeVisible();
+	await previewPort.fill('5173');
 	await expect(page.getByText('Use a relative .yml or .yaml path inside the repository.')).toHaveCount(0);
 	await teamSave.click();
 	await expect.poll(() => savedSettings.length).toBe(1);
-	expect(savedSettings[0]).toMatchObject({ scope_type: 'team', scope_id: teamBId, github_repo_id: repoBId, environment_id: environmentBId, test_command: ['npm','test'], agent_provider: 'claude-code', agent_instructions: 'Use pnpm.', compose_file: 'deploy/compose.yaml' });
+	expect(savedSettings[0]).toMatchObject({ scope_type: 'team', scope_id: teamBId, github_repo_id: repoBId, environment_id: environmentBId, test_command: ['npm','test'], agent_provider: 'claude-code', agent_instructions: 'Use pnpm.', compose_file: 'deploy/compose.yaml', preview_command: ['npm', 'run', 'dev'], preview_port: 5173 });
 
 	const projectADelay = createRequestDelay();
 	const projectBDelay = createRequestDelay();

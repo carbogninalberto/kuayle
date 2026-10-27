@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -54,7 +55,11 @@ func (r *AgentTaskRepository) Create(ctx context.Context, ws, conversation uuid.
 	if err != nil {
 		return nil, err
 	}
-	err = tx.GetContext(ctx, &task, `INSERT INTO agent_tasks(workspace_id,conversation_id,creator_id,issue_id,team_id,request_id,prompt,provider,model,thinking,reason,issue_status_id,issue_updated_at,test_command,validation_command,agent_instructions,compose_file) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Waiting for execution',i.status_id,i.updated_at,$11,$12,$13,$14 FROM issues i WHERE i.id=$4 AND i.workspace_id=$1 AND i.team_id=$5 RETURNING *`, ws, conversation, c.CreatorID, c.IssueID, c.TeamID, input.RequestID, input.Prompt, input.Provider, input.Model, input.Thinking, requested, command, instructions, compose)
+	preview, previewPort, err := resolvePreview(ctx, tx, ws, *c.IssueID)
+	if err != nil {
+		return nil, err
+	}
+	err = tx.GetContext(ctx, &task, `INSERT INTO agent_tasks(workspace_id,conversation_id,creator_id,issue_id,team_id,request_id,prompt,provider,model,thinking,reason,issue_status_id,issue_updated_at,test_command,validation_command,agent_instructions,compose_file,preview_command,preview_port) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Waiting for execution',i.status_id,i.updated_at,$11,$12,$13,$14,$15,$16 FROM issues i WHERE i.id=$4 AND i.workspace_id=$1 AND i.team_id=$5 RETURNING *`, ws, conversation, c.CreatorID, c.IssueID, c.TeamID, input.RequestID, input.Prompt, input.Provider, input.Model, input.Thinking, requested, command, instructions, compose, preview, previewPort)
 	if err != nil {
 		return nil, err
 	}
@@ -216,7 +221,46 @@ func recordAgentTaskTransition(ctx context.Context, tx *sqlx.Tx, task domain.Age
 			return err
 		}
 	}
+	if err := startTaskPreview(ctx, tx, task); err != nil {
+		return err
+	}
 	return purgeTaskSession(ctx, tx, task)
+}
+
+// startTaskPreview queues the project's QA preview for a task that reached
+// review, once per attempt, so reviewers can open the running change.
+func startTaskPreview(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask) error {
+	if task.State != "awaiting_review" || task.MachineID == nil || task.PreviewPort == nil || len(task.PreviewCommand) < 3 {
+		return nil
+	}
+	var generation int64
+	err := tx.GetContext(ctx, &generation, `SELECT m.generation FROM dev_machines m JOIN dev_machine_checkouts c ON c.machine_id=m.id AND c.id=$3
+ WHERE m.id=$1 AND m.workspace_id=$2 AND m.status<>'destroyed'`, task.MachineID, task.WorkspaceID, task.CheckoutID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return enqueueOperation(ctx, tx, &domain.DevMachineOperation{
+		WorkspaceID: task.WorkspaceID, MachineID: *task.MachineID, CheckoutID: &task.CheckoutID, AgentRunID: &task.RunID,
+		Action: domain.DevMachineOpStartPreview, Status: domain.DevMachineOpStatusPending, Generation: generation,
+		IdempotencyKey: "task-preview:" + task.RunID.String(), RequestedByUserID: &task.CreatorID, MaxAttempts: 3,
+	})
+}
+
+// TaskPreview returns the preview to start for a task checkout still in review.
+func (r *DevMachineRepository) TaskPreview(ctx context.Context, checkout uuid.UUID) (argv []string, port int, creator uuid.UUID, ok bool, err error) {
+	var raw []byte
+	var p sql.NullInt64
+	err = r.db.QueryRowContext(ctx, `SELECT preview_command,preview_port,creator_id FROM agent_tasks WHERE checkout_id=$1 AND state='awaiting_review'`, checkout).Scan(&raw, &p, &creator)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, 0, uuid.Nil, false, nil
+	}
+	if err != nil || !p.Valid || json.Unmarshal(raw, &argv) != nil || len(argv) == 0 {
+		return nil, 0, uuid.Nil, false, err
+	}
+	return argv, int(p.Int64), creator, true, nil
 }
 
 // purgeTaskSession queues removal of a finished task's native harness
@@ -754,7 +798,11 @@ func (r *AgentTaskRepository) Retry(ctx context.Context, ws, id uuid.UUID, req d
 	if err != nil {
 		return nil, err
 	}
-	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks t SET prompt=$2,test_command=$3,validation_command=$4,agent_instructions=$5,compose_file=$6,generation=generation+1,run_id=gen_random_uuid(),failure_count=0,failure_pending=false,lease_token=NULL,lease_expires_at=NULL,next_poll_at=now(),issue_status_id=i.status_id,issue_updated_at=i.updated_at FROM issues i WHERE t.id=$1 AND i.id=t.issue_id AND i.workspace_id=t.workspace_id AND i.team_id=t.team_id RETURNING t.*`, id, req.Prompt, requested, command, instructions, compose); err != nil {
+	preview, previewPort, err := resolvePreview(ctx, tx, ws, task.IssueID)
+	if err != nil {
+		return nil, err
+	}
+	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks t SET prompt=$2,test_command=$3,validation_command=$4,agent_instructions=$5,compose_file=$6,preview_command=$7,preview_port=$8,generation=generation+1,run_id=gen_random_uuid(),failure_count=0,failure_pending=false,lease_token=NULL,lease_expires_at=NULL,next_poll_at=now(),issue_status_id=i.status_id,issue_updated_at=i.updated_at FROM issues i WHERE t.id=$1 AND i.id=t.issue_id AND i.workspace_id=t.workspace_id AND i.team_id=t.team_id RETURNING t.*`, id, req.Prompt, requested, command, instructions, compose, preview, previewPort); err != nil {
 		return nil, err
 	}
 	if err = transitionAgentTask(ctx, tx, task, "queued", "New execution attempt requested", &task.CreatorID); err != nil {

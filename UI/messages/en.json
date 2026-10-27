@@ -2045,5 +2045,18 @@
 	"automations.status_failed": "Failed",
 	"settings.dev_machines.allow_unattended": "Allow unattended automations",
 	"assistant.tool_plan_issues": "Plan issues",
-	"assistant.tool_link_issues": "Link dependency"
+	"assistant.tool_link_issues": "Link dependency",
+	"settings.dev_machines.commit_author": "Agent commit author",
+	"settings.dev_machines.commit_author_desc": "Optional. Agent commits use this name and email. Use an email verified on the GitHub account (or its noreply address) so GitHub attributes the commits; leave both empty for the deployment default.",
+	"settings.dev_machines.commit_author_name": "Username",
+	"settings.dev_machines.commit_author_email": "Verified email",
+	"tasks.agents": "Agents",
+	"tasks.agents_tab": "Agents · {working} working · {total}",
+	"tasks.agents_empty": "No agent work right now.",
+	"tasks.agents_open": "Conversation",
+	"tasks.agents_terminal": "Terminal",
+	"tasks.preview_command": "Preview command",
+	"tasks.preview_port": "Preview port",
+	"tasks.preview_help": "Optional. When a task reaches review, Kuayle runs this command in its worktree (with PORT and HOST=0.0.0.0 set) and opens an authenticated preview of the port for manual QA. Leave both empty to inherit.",
+	"tasks.preview_invalid": "Enter a JSON array command and a port between 1024 and 65535, or leave both empty."
 }

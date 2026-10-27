@@ -638,17 +638,18 @@ func (r *DevMachineRepository) GetPolicy(ctx context.Context, workspaceID uuid.U
 func (r *DevMachineRepository) UpsertPolicy(ctx context.Context, policy *domain.DevMachineWorkspacePolicy) error {
 	return r.db.QueryRowContext(ctx, `INSERT INTO dev_machine_workspace_policies
 		(workspace_id, enabled, max_concurrent_machines, max_machines_per_user, max_daily_agent_runs,
-		 max_runtime_minutes, max_disk_gb, allowed_providers, allowed_repositories, allow_custom_providers, idle_pause_minutes, allow_unattended_automations)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+		 max_runtime_minutes, max_disk_gb, allowed_providers, allowed_repositories, allow_custom_providers, idle_pause_minutes, allow_unattended_automations, agent_git_name, agent_git_email)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
 		ON CONFLICT (workspace_id) DO UPDATE SET enabled=EXCLUDED.enabled,
 		max_concurrent_machines=EXCLUDED.max_concurrent_machines, max_machines_per_user=EXCLUDED.max_machines_per_user,
 		max_daily_agent_runs=EXCLUDED.max_daily_agent_runs, max_runtime_minutes=EXCLUDED.max_runtime_minutes,
 		max_disk_gb=EXCLUDED.max_disk_gb, allowed_providers=EXCLUDED.allowed_providers,
 		allowed_repositories=EXCLUDED.allowed_repositories, allow_custom_providers=EXCLUDED.allow_custom_providers,
-		idle_pause_minutes=EXCLUDED.idle_pause_minutes, allow_unattended_automations=EXCLUDED.allow_unattended_automations
+		idle_pause_minutes=EXCLUDED.idle_pause_minutes, allow_unattended_automations=EXCLUDED.allow_unattended_automations,
+		agent_git_name=EXCLUDED.agent_git_name, agent_git_email=EXCLUDED.agent_git_email
 		RETURNING created_at, updated_at`, policy.WorkspaceID, policy.Enabled, policy.MaxConcurrentMachines,
 		policy.MaxMachinesPerUser, policy.MaxDailyAgentRuns, policy.MaxRuntimeMinutes, policy.MaxDiskGB,
-		policy.AllowedProviders, policy.AllowedRepositories, policy.AllowCustomProviders, policy.IdlePauseMinutes, policy.AllowUnattendedAutomations,
+		policy.AllowedProviders, policy.AllowedRepositories, policy.AllowCustomProviders, policy.IdlePauseMinutes, policy.AllowUnattendedAutomations, policy.AgentGitName, policy.AgentGitEmail,
 	).Scan(&policy.CreatedAt, &policy.UpdatedAt)
 }
 
@@ -1686,17 +1687,18 @@ func (r *DevMachineRepository) UpsertScopeSetting(ctx context.Context, setting *
 		return errors.New("invalid development setting scope")
 	}
 	query := `INSERT INTO dev_machine_scope_settings
-		(id,workspace_id,team_id,project_id,issue_id,github_repo_id,base_branch,environment_id,test_command,agent_provider,agent_instructions,compose_file)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+		(id,workspace_id,team_id,project_id,issue_id,github_repo_id,base_branch,environment_id,test_command,agent_provider,agent_instructions,compose_file,preview_command,preview_port)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
 		ON CONFLICT ` + conflictTarget + ` DO UPDATE SET
 			github_repo_id=EXCLUDED.github_repo_id,base_branch=EXCLUDED.base_branch,
 			environment_id=EXCLUDED.environment_id,test_command=EXCLUDED.test_command,
-			agent_provider=EXCLUDED.agent_provider,agent_instructions=EXCLUDED.agent_instructions,compose_file=EXCLUDED.compose_file,updated_at=NOW()
+			agent_provider=EXCLUDED.agent_provider,agent_instructions=EXCLUDED.agent_instructions,compose_file=EXCLUDED.compose_file,
+			preview_command=EXCLUDED.preview_command,preview_port=EXCLUDED.preview_port,updated_at=NOW()
 		WHERE dev_machine_scope_settings.workspace_id=EXCLUDED.workspace_id
 		RETURNING id,created_at,updated_at`
 	if err := tx.QueryRowContext(ctx, query, setting.ID, setting.WorkspaceID,
 		setting.TeamID, setting.ProjectID, setting.IssueID, setting.GitHubRepoID, setting.BaseBranch, setting.EnvironmentID, setting.TestCommand,
-		setting.AgentProvider, setting.AgentInstructions, setting.ComposeFile,
+		setting.AgentProvider, setting.AgentInstructions, setting.ComposeFile, setting.PreviewCommand, setting.PreviewPort,
 	).Scan(&setting.ID, &setting.CreatedAt, &setting.UpdatedAt); err != nil {
 		return err
 	}

@@ -7,7 +7,9 @@
 	import TaskComposer from './TaskComposer.svelte';
 	import TaskCard from './TaskCard.svelte';
 	import { m } from '$lib/paraglide/messages.js';
+	import { useTerminalDock } from '$lib/features/dev-machines/terminal-dock-context.svelte';
 	let { chat }: { chat: ConversationState } = $props();
+	const dock = useTerminalDock();
 	let options = $state<TaskOptions | null>(null),
 		loading = $state(true),
 		failed = $state(false),
@@ -23,6 +25,10 @@
 			(a, b) => Date.parse(b.created_at) - Date.parse(a.created_at) || b.id.localeCompare(a.id)
 		)
 	);
+	// Seeing agent work turns on the dock's Agents tab for this workspace.
+	$effect(() => {
+		if (tasks.length) dock?.trackAgents();
+	});
 	function fail(error: unknown) {
 		if (disposed) return;
 		const code = (error as { status?: number }).status;
@@ -78,7 +84,7 @@
 	}
 </script>
 
-<section aria-label={m['tasks.title']()} class="min-w-0 space-y-3 rounded-xl border bg-muted/10 p-3">
+<section aria-label={m['tasks.title']()} class="min-w-0 space-y-1">
 	<div class="flex items-center justify-between gap-3">
 		<h2 class="text-sm font-medium">{m['tasks.title']()}</h2>
 		{#if !denied}<Button
@@ -99,15 +105,17 @@
 				><RefreshCw size={14} />{m['tasks.refresh']()}</Button
 			>{/if}
 		{#if optionsUnavailable}<p class="text-xs text-muted-foreground">{m['tasks.configuration_unavailable']()}</p>{/if}
-		{#each tasks as task (task.id)}<TaskCard
-				{task}
-				{chat}
-				onretry={(value) => {
-					retry = value;
-					open = true;
-				}}
-				ondenied={fail}
-			/>{/each}
+		<div class="divide-y divide-border">
+			{#each tasks as task (task.id)}<TaskCard
+					{task}
+					{chat}
+					onretry={(value) => {
+						retry = value;
+						open = true;
+					}}
+					ondenied={fail}
+				/>{/each}
+		</div>
 		{#if before}<Button variant="ghost" size="sm" disabled={loadingOlder} onclick={() => void older()}
 				>{m['tasks.older']()}</Button
 			>{/if}

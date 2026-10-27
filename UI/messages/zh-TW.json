@@ -2045,5 +2045,18 @@
 	"automations.status_failed": "失敗",
 	"settings.dev_machines.allow_unattended": "允許無人值守自動化",
 	"assistant.tool_plan_issues": "規劃議題",
-	"assistant.tool_link_issues": "連結相依性"
+	"assistant.tool_link_issues": "連結相依性",
+	"settings.dev_machines.commit_author": "代理提交作者",
+	"settings.dev_machines.commit_author_desc": "選填。代理的提交會使用此名稱與電子郵件。請使用在 GitHub 帳號上已驗證的電子郵件（或其 noreply 地址），讓 GitHub 正確歸屬提交；兩者皆留空則使用部署預設值。",
+	"settings.dev_machines.commit_author_name": "使用者名稱",
+	"settings.dev_machines.commit_author_email": "已驗證電子郵件",
+	"tasks.agents": "代理",
+	"tasks.agents_tab": "代理 · {working} 個工作中 · 共 {total}",
+	"tasks.agents_empty": "目前沒有代理任務。",
+	"tasks.agents_open": "對話",
+	"tasks.agents_terminal": "終端機",
+	"tasks.preview_command": "預覽指令",
+	"tasks.preview_port": "預覽連接埠",
+	"tasks.preview_help": "選填。任務進入審查時，Kuayle 會在其工作樹中執行此指令（並設定 PORT 與 HOST=0.0.0.0），並為該連接埠開啟經過驗證的預覽，供人工 QA 使用。兩者皆留空則繼承。",
+	"tasks.preview_invalid": "請輸入 JSON 陣列形式的指令與 1024 到 65535 之間的連接埠，或兩者皆留空。"
 }

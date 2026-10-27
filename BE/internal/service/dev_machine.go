@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 	"unicode"
@@ -806,6 +807,14 @@ func (s *DevMachineService) UpdateScopeSetting(ctx context.Context, workspaceID 
 			setting.ComposeFile = &file
 		}
 	}
+	if len(request.PreviewCommand) > 0 || request.PreviewPort != nil {
+		if len(request.PreviewCommand) == 0 || request.PreviewPort == nil || *request.PreviewPort < 1024 || *request.PreviewPort > 65535 || domain.ValidateTestCommand(request.PreviewCommand) != nil {
+			return nil, fmt.Errorf("%w: a preview needs a command and a port between 1024 and 65535", ErrInvalidMachineInput)
+		}
+		raw, _ := json.Marshal(request.PreviewCommand)
+		previewCommand := json.RawMessage(raw)
+		setting.PreviewCommand, setting.PreviewPort = &previewCommand, request.PreviewPort
+	}
 	if request.TestCommand != nil {
 		command, _ := json.Marshal(request.TestCommand)
 		raw := json.RawMessage(command)
@@ -904,7 +913,7 @@ func (s *DevMachineService) resolveDevelopmentSetting(ctx context.Context, works
 	}
 	scopes = append(scopes, [3]*uuid.UUID{nil, nil, nil})
 	for _, scope := range scopes {
-		if resolved.GitHubRepoID != nil && resolved.EnvironmentID != nil && resolved.TestCommand != nil && resolved.AgentProvider != nil && resolved.AgentInstructions != nil && resolved.ComposeFile != nil {
+		if resolved.GitHubRepoID != nil && resolved.EnvironmentID != nil && resolved.TestCommand != nil && resolved.AgentProvider != nil && resolved.AgentInstructions != nil && resolved.ComposeFile != nil && resolved.PreviewCommand != nil {
 			break
 		}
 		setting, err := s.store.GetScopeSetting(ctx, workspaceID, scope[0], scope[1], scope[2])
@@ -932,6 +941,9 @@ func (s *DevMachineService) resolveDevelopmentSetting(ctx context.Context, works
 		}
 		if resolved.ComposeFile == nil && setting.ComposeFile != nil {
 			resolved.ComposeFile = setting.ComposeFile
+		}
+		if resolved.PreviewCommand == nil && setting.PreviewCommand != nil {
+			resolved.PreviewCommand, resolved.PreviewPort = setting.PreviewCommand, setting.PreviewPort
 		}
 	}
 	return resolved, nil
@@ -2164,6 +2176,25 @@ func (s *DevMachineService) GetPolicy(ctx context.Context, workspaceID uuid.UUID
 	}, nil
 }
 
+var gitAuthorEmail = regexp.MustCompile(`^[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+$`)
+
+// validGitAuthor accepts an empty author (the default is used) or a name and
+// email that git can record without control characters or angle brackets.
+func validGitAuthor(name, email string) bool {
+	if name == "" && email == "" {
+		return true
+	}
+	if name == "" || utf8.RuneCountInString(name) > 100 || len(email) > 254 || strings.ContainsAny(name, "<>") || !gitAuthorEmail.MatchString(email) {
+		return false
+	}
+	for _, r := range name {
+		if unicode.IsControl(r) {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *DevMachineService) UpdatePolicy(ctx context.Context, workspaceID uuid.UUID, req dto.DevMachinePolicyRequest) (*domain.DevMachineWorkspacePolicy, error) {
 	providers, _ := json.Marshal(req.AllowedProviders)
 	repositories, _ := json.Marshal(req.AllowedRepositories)
@@ -2177,6 +2208,13 @@ func (s *DevMachineService) UpdatePolicy(ctx context.Context, workspaceID uuid.U
 		MaxRuntimeMinutes: req.MaxRuntimeMinutes, MaxDiskGB: req.MaxDiskGB, AllowedProviders: providers,
 		AllowedRepositories: repositories, AllowCustomProviders: req.AllowCustomProviders, IdlePauseMinutes: idlePauseMinutes,
 		AllowUnattendedAutomations: req.AllowUnattendedAutomations,
+	}
+	name, email := strings.TrimSpace(req.AgentGitName), strings.TrimSpace(req.AgentGitEmail)
+	if (name == "") != (email == "") || !validGitAuthor(name, email) {
+		return nil, fmt.Errorf("%w: a commit author needs both a name and a valid email", ErrInvalidMachineInput)
+	}
+	if name != "" {
+		policy.AgentGitName, policy.AgentGitEmail = &name, &email
 	}
 	if err := s.store.UpsertPolicy(ctx, policy); err != nil {
 		return nil, err

@@ -74,6 +74,11 @@ func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, 
 	}
 	title := truncateText(publication.IssueIdentifier+": "+publication.IssueTitle, 240)
 	identity := m.gitIdentity()
+	// A workspace-configured author (e.g. a verified GitHub email) takes
+	// precedence over the deployment default.
+	if publication.AuthorName != "" && publication.AuthorEmail != "" {
+		identity = GitIdentity{Name: publication.AuthorName, Email: publication.AuthorEmail}
+	}
 	commit, err := m.runtime.PublishCheckout(ctx, machine, services, checkout, PublishRequest{
 		AuthorName: identity.Name, AuthorEmail: identity.Email, Token: token,
 		Message: title + "\n\nKuayle agent task " + run.TaskID.String(),

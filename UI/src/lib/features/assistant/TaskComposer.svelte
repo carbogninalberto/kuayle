@@ -130,7 +130,7 @@
 					bind:value={prompt}
 					aria-label={m['tasks.instructions']()}
 					maxlength={32000}
-					class="min-h-32 max-h-64"
+					class="min-h-16 max-h-64"
 					disabled={saving}
 				/>
 				<InputGroup.Addon align="block-end" class="flex-wrap gap-2">

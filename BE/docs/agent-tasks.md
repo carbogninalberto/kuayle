@@ -422,6 +422,27 @@ access stops its unattended runs.
 - `POST /agent-automation-runs/:id/approve|dismiss` is open to the rule owner
   or an administrator.
 
+## Automatic QA previews
+
+Migration 71 adds an inherited preview setting: an argv command and a port
+(1024–65535), set together or not at all. It is snapshotted onto each task,
+like the test command.
+
+When an attempt reaches `awaiting_review`, the transition queues one
+`start_preview` operation, keyed by attempt. The manager then:
+
+- checks that the task is still in review and the machine is running;
+- refuses a port used by one of the machine's own services;
+- runs the command in the task worktree on the developer container, as UID
+  1000 with `PORT` and `HOST=0.0.0.0` set;
+- stops the machine's previous preview (its whole process group) first;
+- points the machine's authenticated preview host at the port, so "Open
+  preview" appears on the task card.
+
+The process keeps running until a later attempt replaces it, or until the
+machine is paused or stopped. Previews reuse the gateway's host-bound tickets;
+the application never sees Kuayle credentials.
+
 ## Dependencies and collaborating agents
 
 Blocked-by relations order agent work. A relation can be stored from either

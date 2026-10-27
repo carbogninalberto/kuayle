@@ -2045,5 +2045,18 @@
 	"automations.status_failed": "Non riuscita",
 	"settings.dev_machines.allow_unattended": "Consenti automazioni senza supervisione",
 	"assistant.tool_plan_issues": "Pianifica issue",
-	"assistant.tool_link_issues": "Collega dipendenza"
+	"assistant.tool_link_issues": "Collega dipendenza",
+	"settings.dev_machines.commit_author": "Autore dei commit degli agenti",
+	"settings.dev_machines.commit_author_desc": "Facoltativo. I commit degli agenti usano questo nome ed email. Usa un'email verificata sull'account GitHub (o il suo indirizzo noreply) perché GitHub attribuisca i commit; lascia entrambi vuoti per il valore predefinito dell'installazione.",
+	"settings.dev_machines.commit_author_name": "Nome utente",
+	"settings.dev_machines.commit_author_email": "Email verificata",
+	"tasks.agents": "Agenti",
+	"tasks.agents_tab": "Agenti · {working} al lavoro · {total}",
+	"tasks.agents_empty": "Nessun lavoro degli agenti al momento.",
+	"tasks.agents_open": "Conversazione",
+	"tasks.agents_terminal": "Terminale",
+	"tasks.preview_command": "Comando di anteprima",
+	"tasks.preview_port": "Porta di anteprima",
+	"tasks.preview_help": "Facoltativo. Quando un'attività arriva in revisione, Kuayle esegue questo comando nel suo worktree (con PORT e HOST=0.0.0.0 impostati) e apre un'anteprima autenticata della porta per il QA manuale. Lascia entrambi vuoti per ereditare.",
+	"tasks.preview_invalid": "Inserisci un comando come array JSON e una porta tra 1024 e 65535, oppure lascia entrambi vuoti."
 }
