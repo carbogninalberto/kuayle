@@ -1882,7 +1882,8 @@ func (s *DevMachineService) CreateTerminalSession(ctx context.Context, workspace
 		if err != nil {
 			return nil, fmt.Errorf("%w: invalid checkout_id", ErrInvalidMachineInput)
 		}
-		checkout, err = s.store.GetCheckout(ctx, workspaceID, machineID, parsed)
+		// A task's worktree is a valid working directory for the machine's user.
+		checkout, err = s.store.GetTerminalCheckout(ctx, workspaceID, machineID, parsed)
 		if err != nil {
 			return nil, err
 		}

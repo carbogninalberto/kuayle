@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { getErrorMessage } from '$lib/features/toast/toast';
 	import { browser } from '$app/environment';
 	import { onDestroy, tick } from 'svelte';
 	import { LoaderCircle, RefreshCw } from '@lucide/svelte';
@@ -131,7 +132,8 @@
 		} catch (error) {
 			if (id !== runId) return;
 			status = 'error';
-			statusMessage = error instanceof Error ? error.message : 'Unable to open the terminal';
+			// API failures are plain objects; show their message, not a generic one.
+			statusMessage = getErrorMessage(error, 'Unable to open the terminal');
 		}
 	}
 
@@ -211,6 +213,11 @@
 			status = 'connected';
 			statusMessage = 'Terminal connected';
 			if (visible) terminal.focus();
+			// Type the tab's initial command once; reconnects never repeat it.
+			if (tab.initialInput && !initialInputSent) {
+				initialInputSent = true;
+				sendFrame(encodeInputFrame(tab.initialInput));
+			}
 		});
 		activeSocket.addEventListener('message', (event) => {
 			if (!terminal || !isCurrentConnection(connection, id)) return;
@@ -276,6 +283,8 @@
 		status = 'error';
 		statusMessage = message;
 	}
+
+	let initialInputSent = false;
 
 	function sendFrame(frame: Uint8Array) {
 		const activeSocket = socketConnection?.socket;

@@ -27,7 +27,7 @@ function showToast(variant: AppToastVariant, title: string, options: ToastOption
 	});
 }
 
-function getErrorMessage(error: unknown, fallback: string): string {
+export function getErrorMessage(error: unknown, fallback: string): string {
 	if (error && typeof error === 'object') {
 		const maybeError = error as { error?: { message?: unknown }; message?: unknown };
 		if (typeof maybeError.error?.message === 'string' && maybeError.error.message) {

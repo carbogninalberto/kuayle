@@ -2132,6 +2132,10 @@ func (f *devMachineStoreFake) GetCheckout(_ context.Context, workspaceID, machin
 	return nil, nil
 }
 
+func (f *devMachineStoreFake) GetTerminalCheckout(ctx context.Context, workspaceID, machineID, checkoutID uuid.UUID) (*domain.DevMachineCheckout, error) {
+	return f.GetCheckout(ctx, workspaceID, machineID, checkoutID)
+}
+
 func (f *devMachineStoreFake) CreateCheckout(_ context.Context, checkout *domain.DevMachineCheckout, operation *domain.DevMachineOperation) error {
 	f.createCheckoutCalled = true
 	f.checkoutOperation = operation

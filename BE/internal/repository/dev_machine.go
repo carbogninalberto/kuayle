@@ -75,6 +75,7 @@ type DevMachineStore interface {
 	DeleteEnvironment(context.Context, uuid.UUID, uuid.UUID) error
 	ListPermanentDeleteRequests(context.Context, int) ([]domain.DevMachine, error)
 	GetCheckout(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (*domain.DevMachineCheckout, error)
+	GetTerminalCheckout(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (*domain.DevMachineCheckout, error)
 	GetCheckoutInternal(context.Context, uuid.UUID) (*domain.DevMachineCheckout, error)
 	ListCheckouts(context.Context, uuid.UUID, uuid.UUID) ([]domain.DevMachineCheckout, error)
 	CreateCheckout(context.Context, *domain.DevMachineCheckout, *domain.DevMachineOperation) error
@@ -2086,6 +2087,19 @@ func checkoutScope(ctx context.Context) string {
 func (r *DevMachineRepository) GetCheckout(ctx context.Context, workspaceID, machineID, checkoutID uuid.UUID) (*domain.DevMachineCheckout, error) {
 	var checkout domain.DevMachineCheckout
 	err := r.db.GetContext(ctx, &checkout, `SELECT * FROM dev_machine_checkouts WHERE workspace_id=$1 AND machine_id=$2 AND id=$3 AND scope_key=$4`, workspaceID, machineID, checkoutID, checkoutScope(ctx))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return &checkout, err
+}
+
+// GetTerminalCheckout finds any checkout on the machine, including a task's
+// worktree, to set a terminal's working directory. Callers have already
+// authorized the user for the machine, where a terminal is a full shell; task
+// writes keep using the scoped GetCheckout.
+func (r *DevMachineRepository) GetTerminalCheckout(ctx context.Context, workspaceID, machineID, checkoutID uuid.UUID) (*domain.DevMachineCheckout, error) {
+	var checkout domain.DevMachineCheckout
+	err := r.db.GetContext(ctx, &checkout, `SELECT * FROM dev_machine_checkouts WHERE workspace_id=$1 AND machine_id=$2 AND id=$3`, workspaceID, machineID, checkoutID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}

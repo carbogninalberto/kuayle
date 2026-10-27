@@ -120,3 +120,26 @@ func TestRelatedWorkListsSameTeamNeighboursWithTheirAgentWork(t *testing.T) {
 	require.Equal(t, "blocker", byID["AUT-2"].Relation)
 	require.Equal(t, "Todo", byID["AUT-2"].Status)
 }
+
+func TestTerminalsCanOpenInATaskWorktree(t *testing.T) {
+	db, repo, ctx, task, fixture := taskRecoveryFixture(t)
+	claimed := prepareTaskStart(t, db, repo, ctx, task, fixture)
+	machine := *claimed.MachineID
+	installation, repositoryID := uuid.New(), uuid.New()
+	_, err := db.Exec(`INSERT INTO github_installations(id,workspace_id,installation_id,account_login,account_type,installed_by) VALUES($1,$2,1,'fixture','Organization',$3)`, installation, task.WorkspaceID, task.CreatorID)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO github_repos(id,installation_id,workspace_id,github_repo_id,full_name,default_branch) VALUES($1,$2,$3,1,'fixture/repo','main')`, repositoryID, installation, task.WorkspaceID)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO dev_machine_checkouts(id,workspace_id,machine_id,issue_id,github_repo_id,repository_full_name,base_branch,working_branch,workspace_path,status,scope_key) VALUES($1,$2,$3,$4,$5,'fixture/repo','main','kuayle/task','/workspace/tasks/task','ready',$6)`, task.CheckoutID, task.WorkspaceID, machine, task.IssueID, repositoryID, task.ID.String())
+	require.NoError(t, err)
+	store := NewDevMachineRepository(db)
+	scoped, err := store.GetCheckout(ctx, task.WorkspaceID, machine, task.CheckoutID)
+	require.NoError(t, err)
+	require.Nil(t, scoped, "HTTP callers cannot use a task checkout for writes")
+	terminal, err := store.GetTerminalCheckout(ctx, task.WorkspaceID, machine, task.CheckoutID)
+	require.NoError(t, err)
+	require.NotNil(t, terminal, "but a terminal may open in the task worktree")
+	other, err := store.GetTerminalCheckout(ctx, task.WorkspaceID, uuid.New(), task.CheckoutID)
+	require.NoError(t, err)
+	require.Nil(t, other, "only on the checkout's own machine")
+}
