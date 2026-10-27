@@ -413,6 +413,7 @@ func (s *TelegramService) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			s.previewReplies(ctx)
 			claimCtx, stopClaim := context.WithTimeout(ctx, 5*time.Second)
 			d, err := s.Repo.ClaimDelivery(claimCtx)
 			stopClaim()
@@ -427,18 +428,99 @@ func (s *TelegramService) Run(ctx context.Context) {
 				}
 				text := telegramText(d.Text, 3200)
 				if d.ConversationID != nil {
-					text += "\n\n" + s.frontend + "/" + url.PathEscape(d.Slug) + "/assistant?conversation=" + d.ConversationID.String()
+					link := s.frontend + "/" + url.PathEscape(d.Slug) + "/assistant?conversation=" + d.ConversationID.String()
+					// Telegram only makes public addresses clickable.
+					if strings.HasPrefix(link, "https://") {
+						text += "\n\n[Open in Kuayle](" + link + ")"
+					} else {
+						text += "\n\n" + link
+					}
 				}
-				payload := map[string]any{"chat_id": d.TelegramUserID, "text": text, "link_preview_options": map[string]any{"is_disabled": true}}
+				payload := map[string]any{"chat_id": d.TelegramUserID, "link_preview_options": map[string]any{"is_disabled": true}}
 				if keyboard := approvalKeyboard(d.Approvals); keyboard != nil {
 					payload["reply_markup"] = keyboard
 				}
-				return s.call(deliveryCtx, token, "sendMessage", payload, nil)
+				// The final reply replaces the message streamed while it was written.
+				if d.TelegramMessageID != nil {
+					edited := map[string]any{"message_id": *d.TelegramMessageID}
+					for key, value := range payload {
+						edited[key] = value
+					}
+					if err := s.sendFormatted(deliveryCtx, token, "editMessageText", edited, text, nil); err == nil {
+						return nil
+					}
+				}
+				return s.sendFormatted(deliveryCtx, token, "sendMessage", payload, text, nil)
 			})
 			cancel()
 		}
 	}
 }
+
+// sendFormatted sends Markdown as Telegram HTML, and as plain text when
+// Telegram refuses the formatting.
+func (s *TelegramService) sendFormatted(ctx context.Context, token, method string, payload map[string]any, markdown string, result any) error {
+	formatted := make(map[string]any, len(payload)+2)
+	for key, value := range payload {
+		formatted[key] = value
+	}
+	formatted["text"], formatted["parse_mode"] = telegramHTML(markdown), "HTML"
+	err := s.call(ctx, token, method, formatted, result)
+	var refused *TelegramAPIError
+	if !errors.As(err, &refused) {
+		return err
+	}
+	plain := make(map[string]any, len(payload)+1)
+	for key, value := range payload {
+		plain[key] = value
+	}
+	plain["text"] = markdown
+	return s.call(ctx, token, method, plain, result)
+}
+
+// previewReplies streams replies still being written: "typing…" until text
+// arrives, then one message edited with the text so far every few seconds.
+func (s *TelegramService) previewReplies(ctx context.Context) {
+	for range 5 {
+		claimCtx, stopClaim := context.WithTimeout(ctx, 5*time.Second)
+		d, err := s.Repo.ClaimPreview(claimCtx)
+		stopClaim()
+		if err != nil || d == nil {
+			return
+		}
+		if strings.TrimSpace(d.Text) != "" {
+			d.Text = telegramText(strings.TrimSpace(d.Text), 3000)
+		}
+		previewCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		_ = s.Repo.Preview(previewCtx, *d, func(d domain.TelegramDelivery) (int64, error) {
+			return s.preview(previewCtx, d)
+		})
+		cancel()
+	}
+}
+
+func (s *TelegramService) preview(ctx context.Context, d domain.TelegramDelivery) (int64, error) {
+	token, err := crypto.Decrypt(d.TokenEncrypted, s.key)
+	if err != nil {
+		return 0, err
+	}
+	if d.Text == "" || (d.TelegramMessageID != nil && d.Text == d.PreviewText) {
+		return 0, s.call(ctx, token, "sendChatAction", map[string]any{"chat_id": d.TelegramUserID, "action": "typing"}, nil)
+	}
+	payload := map[string]any{"chat_id": d.TelegramUserID, "link_preview_options": map[string]any{"is_disabled": true}}
+	if d.TelegramMessageID != nil {
+		payload["message_id"] = *d.TelegramMessageID
+		return *d.TelegramMessageID, s.sendFormatted(ctx, token, "editMessageText", payload, d.Text+" …", nil)
+	}
+	var sent struct {
+		MessageID int64 `json:"message_id"`
+	}
+	if err = s.sendFormatted(ctx, token, "sendMessage", payload, d.Text+" …", &sent); err != nil {
+		return 0, err
+	}
+	return sent.MessageID, nil
+}
+
 func telegramText(text string, maxUnits int) string {
 	if strings.TrimSpace(text) == "" {
 		return "Open Kuayle to view the response."

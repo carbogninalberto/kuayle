@@ -49,6 +49,10 @@ type TelegramDelivery struct {
 	Text           string     `db:"text"`
 	TokenEncrypted string     `db:"token_encrypted"`
 	Slug           string     `db:"slug"`
+	// TelegramMessageID is the message streamed while the reply was written;
+	// the final delivery replaces it. PreviewText is what it shows now.
+	TelegramMessageID *int64 `db:"telegram_message_id"`
+	PreviewText       string `db:"preview_text"`
 
 	Approvals []TelegramApprovalButton `db:"-"`
 }

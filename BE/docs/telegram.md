@@ -97,6 +97,16 @@ claims become uncertain after one minute); the complete reply remains available
 in the Web conversation. This intentionally favors no duplicate sends over a
 promise of exactly-once external delivery.
 
+While a reply is written, the same checks gate a streaming preview (migration
+`000078_telegram_streaming`): the chat shows "typing…" until text exists, then one
+message is sent and edited with the text so far at most every two seconds. The
+final delivery edits that message (falling back to a new message) and adds any
+approval buttons. Replies are sent as Telegram HTML converted from the assistant's
+Markdown (bold, italic, strikethrough, code, fenced blocks, quotes, lists and
+http(s) links; everything else escaped), and as plain text if Telegram refuses the
+formatting. The link back to the conversation is clickable only when
+`FRONTEND_URL` is HTTPS; Telegram does not link `localhost`.
+
 Disabling blocks input and queued output immediately; authenticated updates are
 acknowledged and ignored while disabled. Re-enabling or switching bots uses
 `drop_pending_updates` to discard Telegram’s backlog from before activation.

@@ -65,7 +65,8 @@ func TestTelegramSettingsAndBotReplies(t *testing.T) {
 	memberCtx := domain.WithAccess(context.Background(), domain.Access{WorkspaceID: ws, UserID: member})
 	var mu sync.Mutex
 	var hookSecret string
-	var sent []string
+	var sent, edited []string
+	var typing int
 	var calls int
 	var dropPending []bool
 	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -86,9 +87,19 @@ func TestTelegramSettingsAndBotReplies(t *testing.T) {
 		case strings.HasSuffix(r.URL.Path, "/sendMessage"):
 			var body map[string]any
 			require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
-			require.Nil(t, body["parse_mode"])
+			require.Equal(t, "HTML", body["parse_mode"], "replies render Markdown as Telegram HTML")
 			sent = append(sent, body["text"].(string))
-			fmt.Fprint(w, `{"ok":true,"result":{"message_id":42}}`)
+			fmt.Fprintf(w, `{"ok":true,"result":{"message_id":%d}}`, 40+len(sent))
+		case strings.HasSuffix(r.URL.Path, "/editMessageText"):
+			var body map[string]any
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+			require.Equal(t, "HTML", body["parse_mode"])
+			require.EqualValues(t, 40+len(sent), body["message_id"], "the streamed message is the one edited")
+			edited = append(edited, body["text"].(string))
+			fmt.Fprint(w, `{"ok":true,"result":{"message_id":1}}`)
+		case strings.HasSuffix(r.URL.Path, "/sendChatAction"):
+			typing++
+			fmt.Fprint(w, `{"ok":true,"result":true}`)
 		default:
 			t.Errorf("unexpected method")
 			w.WriteHeader(400)
@@ -162,6 +173,8 @@ func TestTelegramSettingsAndBotReplies(t *testing.T) {
 	require.NoError(t, repository.NewAISettingsRepository(db).Upsert(ownerCtx, &domain.AISettings{WorkspaceID: ws, Provider: "openai_compatible", BaseURL: "https://model.example.test", Model: "fixture", APIKeyEncrypted: &encrypted}))
 	require.NoError(t, receive(4, 12345, "Hello from Telegram"))
 	require.NoError(t, receive(4, 12345, "Hello from Telegram"))
+	// While the reply has no text yet, the chat shows "typing…".
+	require.Eventually(t, func() bool { mu.Lock(); defer mu.Unlock(); return typing > 0 }, 5*time.Second, 20*time.Millisecond)
 	conversations := repository.NewConversationRepository(db)
 	chats, err = conversations.List(ownerCtx, ws)
 	require.NoError(t, err)
@@ -173,13 +186,22 @@ func TestTelegramSettingsAndBotReplies(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, attempt)
 	require.Equal(t, ws, attempt.Conversation.WorkspaceID)
-	_, err = conversations.Append(ownerCtx, *attempt, "A shared reply")
+	_, err = conversations.Append(ownerCtx, *attempt, "A **shared** reply")
 	require.NoError(t, err)
-	require.NoError(t, conversations.Finish(ownerCtx, *attempt, "completed"))
+	// The reply streams into one message while it is written...
 	require.Eventually(t, func() bool { mu.Lock(); defer mu.Unlock(); return len(sent) == 2 }, 5*time.Second, 20*time.Millisecond)
 	mu.Lock()
-	require.Contains(t, sent[1], "A shared reply")
-	require.Contains(t, sent[1], chats[0].ID.String())
+	require.Equal(t, "A <b>shared</b> reply …", sent[1])
+	mu.Unlock()
+	require.NoError(t, conversations.Finish(ownerCtx, *attempt, "completed"))
+	// ...and the final reply replaces it, with a link back to the conversation.
+	require.Eventually(t, func() bool { mu.Lock(); defer mu.Unlock(); return len(edited) == 1 }, 5*time.Second, 20*time.Millisecond)
+	mu.Lock()
+	require.Contains(t, edited[0], "A <b>shared</b> reply")
+	require.NotContains(t, edited[0], "…")
+	require.Contains(t, edited[0], `<a href="https://kuayle.example.test/`)
+	require.Contains(t, edited[0], chats[0].ID.String())
+	require.Len(t, sent, 2, "no second message for the same reply")
 	mu.Unlock()
 	// A Web-originated message in the linked conversation is delivered too.
 	_, err = conversations.Send(ownerCtx, ws, chats[0].ID, uuid.New(), "From Web", "openai_compatible", "fixture")
@@ -190,7 +212,16 @@ func TestTelegramSettingsAndBotReplies(t *testing.T) {
 	_, err = conversations.Append(ownerCtx, *attempt, "Web reply also delivered")
 	require.NoError(t, err)
 	require.NoError(t, conversations.Finish(ownerCtx, *attempt, "completed"))
-	require.Eventually(t, func() bool { mu.Lock(); defer mu.Unlock(); return len(sent) == 3 }, 5*time.Second, 20*time.Millisecond)
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, text := range append(append([]string{}, sent...), edited...) {
+			if strings.Contains(text, "Web reply also delivered") && !strings.Contains(text, "…") {
+				return true
+			}
+		}
+		return false
+	}, 5*time.Second, 20*time.Millisecond)
 	// Removal revokes the webhook immediately and retains Web conversation history.
 	_, err = svc.Save(ownerCtx, ws, TelegramSettingsRequest{Token: dto.OptionalString{Set: true}})
 	require.NoError(t, err)

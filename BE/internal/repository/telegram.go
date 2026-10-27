@@ -348,7 +348,7 @@ func (r *TelegramRepository) ClaimDelivery(ctx context.Context) (*domain.Telegra
 		return nil, err
 	}
 	var d domain.TelegramDelivery
-	err = tx.GetContext(ctx, &d, `SELECT d.id,d.workspace_id,d.user_id,d.telegram_user_id,d.conversation_id,d.message_id,CASE WHEN d.message_id IS NULL THEN d.text WHEN m.status='completed' THEN m.content ELSE 'Reply interrupted or cancelled. Open Kuayle to retry.' END AS text,s.token_encrypted,w.slug FROM telegram_deliveries d JOIN telegram_settings s ON s.workspace_id=d.workspace_id JOIN workspaces w ON w.id=d.workspace_id LEFT JOIN conversation_messages m ON m.id=d.message_id WHERE d.status='queued' AND (d.message_id IS NULL OR m.status NOT IN ('queued','streaming')) ORDER BY d.created_at LIMIT 1 FOR UPDATE OF d SKIP LOCKED`)
+	err = tx.GetContext(ctx, &d, `SELECT d.id,d.workspace_id,d.user_id,d.telegram_user_id,d.conversation_id,d.message_id,d.telegram_message_id,d.preview_text,CASE WHEN d.message_id IS NULL THEN d.text WHEN m.status='completed' THEN m.content ELSE 'Reply interrupted or cancelled. Open Kuayle to retry.' END AS text,s.token_encrypted,w.slug FROM telegram_deliveries d JOIN telegram_settings s ON s.workspace_id=d.workspace_id JOIN workspaces w ON w.id=d.workspace_id LEFT JOIN conversation_messages m ON m.id=d.message_id WHERE d.status='queued' AND (d.message_id IS NULL OR m.status NOT IN ('queued','streaming')) ORDER BY d.created_at LIMIT 1 FOR UPDATE OF d SKIP LOCKED`)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, tx.Commit()
 	}
@@ -373,20 +373,9 @@ func (r *TelegramRepository) Deliver(ctx context.Context, d domain.TelegramDeliv
 	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock_shared(hashtextextended($1::text,63))`, d.WorkspaceID); err != nil {
 		return err
 	}
-	var s domain.TelegramSettings
-	err = tx.GetContext(ctx, &s, `SELECT `+telegramColumns+` FROM telegram_settings WHERE workspace_id=$1 FOR SHARE`, d.WorkspaceID)
+	allowed, token, err := authorizeTelegramDelivery(ctx, tx, d)
 	if err != nil {
 		return err
-	}
-	allowed := s.Enabled && slices.Contains(s.AllowedUserIDs, d.TelegramUserID)
-	if allowed {
-		allowed = conversationMember(ctx, tx, d.WorkspaceID, d.UserID) == nil
-	}
-	if allowed && d.ConversationID != nil {
-		allowed, err = telegramConversationScope(ctx, tx, d)
-		if err != nil {
-			return err
-		}
 	}
 	var pending bool
 	if err = tx.GetContext(ctx, &pending, `SELECT status='sending' FROM telegram_deliveries WHERE id=$1 FOR UPDATE`, d.ID); errors.Is(err, sql.ErrNoRows) {
@@ -397,12 +386,8 @@ func (r *TelegramRepository) Deliver(ctx context.Context, d domain.TelegramDeliv
 	if !pending {
 		return nil
 	}
-	var linked bool
-	if err = tx.GetContext(ctx, &linked, `SELECT EXISTS(SELECT 1 FROM telegram_links WHERE workspace_id=$1 AND user_id=$2 AND telegram_user_id=$3)`, d.WorkspaceID, d.UserID, d.TelegramUserID); err != nil {
-		return err
-	}
 	status := "denied"
-	if allowed && linked && d.MessageID != nil {
+	if allowed && d.MessageID != nil {
 		// Offer buttons only for this reply's pending approvals bound to the
 		// recipient; resolving them re-authorizes on the server.
 		if err = tx.SelectContext(ctx, &d.Approvals, `SELECT a.id,a.payload->>'identifier' AS identifier FROM conversation_approvals a JOIN conversation_tool_calls c ON c.id=a.tool_call_id
@@ -410,8 +395,8 @@ func (r *TelegramRepository) Deliver(ctx context.Context, d domain.TelegramDeliv
 			return err
 		}
 	}
-	if allowed && linked {
-		d.TokenEncrypted = s.TokenEncrypted
+	if allowed {
+		d.TokenEncrypted = token
 		status = "sent"
 		if send(d) != nil {
 			status = "uncertain"
@@ -419,6 +404,93 @@ func (r *TelegramRepository) Deliver(ctx context.Context, d domain.TelegramDeliv
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE telegram_deliveries SET status=$2,updated_at=now() WHERE id=$1 AND status='sending'`, d.ID, status)
 	if err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// authorizeTelegramDelivery re-checks, at send time, that the bot is enabled,
+// the recipient is allowed and linked, the user is still a member and the
+// conversation is still theirs. It returns the bot token when allowed.
+func authorizeTelegramDelivery(ctx context.Context, tx *sqlx.Tx, d domain.TelegramDelivery) (bool, string, error) {
+	var s domain.TelegramSettings
+	if err := tx.GetContext(ctx, &s, `SELECT `+telegramColumns+` FROM telegram_settings WHERE workspace_id=$1 FOR SHARE`, d.WorkspaceID); err != nil {
+		return false, "", err
+	}
+	allowed := s.Enabled && slices.Contains(s.AllowedUserIDs, d.TelegramUserID)
+	if allowed {
+		allowed = conversationMember(ctx, tx, d.WorkspaceID, d.UserID) == nil
+	}
+	if allowed && d.ConversationID != nil {
+		var err error
+		if allowed, err = telegramConversationScope(ctx, tx, d); err != nil {
+			return false, "", err
+		}
+	}
+	if allowed {
+		if err := tx.GetContext(ctx, &allowed, `SELECT EXISTS(SELECT 1 FROM telegram_links WHERE workspace_id=$1 AND user_id=$2 AND telegram_user_id=$3)`, d.WorkspaceID, d.UserID, d.TelegramUserID); err != nil {
+			return false, "", err
+		}
+	}
+	if !allowed {
+		return false, "", nil
+	}
+	return true, s.TokenEncrypted, nil
+}
+
+// ClaimPreview picks a reply still being written whose Telegram preview is due
+// (at most every two seconds) and returns its text so far.
+func (r *TelegramRepository) ClaimPreview(ctx context.Context) (*domain.TelegramDelivery, error) {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	var d domain.TelegramDelivery
+	err = tx.GetContext(ctx, &d, `SELECT d.id,d.workspace_id,d.user_id,d.telegram_user_id,d.conversation_id,d.message_id,d.telegram_message_id,d.preview_text,m.content AS text,''::text AS token_encrypted,w.slug
+ FROM telegram_deliveries d JOIN conversation_messages m ON m.id=d.message_id JOIN workspaces w ON w.id=d.workspace_id
+ WHERE d.status='queued' AND m.status IN ('queued','streaming') AND (d.preview_at IS NULL OR d.preview_at<now()-interval '2 seconds')
+ ORDER BY d.preview_at NULLS FIRST LIMIT 1 FOR UPDATE OF d SKIP LOCKED`)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, tx.Commit()
+	}
+	if err != nil {
+		return nil, err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE telegram_deliveries SET preview_at=now() WHERE id=$1`, d.ID); err != nil {
+		return nil, err
+	}
+	return &d, tx.Commit()
+}
+
+// Preview shows a reply being written: send reports the Telegram message now
+// showing it (0 when nothing was sent), which the final delivery replaces.
+// It authorizes like Deliver and does nothing once the reply was delivered.
+func (r *TelegramRepository) Preview(ctx context.Context, d domain.TelegramDelivery, send func(domain.TelegramDelivery) (int64, error)) error {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock_shared(hashtextextended($1::text,63))`, d.WorkspaceID); err != nil {
+		return err
+	}
+	allowed, token, err := authorizeTelegramDelivery(ctx, tx, d)
+	if err != nil || !allowed {
+		return err
+	}
+	var queued bool
+	if err = tx.GetContext(ctx, &queued, `SELECT status='queued' FROM telegram_deliveries WHERE id=$1 FOR UPDATE`, d.ID); errors.Is(err, sql.ErrNoRows) {
+		return nil
+	} else if err != nil || !queued {
+		return err
+	}
+	d.TokenEncrypted = token
+	messageID, err := send(d)
+	if err != nil || messageID == 0 {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE telegram_deliveries SET telegram_message_id=$2,preview_text=$3 WHERE id=$1`, d.ID, messageID, d.Text); err != nil {
 		return err
 	}
 	return tx.Commit()
