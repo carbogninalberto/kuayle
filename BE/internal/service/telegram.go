@@ -34,12 +34,22 @@ type TelegramService struct {
 	frontend   string
 	client     *http.Client
 	endpoint   string
+	approvals  telegramApprovals
+}
+
+type telegramApprovals interface {
+	ResolveApproval(ctx context.Context, ws, conversation, id uuid.UUID, approve bool) (*domain.ConversationApproval, error)
+}
+
+// SetApprovals lets linked users resolve their own approvals with inline buttons.
+func (s *TelegramService) SetApprovals(approvals telegramApprovals) {
+	s.approvals = approvals
 }
 
 func NewTelegramService(repo *repository.TelegramRepository, workspaces repository.WorkspaceRepo, ai *AISettingsService, key []byte, frontend string) *TelegramService {
 	client := newAIProviderClient(false)
 	client.Timeout = 10 * time.Second
-	return &TelegramService{repo, workspaces, ai, key, strings.TrimRight(frontend, "/"), client, "https://api.telegram.org"}
+	return &TelegramService{repo, workspaces, ai, key, strings.TrimRight(frontend, "/"), client, "https://api.telegram.org", nil}
 }
 
 type TelegramSettingsRequest struct {
@@ -251,9 +261,32 @@ func (s *TelegramService) Receive(ctx context.Context, ws uuid.UUID, secret stri
 				Type string `json:"type"`
 			} `json:"chat"`
 		} `json:"message"`
+		Callback *struct {
+			ID   string `json:"id"`
+			Data string `json:"data"`
+			From *struct {
+				ID    int64 `json:"id"`
+				IsBot bool  `json:"is_bot"`
+			} `json:"from"`
+			Message *struct {
+				ID   int64 `json:"message_id"`
+				Chat struct {
+					ID   int64  `json:"id"`
+					Type string `json:"type"`
+				} `json:"chat"`
+			} `json:"message"`
+		} `json:"callback_query"`
 	}
 	if err := json.Unmarshal(raw, &update); err != nil {
 		return repository.ErrTelegramInvalid
+	}
+	if c := update.Callback; c != nil {
+		u := domain.TelegramUpdate{ID: update.ID, CallbackID: c.ID, CallbackData: c.Data}
+		if c.From != nil && c.Message != nil && len(c.ID) <= 128 && len(c.Data) <= 64 {
+			u.UserID, u.ChatID, u.CallbackMessageID = c.From.ID, c.Message.Chat.ID, c.Message.ID
+			u.Private = c.Message.Chat.Type == "private" && !c.From.IsBot
+		}
+		return s.receiveCallback(ctx, ws, secret, u)
 	}
 	u := domain.TelegramUpdate{ID: update.ID}
 	if update.Message != nil && update.Message.From != nil {
@@ -331,7 +364,11 @@ func (s *TelegramService) Run(ctx context.Context) {
 				if d.ConversationID != nil {
 					text += "\n\n" + s.frontend + "/" + url.PathEscape(d.Slug) + "/assistant?conversation=" + d.ConversationID.String()
 				}
-				return s.call(deliveryCtx, token, "sendMessage", map[string]any{"chat_id": d.TelegramUserID, "text": text, "link_preview_options": map[string]any{"is_disabled": true}}, nil)
+				payload := map[string]any{"chat_id": d.TelegramUserID, "text": text, "link_preview_options": map[string]any{"is_disabled": true}}
+				if keyboard := approvalKeyboard(d.Approvals); keyboard != nil {
+					payload["reply_markup"] = keyboard
+				}
+				return s.call(deliveryCtx, token, "sendMessage", payload, nil)
 			})
 			cancel()
 		}
@@ -353,4 +390,73 @@ func telegramText(text string, maxUnits int) string {
 		b.WriteRune(r)
 	}
 	return b.String()
+}
+
+// approvalKeyboard offers one Approve/Deny row per pending approval. The
+// callback data only names the approval; the server decides who may act.
+func approvalKeyboard(approvals []domain.TelegramApprovalButton) map[string]any {
+	if len(approvals) == 0 {
+		return nil
+	}
+	rows := make([][]map[string]string, 0, len(approvals))
+	for _, a := range approvals {
+		rows = append(rows, []map[string]string{
+			{"text": telegramText("Approve "+a.Identifier, 40), "callback_data": "approve:" + a.ID.String()},
+			{"text": "Deny", "callback_data": "deny:" + a.ID.String()},
+		})
+	}
+	return map[string]any{"inline_keyboard": rows}
+}
+
+// receiveCallback resolves an approval for the linked Kuayle user through the
+// same backend path as the Web UI, then answers the button press. Telegram
+// answers are best effort; the decision itself is already durable.
+func (s *TelegramService) receiveCallback(ctx context.Context, ws uuid.UUID, secret string, u domain.TelegramUpdate) error {
+	callback, err := s.Repo.ReceiveCallback(ctx, ws, secret, u)
+	if err != nil || callback == nil {
+		return err
+	}
+	answer, final := "This approval is not available.", true
+	if s.approvals == nil {
+		answer = "Approvals are not available from Telegram."
+	} else if callback.ConversationID != uuid.Nil {
+		access := domain.WithAccess(ctx, domain.Access{WorkspaceID: ws, UserID: callback.UserID})
+		approval, resolveErr := s.approvals.ResolveApproval(access, ws, callback.ConversationID, callback.ApprovalID, callback.Approve)
+		answer, final = telegramApprovalAnswer(approval, resolveErr)
+	}
+	token, err := crypto.Decrypt(callback.TokenEncrypted, s.key)
+	if err != nil {
+		return nil
+	}
+	_ = s.call(ctx, token, "answerCallbackQuery", map[string]any{"callback_query_id": u.CallbackID, "text": answer}, nil)
+	if final && u.CallbackMessageID > 0 {
+		_ = s.call(ctx, token, "editMessageReplyMarkup", map[string]any{"chat_id": u.ChatID, "message_id": u.CallbackMessageID, "reply_markup": map[string]any{"inline_keyboard": [][]any{}}}, nil)
+	}
+	return nil
+}
+
+func telegramApprovalAnswer(approval *domain.ConversationApproval, err error) (string, bool) {
+	switch {
+	case errors.Is(err, repository.ErrApprovalExpired):
+		return "This approval has expired.", true
+	case errors.Is(err, repository.ErrConversationConflict):
+		return "This approval was already decided.", true
+	case errors.Is(err, repository.ErrConversationNotFound):
+		return "This approval is not available.", true
+	case err != nil || approval == nil:
+		return "The decision could not be saved. Try again.", false
+	}
+	switch approval.Status {
+	case "approved":
+		return "Approved: the coding agent is starting.", true
+	case "denied":
+		return "Denied.", true
+	case "failed":
+		message := "The coding agent could not start."
+		if approval.Error != nil {
+			message += " " + *approval.Error
+		}
+		return telegramText(message, 190), true
+	}
+	return "The decision could not be saved. Try again.", false
 }

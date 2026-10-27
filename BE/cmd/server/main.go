@@ -154,6 +154,7 @@ func main() {
 	conversationSvc.SetApprovals(service.NewAssistantApprovals(conversationSvc.Repo, agentTaskSvc))
 	agentTaskH := handler.NewAgentTaskHandler(agentTaskSvc)
 	telegramSvc := service.NewTelegramService(repository.NewTelegramRepository(db), workspaceRepo, aiSettingsSvc, crypto.DeriveKey(cfg.JWTSecret+":telegram"), cfg.FrontendURL)
+	telegramSvc.SetApprovals(conversationSvc)
 	telegramH := handler.NewTelegramHandler(telegramSvc)
 	devMachineH := handler.NewDevMachineHandler(devMachineSvc, cfg.DevMachine.EffectiveDiskQuotaMode())
 	analyticsRepo := repository.NewAnalyticsRepository(db)

@@ -233,8 +233,8 @@ pending request with the AI Elements
 [Confirmation](https://www.shadcn-svelte.com/docs/ai-elements/confirmation)
 composition (Item with Deny/Approve; instructions as escaped Code Block text)
 and resolved states as Trace lines; stale copies never reopen a decision.
-Telegram cannot resolve approvals yet; a Telegram-originated request is resolved
-from the Web UI.
+Telegram delivers pending approvals with inline Approve/Deny buttons that use
+this same resolution path; see [Telegram approval buttons](telegram.md#approval-buttons).
 
 ## Next phases
 

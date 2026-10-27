@@ -402,6 +402,14 @@ func (r *TelegramRepository) Deliver(ctx context.Context, d domain.TelegramDeliv
 		return err
 	}
 	status := "denied"
+	if allowed && linked && d.MessageID != nil {
+		// Offer buttons only for this reply's pending approvals bound to the
+		// recipient; resolving them re-authorizes on the server.
+		if err = tx.SelectContext(ctx, &d.Approvals, `SELECT a.id,a.payload->>'identifier' AS identifier FROM conversation_approvals a JOIN conversation_tool_calls c ON c.id=a.tool_call_id
+ WHERE c.message_id=$1 AND a.actor_id=$2 AND a.status='pending' AND a.expires_at>now() ORDER BY c.sequence LIMIT 3`, d.MessageID, d.UserID); err != nil {
+			return err
+		}
+	}
 	if allowed && linked {
 		d.TokenEncrypted = s.TokenEncrypted
 		status = "sent"

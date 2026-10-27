@@ -22,6 +22,22 @@ type TelegramUpdate struct {
 	ID, UserID, ChatID int64
 	Text               string
 	Private            bool
+	// Callback fields are set for inline button presses instead of Text.
+	CallbackID, CallbackData string
+	CallbackMessageID        int64
+}
+
+// TelegramApprovalButton is a pending approval offered on a delivered reply.
+type TelegramApprovalButton struct {
+	ID         uuid.UUID `db:"id"`
+	Identifier string    `db:"identifier"`
+}
+
+// TelegramCallback is an authenticated approval decision from a linked user.
+type TelegramCallback struct {
+	UserID, ConversationID, ApprovalID uuid.UUID
+	Approve                            bool
+	TokenEncrypted                     string
 }
 type TelegramDelivery struct {
 	ID             uuid.UUID  `db:"id"`
@@ -33,4 +49,6 @@ type TelegramDelivery struct {
 	Text           string     `db:"text"`
 	TokenEncrypted string     `db:"token_encrypted"`
 	Slug           string     `db:"slug"`
+
+	Approvals []TelegramApprovalButton `db:"-"`
 }

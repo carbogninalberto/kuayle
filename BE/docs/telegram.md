@@ -2,10 +2,9 @@
 
 Telegram uses the same private `conversations`, `conversation_messages` and ordered
 `conversation_events` records as the Global Assistant. It is an additional channel,
-not a separate orchestrator. The current slice supports general assistant chat,
-new conversations, cancellation, and completed replies. Issue delegation, task
-notifications and approval callbacks depend on later platform phases; callbacks
-currently perform no action, regardless of sender.
+not a separate orchestrator. It supports general assistant chat (including the
+assistant's issue tools), new conversations, cancellation, completed replies and
+[approval buttons](#approval-buttons). Task progress notifications are not sent yet.
 
 ## Setup
 
@@ -101,6 +100,27 @@ is removed through Telegram. These requests cannot access Kuayle conversations.
 Rolling back migration 54 deletes Telegram configuration, links and delivery state,
 but preserves conversations and issues. Do not run an older schema with a newer API.
 
+## Approval buttons
+
+When a delivered reply contains pending approvals bound to its recipient (for
+example a `delegate_issue` request), the message carries one inline row per
+approval (at most three): **Approve ENG-1** and **Deny**. Buttons are attached
+inside the delivery transaction after the usual allowlist, membership, binding
+and issue-scope checks. Callback data only names the approval
+(`approve:<uuid>`/`deny:<uuid>`); it grants nothing by itself.
+
+A button press (`callback_query`) is accepted only from a private chat whose ID
+equals the sender, from a non-bot, allowlisted, linked Telegram user with
+non-guest membership, with a valid secret header. Forged data and group presses
+are ignored before any lookup. The update receipt deduplicates Telegram retries.
+The decision then runs as the linked Kuayle user through the same
+`ResolveApproval` path as the Web UI, so the bound actor, expiry, final denial,
+single claim and idempotent task creation all apply; approvals of other users
+look missing. The bot answers the press (`answerCallbackQuery`) and removes the
+buttons once the decision is final (`editMessageReplyMarkup`); both calls are best
+effort because the decision is already durable. A Web decision made first is
+reported as already decided.
+
 ## Verification
 
 Real PostgreSQL tests cover owner-only settings, unauthorized IDs, an empty list,
@@ -115,5 +135,11 @@ access. Migration tests verify rollback preserves conversations and issues.
 Playwright covers owner token/allowlist updates/removal, invalid ID input, member
 linking, and mobile layout. No live bot token or real Telegram account is used.
 
+An approval test drives a scripted assistant reply in a Telegram conversation and
+checks the delivered keyboard, presses from an unlinked user, forged data and a
+group chat (ignored), approval with exactly one task, a redelivered update, a later
+denial, and the Web UI seeing the same decision.
+
 Protocol reference: [Telegram Bot API](https://core.telegram.org/bots/api), including
-`setWebhook.secret_token`, `Update`, `User`, and `sendMessage`.
+`setWebhook.secret_token`, `Update`, `User`, `sendMessage`, `CallbackQuery`,
+`answerCallbackQuery` and `editMessageReplyMarkup`.
