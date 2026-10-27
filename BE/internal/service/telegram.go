@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -35,6 +36,8 @@ type TelegramService struct {
 	client     *http.Client
 	endpoint   string
 	approvals  telegramApprovals
+	// webhookOverride replaces the derived webhook URL; see SetWebhookURL.
+	webhookOverride string
 }
 
 type telegramApprovals interface {
@@ -49,7 +52,30 @@ func (s *TelegramService) SetApprovals(approvals telegramApprovals) {
 func NewTelegramService(repo *repository.TelegramRepository, workspaces repository.WorkspaceRepo, ai *AISettingsService, key []byte, frontend string) *TelegramService {
 	client := newAIProviderClient(false)
 	client.Timeout = 10 * time.Second
-	return &TelegramService{repo, workspaces, ai, key, strings.TrimRight(frontend, "/"), client, "https://api.telegram.org", nil}
+	return &TelegramService{Repo: repo, workspaces: workspaces, ai: ai, key: key, frontend: strings.TrimRight(frontend, "/"), client: client, endpoint: "https://api.telegram.org"}
+}
+
+// SetWebhookURL makes Telegram deliver updates to a fixed HTTPS URL instead of
+// FRONTEND_URL, for a development relay such as smee.io that forwards them to
+// this API's /api/telegram/webhook/:workspaceId. Empty restores the default.
+func (s *TelegramService) SetWebhookURL(raw string) error {
+	if raw == "" {
+		s.webhookOverride = ""
+		return nil
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
+		return fmt.Errorf("TELEGRAM_WEBHOOK_URL must be an https URL")
+	}
+	s.webhookOverride = raw
+	return nil
+}
+
+func (s *TelegramService) webhookURL(ws uuid.UUID) string {
+	if s.webhookOverride != "" {
+		return s.webhookOverride
+	}
+	return s.frontend + "/api/telegram/webhook/" + ws.String()
 }
 
 type TelegramSettingsRequest struct {
@@ -213,7 +239,7 @@ func (s *TelegramService) save(ctx context.Context, ws uuid.UUID, req TelegramSe
 		if e != nil {
 			return nil, e
 		}
-		err = s.call(ctx, token, "setWebhook", map[string]any{"url": s.frontend + "/api/telegram/webhook/" + ws.String(), "secret_token": config.WebhookSecret, "allowed_updates": []string{"message", "callback_query"}, "max_connections": 1, "drop_pending_updates": old == nil || !old.Enabled || old.BotID != config.BotID}, nil)
+		err = s.call(ctx, token, "setWebhook", map[string]any{"url": s.webhookURL(ws), "secret_token": config.WebhookSecret, "allowed_updates": []string{"message", "callback_query"}, "max_connections": 1, "drop_pending_updates": old == nil || !old.Enabled || old.BotID != config.BotID}, nil)
 		status = "connected"
 		if err != nil {
 			status = "connection_failed"

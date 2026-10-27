@@ -21,7 +21,14 @@ per Kuayle database. Enabling verifies the token with `getMe` and installs a sec
 header authenticated webhook at `FRONTEND_URL/api/telegram/webhook/:workspaceId`.
 `FRONTEND_URL` must be the publicly reachable HTTPS application origin; the reverse
 proxy must forward `/api` and the Telegram secret header to the API. Local HTTP
-development cannot receive a real Telegram webhook. Save again after fixing an
+development cannot receive a real Telegram webhook directly; set
+`TELEGRAM_WEBHOOK_URL` to an HTTPS relay channel (for example a dedicated smee.io
+channel, not the GitHub one) and forward it to
+`http://localhost:8080/api/telegram/webhook/<workspaceId>`, e.g.
+`npx smee-client --url <channel> --target <that URL>`. A relay shows every update,
+including the secret header, to anyone with the channel URL, so use it only with a
+test bot; a later save on another installation rotates the secret and moves the
+webhook. Save again after fixing an
 unreachable origin. A failed webhook installation leaves saved configuration with
 `connection_failed`, rather than claiming a live connection. `connected` means
 Telegram accepted registration, not a continuous reachability health check.

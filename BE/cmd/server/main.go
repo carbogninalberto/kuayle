@@ -161,6 +161,9 @@ func main() {
 	automationSvc := service.NewAgentAutomationService(repository.NewAgentAutomationRepository(db), conversationSvc.Repo, agentTaskSvc, notifSvc, hub)
 	agentAutomationH := handler.NewAgentAutomationHandler(automationSvc)
 	telegramSvc := service.NewTelegramService(repository.NewTelegramRepository(db), workspaceRepo, aiSettingsSvc, crypto.DeriveKey(cfg.JWTSecret+":telegram"), cfg.FrontendURL)
+	if err := telegramSvc.SetWebhookURL(cfg.TelegramWebhookURL); err != nil {
+		log.Fatal(err)
+	}
 	telegramSvc.SetApprovals(conversationSvc)
 	telegramH := handler.NewTelegramHandler(telegramSvc)
 	devMachineH := handler.NewDevMachineHandler(devMachineSvc, cfg.DevMachine.EffectiveDiskQuotaMode())

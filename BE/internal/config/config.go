@@ -59,6 +59,10 @@ type Config struct {
 	// If not set, auto-derived from FRONTEND_URL for public domains, or disabled for localhost.
 	GitHubWebhookURL string `envconfig:"GITHUB_WEBHOOK_URL"`
 
+	// Telegram webhook URL (optional — for dev with a relay such as smee.io).
+	// If not set, FRONTEND_URL/api/telegram/webhook/:workspaceId is used.
+	TelegramWebhookURL string `envconfig:"TELEGRAM_WEBHOOK_URL"`
+
 	// Global GitHub App (SaaS mode — shared across all workspaces)
 	GitHubApp GitHubAppConfig
 
