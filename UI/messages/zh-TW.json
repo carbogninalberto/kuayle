@@ -2085,5 +2085,11 @@
 	"tasks.diff_resize": "調整變更面板寬度",
 	"tasks.diff_error": "無法載入變更。",
 	"tasks.diff_empty": "此次嘗試沒有記錄變更。",
-	"tasks.diff_truncated": "差異過大已被截斷；其餘部分請在拉取請求中查看。"
+	"tasks.diff_truncated": "差異過大已被截斷；其餘部分請在拉取請求中查看。",
+	"assistant.live_responding": "正在回覆",
+	"assistant.live_responding_body": "已連線。助理正在撰寫回覆，文字與工具呼叫會即時顯示。",
+	"assistant.live_body": "已連線。新訊息、工具呼叫與代理更新會即時顯示在這裡。",
+	"assistant.reconnecting_body": "即時連線已中斷。Kuayle 會自動重新連線並補上你錯過的內容。",
+	"assistant.offline": "離線",
+	"assistant.offline_body": "無法載入此對話，或該對話已無法使用。請重新整理頁面或重試。"
 }

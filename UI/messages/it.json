@@ -2085,5 +2085,11 @@
 	"tasks.diff_resize": "Ridimensiona il pannello delle modifiche",
 	"tasks.diff_error": "Impossibile caricare le modifiche.",
 	"tasks.diff_empty": "Questo tentativo non ha registrato modifiche.",
-	"tasks.diff_truncated": "Il diff è troppo grande ed è stato troncato; apri la pull request per il resto."
+	"tasks.diff_truncated": "Il diff è troppo grande ed è stato troncato; apri la pull request per il resto.",
+	"assistant.live_responding": "Risposta in corso",
+	"assistant.live_responding_body": "Connesso. L'assistente sta scrivendo una risposta; testo e chiamate agli strumenti arrivano in tempo reale.",
+	"assistant.live_body": "Connesso. Nuovi messaggi, chiamate agli strumenti e aggiornamenti degli agenti compaiono qui in tempo reale.",
+	"assistant.reconnecting_body": "La connessione in tempo reale si è interrotta. Kuayle si riconnette automaticamente e recupera ciò che ti sei perso.",
+	"assistant.offline": "Non in linea",
+	"assistant.offline_body": "Questa conversazione non può essere caricata o non è più disponibile. Aggiorna la pagina o riprova."
 }

@@ -27,6 +27,7 @@
 	import ToolSources from './ToolSources.svelte';
 	import Markdown from './Markdown.svelte';
 	import ConversationNav from './ConversationNav.svelte';
+	import LiveStatus from './LiveStatus.svelte';
 	import DiffPanel from './DiffPanel.svelte';
 	import * as Sheet from '$lib/components/ui/sheet/index.js';
 	import * as Resizable from '$lib/components/ui/resizable/index.js';
@@ -266,7 +267,7 @@
 							href="/{slug}/issue/{encodeURIComponent(chat.issue.identifier)}">{chat.issue.identifier}</a
 						>{/if}
 					<span class="min-w-0 flex-1 truncate">{chat.issue?.title ?? chat.conversation?.title}</span>
-					<span role="status">{chat.connected ? m['assistant.connected']() : m['assistant.reconnecting']()}</span>
+					<LiveStatus connected={chat.connected} busy={chat.busy} offline={chat.failed || chat.unavailable} />
 				</div>
 			{/if}
 			<div class="min-h-0 flex-1">

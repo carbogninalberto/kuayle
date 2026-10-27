@@ -2085,5 +2085,11 @@
 	"tasks.diff_resize": "Resize changes panel",
 	"tasks.diff_error": "Could not load the changes.",
 	"tasks.diff_empty": "This attempt recorded no changes.",
-	"tasks.diff_truncated": "The diff is too large and was cut off; open the pull request for the rest."
+	"tasks.diff_truncated": "The diff is too large and was cut off; open the pull request for the rest.",
+	"assistant.live_responding": "Responding",
+	"assistant.live_responding_body": "Connected. The assistant is writing a reply; its text and tool calls stream in as they happen.",
+	"assistant.live_body": "Connected. New messages, tool calls and agent updates appear here as they happen.",
+	"assistant.reconnecting_body": "The live connection dropped. Kuayle reconnects automatically and catches up on anything you missed.",
+	"assistant.offline": "Offline",
+	"assistant.offline_body": "This conversation could not be loaded or is no longer available. Refresh the page or retry."
 }

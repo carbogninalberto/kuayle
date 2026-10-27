@@ -711,6 +711,10 @@ test('groups conversations into folders and deletes one after confirmation', asy
 	const nav = page.getByRole('navigation', { name: 'Conversations' });
 	await expect(nav.getByRole('link', { name: 'Release notes' })).toBeVisible();
 	await expect(page.getByRole('separator', { name: 'Resize conversation list' })).toBeVisible();
+	const live = page.getByRole('button', { name: 'Live' });
+	await live.click();
+	await expect(page.getByText('Connected. New messages, tool calls and agent updates appear here as they happen.')).toBeVisible();
+	await page.keyboard.press('Escape');
 
 	await page.getByRole('button', { name: 'New folder' }).click();
 	// The folder is named in place, in the list.
