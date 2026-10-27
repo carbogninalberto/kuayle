@@ -44,11 +44,15 @@ type validationRuntimeFake struct {
 	calls int
 	exit  int
 	image string
+	err   error
 }
 
 func (f *validationRuntimeFake) RunValidation(_ context.Context, _ *domain.DevMachine, _ *domain.DevMachineAgentRun, _ *domain.DevMachineAgentRunStep, _ *domain.DevMachineCheckout, image string, o *AgentObserver) (*AgentExecution, error) {
 	f.calls++
 	f.image = image
+	if f.err != nil {
+		return nil, f.err
+	}
 	if err := o.Authorize(); err != nil {
 		return nil, err
 	}
@@ -90,4 +94,24 @@ func TestValidationManagerUsesActualExitAndRedactsWithoutModelParsing(t *testing
 			}
 		})
 	}
+}
+
+func TestValidationManagerFailsARejectedComposeStackWithItsReasonAndCleansUp(t *testing.T) {
+	taskID, checkoutID, runID := uuid.New(), uuid.New(), uuid.New()
+	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), ExpiresAt: time.Now().Add(time.Hour)}
+	key := make([]byte, 32)
+	encrypted, err := cryptoutil.Encrypt(`{}`, key)
+	require.NoError(t, err)
+	store := &validationStoreFake{managerStoreFake: &managerStoreFake{machine: machine, agentRun: &domain.DevMachineAgentRun{ID: runID, TaskID: &taskID, CheckoutID: &checkoutID, EncryptedOutputSecrets: &encrypted, MaxRuntimeSeconds: 60}, checkout: &domain.DevMachineCheckout{ID: checkoutID, MachineID: machine.ID, WorkspaceID: machine.WorkspaceID, ScopeKey: taskID.String(), Status: "ready"}, services: []domain.DevMachineService{{ServiceType: "terminal", ImageRef: "developer:fixture"}}}, step: domain.DevMachineAgentRunStep{ID: uuid.New(), AgentRunID: runID, Status: "queued", CreatedAt: time.Now(), CommandArgv: []byte(`["test"]`), ComposeFile: "compose.yaml"}}
+	runtime := &validationRuntimeFake{runtimeFake: &runtimeFake{}, err: &ComposeError{Reason: `service "app": "privileged" is not supported`}}
+	manager := &Manager{store: store, runtime: runtime, encryptionKey: key}
+	err = manager.validateAgent(context.Background(), machine, &domain.DevMachineOperation{AgentRunID: &runID})
+	var terminal *terminalOperationError
+	require.True(t, errors.As(err, &terminal), "a configuration problem must not be retried")
+	require.Equal(t, "compose_rejected", errorCode(err))
+	require.Contains(t, terminal.message, "privileged")
+	require.Nil(t, store.exit)
+	require.Equal(t, 1, runtime.checkCleanups)
+	require.Len(t, store.validationChunks, 1)
+	require.Contains(t, store.validationChunks[0].Content, "privileged")
 }

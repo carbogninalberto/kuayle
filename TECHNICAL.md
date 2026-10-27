@@ -111,6 +111,8 @@ Workloads receive `HTTP_PROXY` and `HTTPS_PROXY` pointing to their machine's egr
 An empty domain allowlist permits public Internet destinations while still blocking private address ranges. Operators can fail closed by configuring an explicit allowlist.
 An explicit allowlist must include the Kuayle ingestion host plus every Git and provider API hostname required by configured agents.
 
+Compose services for an independent check (migration 68) never join the machine network. They run on a per-check internal network, `kuayle-{routing-key}-check-{run}`, which only the check container also joins, so they have no egress and cannot reach the gateway, other services or the control plane. See [Compose services for checks](BE/docs/agent-tasks.md#compose-services-for-checks).
+
 ## Dynamic Routing
 
 The selected ingress design is a hybrid Caddy and Go gateway:
@@ -417,7 +419,7 @@ The IDE and headless start scripts and the autonomous agent runner create `$HOME
 
 ## Scoped Settings, Worktrees, and Environments
 
-Development defaults are stored in `dev_machine_scope_settings`. A setting may provide a linked GitHub repository, base branch, development environment, test command, preferred coding agent and/or agent instructions (at most 8000 characters) for a workspace, team, project, or issue. Each value is resolved independently in this order: issue, project, team, workspace (migration 65). The preferred agent is the default for task delegation from chat and the task composer when the workspace policy allows it; instructions are snapshotted onto each task when it is accepted or retried and placed ahead of the task in the native prompt. This lets an issue override only the repository while inheriting an environment, or vice versa.
+Development defaults are stored in `dev_machine_scope_settings`. A setting may provide a linked GitHub repository, base branch, development environment, test command, Compose file for checks (migration 68), preferred coding agent and/or agent instructions (at most 8000 characters) for a workspace, team, project, or issue. Each value is resolved independently in this order: issue, project, team, workspace (migration 65). The preferred agent is the default for task delegation from chat and the task composer when the workspace policy allows it; instructions and the Compose file path are snapshotted onto each task when it is accepted or retried and placed ahead of the task in the native prompt. This lets an issue override only the repository while inheriting an environment, or vice versa.
 
 Machine creation accepts optional issue/project/repository information but does not require it. If no repository resolves, legacy repository fields remain empty and the machine starts as a generic developer workspace. When an issue is opened, `POST /dev-machines/:machineId/checkouts` resolves the issue's development settings, enforces the machine's repository affinity, and creates an idempotent issue worktree under `/workspace/tasks/{issue-key}`. A machine can hold multiple ready checkouts from the same repository; checkouts from another repository or environment require a separate machine.
 
@@ -682,6 +684,7 @@ The self-hosting `dev-machine-images` profile builds the IDE, headless developer
 - Docker hardening is not hostile multi-tenant isolation.
 - Pinned Chrome Stable packages for amd64 and arm64 run through KasmVNC in a separately hardened non-root container. The browser's internal sandbox is disabled because Docker namespace restrictions conflict with its setup. The browser must not receive provider or GitHub secrets.
 - Domain egress controls cannot prevent exfiltration to an explicitly allowed destination.
+- Compose support for checks is a constrained subset run by the manager, not `docker compose`. Builds, mounts, privileges, host networking and published ports are rejected, because arbitrary untrusted Compose execution needs an isolated Docker daemon. Image pulls run on the host daemon, outside the egress proxy, so `DEV_MACHINE_COMPOSE_IMAGES` restricts them to official Docker Hub images by default.
 - The workspace DeepSeek credential is delivered into every developer container, so any member who can create a machine can read it from a terminal or have an agent reveal it. The API never returns it, but treat it as shared with those members (SECURITY_AUDIT.md KS-08).
 - Command and filesystem collection is best-effort and can be bypassed by trusted workspace code.
 - Provider adapters can construct interactive invocations, but current product dialogs queue autonomous agent runs and no interactive-agent attach endpoint is exposed. Direct interactive use of the built-in CLIs is available through Kuayle's native xterm terminal; ttyd's web page is not exposed.

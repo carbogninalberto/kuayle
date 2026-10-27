@@ -2,9 +2,26 @@ package domain
 
 import (
 	"errors"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 )
+
+var composePath = regexp.MustCompile(`^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*\.ya?ml$`)
+
+// ValidateComposePath accepts a repository-relative .yml/.yaml path without
+// dot segments; the database enforces the same rule.
+func ValidateComposePath(path string) error {
+	if len(path) > 255 || !composePath.MatchString(path) {
+		return errors.New("invalid compose file path")
+	}
+	for _, segment := range strings.Split(path, "/") {
+		if segment == "." || segment == ".." {
+			return errors.New("invalid compose file path")
+		}
+	}
+	return nil
+}
 
 // Commands use argv rather than a host shell expression. Nil means inherit;
 // an explicit empty array means no configured check.

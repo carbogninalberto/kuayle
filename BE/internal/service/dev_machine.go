@@ -798,6 +798,14 @@ func (s *DevMachineService) UpdateScopeSetting(ctx context.Context, workspaceID 
 			setting.AgentInstructions = &instructions
 		}
 	}
+	if request.ComposeFile != nil {
+		if file := strings.TrimSpace(*request.ComposeFile); file != "" {
+			if domain.ValidateComposePath(file) != nil {
+				return nil, fmt.Errorf("%w: the compose file must be a relative .yml or .yaml path", ErrInvalidMachineInput)
+			}
+			setting.ComposeFile = &file
+		}
+	}
 	if request.TestCommand != nil {
 		command, _ := json.Marshal(request.TestCommand)
 		raw := json.RawMessage(command)
@@ -896,7 +904,7 @@ func (s *DevMachineService) resolveDevelopmentSetting(ctx context.Context, works
 	}
 	scopes = append(scopes, [3]*uuid.UUID{nil, nil, nil})
 	for _, scope := range scopes {
-		if resolved.GitHubRepoID != nil && resolved.EnvironmentID != nil && resolved.TestCommand != nil && resolved.AgentProvider != nil && resolved.AgentInstructions != nil {
+		if resolved.GitHubRepoID != nil && resolved.EnvironmentID != nil && resolved.TestCommand != nil && resolved.AgentProvider != nil && resolved.AgentInstructions != nil && resolved.ComposeFile != nil {
 			break
 		}
 		setting, err := s.store.GetScopeSetting(ctx, workspaceID, scope[0], scope[1], scope[2])
@@ -921,6 +929,9 @@ func (s *DevMachineService) resolveDevelopmentSetting(ctx context.Context, works
 		}
 		if resolved.AgentInstructions == nil && setting.AgentInstructions != nil {
 			resolved.AgentInstructions = setting.AgentInstructions
+		}
+		if resolved.ComposeFile == nil && setting.ComposeFile != nil {
+			resolved.ComposeFile = setting.ComposeFile
 		}
 	}
 	return resolved, nil

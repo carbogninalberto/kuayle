@@ -460,6 +460,28 @@ test('independent checks update live and retain their actual exit status after r
 	expect(state.creates).toHaveLength(1);
 });
 
+test('a rejected Compose stack shows its reason with the failed check', async ({ page }) => {
+	const { state, emit } = await fixture(page);
+	await page.goto('/test/assistant?conversation=chat-1');
+	await delegate(page);
+	await page.getByRole('button', { name: 'Execution details', exact: true }).click();
+	const checks = page.getByRole('region', { name: 'Independent checks', exact: true });
+	state.validation = {
+		id: 'validation-1',
+		agent_run_id: 'run-1',
+		status: 'failed',
+		command_argv: ['npm', 'test'],
+		compose_file: 'deploy/compose.yaml',
+		summary: 'Compose file rejected: service "app": "privileged" is not supported',
+		completed_at: '2026-10-27T10:01:00Z'
+	};
+	emit('task.tests_updated', { task_id: 'task-1', run_id: 'run-1', step: state.validation });
+	await checks.getByRole('button', { name: 'Independent check failed' }).click();
+	await expect(checks.getByText('Services from deploy/compose.yaml')).toBeVisible();
+	await expect(checks.getByText('Compose file rejected: service "app": "privileged" is not supported')).toBeVisible();
+	await expect(checks.getByText(/Exit code/)).toHaveCount(0);
+});
+
 test('opens the recorded pull request only after publication succeeds', async ({ page }) => {
 	const { state, emit } = await fixture(page);
 	await page.goto('/test/assistant?conversation=chat-1');

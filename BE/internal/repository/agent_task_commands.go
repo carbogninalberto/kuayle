@@ -54,7 +54,7 @@ func sameAgentTaskCommand(accepted *json.RawMessage, input []string) bool {
 // resolveScopeDefault returns the nearest issue → project → team → workspace
 // value of an agent default column, or "" when none is configured.
 func resolveScopeDefault(ctx context.Context, q sqlx.QueryerContext, ws, issue uuid.UUID, column string) (string, error) {
-	if column != "agent_provider" && column != "agent_instructions" {
+	if column != "agent_provider" && column != "agent_instructions" && column != "compose_file" {
 		return "", ErrConversationInvalid
 	}
 	var value string

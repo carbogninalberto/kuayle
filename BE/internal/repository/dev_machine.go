@@ -1686,17 +1686,17 @@ func (r *DevMachineRepository) UpsertScopeSetting(ctx context.Context, setting *
 		return errors.New("invalid development setting scope")
 	}
 	query := `INSERT INTO dev_machine_scope_settings
-		(id,workspace_id,team_id,project_id,issue_id,github_repo_id,base_branch,environment_id,test_command,agent_provider,agent_instructions)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+		(id,workspace_id,team_id,project_id,issue_id,github_repo_id,base_branch,environment_id,test_command,agent_provider,agent_instructions,compose_file)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
 		ON CONFLICT ` + conflictTarget + ` DO UPDATE SET
 			github_repo_id=EXCLUDED.github_repo_id,base_branch=EXCLUDED.base_branch,
 			environment_id=EXCLUDED.environment_id,test_command=EXCLUDED.test_command,
-			agent_provider=EXCLUDED.agent_provider,agent_instructions=EXCLUDED.agent_instructions,updated_at=NOW()
+			agent_provider=EXCLUDED.agent_provider,agent_instructions=EXCLUDED.agent_instructions,compose_file=EXCLUDED.compose_file,updated_at=NOW()
 		WHERE dev_machine_scope_settings.workspace_id=EXCLUDED.workspace_id
 		RETURNING id,created_at,updated_at`
 	if err := tx.QueryRowContext(ctx, query, setting.ID, setting.WorkspaceID,
 		setting.TeamID, setting.ProjectID, setting.IssueID, setting.GitHubRepoID, setting.BaseBranch, setting.EnvironmentID, setting.TestCommand,
-		setting.AgentProvider, setting.AgentInstructions,
+		setting.AgentProvider, setting.AgentInstructions, setting.ComposeFile,
 	).Scan(&setting.ID, &setting.CreatedAt, &setting.UpdatedAt); err != nil {
 		return err
 	}

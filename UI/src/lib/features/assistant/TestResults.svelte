@@ -77,7 +77,11 @@
 						><CodeBlock.Title><FlaskConical class="size-4" />{m['tasks.checks']()}</CodeBlock.Title></CodeBlock.Header
 					><CodeBlock.Content code={JSON.stringify(step.command_argv)} wrap /></CodeBlock.Root
 				>
-				{#if step.exit_code != null}<p class="text-xs">{m['tasks.check_exit']({ code: step.exit_code })}</p>{/if}
+				{#if step.compose_file}<p class="text-xs text-muted-foreground">
+						{m['tasks.check_services']({ file: step.compose_file })}
+					</p>{/if}
+				{#if step.exit_code != null}<p class="text-xs">{m['tasks.check_exit']({ code: step.exit_code })}</p>
+				{:else if step.status === 'failed' && step.summary}<p class="text-xs break-words">{step.summary}</p>{/if}
 				{#if step.started_at}<p class="text-xs text-muted-foreground">
 						{m['tasks.check_started']({ time: new Date(step.started_at).toLocaleString() })}
 					</p>{/if}

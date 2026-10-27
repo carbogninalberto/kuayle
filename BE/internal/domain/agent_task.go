@@ -45,6 +45,9 @@ type AgentTask struct {
 	// AgentInstructions are the inherited project instructions accepted with
 	// this attempt; trusted configuration set by workspace members.
 	AgentInstructions string `json:"agent_instructions" db:"agent_instructions"`
+	// ComposeFile is the inherited repository-relative Compose file whose
+	// services run beside the independent check; empty means none.
+	ComposeFile string `json:"compose_file" db:"compose_file"`
 }
 
 type AgentTaskRequest struct {

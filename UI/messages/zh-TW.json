@@ -2001,5 +2001,9 @@
 	"tasks.agent_instructions_help": "提供給此範圍內任務的編碼代理。留空以繼承。任務開始時儲存快照。",
 	"tasks.agent_instructions_too_long": "最多 8000 個字元。",
 	"issue.via_agent": "透過 {agent}",
-	"tasks.check_artifacts": "報告與截圖"
+	"tasks.check_artifacts": "報告與截圖",
+	"tasks.compose_file": "Compose 檔案",
+	"tasks.compose_file_help": "選填的儲存庫路徑，例如 compose.yaml。其中以映像為基礎的服務（預設僅限官方映像）會在獨立檢查旁的私有網路中執行，可透過服務名稱存取。建置、掛載、特權與發布的連接埠會被拒絕。",
+	"tasks.compose_file_invalid": "請使用儲存庫內的相對 .yml 或 .yaml 路徑。",
+	"tasks.check_services": "來自 {file} 的服務"
 }

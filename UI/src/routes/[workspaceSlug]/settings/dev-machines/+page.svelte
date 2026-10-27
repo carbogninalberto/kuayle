@@ -1,5 +1,6 @@
 <script lang="ts">
 	import TestCommandField from '$lib/features/dev-machines/TestCommandField.svelte';
+	import ComposeFileField from '$lib/features/dev-machines/ComposeFileField.svelte';
 	import AgentDefaultsField from '$lib/features/dev-machines/AgentDefaultsField.svelte';
 	import { parseTestCommand, formatTestCommand } from '$lib/features/dev-machines/test-command';
 	import { onMount } from 'svelte';
@@ -66,6 +67,7 @@
 	let defaultTestCommand = $state('');
 	let defaultAgentProvider = $state('inherit');
 	let defaultAgentInstructions = $state('');
+	let defaultComposeFile = $state('');
 	let builderBusy = $state(false);
 	let environmentToDelete = $state<DevMachineEnvironment | null>(null);
 	let environmentDeleteOpen = $state(false);
@@ -120,7 +122,7 @@
 			environments = availableEnvironments ?? [];
 			defaultRepositoryId = scope.github_repo_id ?? 'none';
 			defaultEnvironmentId = scope.environment_id ?? 'standard';
-			defaultTestCommand = formatTestCommand(scope.test_command); defaultAgentProvider = scope.agent_provider ?? 'inherit'; defaultAgentInstructions = scope.agent_instructions ?? '';
+			defaultTestCommand = formatTestCommand(scope.test_command); defaultAgentProvider = scope.agent_provider ?? 'inherit'; defaultAgentInstructions = scope.agent_instructions ?? ''; defaultComposeFile = scope.compose_file ?? '';
 			modelProvider = availableModelProvider;
 			deepSeekModel = availableModelProvider?.default_model ?? 'deepseek-flash';
 			deepSeekThinking = availableModelProvider?.thinking ?? 'high';
@@ -153,7 +155,7 @@
 				idle_pause_minutes: policy.idle_pause_minutes
 			});
 			const repository = linkedRepositories.find((item) => item.id === defaultRepositoryId);
-			if (defaultRepositoryId === 'none' && defaultEnvironmentId === 'standard' && command === undefined && defaultAgentProvider === 'inherit' && !defaultAgentInstructions.trim()) {
+			if (defaultRepositoryId === 'none' && defaultEnvironmentId === 'standard' && command === undefined && defaultAgentProvider === 'inherit' && !defaultAgentInstructions.trim() && !defaultComposeFile.trim()) {
 				await deleteDevMachineScopeSetting(slug, 'workspace');
 			} else {
 				await updateDevMachineScopeSetting(slug, {
@@ -161,7 +163,7 @@
 					github_repo_id: repository?.id,
 					base_branch: repository?.default_branch,
 					environment_id: defaultEnvironmentId === 'standard' ? undefined : defaultEnvironmentId,
-					test_command: command, agent_provider: defaultAgentProvider === 'inherit' ? undefined : defaultAgentProvider, agent_instructions: defaultAgentInstructions.trim() || undefined
+					test_command: command, agent_provider: defaultAgentProvider === 'inherit' ? undefined : defaultAgentProvider, agent_instructions: defaultAgentInstructions.trim() || undefined, compose_file: defaultComposeFile.trim() || undefined
 				});
 			}
 			appToast.success(m['settings.dev_machines.saved']());
@@ -334,7 +336,7 @@
 			<div class="grid gap-4 sm:grid-cols-2">
 				<div class="space-y-1"><Label>{m['settings.dev_machines.repo']()}</Label><Select.Root type="single" value={defaultRepositoryId} onValueChange={(value) => value && (defaultRepositoryId = value)}><Select.Trigger class="w-full">{linkedRepositories.find((item) => item.id === defaultRepositoryId)?.full_name ?? m['settings.dev_machines.no_default_repo']()}</Select.Trigger><Select.Content><Select.Item value="none" label={m['settings.dev_machines.no_default_repo']()}>{m['settings.dev_machines.no_default_repo']()}</Select.Item>{#each linkedRepositories as repository}<Select.Item value={repository.id} label={repository.full_name}>{repository.full_name}</Select.Item>{/each}</Select.Content></Select.Root></div>
 				<div class="space-y-1"><Label>{m['settings.dev_machines.env']()}</Label><Select.Root type="single" value={defaultEnvironmentId} onValueChange={(value) => value && (defaultEnvironmentId = value)}><Select.Trigger class="w-full">{readyEnvironments.find((item) => item.id === defaultEnvironmentId)?.name ?? m['settings.dev_machines.default_env']()}</Select.Trigger><Select.Content><Select.Item value="standard" label={m['settings.dev_machines.default_env']()}>{m['settings.dev_machines.default_env']()}</Select.Item>{#each readyEnvironments as environment}<Select.Item value={environment.id} label={environment.name}>{environment.name}</Select.Item>{/each}</Select.Content></Select.Root></div>
-				<div class="sm:col-span-2"><TestCommandField bind:value={defaultTestCommand} disabled={saving || !canAdmin} /></div><AgentDefaultsField bind:provider={defaultAgentProvider} bind:instructions={defaultAgentInstructions} disabled={saving || !canAdmin} />
+				<div class="sm:col-span-2"><TestCommandField bind:value={defaultTestCommand} disabled={saving || !canAdmin} /></div><div class="sm:col-span-2"><ComposeFileField bind:value={defaultComposeFile} disabled={saving || !canAdmin} /></div><AgentDefaultsField bind:provider={defaultAgentProvider} bind:instructions={defaultAgentInstructions} disabled={saving || !canAdmin} />
 			</div>
 		</section>
 		<section class="space-y-4 rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-5">

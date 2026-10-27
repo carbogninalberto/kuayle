@@ -2001,5 +2001,9 @@
 	"tasks.agent_instructions_help": "Given to coding agents for tasks in this scope. Leave blank to inherit. Snapshotted when a task starts.",
 	"tasks.agent_instructions_too_long": "Use at most 8000 characters.",
 	"issue.via_agent": "via {agent}",
-	"tasks.check_artifacts": "Reports and screenshots"
+	"tasks.check_artifacts": "Reports and screenshots",
+	"tasks.compose_file": "Compose file",
+	"tasks.compose_file_help": "Optional repository path, such as compose.yaml. Its image services (official images by default) run on a private network beside the independent check, reachable by service name. Builds, mounts, privileges and published ports are rejected.",
+	"tasks.compose_file_invalid": "Use a relative .yml or .yaml path inside the repository.",
+	"tasks.check_services": "Services from {file}"
 }

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
@@ -52,7 +53,7 @@ func (r *AgentTaskRepository) EnsureValidation(ctx context.Context, claimed doma
 	if err != nil {
 		return nil, err
 	}
-	err = tx.GetContext(ctx, step, `INSERT INTO dev_machine_agent_run_steps(agent_run_id,sequence,step_type,name,status,command_argv,summary,completed_at) VALUES($1,0,'validation','Independent validation',$2::dev_machine_agent_run_step_status,$3,$4,CASE WHEN $2::dev_machine_agent_run_step_status='skipped' THEN now() END) RETURNING *`, task.RunID, status, task.ValidationCommand, summary)
+	err = tx.GetContext(ctx, step, `INSERT INTO dev_machine_agent_run_steps(agent_run_id,sequence,step_type,name,status,command_argv,summary,completed_at,compose_file) VALUES($1,0,'validation','Independent validation',$2::dev_machine_agent_run_step_status,$3,$4,CASE WHEN $2::dev_machine_agent_run_step_status='skipped' THEN now() END,$5) RETURNING *`, task.RunID, status, task.ValidationCommand, summary, task.ComposeFile)
 	if err != nil {
 		return nil, err
 	}
@@ -94,8 +95,15 @@ func lockTaskMachine(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask) (i
 // exhausted retries, so it is never reported as passed or indefinitely queued.
 func failExhaustedStep(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask, step *domain.DevMachineAgentRunStep, phase taskStepPhase, summary string) error {
 	var failed bool
-	if err := tx.GetContext(ctx, &failed, `SELECT EXISTS(SELECT 1 FROM dev_machine_operations WHERE agent_run_id=$1 AND action=$2 AND status='failed')`, task.RunID, phase.action); err != nil {
+	var reason sql.NullString
+	// A rejected Compose definition is the project's own configuration, so its
+	// reason is safe to show; other infrastructure errors keep the generic text.
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM dev_machine_operations WHERE agent_run_id=$1 AND action=$2 AND status='failed'),
+ (SELECT left(error_message,500) FROM dev_machine_operations WHERE agent_run_id=$1 AND action=$2 AND status='failed' AND error_code='compose_rejected' LIMIT 1)`, task.RunID, phase.action).Scan(&failed, &reason); err != nil {
 		return err
+	}
+	if reason.Valid {
+		summary = strings.TrimPrefix(reason.String, "compose_rejected: ")
 	}
 	if !failed || step.Status == domain.DevMachineAgentRunStepStatusFailed || step.Status == domain.DevMachineAgentRunStepStatusCancelled {
 		return nil

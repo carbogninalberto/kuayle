@@ -42,7 +42,7 @@ func main() {
 	runtime, err := machine.NewDockerRuntime(machine.DockerConfig{
 		Host: configValue.DevMachine.DockerHost, GatewayContainerName: configValue.DevMachine.GatewayContainerName,
 		SeccompProfile: configValue.DevMachine.SeccompProfile, AppArmorProfile: configValue.DevMachine.AppArmorProfile,
-		PullImages: strings.EqualFold(os.Getenv("DEV_MACHINE_PULL_IMAGES"), "true"), IngestURL: configValue.DevMachine.IngestURL,
+		PullImages: strings.EqualFold(os.Getenv("DEV_MACHINE_PULL_IMAGES"), "true"), ComposeImages: composeImages(), IngestURL: configValue.DevMachine.IngestURL,
 		EgressAllowlist: configValue.DevMachine.EgressAllowlist, EgressDenylist: configValue.DevMachine.EgressDenylist,
 		DiskQuotaMode:          configValue.DevMachine.EffectiveDiskQuotaMode(),
 		HostDiskMinFreePercent: configValue.DevMachine.HostDiskMinFreePercent,
@@ -141,4 +141,14 @@ func metricsServer(manager *machine.Manager, database *sqlx.DB) *http.Server {
 		port = "8092"
 	}
 	return &http.Server{Addr: ":" + port, Handler: mux, ReadHeaderTimeout: 5 * time.Second, MaxHeaderBytes: 32 * 1024}
+}
+
+// composeImages defaults to official Docker Hub images; operators can list other
+// repositories or prefixes in DEV_MACHINE_COMPOSE_IMAGES (comma separated).
+func composeImages() []string {
+	value := strings.TrimSpace(os.Getenv("DEV_MACHINE_COMPOSE_IMAGES"))
+	if value == "" {
+		return []string{"docker.io/library"}
+	}
+	return strings.Split(value, ",")
 }

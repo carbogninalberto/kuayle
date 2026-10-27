@@ -238,6 +238,7 @@ export function updateDevMachineScopeSetting(
 		test_command?: string[];
 		agent_provider?: string;
 		agent_instructions?: string;
+		compose_file?: string;
 	}
 ): Promise<DevMachineScopeSetting> {
 	return api.put(`${base(slug)}/dev-machine-scope-setting`, input);

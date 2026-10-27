@@ -78,6 +78,25 @@ func (m *Manager) validateAgent(ctx context.Context, machine *domain.DevMachine,
 	})
 	observer := &AgentObserver{Authorize: func() error { _, err := m.store.GetValidation(runCtx, *op); return err }, Started: func(id string) error { return m.store.StartValidation(runCtx, *op, id) }, Output: output.WriteDocker}
 	execution, execErr := m.runtime.RunValidation(runCtx, machine, run, step, checkout, image, observer)
+	if step.ComposeFile != "" {
+		// Services live only for this check; the check container stays for replay.
+		defer func() {
+			cleanupCtx, done := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
+			defer done()
+			if err := m.runtime.RemoveCheckServices(cleanupCtx, machine, run); err != nil {
+				log.WithField("agent_run_id", run.ID).WithError(err).Warn("check service cleanup failed")
+			}
+		}()
+	}
+	var composeErr *ComposeError
+	if errors.As(execErr, &composeErr) {
+		// A rejected or unhealthy stack is the project's configuration, so the
+		// reason is shown with the check instead of being retried.
+		if err := output.Write("stderr", []byte("Kuayle: "+composeErr.Error()+"\n")); err == nil {
+			_ = output.Finish()
+		}
+		return &terminalOperationError{code: "compose_rejected", message: "Compose file rejected: " + composeErr.Reason}
+	}
 	if execErr == nil {
 		execErr = output.Finish()
 	}

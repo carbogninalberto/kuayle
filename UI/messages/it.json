@@ -2001,5 +2001,9 @@
 	"tasks.agent_instructions_help": "Fornite agli agenti di codice per le attività in questo ambito. Lascia vuoto per ereditare. Salvate all'avvio di un'attività.",
 	"tasks.agent_instructions_too_long": "Usa al massimo 8000 caratteri.",
 	"issue.via_agent": "tramite {agent}",
-	"tasks.check_artifacts": "Report e screenshot"
+	"tasks.check_artifacts": "Report e screenshot",
+	"tasks.compose_file": "File Compose",
+	"tasks.compose_file_help": "Percorso facoltativo nel repository, ad esempio compose.yaml. I suoi servizi basati su immagini (per impostazione predefinita solo immagini ufficiali) vengono eseguiti su una rete privata accanto al controllo indipendente e sono raggiungibili tramite il nome del servizio. Build, mount, privilegi e porte pubblicate vengono rifiutati.",
+	"tasks.compose_file_invalid": "Usa un percorso relativo .yml o .yaml all'interno del repository.",
+	"tasks.check_services": "Servizi da {file}"
 }

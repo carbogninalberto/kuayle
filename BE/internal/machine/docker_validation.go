@@ -43,6 +43,13 @@ func (r *DockerRuntime) RunValidation(ctx context.Context, machine *domain.DevMa
 				return nil, fmt.Errorf("validation container ownership does not match")
 			}
 		}
+		// A check that never started still needs its services; one that ran is
+		// only replayed.
+		if result.Container.State.Status == "created" {
+			if err := r.prepareCheckServices(ctx, machine, run, step, checkout, result.Container.ID); err != nil {
+				return nil, err
+			}
+		}
 		return r.resumeExecution(ctx, result.Container, false, nil, observer, false)
 	} else if !errdefs.IsNotFound(err) {
 		return nil, err
@@ -62,7 +69,25 @@ func (r *DockerRuntime) RunValidation(ctx context.Context, machine *domain.DevMa
 	if err != nil {
 		return nil, err
 	}
+	if err := r.prepareCheckServices(ctx, machine, run, step, checkout, result.ID); err != nil {
+		return nil, err
+	}
 	// The same stream/recovery path executes a direct argv, without the native
 	// harness bootstrap, model parsing or any provider/GitHub credential handoff.
 	return r.resumeExecution(ctx, container.InspectResponse{ID: result.ID, State: &container.State{Status: "created"}}, false, nil, observer, false)
+}
+
+func (r *DockerRuntime) prepareCheckServices(ctx context.Context, machine *domain.DevMachine, run *domain.DevMachineAgentRun, step *domain.DevMachineAgentRunStep, checkout *domain.DevMachineCheckout, checkID string) error {
+	if step.ComposeFile == "" {
+		return nil
+	}
+	data, err := r.readComposeFile(ctx, checkID, checkout, step.ComposeFile)
+	if err != nil {
+		return err
+	}
+	services, err := ParseCompose(data, r.config.ComposeImages)
+	if err != nil {
+		return err
+	}
+	return r.startCheckServices(ctx, machine, run, checkID, services)
 }

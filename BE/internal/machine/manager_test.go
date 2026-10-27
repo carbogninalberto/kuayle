@@ -380,6 +380,11 @@ func (f *runtimeFake) CollectValidationArtifacts(context.Context, *domain.DevMac
 	return f.artifacts, nil
 }
 
+func (f *runtimeFake) RemoveCheckServices(context.Context, *domain.DevMachine, *domain.DevMachineAgentRun) error {
+	f.checkCleanups++
+	return nil
+}
+
 func (f *runtimeFake) HostResources(context.Context) (HostResources, error) {
 	return f.host, nil
 }
@@ -389,6 +394,7 @@ type runtimeFake struct {
 	beforeAgentStarted func()
 	host               HostResources
 	artifacts          []domain.ValidationArtifact
+	checkCleanups      int
 
 	agentCancellations                          int
 	onAgentOutput                               func(AgentOutput) error

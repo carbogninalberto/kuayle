@@ -185,3 +185,43 @@ func TestValidationArtifactsAreSavedUnderTheLeaseAndReadWithTaskPermissions(t *t
 	_, err = repo.ValidationArtifact(ctx, task.WorkspaceID, task.ID, uuid.New(), list[1].ID)
 	require.ErrorIs(t, err, ErrConversationNotFound, "an artifact is bound to its attempt")
 }
+
+func TestComposeFileIsInheritedSnapshottedAndARejectionExplainsTheFailedCheck(t *testing.T) {
+	db, repo, ctx, task, fixture := taskRecoveryFixture(t)
+	store := NewDevMachineRepository(db)
+	compose := "deploy/compose.yaml"
+	require.NoError(t, store.UpsertScopeSetting(ctx, &domain.DevMachineScopeSetting{ID: uuid.New(), WorkspaceID: task.WorkspaceID, TeamID: &task.TeamID, ComposeFile: &compose}))
+	for _, invalid := range []string{"../compose.yaml", "/etc/compose.yaml", "compose.json", "a/./compose.yml"} {
+		_, err := db.Exec(`UPDATE dev_machine_scope_settings SET compose_file=$1 WHERE team_id=$2`, invalid, task.TeamID)
+		require.Error(t, err, invalid)
+	}
+	var existing string
+	require.NoError(t, db.Get(&existing, `SELECT compose_file FROM agent_tasks WHERE id=$1`, task.ID))
+	require.Empty(t, existing, "a task accepted before the setting keeps its snapshot")
+	second, err := repo.Create(ctx, task.WorkspaceID, *task.ConversationID, domain.AgentTaskRequest{RequestID: uuid.New(), Prompt: "Second task", Provider: "codex"})
+	require.NoError(t, err)
+	require.Equal(t, compose, second.ComposeFile, "new tasks snapshot the nearest compose file")
+	_, err = db.Exec(`UPDATE agent_tasks SET compose_file=$2 WHERE id=$1`, task.ID, compose)
+	require.NoError(t, err)
+	claimed := prepareTaskStart(t, db, repo, ctx, task, fixture)
+	_, err = repo.Start(ctx, *claimed)
+	require.NoError(t, err)
+	_, err = db.Exec(`UPDATE dev_machine_agent_runs SET status='succeeded',completed_at=now(),exit_code=0 WHERE id=$1`, claimed.RunID)
+	require.NoError(t, err)
+	require.NoError(t, repo.Transition(ctx, *claimed, "validating", "Native attempt finished"))
+	_, err = db.Exec(`UPDATE agent_tasks SET validation_command='["npm","test"]' WHERE id=$1`, task.ID)
+	require.NoError(t, err)
+	step, err := repo.EnsureValidation(ctx, *claimed)
+	require.NoError(t, err)
+	require.Equal(t, compose, step.ComposeFile, "the check uses the task's snapshot")
+
+	ops, err := store.LeaseOperations(ctx, "compose-fixture", 1, time.Minute)
+	require.NoError(t, err)
+	require.Len(t, ops, 1)
+	_, err = store.FailOperation(ctx, ops[0].ID, "compose-fixture", "compose_rejected", `compose_rejected: Compose file rejected: service "app": "privileged" is not supported`, false)
+	require.NoError(t, err)
+	step, err = repo.EnsureValidation(ctx, *claimed)
+	require.NoError(t, err)
+	require.Equal(t, domain.DevMachineAgentRunStepStatusFailed, step.Status)
+	require.Equal(t, `Compose file rejected: service "app": "privileged" is not supported`, *step.Summary)
+}

@@ -71,6 +71,7 @@ type DevMachineScopeSettingRequest struct {
 
 	AgentProvider     *string `json:"agent_provider,omitempty" validate:"omitempty,max=64"`
 	AgentInstructions *string `json:"agent_instructions,omitempty"`
+	ComposeFile       *string `json:"compose_file,omitempty"`
 }
 
 type CheckoutIssueRequest struct {

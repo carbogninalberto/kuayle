@@ -84,6 +84,42 @@ and task-authorized. They are served as attachments (png/jpeg inline) with
 `nosniff`, a sandbox CSP and `no-store`, and the UI always saves them as files,
 so a report's HTML never runs on the app origin.
 
+### Compose services for checks
+
+Migration 68 adds an inherited `compose_file` setting: a repository-relative
+`.yml`/`.yaml` path without dot segments. It is snapshotted onto the task and
+its check step. The agent can edit the file in the checkout, so it is treated as
+untrusted. The manager reads it as a regular file of at most 64 KiB through the
+created, not yet started, check container, and never runs `docker compose`.
+Only this subset is accepted:
+
+- at most 8 services with `image` (no `build`), `environment`, `command`,
+  `healthcheck`, `depends_on` (`service_started`/`service_healthy`), `user` and
+  `working_dir`;
+- `ports`, `expose` and `restart` are accepted but ignored, so nothing is ever
+  published;
+- anything else, such as volumes, privileges, capabilities, devices,
+  `network_mode`, `env_file`, `include`, anchors or required variables, is rejected;
+- variables interpolate with an empty environment (`${A:-x}` becomes `x`), so no
+  host or manager value can leak in;
+- images must match `DEV_MACHINE_COMPOSE_IMAGES` (default `docker.io/library`),
+  because pulls run on the host daemon outside the egress proxy.
+
+Services start in dependency order on a per-check internal network, with the
+service name as their DNS alias. Their containers have no mounts, published
+ports or privileges, drop all capabilities except CHOWN, DAC_OVERRIDE, FOWNER,
+SETGID and SETUID (needed by database entrypoints), run with no-new-privileges,
+and share 30% of the machine's CPU, memory and PIDs. Every health-checked
+service must become healthy within 3 minutes. The check container then joins
+that network and runs.
+
+Afterwards the manager removes the services and network. Cancellation and
+teardown remove them by label too. A retry before the check starts reuses the
+same deterministic containers, and a check that already ran is only replayed.
+A rejected or unhealthy stack fails the check without retries, and its reason is
+written to the check output and the step summary.
+
+
 ## Publication
 
 Task attempts never receive a GitHub credential (`push_branch` is false), so the

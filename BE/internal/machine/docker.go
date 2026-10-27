@@ -99,6 +99,8 @@ type DockerConfig struct {
 	HostDiskMinFreePercent int
 	HostDiskMinFreeGB      int
 	HostDiskPath           string
+	// ComposeImages are the repository names or prefixes check services may use.
+	ComposeImages []string
 }
 
 type DockerRuntime struct {
@@ -627,6 +629,9 @@ func (r *DockerRuntime) Teardown(ctx context.Context, machine *domain.DevMachine
 			return err
 		}
 	}
+	if err := r.removeCheckNetworks(ctx, "com.kuayle.machine-id="+machine.ID.String(), machine.ID.String()); err != nil {
+		return err
+	}
 	networkName := "kuayle-machine-" + machine.RoutingKey
 	if machine.DockerNetworkName != nil && *machine.DockerNetworkName != "" {
 		networkName = *machine.DockerNetworkName
@@ -993,6 +998,9 @@ func (r *DockerRuntime) CancelAgent(ctx context.Context, run *domain.DevMachineA
 		if err != nil && !errdefs.IsNotFound(err) {
 			cleanupErrors = append(cleanupErrors, fmt.Errorf("remove agent container %s: %w", item.ID, err))
 		}
+	}
+	if len(cleanupErrors) == 0 {
+		cleanupErrors = append(cleanupErrors, r.removeCheckNetworks(ctx, "com.kuayle.agent-run-id="+run.ID.String(), run.MachineID.String()))
 	}
 	return errors.Join(cleanupErrors...)
 }

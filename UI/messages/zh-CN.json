@@ -2001,5 +2001,9 @@
 	"tasks.agent_instructions_help": "提供给此范围内任务的编码代理。留空以继承。任务开始时保存快照。",
 	"tasks.agent_instructions_too_long": "最多 8000 个字符。",
 	"issue.via_agent": "通过 {agent}",
-	"tasks.check_artifacts": "报告和截图"
+	"tasks.check_artifacts": "报告和截图",
+	"tasks.compose_file": "Compose 文件",
+	"tasks.compose_file_help": "可选的仓库路径，例如 compose.yaml。其中基于镜像的服务（默认仅限官方镜像）会在独立检查旁的私有网络中运行，可通过服务名访问。构建、挂载、特权和发布端口会被拒绝。",
+	"tasks.compose_file_invalid": "请使用仓库内的相对 .yml 或 .yaml 路径。",
+	"tasks.check_services": "来自 {file} 的服务"
 }

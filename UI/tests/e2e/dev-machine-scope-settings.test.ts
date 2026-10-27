@@ -124,9 +124,14 @@ test('keeps project and team development settings scoped during rapid navigation
 	await page.getByRole('combobox', { name: 'Preferred coding agent' }).click();
 	await page.getByRole('option', { name: 'Claude Code' }).click();
 	await page.getByRole('textbox', { name: 'Agent instructions' }).fill('  Use pnpm.  ');
+	const compose = page.getByRole('textbox', { name: 'Compose file' });
+	await compose.fill('../compose.yaml');
+	await expect(page.getByText('Use a relative .yml or .yaml path inside the repository.')).toBeVisible();
+	await compose.fill(' deploy/compose.yaml ');
+	await expect(page.getByText('Use a relative .yml or .yaml path inside the repository.')).toHaveCount(0);
 	await teamSave.click();
 	await expect.poll(() => savedSettings.length).toBe(1);
-	expect(savedSettings[0]).toMatchObject({ scope_type: 'team', scope_id: teamBId, github_repo_id: repoBId, environment_id: environmentBId, test_command: ['npm','test'], agent_provider: 'claude-code', agent_instructions: 'Use pnpm.' });
+	expect(savedSettings[0]).toMatchObject({ scope_type: 'team', scope_id: teamBId, github_repo_id: repoBId, environment_id: environmentBId, test_command: ['npm','test'], agent_provider: 'claude-code', agent_instructions: 'Use pnpm.', compose_file: 'deploy/compose.yaml' });
 
 	const projectADelay = createRequestDelay();
 	const projectBDelay = createRequestDelay();

@@ -322,6 +322,7 @@ type DevMachineAgentRunStep struct {
 	StartedAt   *time.Time                   `json:"started_at,omitempty" db:"started_at"`
 	CompletedAt *time.Time                   `json:"completed_at,omitempty" db:"completed_at"`
 	CreatedAt   time.Time                    `json:"created_at" db:"created_at"`
+	ComposeFile string                       `json:"compose_file,omitempty" db:"compose_file"`
 }
 
 type DevMachineEvent struct {
@@ -500,6 +501,7 @@ type DevMachineScopeSetting struct {
 
 	AgentProvider     *string `json:"agent_provider" db:"agent_provider"`
 	AgentInstructions *string `json:"agent_instructions" db:"agent_instructions"`
+	ComposeFile       *string `json:"compose_file" db:"compose_file"`
 }
 
 type DevMachineCheckout struct {

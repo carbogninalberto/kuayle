@@ -43,6 +43,8 @@ export interface ValidationStep {
 	status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'skipped';
 	command_argv: string[];
 	exit_code?: number | null;
+	summary?: string | null;
+	compose_file?: string;
 	started_at?: string | null;
 	completed_at?: string | null;
 }
