@@ -41,8 +41,14 @@ g add -A
 # The floor is the commit Kuayle recorded as published ($6), never a marker in
 # the agent-writable checkout, so commits already on GitHub are never rewritten.
 # Kuayle's own commits are kept, so a retry republishes the same commit.
+# A history rewritten below the published commit is rebuilt on top of it with
+# the checkout's current tree, so the push stays a fast-forward.
 floor=${6:-}
-if [ -z "$floor" ] || ! g merge-base --is-ancestor "$floor" HEAD 2>/dev/null; then floor=$(g merge-base HEAD "refs/remotes/origin/$base"); fi
+if [ -n "$floor" ] && g cat-file -e "$floor^{commit}" 2>/dev/null; then
+  g merge-base --is-ancestor "$floor" HEAD || g reset -q --soft "$floor"
+else
+  floor=$(g merge-base HEAD "refs/remotes/origin/$base")
+fi
 foreign=$(g log --format='%ae%n%ce' "$floor..HEAD" | grep -vxF "$5" | head -n 1 || true)
 if [ -n "$foreign" ] || g log --format=%B "$floor..HEAD" | grep -qi '^co-authored-by:'; then
   g reset -q --soft "$floor"

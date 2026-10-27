@@ -144,6 +144,18 @@ func TestPublishScriptsIgnoreAgentGitConfigurationAndKeepTheCredentialOut(t *tes
 	output, err = script(publishPushScript, "push", token+"\n", "acme/app", "kuayle/rec-1", worktree, after)
 	require.NoError(t, err, output)
 
+	// A checkout whose history was rewritten below the published commit (by an
+	// agent, or an earlier fold) is rebuilt on top of it with the same tree.
+	run(worktree, identity, "-c", "core.hooksPath=/dev/null", "reset", "-q", "--soft", "refs/remotes/origin/main")
+	run(worktree, []string{"GIT_AUTHOR_NAME=Kuayle Agent", "GIT_AUTHOR_EMAIL=agent@kuayle.invalid", "GIT_COMMITTER_NAME=Kuayle Agent", "GIT_COMMITTER_EMAIL=agent@kuayle.invalid"}, "-c", "core.hooksPath=/dev/null", "commit", "-q", "-m", "rewritten")
+	require.NoError(t, os.WriteFile(filepath.Join(worktree, "rewrite.txt"), []byte("rewrite\n"), 0o644))
+	rebuilt, err := script(publishCommitScript, "commit", "REC-1: Dark mode", worktree, "kuayle/rec-1", "main", "Kuayle Agent", "agent@kuayle.invalid", after)
+	require.NoError(t, err, rebuilt)
+	require.Equal(t, after, run(worktree, nil, "rev-parse", rebuilt+"^"))
+	require.Equal(t, "rewrite.txt", run(worktree, nil, "show", "--name-only", "--format=", rebuilt), "only the new change is on top")
+	output, err = script(publishPushScript, "push", token+"\n", "acme/app", "kuayle/rec-1", worktree, rebuilt)
+	require.NoError(t, err, output)
+
 	// No changes relative to the base branch means nothing to publish.
 	empty := filepath.Join(root, "tasks", "rec-2")
 	run(root, nil, "--git-dir="+cache, "worktree", "add", "-q", "-b", "kuayle/rec-2", empty, "refs/remotes/origin/main")
