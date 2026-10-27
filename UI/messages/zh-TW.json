@@ -1948,5 +1948,16 @@
 	"assistant.tool_create_issue": "建立問題",
 	"assistant.tool_created_issue": "已建立 {identifier}",
 	"assistant.tool_input": "輸入",
-	"assistant.tool_output": "結果"
+	"assistant.tool_output": "結果",
+	"assistant.tool_delegate_issue": "委派問題",
+	"assistant.approval_title": "要在 {identifier} 上啟動編碼代理嗎？",
+	"assistant.approval_description": "編碼代理將在隔離環境中依下列說明處理 {title}：",
+	"assistant.approval_approve": "核准",
+	"assistant.approval_deny": "拒絕",
+	"assistant.approval_approving": "正在 {identifier} 上啟動編碼代理",
+	"assistant.approval_approved": "已在 {identifier} 上啟動編碼代理",
+	"assistant.approval_denied": "已拒絕委派 {identifier}",
+	"assistant.approval_expired": "{identifier} 的核准已過期",
+	"assistant.approval_failed": "無法在 {identifier} 上啟動編碼代理：{error}",
+	"assistant.approval_error": "無法儲存決定，請再試一次。"
 }

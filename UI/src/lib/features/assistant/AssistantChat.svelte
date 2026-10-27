@@ -297,6 +297,8 @@
 												{#if message.role === 'assistant'}<ToolCalls
 														calls={chat.tools[message.id] ?? []}
 														slug={chat.slug}
+														approvals={chat.approvals}
+														onresolve={(approval, decision) => chat.resolveApproval(approval, decision)}
 													/>{/if}
 												<Bubble.Root variant={message.role === 'user' ? 'muted' : 'ghost'}>
 													<Bubble.Content>

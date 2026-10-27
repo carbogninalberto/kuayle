@@ -9,8 +9,9 @@ requests; an already running request finishes or can be stopped.
 ## Current scope
 
 The assistant can list teams and search, read and create issues through
-[orchestrator tools](#orchestrator-tools). It has no repository, machine, coding
-agent, approval or publishing tools; the system instruction says so. Conversations currently belong to
+[orchestrator tools](#orchestrator-tools), and request [approval](#approvals) to
+delegate an issue to a coding agent. It has no repository, machine or publishing
+tools; the system instruction says so. Conversations currently belong to
 their creator, who must remain a non-guest workspace member. Two browsers signed
 in as that user can view the same stream. Issue details now embed the same conversation UI, with a full-page link back to the
 issue. Each creator has one reusable chat per issue and original team. Sharing and
@@ -170,7 +171,7 @@ streaming, history, denied access, mobile layout and long transcript scrolling.
 ## Orchestrator tools
 
 The worker offers OpenAI-compatible function tools: `list_teams`,
-`search_issues`, `get_issue` and `create_issue`. The model only proposes calls.
+`search_issues`, `get_issue`, `create_issue` and `delegate_issue`. The model only proposes calls.
 `AssistantTools` executes each in Go as the conversation creator, re-reading the
 current workspace role (guests and roles without `issue:create` are refused) and
 using the same team-visibility-scoped repositories and `IssueService.Create` as
@@ -201,7 +202,39 @@ uses the same worker, so its replies can use the same tools.
 
 Model context includes completed message text only; earlier turns' tool
 results are not replayed, so the assistant relies on its own replies for
-continuity. Delegating coding work from chat and approvals are not implemented.
+continuity.
+
+## Approvals
+
+`delegate_issue` never starts work. It resolves the issue with the user's own
+visibility and records, under the generation lease, a pending approval (migration
+61) bound to the conversation creator, the `delegate_issue` action, the issue and
+the exact instructions, expiring after 24 hours. The model receives
+`pending_user_approval` and is told not to claim work has started.
+
+`POST /conversations/:conversationId/approvals/:approvalId` with
+`{"decision":"approve"|"deny"}` is session-only. The backend, not the UI, checks
+that the caller is the bound actor in an authorized conversation; anyone else
+gets 404. Under a row lock, denial is final, an expired approval becomes
+`expired` (HTTP 410), and approval claims the decision as `approving`. The effect
+then re-opens the user's issue conversation (re-checking issue visibility),
+reads the current task options and creates the coding task through
+`AgentTaskService.Create` with the composer's defaults (first allowed provider;
+the workspace model only for Codex and Claude Code) and the approval's fixed
+request ID. Concurrent clients or repeated clicks therefore converge on one task.
+Disabled agents, a disallowed provider, a lost issue or a rejected request mark
+the approval `failed` with a user-safe reason; a transient error leaves it
+`approving`, and approving again resumes it. An approved or failed decision
+cannot be denied, and a denial cannot later be approved.
+
+Decisions stream as `approval.requested`, `approval.updated` and
+`approval.resolved` events and appear in history (`approvals`). The UI renders a
+pending request with the AI Elements
+[Confirmation](https://www.shadcn-svelte.com/docs/ai-elements/confirmation)
+composition (Item with Deny/Approve; instructions as escaped Code Block text)
+and resolved states as Trace lines; stale copies never reopen a decision.
+Telegram cannot resolve approvals yet; a Telegram-originated request is resolved
+from the Web UI.
 
 ## Next phases
 

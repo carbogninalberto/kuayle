@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -10,6 +11,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/labstack/echo/v4"
+	"io"
 	"net/http"
 	"net/url"
 	"nhooyr.io/websocket"
@@ -40,6 +42,8 @@ func conversationError(c echo.Context, err error) error {
 		return response.Error(c, http.StatusConflict, "CONVERSATION_BUSY", "A reply is already in progress")
 	case errors.Is(err, repository.ErrConversationConflict):
 		return response.Error(c, http.StatusConflict, "CONVERSATION_CONFLICT", "This request conflicts with the current conversation")
+	case errors.Is(err, repository.ErrApprovalExpired):
+		return response.Error(c, http.StatusGone, "APPROVAL_EXPIRED", "This approval has expired")
 	case errors.Is(err, repository.ErrConversationInvalid):
 		return response.Error(c, http.StatusBadRequest, "INVALID_CONVERSATION", "Invalid conversation request")
 	case errors.Is(err, service.ErrAISettingsNotConfigured):
@@ -245,4 +249,30 @@ func (h *ConversationHandler) Stream(c echo.Context) error {
 func bindConversation(c echo.Context, req any) error {
 	c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, 32<<10)
 	return c.Bind(req)
+}
+
+// ResolveApproval accepts the session user's decision. The backend binds the
+// approval to its actor and re-authorizes the effect; repeats are idempotent.
+func (h *ConversationHandler) ResolveApproval(c echo.Context) error {
+	id, err := conversationID(c)
+	if err != nil {
+		return conversationError(c, err)
+	}
+	approval, err := uuid.Parse(c.Param("approvalId"))
+	if err != nil {
+		return conversationError(c, repository.ErrConversationNotFound)
+	}
+	var input struct {
+		Decision string `json:"decision"`
+	}
+	decoder := json.NewDecoder(io.LimitReader(c.Request().Body, 1024))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&input) != nil || (input.Decision != "approve" && input.Decision != "deny") {
+		return conversationError(c, repository.ErrConversationInvalid)
+	}
+	result, err := h.svc.ResolveApproval(c.Request().Context(), middleware.GetWorkspace(c).ID, id, approval, input.Decision == "approve")
+	if err != nil {
+		return conversationError(c, err)
+	}
+	return response.Success(c, http.StatusOK, result)
 }

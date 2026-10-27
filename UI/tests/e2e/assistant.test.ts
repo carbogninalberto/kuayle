@@ -35,6 +35,9 @@ async function fixture(page: Page) {
 	const state = {
 		messages: [] as (typeof userMessage)[],
 		tools: [] as any[],
+		approvals: [] as any[],
+		decisions: [] as string[],
+		decisionStatus: 200,
 		cursor: 0,
 		events: [] as Array<{ cursor: number; [key: string]: unknown }>,
 		sends: [] as string[],
@@ -77,6 +80,21 @@ async function fixture(page: Page) {
 				state.messages = [userMessage, reply];
 				return route.fulfill({ status: 202, json: reply });
 			}
+			if (path.includes('/approvals/')) {
+				const decision = route.request().postDataJSON().decision;
+				state.decisions.push(decision);
+				if (state.decisionStatus !== 200)
+					return route.fulfill({ status: state.decisionStatus, json: { error: { code: 'INTERNAL_ERROR' } } });
+				const resolved = {
+					...state.approvals[0],
+					status: decision === 'approve' ? 'approved' : 'denied',
+					task_id: decision === 'approve' ? 'task-9' : undefined,
+					resolved_at: '2026-10-26T10:05:00Z',
+					updated_at: '2026-10-26T10:05:00Z'
+				};
+				state.approvals = [resolved];
+				return route.fulfill({ json: resolved });
+			}
 			if (path.endsWith('/events')) {
 				state.replayRequested = true;
 				if (state.replayDelay) await state.replayDelay;
@@ -103,6 +121,7 @@ async function fixture(page: Page) {
 					conversation,
 					messages: messages.slice(-50),
 					tools: state.tools,
+					approvals: state.approvals,
 					cursor: state.cursor,
 					has_more: messages.length > 50
 				}
@@ -464,4 +483,73 @@ test('renders recorded tool calls from history and live events as escaped data',
 		.send(JSON.stringify({ id: 'e5', cursor: 5, conversation_id: 'chat-1', type: 'tool.started', payload: search }));
 	await expect(page.getByRole('button', { name: 'Failed to run Search issues' })).toBeVisible();
 	await expect(page.getByText('I created the issue.', { exact: true })).toBeVisible();
+});
+
+test('asks for approval before delegating and records the decision from the backend', async ({ page }) => {
+	const state = await fixture(page);
+	const answered = { ...reply, status: 'completed', content: 'Approval is pending.' };
+	state.messages = [userMessage, answered];
+	const call = {
+		id: 'tool-9',
+		conversation_id: 'chat-1',
+		message_id: answered.id,
+		sequence: 0,
+		call_id: 'call_9',
+		name: 'delegate_issue',
+		input: { identifier: 'ENG-1' },
+		status: 'completed',
+		output: { approval_id: 'approval-1', status: 'pending_user_approval', identifier: 'ENG-1' },
+		created_at: conversation.created_at
+	};
+	state.tools = [call];
+	state.approvals = [
+		{
+			id: 'approval-1',
+			conversation_id: 'chat-1',
+			tool_call_id: 'tool-9',
+			action: 'delegate_issue',
+			actor_id: 'user-1',
+			issue_id: 'issue-1',
+			payload: {
+				identifier: 'ENG-1',
+				title: 'Dark mode',
+				instructions: '<b onmouseover="window.evil=1">Implement</b> dark mode'
+			},
+			status: 'pending',
+			expires_at: '2026-10-27T10:00:00Z',
+			created_at: conversation.created_at,
+			updated_at: conversation.created_at
+		}
+	];
+	await page.goto('/test/assistant?conversation=chat-1');
+	await expect(page.getByText('Start a coding agent on ENG-1?', { exact: true })).toBeVisible();
+	await expect(page.getByText('<b onmouseover=', { exact: false })).toBeVisible();
+	await page.setViewportSize({ width: 360, height: 800 });
+	await expect(page.getByRole('button', { name: 'Approve', exact: true })).toBeInViewport();
+	expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+	expect(await page.evaluate(() => (window as any).evil)).toBeUndefined();
+	state.decisionStatus = 500;
+	await page.getByRole('button', { name: 'Approve', exact: true }).click();
+	await expect(page.getByRole('alert').getByText('The decision could not be saved. Try again.')).toBeVisible();
+	state.decisionStatus = 200;
+	await page.getByRole('button', { name: 'Approve', exact: true }).click();
+	await expect(page.getByText('Coding agent started on ENG-1', { exact: true })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Approve', exact: true })).toHaveCount(0);
+	await expect(page.getByRole('link', { name: 'ENG-1' })).toHaveAttribute('href', '/test/issue/ENG-1');
+	expect(state.decisions).toEqual(['approve', 'approve']);
+	await page.reload();
+	await expect(page.getByText('Coding agent started on ENG-1', { exact: true })).toBeVisible();
+	// A stale pending copy replayed later cannot reopen the decision.
+	await expect.poll(() => state.sockets.length).toBeGreaterThan(0);
+	state.sockets.at(-1)!.send(
+		JSON.stringify({
+			id: 'e9',
+			cursor: 9,
+			conversation_id: 'chat-1',
+			type: 'approval.requested',
+			payload: { ...state.approvals[0], status: 'pending', updated_at: conversation.created_at }
+		})
+	);
+	await expect(page.getByText('Coding agent started on ENG-1', { exact: true })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Approve', exact: true })).toHaveCount(0);
 });

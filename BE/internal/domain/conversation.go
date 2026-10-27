@@ -45,6 +45,7 @@ type ConversationHistory struct {
 	Issue        *ConversationIssue     `json:"issue,omitempty"`
 	Messages     []ConversationMessage  `json:"messages"`
 	Tools        []ConversationToolCall `json:"tools"`
+	Approvals    []ConversationApproval `json:"approvals"`
 	Cursor       int64                  `json:"cursor"`
 	HasMore      bool                   `json:"has_more"`
 }
@@ -78,4 +79,32 @@ type ConversationToolCall struct {
 	IssueID        *uuid.UUID       `json:"issue_id,omitempty" db:"issue_id"`
 	CreatedAt      time.Time        `json:"created_at" db:"created_at"`
 	CompletedAt    *time.Time       `json:"completed_at,omitempty" db:"completed_at"`
+}
+
+// ConversationApproval is a human decision requested by an assistant tool. The
+// backend binds it to one actor, one action and one target; UI state is never
+// the authority.
+type ConversationApproval struct {
+	ID             uuid.UUID       `json:"id" db:"id"`
+	ConversationID uuid.UUID       `json:"conversation_id" db:"conversation_id"`
+	ToolCallID     uuid.UUID       `json:"tool_call_id" db:"tool_call_id"`
+	Action         string          `json:"action" db:"action"`
+	ActorID        uuid.UUID       `json:"actor_id" db:"actor_id"`
+	IssueID        uuid.UUID       `json:"issue_id" db:"issue_id"`
+	Payload        json.RawMessage `json:"payload" db:"payload"`
+	Status         string          `json:"status" db:"status"`
+	RequestID      uuid.UUID       `json:"-" db:"request_id"`
+	TaskID         *uuid.UUID      `json:"task_id,omitempty" db:"task_id"`
+	Error          *string         `json:"error,omitempty" db:"error"`
+	ExpiresAt      time.Time       `json:"expires_at" db:"expires_at"`
+	ResolvedAt     *time.Time      `json:"resolved_at,omitempty" db:"resolved_at"`
+	CreatedAt      time.Time       `json:"created_at" db:"created_at"`
+	UpdatedAt      time.Time       `json:"updated_at" db:"updated_at"`
+}
+
+// DelegationPayload is the immutable request an approval authorizes.
+type DelegationPayload struct {
+	Identifier   string `json:"identifier"`
+	Title        string `json:"title"`
+	Instructions string `json:"instructions"`
 }

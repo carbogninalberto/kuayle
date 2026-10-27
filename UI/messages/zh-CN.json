@@ -1948,5 +1948,16 @@
 	"assistant.tool_create_issue": "创建问题",
 	"assistant.tool_created_issue": "已创建 {identifier}",
 	"assistant.tool_input": "输入",
-	"assistant.tool_output": "结果"
+	"assistant.tool_output": "结果",
+	"assistant.tool_delegate_issue": "委派问题",
+	"assistant.approval_title": "要在 {identifier} 上启动编码代理吗？",
+	"assistant.approval_description": "编码代理将在隔离环境中按以下说明处理 {title}：",
+	"assistant.approval_approve": "批准",
+	"assistant.approval_deny": "拒绝",
+	"assistant.approval_approving": "正在 {identifier} 上启动编码代理",
+	"assistant.approval_approved": "已在 {identifier} 上启动编码代理",
+	"assistant.approval_denied": "已拒绝委派 {identifier}",
+	"assistant.approval_expired": "{identifier} 的批准已过期",
+	"assistant.approval_failed": "无法在 {identifier} 上启动编码代理：{error}",
+	"assistant.approval_error": "无法保存决定，请重试。"
 }

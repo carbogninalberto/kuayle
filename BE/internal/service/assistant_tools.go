@@ -57,12 +57,15 @@ func NewAssistantTools(issues repository.IssueRepo, teams repository.TeamRepo, m
 type assistantTool struct {
 	name, description, parameters string
 	write                         bool
+	// approval tools only prepare a request; nothing runs until the user approves.
+	approval bool
 }
 
 var assistantToolCatalog = []assistantTool{
 	{name: "list_teams", description: "List the teams the user can access, with the key used to create issues.", parameters: `{"type":"object","properties":{},"additionalProperties":false}`},
 	{name: "search_issues", description: "Search issues the user can access by text in the title or identifier.", parameters: `{"type":"object","properties":{"query":{"type":"string","maxLength":200},"limit":{"type":"integer","minimum":1,"maximum":20}},"required":["query"],"additionalProperties":false}`},
 	{name: "get_issue", description: "Read one issue by identifier, such as ENG-12.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32}},"required":["identifier"],"additionalProperties":false}`},
+	{name: "delegate_issue", description: "Ask the user to approve starting a coding agent on an existing issue. The agent only starts after the user approves in Kuayle; never claim work has started.", approval: true, parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"instructions":{"type":"string","minLength":1,"maxLength":16000}},"required":["identifier","instructions"],"additionalProperties":false}`},
 	{name: "create_issue", description: "Create a new issue. Only call this when the user explicitly asked to create or file an issue.", write: true, parameters: `{"type":"object","properties":{"team_key":{"type":"string","maxLength":16},"title":{"type":"string","minLength":1,"maxLength":500},"description":{"type":"string","maxLength":8000},"priority":{"type":"integer","minimum":0,"maximum":4}},"required":["team_key","title"],"additionalProperties":false}`},
 }
 
@@ -240,4 +243,29 @@ func toolErrorText(err error) string {
 		return safe.message
 	}
 	return "the tool failed"
+}
+
+// prepareDelegation validates a delegation request for approval. It reads the
+// issue with the user's own visibility and binds the request to it.
+func (t *AssistantTools) prepareDelegation(ctx context.Context, ws, user uuid.UUID, arguments string) (uuid.UUID, domain.DelegationPayload, error) {
+	member, err := t.members.GetMember(ctx, ws, user)
+	if err != nil || member == nil || member.Role == domain.RoleGuest {
+		return uuid.Nil, domain.DelegationPayload{}, toolFailure("you no longer have access to this workspace")
+	}
+	var input struct {
+		Identifier   string `json:"identifier"`
+		Instructions string `json:"instructions"`
+	}
+	if err = decodeToolInput(arguments, &input); err != nil {
+		return uuid.Nil, domain.DelegationPayload{}, err
+	}
+	input.Instructions = strings.TrimSpace(input.Instructions)
+	if input.Instructions == "" || utf8.RuneCountInString(input.Instructions) > 16000 {
+		return uuid.Nil, domain.DelegationPayload{}, toolFailure("instructions must be 1 to 16000 characters")
+	}
+	issue, err := t.issues.GetByIdentifier(ctx, ws, strings.ToUpper(strings.TrimSpace(input.Identifier)))
+	if err != nil || issue == nil {
+		return uuid.Nil, domain.DelegationPayload{}, toolFailure("issue not found")
+	}
+	return issue.ID, domain.DelegationPayload{Identifier: issue.Identifier, Title: issue.Title, Instructions: input.Instructions}, nil
 }

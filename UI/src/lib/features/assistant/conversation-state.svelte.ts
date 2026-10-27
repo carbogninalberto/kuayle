@@ -5,7 +5,8 @@ import {
 	type ConversationIssue,
 	type ConversationMessage,
 	type ConversationEvent,
-	type ConversationToolCall
+	type ConversationToolCall,
+	type ConversationApproval
 } from '$lib/api/conversations';
 
 export class ConversationState {
@@ -14,6 +15,8 @@ export class ConversationState {
 	messages = $state<ConversationMessage[]>([]);
 	// Tool calls by assistant message, ordered by their recorded sequence.
 	tools = $state<Record<string, ConversationToolCall[]>>({});
+	// Approvals by tool call. The backend is the authority; this is display state.
+	approvals = $state<Record<string, ConversationApproval>>({});
 	liveTasks = $state<Record<string, AgentTask>>({});
 	taskActivity = $state<Record<string, TaskActivity>>({});
 	taskValidationCursor = $state<Record<string, number>>({});
@@ -49,7 +52,9 @@ export class ConversationState {
 			this.issue = history.issue ?? null;
 			this.messages = history.messages;
 			this.tools = {};
+			this.approvals = {};
 			this.acceptTools(history.tools ?? []);
+			this.acceptApprovals(history.approvals ?? []);
 			this.cursor = history.cursor;
 			this.hasMore = history.has_more;
 			this.connect();
@@ -71,6 +76,7 @@ export class ConversationState {
 			this.loading = false;
 			this.messages = [];
 			this.tools = {};
+			this.approvals = {};
 			this.liveTasks = {};
 			this.taskActivity = {};
 			this.taskValidationCursor = {};
@@ -104,6 +110,8 @@ export class ConversationState {
 			this.taskPublicationCursor = { ...this.taskPublicationCursor, [data.task_id]: event.cursor };
 		} else if (event.type === 'tool.started' || event.type === 'tool.completed') {
 			this.acceptTools([event.payload as ConversationToolCall]);
+		} else if (event.type.startsWith('approval.')) {
+			this.acceptApprovals([event.payload as ConversationApproval]);
 		} else if (event.type === 'task.activity') {
 			const activity = event.payload as TaskActivity;
 			this.taskActivity = { ...this.taskActivity, [activity.task_id]: activity };
@@ -119,6 +127,21 @@ export class ConversationState {
 			);
 		}
 		this.cursor = event.cursor;
+	}
+	async resolveApproval(approval: ConversationApproval, decision: 'approve' | 'deny') {
+		const result = await conversations.resolveApproval(this.slug, this.id, approval.id, decision);
+		if (!this.disposed && !this.unavailable) this.acceptApprovals([result]);
+	}
+	acceptApprovals(approvals: ConversationApproval[]) {
+		const next = { ...this.approvals };
+		for (const approval of approvals) {
+			if (approval.conversation_id !== this.id) continue;
+			const current = next[approval.tool_call_id];
+			// Ignore stale copies: a resolved decision never reverts to pending.
+			if (current && Date.parse(current.updated_at) > Date.parse(approval.updated_at)) continue;
+			next[approval.tool_call_id] = approval;
+		}
+		this.approvals = next;
 	}
 	acceptTools(calls: ConversationToolCall[]) {
 		if (!calls.length) return;
@@ -202,6 +225,7 @@ export class ConversationState {
 			const known = new Set(this.messages.map((m) => m.id));
 			this.messages = [...history.messages.filter((m) => !known.has(m.id)), ...this.messages];
 			this.acceptTools(history.tools ?? []);
+			this.acceptApprovals(history.approvals ?? []);
 			this.hasMore = history.has_more;
 		} catch (error) {
 			if (version === this.loadVersion) this.handleError(error);

@@ -1948,5 +1948,16 @@
 	"assistant.tool_create_issue": "Create issue",
 	"assistant.tool_created_issue": "Created {identifier}",
 	"assistant.tool_input": "Input",
-	"assistant.tool_output": "Result"
+	"assistant.tool_output": "Result",
+	"assistant.tool_delegate_issue": "Delegate issue",
+	"assistant.approval_title": "Start a coding agent on {identifier}?",
+	"assistant.approval_description": "A coding agent will work on {title} in an isolated environment with these instructions:",
+	"assistant.approval_approve": "Approve",
+	"assistant.approval_deny": "Deny",
+	"assistant.approval_approving": "Starting coding agent on {identifier}",
+	"assistant.approval_approved": "Coding agent started on {identifier}",
+	"assistant.approval_denied": "Denied delegation of {identifier}",
+	"assistant.approval_expired": "Approval for {identifier} expired",
+	"assistant.approval_failed": "Could not start a coding agent on {identifier}: {error}",
+	"assistant.approval_error": "The decision could not be saved. Try again."
 }

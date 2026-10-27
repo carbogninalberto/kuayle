@@ -41,8 +41,12 @@ export interface ConversationEvent {
 		| 'task.tests_updated'
 		| 'task.publication_updated'
 		| 'tool.started'
-		| 'tool.completed';
+		| 'tool.completed'
+		| 'approval.requested'
+		| 'approval.updated'
+		| 'approval.resolved';
 	payload:
+		| ConversationApproval
 		| ConversationToolCall
 		| AgentTask
 		| TaskActivity
@@ -71,11 +75,28 @@ export interface ConversationToolCall {
 	created_at: string;
 	completed_at?: string;
 }
+export interface ConversationApproval {
+	id: string;
+	conversation_id: string;
+	tool_call_id: string;
+	action: 'delegate_issue';
+	actor_id: string;
+	issue_id: string;
+	payload: { identifier: string; title: string; instructions: string };
+	status: 'pending' | 'approving' | 'approved' | 'denied' | 'expired' | 'failed';
+	task_id?: string;
+	error?: string;
+	expires_at: string;
+	resolved_at?: string;
+	created_at: string;
+	updated_at: string;
+}
 export interface ConversationHistory {
 	issue?: ConversationIssue;
 	conversation: Conversation;
 	messages: ConversationMessage[];
 	tools?: ConversationToolCall[];
+	approvals?: ConversationApproval[];
 	cursor: number;
 	has_more: boolean;
 }
@@ -99,6 +120,11 @@ export const conversations = {
 			request_id,
 			content
 		}),
+	resolveApproval: (slug: string, id: string, approval: string, decision: 'approve' | 'deny') =>
+		api.post<ConversationApproval>(
+			`${base(slug)}/conversations/${encodeURIComponent(id)}/approvals/${encodeURIComponent(approval)}`,
+			{ decision }
+		),
 	retry: (slug: string, id: string, message: string, request_id: string) =>
 		api.post<ConversationMessage>(
 			`${base(slug)}/conversations/${encodeURIComponent(id)}/messages/${encodeURIComponent(message)}/retry`,

@@ -251,6 +251,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(ws, http.MethodPost, "/conversations/:conversationId/messages", h.conversation.Send)
 	sessionOnly(ws, http.MethodPost, "/conversations/:conversationId/messages/:messageId/retry", h.conversation.Retry)
 	sessionOnly(ws, http.MethodPost, "/conversations/:conversationId/cancel", h.conversation.Cancel)
+	sessionOnly(ws, http.MethodPost, "/conversations/:conversationId/approvals/:approvalId", h.conversation.ResolveApproval)
 
 	if h.telegram != nil {
 		sessionOnly(ws, http.MethodGet, "/telegram", h.telegram.Status)

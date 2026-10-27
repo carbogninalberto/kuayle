@@ -133,6 +133,9 @@ func (r *ConversationRepository) History(ctx context.Context, ws, id uuid.UUID, 
 	if h.Tools, err = messageToolCalls(ctx, tx, h.Messages); err != nil {
 		return nil, err
 	}
+	if h.Approvals, err = toolApprovals(ctx, tx, h.Tools); err != nil {
+		return nil, err
+	}
 	err = tx.GetContext(ctx, &h.Cursor, `SELECT COALESCE(MAX(cursor),0) FROM conversation_events WHERE conversation_id=$1`, id)
 	return h, err
 }

@@ -151,6 +151,7 @@ func main() {
 	conversationSvc.SetTools(service.NewAssistantTools(issueRepo, teamRepo, workspaceRepo, issueSvc))
 	conversationH := handler.NewConversationHandler(conversationSvc, cfg.FrontendURL)
 	agentTaskSvc := service.NewAgentTaskService(repository.NewAgentTaskRepository(db), devMachineSvc, hub)
+	conversationSvc.SetApprovals(service.NewAssistantApprovals(conversationSvc.Repo, agentTaskSvc))
 	agentTaskH := handler.NewAgentTaskHandler(agentTaskSvc)
 	telegramSvc := service.NewTelegramService(repository.NewTelegramRepository(db), workspaceRepo, aiSettingsSvc, crypto.DeriveKey(cfg.JWTSecret+":telegram"), cfg.FrontendURL)
 	telegramH := handler.NewTelegramHandler(telegramSvc)
