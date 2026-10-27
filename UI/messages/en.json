@@ -2058,5 +2058,7 @@
 	"tasks.preview_command": "Preview command",
 	"tasks.preview_port": "Preview port",
 	"tasks.preview_help": "Optional. When a task reaches review, Kuayle runs this command in its worktree (with PORT and HOST=0.0.0.0 set) and opens an authenticated preview of the port for manual QA. Leave both empty to inherit.",
-	"tasks.preview_invalid": "Enter a JSON array command and a port between 1024 and 65535, or leave both empty."
+	"tasks.preview_invalid": "Enter a JSON array command and a port between 1024 and 65535, or leave both empty.",
+	"tasks.agent_session": "Agent session",
+	"tasks.agent_session_help": "Open a terminal in this task's worktree and continue the agent's own session interactively."
 }

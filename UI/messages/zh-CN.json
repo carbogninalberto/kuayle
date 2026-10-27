@@ -2058,5 +2058,7 @@
 	"tasks.preview_command": "预览命令",
 	"tasks.preview_port": "预览端口",
 	"tasks.preview_help": "可选。任务进入审查时，Kuayle 会在其工作树中运行此命令（并设置 PORT 和 HOST=0.0.0.0），并为该端口打开经过身份验证的预览，供人工 QA 使用。两者都留空则继承。",
-	"tasks.preview_invalid": "请输入 JSON 数组形式的命令和 1024 到 65535 之间的端口，或两者都留空。"
+	"tasks.preview_invalid": "请输入 JSON 数组形式的命令和 1024 到 65535 之间的端口，或两者都留空。",
+	"tasks.agent_session": "智能体会话",
+	"tasks.agent_session_help": "在此任务的工作树中打开终端，并以交互方式继续智能体自己的会话。"
 }

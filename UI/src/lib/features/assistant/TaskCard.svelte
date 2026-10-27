@@ -15,9 +15,11 @@
 		Terminal,
 		ExternalLink,
 		GitPullRequest,
-		SquareTerminal
+		SquareTerminal,
+		Bot
 	} from '@lucide/svelte';
 	import { useTerminalDock } from '$lib/features/dev-machines/terminal-dock-context.svelte';
+	import { agentSessionCommand, resumableStates } from './agent-session';
 	import * as Trace from '$lib/components/ui/trace/index.js';
 	import * as CodeBlock from '$lib/components/ui/code-block/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
@@ -298,9 +300,13 @@
 	// A terminal in the task's own worktree, docked at the bottom, for working
 	// directly beside (or instead of) the agent.
 	const dock = useTerminalDock();
-	function openTerminal() {
+	const sessionCommand = $derived(
+		resumableStates.includes(task.state) ? agentSessionCommand(task.provider, task.id) : undefined
+	);
+	function openTerminal(initialInput?: string) {
 		if (!task.machine_id || !dock) return;
 		dock.open({
+			initialInput,
 			slug: chat.slug,
 			machineId: task.machine_id,
 			machineName: chat.issue?.identifier ?? task.machine_id,
@@ -448,9 +454,14 @@
 		{#if machinePreview}<Button variant="outline" size="sm" disabled={busy} onclick={() => void openPreview()}
 				><ExternalLink />{m['machines.preview_open']()}</Button
 			>{/if}
-		{#if task.machine_id && dock}<Button variant="outline" size="sm" onclick={openTerminal}
+		{#if task.machine_id && dock}<Button variant="outline" size="sm" onclick={() => openTerminal()}
 				><SquareTerminal />{m['tasks.agents_terminal']()}</Button
-			>{/if}
+			>{#if sessionCommand}<Button
+					variant="outline"
+					size="sm"
+					title={m['tasks.agent_session_help']()}
+					onclick={() => openTerminal(sessionCommand)}><Bot />{m['tasks.agent_session']()}</Button
+				>{/if}{/if}
 		{#if task.machine_id}<a
 				class="inline-flex items-center gap-1 text-xs underline underline-offset-2"
 				href="/{chat.slug}/machines/{task.machine_id}"><ExternalLink size={12} />{m['tasks.environment']()}</a

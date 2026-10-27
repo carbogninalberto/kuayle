@@ -2058,5 +2058,7 @@
 	"tasks.preview_command": "Comando di anteprima",
 	"tasks.preview_port": "Porta di anteprima",
 	"tasks.preview_help": "Facoltativo. Quando un'attività arriva in revisione, Kuayle esegue questo comando nel suo worktree (con PORT e HOST=0.0.0.0 impostati) e apre un'anteprima autenticata della porta per il QA manuale. Lascia entrambi vuoti per ereditare.",
-	"tasks.preview_invalid": "Inserisci un comando come array JSON e una porta tra 1024 e 65535, oppure lascia entrambi vuoti."
+	"tasks.preview_invalid": "Inserisci un comando come array JSON e una porta tra 1024 e 65535, oppure lascia entrambi vuoti.",
+	"tasks.agent_session": "Sessione dell'agente",
+	"tasks.agent_session_help": "Apri un terminale nel worktree di questa attività e continua in modo interattivo la sessione dell'agente."
 }

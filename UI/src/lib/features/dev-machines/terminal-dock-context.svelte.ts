@@ -9,6 +9,8 @@ export interface TerminalTab {
 	checkoutLabel?: string;
 	sessionName?: string;
 	runtimeTitle?: string;
+	/** Typed once into a new session after it connects (e.g. resume an agent). */
+	initialInput?: string;
 }
 
 class TerminalDockState {

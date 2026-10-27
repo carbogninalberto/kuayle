@@ -50,8 +50,9 @@
 					/>{:else if item.state === 'failed' || item.state === 'blocked'}<CircleAlert />{:else}<CircleDot
 					/>{/if}</Trace.Icon
 			>
-			<Trace.Title class="truncate">{item.issue_identifier} · {item.issue_title}</Trace.Title>
-			<Trace.Description class="shrink-0">{taskLabel(item.state)}</Trace.Description>
+			<!-- In the narrow sidebar the issue keeps the room; the state truncates. -->
+			<Trace.Title class="min-w-0 flex-1 truncate">{item.issue_identifier} · {item.issue_title}</Trace.Title>
+			<Trace.Description class="max-w-[40%] truncate" title={taskLabel(item.state)}>{taskLabel(item.state)}</Trace.Description>
 		</Trace.Line>
 	</a>
 {/snippet}

@@ -2058,5 +2058,7 @@
 	"tasks.preview_command": "預覽指令",
 	"tasks.preview_port": "預覽連接埠",
 	"tasks.preview_help": "選填。任務進入審查時，Kuayle 會在其工作樹中執行此指令（並設定 PORT 與 HOST=0.0.0.0），並為該連接埠開啟經過驗證的預覽，供人工 QA 使用。兩者皆留空則繼承。",
-	"tasks.preview_invalid": "請輸入 JSON 陣列形式的指令與 1024 到 65535 之間的連接埠，或兩者皆留空。"
+	"tasks.preview_invalid": "請輸入 JSON 陣列形式的指令與 1024 到 65535 之間的連接埠，或兩者皆留空。",
+	"tasks.agent_session": "代理工作階段",
+	"tasks.agent_session_help": "在此任務的工作樹中開啟終端機，並以互動方式繼續代理自己的工作階段。"
 }
