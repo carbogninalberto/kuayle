@@ -62,6 +62,18 @@ type AssistantTools struct {
 	// Planning tools are unavailable until SetPlanning wires them.
 	dependencies assistantDependencies
 	relations    assistantRelationCreator
+	// Agent work tools are unavailable until SetAgentWork wires them.
+	work assistantAgentWork
+}
+
+type assistantAgentWork interface {
+	IssueAgentWork(ctx context.Context, ws, issue uuid.UUID) ([]repository.IssueAgentWork, error)
+	MergeTarget(ctx context.Context, ws uuid.UUID, issue, task *uuid.UUID) (*repository.MergeTarget, error)
+}
+
+// SetAgentWork enables get_agent_work and merge_pull_request.
+func (t *AssistantTools) SetAgentWork(work assistantAgentWork) {
+	t.work = work
 }
 
 // SetPlanning enables the dependency tools (plan_issues, link_issues and
@@ -79,6 +91,8 @@ type assistantTool struct {
 	write                         bool
 	// approval tools only prepare a request; nothing runs until the user approves.
 	approval bool
+	// agentWork tools need SetAgentWork.
+	agentWork bool
 }
 
 var assistantToolCatalog = []assistantTool{
@@ -89,16 +103,23 @@ var assistantToolCatalog = []assistantTool{
 	{name: "update_issue", description: "Change an existing issue's title, description, status or priority. Only call this when the user explicitly asked for that change.", write: true, parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"title":{"type":"string","minLength":1,"maxLength":500},"description":{"type":"string","maxLength":8000},"status":{"type":"string","enum":["backlog","todo","in_progress","in_review","done","cancelled"]},"priority":{"type":"integer","minimum":0,"maximum":4}},"required":["identifier"],"additionalProperties":false}`},
 	{name: "create_issue", description: "Create a new issue, optionally as a sub-issue of parent_identifier to split work between agents. Only call this when the user explicitly asked to create or file an issue.", write: true, parameters: `{"type":"object","properties":{"team_key":{"type":"string","maxLength":16},"title":{"type":"string","minLength":1,"maxLength":500},"description":{"type":"string","maxLength":8000},"priority":{"type":"integer","minimum":0,"maximum":4},"parent_identifier":{"type":"string","maxLength":32}},"required":["team_key","title"],"additionalProperties":false}`},
 	{name: "plan_issues", description: "Order up to 20 issues by their blocked-by dependencies into waves that can run in parallel. Delegated issues with unfinished blockers wait automatically, so a whole plan can be delegated at once.", parameters: `{"type":"object","properties":{"identifiers":{"type":"array","minItems":1,"maxItems":20,"items":{"type":"string","maxLength":32}}},"required":["identifiers"],"additionalProperties":false}`},
+	{name: "get_agent_work", agentWork: true, description: "Read the coding tasks on an issue as Kuayle recorded them: state, attempt, pull request and latest review decision. Use it before saying anything about an issue's code, pull request or merge.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32}},"required":["identifier"],"additionalProperties":false}`},
+	{name: "merge_pull_request", agentWork: true, approval: true, description: "Ask the user to approve squash-merging the pull request of an issue's task that is awaiting review, at the commit Kuayle published. Nothing merges until the user approves in Kuayle; GitHub still enforces branch protection. Only call this when the user asked to merge.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32}},"required":["identifier"],"additionalProperties":false}`},
 	{name: "link_issues", description: "Record that an issue is blocked by another issue. Only call this when the user asked to plan or order work. Cycles are refused.", write: true, parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"blocked_by":{"type":"string","maxLength":32}},"required":["identifier","blocked_by"],"additionalProperties":false}`},
 }
 
 func (t *AssistantTools) specs() []chatToolSpec {
-	specs := make([]chatToolSpec, len(assistantToolCatalog))
-	for i, tool := range assistantToolCatalog {
-		specs[i].Type = "function"
-		specs[i].Function.Name = tool.name
-		specs[i].Function.Description = tool.description
-		specs[i].Function.Parameters = json.RawMessage(tool.parameters)
+	specs := make([]chatToolSpec, 0, len(assistantToolCatalog))
+	for _, tool := range assistantToolCatalog {
+		if tool.agentWork && t.work == nil {
+			continue
+		}
+		var spec chatToolSpec
+		spec.Type = "function"
+		spec.Function.Name = tool.name
+		spec.Function.Description = tool.description
+		spec.Function.Parameters = json.RawMessage(tool.parameters)
+		specs = append(specs, spec)
 	}
 	return specs
 }
@@ -141,8 +162,8 @@ func normalizedToolInput(raw string) json.RawMessage {
 // run executes one call for the conversation creator. It returns the result
 // shown to the user and the model, and a reference to a created or changed issue.
 func (t *AssistantTools) run(ctx context.Context, ws, user uuid.UUID, name, arguments string) (any, *uuid.UUID, error) {
-	_, ok := lookupAssistantTool(name)
-	if !ok {
+	tool, ok := lookupAssistantTool(name)
+	if !ok || (tool.agentWork && t.work == nil) {
 		return nil, nil, toolFailure("unknown tool")
 	}
 	// Changes made through these tools are attributed to the assistant.
@@ -231,6 +252,22 @@ func (t *AssistantTools) run(ctx context.Context, ws, user uuid.UUID, name, argu
 			result["sub_issues"] = subIssues
 		}
 		return result, nil, nil
+	case "get_agent_work":
+		var input struct {
+			Identifier string `json:"identifier"`
+		}
+		if err := decodeToolInput(arguments, &input); err != nil {
+			return nil, nil, err
+		}
+		issue, err := t.issues.GetByIdentifier(ctx, ws, strings.ToUpper(strings.TrimSpace(input.Identifier)))
+		if err != nil || issue == nil {
+			return nil, nil, toolFailure("issue not found")
+		}
+		work, err := t.work.IssueAgentWork(ctx, ws, issue.ID)
+		if err != nil {
+			return nil, nil, err
+		}
+		return map[string]any{"identifier": issue.Identifier, "tasks": work}, &issue.ID, nil
 	case "plan_issues":
 		return t.planIssues(ctx, ws, arguments)
 	case "link_issues":
@@ -368,4 +405,37 @@ func (t *AssistantTools) prepareDelegation(ctx context.Context, ws, user uuid.UU
 		return uuid.Nil, domain.DelegationPayload{}, toolFailure("issue not found")
 	}
 	return issue.ID, domain.DelegationPayload{Identifier: issue.Identifier, Title: issue.Title, Instructions: input.Instructions}, nil
+}
+
+// prepareMerge binds a merge request to the issue's task awaiting review, its
+// recorded pull request and the commit Kuayle published.
+func (t *AssistantTools) prepareMerge(ctx context.Context, ws, user uuid.UUID, arguments string) (uuid.UUID, domain.MergePayload, error) {
+	member, err := t.members.GetMember(ctx, ws, user)
+	if err != nil || member == nil || member.Role == domain.RoleGuest {
+		return uuid.Nil, domain.MergePayload{}, toolFailure("you no longer have access to this workspace")
+	}
+	if t.work == nil {
+		return uuid.Nil, domain.MergePayload{}, toolFailure("unknown tool")
+	}
+	var input struct {
+		Identifier string `json:"identifier"`
+	}
+	if err = decodeToolInput(arguments, &input); err != nil {
+		return uuid.Nil, domain.MergePayload{}, err
+	}
+	issue, err := t.issues.GetByIdentifier(ctx, ws, strings.ToUpper(strings.TrimSpace(input.Identifier)))
+	if err != nil || issue == nil {
+		return uuid.Nil, domain.MergePayload{}, toolFailure("issue not found")
+	}
+	target, err := t.work.MergeTarget(ctx, ws, &issue.ID, nil)
+	if errors.Is(err, repository.ErrNoMergeTarget) {
+		return uuid.Nil, domain.MergePayload{}, toolFailure("no pull request of this issue is awaiting review")
+	}
+	if err != nil {
+		return uuid.Nil, domain.MergePayload{}, err
+	}
+	return issue.ID, domain.MergePayload{
+		Identifier: issue.Identifier, Title: issue.Title, TaskID: target.TaskID, Repository: target.Repository,
+		PullRequest: target.Number, PullRequestURL: target.URL, Commit: target.Commit,
+	}, nil
 }

@@ -745,3 +745,59 @@ test('groups conversations into folders and deletes one after confirmation', asy
 	await expect.poll(() => deletes).toEqual(['chat-2']);
 	await expect(nav.getByRole('link', { name: 'Release notes' })).toHaveCount(0);
 });
+
+test('asks for approval before merging the reviewed pull request', async ({ page }) => {
+	const state = await fixture(page);
+	const answered = { ...reply, status: 'completed', content: 'Merge approval is pending.' };
+	state.messages = [userMessage, answered];
+	state.tools = [
+		{
+			id: 'tool-10',
+			conversation_id: 'chat-1',
+			message_id: answered.id,
+			sequence: 0,
+			call_id: 'call_10',
+			name: 'merge_pull_request',
+			input: { identifier: 'ENG-1' },
+			status: 'completed',
+			output: { approval_id: 'approval-2', status: 'pending_user_approval', identifier: 'ENG-1' },
+			created_at: conversation.created_at
+		}
+	];
+	state.approvals = [
+		{
+			id: 'approval-2',
+			conversation_id: 'chat-1',
+			tool_call_id: 'tool-10',
+			action: 'merge_pull_request',
+			actor_id: 'user-1',
+			issue_id: 'issue-1',
+			payload: {
+				identifier: 'ENG-1',
+				title: 'Dark mode',
+				task_id: 'task-9',
+				repository: 'acme/app',
+				pull_request: 12,
+				pull_request_url: 'https://github.com/acme/app/pull/12',
+				commit: '0123456789abcdef0123456789abcdef01234567'
+			},
+			status: 'pending',
+			expires_at: '2026-10-27T10:00:00Z',
+			created_at: conversation.created_at,
+			updated_at: conversation.created_at
+		}
+	] as any;
+	await page.goto('/test/assistant?conversation=chat-1');
+	await expect(page.getByText('Merge pull request #12 for ENG-1?', { exact: true })).toBeVisible();
+	await expect(
+		page.getByText('Squash-merges the reviewed commit 0123456 of Dark mode in acme/app.', { exact: false })
+	).toBeVisible();
+	await expect(page.getByRole('link', { name: 'Open pull request' })).toHaveAttribute(
+		'href',
+		'https://github.com/acme/app/pull/12'
+	);
+	await page.getByRole('button', { name: 'Approve', exact: true }).click();
+	await expect(page.getByText('Merged the pull request for ENG-1', { exact: true })).toBeVisible();
+	await expect(page.getByRole('button', { name: /Coding agent on ENG-1/ })).toHaveCount(0);
+	expect(state.decisions).toEqual(['approve']);
+});

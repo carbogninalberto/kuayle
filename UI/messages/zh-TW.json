@@ -2099,5 +2099,13 @@
 	"tasks.approved_reason": "{name} 已核准。合併拉取請求即可完成任務。",
 	"tasks.tools": "工具",
 	"tasks.more_actions": "更多操作",
-	"tasks.attempt_missing": "此嘗試的記錄已不可用。"
+	"tasks.attempt_missing": "此嘗試的記錄已不可用。",
+	"assistant.tool_get_agent_work": "讀取代理工作",
+	"assistant.tool_merge_pull_request": "合併拉取請求",
+	"assistant.merge_title": "合併 {identifier} 的拉取請求 #{number}？",
+	"assistant.merge_description": "將 {repository} 中 {title} 已審查的提交 {commit} 壓縮合併。GitHub 仍會執行分支保護和必要檢查。",
+	"assistant.merge_approving": "正在合併 {identifier} 的拉取請求",
+	"assistant.merge_approved": "已合併 {identifier} 的拉取請求",
+	"assistant.merge_denied": "已拒絕合併 {identifier}",
+	"assistant.merge_failed": "無法合併 {identifier}：{error}"
 }

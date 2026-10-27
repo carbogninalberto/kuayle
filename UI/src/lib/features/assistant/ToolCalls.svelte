@@ -41,8 +41,31 @@
 		update_issue: m['assistant.tool_update_issue'],
 		delegate_issue: m['assistant.tool_delegate_issue'],
 		plan_issues: m['assistant.tool_plan_issues'],
-		link_issues: m['assistant.tool_link_issues']
+		link_issues: m['assistant.tool_link_issues'],
+		get_agent_work: m['assistant.tool_get_agent_work'],
+		merge_pull_request: m['assistant.tool_merge_pull_request']
 	};
+	// Outcome lines per approval action.
+	function outcome(approval: ConversationApproval) {
+		const identifier = approval.payload.identifier;
+		const merge = approval.action === 'merge_pull_request';
+		switch (approval.status) {
+			case 'approving':
+				return merge
+					? m['assistant.merge_approving']({ identifier })
+					: m['assistant.approval_approving']({ identifier });
+			case 'approved':
+				return merge ? m['assistant.merge_approved']({ identifier }) : m['assistant.approval_approved']({ identifier });
+			case 'failed':
+				return merge
+					? m['assistant.merge_failed']({ identifier, error: approval.error ?? '' })
+					: m['assistant.approval_failed']({ identifier, error: approval.error ?? '' });
+			case 'expired':
+				return m['assistant.approval_expired']({ identifier });
+			default:
+				return merge ? m['assistant.merge_denied']({ identifier }) : m['assistant.approval_denied']({ identifier });
+		}
+	}
 	const label = (call: ConversationToolCall) => (names[call.name] ?? (() => call.name))();
 	function created(call: ConversationToolCall) {
 		const identifier = (call.output as { identifier?: unknown } | undefined)?.identifier;
@@ -73,17 +96,36 @@
 					>
 						<Item.Media variant="icon" class="text-[var(--status-warning)]"><Bot /></Item.Media>
 						<Item.Content class="min-w-0">
-							<Item.Title>{m['assistant.approval_title']({ identifier })}</Item.Title>
-							<Item.Description class="line-clamp-none"
-								>{m['assistant.approval_description']({ title: approval.payload.title })}</Item.Description
-							>
-							<CodeBlock.Root size="sm"
-								><CodeBlock.Content
-									code={approval.payload.instructions}
-									wrap
-									class="max-h-48 text-xs"
-								/></CodeBlock.Root
-							>
+							{#if approval.action === 'merge_pull_request'}
+								<Item.Title
+									>{m['assistant.merge_title']({ identifier, number: approval.payload.pull_request })}</Item.Title
+								>
+								<Item.Description class="line-clamp-none"
+									>{m['assistant.merge_description']({
+										title: approval.payload.title,
+										commit: approval.payload.commit.slice(0, 7),
+										repository: approval.payload.repository
+									})}</Item.Description
+								>
+								<a
+									class="inline-flex items-center gap-1 text-xs underline underline-offset-2"
+									href={approval.payload.pull_request_url}
+									target="_blank"
+									rel="noopener noreferrer"><ExternalLink size={12} />{m['tasks.open_pull_request']()}</a
+								>
+							{:else}
+								<Item.Title>{m['assistant.approval_title']({ identifier })}</Item.Title>
+								<Item.Description class="line-clamp-none"
+									>{m['assistant.approval_description']({ title: approval.payload.title })}</Item.Description
+								>
+								<CodeBlock.Root size="sm"
+									><CodeBlock.Content
+										code={approval.payload.instructions}
+										wrap
+										class="max-h-48 text-xs"
+									/></CodeBlock.Root
+								>
+							{/if}
 							{#if decisionError === approval.id}<p role="alert" class="text-xs text-destructive">
 									{m['assistant.approval_error']()}
 								</p>{/if}
@@ -118,19 +160,9 @@
 								/>{:else if approval.status === 'approved'}<CircleCheck
 								/>{:else if approval.status === 'failed'}<CircleAlert />{:else}<CircleX />{/if}</Trace.Icon
 						>
-						<Trace.Title class="whitespace-normal break-words"
-							>{approval.status === 'approving'
-								? m['assistant.approval_approving']({ identifier })
-								: approval.status === 'approved'
-									? m['assistant.approval_approved']({ identifier })
-									: approval.status === 'failed'
-										? m['assistant.approval_failed']({ identifier, error: approval.error ?? '' })
-										: approval.status === 'expired'
-											? m['assistant.approval_expired']({ identifier })
-											: m['assistant.approval_denied']({ identifier })}</Trace.Title
-						>
+						<Trace.Title class="whitespace-normal break-words">{outcome(approval)}</Trace.Title>
 					</Trace.Line>
-					{#if approval.status === 'approved' && approval.task_id}<AgentSubagent
+					{#if approval.action === 'delegate_issue' && approval.status === 'approved' && approval.task_id}<AgentSubagent
 							{slug}
 							taskId={approval.task_id}
 							{identifier}

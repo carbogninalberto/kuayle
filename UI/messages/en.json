@@ -2099,5 +2099,13 @@
 	"tasks.approved_reason": "Approved by {name}. Merge the pull request to complete the task.",
 	"tasks.tools": "Tools",
 	"tasks.more_actions": "More actions",
-	"tasks.attempt_missing": "This attempt’s records are no longer available."
+	"tasks.attempt_missing": "This attempt’s records are no longer available.",
+	"assistant.tool_get_agent_work": "Read agent work",
+	"assistant.tool_merge_pull_request": "Merge pull request",
+	"assistant.merge_title": "Merge pull request #{number} for {identifier}?",
+	"assistant.merge_description": "Squash-merges the reviewed commit {commit} of {title} in {repository}. GitHub still enforces branch protection and required checks.",
+	"assistant.merge_approving": "Merging the pull request for {identifier}",
+	"assistant.merge_approved": "Merged the pull request for {identifier}",
+	"assistant.merge_denied": "Denied merging {identifier}",
+	"assistant.merge_failed": "Could not merge {identifier}: {error}"
 }

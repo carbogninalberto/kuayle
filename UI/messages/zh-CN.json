@@ -2099,5 +2099,13 @@
 	"tasks.approved_reason": "{name} 已批准。合并拉取请求即可完成任务。",
 	"tasks.tools": "工具",
 	"tasks.more_actions": "更多操作",
-	"tasks.attempt_missing": "此尝试的记录已不可用。"
+	"tasks.attempt_missing": "此尝试的记录已不可用。",
+	"assistant.tool_get_agent_work": "读取代理工作",
+	"assistant.tool_merge_pull_request": "合并拉取请求",
+	"assistant.merge_title": "合并 {identifier} 的拉取请求 #{number}？",
+	"assistant.merge_description": "将 {repository} 中 {title} 已审查的提交 {commit} 压缩合并。GitHub 仍会执行分支保护和必需检查。",
+	"assistant.merge_approving": "正在合并 {identifier} 的拉取请求",
+	"assistant.merge_approved": "已合并 {identifier} 的拉取请求",
+	"assistant.merge_denied": "已拒绝合并 {identifier}",
+	"assistant.merge_failed": "无法合并 {identifier}：{error}"
 }

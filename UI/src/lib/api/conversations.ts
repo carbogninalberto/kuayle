@@ -77,14 +77,29 @@ export interface ConversationToolCall {
 	created_at: string;
 	completed_at?: string;
 }
-export interface ConversationApproval {
+export interface DelegationPayload {
+	identifier: string;
+	title: string;
+	instructions: string;
+}
+// A merge approval is bound to the reviewed commit shown to the user.
+export interface MergePayload {
+	identifier: string;
+	title: string;
+	task_id: string;
+	repository: string;
+	pull_request: number;
+	pull_request_url: string;
+	commit: string;
+}
+export type ConversationApproval = ApprovalBase &
+	({ action: 'delegate_issue'; payload: DelegationPayload } | { action: 'merge_pull_request'; payload: MergePayload });
+interface ApprovalBase {
 	id: string;
 	conversation_id: string;
 	tool_call_id: string;
-	action: 'delegate_issue';
 	actor_id: string;
 	issue_id: string;
-	payload: { identifier: string; title: string; instructions: string };
 	status: 'pending' | 'approving' | 'approved' | 'denied' | 'expired' | 'failed';
 	task_id?: string;
 	error?: string;

@@ -153,7 +153,9 @@ func main() {
 	conversationSvc.SetTools(assistantTools)
 	conversationH := handler.NewConversationHandler(conversationSvc, cfg.FrontendURL)
 	agentTaskSvc := service.NewAgentTaskService(repository.NewAgentTaskRepository(db), devMachineSvc, hub)
-	conversationSvc.SetApprovals(service.NewAssistantApprovals(conversationSvc.Repo, agentTaskSvc))
+	assistantTools.SetAgentWork(repository.NewAgentTaskRepository(db))
+	assistantApprovals := service.NewAssistantApprovals(conversationSvc.Repo, agentTaskSvc)
+	conversationSvc.SetApprovals(assistantApprovals)
 	agentTaskH := handler.NewAgentTaskHandler(agentTaskSvc)
 	automationSvc := service.NewAgentAutomationService(repository.NewAgentAutomationRepository(db), conversationSvc.Repo, agentTaskSvc, notifSvc, hub)
 	agentAutomationH := handler.NewAgentAutomationHandler(automationSvc)
@@ -200,6 +202,7 @@ func main() {
 		globalGitHubApp,
 	)
 	githubSvc.SetTaskReviews(repository.NewAgentTaskRepository(db))
+	assistantApprovals.SetMerging(repository.NewAgentTaskRepository(db), workspaceRepo, githubSvc)
 	taskFeedback := service.NewAgentTaskFeedback(repository.NewAgentTaskRepository(db), agentTaskSvc)
 	githubSvc.SetTaskSignals(taskFeedback)
 	githubH := handler.NewGitHubHandler(githubSvc)

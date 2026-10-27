@@ -58,6 +58,8 @@ type GitHubService struct {
 	taskSignals taskSignalRecorder
 	// pullRequestMerged asks GitHub whether a pull request merged; replaced in tests.
 	pullRequestMerged func(ctx context.Context, workspaceID uuid.UUID, repository string, number int) (bool, error)
+	// mergePullRequest merges through the GitHub App; replaced in tests.
+	mergePullRequest func(ctx context.Context, workspaceID uuid.UUID, repository string, number int, sha string) error
 }
 
 type mergedPullRequestCompleter interface {
@@ -1479,4 +1481,42 @@ func (s *GitHubService) githubPullRequestMerged(ctx context.Context, workspaceID
 		return false, err
 	}
 	return pull.Merged, nil
+}
+
+// MergeTaskPullRequest merges a task's recorded pull request at the reviewed
+// commit through the GitHub App, then completes the task. GitHub still enforces
+// branch protection and required checks; its refusal is returned unchanged.
+func (s *GitHubService) MergeTaskPullRequest(ctx context.Context, workspaceID uuid.UUID, repository string, number int, sha string) error {
+	if s.taskReviews == nil {
+		return fmt.Errorf("agent tasks are unavailable")
+	}
+	merge := s.mergePullRequest
+	if merge == nil {
+		merge = s.githubMergePullRequest
+	}
+	if err := merge(ctx, workspaceID, repository, number, sha); err != nil {
+		return err
+	}
+	_, err := s.taskReviews.CompleteMergedPullRequest(ctx, workspaceID, repository, number)
+	return err
+}
+
+func (s *GitHubService) githubMergePullRequest(ctx context.Context, workspaceID uuid.UUID, repository string, number int, sha string) error {
+	owner, name, ok := strings.Cut(repository, "/")
+	if !ok {
+		return fmt.Errorf("invalid repository %q", repository)
+	}
+	inst, err := s.ghRepo.GetInstallationByWorkspace(ctx, workspaceID)
+	if err != nil || inst == nil {
+		return fmt.Errorf("GitHub not connected")
+	}
+	client, _, err := s.getClient(ctx, workspaceID)
+	if err != nil {
+		return err
+	}
+	token, _, err := client.GetRepositoryInstallationToken(inst.InstallationID, name)
+	if err != nil {
+		return err
+	}
+	return client.MergePullRequest(token, owner, name, number, sha)
 }

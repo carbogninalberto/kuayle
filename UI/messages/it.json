@@ -2099,5 +2099,13 @@
 	"tasks.approved_reason": "Approvata da {name}. Esegui il merge della pull request per completare l’attività.",
 	"tasks.tools": "Strumenti",
 	"tasks.more_actions": "Altre azioni",
-	"tasks.attempt_missing": "I dati di questo tentativo non sono più disponibili."
+	"tasks.attempt_missing": "I dati di questo tentativo non sono più disponibili.",
+	"assistant.tool_get_agent_work": "Leggi il lavoro degli agenti",
+	"assistant.tool_merge_pull_request": "Esegui il merge della pull request",
+	"assistant.merge_title": "Eseguire il merge della pull request #{number} per {identifier}?",
+	"assistant.merge_description": "Esegue lo squash merge del commit revisionato {commit} di {title} in {repository}. GitHub applica comunque la protezione del branch e i controlli obbligatori.",
+	"assistant.merge_approving": "Merge della pull request per {identifier} in corso",
+	"assistant.merge_approved": "Merge della pull request per {identifier} completato",
+	"assistant.merge_denied": "Merge di {identifier} rifiutato",
+	"assistant.merge_failed": "Impossibile eseguire il merge di {identifier}: {error}"
 }

@@ -376,6 +376,49 @@ func (c *Client) GetPullRequest(token, owner, repo string, number int) (*PullReq
 	return &pr, nil
 }
 
+// ErrMergeRefused carries GitHub's reason for refusing a merge, such as branch
+// protection, failing checks or a head that moved past the reviewed commit.
+type ErrMergeRefused struct{ Reason string }
+
+func (e *ErrMergeRefused) Error() string { return "GitHub refused the merge: " + e.Reason }
+
+// MergePullRequest squash-merges a pull request only if its head is still sha.
+func (c *Client) MergePullRequest(token, owner, repo string, number int, sha string) error {
+	payload, err := json.Marshal(map[string]string{"sha": sha, "merge_method": "squash"})
+	if err != nil {
+		return err
+	}
+	endpoint := fmt.Sprintf("%s/repos/%s/%s/pulls/%d/merge", githubAPIBaseURL, owner, repo, number)
+	request, err := http.NewRequest(http.MethodPut, endpoint, bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Authorization", "Bearer "+token)
+	request.Header.Set("Accept", "application/vnd.github+json")
+	request.Header.Set("Content-Type", "application/json")
+	response, err := c.httpClient.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode == http.StatusOK {
+		return nil
+	}
+	var body struct {
+		Message string `json:"message"`
+	}
+	_ = json.NewDecoder(io.LimitReader(response.Body, 64<<10)).Decode(&body)
+	switch response.StatusCode {
+	case http.StatusMethodNotAllowed, http.StatusConflict, http.StatusUnprocessableEntity:
+		reason := body.Message
+		if reason == "" {
+			reason = http.StatusText(response.StatusCode)
+		}
+		return &ErrMergeRefused{Reason: reason}
+	}
+	return fmt.Errorf("GitHub API error %d: %s", response.StatusCode, body.Message)
+}
+
 // FindOpenPullRequest returns the open PR from head into base in the same
 // repository, or nil. Publication retries use it instead of opening duplicates.
 func (c *Client) FindOpenPullRequest(token, owner, repo, head, base string) (*PullRequest, error) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/repository"
+	gh "github.com/kuayle/kuayle-backend/pkg/github"
 	"github.com/stretchr/testify/require"
 )
 
@@ -170,4 +172,101 @@ func TestApprovalDenialExpiryAndActorBinding(t *testing.T) {
 		_, err = f.service.ResolveApproval(f.ctx, f.ws, a.Conversation.ID, approval.ID, true)
 		require.ErrorIs(t, err, repository.ErrConversationConflict)
 	})
+}
+
+type mergeWorkFake struct {
+	target *repository.MergeTarget
+}
+
+func (f *mergeWorkFake) IssueAgentWork(context.Context, uuid.UUID, uuid.UUID) ([]repository.IssueAgentWork, error) {
+	return nil, nil
+}
+func (f *mergeWorkFake) MergeTarget(_ context.Context, _ uuid.UUID, _, _ *uuid.UUID) (*repository.MergeTarget, error) {
+	if f.target == nil {
+		return nil, repository.ErrNoMergeTarget
+	}
+	copy := *f.target
+	return &copy, nil
+}
+
+type mergerFake struct {
+	err    error
+	merged []string
+}
+
+func (f *mergerFake) MergeTaskPullRequest(_ context.Context, _ uuid.UUID, repo string, number int, sha string) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.merged = append(f.merged, fmt.Sprintf("%s#%d@%s", repo, number, sha))
+	return nil
+}
+
+// A merge approval binds the reviewed commit; the merge happens only after the
+// user approves, and only while the task still awaits review at that commit.
+func TestMergeApprovalMergesOnlyTheReviewedCommitAfterApproval(t *testing.T) {
+	f := newToolFixture(t)
+	a, delegation, _ := requestDelegation(t, f)
+	started, err := f.service.ResolveApproval(f.ctx, f.ws, a.Conversation.ID, delegation.ID, true)
+	require.NoError(t, err)
+	work := &mergeWorkFake{target: &repository.MergeTarget{TaskID: *started.TaskID, IssueID: delegation.IssueID, CreatorID: f.user, Repository: "acme/app", Number: 12, URL: "https://github.com/acme/app/pull/12", Commit: "abc"}}
+	merger := &mergerFake{}
+	f.service.tools.SetAgentWork(work)
+	f.service.approvals.SetMerging(work, repository.NewWorkspaceRepository(f.db), merger)
+	request := func() (domain.ConversationAttempt, domain.ConversationApproval) {
+		t.Helper()
+		a := f.attempt(t, "Merge ENG-1")
+		provider, _ := scriptedProvider(t, toolCallStream("merge_pull_request", `{"identifier":"eng-1"}`), finalAnswer)
+		require.NoError(t, f.service.converse(f.ctx, a, provider.URL, "key", []chatCompletionMessage{{Role: "user", Content: "Merge"}}, func(string) error { return nil }))
+		h, err := f.repo.History(f.ctx, f.ws, a.Conversation.ID, 0)
+		require.NoError(t, err)
+		require.Len(t, h.Approvals, 1)
+		return a, h.Approvals[0]
+	}
+	resolve := func(a domain.ConversationAttempt, approval domain.ConversationApproval) *domain.ConversationApproval {
+		t.Helper()
+		result, err := f.service.ResolveApproval(f.ctx, f.ws, a.Conversation.ID, approval.ID, true)
+		require.NoError(t, err)
+		return result
+	}
+
+	a, approval := request()
+	require.Equal(t, "merge_pull_request", approval.Action)
+	var payload domain.MergePayload
+	require.NoError(t, json.Unmarshal(approval.Payload, &payload))
+	require.Equal(t, domain.MergePayload{Identifier: "ENG-1", Title: "Dark mode", TaskID: *started.TaskID, Repository: "acme/app", PullRequest: 12, PullRequestURL: "https://github.com/acme/app/pull/12", Commit: "abc"}, payload)
+	require.Empty(t, merger.merged, "requesting a merge merges nothing")
+	work.target.Commit = "def"
+	result := resolve(a, approval)
+	require.Equal(t, "failed", result.Status)
+	require.Contains(t, *result.Error, "changed after approval")
+	require.Empty(t, merger.merged, "a push after the request invalidates it")
+
+	a, approval = request()
+	work.target.CreatorID = uuid.New()
+	result = resolve(a, approval)
+	require.Equal(t, "failed", result.Status)
+	require.Contains(t, *result.Error, "admins or the task's creator")
+	work.target.CreatorID = f.user
+
+	a, approval = request()
+	merger.err = &gh.ErrMergeRefused{Reason: "Required status check is failing"}
+	result = resolve(a, approval)
+	require.Equal(t, "failed", result.Status)
+	require.Contains(t, *result.Error, "Required status check is failing")
+	merger.err = nil
+
+	a, approval = request()
+	merger.err = errors.New("connection reset")
+	_, err = f.service.ResolveApproval(f.ctx, f.ws, a.Conversation.ID, approval.ID, true)
+	require.Error(t, err, "a transient failure can be retried")
+	merger.err = nil
+	result = resolve(a, approval)
+	require.Equal(t, "approved", result.Status)
+	require.Equal(t, *started.TaskID, *result.TaskID)
+	require.Equal(t, []string{"acme/app#12@def"}, merger.merged)
+
+	work.target = nil
+	_, _, err = f.service.tools.prepareMerge(f.ctx, f.ws, f.user, `{"identifier":"ENG-1"}`)
+	require.ErrorContains(t, err, "no pull request of this issue is awaiting review")
 }

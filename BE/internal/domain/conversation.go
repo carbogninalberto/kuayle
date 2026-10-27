@@ -119,3 +119,15 @@ type DelegationPayload struct {
 	Title        string `json:"title"`
 	Instructions string `json:"instructions"`
 }
+
+// MergePayload binds a merge approval to the pull request and the reviewed
+// commit shown to the user; a later push invalidates the approval.
+type MergePayload struct {
+	Identifier     string    `json:"identifier"`
+	Title          string    `json:"title"`
+	TaskID         uuid.UUID `json:"task_id"`
+	Repository     string    `json:"repository"`
+	PullRequest    int       `json:"pull_request"`
+	PullRequestURL string    `json:"pull_request_url"`
+	Commit         string    `json:"commit"`
+}
