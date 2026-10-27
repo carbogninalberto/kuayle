@@ -523,10 +523,10 @@ func (r *AgentTaskRepository) ReserveMachine(ctx context.Context, claimed domain
  AND m.expires_at>now()+interval '5 minutes' AND NOT m.environment_builder
  AND (m.repository_affinity_id IS NULL OR m.repository_affinity_id=$3)
  AND m.environment_id IS NOT DISTINCT FROM $4::uuid
- AND EXISTS(SELECT 1 FROM dev_machine_agent_providers p WHERE p.machine_id=m.id AND p.provider_id=$5 AND p.enabled)
  AND NOT EXISTS(SELECT 1 FROM dev_machine_agent_runs r WHERE r.machine_id=m.id AND r.status IN ('queued','starting','running','waiting_input'))
  AND NOT EXISTS(SELECT 1 FROM agent_tasks t WHERE t.machine_id=m.id AND t.id<>$6 AND t.state NOT IN ('completed','cancelled','failed','blocked','awaiting_review'))
- ORDER BY m.last_activity_at DESC NULLS LAST,m.id FOR UPDATE OF m SKIP LOCKED LIMIT 1`, task.WorkspaceID, task.CreatorID, repositoryID, environmentID, task.Provider, task.ID)
+ ORDER BY EXISTS(SELECT 1 FROM dev_machine_agent_providers p WHERE p.machine_id=m.id AND p.provider_id=$5 AND p.enabled) DESC,
+  m.last_activity_at DESC NULLS LAST,m.id FOR UPDATE OF m SKIP LOCKED LIMIT 1`, task.WorkspaceID, task.CreatorID, repositoryID, environmentID, task.Provider, task.ID)
 	if errors.Is(err, sql.ErrNoRows) {
 		machineID = task.ReservedMachineID
 	} else if err != nil {
@@ -821,4 +821,29 @@ func (r *AgentTaskRepository) IssueBrief(ctx context.Context, task domain.AgentT
 	brief := &domain.IssueBrief{}
 	err := r.db.GetContext(ctx, brief, `SELECT identifier_text, title, description FROM issues WHERE id=$1 AND workspace_id=$2`, task.IssueID, task.WorkspaceID)
 	return brief, err
+}
+
+// NoteWaiting records why a preparing task cannot proceed yet, so the user
+// sees it instead of a stale reason. It never changes the task's state.
+func (r *AgentTaskRepository) NoteWaiting(ctx context.Context, claimed domain.AgentTask, reason string) error {
+	tx, task, err := r.transaction(ctx, claimed.ID, true)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err = fenceAgentTask(ctx, tx, *task, claimed); err != nil {
+		return err
+	}
+	if task.State != "preparing" || task.Reason == reason {
+		return nil
+	}
+	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET reason=$2,updated_at=now() WHERE id=$1 RETURNING *`, task.ID, reason); err != nil {
+		return err
+	}
+	if task.ConversationID != nil {
+		if _, err = conversationEvent(ctx, tx, *task.ConversationID, "task.updated", task); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }

@@ -74,6 +74,7 @@ func TestAgentTaskCheckoutsAreIsolatedAndRecoverable(t *testing.T) {
 }
 
 type taskStoreFake struct {
+	waiting      string
 	startedIssue *domain.Issue
 	startErr     error
 	results      []bool
@@ -104,6 +105,10 @@ func (f *taskStoreFake) Start(ctx context.Context, task domain.AgentTask) (*doma
 	return f.startedIssue, f.Transition(ctx, task, "running", "Native coding harness started")
 }
 func (f *taskStoreFake) Revoke(context.Context, domain.AgentTask) error { f.revoked = true; return nil }
+func (f *taskStoreFake) NoteWaiting(_ context.Context, _ domain.AgentTask, reason string) error {
+	f.waiting = reason
+	return nil
+}
 func (f *taskStoreFake) FinishCancellation(context.Context, domain.AgentTask, string) error {
 	f.finished = true
 	return nil
@@ -199,6 +204,7 @@ func TestAgentTaskWorkerRevocationCancellationAndQuota(t *testing.T) {
 			if scenario == "quota" {
 				require.Equal(t, "preparing", store.task.State)
 				require.Zero(t, runtime.attempts)
+				require.Contains(t, store.waiting, "Waiting for a free dev machine", "the user sees why the task waits")
 			}
 			if scenario == "cancelled" {
 				require.True(t, store.finished)
@@ -524,4 +530,22 @@ func TestProjectInstructionsPrecedeTheTaskWithinTheLimit(t *testing.T) {
 	require.LessOrEqual(t, len(huge), 32768)
 	require.True(t, strings.HasSuffix(huge, strings.Repeat("t", 30000)), "the task itself is never shortened")
 	require.Equal(t, strings.Repeat("t", 31990), withInstructions(strings.Repeat("t", 31990), "x"), "instructions are dropped when no room is left")
+}
+
+func TestReusedMachinesGetTheTasksAgentUnderWorkspacePolicy(t *testing.T) {
+	ws := uuid.New()
+	store := &devMachineStoreFake{policy: testPolicy(ws)}
+	store.policy.AllowedProviders = json.RawMessage(`["codex","claude-code"]`)
+	machines := newTestDevMachineService(store)
+	machines.agents = agent.NewRegistry(agent.NewCodexProvider(""), agent.NewClaudeCodeProvider(""))
+	runtime := &devMachineTaskRuntime{machines: machines}
+	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: ws}
+	require.NoError(t, runtime.attachAgent(context.Background(), machine, "claude-code"))
+	require.NoError(t, runtime.attachAgent(context.Background(), machine, "claude-code"), "attaching again is a no-op")
+	require.Len(t, store.attachedProviders, 1)
+	require.Equal(t, "claude-code", store.attachedProviders[0].ProviderID)
+	require.True(t, store.attachedProviders[0].Enabled)
+
+	store.policy.AllowedProviders = json.RawMessage(`["codex"]`)
+	require.ErrorIs(t, runtime.attachAgent(context.Background(), &domain.DevMachine{ID: uuid.New(), WorkspaceID: ws}, "claude-code"), ErrProviderNotAllowed)
 }

@@ -356,3 +356,41 @@ func TestAgentRunSecretSnapshotIsImmutableAndRejectsUnsafeRecovery(t *testing.T)
 	_, err = repo.SealAgentRunSecrets(ctx, runID, "opaque-new-ciphertext")
 	require.ErrorIs(t, err, sql.ErrNoRows)
 }
+
+func TestReservationReusesAnIdleMachineWithADifferentAgent(t *testing.T) {
+	url := os.Getenv("DATABASE_URL")
+	if url == "" {
+		t.Skip("DATABASE_URL is not set")
+	}
+	db := isolatedPrivacyDatabase(t, url)
+	fixture := newEnvironmentRaceFixture(t, db)
+	ws, user := fixture.workspaceID, fixture.userID
+	team, issue := uuid.New(), uuid.New()
+	_, err := db.Exec(`INSERT INTO teams(id,workspace_id,name,key) VALUES($1,$2,'Task','RUN')`, team, ws)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO team_statuses(team_id,name,slug,category) VALUES($1,'Todo','todo','unstarted')`, team)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO issues(id,workspace_id,team_id,number,identifier_text,title,creator_id,status_id) VALUES($1,$2,$3,1,'RUN-1','Dispatch',$4,(SELECT id FROM team_statuses WHERE team_id=$3 LIMIT 1))`, issue, ws, team, user)
+	require.NoError(t, err)
+	ctx := domain.WithAccess(context.Background(), domain.Access{WorkspaceID: ws, UserID: user})
+	c, err := NewConversationRepository(db).OpenIssue(ctx, ws, issue)
+	require.NoError(t, err)
+	machine := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning, false)
+	_, err = db.Exec(`INSERT INTO dev_machine_agent_providers(machine_id,provider_id,display_name,image_ref) VALUES($1,'codex','Codex','test.invalid/codex:fixture')`, machine)
+	require.NoError(t, err)
+	repo := NewAgentTaskRepository(db)
+	_, err = repo.Create(ctx, ws, c.ID, domain.AgentTaskRequest{RequestID: uuid.New(), Prompt: "Implement issue", Provider: "claude-code"})
+	require.NoError(t, err)
+	claimed, err := repo.Claim(ctx)
+	require.NoError(t, err)
+	require.NoError(t, repo.Transition(ctx, *claimed, "preparing", "Resolve runtime"))
+	claimed.State = "preparing"
+	id, err := repo.ReserveMachine(ctx, *claimed, uuid.New(), &fixture.environmentID)
+	require.NoError(t, err)
+	require.Equal(t, machine, id, "an idle machine is reused even when it lacks this task's agent")
+
+	require.NoError(t, repo.NoteWaiting(ctx, *claimed, "Waiting for a free dev machine"))
+	var reason string
+	require.NoError(t, db.Get(&reason, `SELECT reason FROM agent_tasks WHERE id=$1`, claimed.ID))
+	require.Equal(t, "Waiting for a free dev machine", reason)
+}

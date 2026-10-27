@@ -1764,6 +1764,7 @@ func TestSnapshotEnvironmentRequiresSourceBuilderOwner(t *testing.T) {
 
 type devMachineStoreFake struct {
 	repository.DevMachineStore
+	attachedProviders           []domain.DevMachineAgentProvider
 	policy                      *domain.DevMachineWorkspacePolicy
 	workspaceActiveCount        int
 	userActiveCount             int
@@ -2130,6 +2131,16 @@ func (f *devMachineStoreFake) GetCheckout(_ context.Context, workspaceID, machin
 		}
 	}
 	return nil, nil
+}
+
+func (f *devMachineStoreFake) AttachAgentProvider(_ context.Context, provider *domain.DevMachineAgentProvider) error {
+	for _, existing := range f.attachedProviders {
+		if existing.MachineID == provider.MachineID && existing.ProviderID == provider.ProviderID {
+			return nil
+		}
+	}
+	f.attachedProviders = append(f.attachedProviders, *provider)
+	return nil
 }
 
 func (f *devMachineStoreFake) GetTerminalCheckout(ctx context.Context, workspaceID, machineID, checkoutID uuid.UUID) (*domain.DevMachineCheckout, error) {

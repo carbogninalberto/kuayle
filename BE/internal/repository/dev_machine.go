@@ -15,6 +15,7 @@ import (
 )
 
 type DevMachineStore interface {
+	AttachAgentProvider(context.Context, *domain.DevMachineAgentProvider) error
 	GetPreview(context.Context, uuid.UUID, uuid.UUID) (*domain.DevMachinePreview, error)
 	SetPreview(context.Context, *domain.DevMachinePreview) error
 	DeletePreview(context.Context, uuid.UUID, uuid.UUID, string) error
@@ -2373,5 +2374,16 @@ func (r *DevMachineRepository) DeletePreview(ctx context.Context, workspaceID, m
 // once. Manual runs and attempts with a Kuayle-assigned ID are unaffected.
 func (r *DevMachineRepository) RecordNativeSession(ctx context.Context, runID uuid.UUID, sessionID string) error {
 	_, err := r.db.ExecContext(ctx, `UPDATE dev_machine_agent_runs SET native_session_id=$2 WHERE id=$1 AND task_id IS NOT NULL AND native_session_id IS NULL`, runID, sessionID)
+	return err
+}
+
+// AttachAgentProvider makes an agent available on an existing machine, for
+// reusing it with a different coding agent. Attaching twice is a no-op.
+func (r *DevMachineRepository) AttachAgentProvider(ctx context.Context, provider *domain.DevMachineAgentProvider) error {
+	_, err := r.db.ExecContext(ctx, `INSERT INTO dev_machine_agent_providers
+ (id, machine_id, provider_id, display_name, image_ref, supported_modes, required_secrets, config, enabled, is_custom)
+ VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (machine_id, provider_id) DO NOTHING`,
+		provider.ID, provider.MachineID, provider.ProviderID, provider.DisplayName, provider.ImageRef,
+		provider.SupportedModes, provider.RequiredSecrets, provider.Config, provider.Enabled, provider.IsCustom)
 	return err
 }

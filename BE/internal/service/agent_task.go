@@ -25,6 +25,7 @@ type taskLifecycleStore interface {
 	Claim(context.Context) (*domain.AgentTask, error)
 	Transition(context.Context, domain.AgentTask, string, string) error
 	Revoke(context.Context, domain.AgentTask) error
+	NoteWaiting(context.Context, domain.AgentTask, string) error
 	FinishCancellation(context.Context, domain.AgentTask, string) error
 	Release(context.Context, domain.AgentTask) error
 	RecordStepResult(context.Context, domain.AgentTask, bool) error
@@ -230,7 +231,8 @@ func (s *AgentTaskService) preparationError(ctx context.Context, task domain.Age
 		return err
 	}
 	if errors.Is(err, ErrMachineQuota) || errors.Is(err, repository.ErrMachineQuota) {
-		return nil
+		// Keep waiting for capacity, but say why instead of "resolving".
+		return s.store.NoteWaiting(ctx, task, "Waiting for a free dev machine: your machine limit is reached. Stop a machine you no longer need, or ask an admin to raise the limit.")
 	}
 	if errors.Is(err, repository.ErrConversationNotFound) {
 		return s.store.Revoke(ctx, task)
@@ -295,6 +297,11 @@ func (r *devMachineTaskRuntime) Prepare(ctx context.Context, task *domain.AgentT
 		if err != nil {
 			return false, err
 		}
+	}
+	// A reused machine may not have this task's agent yet; attach it under the
+	// same policy checks as creating a machine with it.
+	if err = r.attachAgent(ctx, machine, task.Provider); err != nil {
+		return false, err
 	}
 	switch machine.Status {
 	case domain.DevMachineStatusQueued, domain.DevMachineStatusSpawning, domain.DevMachineStatusConfiguring:
@@ -526,4 +533,21 @@ func withInstructions(prompt, instructions string) string {
 		instructions = truncateRunes(instructions, room/4)
 	}
 	return header + instructions + separator + prompt
+}
+
+func (r *devMachineTaskRuntime) attachAgent(ctx context.Context, machine *domain.DevMachine, provider string) error {
+	policy, err := r.machines.enabledPolicy(ctx, machine.WorkspaceID)
+	if err != nil {
+		return err
+	}
+	providers, err := r.machines.buildProviders(machine.ID, policy, []dto.DevMachineAgentInput{{Provider: provider, Mode: "autonomous"}})
+	if err != nil {
+		return err
+	}
+	for i := range providers {
+		if err = r.machines.store.AttachAgentProvider(ctx, &providers[i]); err != nil {
+			return err
+		}
+	}
+	return nil
 }
