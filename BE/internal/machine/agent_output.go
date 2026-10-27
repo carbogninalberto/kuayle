@@ -112,6 +112,12 @@ func (o *agentOutputBuffer) flush(stream string, state *agentOutputStream) error
 	truncated := state.oversized
 	state.pending = nil
 	state.oversized = false
+	// Claude Code streams a telemetry event every token or two; storing them
+	// would exhaust the record budget and hide the agent's real output.
+	if !truncated && isTokenTelemetry(content) {
+		state.used -= len(content)
+		return nil
+	}
 	if truncated {
 		content = "[Oversized output line omitted]\n"
 	} else {
@@ -154,4 +160,10 @@ func (o *agentOutputBuffer) Text(stream string) string {
 		return s.text.String()
 	}
 	return ""
+}
+
+// isTokenTelemetry matches native per-token progress events, which carry no
+// information for reviewers.
+func isTokenTelemetry(line string) bool {
+	return strings.Contains(line, `"type":"system"`) && strings.Contains(line, `"subtype":"thinking_tokens"`) && len(line) < 512
 }

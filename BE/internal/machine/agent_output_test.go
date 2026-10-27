@@ -393,3 +393,20 @@ func TestAgentRecoveryAuthorizationPreventsResume(t *testing.T) {
 		})
 	}
 }
+
+// Claude Code's per-token telemetry must not use up the output budget and hide
+// the agent's real work and final result.
+func TestAgentOutputDropsTokenTelemetry(t *testing.T) {
+	stored := []string{}
+	output := newAgentOutputBuffer(nil, func(_ string, _ int64, _, content string, _ bool) error {
+		stored = append(stored, content)
+		return nil
+	})
+	for i := 0; i < maxAgentOutputRecords+100; i++ {
+		require.NoError(t, output.Write("stdout", []byte(`{"type":"system","subtype":"thinking_tokens","estimated_tokens":1}`+"\n")))
+	}
+	require.NoError(t, output.Write("stdout", []byte(`{"type":"result","subtype":"success","result":"Added ciao"}`+"\n")))
+	require.NoError(t, output.Finish())
+	require.Equal(t, []string{`{"type":"result","subtype":"success","result":"Added ciao"}` + "\n"}, stored)
+	require.Contains(t, output.Text("stdout"), "Added ciao")
+}
