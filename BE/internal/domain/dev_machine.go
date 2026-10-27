@@ -628,3 +628,14 @@ type DevMachineResourceAllocation struct {
 	CPUMillis int       `db:"cpu_millis"`
 	MemoryMB  int       `db:"memory_mb"`
 }
+
+// DevMachinePreview exposes one application port of the developer container
+// through the gateway's authenticated preview host.
+type DevMachinePreview struct {
+	MachineID       uuid.UUID `json:"machine_id" db:"machine_id"`
+	WorkspaceID     uuid.UUID `json:"workspace_id" db:"workspace_id"`
+	Port            int       `json:"port" db:"port"`
+	CreatedByUserID uuid.UUID `json:"created_by_user_id" db:"created_by_user_id"`
+	CreatedAt       time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at" db:"updated_at"`
+}

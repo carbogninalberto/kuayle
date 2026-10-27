@@ -805,3 +805,60 @@ func machineError(c echo.Context, err error) error {
 		return response.InternalError(c)
 	}
 }
+
+func (h *DevMachineHandler) GetPreview(c echo.Context) error {
+	machineID, err := uuid.Parse(c.Param("machineId"))
+	if err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid machine ID")
+	}
+	preview, err := h.service.GetPreview(c.Request().Context(), middleware.GetWorkspace(c).ID, machineID, middleware.GetUserID(c))
+	if err != nil {
+		return machineError(c, err)
+	}
+	return response.Success(c, http.StatusOK, preview)
+}
+
+func (h *DevMachineHandler) SetPreview(c echo.Context) error {
+	machineID, err := uuid.Parse(c.Param("machineId"))
+	if err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid machine ID")
+	}
+	var input struct {
+		Port int `json:"port"`
+	}
+	if err = c.Bind(&input); err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
+	}
+	preview, err := h.service.SetPreview(c.Request().Context(), middleware.GetWorkspace(c).ID, machineID, middleware.GetUserID(c), input.Port)
+	if err != nil {
+		return machineError(c, err)
+	}
+	return response.Success(c, http.StatusOK, preview)
+}
+
+func (h *DevMachineHandler) DeletePreview(c echo.Context) error {
+	machineID, err := uuid.Parse(c.Param("machineId"))
+	if err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid machine ID")
+	}
+	if err = h.service.DeletePreview(c.Request().Context(), middleware.GetWorkspace(c).ID, machineID, middleware.GetUserID(c)); err != nil {
+		return machineError(c, err)
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *DevMachineHandler) LaunchPreview(c echo.Context) error {
+	machineID, err := uuid.Parse(c.Param("machineId"))
+	if err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid machine ID")
+	}
+	launch, err := h.service.LaunchPreview(c.Request().Context(), middleware.GetWorkspace(c).ID, machineID, middleware.GetUserID(c))
+	if err != nil {
+		return machineError(c, err)
+	}
+	status := http.StatusCreated
+	if launch.Status != "" && launch.Status != "ready" {
+		status = http.StatusAccepted
+	}
+	return response.Success(c, status, launch)
+}

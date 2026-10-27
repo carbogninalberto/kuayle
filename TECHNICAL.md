@@ -132,12 +132,40 @@ Required host patterns are:
 | `{routing-key}.{DEV_MACHINE_DOMAIN}` | IDE |
 | `{routing-key}-terminal.{DEV_MACHINE_DOMAIN}` | Native terminal WebSocket |
 | `{routing-key}-browser.{DEV_MACHINE_DOMAIN}` | Browser/KasmVNC |
+| `{routing-key}-preview.{DEV_MACHINE_DOMAIN}` | Application preview (optional, see below) |
 
 Routing keys are random lowercase hexadecimal strings. The gateway performs an exact configured-domain suffix check and rejects suffix-confusion hosts.
 
 Caddy has one fixed wildcard route. Per-machine Caddy configuration is unnecessary. Teardown removes the database route and private network, so stale hosts return not found without a proxy reload.
 
 The gateway uses Go's reverse proxy with WebSocket upgrades, streaming flushes, unlimited response write duration, bounded dial timeouts, and long-lived connection support. Caddy terminates wildcard TLS and forwards all wildcard machine hosts, including WebSocket upgrades, to the gateway; per-machine Caddy rewrites are not used.
+
+### Application previews
+
+The machine owner can expose one application port of the developer container
+(`PUT /dev-machines/:machineId/preview` with `{"port": n}`, session-only; `GET`
+reads it, `DELETE` removes it and revokes its sessions). Ports must be 1024–65535
+and cannot be any port used by the machine's own services, so a preview host can
+never reach code-server or the terminal without their dedicated protections.
+Migration 63 stores the port in `dev_machine_previews`, not as a container service
+row, so machine lifecycle code is unaffected. The gateway role may read only its
+`machine_id`, `workspace_id` and `port` columns (see
+[gateway-role.sql](selfhosting/gateway-role.sql)); re-run the role setup after
+upgrading.
+
+`POST /dev-machines/:machineId/preview/launch` uses the same browser-cookie
+launch path as the IDE: a one-time ticket for the running developer service row,
+bound to the preview host, exchanged for a `__Host-` HttpOnly session cookie that
+is valid only on that host. IDE and preview sessions never authorize each other,
+only the machine creator is admitted, Kuayle credentials and the gateway session
+cookie are stripped before proxying, and upstream cookies are limited to the
+preview host. WebSockets (for example hot reload) use the gateway's existing
+upgrade support. TLS certificates are approved on demand only while the preview
+is configured and the machine runs. Previews stop with the machine (idle pause
+included). Preview hosts share the machine domain's site with the machine's other
+hosts; cross-host requests are subject to the gateway's origin checks, as between
+any two machine hosts. The machine page provides the port, open and remove
+controls.
 
 ## Authenticated Machine Access
 

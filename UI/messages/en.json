@@ -1967,5 +1967,13 @@
 	"tasks.signal_budget_exhausted": "Automatic follow-up limit reached",
 	"tasks.signal_not_reviewable": "Task was not awaiting review",
 	"tasks.signal_untrusted": "Ignored: reviewer has no write access",
-	"tasks.signal_follow_up_failed": "Follow-up could not be queued"
+	"tasks.signal_follow_up_failed": "Follow-up could not be queued",
+	"machines.preview": "Application preview",
+	"machines.preview_desc": "Serve an app running in the developer environment on its own authenticated address. Only you can open it.",
+	"machines.preview_port": "App port",
+	"machines.preview_save": "Save port",
+	"machines.preview_open": "Open preview",
+	"machines.preview_remove": "Remove preview",
+	"machines.preview_saved": "Preview port saved",
+	"machines.preview_not_ready": "The machine is not ready yet. Try again shortly."
 }

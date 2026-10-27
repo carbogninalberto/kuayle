@@ -1712,6 +1712,12 @@ func (s *DevMachineService) LaunchService(ctx context.Context, workspaceID, mach
 	if service.ServiceType != "ide" && service.ServiceType != "browser" {
 		return nil, ErrServiceNotAvailable
 	}
+	return s.issueLaunch(ctx, workspaceID, machine, service, userID, checkoutID, "")
+}
+
+func (s *DevMachineService) issueLaunch(ctx context.Context, workspaceID uuid.UUID, machine *domain.DevMachine, service *domain.DevMachineService, userID uuid.UUID, checkoutID *uuid.UUID, hostSuffix string) (*dto.LaunchServiceResponse, error) {
+	machineID := machine.ID
+	var err error
 	var checkout *domain.DevMachineCheckout
 	if checkoutID != nil {
 		checkout, err = s.store.GetCheckout(ctx, workspaceID, machineID, *checkoutID)
@@ -1725,7 +1731,7 @@ func (s *DevMachineService) LaunchService(ctx context.Context, workspaceID, mach
 			return nil, fmt.Errorf("%w: selected checkout must be ready", ErrCheckoutNotReady)
 		}
 	}
-	host := machine.RoutingKey + "." + s.domain
+	host := machine.RoutingKey + hostSuffix + "." + s.domain
 	if service.ServiceType == "browser" {
 		host = machine.RoutingKey + "-browser." + s.domain
 	}
@@ -2450,4 +2456,109 @@ func (s *DevMachineService) validateAgentModel(ctx context.Context, workspaceID 
 		return fmt.Errorf("%w: unsupported DeepSeek thinking level", ErrInvalidMachineInput)
 	}
 	return nil
+}
+
+// previewOwner returns the machine when the caller may manage its preview: the
+// gateway only admits the machine's creator, so only they may configure it.
+func (s *DevMachineService) previewOwner(ctx context.Context, workspaceID, machineID, userID uuid.UUID) (*domain.DevMachine, error) {
+	if _, err := s.enabledPolicy(ctx, workspaceID); err != nil {
+		return nil, err
+	}
+	machine, err := s.GetForUser(ctx, workspaceID, machineID, userID)
+	if err != nil {
+		return nil, err
+	}
+	if machine.CreatedByUserID == nil || *machine.CreatedByUserID != userID {
+		return nil, fmt.Errorf("%w: only the machine owner can manage its preview", ErrInvalidOperation)
+	}
+	return machine, nil
+}
+
+// GetPreview returns the machine's preview configuration, or nil.
+func (s *DevMachineService) GetPreview(ctx context.Context, workspaceID, machineID, userID uuid.UUID) (*domain.DevMachinePreview, error) {
+	if _, err := s.GetForUser(ctx, workspaceID, machineID, userID); err != nil {
+		return nil, err
+	}
+	return s.store.GetPreview(ctx, workspaceID, machineID)
+}
+
+// SetPreview exposes one application port of the developer container. Ports of
+// the machine's own services are refused, so a preview host can never reach the
+// IDE or terminal without their dedicated protections.
+func (s *DevMachineService) SetPreview(ctx context.Context, workspaceID, machineID, userID uuid.UUID, port int) (*domain.DevMachinePreview, error) {
+	machine, err := s.previewOwner(ctx, workspaceID, machineID, userID)
+	if err != nil {
+		return nil, err
+	}
+	if port < 1024 || port > 65535 {
+		return nil, fmt.Errorf("%w: preview port must be between 1024 and 65535", ErrInvalidMachineInput)
+	}
+	services, err := s.store.ListServices(ctx, workspaceID, machine.ID)
+	if err != nil {
+		return nil, err
+	}
+	for _, service := range services {
+		if service.InternalPort == port {
+			return nil, fmt.Errorf("%w: port %d is used by the machine's %s service", ErrInvalidMachineInput, port, service.ServiceType)
+		}
+	}
+	preview := &domain.DevMachinePreview{MachineID: machine.ID, WorkspaceID: workspaceID, Port: port, CreatedByUserID: userID}
+	if err = s.store.SetPreview(ctx, preview); err != nil {
+		return nil, err
+	}
+	s.emit(ctx, machine, nil, &userID, "gateway", "preview.configured", map[string]any{"port": port})
+	return preview, nil
+}
+
+// DeletePreview removes the preview and revokes its browser sessions.
+func (s *DevMachineService) DeletePreview(ctx context.Context, workspaceID, machineID, userID uuid.UUID) error {
+	machine, err := s.previewOwner(ctx, workspaceID, machineID, userID)
+	if err != nil {
+		return err
+	}
+	return s.store.DeletePreview(ctx, workspaceID, machine.ID, machine.RoutingKey+"-preview."+s.domain)
+}
+
+// LaunchPreview issues a one-time ticket for the preview host. The ticket names
+// the running developer service and is bound to the preview host only.
+func (s *DevMachineService) LaunchPreview(ctx context.Context, workspaceID, machineID, userID uuid.UUID) (*dto.LaunchServiceResponse, error) {
+	machine, err := s.previewOwner(ctx, workspaceID, machineID, userID)
+	if err != nil {
+		return nil, err
+	}
+	if s.domain == "" {
+		return nil, fmt.Errorf("dev machine domain is not configured")
+	}
+	if !machine.ExpiresAt.After(time.Now().UTC()) {
+		return nil, fmt.Errorf("%w: machine has expired", ErrInvalidOperation)
+	}
+	if pending, handled, err := s.pendingLaunch(ctx, workspaceID, machine, userID); handled || err != nil {
+		return pending, err
+	}
+	preview, err := s.store.GetPreview(ctx, workspaceID, machine.ID)
+	if err != nil {
+		return nil, err
+	}
+	if preview == nil {
+		return nil, ErrServiceNotAvailable
+	}
+	services, err := s.store.ListServices(ctx, workspaceID, machine.ID)
+	if err != nil {
+		return nil, err
+	}
+	var developer *domain.DevMachineService
+	for i := range services {
+		service := &services[i]
+		if (service.ServiceType == "ide" || service.ServiceType == "terminal") && service.AgentRunID == nil && service.Status == "running" && service.ContainerID != nil {
+			if developer == nil || service.ServiceType == "ide" {
+				developer = service
+			}
+		}
+	}
+	if developer == nil {
+		return nil, ErrServiceNotAvailable
+	}
+	launch := *developer
+	launch.ServiceType = "preview"
+	return s.issueLaunch(ctx, workspaceID, machine, &launch, userID, nil, "-preview")
 }

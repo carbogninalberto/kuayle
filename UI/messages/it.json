@@ -1967,5 +1967,13 @@
 	"tasks.signal_budget_exhausted": "Limite di tentativi automatici raggiunto",
 	"tasks.signal_not_reviewable": "L'attività non era in revisione",
 	"tasks.signal_untrusted": "Ignorata: il revisore non ha accesso in scrittura",
-	"tasks.signal_follow_up_failed": "Impossibile accodare il nuovo tentativo"
+	"tasks.signal_follow_up_failed": "Impossibile accodare il nuovo tentativo",
+	"machines.preview": "Anteprima applicazione",
+	"machines.preview_desc": "Pubblica un'app in esecuzione nell'ambiente di sviluppo su un indirizzo autenticato dedicato. Solo tu puoi aprirla.",
+	"machines.preview_port": "Porta dell'app",
+	"machines.preview_save": "Salva porta",
+	"machines.preview_open": "Apri anteprima",
+	"machines.preview_remove": "Rimuovi anteprima",
+	"machines.preview_saved": "Porta dell'anteprima salvata",
+	"machines.preview_not_ready": "La macchina non è ancora pronta. Riprova tra poco."
 }

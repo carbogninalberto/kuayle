@@ -1967,5 +1967,13 @@
 	"tasks.signal_budget_exhausted": "已達自動後續嘗試上限",
 	"tasks.signal_not_reviewable": "任務未處於待審查狀態",
 	"tasks.signal_untrusted": "已忽略：審查者沒有寫入權限",
-	"tasks.signal_follow_up_failed": "無法排入後續嘗試"
+	"tasks.signal_follow_up_failed": "無法排入後續嘗試",
+	"machines.preview": "應用程式預覽",
+	"machines.preview_desc": "在獨立的已驗證位址上提供開發環境中執行的應用程式。只有你可以開啟。",
+	"machines.preview_port": "應用程式連接埠",
+	"machines.preview_save": "儲存連接埠",
+	"machines.preview_open": "開啟預覽",
+	"machines.preview_remove": "移除預覽",
+	"machines.preview_saved": "已儲存預覽連接埠",
+	"machines.preview_not_ready": "機器尚未就緒，請稍後再試。"
 }

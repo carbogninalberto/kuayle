@@ -1967,5 +1967,13 @@
 	"tasks.signal_budget_exhausted": "已达到自动后续尝试上限",
 	"tasks.signal_not_reviewable": "任务未处于待审查状态",
 	"tasks.signal_untrusted": "已忽略：审查者没有写入权限",
-	"tasks.signal_follow_up_failed": "无法排队后续尝试"
+	"tasks.signal_follow_up_failed": "无法排队后续尝试",
+	"machines.preview": "应用预览",
+	"machines.preview_desc": "在独立的已认证地址上提供开发环境中运行的应用。只有你可以打开。",
+	"machines.preview_port": "应用端口",
+	"machines.preview_save": "保存端口",
+	"machines.preview_open": "打开预览",
+	"machines.preview_remove": "移除预览",
+	"machines.preview_saved": "已保存预览端口",
+	"machines.preview_not_ready": "机器尚未就绪，请稍后重试。"
 }

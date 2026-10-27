@@ -624,3 +624,50 @@ func TestCertificateApprovalOnlyForLiveRoutes(t *testing.T) {
 	store.machine.ExpiresAt = time.Now().Add(-time.Second)
 	check("abcdefgh1234.app.example.com", 403)
 }
+
+// A preview is served on its own host from the developer service row, proxied to
+// the preview port. Sessions are host-bound, so IDE and preview sessions never
+// grant each other access.
+func TestGatewayPreviewHostIsIsolatedFromTheIDE(t *testing.T) {
+	var reached atomic.Int64
+	var cookie, authorization string
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		reached.Add(1)
+		cookie, authorization = request.Header.Get("Cookie"), request.Header.Get("Authorization")
+		writer.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+	upstreamHost, rawPort, _ := net.SplitHostPort(strings.TrimPrefix(upstream.URL, "http://"))
+	port, _ := strconv.Atoi(rawPort)
+	workspaceID, machineID, serviceID, userID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	ideHost := "0123456789abcdef0123.machines.example.com"
+	previewHost := "0123456789abcdef0123-preview.machines.example.com"
+	gateway, err := NewGateway(&gatewayStoreFake{}, "machines.example.com", time.Hour)
+	require.NoError(t, err)
+	routingKey, serviceType, ok := gateway.parseHost(previewHost)
+	require.True(t, ok)
+	require.Equal(t, "0123456789abcdef0123", routingKey)
+	require.Equal(t, "preview", serviceType)
+
+	preview := gatewayService(serviceID, machineID, "preview")
+	preview.InternalHost, preview.InternalPort = upstreamHost, port
+	serve := func(host string, session *domain.DevMachineAccessSession) int {
+		store := &gatewayStoreFake{machine: gatewayMachine(workspaceID, machineID, userID, "0123456789abcdef0123"), service: preview, session: session}
+		gateway, err := NewGateway(store, "machines.example.com", time.Hour)
+		require.NoError(t, err)
+		request := httptest.NewRequest(http.MethodGet, "http://"+host+"/", nil)
+		request.Host = host
+		request.AddCookie(&http.Cookie{Name: machineSessionCookie, Value: strings.Repeat("a", 64)})
+		request.Header.Set("Authorization", "Bearer kuayle-token")
+		recorder := httptest.NewRecorder()
+		gateway.ServeHTTP(recorder, request)
+		return recorder.Code
+	}
+	require.Equal(t, http.StatusUnauthorized, serve(previewHost, gatewaySession(workspaceID, machineID, serviceID, userID, ideHost)), "an IDE session is not a preview session")
+	require.Zero(t, reached.Load())
+	require.Equal(t, http.StatusOK, serve(previewHost, gatewaySession(workspaceID, machineID, serviceID, userID, previewHost)))
+	require.Equal(t, int64(1), reached.Load())
+	require.Empty(t, cookie, "the gateway session never reaches the preview application")
+	require.Empty(t, authorization)
+	require.Equal(t, http.StatusUnauthorized, serve(previewHost, gatewaySession(workspaceID, machineID, serviceID, uuid.New(), previewHost)), "only the machine owner")
+}

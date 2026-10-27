@@ -433,6 +433,9 @@ func (g *Gateway) parseHost(host string) (string, string, bool) {
 	} else if strings.HasSuffix(label, "-terminal") {
 		serviceType = "terminal"
 		label = strings.TrimSuffix(label, "-terminal")
+	} else if strings.HasSuffix(label, "-preview") {
+		serviceType = "preview"
+		label = strings.TrimSuffix(label, "-preview")
 	}
 	return label, serviceType, routingKeyPattern.MatchString(label)
 }

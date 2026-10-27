@@ -15,6 +15,9 @@ import (
 )
 
 type DevMachineStore interface {
+	GetPreview(context.Context, uuid.UUID, uuid.UUID) (*domain.DevMachinePreview, error)
+	SetPreview(context.Context, *domain.DevMachinePreview) error
+	DeletePreview(context.Context, uuid.UUID, uuid.UUID, string) error
 	CreateBundle(context.Context, *domain.DevMachine, []domain.DevMachineAgentProvider, []domain.DevMachineService, []domain.DevMachineVolume, []domain.DevMachineEnvVar, []domain.DevMachineToken, *domain.DevMachineOperation) error
 	GetMachine(context.Context, uuid.UUID, uuid.UUID) (*domain.DevMachine, error)
 	GetMachineForUser(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (*domain.DevMachine, error)
@@ -679,6 +682,30 @@ func (r *DevMachineRepository) GetRoute(ctx context.Context, routingKey, service
 		return nil, nil, err
 	}
 	var service domain.DevMachineService
+	if serviceType == "preview" {
+		// A preview is served by the running developer container on the saved
+		// port. Its tickets and sessions reference that service row and are
+		// bound to the preview host, so they are never valid for the IDE.
+		var port int
+		err := r.db.GetContext(ctx, &port, `SELECT port FROM dev_machine_previews WHERE machine_id=$1 AND workspace_id=$2`, machine.ID, machine.WorkspaceID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return &machine, nil, nil
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		err = r.db.GetContext(ctx, &service, `SELECT * FROM dev_machine_services WHERE machine_id=$1 AND service_type IN ('ide','terminal')
+		AND agent_run_id IS NULL AND status='running' AND container_id IS NOT NULL AND $2::dev_machine_status='running'
+		ORDER BY service_type='ide' DESC,created_at LIMIT 1`, machine.ID, machine.DesiredStatus)
+		if errors.Is(err, sql.ErrNoRows) {
+			return &machine, nil, nil
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		service.ServiceType, service.InternalPort = "preview", port
+		return &machine, &service, nil
+	}
 	err := r.db.GetContext(ctx, &service, `SELECT * FROM dev_machine_services WHERE machine_id=$1 AND service_type=$2
 		AND agent_run_id IS NULL AND status='running' AND $3::dev_machine_status='running'
 		ORDER BY created_at LIMIT 1`, machine.ID, serviceType, machine.DesiredStatus)
@@ -2291,4 +2318,34 @@ func (r *DevMachineRepository) ListResourceAllocations(ctx context.Context) ([]d
 func (r *DevMachineRepository) DeferOperation(ctx context.Context, id uuid.UUID, owner, code, message string, delay time.Duration) error {
 	_, err := r.db.ExecContext(ctx, `UPDATE dev_machine_operations SET status='pending',attempts=GREATEST(attempts-1,0),error_code=$3,error_message=$4,lease_owner=NULL,lease_expires_at=NULL,available_at=NOW()+make_interval(secs => $5) WHERE id=$1 AND lease_owner=$2`, id, owner, code, message, delay.Seconds())
 	return err
+}
+
+func (r *DevMachineRepository) GetPreview(ctx context.Context, workspaceID, machineID uuid.UUID) (*domain.DevMachinePreview, error) {
+	var preview domain.DevMachinePreview
+	err := r.db.GetContext(ctx, &preview, `SELECT * FROM dev_machine_previews WHERE workspace_id=$1 AND machine_id=$2`, workspaceID, machineID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return &preview, err
+}
+
+func (r *DevMachineRepository) SetPreview(ctx context.Context, preview *domain.DevMachinePreview) error {
+	return r.db.GetContext(ctx, preview, `INSERT INTO dev_machine_previews(machine_id,workspace_id,port,created_by_user_id) VALUES($1,$2,$3,$4)
+ ON CONFLICT (machine_id) DO UPDATE SET port=EXCLUDED.port,created_by_user_id=EXCLUDED.created_by_user_id,updated_at=now() RETURNING *`, preview.MachineID, preview.WorkspaceID, preview.Port, preview.CreatedByUserID)
+}
+
+// DeletePreview removes the preview and revokes sessions bound to its host.
+func (r *DevMachineRepository) DeletePreview(ctx context.Context, workspaceID, machineID uuid.UUID, host string) error {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, `DELETE FROM dev_machine_previews WHERE workspace_id=$1 AND machine_id=$2`, workspaceID, machineID); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE dev_machine_access_sessions SET revoked_at=now() WHERE workspace_id=$1 AND machine_id=$2 AND bound_host=$3 AND revoked_at IS NULL`, workspaceID, machineID, host); err != nil {
+		return err
+	}
+	return tx.Commit()
 }

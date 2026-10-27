@@ -18,6 +18,7 @@
 	import MachineStatusBadge from '$lib/features/dev-machines/MachineStatusBadge.svelte';
 	import AgentRunDialog from '$lib/features/dev-machines/AgentRunDialog.svelte';
 	import AgentRunTraceSheet from '$lib/features/dev-machines/AgentRunTraceSheet.svelte';
+	import PreviewCard from '$lib/features/dev-machines/PreviewCard.svelte';
 	import { appendRecentTelemetry, DEV_MACHINE_EVENT_RETENTION, DEV_MACHINE_LOG_RETENTION } from '$lib/features/dev-machines/telemetry-retention';
 	import { useTerminalDock } from '$lib/features/dev-machines/terminal-dock-context.svelte';
 	import { appToast } from '$lib/features/toast/toast';
@@ -643,6 +644,8 @@
 						</div>
 					</Card.Content>
 				</Card.Root>
+
+				<PreviewCard {slug} {machineId} running={machine.status === 'running'} />
 
 				<section class="rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-4">
 					<div class="flex items-center justify-between gap-4"><div><h2 class="text-sm font-semibold">{m['machines.inactivity']()}</h2><p class="text-xs text-[var(--color-text-tertiary)]">{m['machines.inactivity_desc']()}</p></div><label class="flex items-center gap-2 text-sm"><span>{m['machines.keep_running']()}</span><Switch aria-label={m['machines.keep_running']()} checked={machine.keep_running} onCheckedChange={toggleKeepRunning} /></label></div>
