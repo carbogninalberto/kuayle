@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -14,11 +15,16 @@ import (
 )
 
 type mergedPullRequestRecorder struct {
-	calls []struct {
+	review []repository.ReviewPullRequest
+	calls  []struct {
 		workspace  uuid.UUID
 		repository string
 		number     int
 	}
+}
+
+func (r *mergedPullRequestRecorder) ReviewPullRequests(context.Context, int) ([]repository.ReviewPullRequest, error) {
+	return r.review, nil
 }
 
 func (r *mergedPullRequestRecorder) CompleteMergedPullRequest(_ context.Context, workspace uuid.UUID, repository string, number int) (int, error) {
@@ -147,4 +153,30 @@ func TestCheckSuiteAndReviewWebhooksRecordTaskSignals(t *testing.T) {
 	require.NoError(t, err)
 	send("check_suite", suite("completed", "failure"))
 	require.Len(t, recorder.inputs, 3, "inactive repositories are ignored")
+}
+
+// A merge whose webhook never arrived is still completed by asking GitHub.
+func TestMergeReconciliationCompletesTasksWhoseWebhookWasLost(t *testing.T) {
+	ws := uuid.New()
+	recorder := &mergedPullRequestRecorder{review: []repository.ReviewPullRequest{
+		{WorkspaceID: ws, Repository: "acme/app", Number: 4},
+		{WorkspaceID: ws, Repository: "acme/app", Number: 5},
+		{WorkspaceID: ws, Repository: "acme/app", Number: 6},
+	}}
+	svc := NewGitHubService(nil, nil, nil, nil, nil, nil, nil, "https://kuayle.test", "", nil)
+	svc.SetTaskReviews(recorder)
+	svc.pullRequestMerged = func(_ context.Context, _ uuid.UUID, _ string, number int) (bool, error) {
+		switch number {
+		case 4:
+			return true, nil
+		case 5:
+			return false, nil
+		}
+		return false, errors.New("GitHub unavailable")
+	}
+	completed, err := svc.ReconcileMergedTasks(context.Background())
+	require.NoError(t, err, "one unreachable pull request does not stop the others")
+	require.Equal(t, 1, completed)
+	require.Len(t, recorder.calls, 1)
+	require.Equal(t, 4, recorder.calls[0].number)
 }

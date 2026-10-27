@@ -306,3 +306,25 @@ func TestAgentDefaultsInheritAndAreSnapshotted(t *testing.T) {
 	_, err = db.Exec(`UPDATE dev_machine_scope_settings SET agent_provider='Bad Provider' WHERE issue_id=$1`, task.IssueID)
 	require.Error(t, err)
 }
+
+func TestReviewPullRequestsListOnlyTasksAwaitingReview(t *testing.T) {
+	db, repo, ctx, task := reviewableTask(t)
+	pulls, err := repo.ReviewPullRequests(ctx, 50)
+	require.NoError(t, err)
+	found := false
+	for _, pull := range pulls {
+		if pull.WorkspaceID == task.WorkspaceID {
+			found = true
+			require.NotZero(t, pull.Number)
+			require.NotEmpty(t, pull.Repository)
+		}
+	}
+	require.True(t, found, "a task in review is reconciled")
+	_, err = db.Exec(`UPDATE agent_tasks SET state='completed' WHERE id=$1`, task.ID)
+	require.NoError(t, err)
+	pulls, err = repo.ReviewPullRequests(ctx, 50)
+	require.NoError(t, err)
+	for _, pull := range pulls {
+		require.NotEqual(t, task.WorkspaceID, pull.WorkspaceID, "finished tasks are not checked again")
+	}
+}

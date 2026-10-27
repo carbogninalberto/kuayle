@@ -281,6 +281,7 @@ func main() {
 	go taskFeedback.Run(conversationCtx)
 	go agentTaskSvc.Run(conversationCtx)
 	go automationSvc.Run(conversationCtx)
+	go githubSvc.RunMergeReconciliation(conversationCtx, 2*time.Minute)
 	go telegramSvc.Run(conversationCtx)
 
 	// Start

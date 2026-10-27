@@ -248,6 +248,14 @@ redelivered webhook completes nothing. Closing without merging changes nothing;
 the task stays reviewable and can be retried. The issue's own status follows the
 existing `pr_merged` GitHub automation.
 
+GitHub does not redeliver failed webhooks, and a relay or outage can lose
+them. Every two minutes the API asks GitHub, with the workspace's
+repository-scoped installation token, about the recorded pull requests of tasks
+still in `awaiting_review`. A merged one goes through the same completion path
+as the webhook, so both paths converge and neither completes a task twice. A
+pull request that cannot be checked is retried on the next pass without
+blocking the others.
+
 ## Authorization and side effects
 
 Tasks belong to their creator's private issue conversation and original team.

@@ -49,3 +49,22 @@ func (r *AgentTaskRepository) completeMerged(ctx context.Context, id, workspaceI
 	}
 	return true, tx.Commit()
 }
+
+// ReviewPullRequest is a pull request recorded for a task attempt in review.
+type ReviewPullRequest struct {
+	WorkspaceID uuid.UUID `db:"workspace_id"`
+	Repository  string    `db:"repository_full_name"`
+	Number      int       `db:"pull_request_number"`
+}
+
+// ReviewPullRequests lists the pull requests of tasks awaiting review, least
+// recently updated first, so a reconciler can catch merges whose webhook was
+// lost (GitHub does not redeliver failed deliveries).
+func (r *AgentTaskRepository) ReviewPullRequests(ctx context.Context, limit int) ([]ReviewPullRequest, error) {
+	pulls := []ReviewPullRequest{}
+	err := r.db.SelectContext(ctx, &pulls, `SELECT DISTINCT ON (t.workspace_id, LOWER(g.repository_full_name), g.pull_request_number) t.workspace_id, g.repository_full_name, g.pull_request_number
+ FROM agent_tasks t JOIN dev_machine_git_refs g ON g.agent_run_id=t.run_id AND g.workspace_id=t.workspace_id
+ WHERE t.state='awaiting_review' AND g.ref_type='pull_request' AND g.pull_request_number IS NOT NULL
+ ORDER BY t.workspace_id, LOWER(g.repository_full_name), g.pull_request_number, t.updated_at LIMIT $1`, limit)
+	return pulls, err
+}

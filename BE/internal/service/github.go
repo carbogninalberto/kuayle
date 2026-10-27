@@ -56,10 +56,13 @@ type GitHubService struct {
 	taskReviews mergedPullRequestCompleter
 	// taskSignals records CI and review events for agent task pull requests.
 	taskSignals taskSignalRecorder
+	// pullRequestMerged asks GitHub whether a pull request merged; replaced in tests.
+	pullRequestMerged func(ctx context.Context, workspaceID uuid.UUID, repository string, number int) (bool, error)
 }
 
 type mergedPullRequestCompleter interface {
 	CompleteMergedPullRequest(ctx context.Context, workspaceID uuid.UUID, repository string, number int) (int, error)
+	ReviewPullRequests(ctx context.Context, limit int) ([]repository.ReviewPullRequest, error)
 }
 
 type taskSignalRecorder interface {
@@ -1401,4 +1404,79 @@ func (s *GitHubService) processReviewEvent(ctx context.Context, payload []byte) 
 		return fmt.Errorf("recording review: %w", err)
 	}
 	return nil
+}
+
+// RunMergeReconciliation completes tasks whose pull request merged while its
+// webhook was lost, by asking GitHub directly every interval.
+func (s *GitHubService) RunMergeReconciliation(ctx context.Context, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if _, err := s.ReconcileMergedTasks(ctx); err != nil {
+				log.WithError(err).Warn("Merged pull request reconciliation failed")
+			}
+		}
+	}
+}
+
+// ReconcileMergedTasks checks the pull requests of tasks in review and
+// completes those GitHub reports as merged. Completion is idempotent with the
+// webhook path. It returns the number of completed tasks.
+func (s *GitHubService) ReconcileMergedTasks(ctx context.Context) (int, error) {
+	if s.taskReviews == nil {
+		return 0, nil
+	}
+	pulls, err := s.taskReviews.ReviewPullRequests(ctx, 50)
+	if err != nil {
+		return 0, err
+	}
+	merged := s.pullRequestMerged
+	if merged == nil {
+		merged = s.githubPullRequestMerged
+	}
+	completed := 0
+	for _, pull := range pulls {
+		done, err := merged(ctx, pull.WorkspaceID, pull.Repository, pull.Number)
+		if err != nil {
+			log.WithError(err).WithField("workspace_id", pull.WorkspaceID).Warn("Could not check pull request state")
+			continue
+		}
+		if !done {
+			continue
+		}
+		count, err := s.taskReviews.CompleteMergedPullRequest(ctx, pull.WorkspaceID, pull.Repository, pull.Number)
+		if err != nil {
+			return completed, err
+		}
+		completed += count
+	}
+	return completed, nil
+}
+
+func (s *GitHubService) githubPullRequestMerged(ctx context.Context, workspaceID uuid.UUID, repository string, number int) (bool, error) {
+	owner, name, ok := strings.Cut(repository, "/")
+	if !ok {
+		return false, fmt.Errorf("invalid repository %q", repository)
+	}
+	inst, err := s.ghRepo.GetInstallationByWorkspace(ctx, workspaceID)
+	if err != nil || inst == nil {
+		return false, fmt.Errorf("GitHub not connected")
+	}
+	client, _, err := s.getClient(ctx, workspaceID)
+	if err != nil {
+		return false, err
+	}
+	token, _, err := client.GetRepositoryInstallationToken(inst.InstallationID, name)
+	if err != nil {
+		return false, err
+	}
+	pull, err := client.GetPullRequest(token, owner, name, number)
+	if err != nil {
+		return false, err
+	}
+	return pull.Merged, nil
 }
