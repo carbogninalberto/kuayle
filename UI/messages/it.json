@@ -2043,5 +2043,7 @@
 	"automations.status_started": "Avviata",
 	"automations.status_dismissed": "Ignorata",
 	"automations.status_failed": "Non riuscita",
-	"settings.dev_machines.allow_unattended": "Consenti automazioni senza supervisione"
+	"settings.dev_machines.allow_unattended": "Consenti automazioni senza supervisione",
+	"assistant.tool_plan_issues": "Pianifica issue",
+	"assistant.tool_link_issues": "Collega dipendenza"
 }

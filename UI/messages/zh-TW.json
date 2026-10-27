@@ -2043,5 +2043,7 @@
 	"automations.status_started": "已啟動",
 	"automations.status_dismissed": "已忽略",
 	"automations.status_failed": "失敗",
-	"settings.dev_machines.allow_unattended": "允許無人值守自動化"
+	"settings.dev_machines.allow_unattended": "允許無人值守自動化",
+	"assistant.tool_plan_issues": "規劃議題",
+	"assistant.tool_link_issues": "連結相依性"
 }

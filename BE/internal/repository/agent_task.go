@@ -58,6 +58,14 @@ func (r *AgentTaskRepository) Create(ctx context.Context, ws, conversation uuid.
 	if err != nil {
 		return nil, err
 	}
+	// Name what the new task waits for; the worker starts it once unblocked.
+	if reason, err := waitingReason(ctx, tx, task.IssueID); err != nil {
+		return nil, err
+	} else if reason != "" {
+		if err = tx.GetContext(ctx, &task, `UPDATE agent_tasks SET reason=$2 WHERE id=$1 RETURNING *`, task.ID, reason); err != nil {
+			return nil, err
+		}
+	}
 	if err = recordAgentTaskTransition(ctx, tx, task, "", &c.CreatorID); err != nil {
 		return nil, err
 	}
@@ -169,9 +177,11 @@ func (r *AgentTaskRepository) Transitions(ctx context.Context, ws, id uuid.UUID)
 }
 func (r *AgentTaskRepository) Claim(ctx context.Context) (*domain.AgentTask, error) {
 	var task domain.AgentTask
+	// A queued task whose issue has unfinished blockers waits for them.
 	err := r.db.GetContext(ctx, &task, `WITH candidate AS (
  SELECT id FROM agent_tasks WHERE state NOT IN ('completed','cancelled','failed','blocked','awaiting_review')
  AND next_poll_at<=now() AND (lease_expires_at IS NULL OR lease_expires_at<=now())
+ AND NOT (state='queued' AND `+openBlockersExist("agent_tasks.issue_id")+`)
  ORDER BY next_poll_at,created_at,id FOR UPDATE SKIP LOCKED LIMIT 1)
  UPDATE agent_tasks t SET lease_token=gen_random_uuid(),lease_expires_at=now()+interval '30 seconds'
  FROM candidate c WHERE t.id=c.id RETURNING t.*`)
@@ -751,4 +761,9 @@ func (r *AgentTaskRepository) Retry(ctx context.Context, ws, id uuid.UUID, req d
 		return nil, err
 	}
 	return task, tx.Commit()
+}
+
+// RelatedWork is the coordination context placed in a task's native prompt.
+func (r *AgentTaskRepository) RelatedWork(ctx context.Context, task domain.AgentTask) ([]domain.RelatedWork, error) {
+	return NewIssueDependencyRepository(r.db).RelatedWork(ctx, task.IssueID)
 }

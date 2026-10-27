@@ -172,7 +172,7 @@ streaming, history, denied access, mobile layout and long transcript scrolling.
 
 The worker offers OpenAI-compatible function tools: `list_teams`,
 `search_issues`, `get_issue`, `create_issue`, `update_issue` (title, description,
-status or priority; assignees are not changed) and `delegate_issue`. The model only proposes calls.
+status or priority; assignees are not changed), `delegate_issue`, `plan_issues` and `link_issues` (see [dependencies and collaborating agents](agent-tasks.md#dependencies-and-collaborating-agents)). `create_issue` accepts a `parent_identifier`, and `link_issues` counts toward the per-reply change limit. The model only proposes calls.
 `AssistantTools` executes each in Go as the conversation creator, re-reading the
 current workspace role (guests and roles without `issue:create` or
 `issue:update` are refused) and

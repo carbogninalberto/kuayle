@@ -656,9 +656,22 @@ test('lists the issues a reply used and offers contextual suggestions', async ({
 			status: 'completed',
 			output: { identifier: 'ENG-1', title: 'Dark mode' },
 			created_at: conversation.created_at
+		},
+		{
+			id: 't3',
+			conversation_id: 'chat-1',
+			message_id: answered.id,
+			sequence: 2,
+			call_id: 'c3',
+			name: 'plan_issues',
+			input: { identifiers: ['ENG-1', 'ENG-2'] },
+			status: 'completed',
+			output: { waves: [[{ identifier: 'ENG-1', title: 'Dark mode' }], [{ identifier: 'ENG-2', title: 'Search' }]] },
+			created_at: conversation.created_at
 		}
 	];
 	await page.reload();
+	await expect(page.getByText('Ran Plan issues')).toBeVisible();
 	const sources = page.getByRole('button', { name: 'Used 2 issues' });
 	await expect(sources).toBeVisible();
 	await sources.click();

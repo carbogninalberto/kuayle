@@ -412,15 +412,44 @@ access stops its unattended runs.
 - `POST /agent-automation-runs/:id/approve|dismiss` is open to the rule owner
   or an administrator.
 
+## Dependencies and collaborating agents
+
+Blocked-by relations order agent work. A relation can be stored from either
+side (`blocked_by`, or the inverse `blocking` row). The database refuses
+relations that cross a private-team boundary.
+
+- **Waiting tasks:** a queued task whose issue has an unfinished blocker
+  (status category not completed or cancelled) is not claimed by the worker.
+  Its reason names the blockers from its own team and only counts blockers in
+  other teams. It starts on its own once every blocker is finished.
+- **Automations:** blocked issues are not matched until they are unblocked.
+
+The assistant can plan and split work with the user's permissions:
+
+- `create_issue` takes an optional `parent_identifier` to create sub-issues.
+- `link_issues` records "blocked by" and refuses direct or transitive cycles.
+- `get_issue` returns blockers and sub-issues.
+- `plan_issues` groups up to 20 issues into waves that can run in parallel,
+  reports cycles, and lists blockers outside the plan. Blockers the user
+  cannot see are never named.
+
+Because waiting is enforced by the worker, a whole plan can be delegated at
+once. Each issue gets its own agent, worktree and branch.
+
+Each native prompt starts with the task's related work in the same team: its
+parent, sub-issues, siblings and blockers. Each entry shows the status and the
+newest agent task state, branch and pull request. Agents working in parallel
+know what the others own and build on their merged changes.
+
 ## Remaining workflow work
 
 The worker progresses through preparation, native execution (with native
 session resume), independent validation and publication to `awaiting_review`,
 and completes when the recorded pull request merges. CI failures and trusted
 change requests queue bounded follow-up attempts. Explicit in-app acceptance is
-not implemented. Multi-agent collaboration on one issue and dependency-aware
-planning across issues are not implemented. A successful process exit must
-never mark an issue Done.
+not implemented. Agents coordinate through issues, dependencies and the
+related-work context, not through direct messages or shared branches. A
+successful process exit must never mark an issue Done.
 
 ## HTTP controls and replay
 

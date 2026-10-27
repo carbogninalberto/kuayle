@@ -38,6 +38,15 @@ type assistantIssueCreator interface {
 	Update(ctx context.Context, workspaceID, userID uuid.UUID, identifier string, req dto.UpdateIssueRequest) (*domain.Issue, error)
 }
 
+type assistantRelationCreator interface {
+	Create(ctx context.Context, workspaceID uuid.UUID, issueIdentifier string, req dto.CreateIssueRelationRequest) (*domain.IssueRelation, error)
+}
+
+type assistantDependencies interface {
+	Blockers(ctx context.Context, ws uuid.UUID, issues []uuid.UUID) ([]domain.IssueBlocker, error)
+	Blocks(ctx context.Context, issue, blocker uuid.UUID) (bool, error)
+}
+
 type assistantMemberRepo interface {
 	GetMember(ctx context.Context, workspaceID, userID uuid.UUID) (*domain.WorkspaceMember, error)
 }
@@ -50,6 +59,15 @@ type AssistantTools struct {
 	teams   repository.TeamRepo
 	members assistantMemberRepo
 	creator assistantIssueCreator
+	// Planning tools are unavailable until SetPlanning wires them.
+	dependencies assistantDependencies
+	relations    assistantRelationCreator
+}
+
+// SetPlanning enables the dependency tools (plan_issues, link_issues and
+// blockers in get_issue).
+func (t *AssistantTools) SetPlanning(dependencies assistantDependencies, relations assistantRelationCreator) {
+	t.dependencies, t.relations = dependencies, relations
 }
 
 func NewAssistantTools(issues repository.IssueRepo, teams repository.TeamRepo, members assistantMemberRepo, creator assistantIssueCreator) *AssistantTools {
@@ -69,7 +87,9 @@ var assistantToolCatalog = []assistantTool{
 	{name: "get_issue", description: "Read one issue by identifier, such as ENG-12.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32}},"required":["identifier"],"additionalProperties":false}`},
 	{name: "delegate_issue", description: "Ask the user to approve starting a coding agent on an existing issue. The agent only starts after the user approves in Kuayle; never claim work has started.", approval: true, parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"instructions":{"type":"string","minLength":1,"maxLength":16000}},"required":["identifier","instructions"],"additionalProperties":false}`},
 	{name: "update_issue", description: "Change an existing issue's title, description, status or priority. Only call this when the user explicitly asked for that change.", write: true, parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"title":{"type":"string","minLength":1,"maxLength":500},"description":{"type":"string","maxLength":8000},"status":{"type":"string","enum":["backlog","todo","in_progress","in_review","done","cancelled"]},"priority":{"type":"integer","minimum":0,"maximum":4}},"required":["identifier"],"additionalProperties":false}`},
-	{name: "create_issue", description: "Create a new issue. Only call this when the user explicitly asked to create or file an issue.", write: true, parameters: `{"type":"object","properties":{"team_key":{"type":"string","maxLength":16},"title":{"type":"string","minLength":1,"maxLength":500},"description":{"type":"string","maxLength":8000},"priority":{"type":"integer","minimum":0,"maximum":4}},"required":["team_key","title"],"additionalProperties":false}`},
+	{name: "create_issue", description: "Create a new issue, optionally as a sub-issue of parent_identifier to split work between agents. Only call this when the user explicitly asked to create or file an issue.", write: true, parameters: `{"type":"object","properties":{"team_key":{"type":"string","maxLength":16},"title":{"type":"string","minLength":1,"maxLength":500},"description":{"type":"string","maxLength":8000},"priority":{"type":"integer","minimum":0,"maximum":4},"parent_identifier":{"type":"string","maxLength":32}},"required":["team_key","title"],"additionalProperties":false}`},
+	{name: "plan_issues", description: "Order up to 20 issues by their blocked-by dependencies into waves that can run in parallel. Delegated issues with unfinished blockers wait automatically, so a whole plan can be delegated at once.", parameters: `{"type":"object","properties":{"identifiers":{"type":"array","minItems":1,"maxItems":20,"items":{"type":"string","maxLength":32}}},"required":["identifiers"],"additionalProperties":false}`},
+	{name: "link_issues", description: "Record that an issue is blocked by another issue. Only call this when the user asked to plan or order work. Cycles are refused.", write: true, parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"blocked_by":{"type":"string","maxLength":32}},"required":["identifier","blocked_by"],"additionalProperties":false}`},
 }
 
 func (t *AssistantTools) specs() []chatToolSpec {
@@ -134,7 +154,7 @@ func (t *AssistantTools) run(ctx context.Context, ws, user uuid.UUID, name, argu
 	if name == "create_issue" && !domain.HasPermission(member.Role, domain.PermIssueCreate) {
 		return nil, nil, toolFailure("your role cannot create issues")
 	}
-	if name == "update_issue" && !domain.HasPermission(member.Role, domain.PermIssueUpdate) {
+	if (name == "update_issue" || name == "link_issues") && !domain.HasPermission(member.Role, domain.PermIssueUpdate) {
 		return nil, nil, toolFailure("your role cannot update issues")
 	}
 	switch name {
@@ -192,7 +212,29 @@ func (t *AssistantTools) run(ctx context.Context, ws, user uuid.UUID, name, argu
 		if issue.Description != nil {
 			result["description"] = truncateRunes(sanitize.StripHTML(*issue.Description), 4000)
 		}
+		if t.dependencies != nil {
+			blockers, err := t.visibleBlockers(ctx, ws, []uuid.UUID{issue.ID})
+			if err != nil {
+				return nil, nil, err
+			}
+			result["blocked_by"] = blockers[issue.ID]
+			params := dto.IssueFilterParams{ParentID: issue.ID.String(), Sort: "created_at", Order: "asc"}
+			params.Page, params.PerPage = 1, 20
+			children, _, err := t.issues.List(ctx, ws, params)
+			if err != nil {
+				return nil, nil, err
+			}
+			subIssues := make([]map[string]any, 0, len(children))
+			for _, child := range children {
+				subIssues = append(subIssues, issueSummary(child))
+			}
+			result["sub_issues"] = subIssues
+		}
 		return result, nil, nil
+	case "plan_issues":
+		return t.planIssues(ctx, ws, arguments)
+	case "link_issues":
+		return t.linkIssues(ctx, ws, arguments)
 	case "update_issue":
 		var input struct {
 			Identifier  string  `json:"identifier"`
@@ -240,6 +282,7 @@ func (t *AssistantTools) run(ctx context.Context, ws, user uuid.UUID, name, argu
 			Title       string `json:"title"`
 			Description string `json:"description"`
 			Priority    *int   `json:"priority"`
+			Parent      string `json:"parent_identifier"`
 		}
 		if err := decodeToolInput(arguments, &input); err != nil {
 			return nil, nil, err
@@ -262,6 +305,14 @@ func (t *AssistantTools) run(ctx context.Context, ws, user uuid.UUID, name, argu
 			return nil, nil, toolFailure("team %q is not available; call list_teams", truncateRunes(input.TeamKey, 16))
 		}
 		request := dto.CreateIssueRequest{TeamID: teamID.String(), Title: input.Title, Priority: input.Priority}
+		if parent := strings.ToUpper(strings.TrimSpace(input.Parent)); parent != "" {
+			issue, err := t.issues.GetByIdentifier(ctx, ws, parent)
+			if err != nil || issue == nil {
+				return nil, nil, toolFailure("parent issue not found")
+			}
+			id := issue.ID.String()
+			request.ParentID = &id
+		}
 		if input.Description != "" {
 			request.Description = &input.Description
 		}

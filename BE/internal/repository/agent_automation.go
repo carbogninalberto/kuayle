@@ -109,6 +109,7 @@ func (r *AgentAutomationRepository) Claim(ctx context.Context, limit int) ([]dom
  AND (a.label_id IS NULL OR EXISTS(SELECT 1 FROM issue_labels l WHERE l.issue_id=i.id AND l.label_id=a.label_id))
  AND NOT EXISTS(SELECT 1 FROM agent_automation_runs r WHERE r.automation_id=a.id AND r.issue_id=i.id)
  AND NOT EXISTS(SELECT 1 FROM agent_tasks t WHERE t.issue_id=i.id AND t.state NOT IN ('completed','cancelled','failed'))
+ AND NOT `+openBlockersExist("i.id")+`
  ORDER BY i.created_at, i.id LIMIT $2
  ON CONFLICT (automation_id, issue_id) DO NOTHING RETURNING id`, a.ID, a.MaxActive-active); err != nil {
 			return nil, err

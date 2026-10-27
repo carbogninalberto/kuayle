@@ -2043,5 +2043,7 @@
 	"automations.status_started": "已启动",
 	"automations.status_dismissed": "已忽略",
 	"automations.status_failed": "失败",
-	"settings.dev_machines.allow_unattended": "允许无人值守自动化"
+	"settings.dev_machines.allow_unattended": "允许无人值守自动化",
+	"assistant.tool_plan_issues": "规划议题",
+	"assistant.tool_link_issues": "关联依赖"
 }

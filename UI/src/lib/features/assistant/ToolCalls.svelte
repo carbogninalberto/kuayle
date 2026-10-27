@@ -39,7 +39,9 @@
 		get_issue: m['assistant.tool_get_issue'],
 		create_issue: m['assistant.tool_create_issue'],
 		update_issue: m['assistant.tool_update_issue'],
-		delegate_issue: m['assistant.tool_delegate_issue']
+		delegate_issue: m['assistant.tool_delegate_issue'],
+		plan_issues: m['assistant.tool_plan_issues'],
+		link_issues: m['assistant.tool_link_issues']
 	};
 	const label = (call: ConversationToolCall) => (names[call.name] ?? (() => call.name))();
 	function created(call: ConversationToolCall) {

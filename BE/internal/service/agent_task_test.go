@@ -400,10 +400,26 @@ func TestAgentTaskAttemptPassesAcceptedTestCommandToNativeHarness(t *testing.T) 
 	require.JSONEq(t, `["npm","test"]`, string(*run.TestCommand))
 	require.Contains(t, run.Prompt, `["npm" "test"]`)
 	require.False(t, run.PushBranch)
+	require.NotContains(t, run.Prompt, "Related work in Kuayle")
 	task.ValidationCommand = json.RawMessage(`[1]`)
 	_, err = runtime.Attempt(context.Background(), task)
 	require.ErrorIs(t, err, ErrInvalidMachineInput)
 	require.Len(t, store.agentRuns, 1)
+
+	// Coordination context reaches the native prompt ahead of the task.
+	state := "running"
+	runtime.related = relatedWorkFake{{Identifier: "ENG-2", Title: "UI half", Relation: "sibling", Status: "Todo", TaskState: &state}}
+	task.ValidationCommand, task.RunID = json.RawMessage(`["npm","test"]`), uuid.New()
+	run, err = runtime.Attempt(context.Background(), task)
+	require.NoError(t, err)
+	require.Contains(t, run.Prompt, "- ENG-2 (sibling sub-issue): UI half [Todo]; agent task running")
+	require.Less(t, strings.Index(run.Prompt, "ENG-2"), strings.Index(run.Prompt, "Implement"))
+}
+
+type relatedWorkFake []domain.RelatedWork
+
+func (f relatedWorkFake) RelatedWork(context.Context, domain.AgentTask) ([]domain.RelatedWork, error) {
+	return f, nil
 }
 
 func (f *taskRuntimeFake) Validate(context.Context, domain.AgentTask) (*domain.DevMachineAgentRunStep, error) {

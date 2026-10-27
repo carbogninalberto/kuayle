@@ -47,7 +47,7 @@ type AgentTaskService struct {
 }
 
 func NewAgentTaskService(repo *repository.AgentTaskRepository, machines *DevMachineService, hub *realtime.Hub) *AgentTaskService {
-	service := &AgentTaskService{Repo: repo, machines: machines, store: repo, runtime: &devMachineTaskRuntime{tasks: repo, machines: machines}}
+	service := &AgentTaskService{Repo: repo, machines: machines, store: repo, runtime: &devMachineTaskRuntime{tasks: repo, machines: machines, related: repo}}
 	if hub != nil {
 		service.events = hub
 	}
@@ -244,9 +244,15 @@ func (s *AgentTaskService) preparationError(ctx context.Context, task domain.Age
 	return err
 }
 
+type relatedWorkSource interface {
+	RelatedWork(ctx context.Context, task domain.AgentTask) ([]domain.RelatedWork, error)
+}
+
 type devMachineTaskRuntime struct {
 	tasks    *repository.AgentTaskRepository
 	machines *DevMachineService
+	// related supplies coordination context; without it prompts omit it.
+	related relatedWorkSource
 }
 
 func (r *devMachineTaskRuntime) Prepare(ctx context.Context, task *domain.AgentTask) (bool, error) {
@@ -353,6 +359,13 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 	if task.Generation > 1 {
 		prompt = withHandoff(prompt, previous, session.ResumeID != "")
 	}
+	if r.related != nil {
+		related, err := r.related.RelatedWork(ctx, task)
+		if err != nil {
+			return nil, err
+		}
+		prompt = withRelatedWork(prompt, related)
+	}
 	prompt = withInstructions(prompt, task.AgentInstructions)
 	push := false
 	checkout := task.CheckoutID.String()
@@ -441,6 +454,39 @@ func taskSession(task domain.AgentTask, previous *domain.AgentHandoff) *agent.Se
 // withInstructions puts the project's configured agent instructions ahead of the
 // task, labelled as Kuayle configuration. They are shortened, never the task,
 // when both cannot fit the attempt limit.
+// withRelatedWork tells an agent which neighbouring issues other agents may be
+// working on, so parallel worktrees build on each other instead of colliding.
+func withRelatedWork(prompt string, related []domain.RelatedWork) string {
+	if len(related) == 0 {
+		return prompt
+	}
+	labels := map[string]string{"parent": "parent issue", "sub_issue": "sub-issue", "sibling": "sibling sub-issue", "blocker": "blocks this issue"}
+	var b strings.Builder
+	b.WriteString("Related work in Kuayle. Other agents may be working on these issues in separate branches: do not implement their scope, and build on their merged changes.\n")
+	for _, work := range related {
+		line := fmt.Sprintf("- %s (%s): %s [%s]", work.Identifier, labels[work.Relation], oneLine(work.Title, 200), oneLine(work.Status, 40))
+		if work.TaskState != nil {
+			line += "; agent task " + *work.TaskState
+		}
+		if work.Branch != nil {
+			line += "; branch " + oneLine(*work.Branch, 200)
+		}
+		if work.PullRequestURL != nil {
+			line += "; " + oneLine(*work.PullRequestURL, 300)
+		}
+		b.WriteString(line + "\n")
+	}
+	section := b.String()
+	if len(prompt)+len(section) > 30000 {
+		return prompt
+	}
+	return section + "\n---\n" + prompt
+}
+
+func oneLine(value string, limit int) string {
+	return truncateRunes(strings.Join(strings.Fields(value), " "), limit)
+}
+
 func withInstructions(prompt, instructions string) string {
 	instructions = strings.TrimSpace(instructions)
 	if instructions == "" {

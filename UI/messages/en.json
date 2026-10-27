@@ -2043,5 +2043,7 @@
 	"automations.status_started": "Started",
 	"automations.status_dismissed": "Dismissed",
 	"automations.status_failed": "Failed",
-	"settings.dev_machines.allow_unattended": "Allow unattended automations"
+	"settings.dev_machines.allow_unattended": "Allow unattended automations",
+	"assistant.tool_plan_issues": "Plan issues",
+	"assistant.tool_link_issues": "Link dependency"
 }
