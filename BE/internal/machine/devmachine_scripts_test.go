@@ -463,6 +463,42 @@ func TestStartCommonSkipsCodexConfigWithoutAnOpenAIServer(t *testing.T) {
 	}
 }
 
+// Codex's managed app-server (~400 MB per version) would fill the small
+// in-memory home, so its package cache lives on the workspace volume.
+func TestStartCommonKeepsCodexPackagesOnTheWorkspaceVolume(t *testing.T) {
+	repoRoot := repoRootFromCaller(t)
+	common := filepath.Join(repoRoot, "devmachine", "common", "start-common.sh")
+	homeDir, workspace := t.TempDir(), t.TempDir()
+	run := func() {
+		cmd := exec.Command("sh", "-eu", "-c", `. "$1"; link_codex_packages`, "kuayle", common)
+		cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + homeDir, "KUAYLE_WORKSPACE_ROOT=" + workspace}
+		output, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(output))
+	}
+	run()
+	target, err := os.Readlink(filepath.Join(homeDir, ".codex", "packages"))
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(workspace, ".kuayle", "codex-packages"), target)
+	require.DirExists(t, target)
+	run() // idempotent
+
+	// An existing packages directory is left alone.
+	otherHome := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(otherHome, ".codex", "packages"), 0o700))
+	cmd := exec.Command("sh", "-eu", "-c", `. "$1"; link_codex_packages`, "kuayle", common)
+	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + otherHome, "KUAYLE_WORKSPACE_ROOT=" + workspace}
+	output, err := cmd.CombinedOutput()
+	require.NoError(t, err, string(output))
+	info, err := os.Lstat(filepath.Join(otherHome, ".codex", "packages"))
+	require.NoError(t, err)
+	require.True(t, info.IsDir())
+	for _, script := range []string{"common/kuayle-agent-runner", "headless/kuayle-headless-start", "ide/start.sh"} {
+		content, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", script))
+		require.NoError(t, err)
+		require.Contains(t, string(content), "link_codex_packages", script)
+	}
+}
+
 func TestTerminalSessionCloseKillsOnlyTheNamedSessionAndIsIdempotent(t *testing.T) {
 	repoRoot := repoRootFromCaller(t)
 	tempDir := t.TempDir()

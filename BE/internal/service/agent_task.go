@@ -237,6 +237,14 @@ func (s *AgentTaskService) preparationError(ctx context.Context, task domain.Age
 	if errors.Is(err, repository.ErrConversationNotFound) {
 		return s.store.Revoke(ctx, task)
 	}
+	if errors.Is(err, ErrCheckoutFailed) {
+		// The checkout already retried; name the cause and invite a retry.
+		cause := "the repository could not be prepared"
+		if strings.Contains(err.Error(), "github_token") || strings.Contains(err.Error(), "GitHub token") {
+			cause = "GitHub did not issue a repository token"
+		}
+		return s.store.Fail(ctx, task, "Preparing the worktree failed: "+cause+"; retry the task")
+	}
 	if errors.Is(err, ErrCheckoutNotEligible) || errors.Is(err, ErrRepositoryNotAllowed) || errors.Is(err, ErrDevMachinesDisabled) || errors.Is(err, ErrProviderNotAllowed) || errors.Is(err, ErrInvalidMachineInput) || errors.Is(err, ErrInvalidOperation) {
 		// A preparing task may already have queued or started native execution.
 		// Once an environment is reserved, settle its operations before stopping.
@@ -329,7 +337,11 @@ func (r *devMachineTaskRuntime) Prepare(ctx context.Context, task *domain.AgentT
 		return false, err
 	}
 	if checkout.Status == "failed" {
-		return false, fmt.Errorf("%w: worktree preparation failed", ErrInvalidOperation)
+		cause := ""
+		if checkout.LastError != nil {
+			cause = *checkout.LastError
+		}
+		return false, fmt.Errorf("%w: %s", ErrCheckoutFailed, cause)
 	}
 	return checkout.Status == "ready", nil
 }

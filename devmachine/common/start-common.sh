@@ -72,6 +72,19 @@ wire_api = "responses"
 CONFIG
 }
 
+# Codex keeps its managed app-server (~400 MB per version) in ~/.codex/packages.
+# The home is a small in-memory tmpfs, so the cache lives on the machine's
+# workspace volume, shared by its terminal and agent containers.
+link_codex_packages() {
+  packages="$HOME/.codex/packages"
+  if [ -e "$packages" ] || [ -L "$packages" ]; then
+    return 0
+  fi
+  cache="$workspace_root/.kuayle/codex-packages"
+  mkdir -p "$cache" "$HOME/.codex" 2>/dev/null || return 0
+  ln -s "$cache" "$packages" 2>/dev/null || true
+}
+
 load_scoped_secrets() {
   attempt=0
   while [ ! -f /run/kuayle-secrets/.ready ]; do

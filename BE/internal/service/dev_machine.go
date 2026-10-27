@@ -41,12 +41,14 @@ var (
 	ErrRepositoryNotAllowed     = errors.New("repository is not allowed")
 	ErrServiceNotAvailable      = errors.New("machine service is not available")
 	ErrCheckoutNotEligible      = errors.New("machine is not eligible for this issue checkout")
-	ErrCheckoutNotReady         = errors.New("repository checkout is not ready")
-	ErrCheckoutNotFound         = errors.New("repository checkout not found")
-	ErrTerminalSessionRequired  = errors.New("terminal must be launched through a native session")
-	ErrInvalidMachineInput      = errors.New("invalid dev machine request")
-	ErrMachineNameConflict      = errors.New("dev machine name is already in use")
-	ErrMachineAuthentication    = errors.New("machine authentication failed")
+	// ErrCheckoutFailed means the worktree could not be prepared after retries.
+	ErrCheckoutFailed          = errors.New("worktree preparation failed")
+	ErrCheckoutNotReady        = errors.New("repository checkout is not ready")
+	ErrCheckoutNotFound        = errors.New("repository checkout not found")
+	ErrTerminalSessionRequired = errors.New("terminal must be launched through a native session")
+	ErrInvalidMachineInput     = errors.New("invalid dev machine request")
+	ErrMachineNameConflict     = errors.New("dev machine name is already in use")
+	ErrMachineAuthentication   = errors.New("machine authentication failed")
 )
 
 var (

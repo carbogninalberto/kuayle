@@ -74,6 +74,7 @@ func TestAgentTaskCheckoutsAreIsolatedAndRecoverable(t *testing.T) {
 }
 
 type taskStoreFake struct {
+	failReason   string
 	waiting      string
 	startedIssue *domain.Issue
 	startErr     error
@@ -173,7 +174,7 @@ func TestAgentTaskWorkerUsesNativeExecutionState(t *testing.T) {
 }
 
 func TestAgentTaskWorkerRevocationCancellationAndQuota(t *testing.T) {
-	for _, scenario := range []string{"revoked", "quota", "cancelled", "cancel pending"} {
+	for _, scenario := range []string{"revoked", "quota", "cancelled", "cancel pending", "checkout failed"} {
 		t.Run(scenario, func(t *testing.T) {
 			store := &taskStoreFake{task: domain.AgentTask{ID: uuid.New(), WorkspaceID: uuid.New(), CreatorID: uuid.New(), State: "preparing"}}
 			runtime := &taskRuntimeFake{ready: true}
@@ -183,6 +184,10 @@ func TestAgentTaskWorkerRevocationCancellationAndQuota(t *testing.T) {
 				store.accessErr = repository.ErrConversationNotFound
 			case "quota":
 				runtime.prepareErr = ErrMachineQuota
+			case "checkout failed":
+				machine := uuid.New()
+				store.task.MachineID = &machine
+				runtime.prepareErr = fmt.Errorf("%w: github_token_failed", ErrCheckoutFailed)
 			case "cancelled", "cancel pending":
 				store.task.State = "cancelling"
 				store.accessErr = repository.ErrConversationNotFound
@@ -210,11 +215,18 @@ func TestAgentTaskWorkerRevocationCancellationAndQuota(t *testing.T) {
 				require.True(t, store.finished)
 				require.Equal(t, 1, runtime.cancels)
 			}
+			if scenario == "checkout failed" {
+				// Say what failed and that a retry may work, not that the configuration vanished.
+				require.Equal(t, "cancelling", store.task.State)
+				require.Contains(t, store.failReason, "GitHub did not issue a repository token")
+				require.Contains(t, store.failReason, "retry")
+			}
 		})
 	}
 }
 
-func (f *taskStoreFake) Fail(_ context.Context, _ domain.AgentTask, _ string) error {
+func (f *taskStoreFake) Fail(_ context.Context, _ domain.AgentTask, reason string) error {
+	f.failReason = reason
 	f.task.State = "cancelling"
 	f.task.FailurePending = true
 	return nil
@@ -250,6 +262,10 @@ func TestAgentTaskWorkerRecordsFailuresButNotCapacityOrLeaseWaits(t *testing.T) 
 				runtime.prepareErr = errors.New("temporary unavailable")
 			case "quota":
 				runtime.prepareErr = ErrMachineQuota
+			case "checkout failed":
+				machine := uuid.New()
+				store.task.MachineID = &machine
+				runtime.prepareErr = fmt.Errorf("%w: github_token_failed", ErrCheckoutFailed)
 			case "stale":
 				runtime.prepareErr = repository.ErrAgentTaskConflict
 			case "deadline":
