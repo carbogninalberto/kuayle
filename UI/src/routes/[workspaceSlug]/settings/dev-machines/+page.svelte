@@ -351,7 +351,7 @@
 		<div class="flex justify-end"><Button type="submit" disabled={saving}>{saving ? m['settings.saving']() : m['settings.dev_machines.save_policy']()}</Button></div>
 		</fieldset>
 	</form>
-	{#if canAdmin}<div class="mt-6"><AutomationsCard {slug} unattendedAllowed={policy?.allow_unattended_automations ?? false} /></div>{/if}
+	{#if canAdmin}<div class="mx-auto max-w-3xl px-6 pb-6"><AutomationsCard {slug} unattendedAllowed={policy?.allow_unattended_automations ?? false} /></div>{/if}
 	{#if canAdmin && deepSeekLoadFailed}
 		<div class="mx-auto max-w-3xl px-6 pb-6">
 			<section class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-5">
