@@ -1981,5 +1981,8 @@
 	"tasks.plan": "Piano",
 	"tasks.plan_progress": "{done} di {total} completati",
 	"tasks.reasoning": "Sintesi del ragionamento",
-	"tasks.changed_files": "File modificati"
+	"tasks.changed_files": "File modificati",
+	"tasks.queue": "Lavoro degli agenti",
+	"tasks.queue_todo": "{count} in corso o in attesa",
+	"tasks.queue_done": "{count} terminati"
 }

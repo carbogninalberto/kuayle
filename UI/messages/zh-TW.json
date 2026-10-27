@@ -1981,5 +1981,8 @@
 	"tasks.plan": "計畫",
 	"tasks.plan_progress": "已完成 {done}/{total}",
 	"tasks.reasoning": "推理摘要",
-	"tasks.changed_files": "已變更的檔案"
+	"tasks.changed_files": "已變更的檔案",
+	"tasks.queue": "代理工作",
+	"tasks.queue_todo": "{count} 個進行中或等待中",
+	"tasks.queue_done": "{count} 個已結束"
 }

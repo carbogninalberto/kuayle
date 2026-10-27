@@ -23,6 +23,7 @@
 	import { ConversationState } from './conversation-state.svelte';
 	import TaskPanel from './TaskPanel.svelte';
 	import ToolCalls from './ToolCalls.svelte';
+	import AgentQueue from './AgentQueue.svelte';
 	import { renderMarkdown } from '$lib/markdown';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { m } from '$lib/paraglide/messages.js';
@@ -248,6 +249,7 @@
 						>
 					{/each}
 				</nav>
+				<AgentQueue {slug} />
 			</aside>
 		{/if}
 		<section class="flex min-h-0 min-w-0 flex-1 flex-col" aria-label={m['assistant.conversation']()}>

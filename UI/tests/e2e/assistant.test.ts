@@ -36,6 +36,7 @@ async function fixture(page: Page) {
 		messages: [] as (typeof userMessage)[],
 		tools: [] as any[],
 		approvals: [] as any[],
+		queue: [] as any[],
 		decisions: [] as string[],
 		decisionStatus: 200,
 		cursor: 0,
@@ -69,6 +70,7 @@ async function fixture(page: Page) {
 		if (path === '/api/notifications') return route.fulfill({ json: { notifications: [], unread_count: 0 } });
 		if (path.endsWith('/assistant/status'))
 			return route.fulfill({ json: { configured: true, provider: 'openai_compatible', model: 'configured-model' } });
+		if (path === '/api/workspaces/test/agent-tasks') return route.fulfill({ json: state.queue });
 		if (path.endsWith('/conversations'))
 			return route.fulfill({ json: route.request().method() === 'POST' ? conversation : [conversation] });
 		if (path.includes('/conversations/chat-1')) {
@@ -565,4 +567,29 @@ test('asks for approval before delegating and records the decision from the back
 	);
 	await expect(page.getByText('Coding agent started on ENG-1', { exact: true })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Approve', exact: true })).toHaveCount(0);
+});
+
+test('lists agent work across projects as a queue linking to each issue chat', async ({ page }) => {
+	const state = await fixture(page);
+	const item = (id: string, identifier: string, taskState: string) => ({
+		id,
+		conversation_id: `chat-${id}`,
+		state: taskState,
+		reason: '',
+		issue_identifier: identifier,
+		issue_title: `Title ${identifier}`,
+		updated_at: conversation.created_at
+	});
+	state.queue = [item('a', 'ENG-1', 'running'), item('b', 'ENG-2', 'awaiting_review'), item('c', 'WEB-3', 'completed')];
+	await page.goto('/test/assistant');
+	const queue = page.getByRole('region', { name: 'Agent work', exact: true });
+	await expect(queue.getByText('2 in progress or waiting', { exact: true })).toBeVisible();
+	await expect(queue.getByRole('link', { name: /ENG-1 · Title ENG-1/ })).toHaveAttribute(
+		'href',
+		'/test/assistant?conversation=chat-a'
+	);
+	await expect(queue.getByRole('link', { name: /ENG-2/ })).toBeVisible();
+	await expect(queue.getByRole('link', { name: /WEB-3/ })).toBeHidden();
+	await queue.getByRole('button', { name: '1 finished' }).click();
+	await expect(queue.getByRole('link', { name: /WEB-3/ })).toBeVisible();
 });

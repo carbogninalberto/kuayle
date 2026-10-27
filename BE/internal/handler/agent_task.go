@@ -232,3 +232,12 @@ func (h *AgentTaskHandler) Signals(c echo.Context) error {
 	}
 	return response.Success(c, http.StatusOK, result)
 }
+
+// Queue lists the session user's recent agent tasks across projects.
+func (h *AgentTaskHandler) Queue(c echo.Context) error {
+	result, err := h.svc.Repo.Queue(c.Request().Context(), middleware.GetWorkspace(c).ID)
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	return response.Success(c, http.StatusOK, result)
+}

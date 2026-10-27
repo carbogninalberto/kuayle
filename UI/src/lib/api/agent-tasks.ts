@@ -51,6 +51,15 @@ export interface PublicationView {
 	branch?: string | null;
 	pull_request_url?: string | null;
 }
+export interface AgentQueueItem {
+	id: string;
+	conversation_id: string;
+	state: AgentTask['state'];
+	reason: string;
+	issue_identifier: string;
+	issue_title: string;
+	updated_at: string;
+}
 export interface TaskSignal {
 	id: string;
 	task_id: string;
@@ -120,6 +129,7 @@ export const agentTasks = {
 		),
 	validation: (slug: string, id: string, run: string) =>
 		api.get<ValidationStep | null>(`${task(slug, id)}/runs/${encodeURIComponent(run)}/validation`),
+	queue: (slug: string) => api.get<AgentQueueItem[]>(`${base(slug)}/agent-tasks`),
 	signals: (slug: string, id: string) => api.get<TaskSignal[]>(`${task(slug, id)}/signals`),
 	publication: (slug: string, id: string, run: string) =>
 		api.get<PublicationView>(`${task(slug, id)}/runs/${encodeURIComponent(run)}/publication`),

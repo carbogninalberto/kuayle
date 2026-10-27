@@ -250,3 +250,25 @@ func TestCompletedTasksQueueOnePurgeOfTheirTranscripts(t *testing.T) {
 	require.NoError(t, db.Get(&purges, `SELECT count(*) FROM dev_machine_operations WHERE action='purge_task_session' AND checkout_id=$1 AND status='pending'`, task.CheckoutID))
 	require.Equal(t, 1, purges)
 }
+
+func TestQueueListsOnlyTheActorsVisibleTasks(t *testing.T) {
+	db, repo, ctx, task := reviewableTask(t)
+	items, err := repo.Queue(ctx, task.WorkspaceID)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	require.Equal(t, task.ID, items[0].ID)
+	require.Equal(t, "REC-1", items[0].IssueIdentifier)
+	require.Equal(t, "awaiting_review", items[0].State)
+	stranger := domain.WithAccess(context.Background(), domain.Access{WorkspaceID: task.WorkspaceID, UserID: uuid.New()})
+	_, err = repo.Queue(stranger, task.WorkspaceID)
+	require.Error(t, err, "non-members cannot list tasks")
+	// Moving the issue to another team closes the old chat's scope, and its task.
+	other := uuid.New()
+	_, err = db.Exec(`INSERT INTO teams(id,workspace_id,name,key) VALUES($1,$2,'Other','OTH')`, other, task.WorkspaceID)
+	require.NoError(t, err)
+	_, err = db.Exec(`UPDATE issues SET team_id=$2 WHERE id=$1`, task.IssueID, other)
+	require.NoError(t, err)
+	items, err = repo.Queue(ctx, task.WorkspaceID)
+	require.NoError(t, err)
+	require.Empty(t, items)
+}

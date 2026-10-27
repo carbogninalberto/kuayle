@@ -341,6 +341,12 @@ and cancellation remain available to authorized users.
   autonomous providers and the existing workspace model configuration. Custom
   CLI allocation requires saved command configuration and is not offered yet.
 - `GET|POST /conversations/:conversationId/tasks` lists or delegates tasks.
+- `GET /agent-tasks` lists the session user's 50 most recent tasks across their
+  issue conversations, re-checking membership and each issue's current team
+  scope (a moved or hidden issue drops out). The Global Assistant renders it with
+  the AI Elements [Queue](https://www.shadcn-svelte.com/docs/ai-elements/queue)
+  composition (in progress or waiting, then finished), linking each task to its
+  issue chat, and refreshes it every 20 seconds while visible.
 - `GET /agent-tasks/:taskId` reads the durable task.
 - `POST /agent-tasks/:taskId/cancel` requests cleanup, including an explicit retry
   of exhausted cleanup operations.
