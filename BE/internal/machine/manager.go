@@ -1052,6 +1052,7 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 		result.Branch = gitState.Branch
 		result.Commits = gitState.Commits
 		result.ChangedFiles = gitState.ChangedFiles
+		run.Diff, run.DiffTruncated = gitState.Diff, gitState.DiffTruncated
 	}
 	if run.Status == domain.DevMachineAgentRunStatusSucceeded && run.OpenPullRequest && result.Branch != "" {
 		githubAPI, freshToken, prErr := m.repositoryToken(ctx, machine, checkoutRepositoryFullName(machine, checkout))

@@ -134,3 +134,27 @@ func (r *AgentTaskRepository) Logs(ctx context.Context, ws, id, run uuid.UUID, a
 	}
 	return result, nil
 }
+
+// AgentRunDiff is an attempt's captured diff against its base branch.
+type AgentRunDiff struct {
+	Diff      string `json:"diff" db:"diff"`
+	Truncated bool   `json:"truncated" db:"diff_truncated"`
+}
+
+// Diff returns an attempt's diff to users who can read the task.
+func (r *AgentTaskRepository) Diff(ctx context.Context, ws, id, run uuid.UUID) (*AgentRunDiff, error) {
+	if _, err := conversationActor(ctx, ws); err != nil {
+		return nil, err
+	}
+	tx, _, err := r.transaction(ctx, id, true)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	diff := &AgentRunDiff{}
+	err = tx.GetContext(ctx, diff, `SELECT diff,diff_truncated FROM dev_machine_agent_runs WHERE id=$1 AND task_id=$2 AND workspace_id=$3`, run, id, ws)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrConversationNotFound
+	}
+	return diff, err
+}

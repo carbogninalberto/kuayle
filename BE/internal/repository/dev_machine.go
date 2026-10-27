@@ -1104,10 +1104,11 @@ func (r *DevMachineRepository) UpdateAgentRunStarted(ctx context.Context, runID 
 func (r *DevMachineRepository) CompleteAgentRun(ctx context.Context, run *domain.DevMachineAgentRun) error {
 	_, err := r.db.ExecContext(ctx, `UPDATE dev_machine_agent_runs SET status=$1, result=$2, summary=$3,
 		changed_files=$4, commits=$5, branch=$6, pull_request_url=$7, tests_run=$8, test_status=$9,
-		risk_notes=$10, exit_code=$11, error_message=$12, completed_at=NOW()
+		risk_notes=$10, exit_code=$11, error_message=$12, diff=$14, diff_truncated=$15, completed_at=NOW()
 		WHERE id=$13 AND (status NOT IN ('succeeded','failed','cancelled','timeout') OR status=$1)`,
 		run.Status, nullJSONPointer(run.Result), run.Summary, run.ChangedFiles, run.Commits, run.Branch,
-		run.PullRequestURL, run.TestsRun, run.TestStatus, run.RiskNotes, run.ExitCode, run.ErrorMessage, run.ID)
+		run.PullRequestURL, run.TestsRun, run.TestStatus, run.RiskNotes, run.ExitCode, run.ErrorMessage, run.ID,
+		run.Diff, run.DiffTruncated)
 	return err
 }
 

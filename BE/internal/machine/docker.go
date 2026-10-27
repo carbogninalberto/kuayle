@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/containerd/errdefs"
 	"github.com/google/uuid"
@@ -1068,7 +1069,34 @@ func (r *DockerRuntime) GitState(ctx context.Context, machine *domain.DevMachine
 	}
 	commits, _ := r.execOutput(ctx, developerContainer, []string{"git", "-C", workspacePath, "rev-list", "origin/" + baseBranch + "..HEAD"})
 	changed, _ := r.execOutput(ctx, developerContainer, []string{"git", "-C", workspacePath, "diff", "--name-only", "origin/" + baseBranch + "...HEAD"})
-	return GitState{Branch: strings.TrimSpace(branch), Commits: nonEmptyLines(commits), ChangedFiles: nonEmptyLines(changed)}, nil
+	state := GitState{Branch: strings.TrimSpace(branch), Commits: nonEmptyLines(commits), ChangedFiles: nonEmptyLines(changed)}
+	// A throwaway index stages everything, so the diff includes new files
+	// without touching the checkout's real index.
+	diff, _ := r.execOutput(ctx, developerContainer, []string{"/bin/sh", "-c", worktreeDiffScript, "kuayle-diff", workspacePath, "origin/" + baseBranch})
+	state.Diff, state.DiffTruncated = capDiff(diff)
+	return state, nil
+}
+
+const worktreeDiffScript = `set -eu
+index=$(mktemp)
+trap 'rm -f "$index"' EXIT
+export GIT_INDEX_FILE="$index"
+git -C "$1" read-tree HEAD
+git -C "$1" add -A
+git -C "$1" diff --cached --no-color --no-ext-diff "$2"`
+
+const maxStoredDiffBytes = 1 << 20
+
+// capDiff keeps a diff within the stored limit on a UTF-8 boundary.
+func capDiff(diff string) (string, bool) {
+	if len(diff) <= maxStoredDiffBytes {
+		return diff, false
+	}
+	diff = diff[:maxStoredDiffBytes]
+	for !utf8.ValidString(diff) {
+		diff = diff[:len(diff)-1]
+	}
+	return diff, true
 }
 
 func (r *DockerRuntime) PrepareCheckout(ctx context.Context, _ *domain.DevMachine, services []domain.DevMachineService, checkout *domain.DevMachineCheckout, token string) error {

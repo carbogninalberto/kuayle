@@ -27,6 +27,7 @@ async function fixture(page: Page) {
 		publications: 0,
 		signals: [] as any[],
 		changedFiles: [] as string[],
+		diff: '',
 		preview: null as any,
 		previewLaunches: 0,
 		creates: [] as any[],
@@ -155,6 +156,7 @@ async function fixture(page: Page) {
 					body: '<html><script>window.evil=true</script></html>',
 					headers: { 'content-type': 'text/html', 'content-disposition': 'attachment; filename="index.html"' }
 				});
+			if (path.endsWith('/runs/run-1/diff')) return route.fulfill({ json: { diff: state.diff, truncated: false } });
 			if (path.endsWith('/validation')) return route.fulfill({ json: state.validation });
 			if (path.endsWith('/signals')) return route.fulfill({ json: state.signals });
 
@@ -639,4 +641,32 @@ test('shows the harness plan, reasoning summaries and changed files from recorde
 	await expect(files.getByRole('button', { name: 'theme.test.ts' })).toBeVisible();
 	await expect(files.getByRole('button', { name: 'README.md' })).toBeDisabled();
 	await expect(files.getByRole('link')).toHaveCount(0, { timeout: 1000 });
+});
+
+test('opens the attempt diff beside the chat and closes it', async ({ page }) => {
+	const { state, emit: emitState } = await fixture(page);
+	state.changedFiles = ['src/text.js'];
+	state.diff = [
+		'diff --git a/src/text.js b/src/text.js',
+		'@@ -1 +1,2 @@',
+		' export const a = 1;',
+		'-export const old = 0;',
+		'+export const kebab = "<script>window.evil=1</script>";',
+		''
+	].join('\n');
+	await page.goto('/test/assistant?conversation=chat-1');
+	await delegate(page);
+	await expect(page.getByRole('button', { name: 'View diff' })).toHaveCount(0);
+	state.task = { ...state.task, state: 'awaiting_review', reason: 'Pull request opened; waiting for human review' };
+	emitState('task.state_changed', state.task);
+	await page.getByRole('button', { name: 'View diff' }).click();
+	const panel = page.getByRole('region', { name: 'Changes' });
+	await expect(panel.getByText('src/text.js')).toBeVisible();
+	await expect(panel.getByText('+1', { exact: true })).toBeVisible();
+	await expect(panel.getByText('+export const kebab = "<script>window.evil=1</script>";')).toBeVisible();
+	expect(await page.evaluate(() => (window as any).evil)).toBeUndefined();
+	await expect(page.getByRole('separator', { name: 'Resize changes panel' })).toBeVisible();
+	await expect(page.getByRole('textbox', { name: 'Message' })).toBeVisible();
+	await panel.getByRole('button', { name: 'Close changes' }).click();
+	await expect(panel).toHaveCount(0);
 });

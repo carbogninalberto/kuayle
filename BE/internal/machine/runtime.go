@@ -49,6 +49,9 @@ type GitState struct {
 	Branch       string
 	Commits      []string
 	ChangedFiles []string
+	// Diff is the worktree (including new files) against the base branch.
+	Diff          string
+	DiffTruncated bool
 }
 
 type RuntimeInspection struct {

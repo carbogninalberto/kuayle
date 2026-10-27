@@ -2078,5 +2078,12 @@
 	"assistant.folder_save_failed": "無法儲存資料夾",
 	"assistant.move_failed": "無法移動對話",
 	"assistant.delete_failed": "無法刪除。請等待進行中的回覆或代理工作完成。",
-	"assistant.resize_sidebar": "調整對話清單寬度"
+	"assistant.resize_sidebar": "調整對話清單寬度",
+	"tasks.view_diff": "檢視差異",
+	"tasks.diff_title": "變更",
+	"tasks.diff_close": "關閉變更",
+	"tasks.diff_resize": "調整變更面板寬度",
+	"tasks.diff_error": "無法載入變更。",
+	"tasks.diff_empty": "此次嘗試沒有記錄變更。",
+	"tasks.diff_truncated": "差異過大已被截斷；其餘部分請在拉取請求中查看。"
 }

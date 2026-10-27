@@ -145,6 +145,8 @@ export const agentTasks = {
 		api.get<ValidationArtifact[]>(`${task(slug, id)}/runs/${encodeURIComponent(run)}/artifacts`),
 	artifact: (slug: string, id: string, run: string, artifact: string) =>
 		api.blob(`${task(slug, id)}/runs/${encodeURIComponent(run)}/artifacts/${encodeURIComponent(artifact)}`),
+	diff: (slug: string, id: string, run: string) =>
+		api.get<{ diff: string; truncated: boolean }>(`${task(slug, id)}/runs/${encodeURIComponent(run)}/diff`),
 	validation: (slug: string, id: string, run: string) =>
 		api.get<ValidationStep | null>(`${task(slug, id)}/runs/${encodeURIComponent(run)}/validation`),
 	queue: (slug: string) => api.get<AgentQueueItem[]>(`${base(slug)}/agent-tasks`),

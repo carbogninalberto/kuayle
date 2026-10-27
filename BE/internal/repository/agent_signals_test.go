@@ -328,3 +328,18 @@ func TestReviewPullRequestsListOnlyTasksAwaitingReview(t *testing.T) {
 		require.NotEqual(t, task.WorkspaceID, pull.WorkspaceID, "finished tasks are not checked again")
 	}
 }
+
+func TestAttemptDiffsAreReadableOnlyWithTheTask(t *testing.T) {
+	db, repo, ctx, task := reviewableTask(t)
+	_, err := db.Exec(`UPDATE dev_machine_agent_runs SET diff='diff --git a/x b/x',diff_truncated=true WHERE id=$1`, task.RunID)
+	require.NoError(t, err)
+	diff, err := repo.Diff(ctx, task.WorkspaceID, task.ID, task.RunID)
+	require.NoError(t, err)
+	require.Equal(t, "diff --git a/x b/x", diff.Diff)
+	require.True(t, diff.Truncated)
+	_, err = repo.Diff(ctx, task.WorkspaceID, task.ID, uuid.New())
+	require.ErrorIs(t, err, ErrConversationNotFound, "only the task's own attempts")
+	stranger := domain.WithAccess(context.Background(), domain.Access{WorkspaceID: task.WorkspaceID, UserID: uuid.New()})
+	_, err = repo.Diff(stranger, task.WorkspaceID, task.ID, task.RunID)
+	require.Error(t, err, "non-members cannot read the diff")
+}

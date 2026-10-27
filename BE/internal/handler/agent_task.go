@@ -191,6 +191,24 @@ func (h *AgentTaskHandler) Logs(c echo.Context) error {
 	return response.Success(c, http.StatusOK, result)
 }
 
+// Diff returns an attempt's captured diff against its base branch.
+func (h *AgentTaskHandler) Diff(c echo.Context) error {
+	id, err := taskID(c, "taskId")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	run, err := taskID(c, "runId")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	result, err := h.svc.Repo.Diff(c.Request().Context(), middleware.GetWorkspace(c).ID, id, run)
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	c.Response().Header().Set("Cache-Control", "private, no-store")
+	return response.Success(c, http.StatusOK, result)
+}
+
 func (h *AgentTaskHandler) Validation(c echo.Context) error {
 	id, err := taskID(c, "taskId")
 	if err != nil {

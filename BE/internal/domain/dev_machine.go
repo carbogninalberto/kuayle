@@ -299,6 +299,8 @@ type DevMachineAgentRun struct {
 	Branch                 *string                  `json:"branch,omitempty" db:"branch"`
 	PullRequestURL         *string                  `json:"pull_request_url,omitempty" db:"pull_request_url"`
 	NativeSessionID        *string                  `json:"-" db:"native_session_id"`
+	Diff                   string                   `json:"-" db:"diff"`
+	DiffTruncated          bool                     `json:"-" db:"diff_truncated"`
 	TestsRun               json.RawMessage          `json:"tests_run" db:"tests_run"`
 	TestStatus             string                   `json:"test_status" db:"test_status"`
 	RiskNotes              json.RawMessage          `json:"risk_notes" db:"risk_notes"`

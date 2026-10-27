@@ -2078,5 +2078,12 @@
 	"assistant.folder_save_failed": "Could not save the folder",
 	"assistant.move_failed": "Could not move the conversation",
 	"assistant.delete_failed": "Could not delete. Wait for running replies or agent work to finish.",
-	"assistant.resize_sidebar": "Resize conversation list"
+	"assistant.resize_sidebar": "Resize conversation list",
+	"tasks.view_diff": "View diff",
+	"tasks.diff_title": "Changes",
+	"tasks.diff_close": "Close changes",
+	"tasks.diff_resize": "Resize changes panel",
+	"tasks.diff_error": "Could not load the changes.",
+	"tasks.diff_empty": "This attempt recorded no changes.",
+	"tasks.diff_truncated": "The diff is too large and was cut off; open the pull request for the rest."
 }

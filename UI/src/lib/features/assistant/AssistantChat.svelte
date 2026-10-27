@@ -27,6 +27,8 @@
 	import ToolSources from './ToolSources.svelte';
 	import Markdown from './Markdown.svelte';
 	import ConversationNav from './ConversationNav.svelte';
+	import DiffPanel from './DiffPanel.svelte';
+	import * as Sheet from '$lib/components/ui/sheet/index.js';
 	import * as Resizable from '$lib/components/ui/resizable/index.js';
 	import { MediaQuery } from 'svelte/reactivity';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
@@ -255,7 +257,7 @@
 				<AgentQueue {slug} />
 			</aside>
 	{/snippet}
-	{#snippet conversationPane()}
+	{#snippet chatSection()}
 		<section class="flex min-h-0 min-w-0 flex-1 flex-col" aria-label={m['assistant.conversation']()}>
 			{#if conversationId && !chat.loading && !chat.unavailable}
 				<div class="flex shrink-0 items-center gap-2 px-5 pt-3 text-xs text-muted-foreground">
@@ -413,6 +415,37 @@
 				</form>
 			</div>
 		</section>
+	{/snippet}
+	{#snippet conversationPane()}
+		{#if chat.diffView && wide && !embedded}
+			<!-- The diff opens beside the chat; the chat keeps the left side. -->
+			<Resizable.PaneGroup direction="horizontal" autoSaveId="kuayle-assistant-diff" class="min-h-0 flex-1">
+				<Resizable.Pane minSize={30} class="flex min-w-0">{@render chatSection()}</Resizable.Pane>
+				<Resizable.Handle withHandle aria-label={m['tasks.diff_resize']()} />
+				<Resizable.Pane defaultSize={45} minSize={25} class="min-w-0 border-l"
+					><DiffPanel
+						slug={chat.slug}
+						taskId={chat.diffView.taskId}
+						runId={chat.diffView.runId}
+						title={chat.diffView.title}
+						onclose={() => (chat.diffView = null)}
+					/></Resizable.Pane
+				>
+			</Resizable.PaneGroup>
+		{:else}
+			{@render chatSection()}
+			<Sheet.Root open={!!chat.diffView} onOpenChange={(open) => !open && (chat.diffView = null)}>
+				<Sheet.Content side="right" class="w-full p-0 sm:max-w-2xl">
+					{#if chat.diffView}<DiffPanel
+							slug={chat.slug}
+							taskId={chat.diffView.taskId}
+							runId={chat.diffView.runId}
+							title={chat.diffView.title}
+							onclose={() => (chat.diffView = null)}
+						/>{/if}
+				</Sheet.Content>
+			</Sheet.Root>
+		{/if}
 	{/snippet}
 	<div class="flex min-h-0 min-w-0 flex-1 flex-col md:flex-row">
 		{#if !embedded && wide}

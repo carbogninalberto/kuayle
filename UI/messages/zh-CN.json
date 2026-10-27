@@ -2078,5 +2078,12 @@
 	"assistant.folder_save_failed": "无法保存文件夹",
 	"assistant.move_failed": "无法移动对话",
 	"assistant.delete_failed": "无法删除。请等待正在进行的回复或智能体任务完成。",
-	"assistant.resize_sidebar": "调整对话列表宽度"
+	"assistant.resize_sidebar": "调整对话列表宽度",
+	"tasks.view_diff": "查看差异",
+	"tasks.diff_title": "更改",
+	"tasks.diff_close": "关闭更改",
+	"tasks.diff_resize": "调整更改面板宽度",
+	"tasks.diff_error": "无法加载更改。",
+	"tasks.diff_empty": "此次尝试没有记录更改。",
+	"tasks.diff_truncated": "差异过大已被截断；其余部分请在拉取请求中查看。"
 }

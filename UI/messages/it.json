@@ -2078,5 +2078,12 @@
 	"assistant.folder_save_failed": "Impossibile salvare la cartella",
 	"assistant.move_failed": "Impossibile spostare la conversazione",
 	"assistant.delete_failed": "Impossibile eliminare. Attendi la fine delle risposte o del lavoro degli agenti in corso.",
-	"assistant.resize_sidebar": "Ridimensiona l'elenco delle conversazioni"
+	"assistant.resize_sidebar": "Ridimensiona l'elenco delle conversazioni",
+	"tasks.view_diff": "Vedi modifiche",
+	"tasks.diff_title": "Modifiche",
+	"tasks.diff_close": "Chiudi modifiche",
+	"tasks.diff_resize": "Ridimensiona il pannello delle modifiche",
+	"tasks.diff_error": "Impossibile caricare le modifiche.",
+	"tasks.diff_empty": "Questo tentativo non ha registrato modifiche.",
+	"tasks.diff_truncated": "Il diff è troppo grande ed è stato troncato; apri la pull request per il resto."
 }

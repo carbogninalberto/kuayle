@@ -16,7 +16,8 @@
 		ExternalLink,
 		GitPullRequest,
 		SquareTerminal,
-		Bot
+		Bot,
+		FileDiff
 	} from '@lucide/svelte';
 	import { useTerminalDock } from '$lib/features/dev-machines/terminal-dock-context.svelte';
 	import { agentSessionCommand, resumableStates } from './agent-session';
@@ -302,6 +303,10 @@
 	// directly beside (or instead of) the agent.
 	const dock = useTerminalDock();
 	const tone = $derived(taskTone(task.state));
+	// An attempt's diff is captured when its native run ends.
+	const diffReady = $derived(
+		!!selectedRun && (changedFiles.length > 0 || !['queued', 'preparing', 'running', 'cancelling', 'cancelled'].includes(task.state))
+	);
 	const sessionCommand = $derived(
 		resumableStates.includes(task.state) ? agentSessionCommand(task.provider, task.id) : undefined
 	);
@@ -460,6 +465,16 @@
 			>{/if}
 		{#if canRetry}<Button variant="outline" size="sm" disabled={busy} onclick={() => onretry(task)}
 				>{m['tasks.retry']()}</Button
+			>{/if}
+		{#if diffReady}<Button
+				variant="outline"
+				size="sm"
+				onclick={() =>
+					(chat.diffView = {
+						taskId: task.id,
+						runId: selectedRun,
+						title: `${chat.issue?.identifier ?? ''} · ${m['tasks.attempt']({ number: task.generation })}`
+					})}><FileDiff />{m['tasks.view_diff']()}</Button
 			>{/if}
 		{#if pullRequest}<Button variant="outline" size="sm" href={pullRequest} target="_blank" rel="noopener noreferrer"
 				><GitPullRequest />{m['tasks.open_pull_request']()}</Button

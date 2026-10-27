@@ -18,6 +18,8 @@ export class ConversationState {
 	// Approvals by tool call. The backend is the authority; this is display state.
 	approvals = $state<Record<string, ConversationApproval>>({});
 	liveTasks = $state<Record<string, AgentTask>>({});
+	// The attempt whose diff is open beside the chat.
+	diffView = $state<{ taskId: string; runId: string; title: string } | null>(null);
 	taskActivity = $state<Record<string, TaskActivity>>({});
 	taskValidationCursor = $state<Record<string, number>>({});
 	taskPublicationCursor = $state<Record<string, number>>({});
