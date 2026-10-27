@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -29,6 +30,18 @@ func (p *builtinProvider) BuildInvocation(input RunInput) (Invocation, error) {
 	}
 	argv := p.build(input)
 	argv = append(argv, input.ExtraArgs...)
+	if input.Session != nil && input.Mode == ModeAutonomous && (p.metadata.ID == "codex" || p.metadata.ID == "claude-code") {
+		for _, id := range []string{input.Session.ResumeID, input.Session.NewID} {
+			if id != "" && !ValidSessionID(id) {
+				return Invocation{}, fmt.Errorf("invalid agent session ID")
+			}
+		}
+		wrapped, err := sessionWrapper(input.Session.Dir, argv)
+		if err != nil {
+			return Invocation{}, err
+		}
+		argv = wrapped
+	}
 	var environment map[string]string
 	if p.environment != nil {
 		environment = p.environment(input)
@@ -71,6 +84,13 @@ func NewClaudeCodeProvider(image string) Provider {
 			}
 			if input.Model != "" {
 				argv = append(argv, "--model", input.Model)
+			}
+			if input.Mode == ModeAutonomous && input.Session != nil {
+				if input.Session.ResumeID != "" {
+					argv = append(argv, "--resume", input.Session.ResumeID)
+				} else if input.Session.NewID != "" {
+					argv = append(argv, "--session-id", input.Session.NewID)
+				}
 			}
 			if input.Mode == ModeAutonomous {
 				argv = append(argv, "-p", input.Prompt)
@@ -246,6 +266,12 @@ func NewCodexProvider(image string) Provider {
 			if input.Mode == ModeInteractive {
 				argv := []string{"codex"}
 				return appendCodexOverrides(argv, input)
+			}
+			if input.Session != nil && input.Session.ResumeID != "" {
+				// `exec resume` has no --full-auto; pass its sandbox and approval
+				// settings explicitly so a resumed attempt keeps the same limits.
+				argv := appendCodexOverrides([]string{"codex", "exec", "resume", "--json", "-c", `sandbox_mode="workspace-write"`, "-c", `approval_policy="never"`}, input)
+				return append(argv, input.Session.ResumeID, input.Prompt)
 			}
 			argv := appendCodexOverrides([]string{"codex", "exec", "--json", "--full-auto"}, input)
 			return append(argv, input.Prompt)
@@ -470,4 +496,33 @@ func (p *CustomCLIProvider) ParseResult(stdout, stderr string, exitCode int) Run
 		return result
 	}
 	return defaultResult(stdout, stderr, exitCode)
+}
+
+var (
+	sessionDirPattern = regexp.MustCompile(`^/workspace/\.kuayle/agent-sessions/[0-9a-f-]{36}$`)
+	sessionIDPattern  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,127}$`)
+)
+
+// sessionScript links only the harnesses' transcript directories to the task's
+// session directory; config.toml, auth files and credentials stay on tmpfs.
+const sessionScript = `set -eu
+dir=$1
+shift
+mkdir -p "$dir/codex" "$dir/claude" "$HOME/.codex" "$HOME/.claude"
+rm -rf "$HOME/.codex/sessions" "$HOME/.claude/projects"
+ln -s "$dir/codex" "$HOME/.codex/sessions"
+ln -s "$dir/claude" "$HOME/.claude/projects"
+exec "$@"
+`
+
+func sessionWrapper(dir string, argv []string) ([]string, error) {
+	if !sessionDirPattern.MatchString(dir) {
+		return nil, fmt.Errorf("invalid agent session directory")
+	}
+	return append([]string{"/bin/sh", "-c", sessionScript, "kuayle-session", dir}, argv...), nil
+}
+
+// ValidSessionID reports whether a native session ID is safe to pass to a CLI.
+func ValidSessionID(id string) bool {
+	return sessionIDPattern.MatchString(id)
 }

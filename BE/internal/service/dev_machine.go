@@ -1509,10 +1509,19 @@ func (s *DevMachineService) createAgentRun(ctx context.Context, workspaceID, mac
 	invocation, err := provider.BuildInvocation(agent.RunInput{
 		Mode: agent.Mode(req.Mode), Prompt: prompt, WorkspacePath: workspacePath,
 		AcceptanceCriteria: req.AcceptanceCriteria, TestCommand: req.TestCommand, ExtraArgs: req.ExtraArgs, Config: config,
-		Model: req.Model, Thinking: req.Thinking,
+		Model: req.Model, Thinking: req.Thinking, Session: req.Session,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("%w: provider rejected the agent run configuration", ErrInvalidMachineInput)
+	}
+	// Claude Code accepts a Kuayle-assigned session ID; Codex reports its own.
+	var nativeSession *string
+	if req.Session != nil && req.Provider == "claude-code" {
+		if req.Session.ResumeID != "" {
+			nativeSession = &req.Session.ResumeID
+		} else if req.Session.NewID != "" {
+			nativeSession = &req.Session.NewID
+		}
 	}
 	commandArgv, _ := json.Marshal(invocation.Argv)
 	commandEnvironment := []byte(`{}`)
@@ -1542,7 +1551,7 @@ func (s *DevMachineService) createAgentRun(ctx context.Context, workspaceID, mac
 		AllowedCommands: allowedCommands, ForbiddenPaths: forbiddenPaths, AllowedSecrets: allowedSecrets, TestCommand: &testCommand,
 		CommandArgv: commandArgv, CommandEnvironment: commandEnvironment, Model: req.Model, Thinking: req.Thinking,
 		MaxRuntimeSeconds: timeout, PushBranch: pushBranch,
-		OpenPullRequest: req.OpenPullRequest,
+		OpenPullRequest: req.OpenPullRequest, NativeSessionID: nativeSession,
 	}
 	operation := &domain.DevMachineOperation{
 		ID: uuid.New(), MachineID: machineID, AgentRunID: &runID, WorkspaceID: workspaceID,

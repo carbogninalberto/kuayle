@@ -28,6 +28,7 @@ type ManagerStore interface {
 	CompleteValidation(context.Context, domain.DevMachineOperation, int) error
 	CreateValidationOutput(context.Context, domain.DevMachineOperation, *domain.DevMachineLogChunk) error
 	ListResourceAllocations(context.Context) ([]domain.DevMachineResourceAllocation, error)
+	RecordNativeSession(context.Context, uuid.UUID, string) error
 	DeferOperation(context.Context, uuid.UUID, string, string, string, time.Duration) error
 	GetPublication(context.Context, domain.DevMachineOperation) (*domain.AgentPublication, error)
 	StartPublication(context.Context, domain.DevMachineOperation) error
@@ -336,7 +337,7 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 	}
 	if operation.Generation < machine.Generation {
 		switch operation.Action {
-		case domain.DevMachineOpTeardown, domain.DevMachineOpCancelAgent, domain.DevMachineOpTerminateTerminal:
+		case domain.DevMachineOpTeardown, domain.DevMachineOpCancelAgent, domain.DevMachineOpTerminateTerminal, domain.DevMachineOpPurgeTaskSession:
 			// Destructive cleanup must still converge after a newer generation.
 		case domain.DevMachineOpCheckoutIssue:
 			if operation.CheckoutID != nil {
@@ -469,6 +470,8 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 		return m.validateAgent(ctx, machine, operation)
 	case domain.DevMachineOpPublishAgent:
 		return m.publishAgent(ctx, machine, operation)
+	case domain.DevMachineOpPurgeTaskSession:
+		return m.purgeTaskSession(ctx, machine, operation)
 	case domain.DevMachineOpRunAgent:
 		return m.runAgent(ctx, machine, operation)
 	case domain.DevMachineOpCancelAgent:
@@ -958,6 +961,14 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 		var events []domain.DevMachineEvent
 		if stream == "stdout" && !truncated {
 			for _, parsed := range provider.ParseEvents([]byte(content)) {
+				if id := codexThreadID(run, parsed); id != "" {
+					writeCtx, cancelWrite := context.WithTimeout(runContext, 5*time.Second)
+					err := m.store.RecordNativeSession(writeCtx, run.ID, id)
+					cancelWrite()
+					if err != nil {
+						return fmt.Errorf("agent_session_persistence_failed: %w", err)
+					}
+				}
 				payload := parsed.Payload
 				if len(payload) == 0 {
 					payload, _ = json.Marshal(map[string]any{"message": parsed.Message})
@@ -1676,4 +1687,54 @@ func (m *Manager) cancelUnauthorizedRun(ctx context.Context, run *domain.DevMach
 	}
 	m.cancelStaleAgentRun(ctx, run.ID)
 	return nil
+}
+
+// codexThreadID returns the native session a task attempt's Codex harness
+// reported in its own event stream, if valid. Only task attempts are resumed.
+func codexThreadID(run *domain.DevMachineAgentRun, event agent.Event) string {
+	if run.TaskID == nil || run.ProviderID != "codex" || event.Type != "thread.started" {
+		return ""
+	}
+	var started struct {
+		ThreadID string `json:"thread_id"`
+	}
+	if json.Unmarshal(event.Payload, &started) != nil || !agent.ValidSessionID(started.ThreadID) {
+		return ""
+	}
+	return started.ThreadID
+}
+
+// purgeTaskSession removes a finished task's harness transcripts from the
+// machine's workspace volume. It works while the machine is paused or stopped;
+// a destroyed volume has nothing left to remove.
+func (m *Manager) purgeTaskSession(ctx context.Context, machine *domain.DevMachine, op *domain.DevMachineOperation) error {
+	if op.CheckoutID == nil || machine.WorkspaceVolumeName == nil || machine.Status == domain.DevMachineStatusDestroyed {
+		return nil
+	}
+	checkout, err := m.store.GetCheckoutInternal(ctx, *op.CheckoutID)
+	if err != nil {
+		return err
+	}
+	if checkout == nil || checkout.MachineID != machine.ID {
+		return nil
+	}
+	taskID, err := uuid.Parse(checkout.ScopeKey)
+	if err != nil {
+		return &terminalOperationError{code: "session_purge_invalid", message: "Checkout is not a task checkout"}
+	}
+	services, err := m.store.ListServices(ctx, machine.WorkspaceID, machine.ID)
+	if err != nil {
+		return err
+	}
+	image := ""
+	for _, service := range services {
+		if service.ServiceType == "ide" || service.ServiceType == "terminal" {
+			image = service.ImageRef
+			break
+		}
+	}
+	if image == "" {
+		return &terminalOperationError{code: "session_purge_unavailable", message: "Developer environment image is unknown"}
+	}
+	return m.runtime.PurgeTaskSession(ctx, machine, image, taskID)
 }

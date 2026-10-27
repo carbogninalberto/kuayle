@@ -213,6 +213,8 @@ type AgentTaskFollowUp struct {
 // this explicit handoff instead of hidden context.
 type AgentHandoff struct {
 	AttemptID          uuid.UUID
+	MachineID          uuid.UUID
+	NativeSessionID    string
 	Status             string
 	Summary            string
 	ChangedFiles       []string

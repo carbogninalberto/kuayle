@@ -194,9 +194,35 @@ func recordAgentTaskTransition(ctx context.Context, tx *sqlx.Tx, task domain.Age
 		if _, err = conversationEvent(ctx, tx, *task.ConversationID, "task.state_changed", task); err != nil {
 			return err
 		}
-		err = notifyTaskTelegram(ctx, tx, task)
+		if err = notifyTaskTelegram(ctx, tx, task); err != nil {
+			return err
+		}
 	}
-	return err
+	return purgeTaskSession(ctx, tx, task)
+}
+
+// purgeTaskSession queues removal of a finished task's native harness
+// transcripts. Failed tasks keep them, since an explicit retry may resume.
+func purgeTaskSession(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask) error {
+	if (task.State != "completed" && task.State != "cancelled") || task.MachineID == nil {
+		return nil
+	}
+	// Sessions exist only after an attempt ran in the task's checkout; a task
+	// cancelled before its checkout was created has nothing to purge.
+	var generation int64
+	err := tx.GetContext(ctx, &generation, `SELECT m.generation FROM dev_machines m JOIN dev_machine_checkouts c ON c.machine_id=m.id AND c.id=$3
+ WHERE m.id=$1 AND m.workspace_id=$2 AND m.status<>'destroyed'`, task.MachineID, task.WorkspaceID, task.CheckoutID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return enqueueOperation(ctx, tx, &domain.DevMachineOperation{
+		WorkspaceID: task.WorkspaceID, MachineID: *task.MachineID, CheckoutID: &task.CheckoutID,
+		Action: domain.DevMachineOpPurgeTaskSession, Status: domain.DevMachineOpStatusPending, Generation: generation,
+		IdempotencyKey: "task-session-purge:" + task.ID.String(), RequestedByUserID: &task.CreatorID, MaxAttempts: 5,
+	})
 }
 func transitionAgentTask(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, to, reason string, actor *uuid.UUID) error {
 	if !domain.ValidAgentTaskTransition(task.State, to) || len(reason) > 2048 || strings.TrimSpace(reason) == "" {

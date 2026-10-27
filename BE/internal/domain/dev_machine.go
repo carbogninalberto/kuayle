@@ -41,6 +41,7 @@ const (
 	DevMachineOpRunAgent            DevMachineOperationAction = "run_agent"
 	DevMachineOpValidateAgent       DevMachineOperationAction = "validate_agent"
 	DevMachineOpPublishAgent        DevMachineOperationAction = "publish_agent"
+	DevMachineOpPurgeTaskSession    DevMachineOperationAction = "purge_task_session"
 	DevMachineOpCancelAgent         DevMachineOperationAction = "cancel_agent"
 	DevMachineOpCheckoutIssue       DevMachineOperationAction = "checkout_issue"
 	DevMachineOpSnapshotEnvironment DevMachineOperationAction = "snapshot_environment"
@@ -296,6 +297,7 @@ type DevMachineAgentRun struct {
 	Commits                json.RawMessage          `json:"commits" db:"commits"`
 	Branch                 *string                  `json:"branch,omitempty" db:"branch"`
 	PullRequestURL         *string                  `json:"pull_request_url,omitempty" db:"pull_request_url"`
+	NativeSessionID        *string                  `json:"-" db:"native_session_id"`
 	TestsRun               json.RawMessage          `json:"tests_run" db:"tests_run"`
 	TestStatus             string                   `json:"test_status" db:"test_status"`
 	RiskNotes              json.RawMessage          `json:"risk_notes" db:"risk_notes"`

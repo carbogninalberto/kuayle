@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/kuayle/kuayle-backend/internal/agent"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/realtime"
@@ -341,17 +342,20 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 	if domain.ValidateTestCommand(command) != nil {
 		return nil, ErrInvalidMachineInput
 	}
-	prompt := task.Prompt
+	var previous *domain.AgentHandoff
 	if task.Generation > 1 {
-		previous, err := r.tasks.PreviousAttempt(ctx, task)
-		if err != nil {
+		if previous, err = r.tasks.PreviousAttempt(ctx, task); err != nil {
 			return nil, err
 		}
-		prompt = withHandoff(prompt, previous)
+	}
+	session := taskSession(task, previous)
+	prompt := task.Prompt
+	if task.Generation > 1 {
+		prompt = withHandoff(prompt, previous, session.ResumeID != "")
 	}
 	push := false
 	checkout := task.CheckoutID.String()
-	return s.createAgentRun(ctx, task.WorkspaceID, *task.MachineID, task.CreatorID, dto.CreateAgentRunRequest{Provider: task.Provider, Mode: "autonomous", Prompt: prompt, TestCommand: command, CheckoutID: &checkout, Model: task.Model, Thinking: task.Thinking, PushBranch: &push, MaxRuntimeSeconds: timeout}, task.RunID)
+	return s.createAgentRun(ctx, task.WorkspaceID, *task.MachineID, task.CreatorID, dto.CreateAgentRunRequest{Provider: task.Provider, Mode: "autonomous", Prompt: prompt, TestCommand: command, CheckoutID: &checkout, Model: task.Model, Thinking: task.Thinking, PushBranch: &push, MaxRuntimeSeconds: timeout, Session: session}, task.RunID)
 }
 func (r *devMachineTaskRuntime) Cancel(ctx context.Context, task domain.AgentTask) error {
 	return r.tasks.CancelAttempt(ctx, task)
@@ -377,12 +381,16 @@ const handoffMarker = "\n\n---\nSuccessor attempt handoff"
 // harness sessions are not restored between attempts, so this successor is
 // explicitly identified and told what already happened on the same worktree.
 // The previous agent's summary is fenced as untrusted text.
-func withHandoff(prompt string, previous *domain.AgentHandoff) string {
+func withHandoff(prompt string, previous *domain.AgentHandoff, resumed bool) string {
 	if previous == nil {
 		return prompt
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s (previous attempt %s): this is a new session on the same branch and worktree; the previous session cannot be resumed.\n", handoffMarker, previous.AttemptID)
+	if resumed {
+		fmt.Fprintf(&b, "%s (previous attempt %s): this continues your previous session on the same branch and worktree. Kuayle recorded the following since then.\n", handoffMarker, previous.AttemptID)
+	} else {
+		fmt.Fprintf(&b, "%s (previous attempt %s): this is a new session on the same branch and worktree; the previous session cannot be resumed.\n", handoffMarker, previous.AttemptID)
+	}
 	fmt.Fprintf(&b, "- Previous native outcome: %s\n", previous.Status)
 	switch {
 	case previous.Validation == "":
@@ -413,4 +421,18 @@ func withHandoff(prompt string, previous *domain.AgentHandoff) string {
 		base = truncateRunes(base, max(room/4, 0))
 	}
 	return base + handoff
+}
+
+// taskSession places a task's harness transcripts in its own directory and
+// resumes natively only from a succeeded attempt on the same machine, where
+// those transcripts live. Otherwise the successor starts a fresh session and
+// relies on the recorded handoff, so a failed resume is never repeated.
+func taskSession(task domain.AgentTask, previous *domain.AgentHandoff) *agent.SessionInput {
+	session := &agent.SessionInput{Dir: "/workspace/.kuayle/agent-sessions/" + task.ID.String()}
+	if previous != nil && task.MachineID != nil && previous.Status == "succeeded" && previous.MachineID == *task.MachineID && agent.ValidSessionID(previous.NativeSessionID) {
+		session.ResumeID = previous.NativeSessionID
+	} else if task.Provider == "claude-code" {
+		session.NewID = uuid.NewString()
+	}
+	return session
 }

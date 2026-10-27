@@ -16,6 +16,8 @@ import (
 func (r *AgentTaskRepository) PreviousAttempt(ctx context.Context, task domain.AgentTask) (*domain.AgentHandoff, error) {
 	var row struct {
 		ID           uuid.UUID       `db:"id"`
+		MachineID    uuid.UUID       `db:"machine_id"`
+		Session      *string         `db:"native_session_id"`
 		Status       string          `db:"status"`
 		Summary      *string         `db:"summary"`
 		ChangedFiles json.RawMessage `db:"changed_files"`
@@ -23,7 +25,7 @@ func (r *AgentTaskRepository) PreviousAttempt(ctx context.Context, task domain.A
 		ExitCode     *int            `db:"exit_code"`
 		PullRequest  *string         `db:"pull_request"`
 	}
-	err := r.db.GetContext(ctx, &row, `SELECT r.id,r.status::text AS status,r.summary,r.changed_files,
+	err := r.db.GetContext(ctx, &row, `SELECT r.id,r.machine_id,r.native_session_id,r.status::text AS status,r.summary,r.changed_files,
  v.status::text AS validation,v.exit_code,
  CASE WHEN p.status='succeeded' THEN r.pull_request_url END AS pull_request
  FROM dev_machine_agent_runs r
@@ -36,7 +38,10 @@ func (r *AgentTaskRepository) PreviousAttempt(ctx context.Context, task domain.A
 	if err != nil {
 		return nil, err
 	}
-	handoff := &domain.AgentHandoff{AttemptID: row.ID, Status: row.Status, ValidationExitCode: row.ExitCode}
+	handoff := &domain.AgentHandoff{AttemptID: row.ID, MachineID: row.MachineID, Status: row.Status, ValidationExitCode: row.ExitCode}
+	if row.Session != nil {
+		handoff.NativeSessionID = *row.Session
+	}
 	if row.Summary != nil {
 		handoff.Summary = *row.Summary
 	}

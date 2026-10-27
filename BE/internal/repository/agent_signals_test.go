@@ -220,3 +220,33 @@ func TestPreviewRoutesToTheRunningDeveloperServiceOnItsPort(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, route)
 }
+
+func TestNativeSessionsAreRecordedOnceAndHandedToTheSuccessor(t *testing.T) {
+	db, repo, ctx, task := reviewableTask(t)
+	store := NewDevMachineRepository(db)
+	require.NoError(t, store.RecordNativeSession(ctx, task.RunID, "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b"))
+	require.NoError(t, store.RecordNativeSession(ctx, task.RunID, "ffffffff-c3d4-7e5f-8a9b-0c1d2e3f4a5b"), "a later report never replaces it")
+	_, err := db.Exec(`UPDATE dev_machine_agent_runs SET native_session_id='--last' WHERE id=$1`, task.RunID)
+	require.Error(t, err, "the schema rejects unsafe session IDs")
+	current, err := repo.Get(ctx, task.WorkspaceID, task.ID)
+	require.NoError(t, err)
+	retried, err := repo.Retry(ctx, task.WorkspaceID, task.ID, domain.AgentTaskRetryRequest{RequestID: uuid.New(), Generation: current.Generation, Prompt: "Follow up"})
+	require.NoError(t, err)
+	previous, err := repo.PreviousAttempt(ctx, *retried)
+	require.NoError(t, err)
+	require.Equal(t, "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", previous.NativeSessionID)
+	require.Equal(t, *current.MachineID, previous.MachineID)
+	var purges int
+	require.NoError(t, db.Get(&purges, `SELECT count(*) FROM dev_machine_operations WHERE action='purge_task_session'`))
+	require.Zero(t, purges, "a task still in progress keeps its sessions")
+}
+
+func TestCompletedTasksQueueOnePurgeOfTheirTranscripts(t *testing.T) {
+	db, repo, _, task := reviewableTask(t)
+	n, err := repo.CompleteMergedPullRequest(context.Background(), task.WorkspaceID, "fixture/repo", 12)
+	require.NoError(t, err)
+	require.Equal(t, 1, n)
+	var purges int
+	require.NoError(t, db.Get(&purges, `SELECT count(*) FROM dev_machine_operations WHERE action='purge_task_session' AND checkout_id=$1 AND status='pending'`, task.CheckoutID))
+	require.Equal(t, 1, purges)
+}

@@ -37,6 +37,20 @@ type RunInput struct {
 	Config             json.RawMessage `json:"config"`
 	Model              string          `json:"model,omitempty"`
 	Thinking           string          `json:"thinking,omitempty"`
+	// Session is set by Kuayle for agent task attempts only, never from HTTP.
+	Session *SessionInput `json:"-"`
+}
+
+// SessionInput keeps a harness's session transcripts in a per-task directory
+// on the machine's workspace volume, so a later attempt can resume natively.
+// Only transcripts are persisted: configuration and credentials stay on the
+// container's ephemeral home.
+type SessionInput struct {
+	Dir string
+	// ResumeID resumes that native session; NewID names a new one when the
+	// harness lets Kuayle choose (Claude Code). Codex reports its own ID.
+	ResumeID string
+	NewID    string
 }
 
 type Invocation struct {

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/kuayle/kuayle-backend/internal/agent"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/stretchr/testify/require"
 )
@@ -85,4 +86,42 @@ func TestSpawnWithoutHostCapacityIsDeferredNotFailed(t *testing.T) {
 	require.Equal(t, []string{"host_capacity_wait"}, store.deferred)
 	require.Zero(t, store.failed, "waiting for capacity is not a failure")
 	require.Zero(t, runtime.spawned)
+}
+
+func TestCodexThreadIDIsCapturedOnlyForTaskAttempts(t *testing.T) {
+	task := uuid.New()
+	run := &domain.DevMachineAgentRun{ProviderID: "codex", TaskID: &task}
+	started := agent.Event{Type: "thread.started", Payload: []byte(`{"type":"thread.started","thread_id":"0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b"}`)}
+	require.Equal(t, "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", codexThreadID(run, started))
+	require.Empty(t, codexThreadID(&domain.DevMachineAgentRun{ProviderID: "codex"}, started), "manual runs are not resumed")
+	require.Empty(t, codexThreadID(&domain.DevMachineAgentRun{ProviderID: "claude-code", TaskID: &task}, started))
+	require.Empty(t, codexThreadID(run, agent.Event{Type: "thread.started", Payload: []byte(`{"thread_id":"--last"}`)}))
+	require.Empty(t, codexThreadID(run, agent.Event{Type: "item.completed", Payload: started.Payload}))
+}
+
+type purgeRuntimeFake struct {
+	*runtimeFake
+	purged []uuid.UUID
+	image  string
+}
+
+func (f *purgeRuntimeFake) PurgeTaskSession(_ context.Context, _ *domain.DevMachine, image string, task uuid.UUID) error {
+	f.purged, f.image = append(f.purged, task), image
+	return nil
+}
+
+func TestPurgeTaskSessionRemovesOnlyTheTasksTranscripts(t *testing.T) {
+	task, checkoutID := uuid.New(), uuid.New()
+	volume := "workspace"
+	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), Status: domain.DevMachineStatusPaused, WorkspaceVolumeName: &volume}
+	store := &managerStoreFake{machine: machine, checkout: &domain.DevMachineCheckout{ID: checkoutID, MachineID: machine.ID, ScopeKey: task.String()}, services: []domain.DevMachineService{{ServiceType: "ide", ImageRef: "developer:fixture"}}}
+	runtime := &purgeRuntimeFake{runtimeFake: &runtimeFake{}}
+	manager := &Manager{store: store, runtime: runtime}
+	require.NoError(t, manager.purgeTaskSession(context.Background(), machine, &domain.DevMachineOperation{CheckoutID: &checkoutID}))
+	require.Equal(t, []uuid.UUID{task}, runtime.purged, "works while the machine is paused")
+	require.Equal(t, "developer:fixture", runtime.image)
+	store.checkout.ScopeKey = ""
+	var terminal *terminalOperationError
+	require.ErrorAs(t, manager.purgeTaskSession(context.Background(), machine, &domain.DevMachineOperation{CheckoutID: &checkoutID}), &terminal, "a manual checkout is never purged")
+	require.Len(t, runtime.purged, 1)
 }

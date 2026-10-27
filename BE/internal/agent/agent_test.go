@@ -332,3 +332,37 @@ func TestSubscriptionCapableProvidersDoNotRequireAPIKeys(t *testing.T) {
 		require.Empty(t, invocation.SecretNames, metadata.ID)
 	}
 }
+
+func TestTaskSessionsPersistOnlyTranscriptsAndResumeNatively(t *testing.T) {
+	dir := "/workspace/.kuayle/agent-sessions/0b6f3c55-8ad4-4f0e-9a0c-5a7dbf0e2d11"
+	codex := NewCodexProvider("codex:test")
+	fresh, err := codex.BuildInvocation(RunInput{Mode: ModeAutonomous, Prompt: "Fix it", Session: &SessionInput{Dir: dir}})
+	require.NoError(t, err)
+	require.Equal(t, []string{"/bin/sh", "-c", sessionScript, "kuayle-session", dir, "codex", "exec", "--json", "--full-auto", "Fix it"}, fresh.Argv)
+	require.Contains(t, sessionScript, `ln -s "$dir/codex" "$HOME/.codex/sessions"`)
+	require.NotContains(t, sessionScript, "config.toml", "configuration and credentials stay on the ephemeral home")
+	resumed, err := codex.BuildInvocation(RunInput{Mode: ModeAutonomous, Prompt: "Address review", Session: &SessionInput{Dir: dir, ResumeID: "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b"}})
+	require.NoError(t, err)
+	require.Equal(t, []string{"codex", "exec", "resume", "--json", "-c", `sandbox_mode="workspace-write"`, "-c", `approval_policy="never"`, "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", "Address review"}, resumed.Argv[5:])
+
+	claude := NewClaudeCodeProvider("claude:test")
+	first, err := claude.BuildInvocation(RunInput{Mode: ModeAutonomous, Prompt: "Fix it", Session: &SessionInput{Dir: dir, NewID: "11111111-2222-4333-8444-555555555555"}})
+	require.NoError(t, err)
+	require.Contains(t, strings.Join(first.Argv, " "), "--session-id 11111111-2222-4333-8444-555555555555 -p Fix it")
+	again, err := claude.BuildInvocation(RunInput{Mode: ModeAutonomous, Prompt: "Next", Session: &SessionInput{Dir: dir, ResumeID: "11111111-2222-4333-8444-555555555555"}})
+	require.NoError(t, err)
+	require.Contains(t, strings.Join(again.Argv, " "), "--resume 11111111-2222-4333-8444-555555555555 -p Next")
+
+	for _, bad := range []RunInput{
+		{Mode: ModeAutonomous, Prompt: "x", Session: &SessionInput{Dir: "/home/kuayle"}},
+		{Mode: ModeAutonomous, Prompt: "x", Session: &SessionInput{Dir: dir, ResumeID: "--dangerously-bypass-approvals-and-sandbox"}},
+		{Mode: ModeAutonomous, Prompt: "x", Session: &SessionInput{Dir: dir, NewID: "id; rm -rf /"}},
+	} {
+		_, err = codex.BuildInvocation(bad)
+		require.Error(t, err)
+	}
+	// Manual runs are unchanged.
+	manual, err := codex.BuildInvocation(RunInput{Mode: ModeAutonomous, Prompt: "Fix it"})
+	require.NoError(t, err)
+	require.Equal(t, "codex", manual.Argv[0])
+}

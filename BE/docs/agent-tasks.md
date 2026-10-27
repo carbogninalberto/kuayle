@@ -114,18 +114,40 @@ Agent-controlled git configuration can still run programs during the
 credential-free commit step (for example clean filters); that runs with the same
 privileges the agent already had and no publication credential.
 
-## Successor attempts and handoff
+## Native session resume and handoff
 
-Native harness sessions are **not** restored across attempts: each attempt runs
-in a new agent container, and harness session state is not persisted. Following
-the platform specification's fallback, every retry or follow-up is an explicitly
-identified successor. Its native prompt keeps the task instructions and appends a
-bounded handoff naming the previous attempt ID, its native outcome, its
-independent check result and exit code, a recorded pull request, and up to 50
-changed files, plus the previous agent's summary fenced as unverified text. An
-older handoff is replaced rather than accumulated, and the prompt stays within
-the attempt limit. The successor works on the same branch and worktree, so code
-changes carry over; only the conversational harness context is summarized.
+Codex and Claude Code task attempts keep their native session **transcripts** in
+`/workspace/.kuayle/agent-sessions/<task-id>/` on the machine's workspace volume,
+outside every checkout, so publication never commits them. The attempt's argv is
+wrapped so that, after the image's runner has loaded secrets and configuration,
+only `~/.codex/sessions` and `~/.claude/projects` are linked to that directory.
+`config.toml`, auth files and all credentials stay on the container's tmpfs home
+and are never persisted. Transcripts can contain whatever the agent saw or
+printed; they share the machine volume's trust boundary (the same as the task's
+worktree) and are wiped as described below.
+
+Claude Code runs receive a Kuayle-assigned `--session-id`; Codex reports its own
+`thread_id` in its `thread.started` event, which the manager records once.
+Migration 64 stores the ID on the attempt (`native_session_id`, restricted to
+`[A-Za-z0-9-]` and never starting with `-`, so it cannot be read as a flag). A
+retry or follow-up **resumes natively** (`codex exec resume <id>` with
+workspace-write sandbox and no approvals, or `claude --resume <id>`) only when
+the previous attempt succeeded on the same machine, where its transcripts live.
+Otherwise it starts a new session, so a failed resume is never repeated. Either
+way the prompt keeps the task instructions and appends a bounded handoff naming
+the previous attempt, its native outcome, its independent check result and exit
+code, a recorded pull request, up to 50 changed files and the previous agent's
+summary fenced as unverified text, because the harness never saw Kuayle's
+independent check or publication. An older handoff is replaced, not accumulated,
+and the prompt stays within the attempt limit. Other harnesses always start new
+sessions with the handoff.
+
+When a task completes or is cancelled, a `purge_task_session` operation removes
+its directory with a short-lived helper container that has no network, a
+read-only root, no capabilities and only `rm -rf -- <that directory>`; it works
+while the machine is paused or stopped, and still runs after the machine's
+generation changes. Failed tasks keep their transcripts so an explicit retry can
+use them. Machine teardown removes the whole volume.
 
 ## CI and review feedback
 

@@ -911,12 +911,12 @@ func (r *DevMachineRepository) CreateAgentRun(ctx context.Context, run *domain.D
 	if err := tx.QueryRowContext(ctx, `INSERT INTO dev_machine_agent_runs
 		(id, machine_id, workspace_id, issue_id, checkout_id, requested_by_user_id, provider_id, mode, status, prompt,
 		 acceptance_criteria, allowed_commands, forbidden_paths, allowed_secrets, test_command, command_argv, command_environment,
-		 model, thinking, max_runtime_seconds, push_branch, open_pull_request,task_id)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) RETURNING created_at`,
+		 model, thinking, max_runtime_seconds, push_branch, open_pull_request,task_id,native_session_id)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24) RETURNING created_at`,
 		run.ID, run.MachineID, run.WorkspaceID, run.IssueID, run.CheckoutID, run.RequestedByUserID, run.ProviderID,
 		run.Mode, run.Status, run.Prompt, run.AcceptanceCriteria, run.AllowedCommands, run.ForbiddenPaths,
 		run.AllowedSecrets, nullJSONPointer(run.TestCommand), run.CommandArgv, run.CommandEnvironment, run.Model, run.Thinking,
-		run.MaxRuntimeSeconds, run.PushBranch, run.OpenPullRequest, run.TaskID,
+		run.MaxRuntimeSeconds, run.PushBranch, run.OpenPullRequest, run.TaskID, run.NativeSessionID,
 	).Scan(&run.CreatedAt); err != nil {
 		return err
 	}
@@ -2348,4 +2348,11 @@ func (r *DevMachineRepository) DeletePreview(ctx context.Context, workspaceID, m
 		return err
 	}
 	return tx.Commit()
+}
+
+// RecordNativeSession stores the session ID a task attempt's harness reported,
+// once. Manual runs and attempts with a Kuayle-assigned ID are unaffected.
+func (r *DevMachineRepository) RecordNativeSession(ctx context.Context, runID uuid.UUID, sessionID string) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE dev_machine_agent_runs SET native_session_id=$2 WHERE id=$1 AND task_id IS NOT NULL AND native_session_id IS NULL`, runID, sessionID)
+	return err
 }

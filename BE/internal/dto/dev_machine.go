@@ -1,6 +1,8 @@
 package dto
 
 import (
+	"github.com/kuayle/kuayle-backend/internal/agent"
+
 	"time"
 
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -164,14 +166,16 @@ type CreateAgentRunRequest struct {
 	AllowedCommands    []string `json:"allowed_commands"`
 	ForbiddenPaths     []string `json:"forbidden_paths"`
 	TestCommand        []string `json:"test_command"`
-	MaxRuntimeSeconds  int      `json:"max_runtime_seconds" validate:"omitempty,min=30,max=86400"`
-	ExtraArgs          []string `json:"extra_args"`
-	Config             any      `json:"config,omitempty"`
-	AllowedSecrets     []string `json:"allowed_secrets"`
-	PushBranch         *bool    `json:"push_branch,omitempty"`
-	OpenPullRequest    bool     `json:"open_pull_request"`
-	Model              string   `json:"model,omitempty" validate:"omitempty,oneof=deepseek-flash deepseek-v4-pro"`
-	Thinking           string   `json:"thinking,omitempty" validate:"omitempty,oneof=off low high max"`
+	// Session is set only by Kuayle's task runtime; HTTP input cannot carry it.
+	Session           *agent.SessionInput `json:"-"`
+	MaxRuntimeSeconds int                 `json:"max_runtime_seconds" validate:"omitempty,min=30,max=86400"`
+	ExtraArgs         []string            `json:"extra_args"`
+	Config            any                 `json:"config,omitempty"`
+	AllowedSecrets    []string            `json:"allowed_secrets"`
+	PushBranch        *bool               `json:"push_branch,omitempty"`
+	OpenPullRequest   bool                `json:"open_pull_request"`
+	Model             string              `json:"model,omitempty" validate:"omitempty,oneof=deepseek-flash deepseek-v4-pro"`
+	Thinking          string              `json:"thinking,omitempty" validate:"omitempty,oneof=off low high max"`
 }
 
 type UpdateWorkspaceModelProviderRequest struct {

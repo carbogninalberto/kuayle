@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 )
 
@@ -72,6 +73,7 @@ type RuntimeServiceInspection struct {
 type Runtime interface {
 	RunValidation(context.Context, *domain.DevMachine, *domain.DevMachineAgentRun, *domain.DevMachineAgentRunStep, *domain.DevMachineCheckout, string, *AgentObserver) (*AgentExecution, error)
 	HostResources(context.Context) (HostResources, error)
+	PurgeTaskSession(context.Context, *domain.DevMachine, string, uuid.UUID) error
 	PublishCheckout(context.Context, *domain.DevMachine, []domain.DevMachineService, *domain.DevMachineCheckout, PublishRequest) (string, error)
 	Spawn(context.Context, *domain.DevMachine, []domain.DevMachineService, map[string]map[string]string) (string, string, map[string]string, error)
 	Start(context.Context, *domain.DevMachine, []domain.DevMachineService, map[string]map[string]string) error
