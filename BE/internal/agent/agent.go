@@ -145,7 +145,10 @@ func defaultResult(stdout, stderr string, exitCode int) RunResult {
 	if exitCode != 0 {
 		status = "failed"
 	}
-	summary := strings.TrimSpace(stdout)
+	summary := finalMessage(stdout)
+	if summary == "" {
+		summary = strings.TrimSpace(stdout)
+	}
 	if summary == "" {
 		summary = strings.TrimSpace(stderr)
 	}
@@ -183,4 +186,35 @@ func parseJSONLines(raw []byte) []Event {
 		events = append(events, Event{Type: envelope.Type, Message: envelope.Message, Payload: json.RawMessage(line)})
 	}
 	return events
+}
+
+// finalMessage returns the agent's last reply from a JSON event stream: the
+// last Codex agent_message or Claude Code's final result. It returns "" for
+// output that is not such a stream, so callers fall back to the raw text.
+func finalMessage(stdout string) string {
+	last := ""
+	for _, line := range strings.Split(stdout, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "{") {
+			continue
+		}
+		var event struct {
+			Type   string `json:"type"`
+			Result string `json:"result"`
+			Item   struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"item"`
+		}
+		if json.Unmarshal([]byte(line), &event) != nil {
+			continue
+		}
+		switch {
+		case event.Type == "item.completed" && event.Item.Type == "agent_message" && strings.TrimSpace(event.Item.Text) != "":
+			last = strings.TrimSpace(event.Item.Text)
+		case event.Type == "result" && strings.TrimSpace(event.Result) != "":
+			last = strings.TrimSpace(event.Result)
+		}
+	}
+	return last
 }

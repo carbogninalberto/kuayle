@@ -367,3 +367,17 @@ func TestTaskSessionsPersistOnlyTranscriptsAndResumeNatively(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "codex", manual.Argv[0])
 }
+
+func TestResultSummaryIsTheAgentsFinalMessageNotRawEvents(t *testing.T) {
+	codex := strings.Join([]string{
+		`{"type":"thread.started","thread_id":"t1"}`,
+		`{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"I'll inspect the repository."}}`,
+		`{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"npm test"}}`,
+		`{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"Added truncate() with tests; npm test passes."}}`,
+		`{"type":"turn.completed"}`,
+	}, "\n")
+	require.Equal(t, "Added truncate() with tests; npm test passes.", NewCodexProvider("").ParseResult(codex, "", 0).Summary)
+	claude := `{"type":"assistant","message":{"content":[{"type":"text","text":"Working"}]}}` + "\n" + `{"type":"result","subtype":"success","result":"Done: truncate added."}`
+	require.Equal(t, "Done: truncate added.", NewClaudeCodeProvider("").ParseResult(claude, "", 0).Summary)
+	require.Equal(t, "plain output", NewCodexProvider("").ParseResult("plain output\n", "", 0).Summary, "non-JSON output is kept")
+}

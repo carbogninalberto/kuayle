@@ -23,3 +23,10 @@ type RelatedWork struct {
 	Branch         *string `db:"branch"`
 	PullRequestURL *string `db:"pull_request_url"`
 }
+
+// IssueBrief is the issue an agent task implements, as given to the agent.
+type IssueBrief struct {
+	Identifier  string  `db:"identifier_text"`
+	Title       string  `db:"title"`
+	Description *string `db:"description"`
+}

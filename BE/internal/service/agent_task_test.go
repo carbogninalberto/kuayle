@@ -413,6 +413,8 @@ func TestAgentTaskAttemptPassesAcceptedTestCommandToNativeHarness(t *testing.T) 
 	run, err = runtime.Attempt(context.Background(), task)
 	require.NoError(t, err)
 	require.Contains(t, run.Prompt, "- ENG-2 (sibling sub-issue): UI half [Todo]; agent task running")
+	require.Contains(t, run.Prompt, "Issue ENG-26: Add a truncate helper\n\nThrow a RangeError when max < 1.")
+	require.Less(t, strings.Index(run.Prompt, "Issue ENG-26"), strings.Index(run.Prompt, "Implement"))
 	require.Less(t, strings.Index(run.Prompt, "ENG-2"), strings.Index(run.Prompt, "Implement"))
 }
 
@@ -420,6 +422,11 @@ type relatedWorkFake []domain.RelatedWork
 
 func (f relatedWorkFake) RelatedWork(context.Context, domain.AgentTask) ([]domain.RelatedWork, error) {
 	return f, nil
+}
+
+func (f relatedWorkFake) IssueBrief(context.Context, domain.AgentTask) (*domain.IssueBrief, error) {
+	description := "<p>Throw a <b>RangeError</b> when max &lt; 1.</p>"
+	return &domain.IssueBrief{Identifier: "ENG-26", Title: "Add a truncate helper", Description: &description}, nil
 }
 
 func (f *taskRuntimeFake) Validate(context.Context, domain.AgentTask) (*domain.DevMachineAgentRunStep, error) {

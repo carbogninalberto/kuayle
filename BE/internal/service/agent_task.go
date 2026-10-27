@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/realtime"
 	"github.com/kuayle/kuayle-backend/internal/repository"
+	"github.com/kuayle/kuayle-backend/pkg/sanitize"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -246,6 +248,7 @@ func (s *AgentTaskService) preparationError(ctx context.Context, task domain.Age
 
 type relatedWorkSource interface {
 	RelatedWork(ctx context.Context, task domain.AgentTask) ([]domain.RelatedWork, error)
+	IssueBrief(ctx context.Context, task domain.AgentTask) (*domain.IssueBrief, error)
 }
 
 type devMachineTaskRuntime struct {
@@ -360,6 +363,11 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 		prompt = withHandoff(prompt, previous, session.ResumeID != "")
 	}
 	if r.related != nil {
+		brief, err := r.related.IssueBrief(ctx, task)
+		if err != nil {
+			return nil, err
+		}
+		prompt = withIssue(prompt, brief)
 		related, err := r.related.RelatedWork(ctx, task)
 		if err != nil {
 			return nil, err
@@ -454,6 +462,24 @@ func taskSession(task domain.AgentTask, previous *domain.AgentHandoff) *agent.Se
 // withInstructions puts the project's configured agent instructions ahead of the
 // task, labelled as Kuayle configuration. They are shortened, never the task,
 // when both cannot fit the attempt limit.
+// withIssue gives the agent the issue it implements; the task prompt alone
+// often refers to it without restating it.
+func withIssue(prompt string, brief *domain.IssueBrief) string {
+	if brief == nil || brief.Identifier == "" {
+		return prompt
+	}
+	section := "Issue " + brief.Identifier + ": " + oneLine(brief.Title, 500) + "\n"
+	if brief.Description != nil {
+		if description := strings.TrimSpace(html.UnescapeString(sanitize.StripHTML(*brief.Description))); description != "" {
+			section += "\n" + truncateRunes(description, 8000) + "\n"
+		}
+	}
+	if len(prompt)+len(section) > 30000 {
+		return prompt
+	}
+	return section + "\n---\n" + prompt
+}
+
 // withRelatedWork tells an agent which neighbouring issues other agents may be
 // working on, so parallel worktrees build on each other instead of colliding.
 func withRelatedWork(prompt string, related []domain.RelatedWork) string {

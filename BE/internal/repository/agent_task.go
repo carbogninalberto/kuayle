@@ -767,3 +767,10 @@ func (r *AgentTaskRepository) Retry(ctx context.Context, ws, id uuid.UUID, req d
 func (r *AgentTaskRepository) RelatedWork(ctx context.Context, task domain.AgentTask) ([]domain.RelatedWork, error) {
 	return NewIssueDependencyRepository(r.db).RelatedWork(ctx, task.IssueID)
 }
+
+// IssueBrief is the issue text placed in a task's native prompt.
+func (r *AgentTaskRepository) IssueBrief(ctx context.Context, task domain.AgentTask) (*domain.IssueBrief, error) {
+	brief := &domain.IssueBrief{}
+	err := r.db.GetContext(ctx, brief, `SELECT identifier_text, title, description FROM issues WHERE id=$1 AND workspace_id=$2`, task.IssueID, task.WorkspaceID)
+	return brief, err
+}
