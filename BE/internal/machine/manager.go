@@ -29,6 +29,7 @@ type ManagerStore interface {
 	CreateValidationOutput(context.Context, domain.DevMachineOperation, *domain.DevMachineLogChunk) error
 	ListResourceAllocations(context.Context) ([]domain.DevMachineResourceAllocation, error)
 	RecordNativeSession(context.Context, uuid.UUID, string) error
+	SaveValidationArtifacts(context.Context, domain.DevMachineOperation, []domain.ValidationArtifact) error
 	DeferOperation(context.Context, uuid.UUID, string, string, string, time.Duration) error
 	GetPublication(context.Context, domain.DevMachineOperation) (*domain.AgentPublication, error)
 	StartPublication(context.Context, domain.DevMachineOperation) error

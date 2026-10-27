@@ -144,3 +144,44 @@ func TestValidationRejectsRevokedAuthorityAndExpiredOperationLeases(t *testing.T
 		})
 	}
 }
+
+func TestValidationArtifactsAreSavedUnderTheLeaseAndReadWithTaskPermissions(t *testing.T) {
+	db, repo, ctx, task, fixture := taskRecoveryFixture(t)
+	claimed := prepareTaskStart(t, db, repo, ctx, task, fixture)
+	_, err := repo.Start(ctx, *claimed)
+	require.NoError(t, err)
+	_, err = db.Exec(`UPDATE dev_machine_agent_runs SET status='succeeded',completed_at=now() WHERE id=$1`, task.RunID)
+	require.NoError(t, err)
+	require.NoError(t, repo.Transition(ctx, *claimed, "validating", "Native attempt finished"))
+	_, err = db.Exec(`UPDATE agent_tasks SET validation_command='["true"]' WHERE id=$1`, task.ID)
+	require.NoError(t, err)
+	step, err := repo.EnsureValidation(ctx, *claimed)
+	require.NoError(t, err)
+	store := NewDevMachineRepository(db)
+	ops, err := store.LeaseOperations(ctx, "validation-fixture", 1, time.Minute)
+	require.NoError(t, err)
+	op := ops[0]
+	require.NoError(t, store.CreateRuntimeService(ctx, &domain.DevMachineService{ID: step.ID, WorkspaceID: task.WorkspaceID, MachineID: op.MachineID, AgentRunID: &task.RunID, ServiceType: "agent", ServiceKey: "validation", ContainerName: "validation", ImageRef: "fixture", InternalHost: "validation", InternalPort: 8080, Status: "pending", HealthStatus: "unknown"}))
+	artifacts := []domain.ValidationArtifact{{Path: "playwright-report/index.html", ContentType: "text/html", Data: []byte("<html></html>")}, {Path: "test-results/shot.png", ContentType: "image/png", Data: []byte("PNG")}}
+	require.ErrorIs(t, store.SaveValidationArtifacts(ctx, op, artifacts), ErrAgentTaskConflict, "only a running check may attach artifacts")
+	require.NoError(t, store.StartValidation(ctx, op, "container"))
+	require.NoError(t, store.SaveValidationArtifacts(ctx, op, artifacts))
+	require.NoError(t, store.SaveValidationArtifacts(ctx, op, artifacts), "a replay keeps the first copy")
+	stale := op
+	stale.Attempts++
+	require.Error(t, store.SaveValidationArtifacts(ctx, stale, artifacts))
+	_, err = db.Exec(`INSERT INTO agent_validation_artifacts(step_id,path,content_type,size,data) VALUES($1,'../escape.txt','text/plain',1,'x')`, step.ID)
+	require.Error(t, err, "the schema rejects traversal paths")
+	list, err := repo.ValidationArtifacts(ctx, task.WorkspaceID, task.ID, task.RunID)
+	require.NoError(t, err)
+	require.Len(t, list, 2)
+	require.Nil(t, list[0].Data, "listings never carry content")
+	one, err := repo.ValidationArtifact(ctx, task.WorkspaceID, task.ID, task.RunID, list[1].ID)
+	require.NoError(t, err)
+	require.Equal(t, []byte("PNG"), one.Data)
+	stranger := domain.WithAccess(context.Background(), domain.Access{WorkspaceID: task.WorkspaceID, UserID: uuid.New()})
+	_, err = repo.ValidationArtifact(stranger, task.WorkspaceID, task.ID, task.RunID, list[1].ID)
+	require.ErrorIs(t, err, ErrConversationNotFound)
+	_, err = repo.ValidationArtifact(ctx, task.WorkspaceID, task.ID, uuid.New(), list[1].ID)
+	require.ErrorIs(t, err, ErrConversationNotFound, "an artifact is bound to its attempt")
+}

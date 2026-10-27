@@ -5,6 +5,8 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"path"
+	"regexp"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -240,4 +242,54 @@ func (h *AgentTaskHandler) Queue(c echo.Context) error {
 		return agentTaskError(c, err)
 	}
 	return response.Success(c, http.StatusOK, result)
+}
+
+func (h *AgentTaskHandler) Artifacts(c echo.Context) error {
+	id, err := taskID(c, "taskId")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	run, err := taskID(c, "runId")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	result, err := h.svc.Repo.ValidationArtifacts(c.Request().Context(), middleware.GetWorkspace(c).ID, id, run)
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	return response.Success(c, http.StatusOK, result)
+}
+
+var unsafeArtifactName = regexp.MustCompile(`[^A-Za-z0-9._-]`)
+
+// Artifact serves a QA report file as untrusted content: never sniffed or
+// scripted, and downloaded rather than rendered unless it is an image.
+func (h *AgentTaskHandler) Artifact(c echo.Context) error {
+	id, err := taskID(c, "taskId")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	run, err := taskID(c, "runId")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	artifactID, err := taskID(c, "artifactId")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	artifact, err := h.svc.Repo.ValidationArtifact(c.Request().Context(), middleware.GetWorkspace(c).ID, id, run, artifactID)
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	headers := c.Response().Header()
+	headers.Set("X-Content-Type-Options", "nosniff")
+	headers.Set("Content-Security-Policy", "sandbox; default-src 'none'")
+	headers.Set("Cache-Control", "private, no-store")
+	name := unsafeArtifactName.ReplaceAllString(path.Base(artifact.Path), "_")
+	disposition := "attachment"
+	if artifact.ContentType == "image/png" || artifact.ContentType == "image/jpeg" {
+		disposition = "inline"
+	}
+	headers.Set("Content-Disposition", disposition+`; filename="`+name+`"`)
+	return c.Blob(http.StatusOK, artifact.ContentType, artifact.Data)
 }

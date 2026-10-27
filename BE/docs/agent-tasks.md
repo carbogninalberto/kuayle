@@ -73,6 +73,17 @@ emits a `task.tests_updated` conversation event with `{task_id, run_id, step}`.
 Machines with a task in `validating` or `publishing` count as active for
 pause/stop and new runs. Rollback refuses retained validation operations or steps.
 
+Migration 67 keeps QA evidence. After the check exits, and before it completes
+under the same lease, the manager copies regular files from the check
+container's `playwright-report/` and `test-results/` into
+`agent_validation_artifacts`. Only png, jpeg, zip, html, json, xml, txt and webm
+files are kept, with at most 5 MB each, 20 MB in total and 100 files. Symlinks,
+traversal paths and anything outside those directories are dropped. Collection
+is best-effort and never changes the check's result. Downloads are session-only
+and task-authorized. They are served as attachments (png/jpeg inline) with
+`nosniff`, a sandbox CSP and `no-store`, and the UI always saves them as files,
+so a report's HTML never runs on the app origin.
+
 ## Publication
 
 Task attempts never receive a GitHub credential (`push_branch` is false), so the
@@ -367,6 +378,9 @@ and cancellation remain available to authorized users.
 - `GET /agent-tasks/:taskId/runs/:runId/logs` pages that attempt's logs with `after`.
 - `GET /agent-tasks/:taskId/runs/:runId/validation` returns that attempt's
   independent check step, or `null` when none was recorded.
+- `GET /agent-tasks/:taskId/runs/:runId/artifacts` lists that check's kept
+  artifacts (`id, path, content_type, size`); `.../artifacts/:artifactId`
+  downloads one.
 - `GET /agent-tasks/:taskId/runs/:runId/publication` returns `{step, branch,
   pull_request_url}`; `pull_request_url` is present only for a succeeded step.
 

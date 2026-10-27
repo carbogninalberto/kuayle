@@ -293,6 +293,8 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/runs", h.agentTask.Runs)
 	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/runs/:runId/logs", h.agentTask.Logs)
 	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/runs/:runId/validation", h.agentTask.Validation)
+	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/runs/:runId/artifacts", h.agentTask.Artifacts)
+	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/runs/:runId/artifacts/:artifactId", h.agentTask.Artifact)
 	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/runs/:runId/publication", h.agentTask.Publication)
 	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/signals", h.agentTask.Signals)
 	sessionOnly(dm, http.MethodGet, "/agent-tasks", h.agentTask.Queue)

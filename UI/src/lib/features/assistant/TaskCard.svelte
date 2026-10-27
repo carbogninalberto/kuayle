@@ -353,7 +353,7 @@
 					>{/if}
 				{#if plan}<AgentPlan steps={plan} />{/if}
 				{#if reasoning.length}<AgentReasoning summaries={reasoning} />{/if}
-				<TestResults step={validation} output={checkOutput} />
+				<TestResults step={validation} output={checkOutput} slug={chat.slug} taskId={task.id} />
 				{#if changedFiles.length}<section aria-label={m['tasks.changed_files']()} class="min-w-0 text-sm">
 						<p class="mb-1 text-xs font-medium text-muted-foreground">{m['tasks.changed_files']()}</p>
 						{#each changedFiles as node (node.path)}<FileTreeNode {node} href={fileLink} />{/each}

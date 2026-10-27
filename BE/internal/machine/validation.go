@@ -8,6 +8,7 @@ import (
 
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/repository"
+	log "github.com/sirupsen/logrus"
 )
 
 // validateAgent uses the developer environment, never a model invocation. The
@@ -96,6 +97,14 @@ func (m *Manager) validateAgent(ctx context.Context, machine *domain.DevMachine,
 	}
 	if execution == nil {
 		return errors.New("validation execution returned no result")
+	}
+	// QA artifacts are best effort: they never change the check's outcome.
+	if artifacts, err := m.runtime.CollectValidationArtifacts(ctx, machine, run, checkout); err != nil {
+		log.WithField("agent_run_id", run.ID).WithError(err).Warn("validation artifact collection failed")
+	} else if len(artifacts) > 0 {
+		if err := m.store.SaveValidationArtifacts(ctx, *op, artifacts); err != nil {
+			return err
+		}
 	}
 	return m.store.CompleteValidation(ctx, *op, execution.ExitCode)
 }

@@ -22,6 +22,7 @@ async function fixture(page: Page) {
 	const state = {
 		task: null as any,
 		validation: null as any,
+		artifacts: [] as any[],
 		publication: { step: null } as any,
 		publications: 0,
 		signals: [] as any[],
@@ -147,6 +148,12 @@ async function fixture(page: Page) {
 							}
 						]
 					}
+				});
+			if (path.endsWith('/runs/run-1/artifacts')) return route.fulfill({ json: state.artifacts });
+			if (path.endsWith('/runs/run-1/artifacts/artifact-1'))
+				return route.fulfill({
+					body: '<html><script>window.evil=true</script></html>',
+					headers: { 'content-type': 'text/html', 'content-disposition': 'attachment; filename="index.html"' }
 				});
 			if (path.endsWith('/validation')) return route.fulfill({ json: state.validation });
 			if (path.endsWith('/signals')) return route.fulfill({ json: state.signals });
@@ -414,6 +421,16 @@ test('independent checks update live and retain their actual exit status after r
 	emit('task.tests_updated', { task_id: 'task-1', run_id: 'run-1', step: state.validation });
 	await expect(checks.getByText('Running independent check')).toBeVisible();
 	state.validation = { ...state.validation, status: 'failed', exit_code: 7, completed_at: '2026-10-27T10:01:00Z' };
+	state.artifacts = [
+		{
+			id: 'artifact-1',
+			step_id: 'validation-1',
+			path: 'playwright-report/index.html',
+			content_type: 'text/html',
+			size: 2048,
+			created_at: '2026-10-27T10:01:00Z'
+		}
+	];
 	state.logs = [
 		{
 			id: 1,
@@ -430,6 +447,12 @@ test('independent checks update live and retain their actual exit status after r
 	await expect(checks.getByText('Exit code: 7')).toBeVisible();
 	await expect(checks.getByText(/actual check failed/)).toBeVisible();
 	await expect(page.getByText(/actual check failed/)).toHaveCount(1);
+	const report = checks.getByRole('button', { name: /playwright-report\/index\.html/ });
+	await expect(report).toContainText('2 KB');
+	const pages = page.context().pages().length;
+	const [download] = await Promise.all([page.waitForEvent('download'), report.click()]);
+	expect(download.suggestedFilename()).toBe('index.html');
+	expect(page.context().pages()).toHaveLength(pages);
 	expect(await page.evaluate(() => (window as any).evil)).toBeUndefined();
 	await page.reload();
 	await page.getByRole('button', { name: 'Execution details', exact: true }).click();

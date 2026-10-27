@@ -1,10 +1,46 @@
 <script lang="ts">
-	import { FlaskConical, CircleCheck, CircleAlert, CircleDashed, LoaderCircle } from '@lucide/svelte';
+	import { FlaskConical, CircleCheck, CircleAlert, CircleDashed, LoaderCircle, Download } from '@lucide/svelte';
+	import { Button } from '$lib/components/ui/button/index.js';
+	import { agentTasks, type ValidationArtifact } from '$lib/api/agent-tasks';
 	import * as Trace from '$lib/components/ui/trace/index.js';
 	import * as CodeBlock from '$lib/components/ui/code-block/index.js';
 	import type { ValidationStep } from '$lib/api/agent-tasks';
 	import { m } from '$lib/paraglide/messages.js';
-	let { step, output }: { step: ValidationStep | null; output: string } = $props();
+	let { step, output, slug, taskId }: { step: ValidationStep | null; output: string; slug?: string; taskId?: string } =
+		$props();
+	let artifacts = $state<ValidationArtifact[]>([]);
+	// Reports, screenshots and traces the check left behind, once it finished.
+	$effect(() => {
+		const finished = step && (step.status === 'succeeded' || step.status === 'failed');
+		const run = step?.agent_run_id;
+		if (!finished || !run || !slug || !taskId) {
+			artifacts = [];
+			return;
+		}
+		void agentTasks
+			.artifacts(slug, taskId, run)
+			.then((list) => {
+				if (step?.agent_run_id === run) artifacts = list;
+			})
+			.catch(() => (artifacts = []));
+	});
+	// Always a file download: report HTML is untrusted and never rendered here.
+	async function download(artifact: ValidationArtifact) {
+		if (!slug || !taskId || !step) return;
+		const { blob, filename } = await agentTasks.artifact(slug, taskId, step.agent_run_id, artifact.id);
+		const url = URL.createObjectURL(new Blob([blob], { type: 'application/octet-stream' }));
+		const link = document.createElement('a');
+		link.href = url;
+		link.download = filename ?? artifact.path.split('/').pop() ?? 'artifact';
+		link.click();
+		setTimeout(() => URL.revokeObjectURL(url), 1000);
+	}
+	const size = (bytes: number) =>
+		bytes < 1024
+			? `${bytes} B`
+			: bytes < 1048576
+				? `${Math.round(bytes / 1024)} KB`
+				: `${(bytes / 1048576).toFixed(1)} MB`;
 	const running = $derived(step?.status === 'queued' || step?.status === 'running');
 	const failed = $derived(step?.status === 'failed' || step?.status === 'cancelled');
 	const label = $derived(
@@ -52,6 +88,18 @@
 			{#if output}<CodeBlock.Root size="sm"
 					><CodeBlock.Content code={output} wrap class="max-h-64 text-xs" /></CodeBlock.Root
 				>{/if}
+			{#if artifacts.length}
+				<div class="space-y-1" aria-label={m['tasks.check_artifacts']()}>
+					<p class="text-xs font-medium text-muted-foreground">{m['tasks.check_artifacts']()}</p>
+					{#each artifacts as artifact (artifact.id)}
+						<Button variant="ghost" size="sm" class="h-7 w-full justify-start" onclick={() => void download(artifact)}
+							><Download /><span class="truncate">{artifact.path}</span><span
+								class="ml-auto shrink-0 text-muted-foreground">{size(artifact.size)}</span
+							></Button
+						>
+					{/each}
+				</div>
+			{/if}
 		</Trace.CollapsibleContent>
 	</Trace.Collapsible>
 </section>

@@ -376,6 +376,10 @@ func (f *githubAPIFake) CreatePullRequest(string, string, string, string, string
 	return &githubclient.PullRequest{HTMLURL: "https://github.com/kuayle/api/pull/1", Number: 1}, nil
 }
 
+func (f *runtimeFake) CollectValidationArtifacts(context.Context, *domain.DevMachine, *domain.DevMachineAgentRun, *domain.DevMachineCheckout) ([]domain.ValidationArtifact, error) {
+	return f.artifacts, nil
+}
+
 func (f *runtimeFake) HostResources(context.Context) (HostResources, error) {
 	return f.host, nil
 }
@@ -384,6 +388,7 @@ type runtimeFake struct {
 	Runtime
 	beforeAgentStarted func()
 	host               HostResources
+	artifacts          []domain.ValidationArtifact
 
 	agentCancellations                          int
 	onAgentOutput                               func(AgentOutput) error

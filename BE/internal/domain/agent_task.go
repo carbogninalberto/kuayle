@@ -225,3 +225,16 @@ type AgentHandoff struct {
 	ValidationExitCode *int
 	PullRequestURL     string
 }
+
+// ValidationArtifact is a file the independent check left in its report
+// directories. Content is untrusted and only ever served as a download or
+// an inert image.
+type ValidationArtifact struct {
+	ID          uuid.UUID `json:"id" db:"id"`
+	StepID      uuid.UUID `json:"step_id" db:"step_id"`
+	Path        string    `json:"path" db:"path"`
+	ContentType string    `json:"content_type" db:"content_type"`
+	Size        int       `json:"size" db:"size"`
+	Data        []byte    `json:"-" db:"data"`
+	CreatedAt   time.Time `json:"created_at" db:"created_at"`
+}

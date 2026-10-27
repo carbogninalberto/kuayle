@@ -283,3 +283,47 @@ func (r *AgentTaskRepository) Validation(ctx context.Context, ws, id, run uuid.U
 	}
 	return step, err
 }
+
+// SaveValidationArtifacts stores report files while the check is still
+// running under the manager's lease; replays keep the first copy.
+func (r *DevMachineRepository) SaveValidationArtifacts(ctx context.Context, op domain.DevMachineOperation, artifacts []domain.ValidationArtifact) error {
+	tx, _, step, err := r.validationTransaction(ctx, op)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if step.Status != domain.DevMachineAgentRunStepStatusRunning {
+		return ErrAgentTaskConflict
+	}
+	for _, artifact := range artifacts {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO agent_validation_artifacts(step_id,path,content_type,size,data) VALUES($1,$2,$3,$4,$5) ON CONFLICT (step_id,path) DO NOTHING`, step.ID, artifact.Path, artifact.ContentType, len(artifact.Data), artifact.Data); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// ValidationArtifacts lists an attempt's report files under current task
+// permissions, without their content.
+func (r *AgentTaskRepository) ValidationArtifacts(ctx context.Context, ws, id, run uuid.UUID) ([]domain.ValidationArtifact, error) {
+	if _, err := r.Validation(ctx, ws, id, run); err != nil {
+		return nil, err
+	}
+	artifacts := []domain.ValidationArtifact{}
+	err := r.db.SelectContext(ctx, &artifacts, `SELECT a.id,a.step_id,a.path,a.content_type,a.size,a.created_at FROM agent_validation_artifacts a
+ JOIN dev_machine_agent_run_steps s ON s.id=a.step_id WHERE s.agent_run_id=$1 ORDER BY a.path`, run)
+	return artifacts, err
+}
+
+// ValidationArtifact returns one report file of an attempt the caller may read.
+func (r *AgentTaskRepository) ValidationArtifact(ctx context.Context, ws, id, run, artifact uuid.UUID) (*domain.ValidationArtifact, error) {
+	if _, err := r.Validation(ctx, ws, id, run); err != nil {
+		return nil, err
+	}
+	result := &domain.ValidationArtifact{}
+	err := r.db.GetContext(ctx, result, `SELECT a.* FROM agent_validation_artifacts a JOIN dev_machine_agent_run_steps s ON s.id=a.step_id WHERE a.id=$1 AND s.agent_run_id=$2`, artifact, run)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrConversationNotFound
+	}
+	return result, err
+}
