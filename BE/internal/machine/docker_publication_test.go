@@ -105,6 +105,29 @@ func TestPublishScriptsIgnoreAgentGitConfigurationAndKeepTheCredentialOut(t *tes
 	require.Contains(t, output, "task branch moved")
 	require.Equal(t, commit, run(origin, nil, "rev-parse", "refs/heads/kuayle/rec-1"))
 
+	// Agent commits with made-up identities or co-author trailers are folded
+	// into one commit by the configured author, on top of what was published.
+	run(worktree, identity, "-c", "core.hooksPath=/dev/null", "reset", "-q", "--hard", commit)
+	run(worktree, nil, "-c", "core.hooksPath=/dev/null", "update-ref", "refs/kuayle/published", commit)
+	require.NoError(t, os.WriteFile(filepath.Join(worktree, "follow.txt"), []byte("review fix\n"), 0o644))
+	bot := []string{"GIT_AUTHOR_NAME=app[bot]", "GIT_AUTHOR_EMAIL=1+app[bot]@users.noreply.github.com", "GIT_COMMITTER_NAME=app[bot]", "GIT_COMMITTER_EMAIL=1+app[bot]@users.noreply.github.com"}
+	run(worktree, bot, "-c", "core.hooksPath=/dev/null", "add", "follow.txt")
+	run(worktree, bot, "-c", "core.hooksPath=/dev/null", "commit", "-q", "-m", "Fix review\n\nCo-Authored-By: Claude Code <noreply@anthropic.com>")
+	require.NoError(t, os.WriteFile(filepath.Join(worktree, "uncommitted.txt"), []byte("more\n"), 0o644))
+	follow, err := script(publishCommitScript, "commit", "REC-1: Dark mode", worktree, "kuayle/rec-1", "main", "Kuayle Agent", "agent@kuayle.invalid")
+	require.NoError(t, err, follow)
+	require.NotEqual(t, commit, follow)
+	require.Equal(t, commit, run(worktree, nil, "rev-parse", follow+"^"), "the new commit builds on the published one")
+	require.Equal(t, "Kuayle Agent <agent@kuayle.invalid>", run(worktree, nil, "log", "-1", "--format=%an <%ae>", follow))
+	require.NotContains(t, run(worktree, nil, "log", "-1", "--format=%B", follow), "Co-Authored-By")
+	require.Contains(t, run(worktree, nil, "show", "--name-only", "--format=", follow), "follow.txt")
+	require.Contains(t, run(worktree, nil, "show", "--name-only", "--format=", follow), "uncommitted.txt")
+	output, err = script(publishPushScript, "push", token+"\n", "acme/app", "kuayle/rec-1", worktree, follow)
+	require.NoError(t, err, output, "a fast-forward of the published branch")
+	same, err := script(publishCommitScript, "commit", "REC-1: Dark mode", worktree, "kuayle/rec-1", "main", "Kuayle Agent", "agent@kuayle.invalid")
+	require.NoError(t, err, same)
+	require.Equal(t, follow, same, "a retry keeps Kuayle's own commit")
+
 	// No changes relative to the base branch means nothing to publish.
 	empty := filepath.Join(root, "tasks", "rec-2")
 	run(root, nil, "--git-dir="+cache, "worktree", "add", "-q", "-b", "kuayle/rec-2", empty, "refs/remotes/origin/main")

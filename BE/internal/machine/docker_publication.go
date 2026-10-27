@@ -33,8 +33,17 @@ g() { git -C "$path" -c core.hooksPath=/dev/null -c core.fsmonitor=false -c comm
 message=$(cat)
 [ -n "$message" ] || { echo "missing commit message" >&2; exit 1; }
 [ "$(g symbolic-ref --short HEAD)" = "$branch" ] || { echo "checkout is not on the task branch" >&2; exit 1; }
-if [ -n "$(g status --porcelain --untracked-files=all)" ]; then
-  g add -A
+g add -A
+# Commits made since the last publication by anyone but the configured author,
+# or carrying co-author trailers, are folded into one commit by that author.
+# Kuayle's own commits are kept, so a retry republishes the same commit.
+floor=$(g rev-parse -q --verify refs/kuayle/published || true)
+if [ -z "$floor" ] || ! g merge-base --is-ancestor "$floor" HEAD; then floor=$(g merge-base HEAD "refs/remotes/origin/$base"); fi
+foreign=$(g log --format='%ae%n%ce' "$floor..HEAD" | grep -vxF "$5" | head -n 1 || true)
+if [ -n "$foreign" ] || g log --format=%B "$floor..HEAD" | grep -qi '^co-authored-by:'; then
+  g reset -q --soft "$floor"
+fi
+if ! g diff --cached --quiet; then
   g commit --no-verify -q -m "$message"
 fi
 if [ -z "$(g rev-list -n 1 "refs/remotes/origin/$base..HEAD")" ]; then echo none; exit 0; fi
@@ -97,6 +106,10 @@ func (r *DockerRuntime) PublishCheckout(ctx context.Context, _ *domain.DevMachin
 	}
 	if _, err = r.execInputOutput(ctx, developerContainer, []string{"sh", "-c", publishPushScript, "kuayle-publish-push",
 		checkout.RepositoryFullName, checkout.WorkingBranch, checkout.WorkspacePath, commit}, request.Token+"\n"); err != nil {
+		return "", err
+	}
+	// Later attempts build on what is on GitHub; this marks it in the checkout.
+	if _, err = r.execOutput(ctx, developerContainer, []string{"git", "-C", checkout.WorkspacePath, "-c", "core.hooksPath=/dev/null", "update-ref", "refs/kuayle/published", commit}); err != nil {
 		return "", err
 	}
 	return commit, nil
