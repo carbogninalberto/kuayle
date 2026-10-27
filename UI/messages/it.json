@@ -2091,5 +2091,13 @@
 	"assistant.live_body": "Connesso. Nuovi messaggi, chiamate agli strumenti e aggiornamenti degli agenti compaiono qui in tempo reale.",
 	"assistant.reconnecting_body": "La connessione in tempo reale si è interrotta. Kuayle si riconnette automaticamente e recupera ciò che ti sei perso.",
 	"assistant.offline": "Non in linea",
-	"assistant.offline_body": "Questa conversazione non può essere caricata o non è più disponibile. Aggiorna la pagina o riprova."
+	"assistant.offline_body": "Questa conversazione non può essere caricata o non è più disponibile. Aggiorna la pagina o riprova.",
+	"tasks.show_task": "Mostra l’attività completa",
+	"tasks.expand_task": "Mostra i dettagli dell’attività",
+	"tasks.collapse_task": "Nascondi i dettagli dell’attività",
+	"tasks.approved": "Approvata",
+	"tasks.approved_reason": "Approvata da {name}. Esegui il merge della pull request per completare l’attività.",
+	"tasks.tools": "Strumenti",
+	"tasks.more_actions": "Altre azioni",
+	"tasks.attempt_missing": "I dati di questo tentativo non sono più disponibili."
 }

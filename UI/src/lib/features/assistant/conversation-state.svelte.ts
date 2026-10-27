@@ -1,4 +1,5 @@
 import type { AgentTask, TaskActivity } from '$lib/api/agent-tasks';
+import type { TaskBar } from './task-actions';
 import {
 	conversations,
 	type Conversation,
@@ -20,6 +21,8 @@ export class ConversationState {
 	liveTasks = $state<Record<string, AgentTask>>({});
 	// The attempt whose diff is open beside the chat.
 	diffView = $state<{ taskId: string; runId: string; title: string } | null>(null);
+	// The newest task's compact header, pinned while its row is scrolled away.
+	taskBar = $state<TaskBar | null>(null);
 	taskActivity = $state<Record<string, TaskActivity>>({});
 	taskValidationCursor = $state<Record<string, number>>({});
 	taskPublicationCursor = $state<Record<string, number>>({});

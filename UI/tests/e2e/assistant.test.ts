@@ -713,7 +713,9 @@ test('groups conversations into folders and deletes one after confirmation', asy
 	await expect(page.getByRole('separator', { name: 'Resize conversation list' })).toBeVisible();
 	const live = page.getByRole('button', { name: 'Live' });
 	await live.click();
-	await expect(page.getByText('Connected. New messages, tool calls and agent updates appear here as they happen.')).toBeVisible();
+	await expect(
+		page.getByText('Connected. New messages, tool calls and agent updates appear here as they happen.')
+	).toBeVisible();
 	await page.keyboard.press('Escape');
 
 	await page.getByRole('button', { name: 'New folder' }).click();
@@ -730,9 +732,10 @@ test('groups conversations into folders and deletes one after confirmation', asy
 	await expect.poll(() => moves).toEqual([{ folder_id: 'folder-1' }]);
 	const folder = nav.getByRole('button', { name: /^Releases \d+$/ });
 	await expect(folder).toContainText('1');
-	await folder.click();
+	// Folders start collapsed unless they hold the open conversation.
 	await expect(nav.getByRole('link', { name: 'Release notes' })).toBeHidden();
 	await folder.click();
+	await expect(nav.getByRole('link', { name: 'Release notes' })).toBeVisible();
 
 	await nav.getByRole('button', { name: 'Actions for Release notes' }).click();
 	await page.getByRole('menuitem', { name: 'Delete' }).click();

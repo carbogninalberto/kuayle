@@ -2091,5 +2091,13 @@
 	"assistant.live_body": "Connected. New messages, tool calls and agent updates appear here as they happen.",
 	"assistant.reconnecting_body": "The live connection dropped. Kuayle reconnects automatically and catches up on anything you missed.",
 	"assistant.offline": "Offline",
-	"assistant.offline_body": "This conversation could not be loaded or is no longer available. Refresh the page or retry."
+	"assistant.offline_body": "This conversation could not be loaded or is no longer available. Refresh the page or retry.",
+	"tasks.show_task": "Show the full task",
+	"tasks.expand_task": "Show task details",
+	"tasks.collapse_task": "Hide task details",
+	"tasks.approved": "Approved",
+	"tasks.approved_reason": "Approved by {name}. Merge the pull request to complete the task.",
+	"tasks.tools": "Tools",
+	"tasks.more_actions": "More actions",
+	"tasks.attempt_missing": "This attempt’s records are no longer available."
 }

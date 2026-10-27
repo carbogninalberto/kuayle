@@ -20,7 +20,11 @@
 	}: { slug: string; conversationId: string | null; history: Conversation[]; search?: string } = $props();
 
 	let folders = $state<ConversationFolder[]>([]);
-	let closed = $state<Record<string, boolean>>({});
+	// Folders start collapsed, except the one holding the open conversation;
+	// a folder the person toggled keeps their choice.
+	let toggled = $state<Record<string, boolean>>({});
+	const isOpen = (folder: ConversationFolder) =>
+		toggled[folder.id] ?? history.some((c) => c.id === conversationId && c.folder_id === folder.id);
 	// The folder being named in place: a new one (no id) or a rename.
 	let editing = $state<{ id?: string; name: string } | null>(null);
 	let saving = false;
@@ -187,7 +191,7 @@
 	{/if}
 	{#each folders as folder (folder.id)}
 		{@const items = inFolder(folder)}
-		<Collapsible.Root open={!closed[folder.id]} onOpenChange={(open) => (closed = { ...closed, [folder.id]: !open })}>
+		<Collapsible.Root open={isOpen(folder)} onOpenChange={(open) => (toggled = { ...toggled, [folder.id]: open })}>
 			{#if editing?.id === folder.id}
 				<div class="flex items-center gap-1.5 px-2 py-0.5">
 					<Folder class="size-3.5 shrink-0 text-muted-foreground" />{@render nameField()}
@@ -195,7 +199,7 @@
 			{:else}
 				<div class="group flex items-center rounded-md hover:bg-muted">
 					<Collapsible.Trigger class="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1.5 text-left text-sm">
-						<ChevronRight class="size-3.5 shrink-0 transition-transform {closed[folder.id] ? '' : 'rotate-90'}" />
+						<ChevronRight class="size-3.5 shrink-0 transition-transform {isOpen(folder) ? 'rotate-90' : ''}" />
 						<Folder class="size-3.5 shrink-0 text-muted-foreground" />
 						<span class="truncate font-medium">{folder.name}</span>
 						<span class="ml-auto text-xs text-muted-foreground">{items.length}</span>

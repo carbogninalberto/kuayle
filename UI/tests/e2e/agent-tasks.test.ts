@@ -37,7 +37,9 @@ async function fixture(page: Page) {
 		events: [] as any[],
 		denied: false,
 		failAfterCreate: false,
-		logs: [] as any[]
+		logs: [] as any[],
+		messages: [] as any[],
+		missingRun: false
 	};
 	await page.routeWebSocket('**/api/workspaces/test/ws', () => {});
 	await page.routeWebSocket('**/conversations/chat-1/stream*', (socket) => state.sockets.push(socket));
@@ -102,8 +104,12 @@ async function fixture(page: Page) {
 		if (path.endsWith('/events'))
 			return route.fulfill({ json: state.events.filter((e) => e.cursor > Number(url.searchParams.get('after') ?? 0)) });
 		if (path.endsWith('/conversations/chat-1'))
-			return route.fulfill({ json: { conversation, issue, messages: [], cursor: 0, has_more: false } });
+			return route.fulfill({
+				json: { conversation, issue, messages: state.messages, cursor: 0, has_more: false }
+			});
 		if (path.includes('/agent-tasks/task-1')) {
+			if (state.missingRun && path.includes('/runs/'))
+				return route.fulfill({ status: 404, json: { error: { code: 'NOT_FOUND' } } });
 			if (path.endsWith('/cancel')) {
 				state.cancels++;
 				state.task = { ...state.task, state: 'cancelling', reason: 'Stopping native execution' };
@@ -243,7 +249,11 @@ test('delegates from an issue conversation and shows real execution updates', as
 	await page.reload();
 	await expect(page.getByText('Running', { exact: true })).toBeVisible();
 	expect(state.creates).toHaveLength(1);
-	await page.getByRole('button', { name: 'Cancel task', exact: true }).click();
+	await page
+		.getByRole('region', { name: 'Coding tasks' })
+		.getByRole('button', { name: 'More actions', exact: true })
+		.click();
+	await page.getByRole('menuitem', { name: 'Cancel task', exact: true }).click();
 	await expect.poll(() => state.cancels).toBe(1);
 	await expect(page.getByText('Cancelling', { exact: true })).toBeVisible();
 });
@@ -540,7 +550,10 @@ test('opens the recorded pull request only after publication succeeds', async ({
 	state.changedFiles = ['src/theme.ts'];
 	await page.getByRole('button', { name: 'Execution details', exact: true }).click();
 	await expect(page.getByText('Pull request opened', { exact: true })).toBeVisible();
-	await expect(page.getByRole('link', { name: 'theme.ts' })).toHaveAttribute('href', 'https://github.com/acme/app/blob/kuayle/eng-1/src/theme.ts');
+	await expect(page.getByRole('link', { name: 'theme.ts' })).toHaveAttribute(
+		'href',
+		'https://github.com/acme/app/blob/kuayle/eng-1/src/theme.ts'
+	);
 	await page.reload();
 	await expect(link).toHaveAttribute('href', 'https://github.com/acme/app/pull/12');
 	expect(state.creates).toHaveLength(1);
@@ -669,4 +682,89 @@ test('opens the attempt diff beside the chat and closes it', async ({ page }) =>
 	await expect(page.getByRole('textbox', { name: 'Message' })).toBeVisible();
 	await panel.getByRole('button', { name: 'Close changes' }).click();
 	await expect(panel).toHaveCount(0);
+});
+
+test('pins a compact task header with every action while the chat scrolls', async ({ page }) => {
+	const { state, emit: emitState } = await fixture(page);
+	state.messages = Array.from({ length: 24 }, (_, i) => ({
+		id: `message-${i + 1}`,
+		conversation_id: 'chat-1',
+		sequence: i + 1,
+		role: i % 2 ? 'assistant' : 'user',
+		content: `Message ${i + 1}: ${'a long line of discussion '.repeat(8)}`,
+		status: 'completed',
+		provider: '',
+		model: '',
+		created_at: '2026-10-26T10:00:00Z'
+	}));
+	state.changedFiles = ['src/text.js'];
+	await page.goto('/test/assistant?conversation=chat-1');
+	await delegate(page);
+	await expect(page.getByRole('region', { name: 'Coding tasks' }).getByText('Queued', { exact: true })).toBeVisible();
+	state.task = { ...state.task, state: 'awaiting_review', reason: 'Pull request opened; waiting for human review' };
+	emitState('task.state_changed', state.task);
+	const pinned = page.getByRole('region', { name: 'Coding task', exact: true });
+	const tasks = page.getByRole('region', { name: 'Coding tasks' });
+	await expect(tasks.getByRole('button', { name: 'View diff' })).toBeVisible();
+	await page.getByText('Message 24:').scrollIntoViewIfNeeded();
+	await expect(tasks).not.toBeInViewport();
+	await expect(pinned).toBeVisible();
+	await expect(pinned.getByText('Awaiting review')).toBeVisible();
+	await expect(pinned.getByText('ENG-1')).toBeVisible();
+	const diff = pinned.getByRole('button', { name: 'View diff' });
+	await diff.hover();
+	await expect(page.locator('[data-slot="tooltip-content"]')).toContainText('View diff');
+	await diff.click();
+	await expect(page.getByRole('region', { name: 'Changes' })).toBeVisible();
+	await pinned.getByRole('button', { name: 'More actions', exact: true }).click();
+	await expect(page.getByRole('menuitem', { name: 'Retry task', exact: true })).toBeVisible();
+	await page.keyboard.press('Escape');
+	await pinned.getByRole('button', { name: /ENG-1/ }).click();
+	await expect(tasks).toBeInViewport();
+	await expect(pinned).toHaveCount(0);
+});
+
+test('an approval on GitHub shows the task as approved and ready to merge', async ({ page }) => {
+	const { state, emit } = await fixture(page);
+	await page.goto('/test/assistant?conversation=chat-1');
+	await delegate(page);
+	const tasks = page.getByRole('region', { name: 'Coding tasks' });
+	await expect(tasks.getByText('Queued', { exact: true })).toBeVisible();
+	state.task = { ...state.task, state: 'awaiting_review', reason: 'Pull request opened; waiting for human review' };
+	emit('task.state_changed', state.task);
+	await expect(tasks.getByText('Awaiting review', { exact: true })).toBeVisible();
+	state.signals = [
+		{
+			id: 's1',
+			task_id: 'task-1',
+			run_id: state.task.run_id,
+			kind: 'review',
+			external_id: '9',
+			outcome: 'approved',
+			name: 'maintainer',
+			action: 'recorded',
+			summary: '',
+			url: 'https://github.com/acme/app/pull/12',
+			created_at: '2026-10-27T10:00:00Z',
+			updated_at: '2026-10-27T10:00:00Z'
+		}
+	];
+	emit('task.signal_recorded', state.signals[0]);
+	await expect(tasks.getByText('Approved', { exact: true })).toBeVisible();
+	await expect(tasks.getByText('Approved by maintainer. Merge the pull request to complete the task.')).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Execution details', exact: true })).toBeVisible();
+});
+
+test('an attempt whose records are gone keeps the task panel available', async ({ page }) => {
+	const { state, emit } = await fixture(page);
+	await page.goto('/test/assistant?conversation=chat-1');
+	await delegate(page);
+	const tasks = page.getByRole('region', { name: 'Coding tasks' });
+	await expect(tasks.getByText('Queued', { exact: true })).toBeVisible();
+	state.missingRun = true;
+	state.task = { ...state.task, state: 'awaiting_review', reason: 'Pull request opened; waiting for human review' };
+	emit('task.state_changed', state.task);
+	await expect(tasks.getByText('This attempt’s records are no longer available.')).toBeVisible();
+	await expect(page.getByText('Coding tasks are unavailable for this account.')).toHaveCount(0);
+	await expect(page.getByRole('button', { name: 'Start coding', exact: true })).toBeVisible();
 });

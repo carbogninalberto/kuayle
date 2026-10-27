@@ -2091,5 +2091,13 @@
 	"assistant.live_body": "已連線。新訊息、工具呼叫與代理更新會即時顯示在這裡。",
 	"assistant.reconnecting_body": "即時連線已中斷。Kuayle 會自動重新連線並補上你錯過的內容。",
 	"assistant.offline": "離線",
-	"assistant.offline_body": "無法載入此對話，或該對話已無法使用。請重新整理頁面或重試。"
+	"assistant.offline_body": "無法載入此對話，或該對話已無法使用。請重新整理頁面或重試。",
+	"tasks.show_task": "顯示完整任務",
+	"tasks.expand_task": "顯示任務詳情",
+	"tasks.collapse_task": "隱藏任務詳情",
+	"tasks.approved": "已核准",
+	"tasks.approved_reason": "{name} 已核准。合併拉取請求即可完成任務。",
+	"tasks.tools": "工具",
+	"tasks.more_actions": "更多操作",
+	"tasks.attempt_missing": "此嘗試的記錄已不可用。"
 }
