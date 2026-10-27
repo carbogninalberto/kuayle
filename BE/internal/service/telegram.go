@@ -85,6 +85,12 @@ func (s *TelegramService) SetWebhookURL(raw string) error {
 	return nil
 }
 
+// publicHTTPSURL is the shape Telegram accepts for a webhook.
+func publicHTTPSURL(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && u.Scheme == "https" && u.Host != "" && u.User == nil && u.RawQuery == "" && u.Fragment == ""
+}
+
 func (s *TelegramService) webhookURL(ws uuid.UUID) string {
 	if s.webhookOverride != "" {
 		return s.webhookOverride
@@ -226,11 +232,8 @@ func (s *TelegramService) save(ctx context.Context, ws uuid.UUID, req TelegramSe
 	if config.TokenEncrypted == "" {
 		return nil, repository.ErrTelegramInvalid
 	}
-	if req.Enabled {
-		u, err := url.Parse(s.frontend)
-		if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-			return nil, ErrTelegramAPI
-		}
+	if req.Enabled && !publicHTTPSURL(s.webhookURL(ws)) {
+		return nil, &TelegramAPIError{Method: "setWebhook", Description: "the webhook address must be public HTTPS; set FRONTEND_URL or TELEGRAM_WEBHOOK_URL"}
 	}
 	config.Enabled = req.Enabled
 	config.AllowedUserIDs = req.AllowedUserIDs

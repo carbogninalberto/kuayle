@@ -42,3 +42,14 @@ func TestTelegramErrorsCarryTelegramsReasonWithoutTheToken(t *testing.T) {
 	require.Equal(t, "Telegram getMe failed: Unauthorized: [redacted]", refused.Error())
 	require.NotContains(t, err.Error(), token)
 }
+
+// Enabling checks the address Telegram will call: a relay may serve a local
+// HTTP installation, which alone cannot receive webhooks.
+func TestTelegramWebhookAddressMustBePublicHTTPS(t *testing.T) {
+	ws := uuid.New()
+	local := NewTelegramService(nil, nil, nil, nil, "http://localhost:5173")
+	require.False(t, publicHTTPSURL(local.webhookURL(ws)))
+	require.NoError(t, local.SetWebhookURL("https://smee.io/fixture-channel"))
+	require.True(t, publicHTTPSURL(local.webhookURL(ws)))
+	require.False(t, publicHTTPSURL("https://user@example.test/hook"))
+}
