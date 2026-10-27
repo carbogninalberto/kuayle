@@ -74,6 +74,15 @@ func (r *DevMachineRepository) GetPublication(ctx context.Context, op domain.Dev
 		return nil, err
 	}
 	publication.AuthorName, publication.AuthorEmail = name.String, email.String
+	// The branch's last published commit, from Kuayle's own record.
+	var published sql.NullString
+	if err = tx.QueryRowContext(ctx, `SELECT g.commit_sha FROM dev_machine_agent_runs r
+ JOIN dev_machine_checkouts c ON c.id=r.checkout_id AND c.workspace_id=r.workspace_id
+ JOIN dev_machine_git_refs g ON g.workspace_id=r.workspace_id AND g.repository_full_name=c.repository_full_name AND g.ref_name=c.working_branch AND g.ref_type='commit'
+ WHERE r.id=$1 AND g.commit_sha IS NOT NULL ORDER BY g.created_at DESC LIMIT 1`, task.RunID).Scan(&published); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+	publication.PublishedCommit = published.String
 	var argv []byte
 	err = tx.QueryRowContext(ctx, `SELECT command_argv,exit_code FROM dev_machine_agent_run_steps WHERE agent_run_id=$1 AND sequence=0 AND step_type='validation' AND status='succeeded'`, task.RunID).Scan(&argv, &publication.CheckExitCode)
 	if err == nil {

@@ -14,8 +14,10 @@ import (
 type PublishRequest struct {
 	AuthorName  string
 	AuthorEmail string
-	Message     string
-	Token       string
+	// The last commit Kuayle published on this branch; commits up to it are kept.
+	PublishedCommit string
+	Message         string
+	Token           string
 }
 
 var (
@@ -36,9 +38,11 @@ message=$(cat)
 g add -A
 # Commits made since the last publication by anyone but the configured author,
 # or carrying co-author trailers, are folded into one commit by that author.
+# The floor is the commit Kuayle recorded as published ($6), never a marker in
+# the agent-writable checkout, so commits already on GitHub are never rewritten.
 # Kuayle's own commits are kept, so a retry republishes the same commit.
-floor=$(g rev-parse -q --verify refs/kuayle/published || true)
-if [ -z "$floor" ] || ! g merge-base --is-ancestor "$floor" HEAD; then floor=$(g merge-base HEAD "refs/remotes/origin/$base"); fi
+floor=${6:-}
+if [ -z "$floor" ] || ! g merge-base --is-ancestor "$floor" HEAD 2>/dev/null; then floor=$(g merge-base HEAD "refs/remotes/origin/$base"); fi
 foreign=$(g log --format='%ae%n%ce' "$floor..HEAD" | grep -vxF "$5" | head -n 1 || true)
 if [ -n "$foreign" ] || g log --format=%B "$floor..HEAD" | grep -qi '^co-authored-by:'; then
   g reset -q --soft "$floor"
@@ -92,8 +96,11 @@ func (r *DockerRuntime) PublishCheckout(ctx context.Context, _ *domain.DevMachin
 	if request.Token == "" {
 		return "", fmt.Errorf("repository credential is unavailable")
 	}
+	if request.PublishedCommit != "" && !publishCommitPattern.MatchString(request.PublishedCommit) {
+		return "", fmt.Errorf("invalid published commit")
+	}
 	output, err := r.execInputOutput(ctx, developerContainer, []string{"sh", "-c", publishCommitScript, "kuayle-publish-commit",
-		checkout.WorkspacePath, checkout.WorkingBranch, checkout.BaseBranch, request.AuthorName, request.AuthorEmail}, request.Message)
+		checkout.WorkspacePath, checkout.WorkingBranch, checkout.BaseBranch, request.AuthorName, request.AuthorEmail, request.PublishedCommit}, request.Message)
 	if err != nil {
 		return "", err
 	}
@@ -106,10 +113,6 @@ func (r *DockerRuntime) PublishCheckout(ctx context.Context, _ *domain.DevMachin
 	}
 	if _, err = r.execInputOutput(ctx, developerContainer, []string{"sh", "-c", publishPushScript, "kuayle-publish-push",
 		checkout.RepositoryFullName, checkout.WorkingBranch, checkout.WorkspacePath, commit}, request.Token+"\n"); err != nil {
-		return "", err
-	}
-	// Later attempts build on what is on GitHub; this marks it in the checkout.
-	if _, err = r.execOutput(ctx, developerContainer, []string{"git", "-C", checkout.WorkspacePath, "-c", "core.hooksPath=/dev/null", "update-ref", "refs/kuayle/published", commit}); err != nil {
 		return "", err
 	}
 	return commit, nil

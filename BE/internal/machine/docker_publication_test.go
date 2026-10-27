@@ -108,13 +108,12 @@ func TestPublishScriptsIgnoreAgentGitConfigurationAndKeepTheCredentialOut(t *tes
 	// Agent commits with made-up identities or co-author trailers are folded
 	// into one commit by the configured author, on top of what was published.
 	run(worktree, identity, "-c", "core.hooksPath=/dev/null", "reset", "-q", "--hard", commit)
-	run(worktree, nil, "-c", "core.hooksPath=/dev/null", "update-ref", "refs/kuayle/published", commit)
 	require.NoError(t, os.WriteFile(filepath.Join(worktree, "follow.txt"), []byte("review fix\n"), 0o644))
 	bot := []string{"GIT_AUTHOR_NAME=app[bot]", "GIT_AUTHOR_EMAIL=1+app[bot]@users.noreply.github.com", "GIT_COMMITTER_NAME=app[bot]", "GIT_COMMITTER_EMAIL=1+app[bot]@users.noreply.github.com"}
 	run(worktree, bot, "-c", "core.hooksPath=/dev/null", "add", "follow.txt")
 	run(worktree, bot, "-c", "core.hooksPath=/dev/null", "commit", "-q", "-m", "Fix review\n\nCo-Authored-By: Claude Code <noreply@anthropic.com>")
 	require.NoError(t, os.WriteFile(filepath.Join(worktree, "uncommitted.txt"), []byte("more\n"), 0o644))
-	follow, err := script(publishCommitScript, "commit", "REC-1: Dark mode", worktree, "kuayle/rec-1", "main", "Kuayle Agent", "agent@kuayle.invalid")
+	follow, err := script(publishCommitScript, "commit", "REC-1: Dark mode", worktree, "kuayle/rec-1", "main", "Kuayle Agent", "agent@kuayle.invalid", commit)
 	require.NoError(t, err, follow)
 	require.NotEqual(t, commit, follow)
 	require.Equal(t, commit, run(worktree, nil, "rev-parse", follow+"^"), "the new commit builds on the published one")
@@ -124,9 +123,26 @@ func TestPublishScriptsIgnoreAgentGitConfigurationAndKeepTheCredentialOut(t *tes
 	require.Contains(t, run(worktree, nil, "show", "--name-only", "--format=", follow), "uncommitted.txt")
 	output, err = script(publishPushScript, "push", token+"\n", "acme/app", "kuayle/rec-1", worktree, follow)
 	require.NoError(t, err, output, "a fast-forward of the published branch")
-	same, err := script(publishCommitScript, "commit", "REC-1: Dark mode", worktree, "kuayle/rec-1", "main", "Kuayle Agent", "agent@kuayle.invalid")
+	same, err := script(publishCommitScript, "commit", "REC-1: Dark mode", worktree, "kuayle/rec-1", "main", "Kuayle Agent", "agent@kuayle.invalid", follow)
 	require.NoError(t, err, same)
 	require.Equal(t, follow, same, "a retry keeps Kuayle's own commit")
+
+	// Commits already on GitHub are never folded, whoever authored them, so the
+	// next publication stays a fast-forward. Only Kuayle's record says what was
+	// published; markers inside the agent-writable checkout are ignored.
+	require.NoError(t, os.WriteFile(filepath.Join(worktree, "bot.txt"), []byte("bot\n"), 0o644))
+	run(worktree, bot, "-c", "core.hooksPath=/dev/null", "add", "bot.txt")
+	run(worktree, bot, "-c", "core.hooksPath=/dev/null", "commit", "-q", "-m", "Bot change\n\nCo-Authored-By: Claude Code <noreply@anthropic.com>")
+	botCommit := run(worktree, nil, "rev-parse", "HEAD")
+	output, err = script(publishPushScript, "push", token+"\n", "acme/app", "kuayle/rec-1", worktree, botCommit)
+	require.NoError(t, err, output)
+	run(worktree, nil, "-c", "core.hooksPath=/dev/null", "update-ref", "refs/kuayle/published", commit)
+	require.NoError(t, os.WriteFile(filepath.Join(worktree, "after.txt"), []byte("after\n"), 0o644))
+	after, err := script(publishCommitScript, "commit", "REC-1: Dark mode", worktree, "kuayle/rec-1", "main", "Kuayle Agent", "agent@kuayle.invalid", botCommit)
+	require.NoError(t, err, after)
+	require.Equal(t, botCommit, run(worktree, nil, "rev-parse", after+"^"), "the published bot commit is kept")
+	output, err = script(publishPushScript, "push", token+"\n", "acme/app", "kuayle/rec-1", worktree, after)
+	require.NoError(t, err, output)
 
 	// No changes relative to the base branch means nothing to publish.
 	empty := filepath.Join(root, "tasks", "rec-2")

@@ -80,7 +80,7 @@ func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, 
 		identity = GitIdentity{Name: publication.AuthorName, Email: publication.AuthorEmail}
 	}
 	commit, err := m.runtime.PublishCheckout(ctx, machine, services, checkout, PublishRequest{
-		AuthorName: identity.Name, AuthorEmail: identity.Email, Token: token,
+		AuthorName: identity.Name, AuthorEmail: identity.Email, Token: token, PublishedCommit: publication.PublishedCommit,
 		Message: title + "\n\nKuayle agent task " + run.TaskID.String(),
 	})
 	if err != nil {

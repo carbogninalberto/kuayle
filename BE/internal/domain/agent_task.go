@@ -178,6 +178,8 @@ type AgentPublication struct {
 	CheckExitCode *int
 	// The workspace's configured commit author, when set.
 	AuthorName, AuthorEmail string
+	// The last commit Kuayle published on the task branch, if any.
+	PublishedCommit string
 }
 
 // AgentPublicationResult is recorded only after the branch was pushed and the

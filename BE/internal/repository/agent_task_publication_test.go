@@ -89,6 +89,18 @@ func TestPublicationRecordsPullRequestOnceAndGatesReview(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "carbogninalberto", publication.AuthorName)
 	require.Equal(t, "dev@example.com", publication.AuthorEmail)
+	require.Empty(t, publication.PublishedCommit, "nothing published yet")
+	// Later publications fold agent commits only above what Kuayle published on
+	// this checkout's branch; other branches and repositories do not count.
+	_, err = db.Exec(`INSERT INTO dev_machine_git_refs(workspace_id,machine_id,ref_type,repository_full_name,ref_name,commit_sha,created_at) VALUES
+ ($1,$2,'commit','fixture/repo','kuayle/rec-1','1111111111111111111111111111111111111111',now()-interval '2 minutes'),
+ ($1,$2,'commit','fixture/repo','kuayle/rec-1','2222222222222222222222222222222222222222',now()-interval '1 minute'),
+ ($1,$2,'commit','fixture/repo','kuayle/other','3333333333333333333333333333333333333333',now()),
+ ($1,$2,'commit','other/repo','kuayle/rec-1','4444444444444444444444444444444444444444',now())`, task.WorkspaceID, *claimed.MachineID)
+	require.NoError(t, err)
+	publication, err = store.GetPublication(ctx, op)
+	require.NoError(t, err)
+	require.Equal(t, "2222222222222222222222222222222222222222", publication.PublishedCommit)
 	result := domain.AgentPublicationResult{Branch: "kuayle/fixture", Commit: "0123456789abcdef0123456789abcdef01234567", PullRequestNumber: 12, PullRequestURL: "https://github.com/acme/app/pull/12"}
 	require.ErrorIs(t, store.CompletePublication(ctx, op, result), ErrAgentTaskConflict, "a result needs a real start")
 	require.NoError(t, store.StartPublication(ctx, op))
