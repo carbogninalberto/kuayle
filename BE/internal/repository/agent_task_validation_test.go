@@ -1,0 +1,146 @@
+package repository
+
+import (
+	"context"
+	"github.com/google/uuid"
+	"github.com/kuayle/kuayle-backend/internal/domain"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+)
+
+func TestAgentTaskCannotPublishFromNativeSuccessAlone(t *testing.T) {
+	db, repo, ctx, task, fixture := taskRecoveryFixture(t)
+	claimed := prepareTaskStart(t, db, repo, ctx, task, fixture)
+	_, err := repo.Start(ctx, *claimed)
+	require.NoError(t, err)
+	_, err = db.Exec(`UPDATE dev_machine_agent_runs SET status='succeeded',completed_at=now(),exit_code=0 WHERE id=$1`, task.RunID)
+	require.NoError(t, err)
+	require.NoError(t, repo.Transition(ctx, *claimed, "validating", "Native attempt finished"))
+	require.ErrorIs(t, repo.Transition(ctx, *claimed, "publishing", "Agent claimed tests passed"), ErrAgentTaskConflict)
+}
+
+func TestIndependentValidationPersistsEvidenceAndFencesStaleWriters(t *testing.T) {
+	db, repo, ctx, task, fixture := taskRecoveryFixture(t)
+	claimed := prepareTaskStart(t, db, repo, ctx, task, fixture)
+	_, err := repo.Start(ctx, *claimed)
+	require.NoError(t, err)
+	_, err = db.Exec(`UPDATE dev_machine_agent_runs SET status='succeeded',completed_at=now(),exit_code=0 WHERE id=$1`, task.RunID)
+	require.NoError(t, err)
+	require.NoError(t, repo.Transition(ctx, *claimed, "validating", "Native attempt finished"))
+	_, err = db.Exec(`UPDATE agent_tasks SET validation_command='["sh","-c","exit 0"]' WHERE id=$1`, task.ID)
+	require.NoError(t, err)
+	step, err := repo.EnsureValidation(ctx, *claimed)
+	require.NoError(t, err)
+	require.Equal(t, domain.DevMachineAgentRunStepStatusQueued, step.Status)
+	again, err := repo.EnsureValidation(ctx, *claimed)
+	require.NoError(t, err)
+	require.Equal(t, step.ID, again.ID)
+	store := NewDevMachineRepository(db)
+	ops, err := store.LeaseOperations(ctx, "validation-fixture", 1, time.Minute)
+	require.NoError(t, err)
+	require.Len(t, ops, 1)
+	op := ops[0]
+	require.Equal(t, domain.DevMachineOpValidateAgent, op.Action)
+	service := &domain.DevMachineService{ID: step.ID, WorkspaceID: task.WorkspaceID, MachineID: op.MachineID, AgentRunID: &task.RunID, ServiceType: "agent", ServiceKey: "validation-" + task.RunID.String(), ContainerName: "validation", ImageRef: "fixture", InternalHost: "validation", InternalPort: 8080, Status: "pending", HealthStatus: "unknown"}
+	require.NoError(t, store.CreateRuntimeService(ctx, service))
+	require.ErrorIs(t, store.CompleteValidation(ctx, op, 0), ErrAgentTaskConflict, "a result needs a real start")
+	require.NoError(t, store.StartValidation(ctx, op, "container"))
+	stale := op
+	stale.Attempts++
+	require.ErrorIs(t, store.CompleteValidation(ctx, stale, 0), ErrAgentTaskConflict)
+	chunk := &domain.DevMachineLogChunk{WorkspaceID: task.WorkspaceID, MachineID: op.MachineID, AgentRunID: &task.RunID, ServiceID: &step.ID, Stream: "stdout", Sequence: 1, Content: "actual check output", SourceKey: "source"}
+	require.NoError(t, store.CreateValidationOutput(ctx, op, chunk))
+	require.NoError(t, store.CreateValidationOutput(ctx, op, chunk))
+	logs, err := repo.Logs(ctx, task.WorkspaceID, task.ID, task.RunID, 0)
+	require.NoError(t, err)
+	require.Len(t, logs.Logs, 1)
+	require.NoError(t, store.CompleteValidation(ctx, op, 0))
+	require.ErrorIs(t, repo.Transition(ctx, *claimed, "publishing", "Checks passed"), ErrAgentTaskConflict, "operation completion must settle first")
+	require.NoError(t, store.CompleteOperation(ctx, op.ID, *op.LeaseOwner))
+	require.NoError(t, repo.Transition(ctx, *claimed, "publishing", "Checks passed"))
+	result, err := repo.Validation(ctx, task.WorkspaceID, task.ID, task.RunID)
+	require.NoError(t, err)
+	require.Equal(t, domain.DevMachineAgentRunStepStatusSucceeded, result.Status)
+	require.Equal(t, 0, *result.ExitCode)
+	require.NotNil(t, result.StartedAt)
+	require.NotNil(t, result.CompletedAt)
+	require.Error(t, store.CreateValidationOutput(ctx, op, chunk), "finished validation cannot append output")
+	stranger := domain.WithAccess(ctx, domain.Access{WorkspaceID: task.WorkspaceID, UserID: uuid.New()})
+	_, err = repo.Validation(stranger, task.WorkspaceID, task.ID, task.RunID)
+	require.ErrorIs(t, err, ErrConversationNotFound)
+	_, err = repo.Validation(ctx, task.WorkspaceID, task.ID, uuid.New())
+	require.ErrorIs(t, err, ErrConversationNotFound)
+}
+
+func TestMissingValidationCommandIsUnavailableNotPassed(t *testing.T) {
+	db, repo, ctx, task, fixture := taskRecoveryFixture(t)
+	claimed := prepareTaskStart(t, db, repo, ctx, task, fixture)
+	_, err := repo.Start(ctx, *claimed)
+	require.NoError(t, err)
+	_, err = db.Exec(`UPDATE dev_machine_agent_runs SET status='succeeded',completed_at=now() WHERE id=$1`, task.RunID)
+	require.NoError(t, err)
+	require.NoError(t, repo.Transition(ctx, *claimed, "validating", "Native attempt finished"))
+	step, err := repo.EnsureValidation(ctx, *claimed)
+	require.NoError(t, err)
+	require.Equal(t, domain.DevMachineAgentRunStepStatusSkipped, step.Status)
+	require.Nil(t, step.ExitCode)
+	var count int
+	require.NoError(t, db.Get(&count, `SELECT count(*) FROM dev_machine_operations WHERE agent_run_id=$1 AND action='validate_agent'`, task.RunID))
+	require.Zero(t, count)
+	require.ErrorIs(t, repo.Transition(ctx, *claimed, "publishing", "Unavailable is not passed"), ErrAgentTaskConflict)
+}
+
+func TestValidationRejectsRevokedAuthorityAndExpiredOperationLeases(t *testing.T) {
+	for _, scenario := range []string{"cancelled", "membership", "policy", "machine_generation", "expired_lease", "superseded_attempt"} {
+		t.Run(scenario, func(t *testing.T) {
+			db, repo, ctx, task, fixture := taskRecoveryFixture(t)
+			claimed := prepareTaskStart(t, db, repo, ctx, task, fixture)
+			_, err := repo.Start(ctx, *claimed)
+			require.NoError(t, err)
+			_, err = db.Exec(`UPDATE dev_machine_agent_runs SET status='succeeded',completed_at=now() WHERE id=$1`, task.RunID)
+			require.NoError(t, err)
+			require.NoError(t, repo.Transition(ctx, *claimed, "validating", "Native attempt finished"))
+			_, err = db.Exec(`UPDATE agent_tasks SET validation_command='["true"]' WHERE id=$1`, task.ID)
+			require.NoError(t, err)
+			step, err := repo.EnsureValidation(ctx, *claimed)
+			require.NoError(t, err)
+			store := NewDevMachineRepository(db)
+			ops, err := store.LeaseOperations(ctx, "validation-fixture", 1, time.Minute)
+			require.NoError(t, err)
+			require.Len(t, ops, 1)
+			op := ops[0]
+			require.NoError(t, store.CreateRuntimeService(ctx, &domain.DevMachineService{ID: step.ID, WorkspaceID: task.WorkspaceID, MachineID: op.MachineID, AgentRunID: &task.RunID, ServiceType: "agent", ServiceKey: "validation", ContainerName: "validation", ImageRef: "fixture", InternalHost: "validation", InternalPort: 8080, Status: "pending", HealthStatus: "unknown"}))
+			require.NoError(t, store.StartValidation(ctx, op, "container"))
+			// A second native writer cannot use this machine during independent checks.
+			competing := &domain.DevMachineAgentRun{ID: uuid.New(), WorkspaceID: task.WorkspaceID, MachineID: op.MachineID}
+			require.ErrorIs(t, store.CreateAgentRun(context.Background(), competing, &domain.DevMachineOperation{Generation: op.Generation}), ErrActiveAgentRun)
+			switch scenario {
+			case "cancelled":
+				err = repo.RequestCancel(ctx, task.WorkspaceID, task.ID)
+			case "membership":
+				_, err = db.Exec(`DELETE FROM workspace_members WHERE workspace_id=$1 AND user_id=$2`, task.WorkspaceID, task.CreatorID)
+			case "policy":
+				_, err = db.Exec(`UPDATE dev_machine_workspace_policies SET enabled=false WHERE workspace_id=$1`, task.WorkspaceID)
+			case "machine_generation":
+				_, err = db.Exec(`UPDATE dev_machines SET generation=generation+1 WHERE id=$1`, op.MachineID)
+			case "expired_lease":
+				_, err = db.Exec(`UPDATE dev_machine_operations SET lease_expires_at=now()-interval '1 second' WHERE id=$1`, op.ID)
+			case "superseded_attempt":
+				_, err = db.Exec(`UPDATE agent_tasks SET run_id=gen_random_uuid() WHERE id=$1`, task.ID)
+			}
+			require.NoError(t, err)
+			_, err = store.GetValidation(ctx, op)
+			require.Error(t, err)
+			require.Error(t, store.CompleteValidation(ctx, op, 0))
+			require.Error(t, store.CreateValidationOutput(ctx, op, &domain.DevMachineLogChunk{WorkspaceID: task.WorkspaceID, MachineID: op.MachineID, AgentRunID: &task.RunID, ServiceID: &step.ID, Stream: "stdout", Sequence: 1, Content: "must not persist"}))
+			var succeeded bool
+			require.NoError(t, db.Get(&succeeded, `SELECT status='succeeded' FROM dev_machine_agent_run_steps WHERE id=$1`, step.ID))
+			require.False(t, succeeded)
+			var count int
+			require.NoError(t, db.Get(&count, `SELECT count(*) FROM dev_machine_log_chunks WHERE service_id=$1`, step.ID))
+			require.Zero(t, count)
+		})
+	}
+}

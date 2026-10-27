@@ -5,9 +5,10 @@
 The task domain, repository, worker and HTTP controls are wired into the API
 process. Issue conversations expose task delegation, retry, cancellation and live
 activity through AI Elements Task/Trace and Model Selector compositions. The assistant remains
-conversational; structured orchestrator delegation is still pending. Independent
-validation, publishing and review are not yet implemented, so native success
-waits in `validating`. This is not a completed autonomous development workflow.
+conversational; structured orchestrator delegation is still pending. Native
+success is followed by an independent check (migration 58). Publishing and review
+are not yet implemented, so a passed check waits in `publishing`. This is not a
+completed autonomous development workflow.
 
 Migration 56 adds tasks and transition history, task-specific checkout scopes,
 immutable native-attempt ownership, encrypted recovery credentials and log-source
@@ -38,9 +39,38 @@ with no configured command; later defaults are never retroactively applied.
 Rollback refuses configured overrides or nonempty effective snapshots.
 
 The native attempt receives this command in its instructions and existing
-`test_command` field. **Independent execution and trustworthy test results are
-still pending**; command configuration does not advance `validating` or claim a
-passed check. Missing commands are not evidence of success.
+`test_command` field. That is advisory only: the outcome used by the task is the
+independent check below. Missing commands are not evidence of success.
+
+## Independent validation
+
+Migration 58 adds the `validate_agent` machine operation. In `validating`, the
+worker queues one `validation` step (sequence 0) on the succeeded native attempt,
+with the attempt's effective command snapshot, inside the fenced task transaction.
+It uses the same workspace/machine advisory locks as native run creation and
+requires a running machine, enabled policy and no active native run. An empty
+snapshot records a `skipped` step and blocks the task; it is never a pass.
+
+The manager runs the argv directly (no shell, harness bootstrap or provider
+parsing) in a deterministic `-validation-<run>` container from the machine's
+developer image, on the task checkout, under the hardened agent host config,
+egress proxy and `CI=true`. No model, GitHub or runtime credentials are copied
+into it; the attempt's encrypted snapshot is decoded only to redact output.
+Output is stored as log chunks whose `service_id` is the step ID. Every step and
+output write re-verifies the task (still `validating`, same run, creator, machine
+generation, enabled policy, succeeded attempt) and the operation's live lease.
+The deadline starts at the step's first start, so restarts cannot extend it.
+Recovery replays an already exited container's result instead of rerunning it,
+after checking image, argv, workdir and ownership labels.
+
+The process exit code alone decides the step: 0 succeeds, anything else fails.
+Moving to `publishing` re-checks a succeeded step with exit code 0 and a completed
+operation in the same transaction. A failed or cancelled check goes to cleanup
+and `failed`; an exhausted infrastructure operation marks the step failed rather
+than leaving it queued. Cancellation marks open steps cancelled. Every step change
+emits a `task.tests_updated` conversation event with `{task_id, run_id, step}`.
+Machines with a task in `validating` count as active for pause/stop and new runs.
+Rollback refuses retained validation operations or steps.
 
 ## Authorization and side effects
 
@@ -171,9 +201,9 @@ results.
 
 ## Remaining workflow work
 
-The worker currently progresses through preparation and native execution to
-`validating`. Independent validation, publishing and human acceptance are not yet
-implemented. Repository-level retry support does not yet provide native session
+The worker currently progresses through preparation, native execution and
+independent validation to `publishing`. Publishing (commit, push, PR) and human
+acceptance are not yet implemented. Repository-level retry support does not yet provide native session
 resume or a review workflow. Native
 sessions and durable approval flows remain separate work; a successful process
 exit must never mark an issue Done.
@@ -199,6 +229,8 @@ and cancellation remain available to authorized users.
 - `GET /agent-tasks/:taskId/history` pages transition records with `after`.
 - `GET /agent-tasks/:taskId/runs` pages native attempts with `before`.
 - `GET /agent-tasks/:taskId/runs/:runId/logs` pages that attempt's logs with `after`.
+- `GET /agent-tasks/:taskId/runs/:runId/validation` returns that attempt's
+  independent check step, or `null` when none was recorded.
 
 Paths are workspace-relative. Task/attempt pages contain 25 entries and an
 optional `next_before` UUID; history/log pages contain 100 entries and an optional
@@ -224,6 +256,11 @@ Task and retry forms retain their request UUID after a transport failure. Native
 output is rendered as text through Code Block; structured event labels and
 transition history use Trace. Long histories, attempts and logs page explicitly.
 No provider text or successful exit is displayed as independent validation proof.
+The independent check renders through the AI Elements
+[Test Results](https://www.shadcn-svelte.com/docs/ai-elements/test-results)
+composition (Trace + Code Block) as one check with its real status, exit code and
+timestamps; `task.tests_updated` events refresh it. Its output is split from the
+native output by the step's `service_id`.
 
 The UI follows the official [Task](https://www.shadcn-svelte.com/docs/ai-elements/task),
 [Model Selector](https://www.shadcn-svelte.com/docs/ai-elements/model-selector),

@@ -27,6 +27,7 @@ type taskLifecycleStore interface {
 	Fail(context.Context, domain.AgentTask, string) error
 }
 type taskExecutionRuntime interface {
+	Validate(context.Context, domain.AgentTask) (*domain.DevMachineAgentRunStep, error)
 	Prepare(context.Context, *domain.AgentTask) (bool, error)
 	Attempt(context.Context, domain.AgentTask) (*domain.DevMachineAgentRun, error)
 	Cancel(context.Context, domain.AgentTask) error
@@ -116,6 +117,24 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 		if !ready {
 			return nil
 		}
+	}
+	if task.State == "validating" {
+		result, err := s.runtime.Validate(ctx, task)
+		if err != nil {
+			return s.preparationError(ctx, task, err)
+		}
+		if result == nil {
+			return nil
+		}
+		switch result.Status {
+		case domain.DevMachineAgentRunStepStatusSucceeded:
+			return s.store.Transition(ctx, task, "publishing", "Independent validation passed; preparing review artifacts")
+		case domain.DevMachineAgentRunStepStatusSkipped:
+			return s.store.Transition(ctx, task, "blocked", "No test command is configured; configure a check and retry")
+		case domain.DevMachineAgentRunStepStatusFailed, domain.DevMachineAgentRunStepStatusCancelled:
+			return s.store.Fail(ctx, task, "Independent validation failed; stopping execution before retry")
+		}
+		return nil
 	}
 	if task.State != "preparing" && task.State != "running" && task.State != "waiting_input" {
 		return nil
@@ -306,4 +325,11 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 }
 func (r *devMachineTaskRuntime) Cancel(ctx context.Context, task domain.AgentTask) error {
 	return r.tasks.CancelAttempt(ctx, task)
+}
+
+func (r *devMachineTaskRuntime) Validate(ctx context.Context, task domain.AgentTask) (*domain.DevMachineAgentRunStep, error) {
+	if _, err := r.machines.enabledPolicy(ctx, task.WorkspaceID); err != nil {
+		return nil, err
+	}
+	return r.tasks.EnsureValidation(ctx, task)
 }

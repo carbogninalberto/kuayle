@@ -1920,5 +1920,16 @@
 	"tasks.state.cancelled": "Cancelled",
 	"tasks.test_command": "Test command",
 	"tasks.test_command_help": "Enter a JSON array, such as [\"npm\",\"test\"]. Leave blank to inherit; [] means no configured check.",
-	"tasks.test_command_invalid": "Use a JSON array of up to 64 text arguments, starting with a command."
+	"tasks.test_command_invalid": "Use a JSON array of up to 64 text arguments, starting with a command.",
+	"tasks.checks": "Independent checks",
+	"tasks.check_unavailable": "No independent check recorded",
+	"tasks.check_queued": "Independent check queued",
+	"tasks.check_running": "Running independent check",
+	"tasks.check_passed": "Independent check passed",
+	"tasks.check_failed": "Independent check failed",
+	"tasks.check_cancelled": "Independent check cancelled",
+	"tasks.check_skipped": "Validation unavailable: no command configured",
+	"tasks.check_exit": "Exit code: {code}",
+	"tasks.check_started": "Started: {time}",
+	"tasks.check_finished": "Finished: {time}"
 }

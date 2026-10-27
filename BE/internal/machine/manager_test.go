@@ -22,6 +22,7 @@ import (
 )
 
 type managerStoreFake struct {
+	ManagerStore
 	onAuthorizeAgentRun       func() error
 	outputChunks              []domain.DevMachineLogChunk
 	outputErr                 error
@@ -372,6 +373,7 @@ func (f *githubAPIFake) CreatePullRequest(string, string, string, string, string
 }
 
 type runtimeFake struct {
+	Runtime
 	beforeAgentStarted func()
 
 	agentCancellations                          int

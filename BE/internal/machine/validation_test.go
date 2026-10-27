@@ -1,0 +1,93 @@
+package machine
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/kuayle/kuayle-backend/internal/domain"
+	cryptoutil "github.com/kuayle/kuayle-backend/pkg/crypto"
+	"github.com/stretchr/testify/require"
+)
+
+type validationStoreFake struct {
+	*managerStoreFake
+	step             domain.DevMachineAgentRunStep
+	validationChunks []domain.DevMachineLogChunk
+	outputErr        error
+	exit             *int
+}
+
+func (f *validationStoreFake) GetValidation(context.Context, domain.DevMachineOperation) (*domain.DevMachineAgentRunStep, error) {
+	copy := f.step
+	return &copy, nil
+}
+func (f *validationStoreFake) StartValidation(context.Context, domain.DevMachineOperation, string) error {
+	f.step.Status = "running"
+	return nil
+}
+func (f *validationStoreFake) CompleteValidation(_ context.Context, _ domain.DevMachineOperation, exit int) error {
+	f.exit = &exit
+	f.step.Status = "succeeded"
+	return nil
+}
+func (f *validationStoreFake) CreateValidationOutput(_ context.Context, _ domain.DevMachineOperation, c *domain.DevMachineLogChunk) error {
+	f.validationChunks = append(f.validationChunks, *c)
+	return f.outputErr
+}
+
+type validationRuntimeFake struct {
+	*runtimeFake
+	calls int
+	exit  int
+	image string
+}
+
+func (f *validationRuntimeFake) RunValidation(_ context.Context, _ *domain.DevMachine, _ *domain.DevMachineAgentRun, _ *domain.DevMachineAgentRunStep, _ *domain.DevMachineCheckout, image string, o *AgentObserver) (*AgentExecution, error) {
+	f.calls++
+	f.image = image
+	if err := o.Authorize(); err != nil {
+		return nil, err
+	}
+	if err := o.Started("check"); err != nil {
+		return nil, err
+	}
+	if err := o.Output("stdout", []byte("2026-10-27T10:00:00Z fixture-private-value must be hidden; tests passed\n")); err != nil {
+		return nil, err
+	}
+	return &AgentExecution{ContainerID: "check", ExitCode: f.exit}, nil
+}
+func TestValidationManagerUsesActualExitAndRedactsWithoutModelParsing(t *testing.T) {
+	for _, outputFailure := range []bool{false, true} {
+		t.Run(map[bool]string{false: "actual_exit", true: "retain_recovery_container"}[outputFailure], func(t *testing.T) {
+			taskID, checkoutID, runID := uuid.New(), uuid.New(), uuid.New()
+			machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), ExpiresAt: time.Now().Add(time.Hour)}
+			key := make([]byte, 32)
+			encrypted, err := cryptoutil.Encrypt(`{"FIXTURE_CREDENTIAL":"fixture-private-value"}`, key)
+			require.NoError(t, err)
+			store := &validationStoreFake{managerStoreFake: &managerStoreFake{machine: machine, agentRun: &domain.DevMachineAgentRun{ID: runID, TaskID: &taskID, CheckoutID: &checkoutID, EncryptedOutputSecrets: &encrypted, MaxRuntimeSeconds: 60}, checkout: &domain.DevMachineCheckout{ID: checkoutID, MachineID: machine.ID, WorkspaceID: machine.WorkspaceID, ScopeKey: taskID.String(), Status: "ready"}, services: []domain.DevMachineService{{ServiceType: "terminal", ImageRef: "developer:fixture"}}}, step: domain.DevMachineAgentRunStep{ID: uuid.New(), AgentRunID: runID, Status: "queued", CreatedAt: time.Now(), CommandArgv: []byte(`["test"]`)}}
+			if outputFailure {
+				store.outputErr = errors.New("persistence unavailable")
+			}
+			runtime := &validationRuntimeFake{runtimeFake: &runtimeFake{}, exit: 7}
+			manager := &Manager{store: store, runtime: runtime, encryptionKey: key}
+			err = manager.validateAgent(context.Background(), machine, &domain.DevMachineOperation{AgentRunID: &runID})
+			if outputFailure {
+				require.Error(t, err)
+				require.Nil(t, store.exit)
+				require.Zero(t, runtime.agentCancellations, "retain stopped container so retry replays, not reruns")
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, 7, *store.exit, "model text claiming tests passed must not override process failure")
+			}
+			require.Equal(t, "developer:fixture", runtime.image)
+			require.NotEmpty(t, store.validationChunks)
+			for _, chunk := range store.validationChunks {
+				require.False(t, strings.Contains(chunk.Content, "fixture-private-value"))
+			}
+		})
+	}
+}

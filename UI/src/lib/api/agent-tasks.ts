@@ -37,6 +37,15 @@ export interface AgentTask {
 	created_at: string;
 	updated_at: string;
 }
+export interface ValidationStep {
+	id: string;
+	agent_run_id: string;
+	status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'skipped';
+	command_argv: string[];
+	exit_code?: number | null;
+	started_at?: string | null;
+	completed_at?: string | null;
+}
 export interface TaskActivity {
 	task_id: string;
 	run_id: string;
@@ -78,14 +87,19 @@ export const agentTasks = {
 	create: (slug: string, id: string, input: TaskInput) => api.post<AgentTask>(`${chat(slug, id)}/tasks`, input),
 	get: (slug: string, id: string) => api.get<AgentTask>(task(slug, id)),
 	cancel: (slug: string, id: string) => api.post<void>(`${task(slug, id)}/cancel`, {}),
-	retry: (slug: string, id: string, input: { request_id: string; generation: number; prompt: string; test_command?: string[] }) =>
-		api.post<AgentTask>(`${task(slug, id)}/retry`, input),
+	retry: (
+		slug: string,
+		id: string,
+		input: { request_id: string; generation: number; prompt: string; test_command?: string[] }
+	) => api.post<AgentTask>(`${task(slug, id)}/retry`, input),
 	history: (slug: string, id: string, after = 0) =>
 		api.get<{ transitions: TaskTransition[]; next_after?: number }>(`${task(slug, id)}/history?after=${after}`),
 	runs: (slug: string, id: string, before?: string) =>
 		api.get<{ runs: AgentRun[]; next_before?: string }>(
 			`${task(slug, id)}/runs${before ? `?before=${encodeURIComponent(before)}` : ''}`
 		),
+	validation: (slug: string, id: string, run: string) =>
+		api.get<ValidationStep | null>(`${task(slug, id)}/runs/${encodeURIComponent(run)}/validation`),
 	logs: (slug: string, id: string, run: string, after = 0) =>
 		api.get<{ logs: DevMachineLogChunk[]; next_after?: number }>(
 			`${task(slug, id)}/runs/${encodeURIComponent(run)}/logs?after=${after}`

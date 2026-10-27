@@ -1920,5 +1920,16 @@
 	"tasks.state.cancelled": "已取消",
 	"tasks.test_command": "测试命令",
 	"tasks.test_command_help": "输入 JSON 数组，例如 [\"npm\",\"test\"]。留空以继承；[] 表示未配置检查。",
-	"tasks.test_command_invalid": "请使用最多包含 64 个文本参数的 JSON 数组，并以命令开头。"
+	"tasks.test_command_invalid": "请使用最多包含 64 个文本参数的 JSON 数组，并以命令开头。",
+	"tasks.checks": "独立检查",
+	"tasks.check_unavailable": "尚未记录独立检查",
+	"tasks.check_queued": "独立检查已排队",
+	"tasks.check_running": "正在运行独立检查",
+	"tasks.check_passed": "独立检查通过",
+	"tasks.check_failed": "独立检查失败",
+	"tasks.check_cancelled": "独立检查已取消",
+	"tasks.check_skipped": "无法验证：未配置命令",
+	"tasks.check_exit": "退出代码：{code}",
+	"tasks.check_started": "开始时间：{time}",
+	"tasks.check_finished": "完成时间：{time}"
 }

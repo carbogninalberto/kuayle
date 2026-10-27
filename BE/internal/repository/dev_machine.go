@@ -405,7 +405,7 @@ func (r *DevMachineRepository) SetDesiredAndEnqueue(ctx context.Context, workspa
 	if operation.Action == domain.DevMachineOpPause || operation.Action == domain.DevMachineOpStop || operation.Action == domain.DevMachineOpTeardown {
 		var active bool
 		if err := tx.GetContext(ctx, &active, `SELECT EXISTS(SELECT 1 FROM dev_machine_agent_runs
-			WHERE machine_id=$1 AND status IN ('queued','starting','running','waiting_input'))`, machineID); err != nil {
+			WHERE machine_id=$1 AND (status IN ('queued','starting','running','waiting_input') OR EXISTS(SELECT 1 FROM agent_tasks t WHERE t.run_id=dev_machine_agent_runs.id AND t.state IN ('preparing','running','waiting_input','validating','cancelling'))))`, machineID); err != nil {
 			return err
 		}
 		if active {
@@ -872,7 +872,7 @@ func (r *DevMachineRepository) CreateAgentRun(ctx context.Context, run *domain.D
 	}
 	var active bool
 	if err := tx.GetContext(ctx, &active, `SELECT EXISTS(SELECT 1 FROM dev_machine_agent_runs
-		WHERE machine_id=$1 AND status IN ('queued','starting','running','waiting_input'))`, run.MachineID); err != nil {
+		WHERE machine_id=$1 AND (status IN ('queued','starting','running','waiting_input') OR EXISTS(SELECT 1 FROM agent_tasks t WHERE t.run_id=dev_machine_agent_runs.id AND t.state IN ('preparing','running','waiting_input','validating','cancelling'))))`, run.MachineID); err != nil {
 		return err
 	}
 	if active {
@@ -968,7 +968,7 @@ func (r *DevMachineRepository) CountAgentRunsSince(ctx context.Context, workspac
 func (r *DevMachineRepository) HasActiveAgentRun(ctx context.Context, machineID uuid.UUID) (bool, error) {
 	var active bool
 	err := r.db.GetContext(ctx, &active, `SELECT EXISTS(SELECT 1 FROM dev_machine_agent_runs
-		WHERE machine_id=$1 AND status IN ('queued','starting','running','waiting_input'))`, machineID)
+		WHERE machine_id=$1 AND (status IN ('queued','starting','running','waiting_input') OR EXISTS(SELECT 1 FROM agent_tasks t WHERE t.run_id=dev_machine_agent_runs.id AND t.state IN ('preparing','running','waiting_input','validating','cancelling'))))`, machineID)
 	return active, err
 }
 
@@ -1165,6 +1165,13 @@ func (r *DevMachineRepository) CreateAgentOutput(ctx context.Context, chunk *dom
 	if !allowed {
 		return ErrAgentTaskUnauthorized
 	}
+	return persistAgentOutput(ctx, tx, chunk, events)
+}
+
+// The caller holds current task/operation authority. This helper commits logs,
+// deduplication and replay events together, without trusting provider claims.
+func persistAgentOutput(ctx context.Context, tx *sqlx.Tx, chunk *domain.DevMachineLogChunk, events []domain.DevMachineEvent) error {
+	var err error
 	err = tx.QueryRowContext(ctx, `INSERT INTO dev_machine_log_chunks(workspace_id,machine_id,agent_run_id,service_id,stream,sequence,content,truncated,source_key)
  VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(machine_id,agent_run_id,service_id,stream,sequence) DO NOTHING RETURNING id,created_at`, chunk.WorkspaceID, chunk.MachineID, chunk.AgentRunID, chunk.ServiceID, chunk.Stream, chunk.Sequence, chunk.Content, chunk.Truncated, chunk.SourceKey).Scan(&chunk.ID, &chunk.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {

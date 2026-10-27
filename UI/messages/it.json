@@ -1920,5 +1920,16 @@
 	"tasks.state.cancelled": "Annullata",
 	"tasks.test_command": "Comando di test",
 	"tasks.test_command_help": "Inserisci un array JSON, ad esempio [\"npm\",\"test\"]. Lascia vuoto per ereditare; [] indica nessun controllo configurato.",
-	"tasks.test_command_invalid": "Usa un array JSON con massimo 64 argomenti di testo, iniziando con un comando."
+	"tasks.test_command_invalid": "Usa un array JSON con massimo 64 argomenti di testo, iniziando con un comando.",
+	"tasks.checks": "Verifiche indipendenti",
+	"tasks.check_unavailable": "Nessuna verifica indipendente registrata",
+	"tasks.check_queued": "Verifica indipendente in coda",
+	"tasks.check_running": "Verifica indipendente in corso",
+	"tasks.check_passed": "Verifica indipendente superata",
+	"tasks.check_failed": "Verifica indipendente fallita",
+	"tasks.check_cancelled": "Verifica indipendente annullata",
+	"tasks.check_skipped": "Validazione non disponibile: nessun comando configurato",
+	"tasks.check_exit": "Codice di uscita: {code}",
+	"tasks.check_started": "Inizio: {time}",
+	"tasks.check_finished": "Fine: {time}"
 }

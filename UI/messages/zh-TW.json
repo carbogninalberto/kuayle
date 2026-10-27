@@ -1920,5 +1920,16 @@
 	"tasks.state.cancelled": "已取消",
 	"tasks.test_command": "測試命令",
 	"tasks.test_command_help": "輸入 JSON 陣列，例如 [\"npm\",\"test\"]。留空以繼承；[] 表示未設定檢查。",
-	"tasks.test_command_invalid": "請使用最多包含 64 個文字參數的 JSON 陣列，並以命令開頭。"
+	"tasks.test_command_invalid": "請使用最多包含 64 個文字參數的 JSON 陣列，並以命令開頭。",
+	"tasks.checks": "獨立檢查",
+	"tasks.check_unavailable": "尚未記錄獨立檢查",
+	"tasks.check_queued": "獨立檢查已排程",
+	"tasks.check_running": "正在執行獨立檢查",
+	"tasks.check_passed": "獨立檢查通過",
+	"tasks.check_failed": "獨立檢查失敗",
+	"tasks.check_cancelled": "獨立檢查已取消",
+	"tasks.check_skipped": "無法驗證：未設定命令",
+	"tasks.check_exit": "結束代碼：{code}",
+	"tasks.check_started": "開始時間：{time}",
+	"tasks.check_finished": "完成時間：{time}"
 }

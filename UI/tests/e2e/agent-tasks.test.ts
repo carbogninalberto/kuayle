@@ -21,6 +21,7 @@ async function fixture(page: Page) {
 	};
 	const state = {
 		task: null as any,
+		validation: null as any,
 		creates: [] as any[],
 		retries: [] as any[],
 		cancels: 0,
@@ -132,6 +133,7 @@ async function fixture(page: Page) {
 						runs: [{ id: 'run-1', provider_id: 'codex', status: 'running', machine_id: 'machine-1', created_at: time }]
 					}
 				});
+			if (path.endsWith('/validation')) return route.fulfill({ json: state.validation });
 			if (path.endsWith('/logs')) {
 				const logs = state.logs.filter((log) => log.id > Number(url.searchParams.get('after') ?? 0));
 				return route.fulfill({
@@ -353,15 +355,55 @@ test('validates test command overrides and preserves them across transport retri
 	await dialog.getByRole('button', { name: 'Delegate task', exact: true }).click();
 	await expect.poll(() => state.creates.length).toBe(2);
 	expect(state.creates[1]).toEqual(request);
-	expect(request.test_command).toEqual(['npm','test']);
+	expect(request.test_command).toEqual(['npm', 'test']);
 	await expect(dialog).not.toBeVisible();
-	state.task = { ...state.task, state:'blocked', test_command: ['npm','test'] };
+	state.task = { ...state.task, state: 'blocked', test_command: ['npm', 'test'] };
 	await page.reload();
-	await page.getByRole('button', { name:'Retry task', exact:true }).click();
-	const retry = page.getByRole('dialog', { name:'Retry task', exact:true });
-	await expect(retry.getByRole('textbox', { name:'Test command' })).toHaveValue('["npm","test"]');
-	await retry.getByRole('textbox', { name:'Test command' }).fill('[]');
-	await retry.getByRole('button', { name:'Retry task', exact:true }).click();
+	await page.getByRole('button', { name: 'Retry task', exact: true }).click();
+	const retry = page.getByRole('dialog', { name: 'Retry task', exact: true });
+	await expect(retry.getByRole('textbox', { name: 'Test command' })).toHaveValue('["npm","test"]');
+	await retry.getByRole('textbox', { name: 'Test command' }).fill('[]');
+	await retry.getByRole('button', { name: 'Retry task', exact: true }).click();
 	await expect.poll(() => state.retries.length).toBe(1);
 	expect(state.retries[0].test_command).toEqual([]);
+});
+
+test('independent checks update live and retain their actual exit status after reload', async ({ page }) => {
+	const { state, emit } = await fixture(page);
+	await page.goto('/test/assistant?conversation=chat-1');
+	await delegate(page);
+	await page.getByRole('button', { name: 'Execution details', exact: true }).click();
+	const checks = page.getByRole('region', { name: 'Independent checks', exact: true });
+	await expect(checks.getByText('No independent check recorded')).toBeVisible();
+	state.validation = {
+		id: 'validation-1',
+		agent_run_id: 'run-1',
+		status: 'running',
+		command_argv: ['sh', '-c', 'exit 7'],
+		started_at: '2026-10-27T10:00:00Z'
+	};
+	emit('task.tests_updated', { task_id: 'task-1', run_id: 'run-1', step: state.validation });
+	await expect(checks.getByText('Running independent check')).toBeVisible();
+	state.validation = { ...state.validation, status: 'failed', exit_code: 7, completed_at: '2026-10-27T10:01:00Z' };
+	state.logs = [
+		{
+			id: 1,
+			agent_run_id: 'run-1',
+			service_id: 'validation-1',
+			stream: 'stdout',
+			sequence: 1,
+			content: '<script>window.evil=true</script> actual check failed',
+			truncated: false
+		}
+	];
+	emit('task.tests_updated', { task_id: 'task-1', run_id: 'run-1', step: state.validation });
+	await checks.getByRole('button', { name: 'Independent check failed' }).click();
+	await expect(checks.getByText('Exit code: 7')).toBeVisible();
+	await expect(checks.getByText(/actual check failed/)).toBeVisible();
+	await expect(page.getByText(/actual check failed/)).toHaveCount(1);
+	expect(await page.evaluate(() => (window as any).evil)).toBeUndefined();
+	await page.reload();
+	await page.getByRole('button', { name: 'Execution details', exact: true }).click();
+	await expect(checks.getByText('Independent check failed')).toBeVisible();
+	expect(state.creates).toHaveLength(1);
 });

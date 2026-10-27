@@ -109,6 +109,8 @@ func (f *taskStoreFake) FinishCancellation(context.Context, domain.AgentTask, st
 }
 
 type taskRuntimeFake struct {
+	validation                  *domain.DevMachineAgentRunStep
+	validationErr               error
 	ready                       bool
 	prepareErr                  error
 	run                         *domain.DevMachineAgentRun
@@ -400,4 +402,25 @@ func TestAgentTaskAttemptPassesAcceptedTestCommandToNativeHarness(t *testing.T) 
 	_, err = runtime.Attempt(context.Background(), task)
 	require.ErrorIs(t, err, ErrInvalidMachineInput)
 	require.Len(t, store.agentRuns, 1)
+}
+
+func (f *taskRuntimeFake) Validate(context.Context, domain.AgentTask) (*domain.DevMachineAgentRunStep, error) {
+	return f.validation, f.validationErr
+}
+
+func TestTaskValidationUsesIndependentOutcome(t *testing.T) {
+	for _, tc := range []struct {
+		status domain.DevMachineAgentRunStepStatus
+		want   string
+	}{{"queued", "validating"}, {"running", "validating"}, {"succeeded", "publishing"}, {"skipped", "blocked"}, {"failed", "cancelling"}, {"cancelled", "cancelling"}} {
+		t.Run(string(tc.status), func(t *testing.T) {
+			task := domain.AgentTask{ID: uuid.New(), WorkspaceID: uuid.New(), CreatorID: uuid.New(), State: "validating"}
+			store := &taskStoreFake{task: task}
+			runtime := &taskRuntimeFake{validation: &domain.DevMachineAgentRunStep{Status: tc.status}}
+			service := &AgentTaskService{store: store, runtime: runtime}
+			require.NoError(t, service.step(context.Background(), task))
+			require.Equal(t, tc.want, store.task.State)
+			require.Zero(t, runtime.attempts)
+		})
+	}
 }

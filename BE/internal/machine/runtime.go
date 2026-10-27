@@ -70,6 +70,7 @@ type RuntimeServiceInspection struct {
 }
 
 type Runtime interface {
+	RunValidation(context.Context, *domain.DevMachine, *domain.DevMachineAgentRun, *domain.DevMachineAgentRunStep, *domain.DevMachineCheckout, string, *AgentObserver) (*AgentExecution, error)
 	Spawn(context.Context, *domain.DevMachine, []domain.DevMachineService, map[string]map[string]string) (string, string, map[string]string, error)
 	Start(context.Context, *domain.DevMachine, []domain.DevMachineService, map[string]map[string]string) error
 	Pause(context.Context, *domain.DevMachine, []domain.DevMachineService) error

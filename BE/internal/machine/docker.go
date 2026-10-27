@@ -824,6 +824,10 @@ func agentRuntimeEnvironment(overrides map[string]string) ([]string, error) {
 }
 
 func (r *DockerRuntime) resumeAgent(ctx context.Context, inspection container.InspectResponse, interactive bool, secrets map[string]string, observer *AgentObserver) (*AgentExecution, error) {
+	return r.resumeExecution(ctx, inspection, interactive, secrets, observer, true)
+}
+
+func (r *DockerRuntime) resumeExecution(ctx context.Context, inspection container.InspectResponse, interactive bool, secrets map[string]string, observer *AgentObserver, deliverSecrets bool) (*AgentExecution, error) {
 	containerID := inspection.ID
 	if observer != nil && observer.Authorize != nil {
 		if err := observer.Authorize(); err != nil {
@@ -845,8 +849,10 @@ func (r *DockerRuntime) resumeAgent(ctx context.Context, inspection container.In
 				return r.agentOutputFailure(containerID, err)
 			}
 		}
-		if err := r.copySecrets(ctx, containerID, secrets); err != nil {
-			return nil, err
+		if deliverSecrets {
+			if err := r.copySecrets(ctx, containerID, secrets); err != nil {
+				return nil, err
+			}
 		}
 		inspection.State.Running = true
 	}

@@ -309,7 +309,7 @@ Persistent task execution is being integrated with the existing native run and
 machine operation records. The [agent task contract](BE/docs/agent-tasks.md)
 documents migration 56, authorization/lease ordering, encrypted per-attempt
 recovery credentials, live output capture and conversation events, and the
-session-only task routes, worker wiring and remaining validation/review work. Manual IDE/terminal
+session-only task routes, worker wiring, independent validation and remaining publishing/review work. Manual IDE/terminal
 workflows continue to use the existing machine controls.
 
 ## Resource Limits and Quotas

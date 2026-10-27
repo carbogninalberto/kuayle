@@ -1,11 +1,12 @@
 <script lang="ts">
 	import { onDestroy, untrack } from 'svelte';
+	import TestResults from './TestResults.svelte';
 	import { Circle, CircleCheck, CircleAlert, LoaderCircle, Terminal, ExternalLink } from '@lucide/svelte';
 	import * as Trace from '$lib/components/ui/trace/index.js';
 	import * as CodeBlock from '$lib/components/ui/code-block/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import SelectField from '$lib/components/shared/SelectField.svelte';
-	import { agentTasks, type AgentTask, type TaskTransition } from '$lib/api/agent-tasks';
+	import { agentTasks, type AgentTask, type TaskTransition, type ValidationStep } from '$lib/api/agent-tasks';
 	import type { AgentRun, DevMachineLogChunk } from '$lib/types/dev-machine';
 	import type { ConversationState } from './conversation-state.svelte';
 	import { taskLabel } from './task-labels';
@@ -31,6 +32,7 @@
 	let historyAfter = $state<number | undefined>(),
 		runsBefore = $state<string | undefined>(),
 		logsAfter = $state<number | undefined>();
+	let validation = $state<ValidationStep | null>(null);
 	let selectedRun = $state(untrack(() => task.run_id));
 	let seenAttempt = untrack(() => task.run_id),
 		disposed = false,
@@ -41,7 +43,21 @@
 	const failed = $derived(['failed', 'blocked'].includes(task.state));
 	const canCancel = $derived(!['completed', 'cancelled'].includes(task.state));
 	const canRetry = $derived(['failed', 'blocked', 'awaiting_review'].includes(task.state));
-	const output = $derived(logs.map((line) => `${line.stream === 'stderr' ? '[stderr] ' : ''}${line.content}`).join(''));
+	// The independent check owns its own runtime service; never attribute its
+	// output to the native harness or the harness output to the check.
+	const isCheck = (line: DevMachineLogChunk) => !!validation && line.service_id === validation.id;
+	const output = $derived(
+		logs
+			.filter((line) => !isCheck(line))
+			.map((line) => `${line.stream === 'stderr' ? '[stderr] ' : ''}${line.content}`)
+			.join('')
+	);
+	const checkOutput = $derived(
+		logs
+			.filter(isCheck)
+			.map((line) => line.content)
+			.join('')
+	);
 	const selected = $derived(runs.find((run) => run.id === selectedRun));
 	const activity = $derived(chat.taskActivity[task.id]);
 	onDestroy(() => {
@@ -78,8 +94,12 @@
 			history = [...history, ...events.transitions.filter((e) => !known.has(e.sequence))];
 			historyAfter = events.next_after;
 			if (attempts.runs.some((run) => run.id === runID) || runs.some((run) => run.id === runID)) {
-				const page = await agentTasks.logs(chat.slug, task.id, runID, logs.at(-1)?.id ?? 0);
+				const [page, check] = await Promise.all([
+					agentTasks.logs(chat.slug, task.id, runID, logs.at(-1)?.id ?? 0),
+					agentTasks.validation(chat.slug, task.id, runID)
+				]);
 				if (disposed || chat.unavailable || selectedRun !== runID) return;
+				validation = check;
 				const ids = new Set(logs.map((line) => line.id));
 				logs = [...logs, ...page.logs.filter((line) => !ids.has(line.id))];
 				logsAfter = page.next_after;
@@ -101,6 +121,7 @@
 			seenAttempt = task.run_id;
 			selectedRun = task.run_id;
 			logs = [];
+			validation = null;
 			logsAfter = undefined;
 		}
 	});
@@ -108,12 +129,13 @@
 		const run = selectedRun;
 		untrack(() => {
 			logs = [];
+			validation = null;
 			logsAfter = undefined;
 		});
 		if (!run) return;
 	});
 	$effect(() => {
-		const observed = [open, task.state, task.run_id, selectedRun, activity?.log_id];
+		const observed = [open, task.state, task.run_id, selectedRun, activity?.log_id, chat.taskValidationCursor[task.id]];
 		// Throttle from the first event: a continuous stream must not keep
 		// postponing output until the native process becomes quiet.
 		if (!observed[0]) {
@@ -203,6 +225,7 @@
 				{#if runsBefore}<Button variant="ghost" size="sm" disabled={loading} onclick={() => void olderRuns()}
 						>{m['tasks.more_runs']()}</Button
 					>{/if}
+				<TestResults step={validation} output={checkOutput} />
 				{#if selected?.summary}<p class="whitespace-pre-wrap break-words text-sm">{selected.summary}</p>{/if}
 				{#if activity?.run_id === selectedRun}{#each activity.events.slice(-8) as event, i (i)}<Trace.Line
 							><Trace.Title>{event.type}</Trace.Title></Trace.Line

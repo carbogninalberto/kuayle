@@ -217,6 +217,16 @@ func (r *AgentTaskRepository) Transition(ctx context.Context, claimed domain.Age
 	if err = fenceAgentTask(ctx, tx, *task, claimed); err != nil {
 		return err
 	}
+	if to == "publishing" {
+		var passed bool
+		if err = tx.GetContext(ctx, &passed, `SELECT EXISTS(SELECT 1 FROM dev_machine_agent_run_steps s JOIN dev_machine_operations o ON o.agent_run_id=s.agent_run_id AND o.action='validate_agent'
+         WHERE s.agent_run_id=$1 AND s.sequence=0 AND s.step_type='validation' AND s.status='succeeded' AND s.exit_code=0 AND s.started_at IS NOT NULL AND s.completed_at IS NOT NULL AND o.status='completed')`, task.RunID); err != nil {
+			return err
+		}
+		if !passed {
+			return ErrAgentTaskConflict
+		}
+	}
 	if err = transitionAgentTask(ctx, tx, task, to, reason, nil); err != nil {
 		return err
 	}
@@ -318,6 +328,9 @@ func (r *AgentTaskRepository) FinishCancellation(ctx context.Context, claimed do
 			return err
 		}
 		return ErrAgentTaskConflict
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE dev_machine_agent_run_steps SET status='cancelled',completed_at=now(),summary='Runtime cancellation confirmed' WHERE agent_run_id=$1 AND step_type='validation' AND status IN ('queued','running')`, task.RunID); err != nil {
+		return err
 	}
 	target := "cancelled"
 	if task.FailurePending {

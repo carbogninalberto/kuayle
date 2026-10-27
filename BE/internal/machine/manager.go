@@ -23,6 +23,10 @@ import (
 )
 
 type ManagerStore interface {
+	GetValidation(context.Context, domain.DevMachineOperation) (*domain.DevMachineAgentRunStep, error)
+	StartValidation(context.Context, domain.DevMachineOperation, string) error
+	CompleteValidation(context.Context, domain.DevMachineOperation, int) error
+	CreateValidationOutput(context.Context, domain.DevMachineOperation, *domain.DevMachineLogChunk) error
 	LeaseOperations(context.Context, string, int, time.Duration) ([]domain.DevMachineOperation, error)
 	RenewOperationLease(context.Context, uuid.UUID, string, time.Duration) error
 	CompleteOperation(context.Context, uuid.UUID, string) error
@@ -211,7 +215,7 @@ func (m *Manager) processLeasedOperation(ctx context.Context, operation domain.D
 	}()
 	started := time.Now()
 	operationCtx, cancel := context.WithCancel(ctx)
-	if operation.Action == domain.DevMachineOpRunAgent && operation.AgentRunID != nil {
+	if (operation.Action == domain.DevMachineOpRunAgent || operation.Action == domain.DevMachineOpValidateAgent) && operation.AgentRunID != nil {
 		m.registerActiveRun(operation.MachineID, *operation.AgentRunID, cancel)
 		defer m.unregisterActiveRun(operation.MachineID, *operation.AgentRunID)
 	}
@@ -319,6 +323,8 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 				return m.store.UpdateCheckoutState(ctx, *operation.CheckoutID, "failed", &message)
 			}
 			return nil
+		case domain.DevMachineOpValidateAgent:
+			return &terminalOperationError{code: "validation_stale", message: "Machine changed during validation"}
 		case domain.DevMachineOpRunAgent:
 			if operation.AgentRunID != nil {
 				m.cancelStaleAgentRun(ctx, *operation.AgentRunID)
@@ -429,6 +435,8 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 			}
 		}
 		return m.setStateAndEventForOperation(ctx, machine, operation, domain.DevMachineStatusDestroyed, "machine.destroyed", nil, true)
+	case domain.DevMachineOpValidateAgent:
+		return m.validateAgent(ctx, machine, operation)
 	case domain.DevMachineOpRunAgent:
 		return m.runAgent(ctx, machine, operation)
 	case domain.DevMachineOpCancelAgent:
