@@ -71,6 +71,18 @@ async function fixture(page: Page) {
 		if (path.endsWith('/assistant/status'))
 			return route.fulfill({ json: { configured: true, provider: 'openai_compatible', model: 'configured-model' } });
 		if (path === '/api/workspaces/test/agent-tasks') return route.fulfill({ json: state.queue });
+		if (path === '/api/workspaces/test/agent-tasks/task-9')
+			return route.fulfill({
+				json: {
+					id: 'task-9',
+					conversation_id: 'chat-issue',
+					state: 'running',
+					reason: 'Native coding harness started',
+					provider: 'codex',
+					model: 'deepseek-flash',
+					generation: 1
+				}
+			});
 		if (path.endsWith('/conversations'))
 			return route.fulfill({ json: route.request().method() === 'POST' ? conversation : [conversation] });
 		if (path.includes('/conversations/chat-1')) {
@@ -457,7 +469,9 @@ test('renders recorded tool calls from history and live events as escaped data',
 	await expect(trigger).toBeVisible();
 	await expect(page.getByRole('link', { name: 'ENG-7' })).toHaveAttribute('href', '/test/issue/ENG-7');
 	await trigger.click();
-	await expect(page.getByText('<img src=x onerror=', { exact: false })).toBeVisible();
+	await expect(
+		page.locator('[data-slot="code-block-code"]').getByText('<img src=x onerror=', { exact: false })
+	).toBeVisible();
 	expect(await page.evaluate(() => (window as any).evil)).toBeUndefined();
 	await expect.poll(() => state.sockets.length).toBeGreaterThan(0);
 	const search = {
@@ -550,7 +564,15 @@ test('asks for approval before delegating and records the decision from the back
 	await page.getByRole('button', { name: 'Approve', exact: true }).click();
 	await expect(page.getByText('Coding agent started on ENG-1', { exact: true })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Approve', exact: true })).toHaveCount(0);
-	await expect(page.getByRole('link', { name: 'ENG-1' })).toHaveAttribute('href', '/test/issue/ENG-1');
+	const subagent = page.getByRole('button', { name: /Coding agent on ENG-1/ });
+	await expect(subagent).toBeVisible();
+	await expect(subagent).toContainText('Running');
+	await subagent.click();
+	await expect(page.getByText('Native coding harness started', { exact: true })).toBeVisible();
+	await expect(page.getByRole('link', { name: 'Open the issue chat' })).toHaveAttribute(
+		'href',
+		'/test/assistant?conversation=chat-issue'
+	);
 	expect(state.decisions).toEqual(['approve', 'approve']);
 	await page.reload();
 	await expect(page.getByText('Coding agent started on ENG-1', { exact: true })).toBeVisible();
@@ -592,4 +614,54 @@ test('lists agent work across projects as a queue linking to each issue chat', a
 	await expect(queue.getByRole('link', { name: /WEB-3/ })).toBeHidden();
 	await queue.getByRole('button', { name: '1 finished' }).click();
 	await expect(queue.getByRole('link', { name: /WEB-3/ })).toBeVisible();
+});
+
+test('lists the issues a reply used and offers contextual suggestions', async ({ page }) => {
+	const state = await fixture(page);
+	await page.goto('/test/assistant?conversation=chat-1');
+	const suggestion = page.getByRole('button', { name: 'Which of my issues are in review?' });
+	await expect(suggestion).toBeVisible();
+	await suggestion.click();
+	await expect.poll(() => state.sends).toEqual(['Which of my issues are in review?']);
+
+	const answered = { ...reply, status: 'completed', content: 'Two issues are in review.' };
+	state.messages = [userMessage, answered];
+	state.tools = [
+		{
+			id: 't1',
+			conversation_id: 'chat-1',
+			message_id: answered.id,
+			sequence: 0,
+			call_id: 'c1',
+			name: 'search_issues',
+			input: { query: 'review' },
+			status: 'completed',
+			output: {
+				issues: [
+					{ identifier: 'ENG-1', title: 'Dark mode' },
+					{ identifier: 'ENG-2', title: 'Search' },
+					{ identifier: 'javascript:alert(1)', title: 'x' }
+				]
+			},
+			created_at: conversation.created_at
+		},
+		{
+			id: 't2',
+			conversation_id: 'chat-1',
+			message_id: answered.id,
+			sequence: 1,
+			call_id: 'c2',
+			name: 'get_issue',
+			input: { identifier: 'ENG-1' },
+			status: 'completed',
+			output: { identifier: 'ENG-1', title: 'Dark mode' },
+			created_at: conversation.created_at
+		}
+	];
+	await page.reload();
+	const sources = page.getByRole('button', { name: 'Used 2 issues' });
+	await expect(sources).toBeVisible();
+	await sources.click();
+	await expect(page.getByRole('link', { name: /ENG-2 · Search/ })).toHaveAttribute('href', '/test/issue/ENG-2');
+	await expect(page.getByRole('link', { name: /javascript/ })).toHaveCount(0);
 });

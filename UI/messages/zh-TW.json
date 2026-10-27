@@ -1984,5 +1984,14 @@
 	"tasks.changed_files": "已變更的檔案",
 	"tasks.queue": "代理工作",
 	"tasks.queue_todo": "{count} 個進行中或等待中",
-	"tasks.queue_done": "{count} 個已結束"
+	"tasks.queue_done": "{count} 個已結束",
+	"assistant.sources": "使用了 {count} 個問題",
+	"assistant.subagent": "{identifier} 上的編碼代理",
+	"assistant.subagent_open": "開啟問題對話",
+	"assistant.suggest_issue_summary": "摘要 {identifier}",
+	"assistant.suggest_issue_next": "{identifier} 下一步該做什麼？",
+	"assistant.suggest_issue_delegate": "在 {identifier} 上啟動編碼代理",
+	"assistant.suggest_review": "我的哪些問題正在審查？",
+	"assistant.suggest_create": "幫我建立一個問題",
+	"assistant.suggest_teams": "我可以在哪些團隊工作？"
 }

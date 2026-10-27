@@ -1984,5 +1984,14 @@
 	"tasks.changed_files": "File modificati",
 	"tasks.queue": "Lavoro degli agenti",
 	"tasks.queue_todo": "{count} in corso o in attesa",
-	"tasks.queue_done": "{count} terminati"
+	"tasks.queue_done": "{count} terminati",
+	"assistant.sources": "Usate {count} issue",
+	"assistant.subagent": "Agente di codice su {identifier}",
+	"assistant.subagent_open": "Apri la chat dell'issue",
+	"assistant.suggest_issue_summary": "Riassumi {identifier}",
+	"assistant.suggest_issue_next": "Qual è il prossimo passo per {identifier}?",
+	"assistant.suggest_issue_delegate": "Avvia un agente di codice su {identifier}",
+	"assistant.suggest_review": "Quali mie issue sono in revisione?",
+	"assistant.suggest_create": "Aiutami a creare un'issue",
+	"assistant.suggest_teams": "In quali team posso lavorare?"
 }

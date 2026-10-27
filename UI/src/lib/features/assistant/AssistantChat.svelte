@@ -24,6 +24,7 @@
 	import TaskPanel from './TaskPanel.svelte';
 	import ToolCalls from './ToolCalls.svelte';
 	import AgentQueue from './AgentQueue.svelte';
+	import ToolSources from './ToolSources.svelte';
 	import { renderMarkdown } from '$lib/markdown';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { m } from '$lib/paraglide/messages.js';
@@ -53,6 +54,16 @@
 	let copyTimer: ReturnType<typeof setTimeout> | undefined;
 	const filteredHistory = $derived(
 		history.filter((c) => c.title.toLocaleLowerCase().includes(search.toLocaleLowerCase()))
+	);
+	// Contextual starting prompts; selecting one sends it like a typed message.
+	const suggestions = $derived(
+		chat.issue
+			? [
+					m['assistant.suggest_issue_summary']({ identifier: chat.issue.identifier }),
+					m['assistant.suggest_issue_next']({ identifier: chat.issue.identifier }),
+					m['assistant.suggest_issue_delegate']({ identifier: chat.issue.identifier })
+				]
+			: [m['assistant.suggest_review'](), m['assistant.suggest_create'](), m['assistant.suggest_teams']()]
 	);
 	const canSend = $derived(
 		initialized &&
@@ -283,6 +294,23 @@
 										<div class="rounded-xl border bg-muted/40 p-3"><MessageCircle size={24} /></div>
 										<h2 class="text-2xl font-semibold tracking-tight">{m['assistant.welcome']()}</h2>
 										<p class="max-w-md text-sm leading-6 text-muted-foreground">{m['assistant.intro']()}</p>
+										{#if status?.configured}
+											<!-- Official AI Elements Suggestion composition: one click sends the prompt. -->
+											<div class="flex max-w-full gap-2 overflow-x-auto pb-1">
+												{#each suggestions as suggestion (suggestion)}
+													<Button
+														variant="outline"
+														size="sm"
+														class="shrink-0"
+														disabled={sending}
+														onclick={() => {
+															text = suggestion;
+															void send();
+														}}>{suggestion}</Button
+													>
+												{/each}
+											</div>
+										{/if}
 									</div>
 								{/if}
 								{#each chat.messages as message (message.id)}
@@ -301,7 +329,7 @@
 														slug={chat.slug}
 														approvals={chat.approvals}
 														onresolve={(approval, decision) => chat.resolveApproval(approval, decision)}
-													/>{/if}
+													/><ToolSources calls={chat.tools[message.id] ?? []} slug={chat.slug} />{/if}
 												<Bubble.Root variant={message.role === 'user' ? 'muted' : 'ghost'}>
 													<Bubble.Content>
 														{#if message.role === 'user'}<p class="whitespace-pre-wrap break-words">

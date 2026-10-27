@@ -1984,5 +1984,14 @@
 	"tasks.changed_files": "已更改的文件",
 	"tasks.queue": "代理工作",
 	"tasks.queue_todo": "{count} 个进行中或等待中",
-	"tasks.queue_done": "{count} 个已结束"
+	"tasks.queue_done": "{count} 个已结束",
+	"assistant.sources": "使用了 {count} 个问题",
+	"assistant.subagent": "{identifier} 上的编码代理",
+	"assistant.subagent_open": "打开问题对话",
+	"assistant.suggest_issue_summary": "总结 {identifier}",
+	"assistant.suggest_issue_next": "{identifier} 下一步该做什么？",
+	"assistant.suggest_issue_delegate": "在 {identifier} 上启动编码代理",
+	"assistant.suggest_review": "我的哪些问题正在审查？",
+	"assistant.suggest_create": "帮我创建一个问题",
+	"assistant.suggest_teams": "我可以在哪些团队工作？"
 }

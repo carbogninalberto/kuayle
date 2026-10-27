@@ -202,6 +202,14 @@ sequence. The UI renders them with the AI Elements
 plus escaped Code Block input and output) and links created issues. Telegram
 uses the same worker, so its replies can use the same tools.
 
+Assistant replies list the issues their tools actually returned with the AI
+Elements [Sources](https://www.shadcn-svelte.com/docs/ai-elements/sources)
+composition (in-app links, identifiers validated). An empty conversation offers
+contextual starting prompts with [Suggestion](https://www.shadcn-svelte.com/docs/ai-elements/suggestion)
+buttons, which send like typed messages. An approved delegation shows the task it
+started with [Subagent](https://www.shadcn-svelte.com/docs/ai-elements/subagent):
+its live state, harness and model, reason and a link to the issue chat.
+
 Model context includes completed message text only; earlier turns' tool
 results are not replayed, so the assistant relies on its own replies for
 continuity.

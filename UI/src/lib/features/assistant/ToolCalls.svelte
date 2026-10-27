@@ -6,6 +6,7 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import type { ConversationApproval, ConversationToolCall } from '$lib/api/conversations';
 	import { m } from '$lib/paraglide/messages.js';
+	import AgentSubagent from './AgentSubagent.svelte';
 	let {
 		calls,
 		slug,
@@ -116,10 +117,11 @@
 											: m['assistant.approval_denied']({ identifier })}</Trace.Title
 						>
 					</Trace.Line>
-					{#if approval.status === 'approved'}<a
-							class="inline-flex items-center gap-1 text-xs underline underline-offset-2"
-							href="/{slug}/issue/{encodeURIComponent(identifier)}"><ExternalLink size={12} />{identifier}</a
-						>{/if}
+					{#if approval.status === 'approved' && approval.task_id}<AgentSubagent
+							{slug}
+							taskId={approval.task_id}
+							{identifier}
+						/>{/if}
 				{/if}
 			{:else if call.status === 'running'}
 				<Trace.Line status="running">
