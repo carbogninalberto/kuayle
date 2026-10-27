@@ -161,6 +161,16 @@ Agent-controlled git configuration can still run programs during the
 credential-free commit step (for example clean filters); that runs with the same
 privileges the agent already had and no publication credential.
 
+## Codex sandbox
+
+Codex runs with `sandbox_mode="danger-full-access"` and
+`approval_policy="never"`. Its own workspace-write sandbox uses bubblewrap,
+which needs user namespaces, and the hardened agent container forbids them. In
+a real run every command failed and the agent exited 0 without changes. The
+container is the boundary: capabilities dropped, no-new-privileges, the egress
+proxy, and only the task's checkout and credentials. Codex's documentation
+recommends turning its sandbox off in externally sandboxed environments.
+
 ## Native session resume and handoff
 
 Codex and Claude Code task attempts keep their native session **transcripts** in
@@ -177,8 +187,8 @@ Claude Code runs receive a Kuayle-assigned `--session-id`; Codex reports its own
 `thread_id` in its `thread.started` event, which the manager records once.
 Migration 64 stores the ID on the attempt (`native_session_id`, restricted to
 `[A-Za-z0-9-]` and never starting with `-`, so it cannot be read as a flag). A
-retry or follow-up **resumes natively** (`codex exec resume <id>` with
-workspace-write sandbox and no approvals, or `claude --resume <id>`) only when
+retry or follow-up **resumes natively** (`codex exec resume <id>` with the same
+settings as a new session, or `claude --resume <id>`) only when
 the previous attempt succeeded on the same machine, where its transcripts live.
 Otherwise it starts a new session, so a failed resume is never repeated. Either
 way the prompt keeps the task instructions and appends a bounded handoff naming

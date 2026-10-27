@@ -115,7 +115,7 @@ func TestCodexRunOverridesBuildDeepSeekArgs(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, []string{
-		"codex", "exec", "--json", "--sandbox", "workspace-write", "-c", `approval_policy="never"`,
+		"codex", "exec", "--json", "-c", `sandbox_mode="danger-full-access"`, "-c", `approval_policy="never"`,
 		"-c", `model="deepseek-v4-pro"`,
 		"-c", `model_provider="deepseek"`,
 		"-c", `model_reasoning_effort="none"`,
@@ -339,12 +339,12 @@ func TestTaskSessionsPersistOnlyTranscriptsAndResumeNatively(t *testing.T) {
 	codex := NewCodexProvider("codex:test")
 	fresh, err := codex.BuildInvocation(RunInput{Mode: ModeAutonomous, Prompt: "Fix it", Session: &SessionInput{Dir: dir}})
 	require.NoError(t, err)
-	require.Equal(t, []string{"/bin/sh", "-c", sessionScript, "kuayle-session", dir, "codex", "exec", "--json", "--sandbox", "workspace-write", "-c", `approval_policy="never"`, "Fix it"}, fresh.Argv)
+	require.Equal(t, []string{"/bin/sh", "-c", sessionScript, "kuayle-session", dir, "codex", "exec", "--json", "-c", `sandbox_mode="danger-full-access"`, "-c", `approval_policy="never"`, "Fix it"}, fresh.Argv)
 	require.Contains(t, sessionScript, `ln -s "$dir/codex" "$HOME/.codex/sessions"`)
 	require.NotContains(t, sessionScript, "config.toml", "configuration and credentials stay on the ephemeral home")
 	resumed, err := codex.BuildInvocation(RunInput{Mode: ModeAutonomous, Prompt: "Address review", Session: &SessionInput{Dir: dir, ResumeID: "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b"}})
 	require.NoError(t, err)
-	require.Equal(t, []string{"codex", "exec", "resume", "--json", "-c", `sandbox_mode="workspace-write"`, "-c", `approval_policy="never"`, "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", "Address review"}, resumed.Argv[5:])
+	require.Equal(t, []string{"codex", "exec", "resume", "--json", "-c", `sandbox_mode="danger-full-access"`, "-c", `approval_policy="never"`, "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", "Address review"}, resumed.Argv[5:])
 
 	claude := NewClaudeCodeProvider("claude:test")
 	first, err := claude.BuildInvocation(RunInput{Mode: ModeAutonomous, Prompt: "Fix it", Session: &SessionInput{Dir: dir, NewID: "11111111-2222-4333-8444-555555555555"}})

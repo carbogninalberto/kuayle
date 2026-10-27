@@ -267,14 +267,17 @@ func NewCodexProvider(image string) Provider {
 				argv := []string{"codex"}
 				return appendCodexOverrides(argv, input)
 			}
-			// Current Codex CLIs removed --full-auto, so fresh and resumed attempts
-			// pass the same sandbox and approval settings explicitly.
-			// `exec resume` only accepts them as config overrides.
+			// The agent container is the sandbox: it drops all capabilities and
+			// forbids user namespaces, so Codex's own bubblewrap sandbox cannot
+			// start there and every command would fail. Codex documents turning
+			// its sandbox off in externally sandboxed environments; approvals are
+			// never requested because the run is unattended.
+			limits := []string{"-c", `sandbox_mode="danger-full-access"`, "-c", `approval_policy="never"`}
 			if input.Session != nil && input.Session.ResumeID != "" {
-				argv := appendCodexOverrides([]string{"codex", "exec", "resume", "--json", "-c", `sandbox_mode="workspace-write"`, "-c", `approval_policy="never"`}, input)
+				argv := appendCodexOverrides(append([]string{"codex", "exec", "resume", "--json"}, limits...), input)
 				return append(argv, input.Session.ResumeID, input.Prompt)
 			}
-			argv := appendCodexOverrides([]string{"codex", "exec", "--json", "--sandbox", "workspace-write", "-c", `approval_policy="never"`}, input)
+			argv := appendCodexOverrides(append([]string{"codex", "exec", "--json"}, limits...), input)
 			return append(argv, input.Prompt)
 		},
 	}
