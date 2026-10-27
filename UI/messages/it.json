@@ -2077,5 +2077,6 @@
 	"assistant.delete_conversation_description": "Eliminare “{title}” e i suoi messaggi? Le attività degli agenti completate conservano la loro cronologia. L'operazione non può essere annullata.",
 	"assistant.folder_save_failed": "Impossibile salvare la cartella",
 	"assistant.move_failed": "Impossibile spostare la conversazione",
-	"assistant.delete_failed": "Impossibile eliminare. Attendi la fine delle risposte o del lavoro degli agenti in corso."
+	"assistant.delete_failed": "Impossibile eliminare. Attendi la fine delle risposte o del lavoro degli agenti in corso.",
+	"assistant.resize_sidebar": "Ridimensiona l'elenco delle conversazioni"
 }

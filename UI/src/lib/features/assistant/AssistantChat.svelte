@@ -27,6 +27,8 @@
 	import ToolSources from './ToolSources.svelte';
 	import Markdown from './Markdown.svelte';
 	import ConversationNav from './ConversationNav.svelte';
+	import * as Resizable from '$lib/components/ui/resizable/index.js';
+	import { MediaQuery } from 'svelte/reactivity';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { m } from '$lib/paraglide/messages.js';
 
@@ -44,6 +46,9 @@
 	let text = $state('');
 	let search = $state('');
 	let showHistory = $state(false);
+	// Panes only on wide screens; phones keep the stacked, toggleable list.
+	const desktop = new MediaQuery('min-width: 768px');
+	const wide = $derived(desktop.current);
 	let sending = $state(false);
 	let error = $state('');
 	let copied = $state<string | null>(null);
@@ -232,12 +237,11 @@
 			<Button variant="outline" size="sm" href="/{slug}/assistant"><Plus size={15} />{m['assistant.new']()}</Button>
 		{/if}
 	</header>
-	<div class="flex min-h-0 min-w-0 flex-1 flex-col md:flex-row">
-		{#if !embedded}
+	{#snippet sidebar(inPane: boolean)}
 			<aside
-				class="max-h-56 shrink-0 flex-col gap-3 overflow-y-auto border-b bg-muted/20 p-3 md:flex md:max-h-none md:w-56 md:border-r md:border-b-0 {showHistory
-					? 'flex'
-					: 'hidden'}"
+				class={inPane
+					? 'flex h-full min-w-0 flex-col gap-3 overflow-y-auto bg-muted/20 p-3'
+					: `max-h-56 shrink-0 flex-col gap-3 overflow-y-auto border-b bg-muted/20 p-3 md:flex md:max-h-none md:w-56 md:border-r md:border-b-0 ${showHistory ? 'flex' : 'hidden'}`}
 				aria-label={m['assistant.history']()}
 			>
 				<p class="px-1 pt-1 text-xs font-medium text-muted-foreground">{m['assistant.history']()}</p>
@@ -250,7 +254,8 @@
 				<ConversationNav {slug} {conversationId} bind:history {search} />
 				<AgentQueue {slug} />
 			</aside>
-		{/if}
+	{/snippet}
+	{#snippet conversationPane()}
 		<section class="flex min-h-0 min-w-0 flex-1 flex-col" aria-label={m['assistant.conversation']()}>
 			{#if conversationId && !chat.loading && !chat.unavailable}
 				<div class="flex shrink-0 items-center gap-2 px-5 pt-3 text-xs text-muted-foreground">
@@ -408,5 +413,18 @@
 				</form>
 			</div>
 		</section>
+	{/snippet}
+	<div class="flex min-h-0 min-w-0 flex-1 flex-col md:flex-row">
+		{#if !embedded && wide}
+			<!-- Desktop: the conversation list is resizable; its width is remembered. -->
+			<Resizable.PaneGroup direction="horizontal" autoSaveId="kuayle-assistant-sidebar" class="min-h-0 flex-1">
+				<Resizable.Pane defaultSize={20} minSize={12} maxSize={40} class="min-w-0">{@render sidebar(true)}</Resizable.Pane>
+				<Resizable.Handle withHandle aria-label={m['assistant.resize_sidebar']()} />
+				<Resizable.Pane minSize={40} class="flex min-w-0">{@render conversationPane()}</Resizable.Pane>
+			</Resizable.PaneGroup>
+		{:else}
+			{#if !embedded}{@render sidebar(false)}{/if}
+			{@render conversationPane()}
+		{/if}
 	</div>
 </div>

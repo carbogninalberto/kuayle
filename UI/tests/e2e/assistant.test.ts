@@ -710,10 +710,14 @@ test('groups conversations into folders and deletes one after confirmation', asy
 	await page.goto('/test/assistant?conversation=chat-1');
 	const nav = page.getByRole('navigation', { name: 'Conversations' });
 	await expect(nav.getByRole('link', { name: 'Release notes' })).toBeVisible();
+	await expect(page.getByRole('separator', { name: 'Resize conversation list' })).toBeVisible();
 
 	await page.getByRole('button', { name: 'New folder' }).click();
-	await page.getByRole('textbox', { name: 'Folder name' }).fill('Releases');
-	await page.getByRole('button', { name: 'Save', exact: true }).click();
+	// The folder is named in place, in the list.
+	const name = nav.getByRole('textbox', { name: 'Folder name' });
+	await expect(name).toBeFocused();
+	await name.fill('Releases');
+	await name.press('Enter');
 	await expect(nav.getByRole('button', { name: /^Releases \d+$/ })).toBeVisible();
 
 	await nav.getByRole('button', { name: 'Actions for Release notes' }).click();

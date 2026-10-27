@@ -63,7 +63,7 @@
 {#if items.length}
 	<section aria-label={m['tasks.queue']()} class="min-w-0">
 		<!-- Aligned with the conversation links above (px-2). -->
-		<p class="px-2 pt-1 pb-1 text-xs font-medium text-muted-foreground">{m['tasks.queue']()}</p>
+		<p class="px-2 pt-1 pb-2 text-xs font-medium text-muted-foreground">{m['tasks.queue']()}</p>
 		<Trace.Root class="min-w-0 px-2">
 			{#if todo.length}
 				<Trace.Collapsible open>

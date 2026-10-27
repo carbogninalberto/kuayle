@@ -2077,5 +2077,6 @@
 	"assistant.delete_conversation_description": "Delete “{title}” and its messages? Finished agent tasks keep their history. This cannot be undone.",
 	"assistant.folder_save_failed": "Could not save the folder",
 	"assistant.move_failed": "Could not move the conversation",
-	"assistant.delete_failed": "Could not delete. Wait for running replies or agent work to finish."
+	"assistant.delete_failed": "Could not delete. Wait for running replies or agent work to finish.",
+	"assistant.resize_sidebar": "Resize conversation list"
 }

@@ -6,7 +6,6 @@
 	import * as Collapsible from '$lib/components/ui/collapsible/index.js';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
-	import * as Dialog from '$lib/components/ui/dialog/index.js';
 	import { conversations as api, type Conversation, type ConversationFolder } from '$lib/api/conversations';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/paraglide/messages.js';
@@ -22,7 +21,9 @@
 
 	let folders = $state<ConversationFolder[]>([]);
 	let closed = $state<Record<string, boolean>>({});
-	let folderDialog = $state<{ id?: string; name: string } | null>(null);
+	// The folder being named in place: a new one (no id) or a rename.
+	let editing = $state<{ id?: string; name: string } | null>(null);
+	let saving = false;
 	let deleting = $state<Conversation | null>(null);
 	let deletingFolder = $state<ConversationFolder | null>(null);
 
@@ -39,20 +40,44 @@
 	const inFolder = (folder: ConversationFolder) => visible.filter((c) => c.folder_id === folder.id);
 
 	async function saveFolder() {
-		if (!folderDialog) return;
-		const { id, name } = folderDialog;
+		const current = editing;
+		if (!current || saving) return;
+		const name = current.name.trim();
+		const original = current.id ? folders.find((f) => f.id === current.id)?.name : undefined;
+		if (!name || name === original) {
+			editing = null;
+			return;
+		}
+		saving = true;
 		try {
-			if (id) {
-				const updated = await api.renameFolder(slug, id, name);
-				folders = folders.map((f) => (f.id === id ? updated : f));
+			if (current.id) {
+				const updated = await api.renameFolder(slug, current.id, name);
+				folders = folders.map((f) => (f.id === current.id ? updated : f));
 			} else {
 				folders = [...folders, await api.createFolder(slug, name)].sort((a, b) => a.name.localeCompare(b.name));
 			}
-			folderDialog = null;
+			editing = null;
 		} catch (error) {
 			appToast.apiError(error, m['assistant.folder_save_failed']());
+		} finally {
+			saving = false;
 		}
 	}
+
+	function folderKeys(event: KeyboardEvent) {
+		if (event.key === 'Enter') {
+			event.preventDefault();
+			void saveFolder();
+		} else if (event.key === 'Escape') {
+			event.preventDefault();
+			editing = null;
+		}
+	}
+
+	const focus = (node: HTMLInputElement) => {
+		node.focus();
+		node.select();
+	};
 
 	async function move(conversation: Conversation, folder: string | null) {
 		try {
@@ -134,45 +159,70 @@
 	</div>
 {/snippet}
 
-<div class="flex items-center justify-between px-2">
-	<span class="sr-only">{m['assistant.history']()}</span>
-	<Button variant="ghost" size="sm" class="ml-auto h-7 text-xs" onclick={() => (folderDialog = { name: '' })}
-		><FolderPlus />{m['assistant.new_folder']()}</Button
-	>
-</div>
+<Button
+	variant="ghost"
+	size="sm"
+	class="h-7 justify-start self-start px-2 text-xs"
+	onclick={() => (editing = { name: '' })}><FolderPlus />{m['assistant.new_folder']()}</Button
+>
+{#snippet nameField()}
+	{#if editing}
+		<Input
+			aria-label={m['assistant.folder_name']()}
+			maxlength={80}
+			class="h-7 min-w-0 flex-1 text-sm"
+			bind:value={editing.name}
+			onkeydown={folderKeys}
+			onblur={() => void saveFolder()}
+			{@attach focus}
+		/>
+	{/if}
+{/snippet}
+
 <nav class="flex flex-col gap-1" aria-label={m['assistant.history']()}>
+	{#if editing && !editing.id}
+		<div class="flex items-center gap-1.5 px-2 py-0.5">
+			<Folder class="size-3.5 shrink-0 text-muted-foreground" />{@render nameField()}
+		</div>
+	{/if}
 	{#each folders as folder (folder.id)}
 		{@const items = inFolder(folder)}
 		<Collapsible.Root open={!closed[folder.id]} onOpenChange={(open) => (closed = { ...closed, [folder.id]: !open })}>
-			<div class="group flex items-center rounded-md hover:bg-muted">
-				<Collapsible.Trigger class="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1.5 text-left text-sm">
-					<ChevronRight class="size-3.5 shrink-0 transition-transform {closed[folder.id] ? '' : 'rotate-90'}" />
-					<Folder class="size-3.5 shrink-0 text-muted-foreground" />
-					<span class="truncate font-medium">{folder.name}</span>
-					<span class="ml-auto text-xs text-muted-foreground">{items.length}</span>
-				</Collapsible.Trigger>
-				<DropdownMenu.Root>
-					<DropdownMenu.Trigger>
-						{#snippet child({ props })}
-							<Button
-								{...props}
-								variant="ghost"
-								size="icon-sm"
-								class="mr-1 shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
-								aria-label={m['assistant.folder_actions']({ name: folder.name })}><MoreHorizontal /></Button
+			{#if editing?.id === folder.id}
+				<div class="flex items-center gap-1.5 px-2 py-0.5">
+					<Folder class="size-3.5 shrink-0 text-muted-foreground" />{@render nameField()}
+				</div>
+			{:else}
+				<div class="group flex items-center rounded-md hover:bg-muted">
+					<Collapsible.Trigger class="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1.5 text-left text-sm">
+						<ChevronRight class="size-3.5 shrink-0 transition-transform {closed[folder.id] ? '' : 'rotate-90'}" />
+						<Folder class="size-3.5 shrink-0 text-muted-foreground" />
+						<span class="truncate font-medium">{folder.name}</span>
+						<span class="ml-auto text-xs text-muted-foreground">{items.length}</span>
+					</Collapsible.Trigger>
+					<DropdownMenu.Root>
+						<DropdownMenu.Trigger>
+							{#snippet child({ props })}
+								<Button
+									{...props}
+									variant="ghost"
+									size="icon-sm"
+									class="mr-1 shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
+									aria-label={m['assistant.folder_actions']({ name: folder.name })}><MoreHorizontal /></Button
+								>
+							{/snippet}
+						</DropdownMenu.Trigger>
+						<DropdownMenu.Content align="end">
+							<DropdownMenu.Item onSelect={() => (editing = { id: folder.id, name: folder.name })}
+								><Pencil />{m['assistant.rename_folder']()}</DropdownMenu.Item
 							>
-						{/snippet}
-					</DropdownMenu.Trigger>
-					<DropdownMenu.Content align="end">
-						<DropdownMenu.Item onSelect={() => (folderDialog = { id: folder.id, name: folder.name })}
-							><Pencil />{m['assistant.rename_folder']()}</DropdownMenu.Item
-						>
-						<DropdownMenu.Item variant="destructive" onSelect={() => (deletingFolder = folder)}
-							><Trash2 />{m['assistant.delete_folder']()}</DropdownMenu.Item
-						>
-					</DropdownMenu.Content>
-				</DropdownMenu.Root>
-			</div>
+							<DropdownMenu.Item variant="destructive" onSelect={() => (deletingFolder = folder)}
+								><Trash2 />{m['assistant.delete_folder']()}</DropdownMenu.Item
+							>
+						</DropdownMenu.Content>
+					</DropdownMenu.Root>
+				</div>
+			{/if}
 			<Collapsible.Content class="ml-3 flex flex-col gap-1 border-l pl-1">
 				{#each items as item (item.id)}{@render row(item)}{:else}
 					<p class="px-2 py-1 text-xs text-muted-foreground">{m['assistant.folder_empty']()}</p>
@@ -182,29 +232,6 @@
 	{/each}
 	{#each ungrouped as item (item.id)}{@render row(item)}{/each}
 </nav>
-
-<Dialog.Root open={!!folderDialog} onOpenChange={(open) => !open && (folderDialog = null)}>
-	<Dialog.Content class="sm:max-w-sm">
-		<Dialog.Header>
-			<Dialog.Title>{folderDialog?.id ? m['assistant.rename_folder']() : m['assistant.new_folder']()}</Dialog.Title>
-		</Dialog.Header>
-		{#if folderDialog}
-			<form
-				class="space-y-4"
-				onsubmit={(event) => {
-					event.preventDefault();
-					void saveFolder();
-				}}
-			>
-				<Input aria-label={m['assistant.folder_name']()} maxlength={80} bind:value={folderDialog.name} />
-				<Dialog.Footer>
-					<Button type="button" variant="outline" onclick={() => (folderDialog = null)}>{m['common.cancel']()}</Button>
-					<Button type="submit" disabled={!folderDialog.name.trim()}>{m['assistant.save_folder']()}</Button>
-				</Dialog.Footer>
-			</form>
-		{/if}
-	</Dialog.Content>
-</Dialog.Root>
 
 <AlertDialog.Root open={!!deleting} onOpenChange={(open) => !open && (deleting = null)}>
 	<AlertDialog.Content>
