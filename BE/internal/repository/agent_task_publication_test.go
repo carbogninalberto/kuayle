@@ -272,3 +272,37 @@ func TestReviewStartsTheConfiguredPreviewOncePerAttempt(t *testing.T) {
 	require.Equal(t, []string{"npm", "run", "dev"}, argv)
 	require.Equal(t, 5173, port)
 }
+
+// Deleting a machine destroys its runtime but keeps the record while agent tasks
+// have history on it: attempts, logs and the pull request refs that let a later
+// merge complete the task.
+func TestMachinePurgeKeepsAgentTaskHistory(t *testing.T) {
+	db, _, ctx, task, claimed := publishingTask(t)
+	store := NewDevMachineRepository(db)
+	machine := *claimed.MachineID
+	_, err := db.Exec(`UPDATE dev_machine_operations SET status='completed',lease_owner=NULL,lease_expires_at=NULL WHERE machine_id=$1`, machine)
+	require.NoError(t, err)
+	_, err = db.Exec(`UPDATE dev_machines SET status='destroyed',destroyed_at=now()-interval '30 days',delete_requested_at=now(),docker_network_name=NULL,workspace_volume_name=NULL WHERE id=$1`, machine)
+	require.NoError(t, err)
+
+	require.NoError(t, store.PurgePermanentDeleteRequest(ctx, task.WorkspaceID, machine))
+	var requested *time.Time
+	require.NoError(t, db.Get(&requested, `SELECT delete_requested_at FROM dev_machines WHERE id=$1`, machine), "the record is kept")
+	require.Nil(t, requested, "a kept record is no longer pending deletion")
+	count, err := store.BulkPurgeMachines(ctx, task.WorkspaceID, nil, time.Now(), true, true)
+	require.NoError(t, err)
+	require.Zero(t, count)
+	var runs int
+	require.NoError(t, db.Get(&runs, `SELECT count(*) FROM dev_machine_agent_runs WHERE id=$1`, task.RunID))
+	require.Equal(t, 1, runs)
+
+	// Machines without agent task history are still purged.
+	_, err = db.Exec(`UPDATE dev_machine_agent_runs SET task_id=NULL WHERE machine_id=$1`, machine)
+	require.NoError(t, err)
+	_, err = db.Exec(`UPDATE dev_machines SET delete_requested_at=now() WHERE id=$1`, machine)
+	require.NoError(t, err)
+	require.NoError(t, store.PurgePermanentDeleteRequest(ctx, task.WorkspaceID, machine))
+	var left int
+	require.NoError(t, db.Get(&left, `SELECT count(*) FROM dev_machines WHERE id=$1`, machine))
+	require.Zero(t, left)
+}

@@ -1560,14 +1560,28 @@ func (r *DevMachineRepository) RequestPermanentDelete(ctx context.Context, works
 	return operation, nil
 }
 
+// machineHasAgentTaskHistory keeps a destroyed machine's record while agent
+// tasks have attempts on it. Their logs, diffs and pull request refs cascade
+// from the machine, and a later merge completes the task through those refs.
+const machineHasAgentTaskHistory = `EXISTS (SELECT 1 FROM dev_machine_agent_runs r WHERE r.machine_id=m.id AND r.task_id IS NOT NULL)`
+
 func (r *DevMachineRepository) PurgePermanentDeleteRequest(ctx context.Context, workspaceID, machineID uuid.UUID) error {
-	result, err := r.db.ExecContext(ctx, `DELETE FROM dev_machines m
-		WHERE m.workspace_id=$1 AND m.id=$2
+	purgeable := `m.workspace_id=$1 AND m.id=$2
 		AND (
 			m.status='destroyed'
 			OR (m.status IN ('expired','failed') AND m.docker_network_name IS NULL AND m.workspace_volume_name IS NULL)
 		)
-		AND NOT EXISTS (SELECT 1 FROM dev_machine_operations o WHERE o.machine_id=m.id AND o.status IN ('pending','leased'))`, workspaceID, machineID)
+		AND NOT EXISTS (SELECT 1 FROM dev_machine_operations o WHERE o.machine_id=m.id AND o.status IN ('pending','leased'))`
+	// The runtime is gone; the record stays as task history, no longer pending deletion.
+	kept, err := r.db.ExecContext(ctx, `UPDATE dev_machines m SET delete_requested_at=NULL,updated_at=now()
+		WHERE `+purgeable+` AND `+machineHasAgentTaskHistory, workspaceID, machineID)
+	if err != nil {
+		return err
+	}
+	if rows, _ := kept.RowsAffected(); rows == 1 {
+		return nil
+	}
+	result, err := r.db.ExecContext(ctx, `DELETE FROM dev_machines m WHERE `+purgeable+` AND NOT `+machineHasAgentTaskHistory, workspaceID, machineID)
 	if err != nil {
 		return err
 	}
@@ -1596,7 +1610,8 @@ func (r *DevMachineRepository) BulkPurgeMachines(ctx context.Context, workspaceI
 	query := `DELETE FROM dev_machines m WHERE m.workspace_id=? AND m.status IN (?)
 		AND COALESCE(m.destroyed_at, m.delete_requested_at, m.updated_at, m.created_at) < ?
 		AND NOT EXISTS (SELECT 1 FROM dev_machine_operations o WHERE o.machine_id=m.id AND o.status IN ('pending','leased'))
-		AND (m.status='destroyed' OR (m.docker_network_name IS NULL AND m.workspace_volume_name IS NULL))`
+		AND (m.status='destroyed' OR (m.docker_network_name IS NULL AND m.workspace_volume_name IS NULL))
+		AND NOT ` + machineHasAgentTaskHistory
 	args := []any{workspaceID, statuses, olderThan.UTC()}
 	if len(machineIDs) > 0 {
 		query += ` AND m.id IN (?)`
