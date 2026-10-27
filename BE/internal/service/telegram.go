@@ -25,6 +25,20 @@ import (
 )
 
 var ErrTelegramAPI = errors.New("Telegram request failed; check the bot token and public HTTPS address")
+
+// TelegramAPIError carries Telegram's own reason for refusing a call, such as
+// "Unauthorized" for a revoked token, so settings can say what went wrong.
+type TelegramAPIError struct {
+	Method      string
+	Description string
+}
+
+func (e *TelegramAPIError) Error() string {
+	return "Telegram " + e.Method + " failed: " + e.Description
+}
+
+func (e *TelegramAPIError) Is(target error) bool { return target == ErrTelegramAPI }
+
 var telegramTokenFormat = regexp.MustCompile(`^[1-9][0-9]{0,15}:[A-Za-z0-9_-]{20,100}$`)
 
 type TelegramService struct {
@@ -355,10 +369,15 @@ func (s *TelegramService) call(ctx context.Context, token, method string, payloa
 	}
 	defer res.Body.Close()
 	var envelope struct {
-		OK     bool            `json:"ok"`
-		Result json.RawMessage `json:"result"`
+		OK          bool            `json:"ok"`
+		Result      json.RawMessage `json:"result"`
+		Description string          `json:"description"`
 	}
-	if res.StatusCode != http.StatusOK || json.NewDecoder(io.LimitReader(res.Body, 1<<20)).Decode(&envelope) != nil || !envelope.OK {
+	decodeErr := json.NewDecoder(io.LimitReader(res.Body, 1<<20)).Decode(&envelope)
+	if res.StatusCode != http.StatusOK || decodeErr != nil || !envelope.OK {
+		if description := telegramDescription(envelope.Description, token); description != "" {
+			return &TelegramAPIError{Method: method, Description: description}
+		}
 		return ErrTelegramAPI
 	}
 	if result != nil && json.Unmarshal(envelope.Result, result) != nil {
@@ -366,6 +385,23 @@ func (s *TelegramService) call(ctx context.Context, token, method string, payloa
 	}
 	return nil
 }
+
+// telegramDescription keeps Telegram's short reason printable and bounded, and
+// never echoes the token.
+func telegramDescription(description, token string) string {
+	description = strings.ReplaceAll(description, token, "[redacted]")
+	description = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, description)
+	if len(description) > 200 {
+		description = description[:200]
+	}
+	return strings.TrimSpace(description)
+}
+
 func (s *TelegramService) Run(ctx context.Context) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()

@@ -1,6 +1,11 @@
 package service
 
 import (
+	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -19,4 +24,21 @@ func TestTelegramWebhookURLDefaultsToTheAppOriginAndAcceptsARelay(t *testing.T) 
 	}
 	require.NoError(t, svc.SetWebhookURL(""))
 	require.Equal(t, "https://kuayle.example.test/api/telegram/webhook/"+ws.String(), svc.webhookURL(ws))
+}
+
+func TestTelegramErrorsCarryTelegramsReasonWithoutTheToken(t *testing.T) {
+	token := "123456789:" + strings.Repeat("A", 35)
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		fmt.Fprint(w, `{"ok":false,"error_code":401,"description":"Unauthorized: `+token+`\n"}`)
+	}))
+	defer remote.Close()
+	svc := NewTelegramService(nil, nil, nil, nil, "https://kuayle.example.test")
+	svc.endpoint, svc.client = remote.URL, remote.Client()
+	err := svc.call(context.Background(), token, "getMe", struct{}{}, nil)
+	require.ErrorIs(t, err, ErrTelegramAPI)
+	var refused *TelegramAPIError
+	require.ErrorAs(t, err, &refused)
+	require.Equal(t, "Telegram getMe failed: Unauthorized: [redacted]", refused.Error())
+	require.NotContains(t, err.Error(), token)
 }

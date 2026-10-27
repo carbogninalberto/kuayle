@@ -25,6 +25,10 @@ func telegramError(c echo.Context, err error) error {
 	case errors.Is(err, repository.ErrTelegramInvalid):
 		return response.Error(c, 400, "INVALID_TELEGRAM", "Invalid Telegram settings or account link")
 	case errors.Is(err, service.ErrTelegramAPI):
+		var refused *service.TelegramAPIError
+		if errors.As(err, &refused) {
+			return response.Error(c, 502, "TELEGRAM_UNAVAILABLE", refused.Error())
+		}
 		return response.Error(c, 502, "TELEGRAM_UNAVAILABLE", service.ErrTelegramAPI.Error())
 	default:
 		return response.InternalError(c)
