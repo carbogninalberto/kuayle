@@ -276,3 +276,92 @@ func (h *ConversationHandler) ResolveApproval(c echo.Context) error {
 	}
 	return response.Success(c, http.StatusOK, result)
 }
+
+func folderID(c echo.Context) (uuid.UUID, error) {
+	id, err := uuid.Parse(c.Param("folderId"))
+	if err != nil {
+		return uuid.Nil, repository.ErrConversationNotFound
+	}
+	return id, nil
+}
+
+func (h *ConversationHandler) Folders(c echo.Context) error {
+	folders, err := h.svc.Repo.Folders(c.Request().Context(), middleware.GetWorkspace(c).ID)
+	if err != nil {
+		return conversationError(c, err)
+	}
+	return response.Success(c, http.StatusOK, folders)
+}
+
+func (h *ConversationHandler) CreateFolder(c echo.Context) error {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := bindConversation(c, &req); err != nil {
+		return conversationError(c, repository.ErrConversationInvalid)
+	}
+	folder, err := h.svc.Repo.CreateFolder(c.Request().Context(), middleware.GetWorkspace(c).ID, req.Name)
+	if err != nil {
+		return conversationError(c, err)
+	}
+	return response.Success(c, http.StatusCreated, folder)
+}
+
+func (h *ConversationHandler) RenameFolder(c echo.Context) error {
+	id, err := folderID(c)
+	if err != nil {
+		return conversationError(c, err)
+	}
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := bindConversation(c, &req); err != nil {
+		return conversationError(c, repository.ErrConversationInvalid)
+	}
+	folder, err := h.svc.Repo.RenameFolder(c.Request().Context(), middleware.GetWorkspace(c).ID, id, req.Name)
+	if err != nil {
+		return conversationError(c, err)
+	}
+	return response.Success(c, http.StatusOK, folder)
+}
+
+func (h *ConversationHandler) DeleteFolder(c echo.Context) error {
+	id, err := folderID(c)
+	if err != nil {
+		return conversationError(c, err)
+	}
+	if err := h.svc.Repo.DeleteFolder(c.Request().Context(), middleware.GetWorkspace(c).ID, id); err != nil {
+		return conversationError(c, err)
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
+// Move sets a conversation's folder; a null folder_id moves it to the root.
+func (h *ConversationHandler) Move(c echo.Context) error {
+	id, err := conversationID(c)
+	if err != nil {
+		return conversationError(c, err)
+	}
+	var req struct {
+		FolderID *uuid.UUID `json:"folder_id"`
+	}
+	if err := bindConversation(c, &req); err != nil {
+		return conversationError(c, repository.ErrConversationInvalid)
+	}
+	result, err := h.svc.Repo.MoveConversation(c.Request().Context(), middleware.GetWorkspace(c).ID, id, req.FolderID)
+	if err != nil {
+		return conversationError(c, err)
+	}
+	return response.Success(c, http.StatusOK, result)
+}
+
+func (h *ConversationHandler) Delete(c echo.Context) error {
+	id, err := conversationID(c)
+	if err != nil {
+		return conversationError(c, err)
+	}
+	if err := h.svc.Repo.Delete(c.Request().Context(), middleware.GetWorkspace(c).ID, id); err != nil {
+		return conversationError(c, err)
+	}
+	return c.NoContent(http.StatusNoContent)
+}

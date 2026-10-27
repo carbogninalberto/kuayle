@@ -26,6 +26,7 @@
 	import AgentQueue from './AgentQueue.svelte';
 	import ToolSources from './ToolSources.svelte';
 	import Markdown from './Markdown.svelte';
+	import ConversationNav from './ConversationNav.svelte';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { m } from '$lib/paraglide/messages.js';
 
@@ -52,9 +53,6 @@
 	let retryRequest: { message: string; id: string } | null = null;
 	let disposed = false;
 	let copyTimer: ReturnType<typeof setTimeout> | undefined;
-	const filteredHistory = $derived(
-		history.filter((c) => c.title.toLocaleLowerCase().includes(search.toLocaleLowerCase()))
-	);
 	// Contextual starting prompts; selecting one sends it like a typed message.
 	const suggestions = $derived(
 		chat.issue
@@ -249,17 +247,7 @@
 					placeholder={m['assistant.search']()}
 					class="h-8"
 				/>
-				<nav class="flex flex-col gap-1">
-					{#each filteredHistory as item (item.id)}
-						<a
-							href="/{slug}/assistant?conversation={encodeURIComponent(item.id)}"
-							aria-current={item.id === conversationId ? 'page' : undefined}
-							class="truncate rounded-md px-2 py-2 text-sm hover:bg-muted {item.id === conversationId
-								? 'bg-muted font-medium'
-								: 'text-muted-foreground'}">{item.title}</a
-						>
-					{/each}
-				</nav>
+				<ConversationNav {slug} {conversationId} bind:history {search} />
 				<AgentQueue {slug} />
 			</aside>
 		{/if}

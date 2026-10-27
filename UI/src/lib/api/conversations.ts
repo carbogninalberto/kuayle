@@ -10,6 +10,7 @@ export interface Conversation {
 	title: string;
 	created_at: string;
 	updated_at: string;
+	folder_id?: string | null;
 }
 export type MessageStatus = 'queued' | 'streaming' | 'completed' | 'failed' | 'interrupted' | 'cancelled';
 export interface ConversationMessage {
@@ -107,7 +108,21 @@ export interface AssistantStatus {
 	model?: string;
 }
 const base = (slug: string) => `/api/workspaces/${encodeURIComponent(slug)}`;
+export interface ConversationFolder {
+	id: string;
+	name: string;
+}
 export const conversations = {
+	folders: (slug: string) => api.get<ConversationFolder[]>(`${base(slug)}/conversation-folders`),
+	createFolder: (slug: string, name: string) =>
+		api.post<ConversationFolder>(`${base(slug)}/conversation-folders`, { name }),
+	renameFolder: (slug: string, id: string, name: string) =>
+		api.patch<ConversationFolder>(`${base(slug)}/conversation-folders/${encodeURIComponent(id)}`, { name }),
+	deleteFolder: (slug: string, id: string) =>
+		api.delete<void>(`${base(slug)}/conversation-folders/${encodeURIComponent(id)}`),
+	move: (slug: string, id: string, folder_id: string | null) =>
+		api.patch<Conversation>(`${base(slug)}/conversations/${encodeURIComponent(id)}`, { folder_id }),
+	remove: (slug: string, id: string) => api.delete<void>(`${base(slug)}/conversations/${encodeURIComponent(id)}`),
 	status: (slug: string) => api.get<AssistantStatus>(`${base(slug)}/assistant/status`),
 	list: (slug: string) => api.get<Conversation[]>(`${base(slug)}/conversations`),
 	openIssue: (slug: string, issue_id: string) => api.post<Conversation>(`${base(slug)}/conversations`, { issue_id }),

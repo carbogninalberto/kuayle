@@ -678,3 +678,59 @@ test('lists the issues a reply used and offers contextual suggestions', async ({
 	await expect(page.getByRole('link', { name: /ENG-2 · Search/ })).toHaveAttribute('href', '/test/issue/ENG-2');
 	await expect(page.getByRole('link', { name: /javascript/ })).toHaveCount(0);
 });
+
+test('groups conversations into folders and deletes one after confirmation', async ({ page }) => {
+	await fixture(page);
+	const other = { ...conversation, id: 'chat-2', title: 'Release notes' };
+	const folders: { id: string; name: string }[] = [];
+	const moves: unknown[] = [];
+	const deletes: string[] = [];
+	await page.route('**/api/workspaces/test/conversations', (route) =>
+		route.fulfill({ json: route.request().method() === 'POST' ? conversation : [conversation, other] })
+	);
+	await page.route('**/api/workspaces/test/conversation-folders', (route) => {
+		if (route.request().method() === 'POST') {
+			const folder = { id: 'folder-1', name: route.request().postDataJSON().name };
+			folders.push(folder);
+			return route.fulfill({ status: 201, json: folder });
+		}
+		return route.fulfill({ json: folders });
+	});
+	await page.route('**/api/workspaces/test/conversations/chat-2', (route) => {
+		if (route.request().method() === 'PATCH') {
+			moves.push(route.request().postDataJSON());
+			return route.fulfill({ json: { ...other, folder_id: route.request().postDataJSON().folder_id } });
+		}
+		if (route.request().method() === 'DELETE') {
+			deletes.push('chat-2');
+			return route.fulfill({ status: 204 });
+		}
+		return route.fallback();
+	});
+	await page.goto('/test/assistant?conversation=chat-1');
+	const nav = page.getByRole('navigation', { name: 'Conversations' });
+	await expect(nav.getByRole('link', { name: 'Release notes' })).toBeVisible();
+
+	await page.getByRole('button', { name: 'New folder' }).click();
+	await page.getByRole('textbox', { name: 'Folder name' }).fill('Releases');
+	await page.getByRole('button', { name: 'Save', exact: true }).click();
+	await expect(nav.getByRole('button', { name: /^Releases \d+$/ })).toBeVisible();
+
+	await nav.getByRole('button', { name: 'Actions for Release notes' }).click();
+	await page.getByRole('menuitem', { name: 'Move to' }).click();
+	await page.getByRole('menuitem', { name: 'Releases' }).click();
+	await expect.poll(() => moves).toEqual([{ folder_id: 'folder-1' }]);
+	const folder = nav.getByRole('button', { name: /^Releases \d+$/ });
+	await expect(folder).toContainText('1');
+	await folder.click();
+	await expect(nav.getByRole('link', { name: 'Release notes' })).toBeHidden();
+	await folder.click();
+
+	await nav.getByRole('button', { name: 'Actions for Release notes' }).click();
+	await page.getByRole('menuitem', { name: 'Delete' }).click();
+	const dialog = page.getByRole('alertdialog');
+	await expect(dialog).toContainText('Release notes');
+	await dialog.getByRole('button', { name: 'Delete' }).click();
+	await expect.poll(() => deletes).toEqual(['chat-2']);
+	await expect(nav.getByRole('link', { name: 'Release notes' })).toHaveCount(0);
+});

@@ -2060,5 +2060,22 @@
 	"tasks.preview_help": "Optional. When a task reaches review, Kuayle runs this command in its worktree (with PORT and HOST=0.0.0.0 set) and opens an authenticated preview of the port for manual QA. Leave both empty to inherit.",
 	"tasks.preview_invalid": "Enter a JSON array command and a port between 1024 and 65535, or leave both empty.",
 	"tasks.agent_session": "Agent session",
-	"tasks.agent_session_help": "Open a terminal in this task's worktree and continue the agent's own session interactively."
+	"tasks.agent_session_help": "Open a terminal in this task's worktree and continue the agent's own session interactively.",
+	"assistant.new_folder": "New folder",
+	"assistant.rename_folder": "Rename folder",
+	"assistant.delete_folder": "Delete folder",
+	"assistant.delete_folder_description": "Delete “{name}”? Its conversations move back to the main list.",
+	"assistant.folder_name": "Folder name",
+	"assistant.save_folder": "Save",
+	"assistant.folder_empty": "No conversations",
+	"assistant.folder_actions": "Actions for folder {name}",
+	"assistant.conversation_actions": "Actions for {title}",
+	"assistant.move_to": "Move to",
+	"assistant.no_folder": "No folder",
+	"assistant.delete_conversation": "Delete",
+	"assistant.delete_conversation_title": "Delete conversation",
+	"assistant.delete_conversation_description": "Delete “{title}” and its messages? Finished agent tasks keep their history. This cannot be undone.",
+	"assistant.folder_save_failed": "Could not save the folder",
+	"assistant.move_failed": "Could not move the conversation",
+	"assistant.delete_failed": "Could not delete. Wait for running replies or agent work to finish."
 }

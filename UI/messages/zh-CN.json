@@ -2060,5 +2060,22 @@
 	"tasks.preview_help": "可选。任务进入审查时，Kuayle 会在其工作树中运行此命令（并设置 PORT 和 HOST=0.0.0.0），并为该端口打开经过身份验证的预览，供人工 QA 使用。两者都留空则继承。",
 	"tasks.preview_invalid": "请输入 JSON 数组形式的命令和 1024 到 65535 之间的端口，或两者都留空。",
 	"tasks.agent_session": "智能体会话",
-	"tasks.agent_session_help": "在此任务的工作树中打开终端，并以交互方式继续智能体自己的会话。"
+	"tasks.agent_session_help": "在此任务的工作树中打开终端，并以交互方式继续智能体自己的会话。",
+	"assistant.new_folder": "新建文件夹",
+	"assistant.rename_folder": "重命名文件夹",
+	"assistant.delete_folder": "删除文件夹",
+	"assistant.delete_folder_description": "删除“{name}”？其中的对话会移回主列表。",
+	"assistant.folder_name": "文件夹名称",
+	"assistant.save_folder": "保存",
+	"assistant.folder_empty": "没有对话",
+	"assistant.folder_actions": "文件夹 {name} 的操作",
+	"assistant.conversation_actions": "{title} 的操作",
+	"assistant.move_to": "移动到",
+	"assistant.no_folder": "无文件夹",
+	"assistant.delete_conversation": "删除",
+	"assistant.delete_conversation_title": "删除对话",
+	"assistant.delete_conversation_description": "删除“{title}”及其消息？已完成的智能体任务会保留历史记录。此操作无法撤销。",
+	"assistant.folder_save_failed": "无法保存文件夹",
+	"assistant.move_failed": "无法移动对话",
+	"assistant.delete_failed": "无法删除。请等待正在进行的回复或智能体任务完成。"
 }

@@ -15,6 +15,17 @@ type Conversation struct {
 	Title       string     `json:"title" db:"title"`
 	CreatedAt   time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt   time.Time  `json:"updated_at" db:"updated_at"`
+	FolderID    *uuid.UUID `json:"folder_id,omitempty" db:"folder_id"`
+}
+
+// ConversationFolder groups its owner's conversations; it is never shared.
+type ConversationFolder struct {
+	ID          uuid.UUID `json:"id" db:"id"`
+	WorkspaceID uuid.UUID `json:"workspace_id" db:"workspace_id"`
+	OwnerID     uuid.UUID `json:"-" db:"owner_id"`
+	Name        string    `json:"name" db:"name"`
+	CreatedAt   time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`
 }
 type ConversationMessage struct {
 	ID             uuid.UUID  `json:"id" db:"id"`

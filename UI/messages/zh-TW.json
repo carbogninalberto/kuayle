@@ -2060,5 +2060,22 @@
 	"tasks.preview_help": "選填。任務進入審查時，Kuayle 會在其工作樹中執行此指令（並設定 PORT 與 HOST=0.0.0.0），並為該連接埠開啟經過驗證的預覽，供人工 QA 使用。兩者皆留空則繼承。",
 	"tasks.preview_invalid": "請輸入 JSON 陣列形式的指令與 1024 到 65535 之間的連接埠，或兩者皆留空。",
 	"tasks.agent_session": "代理工作階段",
-	"tasks.agent_session_help": "在此任務的工作樹中開啟終端機，並以互動方式繼續代理自己的工作階段。"
+	"tasks.agent_session_help": "在此任務的工作樹中開啟終端機，並以互動方式繼續代理自己的工作階段。",
+	"assistant.new_folder": "新增資料夾",
+	"assistant.rename_folder": "重新命名資料夾",
+	"assistant.delete_folder": "刪除資料夾",
+	"assistant.delete_folder_description": "刪除「{name}」？其中的對話會移回主清單。",
+	"assistant.folder_name": "資料夾名稱",
+	"assistant.save_folder": "儲存",
+	"assistant.folder_empty": "沒有對話",
+	"assistant.folder_actions": "資料夾 {name} 的動作",
+	"assistant.conversation_actions": "{title} 的動作",
+	"assistant.move_to": "移至",
+	"assistant.no_folder": "無資料夾",
+	"assistant.delete_conversation": "刪除",
+	"assistant.delete_conversation_title": "刪除對話",
+	"assistant.delete_conversation_description": "刪除「{title}」及其訊息？已完成的代理任務會保留其記錄。此操作無法復原。",
+	"assistant.folder_save_failed": "無法儲存資料夾",
+	"assistant.move_failed": "無法移動對話",
+	"assistant.delete_failed": "無法刪除。請等待進行中的回覆或代理工作完成。"
 }
