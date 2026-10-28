@@ -12,9 +12,9 @@ FROM node:22.23.3-alpine3.23@sha256:baf676f7d0e552f3231945c2f979055ca121bce128c1
 ARG PROVIDER
 ARG TARGETARCH
 ARG NPM_VERSION=12.2.0
-ARG CLAUDE_CODE_VERSION=2.1.310
-ARG OPENCODE_VERSION=1.19.4
-ARG CODEX_VERSION=0.164.0
+ARG CLAUDE_CODE_VERSION=2.1.312
+ARG OPENCODE_VERSION=1.19.5
+ARG CODEX_VERSION=0.165.0
 
 COPY --from=docker-plugins /out/docker-compose /out/docker-buildx /usr/local/lib/docker/cli-plugins/
 COPY common/install-docker-cli.sh /usr/local/lib/kuayle/
