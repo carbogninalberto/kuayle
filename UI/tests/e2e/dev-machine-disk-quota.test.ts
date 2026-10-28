@@ -146,8 +146,8 @@ async function mockDevMachineApi(page: Page, mode: DiskQuotaMode, usagePercent: 
 				]
 			});
 		}
-		if (path === `/api/workspaces/test/dev-machines/${machineId}/agent-runs`) {
-			return route.fulfill({ json: { data: [], total_count: 0, page: 1, has_more: false } });
+		if (path === `/api/workspaces/test/dev-machines/${machineId}/tasks`) {
+			return route.fulfill({ json: [] });
 		}
 		if (path === `/api/workspaces/test/dev-machines/${machineId}/events`) {
 			return route.fulfill({ json: [] });
@@ -162,7 +162,7 @@ async function mockDevMachineApi(page: Page, mode: DiskQuotaMode, usagePercent: 
 for (const mode of ['hard', 'monitored'] as const) {
 	test(`shows the disk-quota banner only in ${mode} mode`, async ({ page }) => {
 		await mockDevMachineApi(page, mode, 50);
-		await page.goto('/test/settings/dev-machines');
+		await page.goto('/test/settings/dev-machines?tab=policy');
 		await expect(page.getByRole('heading', { name: 'Dev Machines', exact: true })).toBeVisible();
 
 		const banner = page.getByRole('alert').filter({ hasText: 'Disk limits are monitored' });

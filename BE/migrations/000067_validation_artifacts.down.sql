@@ -1,0 +1,1 @@
+DROP TABLE agent_validation_artifacts;

@@ -122,8 +122,10 @@ func main() {
 			IDE: cfg.DevMachine.IDEImage, Headless: cfg.DevMachine.HeadlessImage, Browser: cfg.DevMachine.BrowserImage,
 			Collector: cfg.DevMachine.CollectorImage,
 			Egress:    cfg.DevMachine.EgressImage,
+			Docker:    cfg.DevMachine.DockerImage,
 		}, cfg.FrontendURL,
 	)
+	devMachineSvc.SetModelDiscovery(cfg.AIAllowPrivateNetwork)
 
 	// Handlers
 	healthH := handler.NewHealthHandler(db)
@@ -147,6 +149,27 @@ func main() {
 	prefsH := handler.NewPreferencesHandler(prefsSvc)
 	tokenH := handler.NewTokenHandler(tokenSvc)
 	aiSettingsH := handler.NewAISettingsHandler(aiSettingsSvc)
+	conversationSvc := service.NewConversationService(repository.NewConversationRepository(db), aiSettingsSvc)
+	assistantTools := service.NewAssistantTools(issueRepo, teamRepo, workspaceRepo, issueSvc)
+	assistantTools.SetPlanning(repository.NewIssueDependencyRepository(db), service.NewIssueRelationService(repository.NewIssueRelationRepository(db), issueRepo))
+	conversationSvc.SetTools(assistantTools)
+	conversationH := handler.NewConversationHandler(conversationSvc, cfg.FrontendURL)
+	agentTaskSvc := service.NewAgentTaskService(repository.NewAgentTaskRepository(db), devMachineSvc, hub)
+	assistantTools.SetAgentWork(repository.NewAgentTaskRepository(db))
+	assistantTools.SetRepositories(devMachineRepo)
+	assistantApprovals := service.NewAssistantApprovals(conversationSvc.Repo, agentTaskSvc)
+	conversationSvc.SetApprovals(assistantApprovals)
+	agentTaskH := handler.NewAgentTaskHandler(agentTaskSvc)
+	agentMessageSvc := service.NewAgentMessageService(repository.NewAgentMessageRepository(db), hub)
+	agentMessageH := handler.NewAgentMessageHandler(agentMessageSvc)
+	automationSvc := service.NewAgentAutomationService(repository.NewAgentAutomationRepository(db), conversationSvc.Repo, agentTaskSvc, notifSvc, hub)
+	agentAutomationH := handler.NewAgentAutomationHandler(automationSvc)
+	telegramSvc := service.NewTelegramService(repository.NewTelegramRepository(db), workspaceRepo, aiSettingsSvc, crypto.DeriveKey(cfg.JWTSecret+":telegram"), cfg.FrontendURL)
+	if err := telegramSvc.SetWebhookURL(cfg.TelegramWebhookURL); err != nil {
+		log.Fatal(err)
+	}
+	telegramSvc.SetApprovals(conversationSvc)
+	telegramH := handler.NewTelegramHandler(telegramSvc)
 	devMachineH := handler.NewDevMachineHandler(devMachineSvc, cfg.DevMachine.EffectiveDiskQuotaMode())
 	analyticsRepo := repository.NewAnalyticsRepository(db)
 	analyticsH := handler.NewAnalyticsHandler(analyticsRepo)
@@ -163,6 +186,18 @@ func main() {
 		log.Fatalf("Failed to initialize storage: %v", err)
 	}
 	uploadH := handler.NewUploadHandler(store, assetRepo, issueRepo, cfg.JWTSecret)
+	conversationImages := service.NewImageStore(store)
+	conversationSvc.SetAttachments(conversationImages, assetRepo, commentSvc, workspaceRepo)
+	telegramSvc.SetImages(conversationImages)
+	var voiceClient *service.VoiceClient
+	if cfg.VoiceURL != "" && cfg.VoiceInternalToken != "" {
+		if voiceClient, err = service.NewVoiceClient(cfg.VoiceURL, cfg.VoiceInternalToken); err != nil {
+			log.Fatal(err)
+		}
+	}
+	voiceSvc := service.NewVoiceService(repository.NewVoiceRepository(db), workspaceRepo, conversationSvc.Repo, voiceClient)
+	telegramSvc.SetVoice(voiceSvc)
+	voiceH := handler.NewVoiceHandler(voiceSvc)
 	workspaceTransferRepo := repository.NewWorkspaceTransferRepository(db)
 	workspaceTransferSvc := service.NewWorkspaceTransferService(workspaceTransferRepo, store)
 	workspaceTransferH := handler.NewWorkspaceTransferHandler(workspaceTransferSvc)
@@ -186,6 +221,14 @@ func main() {
 		crypto.DeriveKey(cfg.JWTSecret+":github"), hub, cfg.FrontendURL, cfg.GitHubWebhookURL,
 		globalGitHubApp,
 	)
+	githubSvc.SetTaskReviews(repository.NewAgentTaskRepository(db))
+	assistantApprovals.SetMerging(repository.NewAgentTaskRepository(db), workspaceRepo, githubSvc)
+	assistantApprovals.SetReviews(agentTaskSvc)
+	assistantApprovals.SetAccepting(agentTaskSvc)
+	githubSvc.SetReviewComments(repository.NewAgentTaskRepository(db))
+	taskFeedback := service.NewAgentTaskFeedback(repository.NewAgentTaskRepository(db), agentTaskSvc)
+	githubSvc.SetTaskSignals(taskFeedback)
+	commentSvc.SetTaskFeedback(taskFeedback)
 	githubH := handler.NewGitHubHandler(githubSvc)
 
 	// Background: clean up expired refresh tokens every hour
@@ -237,6 +280,12 @@ func main() {
 		prefs:             prefsH,
 		token:             tokenH,
 		aiSettings:        aiSettingsH,
+		conversation:      conversationH,
+		agentTask:         agentTaskH,
+		agentAutomation:   agentAutomationH,
+		agentMessage:      agentMessageH,
+		telegram:          telegramH,
+		voice:             voiceH,
 		devMachine:        devMachineH,
 		analytics:         analyticsH,
 		system:            systemH,
@@ -254,6 +303,17 @@ func main() {
 		machineEventsRateLimit: mw.MachineTokenRateLimit(20, 40),
 		machineLogsRateLimit:   mw.MachineTokenRateLimit(50, 100),
 	})
+
+	conversationCtx, stopConversations := context.WithCancel(context.Background())
+	defer stopConversations()
+	go conversationSvc.Run(conversationCtx)
+	go taskFeedback.Run(conversationCtx)
+	go agentTaskSvc.Run(conversationCtx)
+	go agentMessageSvc.Run(conversationCtx, 10*time.Second)
+	go automationSvc.Run(conversationCtx)
+	go githubSvc.RunMergeReconciliation(conversationCtx, 2*time.Minute)
+	go githubSvc.RunReviewComments(conversationCtx, 15*time.Second)
+	go telegramSvc.Run(conversationCtx)
 
 	// Start
 	addr := fmt.Sprintf(":%d", cfg.Port)

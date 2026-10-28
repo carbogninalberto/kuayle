@@ -4,7 +4,7 @@ WORKDIR /app
 COPY UI/package*.json ./
 RUN npm ci
 COPY UI/ .
-ARG NODE_OPTIONS=--max-old-space-size=4096
+ARG NODE_OPTIONS=--max-old-space-size=6144
 RUN npm run build
 
 # Stage 2: Build Caddy from source with patched Go
@@ -15,7 +15,8 @@ RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@v0.4.6
 RUN xcaddy build v2.11.4 --with google.golang.org/grpc@v1.83.2 --replace github.com/klauspost/compress=github.com/klauspost/compress@v1.18.7 \
     --replace golang.org/x/text=golang.org/x/text@v0.42.0 \
     --replace golang.org/x/net=golang.org/x/net@v0.60.0 \
-    --replace golang.org/x/crypto=golang.org/x/crypto@v0.57.0
+    --replace golang.org/x/crypto=golang.org/x/crypto@v0.57.0 \
+    --replace github.com/go-jose/go-jose/v4=github.com/go-jose/go-jose/v4@v4.1.6
 
 # Stage 3: Build backend
 FROM golang:1.26.10-alpine AS be-builder

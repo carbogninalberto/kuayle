@@ -4,10 +4,31 @@ import (
 	"context"
 	"errors"
 
+	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 )
 
 var ErrHostDiskUnknown = errors.New("host disk usage is unknown")
+
+// ErrRuntimeIncomplete reports that a stopped or paused machine cannot simply
+// be resumed because its workspace volume or a service container was never
+// created or no longer exists. The manager provisions the machine again, which
+// reuses every part that still exists.
+var ErrRuntimeIncomplete = errors.New("machine runtime is incomplete")
+
+// AgentOutput consumes raw runtime bytes synchronously. The manager must redact
+// them before persistence. Returning an error aborts execution.
+type AgentOutput func(stream string, data []byte) error
+
+// AgentObserver checks authority after preparation and before start/resume or
+// credential handoff, and persists execution milestones. Started is called after
+// container startup (or on recovery of an executed container), before Output.
+// Any callback failing requires the runtime to stop the native process.
+type AgentObserver struct {
+	Authorize func() error
+	Started   func(containerID string) error
+	Output    AgentOutput
+}
 
 type AgentExecution struct {
 	ContainerID string
@@ -34,6 +55,9 @@ type GitState struct {
 	Branch       string
 	Commits      []string
 	ChangedFiles []string
+	// Diff is the worktree (including new files) against the base branch.
+	Diff          string
+	DiffTruncated bool
 }
 
 type RuntimeInspection struct {
@@ -56,12 +80,28 @@ type RuntimeServiceInspection struct {
 }
 
 type Runtime interface {
+	RunValidation(context.Context, *domain.DevMachine, *domain.DevMachineAgentRun, *domain.DevMachineAgentRunStep, *domain.DevMachineCheckout, string, *AgentObserver) (*AgentExecution, error)
+	HostResources(context.Context) (HostResources, error)
+	CollectValidationArtifacts(context.Context, *domain.DevMachine, *domain.DevMachineAgentRun, *domain.DevMachineCheckout) ([]domain.ValidationArtifact, error)
+	RemoveCheckServices(context.Context, *domain.DevMachine, *domain.DevMachineAgentRun) error
+	// StartPreview (re)starts one task's preview process; StopPreview stops it.
+	// Neither affects another task's preview.
+	StartPreview(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService, checkout *domain.DevMachineCheckout, taskID uuid.UUID, argv []string, port int) error
+	StopPreview(ctx context.Context, services []domain.DevMachineService, taskID uuid.UUID) error
+	// ScanPorts lists the developer container's listening TCP ports and takes
+	// the agents' port requests; WritePortState publishes the result to them.
+	ScanPorts(ctx context.Context, services []domain.DevMachineService) (PortScan, error)
+	WritePortState(ctx context.Context, services []domain.DevMachineService, state []byte) error
+	ReadSignIn(ctx context.Context, services []domain.DevMachineService, provider string) (string, error)
+	TakeSignInReturn(ctx context.Context, services []domain.DevMachineService, runID uuid.UUID) (string, error)
+	PurgeTaskSession(context.Context, *domain.DevMachine, string, uuid.UUID) error
+	PublishCheckout(context.Context, *domain.DevMachine, []domain.DevMachineService, *domain.DevMachineCheckout, PublishRequest) (string, error)
 	Spawn(context.Context, *domain.DevMachine, []domain.DevMachineService, map[string]map[string]string) (string, string, map[string]string, error)
 	Start(context.Context, *domain.DevMachine, []domain.DevMachineService, map[string]map[string]string) error
 	Pause(context.Context, *domain.DevMachine, []domain.DevMachineService) error
 	Stop(context.Context, *domain.DevMachine, []domain.DevMachineService) error
 	Teardown(context.Context, *domain.DevMachine, []domain.DevMachineService) error
-	RunAgent(context.Context, *domain.DevMachine, *domain.DevMachineAgentRun, *domain.DevMachineAgentProvider, *domain.DevMachineCheckout, map[string]string) (*AgentExecution, error)
+	RunAgent(context.Context, *domain.DevMachine, *domain.DevMachineAgentRun, *domain.DevMachineAgentProvider, *domain.DevMachineCheckout, map[string]string, *AgentObserver) (*AgentExecution, error)
 	CancelAgent(context.Context, *domain.DevMachineAgentRun) error
 	TerminateTerminal(context.Context, *domain.DevMachine, []domain.DevMachineService, *domain.DevMachineTerminalSession) error
 	Inspect(context.Context, *domain.DevMachine, []domain.DevMachineService) (RuntimeInspection, error)

@@ -122,6 +122,7 @@ type IssueHistoryResponse struct {
 	NewValue        *string   `json:"new_value"`
 	OldDisplayValue *string   `json:"old_display_value,omitempty"`
 	NewDisplayValue *string   `json:"new_display_value,omitempty"`
+	Agent           *string   `json:"agent,omitempty"`
 	CreatedAt       time.Time `json:"created_at"`
 }
 

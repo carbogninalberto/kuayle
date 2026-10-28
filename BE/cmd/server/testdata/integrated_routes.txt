@@ -33,9 +33,6 @@ GET /api/public/share/:token/issues
 GET /api/system/update-status
 GET /api/workspaces
 GET /api/workspaces/:slug
-GET /api/workspaces/:slug/agent-runs
-GET /api/workspaces/:slug/agent-runs/:agentRunId
-GET /api/workspaces/:slug/agent-runs/:agentRunId/trace
 GET /api/workspaces/:slug/ai-settings
 GET /api/workspaces/:slug/ai-settings/issue-copy-prompt
 GET /api/workspaces/:slug/analytics/burnup
@@ -53,7 +50,6 @@ GET /api/workspaces/:slug/dev-machine-scope-setting
 GET /api/workspaces/:slug/dev-machine-scope-settings
 GET /api/workspaces/:slug/dev-machines
 GET /api/workspaces/:slug/dev-machines/:machineId
-GET /api/workspaces/:slug/dev-machines/:machineId/agent-runs
 GET /api/workspaces/:slug/dev-machines/:machineId/checkouts
 GET /api/workspaces/:slug/dev-machines/:machineId/events
 GET /api/workspaces/:slug/dev-machines/:machineId/logs
@@ -137,11 +133,9 @@ POST /api/notifications/:id/unsnooze
 POST /api/notifications/mark-all-read
 POST /api/system/update
 POST /api/workspaces
-POST /api/workspaces/:slug/agent-runs/:agentRunId/cancel
 POST /api/workspaces/:slug/dev-machine-environments
 POST /api/workspaces/:slug/dev-machines
 POST /api/workspaces/:slug/dev-machines/:machineId/activity
-POST /api/workspaces/:slug/dev-machines/:machineId/agent-runs
 POST /api/workspaces/:slug/dev-machines/:machineId/checkouts
 POST /api/workspaces/:slug/dev-machines/:machineId/pause
 POST /api/workspaces/:slug/dev-machines/:machineId/permanent-delete
@@ -185,3 +179,13 @@ POST /api/workspaces/:slug/webhooks
 POST /api/workspaces/import
 POST /api/workspaces/import/preview
 PUT /api/workspaces/:slug/dev-machine-scope-setting
+GET /api/workspaces/:slug/conversations/:conversationId/task-options
+GET /api/workspaces/:slug/conversations/:conversationId/tasks
+POST /api/workspaces/:slug/conversations/:conversationId/tasks
+GET /api/workspaces/:slug/agent-tasks/:taskId
+GET /api/workspaces/:slug/agent-tasks/:taskId/history
+GET /api/workspaces/:slug/agent-tasks/:taskId/runs
+GET /api/workspaces/:slug/agent-tasks/:taskId/runs/:runId/logs
+POST /api/workspaces/:slug/agent-tasks/:taskId/cancel
+POST /api/workspaces/:slug/agent-tasks/:taskId/retry
+GET /api/workspaces/:slug/dev-machines/:machineId/tasks

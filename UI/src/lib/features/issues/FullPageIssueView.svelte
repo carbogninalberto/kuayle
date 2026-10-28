@@ -1,6 +1,9 @@
 <script lang="ts">
+	import { agentName } from './history-agent';
+	import IssueAssistant from '$lib/features/assistant/IssueAssistant.svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
+	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { onMount, onDestroy } from 'svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
@@ -33,7 +36,7 @@
 		Copy, Link as LinkIcon, GitBranch, SquareMousePointer,
 		CircleDot, ArrowUpCircle, UserCircle, FolderKanban, Pencil, Layers,
 		Tag, RefreshCw, ArrowUp, MoreHorizontal, Check, Bell,
-		Trash2, CornerDownRight, Ban, ArrowRight
+		Trash2, CornerDownRight, Ban, ArrowRight, Bot
 	} from '@lucide/svelte';
 	import { listCycles } from '$lib/api/cycles';
 	import type { Cycle } from '$lib/types/cycle';
@@ -57,8 +60,6 @@
 	import IssueMachinePickerDialog, { type IssueMachineIntent } from '$lib/features/dev-machines/IssueMachinePickerDialog.svelte';
 	import CreateMachineDialog from '$lib/features/dev-machines/CreateMachineDialog.svelte';
 	import IssueRepositoryDialog from '$lib/features/dev-machines/IssueRepositoryDialog.svelte';
-	import AgentRunDialog from '$lib/features/dev-machines/AgentRunDialog.svelte';
-	import type { AgentRun, DevMachine } from '$lib/types/dev-machine';
 
 	let {
 		issue,
@@ -102,12 +103,9 @@
 	let relationType = $state<RelationType>('related');
 	let issueActionsOpen = $state(false);
 	let issueActionsCreateOpen = $state(false);
-	let issueActionsRunOpen = $state(false);
 	let issueActionsRepositoryOpen = $state(false);
 	let issueActionsMachinePickerOpen = $state(false);
 	let issueActionsMachineIntent = $state<IssueMachineIntent>('ide');
-	let issueActionsSelectedMachine = $state<DevMachine | null>(null);
-	let issueActionsSelectedCheckoutId = $state<string | undefined>(undefined);
 	let isSubscribed = $state(false);
 	let subscriptionBusy = $state(false);
 
@@ -1013,6 +1011,8 @@
 					<IssueGitHubActivity {slug} identifier={issue.identifier} />
 				</div>
 
+			<div class="mt-6"><IssueAssistant {slug} issueId={issue.id} /></div>
+
 			<div class="mt-5"><IssueVersionHistory {slug} identifier={issue.identifier} {members} /></div>
 
 				<!-- Activity -->
@@ -1056,6 +1056,7 @@
 									{@const iconColor = items.length > 1 ? 'text-[var(--color-text-tertiary)]' : historyColor(firstField)}
 									{@const textFields = [...new Set(items.filter(c => c.field === 'title' || c.field === 'description').map(c => c.field))]}
 									{@const valueItems = items.filter((c, i, arr) => c.field !== 'title' && c.field !== 'description' && arr.findIndex(x => x.field === c.field) === i)}
+									{@const agent = items.find((c) => c.agent)?.agent}
 									<div class="relative flex items-center gap-3 pb-2.5">
 										<div class="relative z-10 flex h-5 w-5 shrink-0 items-center justify-center ring-2 ring-[var(--color-bg)] rounded-full bg-[var(--color-bg)] {iconColor}">
 											<IconComponent size={12} />
@@ -1083,6 +1084,7 @@
 													<code class="shrink-0 rounded bg-[var(--color-bg-tertiary)] px-1 py-0.5 text-[11px] text-[var(--color-text-secondary)]">{formatHistoryValue(change.field, change.new_value, change.new_display_value)}</code>
 												{/if}
 											{/each}
+											{#if agent}<span class="shrink-0 text-[var(--color-text-secondary)]">{m['issue.via_agent']({ agent: agentName(agent) })}</span>{/if}
 											<span>&middot;</span>
 											<span class="shrink-0">{formatRelativeTime(entry.time, getLocale())}</span>
 										</div>
@@ -1117,6 +1119,7 @@
 										{(comment.user?.name ?? 'U').charAt(0).toUpperCase()}
 									</div>
 									<span class="text-[13px] font-medium text-[var(--color-text-primary)]">{comment.user?.name ?? 'User'}</span>
+									{#if comment.agent_task_id}<Badge variant="outline" class="h-5 gap-1 px-1.5 text-[10px]"><Bot size={10} aria-hidden="true" />{m['agent_messages.agent_comment']()}</Badge>{/if}
 									<span class="text-[11px] text-[var(--color-text-tertiary)]">{formatRelativeTime(comment.created_at, getLocale())}</span>
 									{#if comment.resolved_at}
 										<span class="text-[11px] font-medium text-green-400">{m['issue.resolved']()}</span>
@@ -1564,22 +1567,4 @@
 	intent={issueActionsMachineIntent}
 	oncreate={() => (issueActionsCreateOpen = true)}
 	onrepository={() => (issueActionsRepositoryOpen = true)}
-	onagent={(machine, checkoutId) => {
-		issueActionsSelectedMachine = machine;
-		issueActionsSelectedCheckoutId = checkoutId;
-		issueActionsRunOpen = true;
-	}}
 />
-{#if issueActionsSelectedMachine && issueActionsSelectedCheckoutId}
-	<AgentRunDialog
-		bind:open={issueActionsRunOpen}
-		{slug}
-		machine={issueActionsSelectedMachine}
-		checkoutId={issueActionsSelectedCheckoutId}
-		initialPrompt={`${issue.title}\n\n${issue.description ?? ''}`}
-		oncreated={(run: AgentRun) => {
-			const m = issueActionsSelectedMachine as NonNullable<typeof issueActionsSelectedMachine>;
-			goto(`/${slug}/machines/${m.id}?agent_run_id=${run.id}`);
-		}}
-	/>
-{/if}

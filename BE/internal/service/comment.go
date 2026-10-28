@@ -40,6 +40,18 @@ type CommentService struct {
 	issueRepo   repository.IssueRepo
 	hub         *realtime.Hub
 	notifSvc    *NotificationService
+	feedback    commentFeedback
+}
+
+// commentFeedback turns a comment into review feedback for the issue's coding task.
+type commentFeedback interface {
+	RecordComment(ctx context.Context, ws, issue uuid.UUID, comment domain.Comment) error
+}
+
+// SetTaskFeedback lets comments people post in a signed-in session queue
+// follow-up attempts for the issue's task awaiting review.
+func (s *CommentService) SetTaskFeedback(feedback commentFeedback) {
+	s.feedback = feedback
 }
 
 func NewCommentService(commentRepo repository.CommentRepo, issueRepo repository.IssueRepo, hub *realtime.Hub, notifSvc *NotificationService) *CommentService {
@@ -78,6 +90,15 @@ func (s *CommentService) Create(ctx context.Context, issueID, userID uuid.UUID, 
 				"identifier": issue.Identifier,
 			},
 		})
+
+		// Only people commenting in a signed-in session steer coding agents;
+		// tokens, the assistant and agents acting for a user never do, which
+		// prevents feedback loops. The comment itself is already saved.
+		if s.feedback != nil && domain.InteractiveSession(ctx) && domain.ActingAgent(ctx) == nil {
+			if err := s.feedback.RecordComment(ctx, issue.WorkspaceID, issue.ID, *comment); err != nil {
+				log.WithError(err).Warn("failed to record comment feedback")
+			}
+		}
 
 		// Notify issue creator + assignees (except the commenter)
 		recipients := make(map[uuid.UUID]bool)

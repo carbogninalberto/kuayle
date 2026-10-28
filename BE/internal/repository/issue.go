@@ -346,6 +346,13 @@ func (r *IssueRepository) UpdateContent(ctx context.Context, issue *domain.Issue
 	if _, err = tx.ExecContext(ctx, `SELECT set_config('kuayle.history_actor', $1, true)`, actorValue); err != nil {
 		return err
 	}
+	agentValue := ""
+	if agent := domain.ActingAgent(ctx); agent != nil {
+		agentValue = *agent
+	}
+	if _, err = tx.ExecContext(ctx, `SELECT set_config('kuayle.history_agent', $1, true)`, agentValue); err != nil {
+		return err
+	}
 	query := `
 		UPDATE issues SET
 			title = CASE WHEN $14 THEN $1 ELSE title END,

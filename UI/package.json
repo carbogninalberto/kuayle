@@ -18,6 +18,7 @@
 		"@internationalized/date": "^3.12.4",
 		"@lucide/svelte": "^1.61.0",
 		"@playwright/test": "^1.58.2",
+		"@shadcn-svelte/primitives": "^0.0.1",
 		"@sveltejs/adapter-auto": "^7.0.0",
 		"@sveltejs/adapter-static": "^3.0.10",
 		"@sveltejs/kit": "^2.50.2",
@@ -46,6 +47,7 @@
 		"vite": "^7.3.7"
 	},
 	"dependencies": {
+		"@fontsource/jetbrains-mono": "5.3.0",
 		"@inlang/paraglide-js": "^2.23.0",
 		"@tiptap/core": "^3.20.4",
 		"@tiptap/extension-bubble-menu": "^3.20.4",
@@ -71,6 +73,7 @@
 		"phosphor-svelte": "^3.1.0",
 		"prosemirror-state": "^1.4.4",
 		"prosemirror-view": "^1.42.2",
+		"simple-icons": "16.35.0",
 		"svelte-tiptap": "^3.0.1",
 		"ws": "^8.20.0",
 		"y-websocket": "^3.0.0",

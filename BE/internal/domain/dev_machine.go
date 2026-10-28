@@ -3,9 +3,13 @@ package domain
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 )
 
 type DevMachineStatus string
@@ -39,6 +43,12 @@ const (
 	DevMachineOpTeardown            DevMachineOperationAction = "teardown"
 	DevMachineOpReconcile           DevMachineOperationAction = "reconcile"
 	DevMachineOpRunAgent            DevMachineOperationAction = "run_agent"
+	DevMachineOpValidateAgent       DevMachineOperationAction = "validate_agent"
+	DevMachineOpPublishAgent        DevMachineOperationAction = "publish_agent"
+	DevMachineOpPurgeTaskSession    DevMachineOperationAction = "purge_task_session"
+	DevMachineOpStartPreview        DevMachineOperationAction = "start_preview"
+	DevMachineOpStopPreview         DevMachineOperationAction = "stop_preview"
+	DevMachineOpCaptureSignIn       DevMachineOperationAction = "capture_sign_in"
 	DevMachineOpCancelAgent         DevMachineOperationAction = "cancel_agent"
 	DevMachineOpCheckoutIssue       DevMachineOperationAction = "checkout_issue"
 	DevMachineOpSnapshotEnvironment DevMachineOperationAction = "snapshot_environment"
@@ -131,6 +141,13 @@ type DevMachine struct {
 	ExpiresAt            time.Time        `json:"expires_at" db:"expires_at"`
 	TeardownAt           *time.Time       `json:"teardown_at,omitempty" db:"teardown_at"`
 	DestroyedAt          *time.Time       `json:"destroyed_at,omitempty" db:"destroyed_at"`
+	// ListeningPorts are the machine's listening TCP ports (developer container
+	// and Docker daemon) at ListeningPortsAt, without its own service ports.
+	ListeningPorts   pq.Int64Array `json:"-" db:"listening_ports"`
+	ListeningPortsAt *time.Time    `json:"-" db:"listening_ports_at"`
+	// DockerListeningPorts are the ports published by containers of the
+	// machine's Docker daemon at ListeningPortsAt, also in ListeningPorts.
+	DockerListeningPorts pq.Int64Array `json:"-" db:"docker_listening_ports"`
 }
 
 type DevMachineAgentProvider struct {
@@ -196,16 +213,42 @@ type DevMachineEnvVar struct {
 	CreatedAt            time.Time  `json:"created_at" db:"created_at"`
 }
 
-type DevMachineWorkspaceModelCredential struct {
-	WorkspaceID          uuid.UUID  `json:"workspace_id" db:"workspace_id"`
-	Provider             string     `json:"provider" db:"provider"`
-	EncryptedAPIKey      string     `json:"-" db:"encrypted_api_key"`
-	EncryptionKeyVersion int        `json:"encryption_key_version" db:"encryption_key_version"`
-	DefaultModel         string     `json:"default_model" db:"default_model"`
-	Thinking             string     `json:"thinking" db:"thinking"`
-	UpdatedBy            *uuid.UUID `json:"-" db:"updated_by"`
-	CreatedAt            time.Time  `json:"created_at" db:"created_at"`
-	UpdatedAt            time.Time  `json:"updated_at" db:"updated_at"`
+// AgentModelServer is a workspace model endpoint for coding agents. Codex uses
+// its OpenAI-compatible URL and Claude Code its Anthropic-compatible URL.
+type AgentModelServer struct {
+	ID                   uuid.UUID       `json:"id" db:"id"`
+	WorkspaceID          uuid.UUID       `json:"workspace_id" db:"workspace_id"`
+	Name                 string          `json:"name" db:"name"`
+	OpenAIBaseURL        *string         `json:"openai_base_url,omitempty" db:"openai_base_url"`
+	AnthropicBaseURL     *string         `json:"anthropic_base_url,omitempty" db:"anthropic_base_url"`
+	EncryptedAPIKey      string          `json:"-" db:"encrypted_api_key"`
+	EncryptionKeyVersion int             `json:"-" db:"encryption_key_version"`
+	Models               json.RawMessage `json:"models" db:"models"`
+	DefaultModel         string          `json:"default_model" db:"default_model"`
+	FastModel            string          `json:"fast_model" db:"fast_model"`
+	Thinking             string          `json:"thinking" db:"thinking"`
+	IsDefault            bool            `json:"is_default" db:"is_default"`
+	UpdatedBy            *uuid.UUID      `json:"-" db:"updated_by"`
+	CreatedAt            time.Time       `json:"created_at" db:"created_at"`
+	UpdatedAt            time.Time       `json:"updated_at" db:"updated_at"`
+}
+
+// ModelList is the server's selectable models, as discovered or entered.
+func (s AgentModelServer) ModelList() []string {
+	var models []string
+	_ = json.Unmarshal(s.Models, &models)
+	return models
+}
+
+// Serves reports whether the server speaks the protocol a harness needs.
+func (s AgentModelServer) Serves(provider string) bool {
+	switch provider {
+	case "codex":
+		return s.OpenAIBaseURL != nil && *s.OpenAIBaseURL != ""
+	case "claude-code":
+		return s.AnthropicBaseURL != nil && *s.AnthropicBaseURL != ""
+	}
+	return false
 }
 
 const (
@@ -245,6 +288,7 @@ type DevMachineOperation struct {
 	CheckoutID        *uuid.UUID                `json:"checkout_id,omitempty" db:"checkout_id"`
 	EnvironmentID     *uuid.UUID                `json:"environment_id,omitempty" db:"environment_id"`
 	TerminalSessionID *uuid.UUID                `json:"terminal_session_id,omitempty" db:"terminal_session_id"`
+	AgentTaskID       *uuid.UUID                `json:"agent_task_id,omitempty" db:"agent_task_id"`
 	WorkspaceID       uuid.UUID                 `json:"workspace_id" db:"workspace_id"`
 	Action            DevMachineOperationAction `json:"action" db:"action"`
 	Status            DevMachineOperationStatus `json:"status" db:"status"`
@@ -264,43 +308,51 @@ type DevMachineOperation struct {
 }
 
 type DevMachineAgentRun struct {
-	ID                 uuid.UUID                `json:"id" db:"id"`
-	MachineID          uuid.UUID                `json:"machine_id" db:"machine_id"`
-	WorkspaceID        uuid.UUID                `json:"workspace_id" db:"workspace_id"`
-	IssueID            *uuid.UUID               `json:"issue_id,omitempty" db:"issue_id"`
-	CheckoutID         *uuid.UUID               `json:"checkout_id,omitempty" db:"checkout_id"`
-	RequestedByUserID  *uuid.UUID               `json:"requested_by_user_id,omitempty" db:"requested_by_user_id"`
-	ProviderID         string                   `json:"provider_id" db:"provider_id"`
-	Mode               string                   `json:"mode" db:"mode"`
-	Status             DevMachineAgentRunStatus `json:"status" db:"status"`
-	Prompt             string                   `json:"prompt" db:"prompt"`
-	AcceptanceCriteria json.RawMessage          `json:"acceptance_criteria" db:"acceptance_criteria"`
-	AllowedCommands    json.RawMessage          `json:"allowed_commands" db:"allowed_commands"`
-	ForbiddenPaths     json.RawMessage          `json:"forbidden_paths" db:"forbidden_paths"`
-	AllowedSecrets     json.RawMessage          `json:"allowed_secrets" db:"allowed_secrets"`
-	TestCommand        *json.RawMessage         `json:"test_command,omitempty" db:"test_command"`
-	CommandArgv        json.RawMessage          `json:"command_argv" db:"command_argv"`
-	CommandEnvironment json.RawMessage          `json:"command_environment" db:"command_environment"`
-	Model              string                   `json:"model,omitempty" db:"model"`
-	Thinking           string                   `json:"thinking,omitempty" db:"thinking"`
-	MaxRuntimeSeconds  int                      `json:"max_runtime_seconds" db:"max_runtime_seconds"`
-	PushBranch         bool                     `json:"push_branch" db:"push_branch"`
-	OpenPullRequest    bool                     `json:"open_pull_request" db:"open_pull_request"`
-	Result             *json.RawMessage         `json:"result,omitempty" db:"result"`
-	Summary            *string                  `json:"summary,omitempty" db:"summary"`
-	ChangedFiles       json.RawMessage          `json:"changed_files" db:"changed_files"`
-	Commits            json.RawMessage          `json:"commits" db:"commits"`
-	Branch             *string                  `json:"branch,omitempty" db:"branch"`
-	PullRequestURL     *string                  `json:"pull_request_url,omitempty" db:"pull_request_url"`
-	TestsRun           json.RawMessage          `json:"tests_run" db:"tests_run"`
-	TestStatus         string                   `json:"test_status" db:"test_status"`
-	RiskNotes          json.RawMessage          `json:"risk_notes" db:"risk_notes"`
-	ExitCode           *int                     `json:"exit_code,omitempty" db:"exit_code"`
-	ErrorMessage       *string                  `json:"error_message,omitempty" db:"error_message"`
-	CreatedAt          time.Time                `json:"created_at" db:"created_at"`
-	StartedAt          *time.Time               `json:"started_at,omitempty" db:"started_at"`
-	CompletedAt        *time.Time               `json:"completed_at,omitempty" db:"completed_at"`
-	CancelledAt        *time.Time               `json:"cancelled_at,omitempty" db:"cancelled_at"`
+	EncryptedOutputSecrets *string                  `json:"-" db:"encrypted_output_secrets"`
+	TaskID                 *uuid.UUID               `json:"task_id,omitempty" db:"task_id"`
+	ID                     uuid.UUID                `json:"id" db:"id"`
+	MachineID              uuid.UUID                `json:"machine_id" db:"machine_id"`
+	WorkspaceID            uuid.UUID                `json:"workspace_id" db:"workspace_id"`
+	IssueID                *uuid.UUID               `json:"issue_id,omitempty" db:"issue_id"`
+	CheckoutID             *uuid.UUID               `json:"checkout_id,omitempty" db:"checkout_id"`
+	RequestedByUserID      *uuid.UUID               `json:"requested_by_user_id,omitempty" db:"requested_by_user_id"`
+	ProviderID             string                   `json:"provider_id" db:"provider_id"`
+	Mode                   string                   `json:"mode" db:"mode"`
+	Status                 DevMachineAgentRunStatus `json:"status" db:"status"`
+	Prompt                 string                   `json:"prompt" db:"prompt"`
+	AcceptanceCriteria     json.RawMessage          `json:"acceptance_criteria" db:"acceptance_criteria"`
+	AllowedCommands        json.RawMessage          `json:"allowed_commands" db:"allowed_commands"`
+	ForbiddenPaths         json.RawMessage          `json:"forbidden_paths" db:"forbidden_paths"`
+	AllowedSecrets         json.RawMessage          `json:"allowed_secrets" db:"allowed_secrets"`
+	TestCommand            *json.RawMessage         `json:"test_command,omitempty" db:"test_command"`
+	CommandArgv            json.RawMessage          `json:"command_argv" db:"command_argv"`
+	CommandEnvironment     json.RawMessage          `json:"command_environment" db:"command_environment"`
+	Model                  string                   `json:"model,omitempty" db:"model"`
+	Thinking               string                   `json:"thinking,omitempty" db:"thinking"`
+	ModelServerID          *uuid.UUID               `json:"model_server_id,omitempty" db:"model_server_id"`
+	MaxRuntimeSeconds      int                      `json:"max_runtime_seconds" db:"max_runtime_seconds"`
+	PushBranch             bool                     `json:"push_branch" db:"push_branch"`
+	OpenPullRequest        bool                     `json:"open_pull_request" db:"open_pull_request"`
+	Result                 *json.RawMessage         `json:"result,omitempty" db:"result"`
+	Summary                *string                  `json:"summary,omitempty" db:"summary"`
+	ChangedFiles           json.RawMessage          `json:"changed_files" db:"changed_files"`
+	Commits                json.RawMessage          `json:"commits" db:"commits"`
+	Branch                 *string                  `json:"branch,omitempty" db:"branch"`
+	PullRequestURL         *string                  `json:"pull_request_url,omitempty" db:"pull_request_url"`
+	NativeSessionID        *string                  `json:"-" db:"native_session_id"`
+	// SessionID is the Kuayle agent session the attempt ran in.
+	SessionID     *uuid.UUID      `json:"session_id,omitempty" db:"session_id"`
+	Diff          string          `json:"-" db:"diff"`
+	DiffTruncated bool            `json:"-" db:"diff_truncated"`
+	TestsRun      json.RawMessage `json:"tests_run" db:"tests_run"`
+	TestStatus    string          `json:"test_status" db:"test_status"`
+	RiskNotes     json.RawMessage `json:"risk_notes" db:"risk_notes"`
+	ExitCode      *int            `json:"exit_code,omitempty" db:"exit_code"`
+	ErrorMessage  *string         `json:"error_message,omitempty" db:"error_message"`
+	CreatedAt     time.Time       `json:"created_at" db:"created_at"`
+	StartedAt     *time.Time      `json:"started_at,omitempty" db:"started_at"`
+	CompletedAt   *time.Time      `json:"completed_at,omitempty" db:"completed_at"`
+	CancelledAt   *time.Time      `json:"cancelled_at,omitempty" db:"cancelled_at"`
 }
 
 type DevMachineAgentRunStep struct {
@@ -316,6 +368,7 @@ type DevMachineAgentRunStep struct {
 	StartedAt   *time.Time                   `json:"started_at,omitempty" db:"started_at"`
 	CompletedAt *time.Time                   `json:"completed_at,omitempty" db:"completed_at"`
 	CreatedAt   time.Time                    `json:"created_at" db:"created_at"`
+	ComposeFile string                       `json:"compose_file,omitempty" db:"compose_file"`
 }
 
 type DevMachineEvent struct {
@@ -332,6 +385,7 @@ type DevMachineEvent struct {
 }
 
 type DevMachineLogChunk struct {
+	SourceKey   string     `json:"-" db:"source_key"`
 	ID          int64      `json:"id" db:"id"`
 	WorkspaceID uuid.UUID  `json:"workspace_id" db:"workspace_id"`
 	MachineID   uuid.UUID  `json:"machine_id" db:"machine_id"`
@@ -434,21 +488,30 @@ type DevMachineResourceSample struct {
 }
 
 type DevMachineWorkspacePolicy struct {
-	WorkspaceID           uuid.UUID             `json:"workspace_id" db:"workspace_id"`
-	Enabled               bool                  `json:"enabled" db:"enabled"`
-	MaxConcurrentMachines int                   `json:"max_concurrent_machines" db:"max_concurrent_machines"`
-	MaxMachinesPerUser    int                   `json:"max_machines_per_user" db:"max_machines_per_user"`
-	MaxDailyAgentRuns     int                   `json:"max_daily_agent_runs" db:"max_daily_agent_runs"`
-	MaxRuntimeMinutes     int                   `json:"max_runtime_minutes" db:"max_runtime_minutes"`
-	MaxDiskGB             int                   `json:"max_disk_gb" db:"max_disk_gb"`
-	AllowedProviders      json.RawMessage       `json:"allowed_providers" db:"allowed_providers"`
-	AllowedRepositories   json.RawMessage       `json:"allowed_repositories" db:"allowed_repositories"`
-	AllowCustomProviders  bool                  `json:"allow_custom_providers" db:"allow_custom_providers"`
-	IdlePauseMinutes      int                   `json:"idle_pause_minutes" db:"idle_pause_minutes"`
-	DiskQuotaMode         string                `json:"disk_quota_mode" db:"-"`
-	SizeOptions           DevMachineSizeOptions `json:"size_options" db:"-"`
-	CreatedAt             time.Time             `json:"created_at" db:"created_at"`
-	UpdatedAt             time.Time             `json:"updated_at" db:"updated_at"`
+	WorkspaceID           uuid.UUID       `json:"workspace_id" db:"workspace_id"`
+	Enabled               bool            `json:"enabled" db:"enabled"`
+	MaxConcurrentMachines int             `json:"max_concurrent_machines" db:"max_concurrent_machines"`
+	MaxMachinesPerUser    int             `json:"max_machines_per_user" db:"max_machines_per_user"`
+	MaxDailyAgentRuns     int             `json:"max_daily_agent_runs" db:"max_daily_agent_runs"`
+	MaxRuntimeMinutes     int             `json:"max_runtime_minutes" db:"max_runtime_minutes"`
+	MaxDiskGB             int             `json:"max_disk_gb" db:"max_disk_gb"`
+	AllowedProviders      json.RawMessage `json:"allowed_providers" db:"allowed_providers"`
+	AllowedRepositories   json.RawMessage `json:"allowed_repositories" db:"allowed_repositories"`
+	AllowCustomProviders  bool            `json:"allow_custom_providers" db:"allow_custom_providers"`
+	// AllowUnattendedAutomations lets automation rules start tasks without a
+	// human approval; each rule must also opt in.
+	AllowUnattendedAutomations bool `json:"allow_unattended_automations" db:"allow_unattended_automations"`
+	// AllowDocker gives machines created while it is on a sandboxed Docker
+	// daemon of their own; starting such a machine is refused once it is off.
+	AllowDocker bool `json:"allow_docker" db:"allow_docker"`
+	// AgentGitName and AgentGitEmail optionally author agent commits.
+	AgentGitName     *string               `json:"agent_git_name" db:"agent_git_name"`
+	AgentGitEmail    *string               `json:"agent_git_email" db:"agent_git_email"`
+	IdlePauseMinutes int                   `json:"idle_pause_minutes" db:"idle_pause_minutes"`
+	DiskQuotaMode    string                `json:"disk_quota_mode" db:"-"`
+	SizeOptions      DevMachineSizeOptions `json:"size_options" db:"-"`
+	CreatedAt        time.Time             `json:"created_at" db:"created_at"`
+	UpdatedAt        time.Time             `json:"updated_at" db:"updated_at"`
 }
 
 type DevMachineSizeOptions struct {
@@ -488,9 +551,19 @@ type DevMachineScopeSetting struct {
 	EnvironmentID *uuid.UUID `json:"environment_id,omitempty" db:"environment_id"`
 	CreatedAt     time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at" db:"updated_at"`
+
+	TestCommand *json.RawMessage `json:"test_command" db:"test_command"`
+
+	AgentProvider     *string `json:"agent_provider" db:"agent_provider"`
+	AgentInstructions *string `json:"agent_instructions" db:"agent_instructions"`
+	ComposeFile       *string `json:"compose_file" db:"compose_file"`
+
+	PreviewCommand *json.RawMessage `json:"preview_command" db:"preview_command"`
+	PreviewPort    *int             `json:"preview_port" db:"preview_port"`
 }
 
 type DevMachineCheckout struct {
+	ScopeKey           string     `json:"scope_key" db:"scope_key"`
 	ID                 uuid.UUID  `json:"id" db:"id"`
 	WorkspaceID        uuid.UUID  `json:"workspace_id" db:"workspace_id"`
 	MachineID          uuid.UUID  `json:"machine_id" db:"machine_id"`
@@ -611,4 +684,111 @@ func containsDevMachineOption(options []int, value int) bool {
 		}
 	}
 	return false
+}
+
+// DevMachineResourceAllocation is the CPU and memory a live machine holds on
+// the host. Paused machines keep their memory allocated.
+type DevMachineResourceAllocation struct {
+	MachineID uuid.UUID `db:"machine_id"`
+	CPUMillis int       `db:"cpu_millis"`
+	MemoryMB  int       `db:"memory_mb"`
+}
+
+// App port sources: exposed by the machine owner, by an agent inside the
+// developer container, or by Kuayle for a task's preview.
+const (
+	DevMachinePortSourceUser  = "user"
+	DevMachinePortSourceAgent = "agent"
+	DevMachinePortSourceTask  = "task"
+)
+
+// App port targets: the container that serves the port. Ports published by
+// containers of the machine's Docker daemon are served by its docker service.
+const (
+	DevMachinePortTargetDeveloper = "developer"
+	DevMachinePortTargetDocker    = "docker"
+)
+
+// DevMachinePort exposes one TCP port of the developer container on its own
+// authenticated gateway host, <routing key>-<port>.<machine domain>.
+type DevMachinePort struct {
+	ID          uuid.UUID `json:"id" db:"id"`
+	WorkspaceID uuid.UUID `json:"workspace_id" db:"workspace_id"`
+	MachineID   uuid.UUID `json:"machine_id" db:"machine_id"`
+	Port        int       `json:"port" db:"port"`
+	Label       *string   `json:"label" db:"label"`
+	Source      string    `json:"source" db:"source"`
+	// Target is the container serving the port (DevMachinePortTarget*).
+	Target          string     `json:"target" db:"target"`
+	AgentTaskID     *uuid.UUID `json:"agent_task_id" db:"agent_task_id"`
+	CreatedByUserID uuid.UUID  `json:"created_by_user_id" db:"created_by_user_id"`
+	CreatedAt       time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at" db:"updated_at"`
+	// TaskIdentifier is the issue identifier of AgentTaskID, when the reader
+	// may see that issue. Filled by listing queries only.
+	TaskIdentifier *string `json:"task_identifier" db:"task_identifier"`
+}
+
+var portLabelPattern = regexp.MustCompile(`^[A-Za-z0-9 ._-]{1,40}$`)
+
+// ValidPortLabel reports whether label may name an app port.
+func ValidPortLabel(label string) bool {
+	return portLabelPattern.MatchString(label) && strings.TrimSpace(label) == label
+}
+
+// PortLabel turns free text, such as an issue identifier, into a valid label,
+// or nil when nothing usable remains.
+func PortLabel(value string) *string {
+	var b strings.Builder
+	for _, r := range value {
+		if b.Len() >= 40 {
+			break
+		}
+		if r < 128 && (r == ' ' || r == '.' || r == '_' || r == '-' || (r >= '0' && r <= '9') || (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z')) {
+			b.WriteRune(r)
+		}
+	}
+	label := strings.TrimSpace(b.String())
+	if label == "" {
+		return nil
+	}
+	return &label
+}
+
+const appPortServicePrefix = "port:"
+
+// AppPortService names the gateway route of an app port.
+func AppPortService(port int) string {
+	return appPortServicePrefix + strconv.Itoa(port)
+}
+
+// ParseAppPortService returns the port of an AppPortService route name.
+func ParseAppPortService(serviceType string) (int, bool) {
+	digits, ok := strings.CutPrefix(serviceType, appPortServicePrefix)
+	if !ok {
+		return 0, false
+	}
+	port, ok := ParseAppPortNumber(digits)
+	return port, ok
+}
+
+// ParseAppPortNumber parses a canonical decimal app port, 1024-65535, with no
+// sign or leading zero.
+func ParseAppPortNumber(digits string) (int, bool) {
+	if len(digits) < 4 || len(digits) > 5 || digits[0] == '0' {
+		return 0, false
+	}
+	port := 0
+	for _, r := range digits {
+		if r < '0' || r > '9' {
+			return 0, false
+		}
+		port = port*10 + int(r-'0')
+	}
+	return port, ValidAppPort(port)
+}
+
+// ValidAppPort reports whether port may be exposed as an app port.
+func ValidAppPort(port int) bool {
+	return port >= 1024 && port <= 65535
 }

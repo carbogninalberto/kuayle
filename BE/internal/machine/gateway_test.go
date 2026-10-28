@@ -624,3 +624,91 @@ func TestCertificateApprovalOnlyForLiveRoutes(t *testing.T) {
 	store.machine.ExpiresAt = time.Now().Add(-time.Second)
 	check("abcdefgh1234.app.example.com", 403)
 }
+
+func TestGatewayParsesAppPortHosts(t *testing.T) {
+	gateway, err := NewGateway(&gatewayStoreFake{}, "machines.example.com", time.Hour)
+	require.NoError(t, err)
+	routingKey, service, ok := gateway.parseHost("0123456789abcdef0123-5173.machines.example.com")
+	require.True(t, ok)
+	require.Equal(t, "0123456789abcdef0123", routingKey)
+	require.Equal(t, "port:5173", service)
+	for _, host := range []string{
+		"0123456789abcdef0123-80.machines.example.com",
+		"0123456789abcdef0123-65536.machines.example.com",
+		"0123456789abcdef0123-05173.machines.example.com",
+		"0123456789abcdef0123-+5173.machines.example.com",
+		"0123456789abcdef0123-5173-5174.machines.example.com",
+		"0123456789abcdef0123-preview.machines.example.com",
+		"0123456789abcdef0123-5173.machines.example.com.attacker.test",
+		"0123456789abcdef0123-5173.other.machines.example.com",
+	} {
+		_, _, ok = gateway.parseHost(host)
+		require.False(t, ok, host)
+	}
+}
+
+// An app port is served on its own host from the developer service row, proxied
+// to that port. Sessions are host-bound, so IDE, other ports' and this port's
+// sessions never grant each other access, and only the machine owner gets in.
+func TestGatewayAppPortHostIsIsolatedFromTheIDEAndOtherPorts(t *testing.T) {
+	var reached atomic.Int64
+	var cookie, authorization, kuayleHeader string
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		reached.Add(1)
+		cookie, authorization, kuayleHeader = request.Header.Get("Cookie"), request.Header.Get("Authorization"), request.Header.Get("X-Kuayle-Workspace")
+		http.SetCookie(writer, &http.Cookie{Name: machineSessionCookie, Value: "forged"})
+		writer.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+	upstreamHost, rawPort, _ := net.SplitHostPort(strings.TrimPrefix(upstream.URL, "http://"))
+	port, _ := strconv.Atoi(rawPort)
+	workspaceID, machineID, serviceID, userID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	ideHost := "0123456789abcdef0123.machines.example.com"
+	portHost := "0123456789abcdef0123-" + rawPort + ".machines.example.com"
+	otherPortHost := "0123456789abcdef0123-4999.machines.example.com"
+
+	service := gatewayService(serviceID, machineID, "port:"+rawPort)
+	service.InternalHost, service.InternalPort = upstreamHost, port
+	serve := func(host string, session *domain.DevMachineAccessSession) *httptest.ResponseRecorder {
+		store := &gatewayStoreFake{machine: gatewayMachine(workspaceID, machineID, userID, "0123456789abcdef0123"), service: service, session: session}
+		gateway, err := NewGateway(store, "machines.example.com", time.Hour)
+		require.NoError(t, err)
+		request := httptest.NewRequest(http.MethodGet, "http://"+host+"/", nil)
+		request.Host = host
+		request.AddCookie(&http.Cookie{Name: machineSessionCookie, Value: strings.Repeat("a", 64)})
+		request.Header.Set("Authorization", "Bearer kuayle-token")
+		request.Header.Set("X-Kuayle-Workspace", "acme")
+		recorder := httptest.NewRecorder()
+		gateway.ServeHTTP(recorder, request)
+		return recorder
+	}
+	require.Equal(t, http.StatusUnauthorized, serve(portHost, gatewaySession(workspaceID, machineID, serviceID, userID, ideHost)).Code, "an IDE session is not a port session")
+	require.Equal(t, http.StatusUnauthorized, serve(portHost, gatewaySession(workspaceID, machineID, serviceID, userID, otherPortHost)).Code, "nor is another port's")
+	require.Zero(t, reached.Load())
+	recorder := serve(portHost, gatewaySession(workspaceID, machineID, serviceID, userID, portHost))
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.Equal(t, int64(1), reached.Load())
+	require.Empty(t, cookie, "the gateway session never reaches the application")
+	require.Empty(t, authorization)
+	require.Empty(t, kuayleHeader)
+	require.Empty(t, recorder.Header().Values("Set-Cookie"), "the application cannot set the gateway cookie")
+	require.Equal(t, http.StatusUnauthorized, serve(portHost, gatewaySession(workspaceID, machineID, serviceID, uuid.New(), portHost)).Code, "only the machine owner")
+	require.Equal(t, http.StatusNotFound, serve(otherPortHost, gatewaySession(workspaceID, machineID, serviceID, userID, otherPortHost)).Code, "a route for another port never serves this one")
+}
+
+func TestCertificateApprovalForAppPortsNeedsTheExposedPort(t *testing.T) {
+	userID, workspaceID, machineID := uuid.New(), uuid.New(), uuid.New()
+	store := &gatewayStoreFake{machine: gatewayMachine(workspaceID, machineID, userID, "abcdefgh1234"), service: &domain.DevMachineService{ID: uuid.New(), MachineID: machineID, ServiceType: "port:5173", Status: "running"}}
+	g, err := NewGateway(store, "app.example.com", time.Hour)
+	require.NoError(t, err)
+	check := func(host string, status int) {
+		req := httptest.NewRequest("GET", "/?domain="+url.QueryEscape(host), nil)
+		rec := httptest.NewRecorder()
+		g.ApproveCertificate(rec, req)
+		require.Equal(t, status, rec.Code, host)
+	}
+	check("abcdefgh1234-5173.app.example.com", 200)
+	check("abcdefgh1234-5174.app.example.com", 403)
+	store.service = nil
+	check("abcdefgh1234-5173.app.example.com", 403)
+}

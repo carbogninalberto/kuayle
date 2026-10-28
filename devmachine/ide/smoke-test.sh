@@ -23,6 +23,16 @@ for command in code-server node npm claude opencode codex qwen crush goose kimi 
   docker exec "$container" "$command" --version
 done
 
+# kuayle-ports reads the container's listeners, and the QA skill is
+# installed for both agents.
+docker exec "$container" sh -c 'kuayle-ports list | grep -Eq "^8080 +listening"'
+docker exec "$container" sh -c 'kuayle-ports expose 80 >/dev/null 2>&1; test "$?" -eq 2'
+docker exec "$container" test -f /home/kuayle/.claude/skills/kuayle-qa/SKILL.md
+docker exec "$container" test -f /home/kuayle/.codex/skills/kuayle-qa/SKILL.md
+docker exec "$container" test -f /home/kuayle/.claude/skills/kuayle-agents/SKILL.md
+docker exec "$container" test -f /home/kuayle/.codex/skills/kuayle-agents/SKILL.md
+docker exec "$container" test -d /home/kuayle/.kuayle/ports/requests
+
 # Exercise the upgraded FTP dependency through its actual get-uri consumer,
 # including passive connection negotiation and a downloaded stream.
 docker exec --interactive "$container" /usr/lib/code-server/lib/node - <<'JS'

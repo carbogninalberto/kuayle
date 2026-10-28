@@ -8,8 +8,9 @@
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
 	import { Button } from '$lib/components/ui/button';
 	import * as Select from '$lib/components/ui/select';
-	import { getAISettings, updateAISettings } from '$lib/api/ai-settings';
-	import type { AISettings } from '$lib/types/ai-settings';
+	import { Switch } from '$lib/components/ui/switch/index.js';
+	import { checkVision, getAISettings, updateAISettings } from '$lib/api/ai-settings';
+	import type { AISettings, VisionCheck } from '$lib/types/ai-settings';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 
@@ -21,6 +22,9 @@
 	let prompt = $state('');
 	let issueCopyPrompt = $state('');
 	let saving = $state(false);
+	let vision = $state(false);
+	let checking = $state(false);
+	let visionResult = $state<{ ok: boolean; text: string } | null>(null);
 
 	onMount(async () => {
 		try {
@@ -30,6 +34,7 @@
 			model = settings.model;
 			prompt = settings.description_expand_prompt;
 			issueCopyPrompt = settings.issue_copy_prompt;
+			vision = settings.assistant_vision;
 		} catch (err: any) {
 			appToast.apiError(err, m['settings.ai.failed_load']());
 		}
@@ -43,7 +48,8 @@
 				base_url: baseUrl.trim(),
 				model: model.trim(),
 				description_expand_prompt: prompt.trim(),
-				issue_copy_prompt: issueCopyPrompt.trim()
+				issue_copy_prompt: issueCopyPrompt.trim(),
+				assistant_vision: vision
 			};
 			if (apiKey.trim()) payload.api_key = apiKey.trim();
 			settings = await updateAISettings(slug, payload);
@@ -52,12 +58,35 @@
 			model = settings.model;
 			prompt = settings.description_expand_prompt;
 			issueCopyPrompt = settings.issue_copy_prompt;
+			vision = settings.assistant_vision;
 			apiKey = '';
 			appToast.success(m['settings.ai.updated']());
 		} catch (err: any) {
 			appToast.apiError(err, m['settings.ai.failed_update']());
 		} finally {
 			saving = false;
+		}
+	}
+
+	function describe(result: VisionCheck) {
+		if (!result.answered) return { ok: false, text: m['settings.ai.vision_failed']({ error: result.error ?? '' }) };
+		if (result.saw_image) return { ok: true, text: m['settings.ai.vision_ok']({ answer: result.answer ?? '' }) };
+		return { ok: false, text: m['settings.ai.vision_unsure']({ answer: result.answer ?? '' }) };
+	}
+
+	// Probes the saved model; the toggle stays the owner's decision.
+	async function runVisionCheck() {
+		checking = true;
+		visionResult = null;
+		try {
+			visionResult = describe(await checkVision(slug));
+		} catch (err: any) {
+			visionResult = {
+				ok: false,
+				text: err?.error?.code === 'AI_NOT_CONFIGURED' ? m['settings.ai.vision_not_configured']() : m['settings.ai.failed_update']()
+			};
+		} finally {
+			checking = false;
 		}
 	}
 
@@ -134,6 +163,33 @@
 					placeholder={settings.has_api_key ? m['settings.ai.key_configured_placeholder']() : m['settings.ai.key_placeholder']()}
 					class="w-[240px] rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
 				/>
+			</div>
+		</div>
+
+		<div class="mt-8 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
+			<div class="flex items-center justify-between gap-4 px-5 py-4">
+				<div>
+					<label for="assistant-vision" class="text-sm font-medium text-[var(--color-text-primary)]"
+						>{m['settings.ai.vision']()}</label
+					>
+					<p id="assistant-vision-desc" class="text-xs text-[var(--color-text-tertiary)]">{m['settings.ai.vision_desc']()}</p>
+				</div>
+				<Switch id="assistant-vision" bind:checked={vision} aria-describedby="assistant-vision-desc" />
+			</div>
+			<div class="border-t border-[var(--app-border)]"></div>
+			<div class="flex items-center justify-between gap-4 px-5 py-4">
+				<div class="min-w-0">
+					<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.ai.vision_check_desc']()}</p>
+					{#if visionResult}<p
+							role="status"
+							class="mt-1 text-sm break-words {visionResult.ok ? 'text-[var(--color-text-primary)]' : 'text-destructive'}"
+						>
+							{visionResult.text}
+						</p>{/if}
+				</div>
+				<Button variant="outline" size="sm" onclick={runVisionCheck} disabled={checking || !settings.has_api_key}
+					>{checking ? m['settings.ai.vision_checking']() : m['settings.ai.vision_check']()}</Button
+				>
 			</div>
 		</div>
 

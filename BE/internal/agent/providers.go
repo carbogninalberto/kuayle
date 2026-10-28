@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -20,7 +21,7 @@ func (p *builtinProvider) BuildInvocation(input RunInput) (Invocation, error) {
 	if err := validateInput(p.metadata, input); err != nil {
 		return Invocation{}, err
 	}
-	if err := validateDeepSeekOverrides(p.metadata.ID, input); err != nil {
+	if err := validateModelOverrides(p.metadata.ID, input); err != nil {
 		return Invocation{}, err
 	}
 	workingDir := input.WorkspacePath
@@ -29,6 +30,18 @@ func (p *builtinProvider) BuildInvocation(input RunInput) (Invocation, error) {
 	}
 	argv := p.build(input)
 	argv = append(argv, input.ExtraArgs...)
+	if input.Session != nil && input.Mode == ModeAutonomous && (p.metadata.ID == "codex" || p.metadata.ID == "claude-code") {
+		for _, id := range []string{input.Session.ResumeID, input.Session.NewID} {
+			if id != "" && !ValidSessionID(id) {
+				return Invocation{}, fmt.Errorf("invalid agent session ID")
+			}
+		}
+		wrapped, err := sessionWrapper(input.Session.Dir, argv)
+		if err != nil {
+			return Invocation{}, err
+		}
+		argv = wrapped
+	}
 	var environment map[string]string
 	if p.environment != nil {
 		environment = p.environment(input)
@@ -67,10 +80,20 @@ func NewClaudeCodeProvider(image string) Provider {
 		build: func(input RunInput) []string {
 			argv := []string{"claude"}
 			if input.Mode == ModeAutonomous {
-				argv = append(argv, "--print", "--output-format", "stream-json", "--verbose")
+				// Unattended runs cannot answer permission prompts, so the default
+				// mode denies every edit. The hardened agent container is the
+				// sandbox, as for Codex.
+				argv = append(argv, "--print", "--output-format", "stream-json", "--verbose", "--permission-mode", "bypassPermissions")
 			}
 			if input.Model != "" {
 				argv = append(argv, "--model", input.Model)
+			}
+			if input.Mode == ModeAutonomous && input.Session != nil {
+				if input.Session.ResumeID != "" {
+					argv = append(argv, "--resume", input.Session.ResumeID)
+				} else if input.Session.NewID != "" {
+					argv = append(argv, "--session-id", input.Session.NewID)
+				}
 			}
 			if input.Mode == ModeAutonomous {
 				argv = append(argv, "-p", input.Prompt)
@@ -247,7 +270,17 @@ func NewCodexProvider(image string) Provider {
 				argv := []string{"codex"}
 				return appendCodexOverrides(argv, input)
 			}
-			argv := appendCodexOverrides([]string{"codex", "exec", "--json", "--full-auto"}, input)
+			// The agent container is the sandbox: it drops all capabilities and
+			// forbids user namespaces, so Codex's own bubblewrap sandbox cannot
+			// start there and every command would fail. Codex documents turning
+			// its sandbox off in externally sandboxed environments; approvals are
+			// never requested because the run is unattended.
+			limits := []string{"-c", `sandbox_mode="danger-full-access"`, "-c", `approval_policy="never"`}
+			if input.Session != nil && input.Session.ResumeID != "" {
+				argv := appendCodexOverrides(append([]string{"codex", "exec", "resume", "--json"}, limits...), input)
+				return append(argv, input.Session.ResumeID, input.Prompt)
+			}
+			argv := appendCodexOverrides(append([]string{"codex", "exec", "--json"}, limits...), input)
 			return append(argv, input.Prompt)
 		},
 	}
@@ -331,9 +364,19 @@ func NewGooseProvider(image string) Provider {
 	})
 }
 
+// Codex is pointed at the model server entirely through -c overrides, so a
+// user-managed config.toml in the container cannot redirect a run elsewhere.
 func appendCodexOverrides(argv []string, input RunInput) []string {
+	if input.OpenAIBaseURL != "" {
+		argv = append(argv,
+			"-c", `model_provider="kuayle"`,
+			"-c", `model_providers.kuayle.name="Kuayle model server"`,
+			"-c", `model_providers.kuayle.base_url="`+input.OpenAIBaseURL+`"`,
+			"-c", `model_providers.kuayle.env_key="KUAYLE_MODEL_API_KEY"`,
+			"-c", `model_providers.kuayle.wire_api="responses"`)
+	}
 	if input.Model != "" {
-		argv = append(argv, "-c", `model="`+input.Model+`"`, "-c", `model_provider="deepseek"`)
+		argv = append(argv, "-c", `model="`+input.Model+`"`)
 	}
 	if input.Thinking != "" {
 		effort := input.Thinking
@@ -345,19 +388,27 @@ func appendCodexOverrides(argv []string, input RunInput) []string {
 	return argv
 }
 
-func validateDeepSeekOverrides(providerID string, input RunInput) error {
+var (
+	modelOverridePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}$`)
+	baseURLPattern       = regexp.MustCompile(`^https?://[^\s"'\\]{1,500}$`)
+)
+
+// Model values are interpolated into TOML strings, so they are restricted to
+// characters that need no quoting.
+func validateModelOverrides(providerID string, input RunInput) error {
 	if providerID != "codex" && providerID != "claude-code" {
 		return nil
 	}
-	switch input.Model {
-	case "", "deepseek-flash", "deepseek-v4-pro":
-	default:
-		return fmt.Errorf("unsupported DeepSeek model %q", input.Model)
+	if input.Model != "" && !modelOverridePattern.MatchString(input.Model) {
+		return fmt.Errorf("unsupported model %q", input.Model)
+	}
+	if input.OpenAIBaseURL != "" && (providerID != "codex" || !baseURLPattern.MatchString(input.OpenAIBaseURL)) {
+		return fmt.Errorf("unsupported model server URL")
 	}
 	switch input.Thinking {
 	case "", "off", "low", "high", "max":
 	default:
-		return fmt.Errorf("unsupported DeepSeek thinking level %q", input.Thinking)
+		return fmt.Errorf("unsupported thinking level %q", input.Thinking)
 	}
 	return nil
 }
@@ -470,4 +521,33 @@ func (p *CustomCLIProvider) ParseResult(stdout, stderr string, exitCode int) Run
 		return result
 	}
 	return defaultResult(stdout, stderr, exitCode)
+}
+
+var (
+	sessionDirPattern = regexp.MustCompile(`^/workspace/\.kuayle/agent-sessions/[0-9a-f-]{36}$`)
+	sessionIDPattern  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,127}$`)
+)
+
+// sessionScript links only the harnesses' transcript directories to the task's
+// session directory; config.toml, auth files and credentials stay on tmpfs.
+const sessionScript = `set -eu
+dir=$1
+shift
+mkdir -p "$dir/codex" "$dir/claude" "$HOME/.codex" "$HOME/.claude"
+rm -rf "$HOME/.codex/sessions" "$HOME/.claude/projects"
+ln -s "$dir/codex" "$HOME/.codex/sessions"
+ln -s "$dir/claude" "$HOME/.claude/projects"
+exec "$@"
+`
+
+func sessionWrapper(dir string, argv []string) ([]string, error) {
+	if !sessionDirPattern.MatchString(dir) {
+		return nil, fmt.Errorf("invalid agent session directory")
+	}
+	return append([]string{"/bin/sh", "-c", sessionScript, "kuayle-session", dir}, argv...), nil
+}
+
+// ValidSessionID reports whether a native session ID is safe to pass to a CLI.
+func ValidSessionID(id string) bool {
+	return sessionIDPattern.MatchString(id)
 }

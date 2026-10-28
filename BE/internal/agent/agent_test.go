@@ -14,8 +14,9 @@ func TestBuiltinProvidersBuildArgvWithoutShell(t *testing.T) {
 		invocation, err := provider.BuildInvocation(RunInput{Mode: ModeAutonomous, Prompt: "fix the issue"})
 		require.NoError(t, err)
 		require.NotEmpty(t, invocation.Argv)
+		// No shell wrapper: Codex's own -c is a config flag, not `sh -c`.
+		require.NotContains(t, []string{"sh", "bash", "/bin/sh", "/bin/bash"}, invocation.Argv[0])
 		require.NotContains(t, invocation.Argv, "sh")
-		require.NotContains(t, invocation.Argv, "-c")
 		require.Contains(t, invocation.Image, ":")
 	}
 }
@@ -105,22 +106,41 @@ func TestStreamJSONProvidersExtractLastAssistantText(t *testing.T) {
 	}
 }
 
-func TestCodexRunOverridesBuildDeepSeekArgs(t *testing.T) {
+func TestCodexRunOverridesPointAtTheModelServer(t *testing.T) {
 	provider := NewCodexProvider("")
 
 	invocation, err := provider.BuildInvocation(RunInput{
-		Mode: ModeAutonomous, Prompt: "fix the issue", Model: "deepseek-v4-pro", Thinking: "off",
+		Mode: ModeAutonomous, Prompt: "fix the issue", Model: "qwen3-coder:30b", Thinking: "off",
+		OpenAIBaseURL: "https://models.example.test/v1",
 	})
 
 	require.NoError(t, err)
 	require.Equal(t, []string{
-		"codex", "exec", "--json", "--full-auto",
-		"-c", `model="deepseek-v4-pro"`,
-		"-c", `model_provider="deepseek"`,
+		"codex", "exec", "--json", "-c", `sandbox_mode="danger-full-access"`, "-c", `approval_policy="never"`,
+		"-c", `model_provider="kuayle"`,
+		"-c", `model_providers.kuayle.name="Kuayle model server"`,
+		"-c", `model_providers.kuayle.base_url="https://models.example.test/v1"`,
+		"-c", `model_providers.kuayle.env_key="KUAYLE_MODEL_API_KEY"`,
+		"-c", `model_providers.kuayle.wire_api="responses"`,
+		"-c", `model="qwen3-coder:30b"`,
 		"-c", `model_reasoning_effort="none"`,
 		"fix the issue",
 	}, invocation.Argv)
 	require.Empty(t, invocation.Environment)
+}
+
+func TestModelOverridesCannotInjectConfiguration(t *testing.T) {
+	provider := NewCodexProvider("")
+	for _, input := range []RunInput{
+		{Mode: ModeAutonomous, Prompt: "x", Model: `m" -c sandbox_mode="read-only`},
+		{Mode: ModeAutonomous, Prompt: "x", OpenAIBaseURL: `https://a.test/"x`},
+		{Mode: ModeAutonomous, Prompt: "x", OpenAIBaseURL: "file:///etc/passwd"},
+	} {
+		_, err := provider.BuildInvocation(input)
+		require.Error(t, err, input)
+	}
+	_, err := NewClaudeCodeProvider("").BuildInvocation(RunInput{Mode: ModeAutonomous, Prompt: "x", OpenAIBaseURL: "https://a.test/v1"})
+	require.Error(t, err, "Claude Code uses the Anthropic URL through the environment")
 }
 
 func TestClaudeCodeRunOverridesUseArgvModelAndEnvironmentEffort(t *testing.T) {
@@ -132,7 +152,7 @@ func TestClaudeCodeRunOverridesUseArgvModelAndEnvironmentEffort(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, []string{
-		"claude", "--print", "--output-format", "stream-json", "--verbose",
+		"claude", "--print", "--output-format", "stream-json", "--verbose", "--permission-mode", "bypassPermissions",
 		"--model", "deepseek-flash", "-p", "fix the issue",
 	}, invocation.Argv)
 	require.Equal(t, map[string]string{"CLAUDE_CODE_EFFORT_LEVEL": "max"}, invocation.Environment)
@@ -331,4 +351,52 @@ func TestSubscriptionCapableProvidersDoNotRequireAPIKeys(t *testing.T) {
 		require.NoError(t, err)
 		require.Empty(t, invocation.SecretNames, metadata.ID)
 	}
+}
+
+func TestTaskSessionsPersistOnlyTranscriptsAndResumeNatively(t *testing.T) {
+	dir := "/workspace/.kuayle/agent-sessions/0b6f3c55-8ad4-4f0e-9a0c-5a7dbf0e2d11"
+	codex := NewCodexProvider("codex:test")
+	fresh, err := codex.BuildInvocation(RunInput{Mode: ModeAutonomous, Prompt: "Fix it", Session: &SessionInput{Dir: dir}})
+	require.NoError(t, err)
+	require.Equal(t, []string{"/bin/sh", "-c", sessionScript, "kuayle-session", dir, "codex", "exec", "--json", "-c", `sandbox_mode="danger-full-access"`, "-c", `approval_policy="never"`, "Fix it"}, fresh.Argv)
+	require.Contains(t, sessionScript, `ln -s "$dir/codex" "$HOME/.codex/sessions"`)
+	require.NotContains(t, sessionScript, "config.toml", "configuration and credentials stay on the ephemeral home")
+	resumed, err := codex.BuildInvocation(RunInput{Mode: ModeAutonomous, Prompt: "Address review", Session: &SessionInput{Dir: dir, ResumeID: "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b"}})
+	require.NoError(t, err)
+	require.Equal(t, []string{"codex", "exec", "resume", "--json", "-c", `sandbox_mode="danger-full-access"`, "-c", `approval_policy="never"`, "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", "Address review"}, resumed.Argv[5:])
+
+	claude := NewClaudeCodeProvider("claude:test")
+	first, err := claude.BuildInvocation(RunInput{Mode: ModeAutonomous, Prompt: "Fix it", Session: &SessionInput{Dir: dir, NewID: "11111111-2222-4333-8444-555555555555"}})
+	require.NoError(t, err)
+	require.Contains(t, strings.Join(first.Argv, " "), "--session-id 11111111-2222-4333-8444-555555555555 -p Fix it")
+	again, err := claude.BuildInvocation(RunInput{Mode: ModeAutonomous, Prompt: "Next", Session: &SessionInput{Dir: dir, ResumeID: "11111111-2222-4333-8444-555555555555"}})
+	require.NoError(t, err)
+	require.Contains(t, strings.Join(again.Argv, " "), "--resume 11111111-2222-4333-8444-555555555555 -p Next")
+
+	for _, bad := range []RunInput{
+		{Mode: ModeAutonomous, Prompt: "x", Session: &SessionInput{Dir: "/home/kuayle"}},
+		{Mode: ModeAutonomous, Prompt: "x", Session: &SessionInput{Dir: dir, ResumeID: "--dangerously-bypass-approvals-and-sandbox"}},
+		{Mode: ModeAutonomous, Prompt: "x", Session: &SessionInput{Dir: dir, NewID: "id; rm -rf /"}},
+	} {
+		_, err = codex.BuildInvocation(bad)
+		require.Error(t, err)
+	}
+	// Manual runs are unchanged.
+	manual, err := codex.BuildInvocation(RunInput{Mode: ModeAutonomous, Prompt: "Fix it"})
+	require.NoError(t, err)
+	require.Equal(t, "codex", manual.Argv[0])
+}
+
+func TestResultSummaryIsTheAgentsFinalMessageNotRawEvents(t *testing.T) {
+	codex := strings.Join([]string{
+		`{"type":"thread.started","thread_id":"t1"}`,
+		`{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"I'll inspect the repository."}}`,
+		`{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"npm test"}}`,
+		`{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"Added truncate() with tests; npm test passes."}}`,
+		`{"type":"turn.completed"}`,
+	}, "\n")
+	require.Equal(t, "Added truncate() with tests; npm test passes.", NewCodexProvider("").ParseResult(codex, "", 0).Summary)
+	claude := `{"type":"assistant","message":{"content":[{"type":"text","text":"Working"}]}}` + "\n" + `{"type":"result","subtype":"success","result":"Done: truncate added."}`
+	require.Equal(t, "Done: truncate added.", NewClaudeCodeProvider("").ParseResult(claude, "", 0).Summary)
+	require.Equal(t, "plain output", NewCodexProvider("").ParseResult("plain output\n", "", 0).Summary, "non-JSON output is kept")
 }

@@ -5,6 +5,13 @@ FROM golang:1.27.3-bookworm AS crush-build
 ARG CRUSH_VERSION=0.98.2
 RUN CGO_ENABLED=0 GOBIN=/out go install -trimpath -ldflags="-s -w" "github.com/charmbracelet/crush@v${CRUSH_VERSION}"
 
+# Compose and Buildx, built from pinned release commits (see the script).
+FROM --platform=$BUILDPLATFORM golang:1.26.10-alpine AS docker-plugins
+ARG TARGETARCH
+RUN apk add --no-cache git
+COPY common/build-docker-plugins.sh /usr/local/bin/build-docker-plugins.sh
+RUN GOOS=linux GOARCH=$TARGETARCH sh /usr/local/bin/build-docker-plugins.sh /out
+
 FROM ubuntu:26.04@sha256:f144425ff09be612d6d9ad965196e9cdc23dae1f42110a8a11a3e9a8198759f7
 
 ARG TARGETARCH
@@ -19,8 +26,9 @@ ARG NPM_VERSION=12.2.0
 
 COPY --from=node-stage /usr/local /usr/local
 COPY --from=crush-build /out/crush /usr/local/bin/crush
-COPY common/install-agent-clis.sh common/kuayle-service-entrypoint /usr/local/bin/
-COPY common/start-common.sh common/codex-deepseek-catalog.cjs common/patch-npm-security.cjs common/test-http-cache-semantics.cjs /usr/local/lib/kuayle/
+COPY --from=docker-plugins /out/docker-compose /out/docker-buildx /usr/local/lib/docker/cli-plugins/
+COPY common/install-agent-clis.sh common/install-docker-cli.sh common/kuayle-ports common/kuayle-service-entrypoint /usr/local/bin/
+COPY common/start-common.sh common/codex-model-catalog.cjs common/patch-npm-security.cjs common/test-http-cache-semantics.cjs common/kuayle-qa.md common/kuayle-agents.md /usr/local/lib/kuayle/
 COPY ide/patch-security.cjs ide/test-zod-security.cjs ide/test-body-parser-security.cjs /usr/local/lib/kuayle/
 COPY ide/start.sh /usr/local/bin/kuayle-ide-start
 COPY ide/shell.sh /usr/local/bin/kuayle-shell
@@ -46,6 +54,7 @@ RUN rm -f /usr/bin/pebble \
     && chmod 0755 /usr/local/bin/ttyd \
     && npm install -g "npm@${NPM_VERSION}" \
     && sh /usr/local/bin/install-agent-clis.sh "$TARGETARCH" \
+    && sh /usr/local/bin/install-docker-cli.sh "$TARGETARCH" \
     && node /usr/local/lib/kuayle/patch-npm-security.cjs /usr/lib/code-server \
     && npm install --prefix /tmp/code-server-patches --ignore-scripts --package-lock=false \
          "basic-ftp@6.2.2" "js-yaml@5.4.2" "shell-quote@1.12.0" "undici@7.30.1" "ip-address@10.7.3" \
@@ -74,7 +83,7 @@ RUN rm -f /usr/bin/pebble \
          /etc/ssl/private/ssl-cert-snakeoil.key /etc/ssl/certs/ssl-cert-snakeoil.pem \
     && mkdir -p /home/kuayle \
     && chown 1000:1000 /home/kuayle \
-    && chmod 0755 /usr/local/bin/kuayle-service-entrypoint /usr/local/bin/install-agent-clis.sh /usr/local/bin/kuayle-ide-start /usr/local/bin/kuayle-shell /usr/local/bin/kuayle-checkout /usr/local/bin/kuayle-terminal-session \
+    && chmod 0755 /usr/local/bin/kuayle-ports /usr/local/bin/kuayle-service-entrypoint /usr/local/bin/install-agent-clis.sh /usr/local/bin/kuayle-ide-start /usr/local/bin/kuayle-shell /usr/local/bin/kuayle-checkout /usr/local/bin/kuayle-terminal-session \
     && code-server --version \
     && node --version \
     && npm --version \

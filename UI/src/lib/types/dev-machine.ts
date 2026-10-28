@@ -13,7 +13,8 @@ export type DevMachineStatus =
 
 export type DevMachineProfile = 'standard' | 'headless';
 
-type DevMachineLaunchStatus = 'ready' | 'resuming' | 'pending';
+// App port hosts answer `starting` (202) while their route is being published.
+type DevMachineLaunchStatus = 'ready' | 'resuming' | 'pending' | 'starting';
 
 type DevMachineEnvironmentStatus = 'pending' | 'building' | 'ready' | 'failed' | 'delete_requested';
 
@@ -87,7 +88,7 @@ export interface DevMachineService {
 	id: string;
 	machine_id: string;
 	agent_run_id?: string;
-	service_type: 'ide' | 'terminal' | 'agent' | 'browser' | 'collector' | 'egress';
+	service_type: 'ide' | 'terminal' | 'agent' | 'browser' | 'collector' | 'egress' | 'docker';
 	service_key: string;
 	container_id?: string;
 	container_name: string;
@@ -219,35 +220,36 @@ export type CreateDevMachineInput =
 			disk_gb: number;
 	  });
 
-export interface CreateAgentRunInput {
-	checkout_id?: string;
-	use_root_workspace: boolean;
-	provider: AgentProvider['id'];
-	mode: 'interactive' | 'autonomous';
-	prompt: string;
-	acceptance_criteria: string[];
-	allowed_commands: string[];
-	forbidden_paths: string[];
-	test_command: string[];
-	max_runtime_seconds: number;
-	allowed_secrets: string[];
-	push_branch: boolean;
-	open_pull_request: boolean;
-	model?: DeepSeekModel;
-	thinking?: DeepSeekThinking;
+export type ThinkingLevel = 'off' | 'low' | 'high' | 'max';
+
+// A workspace model server. Codex uses its OpenAI-compatible URL and Claude
+// Code its Anthropic-compatible URL; `harnesses` lists who can use it. The API
+// key is never returned.
+export interface ModelServer {
+	id: string;
+	name: string;
+	openai_base_url?: string;
+	anthropic_base_url?: string;
+	models: string[];
+	default_model: string;
+	fast_model: string;
+	thinking: ThinkingLevel;
+	is_default: boolean;
+	harnesses: string[];
+	thinking_levels: ThinkingLevel[];
+	updated_at: string;
 }
 
-export type DeepSeekModel = 'deepseek-flash' | 'deepseek-v4-pro';
-export type DeepSeekThinking = 'off' | 'low' | 'high' | 'max';
-
-export interface WorkspaceModelProvider {
-	provider: 'deepseek';
-	configured: boolean;
-	default_model: DeepSeekModel;
-	thinking: DeepSeekThinking;
-	models: DeepSeekModel[];
-	thinking_levels: DeepSeekThinking[];
-	updated_at: string | null;
+export interface ModelServerInput {
+	name: string;
+	openai_base_url?: string;
+	anthropic_base_url?: string;
+	api_key?: string;
+	models: string[];
+	default_model: string;
+	fast_model: string;
+	thinking: ThinkingLevel;
+	is_default: boolean;
 }
 
 export interface DevMachinePolicy {
@@ -261,6 +263,11 @@ export interface DevMachinePolicy {
 	allowed_providers: string[];
 	allowed_repositories: string[];
 	allow_custom_providers: boolean;
+	allow_unattended_automations: boolean;
+	// Machines created while on get their own sandboxed Docker daemon.
+	allow_docker?: boolean;
+	agent_git_name?: string | null;
+	agent_git_email?: string | null;
 	idle_pause_minutes: number;
 	disk_quota_mode: 'hard' | 'monitored';
 	size_options?: {
@@ -302,6 +309,12 @@ export interface DevMachineEnvironment {
 }
 
 export interface DevMachineScopeSetting {
+	test_command?: string[] | null;
+	agent_provider?: string | null;
+	agent_instructions?: string | null;
+	compose_file?: string | null;
+	preview_command?: string[] | null;
+	preview_port?: number | null;
 	id?: string;
 	workspace_id: string;
 	team_id?: string;
@@ -324,6 +337,31 @@ export interface DevMachineTerminalSession {
 	created_at: string;
 	last_activity_at: string;
 	closed_at?: string;
+}
+
+export type AppPortSource = 'user' | 'agent' | 'task';
+
+// One TCP port of the developer container published on its own authenticated
+// host. Ports outlive tasks: they are the human's QA entrypoints.
+export interface AppPort {
+	id: string;
+	port: number;
+	label: string | null;
+	source: AppPortSource;
+	agent_task_id: string | null;
+	task_identifier: string | null;
+	host: string;
+	listening: boolean;
+	// The container serving it; "docker" for a port published by the machine's Docker daemon.
+	target?: 'developer' | 'docker';
+	created_at: string;
+}
+
+export interface AppPortList {
+	ports: AppPort[];
+	// Ports listening on the machine (developer container and Docker daemon) at the last scan.
+	listening: number[];
+	scanned_at: string | null;
 }
 
 export interface LaunchMachineServiceResponse {
@@ -355,30 +393,4 @@ export interface BulkPermanentDeleteDevMachinesInput {
 	older_than_days?: number;
 	include_failed: boolean;
 	include_expired: boolean;
-}
-
-export interface AgentRunStep {
-	id: string;
-	agent_run_id: string;
-	sequence: number;
-	step_type: string;
-	name: string;
-	status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'skipped';
-	command_argv?: string[];
-	summary?: string;
-	exit_code?: number;
-	started_at?: string;
-	completed_at?: string;
-	created_at: string;
-}
-
-export interface AgentRunTrace {
-	run: AgentRun;
-	steps: AgentRunStep[];
-	events: DevMachineEvent[];
-	logs: DevMachineLogChunk[];
-	next_event_id: number;
-	next_log_id: number;
-	has_more_events: boolean;
-	has_more_logs: boolean;
 }

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -23,6 +24,27 @@ import (
 )
 
 type ManagerStore interface {
+	GetValidation(context.Context, domain.DevMachineOperation) (*domain.DevMachineAgentRunStep, error)
+	StartValidation(context.Context, domain.DevMachineOperation, string) error
+	CompleteValidation(context.Context, domain.DevMachineOperation, int) error
+	CreateValidationOutput(context.Context, domain.DevMachineOperation, *domain.DevMachineLogChunk) error
+	ListResourceAllocations(context.Context) ([]domain.DevMachineResourceAllocation, error)
+	RecordNativeSession(context.Context, uuid.UUID, string) error
+	SaveValidationArtifacts(context.Context, domain.DevMachineOperation, []domain.ValidationArtifact) error
+	MachinePorts(context.Context, uuid.UUID) ([]domain.DevMachinePort, error)
+	CreatePort(context.Context, *domain.DevMachinePort) error
+	DeleteAgentPort(context.Context, uuid.UUID, int) (bool, error)
+	SetListeningPorts(context.Context, uuid.UUID, []int, []int) error
+	ListPortScanMachines(context.Context, int) ([]domain.DevMachine, error)
+	TaskForWorktree(context.Context, uuid.UUID, string) (*uuid.UUID, error)
+	PreviewTarget(context.Context, uuid.UUID) (*repository.TaskPreviewTarget, error)
+	SetTaskPreview(context.Context, uuid.UUID, string, *string, *domain.DevMachinePort) error
+	StopTaskPreview(context.Context, uuid.UUID) error
+	StopMachinePreviews(context.Context, uuid.UUID) error
+	DeferOperation(context.Context, uuid.UUID, string, string, string, time.Duration) error
+	GetPublication(context.Context, domain.DevMachineOperation) (*domain.AgentPublication, error)
+	StartPublication(context.Context, domain.DevMachineOperation) error
+	CompletePublication(context.Context, domain.DevMachineOperation, domain.AgentPublicationResult) error
 	LeaseOperations(context.Context, string, int, time.Duration) ([]domain.DevMachineOperation, error)
 	RenewOperationLease(context.Context, uuid.UUID, string, time.Duration) error
 	CompleteOperation(context.Context, uuid.UUID, string) error
@@ -31,16 +53,25 @@ type ManagerStore interface {
 	GetProvider(context.Context, uuid.UUID, uuid.UUID, string) (*domain.DevMachineAgentProvider, error)
 	GetAgentRunInternal(context.Context, uuid.UUID) (*domain.DevMachineAgentRun, error)
 	ListServices(context.Context, uuid.UUID, uuid.UUID) ([]domain.DevMachineService, error)
+	// DockerAllowed reports the workspace policy's Docker daemon switch.
+	DockerAllowed(context.Context, uuid.UUID) (bool, error)
 	ListEnvVarsInternal(context.Context, uuid.UUID, *string, string) ([]domain.DevMachineEnvVar, error)
-	GetWorkspaceModelCredential(context.Context, uuid.UUID, string) (*domain.DevMachineWorkspaceModelCredential, error)
+	GetModelServer(context.Context, uuid.UUID, *uuid.UUID) (*domain.AgentModelServer, error)
+	GetAgentSignIn(context.Context, uuid.UUID, uuid.UUID, string) (string, error)
+	GetAgentSignInToken(context.Context, uuid.UUID, uuid.UUID, string) (string, error)
+	SaveAgentSignIn(context.Context, uuid.UUID, uuid.UUID, string, string) error
 	SetMachineState(context.Context, uuid.UUID, domain.DevMachineStatus, *string, *string, *string, *string) error
 	SetMachineStateForOperation(context.Context, uuid.UUID, int64, bool, domain.DevMachineStatus, *string, *string, *string, *string) (bool, error)
 	UpdateServiceRuntime(context.Context, uuid.UUID, string, string, string, *string) error
 	CreateRuntimeService(context.Context, *domain.DevMachineService) error
+	MarkAgentRunStarting(context.Context, uuid.UUID) error
 	UpdateAgentRunStarted(context.Context, uuid.UUID) error
+	SealAgentRunSecrets(context.Context, uuid.UUID, string) (string, error)
+	AuthorizeAgentRun(context.Context, uuid.UUID) error
 	CompleteAgentRun(context.Context, *domain.DevMachineAgentRun) error
 	CreateEvent(context.Context, *domain.DevMachineEvent) error
 	CreateLogChunk(context.Context, *domain.DevMachineLogChunk) error
+	CreateAgentOutput(context.Context, *domain.DevMachineLogChunk, []domain.DevMachineEvent) error
 	RevokeMachineAccess(context.Context, uuid.UUID) error
 	ListExpiredMachines(context.Context, int) ([]domain.DevMachine, error)
 	ListTimedOutAgentRuns(context.Context, int) ([]domain.DevMachineAgentRun, error)
@@ -66,6 +97,7 @@ type ManagerStore interface {
 	ListDeleteRequestedEnvironments(context.Context, int) ([]domain.DevMachineEnvironment, error)
 	DeleteEnvironment(context.Context, uuid.UUID, uuid.UUID) error
 	ListIdleMachines(context.Context, int) ([]domain.DevMachine, error)
+	ReclaimIdleMachine(context.Context, uuid.UUID) (*domain.DevMachine, error)
 	UpsertRuntimeCredential(context.Context, *domain.DevMachineRuntimeCredential) error
 	PurgeExpiredRuntimeCredentials(context.Context, time.Time) (int, error)
 	PurgeAccessLogs(context.Context, time.Time, int) (int, error)
@@ -78,6 +110,7 @@ const gatewayAccessLogPurgeBatch = 1000
 type githubAPI interface {
 	GetRepositoryInstallationToken(int64, string) (string, time.Time, error)
 	CreatePullRequest(string, string, string, string, string, string, string) (*githubclient.PullRequest, error)
+	FindOpenPullRequest(string, string, string, string, string) (*githubclient.PullRequest, error)
 }
 
 type DiskQuotaConfig struct {
@@ -101,6 +134,14 @@ type Manager struct {
 	pollInterval  time.Duration
 	diskQuota     DiskQuotaConfig
 
+	agentGitIdentity GitIdentity
+	// attachmentFiles reads task images from storage; nil copies none.
+	attachmentFiles attachmentReader
+
+	capacity    *CapacityConfig
+	admissionMu sync.Mutex
+	admitted    map[uuid.UUID]HostResources
+
 	operationsCompleted atomic.Uint64
 	operationsFailed    atomic.Uint64
 	agentRunsCompleted  atomic.Uint64
@@ -114,6 +155,12 @@ type Manager struct {
 	activeRuns          map[uuid.UUID]map[uuid.UUID]context.CancelFunc
 	diskQuotaWarnMu     sync.Mutex
 	diskQuotaWarnings   map[uuid.UUID]int64
+
+	// machineDomain builds app port URLs for agents; empty omits them.
+	machineDomain string
+	portScanning  atomic.Bool
+	portStateMu   sync.Mutex
+	portStates    map[uuid.UUID]publishedPortState
 }
 
 type terminalOperationError struct {
@@ -147,13 +194,17 @@ func NewManager(store ManagerStore, runtime Runtime, agents *agent.Registry, git
 func (m *Manager) Run(ctx context.Context) error {
 	operationTicker := time.NewTicker(m.pollInterval)
 	reconcileTicker := time.NewTicker(30 * time.Second)
+	portTicker := time.NewTicker(portScanInterval)
 	defer operationTicker.Stop()
 	defer reconcileTicker.Stop()
+	defer portTicker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			m.operations.Wait()
 			return nil
+		case <-portTicker.C:
+			m.schedulePortScan(ctx)
 		case <-operationTicker.C:
 			if err := m.processBatch(ctx); err != nil {
 				log.WithError(err).Error("dev machine operation batch failed")
@@ -207,7 +258,7 @@ func (m *Manager) processLeasedOperation(ctx context.Context, operation domain.D
 	}()
 	started := time.Now()
 	operationCtx, cancel := context.WithCancel(ctx)
-	if operation.Action == domain.DevMachineOpRunAgent && operation.AgentRunID != nil {
+	if (operation.Action == domain.DevMachineOpRunAgent || operation.Action == domain.DevMachineOpValidateAgent || operation.Action == domain.DevMachineOpPublishAgent) && operation.AgentRunID != nil {
 		m.registerActiveRun(operation.MachineID, *operation.AgentRunID, cancel)
 		defer m.unregisterActiveRun(operation.MachineID, *operation.AgentRunID)
 	}
@@ -247,6 +298,15 @@ func (m *Manager) processLeasedOperation(ctx context.Context, operation domain.D
 	}
 	finalCtx, finalCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer finalCancel()
+	var waitErr *capacityWaitError
+	if errors.As(err, &waitErr) {
+		if deferErr := m.store.DeferOperation(finalCtx, operation.ID, m.owner, "host_capacity_wait", waitErr.message, capacityRetryDelay); deferErr != nil {
+			log.WithFields(fields).WithError(deferErr).Error("failed to defer operation for host capacity")
+		} else {
+			log.WithFields(fields).Info("operation waiting for host capacity")
+		}
+		return
+	}
 	if err != nil {
 		m.operationsFailed.Add(1)
 		var terminalErr *terminalOperationError
@@ -307,14 +367,20 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 	}
 	if operation.Generation < machine.Generation {
 		switch operation.Action {
-		case domain.DevMachineOpTeardown, domain.DevMachineOpCancelAgent, domain.DevMachineOpTerminateTerminal:
+		case domain.DevMachineOpTeardown, domain.DevMachineOpCancelAgent, domain.DevMachineOpTerminateTerminal, domain.DevMachineOpPurgeTaskSession, domain.DevMachineOpStopPreview:
 			// Destructive cleanup must still converge after a newer generation.
+		case domain.DevMachineOpStartPreview:
+			return m.stalePreview(ctx, operation)
 		case domain.DevMachineOpCheckoutIssue:
 			if operation.CheckoutID != nil {
 				message := "machine state changed before checkout preparation; try again"
 				return m.store.UpdateCheckoutState(ctx, *operation.CheckoutID, "failed", &message)
 			}
 			return nil
+		case domain.DevMachineOpValidateAgent:
+			return &terminalOperationError{code: "validation_stale", message: "Machine changed during validation"}
+		case domain.DevMachineOpPublishAgent:
+			return &terminalOperationError{code: "publication_stale", message: "Machine changed during publication"}
 		case domain.DevMachineOpRunAgent:
 			if operation.AgentRunID != nil {
 				m.cancelStaleAgentRun(ctx, *operation.AgentRunID)
@@ -333,9 +399,29 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 			}
 		}
 	}
+	if operation.Action == domain.DevMachineOpSpawn || (operation.Action == domain.DevMachineOpStart && machine.Status != domain.DevMachineStatusRunning) {
+		release, err := m.admit(ctx, machine)
+		if err != nil {
+			var waitErr *capacityWaitError
+			if errors.As(err, &waitErr) {
+				m.reclaimHostCapacity(ctx, machine)
+			}
+			return err
+		}
+		defer release()
+	}
 	services, err := m.store.ListServices(ctx, machine.WorkspaceID, machine.ID)
 	if err != nil {
 		return err
+	}
+	if (operation.Action == domain.DevMachineOpSpawn || operation.Action == domain.DevMachineOpStart) && hasDockerService(services) {
+		allowed, err := m.store.DockerAllowed(ctx, machine.WorkspaceID)
+		if err != nil {
+			return err
+		}
+		if !allowed {
+			return &terminalOperationError{code: "docker_not_allowed", message: "this machine has a Docker daemon, which the workspace no longer allows; delete it and create a new machine"}
+		}
 	}
 	switch operation.Action {
 	case domain.DevMachineOpSpawn:
@@ -355,6 +441,10 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 				return err
 			}
 			if err := m.runtime.Start(ctx, machine, services, serviceSecrets); err != nil {
+				if errors.Is(err, ErrRuntimeIncomplete) {
+					log.WithField("machine_id", machine.ID).WithError(err).Info("provisioning incomplete machine runtime on start")
+					return m.spawn(ctx, machine, services, operation)
+				}
 				return err
 			}
 			for _, service := range services {
@@ -402,6 +492,7 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 			}
 		}
 		_ = m.store.RevokeMachineAccess(ctx, machine.ID)
+		m.previewsEnded(ctx, machine)
 		return m.setStateAndEventForOperation(ctx, machine, operation, domain.DevMachineStatusStopped, "machine.stopped", nil, false)
 	case domain.DevMachineOpTeardown:
 		if machine.Status == domain.DevMachineStatusDestroyed {
@@ -424,7 +515,20 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 				_ = m.store.UpdateServiceRuntime(ctx, service.ID, *service.ContainerID, "destroyed", "stopped", nil)
 			}
 		}
+		m.previewsEnded(ctx, machine)
 		return m.setStateAndEventForOperation(ctx, machine, operation, domain.DevMachineStatusDestroyed, "machine.destroyed", nil, true)
+	case domain.DevMachineOpValidateAgent:
+		return m.validateAgent(ctx, machine, operation)
+	case domain.DevMachineOpPublishAgent:
+		return m.publishAgent(ctx, machine, operation)
+	case domain.DevMachineOpPurgeTaskSession:
+		return m.purgeTaskSession(ctx, machine, operation)
+	case domain.DevMachineOpStartPreview:
+		return m.startPreview(ctx, machine, operation)
+	case domain.DevMachineOpStopPreview:
+		return m.stopPreview(ctx, machine, operation)
+	case domain.DevMachineOpCaptureSignIn:
+		return m.captureSignIn(ctx, machine, operation)
 	case domain.DevMachineOpRunAgent:
 		return m.runAgent(ctx, machine, operation)
 	case domain.DevMachineOpCancelAgent:
@@ -568,6 +672,8 @@ func (m *Manager) spawn(ctx context.Context, machine *domain.DevMachine, service
 	if !updated {
 		return nil
 	}
+	// Provisioning may replace the developer container and its processes.
+	m.previewsEnded(ctx, machine)
 	runtimeServices := make([]domain.DevMachineService, 0, len(services))
 	for _, service := range services {
 		if service.ServiceType != "agent" {
@@ -664,7 +770,8 @@ func (m *Manager) serviceSecrets(ctx context.Context, machine *domain.DevMachine
 		serviceSecrets[service.ServiceKey] = values
 	}
 	if includeWorkspaceModel {
-		modelSecrets, err := m.workspaceModelSecrets(ctx, machine.WorkspaceID)
+		// Terminals and the IDE get the workspace's default model server.
+		modelSecrets, err := m.modelServerSecrets(ctx, machine.WorkspaceID, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -673,6 +780,20 @@ func (m *Manager) serviceSecrets(ctx context.Context, machine *domain.DevMachine
 				continue
 			}
 			for name, value := range modelSecrets {
+				serviceSecrets[service.ServiceKey][name] = value
+			}
+		}
+	}
+	if hasDockerService(services) {
+		client, err := m.dockerClientSecrets(ctx, machine)
+		if err != nil {
+			return nil, err
+		}
+		for _, service := range services {
+			if service.ServiceType != "ide" && service.ServiceType != "terminal" {
+				continue
+			}
+			for name, value := range client {
 				serviceSecrets[service.ServiceKey][name] = value
 			}
 		}
@@ -694,32 +815,181 @@ func (m *Manager) serviceSecrets(ctx context.Context, machine *domain.DevMachine
 	return serviceSecrets, nil
 }
 
-func (m *Manager) workspaceModelSecrets(ctx context.Context, workspaceID uuid.UUID) (map[string]string, error) {
-	credential, err := m.store.GetWorkspaceModelCredential(ctx, workspaceID, "deepseek")
-	if err != nil || credential == nil {
+// dockerClientSecrets decrypts the machine daemon's client TLS material.
+func (m *Manager) dockerClientSecrets(ctx context.Context, machine *domain.DevMachine) (map[string]string, error) {
+	envVars, err := m.store.ListEnvVarsInternal(ctx, machine.ID, nil, "docker-client")
+	if err != nil {
 		return nil, err
 	}
-	apiKey, err := cryptoutil.Decrypt(credential.EncryptedAPIKey, m.encryptionKey)
+	values := make(map[string]string, len(envVars))
+	for _, envVar := range envVars {
+		value, err := cryptoutil.Decrypt(envVar.EncryptedValue, m.encryptionKey)
+		if err != nil {
+			return nil, fmt.Errorf("secret_decryption_failed: %w", err)
+		}
+		values[envVar.Name] = value
+	}
+	return values, nil
+}
+
+// modelServerSecrets is the environment that points Codex and Claude Code at a
+// model server: the server with id, or the workspace default when id is nil.
+// Codex reads the OpenAI-compatible URL, Claude Code the Anthropic one.
+func (m *Manager) modelServerSecrets(ctx context.Context, workspaceID uuid.UUID, id *uuid.UUID) (map[string]string, error) {
+	server, err := m.store.GetModelServer(ctx, workspaceID, id)
+	if err != nil || server == nil {
+		return nil, err
+	}
+	apiKey, err := cryptoutil.Decrypt(server.EncryptedAPIKey, m.encryptionKey)
 	if err != nil {
 		return nil, fmt.Errorf("secret_decryption_failed: %w", err)
 	}
-	secrets := map[string]string{
-		"DEEPSEEK_API_KEY":                         apiKey,
-		"KUAYLE_DEEPSEEK_MODEL":                    credential.DefaultModel,
-		"KUAYLE_DEEPSEEK_THINKING":                 credential.Thinking,
-		"ANTHROPIC_BASE_URL":                       "https://api.deepseek.com/anthropic",
-		"ANTHROPIC_AUTH_TOKEN":                     apiKey,
-		"ANTHROPIC_MODEL":                          credential.DefaultModel,
-		"ANTHROPIC_DEFAULT_OPUS_MODEL":             credential.DefaultModel,
-		"ANTHROPIC_DEFAULT_SONNET_MODEL":           credential.DefaultModel,
-		"ANTHROPIC_DEFAULT_HAIKU_MODEL":            "deepseek-flash",
-		"CLAUDE_CODE_SUBAGENT_MODEL":               "deepseek-flash",
-		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+	fast := server.FastModel
+	if fast == "" {
+		fast = server.DefaultModel
 	}
-	if credential.Thinking != "off" {
-		secrets["CLAUDE_CODE_EFFORT_LEVEL"] = credential.Thinking
+	secrets := map[string]string{
+		"KUAYLE_MODEL_API_KEY":  apiKey,
+		"KUAYLE_MODEL":          server.DefaultModel,
+		"KUAYLE_MODEL_THINKING": server.Thinking,
+		"KUAYLE_MODEL_LIST":     strings.Join(server.ModelList(), ","),
+	}
+	if server.OpenAIBaseURL != nil {
+		secrets["KUAYLE_MODEL_OPENAI_BASE_URL"] = *server.OpenAIBaseURL
+	}
+	if server.AnthropicBaseURL != nil {
+		secrets["ANTHROPIC_BASE_URL"] = *server.AnthropicBaseURL
+		secrets["ANTHROPIC_AUTH_TOKEN"] = apiKey
+		secrets["ANTHROPIC_MODEL"] = server.DefaultModel
+		secrets["ANTHROPIC_DEFAULT_OPUS_MODEL"] = server.DefaultModel
+		secrets["ANTHROPIC_DEFAULT_SONNET_MODEL"] = server.DefaultModel
+		secrets["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = fast
+		secrets["CLAUDE_CODE_SUBAGENT_MODEL"] = fast
+		secrets["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
+		if server.Thinking != "off" {
+			secrets["CLAUDE_CODE_EFFORT_LEVEL"] = server.Thinking
+		}
 	}
 	return secrets, nil
+}
+
+// Keep injected public configuration separate from credentials: redacting values
+// such as "1" or "high" corrupts native JSON and ordinary terminal output.
+// Both maps are sealed together so recovery uses exactly the original policy.
+func (m *Manager) agentRunSecrets(ctx context.Context, machine *domain.DevMachine, run *domain.DevMachineAgentRun, checkout *domain.DevMachineCheckout) (*domain.AgentRunSecretSnapshot, error) {
+	if run.EncryptedOutputSecrets != nil {
+		return m.decodeAgentRunSecrets(*run.EncryptedOutputSecrets)
+	}
+	if run.Status != domain.DevMachineAgentRunStatusQueued && run.Status != domain.DevMachineAgentRunStatusStarting {
+		return nil, repository.ErrAgentRunSecretsUnavailable
+	}
+	envVars, err := m.store.ListEnvVarsInternal(ctx, machine.ID, &run.ProviderID, "agent")
+	if err != nil {
+		return nil, err
+	}
+	secrets := make(map[string]string, len(envVars))
+	redactions := make(map[string]string)
+	var allowedSecrets []string
+	_ = json.Unmarshal(run.AllowedSecrets, &allowedSecrets)
+	allowedSecretSet := make(map[string]bool, len(allowedSecrets))
+	for _, name := range allowedSecrets {
+		allowedSecretSet[name] = true
+	}
+	for _, envVar := range envVars {
+		if !allowedSecretSet[envVar.Name] {
+			continue
+		}
+		value, err := cryptoutil.Decrypt(envVar.EncryptedValue, m.encryptionKey)
+		if err != nil {
+			return nil, fmt.Errorf("secret_decryption_failed: %w", err)
+		}
+		secrets[envVar.Name] = value
+		redactions[envVar.Name] = value
+	}
+	// A run uses only the model server recorded on it; without one the harness
+	// relies on its own sign-in.
+	if (run.ProviderID == "codex" || run.ProviderID == "claude-code") && run.ModelServerID != nil {
+		modelSecrets, modelErr := m.modelServerSecrets(ctx, machine.WorkspaceID, run.ModelServerID)
+		if modelErr != nil {
+			return nil, modelErr
+		}
+		if run.Model != "" && len(modelSecrets) > 0 {
+			modelSecrets["KUAYLE_MODEL"] = run.Model
+			if _, ok := modelSecrets["ANTHROPIC_MODEL"]; ok {
+				modelSecrets["ANTHROPIC_MODEL"] = run.Model
+			}
+		}
+		if run.Thinking != "" && len(modelSecrets) > 0 {
+			delete(modelSecrets, "CLAUDE_CODE_EFFORT_LEVEL")
+			if run.Thinking != "off" {
+				modelSecrets["CLAUDE_CODE_EFFORT_LEVEL"] = run.Thinking
+			}
+		}
+		for name, value := range modelSecrets {
+			secrets[name] = value
+			delete(redactions, name)
+			if name == "KUAYLE_MODEL_API_KEY" || name == "ANTHROPIC_AUTH_TOKEN" {
+				redactions[name] = value
+			}
+		}
+	}
+	if err := m.agentSignInSecrets(ctx, run, secrets, redactions); err != nil {
+		return nil, err
+	}
+	// Attempts on a machine with a Docker daemon may use it like the
+	// developer container; the client key is redacted from their output.
+	if services, err := m.store.ListServices(ctx, machine.WorkspaceID, machine.ID); err != nil {
+		return nil, err
+	} else if hasDockerService(services) {
+		client, err := m.dockerClientSecrets(ctx, machine)
+		if err != nil {
+			return nil, err
+		}
+		for name, value := range client {
+			secrets[name] = value
+		}
+		secrets["KUAYLE_DOCKER_HOST"] = "tcp://" + machine.RoutingKey + "-docker:" + strconv.Itoa(dockerDaemonPort)
+		if value, ok := client["KUAYLE_DOCKER_KEY"]; ok {
+			redactions["KUAYLE_DOCKER_KEY"] = value
+		}
+	}
+	githubToken := ""
+	if run.PushBranch {
+		_, githubToken, err = m.repositoryToken(ctx, machine, checkoutRepositoryFullName(machine, checkout))
+		if err != nil || githubToken == "" {
+			if err == nil {
+				err = errors.New("no linked GitHub App installation")
+			}
+			return nil, fmt.Errorf("github_token_failed: repository-scoped GitHub App token is unavailable: %w", err)
+		}
+		secrets["GITHUB_TOKEN"] = githubToken
+		redactions["GITHUB_TOKEN"] = githubToken
+	}
+
+	payload, err := json.Marshal(domain.AgentRunSecretSnapshot{Version: 1, Environment: secrets, Redactions: redactions})
+	if err != nil {
+		return nil, repository.ErrAgentRunSecretsUnavailable
+	}
+	encrypted, err := cryptoutil.Encrypt(string(payload), m.encryptionKey)
+	if err != nil {
+		return nil, repository.ErrAgentRunSecretsUnavailable
+	}
+	sealed, err := m.store.SealAgentRunSecrets(ctx, run.ID, encrypted)
+	if err != nil {
+		return nil, err
+	}
+	return m.decodeAgentRunSecrets(sealed)
+}
+func (m *Manager) decodeAgentRunSecrets(encrypted string) (*domain.AgentRunSecretSnapshot, error) {
+	payload, err := cryptoutil.Decrypt(encrypted, m.encryptionKey)
+	if err != nil {
+		return nil, repository.ErrAgentRunSecretsUnavailable
+	}
+	snapshot, err := domain.DecodeAgentRunSecretSnapshot(payload)
+	if err != nil {
+		return nil, repository.ErrAgentRunSecretsUnavailable
+	}
+	return snapshot, nil
 }
 
 func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, operation *domain.DevMachineOperation) error {
@@ -762,7 +1032,10 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 		m.cancelStaleAgentRun(ctx, run.ID)
 		return nil
 	}
-	if err := m.store.UpdateAgentRunStarted(ctx, run.ID); err != nil {
+	if err := m.store.AuthorizeAgentRun(ctx, run.ID); err != nil {
+		if errors.Is(err, repository.ErrAgentTaskUnauthorized) {
+			return m.cancelUnauthorizedRun(ctx, run)
+		}
 		if errors.Is(err, sql.ErrNoRows) {
 			current, currentErr := m.store.GetAgentRunInternal(ctx, run.ID)
 			if currentErr == nil && current != nil && terminalAgentStatus(current.Status) {
@@ -771,54 +1044,42 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 		}
 		return err
 	}
-	run.Status = domain.DevMachineAgentRunStatusRunning
-	envVars, err := m.store.ListEnvVarsInternal(ctx, machine.ID, &run.ProviderID, "agent")
+	secrets, err := m.agentRunSecrets(ctx, machine, run, checkout)
 	if err != nil {
+		if errors.Is(err, repository.ErrAgentRunSecretsUnavailable) {
+			cleanupCtx, cancelCleanup := context.WithTimeout(context.Background(), 30*time.Second)
+			cleanupErr := m.runtime.CancelAgent(cleanupCtx, run)
+			cancelCleanup()
+			if cleanupErr != nil {
+				return fmt.Errorf("agent_recovery_cleanup_failed: %w", cleanupErr)
+			}
+			return &terminalOperationError{code: "agent_recovery_credentials_unavailable", message: "Native attempt cannot recover its original credentials"}
+		}
 		return err
 	}
-	secrets := make(map[string]string, len(envVars))
-	var allowedSecrets []string
-	_ = json.Unmarshal(run.AllowedSecrets, &allowedSecrets)
-	allowedSecretSet := make(map[string]bool, len(allowedSecrets))
-	for _, name := range allowedSecrets {
-		allowedSecretSet[name] = true
-	}
-	for _, envVar := range envVars {
-		if !allowedSecretSet[envVar.Name] {
-			continue
+	if err := m.store.MarkAgentRunStarting(ctx, run.ID); err != nil {
+		if errors.Is(err, repository.ErrAgentTaskUnauthorized) {
+			return m.cancelUnauthorizedRun(ctx, run)
 		}
-		value, err := cryptoutil.Decrypt(envVar.EncryptedValue, m.encryptionKey)
-		if err != nil {
-			return fmt.Errorf("secret_decryption_failed: %w", err)
-		}
-		secrets[envVar.Name] = value
-	}
-	if run.ProviderID == "codex" || run.ProviderID == "claude-code" {
-		modelSecrets, modelErr := m.workspaceModelSecrets(ctx, machine.WorkspaceID)
-		if modelErr != nil {
-			return modelErr
-		}
-		if run.Thinking != "" && len(modelSecrets) > 0 {
-			delete(modelSecrets, "CLAUDE_CODE_EFFORT_LEVEL")
-			if run.Thinking != "off" {
-				modelSecrets["CLAUDE_CODE_EFFORT_LEVEL"] = run.Thinking
+		if errors.Is(err, sql.ErrNoRows) {
+			current, currentErr := m.store.GetAgentRunInternal(ctx, run.ID)
+			if currentErr == nil && current != nil && terminalAgentStatus(current.Status) {
+				return nil
 			}
 		}
-		for name, value := range modelSecrets {
-			secrets[name] = value
-		}
+		return err
 	}
-	githubToken := ""
-	if run.PushBranch || run.OpenPullRequest {
-		_, githubToken, err = m.repositoryToken(ctx, machine, checkoutRepositoryFullName(machine, checkout))
-		if err != nil || githubToken == "" {
-			if err == nil {
-				err = errors.New("no linked GitHub App installation")
-			}
-			return fmt.Errorf("github_token_failed: repository-scoped GitHub App token is unavailable: %w", err)
-		}
-		secrets["GITHUB_TOKEN"] = githubToken
+	if run.Status == domain.DevMachineAgentRunStatusQueued {
+		run.Status = domain.DevMachineAgentRunStatusStarting
 	}
+	if err := m.store.AuthorizeAgentRun(ctx, run.ID); err != nil {
+		if errors.Is(err, repository.ErrAgentTaskUnauthorized) || errors.Is(err, sql.ErrNoRows) {
+			return m.cancelUnauthorizedRun(ctx, run)
+		}
+		return err
+	}
+	m.stageAttachments(ctx, machine, run, checkout)
+	m.prepareOutbox(ctx, machine, run, checkout)
 	service := &domain.DevMachineService{
 		ID: uuid.New(), WorkspaceID: machine.WorkspaceID, MachineID: machine.ID, AgentRunID: &run.ID, ServiceType: "agent",
 		ServiceKey: "agent-" + run.ID.String(), ContainerName: "kuayle-" + machine.RoutingKey + "-agent-" + run.ID.String(),
@@ -830,7 +1091,59 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	}
 	runContext, cancel := context.WithTimeout(ctx, time.Duration(run.MaxRuntimeSeconds)*time.Second)
 	defer cancel()
-	execution, executionErr := m.runtime.RunAgent(runContext, machine, run, providerRecord, checkout, secrets)
+	output := newAgentOutputBuffer(secrets.Redactions, func(stream string, sequence int64, source string, content string, truncated bool) error {
+		var events []domain.DevMachineEvent
+		if stream == "stdout" && !truncated {
+			for _, parsed := range provider.ParseEvents([]byte(content)) {
+				if id := codexThreadID(run, parsed); id != "" {
+					writeCtx, cancelWrite := context.WithTimeout(runContext, 5*time.Second)
+					err := m.store.RecordNativeSession(writeCtx, run.ID, id)
+					cancelWrite()
+					if err != nil {
+						return fmt.Errorf("agent_session_persistence_failed: %w", err)
+					}
+				}
+				payload := parsed.Payload
+				if len(payload) == 0 {
+					payload, _ = json.Marshal(map[string]any{"message": parsed.Message})
+				}
+				eventType := parsed.Type
+				if len(eventType) == 0 || len(eventType) > 128 {
+					eventType = "provider.event"
+				}
+				events = append(events, domain.DevMachineEvent{WorkspaceID: machine.WorkspaceID, MachineID: machine.ID, AgentRunID: &run.ID, Source: "agent", EventType: eventType, Payload: payload})
+			}
+		}
+		writeCtx, cancelWrite := context.WithTimeout(runContext, 5*time.Second)
+		defer cancelWrite()
+		if err := m.store.CreateAgentOutput(writeCtx, &domain.DevMachineLogChunk{
+			WorkspaceID: machine.WorkspaceID, MachineID: machine.ID, AgentRunID: &run.ID, ServiceID: &service.ID,
+			Stream: stream, Sequence: sequence, SourceKey: source, Content: content, Truncated: truncated,
+		}, events); err != nil {
+			return fmt.Errorf("agent_output_persistence_failed: %w", err)
+		}
+		return nil
+	})
+	observer := &AgentObserver{Authorize: func() error { return m.store.AuthorizeAgentRun(runContext, run.ID) }, Output: output.WriteDocker, Started: func(containerID string) error {
+		if err := m.store.UpdateAgentRunStarted(runContext, run.ID); err != nil {
+			return err
+		}
+		if run.Status != domain.DevMachineAgentRunStatusWaitingInput {
+			run.Status = domain.DevMachineAgentRunStatusRunning
+		}
+		return m.store.UpdateServiceRuntime(runContext, service.ID, containerID, "running", "healthy", nil)
+	}}
+	execution, executionErr := m.runtime.RunAgent(runContext, machine, run, providerRecord, checkout, secrets.Environment, observer)
+	if used := secrets.Environment[signInSecretNames[run.ProviderID]]; used != "" {
+		returnCtx, cancelReturn := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		if err := m.returnSignIn(returnCtx, machine, run, used); err != nil {
+			log.WithField("agent_run_id", run.ID).WithError(err).Warn("refreshed agent sign-in could not be kept")
+		}
+		cancelReturn()
+	}
+	if executionErr == nil {
+		executionErr = output.Finish()
+	}
 	timedOut := errors.Is(executionErr, context.DeadlineExceeded) || errors.Is(runContext.Err(), context.DeadlineExceeded)
 	if timedOut {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -840,28 +1153,19 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 			return fmt.Errorf("agent_timeout_cleanup_failed: %w", cleanupErr)
 		}
 	}
-	if execution != nil {
-		_ = m.store.UpdateServiceRuntime(ctx, service.ID, execution.ContainerID, "running", "starting", nil)
-	}
 	if run.Mode == "interactive" && executionErr == nil {
 		return m.createEvent(ctx, machine, &run.ID, "agent", "agent_run.interactive_started", map[string]any{"provider_id": run.ProviderID})
 	}
 	if execution == nil {
 		execution = &AgentExecution{ExitCode: -1}
 	}
-	stdout, stderr := redact(execution.Stdout, secrets), redact(execution.Stderr, secrets)
-	if stdout != "" {
-		_ = m.store.CreateLogChunk(ctx, &domain.DevMachineLogChunk{
-			WorkspaceID: machine.WorkspaceID, MachineID: machine.ID, AgentRunID: &run.ID, ServiceID: &service.ID,
-			Stream: "stdout", Sequence: 1, Content: stdout,
-		})
-	}
-	if stderr != "" {
-		_ = m.store.CreateLogChunk(ctx, &domain.DevMachineLogChunk{
-			WorkspaceID: machine.WorkspaceID, MachineID: machine.ID, AgentRunID: &run.ID, ServiceID: &service.ID,
-			Stream: "stderr", Sequence: 1, Content: stderr,
-		})
-	}
+	services, _ := m.store.ListServices(ctx, machine.WorkspaceID, machine.ID)
+	// Messages the agent left are recorded before the next step can deliver
+	// them, without waiting for the next port scan.
+	outboxCtx, cancelOutbox := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+	m.collectOutbox(outboxCtx, machine, services)
+	cancelOutbox()
+	stdout, stderr := output.Text("stdout"), output.Text("stderr")
 	result := provider.ParseResult(stdout, stderr, execution.ExitCode)
 	repositoryFullName := checkoutRepositoryFullName(machine, checkout)
 	if result.PullRequestURL != "" {
@@ -871,16 +1175,6 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 			result.PullRequestURL = ""
 			result.RiskNotes = append(result.RiskNotes, "Agent-reported pull request URL was ignored because it did not match the selected GitHub repository.")
 		}
-	}
-	for _, providerEvent := range provider.ParseEvents([]byte(stdout)) {
-		payload := providerEvent.Payload
-		if len(payload) == 0 {
-			payload, _ = json.Marshal(map[string]any{"message": providerEvent.Message})
-		}
-		_ = m.store.CreateEvent(ctx, &domain.DevMachineEvent{
-			WorkspaceID: machine.WorkspaceID, MachineID: machine.ID, AgentRunID: &run.ID,
-			Source: "agent", EventType: providerEvent.Type, Payload: payload, OccurredAt: time.Now().UTC(),
-		})
 	}
 	currentRun, currentErr := m.store.GetAgentRunInternal(ctx, run.ID)
 	if currentErr == nil && currentRun != nil && currentRun.Status == domain.DevMachineAgentRunStatusCancelled {
@@ -895,36 +1189,11 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	} else {
 		run.Status = domain.DevMachineAgentRunStatusSucceeded
 	}
-	services, _ := m.store.ListServices(ctx, machine.WorkspaceID, machine.ID)
 	if gitState, gitErr := m.runtime.GitState(ctx, machine, services, checkout); gitErr == nil {
 		result.Branch = gitState.Branch
 		result.Commits = gitState.Commits
 		result.ChangedFiles = gitState.ChangedFiles
-	}
-	if run.Status == domain.DevMachineAgentRunStatusSucceeded && run.OpenPullRequest && result.Branch != "" {
-		githubAPI, freshToken, prErr := m.repositoryToken(ctx, machine, checkoutRepositoryFullName(machine, checkout))
-		var pullRequest *githubclient.PullRequest
-		if prErr == nil {
-			repoOwner, repoName, baseBranch, workingBranch := machine.RepoOwner, machine.RepoName, machine.BaseBranch, machine.WorkingBranch
-			if checkout != nil {
-				parts := strings.SplitN(checkout.RepositoryFullName, "/", 2)
-				if len(parts) == 2 {
-					repoOwner, repoName = parts[0], parts[1]
-				}
-				baseBranch, workingBranch = checkout.BaseBranch, checkout.WorkingBranch
-			}
-			pullRequest, prErr = githubAPI.CreatePullRequest(freshToken, repoOwner, repoName,
-				fmt.Sprintf("Kuayle agent run for %s", workingBranch), result.Branch, baseBranch, result.Summary)
-		}
-		if prErr != nil {
-			result.RiskNotes = append(result.RiskNotes, "Pull request creation failed: "+safeError(prErr))
-		} else if safeURL, ok := safeGitHubPullRequestURL(pullRequest.HTMLURL, repositoryFullName); !ok {
-			result.PullRequestURL = ""
-			result.RiskNotes = append(result.RiskNotes, "Created pull request URL was ignored because GitHub returned an unexpected repository URL.")
-		} else {
-			result.PullRequestURL = safeURL
-			_ = m.persistGitRef(ctx, machine, checkout, run, "pull_request", result.Branch, "", &pullRequest.Number, safeURL)
-		}
+		run.Diff, run.DiffTruncated = gitState.Diff, gitState.DiffTruncated
 	}
 	resultJSON, _ := json.Marshal(result)
 	resultRaw := json.RawMessage(resultJSON)
@@ -959,7 +1228,9 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	if err := m.store.CompleteAgentRun(ctx, run); err != nil {
 		return err
 	}
-	_ = m.store.UpdateServiceRuntime(ctx, service.ID, execution.ContainerID, "stopped", "stopped", nil)
+	if executionErr == nil {
+		_ = m.store.UpdateServiceRuntime(ctx, service.ID, execution.ContainerID, "stopped", "stopped", nil)
+	}
 	m.agentRunsCompleted.Add(1)
 	return m.createEvent(ctx, machine, &run.ID, "agent", "agent_run.completed", map[string]any{
 		"provider_id": run.ProviderID, "status": run.Status, "exit_code": execution.ExitCode,
@@ -1531,3 +1802,61 @@ func (m *Manager) persistGitRef(ctx context.Context, machine *domain.DevMachine,
 }
 
 var _ ManagerStore = (*repository.DevMachineRepository)(nil)
+
+func (m *Manager) cancelUnauthorizedRun(ctx context.Context, run *domain.DevMachineAgentRun) error {
+	if err := m.runtime.CancelAgent(ctx, run); err != nil {
+		return err
+	}
+	m.cancelStaleAgentRun(ctx, run.ID)
+	return nil
+}
+
+// codexThreadID returns the native session a task attempt's Codex harness
+// reported in its own event stream, if valid. Only task attempts are resumed.
+func codexThreadID(run *domain.DevMachineAgentRun, event agent.Event) string {
+	if run.TaskID == nil || run.ProviderID != "codex" || event.Type != "thread.started" {
+		return ""
+	}
+	var started struct {
+		ThreadID string `json:"thread_id"`
+	}
+	if json.Unmarshal(event.Payload, &started) != nil || !agent.ValidSessionID(started.ThreadID) {
+		return ""
+	}
+	return started.ThreadID
+}
+
+// purgeTaskSession removes a finished task's harness transcripts from the
+// machine's workspace volume. It works while the machine is paused or stopped;
+// a destroyed volume has nothing left to remove.
+func (m *Manager) purgeTaskSession(ctx context.Context, machine *domain.DevMachine, op *domain.DevMachineOperation) error {
+	if op.CheckoutID == nil || machine.WorkspaceVolumeName == nil || machine.Status == domain.DevMachineStatusDestroyed {
+		return nil
+	}
+	checkout, err := m.store.GetCheckoutInternal(ctx, *op.CheckoutID)
+	if err != nil {
+		return err
+	}
+	if checkout == nil || checkout.MachineID != machine.ID {
+		return nil
+	}
+	taskID, err := uuid.Parse(checkout.ScopeKey)
+	if err != nil {
+		return &terminalOperationError{code: "session_purge_invalid", message: "Checkout is not a task checkout"}
+	}
+	services, err := m.store.ListServices(ctx, machine.WorkspaceID, machine.ID)
+	if err != nil {
+		return err
+	}
+	image := ""
+	for _, service := range services {
+		if service.ServiceType == "ide" || service.ServiceType == "terminal" {
+			image = service.ImageRef
+			break
+		}
+	}
+	if image == "" {
+		return &terminalOperationError{code: "session_purge_unavailable", message: "Developer environment image is unknown"}
+	}
+	return m.runtime.PurgeTaskSession(ctx, machine, image, taskID)
+}

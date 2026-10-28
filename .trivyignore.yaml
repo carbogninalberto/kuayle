@@ -1,0 +1,28 @@
+# Advisories accepted only while no fixed version of the affected module
+# exists. Each entry is limited to one package version (purl), says why it is
+# accepted, and expires so it is reviewed again; every other HIGH/CRITICAL
+# finding still fails CI. Used by every Trivy image scan in .github/workflows.
+vulnerabilities:
+  # go-jose v3 has no fixed release (the fix is in v4.1.6, which Caddy also
+  # uses and is pinned). Caddy pulls v3 in through smallstep/certificates for
+  # its internal PKI; the denial of service needs attacker-controlled RSA JWKs,
+  # which Kuayle's Caddy (static files and reverse proxy) never parses.
+  - id: CVE-2026-116587
+    purls:
+      - pkg:golang/github.com/go-jose/go-jose/v3@v3.0.5
+    expired_at: 2027-01-31
+    statement: No fixed go-jose v3 release; JWK parsing is not reachable in Kuayle's Caddy.
+  # Docker Engine daemon flaws (archive upload and docker cp), fixed in Engine
+  # 29.5.1 and moby/moby v2; the machine daemon runs 29.9.2. The finding is the
+  # github.com/docker/docker module compiled into the Buildx client plugin,
+  # which has no fixed release on that module path.
+  - id: CVE-2026-41567
+    purls:
+      - pkg:golang/github.com/docker/docker@v28.5.2%2Bincompatible
+    expired_at: 2027-01-31
+    statement: Daemon-side flaw; only client code of the module is in Buildx, and the daemon is 29.9.2.
+  - id: CVE-2026-42306
+    purls:
+      - pkg:golang/github.com/docker/docker@v28.5.2%2Bincompatible
+    expired_at: 2027-01-31
+    statement: Daemon-side flaw; only client code of the module is in Buildx, and the daemon is 29.9.2.

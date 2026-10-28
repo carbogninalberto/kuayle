@@ -94,6 +94,9 @@ class PreferencesState {
 			}
 			document.documentElement.className = classes.join(' ');
 			document.documentElement.style.setProperty('--app-font-size', this.fontSizeScale);
+			// The installed app's title bar follows the active theme's background.
+			const background = getComputedStyle(document.documentElement).getPropertyValue('--color-bg').trim();
+			if (background) document.querySelector('meta[name="theme-color"]')?.setAttribute('content', background);
 		});
 	}
 

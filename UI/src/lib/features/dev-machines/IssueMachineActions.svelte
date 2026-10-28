@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { Activity, Bot, Box, Code2, GitBranch, SquareTerminal } from '@lucide/svelte';
+	import { Activity, Box, Code2, GitBranch, SquareTerminal } from '@lucide/svelte';
 	import { listDevMachines } from '$lib/api/dev-machines';
 	import type { Issue } from '$lib/types/issue';
 	import type { DevMachine } from '$lib/types/dev-machine';
@@ -48,15 +48,14 @@
 		const target = machines[0];
 		onaction?.();
 		if (target) await goto(`/${slug}/machines/${target.id}${anchor}`);
-		else await goto(`/${slug}/machines?issue_id=${issue.id}`);
+		else await goto(`/${slug}/settings/dev-machines?issue_id=${encodeURIComponent(issue.id)}`);
 	}
 </script>
 
 {#if canUseDevMachines}<div class="min-w-0 space-y-0.5">
 	<Button variant="ghost" onclick={() => chooseMachine('ide')} class="w-full min-w-0 justify-start"><Code2 size={14} />{m['machines.open_code_editor_action']()}</Button>
 	<Button variant="ghost" onclick={() => chooseMachine('terminal')} class="w-full min-w-0 justify-start"><SquareTerminal size={14} />{m['machines.open_terminal_action']()}</Button>
-	<Button variant="ghost" onclick={() => chooseMachine('agent')} class="w-full min-w-0 justify-start"><Bot size={14} />{m['machines.run_agent_action']()}</Button>
-	<Button variant="ghost" onclick={() => viewMachine('#agent-runs')} class="w-full min-w-0 justify-start"><Box size={14} />{m['machines.view_agent_runs']()}</Button>
+	<Button variant="ghost" onclick={() => viewMachine('#tasks')} class="w-full min-w-0 justify-start"><Box size={14} />{m['machines.view_machine_tasks']()}</Button>
 	<Button variant="ghost" onclick={() => viewMachine('#activity')} class="w-full min-w-0 justify-start"><Activity size={14} />{m['machines.view_machine_activity']()}</Button>
 	<Button variant="ghost" onclick={() => { repositoryOpen = true; onaction?.(); }} class="w-full min-w-0 justify-start"><GitBranch size={14} />{m['machines.set_development_defaults']()}</Button>
 </div>{/if}

@@ -1,0 +1,3 @@
+DROP TABLE agent_automation_runs;
+DROP TABLE agent_automations;
+ALTER TABLE dev_machine_workspace_policies DROP COLUMN allow_unattended_automations;

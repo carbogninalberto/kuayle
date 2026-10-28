@@ -54,6 +54,12 @@ type appHandlers struct {
 	prefs             *handler.PreferencesHandler
 	token             *handler.TokenHandler
 	aiSettings        *handler.AISettingsHandler
+	agentTask         *handler.AgentTaskHandler
+	agentAutomation   *handler.AgentAutomationHandler
+	agentMessage      *handler.AgentMessageHandler
+	conversation      *handler.ConversationHandler
+	telegram          *handler.TelegramHandler
+	voice             *handler.VoiceHandler
 	devMachine        *handler.DevMachineHandler
 	analytics         *handler.AnalyticsHandler
 	system            *handler.SystemHandler
@@ -237,6 +243,42 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	ownerOnly(ws, http.MethodGet, "/ai-settings", h.aiSettings.Get)
 	scoped(ws, http.MethodGet, "/ai-settings/issue-copy-prompt", h.aiSettings.GetIssueCopyPrompt, "issues:read")
 	ownerOnly(ws, http.MethodPatch, "/ai-settings", h.aiSettings.Update)
+	ownerOnly(ws, http.MethodPost, "/ai-settings/vision-check", h.aiSettings.CheckVision)
+
+	// Conversations are session-only until dedicated PAT scopes are defined.
+	sessionOnly(ws, http.MethodGet, "/assistant/status", h.conversation.Status)
+	sessionOnly(ws, http.MethodGet, "/conversations", h.conversation.List)
+	sessionOnly(ws, http.MethodPost, "/conversations", h.conversation.Create)
+	sessionOnly(ws, http.MethodGet, "/conversations/:conversationId", h.conversation.History)
+	sessionOnly(ws, http.MethodPatch, "/conversations/:conversationId", h.conversation.Update)
+	sessionOnly(ws, http.MethodDelete, "/conversations/:conversationId", h.conversation.Delete)
+	sessionOnly(ws, http.MethodGet, "/conversation-folders", h.conversation.Folders)
+	sessionOnly(ws, http.MethodPost, "/conversation-folders", h.conversation.CreateFolder)
+	sessionOnly(ws, http.MethodPatch, "/conversation-folders/:folderId", h.conversation.RenameFolder)
+	sessionOnly(ws, http.MethodDelete, "/conversation-folders/:folderId", h.conversation.DeleteFolder)
+	sessionOnly(ws, http.MethodGet, "/conversations/:conversationId/events", h.conversation.Events)
+	sessionOnly(ws, http.MethodGet, "/conversations/:conversationId/stream", h.conversation.Stream)
+	sessionOnly(ws, http.MethodPost, "/conversations/:conversationId/messages", h.conversation.Send)
+	sessionOnly(ws, http.MethodPost, "/conversations/:conversationId/attachments", h.conversation.UploadAttachment)
+	sessionOnly(ws, http.MethodGet, "/conversations/:conversationId/attachments/:attachmentId", h.conversation.Attachment)
+	sessionOnly(ws, http.MethodDelete, "/conversations/:conversationId/attachments/:attachmentId", h.conversation.RemoveAttachment)
+	sessionOnly(ws, http.MethodPost, "/conversations/:conversationId/messages/:messageId/retry", h.conversation.Retry)
+	sessionOnly(ws, http.MethodPost, "/conversations/:conversationId/cancel", h.conversation.Cancel)
+	sessionOnly(ws, http.MethodPost, "/conversations/:conversationId/approvals/:approvalId", h.conversation.ResolveApproval)
+
+	// Voice: members read whether the microphone is available; the owner
+	// chooses the model; a conversation's reader transcribes into its composer.
+	sessionOnly(ws, http.MethodGet, "/voice", h.voice.Status)
+	ownerOnly(ws, http.MethodPut, "/voice", h.voice.Select)
+	sessionOnly(ws, http.MethodPost, "/conversations/:conversationId/transcriptions", h.voice.Transcribe)
+
+	if h.telegram != nil {
+		sessionOnly(ws, http.MethodGet, "/telegram", h.telegram.Status)
+		sessionOnly(ws, http.MethodPatch, "/telegram", h.telegram.Save)
+		sessionOnly(ws, http.MethodPost, "/telegram/link", h.telegram.Link)
+		sessionOnly(ws, http.MethodDelete, "/telegram/link", h.telegram.Unlink)
+		e.POST("/api/telegram/webhook/:workspaceId", h.telegram.Webhook, m.publicRateLimit).Name = "public"
+	}
 
 	// GitHub integration (conditional)
 	// Public webhook endpoint (no auth, signature-verified internally)
@@ -262,6 +304,50 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 
 	// Dev Machines — guarded by demo-mode restriction when active
 	dm := ws.Group("", m.devMachineDemoGuard)
+	sessionOnly(dm, http.MethodGet, "/conversations/:conversationId/task-options", h.agentTask.Options)
+	sessionOnly(dm, http.MethodGet, "/conversations/:conversationId/tasks", h.agentTask.List)
+	sessionOnly(dm, http.MethodPost, "/conversations/:conversationId/tasks", h.agentTask.Create)
+	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId", h.agentTask.Get)
+	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/history", h.agentTask.History)
+	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/runs", h.agentTask.Runs)
+	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/runs/:runId/logs", h.agentTask.Logs)
+	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/runs/:runId/validation", h.agentTask.Validation)
+	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/runs/:runId/diff", h.agentTask.Diff)
+	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/runs/:runId/artifacts", h.agentTask.Artifacts)
+	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/runs/:runId/artifacts/:artifactId", h.agentTask.Artifact)
+	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/runs/:runId/publication", h.agentTask.Publication)
+	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/signals", h.agentTask.Signals)
+	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/sessions", h.agentTask.Sessions)
+	sessionOnly(dm, http.MethodGet, "/agent-tasks", h.agentTask.Queue)
+	sessionOnly(dm, http.MethodGet, "/dev-machines/:machineId/tasks", h.agentTask.MachineTasks)
+	if h.agentAutomation != nil {
+		sessionOnly(dm, http.MethodGet, "/agent-automations", h.agentAutomation.List)
+		sessionOnly(dm, http.MethodPost, "/agent-automations", h.agentAutomation.Create)
+		sessionOnly(dm, http.MethodPatch, "/agent-automations/:automationId", h.agentAutomation.Update)
+		sessionOnly(dm, http.MethodDelete, "/agent-automations/:automationId", h.agentAutomation.Delete)
+		sessionOnly(dm, http.MethodGet, "/agent-automation-runs", h.agentAutomation.Runs)
+		sessionOnly(dm, http.MethodPost, "/agent-automation-runs/:runId/approve", h.agentAutomation.Approve)
+		sessionOnly(dm, http.MethodPost, "/agent-automation-runs/:runId/dismiss", h.agentAutomation.Dismiss)
+	}
+	if h.agentMessage != nil {
+		sessionOnly(dm, http.MethodGet, "/agent-messages", h.agentMessage.List)
+		sessionOnly(dm, http.MethodGet, "/agent-messages/:messageId", h.agentMessage.Get)
+		sessionOnly(dm, http.MethodPost, "/agent-messages/:messageId/hold", h.agentMessage.Hold())
+		sessionOnly(dm, http.MethodPost, "/agent-messages/:messageId/release", h.agentMessage.Release())
+		sessionOnly(dm, http.MethodPost, "/agent-messages/:messageId/drop", h.agentMessage.Drop())
+		sessionOnly(dm, http.MethodGet, "/agent-message-holds", h.agentMessage.Holds)
+		sessionOnly(dm, http.MethodPost, "/agent-message-holds", h.agentMessage.HoldConversation)
+		sessionOnly(dm, http.MethodDelete, "/agent-message-holds/:holdId", h.agentMessage.ReleaseConversation)
+	}
+	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/cancel", h.agentTask.Cancel)
+	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/retry", h.agentTask.Retry)
+	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/accept", h.agentTask.Accept)
+	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/sign-in", h.agentTask.ContinueAfterSignIn)
+	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/preview", h.agentTask.StartPreview)
+	sessionOnly(dm, http.MethodDelete, "/agent-tasks/:taskId/preview", h.agentTask.StopPreview)
+	sessionOnly(dm, http.MethodGet, "/agent-sign-ins", h.devMachine.ListAgentSignIns)
+	sessionOnly(dm, http.MethodPut, "/agent-sign-ins/:provider/token", h.devMachine.SaveAgentSignInToken)
+	sessionOnly(dm, http.MethodDelete, "/agent-sign-ins/:provider", h.devMachine.DeleteAgentSignIn)
 	scoped(dm, http.MethodGet, "/dev-machines", h.devMachine.List, "dev_machine:read")
 	scoped(dm, http.MethodPost, "/dev-machines", h.devMachine.Create, "dev_machine:create")
 	scoped(dm, http.MethodDelete, "/dev-machines/bulk", h.devMachine.BulkDelete, "dev_machine:admin")
@@ -279,9 +365,11 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	scoped(dm, http.MethodGet, "/dev-machine-environments/:environmentId", h.devMachine.GetEnvironment, "dev_machine:read")
 	scoped(dm, http.MethodDelete, "/dev-machine-environments/:environmentId", h.devMachine.DeleteEnvironment, "dev_machine:admin")
 	scoped(dm, http.MethodGet, "/dev-machine-providers", h.devMachine.Providers, "dev_machine:read")
-	scoped(dm, http.MethodGet, "/dev-machine-model-providers/deepseek", h.devMachine.GetWorkspaceModelProvider, "dev_machine:read")
-	scoped(dm, http.MethodPut, "/dev-machine-model-providers/deepseek", h.devMachine.UpdateWorkspaceModelProvider, "dev_machine:admin")
-	scoped(dm, http.MethodDelete, "/dev-machine-model-providers/deepseek", h.devMachine.DeleteWorkspaceModelProvider, "dev_machine:admin")
+	scoped(dm, http.MethodGet, "/agent-model-servers", h.devMachine.ListModelServers, "dev_machine:read")
+	scoped(dm, http.MethodPost, "/agent-model-servers", h.devMachine.CreateModelServer, "dev_machine:admin")
+	scoped(dm, http.MethodPost, "/agent-model-servers/discover", h.devMachine.DiscoverModels, "dev_machine:admin")
+	scoped(dm, http.MethodPut, "/agent-model-servers/:serverId", h.devMachine.UpdateModelServer, "dev_machine:admin")
+	scoped(dm, http.MethodDelete, "/agent-model-servers/:serverId", h.devMachine.DeleteModelServer, "dev_machine:admin")
 	scoped(dm, http.MethodGet, "/dev-machines/:machineId", h.devMachine.Get, "dev_machine:read")
 	scoped(dm, http.MethodPatch, "/dev-machines/:machineId", h.devMachine.Update, "dev_machine:manage")
 	scoped(dm, http.MethodDelete, "/dev-machines/:machineId", h.devMachine.Delete, "dev_machine:admin")
@@ -299,15 +387,14 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	scoped(dm, http.MethodGet, "/dev-machines/:machineId/providers", h.devMachine.MachineProviders, "dev_machine:read")
 	scoped(dm, http.MethodGet, "/dev-machines/:machineId/resource-usage", h.devMachine.ResourceUsage, "dev_machine:read")
 	scoped(dm, http.MethodPost, "/dev-machines/:machineId/services/:service/launch", h.devMachine.LaunchService, "dev_machine:read", mw.RequireTokenPermission("dev_machine:manage"))
+	sessionOnly(dm, http.MethodGet, "/dev-machines/:machineId/ports", h.devMachine.ListPorts)
+	sessionOnly(dm, http.MethodPost, "/dev-machines/:machineId/ports", h.devMachine.CreatePort)
+	sessionOnly(dm, http.MethodPatch, "/dev-machines/:machineId/ports/:portId", h.devMachine.UpdatePort)
+	sessionOnly(dm, http.MethodDelete, "/dev-machines/:machineId/ports/:portId", h.devMachine.DeletePort)
+	sessionOnly(dm, http.MethodPost, "/dev-machines/:machineId/ports/:portId/launch", h.devMachine.LaunchPort)
 	scoped(dm, http.MethodGet, "/dev-machines/:machineId/terminal-sessions", h.devMachine.ListTerminalSessions, "dev_machine:read")
 	scoped(dm, http.MethodPost, "/dev-machines/:machineId/terminal-sessions", h.devMachine.CreateTerminalSession, "dev_machine:read", mw.RequireTokenPermission("dev_machine:manage"))
 	scoped(dm, http.MethodPost, "/dev-machines/:machineId/terminal-sessions/:sessionId/close", h.devMachine.CloseTerminalSession, "dev_machine:read", mw.RequireTokenPermission("dev_machine:manage"))
-	scoped(dm, http.MethodGet, "/dev-machines/:machineId/agent-runs", h.devMachine.ListMachineAgentRuns, "dev_machine:read")
-	scoped(dm, http.MethodPost, "/dev-machines/:machineId/agent-runs", h.devMachine.CreateAgentRun, "dev_machine:manage")
-	scoped(dm, http.MethodGet, "/agent-runs", h.devMachine.ListAgentRuns, "dev_machine:read")
-	scoped(dm, http.MethodGet, "/agent-runs/:agentRunId", h.devMachine.GetAgentRun, "dev_machine:read")
-	scoped(dm, http.MethodPost, "/agent-runs/:agentRunId/cancel", h.devMachine.CancelAgentRun, "dev_machine:manage")
-	scoped(dm, http.MethodGet, "/agent-runs/:agentRunId/trace", h.devMachine.AgentRunTrace, "dev_machine:read")
 
 	// Favorites
 	scoped(ws, http.MethodGet, "/favorites", h.fav.List, "account:read")

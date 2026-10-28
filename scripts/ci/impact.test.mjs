@@ -89,6 +89,17 @@ test('headless and shared developer image inputs select only their consumers', (
   assert.deepEqual(ids(planForPaths(['devmachine/ide/terminal-session.sh']).devImages), ['ide', 'headless']);
 });
 
+test('the machine Docker daemon image and the shared Docker CLI installer select their consumers', () => {
+  const daemon = planForPaths(['devmachine/docker/kuayle-docker-start']);
+  assert.equal(daemon.backend, true);
+  assert.equal(daemon.runtime, true);
+  assert.deepEqual(ids(daemon.devImages), ['docker']);
+  assert.deepEqual(ids(planForPaths(['devmachine/common/install-docker-cli.sh']).devImages), ['ide', 'headless', 'agent-claude', 'agent-opencode', 'agent-codex']);
+  assert.deepEqual(ids(planForPaths(['devmachine/common/build-docker-plugins.sh']).devImages), ['ide', 'headless', 'agent-claude', 'agent-opencode', 'agent-codex']);
+  assert.equal(planForPaths(['.trivyignore.yaml']).reason, 'broad coverage for shared or unmapped inputs', 'changing the accepted advisories rescans every image');
+  assert.ok(ids(planForPaths(['devmachine/common/new-shared-file']).devImages).includes('docker'), 'unknown shared inputs select every runtime image');
+});
+
 test('self-hosting scripts and smoke tests retain their checks and packaged runtime coverage', () => {
   for (const path of ['selfhosting/update.sh', 'selfhosting/docker-compose.yml', 'selfhosting/image_smoke_test.py']) {
     const plan = planForPaths([path]);
@@ -102,7 +113,7 @@ test('workflow, routing, unknown and shared root changes conservatively exercise
     const plan = planForPaths([path]);
     assert.equal(plan.ci && plan.backend && plan.frontend && plan.web && plan.runtime && plan.selfhosting, true);
     assert.equal(plan.releaseImages.length, 3);
-    assert.equal(plan.devImages.length, 10);
+    assert.equal(plan.devImages.length, 11);
   }
 });
 
@@ -113,8 +124,8 @@ test('mixed changes union their coverage; non-PR events retain the full original
   assert.deepEqual(ids(mixed.devImages), ['collector']);
   for (const event of ['push', 'release', 'schedule', 'workflow_dispatch']) {
     const plan = planForPaths([], event);
-    assert.equal(plan.devImages.length, 10);
-    assert.equal(plan.securityImages.length, 11);
+    assert.equal(plan.devImages.length, 11);
+    assert.equal(plan.securityImages.length, 12);
     assert.deepEqual(plan.required.build, ['build', 'dev-machine-images']);
     assert.ok(plan.required.security.includes('docker-security'));
   }
@@ -177,9 +188,9 @@ test('diff handles more than 300 files and whitespace without truncation', (t) =
 test('missing or invalid comparison data falls back to broad verification', () => {
   const plan = detectPlan({ cwd: tmpdir(), event: 'pull_request', base: '--bad', head: '' });
   assert.ok(plan.reason.includes('fallback'));
-  assert.equal(detectPlan({}).devImages.length, 10);
+  assert.equal(detectPlan({}).devImages.length, 11);
   assert.equal(plan.backend && plan.frontend && plan.web && plan.runtime, true);
-  assert.equal(plan.devImages.length, 10);
+  assert.equal(plan.devImages.length, 11);
 });
 
 test('gates allow intentional omissions but reject failed detection or selected skipped/cancelled jobs', () => {

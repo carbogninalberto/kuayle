@@ -9,7 +9,7 @@ ARG PUBLIC_DEMO_MODE=false
 ARG PUBLIC_DEMO_USERS
 ENV PUBLIC_DEMO_MODE=$PUBLIC_DEMO_MODE
 ENV PUBLIC_DEMO_USERS=$PUBLIC_DEMO_USERS
-ARG NODE_OPTIONS=--max-old-space-size=4096
+ARG NODE_OPTIONS=--max-old-space-size=6144
 RUN npm run build
 
 FROM golang:1.26.10-alpine AS caddy-builder
@@ -21,7 +21,8 @@ RUN xcaddy build v2.11.4 \
     --replace github.com/klauspost/compress=github.com/klauspost/compress@v1.18.7 \
     --replace golang.org/x/text=golang.org/x/text@v0.42.0 \
     --replace golang.org/x/net=golang.org/x/net@v0.60.0 \
-    --replace golang.org/x/crypto=golang.org/x/crypto@v0.57.0
+    --replace golang.org/x/crypto=golang.org/x/crypto@v0.57.0 \
+    --replace github.com/go-jose/go-jose/v4=github.com/go-jose/go-jose/v4@v4.1.6
 
 FROM alpine:3.23
 ARG SECURITY_REFRESH=initial

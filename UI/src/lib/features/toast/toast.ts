@@ -5,6 +5,8 @@ type ToastOptions = {
 	description?: string;
 	duration?: number;
 	id?: string | number;
+	// One button next to the message, e.g. "Reload"; it also dismisses the toast.
+	action?: { label: string; onclick: () => void };
 };
 
 const DEFAULT_DURATION: Record<AppToastVariant, number> = {
@@ -22,12 +24,13 @@ function showToast(variant: AppToastVariant, title: string, options: ToastOption
 		componentProps: {
 			variant,
 			title,
-			description: options.description
+			description: options.description,
+			action: options.action
 		}
 	});
 }
 
-function getErrorMessage(error: unknown, fallback: string): string {
+export function getErrorMessage(error: unknown, fallback: string): string {
 	if (error && typeof error === 'object') {
 		const maybeError = error as { error?: { message?: unknown }; message?: unknown };
 		if (typeof maybeError.error?.message === 'string' && maybeError.error.message) {

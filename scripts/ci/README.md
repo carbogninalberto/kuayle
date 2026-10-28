@@ -25,9 +25,10 @@ advances. Product checks and images continue to verify the recorded PR head.
 | Root `Dockerfile` | All-in-one readiness. |
 | `UI/Dockerfile`, `UI/Caddyfile` | Web-image readiness. |
 | `BE/Dockerfile*` | The corresponding API, gateway, manager or updater image. Docker lifecycle uses separate runtime images and is not selected for these Dockerfile-only edits. |
-| `devmachine/{ide,headless,browser,collector,egress}/` | That image on both architectures, backend script tests and Docker lifecycle. |
+| `devmachine/{ide,headless,browser,collector,egress,docker}/` | That image on both architectures, backend script tests and Docker lifecycle. `docker` is the per-machine Docker daemon. |
 | `devmachine/agent/`, shared agent runner | All three provider images on both architectures, backend tests and Docker lifecycle. |
 | Shared agent CLI installer | IDE and headless images; backend tests and Docker lifecycle. |
+| Shared Docker CLI installer | IDE, headless and all three provider images; backend tests and Docker lifecycle. |
 | Shared scoped startup and agent runner logic | IDE, headless, browser, collector, egress and all three provider images; backend tests and Docker lifecycle. |
 | Shared service entrypoint | IDE, headless, browser, collector and egress images; backend tests and Docker lifecycle. |
 | Shared terminal, checkout and shell scripts | IDE and headless images; backend tests and Docker lifecycle. |
@@ -51,7 +52,7 @@ Go test files and README files do not enter the built application.
   builds and HIGH/CRITICAL scans on amd64 and arm64, including IDE and headless
   smoke tests.
   [Security Scan](../../.github/workflows/security.yml) retains the updater image;
-  the nine duplicate PR runtime-image scans are omitted there.
+  the ten duplicate PR runtime-image scans are omitted there.
 - PR Go race tests run in [Tests](../../.github/workflows/test.yml) with database
   coverage. Frontend browser tests build UI before preview. Security Scan retains
   govulncheck, vet, Go build and npm audit, without repeating those PR tests/builds.

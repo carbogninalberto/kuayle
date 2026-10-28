@@ -5,6 +5,13 @@
 		Referrer-Policy strict-origin-when-cross-origin
 	}
 
+	# Installable app: a typed manifest, and a worker script always revalidated
+	# so new deployments reach installed apps.
+	@manifest path /manifest.webmanifest
+	header @manifest Content-Type "application/manifest+json"
+	@worker path /service-worker.js
+	header @worker Cache-Control "no-cache"
+
 	handle /api/* {
 		reverse_proxy {$API_URL:http://localhost:8080}
 	}

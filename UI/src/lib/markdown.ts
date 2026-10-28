@@ -9,11 +9,19 @@ const options = {
 };
 
 const md = new MarkdownIt(options);
+// Model-authored images must never initiate network requests automatically.
+// Render attachments separately through their authorized upload records.
+const textOnlyMedia = new MarkdownIt(options).disable('image');
 
-export function renderMarkdown(source: string, validateLink?: (url: string) => boolean): string {
-	if (!validateLink) return sanitizeHtml(md.render(source));
+export function renderMarkdown(
+	source: string,
+	validateLink?: (url: string) => boolean,
+	{ allowImages = true }: { allowImages?: boolean } = {}
+): string {
+	if (!validateLink) return sanitizeHtml((allowImages ? md : textOnlyMedia).render(source));
 
 	const restricted = new MarkdownIt(options);
+	if (!allowImages) restricted.disable('image');
 	const tokens = restricted.parse(source, {});
 	for (const token of tokens) {
 		if (!token.children) continue;

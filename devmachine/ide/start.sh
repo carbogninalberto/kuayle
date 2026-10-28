@@ -13,7 +13,11 @@ if [ ! -e "$user_settings_dir/settings.json" ]; then
   printf '%s\n' '{"workbench.colorTheme":"Default Dark Modern"}' > "$user_settings_dir/settings.json"
 fi
 
-configure_codex_deepseek
+configure_codex_model
+configure_docker_client
+link_codex_packages
+install_kuayle_qa
+install_kuayle_agents
 prepare_developer_workspace
 code-server --bind-addr 0.0.0.0:8080 --auth none --disable-telemetry "$kuayle_default_workspace" &
 code_server_pid=$!

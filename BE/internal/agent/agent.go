@@ -37,6 +37,23 @@ type RunInput struct {
 	Config             json.RawMessage `json:"config"`
 	Model              string          `json:"model,omitempty"`
 	Thinking           string          `json:"thinking,omitempty"`
+	// OpenAIBaseURL points Codex at the run's model server; its key arrives as
+	// KUAYLE_MODEL_API_KEY through scoped secrets, never argv.
+	OpenAIBaseURL string `json:"openai_base_url,omitempty"`
+	// Session is set by Kuayle for agent task attempts only, never from HTTP.
+	Session *SessionInput `json:"-"`
+}
+
+// SessionInput keeps a harness's session transcripts in a per-task directory
+// on the machine's workspace volume, so a later attempt can resume natively.
+// Only transcripts are persisted: configuration and credentials stay on the
+// container's ephemeral home.
+type SessionInput struct {
+	Dir string
+	// ResumeID resumes that native session; NewID names a new one when the
+	// harness lets Kuayle choose (Claude Code). Codex reports its own ID.
+	ResumeID string
+	NewID    string
 }
 
 type Invocation struct {
@@ -131,7 +148,10 @@ func defaultResult(stdout, stderr string, exitCode int) RunResult {
 	if exitCode != 0 {
 		status = "failed"
 	}
-	summary := strings.TrimSpace(stdout)
+	summary := finalMessage(stdout)
+	if summary == "" {
+		summary = strings.TrimSpace(stdout)
+	}
 	if summary == "" {
 		summary = strings.TrimSpace(stderr)
 	}
@@ -169,4 +189,35 @@ func parseJSONLines(raw []byte) []Event {
 		events = append(events, Event{Type: envelope.Type, Message: envelope.Message, Payload: json.RawMessage(line)})
 	}
 	return events
+}
+
+// finalMessage returns the agent's last reply from a JSON event stream: the
+// last Codex agent_message or Claude Code's final result. It returns "" for
+// output that is not such a stream, so callers fall back to the raw text.
+func finalMessage(stdout string) string {
+	last := ""
+	for _, line := range strings.Split(stdout, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "{") {
+			continue
+		}
+		var event struct {
+			Type   string `json:"type"`
+			Result string `json:"result"`
+			Item   struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"item"`
+		}
+		if json.Unmarshal([]byte(line), &event) != nil {
+			continue
+		}
+		switch {
+		case event.Type == "item.completed" && event.Item.Type == "agent_message" && strings.TrimSpace(event.Item.Text) != "":
+			last = strings.TrimSpace(event.Item.Text)
+		case event.Type == "result" && strings.TrimSpace(event.Result) != "":
+			last = strings.TrimSpace(event.Result)
+		}
+	}
+	return last
 }

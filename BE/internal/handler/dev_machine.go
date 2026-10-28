@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 
@@ -505,108 +507,6 @@ func (h *DevMachineHandler) CloseTerminalSession(c echo.Context) error {
 	return response.Success(c, status, session)
 }
 
-func (h *DevMachineHandler) CreateAgentRun(c echo.Context) error {
-	c.Request().Body = http.MaxBytesReader(c.Response().Writer, c.Request().Body, 512*1024)
-	var request dto.CreateAgentRunRequest
-	if err := bindAndValidate(c, &request); err != nil {
-		return err
-	}
-	workspace := middleware.GetWorkspace(c)
-	machineID, err := uuid.Parse(c.Param("machineId"))
-	if err != nil {
-		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid machine ID")
-	}
-	run, err := h.service.CreateAgentRun(c.Request().Context(), workspace.ID, machineID, middleware.GetUserID(c), request)
-	if err != nil {
-		return machineError(c, err)
-	}
-	return response.Success(c, http.StatusAccepted, run)
-}
-
-func (h *DevMachineHandler) ListMachineAgentRuns(c echo.Context) error {
-	workspace := middleware.GetWorkspace(c)
-	machineID, err := uuid.Parse(c.Param("machineId"))
-	if err != nil {
-		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid machine ID")
-	}
-	var params dto.PaginationParams
-	if err := c.Bind(&params); err != nil {
-		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid query parameters")
-	}
-	params.Defaults()
-	if err := validate.Struct(&params); err != nil {
-		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid pagination parameters")
-	}
-	runs, total, err := h.service.ListAgentRuns(c.Request().Context(), workspace.ID, middleware.GetUserID(c), &machineID, params.Page, params.PerPage)
-	if err != nil {
-		return machineError(c, err)
-	}
-	return response.Success(c, http.StatusOK, dto.ListResponse[domain.DevMachineAgentRun]{
-		Data: runs, TotalCount: total, Page: params.Page, PerPage: params.PerPage, HasMore: params.Page*params.PerPage < total,
-	})
-}
-
-func (h *DevMachineHandler) ListAgentRuns(c echo.Context) error {
-	workspace := middleware.GetWorkspace(c)
-	var params dto.PaginationParams
-	if err := c.Bind(&params); err != nil {
-		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid query parameters")
-	}
-	params.Defaults()
-	if err := validate.Struct(&params); err != nil {
-		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid pagination parameters")
-	}
-	runs, total, err := h.service.ListAgentRuns(c.Request().Context(), workspace.ID, middleware.GetUserID(c), nil, params.Page, params.PerPage)
-	if err != nil {
-		return machineError(c, err)
-	}
-	return response.Success(c, http.StatusOK, dto.ListResponse[domain.DevMachineAgentRun]{
-		Data: runs, TotalCount: total, Page: params.Page, PerPage: params.PerPage, HasMore: params.Page*params.PerPage < total,
-	})
-}
-
-func (h *DevMachineHandler) GetAgentRun(c echo.Context) error {
-	workspace := middleware.GetWorkspace(c)
-	runID, err := uuid.Parse(c.Param("agentRunId"))
-	if err != nil {
-		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid agent run ID")
-	}
-	run, err := h.service.GetAgentRun(c.Request().Context(), workspace.ID, runID, middleware.GetUserID(c))
-	if err != nil {
-		return machineError(c, err)
-	}
-	return response.Success(c, http.StatusOK, run)
-}
-
-func (h *DevMachineHandler) CancelAgentRun(c echo.Context) error {
-	workspace := middleware.GetWorkspace(c)
-	runID, err := uuid.Parse(c.Param("agentRunId"))
-	if err != nil {
-		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid agent run ID")
-	}
-	if err := h.service.CancelAgentRun(c.Request().Context(), workspace.ID, runID, middleware.GetUserID(c)); err != nil {
-		return machineError(c, err)
-	}
-	return c.NoContent(http.StatusAccepted)
-}
-
-func (h *DevMachineHandler) AgentRunTrace(c echo.Context) error {
-	workspace := middleware.GetWorkspace(c)
-	runID, err := uuid.Parse(c.Param("agentRunId"))
-	if err != nil {
-		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid agent run ID")
-	}
-	var params dto.TraceListParams
-	if err := c.Bind(&params); err != nil {
-		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid query parameters")
-	}
-	trace, err := h.service.GetAgentRunTrace(c.Request().Context(), workspace.ID, runID, middleware.GetUserID(c), params)
-	if err != nil {
-		return machineError(c, err)
-	}
-	return response.Success(c, http.StatusOK, trace)
-}
-
 func (h *DevMachineHandler) Providers(c echo.Context) error {
 	workspace := middleware.GetWorkspace(c)
 	providers, err := h.service.AvailableProviders(c.Request().Context(), workspace.ID)
@@ -626,42 +526,78 @@ func (h *DevMachineHandler) Providers(c echo.Context) error {
 	return response.Success(c, http.StatusOK, providers)
 }
 
-// GetWorkspaceModelProvider reports configuration status only; the key is never returned,
-// so members may read it to offer DeepSeek options when running agents.
-func (h *DevMachineHandler) GetWorkspaceModelProvider(c echo.Context) error {
-	provider, err := h.service.GetWorkspaceModelProvider(c.Request().Context(), middleware.GetWorkspace(c).ID)
+// ListModelServers reports configuration only; keys are never returned, so
+// members may read it to choose a server and model when running agents.
+func (h *DevMachineHandler) ListModelServers(c echo.Context) error {
+	servers, err := h.service.ListModelServers(c.Request().Context(), middleware.GetWorkspace(c).ID)
 	if err != nil {
 		return machineError(c, err)
 	}
-	return response.Success(c, http.StatusOK, provider)
+	return response.Success(c, http.StatusOK, servers)
 }
 
-func (h *DevMachineHandler) UpdateWorkspaceModelProvider(c echo.Context) error {
+func (h *DevMachineHandler) CreateModelServer(c echo.Context) error {
+	return h.saveModelServer(c, nil)
+}
+
+func (h *DevMachineHandler) UpdateModelServer(c echo.Context) error {
+	id, err := uuid.Parse(c.Param("serverId"))
+	if err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid model server ID")
+	}
+	return h.saveModelServer(c, &id)
+}
+
+func (h *DevMachineHandler) saveModelServer(c echo.Context, id *uuid.UUID) error {
+	if !canAdministerDevMachines(c) {
+		return response.Forbidden(c)
+	}
+	c.Request().Body = http.MaxBytesReader(c.Response().Writer, c.Request().Body, 96*1024)
+	var request dto.SaveModelServerRequest
+	if err := bindAndValidate(c, &request); err != nil {
+		return err
+	}
+	server, err := h.service.SaveModelServer(c.Request().Context(), middleware.GetWorkspace(c).ID, middleware.GetUserID(c), id, request)
+	if err != nil {
+		return machineError(c, err)
+	}
+	status := http.StatusOK
+	if id == nil {
+		status = http.StatusCreated
+	}
+	return response.Success(c, status, server)
+}
+
+func (h *DevMachineHandler) DeleteModelServer(c echo.Context) error {
+	if !canAdministerDevMachines(c) {
+		return response.Forbidden(c)
+	}
+	id, err := uuid.Parse(c.Param("serverId"))
+	if err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid model server ID")
+	}
+	if err := h.service.DeleteModelServer(c.Request().Context(), middleware.GetWorkspace(c).ID, id); err != nil {
+		return machineError(c, err)
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
+// DiscoverModels lists a server's models for the settings form. It sends the
+// key to an admin-chosen URL, so only admins may call it.
+func (h *DevMachineHandler) DiscoverModels(c echo.Context) error {
 	if !canAdministerDevMachines(c) {
 		return response.Forbidden(c)
 	}
 	c.Request().Body = http.MaxBytesReader(c.Response().Writer, c.Request().Body, 8*1024)
-	var request dto.UpdateWorkspaceModelProviderRequest
+	var request dto.DiscoverModelsRequest
 	if err := bindAndValidate(c, &request); err != nil {
 		return err
 	}
-	provider, err := h.service.UpdateWorkspaceModelProvider(
-		c.Request().Context(), middleware.GetWorkspace(c).ID, middleware.GetUserID(c), request,
-	)
+	models, err := h.service.DiscoverModels(c.Request().Context(), middleware.GetWorkspace(c).ID, request)
 	if err != nil {
 		return machineError(c, err)
 	}
-	return response.Success(c, http.StatusOK, provider)
-}
-
-func (h *DevMachineHandler) DeleteWorkspaceModelProvider(c echo.Context) error {
-	if !canAdministerDevMachines(c) {
-		return response.Forbidden(c)
-	}
-	if err := h.service.DeleteWorkspaceModelProvider(c.Request().Context(), middleware.GetWorkspace(c).ID); err != nil {
-		return machineError(c, err)
-	}
-	return c.NoContent(http.StatusNoContent)
+	return response.Success(c, http.StatusOK, models)
 }
 
 func canAdministerDevMachines(c echo.Context) bool {
@@ -797,11 +733,118 @@ func machineError(c echo.Context, err error) error {
 		return response.Error(c, http.StatusConflict, "ENVIRONMENT_INVALID_STATE", err.Error())
 	case errors.Is(err, service.ErrEnvironmentCleanupActive):
 		return response.Error(c, http.StatusConflict, "ENVIRONMENT_CLEANUP_ACTIVE", err.Error())
+	case errors.Is(err, service.ErrPortNotFound):
+		return response.NotFound(c, "App port")
+	case errors.Is(err, service.ErrPortExists):
+		return response.Error(c, http.StatusConflict, "PORT_EXISTS", err.Error())
+	case errors.Is(err, service.ErrPortReserved):
+		return response.Error(c, http.StatusUnprocessableEntity, "PORT_RESERVED", err.Error())
 	case errors.Is(err, service.ErrServiceNotAvailable):
 		return response.Error(c, http.StatusNotFound, "SERVICE_NOT_AVAILABLE", err.Error())
 	case errors.Is(err, service.ErrInvalidMachineInput):
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+	case errors.Is(err, service.ErrModelServerNotFound):
+		return response.Error(c, http.StatusNotFound, "NOT_FOUND", err.Error())
+	case errors.Is(err, service.ErrModelDiscoveryFailed):
+		return response.Error(c, http.StatusBadGateway, "MODEL_DISCOVERY_FAILED", err.Error())
 	default:
 		return response.InternalError(c)
 	}
+}
+
+func portParams(c echo.Context, withPort bool) (uuid.UUID, uuid.UUID, error) {
+	machineID, err := uuid.Parse(c.Param("machineId"))
+	if err != nil {
+		return uuid.Nil, uuid.Nil, response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid machine ID")
+	}
+	if !withPort {
+		return machineID, uuid.Nil, nil
+	}
+	portID, err := uuid.Parse(c.Param("portId"))
+	if err != nil {
+		return uuid.Nil, uuid.Nil, response.NotFound(c, "App port")
+	}
+	return machineID, portID, nil
+}
+
+// bindStrictJSON decodes one bounded JSON object without unknown fields.
+func bindStrictJSON(c echo.Context, target any) error {
+	decoder := json.NewDecoder(http.MaxBytesReader(c.Response(), c.Request().Body, 4<<10))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(target) != nil || decoder.Decode(new(any)) != io.EOF {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
+	}
+	return nil
+}
+
+// ListPorts returns the machine's app ports and detected listening ports.
+func (h *DevMachineHandler) ListPorts(c echo.Context) error {
+	machineID, _, err := portParams(c, false)
+	if err != nil {
+		return err
+	}
+	ports, err := h.service.ListPorts(c.Request().Context(), middleware.GetWorkspace(c).ID, machineID, middleware.GetUserID(c), canAdministerDevMachines(c))
+	if err != nil {
+		return machineError(c, err)
+	}
+	return response.Success(c, http.StatusOK, ports)
+}
+
+func (h *DevMachineHandler) CreatePort(c echo.Context) error {
+	machineID, _, err := portParams(c, false)
+	if err != nil {
+		return err
+	}
+	var input dto.AppPortRequest
+	if err = bindStrictJSON(c, &input); err != nil || c.Response().Committed {
+		return err
+	}
+	port, err := h.service.CreatePort(c.Request().Context(), middleware.GetWorkspace(c).ID, machineID, middleware.GetUserID(c), input.Port, input.Label)
+	if err != nil {
+		return machineError(c, err)
+	}
+	return response.Success(c, http.StatusCreated, port)
+}
+
+func (h *DevMachineHandler) UpdatePort(c echo.Context) error {
+	machineID, portID, err := portParams(c, true)
+	if err != nil {
+		return err
+	}
+	var input dto.AppPortUpdate
+	if err = bindStrictJSON(c, &input); err != nil || c.Response().Committed {
+		return err
+	}
+	port, err := h.service.UpdatePort(c.Request().Context(), middleware.GetWorkspace(c).ID, machineID, portID, middleware.GetUserID(c), input.Label)
+	if err != nil {
+		return machineError(c, err)
+	}
+	return response.Success(c, http.StatusOK, port)
+}
+
+func (h *DevMachineHandler) DeletePort(c echo.Context) error {
+	machineID, portID, err := portParams(c, true)
+	if err != nil {
+		return err
+	}
+	if err = h.service.DeletePort(c.Request().Context(), middleware.GetWorkspace(c).ID, machineID, portID, middleware.GetUserID(c)); err != nil {
+		return machineError(c, err)
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *DevMachineHandler) LaunchPort(c echo.Context) error {
+	machineID, portID, err := portParams(c, true)
+	if err != nil {
+		return err
+	}
+	launch, err := h.service.LaunchPort(c.Request().Context(), middleware.GetWorkspace(c).ID, machineID, portID, middleware.GetUserID(c))
+	if err != nil {
+		return machineError(c, err)
+	}
+	status := http.StatusCreated
+	if launch.Status != "" && launch.Status != "ready" {
+		status = http.StatusAccepted
+	}
+	return response.Success(c, status, launch)
 }

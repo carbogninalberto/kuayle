@@ -18,7 +18,10 @@
 		ChevronDown,
 		Menu,
 		RefreshCw,
-		KeyRound
+		KeyRound,
+		Bot,
+		MessagesSquare,
+		Mic
 	} from '@lucide/svelte';
 	import { GithubLogoIcon } from 'phosphor-svelte';
 	import type { Snippet } from 'svelte';
@@ -101,7 +104,15 @@
 				{ label: m['settings.nav.github'](), href: `/${slug}/settings/github`, icon: GithubLogoIcon },
 				{ label: m['settings.nav.templates'](), href: `/${slug}/settings/templates`, icon: FileText },
 				{ label: m['settings.nav.ai'](), href: `/${slug}/settings/ai`, icon: Sparkles },
-				...(canUseDevMachines ? [{ label: m['settings.nav.dev_machines'](), href: `/${slug}/settings/dev-machines`, icon: SlidersHorizontal }] : [])
+				{ label: m['telegram.title'](), href: `/${slug}/settings/telegram`, icon: Sparkles },
+				{ label: m['settings.nav.voice'](), href: `/${slug}/settings/voice`, icon: Mic },
+				...(canUseDevMachines
+					? [
+							{ label: m['settings.nav.dev_machines'](), href: `/${slug}/settings/dev-machines`, icon: SlidersHorizontal },
+							{ label: m['settings.nav.agents'](), href: `/${slug}/settings/agents`, icon: Bot },
+							{ label: m['agent_messages.nav'](), href: `/${slug}/settings/agent-messages`, icon: MessagesSquare }
+						]
+					: [])
 			]
 		},
 		{

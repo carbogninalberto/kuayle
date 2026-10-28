@@ -54,7 +54,7 @@ In priority order:
 | KS-05 | Medium | Fixed | Linked GitHub repositories can be deleted across workspaces | `BE/internal/repository/github.go:103` |
 | KS-06 | Medium | Fixed | Issues, projects and templates accept other workspaces' users, labels, cycles and statuses | `BE/internal/repository/issue.go:390`, `:507`, `:602` |
 | KS-07 | Medium | Fixed | Unauthenticated GitHub webhook body is read without a limit | `BE/internal/handler/github.go:247` |
-| KS-08 | Medium | Deferred (product decision) | Workspace DeepSeek key is readable inside every member's Dev Machine | `BE/internal/machine/manager.go:702` |
+| KS-08 | Medium | Deferred (product decision) | Workspace model server keys are readable inside every member's Dev Machine | `BE/internal/machine/manager.go` (`modelServerSecrets`) |
 | KS-09 | Low | Deferred | `issue:delete_own` PATs of owners/admins delete any issue | `BE/internal/handler/issue.go:348`, `:405` |
 | KS-10 | Low | Deferred | Workspace WebSocket accepts any Origin | `BE/internal/handler/ws.go:26` |
 | KS-11 | Low | Deferred | SVG uploads render inline from the API origin | `BE/internal/handler/upload.go:36` |
@@ -199,13 +199,14 @@ return 413. Test: `TestGitHubWebhookBoundsUnauthenticatedBody`.
 
 ## Deferred findings
 
-- **KS-08 (Medium, product decision).** The workspace DeepSeek key is delivered
-  into every developer container, as TECHNICAL.md describes, so any member who
-  can create a machine can read `DEEPSEEK_API_KEY` from a terminal or have an
-  agent encode it. The API never returns the key, but members effectively
-  possess it. Closing this requires a credential proxy that keeps the key
-  outside member-controlled processes; until then, treat the key as shared with
-  every member allowed to create Dev Machines. TECHNICAL.md now states this.
+- **KS-08 (Medium, product decision).** Workspace model server keys are
+  delivered into developer and agent containers, as TECHNICAL.md describes, so
+  any member who can create a machine can read `KUAYLE_MODEL_API_KEY` from a
+  terminal or have an agent encode it. The API never returns the keys, but
+  members effectively possess them. Closing this requires a credential proxy
+  that keeps keys outside member-controlled processes; until then, treat model
+  server keys as shared with every member allowed to create Dev Machines.
+  TECHNICAL.md states this and the settings form says so next to the key.
 - **KS-09 (Low).** `issue:delete_own` is the only PAT delete scope, and
   handlers widen it to "any issue" from the role. An owner/admin token with
   issue write access can delete any issue. Decide whether to split the scope

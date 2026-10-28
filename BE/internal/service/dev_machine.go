@@ -9,7 +9,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 	"unicode"
@@ -21,6 +23,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	cryptoutil "github.com/kuayle/kuayle-backend/pkg/crypto"
+	"github.com/kuayle/kuayle-backend/pkg/sanitize"
 )
 
 var (
@@ -38,17 +41,18 @@ var (
 	ErrRepositoryNotAllowed     = errors.New("repository is not allowed")
 	ErrServiceNotAvailable      = errors.New("machine service is not available")
 	ErrCheckoutNotEligible      = errors.New("machine is not eligible for this issue checkout")
-	ErrCheckoutNotReady         = errors.New("repository checkout is not ready")
-	ErrCheckoutNotFound         = errors.New("repository checkout not found")
-	ErrTerminalSessionRequired  = errors.New("terminal must be launched through a native session")
-	ErrInvalidMachineInput      = errors.New("invalid dev machine request")
-	ErrMachineNameConflict      = errors.New("dev machine name is already in use")
-	ErrMachineAuthentication    = errors.New("machine authentication failed")
+	// ErrCheckoutFailed means the worktree could not be prepared after retries.
+	ErrCheckoutFailed          = errors.New("worktree preparation failed")
+	ErrCheckoutNotReady        = errors.New("repository checkout is not ready")
+	ErrCheckoutNotFound        = errors.New("repository checkout not found")
+	ErrTerminalSessionRequired = errors.New("terminal must be launched through a native session")
+	ErrInvalidMachineInput     = errors.New("invalid dev machine request")
+	ErrMachineNameConflict     = errors.New("dev machine name is already in use")
+	ErrMachineAuthentication   = errors.New("machine authentication failed")
 )
 
 var (
-	deepSeekModels         = []string{"deepseek-flash", "deepseek-v4-pro"}
-	deepSeekThinkingLevels = []string{"off", "low", "high", "max"}
+	modelThinkingLevels = []string{"off", "low", "high", "max"}
 )
 
 type machineQuotaError struct {
@@ -94,6 +98,9 @@ type DevMachineImages struct {
 	Browser   string
 	Collector string
 	Egress    string
+	// Docker is the machine Docker daemon image, used when the workspace
+	// policy allows it.
+	Docker string
 }
 
 type DevMachineService struct {
@@ -105,6 +112,8 @@ type DevMachineService struct {
 	encryptionKey  []byte
 	ticketTTL      time.Duration
 	images         DevMachineImages
+	// modelClient lists model server models; see SetModelDiscovery.
+	modelClient *http.Client
 }
 
 func NewDevMachineService(store repository.DevMachineStore, agents *agent.Registry, enabled bool, domain string, encryptionKey []byte, ticketTTL time.Duration, images DevMachineImages, frontendURL ...string) *DevMachineService {
@@ -119,6 +128,9 @@ func NewDevMachineService(store repository.DevMachineStore, agents *agent.Regist
 }
 
 func (s *DevMachineService) Create(ctx context.Context, workspaceID, userID uuid.UUID, req dto.CreateDevMachineRequest) (*domain.DevMachine, *domain.DevMachineOperation, error) {
+	return s.create(ctx, workspaceID, userID, req, uuid.New())
+}
+func (s *DevMachineService) create(ctx context.Context, workspaceID, userID uuid.UUID, req dto.CreateDevMachineRequest, machineID uuid.UUID) (*domain.DevMachine, *domain.DevMachineOperation, error) {
 	profile := req.Profile
 	if profile == "" {
 		profile = domain.DevMachineProfileStandard
@@ -269,7 +281,6 @@ func (s *DevMachineService) Create(ctx context.Context, workspaceID, userID uuid
 	if err != nil {
 		return nil, nil, err
 	}
-	machineID := uuid.New()
 	servicesConfig, _ := json.Marshal(req.Services)
 	now := time.Now().UTC()
 	machine := &domain.DevMachine{
@@ -293,6 +304,10 @@ func (s *DevMachineService) Create(ctx context.Context, workspaceID, userID uuid
 		return nil, nil, err
 	}
 	services := s.buildServices(machine)
+	if policy.AllowDocker {
+		services = append(services, newService(machine.WorkspaceID, machine.ID, dockerServiceType, dockerServiceType,
+			"kuayle-"+machine.RoutingKey+"-docker", s.images.Docker, machine.RoutingKey+"-docker", dockerDaemonPort))
+	}
 	if machine.EnvironmentID != nil && machine.Profile != domain.DevMachineProfileHeadless {
 		environment, _ := s.store.GetEnvironment(ctx, workspaceID, *machine.EnvironmentID)
 		if environment != nil {
@@ -312,6 +327,13 @@ func (s *DevMachineService) Create(ctx context.Context, workspaceID, userID uuid
 	envVars, err := s.buildEnvVars(machineID, req.EnvVars)
 	if err != nil {
 		return nil, nil, err
+	}
+	if policy.AllowDocker {
+		dockerSecrets, err := s.dockerEnvVars(machine)
+		if err != nil {
+			return nil, nil, err
+		}
+		envVars = append(envVars, dockerSecrets...)
 	}
 	collectorToken, err := randomHex(32)
 	if err != nil {
@@ -775,7 +797,48 @@ func (s *DevMachineService) UpdateScopeSetting(ctx context.Context, workspaceID 
 	if !exists {
 		return nil, fmt.Errorf("%w: invalid development setting scope", ErrInvalidMachineInput)
 	}
+	if err := domain.ValidateTestCommand(request.TestCommand); err != nil {
+		return nil, ErrInvalidMachineInput
+	}
 	setting := &domain.DevMachineScopeSetting{WorkspaceID: workspaceID, TeamID: teamID, ProjectID: projectID, IssueID: issueID}
+	if request.AgentProvider != nil && *request.AgentProvider != "" {
+		provider, ok := s.agents.Get(*request.AgentProvider)
+		if !ok || provider.Metadata().Custom || !containsString(agentModes(provider), "autonomous") {
+			return nil, fmt.Errorf("%w: unsupported coding agent", ErrInvalidMachineInput)
+		}
+		setting.AgentProvider = request.AgentProvider
+	}
+	if request.AgentInstructions != nil {
+		instructions := strings.TrimSpace(*request.AgentInstructions)
+		if !utf8.ValidString(instructions) || utf8.RuneCountInString(instructions) > 8000 || strings.ContainsRune(instructions, 0) {
+			return nil, fmt.Errorf("%w: agent instructions must be at most 8000 characters", ErrInvalidMachineInput)
+		}
+		if instructions != "" {
+			setting.AgentInstructions = &instructions
+		}
+	}
+	if request.ComposeFile != nil {
+		if file := strings.TrimSpace(*request.ComposeFile); file != "" {
+			if domain.ValidateComposePath(file) != nil {
+				return nil, fmt.Errorf("%w: the compose file must be a relative .yml or .yaml path", ErrInvalidMachineInput)
+			}
+			setting.ComposeFile = &file
+		}
+	}
+	if len(request.PreviewCommand) > 0 || request.PreviewPort != nil {
+		// The port is only preferred: the manager picks a free one otherwise.
+		if len(request.PreviewCommand) == 0 || (request.PreviewPort != nil && !domain.ValidAppPort(*request.PreviewPort)) || domain.ValidateTestCommand(request.PreviewCommand) != nil {
+			return nil, fmt.Errorf("%w: a preview needs a command, and its preferred port must be between 1024 and 65535", ErrInvalidMachineInput)
+		}
+		raw, _ := json.Marshal(request.PreviewCommand)
+		previewCommand := json.RawMessage(raw)
+		setting.PreviewCommand, setting.PreviewPort = &previewCommand, request.PreviewPort
+	}
+	if request.TestCommand != nil {
+		command, _ := json.Marshal(request.TestCommand)
+		raw := json.RawMessage(command)
+		setting.TestCommand = &raw
+	}
 	if request.GitHubRepoID != nil {
 		repositoryID, _ := uuid.Parse(*request.GitHubRepoID)
 		repository, err := s.store.GetLinkedRepository(ctx, workspaceID, repositoryID)
@@ -869,7 +932,7 @@ func (s *DevMachineService) resolveDevelopmentSetting(ctx context.Context, works
 	}
 	scopes = append(scopes, [3]*uuid.UUID{nil, nil, nil})
 	for _, scope := range scopes {
-		if resolved.GitHubRepoID != nil && resolved.EnvironmentID != nil {
+		if resolved.GitHubRepoID != nil && resolved.EnvironmentID != nil && resolved.TestCommand != nil && resolved.AgentProvider != nil && resolved.AgentInstructions != nil && resolved.ComposeFile != nil && resolved.PreviewCommand != nil {
 			break
 		}
 		setting, err := s.store.GetScopeSetting(ctx, workspaceID, scope[0], scope[1], scope[2])
@@ -885,11 +948,36 @@ func (s *DevMachineService) resolveDevelopmentSetting(ctx context.Context, works
 		if resolved.EnvironmentID == nil && setting.EnvironmentID != nil {
 			resolved.EnvironmentID = setting.EnvironmentID
 		}
+		if resolved.TestCommand == nil && setting.TestCommand != nil {
+			command := append(json.RawMessage(nil), (*setting.TestCommand)...)
+			resolved.TestCommand = &command
+		}
+		if resolved.AgentProvider == nil && setting.AgentProvider != nil {
+			resolved.AgentProvider = setting.AgentProvider
+		}
+		if resolved.AgentInstructions == nil && setting.AgentInstructions != nil {
+			resolved.AgentInstructions = setting.AgentInstructions
+		}
+		if resolved.ComposeFile == nil && setting.ComposeFile != nil {
+			resolved.ComposeFile = setting.ComposeFile
+		}
+		if resolved.PreviewCommand == nil && setting.PreviewCommand != nil {
+			resolved.PreviewCommand, resolved.PreviewPort = setting.PreviewCommand, setting.PreviewPort
+		}
 	}
 	return resolved, nil
 }
 
 func (s *DevMachineService) CheckoutIssue(ctx context.Context, workspaceID, machineID, userID uuid.UUID, request dto.CheckoutIssueRequest) (*domain.DevMachineCheckout, error) {
+	return s.checkoutIssue(ctx, workspaceID, machineID, userID, request, "", uuid.New(), 0)
+}
+func (s *DevMachineService) checkoutTask(ctx context.Context, task domain.AgentTask) (*domain.DevMachineCheckout, error) {
+	if task.MachineID == nil {
+		return nil, ErrInvalidOperation
+	}
+	return s.checkoutIssue(ctx, task.WorkspaceID, *task.MachineID, task.CreatorID, dto.CheckoutIssueRequest{IssueID: task.IssueID.String()}, task.ID.String(), task.CheckoutID, task.Generation)
+}
+func (s *DevMachineService) checkoutIssue(ctx context.Context, workspaceID, machineID, userID uuid.UUID, request dto.CheckoutIssueRequest, scope string, checkoutID uuid.UUID, retryGeneration int64) (*domain.DevMachineCheckout, error) {
 	issueID, _ := uuid.Parse(request.IssueID)
 	machine, err := s.GetForUser(ctx, workspaceID, machineID, userID)
 	if err != nil {
@@ -936,7 +1024,9 @@ func (s *DevMachineService) CheckoutIssue(ctx context.Context, workspaceID, mach
 	if !repositoryAllowed(policy.AllowedRepositories, linkedRepository.FullName) {
 		return nil, ErrRepositoryNotAllowed
 	}
-	if machine.RepositoryAffinityID != nil && *machine.RepositoryAffinityID != linkedRepository.ID {
+	// A task checkout gets its own worktree, so a task machine serves several
+	// repositories. Manual checkouts stay with the machine's own repository.
+	if scope == "" && machine.RepositoryAffinityID != nil && *machine.RepositoryAffinityID != linkedRepository.ID {
 		return nil, fmt.Errorf("%w: machine is assigned to another repository", ErrCheckoutNotEligible)
 	}
 	existing, err := s.store.ListCheckouts(ctx, workspaceID, machineID)
@@ -944,14 +1034,25 @@ func (s *DevMachineService) CheckoutIssue(ctx context.Context, workspaceID, mach
 		return nil, err
 	}
 	for index := range existing {
-		if existing[index].IssueID == issueID {
-			if existing[index].Status == "failed" {
+		if existing[index].IssueID == issueID && existing[index].ScopeKey == scope {
+			if existing[index].Status == "failed" && (scope == "" || retryGeneration > 1) {
+				key := "checkout-issue-retry:" + issueID.String() + ":" + uuid.NewString()
+				if scope != "" {
+					key = fmt.Sprintf("task-checkout-retry:%s:%d", scope, retryGeneration)
+					previous, err := s.store.GetOperationByIdempotency(ctx, workspaceID, machineID, key)
+					if err != nil {
+						return nil, err
+					}
+					if previous != nil {
+						return &existing[index], nil
+					}
+				}
 				existing[index].Status = "queued"
 				existing[index].LastError = nil
 				operation := &domain.DevMachineOperation{
 					ID: uuid.New(), MachineID: machineID, CheckoutID: &existing[index].ID, WorkspaceID: workspaceID,
 					Action: domain.DevMachineOpCheckoutIssue, Status: domain.DevMachineOpStatusPending, Generation: machine.Generation,
-					IdempotencyKey: "checkout-issue-retry:" + issueID.String() + ":" + uuid.NewString(), RequestedByUserID: &userID, MaxAttempts: 5,
+					IdempotencyKey: key, RequestedByUserID: &userID, MaxAttempts: 5,
 				}
 				if err := s.store.CreateCheckout(ctx, &existing[index], operation); err != nil {
 					if errors.Is(err, repository.ErrCheckoutMachineConflict) {
@@ -971,15 +1072,19 @@ func (s *DevMachineService) CheckoutIssue(ctx context.Context, workspaceID, mach
 	if !validWorkspacePathSegment(identifier) {
 		return nil, fmt.Errorf("invalid issue identifier for checkout path")
 	}
+	if scope != "" {
+		identifier += "-" + scope
+	}
 	checkout := &domain.DevMachineCheckout{
-		ID: uuid.New(), WorkspaceID: workspaceID, MachineID: machineID, IssueID: issueID,
+		ScopeKey: scope,
+		ID:       checkoutID, WorkspaceID: workspaceID, MachineID: machineID, IssueID: issueID,
 		GitHubRepoID: linkedRepository.ID, RepositoryFullName: linkedRepository.FullName, BaseBranch: baseBranch,
 		WorkingBranch: "kuayle/" + identifier, WorkspacePath: "/workspace/tasks/" + identifier, Status: "queued",
 	}
 	operation := &domain.DevMachineOperation{
 		ID: uuid.New(), MachineID: machineID, CheckoutID: &checkout.ID, WorkspaceID: workspaceID,
 		Action: domain.DevMachineOpCheckoutIssue, Status: domain.DevMachineOpStatusPending, Generation: machine.Generation,
-		IdempotencyKey: "checkout-issue:" + issueID.String(), RequestedByUserID: &userID, MaxAttempts: 5,
+		IdempotencyKey: "checkout-issue:" + issueID.String() + ":" + scope, RequestedByUserID: &userID, MaxAttempts: 5,
 	}
 	if err := s.store.CreateCheckout(ctx, checkout, operation); err != nil {
 		if errors.Is(err, repository.ErrCheckoutMachineConflict) {
@@ -1239,71 +1344,7 @@ func (s *DevMachineService) ConfiguredProviders(ctx context.Context, workspaceID
 	return responses, nil
 }
 
-func (s *DevMachineService) GetWorkspaceModelProvider(ctx context.Context, workspaceID uuid.UUID) (*dto.WorkspaceModelProviderResponse, error) {
-	credential, err := s.store.GetWorkspaceModelCredential(ctx, workspaceID, "deepseek")
-	if err != nil {
-		return nil, err
-	}
-	response := &dto.WorkspaceModelProviderResponse{
-		Provider:       "deepseek",
-		DefaultModel:   "deepseek-flash",
-		Thinking:       "high",
-		Models:         append([]string(nil), deepSeekModels...),
-		ThinkingLevels: append([]string(nil), deepSeekThinkingLevels...),
-	}
-	if credential != nil {
-		response.Configured = true
-		response.DefaultModel = credential.DefaultModel
-		response.Thinking = credential.Thinking
-		updatedAt := credential.UpdatedAt
-		response.UpdatedAt = &updatedAt
-	}
-	return response, nil
-}
-
-func (s *DevMachineService) UpdateWorkspaceModelProvider(ctx context.Context, workspaceID, userID uuid.UUID, request dto.UpdateWorkspaceModelProviderRequest) (*dto.WorkspaceModelProviderResponse, error) {
-	if !containsString(deepSeekModels, request.DefaultModel) {
-		return nil, fmt.Errorf("%w: unsupported DeepSeek default model", ErrInvalidMachineInput)
-	}
-	if !containsString(deepSeekThinkingLevels, request.Thinking) {
-		return nil, fmt.Errorf("%w: unsupported DeepSeek thinking level", ErrInvalidMachineInput)
-	}
-	credential, err := s.store.GetWorkspaceModelCredential(ctx, workspaceID, "deepseek")
-	if err != nil {
-		return nil, err
-	}
-	if request.APIKey == nil {
-		if credential == nil {
-			return nil, fmt.Errorf("%w: api_key is required before DeepSeek is configured", ErrInvalidMachineInput)
-		}
-	} else {
-		if !validDeepSeekAPIKey(*request.APIKey) {
-			return nil, fmt.Errorf("%w: api_key must be 1-512 printable characters without whitespace", ErrInvalidMachineInput)
-		}
-		encrypted, encryptErr := cryptoutil.Encrypt(*request.APIKey, s.encryptionKey)
-		if encryptErr != nil {
-			return nil, fmt.Errorf("encrypt DeepSeek API key: %w", encryptErr)
-		}
-		if credential == nil {
-			credential = &domain.DevMachineWorkspaceModelCredential{WorkspaceID: workspaceID, Provider: "deepseek"}
-		}
-		credential.EncryptedAPIKey = encrypted
-		credential.EncryptionKeyVersion = 1
-	}
-	credential.DefaultModel = request.DefaultModel
-	credential.Thinking = request.Thinking
-	credential.UpdatedBy = &userID
-	if err := s.store.UpsertWorkspaceModelCredential(ctx, credential); err != nil {
-		return nil, err
-	}
-	return s.GetWorkspaceModelProvider(ctx, workspaceID)
-}
-
-func (s *DevMachineService) DeleteWorkspaceModelProvider(ctx context.Context, workspaceID uuid.UUID) error {
-	return s.store.DeleteWorkspaceModelCredential(ctx, workspaceID, "deepseek")
-}
-
-func validDeepSeekAPIKey(value string) bool {
+func validModelAPIKey(value string) bool {
 	length := utf8.RuneCountInString(value)
 	if length < 1 || length > 512 {
 		return false
@@ -1325,26 +1366,28 @@ func containsString(values []string, candidate string) bool {
 	return false
 }
 
-func (s *DevMachineService) CreateAgentRun(ctx context.Context, workspaceID, machineID, userID uuid.UUID, req dto.CreateAgentRunRequest) (*domain.DevMachineAgentRun, error) {
-	if req.Model != "" || req.Thinking != "" {
-		if req.Provider != "codex" && req.Provider != "claude-code" {
-			return nil, fmt.Errorf("%w: model and thinking overrides are supported only for codex and claude-code", ErrInvalidMachineInput)
+func (s *DevMachineService) createAgentRun(ctx context.Context, workspaceID, machineID, userID uuid.UUID, req dto.CreateAgentRunRequest, runID uuid.UUID) (*domain.DevMachineAgentRun, error) {
+	if err := s.validateAgentModel(ctx, workspaceID, req.Provider, req.ModelServerID, req.Model, req.Thinking); err != nil {
+		return nil, err
+	}
+	// Codex and Claude Code use the chosen model server, or the workspace
+	// default when it speaks their protocol; otherwise their own sign-in.
+	var modelServer *domain.AgentModelServer
+	if req.Provider == "codex" || req.Provider == "claude-code" {
+		server, err := s.store.GetModelServer(ctx, workspaceID, req.ModelServerID)
+		if err != nil {
+			return nil, err
+		}
+		if server != nil && server.Serves(req.Provider) {
+			modelServer = server
+			if req.Model == "" {
+				req.Model = server.DefaultModel
+			}
 		}
 	}
-	if req.Model != "" {
-		if !containsString(deepSeekModels, req.Model) {
-			return nil, fmt.Errorf("%w: unsupported DeepSeek model", ErrInvalidMachineInput)
-		}
-		credential, credentialErr := s.store.GetWorkspaceModelCredential(ctx, workspaceID, "deepseek")
-		if credentialErr != nil {
-			return nil, credentialErr
-		}
-		if credential == nil {
-			return nil, fmt.Errorf("%w: configure DeepSeek for this workspace before selecting a model", ErrInvalidOperation)
-		}
-	}
-	if req.Thinking != "" && !containsString(deepSeekThinkingLevels, req.Thinking) {
-		return nil, fmt.Errorf("%w: unsupported DeepSeek thinking level", ErrInvalidMachineInput)
+	openAIBaseURL := ""
+	if modelServer != nil && req.Provider == "codex" {
+		openAIBaseURL = *modelServer.OpenAIBaseURL
 	}
 	pushBranch := !req.UseRootWorkspace
 	if req.PushBranch != nil {
@@ -1352,9 +1395,6 @@ func (s *DevMachineService) CreateAgentRun(ctx context.Context, workspaceID, mac
 	}
 	if req.UseRootWorkspace && pushBranch {
 		return nil, fmt.Errorf("%w: root workspace runs cannot push a repository branch", ErrInvalidMachineInput)
-	}
-	if req.OpenPullRequest && !pushBranch {
-		return nil, fmt.Errorf("%w: opening a pull request requires pushing the working branch", ErrInvalidMachineInput)
 	}
 	policy, err := s.enabledPolicy(ctx, workspaceID)
 	if err != nil {
@@ -1484,10 +1524,19 @@ func (s *DevMachineService) CreateAgentRun(ctx context.Context, workspaceID, mac
 	invocation, err := provider.BuildInvocation(agent.RunInput{
 		Mode: agent.Mode(req.Mode), Prompt: prompt, WorkspacePath: workspacePath,
 		AcceptanceCriteria: req.AcceptanceCriteria, TestCommand: req.TestCommand, ExtraArgs: req.ExtraArgs, Config: config,
-		Model: req.Model, Thinking: req.Thinking,
+		Model: req.Model, Thinking: req.Thinking, Session: req.Session, OpenAIBaseURL: openAIBaseURL,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("%w: provider rejected the agent run configuration", ErrInvalidMachineInput)
+	}
+	// Claude Code accepts a Kuayle-assigned session ID; Codex reports its own.
+	var nativeSession *string
+	if req.Session != nil && req.Provider == "claude-code" {
+		if req.Session.ResumeID != "" {
+			nativeSession = &req.Session.ResumeID
+		} else if req.Session.NewID != "" {
+			nativeSession = &req.Session.NewID
+		}
 	}
 	commandArgv, _ := json.Marshal(invocation.Argv)
 	commandEnvironment := []byte(`{}`)
@@ -1500,7 +1549,6 @@ func (s *DevMachineService) CreateAgentRun(ctx context.Context, workspaceID, mac
 	allowedSecrets, _ := json.Marshal(req.AllowedSecrets)
 	testCommandJSON, _ := json.Marshal(req.TestCommand)
 	testCommand := json.RawMessage(testCommandJSON)
-	runID := uuid.New()
 	timeout := req.MaxRuntimeSeconds
 	if timeout == 0 {
 		timeout = 3600
@@ -1518,7 +1566,10 @@ func (s *DevMachineService) CreateAgentRun(ctx context.Context, workspaceID, mac
 		AllowedCommands: allowedCommands, ForbiddenPaths: forbiddenPaths, AllowedSecrets: allowedSecrets, TestCommand: &testCommand,
 		CommandArgv: commandArgv, CommandEnvironment: commandEnvironment, Model: req.Model, Thinking: req.Thinking,
 		MaxRuntimeSeconds: timeout, PushBranch: pushBranch,
-		OpenPullRequest: req.OpenPullRequest,
+		NativeSessionID: nativeSession,
+	}
+	if modelServer != nil {
+		run.ModelServerID = &modelServer.ID
 	}
 	operation := &domain.DevMachineOperation{
 		ID: uuid.New(), MachineID: machineID, AgentRunID: &runID, WorkspaceID: workspaceID,
@@ -1567,94 +1618,6 @@ func selectReadyAgentCheckout(checkouts []domain.DevMachineCheckout) (*domain.De
 	return nil, fmt.Errorf("%w: prepare an issue checkout before starting an agent", ErrCheckoutNotReady)
 }
 
-func (s *DevMachineService) ListAgentRuns(ctx context.Context, workspaceID, userID uuid.UUID, machineID *uuid.UUID, page, perPage int) ([]domain.DevMachineAgentRun, int, error) {
-	if page < 1 {
-		page = 1
-	}
-	if perPage < 1 || perPage > 100 {
-		perPage = 50
-	}
-	if machineID != nil {
-		if _, err := s.GetForUser(ctx, workspaceID, *machineID, userID); err != nil {
-			return nil, 0, err
-		}
-	}
-	return s.store.ListAgentRunsForUser(ctx, workspaceID, userID, machineID, perPage, (page-1)*perPage)
-}
-
-func (s *DevMachineService) GetAgentRun(ctx context.Context, workspaceID, runID, userID uuid.UUID) (*domain.DevMachineAgentRun, error) {
-	run, err := s.store.GetAgentRunForUser(ctx, workspaceID, runID, userID)
-	if err == nil && run == nil {
-		return nil, ErrAgentRunNotFound
-	}
-	return run, err
-}
-
-func (s *DevMachineService) CancelAgentRun(ctx context.Context, workspaceID, runID, userID uuid.UUID) error {
-	run, err := s.GetAgentRun(ctx, workspaceID, runID, userID)
-	if err != nil {
-		return err
-	}
-	machine, err := s.GetForUser(ctx, workspaceID, run.MachineID, userID)
-	if err != nil {
-		if errors.Is(err, ErrMachineNotFound) {
-			return ErrAgentRunNotFound
-		}
-		return err
-	}
-	operation := &domain.DevMachineOperation{
-		ID: uuid.New(), MachineID: run.MachineID, AgentRunID: &runID, WorkspaceID: workspaceID,
-		Action: domain.DevMachineOpCancelAgent, Status: domain.DevMachineOpStatusPending,
-		Generation: machine.Generation, IdempotencyKey: "cancel-agent:" + runID.String(), RequestedByUserID: &userID, MaxAttempts: 3,
-	}
-	return s.store.CancelAgentRun(ctx, workspaceID, runID, operation)
-}
-
-func (s *DevMachineService) GetAgentRunTrace(ctx context.Context, workspaceID, runID, userID uuid.UUID, params dto.TraceListParams) (*dto.AgentRunTraceResponse, error) {
-	run, err := s.GetAgentRun(ctx, workspaceID, runID, userID)
-	if err != nil {
-		return nil, err
-	}
-	// Verify run belongs to workspace
-	if run.WorkspaceID != workspaceID {
-		return nil, ErrAgentRunNotFound
-	}
-	params.Defaults()
-	steps, err := s.store.ListAgentRunSteps(ctx, runID)
-	if err != nil {
-		return nil, err
-	}
-	events, err := s.store.ListAgentRunEvents(ctx, runID, params.EventsAfterID, params.EventsLimit+1)
-	if err != nil {
-		return nil, err
-	}
-	logs, err := s.store.ListAgentRunLogs(ctx, runID, params.LogsAfterID, params.LogsLimit+1)
-	if err != nil {
-		return nil, err
-	}
-	hasMoreEvents := len(events) > params.EventsLimit
-	if hasMoreEvents {
-		events = events[:params.EventsLimit]
-	}
-	hasMoreLogs := len(logs) > params.LogsLimit
-	if hasMoreLogs {
-		logs = logs[:params.LogsLimit]
-	}
-	nextEventID := params.EventsAfterID
-	if len(events) > 0 {
-		nextEventID = events[len(events)-1].ID
-	}
-	nextLogID := params.LogsAfterID
-	if len(logs) > 0 {
-		nextLogID = logs[len(logs)-1].ID
-	}
-	return &dto.AgentRunTraceResponse{
-		Run: run, Steps: steps, Events: events, Logs: logs,
-		NextEventID: nextEventID, NextLogID: nextLogID,
-		HasMoreEvents: hasMoreEvents, HasMoreLogs: hasMoreLogs,
-	}, nil
-}
-
 func (s *DevMachineService) LaunchService(ctx context.Context, workspaceID, machineID, userID uuid.UUID, serviceKey string, checkoutID *uuid.UUID) (*dto.LaunchServiceResponse, error) {
 	if _, err := s.enabledPolicy(ctx, workspaceID); err != nil {
 		return nil, err
@@ -1688,6 +1651,12 @@ func (s *DevMachineService) LaunchService(ctx context.Context, workspaceID, mach
 	if service.ServiceType != "ide" && service.ServiceType != "browser" {
 		return nil, ErrServiceNotAvailable
 	}
+	return s.issueLaunch(ctx, workspaceID, machine, service, userID, checkoutID, "")
+}
+
+func (s *DevMachineService) issueLaunch(ctx context.Context, workspaceID uuid.UUID, machine *domain.DevMachine, service *domain.DevMachineService, userID uuid.UUID, checkoutID *uuid.UUID, hostSuffix string) (*dto.LaunchServiceResponse, error) {
+	machineID := machine.ID
+	var err error
 	var checkout *domain.DevMachineCheckout
 	if checkoutID != nil {
 		checkout, err = s.store.GetCheckout(ctx, workspaceID, machineID, *checkoutID)
@@ -1701,7 +1670,7 @@ func (s *DevMachineService) LaunchService(ctx context.Context, workspaceID, mach
 			return nil, fmt.Errorf("%w: selected checkout must be ready", ErrCheckoutNotReady)
 		}
 	}
-	host := machine.RoutingKey + "." + s.domain
+	host := machine.RoutingKey + hostSuffix + "." + s.domain
 	if service.ServiceType == "browser" {
 		host = machine.RoutingKey + "-browser." + s.domain
 	}
@@ -1798,7 +1767,8 @@ func (s *DevMachineService) CreateTerminalSession(ctx context.Context, workspace
 		if err != nil {
 			return nil, fmt.Errorf("%w: invalid checkout_id", ErrInvalidMachineInput)
 		}
-		checkout, err = s.store.GetCheckout(ctx, workspaceID, machineID, parsed)
+		// A task's worktree is a valid working directory for the machine's user.
+		checkout, err = s.store.GetTerminalCheckout(ctx, workspaceID, machineID, parsed)
 		if err != nil {
 			return nil, err
 		}
@@ -1998,7 +1968,7 @@ func (s *DevMachineService) IngestEvent(ctx context.Context, rawToken string, in
 		}
 		runID = &parsed
 	}
-	secrets, err := s.machineSecretValues(ctx, machine.ID)
+	secrets, err := s.machineSecretValues(ctx, machine.WorkspaceID, machine.ID)
 	if err != nil {
 		return err
 	}
@@ -2012,7 +1982,7 @@ func (s *DevMachineService) IngestEvent(ctx context.Context, rawToken string, in
 	}
 	return s.store.CreateEvent(ctx, &domain.DevMachineEvent{
 		WorkspaceID: machine.WorkspaceID, MachineID: machine.ID, AgentRunID: runID,
-		Source: input.Source, EventType: input.EventType, Payload: payload, OccurredAt: occurredAt,
+		Source: input.Source, EventType: redactText(input.EventType, secrets), Payload: payload, OccurredAt: occurredAt,
 	})
 }
 
@@ -2054,7 +2024,7 @@ func (s *DevMachineService) IngestLog(ctx context.Context, rawToken string, inpu
 		}
 		serviceID = &parsed
 	}
-	secrets, err := s.machineSecretValues(ctx, machine.ID)
+	secrets, err := s.machineSecretValues(ctx, machine.WorkspaceID, machine.ID)
 	if err != nil {
 		return err
 	}
@@ -2085,11 +2055,30 @@ func (s *DevMachineService) GetPolicy(ctx context.Context, workspaceID uuid.UUID
 		return policy, err
 	}
 	return &domain.DevMachineWorkspacePolicy{
-		WorkspaceID: workspaceID, MaxConcurrentMachines: 5, MaxMachinesPerUser: 2, MaxDailyAgentRuns: 25,
+		WorkspaceID: workspaceID, MaxConcurrentMachines: 20, MaxMachinesPerUser: 20, MaxDailyAgentRuns: 25,
 		MaxRuntimeMinutes: 480, MaxDiskGB: 100, IdlePauseMinutes: 240,
 		AllowedProviders:    json.RawMessage(`["claude-code","opencode","codex","qwen-code","crush","kimi","goose"]`),
 		AllowedRepositories: json.RawMessage(`[]`),
 	}, nil
+}
+
+var gitAuthorEmail = regexp.MustCompile(`^[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+$`)
+
+// validGitAuthor accepts an empty author (the default is used) or a name and
+// email that git can record without control characters or angle brackets.
+func validGitAuthor(name, email string) bool {
+	if name == "" && email == "" {
+		return true
+	}
+	if name == "" || utf8.RuneCountInString(name) > 100 || len(email) > 254 || strings.ContainsAny(name, "<>") || !gitAuthorEmail.MatchString(email) {
+		return false
+	}
+	for _, r := range name {
+		if unicode.IsControl(r) {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *DevMachineService) UpdatePolicy(ctx context.Context, workspaceID uuid.UUID, req dto.DevMachinePolicyRequest) (*domain.DevMachineWorkspacePolicy, error) {
@@ -2104,6 +2093,21 @@ func (s *DevMachineService) UpdatePolicy(ctx context.Context, workspaceID uuid.U
 		MaxMachinesPerUser: req.MaxMachinesPerUser, MaxDailyAgentRuns: req.MaxDailyAgentRuns,
 		MaxRuntimeMinutes: req.MaxRuntimeMinutes, MaxDiskGB: req.MaxDiskGB, AllowedProviders: providers,
 		AllowedRepositories: repositories, AllowCustomProviders: req.AllowCustomProviders, IdlePauseMinutes: idlePauseMinutes,
+		AllowUnattendedAutomations: req.AllowUnattendedAutomations,
+	}
+	if req.AllowDocker != nil {
+		policy.AllowDocker = *req.AllowDocker
+	} else if current, err := s.store.GetPolicy(ctx, workspaceID); err != nil {
+		return nil, err
+	} else if current != nil {
+		policy.AllowDocker = current.AllowDocker
+	}
+	name, email := strings.TrimSpace(req.AgentGitName), strings.TrimSpace(req.AgentGitEmail)
+	if (name == "") != (email == "") || !validGitAuthor(name, email) {
+		return nil, fmt.Errorf("%w: a commit author needs both a name and a valid email", ErrInvalidMachineInput)
+	}
+	if name != "" {
+		policy.AgentGitName, policy.AgentGitEmail = &name, &email
 	}
 	if err := s.store.UpsertPolicy(ctx, policy); err != nil {
 		return nil, err
@@ -2321,7 +2325,7 @@ func validEnvName(value string) bool {
 	return true
 }
 
-func (s *DevMachineService) machineSecretValues(ctx context.Context, machineID uuid.UUID) ([]string, error) {
+func (s *DevMachineService) machineSecretValues(ctx context.Context, workspaceID, machineID uuid.UUID) ([]string, error) {
 	envVars, err := s.store.ListEnvVarsInternal(ctx, machineID, nil, "")
 	if err != nil {
 		return nil, err
@@ -2349,6 +2353,34 @@ func (s *DevMachineService) machineSecretValues(ctx context.Context, machineID u
 			values = append(values, value)
 		}
 	}
+	servers, err := s.store.ListModelServers(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	for _, server := range servers {
+		value, err := cryptoutil.Decrypt(server.EncryptedAPIKey, s.encryptionKey)
+		if err != nil {
+			return nil, err
+		}
+		values = append(values, value)
+	}
+	snapshots, err := s.store.ListAgentRunSecretSnapshots(ctx, workspaceID, machineID)
+	if err != nil {
+		return nil, err
+	}
+	for _, sealed := range snapshots {
+		payload, err := cryptoutil.Decrypt(sealed, s.encryptionKey)
+		if err != nil {
+			return nil, err
+		}
+		snapshot, err := domain.DecodeAgentRunSecretSnapshot(payload)
+		if err != nil {
+			return nil, err
+		}
+		for _, value := range snapshot.Redactions {
+			values = append(values, value)
+		}
+	}
 	return values, nil
 }
 
@@ -2371,10 +2403,50 @@ func redactPayload(value any, secrets []string) any {
 }
 
 func redactText(value string, secrets []string) string {
-	for _, secret := range secrets {
-		if secret != "" {
-			value = strings.ReplaceAll(value, secret, "[REDACTED]")
+	return sanitize.SecretReplacer(secrets).Replace(value)
+}
+
+// Shared by direct native runs and conversation delegation; model selectors must
+// describe the same overrides that the harness actually accepts. A chosen model
+// must come from a server that speaks the harness's protocol.
+func (s *DevMachineService) validateAgentModel(ctx context.Context, workspaceID uuid.UUID, provider string, serverID *uuid.UUID, model, thinking string) error {
+	if model != "" || thinking != "" || serverID != nil {
+		if provider != "codex" && provider != "claude-code" {
+			return fmt.Errorf("%w: model servers and thinking overrides are supported only for codex and claude-code", ErrInvalidMachineInput)
 		}
 	}
-	return value
+	if thinking != "" && !containsString(modelThinkingLevels, thinking) {
+		return fmt.Errorf("%w: unsupported thinking level", ErrInvalidMachineInput)
+	}
+	if model == "" && serverID == nil {
+		return nil
+	}
+	if model != "" && !modelNamePattern.MatchString(model) {
+		return fmt.Errorf("%w: invalid model name", ErrInvalidMachineInput)
+	}
+	server, err := s.store.GetModelServer(ctx, workspaceID, serverID)
+	if err != nil {
+		return err
+	}
+	if server == nil {
+		if serverID != nil {
+			return fmt.Errorf("%w: model server not found", ErrInvalidMachineInput)
+		}
+		return fmt.Errorf("%w: add a model server for this workspace before selecting a model", ErrInvalidOperation)
+	}
+	if !server.Serves(provider) {
+		return fmt.Errorf("%w: %s does not offer the protocol this agent needs", ErrInvalidMachineInput, server.Name)
+	}
+	if models := server.ModelList(); model != "" && len(models) > 0 && !containsString(models, model) {
+		return fmt.Errorf("%w: %s does not offer model %q", ErrInvalidMachineInput, server.Name, model)
+	}
+	return nil
+}
+
+func agentModes(provider agent.Provider) []string {
+	modes := []string{}
+	for _, mode := range provider.Metadata().SupportedModes {
+		modes = append(modes, string(mode))
+	}
+	return modes
 }

@@ -9,6 +9,8 @@ export interface TerminalTab {
 	checkoutLabel?: string;
 	sessionName?: string;
 	runtimeTitle?: string;
+	/** Typed once into a new session after it connects (e.g. resume an agent). */
+	initialInput?: string;
 }
 
 class TerminalDockState {
@@ -20,6 +22,32 @@ class TerminalDockState {
 
 	#slug = '';
 
+	/** The pinned Agents tab id; it is never a terminal session. */
+	static readonly AGENTS = 'agents';
+
+	/** Whether this browser has seen agent work in the workspace; only then
+	 * does the dock poll the agent queue. */
+	agentsTracked = $state(false);
+
+	get slug() {
+		return this.#slug;
+	}
+
+	trackAgents() {
+		if (this.agentsTracked || !this.#slug) return;
+		this.agentsTracked = true;
+		try {
+			localStorage.setItem(`kuayle.agents.${this.#slug}`, '1');
+		} catch {
+			// The dock still shows agent work for this page view.
+		}
+	}
+
+	showAgents() {
+		this.activeTabId = TerminalDockState.AGENTS;
+		this.expanded = true;
+	}
+
 	setWorkspace(slug: string) {
 		if (slug !== this.#slug) {
 			this.tabs = [];
@@ -27,6 +55,11 @@ class TerminalDockState {
 			this.expanded = false;
 			this.fullscreen = false;
 			this.#slug = slug;
+			try {
+				this.agentsTracked = localStorage.getItem(`kuayle.agents.${slug}`) === '1';
+			} catch {
+				this.agentsTracked = false;
+			}
 		}
 	}
 

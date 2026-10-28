@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"unicode"
 
 	"github.com/google/uuid"
 	"github.com/kelseyhightower/envconfig"
@@ -49,6 +50,13 @@ type Config struct {
 	// set the base URL, so enabling it trusts every owner with internal access.
 	AIAllowPrivateNetwork bool `envconfig:"AI_ALLOW_PRIVATE_NETWORK" default:"false"`
 
+	// Voice transcription service (optional). Both are operator settings:
+	// VOICE_URL is the internal address of the voice container and
+	// VOICE_INTERNAL_TOKEN the shared secret it requires. Voice stays off
+	// for every workspace unless both are set.
+	VoiceURL           string `envconfig:"VOICE_URL"`
+	VoiceInternalToken string `envconfig:"VOICE_INTERNAL_TOKEN"`
+
 	SystemUpdaterURL   string `envconfig:"SYSTEM_UPDATER_URL"`
 	SystemUpdaterToken string `envconfig:"SYSTEM_UPDATER_TOKEN"`
 
@@ -57,6 +65,10 @@ type Config struct {
 	// GitHub webhook URL (optional — for dev with smee.io or private networks)
 	// If not set, auto-derived from FRONTEND_URL for public domains, or disabled for localhost.
 	GitHubWebhookURL string `envconfig:"GITHUB_WEBHOOK_URL"`
+
+	// Telegram webhook URL (optional — for dev with a relay such as smee.io).
+	// If not set, FRONTEND_URL/api/telegram/webhook/:workspaceId is used.
+	TelegramWebhookURL string `envconfig:"TELEGRAM_WEBHOOK_URL"`
 
 	// Global GitHub App (SaaS mode — shared across all workspaces)
 	GitHubApp GitHubAppConfig
@@ -88,6 +100,17 @@ type DevMachineConfig struct {
 	OpenCodeImage        string `envconfig:"DEV_MACHINE_OPENCODE_IMAGE" default:"ghcr.io/kuayle/dev-machine-agent-opencode:0.1.0"`
 	CodexImage           string `envconfig:"DEV_MACHINE_CODEX_IMAGE" default:"ghcr.io/kuayle/dev-machine-agent-codex:0.1.0"`
 	CustomImage          string `envconfig:"DEV_MACHINE_CUSTOM_IMAGE"`
+	// DockerImage is the per-machine Docker daemon (rootless docker:dind with
+	// Kuayle's start script), used when a workspace policy allows Docker.
+	DockerImage string `envconfig:"DEV_MACHINE_DOCKER_IMAGE" default:"ghcr.io/kuayle/dev-machine-docker:0.1.0"`
+	// DockerRuntime is an optional OCI runtime for the daemon container, such
+	// as sysbox-runc, which isolates it without the relaxations below.
+	DockerRuntime string `envconfig:"DEV_MACHINE_DOCKER_RUNTIME"`
+	// DockerSeccompProfile and DockerAppArmorProfile apply to the daemon
+	// container only (without DockerRuntime). Rootless Docker needs the user
+	// namespace and mount system calls the defaults deny.
+	DockerSeccompProfile  string `envconfig:"DEV_MACHINE_DOCKER_SECCOMP_PROFILE" default:"unconfined"`
+	DockerAppArmorProfile string `envconfig:"DEV_MACHINE_DOCKER_APPARMOR_PROFILE" default:"unconfined"`
 	// DiskQuotaMode selects how workspace disk limits are enforced: "hard" uses
 	// Docker local-volume size quotas (XFS project quotas); "monitored" measures
 	// usage, warns and stops machines, and guards the host free-space floor.
@@ -98,6 +121,15 @@ type DevMachineConfig struct {
 	// filesystem as Docker's data root (e.g. a read-only bind mount of it), used
 	// to measure host free space even when no machine is running.
 	HostDiskPath string `envconfig:"DEV_MACHINE_HOST_DISK_PATH"`
+	// AgentGitName and AgentGitEmail are the commit author for agent task
+	// publications. Pull requests are still opened by the GitHub App.
+	AgentGitName  string `envconfig:"DEV_MACHINE_AGENT_GIT_NAME" default:"Kuayle Agent"`
+	AgentGitEmail string `envconfig:"DEV_MACHINE_AGENT_GIT_EMAIL" default:"agent@kuayle.invalid"`
+	// Host admission: resources kept for the host and control plane, and the
+	// allowed CPU overcommit. Machine memory is never overcommitted.
+	HostReservedCPUMillis int     `envconfig:"DEV_MACHINE_HOST_RESERVED_CPU_MILLIS" default:"1000"`
+	HostReservedMemoryMB  int     `envconfig:"DEV_MACHINE_HOST_RESERVED_MEMORY_MB" default:"2048"`
+	CPUOvercommit         float64 `envconfig:"DEV_MACHINE_CPU_OVERCOMMIT" default:"2"`
 }
 
 const (
@@ -173,6 +205,17 @@ func (c DevMachineConfig) Validate(frontendURL string) error {
 	if strings.ContainsAny(c.AppArmorProfile, "\x00\r\n\t ") {
 		return fmt.Errorf("DEV_MACHINE_APPARMOR_PROFILE must be a profile name without whitespace")
 	}
+	if c.HostReservedCPUMillis < 0 || c.HostReservedMemoryMB < 0 {
+		return fmt.Errorf("DEV_MACHINE_HOST_RESERVED_CPU_MILLIS and DEV_MACHINE_HOST_RESERVED_MEMORY_MB must not be negative")
+	}
+	if c.CPUOvercommit != 0 && (c.CPUOvercommit < 1 || c.CPUOvercommit > 10) {
+		return fmt.Errorf("DEV_MACHINE_CPU_OVERCOMMIT must be between 1 and 10")
+	}
+	for _, value := range []string{c.AgentGitName, c.AgentGitEmail} {
+		if strings.ContainsFunc(value, func(r rune) bool { return unicode.IsControl(r) || r == '<' || r == '>' }) {
+			return fmt.Errorf("DEV_MACHINE_AGENT_GIT_NAME and DEV_MACHINE_AGENT_GIT_EMAIL must not contain control characters or angle brackets")
+		}
+	}
 	return c.validateDiskQuota()
 }
 
@@ -247,6 +290,9 @@ func Load() (*Config, error) {
 	}
 	if cfg.SystemUpdaterToken != "" && len(cfg.SystemUpdaterToken) < 32 {
 		return nil, fmt.Errorf("SYSTEM_UPDATER_TOKEN must be at least 32 characters")
+	}
+	if cfg.VoiceURL != "" && cfg.VoiceInternalToken != "" && len(cfg.VoiceInternalToken) < 32 {
+		return nil, fmt.Errorf("VOICE_INTERNAL_TOKEN must be at least 32 characters")
 	}
 	sysadmins, err := parseSysadmins(cfg.Sysadmins)
 	if err != nil {

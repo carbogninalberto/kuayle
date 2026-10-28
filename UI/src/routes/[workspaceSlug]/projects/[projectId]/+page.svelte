@@ -1,4 +1,10 @@
 <script lang="ts">
+	import TestCommandField from '$lib/features/dev-machines/TestCommandField.svelte';
+	import ComposeFileField from '$lib/features/dev-machines/ComposeFileField.svelte';
+	import PreviewSettingField from '$lib/features/dev-machines/PreviewSettingField.svelte';
+	import { previewSettingPayload } from '$lib/features/dev-machines/preview-setting';
+	import AgentDefaultsField from '$lib/features/dev-machines/AgentDefaultsField.svelte';
+	import { parseTestCommand, formatTestCommand } from '$lib/features/dev-machines/test-command';
 	import ScopedIssueList from '$lib/features/issues/ScopedIssueList.svelte';
 	import ScopeDeleteDialog from '$lib/features/issues/ScopeDeleteDialog.svelte';
 	import { hasPermission } from '$lib/security/permissions';
@@ -65,6 +71,12 @@
 	let developmentEnvironments = $state<DevMachineEnvironment[]>([]);
 	let developmentRepositoryId = $state('inherit');
 	let developmentEnvironmentId = $state('inherit');
+	let developmentTestCommand = $state('');
+	let developmentAgentProvider = $state('inherit');
+	let developmentAgentInstructions = $state('');
+	let developmentComposeFile = $state('');
+	let developmentPreviewCommand = $state('');
+	let developmentPreviewPort = $state('');
 	let developmentLoading = $state(true);
 	let developmentReady = $state(false);
 	let savingDevelopment = $state(false);
@@ -100,6 +112,7 @@
 			developmentEnvironments = (availableEnvironments ?? []).filter((item) => item.status === 'ready');
 			developmentRepositoryId = developmentSetting.github_repo_id ?? 'inherit';
 			developmentEnvironmentId = developmentSetting.environment_id ?? 'inherit';
+			developmentTestCommand = formatTestCommand(developmentSetting.test_command); developmentAgentProvider = developmentSetting.agent_provider ?? 'inherit'; developmentAgentInstructions = developmentSetting.agent_instructions ?? ''; developmentComposeFile = developmentSetting.compose_file ?? ''; developmentPreviewCommand = developmentSetting.preview_command ? JSON.stringify(developmentSetting.preview_command) : ''; developmentPreviewPort = developmentSetting.preview_port ? String(developmentSetting.preview_port) : '';
 			developmentReady = true;
 		} catch (error) {
 			if (!isCurrentDevelopmentScope(s, pid, version)) return;
@@ -158,6 +171,12 @@
 		developmentEnvironments = [];
 		developmentRepositoryId = 'inherit';
 		developmentEnvironmentId = 'inherit';
+		developmentTestCommand = '';
+		developmentAgentProvider = 'inherit';
+		developmentAgentInstructions = '';
+		developmentComposeFile = '';
+		developmentPreviewCommand = '';
+		developmentPreviewPort = '';
 		developmentLoading = true;
 		developmentReady = false;
 		savingDevelopment = false;
@@ -216,7 +235,8 @@
 		const repository = developmentRepositories.find((item) => item.id === repositoryId);
 		savingDevelopment = true;
 		try {
-			if (repositoryId === 'inherit' && environmentId === 'inherit') {
+			const command = parseTestCommand(developmentTestCommand);
+			if (repositoryId === 'inherit' && environmentId === 'inherit' && command === undefined && developmentAgentProvider === 'inherit' && !developmentAgentInstructions.trim() && !developmentComposeFile.trim() && !developmentPreviewCommand.trim()) {
 				await deleteDevMachineScopeSetting(s, 'project', pid);
 			} else {
 				await updateDevMachineScopeSetting(s, {
@@ -224,7 +244,8 @@
 					scope_id: pid,
 					github_repo_id: repository?.id,
 					base_branch: repository?.default_branch,
-					environment_id: environmentId === 'inherit' ? undefined : environmentId
+					environment_id: environmentId === 'inherit' ? undefined : environmentId,
+					test_command: command, agent_provider: developmentAgentProvider === 'inherit' ? undefined : developmentAgentProvider, agent_instructions: developmentAgentInstructions.trim() || undefined, compose_file: developmentComposeFile.trim() || undefined, ...previewSettingPayload(developmentPreviewCommand, developmentPreviewPort)
 				});
 			}
 			if (!isCurrentDevelopmentScope(s, pid, requestVersion) || developmentSaveVersion !== saveVersion) return;
@@ -397,7 +418,7 @@
 	/>{/if}
 
 <Dialog.Root bind:open={developmentOpen}>
-	<Dialog.Content class="sm:max-w-md">
+	<Dialog.Content class="max-h-[90dvh] overflow-y-auto sm:max-w-md">
 		<Dialog.Header
 			><Dialog.Title>{m['projects.development.title']()}</Dialog.Title><Dialog.Description
 				>{m['projects.development.description']()}</Dialog.Description
@@ -450,6 +471,7 @@
 					></Select.Root
 				>
 			</div>
+			<TestCommandField bind:value={developmentTestCommand} disabled={developmentLoading || !developmentReady || savingDevelopment || !canManageDevelopment} /><ComposeFileField bind:value={developmentComposeFile} disabled={developmentLoading || !developmentReady || savingDevelopment || !canManageDevelopment} /><PreviewSettingField bind:command={developmentPreviewCommand} bind:port={developmentPreviewPort} disabled={developmentLoading || !developmentReady || savingDevelopment || !canManageDevelopment} /><AgentDefaultsField bind:provider={developmentAgentProvider} bind:instructions={developmentAgentInstructions} disabled={developmentLoading || !developmentReady || savingDevelopment || !canManageDevelopment} />
 		</div>
 		<Dialog.Footer
 			><Button variant="outline" onclick={() => (developmentOpen = false)}>{m['common.cancel']()}</Button><Button

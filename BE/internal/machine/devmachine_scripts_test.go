@@ -87,6 +87,9 @@ func TestTerminalRuntimeConfiguresFullColorTUI(t *testing.T) {
 	expectedTmuxOptions := []string{
 		`set -g default-terminal "tmux-256color"`,
 		`set -as terminal-features ",xterm-256color:RGB"`,
+		// xterm.js 6 supports synchronized output, so tmux redraws arrive as one frame
+		// instead of tearing; it also renders styled underlines and OSC 8 hyperlinks.
+		`set -as terminal-features ",xterm-256color:sync:usstyle:hyperlinks:strikethrough:overline"`,
 		`set -g focus-events on`,
 		`set -g extended-keys on`,
 		`set -g allow-passthrough on`,
@@ -106,6 +109,7 @@ func TestTerminalRuntimeConfiguresFullColorTUI(t *testing.T) {
 	sessionScriptBytes, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", "ide", "terminal-session.sh"))
 	require.NoError(t, err)
 	require.Contains(t, string(sessionScriptBytes), "export COLORTERM=truecolor\n")
+	require.Contains(t, string(sessionScriptBytes), "export TERM=\"${TERM:-xterm-256color}\"\n")
 
 	dockerfileBytes, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", "ide", "Dockerfile"))
 	require.NoError(t, err)
@@ -266,11 +270,11 @@ func TestRuntimeImagesBundleTheSharedStartHelper(t *testing.T) {
 		require.NoError(t, err)
 		require.Contains(t, string(content), "common/start-common.sh", relativePath)
 	}
-	// Images that write the DeepSeek Codex config also need its catalog generator.
+	// Images that write the model server Codex config also need its catalog generator.
 	for _, image := range []string{"agent", "headless", "ide"} {
 		content, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", image, "Dockerfile"))
 		require.NoError(t, err)
-		require.Contains(t, string(content), "common/codex-deepseek-catalog.cjs", image)
+		require.Contains(t, string(content), "common/codex-model-catalog.cjs", image)
 	}
 }
 
@@ -336,30 +340,37 @@ while :; do sleep 1; done
 	require.NoFileExists(t, filepath.Join(homeDir, ".codex", "config.toml"))
 }
 
-func TestStartCommonWritesDeepSeekCodexConfigOnlyWhenAbsent(t *testing.T) {
+func modelServerEnv(homeDir, model, thinking string) []string {
+	return []string{
+		"HOME=" + homeDir,
+		"KUAYLE_MODEL_API_KEY=not-written-to-disk",
+		"KUAYLE_MODEL_OPENAI_BASE_URL=https://models.example.test/v1",
+		"KUAYLE_MODEL=" + model,
+		"KUAYLE_MODEL_THINKING=" + thinking,
+	}
+}
+
+func TestStartCommonWritesModelServerCodexConfigOnlyWhenAbsent(t *testing.T) {
 	repoRoot := repoRootFromCaller(t)
 	homeDir := t.TempDir()
 	common := filepath.Join(repoRoot, "devmachine", "common", "start-common.sh")
 	run := func(model, thinking string) {
-		cmd := exec.Command("sh", "-eu", "-c", `. "$1"; configure_codex_deepseek`, "kuayle", common)
-		cmd.Env = append(os.Environ(),
-			"HOME="+homeDir,
-			"DEEPSEEK_API_KEY=not-written-to-disk",
-			"KUAYLE_DEEPSEEK_MODEL="+model,
-			"KUAYLE_DEEPSEEK_THINKING="+thinking,
-		)
+		cmd := exec.Command("sh", "-eu", "-c", `. "$1"; configure_codex_model`, "kuayle", common)
+		cmd.Env = append(os.Environ(), modelServerEnv(homeDir, model, thinking)...)
 		output, err := cmd.CombinedOutput()
 		require.NoError(t, err, string(output))
 	}
 
-	run("deepseek-flash", "off")
+	run("qwen3-coder:30b", "off")
 	configPath := filepath.Join(homeDir, ".codex", "config.toml")
 	configBytes, err := os.ReadFile(configPath)
 	require.NoError(t, err)
 	config := string(configBytes)
-	require.Contains(t, config, `model = "deepseek-flash"`)
+	require.Contains(t, config, `model = "qwen3-coder:30b"`)
+	require.Contains(t, config, `model_provider = "kuayle"`)
 	require.Contains(t, config, `model_reasoning_effort = "none"`)
-	require.Contains(t, config, `base_url = "https://api.deepseek.com"`)
+	require.Contains(t, config, `base_url = "https://models.example.test/v1"`)
+	require.Contains(t, config, `env_key = "KUAYLE_MODEL_API_KEY"`)
 	require.NotContains(t, config, "not-written-to-disk")
 	info, err := os.Stat(configPath)
 	require.NoError(t, err)
@@ -367,15 +378,33 @@ func TestStartCommonWritesDeepSeekCodexConfigOnlyWhenAbsent(t *testing.T) {
 
 	userConfig := "model = \"user-owned\"\n"
 	require.NoError(t, os.WriteFile(configPath, []byte(userConfig), 0o600))
-	run("deepseek-v4-pro", "high")
+	run("gpt-oss-120b", "high")
 	configBytes, err = os.ReadFile(configPath)
 	require.NoError(t, err)
 	require.Equal(t, userConfig, string(configBytes))
 }
 
-// Codex's /model picker lists its bundled OpenAI catalog; under DeepSeek those models are
-// rejected, so the generated config points Codex at a DeepSeek-only catalog.
-func TestStartCommonWritesDeepSeekOnlyCodexModelCatalog(t *testing.T) {
+// Values are interpolated into TOML strings, so anything needing quoting is refused.
+func TestStartCommonRefusesModelServerValuesThatNeedQuoting(t *testing.T) {
+	repoRoot := repoRootFromCaller(t)
+	common := filepath.Join(repoRoot, "devmachine", "common", "start-common.sh")
+	for name, override := range map[string]string{
+		"quoted URL":   `KUAYLE_MODEL_OPENAI_BASE_URL=https://a.test/" x`,
+		"non-http URL": "KUAYLE_MODEL_OPENAI_BASE_URL=file:///etc/passwd",
+		"quoted model": `KUAYLE_MODEL=m"x`,
+	} {
+		homeDir := t.TempDir()
+		cmd := exec.Command("sh", "-eu", "-c", `. "$1"; configure_codex_model`, "kuayle", common)
+		cmd.Env = append(append(os.Environ(), modelServerEnv(homeDir, "m", "high")...), override)
+		_, err := cmd.CombinedOutput()
+		require.Error(t, err, name)
+		require.NoFileExists(t, filepath.Join(homeDir, ".codex", "config.toml"), name)
+	}
+}
+
+// Codex's /model picker lists its bundled OpenAI catalog; the server may reject
+// those, so the generated config points Codex at a catalog of the server's models.
+func TestStartCommonWritesTheServersCodexModelCatalog(t *testing.T) {
 	repoRoot := repoRootFromCaller(t)
 	homeDir := t.TempDir()
 	fakeBin := filepath.Join(t.TempDir(), "bin")
@@ -387,17 +416,16 @@ printf '%s' '{"models":[{"slug":"gpt-5.5","display_name":"GPT","visibility":"lis
 	nodePath, err := exec.LookPath("node")
 	require.NoError(t, err)
 	common := filepath.Join(repoRoot, "devmachine", "common", "start-common.sh")
-	cmd := exec.Command("sh", "-eu", "-c", `. "$1"; configure_codex_deepseek`, "kuayle", common)
-	cmd.Env = []string{
+	cmd := exec.Command("sh", "-eu", "-c", `. "$1"; configure_codex_model`, "kuayle", common)
+	cmd.Env = append([]string{
 		"PATH=" + fakeBin + string(os.PathListSeparator) + filepath.Dir(nodePath) + string(os.PathListSeparator) + os.Getenv("PATH"),
-		"HOME=" + homeDir, "DEEPSEEK_API_KEY=not-written-to-disk",
-		"KUAYLE_DEEPSEEK_MODEL=deepseek-v4-pro", "KUAYLE_DEEPSEEK_THINKING=max",
-		"KUAYLE_CODEX_CATALOG_GENERATOR=" + filepath.Join(repoRoot, "devmachine", "common", "codex-deepseek-catalog.cjs"),
-	}
+		"KUAYLE_MODEL_LIST=deepseek-flash,deepseek-v4-pro,bad model",
+		"KUAYLE_CODEX_CATALOG_GENERATOR=" + filepath.Join(repoRoot, "devmachine", "common", "codex-model-catalog.cjs"),
+	}, modelServerEnv(homeDir, "deepseek-v4-pro", "max")...)
 	output, err := cmd.CombinedOutput()
 	require.NoError(t, err, string(output))
 
-	catalogPath := filepath.Join(homeDir, ".codex", "model-catalogs", "deepseek.json")
+	catalogPath := filepath.Join(homeDir, ".codex", "model-catalogs", "kuayle.json")
 	catalogBytes, err := os.ReadFile(catalogPath)
 	require.NoError(t, err)
 	var catalog struct {
@@ -410,25 +438,136 @@ printf '%s' '{"models":[{"slug":"gpt-5.5","display_name":"GPT","visibility":"lis
 		require.Equal(t, "bundled", model["base_instructions"])
 		require.Equal(t, "shell_command", model["shell_type"])
 	}
-	require.Equal(t, []string{"deepseek-flash", "deepseek-v4-pro"}, slugs)
+	require.Equal(t, []string{"deepseek-flash", "deepseek-v4-pro"}, slugs, "invalid names are dropped")
 
 	configBytes, err := os.ReadFile(filepath.Join(homeDir, ".codex", "config.toml"))
 	require.NoError(t, err)
 	config := string(configBytes)
 	catalogLine := `model_catalog_json = "` + catalogPath + `"`
 	require.Contains(t, config, catalogLine)
-	require.Less(t, strings.Index(config, catalogLine), strings.Index(config, "[model_providers.deepseek]"))
+	require.Less(t, strings.Index(config, catalogLine), strings.Index(config, "[model_providers.kuayle]"))
 }
 
-func TestStartCommonSkipsDeepSeekCodexConfigWithoutKey(t *testing.T) {
+func TestStartCommonSkipsCodexConfigWithoutAnOpenAIServer(t *testing.T) {
 	repoRoot := repoRootFromCaller(t)
-	homeDir := t.TempDir()
 	common := filepath.Join(repoRoot, "devmachine", "common", "start-common.sh")
-	cmd := exec.Command("sh", "-eu", "-c", `. "$1"; configure_codex_deepseek`, "kuayle", common)
-	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + homeDir, "KUAYLE_DEEPSEEK_MODEL=deepseek-flash", "KUAYLE_DEEPSEEK_THINKING=high"}
+	for _, drop := range []string{"KUAYLE_MODEL_API_KEY", "KUAYLE_MODEL_OPENAI_BASE_URL"} {
+		homeDir := t.TempDir()
+		env := []string{"PATH=" + os.Getenv("PATH")}
+		for _, value := range modelServerEnv(homeDir, "m", "high") {
+			if !strings.HasPrefix(value, drop+"=") {
+				env = append(env, value)
+			}
+		}
+		cmd := exec.Command("sh", "-eu", "-c", `. "$1"; configure_codex_model`, "kuayle", common)
+		cmd.Env = env
+		output, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(output))
+		require.NoFileExists(t, filepath.Join(homeDir, ".codex", "config.toml"), drop)
+	}
+}
+
+// Codex's managed app-server (~400 MB per version) would fill the small
+// in-memory home, so its package cache lives on the workspace volume.
+func TestStartCommonKeepsCodexPackagesOnTheWorkspaceVolume(t *testing.T) {
+	repoRoot := repoRootFromCaller(t)
+	common := filepath.Join(repoRoot, "devmachine", "common", "start-common.sh")
+	homeDir, workspace := t.TempDir(), t.TempDir()
+	run := func() {
+		cmd := exec.Command("sh", "-eu", "-c", `. "$1"; link_codex_packages`, "kuayle", common)
+		cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + homeDir, "KUAYLE_WORKSPACE_ROOT=" + workspace}
+		output, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(output))
+	}
+	run()
+	target, err := os.Readlink(filepath.Join(homeDir, ".codex", "packages"))
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(workspace, ".kuayle", "codex-packages"), target)
+	require.DirExists(t, target)
+	run() // idempotent
+
+	// An existing packages directory is left alone.
+	otherHome := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(otherHome, ".codex", "packages"), 0o700))
+	cmd := exec.Command("sh", "-eu", "-c", `. "$1"; link_codex_packages`, "kuayle", common)
+	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + otherHome, "KUAYLE_WORKSPACE_ROOT=" + workspace}
 	output, err := cmd.CombinedOutput()
 	require.NoError(t, err, string(output))
-	require.NoFileExists(t, filepath.Join(homeDir, ".codex", "config.toml"))
+	info, err := os.Lstat(filepath.Join(otherHome, ".codex", "packages"))
+	require.NoError(t, err)
+	require.True(t, info.IsDir())
+	for _, script := range []string{"common/kuayle-agent-runner", "headless/kuayle-headless-start", "ide/start.sh"} {
+		content, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", script))
+		require.NoError(t, err)
+		require.Contains(t, string(content), "link_codex_packages", script)
+	}
+}
+
+// A stored sign-in is written only into the run's in-memory home, and the file
+// the agent refreshed is handed back through the run's own return path.
+func TestStartCommonInstallsAndReturnsTheAgentSignIn(t *testing.T) {
+	repoRoot := repoRootFromCaller(t)
+	common := filepath.Join(repoRoot, "devmachine", "common", "start-common.sh")
+	homeDir, workspace := t.TempDir(), t.TempDir()
+	runID := "6f1c2a3b-0000-4000-8000-000000000001"
+	script := `. "$1"
+install_agent_sign_in
+[ -z "${KUAYLE_CLAUDE_CREDENTIALS:-}" ] || { echo "secret still exported" >&2; exit 1; }
+printf '%s' '{"claudeAiOauth":{"refreshToken":"refreshed"}}' > "$HOME/.claude/.credentials.json"
+return_agent_sign_in`
+	cmd := exec.Command("sh", "-eu", "-c", script, "kuayle", common)
+	cmd.Env = []string{
+		"PATH=" + os.Getenv("PATH"), "HOME=" + homeDir, "KUAYLE_WORKSPACE_ROOT=" + workspace,
+		"KUAYLE_AGENT_RUN_ID=" + runID, `KUAYLE_CLAUDE_CREDENTIALS={"claudeAiOauth":{"refreshToken":"original"}}`,
+	}
+	output, err := cmd.CombinedOutput()
+	require.NoError(t, err, string(output))
+	info, err := os.Stat(filepath.Join(homeDir, ".claude", ".credentials.json"))
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	returned := filepath.Join(workspace, ".kuayle", "sign-in-return", runID+".json")
+	content, err := os.ReadFile(returned)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"claudeAiOauth":{"refreshToken":"refreshed"}}`, string(content))
+	info, err = os.Stat(returned)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+
+	// Without a sign-in, or with a malformed run ID, nothing is written back.
+	for name, env := range map[string][]string{
+		"no sign-in":     {"KUAYLE_AGENT_RUN_ID=" + runID},
+		"invalid run id": {"KUAYLE_AGENT_RUN_ID=../escape", `KUAYLE_CODEX_AUTH={"tokens":{}}`},
+	} {
+		otherWorkspace := t.TempDir()
+		cmd := exec.Command("sh", "-eu", "-c", `. "$1"; install_agent_sign_in; return_agent_sign_in`, "kuayle", common)
+		cmd.Env = append([]string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir(), "KUAYLE_WORKSPACE_ROOT=" + otherWorkspace}, env...)
+		output, err := cmd.CombinedOutput()
+		require.NoError(t, err, name+": "+string(output))
+		require.NoDirExists(t, filepath.Join(otherWorkspace, ".kuayle", "sign-in-return"), name)
+	}
+
+	// The runner keeps the harness's exit status and hands the sign-in back.
+	stub := filepath.Join(t.TempDir(), "start-common.sh")
+	require.NoError(t, os.WriteFile(stub, []byte(`. "`+common+`"
+load_scoped_secrets() { :; }
+install_git_credential_helper() { credential_helper=true; }
+`), 0o600))
+	runnerHome, runnerWorkspace := t.TempDir(), t.TempDir()
+	runner := exec.Command("sh", filepath.Join(repoRoot, "devmachine", "common", "kuayle-agent-runner"),
+		"sh", "-c", `printf '%s' '{"tokens":{"refresh_token":"rotated"}}' > "$HOME/.codex/auth.json"; exit 3`)
+	runner.Stdin = strings.NewReader("")
+	runner.Env = []string{
+		"PATH=" + os.Getenv("PATH"), "HOME=" + runnerHome, "KUAYLE_WORKSPACE_ROOT=" + runnerWorkspace,
+		"KUAYLE_START_COMMON=" + stub, "KUAYLE_AGENT_RUN_ID=" + runID, `KUAYLE_CODEX_AUTH={"tokens":{"refresh_token":"original"}}`,
+		"GIT_CONFIG_GLOBAL=" + filepath.Join(runnerHome, ".gitconfig"),
+	}
+	output, err = runner.CombinedOutput()
+	var exitErr *exec.ExitError
+	require.ErrorAs(t, err, &exitErr, string(output))
+	require.Equal(t, 3, exitErr.ExitCode(), "the harness's exit status is kept")
+	content, err = os.ReadFile(filepath.Join(runnerWorkspace, ".kuayle", "sign-in-return", runID+".json"))
+	require.NoError(t, err)
+	require.JSONEq(t, `{"tokens":{"refresh_token":"rotated"}}`, string(content))
 }
 
 func TestTerminalSessionCloseKillsOnlyTheNamedSessionAndIsIdempotent(t *testing.T) {
@@ -513,7 +652,7 @@ func runCheckoutScriptFixture(t *testing.T, failFetch bool) checkoutScriptResult
 	for _, dir := range []string{filepath.Join(workspaceRoot, "repos"), filepath.Join(workspaceRoot, "tasks"), secretDir, tmpDir, homeDir, fakeBin} {
 		require.NoError(t, os.MkdirAll(dir, 0o700))
 	}
-	staleBareRepository := filepath.Join(workspaceRoot, "repos", "octo-repo.git")
+	staleBareRepository := filepath.Join(workspaceRoot, "repos", "octo", "repo.git")
 	require.NoError(t, os.MkdirAll(staleBareRepository, 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(staleBareRepository, "config"), []byte("credential.helper=!f() { cat "+removedCheckoutTokenPath+"; }; f\ncore.askPass="+removedCheckoutTokenPath+"\n"), 0o600))
 

@@ -11,6 +11,7 @@ type AISettingsResponse struct {
 	DefaultPrompt           string    `json:"default_prompt"`
 	IssueCopyPrompt         string    `json:"issue_copy_prompt"`
 	DefaultIssueCopyPrompt  string    `json:"default_issue_copy_prompt"`
+	AssistantVision         bool      `json:"assistant_vision"`
 	CreatedAt               time.Time `json:"created_at"`
 	UpdatedAt               time.Time `json:"updated_at"`
 }
@@ -27,6 +28,7 @@ type UpdateAISettingsRequest struct {
 	APIKey                  OptionalString `json:"api_key"`
 	DescriptionExpandPrompt *string        `json:"description_expand_prompt" validate:"omitempty,max=4000"`
 	IssueCopyPrompt         *string        `json:"issue_copy_prompt" validate:"omitempty,max=8000"`
+	AssistantVision         *bool          `json:"assistant_vision"`
 }
 
 type ExpandIssueDescriptionResponse struct {

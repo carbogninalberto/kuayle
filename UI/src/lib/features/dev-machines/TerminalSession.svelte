@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { getErrorMessage } from '$lib/features/toast/toast';
 	import { browser } from '$app/environment';
 	import { onDestroy, tick } from 'svelte';
 	import { LoaderCircle, RefreshCw } from '@lucide/svelte';
@@ -14,16 +15,34 @@
 		decodeServerFrame,
 		encodeInitialTerminalMessage,
 		encodeInputFrame,
-		encodeResizeFrame
+		encodePauseFrame,
+		encodeResizeFrame,
+		encodeResumeFrame
 	} from './ttyd';
 	import '@xterm/xterm/css/xterm.css';
+	// Self-hosted terminal font (OFL-1.1); faces load lazily per Unicode range.
+	import '@fontsource/jetbrains-mono/400.css';
+	import '@fontsource/jetbrains-mono/700.css';
+	import '@fontsource/jetbrains-mono/400-italic.css';
+	import '@fontsource/jetbrains-mono/700-italic.css';
 	import type { Terminal as XTerminal, IDisposable } from '@xterm/xterm';
 	import type { FitAddon as XFitAddon } from '@xterm/addon-fit';
 	import { useTerminalDock } from './terminal-dock-context.svelte';
-	import { TERMINAL_OPTIONS, TERMINAL_UNICODE_VERSION } from './terminal-options';
+	import { TERMINAL_FONT_FACES, TERMINAL_OPTIONS, TERMINAL_UNICODE_VERSION } from './terminal-options';
+	import {
+		TerminalOutputWriter,
+		TerminalResizeForwarder,
+		createDebouncedTask,
+		waitForTerminalFonts
+	} from './terminal-io';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
-	type SocketConnection = { socket: WebSocket; timer?: ReturnType<typeof setTimeout>; expectedClose: boolean };
+	type SocketConnection = {
+		socket: WebSocket;
+		timer?: ReturnType<typeof setTimeout>;
+		expectedClose: boolean;
+		output?: TerminalOutputWriter;
+	};
 
 	let {
 		tab,
@@ -41,6 +60,12 @@
 	let socketConnection: SocketConnection | undefined;
 	let gatewayOrigin = $state('');
 	let resizeObserver: ResizeObserver | undefined;
+	// 'webgl' draws box/block glyphs seamlessly; 'dom' is the fallback without WebGL2.
+	let renderer = $state<'webgl' | 'dom' | ''>('');
+	// Layout changes (dock drag, window resize) arrive in bursts; fit once they settle so
+	// tmux redraws once instead of on every pixel.
+	const scheduleFit = createDebouncedTask(() => fitTerminal(), 50);
+	const resizeForwarder = new TerminalResizeForwarder((size) => sendFrame(encodeResizeFrame(size)));
 	let session = $state<DevMachineTerminalSession | null>(null);
 	let status = $state<'idle' | 'creating' | 'resuming' | 'pending' | 'connecting' | 'connected' | 'closed' | 'error'>('idle');
 	let statusMessage = $state('');
@@ -131,7 +156,8 @@
 		} catch (error) {
 			if (id !== runId) return;
 			status = 'error';
-			statusMessage = error instanceof Error ? error.message : 'Unable to open the terminal';
+			// API failures are plain objects; show their message, not a generic one.
+			statusMessage = getErrorMessage(error, 'Unable to open the terminal');
 		}
 	}
 
@@ -141,10 +167,15 @@
 		try {
 			const { WebglAddon } = await import('@xterm/addon-webgl');
 			const webgl = new WebglAddon();
-			webgl.onContextLoss(() => webgl.dispose());
+			webgl.onContextLoss(() => {
+				webgl.dispose();
+				if (terminal === target) renderer = 'dom';
+			});
 			target.loadAddon(webgl);
+			renderer = 'webgl';
 		} catch {
-			// Keep the DOM renderer.
+			// No WebGL2: keep the DOM renderer (xterm 6 has no canvas renderer).
+			renderer = 'dom';
 		}
 	}
 
@@ -154,6 +185,8 @@
 			import('@xterm/addon-fit'),
 			import('@xterm/addon-unicode11')
 		]);
+		// Measure cells with the bundled font, not a fallback that is swapped in later.
+		await waitForTerminalFonts(document.fonts, TERMINAL_FONT_FACES, 3000);
 		await tick();
 		if (!terminalElement) throw new Error('Terminal container is not ready');
 		terminal = new Terminal(TERMINAL_OPTIONS);
@@ -168,11 +201,11 @@
 		disposables.push(
 			terminal.onData((data) => sendFrame(encodeInputFrame(data))),
 			terminal.onBinary((data) => sendFrame(encodeInputFrame(Uint8Array.from(data, (char) => char.charCodeAt(0))))),
-			terminal.onResize(({ cols, rows }) => sendFrame(encodeResizeFrame({ columns: cols, rows })))
+			terminal.onResize(({ cols, rows }) => resizeForwarder.forward({ columns: cols, rows }))
 		);
-		resizeObserver = new ResizeObserver(() => fitTerminal());
+		resizeObserver = new ResizeObserver(() => scheduleFit());
 		resizeObserver.observe(terminalElement);
-		window.addEventListener('resize', fitTerminal);
+		window.addEventListener('resize', scheduleFit);
 	}
 
 	function connectSocket(webSocketUrl: string, id: number) {
@@ -196,6 +229,12 @@
 			return;
 		}
 		const connection: SocketConnection = { socket: activeSocket, expectedClose: false };
+		if (terminal) {
+			connection.output = new TerminalOutputWriter(terminal, {
+				sendPause: () => sendSocketFrame(activeSocket, encodePauseFrame()),
+				sendResume: () => sendSocketFrame(activeSocket, encodeResumeFrame())
+			});
+		}
 		socketConnection = connection;
 		activeSocket.binaryType = 'arraybuffer';
 		connection.timer = setTimeout(() => {
@@ -205,18 +244,25 @@
 		activeSocket.addEventListener('open', () => {
 			if (!terminal || !isCurrentConnection(connection, id)) return;
 			clearSocketTimer(connection);
-			activeSocket.send(encodeInitialTerminalMessage({ columns: terminal.cols, rows: terminal.rows }));
 			fitTerminal();
+			const size = { columns: terminal.cols, rows: terminal.rows };
+			activeSocket.send(encodeInitialTerminalMessage(size));
+			resizeForwarder.reset(size);
 			terminal.clear();
 			status = 'connected';
 			statusMessage = 'Terminal connected';
 			if (visible) terminal.focus();
+			// Type the tab's initial command once; reconnects never repeat it.
+			if (tab.initialInput && !initialInputSent) {
+				initialInputSent = true;
+				sendFrame(encodeInputFrame(tab.initialInput));
+			}
 		});
 		activeSocket.addEventListener('message', (event) => {
 			if (!terminal || !isCurrentConnection(connection, id)) return;
 			const frame = decodeServerFrame(event.data as ArrayBuffer | Uint8Array | string);
 			if (frame.command === 'output') {
-				terminal.write(frame.data);
+				connection.output?.push(frame.data);
 			} else if (frame.command === 'title') {
 				dock.setRuntimeTitle(tab.id, normalizedWindowTitle(frame.title));
 			} else if (frame.command === 'preferences') {
@@ -250,6 +296,7 @@
 		if (!connection) return;
 		connection.expectedClose = true;
 		clearSocketTimer(connection);
+		connection.output?.dispose();
 		try {
 			connection.socket.close(1000, reason);
 		} catch {
@@ -277,12 +324,19 @@
 		statusMessage = message;
 	}
 
+	let initialInputSent = false;
+
 	function sendFrame(frame: Uint8Array) {
 		const activeSocket = socketConnection?.socket;
-		if (activeSocket?.readyState === WebSocket.OPEN) activeSocket.send(frame);
+		if (activeSocket) sendSocketFrame(activeSocket, frame);
+	}
+
+	function sendSocketFrame(activeSocket: WebSocket, frame: Uint8Array) {
+		if (activeSocket.readyState === WebSocket.OPEN) activeSocket.send(frame);
 	}
 
 	function fitTerminal() {
+		scheduleFit.cancel();
 		try {
 			fitAddon?.fit();
 		} catch {
@@ -306,7 +360,8 @@
 		disposeSocketConnection(connection, 'ui closed');
 		resizeObserver?.disconnect();
 		resizeObserver = undefined;
-		window.removeEventListener('resize', fitTerminal);
+		scheduleFit.cancel();
+		window.removeEventListener('resize', scheduleFit);
 		while (disposables.length > 0) {
 			try {
 				disposables.pop()?.dispose();
@@ -321,6 +376,8 @@
 		}
 		terminal = undefined;
 		fitAddon = undefined;
+		renderer = '';
+		resizeForwarder.reset();
 		const sessionToClose = session;
 		session = null;
 		if (sessionToClose?.id) {
@@ -350,5 +407,5 @@
 			<Alert variant="destructive"><AlertDescription>{statusMessage}{#if gatewayOrigin} <a href={gatewayOrigin} target="_blank" rel="noreferrer" class="underline">Open the terminal gateway</a>, accept the local certificate if prompted, then reconnect.{/if}</AlertDescription></Alert>
 		</div>
 	{/if}
-	<div bind:this={terminalElement} class="min-h-0 flex-1 overflow-hidden p-2" data-testid="native-terminal"></div>
+	<div bind:this={terminalElement} class="min-h-0 flex-1 overflow-hidden p-2" data-testid="native-terminal" data-renderer={renderer || undefined}></div>
 </div>

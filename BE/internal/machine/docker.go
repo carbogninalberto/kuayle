@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/containerd/errdefs"
 	"github.com/google/uuid"
@@ -99,6 +100,14 @@ type DockerConfig struct {
 	HostDiskMinFreePercent int
 	HostDiskMinFreeGB      int
 	HostDiskPath           string
+	// ComposeImages are the repository names or prefixes check services may use.
+	ComposeImages []string
+	// DockerRuntime optionally runs machine Docker daemons with another OCI
+	// runtime (sysbox-runc). DockerSeccompProfile and DockerAppArmorProfile
+	// replace the default profiles of the daemon containers otherwise.
+	DockerRuntime         string
+	DockerSeccompProfile  string
+	DockerAppArmorProfile string
 }
 
 type DockerRuntime struct {
@@ -107,6 +116,9 @@ type DockerRuntime struct {
 	statfs     func(string, *unix.Statfs_t) error
 	quotaMu    sync.Mutex
 	quotaReady bool
+
+	dockerUsageMu sync.Mutex
+	dockerUsage   map[uuid.UUID]dockerUsageSample
 }
 
 func NewDockerRuntime(config DockerConfig) (*DockerRuntime, error) {
@@ -267,6 +279,7 @@ func (r *DockerRuntime) Spawn(ctx context.Context, machine *domain.DevMachine, s
 	createdEgressNetworkConnections := make(map[string]string, 1)
 	networkCreated := false
 	volumeCreated := false
+	dockerVolumeCreated := false
 	completed := false
 	defer func() {
 		if completed {
@@ -286,6 +299,9 @@ func (r *DockerRuntime) Spawn(ctx context.Context, machine *domain.DevMachine, s
 		if cleanup.RemoveVolume {
 			_, _ = r.client.VolumeRemove(context.Background(), volumeName, client.VolumeRemoveOptions{Force: true})
 		}
+		if dockerVolumeCreated {
+			_, _ = r.client.VolumeRemove(context.Background(), dockerVolumeName(machine), client.VolumeRemoveOptions{Force: true})
+		}
 	}()
 
 	var err error
@@ -297,6 +313,12 @@ func (r *DockerRuntime) Spawn(ctx context.Context, machine *domain.DevMachine, s
 	}
 	if volumeCreated, err = r.ensureVolume(ctx, volumeName, labels, machine.DiskGB); err != nil {
 		return "", "", nil, fmt.Errorf("create workspace volume: %w", err)
+	}
+	docker := hasDockerService(services)
+	if docker {
+		if dockerVolumeCreated, err = r.ensureDockerVolume(ctx, machine); err != nil {
+			return "", "", nil, fmt.Errorf("create docker volume: %w", err)
+		}
 	}
 	var initImage string
 	for _, service := range services {
@@ -323,7 +345,7 @@ func (r *DockerRuntime) Spawn(ctx context.Context, machine *domain.DevMachine, s
 			terminalServices = append(terminalServices, service)
 			continue
 		}
-		containerID, containerCreated, networkAttached, err := r.ensureService(ctx, machine, service, networkName, volumeName, secrets[service.ServiceKey])
+		containerID, containerCreated, networkAttached, err := r.ensureService(ctx, machine, service, networkName, volumeName, secrets[service.ServiceKey], docker)
 		if networkAttached {
 			createdMachineNetworkConnections[service.ServiceKey] = containerID
 		}
@@ -452,20 +474,30 @@ func (r *DockerRuntime) prepareWorkspaceVolume(ctx context.Context, machine *dom
 
 func (r *DockerRuntime) Start(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService, secrets map[string]map[string]string) error {
 	if machine.WorkspaceVolumeName == nil || *machine.WorkspaceVolumeName == "" {
-		return fmt.Errorf("machine workspace volume is unavailable")
+		return fmt.Errorf("machine workspace volume is unavailable: %w", ErrRuntimeIncomplete)
 	}
 	volumeExists, err := r.inspectWorkspaceVolume(ctx, *machine.WorkspaceVolumeName, machineLabels(machine), machine.DiskGB)
 	if err != nil {
 		return err
 	}
 	if !volumeExists {
-		return fmt.Errorf("machine workspace volume does not exist")
+		return fmt.Errorf("machine workspace volume does not exist: %w", ErrRuntimeIncomplete)
+	}
+	if hasDockerService(services) {
+		if exists, err := r.dockerVolumeExists(ctx, machine); err != nil {
+			return err
+		} else if !exists {
+			return fmt.Errorf("machine docker volume does not exist: %w", ErrRuntimeIncomplete)
+		}
 	}
 	for _, service := range plannedStartServices(machine.Status, services) {
 		if service.ContainerID == nil || *service.ContainerID == "" {
-			return fmt.Errorf("service %s has no container", service.ServiceKey)
+			return fmt.Errorf("service %s has no container: %w", service.ServiceKey, ErrRuntimeIncomplete)
 		}
 		inspection, err := r.client.ContainerInspect(ctx, *service.ContainerID, client.ContainerInspectOptions{})
+		if errdefs.IsNotFound(err) {
+			return fmt.Errorf("service %s container does not exist: %w", service.ServiceKey, ErrRuntimeIncomplete)
+		}
 		if err != nil {
 			return err
 		}
@@ -627,6 +659,9 @@ func (r *DockerRuntime) Teardown(ctx context.Context, machine *domain.DevMachine
 			return err
 		}
 	}
+	if err := r.removeCheckNetworks(ctx, "com.kuayle.machine-id="+machine.ID.String(), machine.ID.String()); err != nil {
+		return err
+	}
 	networkName := "kuayle-machine-" + machine.RoutingKey
 	if machine.DockerNetworkName != nil && *machine.DockerNetworkName != "" {
 		networkName = *machine.DockerNetworkName
@@ -642,7 +677,7 @@ func (r *DockerRuntime) Teardown(ctx context.Context, machine *domain.DevMachine
 	if err := r.removeManagedVolume(ctx, volumeName, machine.ID); err != nil {
 		return err
 	}
-	return nil
+	return r.removeDockerVolume(ctx, machine)
 }
 
 func (r *DockerRuntime) removeManagedContainer(ctx context.Context, containerID string, machineID uuid.UUID) error {
@@ -696,7 +731,7 @@ func (r *DockerRuntime) removeManagedVolume(ctx context.Context, volumeName stri
 	return nil
 }
 
-func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine, run *domain.DevMachineAgentRun, provider *domain.DevMachineAgentProvider, checkout *domain.DevMachineCheckout, secrets map[string]string) (*AgentExecution, error) {
+func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine, run *domain.DevMachineAgentRun, provider *domain.DevMachineAgentProvider, checkout *domain.DevMachineCheckout, secrets map[string]string, observer *AgentObserver) (*AgentExecution, error) {
 	if machine.DockerNetworkName == nil || machine.WorkspaceVolumeName == nil {
 		return nil, fmt.Errorf("machine runtime resources are unavailable")
 	}
@@ -738,13 +773,14 @@ func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine
 		"HOME=/home/kuayle", "HTTP_PROXY=http://" + machine.RoutingKey + "-egress:3128",
 		"HTTPS_PROXY=http://" + machine.RoutingKey + "-egress:3128", "NO_PROXY=localhost,127.0.0.1," + machine.RoutingKey + "-collector",
 		"KUAYLE_COLLECTOR_URL=http://" + machine.RoutingKey + "-collector:8091", "KUAYLE_SECRET_NAMES=" + strings.Join(secretNames, ","),
+		"KUAYLE_AGENT_RUN_ID=" + run.ID.String(),
 	}
 	runtimeEnvironment = append(runtimeEnvironment, invocationEnvironment...)
 	if inspection, inspectErr := r.client.ContainerInspect(ctx, containerName, client.ContainerInspectOptions{}); inspectErr == nil {
 		if inspection.Container.Config.Image != provider.ImageRef || inspection.Container.Config.Labels["com.kuayle.agent-run-id"] != run.ID.String() {
 			return nil, fmt.Errorf("existing agent container does not match run")
 		}
-		return r.resumeAgent(ctx, inspection.Container, run.Mode == "interactive", secrets)
+		return r.resumeAgent(ctx, inspection.Container, run.Mode == "interactive", secrets, observer)
 	} else if !errdefs.IsNotFound(inspectErr) {
 		return nil, inspectErr
 	}
@@ -770,9 +806,25 @@ func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine
 		return nil, err
 	}
 	containerID := response.ID
+	if observer != nil && observer.Authorize != nil {
+		if err := observer.Authorize(); err != nil {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			_, cleanupErr := r.client.ContainerRemove(cleanupCtx, containerID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+			if cleanupErr != nil && !errdefs.IsNotFound(cleanupErr) {
+				return nil, fmt.Errorf("agent preparation cleanup failed: %w", cleanupErr)
+			}
+			return nil, err
+		}
+	}
 	if _, err := r.client.ContainerStart(ctx, containerID, client.ContainerStartOptions{}); err != nil {
 		_, _ = r.client.ContainerRemove(ctx, containerID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
 		return nil, err
+	}
+	if observer != nil && observer.Authorize != nil {
+		if err := observer.Authorize(); err != nil {
+			return r.agentOutputFailure(containerID, err)
+		}
 	}
 	if err := r.copySecrets(ctx, containerID, secrets); err != nil {
 		_, _ = r.client.ContainerRemove(ctx, containerID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
@@ -782,7 +834,7 @@ func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine
 	if err != nil {
 		return nil, err
 	}
-	return r.resumeAgent(ctx, inspection.Container, run.Mode == "interactive", nil)
+	return r.resumeAgent(ctx, inspection.Container, run.Mode == "interactive", nil, observer)
 }
 
 func agentRuntimeEnvironment(overrides map[string]string) ([]string, error) {
@@ -807,8 +859,17 @@ func agentRuntimeEnvironment(overrides map[string]string) ([]string, error) {
 	return environment, nil
 }
 
-func (r *DockerRuntime) resumeAgent(ctx context.Context, inspection container.InspectResponse, interactive bool, secrets map[string]string) (*AgentExecution, error) {
+func (r *DockerRuntime) resumeAgent(ctx context.Context, inspection container.InspectResponse, interactive bool, secrets map[string]string, observer *AgentObserver) (*AgentExecution, error) {
+	return r.resumeExecution(ctx, inspection, interactive, secrets, observer, true)
+}
+
+func (r *DockerRuntime) resumeExecution(ctx context.Context, inspection container.InspectResponse, interactive bool, secrets map[string]string, observer *AgentObserver, deliverSecrets bool) (*AgentExecution, error) {
 	containerID := inspection.ID
+	if observer != nil && observer.Authorize != nil {
+		if err := observer.Authorize(); err != nil {
+			return r.agentOutputFailure(containerID, err)
+		}
+	}
 	if inspection.State.Paused {
 		if _, err := r.client.ContainerUnpause(ctx, containerID, client.ContainerUnpauseOptions{}); err != nil {
 			return nil, err
@@ -819,10 +880,26 @@ func (r *DockerRuntime) resumeAgent(ctx context.Context, inspection container.In
 		if _, err := r.client.ContainerStart(ctx, containerID, client.ContainerStartOptions{}); err != nil {
 			return nil, err
 		}
-		if err := r.copySecrets(ctx, containerID, secrets); err != nil {
-			return nil, err
+		if observer != nil && observer.Authorize != nil {
+			if err := observer.Authorize(); err != nil {
+				return r.agentOutputFailure(containerID, err)
+			}
+		}
+		if deliverSecrets {
+			if err := r.copySecrets(ctx, containerID, secrets); err != nil {
+				return nil, err
+			}
 		}
 		inspection.State.Running = true
+	}
+	var output AgentOutput
+	if observer != nil {
+		if observer.Started != nil {
+			if err := observer.Started(containerID); err != nil {
+				return r.agentOutputFailure(containerID, err)
+			}
+		}
+		output = observer.Output
 	}
 	if interactive && inspection.State.Running {
 		if err := r.requireRunning(ctx, containerID); err != nil {
@@ -830,28 +907,104 @@ func (r *DockerRuntime) resumeAgent(ctx context.Context, inspection container.In
 		}
 		return &AgentExecution{ContainerID: containerID}, nil
 	}
+	// Follow from the beginning on every lease recovery. Stable line sequences in
+	// the manager deduplicate replay without depending on Docker frame boundaries.
+	logCtx, cancelLogs := context.WithCancel(ctx)
+	defer cancelLogs()
+	reader, err := r.client.ContainerLogs(logCtx, containerID, client.ContainerLogsOptions{
+		ShowStdout: true, ShowStderr: true, Follow: inspection.State.Running, Timestamps: output != nil,
+	})
+	if err != nil {
+		return r.agentOutputFailure(containerID, err)
+	}
+	defer reader.Close()
+	stdout, stderr := newCappedBuffer(maxCapturedLogBytes), newCappedBuffer(maxCapturedLogBytes)
+	logDone := make(chan error, 1)
+	logsExited := make(chan struct{})
+	defer func() { cancelLogs(); _ = reader.Close(); <-logsExited }()
+	go func() {
+		defer close(logsExited)
+		_, err := stdcopy.StdCopy(&agentOutputWriter{stream: "stdout", buffer: &stdout, output: output},
+			&agentOutputWriter{stream: "stderr", buffer: &stderr, output: output}, reader)
+		logDone <- err
+	}()
+	var result <-chan container.WaitResponse
+	var waitError <-chan error
 	if inspection.State.Running {
-		waitResult := r.client.ContainerWait(ctx, containerID, client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
-		select {
-		case result := <-waitResult.Result:
-			inspection.State.ExitCode = int(result.StatusCode)
-		case err := <-waitResult.Error:
-			return &AgentExecution{ContainerID: containerID, ExitCode: -1}, err
-		case <-ctx.Done():
-			stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			_, stopErr := r.client.ContainerStop(stopCtx, containerID, client.ContainerStopOptions{})
-			cancel()
-			if stopErr != nil && !errdefs.IsNotFound(stopErr) {
-				return &AgentExecution{ContainerID: containerID, ExitCode: -1}, fmt.Errorf("stop timed out agent: %w", stopErr)
+		results := make(chan container.WaitResponse, 1)
+		failures := make(chan error, 1)
+		waitExited := make(chan struct{})
+		defer func() { cancelLogs(); <-waitExited }()
+		// ContainerWait may wait for HTTP headers before returning its channels.
+		// Observing output failures must not depend on the process already exiting.
+		go func() {
+			defer close(waitExited)
+			wait := r.client.ContainerWait(logCtx, containerID, client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
+			select {
+			case status := <-wait.Result:
+				results <- status
+			case err := <-wait.Error:
+				failures <- err
+			case <-logCtx.Done():
+				failures <- logCtx.Err()
 			}
-			return &AgentExecution{ContainerID: containerID, ExitCode: -1}, ctx.Err()
+		}()
+		result, waitError = results, failures
+	}
+	waiting, logging := inspection.State.Running, true
+	for waiting || logging {
+		select {
+		case status := <-result:
+			inspection.State.ExitCode = int(status.StatusCode)
+			waiting = false
+			result, waitError = nil, nil
+		case err := <-waitError:
+			if ctx.Err() != nil {
+				err = ctx.Err()
+			}
+			cancelLogs()
+			return r.agentOutputFailure(containerID, err)
+		case err := <-logDone:
+			logging = false
+			logDone = nil
+			if err != nil {
+				if ctx.Err() != nil {
+					err = ctx.Err()
+				}
+				return r.agentOutputFailure(containerID, err)
+			}
+		case <-ctx.Done():
+			cancelLogs()
+			return r.agentOutputFailure(containerID, ctx.Err())
 		}
 	}
-	stdout, stderr, err := r.containerLogs(ctx, containerID)
-	if err != nil {
-		return &AgentExecution{ContainerID: containerID, ExitCode: inspection.State.ExitCode}, err
+	return &AgentExecution{ContainerID: containerID, Stdout: stdout.String(), Stderr: stderr.String(), ExitCode: inspection.State.ExitCode}, nil
+}
+
+// A failed observer cannot leave an unmonitored native process running.
+func (r *DockerRuntime) agentOutputFailure(containerID string, cause error) (*AgentExecution, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	_, err := r.client.ContainerStop(ctx, containerID, client.ContainerStopOptions{})
+	if err != nil && !errdefs.IsNotFound(err) {
+		return &AgentExecution{ContainerID: containerID, ExitCode: -1}, fmt.Errorf("agent output cleanup failed: %w", err)
 	}
-	return &AgentExecution{ContainerID: containerID, Stdout: stdout, Stderr: stderr, ExitCode: inspection.State.ExitCode}, nil
+	return &AgentExecution{ContainerID: containerID, ExitCode: -1}, cause
+}
+
+type agentOutputWriter struct {
+	stream string
+	buffer *cappedBuffer
+	output AgentOutput
+}
+
+func (w *agentOutputWriter) Write(data []byte) (int, error) {
+	if w.output != nil {
+		if err := w.output(w.stream, data); err != nil {
+			return 0, err
+		}
+	}
+	return w.buffer.Write(data)
 }
 
 func (r *DockerRuntime) CancelAgent(ctx context.Context, run *domain.DevMachineAgentRun) error {
@@ -859,20 +1012,31 @@ func (r *DockerRuntime) CancelAgent(ctx context.Context, run *domain.DevMachineA
 	if err != nil {
 		return err
 	}
+	var cleanupErrors []error
 	for _, item := range containers.Items {
 		if item.Labels["com.kuayle.agent-run-id"] != run.ID.String() {
 			continue
 		}
-		if item.Labels["com.kuayle.managed"] != "true" {
-			return fmt.Errorf("agent container %s is not managed by Kuayle", item.ID)
+		if item.Labels["com.kuayle.managed"] != "true" ||
+			item.Labels["com.kuayle.machine-id"] != run.MachineID.String() ||
+			item.Labels["com.kuayle.workspace-id"] != run.WorkspaceID.String() {
+			cleanupErrors = append(cleanupErrors, fmt.Errorf("agent container %s ownership does not match the run", item.ID))
+			continue
 		}
 		_, err := r.client.ContainerRemove(ctx, item.ID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
-		return err
+		// Another cleanup operation may have already removed this container.
+		// Keep cleaning the remaining containers even if one removal fails.
+		if err != nil && !errdefs.IsNotFound(err) {
+			cleanupErrors = append(cleanupErrors, fmt.Errorf("remove agent container %s: %w", item.ID, err))
+		}
 	}
-	return nil
+	if len(cleanupErrors) == 0 {
+		cleanupErrors = append(cleanupErrors, r.removeCheckNetworks(ctx, "com.kuayle.agent-run-id="+run.ID.String(), run.MachineID.String()))
+	}
+	return errors.Join(cleanupErrors...)
 }
 
-func (r *DockerRuntime) Stats(ctx context.Context, _ *domain.DevMachine, services []domain.DevMachineService) (ResourceUsage, error) {
+func (r *DockerRuntime) Stats(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService) (ResourceUsage, error) {
 	var usage ResourceUsage
 	var collectorID string
 	seen := make(map[string]bool, len(services))
@@ -917,6 +1081,15 @@ func (r *DockerRuntime) Stats(ctx context.Context, _ *domain.DevMachine, service
 			usage.DiskBytes = disk
 		}
 	}
+	// The daemon's images, containers and volumes count toward the machine's
+	// disk limit too.
+	for _, service := range services {
+		if service.ServiceType == "docker" && service.Status == "running" && machine != nil {
+			if disk, err := r.dockerDiskUsage(ctx, machine, service.ImageRef); err == nil {
+				usage.DiskBytes += disk
+			}
+		}
+	}
 	return usage, nil
 }
 
@@ -935,7 +1108,34 @@ func (r *DockerRuntime) GitState(ctx context.Context, machine *domain.DevMachine
 	}
 	commits, _ := r.execOutput(ctx, developerContainer, []string{"git", "-C", workspacePath, "rev-list", "origin/" + baseBranch + "..HEAD"})
 	changed, _ := r.execOutput(ctx, developerContainer, []string{"git", "-C", workspacePath, "diff", "--name-only", "origin/" + baseBranch + "...HEAD"})
-	return GitState{Branch: strings.TrimSpace(branch), Commits: nonEmptyLines(commits), ChangedFiles: nonEmptyLines(changed)}, nil
+	state := GitState{Branch: strings.TrimSpace(branch), Commits: nonEmptyLines(commits), ChangedFiles: nonEmptyLines(changed)}
+	// A throwaway index stages everything, so the diff includes new files
+	// without touching the checkout's real index.
+	diff, _ := r.execOutput(ctx, developerContainer, []string{"/bin/sh", "-c", worktreeDiffScript, "kuayle-diff", workspacePath, "origin/" + baseBranch})
+	state.Diff, state.DiffTruncated = capDiff(diff)
+	return state, nil
+}
+
+const worktreeDiffScript = `set -eu
+index=$(mktemp)
+trap 'rm -f "$index"' EXIT
+export GIT_INDEX_FILE="$index"
+git -C "$1" read-tree HEAD
+git -C "$1" add -A
+git -C "$1" diff --cached --no-color --no-ext-diff "$2"`
+
+const maxStoredDiffBytes = 1 << 20
+
+// capDiff keeps a diff within the stored limit on a UTF-8 boundary.
+func capDiff(diff string) (string, bool) {
+	if len(diff) <= maxStoredDiffBytes {
+		return diff, false
+	}
+	diff = diff[:maxStoredDiffBytes]
+	for !utf8.ValidString(diff) {
+		diff = diff[:len(diff)-1]
+	}
+	return diff, true
 }
 
 func (r *DockerRuntime) PrepareCheckout(ctx context.Context, _ *domain.DevMachine, services []domain.DevMachineService, checkout *domain.DevMachineCheckout, token string) error {
@@ -1089,6 +1289,16 @@ func developerContainerID(services []domain.DevMachineService) string {
 	return ""
 }
 
+// dockerContainerID returns the running docker service container, or "".
+func dockerContainerID(services []domain.DevMachineService) string {
+	for _, service := range services {
+		if service.ServiceType == "docker" && service.Status == "running" && service.ContainerID != nil {
+			return *service.ContainerID
+		}
+	}
+	return ""
+}
+
 func isDeveloperService(serviceType string) bool {
 	return serviceType == "ide" || serviceType == "terminal"
 }
@@ -1106,14 +1316,18 @@ func uniqueContainerIDs(services []domain.DevMachineService) []string {
 	return ids
 }
 
-func (r *DockerRuntime) ensureService(ctx context.Context, machine *domain.DevMachine, service domain.DevMachineService, networkName, volumeName string, secrets map[string]string) (containerID string, containerCreated bool, networkAttached bool, err error) {
+func (r *DockerRuntime) ensureService(ctx context.Context, machine *domain.DevMachine, service domain.DevMachineService, networkName, volumeName string, secrets map[string]string, docker bool) (containerID string, containerCreated bool, networkAttached bool, err error) {
 	inspection, err := r.client.ContainerInspect(ctx, service.ContainerName, client.ContainerInspectOptions{})
 	if err == nil {
 		if inspection.Container.Config.Image != service.ImageRef || inspection.Container.Config.Labels["com.kuayle.machine-id"] != machine.ID.String() || inspection.Container.Config.Labels["com.kuayle.service"] != service.ServiceType {
 			return "", false, false, fmt.Errorf("existing container does not match service")
 		}
 		containerID = inspection.Container.ID
-		networkAttached, err = r.connectNetwork(ctx, networkName, inspection.Container.ID, &network.EndpointSettings{Aliases: []string{service.InternalHost}})
+		aliases := []string{service.InternalHost}
+		if service.ServiceType == "docker" {
+			aliases = append(aliases, "docker")
+		}
+		networkAttached, err = r.connectNetwork(ctx, networkName, inspection.Container.ID, &network.EndpointSettings{Aliases: aliases})
 		if err != nil {
 			return containerID, false, networkAttached, err
 		}
@@ -1127,6 +1341,18 @@ func (r *DockerRuntime) ensureService(ctx context.Context, machine *domain.DevMa
 	}
 	if !errdefs.IsNotFound(err) {
 		return "", false, false, err
+	}
+	if service.ServiceType == "docker" {
+		if err := r.ensureImage(ctx, service.ImageRef); err != nil {
+			return "", false, false, err
+		}
+		labels := machineLabels(machine)
+		labels["com.kuayle.service"] = service.ServiceType
+		containerID, err := r.createDockerService(ctx, machine, service, labels, networkName, volumeName, secrets)
+		if err != nil {
+			return "", false, false, err
+		}
+		return containerID, true, false, nil
 	}
 	if isDeveloperService(service.ServiceType) && machine.EnvironmentID != nil {
 		if err := r.ensureEnvironmentImage(ctx, service.ImageRef, machine.WorkspaceID, *machine.EnvironmentID); err != nil {
@@ -1153,12 +1379,15 @@ func (r *DockerRuntime) ensureService(ctx context.Context, machine *domain.DevMa
 	}
 	environment = append(environment, "KUAYLE_SECRET_NAMES="+strings.Join(secretNames, ","))
 	if service.ServiceType != "egress" {
-		environment = append(environment, "HTTP_PROXY=http://"+machine.RoutingKey+"-egress:3128", "HTTPS_PROXY=http://"+machine.RoutingKey+"-egress:3128", "NO_PROXY=localhost,127.0.0.1,"+machine.RoutingKey+"-collector,"+machine.RoutingKey+"-ide,"+machine.RoutingKey+"-terminal,"+machine.RoutingKey+"-browser")
+		environment = append(environment, proxyEnvironment(machine, docker && isDeveloperService(service.ServiceType))...)
 		environment = append(environment, "KUAYLE_COLLECTOR_URL=http://"+machine.RoutingKey+"-collector:8091")
 	}
 	if isDeveloperService(service.ServiceType) {
 		environment = append(environment, "KUAYLE_REPO_URL="+machine.RepoURL, "KUAYLE_BASE_BRANCH="+machine.BaseBranch, "KUAYLE_WORKING_BRANCH="+machine.WorkingBranch)
 		environment = append(environment, "SHELL=/usr/local/bin/kuayle-shell")
+		if docker {
+			environment = append(environment, dockerClientEnvironment(machine)...)
+		}
 	}
 	if service.ServiceType == "collector" {
 		environment = append(environment, "KUAYLE_INGEST_URL="+r.config.IngestURL)
@@ -1726,35 +1955,40 @@ func (r *DockerRuntime) execOutputAs(ctx context.Context, containerID string, co
 }
 
 func (r *DockerRuntime) execWithInput(ctx context.Context, containerID string, command []string, input string) error {
+	_, err := r.execInputOutput(ctx, containerID, command, input)
+	return err
+}
+
+func (r *DockerRuntime) execInputOutput(ctx context.Context, containerID string, command []string, input string) (string, error) {
 	created, err := r.client.ExecCreate(ctx, containerID, client.ExecCreateOptions{
 		Cmd: command, User: "1000:1000", AttachStdin: true, AttachStdout: true, AttachStderr: true,
 	})
 	if err != nil {
-		return err
+		return "", err
 	}
 	attached, err := r.client.ExecAttach(ctx, created.ID, client.ExecAttachOptions{})
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer attached.Close()
 	if _, err := io.WriteString(attached.Conn, input); err != nil {
-		return err
+		return "", err
 	}
 	if err := attached.CloseWrite(); err != nil {
-		return err
+		return "", err
 	}
 	stdout, stderr := newCappedBuffer(maxCapturedLogBytes), newCappedBuffer(maxCapturedLogBytes)
 	if _, err := stdcopy.StdCopy(&stdout, &stderr, attached.Reader); err != nil && !errors.Is(err, io.EOF) {
-		return err
+		return "", err
 	}
 	inspection, err := r.client.ExecInspect(ctx, created.ID, client.ExecInspectOptions{})
 	if err != nil {
-		return err
+		return "", err
 	}
 	if inspection.ExitCode != 0 {
-		return fmt.Errorf("checkout command failed with exit code %d: %s", inspection.ExitCode, strings.TrimSpace(stderr.String()))
+		return "", fmt.Errorf("checkout command failed with exit code %d: %s", inspection.ExitCode, strings.TrimSpace(stderr.String()))
 	}
-	return nil
+	return stdout.String(), nil
 }
 
 type spawnFailureCleanup struct {

@@ -27,6 +27,7 @@ with `npm ci` in each package. Commands below run in the stated directory.
 | UI build / UI | `npm run build` | Static application output in `build/`; also exercised by browser tests. |
 | Backend / BE | `go test ./... -race -count=1`, `go vet ./...`, `go build ./...` | Unit checks work without services, but integration tests may skip. See database requirements below. |
 | WEB / WEB | `npm run check`, `npm run validate` | Types, production build, SEO/internal-link validation. Output in `build/`. |
+| Voice service / voice | `python -m pytest` (with `pytest` from [requirements-dev.txt](../../../voice/requirements-dev.txt)); `docker build -t kuayle/voice:dev .` | Fake engines, no model downloads; ffmpeg decoding cases skip without ffmpeg. A real smoke test needs the image and network access to the pinned model sources. See [voice transcription](../../../TECHNICAL.md#voice-transcription). |
 | WEB browser / WEB | `npx playwright install chromium`, then `npm run test:responsive` | Run `npm run validate` first; preview uses existing build on port 4175. Tests visit sitemap routes at 320px. |
 
 On supported Linux runners, Playwright installation may need `--with-deps` as in
@@ -64,6 +65,11 @@ Docker lifecycle tests additionally require `KUAYLE_DOCKER_INTEGRATION=1`, built
 runtime images and quota-capable storage; follow the Docker Runtime Integration
 job in test CI. Do not reproduce its host storage reconfiguration on a developer
 machine. Let the dedicated runner exercise that environment.
+The machine Docker daemon test (`TestDockerDaemonRunsComposeProjects`) needs
+`KUAYLE_DOCKER_DAEMON_INTEGRATION=1`, network access and built images named by
+`KUAYLE_TEST_{DOCKER,HEADLESS,EGRESS,COLLECTOR}_IMAGE`; it runs on a developer
+machine with `KUAYLE_TEST_DISK_QUOTA_MODE=monitored` (set `DOCKER_HOST` when the
+socket is not at `/var/run/docker.sock`).
 
 ## Completion evidence
 

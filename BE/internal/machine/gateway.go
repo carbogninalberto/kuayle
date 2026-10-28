@@ -433,6 +433,14 @@ func (g *Gateway) parseHost(host string) (string, string, bool) {
 	} else if strings.HasSuffix(label, "-terminal") {
 		serviceType = "terminal"
 		label = strings.TrimSuffix(label, "-terminal")
+	} else if index := strings.LastIndexByte(label, '-'); index >= 0 {
+		// <routing key>-<port> is an app port of the developer container.
+		port, ok := domain.ParseAppPortNumber(label[index+1:])
+		if !ok {
+			return "", "", false
+		}
+		serviceType = domain.AppPortService(port)
+		label = label[:index]
 	}
 	return label, serviceType, routingKeyPattern.MatchString(label)
 }

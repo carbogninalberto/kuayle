@@ -18,6 +18,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	cryptoutil "github.com/kuayle/kuayle-backend/pkg/crypto"
 	githubclient "github.com/kuayle/kuayle-backend/pkg/github"
+	"github.com/kuayle/kuayle-backend/pkg/storage"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -42,12 +43,15 @@ func main() {
 	runtime, err := machine.NewDockerRuntime(machine.DockerConfig{
 		Host: configValue.DevMachine.DockerHost, GatewayContainerName: configValue.DevMachine.GatewayContainerName,
 		SeccompProfile: configValue.DevMachine.SeccompProfile, AppArmorProfile: configValue.DevMachine.AppArmorProfile,
-		PullImages: strings.EqualFold(os.Getenv("DEV_MACHINE_PULL_IMAGES"), "true"), IngestURL: configValue.DevMachine.IngestURL,
+		PullImages: strings.EqualFold(os.Getenv("DEV_MACHINE_PULL_IMAGES"), "true"), ComposeImages: composeImages(), IngestURL: configValue.DevMachine.IngestURL,
 		EgressAllowlist: configValue.DevMachine.EgressAllowlist, EgressDenylist: configValue.DevMachine.EgressDenylist,
 		DiskQuotaMode:          configValue.DevMachine.EffectiveDiskQuotaMode(),
 		HostDiskMinFreePercent: configValue.DevMachine.HostDiskMinFreePercent,
 		HostDiskMinFreeGB:      configValue.DevMachine.HostDiskMinFreeGB,
 		HostDiskPath:           configValue.DevMachine.HostDiskPath,
+		DockerRuntime:          configValue.DevMachine.DockerRuntime,
+		DockerSeccompProfile:   configValue.DevMachine.DockerSeccompProfile,
+		DockerAppArmorProfile:  configValue.DevMachine.DockerAppArmorProfile,
 	})
 	if err != nil {
 		log.WithError(err).Fatal("initialize Docker runtime")
@@ -90,6 +94,15 @@ func main() {
 			HostMinFreePercent: configValue.DevMachine.HostDiskMinFreePercent,
 			HostMinFreeGB:      configValue.DevMachine.HostDiskMinFreeGB,
 		})
+	manager.SetCapacity(machine.CapacityConfig{ReservedCPUMillis: configValue.DevMachine.HostReservedCPUMillis, ReservedMemoryMB: configValue.DevMachine.HostReservedMemoryMB, CPUOvercommit: configValue.DevMachine.CPUOvercommit})
+	manager.SetMachineDomain(configValue.DevMachine.Domain)
+	manager.SetAgentGitIdentity(machine.GitIdentity{Name: configValue.DevMachine.AgentGitName, Email: configValue.DevMachine.AgentGitEmail})
+	// Task images are read from the API's storage; without it runs get none.
+	if files, err := storage.New(configValue.Storage); err == nil {
+		manager.SetAttachmentStorage(files)
+	} else {
+		log.WithError(err).Warn("upload storage unavailable; task images will not be copied")
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -139,4 +152,14 @@ func metricsServer(manager *machine.Manager, database *sqlx.DB) *http.Server {
 		port = "8092"
 	}
 	return &http.Server{Addr: ":" + port, Handler: mux, ReadHeaderTimeout: 5 * time.Second, MaxHeaderBytes: 32 * 1024}
+}
+
+// composeImages defaults to official Docker Hub images; operators can list other
+// repositories or prefixes in DEV_MACHINE_COMPOSE_IMAGES (comma separated).
+func composeImages() []string {
+	value := strings.TrimSpace(os.Getenv("DEV_MACHINE_COMPOSE_IMAGES"))
+	if value == "" {
+		return []string{"docker.io/library"}
+	}
+	return strings.Split(value, ",")
 }

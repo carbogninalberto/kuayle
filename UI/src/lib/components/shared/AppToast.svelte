@@ -10,11 +10,13 @@
 		variant = 'info',
 		title,
 		description,
+		action,
 		closeToast
 	}: {
 		variant?: AppToastVariant;
 		title: string;
 		description?: string;
+		action?: { label: string; onclick: () => void };
 		closeToast?: () => void;
 	} = $props();
 
@@ -48,6 +50,9 @@
 
 		{#if description}
 			<div class="description">{description}</div>
+		{/if}
+		{#if action}
+			<div><Button size="sm" variant="outline" type="button" onclick={() => { action.onclick(); dismiss(); }}>{action.label}</Button></div>
 		{/if}
 	</div>
 </div>

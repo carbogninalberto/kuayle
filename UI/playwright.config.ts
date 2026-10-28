@@ -7,13 +7,14 @@ export default defineConfig({
 	workers: process.env.CI ? 2 : undefined,
 	reporter: process.env.CI ? [['dot'], ['html', { open: 'never' }]] : 'list',
 	webServer: {
-		command: 'npm run build && npm run preview -- --port 4174',
-		port: 4174,
+		// PLAYWRIGHT_PORT lets parallel worktrees run browser tests side by side.
+		command: `npm run build && npm run preview -- --port ${process.env.PLAYWRIGHT_PORT ?? 4174}`,
+		port: Number(process.env.PLAYWRIGHT_PORT ?? 4174),
 		reuseExistingServer: false,
 		timeout: 480_000
 	},
 	use: {
-		baseURL: 'http://localhost:4174',
+		baseURL: `http://localhost:${process.env.PLAYWRIGHT_PORT ?? 4174}`,
 		trace: 'retain-on-failure',
 		screenshot: 'only-on-failure',
 		video: 'retain-on-failure',

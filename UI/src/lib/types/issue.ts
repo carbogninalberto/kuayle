@@ -113,6 +113,7 @@ export interface IssueHistory {
 	new_value: string | null;
 	old_display_value?: string | null;
 	new_display_value?: string | null;
+	agent?: string | null;
 	created_at: string;
 }
 
@@ -176,6 +177,8 @@ export interface Comment {
 	body: string;
 	parent_id?: string;
 	resolved_at?: string;
+	// Set when Kuayle posted the comment for that coding task's agent.
+	agent_task_id?: string;
 	user?: User;
 	replies?: Comment[];
 	created_at: string;

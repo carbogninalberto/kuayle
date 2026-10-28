@@ -148,16 +148,53 @@ func TestMachineNameExistsForUserScopesByCreator(t *testing.T) {
 }
 
 func TestUpdateAgentRunStartedRequiresStateTransition(t *testing.T) {
-	repo, conn := newCaptureDevMachineRepository(t, 0)
-
-	err := repo.UpdateAgentRunStarted(context.Background(), uuid.New())
-
-	require.ErrorIs(t, err, sql.ErrNoRows)
-	query, _ := conn.captured()
-	require.Contains(t, query, "status IN ('queued','starting')")
-
-	repo, _ = newCaptureDevMachineRepository(t, 1)
-	require.NoError(t, repo.UpdateAgentRunStarted(context.Background(), uuid.New()))
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is not configured")
+	}
+	db := isolatedPrivacyDatabase(t, databaseURL)
+	fixture := newEnvironmentRaceFixture(t, db)
+	machine := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning, false)
+	runID := uuid.New()
+	_, err := db.Exec(`INSERT INTO dev_machine_agent_runs(id,workspace_id,machine_id,provider_id,mode,prompt,command_argv,max_runtime_seconds) VALUES($1,$2,$3,'codex','autonomous','Test','["codex"]',60)`, runID, fixture.workspaceID, machine)
+	require.NoError(t, err)
+	repo := fixture.repository
+	ctx := context.Background()
+	require.ErrorIs(t, repo.MarkAgentRunStarting(ctx, uuid.New()), sql.ErrNoRows)
+	require.NoError(t, repo.MarkAgentRunStarting(ctx, runID))
+	var preparing struct {
+		Status    string     `db:"status"`
+		StartedAt *time.Time `db:"started_at"`
+	}
+	require.NoError(t, db.Get(&preparing, `SELECT status,started_at FROM dev_machine_agent_runs WHERE id=$1`, runID))
+	require.Equal(t, "starting", preparing.Status)
+	require.Nil(t, preparing.StartedAt)
+	require.ErrorIs(t, repo.UpdateAgentRunStarted(ctx, uuid.New()), sql.ErrNoRows)
+	require.NoError(t, repo.UpdateAgentRunStarted(ctx, runID))
+	var first time.Time
+	require.NoError(t, db.Get(&first, `SELECT started_at FROM dev_machine_agent_runs WHERE id=$1`, runID))
+	require.NoError(t, repo.UpdateAgentRunStarted(ctx, runID), "lease recovery reattaches an existing running attempt")
+	var recovered time.Time
+	require.NoError(t, db.Get(&recovered, `SELECT started_at FROM dev_machine_agent_runs WHERE id=$1`, runID))
+	require.Equal(t, first, recovered)
+	require.NoError(t, repo.MarkAgentRunStarting(ctx, runID))
+	require.NoError(t, db.Get(&preparing, `SELECT status,started_at FROM dev_machine_agent_runs WHERE id=$1`, runID))
+	require.Equal(t, "running", preparing.Status)
+	require.Equal(t, first, *preparing.StartedAt)
+	_, err = db.Exec(`UPDATE dev_machine_agent_runs SET status='waiting_input' WHERE id=$1`, runID)
+	require.NoError(t, err)
+	require.NoError(t, repo.MarkAgentRunStarting(ctx, runID))
+	require.NoError(t, repo.UpdateAgentRunStarted(ctx, runID))
+	require.NoError(t, db.Get(&preparing, `SELECT status,started_at FROM dev_machine_agent_runs WHERE id=$1`, runID))
+	require.Equal(t, "waiting_input", preparing.Status)
+	require.Equal(t, first, *preparing.StartedAt)
+	_, err = db.Exec(`UPDATE dev_machine_agent_runs SET status='cancelled' WHERE id=$1`, runID)
+	require.NoError(t, err)
+	require.ErrorIs(t, repo.UpdateAgentRunStarted(ctx, runID), sql.ErrNoRows)
+	var state string
+	require.NoError(t, db.Get(&state, `SELECT status FROM dev_machine_agent_runs WHERE id=$1`, runID))
+	require.Equal(t, "cancelled", state)
+	require.ErrorIs(t, repo.MarkAgentRunStarting(ctx, runID), sql.ErrNoRows)
 }
 
 func TestCreateAccessTicketQueryRevalidatesCreatorAndTuple(t *testing.T) {
@@ -709,44 +746,6 @@ func TestDevMachineOffsetPaginationUsesStableTieBreakers(t *testing.T) {
 	t.Run("machines for user", func(t *testing.T) {
 		assertMachinePages(t, func(limit, offset int) ([]domain.DevMachine, int, error) {
 			return repo.ListMachinesForUser(context.Background(), workspaceID, userID, "", nil, limit, offset)
-		})
-	})
-
-	runPrefix := uuid.New()
-	runIDs := make([]uuid.UUID, 4)
-	for index, suffix := range []byte{2, 4, 1, 3} {
-		runIDs[index] = runPrefix
-		runIDs[index][15] = suffix
-	}
-	for _, runID := range runIDs {
-		_, err = db.Exec(`INSERT INTO dev_machine_agent_runs
-			(id,machine_id,workspace_id,requested_by_user_id,provider_id,mode,status,prompt,
-			 command_argv,max_runtime_seconds,created_at)
-			VALUES ($1,$2,$3,$4,'opencode','autonomous','succeeded','pagination test','["true"]',60,$5)`,
-			runID, machineIDs[0], workspaceID, userID, createdAt)
-		require.NoError(t, err)
-	}
-
-	expectedRunIDs := []uuid.UUID{runIDs[1], runIDs[3], runIDs[0], runIDs[2]}
-	assertRunPages := func(t *testing.T, list func(int, int) ([]domain.DevMachineAgentRun, int, error)) {
-		t.Helper()
-		var actual []uuid.UUID
-		for offset := 0; offset < len(expectedRunIDs); offset += 2 {
-			page, total, listErr := list(2, offset)
-			require.NoError(t, listErr)
-			require.Equal(t, len(expectedRunIDs), total)
-			require.Len(t, page, 2)
-			for _, run := range page {
-				actual = append(actual, run.ID)
-			}
-		}
-		require.Equal(t, expectedRunIDs, actual)
-		require.Len(t, uniqueUUIDs(actual), len(expectedRunIDs), "adjacent pages must not contain duplicates")
-	}
-
-	t.Run("agent runs for user", func(t *testing.T) {
-		assertRunPages(t, func(limit, offset int) ([]domain.DevMachineAgentRun, int, error) {
-			return repo.ListAgentRunsForUser(context.Background(), workspaceID, userID, nil, limit, offset)
 		})
 	})
 }
@@ -1666,160 +1665,6 @@ func TestReconcileOrphanedCheckouts(t *testing.T) {
 	require.NoError(t, db.QueryRow(`SELECT status,last_error FROM dev_machine_checkouts WHERE id=$1`, missingID).Scan(&retryStatus, &retryLastError))
 	require.Equal(t, "queued", retryStatus)
 	require.Nil(t, retryLastError)
-}
-
-func TestListAgentRunsScansPersistedRows(t *testing.T) {
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("DATABASE_URL is not configured")
-	}
-	db, err := sqlx.Connect("pgx", databaseURL)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	var nullableRun domain.DevMachineAgentRun
-	require.NoError(t, db.Get(&nullableRun, `SELECT NULL::jsonb AS test_command,NULL::jsonb AS result`))
-	require.Nil(t, nullableRun.TestCommand)
-	require.Nil(t, nullableRun.Result)
-
-	var workspaceID, machineID, userID uuid.UUID
-	err = db.QueryRowx(`SELECT r.workspace_id,r.machine_id,m.created_by_user_id
-		FROM dev_machine_agent_runs r JOIN dev_machines m ON m.id=r.machine_id
-		ORDER BY r.created_at DESC LIMIT 1`).Scan(&workspaceID, &machineID, &userID)
-	if errors.Is(err, sql.ErrNoRows) {
-		t.Skip("no persisted agent runs")
-	}
-	require.NoError(t, err)
-
-	runs, total, err := NewDevMachineRepository(db).ListAgentRunsForUser(context.Background(), workspaceID, userID, &machineID, 50, 0)
-
-	require.NoError(t, err)
-	require.GreaterOrEqual(t, total, 1)
-	require.NotEmpty(t, runs)
-}
-
-func TestListAgentRunStepsReturnsEmptyForMissingRun(t *testing.T) {
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("DATABASE_URL is not configured")
-	}
-	db, err := sqlx.Connect("pgx", databaseURL)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-
-	steps, err := NewDevMachineRepository(db).ListAgentRunSteps(context.Background(), uuid.New())
-
-	require.NoError(t, err)
-	require.Empty(t, steps)
-}
-
-func TestListAgentRunEventsReturnsEmptyForMissingRun(t *testing.T) {
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("DATABASE_URL is not configured")
-	}
-	db, err := sqlx.Connect("pgx", databaseURL)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-
-	events, err := NewDevMachineRepository(db).ListAgentRunEvents(context.Background(), uuid.New(), 0, 100)
-
-	require.NoError(t, err)
-	require.Empty(t, events)
-}
-
-func TestListAgentRunLogsReturnsEmptyForMissingRun(t *testing.T) {
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("DATABASE_URL is not configured")
-	}
-	db, err := sqlx.Connect("pgx", databaseURL)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-
-	logs, err := NewDevMachineRepository(db).ListAgentRunLogs(context.Background(), uuid.New(), 0, 100)
-
-	require.NoError(t, err)
-	require.Empty(t, logs)
-}
-
-func TestListAgentRunLogsCursorPagination(t *testing.T) {
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("DATABASE_URL is not configured")
-	}
-	db, err := sqlx.Connect("pgx", databaseURL)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-
-	// Find a run with log chunks
-	var runID uuid.UUID
-	err = db.QueryRowx(`SELECT DISTINCT agent_run_id FROM dev_machine_log_chunks WHERE agent_run_id IS NOT NULL LIMIT 1`).Scan(&runID)
-	if errors.Is(err, sql.ErrNoRows) {
-		t.Skip("no persisted agent-run log chunks")
-	}
-	require.NoError(t, err)
-
-	repo := NewDevMachineRepository(db)
-
-	// First page
-	page1, err := repo.ListAgentRunLogs(context.Background(), runID, 0, 2)
-	require.NoError(t, err)
-
-	if len(page1) < 2 {
-		t.Skip("not enough log chunks for cursor pagination test")
-	}
-
-	// Second page using cursor
-	afterID := page1[len(page1)-1].ID
-	page2, err := repo.ListAgentRunLogs(context.Background(), runID, afterID, 2)
-	require.NoError(t, err)
-
-	// Verify no overlap
-	ids1 := make(map[int64]bool)
-	for _, l := range page1 {
-		ids1[l.ID] = true
-	}
-	for _, l := range page2 {
-		require.False(t, ids1[l.ID], "cursor pagination returned duplicate log chunk %d", l.ID)
-	}
-}
-
-func TestListAgentRunEventsCursorPagination(t *testing.T) {
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("DATABASE_URL is not configured")
-	}
-	db, err := sqlx.Connect("pgx", databaseURL)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-
-	var runID uuid.UUID
-	err = db.QueryRowx(`SELECT DISTINCT agent_run_id FROM dev_machine_events WHERE agent_run_id IS NOT NULL LIMIT 1`).Scan(&runID)
-	if errors.Is(err, sql.ErrNoRows) {
-		t.Skip("no persisted agent-run events")
-	}
-	require.NoError(t, err)
-
-	repo := NewDevMachineRepository(db)
-
-	page1, err := repo.ListAgentRunEvents(context.Background(), runID, 0, 2)
-	require.NoError(t, err)
-
-	if len(page1) < 2 {
-		t.Skip("not enough events for cursor pagination test")
-	}
-
-	afterID := page1[len(page1)-1].ID
-	page2, err := repo.ListAgentRunEvents(context.Background(), runID, afterID, 2)
-	require.NoError(t, err)
-
-	ids1 := make(map[int64]bool)
-	for _, e := range page1 {
-		ids1[e.ID] = true
-	}
-	for _, e := range page2 {
-		require.False(t, ids1[e.ID], "cursor pagination returned duplicate event %d", e.ID)
-	}
 }
 
 func TestCreateLogChunkOnConflictMatchesSchema(t *testing.T) {

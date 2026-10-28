@@ -13,8 +13,11 @@ seed_home_template() {
   fi
 }
 
-configure_codex_deepseek() {
-  if [ -z "${DEEPSEEK_API_KEY:-}" ] || [ -z "${KUAYLE_DEEPSEEK_MODEL:-}" ]; then
+# Points an interactive Codex at the workspace's default model server. Agent
+# runs pass the server explicitly as -c overrides, so this file only serves
+# terminals and the IDE, and an existing user-managed config is left unchanged.
+configure_codex_model() {
+  if [ -z "${KUAYLE_MODEL_API_KEY:-}" ] || [ -z "${KUAYLE_MODEL_OPENAI_BASE_URL:-}" ] || [ -z "${KUAYLE_MODEL:-}" ]; then
     return 0
   fi
 
@@ -23,42 +26,146 @@ configure_codex_deepseek() {
     return 0
   fi
 
-  model=$KUAYLE_DEEPSEEK_MODEL
+  # Values are written into TOML strings: refuse anything that needs quoting.
+  model=$KUAYLE_MODEL
   case "$model" in
-    deepseek-flash|deepseek-v4-pro ) ;;
-    * ) echo "invalid DeepSeek model: ${model}" >&2; return 1 ;;
+    ''|*[!A-Za-z0-9._:/@+-]* ) echo "invalid model name" >&2; return 1 ;;
   esac
-  thinking=${KUAYLE_DEEPSEEK_THINKING:-high}
+  base_url=$KUAYLE_MODEL_OPENAI_BASE_URL
+  case "$base_url" in
+    http://*|https://* ) ;;
+    * ) echo "invalid model server URL" >&2; return 1 ;;
+  esac
+  case "$base_url" in
+    *[\"\'\\[:space:]]* ) echo "invalid model server URL" >&2; return 1 ;;
+  esac
+  thinking=${KUAYLE_MODEL_THINKING:-high}
   case "$thinking" in
     off ) reasoning_effort=none ;;
     low|high|max ) reasoning_effort=$thinking ;;
-    * ) echo "invalid DeepSeek thinking level: ${thinking}" >&2; return 1 ;;
+    * ) echo "invalid thinking level: ${thinking}" >&2; return 1 ;;
   esac
 
   mkdir -p "$HOME/.codex"
   if ! (umask 077; set -C; : > "$codex_config") 2>/dev/null; then
     return 0
   fi
-  # Codex's /model picker otherwise lists OpenAI models that DeepSeek rejects. A failed
-  # generation only loses the picker list; the configured model still works.
+  # Codex's /model picker otherwise lists OpenAI models the server may reject.
+  # A failed generation only loses the picker list; the configured model works.
   catalog_line=
-  catalog_path="$HOME/.codex/model-catalogs/deepseek.json"
-  catalog_generator=${KUAYLE_CODEX_CATALOG_GENERATOR:-/usr/local/lib/kuayle/codex-deepseek-catalog.cjs}
-  if mkdir -p "${catalog_path%/*}" && node "$catalog_generator" "$catalog_path" 2>/dev/null; then
+  catalog_path="$HOME/.codex/model-catalogs/kuayle.json"
+  catalog_generator=${KUAYLE_CODEX_CATALOG_GENERATOR:-/usr/local/lib/kuayle/codex-model-catalog.cjs}
+  if [ -n "${KUAYLE_MODEL_LIST:-}" ] && mkdir -p "${catalog_path%/*}" && node "$catalog_generator" "$catalog_path" "$KUAYLE_MODEL_LIST" 2>/dev/null; then
     catalog_line="model_catalog_json = \"${catalog_path}\""
   fi
-  cat > "$codex_config" <<EOF
+  cat > "$codex_config" <<CONFIG
 model = "${model}"
-model_provider = "deepseek"
+model_provider = "kuayle"
 model_reasoning_effort = "${reasoning_effort}"
 ${catalog_line}
 
-[model_providers.deepseek]
-name = "DeepSeek"
-base_url = "https://api.deepseek.com"
-env_key = "DEEPSEEK_API_KEY"
+[model_providers.kuayle]
+name = "Kuayle model server"
+base_url = "${base_url}"
+env_key = "KUAYLE_MODEL_API_KEY"
 wire_api = "responses"
-EOF
+CONFIG
+}
+
+# Codex keeps its managed app-server (~400 MB per version) in ~/.codex/packages.
+# The home is a small in-memory tmpfs, so the cache lives on the machine's
+# workspace volume, shared by its terminal and agent containers.
+link_codex_packages() {
+  packages="$HOME/.codex/packages"
+  if [ -e "$packages" ] || [ -L "$packages" ]; then
+    return 0
+  fi
+  cache="$workspace_root/.kuayle/codex-packages"
+  mkdir -p "$cache" "$HOME/.codex" 2>/dev/null || return 0
+  ln -s "$cache" "$packages" 2>/dev/null || true
+}
+
+# Installs a Kuayle-owned skill for Claude Code and Codex, replacing symlinks;
+# refreshed on every start. Usage: install_kuayle_skill NAME SOURCE
+install_kuayle_skill() {
+  skill_name=$1
+  skill_source=$2
+  [ -f "$skill_source" ] || return 0
+  for skills_dir in "$HOME/.claude/skills" "$HOME/.codex/skills"; do
+    skill_dir="$skills_dir/$skill_name"
+    if [ -L "$skill_dir" ] || [ -L "$skill_dir/SKILL.md" ]; then
+      rm -rf "$skill_dir"
+    fi
+    mkdir -p "$skill_dir" 2>/dev/null || continue
+    cp "$skill_source" "$skill_dir/SKILL.md.tmp" 2>/dev/null && mv -f "$skill_dir/SKILL.md.tmp" "$skill_dir/SKILL.md" || true
+  done
+}
+
+# Installs Kuayle's manual QA skill and prepares the app port request
+# directory used by kuayle-ports.
+install_kuayle_qa() {
+  mkdir -p "$HOME/.kuayle/ports/requests" 2>/dev/null || true
+  install_kuayle_skill kuayle-qa "${KUAYLE_QA_SKILL:-/usr/local/lib/kuayle/kuayle-qa.md}"
+}
+
+# Installs Kuayle's skill for messaging the agents of related issues.
+install_kuayle_agents() {
+  install_kuayle_skill kuayle-agents "${KUAYLE_AGENTS_SKILL:-/usr/local/lib/kuayle/kuayle-agents.md}"
+}
+
+# Points the Docker CLI at the machine's own Docker daemon when it has one.
+# The client certificate, key and machine CA arrive as scoped secrets and are
+# written to the in-memory ~/.docker; the variables are then unset. Developer
+# containers get DOCKER_HOST from their environment, agent attempts from the
+# KUAYLE_DOCKER_HOST secret. Builds and containers started through the CLI get
+# the machine's egress proxy, the only way out of the machine network.
+configure_docker_client() {
+  docker_ca=${KUAYLE_DOCKER_CA:-}
+  docker_cert=${KUAYLE_DOCKER_CERT:-}
+  docker_key=${KUAYLE_DOCKER_KEY:-}
+  docker_host=${KUAYLE_DOCKER_HOST:-${DOCKER_HOST:-}}
+  unset KUAYLE_DOCKER_CA KUAYLE_DOCKER_CERT KUAYLE_DOCKER_KEY KUAYLE_DOCKER_HOST
+  if [ -z "$docker_ca" ] || [ -z "$docker_cert" ] || [ -z "$docker_key" ] || [ -z "$docker_host" ]; then
+    docker_key=
+    return 0
+  fi
+  case "$docker_host" in
+    tcp://*:[0-9]*) ;;
+    * ) echo "invalid Docker host" >&2; docker_key=; return 1 ;;
+  esac
+  docker_daemon=${docker_host#tcp://}
+  docker_daemon=${docker_daemon%:*}
+  case "$docker_daemon" in
+    ''|*[!a-z0-9.-]* ) echo "invalid Docker host" >&2; docker_key=; return 1 ;;
+  esac
+  docker_dir="$HOME/.docker"
+  [ ! -L "$docker_dir" ] || rm -f "$docker_dir"
+  (umask 077; mkdir -p "$docker_dir")
+  for docker_file in ca.pem cert.pem key.pem config.json; do
+    [ ! -L "$docker_dir/$docker_file" ] || rm -f "$docker_dir/$docker_file"
+  done
+  (umask 077
+    printf '%s' "$docker_ca" > "$docker_dir/ca.pem"
+    printf '%s' "$docker_cert" > "$docker_dir/cert.pem"
+    printf '%s' "$docker_key" > "$docker_dir/key.pem")
+  docker_key=
+  docker_no_proxy="localhost,127.0.0.1,::1,docker,${docker_daemon},.local,.internal"
+  docker_proxy=${HTTPS_PROXY:-${HTTP_PROXY:-}}
+  case "$docker_proxy" in
+    *[\"\\[:space:]]* ) docker_proxy= ;;
+  esac
+  if [ -n "$docker_proxy" ]; then
+    (umask 077; printf '{"proxies":{"default":{"httpProxy":"%s","httpsProxy":"%s","noProxy":"%s"}}}\n' \
+      "$docker_proxy" "$docker_proxy" "$docker_no_proxy" > "$docker_dir/config.json")
+  else
+    (umask 077; printf '{}\n' > "$docker_dir/config.json")
+  fi
+  export DOCKER_HOST="$docker_host" DOCKER_TLS_VERIFY=1 DOCKER_CERT_PATH="$docker_dir"
+  case ",${NO_PROXY:-}," in
+    *",${docker_daemon},"* ) ;;
+    * ) export NO_PROXY="${NO_PROXY:+$NO_PROXY,}docker,${docker_daemon}" ;;
+  esac
+  export no_proxy="$NO_PROXY"
 }
 
 load_scoped_secrets() {
@@ -88,6 +195,41 @@ load_scoped_secrets() {
   done
   IFS=$old_ifs
   rm -f /run/kuayle-secrets/.ready
+}
+
+# Writes the user's stored agent sign-in, delivered as a scoped secret, into
+# the run's in-memory home where Claude Code or Codex expects it.
+install_agent_sign_in() {
+  sign_in_file=
+  sign_in_value=
+  if [ -n "${KUAYLE_CLAUDE_CREDENTIALS:-}" ]; then
+    sign_in_file="$HOME/.claude/.credentials.json"
+    sign_in_value=$KUAYLE_CLAUDE_CREDENTIALS
+  elif [ -n "${KUAYLE_CODEX_AUTH:-}" ]; then
+    sign_in_file="$HOME/.codex/auth.json"
+    sign_in_value=$KUAYLE_CODEX_AUTH
+  fi
+  unset KUAYLE_CLAUDE_CREDENTIALS KUAYLE_CODEX_AUTH
+  [ -n "$sign_in_file" ] || return 0
+  mkdir -p "${sign_in_file%/*}"
+  (umask 077; printf '%s' "$sign_in_value" > "$sign_in_file")
+  sign_in_value=
+}
+
+# Hands the sign-in back after the run, so Kuayle keeps a token the agent
+# refreshed. The run's home is in memory and disappears when it exits, so the
+# file goes to the run's own path on the workspace volume; the manager reads
+# and deletes it immediately.
+return_agent_sign_in() {
+  [ -n "${sign_in_file:-}" ] && [ -f "$sign_in_file" ] || return 0
+  run_id=${KUAYLE_AGENT_RUN_ID:-}
+  case "$run_id" in
+    ''|*[!0-9a-f-]*) return 0 ;;
+  esac
+  return_dir="$workspace_root/.kuayle/sign-in-return"
+  (umask 077; mkdir -p "$return_dir") || return 0
+  chmod 700 "$return_dir" 2>/dev/null || true
+  (umask 077; cp "$sign_in_file" "$return_dir/$run_id.json.tmp" && mv -f "$return_dir/$run_id.json.tmp" "$return_dir/$run_id.json") || true
 }
 
 install_git_credential_helper() {
@@ -128,6 +270,36 @@ configure_bare_git_helper() {
   git --git-dir="$1" config credential.helper "$credential_helper"
 }
 
+# Creates the machine's root checkout of KUAYLE_REPO_URL once. The workspace
+# volume is not empty by then: it holds Kuayle's own state (the Codex package
+# cache, repository caches, task worktrees) and, after a restart, the user's
+# work. The repository is cloned into a staging directory on the same volume,
+# its files are moved into place without replacing anything already there,
+# and .git is moved last, so an interrupted preparation is completed by the
+# next start and an existing .git always means the workspace is prepared.
+prepare_root_checkout() {
+  kuayle_root_checkout_created=0
+  [ -n "${KUAYLE_REPO_URL:-}" ] || return 0
+  [ ! -e "$workspace_root/.git" ] || return 0
+  staging="$workspace_root/.kuayle/root-checkout"
+  rm -rf "$staging"
+  mkdir -p "$workspace_root/.kuayle"
+  git clone --branch "${KUAYLE_BASE_BRANCH:-main}" --single-branch "$KUAYLE_REPO_URL" "$staging"
+  for entry in "$staging"/* "$staging"/.[!.]* "$staging"/..?*; do
+    [ -e "$entry" ] || [ -L "$entry" ] || continue
+    name=${entry##*/}
+    [ "$name" != .git ] || continue
+    if [ -e "$workspace_root/$name" ] || [ -L "$workspace_root/$name" ]; then
+      echo "workspace already contains ${name}; keeping the existing copy" >&2
+      continue
+    fi
+    mv "$entry" "$workspace_root/$name"
+  done
+  mv "$staging/.git" "$workspace_root/.git"
+  rm -rf "$staging"
+  kuayle_root_checkout_created=1
+}
+
 prepare_developer_workspace() {
   install_git_credential_helper
   git config --global --unset-all core.askPass >/dev/null 2>&1 || true
@@ -135,16 +307,17 @@ prepare_developer_workspace() {
   git config --global credential.helper "$credential_helper"
   export GIT_TERMINAL_PROMPT=0
 
-  if [ ! -d "$workspace_root/.git" ] && [ -n "${KUAYLE_REPO_URL:-}" ]; then
-    git clone --branch "${KUAYLE_BASE_BRANCH:-main}" --single-branch "$KUAYLE_REPO_URL" "$workspace_root"
-  fi
+  prepare_root_checkout
+  root_checkout_created=$kuayle_root_checkout_created
 
   mkdir -p "$workspace_root/repos" "$workspace_root/tasks"
 
   if [ -d "$workspace_root/.git" ]; then
     configure_git_helper "$workspace_root"
   fi
-  for bare_repository in "$workspace_root"/repos/*.git; do
+  # Repository caches: repos/<owner>/<repo>.git, and the flat
+  # repos/<owner>-<repo>.git layout of earlier checkouts.
+  for bare_repository in "$workspace_root"/repos/*.git "$workspace_root"/repos/*/*.git; do
     [ -d "$bare_repository" ] || continue
     configure_bare_git_helper "$bare_repository"
   done
@@ -153,14 +326,20 @@ prepare_developer_workspace() {
     configure_git_helper "$checkout"
   done
 
-  if [ -d "$workspace_root/.git" ] && [ -n "${KUAYLE_WORKING_BRANCH:-}" ]; then
-    git -C "$workspace_root" config --global --add safe.directory "$workspace_root"
+  # The working branch is selected once, when the root checkout is created. A
+  # restart keeps whatever branch and local commits the workspace has.
+  if [ -d "$workspace_root/.git" ]; then
+    git config --global --add safe.directory "$workspace_root"
+  fi
+  if [ "$root_checkout_created" = 1 ] && [ -n "${KUAYLE_WORKING_BRANCH:-}" ]; then
     if git -C "$workspace_root" ls-remote --exit-code --heads origin "$KUAYLE_WORKING_BRANCH" >/dev/null 2>&1; then
       git -C "$workspace_root" fetch origin "$KUAYLE_WORKING_BRANCH"
       git -C "$workspace_root" checkout -B "$KUAYLE_WORKING_BRANCH" FETCH_HEAD
     else
       git -C "$workspace_root" checkout "$KUAYLE_WORKING_BRANCH" 2>/dev/null || git -C "$workspace_root" checkout -b "$KUAYLE_WORKING_BRANCH"
     fi
+  fi
+  if [ -d "$workspace_root/.git" ] && [ -n "${KUAYLE_WORKING_BRANCH:-}" ]; then
     hooks="$workspace_root/.git/hooks"
     cat > "$hooks/post-commit" <<'SCRIPT'
 #!/bin/sh

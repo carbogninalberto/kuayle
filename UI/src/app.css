@@ -71,6 +71,11 @@ code {
 	--sidebar-accent-foreground: oklch(0.205 0 0);
 	--sidebar-border: oklch(0.922 0 0);
 	--sidebar-ring: oklch(0.708 0 0);
+	/* Agent and task status: chosen per theme for text contrast on its background. */
+	--status-success: #15803d;
+	--status-warning: #a16207;
+	--status-error: #b91c1c;
+	--status-running: #4f46e5;
 }
 
 html {
@@ -113,6 +118,11 @@ html.light {
 	--color-high: #ea580c;
 	--color-medium: #ca8a04;
 	--color-low: #6b7280;
+	/* Agent and task status: chosen per theme for text contrast on its background. */
+	--status-success: #15803d;
+	--status-warning: #a16207;
+	--status-error: #b91c1c;
+	--status-running: #4f46e5;
 }
 
 html.rose-light {
@@ -140,6 +150,11 @@ html.rose-light {
 	--primary: oklch(0.505 0.213 11.765);
 	--primary-foreground: oklch(1 0 0);
 	--ring: oklch(0.708 0 0);
+	/* Agent and task status: chosen per theme for text contrast on its background. */
+	--status-success: #15803d;
+	--status-warning: #a16207;
+	--status-error: #b91c1c;
+	--status-running: #be123c;
 }
 
 html.blue-light {
@@ -167,6 +182,11 @@ html.blue-light {
 	--primary: oklch(0.488 0.217 264.376);
 	--primary-foreground: oklch(1 0 0);
 	--ring: oklch(0.708 0 0);
+	/* Agent and task status: chosen per theme for text contrast on its background. */
+	--status-success: #15803d;
+	--status-warning: #a16207;
+	--status-error: #b91c1c;
+	--status-running: #1d4ed8;
 }
 
 /* ============================================
@@ -226,6 +246,11 @@ html.dark {
 	--sidebar-accent-foreground: oklch(0.985 0 0);
 	--sidebar-border: oklch(1 0 0 / 10%);
 	--sidebar-ring: oklch(0.556 0 0);
+	/* Agent and task status: chosen per theme for text contrast on its background. */
+	--status-success: #4ade80;
+	--status-warning: #facc15;
+	--status-error: #f87171;
+	--status-running: #818cf8;
 }
 
 html.dark-gray {
@@ -281,6 +306,11 @@ html.dark-gray {
 	--sidebar-accent-foreground: oklch(0.985 0 0);
 	--sidebar-border: oklch(1 0 0 / 14%);
 	--sidebar-ring: oklch(0.556 0 0);
+	/* Agent and task status: chosen per theme for text contrast on its background. */
+	--status-success: #4ade80;
+	--status-warning: #facc15;
+	--status-error: #f87171;
+	--status-running: #818cf8;
 }
 
 html.amethyst-dark {
@@ -336,6 +366,11 @@ html.amethyst-dark {
 	--sidebar-accent-foreground: oklch(0.985 0.005 290);
 	--sidebar-border: oklch(1 0 0 / 10%);
 	--sidebar-ring: oklch(0.556 0.02 290);
+	/* Agent and task status: chosen per theme for text contrast on its background. */
+	--status-success: #4ade80;
+	--status-warning: #facc15;
+	--status-error: #f87171;
+	--status-running: #c4b5fd;
 }
 
 html.emerald-dark {
@@ -391,6 +426,11 @@ html.emerald-dark {
 	--sidebar-accent-foreground: oklch(0.985 0.005 155);
 	--sidebar-border: oklch(1 0 0 / 10%);
 	--sidebar-ring: oklch(0.556 0.02 155);
+	/* Agent and task status: chosen per theme for text contrast on its background. */
+	--status-success: #4ade80;
+	--status-warning: #facc15;
+	--status-error: #f87171;
+	--status-running: #67e8f9;
 }
 
 /* ============================================
@@ -450,6 +490,11 @@ html.cyber-77 {
 	--sidebar-accent-foreground: oklch(0.96 0.01 280);
 	--sidebar-border: oklch(1 0 0 / 12%);
 	--sidebar-ring: oklch(0.55 0.025 280);
+	/* Agent and task status: chosen per theme for text contrast on its background. */
+	--status-success: #00ff9f;
+	--status-warning: #fcee09;
+	--status-error: #ff4d6d;
+	--status-running: #00e5ff;
 }
 
 /* Neon glow accents for Cyber 77 */
@@ -510,6 +555,11 @@ html.blade-49 {
 	--sidebar-accent-foreground: oklch(0.95 0.015 70);
 	--sidebar-border: oklch(1 0 0 / 8%);
 	--sidebar-ring: oklch(0.5 0.015 60);
+	/* Agent and task status: chosen per theme for text contrast on its background. */
+	--status-success: #6fcf97;
+	--status-warning: #f2b84b;
+	--status-error: #ff6b57;
+	--status-running: #7cc7e8;
 }
 
 /* Warm muted glow for Blade 49 */
@@ -570,6 +620,11 @@ html.pipboy {
 	--sidebar-accent-foreground: oklch(0.85 0.25 145);
 	--sidebar-border: oklch(0.35 0.08 145 / 40%);
 	--sidebar-ring: oklch(0.50 0.12 145);
+	/* Agent and task status: chosen per theme for text contrast on its background. */
+	--status-success: #20ff4a;
+	--status-warning: #e8ff70;
+	--status-error: #ff5050;
+	--status-running: #7dffd4;
 }
 
 /* Phosphor green glow for Pip-Boy */

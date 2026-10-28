@@ -40,6 +40,6 @@ WorkingDir: /workspace or the selected checkout path
 User:       1000:1000
 ```
 
-The runner loads scoped secrets, writes the DeepSeek Codex config only when the
-file is absent, installs the Git credential helper, and executes the argv. This
+The runner loads scoped secrets, writes the model server Codex config only when
+the file is absent, installs the Git credential helper, and executes the argv. This
 matches `DockerRuntime.RunAgent` and keeps the image CMD out of autonomous runs.

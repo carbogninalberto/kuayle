@@ -3,7 +3,8 @@ package dto
 import (
 	"time"
 
-	"github.com/kuayle/kuayle-backend/internal/domain"
+	"github.com/google/uuid"
+	"github.com/kuayle/kuayle-backend/internal/agent"
 )
 
 type DevMachineRepoInput struct {
@@ -64,6 +65,15 @@ type DevMachineScopeSettingRequest struct {
 	GitHubRepoID  *string `json:"github_repo_id,omitempty" validate:"omitempty,uuid"`
 	BaseBranch    *string `json:"base_branch,omitempty" validate:"omitempty,max=255"`
 	EnvironmentID *string `json:"environment_id,omitempty" validate:"omitempty,uuid"`
+
+	TestCommand []string `json:"test_command" validate:"omitempty,max=64,dive,max=8192"`
+
+	AgentProvider     *string `json:"agent_provider,omitempty" validate:"omitempty,max=64"`
+	AgentInstructions *string `json:"agent_instructions,omitempty"`
+	ComposeFile       *string `json:"compose_file,omitempty"`
+
+	PreviewCommand []string `json:"preview_command" validate:"omitempty,max=64,dive,max=8192"`
+	PreviewPort    *int     `json:"preview_port,omitempty"`
 }
 
 type CheckoutIssueRequest struct {
@@ -162,30 +172,61 @@ type CreateAgentRunRequest struct {
 	AllowedCommands    []string `json:"allowed_commands"`
 	ForbiddenPaths     []string `json:"forbidden_paths"`
 	TestCommand        []string `json:"test_command"`
-	MaxRuntimeSeconds  int      `json:"max_runtime_seconds" validate:"omitempty,min=30,max=86400"`
-	ExtraArgs          []string `json:"extra_args"`
-	Config             any      `json:"config,omitempty"`
-	AllowedSecrets     []string `json:"allowed_secrets"`
-	PushBranch         *bool    `json:"push_branch,omitempty"`
-	OpenPullRequest    bool     `json:"open_pull_request"`
-	Model              string   `json:"model,omitempty" validate:"omitempty,oneof=deepseek-flash deepseek-v4-pro"`
-	Thinking           string   `json:"thinking,omitempty" validate:"omitempty,oneof=off low high max"`
+	// Session is set only by Kuayle's task runtime; HTTP input cannot carry it.
+	Session           *agent.SessionInput `json:"-"`
+	MaxRuntimeSeconds int                 `json:"max_runtime_seconds" validate:"omitempty,min=30,max=86400"`
+	ExtraArgs         []string            `json:"extra_args"`
+	Config            any                 `json:"config,omitempty"`
+	AllowedSecrets    []string            `json:"allowed_secrets"`
+	PushBranch        *bool               `json:"push_branch,omitempty"`
+	// ModelServerID picks a workspace model server; nil uses the default one.
+	ModelServerID *uuid.UUID `json:"model_server_id,omitempty"`
+	Model         string     `json:"model,omitempty" validate:"omitempty,max=128"`
+	Thinking      string     `json:"thinking,omitempty" validate:"omitempty,oneof=off low high max"`
 }
 
-type UpdateWorkspaceModelProviderRequest struct {
-	APIKey       *string `json:"api_key,omitempty"`
-	DefaultModel string  `json:"default_model" validate:"required,oneof=deepseek-flash deepseek-v4-pro"`
-	Thinking     string  `json:"thinking" validate:"required,oneof=off low high max"`
+// SaveModelServerRequest creates or updates a model server. The API key is
+// required when creating and kept when omitted on update.
+type SaveModelServerRequest struct {
+	Name             string   `json:"name" validate:"required,max=64"`
+	OpenAIBaseURL    *string  `json:"openai_base_url,omitempty"`
+	AnthropicBaseURL *string  `json:"anthropic_base_url,omitempty"`
+	APIKey           *string  `json:"api_key,omitempty"`
+	Models           []string `json:"models" validate:"max=500"`
+	DefaultModel     string   `json:"default_model" validate:"required,max=128"`
+	FastModel        string   `json:"fast_model" validate:"max=128"`
+	Thinking         string   `json:"thinking" validate:"required,oneof=off low high max"`
+	IsDefault        bool     `json:"is_default"`
 }
 
-type WorkspaceModelProviderResponse struct {
-	Provider       string     `json:"provider"`
-	Configured     bool       `json:"configured"`
-	DefaultModel   string     `json:"default_model"`
-	Thinking       string     `json:"thinking"`
-	Models         []string   `json:"models"`
-	ThinkingLevels []string   `json:"thinking_levels"`
-	UpdatedAt      *time.Time `json:"updated_at"`
+// DiscoverModelsRequest lists a server's models before or after saving it. A
+// saved server's stored key is used when api_key is omitted.
+type DiscoverModelsRequest struct {
+	ServerID         *uuid.UUID `json:"server_id,omitempty"`
+	OpenAIBaseURL    *string    `json:"openai_base_url,omitempty"`
+	AnthropicBaseURL *string    `json:"anthropic_base_url,omitempty"`
+	APIKey           *string    `json:"api_key,omitempty"`
+}
+
+type DiscoverModelsResponse struct {
+	Models []string `json:"models"`
+}
+
+// ModelServerResponse never includes the API key.
+type ModelServerResponse struct {
+	ID               uuid.UUID `json:"id"`
+	Name             string    `json:"name"`
+	OpenAIBaseURL    *string   `json:"openai_base_url,omitempty"`
+	AnthropicBaseURL *string   `json:"anthropic_base_url,omitempty"`
+	Models           []string  `json:"models"`
+	DefaultModel     string    `json:"default_model"`
+	FastModel        string    `json:"fast_model"`
+	Thinking         string    `json:"thinking"`
+	IsDefault        bool      `json:"is_default"`
+	// Harnesses that can use this server, from the protocols it speaks.
+	Harnesses      []string  `json:"harnesses"`
+	ThinkingLevels []string  `json:"thinking_levels"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 type AgentProviderResponse struct {
@@ -230,16 +271,21 @@ func (p *LogListParams) Defaults() {
 }
 
 type DevMachinePolicyRequest struct {
-	Enabled               bool     `json:"enabled"`
-	MaxConcurrentMachines int      `json:"max_concurrent_machines" validate:"min=0,max=100"`
-	MaxMachinesPerUser    int      `json:"max_machines_per_user" validate:"min=0,max=50"`
-	MaxDailyAgentRuns     int      `json:"max_daily_agent_runs" validate:"min=0,max=10000"`
-	MaxRuntimeMinutes     int      `json:"max_runtime_minutes" validate:"min=5,max=1440"`
-	MaxDiskGB             int      `json:"max_disk_gb" validate:"min=20,max=2048"`
-	AllowedProviders      []string `json:"allowed_providers" validate:"omitempty,max=7,dive,oneof=claude-code opencode codex qwen-code crush kimi goose"`
-	AllowedRepositories   []string `json:"allowed_repositories"`
-	AllowCustomProviders  bool     `json:"allow_custom_providers"`
-	IdlePauseMinutes      int      `json:"idle_pause_minutes" validate:"omitempty,min=5,max=10080"`
+	Enabled                    bool     `json:"enabled"`
+	MaxConcurrentMachines      int      `json:"max_concurrent_machines" validate:"min=0,max=100"`
+	MaxMachinesPerUser         int      `json:"max_machines_per_user" validate:"min=0,max=50"`
+	MaxDailyAgentRuns          int      `json:"max_daily_agent_runs" validate:"min=0,max=10000"`
+	MaxRuntimeMinutes          int      `json:"max_runtime_minutes" validate:"min=5,max=1440"`
+	MaxDiskGB                  int      `json:"max_disk_gb" validate:"min=20,max=2048"`
+	AllowedProviders           []string `json:"allowed_providers" validate:"omitempty,max=7,dive,oneof=claude-code opencode codex qwen-code crush kimi goose"`
+	AllowedRepositories        []string `json:"allowed_repositories"`
+	AllowCustomProviders       bool     `json:"allow_custom_providers"`
+	AllowUnattendedAutomations bool     `json:"allow_unattended_automations"`
+	// AllowDocker is optional: omitted, the current choice is kept.
+	AllowDocker      *bool  `json:"allow_docker"`
+	AgentGitName     string `json:"agent_git_name" validate:"omitempty,max=100"`
+	AgentGitEmail    string `json:"agent_git_email" validate:"omitempty,max=254"`
+	IdlePauseMinutes int    `json:"idle_pause_minutes" validate:"omitempty,min=5,max=10080"`
 }
 
 type CollectorEventInput struct {
@@ -259,29 +305,36 @@ type CollectorLogInput struct {
 	Truncated  bool    `json:"truncated"`
 }
 
-type TraceListParams struct {
-	EventsAfterID int64 `query:"events_after_id"`
-	EventsLimit   int   `query:"events_limit"`
-	LogsAfterID   int64 `query:"logs_after_id"`
-	LogsLimit     int   `query:"logs_limit"`
+// AppPort is one exposed port of a machine's developer container.
+type AppPort struct {
+	ID             uuid.UUID  `json:"id"`
+	Port           int        `json:"port"`
+	Label          *string    `json:"label"`
+	Source         string     `json:"source"`
+	AgentTaskID    *uuid.UUID `json:"agent_task_id"`
+	TaskIdentifier *string    `json:"task_identifier"`
+	Host           string     `json:"host"`
+	Listening      bool       `json:"listening"`
+	// Target is the container serving it: "developer", or "docker" for a
+	// port published by a container of the machine's Docker daemon.
+	Target    string    `json:"target"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
-func (p *TraceListParams) Defaults() {
-	if p.EventsLimit <= 0 || p.EventsLimit > 500 {
-		p.EventsLimit = 200
-	}
-	if p.LogsLimit <= 0 || p.LogsLimit > 2000 {
-		p.LogsLimit = 500
-	}
+// AppPortList is a machine's app ports and its latest port scan.
+type AppPortList struct {
+	Ports     []AppPort  `json:"ports"`
+	Listening []int      `json:"listening"`
+	ScannedAt *time.Time `json:"scanned_at"`
 }
 
-type AgentRunTraceResponse struct {
-	Run           *domain.DevMachineAgentRun      `json:"run"`
-	Steps         []domain.DevMachineAgentRunStep `json:"steps"`
-	Events        []domain.DevMachineEvent        `json:"events"`
-	Logs          []domain.DevMachineLogChunk     `json:"logs"`
-	NextEventID   int64                           `json:"next_event_id"`
-	NextLogID     int64                           `json:"next_log_id"`
-	HasMoreEvents bool                            `json:"has_more_events"`
-	HasMoreLogs   bool                            `json:"has_more_logs"`
+// AppPortRequest exposes a port; Label is optional.
+type AppPortRequest struct {
+	Port  int     `json:"port"`
+	Label *string `json:"label"`
+}
+
+// AppPortUpdate renames a port; null or "" clears the label.
+type AppPortUpdate struct {
+	Label *string `json:"label"`
 }

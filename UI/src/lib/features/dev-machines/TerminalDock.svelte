@@ -1,8 +1,11 @@
 <script lang="ts">
 	import { Button } from '$lib/components/ui/button/index.js';
-	import { ChevronDown, ChevronUp, Maximize2, Minimize2, SquareTerminal, X } from '@lucide/svelte';
+	import { Bot, ChevronDown, ChevronUp, Maximize2, Minimize2, SquareTerminal, X } from '@lucide/svelte';
+	import { onDestroy } from 'svelte';
 	import { useTerminalDock } from './terminal-dock-context.svelte';
 	import TerminalSession from './TerminalSession.svelte';
+	import AgentDockPanel from './AgentDockPanel.svelte';
+	import { agentTasks, type AgentQueueItem } from '$lib/api/agent-tasks';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
 
@@ -62,7 +65,35 @@
 		dock.toggleFullscreen();
 	}
 
-	const hasTabs = $derived(dock.tabs.length > 0);
+	// Agent work is polled while the page is visible; the queue is a
+	// convenience and failures (e.g. coding agents disabled) just hide it.
+	let agents = $state<AgentQueueItem[]>([]);
+	let agentTimer: ReturnType<typeof setInterval> | undefined;
+	async function loadAgents() {
+		const slug = dock.slug;
+		if (!slug || (typeof document !== 'undefined' && document.hidden)) return;
+		try {
+			const items = await agentTasks.queue(slug);
+			if (slug === dock.slug) agents = items;
+		} catch {
+			agents = [];
+		}
+	}
+	$effect(() => {
+		void dock.slug;
+		clearInterval(agentTimer);
+		if (!dock.agentsTracked) {
+			agents = [];
+			return;
+		}
+		void loadAgents();
+		agentTimer = setInterval(() => void loadAgents(), 15_000);
+	});
+	onDestroy(() => clearInterval(agentTimer));
+	const recent = $derived(agents.filter((item) => !['completed', 'cancelled'].includes(item.state)));
+	const working = $derived(recent.filter((item) => item.state !== 'awaiting_review' && item.state !== 'failed' && item.state !== 'blocked').length);
+	const agentsActive = $derived(dock.activeTabId === 'agents' || (dock.tabs.length === 0 && recent.length > 0));
+	const hasTabs = $derived(dock.tabs.length > 0 || recent.length > 0);
 </script>
 
 <svelte:window
@@ -94,6 +125,14 @@
 				{/if}
 			</Button>
 			<div class="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto px-1" role="tablist" aria-label={m['machines.terminal_sessions']()}>
+				{#if recent.length}
+					<Button variant="plain" type="button" role="tab" aria-selected={agentsActive}
+						class="flex shrink-0 items-center gap-1 rounded-t border border-b-0 px-2.5 py-1 text-xs {agentsActive ? 'border-[var(--app-border)] border-b-transparent bg-zinc-950 text-zinc-200' : 'border-transparent text-zinc-500 hover:text-zinc-300'}"
+						onclick={() => (agentsActive && dock.expanded ? dock.toggle() : dock.showAgents())}
+					>
+						<Bot class="size-3 shrink-0" />{m['tasks.agents_tab']({ working, total: recent.length })}
+					</Button>
+				{/if}
 				{#each dock.tabs as t (t.id)}
 					<div class="flex min-w-0 max-w-[200px] shrink-0 items-center gap-1 rounded-t border border-b-0 px-2.5 py-1 text-xs transition-colors {dock.activeTabId === t.id ? 'border-[var(--app-border)] border-b-transparent bg-zinc-950 text-zinc-200' : 'border-transparent text-zinc-500'}">
 						<Button variant="plain" type="button"
@@ -158,6 +197,7 @@
 			></div>
 		{/if}
 		<div class="flex min-h-0 flex-1 overflow-hidden" class:hidden={!dock.expanded}>
+			{#if agentsActive}<AgentDockPanel items={recent} />{/if}
 			{#each dock.tabs as t (t.id)}
 				<TerminalSession
 					tab={t}

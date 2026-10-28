@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -51,6 +52,37 @@ type GitHubService struct {
 	globalApp      *GlobalGitHubAppConfig // nil = self-hosted mode
 	// installationAccess verifies a shared-app installation callback.
 	installationAccess func(ctx context.Context, code string, installationID int64) (bool, error)
+	// taskReviews finalizes agent tasks whose recorded pull request merged.
+	taskReviews mergedPullRequestCompleter
+	// taskSignals records CI and review events for agent task pull requests.
+	taskSignals taskSignalRecorder
+	// pullRequestMerged asks GitHub whether a pull request merged; replaced in tests.
+	pullRequestMerged func(ctx context.Context, workspaceID uuid.UUID, repository string, number int) (bool, error)
+	// mergePullRequest merges through the GitHub App; replaced in tests.
+	mergePullRequest func(ctx context.Context, workspaceID uuid.UUID, repository string, number int, sha string) error
+	// reviewComments supplies requested agent review comments to post.
+	reviewComments reviewCommentStore
+	// postReviewComment comments through the GitHub App; replaced in tests.
+	postReviewComment func(ctx context.Context, workspaceID uuid.UUID, repository string, number int, marker, body string) error
+}
+
+type mergedPullRequestCompleter interface {
+	CompleteMergedPullRequest(ctx context.Context, workspaceID uuid.UUID, repository string, number int) (int, error)
+	ReviewPullRequests(ctx context.Context, limit int) ([]repository.ReviewPullRequest, error)
+}
+
+type taskSignalRecorder interface {
+	Record(ctx context.Context, ws uuid.UUID, repository string, number int, in domain.AgentTaskSignalInput) error
+}
+
+// SetTaskSignals lets CI and review webhooks drive agent task follow-ups.
+func (s *GitHubService) SetTaskSignals(signals taskSignalRecorder) {
+	s.taskSignals = signals
+}
+
+// SetTaskReviews lets merged pull request webhooks complete agent tasks.
+func (s *GitHubService) SetTaskReviews(reviews mergedPullRequestCompleter) {
+	s.taskReviews = reviews
 }
 
 // IsGlobalMode returns true when a shared GitHub App is configured via env vars.
@@ -161,9 +193,12 @@ func (s *GitHubService) GetManifest(workspaceID uuid.UUID, slug string) (map[str
 			"contents":      "write",
 			"metadata":      "read",
 			"issues":        "read",
+			"checks":        "read",
 		},
 		"default_events": []string{
 			"pull_request",
+			"pull_request_review",
+			"check_suite",
 			"push",
 			"create",
 		},
@@ -594,6 +629,10 @@ func (s *GitHubService) HandleWebhookEvent(ctx context.Context, eventType string
 	switch eventType {
 	case "pull_request":
 		return s.processPullRequestEvent(ctx, payload)
+	case "check_suite":
+		return s.processCheckSuiteEvent(ctx, payload)
+	case "pull_request_review":
+		return s.processReviewEvent(ctx, payload)
 	case "push":
 		return s.processPushEvent(ctx, payload)
 	case "create":
@@ -732,6 +771,11 @@ func (s *GitHubService) processPullRequestEvent(ctx context.Context, payload []b
 	inserted, err := s.ghRepo.UpsertPullRequest(ctx, pr)
 	if err != nil {
 		return fmt.Errorf("upserting PR: %w", err)
+	}
+	if event.PullRequest.Merged && s.taskReviews != nil {
+		if _, err := s.taskReviews.CompleteMergedPullRequest(ctx, inst.WorkspaceID, repo.FullName, event.PullRequest.Number); err != nil {
+			return fmt.Errorf("completing merged agent tasks: %w", err)
+		}
 	}
 
 	if issue != nil {
@@ -1249,4 +1293,234 @@ func (s *GitHubService) UpdateAutoTransitions(ctx context.Context, workspaceID u
 		}
 	}
 	return nil
+}
+
+var signalOutcome = regexp.MustCompile(`^[a-z_]{1,32}$`)
+
+func normalizedOutcome(value string) string {
+	value = strings.ToLower(value)
+	if !signalOutcome.MatchString(value) {
+		return "unknown"
+	}
+	return value
+}
+
+// linkedRepository resolves a webhook's installation and active linked
+// repository. The repository name always comes from Kuayle's link.
+func (s *GitHubService) linkedRepository(ctx context.Context, installationID, repositoryID int64) (*domain.GitHubInstallation, *domain.GitHubRepoModel, error) {
+	inst, err := s.ghRepo.GetInstallationByGitHubID(ctx, installationID)
+	if err != nil || inst == nil {
+		return nil, nil, err
+	}
+	repo, err := s.ghRepo.GetRepoByGitHubID(ctx, inst.WorkspaceID, repositoryID)
+	if err != nil || repo == nil || !repo.IsActive || repo.InstallationID != inst.ID {
+		return nil, nil, err
+	}
+	return inst, repo, nil
+}
+
+func (s *GitHubService) processCheckSuiteEvent(ctx context.Context, payload []byte) error {
+	var event struct {
+		Action     string `json:"action"`
+		CheckSuite struct {
+			ID         int64  `json:"id"`
+			HeadSHA    string `json:"head_sha"`
+			Conclusion string `json:"conclusion"`
+			App        struct {
+				Name string `json:"name"`
+			} `json:"app"`
+			PullRequests []struct {
+				Number int `json:"number"`
+			} `json:"pull_requests"`
+		} `json:"check_suite"`
+		Repository struct {
+			ID int64 `json:"id"`
+		} `json:"repository"`
+		Installation struct {
+			ID int64 `json:"id"`
+		} `json:"installation"`
+	}
+	if err := json.Unmarshal(payload, &event); err != nil {
+		return fmt.Errorf("unmarshaling check suite event: %w", err)
+	}
+	if s.taskSignals == nil || event.Action != "completed" || event.CheckSuite.ID <= 0 || event.CheckSuite.HeadSHA == "" {
+		return nil
+	}
+	inst, repo, err := s.linkedRepository(ctx, event.Installation.ID, event.Repository.ID)
+	if err != nil || repo == nil {
+		return err
+	}
+	for i, pr := range event.CheckSuite.PullRequests {
+		if i >= 10 || pr.Number <= 0 {
+			break
+		}
+		in := domain.AgentTaskSignalInput{
+			Kind: "ci", ExternalID: strconv.FormatInt(event.CheckSuite.ID, 10), Outcome: normalizedOutcome(event.CheckSuite.Conclusion),
+			Name: truncateRunes(event.CheckSuite.App.Name, 200), HeadSHA: event.CheckSuite.HeadSHA,
+			URL: fmt.Sprintf("https://github.com/%s/pull/%d/checks", repo.FullName, pr.Number),
+		}
+		if err := s.taskSignals.Record(ctx, inst.WorkspaceID, repo.FullName, pr.Number, in); err != nil {
+			return fmt.Errorf("recording check suite: %w", err)
+		}
+	}
+	return nil
+}
+
+func (s *GitHubService) processReviewEvent(ctx context.Context, payload []byte) error {
+	var event struct {
+		Action string `json:"action"`
+		Review struct {
+			ID                int64  `json:"id"`
+			State             string `json:"state"`
+			Body              string `json:"body"`
+			AuthorAssociation string `json:"author_association"`
+			User              struct {
+				Login string `json:"login"`
+			} `json:"user"`
+		} `json:"review"`
+		PullRequest struct {
+			Number int `json:"number"`
+		} `json:"pull_request"`
+		Repository struct {
+			ID int64 `json:"id"`
+		} `json:"repository"`
+		Installation struct {
+			ID int64 `json:"id"`
+		} `json:"installation"`
+	}
+	if err := json.Unmarshal(payload, &event); err != nil {
+		return fmt.Errorf("unmarshaling review event: %w", err)
+	}
+	if s.taskSignals == nil || event.Action != "submitted" || event.Review.ID <= 0 || event.PullRequest.Number <= 0 {
+		return nil
+	}
+	inst, repo, err := s.linkedRepository(ctx, event.Installation.ID, event.Repository.ID)
+	if err != nil || repo == nil {
+		return err
+	}
+	// Only reviewers with write association can steer a coding agent.
+	association := event.Review.AuthorAssociation
+	in := domain.AgentTaskSignalInput{
+		Kind: "review", ExternalID: strconv.FormatInt(event.Review.ID, 10), Outcome: normalizedOutcome(event.Review.State),
+		Name: truncateRunes(event.Review.User.Login, 200), Summary: truncateRunes(event.Review.Body, 4000),
+		URL:     fmt.Sprintf("https://github.com/%s/pull/%d", repo.FullName, event.PullRequest.Number),
+		Trusted: association == "OWNER" || association == "MEMBER" || association == "COLLABORATOR",
+	}
+	if err := s.taskSignals.Record(ctx, inst.WorkspaceID, repo.FullName, event.PullRequest.Number, in); err != nil {
+		return fmt.Errorf("recording review: %w", err)
+	}
+	return nil
+}
+
+// RunMergeReconciliation completes tasks whose pull request merged while its
+// webhook was lost, by asking GitHub directly every interval.
+func (s *GitHubService) RunMergeReconciliation(ctx context.Context, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if _, err := s.ReconcileMergedTasks(ctx); err != nil {
+				log.WithError(err).Warn("Merged pull request reconciliation failed")
+			}
+		}
+	}
+}
+
+// ReconcileMergedTasks checks the pull requests of tasks in review and
+// completes those GitHub reports as merged. Completion is idempotent with the
+// webhook path. It returns the number of completed tasks.
+func (s *GitHubService) ReconcileMergedTasks(ctx context.Context) (int, error) {
+	if s.taskReviews == nil {
+		return 0, nil
+	}
+	pulls, err := s.taskReviews.ReviewPullRequests(ctx, 50)
+	if err != nil {
+		return 0, err
+	}
+	merged := s.pullRequestMerged
+	if merged == nil {
+		merged = s.githubPullRequestMerged
+	}
+	completed := 0
+	for _, pull := range pulls {
+		done, err := merged(ctx, pull.WorkspaceID, pull.Repository, pull.Number)
+		if err != nil {
+			log.WithError(err).WithField("workspace_id", pull.WorkspaceID).Warn("Could not check pull request state")
+			continue
+		}
+		if !done {
+			continue
+		}
+		count, err := s.taskReviews.CompleteMergedPullRequest(ctx, pull.WorkspaceID, pull.Repository, pull.Number)
+		if err != nil {
+			return completed, err
+		}
+		completed += count
+	}
+	return completed, nil
+}
+
+func (s *GitHubService) githubPullRequestMerged(ctx context.Context, workspaceID uuid.UUID, repository string, number int) (bool, error) {
+	owner, name, ok := strings.Cut(repository, "/")
+	if !ok {
+		return false, fmt.Errorf("invalid repository %q", repository)
+	}
+	inst, err := s.ghRepo.GetInstallationByWorkspace(ctx, workspaceID)
+	if err != nil || inst == nil {
+		return false, fmt.Errorf("GitHub not connected")
+	}
+	client, _, err := s.getClient(ctx, workspaceID)
+	if err != nil {
+		return false, err
+	}
+	token, _, err := client.GetRepositoryInstallationToken(inst.InstallationID, name)
+	if err != nil {
+		return false, err
+	}
+	pull, err := client.GetPullRequest(token, owner, name, number)
+	if err != nil {
+		return false, err
+	}
+	return pull.Merged, nil
+}
+
+// MergeTaskPullRequest merges a task's recorded pull request at the reviewed
+// commit through the GitHub App, then completes the task. GitHub still enforces
+// branch protection and required checks; its refusal is returned unchanged.
+func (s *GitHubService) MergeTaskPullRequest(ctx context.Context, workspaceID uuid.UUID, repository string, number int, sha string) error {
+	if s.taskReviews == nil {
+		return fmt.Errorf("agent tasks are unavailable")
+	}
+	merge := s.mergePullRequest
+	if merge == nil {
+		merge = s.githubMergePullRequest
+	}
+	if err := merge(ctx, workspaceID, repository, number, sha); err != nil {
+		return err
+	}
+	_, err := s.taskReviews.CompleteMergedPullRequest(ctx, workspaceID, repository, number)
+	return err
+}
+
+func (s *GitHubService) githubMergePullRequest(ctx context.Context, workspaceID uuid.UUID, repository string, number int, sha string) error {
+	owner, name, ok := strings.Cut(repository, "/")
+	if !ok {
+		return fmt.Errorf("invalid repository %q", repository)
+	}
+	inst, err := s.ghRepo.GetInstallationByWorkspace(ctx, workspaceID)
+	if err != nil || inst == nil {
+		return fmt.Errorf("GitHub not connected")
+	}
+	client, _, err := s.getClient(ctx, workspaceID)
+	if err != nil {
+		return err
+	}
+	token, _, err := client.GetRepositoryInstallationToken(inst.InstallationID, name)
+	if err != nil {
+		return err
+	}
+	return client.MergePullRequest(token, owner, name, number, sha)
 }

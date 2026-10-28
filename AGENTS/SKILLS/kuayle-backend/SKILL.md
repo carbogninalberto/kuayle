@@ -39,3 +39,19 @@ description: Implement Kuayle Go API behavior, authorization, persistence and mi
 - Use the toolchain declared by [go.mod](../../../BE/go.mod), format changed Go
   files with `gofmt`, and run the applicable checks. Do not treat skipped integration
   tests as evidence of persistence correctness or use production data for testing.
+
+For persistent chat, follow the [conversation contract](../../../BE/docs/conversations.md).
+Keep conversation cursors serialized by the conversation transaction, generation
+writes fenced by the lease, and reconnects read-only. Conversation audience and
+workspace broadcast audience are different authorization boundaries. Issue chats
+also retain their original team scope; preserve the fresh checks and lock ordering
+documented in that contract across Web, workers and Telegram.
+For Telegram changes, preserve the [channel contract](../../../BE/docs/telegram.md):
+current allowlist plus verified Kuayle-account binding, atomic update receipts and
+conversation writes, owner-only encrypted credentials, and fresh outbound permission
+checks. Never log Telegram request URLs, which contain the bot token.
+
+For task/runtime work, follow the [agent task contract](../../../BE/docs/agent-tasks.md).
+Keep native task ownership, pre-dispatch encrypted credential snapshots, atomic
+log/activity persistence and physical cancellation checks intact. Its status
+section distinguishes implemented backend contracts from workflows not yet enabled.

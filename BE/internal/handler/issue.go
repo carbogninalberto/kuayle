@@ -463,6 +463,10 @@ func (h *IssueHandler) toCommentResponse(ctx context.Context, comment domain.Com
 		s := comment.ParentID.String()
 		cr.ParentID = &s
 	}
+	if comment.AgentTaskID != nil {
+		s := comment.AgentTaskID.String()
+		cr.AgentTaskID = &s
+	}
 	user, _ := h.userRepo.GetByID(ctx, comment.UserID)
 	if user != nil {
 		cr.User = &dto.UserResponse{
@@ -498,7 +502,13 @@ func (h *IssueHandler) CreateComment(c echo.Context) error {
 		return response.NotFound(c, "Issue")
 	}
 
-	comment, err := h.commentSvc.Create(c.Request().Context(), issue.ID, userID, req)
+	ctx := c.Request().Context()
+	if c.Get(middleware.TokenScopesKey) == nil {
+		// Personal access tokens are automation; only session comments may
+		// steer a coding agent awaiting review.
+		ctx = domain.WithInteractiveSession(ctx)
+	}
+	comment, err := h.commentSvc.Create(ctx, issue.ID, userID, req)
 	if err != nil {
 		return response.InternalError(c)
 	}
@@ -610,6 +620,7 @@ func (h *IssueHandler) toIssueHistoryResponse(ctx context.Context, entry domain.
 		NewValue:        entry.NewValue,
 		OldDisplayValue: h.historyDisplayValue(ctx, entry.Field, entry.OldValue),
 		NewDisplayValue: h.historyDisplayValue(ctx, entry.Field, entry.NewValue),
+		Agent:           entry.Agent,
 		CreatedAt:       entry.CreatedAt,
 	}
 }

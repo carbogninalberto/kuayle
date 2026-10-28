@@ -103,7 +103,8 @@ You (browser)
   │
   ├─ 0123456789abcdef0123.kuayle-machines.example.net         → code-server
   ├─ 0123456789abcdef0123-terminal.kuayle-machines.example.net → native xterm over ttyd.v1
-  └─ 0123456789abcdef0123-browser.kuayle-machines.example.net → Chrome via KasmVNC (in-browser web navigation)
+  ├─ 0123456789abcdef0123-browser.kuayle-machines.example.net → Chrome via KasmVNC (in-browser web navigation)
+  └─ 0123456789abcdef0123-3000.kuayle-machines.example.net → your app's dev server (optional app ports)
         │
         └── All routed through Machine Gateway auth — no public ports, no port management
 ```
@@ -321,8 +322,9 @@ The check creates and removes disposable containers and a network. API and
 all-in-one checks apply the packaged migrations to PostgreSQL 17 and exercise
 the real API; the web check uses a fixture upstream to verify proxy routing.
 Both Caddy images verify SPA deep links and static assets as well as backend
-routes. Container UI builds default to a 4 GB Node heap; use
-`--build-arg NODE_OPTIONS=--max-old-space-size=6144` to override it. Host builds
+routes. Container UI builds default to a 6 GB Node heap (the client build no
+longer fits in 4 GB); use `--build-arg NODE_OPTIONS=--max-old-space-size=8192`
+to override it. Host builds
 retain their 8 GB default unless `NODE_OPTIONS` is set.
 A successful candidate run does not authorize publishing. The existing
 release-publishing workflow updates source files on `main`; its output must be
@@ -410,6 +412,16 @@ Instance sysadmins can also enable one-click updates from **Settings → Version
 The updater sidecar is internal-only and runs the same `selfhosting/update.sh` flow. The Version page shows whether the updater is connected and the result of its last run; a failed run shows its reason and expandable recent output. When an update starts, every connected browser is redirected to the upgrade page, which returns to the previous page once the update ends. Update scripts do not refresh the running sidecar: rebuild and recreate `updater` to get failure details from an older sidecar. Without a configured updater, use the command above.
 
 For a deployment pinned to published release images or a detached Git checkout, use the opt-in [release updater](selfhosting/RELEASE_UPDATER.md) instead. It targets an explicit production Compose project, backs up PostgreSQL and updates application and active Dev Machines components together.
+
+### Voice transcription (optional)
+
+Members can dictate assistant messages and send Telegram voice notes; speech is transcribed on your server by the internal `voice` service (faster-whisper int8 or Vosk, CPU only, no GPU). Recordings are limited to 5 minutes, held only while being transcribed and never stored; the transcript fills the composer for review (Telegram notes become the user's message, marked with 🎤).
+
+1. Set `VOICE_INTERNAL_TOKEN` in `selfhosting/.env` to a random value of at least 32 characters (`openssl rand -hex 32`). Keep `VOICE_URL=http://voice:8000` (the default).
+2. Start it with `docker compose --profile voice up -d voice backend` from `selfhosting/`.
+3. As the workspace owner open **Settings → Voice** and pick a model. It is downloaded from its official source (Hugging Face for faster-whisper, alphacephei.com for Vosk), verified against pinned checksums and then activated.
+
+The service is not published: only the backend reaches it on the internal `voice-control` network, and it needs outbound HTTPS only to download models into the `voice_models` volume (from 41 MB for Vosk small to about 1.6 GB for large-v3-turbo; unused models stay there until you remove the volume). `selfhosting/update.sh` does not rebuild optional profiles: after updating, run `docker compose --profile voice up -d --build voice`. See [voice transcription](TECHNICAL.md#voice-transcription) for limits and security.
 
 ### Storage options
 

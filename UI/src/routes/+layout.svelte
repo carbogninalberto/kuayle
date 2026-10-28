@@ -5,6 +5,7 @@
 	import { setCurrentWorkspace } from '$lib/features/workspaces/current-workspace.svelte';
 	import ReleaseNotice from '$lib/components/shared/ReleaseNotice.svelte';
 	import { preferencesState } from '$lib/features/preferences/preferences.state.svelte';
+	import { registerServiceWorker } from '$lib/features/pwa/register-service-worker';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
 
@@ -13,6 +14,7 @@
 
 	onMount(() => {
 		preferencesState.init();
+		registerServiceWorker();
 	});
 </script>
 

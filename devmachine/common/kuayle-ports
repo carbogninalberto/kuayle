@@ -1,0 +1,229 @@
+#!/bin/sh
+# kuayle-ports: list this Dev Machine's listening ports and expose them on
+# their own authenticated Kuayle host for manual QA. Kuayle's machine manager
+# reads requests from ~/.kuayle/ports/requests and answers in
+# ~/.kuayle/ports/state.json about every 15 seconds.
+set -eu
+
+dir=${KUAYLE_PORTS_DIR:-$HOME/.kuayle/ports}
+proc_net=${KUAYLE_PROC_NET:-/proc/net}
+timeout=${KUAYLE_PORTS_TIMEOUT:-30}
+state="$dir/state.json"
+
+usage() {
+  cat <<'USAGE'
+Usage:
+  kuayle-ports [list]                      listening ports and their Kuayle URLs
+  kuayle-ports expose PORT [--label TEXT]  publish PORT (1024-65535) for the reviewer
+  kuayle-ports unexpose PORT               remove a port an agent exposed
+USAGE
+}
+
+die() {
+  printf 'kuayle-ports: %s\n' "$1" >&2
+  exit "${2:-1}"
+}
+
+valid_port() {
+  case "$1" in
+    ''|*[!0-9]*|0*) return 1 ;;
+  esac
+  [ "${#1}" -le 5 ] && [ "$1" -ge 1024 ] && [ "$1" -le 65535 ]
+}
+
+# listeners prints "PORT reachable" or "PORT loopback" for each listening
+# socket. Kuayle reaches the container over its network address, so an app
+# bound only to 127.0.0.1 or ::1 cannot be exposed.
+listeners() {
+  grep -hE '^ *[0-9]+: [0-9A-Fa-f]+:[0-9A-Fa-f]{4} [0-9A-Fa-f]+:[0-9A-Fa-f]{4} 0A ' \
+    "$proc_net/tcp" "$proc_net/tcp6" 2>/dev/null |
+    while read -r _ local _; do
+      address=$(printf '%s' "${local%%:*}" | tr 'a-f' 'A-F')
+      kind=reachable
+      case "$address" in
+        0B00007F) continue ;; # Docker's embedded DNS resolver (127.0.0.11)
+        ??????7F|00000000000000000000000001000000|0000000000000000FFFF0000??????7F) kind=loopback ;;
+      esac
+      printf '%d %s\n' "0x${local##*:}" "$kind"
+    done | sort -u
+}
+
+listening_ports() {
+  listeners | while read -r port kind; do
+    [ "$kind" = reachable ] && echo "$port"
+  done | sort -un
+}
+
+# Ports that listen only on loopback.
+loopback_ports() {
+  reachable=" $(listening_ports | tr '\n' ' ') "
+  listeners | while read -r port kind; do
+    [ "$kind" = loopback ] || continue
+    case "$reachable" in
+      *" $port "*) ;;
+      *) echo "$port" ;;
+    esac
+  done | sort -un
+}
+
+# The state is compact JSON written by Kuayle; its strings never contain
+# quotes or braces, so sed can read it without a JSON parser.
+state_json() {
+  [ -f "$state" ] && [ ! -L "$state" ] && cat "$state" 2>/dev/null || true
+}
+
+state_items() {
+  state_json | sed -n "s/.*\"$1\":\[\([^]]*\)\].*/\1/p" | tr '}' '\n'
+}
+
+updated_at() {
+  state_json | sed -n 's/.*"updated_at":"\([^"]*\)".*/\1/p'
+}
+
+port_field() {
+  state_items ports | grep "\"port\":$1," | head -n 1 | sed -n "s/.*\"$2\":\"\([^\"]*\)\".*/\1/p"
+}
+
+refusal() {
+  state_items refused | grep "\"port\":$1," | head -n 1 | sed -n 's/.*"reason":"\([^"]*\)".*/\1/p'
+}
+
+exposed() {
+  state_items ports | grep -q "\"port\":$1,"
+}
+
+# wait_for REQUEST BEFORE: until Kuayle took the request and wrote a newer state.
+wait_for() {
+  waited=0
+  while [ "$waited" -lt "$timeout" ]; do
+    if [ ! -e "$1" ] && [ "$(updated_at)" != "$2" ]; then
+      return 0
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  return 1
+}
+
+# Ports published by containers of the machine's Docker daemon. They listen
+# in the daemon's container (reach them at docker:PORT), so Kuayle reports them.
+docker_ports() {
+  state_json | sed -n 's/.*"docker":\[\([0-9,]*\)\].*/\1/p' | tr ',' '\n' | grep -E '^[0-9]+$' || true
+}
+
+is_docker_port() {
+  docker_ports | grep -qx "$1"
+}
+
+# Ports of the machine's own services (IDE, terminal...), never exposed.
+reserved_ports() {
+  state_json | sed -n 's/.*"reserved":\[\([0-9,]*\)\].*/\1/p' | tr ',' '\n'
+}
+
+offered_ports() {
+  reserved=" $(reserved_ports | tr '\n' ' ') "
+  for port in $({ listening_ports; docker_ports; } | sort -un); do
+    case "$reserved" in
+      *" $port "*) ;;
+      *) echo "$port" ;;
+    esac
+  done
+}
+
+list() {
+  ports=$(offered_ports)
+  printf '%-7s %s\n' PORT STATUS
+  for port in $ports; do
+    url=$(port_field "$port" url)
+    where=
+    is_docker_port "$port" && where=", docker"
+    if [ -n "$url" ]; then
+      printf '%-7s %s (%s%s)\n' "$port" "$url" "$(port_field "$port" source)" "$where"
+    elif [ -n "$where" ]; then
+      printf '%-7s %s\n' "$port" "published by a Docker container, not exposed"
+    else
+      printf '%-7s %s\n' "$port" "listening, not exposed"
+    fi
+  done
+  for port in $(loopback_ports); do
+    printf '%-7s %s\n' "$port" "localhost only: bind to 0.0.0.0 to expose it"
+  done
+  state_items ports | sed -n 's/.*"port":\([0-9]*\),.*"url":"\([^"]*\)".*/\1 \2/p' |
+    while read -r port url; do
+      case " $(echo $ports) " in
+        *" $port "*) ;;
+        *) printf '%-7s %s (not listening)\n' "$port" "$url" ;;
+      esac
+    done
+  if [ ! -f "$state" ]; then
+    echo "Kuayle has not published this machine's app ports yet." >&2
+  fi
+}
+
+request() {
+  mkdir -p "$dir/requests"
+  before=$(updated_at)
+  tmp="$dir/requests/.request.$$"
+  printf '%s' "$2" >"$tmp"
+  mv -f "$tmp" "$dir/requests/$1"
+  if ! wait_for "$dir/requests/$1" "$before"; then
+    rm -f "$dir/requests/$1"
+    die "Kuayle did not answer within ${timeout}s; is the machine manager running?" 3
+  fi
+}
+
+expose() {
+  port=$1
+  shift
+  label=
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --label)
+        [ "$#" -ge 2 ] || die "--label needs a value" 2
+        label=$2
+        shift 2 ;;
+      *) die "unknown option: $1" 2 ;;
+    esac
+  done
+  valid_port "$port" || die "PORT must be a number between 1024 and 65535" 2
+  case "$label" in
+    *[!A-Za-z0-9\ ._-]*) die "a label uses only letters, digits, spaces, dots, dashes and underscores" 2 ;;
+  esac
+  [ "${#label}" -le 40 ] || die "a label has at most 40 characters" 2
+  body="{\"port\":$port"
+  [ -z "$label" ] || body="$body,\"label\":\"$label\""
+  case "$PWD" in
+    /workspace/tasks/*[!A-Za-z0-9/._-]*) ;;
+    /workspace/tasks/*) body="$body,\"cwd\":\"$PWD\"" ;;
+  esac
+  request "expose-$port.json" "$body}"
+  reason=$(refusal "$port")
+  [ -z "$reason" ] || die "port $port was not exposed: $reason" 4
+  url=$(port_field "$port" url)
+  [ -n "$url" ] || die "port $port was not exposed" 4
+  printf '%s\n' "$url"
+  if loopback_ports | grep -qx "$port"; then
+    echo "kuayle-ports: port $port listens on localhost only; restart the app bound to 0.0.0.0:$port" >&2
+  elif ! listening_ports | grep -qx "$port" && ! is_docker_port "$port"; then
+    echo "kuayle-ports: nothing listens on port $port yet; bind the app to 0.0.0.0:$port" >&2
+  fi
+}
+
+unexpose() {
+  valid_port "$1" || die "PORT must be a number between 1024 and 65535" 2
+  request "unexpose-$1" ""
+  reason=$(refusal "$1")
+  [ -z "$reason" ] || die "port $1 was not removed: $reason" 4
+  ! exposed "$1" || die "port $1 is still exposed" 4
+  printf 'Port %s is no longer exposed.\n' "$1"
+}
+
+command=${1:-list}
+[ "$#" -eq 0 ] || shift
+case "$command" in
+  list) [ "$#" -eq 0 ] || { usage >&2; exit 2; }; list ;;
+  expose) [ "$#" -ge 1 ] || { usage >&2; exit 2; }; expose "$@" ;;
+  unexpose) [ "$#" -eq 1 ] || { usage >&2; exit 2; }; unexpose "$1" ;;
+  -h|--help|help) usage ;;
+  *) usage >&2; exit 2 ;;
+esac

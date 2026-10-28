@@ -11,7 +11,10 @@ const config = {
 			fallback: 'index.html',
 			precompress: false,
 			strict: true
-		})
+		}),
+		// Registered by $lib/features/pwa in production only, never in dev or
+		// browser tests unless a test opts in.
+		serviceWorker: { register: false }
 	}
 };
 
