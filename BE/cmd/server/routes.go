@@ -56,6 +56,7 @@ type appHandlers struct {
 	aiSettings        *handler.AISettingsHandler
 	agentTask         *handler.AgentTaskHandler
 	agentAutomation   *handler.AgentAutomationHandler
+	agentMessage      *handler.AgentMessageHandler
 	conversation      *handler.ConversationHandler
 	telegram          *handler.TelegramHandler
 	voice             *handler.VoiceHandler
@@ -327,6 +328,16 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 		sessionOnly(dm, http.MethodGet, "/agent-automation-runs", h.agentAutomation.Runs)
 		sessionOnly(dm, http.MethodPost, "/agent-automation-runs/:runId/approve", h.agentAutomation.Approve)
 		sessionOnly(dm, http.MethodPost, "/agent-automation-runs/:runId/dismiss", h.agentAutomation.Dismiss)
+	}
+	if h.agentMessage != nil {
+		sessionOnly(dm, http.MethodGet, "/agent-messages", h.agentMessage.List)
+		sessionOnly(dm, http.MethodGet, "/agent-messages/:messageId", h.agentMessage.Get)
+		sessionOnly(dm, http.MethodPost, "/agent-messages/:messageId/hold", h.agentMessage.Hold())
+		sessionOnly(dm, http.MethodPost, "/agent-messages/:messageId/release", h.agentMessage.Release())
+		sessionOnly(dm, http.MethodPost, "/agent-messages/:messageId/drop", h.agentMessage.Drop())
+		sessionOnly(dm, http.MethodGet, "/agent-message-holds", h.agentMessage.Holds)
+		sessionOnly(dm, http.MethodPost, "/agent-message-holds", h.agentMessage.HoldConversation)
+		sessionOnly(dm, http.MethodDelete, "/agent-message-holds/:holdId", h.agentMessage.ReleaseConversation)
 	}
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/cancel", h.agentTask.Cancel)
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/retry", h.agentTask.Retry)

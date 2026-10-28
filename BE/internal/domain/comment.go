@@ -8,14 +8,16 @@ import (
 )
 
 type Comment struct {
-	ID         uuid.UUID  `json:"id" db:"id"`
-	IssueID    uuid.UUID  `json:"issue_id" db:"issue_id"`
-	UserID     uuid.UUID  `json:"user_id" db:"user_id"`
-	Body       string     `json:"body" db:"body"`
-	ParentID   *uuid.UUID `json:"parent_id" db:"parent_id"`
-	ResolvedAt *time.Time `json:"resolved_at" db:"resolved_at"`
-	CreatedAt  time.Time  `json:"created_at" db:"created_at"`
-	UpdatedAt  time.Time  `json:"updated_at" db:"updated_at"`
+	ID       uuid.UUID  `json:"id" db:"id"`
+	IssueID  uuid.UUID  `json:"issue_id" db:"issue_id"`
+	UserID   uuid.UUID  `json:"user_id" db:"user_id"`
+	Body     string     `json:"body" db:"body"`
+	ParentID *uuid.UUID `json:"parent_id" db:"parent_id"`
+	// AgentTaskID marks a comment Kuayle posted for that task's agent.
+	AgentTaskID *uuid.UUID `json:"agent_task_id,omitempty" db:"agent_task_id"`
+	ResolvedAt  *time.Time `json:"resolved_at" db:"resolved_at"`
+	CreatedAt   time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at" db:"updated_at"`
 }
 
 type interactiveSessionKey struct{}

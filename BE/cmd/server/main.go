@@ -159,6 +159,8 @@ func main() {
 	assistantApprovals := service.NewAssistantApprovals(conversationSvc.Repo, agentTaskSvc)
 	conversationSvc.SetApprovals(assistantApprovals)
 	agentTaskH := handler.NewAgentTaskHandler(agentTaskSvc)
+	agentMessageSvc := service.NewAgentMessageService(repository.NewAgentMessageRepository(db), hub)
+	agentMessageH := handler.NewAgentMessageHandler(agentMessageSvc)
 	automationSvc := service.NewAgentAutomationService(repository.NewAgentAutomationRepository(db), conversationSvc.Repo, agentTaskSvc, notifSvc, hub)
 	agentAutomationH := handler.NewAgentAutomationHandler(automationSvc)
 	telegramSvc := service.NewTelegramService(repository.NewTelegramRepository(db), workspaceRepo, aiSettingsSvc, crypto.DeriveKey(cfg.JWTSecret+":telegram"), cfg.FrontendURL)
@@ -280,6 +282,7 @@ func main() {
 		conversation:      conversationH,
 		agentTask:         agentTaskH,
 		agentAutomation:   agentAutomationH,
+		agentMessage:      agentMessageH,
 		telegram:          telegramH,
 		voice:             voiceH,
 		devMachine:        devMachineH,
@@ -305,6 +308,7 @@ func main() {
 	go conversationSvc.Run(conversationCtx)
 	go taskFeedback.Run(conversationCtx)
 	go agentTaskSvc.Run(conversationCtx)
+	go agentMessageSvc.Run(conversationCtx, 10*time.Second)
 	go automationSvc.Run(conversationCtx)
 	go githubSvc.RunMergeReconciliation(conversationCtx, 2*time.Minute)
 	go githubSvc.RunReviewComments(conversationCtx, 15*time.Second)

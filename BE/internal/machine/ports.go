@@ -297,8 +297,10 @@ func (m *Manager) scanPorts(ctx context.Context) error {
 
 // syncMachinePorts scans the developer container, applies the agent requests
 // it found, records the listening ports and publishes the result to agents.
+// It also collects the agents' outbox messages.
 func (m *Manager) syncMachinePorts(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService) error {
 	_, err := m.syncPorts(ctx, machine, services)
+	m.collectOutbox(ctx, machine, services)
 	return err
 }
 

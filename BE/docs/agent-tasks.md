@@ -710,6 +710,106 @@ Each native prompt starts with the task's related work in the same team: its
 parent, sub-issues, siblings and blockers. Each entry shows the status and the
 newest agent task state, branch and pull request. Agents working in parallel
 know what the others own and build on their merged changes.
+Agents of related tasks can also message each other; see
+[agent messaging](#agent-messaging).
+
+## Agent messaging
+
+Migration 88 adds `agent_messages` (the registry, called the navigator in the
+UI), `agent_message_holds` (held conversations), `agent_message_actions` (the
+audit of every human action) and `comments.agent_task_id`.
+
+**Sending.** Native attempts run in temporary agent containers that share the
+task worktree with the developer container, so an agent sends a message by
+writing one JSON file per message to `.kuayle/outbox/<name>.json` at its
+worktree root: `{"to":"ENG-12","channel":"internal"|"comment","body":"..."}`
+(the Kuayle-owned `kuayle-agents` skill, installed for Claude Code and Codex in
+the agent, IDE and headless images, describes it; implementing prompts with
+related work get one line about it). Before each attempt the manager creates
+the outbox and adds `/.kuayle/` to the repository's `info/exclude`, so outbox
+files are never committed or published.
+
+**Collection.** The manager takes outbox files during the 15-second port scan
+of each running machine and once more when an attempt ends, before git state
+and the next step. A script in the developer container (run as UID 1000, also
+under dash) reads `/workspace/tasks/*/.kuayle/outbox/*.json`: worktree,
+`.kuayle` and `outbox` must be real directories and each entry a regular file
+(never a symlink) whose name uses `[A-Za-z0-9._-]`; at most 10 files per
+worktree and 50 per scan, each cut one byte over 16 KiB. Taken and invalid
+entries are removed; hidden files stay, so agents write a hidden file and
+rename it. A file swapped for a symlink between the check and the read can at
+worst make the developer user read its own file, which still has to be a
+strict message object to be accepted.
+
+**Validation.** The worktree maps to its task (`TaskForWorktree`). The API
+records each file under a per-task advisory lock, in file-name order, within
+20 messages per task per hour (refusals included; further files are not
+recorded); a file taken twice (same attempt, name and content) is recorded
+once. A message is refused, and kept as `rejected` with a reason and a bounded
+preview, unless it is one JSON object with only `to`, optional `channel` and
+`body` (at most 4,000 characters of valid UTF-8; control characters other
+than tabs and newlines are removed), the sender is an implementing task that
+has not ended whose creator is still a non-guest member who can see the
+issue's team, and `to` names a related issue of the sender's issue in the same
+team and workspace: parent, sub-issue, sibling, blocker or blocked issue. The
+recipient task is the issue's newest implementing task. Same-team recipients
+keep private-team boundaries: a member who can see the sender can see the
+recipient unless the issue moved since.
+
+**Holding.** A held conversation (`agent_message_holds`, one row per issue
+pair) makes new messages between the pair `held` and holds its queued ones.
+Workspace administrators and the creators of the sending or receiving task (for
+a conversation: of either issue's implementing tasks) can hold a queued
+message, release a held one back to `queued`, drop a queued or held one, hold
+a conversation, or release it, which releases its held messages. Delivered,
+dropped and refused messages cannot change. Every action records the actor in
+`agent_message_actions`; the message also keeps who held, released or dropped
+it.
+
+**Delivery.** When an implementing attempt is created, the queued messages
+for its issue (oldest first, at most 10, within the prompt room left before
+the 32 KiB limit) are marked `delivered` with the attempt's run ID and placed
+after the task as "Messages from other agents", each fenced as untrusted text
+with the sender's issue, task and channel. Recreating the same attempt places
+the same messages; messages claimed for an attempt that was never created
+(another run ID became current) are delivered again. Kuayle never starts an
+attempt to deliver a message: a recipient waiting in `awaiting_review` keeps
+them queued until its next attempt. Reviews receive none.
+
+**Comment channel.** A queued `comment` message is also posted, every 10
+seconds by the API process, as a comment on the recipient issue: one
+transaction inserts the comment and marks it `posted`, authored by the sending
+task's creator (accountable for the task) with `agent_task_id` naming the
+sending task, so the issue shows it as an agent message. The body is escaped
+plain text under "Message from the agent working on ENG-11". The comment is
+`failed` instead when that creator can no longer see the recipient issue.
+These comments are not interactive, so they never queue a follow-up attempt;
+the recipient agent still receives the message in its prompt. Held comment
+messages are posted only once released.
+
+**Reading.** Every non-guest workspace member reads the messages whose sending
+issue they can see; the recipient is named only when they can see it too.
+
+- `GET /agent-messages?task_id=&issue_id=&issue=ENG-12&state=&channel=&before=`
+  returns `{messages, next_before}` (50 per page, newest first). Each message
+  has `from_identifier`, `to_identifier` (or `null`), `to_ref`, `channel`,
+  `body`, `state` (`queued`, `held`, `delivered`, `dropped`, `rejected`),
+  `reject_reason`, the people and times of hold, release and drop,
+  `delivered_run_id`, `comment_state`, `conversation_hold_id` and
+  `can_moderate`.
+- `GET /agent-messages/:id` returns `{message, actions}`.
+- `POST /agent-messages/:id/hold|release|drop` returns the message (403 for
+  readers who cannot moderate, 409 when the state does not allow it).
+- `GET /agent-message-holds` returns `{holds}`; `POST /agent-message-holds`
+  with `{issue_ids:[a,b]}` holds a conversation (201);
+  `DELETE /agent-message-holds/:id` releases it (204).
+
+The routes are session-only, like the other task routes. Settings → Agent
+messages lists and filters the registry and its held conversations; each task
+card shows its issue's messages compactly with the same controls.
+
+Rolling migration 88 back drops the registry, the holds and the audit, and
+the agent marker of posted comments (the comments stay as their authors').
 
 ## Remaining workflow work
 
@@ -717,9 +817,9 @@ The worker progresses through preparation, native execution (with native
 session resume), independent validation and publication to `awaiting_review`,
 and completes when the recorded pull request merges. CI failures and trusted
 change requests queue bounded follow-up attempts. Work can also be accepted in
-Kuayle without merging. Agents coordinate through issues, dependencies and the
-related-work context, not through direct messages or shared branches. A
-successful process exit must never mark an issue Done.
+Kuayle without merging. Agents coordinate through issues, dependencies, the
+related-work context and [agent messages](#agent-messaging), never through
+shared branches. A successful process exit must never mark an issue Done.
 
 ## HTTP controls and replay
 

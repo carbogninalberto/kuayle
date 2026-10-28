@@ -20,7 +20,7 @@ ARG NPM_VERSION=12.2.0
 COPY --from=node-stage /usr/local /usr/local
 COPY --from=crush-build /out/crush /usr/local/bin/crush
 COPY common/install-agent-clis.sh common/kuayle-ports common/kuayle-service-entrypoint /usr/local/bin/
-COPY common/start-common.sh common/codex-model-catalog.cjs common/patch-npm-security.cjs common/test-http-cache-semantics.cjs common/kuayle-qa.md /usr/local/lib/kuayle/
+COPY common/start-common.sh common/codex-model-catalog.cjs common/patch-npm-security.cjs common/test-http-cache-semantics.cjs common/kuayle-qa.md common/kuayle-agents.md /usr/local/lib/kuayle/
 COPY ide/patch-security.cjs ide/test-zod-security.cjs ide/test-body-parser-security.cjs /usr/local/lib/kuayle/
 COPY ide/start.sh /usr/local/bin/kuayle-ide-start
 COPY ide/shell.sh /usr/local/bin/kuayle-shell

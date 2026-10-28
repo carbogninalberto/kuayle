@@ -92,14 +92,7 @@ func (m *Manager) readAttachments(ctx context.Context, items []domain.AgentTaskA
 // stageAttachmentsScript replaces the worktree's .kuayle/attachments and
 // excludes .kuayle/ through the repository's info/exclude (shared by its
 // worktrees), never through a tracked .gitignore.
-const stageAttachmentsScript = `set -eu
-root=$1
-cd "$root"
-exclude=$(git rev-parse --git-path info/exclude)
-case "$exclude" in /*) ;; *) exclude="$root/$exclude" ;; esac
-mkdir -p "$(dirname "$exclude")"
-grep -qxF '/.kuayle/' "$exclude" 2>/dev/null || printf '\n/.kuayle/\n' >> "$exclude"
-rm -rf "$root/.kuayle/attachments"
+const stageAttachmentsScript = excludeKuayleScript + `rm -rf "$root/.kuayle/attachments"
 mkdir -p "$root/.kuayle/attachments"`
 
 const writeAttachmentScript = `set -eu

@@ -1019,6 +1019,7 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 		return err
 	}
 	m.stageAttachments(ctx, machine, run, checkout)
+	m.prepareOutbox(ctx, machine, run, checkout)
 	service := &domain.DevMachineService{
 		ID: uuid.New(), WorkspaceID: machine.WorkspaceID, MachineID: machine.ID, AgentRunID: &run.ID, ServiceType: "agent",
 		ServiceKey: "agent-" + run.ID.String(), ContainerName: "kuayle-" + machine.RoutingKey + "-agent-" + run.ID.String(),
@@ -1098,6 +1099,12 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	if execution == nil {
 		execution = &AgentExecution{ExitCode: -1}
 	}
+	services, _ := m.store.ListServices(ctx, machine.WorkspaceID, machine.ID)
+	// Messages the agent left are recorded before the next step can deliver
+	// them, without waiting for the next port scan.
+	outboxCtx, cancelOutbox := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+	m.collectOutbox(outboxCtx, machine, services)
+	cancelOutbox()
 	stdout, stderr := output.Text("stdout"), output.Text("stderr")
 	result := provider.ParseResult(stdout, stderr, execution.ExitCode)
 	repositoryFullName := checkoutRepositoryFullName(machine, checkout)
@@ -1122,7 +1129,6 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	} else {
 		run.Status = domain.DevMachineAgentRunStatusSucceeded
 	}
-	services, _ := m.store.ListServices(ctx, machine.WorkspaceID, machine.ID)
 	if gitState, gitErr := m.runtime.GitState(ctx, machine, services, checkout); gitErr == nil {
 		result.Branch = gitState.Branch
 		result.Commits = gitState.Commits

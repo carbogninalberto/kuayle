@@ -162,3 +162,33 @@ func TestStartCommonInstallsTheQASkillForBothAgents(t *testing.T) {
 	require.DirExists(t, filepath.Join(home, ".kuayle", "ports", "requests"))
 	require.Contains(t, string(expected), "name: kuayle-qa")
 }
+
+func TestAgentRunnerInstallsTheMessagingSkillUnderDash(t *testing.T) {
+	repoRoot := repoRootFromCaller(t)
+	runner, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", "common", "kuayle-agent-runner"))
+	require.NoError(t, err)
+	require.Contains(t, string(runner), "\ninstall_kuayle_agents\n", "autonomous attempts get the skill")
+	for _, shell := range outboxShells(t) {
+		home := t.TempDir()
+		require.NoError(t, os.MkdirAll(filepath.Join(home, ".codex", "skills"), 0o700))
+		outside := t.TempDir()
+		require.NoError(t, os.Symlink(outside, filepath.Join(home, ".codex", "skills", "kuayle-agents")))
+		cmd := exec.Command(shell, "-c", `. "$1"; install_kuayle_agents; install_kuayle_qa`, "test", filepath.Join(repoRoot, "devmachine", "common", "start-common.sh"))
+		cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "KUAYLE_AGENTS_SKILL=" + filepath.Join(repoRoot, "devmachine", "common", "kuayle-agents.md"), "KUAYLE_QA_SKILL=" + filepath.Join(repoRoot, "devmachine", "common", "kuayle-qa.md")}
+		output, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(output))
+		expected, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", "common", "kuayle-agents.md"))
+		require.NoError(t, err)
+		require.Contains(t, string(expected), "name: kuayle-agents")
+		require.Contains(t, string(expected), ".kuayle/outbox/")
+		for _, agent := range []string{".claude", ".codex"} {
+			installed, err := os.ReadFile(filepath.Join(home, agent, "skills", "kuayle-agents", "SKILL.md"))
+			require.NoError(t, err, agent)
+			require.Equal(t, string(expected), string(installed))
+			require.FileExists(t, filepath.Join(home, agent, "skills", "kuayle-qa", "SKILL.md"))
+		}
+		entries, err := os.ReadDir(outside)
+		require.NoError(t, err)
+		require.Empty(t, entries, "a symlinked skill directory is replaced, not written through")
+	}
+}

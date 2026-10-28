@@ -85,21 +85,32 @@ link_codex_packages() {
   ln -s "$cache" "$packages" 2>/dev/null || true
 }
 
-# Installs Kuayle's manual QA skill for Claude Code and Codex and prepares the
-# app port request directory used by kuayle-ports. The skill is Kuayle-owned
-# and refreshed on every start.
-install_kuayle_qa() {
-  skill_source=${KUAYLE_QA_SKILL:-/usr/local/lib/kuayle/kuayle-qa.md}
-  mkdir -p "$HOME/.kuayle/ports/requests" 2>/dev/null || true
+# Installs a Kuayle-owned skill for Claude Code and Codex, replacing symlinks;
+# refreshed on every start. Usage: install_kuayle_skill NAME SOURCE
+install_kuayle_skill() {
+  skill_name=$1
+  skill_source=$2
   [ -f "$skill_source" ] || return 0
   for skills_dir in "$HOME/.claude/skills" "$HOME/.codex/skills"; do
-    skill_dir="$skills_dir/kuayle-qa"
+    skill_dir="$skills_dir/$skill_name"
     if [ -L "$skill_dir" ] || [ -L "$skill_dir/SKILL.md" ]; then
       rm -rf "$skill_dir"
     fi
     mkdir -p "$skill_dir" 2>/dev/null || continue
     cp "$skill_source" "$skill_dir/SKILL.md.tmp" 2>/dev/null && mv -f "$skill_dir/SKILL.md.tmp" "$skill_dir/SKILL.md" || true
   done
+}
+
+# Installs Kuayle's manual QA skill and prepares the app port request
+# directory used by kuayle-ports.
+install_kuayle_qa() {
+  mkdir -p "$HOME/.kuayle/ports/requests" 2>/dev/null || true
+  install_kuayle_skill kuayle-qa "${KUAYLE_QA_SKILL:-/usr/local/lib/kuayle/kuayle-qa.md}"
+}
+
+# Installs Kuayle's skill for messaging the agents of related issues.
+install_kuayle_agents() {
+  install_kuayle_skill kuayle-agents "${KUAYLE_AGENTS_SKILL:-/usr/local/lib/kuayle/kuayle-agents.md}"
 }
 
 load_scoped_secrets() {

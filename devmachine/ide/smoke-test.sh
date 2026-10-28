@@ -29,6 +29,8 @@ docker exec "$container" sh -c 'kuayle-ports list | grep -Eq "^8080 +listening"'
 docker exec "$container" sh -c 'kuayle-ports expose 80 >/dev/null 2>&1; test "$?" -eq 2'
 docker exec "$container" test -f /home/kuayle/.claude/skills/kuayle-qa/SKILL.md
 docker exec "$container" test -f /home/kuayle/.codex/skills/kuayle-qa/SKILL.md
+docker exec "$container" test -f /home/kuayle/.claude/skills/kuayle-agents/SKILL.md
+docker exec "$container" test -f /home/kuayle/.codex/skills/kuayle-agents/SKILL.md
 docker exec "$container" test -d /home/kuayle/.kuayle/ports/requests
 
 # Exercise the upgraded FTP dependency through its actual get-uri consumer,

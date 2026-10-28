@@ -55,6 +55,7 @@ func NewAgentTaskService(repo *repository.AgentTaskRepository, machines *DevMach
 	service := &AgentTaskService{Repo: repo, machines: machines, store: repo, runtime: &devMachineTaskRuntime{tasks: repo, machines: machines, related: repo}}
 	if repo != nil {
 		service.runtime.(*devMachineTaskRuntime).attachments = repo
+		service.runtime.(*devMachineTaskRuntime).messages = repo
 	}
 	if hub != nil {
 		service.events = hub
@@ -286,6 +287,9 @@ type devMachineTaskRuntime struct {
 	related relatedWorkSource
 	// attachments supplies the issue's images; without it none are copied.
 	attachments taskAttachmentSource
+	// messages supplies other agents' queued messages; without it none are
+	// delivered.
+	messages agentMessageSource
 }
 
 func (r *devMachineTaskRuntime) Prepare(ctx context.Context, task *domain.AgentTask) (bool, error) {
@@ -434,6 +438,7 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 		}
 		prompt = withAttachments(prompt, items)
 	}
+	var related []domain.RelatedWork
 	if r.related != nil {
 		brief, err := r.related.IssueBrief(ctx, task)
 		if err != nil {
@@ -441,15 +446,24 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 		}
 		prompt = withIssue(prompt, brief)
 		if !review {
-			related, err := r.related.RelatedWork(ctx, task)
-			if err != nil {
+			if related, err = r.related.RelatedWork(ctx, task); err != nil {
 				return nil, err
 			}
 			prompt = withRelatedWork(prompt, related)
 		}
 	}
+	if !review && r.messages != nil {
+		// Claimed for this attempt's run ID, so recreating the attempt after a
+		// failure places the same messages again.
+		messages, err := r.messages.ClaimAgentMessages(ctx, task, messageRoom(prompt))
+		if err != nil {
+			return nil, err
+		}
+		prompt = withMessages(prompt, messages)
+	}
 	if !review {
 		prompt = withQA(prompt, task)
+		prompt = withOutbox(prompt, related)
 	}
 	prompt = withInstructions(prompt, task.AgentInstructions)
 	// No attempt pushes: Kuayle publishes implementations itself, and a

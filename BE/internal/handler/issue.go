@@ -463,6 +463,10 @@ func (h *IssueHandler) toCommentResponse(ctx context.Context, comment domain.Com
 		s := comment.ParentID.String()
 		cr.ParentID = &s
 	}
+	if comment.AgentTaskID != nil {
+		s := comment.AgentTaskID.String()
+		cr.AgentTaskID = &s
+	}
 	user, _ := h.userRepo.GetByID(ctx, comment.UserID)
 	if user != nil {
 		cr.User = &dto.UserResponse{

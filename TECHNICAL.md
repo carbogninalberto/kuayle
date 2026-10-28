@@ -207,7 +207,9 @@ ports are `agent` ports owned by the machine creator, linked to the task whose
 worktree the request came from when known; agents may remove only `agent`
 ports. The start scripts install the Kuayle-owned `kuayle-qa` skill for Claude
 Code and Codex (`~/.claude/skills/kuayle-qa/SKILL.md`,
-`~/.codex/skills/kuayle-qa/SKILL.md`), refreshed on every start. Autonomous
+`~/.codex/skills/kuayle-qa/SKILL.md`), refreshed on every start, and the
+`kuayle-agents` messaging skill, which the agent runner also installs in each
+autonomous attempt's container. Autonomous
 agent attempts run in separate, temporary agent containers whose servers stop
 with the run, so their prompt points the reviewer at the task preview below or
 at `kuayle-ports` in the machine terminal instead.
@@ -402,6 +404,15 @@ its follow-ups, and its state follows the task's transitions in the same
 transaction. Agent reviews of a published pull request run only when requested
 from chat, as separate review tasks that never validate, publish or receive a
 push credential; see [requested agent reviews](BE/docs/agent-tasks.md#requested-agent-reviews).
+
+Agents of related tasks can [message each other](BE/docs/agent-tasks.md#agent-messaging)
+(migration 88): they write `.kuayle/outbox/*.json` files in their worktree, which
+the manager takes during its port scan and at the end of each attempt; the API
+validates them as untrusted input, records every message (including refused
+ones) in `agent_messages`, delivers queued ones in the recipient's next prompt
+and posts `comment` messages as issue comments marked with the sending task.
+Admins and task creators can hold, release or drop messages and hold whole
+conversations before delivery; every action is audited.
 
 [Automations](BE/docs/agent-tasks.md#automations) (migration 69) delegate matching issues on a label or status trigger, optionally on a UTC schedule. Runs need approval unless a rule is unattended and the workspace policy allows unattended automations; every start acts for a recorded user under that user's current permissions.
 

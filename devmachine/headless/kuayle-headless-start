@@ -9,6 +9,7 @@ seed_home_template
 configure_codex_model
 link_codex_packages
 install_kuayle_qa
+install_kuayle_agents
 prepare_developer_workspace
 
 ttyd --port 7681 --writable --url-arg --terminal-type xterm-256color /usr/local/bin/kuayle-terminal-session &
