@@ -49,6 +49,9 @@ async function fixture(page: Page) {
 		signInFound: false,
 		tokenSaves: [] as any[],
 		sessions: [] as any[],
+		agentMessages: [] as any[],
+		messageQueries: [] as string[],
+		messageActions: [] as string[],
 		providers: [{ id: 'codex', display_name: 'Codex', supported_modes: ['autonomous'], custom: false }] as any[]
 	};
 	await page.routeWebSocket('**/api/workspaces/test/ws', () => {});
@@ -246,6 +249,19 @@ async function fixture(page: Page) {
 			});
 		}
 		if (path === '/api/notifications') return route.fulfill({ json: { notifications: [], unread_count: 0 } });
+		if (path === '/api/workspaces/test/agent-messages') {
+			state.messageQueries.push(url.search);
+			return route.fulfill({ json: { messages: state.agentMessages } });
+		}
+		const messageAction = path.match(/\/agent-messages\/([^/]+)\/(hold|release|drop)$/);
+		if (messageAction) {
+			state.messageActions.push(`${messageAction[1]}:${messageAction[2]}`);
+			const next = { hold: 'held', release: 'queued', drop: 'dropped' }[messageAction[2]];
+			state.agentMessages = state.agentMessages.map((item) =>
+				item.id === messageAction[1] ? { ...item, state: next } : item
+			);
+			return route.fulfill({ json: state.agentMessages.find((item) => item.id === messageAction[1]) });
+		}
 		return route.fulfill({ json: [] });
 	});
 	const emit = (type: string, payload: any) => {
@@ -1175,4 +1191,66 @@ test('requests an agent review through the chat and shows its findings on the ta
 		}, dark);
 		await tasks.screenshot({ path: testInfo.outputPath(`agent-review-${dark ? 'dark' : 'light'}.png`) });
 	}
+});
+
+test('the task card shows the agent messages of its issue and lets the creator hold them', async ({
+	page
+}, testInfo) => {
+	const { state, emit } = await fixture(page);
+	const sent = {
+		from_task_id: 'task-1',
+		from_issue_id: 'issue-1',
+		from_identifier: 'ENG-1',
+		from_title: 'Implement search',
+		to_ref: 'ENG-2',
+		to_issue_id: 'issue-2',
+		to_task_id: 'task-2',
+		to_identifier: 'ENG-2',
+		to_title: 'Search UI',
+		channel: 'internal',
+		reject_reason: null,
+		held_by_name: null,
+		dropped_by_name: null,
+		comment_state: 'none',
+		comment_id: null,
+		conversation_hold_id: null,
+		can_moderate: true,
+		created_at: '2026-10-28T09:30:00Z'
+	};
+	state.agentMessages = [
+		{ ...sent, id: 'm1', state: 'queued', body: 'The search endpoint is /v2/search and returns {items, next}.' },
+		{
+			...sent,
+			id: 'm2',
+			state: 'delivered',
+			from_identifier: 'ENG-2',
+			from_issue_id: 'issue-2',
+			to_identifier: 'ENG-1',
+			to_issue_id: 'issue-1',
+			channel: 'comment',
+			comment_state: 'posted',
+			body: 'UI will call /v2/search; please keep the cursor field.'
+		}
+	];
+	await page.setViewportSize({ width: 390, height: 844 });
+	await page.goto('/test/assistant?conversation=chat-1');
+	await delegate(page);
+	state.task = { ...state.task, state: 'running', reason: 'Native coding harness started', machine_id: 'machine-1' };
+	emit('task.state_changed', state.task);
+	const panel = page.getByRole('region', { name: 'Agent messages', exact: true });
+	await expect(panel.getByRole('listitem')).toHaveCount(2);
+	expect(state.messageQueries.at(-1)).toBe('?issue_id=issue-1');
+	await expect(panel.getByText('1 · Queued')).toBeVisible();
+	await expect(panel.getByText('Comment posted')).toBeVisible();
+	await expect(panel.getByRole('link', { name: 'Open all' })).toHaveAttribute(
+		'href',
+		'/test/settings/agent-messages?issue_id=issue-1'
+	);
+	const queued = panel.getByRole('listitem', { name: 'Message from ENG-1 to ENG-2' });
+	await queued.getByRole('button', { name: 'Hold', exact: true }).click();
+	await expect.poll(() => state.messageActions).toEqual(['m1:hold']);
+	await expect(queued.getByRole('status')).toHaveText('Held');
+	await expect(queued.getByRole('button', { name: 'Release', exact: true })).toBeVisible();
+	expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+	await panel.screenshot({ path: testInfo.outputPath('task-messages-390.png') });
 });

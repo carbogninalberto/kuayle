@@ -20,6 +20,7 @@
 		RefreshCw,
 		KeyRound,
 		Bot,
+		MessagesSquare,
 		Mic
 	} from '@lucide/svelte';
 	import { GithubLogoIcon } from 'phosphor-svelte';
@@ -108,7 +109,8 @@
 				...(canUseDevMachines
 					? [
 							{ label: m['settings.nav.dev_machines'](), href: `/${slug}/settings/dev-machines`, icon: SlidersHorizontal },
-							{ label: m['settings.nav.agents'](), href: `/${slug}/settings/agents`, icon: Bot }
+							{ label: m['settings.nav.agents'](), href: `/${slug}/settings/agents`, icon: Bot },
+							{ label: m['agent_messages.nav'](), href: `/${slug}/settings/agent-messages`, icon: MessagesSquare }
 						]
 					: [])
 			]

@@ -3,6 +3,7 @@
 	import IssueAssistant from '$lib/features/assistant/IssueAssistant.svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
+	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { onMount, onDestroy } from 'svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
@@ -35,7 +36,7 @@
 		Copy, Link as LinkIcon, GitBranch, SquareMousePointer,
 		CircleDot, ArrowUpCircle, UserCircle, FolderKanban, Pencil, Layers,
 		Tag, RefreshCw, ArrowUp, MoreHorizontal, Check, Bell,
-		Trash2, CornerDownRight, Ban, ArrowRight
+		Trash2, CornerDownRight, Ban, ArrowRight, Bot
 	} from '@lucide/svelte';
 	import { listCycles } from '$lib/api/cycles';
 	import type { Cycle } from '$lib/types/cycle';
@@ -1118,6 +1119,7 @@
 										{(comment.user?.name ?? 'U').charAt(0).toUpperCase()}
 									</div>
 									<span class="text-[13px] font-medium text-[var(--color-text-primary)]">{comment.user?.name ?? 'User'}</span>
+									{#if comment.agent_task_id}<Badge variant="outline" class="h-5 gap-1 px-1.5 text-[10px]"><Bot size={10} aria-hidden="true" />{m['agent_messages.agent_comment']()}</Badge>{/if}
 									<span class="text-[11px] text-[var(--color-text-tertiary)]">{formatRelativeTime(comment.created_at, getLocale())}</span>
 									{#if comment.resolved_at}
 										<span class="text-[11px] font-medium text-green-400">{m['issue.resolved']()}</span>

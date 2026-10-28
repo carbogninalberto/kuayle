@@ -31,6 +31,7 @@
 	import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
 	import TaskActions from './TaskActions.svelte';
 	import AgentReviews from './AgentReviews.svelte';
+	import TaskMessages from '$lib/features/agent-messages/TaskMessages.svelte';
 	import ReviewRequestMenu from './ReviewRequestMenu.svelte';
 	import AgentLogo from '$lib/features/agents/AgentLogo.svelte';
 	import { reviewHarnesses, reviewSessions } from './agent-review';
@@ -897,6 +898,7 @@
 				</Alert.Root>
 			{/if}
 			<AgentReviews {reviews} />
+			<TaskMessages slug={chat.slug} {task} />
 			{#if appError}<p role="alert" class="text-sm break-words text-destructive">{appError}</p>{/if}
 			{#if error}<p role="alert" class="text-sm text-destructive">{error}</p>
 				<Button variant="ghost" size="sm" onclick={() => void refresh()}>{m['tasks.refresh']()}</Button>{/if}
