@@ -120,6 +120,18 @@ func (f *managerStoreFake) GetModelServer(context.Context, uuid.UUID, *uuid.UUID
 func (f *managerStoreFake) GetAgentSignIn(_ context.Context, _ uuid.UUID, user uuid.UUID, provider string) (string, error) {
 	return f.signIns[user.String()+"/"+provider], nil
 }
+func (f *managerStoreFake) GetAgentSignInToken(_ context.Context, _ uuid.UUID, user uuid.UUID, provider string) (string, error) {
+	return f.signIns[user.String()+"/"+provider+"/token"], nil
+}
+
+// SaveAgentSignInToken is a test helper: the manager only reads tokens.
+func (f *managerStoreFake) SaveAgentSignInToken(_ context.Context, _ uuid.UUID, user uuid.UUID, provider, encrypted string, _ time.Time) error {
+	if f.signIns == nil {
+		f.signIns = map[string]string{}
+	}
+	f.signIns[user.String()+"/"+provider+"/token"] = encrypted
+	return nil
+}
 func (f *managerStoreFake) SaveAgentSignIn(_ context.Context, _ uuid.UUID, user uuid.UUID, provider, encrypted string) error {
 	if f.signIns == nil {
 		f.signIns = map[string]string{}

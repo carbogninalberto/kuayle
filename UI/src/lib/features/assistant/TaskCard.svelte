@@ -28,6 +28,7 @@
 	import TaskActions from './TaskActions.svelte';
 	import * as Alert from '$lib/components/ui/alert/index.js';
 	import { signInCommand } from './agent-session';
+	import ClaudeTokenForm from '$lib/features/agents/ClaudeTokenForm.svelte';
 	import { agentInfo } from '$lib/features/agents/agents';
 	const agentLabel = (provider: string) => agentInfo(provider).name;
 	import { approvedBy } from './review-approval';
@@ -647,7 +648,21 @@
 					<CircleAlert class="text-[var(--status-warning)]" />
 					<Alert.Title>{m['tasks.sign_in_title']({ agent: agentLabel(task.provider) })}</Alert.Title>
 					<Alert.Description class="space-y-3">
-						<p>{m['tasks.sign_in_body']()}</p>
+						{#if task.provider === 'claude-code'}
+							<p>{m['tasks.sign_in_token_body']()}</p>
+							<div class="space-y-2">
+								<p>{m['settings.agents.claude_token_help']()}</p>
+								<code class="block w-fit rounded-md border bg-muted px-2 py-1 font-mono text-foreground"
+									>claude setup-token</code
+								>
+							</div>
+							<ClaudeTokenForm
+								slug={chat.slug}
+								submitLabel={m['tasks.sign_in_token_continue']()}
+								onsaved={continueAfterSignIn}
+							/>
+							<p>{m['tasks.sign_in_terminal_instead']()}</p>
+						{:else}<p>{m['tasks.sign_in_body']()}</p>{/if}
 						<div class="flex flex-wrap gap-2">
 							{#if task.machine_id && dock}<Button
 									size="sm"
@@ -655,12 +670,20 @@
 									onclick={() => openTerminal(signInCommand(task.provider))}
 									><SquareTerminal />{m['tasks.sign_in_open']()}</Button
 								>{/if}
-							<Button size="sm" disabled={continuing} onclick={() => void continueAfterSignIn()}
+							<Button
+								size="sm"
+								variant={task.provider === 'claude-code' ? 'outline' : 'default'}
+								disabled={continuing}
+								onclick={() => void continueAfterSignIn()}
 								>{#if continuing}<LoaderCircle class="animate-spin" />{m['tasks.sign_in_continuing']()}{:else}{m[
 										'tasks.sign_in_continue'
 									]()}{/if}</Button
 							>
 						</div>
+						{#if task.provider === 'claude-code'}<a
+								class="inline-block text-xs underline underline-offset-2"
+								href="/{chat.slug}/settings/agents#your-sign-ins">{m['tasks.sign_in_manage']()}</a
+							>{/if}
 						{#if signInError}<p role="alert" class="text-destructive">{signInError}</p>{/if}
 					</Alert.Description>
 				</Alert.Root>

@@ -47,6 +47,7 @@ type ManagerStore interface {
 	ListEnvVarsInternal(context.Context, uuid.UUID, *string, string) ([]domain.DevMachineEnvVar, error)
 	GetModelServer(context.Context, uuid.UUID, *uuid.UUID) (*domain.AgentModelServer, error)
 	GetAgentSignIn(context.Context, uuid.UUID, uuid.UUID, string) (string, error)
+	GetAgentSignInToken(context.Context, uuid.UUID, uuid.UUID, string) (string, error)
 	SaveAgentSignIn(context.Context, uuid.UUID, uuid.UUID, string, string) error
 	SetMachineState(context.Context, uuid.UUID, domain.DevMachineStatus, *string, *string, *string, *string) error
 	SetMachineStateForOperation(context.Context, uuid.UUID, int64, bool, domain.DevMachineStatus, *string, *string, *string, *string) (bool, error)

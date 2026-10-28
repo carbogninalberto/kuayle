@@ -38,6 +38,10 @@ type DevMachineStore interface {
 	GetModelServer(context.Context, uuid.UUID, *uuid.UUID) (*domain.AgentModelServer, error)
 	SaveModelServer(context.Context, *domain.AgentModelServer) error
 	DeleteModelServer(context.Context, uuid.UUID, uuid.UUID) error
+	ListAgentSignIns(context.Context, uuid.UUID, uuid.UUID) ([]domain.AgentSignIn, error)
+	GetAgentSignInToken(context.Context, uuid.UUID, uuid.UUID, string) (string, error)
+	SaveAgentSignInToken(context.Context, uuid.UUID, uuid.UUID, string, string, time.Time) error
+	DeleteAgentSignIns(context.Context, uuid.UUID, uuid.UUID, string, string) (int64, error)
 	ListRuntimeCredentials(context.Context, uuid.UUID) ([]domain.DevMachineRuntimeCredential, error)
 	ListAgentRunSecretSnapshots(context.Context, uuid.UUID, uuid.UUID) ([]string, error)
 	CreateAgentRun(context.Context, *domain.DevMachineAgentRun, *domain.DevMachineOperation) error
@@ -836,7 +840,7 @@ func (r *DevMachineRepository) DeleteModelServer(ctx context.Context, workspaceI
 // GetAgentSignIn returns a user's encrypted sign-in for a coding agent, or "".
 func (r *DevMachineRepository) GetAgentSignIn(ctx context.Context, workspaceID, userID uuid.UUID, provider string) (string, error) {
 	var encrypted string
-	err := r.db.GetContext(ctx, &encrypted, `SELECT encrypted_credential FROM agent_sign_ins WHERE workspace_id=$1 AND user_id=$2 AND provider=$3`, workspaceID, userID, provider)
+	err := r.db.GetContext(ctx, &encrypted, `SELECT encrypted_credential FROM agent_sign_ins WHERE workspace_id=$1 AND user_id=$2 AND provider=$3 AND kind='credentials'`, workspaceID, userID, provider)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
@@ -845,8 +849,47 @@ func (r *DevMachineRepository) GetAgentSignIn(ctx context.Context, workspaceID, 
 
 func (r *DevMachineRepository) SaveAgentSignIn(ctx context.Context, workspaceID, userID uuid.UUID, provider, encrypted string) error {
 	_, err := r.db.ExecContext(ctx, `INSERT INTO agent_sign_ins(workspace_id,user_id,provider,encrypted_credential) VALUES($1,$2,$3,$4)
-		ON CONFLICT (workspace_id,user_id,provider) DO UPDATE SET encrypted_credential=EXCLUDED.encrypted_credential, updated_at=now()`, workspaceID, userID, provider, encrypted)
+		ON CONFLICT (workspace_id,user_id,provider,kind) DO UPDATE SET encrypted_credential=EXCLUDED.encrypted_credential, updated_at=now()`, workspaceID, userID, provider, encrypted)
 	return err
+}
+
+// GetAgentSignInToken returns a user's encrypted Claude Code token, or "" when
+// there is none or it has expired.
+func (r *DevMachineRepository) GetAgentSignInToken(ctx context.Context, workspaceID, userID uuid.UUID, provider string) (string, error) {
+	var encrypted string
+	err := r.db.GetContext(ctx, &encrypted, `SELECT encrypted_credential FROM agent_sign_ins
+		WHERE workspace_id=$1 AND user_id=$2 AND provider=$3 AND kind='token' AND (expires_at IS NULL OR expires_at > now())`, workspaceID, userID, provider)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return encrypted, err
+}
+
+// SaveAgentSignInToken stores or replaces a user's encrypted token.
+func (r *DevMachineRepository) SaveAgentSignInToken(ctx context.Context, workspaceID, userID uuid.UUID, provider, encrypted string, expiresAt time.Time) error {
+	_, err := r.db.ExecContext(ctx, `INSERT INTO agent_sign_ins(workspace_id,user_id,provider,kind,encrypted_credential,expires_at) VALUES($1,$2,$3,'token',$4,$5)
+		ON CONFLICT (workspace_id,user_id,provider,kind) DO UPDATE SET encrypted_credential=EXCLUDED.encrypted_credential, expires_at=EXCLUDED.expires_at, created_at=now(), updated_at=now()`,
+		workspaceID, userID, provider, encrypted, expiresAt)
+	return err
+}
+
+// ListAgentSignIns describes one user's sign-ins without their values.
+func (r *DevMachineRepository) ListAgentSignIns(ctx context.Context, workspaceID, userID uuid.UUID) ([]domain.AgentSignIn, error) {
+	signIns := []domain.AgentSignIn{}
+	err := r.db.SelectContext(ctx, &signIns, `SELECT provider,kind,created_at,updated_at,expires_at FROM agent_sign_ins
+		WHERE workspace_id=$1 AND user_id=$2 ORDER BY provider,kind`, workspaceID, userID)
+	return signIns, err
+}
+
+// DeleteAgentSignIns removes one user's sign-ins for an agent: one kind, or
+// every kind when kind is "". It reports how many were removed.
+func (r *DevMachineRepository) DeleteAgentSignIns(ctx context.Context, workspaceID, userID uuid.UUID, provider, kind string) (int64, error) {
+	result, err := r.db.ExecContext(ctx, `DELETE FROM agent_sign_ins WHERE workspace_id=$1 AND user_id=$2 AND provider=$3 AND ($4='' OR kind=$4)`,
+		workspaceID, userID, provider, kind)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 func (r *DevMachineRepository) UpsertRuntimeCredential(ctx context.Context, credential *domain.DevMachineRuntimeCredential) error {

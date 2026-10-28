@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -63,4 +64,67 @@ func TestSignInCaptureIsLimitedToTheCreatorOfATaskStoppedForSignIn(t *testing.T)
 	require.NoError(t, err)
 	require.Equal(t, "sealed-2", encrypted, "a refreshed sign-in replaces the old one")
 	require.Error(t, store.SaveAgentSignIn(ctx, task.WorkspaceID, task.CreatorID, "goose", "sealed"), "only agents with a sign-in file")
+}
+
+// A saved Claude Code token sits next to the captured file, is used only until
+// its estimated expiry, is listed without its value, and each user sees and
+// removes only their own sign-ins.
+func TestAgentSignInTokensAreKeptPerUserNextToTheCapturedFile(t *testing.T) {
+	db, _, ctx, task, _ := publishingTask(t)
+	store := NewDevMachineRepository(db)
+	ws, user := task.WorkspaceID, task.CreatorID
+	other := uuid.New()
+	_, err := db.Exec(`INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,'Other','test')`, other, other.String()+"@example.test")
+	require.NoError(t, err)
+
+	require.NoError(t, store.SaveAgentSignIn(ctx, ws, user, "claude-code", "sealed-file"))
+	token, err := store.GetAgentSignInToken(ctx, ws, user, "claude-code")
+	require.NoError(t, err)
+	require.Empty(t, token)
+	expires := time.Now().Add(365 * 24 * time.Hour)
+	require.NoError(t, store.SaveAgentSignInToken(ctx, ws, user, "claude-code", "sealed-token-1", expires))
+	require.NoError(t, store.SaveAgentSignInToken(ctx, ws, user, "claude-code", "sealed-token-2", expires))
+	require.Error(t, store.SaveAgentSignInToken(ctx, ws, user, "codex", "sealed", expires), "Codex has no token")
+	token, err = store.GetAgentSignInToken(ctx, ws, user, "claude-code")
+	require.NoError(t, err)
+	require.Equal(t, "sealed-token-2", token, "a new token replaces the old one")
+	file, err := store.GetAgentSignIn(ctx, ws, user, "claude-code")
+	require.NoError(t, err)
+	require.Equal(t, "sealed-file", file, "the captured file is kept")
+
+	signIns, err := store.ListAgentSignIns(ctx, ws, user)
+	require.NoError(t, err)
+	require.Len(t, signIns, 2)
+	for _, signIn := range signIns {
+		require.Equal(t, "claude-code", signIn.Provider)
+		if signIn.Kind == domain.AgentSignInToken {
+			require.NotNil(t, signIn.ExpiresAt)
+			require.WithinDuration(t, expires, *signIn.ExpiresAt, time.Second)
+		} else {
+			require.Equal(t, domain.AgentSignInCredentials, signIn.Kind)
+			require.Nil(t, signIn.ExpiresAt)
+		}
+	}
+	signIns, err = store.ListAgentSignIns(ctx, ws, other)
+	require.NoError(t, err)
+	require.Empty(t, signIns, "another user sees none of them")
+	removed, err := store.DeleteAgentSignIns(ctx, ws, other, "claude-code", "")
+	require.NoError(t, err)
+	require.Zero(t, removed, "another user cannot remove them")
+
+	_, err = db.Exec(`UPDATE agent_sign_ins SET expires_at=now()-interval '1 minute' WHERE kind='token'`)
+	require.NoError(t, err)
+	token, err = store.GetAgentSignInToken(ctx, ws, user, "claude-code")
+	require.NoError(t, err)
+	require.Empty(t, token, "an expired token is not used")
+
+	removed, err = store.DeleteAgentSignIns(ctx, ws, user, "claude-code", domain.AgentSignInToken)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), removed)
+	file, err = store.GetAgentSignIn(ctx, ws, user, "claude-code")
+	require.NoError(t, err)
+	require.Equal(t, "sealed-file", file, "removing the token keeps the terminal sign-in")
+	removed, err = store.DeleteAgentSignIns(ctx, ws, user, "claude-code", "")
+	require.NoError(t, err)
+	require.Equal(t, int64(1), removed)
 }

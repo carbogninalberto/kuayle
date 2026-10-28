@@ -41,7 +41,8 @@ async function fixture(page: Page) {
 		messages: [] as any[],
 		missingRun: false,
 		signIns: [] as any[],
-		signInFound: false
+		signInFound: false,
+		tokenSaves: [] as any[]
 	};
 	await page.routeWebSocket('**/api/workspaces/test/ws', () => {});
 	await page.routeWebSocket('**/conversations/chat-1/stream*', (socket) => state.sockets.push(socket));
@@ -55,6 +56,21 @@ async function fixture(page: Page) {
 			return route.fulfill({ json: { id: 'user-1', name: 'Owner', email: 'owner@example.test' } });
 		if (path === '/api/workspaces') return route.fulfill({ json: [workspace] });
 		if (path === '/api/workspaces/test') return route.fulfill({ json: workspace });
+		if (path === '/api/workspaces/test/agent-sign-ins/claude-code/token' && req.method() === 'PUT') {
+			const { token } = req.postDataJSON();
+			state.tokenSaves.push(token);
+			// The real API answers with the status only; the continue call then
+			// starts the attempt with the saved token.
+			state.signInFound = true;
+			return route.fulfill({
+				json: {
+					provider: 'claude-code',
+					supports_token: true,
+					token: { saved_at: time, expires_at: '2027-10-26T10:00:00Z', expired: false },
+					terminal: null
+				}
+			});
+		}
 		if (path.endsWith('/assistant/status'))
 			return route.fulfill({ json: { configured: true, model: 'assistant-model' } });
 		if (path.endsWith('/conversations')) return route.fulfill({ json: [conversation] });
@@ -809,4 +825,40 @@ test('a task stopped for the agent’s sign-in continues once the user signed in
 	await expect(tasks.getByText('Codex needs you to sign in', { exact: true })).toHaveCount(0);
 	expect(state.signIns).toHaveLength(2);
 	expect(state.signIns[0].request_id).not.toBe(state.signIns[1].request_id);
+});
+
+test('a Claude Code task stopped for sign-in continues with a pasted token', async ({ page }) => {
+	const { state, emit } = await fixture(page);
+	await page.goto('/test/assistant?conversation=chat-1');
+	await delegate(page);
+	const tasks = page.getByRole('region', { name: 'Coding tasks' });
+	await expect(tasks.getByText('Queued', { exact: true })).toBeVisible();
+	state.task = {
+		...state.task,
+		provider: 'claude-code',
+		state: 'failed',
+		sign_in_required: true,
+		reason: 'Claude Code needs you to sign in. Paste a token, then continue'
+	};
+	emit('task.state_changed', state.task);
+	await expect(tasks.getByText('Claude Code needs you to sign in', { exact: true })).toBeVisible();
+	await expect(tasks.getByText('claude setup-token', { exact: true })).toBeVisible();
+	await expect(tasks.getByRole('button', { name: 'I’ve signed in — continue' })).toBeVisible();
+	await expect(tasks.getByRole('link', { name: 'Manage your sign-ins' })).toHaveAttribute(
+		'href',
+		'/test/settings/agents#your-sign-ins'
+	);
+
+	const field = tasks.getByLabel('Claude Code token', { exact: true });
+	await field.fill('not a token');
+	await tasks.getByRole('button', { name: 'Save token and continue' }).click();
+	await expect(tasks.getByText('That doesn’t look like a token.', { exact: false })).toBeVisible();
+	expect(state.tokenSaves).toHaveLength(0);
+
+	await field.fill('  sk-ant-oat01-browser-fixture-token-0001\n');
+	await tasks.getByRole('button', { name: 'Save token and continue' }).click();
+	await expect(tasks.getByText('Queued', { exact: true })).toBeVisible();
+	await expect(tasks.getByText('Claude Code needs you to sign in', { exact: true })).toHaveCount(0);
+	expect(state.tokenSaves).toEqual(['sk-ant-oat01-browser-fixture-token-0001']);
+	expect(state.signIns).toHaveLength(1);
 });

@@ -23,6 +23,12 @@ var apiKeySecrets = map[string][]string{
 	"codex":       {"OPENAI_API_KEY", "CODEX_API_KEY"},
 }
 
+// signInTokenSecrets carries a saved token (Claude Code's `claude setup-token`)
+// straight into the agent's environment; it needs no file and no write-back.
+var signInTokenSecrets = map[string]string{
+	"claude-code": "CLAUDE_CODE_OAUTH_TOKEN",
+}
+
 var agentNames = map[string]string{"claude-code": "Claude Code", "codex": "Codex"}
 
 const maxSignInBytes = 64 * 1024
@@ -66,8 +72,9 @@ func signInTokens(content string) []string {
 }
 
 // agentSignInSecrets adds the user's stored sign-in to a Codex or Claude Code
-// run without a model server. Without one, and without an API key secret,
-// the run stops so the task can ask the user to sign in from their terminal.
+// run without a model server: a saved token first, then the credentials file
+// captured from the terminal. Without either, and without an API key secret,
+// the run stops so the task can ask the user to sign in.
 func (m *Manager) agentSignInSecrets(ctx context.Context, run *domain.DevMachineAgentRun, secrets, redactions map[string]string) error {
 	name, ok := signInSecretNames[run.ProviderID]
 	if !ok || run.ModelServerID != nil {
@@ -81,6 +88,19 @@ func (m *Manager) agentSignInSecrets(ctx context.Context, run *domain.DevMachine
 	var encrypted string
 	var err error
 	if run.RequestedByUserID != nil {
+		if tokenName := signInTokenSecrets[run.ProviderID]; tokenName != "" {
+			if encrypted, err = m.store.GetAgentSignInToken(ctx, run.WorkspaceID, *run.RequestedByUserID, run.ProviderID); err != nil {
+				return err
+			}
+			if encrypted != "" {
+				token, err := cryptoutil.Decrypt(encrypted, m.encryptionKey)
+				if err != nil {
+					return fmt.Errorf("secret_decryption_failed: %w", err)
+				}
+				secrets[tokenName], redactions[tokenName] = token, token
+				return nil
+			}
+		}
 		if encrypted, err = m.store.GetAgentSignIn(ctx, run.WorkspaceID, *run.RequestedByUserID, run.ProviderID); err != nil {
 			return err
 		}

@@ -104,6 +104,9 @@ func TestRegisteredRoutesRejectPATOutsideBoundaries(t *testing.T) {
 		{"POST", "/api/workspaces/acme/dev-machines/example/terminal-sessions", []string{"dev_machine:read"}, false},
 		{"POST", "/api/workspaces/acme/dev-machines/example/terminal-sessions/example/close", []string{"dev_machine:read"}, false},
 		{"POST", "/api/workspaces/acme/dev-machines/example/activity", []string{"dev_machine:read"}, false},
+		{"GET", "/api/workspaces/acme/agent-sign-ins", []string{"dev_machine:read"}, false},
+		{"PUT", "/api/workspaces/acme/agent-sign-ins/claude-code/token", []string{"dev_machine:admin"}, false},
+		{"DELETE", "/api/workspaces/acme/agent-sign-ins/claude-code", []string{"dev_machine:admin"}, false},
 	} {
 		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
 			e := echo.New()
