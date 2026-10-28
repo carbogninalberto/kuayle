@@ -40,8 +40,16 @@ export interface AgentTask {
 	// on that task's card, never as a task of its own.
 	kind?: 'implement' | 'review';
 	review_of_task_id?: string;
+	// The task's own app process (its preview command), when one was started.
+	preview?: TaskPreview | null;
 	created_at: string;
 	updated_at: string;
+}
+export interface TaskPreview {
+	state: 'starting' | 'running' | 'stopped' | 'failed';
+	port_id: string | null;
+	port: number | null;
+	error: string | null;
 }
 export interface ValidationStep {
 	id: string;
@@ -186,6 +194,9 @@ export const agentTasks = {
 	create: (slug: string, id: string, input: TaskInput) => api.post<AgentTask>(`${chat(slug, id)}/tasks`, input),
 	get: (slug: string, id: string) => api.get<AgentTask>(task(slug, id)),
 	cancel: (slug: string, id: string) => api.post<void>(`${task(slug, id)}/cancel`, {}),
+	// Queue starting or stopping the task's app (its preview command); 202.
+	startPreview: (slug: string, id: string) => api.post<void>(`${task(slug, id)}/preview`),
+	stopPreview: (slug: string, id: string) => api.delete<void>(`${task(slug, id)}/preview`),
 	// Keeps the sign-in finished in the machine's terminal and starts a new attempt.
 	continueAfterSignIn: (slug: string, id: string, requestId: string) =>
 		api.post<AgentTask>(`${task(slug, id)}/sign-in`, { request_id: requestId }),

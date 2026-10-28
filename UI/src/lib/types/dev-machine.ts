@@ -13,7 +13,8 @@ export type DevMachineStatus =
 
 export type DevMachineProfile = 'standard' | 'headless';
 
-type DevMachineLaunchStatus = 'ready' | 'resuming' | 'pending';
+// App port hosts answer `starting` (202) while their route is being published.
+type DevMachineLaunchStatus = 'ready' | 'resuming' | 'pending' | 'starting';
 
 type DevMachineEnvironmentStatus = 'pending' | 'building' | 'ready' | 'failed' | 'delete_requested';
 
@@ -334,6 +335,29 @@ export interface DevMachineTerminalSession {
 	created_at: string;
 	last_activity_at: string;
 	closed_at?: string;
+}
+
+export type AppPortSource = 'user' | 'agent' | 'task';
+
+// One TCP port of the developer container published on its own authenticated
+// host. Ports outlive tasks: they are the human's QA entrypoints.
+export interface AppPort {
+	id: string;
+	port: number;
+	label: string | null;
+	source: AppPortSource;
+	agent_task_id: string | null;
+	task_identifier: string | null;
+	host: string;
+	listening: boolean;
+	created_at: string;
+}
+
+export interface AppPortList {
+	ports: AppPort[];
+	// Ports listening in the developer container at the last scan.
+	listening: number[];
+	scanned_at: string | null;
 }
 
 export interface LaunchMachineServiceResponse {

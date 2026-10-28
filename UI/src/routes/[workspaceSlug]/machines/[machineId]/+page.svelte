@@ -18,7 +18,8 @@
 	import ErrorState from '$lib/components/shared/ErrorState.svelte';
 	import MachineStatusBadge from '$lib/features/dev-machines/MachineStatusBadge.svelte';
 	import MachineTasksCard from '$lib/features/dev-machines/MachineTasksCard.svelte';
-	import PreviewCard from '$lib/features/dev-machines/PreviewCard.svelte';
+	import AppPortsCard from '$lib/features/dev-machines/AppPortsCard.svelte';
+	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { appendRecentTelemetry, DEV_MACHINE_EVENT_RETENTION, DEV_MACHINE_LOG_RETENTION } from '$lib/features/dev-machines/telemetry-retention';
 	import { useTerminalDock } from '$lib/features/dev-machines/terminal-dock-context.svelte';
 	import { appToast } from '$lib/features/toast/toast';
@@ -531,7 +532,7 @@
 					</Card.Content>
 				</Card.Root>
 
-				<PreviewCard {slug} {machineId} running={machine.status === 'running'} />
+				<AppPortsCard {slug} {machineId} running={machine.status === 'running'} canManage={!machine.created_by_user_id || machine.created_by_user_id === authState.user?.id} />
 
 				<section class="rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-4">
 					<div class="flex items-center justify-between gap-4"><div><h2 class="text-sm font-semibold">{m['machines.inactivity']()}</h2><p class="text-xs text-[var(--color-text-tertiary)]">{m['machines.inactivity_desc']()}</p></div><label class="flex items-center gap-2 text-sm"><span>{m['machines.keep_running']()}</span><Switch aria-label={m['machines.keep_running']()} checked={machine.keep_running} onCheckedChange={toggleKeepRunning} /></label></div>

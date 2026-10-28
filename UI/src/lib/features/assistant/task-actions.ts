@@ -17,7 +17,26 @@ export type TaskAction = {
 	group: 'main' | 'tools' | 'more';
 	// The main next step is emphasised; destructive actions are marked.
 	variant?: 'primary' | 'danger';
+	// A tool may open a menu instead (the task app); its dot shows a state.
+	menu?: TaskMenuEntry[];
+	onopen?: () => void;
+	indicator?: 'starting' | 'running' | 'failed';
 };
+
+export type TaskMenuEntry =
+	| { kind: 'note'; id: string; text: string; tone?: 'error' }
+	| { kind: 'separator'; id: string }
+	| {
+			kind: 'item';
+			id: string;
+			label: string;
+			icon: Component;
+			// Secondary text after the label, e.g. the port number.
+			hint?: string;
+			onclick: () => void;
+			disabled?: boolean;
+			variant?: 'danger';
+	  };
 
 // The newest task's header, shown pinned above the chat once its row scrolls away.
 export type TaskBar = {

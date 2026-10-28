@@ -28,8 +28,11 @@ async function fixture(page: Page) {
 		signals: [] as any[],
 		changedFiles: [] as string[],
 		diff: '',
-		preview: null as any,
-		previewLaunches: 0,
+		ports: [] as any[],
+		portLaunches: [] as string[],
+		appStarts: 0,
+		appStops: 0,
+		appStartError: null as any,
 		creates: [] as any[],
 		retries: [] as any[],
 		cancels: 0,
@@ -134,6 +137,18 @@ async function fixture(page: Page) {
 				json: { conversation, issue, messages: state.messages, cursor: 0, has_more: false }
 			});
 		if (path.includes('/agent-tasks/task-1')) {
+			if (path.endsWith('/preview') && req.method() === 'POST') {
+				state.appStarts++;
+				if (state.appStartError) return route.fulfill(state.appStartError);
+				state.task = { ...state.task, preview: { state: 'starting', port_id: null, port: null, error: null } };
+				return route.fulfill({ status: 202, json: {} });
+			}
+			if (path.endsWith('/preview') && req.method() === 'DELETE') {
+				state.appStops++;
+				state.ports = state.ports.filter((p) => p.agent_task_id !== 'task-1' || p.source !== 'task');
+				state.task = { ...state.task, preview: { state: 'stopped', port_id: null, port: null, error: null } };
+				return route.fulfill({ status: 202, json: {} });
+			}
 			if (state.missingRun && path.includes('/runs/'))
 				return route.fulfill({ status: 404, json: { error: { code: 'NOT_FOUND' } } });
 			if (path.endsWith('/cancel')) {
@@ -212,12 +227,14 @@ async function fixture(page: Page) {
 
 			return route.fulfill({ json: state.task });
 		}
-		if (path.endsWith('/dev-machines/machine-1/preview')) return route.fulfill({ json: state.preview });
-		if (path.endsWith('/dev-machines/machine-1/preview/launch')) {
-			state.previewLaunches++;
+		if (path.endsWith('/dev-machines/machine-1/ports'))
+			return route.fulfill({ json: { ports: state.ports, listening: [], scanned_at: time } });
+		const launch = path.match(/\/dev-machines\/machine-1\/ports\/([^/]+)\/launch$/);
+		if (launch) {
+			state.portLaunches.push(launch[1]);
 			return route.fulfill({
 				status: 201,
-				json: { status: 'ready', launch_url: 'https://machine-preview.machines.example.test/?ticket=redacted' }
+				json: { status: 'ready', launch_url: `https://machine-${launch[1]}.machines.example.test/?ticket=redacted` }
 			});
 		}
 		if (path === '/api/notifications') return route.fulfill({ json: { notifications: [], unread_count: 0 } });
@@ -559,13 +576,6 @@ test('opens the recorded pull request only after publication succeeds', async ({
 	emit('task.publication_updated', { task_id: 'task-1', run_id: 'run-1', step: state.publication.step });
 	await expect(link).toHaveAttribute('href', 'https://github.com/acme/app/pull/12');
 	await expect(link).toHaveAttribute('rel', /noopener/);
-	await expect(page.getByRole('button', { name: 'Open preview' })).toHaveCount(0);
-	state.preview = {
-		machine_id: 'machine-1',
-		port: 5173,
-		created_at: '2026-10-27T10:00:00Z',
-		updated_at: '2026-10-27T10:00:00Z'
-	};
 	state.task = {
 		...state.task,
 		state: 'awaiting_review',
@@ -574,15 +584,6 @@ test('opens the recorded pull request only after publication succeeds', async ({
 	};
 	emit('task.state_changed', state.task);
 	await expect(page.getByText('Pull request opened; waiting for human review', { exact: true })).toBeVisible();
-	await page
-		.context()
-		.route('https://*.machines.example.test/**', (route) =>
-			route.fulfill({ contentType: 'text/html', body: 'preview' })
-		);
-	const popupPromise = page.waitForEvent('popup');
-	await page.getByRole('button', { name: 'Open preview' }).click();
-	await popupPromise;
-	await expect.poll(() => state.previewLaunches).toBe(1);
 	state.changedFiles = ['src/theme.ts'];
 	await page.getByRole('button', { name: 'Execution details', exact: true }).click();
 	await expect(page.getByText('Pull request opened', { exact: true })).toBeVisible();
@@ -594,6 +595,121 @@ test('opens the recorded pull request only after publication succeeds', async ({
 	await expect(link).toHaveAttribute('href', 'https://github.com/acme/app/pull/12');
 	expect(state.creates).toHaveLength(1);
 });
+
+const taskPort = (over: any) => ({
+	label: null,
+	source: 'task',
+	agent_task_id: 'task-1',
+	task_identifier: 'ENG-1',
+	listening: true,
+	created_at: '2026-10-27T10:00:00Z',
+	...over,
+	host: `machine-${over.id}.machines.example.test`
+});
+
+test('starts, opens and stops the task app from its card', async ({ page }) => {
+	const { state, emit } = await fixture(page);
+	await page.goto('/test/assistant?conversation=chat-1');
+	await delegate(page);
+	state.task = {
+		...state.task,
+		state: 'awaiting_review',
+		reason: 'Pull request opened; waiting for human review',
+		machine_id: 'machine-1',
+		preview: null
+	};
+	emit('task.state_changed', state.task);
+	await expect(page.getByText('Pull request opened; waiting for human review', { exact: true })).toBeVisible();
+	await page
+		.context()
+		.route('https://*.machines.example.test/**', (route) => route.fulfill({ contentType: 'text/html', body: 'app' }));
+	const tools = page.getByRole('group', { name: 'Tools' });
+	const app = tools.getByRole('button', { name: /^App/ });
+	await app.click();
+	await page.getByRole('menuitem', { name: 'Start app' }).click();
+	await expect.poll(() => state.appStarts).toBe(1);
+	await expect(tools.getByRole('button', { name: 'App: starting' })).toBeVisible();
+	// The manager reports the process running on its allocated port; the card
+	// keeps checking while the app starts.
+	state.ports = [
+		taskPort({ id: 'port-t', port: 4100, label: 'ENG-1' }),
+		taskPort({ id: 'port-a', port: 6006, label: 'storybook', source: 'agent' }),
+		taskPort({ id: 'port-o', port: 4101, label: 'ENG-9', agent_task_id: 'task-9', task_identifier: 'ENG-9' }),
+		taskPort({ id: 'port-u', port: 3000, label: 'web', source: 'user', agent_task_id: null, task_identifier: null })
+	];
+	state.task = { ...state.task, preview: { state: 'running', port_id: 'port-t', port: 4100, error: null } };
+	await expect(tools.getByRole('button', { name: 'App: running' })).toBeVisible({ timeout: 10_000 });
+	await tools.getByRole('button', { name: 'App: running' }).click();
+	const menu = page.getByRole('menu');
+	await expect(menu.getByRole('menuitem', { name: /^Open/ })).toHaveCount(2);
+	await expect(menu.getByRole('menuitem', { name: 'Start app' })).toHaveCount(0);
+	const popupPromise = page.waitForEvent('popup');
+	await menu.getByRole('menuitem', { name: 'Open ENG-1 :4100' }).click();
+	const popup = await popupPromise;
+	await expect.poll(() => popup.url()).toContain('machine-port-t.machines.example.test');
+	expect(state.portLaunches).toEqual(['port-t']);
+	await tools.getByRole('button', { name: 'App: running' }).click();
+	await page.getByRole('menu').getByRole('menuitem', { name: 'Stop app' }).click();
+	await expect.poll(() => state.appStops).toBe(1);
+	await expect(tools.getByRole('button', { name: 'App', exact: true })).toBeVisible();
+	await tools.getByRole('button', { name: 'App', exact: true }).click();
+	await expect(page.getByRole('menu').getByRole('menuitem', { name: 'Open storybook :6006' })).toBeVisible();
+	await expect(page.getByRole('menu').getByRole('menuitem', { name: 'Start app' })).toBeVisible();
+});
+
+test('shows why the task app failed or could not start', async ({ page }) => {
+	const { state, emit } = await fixture(page);
+	await page.goto('/test/assistant?conversation=chat-1');
+	await delegate(page);
+	state.task = {
+		...state.task,
+		state: 'awaiting_review',
+		reason: 'Pull request opened; waiting for human review',
+		machine_id: 'machine-1',
+		preview: { state: 'failed', port_id: null, port: null, error: 'npm ERR! Missing script: "dev"' }
+	};
+	emit('task.state_changed', state.task);
+	const tools = page.getByRole('group', { name: 'Tools' });
+	await tools.getByRole('button', { name: 'App: failed' }).click();
+	const menu = page.getByRole('menu');
+	await expect(menu.getByText('npm ERR! Missing script: "dev"')).toBeVisible();
+	state.appStartError = {
+		status: 422,
+		json: { error: { code: 'PREVIEW_UNAVAILABLE', message: 'This task has no preview command.' } }
+	};
+	await menu.getByRole('menuitem', { name: 'Start app' }).click();
+	await expect(page.getByRole('alert').filter({ hasText: 'This task has no preview command.' })).toBeVisible();
+});
+
+for (const [name, width] of [
+	['desktop', 1280],
+	['phone', 390]
+] as const) {
+	test(`fits the task app control at ${name} width`, async ({ page }, testInfo) => {
+		await page.setViewportSize({ width, height: 900 });
+		const { state, emit } = await fixture(page);
+		state.ports = [taskPort({ id: 'port-t', port: 4100, label: 'ENG-1' })];
+		await page.goto('/test/assistant?conversation=chat-1');
+		await delegate(page);
+		state.task = {
+			...state.task,
+			state: 'awaiting_review',
+			reason: 'Pull request opened; waiting for human review',
+			machine_id: 'machine-1',
+			preview: { state: 'running', port_id: 'port-t', port: 4100, error: null }
+		};
+		emit('task.state_changed', state.task);
+		const task = page.getByRole('article', { name: 'Coding task' });
+		await task.getByRole('button', { name: 'App: running' }).click();
+		await expect(page.getByRole('menuitem', { name: 'Open ENG-1 :4100' })).toBeVisible();
+		expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+		const item = await page.getByRole('menuitem', { name: 'Open ENG-1 :4100' }).boundingBox();
+		expect(item!.x + item!.width).toBeLessThanOrEqual(width);
+		// Let the menu finish its opening animation before capturing it.
+		await page.waitForTimeout(300);
+		await page.screenshot({ path: testInfo.outputPath(`task-app-${name}.png`) });
+	});
+}
 
 test('shows GitHub CI and review signals with the follow-up they caused', async ({ page }) => {
 	const { state, emit } = await fixture(page);

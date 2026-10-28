@@ -21,6 +21,8 @@
 		X,
 		RotateCcw,
 		AppWindow,
+		Play,
+		Square,
 		Server,
 		ChevronRight,
 		ChevronDown
@@ -36,7 +38,7 @@
 	import { agentInfo } from '$lib/features/agents/agents';
 	const agentLabel = (provider: string) => agentInfo(provider).name;
 	import { approvedBy } from './review-approval';
-	import type { TaskAction } from './task-actions';
+	import type { TaskAction, TaskMenuEntry } from './task-actions';
 	import { useTerminalDock } from '$lib/features/dev-machines/terminal-dock-context.svelte';
 	import { agentSessionCommand, resumableStates } from './agent-session';
 	import { taskTone, toneBadge, toneStatus } from './task-tone';
@@ -53,8 +55,11 @@
 		type TaskTransition,
 		type ValidationStep
 	} from '$lib/api/agent-tasks';
-	import type { AgentRun, DevMachineLogChunk } from '$lib/types/dev-machine';
-	import { getMachinePreview, launchMachinePreview, type DevMachinePreview } from '$lib/api/dev-machines';
+	import type { AgentRun, AppPort, DevMachineLogChunk } from '$lib/types/dev-machine';
+	import { listMachinePorts } from '$lib/api/dev-machines';
+	import { portName, taskAppPorts } from '$lib/features/dev-machines/app-ports';
+	import { openAppPort } from '$lib/features/dev-machines/open-app-port';
+	import { getErrorMessage } from '$lib/features/toast/toast';
 	import type { ConversationState } from './conversation-state.svelte';
 	import { taskLabel } from './task-labels';
 	import { m } from '$lib/paraglide/messages.js';
@@ -90,7 +95,11 @@
 	let validation = $state<ValidationStep | null>(null);
 	let publication = $state<PublicationView | null>(null);
 	let signals = $state<TaskSignal[]>([]);
-	let machinePreview = $state<DevMachinePreview | null>(null);
+	let appPorts = $state<AppPort[]>([]),
+		appBusy = $state(false),
+		appError = $state(''),
+		// A start/stop request the task payload does not reflect yet.
+		appRequested = $state<'start' | 'stop' | null>(null);
 	let sessions = $state<AgentSession[]>([]);
 	const signalAction: Record<TaskSignal['action'], (() => string) | undefined> = {
 		recorded: undefined,
@@ -316,40 +325,148 @@
 			agent: agentLabel(harness)
 		});
 	}
-	// The task's machine may expose an application preview for manual QA.
-	$effect(() => {
-		const machine = task.machine_id;
-		if (!machine || !['awaiting_review', 'completed', 'blocked', 'failed'].includes(task.state)) {
-			untrack(() => (machinePreview = null));
-			return;
-		}
-		untrack(() => {
-			void getMachinePreview(chat.slug, machine)
-				.then((value) => {
-					if (!disposed && task.machine_id === machine) machinePreview = value;
-				})
-				.catch(() => (machinePreview = null));
-		});
+	// The task's app: its preview command, started on review or on request,
+	// plus the ports its agent exposed. They are the reviewer's QA entrypoints.
+	const appTaskStates = ['awaiting_review', 'blocked', 'failed'];
+	const appState = $derived.by(() => {
+		const recorded = task.preview?.state;
+		if (appRequested === 'start' && recorded !== 'running' && recorded !== 'failed') return 'starting';
+		if (appRequested === 'stop') return 'stopped';
+		return recorded ?? 'stopped';
 	});
-	async function openPreview() {
-		if (!task.machine_id || busy) return;
-		busy = true;
-		const popup = window.open('about:blank', '_blank');
-		if (popup) popup.opener = null;
+	const canStartApp = $derived(!!task.machine_id && appTaskStates.includes(task.state));
+	const ownPorts = $derived(
+		taskAppPorts(appPorts, task.id).filter((p) => !(appState === 'stopped' && p.source === 'task'))
+	);
+	$effect(() => {
+		const recorded = task.preview?.state;
+		if (appRequested === 'start' && (recorded === 'starting' || recorded === 'running' || recorded === 'failed'))
+			appRequested = recorded === 'starting' ? 'start' : null;
+		else if (appRequested === 'stop' && (!recorded || recorded === 'stopped')) appRequested = null;
+	});
+	async function loadAppPorts() {
+		const machine = task.machine_id;
+		if (!machine) return;
 		try {
-			const launch = await launchMachinePreview(chat.slug, task.machine_id);
-			if (launch.status === 'ready' && launch.launch_url && popup) popup.location.replace(launch.launch_url);
-			else {
-				popup?.close();
-				error = m['machines.preview_not_ready']();
-			}
+			const list = await listMachinePorts(chat.slug, machine);
+			if (!disposed && task.machine_id === machine) appPorts = list.ports ?? [];
 		} catch {
-			popup?.close();
-			error = m['machines.preview_not_ready']();
-		} finally {
-			if (!disposed) busy = false;
+			// Ports are optional context; the menu still offers starting the app.
 		}
 	}
+	$effect(() => {
+		const observed = [task.machine_id, task.state, task.preview?.state, task.preview?.port_id];
+		if (!observed[0] || (!appTaskStates.includes(task.state) && task.state !== 'completed' && !task.preview)) {
+			untrack(() => (appPorts = []));
+			return;
+		}
+		untrack(() => void loadAppPorts());
+	});
+	// While the app starts or stops, check the task until the manager reports it.
+	$effect(() => {
+		if (appState !== 'starting' && appRequested === null) return;
+		let ticks = 0;
+		const timer = setInterval(() => {
+			if (++ticks > 40) {
+				clearInterval(timer);
+				appRequested = null;
+				return;
+			}
+			void refreshApp();
+		}, 3000);
+		return () => clearInterval(timer);
+	});
+	async function refreshApp() {
+		const previous = chat.liveTasks[task.id] ?? null;
+		try {
+			const updated = await agentTasks.get(chat.slug, task.id);
+			if (!disposed) chat.acceptTask(updated, false, previous);
+		} catch {
+			// The next check retries.
+		}
+		await loadAppPorts();
+	}
+	async function toggleApp(start: boolean) {
+		if (appBusy) return;
+		appBusy = true;
+		appError = '';
+		try {
+			if (start) await agentTasks.startPreview(chat.slug, task.id);
+			else await agentTasks.stopPreview(chat.slug, task.id);
+			if (disposed) return;
+			appRequested = start ? 'start' : 'stop';
+			await refreshApp();
+		} catch (e) {
+			if (!disposed) appError = getErrorMessage(e, start ? m['tasks.app_start_error']() : m['tasks.app_stop_error']());
+		} finally {
+			if (!disposed) appBusy = false;
+		}
+	}
+	async function openPort(port: AppPort) {
+		if (!task.machine_id) return;
+		appError = '';
+		try {
+			await openAppPort(chat.slug, task.machine_id, port.id);
+		} catch (e) {
+			if (!disposed) appError = getErrorMessage(e, m['machines.port_not_ready']());
+		}
+	}
+	const appAction = $derived.by((): TaskAction | undefined => {
+		if (!task.machine_id || (!canStartApp && !ownPorts.length && appState === 'stopped')) return undefined;
+		const menu: TaskMenuEntry[] = [];
+		if (appState === 'failed' && task.preview?.error)
+			menu.push({ kind: 'note', id: 'error', text: task.preview.error, tone: 'error' });
+		for (const port of ownPorts)
+			menu.push({
+				kind: 'item',
+				id: port.id,
+				icon: ExternalLink,
+				label: m['tasks.app_open']({ name: portName(port) }),
+				hint: port.label ? `:${port.port}` : undefined,
+				onclick: () => void openPort(port)
+			});
+		const running = appState === 'starting' || appState === 'running';
+		if (canStartApp || running) {
+			if (menu.length) menu.push({ kind: 'separator', id: 'separator' });
+			menu.push(
+				running
+					? {
+							kind: 'item',
+							id: 'stop',
+							icon: Square,
+							label: m['tasks.app_stop'](),
+							disabled: appBusy,
+							variant: 'danger',
+							onclick: () => void toggleApp(false)
+						}
+					: {
+							kind: 'item',
+							id: 'start',
+							icon: Play,
+							label: m['tasks.app_start'](),
+							disabled: appBusy,
+							onclick: () => void toggleApp(true)
+						}
+			);
+		}
+		const label =
+			appState === 'starting'
+				? m['tasks.app_starting']()
+				: appState === 'running'
+					? m['tasks.app_running']()
+					: appState === 'failed'
+						? m['tasks.app_failed']()
+						: m['tasks.app']();
+		return {
+			id: 'app',
+			icon: AppWindow,
+			label,
+			group: 'tools',
+			menu,
+			onopen: () => void loadAppPorts(),
+			indicator: appState === 'stopped' ? undefined : appState
+		};
+	});
 	async function cancel() {
 		if (busy) return;
 		busy = true;
@@ -444,15 +561,7 @@
 						title: `${chat.issue?.identifier ?? ''} · ${m['tasks.attempt']({ number: task.generation })}`
 					})
 			});
-		if (machinePreview)
-			list.push({
-				id: 'preview',
-				icon: AppWindow,
-				label: m['machines.preview_open'](),
-				group: 'tools',
-				disabled: busy,
-				onclick: () => void openPreview()
-			});
+		if (appAction) list.push(appAction);
 		if (task.machine_id && dock) {
 			list.push({
 				id: 'terminal',
@@ -747,6 +856,7 @@
 				</Alert.Root>
 			{/if}
 			<AgentReviews {reviews} />
+			{#if appError}<p role="alert" class="text-sm break-words text-destructive">{appError}</p>{/if}
 			{#if error}<p role="alert" class="text-sm text-destructive">{error}</p>
 				<Button variant="ghost" size="sm" onclick={() => void refresh()}>{m['tasks.refresh']()}</Button>{/if}
 			<div class="flex flex-wrap items-center gap-2">

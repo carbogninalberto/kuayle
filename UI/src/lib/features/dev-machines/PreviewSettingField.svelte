@@ -13,7 +13,7 @@
 </script>
 
 <div class="min-w-0 space-y-1.5 sm:col-span-2">
-	<div class="grid gap-3 sm:grid-cols-[1fr_8rem]">
+	<div class="grid gap-3 sm:grid-cols-[1fr_12rem]">
 		<div class="space-y-1.5">
 			<Label for={`${id}-command`}>{m['tasks.preview_command']()}</Label>
 			<Input

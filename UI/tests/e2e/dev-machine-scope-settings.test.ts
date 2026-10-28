@@ -129,9 +129,13 @@ test('keeps project and team development settings scoped during rapid navigation
 	await expect(page.getByText('Use a relative .yml or .yaml path inside the repository.')).toBeVisible();
 	await compose.fill(' deploy/compose.yaml ');
 	await page.getByRole('textbox', { name: 'Preview command' }).fill('["npm","run","dev"]');
-	const previewPort = page.getByRole('textbox', { name: 'Preview port' });
+	const previewPort = page.getByRole('textbox', { name: 'Preferred port (optional)' });
+	const previewInvalid = page.getByText('Enter a JSON array command. A preferred port must be between 1024 and 65535.');
 	await previewPort.fill('80');
-	await expect(page.getByText('Enter a JSON array command and a port between 1024 and 65535, or leave both empty.')).toBeVisible();
+	await expect(previewInvalid).toBeVisible();
+	// The command alone is enough: Kuayle picks a free port when none is preferred.
+	await previewPort.fill('');
+	await expect(previewInvalid).toHaveCount(0);
 	await previewPort.fill('5173');
 	await expect(page.getByText('Use a relative .yml or .yaml path inside the repository.')).toHaveCount(0);
 	await teamSave.click();

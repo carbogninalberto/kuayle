@@ -3,6 +3,8 @@ import type { AgentQueueItem } from './agent-tasks';
 import type { PaginatedResponse } from '$lib/types/common';
 import type {
 	AgentProvider,
+	AppPort,
+	AppPortList,
 	BulkPermanentDeleteDevMachinesInput,
 	CreateDevMachineInput,
 	CreateTerminalSessionInput,
@@ -112,27 +114,53 @@ function launchMachineService(
 	return api.post(`${base(slug)}/dev-machines/${machineId}/services/${service}/launch${query}`);
 }
 
-export interface DevMachinePreview {
-	machine_id: string;
-	port: number;
-	created_at: string;
-	updated_at: string;
+export function listMachinePorts(slug: string, machineId: string): Promise<AppPortList> {
+	return api.get(`${base(slug)}/dev-machines/${machineId}/ports`);
 }
 
-export function getMachinePreview(slug: string, machineId: string): Promise<DevMachinePreview | null> {
-	return api.get(`${base(slug)}/dev-machines/${machineId}/preview`);
+export function exposeMachinePort(
+	slug: string,
+	machineId: string,
+	input: { port: number; label?: string }
+): Promise<AppPort> {
+	return api.post(`${base(slug)}/dev-machines/${machineId}/ports`, input);
 }
 
-export function setMachinePreview(slug: string, machineId: string, port: number): Promise<DevMachinePreview> {
-	return api.put(`${base(slug)}/dev-machines/${machineId}/preview`, { port });
+export function renameMachinePort(
+	slug: string,
+	machineId: string,
+	portId: string,
+	label: string | null
+): Promise<AppPort> {
+	return api.patch(`${base(slug)}/dev-machines/${machineId}/ports/${portId}`, { label });
 }
 
-export function deleteMachinePreview(slug: string, machineId: string): Promise<void> {
-	return api.delete(`${base(slug)}/dev-machines/${machineId}/preview`);
+export function removeMachinePort(slug: string, machineId: string, portId: string): Promise<void> {
+	return api.delete(`${base(slug)}/dev-machines/${machineId}/ports/${portId}`);
 }
 
-export function launchMachinePreview(slug: string, machineId: string): Promise<LaunchMachineServiceResponse> {
-	return api.post(`${base(slug)}/dev-machines/${machineId}/preview/launch`);
+function launchMachinePort(slug: string, machineId: string, portId: string): Promise<LaunchMachineServiceResponse> {
+	return api.post(`${base(slug)}/dev-machines/${machineId}/ports/${portId}/launch`);
+}
+
+// Retries while the port's host is starting (202) until it is ready or the
+// deadline passes. The launch URL carries a one-time ticket for that host.
+export async function launchMachinePortWhenReady(
+	slug: string,
+	machineId: string,
+	portId: string,
+	options: { timeoutMs?: number; onStarting?: () => void } = {}
+): Promise<string> {
+	const deadline = Date.now() + (options.timeoutMs ?? 60_000);
+	let response = await launchMachinePort(slug, machineId, portId);
+	while (response.status !== 'ready' && Date.now() < deadline) {
+		options.onStarting?.();
+		const wait = Math.min(Math.max(response.retry_after_seconds ?? 2, 1), 10) * 1000;
+		await new Promise((resolve) => setTimeout(resolve, wait));
+		response = await launchMachinePort(slug, machineId, portId);
+	}
+	if (response.status !== 'ready' || !response.launch_url) throw new Error('App port is not ready');
+	return response.launch_url;
 }
 
 export async function launchMachineServiceWithResume(
