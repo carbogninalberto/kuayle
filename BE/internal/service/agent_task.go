@@ -88,6 +88,10 @@ func (s *AgentTaskService) process(ctx context.Context, task domain.AgentTask) {
 	cancel()
 	finalCtx, finish := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer finish()
+	if err != nil && ctx.Err() == nil && !errors.Is(err, repository.ErrAgentTaskConflict) {
+		// Retried steps were otherwise silent until recovery was exhausted.
+		log.WithFields(log.Fields{"task_id": task.ID, "state": task.State}).WithError(err).Warn("Agent task step failed; it will be retried")
+	}
 	if ctx.Err() == nil && !errors.Is(err, repository.ErrAgentTaskConflict) {
 		if recordErr := s.store.RecordStepResult(finalCtx, task, err != nil); recordErr != nil && !errors.Is(recordErr, repository.ErrAgentTaskConflict) {
 			log.WithField("task_id", task.ID).Error("Could not record agent task recovery state")
@@ -320,11 +324,13 @@ func (r *devMachineTaskRuntime) Prepare(ctx context.Context, task *domain.AgentT
 		if *task.MachineID != task.ReservedMachineID {
 			return false, ErrInvalidOperation
 		}
+		// Named after the reservation: a destroyed earlier machine of the same
+		// task keeps its name as history.
 		profile := domain.DevMachineProfileHeadless
 		if setting.EnvironmentID != nil {
 			profile = domain.DevMachineProfileStandard
 		}
-		machine, _, err = s.create(ctx, task.WorkspaceID, task.CreatorID, dto.CreateDevMachineRequest{Name: "task-" + task.ID.String(), IssueID: &rawIssue, Size: "small", Profile: profile, Agents: []dto.DevMachineAgentInput{{Provider: task.Provider, Mode: "autonomous"}}}, task.ReservedMachineID)
+		machine, _, err = s.create(ctx, task.WorkspaceID, task.CreatorID, dto.CreateDevMachineRequest{Name: "task-" + task.ReservedMachineID.String(), IssueID: &rawIssue, Size: "small", Profile: profile, Agents: []dto.DevMachineAgentInput{{Provider: task.Provider, Mode: "autonomous"}}}, task.ReservedMachineID)
 		if err != nil {
 			return false, err
 		}
