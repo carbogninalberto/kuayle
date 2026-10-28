@@ -193,3 +193,13 @@ func TestTelegramApprovalButtonsResolveThroughTheSharedBackend(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "approved", web.Status)
 }
+
+// Telegram answers an accepted approval as acceptance, never as a started agent.
+func TestTelegramApprovalAnswerDescribesAcceptance(t *testing.T) {
+	answer, final := telegramApprovalAnswer(&domain.ConversationApproval{Action: "accept_agent_work", Status: "approved"}, nil)
+	require.True(t, final)
+	require.Equal(t, "Approved: the work was accepted in Kuayle without merging.", answer)
+	reason := "Only workspace admins or the task's creator can accept its work"
+	answer, _ = telegramApprovalAnswer(&domain.ConversationApproval{Action: "accept_agent_work", Status: "failed", Error: &reason}, nil)
+	require.Equal(t, "The work could not be accepted. "+reason, answer)
+}

@@ -107,7 +107,7 @@
 		{@render moreMenu()}
 	</div>
 {:else}
-	<div class="flex items-center gap-2">
+	<div class="flex flex-wrap items-center gap-2">
 		{#each main as action (action.id)}<Button
 				variant={action.variant === 'primary' ? 'default' : 'outline'}
 				size="sm"

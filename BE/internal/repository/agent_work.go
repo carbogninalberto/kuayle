@@ -86,6 +86,7 @@ type MergeTarget struct {
 	TaskID     uuid.UUID `db:"id"`
 	IssueID    uuid.UUID `db:"issue_id"`
 	CreatorID  uuid.UUID `db:"creator_id"`
+	Generation int64     `db:"generation"`
 	Provider   string    `db:"provider"`
 	Repository string    `db:"repository_full_name"`
 	Number     int       `db:"pull_request_number"`
@@ -100,7 +101,7 @@ var ErrNoMergeTarget = errors.New("no pull request awaiting review")
 // task, with the pull request and commit its current attempt published.
 func (r *AgentTaskRepository) MergeTarget(ctx context.Context, ws uuid.UUID, issue, task *uuid.UUID) (*MergeTarget, error) {
 	var target MergeTarget
-	err := r.db.GetContext(ctx, &target, `SELECT t.id,t.issue_id,t.creator_id,t.provider,p.repository_full_name,p.pull_request_number,p.url,c.commit_sha
+	err := r.db.GetContext(ctx, &target, `SELECT t.id,t.issue_id,t.creator_id,t.generation,t.provider,p.repository_full_name,p.pull_request_number,p.url,c.commit_sha
  FROM agent_tasks t
  JOIN LATERAL (SELECT g.repository_full_name,g.pull_request_number,g.url FROM dev_machine_git_refs g WHERE g.agent_run_id=t.run_id AND g.workspace_id=t.workspace_id AND g.ref_type='pull_request' AND g.source='published' AND g.pull_request_number IS NOT NULL AND g.url IS NOT NULL ORDER BY g.created_at DESC LIMIT 1) p ON true
  JOIN LATERAL (SELECT g.commit_sha FROM dev_machine_git_refs g WHERE g.agent_run_id=t.run_id AND g.workspace_id=t.workspace_id AND g.ref_type='commit' AND g.source='published' AND g.commit_sha IS NOT NULL ORDER BY g.created_at DESC LIMIT 1) c ON true

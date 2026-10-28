@@ -195,6 +195,27 @@ func (h *AgentTaskHandler) Retry(c echo.Context) error {
 	}
 	return response.Success(c, http.StatusAccepted, result)
 }
+
+// Accept completes the creator's task awaiting review without merging its pull
+// request. The generation is the attempt the user reviewed; repeating it
+// returns the accepted task.
+func (h *AgentTaskHandler) Accept(c echo.Context) error {
+	id, err := taskID(c, "taskId")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	var input struct {
+		Generation int64 `json:"generation"`
+	}
+	if err = bindTask(c, &input); err != nil {
+		return agentTaskError(c, err)
+	}
+	task, err := h.svc.Accept(c.Request().Context(), middleware.GetWorkspace(c).ID, id, input.Generation)
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	return response.Success(c, http.StatusOK, task)
+}
 func (h *AgentTaskHandler) History(c echo.Context) error {
 	id, err := taskID(c, "taskId")
 	if err != nil {

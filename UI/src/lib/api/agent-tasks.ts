@@ -194,6 +194,10 @@ export const agentTasks = {
 	create: (slug: string, id: string, input: TaskInput) => api.post<AgentTask>(`${chat(slug, id)}/tasks`, input),
 	get: (slug: string, id: string) => api.get<AgentTask>(task(slug, id)),
 	cancel: (slug: string, id: string) => api.post<void>(`${task(slug, id)}/cancel`, {}),
+	// Completes a task awaiting review in Kuayle without merging its pull request;
+	// generation is the attempt the user reviewed.
+	accept: (slug: string, id: string, generation: number) =>
+		api.post<AgentTask>(`${task(slug, id)}/accept`, { generation }),
 	// Queue starting or stopping the task's app (its preview command); 202.
 	startPreview: (slug: string, id: string) => api.post<void>(`${task(slug, id)}/preview`),
 	stopPreview: (slug: string, id: string) => api.delete<void>(`${task(slug, id)}/preview`),

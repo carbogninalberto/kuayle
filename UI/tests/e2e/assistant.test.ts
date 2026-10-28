@@ -946,6 +946,64 @@ test('asks for approval before merging the reviewed pull request', async ({ page
 	expect(state.decisions).toEqual(['approve']);
 });
 
+test('asks for approval before accepting work in Kuayle without merging', async ({ page }) => {
+	const state = await fixture(page);
+	const answered = { ...reply, status: 'completed', content: 'Acceptance approval is pending.' };
+	state.messages = [userMessage, answered];
+	state.tools = [
+		{
+			id: 'tool-11',
+			conversation_id: 'chat-1',
+			message_id: answered.id,
+			sequence: 0,
+			call_id: 'call_11',
+			name: 'accept_agent_work',
+			input: { identifier: 'ENG-1' },
+			status: 'completed',
+			output: { approval_id: 'approval-3', status: 'pending_user_approval', identifier: 'ENG-1' },
+			created_at: conversation.created_at
+		}
+	];
+	state.approvals = [
+		{
+			id: 'approval-3',
+			conversation_id: 'chat-1',
+			tool_call_id: 'tool-11',
+			action: 'accept_agent_work',
+			actor_id: 'user-1',
+			issue_id: 'issue-1',
+			payload: {
+				identifier: 'ENG-1',
+				title: 'Dark mode',
+				task_id: 'task-9',
+				generation: 2,
+				pull_request: 12,
+				pull_request_url: 'https://github.com/acme/app/pull/12',
+				commit: '0123456789abcdef0123456789abcdef01234567'
+			},
+			status: 'pending',
+			expires_at: '2026-10-27T10:00:00Z',
+			created_at: conversation.created_at,
+			updated_at: conversation.created_at
+		}
+	] as any;
+	await page.goto('/test/assistant?conversation=chat-1');
+	await expect(page.getByText('Accept the work on ENG-1 without merging?', { exact: true })).toBeVisible();
+	await expect(
+		page.getByText('Completes attempt 2 of Dark mode in Kuayle. Pull request #12 stays open and is not merged.', {
+			exact: false
+		})
+	).toBeVisible();
+	await expect(page.getByRole('link', { name: 'Open pull request' })).toHaveAttribute(
+		'href',
+		'https://github.com/acme/app/pull/12'
+	);
+	await page.getByRole('button', { name: 'Approve', exact: true }).click();
+	await expect(page.getByText('Accepted the work on ENG-1 without merging', { exact: true })).toBeVisible();
+	await expect(page.getByRole('button', { name: /Coding agent on ENG-1/ })).toHaveCount(0);
+	expect(state.decisions).toEqual(['approve']);
+});
+
 test('a requested review and a follow-up wait for approval in the chat', async ({ page }) => {
 	const state = await fixture(page);
 	const answered = { ...reply, status: 'completed', content: 'Review approval is pending.' };

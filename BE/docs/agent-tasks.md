@@ -8,8 +8,9 @@ activity through AI Elements Task/Trace and Model Selector compositions. The
 assistant delegates through approval-gated [orchestrator tools](conversations.md#orchestrator-tools).
 Native success is followed by an independent check (migration 58) and deterministic
 publication of a pull request (migration 59), after which the task waits in
-`awaiting_review` until GitHub reports that pull request merged or an approved
-merge from chat completes it. CI failures, GitHub change requests and issue
+`awaiting_review` until GitHub reports that pull request merged, an approved
+merge from chat completes it, or its creator or a workspace admin accepts it in
+Kuayle without merging ([accepting without merge](#accepting-without-merge)). CI failures, GitHub change requests and issue
 comments queue bounded follow-up attempts; reviews by a second agent run only on
 request (migration 84). See [remaining workflow work](#remaining-workflow-work)
 for what is not implemented.
@@ -303,6 +304,42 @@ still in `awaiting_review`. A merged one goes through the same completion path
 as the webhook, so both paths converge and neither completes a task twice. A
 pull request that cannot be checked is retried on the next pass without
 blocking the others.
+
+## Accepting without merge
+
+A task in `awaiting_review` can be accepted in Kuayle when its work is good
+enough but should not, or cannot, be merged through Kuayle. Acceptance moves
+the task to `completed` with the reason `Accepted in Kuayle by <name>` and the
+accepting user as the transition actor. The pull request is left exactly as it
+is: Kuayle does not merge, close or comment on it. Like any completion it
+queues `stop_preview` for a starting or running task app and purges the native
+session. In the same transaction, an issue whose status is not in the
+completed or cancelled category moves to its team's completed status
+(preferring the `done` slug, then position), with a status history entry by the
+accepting user; the `issue.updated` event is published after commit. An issue
+already completed or cancelled keeps its status. Sub-issue and parent
+auto-close rules are not applied on acceptance.
+
+- `POST /agent-tasks/:taskId/accept` with `{"generation": N}` (the attempt the
+  user reviewed; unknown fields are rejected) is for the task's creator, under
+  the ordinary task authorization; it answers 200 with the completed task.
+  Other users get 404 like every task route, a stale generation or a task not
+  awaiting review gets 409 `TASK_CONFLICT`. Repeating an acceptance of the same
+  attempt returns the completed task again and changes nothing. A task
+  completed by a merge cannot be "accepted" afterwards (409).
+- The assistant's `accept_agent_work` tool requests an approval bound to the
+  task, its attempt generation and the pull request and commit shown to the
+  user (migration 87 allows the action). On approval, the approver must be the
+  task's creator or a workspace owner/admin who can still see the issue; the
+  repository re-checks role, issue team visibility and the generation under
+  the issue and task locks. An admin's acceptance never returns the creator's
+  private task payload. A repeated or resumed approval converges on the same
+  completed task.
+
+Because merge completion only considers tasks still in `awaiting_review`, a
+later merge webhook or the merge reconciler finding the accepted pull request
+merged changes nothing on the task. The issue may still follow the separate
+`pr_merged` GitHub automation.
 
 ## Agent sessions
 
@@ -679,8 +716,8 @@ know what the others own and build on their merged changes.
 The worker progresses through preparation, native execution (with native
 session resume), independent validation and publication to `awaiting_review`,
 and completes when the recorded pull request merges. CI failures and trusted
-change requests queue bounded follow-up attempts. Explicit in-app acceptance is
-not implemented. Agents coordinate through issues, dependencies and the
+change requests queue bounded follow-up attempts. Work can also be accepted in
+Kuayle without merging. Agents coordinate through issues, dependencies and the
 related-work context, not through direct messages or shared branches. A
 successful process exit must never mark an issue Done.
 
@@ -707,6 +744,8 @@ and cancellation remain available to authorized users.
   of exhausted cleanup operations.
 - `POST /agent-tasks/:taskId/retry` requires request UUID, expected generation and
   new instructions; it preserves the task worktree.
+- `POST /agent-tasks/:taskId/accept` completes a task awaiting review without
+  merging, given the reviewed `generation` ([accepting without merge](#accepting-without-merge)).
 - `GET /agent-tasks/:taskId/history` pages transition records with `after`.
 - `GET /agent-tasks/:taskId/runs` pages native attempts with `before`.
 - `GET /agent-tasks/:taskId/runs/:runId/logs` pages that attempt's logs with `after`.
@@ -752,6 +791,10 @@ native output by the step's `service_id`. The recorded pull request opens from
 the task card footer (loaded even while details are collapsed) and the
 publication status appears in the execution details; both refresh on
 `task.publication_updated`.
+While a task awaits review, its card offers **Accept** as the primary action,
+next to the pull request. It opens a confirmation dialog stating that the pull
+request stays open and unmerged, then calls the accept route with the card's
+attempt generation; a 409 shows that the task changed and reloads it.
 
 The execution details also render the harness's own plan with the AI Elements
 [Plan](https://www.shadcn-svelte.com/docs/ai-elements/plan) composition (the

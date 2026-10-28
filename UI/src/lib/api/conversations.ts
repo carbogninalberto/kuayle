@@ -116,6 +116,17 @@ export interface MergePayload {
 	pull_request_url: string;
 	commit: string;
 }
+// An acceptance approval is bound to the reviewed attempt and pull request;
+// accepting completes the task in Kuayle and never merges.
+export interface AcceptPayload {
+	identifier: string;
+	title: string;
+	task_id: string;
+	generation: number;
+	pull_request: number;
+	pull_request_url: string;
+	commit: string;
+}
 export interface ReviewPayload {
 	identifier: string;
 	title: string;
@@ -138,6 +149,7 @@ export type ConversationApproval = ApprovalBase &
 	(
 		| { action: 'delegate_issue'; payload: DelegationPayload }
 		| { action: 'merge_pull_request'; payload: MergePayload }
+		| { action: 'accept_agent_work'; payload: AcceptPayload }
 		| { action: 'request_agent_review'; payload: ReviewPayload }
 		| { action: 'follow_up_task'; payload: FollowUpPayload }
 	);

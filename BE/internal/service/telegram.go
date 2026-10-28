@@ -752,12 +752,17 @@ func telegramApprovalAnswer(approval *domain.ConversationApproval, err error) (s
 			return "Approved: the agent review is starting.", true
 		case "follow_up_task":
 			return "Approved: the follow-up is starting.", true
+		case "accept_agent_work":
+			return "Approved: the work was accepted in Kuayle without merging.", true
 		}
 		return "Approved: the coding agent is starting.", true
 	case "denied":
 		return "Denied.", true
 	case "failed":
 		message := "The coding agent could not start."
+		if approval.Action == "accept_agent_work" {
+			message = "The work could not be accepted."
+		}
 		if approval.Error != nil {
 			message += " " + *approval.Error
 		}

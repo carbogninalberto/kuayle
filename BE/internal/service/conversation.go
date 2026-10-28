@@ -377,6 +377,10 @@ func (s *ConversationService) requestApproval(ctx context.Context, a domain.Conv
 		var merge domain.MergePayload
 		issueID, merge, err = s.tools.prepareMerge(ctx, a.Conversation.WorkspaceID, a.Conversation.CreatorID, arguments)
 		payload, identifier = merge, merge.Identifier
+	case "accept_agent_work":
+		var accept domain.AcceptPayload
+		issueID, accept, err = s.tools.prepareAccept(ctx, a.Conversation.WorkspaceID, a.Conversation.CreatorID, arguments)
+		payload, identifier = accept, accept.Identifier
 	case "request_agent_review":
 		var review domain.ReviewPayload
 		issueID, review, err = s.tools.prepareReview(ctx, a.Conversation.WorkspaceID, a.Conversation.CreatorID, arguments)

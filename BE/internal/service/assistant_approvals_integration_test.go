@@ -281,3 +281,82 @@ func TestMergeApprovalMergesOnlyTheReviewedCommitAfterApproval(t *testing.T) {
 	_, _, err = f.service.tools.prepareMerge(f.ctx, f.ws, f.user, `{"identifier":"ENG-1"}`)
 	require.ErrorContains(t, err, "no pull request of this issue is awaiting review")
 }
+
+type acceptorFake struct {
+	err      error
+	accepted []string
+}
+
+func (f *acceptorFake) AcceptAsApprover(_ context.Context, _ uuid.UUID, id uuid.UUID, generation int64) (*domain.AgentTask, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	f.accepted = append(f.accepted, fmt.Sprintf("%s@%d", id, generation))
+	return &domain.AgentTask{ID: id, State: "completed", Generation: generation}, nil
+}
+
+// Accepting work through the assistant binds the reviewed attempt and pull
+// request; nothing completes until the user approves, and nothing merges.
+func TestAcceptApprovalCompletesTheReviewedAttemptWithoutMerging(t *testing.T) {
+	f := newToolFixture(t)
+	a, delegation, _ := requestDelegation(t, f)
+	started, err := f.service.ResolveApproval(f.ctx, f.ws, a.Conversation.ID, delegation.ID, true)
+	require.NoError(t, err)
+	work := &mergeWorkFake{target: &repository.MergeTarget{TaskID: *started.TaskID, IssueID: delegation.IssueID, CreatorID: f.user, Generation: 3, Repository: "acme/app", Number: 12, URL: "https://github.com/acme/app/pull/12", Commit: "abc"}}
+	merger, acceptor := &mergerFake{}, &acceptorFake{}
+	f.service.tools.SetAgentWork(work)
+	f.service.approvals.SetMerging(work, repository.NewWorkspaceRepository(f.db), merger)
+	f.service.approvals.SetAccepting(acceptor)
+	request := func() (domain.ConversationAttempt, domain.ConversationApproval) {
+		t.Helper()
+		a := f.attempt(t, "Accept ENG-1")
+		provider, _ := scriptedProvider(t, toolCallStream("accept_agent_work", `{"identifier":"eng-1"}`), finalAnswer)
+		require.NoError(t, f.service.converse(f.ctx, a, provider.URL, "key", []chatCompletionMessage{{Role: "user", Content: "Accept it without merging"}}, func(string) error { return nil }))
+		h, err := f.repo.History(f.ctx, f.ws, a.Conversation.ID, 0)
+		require.NoError(t, err)
+		require.Len(t, h.Approvals, 1)
+		return a, h.Approvals[0]
+	}
+	resolve := func(a domain.ConversationAttempt, approval domain.ConversationApproval) *domain.ConversationApproval {
+		t.Helper()
+		result, err := f.service.ResolveApproval(f.ctx, f.ws, a.Conversation.ID, approval.ID, true)
+		require.NoError(t, err)
+		return result
+	}
+
+	a, approval := request()
+	require.Equal(t, "accept_agent_work", approval.Action)
+	var payload domain.AcceptPayload
+	require.NoError(t, json.Unmarshal(approval.Payload, &payload))
+	require.Equal(t, domain.AcceptPayload{Identifier: "ENG-1", Title: "Dark mode", TaskID: *started.TaskID, Generation: 3, PullRequest: 12, PullRequestURL: "https://github.com/acme/app/pull/12", Commit: "abc"}, payload)
+	require.Empty(t, acceptor.accepted, "requesting acceptance accepts nothing")
+
+	acceptor.err = repository.ErrAgentTaskConflict
+	result := resolve(a, approval)
+	require.Equal(t, "failed", result.Status)
+	require.Contains(t, *result.Error, "changed after approval")
+
+	a, approval = request()
+	acceptor.err = repository.ErrConversationNotFound
+	result = resolve(a, approval)
+	require.Equal(t, "failed", result.Status)
+	require.Contains(t, *result.Error, "admins or the task's creator")
+
+	a, approval = request()
+	acceptor.err = errors.New("connection reset")
+	_, err = f.service.ResolveApproval(f.ctx, f.ws, a.Conversation.ID, approval.ID, true)
+	require.Error(t, err, "a transient failure can be retried")
+	acceptor.err = nil
+	result = resolve(a, approval)
+	require.Equal(t, "approved", result.Status)
+	require.Equal(t, *started.TaskID, *result.TaskID)
+	require.Equal(t, []string{fmt.Sprintf("%s@3", *started.TaskID)}, acceptor.accepted)
+	require.Empty(t, merger.merged, "acceptance never merges")
+
+	work.target.CreatorID = uuid.New()
+	_, _, err = f.service.tools.prepareAccept(f.ctx, f.ws, f.user, `{"identifier":"ENG-1"}`)
+	require.ErrorContains(t, err, "admins or the task's creator", "a member cannot accept another member's task")
+	work.target = nil
+	_, _, err = f.service.tools.prepareAccept(f.ctx, f.ws, f.user, `{"identifier":"ENG-1"}`)
+	require.ErrorContains(t, err, "no pull request of this issue is awaiting review")
+}

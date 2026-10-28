@@ -25,8 +25,10 @@
 		Square,
 		Server,
 		ChevronRight,
-		ChevronDown
+		ChevronDown,
+		BadgeCheck
 	} from '@lucide/svelte';
+	import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
 	import TaskActions from './TaskActions.svelte';
 	import AgentReviews from './AgentReviews.svelte';
 	import ReviewRequestMenu from './ReviewRequestMenu.svelte';
@@ -119,6 +121,9 @@
 	const failed = $derived(['failed', 'blocked'].includes(task.state));
 	const canCancel = $derived(!['completed', 'cancelled'].includes(task.state));
 	const canRetry = $derived(['failed', 'blocked', 'awaiting_review'].includes(task.state));
+	// Work awaiting review can be accepted in Kuayle without merging.
+	const canAccept = $derived(task.state === 'awaiting_review' && task.kind !== 'review');
+	let acceptOpen = $state(false);
 	// The independent check owns its own runtime service; never attribute its
 	// output to the native harness or the harness output to the check.
 	const isCheck = (line: DevMachineLogChunk) => !!validation && line.service_id === validation.id;
@@ -482,6 +487,31 @@
 			if (!disposed) busy = false;
 		}
 	}
+	// Accepting completes the attempt the user reviewed; the pull request stays
+	// open and unmerged. A newer attempt or a merge in between refuses it.
+	async function accept() {
+		acceptOpen = false;
+		if (busy) return;
+		busy = true;
+		error = '';
+		const previous = chat.liveTasks[task.id] ?? null;
+		try {
+			const updated = await agentTasks.accept(chat.slug, task.id, task.generation);
+			if (!disposed) chat.acceptTask(updated, false, previous);
+		} catch (e) {
+			if ((e as { status?: number }).status !== 409) failure(e);
+			else if (!disposed) {
+				error = m['tasks.accept_conflict']();
+				try {
+					chat.acceptTask(await agentTasks.get(chat.slug, task.id), false, previous);
+				} catch (reload) {
+					failure(reload);
+				}
+			}
+		} finally {
+			if (!disposed) busy = false;
+		}
+	}
 	// A terminal in the task's own worktree, docked at the bottom, for working
 	// directly beside (or instead of) the agent.
 	const dock = useTerminalDock();
@@ -537,6 +567,17 @@
 				group: stopped ? 'main' : 'more',
 				variant: stopped ? 'primary' : undefined
 			});
+		if (canAccept)
+			list.push({
+				id: 'accept',
+				icon: BadgeCheck,
+				label: m['tasks.accept'](),
+				title: m['tasks.accept_help'](),
+				disabled: busy,
+				onclick: () => (acceptOpen = true),
+				group: 'main',
+				variant: 'primary'
+			});
 		if (pullRequest)
 			list.push({
 				id: 'pr',
@@ -545,7 +586,7 @@
 				href: pullRequest,
 				external: true,
 				group: 'main',
-				variant: stopped ? undefined : 'primary'
+				variant: stopped || canAccept ? undefined : 'primary'
 			});
 		if (diffReady)
 			list.push({
@@ -553,7 +594,7 @@
 				icon: FileDiff,
 				label: m['tasks.view_diff'](),
 				group: 'main',
-				variant: pullRequest || stopped ? undefined : 'primary',
+				variant: pullRequest || stopped || canAccept ? undefined : 'primary',
 				onclick: () =>
 					(chat.diffView = {
 						taskId: task.id,
@@ -868,4 +909,22 @@
 				<div class="min-w-0 flex-1"><TaskActions {actions} /></div>
 			</div>
 		</div>{/if}
+	<AlertDialog.Root bind:open={acceptOpen}>
+		<AlertDialog.Content>
+			<AlertDialog.Header>
+				<AlertDialog.Title
+					>{m['tasks.accept_title']({
+						identifier: chat.issue?.identifier ?? m['tasks.this_task']()
+					})}</AlertDialog.Title
+				>
+				<AlertDialog.Description>{m['tasks.accept_desc']()}</AlertDialog.Description>
+			</AlertDialog.Header>
+			<AlertDialog.Footer>
+				<AlertDialog.Cancel>{m['common.cancel']()}</AlertDialog.Cancel>
+				<AlertDialog.Action disabled={busy} onclick={() => void accept()}
+					>{m['tasks.accept_confirm']()}</AlertDialog.Action
+				>
+			</AlertDialog.Footer>
+		</AlertDialog.Content>
+	</AlertDialog.Root>
 </article>

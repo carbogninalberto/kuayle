@@ -35,6 +35,8 @@ async function fixture(page: Page) {
 		appStartError: null as any,
 		creates: [] as any[],
 		retries: [] as any[],
+		accepts: [] as any[],
+		acceptError: null as any,
 		cancels: 0,
 		sockets: [] as WebSocketRoute[],
 		events: [] as any[],
@@ -161,6 +163,12 @@ async function fixture(page: Page) {
 				if (!state.signInFound) return route.fulfill({ status: 409, json: { error: { code: 'SIGN_IN_NOT_FOUND' } } });
 				state.task = { ...state.task, state: 'queued', generation: 2, run_id: 'run-2', sign_in_required: false };
 				return route.fulfill({ status: 202, json: state.task });
+			}
+			if (path.endsWith('/accept')) {
+				state.accepts.push(req.postDataJSON());
+				if (state.acceptError) return route.fulfill(state.acceptError);
+				state.task = { ...state.task, state: 'completed', reason: 'Accepted in Kuayle by Owner' };
+				return route.fulfill({ json: state.task });
 			}
 			if (path.endsWith('/retry')) {
 				state.retries.push(req.postDataJSON());
@@ -595,6 +603,82 @@ test('opens the recorded pull request only after publication succeeds', async ({
 	await expect(link).toHaveAttribute('href', 'https://github.com/acme/app/pull/12');
 	expect(state.creates).toHaveLength(1);
 });
+
+async function awaitReview(state: any, emit: (type: string, payload: any) => void) {
+	state.publication = {
+		step: { id: 'publication-1', agent_run_id: 'run-1', status: 'succeeded', command_argv: [] },
+		branch: 'kuayle/eng-1',
+		pull_request_url: 'https://github.com/acme/app/pull/12'
+	};
+	state.task = { ...state.task, state: 'awaiting_review', reason: 'Pull request opened; waiting for human review' };
+	emit('task.state_changed', state.task);
+}
+
+test('accepts work awaiting review in Kuayle without merging, after confirmation', async ({ page }) => {
+	const { state, emit } = await fixture(page);
+	await page.goto('/test/assistant?conversation=chat-1');
+	await delegate(page);
+	const task = page.getByRole('article', { name: 'Coding task' });
+	const accept = task.getByRole('button', { name: 'Accept', exact: true });
+	await expect(accept).toHaveCount(0);
+	await awaitReview(state, emit);
+	await expect(accept).toBeVisible();
+	await expect(task.getByRole('link', { name: 'Open pull request', exact: true })).toBeVisible();
+
+	await accept.click();
+	const dialog = page.getByRole('alertdialog', { name: 'Accept ENG-1 without merging?' });
+	await expect(dialog).toContainText('The pull request stays open on GitHub and is not merged.');
+	await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+	await expect(dialog).toHaveCount(0);
+	expect(state.accepts).toHaveLength(0);
+
+	// A newer attempt or a merge in the meantime refuses the acceptance.
+	state.acceptError = { status: 409, json: { error: { code: 'TASK_CONFLICT' } } };
+	await accept.click();
+	await dialog.getByRole('button', { name: 'Accept work', exact: true }).click();
+	await expect(task.getByText('The task changed before it could be accepted. Review its current state.')).toBeVisible();
+	state.acceptError = null;
+
+	await accept.click();
+	await dialog.getByRole('button', { name: 'Accept work', exact: true }).click();
+	await expect(task.getByText('Accepted in Kuayle by Owner', { exact: true })).toBeVisible();
+	await expect(task.getByText('Completed', { exact: true })).toBeVisible();
+	expect(state.accepts).toEqual([{ generation: 1 }, { generation: 1 }]);
+	await expect(accept).toHaveCount(0);
+	await expect(task.getByRole('link', { name: 'Open pull request', exact: true })).toBeVisible();
+});
+
+for (const [name, width] of [
+	['desktop', 1280],
+	['phone', 390]
+] as const) {
+	test(`fits the accept action at ${name} width`, async ({ page }, testInfo) => {
+		await page.setViewportSize({ width, height: 900 });
+		const { state, emit } = await fixture(page);
+		await page.goto('/test/assistant?conversation=chat-1');
+		await delegate(page);
+		await awaitReview(state, emit);
+		const accept = page
+			.getByRole('article', { name: 'Coding task' })
+			.getByRole('button', { name: 'Accept', exact: true });
+		await expect(accept).toBeVisible();
+		// Every action stays reachable next to Accept, including the pull request.
+		const pr = page.getByRole('article', { name: 'Coding task' }).getByRole('link', { name: 'Open pull request' });
+		for (const control of [accept, pr]) {
+			const box = await control.boundingBox();
+			expect(box!.x + box!.width).toBeLessThanOrEqual(width);
+		}
+		expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+		await page.screenshot({ path: testInfo.outputPath(`task-accept-${name}.png`) });
+		await accept.click();
+		const dialog = page.getByRole('alertdialog', { name: 'Accept ENG-1 without merging?' });
+		await expect(dialog).toBeVisible();
+		const dialogBox = await dialog.boundingBox();
+		expect(dialogBox!.x + dialogBox!.width).toBeLessThanOrEqual(width);
+		await page.waitForTimeout(300);
+		await page.screenshot({ path: testInfo.outputPath(`task-accept-dialog-${name}.png`) });
+	});
+}
 
 const taskPort = (over: any) => ({
 	label: null,

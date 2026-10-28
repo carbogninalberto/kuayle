@@ -207,7 +207,8 @@ streaming, history, denied access, mobile layout and long transcript scrolling.
 The worker offers OpenAI-compatible function tools: `list_teams`,
 `search_issues`, `get_issue`, `create_issue`, `update_issue` (title, description,
 status or priority; assignees are not changed), `delegate_issue`, `plan_issues` and `link_issues` (see [dependencies and collaborating agents](agent-tasks.md#dependencies-and-collaborating-agents)),
-`get_agent_work`, `list_agent_work`, `merge_pull_request`, `request_agent_review`,
+`get_agent_work`, `list_agent_work`, `merge_pull_request`, `accept_agent_work`
+(see [accepting without merge](agent-tasks.md#accepting-without-merge)), `request_agent_review`,
 `follow_up_task` (see [requested agent reviews](agent-tasks.md#requested-agent-reviews))
 and `link_repository`.
 `create_issue` accepts a `parent_identifier`. The write tools (`create_issue`,

@@ -33,8 +33,8 @@ func TestAgentTaskHTTPPrivateControlsAndRecovery(t *testing.T) {
 	db, err := sqlx.Connect("pgx", url)
 	require.NoError(t, err)
 	defer db.Close()
-	user, other, guest, ws, team, issue := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
-	for _, id := range []uuid.UUID{user, other, guest} {
+	user, other, guest, admin, ws, team, issue := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	for _, id := range []uuid.UUID{user, other, guest, admin} {
 		_, err = db.Exec(`INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,'Task HTTP','hash')`, id, id.String()+"@test.invalid")
 		require.NoError(t, err)
 		defer db.Exec(`DELETE FROM users WHERE id=$1`, id)
@@ -42,7 +42,7 @@ func TestAgentTaskHTTPPrivateControlsAndRecovery(t *testing.T) {
 	_, err = db.Exec(`INSERT INTO workspaces(id,name,slug,owner_id) VALUES($1,'Task HTTP',$2,$3)`, ws, ws.String(), user)
 	require.NoError(t, err)
 	defer db.Exec(`DELETE FROM workspaces WHERE id=$1`, ws)
-	for id, role := range map[uuid.UUID]string{user: "owner", other: "member", guest: "guest"} {
+	for id, role := range map[uuid.UUID]string{user: "owner", other: "member", guest: "guest", admin: "admin"} {
 		_, err = db.Exec(`INSERT INTO workspace_members(workspace_id,user_id,role) VALUES($1,$2,$3)`, ws, id, role)
 		require.NoError(t, err)
 	}
@@ -137,6 +137,11 @@ func TestAgentTaskHTTPPrivateControlsAndRecovery(t *testing.T) {
 	request("POST", path, strings.TrimSuffix(newRequestBody, "}")+`,"model_server_id":"`+uuid.NewString()+`"}`, token, 400, nil)
 	// A well-formed model needs a model server to come from.
 	request("POST", path, strings.TrimSuffix(newRequestBody, "}")+`,"model":"deepseek-flash"}`, token, 409, nil)
+	for _, auth := range []string{tokenFor(other), tokenFor(guest), tokenFor(admin)} {
+		// Administrators accept another member's task through the assistant's
+		// approval, which never returns the private task.
+		request("POST", taskPath+"/accept", `{"generation":1}`, auth, 404, nil)
+	}
 	for _, auth := range []string{tokenFor(other), tokenFor(guest)} {
 		request("POST", path, body, auth, 404, nil)
 		request("GET", optionsPath, "", auth, 404, nil)
@@ -149,7 +154,7 @@ func TestAgentTaskHTTPPrivateControlsAndRecovery(t *testing.T) {
 	raw, hash, prefix, err := domain.GenerateToken()
 	require.NoError(t, err)
 	require.NoError(t, tokens.Create(context.Background(), &domain.PersonalAccessToken{ID: uuid.New(), UserID: user, Name: "Task routes denied", Scopes: []string{"dev_machine:read", "dev_machine:create", "dev_machine:manage", "issues:read"}, TokenHash: hash, TokenPrefix: prefix}))
-	guarded := []struct{ method, path, body string }{{"POST", path, body}, {"GET", path, ""}, {"GET", optionsPath, ""}, {"GET", taskPath, ""}, {"GET", taskPath + "/history", ""}, {"GET", taskPath + "/sessions", ""}, {"GET", taskPath + "/runs", ""}, {"GET", taskPath + "/runs/" + task.RunID.String() + "/logs", ""}, {"POST", taskPath + "/cancel", ""}, {"POST", taskPath + "/retry", `{}`}}
+	guarded := []struct{ method, path, body string }{{"POST", path, body}, {"GET", path, ""}, {"GET", optionsPath, ""}, {"GET", taskPath, ""}, {"GET", taskPath + "/history", ""}, {"GET", taskPath + "/sessions", ""}, {"GET", taskPath + "/runs", ""}, {"GET", taskPath + "/runs/" + task.RunID.String() + "/logs", ""}, {"POST", taskPath + "/cancel", ""}, {"POST", taskPath + "/retry", `{}`}, {"POST", taskPath + "/accept", `{"generation":1}`}}
 	for _, route := range guarded {
 		request(route.method, route.path, route.body, raw, 403, nil)
 	}
@@ -158,6 +163,19 @@ func TestAgentTaskHTTPPrivateControlsAndRecovery(t *testing.T) {
 		request(route.method, route.path, route.body, token, 403, nil)
 	}
 	demoDenied.Store(false)
+	// Acceptance completes only the reviewed attempt awaiting review.
+	request("POST", taskPath+"/accept", `{"generation":1}`, token, 409, nil)
+	_, err = db.Exec(`UPDATE agent_tasks SET state='awaiting_review' WHERE id=$1`, task.ID)
+	require.NoError(t, err)
+	request("POST", taskPath+"/accept", `{"generation":2}`, token, 409, nil)
+	request("POST", taskPath+"/accept", `{"generation":1,"merge":true}`, token, 400, nil)
+	request("POST", taskPath+"/accept", `{}`, token, 400, nil)
+	var accepted domain.AgentTask
+	request("POST", taskPath+"/accept", `{"generation":1}`, token, 200, &accepted)
+	require.Equal(t, "completed", accepted.State)
+	require.Equal(t, "Accepted in Kuayle by Task HTTP", accepted.Reason)
+	request("POST", taskPath+"/accept", `{"generation":1}`, token, 200, &duplicate)
+	require.Equal(t, "completed", duplicate.State)
 	// Simulate a worker discovering missing repository configuration, then retry
 	// through the real HTTP contract. No native work is launched by this fixture.
 	_, err = db.Exec(`UPDATE agent_tasks SET state='blocked' WHERE id=$1`, task.ID)

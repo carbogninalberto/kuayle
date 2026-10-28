@@ -79,7 +79,8 @@ type assistantAgentWork interface {
 	FollowUpTarget(ctx context.Context, ws, issue uuid.UUID) (*repository.FollowUpTarget, error)
 }
 
-// SetAgentWork enables get_agent_work, list_agent_work and merge_pull_request.
+// SetAgentWork enables get_agent_work, list_agent_work, merge_pull_request and
+// accept_agent_work.
 func (t *AssistantTools) SetAgentWork(work assistantAgentWork) {
 	t.work = work
 }
@@ -116,6 +117,7 @@ var assistantToolCatalog = []assistantTool{
 	{name: "get_agent_work", agentWork: true, description: "Read the coding tasks on an issue as Kuayle recorded them: state, attempt, pull request and latest review decision. Use it before saying anything about an issue's code, pull request or merge.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32}},"required":["identifier"],"additionalProperties":false}`},
 	{name: "list_agent_work", agentWork: true, description: "List the workspace's most recently updated coding tasks on issues the user can see, newest first: issue, task state and reason, agent, attempt, pull request and latest review decision. Use it for questions about what agents are doing, what is pending or awaiting review, or overall status; filter by state when the user asks about one.", parameters: `{"type":"object","properties":{"state":{"type":"string","enum":["queued","preparing","running","waiting_input","validating","publishing","awaiting_review","blocked","completed","failed","cancelling","cancelled"]},"limit":{"type":"integer","minimum":1,"maximum":50}},"additionalProperties":false}`},
 	{name: "merge_pull_request", agentWork: true, approval: true, description: "Ask the user to approve squash-merging the pull request of an issue's task that is awaiting review, at the commit Kuayle published. Nothing merges until the user approves in Kuayle; GitHub still enforces branch protection. Only call this when the user asked to merge.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32}},"required":["identifier"],"additionalProperties":false}`},
+	{name: "accept_agent_work", agentWork: true, approval: true, description: "Ask the user to approve accepting the work of an issue's task that is awaiting review, in Kuayle, without merging its pull request: the task completes, its app stops and the issue moves to its team's completed status, while the pull request stays open and unmerged on GitHub. Only the task's creator or a workspace admin can accept. Only call this when the user asked to accept the work without merging; use merge_pull_request to merge.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32}},"required":["identifier"],"additionalProperties":false}`},
 	{name: "request_agent_review", agentWork: true, approval: true, description: "Ask the user to approve a coding agent reviewing the pull request Kuayle published for an issue's task awaiting review, at its published commit. Only call this when the user asked for a review; reviews never start on their own. The harness may differ from the one that implemented the task (default: the same). The reviewer never pushes; set post_to_pull_request only when the user asked to comment the findings on the pull request.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"task_id":{"type":"string","maxLength":36},"harness":{"type":"string","enum":["claude-code","codex","opencode"]},"focus":{"type":"string","maxLength":4000},"post_to_pull_request":{"type":"boolean"}},"additionalProperties":false}`},
 	{name: "follow_up_task", agentWork: true, approval: true, description: "Ask the user to approve a follow-up attempt on an issue's latest coding task, on its existing branch and pull request, for example to fix review findings. Put everything the agent must do in instructions. Only the task's creator can approve it.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"instructions":{"type":"string","minLength":1,"maxLength":16000}},"required":["identifier","instructions"],"additionalProperties":false}`},
 	{name: "link_issues", description: "Record that an issue is blocked by another issue. Only call this when the user asked to plan or order work. Cycles are refused.", write: true, parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"blocked_by":{"type":"string","maxLength":32}},"required":["identifier","blocked_by"],"additionalProperties":false}`},
@@ -463,6 +465,43 @@ func (t *AssistantTools) prepareMerge(ctx context.Context, ws, user uuid.UUID, a
 	}
 	return issue.ID, domain.MergePayload{
 		Identifier: issue.Identifier, Title: issue.Title, TaskID: target.TaskID, Repository: target.Repository,
+		PullRequest: target.Number, PullRequestURL: target.URL, Commit: target.Commit,
+	}, nil
+}
+
+// prepareAccept binds an acceptance request to the issue's task awaiting
+// review and the attempt and pull request the user sees. Only the task's
+// creator or a workspace owner/admin can accept; approval re-checks it.
+func (t *AssistantTools) prepareAccept(ctx context.Context, ws, user uuid.UUID, arguments string) (uuid.UUID, domain.AcceptPayload, error) {
+	member, err := t.members.GetMember(ctx, ws, user)
+	if err != nil || member == nil || member.Role == domain.RoleGuest {
+		return uuid.Nil, domain.AcceptPayload{}, toolFailure("you no longer have access to this workspace")
+	}
+	if t.work == nil {
+		return uuid.Nil, domain.AcceptPayload{}, toolFailure("unknown tool")
+	}
+	var input struct {
+		Identifier string `json:"identifier"`
+	}
+	if err = decodeToolInput(arguments, &input); err != nil {
+		return uuid.Nil, domain.AcceptPayload{}, err
+	}
+	issue, err := t.issues.GetByIdentifier(ctx, ws, strings.ToUpper(strings.TrimSpace(input.Identifier)))
+	if err != nil || issue == nil {
+		return uuid.Nil, domain.AcceptPayload{}, toolFailure("issue not found")
+	}
+	target, err := t.work.MergeTarget(ctx, ws, &issue.ID, nil)
+	if errors.Is(err, repository.ErrNoMergeTarget) {
+		return uuid.Nil, domain.AcceptPayload{}, toolFailure("no pull request of this issue is awaiting review")
+	}
+	if err != nil {
+		return uuid.Nil, domain.AcceptPayload{}, err
+	}
+	if target.CreatorID != user && member.Role != domain.RoleOwner && member.Role != domain.RoleAdmin {
+		return uuid.Nil, domain.AcceptPayload{}, toolFailure("only workspace admins or the task's creator can accept its work")
+	}
+	return issue.ID, domain.AcceptPayload{
+		Identifier: issue.Identifier, Title: issue.Title, TaskID: target.TaskID, Generation: target.Generation,
 		PullRequest: target.Number, PullRequestURL: target.URL, Commit: target.Commit,
 	}, nil
 }

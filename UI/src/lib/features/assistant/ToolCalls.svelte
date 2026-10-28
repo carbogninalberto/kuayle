@@ -46,6 +46,7 @@
 		link_issues: m['assistant.tool_link_issues'],
 		get_agent_work: m['assistant.tool_get_agent_work'],
 		merge_pull_request: m['assistant.tool_merge_pull_request'],
+		accept_agent_work: m['assistant.tool_accept_agent_work'],
 		request_agent_review: m['assistant.tool_request_agent_review'],
 		follow_up_task: m['assistant.tool_follow_up_task']
 	};
@@ -53,6 +54,20 @@
 	function outcome(approval: ConversationApproval) {
 		const identifier = approval.payload.identifier;
 		const merge = approval.action === 'merge_pull_request';
+		if (approval.action === 'accept_agent_work') {
+			switch (approval.status) {
+				case 'approving':
+					return m['assistant.accept_approving']({ identifier });
+				case 'approved':
+					return m['assistant.accept_approved']({ identifier });
+				case 'failed':
+					return m['assistant.accept_failed']({ identifier, error: approval.error ?? '' });
+				case 'expired':
+					return m['assistant.approval_expired']({ identifier });
+				default:
+					return m['assistant.accept_denied']({ identifier });
+			}
+		}
 		if (approval.action === 'request_agent_review' || approval.action === 'follow_up_task') {
 			const review = approval.action === 'request_agent_review';
 			const agent = review ? agentInfo(approval.payload.harness).name : '';
@@ -133,6 +148,21 @@
 										title: approval.payload.title,
 										commit: approval.payload.commit.slice(0, 7),
 										repository: approval.payload.repository
+									})}</Item.Description
+								>
+								<a
+									class="inline-flex items-center gap-1 text-xs underline underline-offset-2"
+									href={approval.payload.pull_request_url}
+									target="_blank"
+									rel="noopener noreferrer"><ExternalLink size={12} />{m['tasks.open_pull_request']()}</a
+								>
+							{:else if approval.action === 'accept_agent_work'}
+								<Item.Title>{m['assistant.accept_title']({ identifier })}</Item.Title>
+								<Item.Description class="line-clamp-none"
+									>{m['assistant.accept_description']({
+										title: approval.payload.title,
+										attempt: approval.payload.generation,
+										number: approval.payload.pull_request
 									})}</Item.Description
 								>
 								<a

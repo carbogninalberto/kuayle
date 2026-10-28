@@ -153,6 +153,19 @@ type MergePayload struct {
 	Commit         string    `json:"commit"`
 }
 
+// AcceptPayload binds an acceptance approval to the task attempt and the pull
+// request shown to the user. Accepting completes the task in Kuayle and never
+// merges; a newer attempt invalidates the approval.
+type AcceptPayload struct {
+	Identifier     string    `json:"identifier"`
+	Title          string    `json:"title"`
+	TaskID         uuid.UUID `json:"task_id"`
+	Generation     int64     `json:"generation"`
+	PullRequest    int       `json:"pull_request"`
+	PullRequestURL string    `json:"pull_request_url"`
+	Commit         string    `json:"commit"`
+}
+
 // ReviewPayload binds a review approval to the task, its published pull
 // request and commit, the harness and whether to comment on the pull request.
 type ReviewPayload struct {

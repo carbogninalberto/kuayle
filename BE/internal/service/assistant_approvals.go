@@ -29,6 +29,17 @@ type AssistantApprovals struct {
 	merger  approvalMerger
 	// Reviews and follow-ups are unavailable until SetReviews wires them.
 	reviews approvalReviews
+	// Acceptance is unavailable until SetAccepting wires it.
+	acceptor approvalAcceptor
+}
+
+type approvalAcceptor interface {
+	AcceptAsApprover(ctx context.Context, ws, id uuid.UUID, generation int64) (*domain.AgentTask, error)
+}
+
+// SetAccepting enables approving accept_agent_work requests.
+func (s *AssistantApprovals) SetAccepting(acceptor approvalAcceptor) {
+	s.acceptor = acceptor
 }
 
 type approvalReviews interface {
@@ -71,6 +82,8 @@ func (s *AssistantApprovals) Resolve(ctx context.Context, ws, conversation, id u
 	switch approval.Action {
 	case "merge_pull_request":
 		return s.merge(ctx, ws, conversation, approval)
+	case "accept_agent_work":
+		return s.accept(ctx, ws, conversation, approval)
 	case "request_agent_review":
 		return s.review(ctx, ws, conversation, approval)
 	case "follow_up_task":
@@ -170,6 +183,29 @@ func (s *AssistantApprovals) merge(ctx context.Context, ws, conversation uuid.UU
 		return nil, err
 	}
 	return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, &target.TaskID, "")
+}
+
+// accept completes the approved attempt in Kuayle as the approver, without
+// merging. The task must still await review at the attempt the user saw; the
+// repository re-checks that the approver is its creator or a workspace
+// owner/admin who can see the issue. A repeated approval of an accepted
+// attempt converges on the same completed task.
+func (s *AssistantApprovals) accept(ctx context.Context, ws, conversation uuid.UUID, approval *domain.ConversationApproval) (*domain.ConversationApproval, error) {
+	var payload domain.AcceptPayload
+	if s.acceptor == nil || json.Unmarshal(approval.Payload, &payload) != nil {
+		return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, "This approval cannot be executed")
+	}
+	task, err := s.acceptor.AcceptAsApprover(ctx, ws, payload.TaskID, payload.Generation)
+	switch {
+	case errors.Is(err, repository.ErrAgentTaskConflict), errors.Is(err, repository.ErrConversationConflict):
+		return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, "The task changed after approval was requested or is no longer awaiting review; ask again")
+	case errors.Is(err, repository.ErrConversationNotFound), errors.Is(err, repository.ErrAgentTaskUnauthorized):
+		return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, "Only workspace admins or the task's creator can accept its work")
+	case err != nil:
+		// A transient failure leaves the claim in place; approving again resumes it.
+		return nil, err
+	}
+	return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, &task.ID, "")
 }
 
 // review starts an approved review as the approver, pinned to the commit the

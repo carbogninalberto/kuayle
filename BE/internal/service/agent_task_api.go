@@ -6,6 +6,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/agent"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
+	"github.com/kuayle/kuayle-backend/internal/realtime"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 )
 
@@ -96,4 +97,28 @@ func (s *AgentTaskService) Retry(ctx context.Context, ws, id uuid.UUID, input do
 		return nil, err
 	}
 	return s.Repo.Retry(ctx, ws, id, input)
+}
+
+// Accept completes the creator's task awaiting review in Kuayle without
+// merging its pull request; administrators accept through the assistant's
+// approval instead (AcceptAsApprover).
+func (s *AgentTaskService) Accept(ctx context.Context, ws, id uuid.UUID, generation int64) (*domain.AgentTask, error) {
+	return s.accept(ctx, ws, id, generation, false)
+}
+
+// AcceptAsApprover lets the task's creator or a workspace owner/admin accept
+// it from an approved assistant request.
+func (s *AgentTaskService) AcceptAsApprover(ctx context.Context, ws, id uuid.UUID, generation int64) (*domain.AgentTask, error) {
+	return s.accept(ctx, ws, id, generation, true)
+}
+
+func (s *AgentTaskService) accept(ctx context.Context, ws, id uuid.UUID, generation int64, administrators bool) (*domain.AgentTask, error) {
+	task, issue, err := s.Repo.Accept(ctx, ws, id, generation, administrators)
+	if err != nil {
+		return nil, err
+	}
+	if issue != nil && s.events != nil {
+		s.events.Broadcast(ws, realtime.Event{Type: "issue.updated", Payload: issue})
+	}
+	return task, nil
 }
