@@ -775,6 +775,24 @@ issue whose task awaits review queue a bounded follow-up attempt
 ([agent tasks](BE/docs/agent-tasks.md#kuayle-issue-comments)). See [conversation architecture and API](BE/docs/conversations.md)
 for scope, authorization, bounds, UI component sources, recovery and checks.
 
+### Images in conversations
+
+Users attach PNG, JPEG, WebP or GIF images (sniffed, at most 10 MB each and 6
+per message) by button, paste or drag-and-drop; Telegram photos are stored the
+same way. Images live in the configured upload storage, are recorded by
+migration 82 and are served only to the conversation's readers through an
+authenticated, `nosniff`, script-sandboxed endpoint. With the AI setting
+"Model can see images" (off by default, with a probe) the newest images are sent
+as OpenAI-compatible `image_url` parts; otherwise the model gets a text note.
+The `attach_images_to_issue` tool copies them into issue assets of the issue's
+team, and task attempts copy the issue's images into
+`.kuayle/attachments/` in their worktree (excluded through the repository's
+`info/exclude`) and list them in the prompt. The machine manager therefore
+needs read access to upload storage: the Compose files mount the `uploads`
+volume read-only and pass the storage settings. See
+[conversation images](BE/docs/conversations.md#images) and
+[task images](BE/docs/agent-tasks.md#issue-images).
+
 ### Telegram assistant channel
 
 Workspace Settings → Telegram configures an encrypted bot token and numeric user-ID

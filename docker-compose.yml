@@ -207,6 +207,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       # Read-only view of Docker's data root so monitored disk mode can measure host free space.
       - ${DEV_MACHINE_DOCKER_ROOT:-/var/lib/docker}:/var/lib/kuayle-host-docker:ro
+      # Read-only uploads so task runs can copy their issue's images into the worktree.
+      - uploads:/app/uploads:ro
     networks:
       - default
       - machine-control
@@ -216,6 +218,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:-local_dev_jwt_secret_32_chars_minimum_do_not_use_prod}
       ENVIRONMENT: ${ENVIRONMENT:-development}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+      STORAGE_LOCAL_DIR: /app/uploads
       SYSADMINS: ${SYSADMINS:-a0000000-0000-0000-0000-000000000001}
       PUBLIC_DEMO_MODE: ${PUBLIC_DEMO_MODE:-true}
       DEV_MACHINES_ENABLED: ${DEV_MACHINES_ENABLED:-true}
