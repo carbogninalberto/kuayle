@@ -26,6 +26,20 @@ export interface ConversationMessage {
 	model: string;
 	created_at: string;
 	updated_at: string;
+	attachments?: ConversationAttachment[];
+}
+// An image on a user message; served only to the conversation's readers.
+export interface ConversationAttachment {
+	id: string;
+	conversation_id: string;
+	message_id?: string;
+	filename: string;
+	content_type: string;
+	size: number;
+	width: number;
+	height: number;
+	position: number;
+	created_at: string;
 }
 export interface ConversationEvent {
 	id: string;
@@ -146,11 +160,22 @@ export const conversations = {
 		api.get<ConversationHistory>(`${base(slug)}/conversations/${encodeURIComponent(id)}?before=${before}`),
 	events: (slug: string, id: string, after: number) =>
 		api.get<ConversationEvent[]>(`${base(slug)}/conversations/${encodeURIComponent(id)}/events?after=${after}`),
-	send: (slug: string, id: string, request_id: string, content: string) =>
+	send: (slug: string, id: string, request_id: string, content: string, attachment_ids: string[] = []) =>
 		api.post<ConversationMessage>(`${base(slug)}/conversations/${encodeURIComponent(id)}/messages`, {
 			request_id,
-			content
+			content,
+			...(attachment_ids.length ? { attachment_ids } : {})
 		}),
+	attachmentURL: (slug: string, id: string, attachment: string) =>
+		`${base(slug)}/conversations/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachment)}`,
+	removeAttachment: (slug: string, id: string, attachment: string) =>
+		api.delete<void>(`${base(slug)}/conversations/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachment)}`),
+	uploadAttachment: (slug: string, id: string, file: File, onProgress?: (fraction: number) => void) =>
+		uploadWithProgress<ConversationAttachment>(
+			`${base(slug)}/conversations/${encodeURIComponent(id)}/attachments`,
+			file,
+			onProgress
+		),
 	resolveApproval: (slug: string, id: string, approval: string, decision: 'approve' | 'deny') =>
 		api.post<ConversationApproval>(
 			`${base(slug)}/conversations/${encodeURIComponent(id)}/approvals/${encodeURIComponent(approval)}`,
@@ -165,3 +190,38 @@ export const conversations = {
 	streamURL: (slug: string, id: string, after: number) =>
 		`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}${base(slug)}/conversations/${encodeURIComponent(id)}/stream?after=${after}`
 };
+
+export interface UploadError {
+	status: number;
+	error?: { code?: string; message?: string };
+}
+
+// fetch has no upload progress, so images upload through XHR with the same
+// session cookie; an expired session is refreshed once, as the client does.
+function uploadWithProgress<T>(path: string, file: File, onProgress?: (fraction: number) => void, retried = false): Promise<T> {
+	return new Promise<T>((resolve, reject) => {
+		const xhr = new XMLHttpRequest();
+		xhr.open('POST', path);
+		xhr.withCredentials = true;
+		xhr.responseType = 'json';
+		xhr.upload.onprogress = (event) => {
+			if (event.lengthComputable) onProgress?.(event.loaded / event.total);
+		};
+		xhr.onerror = () => reject({ status: 0 } satisfies UploadError);
+		xhr.onload = () => {
+			if (xhr.status === 401 && !retried) {
+				api
+					.post<void>('/api/auth/refresh', undefined, { redirectOnUnauthorized: false })
+					.then(() => uploadWithProgress<T>(path, file, onProgress, true).then(resolve, reject), () =>
+						reject({ status: 401 } satisfies UploadError)
+					);
+				return;
+			}
+			if (xhr.status >= 200 && xhr.status < 300) resolve(xhr.response as T);
+			else reject({ status: xhr.status, ...(xhr.response ?? {}) } satisfies UploadError);
+		};
+		const form = new FormData();
+		form.append('file', file, file.name);
+		xhr.send(form);
+	});
+}

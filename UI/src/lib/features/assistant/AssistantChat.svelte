@@ -11,7 +11,8 @@
 		RefreshCw,
 		MessageCircle,
 		ArrowDown,
-		Maximize2
+		Maximize2,
+		ImagePlus
 	} from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
@@ -21,6 +22,10 @@
 	import * as InputGroup from '$lib/components/ui/input-group/index.js';
 	import { conversations, type Conversation, type AssistantStatus, type MessageStatus } from '$lib/api/conversations';
 	import { ConversationState } from './conversation-state.svelte';
+	import { ComposerAttachments } from './composer-attachments.svelte';
+	import ComposerAttachmentList from './ComposerAttachments.svelte';
+	import MessageAttachments from './MessageAttachments.svelte';
+	import { ATTACHMENT_TYPES } from './attachment-rules';
 	import TaskPanel from './TaskPanel.svelte';
 	import ToolCalls from './ToolCalls.svelte';
 	import AgentQueue from './AgentQueue.svelte';
@@ -57,7 +62,23 @@
 	let copied = $state<string | null>(null);
 	let textarea = $state<HTMLTextAreaElement | null>(null);
 	let draftLoaded = $state(false);
-	let pending: { id: string; content: string; conversation?: string } | null = null;
+	let pending: { id: string; content: string; attachments: string[]; conversation?: string } | null = null;
+	// A new chat is created when its first image is attached, so the image can
+	// be uploaded to it before the first message is sent.
+	let draftConversation: string | null = null;
+	let fileInput = $state<HTMLInputElement | null>(null);
+	let dragging = $state(false);
+	async function ensureConversation() {
+		const existing = conversationId ?? pending?.conversation ?? draftConversation;
+		if (existing) return existing;
+		draftConversation = (await conversations.create(slug, text.trim().slice(0, 100) || m['assistant.image_title']())).id;
+		return draftConversation;
+	}
+	const attachments = untrack(() => new ComposerAttachments(slug, ensureConversation));
+	const sameIds = (a: string[], b: string[]) => a.length === b.length && a.every((id, i) => id === b[i]);
+	function imageFiles(list: FileList | null | undefined) {
+		return Array.from(list ?? []).filter((file) => file.type.startsWith('image/'));
+	}
 	let retryRequest: { message: string; id: string } | null = null;
 	let disposed = false;
 	let copyTimer: ReturnType<typeof setTimeout> | undefined;
@@ -74,8 +95,10 @@
 	const canSend = $derived(
 		initialized &&
 			status.configured &&
-			text.trim().length > 0 &&
+			(text.trim().length > 0 || attachments.ids.length > 0) &&
 			new TextEncoder().encode(text).length <= 16384 &&
+			!attachments.uploading &&
+			!attachments.failed &&
 			!sending &&
 			!chat.busy &&
 			!chat.unavailable &&
@@ -87,7 +110,9 @@
 		try {
 			text = localStorage.getItem(draftKey) ?? '';
 			const saved = JSON.parse(localStorage.getItem(`${draftKey}:pending`) ?? 'null');
-			if (saved && typeof saved.id === 'string' && saved.content === text) pending = saved;
+			// Images are not restored after a reload, so only a text-only send resumes.
+			if (saved && typeof saved.id === 'string' && saved.content === text && !saved.attachments?.length)
+				pending = { ...saved, attachments: [] };
 		} catch {
 			/* Storage can be disabled. */
 		}
@@ -125,11 +150,19 @@
 		if (!canSend) return;
 		sending = true;
 		error = '';
-		if (!pending || pending.content !== text)
-			pending = { id: crypto.randomUUID(), content: text, conversation: pending?.conversation };
+		const ids = attachments.ids;
+		if (!pending || pending.content !== text || !sameIds(pending.attachments, ids))
+			pending = {
+				id: crypto.randomUUID(),
+				content: text,
+				attachments: ids,
+				conversation: pending?.conversation ?? draftConversation ?? undefined
+			};
 		try {
 			const id =
-				conversationId ?? pending.conversation ?? (await conversations.create(slug, text.trim().slice(0, 100))).id;
+				conversationId ??
+				pending.conversation ??
+				(await conversations.create(slug, text.trim().slice(0, 100) || m['assistant.image_title']())).id;
 			pending.conversation = id;
 			try {
 				localStorage.setItem(`${draftKey}:pending`, JSON.stringify(pending));
@@ -137,10 +170,11 @@
 				/* Sending still works without storage. */
 			}
 			const submitted = pending.content;
-			const accepted = await conversations.send(slug, id, pending.id, submitted);
+			const accepted = await conversations.send(slug, id, pending.id, submitted, pending.attachments);
 			if (disposed) return;
 			chat.accept(accepted);
 			if (text === submitted) text = '';
+			if (sameIds(attachments.ids, pending.attachments)) attachments.clear();
 			pending = null;
 			try {
 				if (!text) localStorage.removeItem(draftKey);
@@ -326,14 +360,21 @@
 														approvals={chat.approvals}
 														onresolve={(approval, decision) => chat.resolveApproval(approval, decision)}
 													/><ToolSources calls={chat.tools[message.id] ?? []} slug={chat.slug} />{/if}
-												<Bubble.Root variant={message.role === 'user' ? 'muted' : 'ghost'}>
-													<Bubble.Content>
-														{#if message.role === 'user'}<p class="whitespace-pre-wrap break-words">
-																{message.content}
-															</p>
-														{:else}<Markdown source={message.content} />{/if}
-													</Bubble.Content>
-												</Bubble.Root>
+												{#if message.attachments?.length}<MessageAttachments
+														{slug}
+														conversationId={message.conversation_id}
+														attachments={message.attachments}
+													/>{/if}
+												{#if message.role !== 'user' || message.content}
+													<Bubble.Root variant={message.role === 'user' ? 'muted' : 'ghost'}>
+														<Bubble.Content>
+															{#if message.role === 'user'}<p class="whitespace-pre-wrap break-words">
+																	{message.content}
+																</p>
+															{:else}<Markdown source={message.content} />{/if}
+														</Bubble.Content>
+													</Bubble.Root>
+												{/if}
 												<Message.Footer class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
 													<time datetime={message.created_at}
 														>{new Date(message.created_at).toLocaleTimeString([], {
@@ -377,8 +418,44 @@
 				{#if initialized && !status.configured}<p class="mb-3 text-sm text-muted-foreground">
 						{m['assistant.configure']()} <a class="underline" href="/{slug}/settings/ai">{m['assistant.settings']()}</a>
 					</p>{/if}
-				<form onsubmit={send}>
-					<InputGroup.Root>
+				{#if attachments.notice}<p role="alert" class="mb-2 text-sm text-destructive">{attachments.notice}</p>{/if}
+				<form
+					onsubmit={send}
+					aria-label={m['assistant.composer']()}
+					ondragover={(event) => {
+						if (!status.configured || chat.unavailable || !event.dataTransfer?.types.includes('Files')) return;
+						event.preventDefault();
+						dragging = true;
+					}}
+					ondragleave={(event) => {
+						if (!(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node | null)) dragging = false;
+					}}
+					ondrop={(event) => {
+						dragging = false;
+						const files = imageFiles(event.dataTransfer?.files);
+						if (!files.length) return;
+						event.preventDefault();
+						attachments.add(files);
+					}}
+				>
+					<input
+						bind:this={fileInput}
+						type="file"
+						accept={ATTACHMENT_TYPES.join(',')}
+						multiple
+						class="sr-only"
+						tabindex="-1"
+						aria-hidden="true"
+						onchange={(event) => {
+							const input = event.currentTarget as HTMLInputElement;
+							attachments.add(Array.from(input.files ?? []));
+							input.value = '';
+						}}
+					/>
+					<InputGroup.Root class={dragging ? 'ring-2 ring-ring' : ''}>
+						{#if attachments.items.length}<InputGroup.Addon align="block-start"
+								><ComposerAttachmentList {attachments} /></InputGroup.Addon
+							>{/if}
 						<InputGroup.Textarea
 							bind:ref={textarea}
 							bind:value={text}
@@ -393,9 +470,23 @@
 									void send();
 								}
 							}}
+							onpaste={(event) => {
+								const files = imageFiles(event.clipboardData?.files);
+								if (!files.length) return;
+								event.preventDefault();
+								attachments.add(files);
+							}}
 						/>
 						<InputGroup.Addon align="block-end" class="justify-between">
-							<span class="truncate text-xs text-muted-foreground">{status.model ?? m['assistant.no_provider']()}</span>
+							<div class="flex min-w-0 items-center gap-1">
+								<InputGroup.Button
+									size="icon-sm"
+									aria-label={m['assistant.attach']()}
+									disabled={!initialized || !status.configured || chat.unavailable}
+									onclick={() => fileInput?.click()}><ImagePlus size={16} /></InputGroup.Button
+								>
+								<span class="truncate text-xs text-muted-foreground">{status.model ?? m['assistant.no_provider']()}</span>
+							</div>
 							{#if chat.busy}<InputGroup.Button
 									size="icon-sm"
 									aria-label={m['assistant.stop']()}
@@ -411,7 +502,13 @@
 						</InputGroup.Addon>
 					</InputGroup.Root>
 					<p class="mt-2 text-center text-[11px] text-muted-foreground">
-						{sending ? m['assistant.sending']() : m['assistant.hint']()}
+						{sending
+							? m['assistant.sending']()
+							: attachments.uploading
+								? m['assistant.attachment_wait']()
+								: dragging
+									? m['assistant.attachment_drop']()
+									: m['assistant.hint']()}
 					</p>
 				</form>
 			</div>
