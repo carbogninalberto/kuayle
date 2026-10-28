@@ -344,10 +344,12 @@
 		{/if}
 	</header>
 	{#snippet sidebar(inPane: boolean)}
+		<!-- relative: visually hidden (absolute) labels inside the list are
+			clipped by this scroller instead of stretching the page. -->
 		<aside
 			class={inPane
-				? 'flex h-full min-w-0 flex-col gap-3 overflow-y-auto bg-muted/20 p-3'
-				: `max-h-56 shrink-0 flex-col gap-3 overflow-y-auto border-b bg-muted/20 p-3 md:flex md:max-h-none md:w-56 md:border-r md:border-b-0 ${showHistory ? 'flex' : 'hidden'}`}
+				? 'relative flex h-full min-w-0 flex-col gap-3 overflow-y-auto bg-muted/20 p-3'
+				: `relative max-h-56 shrink-0 flex-col gap-3 overflow-y-auto border-b bg-muted/20 p-3 md:flex md:max-h-none md:w-56 md:border-r md:border-b-0 ${showHistory ? 'flex' : 'hidden'}`}
 			aria-label={m['assistant.history']()}
 		>
 			<p class="px-1 pt-1 text-xs font-medium text-muted-foreground">{m['assistant.history']()}</p>

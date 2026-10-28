@@ -591,6 +591,32 @@ test('asks for approval before delegating and records the decision from the back
 	await expect(page.getByRole('button', { name: 'Approve', exact: true })).toHaveCount(0);
 });
 
+test('a long conversation list scrolls inside the sidebar, never the page', async ({ page }) => {
+	const state = await fixture(page);
+	const many = Array.from({ length: 40 }, (_, i) => ({ ...conversation, id: `chat-${i + 2}`, title: `Conversation ${i + 2}` }));
+	await page.route('**/api/workspaces/test/conversations', (route) =>
+		route.fulfill({ json: route.request().method() === 'POST' ? conversation : [conversation, ...many] })
+	);
+	state.queue = [
+		{
+			id: 'b',
+			conversation_id: 'chat-b',
+			state: 'awaiting_review',
+			reason: '',
+			issue_identifier: 'ENG-2',
+			issue_title: 'Title ENG-2',
+			updated_at: conversation.created_at
+		}
+	];
+	await page.goto('/test/assistant?conversation=chat-1');
+	await expect(page.getByRole('region', { name: 'Agent work', exact: true })).toBeAttached();
+	// Visually hidden labels below the fold must not stretch the document.
+	expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight)).toBe(true);
+	await page.mouse.move(640, 300);
+	await page.mouse.wheel(0, 3000);
+	expect(await page.evaluate(() => window.scrollY)).toBe(0);
+});
+
 test('lists agent work across projects as a queue linking to each issue chat', async ({ page }) => {
 	const state = await fixture(page);
 	const item = (id: string, identifier: string, taskState: string) => ({
