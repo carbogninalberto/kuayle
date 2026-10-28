@@ -5,6 +5,7 @@ import {
 	downloadPercent,
 	formatDuration,
 	microphoneProblem,
+	modelTraits,
 	recordingType,
 	transcriptionProblem
 } from '../../src/lib/features/voice/voice-rules.ts';
@@ -44,4 +45,20 @@ test('reports download progress as a bounded percentage', () => {
 	assert.equal(downloadPercent(0, 0), 0);
 	assert.equal(downloadPercent(50, 200), 25);
 	assert.equal(downloadPercent(300, 200), 100);
+});
+
+test('rates catalog models from fastest to most accurate', () => {
+	const base = modelTraits({ id: 'faster-whisper-base', engine: 'faster-whisper', language: '', size_mb: 148 });
+	const medium = modelTraits({ id: 'faster-whisper-medium', engine: 'faster-whisper', language: '', size_mb: 1500 });
+	const vosk = modelTraits({ id: 'vosk-small-it-0.22', engine: 'vosk', language: 'it', size_mb: 50 });
+	assert.deepEqual(base, { name: 'Base', speed: 4, accuracy: 2 });
+	assert.ok(medium.accuracy > base.accuracy && medium.speed < base.speed);
+	assert.equal(vosk.speed, 4);
+	assert.ok(vosk.accuracy < base.accuracy);
+	assert.equal(modelTraits({ id: 'faster-whisper-large-v3-turbo', engine: 'faster-whisper', language: '', size_mb: 1600 }).name, 'Large v3 turbo');
+	assert.deepEqual(
+		modelTraits({ id: 'faster-whisper-future', engine: 'faster-whisper', language: '', size_mb: 1 }),
+		{ name: 'Future', speed: 0, accuracy: 0 },
+		'an unknown model is shown without ratings'
+	);
 });

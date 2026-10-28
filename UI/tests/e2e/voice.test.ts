@@ -174,19 +174,31 @@ test('owner chooses a model, follows the download and can turn voice off', async
 	await page.goto('/test/settings/voice');
 	await expect(page.getByRole('heading', { name: 'Voice', exact: true })).toBeVisible();
 	await expect(page.getByRole('status').filter({ hasText: 'Voice is off.' })).toBeVisible();
-	await page.getByRole('combobox', { name: 'Transcription model' }).click();
-	await page.getByRole('option', { name: 'Vosk small · Italian · 50 MB' }).click();
-	expect(state.selects).toEqual(['vosk-small-it-0.22']);
+	const enabled = page.getByRole('switch', { name: 'Voice transcription' });
+	await expect(enabled).not.toBeChecked();
+	const picker = page.getByRole('radiogroup', { name: 'Transcription model' });
+	await expect(picker.getByRole('radio')).toHaveCount(2);
+	await picker.getByRole('radio', { name: /Vosk Italian/ }).click();
+	await expect.poll(() => state.selects).toEqual(['vosk-small-it-0.22']);
 	await expect(page.getByText('Downloading the model: 25%')).toBeVisible();
 	await expect(page.getByRole('progressbar', { name: 'Model download progress' })).toBeVisible();
 	await expect(page.getByText('Ready. Members can dictate', { exact: false })).toBeVisible({ timeout: 10_000 });
+	await expect(enabled).toBeChecked();
+	await expect(picker.getByRole('radio', { name: /Vosk Italian/ })).toBeChecked();
 	await page.screenshot({ path: test.info().outputPath('voice-settings.png') });
-	await page.getByRole('combobox', { name: 'Transcription model' }).click();
-	await page.getByRole('option', { name: 'Off' }).click();
-	expect(state.selects).toEqual(['vosk-small-it-0.22', 'off']);
+	await enabled.click();
+	await expect.poll(() => state.selects).toEqual(['vosk-small-it-0.22', 'off']);
 	await expect(page.getByRole('status').filter({ hasText: 'Voice is off.' })).toBeVisible();
+	// Turning it back on picks the fast multilingual default.
+	await enabled.click();
+	await expect.poll(() => state.selects).toEqual(['vosk-small-it-0.22', 'off', 'faster-whisper-base']);
 	await page.setViewportSize({ width: 390, height: 844 });
 	expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+	const card = (await page.getByRole('region', { name: 'Voice transcription' }).boundingBox())!;
+	for (const option of await picker.getByRole('radio').all()) {
+		const label = (await page.locator(`label[for="${await option.getAttribute('id')}"]`).boundingBox())!;
+		expect(label.x + label.width).toBeLessThanOrEqual(card.x + card.width);
+	}
 	await page.screenshot({ path: test.info().outputPath('voice-settings-mobile.png'), fullPage: true });
 });
 
@@ -194,7 +206,8 @@ test('members see the voice model without changing it, and an unreachable servic
 	await fixture(page, { model: 'faster-whisper-base', owner: false, configured: false, state: 'unavailable', ready: false, max_seconds: 300, max_bytes: 1, models });
 	await page.goto('/test/settings/voice');
 	await expect(page.getByText('Only the workspace owner can change the voice model.')).toBeVisible();
-	await expect(page.getByRole('combobox', { name: 'Transcription model' })).toHaveCount(0);
-	await expect(page.getByText('faster-whisper base · multilingual · 148 MB')).toBeVisible();
+	await expect(page.getByRole('radiogroup', { name: 'Transcription model' })).toHaveCount(0);
+	await expect(page.getByRole('switch', { name: 'Voice transcription' })).toHaveCount(0);
+	await expect(page.getByText('Whisper Base')).toBeVisible();
 	await expect(page.getByText('The voice service is not reachable.', { exact: false })).toBeVisible();
 });

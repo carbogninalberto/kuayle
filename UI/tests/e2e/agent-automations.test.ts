@@ -131,6 +131,11 @@ async function mockAutomationsApi(page: Page) {
 test('admins create, pause and approve agent automations', async ({ page }) => {
 	const state = await mockAutomationsApi(page);
 	await page.goto('/test/settings/dev-machines?tab=policy');
+	// Automations have their own tab, not a section under the policy.
+	await expect(page.getByRole('heading', { name: 'Workspace defaults' })).toBeVisible();
+	await expect(page.getByRole('region', { name: 'Automations' })).toHaveCount(0);
+	await page.getByRole('tab', { name: 'Automations' }).click();
+	await expect(page).toHaveURL(/tab=automations/);
 	const section = page.getByRole('region', { name: 'Automations' });
 	await expect(section.getByText('No automations yet.')).toBeVisible();
 	await section.getByRole('button', { name: 'New automation' }).click();

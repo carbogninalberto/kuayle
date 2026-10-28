@@ -54,16 +54,21 @@
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	const issueId = $derived(page.url.searchParams.get('issue_id') ?? '');
 	// Guests cannot own machines; everyone else starts on their machine list.
+	// Automations are for admins only.
 	let isGuest = $state(false);
+	let roleKnown = $state(false);
+	let canAdmin = $state(false);
+	type Tab = 'machines' | 'policy' | 'automations';
+	const asTab = (value: string | null): Tab => (value === 'policy' || value === 'automations' ? value : 'machines');
 	// Shallow URL updates do not change page.url, so the selection is local state.
-	let selectedTab = $state(page.url.searchParams.get('tab') === 'policy' ? 'policy' : 'machines');
-	const tab = $derived(isGuest ? 'policy' : selectedTab);
+	let selectedTab = $state<Tab>(asTab(page.url.searchParams.get('tab')));
+	const tab = $derived<Tab>(isGuest ? 'policy' : selectedTab === 'automations' && roleKnown && !canAdmin ? 'machines' : selectedTab);
 
 	function selectTab(value: string) {
-		selectedTab = value === 'policy' ? 'policy' : 'machines';
+		selectedTab = asTab(value);
 		const url = new URL(window.location.href);
-		if (value === 'policy') url.searchParams.set('tab', 'policy');
-		else url.searchParams.delete('tab');
+		if (selectedTab === 'machines') url.searchParams.delete('tab');
+		else url.searchParams.set('tab', selectedTab);
 		replaceState(url, page.state);
 	}
 	let policy = $state<DevMachinePolicy | null>(null);
@@ -71,7 +76,6 @@
 	let saving = $state(false);
 	let loading = $state(true);
 	let failed = $state(false);
-	let canAdmin = $state(false);
 	let linkedRepositories = $state<GitHubRepo[]>([]);
 	let environments = $state<DevMachineEnvironment[]>([]);
 	let defaultRepositoryId = $state('none');
@@ -114,12 +118,13 @@
 			.then((workspace) => {
 				canAdmin = workspace.current_user_role === 'owner' || workspace.current_user_role === 'admin';
 				isGuest = workspace.current_user_role === 'guest';
+				roleKnown = true;
 			})
 			.catch(() => undefined);
 	});
 	let policyRequested = false;
 	$effect(() => {
-		if (tab !== 'policy' || policyRequested) return;
+		if (tab === 'machines' || policyRequested) return;
 		policyRequested = true;
 		void load();
 	});
@@ -248,6 +253,7 @@
 		<Tabs.List>
 			{#if !isGuest}<Tabs.Trigger value="machines">{m['settings.dev_machines.tab_machines']()}</Tabs.Trigger>{/if}
 			<Tabs.Trigger value="policy">{m['settings.dev_machines.tab_policy']()}</Tabs.Trigger>
+			{#if canAdmin}<Tabs.Trigger value="automations">{m['settings.dev_machines.tab_automations']()}</Tabs.Trigger>{/if}
 		</Tabs.List>
 		{#if !isGuest}<Tabs.Content value="machines"><MachineList {slug} {issueId} /></Tabs.Content>{/if}
 		<Tabs.Content value="policy">
@@ -302,9 +308,15 @@
 		<div class="flex justify-end"><Button type="submit" disabled={saving}>{saving ? m['settings.saving']() : m['settings.dev_machines.save_policy']()}</Button></div>
 		</fieldset>
 	</form>
-	{#if canAdmin}<div class="pt-6"><AutomationsCard {slug} unattendedAllowed={policy?.allow_unattended_automations ?? false} /></div>{/if}
 {/if}
 		</Tabs.Content>
+		{#if canAdmin}
+			<Tabs.Content value="automations">
+				{#if loading}<LoadingState />
+				{:else if failed || !policy}<ErrorState message={m['settings.dev_machines.unable_load']()} onretry={load} />
+				{:else}<AutomationsCard {slug} unattendedAllowed={policy.allow_unattended_automations} />{/if}
+			</Tabs.Content>
+		{/if}
 	</Tabs.Root>
 </div>
 {#if !loading && policy}

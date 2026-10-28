@@ -69,3 +69,21 @@ export function downloadPercent(downloaded = 0, total = 0): number {
 	if (!total) return 0;
 	return Math.min(100, Math.floor((downloaded / total) * 100));
 }
+
+type RatedModel = { id: string; engine: 'faster-whisper' | 'vosk' };
+
+// Relative ratings on a 1-4 scale for the catalog's models; 0 means unknown.
+const RATINGS: Record<string, [speed: number, accuracy: number]> = {
+	'faster-whisper-base': [4, 2],
+	'faster-whisper-small': [3, 3],
+	'faster-whisper-medium': [1, 4],
+	'faster-whisper-large-v3-turbo': [2, 4]
+};
+
+/** A short display name and speed/accuracy ratings for the model picker. */
+export function modelTraits(model: RatedModel): { name: string; speed: number; accuracy: number } {
+	if (model.engine === 'vosk') return { name: 'Vosk', speed: 4, accuracy: 1 };
+	const suffix = model.id.replace(/^faster-whisper-/, '').replaceAll('-', ' ');
+	const [speed, accuracy] = RATINGS[model.id] ?? [0, 0];
+	return { name: suffix.charAt(0).toUpperCase() + suffix.slice(1), speed, accuracy };
+}
