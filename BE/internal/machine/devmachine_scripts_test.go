@@ -87,6 +87,9 @@ func TestTerminalRuntimeConfiguresFullColorTUI(t *testing.T) {
 	expectedTmuxOptions := []string{
 		`set -g default-terminal "tmux-256color"`,
 		`set -as terminal-features ",xterm-256color:RGB"`,
+		// xterm.js 6 supports synchronized output, so tmux redraws arrive as one frame
+		// instead of tearing; it also renders styled underlines and OSC 8 hyperlinks.
+		`set -as terminal-features ",xterm-256color:sync:usstyle:hyperlinks:strikethrough:overline"`,
 		`set -g focus-events on`,
 		`set -g extended-keys on`,
 		`set -g allow-passthrough on`,
@@ -106,6 +109,7 @@ func TestTerminalRuntimeConfiguresFullColorTUI(t *testing.T) {
 	sessionScriptBytes, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", "ide", "terminal-session.sh"))
 	require.NoError(t, err)
 	require.Contains(t, string(sessionScriptBytes), "export COLORTERM=truecolor\n")
+	require.Contains(t, string(sessionScriptBytes), "export TERM=\"${TERM:-xterm-256color}\"\n")
 
 	dockerfileBytes, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", "ide", "Dockerfile"))
 	require.NoError(t, err)

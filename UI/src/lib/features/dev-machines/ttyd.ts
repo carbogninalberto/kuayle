@@ -5,6 +5,8 @@ export const TTYD_PROTOCOL = 'ttyd.v1';
 
 const CLIENT_INPUT = '0';
 const CLIENT_RESIZE = '1';
+const CLIENT_PAUSE = '2';
+const CLIENT_RESUME = '3';
 const SERVER_OUTPUT = '0';
 const SERVER_TITLE = '1';
 const SERVER_PREFERENCES = '2';
@@ -30,6 +32,15 @@ export function encodeInputFrame(data: string | Uint8Array): Uint8Array {
 
 export function encodeResizeFrame(size: TtydTerminalSize): Uint8Array {
 	return encodeCommandFrame(CLIENT_RESIZE, JSON.stringify(size));
+}
+
+/** Asks ttyd to stop reading the PTY until resumed (ttyd flow control). */
+export function encodePauseFrame(): Uint8Array {
+	return encodeCommandFrame(CLIENT_PAUSE, '');
+}
+
+export function encodeResumeFrame(): Uint8Array {
+	return encodeCommandFrame(CLIENT_RESUME, '');
 }
 
 export function decodeServerFrame(data: string | ArrayBuffer | Uint8Array): TtydServerFrame {
@@ -59,7 +70,8 @@ function splitFrame(data: string | ArrayBuffer | Uint8Array): { code: string; pa
 		return { code: data.charAt(0), payload: data.slice(1) };
 	}
 	const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
-	return { code: String.fromCharCode(bytes[0]), payload: bytes.slice(1) };
+	// A view, not a copy: output frames are the hot path.
+	return { code: String.fromCharCode(bytes[0]), payload: bytes.subarray(1) };
 }
 
 function payloadToString(payload: Uint8Array | string): string {

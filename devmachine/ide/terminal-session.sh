@@ -40,5 +40,7 @@ if [ ! -d "$workspace" ]; then
   workspace=/workspace/tasks
 fi
 
+# ttyd sets TERM from --terminal-type; tmux reads it to detect the outer terminal features.
+export TERM="${TERM:-xterm-256color}"
 export COLORTERM=truecolor
 exec tmux -u new-session -A -s "$session" -c "$workspace"

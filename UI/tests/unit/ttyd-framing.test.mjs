@@ -4,7 +4,9 @@ import {
 	decodeServerFrame,
 	encodeInitialTerminalMessage,
 	encodeInputFrame,
-	encodeResizeFrame
+	encodePauseFrame,
+	encodeResizeFrame,
+	encodeResumeFrame
 } from '../../src/lib/features/dev-machines/ttyd.ts';
 
 const decoder = new TextDecoder();
@@ -29,4 +31,17 @@ test('decodes ttyd v1 server frames from binary and text data', () => {
 		command: 'preferences',
 		preferences: { cursorBlink: false, fontSize: 14 }
 	});
+});
+
+test('encodes ttyd flow-control frames', () => {
+	assert.deepEqual([...encodePauseFrame()], [50]);
+	assert.deepEqual([...encodeResumeFrame()], [51]);
+});
+
+test('decodes binary output without copying the payload', () => {
+	const bytes = new Uint8Array([48, 1, 2, 3]);
+	const frame = decodeServerFrame(bytes);
+	assert.equal(frame.command, 'output');
+	assert.equal(frame.data.buffer, bytes.buffer);
+	assert.deepEqual([...frame.data], [1, 2, 3]);
 });

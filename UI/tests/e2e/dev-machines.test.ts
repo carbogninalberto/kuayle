@@ -1592,6 +1592,22 @@ test('keeps multiple docked terminals alive across collapse and navigation', asy
 	const nativeTerminal = page.getByTestId('native-terminal');
 	// Full-screen TUIs draw logos and borders with block glyphs; the WebGL renderer draws them seamlessly.
 	await expect(nativeTerminal.locator('.xterm-screen canvas').first()).toBeAttached();
+	await expect(nativeTerminal).toHaveAttribute('data-renderer', 'webgl');
+	// The bundled font is loaded before xterm measures its cells.
+	expect(await page.evaluate(() => document.fonts.check('700 13px "JetBrains Mono"'))).toBe(true);
+	// A flood of output pauses ttyd (flow control) and resumes it once xterm has parsed it.
+	await page.evaluate(() => {
+		const chunk = '0' + '─'.repeat(40_000) + '\r\n';
+		for (let index = 0; index < 20; index += 1) (window as any).__terminalSockets[0].message(chunk);
+	});
+	const flowControl = () =>
+		page.evaluate(() =>
+			((window as any).__terminalSockets?.[0]?.sent ?? [])
+				.filter((bytes: number[]) => bytes.length === 1)
+				.map((bytes: number[]) => String.fromCharCode(bytes[0]))
+				.join('')
+		);
+	await expect.poll(flowControl).toBe('23');
 	const enterFullScreen = page.getByRole('button', { name: 'Enter full screen' });
 	await expect(enterFullScreen).toHaveAttribute('aria-pressed', 'false');
 	await enterFullScreen.click();
