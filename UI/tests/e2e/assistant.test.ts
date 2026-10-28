@@ -746,6 +746,42 @@ test('groups conversations into folders and deletes one after confirmation', asy
 	await expect(nav.getByRole('link', { name: 'Release notes' })).toHaveCount(0);
 });
 
+test('renames a conversation in place from its menu', async ({ page }) => {
+	await fixture(page);
+	const renames: unknown[] = [];
+	await page.route('**/api/workspaces/test/conversations/chat-1', (route) => {
+		if (route.request().method() !== 'PATCH') return route.fallback();
+		const body = route.request().postDataJSON();
+		renames.push(body);
+		return route.fulfill({ json: { ...conversation, title: body.title.trim() } });
+	});
+	await page.goto('/test/assistant?conversation=chat-1');
+	const nav = page.getByRole('navigation', { name: 'Conversations' });
+	const header = page.getByRole('region', { name: 'Conversation' });
+	await expect(nav.getByRole('link', { name: 'A persistent conversation' })).toBeVisible();
+	await expect(header.getByText('A persistent conversation')).toBeVisible();
+
+	// Escape keeps the old title and sends nothing.
+	await nav.getByRole('button', { name: 'Actions for A persistent conversation' }).click();
+	await page.getByRole('menuitem', { name: 'Rename' }).click();
+	const field = nav.getByRole('textbox', { name: 'Conversation name' });
+	await expect(field).toBeFocused();
+	await expect(field).toHaveValue('A persistent conversation');
+	await field.fill('Discarded');
+	await field.press('Escape');
+	await expect(nav.getByRole('link', { name: 'A persistent conversation' })).toBeVisible();
+	expect(renames).toEqual([]);
+
+	await nav.getByRole('button', { name: 'Actions for A persistent conversation' }).click();
+	await page.getByRole('menuitem', { name: 'Rename' }).click();
+	await field.fill('  Launch plan ');
+	await field.press('Enter');
+	await expect.poll(() => renames).toEqual([{ title: 'Launch plan' }]);
+	await expect(nav.getByRole('link', { name: 'Launch plan' })).toBeVisible();
+	// The open conversation's header follows the new title.
+	await expect(header.getByText('Launch plan')).toBeVisible();
+});
+
 test('asks for approval before merging the reviewed pull request', async ({ page }) => {
 	const state = await fixture(page);
 	const answered = { ...reply, status: 'completed', content: 'Merge approval is pending.' };

@@ -175,6 +175,8 @@ export const conversations = {
 		api.delete<void>(`${base(slug)}/conversation-folders/${encodeURIComponent(id)}`),
 	move: (slug: string, id: string, folder_id: string | null) =>
 		api.patch<Conversation>(`${base(slug)}/conversations/${encodeURIComponent(id)}`, { folder_id }),
+	rename: (slug: string, id: string, title: string) =>
+		api.patch<Conversation>(`${base(slug)}/conversations/${encodeURIComponent(id)}`, { title }),
 	remove: (slug: string, id: string) => api.delete<void>(`${base(slug)}/conversations/${encodeURIComponent(id)}`),
 	status: (slug: string) => api.get<AssistantStatus>(`${base(slug)}/assistant/status`),
 	list: (slug: string) => api.get<Conversation[]>(`${base(slug)}/conversations`),
@@ -193,7 +195,9 @@ export const conversations = {
 	attachmentURL: (slug: string, id: string, attachment: string) =>
 		`${base(slug)}/conversations/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachment)}`,
 	removeAttachment: (slug: string, id: string, attachment: string) =>
-		api.delete<void>(`${base(slug)}/conversations/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachment)}`),
+		api.delete<void>(
+			`${base(slug)}/conversations/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachment)}`
+		),
 	uploadAttachment: (slug: string, id: string, file: File, onProgress?: (fraction: number) => void) =>
 		uploadWithProgress<ConversationAttachment>(
 			`${base(slug)}/conversations/${encodeURIComponent(id)}/attachments`,
@@ -222,7 +226,12 @@ export interface UploadError {
 
 // fetch has no upload progress, so images upload through XHR with the same
 // session cookie; an expired session is refreshed once, as the client does.
-function uploadWithProgress<T>(path: string, file: File, onProgress?: (fraction: number) => void, retried = false): Promise<T> {
+function uploadWithProgress<T>(
+	path: string,
+	file: File,
+	onProgress?: (fraction: number) => void,
+	retried = false
+): Promise<T> {
 	return new Promise<T>((resolve, reject) => {
 		const xhr = new XMLHttpRequest();
 		xhr.open('POST', path);
@@ -234,11 +243,10 @@ function uploadWithProgress<T>(path: string, file: File, onProgress?: (fraction:
 		xhr.onerror = () => reject({ status: 0 } satisfies UploadError);
 		xhr.onload = () => {
 			if (xhr.status === 401 && !retried) {
-				api
-					.post<void>('/api/auth/refresh', undefined, { redirectOnUnauthorized: false })
-					.then(() => uploadWithProgress<T>(path, file, onProgress, true).then(resolve, reject), () =>
-						reject({ status: 401 } satisfies UploadError)
-					);
+				api.post<void>('/api/auth/refresh', undefined, { redirectOnUnauthorized: false }).then(
+					() => uploadWithProgress<T>(path, file, onProgress, true).then(resolve, reject),
+					() => reject({ status: 401 } satisfies UploadError)
+				);
 				return;
 			}
 			if (xhr.status >= 200 && xhr.status < 300) resolve(xhr.response as T);

@@ -346,18 +346,34 @@ func (h *ConversationHandler) DeleteFolder(c echo.Context) error {
 }
 
 // Move sets a conversation's folder; a null folder_id moves it to the root.
-func (h *ConversationHandler) Move(c echo.Context) error {
+func (h *ConversationHandler) Update(c echo.Context) error {
 	id, err := conversationID(c)
 	if err != nil {
 		return conversationError(c, err)
 	}
-	var req struct {
-		FolderID *uuid.UUID `json:"folder_id"`
-	}
+	// A request either renames ("title") or files the conversation
+	// ("folder_id", null for the root).
+	var req map[string]json.RawMessage
 	if err := bindConversation(c, &req); err != nil {
 		return conversationError(c, repository.ErrConversationInvalid)
 	}
-	result, err := h.svc.Repo.MoveConversation(c.Request().Context(), middleware.GetWorkspace(c).ID, id, req.FolderID)
+	ctx, ws := c.Request().Context(), middleware.GetWorkspace(c).ID
+	var result *domain.Conversation
+	if raw, ok := req["title"]; ok {
+		var title string
+		if err := json.Unmarshal(raw, &title); err != nil {
+			return conversationError(c, repository.ErrConversationInvalid)
+		}
+		result, err = h.svc.Repo.RenameConversation(ctx, ws, id, title)
+	} else if raw, ok := req["folder_id"]; ok {
+		var folder *uuid.UUID
+		if err := json.Unmarshal(raw, &folder); err != nil {
+			return conversationError(c, repository.ErrConversationInvalid)
+		}
+		result, err = h.svc.Repo.MoveConversation(ctx, ws, id, folder)
+	} else {
+		err = repository.ErrConversationInvalid
+	}
 	if err != nil {
 		return conversationError(c, err)
 	}

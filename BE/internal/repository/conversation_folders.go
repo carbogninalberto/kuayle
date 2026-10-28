@@ -103,6 +103,23 @@ func (r *ConversationRepository) MoveConversation(ctx context.Context, ws, id uu
 	return c, tx.Commit()
 }
 
+// RenameConversation retitles the actor's conversation.
+func (r *ConversationRepository) RenameConversation(ctx context.Context, ws, id uuid.UUID, title string) (*domain.Conversation, error) {
+	title = strings.TrimSpace(title)
+	if title == "" || utf8.RuneCountInString(title) > 200 || strings.ContainsRune(title, 0) {
+		return nil, ErrConversationInvalid
+	}
+	tx, c, err := r.authorized(ctx, ws, id)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	if err = tx.GetContext(ctx, c, `UPDATE conversations SET title=$2 WHERE id=$1 RETURNING *`, id, title); err != nil {
+		return nil, err
+	}
+	return c, tx.Commit()
+}
+
 // Delete removes the actor's conversation and its messages. A reply in
 // progress or active agent work must finish first; finished agent tasks keep
 // their history without the conversation.

@@ -288,22 +288,30 @@
 		{/if}
 	</header>
 	{#snippet sidebar(inPane: boolean)}
-			<aside
-				class={inPane
-					? 'flex h-full min-w-0 flex-col gap-3 overflow-y-auto bg-muted/20 p-3'
-					: `max-h-56 shrink-0 flex-col gap-3 overflow-y-auto border-b bg-muted/20 p-3 md:flex md:max-h-none md:w-56 md:border-r md:border-b-0 ${showHistory ? 'flex' : 'hidden'}`}
-				aria-label={m['assistant.history']()}
-			>
-				<p class="px-1 pt-1 text-xs font-medium text-muted-foreground">{m['assistant.history']()}</p>
-				<Input
-					bind:value={search}
-					aria-label={m['assistant.search']()}
-					placeholder={m['assistant.search']()}
-					class="h-8"
-				/>
-				<ConversationNav {slug} {conversationId} bind:history {search} />
-				<AgentQueue {slug} />
-			</aside>
+		<aside
+			class={inPane
+				? 'flex h-full min-w-0 flex-col gap-3 overflow-y-auto bg-muted/20 p-3'
+				: `max-h-56 shrink-0 flex-col gap-3 overflow-y-auto border-b bg-muted/20 p-3 md:flex md:max-h-none md:w-56 md:border-r md:border-b-0 ${showHistory ? 'flex' : 'hidden'}`}
+			aria-label={m['assistant.history']()}
+		>
+			<p class="px-1 pt-1 text-xs font-medium text-muted-foreground">{m['assistant.history']()}</p>
+			<Input
+				bind:value={search}
+				aria-label={m['assistant.search']()}
+				placeholder={m['assistant.search']()}
+				class="h-8"
+			/>
+			<ConversationNav
+				{slug}
+				{conversationId}
+				bind:history
+				{search}
+				onrenamed={(updated) => {
+					if (chat.conversation?.id === updated.id) chat.conversation = { ...chat.conversation, title: updated.title };
+				}}
+			/>
+			<AgentQueue {slug} />
+		</aside>
 	{/snippet}
 	{#snippet chatSection()}
 		<section class="flex min-h-0 min-w-0 flex-1 flex-col" aria-label={m['assistant.conversation']()}>
@@ -507,7 +515,9 @@
 										textarea?.focus();
 									}}
 								/>
-								<span class="truncate text-xs text-muted-foreground">{status.model ?? m['assistant.no_provider']()}</span>
+								<span class="truncate text-xs text-muted-foreground"
+									>{status.model ?? m['assistant.no_provider']()}</span
+								>
 							</div>
 							{#if chat.busy}<InputGroup.Button
 									size="icon-sm"
@@ -571,7 +581,9 @@
 		{#if !embedded && wide}
 			<!-- Desktop: the conversation list is resizable; its width is remembered. -->
 			<Resizable.PaneGroup direction="horizontal" autoSaveId="kuayle-assistant-sidebar" class="min-h-0 flex-1">
-				<Resizable.Pane defaultSize={20} minSize={12} maxSize={40} class="min-w-0">{@render sidebar(true)}</Resizable.Pane>
+				<Resizable.Pane defaultSize={20} minSize={12} maxSize={40} class="min-w-0"
+					>{@render sidebar(true)}</Resizable.Pane
+				>
 				<Resizable.Handle withHandle aria-label={m['assistant.resize_sidebar']()} />
 				<Resizable.Pane minSize={40} class="flex min-w-0">{@render conversationPane()}</Resizable.Pane>
 			</Resizable.PaneGroup>

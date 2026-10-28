@@ -16,8 +16,15 @@
 		slug,
 		conversationId,
 		history = $bindable([]),
-		search = ''
-	}: { slug: string; conversationId: string | null; history: Conversation[]; search?: string } = $props();
+		search = '',
+		onrenamed
+	}: {
+		slug: string;
+		conversationId: string | null;
+		history: Conversation[];
+		search?: string;
+		onrenamed?: (conversation: Conversation) => void;
+	} = $props();
 
 	let folders = $state<ConversationFolder[]>([]);
 	// Folders start collapsed, except the one holding the open conversation;
@@ -28,6 +35,8 @@
 	// The folder being named in place: a new one (no id) or a rename.
 	let editing = $state<{ id?: string; name: string } | null>(null);
 	let saving = false;
+	// The conversation being renamed in place.
+	let renaming = $state<{ id: string; title: string } | null>(null);
 	let deleting = $state<Conversation | null>(null);
 	let deletingFolder = $state<ConversationFolder | null>(null);
 
@@ -83,6 +92,37 @@
 		node.select();
 	};
 
+	async function saveTitle() {
+		const current = renaming;
+		if (!current || saving) return;
+		const title = current.title.trim();
+		if (!title || title === history.find((c) => c.id === current.id)?.title) {
+			renaming = null;
+			return;
+		}
+		saving = true;
+		try {
+			const updated = await api.rename(slug, current.id, title);
+			history = history.map((c) => (c.id === current.id ? { ...c, title: updated.title } : c));
+			onrenamed?.(updated);
+			renaming = null;
+		} catch (error) {
+			appToast.apiError(error, m['assistant.rename_failed']());
+		} finally {
+			saving = false;
+		}
+	}
+
+	function titleKeys(event: KeyboardEvent) {
+		if (event.key === 'Enter') {
+			event.preventDefault();
+			void saveTitle();
+		} else if (event.key === 'Escape') {
+			event.preventDefault();
+			renaming = null;
+		}
+	}
+
 	async function move(conversation: Conversation, folder: string | null) {
 		try {
 			const updated = await api.move(slug, conversation.id, folder);
@@ -120,47 +160,66 @@
 </script>
 
 {#snippet row(item: Conversation)}
-	<div class="group flex min-w-0 items-center rounded-md hover:bg-muted {item.id === conversationId ? 'bg-muted' : ''}">
-		<a
-			href="/{slug}/assistant?conversation={encodeURIComponent(item.id)}"
-			aria-current={item.id === conversationId ? 'page' : undefined}
-			class="min-w-0 flex-1 truncate px-2 py-2 text-sm {item.id === conversationId
-				? 'font-medium'
-				: 'text-muted-foreground'}">{item.title}</a
+	{#if renaming?.id === item.id}
+		<div class="flex items-center px-1 py-0.5">
+			<Input
+				aria-label={m['assistant.conversation_name']()}
+				maxlength={200}
+				class="h-8 min-w-0 flex-1 text-sm"
+				bind:value={renaming.title}
+				onkeydown={titleKeys}
+				onblur={() => void saveTitle()}
+				{@attach focus}
+			/>
+		</div>
+	{:else}
+		<div
+			class="group flex min-w-0 items-center rounded-md hover:bg-muted {item.id === conversationId ? 'bg-muted' : ''}"
 		>
-		<DropdownMenu.Root>
-			<DropdownMenu.Trigger>
-				{#snippet child({ props })}
-					<Button
-						{...props}
-						variant="ghost"
-						size="icon-sm"
-						class="mr-1 shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
-						aria-label={m['assistant.conversation_actions']({ title: item.title })}><MoreHorizontal /></Button
-					>
-				{/snippet}
-			</DropdownMenu.Trigger>
-			<DropdownMenu.Content align="end" class="w-48">
-				<DropdownMenu.Sub>
-					<DropdownMenu.SubTrigger><Folder />{m['assistant.move_to']()}</DropdownMenu.SubTrigger>
-					<DropdownMenu.SubContent>
-						<DropdownMenu.Item disabled={!item.folder_id} onSelect={() => void move(item, null)}
-							>{m['assistant.no_folder']()}</DropdownMenu.Item
+			<a
+				href="/{slug}/assistant?conversation={encodeURIComponent(item.id)}"
+				aria-current={item.id === conversationId ? 'page' : undefined}
+				class="min-w-0 flex-1 truncate px-2 py-2 text-sm {item.id === conversationId
+					? 'font-medium'
+					: 'text-muted-foreground'}">{item.title}</a
+			>
+			<DropdownMenu.Root>
+				<DropdownMenu.Trigger>
+					{#snippet child({ props })}
+						<Button
+							{...props}
+							variant="ghost"
+							size="icon-sm"
+							class="mr-1 shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
+							aria-label={m['assistant.conversation_actions']({ title: item.title })}><MoreHorizontal /></Button
 						>
-						{#each folders as folder (folder.id)}
-							<DropdownMenu.Item disabled={item.folder_id === folder.id} onSelect={() => void move(item, folder.id)}
-								>{folder.name}</DropdownMenu.Item
+					{/snippet}
+				</DropdownMenu.Trigger>
+				<DropdownMenu.Content align="end" class="w-48">
+					<DropdownMenu.Item onSelect={() => (renaming = { id: item.id, title: item.title })}
+						><Pencil />{m['assistant.rename_conversation']()}</DropdownMenu.Item
+					>
+					<DropdownMenu.Sub>
+						<DropdownMenu.SubTrigger><Folder />{m['assistant.move_to']()}</DropdownMenu.SubTrigger>
+						<DropdownMenu.SubContent>
+							<DropdownMenu.Item disabled={!item.folder_id} onSelect={() => void move(item, null)}
+								>{m['assistant.no_folder']()}</DropdownMenu.Item
 							>
-						{/each}
-					</DropdownMenu.SubContent>
-				</DropdownMenu.Sub>
-				<DropdownMenu.Separator />
-				<DropdownMenu.Item variant="destructive" onSelect={() => (deleting = item)}
-					><Trash2 />{m['assistant.delete_conversation']()}</DropdownMenu.Item
-				>
-			</DropdownMenu.Content>
-		</DropdownMenu.Root>
-	</div>
+							{#each folders as folder (folder.id)}
+								<DropdownMenu.Item disabled={item.folder_id === folder.id} onSelect={() => void move(item, folder.id)}
+									>{folder.name}</DropdownMenu.Item
+								>
+							{/each}
+						</DropdownMenu.SubContent>
+					</DropdownMenu.Sub>
+					<DropdownMenu.Separator />
+					<DropdownMenu.Item variant="destructive" onSelect={() => (deleting = item)}
+						><Trash2 />{m['assistant.delete_conversation']()}</DropdownMenu.Item
+					>
+				</DropdownMenu.Content>
+			</DropdownMenu.Root>
+		</div>
+	{/if}
 {/snippet}
 
 <Button

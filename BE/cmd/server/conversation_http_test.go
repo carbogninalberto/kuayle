@@ -127,6 +127,13 @@ func TestConversationHTTPStreamingAndReplay(t *testing.T) {
 	path := "/conversations/" + conversation.ID.String()
 	request("GET", path, "", tokenFor(other), 404, nil)
 	request("POST", "/conversations", `{"title":"Denied"}`, tokenFor(guest), 404, nil)
+	var renamed domain.Conversation
+	request("PATCH", path, `{"title":"  Launch plan "}`, token, 200, &renamed)
+	require.Equal(t, "Launch plan", renamed.Title)
+	require.Nil(t, renamed.FolderID, "renaming leaves the folder alone")
+	request("PATCH", path, `{"title":"  "}`, token, 400, nil)
+	request("PATCH", path, `{}`, token, 400, nil)
+	request("PATCH", path, `{"title":"Theirs"}`, tokenFor(other), 404, nil)
 	raw, hash, prefix, err := domain.GenerateToken()
 	require.NoError(t, err)
 	require.NoError(t, tokens.Create(context.Background(), &domain.PersonalAccessToken{ID: uuid.New(), UserID: user, Name: "Chat denied", Scopes: []string{"issues:read"}, TokenHash: hash, TokenPrefix: prefix}))

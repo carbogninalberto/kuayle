@@ -249,7 +249,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(ws, http.MethodGet, "/conversations", h.conversation.List)
 	sessionOnly(ws, http.MethodPost, "/conversations", h.conversation.Create)
 	sessionOnly(ws, http.MethodGet, "/conversations/:conversationId", h.conversation.History)
-	sessionOnly(ws, http.MethodPatch, "/conversations/:conversationId", h.conversation.Move)
+	sessionOnly(ws, http.MethodPatch, "/conversations/:conversationId", h.conversation.Update)
 	sessionOnly(ws, http.MethodDelete, "/conversations/:conversationId", h.conversation.Delete)
 	sessionOnly(ws, http.MethodGet, "/conversation-folders", h.conversation.Folders)
 	sessionOnly(ws, http.MethodPost, "/conversation-folders", h.conversation.CreateFolder)

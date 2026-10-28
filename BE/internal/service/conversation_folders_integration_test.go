@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -49,6 +50,25 @@ func TestConversationFoldersArePrivateAndDeletingThemUngroups(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, list, 1)
 	require.Nil(t, list[0].FolderID, "deleting a folder keeps its conversations at the root")
+}
+
+func TestRenamingAConversationIsLimitedToItsOwner(t *testing.T) {
+	f := newToolFixture(t)
+	c, err := f.repo.Create(f.ctx, f.ws, "Planning")
+	require.NoError(t, err)
+	for _, bad := range []string{"   ", strings.Repeat("x", 201), "a\x00b"} {
+		_, err = f.repo.RenameConversation(f.ctx, f.ws, c.ID, bad)
+		require.ErrorIs(t, err, repository.ErrConversationInvalid, "%q", bad)
+	}
+	stranger := domain.WithAccess(context.Background(), domain.Access{WorkspaceID: f.ws, UserID: uuid.New()})
+	_, err = f.repo.RenameConversation(stranger, f.ws, c.ID, "Hijacked")
+	require.Error(t, err, "only the owner renames a conversation")
+	renamed, err := f.repo.RenameConversation(f.ctx, f.ws, c.ID, "  Release plan  ")
+	require.NoError(t, err)
+	require.Equal(t, "Release plan", renamed.Title)
+	list, err := f.repo.List(f.ctx, f.ws)
+	require.NoError(t, err)
+	require.Equal(t, "Release plan", list[0].Title)
 }
 
 func TestDeletingAConversationWaitsForRepliesAndActiveAgentWork(t *testing.T) {
