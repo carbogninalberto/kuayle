@@ -322,8 +322,9 @@ The check creates and removes disposable containers and a network. API and
 all-in-one checks apply the packaged migrations to PostgreSQL 17 and exercise
 the real API; the web check uses a fixture upstream to verify proxy routing.
 Both Caddy images verify SPA deep links and static assets as well as backend
-routes. Container UI builds default to a 4 GB Node heap; use
-`--build-arg NODE_OPTIONS=--max-old-space-size=6144` to override it. Host builds
+routes. Container UI builds default to a 6 GB Node heap (the client build no
+longer fits in 4 GB); use `--build-arg NODE_OPTIONS=--max-old-space-size=8192`
+to override it. Host builds
 retain their 8 GB default unless `NODE_OPTIONS` is set.
 A successful candidate run does not authorize publishing. The existing
 release-publishing workflow updates source files on `main`; its output must be

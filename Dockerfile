@@ -4,7 +4,7 @@ WORKDIR /app
 COPY UI/package*.json ./
 RUN npm ci
 COPY UI/ .
-ARG NODE_OPTIONS=--max-old-space-size=4096
+ARG NODE_OPTIONS=--max-old-space-size=6144
 RUN npm run build
 
 # Stage 2: Build Caddy from source with patched Go
