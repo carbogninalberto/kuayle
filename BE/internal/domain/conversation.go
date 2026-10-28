@@ -42,6 +42,8 @@ type ConversationMessage struct {
 	LeaseExpiresAt *time.Time `json:"-" db:"lease_expires_at"`
 	CreatedAt      time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at" db:"updated_at"`
+	// Attachments are the images of a user message, in order.
+	Attachments []ConversationAttachment `json:"attachments,omitempty" db:"-"`
 }
 type ConversationEvent struct {
 	Cursor         int64           `json:"cursor" db:"cursor"`

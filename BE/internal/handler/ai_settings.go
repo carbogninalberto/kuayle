@@ -103,3 +103,21 @@ func (h *AISettingsHandler) ExpandIssueDescription(c echo.Context) error {
 	}
 	return response.Success(c, http.StatusOK, dto.ExpandIssueDescriptionResponse{Description: description})
 }
+
+// CheckVision probes the saved assistant model with a tiny image and reports
+// whether it answered and recognised it.
+func (h *AISettingsHandler) CheckVision(c echo.Context) error {
+	ws := c.Get("workspace").(*domain.Workspace)
+	result, err := h.aiSvc.CheckVision(c.Request().Context(), ws.ID, middleware.GetUserID(c))
+	switch {
+	case errors.Is(err, service.ErrNotWorkspaceOwner):
+		return response.Error(c, http.StatusForbidden, "FORBIDDEN", "Only the workspace owner can check AI settings")
+	case errors.Is(err, service.ErrWorkspaceNotFound):
+		return response.NotFound(c, "Workspace")
+	case errors.Is(err, service.ErrAISettingsNotConfigured):
+		return response.Error(c, http.StatusBadRequest, "AI_NOT_CONFIGURED", "AI settings are incomplete. Configure a base URL, model, and API key first.")
+	case err != nil:
+		return response.InternalError(c)
+	}
+	return response.Success(c, http.StatusOK, result)
+}

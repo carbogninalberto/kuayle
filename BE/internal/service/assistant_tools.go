@@ -125,14 +125,18 @@ func (t *AssistantTools) specs() []chatToolSpec {
 		if !t.available(tool) {
 			continue
 		}
-		var spec chatToolSpec
-		spec.Type = "function"
-		spec.Function.Name = tool.name
-		spec.Function.Description = tool.description
-		spec.Function.Parameters = json.RawMessage(tool.parameters)
-		specs = append(specs, spec)
+		specs = append(specs, tool.spec())
 	}
 	return specs
+}
+
+func (tool assistantTool) spec() chatToolSpec {
+	var spec chatToolSpec
+	spec.Type = "function"
+	spec.Function.Name = tool.name
+	spec.Function.Description = tool.description
+	spec.Function.Parameters = json.RawMessage(tool.parameters)
+	return spec
 }
 
 // available reports whether a tool's dependencies are wired.

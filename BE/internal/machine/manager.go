@@ -124,6 +124,8 @@ type Manager struct {
 	diskQuota     DiskQuotaConfig
 
 	agentGitIdentity GitIdentity
+	// attachmentFiles reads task images from storage; nil copies none.
+	attachmentFiles attachmentReader
 
 	capacity    *CapacityConfig
 	admissionMu sync.Mutex
@@ -990,6 +992,7 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 		}
 		return err
 	}
+	m.stageAttachments(ctx, machine, run, checkout)
 	service := &domain.DevMachineService{
 		ID: uuid.New(), WorkspaceID: machine.WorkspaceID, MachineID: machine.ID, AgentRunID: &run.ID, ServiceType: "agent",
 		ServiceKey: "agent-" + run.ID.String(), ContainerName: "kuayle-" + machine.RoutingKey + "-agent-" + run.ID.String(),

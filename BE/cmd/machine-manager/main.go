@@ -18,6 +18,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	cryptoutil "github.com/kuayle/kuayle-backend/pkg/crypto"
 	githubclient "github.com/kuayle/kuayle-backend/pkg/github"
+	"github.com/kuayle/kuayle-backend/pkg/storage"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -92,6 +93,12 @@ func main() {
 		})
 	manager.SetCapacity(machine.CapacityConfig{ReservedCPUMillis: configValue.DevMachine.HostReservedCPUMillis, ReservedMemoryMB: configValue.DevMachine.HostReservedMemoryMB, CPUOvercommit: configValue.DevMachine.CPUOvercommit})
 	manager.SetAgentGitIdentity(machine.GitIdentity{Name: configValue.DevMachine.AgentGitName, Email: configValue.DevMachine.AgentGitEmail})
+	// Task images are read from the API's storage; without it runs get none.
+	if files, err := storage.New(configValue.Storage); err == nil {
+		manager.SetAttachmentStorage(files)
+	} else {
+		log.WithError(err).Warn("upload storage unavailable; task images will not be copied")
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

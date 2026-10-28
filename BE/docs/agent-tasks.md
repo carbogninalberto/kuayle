@@ -211,6 +211,29 @@ while the machine is paused or stopped, and still runs after the machine's
 generation changes. Failed tasks keep their transcripts so an explicit retry can
 use them. Machine teardown removes the whole volume.
 
+## Issue images
+
+Each attempt receives the raster images (PNG, JPEG, WebP, GIF) embedded in its
+issue's description and comments that the task creator can read, including
+conversation images filed with `attach_images_to_issue`
+([conversation images](conversations.md#images)). When the attempt is created,
+the newest at most 10 images (10 MB each, 50 MB in total) are fixed in
+`agent_task_attachments` (migration 82) under the attempt's run ID, so a
+repeated or concurrent attempt creation keeps the same list. Each gets a safe
+path `.kuayle/attachments/NN-name.ext`; the native prompt lists the paths,
+types and sizes after the task, and drops the list rather than exceed the
+prompt limit. Codex and Claude Code open image files by path.
+
+Before starting the agent, the manager reads the listed objects from upload
+storage (it needs read access; Compose mounts `uploads` read-only and passes the
+storage settings) checking path, size and total, and writes them into the
+checkout with the developer container's user: it replaces
+`.kuayle/attachments/` and adds `/.kuayle/` once to the repository's
+`info/exclude` (`git rev-parse --git-path info/exclude`, shared by worktrees),
+never to a tracked `.gitignore`, so the images cannot be committed. No
+credential is involved. A failure is logged as `attachments.unavailable` and
+does not block the run; success records `attachments.copied`.
+
 ## CI and review feedback
 
 Migration 62 adds `agent_task_signals`. Completed `check_suite` events and

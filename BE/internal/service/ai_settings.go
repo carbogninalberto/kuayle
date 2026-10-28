@@ -140,6 +140,9 @@ func (s *AISettingsService) Update(ctx context.Context, workspaceID, userID uuid
 		}
 		settings.IssueCopyPrompt = prompt
 	}
+	if req.AssistantVision != nil {
+		settings.AssistantVision = *req.AssistantVision
+	}
 	if req.APIKey.Set {
 		if req.APIKey.Value == nil || strings.TrimSpace(*req.APIKey.Value) == "" {
 			settings.APIKeyEncrypted = nil
@@ -243,6 +246,7 @@ func ToAISettingsResponse(settings *domain.AISettings) dto.AISettingsResponse {
 		DefaultPrompt:           DefaultDescriptionExpandPrompt,
 		IssueCopyPrompt:         settings.IssueCopyPrompt,
 		DefaultIssueCopyPrompt:  DefaultIssueCopyPrompt,
+		AssistantVision:         settings.AssistantVision,
 		CreatedAt:               settings.CreatedAt,
 		UpdatedAt:               settings.UpdatedAt,
 	}
@@ -271,6 +275,30 @@ type chatCompletionMessage struct {
 	Content    string         `json:"content"`
 	ToolCalls  []chatToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string         `json:"tool_call_id,omitempty"`
+	// Parts, when set, replace Content with OpenAI-compatible content parts
+	// (text and image_url); Content keeps the text for size accounting.
+	Parts []chatContentPart `json:"-"`
+}
+
+type chatContentPart struct {
+	Type     string        `json:"type"`
+	Text     string        `json:"text,omitempty"`
+	ImageURL *chatImageURL `json:"image_url,omitempty"`
+}
+
+type chatImageURL struct {
+	URL string `json:"url"`
+}
+
+func (m chatCompletionMessage) MarshalJSON() ([]byte, error) {
+	type plain chatCompletionMessage
+	if len(m.Parts) == 0 {
+		return json.Marshal(plain(m))
+	}
+	return json.Marshal(struct {
+		plain
+		Content []chatContentPart `json:"content"`
+	}{plain(m), m.Parts})
 }
 
 // chatToolCall is the OpenAI-compatible function call shape. Arguments are the

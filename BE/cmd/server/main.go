@@ -183,6 +183,9 @@ func main() {
 		log.Fatalf("Failed to initialize storage: %v", err)
 	}
 	uploadH := handler.NewUploadHandler(store, assetRepo, issueRepo, cfg.JWTSecret)
+	conversationImages := service.NewImageStore(store)
+	conversationSvc.SetAttachments(conversationImages, assetRepo, commentSvc, workspaceRepo)
+	telegramSvc.SetImages(conversationImages)
 	workspaceTransferRepo := repository.NewWorkspaceTransferRepository(db)
 	workspaceTransferSvc := service.NewWorkspaceTransferService(workspaceTransferRepo, store)
 	workspaceTransferH := handler.NewWorkspaceTransferHandler(workspaceTransferSvc)

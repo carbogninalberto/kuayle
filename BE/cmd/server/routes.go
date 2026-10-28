@@ -241,6 +241,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	ownerOnly(ws, http.MethodGet, "/ai-settings", h.aiSettings.Get)
 	scoped(ws, http.MethodGet, "/ai-settings/issue-copy-prompt", h.aiSettings.GetIssueCopyPrompt, "issues:read")
 	ownerOnly(ws, http.MethodPatch, "/ai-settings", h.aiSettings.Update)
+	ownerOnly(ws, http.MethodPost, "/ai-settings/vision-check", h.aiSettings.CheckVision)
 
 	// Conversations are session-only until dedicated PAT scopes are defined.
 	sessionOnly(ws, http.MethodGet, "/assistant/status", h.conversation.Status)
@@ -256,6 +257,9 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(ws, http.MethodGet, "/conversations/:conversationId/events", h.conversation.Events)
 	sessionOnly(ws, http.MethodGet, "/conversations/:conversationId/stream", h.conversation.Stream)
 	sessionOnly(ws, http.MethodPost, "/conversations/:conversationId/messages", h.conversation.Send)
+	sessionOnly(ws, http.MethodPost, "/conversations/:conversationId/attachments", h.conversation.UploadAttachment)
+	sessionOnly(ws, http.MethodGet, "/conversations/:conversationId/attachments/:attachmentId", h.conversation.Attachment)
+	sessionOnly(ws, http.MethodDelete, "/conversations/:conversationId/attachments/:attachmentId", h.conversation.RemoveAttachment)
 	sessionOnly(ws, http.MethodPost, "/conversations/:conversationId/messages/:messageId/retry", h.conversation.Retry)
 	sessionOnly(ws, http.MethodPost, "/conversations/:conversationId/cancel", h.conversation.Cancel)
 	sessionOnly(ws, http.MethodPost, "/conversations/:conversationId/approvals/:approvalId", h.conversation.ResolveApproval)

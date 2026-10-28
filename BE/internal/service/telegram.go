@@ -50,6 +50,8 @@ type TelegramService struct {
 	client     *http.Client
 	endpoint   string
 	approvals  telegramApprovals
+	// images stores photos received from Telegram; nil ignores them.
+	images *ImageStore
 	// webhookOverride replaces the derived webhook URL; see SetWebhookURL.
 	webhookOverride string
 }
@@ -286,16 +288,21 @@ func (s *TelegramService) Link(ctx context.Context, ws uuid.UUID, id int64) (str
 	return "/start " + raw, nil
 }
 func (s *TelegramService) Receive(ctx context.Context, ws uuid.UUID, secret string, raw []byte) error {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	if err := s.Repo.Authenticate(ctx, ws, secret); err != nil {
+	if err := func() error {
+		authCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		return s.Repo.Authenticate(authCtx, ws, secret)
+	}(); err != nil {
 		return err
 	}
 	var update struct {
 		ID      int64 `json:"update_id"`
 		Message *struct {
-			Text string `json:"text"`
-			From *struct {
+			Text     string              `json:"text"`
+			Caption  string              `json:"caption"`
+			Photo    []telegramPhotoSize `json:"photo"`
+			Document *telegramDocument   `json:"document"`
+			From     *struct {
 				ID    int64 `json:"id"`
 				IsBot bool  `json:"is_bot"`
 			} `json:"from"`
@@ -323,6 +330,17 @@ func (s *TelegramService) Receive(ctx context.Context, ws uuid.UUID, secret stri
 	if err := json.Unmarshal(raw, &update); err != nil {
 		return repository.ErrTelegramInvalid
 	}
+	// Downloading an image gets a longer, still bounded, budget.
+	budget := 5 * time.Second
+	var image *telegramImageFile
+	if update.Message != nil && s.images != nil {
+		image = telegramImage(update.Message.Photo, update.Message.Document)
+		if image != nil {
+			budget = 45 * time.Second
+		}
+	}
+	ctx, cancel := context.WithTimeout(ctx, budget)
+	defer cancel()
 	if c := update.Callback; c != nil {
 		u := domain.TelegramUpdate{ID: update.ID, CallbackID: c.ID, CallbackData: c.Data}
 		if c.From != nil && c.Message != nil && len(c.ID) <= 128 && len(c.Data) <= 64 {
@@ -338,6 +356,20 @@ func (s *TelegramService) Receive(ctx context.Context, ws uuid.UUID, secret stri
 		u.ChatID = m.Chat.ID
 		u.Text = m.Text
 		u.Private = m.Chat.Type == "private" && !m.From.IsBot
+		if image != nil {
+			u.Text = m.Caption
+		}
+	}
+	if image != nil {
+		stored, err := s.receiveImage(ctx, ws, secret, u, *image)
+		if err != nil {
+			return err
+		}
+		if stored != nil {
+			u.Attachments = []domain.NewConversationAttachment{*stored}
+		} else if strings.TrimSpace(u.Text) == "" {
+			u.Text = "[An image was sent from Telegram but could not be received.]"
+		}
 	}
 	provider, model := "", ""
 	settings, err := s.ai.Get(ctx, ws)
@@ -352,7 +384,102 @@ func (s *TelegramService) Receive(ctx context.Context, ws uuid.UUID, secret stri
 	if strings.HasPrefix(u.Text, "/start ") {
 		hash = telegramCodeHash(strings.TrimSpace(strings.TrimPrefix(u.Text, "/start ")))
 	}
-	return s.Repo.Receive(ctx, ws, secret, u, hash, provider, model)
+	recorded, err := s.Repo.ReceiveMessage(ctx, ws, secret, u, hash, provider, model)
+	if !recorded {
+		// Duplicate, refused or failed updates keep no image.
+		for _, a := range u.Attachments {
+			s.images.Delete(context.WithoutCancel(ctx), a.StorageKey)
+		}
+	}
+	return err
+}
+
+// SetImages lets photos and image documents sent to the bot be stored and
+// attached to the conversation, like composer uploads.
+func (s *TelegramService) SetImages(images *ImageStore) {
+	s.images = images
+}
+
+type telegramPhotoSize struct {
+	FileID   string `json:"file_id"`
+	FileSize int64  `json:"file_size"`
+}
+
+type telegramDocument struct {
+	FileID   string `json:"file_id"`
+	FileName string `json:"file_name"`
+	MimeType string `json:"mime_type"`
+	FileSize int64  `json:"file_size"`
+}
+
+type telegramImageFile struct {
+	FileID, Name string
+}
+
+// telegramImage picks the largest photo size within the attachment limit, or
+// an image document. The content is still sniffed after download.
+func telegramImage(photos []telegramPhotoSize, document *telegramDocument) *telegramImageFile {
+	for i := len(photos) - 1; i >= 0; i-- {
+		if photos[i].FileID != "" && len(photos[i].FileID) <= 256 && photos[i].FileSize <= domain.ConversationAttachmentMaxBytes {
+			return &telegramImageFile{FileID: photos[i].FileID, Name: "telegram-photo.jpg"}
+		}
+	}
+	if document != nil && document.FileID != "" && len(document.FileID) <= 256 && document.FileSize <= domain.ConversationAttachmentMaxBytes {
+		if _, ok := domain.ConversationAttachmentTypes[strings.ToLower(document.MimeType)]; ok {
+			return &telegramImageFile{FileID: document.FileID, Name: document.FileName}
+		}
+	}
+	return nil
+}
+
+var telegramFilePath = regexp.MustCompile(`^[A-Za-z0-9_-]+(/[A-Za-z0-9_.-]+)*$`)
+
+// receiveImage downloads an image only for an authorized, linked sender and a
+// new update. It returns nil when the image is refused or unavailable.
+func (s *TelegramService) receiveImage(ctx context.Context, ws uuid.UUID, secret string, u domain.TelegramUpdate, file telegramImageFile) (*domain.NewConversationAttachment, error) {
+	encrypted, err := s.Repo.ImageSender(ctx, ws, secret, u)
+	if err != nil || encrypted == "" {
+		return nil, err
+	}
+	token, err := crypto.Decrypt(encrypted, s.key)
+	if err != nil {
+		return nil, nil
+	}
+	var info struct {
+		FilePath string `json:"file_path"`
+		FileSize int64  `json:"file_size"`
+	}
+	if err = s.call(ctx, token, "getFile", map[string]string{"file_id": file.FileID}, &info); err != nil {
+		return nil, nil
+	}
+	if info.FileSize > domain.ConversationAttachmentMaxBytes || len(info.FilePath) > 256 || !telegramFilePath.MatchString(info.FilePath) || strings.Contains(info.FilePath, "..") {
+		return nil, nil
+	}
+	// Only Telegram's own file endpoint; the client neither follows redirects
+	// nor dials private addresses, and errors never include the URL.
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.endpoint+"/file/bot"+token+"/"+info.FilePath, nil)
+	if err != nil {
+		return nil, nil
+	}
+	client := *s.client
+	client.Timeout = 30 * time.Second
+	res, err := client.Do(req)
+	if err != nil {
+		return nil, nil
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return nil, nil
+	}
+	data, err := readImage(res.Body)
+	if err != nil {
+		return nil, nil
+	}
+	stored, err := s.images.Save(ctx, file.Name, data)
+	if err != nil {
+		return nil, nil
+	}
+	return &stored, nil
 }
 
 // Never expose errors from the HTTP transport: Telegram embeds the token in URL paths.

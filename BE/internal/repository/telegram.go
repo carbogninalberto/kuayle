@@ -184,92 +184,139 @@ func (r *TelegramRepository) Unlink(ctx context.Context, ws uuid.UUID) error {
 	return tx.Commit()
 }
 func (r *TelegramRepository) Receive(ctx context.Context, ws uuid.UUID, secret string, u domain.TelegramUpdate, codeHash, provider, model string) error {
+	_, err := r.ReceiveMessage(ctx, ws, secret, u, codeHash, provider, model)
+	return err
+}
+
+// ImageSender authorizes downloading a message's images before Receive: the
+// webhook secret, an enabled bot, an allowed private sender linked to a
+// current non-guest member, and an update not already received. It returns
+// the encrypted bot token, or "" when the images must not be fetched.
+func (r *TelegramRepository) ImageSender(ctx context.Context, ws uuid.UUID, secret string, u domain.TelegramUpdate) (string, error) {
+	var s domain.TelegramSettings
+	err := r.db.GetContext(ctx, &s, `SELECT `+telegramColumns+` FROM telegram_settings WHERE workspace_id=$1`, ws)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrTelegramDenied
+	}
+	if err != nil {
+		return "", err
+	}
+	if secret == "" || subtle.ConstantTimeCompare([]byte(secret), []byte(s.WebhookSecret)) != 1 {
+		return "", ErrTelegramDenied
+	}
+	if !s.Enabled || !u.Private || u.ChatID != u.UserID || !slices.Contains(s.AllowedUserIDs, u.UserID) || u.ID < 0 {
+		return "", nil
+	}
+	var allowed bool
+	err = r.db.GetContext(ctx, &allowed, `SELECT EXISTS(SELECT 1 FROM telegram_links l JOIN workspace_members m ON m.workspace_id=l.workspace_id AND m.user_id=l.user_id
+		WHERE l.workspace_id=$1 AND l.telegram_user_id=$2 AND m.role<>'guest')
+		AND NOT EXISTS(SELECT 1 FROM telegram_updates WHERE workspace_id=$1 AND bot_id=$3 AND update_id=$4)`, ws, u.UserID, s.BotID, u.ID)
+	if err != nil || !allowed {
+		return "", err
+	}
+	return s.TokenEncrypted, nil
+}
+
+// ReceiveMessage is Receive that also reports whether the update's images
+// were recorded on a new user message; otherwise the caller deletes them.
+func (r *TelegramRepository) ReceiveMessage(ctx context.Context, ws uuid.UUID, secret string, u domain.TelegramUpdate, codeHash, provider, model string) (stored bool, err error) {
 	tx, err := beginConversationTransaction(ctx, r.db)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer tx.Rollback()
+	defer func() {
+		if err != nil {
+			stored = false
+		}
+	}()
+	return r.receive(ctx, tx, ws, secret, u, codeHash, provider, model)
+}
+
+func (r *TelegramRepository) receive(ctx context.Context, tx *sqlx.Tx, ws uuid.UUID, secret string, u domain.TelegramUpdate, codeHash, provider, model string) (bool, error) {
+	stored := false
+	var err error
 	// NO KEY UPDATE serializes webhook/settings decisions without blocking the
 	// FK KEY SHARE lock acquired by Web conversation outbox inserts.
 	var s domain.TelegramSettings
 	err = tx.GetContext(ctx, &s, `SELECT `+telegramColumns+` FROM telegram_settings WHERE workspace_id=$1 FOR NO KEY UPDATE`, ws)
 	if errors.Is(err, sql.ErrNoRows) {
-		return ErrTelegramDenied
+		return false, ErrTelegramDenied
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	if secret == "" || subtle.ConstantTimeCompare([]byte(secret), []byte(s.WebhookSecret)) != 1 {
-		return ErrTelegramDenied
+		return false, ErrTelegramDenied
 	}
 	// Fail closed, including forwarded identities, groups, bots, and unsupported callbacks.
-	if !s.Enabled || !u.Private || u.ChatID != u.UserID || !slices.Contains(s.AllowedUserIDs, u.UserID) || u.ID < 0 || len(u.Text) > 16384 || strings.TrimSpace(u.Text) == "" {
-		return nil
+	if !s.Enabled || !u.Private || u.ChatID != u.UserID || !slices.Contains(s.AllowedUserIDs, u.UserID) || u.ID < 0 || len(u.Text) > 16384 || (strings.TrimSpace(u.Text) == "" && len(u.Attachments) == 0) {
+		return false, nil
 	}
 	result, err := tx.ExecContext(ctx, `INSERT INTO telegram_updates(workspace_id,bot_id,update_id) VALUES($1,$2,$3) ON CONFLICT DO NOTHING`, ws, s.BotID, u.ID)
 	if err != nil {
-		return err
+		return false, err
 	}
 	n, err := result.RowsAffected()
 	if err != nil || n == 0 {
-		return err
+		return false, err
 	}
 	var user uuid.UUID
 	var conversation *uuid.UUID
 	if strings.HasPrefix(u.Text, "/start ") {
 		err = tx.GetContext(ctx, &user, `SELECT user_id FROM telegram_link_codes WHERE workspace_id=$1 AND telegram_user_id=$2 AND code_hash=$3 AND expires_at>now() FOR UPDATE`, ws, u.UserID, codeHash)
 		if errors.Is(err, sql.ErrNoRows) {
-			return tx.Commit()
+			return false, tx.Commit()
 		}
 		if err != nil {
-			return err
+			return false, err
 		}
 		if err = conversationMember(ctx, tx, ws, user); err != nil {
-			return tx.Commit()
+			return false, tx.Commit()
 		}
 		// Never reassign an existing Telegram identity to a different Kuayle user.
 		var existing uuid.UUID
 		err = tx.GetContext(ctx, &existing, `SELECT user_id FROM telegram_links WHERE workspace_id=$1 AND telegram_user_id=$2`, ws, u.UserID)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return err
+			return false, err
 		}
 		if err == nil && existing != user {
-			return tx.Commit()
+			return false, tx.Commit()
 		}
 		_, err = tx.ExecContext(ctx, `DELETE FROM telegram_links WHERE workspace_id=$1 AND user_id=$2 AND telegram_user_id<>$3`, ws, user, u.UserID)
 		if err != nil {
-			return err
+			return false, err
 		}
 		_, err = tx.ExecContext(ctx, `INSERT INTO telegram_links(workspace_id,user_id,telegram_user_id) VALUES($1,$2,$3) ON CONFLICT(workspace_id,telegram_user_id) DO NOTHING`, ws, user, u.UserID)
 		if err != nil {
-			return err
+			return false, err
 		}
 		_, err = tx.ExecContext(ctx, `DELETE FROM telegram_link_codes WHERE workspace_id=$1 AND (user_id=$2 OR telegram_user_id=$3)`, ws, user, u.UserID)
 		if err != nil {
-			return err
+			return false, err
 		}
 		err = telegramReply(ctx, tx, ws, user, u.UserID, nil, nil, "Account linked. Send a message to start a conversation. Use /new for a new conversation or /stop to cancel a reply.")
 	} else {
 		err = tx.QueryRowContext(ctx, `SELECT user_id,conversation_id FROM telegram_links WHERE workspace_id=$1 AND telegram_user_id=$2`, ws, u.UserID).Scan(&user, &conversation)
 		if errors.Is(err, sql.ErrNoRows) {
-			return tx.Commit()
+			return false, tx.Commit()
 		}
 		if err != nil {
-			return err
+			return false, err
 		}
 		if err = conversationMember(ctx, tx, ws, user); err != nil {
-			return tx.Commit()
+			return false, tx.Commit()
 		}
 		if conversation == nil || u.Text == "/new" {
 			var id uuid.UUID
 			err = tx.GetContext(ctx, &id, `INSERT INTO conversations(workspace_id,creator_id,title) VALUES($1,$2,'Telegram conversation') RETURNING id`, ws, user)
 			if err != nil {
-				return err
+				return false, err
 			}
 			conversation = &id
 			_, err = tx.ExecContext(ctx, `UPDATE telegram_links SET conversation_id=$3 WHERE workspace_id=$1 AND telegram_user_id=$2`, ws, u.UserID, id)
 			if err != nil {
-				return err
+				return false, err
 			}
 		}
 		// The settings lock serializes application link changes. Do not lock the
@@ -278,15 +325,15 @@ func (r *TelegramRepository) Receive(ctx context.Context, ws uuid.UUID, secret s
 		chat, lockErr := lockConversation(ctx, tx, ws, *conversation, user, false)
 		err = lockErr
 		if errors.Is(err, sql.ErrNoRows) {
-			return tx.Commit()
+			return false, tx.Commit()
 		}
 		if err != nil {
-			return err
+			return false, err
 		}
 		if err = conversationScope(ctx, tx, *chat); errors.Is(err, ErrConversationNotFound) {
-			return tx.Commit()
+			return false, tx.Commit()
 		} else if err != nil {
-			return err
+			return false, err
 		}
 		switch {
 		case u.Text == "/new":
@@ -301,7 +348,7 @@ func (r *TelegramRepository) Receive(ctx context.Context, ws uuid.UUID, secret s
 				err = nil
 			}
 			if err != nil {
-				return err
+				return false, err
 			}
 			err = telegramReply(ctx, tx, ws, user, u.UserID, conversation, nil, "Reply stopped.")
 		case strings.HasPrefix(u.Text, "/"):
@@ -314,7 +361,10 @@ func (r *TelegramRepository) Receive(ctx context.Context, ws uuid.UUID, secret s
 			} else if err == nil {
 				request := uuid.New()
 				var message *domain.ConversationMessage
-				message, err = addConversationMessage(ctx, tx, *conversation, request, nil, "user", u.Text, "completed", "", "")
+				message, err = addConversationMessageWith(ctx, tx, *conversation, request, nil, "user", u.Text, "completed", "", "", func(m *domain.ConversationMessage) error {
+					return insertMessageAttachments(ctx, tx, ws, *conversation, user, m, u.Attachments)
+				})
+				stored = err == nil && len(u.Attachments) > 0
 				if err == nil {
 					_, err = addConversationMessage(ctx, tx, *conversation, request, &message.ID, "assistant", "", "queued", provider, model)
 				}
@@ -326,9 +376,9 @@ func (r *TelegramRepository) Receive(ctx context.Context, ws uuid.UUID, secret s
 		}
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
-	return tx.Commit()
+	return stored, tx.Commit()
 }
 func telegramReply(ctx context.Context, tx *sqlx.Tx, ws, user uuid.UUID, id int64, conversation, message *uuid.UUID, text string) error {
 	_, err := tx.ExecContext(ctx, `INSERT INTO telegram_deliveries(workspace_id,user_id,telegram_user_id,conversation_id,message_id,text) VALUES($1,$2,$3,$4,$5,$6)`, ws, user, id, conversation, message, text)

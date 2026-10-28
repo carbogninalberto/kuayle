@@ -131,6 +131,9 @@ func (r *ConversationRepository) History(ctx context.Context, ws, id uuid.UUID, 
 		h.Messages = h.Messages[:50]
 	}
 	slices.Reverse(h.Messages)
+	if err = fillMessageAttachments(ctx, tx, h.Messages); err != nil {
+		return nil, err
+	}
 	if h.Tools, err = messageToolCalls(ctx, tx, h.Messages); err != nil {
 		return nil, err
 	}
@@ -171,10 +174,21 @@ func activeConversation(ctx context.Context, tx *sqlx.Tx, id uuid.UUID) error {
 	return nil
 }
 func addConversationMessage(ctx context.Context, tx *sqlx.Tx, id, request uuid.UUID, parent *uuid.UUID, role, content, status, provider, model string) (*domain.ConversationMessage, error) {
+	return addConversationMessageWith(ctx, tx, id, request, parent, role, content, status, provider, model, nil)
+}
+
+// addConversationMessageWith lets attach bind images to the new message before
+// its message.created event is written, so the event carries them.
+func addConversationMessageWith(ctx context.Context, tx *sqlx.Tx, id, request uuid.UUID, parent *uuid.UUID, role, content, status, provider, model string, attach func(*domain.ConversationMessage) error) (*domain.ConversationMessage, error) {
 	var m domain.ConversationMessage
 	err := tx.GetContext(ctx, &m, `INSERT INTO conversation_messages(conversation_id,request_id,parent_id,role,content,status,provider,model) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`, id, request, parent, role, content, status, provider, model)
 	if err != nil {
 		return nil, err
+	}
+	if attach != nil {
+		if err = attach(&m); err != nil {
+			return nil, err
+		}
 	}
 	_, err = conversationEvent(ctx, tx, id, "message.created", m)
 	if err == nil && role == "assistant" {
@@ -185,11 +199,11 @@ func addConversationMessage(ctx context.Context, tx *sqlx.Tx, id, request uuid.U
 	}
 	return &m, err
 }
-func (r *ConversationRepository) Send(ctx context.Context, ws, id, request uuid.UUID, content, provider, model string) (*domain.ConversationMessage, error) {
-	if request == uuid.Nil || strings.TrimSpace(content) == "" || len(content) > 16384 {
+func (r *ConversationRepository) Send(ctx context.Context, ws, id, request uuid.UUID, content, provider, model string, attachments ...uuid.UUID) (*domain.ConversationMessage, error) {
+	if request == uuid.Nil || (strings.TrimSpace(content) == "" && len(attachments) == 0) || len(content) > 16384 || !validAttachmentIDs(attachments) {
 		return nil, ErrConversationInvalid
 	}
-	tx, _, err := r.authorized(ctx, ws, id)
+	tx, c, err := r.authorized(ctx, ws, id)
 	if err != nil {
 		return nil, err
 	}
@@ -198,6 +212,12 @@ func (r *ConversationRepository) Send(ctx context.Context, ws, id, request uuid.
 	err = tx.GetContext(ctx, &existing, `SELECT * FROM conversation_messages WHERE conversation_id=$1 AND request_id=$2 AND role='user'`, id, request)
 	if err == nil {
 		if existing.Content != content {
+			return nil, ErrConversationConflict
+		}
+		// A resent request is the same turn only with the same images.
+		if same, err := sameMessageAttachments(ctx, tx, existing.ID, attachments); err != nil {
+			return nil, err
+		} else if !same {
 			return nil, ErrConversationConflict
 		}
 		err = tx.GetContext(ctx, &existing, `SELECT * FROM conversation_messages WHERE conversation_id=$1 AND request_id=$2 AND role='assistant'`, id, request)
@@ -209,7 +229,9 @@ func (r *ConversationRepository) Send(ctx context.Context, ws, id, request uuid.
 	if err = activeConversation(ctx, tx, id); err != nil {
 		return nil, err
 	}
-	user, err := addConversationMessage(ctx, tx, id, request, nil, "user", content, "completed", "", "")
+	user, err := addConversationMessageWith(ctx, tx, id, request, nil, "user", content, "completed", "", "", func(m *domain.ConversationMessage) error {
+		return bindAttachments(ctx, tx, *c, m, attachments)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -485,5 +507,5 @@ func (r *ConversationRepository) GenerationContext(ctx context.Context, a domain
 	for len(messages) > 0 && messages[0].Role != "user" {
 		messages = messages[1:]
 	}
-	return messages, nil
+	return messages, fillMessageAttachments(ctx, tx, messages)
 }

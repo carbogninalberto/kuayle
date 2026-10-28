@@ -118,6 +118,25 @@ is removed through Telegram. These requests cannot access Kuayle conversations.
 Rolling back migration 54 deletes Telegram configuration, links and delivery state,
 but preserves conversations and issues. Do not run an older schema with a newer API.
 
+## Photos and image documents
+
+When the API has upload storage, a photo (the largest size within 10 MB) or a
+document whose declared type is PNG, JPEG, WebP or GIF becomes an image on the
+Telegram-originated user message, and its caption becomes the message text.
+Before downloading, the service re-checks the webhook secret, an enabled bot,
+a private chat from an allowed sender linked to a current non-guest member and
+an update not yet received; nothing is fetched otherwise. It calls `getFile`,
+refuses a reported size over 10 MB or an unexpected `file_path`, and downloads
+only from the configured Telegram endpoint's `/file/bot…/` path with the same
+public-only, no-redirect client (errors never include the URL, which contains
+the token). The body is read up to 10 MB plus one byte and sniffed exactly
+like uploads, then stored; the update receipt, message and image records commit
+together. A duplicate, refused or failed update deletes the stored object. If
+an image cannot be received and there is no caption, the message says so
+instead of disappearing. An image webhook gets a 45-second budget instead of 5.
+Albums arrive as separate updates; each becomes its own message, so while the
+first reply runs the others get the usual "reply in progress" answer.
+
 ## Task notifications
 
 When a coding task becomes ready for review, completed, failed or blocked, its

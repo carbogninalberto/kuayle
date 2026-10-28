@@ -48,6 +48,14 @@ func conversationError(c echo.Context, err error) error {
 		return response.Error(c, http.StatusBadRequest, "INVALID_CONVERSATION", "Invalid conversation request")
 	case errors.Is(err, service.ErrAISettingsNotConfigured):
 		return response.Error(c, http.StatusBadRequest, "AI_NOT_CONFIGURED", "Configure the workspace AI provider first")
+	case errors.Is(err, service.ErrAttachmentTooLarge):
+		return response.Error(c, http.StatusRequestEntityTooLarge, "ATTACHMENT_TOO_LARGE", "Images can be at most 10 MB")
+	case errors.Is(err, service.ErrAttachmentUnsupported):
+		return response.Error(c, http.StatusUnsupportedMediaType, "ATTACHMENT_UNSUPPORTED", "Only PNG, JPEG, WebP and GIF images are supported")
+	case errors.Is(err, repository.ErrAttachmentLimit):
+		return response.Error(c, http.StatusBadRequest, "ATTACHMENT_LIMIT", "Send or remove the attached images first")
+	case errors.Is(err, service.ErrAttachmentsDisabled):
+		return response.Error(c, http.StatusBadRequest, "ATTACHMENTS_UNAVAILABLE", "Image attachments are not available")
 	default:
 		return response.InternalError(c)
 	}
@@ -140,13 +148,14 @@ func (h *ConversationHandler) Send(c echo.Context) error {
 		return conversationError(c, err)
 	}
 	var req struct {
-		RequestID uuid.UUID `json:"request_id"`
-		Content   string    `json:"content"`
+		RequestID     uuid.UUID   `json:"request_id"`
+		Content       string      `json:"content"`
+		AttachmentIDs []uuid.UUID `json:"attachment_ids"`
 	}
 	if err = bindConversation(c, &req); err != nil {
 		return conversationError(c, repository.ErrConversationInvalid)
 	}
-	result, err := h.svc.Send(c.Request().Context(), middleware.GetWorkspace(c).ID, id, req.RequestID, req.Content)
+	result, err := h.svc.SendMessage(c.Request().Context(), middleware.GetWorkspace(c).ID, id, req.RequestID, req.Content, req.AttachmentIDs)
 	if err != nil {
 		return conversationError(c, err)
 	}

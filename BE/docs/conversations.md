@@ -134,8 +134,8 @@ and sends heartbeats. Reconnection is read-only and resumes from the last cursor
   must end with the Chat Completions `[DONE]` marker; EOF alone is interrupted. Live deltas are batched,
   and message/event history reads are paginated.
 - Generation concurrency is four per API process. Resource-aware global limits,
-  retention configuration, uploads and richer task artifacts are later phases;
-  this slice does not claim those capabilities.
+  retention configuration and richer task artifacts are later phases; images
+  are described under [Images](#images).
 
 ## UI foundation and verification
 
@@ -276,6 +276,81 @@ composition (Item with Deny/Approve; instructions as escaped Code Block text)
 and resolved states as Trace lines; stale copies never reopen a decision.
 Telegram delivers pending approvals with inline Approve/Deny buttons that use
 this same resolution path; see [Telegram approval buttons](telegram.md#approval-buttons).
+
+## Images
+
+Migration 82 adds `conversation_attachments` (workspace, conversation,
+message, uploader, storage key, sniffed type, size, dimensions, position),
+`conversation_attachment_issues`, `conversation_attachment_garbage`,
+`agent_task_attachments` and `ai_settings.assistant_vision` (default false).
+Rolling back deletes image records and task image lists, not stored objects or
+issue assets copied from them.
+
+| Method | Workspace-relative path | Purpose |
+| --- | --- | --- |
+| POST | `/conversations/:conversationId/attachments` | Multipart `file`; stores one pending image |
+| GET | `/conversations/:conversationId/attachments/:attachmentId` | Streams an image to a current reader |
+| DELETE | `/conversations/:conversationId/attachments/:attachmentId` | Discards a pending (unsent) image |
+| POST | `/ai-settings/vision-check` | Owner only; probes the saved model with a test image |
+
+All are session-only like the other conversation routes. Upload authorizes the
+conversation before reading the body, reads at most 10 MB plus one byte, and
+accepts only PNG, JPEG, WebP or GIF identified by content (never by name or
+client type) with each side at most 16384 pixels; nothing is stripped or
+re-encoded. Objects are stored through the configured storage backend under a
+random key. A user may hold 24 pending images per conversation; pending images
+are visible only to their uploader and expire after 24 hours. Images are served
+with their sniffed type, `X-Content-Type-Options: nosniff`, `Content-Disposition:
+inline` (or `attachment` with `?download=1`), `Content-Security-Policy:
+default-src 'none'; sandbox`, `Cross-Origin-Resource-Policy: same-origin` and
+`Cache-Control: private, no-store`. Every read rechecks conversation access
+(creator, non-guest membership, issue/team scope).
+
+`POST /messages` accepts `attachment_ids` (at most 6, unique). They must be the
+caller's pending images in that conversation; they are bound, in order, to the
+new user message in the send transaction, and the `message.created` event and
+history carry them as `attachments`. A message may consist of images alone. A
+resent request ID with the same text and the same images returns the original
+reply without binding anything again; the same request with other images is a
+conflict. Deleting attachment rows (directly, by expiry or through a cascade
+from a conversation, user or workspace) records their storage keys in
+`conversation_attachment_garbage`; the API removes the objects every ten
+minutes.
+
+Model context describes every image as `[image attached: name, WxH, id=…]`, so
+a model can refer to, file or forward an image it cannot see. When the owner
+turns on **Model can see images** in AI settings, the newest 4 images in the
+context (each at most 4 MB, 10 MB in total) are also sent as OpenAI-compatible
+`image_url` content parts with base64 data URLs; older or larger images remain
+text notes. Whether a model accepts images is not assumed: **Check** sends a
+16×16 red PNG to the saved model and reports whether it answered and whether
+the answer names the colour; provider error text is bounded and has the key
+redacted. The toggle stays the owner's decision.
+
+`attach_images_to_issue` (a write tool, counted toward the change limit)
+requires `issue:update`, resolves the issue with the user's visibility and
+copies the conversation's sent images (all or the named IDs, at most 6) into
+new issue assets scoped to the issue's team, then posts one comment by the user
+embedding them. Issue readers then see them through the existing asset rules,
+outsiders of a private team do not, and an image already filed on that issue
+is not filed again. Coding tasks receive these and any other images embedded
+in the issue description and comments; see
+[issue images](agent-tasks.md#issue-images).
+
+The composer follows AI Elements Prompt Input attachments: an attach button,
+paste and drop, previews with upload progress, retry and remove, and send
+disabled while an upload is unfinished or failed. Uploads use XHR for progress
+with the session cookie. Messages show thumbnails that open in a shadcn Dialog
+(Escape closes, focus returns). Focused checks:
+
+```sh
+# BE/; DATABASE_URL must identify a disposable migrated PostgreSQL database.
+go test ./pkg/imageinfo ./internal/service -run 'TestInspect|TestImageStore|TestModelMessages|TestVisionProbe|TestConversationImages|TestTelegramPhotos|TestTask' -count=1
+go test ./cmd/server -run TestConversationAttachmentsHTTP -count=1
+go test ./migrations -run TestConversationAttachmentsMigration -count=1
+# UI/
+npm run test:e2e -- tests/e2e/assistant-attachments.test.ts
+```
 
 ## Next phases
 

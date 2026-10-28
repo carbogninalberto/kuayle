@@ -22,6 +22,8 @@ type TelegramUpdate struct {
 	ID, UserID, ChatID int64
 	Text               string
 	Private            bool
+	// Images already downloaded and stored for this message.
+	Attachments []NewConversationAttachment
 	// Callback fields are set for inline button presses instead of Text.
 	CallbackID, CallbackData string
 	CallbackMessageID        int64

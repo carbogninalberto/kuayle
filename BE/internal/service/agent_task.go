@@ -52,6 +52,9 @@ type AgentTaskService struct {
 
 func NewAgentTaskService(repo *repository.AgentTaskRepository, machines *DevMachineService, hub *realtime.Hub) *AgentTaskService {
 	service := &AgentTaskService{Repo: repo, machines: machines, store: repo, runtime: &devMachineTaskRuntime{tasks: repo, machines: machines, related: repo}}
+	if repo != nil {
+		service.runtime.(*devMachineTaskRuntime).attachments = repo
+	}
 	if hub != nil {
 		service.events = hub
 	}
@@ -276,6 +279,8 @@ type devMachineTaskRuntime struct {
 	machines *DevMachineService
 	// related supplies coordination context; without it prompts omit it.
 	related relatedWorkSource
+	// attachments supplies the issue's images; without it none are copied.
+	attachments taskAttachmentSource
 }
 
 func (r *devMachineTaskRuntime) Prepare(ctx context.Context, task *domain.AgentTask) (bool, error) {
@@ -414,6 +419,13 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 	prompt := task.Prompt
 	if task.Generation > 1 {
 		prompt = withHandoff(prompt, previous, session.ResumeID != "")
+	}
+	if r.attachments != nil {
+		items, err := attemptAttachments(ctx, r.attachments, task)
+		if err != nil {
+			return nil, err
+		}
+		prompt = withAttachments(prompt, items)
 	}
 	if r.related != nil {
 		brief, err := r.related.IssueBrief(ctx, task)
