@@ -100,6 +100,9 @@ func (r *ConversationRepository) MoveConversation(ctx context.Context, ws, id uu
 	if err = tx.GetContext(ctx, c, `UPDATE conversations SET folder_id=$2 WHERE id=$1 RETURNING *`, id, folder); err != nil {
 		return nil, err
 	}
+	if err = fillConversationProject(ctx, tx, c); err != nil {
+		return nil, err
+	}
 	return c, tx.Commit()
 }
 
@@ -115,6 +118,9 @@ func (r *ConversationRepository) RenameConversation(ctx context.Context, ws, id 
 	}
 	defer tx.Rollback()
 	if err = tx.GetContext(ctx, c, `UPDATE conversations SET title=$2 WHERE id=$1 RETURNING *`, id, title); err != nil {
+		return nil, err
+	}
+	if err = fillConversationProject(ctx, tx, c); err != nil {
 		return nil, err
 	}
 	return c, tx.Commit()

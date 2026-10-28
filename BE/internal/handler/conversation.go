@@ -85,8 +85,23 @@ func (h *ConversationHandler) Status(c echo.Context) error {
 	}
 	return response.Success(c, http.StatusOK, result)
 }
+
+// List returns the caller's own conversations; ?project_id=<id> narrows them
+// to one visible project and ?project_id=none to chats without one.
 func (h *ConversationHandler) List(c echo.Context) error {
-	result, err := h.svc.Repo.List(c.Request().Context(), middleware.GetWorkspace(c).ID)
+	var filter domain.ConversationFilter
+	switch raw := c.QueryParam("project_id"); raw {
+	case "":
+	case "none":
+		filter.NoProject = true
+	default:
+		project, err := uuid.Parse(raw)
+		if err != nil {
+			return conversationError(c, repository.ErrConversationInvalid)
+		}
+		filter.ProjectID = &project
+	}
+	result, err := h.svc.Repo.ListFiltered(c.Request().Context(), middleware.GetWorkspace(c).ID, filter)
 	if err != nil {
 		return conversationError(c, err)
 	}
@@ -94,8 +109,9 @@ func (h *ConversationHandler) List(c echo.Context) error {
 }
 func (h *ConversationHandler) Create(c echo.Context) error {
 	var req struct {
-		Title   string     `json:"title"`
-		IssueID *uuid.UUID `json:"issue_id"`
+		Title     string     `json:"title"`
+		IssueID   *uuid.UUID `json:"issue_id"`
+		ProjectID *uuid.UUID `json:"project_id"`
 	}
 	if err := bindConversation(c, &req); err != nil {
 		return conversationError(c, repository.ErrConversationInvalid)
@@ -103,9 +119,13 @@ func (h *ConversationHandler) Create(c echo.Context) error {
 	var result *domain.Conversation
 	var err error
 	if req.IssueID != nil {
+		// An issue chat follows its issue's project; it cannot take another.
+		if req.ProjectID != nil {
+			return conversationError(c, repository.ErrConversationInvalid)
+		}
 		result, err = h.svc.Repo.OpenIssue(c.Request().Context(), middleware.GetWorkspace(c).ID, *req.IssueID)
 	} else {
-		result, err = h.svc.Repo.Create(c.Request().Context(), middleware.GetWorkspace(c).ID, req.Title)
+		result, err = h.svc.Repo.CreateWithProject(c.Request().Context(), middleware.GetWorkspace(c).ID, req.Title, req.ProjectID)
 	}
 	if err != nil {
 		return conversationError(c, err)
@@ -345,14 +365,14 @@ func (h *ConversationHandler) DeleteFolder(c echo.Context) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
-// Move sets a conversation's folder; a null folder_id moves it to the root.
+// Update renames, files or tags one conversation per request.
 func (h *ConversationHandler) Update(c echo.Context) error {
 	id, err := conversationID(c)
 	if err != nil {
 		return conversationError(c, err)
 	}
-	// A request either renames ("title") or files the conversation
-	// ("folder_id", null for the root).
+	// A request either renames ("title"), files the conversation ("folder_id",
+	// null for the root) or tags it with a project ("project_id", null to clear).
 	var req map[string]json.RawMessage
 	if err := bindConversation(c, &req); err != nil {
 		return conversationError(c, repository.ErrConversationInvalid)
@@ -371,6 +391,12 @@ func (h *ConversationHandler) Update(c echo.Context) error {
 			return conversationError(c, repository.ErrConversationInvalid)
 		}
 		result, err = h.svc.Repo.MoveConversation(ctx, ws, id, folder)
+	} else if raw, ok := req["project_id"]; ok {
+		var project *uuid.UUID
+		if err := json.Unmarshal(raw, &project); err != nil {
+			return conversationError(c, repository.ErrConversationInvalid)
+		}
+		result, err = h.svc.Repo.SetConversationProject(ctx, ws, id, project)
 	} else {
 		err = repository.ErrConversationInvalid
 	}

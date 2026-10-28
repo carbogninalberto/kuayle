@@ -71,6 +71,12 @@ func (r *ConversationRepository) authorized(ctx context.Context, ws, id uuid.UUI
 	return tx, c, nil
 }
 func (r *ConversationRepository) Create(ctx context.Context, ws uuid.UUID, title string) (*domain.Conversation, error) {
+	return r.CreateWithProject(ctx, ws, title, nil)
+}
+
+// CreateWithProject starts a free chat, optionally tagged with a visible
+// project of the workspace.
+func (r *ConversationRepository) CreateWithProject(ctx context.Context, ws uuid.UUID, title string, project *uuid.UUID) (*domain.Conversation, error) {
 	title = strings.TrimSpace(title)
 	if title == "" || utf8.RuneCountInString(title) > 200 {
 		return nil, ErrConversationInvalid
@@ -87,14 +93,28 @@ func (r *ConversationRepository) Create(ctx context.Context, ws uuid.UUID, title
 	if err = conversationMember(ctx, tx, ws, user); err != nil {
 		return nil, err
 	}
+	if project != nil {
+		if err = visibleProject(ctx, tx, ws, *project); err != nil {
+			return nil, err
+		}
+	}
 	var c domain.Conversation
-	err = tx.GetContext(ctx, &c, `INSERT INTO conversations(workspace_id,creator_id,title) VALUES($1,$2,$3) RETURNING *`, ws, user, title)
+	err = tx.GetContext(ctx, &c, `INSERT INTO conversations(workspace_id,creator_id,title,project_id) VALUES($1,$2,$3,$4) RETURNING *`, ws, user, title, project)
 	if err != nil {
+		return nil, err
+	}
+	if err = fillConversationProject(ctx, tx, &c); err != nil {
 		return nil, err
 	}
 	return &c, tx.Commit()
 }
 func (r *ConversationRepository) List(ctx context.Context, ws uuid.UUID) ([]domain.Conversation, error) {
+	return r.ListFiltered(ctx, ws, domain.ConversationFilter{})
+}
+
+// ListFiltered lists the actor's own latest 100 conversations, optionally
+// narrowed to one visible project or to chats without a visible project.
+func (r *ConversationRepository) ListFiltered(ctx context.Context, ws uuid.UUID, filter domain.ConversationFilter) ([]domain.Conversation, error) {
 	user, err := conversationActor(ctx, ws)
 	if err != nil {
 		return nil, err
@@ -108,8 +128,15 @@ func (r *ConversationRepository) List(ctx context.Context, ws uuid.UUID) ([]doma
 		return nil, err
 	}
 	result := []domain.Conversation{}
-	err = tx.SelectContext(ctx, &result, `SELECT c.* FROM conversations c WHERE workspace_id=$1 AND creator_id=$2 AND `+conversationScopePredicate("c")+` ORDER BY updated_at DESC,id LIMIT 100`, ws, user)
-	return result, err
+	args := []any{ws, user}
+	if filter.ProjectID != nil {
+		args = append(args, *filter.ProjectID)
+	}
+	err = tx.SelectContext(ctx, &result, `SELECT c.* FROM conversations c WHERE workspace_id=$1 AND creator_id=$2 AND `+conversationScopePredicate("c")+conversationFilterSQL(ctx, filter, "c", "$3")+` ORDER BY updated_at DESC,id LIMIT 100`, args...)
+	if err != nil {
+		return nil, err
+	}
+	return result, fillConversationProjects(ctx, tx, result)
 }
 func (r *ConversationRepository) History(ctx context.Context, ws, id uuid.UUID, before int64) (*domain.ConversationHistory, error) {
 	tx, c, err := r.authorized(ctx, ws, id)
@@ -117,6 +144,9 @@ func (r *ConversationRepository) History(ctx context.Context, ws, id uuid.UUID, 
 		return nil, err
 	}
 	defer tx.Rollback()
+	if err = fillConversationProject(ctx, tx, c); err != nil {
+		return nil, err
+	}
 	h := &domain.ConversationHistory{Conversation: *c, Messages: []domain.ConversationMessage{}}
 	h.Issue, err = conversationIssue(ctx, tx, *c)
 	if err != nil {

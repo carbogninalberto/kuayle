@@ -829,7 +829,9 @@ The Global Assistant reuses workspace AI settings, PostgreSQL and the existing
 HTTP/WebSocket stack. Conversations and incremental events survive navigation
 and API restarts. Generation attempts are leased and idempotent, with explicit
 retry after interruption. Issue details embed a creator-private chat with a fresh,
-bounded issue snapshot and original-team visibility checks. Orchestrator tools let
+bounded issue snapshot and original-team visibility checks. Conversations are
+never shared; private folders and visible projects only tag and filter the
+creator's list, and issue chats follow their issue's project. Orchestrator tools let
 the assistant list teams, search, read, create and update issues, read and list
 agent work, link an issue or project to a repository and request approval for
 delegation, an agent review of a published pull request, a follow-up on a task

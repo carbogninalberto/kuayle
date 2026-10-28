@@ -113,6 +113,9 @@ func (r *ConversationRepository) OpenIssue(ctx context.Context, ws, issue uuid.U
 	if err = conversationScope(ctx, tx, c); err != nil {
 		return nil, err
 	}
+	if err = fillConversationProject(ctx, tx, &c); err != nil {
+		return nil, err
+	}
 	return &c, tx.Commit()
 }
 func (r *ConversationRepository) GenerationIssue(ctx context.Context, a domain.ConversationAttempt) (*domain.ConversationIssue, error) {

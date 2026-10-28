@@ -16,6 +16,25 @@ type Conversation struct {
 	CreatedAt   time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt   time.Time  `json:"updated_at" db:"updated_at"`
 	FolderID    *uuid.UUID `json:"folder_id,omitempty" db:"folder_id"`
+	// ProjectID is the effective project: a free chat's own tag, or an issue
+	// chat's current issue project. It is null unless the project is visible to
+	// the owner; Project carries its summary.
+	ProjectID *uuid.UUID           `json:"project_id" db:"project_id"`
+	Project   *ConversationProject `json:"project" db:"-"`
+}
+
+// ConversationProject is the visible project a conversation is tagged with.
+type ConversationProject struct {
+	ID     uuid.UUID  `json:"id" db:"id"`
+	Name   string     `json:"name" db:"name"`
+	TeamID *uuid.UUID `json:"team_id" db:"team_id"`
+}
+
+// ConversationFilter narrows the owner's list. ProjectID selects chats of one
+// visible project; NoProject selects chats without a visible project.
+type ConversationFilter struct {
+	ProjectID *uuid.UUID
+	NoProject bool
 }
 
 // ConversationFolder groups its owner's conversations; it is never shared.

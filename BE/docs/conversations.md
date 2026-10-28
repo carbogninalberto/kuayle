@@ -14,8 +14,9 @@ delegate an issue to a coding agent. It has no repository, machine or publishing
 tools; the system instruction says so. Conversations currently belong to
 their creator, who must remain a non-guest workspace member. Two browsers signed
 in as that user can view the same stream. Issue details now embed the same conversation UI, with a full-page link back to the
-issue. Each creator has one reusable chat per issue and original team. Sharing and
-project-only conversations are not implemented yet.
+issue. Each creator has one reusable chat per issue and original team.
+Conversations are never shared: [projects](#projects) and private folders only
+tag and filter the creator's own list.
 
 The native terminal, IDE, issue workflows and existing AI description expansion
 remain separate and retain their existing behavior. There is no new container
@@ -29,7 +30,8 @@ PATs are deliberately denied until dedicated chat scopes are defined.
 | Method | Workspace-relative path | Purpose |
 | --- | --- | --- |
 | GET | `/assistant/status` | Configured provider/model status, never the key |
-| GET / POST | `/conversations` | List the latest 100 visible conversations / create with `{title}`, or open/reuse with `{issue_id}` |
+| GET / POST | `/conversations?project_id=<id>\|none` | List the latest 100 of the caller's conversations, optionally of one visible project or without one / create with `{title, project_id?}`, or open/reuse with `{issue_id}` |
+| PATCH / DELETE | `/conversations/:conversationId` | One field per request: `{title}`, `{folder_id}` (null for the root) or `{project_id}` (null to clear) / delete |
 | GET | `/conversations/:conversationId?before=sequence` | Consistent snapshot, latest 50 messages, pagination flag and replay cursor |
 | POST | `/conversations/:conversationId/messages` | `{request_id, content}`; idempotent user turn and queued reply |
 | POST | `/conversations/:conversationId/messages/:messageId/retry` | `{request_id}`; explicit successor for the latest unsuccessful reply |
@@ -82,6 +84,33 @@ Workspace-member removal locks its parent membership before deleting team grants
 to preserve this lock order. Telegram output
 uses the separate publication barrier, issue row and membership locks around its
 bounded send, without holding the graph-write barrier across network I/O.
+
+## Projects
+
+Migration 86 adds a nullable `conversations.project_id` with a composite
+`(workspace_id, project_id)` foreign key, so a chat can only be tagged with a
+project of its own workspace; deleting the project clears the tag
+(`ON DELETE SET NULL (project_id)`). A check constraint keeps it null on issue
+chats: their effective project is always their issue's current project, so they
+follow an issue moved to another project and cannot be moved themselves
+(`PATCH {project_id}` returns 409 `CONVERSATION_CONFLICT`; `POST` with both
+`issue_id` and `project_id` is 400). Rolling back removes only the tags.
+
+Tagging does not change the audience: every read still requires the creator.
+Assigning a project, at creation or with `PATCH`, requires that the project
+belongs to the workspace and is visible to the caller (workspace-wide, or a
+team the caller can access); otherwise the request is 404. Every response
+(list, create, snapshot and updates) carries `project_id` and
+`project: {id, name, team_id} | null` for the effective project, computed for
+the caller at read time. A project the caller can no longer see (for example
+after leaving its private team) is reported as `null` and never disclosed: the
+chat appears under `project_id=none`, not under that project's filter.
+
+The UI's conversation list has a project filter (all, no project, or one
+project), remembered per person and workspace in browser storage. Rows show
+their project when all projects are listed, the row menu offers **Move to
+project** (disabled for issue chats), and a new chat started under a project
+filter is created in that project.
 
 ## Execution and recovery
 
