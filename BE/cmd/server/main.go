@@ -186,6 +186,15 @@ func main() {
 	conversationImages := service.NewImageStore(store)
 	conversationSvc.SetAttachments(conversationImages, assetRepo, commentSvc, workspaceRepo)
 	telegramSvc.SetImages(conversationImages)
+	var voiceClient *service.VoiceClient
+	if cfg.VoiceURL != "" && cfg.VoiceInternalToken != "" {
+		if voiceClient, err = service.NewVoiceClient(cfg.VoiceURL, cfg.VoiceInternalToken); err != nil {
+			log.Fatal(err)
+		}
+	}
+	voiceSvc := service.NewVoiceService(repository.NewVoiceRepository(db), workspaceRepo, conversationSvc.Repo, voiceClient)
+	telegramSvc.SetVoice(voiceSvc)
+	voiceH := handler.NewVoiceHandler(voiceSvc)
 	workspaceTransferRepo := repository.NewWorkspaceTransferRepository(db)
 	workspaceTransferSvc := service.NewWorkspaceTransferService(workspaceTransferRepo, store)
 	workspaceTransferH := handler.NewWorkspaceTransferHandler(workspaceTransferSvc)
@@ -269,6 +278,7 @@ func main() {
 		agentTask:         agentTaskH,
 		agentAutomation:   agentAutomationH,
 		telegram:          telegramH,
+		voice:             voiceH,
 		devMachine:        devMachineH,
 		analytics:         analyticsH,
 		system:            systemH,

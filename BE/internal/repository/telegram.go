@@ -250,7 +250,7 @@ func (r *TelegramRepository) receive(ctx context.Context, tx *sqlx.Tx, ws uuid.U
 		return false, ErrTelegramDenied
 	}
 	// Fail closed, including forwarded identities, groups, bots, and unsupported callbacks.
-	if !s.Enabled || !u.Private || u.ChatID != u.UserID || !slices.Contains(s.AllowedUserIDs, u.UserID) || u.ID < 0 || len(u.Text) > 16384 || (strings.TrimSpace(u.Text) == "" && len(u.Attachments) == 0) {
+	if !s.Enabled || !u.Private || u.ChatID != u.UserID || !slices.Contains(s.AllowedUserIDs, u.UserID) || u.ID < 0 || len(u.Text) > 16384 || len(u.Notice) > 1024 || (strings.TrimSpace(u.Text) == "" && len(u.Attachments) == 0 && u.Notice == "") {
 		return false, nil
 	}
 	result, err := tx.ExecContext(ctx, `INSERT INTO telegram_updates(workspace_id,bot_id,update_id) VALUES($1,$2,$3) ON CONFLICT DO NOTHING`, ws, s.BotID, u.ID)
@@ -305,6 +305,13 @@ func (r *TelegramRepository) receive(ctx context.Context, tx *sqlx.Tx, ws uuid.U
 			return false, err
 		}
 		if err = conversationMember(ctx, tx, ws, user); err != nil {
+			return false, tx.Commit()
+		}
+		// A notice only answers the linked sender; it starts no turn.
+		if u.Notice != "" && strings.TrimSpace(u.Text) == "" && len(u.Attachments) == 0 {
+			if err = telegramReply(ctx, tx, ws, user, u.UserID, nil, nil, u.Notice); err != nil {
+				return false, err
+			}
 			return false, tx.Commit()
 		}
 		if conversation == nil || u.Text == "/new" {

@@ -58,6 +58,7 @@ type appHandlers struct {
 	agentAutomation   *handler.AgentAutomationHandler
 	conversation      *handler.ConversationHandler
 	telegram          *handler.TelegramHandler
+	voice             *handler.VoiceHandler
 	devMachine        *handler.DevMachineHandler
 	analytics         *handler.AnalyticsHandler
 	system            *handler.SystemHandler
@@ -263,6 +264,12 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(ws, http.MethodPost, "/conversations/:conversationId/messages/:messageId/retry", h.conversation.Retry)
 	sessionOnly(ws, http.MethodPost, "/conversations/:conversationId/cancel", h.conversation.Cancel)
 	sessionOnly(ws, http.MethodPost, "/conversations/:conversationId/approvals/:approvalId", h.conversation.ResolveApproval)
+
+	// Voice: members read whether the microphone is available; the owner
+	// chooses the model; a conversation's reader transcribes into its composer.
+	sessionOnly(ws, http.MethodGet, "/voice", h.voice.Status)
+	ownerOnly(ws, http.MethodPut, "/voice", h.voice.Select)
+	sessionOnly(ws, http.MethodPost, "/conversations/:conversationId/transcriptions", h.voice.Transcribe)
 
 	if h.telegram != nil {
 		sessionOnly(ws, http.MethodGet, "/telegram", h.telegram.Status)

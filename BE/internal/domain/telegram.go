@@ -24,6 +24,9 @@ type TelegramUpdate struct {
 	Private            bool
 	// Images already downloaded and stored for this message.
 	Attachments []NewConversationAttachment
+	// Notice, when set without Text, is answered to the linked sender instead
+	// of starting a turn (for example a voice note that cannot be transcribed).
+	Notice string
 	// Callback fields are set for inline button presses instead of Text.
 	CallbackID, CallbackData string
 	CallbackMessageID        int64

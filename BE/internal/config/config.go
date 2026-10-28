@@ -50,6 +50,13 @@ type Config struct {
 	// set the base URL, so enabling it trusts every owner with internal access.
 	AIAllowPrivateNetwork bool `envconfig:"AI_ALLOW_PRIVATE_NETWORK" default:"false"`
 
+	// Voice transcription service (optional). Both are operator settings:
+	// VOICE_URL is the internal address of the voice container and
+	// VOICE_INTERNAL_TOKEN the shared secret it requires. Voice stays off
+	// for every workspace unless both are set.
+	VoiceURL           string `envconfig:"VOICE_URL"`
+	VoiceInternalToken string `envconfig:"VOICE_INTERNAL_TOKEN"`
+
 	SystemUpdaterURL   string `envconfig:"SYSTEM_UPDATER_URL"`
 	SystemUpdaterToken string `envconfig:"SYSTEM_UPDATER_TOKEN"`
 
@@ -272,6 +279,9 @@ func Load() (*Config, error) {
 	}
 	if cfg.SystemUpdaterToken != "" && len(cfg.SystemUpdaterToken) < 32 {
 		return nil, fmt.Errorf("SYSTEM_UPDATER_TOKEN must be at least 32 characters")
+	}
+	if cfg.VoiceURL != "" && cfg.VoiceInternalToken != "" && len(cfg.VoiceInternalToken) < 32 {
+		return nil, fmt.Errorf("VOICE_INTERNAL_TOKEN must be at least 32 characters")
 	}
 	sysadmins, err := parseSysadmins(cfg.Sysadmins)
 	if err != nil {

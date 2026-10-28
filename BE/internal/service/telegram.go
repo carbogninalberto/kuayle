@@ -52,6 +52,10 @@ type TelegramService struct {
 	approvals  telegramApprovals
 	// images stores photos received from Telegram; nil ignores them.
 	images *ImageStore
+	// voice transcribes voice notes; nil (or a workspace with voice off)
+	// answers them with an explanation.
+	voice     *VoiceService
+	voiceJobs telegramVoiceJobs
 	// webhookOverride replaces the derived webhook URL; see SetWebhookURL.
 	webhookOverride string
 }
@@ -302,6 +306,8 @@ func (s *TelegramService) Receive(ctx context.Context, ws uuid.UUID, secret stri
 			Caption  string              `json:"caption"`
 			Photo    []telegramPhotoSize `json:"photo"`
 			Document *telegramDocument   `json:"document"`
+			Voice    *telegramAudio      `json:"voice"`
+			Audio    *telegramAudio      `json:"audio"`
 			From     *struct {
 				ID    int64 `json:"id"`
 				IsBot bool  `json:"is_bot"`
@@ -360,6 +366,13 @@ func (s *TelegramService) Receive(ctx context.Context, ws uuid.UUID, secret stri
 			u.Text = m.Caption
 		}
 	}
+	if m := update.Message; m != nil && m.From != nil && image == nil && (m.Voice != nil || m.Audio != nil) {
+		note := m.Voice
+		if note == nil {
+			note = m.Audio
+		}
+		return s.receiveVoice(ctx, ws, secret, u, *note, m.Caption)
+	}
 	if image != nil {
 		stored, err := s.receiveImage(ctx, ws, secret, u, *image)
 		if err != nil {
@@ -371,6 +384,12 @@ func (s *TelegramService) Receive(ctx context.Context, ws uuid.UUID, secret stri
 			u.Text = "[An image was sent from Telegram but could not be received.]"
 		}
 	}
+	return s.record(ctx, ws, secret, u)
+}
+
+// record stores an authenticated update: a new turn, a command, a link or a
+// notice reply. Images of updates that were not recorded are deleted.
+func (s *TelegramService) record(ctx context.Context, ws uuid.UUID, secret string, u domain.TelegramUpdate) error {
 	provider, model := "", ""
 	settings, err := s.ai.Get(ctx, ws)
 	if err != nil {
