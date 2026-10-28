@@ -1,0 +1,35 @@
+# Runtime dependencies, pinned exactly. The Dockerfile installs this complete
+# list with --no-deps, so nothing outside it is resolved at build time.
+faster-whisper==1.2.1
+vosk==0.3.45
+# Transitive dependencies of the two engines.
+anyio==4.15.1
+av==19.0.2
+certifi==2026.10.23
+cffi==2.1.1
+charset-normalizer==3.5.2
+click==8.5.0
+ctranslate2==4.8.4
+filelock==4.2.4
+flatbuffers==25.12.19
+fsspec==2026.9.0
+h11==0.16.0
+hf-xet==1.7.0
+httpcore2==2.16.0
+httpx2==2.16.0
+huggingface_hub==2.3.0
+idna==3.20
+numpy==2.5.4
+onnxruntime==1.31.1
+packaging==26.3
+protobuf==7.36.2
+pycparser==3.12
+PyYAML==6.0.3
+requests==2.34.2
+srt==3.5.3
+tokenizers==0.23.3
+tqdm==4.70.1
+truststore==0.10.5
+typing_extensions==4.16.0
+urllib3==2.8.0
+websockets==17.3

@@ -1,0 +1,9 @@
+[project]
+name = "kuayle-voice"
+version = "0.1.0"
+description = "Internal speech-to-text service for Kuayle (faster-whisper and Vosk on CPU)."
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
