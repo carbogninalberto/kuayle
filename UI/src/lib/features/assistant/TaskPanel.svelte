@@ -127,6 +127,7 @@
 					{task}
 					{chat}
 					pinned={i === 0}
+					allowedAgents={options?.providers.map((provider) => provider.id) ?? []}
 					onretry={(value) => {
 						retry = value;
 						open = true;

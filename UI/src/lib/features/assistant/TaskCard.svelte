@@ -26,6 +26,10 @@
 		ChevronDown
 	} from '@lucide/svelte';
 	import TaskActions from './TaskActions.svelte';
+	import AgentReviews from './AgentReviews.svelte';
+	import ReviewRequestMenu from './ReviewRequestMenu.svelte';
+	import AgentLogo from '$lib/features/agents/AgentLogo.svelte';
+	import { reviewHarnesses, reviewSessions } from './agent-review';
 	import * as Alert from '$lib/components/ui/alert/index.js';
 	import { signInCommand } from './agent-session';
 	import ClaudeTokenForm from '$lib/features/agents/ClaudeTokenForm.svelte';
@@ -43,6 +47,7 @@
 	import {
 		agentTasks,
 		type AgentTask,
+		type AgentSession,
 		type PublicationView,
 		type TaskSignal,
 		type TaskTransition,
@@ -58,12 +63,15 @@
 		chat,
 		onretry,
 		ondenied,
-		pinned = false
+		pinned = false,
+		allowedAgents = []
 	}: {
 		task: AgentTask;
 		chat: ConversationState;
 		onretry: (task: AgentTask) => void;
 		ondenied: (error: unknown) => void;
+		// Coding agents the workspace allows, offered for a requested review.
+		allowedAgents?: string[];
 		// The newest task feeds the compact header pinned above the chat.
 		pinned?: boolean;
 	} = $props();
@@ -83,6 +91,7 @@
 	let publication = $state<PublicationView | null>(null);
 	let signals = $state<TaskSignal[]>([]);
 	let machinePreview = $state<DevMachinePreview | null>(null);
+	let sessions = $state<AgentSession[]>([]);
 	const signalAction: Record<TaskSignal['action'], (() => string) | undefined> = {
 		recorded: undefined,
 		follow_up: m['tasks.signal_follow_up'],
@@ -271,6 +280,41 @@
 		} catch (e) {
 			failure(e);
 		}
+	}
+	// Sessions (the task's own and its requested reviews) are read-only; review
+	// changes arrive as task.review_updated events on this conversation.
+	$effect(() => {
+		const observed = [expanded, task.state, task.run_id, chat.taskReviewCursor[task.id]];
+		if (!observed[0]) return;
+		untrack(() => void loadSessions());
+	});
+	async function loadSessions() {
+		try {
+			const view = await agentTasks.sessions(chat.slug, task.id);
+			if (!disposed && !chat.unavailable) sessions = view.sessions ?? [];
+		} catch (e) {
+			failure(e);
+		}
+	}
+	const reviews = $derived(reviewSessions(sessions));
+	const harnesses = $derived(reviewHarnesses(allowedAgents, task.provider));
+	const sessionStates: Record<AgentSession['state'], () => string> = {
+		created: m['tasks.session_created'],
+		starting: m['tasks.session_starting'],
+		active: m['tasks.session_active'],
+		waiting_input: m['tasks.session_waiting_input'],
+		suspended: m['tasks.session_suspended'],
+		completed: m['tasks.session_completed'],
+		failed: m['tasks.session_failed'],
+		cancelled: m['tasks.session_cancelled']
+	};
+	// Reviews are requested from the chat only: the menu writes the request
+	// into the composer, and the assistant asks for approval.
+	function requestReview(harness: string) {
+		chat.composerDraft = m['tasks.review_request_prompt']({
+			identifier: chat.issue?.identifier ?? '',
+			agent: agentLabel(harness)
+		});
 	}
 	// The task's machine may expose an application preview for manual QA.
 	$effect(() => {
@@ -570,6 +614,20 @@
 						{#if runsBefore}<Button variant="ghost" size="sm" disabled={loading} onclick={() => void olderRuns()}
 								>{m['tasks.more_runs']()}</Button
 							>{/if}
+						{#each sessions as session (session.id)}<Trace.Line class="items-start"
+								><Trace.Icon><AgentLogo agent={session.provider} size="sm" /></Trace.Icon><span class="min-w-0 flex-1"
+									><Trace.Title class="block whitespace-normal break-words"
+										>{session.purpose === 'review'
+											? m['tasks.session_review']({ agent: agentLabel(session.provider) })
+											: m['tasks.session_implement']({ agent: agentLabel(session.provider) })}</Trace.Title
+									><Trace.Description class="block whitespace-normal break-words"
+										>{sessionStates[session.state]()}{#if session.native_session_id}{' · '}<span
+												class="font-mono"
+												title={session.native_session_id}>{session.native_session_id.slice(0, 8)}</span
+											>{/if}</Trace.Description
+									></span
+								></Trace.Line
+							>{/each}
 						{#if plan}<AgentPlan steps={plan} />{/if}
 						{#if reasoning.length}<AgentReasoning summaries={reasoning} />{/if}
 						<TestResults step={validation} output={checkOutput} slug={chat.slug} taskId={task.id} />
@@ -688,8 +746,16 @@
 					</Alert.Description>
 				</Alert.Root>
 			{/if}
+			<AgentReviews {reviews} />
 			{#if error}<p role="alert" class="text-sm text-destructive">{error}</p>
 				<Button variant="ghost" size="sm" onclick={() => void refresh()}>{m['tasks.refresh']()}</Button>{/if}
-			<TaskActions {actions} />
+			<div class="flex flex-wrap items-center gap-2">
+				{#if task.state === 'awaiting_review' && pullRequest && harnesses.length && chat.issue}<ReviewRequestMenu
+						{harnesses}
+						implementer={task.provider}
+						onpick={requestReview}
+					/>{/if}
+				<div class="min-w-0 flex-1"><TaskActions {actions} /></div>
+			</div>
 		</div>{/if}
 </article>

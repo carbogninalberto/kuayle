@@ -56,6 +56,7 @@ export interface ConversationEvent {
 		| 'task.tests_updated'
 		| 'task.publication_updated'
 		| 'task.signal_recorded'
+		| 'task.review_updated'
 		| 'tool.started'
 		| 'tool.completed'
 		| 'approval.requested'
@@ -106,8 +107,31 @@ export interface MergePayload {
 	pull_request_url: string;
 	commit: string;
 }
+export interface ReviewPayload {
+	identifier: string;
+	title: string;
+	task_id: string;
+	harness: string;
+	focus?: string;
+	post_to_pull_request: boolean;
+	pull_request: number;
+	pull_request_url: string;
+	commit: string;
+}
+export interface FollowUpPayload {
+	identifier: string;
+	title: string;
+	task_id: string;
+	generation: number;
+	instructions: string;
+}
 export type ConversationApproval = ApprovalBase &
-	({ action: 'delegate_issue'; payload: DelegationPayload } | { action: 'merge_pull_request'; payload: MergePayload });
+	(
+		| { action: 'delegate_issue'; payload: DelegationPayload }
+		| { action: 'merge_pull_request'; payload: MergePayload }
+		| { action: 'request_agent_review'; payload: ReviewPayload }
+		| { action: 'follow_up_task'; payload: FollowUpPayload }
+	);
 interface ApprovalBase {
 	id: string;
 	conversation_id: string;

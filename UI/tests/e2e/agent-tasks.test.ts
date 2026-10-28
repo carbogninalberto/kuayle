@@ -42,7 +42,9 @@ async function fixture(page: Page) {
 		missingRun: false,
 		signIns: [] as any[],
 		signInFound: false,
-		tokenSaves: [] as any[]
+		tokenSaves: [] as any[],
+		sessions: [] as any[],
+		providers: [{ id: 'codex', display_name: 'Codex', supported_modes: ['autonomous'], custom: false }] as any[]
 	};
 	await page.routeWebSocket('**/api/workspaces/test/ws', () => {});
 	await page.routeWebSocket('**/conversations/chat-1/stream*', (socket) => state.sockets.push(socket));
@@ -79,7 +81,7 @@ async function fixture(page: Page) {
 		if (path.endsWith('/task-options'))
 			return route.fulfill({
 				json: {
-					providers: [{ id: 'codex', display_name: 'Codex', supported_modes: ['autonomous'], custom: false }],
+					providers: state.providers,
 					model_servers: [
 						{
 							id: 'server-1',
@@ -195,6 +197,7 @@ async function fixture(page: Page) {
 			if (path.endsWith('/runs/run-1/diff')) return route.fulfill({ json: { diff: state.diff, truncated: false } });
 			if (path.endsWith('/validation')) return route.fulfill({ json: state.validation });
 			if (path.endsWith('/signals')) return route.fulfill({ json: state.signals });
+			if (path.endsWith('/sessions')) return route.fulfill({ json: { sessions: state.sessions } });
 
 			if (path.endsWith('/publication')) {
 				state.publications++;
@@ -861,4 +864,115 @@ test('a Claude Code task stopped for sign-in continues with a pasted token', asy
 	await expect(tasks.getByText('Claude Code needs you to sign in', { exact: true })).toHaveCount(0);
 	expect(state.tokenSaves).toEqual(['sk-ant-oat01-browser-fixture-token-0001']);
 	expect(state.signIns).toHaveLength(1);
+});
+
+test('requests an agent review through the chat and shows its findings on the task', async ({ page }, testInfo) => {
+	const { state, emit } = await fixture(page);
+	state.providers = [
+		{ id: 'codex', display_name: 'Codex', supported_modes: ['autonomous'], custom: false },
+		{ id: 'claude-code', display_name: 'Claude Code', supported_modes: ['autonomous'], custom: false }
+	];
+	await page.goto('/test/assistant?conversation=chat-1');
+	await delegate(page);
+	const tasks = page.getByRole('region', { name: 'Coding tasks' });
+	const time = '2026-10-27T10:00:00Z';
+	state.publication = {
+		step: { id: 'publication-1', agent_run_id: 'run-1', status: 'succeeded', command_argv: [], completed_at: time },
+		branch: 'kuayle/eng-1',
+		pull_request_url: 'https://github.com/acme/app/pull/12'
+	};
+	const implement = {
+		id: 'session-1',
+		task_id: 'task-1',
+		provider: 'codex',
+		purpose: 'implement',
+		state: 'suspended',
+		native_session_id: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b',
+		created_at: time,
+		updated_at: time,
+		task_state: 'awaiting_review'
+	};
+	state.sessions = [implement];
+	state.task = { ...state.task, state: 'awaiting_review', reason: 'Pull request opened; waiting for human review' };
+	emit('task.state_changed', state.task);
+	await expect(tasks.getByText('Awaiting review', { exact: true })).toBeVisible();
+
+	// The action only writes the request into the composer; the assistant asks
+	// for approval, so nothing is started from the card.
+	const requests: string[] = [];
+	page.on('request', (request) => {
+		if (request.method() !== 'GET') requests.push(request.url());
+	});
+	await tasks.getByRole('button', { name: 'Request review', exact: true }).click();
+	const items = page.getByRole('menuitem');
+	await expect(items).toHaveText([/Codex\s*Same agent$/, /Claude Code$/]);
+	await page.getByRole('menuitem', { name: 'Claude Code' }).click();
+	await expect(page.getByRole('textbox', { name: 'Message' })).toHaveValue('Review ENG-1 with Claude Code');
+	await expect(page.getByRole('textbox', { name: 'Message' })).toBeFocused();
+	expect(requests).toEqual([]);
+
+	// A review task's own events never become a task card.
+	emit('task.state_changed', {
+		...state.task,
+		id: 'review-1',
+		kind: 'review',
+		review_of_task_id: 'task-1',
+		provider: 'claude-code',
+		state: 'running',
+		prompt: 'You are reviewing pull request #12'
+	});
+	state.sessions = [
+		{
+			id: 'session-2',
+			task_id: 'review-1',
+			provider: 'claude-code',
+			purpose: 'review',
+			state: 'completed',
+			created_at: '2026-10-27T10:05:00Z',
+			updated_at: '2026-10-27T10:05:00Z',
+			task_state: 'completed',
+			review: {
+				task_id: 'review-1',
+				reviewed_task_id: 'task-1',
+				requested_by: 'user-1',
+				provider: 'claude-code',
+				commit_sha: '0123456789abcdef0123456789abcdef01234567',
+				repository: 'acme/app',
+				pull_request_number: 12,
+				pull_request_url: 'https://github.com/acme/app/pull/12',
+				base_branch: 'main',
+				focus: 'Error paths',
+				attempt: 1,
+				post_to_pull_request: true,
+				verdict: 'request_changes',
+				findings:
+					'- `search.ts:12` **major**: handle the empty query <img src=x onerror="window.evil=1"><script>window.evil=1</script>',
+				comment_state: 'posted',
+				created_at: '2026-10-27T10:05:00Z',
+				updated_at: '2026-10-27T10:06:00Z'
+			}
+		},
+		implement
+	];
+	emit('task.review_updated', { task_id: 'task-1', review_task_id: 'review-1', state: 'completed' });
+	const reviews = tasks.getByRole('region', { name: 'Agent reviews' });
+	await expect(reviews.getByText('Review by Claude Code', { exact: true })).toBeVisible();
+	await expect(reviews.getByText('Changes requested', { exact: true })).toBeVisible();
+	await expect(reviews.getByText('handle the empty query', { exact: false })).toBeVisible();
+	await expect(reviews.getByText('Commit 0123456 of pull request #12', { exact: true })).toBeVisible();
+	await expect(reviews.getByText('Findings posted on the pull request.', { exact: false })).toBeVisible();
+	expect(await reviews.locator('script, img').count()).toBe(0);
+	expect(await page.evaluate(() => (window as any).evil)).toBeUndefined();
+	await expect(page.getByRole('article', { name: 'Coding task', exact: true })).toHaveCount(1);
+	await tasks.getByRole('button', { name: 'Execution details', exact: true }).click();
+	await expect(tasks.getByText('Codex implementation session', { exact: true })).toBeVisible();
+	await expect(tasks.getByText('Claude Code review session', { exact: true })).toBeVisible();
+	await expect(tasks.getByText('Suspended, can resume', { exact: false })).toBeVisible();
+	for (const dark of [false, true]) {
+		await page.evaluate((d) => {
+			document.documentElement.classList.toggle('dark', d);
+			document.documentElement.setAttribute('data-theme', d ? 'dark' : 'light');
+		}, dark);
+		await tasks.screenshot({ path: testInfo.outputPath(`agent-review-${dark ? 'dark' : 'light'}.png`) });
+	}
 });

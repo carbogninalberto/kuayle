@@ -137,6 +137,17 @@
 			clearTimeout(copyTimer);
 		};
 	});
+	// A task card can ask for a message, such as a review request; the user
+	// still reads, edits and sends it.
+	$effect(() => {
+		const draft = chat.composerDraft;
+		if (draft === null) return;
+		untrack(() => {
+			chat.composerDraft = null;
+			text = draft;
+			void tick().then(() => textarea?.focus());
+		});
+	});
 	$effect(() => {
 		if (!draftLoaded) return;
 		try {

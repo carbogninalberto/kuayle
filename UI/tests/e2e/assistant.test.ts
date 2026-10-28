@@ -801,3 +801,80 @@ test('asks for approval before merging the reviewed pull request', async ({ page
 	await expect(page.getByRole('button', { name: /Coding agent on ENG-1/ })).toHaveCount(0);
 	expect(state.decisions).toEqual(['approve']);
 });
+
+test('a requested review and a follow-up wait for approval in the chat', async ({ page }) => {
+	const state = await fixture(page);
+	const answered = { ...reply, status: 'completed', content: 'Review approval is pending.' };
+	state.messages = [userMessage, answered];
+	const call = (id: string, sequence: number, name: string, approval: string) => ({
+		id,
+		conversation_id: 'chat-1',
+		message_id: answered.id,
+		sequence,
+		call_id: `call_${id}`,
+		name,
+		input: { identifier: 'ENG-1' },
+		status: 'completed',
+		output: { approval_id: approval, status: 'pending_user_approval', identifier: 'ENG-1' },
+		created_at: conversation.created_at
+	});
+	state.tools = [
+		call('tool-20', 0, 'request_agent_review', 'approval-20'),
+		call('tool-21', 1, 'follow_up_task', 'approval-21')
+	];
+	const base = {
+		conversation_id: 'chat-1',
+		actor_id: 'user-1',
+		issue_id: 'issue-1',
+		status: 'pending',
+		expires_at: '2026-10-27T10:00:00Z',
+		created_at: conversation.created_at,
+		updated_at: conversation.created_at
+	};
+	state.approvals = [
+		{
+			...base,
+			id: 'approval-20',
+			tool_call_id: 'tool-20',
+			action: 'request_agent_review',
+			payload: {
+				identifier: 'ENG-1',
+				title: 'Dark mode',
+				task_id: 'task-9',
+				harness: 'claude-code',
+				focus: 'Error handling',
+				post_to_pull_request: false,
+				pull_request: 12,
+				pull_request_url: 'https://github.com/acme/app/pull/12',
+				commit: '0123456789abcdef0123456789abcdef01234567'
+			}
+		},
+		{
+			...base,
+			id: 'approval-21',
+			tool_call_id: 'tool-21',
+			action: 'follow_up_task',
+			payload: {
+				identifier: 'ENG-1',
+				title: 'Dark mode',
+				task_id: 'task-9',
+				generation: 1,
+				instructions: 'Fix the review findings'
+			}
+		}
+	] as any;
+	await page.goto('/test/assistant?conversation=chat-1');
+	await expect(page.getByText('Review ENG-1 with Claude Code?', { exact: true })).toBeVisible();
+	await expect(
+		page.getByText('The agent reviews commit 0123456 of pull request #12 without pushing anything.', { exact: true })
+	).toBeVisible();
+	await expect(
+		page.getByText('The findings stay in Kuayle; nothing is posted on GitHub.', { exact: true })
+	).toBeVisible();
+	await expect(page.getByText('Error handling', { exact: true })).toBeVisible();
+	await expect(page.getByText('Start a follow-up on ENG-1?', { exact: true })).toBeVisible();
+	await expect(page.getByText('Fix the review findings', { exact: true })).toBeVisible();
+	await page.getByRole('button', { name: 'Approve', exact: true }).first().click();
+	await expect(page.getByText('Claude Code review of ENG-1 started', { exact: true })).toBeVisible();
+	expect(state.decisions).toEqual(['approve']);
+});

@@ -36,6 +36,10 @@ export interface AgentTask {
 	run_id: string;
 	// The attempt stopped because the agent needs the creator's own sign-in.
 	sign_in_required?: boolean;
+	// A review task reviews another task's published pull request; it is shown
+	// on that task's card, never as a task of its own.
+	kind?: 'implement' | 'review';
+	review_of_task_id?: string;
 	created_at: string;
 	updated_at: string;
 }
@@ -91,6 +95,53 @@ export interface TaskSignal {
 	follow_up_generation?: number;
 	created_at: string;
 	updated_at: string;
+}
+export type SessionState =
+	| 'created'
+	| 'starting'
+	| 'active'
+	| 'waiting_input'
+	| 'suspended'
+	| 'completed'
+	| 'failed'
+	| 'cancelled';
+// A requested agent review of a task's published pull request. Findings are
+// the reviewer's untrusted final output.
+export interface AgentReview {
+	task_id: string;
+	reviewed_task_id: string;
+	requested_by: string;
+	provider: string;
+	commit_sha: string;
+	repository: string;
+	pull_request_number: number;
+	pull_request_url: string;
+	base_branch: string;
+	focus: string;
+	attempt: number;
+	post_to_pull_request: boolean;
+	verdict?: 'approve' | 'request_changes' | 'comment' | 'unknown';
+	findings?: string;
+	comment_state: 'not_requested' | 'pending' | 'posted' | 'failed';
+	completed_at?: string;
+	created_at: string;
+	updated_at: string;
+}
+// The harness session a task's attempts ran in, with the review it ran.
+export interface AgentSession {
+	id: string;
+	task_id: string;
+	machine_id?: string;
+	provider: string;
+	purpose: 'implement' | 'review';
+	state: SessionState;
+	native_session_id?: string;
+	started_at?: string;
+	ended_at?: string;
+	created_at: string;
+	updated_at: string;
+	task_state: TaskState;
+	review?: AgentReview;
 }
 export interface TaskActivity {
 	task_id: string;
@@ -159,6 +210,7 @@ export const agentTasks = {
 		api.get<ValidationStep | null>(`${task(slug, id)}/runs/${encodeURIComponent(run)}/validation`),
 	queue: (slug: string) => api.get<AgentQueueItem[]>(`${base(slug)}/agent-tasks`),
 	signals: (slug: string, id: string) => api.get<TaskSignal[]>(`${task(slug, id)}/signals`),
+	sessions: (slug: string, id: string) => api.get<{ sessions: AgentSession[] }>(`${task(slug, id)}/sessions`),
 	publication: (slug: string, id: string, run: string) =>
 		api.get<PublicationView>(`${task(slug, id)}/runs/${encodeURIComponent(run)}/publication`),
 	logs: (slug: string, id: string, run: string, after = 0) =>

@@ -27,6 +27,10 @@ export class ConversationState {
 	taskValidationCursor = $state<Record<string, number>>({});
 	taskPublicationCursor = $state<Record<string, number>>({});
 	taskSignalCursor = $state<Record<string, number>>({});
+	// Bumped when a review of the task changes; the task card reloads its sessions.
+	taskReviewCursor = $state<Record<string, number>>({});
+	// Text a task card asks the chat composer to show, e.g. a review request.
+	composerDraft = $state<string | null>(null);
 	cursor = 0;
 	hasMore = $state(false);
 	loading = $state(true);
@@ -88,6 +92,7 @@ export class ConversationState {
 			this.taskValidationCursor = {};
 			this.taskPublicationCursor = {};
 			this.taskSignalCursor = {};
+			this.taskReviewCursor = {};
 			this.conversation = null;
 			this.issue = null;
 			this.disconnect();
@@ -115,6 +120,8 @@ export class ConversationState {
 		} else if (event.type === 'task.signal_recorded') {
 			const data = event.payload as { task_id: string };
 			this.taskSignalCursor = { ...this.taskSignalCursor, [data.task_id]: event.cursor };
+		} else if (event.type === 'task.review_updated') {
+			this.reviewChanged((event.payload as { task_id: string }).task_id);
 		} else if (event.type === 'task.publication_updated') {
 			const data = event.payload as { task_id: string };
 			this.taskPublicationCursor = { ...this.taskPublicationCursor, [data.task_id]: event.cursor };
@@ -166,8 +173,16 @@ export class ConversationState {
 		}
 		this.tools = next;
 	}
+	private reviewChanged(taskId: string) {
+		this.taskReviewCursor = { ...this.taskReviewCursor, [taskId]: (this.taskReviewCursor[taskId] ?? 0) + 1 };
+	}
 	acceptTask(task: AgentTask, fromStream = false, expectedCurrent?: AgentTask | null) {
 		if (this.disposed || this.unavailable || task.conversation_id !== this.id) return;
+		// A review is shown on the task it reviews, never as a task of its own.
+		if (task.kind === 'review') {
+			if (task.review_of_task_id) this.reviewChanged(task.review_of_task_id);
+			return;
+		}
 		const current = this.liveTasks[task.id];
 		if (
 			current &&

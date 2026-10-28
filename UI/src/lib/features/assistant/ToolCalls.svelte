@@ -7,6 +7,8 @@
 	import type { ConversationApproval, ConversationToolCall } from '$lib/api/conversations';
 	import { m } from '$lib/paraglide/messages.js';
 	import AgentSubagent from './AgentSubagent.svelte';
+	import AgentLogo from '$lib/features/agents/AgentLogo.svelte';
+	import { agentInfo } from '$lib/features/agents/agents';
 	let {
 		calls,
 		slug,
@@ -43,12 +45,38 @@
 		plan_issues: m['assistant.tool_plan_issues'],
 		link_issues: m['assistant.tool_link_issues'],
 		get_agent_work: m['assistant.tool_get_agent_work'],
-		merge_pull_request: m['assistant.tool_merge_pull_request']
+		merge_pull_request: m['assistant.tool_merge_pull_request'],
+		request_agent_review: m['assistant.tool_request_agent_review'],
+		follow_up_task: m['assistant.tool_follow_up_task']
 	};
 	// Outcome lines per approval action.
 	function outcome(approval: ConversationApproval) {
 		const identifier = approval.payload.identifier;
 		const merge = approval.action === 'merge_pull_request';
+		if (approval.action === 'request_agent_review' || approval.action === 'follow_up_task') {
+			const review = approval.action === 'request_agent_review';
+			const agent = review ? agentInfo(approval.payload.harness).name : '';
+			switch (approval.status) {
+				case 'approving':
+					return review
+						? m['assistant.review_approving']({ identifier, agent })
+						: m['assistant.follow_up_approving']({ identifier });
+				case 'approved':
+					return review
+						? m['assistant.review_approved']({ identifier, agent })
+						: m['assistant.follow_up_approved']({ identifier });
+				case 'failed':
+					return review
+						? m['assistant.review_failed']({ identifier, error: approval.error ?? '' })
+						: m['assistant.follow_up_failed']({ identifier, error: approval.error ?? '' });
+				case 'expired':
+					return m['assistant.approval_expired']({ identifier });
+				default:
+					return review
+						? m['assistant.review_denied']({ identifier })
+						: m['assistant.follow_up_denied']({ identifier });
+			}
+		}
 		switch (approval.status) {
 			case 'approving':
 				return merge
@@ -112,6 +140,45 @@
 									href={approval.payload.pull_request_url}
 									target="_blank"
 									rel="noopener noreferrer"><ExternalLink size={12} />{m['tasks.open_pull_request']()}</a
+								>
+							{:else if approval.action === 'request_agent_review'}
+								<Item.Title class="flex items-center gap-2"
+									><AgentLogo agent={approval.payload.harness} size="sm" />{m['assistant.review_title']({
+										identifier,
+										agent: agentInfo(approval.payload.harness).name
+									})}</Item.Title
+								>
+								<Item.Description class="line-clamp-none"
+									>{m['assistant.review_description']({
+										number: approval.payload.pull_request,
+										commit: approval.payload.commit.slice(0, 7)
+									})}</Item.Description
+								>
+								{#if approval.payload.focus}<CodeBlock.Root size="sm"
+										><CodeBlock.Content code={approval.payload.focus} wrap class="max-h-48 text-xs" /></CodeBlock.Root
+									>{/if}
+								<p class="text-xs text-muted-foreground">
+									{approval.payload.post_to_pull_request
+										? m['assistant.review_posts_comment']()
+										: m['assistant.review_no_comment']()}
+								</p>
+								<a
+									class="inline-flex items-center gap-1 text-xs underline underline-offset-2"
+									href={approval.payload.pull_request_url}
+									target="_blank"
+									rel="noopener noreferrer"><ExternalLink size={12} />{m['tasks.open_pull_request']()}</a
+								>
+							{:else if approval.action === 'follow_up_task'}
+								<Item.Title>{m['assistant.follow_up_title']({ identifier })}</Item.Title>
+								<Item.Description class="line-clamp-none"
+									>{m['assistant.follow_up_description']({ title: approval.payload.title })}</Item.Description
+								>
+								<CodeBlock.Root size="sm"
+									><CodeBlock.Content
+										code={approval.payload.instructions}
+										wrap
+										class="max-h-48 text-xs"
+									/></CodeBlock.Root
 								>
 							{:else}
 								<Item.Title>{m['assistant.approval_title']({ identifier })}</Item.Title>
