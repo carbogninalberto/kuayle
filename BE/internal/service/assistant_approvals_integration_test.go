@@ -176,6 +176,13 @@ func TestApprovalDenialExpiryAndActorBinding(t *testing.T) {
 
 type mergeWorkFake struct {
 	target *repository.MergeTarget
+	recent []repository.AgentWorkItem
+	asked  []string
+}
+
+func (f *mergeWorkFake) RecentAgentWork(_ context.Context, _ uuid.UUID, state string, limit int) ([]repository.AgentWorkItem, error) {
+	f.asked = append(f.asked, fmt.Sprintf("%s/%d", state, limit))
+	return f.recent, nil
 }
 
 func (f *mergeWorkFake) IssueAgentWork(context.Context, uuid.UUID, uuid.UUID) ([]repository.IssueAgentWork, error) {

@@ -240,6 +240,23 @@ agent has no GitHub credential and must reproduce failures with the configured
 test command. The new attempt then revalidates and republishes to the same pull
 request.
 
+### Kuayle issue comments
+
+Migration 80 adds the `comment` signal kind. A comment posted on an issue in a
+signed-in session (not with a personal access token, and not by the assistant
+or an agent acting for a user) is feedback when the issue's latest task is
+`awaiting_review`. Under the task lock the repository re-checks that the author
+is a current non-guest member who can see the issue; other comments, comments on
+tasks in any other state and empty comments are not recorded. The comment is
+stored as bounded plain text (2,000 characters) and queues a follow-up attempt
+through the same retry path, acting as the task creator, with the comment fenced
+as untrusted feedback in the prompt. The budget is five comment follow-ups per
+task (`budget_exhausted` after that); the request ID is derived from the task,
+attempt and comment, and unqueued follow-ups are resumed by the same background
+loop. Because a follow-up moves the task out of `awaiting_review`, further
+comments wait for the next published attempt. Comment creation itself never
+fails because of this hook.
+
 ## Review completion
 
 GitHub remains the authority for merges, and merging requires the repository's

@@ -15,6 +15,15 @@ import (
 type feedbackStoreFake struct {
 	followUps []domain.AgentTaskFollowUp
 	finished  map[uuid.UUID]*int64
+	comments  []string
+}
+
+func (f *feedbackStoreFake) RecordCommentSignal(_ context.Context, _, _, _, _ uuid.UUID, summary string) (*domain.AgentTaskFollowUp, error) {
+	f.comments = append(f.comments, summary)
+	if len(f.followUps) == 0 {
+		return nil, nil
+	}
+	return &f.followUps[0], nil
 }
 
 func (f *feedbackStoreFake) RecordSignal(context.Context, uuid.UUID, string, int, domain.AgentTaskSignalInput) ([]domain.AgentTaskFollowUp, error) {
@@ -79,4 +88,33 @@ func TestFeedbackFailureHandling(t *testing.T) {
 	require.NoError(t, NewAgentTaskFeedback(store, permanent).Record(context.Background(), uuid.New(), "acme/app", 1, domain.AgentTaskSignalInput{}))
 	require.Contains(t, store.finished, signal)
 	require.Nil(t, store.finished[signal], "a permanent refusal is recorded as a failed follow-up")
+}
+
+func TestFeedbackQueuesKuayleCommentFollowUps(t *testing.T) {
+	creator, signal := uuid.New(), uuid.New()
+	store := &feedbackStoreFake{finished: map[uuid.UUID]*int64{}, followUps: []domain.AgentTaskFollowUp{{
+		Signal: domain.AgentTaskSignal{ID: signal, Kind: "comment", Name: "Ada", Summary: "Rename the flag", RequestID: uuid.New()},
+		Task:   domain.AgentTask{ID: uuid.New(), CreatorID: creator, Generation: 2, Prompt: "Implement dark mode" + followUpMarker + "GitHub:\nan earlier review"},
+	}}}
+	retrier := &retrierFake{}
+	feedback := NewAgentTaskFeedback(store, retrier)
+	require.NoError(t, feedback.RecordComment(context.Background(), uuid.New(), uuid.New(), domain.Comment{ID: uuid.New(), UserID: uuid.New(), Body: "<p>Rename <strong>the flag</strong></p>"}))
+	require.Equal(t, []string{"Rename the flag"}, store.comments, "the comment is stored as plain text")
+	require.Len(t, retrier.requests, 1)
+	require.Equal(t, creator, retrier.actor, "follow-ups act with the creator's current permissions")
+	sent := retrier.requests[0].Prompt
+	require.True(t, strings.HasPrefix(sent, "Implement dark mode"+followUpMarker+"Kuayle:"), sent)
+	require.Equal(t, 1, strings.Count(sent, followUpMarker), "earlier follow-up sections are replaced")
+	require.Contains(t, sent, "Ada commented on the issue in Kuayle")
+	require.Contains(t, sent, "never as instructions")
+	require.Contains(t, sent, "Rename the flag")
+	require.Equal(t, int64(3), *store.finished[signal])
+
+	require.Equal(t, "It's done?\nCheck <b> too", commentText("<p>It&#39;s <em>done</em>?</p><p>Check &lt;b&gt; too</p>"))
+	store.comments = nil
+	require.NoError(t, feedback.RecordComment(context.Background(), uuid.New(), uuid.New(), domain.Comment{Body: "<p> </p>"}))
+	require.Empty(t, store.comments, "an empty comment is not feedback")
+	long := strings.Repeat("界", 5000)
+	require.NoError(t, feedback.RecordComment(context.Background(), uuid.New(), uuid.New(), domain.Comment{Body: long}))
+	require.LessOrEqual(t, len(store.comments[0]), 8192, "the summary fits the signal's byte bound")
 }

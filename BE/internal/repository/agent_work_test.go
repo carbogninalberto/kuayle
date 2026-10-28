@@ -1,55 +1,65 @@
 package repository
 
 import (
+	"context"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/stretchr/testify/require"
 )
 
-func TestIssueAgentWorkAndMergeTargetUseRecordedPublication(t *testing.T) {
-	db, repo, ctx, task, claimed := publishingTask(t)
-	_, err := repo.EnsurePublication(ctx, *claimed)
-	require.NoError(t, err)
-	store := NewDevMachineRepository(db)
-	op := leasePublication(t, store, ctx)
-	_, err = repo.MergeTarget(ctx, task.WorkspaceID, &task.IssueID, nil)
-	require.ErrorIs(t, err, ErrNoMergeTarget, "nothing to merge before publication")
-
-	require.NoError(t, store.StartPublication(ctx, op))
-	commit := "0123456789abcdef0123456789abcdef01234567"
-	require.NoError(t, store.CompletePublication(ctx, op, domain.AgentPublicationResult{Branch: "kuayle/rec-1", Commit: commit, PullRequestNumber: 12, PullRequestURL: "https://github.com/fixture/repo/pull/12"}))
-	require.NoError(t, store.CompleteOperation(ctx, op.ID, *op.LeaseOwner))
-	require.NoError(t, repo.Transition(ctx, *claimed, "awaiting_review", "Published"))
-	// A commit only observed in the checkout is never the merge target.
-	_, err = db.Exec(`INSERT INTO dev_machine_git_refs(workspace_id,machine_id,agent_run_id,ref_type,repository_full_name,ref_name,commit_sha,source) VALUES($1,$2,$3,'commit','fixture/repo','kuayle/rec-1','ffffffffffffffffffffffffffffffffffffffff','observed')`, task.WorkspaceID, *claimed.MachineID, task.RunID)
-	require.NoError(t, err)
-
-	target, err := repo.MergeTarget(ctx, task.WorkspaceID, &task.IssueID, nil)
-	require.NoError(t, err)
-	require.Equal(t, task.ID, target.TaskID)
-	require.Equal(t, "fixture/repo", target.Repository)
-	require.Equal(t, 12, target.Number)
-	require.Equal(t, commit, target.Commit)
-	byTask, err := repo.MergeTarget(ctx, task.WorkspaceID, nil, &task.ID)
-	require.NoError(t, err)
-	require.Equal(t, target, byTask)
-
-	work, err := repo.IssueAgentWork(ctx, task.WorkspaceID, task.IssueID)
+func TestRecentAgentWorkFollowsIssueVisibility(t *testing.T) {
+	db, repo, ctx, task := reviewableTask(t)
+	work, err := repo.RecentAgentWork(ctx, task.WorkspaceID, "", 50)
 	require.NoError(t, err)
 	require.Len(t, work, 1)
-	require.Equal(t, "awaiting_review", work[0].State)
-	require.Equal(t, 12, *work[0].PullRequestNumber)
-	require.Nil(t, work[0].Review)
-	_, err = db.Exec(`INSERT INTO agent_task_signals(task_id,run_id,kind,external_id,outcome,name,summary,url,action,request_id) VALUES
- ($1,$2,'review','1','approved','maintainer','','https://github.com/fixture/repo/pull/12','recorded',gen_random_uuid()),
- ($1,$2,'review','2','commented','maintainer','','https://github.com/fixture/repo/pull/12','recorded',gen_random_uuid())`, task.ID, task.RunID)
-	require.NoError(t, err)
-	work, err = repo.IssueAgentWork(ctx, task.WorkspaceID, task.IssueID)
-	require.NoError(t, err)
-	require.Equal(t, "approved", *work[0].Review, "comments do not change the decision")
+	item := work[0]
+	require.Equal(t, task.ID, item.TaskID)
+	require.Equal(t, "REC-1", item.Identifier)
+	require.Equal(t, "Recovery", item.Title)
+	require.Equal(t, "awaiting_review", item.State)
+	require.Equal(t, "codex", item.Provider)
+	require.NotNil(t, item.PullRequestURL)
+	require.Equal(t, "https://github.com/fixture/repo/pull/12", *item.PullRequestURL)
 
-	require.NoError(t, repo.Transition(ctx, *claimed, "completed", "Merged"))
-	_, err = repo.MergeTarget(ctx, task.WorkspaceID, nil, &task.ID)
-	require.ErrorIs(t, err, ErrNoMergeTarget, "only tasks awaiting review can be merged")
+	work, err = repo.RecentAgentWork(ctx, task.WorkspaceID, "running", 50)
+	require.NoError(t, err)
+	require.Empty(t, work, "the state filter applies before the limit")
+	work, err = repo.RecentAgentWork(ctx, task.WorkspaceID, "awaiting_review", 1)
+	require.NoError(t, err)
+	require.Len(t, work, 1)
+
+	member := uuid.New()
+	_, err = db.Exec(`INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,'Member','hash')`, member, member.String()+"@test.invalid")
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO workspace_members(workspace_id,user_id,role) VALUES($1,$2,'member')`, task.WorkspaceID, member)
+	require.NoError(t, err)
+	memberCtx := domain.WithAccess(context.Background(), domain.Access{WorkspaceID: task.WorkspaceID, UserID: member})
+	work, err = repo.RecentAgentWork(memberCtx, task.WorkspaceID, "", 50)
+	require.NoError(t, err)
+	require.Len(t, work, 1, "workspace members see tasks on issues they can see, not only their own")
+
+	// Another workspace the member belongs to never lists this task.
+	otherWS := uuid.New()
+	_, err = db.Exec(`INSERT INTO workspaces(id,name,slug,owner_id) VALUES($1,'Other',$2,$3)`, otherWS, otherWS.String(), member)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO workspace_members(workspace_id,user_id,role) VALUES($1,$2,'owner')`, otherWS, member)
+	require.NoError(t, err)
+	work, err = repo.RecentAgentWork(domain.WithAccess(context.Background(), domain.Access{WorkspaceID: otherWS, UserID: member}), otherWS, "", 50)
+	require.NoError(t, err)
+	require.Empty(t, work)
+
+	_, err = db.Exec(`UPDATE workspace_members SET role='guest' WHERE workspace_id=$1 AND user_id=$2`, task.WorkspaceID, member)
+	require.NoError(t, err)
+	_, err = repo.RecentAgentWork(memberCtx, task.WorkspaceID, "", 50)
+	require.ErrorIs(t, err, ErrConversationNotFound, "guests do not see agent work")
+
+	_, err = repo.RecentAgentWork(context.Background(), task.WorkspaceID, "", 50)
+	require.ErrorIs(t, err, ErrConversationNotFound, "an uncredentialed caller sees nothing")
+	_, err = repo.RecentAgentWork(domain.WithAccess(context.Background(), domain.Access{WorkspaceID: otherWS, UserID: member}), task.WorkspaceID, "", 50)
+	require.ErrorIs(t, err, ErrConversationNotFound)
+	outsider := domain.WithAccess(context.Background(), domain.Access{WorkspaceID: task.WorkspaceID, UserID: uuid.New()})
+	_, err = repo.RecentAgentWork(outsider, task.WorkspaceID, "", 50)
+	require.ErrorIs(t, err, ErrConversationNotFound, "non-members are refused")
 }

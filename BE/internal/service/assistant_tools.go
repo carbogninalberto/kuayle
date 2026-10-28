@@ -18,9 +18,13 @@ import (
 )
 
 const (
-	assistantMaxToolRounds    = 4
-	assistantMaxCreatesPerRun = 3
-	assistantToolOutputBytes  = 24 << 10
+	// assistantMaxToolRounds lets every one of a reply's tool calls run in its
+	// own model round; one more round, without tools, forces the answer.
+	assistantMaxToolRounds = assistantMaxToolCalls
+	// assistantMaxChangesPerReply bounds the write tools (issue creations,
+	// updates, dependency links and repository links) of one reply.
+	assistantMaxChangesPerReply = 10
+	assistantToolOutputBytes    = 24 << 10
 )
 
 // errAssistantTool is a user-safe tool failure. Other errors are reported
@@ -64,14 +68,17 @@ type AssistantTools struct {
 	relations    assistantRelationCreator
 	// Agent work tools are unavailable until SetAgentWork wires them.
 	work assistantAgentWork
+	// link_repository is unavailable until SetRepositories wires it.
+	repositories assistantRepositoryStore
 }
 
 type assistantAgentWork interface {
 	IssueAgentWork(ctx context.Context, ws, issue uuid.UUID) ([]repository.IssueAgentWork, error)
+	RecentAgentWork(ctx context.Context, ws uuid.UUID, state string, limit int) ([]repository.AgentWorkItem, error)
 	MergeTarget(ctx context.Context, ws uuid.UUID, issue, task *uuid.UUID) (*repository.MergeTarget, error)
 }
 
-// SetAgentWork enables get_agent_work and merge_pull_request.
+// SetAgentWork enables get_agent_work, list_agent_work and merge_pull_request.
 func (t *AssistantTools) SetAgentWork(work assistantAgentWork) {
 	t.work = work
 }
@@ -93,6 +100,8 @@ type assistantTool struct {
 	approval bool
 	// agentWork tools need SetAgentWork.
 	agentWork bool
+	// repositories tools need SetRepositories.
+	repositories bool
 }
 
 var assistantToolCatalog = []assistantTool{
@@ -104,14 +113,16 @@ var assistantToolCatalog = []assistantTool{
 	{name: "create_issue", description: "Create a new issue, optionally as a sub-issue of parent_identifier to split work between agents. Only call this when the user explicitly asked to create or file an issue.", write: true, parameters: `{"type":"object","properties":{"team_key":{"type":"string","maxLength":16},"title":{"type":"string","minLength":1,"maxLength":500},"description":{"type":"string","maxLength":8000},"priority":{"type":"integer","minimum":0,"maximum":4},"parent_identifier":{"type":"string","maxLength":32}},"required":["team_key","title"],"additionalProperties":false}`},
 	{name: "plan_issues", description: "Order up to 20 issues by their blocked-by dependencies into waves that can run in parallel. Delegated issues with unfinished blockers wait automatically, so a whole plan can be delegated at once.", parameters: `{"type":"object","properties":{"identifiers":{"type":"array","minItems":1,"maxItems":20,"items":{"type":"string","maxLength":32}}},"required":["identifiers"],"additionalProperties":false}`},
 	{name: "get_agent_work", agentWork: true, description: "Read the coding tasks on an issue as Kuayle recorded them: state, attempt, pull request and latest review decision. Use it before saying anything about an issue's code, pull request or merge.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32}},"required":["identifier"],"additionalProperties":false}`},
+	{name: "list_agent_work", agentWork: true, description: "List the workspace's most recently updated coding tasks on issues the user can see, newest first: issue, task state and reason, agent, attempt, pull request and latest review decision. Use it for questions about what agents are doing, what is pending or awaiting review, or overall status; filter by state when the user asks about one.", parameters: `{"type":"object","properties":{"state":{"type":"string","enum":["queued","preparing","running","waiting_input","validating","publishing","awaiting_review","blocked","completed","failed","cancelling","cancelled"]},"limit":{"type":"integer","minimum":1,"maximum":50}},"additionalProperties":false}`},
 	{name: "merge_pull_request", agentWork: true, approval: true, description: "Ask the user to approve squash-merging the pull request of an issue's task that is awaiting review, at the commit Kuayle published. Nothing merges until the user approves in Kuayle; GitHub still enforces branch protection. Only call this when the user asked to merge.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32}},"required":["identifier"],"additionalProperties":false}`},
 	{name: "link_issues", description: "Record that an issue is blocked by another issue. Only call this when the user asked to plan or order work. Cycles are refused.", write: true, parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"blocked_by":{"type":"string","maxLength":32}},"required":["identifier","blocked_by"],"additionalProperties":false}`},
+	{name: "link_repository", repositories: true, write: true, description: "Set the GitHub repository (owner/name) coding agents use for an issue, or with scope \"project\" for every issue of its project, as the development settings in Kuayle do. Only repositories linked to the workspace's GitHub installation and allowed by its Dev Machine policy can be used; the base branch defaults to the repository's default branch. Only call this when the user explicitly asked to link or change the repository.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"repository":{"type":"string","minLength":3,"maxLength":200},"base_branch":{"type":"string","minLength":1,"maxLength":255},"scope":{"type":"string","enum":["issue","project"]}},"required":["identifier","repository"],"additionalProperties":false}`},
 }
 
 func (t *AssistantTools) specs() []chatToolSpec {
 	specs := make([]chatToolSpec, 0, len(assistantToolCatalog))
 	for _, tool := range assistantToolCatalog {
-		if tool.agentWork && t.work == nil {
+		if !t.available(tool) {
 			continue
 		}
 		var spec chatToolSpec
@@ -122,6 +133,11 @@ func (t *AssistantTools) specs() []chatToolSpec {
 		specs = append(specs, spec)
 	}
 	return specs
+}
+
+// available reports whether a tool's dependencies are wired.
+func (t *AssistantTools) available(tool assistantTool) bool {
+	return (!tool.agentWork || t.work != nil) && (!tool.repositories || t.repositories != nil)
 }
 
 func lookupAssistantTool(name string) (assistantTool, bool) {
@@ -163,7 +179,7 @@ func normalizedToolInput(raw string) json.RawMessage {
 // shown to the user and the model, and a reference to a created or changed issue.
 func (t *AssistantTools) run(ctx context.Context, ws, user uuid.UUID, name, arguments string) (any, *uuid.UUID, error) {
 	tool, ok := lookupAssistantTool(name)
-	if !ok || (tool.agentWork && t.work == nil) {
+	if !ok || !t.available(tool) {
 		return nil, nil, toolFailure("unknown tool")
 	}
 	// Changes made through these tools are attributed to the assistant.
@@ -268,6 +284,10 @@ func (t *AssistantTools) run(ctx context.Context, ws, user uuid.UUID, name, argu
 			return nil, nil, err
 		}
 		return map[string]any{"identifier": issue.Identifier, "tasks": work}, &issue.ID, nil
+	case "list_agent_work":
+		return t.listAgentWork(ctx, ws, arguments)
+	case "link_repository":
+		return t.linkRepository(ctx, ws, member.Role, arguments)
 	case "plan_issues":
 		return t.planIssues(ctx, ws, arguments)
 	case "link_issues":

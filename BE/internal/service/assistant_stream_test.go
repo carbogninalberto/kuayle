@@ -141,3 +141,22 @@ func TestAssistantStreamAcceptsToolCallsOnlyWhenOffered(t *testing.T) {
 	_, err = svc.streamAssistantTools(context.Background(), missing.URL, "model", "key", nil, tools, func(string) error { return nil })
 	require.ErrorIs(t, err, ErrAIProviderRequestFailed)
 }
+
+func TestAssistantStreamBoundsParallelCallsPerRound(t *testing.T) {
+	svc := NewAISettingsService(nil, nil, nil, nil, WithAIPrivateNetworkAccess(true))
+	tools := (&AssistantTools{}).specs()
+	for count, ok := range map[int]bool{assistantMaxRoundToolCalls: true, assistantMaxRoundToolCalls + 1: false} {
+		provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			fmt.Fprint(w, toolCallsStream("list_teams", "{}", count))
+		}))
+		calls, err := svc.streamAssistantTools(context.Background(), provider.URL, "model", "key", nil, tools, func(string) error { return nil })
+		provider.Close()
+		if ok {
+			require.NoError(t, err)
+			require.Len(t, calls, count)
+		} else {
+			require.ErrorIs(t, err, ErrAIProviderRequestFailed, "a round cannot request unbounded parallel calls")
+		}
+	}
+}

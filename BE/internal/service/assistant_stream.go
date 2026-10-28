@@ -12,8 +12,11 @@ import (
 )
 
 const (
-	assistantMaxReplyBytes     = 64 << 10
-	assistantMaxToolCalls      = 8
+	assistantMaxReplyBytes = 64 << 10
+	// assistantMaxToolCalls bounds the tool calls of one reply, across rounds.
+	assistantMaxToolCalls = 400
+	// assistantMaxRoundToolCalls bounds the parallel calls of one model round.
+	assistantMaxRoundToolCalls = 32
 	assistantMaxToolInputBytes = 16 << 10
 )
 
@@ -140,7 +143,7 @@ func (s *AISettingsService) streamAssistantTools(ctx context.Context, baseURL, m
 			finished = *choice.FinishReason
 		}
 		for _, delta := range choice.Delta.ToolCalls {
-			if len(tools) == 0 || delta.Index < 0 || delta.Index >= assistantMaxToolCalls || delta.Index > len(calls) {
+			if len(tools) == 0 || delta.Index < 0 || delta.Index >= assistantMaxRoundToolCalls || delta.Index > len(calls) {
 				return nil, ErrAIProviderRequestFailed
 			}
 			if delta.Index == len(calls) {

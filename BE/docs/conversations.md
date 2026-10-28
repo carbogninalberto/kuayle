@@ -93,9 +93,14 @@ persists deltas in batches (200 ms or 1 KiB) and checks cancellation/membership
 while awaiting provider output. The model only receives the orchestrator tools
 below; it has no direct database, Docker or infrastructure access.
 
-An attempt has a two-minute lease and a provider timeout of 90 seconds. A worker
-that loses its lease cannot append or complete. Recovery marks expired attempts
-`interrupted`; it never automatically repeats an ambiguous paid provider call.
+A reply may run for up to 10 minutes, across all of its model rounds and tool
+calls; each provider request times out after 90 seconds. The claim grants a
+two-minute lease, which the live worker renews every 30 seconds
+(`RenewAttempt`, fenced by the lease token and refused once the lease has
+expired), so recovery never reclaims a running reply but an attempt whose worker
+crashed expires within two minutes. A worker that loses its lease cannot append,
+record tool calls or complete. Recovery marks expired attempts `interrupted`; it
+never automatically repeats an ambiguous paid provider call.
 The user can explicitly retry the latest failed/interrupted/cancelled reply.
 Already persisted partial text remains visible, but is excluded from subsequent model
 context. Uncommitted output buffered since the last batch may be lost on a
@@ -172,7 +177,11 @@ streaming, history, denied access, mobile layout and long transcript scrolling.
 
 The worker offers OpenAI-compatible function tools: `list_teams`,
 `search_issues`, `get_issue`, `create_issue`, `update_issue` (title, description,
-status or priority; assignees are not changed), `delegate_issue`, `plan_issues` and `link_issues` (see [dependencies and collaborating agents](agent-tasks.md#dependencies-and-collaborating-agents)). `create_issue` accepts a `parent_identifier`, and `link_issues` counts toward the per-reply change limit. The model only proposes calls.
+status or priority; assignees are not changed), `delegate_issue`, `plan_issues` and `link_issues` (see [dependencies and collaborating agents](agent-tasks.md#dependencies-and-collaborating-agents)),
+`get_agent_work`, `list_agent_work`, `merge_pull_request` and `link_repository`.
+`create_issue` accepts a `parent_identifier`. The write tools (`create_issue`,
+`update_issue`, `link_issues` and `link_repository`) count toward the per-reply
+change limit. The model only proposes calls.
 `AssistantTools` executes each in Go as the conversation creator, re-reading the
 current workspace role (guests and roles without `issue:create` or
 `issue:update` are refused) and
@@ -181,10 +190,32 @@ the HTTP routes. Arguments are strict JSON: unknown fields such as a creator ID
 are rejected, and the issue is always created with the user's own identity.
 Teams are resolved by key among the teams the user can see.
 
+`get_agent_work` reads one visible issue's latest tasks. `list_agent_work` lists
+the workspace's 50 most recently updated tasks (optionally one state) on issues
+the user can see, newest first: issue identifier and title, state and reason,
+agent, attempt, recorded pull request and latest trusted review decision. Like
+`get_agent_work`, visibility follows the issue's team rather than the task's
+creator (the Web queue, `GET /agent-tasks`, lists only the user's own tasks);
+guests and non-members get nothing, and an oversized list drops its oldest
+entries and says `truncated`. `link_repository` sets the GitHub repository and
+base branch of an issue, or with `scope: "project"` of the issue's project, in
+the same `dev_machine_scope_settings` as `PUT /dev-machine-scope-setting`: it
+needs `dev_machine:manage`, a project needs a workspace owner or admin, the
+repository must be active in the workspace's GitHub installation and allowed by
+the Dev Machine policy's repository allowlist, and the scope's other settings
+(environment, test command, instructions, preview) are kept.
+
 A provider may return tool calls only when tools were offered and must finish
-the turn with `finish_reason: "tool_calls"`. One reply runs at most four tool
-rounds, eight calls and three issue creations or updates; the final round offers no tools,
-so the model must answer. Results are returned to the model wrapped as
+the turn with `finish_reason: "tool_calls"`. One reply runs at most 400 tool
+calls (at most 32 per model round, enough rounds for each call to run in its
+own) and 10 issue changes; further calls fail as data without running. Once the
+call budget is spent, half of the 64 KiB reply text is used, or less than 90
+seconds of the 10-minute reply remain, the next round offers no tools, so the
+model must answer. Each result is at most 24 KiB. The context resent each round
+stays bounded: the conversation is unchanged, while the reply's newest tool
+rounds are kept complete within 128 KiB and older ones keep their call/result
+pairing but have their text, arguments and results replaced by a short
+"omitted" marker the model can act on by calling the tool again. Results are returned to the model wrapped as
 `untrusted_data`, and the instruction says to ignore instructions inside them.
 Prompt-injected content can therefore at most cause the bounded, user-permitted
 actions above, which remain visible and attributed in the conversation.

@@ -343,3 +343,68 @@ func TestAttemptDiffsAreReadableOnlyWithTheTask(t *testing.T) {
 	_, err = repo.Diff(stranger, task.WorkspaceID, task.ID, task.RunID)
 	require.Error(t, err, "non-members cannot read the diff")
 }
+
+func TestCommentSignalsFollowUpOnlyForVisibleMembersWhileReviewable(t *testing.T) {
+	db, repo, ctx, task := reviewableTask(t)
+	background := context.Background()
+	member, guest, outsider := uuid.New(), uuid.New(), uuid.New()
+	for _, id := range []uuid.UUID{member, guest, outsider} {
+		_, err := db.Exec(`INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,'Reviewer','hash')`, id, id.String()+"@test.invalid")
+		require.NoError(t, err)
+	}
+	_, err := db.Exec(`INSERT INTO workspace_members(workspace_id,user_id,role) VALUES($1,$2,'member'),($1,$3,'guest')`, task.WorkspaceID, member, guest)
+	require.NoError(t, err)
+	comment := func(ws uuid.UUID, id, author uuid.UUID) *domain.AgentTaskFollowUp {
+		t.Helper()
+		followUp, err := repo.RecordCommentSignal(background, ws, task.IssueID, id, author, "Please rename the flag")
+		require.NoError(t, err)
+		return followUp
+	}
+	require.Nil(t, comment(task.WorkspaceID, uuid.New(), guest), "guests cannot steer the agent")
+	require.Nil(t, comment(task.WorkspaceID, uuid.New(), outsider), "non-members cannot steer the agent")
+	require.Nil(t, comment(uuid.New(), uuid.New(), member), "another workspace never matches")
+
+	first := uuid.New()
+	followUp := comment(task.WorkspaceID, first, member)
+	require.NotNil(t, followUp)
+	require.Equal(t, "comment", followUp.Signal.Kind)
+	require.Equal(t, "follow_up", followUp.Signal.Action)
+	require.Equal(t, "Reviewer", followUp.Signal.Name)
+	require.Equal(t, "Please rename the flag", followUp.Signal.Summary)
+	require.Equal(t, task.ID, followUp.Task.ID)
+	again := comment(task.WorkspaceID, first, member)
+	require.NotNil(t, again, "a follow-up recorded but not queued is resumed")
+	require.Equal(t, followUp.Signal.RequestID, again.Signal.RequestID, "the same comment replays the same request")
+	generation := int64(2)
+	require.NoError(t, repo.FinishFollowUp(background, followUp.Signal.ID, &generation))
+	require.Nil(t, comment(task.WorkspaceID, first, member), "a queued follow-up is never requested twice")
+	for range CommentFollowUpBudget - 1 {
+		require.NotNil(t, comment(task.WorkspaceID, uuid.New(), member))
+	}
+	exhausted := uuid.New()
+	require.Nil(t, comment(task.WorkspaceID, exhausted, member))
+
+	// Workspaces with Dev Machines cannot have private teams, so issue
+	// visibility reduces to membership here; demotion is re-checked each time.
+	_, err = db.Exec(`UPDATE workspace_members SET role='guest' WHERE workspace_id=$1 AND user_id=$2`, task.WorkspaceID, member)
+	require.NoError(t, err)
+	demoted := uuid.New()
+	require.Nil(t, comment(task.WorkspaceID, demoted, member))
+	_, err = db.Exec(`UPDATE workspace_members SET role='member' WHERE workspace_id=$1 AND user_id=$2`, task.WorkspaceID, member)
+	require.NoError(t, err)
+
+	signals, err := repo.Signals(ctx, task.WorkspaceID, task.ID)
+	require.NoError(t, err)
+	actions := map[string]string{}
+	for _, s := range signals {
+		require.Equal(t, "comment", s.Kind)
+		actions[s.ExternalID] = s.Action
+	}
+	require.Len(t, actions, CommentFollowUpBudget+1, "ignored comments are not recorded")
+	require.Equal(t, "budget_exhausted", actions[exhausted.String()])
+	require.NotContains(t, actions, demoted.String())
+
+	_, err = repo.CompleteMergedPullRequest(background, task.WorkspaceID, "fixture/repo", 12)
+	require.NoError(t, err)
+	require.Nil(t, comment(task.WorkspaceID, uuid.New(), task.CreatorID), "a completed task is not reopened")
+}

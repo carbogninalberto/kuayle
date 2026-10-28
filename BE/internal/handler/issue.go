@@ -498,7 +498,13 @@ func (h *IssueHandler) CreateComment(c echo.Context) error {
 		return response.NotFound(c, "Issue")
 	}
 
-	comment, err := h.commentSvc.Create(c.Request().Context(), issue.ID, userID, req)
+	ctx := c.Request().Context()
+	if c.Get(middleware.TokenScopesKey) == nil {
+		// Personal access tokens are automation; only session comments may
+		// steer a coding agent awaiting review.
+		ctx = domain.WithInteractiveSession(ctx)
+	}
+	comment, err := h.commentSvc.Create(ctx, issue.ID, userID, req)
 	if err != nil {
 		return response.InternalError(c)
 	}

@@ -10,6 +10,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"slices"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -330,7 +331,7 @@ func (r *ConversationRepository) Claim(ctx context.Context) (*domain.Conversatio
 	if err = conversationScope(ctx, tx, a.Conversation); err != nil {
 		return nil, err
 	}
-	err = tx.GetContext(ctx, &a.Message, `UPDATE conversation_messages SET status='streaming',lease_token=gen_random_uuid(),lease_expires_at=now()+interval '2 minutes',updated_at=now() WHERE conversation_id=$1 AND status='queued' RETURNING *`, a.Conversation.ID)
+	err = tx.GetContext(ctx, &a.Message, `UPDATE conversation_messages SET status='streaming',lease_token=gen_random_uuid(),lease_expires_at=now()+make_interval(secs=>$2),updated_at=now() WHERE conversation_id=$1 AND status='queued' RETURNING *`, a.Conversation.ID, ConversationLease.Seconds())
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -415,6 +416,32 @@ func (r *ConversationRepository) Recover(ctx context.Context) error {
 		if err = transitionConversationMessage(ctx, tx, message, "interrupted"); err != nil {
 			return err
 		}
+	}
+	return tx.Commit()
+}
+
+// ConversationLease is how long a claimed attempt stays valid without renewal.
+// Replies may run far longer; the live worker renews the lease while it works,
+// so recovery reclaims only attempts whose worker has stopped.
+const ConversationLease = 2 * time.Minute
+
+// RenewAttempt extends a live attempt's lease. It fails for a stale token, an
+// already expired lease or lost conversation access, so it never revives an
+// attempt that recovery may already have interrupted.
+func (r *ConversationRepository) RenewAttempt(ctx context.Context, a domain.ConversationAttempt) error {
+	tx, _, err := r.authorized(ctx, a.Conversation.WorkspaceID, a.Conversation.ID)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `UPDATE conversation_messages SET lease_expires_at=now()+make_interval(secs=>$4) WHERE id=$1 AND conversation_id=$2 AND lease_token=$3 AND lease_expires_at>now() AND status='streaming'`, a.Message.ID, a.Conversation.ID, a.Message.LeaseToken, ConversationLease.Seconds())
+	if err != nil {
+		return err
+	}
+	if rows, err := result.RowsAffected(); err != nil {
+		return err
+	} else if rows != 1 {
+		return ErrConversationConflict
 	}
 	return tx.Commit()
 }

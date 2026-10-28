@@ -754,8 +754,13 @@ HTTP/WebSocket stack. Conversations and incremental events survive navigation
 and API restarts. Generation attempts are leased and idempotent, with explicit
 retry after interruption. Issue details embed a creator-private chat with a fresh,
 bounded issue snapshot and original-team visibility checks. Orchestrator tools let
-the assistant list teams and search, read and create issues with the user's own
-permissions; it cannot change Dev Machine lifecycles. See [conversation architecture and API](BE/docs/conversations.md)
+the assistant list teams, search, read, create and update issues, read and list
+agent work, link an issue or project to a repository and request delegation or
+merge approval, with the user's own permissions; it cannot change Dev Machine
+lifecycles. One reply runs up to 10 minutes, 400 tool calls and 10 issue
+changes, with a bounded per-round context. Comments by workspace members on an
+issue whose task awaits review queue a bounded follow-up attempt
+([agent tasks](BE/docs/agent-tasks.md#kuayle-issue-comments)). See [conversation architecture and API](BE/docs/conversations.md)
 for scope, authorization, bounds, UI component sources, recovery and checks.
 
 ### Telegram assistant channel

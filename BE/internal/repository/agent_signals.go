@@ -14,6 +14,9 @@ import (
 const (
 	CIFollowUpBudget     = 2
 	ReviewFollowUpBudget = 5
+	// CommentFollowUpBudget bounds follow-ups from Kuayle issue comments, like
+	// change requests from GitHub reviewers.
+	CommentFollowUpBudget = 5
 )
 
 var signalNamespace = uuid.MustParse("6f1d7c2e-6a63-4c55-9e43-7a0d3f1c9b21")
@@ -104,6 +107,74 @@ func (r *AgentTaskRepository) recordSignal(ctx context.Context, id, ws uuid.UUID
 		err = tx.GetContext(ctx, signal, `INSERT INTO agent_task_signals(task_id,run_id,kind,external_id,outcome,name,summary,url,action,request_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`, task.ID, task.RunID, in.Kind, in.ExternalID, in.Outcome, in.Name, in.Summary, in.URL, action, requestID)
 	}
 	if err != nil {
+		return nil, err
+	}
+	if _, err = conversationEvent(ctx, tx, *task.ConversationID, "task.signal_recorded", signal); err != nil {
+		return nil, err
+	}
+	if err = tx.Commit(); err != nil {
+		return nil, err
+	}
+	if action == "follow_up" {
+		return &domain.AgentTaskFollowUp{Signal: *signal, Task: *task}, nil
+	}
+	return nil, nil
+}
+
+// RecordCommentSignal records a Kuayle issue comment as feedback on the
+// issue's latest task while it awaits review. Only current, non-guest members
+// who can see the issue may steer the agent; other comments are not recorded.
+// A comment is recorded once, and replaying it resumes the same request ID.
+func (r *AgentTaskRepository) RecordCommentSignal(ctx context.Context, ws, issue, comment, author uuid.UUID, summary string) (*domain.AgentTaskFollowUp, error) {
+	var id uuid.UUID
+	err := r.db.GetContext(ctx, &id, `SELECT id FROM agent_tasks WHERE workspace_id=$1 AND issue_id=$2 ORDER BY created_at DESC,id LIMIT 1`, ws, issue)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	tx, task, err := r.transaction(ctx, id, false)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	if task.WorkspaceID != ws || task.IssueID != issue || task.ConversationID == nil || task.State != "awaiting_review" {
+		return nil, nil
+	}
+	// Re-check the author's current role and issue visibility under the task lock.
+	authorAccess := domain.WithAccess(ctx, domain.Access{WorkspaceID: ws, UserID: author})
+	var name string
+	err = tx.GetContext(ctx, &name, `SELECT left(COALESCE(NULLIF(u.display_name,''),u.name),200) FROM workspace_members wm JOIN users u ON u.id=wm.user_id
+ JOIN issues i ON i.id=$3 AND i.workspace_id=wm.workspace_id
+ WHERE wm.workspace_id=$1 AND wm.user_id=$2 AND wm.role<>'guest' AND `+teamVisible(authorAccess, "i.team_id")+` FOR SHARE OF wm`, ws, author, issue)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	signal := &domain.AgentTaskSignal{}
+	err = tx.GetContext(ctx, signal, `SELECT * FROM agent_task_signals WHERE task_id=$1 AND kind='comment' AND external_id=$2 FOR UPDATE`, task.ID, comment.String())
+	if err == nil {
+		if signal.Action == "follow_up" && signal.FollowUpGeneration == nil {
+			return &domain.AgentTaskFollowUp{Signal: *signal, Task: *task}, tx.Commit()
+		}
+		return nil, tx.Commit()
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+	var used int
+	if err = tx.GetContext(ctx, &used, `SELECT count(*) FROM agent_task_signals WHERE task_id=$1 AND kind='comment' AND action='follow_up'`, task.ID); err != nil {
+		return nil, err
+	}
+	action := "follow_up"
+	if used >= CommentFollowUpBudget {
+		action = "budget_exhausted"
+	}
+	requestID := uuid.NewSHA1(signalNamespace, []byte(task.ID.String()+"/"+task.RunID.String()+"/comment/"+comment.String()))
+	if err = tx.GetContext(ctx, signal, `INSERT INTO agent_task_signals(task_id,run_id,kind,external_id,outcome,name,summary,action,request_id) VALUES($1,$2,'comment',$3,'commented',$4,$5,$6,$7) RETURNING *`, task.ID, task.RunID, comment.String(), name, summary, action, requestID); err != nil {
 		return nil, err
 	}
 	if _, err = conversationEvent(ctx, tx, *task.ConversationID, "task.signal_recorded", signal); err != nil {

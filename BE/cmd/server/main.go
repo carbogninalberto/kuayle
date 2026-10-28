@@ -155,6 +155,7 @@ func main() {
 	conversationH := handler.NewConversationHandler(conversationSvc, cfg.FrontendURL)
 	agentTaskSvc := service.NewAgentTaskService(repository.NewAgentTaskRepository(db), devMachineSvc, hub)
 	assistantTools.SetAgentWork(repository.NewAgentTaskRepository(db))
+	assistantTools.SetRepositories(devMachineRepo)
 	assistantApprovals := service.NewAssistantApprovals(conversationSvc.Repo, agentTaskSvc)
 	conversationSvc.SetApprovals(assistantApprovals)
 	agentTaskH := handler.NewAgentTaskHandler(agentTaskSvc)
@@ -209,6 +210,7 @@ func main() {
 	assistantApprovals.SetMerging(repository.NewAgentTaskRepository(db), workspaceRepo, githubSvc)
 	taskFeedback := service.NewAgentTaskFeedback(repository.NewAgentTaskRepository(db), agentTaskSvc)
 	githubSvc.SetTaskSignals(taskFeedback)
+	commentSvc.SetTaskFeedback(taskFeedback)
 	githubH := handler.NewGitHubHandler(githubSvc)
 
 	// Background: clean up expired refresh tokens every hour

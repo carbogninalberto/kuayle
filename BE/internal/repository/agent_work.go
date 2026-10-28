@@ -36,6 +36,43 @@ func (r *AgentTaskRepository) IssueAgentWork(ctx context.Context, ws, issue uuid
 	return work, err
 }
 
+// AgentWorkItem is one coding task in the workspace-wide list, with its issue.
+type AgentWorkItem struct {
+	Identifier string `db:"identifier" json:"identifier"`
+	Title      string `db:"title" json:"title"`
+	IssueAgentWork
+}
+
+// RecentAgentWork lists the workspace's most recently updated coding tasks on
+// issues the caller can see, newest first. Like IssueAgentWork, visibility
+// follows the issue's team, not the task's creator. An empty state lists all.
+func (r *AgentTaskRepository) RecentAgentWork(ctx context.Context, ws uuid.UUID, state string, limit int) ([]AgentWorkItem, error) {
+	actor, err := conversationActor(ctx, ws)
+	if err != nil {
+		return nil, err
+	}
+	if limit <= 0 || limit > 50 {
+		limit = 50
+	}
+	tx, err := beginConversationTransaction(ctx, r.db)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	if err = conversationMember(ctx, tx, ws, actor); err != nil {
+		return nil, err
+	}
+	work := []AgentWorkItem{}
+	err = tx.SelectContext(ctx, &work, `SELECT i.identifier_text AS identifier,i.title,t.id,t.state,t.reason,t.provider,t.generation,t.updated_at,
+ (SELECT g.url FROM dev_machine_git_refs g WHERE g.agent_run_id=t.run_id AND g.workspace_id=t.workspace_id AND g.ref_type='pull_request' AND g.source='published' ORDER BY g.created_at DESC LIMIT 1) AS pull_request_url,
+ (SELECT g.pull_request_number FROM dev_machine_git_refs g WHERE g.agent_run_id=t.run_id AND g.workspace_id=t.workspace_id AND g.ref_type='pull_request' AND g.source='published' ORDER BY g.created_at DESC LIMIT 1) AS pull_request_number,
+ (SELECT s.outcome FROM agent_task_signals s WHERE s.task_id=t.id AND s.run_id=t.run_id AND s.kind='review' AND s.action<>'untrusted' AND s.outcome<>'commented' ORDER BY s.created_at DESC LIMIT 1) AS review
+ FROM agent_tasks t JOIN issues i ON i.id=t.issue_id AND i.workspace_id=t.workspace_id
+ WHERE t.workspace_id=$1 AND ($3='' OR t.state=$3) AND `+teamVisible(ctx, "i.team_id")+`
+ ORDER BY t.updated_at DESC,t.id LIMIT $2`, ws, limit, state)
+	return work, err
+}
+
 // MergeTarget is the pull request of a task awaiting review, pinned to the
 // commit Kuayle published, so a merge never includes later unreviewed pushes.
 type MergeTarget struct {
