@@ -35,7 +35,15 @@ test('publishes a manifest, icons and iOS home-screen tags', async ({ page, requ
 	await expect(page.locator('meta[name="apple-mobile-web-app-capable"]')).toHaveAttribute('content', 'yes');
 	await expect(page.locator('meta[name="apple-mobile-web-app-title"]')).toHaveAttribute('content', 'Kuayle');
 	// The title bar follows the active theme (the default dark theme here).
-	await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#111111');
+	await expect
+		.poll(() =>
+			page.evaluate(() => {
+				const meta = document.querySelector('meta[name="theme-color"]')?.getAttribute('content');
+				const background = getComputedStyle(document.documentElement).getPropertyValue('--color-bg').trim();
+				return background !== '' && meta === background;
+			})
+		)
+		.toBe(true);
 });
 
 test('does not register the service worker under automation without opting in', async ({ page }) => {

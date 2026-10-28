@@ -4,12 +4,15 @@
 
 The task domain, repository, worker and HTTP controls are wired into the API
 process. Issue conversations expose task delegation, retry, cancellation and live
-activity through AI Elements Task/Trace and Model Selector compositions. The assistant remains
-conversational; structured orchestrator delegation is still pending. Native
-success is followed by an independent check (migration 58) and deterministic
+activity through AI Elements Task/Trace and Model Selector compositions. The
+assistant delegates through approval-gated [orchestrator tools](conversations.md#orchestrator-tools).
+Native success is followed by an independent check (migration 58) and deterministic
 publication of a pull request (migration 59), after which the task waits in
-`awaiting_review` until GitHub reports that pull request merged. Review feedback
-handling and CI tracking are not yet implemented. This is not a completed autonomous development workflow.
+`awaiting_review` until GitHub reports that pull request merged or an approved
+merge from chat completes it. CI failures, GitHub change requests and issue
+comments queue bounded follow-up attempts; reviews by a second agent run only on
+request (migration 84). See [remaining workflow work](#remaining-workflow-work)
+for what is not implemented.
 
 Migration 56 adds tasks and transition history, task-specific checkout scopes,
 immutable native-attempt ownership, encrypted recovery credentials and log-source
