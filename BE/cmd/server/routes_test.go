@@ -72,6 +72,15 @@ func TestIntegratedRoutesPreserved(t *testing.T) {
 	}
 }
 
+// Agents run only as tasks; the manual "Run agent" routes stay retired.
+func TestManualAgentRunRoutesAreRetired(t *testing.T) {
+	e := echo.New()
+	registerRoutes(e, &appHandlers{}, testMiddleware(noopMiddleware()))
+	for _, route := range e.Routes() {
+		require.NotContains(t, route.Path, "/agent-runs", "%s %s", route.Method, route.Path)
+	}
+}
+
 func testMiddleware(auth echo.MiddlewareFunc) *appMiddleware {
 	return &appMiddleware{
 		auth: auth, authRateLimit: noopMiddleware(), publicRateLimit: noopMiddleware(),

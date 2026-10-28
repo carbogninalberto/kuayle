@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="theme-color" content="#111111" />
+		<link rel="icon" href="/favicon.svg" />
+		<title>Kuayle is offline</title>
+		<style>
+			:root { color-scheme: dark; }
+			body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #111111; color: #f5f5f5; font: 15px/1.5 system-ui, -apple-system, sans-serif; }
+			main { max-width: 22rem; padding: 1.5rem; text-align: center; }
+			img { width: 48px; height: 48px; }
+			h1 { margin: 1rem 0 0.25rem; font-size: 1.125rem; }
+			p { margin: 0 0 1.25rem; color: #a3a3a3; }
+			button { padding: 0.5rem 1rem; border: 1px solid #333333; border-radius: 0.5rem; background: #191919; color: inherit; font: inherit; cursor: pointer; }
+			button:hover { background: #2a2a2a; }
+			button:focus-visible { outline: 2px solid #6650eb; outline-offset: 2px; }
+		</style>
+	</head>
+	<body>
+		<main>
+			<img src="/favicon.svg" alt="" />
+			<h1>You're offline</h1>
+			<p>Kuayle needs a connection to load your workspace. Reconnect and try again.</p>
+			<button type="button" onclick="location.reload()">Try again</button>
+		</main>
+	</body>
+</html>

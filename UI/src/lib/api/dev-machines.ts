@@ -1,11 +1,9 @@
 import { api } from './client';
+import type { AgentQueueItem } from './agent-tasks';
 import type { PaginatedResponse } from '$lib/types/common';
 import type {
 	AgentProvider,
-	AgentRun,
-	AgentRunTrace,
 	BulkPermanentDeleteDevMachinesInput,
-	CreateAgentRunInput,
 	CreateDevMachineInput,
 	CreateTerminalSessionInput,
 	DevMachine,
@@ -309,10 +307,6 @@ export function listAgentProviders(slug: string): Promise<AgentProvider[]> {
 	return api.get(`${base(slug)}/dev-machine-providers`);
 }
 
-export function listMachineAgentProviders(slug: string, machineId: string): Promise<AgentProvider[]> {
-	return api.get(`${base(slug)}/dev-machines/${machineId}/providers`);
-}
-
 export const modelServers = {
 	list: (slug: string) => api.get<ModelServer[]>(`${base(slug)}/agent-model-servers`),
 	create: (slug: string, input: ModelServerInput) => api.post<ModelServer>(`${base(slug)}/agent-model-servers`, input),
@@ -326,38 +320,10 @@ export const modelServers = {
 	) => api.post<{ models: string[] }>(`${base(slug)}/agent-model-servers/discover`, input)
 };
 
-export function createAgentRun(slug: string, machineId: string, input: CreateAgentRunInput): Promise<AgentRun> {
-	return api.post(`${base(slug)}/dev-machines/${machineId}/agent-runs`, input);
-}
-
-export function listMachineAgentRuns(
-	slug: string,
-	machineId: string,
-	page = 1,
-	perPage = 50
-): Promise<PaginatedResponse<AgentRun>> {
-	return api.get(`${base(slug)}/dev-machines/${machineId}/agent-runs?page=${page}&per_page=${perPage}`);
-}
-
-export function cancelAgentRun(slug: string, runId: string): Promise<void> {
-	return api.post(`${base(slug)}/agent-runs/${runId}/cancel`);
-}
-
-export function getAgentRunTrace(
-	slug: string,
-	runId: string,
-	eventsAfterId = 0,
-	eventsLimit = 200,
-	logsAfterId = 0,
-	logsLimit = 500
-): Promise<AgentRunTrace> {
-	const query = new URLSearchParams({
-		events_after_id: String(eventsAfterId),
-		events_limit: String(eventsLimit),
-		logs_after_id: String(logsAfterId),
-		logs_limit: String(logsLimit)
-	});
-	return api.get(`${base(slug)}/agent-runs/${runId}/trace?${query}`);
+// The agent tasks that used this machine, active first; session-only and
+// visible only to the machine's owner.
+export function listMachineTasks(slug: string, machineId: string): Promise<AgentQueueItem[]> {
+	return api.get(`${base(slug)}/dev-machines/${encodeURIComponent(machineId)}/tasks`);
 }
 
 export function getDevMachinePolicy(slug: string): Promise<DevMachinePolicy> {

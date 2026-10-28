@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -407,4 +408,50 @@ func TestCommentSignalsFollowUpOnlyForVisibleMembersWhileReviewable(t *testing.T
 	_, err = repo.CompleteMergedPullRequest(background, task.WorkspaceID, "fixture/repo", 12)
 	require.NoError(t, err)
 	require.Nil(t, comment(task.WorkspaceID, uuid.New(), task.CreatorID), "a completed task is not reopened")
+}
+
+func TestMachineTasksListOnlyTheOwnersVisibleTasksOnThatMachine(t *testing.T) {
+	db, repo, ctx, task := reviewableTask(t)
+	var machine uuid.UUID
+	require.NoError(t, db.Get(&machine, `SELECT machine_id FROM agent_tasks WHERE id=$1`, task.ID))
+	items, err := repo.MachineTasks(ctx, task.WorkspaceID, machine)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	require.Equal(t, task.ID, items[0].ID)
+	require.Equal(t, *task.ConversationID, items[0].ConversationID, "each task links to its chat")
+	require.Equal(t, "REC-1", items[0].IssueIdentifier)
+	require.Equal(t, "awaiting_review", items[0].State)
+	require.NotEmpty(t, items[0].Provider)
+	// Another machine of the same owner lists none of this machine's tasks.
+	var owner uuid.UUID
+	require.NoError(t, db.Get(&owner, `SELECT created_by_user_id FROM dev_machines WHERE id=$1`, machine))
+	otherMachine := uuid.New()
+	_, err = db.Exec(`INSERT INTO dev_machines(id,workspace_id,created_by_user_id,routing_key,name,status,desired_status,generation,repo_url,repo_provider,repo_owner,repo_name,base_branch,working_branch,machine_size,cpu_millis,memory_mb,disk_gb,max_runtime_minutes,expires_at) VALUES($1,$2,$3,$4,'Other machine','running','running',1,'','github','','','','','small',1000,2048,20,60,now()+interval '1 hour')`, otherMachine, task.WorkspaceID, owner, strings.ReplaceAll(otherMachine.String(), "-", "")[:16])
+	require.NoError(t, err)
+	items, err = repo.MachineTasks(ctx, task.WorkspaceID, otherMachine)
+	require.NoError(t, err)
+	require.Empty(t, items)
+	// A workspace member who does not own the machine cannot list its tasks.
+	member := uuid.New()
+	_, err = db.Exec(`INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,'Member','x')`, member, member.String()+"@example.test")
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO workspace_members(workspace_id,user_id,role) VALUES($1,$2,'admin')`, task.WorkspaceID, member)
+	require.NoError(t, err)
+	memberCtx := domain.WithAccess(context.Background(), domain.Access{WorkspaceID: task.WorkspaceID, UserID: member})
+	_, err = repo.MachineTasks(memberCtx, task.WorkspaceID, machine)
+	require.ErrorIs(t, err, ErrAgentTaskUnauthorized)
+	stranger := domain.WithAccess(context.Background(), domain.Access{WorkspaceID: task.WorkspaceID, UserID: uuid.New()})
+	_, err = repo.MachineTasks(stranger, task.WorkspaceID, machine)
+	require.Error(t, err, "non-members cannot list tasks")
+	_, err = repo.MachineTasks(ctx, uuid.New(), machine)
+	require.Error(t, err, "the machine is scoped to its workspace")
+	// Moving the issue to a team the owner cannot see hides its task.
+	other := uuid.New()
+	_, err = db.Exec(`INSERT INTO teams(id,workspace_id,name,key) VALUES($1,$2,'Other','OTH')`, other, task.WorkspaceID)
+	require.NoError(t, err)
+	_, err = db.Exec(`UPDATE issues SET team_id=$2 WHERE id=$1`, task.IssueID, other)
+	require.NoError(t, err)
+	items, err = repo.MachineTasks(ctx, task.WorkspaceID, machine)
+	require.NoError(t, err)
+	require.Empty(t, items)
 }

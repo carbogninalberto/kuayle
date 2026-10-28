@@ -267,42 +267,6 @@ func TestBulkDeleteReturnsStructuredAcceptedResponse(t *testing.T) {
 	require.Equal(t, 1, store.permanentDeleteRequests)
 }
 
-func TestAgentRunTraceRejectsInvalidRunID(t *testing.T) {
-	e := echo.New()
-	recorder := httptest.NewRecorder()
-	ctx := e.NewContext(httptest.NewRequest(http.MethodGet, "/agent-runs/not-a-uuid/trace", nil), recorder)
-	ctx.SetPath("/agent-runs/:agentRunId/trace")
-	ctx.SetParamNames("agentRunId")
-	ctx.SetParamValues("not-a-uuid")
-
-	h := &DevMachineHandler{service: nil}
-	err := h.AgentRunTrace(ctx)
-
-	require.NoError(t, err)
-	require.Equal(t, http.StatusBadRequest, recorder.Code)
-	var response dto.ErrorResponse
-	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
-	require.Equal(t, "BAD_REQUEST", response.Error.Code)
-}
-
-func TestAgentRunTraceDefaultsQueryParams(t *testing.T) {
-	e := echo.New()
-	recorder := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/agent-runs/00000000-0000-0000-0000-000000000001/trace", nil)
-	ctx := e.NewContext(req, recorder)
-	ctx.SetPath("/agent-runs/:agentRunId/trace")
-	ctx.SetParamNames("agentRunId")
-	ctx.SetParamValues("00000000-0000-0000-0000-000000000001")
-
-	var params dto.TraceListParams
-	require.NoError(t, ctx.Bind(&params))
-	params.Defaults()
-	require.Equal(t, 200, params.EventsLimit)
-	require.Equal(t, 500, params.LogsLimit)
-	require.Equal(t, int64(0), params.EventsAfterID)
-	require.Equal(t, int64(0), params.LogsAfterID)
-}
-
 func TestDevMachineGetIsCreatorScoped(t *testing.T) {
 	workspaceID, ownerID, otherID, machineID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	store := &handlerDevMachineStoreFake{machine: &domain.DevMachine{

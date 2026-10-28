@@ -130,7 +130,7 @@ async function mockAutomationsApi(page: Page) {
 
 test('admins create, pause and approve agent automations', async ({ page }) => {
 	const state = await mockAutomationsApi(page);
-	await page.goto('/test/settings/dev-machines');
+	await page.goto('/test/settings/dev-machines?tab=policy');
 	const section = page.getByRole('region', { name: 'Automations' });
 	await expect(section.getByText('No automations yet.')).toBeVisible();
 	await section.getByRole('button', { name: 'New automation' }).click();

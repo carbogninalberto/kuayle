@@ -59,8 +59,6 @@
 	import IssueMachinePickerDialog, { type IssueMachineIntent } from '$lib/features/dev-machines/IssueMachinePickerDialog.svelte';
 	import CreateMachineDialog from '$lib/features/dev-machines/CreateMachineDialog.svelte';
 	import IssueRepositoryDialog from '$lib/features/dev-machines/IssueRepositoryDialog.svelte';
-	import AgentRunDialog from '$lib/features/dev-machines/AgentRunDialog.svelte';
-	import type { AgentRun, DevMachine } from '$lib/types/dev-machine';
 
 	let {
 		issue,
@@ -104,12 +102,9 @@
 	let relationType = $state<RelationType>('related');
 	let issueActionsOpen = $state(false);
 	let issueActionsCreateOpen = $state(false);
-	let issueActionsRunOpen = $state(false);
 	let issueActionsRepositoryOpen = $state(false);
 	let issueActionsMachinePickerOpen = $state(false);
 	let issueActionsMachineIntent = $state<IssueMachineIntent>('ide');
-	let issueActionsSelectedMachine = $state<DevMachine | null>(null);
-	let issueActionsSelectedCheckoutId = $state<string | undefined>(undefined);
 	let isSubscribed = $state(false);
 	let subscriptionBusy = $state(false);
 
@@ -1570,22 +1565,4 @@
 	intent={issueActionsMachineIntent}
 	oncreate={() => (issueActionsCreateOpen = true)}
 	onrepository={() => (issueActionsRepositoryOpen = true)}
-	onagent={(machine, checkoutId) => {
-		issueActionsSelectedMachine = machine;
-		issueActionsSelectedCheckoutId = checkoutId;
-		issueActionsRunOpen = true;
-	}}
 />
-{#if issueActionsSelectedMachine && issueActionsSelectedCheckoutId}
-	<AgentRunDialog
-		bind:open={issueActionsRunOpen}
-		{slug}
-		machine={issueActionsSelectedMachine}
-		checkoutId={issueActionsSelectedCheckoutId}
-		initialPrompt={`${issue.title}\n\n${issue.description ?? ''}`}
-		oncreated={(run: AgentRun) => {
-			const m = issueActionsSelectedMachine as NonNullable<typeof issueActionsSelectedMachine>;
-			goto(`/${slug}/machines/${m.id}?agent_run_id=${run.id}`);
-		}}
-	/>
-{/if}

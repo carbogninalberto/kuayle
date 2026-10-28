@@ -274,7 +274,7 @@ Completed autonomous provider stdout/stderr is collected and redacted before per
 
 ### Human and Agent
 
-The user opens authenticated IDE and browser links from Kuayle and attaches native terminal tabs rendered by the main UI. Terminal tabs speak `ttyd.v1` over the dedicated terminal host and attach to tmux sessions inside the developer container. All seven built-in CLIs are available directly from that terminal. Headless machines omit code-server and browser access and expose only the terminal plus agent workflow. Agent runs started from the machine dashboard use separate containers and run autonomously to completion under a timeout.
+The user opens authenticated IDE and browser links from Kuayle and attaches native terminal tabs rendered by the main UI. Terminal tabs speak `ttyd.v1` over the dedicated terminal host and attach to tmux sessions inside the developer container. All seven built-in CLIs are available directly from that terminal. Headless machines omit code-server and browser access and expose only the terminal plus agent workflow. Agents run only as [agent tasks](BE/docs/agent-tasks.md) started from an issue chat (or an automation); each attempt is a `dev_machine_agent_runs` record that runs in a separate container autonomously to completion under a timeout. The manual "Run agent" dialog, its run list and trace sheet, and the `agent-runs` HTTP routes were retired; existing run records stay as task attempts.
 
 ### Agent Only
 
@@ -287,7 +287,9 @@ An autonomous run receives:
 - exact test-command argv;
 - maximum runtime;
 - explicitly allowed secret names;
-- push and pull-request policy.
+- whether to push the working branch.
+
+Pull requests are opened only by task publication (`publish_agent`), never by the run itself.
 
 Kuayle adds an execution contract instructing the provider to work only inside the selected workspace path, avoid credential output, run the requested tests, commit results, and use the configured working branch.
 
@@ -496,7 +498,7 @@ Activity is operational telemetry, not tamper-proof security auditing. Trusted w
 
 Structured events use a monotonic `BIGSERIAL` cursor. Completed autonomous agent stdout/stderr uses cursor-addressable `dev_machine_log_chunks`. The schema reserves a PTY stream, but native terminal and interactive-agent PTY output is not currently persisted. Issue worktrees do not install the root-checkout Git hooks. API reads are workspace-scoped. High-volume log retention should be configured and periodically pruned by operators.
 
-The UI exposes machine status, services, resource samples, cursor-paginated events and logs, checkouts, terminal sessions, agent runs, normalized results, commits, branches, PRs, and lifecycle/delete controls. Native terminal attachment is implemented in the Kuayle UI with `@xterm/xterm`; ttyd's own web page is not exposed.
+Dev Machines live in Settings → Dev Machines, which has two tabs: **Machines** (the user's machines, manual creation for hand-run development and the admin cleanup of old machines; members and above) and **Policy** (the workspace policy, environments, defaults and automations; editable by owners and admins). The sidebar has no Dev Machines entry. `/:slug/machines` redirects there, keeping an `issue_id` filter, and `/:slug/machines/:machineId` stays the machine page that task cards and issues link to. The machine page exposes status, services, resource samples, cursor-paginated events and logs, checkouts, terminal sessions, previews, lifecycle/delete controls and **Tasks on this machine**: the agent tasks that used it (active first, then the most recently updated, at most 30), each with its issue, state, agent and a link to its chat. It reads `GET /dev-machines/:machineId/tasks`, a session-only route that answers only the machine's owner (others get 404) and applies the same workspace-membership, task-creator and issue-team checks as the agent queue. Native terminal attachment is implemented in the Kuayle UI with `@xterm/xterm`; ttyd's own web page is not exposed.
 
 ## Database Schema
 
@@ -587,12 +589,10 @@ GET    /api/workspaces/:slug/dev-machines/:machineId/terminal-sessions
 POST   /api/workspaces/:slug/dev-machines/:machineId/terminal-sessions
 POST   /api/workspaces/:slug/dev-machines/:machineId/terminal-sessions/:sessionId/close
 
-GET    /api/workspaces/:slug/dev-machines/:machineId/agent-runs
-POST   /api/workspaces/:slug/dev-machines/:machineId/agent-runs
-GET    /api/workspaces/:slug/agent-runs
-GET    /api/workspaces/:slug/agent-runs/:agentRunId
-POST   /api/workspaces/:slug/agent-runs/:agentRunId/cancel
+GET    /api/workspaces/:slug/dev-machines/:machineId/tasks   (session only)
 ```
+
+Agent runs are created, read and cancelled only through the session-only agent task routes (see the [agent task contract](BE/docs/agent-tasks.md)); the former manual `agent-runs` routes return 404.
 
 Collector-only endpoints use scoped machine tokens:
 
@@ -637,6 +637,14 @@ Create requests accept `profile: "standard" | "headless"`; omission means standa
 | Agent cancellation | Cancel operation removes the run container |
 
 The manager exposes `/health`, `/ready`, and Prometheus-text `/metrics`. Structured logs include workspace, machine, run, operation/provider where available, event type, and duration. Secret values and full environment maps are not logged.
+
+## Installable app
+
+The UI is an installable web app (PWA) in production. `UI/static/manifest.webmanifest` names it Kuayle (`start_url` and `scope` `/`, `display: standalone`, the default dark theme's `#111111` as theme and background colour) with 192/512 px icons, a 512 px maskable icon and `apple-touch-icon.png`. The PNGs are generated from `UI/static/favicon.svg` by `UI/scripts/generate-app-icons.mjs` (Playwright's Chromium, deterministic) and committed. `UI/src/app.html` adds the manifest and Apple touch icon links and the iOS home-screen tags; the `theme-color` meta follows the active theme's `--color-bg`.
+
+`UI/src/service-worker.ts` precaches only the built immutable app chunks and public shell files (favicon, manifest, icons, `offline.html`) and serves them cache-first. API requests, WebSockets, requests with credentials headers, other origins, release data and page HTML are never cached; navigations always go to the network, falling back to the static offline page only when it fails ([policy](UI/src/lib/features/pwa/service-worker-policy.ts)). The worker is registered by the app itself (`kit.serviceWorker.register` is off), only in production builds and never under browser automation unless a test sets the `kuayle-service-worker-tests` localStorage key. A new deployment installs in the background and waits: an "update available" toast reloads into it on request, otherwise it activates once every Kuayle tab has closed. The UI Caddyfile serves the manifest as `application/manifest+json` and `service-worker.js` with `Cache-Control: no-cache`.
+
+Installation requires HTTPS (or `localhost`). Chrome and Edge offer Install in the address bar or menu; on iOS use Safari's Share → Add to Home Screen.
 
 ## Self-Hosted Deployment
 
@@ -719,7 +727,7 @@ The self-hosting `dev-machine-images` profile builds the IDE, headless developer
 - Compose support for checks is a constrained subset run by the manager, not `docker compose`. Builds, mounts, privileges, host networking and published ports are rejected, because arbitrary untrusted Compose execution needs an isolated Docker daemon. Image pulls run on the host daemon, outside the egress proxy, so `DEV_MACHINE_COMPOSE_IMAGES` restricts them to official Docker Hub images by default.
 - The default model server's key is delivered into every developer container, and a run's server key into its agent container, so any member who can create a machine can read it from a terminal or have an agent reveal it. The API never returns it, but treat model server keys as shared with those members (SECURITY_AUDIT.md KS-08).
 - Command and filesystem collection is best-effort and can be bypassed by trusted workspace code.
-- Provider adapters can construct interactive invocations, but current product dialogs queue autonomous agent runs and no interactive-agent attach endpoint is exposed. Direct interactive use of the built-in CLIs is available through Kuayle's native xterm terminal; ttyd's web page is not exposed.
+- Provider adapters can construct interactive invocations, but agent tasks queue autonomous agent runs and no interactive-agent attach endpoint is exposed. Direct interactive use of the built-in CLIs is available through Kuayle's native xterm terminal; ttyd's web page is not exposed.
 - Workspace hard quotas require Docker local-volume project-quota support; the manager intentionally fails startup rather than run machines with an unbounded workspace.
 - A separate registrable domain provides browser site isolation by default. Personal/trusted installations can explicitly opt into same-site machines with host-prefixed app cookies and exact-origin mutation/WebSocket checks. This reduces defense in depth and logs a startup warning. Localhost development remains exempt.
 

@@ -70,6 +70,8 @@ export interface AgentQueueItem {
 	reason: string;
 	issue_identifier: string;
 	issue_title: string;
+	// The coding agent the task runs, e.g. "codex" or "claude-code".
+	provider: string;
 	updated_at: string;
 	machine_id?: string | null;
 	machine_name?: string | null;

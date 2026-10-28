@@ -46,11 +46,8 @@ type DevMachineStore interface {
 	ListAgentRunSecretSnapshots(context.Context, uuid.UUID, uuid.UUID) ([]string, error)
 	CreateAgentRun(context.Context, *domain.DevMachineAgentRun, *domain.DevMachineOperation) error
 	GetAgentRun(context.Context, uuid.UUID, uuid.UUID) (*domain.DevMachineAgentRun, error)
-	GetAgentRunForUser(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (*domain.DevMachineAgentRun, error)
-	ListAgentRunsForUser(context.Context, uuid.UUID, uuid.UUID, *uuid.UUID, int, int) ([]domain.DevMachineAgentRun, int, error)
 	CountAgentRunsSince(context.Context, uuid.UUID, time.Time) (int, error)
 	HasActiveAgentRun(context.Context, uuid.UUID) (bool, error)
-	CancelAgentRun(context.Context, uuid.UUID, uuid.UUID, *domain.DevMachineOperation) error
 	CreateEvent(context.Context, *domain.DevMachineEvent) error
 	AuthenticateMachineToken(context.Context, string, string) (*domain.DevMachineToken, *domain.DevMachine, error)
 	CreateLogChunk(context.Context, *domain.DevMachineLogChunk) error
@@ -89,9 +86,6 @@ type DevMachineStore interface {
 	CreateTerminalSession(context.Context, *domain.DevMachineTerminalSession) error
 	ListTerminalSessions(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) ([]domain.DevMachineTerminalSession, error)
 	RequestTerminalSessionClose(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID, *domain.DevMachineOperation) (*domain.DevMachineTerminalSession, error)
-	ListAgentRunSteps(context.Context, uuid.UUID) ([]domain.DevMachineAgentRunStep, error)
-	ListAgentRunEvents(context.Context, uuid.UUID, int64, int) ([]domain.DevMachineEvent, error)
-	ListAgentRunLogs(context.Context, uuid.UUID, int64, int) ([]domain.DevMachineLogChunk, error)
 }
 
 var ErrIdempotencyKeyConflict = errors.New("idempotency key was already used for another operation")
@@ -1045,19 +1039,6 @@ func (r *DevMachineRepository) GetAgentRun(ctx context.Context, workspaceID, run
 	return &run, err
 }
 
-// Manual machine routes also accept PATs. Private task attempts and their
-// output must use the task API, which revalidates current conversation scope.
-func (r *DevMachineRepository) GetAgentRunForUser(ctx context.Context, workspaceID, runID, userID uuid.UUID) (*domain.DevMachineAgentRun, error) {
-	var run domain.DevMachineAgentRun
-	err := r.db.GetContext(ctx, &run, `SELECT r.* FROM dev_machine_agent_runs r
-		JOIN dev_machines m ON m.id=r.machine_id
-		WHERE r.workspace_id=$1 AND m.workspace_id=$1 AND r.id=$2 AND m.created_by_user_id=$3 AND r.task_id IS NULL`, workspaceID, runID, userID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
-	}
-	return &run, err
-}
-
 func (r *DevMachineRepository) GetAgentRunInternal(ctx context.Context, runID uuid.UUID) (*domain.DevMachineAgentRun, error) {
 	var run domain.DevMachineAgentRun
 	err := r.db.GetContext(ctx, &run, `SELECT * FROM dev_machine_agent_runs WHERE id=$1`, runID)
@@ -1065,20 +1046,6 @@ func (r *DevMachineRepository) GetAgentRunInternal(ctx context.Context, runID uu
 		return nil, nil
 	}
 	return &run, err
-}
-
-func (r *DevMachineRepository) ListAgentRunsForUser(ctx context.Context, workspaceID, userID uuid.UUID, machineID *uuid.UUID, limit, offset int) ([]domain.DevMachineAgentRun, int, error) {
-	where := `r.workspace_id=$1 AND m.workspace_id=$1 AND m.created_by_user_id=$2 AND ($3::uuid IS NULL OR r.machine_id=$3) AND r.task_id IS NULL`
-	var total int
-	if err := r.db.GetContext(ctx, &total, `SELECT COUNT(*) FROM dev_machine_agent_runs r JOIN dev_machines m ON m.id=r.machine_id WHERE `+where, workspaceID, userID, machineID); err != nil {
-		return nil, 0, err
-	}
-	var runs []domain.DevMachineAgentRun
-	err := r.db.SelectContext(ctx, &runs, `SELECT r.* FROM dev_machine_agent_runs r JOIN dev_machines m ON m.id=r.machine_id WHERE `+where+` ORDER BY r.created_at DESC, r.id DESC LIMIT $4 OFFSET $5`, workspaceID, userID, machineID, limit, offset)
-	if runs == nil {
-		runs = []domain.DevMachineAgentRun{}
-	}
-	return runs, total, err
 }
 
 func (r *DevMachineRepository) CountAgentRunsSince(ctx context.Context, workspaceID uuid.UUID, since time.Time) (int, error) {
@@ -1092,37 +1059,6 @@ func (r *DevMachineRepository) HasActiveAgentRun(ctx context.Context, machineID 
 	err := r.db.GetContext(ctx, &active, `SELECT EXISTS(SELECT 1 FROM dev_machine_agent_runs
 		WHERE machine_id=$1 AND (status IN ('queued','starting','running','waiting_input') OR EXISTS(SELECT 1 FROM agent_tasks t WHERE t.run_id=dev_machine_agent_runs.id AND t.state IN ('preparing','running','waiting_input','validating','publishing','cancelling'))))`, machineID)
 	return active, err
-}
-
-func (r *DevMachineRepository) CancelAgentRun(ctx context.Context, workspaceID, runID uuid.UUID, operation *domain.DevMachineOperation) error {
-	tx, err := r.db.BeginTxx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	result, err := tx.ExecContext(ctx, `UPDATE dev_machine_agent_runs SET status='cancelled', cancelled_at=NOW(), completed_at=NOW()
-		WHERE workspace_id=$1 AND id=$2 AND status IN ('queued','starting','running','waiting_input')`, workspaceID, runID)
-	if err != nil {
-		return err
-	}
-	if rows, _ := result.RowsAffected(); rows != 1 {
-		var status domain.DevMachineAgentRunStatus
-		if err := tx.GetContext(ctx, &status, `SELECT status FROM dev_machine_agent_runs WHERE workspace_id=$1 AND id=$2`, workspaceID, runID); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return sql.ErrNoRows
-			}
-			return err
-		}
-		if status == domain.DevMachineAgentRunStatusSucceeded || status == domain.DevMachineAgentRunStatusFailed || status == domain.DevMachineAgentRunStatusCancelled || status == domain.DevMachineAgentRunStatusTimeout {
-			return tx.Commit()
-		}
-		return sql.ErrNoRows
-	}
-	operation.AgentRunID = &runID
-	if err := enqueueOperation(ctx, tx, operation); err != nil {
-		return err
-	}
-	return tx.Commit()
 }
 
 var ErrAgentRunSecretsUnavailable = errors.New("agent recovery credentials unavailable")
@@ -2464,33 +2400,6 @@ func (r *DevMachineRepository) FailTerminalSessionClose(ctx context.Context, ses
 	_, err := r.db.ExecContext(ctx, `UPDATE dev_machine_terminal_sessions SET status='close_failed'
 		WHERE id=$1 AND status='closing'`, sessionID)
 	return err
-}
-
-func (r *DevMachineRepository) ListAgentRunSteps(ctx context.Context, runID uuid.UUID) ([]domain.DevMachineAgentRunStep, error) {
-	var steps []domain.DevMachineAgentRunStep
-	err := r.db.SelectContext(ctx, &steps, `SELECT * FROM dev_machine_agent_run_steps WHERE agent_run_id=$1 ORDER BY sequence`, runID)
-	if steps == nil {
-		steps = []domain.DevMachineAgentRunStep{}
-	}
-	return steps, err
-}
-
-func (r *DevMachineRepository) ListAgentRunEvents(ctx context.Context, runID uuid.UUID, afterID int64, limit int) ([]domain.DevMachineEvent, error) {
-	var events []domain.DevMachineEvent
-	err := r.db.SelectContext(ctx, &events, `SELECT * FROM dev_machine_events WHERE agent_run_id=$1 AND ($2=0 OR id>$2) ORDER BY id ASC LIMIT $3`, runID, afterID, limit)
-	if events == nil {
-		events = []domain.DevMachineEvent{}
-	}
-	return events, err
-}
-
-func (r *DevMachineRepository) ListAgentRunLogs(ctx context.Context, runID uuid.UUID, afterID int64, limit int) ([]domain.DevMachineLogChunk, error) {
-	var chunks []domain.DevMachineLogChunk
-	err := r.db.SelectContext(ctx, &chunks, `SELECT * FROM dev_machine_log_chunks WHERE agent_run_id=$1 AND ($2=0 OR id>$2) ORDER BY id ASC LIMIT $3`, runID, afterID, limit)
-	if chunks == nil {
-		chunks = []domain.DevMachineLogChunk{}
-	}
-	return chunks, err
 }
 
 // Collector output can arrive without an attempt ID. Redact against retained

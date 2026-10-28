@@ -1351,9 +1351,6 @@ func containsString(values []string, candidate string) bool {
 	return false
 }
 
-func (s *DevMachineService) CreateAgentRun(ctx context.Context, workspaceID, machineID, userID uuid.UUID, req dto.CreateAgentRunRequest) (*domain.DevMachineAgentRun, error) {
-	return s.createAgentRun(ctx, workspaceID, machineID, userID, req, uuid.New())
-}
 func (s *DevMachineService) createAgentRun(ctx context.Context, workspaceID, machineID, userID uuid.UUID, req dto.CreateAgentRunRequest, runID uuid.UUID) (*domain.DevMachineAgentRun, error) {
 	if err := s.validateAgentModel(ctx, workspaceID, req.Provider, req.ModelServerID, req.Model, req.Thinking); err != nil {
 		return nil, err
@@ -1383,9 +1380,6 @@ func (s *DevMachineService) createAgentRun(ctx context.Context, workspaceID, mac
 	}
 	if req.UseRootWorkspace && pushBranch {
 		return nil, fmt.Errorf("%w: root workspace runs cannot push a repository branch", ErrInvalidMachineInput)
-	}
-	if req.OpenPullRequest && !pushBranch {
-		return nil, fmt.Errorf("%w: opening a pull request requires pushing the working branch", ErrInvalidMachineInput)
 	}
 	policy, err := s.enabledPolicy(ctx, workspaceID)
 	if err != nil {
@@ -1557,7 +1551,7 @@ func (s *DevMachineService) createAgentRun(ctx context.Context, workspaceID, mac
 		AllowedCommands: allowedCommands, ForbiddenPaths: forbiddenPaths, AllowedSecrets: allowedSecrets, TestCommand: &testCommand,
 		CommandArgv: commandArgv, CommandEnvironment: commandEnvironment, Model: req.Model, Thinking: req.Thinking,
 		MaxRuntimeSeconds: timeout, PushBranch: pushBranch,
-		OpenPullRequest: req.OpenPullRequest, NativeSessionID: nativeSession,
+		NativeSessionID: nativeSession,
 	}
 	if modelServer != nil {
 		run.ModelServerID = &modelServer.ID
@@ -1607,94 +1601,6 @@ func selectReadyAgentCheckout(checkouts []domain.DevMachineCheckout) (*domain.De
 		return nil, fmt.Errorf("%w: checkout preparation failed; retry checkout preparation", ErrCheckoutNotReady)
 	}
 	return nil, fmt.Errorf("%w: prepare an issue checkout before starting an agent", ErrCheckoutNotReady)
-}
-
-func (s *DevMachineService) ListAgentRuns(ctx context.Context, workspaceID, userID uuid.UUID, machineID *uuid.UUID, page, perPage int) ([]domain.DevMachineAgentRun, int, error) {
-	if page < 1 {
-		page = 1
-	}
-	if perPage < 1 || perPage > 100 {
-		perPage = 50
-	}
-	if machineID != nil {
-		if _, err := s.GetForUser(ctx, workspaceID, *machineID, userID); err != nil {
-			return nil, 0, err
-		}
-	}
-	return s.store.ListAgentRunsForUser(ctx, workspaceID, userID, machineID, perPage, (page-1)*perPage)
-}
-
-func (s *DevMachineService) GetAgentRun(ctx context.Context, workspaceID, runID, userID uuid.UUID) (*domain.DevMachineAgentRun, error) {
-	run, err := s.store.GetAgentRunForUser(ctx, workspaceID, runID, userID)
-	if err == nil && run == nil {
-		return nil, ErrAgentRunNotFound
-	}
-	return run, err
-}
-
-func (s *DevMachineService) CancelAgentRun(ctx context.Context, workspaceID, runID, userID uuid.UUID) error {
-	run, err := s.GetAgentRun(ctx, workspaceID, runID, userID)
-	if err != nil {
-		return err
-	}
-	machine, err := s.GetForUser(ctx, workspaceID, run.MachineID, userID)
-	if err != nil {
-		if errors.Is(err, ErrMachineNotFound) {
-			return ErrAgentRunNotFound
-		}
-		return err
-	}
-	operation := &domain.DevMachineOperation{
-		ID: uuid.New(), MachineID: run.MachineID, AgentRunID: &runID, WorkspaceID: workspaceID,
-		Action: domain.DevMachineOpCancelAgent, Status: domain.DevMachineOpStatusPending,
-		Generation: machine.Generation, IdempotencyKey: "cancel-agent:" + runID.String(), RequestedByUserID: &userID, MaxAttempts: 3,
-	}
-	return s.store.CancelAgentRun(ctx, workspaceID, runID, operation)
-}
-
-func (s *DevMachineService) GetAgentRunTrace(ctx context.Context, workspaceID, runID, userID uuid.UUID, params dto.TraceListParams) (*dto.AgentRunTraceResponse, error) {
-	run, err := s.GetAgentRun(ctx, workspaceID, runID, userID)
-	if err != nil {
-		return nil, err
-	}
-	// Verify run belongs to workspace
-	if run.WorkspaceID != workspaceID {
-		return nil, ErrAgentRunNotFound
-	}
-	params.Defaults()
-	steps, err := s.store.ListAgentRunSteps(ctx, runID)
-	if err != nil {
-		return nil, err
-	}
-	events, err := s.store.ListAgentRunEvents(ctx, runID, params.EventsAfterID, params.EventsLimit+1)
-	if err != nil {
-		return nil, err
-	}
-	logs, err := s.store.ListAgentRunLogs(ctx, runID, params.LogsAfterID, params.LogsLimit+1)
-	if err != nil {
-		return nil, err
-	}
-	hasMoreEvents := len(events) > params.EventsLimit
-	if hasMoreEvents {
-		events = events[:params.EventsLimit]
-	}
-	hasMoreLogs := len(logs) > params.LogsLimit
-	if hasMoreLogs {
-		logs = logs[:params.LogsLimit]
-	}
-	nextEventID := params.EventsAfterID
-	if len(events) > 0 {
-		nextEventID = events[len(events)-1].ID
-	}
-	nextLogID := params.LogsAfterID
-	if len(logs) > 0 {
-		nextLogID = logs[len(logs)-1].ID
-	}
-	return &dto.AgentRunTraceResponse{
-		Run: run, Steps: steps, Events: events, Logs: logs,
-		NextEventID: nextEventID, NextLogID: nextLogID,
-		HasMoreEvents: hasMoreEvents, HasMoreLogs: hasMoreLogs,
-	}, nil
 }
 
 func (s *DevMachineService) LaunchService(ctx context.Context, workspaceID, machineID, userID uuid.UUID, serviceKey string, checkoutID *uuid.UUID) (*dto.LaunchServiceResponse, error) {

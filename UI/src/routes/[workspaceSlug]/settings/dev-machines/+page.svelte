@@ -8,7 +8,9 @@
 	import { parseTestCommand, formatTestCommand } from '$lib/features/dev-machines/test-command';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import { goto } from '$app/navigation';
+	import { goto, replaceState } from '$app/navigation';
+	import * as Tabs from '$lib/components/ui/tabs';
+	import MachineList from '$lib/features/dev-machines/MachineList.svelte';
 	import { TriangleAlert } from '@lucide/svelte';
 	import * as Alert from '$lib/components/ui/alert';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
@@ -50,6 +52,20 @@
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
+	const issueId = $derived(page.url.searchParams.get('issue_id') ?? '');
+	// Guests cannot own machines; everyone else starts on their machine list.
+	let isGuest = $state(false);
+	// Shallow URL updates do not change page.url, so the selection is local state.
+	let selectedTab = $state(page.url.searchParams.get('tab') === 'policy' ? 'policy' : 'machines');
+	const tab = $derived(isGuest ? 'policy' : selectedTab);
+
+	function selectTab(value: string) {
+		selectedTab = value === 'policy' ? 'policy' : 'machines';
+		const url = new URL(window.location.href);
+		if (value === 'policy') url.searchParams.set('tab', 'policy');
+		else url.searchParams.delete('tab');
+		replaceState(url, page.state);
+	}
 	let policy = $state<DevMachinePolicy | null>(null);
 	let repositories = $state('');
 	let saving = $state(false);
@@ -92,7 +108,21 @@
 		canAdmin && !builderBusy && builderSizeOptions.disk_gb.length > 0
 	);
 
-	onMount(() => void load());
+	onMount(() => {
+		// The role decides which tabs show; the policy loads when its tab opens.
+		void getWorkspace(slug)
+			.then((workspace) => {
+				canAdmin = workspace.current_user_role === 'owner' || workspace.current_user_role === 'admin';
+				isGuest = workspace.current_user_role === 'guest';
+			})
+			.catch(() => undefined);
+	});
+	let policyRequested = false;
+	$effect(() => {
+		if (tab !== 'policy' || policyRequested) return;
+		policyRequested = true;
+		void load();
+	});
 
 	async function load() {
 		loading = true;
@@ -100,6 +130,7 @@
 		try {
 			const workspace = await getWorkspace(slug);
 			canAdmin = workspace.current_user_role === 'owner' || workspace.current_user_role === 'admin';
+			isGuest = workspace.current_user_role === 'guest';
 			const [loaded, github, scope, availableEnvironments] = await Promise.all([
 				getDevMachinePolicy(slug), getGitHubStatus(slug),
 				getDevMachineScopeSetting(slug, 'workspace'), listDevMachineEnvironments(slug)
@@ -211,11 +242,19 @@
 
 </script>
 
+<div class="mx-auto max-w-3xl space-y-5 p-6">
+	<div><h1 class="text-lg font-semibold">{m['settings.dev_machines.title']()}</h1><p class="mt-1 text-sm text-[var(--color-text-tertiary)]">{m['settings.dev_machines.desc']()}</p></div>
+	<Tabs.Root value={tab} onValueChange={selectTab} class="gap-5">
+		<Tabs.List>
+			{#if !isGuest}<Tabs.Trigger value="machines">{m['settings.dev_machines.tab_machines']()}</Tabs.Trigger>{/if}
+			<Tabs.Trigger value="policy">{m['settings.dev_machines.tab_policy']()}</Tabs.Trigger>
+		</Tabs.List>
+		{#if !isGuest}<Tabs.Content value="machines"><MachineList {slug} {issueId} /></Tabs.Content>{/if}
+		<Tabs.Content value="policy">
 {#if loading}<LoadingState />
 {:else if failed || !policy}<ErrorState message={m['settings.dev_machines.unable_load']()} onretry={load} />
 {:else}
-	<form onsubmit={save} class="mx-auto max-w-3xl space-y-6 p-6">
-		<div><h1 class="text-lg font-semibold">{m['settings.dev_machines.title']()}</h1><p class="mt-1 text-sm text-[var(--color-text-tertiary)]">{m['settings.dev_machines.desc']()}</p></div>
+	<form onsubmit={save} class="space-y-6">
 		{#if policy.disk_quota_mode === 'monitored'}
 			<Alert.Root class="border-[var(--color-warning)] bg-[var(--color-bg-secondary)] text-[var(--color-warning)]">
 				<TriangleAlert />
@@ -263,7 +302,12 @@
 		<div class="flex justify-end"><Button type="submit" disabled={saving}>{saving ? m['settings.saving']() : m['settings.dev_machines.save_policy']()}</Button></div>
 		</fieldset>
 	</form>
-	{#if canAdmin}<div class="mx-auto max-w-3xl px-6 pb-6"><AutomationsCard {slug} unattendedAllowed={policy?.allow_unattended_automations ?? false} /></div>{/if}
+	{#if canAdmin}<div class="pt-6"><AutomationsCard {slug} unattendedAllowed={policy?.allow_unattended_automations ?? false} /></div>{/if}
+{/if}
+		</Tabs.Content>
+	</Tabs.Root>
+</div>
+{#if !loading && policy}
 	<Dialog.Root bind:open={environmentBuilderOpen}>
 		<Dialog.Content class="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
 			<form onsubmit={createEnvironmentBuilder} class="space-y-5">

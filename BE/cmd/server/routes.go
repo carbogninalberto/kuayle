@@ -310,6 +310,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/runs/:runId/publication", h.agentTask.Publication)
 	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/signals", h.agentTask.Signals)
 	sessionOnly(dm, http.MethodGet, "/agent-tasks", h.agentTask.Queue)
+	sessionOnly(dm, http.MethodGet, "/dev-machines/:machineId/tasks", h.agentTask.MachineTasks)
 	if h.agentAutomation != nil {
 		sessionOnly(dm, http.MethodGet, "/agent-automations", h.agentAutomation.List)
 		sessionOnly(dm, http.MethodPost, "/agent-automations", h.agentAutomation.Create)
@@ -371,12 +372,6 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	scoped(dm, http.MethodGet, "/dev-machines/:machineId/terminal-sessions", h.devMachine.ListTerminalSessions, "dev_machine:read")
 	scoped(dm, http.MethodPost, "/dev-machines/:machineId/terminal-sessions", h.devMachine.CreateTerminalSession, "dev_machine:read", mw.RequireTokenPermission("dev_machine:manage"))
 	scoped(dm, http.MethodPost, "/dev-machines/:machineId/terminal-sessions/:sessionId/close", h.devMachine.CloseTerminalSession, "dev_machine:read", mw.RequireTokenPermission("dev_machine:manage"))
-	scoped(dm, http.MethodGet, "/dev-machines/:machineId/agent-runs", h.devMachine.ListMachineAgentRuns, "dev_machine:read")
-	scoped(dm, http.MethodPost, "/dev-machines/:machineId/agent-runs", h.devMachine.CreateAgentRun, "dev_machine:manage")
-	scoped(dm, http.MethodGet, "/agent-runs", h.devMachine.ListAgentRuns, "dev_machine:read")
-	scoped(dm, http.MethodGet, "/agent-runs/:agentRunId", h.devMachine.GetAgentRun, "dev_machine:read")
-	scoped(dm, http.MethodPost, "/agent-runs/:agentRunId/cancel", h.devMachine.CancelAgentRun, "dev_machine:manage")
-	scoped(dm, http.MethodGet, "/agent-runs/:agentRunId/trace", h.devMachine.AgentRunTrace, "dev_machine:read")
 
 	// Favorites
 	scoped(ws, http.MethodGet, "/favorites", h.fav.List, "account:read")

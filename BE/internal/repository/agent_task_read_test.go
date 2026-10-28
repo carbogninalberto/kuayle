@@ -101,16 +101,6 @@ func TestAgentTaskAttemptsCannotBypassConversationReadsThroughManualMachineAPI(t
 		require.NoError(t, err)
 	}
 	machines := fixture.repository
-	// The ordinary machine routes accept PATs and do not lock conversation scope.
-	// Task attempts are read only through the session-only task routes instead.
-	run, err := machines.GetAgentRunForUser(ctx, task.WorkspaceID, task.RunID, task.CreatorID)
-	require.NoError(t, err)
-	require.Nil(t, run)
-	runs, total, err := machines.ListAgentRunsForUser(ctx, task.WorkspaceID, task.CreatorID, &machine, 100, 0)
-	require.NoError(t, err)
-	require.Equal(t, 1, total)
-	require.Len(t, runs, 1)
-	require.Equal(t, manualID, runs[0].ID)
 	events, err := machines.ListEvents(ctx, task.WorkspaceID, machine, 0, 100)
 	require.NoError(t, err)
 	require.Len(t, events, 1)

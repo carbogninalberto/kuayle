@@ -284,6 +284,19 @@ func (h *AgentTaskHandler) Queue(c echo.Context) error {
 	return response.Success(c, http.StatusOK, result)
 }
 
+// MachineTasks lists the tasks that used one of the session user's machines.
+func (h *AgentTaskHandler) MachineTasks(c echo.Context) error {
+	id, err := taskID(c, "machineId")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	result, err := h.svc.Repo.MachineTasks(c.Request().Context(), middleware.GetWorkspace(c).ID, id)
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	return response.Success(c, http.StatusOK, result)
+}
+
 func (h *AgentTaskHandler) Artifacts(c echo.Context) error {
 	id, err := taskID(c, "taskId")
 	if err != nil {

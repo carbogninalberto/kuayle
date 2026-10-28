@@ -1,23 +1,23 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { tick } from 'svelte';
-	import { ArrowLeft, Bot, Code2, ExternalLink, GitBranch, Pause, Play, Save, Server, ServerOff, Square, SquareTerminal, Trash2, Loader } from '@lucide/svelte';
+	import { ArrowLeft, Code2, ExternalLink, GitBranch, Pause, Play, Save, Server, ServerOff, Square, SquareTerminal, Trash2, Loader } from '@lucide/svelte';
 	import { goto, replaceState } from '$app/navigation';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import * as Card from '$lib/components/ui/card';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import {
 		getDevMachine, launchMachineServiceWithResume, listMachineServices, listMachineEvents, listMachineLogs,
-		listMachineAgentRuns, listResourceUsage, pauseDevMachine, startDevMachine, stopDevMachine, teardownDevMachine, cancelAgentRun,
+		listMachineTasks, listResourceUsage, pauseDevMachine, startDevMachine, stopDevMachine, teardownDevMachine,
 		checkoutIssue, deleteDevMachine, getDevMachinePolicy, listMachineCheckouts, snapshotDevMachineEnvironment, updateDevMachine
 	} from '$lib/api/dev-machines';
 	import { getWorkspace } from '$lib/api/workspaces';
-	import type { AgentRun, DevMachine, DevMachineCheckout, DevMachineEvent, DevMachineLogChunk, DevMachinePolicy, DevMachineService, ResourceSample } from '$lib/types/dev-machine';
+	import type { AgentQueueItem } from '$lib/api/agent-tasks';
+	import type { DevMachine, DevMachineCheckout, DevMachineEvent, DevMachineLogChunk, DevMachinePolicy, DevMachineService, ResourceSample } from '$lib/types/dev-machine';
 	import LoadingState from '$lib/components/shared/LoadingState.svelte';
 	import ErrorState from '$lib/components/shared/ErrorState.svelte';
 	import MachineStatusBadge from '$lib/features/dev-machines/MachineStatusBadge.svelte';
-	import AgentRunDialog from '$lib/features/dev-machines/AgentRunDialog.svelte';
-	import AgentRunTraceSheet from '$lib/features/dev-machines/AgentRunTraceSheet.svelte';
+	import MachineTasksCard from '$lib/features/dev-machines/MachineTasksCard.svelte';
 	import PreviewCard from '$lib/features/dev-machines/PreviewCard.svelte';
 	import { appendRecentTelemetry, DEV_MACHINE_EVENT_RETENTION, DEV_MACHINE_LOG_RETENTION } from '$lib/features/dev-machines/telemetry-retention';
 	import { useTerminalDock } from '$lib/features/dev-machines/terminal-dock-context.svelte';
@@ -26,7 +26,6 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 	import { Switch } from '$lib/components/ui/switch';
-	import { safeGitHubPullRequestUrl } from '$lib/security/github-url';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
 
@@ -46,9 +45,8 @@
 	let logs = $state<DevMachineLogChunk[]>([]);
 	let logsLimited = $state(false);
 	let logsAfterId = 0;
-	let runs = $state<AgentRun[]>([]);
-	let runsPage = $state(1);
-	let runsHasMore = $state(false);
+	let tasks = $state<AgentQueueItem[]>([]);
+	let tasksFailed = $state(false);
 	let usage = $state<ResourceSample[]>([]);
 	let loading = $state(true);
 	let failed = $state(false);
@@ -58,19 +56,13 @@
 	let snapshotOpen = $state(false);
 	let snapshotName = $state('');
 	let snapshotBusy = $state(false);
-	let runOpen = $state(false);
-	let cancelBusy = $state<Record<string, boolean>>({});
 	let checkoutAttempted = false;
 	let workspaceRole = $state('');
 	let launchBusy = $state<Record<string, boolean>>({});
-	let runsLoading = $state(false);
 	let machineUpdateBusy = false;
 	let terminalQueryConsumed = false;
-	let traceRunId = $state<string | null>(null);
-	let traceOpen = $state(false);
 	let routeGeneration = 0;
 	let refreshSequence = 0;
-	let runsRequestSequence = 0;
 	let machineUpdateSequence = 0;
 	let pollGeneration = 0;
 	let fragmentScrollVersion = 0;
@@ -87,19 +79,8 @@
 			latestUsage.disk_bytes >= machine.disk_gb * 1024 ** 3 * 0.9
 	);
 	const canAdminDevMachines = $derived(workspaceRole === 'owner' || workspaceRole === 'admin');
-	const readyCheckouts = $derived(checkouts.filter((checkout) => checkout.status === 'ready'));
 	const ideService = $derived(services.find((item) => item.service_type === 'ide'));
 	const terminalService = $derived(services.find((item) => item.service_type === 'terminal'));
-
-	function pullRequestUrl(run: AgentRun): string | null {
-		let repositoryFullName = '';
-		if (run.checkout_id) {
-			repositoryFullName = checkouts.find((checkout) => checkout.id === run.checkout_id)?.repository_full_name ?? '';
-		} else if (machine?.repo_owner && machine.repo_name) {
-			repositoryFullName = `${machine.repo_owner}/${machine.repo_name}`;
-		}
-		return safeGitHubPullRequestUrl(run.pull_request_url, repositoryFullName);
-	}
 
 	$effect(() => {
 		const targetSlug = slug;
@@ -116,24 +97,11 @@
 	});
 
 	$effect(() => {
-		const queryRunId = page.url.searchParams.get('agent_run_id');
-		const hashMatch = page.url.hash.match(/^#agent-run-([0-9a-fA-F-]{36})$/);
-		const linkedRunId = queryRunId || hashMatch?.[1] || null;
-		if (linkedRunId) {
-			traceRunId = linkedRunId;
-			traceOpen = true;
-		} else {
-			traceRunId = null;
-			traceOpen = false;
-		}
-	});
-
-	$effect(() => {
 		const hash = page.url.hash;
 		const targetSlug = slug;
 		const targetMachineId = machineId;
 		const currentLoading = loading;
-		if (currentLoading || (hash !== '#agent-runs' && hash !== '#activity')) return;
+		if (currentLoading || (hash !== '#tasks' && hash !== '#activity')) return;
 		const version = ++fragmentScrollVersion;
 		void scrollToFragment(hash.slice(1), targetSlug, targetMachineId, version);
 		return () => {
@@ -153,9 +121,8 @@
 		logs = [];
 		logsLimited = false;
 		logsAfterId = 0;
-		runs = [];
-		runsPage = 1;
-		runsHasMore = false;
+		tasks = [];
+		tasksFailed = false;
 		usage = [];
 		loading = true;
 		failed = false;
@@ -165,18 +132,12 @@
 		snapshotOpen = false;
 		snapshotName = '';
 		snapshotBusy = false;
-		runOpen = false;
-		cancelBusy = {};
 		checkoutAttempted = false;
 		workspaceRole = '';
 		launchBusy = {};
-		runsLoading = false;
 		machineUpdateBusy = false;
 		terminalQueryConsumed = false;
-		traceRunId = null;
-		traceOpen = false;
 		refreshSequence++;
-		runsRequestSequence++;
 		machineUpdateSequence++;
 		fragmentScrollVersion++;
 	}
@@ -223,27 +184,22 @@
 		if (!isCurrentRefresh(targetSlug, targetMachineId, generation, sequence)) return;
 		machine = nextMachine;
 		policy = nextPolicy;
-		const currentRunsPage = runsPage;
-		const [serviceResult, checkoutResult, usageResult, runsResult, workspaceResult] = await Promise.allSettled([
+		const [serviceResult, checkoutResult, usageResult, tasksResult, workspaceResult] = await Promise.allSettled([
 			listMachineServices(targetSlug, targetMachineId),
 			listMachineCheckouts(targetSlug, targetMachineId),
 			listResourceUsage(targetSlug, targetMachineId),
-			listMachineAgentRuns(targetSlug, targetMachineId),
+			listMachineTasks(targetSlug, targetMachineId),
 			workspaceRole ? Promise.resolve(null) : getWorkspace(targetSlug)
 		]);
 		if (!isCurrentRefresh(targetSlug, targetMachineId, generation, sequence)) return;
 		if (serviceResult.status === 'fulfilled') services = serviceResult.value ?? [];
 		if (checkoutResult.status === 'fulfilled') checkouts = checkoutResult.value ?? [];
 		if (usageResult.status === 'fulfilled') usage = usageResult.value ?? [];
-		if (runsResult.status === 'fulfilled') {
-			const latest = runsResult.value.data ?? [];
-			if (currentRunsPage === 1) runs = latest;
-			else {
-				const latestIds = new Set(latest.map((run) => run.id));
-				runs = [...latest, ...runs.filter((run) => !latestIds.has(run.id))];
-			}
-			runsHasMore = currentRunsPage === 1 ? runsResult.value.has_more : runsHasMore;
-		}
+		// Keep the last good list on a failed background refresh.
+		if (tasksResult.status === 'fulfilled') {
+			tasks = tasksResult.value ?? [];
+			tasksFailed = false;
+		} else tasksFailed = true;
 		if (workspaceResult.status === 'fulfilled' && workspaceResult.value) workspaceRole = workspaceResult.value.current_user_role;
 		if (!checkoutAttempted && nextMachine.status === 'running' && nextMachine.issue_id && checkouts.length === 0) {
 			checkoutAttempted = true;
@@ -297,7 +253,7 @@
 	}
 
 	async function poll(targetSlug = slug, targetMachineId = machineId, generation = routeGeneration) {
-		if (pollGeneration === generation || !isCurrentRoute(targetSlug, targetMachineId, generation) || loading || actionBusy || runsLoading || machineUpdateBusy) return;
+		if (pollGeneration === generation || !isCurrentRoute(targetSlug, targetMachineId, generation) || loading || actionBusy || machineUpdateBusy) return;
 		pollGeneration = generation;
 		try {
 			await refreshAll(targetSlug, targetMachineId, generation);
@@ -306,22 +262,6 @@
 		} finally {
 			if (pollGeneration === generation) pollGeneration = 0;
 		}
-	}
-
-	function openTrace(runId: string) {
-		const url = new URL(page.url);
-		url.searchParams.set('agent_run_id', runId);
-		url.hash = `agent-run-${runId}`;
-		void goto(url, { noScroll: true, keepFocus: true });
-	}
-
-	function closeTrace() {
-		traceOpen = false;
-		traceRunId = null;
-		const url = new URL(page.url);
-		url.searchParams.delete('agent_run_id');
-		if (url.hash.startsWith('#agent-run-')) url.hash = '';
-		void goto(url, { replaceState: true, noScroll: true, keepFocus: true });
 	}
 
 	async function lifecycle(action: 'start' | 'pause' | 'stop') {
@@ -442,7 +382,7 @@
 			await deleteDevMachine(targetSlug, targetMachineId);
 			if (!isCurrentRoute(targetSlug, targetMachineId, generation)) return;
 			appToast.success('Dev Machine deletion requested');
-			await goto(`/${targetSlug}/machines`);
+			await goto(`/${targetSlug}/settings/dev-machines`);
 		} catch (error) {
 			if (!isCurrentRoute(targetSlug, targetMachineId, generation)) return;
 			appToast.apiError(error, 'Failed to permanently delete machine');
@@ -494,60 +434,6 @@
 		}
 	}
 
-	async function doCancelAgentRun(runId: string) {
-		const targetSlug = slug;
-		const targetMachineId = machineId;
-		const generation = routeGeneration;
-		refreshSequence++;
-		cancelBusy[runId] = true;
-		cancelBusy = { ...cancelBusy };
-		try {
-			await cancelAgentRun(targetSlug, runId);
-			if (!isCurrentRoute(targetSlug, targetMachineId, generation)) return;
-			appToast.success('Run cancelled');
-			await refreshAll(targetSlug, targetMachineId, generation);
-		} catch (error) {
-			if (!isCurrentRoute(targetSlug, targetMachineId, generation)) return;
-			appToast.apiError(error, 'Failed to cancel run');
-		} finally {
-			if (isCurrentRoute(targetSlug, targetMachineId, generation)) {
-				cancelBusy[runId] = false;
-				cancelBusy = { ...cancelBusy };
-			}
-		}
-	}
-
-	async function loadMoreRuns() {
-		const targetSlug = slug;
-		const targetMachineId = machineId;
-		const generation = routeGeneration;
-		const requestSequence = ++runsRequestSequence;
-		const nextPage = runsPage + 1;
-		refreshSequence++;
-		runsLoading = true;
-		try {
-			const response = await listMachineAgentRuns(targetSlug, targetMachineId, nextPage);
-			if (!isCurrentRoute(targetSlug, targetMachineId, generation) || runsRequestSequence !== requestSequence) return;
-			const existing = new Set(runs.map((run) => run.id));
-			runs = [...runs, ...(response.data ?? []).filter((run) => !existing.has(run.id))];
-			runsPage = nextPage;
-			runsHasMore = response.has_more;
-		} catch (error) {
-			if (!isCurrentRoute(targetSlug, targetMachineId, generation) || runsRequestSequence !== requestSequence) return;
-			appToast.apiError(error, 'Failed to load older runs');
-		} finally {
-			if (isCurrentRoute(targetSlug, targetMachineId, generation) && runsRequestSequence === requestSequence) runsLoading = false;
-		}
-	}
-
-	function handleAgentRunCreated(run: AgentRun) {
-		const targetSlug = slug;
-		const targetMachineId = machineId;
-		const generation = routeGeneration;
-		void refreshAll(targetSlug, targetMachineId, generation);
-		openTrace(run.id);
-	}
-
 	function bytes(value = 0) {
 		if (value < 1024 * 1024) return `${Math.round(value / 1024)} KB`;
 		if (value < 1024 * 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MB`;
@@ -581,7 +467,7 @@
 	<div class="flex h-full flex-col">
 		<header class="flex min-h-[49px] items-center justify-between gap-3 border-b border-[var(--app-border)] px-4">
 			<div class="flex min-w-0 items-center gap-2">
-				<a href="/{slug}/machines" class="rounded p-1 hover:bg-[var(--color-bg-hover)]"><ArrowLeft size={16} /></a>
+				<a href="/{slug}/settings/dev-machines" class="rounded p-1 hover:bg-[var(--color-bg-hover)]" aria-label={m['machines.back_to_machines']()}><ArrowLeft size={16} /></a>
 				<Server size={15} />
 				<span class="truncate text-sm font-medium">{machine.name}</span>
 				<MachineStatusBadge status={machine.status} />
@@ -667,12 +553,7 @@
 				</section>
 
 				<section class="rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-4">
-					<div class="mb-3 flex items-center justify-between">
-						<div><h2 class="text-sm font-semibold">{m['machines.services']()}</h2><p class="text-xs text-[var(--color-text-tertiary)]">{m['machines.services_desc']()}</p></div>
-						{#if machine.status === 'running' && !isPending && readyCheckouts.length > 0}
-							<Button size="sm" onclick={() => (runOpen = true)}><Bot size={13} />{m['machines.run_agent']()}</Button>
-						{/if}
-					</div>
+					<div class="mb-3"><h2 class="text-sm font-semibold">{m['machines.services']()}</h2><p class="text-xs text-[var(--color-text-tertiary)]">{m['machines.services_desc']()}</p></div>
 					<div class="grid gap-2 md:grid-cols-2">
 						{#each services as service}
 							<div class="flex items-center justify-between rounded-lg border border-[var(--app-border)] p-3">
@@ -690,58 +571,20 @@
 					</div>
 				</section>
 
-				<section id="agent-runs" class="rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-4 scroll-mt-4">
-					<h2 class="text-sm font-semibold">{m['machines.agent_runs']()}</h2>
-					<div class="mt-3 space-y-2">
-						{#if runs.length === 0}<p class="text-xs text-[var(--color-text-tertiary)]">{m['machines.no_agent_runs']()}</p>{/if}
-						{#each runs as run}
-							{@const trustedPullRequestUrl = pullRequestUrl(run)}
-							<article id={`agent-run-${run.id}`} class="rounded-lg border border-[var(--app-border)] p-3 transition-colors hover:bg-[var(--color-bg-hover)] scroll-mt-4">
-								<div class="flex items-start gap-2">
-									<Button variant="plain" type="button" class="min-w-0 flex-1 text-left" onclick={() => openTrace(run.id)} aria-label={m['machines.view_agent_activity']({ provider: run.provider_id })}>
-										<span class="flex items-center justify-between gap-2">
-											<span><span class="text-xs font-medium">{run.provider_id}</span><span class="ml-2 text-[10px] uppercase text-[var(--color-text-tertiary)]">{run.mode}</span></span>
-											<span class="text-[10px] font-semibold uppercase">{run.status}</span>
-										</span>
-										{#if run.summary}<span class="mt-2 block whitespace-pre-wrap text-xs text-[var(--color-text-secondary)]">{run.summary}</span>{/if}
-									</Button>
-									{#if ['queued', 'starting', 'running', 'waiting_input'].includes(run.status)}
-										<Button variant="ghost" size="xs" disabled={cancelBusy[run.id]} onclick={() => doCancelAgentRun(run.id)} class="shrink-0 text-red-400">
-											{cancelBusy[run.id] ? m['machines.cancelling']() : m['common.cancel']()}
-										</Button>
-									{/if}
-								</div>
-								{#if trustedPullRequestUrl}<a href={trustedPullRequestUrl} target="_blank" rel="noopener noreferrer" class="mt-2 inline-flex items-center gap-1 text-xs text-[var(--app-accent)]">{m['machines.pull_request']()} <ExternalLink size={11} /></a>{/if}
-								{#if run.risk_notes?.length}<div class="mt-2 text-xs text-amber-400">{run.risk_notes.join(' · ')}</div>{/if}
-							</article>
-						{/each}
-						{#if runsHasMore}<Button variant="outline" size="sm" disabled={runsLoading} onclick={loadMoreRuns}>{runsLoading ? m['common.loading']() : m['machines.load_older_runs']()}</Button>{/if}
-					</div>
-				</section>
+				<MachineTasksCard {slug} {tasks} failed={tasksFailed} />
 
 				<section id="activity" class="grid gap-5 lg:grid-cols-2 scroll-mt-4">
 					<div class="rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-4"><h2 class="text-sm font-semibold">{m['machines.activity']()} ({events.length})</h2>{#if eventsLimited}<p class="mt-1 text-[10px] text-[var(--color-text-tertiary)]" data-testid="machine-events-retention">{m['machines.events_retention']({ count: DEV_MACHINE_EVENT_RETENTION })}</p>{/if}<div class="mt-3 max-h-96 space-y-3 overflow-y-auto">{#if events.length === 0}<p class="text-xs text-[var(--color-text-tertiary)]">{m['machines.no_activity']()}</p>{/if}{#each events as event}
-						{#if event.agent_run_id}
-							<Button variant="plain" type="button" class="block w-full border-l border-[var(--app-border)] pl-3 text-left transition-colors hover:border-[var(--app-accent)]" onclick={() => openTrace(event.agent_run_id!)} aria-label={`View agent activity for ${event.event_type}`}>
-								<span class="block text-xs font-medium">{event.event_type.replaceAll('_', ' ')}</span>
-								<span class="block text-[10px] text-[var(--color-text-tertiary)]">{event.source} · {new Date(event.occurred_at).toLocaleString()}</span>
-							</Button>
-						{:else}
-							<div class="border-l border-[var(--app-border)] pl-3">
-								<p class="text-xs font-medium">{event.event_type.replaceAll('_', ' ')}</p>
-								<p class="text-[10px] text-[var(--color-text-tertiary)]">{event.source} · {new Date(event.occurred_at).toLocaleString()}</p>
-							</div>
-						{/if}
+						<div class="border-l border-[var(--app-border)] pl-3">
+							<p class="text-xs font-medium">{event.event_type.replaceAll('_', ' ')}</p>
+							<p class="text-[10px] text-[var(--color-text-tertiary)]">{event.source} · {new Date(event.occurred_at).toLocaleString()}</p>
+						</div>
 					{/each}</div></div>
 					<div class="rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-4"><h2 class="text-sm font-semibold">{m['machines.logs']()} ({logs.length})</h2>{#if logsLimited}<p class="mt-1 text-[10px] text-[var(--color-text-tertiary)]" data-testid="machine-logs-retention">{m['machines.logs_retention']({ count: DEV_MACHINE_LOG_RETENTION })}</p>{/if}<pre class="mt-3 max-h-96 overflow-auto whitespace-pre-wrap rounded-lg bg-black/30 p-3 text-[11px] leading-relaxed text-zinc-300">{logs.length ? logs.map((chunk) => `[${chunk.stream}] ${chunk.content}`).join('\n') : m['machines.no_logs']()}</pre></div>
 				</section>
 			</div>
 		</div>
 	</div>
-
-	<AgentRunDialog bind:open={runOpen} {slug} {machine} checkoutId={readyCheckouts[0]?.id} oncreated={handleAgentRunCreated} />
-
-	<AgentRunTraceSheet bind:open={traceOpen} {slug} runId={traceRunId} {machine} {checkouts} onclose={closeTrace} />
 
 	<AlertDialog.Root bind:open={teardownConfirm}><AlertDialog.Content><AlertDialog.Header><AlertDialog.Title>{m['machines.teardown_title']()}</AlertDialog.Title><AlertDialog.Description>{m['machines.teardown_desc']()}</AlertDialog.Description></AlertDialog.Header><AlertDialog.Footer><AlertDialog.Cancel>{m['common.cancel']()}</AlertDialog.Cancel><AlertDialog.Action onclick={teardown}>{m['machines.teardown_action']()}</AlertDialog.Action></AlertDialog.Footer></AlertDialog.Content></AlertDialog.Root>
 	<AlertDialog.Root bind:open={deleteConfirm}><AlertDialog.Content><AlertDialog.Header><AlertDialog.Title>{m['machines.delete_title']()}</AlertDialog.Title><AlertDialog.Description>{m['machines.delete_desc']()}</AlertDialog.Description></AlertDialog.Header><AlertDialog.Footer><AlertDialog.Cancel>{m['common.cancel']()}</AlertDialog.Cancel><AlertDialog.Action variant="destructive" onclick={removeMachine} disabled={actionBusy}>{actionBusy ? m['machines.deleting']() : m['machines.delete_action']()}</AlertDialog.Action></AlertDialog.Footer></AlertDialog.Content></AlertDialog.Root>

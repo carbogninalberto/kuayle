@@ -219,25 +219,6 @@ export type CreateDevMachineInput =
 			disk_gb: number;
 	  });
 
-export interface CreateAgentRunInput {
-	checkout_id?: string;
-	use_root_workspace: boolean;
-	provider: AgentProvider['id'];
-	mode: 'interactive' | 'autonomous';
-	prompt: string;
-	acceptance_criteria: string[];
-	allowed_commands: string[];
-	forbidden_paths: string[];
-	test_command: string[];
-	max_runtime_seconds: number;
-	allowed_secrets: string[];
-	push_branch: boolean;
-	open_pull_request: boolean;
-	model_server_id?: string;
-	model?: string;
-	thinking?: ThinkingLevel;
-}
-
 export type ThinkingLevel = 'off' | 'low' | 'high' | 'max';
 
 // A workspace model server. Codex uses its OpenAI-compatible URL and Claude
@@ -384,30 +365,4 @@ export interface BulkPermanentDeleteDevMachinesInput {
 	older_than_days?: number;
 	include_failed: boolean;
 	include_expired: boolean;
-}
-
-export interface AgentRunStep {
-	id: string;
-	agent_run_id: string;
-	sequence: number;
-	step_type: string;
-	name: string;
-	status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'skipped';
-	command_argv?: string[];
-	summary?: string;
-	exit_code?: number;
-	started_at?: string;
-	completed_at?: string;
-	created_at: string;
-}
-
-export interface AgentRunTrace {
-	run: AgentRun;
-	steps: AgentRunStep[];
-	events: DevMachineEvent[];
-	logs: DevMachineLogChunk[];
-	next_event_id: number;
-	next_log_id: number;
-	has_more_events: boolean;
-	has_more_logs: boolean;
 }

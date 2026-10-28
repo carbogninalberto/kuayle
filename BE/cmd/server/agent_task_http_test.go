@@ -18,7 +18,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/kuayle/kuayle-backend/internal/domain"
-	"github.com/kuayle/kuayle-backend/internal/dto"
 	mw "github.com/kuayle/kuayle-backend/internal/middleware"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	jwtpkg "github.com/kuayle/kuayle-backend/pkg/jwt"
@@ -202,18 +201,15 @@ func TestAgentTaskHTTPPrivateControlsAndRecovery(t *testing.T) {
 		var checkouts []domain.DevMachineCheckout
 		request("GET", "/dev-machines/"+machineID.String()+"/checkouts", "", auth, 200, &checkouts)
 		require.Empty(t, checkouts)
+		// The manual "Run agent" routes are retired; tasks are the only way to run agents.
 		request("POST", "/dev-machines/"+machineID.String()+"/agent-runs", manualRunBody, auth, 404, nil)
+		request("POST", "/agent-runs/"+retried.RunID.String()+"/cancel", "", auth, 404, nil)
+		for _, path := range []string{"/agent-runs", "/agent-runs/" + retried.RunID.String(), "/agent-runs/" + retried.RunID.String() + "/trace", "/dev-machines/" + machineID.String() + "/agent-runs"} {
+			request("GET", path, "", auth, 404, nil)
+		}
 	}
 	for _, auth := range []string{token, raw} {
 		checkManualScope(auth)
-		request("GET", "/agent-runs/"+retried.RunID.String(), "", auth, 404, nil)
-		request("GET", "/agent-runs/"+retried.RunID.String()+"/trace", "", auth, 404, nil)
-		for _, path := range []string{"/agent-runs", "/dev-machines/" + machineID.String() + "/agent-runs"} {
-			var runs dto.ListResponse[domain.DevMachineAgentRun]
-			request("GET", path, "", auth, 200, &runs)
-			require.Empty(t, runs.Data)
-			require.Zero(t, runs.TotalCount)
-		}
 		var logs []domain.DevMachineLogChunk
 		request("GET", "/dev-machines/"+machineID.String()+"/logs", "", auth, 200, &logs)
 		require.Empty(t, logs)
@@ -221,6 +217,20 @@ func TestAgentTaskHTTPPrivateControlsAndRecovery(t *testing.T) {
 		request("GET", "/dev-machines/"+machineID.String()+"/events", "", auth, 200, &events)
 		require.Empty(t, events)
 	}
+	// The machine page lists the tasks that used the machine: session-only, owner-only.
+	_, err = db.Exec(`UPDATE agent_tasks SET machine_id=$1 WHERE id=$2`, machineID, task.ID)
+	require.NoError(t, err)
+	machineTasksPath := "/dev-machines/" + machineID.String() + "/tasks"
+	var machineTasks []repository.AgentQueueItem
+	request("GET", machineTasksPath, "", token, 200, &machineTasks)
+	require.Len(t, machineTasks, 1)
+	require.Equal(t, task.ID, machineTasks[0].ID)
+	require.Equal(t, task.ConversationID, &machineTasks[0].ConversationID)
+	request("GET", machineTasksPath, "", raw, 403, nil)
+	for _, auth := range []string{tokenFor(other), tokenFor(guest)} {
+		request("GET", machineTasksPath, "", auth, 404, nil)
+	}
+	request("GET", "/dev-machines/not-a-uuid/tasks", "", token, 404, nil)
 	var taskLogs domain.AgentTaskLogs
 	request("GET", taskPath+"/runs/"+retried.RunID.String()+"/logs", "", token, 200, &taskLogs)
 	require.Len(t, taskLogs.Logs, 1)

@@ -51,19 +51,6 @@ func TestRedactPayloadReplacesNestedSecrets(t *testing.T) {
 	require.Equal(t, "key", redacted["[REDACTED]"])
 }
 
-func TestCreateAgentRunRejectsPullRequestWithoutPush(t *testing.T) {
-	pushBranch := false
-	svc := newTestDevMachineService(&devMachineStoreFake{})
-
-	_, err := svc.CreateAgentRun(context.Background(), uuid.New(), uuid.New(), uuid.New(), dto.CreateAgentRunRequest{
-		PushBranch:      &pushBranch,
-		OpenPullRequest: true,
-	})
-
-	require.ErrorIs(t, err, ErrInvalidMachineInput)
-	require.ErrorContains(t, err, "requires pushing the working branch")
-}
-
 func TestModelServerEncryptsKeyAndNeverReturnsIt(t *testing.T) {
 	workspaceID, userID := uuid.New(), uuid.New()
 	store := &devMachineStoreFake{}
@@ -196,10 +183,10 @@ func TestCreateAgentRunPointsCodexAtTheModelServer(t *testing.T) {
 	service := NewDevMachineService(store, agent.NewRegistry(agent.NewCodexProvider("")), true,
 		"machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, DevMachineImages{})
 
-	run, err := service.CreateAgentRun(context.Background(), workspaceID, machineID, userID, dto.CreateAgentRunRequest{
+	run, err := service.createAgentRun(context.Background(), workspaceID, machineID, userID, dto.CreateAgentRunRequest{
 		UseRootWorkspace: true, PushBranch: dmBoolPtr(false), Provider: "codex", Mode: "autonomous",
 		Prompt: "Implement it", MaxRuntimeSeconds: 30, Model: "deepseek-v4-pro", Thinking: "off",
-	})
+	}, uuid.New())
 	require.NoError(t, err)
 	var argv []string
 	require.NoError(t, json.Unmarshal(run.CommandArgv, &argv))
@@ -212,18 +199,18 @@ func TestCreateAgentRunPointsCodexAtTheModelServer(t *testing.T) {
 	require.Equal(t, "off", run.Thinking)
 	require.Equal(t, store.modelServers[0].ID, *run.ModelServerID)
 
-	_, err = service.CreateAgentRun(context.Background(), workspaceID, machineID, userID, dto.CreateAgentRunRequest{
+	_, err = service.createAgentRun(context.Background(), workspaceID, machineID, userID, dto.CreateAgentRunRequest{
 		UseRootWorkspace: true, PushBranch: dmBoolPtr(false), Provider: "codex", Mode: "autonomous",
 		Prompt: "Implement it", MaxRuntimeSeconds: 30, Model: "gpt-5.5",
-	})
+	}, uuid.New())
 	require.ErrorIs(t, err, ErrInvalidMachineInput, "only models the server offers")
 	anthropicOnly := store.modelServers[0]
 	anthropicOnly.ID, anthropicOnly.Name, anthropicOnly.IsDefault, anthropicOnly.OpenAIBaseURL = uuid.New(), "Anthropic", false, nil
 	store.modelServers = append(store.modelServers, anthropicOnly)
-	_, err = service.CreateAgentRun(context.Background(), workspaceID, machineID, userID, dto.CreateAgentRunRequest{
+	_, err = service.createAgentRun(context.Background(), workspaceID, machineID, userID, dto.CreateAgentRunRequest{
 		UseRootWorkspace: true, PushBranch: dmBoolPtr(false), Provider: "codex", Mode: "autonomous",
 		Prompt: "Implement it", MaxRuntimeSeconds: 30, ModelServerID: &anthropicOnly.ID,
-	})
+	}, uuid.New())
 	require.ErrorIs(t, err, ErrInvalidMachineInput, "Codex needs an OpenAI-compatible server")
 }
 
@@ -247,10 +234,10 @@ func TestCreateAgentRunClaudeOverrideStoresNonSecretEnvironment(t *testing.T) {
 	service := NewDevMachineService(store, agent.NewRegistry(agent.NewClaudeCodeProvider("")), true,
 		"machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, DevMachineImages{})
 
-	run, err := service.CreateAgentRun(context.Background(), workspaceID, machineID, userID, dto.CreateAgentRunRequest{
+	run, err := service.createAgentRun(context.Background(), workspaceID, machineID, userID, dto.CreateAgentRunRequest{
 		UseRootWorkspace: true, PushBranch: dmBoolPtr(false), Provider: "claude-code", Mode: "autonomous",
 		Prompt: "Implement it", MaxRuntimeSeconds: 30, Model: "deepseek-flash", Thinking: "max",
-	})
+	}, uuid.New())
 	require.NoError(t, err)
 	require.JSONEq(t, `{"CLAUDE_CODE_EFFORT_LEVEL":"max"}`, string(run.CommandEnvironment))
 	require.NotContains(t, string(run.CommandEnvironment), "KEY")
@@ -258,20 +245,20 @@ func TestCreateAgentRunClaudeOverrideStoresNonSecretEnvironment(t *testing.T) {
 }
 
 func TestCreateAgentRunRejectsOverridesForOtherProviders(t *testing.T) {
-	_, err := newTestDevMachineService(&devMachineStoreFake{}).CreateAgentRun(
+	_, err := newTestDevMachineService(&devMachineStoreFake{}).createAgentRun(
 		context.Background(), uuid.New(), uuid.New(), uuid.New(), dto.CreateAgentRunRequest{
 			Provider: "opencode", Mode: "autonomous", Prompt: "test", Model: "deepseek-flash",
-		},
+		}, uuid.New(),
 	)
 	require.ErrorIs(t, err, ErrInvalidMachineInput)
 	require.ErrorContains(t, err, "codex and claude-code")
 }
 
 func TestCreateAgentRunRequiresAModelServerForModelOverride(t *testing.T) {
-	_, err := newTestDevMachineService(&devMachineStoreFake{}).CreateAgentRun(
+	_, err := newTestDevMachineService(&devMachineStoreFake{}).createAgentRun(
 		context.Background(), uuid.New(), uuid.New(), uuid.New(), dto.CreateAgentRunRequest{
 			Provider: "codex", Mode: "autonomous", Prompt: "test", Model: "deepseek-flash",
-		},
+		}, uuid.New(),
 	)
 	require.ErrorIs(t, err, ErrInvalidOperation)
 	require.ErrorContains(t, err, "add a model server")
@@ -352,9 +339,9 @@ func TestCreateAgentRunNeverImplicitlyFallsBackToRootWorkspace(t *testing.T) {
 					RepositoryAffinityID: test.affinity, ExpiresAt: time.Now().Add(time.Hour), MaxRuntimeMinutes: 60,
 				},
 			}
-			_, err := newTestDevMachineService(store).CreateAgentRun(context.Background(), workspaceID, machineID, userID, dto.CreateAgentRunRequest{
+			_, err := newTestDevMachineService(store).createAgentRun(context.Background(), workspaceID, machineID, userID, dto.CreateAgentRunRequest{
 				UseRootWorkspace: test.useRoot, PushBranch: test.pushBranch,
-			})
+			}, uuid.New())
 			require.ErrorIs(t, err, test.expectedError)
 			require.Empty(t, store.agentRuns)
 		})
@@ -395,10 +382,10 @@ func TestCreateAgentRunUsesOnlyExplicitRootOrReadyCheckout(t *testing.T) {
 			service := NewDevMachineService(store, agent.NewRegistry(agent.NewOpenCodeProvider("")), true,
 				"machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, DevMachineImages{})
 
-			run, err := service.CreateAgentRun(context.Background(), workspaceID, machineID, userID, dto.CreateAgentRunRequest{
+			run, err := service.createAgentRun(context.Background(), workspaceID, machineID, userID, dto.CreateAgentRunRequest{
 				UseRootWorkspace: test.useRoot, Provider: "opencode", Mode: "autonomous", Prompt: "Implement the change",
 				MaxRuntimeSeconds: 30,
-			})
+			}, uuid.New())
 
 			require.NoError(t, err)
 			require.NotNil(t, run)
@@ -1589,9 +1576,9 @@ func TestUserScopedMachineAccessRequiresCreator(t *testing.T) {
 	_, err = svc.CheckoutIssue(context.Background(), workspaceID, machineID, otherID, dto.CheckoutIssueRequest{IssueID: uuid.NewString()})
 	require.ErrorIs(t, err, ErrMachineNotFound)
 
-	_, err = svc.CreateAgentRun(context.Background(), workspaceID, machineID, otherID, dto.CreateAgentRunRequest{
+	_, err = svc.createAgentRun(context.Background(), workspaceID, machineID, otherID, dto.CreateAgentRunRequest{
 		UseRootWorkspace: true, Provider: "opencode", Mode: "autonomous", Prompt: "test",
-	})
+	}, uuid.New())
 	require.ErrorIs(t, err, ErrMachineNotFound)
 }
 
@@ -1732,44 +1719,6 @@ func TestWorkspaceAdminPolicyPermissionDoesNotGrantMachineRuntimeAccess(t *testi
 	require.ErrorIs(t, err, ErrMachineNotFound)
 	_, err = svc.CreateTerminalSession(context.Background(), workspaceID, machineID, adminID, dto.CreateTerminalSessionRequest{Name: "Admin terminal"})
 	require.ErrorIs(t, err, ErrMachineNotFound)
-}
-
-func TestAgentRunsAreScopedByMachineCreator(t *testing.T) {
-	workspaceID, ownerID, otherID, machineID, runID := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
-	store := &devMachineStoreFake{
-		machine: &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &ownerID, Generation: 4},
-		agentRuns: []domain.DevMachineAgentRun{{
-			ID: runID, WorkspaceID: workspaceID, MachineID: machineID,
-			Status: domain.DevMachineAgentRunStatusRunning, ProviderID: "opencode", Mode: "execute",
-		}},
-	}
-	svc := newTestDevMachineService(store)
-
-	run, err := svc.GetAgentRun(context.Background(), workspaceID, runID, ownerID)
-	require.NoError(t, err)
-	require.Equal(t, runID, run.ID)
-
-	_, err = svc.GetAgentRun(context.Background(), workspaceID, runID, otherID)
-	require.ErrorIs(t, err, ErrAgentRunNotFound)
-
-	runs, total, err := svc.ListAgentRuns(context.Background(), workspaceID, ownerID, nil, 1, 50)
-	require.NoError(t, err)
-	require.Equal(t, 1, total)
-	require.Len(t, runs, 1)
-
-	runs, total, err = svc.ListAgentRuns(context.Background(), workspaceID, otherID, nil, 1, 50)
-	require.NoError(t, err)
-	require.Zero(t, total)
-	require.Empty(t, runs)
-
-	_, _, err = svc.ListAgentRuns(context.Background(), workspaceID, otherID, &machineID, 1, 50)
-	require.ErrorIs(t, err, ErrMachineNotFound)
-
-	_, err = svc.GetAgentRunTrace(context.Background(), workspaceID, runID, otherID, dto.TraceListParams{})
-	require.ErrorIs(t, err, ErrAgentRunNotFound)
-
-	err = svc.CancelAgentRun(context.Background(), workspaceID, runID, otherID)
-	require.ErrorIs(t, err, ErrAgentRunNotFound)
 }
 
 func TestMachineNamesAreCreatorScoped(t *testing.T) {
@@ -2241,61 +2190,6 @@ func (f *devMachineStoreFake) CreateCheckout(_ context.Context, checkout *domain
 	f.checkoutOperation = operation
 	f.checkouts = append(f.checkouts, *checkout)
 	return nil
-}
-
-func (f *devMachineStoreFake) ListAgentRunsForUser(_ context.Context, workspaceID, userID uuid.UUID, machineID *uuid.UUID, limit, offset int) ([]domain.DevMachineAgentRun, int, error) {
-	filtered := make([]domain.DevMachineAgentRun, 0, len(f.agentRuns))
-	for _, run := range f.agentRuns {
-		if run.WorkspaceID != workspaceID {
-			continue
-		}
-		if machineID != nil && run.MachineID != *machineID {
-			continue
-		}
-		machine, _ := f.GetMachineForUser(context.Background(), workspaceID, run.MachineID, userID)
-		if machine != nil {
-			filtered = append(filtered, run)
-		}
-	}
-	total := len(filtered)
-	if offset > total {
-		return []domain.DevMachineAgentRun{}, total, nil
-	}
-	end := offset + limit
-	if limit <= 0 || end > total {
-		end = total
-	}
-	return filtered[offset:end], total, nil
-}
-
-func (f *devMachineStoreFake) GetAgentRunForUser(_ context.Context, workspaceID, runID, userID uuid.UUID) (*domain.DevMachineAgentRun, error) {
-	for index := range f.agentRuns {
-		run := &f.agentRuns[index]
-		if run.WorkspaceID != workspaceID || run.ID != runID {
-			continue
-		}
-		machine, _ := f.GetMachineForUser(context.Background(), workspaceID, run.MachineID, userID)
-		if machine != nil {
-			return run, nil
-		}
-	}
-	return nil, nil
-}
-
-func (f *devMachineStoreFake) CancelAgentRun(context.Context, uuid.UUID, uuid.UUID, *domain.DevMachineOperation) error {
-	return nil
-}
-
-func (f *devMachineStoreFake) ListAgentRunSteps(context.Context, uuid.UUID) ([]domain.DevMachineAgentRunStep, error) {
-	return f.agentRunSteps, nil
-}
-
-func (f *devMachineStoreFake) ListAgentRunEvents(context.Context, uuid.UUID, int64, int) ([]domain.DevMachineEvent, error) {
-	return f.agentRunEvents, nil
-}
-
-func (f *devMachineStoreFake) ListAgentRunLogs(context.Context, uuid.UUID, int64, int) ([]domain.DevMachineLogChunk, error) {
-	return f.agentRunLogs, nil
 }
 
 func (f *devMachineStoreFake) CreateEnvironment(_ context.Context, environment *domain.DevMachineEnvironment, operation *domain.DevMachineOperation) error {

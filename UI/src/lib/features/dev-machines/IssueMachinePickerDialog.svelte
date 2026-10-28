@@ -1,5 +1,5 @@
 <script module lang="ts">
-	export type IssueMachineIntent = 'ide' | 'terminal' | 'agent';
+	export type IssueMachineIntent = 'ide' | 'terminal';
 </script>
 
 <script lang="ts">
@@ -26,8 +26,7 @@
 		issue,
 		intent,
 		oncreate,
-		onrepository,
-		onagent
+		onrepository
 	}: {
 		open: boolean;
 		slug: string;
@@ -35,7 +34,6 @@
 		intent: IssueMachineIntent;
 		oncreate?: () => void;
 		onrepository?: () => void;
-		onagent?: (machine: DevMachine, checkoutId: string) => void;
 	} = $props();
 
 	const dock = useTerminalDock();
@@ -49,7 +47,7 @@
 	let activePopupGeneration = 0;
 
 	const selectedMachine = $derived(machines.find((machine) => machine.id === selectedMachineId));
-	const actionLabel = $derived(intent === 'ide' ? m['machines.open_code_editor_action']() : intent === 'terminal' ? m['machines.open_terminal_action']() : m['machines.run_agent_action']());
+	const actionLabel = $derived(intent === 'ide' ? m['machines.open_code_editor_action']() : m['machines.open_terminal_action']());
 
 	$effect(() => {
 		const currentOpen = open;
@@ -99,9 +97,6 @@
 	}
 
 	function disabledReason(machine: DevMachine, currentIntent = intent): string {
-		if (currentIntent === 'agent' && (machine.status !== 'running' || machine.desired_status !== 'running')) {
-			return 'Agent runs require a running machine';
-		}
 		if (machine.status === 'running' && machine.desired_status === 'running') return '';
 		if (machine.status === 'paused' && (machine.desired_status === 'paused' || machine.desired_status === 'running')) return '';
 		if (machine.status === 'stopped') return 'Start this machine first';
@@ -137,8 +132,6 @@
 					checkoutId: checkout.id,
 					checkoutLabel: `${checkout.repository_full_name} - ${checkout.working_branch}`
 				});
-			} else if (currentIntent === 'agent') {
-				onagent?.(machine, checkout.id);
 			} else {
 				const launch = await launchMachineServiceWithResume(currentSlug, machine.id, 'ide', checkout.id);
 				if (!isCurrentRequest(currentSlug, currentIssueId, currentIntent, generation)) return;

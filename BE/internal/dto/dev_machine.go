@@ -5,7 +5,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/agent"
-	"github.com/kuayle/kuayle-backend/internal/domain"
 )
 
 type DevMachineRepoInput struct {
@@ -180,7 +179,6 @@ type CreateAgentRunRequest struct {
 	Config            any                 `json:"config,omitempty"`
 	AllowedSecrets    []string            `json:"allowed_secrets"`
 	PushBranch        *bool               `json:"push_branch,omitempty"`
-	OpenPullRequest   bool                `json:"open_pull_request"`
 	// ModelServerID picks a workspace model server; nil uses the default one.
 	ModelServerID *uuid.UUID `json:"model_server_id,omitempty"`
 	Model         string     `json:"model,omitempty" validate:"omitempty,max=128"`
@@ -303,31 +301,4 @@ type CollectorLogInput struct {
 	Sequence   int64   `json:"sequence" validate:"min=0"`
 	Content    string  `json:"content" validate:"required,max=65536"`
 	Truncated  bool    `json:"truncated"`
-}
-
-type TraceListParams struct {
-	EventsAfterID int64 `query:"events_after_id"`
-	EventsLimit   int   `query:"events_limit"`
-	LogsAfterID   int64 `query:"logs_after_id"`
-	LogsLimit     int   `query:"logs_limit"`
-}
-
-func (p *TraceListParams) Defaults() {
-	if p.EventsLimit <= 0 || p.EventsLimit > 500 {
-		p.EventsLimit = 200
-	}
-	if p.LogsLimit <= 0 || p.LogsLimit > 2000 {
-		p.LogsLimit = 500
-	}
-}
-
-type AgentRunTraceResponse struct {
-	Run           *domain.DevMachineAgentRun      `json:"run"`
-	Steps         []domain.DevMachineAgentRunStep `json:"steps"`
-	Events        []domain.DevMachineEvent        `json:"events"`
-	Logs          []domain.DevMachineLogChunk     `json:"logs"`
-	NextEventID   int64                           `json:"next_event_id"`
-	NextLogID     int64                           `json:"next_log_id"`
-	HasMoreEvents bool                            `json:"has_more_events"`
-	HasMoreLogs   bool                            `json:"has_more_logs"`
 }

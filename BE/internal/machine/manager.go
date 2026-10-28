@@ -868,7 +868,7 @@ func (m *Manager) agentRunSecrets(ctx context.Context, machine *domain.DevMachin
 		return nil, err
 	}
 	githubToken := ""
-	if run.PushBranch || run.OpenPullRequest {
+	if run.PushBranch {
 		_, githubToken, err = m.repositoryToken(ctx, machine, checkoutRepositoryFullName(machine, checkout))
 		if err != nil || githubToken == "" {
 			if err == nil {
@@ -1102,31 +1102,6 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 		result.Commits = gitState.Commits
 		result.ChangedFiles = gitState.ChangedFiles
 		run.Diff, run.DiffTruncated = gitState.Diff, gitState.DiffTruncated
-	}
-	if run.Status == domain.DevMachineAgentRunStatusSucceeded && run.OpenPullRequest && result.Branch != "" {
-		githubAPI, freshToken, prErr := m.repositoryToken(ctx, machine, checkoutRepositoryFullName(machine, checkout))
-		var pullRequest *githubclient.PullRequest
-		if prErr == nil {
-			repoOwner, repoName, baseBranch, workingBranch := machine.RepoOwner, machine.RepoName, machine.BaseBranch, machine.WorkingBranch
-			if checkout != nil {
-				parts := strings.SplitN(checkout.RepositoryFullName, "/", 2)
-				if len(parts) == 2 {
-					repoOwner, repoName = parts[0], parts[1]
-				}
-				baseBranch, workingBranch = checkout.BaseBranch, checkout.WorkingBranch
-			}
-			pullRequest, prErr = githubAPI.CreatePullRequest(freshToken, repoOwner, repoName,
-				fmt.Sprintf("Kuayle agent run for %s", workingBranch), result.Branch, baseBranch, result.Summary)
-		}
-		if prErr != nil {
-			result.RiskNotes = append(result.RiskNotes, "Pull request creation failed: "+safeError(prErr))
-		} else if safeURL, ok := safeGitHubPullRequestURL(pullRequest.HTMLURL, repositoryFullName); !ok {
-			result.PullRequestURL = ""
-			result.RiskNotes = append(result.RiskNotes, "Created pull request URL was ignored because GitHub returned an unexpected repository URL.")
-		} else {
-			result.PullRequestURL = safeURL
-			_ = m.persistGitRef(ctx, machine, checkout, run, "pull_request", result.Branch, "", &pullRequest.Number, safeURL)
-		}
 	}
 	resultJSON, _ := json.Marshal(result)
 	resultRaw := json.RawMessage(resultJSON)
