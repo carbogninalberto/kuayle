@@ -997,16 +997,29 @@ func (r *DevMachineRepository) CreateAgentRun(ctx context.Context, run *domain.D
 	if len(run.CommandEnvironment) == 0 {
 		run.CommandEnvironment = json.RawMessage(`{}`)
 	}
+	if run.TaskID != nil {
+		// A review attempt never pushes: the manager supplies a GitHub token
+		// only to runs that push their branch, so refuse such a review run.
+		var kind string
+		if err := tx.GetContext(ctx, &kind, `SELECT kind FROM agent_tasks WHERE id=$1 AND workspace_id=$2`, *run.TaskID, run.WorkspaceID); err != nil {
+			return err
+		}
+		if kind == domain.AgentTaskKindReview && (run.PushBranch || run.OpenPullRequest) {
+			return ErrAgentTaskUnauthorized
+		}
+	}
+	// Task attempts run inside their task's agent session.
 	if err := tx.QueryRowContext(ctx, `INSERT INTO dev_machine_agent_runs
 		(id, machine_id, workspace_id, issue_id, checkout_id, requested_by_user_id, provider_id, mode, status, prompt,
 		 acceptance_criteria, allowed_commands, forbidden_paths, allowed_secrets, test_command, command_argv, command_environment,
-		 model, thinking, max_runtime_seconds, push_branch, open_pull_request,task_id,native_session_id,model_server_id)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25) RETURNING created_at`,
+		 model, thinking, max_runtime_seconds, push_branch, open_pull_request,task_id,native_session_id,model_server_id,session_id)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,
+		 (SELECT id FROM agent_sessions WHERE task_id=$23 AND workspace_id=$3)) RETURNING created_at,session_id`,
 		run.ID, run.MachineID, run.WorkspaceID, run.IssueID, run.CheckoutID, run.RequestedByUserID, run.ProviderID,
 		run.Mode, run.Status, run.Prompt, run.AcceptanceCriteria, run.AllowedCommands, run.ForbiddenPaths,
 		run.AllowedSecrets, nullJSONPointer(run.TestCommand), run.CommandArgv, run.CommandEnvironment, run.Model, run.Thinking,
 		run.MaxRuntimeSeconds, run.PushBranch, run.OpenPullRequest, run.TaskID, run.NativeSessionID, run.ModelServerID,
-	).Scan(&run.CreatedAt); err != nil {
+	).Scan(&run.CreatedAt, &run.SessionID); err != nil {
 		return err
 	}
 	operation.AgentRunID = &run.ID

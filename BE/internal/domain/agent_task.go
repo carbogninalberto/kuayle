@@ -56,6 +56,10 @@ type AgentTask struct {
 	// SignInRequired means the attempt stopped because the agent needs the
 	// user's own sign-in; capturing it from their terminal continues the task.
 	SignInRequired bool `json:"sign_in_required" db:"sign_in_required"`
+	// Kind is "implement" or "review". A review task reviews the published
+	// pull request of ReviewOfTaskID and never validates or publishes.
+	Kind           string     `json:"kind" db:"kind"`
+	ReviewOfTaskID *uuid.UUID `json:"review_of_task_id,omitempty" db:"review_of_task_id"`
 }
 
 type AgentTaskRequest struct {
@@ -87,6 +91,29 @@ type AgentTaskTransition struct {
 	Reason    string     `json:"reason" db:"reason"`
 	CreatedAt time.Time  `json:"created_at" db:"created_at"`
 }
+
+// ValidAgentTaskKindTransition applies ValidAgentTaskTransition to a task of
+// the given kind. A review task finishes when its harness succeeds: it never
+// validates, publishes or awaits review, so it can never push.
+func ValidAgentTaskKindTransition(kind, from, to string) bool {
+	if kind == AgentTaskKindReview {
+		switch to {
+		case "validating", "publishing", "awaiting_review":
+			return false
+		case "completed":
+			return from == "running"
+		}
+		if from == "awaiting_review" {
+			return false
+		}
+	}
+	return ValidAgentTaskTransition(from, to)
+}
+
+const (
+	AgentTaskKindImplement = "implement"
+	AgentTaskKindReview    = "review"
+)
 
 func ValidAgentTaskTransition(from, to string) bool {
 	if from == to {

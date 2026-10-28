@@ -31,6 +31,7 @@ type taskLifecycleStore interface {
 	RecordStepResult(context.Context, domain.AgentTask, bool) error
 	Fail(context.Context, domain.AgentTask, string) error
 	FailForSignIn(context.Context, domain.AgentTask, string) error
+	CompleteReview(context.Context, domain.AgentTask) error
 }
 type taskExecutionRuntime interface {
 	Validate(context.Context, domain.AgentTask) (*domain.DevMachineAgentRunStep, error)
@@ -222,6 +223,10 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 				return err
 			}
 		}
+		// A review ends with its findings; it is never validated or published.
+		if task.Kind == domain.AgentTaskKindReview {
+			return s.store.CompleteReview(ctx, task)
+		}
 		// Process success is not evidence that independent validation passed.
 		return s.store.Transition(ctx, task, "validating", "Implementation attempt finished; independent validation is pending")
 	}
@@ -409,8 +414,9 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 	if domain.ValidateTestCommand(command) != nil {
 		return nil, ErrInvalidMachineInput
 	}
+	review := task.Kind == domain.AgentTaskKindReview
 	var previous *domain.AgentHandoff
-	if task.Generation > 1 {
+	if task.Generation > 1 && !review {
 		if previous, err = r.tasks.PreviousAttempt(ctx, task); err != nil {
 			return nil, err
 		}
@@ -420,7 +426,8 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 	if task.Generation > 1 {
 		prompt = withHandoff(prompt, previous, session.ResumeID != "")
 	}
-	if r.attachments != nil {
+	// A review's prompt already names the published work it reads.
+	if r.attachments != nil && !review {
 		items, err := attemptAttachments(ctx, r.attachments, task)
 		if err != nil {
 			return nil, err
@@ -433,13 +440,17 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 			return nil, err
 		}
 		prompt = withIssue(prompt, brief)
-		related, err := r.related.RelatedWork(ctx, task)
-		if err != nil {
-			return nil, err
+		if !review {
+			related, err := r.related.RelatedWork(ctx, task)
+			if err != nil {
+				return nil, err
+			}
+			prompt = withRelatedWork(prompt, related)
 		}
-		prompt = withRelatedWork(prompt, related)
 	}
 	prompt = withInstructions(prompt, task.AgentInstructions)
+	// No attempt pushes: Kuayle publishes implementations itself, and a
+	// review is never published. Without push the manager adds no GitHub token.
 	push := false
 	checkout := task.CheckoutID.String()
 	return s.createAgentRun(ctx, task.WorkspaceID, *task.MachineID, task.CreatorID, dto.CreateAgentRunRequest{Provider: task.Provider, Mode: "autonomous", Prompt: prompt, TestCommand: command, CheckoutID: &checkout, Model: task.Model, Thinking: task.Thinking, ModelServerID: task.ModelServerID, PushBranch: &push, MaxRuntimeSeconds: timeout, Session: session}, task.RunID)

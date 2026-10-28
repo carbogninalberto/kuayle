@@ -76,6 +76,7 @@ type assistantAgentWork interface {
 	IssueAgentWork(ctx context.Context, ws, issue uuid.UUID) ([]repository.IssueAgentWork, error)
 	RecentAgentWork(ctx context.Context, ws uuid.UUID, state string, limit int) ([]repository.AgentWorkItem, error)
 	MergeTarget(ctx context.Context, ws uuid.UUID, issue, task *uuid.UUID) (*repository.MergeTarget, error)
+	FollowUpTarget(ctx context.Context, ws, issue uuid.UUID) (*repository.FollowUpTarget, error)
 }
 
 // SetAgentWork enables get_agent_work, list_agent_work and merge_pull_request.
@@ -115,6 +116,8 @@ var assistantToolCatalog = []assistantTool{
 	{name: "get_agent_work", agentWork: true, description: "Read the coding tasks on an issue as Kuayle recorded them: state, attempt, pull request and latest review decision. Use it before saying anything about an issue's code, pull request or merge.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32}},"required":["identifier"],"additionalProperties":false}`},
 	{name: "list_agent_work", agentWork: true, description: "List the workspace's most recently updated coding tasks on issues the user can see, newest first: issue, task state and reason, agent, attempt, pull request and latest review decision. Use it for questions about what agents are doing, what is pending or awaiting review, or overall status; filter by state when the user asks about one.", parameters: `{"type":"object","properties":{"state":{"type":"string","enum":["queued","preparing","running","waiting_input","validating","publishing","awaiting_review","blocked","completed","failed","cancelling","cancelled"]},"limit":{"type":"integer","minimum":1,"maximum":50}},"additionalProperties":false}`},
 	{name: "merge_pull_request", agentWork: true, approval: true, description: "Ask the user to approve squash-merging the pull request of an issue's task that is awaiting review, at the commit Kuayle published. Nothing merges until the user approves in Kuayle; GitHub still enforces branch protection. Only call this when the user asked to merge.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32}},"required":["identifier"],"additionalProperties":false}`},
+	{name: "request_agent_review", agentWork: true, approval: true, description: "Ask the user to approve a coding agent reviewing the pull request Kuayle published for an issue's task awaiting review, at its published commit. Only call this when the user asked for a review; reviews never start on their own. The harness may differ from the one that implemented the task (default: the same). The reviewer never pushes; set post_to_pull_request only when the user asked to comment the findings on the pull request.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"task_id":{"type":"string","maxLength":36},"harness":{"type":"string","enum":["claude-code","codex","opencode"]},"focus":{"type":"string","maxLength":4000},"post_to_pull_request":{"type":"boolean"}},"additionalProperties":false}`},
+	{name: "follow_up_task", agentWork: true, approval: true, description: "Ask the user to approve a follow-up attempt on an issue's latest coding task, on its existing branch and pull request, for example to fix review findings. Put everything the agent must do in instructions. Only the task's creator can approve it.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"instructions":{"type":"string","minLength":1,"maxLength":16000}},"required":["identifier","instructions"],"additionalProperties":false}`},
 	{name: "link_issues", description: "Record that an issue is blocked by another issue. Only call this when the user asked to plan or order work. Cycles are refused.", write: true, parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"blocked_by":{"type":"string","maxLength":32}},"required":["identifier","blocked_by"],"additionalProperties":false}`},
 	{name: "link_repository", repositories: true, write: true, description: "Set the GitHub repository (owner/name) coding agents use for an issue, or with scope \"project\" for every issue of its project, as the development settings in Kuayle do. Only repositories linked to the workspace's GitHub installation and allowed by its Dev Machine policy can be used; the base branch defaults to the repository's default branch. Only call this when the user explicitly asked to link or change the repository.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"repository":{"type":"string","minLength":3,"maxLength":200},"base_branch":{"type":"string","minLength":1,"maxLength":255},"scope":{"type":"string","enum":["issue","project"]}},"required":["identifier","repository"],"additionalProperties":false}`},
 }
@@ -462,4 +465,123 @@ func (t *AssistantTools) prepareMerge(ctx context.Context, ws, user uuid.UUID, a
 		Identifier: issue.Identifier, Title: issue.Title, TaskID: target.TaskID, Repository: target.Repository,
 		PullRequest: target.Number, PullRequestURL: target.URL, Commit: target.Commit,
 	}, nil
+}
+
+// prepareReview binds a review request to a task awaiting review that the
+// user can see, its published pull request and commit, and the harness.
+// Missing, hidden and unpublished tasks give the same answer.
+func (t *AssistantTools) prepareReview(ctx context.Context, ws, user uuid.UUID, arguments string) (uuid.UUID, domain.ReviewPayload, error) {
+	member, err := t.members.GetMember(ctx, ws, user)
+	if err != nil || member == nil || member.Role == domain.RoleGuest {
+		return uuid.Nil, domain.ReviewPayload{}, toolFailure("you no longer have access to this workspace")
+	}
+	if t.work == nil {
+		return uuid.Nil, domain.ReviewPayload{}, toolFailure("unknown tool")
+	}
+	var input struct {
+		Identifier        string `json:"identifier"`
+		TaskID            string `json:"task_id"`
+		Harness           string `json:"harness"`
+		Focus             string `json:"focus"`
+		PostToPullRequest bool   `json:"post_to_pull_request"`
+	}
+	if err = decodeToolInput(arguments, &input); err != nil {
+		return uuid.Nil, domain.ReviewPayload{}, err
+	}
+	input.Focus = strings.TrimSpace(input.Focus)
+	if utf8.RuneCountInString(input.Focus) > 4000 || len(input.Focus) > 4000 {
+		return uuid.Nil, domain.ReviewPayload{}, toolFailure("focus must be at most 4000 characters")
+	}
+	if input.Harness != "" && !slices.Contains(ReviewHarnesses, input.Harness) {
+		return uuid.Nil, domain.ReviewPayload{}, toolFailure("invalid harness")
+	}
+	notFound := toolFailure("no pull request awaiting review was found for this task")
+	var taskID *uuid.UUID
+	if input.TaskID != "" {
+		id, err := uuid.Parse(strings.TrimSpace(input.TaskID))
+		if err != nil {
+			return uuid.Nil, domain.ReviewPayload{}, notFound
+		}
+		taskID = &id
+	}
+	identifier := strings.ToUpper(strings.TrimSpace(input.Identifier))
+	if identifier == "" && taskID == nil {
+		return uuid.Nil, domain.ReviewPayload{}, toolFailure("give the issue identifier or the task id")
+	}
+	var issue *domain.Issue
+	if identifier != "" {
+		if issue, err = t.issues.GetByIdentifier(ctx, ws, identifier); err != nil || issue == nil {
+			return uuid.Nil, domain.ReviewPayload{}, toolFailure("issue not found")
+		}
+	}
+	var issueID *uuid.UUID
+	if issue != nil {
+		issueID = &issue.ID
+	}
+	target, err := t.work.MergeTarget(ctx, ws, issueID, taskID)
+	if errors.Is(err, repository.ErrNoMergeTarget) {
+		return uuid.Nil, domain.ReviewPayload{}, notFound
+	}
+	if err != nil {
+		return uuid.Nil, domain.ReviewPayload{}, err
+	}
+	if issue == nil {
+		// Only a task id was given: the user must see its issue.
+		found, err := t.issues.GetByID(ctx, target.IssueID)
+		if err != nil || found == nil || found.WorkspaceID != ws {
+			return uuid.Nil, domain.ReviewPayload{}, notFound
+		}
+		if issue, err = t.issues.GetByIdentifier(ctx, ws, found.Identifier); err != nil || issue == nil || issue.ID != target.IssueID {
+			return uuid.Nil, domain.ReviewPayload{}, notFound
+		}
+	}
+	harness := input.Harness
+	if harness == "" {
+		harness = target.Provider
+	}
+	return issue.ID, domain.ReviewPayload{
+		Identifier: issue.Identifier, Title: issue.Title, TaskID: target.TaskID, Harness: harness, Focus: input.Focus,
+		PostToPullRequest: input.PostToPullRequest, PullRequest: target.Number, PullRequestURL: target.URL, Commit: target.Commit,
+	}, nil
+}
+
+// prepareFollowUp binds a follow-up request to the issue's newest task, its
+// current attempt and the exact instructions shown to the user.
+func (t *AssistantTools) prepareFollowUp(ctx context.Context, ws, user uuid.UUID, arguments string) (uuid.UUID, domain.FollowUpPayload, error) {
+	member, err := t.members.GetMember(ctx, ws, user)
+	if err != nil || member == nil || member.Role == domain.RoleGuest {
+		return uuid.Nil, domain.FollowUpPayload{}, toolFailure("you no longer have access to this workspace")
+	}
+	if t.work == nil {
+		return uuid.Nil, domain.FollowUpPayload{}, toolFailure("unknown tool")
+	}
+	var input struct {
+		Identifier   string `json:"identifier"`
+		Instructions string `json:"instructions"`
+	}
+	if err = decodeToolInput(arguments, &input); err != nil {
+		return uuid.Nil, domain.FollowUpPayload{}, err
+	}
+	input.Instructions = strings.TrimSpace(input.Instructions)
+	if input.Instructions == "" || utf8.RuneCountInString(input.Instructions) > 16000 {
+		return uuid.Nil, domain.FollowUpPayload{}, toolFailure("instructions must be 1 to 16000 characters")
+	}
+	issue, err := t.issues.GetByIdentifier(ctx, ws, strings.ToUpper(strings.TrimSpace(input.Identifier)))
+	if err != nil || issue == nil {
+		return uuid.Nil, domain.FollowUpPayload{}, toolFailure("issue not found")
+	}
+	target, err := t.work.FollowUpTarget(ctx, ws, issue.ID)
+	if errors.Is(err, repository.ErrNoMergeTarget) {
+		return uuid.Nil, domain.FollowUpPayload{}, toolFailure("this issue has no coding task")
+	}
+	if err != nil {
+		return uuid.Nil, domain.FollowUpPayload{}, err
+	}
+	if target.CreatorID != user {
+		return uuid.Nil, domain.FollowUpPayload{}, toolFailure("only the task's creator can ask for a follow-up")
+	}
+	if target.State != "awaiting_review" && target.State != "failed" && target.State != "blocked" {
+		return uuid.Nil, domain.FollowUpPayload{}, toolFailure("the task is %s; a follow-up can start once it awaits review, is blocked or failed", target.State)
+	}
+	return issue.ID, domain.FollowUpPayload{Identifier: issue.Identifier, Title: issue.Title, TaskID: target.TaskID, Generation: target.Generation, Instructions: input.Instructions}, nil
 }

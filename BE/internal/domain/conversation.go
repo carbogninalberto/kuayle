@@ -133,3 +133,27 @@ type MergePayload struct {
 	PullRequestURL string    `json:"pull_request_url"`
 	Commit         string    `json:"commit"`
 }
+
+// ReviewPayload binds a review approval to the task, its published pull
+// request and commit, the harness and whether to comment on the pull request.
+type ReviewPayload struct {
+	Identifier        string    `json:"identifier"`
+	Title             string    `json:"title"`
+	TaskID            uuid.UUID `json:"task_id"`
+	Harness           string    `json:"harness"`
+	Focus             string    `json:"focus,omitempty"`
+	PostToPullRequest bool      `json:"post_to_pull_request"`
+	PullRequest       int       `json:"pull_request"`
+	PullRequestURL    string    `json:"pull_request_url"`
+	Commit            string    `json:"commit"`
+}
+
+// FollowUpPayload binds a follow-up approval to the task attempt the user saw
+// and the exact instructions shown to them.
+type FollowUpPayload struct {
+	Identifier   string    `json:"identifier"`
+	Title        string    `json:"title"`
+	TaskID       uuid.UUID `json:"task_id"`
+	Generation   int64     `json:"generation"`
+	Instructions string    `json:"instructions"`
+}

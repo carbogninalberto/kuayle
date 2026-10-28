@@ -44,7 +44,7 @@ func (r *AgentTaskRepository) Queue(ctx context.Context, ws uuid.UUID) ([]AgentQ
  CASE WHEN t.machine_id IS NOT NULL THEN t.checkout_id END AS checkout_id
  FROM agent_tasks t JOIN conversations c ON c.id=t.conversation_id AND c.workspace_id=t.workspace_id JOIN issues i ON i.id=c.issue_id
  LEFT JOIN dev_machines m ON m.id=t.machine_id AND m.workspace_id=t.workspace_id AND m.status<>'destroyed'
- WHERE t.workspace_id=$1 AND t.creator_id=$2 AND c.creator_id=$2 AND `+conversationScopePredicate("c")+`
+ WHERE t.workspace_id=$1 AND t.kind='implement' AND t.creator_id=$2 AND c.creator_id=$2 AND `+conversationScopePredicate("c")+`
  ORDER BY t.updated_at DESC,t.id LIMIT 50`, ws, actor)
 	return items, err
 }

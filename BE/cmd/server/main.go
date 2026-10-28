@@ -220,6 +220,8 @@ func main() {
 	)
 	githubSvc.SetTaskReviews(repository.NewAgentTaskRepository(db))
 	assistantApprovals.SetMerging(repository.NewAgentTaskRepository(db), workspaceRepo, githubSvc)
+	assistantApprovals.SetReviews(agentTaskSvc)
+	githubSvc.SetReviewComments(repository.NewAgentTaskRepository(db))
 	taskFeedback := service.NewAgentTaskFeedback(repository.NewAgentTaskRepository(db), agentTaskSvc)
 	githubSvc.SetTaskSignals(taskFeedback)
 	commentSvc.SetTaskFeedback(taskFeedback)
@@ -304,6 +306,7 @@ func main() {
 	go agentTaskSvc.Run(conversationCtx)
 	go automationSvc.Run(conversationCtx)
 	go githubSvc.RunMergeReconciliation(conversationCtx, 2*time.Minute)
+	go githubSvc.RunReviewComments(conversationCtx, 15*time.Second)
 	go telegramSvc.Run(conversationCtx)
 
 	// Start

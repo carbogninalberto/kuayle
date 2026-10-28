@@ -327,17 +327,19 @@ type DevMachineAgentRun struct {
 	Branch                 *string                  `json:"branch,omitempty" db:"branch"`
 	PullRequestURL         *string                  `json:"pull_request_url,omitempty" db:"pull_request_url"`
 	NativeSessionID        *string                  `json:"-" db:"native_session_id"`
-	Diff                   string                   `json:"-" db:"diff"`
-	DiffTruncated          bool                     `json:"-" db:"diff_truncated"`
-	TestsRun               json.RawMessage          `json:"tests_run" db:"tests_run"`
-	TestStatus             string                   `json:"test_status" db:"test_status"`
-	RiskNotes              json.RawMessage          `json:"risk_notes" db:"risk_notes"`
-	ExitCode               *int                     `json:"exit_code,omitempty" db:"exit_code"`
-	ErrorMessage           *string                  `json:"error_message,omitempty" db:"error_message"`
-	CreatedAt              time.Time                `json:"created_at" db:"created_at"`
-	StartedAt              *time.Time               `json:"started_at,omitempty" db:"started_at"`
-	CompletedAt            *time.Time               `json:"completed_at,omitempty" db:"completed_at"`
-	CancelledAt            *time.Time               `json:"cancelled_at,omitempty" db:"cancelled_at"`
+	// SessionID is the Kuayle agent session the attempt ran in.
+	SessionID     *uuid.UUID      `json:"session_id,omitempty" db:"session_id"`
+	Diff          string          `json:"-" db:"diff"`
+	DiffTruncated bool            `json:"-" db:"diff_truncated"`
+	TestsRun      json.RawMessage `json:"tests_run" db:"tests_run"`
+	TestStatus    string          `json:"test_status" db:"test_status"`
+	RiskNotes     json.RawMessage `json:"risk_notes" db:"risk_notes"`
+	ExitCode      *int            `json:"exit_code,omitempty" db:"exit_code"`
+	ErrorMessage  *string         `json:"error_message,omitempty" db:"error_message"`
+	CreatedAt     time.Time       `json:"created_at" db:"created_at"`
+	StartedAt     *time.Time      `json:"started_at,omitempty" db:"started_at"`
+	CompletedAt   *time.Time      `json:"completed_at,omitempty" db:"completed_at"`
+	CancelledAt   *time.Time      `json:"cancelled_at,omitempty" db:"cancelled_at"`
 }
 
 type DevMachineAgentRunStep struct {

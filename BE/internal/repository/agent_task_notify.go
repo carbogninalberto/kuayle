@@ -37,7 +37,11 @@ func notifyTaskTelegram(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask)
 	if err := tx.GetContext(ctx, &detail, `SELECT i.identifier_text,i.title,(SELECT r.pull_request_url FROM dev_machine_agent_runs r JOIN dev_machine_agent_run_steps s ON s.agent_run_id=r.id AND s.sequence=1 AND s.step_type='publication' AND s.status='succeeded' WHERE r.id=$2) AS pull_request_url FROM issues i WHERE i.id=$1`, task.IssueID, task.RunID); err != nil {
 		return err
 	}
-	text := fmt.Sprintf("%s · %s: coding task %s.\n%s", detail.Identifier, detail.Title, label, task.Reason)
+	subject := "coding task"
+	if task.Kind == domain.AgentTaskKindReview {
+		subject = "agent review"
+	}
+	text := fmt.Sprintf("%s · %s: %s %s.\n%s", detail.Identifier, detail.Title, subject, label, task.Reason)
 	if detail.PullRequest != nil && *detail.PullRequest != "" {
 		text += "\nPull request: " + *detail.PullRequest
 	}

@@ -73,7 +73,7 @@ func (r *IssueDependencyRepository) RelatedWork(ctx context.Context, issue uuid.
   UNION ALL SELECT s.id, 'sibling' FROM me JOIN issues s ON me.parent_id IS NOT NULL AND s.parent_id=me.parent_id AND s.id<>me.id
   UNION ALL SELECT d.blocker_id, 'blocker' FROM me JOIN `+issueBlockerEdges+` d ON d.blocked_id=me.id WHERE d.blocker_id<>me.id)
  SELECT DISTINCT ON (i.id) i.identifier_text AS identifier, i.title, r.relation, COALESCE(st.name, i.status) AS status,
-  (SELECT t.state FROM agent_tasks t WHERE t.issue_id=i.id ORDER BY t.created_at DESC LIMIT 1) AS task_state,
+  (SELECT t.state FROM agent_tasks t WHERE t.issue_id=i.id AND t.kind='implement' ORDER BY t.created_at DESC LIMIT 1) AS task_state,
   (SELECT g.ref_name FROM dev_machine_git_refs g WHERE g.issue_id=i.id AND g.ref_type='branch' ORDER BY g.created_at DESC LIMIT 1) AS branch,
   (SELECT g.url FROM dev_machine_git_refs g WHERE g.issue_id=i.id AND g.ref_type='pull_request' ORDER BY g.created_at DESC LIMIT 1) AS pull_request_url
  FROM related r JOIN issues i ON i.id=r.id JOIN me ON i.team_id=me.team_id LEFT JOIN team_statuses st ON st.id=i.status_id

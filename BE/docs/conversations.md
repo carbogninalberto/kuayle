@@ -178,7 +178,9 @@ streaming, history, denied access, mobile layout and long transcript scrolling.
 The worker offers OpenAI-compatible function tools: `list_teams`,
 `search_issues`, `get_issue`, `create_issue`, `update_issue` (title, description,
 status or priority; assignees are not changed), `delegate_issue`, `plan_issues` and `link_issues` (see [dependencies and collaborating agents](agent-tasks.md#dependencies-and-collaborating-agents)),
-`get_agent_work`, `list_agent_work`, `merge_pull_request` and `link_repository`.
+`get_agent_work`, `list_agent_work`, `merge_pull_request`, `request_agent_review`,
+`follow_up_task` (see [requested agent reviews](agent-tasks.md#requested-agent-reviews))
+and `link_repository`.
 `create_issue` accepts a `parent_identifier`. The write tools (`create_issue`,
 `update_issue`, `link_issues` and `link_repository`) count toward the per-reply
 change limit. The model only proposes calls.
@@ -276,6 +278,10 @@ composition (Item with Deny/Approve; instructions as escaped Code Block text)
 and resolved states as Trace lines; stale copies never reopen a decision.
 Telegram delivers pending approvals with inline Approve/Deny buttons that use
 this same resolution path; see [Telegram approval buttons](telegram.md#approval-buttons).
+
+`request_agent_review` and `follow_up_task` use the same approval path (migration
+84 extends the allowed actions); their effects and re-checks are described in
+[requested agent reviews](agent-tasks.md#requested-agent-reviews).
 
 ## Images
 

@@ -747,6 +747,12 @@ func telegramApprovalAnswer(approval *domain.ConversationApproval, err error) (s
 	}
 	switch approval.Status {
 	case "approved":
+		switch approval.Action {
+		case "request_agent_review":
+			return "Approved: the agent review is starting.", true
+		case "follow_up_task":
+			return "Approved: the follow-up is starting.", true
+		}
 		return "Approved: the coding agent is starting.", true
 	case "denied":
 		return "Denied.", true

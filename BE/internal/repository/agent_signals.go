@@ -127,7 +127,7 @@ func (r *AgentTaskRepository) recordSignal(ctx context.Context, id, ws uuid.UUID
 // A comment is recorded once, and replaying it resumes the same request ID.
 func (r *AgentTaskRepository) RecordCommentSignal(ctx context.Context, ws, issue, comment, author uuid.UUID, summary string) (*domain.AgentTaskFollowUp, error) {
 	var id uuid.UUID
-	err := r.db.GetContext(ctx, &id, `SELECT id FROM agent_tasks WHERE workspace_id=$1 AND issue_id=$2 ORDER BY created_at DESC,id LIMIT 1`, ws, issue)
+	err := r.db.GetContext(ctx, &id, `SELECT id FROM agent_tasks WHERE workspace_id=$1 AND issue_id=$2 AND kind='implement' ORDER BY created_at DESC,id LIMIT 1`, ws, issue)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}

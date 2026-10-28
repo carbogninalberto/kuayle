@@ -34,7 +34,7 @@ func (r *AgentTaskRepository) Page(ctx context.Context, ws, conversation uuid.UU
 		}
 	}
 	result := &domain.AgentTaskPage{Tasks: []domain.AgentTask{}}
-	err = tx.SelectContext(ctx, &result.Tasks, `SELECT * FROM agent_tasks WHERE conversation_id=$1 AND ($2::uuid IS NULL OR (created_at,id)<(SELECT created_at,id FROM agent_tasks WHERE id=$2 AND conversation_id=$1)) ORDER BY created_at DESC,id DESC LIMIT 26`, conversation, before)
+	err = tx.SelectContext(ctx, &result.Tasks, `SELECT * FROM agent_tasks WHERE conversation_id=$1 AND kind='implement' AND ($2::uuid IS NULL OR (created_at,id)<(SELECT created_at,id FROM agent_tasks WHERE id=$2 AND conversation_id=$1)) ORDER BY created_at DESC,id DESC LIMIT 26`, conversation, before)
 	if err != nil {
 		return nil, err
 	}

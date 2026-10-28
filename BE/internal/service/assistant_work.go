@@ -49,6 +49,9 @@ func (t *AssistantTools) listAgentWork(ctx context.Context, ws uuid.UUID, argume
 		if item.Review != nil {
 			task["review"] = *item.Review
 		}
+		if item.AgentReview != nil {
+			task["agent_review"] = *item.AgentReview
+		}
 		tasks = append(tasks, task)
 	}
 	// Drop the oldest entries rather than failing when the list is too large.

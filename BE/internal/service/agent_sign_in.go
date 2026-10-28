@@ -18,7 +18,7 @@ import (
 // their machine's terminal yet.
 var ErrSignInNotFound = errors.New("no agent sign-in was found in the machine's terminal")
 
-var agentDisplayNames = map[string]string{"claude-code": "Claude Code", "codex": "Codex"}
+var agentDisplayNames = map[string]string{"claude-code": "Claude Code", "codex": "Codex", "opencode": "OpenCode"}
 
 // signInWait bounds how long continuing after sign-in waits for the manager
 // to read the sign-in from the terminal.

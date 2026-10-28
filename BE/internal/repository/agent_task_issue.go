@@ -49,6 +49,10 @@ func (r *AgentTaskRepository) Start(ctx context.Context, claimed domain.AgentTas
 	if err = transitionAgentTask(ctx, tx, task, "running", "Native coding harness started", nil); err != nil {
 		return nil, err
 	}
+	// A review reads the published work; it never moves the issue.
+	if task.Kind == domain.AgentTaskKindReview {
+		return nil, tx.Commit()
+	}
 	var target struct {
 		ID      uuid.UUID `db:"id"`
 		Slug    string    `db:"slug"`

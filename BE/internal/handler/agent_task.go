@@ -118,6 +118,20 @@ func (h *AgentTaskHandler) Get(c echo.Context) error {
 	}
 	return response.Success(c, http.StatusOK, result)
 }
+
+// Sessions lists the task's agent session and the review sessions of its
+// published work, read-only, under the task's current authorization.
+func (h *AgentTaskHandler) Sessions(c echo.Context) error {
+	id, err := taskID(c, "taskId")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	result, err := h.svc.Sessions(c.Request().Context(), middleware.GetWorkspace(c).ID, id)
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	return response.Success(c, http.StatusOK, result)
+}
 func (h *AgentTaskHandler) Cancel(c echo.Context) error {
 	id, err := taskID(c, "taskId")
 	if err != nil {

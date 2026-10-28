@@ -23,7 +23,7 @@ func (r *AgentTaskRepository) EnsureValidation(ctx context.Context, claimed doma
 	if err = fenceAgentTask(ctx, tx, *task, claimed); err != nil {
 		return nil, err
 	}
-	if task.State != "validating" || task.MachineID == nil {
+	if task.State != "validating" || task.MachineID == nil || task.Kind == domain.AgentTaskKindReview {
 		return nil, ErrAgentTaskConflict
 	}
 	var run domain.DevMachineAgentRun

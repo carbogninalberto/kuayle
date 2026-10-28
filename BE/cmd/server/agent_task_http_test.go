@@ -114,6 +114,12 @@ func TestAgentTaskHTTPPrivateControlsAndRecovery(t *testing.T) {
 	var history domain.AgentTaskHistory
 	request("GET", taskPath+"/history", "", token, 200, &history)
 	require.Len(t, history.Transitions, 1)
+	var sessions domain.AgentTaskSessions
+	request("GET", taskPath+"/sessions", "", token, 200, &sessions)
+	require.Len(t, sessions.Sessions, 1, "a new task has its implement session")
+	require.Equal(t, "implement", sessions.Sessions[0].Purpose)
+	require.Equal(t, "created", sessions.Sessions[0].State)
+	require.Nil(t, sessions.Sessions[0].Review)
 	var runs domain.AgentTaskRuns
 	request("GET", taskPath+"/runs", "", token, 200, &runs)
 	require.Empty(t, runs.Runs)
@@ -134,7 +140,7 @@ func TestAgentTaskHTTPPrivateControlsAndRecovery(t *testing.T) {
 	for _, auth := range []string{tokenFor(other), tokenFor(guest)} {
 		request("POST", path, body, auth, 404, nil)
 		request("GET", optionsPath, "", auth, 404, nil)
-		for _, suffix := range []string{"", "/history", "/runs", "/runs/" + task.RunID.String() + "/logs"} {
+		for _, suffix := range []string{"", "/history", "/sessions", "/runs", "/runs/" + task.RunID.String() + "/logs"} {
 			request("GET", taskPath+suffix, "", auth, 404, nil)
 		}
 		request("POST", taskPath+"/cancel", "", auth, 404, nil)
@@ -143,7 +149,7 @@ func TestAgentTaskHTTPPrivateControlsAndRecovery(t *testing.T) {
 	raw, hash, prefix, err := domain.GenerateToken()
 	require.NoError(t, err)
 	require.NoError(t, tokens.Create(context.Background(), &domain.PersonalAccessToken{ID: uuid.New(), UserID: user, Name: "Task routes denied", Scopes: []string{"dev_machine:read", "dev_machine:create", "dev_machine:manage", "issues:read"}, TokenHash: hash, TokenPrefix: prefix}))
-	guarded := []struct{ method, path, body string }{{"POST", path, body}, {"GET", path, ""}, {"GET", optionsPath, ""}, {"GET", taskPath, ""}, {"GET", taskPath + "/history", ""}, {"GET", taskPath + "/runs", ""}, {"GET", taskPath + "/runs/" + task.RunID.String() + "/logs", ""}, {"POST", taskPath + "/cancel", ""}, {"POST", taskPath + "/retry", `{}`}}
+	guarded := []struct{ method, path, body string }{{"POST", path, body}, {"GET", path, ""}, {"GET", optionsPath, ""}, {"GET", taskPath, ""}, {"GET", taskPath + "/history", ""}, {"GET", taskPath + "/sessions", ""}, {"GET", taskPath + "/runs", ""}, {"GET", taskPath + "/runs/" + task.RunID.String() + "/logs", ""}, {"POST", taskPath + "/cancel", ""}, {"POST", taskPath + "/retry", `{}`}}
 	for _, route := range guarded {
 		request(route.method, route.path, route.body, raw, 403, nil)
 	}

@@ -164,7 +164,7 @@ func (r *AgentTaskRepository) List(ctx context.Context, ws, conversation uuid.UU
 	}
 	defer tx.Rollback()
 	tasks := []domain.AgentTask{}
-	err = tx.SelectContext(ctx, &tasks, `SELECT * FROM agent_tasks WHERE conversation_id=$1 ORDER BY created_at DESC,id LIMIT 100`, conversation)
+	err = tx.SelectContext(ctx, &tasks, `SELECT * FROM agent_tasks WHERE conversation_id=$1 AND kind='implement' ORDER BY created_at DESC,id LIMIT 100`, conversation)
 	return tasks, err
 }
 func (r *AgentTaskRepository) Transitions(ctx context.Context, ws, id uuid.UUID) ([]domain.AgentTaskTransition, error) {
@@ -186,7 +186,7 @@ func (r *AgentTaskRepository) Claim(ctx context.Context) (*domain.AgentTask, err
 	err := r.db.GetContext(ctx, &task, `WITH candidate AS (
  SELECT id FROM agent_tasks WHERE state NOT IN ('completed','cancelled','failed','blocked','awaiting_review')
  AND next_poll_at<=now() AND (lease_expires_at IS NULL OR lease_expires_at<=now())
- AND NOT (state='queued' AND `+openBlockersExist("agent_tasks.issue_id")+`)
+ AND NOT (state='queued' AND kind='implement' AND `+openBlockersExist("agent_tasks.issue_id")+`)
  ORDER BY next_poll_at,created_at,id FOR UPDATE SKIP LOCKED LIMIT 1)
  UPDATE agent_tasks t SET lease_token=gen_random_uuid(),lease_expires_at=now()+interval '30 seconds'
  FROM candidate c WHERE t.id=c.id RETURNING t.*`)
@@ -211,6 +211,12 @@ func fenceAgentTask(ctx context.Context, tx *sqlx.Tx, current, claimed domain.Ag
 func recordAgentTaskTransition(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask, from string, actor *uuid.UUID) error {
 	_, err := tx.ExecContext(ctx, `INSERT INTO agent_task_transitions(task_id,from_state,to_state,actor_id,reason) VALUES($1,$2,$3,$4,$5)`, task.ID, from, task.State, actor, task.Reason)
 	if err != nil {
+		return err
+	}
+	if err = syncAgentSession(ctx, tx, task); err != nil {
+		return err
+	}
+	if err = reviewUpdated(ctx, tx, task); err != nil {
 		return err
 	}
 	if task.ConversationID != nil {
@@ -287,7 +293,7 @@ func purgeTaskSession(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask) e
 	})
 }
 func transitionAgentTask(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, to, reason string, actor *uuid.UUID) error {
-	if !domain.ValidAgentTaskTransition(task.State, to) || len(reason) > 2048 || strings.TrimSpace(reason) == "" {
+	if !domain.ValidAgentTaskKindTransition(task.Kind, task.State, to) || len(reason) > 2048 || strings.TrimSpace(reason) == "" {
 		return ErrAgentTaskConflict
 	}
 	from := task.State
@@ -816,7 +822,9 @@ func (r *AgentTaskRepository) Retry(ctx context.Context, ws, id uuid.UUID, req d
 	if previous, err := replayAgentTaskRetry(ctx, tx, task, req); err != nil || previous != nil {
 		return previous, err
 	}
-	if task.Generation != req.Generation || (task.State != "failed" && task.State != "blocked" && task.State != "awaiting_review") {
+	// A review is requested again rather than retried, which pins it to the
+	// commit published at that time.
+	if task.Kind == domain.AgentTaskKindReview || task.Generation != req.Generation || (task.State != "failed" && task.State != "blocked" && task.State != "awaiting_review") {
 		return nil, ErrAgentTaskConflict
 	}
 	var pending bool

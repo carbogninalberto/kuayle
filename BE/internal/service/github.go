@@ -60,6 +60,10 @@ type GitHubService struct {
 	pullRequestMerged func(ctx context.Context, workspaceID uuid.UUID, repository string, number int) (bool, error)
 	// mergePullRequest merges through the GitHub App; replaced in tests.
 	mergePullRequest func(ctx context.Context, workspaceID uuid.UUID, repository string, number int, sha string) error
+	// reviewComments supplies requested agent review comments to post.
+	reviewComments reviewCommentStore
+	// postReviewComment comments through the GitHub App; replaced in tests.
+	postReviewComment func(ctx context.Context, workspaceID uuid.UUID, repository string, number int, marker, body string) error
 }
 
 type mergedPullRequestCompleter interface {

@@ -196,6 +196,10 @@ func (f *mergeWorkFake) MergeTarget(_ context.Context, _ uuid.UUID, _, _ *uuid.U
 	return &copy, nil
 }
 
+func (f *mergeWorkFake) FollowUpTarget(context.Context, uuid.UUID, uuid.UUID) (*repository.FollowUpTarget, error) {
+	return nil, repository.ErrNoMergeTarget
+}
+
 type mergerFake struct {
 	err    error
 	merged []string

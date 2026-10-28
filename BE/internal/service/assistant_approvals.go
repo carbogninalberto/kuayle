@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -26,6 +27,21 @@ type AssistantApprovals struct {
 	targets approvalMergeTargets
 	members assistantMemberRepo
 	merger  approvalMerger
+	// Reviews and follow-ups are unavailable until SetReviews wires them.
+	reviews approvalReviews
+}
+
+type approvalReviews interface {
+	Options(ctx context.Context, ws, conversation uuid.UUID) (*AgentTaskOptions, error)
+	RequestReview(ctx context.Context, ws, conversation, reviewed uuid.UUID, input domain.AgentReviewRequest) (*domain.AgentTask, *domain.AgentReview, error)
+	Get(ctx context.Context, ws, id uuid.UUID) (*domain.AgentTask, error)
+	Retry(ctx context.Context, ws, id uuid.UUID, input domain.AgentTaskRetryRequest) (*domain.AgentTask, error)
+}
+
+// SetReviews enables approving request_agent_review and follow_up_task. It
+// needs SetMerging's merge targets to pin a review to the published commit.
+func (s *AssistantApprovals) SetReviews(reviews approvalReviews) {
+	s.reviews = reviews
 }
 
 type approvalMergeTargets interface {
@@ -52,8 +68,13 @@ func (s *AssistantApprovals) Resolve(ctx context.Context, ws, conversation, id u
 	if err != nil || approval.Status != "approving" {
 		return approval, err
 	}
-	if approval.Action == "merge_pull_request" {
+	switch approval.Action {
+	case "merge_pull_request":
 		return s.merge(ctx, ws, conversation, approval)
+	case "request_agent_review":
+		return s.review(ctx, ws, conversation, approval)
+	case "follow_up_task":
+		return s.followUp(ctx, ws, conversation, approval)
 	}
 	var payload domain.DelegationPayload
 	if approval.Action != "delegate_issue" || json.Unmarshal(approval.Payload, &payload) != nil {
@@ -149,4 +170,100 @@ func (s *AssistantApprovals) merge(ctx context.Context, ws, conversation uuid.UU
 		return nil, err
 	}
 	return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, &target.TaskID, "")
+}
+
+// review starts an approved review as the approver, pinned to the commit the
+// user saw. The task must still await review; the harness must be allowed.
+func (s *AssistantApprovals) review(ctx context.Context, ws, conversation uuid.UUID, approval *domain.ConversationApproval) (*domain.ConversationApproval, error) {
+	var payload domain.ReviewPayload
+	if s.reviews == nil || s.targets == nil || json.Unmarshal(approval.Payload, &payload) != nil {
+		return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, "This approval cannot be executed")
+	}
+	target, err := s.targets.MergeTarget(ctx, ws, nil, &payload.TaskID)
+	if errors.Is(err, repository.ErrNoMergeTarget) {
+		return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, "The task is no longer awaiting review")
+	}
+	if err != nil {
+		return nil, err
+	}
+	if target.IssueID != approval.IssueID || target.Commit != payload.Commit || target.Number != payload.PullRequest {
+		return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, "The pull request changed after approval was requested; ask again")
+	}
+	chat, err := s.conversations.OpenIssue(ctx, ws, approval.IssueID)
+	if err != nil {
+		if message, permanent := delegationFailure(err); permanent {
+			return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, message)
+		}
+		return nil, err
+	}
+	options, err := s.reviews.Options(ctx, ws, chat.ID)
+	if err != nil {
+		if message, permanent := delegationFailure(err); permanent {
+			return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, message)
+		}
+		return nil, err
+	}
+	allowed := false
+	for _, provider := range options.Providers {
+		allowed = allowed || provider.ID == payload.Harness
+	}
+	if !allowed {
+		return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, "That coding agent is not available in this workspace")
+	}
+	request := domain.AgentReviewRequest{RequestID: approval.RequestID, Provider: payload.Harness, Focus: payload.Focus, PostToPullRequest: payload.PostToPullRequest, ExpectedCommit: payload.Commit}
+	for _, server := range options.ModelServers {
+		if server.IsDefault && containsString(server.Harnesses, request.Provider) {
+			request.Model, request.Thinking = server.DefaultModel, server.Thinking
+		}
+	}
+	task, _, err := s.reviews.RequestReview(ctx, ws, chat.ID, payload.TaskID, request)
+	switch {
+	case errors.Is(err, repository.ErrNoReviewTarget):
+		return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, "The task is no longer awaiting review")
+	case errors.Is(err, repository.ErrReviewTargetChanged):
+		return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, "The pull request changed after approval was requested; ask again")
+	case err != nil:
+		if message, permanent := delegationFailure(err); permanent {
+			return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, message)
+		}
+		return nil, err
+	}
+	return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, &task.ID, "")
+}
+
+// followUp queues an approved follow-up attempt on the task the user saw, as
+// its creator, through the same retry path as review feedback.
+func (s *AssistantApprovals) followUp(ctx context.Context, ws, conversation uuid.UUID, approval *domain.ConversationApproval) (*domain.ConversationApproval, error) {
+	var payload domain.FollowUpPayload
+	if s.reviews == nil || json.Unmarshal(approval.Payload, &payload) != nil {
+		return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, "This approval cannot be executed")
+	}
+	task, err := s.reviews.Get(ctx, ws, payload.TaskID)
+	if err == nil && task.IssueID != approval.IssueID {
+		err = repository.ErrConversationNotFound
+	}
+	if err == nil {
+		task, err = s.reviews.Retry(ctx, ws, payload.TaskID, domain.AgentTaskRetryRequest{RequestID: approval.RequestID, Generation: payload.Generation, Prompt: chatFollowUpPrompt(task.Prompt, payload.Instructions)})
+	}
+	if err != nil {
+		if errors.Is(err, repository.ErrConversationNotFound) || errors.Is(err, repository.ErrAgentTaskUnauthorized) {
+			return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, "Only the task's creator can start a follow-up")
+		}
+		if errors.Is(err, repository.ErrAgentTaskConflict) || errors.Is(err, repository.ErrConversationConflict) {
+			return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, "The task changed after approval was requested; ask again")
+		}
+		if message, permanent := delegationFailure(err); permanent {
+			return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, message)
+		}
+		return nil, err
+	}
+	return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, &task.ID, "")
+}
+
+// chatFollowUpPrompt keeps the task's original instructions and replaces any
+// earlier follow-up section with the instructions the user approved.
+func chatFollowUpPrompt(prompt, instructions string) string {
+	base, _, _ := strings.Cut(prompt, followUpMarker)
+	base = truncateRunes(base, 16000)
+	return base + followUpMarker + "Kuayle chat:\nThe user approved this follow-up in Kuayle's assistant. Continue on the existing branch and pull request:\n\n" + truncateRunes(instructions, 16000)
 }

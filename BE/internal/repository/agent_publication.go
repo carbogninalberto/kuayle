@@ -22,7 +22,7 @@ func (r *AgentTaskRepository) EnsurePublication(ctx context.Context, claimed dom
 	if err = fenceAgentTask(ctx, tx, *task, claimed); err != nil {
 		return nil, err
 	}
-	if task.State != publicationPhase.state || task.MachineID == nil {
+	if task.State != publicationPhase.state || task.MachineID == nil || task.Kind == domain.AgentTaskKindReview {
 		return nil, ErrAgentTaskConflict
 	}
 	step := &domain.DevMachineAgentRunStep{}

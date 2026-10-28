@@ -301,6 +301,125 @@ as the webhook, so both paths converge and neither completes a task twice. A
 pull request that cannot be checked is retried on the next pass without
 blocking the others.
 
+## Agent sessions
+
+Migration 84 adds `agent_sessions`. Each task has exactly one session
+(`task_id` is unique): `purpose` is `implement` for a coding task and `review`
+for a requested review. Follow-up attempts reuse the implement session; native
+resume itself stays as described in
+[native session resume](#native-session-resume-and-handoff). The session's
+state is derived in one place, `syncAgentSession`, called by every task
+transition inside the transition's transaction:
+
+| Task state | Session state |
+| --- | --- |
+| `queued` | `created` (first attempt) or `starting` (follow-up) |
+| `preparing` | `starting` |
+| `running` | `active` |
+| `waiting_input` | `waiting_input` |
+| `validating`, `publishing`, `awaiting_review`, `blocked` | `suspended` (the harness exited; a follow-up can resume it) |
+| `completed`, `failed`, `cancelled` | the same, with `ended_at` |
+| `cancelling` | unchanged until cleanup settles |
+
+The session records the task's current machine and the harness's native
+session ID from the current attempt (Claude Code's Kuayle-assigned
+`--session-id`, Codex's `thread_id`), picked up at the next transition; it is
+the latest recorded ID, not a history. `dev_machine_agent_runs.session_id`
+links each attempt, set when the run is created in the fenced run transaction.
+Existing tasks were backfilled with a derived implement session and their
+attempts linked. Every query filters by workspace.
+
+`GET /agent-tasks/:taskId/sessions` (session-only, task creator) returns
+`{sessions: [...]}`: the task's own session and the review sessions of its
+published work, newest first, each with `task_state` and, for reviews, the
+review record. The task card shows them in its execution details (harness
+logo, purpose, state) and shows reviews as review cards.
+
+## Requested agent reviews
+
+A review runs only when the user asks for it in chat; nothing starts one
+automatically. The assistant tool `request_agent_review` takes an issue
+identifier and/or a task ID, an optional harness (`claude-code`, `codex`,
+`opencode`; default the implementing task's harness, and a different one may be
+chosen), optional focus instructions (4,000 bytes) and `post_to_pull_request`
+(default false). Like other approval tools it only records an approval bound to
+the task, its published pull request and commit, the harness and the posting
+choice; the user approves in the web chat or Telegram.
+
+Preparing the request requires a non-guest member who can see the issue
+(missing, hidden and unpublished tasks give the same answer). Approval
+re-checks that the task still awaits review at the same commit, opens the
+approver's own issue conversation, requires the harness to be allowed by the
+workspace policy and the provider/model checks of any coding task, and calls
+`CreateReview` under the conversation transaction. The task must be an
+implementing task in `awaiting_review` with a pull request and commit Kuayle
+published for its current attempt (the same records as `MergeTarget`). A
+request is idempotent per (task, published commit, harness): it returns the
+existing review unless that one failed or was cancelled, in which case a new
+`attempt` starts. Replaying the approval's request ID returns its review.
+
+A review is an `agent_tasks` row with `kind='review'` and `review_of_task_id`,
+created by the approver in their issue conversation, with an `agent_reviews`
+record (task, commit, repository, pull request, base branch, focus, posting
+choice). It reuses the whole task pipeline (machine reservation and reuse
+within the user's caps, its own task-scoped worktree and branch, native
+execution, cancellation and transcript purge) with these differences:
+
+- Its transitions never include `validating`, `publishing` or
+  `awaiting_review`; a succeeded harness goes from `running` to `completed`.
+  `EnsureValidation` and `EnsurePublication` refuse review tasks, so no
+  publication operation can be queued for one.
+- Its attempt is created without push (like every task attempt) and the run
+  repository refuses a review run with `push_branch` or `open_pull_request`.
+  The manager adds `GITHUB_TOKEN` only to runs that push, so the reviewer
+  never receives a GitHub credential; the checkout's credential helper has
+  nothing to read. Any edits it makes stay in its own worktree and are never
+  committed or pushed.
+- It never moves the issue's status, is not resumed or retried (`Retry`
+  refuses it; the user requests a new review), and is excluded from task
+  lists, the queue, agent work, merge targets and comment feedback. A queued
+  review is not held back by the issue's blockers.
+
+The prompt gives the published commit, branch and base, asks the reviewer to
+check out the commit detached (its objects are in the machine's repository
+cache after the checkout's fetch), review `git diff origin/<base>...HEAD`, not
+change anything, and end with `Verdict: approve | request_changes | comment`
+and a Markdown list of findings. When the attempt succeeds, `CompleteReview`
+reads the attempt's recorded summary (the harness's final message, already
+capped at 4,000 bytes by the provider parser), normalizes the verdict
+(`unknown` when missing; never treated as approval), stores findings as
+bounded valid UTF-8 (16 KiB column limit) and completes the review in one
+fenced transaction. Every review transition emits `task.review_updated` to the
+reviewed task's conversation, so its card refreshes.
+
+If the user asked to post, the comment becomes due once the review completes.
+The API process claims due comments every 15 seconds with a two-minute lease
+(at most five attempts), re-checks that the requester is still a non-guest
+member, and posts one issue comment through the GitHub App with a hidden
+`kuayle-agent-review` marker; `EnsurePullRequestComment` looks for that marker
+first, so a retry never duplicates it. The body quotes the findings with
+mentions neutralized and states it is not an approval. Kuayle never submits a
+GitHub review (approve or request changes).
+
+To act on findings, the assistant's `follow_up_task` tool requests approval for
+a follow-up on the issue's newest implementing task (only its creator, while it
+awaits review, is blocked or failed), bound to its attempt generation. Approval
+uses the existing retry path with the original instructions plus a
+`Follow-up from Kuayle chat` section containing the approved instructions.
+`get_agent_work` and `list_agent_work` include the latest review
+(`agent_review`: state, harness, verdict, commit, the start of the findings
+and the comment state).
+
+The task card's "Request review" menu (allowed harnesses, implementer first)
+only writes "Review ENG-12 with Codex" into the chat composer; chat remains the
+only way to request one. A review requested by another member appears on the
+creator's task card; its full logs belong to the requester's review task.
+
+Limitations: reviewer output parsing and the detached checkout were exercised
+with fakes and fixtures, not against a real machine and harness. The review
+worktree branch is created from the base branch and the reviewer checks out the
+published commit itself. Rollback refuses retained review tasks.
+
 ## Authorization and side effects
 
 Tasks belong to their creator's private issue conversation and original team.
@@ -573,6 +692,8 @@ and cancellation remain available to authorized users.
   downloads one.
 - `GET /agent-tasks/:taskId/runs/:runId/publication` returns `{step, branch,
   pull_request_url}`; `pull_request_url` is present only for a succeeded step.
+- `GET /agent-tasks/:taskId/sessions` returns the task's agent sessions and the
+  review sessions of its published work ([agent sessions](#agent-sessions)).
 
 Paths are workspace-relative. Task/attempt pages contain 25 entries and an
 optional `next_before` UUID; history/log pages contain 100 entries and an optional
