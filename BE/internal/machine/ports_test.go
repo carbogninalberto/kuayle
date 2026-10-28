@@ -163,13 +163,20 @@ func TestParsePortScanReadsOnlyListeningSockets(t *testing.T) {
 		"   1: 0100007F:0BB8 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 2 1 0000000000000000 100 0 0 10 0",
 		"   2: 0100007F:0BB8 0100007F:A1B2 01 00000000:00000000 00:00000000 00000000  1000        0 3 1 0000000000000000 100 0 0 10 0",
 		"   0: 00000000000000000000000000000000:1435 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000  1000 0 4",
+		"   3: 0B00007F:89FD 00000000:0000 0A 00000000:00000000 00:00000000 00000000  0 0 5",
+		"   4: 00000000000000000000000001000000:1389 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000  1000 0 6",
+		"   5: 0000000000000000FFFF00000100007F:1771 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000  1000 0 7",
+		"   6: 00000000:1389 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000 0 8",
 		"   9: garbage line",
 		"R expose-3000.json " + "eyJwb3J0IjozMDAwfQ==",
 		"R unexpose-5173 ",
 		"R expose-4000.json !!!not-base64",
 	}, "\n")
 	scan := parsePortScan(output)
-	require.Equal(t, []int{3000, 5173, 8080}, scan.Listening, "LISTEN sockets on any address, deduplicated and sorted")
+	// Loopback listeners (127.0.0.0/8, ::1, ::ffff:127.x) cannot be reached
+	// through the gateway: 3000 and 6001 are dropped, 5001 also listens on
+	// all addresses.
+	require.Equal(t, []int{5001, 5173, 8080}, scan.Listening, "reachable LISTEN sockets, deduplicated and sorted")
 	require.Equal(t, []PortRequest{request("expose-3000.json", `{"port":3000}`), request("unexpose-5173", "")}, scan.Requests)
 }
 
@@ -242,6 +249,7 @@ func TestPortScanAppliesAgentRequestsAndPublishesTheState(t *testing.T) {
 		{Port: 5173, URL: "https://0123456789abcdef0123-5173.machines.example.test", Source: "user"},
 	}, sortedPorts(state.Ports))
 	require.Equal(t, []int{3000, 5173}, state.Listening)
+	require.Equal(t, []int{7681, 8080}, state.Reserved, "kuayle-ports hides the machine's own services")
 	reasons := map[int]string{}
 	for _, refusal := range state.Refused {
 		reasons[refusal.Port] = refusal.Reason

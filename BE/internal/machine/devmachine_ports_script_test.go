@@ -17,7 +17,10 @@ import (
 const procListen = "  sl  local_address rem_address   st\n" +
 	"   0: 00000000:0BB8 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000 0 1\n" +
 	"   1: 00000000:1F90 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000 0 2\n" +
-	"   2: 0100007F:0BB8 0100007F:A1B2 01 00000000:00000000 00:00000000 00000000  1000 0 3\n"
+	"   2: 0100007F:0BB8 0100007F:A1B2 01 00000000:00000000 00:00000000 00000000  1000 0 3\n" +
+	"   3: 00000000:1E01 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000 0 4\n" +
+	"   4: 0100007F:1388 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000 0 5\n" +
+	"   5: 0B00007F:89FD 00000000:0000 0A 00000000:00000000 00:00000000 00000000  0 0 6\n"
 
 type portsScript struct {
 	t     *testing.T
@@ -79,11 +82,14 @@ func (s *portsScript) answer(name, state string) chan []byte {
 
 func TestKuaylePortsListsListeningPortsWithTheirURLs(t *testing.T) {
 	script := newPortsScript(t)
-	script.writeState(`{"ports":[{"port":3000,"label":"web","url":"https://abc-3000.machines.test","source":"agent"},{"port":5173,"url":"https://abc-5173.machines.test","source":"user"}],"listening":[3000],"refused":[],"updated_at":"2026-10-28T10:00:00Z"}`)
+	script.writeState(`{"ports":[{"port":3000,"label":"web","url":"https://abc-3000.machines.test","source":"agent"},{"port":5173,"url":"https://abc-5173.machines.test","source":"user"}],"listening":[3000],"reserved":[7681],"refused":[],"updated_at":"2026-10-28T10:00:00Z"}`)
 	out, _, code := script.run()
 	require.Zero(t, code)
 	require.Contains(t, out, "3000    https://abc-3000.machines.test (agent)")
 	require.Contains(t, out, "8080    listening, not exposed")
+	require.NotContains(t, out, "7681", "the machine's own services are not offered")
+	require.Contains(t, out, "5000    localhost only: bind to 0.0.0.0 to expose it")
+	require.NotContains(t, out, "35325", "Docker's DNS resolver is not an app")
 	require.Contains(t, out, "5173    https://abc-5173.machines.test (not listening)")
 	require.Equal(t, 1, strings.Count(out, "3000 "), "the established connection is not a listener")
 }

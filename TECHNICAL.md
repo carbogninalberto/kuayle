@@ -187,8 +187,12 @@ re-run the role setup after upgrading.
 
 The machine manager scans each running machine's developer container every 15
 seconds (and around task previews): LISTEN sockets of `/proc/net/tcp` and
-`/proc/net/tcp6` on any address, without service ports, are stored in
-`dev_machines.listening_ports` and `listening_ports_at`.
+`/proc/net/tcp6`, without service ports, are stored in
+`dev_machines.listening_ports` and `listening_ports_at`. Loopback listeners
+(127.0.0.0/8, `::1`, `::ffff:127.x`) are left out because the gateway reaches
+the container over its network address; `kuayle-ports` lists them as "localhost
+only" so the app can be restarted bound to `0.0.0.0`. The state file also lists
+the machine's service ports as `reserved`, which `kuayle-ports` hides.
 
 Agents and people in the developer container use `kuayle-ports` (IDE and
 headless images): `kuayle-ports [list]` shows listening ports and their URLs,

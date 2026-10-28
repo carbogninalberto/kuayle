@@ -77,8 +77,8 @@ func parsePortScan(output string) PortScan {
 		if len(fields) < 4 || fields[3] != "0A" || !strings.HasSuffix(fields[0], ":") {
 			continue
 		}
-		_, hexPort, ok := strings.Cut(fields[1], ":")
-		if !ok || len(hexPort) != 4 {
+		address, hexPort, ok := strings.Cut(fields[1], ":")
+		if !ok || len(hexPort) != 4 || loopbackAddress(address) {
 			continue
 		}
 		port, err := strconv.ParseUint(hexPort, 16, 16)
@@ -90,6 +90,21 @@ func parsePortScan(output string) PortScan {
 	}
 	slices.Sort(scan.Listening)
 	return scan
+}
+
+// loopbackAddress reports whether a /proc/net/tcp{,6} local address (hex,
+// little-endian words) is loopback: 127.0.0.0/8, ::1 or ::ffff:127.x. The
+// gateway reaches the container over its network address, never loopback.
+func loopbackAddress(address string) bool {
+	address = strings.ToUpper(address)
+	switch len(address) {
+	case 8:
+		return strings.HasSuffix(address, "7F")
+	case 32:
+		return address == "00000000000000000000000001000000" ||
+			(strings.HasPrefix(address, "0000000000000000FFFF0000") && strings.HasSuffix(address, "7F"))
+	}
+	return false
 }
 
 // portAction is a validated agent request.
@@ -167,10 +182,12 @@ func taskWorktree(path string) string {
 }
 
 // agentPortState is written to ~/.kuayle/ports/state.json in the developer
-// container for kuayle-ports. Refused lists this scan's refused requests.
+// container for kuayle-ports. Reserved lists the machine's own service ports,
+// which kuayle-ports does not offer; Refused lists this scan's refused requests.
 type agentPortState struct {
 	Ports     []agentPort   `json:"ports"`
 	Listening []int         `json:"listening"`
+	Reserved  []int         `json:"reserved"`
 	Refused   []portRefusal `json:"refused"`
 	UpdatedAt *time.Time    `json:"updated_at"`
 }
@@ -221,6 +238,17 @@ func servicePortReason(services []domain.DevMachineService, port int) string {
 		}
 	}
 	return ""
+}
+
+func servicePorts(services []domain.DevMachineService) []int {
+	ports := []int{}
+	for _, service := range services {
+		if service.InternalPort > 0 && !slices.Contains(ports, service.InternalPort) {
+			ports = append(ports, service.InternalPort)
+		}
+	}
+	slices.Sort(ports)
+	return ports
 }
 
 // schedulePortScan starts one background scan of running machines unless the
@@ -309,7 +337,7 @@ func (m *Manager) syncPorts(ctx context.Context, machine *domain.DevMachine, ser
 	if err != nil {
 		return nil, err
 	}
-	state := agentPortState{Ports: make([]agentPort, 0, len(ports)), Listening: listening, Refused: refused}
+	state := agentPortState{Ports: make([]agentPort, 0, len(ports)), Listening: listening, Reserved: servicePorts(services), Refused: refused}
 	for _, port := range ports {
 		item := agentPort{Port: port.Port, URL: m.appPortURL(machine, port.Port), Source: port.Source}
 		if port.Label != nil {

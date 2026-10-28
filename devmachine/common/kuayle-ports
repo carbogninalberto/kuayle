@@ -31,10 +31,39 @@ valid_port() {
   [ "${#1}" -le 5 ] && [ "$1" -ge 1024 ] && [ "$1" -le 65535 ]
 }
 
-listening_ports() {
+# listeners prints "PORT reachable" or "PORT loopback" for each listening
+# socket. Kuayle reaches the container over its network address, so an app
+# bound only to 127.0.0.1 or ::1 cannot be exposed.
+listeners() {
   grep -hE '^ *[0-9]+: [0-9A-Fa-f]+:[0-9A-Fa-f]{4} [0-9A-Fa-f]+:[0-9A-Fa-f]{4} 0A ' \
     "$proc_net/tcp" "$proc_net/tcp6" 2>/dev/null |
-    while read -r _ local _; do printf '%d\n' "0x${local##*:}"; done | sort -un
+    while read -r _ local _; do
+      address=$(printf '%s' "${local%%:*}" | tr 'a-f' 'A-F')
+      kind=reachable
+      case "$address" in
+        0B00007F) continue ;; # Docker's embedded DNS resolver (127.0.0.11)
+        ??????7F|00000000000000000000000001000000|0000000000000000FFFF0000??????7F) kind=loopback ;;
+      esac
+      printf '%d %s\n' "0x${local##*:}" "$kind"
+    done | sort -u
+}
+
+listening_ports() {
+  listeners | while read -r port kind; do
+    [ "$kind" = reachable ] && echo "$port"
+  done | sort -un
+}
+
+# Ports that listen only on loopback.
+loopback_ports() {
+  reachable=" $(listening_ports | tr '\n' ' ') "
+  listeners | while read -r port kind; do
+    [ "$kind" = loopback ] || continue
+    case "$reachable" in
+      *" $port "*) ;;
+      *) echo "$port" ;;
+    esac
+  done | sort -un
 }
 
 # The state is compact JSON written by Kuayle; its strings never contain
@@ -76,8 +105,23 @@ wait_for() {
   return 1
 }
 
+# Ports of the machine's own services (IDE, terminal...), never exposed.
+reserved_ports() {
+  state_json | sed -n 's/.*"reserved":\[\([0-9,]*\)\].*/\1/p' | tr ',' '\n'
+}
+
+offered_ports() {
+  reserved=" $(reserved_ports | tr '\n' ' ') "
+  for port in $(listening_ports); do
+    case "$reserved" in
+      *" $port "*) ;;
+      *) echo "$port" ;;
+    esac
+  done
+}
+
 list() {
-  ports=$(listening_ports)
+  ports=$(offered_ports)
   printf '%-7s %s\n' PORT STATUS
   for port in $ports; do
     url=$(port_field "$port" url)
@@ -86,6 +130,9 @@ list() {
     else
       printf '%-7s %s\n' "$port" "listening, not exposed"
     fi
+  done
+  for port in $(loopback_ports); do
+    printf '%-7s %s\n' "$port" "localhost only: bind to 0.0.0.0 to expose it"
   done
   state_items ports | sed -n 's/.*"port":\([0-9]*\),.*"url":"\([^"]*\)".*/\1 \2/p' |
     while read -r port url; do
@@ -141,7 +188,9 @@ expose() {
   url=$(port_field "$port" url)
   [ -n "$url" ] || die "port $port was not exposed" 4
   printf '%s\n' "$url"
-  if ! listening_ports | grep -qx "$port"; then
+  if loopback_ports | grep -qx "$port"; then
+    echo "kuayle-ports: port $port listens on localhost only; restart the app bound to 0.0.0.0:$port" >&2
+  elif ! listening_ports | grep -qx "$port"; then
     echo "kuayle-ports: nothing listens on port $port yet; bind the app to 0.0.0.0:$port" >&2
   fi
 }
