@@ -122,7 +122,8 @@ func TestVoiceHTTP(t *testing.T) {
 	require.NotEmpty(t, payload["models"])
 	status, payload = do("GET", "/voice", "", nil, tokenFor(member))
 	require.Equal(t, 200, status)
-	require.Nil(t, payload["models"])
+	require.Equal(t, false, payload["owner"])
+	require.NotContains(t, payload, "total_bytes")
 	require.Equal(t, 403, first(do("GET", "/voice", "", nil, tokenFor(guest))))
 	require.Equal(t, 403, first(do("GET", "/voice", "", nil, raw)))
 

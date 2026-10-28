@@ -40,7 +40,7 @@ func NewVoiceService(settings voiceSettings, workspaces repository.WorkspaceRepo
 }
 
 // VoiceStatus is what the settings page and the composer microphone need.
-// Download details and the model list are only given to the owner.
+// Download progress and errors are only given to the owner.
 type VoiceStatus struct {
 	Model string `json:"model"`
 	Owner bool   `json:"owner"`
@@ -54,7 +54,7 @@ type VoiceStatus struct {
 	Error           string              `json:"error,omitempty"`
 	MaxSeconds      int                 `json:"max_seconds"`
 	MaxBytes        int                 `json:"max_bytes"`
-	Models          []domain.VoiceModel `json:"models,omitempty"`
+	Models          []domain.VoiceModel `json:"models"`
 }
 
 // access allows current non-guest members and reports ownership.
@@ -89,10 +89,7 @@ func (s *VoiceService) Status(ctx context.Context, ws uuid.UUID) (*VoiceStatus, 
 	if err != nil {
 		return nil, err
 	}
-	status := &VoiceStatus{Model: model, Owner: owner, Configured: s.client != nil, MaxSeconds: domain.VoiceMaxSeconds, MaxBytes: domain.VoiceMaxBytes}
-	if owner {
-		status.Models = domain.VoiceModels
-	}
+	status := &VoiceStatus{Model: model, Owner: owner, Configured: s.client != nil, MaxSeconds: domain.VoiceMaxSeconds, MaxBytes: domain.VoiceMaxBytes, Models: domain.VoiceModels}
 	switch {
 	case model == domain.VoiceModelOff:
 		status.State = "off"

@@ -245,7 +245,7 @@ func TestVoiceSettingsAreOwnerOnlyAndStatusIsForMembers(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, status.Ready)
 	require.False(t, status.Owner)
-	require.Empty(t, status.Models)
+	require.Len(t, status.Models, len(domain.VoiceModels), "the catalog is not secret")
 	require.Zero(t, status.TotalBytes)
 
 	// A model that disappeared from the volume is downloaded again.
