@@ -1,7 +1,8 @@
 # Working on Kuayle
 
 Kuayle has three independently built areas: `BE/` (Go/Echo API and PostgreSQL),
-`UI/` (SvelteKit application), and `WEB/` (prerendered marketing site).
+`UI/` (SvelteKit application), and `WEB/` (prerendered marketing site), plus the
+optional internal `voice/` transcription service (Python).
 
 ## Start with the relevant context
 

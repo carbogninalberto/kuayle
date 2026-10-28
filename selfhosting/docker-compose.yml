@@ -100,6 +100,12 @@ services:
       DEV_MACHINE_CLAUDE_IMAGE: ${DEV_MACHINE_CLAUDE_IMAGE:-kuayle/dev-machine-agent-claude:0.1.0}
       DEV_MACHINE_OPENCODE_IMAGE: ${DEV_MACHINE_OPENCODE_IMAGE:-kuayle/dev-machine-agent-opencode:0.1.0}
       DEV_MACHINE_CODEX_IMAGE: ${DEV_MACHINE_CODEX_IMAGE:-kuayle/dev-machine-agent-codex:0.1.0}
+      # Voice transcription: set VOICE_INTERNAL_TOKEN and start the "voice" profile.
+      VOICE_URL: ${VOICE_URL:-http://voice:8000}
+      VOICE_INTERNAL_TOKEN: ${VOICE_INTERNAL_TOKEN:-}
+    networks:
+      - default
+      - voice-control
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
       interval: 30s
@@ -357,6 +363,30 @@ services:
         PROVIDER: codex
     entrypoint: ["/bin/true"]
 
+  # Speech-to-text for the assistant microphone and Telegram voice notes.
+  # Not published: only the backend reaches it, on the internal voice-control
+  # network, with VOICE_INTERNAL_TOKEN. voice-egress lets it download the
+  # models an owner picks from their official sources into voice_models.
+  voice:
+    profiles: ["voice"]
+    build: ../voice
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,noexec,nosuid
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    volumes:
+      - voice_models:/models
+    networks:
+      - voice-control
+      - voice-egress
+    environment:
+      VOICE_INTERNAL_TOKEN: ${VOICE_INTERNAL_TOKEN:-}
+      VOICE_CPU_THREADS: ${VOICE_CPU_THREADS:-0}
+
   updater:
     profiles: ["updater"]
     build:
@@ -385,8 +415,12 @@ volumes:
   uploads:
   caddy_data:
   caddy_config:
+  voice_models:
   # seaweedfs:
 
 networks:
   machine-control:
     internal: true
+  voice-control:
+    internal: true
+  voice-egress:

@@ -71,6 +71,9 @@ services:
       DEV_MACHINE_CLAUDE_IMAGE: ${DEV_MACHINE_CLAUDE_IMAGE:-kuayle/dev-machine-agent-claude:dev}
       DEV_MACHINE_OPENCODE_IMAGE: ${DEV_MACHINE_OPENCODE_IMAGE:-kuayle/dev-machine-agent-opencode:dev}
       DEV_MACHINE_CODEX_IMAGE: ${DEV_MACHINE_CODEX_IMAGE:-kuayle/dev-machine-agent-codex:dev}
+      # Voice transcription (optional): start the "voice" profile too.
+      VOICE_URL: ${VOICE_URL:-http://voice:8000}
+      VOICE_INTERNAL_TOKEN: ${VOICE_INTERNAL_TOKEN:-local_dev_voice_token_32_chars_minimum_do_not_use_prod}
       # STORAGE_TYPE: s3
       # S3_ENDPOINT: http://seaweedfs:8333
       # S3_BUCKET: kuayle-uploads
@@ -82,6 +85,29 @@ services:
       timeout: 10s
       retries: 3
       start_period: 15s
+
+  # Speech-to-text for the assistant microphone and Telegram voice notes.
+  # Models are downloaded into the voice_models volume when an owner picks
+  # one in Settings -> Voice. The port is bound to loopback only so a
+  # backend running on the host can use VOICE_URL=http://127.0.0.1:8765.
+  voice:
+    profiles: ["voice"]
+    build: ./voice
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8765:8000"
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,noexec,nosuid
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    volumes:
+      - voice_models:/models
+    environment:
+      VOICE_INTERNAL_TOKEN: ${VOICE_INTERNAL_TOKEN:-local_dev_voice_token_32_chars_minimum_do_not_use_prod}
+      VOICE_CPU_THREADS: ${VOICE_CPU_THREADS:-0}
 
   # S3-compatible object storage (uncomment to use S3 storage locally)
   # seaweedfs:
@@ -364,6 +390,7 @@ volumes:
   uploads:
   caddy_data:
   caddy_config:
+  voice_models:
   # seaweedfs:
 
 networks:

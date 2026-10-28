@@ -137,6 +137,31 @@ instead of disappearing. An image webhook gets a 45-second budget instead of 5.
 Albums arrive as separate updates; each becomes its own message, so while the
 first reply runs the others get the usual "reply in progress" answer.
 
+## Voice notes and audio messages
+
+Voice notes (`message.voice`, OGG/Opus) and audio messages (`message.audio`)
+are transcribed with the workspace's [voice model](../../TECHNICAL.md#voice-transcription).
+When voice is off, no voice service is configured, Telegram reports a duration
+over 5 minutes or a size over 20 MB, the linked sender gets a short explanation
+instead and nothing is downloaded. Otherwise the same pre-download checks as
+photos apply (secret, enabled bot, private chat, allowed sender linked to a
+current non-guest member, update not yet received); `getFile`, the file path
+check and the no-redirect, public-only download are shared, and the body is
+read up to 20 MB plus one byte.
+
+The webhook is answered at once; the note is transcribed in the background
+(at most four at a time, an eight-minute budget including the voice service's
+queue), during which the chat shows "typing…". A redelivered update that is
+still being transcribed is ignored, and the receipt written with the message
+deduplicates later retries. The transcript becomes the user's message, prefixed
+with `🎤 ` and followed by any caption, and goes through the normal receive
+transaction (so `/start`, `/new` and `/stop` can never be triggered by speech).
+If the service refuses the audio (too long once decoded, unreadable, busy,
+model still downloading) or nothing was recognized, the sender gets a short
+explanation and no turn starts. A restart during transcription drops that note
+(Telegram already received its answer). Audio and transcripts are not stored
+beyond the resulting message.
+
 ## Task notifications
 
 When a coding task becomes ready for review, completed, failed or blocked, its
@@ -187,6 +212,11 @@ An approval test drives a scripted assistant reply in a Telegram conversation an
 checks the delivered keyboard, presses from an unlinked user, forged data and a
 group chat (ignored), approval with exactly one task, a redelivered update, a later
 denial, and the Web UI seeing the same decision.
+
+Voice tests use local Telegram and voice-service fixtures: voice off, an
+unlinked sender, over-long and oversized notes (never downloaded), a duplicate
+update (transcribed once), audio messages with captions, path escapes, sizes
+reported by `getFile`, refusals by the voice service and empty transcripts.
 
 Protocol reference: [Telegram Bot API](https://core.telegram.org/bots/api), including
 `setWebhook.secret_token`, `Update`, `User`, `sendMessage`, `CallbackQuery`,

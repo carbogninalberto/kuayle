@@ -808,3 +808,65 @@ allowlist. Users explicitly link their own Telegram identity to their Kuayle acc
 private bot messages and Web chat share conversation records. See
 [the Telegram channel contract](BE/docs/telegram.md) for setup, authorization,
 webhook and outgoing delivery behavior, migrations and verification.
+
+### Voice transcription
+
+Transcription only (no translation or speech output). The optional `voice`
+Compose profile runs [an internal Python service](voice/kuayle_voice/server.py)
+with faster-whisper (CTranslate2, int8 on CPU) and Vosk, decoding with ffmpeg.
+The workspace owner picks one model in **Settings → Voice** (migration 83,
+`workspace_voice_settings`; no row means off): Off, faster-whisper base, small,
+medium or large-v3-turbo, or Vosk small English / Italian. Members read
+`GET /workspaces/:slug/voice` (whether the microphone works; the owner also
+gets download progress and errors); `PUT /voice` is owner-only and session-only
+and asks the service to download the model.
+
+Models come only from their publishers, pinned in one place,
+[`voice/kuayle_voice/catalog.py`](voice/kuayle_voice/catalog.py): the
+`Systran/faster-whisper-*` repositories and the large-v3-turbo conversion
+faster-whisper maps its name to (served by Hugging Face as
+`dropbox-dash/faster-whisper-large-v3-turbo`), each at a fixed commit, and the
+Vosk archives on alphacephei.com. Every file is checked against its pinned size
+and digest: SHA-256 for Hugging Face LFS files and Git blob SHA-1 for small
+files (the hashes Hugging Face publishes), and a SHA-256 recorded from the
+official Vosk archive, which publishes no checksum. Redirects are followed only
+to HTTPS hosts under `huggingface.co`, `hf.co` and `alphacephei.com`; archives
+are extracted without links or paths outside the model directory. Downloads run
+one at a time into a partial directory that becomes the model only after
+verification; a failed one can be retried from the settings page.
+
+`POST /workspaces/:slug/conversations/:id/transcriptions` (session-only) takes
+one raw recording (the browser's WebM/Opus or, on iOS Safari, MP4/AAC). It
+authorizes the conversation before reading the body, accepts audio content
+types only, bounds the body to 20 MB and returns `{text}` for the composer. The
+user reviews the transcript and sends it as an ordinary message; nothing is
+stored. The composer microphone uses MediaRecorder, shows a timer, stops by
+itself at 5:00 and can be cancelled; it is hidden unless the workspace model is
+ready. Telegram voice notes and audio messages are covered by the
+[Telegram contract](BE/docs/telegram.md#voice-notes-and-audio-messages).
+
+The service identifies the container from its first bytes (OGG, WebM/Matroska,
+MP4/M4A, MP3, AAC, WAV, FLAC), decodes with an ffmpeg demuxer and protocol
+whitelist to 16 kHz mono and measures the decoded length, refusing anything
+over 5 minutes (one second of encoder padding tolerated) even when headers
+carry no duration. One transcription runs at a time with at most four waiting
+(`VOICE_QUEUE`); further requests get `503 busy`. Audio lives in memory and a
+private temporary file only while it is decoded; neither audio nor transcripts
+are logged. One engine is loaded at a time; switching models reloads it.
+
+| Variable | Service | Purpose |
+|---|---|---|
+| `VOICE_INTERNAL_TOKEN` | backend, voice | Shared bearer token, at least 32 characters. The service refuses to start without it; voice stays off without it. |
+| `VOICE_URL` | backend | Internal service address (Compose default `http://voice:8000`). Operator setting, so private addresses are allowed; redirects are not followed. |
+| `VOICE_CPU_THREADS` | voice | Threads for faster-whisper (0 = automatic). |
+| `VOICE_MAX_SECONDS`, `VOICE_MAX_BYTES`, `VOICE_QUEUE` | voice | Optional lower limits (seconds cannot exceed 300) and queue length. |
+
+In self-hosting Compose the service has no published port: it shares the
+internal `voice-control` network with the backend only and uses `voice-egress`
+to download models into the `voice_models` volume; it runs read-only as a
+non-root user with all capabilities dropped. The development Compose file
+publishes it on loopback port 8765 for a backend running on the host. The
+backend's client uses a 5-second status timeout and a 5-minute transcription
+timeout covering the queue. Tests: `cd voice && python -m pytest` (fake engines,
+no model downloads; ffmpeg cases skip without ffmpeg), Go service/HTTP/Telegram
+tests with a fake voice server, and Playwright with a fake MediaRecorder.

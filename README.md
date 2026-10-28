@@ -412,6 +412,16 @@ The updater sidecar is internal-only and runs the same `selfhosting/update.sh` f
 
 For a deployment pinned to published release images or a detached Git checkout, use the opt-in [release updater](selfhosting/RELEASE_UPDATER.md) instead. It targets an explicit production Compose project, backs up PostgreSQL and updates application and active Dev Machines components together.
 
+### Voice transcription (optional)
+
+Members can dictate assistant messages and send Telegram voice notes; speech is transcribed on your server by the internal `voice` service (faster-whisper int8 or Vosk, CPU only, no GPU). Recordings are limited to 5 minutes, held only while being transcribed and never stored; the transcript fills the composer for review (Telegram notes become the user's message, marked with 🎤).
+
+1. Set `VOICE_INTERNAL_TOKEN` in `selfhosting/.env` to a random value of at least 32 characters (`openssl rand -hex 32`). Keep `VOICE_URL=http://voice:8000` (the default).
+2. Start it with `docker compose --profile voice up -d voice backend` from `selfhosting/`.
+3. As the workspace owner open **Settings → Voice** and pick a model. It is downloaded from its official source (Hugging Face for faster-whisper, alphacephei.com for Vosk), verified against pinned checksums and then activated.
+
+The service is not published: only the backend reaches it on the internal `voice-control` network, and it needs outbound HTTPS only to download models into the `voice_models` volume (from 41 MB for Vosk small to about 1.6 GB for large-v3-turbo; unused models stay there until you remove the volume). `selfhosting/update.sh` does not rebuild optional profiles: after updating, run `docker compose --profile voice up -d --build voice`. See [voice transcription](TECHNICAL.md#voice-transcription) for limits and security.
+
 ### Storage options
 
 By default, uploads use a local Docker volume (`STORAGE_TYPE=local`). The alternative S3 backend accepts a configurable endpoint and path-style requests:
