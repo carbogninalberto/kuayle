@@ -747,6 +747,9 @@ pattern ("restorable milestones where supported") is intentionally not offered:
 restoring an attempt would rewrite the task's published branch, which Kuayle does
 not do without human review. Attempts, their commits and the recorded pull
 request remain inspectable, and a new attempt continues from the branch head.
+Follow-up: restorable checkpoints may be added later as new attempts that start
+from a chosen earlier commit on a fresh branch, leaving the published branch
+untouched.
 
 The UI follows the official [Task](https://www.shadcn-svelte.com/docs/ai-elements/task),
 [Model Selector](https://www.shadcn-svelte.com/docs/ai-elements/model-selector),
