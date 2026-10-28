@@ -23,7 +23,7 @@ pidfile=/tmp/kuayle-preview-$task.pid
 log=/tmp/kuayle-preview-$task.log
 if [ -f "$pidfile" ]; then
   old=$(cat "$pidfile")
-  case "$old" in ''|*[!0-9]*) ;; *) kill -TERM -- "-$old" 2>/dev/null || true ;; esac
+  case "$old" in ''|*[!0-9]*) ;; *) kill -TERM "-$old" 2>/dev/null || true ;; esac
 fi
 : >"$log"
 setsid "$@" >>"$log" 2>&1 </dev/null &
@@ -32,17 +32,18 @@ echo "$pid" >"$pidfile"
 setsid sh -c 'while kill -0 "$1" 2>/dev/null; do sleep 15; size=$(wc -c <"$2" 2>/dev/null || echo 0); [ "$size" -le 8388608 ] || : >"$2"; done' kuayle-preview-log "$pid" "$log" >/dev/null 2>&1 </dev/null &`
 
 // stopPreviewScript stops one task's preview process group, forcefully after
-// five seconds.
+// five seconds. The container's sh is dash, whose kill rejects "--", so process
+// groups are named as a plain negative PID.
 const stopPreviewScript = `set -u
 pidfile=/tmp/kuayle-preview-$1.pid
 [ -f "$pidfile" ] || exit 0
 pid=$(cat "$pidfile")
 rm -f "$pidfile"
 case "$pid" in ''|*[!0-9]*) exit 0 ;; esac
-kill -TERM -- "-$pid" 2>/dev/null || exit 0
+kill -TERM "-$pid" 2>/dev/null || exit 0
 i=0
-while kill -0 -- "-$pid" 2>/dev/null && [ "$i" -lt 10 ]; do sleep 0.5; i=$((i + 1)); done
-kill -KILL -- "-$pid" 2>/dev/null || true`
+while kill -0 "-$pid" 2>/dev/null && [ "$i" -lt 10 ]; do sleep 0.5; i=$((i + 1)); done
+kill -KILL "-$pid" 2>/dev/null || true`
 
 // portScanScript prints the LISTEN sockets of /proc/net/tcp{,6}, then takes the
 // agents' request files: regular files only (never symlinks), at most 20 per
