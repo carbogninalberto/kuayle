@@ -3,9 +3,11 @@
 	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
 	import { Ellipsis } from '@lucide/svelte';
+	import type { Snippet } from 'svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import type { TaskAction } from './task-actions';
-	let { actions, compact = false }: { actions: TaskAction[]; compact?: boolean } = $props();
+	// extra renders after the main buttons, in the same wrapping row.
+	let { actions, compact = false, extra }: { actions: TaskAction[]; compact?: boolean; extra?: Snippet } = $props();
 	const external = (action: TaskAction) => (action.external ? { target: '_blank', rel: 'noopener noreferrer' } : {});
 	const main = $derived(actions.filter((a) => a.group === 'main'));
 	const tools = $derived(actions.filter((a) => a.group === 'tools'));
@@ -117,6 +119,7 @@
 				disabled={action.disabled}
 				onclick={action.onclick}><action.icon />{action.label}</Button
 			>{/each}
+		{@render extra?.()}
 		{#if tools.length}<div class="flex items-center gap-0.5" role="group" aria-label={m['tasks.tools']()}>
 				{#each tools as action (action.id)}{@render iconButton(action)}{/each}
 			</div>{/if}

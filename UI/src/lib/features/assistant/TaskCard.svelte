@@ -902,14 +902,15 @@
 			{#if appError}<p role="alert" class="text-sm break-words text-destructive">{appError}</p>{/if}
 			{#if error}<p role="alert" class="text-sm text-destructive">{error}</p>
 				<Button variant="ghost" size="sm" onclick={() => void refresh()}>{m['tasks.refresh']()}</Button>{/if}
-			<div class="flex flex-wrap items-center gap-2">
-				{#if task.state === 'awaiting_review' && pullRequest && harnesses.length && chat.issue}<ReviewRequestMenu
-						{harnesses}
-						implementer={task.provider}
-						onpick={requestReview}
-					/>{/if}
-				<div class="min-w-0 flex-1"><TaskActions {actions} /></div>
-			</div>
+			<TaskActions {actions}>
+				{#snippet extra()}
+					{#if task.state === 'awaiting_review' && pullRequest && harnesses.length && chat.issue}<ReviewRequestMenu
+							{harnesses}
+							implementer={task.provider}
+							onpick={requestReview}
+						/>{/if}
+				{/snippet}
+			</TaskActions>
 		</div>{/if}
 	<AlertDialog.Root bind:open={acceptOpen}>
 		<AlertDialog.Content>
