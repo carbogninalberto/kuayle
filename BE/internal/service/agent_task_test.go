@@ -590,3 +590,76 @@ func TestReusedMachinesGetTheTasksAgentUnderWorkspacePolicy(t *testing.T) {
 	store.policy.AllowedProviders = json.RawMessage(`["codex"]`)
 	require.ErrorIs(t, runtime.attachAgent(context.Background(), &domain.DevMachine{ID: uuid.New(), WorkspaceID: ws}, "claude-code"), ErrProviderNotAllowed)
 }
+
+func reusedMachineFixture(status, desired domain.DevMachineStatus) (*devMachineStoreFake, *devMachineTaskRuntime, domain.AgentTask) {
+	ws, user, machineID, issueID, repoID := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	store := &devMachineStoreFake{
+		policy: testPolicy(ws),
+		machine: &domain.DevMachine{ID: machineID, WorkspaceID: ws, CreatedByUserID: &user, Status: status, DesiredStatus: desired,
+			Generation: 4, ExpiresAt: time.Now().Add(time.Hour)},
+		issues:        map[uuid.UUID]*domain.Issue{issueID: {ID: issueID, WorkspaceID: ws, TeamID: uuid.New(), Identifier: "ENG-9"}},
+		reposByID:     map[uuid.UUID]*domain.GitHubRepoModel{repoID: {ID: repoID, WorkspaceID: ws, FullName: "kuayle/web", DefaultBranch: "main", IsActive: true}},
+		scopeSettings: map[string]*domain.DevMachineScopeSetting{scopeKey(nil, nil, &issueID): {WorkspaceID: ws, GitHubRepoID: &repoID}},
+	}
+	store.policy.AllowedProviders = json.RawMessage(`["codex"]`)
+	machines := newTestDevMachineService(store)
+	machines.agents = agent.NewRegistry(agent.NewCodexProvider(""))
+	task := domain.AgentTask{ID: uuid.New(), WorkspaceID: ws, CreatorID: user, IssueID: issueID, MachineID: &machineID,
+		ReservedMachineID: uuid.New(), CheckoutID: uuid.New(), Provider: "codex", Generation: 1, State: "preparing"}
+	return store, &devMachineTaskRuntime{machines: machines}, task
+}
+
+// A reused stopped or paused machine is started for the task instead of
+// failing the preparation; once the start is requested the task waits for it.
+func TestPreparationStartsAReusedStoppedOrPausedMachine(t *testing.T) {
+	for _, status := range []domain.DevMachineStatus{domain.DevMachineStatusStopped, domain.DevMachineStatusPaused} {
+		t.Run(string(status), func(t *testing.T) {
+			store, runtime, task := reusedMachineFixture(status, status)
+			ready, err := runtime.Prepare(context.Background(), &task)
+			require.NoError(t, err)
+			require.False(t, ready)
+			require.NotNil(t, store.queuedOperation)
+			require.Equal(t, domain.DevMachineOpStart, store.queuedOperation.Action)
+			require.Equal(t, domain.DevMachineStatusRunning, store.queuedDesired)
+			require.Equal(t, int64(5), store.queuedOperation.Generation)
+
+			// The start is in progress: preparing again neither fails nor queues another.
+			queued := store.queuedOperation
+			store.queuedOperation = nil
+			ready, err = runtime.Prepare(context.Background(), &task)
+			require.NoError(t, err)
+			require.False(t, ready)
+			require.Nil(t, store.queuedOperation)
+
+			// Paused again later (for example beyond the cap): a new start is requested.
+			store.machine.DesiredStatus = status
+			ready, err = runtime.Prepare(context.Background(), &task)
+			require.NoError(t, err)
+			require.False(t, ready)
+			require.NotNil(t, store.queuedOperation)
+			require.NotEqual(t, queued.IdempotencyKey, store.queuedOperation.IdempotencyKey)
+		})
+	}
+}
+
+// A machine that served another repository serves this task's repository
+// too, in its own worktree, under the same allowlist policy.
+func TestTaskCheckoutUsesAMachineThatServedAnotherRepository(t *testing.T) {
+	store, runtime, task := reusedMachineFixture(domain.DevMachineStatusRunning, domain.DevMachineStatusRunning)
+	previous := uuid.New()
+	store.machine.RepositoryAffinityID = &previous
+	checkout, err := runtime.machines.checkoutTask(context.Background(), task)
+	require.NoError(t, err)
+	require.Equal(t, "kuayle/web", checkout.RepositoryFullName)
+	require.Equal(t, "/workspace/tasks/eng-9-"+task.ID.String(), checkout.WorkspacePath)
+
+	store.policy.AllowedRepositories = json.RawMessage(`["kuayle/api"]`)
+	store.checkouts = nil
+	_, err = runtime.machines.checkoutTask(context.Background(), task)
+	require.ErrorIs(t, err, ErrRepositoryNotAllowed)
+
+	// Manual checkouts keep the machine's own repository.
+	store.policy.AllowedRepositories = json.RawMessage(`[]`)
+	_, err = runtime.machines.CheckoutIssue(context.Background(), task.WorkspaceID, *task.MachineID, task.CreatorID, dto.CheckoutIssueRequest{IssueID: task.IssueID.String()})
+	require.ErrorIs(t, err, ErrCheckoutNotEligible)
+}

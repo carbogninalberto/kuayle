@@ -174,3 +174,39 @@ func TestTaskCheckoutsCannotBecomeManualRuns(t *testing.T) {
 	require.Nil(t, got)
 	require.ErrorIs(t, machines.CreateAgentRun(ctx, run, &domain.DevMachineOperation{Generation: 1}), ErrAgentTaskUnauthorized)
 }
+
+// A task checkout adds a worktree for its repository to a machine that served
+// another repository, without reassigning the machine's own repository. Manual
+// checkouts of another repository are still refused.
+func TestTaskCheckoutsShareAMachineAcrossRepositories(t *testing.T) {
+	db, tasks, ctx, task, fixture := taskRecoveryFixture(t)
+	claimed := prepareTaskStart(t, db, tasks, ctx, task, fixture)
+	machine := *claimed.MachineID
+	installation, first, second := uuid.New(), uuid.New(), uuid.New()
+	_, err := db.Exec(`INSERT INTO github_installations(id,workspace_id,installation_id,account_login,account_type,installed_by) VALUES($1,$2,1,'fixture','Organization',$3)`, installation, task.WorkspaceID, task.CreatorID)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO github_repos(id,installation_id,workspace_id,github_repo_id,full_name,default_branch) VALUES($1,$2,$3,1,'fixture/first','main'),($4,$2,$3,2,'fixture/second','main')`, first, installation, task.WorkspaceID, second)
+	require.NoError(t, err)
+	_, err = db.Exec(`UPDATE dev_machines SET repository_affinity_id=$2,repo_url='https://github.com/fixture/first',repo_owner='fixture',repo_name='first' WHERE id=$1`, machine, first)
+	require.NoError(t, err)
+
+	dispatch := domain.WithTaskExecution(ctx, *claimed)
+	checkout := &domain.DevMachineCheckout{ID: task.CheckoutID, WorkspaceID: task.WorkspaceID, MachineID: machine, IssueID: task.IssueID,
+		GitHubRepoID: second, RepositoryFullName: "fixture/second", BaseBranch: "main", WorkingBranch: "kuayle/rec-1-" + task.ID.String(),
+		WorkspacePath: "/workspace/tasks/rec-1-" + task.ID.String(), Status: "queued", ScopeKey: task.ID.String()}
+	operation := &domain.DevMachineOperation{ID: uuid.New(), WorkspaceID: task.WorkspaceID, MachineID: machine, Action: domain.DevMachineOpCheckoutIssue,
+		Status: domain.DevMachineOpStatusPending, Generation: 1, IdempotencyKey: "checkout-issue:" + task.IssueID.String() + ":" + task.ID.String(), RequestedByUserID: &task.CreatorID, MaxAttempts: 5}
+	require.NoError(t, fixture.repository.CreateCheckout(dispatch, checkout, operation))
+	var affinity uuid.UUID
+	var repoURL string
+	require.NoError(t, db.QueryRow(`SELECT repository_affinity_id,repo_url FROM dev_machines WHERE id=$1`, machine).Scan(&affinity, &repoURL))
+	require.Equal(t, first, affinity)
+	require.Equal(t, "https://github.com/fixture/first", repoURL, "the root checkout keeps its repository")
+
+	manual := &domain.DevMachineCheckout{ID: uuid.New(), WorkspaceID: task.WorkspaceID, MachineID: machine, IssueID: task.IssueID,
+		GitHubRepoID: second, RepositoryFullName: "fixture/second", BaseBranch: "main", WorkingBranch: "kuayle/rec-1",
+		WorkspacePath: "/workspace/tasks/rec-1", Status: "queued"}
+	manualOperation := &domain.DevMachineOperation{ID: uuid.New(), WorkspaceID: task.WorkspaceID, MachineID: machine, Action: domain.DevMachineOpCheckoutIssue,
+		Status: domain.DevMachineOpStatusPending, Generation: 1, IdempotencyKey: "checkout-issue:" + task.IssueID.String() + ":", RequestedByUserID: &task.CreatorID, MaxAttempts: 5}
+	require.ErrorIs(t, fixture.repository.CreateCheckout(ctx, manual, manualOperation), ErrCheckoutMachineConflict)
+}

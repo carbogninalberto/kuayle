@@ -314,7 +314,12 @@ expected task generation and a request UUID. Duplicate requests return the same
 attempt; different payloads conflict. Retries allocate a new native run ID and
 invalidate old worker leases while retaining the task's checkout and branch.
 Retried task-owned machines resume through existing lifecycle policy checks and
-task fencing. An exhausted checkout is requeued at most once per explicit task
+task fencing. Reservation reuses the creator's own running, then paused, then
+stopped machine of the same environment, whatever repository it served before;
+preparation starts a reused paused or stopped machine and waits for a start
+already requested. Each start is keyed by task, task generation and machine
+generation, so a machine paused again is started again while a start that
+failed for good is not retried in a loop. An exhausted checkout is requeued at most once per explicit task
 generation, so polling cannot silently produce unlimited setup retries.
 
 ## Issue lifecycle

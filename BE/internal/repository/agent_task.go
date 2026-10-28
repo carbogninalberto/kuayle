@@ -525,15 +525,24 @@ func (r *AgentTaskRepository) ReserveMachine(ctx context.Context, claimed domain
 	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text,0))`, task.WorkspaceID); err != nil {
 		return uuid.Nil, err
 	}
+	// Reuse the creator's own machine of the same environment, whatever
+	// repositories it served before: each task gets its own worktree on it.
+	// Running machines come first, then paused (resumed in place), then
+	// stopped ones; machines that already cache this repository or carry the
+	// task's agent need the least preparation.
 	var machineID uuid.UUID
 	err = tx.GetContext(ctx, &machineID, `SELECT m.id FROM dev_machines m
- WHERE m.workspace_id=$1 AND m.created_by_user_id=$2 AND m.status='running' AND m.desired_status='running'
+ WHERE m.workspace_id=$1 AND m.created_by_user_id=$2
+ AND ((m.status='running' AND m.desired_status='running') OR (m.status IN ('paused','stopped') AND m.desired_status=m.status))
+ AND m.delete_requested_at IS NULL
  AND m.expires_at>now()+interval '5 minutes' AND NOT m.environment_builder
- AND (m.repository_affinity_id IS NULL OR m.repository_affinity_id=$3)
  AND m.environment_id IS NOT DISTINCT FROM $4::uuid
  AND NOT EXISTS(SELECT 1 FROM dev_machine_agent_runs r WHERE r.machine_id=m.id AND r.status IN ('queued','starting','running','waiting_input'))
  AND NOT EXISTS(SELECT 1 FROM agent_tasks t WHERE t.machine_id=m.id AND t.id<>$6 AND t.state NOT IN ('completed','cancelled','failed','blocked','awaiting_review'))
- ORDER BY EXISTS(SELECT 1 FROM dev_machine_agent_providers p WHERE p.machine_id=m.id AND p.provider_id=$5 AND p.enabled) DESC,
+ AND NOT EXISTS(SELECT 1 FROM dev_machine_operations o WHERE o.machine_id=m.id AND o.status IN ('pending','leased') AND o.action IN ('stop','pause','teardown','snapshot_environment'))
+ ORDER BY CASE m.status WHEN 'running' THEN 0 WHEN 'paused' THEN 1 ELSE 2 END,
+  EXISTS(SELECT 1 FROM dev_machine_checkouts c WHERE c.machine_id=m.id AND c.github_repo_id=$3) DESC,
+  EXISTS(SELECT 1 FROM dev_machine_agent_providers p WHERE p.machine_id=m.id AND p.provider_id=$5 AND p.enabled) DESC,
   m.last_activity_at DESC NULLS LAST,m.id FOR UPDATE OF m SKIP LOCKED LIMIT 1`, task.WorkspaceID, task.CreatorID, repositoryID, environmentID, task.Provider, task.ID)
 	if errors.Is(err, sql.ErrNoRows) {
 		machineID = task.ReservedMachineID

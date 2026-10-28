@@ -75,6 +75,8 @@ type managerStoreFake struct {
 	envVarListCalls           int
 	runtimeServicesCreated    int
 	modelServer               *domain.AgentModelServer
+	reclaimable               *domain.DevMachine
+	reclaimWaitingIDs         []uuid.UUID
 }
 
 func (f *managerStoreFake) LeaseOperations(context.Context, string, int, time.Duration) ([]domain.DevMachineOperation, error) {
@@ -249,6 +251,11 @@ func (f *managerStoreFake) SetDesiredAndEnqueue(_ context.Context, _ uuid.UUID, 
 	f.actions = append(f.actions, operation.Action)
 	f.operations = append(f.operations, operation)
 	return nil
+}
+
+func (f *managerStoreFake) ReclaimIdleMachine(_ context.Context, waiting uuid.UUID) (*domain.DevMachine, error) {
+	f.reclaimWaitingIDs = append(f.reclaimWaitingIDs, waiting)
+	return f.reclaimable, nil
 }
 
 func (f *managerStoreFake) RequestPermanentDelete(_ context.Context, workspaceID, machineID uuid.UUID, _ *uuid.UUID) (*domain.DevMachineOperation, error) {
@@ -444,6 +451,7 @@ type runtimeFake struct {
 	agentSecrets                                map[string]string
 	terminalSignIn                              string
 	returnedSignIn                              string
+	startErr                                    error
 }
 
 func (f *runtimeFake) ReadSignIn(context.Context, []domain.DevMachineService, string) (string, error) {
@@ -469,7 +477,7 @@ func (f *runtimeFake) Spawn(_ context.Context, _ *domain.DevMachine, services []
 }
 func (f *runtimeFake) Start(context.Context, *domain.DevMachine, []domain.DevMachineService, map[string]map[string]string) error {
 	f.started++
-	return nil
+	return f.startErr
 }
 func (f *runtimeFake) Pause(context.Context, *domain.DevMachine, []domain.DevMachineService) error {
 	f.paused++
@@ -933,6 +941,45 @@ func TestManagerRejectsSpawnAndStartDuringHostDiskFloorBreach(t *testing.T) {
 			require.Equal(t, test.wantStart, runtime.started)
 			require.NotEqual(t, domain.DevMachineStatusSpawning, store.machine.Status)
 			require.True(t, store.failedOperationRetryable == nil)
+		})
+	}
+}
+
+// A stopped or paused machine whose runtime was never completed (its first
+// spawn failed before the workspace volume was recorded) or was removed is
+// started by provisioning it again, which reuses whatever still exists.
+func TestStartProvisionsAnIncompleteRuntimeAgain(t *testing.T) {
+	for _, status := range []domain.DevMachineStatus{domain.DevMachineStatusStopped, domain.DevMachineStatusPaused} {
+		t.Run(string(status), func(t *testing.T) {
+			machineID, workspaceID := uuid.New(), uuid.New()
+			store := &managerStoreFake{
+				machine: &domain.DevMachine{
+					ID: machineID, WorkspaceID: workspaceID, RoutingKey: "0123456789abcdef0123",
+					Status: status, DesiredStatus: domain.DevMachineStatusRunning, Generation: 3,
+				},
+				services: []domain.DevMachineService{{ID: uuid.New(), ServiceKey: "terminal", ServiceType: "terminal"}},
+			}
+			runtime := &runtimeFake{startErr: fmt.Errorf("inspect terminal: %w", ErrRuntimeIncomplete)}
+			manager := NewManager(store, runtime, agent.NewRegistry(), nil, nil, nil, "test")
+
+			err := manager.processOperation(context.Background(), &domain.DevMachineOperation{
+				MachineID: machineID, WorkspaceID: workspaceID, Action: domain.DevMachineOpStart, Generation: 3,
+			})
+			require.NoError(t, err)
+			require.Equal(t, 1, runtime.started)
+			require.Equal(t, 1, runtime.spawned)
+			require.Equal(t, domain.DevMachineStatusRunning, store.machine.Status)
+			require.NotNil(t, store.machine.WorkspaceVolumeName)
+			require.Equal(t, "workspace-volume", *store.machine.WorkspaceVolumeName)
+
+			// Other start failures are reported, not hidden by provisioning.
+			store.machine.Status = status
+			runtime.startErr = errors.New("container exited with code 1")
+			err = manager.processOperation(context.Background(), &domain.DevMachineOperation{
+				MachineID: machineID, WorkspaceID: workspaceID, Action: domain.DevMachineOpStart, Generation: 3,
+			})
+			require.ErrorContains(t, err, "exited with code 1")
+			require.Equal(t, 1, runtime.spawned)
 		})
 	}
 }

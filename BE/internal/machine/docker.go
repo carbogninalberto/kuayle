@@ -455,20 +455,23 @@ func (r *DockerRuntime) prepareWorkspaceVolume(ctx context.Context, machine *dom
 
 func (r *DockerRuntime) Start(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService, secrets map[string]map[string]string) error {
 	if machine.WorkspaceVolumeName == nil || *machine.WorkspaceVolumeName == "" {
-		return fmt.Errorf("machine workspace volume is unavailable")
+		return fmt.Errorf("machine workspace volume is unavailable: %w", ErrRuntimeIncomplete)
 	}
 	volumeExists, err := r.inspectWorkspaceVolume(ctx, *machine.WorkspaceVolumeName, machineLabels(machine), machine.DiskGB)
 	if err != nil {
 		return err
 	}
 	if !volumeExists {
-		return fmt.Errorf("machine workspace volume does not exist")
+		return fmt.Errorf("machine workspace volume does not exist: %w", ErrRuntimeIncomplete)
 	}
 	for _, service := range plannedStartServices(machine.Status, services) {
 		if service.ContainerID == nil || *service.ContainerID == "" {
-			return fmt.Errorf("service %s has no container", service.ServiceKey)
+			return fmt.Errorf("service %s has no container: %w", service.ServiceKey, ErrRuntimeIncomplete)
 		}
 		inspection, err := r.client.ContainerInspect(ctx, *service.ContainerID, client.ContainerInspectOptions{})
+		if errdefs.IsNotFound(err) {
+			return fmt.Errorf("service %s container does not exist: %w", service.ServiceKey, ErrRuntimeIncomplete)
+		}
 		if err != nil {
 			return err
 		}

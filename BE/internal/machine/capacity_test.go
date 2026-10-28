@@ -88,6 +88,33 @@ func TestSpawnWithoutHostCapacityIsDeferredNotFailed(t *testing.T) {
 	require.Zero(t, runtime.spawned)
 }
 
+// A machine waiting for host capacity stops the least recently active idle
+// machine the store chooses, so an always-on idle machine gives way.
+func TestHostCapacityWaitStopsTheChosenIdleMachine(t *testing.T) {
+	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), Status: domain.DevMachineStatusStopped, DesiredStatus: domain.DevMachineStatusRunning, Generation: 1, CPUMillis: 1000, MemoryMB: 4096, ExpiresAt: time.Now().Add(time.Hour)}
+	idle := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, Generation: 7}
+	store := &deferringStoreFake{capacityStoreFake: &capacityStoreFake{
+		managerStoreFake: &managerStoreFake{machine: machine, reclaimable: idle},
+		allocations:      []domain.DevMachineResourceAllocation{{MachineID: idle.ID, CPUMillis: 1000, MemoryMB: 4096}},
+	}}
+	runtime := &runtimeFake{host: HostResources{CPUMillis: 4000, MemoryMB: 8192}}
+	manager := &Manager{store: store, runtime: runtime, operationSlots: make(chan struct{}, 1)}
+	manager.SetCapacity(CapacityConfig{ReservedMemoryMB: 2048, CPUOvercommit: 1})
+	manager.operationSlots <- struct{}{}
+	manager.operations.Add(1)
+	manager.processLeasedOperation(context.Background(), domain.DevMachineOperation{ID: uuid.New(), MachineID: machine.ID, WorkspaceID: machine.WorkspaceID, Action: domain.DevMachineOpStart, Generation: 1})
+	require.Equal(t, []string{"host_capacity_wait"}, store.deferred)
+	require.Equal(t, []uuid.UUID{machine.ID}, store.reclaimWaitingIDs)
+	require.Len(t, store.operations, 1)
+	stop := store.operations[0]
+	require.Equal(t, domain.DevMachineOpStop, stop.Action)
+	require.Equal(t, idle.ID, stop.MachineID)
+	require.Equal(t, int64(8), stop.Generation)
+	require.Equal(t, "host-capacity:8", stop.IdempotencyKey)
+	require.Equal(t, []domain.DevMachineStatus{domain.DevMachineStatusStopped}, store.desired)
+	require.Zero(t, runtime.started)
+}
+
 func TestCodexThreadIDIsCapturedOnlyForTaskAttempts(t *testing.T) {
 	task := uuid.New()
 	run := &domain.DevMachineAgentRun{ProviderID: "codex", TaskID: &task}

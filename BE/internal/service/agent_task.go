@@ -324,10 +324,15 @@ func (r *devMachineTaskRuntime) Prepare(ctx context.Context, task *domain.AgentT
 		return false, nil
 	case domain.DevMachineStatusRunning:
 	case domain.DevMachineStatusPaused, domain.DevMachineStatusStopped, domain.DevMachineStatusFailed:
-		if machine.ID != task.ReservedMachineID {
-			return false, ErrInvalidOperation
+		// Reused machines may be paused or stopped; the task starts them. A
+		// start already requested is awaited rather than queued again.
+		if machine.Status != domain.DevMachineStatusFailed && machine.DesiredStatus == domain.DevMachineStatusRunning {
+			return false, nil
 		}
-		op, err := s.Lifecycle(ctx, task.WorkspaceID, machine.ID, task.CreatorID, domain.DevMachineOpStart, fmt.Sprintf("task-start:%s:%d", task.ID, task.Generation))
+		// The machine generation keys each start, so a machine paused again
+		// after this task started it is started again, while a start that
+		// failed for good is not retried in a loop.
+		op, err := s.Lifecycle(ctx, task.WorkspaceID, machine.ID, task.CreatorID, domain.DevMachineOpStart, fmt.Sprintf("task-start:%s:%d:%d", task.ID, task.Generation, machine.Generation))
 		if err != nil {
 			return false, err
 		}

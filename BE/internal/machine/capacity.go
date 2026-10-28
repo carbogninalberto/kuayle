@@ -7,7 +7,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
+	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/moby/moby/client"
+	log "github.com/sirupsen/logrus"
 )
 
 // HostResources is the Docker host's capacity. Zero means unknown.
@@ -105,4 +107,32 @@ func (m *Manager) admit(ctx context.Context, machine *domain.DevMachine) (func()
 		delete(m.admitted, machine.ID)
 		m.admissionMu.Unlock()
 	}, nil
+}
+
+// reclaimHostCapacity stops the least recently active idle machine when
+// another machine waits for host CPU or memory. Idle task machines otherwise
+// stay running, so host pressure is what makes room for new work. The store
+// chooses one machine at a time; the waiting operation retries after
+// capacityRetryDelay, by when the stop has released its allocation.
+func (m *Manager) reclaimHostCapacity(ctx context.Context, waiting *domain.DevMachine) {
+	candidate, err := m.store.ReclaimIdleMachine(ctx, waiting.ID)
+	if err != nil {
+		log.WithField("machine_id", waiting.ID).WithError(err).Warn("host capacity reclaim lookup failed")
+		return
+	}
+	if candidate == nil {
+		return
+	}
+	operation := &domain.DevMachineOperation{
+		ID: uuid.New(), MachineID: candidate.ID, WorkspaceID: candidate.WorkspaceID,
+		Action: domain.DevMachineOpStop, Status: domain.DevMachineOpStatusPending,
+		Generation: candidate.Generation + 1, IdempotencyKey: fmt.Sprintf("%s%d", repository.HostCapacityReclaimKeyPrefix, candidate.Generation+1), MaxAttempts: 3,
+	}
+	if err := m.store.SetDesiredAndEnqueue(ctx, candidate.WorkspaceID, candidate.ID, domain.DevMachineStatusStopped, operation); err != nil {
+		log.WithField("machine_id", candidate.ID).WithError(err).Warn("host capacity reclaim stop queue failed")
+		return
+	}
+	_ = m.createEvent(ctx, candidate, nil, "lifecycle", "machine.reclaimed_for_capacity", map[string]any{"reason": "host_capacity"})
+	log.WithFields(log.Fields{"machine_id": candidate.ID, "workspace_id": candidate.WorkspaceID, "waiting_machine_id": waiting.ID}).
+		Info("stopping least recently active idle machine for host capacity")
 }

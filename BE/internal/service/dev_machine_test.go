@@ -563,6 +563,8 @@ func TestDefaultPolicyAllowsAllBuiltInProviders(t *testing.T) {
 
 	require.NoError(t, err)
 	require.JSONEq(t, `["claude-code","opencode","codex","qwen-code","crush","kimi","goose"]`, string(policy.AllowedProviders))
+	require.Equal(t, 20, policy.MaxConcurrentMachines, "matches the column default of migration 79")
+	require.Equal(t, 20, policy.MaxMachinesPerUser)
 }
 
 func TestCreateHeadlessMachineBuildsTerminalOnlyDeveloperServices(t *testing.T) {

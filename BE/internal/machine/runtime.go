@@ -10,6 +10,12 @@ import (
 
 var ErrHostDiskUnknown = errors.New("host disk usage is unknown")
 
+// ErrRuntimeIncomplete reports that a stopped or paused machine cannot simply
+// be resumed because its workspace volume or a service container was never
+// created or no longer exists. The manager provisions the machine again, which
+// reuses every part that still exists.
+var ErrRuntimeIncomplete = errors.New("machine runtime is incomplete")
+
 // AgentOutput consumes raw runtime bytes synchronously. The manager must redact
 // them before persistence. Returning an error aborts execution.
 type AgentOutput func(stream string, data []byte) error

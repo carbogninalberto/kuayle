@@ -1009,7 +1009,9 @@ func (s *DevMachineService) checkoutIssue(ctx context.Context, workspaceID, mach
 	if !repositoryAllowed(policy.AllowedRepositories, linkedRepository.FullName) {
 		return nil, ErrRepositoryNotAllowed
 	}
-	if machine.RepositoryAffinityID != nil && *machine.RepositoryAffinityID != linkedRepository.ID {
+	// A task checkout gets its own worktree, so a task machine serves several
+	// repositories. Manual checkouts stay with the machine's own repository.
+	if scope == "" && machine.RepositoryAffinityID != nil && *machine.RepositoryAffinityID != linkedRepository.ID {
 		return nil, fmt.Errorf("%w: machine is assigned to another repository", ErrCheckoutNotEligible)
 	}
 	existing, err := s.store.ListCheckouts(ctx, workspaceID, machineID)
@@ -2132,7 +2134,7 @@ func (s *DevMachineService) GetPolicy(ctx context.Context, workspaceID uuid.UUID
 		return policy, err
 	}
 	return &domain.DevMachineWorkspacePolicy{
-		WorkspaceID: workspaceID, MaxConcurrentMachines: 5, MaxMachinesPerUser: 2, MaxDailyAgentRuns: 25,
+		WorkspaceID: workspaceID, MaxConcurrentMachines: 20, MaxMachinesPerUser: 20, MaxDailyAgentRuns: 25,
 		MaxRuntimeMinutes: 480, MaxDiskGB: 100, IdlePauseMinutes: 240,
 		AllowedProviders:    json.RawMessage(`["claude-code","opencode","codex","qwen-code","crush","kimi","goose"]`),
 		AllowedRepositories: json.RawMessage(`[]`),

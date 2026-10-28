@@ -1678,18 +1678,76 @@ func (r *DevMachineRepository) BulkPurgeMachines(ctx context.Context, workspaceI
 	return int(rows), nil
 }
 
+// ListIdleMachines returns running machines idle for longer than the
+// workspace's idle_pause_minutes, least recently active first, for pausing.
+// Machines that agent tasks use stay running while the creator's and the
+// workspace's running machines are within max_machines_per_user and
+// max_concurrent_machines: only those ranked beyond a cap by recent activity
+// (for example after an admin lowered it) are paused. keep_running machines,
+// machines with an active run and machines with a pending operation are never
+// returned.
 func (r *DevMachineRepository) ListIdleMachines(ctx context.Context, limit int) ([]domain.DevMachine, error) {
 	var machines []domain.DevMachine
-	err := r.db.SelectContext(ctx, &machines, `SELECT m.* FROM dev_machines m
+	err := r.db.SelectContext(ctx, &machines, `WITH running AS (
+			SELECT id,
+				row_number() OVER (PARTITION BY workspace_id, created_by_user_id
+					ORDER BY COALESCE(last_activity_at,started_at,created_at) DESC, id) AS user_rank,
+				row_number() OVER (PARTITION BY workspace_id
+					ORDER BY COALESCE(last_activity_at,started_at,created_at) DESC, id) AS workspace_rank
+			FROM dev_machines WHERE status='running' AND desired_status='running'
+		)
+		SELECT m.* FROM dev_machines m
 		JOIN dev_machine_workspace_policies p ON p.workspace_id=m.workspace_id AND p.enabled
+		JOIN running ON running.id=m.id
 		WHERE m.status='running' AND m.desired_status='running' AND NOT m.keep_running
 		AND COALESCE(m.last_activity_at,m.started_at,m.created_at) + make_interval(mins => p.idle_pause_minutes) <= NOW()
+		AND (NOT EXISTS (SELECT 1 FROM agent_tasks t WHERE t.machine_id=m.id)
+			OR running.user_rank > p.max_machines_per_user OR running.workspace_rank > p.max_concurrent_machines)
 		AND NOT EXISTS (SELECT 1 FROM dev_machine_agent_runs r WHERE r.machine_id=m.id
 			AND r.status IN ('queued','starting','running','waiting_input'))
 		AND NOT EXISTS (SELECT 1 FROM dev_machine_operations o WHERE o.machine_id=m.id
 			AND o.status IN ('pending','leased'))
 		ORDER BY COALESCE(m.last_activity_at,m.started_at,m.created_at) LIMIT $1`, limit)
 	return machines, err
+}
+
+// HostCapacityReclaimKeyPrefix marks stop operations that free host capacity.
+const HostCapacityReclaimKeyPrefix = "host-capacity:"
+
+// hostCapacityReclaimIdleMinutes is how long a machine must have been idle
+// before host capacity pressure may stop it.
+const hostCapacityReclaimIdleMinutes = 10
+
+// ReclaimIdleMachine chooses the machine to stop when another machine waits
+// for host CPU or memory: the least recently active running or paused
+// machine, on any workspace, that has been idle for a while, is not kept
+// running and has no active run, active task or pending operation. Stopped
+// machines release their allocation; paused ones keep it. Nothing is chosen
+// while an earlier reclaim stop is still in flight, so pressure stops one
+// machine at a time.
+func (r *DevMachineRepository) ReclaimIdleMachine(ctx context.Context, waitingMachineID uuid.UUID) (*domain.DevMachine, error) {
+	var machine domain.DevMachine
+	err := r.db.GetContext(ctx, &machine, `SELECT m.* FROM dev_machines m
+		WHERE m.id<>$1 AND m.status IN ('running','paused') AND m.desired_status=m.status
+		AND NOT m.keep_running AND NOT m.environment_builder AND m.delete_requested_at IS NULL
+		AND COALESCE(m.last_activity_at,m.started_at,m.created_at) + make_interval(mins => $2) <= NOW()
+		AND NOT EXISTS (SELECT 1 FROM dev_machine_agent_runs r WHERE r.machine_id=m.id
+			AND r.status IN ('queued','starting','running','waiting_input'))
+		AND NOT EXISTS (SELECT 1 FROM agent_tasks t WHERE t.machine_id=m.id
+			AND t.state NOT IN ('completed','cancelled','failed','blocked','awaiting_review'))
+		AND NOT EXISTS (SELECT 1 FROM dev_machine_operations o WHERE o.machine_id=m.id
+			AND o.status IN ('pending','leased'))
+		AND NOT EXISTS (SELECT 1 FROM dev_machine_operations o WHERE o.action='stop'
+			AND o.status IN ('pending','leased') AND starts_with(o.idempotency_key, $3))
+		ORDER BY COALESCE(m.last_activity_at,m.started_at,m.created_at), m.id LIMIT 1`,
+		waitingMachineID, hostCapacityReclaimIdleMinutes, HostCapacityReclaimKeyPrefix)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &machine, nil
 }
 
 func (r *DevMachineRepository) ListScopeSettings(ctx context.Context, workspaceID uuid.UUID) ([]domain.DevMachineScopeSetting, error) {
@@ -2199,13 +2257,24 @@ func (r *DevMachineRepository) CreateCheckout(ctx context.Context, checkout *dom
 		return err
 	}
 	defer tx.Rollback()
-	result, err := tx.ExecContext(ctx, `UPDATE dev_machines SET repository_affinity_id=$1, issue_id=$2,
-		repo_url=$3,repo_provider='github',repo_owner=split_part($4,'/',1),repo_name=split_part($4,'/',2),
-		base_branch=$5,working_branch=$6,last_activity_at=NOW()
-		WHERE workspace_id=$7 AND id=$8 AND (repository_affinity_id IS NULL OR repository_affinity_id=$1)
-		AND status='running' AND desired_status='running'`, checkout.GitHubRepoID, checkout.IssueID,
-		"https://github.com/"+checkout.RepositoryFullName, checkout.RepositoryFullName, checkout.BaseBranch,
-		checkout.WorkingBranch, checkout.WorkspaceID, checkout.MachineID)
+	// A manual checkout binds the machine to its repository. A task checkout
+	// gets its own worktree from the machine's cache of that repository, so a
+	// task machine serves several repositories; its root repository, which the
+	// developer containers clone at creation, stays as it is.
+	var result sql.Result
+	if checkout.ScopeKey != "" {
+		result, err = tx.ExecContext(ctx, `UPDATE dev_machines SET issue_id=$1,last_activity_at=NOW()
+			WHERE workspace_id=$2 AND id=$3 AND status='running' AND desired_status='running'`,
+			checkout.IssueID, checkout.WorkspaceID, checkout.MachineID)
+	} else {
+		result, err = tx.ExecContext(ctx, `UPDATE dev_machines SET repository_affinity_id=$1, issue_id=$2,
+			repo_url=$3,repo_provider='github',repo_owner=split_part($4,'/',1),repo_name=split_part($4,'/',2),
+			base_branch=$5,working_branch=$6,last_activity_at=NOW()
+			WHERE workspace_id=$7 AND id=$8 AND (repository_affinity_id IS NULL OR repository_affinity_id=$1)
+			AND status='running' AND desired_status='running'`, checkout.GitHubRepoID, checkout.IssueID,
+			"https://github.com/"+checkout.RepositoryFullName, checkout.RepositoryFullName, checkout.BaseBranch,
+			checkout.WorkingBranch, checkout.WorkspaceID, checkout.MachineID)
+	}
 	if err != nil {
 		return err
 	}

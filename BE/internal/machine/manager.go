@@ -85,6 +85,7 @@ type ManagerStore interface {
 	ListDeleteRequestedEnvironments(context.Context, int) ([]domain.DevMachineEnvironment, error)
 	DeleteEnvironment(context.Context, uuid.UUID, uuid.UUID) error
 	ListIdleMachines(context.Context, int) ([]domain.DevMachine, error)
+	ReclaimIdleMachine(context.Context, uuid.UUID) (*domain.DevMachine, error)
 	UpsertRuntimeCredential(context.Context, *domain.DevMachineRuntimeCredential) error
 	PurgeExpiredRuntimeCredentials(context.Context, time.Time) (int, error)
 	PurgeAccessLogs(context.Context, time.Time, int) (int, error)
@@ -375,6 +376,10 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 	if operation.Action == domain.DevMachineOpSpawn || (operation.Action == domain.DevMachineOpStart && machine.Status != domain.DevMachineStatusRunning) {
 		release, err := m.admit(ctx, machine)
 		if err != nil {
+			var waitErr *capacityWaitError
+			if errors.As(err, &waitErr) {
+				m.reclaimHostCapacity(ctx, machine)
+			}
 			return err
 		}
 		defer release()
@@ -401,6 +406,10 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 				return err
 			}
 			if err := m.runtime.Start(ctx, machine, services, serviceSecrets); err != nil {
+				if errors.Is(err, ErrRuntimeIncomplete) {
+					log.WithField("machine_id", machine.ID).WithError(err).Info("provisioning incomplete machine runtime on start")
+					return m.spawn(ctx, machine, services, operation)
+				}
 				return err
 			}
 			for _, service := range services {
