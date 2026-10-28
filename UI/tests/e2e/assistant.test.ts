@@ -727,7 +727,7 @@ test('groups conversations into folders and deletes one after confirmation', asy
 	await expect(nav.getByRole('button', { name: /^Releases \d+$/ })).toBeVisible();
 
 	await nav.getByRole('button', { name: 'Actions for Release notes' }).click();
-	await page.getByRole('menuitem', { name: 'Move to' }).click();
+	await page.getByRole('menuitem', { name: 'Move to', exact: true }).click();
 	await page.getByRole('menuitem', { name: 'Releases' }).click();
 	await expect.poll(() => moves).toEqual([{ folder_id: 'folder-1' }]);
 	const folder = nav.getByRole('button', { name: /^Releases \d+$/ });
@@ -780,6 +780,114 @@ test('renames a conversation in place from its menu', async ({ page }) => {
 	await expect(nav.getByRole('link', { name: 'Launch plan' })).toBeVisible();
 	// The open conversation's header follows the new title.
 	await expect(header.getByText('Launch plan')).toBeVisible();
+});
+
+async function projectFixture(page: Page) {
+	const projects = [
+		{ id: 'p-1', name: 'Launch', team_id: null },
+		{ id: 'p-2', name: 'Company', team_id: null }
+	];
+	const tagged = { ...conversation, project_id: 'p-1', project: projects[0] };
+	const loose = { ...conversation, id: 'chat-2', title: 'Release notes', project_id: null, project: null };
+	const issueChat = {
+		...conversation,
+		id: 'chat-3',
+		title: 'ENG-1 · Fix login',
+		issue_id: 'issue-1',
+		team_id: 'team-1',
+		project_id: null,
+		project: null
+	};
+	const chats = [tagged, loose, issueChat];
+	const requests = { lists: [] as (string | null)[], creates: [] as unknown[], patches: [] as unknown[] };
+	await page.route('**/api/workspaces/test/projects', (route) => route.fulfill({ json: projects }));
+	await page.route(
+		(url) => url.pathname === '/api/workspaces/test/conversations',
+		(route) => {
+			if (route.request().method() === 'POST') {
+				requests.creates.push(route.request().postDataJSON());
+				return route.fulfill({ status: 201, json: tagged });
+			}
+			const filter = new URL(route.request().url()).searchParams.get('project_id');
+			requests.lists.push(filter);
+			const list = chats.filter((c) => !filter || (filter === 'none' ? !c.project : c.project?.id === filter));
+			return route.fulfill({ json: list });
+		}
+	);
+	await page.route('**/api/workspaces/test/conversations/chat-1', (route) => {
+		if (route.request().method() !== 'PATCH') return route.fallback();
+		const body = route.request().postDataJSON();
+		requests.patches.push(body);
+		tagged.project_id = body.project_id;
+		tagged.project = projects.find((p) => p.id === body.project_id) ?? (null as never);
+		return route.fulfill({ json: tagged });
+	});
+	return requests;
+}
+
+test('filters conversations by project, tags rows and moves a chat to another project', async ({ page }, testInfo) => {
+	await fixture(page);
+	const requests = await projectFixture(page);
+	await page.goto('/test/assistant?conversation=chat-1');
+	const nav = page.getByRole('navigation', { name: 'Conversations' });
+	// Rows carry their project; the issue chat and the loose chat have none.
+	await expect(nav.getByText('Launch', { exact: true })).toHaveCount(1);
+	await expect(nav.getByText('Launch', { exact: true })).toBeVisible();
+	await expect(nav.getByRole('link', { name: 'Release notes' })).toBeVisible();
+	await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('project-chips-desktop.png') });
+
+	const filter = page.getByRole('combobox', { name: 'Project filter' });
+	await expect(filter).toHaveText('All projects');
+	await filter.click();
+	await page.getByRole('option', { name: 'No project' }).click();
+	await expect(nav.getByRole('link', { name: 'Release notes' })).toBeVisible();
+	await expect(nav.getByRole('link', { name: 'A persistent conversation' })).toHaveCount(0);
+	await filter.click();
+	await page.getByRole('option', { name: 'Launch' }).click();
+	await expect(nav.getByRole('link', { name: 'A persistent conversation' })).toBeVisible();
+	await expect(nav.getByRole('link', { name: 'Release notes' })).toHaveCount(0);
+	expect(requests.lists).toEqual([null, 'none', 'p-1']);
+
+	// An issue chat follows its issue's project, so it cannot be moved.
+	await filter.click();
+	await page.getByRole('option', { name: 'All projects' }).click();
+	await nav.getByRole('button', { name: 'Actions for ENG-1 · Fix login' }).click();
+	await page.getByRole('menuitem', { name: 'Move to project' }).click();
+	await expect(page.getByRole('menuitem', { name: 'Company' })).toBeDisabled();
+	await page.keyboard.press('Escape');
+	await page.keyboard.press('Escape');
+
+	await filter.click();
+	await page.getByRole('option', { name: 'Launch' }).click();
+	await nav.getByRole('button', { name: 'Actions for A persistent conversation' }).click();
+	await page.getByRole('menuitem', { name: 'Move to project' }).click();
+	await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('move-to-project-desktop.png') });
+	await page.getByRole('menuitem', { name: 'Company' }).click();
+	await expect.poll(() => requests.patches).toEqual([{ project_id: 'p-2' }]);
+	// It no longer belongs to the filtered project.
+	await expect(nav.getByRole('link', { name: 'A persistent conversation' })).toHaveCount(0);
+});
+
+test('a new chat starts in the filtered project and the filter is remembered', async ({ page }, testInfo) => {
+	await page.setViewportSize({ width: 390, height: 844 });
+	await fixture(page);
+	const requests = await projectFixture(page);
+	await page.goto('/test/assistant');
+	await page.getByRole('button', { name: 'Conversations' }).click();
+	const filter = page.getByRole('combobox', { name: 'Project filter' });
+	await filter.click();
+	await page.getByRole('option', { name: 'Launch' }).click();
+	await expect(
+		page.getByRole('navigation', { name: 'Conversations' }).getByText('A persistent conversation')
+	).toBeVisible();
+	expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+	await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('project-filter-mobile.png') });
+
+	await page.reload();
+	await expect.poll(() => requests.lists.at(-1)).toBe('p-1');
+	await page.getByRole('textbox', { name: 'Message' }).fill('Plan the launch');
+	await page.getByRole('textbox', { name: 'Message' }).press('Enter');
+	await expect.poll(() => requests.creates).toEqual([{ title: 'Plan the launch', project_id: 'p-1' }]);
 });
 
 test('asks for approval before merging the reviewed pull request', async ({ page }) => {

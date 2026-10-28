@@ -11,6 +11,15 @@ export interface Conversation {
 	created_at: string;
 	updated_at: string;
 	folder_id?: string | null;
+	// The effective project (an issue chat's is its issue's), only when the
+	// owner can see it. Projects tag and filter; they never share a chat.
+	project_id?: string | null;
+	project?: ConversationProject | null;
+}
+export interface ConversationProject {
+	id: string;
+	name: string;
+	team_id: string | null;
 }
 export type MessageStatus = 'queued' | 'streaming' | 'completed' | 'failed' | 'interrupted' | 'cancelled';
 export interface ConversationMessage {
@@ -179,9 +188,16 @@ export const conversations = {
 		api.patch<Conversation>(`${base(slug)}/conversations/${encodeURIComponent(id)}`, { title }),
 	remove: (slug: string, id: string) => api.delete<void>(`${base(slug)}/conversations/${encodeURIComponent(id)}`),
 	status: (slug: string) => api.get<AssistantStatus>(`${base(slug)}/assistant/status`),
-	list: (slug: string) => api.get<Conversation[]>(`${base(slug)}/conversations`),
+	// project: a project id, or 'none' for chats without a visible project.
+	list: (slug: string, project?: string) =>
+		api.get<Conversation[]>(
+			`${base(slug)}/conversations${project ? `?project_id=${encodeURIComponent(project)}` : ''}`
+		),
+	setProject: (slug: string, id: string, project_id: string | null) =>
+		api.patch<Conversation>(`${base(slug)}/conversations/${encodeURIComponent(id)}`, { project_id }),
 	openIssue: (slug: string, issue_id: string) => api.post<Conversation>(`${base(slug)}/conversations`, { issue_id }),
-	create: (slug: string, title: string) => api.post<Conversation>(`${base(slug)}/conversations`, { title }),
+	create: (slug: string, title: string, project_id?: string | null) =>
+		api.post<Conversation>(`${base(slug)}/conversations`, project_id ? { title, project_id } : { title }),
 	history: (slug: string, id: string, before = 0) =>
 		api.get<ConversationHistory>(`${base(slug)}/conversations/${encodeURIComponent(id)}?before=${before}`),
 	events: (slug: string, id: string, after: number) =>

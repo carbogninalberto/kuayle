@@ -37,9 +37,14 @@
 	import LiveStatus from './LiveStatus.svelte';
 	import DiffPanel from './DiffPanel.svelte';
 	import * as Sheet from '$lib/components/ui/sheet/index.js';
+	import * as Select from '$lib/components/ui/select/index.js';
+	import { listProjects } from '$lib/api/projects';
+	import type { Project } from '$lib/types/project';
+	import { listQuery, newChatProject, resolveProjectFilter, type ProjectFilter } from './project-filter';
 	import * as Resizable from '$lib/components/ui/resizable/index.js';
 	import { MediaQuery } from 'svelte/reactivity';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
+	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/paraglide/messages.js';
 
 	let {
@@ -55,6 +60,40 @@
 	let initialized = $state(false);
 	let text = $state('');
 	let search = $state('');
+	// The list's project filter is remembered per person and workspace; a new
+	// chat started under a project filter belongs to that project.
+	const filterKey = untrack(() => `assistant-project-filter:${authState.user?.id}:${slug}`);
+	let projects = $state<Project[]>([]);
+	let projectFilter = $state<ProjectFilter>(
+		untrack(() => {
+			try {
+				return (localStorage.getItem(filterKey) as ProjectFilter | null) ?? 'all';
+			} catch {
+				return 'all';
+			}
+		})
+	);
+	const projectOptions = $derived([
+		{ value: 'all', label: m['assistant.all_projects']() },
+		{ value: 'none', label: m['assistant.no_project']() },
+		...projects.map((project) => ({ value: project.id, label: project.name }))
+	]);
+	function loadHistory(filter: ProjectFilter) {
+		return conversations.list(slug, listQuery(filter)).then((items) => {
+			if (!disposed && projectFilter === filter) history = items;
+		});
+	}
+	function chooseProject(next: string) {
+		if (next === projectFilter) return;
+		projectFilter = next;
+		try {
+			if (next === 'all') localStorage.removeItem(filterKey);
+			else localStorage.setItem(filterKey, next);
+		} catch {
+			/* The filter still applies without storage. */
+		}
+		void loadHistory(next).catch((error) => appToast.apiError(error, m['assistant.error']()));
+	}
 	let showHistory = $state(false);
 	// Panes only on wide screens; phones keep the stacked, toggleable list.
 	const desktop = new MediaQuery('min-width: 768px');
@@ -73,7 +112,9 @@
 	async function ensureConversation(fallbackTitle = m['assistant.image_title']()) {
 		const existing = conversationId ?? pending?.conversation ?? draftConversation;
 		if (existing) return existing;
-		draftConversation = (await conversations.create(slug, text.trim().slice(0, 100) || fallbackTitle)).id;
+		draftConversation = (
+			await conversations.create(slug, text.trim().slice(0, 100) || fallbackTitle, newChatProject(projectFilter))
+		).id;
 		return draftConversation;
 	}
 	const attachments = untrack(() => new ComposerAttachments(slug, () => ensureConversation()));
@@ -119,12 +160,21 @@
 			/* Storage can be disabled. */
 		}
 		draftLoaded = true;
-		void Promise.all([embedded ? Promise.resolve([]) : conversations.list(slug), conversations.status(slug)])
-			.then(([items, provider]) => {
+		const saved = projectFilter;
+		void Promise.all([
+			embedded ? Promise.resolve([]) : conversations.list(slug, listQuery(saved)),
+			conversations.status(slug),
+			embedded ? Promise.resolve([]) : listProjects(slug).catch(() => [])
+		])
+			.then(([items, provider, visible]) => {
 				if (disposed) return;
 				history = items;
 				status = provider;
+				projects = visible;
 				initialized = true;
+				// A remembered project that is no longer visible falls back to all.
+				const resolved = resolveProjectFilter(saved, visible);
+				if (!embedded && resolved !== saved) chooseProject(resolved);
 			})
 			.catch(() => {
 				if (!disposed) error = m['assistant.error']();
@@ -175,7 +225,13 @@
 			const id =
 				conversationId ??
 				pending.conversation ??
-				(await conversations.create(slug, text.trim().slice(0, 100) || m['assistant.image_title']())).id;
+				(
+					await conversations.create(
+						slug,
+						text.trim().slice(0, 100) || m['assistant.image_title'](),
+						newChatProject(projectFilter)
+					)
+				).id;
 			pending.conversation = id;
 			try {
 				localStorage.setItem(`${draftKey}:pending`, JSON.stringify(pending));
@@ -295,6 +351,18 @@
 			aria-label={m['assistant.history']()}
 		>
 			<p class="px-1 pt-1 text-xs font-medium text-muted-foreground">{m['assistant.history']()}</p>
+			{#if projects.length > 0 || projectFilter !== 'all'}
+				<Select.Root type="single" value={projectFilter} onValueChange={chooseProject} items={projectOptions}>
+					<Select.Trigger class="w-full" aria-label={m['assistant.project_filter']()}>
+						<span class="truncate">{projectOptions.find((o) => o.value === projectFilter)?.label ?? ''}</span>
+					</Select.Trigger>
+					<Select.Content>
+						{#each projectOptions as option (option.value)}
+							<Select.Item value={option.value} label={option.label}>{option.label}</Select.Item>
+						{/each}
+					</Select.Content>
+				</Select.Root>
+			{/if}
 			<Input
 				bind:value={search}
 				aria-label={m['assistant.search']()}
@@ -306,6 +374,8 @@
 				{conversationId}
 				bind:history
 				{search}
+				{projects}
+				{projectFilter}
 				onrenamed={(updated) => {
 					if (chat.conversation?.id === updated.id) chat.conversation = { ...chat.conversation, title: updated.title };
 				}}

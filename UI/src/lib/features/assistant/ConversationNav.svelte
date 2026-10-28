@@ -1,30 +1,40 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { ChevronRight, Folder, FolderPlus, MoreHorizontal, Pencil, Trash2 } from '@lucide/svelte';
+	import { ChevronRight, Folder, FolderKanban, FolderPlus, MoreHorizontal, Pencil, Trash2 } from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
+	import { Badge } from '$lib/components/ui/badge/index.js';
 	import * as Collapsible from '$lib/components/ui/collapsible/index.js';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
 	import { conversations as api, type Conversation, type ConversationFolder } from '$lib/api/conversations';
 	import { appToast } from '$lib/features/toast/toast';
+	import type { Project } from '$lib/types/project';
+	import { matchesProjectFilter, type ProjectFilter } from './project-filter';
 	import { m } from '$lib/paraglide/messages.js';
 
-	// The user's own conversations, grouped into private folders. Deleting a
-	// conversation is refused by the API while a reply or agent task is active.
+	// The user's own conversations, grouped into private folders and tagged
+	// with projects; neither shares a conversation. Deleting a conversation is
+	// refused by the API while a reply or agent task is active.
 	let {
 		slug,
 		conversationId,
 		history = $bindable([]),
 		search = '',
+		projects = [],
+		projectFilter = 'all',
 		onrenamed
 	}: {
 		slug: string;
 		conversationId: string | null;
 		history: Conversation[];
 		search?: string;
+		projects?: Project[];
+		projectFilter?: ProjectFilter;
 		onrenamed?: (conversation: Conversation) => void;
 	} = $props();
+	// Under a single project's filter every row is that project's.
+	const showProjects = $derived(projectFilter === 'all');
 
 	let folders = $state<ConversationFolder[]>([]);
 	// Folders start collapsed, except the one holding the open conversation;
@@ -132,6 +142,19 @@
 		}
 	}
 
+	// An issue chat follows its issue's project; the API refuses to move it.
+	async function moveToProject(conversation: Conversation, project: string | null) {
+		try {
+			const updated = await api.setProject(slug, conversation.id, project);
+			const next = { ...conversation, project_id: updated.project_id ?? null, project: updated.project ?? null };
+			history = matchesProjectFilter(next, projectFilter)
+				? history.map((c) => (c.id === conversation.id ? next : c))
+				: history.filter((c) => c.id !== conversation.id);
+		} catch (error) {
+			appToast.apiError(error, m['assistant.move_failed']());
+		}
+	}
+
 	async function confirmDelete() {
 		const target = deleting;
 		if (!target) return;
@@ -183,6 +206,11 @@
 					? 'font-medium'
 					: 'text-muted-foreground'}">{item.title}</a
 			>
+			{#if showProjects && item.project}
+				<Badge variant="secondary" class="max-w-24 shrink font-normal" title={item.project.name}
+					><span class="truncate">{item.project.name}</span></Badge
+				>
+			{/if}
 			<DropdownMenu.Root>
 				<DropdownMenu.Trigger>
 					{#snippet child({ props })}
@@ -208,6 +236,26 @@
 							{#each folders as folder (folder.id)}
 								<DropdownMenu.Item disabled={item.folder_id === folder.id} onSelect={() => void move(item, folder.id)}
 									>{folder.name}</DropdownMenu.Item
+								>
+							{/each}
+						</DropdownMenu.SubContent>
+					</DropdownMenu.Sub>
+					<DropdownMenu.Sub>
+						<DropdownMenu.SubTrigger><FolderKanban />{m['assistant.move_to_project']()}</DropdownMenu.SubTrigger>
+						<DropdownMenu.SubContent class="max-h-72 overflow-y-auto">
+							{#if item.issue_id}
+								<DropdownMenu.Label class="max-w-56 text-xs font-normal text-muted-foreground"
+									>{m['assistant.issue_chat_project']()}</DropdownMenu.Label
+								>
+							{/if}
+							<DropdownMenu.Item
+								disabled={!!item.issue_id || !item.project}
+								onSelect={() => void moveToProject(item, null)}>{m['assistant.no_project']()}</DropdownMenu.Item
+							>
+							{#each projects as project (project.id)}
+								<DropdownMenu.Item
+									disabled={!!item.issue_id || item.project?.id === project.id}
+									onSelect={() => void moveToProject(item, project.id)}>{project.name}</DropdownMenu.Item
 								>
 							{/each}
 						</DropdownMenu.SubContent>
