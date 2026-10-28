@@ -347,6 +347,13 @@ recovery credentials, live output capture and conversation events, and the
 session-only task routes, worker wiring, independent validation, pull request publication and remaining review work. Manual IDE/terminal
 workflows continue to use the existing machine controls.
 
+Every task attempt runs inside a tracked [agent session](BE/docs/agent-tasks.md#agent-sessions)
+(migration 84, `agent_sessions`): an implementing task keeps one session across
+its follow-ups, and its state follows the task's transitions in the same
+transaction. Agent reviews of a published pull request run only when requested
+from chat, as separate review tasks that never validate, publish or receive a
+push credential; see [requested agent reviews](BE/docs/agent-tasks.md#requested-agent-reviews).
+
 [Automations](BE/docs/agent-tasks.md#automations) (migration 69) delegate matching issues on a label or status trigger, optionally on a UTC schedule. Runs need approval unless a rule is unattended and the workspace policy allows unattended automations; every start acts for a recorded user under that user's current permissions.
 
 ## Resource Limits and Quotas
@@ -775,8 +782,9 @@ and API restarts. Generation attempts are leased and idempotent, with explicit
 retry after interruption. Issue details embed a creator-private chat with a fresh,
 bounded issue snapshot and original-team visibility checks. Orchestrator tools let
 the assistant list teams, search, read, create and update issues, read and list
-agent work, link an issue or project to a repository and request delegation or
-merge approval, with the user's own permissions; it cannot change Dev Machine
+agent work, link an issue or project to a repository and request approval for
+delegation, an agent review of a published pull request, a follow-up on a task
+or a merge, with the user's own permissions; it cannot change Dev Machine
 lifecycles. One reply runs up to 10 minutes, 400 tool calls and 10 issue
 changes, with a bounded per-round context. Comments by workspace members on an
 issue whose task awaits review queue a bounded follow-up attempt
