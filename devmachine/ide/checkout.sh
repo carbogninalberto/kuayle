@@ -124,11 +124,32 @@ SCRIPT
 chmod 0700 "$askpass"
 export GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0 KUAYLE_CHECKOUT_TOKEN_FILE="$token_file"
 
-repository_key=$(printf '%s' "$repository" | tr '/' '-')
-bare_repository="$workspace_root/repos/${repository_key}.git"
+# Each repository has one cache on the machine, repos/<owner>/<repo>.git, and
+# every task gets its own worktree from it, so a machine serves several
+# repositories. The caches never store a credential: each run of this script
+# authenticates with the token it was given for this repository only.
+repository_owner=${repository%%/*}
+repository_name=${repository#*/}
+case "$repository_owner" in ''|.*|*[!A-Za-z0-9-]* ) echo "invalid repository" >&2; exit 1 ;; esac
+case "$repository_name" in ''|.|..|*/*|*[!A-Za-z0-9._-]* ) echo "invalid repository" >&2; exit 1 ;; esac
+bare_repository="$workspace_root/repos/$repository_owner/$repository_name.git"
 repository_url="https://github.com/${repository}"
 
+if [ -e "$workspace_path" ]; then
+  [ -e "$workspace_path/.git" ] || { echo "workspace path is not an existing checkout" >&2; exit 1; }
+  git config --global --add safe.directory "$workspace_path"
+  existing_url=$(git -C "$workspace_path" config --get remote.origin.url 2>/dev/null || true)
+  [ "$existing_url" = "$repository_url" ] || { echo "workspace path holds a checkout of another repository" >&2; exit 1; }
+  git -C "$workspace_path" config --unset-all core.askPass >/dev/null 2>&1 || true
+  git -C "$workspace_path" config --unset-all credential.helper >/dev/null 2>&1 || true
+  git -C "$workspace_path" fetch --prune origin
+  configure_checkout_git_helper "$workspace_path"
+  ln -sfn "$workspace_path" "$workspace_root/current"
+  exit 0
+fi
+
 if [ ! -d "$bare_repository" ]; then
+  mkdir -p "${bare_repository%/*}"
   git clone --bare "$repository_url" "$bare_repository"
   git --git-dir="$bare_repository" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
   clear_bare_git_credentials "$bare_repository"
@@ -139,14 +160,6 @@ fi
 
 git --git-dir="$bare_repository" fetch --prune origin
 git --git-dir="$bare_repository" worktree prune
-
-if [ -e "$workspace_path" ]; then
-  [ -e "$workspace_path/.git" ] || { echo "workspace path is not an existing checkout" >&2; exit 1; }
-  configure_checkout_git_helper "$workspace_path"
-  git config --global --add safe.directory "$workspace_path"
-  ln -sfn "$workspace_path" "$workspace_root/current"
-  exit 0
-fi
 
 mkdir -p "$(dirname "$workspace_path")"
 if git --git-dir="$bare_repository" show-ref --verify --quiet "refs/remotes/origin/$working_branch"; then

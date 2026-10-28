@@ -187,6 +187,36 @@ configure_bare_git_helper() {
   git --git-dir="$1" config credential.helper "$credential_helper"
 }
 
+# Creates the machine's root checkout of KUAYLE_REPO_URL once. The workspace
+# volume is not empty by then: it holds Kuayle's own state (the Codex package
+# cache, repository caches, task worktrees) and, after a restart, the user's
+# work. The repository is cloned into a staging directory on the same volume,
+# its files are moved into place without replacing anything already there,
+# and .git is moved last, so an interrupted preparation is completed by the
+# next start and an existing .git always means the workspace is prepared.
+prepare_root_checkout() {
+  kuayle_root_checkout_created=0
+  [ -n "${KUAYLE_REPO_URL:-}" ] || return 0
+  [ ! -e "$workspace_root/.git" ] || return 0
+  staging="$workspace_root/.kuayle/root-checkout"
+  rm -rf "$staging"
+  mkdir -p "$workspace_root/.kuayle"
+  git clone --branch "${KUAYLE_BASE_BRANCH:-main}" --single-branch "$KUAYLE_REPO_URL" "$staging"
+  for entry in "$staging"/* "$staging"/.[!.]* "$staging"/..?*; do
+    [ -e "$entry" ] || [ -L "$entry" ] || continue
+    name=${entry##*/}
+    [ "$name" != .git ] || continue
+    if [ -e "$workspace_root/$name" ] || [ -L "$workspace_root/$name" ]; then
+      echo "workspace already contains ${name}; keeping the existing copy" >&2
+      continue
+    fi
+    mv "$entry" "$workspace_root/$name"
+  done
+  mv "$staging/.git" "$workspace_root/.git"
+  rm -rf "$staging"
+  kuayle_root_checkout_created=1
+}
+
 prepare_developer_workspace() {
   install_git_credential_helper
   git config --global --unset-all core.askPass >/dev/null 2>&1 || true
@@ -194,16 +224,17 @@ prepare_developer_workspace() {
   git config --global credential.helper "$credential_helper"
   export GIT_TERMINAL_PROMPT=0
 
-  if [ ! -d "$workspace_root/.git" ] && [ -n "${KUAYLE_REPO_URL:-}" ]; then
-    git clone --branch "${KUAYLE_BASE_BRANCH:-main}" --single-branch "$KUAYLE_REPO_URL" "$workspace_root"
-  fi
+  prepare_root_checkout
+  root_checkout_created=$kuayle_root_checkout_created
 
   mkdir -p "$workspace_root/repos" "$workspace_root/tasks"
 
   if [ -d "$workspace_root/.git" ]; then
     configure_git_helper "$workspace_root"
   fi
-  for bare_repository in "$workspace_root"/repos/*.git; do
+  # Repository caches: repos/<owner>/<repo>.git, and the flat
+  # repos/<owner>-<repo>.git layout of earlier checkouts.
+  for bare_repository in "$workspace_root"/repos/*.git "$workspace_root"/repos/*/*.git; do
     [ -d "$bare_repository" ] || continue
     configure_bare_git_helper "$bare_repository"
   done
@@ -212,14 +243,20 @@ prepare_developer_workspace() {
     configure_git_helper "$checkout"
   done
 
-  if [ -d "$workspace_root/.git" ] && [ -n "${KUAYLE_WORKING_BRANCH:-}" ]; then
-    git -C "$workspace_root" config --global --add safe.directory "$workspace_root"
+  # The working branch is selected once, when the root checkout is created. A
+  # restart keeps whatever branch and local commits the workspace has.
+  if [ -d "$workspace_root/.git" ]; then
+    git config --global --add safe.directory "$workspace_root"
+  fi
+  if [ "$root_checkout_created" = 1 ] && [ -n "${KUAYLE_WORKING_BRANCH:-}" ]; then
     if git -C "$workspace_root" ls-remote --exit-code --heads origin "$KUAYLE_WORKING_BRANCH" >/dev/null 2>&1; then
       git -C "$workspace_root" fetch origin "$KUAYLE_WORKING_BRANCH"
       git -C "$workspace_root" checkout -B "$KUAYLE_WORKING_BRANCH" FETCH_HEAD
     else
       git -C "$workspace_root" checkout "$KUAYLE_WORKING_BRANCH" 2>/dev/null || git -C "$workspace_root" checkout -b "$KUAYLE_WORKING_BRANCH"
     fi
+  fi
+  if [ -d "$workspace_root/.git" ] && [ -n "${KUAYLE_WORKING_BRANCH:-}" ]; then
     hooks="$workspace_root/.git/hooks"
     cat > "$hooks/post-commit" <<'SCRIPT'
 #!/bin/sh

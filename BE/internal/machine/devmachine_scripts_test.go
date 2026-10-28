@@ -652,7 +652,7 @@ func runCheckoutScriptFixture(t *testing.T, failFetch bool) checkoutScriptResult
 	for _, dir := range []string{filepath.Join(workspaceRoot, "repos"), filepath.Join(workspaceRoot, "tasks"), secretDir, tmpDir, homeDir, fakeBin} {
 		require.NoError(t, os.MkdirAll(dir, 0o700))
 	}
-	staleBareRepository := filepath.Join(workspaceRoot, "repos", "octo-repo.git")
+	staleBareRepository := filepath.Join(workspaceRoot, "repos", "octo", "repo.git")
 	require.NoError(t, os.MkdirAll(staleBareRepository, 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(staleBareRepository, "config"), []byte("credential.helper=!f() { cat "+removedCheckoutTokenPath+"; }; f\ncore.askPass="+removedCheckoutTokenPath+"\n"), 0o600))
 
