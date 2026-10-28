@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 
@@ -731,6 +733,14 @@ func machineError(c echo.Context, err error) error {
 		return response.Error(c, http.StatusConflict, "ENVIRONMENT_INVALID_STATE", err.Error())
 	case errors.Is(err, service.ErrEnvironmentCleanupActive):
 		return response.Error(c, http.StatusConflict, "ENVIRONMENT_CLEANUP_ACTIVE", err.Error())
+	case errors.Is(err, service.ErrPortNotFound):
+		return response.NotFound(c, "App port")
+	case errors.Is(err, service.ErrPortExists):
+		return response.Error(c, http.StatusConflict, "PORT_EXISTS", err.Error())
+	case errors.Is(err, service.ErrPortReserved):
+		return response.Error(c, http.StatusUnprocessableEntity, "PORT_RESERVED", err.Error())
+	case errors.Is(err, service.ErrPortLimit):
+		return response.Error(c, http.StatusUnprocessableEntity, "PORT_LIMIT", err.Error())
 	case errors.Is(err, service.ErrServiceNotAvailable):
 		return response.Error(c, http.StatusNotFound, "SERVICE_NOT_AVAILABLE", err.Error())
 	case errors.Is(err, service.ErrInvalidMachineInput):
@@ -744,53 +754,93 @@ func machineError(c echo.Context, err error) error {
 	}
 }
 
-func (h *DevMachineHandler) GetPreview(c echo.Context) error {
+func portParams(c echo.Context, withPort bool) (uuid.UUID, uuid.UUID, error) {
 	machineID, err := uuid.Parse(c.Param("machineId"))
 	if err != nil {
-		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid machine ID")
+		return uuid.Nil, uuid.Nil, response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid machine ID")
 	}
-	preview, err := h.service.GetPreview(c.Request().Context(), middleware.GetWorkspace(c).ID, machineID, middleware.GetUserID(c))
+	if !withPort {
+		return machineID, uuid.Nil, nil
+	}
+	portID, err := uuid.Parse(c.Param("portId"))
 	if err != nil {
-		return machineError(c, err)
+		return uuid.Nil, uuid.Nil, response.NotFound(c, "App port")
 	}
-	return response.Success(c, http.StatusOK, preview)
+	return machineID, portID, nil
 }
 
-func (h *DevMachineHandler) SetPreview(c echo.Context) error {
-	machineID, err := uuid.Parse(c.Param("machineId"))
-	if err != nil {
-		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid machine ID")
-	}
-	var input struct {
-		Port int `json:"port"`
-	}
-	if err = c.Bind(&input); err != nil {
+// bindStrictJSON decodes one bounded JSON object without unknown fields.
+func bindStrictJSON(c echo.Context, target any) error {
+	decoder := json.NewDecoder(http.MaxBytesReader(c.Response(), c.Request().Body, 4<<10))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(target) != nil || decoder.Decode(new(any)) != io.EOF {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
 	}
-	preview, err := h.service.SetPreview(c.Request().Context(), middleware.GetWorkspace(c).ID, machineID, middleware.GetUserID(c), input.Port)
+	return nil
+}
+
+// ListPorts returns the machine's app ports and detected listening ports.
+func (h *DevMachineHandler) ListPorts(c echo.Context) error {
+	machineID, _, err := portParams(c, false)
+	if err != nil {
+		return err
+	}
+	ports, err := h.service.ListPorts(c.Request().Context(), middleware.GetWorkspace(c).ID, machineID, middleware.GetUserID(c), canAdministerDevMachines(c))
 	if err != nil {
 		return machineError(c, err)
 	}
-	return response.Success(c, http.StatusOK, preview)
+	return response.Success(c, http.StatusOK, ports)
 }
 
-func (h *DevMachineHandler) DeletePreview(c echo.Context) error {
-	machineID, err := uuid.Parse(c.Param("machineId"))
+func (h *DevMachineHandler) CreatePort(c echo.Context) error {
+	machineID, _, err := portParams(c, false)
 	if err != nil {
-		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid machine ID")
+		return err
 	}
-	if err = h.service.DeletePreview(c.Request().Context(), middleware.GetWorkspace(c).ID, machineID, middleware.GetUserID(c)); err != nil {
+	var input dto.AppPortRequest
+	if err = bindStrictJSON(c, &input); err != nil || c.Response().Committed {
+		return err
+	}
+	port, err := h.service.CreatePort(c.Request().Context(), middleware.GetWorkspace(c).ID, machineID, middleware.GetUserID(c), input.Port, input.Label)
+	if err != nil {
+		return machineError(c, err)
+	}
+	return response.Success(c, http.StatusCreated, port)
+}
+
+func (h *DevMachineHandler) UpdatePort(c echo.Context) error {
+	machineID, portID, err := portParams(c, true)
+	if err != nil {
+		return err
+	}
+	var input dto.AppPortUpdate
+	if err = bindStrictJSON(c, &input); err != nil || c.Response().Committed {
+		return err
+	}
+	port, err := h.service.UpdatePort(c.Request().Context(), middleware.GetWorkspace(c).ID, machineID, portID, middleware.GetUserID(c), input.Label)
+	if err != nil {
+		return machineError(c, err)
+	}
+	return response.Success(c, http.StatusOK, port)
+}
+
+func (h *DevMachineHandler) DeletePort(c echo.Context) error {
+	machineID, portID, err := portParams(c, true)
+	if err != nil {
+		return err
+	}
+	if err = h.service.DeletePort(c.Request().Context(), middleware.GetWorkspace(c).ID, machineID, portID, middleware.GetUserID(c)); err != nil {
 		return machineError(c, err)
 	}
 	return c.NoContent(http.StatusNoContent)
 }
 
-func (h *DevMachineHandler) LaunchPreview(c echo.Context) error {
-	machineID, err := uuid.Parse(c.Param("machineId"))
+func (h *DevMachineHandler) LaunchPort(c echo.Context) error {
+	machineID, portID, err := portParams(c, true)
 	if err != nil {
-		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid machine ID")
+		return err
 	}
-	launch, err := h.service.LaunchPreview(c.Request().Context(), middleware.GetWorkspace(c).ID, machineID, middleware.GetUserID(c))
+	launch, err := h.service.LaunchPort(c.Request().Context(), middleware.GetWorkspace(c).ID, machineID, portID, middleware.GetUserID(c))
 	if err != nil {
 		return machineError(c, err)
 	}

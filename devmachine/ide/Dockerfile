@@ -19,8 +19,8 @@ ARG NPM_VERSION=12.2.0
 
 COPY --from=node-stage /usr/local /usr/local
 COPY --from=crush-build /out/crush /usr/local/bin/crush
-COPY common/install-agent-clis.sh common/kuayle-service-entrypoint /usr/local/bin/
-COPY common/start-common.sh common/codex-model-catalog.cjs common/patch-npm-security.cjs common/test-http-cache-semantics.cjs /usr/local/lib/kuayle/
+COPY common/install-agent-clis.sh common/kuayle-ports common/kuayle-service-entrypoint /usr/local/bin/
+COPY common/start-common.sh common/codex-model-catalog.cjs common/patch-npm-security.cjs common/test-http-cache-semantics.cjs common/kuayle-qa.md /usr/local/lib/kuayle/
 COPY ide/patch-security.cjs ide/test-zod-security.cjs ide/test-body-parser-security.cjs /usr/local/lib/kuayle/
 COPY ide/start.sh /usr/local/bin/kuayle-ide-start
 COPY ide/shell.sh /usr/local/bin/kuayle-shell
@@ -74,7 +74,7 @@ RUN rm -f /usr/bin/pebble \
          /etc/ssl/private/ssl-cert-snakeoil.key /etc/ssl/certs/ssl-cert-snakeoil.pem \
     && mkdir -p /home/kuayle \
     && chown 1000:1000 /home/kuayle \
-    && chmod 0755 /usr/local/bin/kuayle-service-entrypoint /usr/local/bin/install-agent-clis.sh /usr/local/bin/kuayle-ide-start /usr/local/bin/kuayle-shell /usr/local/bin/kuayle-checkout /usr/local/bin/kuayle-terminal-session \
+    && chmod 0755 /usr/local/bin/kuayle-ports /usr/local/bin/kuayle-service-entrypoint /usr/local/bin/install-agent-clis.sh /usr/local/bin/kuayle-ide-start /usr/local/bin/kuayle-shell /usr/local/bin/kuayle-checkout /usr/local/bin/kuayle-terminal-session \
     && code-server --version \
     && node --version \
     && npm --version \

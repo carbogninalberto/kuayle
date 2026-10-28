@@ -92,6 +92,7 @@ func main() {
 			HostMinFreeGB:      configValue.DevMachine.HostDiskMinFreeGB,
 		})
 	manager.SetCapacity(machine.CapacityConfig{ReservedCPUMillis: configValue.DevMachine.HostReservedCPUMillis, ReservedMemoryMB: configValue.DevMachine.HostReservedMemoryMB, CPUOvercommit: configValue.DevMachine.CPUOvercommit})
+	manager.SetMachineDomain(configValue.DevMachine.Domain)
 	manager.SetAgentGitIdentity(machine.GitIdentity{Name: configValue.DevMachine.AgentGitName, Email: configValue.DevMachine.AgentGitEmail})
 	// Task images are read from the API's storage; without it runs get none.
 	if files, err := storage.New(configValue.Storage); err == nil {

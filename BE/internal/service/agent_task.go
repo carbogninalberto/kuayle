@@ -448,6 +448,9 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 			prompt = withRelatedWork(prompt, related)
 		}
 	}
+	if !review {
+		prompt = withQA(prompt, task)
+	}
 	prompt = withInstructions(prompt, task.AgentInstructions)
 	// No attempt pushes: Kuayle publishes implementations itself, and a
 	// review is never published. Without push the manager adds no GitHub token.
@@ -587,6 +590,28 @@ func withRelatedWork(prompt string, related []domain.RelatedWork) string {
 
 func oneLine(value string, limit int) string {
 	return truncateRunes(strings.Join(strings.Fields(value), " "), limit)
+}
+
+// withQA tells an implementing attempt how the reviewer will try the change.
+// Attempts run in a temporary container whose servers stop with the run, so
+// the app is started for the reviewer by Kuayle or from the machine terminal.
+func withQA(prompt string, task domain.AgentTask) string {
+	line := "Manual QA: this attempt runs in a temporary container, so servers you start stop when it ends. To let the reviewer try the app, say in your final summary how to start it (command and port) and what to test; from the machine's terminal they can expose it with the kuayle-qa skill (run `kuayle-ports`)."
+	if len(previewCommand(task)) > 0 {
+		line = "Manual QA: when you finish, Kuayle starts the project's preview command in this worktree with $PORT and HOST=0.0.0.0 set, so the reviewer can open the app; keep it working, and say in your final summary what to test (see the kuayle-qa skill)."
+	}
+	if len(prompt)+len(line) > 31000 {
+		return prompt
+	}
+	return prompt + "\n\n" + line
+}
+
+func previewCommand(task domain.AgentTask) []string {
+	var argv []string
+	if len(task.PreviewCommand) == 0 || json.Unmarshal(task.PreviewCommand, &argv) != nil {
+		return nil
+	}
+	return argv
 }
 
 func withInstructions(prompt, instructions string) string {

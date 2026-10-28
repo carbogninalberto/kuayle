@@ -134,7 +134,7 @@ Required host patterns are:
 | `{routing-key}.{DEV_MACHINE_DOMAIN}` | IDE |
 | `{routing-key}-terminal.{DEV_MACHINE_DOMAIN}` | Native terminal WebSocket |
 | `{routing-key}-browser.{DEV_MACHINE_DOMAIN}` | Browser/KasmVNC |
-| `{routing-key}-preview.{DEV_MACHINE_DOMAIN}` | Application preview (optional, see below) |
+| `{routing-key}-{port}.{DEV_MACHINE_DOMAIN}` | App port of the developer container, 1024–65535 (optional, see below) |
 
 Routing keys are random lowercase hexadecimal strings. The gateway performs an exact configured-domain suffix check and rejects suffix-confusion hosts.
 
@@ -142,33 +142,78 @@ Caddy has one fixed wildcard route. Per-machine Caddy configuration is unnecessa
 
 The gateway uses Go's reverse proxy with WebSocket upgrades, streaming flushes, unlimited response write duration, bounded dial timeouts, and long-lived connection support. Caddy terminates wildcard TLS and forwards all wildcard machine hosts, including WebSocket upgrades, to the gateway; per-machine Caddy rewrites are not used.
 
-### Application previews
+### App ports
 
-The machine owner can expose one application port of the developer container
-(`PUT /dev-machines/:machineId/preview` with `{"port": n}`, session-only; `GET`
-reads it, `DELETE` removes it and revokes its sessions). Ports must be 1024–65535
-and cannot be any port used by the machine's own services, so a preview host can
-never reach code-server or the terminal without their dedicated protections.
-Migration 63 stores the port in `dev_machine_previews`, not as a container service
-row, so machine lifecycle code is unaffected. The gateway role may read only its
-`machine_id`, `workspace_id` and `port` columns (see
-[gateway-role.sql](selfhosting/gateway-role.sql)); re-run the role setup after
-upgrading.
+A machine exposes up to ten TCP ports of its developer container as **app
+ports**, the reviewer's entrypoints for manual QA. Each is served on its own
+host, `{routing-key}-{port}.{DEV_MACHINE_DOMAIN}`, with a canonical port number
+(1024–65535, no leading zero). Migration 85 stores them in `dev_machine_ports`
+(`port`, optional `label` of at most 40 `[A-Za-z0-9 ._-]` characters, `source`
+`user`/`agent`/`task`, optional `agent_task_id`), unique per machine and copied
+from the earlier one-port `dev_machine_previews`, which it drops. Ports are not
+container service rows, so machine lifecycle code is unaffected, and they
+outlive tasks. Ports used by any of the machine's own services are refused when
+exposed and never routed, so an app port host can never reach code-server or
+the terminal without their dedicated protections.
 
-`POST /dev-machines/:machineId/preview/launch` uses the same browser-cookie
-launch path as the IDE: a one-time ticket for the running developer service row,
-bound to the preview host, exchanged for a `__Host-` HttpOnly session cookie that
-is valid only on that host. IDE and preview sessions never authorize each other,
-only the machine creator is admitted, Kuayle credentials and the gateway session
-cookie are stripped before proxying, and upstream cookies are limited to the
-preview host. WebSockets (for example hot reload) use the gateway's existing
-upgrade support. TLS certificates are approved on demand only while the preview
-is configured and the machine runs. Previews stop with the machine (idle pause
-included). Preview hosts share the machine domain's site with the machine's other
-hosts; cross-host requests are subject to the gateway's origin checks, as between
-any two machine hosts. The machine page provides the port, open and remove
-controls; a task card offers **Open preview** once its task is ready for review or
-has stopped and its machine has a preview.
+Session-only routes, for the machine's creator (workspace administrators may
+also read the list):
+
+- `GET /dev-machines/:machineId/ports` → `{ports, listening, scanned_at}`;
+  each port is `{id, port, label, source, agent_task_id, task_identifier,
+  host, listening, created_at}`. `task_identifier` is shown only to the task's
+  creator when they may see its issue.
+- `POST /dev-machines/:machineId/ports` `{port, label?}` → 201; 409
+  `PORT_EXISTS`, 422 `PORT_RESERVED` (a service port), 422 `PORT_LIMIT`.
+- `PATCH /dev-machines/:machineId/ports/:portId` `{label}` renames it (`null`
+  or `""` clears); `DELETE` removes it and revokes that host's sessions.
+- `POST /dev-machines/:machineId/ports/:portId/launch` returns the launch
+  response of the IDE path (`status`, `launch_url`, 201 ready or 202 starting).
+
+Launch uses the IDE's browser-cookie path: a one-time ticket for the running
+developer service row, bound to the port's host, exchanged for a `__Host-`
+HttpOnly session cookie valid only on that host. IDE sessions and other ports'
+sessions never authorize each other, only the machine creator is admitted,
+Kuayle credentials and the gateway session cookie are stripped before proxying,
+and upstream cookies stay host-only. A direct visit without a session gets 401;
+people open ports from Kuayle. WebSockets (for example hot reload) use the
+gateway's upgrade support. TLS certificates are approved on demand only while
+the port is exposed and the machine runs. App port hosts share the machine
+domain's site with the machine's other hosts; cross-host requests are subject
+to the gateway's origin checks, as between any two machine hosts. The gateway
+role may read only `machine_id`, `workspace_id` and `port` of
+`dev_machine_ports` (see [gateway-role.sql](selfhosting/gateway-role.sql));
+re-run the role setup after upgrading.
+
+The machine manager scans each running machine's developer container every 15
+seconds (and around task previews): LISTEN sockets of `/proc/net/tcp` and
+`/proc/net/tcp6` on any address, without service ports, are stored in
+`dev_machines.listening_ports` and `listening_ports_at`.
+
+Agents and people in the developer container use `kuayle-ports` (IDE and
+headless images): `kuayle-ports [list]` shows listening ports and their URLs,
+`kuayle-ports expose PORT [--label TEXT]` and `kuayle-ports unexpose PORT`
+write a request to `~/.kuayle/ports/requests/` and wait up to 30 seconds for the
+answer in `~/.kuayle/ports/state.json` (`{ports:[{port,label,url,source}],
+listening, refused:[{port,reason}], updated_at}`). The scan takes the requests
+as untrusted input: regular files only (never symlinks), at most 20 per scan and
+1 KiB each, strict JSON whose port matches the file name, the same port and
+label rules, and the ten-port limit. Every request entry is deleted. Exposed
+ports are `agent` ports owned by the machine creator, linked to the task whose
+worktree the request came from when known; agents may remove only `agent`
+ports. The start scripts install the Kuayle-owned `kuayle-qa` skill for Claude
+Code and Codex (`~/.claude/skills/kuayle-qa/SKILL.md`,
+`~/.codex/skills/kuayle-qa/SKILL.md`), refreshed on every start. Autonomous
+agent attempts run in separate, temporary agent containers whose servers stop
+with the run, so their prompt points the reviewer at the task preview below or
+at `kuayle-ports` in the machine terminal instead.
+
+Task previews (see the [agent task contract](BE/docs/agent-tasks.md#app-ports-and-qa))
+add `task` ports. Stopping or re-provisioning a machine ends their processes:
+task ports are removed and their previews marked stopped, while user and agent
+ports are kept. Pausing freezes the processes, which resume with the machine.
+The machine page lists ports, detected listeners, and expose, rename, open and
+remove controls; a task card starts, stops and opens its app.
 
 ## Authenticated Machine Access
 
@@ -454,7 +499,7 @@ Migration `000076_agent_model_servers` converts an existing workspace DeepSeek c
 
 ## Scoped Settings, Worktrees, and Environments
 
-Development defaults are stored in `dev_machine_scope_settings`. A setting may provide a linked GitHub repository, base branch, development environment, test command, Compose file for checks (migration 68), preview command and port (migration 71), preferred coding agent and/or agent instructions (at most 8000 characters) for a workspace, team, project, or issue. Each value is resolved independently in this order: issue, project, team, workspace (migration 65). The preferred agent is the default for task delegation from chat and the task composer when the workspace policy allows it; instructions and the Compose file path are snapshotted onto each task when it is accepted or retried and placed ahead of the task in the native prompt. This lets an issue override only the repository while inheriting an environment, or vice versa.
+Development defaults are stored in `dev_machine_scope_settings`. A setting may provide a linked GitHub repository, base branch, development environment, test command, Compose file for checks (migration 68), preview command and preferred port (migrations 71 and 85), preferred coding agent and/or agent instructions (at most 8000 characters) for a workspace, team, project, or issue. Each value is resolved independently in this order: issue, project, team, workspace (migration 65). The preferred agent is the default for task delegation from chat and the task composer when the workspace policy allows it; instructions and the Compose file path are snapshotted onto each task when it is accepted or retried and placed ahead of the task in the native prompt. This lets an issue override only the repository while inheriting an environment, or vice versa.
 
 Machine creation accepts optional issue/project/repository information but does not require it. If no repository resolves, legacy repository fields remain empty and the machine starts as a generic developer workspace. When an issue is opened, `POST /dev-machines/:machineId/checkouts` resolves the issue's development settings, enforces the machine's repository affinity, and creates an idempotent issue worktree under `/workspace/tasks/{issue-key}`. A machine can hold multiple ready manual checkouts from the same repository. Task checkouts (`/workspace/tasks/{issue-key}-{task-id}`) do not use or change the machine's repository affinity, so one task machine serves several repositories; the environment must still match.
 
@@ -505,7 +550,7 @@ Activity is operational telemetry, not tamper-proof security auditing. Trusted w
 
 Structured events use a monotonic `BIGSERIAL` cursor. Completed autonomous agent stdout/stderr uses cursor-addressable `dev_machine_log_chunks`. The schema reserves a PTY stream, but native terminal and interactive-agent PTY output is not currently persisted. Issue worktrees do not install the root-checkout Git hooks. API reads are workspace-scoped. High-volume log retention should be configured and periodically pruned by operators.
 
-Dev Machines live in Settings → Dev Machines, which has two tabs: **Machines** (the user's machines, manual creation for hand-run development and the admin cleanup of old machines; members and above) and **Policy** (the workspace policy, environments, defaults and automations; editable by owners and admins). The sidebar has no Dev Machines entry. `/:slug/machines` redirects there, keeping an `issue_id` filter, and `/:slug/machines/:machineId` stays the machine page that task cards and issues link to. The machine page exposes status, services, resource samples, cursor-paginated events and logs, checkouts, terminal sessions, previews, lifecycle/delete controls and **Tasks on this machine**: the agent tasks that used it (active first, then the most recently updated, at most 30), each with its issue, state, agent and a link to its chat. It reads `GET /dev-machines/:machineId/tasks`, a session-only route that answers only the machine's owner (others get 404) and applies the same workspace-membership, task-creator and issue-team checks as the agent queue. Native terminal attachment is implemented in the Kuayle UI with `@xterm/xterm`; ttyd's own web page is not exposed.
+Dev Machines live in Settings → Dev Machines, which has two tabs: **Machines** (the user's machines, manual creation for hand-run development and the admin cleanup of old machines; members and above) and **Policy** (the workspace policy, environments, defaults and automations; editable by owners and admins). The sidebar has no Dev Machines entry. `/:slug/machines` redirects there, keeping an `issue_id` filter, and `/:slug/machines/:machineId` stays the machine page that task cards and issues link to. The machine page exposes status, services, resource samples, cursor-paginated events and logs, checkouts, terminal sessions, app ports, lifecycle/delete controls and **Tasks on this machine**: the agent tasks that used it (active first, then the most recently updated, at most 30), each with its issue, state, agent and a link to its chat. It reads `GET /dev-machines/:machineId/tasks`, a session-only route that answers only the machine's owner (others get 404) and applies the same workspace-membership, task-creator and issue-team checks as the agent queue. Native terminal attachment is implemented in the Kuayle UI with `@xterm/xterm`; ttyd's own web page is not exposed.
 
 ## Database Schema
 

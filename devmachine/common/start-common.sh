@@ -85,6 +85,23 @@ link_codex_packages() {
   ln -s "$cache" "$packages" 2>/dev/null || true
 }
 
+# Installs Kuayle's manual QA skill for Claude Code and Codex and prepares the
+# app port request directory used by kuayle-ports. The skill is Kuayle-owned
+# and refreshed on every start.
+install_kuayle_qa() {
+  skill_source=${KUAYLE_QA_SKILL:-/usr/local/lib/kuayle/kuayle-qa.md}
+  mkdir -p "$HOME/.kuayle/ports/requests" 2>/dev/null || true
+  [ -f "$skill_source" ] || return 0
+  for skills_dir in "$HOME/.claude/skills" "$HOME/.codex/skills"; do
+    skill_dir="$skills_dir/kuayle-qa"
+    if [ -L "$skill_dir" ] || [ -L "$skill_dir/SKILL.md" ]; then
+      rm -rf "$skill_dir"
+    fi
+    mkdir -p "$skill_dir" 2>/dev/null || continue
+    cp "$skill_source" "$skill_dir/SKILL.md.tmp" 2>/dev/null && mv -f "$skill_dir/SKILL.md.tmp" "$skill_dir/SKILL.md" || true
+  done
+}
+
 load_scoped_secrets() {
   attempt=0
   while [ ! -f /run/kuayle-secrets/.ready ]; do

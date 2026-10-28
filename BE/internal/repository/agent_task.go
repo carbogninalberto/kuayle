@@ -3,7 +3,6 @@ package repository
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -213,6 +212,10 @@ func recordAgentTaskTransition(ctx context.Context, tx *sqlx.Tx, task domain.Age
 	if err != nil {
 		return err
 	}
+	// Before the state event, so its payload carries the preview state.
+	if err = taskPreviewTransition(ctx, tx, &task); err != nil {
+		return err
+	}
 	if err = syncAgentSession(ctx, tx, task); err != nil {
 		return err
 	}
@@ -227,16 +230,27 @@ func recordAgentTaskTransition(ctx context.Context, tx *sqlx.Tx, task domain.Age
 			return err
 		}
 	}
-	if err := startTaskPreview(ctx, tx, task); err != nil {
-		return err
-	}
 	return purgeTaskSession(ctx, tx, task)
 }
 
-// startTaskPreview queues the project's QA preview for a task that reached
-// review, once per attempt, so reviewers can open the running change.
-func startTaskPreview(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask) error {
-	if task.State != "awaiting_review" || task.MachineID == nil || task.PreviewPort == nil || len(task.PreviewCommand) < 3 {
+// taskPreviewTransition queues the project's QA preview for a task that
+// reached review, once per attempt, so reviewers can open the running change,
+// and stops a running preview when the task finishes.
+func taskPreviewTransition(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask) error {
+	switch task.State {
+	case "completed", "cancelled", "failed":
+		if task.PreviewState == nil || (*task.PreviewState != domain.AgentTaskPreviewStarting && *task.PreviewState != domain.AgentTaskPreviewRunning) {
+			return nil
+		}
+		if err := queueStopPreview(ctx, tx, task.ID, nil); err != nil {
+			return err
+		}
+		return tx.GetContext(ctx, task, `SELECT * FROM agent_tasks WHERE id=$1`, task.ID)
+	case "awaiting_review":
+	default:
+		return nil
+	}
+	if task.MachineID == nil || len(previewArgv(task.PreviewCommand)) == 0 {
 		return nil
 	}
 	var generation int64
@@ -248,25 +262,7 @@ func startTaskPreview(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask) e
 	if err != nil {
 		return err
 	}
-	return enqueueOperation(ctx, tx, &domain.DevMachineOperation{
-		WorkspaceID: task.WorkspaceID, MachineID: *task.MachineID, CheckoutID: &task.CheckoutID, AgentRunID: &task.RunID,
-		Action: domain.DevMachineOpStartPreview, Status: domain.DevMachineOpStatusPending, Generation: generation,
-		IdempotencyKey: "task-preview:" + task.RunID.String(), RequestedByUserID: &task.CreatorID, MaxAttempts: 3,
-	})
-}
-
-// TaskPreview returns the preview to start for a task checkout still in review.
-func (r *DevMachineRepository) TaskPreview(ctx context.Context, checkout uuid.UUID) (argv []string, port int, creator uuid.UUID, ok bool, err error) {
-	var raw []byte
-	var p sql.NullInt64
-	err = r.db.QueryRowContext(ctx, `SELECT preview_command,preview_port,creator_id FROM agent_tasks WHERE checkout_id=$1 AND state='awaiting_review'`, checkout).Scan(&raw, &p, &creator)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, 0, uuid.Nil, false, nil
-	}
-	if err != nil || !p.Valid || json.Unmarshal(raw, &argv) != nil || len(argv) == 0 {
-		return nil, 0, uuid.Nil, false, err
-	}
-	return argv, int(p.Int64), creator, true, nil
+	return queueStartPreview(ctx, tx, task, generation, "task-preview:"+task.RunID.String())
 }
 
 // purgeTaskSession queues removal of a finished task's native harness

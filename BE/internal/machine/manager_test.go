@@ -23,6 +23,7 @@ import (
 
 type managerStoreFake struct {
 	ManagerStore
+	appPorts                  portFakeState
 	signIns                   map[string]string
 	envVars                   []domain.DevMachineEnvVar
 	onAuthorizeAgentRun       func() error

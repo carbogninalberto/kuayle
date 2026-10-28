@@ -3,9 +3,13 @@ package domain
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 )
 
 type DevMachineStatus string
@@ -43,6 +47,7 @@ const (
 	DevMachineOpPublishAgent        DevMachineOperationAction = "publish_agent"
 	DevMachineOpPurgeTaskSession    DevMachineOperationAction = "purge_task_session"
 	DevMachineOpStartPreview        DevMachineOperationAction = "start_preview"
+	DevMachineOpStopPreview         DevMachineOperationAction = "stop_preview"
 	DevMachineOpCaptureSignIn       DevMachineOperationAction = "capture_sign_in"
 	DevMachineOpCancelAgent         DevMachineOperationAction = "cancel_agent"
 	DevMachineOpCheckoutIssue       DevMachineOperationAction = "checkout_issue"
@@ -136,6 +141,10 @@ type DevMachine struct {
 	ExpiresAt            time.Time        `json:"expires_at" db:"expires_at"`
 	TeardownAt           *time.Time       `json:"teardown_at,omitempty" db:"teardown_at"`
 	DestroyedAt          *time.Time       `json:"destroyed_at,omitempty" db:"destroyed_at"`
+	// ListeningPorts are the developer container's listening TCP ports at
+	// ListeningPortsAt, without the machine's own service ports.
+	ListeningPorts   pq.Int64Array `json:"-" db:"listening_ports"`
+	ListeningPortsAt *time.Time    `json:"-" db:"listening_ports_at"`
 }
 
 type DevMachineAgentProvider struct {
@@ -276,6 +285,7 @@ type DevMachineOperation struct {
 	CheckoutID        *uuid.UUID                `json:"checkout_id,omitempty" db:"checkout_id"`
 	EnvironmentID     *uuid.UUID                `json:"environment_id,omitempty" db:"environment_id"`
 	TerminalSessionID *uuid.UUID                `json:"terminal_session_id,omitempty" db:"terminal_session_id"`
+	AgentTaskID       *uuid.UUID                `json:"agent_task_id,omitempty" db:"agent_task_id"`
 	WorkspaceID       uuid.UUID                 `json:"workspace_id" db:"workspace_id"`
 	Action            DevMachineOperationAction `json:"action" db:"action"`
 	Status            DevMachineOperationStatus `json:"status" db:"status"`
@@ -678,13 +688,94 @@ type DevMachineResourceAllocation struct {
 	MemoryMB  int       `db:"memory_mb"`
 }
 
-// DevMachinePreview exposes one application port of the developer container
-// through the gateway's authenticated preview host.
-type DevMachinePreview struct {
-	MachineID       uuid.UUID `json:"machine_id" db:"machine_id"`
-	WorkspaceID     uuid.UUID `json:"workspace_id" db:"workspace_id"`
-	Port            int       `json:"port" db:"port"`
-	CreatedByUserID uuid.UUID `json:"created_by_user_id" db:"created_by_user_id"`
-	CreatedAt       time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at" db:"updated_at"`
+// App port sources: exposed by the machine owner, by an agent inside the
+// developer container, or by Kuayle for a task's preview.
+const (
+	DevMachinePortSourceUser  = "user"
+	DevMachinePortSourceAgent = "agent"
+	DevMachinePortSourceTask  = "task"
+	// DevMachinePortLimit is the number of app ports a machine may expose.
+	DevMachinePortLimit = 10
+)
+
+// DevMachinePort exposes one TCP port of the developer container on its own
+// authenticated gateway host, <routing key>-<port>.<machine domain>.
+type DevMachinePort struct {
+	ID              uuid.UUID  `json:"id" db:"id"`
+	WorkspaceID     uuid.UUID  `json:"workspace_id" db:"workspace_id"`
+	MachineID       uuid.UUID  `json:"machine_id" db:"machine_id"`
+	Port            int        `json:"port" db:"port"`
+	Label           *string    `json:"label" db:"label"`
+	Source          string     `json:"source" db:"source"`
+	AgentTaskID     *uuid.UUID `json:"agent_task_id" db:"agent_task_id"`
+	CreatedByUserID uuid.UUID  `json:"created_by_user_id" db:"created_by_user_id"`
+	CreatedAt       time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at" db:"updated_at"`
+	// TaskIdentifier is the issue identifier of AgentTaskID, when the reader
+	// may see that issue. Filled by listing queries only.
+	TaskIdentifier *string `json:"task_identifier" db:"task_identifier"`
+}
+
+var portLabelPattern = regexp.MustCompile(`^[A-Za-z0-9 ._-]{1,40}$`)
+
+// ValidPortLabel reports whether label may name an app port.
+func ValidPortLabel(label string) bool {
+	return portLabelPattern.MatchString(label) && strings.TrimSpace(label) == label
+}
+
+// PortLabel turns free text, such as an issue identifier, into a valid label,
+// or nil when nothing usable remains.
+func PortLabel(value string) *string {
+	var b strings.Builder
+	for _, r := range value {
+		if b.Len() >= 40 {
+			break
+		}
+		if r < 128 && (r == ' ' || r == '.' || r == '_' || r == '-' || (r >= '0' && r <= '9') || (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z')) {
+			b.WriteRune(r)
+		}
+	}
+	label := strings.TrimSpace(b.String())
+	if label == "" {
+		return nil
+	}
+	return &label
+}
+
+const appPortServicePrefix = "port:"
+
+// AppPortService names the gateway route of an app port.
+func AppPortService(port int) string {
+	return appPortServicePrefix + strconv.Itoa(port)
+}
+
+// ParseAppPortService returns the port of an AppPortService route name.
+func ParseAppPortService(serviceType string) (int, bool) {
+	digits, ok := strings.CutPrefix(serviceType, appPortServicePrefix)
+	if !ok {
+		return 0, false
+	}
+	port, ok := ParseAppPortNumber(digits)
+	return port, ok
+}
+
+// ParseAppPortNumber parses a canonical decimal app port, 1024-65535, with no
+// sign or leading zero.
+func ParseAppPortNumber(digits string) (int, bool) {
+	if len(digits) < 4 || len(digits) > 5 || digits[0] == '0' {
+		return 0, false
+	}
+	port := 0
+	for _, r := range digits {
+		if r < '0' || r > '9' {
+			return 0, false
+		}
+		port = port*10 + int(r-'0')
+	}
+	return port, ValidAppPort(port)
+}
+
+// ValidAppPort reports whether port may be exposed as an app port.
+func ValidAppPort(port int) bool {
+	return port >= 1024 && port <= 65535
 }

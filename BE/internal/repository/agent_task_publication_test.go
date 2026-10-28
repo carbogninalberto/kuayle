@@ -243,36 +243,6 @@ func TestMergedPullRequestCompletesOnlyTheRecordedReviewTask(t *testing.T) {
 	require.Nil(t, actor)
 }
 
-func TestReviewStartsTheConfiguredPreviewOncePerAttempt(t *testing.T) {
-	db, _, ctx, task, _ := publishingTask(t)
-	store := NewDevMachineRepository(db)
-	argv, port, _, ok, err := store.TaskPreview(ctx, task.CheckoutID)
-	require.NoError(t, err)
-	require.False(t, ok, "no preview before review")
-	_, err = db.Exec(`UPDATE agent_tasks SET preview_command='["npm","run","dev"]',preview_port=5173 WHERE id=$1`, task.ID)
-	require.NoError(t, err)
-	_, err = db.Exec(`INSERT INTO dev_machine_scope_settings(id,workspace_id,issue_id,preview_command) VALUES(gen_random_uuid(),$1,$2,'["npm"]')`, task.WorkspaceID, task.IssueID)
-	require.Error(t, err, "a preview command without a port is refused")
-	var current domain.AgentTask
-	require.NoError(t, db.Get(&current, `SELECT * FROM agent_tasks WHERE id=$1`, task.ID))
-	tx, err := db.BeginTxx(ctx, nil)
-	require.NoError(t, err)
-	current.State = "awaiting_review"
-	require.NoError(t, startTaskPreview(ctx, tx, current))
-	require.NoError(t, startTaskPreview(ctx, tx, current), "the same attempt queues one preview")
-	require.NoError(t, tx.Commit())
-	var ops int
-	require.NoError(t, db.Get(&ops, `SELECT count(*) FROM dev_machine_operations WHERE action='start_preview' AND checkout_id=$1`, task.CheckoutID))
-	require.Equal(t, 1, ops)
-	_, err = db.Exec(`UPDATE agent_tasks SET state='awaiting_review' WHERE id=$1`, task.ID)
-	require.NoError(t, err)
-	argv, port, _, ok, err = store.TaskPreview(ctx, task.CheckoutID)
-	require.NoError(t, err)
-	require.True(t, ok)
-	require.Equal(t, []string{"npm", "run", "dev"}, argv)
-	require.Equal(t, 5173, port)
-}
-
 // Deleting a machine destroys its runtime but keeps the record while agent tasks
 // have history on it: attempts, logs and the pull request refs that let a later
 // merge complete the task.

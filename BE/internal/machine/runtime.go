@@ -84,7 +84,14 @@ type Runtime interface {
 	HostResources(context.Context) (HostResources, error)
 	CollectValidationArtifacts(context.Context, *domain.DevMachine, *domain.DevMachineAgentRun, *domain.DevMachineCheckout) ([]domain.ValidationArtifact, error)
 	RemoveCheckServices(context.Context, *domain.DevMachine, *domain.DevMachineAgentRun) error
-	StartPreview(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService, checkout *domain.DevMachineCheckout, argv []string, port int) error
+	// StartPreview (re)starts one task's preview process; StopPreview stops it.
+	// Neither affects another task's preview.
+	StartPreview(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService, checkout *domain.DevMachineCheckout, taskID uuid.UUID, argv []string, port int) error
+	StopPreview(ctx context.Context, services []domain.DevMachineService, taskID uuid.UUID) error
+	// ScanPorts lists the developer container's listening TCP ports and takes
+	// the agents' port requests; WritePortState publishes the result to them.
+	ScanPorts(ctx context.Context, services []domain.DevMachineService) (PortScan, error)
+	WritePortState(ctx context.Context, services []domain.DevMachineService, state []byte) error
 	ReadSignIn(ctx context.Context, services []domain.DevMachineService, provider string) (string, error)
 	TakeSignInReturn(ctx context.Context, services []domain.DevMachineService, runID uuid.UUID) (string, error)
 	PurgeTaskSession(context.Context, *domain.DevMachine, string, uuid.UUID) error

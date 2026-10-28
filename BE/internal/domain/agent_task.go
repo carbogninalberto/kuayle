@@ -49,10 +49,16 @@ type AgentTask struct {
 	// ComposeFile is the inherited repository-relative Compose file whose
 	// services run beside the independent check; empty means none.
 	ComposeFile string `json:"compose_file" db:"compose_file"`
-	// PreviewCommand and PreviewPort start a QA preview when the task
-	// reaches review; an empty command means none.
+	// PreviewCommand and its preferred PreviewPort start a QA preview when
+	// the task reaches review or on request; an empty command means none.
 	PreviewCommand json.RawMessage `json:"preview_command" db:"preview_command"`
 	PreviewPort    *int            `json:"preview_port,omitempty" db:"preview_port"`
+	// PreviewState is nil until a preview was requested. PreviewPortID and
+	// PreviewAppPort name the task's app port while it exists.
+	PreviewState   *string    `json:"-" db:"preview_state"`
+	PreviewError   *string    `json:"-" db:"preview_error"`
+	PreviewPortID  *uuid.UUID `json:"-" db:"preview_port_id"`
+	PreviewAppPort *int       `json:"-" db:"preview_app_port"`
 	// SignInRequired means the attempt stopped because the agent needs the
 	// user's own sign-in; capturing it from their terminal continues the task.
 	SignInRequired bool `json:"sign_in_required" db:"sign_in_required"`
@@ -60,6 +66,39 @@ type AgentTask struct {
 	// pull request of ReviewOfTaskID and never validates or publishes.
 	Kind           string     `json:"kind" db:"kind"`
 	ReviewOfTaskID *uuid.UUID `json:"review_of_task_id,omitempty" db:"review_of_task_id"`
+}
+
+// Task preview states.
+const (
+	AgentTaskPreviewStarting = "starting"
+	AgentTaskPreviewRunning  = "running"
+	AgentTaskPreviewStopped  = "stopped"
+	AgentTaskPreviewFailed   = "failed"
+)
+
+// AgentTaskPreview is the API view of a task's preview.
+type AgentTaskPreview struct {
+	State  string     `json:"state"`
+	PortID *uuid.UUID `json:"port_id"`
+	Port   *int       `json:"port"`
+	Error  *string    `json:"error"`
+}
+
+// Preview returns the task's preview, or nil when none was requested.
+func (t AgentTask) Preview() *AgentTaskPreview {
+	if t.PreviewState == nil {
+		return nil
+	}
+	return &AgentTaskPreview{State: *t.PreviewState, PortID: t.PreviewPortID, Port: t.PreviewAppPort, Error: t.PreviewError}
+}
+
+// MarshalJSON adds the derived preview to every task payload.
+func (t AgentTask) MarshalJSON() ([]byte, error) {
+	type plain AgentTask
+	return json.Marshal(struct {
+		plain
+		Preview *AgentTaskPreview `json:"preview"`
+	}{plain(t), t.Preview()})
 }
 
 type AgentTaskRequest struct {

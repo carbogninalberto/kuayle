@@ -104,7 +104,7 @@ You (browser)
   ├─ 0123456789abcdef0123.kuayle-machines.example.net         → code-server
   ├─ 0123456789abcdef0123-terminal.kuayle-machines.example.net → native xterm over ttyd.v1
   ├─ 0123456789abcdef0123-browser.kuayle-machines.example.net → Chrome via KasmVNC (in-browser web navigation)
-  └─ 0123456789abcdef0123-preview.kuayle-machines.example.net → your app's dev server (optional preview port)
+  └─ 0123456789abcdef0123-3000.kuayle-machines.example.net → your app's dev server (optional app ports)
         │
         └── All routed through Machine Gateway auth — no public ports, no port management
 ```

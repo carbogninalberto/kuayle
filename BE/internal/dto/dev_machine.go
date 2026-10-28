@@ -302,3 +302,34 @@ type CollectorLogInput struct {
 	Content    string  `json:"content" validate:"required,max=65536"`
 	Truncated  bool    `json:"truncated"`
 }
+
+// AppPort is one exposed port of a machine's developer container.
+type AppPort struct {
+	ID             uuid.UUID  `json:"id"`
+	Port           int        `json:"port"`
+	Label          *string    `json:"label"`
+	Source         string     `json:"source"`
+	AgentTaskID    *uuid.UUID `json:"agent_task_id"`
+	TaskIdentifier *string    `json:"task_identifier"`
+	Host           string     `json:"host"`
+	Listening      bool       `json:"listening"`
+	CreatedAt      time.Time  `json:"created_at"`
+}
+
+// AppPortList is a machine's app ports and its latest port scan.
+type AppPortList struct {
+	Ports     []AppPort  `json:"ports"`
+	Listening []int      `json:"listening"`
+	ScannedAt *time.Time `json:"scanned_at"`
+}
+
+// AppPortRequest exposes a port; Label is optional.
+type AppPortRequest struct {
+	Port  int     `json:"port"`
+	Label *string `json:"label"`
+}
+
+// AppPortUpdate renames a port; null or "" clears the label.
+type AppPortUpdate struct {
+	Label *string `json:"label"`
+}

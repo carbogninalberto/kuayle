@@ -15,6 +15,7 @@ fi
 
 configure_codex_model
 link_codex_packages
+install_kuayle_qa
 prepare_developer_workspace
 code-server --bind-addr 0.0.0.0:8080 --auth none --disable-telemetry "$kuayle_default_workspace" &
 code_server_pid=$!

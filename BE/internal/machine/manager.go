@@ -30,8 +30,16 @@ type ManagerStore interface {
 	ListResourceAllocations(context.Context) ([]domain.DevMachineResourceAllocation, error)
 	RecordNativeSession(context.Context, uuid.UUID, string) error
 	SaveValidationArtifacts(context.Context, domain.DevMachineOperation, []domain.ValidationArtifact) error
-	TaskPreview(ctx context.Context, checkout uuid.UUID) ([]string, int, uuid.UUID, bool, error)
-	SetPreview(context.Context, *domain.DevMachinePreview) error
+	MachinePorts(context.Context, uuid.UUID) ([]domain.DevMachinePort, error)
+	CreatePort(context.Context, *domain.DevMachinePort) error
+	DeleteAgentPort(context.Context, uuid.UUID, int) (bool, error)
+	SetListeningPorts(context.Context, uuid.UUID, []int) error
+	ListPortScanMachines(context.Context, int) ([]domain.DevMachine, error)
+	TaskForWorktree(context.Context, uuid.UUID, string) (*uuid.UUID, error)
+	PreviewTarget(context.Context, uuid.UUID) (*repository.TaskPreviewTarget, error)
+	SetTaskPreview(context.Context, uuid.UUID, string, *string, *domain.DevMachinePort) error
+	StopTaskPreview(context.Context, uuid.UUID) error
+	StopMachinePreviews(context.Context, uuid.UUID) error
 	DeferOperation(context.Context, uuid.UUID, string, string, string, time.Duration) error
 	GetPublication(context.Context, domain.DevMachineOperation) (*domain.AgentPublication, error)
 	StartPublication(context.Context, domain.DevMachineOperation) error
@@ -144,6 +152,12 @@ type Manager struct {
 	activeRuns          map[uuid.UUID]map[uuid.UUID]context.CancelFunc
 	diskQuotaWarnMu     sync.Mutex
 	diskQuotaWarnings   map[uuid.UUID]int64
+
+	// machineDomain builds app port URLs for agents; empty omits them.
+	machineDomain string
+	portScanning  atomic.Bool
+	portStateMu   sync.Mutex
+	portStates    map[uuid.UUID]publishedPortState
 }
 
 type terminalOperationError struct {
@@ -177,13 +191,17 @@ func NewManager(store ManagerStore, runtime Runtime, agents *agent.Registry, git
 func (m *Manager) Run(ctx context.Context) error {
 	operationTicker := time.NewTicker(m.pollInterval)
 	reconcileTicker := time.NewTicker(30 * time.Second)
+	portTicker := time.NewTicker(portScanInterval)
 	defer operationTicker.Stop()
 	defer reconcileTicker.Stop()
+	defer portTicker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			m.operations.Wait()
 			return nil
+		case <-portTicker.C:
+			m.schedulePortScan(ctx)
 		case <-operationTicker.C:
 			if err := m.processBatch(ctx); err != nil {
 				log.WithError(err).Error("dev machine operation batch failed")
@@ -346,8 +364,10 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 	}
 	if operation.Generation < machine.Generation {
 		switch operation.Action {
-		case domain.DevMachineOpTeardown, domain.DevMachineOpCancelAgent, domain.DevMachineOpTerminateTerminal, domain.DevMachineOpPurgeTaskSession:
+		case domain.DevMachineOpTeardown, domain.DevMachineOpCancelAgent, domain.DevMachineOpTerminateTerminal, domain.DevMachineOpPurgeTaskSession, domain.DevMachineOpStopPreview:
 			// Destructive cleanup must still converge after a newer generation.
+		case domain.DevMachineOpStartPreview:
+			return m.stalePreview(ctx, operation)
 		case domain.DevMachineOpCheckoutIssue:
 			if operation.CheckoutID != nil {
 				message := "machine state changed before checkout preparation; try again"
@@ -460,6 +480,7 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 			}
 		}
 		_ = m.store.RevokeMachineAccess(ctx, machine.ID)
+		m.previewsEnded(ctx, machine)
 		return m.setStateAndEventForOperation(ctx, machine, operation, domain.DevMachineStatusStopped, "machine.stopped", nil, false)
 	case domain.DevMachineOpTeardown:
 		if machine.Status == domain.DevMachineStatusDestroyed {
@@ -482,6 +503,7 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 				_ = m.store.UpdateServiceRuntime(ctx, service.ID, *service.ContainerID, "destroyed", "stopped", nil)
 			}
 		}
+		m.previewsEnded(ctx, machine)
 		return m.setStateAndEventForOperation(ctx, machine, operation, domain.DevMachineStatusDestroyed, "machine.destroyed", nil, true)
 	case domain.DevMachineOpValidateAgent:
 		return m.validateAgent(ctx, machine, operation)
@@ -491,6 +513,8 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 		return m.purgeTaskSession(ctx, machine, operation)
 	case domain.DevMachineOpStartPreview:
 		return m.startPreview(ctx, machine, operation)
+	case domain.DevMachineOpStopPreview:
+		return m.stopPreview(ctx, machine, operation)
 	case domain.DevMachineOpCaptureSignIn:
 		return m.captureSignIn(ctx, machine, operation)
 	case domain.DevMachineOpRunAgent:
@@ -636,6 +660,8 @@ func (m *Manager) spawn(ctx context.Context, machine *domain.DevMachine, service
 	if !updated {
 		return nil
 	}
+	// Provisioning may replace the developer container and its processes.
+	m.previewsEnded(ctx, machine)
 	runtimeServices := make([]domain.DevMachineService, 0, len(services))
 	for _, service := range services {
 		if service.ServiceType != "agent" {
@@ -1767,37 +1793,4 @@ func (m *Manager) purgeTaskSession(ctx context.Context, machine *domain.DevMachi
 		return &terminalOperationError{code: "session_purge_unavailable", message: "Developer environment image is unknown"}
 	}
 	return m.runtime.PurgeTaskSession(ctx, machine, image, taskID)
-}
-
-// startPreview runs the project's preview command for a task in review and
-// points the machine's authenticated preview at it. A task that left review
-// meanwhile needs no preview.
-func (m *Manager) startPreview(ctx context.Context, machine *domain.DevMachine, op *domain.DevMachineOperation) error {
-	if op.CheckoutID == nil || machine.Status != domain.DevMachineStatusRunning {
-		return nil
-	}
-	argv, port, creator, ok, err := m.store.TaskPreview(ctx, *op.CheckoutID)
-	if err != nil || !ok {
-		return err
-	}
-	checkout, err := m.store.GetCheckoutInternal(ctx, *op.CheckoutID)
-	if err != nil {
-		return err
-	}
-	if checkout == nil || checkout.MachineID != machine.ID || checkout.Status != "ready" {
-		return nil
-	}
-	services, err := m.store.ListServices(ctx, machine.WorkspaceID, machine.ID)
-	if err != nil {
-		return err
-	}
-	for _, service := range services {
-		if service.InternalPort == port {
-			return &terminalOperationError{code: "preview_port_reserved", message: "The preview port is used by a machine service"}
-		}
-	}
-	if err = m.runtime.StartPreview(ctx, machine, services, checkout, argv, port); err != nil {
-		return err
-	}
-	return m.store.SetPreview(ctx, &domain.DevMachinePreview{MachineID: machine.ID, WorkspaceID: machine.WorkspaceID, Port: port, CreatedByUserID: creator})
 }

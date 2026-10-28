@@ -30,6 +30,8 @@ func agentTaskError(c echo.Context, err error) error {
 		return response.Error(c, http.StatusConflict, "TASK_CONFLICT", "This request conflicts with the current task")
 	case errors.Is(err, repository.ErrConversationInvalid):
 		return response.Error(c, http.StatusBadRequest, "INVALID_TASK", "Invalid task request")
+	case errors.Is(err, repository.ErrPreviewUnavailable):
+		return response.Error(c, http.StatusConflict, "PREVIEW_UNAVAILABLE", "The task needs a preview command and a ready checkout on a running machine")
 	case errors.Is(err, service.ErrSignInNotFound):
 		return response.Error(c, http.StatusConflict, "SIGN_IN_NOT_FOUND", "No sign-in was found in the machine's terminal yet")
 	default:
@@ -141,6 +143,22 @@ func (h *AgentTaskHandler) Cancel(c echo.Context) error {
 		return agentTaskError(c, err)
 	}
 	return c.NoContent(http.StatusNoContent)
+}
+
+// StartPreview queues the task's preview process and app port; StopPreview
+// queues its stop. Both answer 202 with the task.
+func (h *AgentTaskHandler) StartPreview(c echo.Context) error { return h.preview(c, true) }
+func (h *AgentTaskHandler) StopPreview(c echo.Context) error  { return h.preview(c, false) }
+func (h *AgentTaskHandler) preview(c echo.Context, start bool) error {
+	id, err := taskID(c, "taskId")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	task, err := h.svc.Repo.RequestPreview(c.Request().Context(), middleware.GetWorkspace(c).ID, id, start)
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	return response.Success(c, http.StatusAccepted, task)
 }
 
 // ContinueAfterSignIn keeps the sign-in the user completed in their terminal

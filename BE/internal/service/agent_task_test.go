@@ -448,6 +448,8 @@ func TestAgentTaskAttemptPassesAcceptedTestCommandToNativeHarness(t *testing.T) 
 	require.Contains(t, run.Prompt, `["npm" "test"]`)
 	require.False(t, run.PushBranch)
 	require.NotContains(t, run.Prompt, "Related work in Kuayle")
+	require.Contains(t, run.Prompt, "kuayle-qa", "the reviewer's QA path is named")
+	require.Contains(t, run.Prompt, "temporary container")
 	task.ValidationCommand = json.RawMessage(`[1]`)
 	_, err = runtime.Attempt(context.Background(), task)
 	require.ErrorIs(t, err, ErrInvalidMachineInput)
@@ -463,6 +465,13 @@ func TestAgentTaskAttemptPassesAcceptedTestCommandToNativeHarness(t *testing.T) 
 	require.Contains(t, run.Prompt, "Issue ENG-26: Add a truncate helper\n\nThrow a RangeError when max < 1.")
 	require.Less(t, strings.Index(run.Prompt, "Issue ENG-26"), strings.Index(run.Prompt, "Implement"))
 	require.Less(t, strings.Index(run.Prompt, "ENG-2"), strings.Index(run.Prompt, "Implement"))
+
+	// With a preview command, Kuayle starts the app for the reviewer.
+	task.PreviewCommand, task.RunID = json.RawMessage(`["npm","run","dev"]`), uuid.New()
+	run, err = runtime.Attempt(context.Background(), task)
+	require.NoError(t, err)
+	require.Contains(t, run.Prompt, "Kuayle starts the project's preview command")
+	require.Contains(t, run.Prompt, "$PORT")
 }
 
 type relatedWorkFake []domain.RelatedWork

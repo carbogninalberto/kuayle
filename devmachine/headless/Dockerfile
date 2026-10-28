@@ -19,8 +19,8 @@ ARG NPM_VERSION=12.2.0
 COPY --from=node-stage /usr/local /usr/local
 COPY --from=crush-build /out/crush /usr/local/bin/crush
 COPY --from=go-stage /usr/local/go /usr/local/go
-COPY common/install-agent-clis.sh common/kuayle-service-entrypoint common/kuayle-agent-runner /usr/local/bin/
-COPY common/start-common.sh common/codex-model-catalog.cjs common/patch-npm-security.cjs common/test-http-cache-semantics.cjs /usr/local/lib/kuayle/
+COPY common/install-agent-clis.sh common/kuayle-ports common/kuayle-service-entrypoint common/kuayle-agent-runner /usr/local/bin/
+COPY common/start-common.sh common/codex-model-catalog.cjs common/patch-npm-security.cjs common/test-http-cache-semantics.cjs common/kuayle-qa.md /usr/local/lib/kuayle/
 COPY headless/kuayle-headless-start /usr/local/bin/kuayle-headless-start
 COPY ide/shell.sh /usr/local/bin/kuayle-shell
 COPY ide/checkout.sh /usr/local/bin/kuayle-checkout
@@ -50,6 +50,7 @@ RUN rm -f /usr/bin/pebble \
     && mkdir -p /home/kuayle/go /home/kuayle/.cache/go-build \
     && chown -R 1000:1000 /home/kuayle \
     && chmod 0755 \
+         /usr/local/bin/kuayle-ports \
          /usr/local/bin/kuayle-service-entrypoint \
          /usr/local/bin/kuayle-agent-runner \
          /usr/local/bin/kuayle-headless-start \

@@ -602,26 +602,48 @@ access stops its unattended runs.
 - `POST /agent-automation-runs/:id/approve|dismiss` is open to the rule owner
   or an administrator.
 
-## Automatic QA previews
+## App ports and QA
 
-Migration 71 adds an inherited preview setting: an argv command and a port
-(1024–65535), set together or not at all. It is snapshotted onto each task,
-like the test command.
+Migration 71 adds an inherited preview setting: an argv command and a port,
+snapshotted onto each task like the test command. Since migration 85 the port
+is only preferred and optional (1024–65535 when set); a port without a command
+is refused. Each task has its own preview process and app port (see
+[App ports](../../TECHNICAL.md#app-ports)), so tasks on one machine never
+replace each other's previews.
 
-When an attempt reaches `awaiting_review`, the transition queues one
-`start_preview` operation, keyed by attempt. The manager then:
+A preview starts when an attempt reaches `awaiting_review` (one
+`start_preview` operation keyed by attempt) or when the task's creator calls
+`POST /agent-tasks/:taskId/preview` (202 with the task; 409
+`PREVIEW_UNAVAILABLE` without a preview command, or without the task's ready
+checkout on a running machine). `DELETE /agent-tasks/:taskId/preview` (202)
+queues its stop. Preview operations name the task in
+`dev_machine_operations.agent_task_id`. The manager then:
 
-- checks that the task is still in review and the machine is running;
-- refuses a port used by one of the machine's own services;
-- runs the command in the task worktree on the developer container, as UID
-  1000 with `PORT` and `HOST=0.0.0.0` set;
-- stops the machine's previous preview (its whole process group) first;
-- points the machine's authenticated preview host at the port, so "Open
-  preview" appears on the task card.
+- records `preview_state` `starting`, then `running` or `failed` with a bounded
+  `preview_error`, and finally `stopped`;
+- picks the task's existing port, else the preferred port when free, else the
+  first free port in 4100–4999; free means not a service port, not listening
+  and not exposed, within the ten-port limit;
+- exposes it as a `task` app port labelled with the issue identifier;
+- runs the command in the task worktree on the developer container as UID 1000
+  with `PORT` and `HOST=0.0.0.0`, in its own session, with pidfile
+  `/tmp/kuayle-preview-<taskId>.pid` and a log `/tmp/kuayle-preview-<taskId>.log`
+  truncated beyond 8 MiB. A restart stops only that task's previous process
+  group.
 
-The process keeps running until a later attempt replaces it, or until the
-machine is paused or stopped. Previews reuse the gateway's host-bound tickets;
-the application never sees Kuayle credentials.
+A stop kills that task's process group, removes its `task` port and revokes
+the port host's sessions. It is queued when the task becomes completed,
+cancelled or failed, when the user stops it, or when the user removes the task
+port. Stopping or re-provisioning the machine marks its previews stopped and
+removes task ports; pausing keeps them (the processes are frozen and resume).
+Task payloads carry `preview: {state, port_id, port, error} | null`; changes
+are published as `task.updated` conversation events.
+
+Implementing attempts get one prompt line about manual QA: with a preview
+command, that Kuayle starts it for the reviewer; without one, that the attempt
+runs in a temporary container and should explain how to start and test the
+app, which the reviewer can expose from the machine terminal with the
+`kuayle-qa` skill and `kuayle-ports`.
 
 ## Dependencies and collaborating agents
 

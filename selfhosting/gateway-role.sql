@@ -34,7 +34,7 @@ SELECT format('REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM %I',
 SELECT format('REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public FROM %I', :'gateway_user') \gexec
 
 SELECT format('GRANT SELECT ON TABLE dev_machines, dev_machine_services TO %I', :'gateway_user') \gexec
-SELECT format('GRANT SELECT (machine_id, workspace_id, port) ON TABLE dev_machine_previews TO %I', :'gateway_user') \gexec
+SELECT format('GRANT SELECT (machine_id, workspace_id, port) ON TABLE dev_machine_ports TO %I', :'gateway_user') \gexec
 SELECT format('GRANT SELECT (workspace_id, enabled) ON TABLE dev_machine_workspace_policies TO %I', :'gateway_user') \gexec
 SELECT format('GRANT SELECT (workspace_id, user_id, role) ON TABLE workspace_members TO %I', :'gateway_user') \gexec
 SELECT format(

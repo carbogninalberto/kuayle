@@ -192,36 +192,6 @@ func TestDeferredOperationsWaitWithoutConsumingAttempts(t *testing.T) {
 	require.True(t, found, "a running machine holds its allocation")
 }
 
-func TestPreviewRoutesToTheRunningDeveloperServiceOnItsPort(t *testing.T) {
-	db, repo, ctx, task := reviewableTask(t)
-	_ = repo
-	store := NewDevMachineRepository(db)
-	var machine domain.DevMachine
-	require.NoError(t, db.Get(&machine, `SELECT m.* FROM dev_machines m JOIN agent_tasks t ON t.machine_id=m.id WHERE t.id=$1`, task.ID))
-	_, route, err := store.GetRoute(ctx, machine.RoutingKey, "preview")
-	require.NoError(t, err)
-	require.Nil(t, route, "no preview configured")
-	ide := &domain.DevMachineService{ID: uuid.New(), WorkspaceID: machine.WorkspaceID, MachineID: machine.ID, ServiceType: "ide", ServiceKey: "ide", ContainerName: "ide", ImageRef: "fixture", InternalHost: "ide", InternalPort: 8080, Status: "pending", HealthStatus: "unknown"}
-	require.NoError(t, store.CreateRuntimeService(ctx, ide))
-	require.NoError(t, store.UpdateServiceRuntime(ctx, ide.ID, "container", "running", "healthy", nil))
-	preview := &domain.DevMachinePreview{MachineID: machine.ID, WorkspaceID: machine.WorkspaceID, Port: 5173, CreatedByUserID: task.CreatorID}
-	require.NoError(t, store.SetPreview(ctx, preview))
-	_, route, err = store.GetRoute(ctx, machine.RoutingKey, "preview")
-	require.NoError(t, err)
-	require.NotNil(t, route)
-	require.Equal(t, ide.ID, route.ID)
-	require.Equal(t, "preview", route.ServiceType)
-	require.Equal(t, 5173, route.InternalPort)
-	require.Equal(t, "ide", route.InternalHost)
-	_, ideRoute, err := store.GetRoute(ctx, machine.RoutingKey, "ide")
-	require.NoError(t, err)
-	require.Equal(t, 8080, ideRoute.InternalPort, "the IDE route is unchanged")
-	require.NoError(t, store.DeletePreview(ctx, machine.WorkspaceID, machine.ID, machine.RoutingKey+"-preview.example.test"))
-	_, route, err = store.GetRoute(ctx, machine.RoutingKey, "preview")
-	require.NoError(t, err)
-	require.Nil(t, route)
-}
-
 func TestNativeSessionsAreRecordedOnceAndHandedToTheSuccessor(t *testing.T) {
 	db, repo, ctx, task := reviewableTask(t)
 	store := NewDevMachineRepository(db)
