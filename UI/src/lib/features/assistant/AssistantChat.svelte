@@ -24,6 +24,8 @@
 	import { ConversationState } from './conversation-state.svelte';
 	import { ComposerAttachments } from './composer-attachments.svelte';
 	import ComposerAttachmentList from './ComposerAttachments.svelte';
+	import ComposerVoice from './ComposerVoice.svelte';
+	import { appendTranscript } from '$lib/features/voice/voice-rules';
 	import MessageAttachments from './MessageAttachments.svelte';
 	import { ATTACHMENT_TYPES } from './attachment-rules';
 	import TaskPanel from './TaskPanel.svelte';
@@ -68,13 +70,13 @@
 	let draftConversation: string | null = null;
 	let fileInput = $state<HTMLInputElement | null>(null);
 	let dragging = $state(false);
-	async function ensureConversation() {
+	async function ensureConversation(fallbackTitle = m['assistant.image_title']()) {
 		const existing = conversationId ?? pending?.conversation ?? draftConversation;
 		if (existing) return existing;
-		draftConversation = (await conversations.create(slug, text.trim().slice(0, 100) || m['assistant.image_title']())).id;
+		draftConversation = (await conversations.create(slug, text.trim().slice(0, 100) || fallbackTitle)).id;
 		return draftConversation;
 	}
-	const attachments = untrack(() => new ComposerAttachments(slug, ensureConversation));
+	const attachments = untrack(() => new ComposerAttachments(slug, () => ensureConversation()));
 	const sameIds = (a: string[], b: string[]) => a.length === b.length && a.every((id, i) => id === b[i]);
 	function imageFiles(list: FileList | null | undefined) {
 		return Array.from(list ?? []).filter((file) => file.type.startsWith('image/'));
@@ -485,6 +487,15 @@
 									disabled={!initialized || !status.configured || chat.unavailable}
 									onclick={() => fileInput?.click()}><ImagePlus size={16} /></InputGroup.Button
 								>
+								<ComposerVoice
+									{slug}
+									ensureConversation={() => ensureConversation(m['voice.conversation_title']())}
+									disabled={!initialized || !status.configured || chat.unavailable}
+									ontranscript={(transcript) => {
+										text = appendTranscript(text, transcript);
+										textarea?.focus();
+									}}
+								/>
 								<span class="truncate text-xs text-muted-foreground">{status.model ?? m['assistant.no_provider']()}</span>
 							</div>
 							{#if chat.busy}<InputGroup.Button
