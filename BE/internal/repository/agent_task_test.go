@@ -203,7 +203,7 @@ func TestAgentTasksReserveMachinesAndFenceActualDispatch(t *testing.T) {
 	var wg sync.WaitGroup
 	for _, task := range tasks {
 		wg.Go(func() {
-			id, e := repo.ReserveMachine(ctx, task, uuid.New(), &fixture.environmentID)
+			id, _, e := repo.ReserveMachine(ctx, task, uuid.New(), &fixture.environmentID)
 			if e != nil {
 				t.Error(e)
 				return
@@ -388,13 +388,13 @@ func TestReservationReusesAnIdleMachineWithADifferentAgent(t *testing.T) {
 	// Reserved before the machine became reusable: a placeholder that was never created.
 	_, err = db.Exec(`UPDATE dev_machines SET status='paused' WHERE id=$1`, machine)
 	require.NoError(t, err)
-	placeholder, err := repo.ReserveMachine(ctx, *claimed, uuid.New(), &fixture.environmentID)
+	placeholder, _, err := repo.ReserveMachine(ctx, *claimed, uuid.New(), &fixture.environmentID)
 	require.NoError(t, err)
 	require.Equal(t, claimed.ReservedMachineID, placeholder)
 	claimed.MachineID = &placeholder
 	_, err = db.Exec(`UPDATE dev_machines SET status='running' WHERE id=$1`, machine)
 	require.NoError(t, err)
-	id, err := repo.ReserveMachine(ctx, *claimed, uuid.New(), &fixture.environmentID)
+	id, _, err := repo.ReserveMachine(ctx, *claimed, uuid.New(), &fixture.environmentID)
 	require.NoError(t, err)
 	require.Equal(t, machine, id, "an idle machine is reused even when it lacks this task's agent")
 
@@ -444,7 +444,7 @@ func TestReservationReusesTheCreatorsStoppedAndPausedMachines(t *testing.T) {
 		_, err := db.Exec(`UPDATE agent_tasks SET machine_id=NULL WHERE id=$1`, claimed.ID)
 		require.NoError(t, err)
 		claimed.MachineID = nil
-		id, err := repo.ReserveMachine(ctx, *claimed, repository, &fixture.environmentID)
+		id, _, err := repo.ReserveMachine(ctx, *claimed, repository, &fixture.environmentID)
 		require.NoError(t, err)
 		return id
 	}
@@ -487,4 +487,18 @@ func TestReservationReusesTheCreatorsStoppedAndPausedMachines(t *testing.T) {
 	_, err = db.Exec(`UPDATE agent_tasks SET machine_id=$2 WHERE id=$1`, busy.ID, running)
 	require.NoError(t, err)
 	require.Equal(t, paused, reserve())
+
+	// A task whose machine was destroyed (records are kept as history) gets a
+	// fresh reservation instead of waiting on the destroyed machine forever.
+	_, err = db.Exec(`UPDATE dev_machines SET status='destroyed',desired_status='destroyed' WHERE id IN ($1,$2,$3,$4)`, paused, stopped, running, otherEnvironment)
+	require.NoError(t, err)
+	_, err = db.Exec(`UPDATE agent_tasks SET machine_id=$2,reserved_machine_id=$2 WHERE id=$1`, claimed.ID, paused)
+	require.NoError(t, err)
+	claimed.MachineID, claimed.ReservedMachineID = &paused, paused
+	fresh, _, err := repo.ReserveMachine(ctx, *claimed, repository, &fixture.environmentID)
+	require.NoError(t, err)
+	require.NotEqual(t, paused, fresh)
+	var reserved uuid.UUID
+	require.NoError(t, db.Get(&reserved, `SELECT reserved_machine_id FROM agent_tasks WHERE id=$1`, claimed.ID))
+	require.Equal(t, fresh, reserved, "a new machine will be created under a new reservation")
 }

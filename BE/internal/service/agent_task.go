@@ -289,17 +289,32 @@ func (r *devMachineTaskRuntime) Prepare(ctx context.Context, task *domain.AgentT
 		return false, ErrCheckoutNotEligible
 	}
 	// The reserved ID is only a placeholder until that machine exists; asking
-	// again lets a now-idle machine be reused instead.
-	if task.MachineID == nil || *task.MachineID == task.ReservedMachineID {
-		id, err := r.tasks.ReserveMachine(ctx, *task, *setting.GitHubRepoID, setting.EnvironmentID)
+	// again lets a now-idle machine be reused instead. A destroyed or deleting
+	// machine is replaced by a new reservation.
+	reserve := func() error {
+		id, reserved, err := r.tasks.ReserveMachine(ctx, *task, *setting.GitHubRepoID, setting.EnvironmentID)
 		if err != nil {
+			return err
+		}
+		task.MachineID, task.ReservedMachineID = &id, reserved
+		return nil
+	}
+	if task.MachineID == nil || *task.MachineID == task.ReservedMachineID {
+		if err = reserve(); err != nil {
 			return false, err
 		}
-		task.MachineID = &id
 	}
 	machine, err := s.store.GetMachineForUser(ctx, task.WorkspaceID, *task.MachineID, task.CreatorID)
 	if err != nil {
 		return false, err
+	}
+	if machine != nil && (machine.Status == domain.DevMachineStatusDestroyed || machine.DeleteRequestedAt != nil) {
+		if err = reserve(); err != nil {
+			return false, err
+		}
+		if machine, err = s.store.GetMachineForUser(ctx, task.WorkspaceID, *task.MachineID, task.CreatorID); err != nil {
+			return false, err
+		}
 	}
 	if machine == nil {
 		if *task.MachineID != task.ReservedMachineID {

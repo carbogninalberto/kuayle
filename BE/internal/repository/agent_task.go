@@ -499,31 +499,40 @@ func beginTaskRuntimeTransaction(ctx context.Context, db *sqlx.DB, kind string, 
 
 // ReserveMachine serializes compatible-machine selection with other task
 // reservations. Running attempts still use the runtime's own machine-wide guard.
-func (r *AgentTaskRepository) ReserveMachine(ctx context.Context, claimed domain.AgentTask, repositoryID uuid.UUID, environmentID *uuid.UUID) (uuid.UUID, error) {
+// ReserveMachine picks the machine for a task and returns it with the task's
+// current reservation ID, which changes when a destroyed machine is replaced.
+func (r *AgentTaskRepository) ReserveMachine(ctx context.Context, claimed domain.AgentTask, repositoryID uuid.UUID, environmentID *uuid.UUID) (uuid.UUID, uuid.UUID, error) {
 	tx, task, err := r.transaction(ctx, claimed.ID, true)
 	if err != nil {
-		return uuid.Nil, err
+		return uuid.Nil, uuid.Nil, err
 	}
 	defer tx.Rollback()
 	if err = fenceAgentTask(ctx, tx, *task, claimed); err != nil {
-		return uuid.Nil, err
+		return uuid.Nil, uuid.Nil, err
 	}
 	if task.State != "preparing" {
-		return uuid.Nil, ErrAgentTaskConflict
+		return uuid.Nil, uuid.Nil, ErrAgentTaskConflict
 	}
 	if task.MachineID != nil {
 		// A reservation for a machine that was never created (e.g. blocked by
 		// the machine limit) is revisited, so an idle machine can be reused.
-		var pending bool
-		if err = tx.GetContext(ctx, &pending, `SELECT $1::uuid=$2::uuid AND NOT EXISTS(SELECT 1 FROM dev_machines WHERE id=$1)`, *task.MachineID, task.ReservedMachineID); err != nil {
-			return uuid.Nil, err
+		// A destroyed or deleting machine is kept only as history: the task
+		// gets a new reservation, since that machine ID cannot be reused.
+		var pending, gone bool
+		if err = tx.QueryRowContext(ctx, `SELECT $1::uuid=$2::uuid AND NOT EXISTS(SELECT 1 FROM dev_machines WHERE id=$1),
+ EXISTS(SELECT 1 FROM dev_machines WHERE id=$1 AND (status='destroyed' OR delete_requested_at IS NOT NULL))`, *task.MachineID, task.ReservedMachineID).Scan(&pending, &gone); err != nil {
+			return uuid.Nil, uuid.Nil, err
 		}
-		if !pending {
-			return *task.MachineID, nil
+		if gone {
+			if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET machine_id=NULL,reserved_machine_id=gen_random_uuid(),updated_at=now() WHERE id=$1 RETURNING *`, task.ID); err != nil {
+				return uuid.Nil, uuid.Nil, err
+			}
+		} else if !pending {
+			return *task.MachineID, task.ReservedMachineID, nil
 		}
 	}
 	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text,0))`, task.WorkspaceID); err != nil {
-		return uuid.Nil, err
+		return uuid.Nil, uuid.Nil, err
 	}
 	// Reuse the creator's own machine of the same environment, whatever
 	// repositories it served before: each task gets its own worktree on it.
@@ -547,15 +556,15 @@ func (r *AgentTaskRepository) ReserveMachine(ctx context.Context, claimed domain
 	if errors.Is(err, sql.ErrNoRows) {
 		machineID = task.ReservedMachineID
 	} else if err != nil {
-		return uuid.Nil, err
+		return uuid.Nil, uuid.Nil, err
 	}
 	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET machine_id=$2,updated_at=now() WHERE id=$1 RETURNING *`, task.ID, machineID); err != nil {
-		return uuid.Nil, err
+		return uuid.Nil, uuid.Nil, err
 	}
 	if _, err = conversationEvent(ctx, tx, *task.ConversationID, "task.updated", task); err != nil {
-		return uuid.Nil, err
+		return uuid.Nil, uuid.Nil, err
 	}
-	return machineID, tx.Commit()
+	return machineID, task.ReservedMachineID, tx.Commit()
 }
 
 // CancelAttempt always queues physical cleanup, including for native attempts
