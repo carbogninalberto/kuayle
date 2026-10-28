@@ -44,9 +44,6 @@ func (f *portStoreFake) CreatePort(_ context.Context, port *domain.DevMachinePor
 			return repository.ErrPortExists
 		}
 	}
-	if len(f.ports) >= domain.DevMachinePortLimit {
-		return repository.ErrPortLimit
-	}
 	port.ID, port.CreatedAt = uuid.New(), time.Now()
 	f.ports = append(f.ports, *port)
 	return nil
@@ -158,12 +155,11 @@ func TestAppPortsAreOwnerOnlyAvoidServicePortsAndLaunchOnTheirOwnHost(t *testing
 	require.ErrorIs(t, err, ErrPortNotFound)
 }
 
-func TestAppPortLimitIsReported(t *testing.T) {
-	svc, _, workspaceID, userID, machineID, _ := newPortService(t)
-	for port := 3000; port < 3000+domain.DevMachinePortLimit; port++ {
+func TestAppPortsAreNotLimitedInNumber(t *testing.T) {
+	svc, store, workspaceID, userID, machineID, _ := newPortService(t)
+	for port := 3000; port < 3050; port++ {
 		_, err := svc.CreatePort(context.Background(), workspaceID, machineID, userID, port, nil)
 		require.NoError(t, err)
 	}
-	_, err := svc.CreatePort(context.Background(), workspaceID, machineID, userID, 4000, nil)
-	require.ErrorIs(t, err, ErrPortLimit)
+	require.Len(t, store.ports, 50)
 }

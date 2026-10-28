@@ -88,7 +88,7 @@ export interface DevMachineService {
 	id: string;
 	machine_id: string;
 	agent_run_id?: string;
-	service_type: 'ide' | 'terminal' | 'agent' | 'browser' | 'collector' | 'egress';
+	service_type: 'ide' | 'terminal' | 'agent' | 'browser' | 'collector' | 'egress' | 'docker';
 	service_key: string;
 	container_id?: string;
 	container_name: string;
@@ -264,6 +264,8 @@ export interface DevMachinePolicy {
 	allowed_repositories: string[];
 	allow_custom_providers: boolean;
 	allow_unattended_automations: boolean;
+	// Machines created while on get their own sandboxed Docker daemon.
+	allow_docker?: boolean;
 	agent_git_name?: string | null;
 	agent_git_email?: string | null;
 	idle_pause_minutes: number;
@@ -350,12 +352,14 @@ export interface AppPort {
 	task_identifier: string | null;
 	host: string;
 	listening: boolean;
+	// The container serving it; "docker" for a port published by the machine's Docker daemon.
+	target?: 'developer' | 'docker';
 	created_at: string;
 }
 
 export interface AppPortList {
 	ports: AppPort[];
-	// Ports listening in the developer container at the last scan.
+	// Ports listening on the machine (developer container and Docker daemon) at the last scan.
 	listening: number[];
 	scanned_at: string | null;
 }

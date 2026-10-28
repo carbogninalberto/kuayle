@@ -100,6 +100,17 @@ type DevMachineConfig struct {
 	OpenCodeImage        string `envconfig:"DEV_MACHINE_OPENCODE_IMAGE" default:"ghcr.io/kuayle/dev-machine-agent-opencode:0.1.0"`
 	CodexImage           string `envconfig:"DEV_MACHINE_CODEX_IMAGE" default:"ghcr.io/kuayle/dev-machine-agent-codex:0.1.0"`
 	CustomImage          string `envconfig:"DEV_MACHINE_CUSTOM_IMAGE"`
+	// DockerImage is the per-machine Docker daemon (rootless docker:dind with
+	// Kuayle's start script), used when a workspace policy allows Docker.
+	DockerImage string `envconfig:"DEV_MACHINE_DOCKER_IMAGE" default:"ghcr.io/kuayle/dev-machine-docker:0.1.0"`
+	// DockerRuntime is an optional OCI runtime for the daemon container, such
+	// as sysbox-runc, which isolates it without the relaxations below.
+	DockerRuntime string `envconfig:"DEV_MACHINE_DOCKER_RUNTIME"`
+	// DockerSeccompProfile and DockerAppArmorProfile apply to the daemon
+	// container only (without DockerRuntime). Rootless Docker needs the user
+	// namespace and mount system calls the defaults deny.
+	DockerSeccompProfile  string `envconfig:"DEV_MACHINE_DOCKER_SECCOMP_PROFILE" default:"unconfined"`
+	DockerAppArmorProfile string `envconfig:"DEV_MACHINE_DOCKER_APPARMOR_PROFILE" default:"unconfined"`
 	// DiskQuotaMode selects how workspace disk limits are enforced: "hard" uses
 	// Docker local-volume size quotas (XFS project quotas); "monitored" measures
 	// usage, warns and stops machines, and guards the host free-space floor.

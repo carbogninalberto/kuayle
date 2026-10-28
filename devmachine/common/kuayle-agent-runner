@@ -6,6 +6,7 @@ KUAYLE_START_COMMON=${KUAYLE_START_COMMON:-/usr/local/lib/kuayle/start-common.sh
 
 load_scoped_secrets
 configure_codex_model
+configure_docker_client
 link_codex_packages
 install_kuayle_agents
 install_agent_sign_in

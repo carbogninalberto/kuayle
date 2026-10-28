@@ -105,6 +105,16 @@ wait_for() {
   return 1
 }
 
+# Ports published by containers of the machine's Docker daemon. They listen
+# in the daemon's container (reach them at docker:PORT), so Kuayle reports them.
+docker_ports() {
+  state_json | sed -n 's/.*"docker":\[\([0-9,]*\)\].*/\1/p' | tr ',' '\n' | grep -E '^[0-9]+$' || true
+}
+
+is_docker_port() {
+  docker_ports | grep -qx "$1"
+}
+
 # Ports of the machine's own services (IDE, terminal...), never exposed.
 reserved_ports() {
   state_json | sed -n 's/.*"reserved":\[\([0-9,]*\)\].*/\1/p' | tr ',' '\n'
@@ -112,7 +122,7 @@ reserved_ports() {
 
 offered_ports() {
   reserved=" $(reserved_ports | tr '\n' ' ') "
-  for port in $(listening_ports); do
+  for port in $({ listening_ports; docker_ports; } | sort -un); do
     case "$reserved" in
       *" $port "*) ;;
       *) echo "$port" ;;
@@ -125,8 +135,12 @@ list() {
   printf '%-7s %s\n' PORT STATUS
   for port in $ports; do
     url=$(port_field "$port" url)
+    where=
+    is_docker_port "$port" && where=", docker"
     if [ -n "$url" ]; then
-      printf '%-7s %s (%s)\n' "$port" "$url" "$(port_field "$port" source)"
+      printf '%-7s %s (%s%s)\n' "$port" "$url" "$(port_field "$port" source)" "$where"
+    elif [ -n "$where" ]; then
+      printf '%-7s %s\n' "$port" "published by a Docker container, not exposed"
     else
       printf '%-7s %s\n' "$port" "listening, not exposed"
     fi
@@ -190,7 +204,7 @@ expose() {
   printf '%s\n' "$url"
   if loopback_ports | grep -qx "$port"; then
     echo "kuayle-ports: port $port listens on localhost only; restart the app bound to 0.0.0.0:$port" >&2
-  elif ! listening_ports | grep -qx "$port"; then
+  elif ! listening_ports | grep -qx "$port" && ! is_docker_port "$port"; then
     echo "kuayle-ports: nothing listens on port $port yet; bind the app to 0.0.0.0:$port" >&2
   fi
 }

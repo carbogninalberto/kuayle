@@ -49,6 +49,9 @@ func main() {
 		HostDiskMinFreePercent: configValue.DevMachine.HostDiskMinFreePercent,
 		HostDiskMinFreeGB:      configValue.DevMachine.HostDiskMinFreeGB,
 		HostDiskPath:           configValue.DevMachine.HostDiskPath,
+		DockerRuntime:          configValue.DevMachine.DockerRuntime,
+		DockerSeccompProfile:   configValue.DevMachine.DockerSeccompProfile,
+		DockerAppArmorProfile:  configValue.DevMachine.DockerAppArmorProfile,
 	})
 	if err != nil {
 		log.WithError(err).Fatal("initialize Docker runtime")

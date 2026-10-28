@@ -747,6 +747,8 @@ func prepareImportedRow(table string, row dto.WorkspaceTransferRow) {
 		row["api_key_encrypted"] = nil
 	case "dev_machine_workspace_policies":
 		row["enabled"] = false
+		// The Docker daemon is a deliberate opt-in of the destination's admins.
+		row["allow_docker"] = false
 	case "dev_machine_scope_settings":
 		row["environment_id"] = nil
 	}

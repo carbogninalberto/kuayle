@@ -38,10 +38,7 @@ func (f *portHandlerStoreFake) CreatePort(_ context.Context, port *domain.DevMac
 			return repository.ErrPortExists
 		}
 	}
-	if len(f.ports) >= domain.DevMachinePortLimit {
-		return repository.ErrPortLimit
-	}
-	port.ID, port.CreatedAt = uuid.New(), time.Date(2026, 10, 28, 9, 0, 0, 0, time.UTC)
+	port.ID, port.CreatedAt, port.Target = uuid.New(), time.Date(2026, 10, 28, 9, 0, 0, 0, time.UTC), domain.DevMachinePortTargetDeveloper
 	f.ports = append(f.ports, *port)
 	return nil
 }
@@ -102,7 +99,7 @@ func TestAppPortEndpointsFollowTheContract(t *testing.T) {
 	require.NoError(t, json.Unmarshal(created.Body.Bytes(), &body))
 	require.Equal(t, map[string]any{
 		"id": body["id"], "port": float64(3000), "label": "web", "source": "user", "agent_task_id": nil,
-		"task_identifier": nil, "host": "0123456789abcdef0123-3000.machines.example.test", "listening": true,
+		"task_identifier": nil, "host": "0123456789abcdef0123-3000.machines.example.test", "listening": true, "target": "developer",
 		"created_at": "2026-10-28T09:00:00Z",
 	}, body)
 
@@ -127,12 +124,11 @@ func TestAppPortEndpointsFollowTheContract(t *testing.T) {
 		require.Equal(t, test.status, recorder.Code, test.body)
 		require.Equal(t, test.code, errorCode(t, recorder), test.body)
 	}
-	for len(store.ports) < domain.DevMachinePortLimit {
+	for len(store.ports) < 30 {
 		store.ports = append(store.ports, domain.DevMachinePort{ID: uuid.New(), Port: 4000 + len(store.ports)})
 	}
-	limited := sendPort(t, h, http.MethodPost, `{"port":5000}`, workspaceID, ownerID, machineID, nil)
-	require.Equal(t, http.StatusUnprocessableEntity, limited.Code)
-	require.Equal(t, "PORT_LIMIT", errorCode(t, limited))
+	many := sendPort(t, h, http.MethodPost, `{"port":5000}`, workspaceID, ownerID, machineID, nil)
+	require.Equal(t, http.StatusCreated, many.Code, "the number of ports is not limited")
 
 	stranger := sendPort(t, h, http.MethodPost, `{"port":5001}`, workspaceID, uuid.New(), machineID, nil)
 	require.Equal(t, http.StatusNotFound, stranger.Code, "other members cannot expose ports")

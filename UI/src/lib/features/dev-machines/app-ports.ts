@@ -2,8 +2,6 @@ import type { AppPort } from '$lib/types/dev-machine';
 
 // Kept free of runtime imports so the node unit tests load it directly.
 
-export const APP_PORT_LIMIT = 10;
-
 export function validAppPort(port: number): boolean {
 	return Number.isInteger(port) && port >= 1024 && port <= 65535;
 }

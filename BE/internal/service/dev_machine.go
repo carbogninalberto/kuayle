@@ -98,6 +98,9 @@ type DevMachineImages struct {
 	Browser   string
 	Collector string
 	Egress    string
+	// Docker is the machine Docker daemon image, used when the workspace
+	// policy allows it.
+	Docker string
 }
 
 type DevMachineService struct {
@@ -301,6 +304,10 @@ func (s *DevMachineService) create(ctx context.Context, workspaceID, userID uuid
 		return nil, nil, err
 	}
 	services := s.buildServices(machine)
+	if policy.AllowDocker {
+		services = append(services, newService(machine.WorkspaceID, machine.ID, dockerServiceType, dockerServiceType,
+			"kuayle-"+machine.RoutingKey+"-docker", s.images.Docker, machine.RoutingKey+"-docker", dockerDaemonPort))
+	}
 	if machine.EnvironmentID != nil && machine.Profile != domain.DevMachineProfileHeadless {
 		environment, _ := s.store.GetEnvironment(ctx, workspaceID, *machine.EnvironmentID)
 		if environment != nil {
@@ -320,6 +327,13 @@ func (s *DevMachineService) create(ctx context.Context, workspaceID, userID uuid
 	envVars, err := s.buildEnvVars(machineID, req.EnvVars)
 	if err != nil {
 		return nil, nil, err
+	}
+	if policy.AllowDocker {
+		dockerSecrets, err := s.dockerEnvVars(machine)
+		if err != nil {
+			return nil, nil, err
+		}
+		envVars = append(envVars, dockerSecrets...)
 	}
 	collectorToken, err := randomHex(32)
 	if err != nil {
@@ -2080,6 +2094,13 @@ func (s *DevMachineService) UpdatePolicy(ctx context.Context, workspaceID uuid.U
 		MaxRuntimeMinutes: req.MaxRuntimeMinutes, MaxDiskGB: req.MaxDiskGB, AllowedProviders: providers,
 		AllowedRepositories: repositories, AllowCustomProviders: req.AllowCustomProviders, IdlePauseMinutes: idlePauseMinutes,
 		AllowUnattendedAutomations: req.AllowUnattendedAutomations,
+	}
+	if req.AllowDocker != nil {
+		policy.AllowDocker = *req.AllowDocker
+	} else if current, err := s.store.GetPolicy(ctx, workspaceID); err != nil {
+		return nil, err
+	} else if current != nil {
+		policy.AllowDocker = current.AllowDocker
 	}
 	name, email := strings.TrimSpace(req.AgentGitName), strings.TrimSpace(req.AgentGitEmail)
 	if (name == "") != (email == "") || !validGitAuthor(name, email) {

@@ -140,7 +140,7 @@
 				getDevMachinePolicy(slug), getGitHubStatus(slug),
 				getDevMachineScopeSetting(slug, 'workspace'), listDevMachineEnvironments(slug)
 			]);
-			policy = { ...loaded, allowed_providers: loaded.allowed_providers ?? [], allowed_repositories: loaded.allowed_repositories ?? [], allow_unattended_automations: loaded.allow_unattended_automations ?? false };
+			policy = { ...loaded, allowed_providers: loaded.allowed_providers ?? [], allowed_repositories: loaded.allowed_repositories ?? [], allow_unattended_automations: loaded.allow_unattended_automations ?? false, allow_docker: loaded.allow_docker ?? false };
 			repositories = policy.allowed_repositories.join('\n');
 			linkedRepositories = github.repos ?? [];
 			environments = availableEnvironments ?? [];
@@ -173,6 +173,7 @@
 				allowed_repositories: repositories.split('\n').map((line) => line.trim()).filter(Boolean),
 				allow_custom_providers: policy.allow_custom_providers,
 				allow_unattended_automations: policy.allow_unattended_automations,
+				allow_docker: policy.allow_docker ?? false,
 				agent_git_name: (policy.agent_git_name ?? '').trim(),
 				agent_git_email: (policy.agent_git_email ?? '').trim(),
 				idle_pause_minutes: policy.idle_pause_minutes
@@ -296,6 +297,10 @@
 		<section class="space-y-4 rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-5">
 			<div><h2 class="text-sm font-semibold">{m['settings.dev_machines.providers']()}</h2><p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.providers_moved']()} <a class="underline underline-offset-2" href="/{slug}/settings/agents">{m['settings.nav.agents']()}</a></p></div>
 			<label class="flex items-center gap-2 text-sm"><Switch bind:checked={policy.allow_unattended_automations} />{m['settings.dev_machines.allow_unattended']()}</label>
+			<div class="space-y-1">
+				<label class="flex items-center gap-2 text-sm"><Switch bind:checked={policy.allow_docker} aria-describedby="allow-docker-desc" />{m['settings.dev_machines.allow_docker']()}</label>
+				<p id="allow-docker-desc" class="text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.allow_docker_desc']()}</p>
+			</div>
 		</section>
 		<section class="space-y-3 rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-5">
 			<div><h2 class="text-sm font-semibold">{m['settings.dev_machines.commit_author']()}</h2><p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.commit_author_desc']()}</p></div>

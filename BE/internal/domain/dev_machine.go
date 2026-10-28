@@ -141,10 +141,13 @@ type DevMachine struct {
 	ExpiresAt            time.Time        `json:"expires_at" db:"expires_at"`
 	TeardownAt           *time.Time       `json:"teardown_at,omitempty" db:"teardown_at"`
 	DestroyedAt          *time.Time       `json:"destroyed_at,omitempty" db:"destroyed_at"`
-	// ListeningPorts are the developer container's listening TCP ports at
-	// ListeningPortsAt, without the machine's own service ports.
+	// ListeningPorts are the machine's listening TCP ports (developer container
+	// and Docker daemon) at ListeningPortsAt, without its own service ports.
 	ListeningPorts   pq.Int64Array `json:"-" db:"listening_ports"`
 	ListeningPortsAt *time.Time    `json:"-" db:"listening_ports_at"`
+	// DockerListeningPorts are the ports published by containers of the
+	// machine's Docker daemon at ListeningPortsAt, also in ListeningPorts.
+	DockerListeningPorts pq.Int64Array `json:"-" db:"docker_listening_ports"`
 }
 
 type DevMachineAgentProvider struct {
@@ -498,6 +501,9 @@ type DevMachineWorkspacePolicy struct {
 	// AllowUnattendedAutomations lets automation rules start tasks without a
 	// human approval; each rule must also opt in.
 	AllowUnattendedAutomations bool `json:"allow_unattended_automations" db:"allow_unattended_automations"`
+	// AllowDocker gives machines created while it is on a sandboxed Docker
+	// daemon of their own; starting such a machine is refused once it is off.
+	AllowDocker bool `json:"allow_docker" db:"allow_docker"`
 	// AgentGitName and AgentGitEmail optionally author agent commits.
 	AgentGitName     *string               `json:"agent_git_name" db:"agent_git_name"`
 	AgentGitEmail    *string               `json:"agent_git_email" db:"agent_git_email"`
@@ -694,19 +700,26 @@ const (
 	DevMachinePortSourceUser  = "user"
 	DevMachinePortSourceAgent = "agent"
 	DevMachinePortSourceTask  = "task"
-	// DevMachinePortLimit is the number of app ports a machine may expose.
-	DevMachinePortLimit = 10
+)
+
+// App port targets: the container that serves the port. Ports published by
+// containers of the machine's Docker daemon are served by its docker service.
+const (
+	DevMachinePortTargetDeveloper = "developer"
+	DevMachinePortTargetDocker    = "docker"
 )
 
 // DevMachinePort exposes one TCP port of the developer container on its own
 // authenticated gateway host, <routing key>-<port>.<machine domain>.
 type DevMachinePort struct {
-	ID              uuid.UUID  `json:"id" db:"id"`
-	WorkspaceID     uuid.UUID  `json:"workspace_id" db:"workspace_id"`
-	MachineID       uuid.UUID  `json:"machine_id" db:"machine_id"`
-	Port            int        `json:"port" db:"port"`
-	Label           *string    `json:"label" db:"label"`
-	Source          string     `json:"source" db:"source"`
+	ID          uuid.UUID `json:"id" db:"id"`
+	WorkspaceID uuid.UUID `json:"workspace_id" db:"workspace_id"`
+	MachineID   uuid.UUID `json:"machine_id" db:"machine_id"`
+	Port        int       `json:"port" db:"port"`
+	Label       *string   `json:"label" db:"label"`
+	Source      string    `json:"source" db:"source"`
+	// Target is the container serving the port (DevMachinePortTarget*).
+	Target          string     `json:"target" db:"target"`
 	AgentTaskID     *uuid.UUID `json:"agent_task_id" db:"agent_task_id"`
 	CreatedByUserID uuid.UUID  `json:"created_by_user_id" db:"created_by_user_id"`
 	CreatedAt       time.Time  `json:"created_at" db:"created_at"`

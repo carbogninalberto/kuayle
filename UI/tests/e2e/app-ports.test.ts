@@ -140,7 +140,6 @@ async function fixture(page: Page, options: { creator?: string } = {}) {
 			if (state.ports.some((p) => p.port === input.port))
 				return route.fulfill(refuse('PORT_EXISTS', 409, 'port already exposed'));
 			if (state.reserved.includes(input.port)) return route.fulfill(refuse('PORT_RESERVED', 422, 'port is reserved'));
-			if (state.ports.length >= 10) return route.fulfill(refuse('PORT_LIMIT', 422, 'port limit reached'));
 			const created = appPort({
 				id: `port-${input.port}`,
 				port: input.port,
@@ -194,7 +193,8 @@ test('lists exposed app ports with their source and listening state', async ({ p
 	const state = await fixture(page);
 	await page.goto(`/test/machines/${machineId}`);
 	const ports = card(page);
-	await expect(ports.getByText('3/10')).toBeVisible();
+	await expect(ports.getByText('3', { exact: true })).toBeVisible();
+	await expect(ports.getByText('3/10')).toHaveCount(0);
 	const web = ports.getByRole('listitem').filter({ hasText: 'web' });
 	await expect(web.getByText(':3000')).toBeVisible();
 	await expect(web.getByText('You', { exact: true })).toBeVisible();
@@ -250,20 +250,20 @@ test('exposes a typed port and explains refusals', async ({ page }) => {
 	expect(state.created.at(-1)).toEqual({ port: 9000, label: 'api docs' });
 });
 
-test('stops offering exposure at the port limit', async ({ page }) => {
+test('keeps offering exposure with many ports', async ({ page }) => {
 	const state = await fixture(page);
-	state.ports = Array.from({ length: 9 }, (_, i) => appPort({ id: `p${i}`, port: 3000 + i }));
+	state.ports = Array.from({ length: 12 }, (_, i) => appPort({ id: `p${i}`, port: 3000 + i }));
+	state.listening = [5173];
 	await page.goto(`/test/machines/${machineId}`);
 	const ports = card(page);
+	await expect(ports.getByText('12', { exact: true })).toBeVisible();
+	await expect(ports.getByRole('button', { name: 'Expose port 5173' })).toBeVisible();
 	await ports.getByRole('spinbutton', { name: 'Port' }).fill('9000');
-	// Another client filled the last slot: the server refusal is shown.
-	state.ports.push(appPort({ id: 'p9', port: 3009 }));
 	await ports.getByRole('button', { name: 'Expose', exact: true }).click();
-	await expect(ports.getByRole('alert')).toHaveText('All 10 ports are in use. Remove one first.');
-	await page.reload();
-	await expect(ports.getByText('10/10')).toBeVisible();
-	await expect(ports.getByRole('spinbutton', { name: 'Port' })).toHaveCount(0);
-	await expect(ports.getByText('All 10 ports are in use. Remove one first.')).toBeVisible();
+	await expect(ports.getByRole('alert')).toHaveCount(0);
+	await expect(ports.getByRole('listitem').filter({ hasText: ':9000' })).toBeVisible();
+	await expect(ports.getByText(/ports are in use/)).toHaveCount(0);
+	expect(state.created.at(-1)).toEqual({ port: 9000 });
 });
 
 test('renames inline and removes a port after confirmation', async ({ page }) => {

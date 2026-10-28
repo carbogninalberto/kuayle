@@ -94,6 +94,26 @@ func TestKuaylePortsListsListeningPortsWithTheirURLs(t *testing.T) {
 	require.Equal(t, 1, strings.Count(out, "3000 "), "the established connection is not a listener")
 }
 
+// Ports published by containers of the machine's Docker daemon listen there,
+// not in this container; kuayle-ports lists them from Kuayle's state and does
+// not warn that nothing listens when one is exposed.
+func TestKuaylePortsListsPortsPublishedByTheDockerDaemon(t *testing.T) {
+	script := newPortsScript(t)
+	script.writeState(`{"ports":[{"port":5432,"url":"https://abc-5432.machines.test","source":"agent"}],"listening":[3000,5432,8025],"docker":[5432,8025],"reserved":[2376,7681],"refused":[],"updated_at":"2026-10-28T10:00:00Z"}`)
+	out, _, code := script.run()
+	require.Zero(t, code)
+	require.Contains(t, out, "5432    https://abc-5432.machines.test (agent, docker)")
+	require.Contains(t, out, "8025    published by a Docker container, not exposed")
+	require.NotContains(t, out, "(not listening)")
+
+	taken := script.answer("expose-8025.json", `{"ports":[{"port":8025,"url":"https://abc-8025.machines.test","source":"agent"}],"listening":[8025],"docker":[8025],"reserved":[2376],"refused":[],"updated_at":"2026-10-28T10:00:15Z"}`)
+	out, stderr, code := script.run("expose", "8025")
+	<-taken
+	require.Zero(t, code)
+	require.Equal(t, "https://abc-8025.machines.test\n", out)
+	require.NotContains(t, stderr, "nothing listens")
+}
+
 func TestKuaylePortsExposeWritesAStrictRequestAndPrintsTheURL(t *testing.T) {
 	script := newPortsScript(t)
 	script.writeState(`{"ports":[],"listening":[],"refused":[],"updated_at":"2026-10-28T10:00:00Z"}`)

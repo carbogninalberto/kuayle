@@ -15,8 +15,6 @@ import (
 var (
 	// ErrPortExists means the machine already exposes that port.
 	ErrPortExists = errors.New("the machine already exposes this port")
-	// ErrPortLimit means the machine already exposes DevMachinePortLimit ports.
-	ErrPortLimit = errors.New("the machine already exposes the maximum number of app ports")
 	// ErrPreviewUnavailable means a task preview cannot be started now.
 	ErrPreviewUnavailable = errors.New("the task has no preview command or no ready checkout on a running machine")
 )
@@ -69,7 +67,8 @@ func (r *DevMachineRepository) GetPort(ctx context.Context, workspaceID, machine
 }
 
 // CreatePort exposes a port. Ports of one machine are created one at a time
-// under the machine row lock, so the limit holds under concurrent requests.
+// under the machine row lock. A port that, at the latest scan, only the
+// machine's Docker daemon publishes is served by the docker service.
 func (r *DevMachineRepository) CreatePort(ctx context.Context, port *domain.DevMachinePort) error {
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
@@ -83,9 +82,9 @@ func (r *DevMachineRepository) CreatePort(ctx context.Context, port *domain.DevM
 }
 
 func createPort(ctx context.Context, tx *sqlx.Tx, port *domain.DevMachinePort) error {
-	var count int
-	err := tx.GetContext(ctx, &count, `SELECT (SELECT count(*) FROM dev_machine_ports WHERE machine_id=m.id) FROM dev_machines m
- WHERE m.id=$1 AND m.workspace_id=$2 FOR NO KEY UPDATE`, port.MachineID, port.WorkspaceID)
+	var target string
+	err := tx.GetContext(ctx, &target, `SELECT CASE WHEN $3=ANY(m.docker_listening_ports) THEN 'docker' ELSE 'developer' END FROM dev_machines m
+ WHERE m.id=$1 AND m.workspace_id=$2 FOR NO KEY UPDATE`, port.MachineID, port.WorkspaceID, port.Port)
 	if errors.Is(err, sql.ErrNoRows) {
 		return sql.ErrNoRows
 	}
@@ -99,13 +98,10 @@ func createPort(ctx context.Context, tx *sqlx.Tx, port *domain.DevMachinePort) e
 	if exists {
 		return ErrPortExists
 	}
-	if count >= domain.DevMachinePortLimit {
-		return ErrPortLimit
-	}
 	// The task, when named, must be the same workspace's and use this machine.
-	return tx.GetContext(ctx, port, `INSERT INTO dev_machine_ports(workspace_id,machine_id,port,label,source,agent_task_id,created_by_user_id)
- SELECT $1,$2,$3,$4,$5,$6,$7 WHERE $6::uuid IS NULL OR EXISTS(SELECT 1 FROM agent_tasks t WHERE t.id=$6 AND t.workspace_id=$1 AND t.machine_id=$2)
- RETURNING *,NULL::text AS task_identifier`, port.WorkspaceID, port.MachineID, port.Port, port.Label, port.Source, port.AgentTaskID, port.CreatedByUserID)
+	return tx.GetContext(ctx, port, `INSERT INTO dev_machine_ports(workspace_id,machine_id,port,label,source,agent_task_id,created_by_user_id,target)
+ SELECT $1,$2,$3,$4,$5,$6,$7,$8 WHERE $6::uuid IS NULL OR EXISTS(SELECT 1 FROM agent_tasks t WHERE t.id=$6 AND t.workspace_id=$1 AND t.machine_id=$2)
+ RETURNING *,NULL::text AS task_identifier`, port.WorkspaceID, port.MachineID, port.Port, port.Label, port.Source, port.AgentTaskID, port.CreatedByUserID, target)
 }
 
 // UpdatePortLabel renames an app port; it returns nil when there is none.
@@ -166,10 +162,29 @@ func (r *DevMachineRepository) DeleteAgentPort(ctx context.Context, machineID uu
 	return true, tx.Commit()
 }
 
-// SetListeningPorts records the developer container's latest port scan.
-func (r *DevMachineRepository) SetListeningPorts(ctx context.Context, machineID uuid.UUID, ports []int) error {
-	_, err := r.db.ExecContext(ctx, `UPDATE dev_machines SET listening_ports=$2,listening_ports_at=now() WHERE id=$1`, machineID, pq.Array(ports))
-	return err
+// SetListeningPorts records the latest port scan: every listening port and
+// those published by the machine's Docker daemon. An exposed port moves to the
+// container that now listens on it (the daemon when it publishes the port);
+// a port nothing listens on keeps its target.
+func (r *DevMachineRepository) SetListeningPorts(ctx context.Context, machineID uuid.UUID, listening, docker []int) error {
+	if docker == nil {
+		docker = []int{}
+	}
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, `UPDATE dev_machines SET listening_ports=$2,docker_listening_ports=$3,listening_ports_at=now() WHERE id=$1`,
+		machineID, pq.Array(listening), pq.Array(docker)); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE dev_machine_ports SET target=CASE WHEN port=ANY($3::int[]) THEN 'docker' ELSE 'developer' END,updated_at=now()
+ WHERE machine_id=$1 AND port=ANY($2::int[]) AND target<>CASE WHEN port=ANY($3::int[]) THEN 'docker' ELSE 'developer' END`,
+		machineID, pq.Array(listening), pq.Array(docker)); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // ListPortScanMachines returns running machines, least recently scanned first.
@@ -287,7 +302,7 @@ func (r *DevMachineRepository) StopMachinePreviews(ctx context.Context, machineI
 	if err = stopTaskPreviews(ctx, tx, `WHERE machine_id=$1 AND preview_state IN ('starting','running')`, machineID); err != nil {
 		return err
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE dev_machines SET listening_ports='{}',listening_ports_at=NULL WHERE id=$1`, machineID); err != nil {
+	if _, err = tx.ExecContext(ctx, `UPDATE dev_machines SET listening_ports='{}',docker_listening_ports='{}',listening_ports_at=NULL WHERE id=$1`, machineID); err != nil {
 		return err
 	}
 	return tx.Commit()

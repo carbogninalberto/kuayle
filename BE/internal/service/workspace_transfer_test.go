@@ -266,7 +266,7 @@ func TestWorkspaceTransferRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	_, err = db.ExecContext(ctx, `INSERT INTO ai_settings(workspace_id,provider,base_url,model,api_key_encrypted,description_expand_prompt,issue_copy_prompt) VALUES($1,'openai_compatible','https://ai.example.test','portable-model','encrypted-secret','Expand prompt','Copy prompt')`, workspaceID)
 	require.NoError(t, err)
-	_, err = db.ExecContext(ctx, `INSERT INTO dev_machine_workspace_policies(workspace_id,enabled,allowed_providers,allowed_repositories) VALUES($1,true,'["codex"]','["portable/repo"]')`, workspaceID)
+	_, err = db.ExecContext(ctx, `INSERT INTO dev_machine_workspace_policies(workspace_id,enabled,allowed_providers,allowed_repositories,allow_docker) VALUES($1,true,'["codex"]','["portable/repo"]',true)`, workspaceID)
 	require.NoError(t, err)
 	_, err = db.ExecContext(ctx, `INSERT INTO dev_machine_scope_settings(id,workspace_id,team_id,github_repo_id,base_branch) VALUES(gen_random_uuid(),$1,$2,$3,'main')`, workspaceID, teamID, githubRepoID)
 	require.NoError(t, err)
@@ -351,6 +351,9 @@ func TestWorkspaceTransferRoundTrip(t *testing.T) {
 	require.NotEqual(t, "top-secret", importedWebhookSecret)
 	require.NoError(t, db.Get(&importedDevMachinesEnabled, `SELECT enabled FROM dev_machine_workspace_policies WHERE workspace_id=$1`, targetWorkspaceID))
 	require.False(t, importedDevMachinesEnabled)
+	var importedDocker bool
+	require.NoError(t, db.Get(&importedDocker, `SELECT allow_docker FROM dev_machine_workspace_policies WHERE workspace_id=$1`, targetWorkspaceID))
+	require.False(t, importedDocker, "the Docker daemon is opted into again by the destination")
 	var importedAISecret *string
 	require.NoError(t, db.Get(&importedAISecret, `SELECT api_key_encrypted FROM ai_settings WHERE workspace_id=$1`, targetWorkspaceID))
 	require.Nil(t, importedAISecret)

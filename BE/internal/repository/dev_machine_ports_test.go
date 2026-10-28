@@ -32,8 +32,8 @@ func appPort(machine domain.DevMachine, port int, source string, task *uuid.UUID
 }
 
 // App ports route to the running developer service on their own port, never to
-// a port of the machine's own services, and are limited per machine.
-func TestAppPortsRouteToTheDeveloperServiceWithinTheirLimit(t *testing.T) {
+// a port of the machine's own services, and are not limited in number.
+func TestAppPortsRouteToTheDeveloperServiceWithoutALimit(t *testing.T) {
 	db, _, ctx, task := reviewableTask(t)
 	store := NewDevMachineRepository(db)
 	machine := taskMachine(t, db, task)
@@ -62,14 +62,11 @@ func TestAppPortsRouteToTheDeveloperServiceWithinTheirLimit(t *testing.T) {
 	require.Nil(t, route(8080), "a service port is never routed, even when stored")
 
 	require.ErrorIs(t, store.CreatePort(ctx, appPort(machine, 5173, "agent", nil)), ErrPortExists)
-	for port := 3000; port < 3008; port++ {
-		require.NoError(t, store.CreatePort(ctx, appPort(machine, port, "agent", nil)))
+	for port := 3000; port < 3030; port++ {
+		require.NoError(t, store.CreatePort(ctx, appPort(machine, port, "agent", nil)), "a machine exposes any number of ports")
 	}
-	require.ErrorIs(t, store.CreatePort(ctx, appPort(machine, 3008, "agent", nil)), ErrPortLimit)
 	foreign := uuid.New()
-	other := appPort(machine, 3009, "agent", &foreign)
-	_, err = db.Exec(`DELETE FROM dev_machine_ports WHERE machine_id=$1 AND port=3007`, machine.ID)
-	require.NoError(t, err)
+	other := appPort(machine, 4009, "agent", &foreign)
 	require.Error(t, store.CreatePort(ctx, other), "a port names only a task on this machine")
 
 	removed, err := store.DeleteAgentPort(ctx, machine.ID, 5173)
@@ -78,6 +75,82 @@ func TestAppPortsRouteToTheDeveloperServiceWithinTheirLimit(t *testing.T) {
 	removed, err = store.DeleteAgentPort(ctx, machine.ID, 3000)
 	require.NoError(t, err)
 	require.True(t, removed)
+}
+
+func runningDocker(t *testing.T, store *DevMachineRepository, machine domain.DevMachine) *domain.DevMachineService {
+	t.Helper()
+	docker := &domain.DevMachineService{ID: uuid.New(), WorkspaceID: machine.WorkspaceID, MachineID: machine.ID, ServiceType: "docker", ServiceKey: "docker", ContainerName: "docker", ImageRef: "fixture", InternalHost: machine.RoutingKey + "-docker", InternalPort: 2376, Status: "pending", HealthStatus: "unknown"}
+	require.NoError(t, store.CreateRuntimeService(context.Background(), docker))
+	require.NoError(t, store.UpdateServiceRuntime(context.Background(), docker.ID, "docker-container", "running", "healthy", nil))
+	return docker
+}
+
+// A port published by a container of the machine's Docker daemon is served by
+// the docker service's address, while its tickets and sessions still name the
+// developer service. The scan moves a port to the container that listens on
+// it, and new ports start on the daemon when only the daemon listens there.
+func TestAppPortsPublishedByTheDaemonRouteToTheDockerService(t *testing.T) {
+	db, _, ctx, task := reviewableTask(t)
+	store := NewDevMachineRepository(db)
+	machine := taskMachine(t, db, task)
+	ide := runningIDE(t, store, machine)
+	route := func(port int) *domain.DevMachineService {
+		t.Helper()
+		_, service, err := store.GetRoute(ctx, machine.RoutingKey, domain.AppPortService(port))
+		require.NoError(t, err)
+		return service
+	}
+	target := func(port int) string {
+		t.Helper()
+		var value string
+		require.NoError(t, db.Get(&value, `SELECT target FROM dev_machine_ports WHERE machine_id=$1 AND port=$2`, machine.ID, port))
+		return value
+	}
+	require.NoError(t, store.CreatePort(ctx, appPort(machine, 3000, "user", nil)))
+	require.NoError(t, store.CreatePort(ctx, appPort(machine, 5173, "user", nil)))
+	require.Equal(t, domain.DevMachinePortTargetDeveloper, target(3000), "a port nothing listens on yet starts on the developer container")
+
+	require.NoError(t, store.SetListeningPorts(ctx, machine.ID, []int{3000, 5173, 8025}, []int{3000, 8025}))
+	require.Equal(t, domain.DevMachinePortTargetDocker, target(3000), "the scan moves a published port to the daemon")
+	require.Equal(t, domain.DevMachinePortTargetDeveloper, target(5173))
+	require.Nil(t, route(3000), "without a running docker service the port is not routed")
+	runningDocker(t, store, machine)
+	served := route(3000)
+	require.NotNil(t, served)
+	require.Equal(t, ide.ID, served.ID, "tickets and sessions keep naming the developer service")
+	require.Equal(t, machine.RoutingKey+"-docker", served.InternalHost)
+	require.Equal(t, 3000, served.InternalPort)
+	require.Equal(t, "ide", route(5173).InternalHost, "developer ports are unchanged")
+
+	require.NoError(t, store.CreatePort(ctx, appPort(machine, 8025, "agent", nil)))
+	require.Equal(t, domain.DevMachinePortTargetDocker, target(8025), "a new port only the daemon publishes starts there")
+	_, err := db.Exec(`INSERT INTO dev_machine_ports(workspace_id,machine_id,port,source,created_by_user_id,target) VALUES($1,$2,2376,'user',$3,'docker')`, machine.WorkspaceID, machine.ID, *machine.CreatedByUserID)
+	require.NoError(t, err)
+	require.Nil(t, route(2376), "the daemon's own API port is never routed")
+
+	require.NoError(t, store.SetListeningPorts(ctx, machine.ID, []int{3000}, nil))
+	require.Equal(t, domain.DevMachinePortTargetDeveloper, target(3000), "a port the developer container serves again moves back")
+	require.Equal(t, domain.DevMachinePortTargetDocker, target(8025), "a port nothing listens on keeps its target")
+	listed, err := store.GetMachineInternal(ctx, machine.ID)
+	require.NoError(t, err)
+	require.Equal(t, []int64{3000}, []int64(listed.ListeningPorts))
+	require.Empty(t, listed.DockerListeningPorts)
+	require.NoError(t, store.StopMachinePreviews(ctx, machine.ID))
+	listed, err = store.GetMachineInternal(ctx, machine.ID)
+	require.NoError(t, err)
+	require.Empty(t, listed.ListeningPorts)
+
+	allowed, err := store.DockerAllowed(ctx, machine.WorkspaceID)
+	require.NoError(t, err)
+	require.False(t, allowed, "off by default")
+	_, err = db.Exec(`UPDATE dev_machine_workspace_policies SET allow_docker=true WHERE workspace_id=$1`, machine.WorkspaceID)
+	require.NoError(t, err)
+	allowed, err = store.DockerAllowed(ctx, machine.WorkspaceID)
+	require.NoError(t, err)
+	require.True(t, allowed)
+	allowed, err = store.DockerAllowed(ctx, uuid.New())
+	require.NoError(t, err)
+	require.False(t, allowed, "a workspace without a policy has no daemon")
 }
 
 // Removing a port revokes only the browser sessions of that port's host; the
@@ -244,7 +317,7 @@ func TestAgentRequestsMapTheirWorktreeToItsTask(t *testing.T) {
 	found, err = store.TaskForWorktree(ctx, uuid.New(), "/workspace/tasks/rec-1")
 	require.NoError(t, err)
 	require.Nil(t, found)
-	require.NoError(t, store.SetListeningPorts(ctx, machine.ID, []int{3000, 5173}))
+	require.NoError(t, store.SetListeningPorts(ctx, machine.ID, []int{3000, 5173}, nil))
 	machines, err := store.ListPortScanMachines(ctx, 10)
 	require.NoError(t, err)
 	var scanned *domain.DevMachine

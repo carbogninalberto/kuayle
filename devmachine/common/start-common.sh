@@ -113,6 +113,61 @@ install_kuayle_agents() {
   install_kuayle_skill kuayle-agents "${KUAYLE_AGENTS_SKILL:-/usr/local/lib/kuayle/kuayle-agents.md}"
 }
 
+# Points the Docker CLI at the machine's own Docker daemon when it has one.
+# The client certificate, key and machine CA arrive as scoped secrets and are
+# written to the in-memory ~/.docker; the variables are then unset. Developer
+# containers get DOCKER_HOST from their environment, agent attempts from the
+# KUAYLE_DOCKER_HOST secret. Builds and containers started through the CLI get
+# the machine's egress proxy, the only way out of the machine network.
+configure_docker_client() {
+  docker_ca=${KUAYLE_DOCKER_CA:-}
+  docker_cert=${KUAYLE_DOCKER_CERT:-}
+  docker_key=${KUAYLE_DOCKER_KEY:-}
+  docker_host=${KUAYLE_DOCKER_HOST:-${DOCKER_HOST:-}}
+  unset KUAYLE_DOCKER_CA KUAYLE_DOCKER_CERT KUAYLE_DOCKER_KEY KUAYLE_DOCKER_HOST
+  if [ -z "$docker_ca" ] || [ -z "$docker_cert" ] || [ -z "$docker_key" ] || [ -z "$docker_host" ]; then
+    docker_key=
+    return 0
+  fi
+  case "$docker_host" in
+    tcp://*:[0-9]*) ;;
+    * ) echo "invalid Docker host" >&2; docker_key=; return 1 ;;
+  esac
+  docker_daemon=${docker_host#tcp://}
+  docker_daemon=${docker_daemon%:*}
+  case "$docker_daemon" in
+    ''|*[!a-z0-9.-]* ) echo "invalid Docker host" >&2; docker_key=; return 1 ;;
+  esac
+  docker_dir="$HOME/.docker"
+  [ ! -L "$docker_dir" ] || rm -f "$docker_dir"
+  (umask 077; mkdir -p "$docker_dir")
+  for docker_file in ca.pem cert.pem key.pem config.json; do
+    [ ! -L "$docker_dir/$docker_file" ] || rm -f "$docker_dir/$docker_file"
+  done
+  (umask 077
+    printf '%s' "$docker_ca" > "$docker_dir/ca.pem"
+    printf '%s' "$docker_cert" > "$docker_dir/cert.pem"
+    printf '%s' "$docker_key" > "$docker_dir/key.pem")
+  docker_key=
+  docker_no_proxy="localhost,127.0.0.1,::1,docker,${docker_daemon},.local,.internal"
+  docker_proxy=${HTTPS_PROXY:-${HTTP_PROXY:-}}
+  case "$docker_proxy" in
+    *[\"\\[:space:]]* ) docker_proxy= ;;
+  esac
+  if [ -n "$docker_proxy" ]; then
+    (umask 077; printf '{"proxies":{"default":{"httpProxy":"%s","httpsProxy":"%s","noProxy":"%s"}}}\n' \
+      "$docker_proxy" "$docker_proxy" "$docker_no_proxy" > "$docker_dir/config.json")
+  else
+    (umask 077; printf '{}\n' > "$docker_dir/config.json")
+  fi
+  export DOCKER_HOST="$docker_host" DOCKER_TLS_VERIFY=1 DOCKER_CERT_PATH="$docker_dir"
+  case ",${NO_PROXY:-}," in
+    *",${docker_daemon},"* ) ;;
+    * ) export NO_PROXY="${NO_PROXY:+$NO_PROXY,}docker,${docker_daemon}" ;;
+  esac
+  export no_proxy="$NO_PROXY"
+}
+
 load_scoped_secrets() {
   attempt=0
   while [ ! -f /run/kuayle-secrets/.ready ]; do

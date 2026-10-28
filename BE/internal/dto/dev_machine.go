@@ -281,9 +281,11 @@ type DevMachinePolicyRequest struct {
 	AllowedRepositories        []string `json:"allowed_repositories"`
 	AllowCustomProviders       bool     `json:"allow_custom_providers"`
 	AllowUnattendedAutomations bool     `json:"allow_unattended_automations"`
-	AgentGitName               string   `json:"agent_git_name" validate:"omitempty,max=100"`
-	AgentGitEmail              string   `json:"agent_git_email" validate:"omitempty,max=254"`
-	IdlePauseMinutes           int      `json:"idle_pause_minutes" validate:"omitempty,min=5,max=10080"`
+	// AllowDocker is optional: omitted, the current choice is kept.
+	AllowDocker      *bool  `json:"allow_docker"`
+	AgentGitName     string `json:"agent_git_name" validate:"omitempty,max=100"`
+	AgentGitEmail    string `json:"agent_git_email" validate:"omitempty,max=254"`
+	IdlePauseMinutes int    `json:"idle_pause_minutes" validate:"omitempty,min=5,max=10080"`
 }
 
 type CollectorEventInput struct {
@@ -313,7 +315,10 @@ type AppPort struct {
 	TaskIdentifier *string    `json:"task_identifier"`
 	Host           string     `json:"host"`
 	Listening      bool       `json:"listening"`
-	CreatedAt      time.Time  `json:"created_at"`
+	// Target is the container serving it: "developer", or "docker" for a
+	// port published by a container of the machine's Docker daemon.
+	Target    string    `json:"target"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // AppPortList is a machine's app ports and its latest port scan.

@@ -19,7 +19,6 @@ var (
 	ErrPortNotFound = errors.New("app port not found")
 	ErrPortExists   = errors.New("the machine already exposes this port")
 	ErrPortReserved = errors.New("the port is used by one of the machine's own services")
-	ErrPortLimit    = fmt.Errorf("a machine exposes at most %d app ports", domain.DevMachinePortLimit)
 )
 
 // portOwner returns the machine when the caller may manage its app ports: the
@@ -40,7 +39,7 @@ func (s *DevMachineService) appPort(machine *domain.DevMachine, port domain.DevM
 	return dto.AppPort{
 		ID: port.ID, Port: port.Port, Label: port.Label, Source: port.Source, AgentTaskID: port.AgentTaskID,
 		TaskIdentifier: port.TaskIdentifier, Host: s.AppPortHost(machine, port.Port),
-		Listening: slices.Contains(machine.ListeningPorts, int64(port.Port)), CreatedAt: port.CreatedAt,
+		Listening: slices.Contains(machine.ListeningPorts, int64(port.Port)), Target: port.Target, CreatedAt: port.CreatedAt,
 	}
 }
 
@@ -128,8 +127,6 @@ func portError(err error) error {
 	switch {
 	case errors.Is(err, repository.ErrPortExists):
 		return ErrPortExists
-	case errors.Is(err, repository.ErrPortLimit):
-		return ErrPortLimit
 	}
 	return err
 }

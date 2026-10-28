@@ -65,6 +65,11 @@ Docker lifecycle tests additionally require `KUAYLE_DOCKER_INTEGRATION=1`, built
 runtime images and quota-capable storage; follow the Docker Runtime Integration
 job in test CI. Do not reproduce its host storage reconfiguration on a developer
 machine. Let the dedicated runner exercise that environment.
+The machine Docker daemon test (`TestDockerDaemonRunsComposeProjects`) needs
+`KUAYLE_DOCKER_DAEMON_INTEGRATION=1`, network access and built images named by
+`KUAYLE_TEST_{DOCKER,HEADLESS,EGRESS,COLLECTOR}_IMAGE`; it runs on a developer
+machine with `KUAYLE_TEST_DISK_QUOTA_MODE=monitored` (set `DOCKER_HOST` when the
+socket is not at `/var/run/docker.sock`).
 
 ## Completion evidence
 

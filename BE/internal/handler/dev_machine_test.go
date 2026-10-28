@@ -431,6 +431,40 @@ func TestDevMachinePolicyIncludesConfiguredDiskQuotaMode(t *testing.T) {
 	}
 }
 
+// The Docker daemon is off by default. A policy update without allow_docker
+// (an older client) keeps the current choice instead of turning it off.
+func TestDevMachinePolicyDockerSwitchIsKeptUnlessSent(t *testing.T) {
+	workspaceID := uuid.New()
+	store := &handlerDevMachineStoreFake{policy: &domain.DevMachineWorkspacePolicy{
+		WorkspaceID: workspaceID, Enabled: true, MaxConcurrentMachines: 5, MaxMachinesPerUser: 2,
+		MaxDailyAgentRuns: 25, MaxRuntimeMinutes: 480, MaxDiskGB: 100, IdlePauseMinutes: 240,
+		AllowedProviders: json.RawMessage(`["opencode"]`), AllowedRepositories: json.RawMessage(`[]`),
+	}}
+	h := NewDevMachineHandler(service.NewDevMachineService(
+		store, agent.NewRegistry(), true, "machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, service.DevMachineImages{},
+	), config.DiskQuotaModeHard)
+	update := func(extra string) domain.DevMachineWorkspacePolicy {
+		t.Helper()
+		body := `{"enabled":true,"max_concurrent_machines":5,"max_machines_per_user":2,"max_daily_agent_runs":25,
+			"max_runtime_minutes":480,"max_disk_gb":100,"allowed_providers":["opencode"],"allowed_repositories":[],
+			"idle_pause_minutes":240` + extra + `}`
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPatch, "/dev-machine-policy", strings.NewReader(body))
+		request.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		require.NoError(t, h.UpdatePolicy(devMachineHandlerContext(request, recorder, workspaceID, uuid.New())))
+		require.Equal(t, http.StatusOK, recorder.Code)
+		var updated domain.DevMachineWorkspacePolicy
+		require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &updated))
+		return updated
+	}
+	require.False(t, update("").AllowDocker, "off by default")
+	require.True(t, update(`,"allow_docker":true`).AllowDocker)
+	require.True(t, store.policy.AllowDocker)
+	require.True(t, update("").AllowDocker, "omitting the field keeps it on")
+	require.False(t, update(`,"allow_docker":false`).AllowDocker)
+	require.False(t, store.policy.AllowDocker)
+}
+
 func TestDevMachineCreateRejectsInvalidCustomResources(t *testing.T) {
 	workspaceID, userID := uuid.New(), uuid.New()
 	for _, test := range []struct {

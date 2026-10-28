@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -33,7 +34,7 @@ type ManagerStore interface {
 	MachinePorts(context.Context, uuid.UUID) ([]domain.DevMachinePort, error)
 	CreatePort(context.Context, *domain.DevMachinePort) error
 	DeleteAgentPort(context.Context, uuid.UUID, int) (bool, error)
-	SetListeningPorts(context.Context, uuid.UUID, []int) error
+	SetListeningPorts(context.Context, uuid.UUID, []int, []int) error
 	ListPortScanMachines(context.Context, int) ([]domain.DevMachine, error)
 	TaskForWorktree(context.Context, uuid.UUID, string) (*uuid.UUID, error)
 	PreviewTarget(context.Context, uuid.UUID) (*repository.TaskPreviewTarget, error)
@@ -52,6 +53,8 @@ type ManagerStore interface {
 	GetProvider(context.Context, uuid.UUID, uuid.UUID, string) (*domain.DevMachineAgentProvider, error)
 	GetAgentRunInternal(context.Context, uuid.UUID) (*domain.DevMachineAgentRun, error)
 	ListServices(context.Context, uuid.UUID, uuid.UUID) ([]domain.DevMachineService, error)
+	// DockerAllowed reports the workspace policy's Docker daemon switch.
+	DockerAllowed(context.Context, uuid.UUID) (bool, error)
 	ListEnvVarsInternal(context.Context, uuid.UUID, *string, string) ([]domain.DevMachineEnvVar, error)
 	GetModelServer(context.Context, uuid.UUID, *uuid.UUID) (*domain.AgentModelServer, error)
 	GetAgentSignIn(context.Context, uuid.UUID, uuid.UUID, string) (string, error)
@@ -410,6 +413,15 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 	services, err := m.store.ListServices(ctx, machine.WorkspaceID, machine.ID)
 	if err != nil {
 		return err
+	}
+	if (operation.Action == domain.DevMachineOpSpawn || operation.Action == domain.DevMachineOpStart) && hasDockerService(services) {
+		allowed, err := m.store.DockerAllowed(ctx, machine.WorkspaceID)
+		if err != nil {
+			return err
+		}
+		if !allowed {
+			return &terminalOperationError{code: "docker_not_allowed", message: "this machine has a Docker daemon, which the workspace no longer allows; delete it and create a new machine"}
+		}
 	}
 	switch operation.Action {
 	case domain.DevMachineOpSpawn:
@@ -772,6 +784,20 @@ func (m *Manager) serviceSecrets(ctx context.Context, machine *domain.DevMachine
 			}
 		}
 	}
+	if hasDockerService(services) {
+		client, err := m.dockerClientSecrets(ctx, machine)
+		if err != nil {
+			return nil, err
+		}
+		for _, service := range services {
+			if service.ServiceType != "ide" && service.ServiceType != "terminal" {
+				continue
+			}
+			for name, value := range client {
+				serviceSecrets[service.ServiceKey][name] = value
+			}
+		}
+	}
 	_, hasIDE := serviceSecrets["ide"]
 	_, hasTerminal := serviceSecrets["terminal"]
 	if hasIDE || hasTerminal {
@@ -787,6 +813,23 @@ func (m *Manager) serviceSecrets(ctx context.Context, machine *domain.DevMachine
 		}
 	}
 	return serviceSecrets, nil
+}
+
+// dockerClientSecrets decrypts the machine daemon's client TLS material.
+func (m *Manager) dockerClientSecrets(ctx context.Context, machine *domain.DevMachine) (map[string]string, error) {
+	envVars, err := m.store.ListEnvVarsInternal(ctx, machine.ID, nil, "docker-client")
+	if err != nil {
+		return nil, err
+	}
+	values := make(map[string]string, len(envVars))
+	for _, envVar := range envVars {
+		value, err := cryptoutil.Decrypt(envVar.EncryptedValue, m.encryptionKey)
+		if err != nil {
+			return nil, fmt.Errorf("secret_decryption_failed: %w", err)
+		}
+		values[envVar.Name] = value
+	}
+	return values, nil
 }
 
 // modelServerSecrets is the environment that points Codex and Claude Code at a
@@ -892,6 +935,23 @@ func (m *Manager) agentRunSecrets(ctx context.Context, machine *domain.DevMachin
 	}
 	if err := m.agentSignInSecrets(ctx, run, secrets, redactions); err != nil {
 		return nil, err
+	}
+	// Attempts on a machine with a Docker daemon may use it like the
+	// developer container; the client key is redacted from their output.
+	if services, err := m.store.ListServices(ctx, machine.WorkspaceID, machine.ID); err != nil {
+		return nil, err
+	} else if hasDockerService(services) {
+		client, err := m.dockerClientSecrets(ctx, machine)
+		if err != nil {
+			return nil, err
+		}
+		for name, value := range client {
+			secrets[name] = value
+		}
+		secrets["KUAYLE_DOCKER_HOST"] = "tcp://" + machine.RoutingKey + "-docker:" + strconv.Itoa(dockerDaemonPort)
+		if value, ok := client["KUAYLE_DOCKER_KEY"]; ok {
+			redactions["KUAYLE_DOCKER_KEY"] = value
+		}
 	}
 	githubToken := ""
 	if run.PushBranch {

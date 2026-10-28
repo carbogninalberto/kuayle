@@ -19,6 +19,7 @@ import (
 type portFakeState struct {
 	ports          []domain.DevMachinePort
 	listening      []int
+	docker         []int
 	target         *repository.TaskPreviewTarget
 	previewStates  []string
 	previewErrors  []string
@@ -37,9 +38,6 @@ func (f *managerStoreFake) CreatePort(_ context.Context, port *domain.DevMachine
 			return repository.ErrPortExists
 		}
 	}
-	if len(f.appPorts.ports) >= domain.DevMachinePortLimit {
-		return repository.ErrPortLimit
-	}
 	port.ID = uuid.New()
 	f.appPorts.ports = append(f.appPorts.ports, *port)
 	return nil
@@ -53,8 +51,8 @@ func (f *managerStoreFake) DeleteAgentPort(_ context.Context, _ uuid.UUID, numbe
 	}
 	return false, nil
 }
-func (f *managerStoreFake) SetListeningPorts(_ context.Context, _ uuid.UUID, ports []int) error {
-	f.appPorts.listening = ports
+func (f *managerStoreFake) SetListeningPorts(_ context.Context, _ uuid.UUID, ports, docker []int) error {
+	f.appPorts.listening, f.appPorts.docker = ports, docker
 	return nil
 }
 func (f *managerStoreFake) ListPortScanMachines(context.Context, int) ([]domain.DevMachine, error) {
@@ -180,6 +178,27 @@ func TestParsePortScanReadsOnlyListeningSockets(t *testing.T) {
 	require.Equal(t, []PortRequest{request("expose-3000.json", `{"port":3000}`), request("unexpose-5173", "")}, scan.Requests)
 }
 
+// Ports published by containers of the machine's Docker daemon are listening
+// ports of the machine too; the daemon's own API port is never offered.
+func TestPortScanReportsPortsPublishedByTheDockerDaemon(t *testing.T) {
+	manager, store, runtime := newPortManager()
+	dockerContainer := "docker"
+	store.services = append(store.services, domain.DevMachineService{ID: uuid.New(), MachineID: store.machine.ID, ServiceType: "docker", Status: "running", InternalPort: 2376, ContainerID: &dockerContainer})
+	runtime.scan = PortScan{Listening: []int{5173}, Docker: []int{2376, 3000, 5432}}
+	require.NoError(t, manager.syncMachinePorts(context.Background(), store.machine, store.services))
+	require.Equal(t, []int{3000, 5173, 5432}, store.appPorts.listening)
+	require.Equal(t, []int{3000, 5432}, store.appPorts.docker)
+	state := portState(t, runtime)
+	require.Equal(t, []int{3000, 5173, 5432}, state.Listening)
+	require.Equal(t, []int{3000, 5432}, state.Docker, "kuayle-ports shows where they listen")
+	require.Equal(t, []int{2376, 7681, 8080}, state.Reserved)
+
+	runtime.scan = PortScan{Listening: []int{3000}, Docker: []int{3000}}
+	require.NoError(t, manager.syncMachinePorts(context.Background(), store.machine, store.services))
+	require.Equal(t, []int{3000}, store.appPorts.listening, "a port listening in both is reported once")
+	require.Equal(t, []int{3000}, store.appPorts.docker)
+}
+
 func TestPortRequestsAreValidatedStrictly(t *testing.T) {
 	for _, test := range []struct {
 		name, body string
@@ -220,7 +239,7 @@ func portState(t *testing.T, runtime *portRuntimeFake) agentPortState {
 }
 
 // Agent requests become agent ports owned by the machine creator, never reach
-// service ports or exceed the limit, and the agent sees the result.
+// service ports, are not limited in number, and the agent sees the result.
 func TestPortScanAppliesAgentRequestsAndPublishesTheState(t *testing.T) {
 	manager, store, runtime := newPortManager()
 	task := uuid.New()
@@ -258,14 +277,14 @@ func TestPortScanAppliesAgentRequestsAndPublishesTheState(t *testing.T) {
 	require.Contains(t, reasons[5173], "only ports exposed by agents")
 	require.Contains(t, reasons[4000], "does not match")
 
-	// The limit is enforced, and an unchanged state is not rewritten at once.
-	for port := 6000; len(store.appPorts.ports) < domain.DevMachinePortLimit; port++ {
+	// Many ports may be exposed, and an unchanged state is not rewritten at once.
+	for port := 6000; len(store.appPorts.ports) < 40; port++ {
 		store.appPorts.ports = append(store.appPorts.ports, domain.DevMachinePort{ID: uuid.New(), Port: port, Source: "user"})
 	}
 	runtime.scan.Requests = []PortRequest{request("expose-3001.json", `{"port":3001}`)}
 	require.NoError(t, manager.syncMachinePorts(ctx, store.machine, store.services))
-	require.Len(t, store.appPorts.ports, domain.DevMachinePortLimit)
-	require.Contains(t, portState(t, runtime).Refused[0].Reason, "at most 10")
+	require.Len(t, store.appPorts.ports, 41)
+	require.Empty(t, portState(t, runtime).Refused)
 	require.NoError(t, manager.syncMachinePorts(ctx, store.machine, store.services))
 	writes := len(runtime.states)
 	require.NoError(t, manager.syncMachinePorts(ctx, store.machine, store.services))
@@ -364,17 +383,16 @@ func TestTaskPreviewFailuresAreRecorded(t *testing.T) {
 		require.Equal(t, []string{"failed"}, store.appPorts.previewStates)
 		require.Contains(t, store.appPorts.previewErrors[0], "worktree")
 	})
-	t.Run("port limit", func(t *testing.T) {
+	t.Run("many ports", func(t *testing.T) {
 		manager, store, runtime := newPortManager()
 		store.appPorts.target = previewTarget(store.machine, nil)
 		store.checkout = &domain.DevMachineCheckout{ID: store.appPorts.target.Task.CheckoutID, MachineID: store.machine.ID, Status: "ready", WorkspacePath: "/workspace/tasks/eng-1"}
-		for port := 3000; port < 3010; port++ {
+		for port := 3000; port < 3030; port++ {
 			store.appPorts.ports = append(store.appPorts.ports, domain.DevMachinePort{ID: uuid.New(), Port: port, Source: "user"})
 		}
 		require.NoError(t, manager.startPreview(ctx, store.machine, &domain.DevMachineOperation{AgentTaskID: &store.appPorts.target.Task.ID}))
-		require.Empty(t, runtime.started)
-		require.Equal(t, []string{"failed"}, store.appPorts.previewStates)
-		require.Contains(t, store.appPorts.previewErrors[0], "10 app ports")
+		require.Len(t, runtime.started, 1, "other exposed ports never block a preview")
+		require.Equal(t, []string{"running"}, store.appPorts.previewStates)
 	})
 	t.Run("process fails", func(t *testing.T) {
 		manager, store, runtime := newPortManager()

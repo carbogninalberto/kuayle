@@ -14,7 +14,7 @@ Dev Machines target trusted self-hosted workspaces. Docker hardening reduces ris
 - Generic machine creation does not require repository, branch, issue, project, or manual TTL input. Friendly random names are case-insensitively unique per creator within a workspace and can be checked through the availability API.
 - Repository and environment defaults resolve from issue, then project, then team, then workspace. A manually used machine has affinity to one repository and can host multiple issue worktrees from it. A machine that agent tasks use serves several repositories: each repository is cached once on the machine and every task gets its own worktree. A different environment, or a machine busy with another active task, requires another machine.
 - The Kuayle API does not receive the Docker socket.
-- Agent, developer, browser, collector, egress, and gateway containers do not receive the Docker socket.
+- Agent, developer, browser, collector, egress, and gateway containers do not receive the host Docker socket. A machine may have its own sandboxed Docker daemon (see [Machine Docker daemon](#machine-docker-daemon)), never the host's.
 - The Machine Manager is the only Dev Machines runtime component with Docker socket access and is treated as host-privileged. The separately optional system updater also mounts the socket when enabled.
 - Machine services never publish host ports. Caddy and the Machine Gateway are the only public ingress path.
 - Every machine has an isolated internal Docker network and a dedicated workspace volume.
@@ -80,6 +80,7 @@ Dev Machine
 ├── browser             optional Chrome, CDP, KasmVNC
 ├── collector           activity and heartbeat collection
 ├── egress              outbound HTTP/HTTPS policy proxy
+├── docker              optional rootless Docker daemon (workspace policy allow_docker)
 ├── private network     Docker bridge with internal=true
 └── workspace volume    repository worktrees and generated artifacts
 ```
@@ -111,6 +112,8 @@ Workloads receive `HTTP_PROXY` and `HTTPS_PROXY` pointing to their machine's egr
 An empty domain allowlist permits public Internet destinations while still blocking private address ranges. Operators can fail closed by configuring an explicit allowlist.
 An explicit allowlist must include the Kuayle ingestion host plus every Git and provider API hostname required by configured agents.
 
+A machine's own Docker daemon (the `docker` service) is only on the machine network; the containers it runs live in its namespaces and leave the machine network only through the egress proxy (see [Machine Docker daemon](#machine-docker-daemon)).
+
 Compose services for an independent check (migration 68) never join the machine network. They run on a per-check internal network, `kuayle-{routing-key}-check-{run}`, which only the check container also joins, so they have no egress and cannot reach the gateway, other services or the control plane. See [Compose services for checks](BE/docs/agent-tasks.md#compose-services-for-checks).
 
 ## Dynamic Routing
@@ -134,7 +137,7 @@ Required host patterns are:
 | `{routing-key}.{DEV_MACHINE_DOMAIN}` | IDE |
 | `{routing-key}-terminal.{DEV_MACHINE_DOMAIN}` | Native terminal WebSocket |
 | `{routing-key}-browser.{DEV_MACHINE_DOMAIN}` | Browser/KasmVNC |
-| `{routing-key}-{port}.{DEV_MACHINE_DOMAIN}` | App port of the developer container, 1024–65535 (optional, see below) |
+| `{routing-key}-{port}.{DEV_MACHINE_DOMAIN}` | App port of the developer container or of the machine's Docker daemon, 1024–65535 (optional, see below) |
 
 Routing keys are random lowercase hexadecimal strings. The gateway performs an exact configured-domain suffix check and rejects suffix-confusion hosts.
 
@@ -144,8 +147,9 @@ The gateway uses Go's reverse proxy with WebSocket upgrades, streaming flushes, 
 
 ### App ports
 
-A machine exposes up to ten TCP ports of its developer container as **app
-ports**, the reviewer's entrypoints for manual QA. Each is served on its own
+A machine exposes any number of TCP ports of its developer container (or,
+since migration 89, ports published by containers of its Docker daemon) as
+**app ports**, the reviewer's entrypoints for manual QA. Each is served on its own
 host, `{routing-key}-{port}.{DEV_MACHINE_DOMAIN}`, with a canonical port number
 (1024–65535, no leading zero). Migration 85 stores them in `dev_machine_ports`
 (`port`, optional `label` of at most 40 `[A-Za-z0-9 ._-]` characters, `source`
@@ -164,7 +168,9 @@ also read the list):
   host, listening, created_at}`. `task_identifier` is shown only to the task's
   creator when they may see its issue.
 - `POST /dev-machines/:machineId/ports` `{port, label?}` → 201; 409
-  `PORT_EXISTS`, 422 `PORT_RESERVED` (a service port), 422 `PORT_LIMIT`.
+  `PORT_EXISTS`, 422 `PORT_RESERVED` (a service port). The number of ports is
+  not limited (migration 89 removed the ten-port limit and `PORT_LIMIT`).
+  Each port has a `target`, `developer` or `docker`.
 - `PATCH /dev-machines/:machineId/ports/:portId` `{label}` renames it (`null`
   or `""` clears); `DELETE` removes it and revokes that host's sessions.
 - `POST /dev-machines/:machineId/ports/:portId/launch` returns the launch
@@ -181,7 +187,7 @@ gateway's upgrade support. TLS certificates are approved on demand only while
 the port is exposed and the machine runs. App port hosts share the machine
 domain's site with the machine's other hosts; cross-host requests are subject
 to the gateway's origin checks, as between any two machine hosts. The gateway
-role may read only `machine_id`, `workspace_id` and `port` of
+role may read only `machine_id`, `workspace_id`, `port` and `target` of
 `dev_machine_ports` (see [gateway-role.sql](selfhosting/gateway-role.sql));
 re-run the role setup after upgrading.
 
@@ -193,6 +199,15 @@ seconds (and around task previews): LISTEN sockets of `/proc/net/tcp` and
 the container over its network address; `kuayle-ports` lists them as "localhost
 only" so the app can be restarted bound to `0.0.0.0`. The state file also lists
 the machine's service ports as `reserved`, which `kuayle-ports` hides.
+On a machine with a Docker daemon the scan also reads the docker service
+container's LISTEN sockets, where published container ports listen: they are
+stored in `dev_machines.docker_listening_ports` (and in `listening_ports`) and
+listed as `docker` in the state file. Each scan moves an exposed port to the
+container now listening on it (`target` `docker` when the daemon publishes it,
+else `developer`); a new port starts on the daemon when only it publishes the
+port. The gateway then proxies to `{routing-key}-docker:{port}`, while tickets
+and sessions keep naming the developer service row, so authorization is
+unchanged.
 
 Agents and people in the developer container use `kuayle-ports` (IDE and
 headless images): `kuayle-ports [list]` shows listening ports and their URLs,
@@ -202,7 +217,7 @@ answer in `~/.kuayle/ports/state.json` (`{ports:[{port,label,url,source}],
 listening, refused:[{port,reason}], updated_at}`). The scan takes the requests
 as untrusted input: regular files only (never symlinks), at most 20 per scan and
 1 KiB each, strict JSON whose port matches the file name, the same port and
-label rules, and the ten-port limit. Every request entry is deleted. Exposed
+label rules. Every request entry is deleted. Exposed
 ports are `agent` ports owned by the machine creator, linked to the task whose
 worktree the request came from when known; agents may remove only `agent`
 ports. The start scripts install the Kuayle-owned `kuayle-qa` skill for Claude
@@ -220,6 +235,86 @@ task ports are removed and their previews marked stopped, while user and agent
 ports are kept. Pausing freezes the processes, which resume with the machine.
 The machine page lists ports, detected listeners, and expose, rename, open and
 remove controls; a task card starts, stops and opens its app.
+
+## Machine Docker daemon
+
+Workspace administrators can give machines their own Docker daemon so people
+and agents run real `docker compose` (builds, volumes, `env_file`, profiles,
+any number of services). It is off by default: migration 89 adds
+`dev_machine_workspace_policies.allow_docker` (Settings → Dev Machines →
+policy). Machines created while it is on get a `docker` service; once it is
+turned off, spawning or starting such a machine fails with `docker_not_allowed`
+(the machine must be recreated), and a workspace import resets it to off. A
+policy update that omits `allow_docker` keeps the current value.
+
+**Container.** `kuayle-{routing-key}-docker` runs `DEV_MACHINE_DOCKER_IMAGE`
+(`devmachine/docker`: the official `docker:29.9.1-dind-rootless` image pinned by
+digest, plus `kuayle-docker-start` and a health check). dockerd runs rootless as
+UID 1000 under rootlesskit (slirp4netns networking, builtin port driver,
+overlayfs on its data volume). The container is never privileged and has no
+host mounts, socket or published host ports, a read-only root filesystem,
+tmpfs `/run`, `/tmp`, `/certs` and home, 40% of the machine's CPU and memory (at
+least 512 MB) and at least 1,024 PIDs. Rootless Docker needs, and gets only for
+this container:
+
+- `CAP_SETUID` and `CAP_SETGID` (all others dropped) and no `no-new-privileges`,
+  because the setuid `newuidmap`/`newgidmap` helpers map its 65,536 subordinate
+  IDs (host UIDs 100000–165535, never root);
+- the `/dev/net/tun` device for slirp4netns;
+- `seccomp=unconfined`, `apparmor=unconfined` and unmasked `/proc`/`/sys`
+  paths (`systempaths=unconfined`), because it creates user, mount and network
+  namespaces and mounts `proc`/`sys` inside them, which the default profiles
+  deny. Each relaxation was verified necessary with Docker 29.
+
+`DEV_MACHINE_DOCKER_SECCOMP_PROFILE` and `DEV_MACHINE_DOCKER_APPARMOR_PROFILE`
+replace the two profiles (for example with an AppArmor profile allowing
+`userns`, which Ubuntu 23.10+ hosts restricting unprivileged user namespaces
+require). With `DEV_MACHINE_DOCKER_RUNTIME=sysbox-runc` (preferred where Sysbox
+is installed) the container runs under that runtime and none of the profile or
+path relaxations apply; that path has not yet been exercised on a Sysbox host.
+
+**Network and TLS.** The daemon is only on the machine network, as `docker`
+and `{routing-key}-docker`. It never joins the egress or control-plane
+networks, so neither it nor its containers have a direct route out: registry
+pulls use `HTTP(S)_PROXY` (the machine's egress proxy, with its private-address
+blocking and allow/deny lists), and the Docker CLI's `~/.docker/config.json`
+gives builds and containers the same proxy (`noProxy` covers localhost, `.local`
+and `.internal`). A Compose service calling another one by name through a
+proxy-aware HTTP client needs that name in its own `NO_PROXY`. The API listens
+only on 2376 with mutual TLS: at machine creation the API issues a per-machine
+ECDSA CA (its key is discarded), a server certificate for the two daemon names
+and one client certificate, valid one day beyond the machine's expiry, stored
+encrypted in `dev_machine_env_vars` (targets `docker` and `docker-client`) and
+delivered as scoped secrets. Only the daemon gets the server key; developer
+containers and agent attempts get the client material, which the start scripts
+write to the in-memory `~/.docker` (mode 0600) before unsetting it; agent
+output redacts the client key. Developer containers have `DOCKER_HOST`,
+`DOCKER_TLS_VERIFY=1` and `DOCKER_CERT_PATH`; the browser, collector and egress
+containers get nothing. Port 2376 is a service port, never an app port.
+
+**Storage.** The daemon's data root is a dedicated volume,
+`kuayle-docker-{routing-key}`, created with the workspace volume's quota mode
+and size (a hard XFS quota of the machine's disk size, or monitored). Its usage
+is measured at most every two minutes by a short-lived helper container (the
+daemon image's `du`, the volume read-only, no network, only
+`CAP_DAC_READ_SEARCH`, default seccomp), because files inside belong to the
+daemon's user namespace, which machine users control. The size is added to the
+workspace usage, so warnings and stops at the machine's disk limit count both
+volumes. The workspace volume is mounted at `/workspace`, so build contexts and
+bind mounts use the developer container's paths; files written by containers
+running as non-root users are owned by subordinate IDs.
+
+**Lifecycle.** Pause, stop and start include the daemon container; a start
+reinstalls its TLS secrets and dockerd keeps images, volumes and containers
+(containers return per their restart policy). A start with a missing daemon
+volume provisions the machine again. Teardown removes the container and the
+volume. The CLI pins (`devmachine/common/install-docker-cli.sh`: Docker CLI
+29.9.1, Compose 5.6.0, Buildx 0.38.0, each SHA-256 checked) are installed in
+the IDE, headless and provider agent images.
+
+Independent checks keep the restricted Compose subset (see agent tasks): a
+check container cannot join the daemon's networks, and service names resolve
+only inside the daemon.
 
 ## Authenticated Machine Access
 
@@ -452,7 +547,8 @@ Workspace policy controls:
 - maximum per-machine workspace-volume size;
 - allowed providers;
 - allowed repositories;
-- whether custom providers are allowed.
+- whether custom providers are allowed;
+- whether new machines get their own Docker daemon (`allow_docker`, default off).
 
 ### Disk Limitation
 
@@ -603,6 +699,8 @@ The migration creates the final scoped-workspace schema directly. Composite fore
 Migration `000051_dev_machine_agents_headless` adds the `dev_machines.profile` value (`standard` or `headless`) and expands only the default workspace-policy provider allowlist to all seven built-ins. Existing workspace policies are not rewritten, so administrators retain their current allowlists until they opt in. The down migration removes the profile column and restores the previous default allowlist.
 
 Migration `000052_dev_machine_deepseek` adds workspace model credentials and persists each agent run's non-secret command environment so a Claude Code effort override survives queueing.
+
+Migration `000089_dev_machine_docker` adds `dev_machine_workspace_policies.allow_docker` (default false), the `docker` service type, `dev_machine_ports.target` (`developer` or `docker`) and `dev_machines.docker_listening_ports`. Its rollback deletes `docker` service rows (tear such machines down first; their containers and volumes are otherwise left for manual removal) and port targets; ports are kept and stay unlimited in number.
 
 All user-facing repository access is constrained by both `workspace_id` and resource ID. Internal manager lookups are limited to the trusted manager process.
 
@@ -772,6 +870,9 @@ Required configuration when enabled:
 | `DEV_MACHINE_AGENT_GIT_NAME`, `DEV_MACHINE_AGENT_GIT_EMAIL` | Default commit author for agent task publications (default `Kuayle Agent <agent@kuayle.invalid>`). A workspace can override it with a username and verified email in its coding-agent policy (migration 70), so GitHub attributes agent commits to that account. Pull requests are opened by the GitHub App installation. Control characters and angle brackets are rejected |
 | `DEV_MACHINE_DOCKER_GID` | Numeric host group owner of the mounted Docker socket; obtain it on Linux with `stat -c '%g' /var/run/docker.sock` (Docker Desktop commonly uses `0`) |
 | `DEV_MACHINE_HEADLESS_IMAGE` | Headless developer and new built-in provider image (default `ghcr.io/kuayle/dev-machine-headless:0.1.0`) |
+| `DEV_MACHINE_DOCKER_IMAGE` | Machine Docker daemon image (default `ghcr.io/kuayle/dev-machine-docker:0.1.0`), used when a workspace policy allows Docker |
+| `DEV_MACHINE_DOCKER_RUNTIME` | Optional OCI runtime for daemon containers, e.g. `sysbox-runc`; then no profile relaxations are applied |
+| `DEV_MACHINE_DOCKER_SECCOMP_PROFILE`, `DEV_MACHINE_DOCKER_APPARMOR_PROFILE` | Daemon container profiles without a runtime (default `unconfined`; `default` keeps Docker's, which breaks rootless Docker) |
 | `DEV_MACHINE_*_IMAGE` | Other pinned runtime image references; the IDE developer image contains all built-in CLIs and the existing provider-specific agent images remain separately pinned |
 
 Compose passes the same `DEV_MACHINES_ENABLED` value to the backend, gateway, and manager. The `dev-machines` profile's database-provisioning prerequisite exits before modifying grants or starting the control plane unless that value is exactly `true`; the gateway and manager also retain their own fail-closed startup checks.
@@ -791,6 +892,7 @@ The self-hosting `dev-machine-images` profile builds the IDE, headless developer
 - Docker hardening is not hostile multi-tenant isolation.
 - Pinned Chrome Stable packages for amd64 and arm64 run through KasmVNC in a separately hardened non-root container. The browser's internal sandbox is disabled because Docker namespace restrictions conflict with its setup. The browser must not receive provider or GitHub secrets.
 - Domain egress controls cannot prevent exfiltration to an explicitly allowed destination.
+- A machine's own Docker daemon (opt-in, `allow_docker`) runs with relaxed seccomp/AppArmor, unmasked proc/sys and `SETUID`/`SETGID` unless `DEV_MACHINE_DOCKER_RUNTIME` selects Sysbox. Machine users control a rootless daemon in its own user namespace, so a kernel user-namespace or mount vulnerability is more exposed from that container than from the other, fully confined, machine containers. It is never privileged and reaches nothing beyond the machine network and the egress proxy.
 - Compose support for checks is a constrained subset run by the manager, not `docker compose`. Builds, mounts, privileges, host networking and published ports are rejected, because arbitrary untrusted Compose execution needs an isolated Docker daemon. Image pulls run on the host daemon, outside the egress proxy, so `DEV_MACHINE_COMPOSE_IMAGES` restricts them to official Docker Hub images by default.
 - The default model server's key is delivered into every developer container, and a run's server key into its agent container, so any member who can create a machine can read it from a terminal or have an agent reveal it. The API never returns it, but treat model server keys as shared with those members (SECURITY_AUDIT.md KS-08).
 - Command and filesystem collection is best-effort and can be bypassed by trusted workspace code.

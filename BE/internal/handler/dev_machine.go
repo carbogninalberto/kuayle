@@ -739,8 +739,6 @@ func machineError(c echo.Context, err error) error {
 		return response.Error(c, http.StatusConflict, "PORT_EXISTS", err.Error())
 	case errors.Is(err, service.ErrPortReserved):
 		return response.Error(c, http.StatusUnprocessableEntity, "PORT_RESERVED", err.Error())
-	case errors.Is(err, service.ErrPortLimit):
-		return response.Error(c, http.StatusUnprocessableEntity, "PORT_LIMIT", err.Error())
 	case errors.Is(err, service.ErrServiceNotAvailable):
 		return response.Error(c, http.StatusNotFound, "SERVICE_NOT_AVAILABLE", err.Error())
 	case errors.Is(err, service.ErrInvalidMachineInput):

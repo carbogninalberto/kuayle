@@ -123,6 +123,14 @@ same deterministic containers, and a check that already ran is only replayed.
 A rejected or unhealthy stack fails the check without retries, and its reason is
 written to the check output and the step summary.
 
+On machines with their own Docker daemon (workspace policy `allow_docker`, see
+[Machine Docker daemon](../../TECHNICAL.md#machine-docker-daemon)) the agent's
+attempt and the developer terminal can run the full `docker compose` against
+that daemon (builds, volumes, `env_file`, profiles, any number of services),
+and a preview command may be `docker compose up`: its published port becomes
+the task's app port on the daemon. The independent check still uses the subset
+above, because the check container cannot join the daemon's Compose networks.
+
 
 ## Publication
 
@@ -660,7 +668,7 @@ queues its stop. Preview operations name the task in
   `preview_error`, and finally `stopped`;
 - picks the task's existing port, else the preferred port when free, else the
   first free port in 4100–4999; free means not a service port, not listening
-  and not exposed, within the ten-port limit;
+  and not exposed (the number of app ports is not limited);
 - exposes it as a `task` app port labelled with the issue identifier;
 - runs the command in the task worktree on the developer container as UID 1000
   with `PORT` and `HOST=0.0.0.0`, in its own session, with pidfile

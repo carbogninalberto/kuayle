@@ -47,11 +47,13 @@ type PortRequest struct {
 	Body []byte
 }
 
-// PortScan is the developer container's listening TCP ports and the agent
-// requests taken (and removed) from it.
+// PortScan is the developer container's listening TCP ports, the agent
+// requests taken (and removed) from it, and the ports published by containers
+// of the machine's Docker daemon (listening in the docker service container).
 type PortScan struct {
 	Listening []int
 	Requests  []PortRequest
+	Docker    []int
 }
 
 // parsePortScan reads the scan script's output: /proc/net/tcp{,6} lines in
@@ -184,9 +186,11 @@ func taskWorktree(path string) string {
 // agentPortState is written to ~/.kuayle/ports/state.json in the developer
 // container for kuayle-ports. Reserved lists the machine's own service ports,
 // which kuayle-ports does not offer; Refused lists this scan's refused requests.
+// Docker lists the listening ports published by the machine's Docker daemon.
 type agentPortState struct {
 	Ports     []agentPort   `json:"ports"`
 	Listening []int         `json:"listening"`
+	Docker    []int         `json:"docker"`
 	Reserved  []int         `json:"reserved"`
 	Refused   []portRefusal `json:"refused"`
 	UpdatedAt *time.Time    `json:"updated_at"`
@@ -312,13 +316,21 @@ func (m *Manager) syncPorts(ctx context.Context, machine *domain.DevMachine, ser
 	if err != nil {
 		return nil, err
 	}
-	listening := make([]int, 0, len(scan.Listening))
-	for _, port := range scan.Listening {
-		if servicePortReason(services, port) == "" {
+	listening := make([]int, 0, len(scan.Listening)+len(scan.Docker))
+	docker := make([]int, 0, len(scan.Docker))
+	for _, port := range scan.Docker {
+		if servicePortReason(services, port) == "" && !slices.Contains(docker, port) {
+			docker = append(docker, port)
+		}
+	}
+	for _, port := range append(append([]int{}, scan.Listening...), docker...) {
+		if servicePortReason(services, port) == "" && !slices.Contains(listening, port) {
 			listening = append(listening, port)
 		}
 	}
-	if err = m.store.SetListeningPorts(ctx, machine.ID, listening); err != nil {
+	slices.Sort(listening)
+	slices.Sort(docker)
+	if err = m.store.SetListeningPorts(ctx, machine.ID, listening, docker); err != nil {
 		return nil, err
 	}
 	refused := []portRefusal{}
@@ -339,7 +351,7 @@ func (m *Manager) syncPorts(ctx context.Context, machine *domain.DevMachine, ser
 	if err != nil {
 		return nil, err
 	}
-	state := agentPortState{Ports: make([]agentPort, 0, len(ports)), Listening: listening, Reserved: servicePorts(services), Refused: refused}
+	state := agentPortState{Ports: make([]agentPort, 0, len(ports)), Listening: listening, Docker: docker, Reserved: servicePorts(services), Refused: refused}
 	for _, port := range ports {
 		item := agentPort{Port: port.Port, URL: m.appPortURL(machine, port.Port), Source: port.Source}
 		if port.Label != nil {
@@ -397,8 +409,6 @@ func (m *Manager) applyPortRequest(ctx context.Context, machine *domain.DevMachi
 	switch err = m.store.CreatePort(ctx, port); {
 	case err == nil, errors.Is(err, repository.ErrPortExists):
 		return ""
-	case errors.Is(err, repository.ErrPortLimit):
-		return fmt.Sprintf("a machine exposes at most %d app ports; ask the owner to remove one", domain.DevMachinePortLimit)
 	default:
 		log.WithFields(log.Fields{"machine_id": machine.ID, "event_type": "machine.port_request"}).WithError(err).Warn("agent port request failed")
 		return "the port could not be exposed"
@@ -523,8 +533,6 @@ func (m *Manager) startPreview(ctx context.Context, machine *domain.DevMachine, 
 		port = &domain.DevMachinePort{WorkspaceID: machine.WorkspaceID, MachineID: machine.ID, Port: number, Label: domain.PortLabel(target.Identifier),
 			Source: domain.DevMachinePortSourceTask, AgentTaskID: &task.ID, CreatedByUserID: task.CreatorID}
 		switch err = m.store.CreatePort(ctx, port); {
-		case errors.Is(err, repository.ErrPortLimit):
-			return fail(fmt.Sprintf("The machine already exposes %d app ports; remove one to start this preview", domain.DevMachinePortLimit))
 		case errors.Is(err, repository.ErrPortExists):
 			return fail(fmt.Sprintf("Port %d was exposed meanwhile; start the preview again", number))
 		case err != nil:

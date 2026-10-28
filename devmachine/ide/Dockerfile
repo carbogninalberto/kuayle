@@ -19,7 +19,7 @@ ARG NPM_VERSION=12.2.0
 
 COPY --from=node-stage /usr/local /usr/local
 COPY --from=crush-build /out/crush /usr/local/bin/crush
-COPY common/install-agent-clis.sh common/kuayle-ports common/kuayle-service-entrypoint /usr/local/bin/
+COPY common/install-agent-clis.sh common/install-docker-cli.sh common/kuayle-ports common/kuayle-service-entrypoint /usr/local/bin/
 COPY common/start-common.sh common/codex-model-catalog.cjs common/patch-npm-security.cjs common/test-http-cache-semantics.cjs common/kuayle-qa.md common/kuayle-agents.md /usr/local/lib/kuayle/
 COPY ide/patch-security.cjs ide/test-zod-security.cjs ide/test-body-parser-security.cjs /usr/local/lib/kuayle/
 COPY ide/start.sh /usr/local/bin/kuayle-ide-start
@@ -46,6 +46,7 @@ RUN rm -f /usr/bin/pebble \
     && chmod 0755 /usr/local/bin/ttyd \
     && npm install -g "npm@${NPM_VERSION}" \
     && sh /usr/local/bin/install-agent-clis.sh "$TARGETARCH" \
+    && sh /usr/local/bin/install-docker-cli.sh "$TARGETARCH" \
     && node /usr/local/lib/kuayle/patch-npm-security.cjs /usr/lib/code-server \
     && npm install --prefix /tmp/code-server-patches --ignore-scripts --package-lock=false \
          "basic-ftp@6.2.2" "js-yaml@5.4.2" "shell-quote@1.12.0" "undici@7.30.1" "ip-address@10.7.3" \

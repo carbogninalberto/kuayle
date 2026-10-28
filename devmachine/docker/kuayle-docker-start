@@ -1,0 +1,36 @@
+#!/bin/sh
+# Starts the machine's rootless Docker daemon with mutual TLS. Kuayle delivers
+# the daemon's server certificate, key and machine CA as scoped secrets; they
+# are moved to a tmpfs and the image entrypoint only verifies them (it never
+# creates a CA or client certificate here). Registry pulls use the machine's
+# egress proxy from HTTP(S)_PROXY.
+set -eu
+
+secrets=${KUAYLE_SECRETS_DIR:-/run/kuayle-secrets}
+certs=${DOCKER_TLS_CERTDIR:-/certs}
+attempt=0
+while [ ! -f "$secrets/.ready" ]; do
+  attempt=$((attempt + 1))
+  if [ "$attempt" -ge 300 ]; then
+    echo "timed out waiting for scoped secrets" >&2
+    exit 1
+  fi
+  sleep 0.1
+done
+
+umask 077
+rm -rf "$certs/ca" "$certs/client" "$certs/server"
+mkdir -p "$certs/server"
+for pair in KUAYLE_DOCKER_TLS_CA:ca.pem KUAYLE_DOCKER_TLS_CERT:cert.pem KUAYLE_DOCKER_TLS_KEY:key.pem; do
+  name=${pair%%:*}
+  file=${pair#*:}
+  if [ ! -f "$secrets/$name" ] || [ -L "$secrets/$name" ] || [ ! -s "$secrets/$name" ]; then
+    echo "missing Docker TLS secret $name" >&2
+    exit 1
+  fi
+  cat "$secrets/$name" > "$certs/server/$file"
+  rm -f "$secrets/$name"
+done
+rm -f "$secrets/.ready"
+
+exec "${KUAYLE_DOCKERD_ENTRYPOINT:-dockerd-entrypoint.sh}" "$@"

@@ -3,16 +3,19 @@ FROM golang:1.26.10-alpine AS go-stage
 FROM node:22.23.3-alpine3.23@sha256:baf676f7d0e552f3231945c2f979055ca121bce128c152f7a34e6bd1728b1c5a
 
 ARG PROVIDER
+ARG TARGETARCH
 ARG NPM_VERSION=12.2.0
 ARG CLAUDE_CODE_VERSION=2.1.310
 ARG OPENCODE_VERSION=1.19.4
 ARG CODEX_VERSION=0.164.0
 
+COPY common/install-docker-cli.sh /usr/local/lib/kuayle/
 COPY common/start-common.sh common/codex-model-catalog.cjs common/patch-npm-security.cjs common/test-http-cache-semantics.cjs common/kuayle-agents.md /usr/local/lib/kuayle/
 
 ARG SECURITY_REFRESH=initial
 RUN apk upgrade --no-cache \
     && apk add --no-cache bash ca-certificates curl git make openssh-client \
+    && sh /usr/local/lib/kuayle/install-docker-cli.sh "$TARGETARCH" \
     && npm install -g "npm@${NPM_VERSION}" \
     && case "$PROVIDER" in \
          claude-code) npm install -g --allow-scripts=@anthropic-ai/claude-code "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" ;; \

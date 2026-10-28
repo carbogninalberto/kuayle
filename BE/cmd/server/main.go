@@ -122,6 +122,7 @@ func main() {
 			IDE: cfg.DevMachine.IDEImage, Headless: cfg.DevMachine.HeadlessImage, Browser: cfg.DevMachine.BrowserImage,
 			Collector: cfg.DevMachine.CollectorImage,
 			Egress:    cfg.DevMachine.EgressImage,
+			Docker:    cfg.DevMachine.DockerImage,
 		}, cfg.FrontendURL,
 	)
 	devMachineSvc.SetModelDiscovery(cfg.AIAllowPrivateNetwork)

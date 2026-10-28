@@ -71,6 +71,7 @@ services:
       DEV_MACHINE_CLAUDE_IMAGE: ${DEV_MACHINE_CLAUDE_IMAGE:-kuayle/dev-machine-agent-claude:dev}
       DEV_MACHINE_OPENCODE_IMAGE: ${DEV_MACHINE_OPENCODE_IMAGE:-kuayle/dev-machine-agent-opencode:dev}
       DEV_MACHINE_CODEX_IMAGE: ${DEV_MACHINE_CODEX_IMAGE:-kuayle/dev-machine-agent-codex:dev}
+      DEV_MACHINE_DOCKER_IMAGE: ${DEV_MACHINE_DOCKER_IMAGE:-kuayle/dev-machine-docker:dev}
       # Voice transcription (optional): start the "voice" profile too.
       VOICE_URL: ${VOICE_URL:-http://voice:8000}
       VOICE_INTERNAL_TOKEN: ${VOICE_INTERNAL_TOKEN:-local_dev_voice_token_32_chars_minimum_do_not_use_prod}
@@ -278,6 +279,12 @@ services:
       DEV_MACHINE_CLAUDE_IMAGE: ${DEV_MACHINE_CLAUDE_IMAGE:-kuayle/dev-machine-agent-claude:dev}
       DEV_MACHINE_OPENCODE_IMAGE: ${DEV_MACHINE_OPENCODE_IMAGE:-kuayle/dev-machine-agent-opencode:dev}
       DEV_MACHINE_CODEX_IMAGE: ${DEV_MACHINE_CODEX_IMAGE:-kuayle/dev-machine-agent-codex:dev}
+      DEV_MACHINE_DOCKER_IMAGE: ${DEV_MACHINE_DOCKER_IMAGE:-kuayle/dev-machine-docker:dev}
+      # Machine Docker daemons (workspace policy allow_docker): an optional OCI
+      # runtime such as sysbox-runc, else the daemon container's profiles.
+      DEV_MACHINE_DOCKER_RUNTIME: ${DEV_MACHINE_DOCKER_RUNTIME:-}
+      DEV_MACHINE_DOCKER_SECCOMP_PROFILE: ${DEV_MACHINE_DOCKER_SECCOMP_PROFILE:-unconfined}
+      DEV_MACHINE_DOCKER_APPARMOR_PROFILE: ${DEV_MACHINE_DOCKER_APPARMOR_PROFILE:-unconfined}
       GITHUB_APP_ID: ${GITHUB_APP_ID:-0}
       GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY:-}
       GITHUB_APP_WEBHOOK_SECRET: ${GITHUB_APP_WEBHOOK_SECRET:-}
@@ -353,6 +360,14 @@ services:
     build:
       context: ./devmachine
       dockerfile: egress/Dockerfile
+    entrypoint: ["/bin/true"]
+
+  dev-machine-docker:
+    profiles: ["dev-machine-images"]
+    image: ${DEV_MACHINE_DOCKER_IMAGE:-kuayle/dev-machine-docker:dev}
+    build:
+      context: ./devmachine
+      dockerfile: docker/Dockerfile
     entrypoint: ["/bin/true"]
 
   dev-machine-agent-claude:

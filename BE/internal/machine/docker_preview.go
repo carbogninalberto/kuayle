@@ -135,8 +135,21 @@ func (r *DockerRuntime) ScanPorts(ctx context.Context, services []domain.DevMach
 	if err != nil {
 		return PortScan{}, err
 	}
-	return parsePortScan(output), nil
+	scan := parsePortScan(output)
+	// Published ports of the daemon's containers listen in the docker service
+	// container's network namespace. A failed daemon scan leaves them unknown.
+	if daemon := dockerContainerID(services); daemon != "" {
+		if output, err := r.execOutput(ctx, daemon, []string{"/bin/sh", "-c", dockerPortScanScript, "kuayle-port-scan"}); err == nil {
+			scan.Docker = parsePortScan(output).Listening
+		}
+	}
+	return scan, nil
 }
+
+// dockerPortScanScript prints the LISTEN sockets of the docker service
+// container: the daemon's API port and the ports its containers publish.
+const dockerPortScanScript = `grep -hE '^ *[0-9]+: [0-9A-Fa-f]+:[0-9A-Fa-f]{4} [0-9A-Fa-f]+:[0-9A-Fa-f]{4} 0A ' /proc/net/tcp /proc/net/tcp6 2>/dev/null | head -n 1024
+exit 0`
 
 // WritePortState publishes the app port state to kuayle-ports.
 func (r *DockerRuntime) WritePortState(ctx context.Context, services []domain.DevMachineService, state []byte) error {

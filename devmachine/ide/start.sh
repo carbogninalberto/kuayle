@@ -14,6 +14,7 @@ if [ ! -e "$user_settings_dir/settings.json" ]; then
 fi
 
 configure_codex_model
+configure_docker_client
 link_codex_packages
 install_kuayle_qa
 install_kuayle_agents

@@ -1,0 +1,5 @@
+#!/bin/sh
+# Healthy once the daemon answers on its socket inside this container.
+set -eu
+runtime_dir=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+DOCKER_HOST="unix://$runtime_dir/docker.sock" exec docker version --format '{{.Server.Version}}' >/dev/null

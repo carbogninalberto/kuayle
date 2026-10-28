@@ -23,7 +23,7 @@
 	import type { AppPort } from '$lib/types/dev-machine';
 	import { appToast, getErrorMessage } from '$lib/features/toast/toast';
 	import { m } from '$lib/paraglide/messages.js';
-	import { APP_PORT_LIMIT, detectedPorts, portName, validAppPort } from './app-ports';
+	import { detectedPorts, portName, validAppPort } from './app-ports';
 	import { openAppPort } from './open-app-port';
 
 	let {
@@ -60,7 +60,6 @@
 	let request = 0;
 
 	const detected = $derived(detectedPorts(listening, ports));
-	const full = $derived(ports.length >= APP_PORT_LIMIT);
 	const portValue = $derived(newPort ?? NaN);
 	const draftValid = $derived(LABEL.test(draft.trim()));
 	const newLabelValid = $derived(LABEL.test(newLabel.trim()));
@@ -107,7 +106,6 @@
 		const code = (error as { error?: { code?: string } })?.error?.code;
 		if (code === 'PORT_EXISTS') return m['machines.port_exists']({ port });
 		if (code === 'PORT_RESERVED') return m['machines.port_reserved']({ port });
-		if (code === 'PORT_LIMIT') return m['machines.port_limit']({ limit: APP_PORT_LIMIT });
 		return getErrorMessage(error, m['machines.port_error']());
 	}
 
@@ -212,7 +210,7 @@
 	<Card.Header>
 		<Card.Title id={titleId} class="flex items-center gap-2 text-sm"
 			><Plug class="size-4 text-muted-foreground" />{m['machines.ports']()}<Badge variant="secondary"
-				>{ports.length}/{APP_PORT_LIMIT}</Badge
+				>{ports.length}</Badge
 			></Card.Title
 		>
 		<Card.Description>{m['machines.ports_desc']()}</Card.Description>
@@ -317,7 +315,7 @@
 			<p class="text-xs text-muted-foreground">{m['machines.ports_empty']()}</p>
 		{/if}
 
-		{#if canManage && detected.length && !full}
+		{#if canManage && detected.length}
 			<div class="flex flex-wrap items-center gap-1.5" role="group" aria-label={m['machines.ports_detected']()}>
 				<span class="text-xs text-muted-foreground">{m['machines.ports_detected_short']()}</span>
 				{#each detected as port (port)}
@@ -334,33 +332,29 @@
 		{/if}
 
 		{#if canManage}
-			{#if full}
-				<p class="text-xs text-muted-foreground">{m['machines.port_limit']({ limit: APP_PORT_LIMIT })}</p>
-			{:else}
-				<form class="flex min-w-0 items-center gap-2" onsubmit={submit}>
-					<Input
-						class="w-20 shrink-0 font-mono"
-						type="number"
-						inputmode="numeric"
-						min="1024"
-						max="65535"
-						placeholder="3000"
-						aria-label={m['machines.port_number']()}
-						bind:value={newPort}
-					/>
-					<Input
-						class="min-w-0 flex-1"
-						maxlength={40}
-						placeholder={m['machines.port_label_placeholder']()}
-						aria-label={m['machines.port_label']()}
-						aria-invalid={!newLabelValid}
-						bind:value={newLabel}
-					/>
-					<Button type="submit" variant="outline" disabled={exposing || !validAppPort(portValue) || !newLabelValid}
-						><Plus />{m['machines.port_expose']()}</Button
-					>
-				</form>
-			{/if}
+			<form class="flex min-w-0 items-center gap-2" onsubmit={submit}>
+				<Input
+					class="w-20 shrink-0 font-mono"
+					type="number"
+					inputmode="numeric"
+					min="1024"
+					max="65535"
+					placeholder="3000"
+					aria-label={m['machines.port_number']()}
+					bind:value={newPort}
+				/>
+				<Input
+					class="min-w-0 flex-1"
+					maxlength={40}
+					placeholder={m['machines.port_label_placeholder']()}
+					aria-label={m['machines.port_label']()}
+					aria-invalid={!newLabelValid}
+					bind:value={newLabel}
+				/>
+				<Button type="submit" variant="outline" disabled={exposing || !validAppPort(portValue) || !newLabelValid}
+					><Plus />{m['machines.port_expose']()}</Button
+				>
+			</form>
 			{#if !newLabelValid || (editing && !draftValid)}<p class="text-xs text-destructive">
 					{m['machines.port_label_invalid']()}
 				</p>{/if}

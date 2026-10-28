@@ -19,7 +19,7 @@ ARG NPM_VERSION=12.2.0
 COPY --from=node-stage /usr/local /usr/local
 COPY --from=crush-build /out/crush /usr/local/bin/crush
 COPY --from=go-stage /usr/local/go /usr/local/go
-COPY common/install-agent-clis.sh common/kuayle-ports common/kuayle-service-entrypoint common/kuayle-agent-runner /usr/local/bin/
+COPY common/install-agent-clis.sh common/install-docker-cli.sh common/kuayle-ports common/kuayle-service-entrypoint common/kuayle-agent-runner /usr/local/bin/
 COPY common/start-common.sh common/codex-model-catalog.cjs common/patch-npm-security.cjs common/test-http-cache-semantics.cjs common/kuayle-qa.md common/kuayle-agents.md /usr/local/lib/kuayle/
 COPY headless/kuayle-headless-start /usr/local/bin/kuayle-headless-start
 COPY ide/shell.sh /usr/local/bin/kuayle-shell
@@ -44,6 +44,7 @@ RUN rm -f /usr/bin/pebble \
     && chmod 0755 /usr/local/bin/ttyd \
     && npm install -g "npm@${NPM_VERSION}" \
     && sh /usr/local/bin/install-agent-clis.sh "$TARGETARCH" \
+    && sh /usr/local/bin/install-docker-cli.sh "$TARGETARCH" \
     && node /usr/local/lib/kuayle/patch-npm-security.cjs \
     && rm -rf /root/.npm /var/lib/apt/lists/* \
     && rm -f /usr/bin/pebble /etc/ssl/private/ssl-cert-snakeoil.key /etc/ssl/certs/ssl-cert-snakeoil.pem \

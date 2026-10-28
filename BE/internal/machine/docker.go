@@ -102,6 +102,12 @@ type DockerConfig struct {
 	HostDiskPath           string
 	// ComposeImages are the repository names or prefixes check services may use.
 	ComposeImages []string
+	// DockerRuntime optionally runs machine Docker daemons with another OCI
+	// runtime (sysbox-runc). DockerSeccompProfile and DockerAppArmorProfile
+	// replace the default profiles of the daemon containers otherwise.
+	DockerRuntime         string
+	DockerSeccompProfile  string
+	DockerAppArmorProfile string
 }
 
 type DockerRuntime struct {
@@ -110,6 +116,9 @@ type DockerRuntime struct {
 	statfs     func(string, *unix.Statfs_t) error
 	quotaMu    sync.Mutex
 	quotaReady bool
+
+	dockerUsageMu sync.Mutex
+	dockerUsage   map[uuid.UUID]dockerUsageSample
 }
 
 func NewDockerRuntime(config DockerConfig) (*DockerRuntime, error) {
@@ -270,6 +279,7 @@ func (r *DockerRuntime) Spawn(ctx context.Context, machine *domain.DevMachine, s
 	createdEgressNetworkConnections := make(map[string]string, 1)
 	networkCreated := false
 	volumeCreated := false
+	dockerVolumeCreated := false
 	completed := false
 	defer func() {
 		if completed {
@@ -289,6 +299,9 @@ func (r *DockerRuntime) Spawn(ctx context.Context, machine *domain.DevMachine, s
 		if cleanup.RemoveVolume {
 			_, _ = r.client.VolumeRemove(context.Background(), volumeName, client.VolumeRemoveOptions{Force: true})
 		}
+		if dockerVolumeCreated {
+			_, _ = r.client.VolumeRemove(context.Background(), dockerVolumeName(machine), client.VolumeRemoveOptions{Force: true})
+		}
 	}()
 
 	var err error
@@ -300,6 +313,12 @@ func (r *DockerRuntime) Spawn(ctx context.Context, machine *domain.DevMachine, s
 	}
 	if volumeCreated, err = r.ensureVolume(ctx, volumeName, labels, machine.DiskGB); err != nil {
 		return "", "", nil, fmt.Errorf("create workspace volume: %w", err)
+	}
+	docker := hasDockerService(services)
+	if docker {
+		if dockerVolumeCreated, err = r.ensureDockerVolume(ctx, machine); err != nil {
+			return "", "", nil, fmt.Errorf("create docker volume: %w", err)
+		}
 	}
 	var initImage string
 	for _, service := range services {
@@ -326,7 +345,7 @@ func (r *DockerRuntime) Spawn(ctx context.Context, machine *domain.DevMachine, s
 			terminalServices = append(terminalServices, service)
 			continue
 		}
-		containerID, containerCreated, networkAttached, err := r.ensureService(ctx, machine, service, networkName, volumeName, secrets[service.ServiceKey])
+		containerID, containerCreated, networkAttached, err := r.ensureService(ctx, machine, service, networkName, volumeName, secrets[service.ServiceKey], docker)
 		if networkAttached {
 			createdMachineNetworkConnections[service.ServiceKey] = containerID
 		}
@@ -463,6 +482,13 @@ func (r *DockerRuntime) Start(ctx context.Context, machine *domain.DevMachine, s
 	}
 	if !volumeExists {
 		return fmt.Errorf("machine workspace volume does not exist: %w", ErrRuntimeIncomplete)
+	}
+	if hasDockerService(services) {
+		if exists, err := r.dockerVolumeExists(ctx, machine); err != nil {
+			return err
+		} else if !exists {
+			return fmt.Errorf("machine docker volume does not exist: %w", ErrRuntimeIncomplete)
+		}
 	}
 	for _, service := range plannedStartServices(machine.Status, services) {
 		if service.ContainerID == nil || *service.ContainerID == "" {
@@ -651,7 +677,7 @@ func (r *DockerRuntime) Teardown(ctx context.Context, machine *domain.DevMachine
 	if err := r.removeManagedVolume(ctx, volumeName, machine.ID); err != nil {
 		return err
 	}
-	return nil
+	return r.removeDockerVolume(ctx, machine)
 }
 
 func (r *DockerRuntime) removeManagedContainer(ctx context.Context, containerID string, machineID uuid.UUID) error {
@@ -1010,7 +1036,7 @@ func (r *DockerRuntime) CancelAgent(ctx context.Context, run *domain.DevMachineA
 	return errors.Join(cleanupErrors...)
 }
 
-func (r *DockerRuntime) Stats(ctx context.Context, _ *domain.DevMachine, services []domain.DevMachineService) (ResourceUsage, error) {
+func (r *DockerRuntime) Stats(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService) (ResourceUsage, error) {
 	var usage ResourceUsage
 	var collectorID string
 	seen := make(map[string]bool, len(services))
@@ -1053,6 +1079,15 @@ func (r *DockerRuntime) Stats(ctx context.Context, _ *domain.DevMachine, service
 	if collectorID != "" {
 		if disk, err := r.workspaceSize(ctx, collectorID); err == nil {
 			usage.DiskBytes = disk
+		}
+	}
+	// The daemon's images, containers and volumes count toward the machine's
+	// disk limit too.
+	for _, service := range services {
+		if service.ServiceType == "docker" && service.Status == "running" && machine != nil {
+			if disk, err := r.dockerDiskUsage(ctx, machine, service.ImageRef); err == nil {
+				usage.DiskBytes += disk
+			}
 		}
 	}
 	return usage, nil
@@ -1254,6 +1289,16 @@ func developerContainerID(services []domain.DevMachineService) string {
 	return ""
 }
 
+// dockerContainerID returns the running docker service container, or "".
+func dockerContainerID(services []domain.DevMachineService) string {
+	for _, service := range services {
+		if service.ServiceType == "docker" && service.Status == "running" && service.ContainerID != nil {
+			return *service.ContainerID
+		}
+	}
+	return ""
+}
+
 func isDeveloperService(serviceType string) bool {
 	return serviceType == "ide" || serviceType == "terminal"
 }
@@ -1271,14 +1316,18 @@ func uniqueContainerIDs(services []domain.DevMachineService) []string {
 	return ids
 }
 
-func (r *DockerRuntime) ensureService(ctx context.Context, machine *domain.DevMachine, service domain.DevMachineService, networkName, volumeName string, secrets map[string]string) (containerID string, containerCreated bool, networkAttached bool, err error) {
+func (r *DockerRuntime) ensureService(ctx context.Context, machine *domain.DevMachine, service domain.DevMachineService, networkName, volumeName string, secrets map[string]string, docker bool) (containerID string, containerCreated bool, networkAttached bool, err error) {
 	inspection, err := r.client.ContainerInspect(ctx, service.ContainerName, client.ContainerInspectOptions{})
 	if err == nil {
 		if inspection.Container.Config.Image != service.ImageRef || inspection.Container.Config.Labels["com.kuayle.machine-id"] != machine.ID.String() || inspection.Container.Config.Labels["com.kuayle.service"] != service.ServiceType {
 			return "", false, false, fmt.Errorf("existing container does not match service")
 		}
 		containerID = inspection.Container.ID
-		networkAttached, err = r.connectNetwork(ctx, networkName, inspection.Container.ID, &network.EndpointSettings{Aliases: []string{service.InternalHost}})
+		aliases := []string{service.InternalHost}
+		if service.ServiceType == "docker" {
+			aliases = append(aliases, "docker")
+		}
+		networkAttached, err = r.connectNetwork(ctx, networkName, inspection.Container.ID, &network.EndpointSettings{Aliases: aliases})
 		if err != nil {
 			return containerID, false, networkAttached, err
 		}
@@ -1292,6 +1341,18 @@ func (r *DockerRuntime) ensureService(ctx context.Context, machine *domain.DevMa
 	}
 	if !errdefs.IsNotFound(err) {
 		return "", false, false, err
+	}
+	if service.ServiceType == "docker" {
+		if err := r.ensureImage(ctx, service.ImageRef); err != nil {
+			return "", false, false, err
+		}
+		labels := machineLabels(machine)
+		labels["com.kuayle.service"] = service.ServiceType
+		containerID, err := r.createDockerService(ctx, machine, service, labels, networkName, volumeName, secrets)
+		if err != nil {
+			return "", false, false, err
+		}
+		return containerID, true, false, nil
 	}
 	if isDeveloperService(service.ServiceType) && machine.EnvironmentID != nil {
 		if err := r.ensureEnvironmentImage(ctx, service.ImageRef, machine.WorkspaceID, *machine.EnvironmentID); err != nil {
@@ -1318,12 +1379,15 @@ func (r *DockerRuntime) ensureService(ctx context.Context, machine *domain.DevMa
 	}
 	environment = append(environment, "KUAYLE_SECRET_NAMES="+strings.Join(secretNames, ","))
 	if service.ServiceType != "egress" {
-		environment = append(environment, "HTTP_PROXY=http://"+machine.RoutingKey+"-egress:3128", "HTTPS_PROXY=http://"+machine.RoutingKey+"-egress:3128", "NO_PROXY=localhost,127.0.0.1,"+machine.RoutingKey+"-collector,"+machine.RoutingKey+"-ide,"+machine.RoutingKey+"-terminal,"+machine.RoutingKey+"-browser")
+		environment = append(environment, proxyEnvironment(machine, docker && isDeveloperService(service.ServiceType))...)
 		environment = append(environment, "KUAYLE_COLLECTOR_URL=http://"+machine.RoutingKey+"-collector:8091")
 	}
 	if isDeveloperService(service.ServiceType) {
 		environment = append(environment, "KUAYLE_REPO_URL="+machine.RepoURL, "KUAYLE_BASE_BRANCH="+machine.BaseBranch, "KUAYLE_WORKING_BRANCH="+machine.WorkingBranch)
 		environment = append(environment, "SHELL=/usr/local/bin/kuayle-shell")
+		if docker {
+			environment = append(environment, dockerClientEnvironment(machine)...)
+		}
 	}
 	if service.ServiceType == "collector" {
 		environment = append(environment, "KUAYLE_INGEST_URL="+r.config.IngestURL)
