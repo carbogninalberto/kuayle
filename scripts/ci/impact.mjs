@@ -70,7 +70,7 @@ export function planForPaths(paths, event = 'pull_request') {
       flags.backend = true;
       flags.runtime = true;
       if (path === 'devmachine/common/install-agent-clis.sh') add(dev, ['ide', 'headless']);
-      else if (path === 'devmachine/common/install-docker-cli.sh') add(dev, ['ide', 'headless', ...agents]);
+      else if (['devmachine/common/install-docker-cli.sh', 'devmachine/common/build-docker-plugins.sh'].includes(path)) add(dev, ['ide', 'headless', ...agents]);
       else if (path === 'devmachine/common/start-common.sh') add(dev, ['ide', 'headless', 'browser', 'collector', 'egress', ...agents]);
       else if (path === 'devmachine/common/kuayle-service-entrypoint') add(dev, ['ide', 'headless', 'browser', 'collector', 'egress']);
       else if (path === 'devmachine/common/kuayle-agent-runner') add(dev, ['headless', ...agents]);

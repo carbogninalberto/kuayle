@@ -5,6 +5,13 @@ FROM golang:1.27.3-bookworm AS crush-build
 ARG CRUSH_VERSION=0.98.2
 RUN CGO_ENABLED=0 GOBIN=/out go install -trimpath -ldflags="-s -w" "github.com/charmbracelet/crush@v${CRUSH_VERSION}"
 
+# Compose and Buildx, built from pinned release commits (see the script).
+FROM --platform=$BUILDPLATFORM golang:1.26.10-alpine AS docker-plugins
+ARG TARGETARCH
+RUN apk add --no-cache git
+COPY common/build-docker-plugins.sh /usr/local/bin/build-docker-plugins.sh
+RUN GOOS=linux GOARCH=$TARGETARCH sh /usr/local/bin/build-docker-plugins.sh /out
+
 FROM ubuntu:26.04@sha256:f144425ff09be612d6d9ad965196e9cdc23dae1f42110a8a11a3e9a8198759f7
 
 ARG TARGETARCH
@@ -19,6 +26,7 @@ ARG NPM_VERSION=12.2.0
 
 COPY --from=node-stage /usr/local /usr/local
 COPY --from=crush-build /out/crush /usr/local/bin/crush
+COPY --from=docker-plugins /out/docker-compose /out/docker-buildx /usr/local/lib/docker/cli-plugins/
 COPY common/install-agent-clis.sh common/install-docker-cli.sh common/kuayle-ports common/kuayle-service-entrypoint /usr/local/bin/
 COPY common/start-common.sh common/codex-model-catalog.cjs common/patch-npm-security.cjs common/test-http-cache-semantics.cjs common/kuayle-qa.md common/kuayle-agents.md /usr/local/lib/kuayle/
 COPY ide/patch-security.cjs ide/test-zod-security.cjs ide/test-body-parser-security.cjs /usr/local/lib/kuayle/

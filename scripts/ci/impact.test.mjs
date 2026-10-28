@@ -95,6 +95,8 @@ test('the machine Docker daemon image and the shared Docker CLI installer select
   assert.equal(daemon.runtime, true);
   assert.deepEqual(ids(daemon.devImages), ['docker']);
   assert.deepEqual(ids(planForPaths(['devmachine/common/install-docker-cli.sh']).devImages), ['ide', 'headless', 'agent-claude', 'agent-opencode', 'agent-codex']);
+  assert.deepEqual(ids(planForPaths(['devmachine/common/build-docker-plugins.sh']).devImages), ['ide', 'headless', 'agent-claude', 'agent-opencode', 'agent-codex']);
+  assert.equal(planForPaths(['.trivyignore.yaml']).reason, 'broad coverage for shared or unmapped inputs', 'changing the accepted advisories rescans every image');
   assert.ok(ids(planForPaths(['devmachine/common/new-shared-file']).devImages).includes('docker'), 'unknown shared inputs select every runtime image');
 });
 

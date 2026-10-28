@@ -90,6 +90,7 @@ jobs:
           output: evidence/trivy.json
           exit-code: 1
           severity: CRITICAL,HIGH
+          trivyignores: .trivyignore.yaml
 
       - name: Upload source, image and scan evidence
         if: always()

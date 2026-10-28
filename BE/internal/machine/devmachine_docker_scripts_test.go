@@ -186,11 +186,20 @@ func TestDockerImagesArePinned(t *testing.T) {
 	installer, err := os.ReadFile(filepath.Join(root, "devmachine", "common", "install-docker-cli.sh"))
 	require.NoError(t, err)
 	require.Contains(t, string(installer), "DOCKER_VERSION="+from[1]+"\n", "the CLI matches the daemon")
-	require.Regexp(t, `(?m)^(DOCKER|COMPOSE)_(X86_64|AARCH64)_SHA256=[0-9a-f]{64}$`, string(installer))
-	require.Len(t, regexp.MustCompile(`(?m)^[A-Z]+_[A-Z0-9_]+_SHA256=[0-9a-f]{64}$`).FindAllString(string(installer), -1), 6)
+	require.Len(t, regexp.MustCompile(`(?m)^DOCKER_(X86_64|AARCH64)_SHA256=[0-9a-f]{64}$`).FindAllString(string(installer), -1), 2)
+	require.NotContains(t, string(installer), "github.com/docker/compose/releases", "plugins are built from source, not downloaded")
+	// Compose and Buildx are built from pinned release commits with their
+	// dependency floors, in a cross-compiling stage of each image.
+	plugins, err := os.ReadFile(filepath.Join(root, "devmachine", "common", "build-docker-plugins.sh"))
+	require.NoError(t, err)
+	require.Regexp(t, `(?m)^COMPOSE_COMMIT=[0-9a-f]{40}$`, string(plugins))
+	require.Regexp(t, `(?m)^BUILDX_COMMIT=[0-9a-f]{40}$`, string(plugins))
+	require.Contains(t, string(plugins), "golang.org/x/net=golang.org/x/net@v0.60.0")
 	for _, image := range []string{"ide", "headless", "agent"} {
 		content, err := os.ReadFile(filepath.Join(root, "devmachine", image, "Dockerfile"))
 		require.NoError(t, err)
 		require.Regexp(t, `install-docker-cli\.sh "\$TARGETARCH"`, string(content), image)
+		require.Regexp(t, `(?m)^FROM --platform=\$BUILDPLATFORM golang:[0-9.]+-alpine AS docker-plugins$`, string(content), image)
+		require.Contains(t, string(content), "COPY --from=docker-plugins /out/docker-compose /out/docker-buildx /usr/local/lib/docker/cli-plugins/", image)
 	}
 }

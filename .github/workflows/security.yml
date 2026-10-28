@@ -104,6 +104,7 @@ jobs:
           format: table
           exit-code: 1
           severity: CRITICAL,HIGH
+          trivyignores: .trivyignore.yaml
 
       - name: Scan frontend image
         uses: aquasecurity/trivy-action@v0.36.0
@@ -112,6 +113,7 @@ jobs:
           format: table
           exit-code: 1
           severity: CRITICAL,HIGH
+          trivyignores: .trivyignore.yaml
 
   dev-machine-security:
     needs: changes
@@ -169,6 +171,7 @@ jobs:
           format: table
           exit-code: 1
           severity: CRITICAL,HIGH
+          trivyignores: .trivyignore.yaml
 
   result:
     name: Security CI Result

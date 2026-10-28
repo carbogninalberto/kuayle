@@ -1,5 +1,12 @@
 FROM golang:1.26.10-alpine AS go-stage
 
+# Compose and Buildx, built from pinned release commits (see the script).
+FROM --platform=$BUILDPLATFORM golang:1.26.10-alpine AS docker-plugins
+ARG TARGETARCH
+RUN apk add --no-cache git
+COPY common/build-docker-plugins.sh /usr/local/bin/build-docker-plugins.sh
+RUN GOOS=linux GOARCH=$TARGETARCH sh /usr/local/bin/build-docker-plugins.sh /out
+
 FROM node:22.23.3-alpine3.23@sha256:baf676f7d0e552f3231945c2f979055ca121bce128c152f7a34e6bd1728b1c5a
 
 ARG PROVIDER
@@ -9,6 +16,7 @@ ARG CLAUDE_CODE_VERSION=2.1.310
 ARG OPENCODE_VERSION=1.19.4
 ARG CODEX_VERSION=0.164.0
 
+COPY --from=docker-plugins /out/docker-compose /out/docker-buildx /usr/local/lib/docker/cli-plugins/
 COPY common/install-docker-cli.sh /usr/local/lib/kuayle/
 COPY common/start-common.sh common/codex-model-catalog.cjs common/patch-npm-security.cjs common/test-http-cache-semantics.cjs common/kuayle-agents.md /usr/local/lib/kuayle/
 

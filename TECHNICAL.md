@@ -248,8 +248,11 @@ turned off, spawning or starting such a machine fails with `docker_not_allowed`
 policy update that omits `allow_docker` keeps the current value.
 
 **Container.** `kuayle-{routing-key}-docker` runs `DEV_MACHINE_DOCKER_IMAGE`
-(`devmachine/docker`: the official `docker:29.9.1-dind-rootless` image pinned by
-digest, plus `kuayle-docker-start` and a health check). dockerd runs rootless as
+(`devmachine/docker`: the official `docker:29.9.2-dind-rootless` image pinned by
+digest, plus `kuayle-docker-start` and a health check). The image takes Alpine
+security updates, drops the client plugins and `ctr` it does not need, and
+replaces runc and the containerd runc shim with builds from the same release
+commits whose `golang.org/x/net` is raised past published advisories. dockerd runs rootless as
 UID 1000 under rootlesskit (slirp4netns networking, builtin port driver,
 overlayfs on its data volume). The container is never privileged and has no
 host mounts, socket or published host ports, a read-only root filesystem,
@@ -308,9 +311,12 @@ running as non-root users are owned by subordinate IDs.
 reinstalls its TLS secrets and dockerd keeps images, volumes and containers
 (containers return per their restart policy). A start with a missing daemon
 volume provisions the machine again. Teardown removes the container and the
-volume. The CLI pins (`devmachine/common/install-docker-cli.sh`: Docker CLI
-29.9.1, Compose 5.6.0, Buildx 0.38.0, each SHA-256 checked) are installed in
-the IDE, headless and provider agent images.
+volume. The Docker CLI 29.9.2 (`devmachine/common/install-docker-cli.sh`, SHA-256
+checked) and the Compose 5.6.1 and Buildx 0.38.1 plugins
+(`devmachine/common/build-docker-plugins.sh`, built from pinned release commits
+with dependency floors) are installed in the IDE, headless and provider agent
+images. Advisories with no fixed release are accepted only through
+`.trivyignore.yaml`, per package version and with an expiry date.
 
 Independent checks keep the restricted Compose subset (see agent tasks): a
 check container cannot join the daemon's networks, and service names resolve

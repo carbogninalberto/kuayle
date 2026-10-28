@@ -245,6 +245,7 @@ jobs:
           format: table
           exit-code: 1
           severity: CRITICAL,HIGH
+          trivyignores: .trivyignore.yaml
 
   result:
     name: Build CI Result
