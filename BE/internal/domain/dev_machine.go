@@ -126,6 +126,7 @@ type DevMachine struct {
 	RepositoryAffinityID *uuid.UUID       `json:"repository_affinity_id,omitempty" db:"repository_affinity_id"`
 	KeepRunning          bool             `json:"keep_running" db:"keep_running"`
 	EnvironmentBuilder   bool             `json:"environment_builder" db:"environment_builder"`
+	SudoEnabled          bool             `json:"sudo_enabled" db:"sudo_enabled"` // the workspace allowed sudo at creation
 	DeleteRequestedAt    *time.Time       `json:"delete_requested_at,omitempty" db:"delete_requested_at"`
 	DockerNetworkName    *string          `json:"docker_network_name,omitempty" db:"docker_network_name"`
 	WorkspaceVolumeName  *string          `json:"workspace_volume_name,omitempty" db:"workspace_volume_name"`
@@ -504,6 +505,10 @@ type DevMachineWorkspacePolicy struct {
 	// AllowDocker gives machines created while it is on a sandboxed Docker
 	// daemon of their own; starting such a machine is refused once it is off.
 	AllowDocker bool `json:"allow_docker" db:"allow_docker"`
+	// AllowSudo gives the developer containers of machines created while it is
+	// on passwordless sudo and a writable root filesystem; starting such a
+	// machine is refused once it is off.
+	AllowSudo bool `json:"allow_sudo" db:"allow_sudo"`
 	// AgentGitName and AgentGitEmail optionally author agent commits.
 	AgentGitName     *string               `json:"agent_git_name" db:"agent_git_name"`
 	AgentGitEmail    *string               `json:"agent_git_email" db:"agent_git_email"`

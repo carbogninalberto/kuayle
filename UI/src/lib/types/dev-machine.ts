@@ -266,6 +266,8 @@ export interface DevMachinePolicy {
 	allow_unattended_automations: boolean;
 	// Machines created while on get their own sandboxed Docker daemon.
 	allow_docker?: boolean;
+	// Developer containers of machines created while on get passwordless sudo.
+	allow_sudo?: boolean;
 	agent_git_name?: string | null;
 	agent_git_email?: string | null;
 	idle_pause_minutes: number;

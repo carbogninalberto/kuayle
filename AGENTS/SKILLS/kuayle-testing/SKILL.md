@@ -70,6 +70,9 @@ The machine Docker daemon test (`TestDockerDaemonRunsComposeProjects`) needs
 `KUAYLE_TEST_{DOCKER,HEADLESS,EGRESS,COLLECTOR}_IMAGE`; it runs on a developer
 machine with `KUAYLE_TEST_DISK_QUOTA_MODE=monitored` (set `DOCKER_HOST` when the
 socket is not at `/var/run/docker.sock`).
+The machine sudo test (`TestSudoMachinesGetRootWithoutLeavingTheSandbox`) needs
+`KUAYLE_SUDO_INTEGRATION=1`, the same quota mode and socket settings, network
+access for npm and `KUAYLE_TEST_{HEADLESS,COLLECTOR,EGRESS}_IMAGE`.
 
 ## Completion evidence
 

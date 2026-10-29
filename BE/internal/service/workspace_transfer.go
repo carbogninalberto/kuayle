@@ -749,6 +749,8 @@ func prepareImportedRow(table string, row dto.WorkspaceTransferRow) {
 		row["enabled"] = false
 		// The Docker daemon is a deliberate opt-in of the destination's admins.
 		row["allow_docker"] = false
+		// So is sudo in machines.
+		row["allow_sudo"] = false
 	case "dev_machine_scope_settings":
 		row["environment_id"] = nil
 	}

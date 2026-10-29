@@ -291,6 +291,7 @@ func (s *DevMachineService) create(ctx context.Context, workspaceID, userID uuid
 		MaxRuntimeMinutes: maxRuntime, ServicesConfig: servicesConfig, Labels: json.RawMessage(`{}`),
 		ExpiresAt: now.Add(time.Duration(maxRuntime) * time.Minute), EnvironmentID: environmentID,
 		KeepRunning: req.KeepRunning, EnvironmentBuilder: req.EnvironmentBuilder, LastActivityAt: &now,
+		SudoEnabled: policy.AllowSudo,
 	}
 	if repositoryModel != nil {
 		machine.RepositoryAffinityID = &repositoryModel.ID
@@ -2051,12 +2052,21 @@ func (s *DevMachineService) UpdatePolicy(ctx context.Context, workspaceID uuid.U
 		AllowedRepositories: repositories, AllowCustomProviders: req.AllowCustomProviders, IdlePauseMinutes: idlePauseMinutes,
 		AllowUnattendedAutomations: req.AllowUnattendedAutomations,
 	}
+	// The Docker and sudo switches are kept when an older client omits them.
+	if req.AllowDocker == nil || req.AllowSudo == nil {
+		current, err := s.store.GetPolicy(ctx, workspaceID)
+		if err != nil {
+			return nil, err
+		}
+		if current != nil {
+			policy.AllowDocker, policy.AllowSudo = current.AllowDocker, current.AllowSudo
+		}
+	}
 	if req.AllowDocker != nil {
 		policy.AllowDocker = *req.AllowDocker
-	} else if current, err := s.store.GetPolicy(ctx, workspaceID); err != nil {
-		return nil, err
-	} else if current != nil {
-		policy.AllowDocker = current.AllowDocker
+	}
+	if req.AllowSudo != nil {
+		policy.AllowSudo = *req.AllowSudo
 	}
 	name, email := strings.TrimSpace(req.AgentGitName), strings.TrimSpace(req.AgentGitEmail)
 	if (name == "") != (email == "") || !validGitAuthor(name, email) {

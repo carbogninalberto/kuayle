@@ -282,7 +282,9 @@ type DevMachinePolicyRequest struct {
 	AllowCustomProviders       bool     `json:"allow_custom_providers"`
 	AllowUnattendedAutomations bool     `json:"allow_unattended_automations"`
 	// AllowDocker is optional: omitted, the current choice is kept.
-	AllowDocker      *bool  `json:"allow_docker"`
+	AllowDocker *bool `json:"allow_docker"`
+	// AllowSudo is optional: omitted, the current choice is kept.
+	AllowSudo        *bool  `json:"allow_sudo"`
 	AgentGitName     string `json:"agent_git_name" validate:"omitempty,max=100"`
 	AgentGitEmail    string `json:"agent_git_email" validate:"omitempty,max=254"`
 	IdlePauseMinutes int    `json:"idle_pause_minutes" validate:"omitempty,min=5,max=10080"`

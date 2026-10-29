@@ -497,3 +497,57 @@ func TestEnvironmentImageReferencesPreferDigestAndCleanupFallsBackToTag(t *testi
 	require.Equal(t, digest, environmentImageCleanupReference(environment))
 	require.Equal(t, "kuayle/dev-environment-test:snapshot", environmentImageCleanupReference(&domain.DevMachineEnvironment{ImageRef: "kuayle/dev-environment-test:snapshot"}))
 }
+
+// A machine created while the workspace allows sudo gets developer containers
+// whose root filesystem is writable and which may gain privileges through
+// sudo, with Docker's default capabilities minus raw sockets: never
+// privileged, never NET_ADMIN or SYS_ADMIN, still on the machine network
+// behind the egress proxy and still under the configured seccomp and AppArmor
+// profiles. Agent attempts and the support containers stay locked.
+func TestSudoMachinesRelaxOnlyTheDeveloperContainers(t *testing.T) {
+	runtime := &DockerRuntime{config: DockerConfig{SeccompProfile: "/etc/kuayle/seccomp.json", AppArmorProfile: "kuayle-machine"}}
+	sudo := &domain.DevMachine{MemoryMB: 4096, CPUMillis: 2000, PidsLimit: 512, SudoEnabled: true}
+	locked := &domain.DevMachine{MemoryMB: 4096, CPUMillis: 2000, PidsLimit: 512}
+
+	for _, serviceType := range []string{"ide", "terminal"} {
+		relaxed := runtime.secureHostConfig(sudo, serviceType, "machine-network", "workspace-volume")
+		require.False(t, relaxed.ReadonlyRootfs, serviceType)
+		require.False(t, relaxed.Privileged, serviceType)
+		require.NotContains(t, relaxed.SecurityOpt, "no-new-privileges=true", serviceType)
+		require.Contains(t, relaxed.SecurityOpt, "seccomp=/etc/kuayle/seccomp.json", serviceType)
+		require.Contains(t, relaxed.SecurityOpt, "apparmor=kuayle-machine", serviceType)
+		require.Empty(t, relaxed.CapAdd, serviceType)
+		require.Equal(t, []string{"NET_RAW"}, relaxed.CapDrop, serviceType)
+		require.Equal(t, container.NetworkMode("machine-network"), relaxed.NetworkMode, serviceType)
+		require.Empty(t, relaxed.Binds, serviceType)
+		for _, mounted := range relaxed.Mounts {
+			require.NotContains(t, mounted.Source, "docker.sock", serviceType)
+		}
+
+		same := runtime.secureHostConfig(locked, serviceType, "machine-network", "workspace-volume")
+		require.Equal(t, same.Resources, relaxed.Resources, "sudo does not change the container's resources")
+		require.True(t, same.ReadonlyRootfs, serviceType)
+		require.Equal(t, []string{"ALL"}, same.CapDrop, serviceType)
+		require.Contains(t, same.SecurityOpt, "no-new-privileges=true", serviceType)
+	}
+	for _, serviceType := range []string{"agent", "collector", "browser", "egress"} {
+		hostConfig := runtime.secureHostConfig(sudo, serviceType, "machine-network", "workspace-volume")
+		require.True(t, hostConfig.ReadonlyRootfs, serviceType)
+		require.Equal(t, []string{"ALL"}, hostConfig.CapDrop, serviceType)
+		require.Contains(t, hostConfig.SecurityOpt, "no-new-privileges=true", serviceType)
+	}
+}
+
+// Agent attempts that run on a developer image (the headless providers) keep
+// using the image's pinned CLIs: the workspace npm prefix, which people and
+// agents can write, is removed from their PATH.
+func TestAgentAttemptsDoNotRunCLIsFromTheWorkspaceNpmPrefix(t *testing.T) {
+	environment := agentImageEnvironment([]string{
+		"HOME=/home/kuayle",
+		"PATH=/workspace/.kuayle/npm-global/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/workspace/.kuayle/npm-global/bin",
+		"NPM_CONFIG_GLOBALCONFIG=/etc/npmrc",
+	})
+	require.Equal(t, []string{"HOME=/home/kuayle", "PATH=/usr/local/go/bin:/usr/local/bin:/usr/bin", "NPM_CONFIG_GLOBALCONFIG=/etc/npmrc"}, environment)
+	unchanged := []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}
+	require.Equal(t, unchanged, agentImageEnvironment(unchanged), "agent images are unaffected")
+}

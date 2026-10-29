@@ -55,6 +55,8 @@ type ManagerStore interface {
 	ListServices(context.Context, uuid.UUID, uuid.UUID) ([]domain.DevMachineService, error)
 	// DockerAllowed reports the workspace policy's Docker daemon switch.
 	DockerAllowed(context.Context, uuid.UUID) (bool, error)
+	// SudoAllowed reports the workspace policy's sudo switch.
+	SudoAllowed(context.Context, uuid.UUID) (bool, error)
 	ListEnvVarsInternal(context.Context, uuid.UUID, *string, string) ([]domain.DevMachineEnvVar, error)
 	GetModelServer(context.Context, uuid.UUID, *uuid.UUID) (*domain.AgentModelServer, error)
 	GetAgentSignIn(context.Context, uuid.UUID, uuid.UUID, string) (string, error)
@@ -421,6 +423,15 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 		}
 		if !allowed {
 			return &terminalOperationError{code: "docker_not_allowed", message: "this machine has a Docker daemon, which the workspace no longer allows; delete it and create a new machine"}
+		}
+	}
+	if (operation.Action == domain.DevMachineOpSpawn || operation.Action == domain.DevMachineOpStart) && machine.SudoEnabled {
+		allowed, err := m.store.SudoAllowed(ctx, machine.WorkspaceID)
+		if err != nil {
+			return err
+		}
+		if !allowed {
+			return &terminalOperationError{code: "sudo_not_allowed", message: "this machine was created with sudo, which the workspace no longer allows; delete it and create a new machine"}
 		}
 	}
 	switch operation.Action {

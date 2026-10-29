@@ -465,6 +465,46 @@ func TestDevMachinePolicyDockerSwitchIsKeptUnlessSent(t *testing.T) {
 	require.False(t, store.policy.AllowDocker)
 }
 
+// Sudo is off by default. A policy update without allow_sudo (an older
+// client) keeps the current choice, and it is independent of allow_docker.
+func TestDevMachinePolicySudoSwitchIsKeptUnlessSent(t *testing.T) {
+	workspaceID := uuid.New()
+	store := &handlerDevMachineStoreFake{policy: &domain.DevMachineWorkspacePolicy{
+		WorkspaceID: workspaceID, Enabled: true, MaxConcurrentMachines: 5, MaxMachinesPerUser: 2,
+		MaxDailyAgentRuns: 25, MaxRuntimeMinutes: 480, MaxDiskGB: 100, IdlePauseMinutes: 240,
+		AllowedProviders: json.RawMessage(`["opencode"]`), AllowedRepositories: json.RawMessage(`[]`), AllowDocker: true,
+	}}
+	h := NewDevMachineHandler(service.NewDevMachineService(
+		store, agent.NewRegistry(), true, "machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, service.DevMachineImages{},
+	), config.DiskQuotaModeHard)
+	update := func(extra string) domain.DevMachineWorkspacePolicy {
+		t.Helper()
+		body := `{"enabled":true,"max_concurrent_machines":5,"max_machines_per_user":2,"max_daily_agent_runs":25,
+			"max_runtime_minutes":480,"max_disk_gb":100,"allowed_providers":["opencode"],"allowed_repositories":[],
+			"idle_pause_minutes":240` + extra + `}`
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPatch, "/dev-machine-policy", strings.NewReader(body))
+		request.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		require.NoError(t, h.UpdatePolicy(devMachineHandlerContext(request, recorder, workspaceID, uuid.New())))
+		require.Equal(t, http.StatusOK, recorder.Code)
+		var updated domain.DevMachineWorkspacePolicy
+		require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &updated))
+		return updated
+	}
+	first := update("")
+	require.False(t, first.AllowSudo, "off by default")
+	require.True(t, first.AllowDocker, "the Docker switch is kept")
+	require.True(t, update(`,"allow_sudo":true`).AllowSudo)
+	require.True(t, store.policy.AllowSudo)
+	kept := update("")
+	require.True(t, kept.AllowSudo, "omitting the field keeps it on")
+	require.True(t, kept.AllowDocker)
+	off := update(`,"allow_sudo":false,"allow_docker":true`)
+	require.False(t, off.AllowSudo)
+	require.True(t, off.AllowDocker)
+	require.False(t, store.policy.AllowSudo)
+}
+
 func TestDevMachineCreateRejectsInvalidCustomResources(t *testing.T) {
 	workspaceID, userID := uuid.New(), uuid.New()
 	for _, test := range []struct {

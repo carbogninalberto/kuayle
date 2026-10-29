@@ -43,3 +43,14 @@ User:       1000:1000
 The runner loads scoped secrets, writes the model server Codex config only when
 the file is absent, installs the Git credential helper, and executes the argv. This
 matches `DockerRuntime.RunAgent` and keeps the image CMD out of autonomous runs.
+
+## Sudo and global npm installs
+
+The image ships `sudo` with a passwordless rule for UID 1000. It works only in
+containers the runtime creates without `no-new-privileges`, which it does for
+the developer terminal of machines created while the workspace allows sudo
+(`allow_sudo`); autonomous agent runs stay locked. `/etc/npmrc`
+(`NPM_CONFIG_GLOBALCONFIG`) sends global npm installs to
+`/workspace/.kuayle/npm-global`, first on `PATH` (agent runs drop it from
+theirs), so `npm i -g @anthropic-ai/claude-code` works without sudo. See
+`TECHNICAL.md` "Sudo in machines".

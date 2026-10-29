@@ -140,7 +140,7 @@
 				getDevMachinePolicy(slug), getGitHubStatus(slug),
 				getDevMachineScopeSetting(slug, 'workspace'), listDevMachineEnvironments(slug)
 			]);
-			policy = { ...loaded, allowed_providers: loaded.allowed_providers ?? [], allowed_repositories: loaded.allowed_repositories ?? [], allow_unattended_automations: loaded.allow_unattended_automations ?? false, allow_docker: loaded.allow_docker ?? false };
+			policy = { ...loaded, allowed_providers: loaded.allowed_providers ?? [], allowed_repositories: loaded.allowed_repositories ?? [], allow_unattended_automations: loaded.allow_unattended_automations ?? false, allow_docker: loaded.allow_docker ?? false, allow_sudo: loaded.allow_sudo ?? false };
 			repositories = policy.allowed_repositories.join('\n');
 			linkedRepositories = github.repos ?? [];
 			environments = availableEnvironments ?? [];
@@ -174,6 +174,7 @@
 				allow_custom_providers: policy.allow_custom_providers,
 				allow_unattended_automations: policy.allow_unattended_automations,
 				allow_docker: policy.allow_docker ?? false,
+				allow_sudo: policy.allow_sudo ?? false,
 				agent_git_name: (policy.agent_git_name ?? '').trim(),
 				agent_git_email: (policy.agent_git_email ?? '').trim(),
 				idle_pause_minutes: policy.idle_pause_minutes
@@ -300,6 +301,17 @@
 			<div class="space-y-1">
 				<label class="flex items-center gap-2 text-sm"><Switch bind:checked={policy.allow_docker} aria-describedby="allow-docker-desc" />{m['settings.dev_machines.allow_docker']()}</label>
 				<p id="allow-docker-desc" class="text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.allow_docker_desc']()}</p>
+			</div>
+			<div class="space-y-2">
+				<label class="flex items-center gap-2 text-sm"><Switch bind:checked={policy.allow_sudo} aria-describedby="allow-sudo-desc" />{m['settings.dev_machines.allow_sudo']()}</label>
+				<p id="allow-sudo-desc" class="text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.allow_sudo_desc']()}</p>
+				{#if policy.allow_sudo}
+					<Alert.Root class="border-[var(--color-warning)] bg-[var(--color-bg-secondary)] text-[var(--color-warning)]">
+						<TriangleAlert />
+						<Alert.Title>{m['settings.dev_machines.allow_sudo_warning_title']()}</Alert.Title>
+						<Alert.Description class="text-[var(--color-text-secondary)]">{m['settings.dev_machines.allow_sudo_warning']()}</Alert.Description>
+					</Alert.Root>
+				{/if}
 			</div>
 		</section>
 		<section class="space-y-3 rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-5">

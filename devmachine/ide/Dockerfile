@@ -36,6 +36,9 @@ COPY ide/checkout.sh /usr/local/bin/kuayle-checkout
 COPY ide/terminal-session.sh /usr/local/bin/kuayle-terminal-session
 COPY ide/command-event.js /usr/local/lib/kuayle-command-event.js
 COPY ide/tmux.conf /etc/tmux.conf
+# Passwordless sudo for the machine user stays inert: containers run with
+# no-new-privileges and without capabilities unless the workspace allows sudo
+# (allow_sudo) or the machine builds an environment. See TECHNICAL.md.
 ARG SECURITY_REFRESH=initial
 RUN rm -f /usr/bin/pebble \
     && apt-get update \
@@ -97,11 +100,19 @@ RUN rm -f /usr/bin/pebble \
     && ttyd --version \
     && rm -rf /root/.config/code-server \
     && user_name=$(getent passwd 1000 | cut -d: -f1) \
-    && printf '%s ALL=(ALL) NOPASSWD:ALL\n' "$user_name" > /etc/sudoers.d/kuayle-builder \
-    && chmod 0440 /etc/sudoers.d/kuayle-builder
+    && printf '%s ALL=(ALL) NOPASSWD:ALL\n' "$user_name" > /etc/sudoers.d/kuayle \
+    && chmod 0440 /etc/sudoers.d/kuayle \
+    && visudo -cf /etc/sudoers.d/kuayle \
+    && printf 'prefix=/workspace/.kuayle/npm-global\nallow-scripts=@anthropic-ai/claude-code\n' > /etc/npmrc
 
+# Global npm installs (npm i -g, Claude Code's updater) go to the persistent
+# workspace volume, ahead of the image's CLIs on PATH, so they work without sudo.
+# /etc/npmrc is npm's global config (projects and ~/.npmrc override it); it lets
+# Claude Code's install script fetch its native binary, as the image build does.
 USER 1000:1000
 ENV HOME=/home/kuayle \
-    LANG=C.UTF-8
+    LANG=C.UTF-8 \
+    NPM_CONFIG_GLOBALCONFIG=/etc/npmrc \
+    PATH="/workspace/.kuayle/npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 EXPOSE 8080 7681
 CMD ["/usr/local/bin/kuayle-ide-start"]

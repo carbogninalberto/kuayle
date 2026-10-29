@@ -236,6 +236,59 @@ ports are kept. Pausing freezes the processes, which resume with the machine.
 The machine page lists ports, detected listeners, and expose, rename, open and
 remove controls; a task card starts, stops and opens its app.
 
+## Sudo in machines
+
+Workspace administrators can allow passwordless `sudo` in the developer
+containers (IDE and terminal) of new machines, for example to `apt-get install`
+system packages. It is off by default: migration 93 adds
+`dev_machine_workspace_policies.allow_sudo` (Settings → Dev Machines → policy)
+and `dev_machines.sudo_enabled`, which records the switch when a machine is
+created. A policy update that omits `allow_sudo` keeps the current value, and a
+workspace import resets it to off. Once it is turned off, spawning or starting
+a machine created with sudo fails with `sudo_not_allowed` (the machine must be
+recreated): its containers keep the configuration they were created with.
+
+**Containers.** Both developer images install `sudo` with an
+`/etc/sudoers.d/kuayle` rule (`NOPASSWD:ALL` for UID 1000), inert under the
+default `no-new-privileges` and `CapDrop: ALL`. For `sudo_enabled` machines,
+`secureHostConfig` gives `ide` and `terminal` containers a writable root
+filesystem, no `no-new-privileges`, and Docker's default capability set minus
+`NET_RAW`. They are never privileged, get no `NET_ADMIN`/`SYS_ADMIN`/`CapAdd`,
+no host mounts or Docker socket, keep the configured seccomp/AppArmor profiles,
+resources and machine network, so egress still goes through the machine's
+proxy. Root-filesystem changes last until the container is recreated; only
+`/workspace` (and the in-memory home until a restart) is kept otherwise.
+
+**Agent attempts stay locked.** Agent containers, collector, browser and egress
+never get these relaxations. Autonomous attempts run unattended on prompts that
+can include untrusted issue, comment and repository content; root there would
+widen what a prompt injection can do (install persistent tooling, read every
+file regardless of ownership) without a person to notice, while agents already
+have everything they need in their images. The agent images ship no `sudo`;
+attempts of the providers that run on the headless image keep its sudoers rule
+inert under the locked configuration, and their `PATH` omits the workspace npm
+prefix below, so they run the image's pinned CLIs. Anything an agent writes to
+`/workspace` (including that prefix and Git hooks) can still run later in a
+person's terminal, with sudo if the machine has it; review agent changes as
+before.
+
+**Upgrading CLIs without sudo.** Both developer images point npm's global
+config at `/etc/npmrc` (`NPM_CONFIG_GLOBALCONFIG`), which sets
+`prefix=/workspace/.kuayle/npm-global` and lets Claude Code's install script
+run (`allow-scripts=@anthropic-ai/claude-code`), and put
+`/workspace/.kuayle/npm-global/bin` first on `PATH`. `npm i -g
+@anthropic-ai/claude-code` or `claude update` therefore works on every machine,
+with or without sudo, and the upgrade survives restarts on the workspace volume
+(the terminal, IDE and agent containers of a machine share it; agents keep
+using their images' pinned CLIs). Project and `~/.npmrc` settings override `/etc/npmrc`.
+
+`TestSudoMachinesGetRootWithoutLeavingTheSandbox`
+(`KUAYLE_SUDO_INTEGRATION=1`, `KUAYLE_TEST_DISK_QUOTA_MODE=monitored` on a
+developer machine, and the `KUAYLE_TEST_{HEADLESS,COLLECTOR,EGRESS}_IMAGE`
+images) spawns a real headless machine and checks root, the capability set,
+that root cannot bypass the egress proxy, global npm installs, a restart, and
+that agent and non-sudo containers cannot use sudo.
+
 ## Machine Docker daemon
 
 Workspace administrators can give machines their own Docker daemon so people
@@ -541,7 +594,7 @@ Machine sizes are aggregate admission profiles:
 | medium | 4 vCPU | 8 GB | 50 GB | 4 hours |
 | large | 8 vCPU | 16 GB | 100 GB | 8 hours |
 
-The manager assigns a bounded percentage of the profile to each service and applies Docker `NanoCPUs`, memory, memory-swap, and PID limits. The IDE and browser each receive 25%, an agent run 35%, and the collector and egress 5% each; a headless machine's terminal container receives 50%, the IDE and browser shares it replaces. Non-builder workloads use a read-only root filesystem, tmpfs scratch paths, `CapDrop=ALL`, `no-new-privileges`, the Docker default seccomp profile or a configured replacement, and AppArmor where available. Environment Builder deliberately relaxes the developer container root filesystem so owners/admins can install tooling before snapshot. Docker's `json-file` logs rotate at 10 MiB with three files per container, and removal paths also remove anonymous image volumes.
+The manager assigns a bounded percentage of the profile to each service and applies Docker `NanoCPUs`, memory, memory-swap, and PID limits. The IDE and browser each receive 25%, an agent run 35%, and the collector and egress 5% each; a headless machine's terminal container receives 50%, the IDE and browser shares it replaces. Non-builder workloads use a read-only root filesystem, tmpfs scratch paths, `CapDrop=ALL`, `no-new-privileges`, the Docker default seccomp profile or a configured replacement, and AppArmor where available. Environment Builder deliberately relaxes the developer container root filesystem so owners/admins can install tooling before snapshot, and a workspace that allows sudo relaxes its developer containers (see [Sudo in machines](#sudo-in-machines)). Docker's `json-file` logs rotate at 10 MiB with three files per container, and removal paths also remove anonymous image volumes.
 
 Workspace policy controls:
 
@@ -554,7 +607,8 @@ Workspace policy controls:
 - allowed providers;
 - allowed repositories;
 - whether custom providers are allowed;
-- whether new machines get their own Docker daemon (`allow_docker`, default off).
+- whether new machines get their own Docker daemon (`allow_docker`, default off);
+- whether the developer containers of new machines allow sudo (`allow_sudo`, default off).
 
 ### Disk Limitation
 
@@ -709,6 +763,8 @@ Migration `000051_dev_machine_agents_headless` adds the `dev_machines.profile` v
 Migration `000052_dev_machine_deepseek` adds workspace model credentials and persists each agent run's non-secret command environment so a Claude Code effort override survives queueing.
 
 Migration `000089_dev_machine_docker` adds `dev_machine_workspace_policies.allow_docker` (default false), the `docker` service type, `dev_machine_ports.target` (`developer` or `docker`) and `dev_machines.docker_listening_ports`. Its rollback deletes `docker` service rows (tear such machines down first; their containers and volumes are otherwise left for manual removal) and port targets; ports are kept and stay unlimited in number.
+
+Migration `000093_dev_machine_sudo` adds `dev_machine_workspace_policies.allow_sudo` and `dev_machines.sudo_enabled` (both default false). Its rollback drops both columns; containers already created with sudo keep their configuration, so delete those machines first.
 
 All user-facing repository access is constrained by both `workspace_id` and resource ID. Internal manager lookups are limited to the trusted manager process.
 
@@ -904,6 +960,7 @@ The self-hosting `dev-machine-images` profile builds the IDE, headless developer
 - Pinned Chrome Stable packages for amd64 and arm64 run through KasmVNC in a separately hardened non-root container. The browser's internal sandbox is disabled because Docker namespace restrictions conflict with its setup. The browser must not receive provider or GitHub secrets.
 - Domain egress controls cannot prevent exfiltration to an explicitly allowed destination.
 - A machine's own Docker daemon (opt-in, `allow_docker`) runs with relaxed seccomp/AppArmor, unmasked proc/sys and `SETUID`/`SETGID` unless `DEV_MACHINE_DOCKER_RUNTIME` selects Sysbox. Machine users control a rootless daemon in its own user namespace, so a kernel user-namespace or mount vulnerability is more exposed from that container than from the other, fully confined, machine containers. It is never privileged and reaches nothing beyond the machine network and the egress proxy.
+- With sudo allowed (opt-in, `allow_sudo`), machine users are root in their IDE and terminal containers, with Docker's default capabilities minus `NET_RAW`, a writable root filesystem and no `no-new-privileges`. It is never privileged or given `NET_ADMIN`/`SYS_ADMIN`, and egress still goes through the proxy, but root in a container exposes more kernel surface (and anything readable inside the container regardless of file ownership) than the confined default. Agent attempts never get sudo.
 - Compose support for checks is a constrained subset run by the manager, not `docker compose`. Builds, mounts, privileges, host networking and published ports are rejected, because arbitrary untrusted Compose execution needs an isolated Docker daemon. Image pulls run on the host daemon, outside the egress proxy, so `DEV_MACHINE_COMPOSE_IMAGES` restricts them to official Docker Hub images by default.
 - The default model server's key is delivered into every developer container, and a run's server key into its agent container, so any member who can create a machine can read it from a terminal or have an agent reveal it. The API never returns it, but treat model server keys as shared with those members (SECURITY_AUDIT.md KS-08).
 - Command and filesystem collection is best-effort and can be bypassed by trusted workspace code.

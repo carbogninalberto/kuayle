@@ -792,7 +792,7 @@ func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine
 		Config: &container.Config{
 			Image: provider.ImageRef, User: "1000:1000", WorkingDir: workingDirectory,
 			Entrypoint: entrypoint, Cmd: argv,
-			Env: mergeEnvironment(imageEnvironment, runtimeEnvironment...), Labels: labels,
+			Env: mergeEnvironment(agentImageEnvironment(imageEnvironment), runtimeEnvironment...), Labels: labels,
 			AttachStdout: true, AttachStderr: true, AttachStdin: run.Mode == "interactive",
 			OpenStdin: run.Mode == "interactive", Tty: run.Mode == "interactive",
 		},
@@ -1504,6 +1504,17 @@ func (r *DockerRuntime) secureHostConfig(machine *domain.DevMachine, serviceType
 		hostConfig.ReadonlyRootfs = false
 		hostConfig.CapDrop = nil
 		hostConfig.SecurityOpt = securityOptions[1:]
+	} else if machine.SudoEnabled && (serviceType == "ide" || serviceType == "terminal") {
+		// The workspace allows sudo: the image's passwordless sudoers rule takes
+		// effect once privileges may be gained, and packages can be installed
+		// into the root filesystem until the container is recreated. Docker's
+		// default capabilities apply minus NET_RAW (no raw sockets on the
+		// machine network); never privileged, NET_ADMIN or SYS_ADMIN, so root
+		// cannot change routes or firewall rules and egress still goes through
+		// the machine's proxy. Agent attempts are never relaxed.
+		hostConfig.ReadonlyRootfs = false
+		hostConfig.CapDrop = []string{"NET_RAW"}
+		hostConfig.SecurityOpt = securityOptions[1:]
 	}
 	if serviceType == "browser" {
 		hostConfig.ShmSize = 512 * 1024 * 1024
@@ -1569,6 +1580,31 @@ func (r *DockerRuntime) imageConfig(ctx context.Context, reference string) ([]st
 		return nil, nil, fmt.Errorf("image %s declares unmanaged volumes", reference)
 	}
 	return append([]string(nil), inspection.Config.Cmd...), append([]string(nil), inspection.Config.Env...), nil
+}
+
+// workspaceNpmBin is where developer images install global npm packages, on
+// the workspace volume and first on their PATH.
+const workspaceNpmBin = "/workspace/.kuayle/npm-global/bin"
+
+// agentImageEnvironment removes the workspace npm prefix from an image's PATH,
+// so agent attempts on a developer image run the image's pinned CLIs rather
+// than whatever was installed on the workspace volume.
+func agentImageEnvironment(environment []string) []string {
+	result := make([]string, 0, len(environment))
+	for _, item := range environment {
+		if value, ok := strings.CutPrefix(item, "PATH="); ok {
+			entries := strings.Split(value, ":")
+			kept := entries[:0]
+			for _, entry := range entries {
+				if entry != workspaceNpmBin {
+					kept = append(kept, entry)
+				}
+			}
+			item = "PATH=" + strings.Join(kept, ":")
+		}
+		result = append(result, item)
+	}
+	return result
 }
 
 func mergeEnvironment(base []string, overrides ...string) []string {
