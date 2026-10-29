@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { tick } from 'svelte';
-	import { ArrowLeft, Code2, ExternalLink, GitBranch, Pause, Play, Save, Server, ServerOff, Square, SquareTerminal, Trash2, Loader } from '@lucide/svelte';
+	import { ArrowLeft, CircleAlert, Code2, ExternalLink, Gauge, GitBranch, Pause, Play, Save, Server, ServerOff, Square, SquareTerminal, Trash2, Loader } from '@lucide/svelte';
 	import { goto, replaceState } from '$app/navigation';
+	import * as Alert from '$lib/components/ui/alert';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import * as Card from '$lib/components/ui/card';
 	import * as Dialog from '$lib/components/ui/dialog';
@@ -19,6 +20,9 @@
 	import MachineStatusBadge from '$lib/features/dev-machines/MachineStatusBadge.svelte';
 	import MachineTasksCard from '$lib/features/dev-machines/MachineTasksCard.svelte';
 	import AppPortsCard from '$lib/features/dev-machines/AppPortsCard.svelte';
+	import MachineResizeDialog from '$lib/features/dev-machines/MachineResizeDialog.svelte';
+	import { canResizeMachine, pendingResize } from '$lib/features/dev-machines/machine-resize';
+	import { formatMachineResource, memoryGb } from '$lib/features/dev-machines/machine-size';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { appendRecentTelemetry, DEV_MACHINE_EVENT_RETENTION, DEV_MACHINE_LOG_RETENTION } from '$lib/features/dev-machines/telemetry-retention';
 	import { useTerminalDock } from '$lib/features/dev-machines/terminal-dock-context.svelte';
@@ -55,6 +59,7 @@
 	let teardownConfirm = $state(false);
 	let deleteConfirm = $state(false);
 	let snapshotOpen = $state(false);
+	let resizeOpen = $state(false);
 	let snapshotName = $state('');
 	let snapshotBusy = $state(false);
 	let checkoutAttempted = false;
@@ -80,6 +85,19 @@
 			latestUsage.disk_bytes >= machine.disk_gb * 1024 ** 3 * 0.9
 	);
 	const canAdminDevMachines = $derived(workspaceRole === 'owner' || workspaceRole === 'admin');
+	// Resizing, like the other machine changes, is for the machine's creator.
+	const canManageMachine = $derived(!!machine && (!machine.created_by_user_id || machine.created_by_user_id === authState.user?.id));
+	const resizable = $derived(!!machine && canResizeMachine(machine));
+	const pendingSize = $derived(machine ? pendingResize(machine) : null);
+	const pendingSizeLabel = $derived(
+		pendingSize
+			? m['machines.resource_summary']({
+					cpu: formatMachineResource(pendingSize.cpu_millis / 1000, m['machines.cpu_unit']()),
+					memory: formatMachineResource(memoryGb(pendingSize.memory_mb), m['machines.memory_summary_unit']()),
+					disk: formatMachineResource(pendingSize.disk_gb, m['machines.disk_summary_unit']())
+				})
+			: ''
+	);
 	const ideService = $derived(services.find((item) => item.service_type === 'ide'));
 	const terminalService = $derived(services.find((item) => item.service_type === 'terminal'));
 
@@ -131,6 +149,7 @@
 		teardownConfirm = false;
 		deleteConfirm = false;
 		snapshotOpen = false;
+		resizeOpen = false;
 		snapshotName = '';
 		snapshotBusy = false;
 		checkoutAttempted = false;
@@ -479,6 +498,11 @@
 						<Loader size={10} class="animate-spin" /> {m['machines.transitioning']()}
 					</span>
 				{/if}
+				{#if pendingSize}
+					<span data-testid="machine-resize-pending" class="hidden items-center gap-1 rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-[10px] font-semibold text-blue-400 sm:inline-flex">
+						<Loader size={10} class="animate-spin" /> {m['machines.resize_pending']({ size: pendingSizeLabel })}
+					</span>
+				{/if}
 			</div>
 			<div class="flex items-center gap-1">
 				{#if machine.environment_builder && (machine.status === 'paused' || machine.status === 'stopped')}
@@ -491,6 +515,9 @@
 				{#if (machine.status === 'paused' || machine.status === 'stopped' || machine.status === 'failed') && !isPending}
 					<Button variant="ghost" size="icon-sm" disabled={actionBusy} onclick={() => lifecycle('start')} title={m['machines.start']()}><Play size={15} /></Button>
 				{/if}
+				{#if canManageMachine}
+					<Button variant="ghost" size="icon-sm" disabled={actionBusy || !resizable} onclick={() => (resizeOpen = true)} title={resizable ? m['machines.resize']() : m['machines.resize_unavailable']()} aria-label={m['machines.resize']()}><Gauge size={15} /></Button>
+				{/if}
 				<Button variant="ghost" size="icon-sm" disabled={actionBusy || machine.status === 'destroyed'} onclick={() => (teardownConfirm = true)} title={m['machines.teardown_runtime']()}><ServerOff size={15} /></Button>
 				{#if canAdminDevMachines}
 					<Button variant="destructive" size="icon-sm" disabled={actionBusy} onclick={() => (deleteConfirm = true)} title={m['machines.delete_permanently']()}><Trash2 size={15} /></Button>
@@ -500,6 +527,27 @@
 
 		<div class="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
 			<div class="mx-auto max-w-6xl space-y-5">
+				{#if pendingSize}
+					<p class="text-xs text-blue-400 sm:hidden">{m['machines.resize_pending']({ size: pendingSizeLabel })}</p>
+				{/if}
+				{#if machine.resource_limit_kind && machine.resource_limit_message}
+					<Alert.Root variant="destructive" data-testid="machine-resource-limit">
+						<CircleAlert />
+						<Alert.Title>{machine.resource_limit_kind === 'disk' ? m['machines.resource_limit_disk']() : m['machines.resource_limit_memory']()}</Alert.Title>
+						<Alert.Description>
+							<p>{machine.resource_limit_message}</p>
+							{#if machine.resource_limit_at}<p class="text-xs">{m['machines.resource_limit_at']({ time: new Date(machine.resource_limit_at).toLocaleString() })}</p>{/if}
+							{#if canManageMachine && resizable}<Button size="sm" variant="outline" class="mt-2" onclick={() => (resizeOpen = true)}><Gauge size={13} />{m['machines.resize']()}</Button>{/if}
+						</Alert.Description>
+					</Alert.Root>
+				{/if}
+				{#if machine.resize_error}
+					<Alert.Root variant="destructive" data-testid="machine-resize-error">
+						<CircleAlert />
+						<Alert.Title>{m['machines.resize_rejected']()}</Alert.Title>
+						<Alert.Description>{machine.resize_error}</Alert.Description>
+					</Alert.Root>
+				{/if}
 				<section class="grid gap-3 md:grid-cols-4">
 					<div class="rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-4 md:col-span-2"><p class="text-[10px] uppercase tracking-wider text-[var(--color-text-tertiary)]">{m['machines.repository_affinity']()}</p>{#if machine.repo_owner && machine.repo_name}<p class="mt-2 text-sm font-medium">{machine.repo_owner}/{machine.repo_name}</p><p class="mt-1 flex items-center gap-1 text-xs text-[var(--color-text-tertiary)]"><GitBranch size={12} />{checkouts.length} issue {checkouts.length === 1 ? 'branch' : 'branches'}</p>{:else}<p class="mt-2 text-sm text-[var(--color-text-tertiary)]">{m['machines.no_repository_attached']()}</p>{/if}</div>
 					<div class="rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-4"><p class="text-[10px] uppercase tracking-wider text-[var(--color-text-tertiary)]">{m['machines.cpu_memory']()}</p><p class="mt-2 text-sm font-medium">{latestUsage?.cpu_percent.toFixed(1) ?? '0.0'}% · {bytes(latestUsage?.memory_bytes)}</p><p class="mt-1 text-xs text-[var(--color-text-tertiary)]">Limit {machine.cpu_millis / 1000} CPU / {machine.memory_mb / 1024} GB</p></div>
@@ -589,5 +637,6 @@
 
 	<AlertDialog.Root bind:open={teardownConfirm}><AlertDialog.Content><AlertDialog.Header><AlertDialog.Title>{m['machines.teardown_title']()}</AlertDialog.Title><AlertDialog.Description>{m['machines.teardown_desc']()}</AlertDialog.Description></AlertDialog.Header><AlertDialog.Footer><AlertDialog.Cancel>{m['common.cancel']()}</AlertDialog.Cancel><AlertDialog.Action onclick={teardown}>{m['machines.teardown_action']()}</AlertDialog.Action></AlertDialog.Footer></AlertDialog.Content></AlertDialog.Root>
 	<AlertDialog.Root bind:open={deleteConfirm}><AlertDialog.Content><AlertDialog.Header><AlertDialog.Title>{m['machines.delete_title']()}</AlertDialog.Title><AlertDialog.Description>{m['machines.delete_desc']()}</AlertDialog.Description></AlertDialog.Header><AlertDialog.Footer><AlertDialog.Cancel>{m['common.cancel']()}</AlertDialog.Cancel><AlertDialog.Action variant="destructive" onclick={removeMachine} disabled={actionBusy}>{actionBusy ? m['machines.deleting']() : m['machines.delete_action']()}</AlertDialog.Action></AlertDialog.Footer></AlertDialog.Content></AlertDialog.Root>
+	<MachineResizeDialog bind:open={resizeOpen} {slug} {machine} {policy} onresized={(updated) => (machine = updated)} />
 	<Dialog.Root bind:open={snapshotOpen}><Dialog.Content class="sm:max-w-md"><Dialog.Header><Dialog.Title>{m['machines.snapshot_title']()}</Dialog.Title><Dialog.Description>{m['machines.snapshot_desc']()}</Dialog.Description></Dialog.Header><label class="space-y-1.5"><Label for="snapshot-name">{m['machines.environment_name']()}</Label><Input id="snapshot-name" bind:value={snapshotName} /></label><Dialog.Footer><Button variant="outline" onclick={() => (snapshotOpen = false)}>{m['common.cancel']()}</Button><Button onclick={saveSnapshot} disabled={snapshotBusy || !snapshotName.trim()}>{snapshotBusy ? m['machines.queuing']() : m['machines.save_snapshot']()}</Button></Dialog.Footer></Dialog.Content></Dialog.Root>
 {/if}

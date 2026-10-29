@@ -57,7 +57,7 @@ export function getDevMachine(slug: string, machineId: string): Promise<DevMachi
 export function updateDevMachine(
 	slug: string,
 	machineId: string,
-	input: { keep_running?: boolean }
+	input: { keep_running?: boolean; cpu_millis?: number; memory_mb?: number; disk_gb?: number }
 ): Promise<DevMachine> {
 	return api.patch(`${base(slug)}/dev-machines/${machineId}`, input);
 }

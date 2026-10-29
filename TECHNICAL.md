@@ -600,6 +600,45 @@ A `custom` size picks CPU (1, 2, 4, 6, 8, 12 or 16 vCPU) and memory (2, 4, 8, 12
 
 The manager assigns a bounded percentage of the profile to each service and applies Docker `NanoCPUs`, memory, memory-swap, and PID limits (`containerSharePercent` in `BE/internal/machine/docker.go`). On standard machines the IDE (which also serves the terminal) and browser each receive 25%, an agent run 35%, and the collector and egress 5% each. Headless machines (task machines among them) have no IDE or browser, so the agent receives 50% and the terminal container 40%; with a Docker daemon, which takes 40%, the agent receives 35% and the terminal 15%. The headless shares, collector and egress included, add up to the machine either way; an 8 GB task machine therefore gives its agent 4 GB (2.8 GB with Docker). Validation checks keep the 35% agent share because their compose services share another 30%. Non-builder workloads use a read-only root filesystem, tmpfs scratch paths, `CapDrop=ALL`, `no-new-privileges`, the Docker default seccomp profile or a configured replacement, and AppArmor where available. Environment Builder deliberately relaxes the developer container root filesystem so owners/admins can install tooling before snapshot, and a workspace that allows sudo relaxes its developer containers (see [Sudo in machines](#sudo-in-machines)). Docker's `json-file` logs rotate at 10 MiB with three files per container, and removal paths also remove anonymous image volumes.
 
+**Live resize.** `PATCH /dev-machines/:machineId` with any of `cpu_millis`,
+`memory_mb` and `disk_gb` (omitted values keep the current size; `keep_running`
+may be sent alongside) resizes the creator's machine while it is running, paused
+or stopped and not changing state (`dev_machine:manage`; 409 `INVALID_OPERATION`
+otherwise, including while another resize or a lifecycle operation is queued).
+The size is validated like a custom create size (`domain.DevMachineCustomSize`,
+1 GiB per vCPU) and the disk against the workspace `max_disk_gb`. Disk changes
+need monitored disk quotas (a hard XFS quota is fixed when the volume is
+created); a smaller disk is accepted only when the latest measured usage is
+below 90 % of it. The API stores the request as `pending_cpu_millis`,
+`pending_memory_mb` and `pending_disk_gb` (migration 91) and queues a `resize`
+operation at the machine's current generation, so queued work stays current.
+The manager leases a resize beside a long agent run or check (which may need the
+memory) but never beside lifecycle work. For a running or paused machine it
+admits the new size like a start; a size the host cannot fit is rejected with a
+reason instead of waiting. It then applies `docker update` (CPU, memory,
+memory-swap and PID limits) to every machine container, running or stopped,
+with the shares below, restores the previous limits if any update fails, and
+moves the pending size into `cpu_millis`/`memory_mb`/`disk_gb` (size `custom`)
+and the volumes' `size_limit_bytes`, which the disk monitor reads. A stopped
+machine's containers take the new limits at their next start, which admits them.
+A rejected resize clears the pending size and records `resize_error`. Events:
+`machine.resize_requested` and `machine.resized`.
+
+**Resource limit visibility.** An exited agent or check container is inspected
+for Docker's `State.OOMKilled` (set for any out-of-memory kill in its cgroup, a
+killed compiler included); the manager also follows Docker `oom` events for
+Kuayle containers (terminal, editor, Docker daemon, check services) as they
+happen, reporting each container once per minute. A kill records
+`resource_limit_kind=memory` with a message such as "Out of memory: the agent
+container reached its 1.4 GiB memory limit. Resize the machine or raise the task
+machine memory." on the machine (shown as an alert on the machine page until a
+resize clears it), the `resource.memory_limit` event, a `Kuayle:` note in the run
+or check log, the run's `error_message` and, for a failed task attempt, the task
+reason (kept as the final failed reason). Exit code 137 without an
+out-of-memory event is reported as a killed process, never as out of memory. A
+machine stopped at its monitored disk limit records `resource_limit_kind=disk`.
+Process (PID) limit hits are not reported: Docker exposes no event for them.
+
 Workspace policy controls:
 
 - maximum concurrent machines (default 20);

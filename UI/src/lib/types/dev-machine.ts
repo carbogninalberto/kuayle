@@ -82,6 +82,16 @@ export interface DevMachine {
 	expires_at: string;
 	teardown_at?: string;
 	destroyed_at?: string;
+	/** A requested size the manager has not applied yet. */
+	pending_cpu_millis?: number;
+	pending_memory_mb?: number;
+	pending_disk_gb?: number;
+	/** Why the last resize was not applied. */
+	resize_error?: string;
+	/** The latest memory or disk limit a machine container hit. */
+	resource_limit_kind?: 'memory' | 'disk';
+	resource_limit_message?: string;
+	resource_limit_at?: string;
 }
 
 export interface DevMachineService {

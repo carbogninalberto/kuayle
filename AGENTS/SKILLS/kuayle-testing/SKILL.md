@@ -73,6 +73,9 @@ socket is not at `/var/run/docker.sock`).
 The machine sudo test (`TestSudoMachinesGetRootWithoutLeavingTheSandbox`) needs
 `KUAYLE_SUDO_INTEGRATION=1`, the same quota mode and socket settings, network
 access for npm and `KUAYLE_TEST_{HEADLESS,COLLECTOR,EGRESS}_IMAGE`.
+The resize and out-of-memory detection test (`TestDockerResizeAndMemoryLimitDetection`)
+needs only `KUAYLE_DOCKER_INTEGRATION=1` and a local `alpine:3` image, so it also
+runs on a developer machine; CI's Docker job runs only the lifecycle test.
 
 ## Completion evidence
 
