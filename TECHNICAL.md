@@ -1085,6 +1085,13 @@ changes, with a bounded per-round context. Comments by workspace members on an
 issue whose task awaits review queue a bounded follow-up attempt
 ([agent tasks](BE/docs/agent-tasks.md#kuayle-issue-comments)). See [conversation architecture and API](BE/docs/conversations.md)
 for scope, authorization, bounds, UI component sources, recovery and checks.
+Settings → Assistant lists every built-in tool (`GET /assistant-capabilities`,
+derived from the tool registry) with its description, approval requirement,
+availability on the server and workspace switch. Owners and admins turn tools
+off (`PUT /assistant-capabilities/:name`, stored in `assistant_tool_settings`);
+a disabled tool is not offered to the model, is refused if called anyway, and a
+pending approval for it fails when approved. Members see the list read-only.
+See [tool switches](BE/docs/conversations.md#tool-switches-settings--assistant).
 
 ### Images in conversations
 

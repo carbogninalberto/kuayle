@@ -73,6 +73,39 @@ type AssistantTools struct {
 	// The preview and port tools are unavailable until SetMachines wires them.
 	machineTasks assistantMachineTasks
 	machinePorts assistantMachinePorts
+	// Every tool stays enabled until SetSettings wires the workspace switches.
+	settings assistantToolSettings
+}
+
+type assistantToolSettings interface {
+	Disabled(ctx context.Context, ws uuid.UUID) (map[string]bool, error)
+	Set(ctx context.Context, ws, user uuid.UUID, name string, enabled bool) error
+}
+
+// SetSettings enables the per-workspace tool switches of Settings → Assistant.
+func (t *AssistantTools) SetSettings(settings assistantToolSettings) {
+	t.settings = settings
+}
+
+// disabledTools returns the tools the workspace turned off; it is read fresh
+// for every reply and every call so a switch takes effect at once.
+func (t *AssistantTools) disabledTools(ctx context.Context, ws uuid.UUID) (map[string]bool, error) {
+	if t == nil || t.settings == nil {
+		return nil, nil
+	}
+	return t.settings.Disabled(ctx, ws)
+}
+
+// refuseDisabled fails a call to a tool the workspace turned off.
+func (t *AssistantTools) refuseDisabled(ctx context.Context, ws uuid.UUID, name string) error {
+	disabled, err := t.disabledTools(ctx, ws)
+	if err != nil {
+		return err
+	}
+	if disabled[name] {
+		return toolFailure("%s is disabled in this workspace", name)
+	}
+	return nil
 }
 
 type assistantAgentWork interface {
