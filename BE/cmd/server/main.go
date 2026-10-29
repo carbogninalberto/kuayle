@@ -223,6 +223,7 @@ func main() {
 		globalGitHubApp,
 	)
 	githubSvc.SetTaskReviews(repository.NewAgentTaskRepository(db))
+	devMachineSvc.SetRepositoryManifests(githubSvc)
 	assistantApprovals.SetMerging(repository.NewAgentTaskRepository(db), workspaceRepo, githubSvc)
 	assistantApprovals.SetReviews(agentTaskSvc)
 	assistantApprovals.SetAccepting(agentTaskSvc)

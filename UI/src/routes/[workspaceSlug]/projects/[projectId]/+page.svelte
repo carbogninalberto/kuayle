@@ -27,6 +27,7 @@
 	import { getGitHubStatus } from '$lib/api/github';
 	import {
 		deleteDevMachineScopeSetting,
+		getDevMachineCheckSuggestion,
 		getDevMachineScopeSetting,
 		listDevMachineEnvironments,
 		updateDevMachineScopeSetting
@@ -471,7 +472,7 @@
 					></Select.Root
 				>
 			</div>
-			<TestCommandField bind:value={developmentTestCommand} disabled={developmentLoading || !developmentReady || savingDevelopment || !canManageDevelopment} /><ComposeFileField bind:value={developmentComposeFile} disabled={developmentLoading || !developmentReady || savingDevelopment || !canManageDevelopment} /><PreviewSettingField bind:command={developmentPreviewCommand} bind:port={developmentPreviewPort} disabled={developmentLoading || !developmentReady || savingDevelopment || !canManageDevelopment} /><AgentDefaultsField bind:provider={developmentAgentProvider} bind:instructions={developmentAgentInstructions} disabled={developmentLoading || !developmentReady || savingDevelopment || !canManageDevelopment} />
+			<TestCommandField bind:value={developmentTestCommand} disabled={developmentLoading || !developmentReady || savingDevelopment || !canManageDevelopment} suggest={() => getDevMachineCheckSuggestion(slug, developmentRepositoryId === 'inherit' ? { projectId } : { repositoryId: developmentRepositoryId })} /><ComposeFileField bind:value={developmentComposeFile} disabled={developmentLoading || !developmentReady || savingDevelopment || !canManageDevelopment} /><PreviewSettingField bind:command={developmentPreviewCommand} bind:port={developmentPreviewPort} disabled={developmentLoading || !developmentReady || savingDevelopment || !canManageDevelopment} /><AgentDefaultsField bind:provider={developmentAgentProvider} bind:instructions={developmentAgentInstructions} disabled={developmentLoading || !developmentReady || savingDevelopment || !canManageDevelopment} />
 		</div>
 		<Dialog.Footer
 			><Button variant="outline" onclick={() => (developmentOpen = false)}>{m['common.cancel']()}</Button><Button
