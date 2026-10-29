@@ -16,6 +16,7 @@
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/paraglide/messages.js';
 	import AssistantSkills from './AssistantSkills.svelte';
+	import AssistantCustomTools from './AssistantCustomTools.svelte';
 
 	let { slug }: { slug: string } = $props();
 	let capabilities = $state<AssistantCapabilities | null>(null);
@@ -26,11 +27,12 @@
 	// stay in English because they are what the model receives.
 	const labels = m as unknown as Record<string, (() => string) | undefined>;
 	const label = (tool: AssistantCapability) => labels[`assistant.tool_${tool.name}`]?.() ?? tool.name;
-	// The tab is in the URL so chat cards can link to Skills.
-	const tab = $derived(page.url.searchParams.get('tab') === 'skills' ? 'skills' : 'tools');
+	// The tab is in the URL so chat cards can link to Skills and Custom tools.
+	const linkedTabs = ['skills', 'custom-tools'];
+	const tab = $derived(linkedTabs.find((value) => value === page.url.searchParams.get('tab')) ?? 'tools');
 	function selectTab(value: string) {
 		const url = new URL(page.url);
-		url.search = value === 'skills' ? '?tab=skills' : '';
+		url.search = linkedTabs.includes(value) ? `?tab=${value}` : '';
 		void goto(url.pathname + url.search, { replaceState: true, noScroll: true, keepFocus: true });
 	}
 	const enabledCount = $derived(capabilities?.tools.filter((tool) => tool.enabled).length ?? 0);
@@ -78,10 +80,7 @@
 		<Tabs.List>
 			<Tabs.Trigger value="tools">{m['assistant_settings.tab_tools']()}</Tabs.Trigger>
 			<Tabs.Trigger value="skills">{m['assistant_settings.tab_skills']()}</Tabs.Trigger>
-			<!-- Custom tools arrive in a later release. -->
-			<Tabs.Trigger value="custom-tools" disabled title={m['assistant_settings.coming_soon']()}
-				>{m['assistant_settings.tab_custom_tools']()}</Tabs.Trigger
-			>
+			<Tabs.Trigger value="custom-tools">{m['assistant_settings.tab_custom_tools']()}</Tabs.Trigger>
 		</Tabs.List>
 
 		<Tabs.Content value="tools" class="space-y-4">
@@ -138,7 +137,9 @@
 										/>
 									{:else}
 										<Badge variant={tool.enabled ? 'secondary' : 'outline'} class="font-normal">
-											{tool.enabled ? m['assistant_settings.state_enabled']() : m['assistant_settings.state_disabled']()}
+											{tool.enabled
+												? m['assistant_settings.state_enabled']()
+												: m['assistant_settings.state_disabled']()}
 										</Badge>
 									{/if}
 								</Item.Actions>
@@ -152,7 +153,13 @@
 				<p role="status" class="text-sm text-muted-foreground">{m['assistant_settings.loading']()}</p>
 			{/if}
 		</Tabs.Content>
-		<Tabs.Content value="skills" class="space-y-4"><AssistantSkills {slug} /></Tabs.Content>
-		<Tabs.Content value="custom-tools"></Tabs.Content>
+		<!-- Each panel mounts only while its tab is open, so their URL-driven
+		     selections and requests never run side by side. -->
+		<Tabs.Content value="skills" class="space-y-4"
+			>{#if tab === 'skills'}<AssistantSkills {slug} />{/if}</Tabs.Content
+		>
+		<Tabs.Content value="custom-tools" class="min-w-0 space-y-4"
+			>{#if tab === 'custom-tools'}<AssistantCustomTools {slug} />{/if}</Tabs.Content
+		>
 	</Tabs.Root>
 </div>

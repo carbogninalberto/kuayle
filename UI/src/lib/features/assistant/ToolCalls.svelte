@@ -10,7 +10,8 @@
 		GitBranch,
 		Lock,
 		Server,
-		BookOpenText
+		BookOpenText,
+		Eye
 	} from '@lucide/svelte';
 	import * as Trace from '$lib/components/ui/trace/index.js';
 	import * as CodeBlock from '$lib/components/ui/code-block/index.js';
@@ -21,6 +22,9 @@
 	import AgentSubagent from './AgentSubagent.svelte';
 	import AppPortLinks from './AppPortLinks.svelte';
 	import ProposedSkillCard, { proposedSkill } from './ProposedSkillCard.svelte';
+	import ProposedToolCard, { proposedTool } from './ProposedToolCard.svelte';
+	import CustomToolRunResult, { toolRunSummary } from './CustomToolRunResult.svelte';
+	import { runStatusLabel } from './ToolRunView.svelte';
 	import AgentLogo from '$lib/features/agents/AgentLogo.svelte';
 	import { agentInfo } from '$lib/features/agents/agents';
 	import { repositorySourceLabel } from '$lib/features/dev-machines/repository-source';
@@ -72,7 +76,9 @@
 		message_task: m['assistant.tool_message_task'],
 		get_task_messages: m['assistant.tool_get_task_messages'],
 		load_skill: m['assistant.tool_load_skill'],
-		propose_skill: m['assistant.tool_propose_skill']
+		propose_skill: m['assistant.tool_propose_skill'],
+		propose_tool: m['assistant.tool_propose_tool'],
+		get_tool_run: m['assistant.tool_get_tool_run']
 	};
 	// Outcome lines per approval action.
 	function outcome(approval: ConversationApproval) {
@@ -133,6 +139,21 @@
 					return m['assistant.approval_expired']({ identifier });
 				default:
 					return m['assistant.run_check_denied']({ identifier });
+			}
+		}
+		if (approval.action === 'run_custom_tool') {
+			const tool = `custom_${approval.payload.tool_name}`;
+			switch (approval.status) {
+				case 'approving':
+					return m['assistant.custom_run_approving']({ identifier, tool });
+				case 'approved':
+					return m['assistant.custom_run_approved']({ identifier, tool });
+				case 'failed':
+					return m['assistant.custom_run_failed']({ identifier, tool, error: approval.error ?? '' });
+				case 'expired':
+					return m['assistant.approval_expired']({ identifier });
+				default:
+					return m['assistant.custom_run_denied']({ identifier, tool });
 			}
 		}
 		if (approval.action === 'request_agent_review' || approval.action === 'follow_up_task') {
@@ -210,6 +231,13 @@
 	}
 	const proposal = (call: ConversationToolCall) =>
 		call.name === 'propose_skill' && call.status === 'completed' ? proposedSkill(call.output) : undefined;
+	const toolProposal = (call: ConversationToolCall) =>
+		call.name === 'propose_tool' && call.status === 'completed' ? proposedTool(call.output) : undefined;
+	// A custom tool call that ran (auto mode) stores the run's summary.
+	const customRun = (call: ConversationToolCall) =>
+		call.name.startsWith('custom_') && call.status === 'completed' ? toolRunSummary(call.output) : undefined;
+	const readRun = (call: ConversationToolCall) =>
+		call.name === 'get_tool_run' && call.status === 'completed' ? toolRunSummary(call.output) : undefined;
 	// Tool data is untrusted: it is rendered only as escaped Code Block text.
 	const pretty = (value: unknown) => JSON.stringify(value ?? null, null, 2);
 </script>
@@ -305,6 +333,36 @@
 										class="max-h-48 text-xs"
 									/></CodeBlock.Root
 								>
+							{:else if approval.action === 'run_custom_tool'}
+								<Item.Title class="break-all"
+									>{m['assistant.custom_run_title']({
+										tool: `custom_${approval.payload.tool_name}`,
+										version: String(approval.payload.version),
+										identifier
+									})}</Item.Title
+								>
+								<Item.Description class="line-clamp-none break-words"
+									>{approval.payload.description}</Item.Description
+								>
+								<p class="text-xs break-words text-muted-foreground">
+									{m['assistant.custom_run_where']({
+										title: approval.payload.title,
+										interpreter: approval.payload.interpreter
+									})}
+								</p>
+								<!-- The exact validated inputs the run receives, as data. -->
+								<CodeBlock.Root size="sm"
+									><CodeBlock.Header
+										><CodeBlock.Title>{m['assistant_custom_tools.inputs']()}</CodeBlock.Title></CodeBlock.Header
+									><CodeBlock.Content
+										code={pretty(approval.payload.inputs)}
+										wrap
+										class="max-h-48 text-xs"
+									/></CodeBlock.Root
+								>
+								{#if approval.payload.read_only}<p class="flex items-center gap-1 text-xs text-muted-foreground">
+										<Eye size={12} class="shrink-0" />{m['assistant.custom_run_read_only']()}
+									</p>{/if}
 							{:else if approval.action === 'follow_up_task'}
 								<Item.Title>{m['assistant.follow_up_title']({ identifier })}</Item.Title>
 								<Item.Description class="line-clamp-none"
@@ -427,6 +485,11 @@
 							machineId={approval.payload.machine_id}
 							port={approval.payload.port}
 							wait
+						/>{:else if approval.action === 'run_custom_tool' && approval.status === 'approved'}<CustomToolRunResult
+							{slug}
+							name="custom_{approval.payload.tool_name}"
+							toolId={approval.payload.tool_id}
+							approvalId={approval.id}
 						/>{/if}
 				{/if}
 			{:else if call.status === 'running'}
@@ -441,6 +504,21 @@
 					<Trace.Icon><BookOpenText /></Trace.Icon>
 					<Trace.Title class="whitespace-normal break-words"
 						>{m['assistant.skill_used']({ name: loadedSkill(call)! })}</Trace.Title
+					>
+				</Trace.Line>
+			{:else if toolProposal(call)}
+				<ProposedToolCard tool={toolProposal(call)!} {slug} id={call.id} />
+			{:else if customRun(call)}
+				<CustomToolRunResult {slug} name={call.name} initial={customRun(call)} />
+			{:else if readRun(call)}
+				{@const read = readRun(call)!}
+				<Trace.Line status={read.status === 'failed' ? 'error' : read.status === 'succeeded' ? 'success' : undefined}>
+					<Trace.Icon><Wrench /></Trace.Icon>
+					<Trace.Title class="break-words whitespace-normal"
+						>{m['assistant.tool_run_read']({ tool: read.tool, status: runStatusLabel(read.status) })}{read.exit_code ===
+						null
+							? ''
+							: ` · ${m['assistant_custom_tools.exit_code']({ code: String(read.exit_code) })}`}</Trace.Title
 					>
 				</Trace.Line>
 			{:else}
