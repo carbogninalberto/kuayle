@@ -1465,8 +1465,9 @@ func (r *DockerRuntime) ensureService(ctx context.Context, machine *domain.DevMa
 // Standard machines: IDE (with the terminal) 25, browser 25, agent 35,
 // collector and egress 5 each. Headless machines (agent task machines among
 // them) have no IDE or browser, so the agent gets half of the machine: agent
-// 50 and terminal 40, or with a daemon agent 35 and terminal 15. Either way
-// the headless shares, collector and egress included, add up to the machine.
+// 50 and terminal 40. With a daemon (40%) the agent and terminal get 35% each:
+// the shares are ceilings, not reservations, and the terminal is where people
+// run CLIs by hand, so it is not squeezed below the agent.
 func containerSharePercent(machine *domain.DevMachine, serviceType string, docker bool) int64 {
 	headless := machine.Profile == domain.DevMachineProfileHeadless
 	switch serviceType {
@@ -1475,7 +1476,7 @@ func containerSharePercent(machine *domain.DevMachine, serviceType string, docke
 	case "terminal":
 		// Only headless machines run a standalone terminal container.
 		if headless && docker {
-			return 15
+			return 35
 		}
 		return 40
 	case "agent":

@@ -550,7 +550,7 @@ func TestAgentAttemptsDoNotRunCLIsFromTheWorkspaceNpmPrefix(t *testing.T) {
 // Each container's CPU, memory and process limits are a share of the machine.
 // A headless machine (agent task machines) has no IDE or browser, so its agent
 // gets half of the machine; with a Docker daemon the daemon takes 40% and the
-// shares still add up to the machine.
+// agent and terminal keep 35% each, ceilings that may overlap.
 func TestContainerSharesSplitTheMachine(t *testing.T) {
 	runtime := &DockerRuntime{}
 	shares := func(machine *domain.DevMachine, docker bool, serviceTypes ...string) map[string]int64 {
@@ -578,8 +578,8 @@ func TestContainerSharesSplitTheMachine(t *testing.T) {
 	require.Equal(t, int64(4096)*1024*1024, runtime.secureHostConfig(headless, "agent", "network", "volume", false).Resources.Memory, "an 8 GiB task machine gives its agent 4 GiB")
 	require.Equal(t, int64(100), total(split))
 	split = shares(headless, true, "agent", "terminal", "collector", "egress")
-	require.Equal(t, map[string]int64{"agent": 35, "terminal": 15, "collector": 5, "egress": 5, "docker": 40}, split)
-	require.Equal(t, int64(100), total(split))
+	require.Equal(t, map[string]int64{"agent": 35, "terminal": 35, "collector": 5, "egress": 5, "docker": 40}, split)
+	require.Equal(t, int64(120), total(split), "with a daemon the agent and terminal ceilings overlap")
 
 	// Standard machines keep their split; Docker does not change it.
 	standard := &domain.DevMachine{MemoryMB: 8192, CPUMillis: 4000, PidsLimit: 512, Profile: domain.DevMachineProfileStandard}
