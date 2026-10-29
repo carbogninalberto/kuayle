@@ -182,6 +182,47 @@ creator. `get_agent_work` then reports the latest manual check: status, exit
 code, command and summary, plus the last 1,500 characters of its untrusted
 output for the task's creator only.
 
+### Custom tool runs
+
+Migration 100 adds the `run_tool` machine operation, which runs one version of
+a workspace [custom tool](conversations.md#custom-tools) and records it in
+`assistant_tool_runs` (tool and version, validated inputs, requester,
+conversation, tool call and approval, machine, issue, task and attempt,
+working directory, timeout, status, exit code, output tail, error and times).
+Queuing takes the manual check's lock (`lockMachineForCheck`): the machine must
+be running with an enabled policy, and an attempt, validation, publication,
+manual check or other tool run on it is refused as `MACHINE_BUSY`; in return a
+queued or running tool run holds the machine exactly like a manual check. A run
+on a task's machine uses its latest attempt's ready checkout as the working
+directory and that attempt's snapshot for redaction only.
+
+The manager runs it in a check container of its own,
+`kuayle-<routing key>-tool-<run id>`: the developer image, the hardened check
+host config (read-only root, all capabilities dropped, only the workspace
+volume, the agent share of resources), the machine network with egress only
+through the proxy, and no credentials. Its command line is fixed: `sh -c
+<bootstrap> kuayle-tool <interpreter>`. The script and the canonical inputs
+arrive only in the environment (`KUAYLE_TOOL_SCRIPT`, `KUAYLE_TOOL_INPUT`), and
+the bootstrap writes them to private files under a fresh `mktemp` directory,
+exports `KUAYLE_TOOL_INPUT_FILE`, removes the two variables and `exec`s the
+interpreter on the script file. Each input is also `KUAYLE_ARG_<NAME>` (upper
+case; strings verbatim, numbers and booleans as JSON text). Arguments are never
+interpolated into a script or command line; a test runs the real bootstrap with
+`; rm -rf /`, `$(…)` and backticks and checks they arrive as literal strings.
+
+Every write (`GetToolRun`, start, output, completion) re-checks the operation's
+lease, machine generation, running state and policy, the requester's role, the
+tool still active and enabled at the run's version (test runs excepted), and
+the task still idle on the same attempt or the machine still the requester's.
+Output goes through the agent output buffer (redaction, 4 MiB and record caps)
+and is stored in batches as a 64 KiB tail; a resumed lease replays it from the
+start. The timeout counts from the first start and is capped by the machine's
+expiry; a timed-out container is removed and the run fails with "The tool
+exceeded its time limit". The exit code decides `succeeded` or `failed`; an
+operation that fails for good marks the run `failed` with a safe reason, and a
+finished run's container is removed. Runs in a conversation emit
+`tool_run.updated` events with the last 4 KiB of output.
+
 ## Publication
 
 Task attempts never receive a GitHub credential (`push_branch` is false), so the

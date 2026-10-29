@@ -456,6 +456,10 @@ func (r *TelegramRepository) Deliver(ctx context.Context, d domain.TelegramDeliv
  FROM conversation_tool_calls c WHERE c.message_id=$1 AND c.name='propose_skill' AND c.status='completed' AND c.output->>'version' IS NOT NULL ORDER BY c.sequence LIMIT 3`, d.MessageID); err != nil {
 			return err
 		}
+		if err = tx.SelectContext(ctx, &d.ToolDrafts, `SELECT c.output->>'name' AS name,(c.output->>'version')::int AS version
+ FROM conversation_tool_calls c WHERE c.message_id=$1 AND c.name='propose_tool' AND c.status='completed' AND c.output->>'version' IS NOT NULL ORDER BY c.sequence LIMIT 3`, d.MessageID); err != nil {
+			return err
+		}
 	}
 	if allowed {
 		d.TokenEncrypted = token

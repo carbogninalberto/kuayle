@@ -62,6 +62,14 @@ type TelegramDelivery struct {
 	Approvals []TelegramApprovalButton `db:"-"`
 	// SkillDrafts are the skills the reply proposed with propose_skill.
 	SkillDrafts []TelegramSkillDraft `db:"-"`
+	// ToolDrafts are the custom tools the reply proposed with propose_tool.
+	ToolDrafts []TelegramToolDraft `db:"-"`
+}
+
+// TelegramToolDraft is a draft custom tool saved by a delivered reply.
+type TelegramToolDraft struct {
+	Name    string `db:"name"`
+	Version int    `db:"version"`
 }
 
 // TelegramSkillDraft is a draft skill saved by a delivered reply.

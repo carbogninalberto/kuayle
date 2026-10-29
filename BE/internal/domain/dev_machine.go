@@ -57,6 +57,8 @@ const (
 	DevMachineOpTerminateTerminal   DevMachineOperationAction = "terminate_terminal"
 	// DevMachineOpResize applies the machine's pending size to its containers.
 	DevMachineOpResize DevMachineOperationAction = "resize"
+	// DevMachineOpRunTool runs a custom assistant tool's script on demand.
+	DevMachineOpRunTool DevMachineOperationAction = "run_tool"
 )
 
 type DevMachineOperationStatus string

@@ -1115,6 +1115,15 @@ by name and description; `load_skill` returns a body as workspace guidance and
 proposed skill's full text with a link to Settings → Assistant → Skills, where
 admins edit with a Markdown preview, review a draft's diff, activate, restore
 and delete, and members read. See [skills](BE/docs/conversations.md#skills).
+Custom tools (`/assistant-tools`, migrations 99–100) are versioned scripts with
+a strict scalar parameter schema that owners and admins write, activate and
+test-run; the assistant is offered active, enabled ones as `custom_<name>` and
+can only draft new ones with `propose_tool`. Each run asks for approval unless
+an admin marked the tool read-only and `auto`, and executes as a `run_tool`
+machine operation in the credential-free check container under the manual
+check's machine lock, with arguments only as environment variables and a JSON
+file. See [custom tools](BE/docs/conversations.md#custom-tools) and
+[custom tool runs](BE/docs/agent-tasks.md#custom-tool-runs).
 
 ### Images in conversations
 

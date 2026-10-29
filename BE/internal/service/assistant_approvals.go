@@ -36,6 +36,8 @@ type AssistantApprovals struct {
 	machines     assistantMachinePorts
 	// Checks are unavailable until SetChecks wires them.
 	checks approvalChecks
+	// Custom tool runs are unavailable until SetCustomTools wires them.
+	customTools assistantCustomTools
 	// Tool switches are ignored until SetToolSettings wires them.
 	settings approvalToolSettings
 }
@@ -121,6 +123,8 @@ func (s *AssistantApprovals) Resolve(ctx context.Context, ws, conversation, id u
 		return s.exposePort(ctx, ws, conversation, approval)
 	case "run_check":
 		return s.runCheck(ctx, ws, conversation, approval)
+	case "run_custom_tool":
+		return s.runCustomTool(ctx, ws, conversation, approval)
 	}
 	var payload domain.DelegationPayload
 	if approval.Action != "delegate_issue" || json.Unmarshal(approval.Payload, &payload) != nil {

@@ -185,6 +185,13 @@ func (s *ConversationService) execute(parent context.Context, a domain.Conversat
 	if skills != "" {
 		messages = append(messages, chatCompletionMessage{Role: "system", Content: skills})
 	}
+	customTools, err := s.customToolsPrompt(ctx, a)
+	if err != nil {
+		return
+	}
+	if customTools != "" {
+		messages = append(messages, chatCompletionMessage{Role: "system", Content: customTools})
+	}
 	if s.images != nil {
 		messages = append(messages, chatCompletionMessage{Role: "system", Content: "Users can attach images; each is named in their message as [image attached: name, WxH, id=...]. When you cannot see an image's content, say so instead of guessing what it shows."})
 	}
@@ -270,7 +277,11 @@ func (s *ConversationService) converse(ctx context.Context, a domain.Conversatio
 		if err != nil {
 			return err
 		}
-		tools = slices.DeleteFunc(tools, func(spec chatToolSpec) bool { return disabled[spec.Function.Name] })
+		custom, err := s.tools.customToolSpecs(ctx, a.Conversation.WorkspaceID)
+		if err != nil {
+			return err
+		}
+		tools = slices.DeleteFunc(append(tools, custom...), func(spec chatToolSpec) bool { return disabled[spec.Function.Name] })
 	}
 	sequence, changes := 0, 0
 	// Text from successive tool rounds is one reply; separate it into
@@ -326,6 +337,12 @@ func (s *ConversationService) runToolCall(ctx context.Context, a domain.Conversa
 	if call.Function.Name == attachImagesToolName && s.images != nil && s.tools != nil {
 		tool, known = attachImagesTool, true
 	}
+	// A custom tool's name is checked here; whether it is active is checked
+	// when it runs.
+	custom := !known && s.tools.customToolCall(call.Function.Name)
+	if custom {
+		tool, known = assistantTool{name: call.Function.Name}, true
+	}
 	if !known {
 		return failure("unknown tool"), nil
 	}
@@ -342,6 +359,8 @@ func (s *ConversationService) runToolCall(ctx context.Context, a domain.Conversa
 	modelContent := ""
 	if runErr = s.tools.refuseDisabled(ctx, a.Conversation.WorkspaceID, tool.name); runErr != nil {
 		// A tool the workspace turned off is recorded as refused and never runs.
+	} else if custom {
+		output, issueID, runErr = s.runCustomTool(ctx, a, record.ID, tool.name, call.Function.Arguments)
 	} else if tool.approval {
 		output, issueID, runErr = s.requestApproval(ctx, a, record.ID, tool.name, call.Function.Arguments)
 	} else if tool.write && *changes >= assistantMaxChangesPerReply {
@@ -352,6 +371,9 @@ func (s *ConversationService) runToolCall(ctx context.Context, a domain.Conversa
 		}
 		if tool.name == attachImagesToolName {
 			output, issueID, runErr = s.attachImagesToIssue(domain.WithActingAgent(ctx, "assistant"), a, call.Function.Arguments)
+		} else if tool.customTools {
+			// A proposal's full script reaches only the card.
+			output, modelContent, runErr = s.tools.runCustomToolTool(ctx, a, tool.name, call.Function.Arguments)
 		} else if tool.skills {
 			// The stored result and the model's message differ: a loaded body
 			// reaches only the model, a proposal's full text only the card.

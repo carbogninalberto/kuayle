@@ -115,3 +115,15 @@ func TestTelegramReplyNamesProposedSkillDrafts(t *testing.T) {
 		return false
 	}, 5*time.Second, 20*time.Millisecond)
 }
+
+func TestTelegramNamesToolDraftsAndToolApprovals(t *testing.T) {
+	note := toolDraftNote([]domain.TelegramToolDraft{{Name: "run_e2e", Version: 2}})
+	require.Contains(t, note, "Draft tool “run_e2e” saved as version 2. It is not active")
+	require.Contains(t, note, "Settings → Assistant → Custom tools")
+	answer, final := telegramApprovalAnswer(&domain.ConversationApproval{Action: "run_custom_tool", Status: "approved"}, nil)
+	require.True(t, final)
+	require.Equal(t, "Approved: the tool is running. Its result appears in the chat in Kuayle.", answer)
+	failure := "The tool changed or was turned off; ask again"
+	answer, _ = telegramApprovalAnswer(&domain.ConversationApproval{Action: "run_custom_tool", Status: "failed", Error: &failure}, nil)
+	require.Equal(t, "The tool could not start. The tool changed or was turned off; ask again", answer)
+}

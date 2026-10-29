@@ -42,8 +42,9 @@ var (
 	ErrCheckForbidden = errors.New("only members who can edit development settings can run a custom check command")
 )
 
-// activeManualCheckSQL reports a queued or running manual check on machine $1.
-const activeManualCheckSQL = `SELECT EXISTS(SELECT 1 FROM dev_machine_operations WHERE machine_id=$1 AND action='run_check' AND status IN ('pending','leased'))`
+// activeManualCheckSQL reports a queued or running manual check or custom
+// tool run on machine $1; both hold the machine like an agent attempt.
+const activeManualCheckSQL = `SELECT EXISTS(SELECT 1 FROM dev_machine_operations WHERE machine_id=$1 AND action IN ('run_check','run_tool') AND status IN ('pending','leased'))`
 
 // RunCheck queues a manual check on the task's latest attempt for its
 // creator. A nil command runs the task's check: the command requested for the
@@ -89,7 +90,7 @@ func (r *AgentTaskRepository) RunCheck(ctx context.Context, ws, id uuid.UUID, co
 	if !ready {
 		return nil, ErrCheckUnavailable
 	}
-	generation, err := lockMachineForCheck(ctx, tx, *task)
+	generation, err := lockMachineForCheck(ctx, tx, task.WorkspaceID, *task.MachineID)
 	if err != nil {
 		return nil, err
 	}
@@ -136,16 +137,17 @@ func (r *AgentTaskRepository) RunCheck(ctx context.Context, ws, id uuid.UUID, co
 }
 
 // lockMachineForCheck takes native-run creation's locks, then refuses a
-// machine that is not running, a disabled policy and any other agent work.
-func lockMachineForCheck(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask) (int64, error) {
-	for _, id := range []uuid.UUID{task.WorkspaceID, *task.MachineID} {
+// machine that is not running, a disabled policy and any other agent work,
+// check or custom tool run. Manual checks and custom tools share it.
+func lockMachineForCheck(ctx context.Context, tx *sqlx.Tx, ws, machine uuid.UUID) (int64, error) {
+	for _, id := range []uuid.UUID{ws, machine} {
 		if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text,0))`, id); err != nil {
 			return 0, err
 		}
 	}
 	var generation int64
 	err := tx.GetContext(ctx, &generation, `SELECT m.generation FROM dev_machines m JOIN dev_machine_workspace_policies p ON p.workspace_id=m.workspace_id AND p.enabled
- WHERE m.id=$1 AND m.workspace_id=$2 AND m.status='running' AND m.desired_status='running' AND m.expires_at>now() FOR UPDATE OF m`, task.MachineID, task.WorkspaceID)
+ WHERE m.id=$1 AND m.workspace_id=$2 AND m.status='running' AND m.desired_status='running' AND m.expires_at>now() FOR UPDATE OF m`, machine, ws)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, ErrCheckUnavailable
 	}
@@ -155,7 +157,7 @@ func lockMachineForCheck(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask
 	var busy bool
 	if err = tx.GetContext(ctx, &busy, `SELECT EXISTS(SELECT 1 FROM dev_machine_agent_runs r WHERE r.machine_id=$1 AND (r.status IN ('queued','starting','running','waiting_input')
  OR EXISTS(SELECT 1 FROM agent_tasks t WHERE t.run_id=r.id AND t.state IN ('preparing','running','waiting_input','validating','publishing','cancelling'))))
- OR EXISTS(SELECT 1 FROM dev_machine_operations WHERE machine_id=$1 AND action IN ('validate_agent','publish_agent','run_check') AND status IN ('pending','leased'))`, task.MachineID); err != nil {
+ OR EXISTS(SELECT 1 FROM dev_machine_operations WHERE machine_id=$1 AND action IN ('validate_agent','publish_agent','run_check','run_tool') AND status IN ('pending','leased'))`, machine); err != nil {
 		return 0, err
 	}
 	if busy {

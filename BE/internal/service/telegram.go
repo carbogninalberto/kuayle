@@ -572,7 +572,7 @@ func (s *TelegramService) Run(ctx context.Context) {
 				if err != nil {
 					return err
 				}
-				if note := skillDraftNote(d.SkillDrafts); note != "" {
+				if note := skillDraftNote(d.SkillDrafts) + toolDraftNote(d.ToolDrafts); note != "" {
 					d.Text = telegramText(d.Text, 2600) + note
 				}
 				text := telegramText(d.Text, 3200)
@@ -610,6 +610,16 @@ func skillDraftNote(drafts []domain.TelegramSkillDraft) string {
 			scope = " (team " + draft.TeamKey + ")"
 		}
 		note += fmt.Sprintf("\n\nDraft skill “%s”%s saved as version %d. It is not active: an owner or admin reviews the full text and activates it in Kuayle under Settings → Assistant → Skills.", truncateRunes(draft.Name, 100), scope, draft.Version)
+	}
+	return note
+}
+
+// toolDraftNote tells the reader which custom tools a reply saved as drafts;
+// the script is reviewed and activated in Kuayle, never from Telegram.
+func toolDraftNote(drafts []domain.TelegramToolDraft) string {
+	note := ""
+	for _, draft := range drafts {
+		note += fmt.Sprintf("\n\nDraft tool “%s” saved as version %d. It is not active: an owner or admin reviews its script and activates it in Kuayle under Settings → Assistant → Custom tools.", truncateRunes(draft.Name, 48), draft.Version)
 	}
 	return note
 }
@@ -771,6 +781,8 @@ func telegramApprovalAnswer(approval *domain.ConversationApproval, err error) (s
 			return "Approved: the follow-up is starting.", true
 		case "run_check":
 			return "Approved: the check is starting.", true
+		case "run_custom_tool":
+			return "Approved: the tool is running. Its result appears in the chat in Kuayle.", true
 		case "accept_agent_work":
 			return "Approved: the work was accepted in Kuayle without merging.", true
 		case "start_preview":
@@ -792,6 +804,8 @@ func telegramApprovalAnswer(approval *domain.ConversationApproval, err error) (s
 			message = "The port could not be exposed."
 		case "run_check":
 			message = "The check could not start."
+		case "run_custom_tool":
+			message = "The tool could not start."
 		}
 		if approval.Error != nil {
 			message += " " + *approval.Error

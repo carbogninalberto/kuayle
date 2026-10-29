@@ -157,6 +157,9 @@ func main() {
 	assistantSkills := repository.NewAssistantSkillRepository(db)
 	assistantTools.SetSkills(assistantSkills)
 	assistantSkillH := handler.NewAssistantSkillHandler(service.NewAssistantSkillService(assistantSkills, workspaceRepo))
+	assistantCustomTools := repository.NewAssistantCustomToolRepository(db)
+	assistantTools.SetCustomTools(assistantCustomTools)
+	assistantToolH := handler.NewAssistantCustomToolHandler(service.NewAssistantCustomToolService(assistantCustomTools, workspaceRepo, issueRepo, repository.NewAgentTaskRepository(db)))
 	assistantTools.SetPlanning(repository.NewIssueDependencyRepository(db), service.NewIssueRelationService(repository.NewIssueRelationRepository(db), issueRepo))
 	conversationSvc.SetTools(assistantTools)
 	conversationH := handler.NewConversationHandler(conversationSvc, cfg.FrontendURL)
@@ -168,6 +171,7 @@ func main() {
 	assistantTools.SetMachines(repository.NewAgentTaskRepository(db), devMachineSvc)
 	assistantApprovals.SetMachines(repository.NewAgentTaskRepository(db), devMachineSvc)
 	assistantApprovals.SetToolSettings(assistantToolSettings)
+	assistantApprovals.SetCustomTools(assistantCustomTools)
 	conversationSvc.SetApprovals(assistantApprovals)
 	agentTaskH := handler.NewAgentTaskHandler(agentTaskSvc)
 	agentMessageSvc := service.NewAgentMessageService(repository.NewAgentMessageRepository(db), hub)
@@ -294,6 +298,7 @@ func main() {
 		aiSettings:        aiSettingsH,
 		conversation:      conversationH,
 		assistantSkill:    assistantSkillH,
+		assistantTool:     assistantToolH,
 		agentTask:         agentTaskH,
 		agentAutomation:   agentAutomationH,
 		agentMessage:      agentMessageH,

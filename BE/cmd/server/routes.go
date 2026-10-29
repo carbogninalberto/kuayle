@@ -59,6 +59,7 @@ type appHandlers struct {
 	agentMessage      *handler.AgentMessageHandler
 	conversation      *handler.ConversationHandler
 	assistantSkill    *handler.AssistantSkillHandler
+	assistantTool     *handler.AssistantCustomToolHandler
 	telegram          *handler.TelegramHandler
 	voice             *handler.VoiceHandler
 	devMachine        *handler.DevMachineHandler
@@ -262,6 +263,20 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(ws, http.MethodPost, "/assistant-skills/:skillId/activate", h.assistantSkill.Activate)
 	sessionOnly(ws, http.MethodGet, "/assistant-skills/:skillId/versions", h.assistantSkill.Versions)
 	sessionOnly(ws, http.MethodPost, "/assistant-skills/:skillId/versions/:version/restore", h.assistantSkill.Restore)
+	// Members read custom tools and the runs they asked for; the repository
+	// lets only current owners and admins write and test-run tools.
+	sessionOnly(ws, http.MethodGet, "/assistant-tools", h.assistantTool.List)
+	sessionOnly(ws, http.MethodPost, "/assistant-tools", h.assistantTool.Create)
+	sessionOnly(ws, http.MethodGet, "/assistant-tools/:toolId", h.assistantTool.Get)
+	sessionOnly(ws, http.MethodPut, "/assistant-tools/:toolId", h.assistantTool.Update)
+	sessionOnly(ws, http.MethodDelete, "/assistant-tools/:toolId", h.assistantTool.Delete)
+	sessionOnly(ws, http.MethodPut, "/assistant-tools/:toolId/enabled", h.assistantTool.SetEnabled)
+	sessionOnly(ws, http.MethodPost, "/assistant-tools/:toolId/activate", h.assistantTool.Activate)
+	sessionOnly(ws, http.MethodGet, "/assistant-tools/:toolId/versions", h.assistantTool.Versions)
+	sessionOnly(ws, http.MethodPost, "/assistant-tools/:toolId/versions/:version/restore", h.assistantTool.Restore)
+	sessionOnly(ws, http.MethodPost, "/assistant-tools/:toolId/test-run", h.assistantTool.TestRun)
+	sessionOnly(ws, http.MethodGet, "/assistant-tools/:toolId/runs", h.assistantTool.Runs)
+	sessionOnly(ws, http.MethodGet, "/assistant-tool-runs/:runId", h.assistantTool.Run)
 	sessionOnly(ws, http.MethodGet, "/conversations", h.conversation.List)
 	sessionOnly(ws, http.MethodPost, "/conversations", h.conversation.Create)
 	sessionOnly(ws, http.MethodGet, "/conversations/:conversationId", h.conversation.History)

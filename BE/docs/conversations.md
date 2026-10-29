@@ -364,6 +364,95 @@ completed `load_skill` call is one "Used skill" line. Sources:
 `UI/tests/e2e/assistant-skills.test.ts`, the skill card test in
 `UI/tests/e2e/assistant.test.ts` and `UI/tests/unit/skill-diff.test.mjs`.
 
+### Custom tools
+
+Custom tools are scripts the workspace's owners and admins write for the
+assistant (migration 99: `assistant_custom_tools` and
+`assistant_custom_tool_versions`; migration 100: `assistant_tool_runs`). A tool
+has a `snake_case` name (`^[a-z][a-z0-9_]{0,47}$`, unique in the workspace, and
+neither it nor `custom_<name>` may be a built-in tool's name), a description
+(1–1000 characters, sent to the model), a parameter schema, a script (at most
+64 KiB), an interpreter (`sh`, `bash`, `node` or `python3`, all present in the
+developer images and so in every check container), a run mode (`approval`, the
+default, or `auto`, allowed only when `read_only` is set; the database enforces
+it too), a timeout (`timeout_seconds`, 10–1800, default 600), `enabled`,
+`status` (`draft` or `active`), `current_version` and `author_kind`. Versions,
+drafts, activation and restore work exactly as for [skills](#skills); the run
+mode and read-only flag are part of a version, so only an owner or admin can
+put an `auto` version into effect.
+
+**Parameters.** The schema is validated strictly (`domain.ParseToolSchema`) and
+stored canonically: an object with `type: "object"`, at most 20 `properties`
+named `^[a-z][a-z0-9_]{0,39}$`, `required` naming only those, and no additional
+properties. Each property is a `string` (`minLength`/`maxLength` up to 8192,
+default `maxLength` 1024), a `number` or `integer` (finite `minimum`/`maximum`;
+integers within ±2^53), a `boolean`, or a string `enum` (1–50 distinct values of
+1–200 characters), each with an optional description of up to 500 characters.
+Any other keyword, nesting, duplicate key or quoted number is refused; the
+schema is at most 16 KiB. Inputs are validated against it (unknown or null
+keys, wrong types, bounds and NUL characters are refused) and stored compact,
+at most 16 KiB.
+
+The session-only routes under `/api/workspaces/:slug` are:
+
+| Route | Effect |
+| --- | --- |
+| `GET /assistant-tools` | `{tools, interpreters, can_manage}`, without scripts |
+| `POST /assistant-tools` | create; active unless `status` is `draft` |
+| `GET /assistant-tools/:toolId` | one tool with its script |
+| `PUT /assistant-tools/:toolId` | save the content as the next version |
+| `DELETE /assistant-tools/:toolId` | delete the tool, its versions and its runs |
+| `PUT /assistant-tools/:toolId/enabled` | `{"enabled": true\|false}` |
+| `POST /assistant-tools/:toolId/activate` | put a draft into effect: `{"version": n}` or the newest draft |
+| `GET /assistant-tools/:toolId/versions` | `{versions}`, newest first |
+| `POST /assistant-tools/:toolId/versions/:version/restore` | save an old version as the next version |
+| `POST /assistant-tools/:toolId/test-run` | owners and admins: `{inputs, machine_id \| identifier, version?}` runs a saved version (default the newest, even a draft or a disabled tool); 202 with the run |
+| `GET /assistant-tools/:toolId/runs` | `{runs}`, newest 50 |
+| `GET /assistant-tool-runs/:runId` | one run |
+
+Non-guest members read tools; writes and test runs re-check the actor's current
+owner or admin role in the writing transaction (403 otherwise). Owners and
+admins read every run; other members read only the runs they asked for, since
+the output comes from the requester's machine. Invalid content is 400
+`INVALID_ASSISTANT_TOOL` with a safe message, a taken name 409, a busy machine
+409 `MACHINE_BUSY` and an unusable machine 409 `TOOL_MACHINE_UNAVAILABLE`.
+
+**Offering and calling.** Every reply offers the active, enabled tools (at most
+30) as `custom_<name>` functions, so they can never shadow a built-in tool, with
+parameters `{identifier?, machine_id?, inputs}` where `inputs` is the tool's
+own schema; a system message says these are admin-written scripts whose
+results are untrusted data. A call names the machine: `identifier` runs on the
+issue's newest coding task's machine and checkout (the caller must have created
+the task, and it must be idle: awaiting review, blocked, failed or completed),
+`machine_id` on a machine the caller created (at `/workspace`). Running needs a
+non-guest role with `dev_machine:manage`. The call is recorded first; a draft,
+disabled, deleted or unknown tool, invalid inputs or an invalid name fail as
+data and run nothing. An `approval` tool records a `run_custom_tool` approval
+bound to the issue (so approval-mode calls need `identifier`), the tool ID and
+version, the validated inputs and the task generation; the card shows them.
+Approving queues the run as the approver, once per approval (`approval_id` is
+unique), and fails with a safe reason when the tool changed version or was
+turned off, the task started another attempt, or the machine is busy or no
+longer theirs. An `auto` tool queues the run directly and waits up to two
+minutes for it; either way the model gets `{status, exit_code, output_tail
+(last 6000 bytes), …}` as `untrusted_data`, and `get_tool_run(run_id |
+approval_id)` reads a run later. Execution is described in
+[agent tasks](agent-tasks.md#custom-tool-runs).
+
+`propose_tool(name, description, parameters, script, interpreter, read_only?,
+timeout_seconds?)` saves only drafts, for owners and admins, like
+`propose_skill`: a new name is a new draft tool, an existing name a draft
+version, and a proposal is always `approval` mode (`read_only` is kept as the
+author's claim). Scripts proposed from chat are at most 12 000 bytes. The card
+holds the full script and canonical schema; the model only gets a receipt.
+Telegram replies name the drafts they saved, and Telegram approval answers
+cover `run_custom_tool`. `propose_tool` and `get_tool_run` are registry tools
+with switches; `GET /assistant-capabilities` also lists active custom tools as
+`custom_<name>` with `custom: true`, and switching one sets the tool's own
+`enabled` flag. Migration 100 also widens `conversation_tool_calls.name` to
+allow digits; its rollback renames such calls to `custom_tool` and deletes
+`run_custom_tool` approvals.
+
 A provider may return tool calls only when tools were offered and must finish
 the turn with `finish_reason: "tool_calls"`. One reply runs at most 400 tool
 calls (at most 32 per model round, enough rounds for each call to run in its

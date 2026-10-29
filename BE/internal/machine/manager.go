@@ -32,6 +32,12 @@ type ManagerStore interface {
 	RecordNativeSession(context.Context, uuid.UUID, string) error
 	SaveValidationArtifacts(context.Context, domain.DevMachineOperation, []domain.ValidationArtifact) error
 	FailManualCheck(context.Context, domain.DevMachineOperation, string) error
+	// Custom tool runs (run_tool) re-check the run's authority on every call.
+	GetToolRun(context.Context, domain.DevMachineOperation) (*domain.AssistantToolRunExecution, error)
+	StartToolRun(context.Context, domain.DevMachineOperation, string) error
+	AppendToolRunOutput(context.Context, domain.DevMachineOperation, string, bool) error
+	CompleteToolRun(context.Context, domain.DevMachineOperation, int) error
+	FailToolRun(context.Context, domain.DevMachineOperation, string) error
 	MachinePorts(context.Context, uuid.UUID) ([]domain.DevMachinePort, error)
 	CreatePort(context.Context, *domain.DevMachinePort) error
 	DeleteAgentPort(context.Context, uuid.UUID, int) (bool, error)
@@ -349,6 +355,11 @@ func (m *Manager) processLeasedOperation(ctx context.Context, operation domain.D
 				log.WithFields(fields).WithError(checkErr).Error("failed to record manual check failure")
 			}
 		}
+		if !willRetry && operation.Action == domain.DevMachineOpRunTool {
+			if toolErr := m.store.FailToolRun(finalCtx, operation, toolRunFailure(err)); toolErr != nil {
+				log.WithFields(fields).WithError(toolErr).Error("failed to record tool run failure")
+			}
+		}
 		if !willRetry && operation.Action == domain.DevMachineOpCheckoutIssue && operation.CheckoutID != nil {
 			message := safeError(err)
 			if checkoutErr := m.store.UpdateCheckoutState(finalCtx, *operation.CheckoutID, "failed", &message); checkoutErr != nil {
@@ -420,6 +431,8 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 			return &terminalOperationError{code: "validation_stale", message: "Machine changed during validation"}
 		case domain.DevMachineOpRunCheck:
 			return &terminalOperationError{code: "check_stale", message: "The machine changed before the check ran"}
+		case domain.DevMachineOpRunTool:
+			return &terminalOperationError{code: "tool_stale", message: "The machine changed before the tool ran"}
 		case domain.DevMachineOpPublishAgent:
 			return &terminalOperationError{code: "publication_stale", message: "Machine changed during publication"}
 		case domain.DevMachineOpRunAgent:
@@ -569,6 +582,8 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 		return m.setStateAndEventForOperation(ctx, machine, operation, domain.DevMachineStatusDestroyed, "machine.destroyed", nil, true)
 	case domain.DevMachineOpValidateAgent, domain.DevMachineOpRunCheck:
 		return m.validateAgent(ctx, machine, operation)
+	case domain.DevMachineOpRunTool:
+		return m.runTool(ctx, machine, operation)
 	case domain.DevMachineOpPublishAgent:
 		return m.publishAgent(ctx, machine, operation)
 	case domain.DevMachineOpPurgeTaskSession:
