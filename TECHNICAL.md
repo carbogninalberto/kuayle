@@ -568,6 +568,19 @@ and posts `comment` messages as issue comments marked with the sending task.
 Admins and task creators can hold, release or drop messages and hold whole
 conversations before delivery; every action is audited.
 
+A task also has a [live channel](BE/docs/agent-tasks.md#live-channel)
+(migration 95, `agent_live_messages`) between its creator (or the orchestrator
+acting for them) and its running agent. Queued messages reach a running
+attempt within seconds as `<seq>.json` files in a per-run Docker volume mounted
+read-only at `/run/kuayle/inbox` in the agent container, outside the worktree;
+the manager fills it through a writer container that is never started. Claude
+Code receives them after each tool call (and before it stops) through a
+`PostToolUse`/`Stop` hook installed in the agent image's managed settings.
+Without a running attempt they go into the next attempt's prompt. During an
+attempt the manager also collects the outbox every 5 seconds, and files
+addressed `{"to":"orchestrator"}` (optionally `"kind":"question"`) are recorded
+in the same channel as untrusted text.
+
 [Automations](BE/docs/agent-tasks.md#automations) (migration 69) delegate matching issues on a label or status trigger, optionally on a UTC schedule. Runs need approval unless a rule is unattended and the workspace policy allows unattended automations; every start acts for a recorded user under that user's current permissions.
 
 ## Resource Limits and Quotas

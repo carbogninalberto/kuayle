@@ -86,6 +86,7 @@ test('headless and shared developer image inputs select only their consumers', (
   assert.deepEqual(ids(planForPaths(['devmachine/common/install-agent-clis.sh']).devImages), ['ide', 'headless']);
   assert.deepEqual(ids(planForPaths(['devmachine/common/start-common.sh']).devImages), ['ide', 'headless', 'browser', 'collector', 'egress', 'agent-claude', 'agent-opencode', 'agent-codex']);
   assert.deepEqual(ids(planForPaths(['devmachine/common/kuayle-agent-runner']).devImages), ['headless', 'agent-claude', 'agent-opencode', 'agent-codex']);
+  assert.deepEqual(ids(planForPaths(['devmachine/common/kuayle-live-inbox-hook.cjs', 'devmachine/common/claude-managed-settings.json']).devImages), ['agent-claude', 'agent-opencode', 'agent-codex']);
   assert.deepEqual(ids(planForPaths(['devmachine/ide/terminal-session.sh']).devImages), ['ide', 'headless']);
 });
 

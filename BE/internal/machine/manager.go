@@ -173,6 +173,9 @@ type Manager struct {
 	// limitReports is when each container's memory limit hit was last reported.
 	limitReportsMu sync.Mutex
 	limitReports   map[string]time.Time
+
+	// liveInterval overrides liveChannelInterval (tests).
+	liveInterval time.Duration
 }
 
 type terminalOperationError struct {
@@ -1172,7 +1175,14 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 		}
 		return m.store.UpdateServiceRuntime(runContext, service.ID, containerID, "running", "healthy", nil)
 	}}
+	// While an unattended attempt runs, queued live messages reach its inbox
+	// and its outbox is collected every few seconds.
+	stopLive := func() {}
+	if run.Mode != "interactive" {
+		stopLive = m.startLiveChannel(runContext, machine, run)
+	}
 	execution, executionErr := m.runtime.RunAgent(runContext, machine, run, providerRecord, checkout, secrets.Environment, observer)
+	stopLive()
 	if used := secrets.Environment[signInSecretNames[run.ProviderID]]; used != "" {
 		returnCtx, cancelReturn := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		if err := m.returnSignIn(returnCtx, machine, run, used); err != nil {
@@ -1207,6 +1217,7 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	// them, without waiting for the next port scan.
 	outboxCtx, cancelOutbox := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 	m.collectOutbox(outboxCtx, machine, services)
+	m.closeLiveInbox(outboxCtx, machine, run)
 	cancelOutbox()
 	stdout, stderr := output.Text("stdout"), output.Text("stderr")
 	result := provider.ParseResult(stdout, stderr, execution.ExitCode)

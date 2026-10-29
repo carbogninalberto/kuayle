@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/containerd/errdefs"
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/moby/moby/api/types/container"
@@ -188,6 +189,24 @@ func TestDockerRuntimeLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Zero(t, customExecution.ExitCode)
 	require.Contains(t, customExecution.Stdout, "TEST_SECRET=custom-secret-value")
+	// A live message written before the attempt starts is readable at
+	// /run/kuayle/inbox, which the agent cannot write.
+	inboxCommand, err := json.Marshal([]string{"/bin/sh", "-c", `cat /run/kuayle/inbox/1.json; echo; touch /run/kuayle/inbox/2.json 2>/dev/null && echo inbox-writable || echo inbox-read-only`})
+	require.NoError(t, err)
+	inboxRun := &domain.DevMachineAgentRun{ID: uuid.New(), MachineID: machine.ID, WorkspaceID: machine.WorkspaceID, Mode: "task", CommandArgv: inboxCommand}
+	require.NoError(t, runtime.prepareLiveInbox(ctx, machine, inboxRun, provider.ImageRef))
+	seq := int64(1)
+	inboxFile, err := domain.AgentLiveMessage{Seq: &seq, Sender: domain.AgentLiveSenderUser, Body: "Also add tests", CreatedAt: time.Now()}.InboxFile()
+	require.NoError(t, err)
+	require.NoError(t, runtime.WriteLiveInbox(ctx, machine, inboxRun, []domain.AgentLiveInboxFile{inboxFile}))
+	inboxExecution, err := runtime.RunAgent(ctx, machine, inboxRun, provider, nil, nil, nil)
+	require.NoError(t, err)
+	require.Contains(t, inboxExecution.Stdout, "Also add tests")
+	require.Contains(t, inboxExecution.Stdout, "inbox-read-only")
+	require.NoError(t, runtime.CloseLiveInbox(ctx, machine, inboxRun))
+	require.NoError(t, runtime.CancelAgent(ctx, inboxRun))
+	_, err = runtime.client.VolumeInspect(ctx, liveInboxName(machine, inboxRun), client.VolumeInspectOptions{})
+	require.True(t, errdefs.IsNotFound(err), "the run's inbox is removed with it")
 	services = append(services, domain.DevMachineService{
 		ServiceType: "agent", ServiceKey: "agent", ContainerID: &execution.ContainerID,
 	}, domain.DevMachineService{
