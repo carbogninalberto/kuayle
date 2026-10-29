@@ -11,6 +11,8 @@ export interface AssistantCapability {
 	available: boolean;
 	/** The workspace has not turned the tool off. */
 	enabled: boolean;
+	/** A workspace custom tool (`custom_<name>`); its switch is the tool's own enabled flag. */
+	custom?: boolean;
 }
 
 export interface AssistantCapabilities {

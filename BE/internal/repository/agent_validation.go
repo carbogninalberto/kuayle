@@ -83,7 +83,7 @@ func lockTaskMachine(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask) (i
 	}
 	var allowed bool
 	if err := tx.GetContext(ctx, &allowed, `SELECT EXISTS(SELECT 1 FROM dev_machine_workspace_policies WHERE workspace_id=$1 AND enabled) AND NOT EXISTS(SELECT 1 FROM dev_machine_agent_runs WHERE machine_id=$2 AND status IN ('queued','starting','running','waiting_input'))
- AND NOT EXISTS(SELECT 1 FROM dev_machine_operations WHERE machine_id=$2 AND action='run_check' AND status IN ('pending','leased'))`, task.WorkspaceID, task.MachineID); err != nil {
+ AND NOT EXISTS(SELECT 1 FROM dev_machine_operations WHERE machine_id=$2 AND action IN ('run_check','run_tool') AND status IN ('pending','leased'))`, task.WorkspaceID, task.MachineID); err != nil {
 		return 0, err
 	}
 	if !allowed {

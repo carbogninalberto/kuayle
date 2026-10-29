@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -79,6 +80,9 @@ type AssistantTools struct {
 	settings assistantToolSettings
 	// The skill tools are unavailable until SetSkills wires them.
 	skills assistantSkills
+	// Custom tools are unavailable until SetCustomTools wires them.
+	customTools    assistantCustomTools
+	customToolWait time.Duration
 }
 
 type assistantToolSettings interface {
@@ -150,6 +154,8 @@ type assistantTool struct {
 	live bool
 	// skills tools need SetSkills.
 	skills bool
+	// customTools tools need SetCustomTools.
+	customTools bool
 }
 
 var assistantToolCatalog = []assistantTool{
@@ -173,7 +179,17 @@ var assistantToolCatalog = []assistantTool{
 
 // assistantTools is every tool, in the order offered to the model.
 func assistantTools() []assistantTool {
-	return append(append(append(append([]assistantTool{}, assistantToolCatalog...), assistantMachineToolCatalog...), assistantLiveToolCatalog...), assistantSkillToolCatalog...)
+	var tools []assistantTool
+	for _, catalog := range [][]assistantTool{
+		assistantToolCatalog,
+		assistantMachineToolCatalog,
+		assistantLiveToolCatalog,
+		assistantSkillToolCatalog,
+		assistantCustomToolCatalog,
+	} {
+		tools = append(tools, catalog...)
+	}
+	return tools
 }
 
 func (t *AssistantTools) specs() []chatToolSpec {
@@ -202,7 +218,8 @@ func (t *AssistantTools) available(tool assistantTool) bool {
 	return (!tool.agentWork || t.work != nil) && (!tool.repositories || t.repositories != nil) &&
 		(!tool.machines || (t.machineTasks != nil && t.machinePorts != nil)) &&
 		(!tool.live || t.live != nil) &&
-		(!tool.skills || t.skills != nil)
+		(!tool.skills || t.skills != nil) &&
+		(!tool.customTools || t.customTools != nil)
 }
 
 func lookupAssistantTool(name string) (assistantTool, bool) {

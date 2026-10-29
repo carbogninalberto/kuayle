@@ -90,6 +90,10 @@ type Runtime interface {
 	RemoveCheckServices(context.Context, *domain.DevMachine, *domain.DevMachineAgentRun, *domain.DevMachineAgentRunStep) error
 	// RemoveCheck deletes a finished manual check's container.
 	RemoveCheck(context.Context, *domain.DevMachine, *domain.DevMachineAgentRun, *domain.DevMachineAgentRunStep) error
+	// RunTool runs a custom tool in its own check container; RemoveTool
+	// deletes the finished run's container.
+	RunTool(context.Context, *domain.DevMachine, *domain.AssistantToolRunExecution, string, *AgentObserver) (*AgentExecution, error)
+	RemoveTool(context.Context, *domain.DevMachine, uuid.UUID) error
 	// StartPreview (re)starts one task's preview process; StopPreview stops it.
 	// Neither affects another task's preview.
 	StartPreview(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService, checkout *domain.DevMachineCheckout, taskID uuid.UUID, argv []string, port int) error

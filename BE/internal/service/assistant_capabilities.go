@@ -3,9 +3,11 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
+	"github.com/kuayle/kuayle-backend/internal/repository"
 )
 
 var (
@@ -25,6 +27,9 @@ type AssistantCapability struct {
 	Available bool `json:"available"`
 	// Enabled: the workspace has not turned the tool off.
 	Enabled bool `json:"enabled"`
+	// Custom marks a workspace custom tool (custom_<name>); its switch is the
+	// tool's own enabled flag.
+	Custom bool `json:"custom,omitempty"`
 }
 
 type AssistantCapabilities struct {
@@ -79,7 +84,23 @@ func (s *ConversationService) Capabilities(ctx context.Context, ws uuid.UUID) (*
 	for i, tool := range tools {
 		result.Tools = append(result.Tools, capability(tool, available[i], disabled))
 	}
+	if s.tools.customTools != nil {
+		custom, err := s.tools.customTools.List(ctx, ws)
+		if err != nil {
+			return nil, err
+		}
+		for _, tool := range custom {
+			if tool.Status == domain.AssistantSkillActive {
+				result.Tools = append(result.Tools, customCapability(tool))
+			}
+		}
+	}
 	return result, nil
+}
+
+func customCapability(tool domain.AssistantCustomTool) AssistantCapability {
+	return AssistantCapability{Name: domain.CustomToolPrefix + tool.Name, Description: tool.Description, RequiresApproval: tool.RunMode != domain.AssistantToolRunAuto,
+		ChangesData: !tool.ReadOnly, Available: true, Enabled: tool.Enabled, Custom: true}
 }
 
 // SetCapability turns one built-in tool on or off for the workspace.
@@ -87,6 +108,25 @@ func (s *ConversationService) SetCapability(ctx context.Context, ws uuid.UUID, n
 	user, _, err := s.capabilityAccess(ctx, ws)
 	if err != nil {
 		return nil, err
+	}
+	if custom, ok := strings.CutPrefix(name, domain.CustomToolPrefix); ok && s.tools.customTools != nil {
+		tools, err := s.tools.customTools.List(ctx, ws)
+		if err != nil {
+			return nil, err
+		}
+		for _, tool := range tools {
+			if tool.Name == custom && tool.Status == domain.AssistantSkillActive {
+				updated, err := s.tools.customTools.SetEnabled(ctx, ws, tool.ID, user, enabled)
+				if errors.Is(err, repository.ErrAssistantToolDenied) {
+					return nil, repository.ErrAssistantToolSettingDenied
+				}
+				if err != nil {
+					return nil, err
+				}
+				result := customCapability(*updated)
+				return &result, nil
+			}
+		}
 	}
 	tools, available := s.builtInTools()
 	for i, tool := range tools {
