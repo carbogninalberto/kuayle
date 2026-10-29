@@ -744,6 +744,8 @@ newest agent task state, branch and pull request. Agents working in parallel
 know what the others own and build on their merged changes.
 Agents of related tasks can also message each other; see
 [agent messaging](#agent-messaging).
+The task's creator can message its running agent; see
+[live channel](#live-channel).
 
 ## Agent messaging
 
@@ -842,6 +844,91 @@ card shows its issue's messages compactly with the same controls.
 
 Rolling migration 88 back drops the registry, the holds and the audit, and
 the agent marker of posted comments (the comments stay as their authors').
+
+## Live channel
+
+Migration 95 adds `agent_live_messages`: one task's two-way channel between
+its creator (or the orchestrator acting for them) and its agent, while the
+agent works. The backend and the Claude Code hook are in place; the assistant
+tools and the chat display build on the service functions below.
+
+**Sending to the agent.** `AgentTaskService.QueueLiveMessage(ws, task, sender,
+body)` (repository `QueueLiveMessage`) records a message from `user` or
+`orchestrator`. Only the task's creator may send, under the same conversation
+and team checks as the other task actions (another member gets not found);
+only implementing tasks that are not completed, cancelled or cancelling take
+messages; the body is cleaned like an outbox body (at most 4,000 characters);
+at most 30 messages per task per hour (otherwise
+`ErrAgentLiveMessageRateLimited`; an ended task gives `ErrAgentLiveMessageClosed`). Under the task row lock each message gets
+the task's next sequence number and state `queued`. It only delivers text.
+
+**Delivery while an attempt runs.** Each unattended attempt gets a Docker
+volume `kuayle-<routing-key>-inbox-<run-id>` (labels `com.kuayle.service=agent-inbox`
+and the run ID), mounted read-only with `nocopy` at `/run/kuayle/inbox` in the
+agent container, outside `/workspace`. The manager writes into it through a
+writer container with the volume mounted read-write at `/inbox`, created from
+the agent image and never started (no network, read-only root, all
+capabilities dropped): Docker copies into a stopped container's volumes. The
+agent therefore cannot create, change or remove inbox files. Every 5 seconds
+while the attempt runs, the manager writes the queued messages of the task
+whose current run it is (at most 10 per pass, oldest first) as root-owned
+`<seq>.json` files (mode 0644) holding only
+`{"seq","from":"user"|"orchestrator","kind","body","sent_at"}`, then marks them
+`delivered` with `delivered_via=inbox` and the run ID. A failed mark rewrites
+the same files next time; readers track sequence numbers. Inbox files never
+contain credentials, task or user identifiers. If the inbox cannot be
+prepared the attempt still runs and messages wait for the next attempt.
+
+**Claude Code.** The Claude agent image installs
+`/etc/claude-code/managed-settings.json` (from
+`devmachine/common/claude-managed-settings.json`), which the repository's
+`.claude` settings cannot replace and the agent cannot edit. It runs
+`kuayle-live-inbox-hook.cjs` on `PostToolUse` (every tool) and `Stop`. The
+hook reads inbox files with a sequence above the one recorded in
+`~/.kuayle/live-inbox.json` (the attempt's in-memory home, mode 0600, outside
+the worktree), in order, at most 10 per call; regular files of at most 20 KiB
+whose `seq` matches the name. It returns them, fenced and framed as messages
+from the task's owner or the orchestrator on their behalf, as
+`hookSpecificOutput.additionalContext` after a tool call, or as
+`{"decision":"block","reason":...}` when Claude would stop, so Claude continues
+with them. A file that cannot be parsed yet is retried on the next call
+(later files wait behind it) and skipped after 30 seconds. Without an inbox
+the hook prints nothing. Codex and OpenCode read the same files; every
+implementing prompt has one line about the inbox and answering.
+
+**Next attempt.** Messages still queued when an attempt is created (none ran,
+or they arrived after the last pass) are placed in its prompt after other
+agents' messages, as "Messages from the person who owns this task", oldest
+first, at most 10 within the prompt room, and marked `delivered_via=prompt`
+with the attempt's run ID; recreating the attempt places the same messages,
+and messages claimed for an attempt that was never created are claimed again.
+Reviews receive none. A message written to the inbox in an attempt's last
+seconds, after Claude's final tool call and stop check, counts as delivered
+without being read.
+
+**Agent to orchestrator.** While an attempt runs the manager also collects the
+machine's outboxes every 5 seconds (and still during the port scan and at the
+end of the attempt). An outbox file `{"to":"orchestrator","body":"..."}` may
+add `"kind":"question"` (default `message`) and `"channel":"internal"` or
+`"live"`; `kind` is refused for issue recipients. Such files are recorded in
+`agent_live_messages` as `from_agent`, sender `agent`, state `received` with
+the sending run ID, or `rejected` with a reason and bounded preview (invalid
+files, or a task that ended or whose creator lost access); any task kind may
+send them. They have their own budget of 30 per task per hour, are
+deduplicated like other outbox files (same attempt, name and content), never
+reach another agent, GitHub or an issue, and are untrusted text to show.
+
+**Reading.** `AgentTaskService.LiveMessages(ws, task, limit)` returns the
+newest messages of both directions (at most 200), oldest first, for the
+task's creator. HTTP routes, assistant tools, chat display and question
+notifications are not part of this step.
+
+**Cleanup.** When an attempt ends the manager removes the writer and the
+volume once unused; the ended agent container keeps it until the run is
+cancelled (`CancelAgent` removes the run's inbox volumes after its containers)
+or the machine is torn down (`Teardown` removes the machine's inbox volumes).
+
+Rolling migration 95 back drops the live channel's messages.
 
 ## Remaining workflow work
 

@@ -21,7 +21,9 @@ func TestCancelAgentRemovesEveryOwnedContainer(t *testing.T) {
 			run := &domain.DevMachineAgentRun{ID: uuid.New(), MachineID: uuid.New(), WorkspaceID: uuid.New()}
 			labels := machineLabels(&domain.DevMachine{ID: run.MachineID, WorkspaceID: run.WorkspaceID})
 			labels["com.kuayle.agent-run-id"] = run.ID.String()
-			var removed []string
+			var removed, removedVolumes []string
+			inbox := machineLabels(&domain.DevMachine{ID: run.MachineID, WorkspaceID: run.WorkspaceID})
+			inbox["com.kuayle.agent-run-id"], inbox["com.kuayle.service"] = run.ID.String(), liveInboxService
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch {
 				case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/containers/json"):
@@ -29,6 +31,12 @@ func TestCancelAgentRemovesEveryOwnedContainer(t *testing.T) {
 					_ = json.NewEncoder(w).Encode([]container.Summary{{ID: "coding", Labels: labels}, {ID: "validation", Labels: labels}, {ID: "other", Labels: map[string]string{"com.kuayle.agent-run-id": uuid.NewString()}}})
 				case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/networks"):
 					_, _ = w.Write([]byte(`[]`))
+				case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/volumes"):
+					require.Contains(t, r.URL.Query().Get("filters"), "com.kuayle.agent-run-id="+run.ID.String())
+					_ = json.NewEncoder(w).Encode(map[string]any{"Volumes": []map[string]any{{"Name": "inbox", "Labels": inbox}}})
+				case r.Method == http.MethodDelete && strings.Contains(r.URL.Path, "/volumes/"):
+					removedVolumes = append(removedVolumes, r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:])
+					w.WriteHeader(http.StatusNoContent)
 				case r.Method == http.MethodDelete:
 					require.Equal(t, "1", r.URL.Query().Get("force"))
 					require.Equal(t, "1", r.URL.Query().Get("v"))
@@ -54,6 +62,9 @@ func TestCancelAgentRemovesEveryOwnedContainer(t *testing.T) {
 				require.NoError(t, err)
 			}
 			require.Equal(t, []string{"coding", "validation"}, removed)
+			if firstStatus != http.StatusInternalServerError {
+				require.Equal(t, []string{"inbox"}, removedVolumes, "the run's inbox goes with its containers")
+			}
 		})
 	}
 }

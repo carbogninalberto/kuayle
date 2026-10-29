@@ -39,6 +39,21 @@ Kuayle takes outbox files every few seconds and when your attempt ends, then
 removes them. At most 20 messages per task per hour are recorded. Nothing is
 committed: Kuayle excludes `.kuayle/` from git.
 
+## Message the person who owns your task
+
+Use the same outbox with `"to":"orchestrator"` to report to the person who
+owns your task (or the Kuayle orchestrator acting for them), and add
+`"kind":"question"` when you need a decision; then keep working on what you
+can:
+
+```json
+{"to":"orchestrator","kind":"question","body":"Should the v1 route stay? I kept it for now."}
+```
+
+Their messages reach you while you work as read-only files in
+`/run/kuayle/inbox/<seq>.json` (Claude Code also shows new ones after each
+tool call), or at the start of your next attempt.
+
 ## Delivery
 
 A message reaches the other agent at the start of its next attempt, under

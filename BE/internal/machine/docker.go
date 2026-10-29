@@ -23,6 +23,7 @@ import (
 	"github.com/moby/moby/api/types/network"
 	volumetypes "github.com/moby/moby/api/types/volume"
 	"github.com/moby/moby/client"
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 )
 
@@ -662,6 +663,9 @@ func (r *DockerRuntime) Teardown(ctx context.Context, machine *domain.DevMachine
 	if err := r.removeCheckNetworks(ctx, "com.kuayle.machine-id="+machine.ID.String(), machine.ID.String()); err != nil {
 		return err
 	}
+	if err := r.removeLiveInboxVolumes(ctx, "com.kuayle.machine-id="+machine.ID.String(), machine.ID); err != nil {
+		return err
+	}
 	networkName := "kuayle-machine-" + machine.RoutingKey
 	if machine.DockerNetworkName != nil && *machine.DockerNetworkName != "" {
 		networkName = *machine.DockerNetworkName
@@ -789,6 +793,13 @@ func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine
 	workingDirectory := "/workspace"
 	if checkout != nil {
 		workingDirectory = checkout.WorkspacePath
+	}
+	// Without an inbox the attempt still runs; live messages then wait for
+	// the next attempt's prompt.
+	if err := r.prepareLiveInbox(ctx, machine, run, provider.ImageRef); err != nil {
+		log.WithFields(log.Fields{"machine_id": machine.ID, "agent_run_id": run.ID}).WithError(err).Warn("live inbox could not be prepared")
+	} else {
+		hostConfig.Mounts = append(hostConfig.Mounts, liveInboxMount(machine, run))
 	}
 	response, err := r.client.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config: &container.Config{
@@ -1053,6 +1064,7 @@ func (r *DockerRuntime) CancelAgent(ctx context.Context, run *domain.DevMachineA
 	}
 	if len(cleanupErrors) == 0 {
 		cleanupErrors = append(cleanupErrors, r.removeCheckNetworks(ctx, "com.kuayle.agent-run-id="+run.ID.String(), run.MachineID.String()))
+		cleanupErrors = append(cleanupErrors, r.removeLiveInboxVolumes(ctx, "com.kuayle.agent-run-id="+run.ID.String(), run.MachineID))
 	}
 	return errors.Join(cleanupErrors...)
 }

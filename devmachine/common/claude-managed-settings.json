@@ -1,0 +1,19 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          { "type": "command", "command": "node /usr/local/lib/kuayle/kuayle-live-inbox-hook.cjs", "timeout": 10 }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "node /usr/local/lib/kuayle/kuayle-live-inbox-hook.cjs", "timeout": 10 }
+        ]
+      }
+    ]
+  }
+}

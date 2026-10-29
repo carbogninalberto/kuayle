@@ -83,7 +83,8 @@ type messageRecipient struct {
 // becomes one registry record (refused ones included) within the sender's
 // hourly budget; a file taken twice is recorded once. Recipients must be a
 // related issue (parent, sub-issue, sibling, blocker or blocked issue) of the
-// sender's issue in the same team.
+// sender's issue in the same team. Files addressed to the orchestrator go to
+// the task's live channel instead (agent_live_messages).
 func (r *AgentMessageRepository) RecordTaskOutbox(ctx context.Context, taskID uuid.UUID, files []domain.AgentOutboxFile) (int, error) {
 	if len(files) == 0 {
 		return 0, nil
@@ -109,23 +110,51 @@ func (r *AgentMessageRepository) RecordTaskOutbox(ctx context.Context, taskID uu
 	if err != nil {
 		return 0, err
 	}
-	var sent int
+	var sent, live int
 	if err = tx.GetContext(ctx, &sent, `SELECT count(*) FROM agent_messages WHERE from_task_id=$1 AND created_at>now()-interval '1 hour'`, taskID); err != nil {
+		return 0, err
+	}
+	if err = tx.GetContext(ctx, &live, `SELECT count(*) FROM agent_live_messages WHERE task_id=$1 AND direction='from_agent' AND created_at>now()-interval '1 hour'`, taskID); err != nil {
 		return 0, err
 	}
 	files = append([]domain.AgentOutboxFile(nil), files...)
 	sort.SliceStable(files, func(i, j int) bool { return files[i].Name < files[j].Name })
 	recorded := 0
+	ended := !sender.Allowed || sender.State == "completed" || sender.State == "cancelled" || sender.State == "failed"
 	for _, file := range files {
-		if sent >= domain.AgentMessagesPerHour {
-			break
-		}
 		digest := sha256.Sum256([]byte(sender.RunID.String() + "\x00" + file.Name + "\x00" + string(file.Data)))
+		message, parseErr := domain.ParseAgentOutboxMessage(file.Data)
+		// Messages to the orchestrator belong to the task's live channel, with
+		// their own budget; agents of any task kind may write them.
+		if !file.Oversize && (parseErr == nil && message.To == domain.AgentOutboxOrchestrator || parseErr != nil && domain.AgentMessageRef(file.Data) == "ORCHESTRATOR") {
+			if live >= domain.AgentLiveMessagesPerHour {
+				continue
+			}
+			var inserted bool
+			switch {
+			case parseErr != nil:
+				inserted, err = recordLiveOutbox(ctx, tx, sender, hex.EncodeToString(digest[:]), nil, domain.AgentMessagePreview(file.Data), parseErr.Error())
+			case ended:
+				inserted, err = recordLiveOutbox(ctx, tx, sender, hex.EncodeToString(digest[:]), &message, "", "the sending task can no longer send messages")
+			default:
+				inserted, err = recordLiveOutbox(ctx, tx, sender, hex.EncodeToString(digest[:]), &message, "", "")
+			}
+			if err != nil {
+				return recorded, err
+			}
+			if inserted {
+				recorded++
+				live++
+			}
+			continue
+		}
+		if sent >= domain.AgentMessagesPerHour {
+			continue
+		}
 		row := domain.AgentMessage{WorkspaceID: sender.WorkspaceID, FromTaskID: sender.ID, FromIssueID: sender.IssueID, FromRunID: &sender.RunID, Channel: domain.AgentMessageInternal, CommentState: "none", DedupeKey: hex.EncodeToString(digest[:])}
 		reject := func(reason string) {
 			row.State, row.RejectReason = "rejected", &reason
 		}
-		message, parseErr := domain.ParseAgentOutboxMessage(file.Data)
 		switch {
 		case file.Oversize:
 			row.ToRef, row.Body = "?", domain.AgentMessagePreview(file.Data)
@@ -135,7 +164,7 @@ func (r *AgentMessageRepository) RecordTaskOutbox(ctx context.Context, taskID uu
 			reject(parseErr.Error())
 		default:
 			row.ToRef, row.Channel, row.Body = message.To, message.Channel, message.Body
-			if sender.Kind != domain.AgentTaskKindImplement || !sender.Allowed || sender.State == "completed" || sender.State == "cancelled" || sender.State == "failed" {
+			if sender.Kind != domain.AgentTaskKindImplement || ended {
 				reject("the sending task can no longer send messages")
 				break
 			}

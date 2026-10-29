@@ -15,10 +15,12 @@ import (
 )
 
 // Agent message channels: internal messages reach only the recipient agent's
-// next prompt; comment messages are also posted on the recipient issue.
+// next prompt; comment messages are also posted on the recipient issue; live
+// messages go to the orchestrator (see AgentLiveMessage).
 const (
 	AgentMessageInternal = "internal"
 	AgentMessageComment  = "comment"
+	AgentMessageLive     = "live"
 
 	// AgentMessageMaxRunes bounds one message body.
 	AgentMessageMaxRunes = 4000
@@ -39,16 +41,21 @@ type AgentOutboxFile struct {
 	Oversize bool
 }
 
-// AgentOutboxMessage is a parsed outbox file.
+// AgentOutboxMessage is a parsed outbox file. Kind is set only for messages
+// to the orchestrator.
 type AgentOutboxMessage struct {
 	To      string
 	Channel string
+	Kind    string
 	Body    string
 }
 
-// ParseAgentOutboxMessage reads {"to","channel","body"} strictly: one JSON
-// object, no other fields, a team-style identifier, a known channel and a
-// bounded body without control characters other than tabs and newlines.
+// ParseAgentOutboxMessage reads {"to","channel","kind","body"} strictly: one
+// JSON object, no other fields, a team-style identifier or "orchestrator", a
+// known channel and a bounded body without control characters other than
+// tabs and newlines. Messages to the orchestrator use the live channel
+// ("internal" is accepted as the default) and may be a "question"; kind is
+// refused for issue recipients.
 func ParseAgentOutboxMessage(data []byte) (AgentOutboxMessage, error) {
 	if len(data) > AgentOutboxFileMaxBytes {
 		return AgentOutboxMessage{}, errors.New("message file is too large")
@@ -59,6 +66,7 @@ func ParseAgentOutboxMessage(data []byte) (AgentOutboxMessage, error) {
 	var raw struct {
 		To      *string `json:"to"`
 		Channel *string `json:"channel"`
+		Kind    *string `json:"kind"`
 		Body    *string `json:"body"`
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
@@ -73,20 +81,51 @@ func ParseAgentOutboxMessage(data []byte) (AgentOutboxMessage, error) {
 	if raw.Channel != nil {
 		message.Channel = strings.TrimSpace(*raw.Channel)
 	}
-	if message.Channel != AgentMessageInternal && message.Channel != AgentMessageComment {
-		return AgentOutboxMessage{}, errors.New("unknown channel")
+	if strings.EqualFold(message.To, AgentOutboxOrchestrator) {
+		message.To, message.Kind = AgentOutboxOrchestrator, AgentLiveKindMessage
+		if message.Channel != AgentMessageInternal && message.Channel != AgentMessageLive {
+			return AgentOutboxMessage{}, errors.New("unknown channel for the orchestrator")
+		}
+		message.Channel = AgentMessageLive
+		if raw.Kind != nil {
+			message.Kind = strings.TrimSpace(*raw.Kind)
+		}
+		if message.Kind != AgentLiveKindMessage && message.Kind != AgentLiveKindQuestion {
+			return AgentOutboxMessage{}, errors.New("unknown kind")
+		}
+	} else {
+		if message.Channel != AgentMessageInternal && message.Channel != AgentMessageComment {
+			return AgentOutboxMessage{}, errors.New("unknown channel")
+		}
+		if raw.Kind != nil {
+			return AgentOutboxMessage{}, errors.New("kind is only for messages to the orchestrator")
+		}
+		if !agentMessageRecipient.MatchString(message.To) {
+			return AgentOutboxMessage{}, errors.New("invalid recipient")
+		}
 	}
-	if !agentMessageRecipient.MatchString(message.To) {
-		return AgentOutboxMessage{}, errors.New("invalid recipient")
+	body, err := CleanAgentLiveMessage(*raw.Body)
+	if err != nil {
+		return AgentOutboxMessage{}, err
 	}
-	message.Body = cleanAgentMessage(*raw.Body)
-	if message.Body == "" {
-		return AgentOutboxMessage{}, errors.New("message is empty")
-	}
-	if utf8.RuneCountInString(message.Body) > AgentMessageMaxRunes {
-		return AgentOutboxMessage{}, errors.New("message is too long")
-	}
+	message.Body = body
 	return message, nil
+}
+
+// CleanAgentLiveMessage removes control characters other than tabs and
+// newlines and refuses empty, overlong or invalid text.
+func CleanAgentLiveMessage(body string) (string, error) {
+	if !utf8.ValidString(body) {
+		return "", errors.New("message is not valid UTF-8")
+	}
+	body = cleanAgentMessage(body)
+	if body == "" {
+		return "", errors.New("message is empty")
+	}
+	if utf8.RuneCountInString(body) > AgentMessageMaxRunes {
+		return "", errors.New("message is too long")
+	}
+	return body, nil
 }
 
 func cleanAgentMessage(body string) string {

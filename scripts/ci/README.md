@@ -27,6 +27,7 @@ advances. Product checks and images continue to verify the recorded PR head.
 | `BE/Dockerfile*` | The corresponding API, gateway, manager or updater image. Docker lifecycle uses separate runtime images and is not selected for these Dockerfile-only edits. |
 | `devmachine/{ide,headless,browser,collector,egress,docker}/` | That image on both architectures, backend script tests and Docker lifecycle. `docker` is the per-machine Docker daemon. |
 | `devmachine/agent/`, shared agent runner | All three provider images on both architectures, backend tests and Docker lifecycle. |
+| Shared live inbox hook and Claude managed settings | All three provider images; backend tests and Docker lifecycle. |
 | Shared agent CLI installer | IDE and headless images; backend tests and Docker lifecycle. |
 | Shared Docker CLI installer | IDE, headless and all three provider images; backend tests and Docker lifecycle. |
 | Shared scoped startup and agent runner logic | IDE, headless, browser, collector, egress and all three provider images; backend tests and Docker lifecycle. |

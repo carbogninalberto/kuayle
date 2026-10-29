@@ -74,6 +74,7 @@ export function planForPaths(paths, event = 'pull_request') {
       else if (path === 'devmachine/common/start-common.sh') add(dev, ['ide', 'headless', 'browser', 'collector', 'egress', ...agents]);
       else if (path === 'devmachine/common/kuayle-service-entrypoint') add(dev, ['ide', 'headless', 'browser', 'collector', 'egress']);
       else if (path === 'devmachine/common/kuayle-agent-runner') add(dev, ['headless', ...agents]);
+      else if (['devmachine/common/kuayle-live-inbox-hook.cjs', 'devmachine/common/claude-managed-settings.json'].includes(path)) add(dev, agents);
       else if (['devmachine/common/patch-npm-security.cjs', 'devmachine/common/test-http-cache-semantics.cjs'].includes(path)) add(dev, ['ide', 'headless', ...agents]);
       else if (path.startsWith('devmachine/agent/')) add(dev, agents);
       else if (path.startsWith('devmachine/headless/')) add(dev, ['headless']);

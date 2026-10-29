@@ -56,6 +56,7 @@ func NewAgentTaskService(repo *repository.AgentTaskRepository, machines *DevMach
 	if repo != nil {
 		service.runtime.(*devMachineTaskRuntime).attachments = repo
 		service.runtime.(*devMachineTaskRuntime).messages = repo
+		service.runtime.(*devMachineTaskRuntime).live = repo
 	}
 	if hub != nil {
 		service.events = hub
@@ -305,6 +306,8 @@ type devMachineTaskRuntime struct {
 	// messages supplies other agents' queued messages; without it none are
 	// delivered.
 	messages agentMessageSource
+	// live supplies the owner's live messages queued while no attempt ran.
+	live agentLiveMessageSource
 }
 
 // taskMachineRequest creates the machine of an agent task, named after its
@@ -491,9 +494,17 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 		}
 		prompt = withMessages(prompt, messages)
 	}
+	if !review && r.live != nil {
+		live, err := r.live.ClaimLiveMessages(ctx, task, messageRoom(prompt))
+		if err != nil {
+			return nil, err
+		}
+		prompt = withLiveMessages(prompt, live)
+	}
 	if !review {
 		prompt = withQA(prompt, task)
 		prompt = withOutbox(prompt, related)
+		prompt = withLiveChannel(prompt)
 	}
 	prompt = withInstructions(prompt, task.AgentInstructions)
 	// No attempt pushes: Kuayle publishes implementations itself, and a
