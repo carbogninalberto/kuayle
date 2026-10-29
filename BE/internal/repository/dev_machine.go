@@ -70,6 +70,7 @@ type DevMachineStore interface {
 	ScopeResourceExists(context.Context, uuid.UUID, string, *uuid.UUID) (bool, error)
 	GetLinkedRepository(context.Context, uuid.UUID, uuid.UUID) (*domain.GitHubRepoModel, error)
 	GetLinkedRepositoryByFullName(context.Context, uuid.UUID, string) (*domain.GitHubRepoModel, error)
+	ListLinkedRepositories(context.Context, uuid.UUID) ([]domain.GitHubRepoModel, error)
 	GetIssueDevelopmentContext(context.Context, uuid.UUID, uuid.UUID) (*domain.Issue, error)
 	GetProjectDevelopmentContext(context.Context, uuid.UUID, uuid.UUID) (*domain.Project, error)
 	ListEnvironments(context.Context, uuid.UUID) ([]domain.DevMachineEnvironment, error)
@@ -1901,6 +1902,13 @@ func (r *DevMachineRepository) GetLinkedRepositoryByFullName(ctx context.Context
 		return nil, nil
 	}
 	return &repo, err
+}
+
+// ListLinkedRepositories lists the workspace's active linked repositories.
+func (r *DevMachineRepository) ListLinkedRepositories(ctx context.Context, workspaceID uuid.UUID) ([]domain.GitHubRepoModel, error) {
+	repos := []domain.GitHubRepoModel{}
+	err := r.db.SelectContext(ctx, &repos, `SELECT * FROM github_repos WHERE workspace_id=$1 AND is_active ORDER BY full_name`, workspaceID)
+	return repos, err
 }
 
 func (r *DevMachineRepository) GetIssueDevelopmentContext(ctx context.Context, workspaceID, issueID uuid.UUID) (*domain.Issue, error) {

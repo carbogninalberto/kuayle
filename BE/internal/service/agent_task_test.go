@@ -85,6 +85,7 @@ type taskStoreFake struct {
 	task        domain.AgentTask
 	accessErr   error
 	transitions []string
+	reasons     []string
 	revoked     bool
 	finished    bool
 }
@@ -92,12 +93,13 @@ type taskStoreFake struct {
 func (f *taskStoreFake) Get(context.Context, uuid.UUID, uuid.UUID) (*domain.AgentTask, error) {
 	return &f.task, f.accessErr
 }
-func (f *taskStoreFake) Transition(_ context.Context, _ domain.AgentTask, to, _ string) error {
+func (f *taskStoreFake) Transition(_ context.Context, _ domain.AgentTask, to, reason string) error {
 	if !domain.ValidAgentTaskTransition(f.task.State, to) {
 		return repository.ErrAgentTaskConflict
 	}
 	f.task.State = to
 	f.transitions = append(f.transitions, to)
+	f.reasons = append(f.reasons, reason)
 	return nil
 }
 func (f *taskStoreFake) Start(ctx context.Context, task domain.AgentTask) (*domain.Issue, error) {
@@ -671,4 +673,26 @@ func TestTaskCheckoutUsesAMachineThatServedAnotherRepository(t *testing.T) {
 	store.policy.AllowedRepositories = json.RawMessage(`[]`)
 	_, err = runtime.machines.CheckoutIssue(context.Background(), task.WorkspaceID, *task.MachineID, task.CreatorID, dto.CheckoutIssueRequest{IssueID: task.IssueID.String()})
 	require.ErrorIs(t, err, ErrCheckoutNotEligible)
+}
+
+// A task on an issue without its own repository uses its team's; only when no
+// scope configures one is the task blocked, with a reason that says where to set it.
+func TestTaskUsesTheTeamRepositoryAndExplainsAMissingOne(t *testing.T) {
+	store, runtime, task := reusedMachineFixture(domain.DevMachineStatusRunning, domain.DevMachineStatusRunning)
+	issue := store.issues[task.IssueID]
+	setting := store.scopeSettings[scopeKey(nil, nil, &task.IssueID)]
+	delete(store.scopeSettings, scopeKey(nil, nil, &task.IssueID))
+	store.scopeSettings[scopeKey(&issue.TeamID, nil, nil)] = setting
+	checkout, err := runtime.machines.checkoutTask(context.Background(), task)
+	require.NoError(t, err)
+	require.Equal(t, "kuayle/web", checkout.RepositoryFullName)
+
+	delete(store.scopeSettings, scopeKey(&issue.TeamID, nil, nil))
+	_, err = runtime.Prepare(context.Background(), &task)
+	require.ErrorIs(t, err, ErrNoDevelopmentRepository)
+	tasks := &taskStoreFake{task: domain.AgentTask{ID: uuid.New(), WorkspaceID: uuid.New(), CreatorID: uuid.New(), State: "preparing"}}
+	svc := &AgentTaskService{store: tasks, runtime: &taskRuntimeFake{prepareErr: err}}
+	require.NoError(t, svc.step(context.Background(), tasks.task))
+	require.Equal(t, "blocked", tasks.task.State)
+	require.Equal(t, []string{"No development repository is configured for this issue, its project, team or workspace; set one in the development settings and retry"}, tasks.reasons)
 }

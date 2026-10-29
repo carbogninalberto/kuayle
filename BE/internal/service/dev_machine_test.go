@@ -2136,6 +2136,16 @@ func (f *devMachineStoreFake) GetLinkedRepositoryByFullName(_ context.Context, _
 	return nil, nil
 }
 
+func (f *devMachineStoreFake) ListLinkedRepositories(context.Context, uuid.UUID) ([]domain.GitHubRepoModel, error) {
+	repos := []domain.GitHubRepoModel{}
+	for _, repo := range f.reposByID {
+		if repo.IsActive {
+			repos = append(repos, *repo)
+		}
+	}
+	return repos, nil
+}
+
 func (f *devMachineStoreFake) GetIssueDevelopmentContext(_ context.Context, _ uuid.UUID, issueID uuid.UUID) (*domain.Issue, error) {
 	if f.issues == nil {
 		return nil, nil

@@ -264,6 +264,9 @@ func (s *AgentTaskService) preparationError(ctx context.Context, task domain.Age
 		}
 		return s.store.Fail(ctx, task, "Preparing the worktree failed: "+cause+"; retry the task")
 	}
+	if errors.Is(err, ErrNoDevelopmentRepository) && task.MachineID == nil && task.State != "running" && task.State != "waiting_input" {
+		return s.store.Transition(ctx, task, "blocked", "No development repository is configured for this issue, its project, team or workspace; set one in the development settings and retry")
+	}
 	if errors.Is(err, ErrCheckoutNotEligible) || errors.Is(err, ErrRepositoryNotAllowed) || errors.Is(err, ErrDevMachinesDisabled) || errors.Is(err, ErrProviderNotAllowed) || errors.Is(err, ErrInvalidMachineInput) || errors.Is(err, ErrInvalidOperation) {
 		// A preparing task may already have queued or started native execution.
 		// Once an environment is reserved, settle its operations before stopping.
@@ -304,7 +307,7 @@ func (r *devMachineTaskRuntime) Prepare(ctx context.Context, task *domain.AgentT
 		return false, err
 	}
 	if setting.GitHubRepoID == nil {
-		return false, ErrCheckoutNotEligible
+		return false, ErrNoDevelopmentRepository
 	}
 	// The reserved ID is only a placeholder until that machine exists; asking
 	// again lets a now-idle machine be reused instead. A destroyed or deleting

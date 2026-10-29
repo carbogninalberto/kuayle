@@ -139,6 +139,12 @@ type DelegationPayload struct {
 	Identifier   string `json:"identifier"`
 	Title        string `json:"title"`
 	Instructions string `json:"instructions"`
+	// Repository, BaseBranch and RepositorySource show the development
+	// repository resolved when approval was requested (issue → project → team
+	// → workspace). The task resolves it again when it runs.
+	Repository       string `json:"repository,omitempty"`
+	BaseBranch       string `json:"base_branch,omitempty"`
+	RepositorySource string `json:"repository_source,omitempty"`
 }
 
 // MergePayload binds a merge approval to the pull request and the reviewed

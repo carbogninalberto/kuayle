@@ -516,6 +516,13 @@ worktrees. It does not pause a reused manual machine or one serving another
 active task. A later manual start superseding an already completed cleanup is
 respected. Completion waits for the queued machine cleanup operation.
 
+Preparation resolves the task's repository from the issue, project, team and
+workspace development settings (the most specific configured scope wins), so an
+issue needs no repository of its own when its team or project has one. Without
+any, a task that has not reserved a machine is blocked with "No development
+repository is configured for this issue, its project, team or workspace"; after
+setting one, retrying the task resolves it again.
+
 Explicit retries of blocked/failed tasks and review follow-ups require the
 expected task generation and a request UUID. Duplicate requests return the same
 attempt; different payloads conflict. Retries allocate a new native run ID and

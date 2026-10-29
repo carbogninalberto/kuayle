@@ -239,6 +239,14 @@ needs `dev_machine:manage`, a project needs a workspace owner or admin, the
 repository must be active in the workspace's GitHub installation and allowed by
 the Dev Machine policy's repository allowlist, and the scope's other settings
 (environment, test command, instructions, preview) are kept.
+`get_issue` adds the issue's `development_repository` (repository, base branch
+and the issue/project/team/workspace scope that configured it), and
+`delegate_issue` resolves the same repository when it requests approval and
+shows it on the approval payload (`repository`, `base_branch`,
+`repository_source`). The model is told not to ask for a repository unless
+neither reports one; delegation then fails as data asking the user to choose and
+link one, and a repository the policy refuses fails the same way. The approval
+does not pin the repository: the task resolves current settings when it runs.
 
 A provider may return tool calls only when tools were offered and must finish
 the turn with `finish_reason: "tool_calls"`. One reply runs at most 400 tool

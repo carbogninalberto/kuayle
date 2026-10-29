@@ -727,3 +727,18 @@ func (f *collectorHandlerStoreFake) ListModelServers(context.Context, uuid.UUID)
 func (f *collectorHandlerStoreFake) ListAgentRunSecretSnapshots(context.Context, uuid.UUID, uuid.UUID) ([]string, error) {
 	return nil, nil
 }
+
+func TestRepositoryDefaultsValidatesScopeAndPolicy(t *testing.T) {
+	workspaceID, userID := uuid.New(), uuid.New()
+	store := &handlerDevMachineStoreFake{policy: &domain.DevMachineWorkspacePolicy{WorkspaceID: workspaceID, Enabled: false}}
+	h := modelServerHandler(store)
+	get := func(query string) *httptest.ResponseRecorder {
+		recorder := httptest.NewRecorder()
+		ctx := devMachineHandlerContext(httptest.NewRequest(http.MethodGet, "/dev-machine-repository-defaults"+query, nil), recorder, workspaceID, userID)
+		require.NoError(t, h.RepositoryDefaults(ctx))
+		return recorder
+	}
+	require.Equal(t, http.StatusBadRequest, get("?issue_id=not-a-uuid").Code)
+	require.Equal(t, http.StatusBadRequest, get("?project_id=1").Code)
+	require.Equal(t, http.StatusForbidden, get("?issue_id="+uuid.NewString()).Code, "disabled Dev Machines expose no development defaults")
+}

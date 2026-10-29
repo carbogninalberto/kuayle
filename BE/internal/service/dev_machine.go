@@ -915,57 +915,13 @@ func scopePointers(scopeType string, scopeID *uuid.UUID) (teamID, projectID, iss
 	return
 }
 
+// ErrNoDevelopmentRepository means no issue, project, team or workspace
+// development setting names a repository; it is a checkout eligibility error.
+var ErrNoDevelopmentRepository = fmt.Errorf("%w: issue has no development repository", ErrCheckoutNotEligible)
+
 func (s *DevMachineService) resolveDevelopmentSetting(ctx context.Context, workspaceID uuid.UUID, issue *domain.Issue, project *domain.Project) (*domain.DevMachineScopeSetting, error) {
-	resolved := &domain.DevMachineScopeSetting{WorkspaceID: workspaceID}
-	var scopes [][3]*uuid.UUID
-	if issue != nil {
-		scopes = append(scopes, [3]*uuid.UUID{nil, nil, &issue.ID})
-		if issue.ProjectID != nil {
-			scopes = append(scopes, [3]*uuid.UUID{nil, issue.ProjectID, nil})
-		}
-		scopes = append(scopes, [3]*uuid.UUID{&issue.TeamID, nil, nil})
-	} else if project != nil {
-		scopes = append(scopes, [3]*uuid.UUID{nil, &project.ID, nil})
-		if project.TeamID != nil {
-			scopes = append(scopes, [3]*uuid.UUID{project.TeamID, nil, nil})
-		}
-	}
-	scopes = append(scopes, [3]*uuid.UUID{nil, nil, nil})
-	for _, scope := range scopes {
-		if resolved.GitHubRepoID != nil && resolved.EnvironmentID != nil && resolved.TestCommand != nil && resolved.AgentProvider != nil && resolved.AgentInstructions != nil && resolved.ComposeFile != nil && resolved.PreviewCommand != nil {
-			break
-		}
-		setting, err := s.store.GetScopeSetting(ctx, workspaceID, scope[0], scope[1], scope[2])
-		if err != nil {
-			return nil, err
-		}
-		if setting == nil {
-			continue
-		}
-		if resolved.GitHubRepoID == nil && setting.GitHubRepoID != nil {
-			resolved.GitHubRepoID, resolved.BaseBranch = setting.GitHubRepoID, setting.BaseBranch
-		}
-		if resolved.EnvironmentID == nil && setting.EnvironmentID != nil {
-			resolved.EnvironmentID = setting.EnvironmentID
-		}
-		if resolved.TestCommand == nil && setting.TestCommand != nil {
-			command := append(json.RawMessage(nil), (*setting.TestCommand)...)
-			resolved.TestCommand = &command
-		}
-		if resolved.AgentProvider == nil && setting.AgentProvider != nil {
-			resolved.AgentProvider = setting.AgentProvider
-		}
-		if resolved.AgentInstructions == nil && setting.AgentInstructions != nil {
-			resolved.AgentInstructions = setting.AgentInstructions
-		}
-		if resolved.ComposeFile == nil && setting.ComposeFile != nil {
-			resolved.ComposeFile = setting.ComposeFile
-		}
-		if resolved.PreviewCommand == nil && setting.PreviewCommand != nil {
-			resolved.PreviewCommand, resolved.PreviewPort = setting.PreviewCommand, setting.PreviewPort
-		}
-	}
-	return resolved, nil
+	setting, _, err := resolveDevelopmentScopes(ctx, s.store, workspaceID, developmentScopes(issue, project))
+	return setting, err
 }
 
 func (s *DevMachineService) CheckoutIssue(ctx context.Context, workspaceID, machineID, userID uuid.UUID, request dto.CheckoutIssueRequest) (*domain.DevMachineCheckout, error) {
@@ -1005,7 +961,7 @@ func (s *DevMachineService) checkoutIssue(ctx context.Context, workspaceID, mach
 		return nil, err
 	}
 	if setting.GitHubRepoID == nil {
-		return nil, fmt.Errorf("%w: issue has no development repository", ErrCheckoutNotEligible)
+		return nil, ErrNoDevelopmentRepository
 	}
 	if setting.EnvironmentID != nil && (machine.EnvironmentID == nil || *machine.EnvironmentID != *setting.EnvironmentID) {
 		return nil, fmt.Errorf("%w: issue requires a different development environment", ErrCheckoutNotEligible)
