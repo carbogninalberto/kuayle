@@ -980,7 +980,26 @@ func (r *DockerRuntime) resumeExecution(ctx context.Context, inspection containe
 			return r.agentOutputFailure(containerID, ctx.Err())
 		}
 	}
-	return &AgentExecution{ContainerID: containerID, Stdout: stdout.String(), Stderr: stderr.String(), ExitCode: inspection.State.ExitCode}, nil
+	execution := &AgentExecution{ContainerID: containerID, Stdout: stdout.String(), Stderr: stderr.String(), ExitCode: inspection.State.ExitCode}
+	r.inspectMemoryLimit(ctx, execution)
+	return execution, nil
+}
+
+// inspectMemoryLimit records whether the exited container hit its memory
+// limit. Docker sets OOMKilled for any out-of-memory kill in the container's
+// cgroup, so a killed child process (a compiler) is reported as well.
+func (r *DockerRuntime) inspectMemoryLimit(ctx context.Context, execution *AgentExecution) {
+	result, err := r.client.ContainerInspect(ctx, execution.ContainerID, client.ContainerInspectOptions{})
+	if err != nil {
+		// The exit code still stands; the manager reports no memory limit.
+		return
+	}
+	if result.Container.State != nil {
+		execution.OOMKilled = result.Container.State.OOMKilled
+	}
+	if result.Container.HostConfig != nil {
+		execution.MemoryLimitBytes = result.Container.HostConfig.Memory
+	}
 }
 
 // A failed observer cannot leave an unmonitored native process running.
@@ -1739,7 +1758,9 @@ func validateWorkspaceVolume(existing volumetypes.Volume, expected client.Volume
 	expectedQuotaMode := expected.Labels[workspaceQuotaModeLabel]
 	monitored := expectedQuotaMode == "monitored"
 	for key, value := range expected.Labels {
-		if key == workspaceQuotaModeLabel && monitored {
+		// A monitored limit is the machine's stored size, which a resize can
+		// change after the volume was created with its first size.
+		if monitored && (key == workspaceQuotaModeLabel || key == workspaceQuotaLabel) {
 			continue
 		}
 		if existing.Labels[key] != value {
@@ -1763,7 +1784,7 @@ func validateWorkspaceVolume(existing volumetypes.Volume, expected client.Volume
 		}
 		return nil
 	}
-	if actualSize != expected.Labels[workspaceQuotaLabel] {
+	if actualSize != existing.Labels[workspaceQuotaLabel] {
 		return fmt.Errorf("hard quota is %q instead of %q", existing.Options["size"], expected.DriverOpts["size"])
 	}
 	return nil

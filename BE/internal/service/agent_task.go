@@ -198,6 +198,10 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 		if run.ErrorMessage != nil && strings.HasPrefix(*run.ErrorMessage, "sign_in_required") {
 			return s.store.FailForSignIn(ctx, task, agentDisplayNames[task.Provider]+" needs you to sign in. Sign in from the terminal, then continue")
 		}
+		// A container that hit its memory or disk limit says so and how to fix it.
+		if run.ErrorMessage != nil && domain.IsResourceLimitReason(*run.ErrorMessage) {
+			return s.store.Fail(ctx, task, *run.ErrorMessage)
+		}
 		return s.store.Fail(ctx, task, "Native coding attempt failed; stopping execution before retry")
 	case domain.DevMachineAgentRunStatusCancelled:
 		return s.store.Transition(ctx, task, "cancelling", "Native coding attempt was cancelled")

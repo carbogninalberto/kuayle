@@ -103,6 +103,11 @@ type ManagerStore interface {
 	UpsertRuntimeCredential(context.Context, *domain.DevMachineRuntimeCredential) error
 	PurgeExpiredRuntimeCredentials(context.Context, time.Time) (int, error)
 	PurgeAccessLogs(context.Context, time.Time, int) (int, error)
+	// FinishResize applies (or, when applied is false, drops with the reason)
+	// the machine's pending size; RecordResourceLimit keeps the latest limit
+	// one of its containers hit.
+	FinishResize(context.Context, uuid.UUID, bool, *string) error
+	RecordResourceLimit(context.Context, uuid.UUID, string, string) error
 }
 
 const gatewayAccessLogRetention = 90 * 24 * time.Hour
@@ -163,6 +168,10 @@ type Manager struct {
 	portScanning  atomic.Bool
 	portStateMu   sync.Mutex
 	portStates    map[uuid.UUID]publishedPortState
+
+	// limitReports is when each container's memory limit hit was last reported.
+	limitReportsMu sync.Mutex
+	limitReports   map[string]time.Time
 }
 
 type terminalOperationError struct {
@@ -200,6 +209,15 @@ func (m *Manager) Run(ctx context.Context) error {
 	defer operationTicker.Stop()
 	defer reconcileTicker.Stop()
 	defer portTicker.Stop()
+	if watcher, ok := m.runtime.(resourceLimitWatcher); ok {
+		m.operations.Add(1)
+		go func() {
+			defer m.operations.Done()
+			watcher.WatchResourceLimits(ctx, func(hit ResourceLimitHit) {
+				m.recordMemoryLimit(ctx, hit, time.Now())
+			})
+		}()
+	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -327,6 +345,12 @@ func (m *Manager) processLeasedOperation(ctx context.Context, operation domain.D
 				log.WithFields(fields).WithError(checkoutErr).Error("failed to record checkout failure")
 			}
 		}
+		if !willRetry && operation.Action == domain.DevMachineOpResize {
+			message := resizeFailureMessage(err)
+			if resizeErr := m.store.FinishResize(finalCtx, operation.MachineID, false, &message); resizeErr != nil {
+				log.WithFields(fields).WithError(resizeErr).Error("failed to record resize failure")
+			}
+		}
 		if !willRetry && operation.Action == domain.DevMachineOpTerminateTerminal && operation.TerminalSessionID != nil {
 			if terminalErr := m.store.FailTerminalSessionClose(finalCtx, *operation.TerminalSessionID); terminalErr != nil {
 				log.WithFields(fields).WithError(terminalErr).Error("failed to record terminal close failure")
@@ -366,6 +390,9 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 	if operation.Action == domain.DevMachineOpSnapshotEnvironment && operation.Generation != machine.Generation {
 		return m.failSnapshotOperation(ctx, operation, "environment_snapshot_stale",
 			fmt.Sprintf("machine generation changed from %d to %d before the snapshot completed", operation.Generation, machine.Generation))
+	}
+	if operation.Action == domain.DevMachineOpResize {
+		return m.resize(ctx, machine)
 	}
 	if operation.Generation < machine.Generation {
 		switch operation.Action {
@@ -1152,6 +1179,10 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 		}
 		cancelReturn()
 	}
+	memoryLimit := m.recordRunMemoryLimit(ctx, machine, run, "agent", execution)
+	if memoryLimit != "" && executionErr == nil {
+		writeKuayleNote(output, run.ID, memoryLimit)
+	}
 	if executionErr == nil {
 		executionErr = output.Finish()
 	}
@@ -1231,6 +1262,14 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	if executionErr != nil {
 		message := safeError(executionErr)
 		run.ErrorMessage = &message
+	}
+	if run.Status == domain.DevMachineAgentRunStatusFailed {
+		if memoryLimit != "" {
+			run.ErrorMessage = &memoryLimit
+		} else if run.ErrorMessage == nil && execution.ExitCode == 137 {
+			message := "The agent process was killed (exit code 137) without an out-of-memory event; it may have been stopped by a signal."
+			run.ErrorMessage = &message
+		}
 	}
 	for _, commit := range result.Commits {
 		repositoryFullName := checkoutRepositoryFullName(machine, checkout)
@@ -1535,6 +1574,7 @@ func (m *Manager) reconcile(ctx context.Context) error {
 					Generation: machine.Generation + 1, IdempotencyKey: fmt.Sprintf("disk-quota:%d", machine.Generation), MaxAttempts: 3,
 				}
 				_ = m.store.SetDesiredAndEnqueue(ctx, machine.WorkspaceID, machine.ID, domain.DevMachineStatusStopped, operation)
+				_ = m.store.RecordResourceLimit(ctx, machine.ID, domain.DevMachineResourceLimitDisk, domain.DiskLimitMessage(machine.DiskGB))
 				_ = m.createEvent(ctx, machine, nil, "collector", "resource.disk_quota_exceeded", map[string]any{"used_bytes": usage.DiskBytes, "limit_bytes": limit})
 			}
 		}

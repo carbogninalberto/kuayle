@@ -78,6 +78,12 @@ type managerStoreFake struct {
 	modelServer               *domain.AgentModelServer
 	reclaimable               *domain.DevMachine
 	reclaimWaitingIDs         []uuid.UUID
+	resourceLimits            []string
+}
+
+func (f *managerStoreFake) RecordResourceLimit(_ context.Context, _ uuid.UUID, kind, message string) error {
+	f.resourceLimits = append(f.resourceLimits, kind+": "+message)
+	return nil
 }
 
 func (f *managerStoreFake) LeaseOperations(context.Context, string, int, time.Duration) ([]domain.DevMachineOperation, error) {

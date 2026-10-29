@@ -82,6 +82,16 @@ type CheckoutIssueRequest struct {
 
 type UpdateDevMachineRequest struct {
 	KeepRunning *bool `json:"keep_running,omitempty"`
+	// CPUMillis, MemoryMB and DiskGB resize the machine; an omitted value
+	// keeps the current one. The manager applies the new size live.
+	CPUMillis *int `json:"cpu_millis,omitempty"`
+	MemoryMB  *int `json:"memory_mb,omitempty"`
+	DiskGB    *int `json:"disk_gb,omitempty"`
+}
+
+// Resizes reports whether the request changes the machine size.
+func (r UpdateDevMachineRequest) Resizes() bool {
+	return r.CPUMillis != nil || r.MemoryMB != nil || r.DiskGB != nil
 }
 
 type BulkDeleteDevMachinesRequest struct {

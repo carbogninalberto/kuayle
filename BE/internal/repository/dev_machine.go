@@ -60,6 +60,7 @@ type DevMachineStore interface {
 	CreateGitRef(context.Context, *domain.DevMachineGitRef) error
 	MachineNameExistsForUser(context.Context, uuid.UUID, uuid.UUID, string) (bool, error)
 	UpdateMachinePreferencesForUser(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, *bool) (*domain.DevMachine, error)
+	RequestResizeForUser(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, domain.DevMachineResize, *domain.DevMachineOperation) (*domain.DevMachine, error)
 	TouchMachineActivity(context.Context, uuid.UUID, time.Time) error
 	RequestPermanentDelete(context.Context, uuid.UUID, uuid.UUID, *uuid.UUID) (*domain.DevMachineOperation, error)
 	BulkPurgeMachines(context.Context, uuid.UUID, []uuid.UUID, time.Time, bool, bool) (int, error)
@@ -504,6 +505,9 @@ func (r *DevMachineRepository) LeaseOperations(ctx context.Context, owner string
 			SELECT 1 FROM dev_machine_operations leased
 			WHERE leased.machine_id=o.machine_id AND leased.id<>o.id
 			AND leased.status='leased' AND leased.lease_expires_at >= NOW()
+			-- A resize applies beside a long agent run or check, which can
+			-- need the memory, but never beside lifecycle work.
+			AND (o.action<>'resize' OR leased.action IN ('spawn','start','stop','pause','teardown','snapshot_environment','resize'))
 		))
 	), candidates AS (
 		SELECT o.id FROM ranked r

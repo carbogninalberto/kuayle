@@ -35,6 +35,10 @@ type AgentExecution struct {
 	Stdout      string
 	Stderr      string
 	ExitCode    int
+	// OOMKilled reports that the kernel killed a process of the container for
+	// reaching MemoryLimitBytes, the container's memory limit.
+	OOMKilled        bool
+	MemoryLimitBytes int64
 }
 
 type ResourceUsage struct {
@@ -112,4 +116,7 @@ type Runtime interface {
 	SnapshotEnvironment(context.Context, *domain.DevMachine, []domain.DevMachineService, *domain.DevMachineEnvironment) (string, error)
 	DeleteEnvironmentImage(context.Context, *domain.DevMachineEnvironment) error
 	Ping(context.Context) error
+	// UpdateResources sets the CPU, memory and process limits of every
+	// container of the machine (running or not) from its size.
+	UpdateResources(context.Context, *domain.DevMachine) error
 }

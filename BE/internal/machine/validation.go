@@ -97,6 +97,9 @@ func (m *Manager) validateAgent(ctx context.Context, machine *domain.DevMachine,
 		}
 		return &terminalOperationError{code: "compose_rejected", message: "Compose file rejected: " + composeErr.Reason}
 	}
+	if memoryLimit := m.recordRunMemoryLimit(ctx, machine, run, "validation", execution); memoryLimit != "" && execErr == nil {
+		writeKuayleNote(output, run.ID, memoryLimit)
+	}
 	if execErr == nil {
 		execErr = output.Finish()
 	}

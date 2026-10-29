@@ -53,6 +53,8 @@ const (
 	DevMachineOpCheckoutIssue       DevMachineOperationAction = "checkout_issue"
 	DevMachineOpSnapshotEnvironment DevMachineOperationAction = "snapshot_environment"
 	DevMachineOpTerminateTerminal   DevMachineOperationAction = "terminate_terminal"
+	// DevMachineOpResize applies the machine's pending size to its containers.
+	DevMachineOpResize DevMachineOperationAction = "resize"
 )
 
 type DevMachineOperationStatus string
@@ -149,6 +151,19 @@ type DevMachine struct {
 	// DockerListeningPorts are the ports published by containers of the
 	// machine's Docker daemon at ListeningPortsAt, also in ListeningPorts.
 	DockerListeningPorts pq.Int64Array `json:"-" db:"docker_listening_ports"`
+
+	// PendingCPUMillis, PendingMemoryMB and PendingDiskGB are a requested size
+	// the manager has not applied yet; ResizeError explains the last resize
+	// that could not be applied.
+	PendingCPUMillis *int    `json:"pending_cpu_millis,omitempty" db:"pending_cpu_millis"`
+	PendingMemoryMB  *int    `json:"pending_memory_mb,omitempty" db:"pending_memory_mb"`
+	PendingDiskGB    *int    `json:"pending_disk_gb,omitempty" db:"pending_disk_gb"`
+	ResizeError      *string `json:"resize_error,omitempty" db:"resize_error"`
+	// ResourceLimit* is the latest limit a machine container hit (see
+	// DevMachineResourceLimitMemory/Disk); a successful resize clears it.
+	ResourceLimitKind    *string    `json:"resource_limit_kind,omitempty" db:"resource_limit_kind"`
+	ResourceLimitMessage *string    `json:"resource_limit_message,omitempty" db:"resource_limit_message"`
+	ResourceLimitAt      *time.Time `json:"resource_limit_at,omitempty" db:"resource_limit_at"`
 }
 
 type DevMachineAgentProvider struct {
@@ -625,6 +640,13 @@ type DevMachineScopeSetting struct {
 	PreviewPort    *int             `json:"preview_port" db:"preview_port"`
 }
 
+// DevMachineResize is a requested machine size.
+type DevMachineResize struct {
+	CPUMillis int
+	MemoryMB  int
+	DiskGB    int
+}
+
 type DevMachineCheckout struct {
 	ScopeKey           string     `json:"scope_key" db:"scope_key"`
 	ID                 uuid.UUID  `json:"id" db:"id"`
@@ -675,6 +697,20 @@ func ValidOperationForStatus(action DevMachineOperationAction, status DevMachine
 		return status == DevMachineStatusRunning
 	case DevMachineOpSnapshotEnvironment:
 		return status == DevMachineStatusPaused || status == DevMachineStatusStopped
+	default:
+		return false
+	}
+}
+
+// DevMachineResizable reports whether a machine can take a new size: it is
+// running, paused or stopped, is not changing state and is not being deleted.
+func DevMachineResizable(machine *DevMachine) bool {
+	if machine == nil || machine.DeleteRequestedAt != nil || machine.DesiredStatus != machine.Status {
+		return false
+	}
+	switch machine.Status {
+	case DevMachineStatusRunning, DevMachineStatusPaused, DevMachineStatusStopped:
+		return true
 	default:
 		return false
 	}

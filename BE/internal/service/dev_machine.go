@@ -114,6 +114,8 @@ type DevMachineService struct {
 	images         DevMachineImages
 	// modelClient lists model server models; see SetModelDiscovery.
 	modelClient *http.Client
+	// diskQuotaMode is the configured workspace disk quota mode.
+	diskQuotaMode string
 }
 
 func NewDevMachineService(store repository.DevMachineStore, agents *agent.Registry, enabled bool, domain string, encryptionKey []byte, ticketTTL time.Duration, images DevMachineImages, frontendURL ...string) *DevMachineService {
@@ -649,6 +651,12 @@ func (s *DevMachineService) NameAvailable(ctx context.Context, workspaceID, user
 }
 
 func (s *DevMachineService) Update(ctx context.Context, workspaceID, machineID, userID uuid.UUID, request dto.UpdateDevMachineRequest) (*domain.DevMachine, error) {
+	if request.Resizes() {
+		resized, err := s.resize(ctx, workspaceID, machineID, userID, request)
+		if err != nil || request.KeepRunning == nil {
+			return resized, err
+		}
+	}
 	machine, err := s.store.UpdateMachinePreferencesForUser(ctx, workspaceID, machineID, userID, request.KeepRunning)
 	if err != nil {
 		if errors.Is(err, repository.ErrMachineStateConflict) {

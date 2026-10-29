@@ -505,6 +505,10 @@ failures move the task to `cancelling`; capacity waits and stale leases are not
 failures, and a successful step resets the counter. A native failure also enters
 cleanup first. Only confirmed cleanup produces the terminal `failed` state.
 Exhausted cleanup stays visibly pending rather than claiming the process stopped.
+A native failure caused by a resource limit (an out-of-memory kill of the agent
+container, see [resource limits](../../TECHNICAL.md#resource-limits-and-quotas))
+fails with that explanation as its reason, kept as the final `failed` reason;
+other native failures use the generic reason and cleanup message.
 Configuration failures after reserving an environment also enter cleanup: a
 preparing task may already have started native execution between worker polls.
 An authorized repeat cancellation request can retry failed cleanup operations
