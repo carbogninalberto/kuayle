@@ -79,9 +79,9 @@ func (c *Client) GetRepositoryInstallationToken(installationID int64, repository
 }
 
 // CreatePullRequest opens a pull request using a repository-scoped installation token.
-func (c *Client) CreatePullRequest(token, owner, repository, title, head, base, body string) (*PullRequest, error) {
+func (c *Client) CreatePullRequest(token, owner, repository, title, head, base, body string, draft bool) (*PullRequest, error) {
 	payload, err := json.Marshal(map[string]any{
-		"title": title, "head": head, "base": base, "body": body,
+		"title": title, "head": head, "base": base, "body": body, "draft": draft,
 	})
 	if err != nil {
 		return nil, err
@@ -108,6 +108,32 @@ func (c *Client) CreatePullRequest(token, owner, repository, title, head, base, 
 		return nil, err
 	}
 	return &pullRequest, nil
+}
+
+// UpdatePullRequestBody replaces a pull request's description.
+func (c *Client) UpdatePullRequestBody(token, owner, repository string, number int, body string) error {
+	payload, err := json.Marshal(map[string]string{"body": body})
+	if err != nil {
+		return err
+	}
+	endpoint := fmt.Sprintf("%s/repos/%s/%s/pulls/%d", githubAPIBaseURL, owner, repository, number)
+	request, err := http.NewRequest(http.MethodPatch, endpoint, bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Authorization", "Bearer "+token)
+	request.Header.Set("Accept", "application/vnd.github+json")
+	request.Header.Set("Content-Type", "application/json")
+	response, err := c.httpClient.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		responseBody, _ := io.ReadAll(response.Body)
+		return fmt.Errorf("GitHub API error %d: %s", response.StatusCode, responseBody)
+	}
+	return nil
 }
 
 type cachedToken struct {

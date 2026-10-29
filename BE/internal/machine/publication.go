@@ -88,9 +88,16 @@ func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, 
 	}
 	result := domain.AgentPublicationResult{}
 	if commit != "" {
+		body := publicationBody(publication, run)
 		pullRequest, prErr := githubAPI.FindOpenPullRequest(token, owner, repository, checkout.WorkingBranch, checkout.BaseBranch)
 		if prErr == nil && pullRequest == nil {
-			pullRequest, prErr = githubAPI.CreatePullRequest(token, owner, repository, title, checkout.WorkingBranch, checkout.BaseBranch, publicationBody(publication, run))
+			// Without an independent check the change opens as a draft, so it
+			// cannot be merged before someone has looked at it.
+			pullRequest, prErr = githubAPI.CreatePullRequest(token, owner, repository, title, checkout.WorkingBranch, checkout.BaseBranch, body, !publicationValidated(publication))
+		} else if prErr == nil {
+			// A reused pull request describes this attempt, so an earlier
+			// not-validated warning does not outlive a passing check.
+			prErr = githubAPI.UpdatePullRequestBody(token, owner, repository, pullRequest.Number, body)
 		}
 		if prErr != nil {
 			return errors.New("pull_request_failed: " + strings.ReplaceAll(safeError(prErr), token, "[redacted]"))
@@ -109,6 +116,9 @@ func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, 
 // check. Agent output is never included; it is unverified and often noisy.
 func publicationBody(publication *domain.AgentPublication, run *domain.DevMachineAgentRun) string {
 	var body strings.Builder
+	if !publicationValidated(publication) {
+		body.WriteString("> [!WARNING]\n> **Not validated:** no check command is configured, so Kuayle did not test this change. Review it carefully, and add a check command in the development settings so future tasks are tested.\n\n")
+	}
 	fmt.Fprintf(&body, "Implements %s: %s\n", publication.IssueIdentifier, markdownLine(publication.IssueTitle))
 	var files, commits []string
 	_ = json.Unmarshal(run.ChangedFiles, &files)
@@ -133,7 +143,7 @@ func publicationBody(publication *domain.AgentPublication, run *domain.DevMachin
 		fmt.Fprintf(&body, "\nCommits: %s\n", strings.Join(short, ", "))
 	}
 	body.WriteString("\n### Verification\n")
-	if len(publication.CheckArgv) > 0 && publication.CheckExitCode != nil {
+	if publicationValidated(publication) {
 		fmt.Fprintf(&body, "Kuayle ran `%s` independently on this branch in a clean container without credentials: passed (exit code %d).\n", strings.ReplaceAll(markdownLine(strings.Join(publication.CheckArgv, " ")), "`", "'"), *publication.CheckExitCode)
 	} else {
 		body.WriteString("No independent check is configured for this project.\n")
@@ -149,6 +159,12 @@ func publicationBody(publication *domain.AgentPublication, run *domain.DevMachin
 	fmt.Fprintf(&body, "- Written by %s through a Kuayle agent task; human review is required before merging.\n", agentName)
 	fmt.Fprintf(&body, "- Review feedback on this pull request is sent back to the same task.\n- Kuayle agent task: %s\n", run.TaskID)
 	return body.String()
+}
+
+// publicationValidated reports whether a configured check passed on this
+// attempt. Only a succeeded validation step records the check's argv.
+func publicationValidated(publication *domain.AgentPublication) bool {
+	return len(publication.CheckArgv) > 0 && publication.CheckExitCode != nil
 }
 
 // markdownLine keeps recorded values on one line and stops them from

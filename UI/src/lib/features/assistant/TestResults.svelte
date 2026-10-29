@@ -77,6 +77,7 @@
 						><CodeBlock.Title><FlaskConical class="size-4" />{m['tasks.checks']()}</CodeBlock.Title></CodeBlock.Header
 					><CodeBlock.Content code={JSON.stringify(step.command_argv)} wrap /></CodeBlock.Root
 				>
+				{#if step.status === 'skipped'}<p class="text-xs text-muted-foreground">{m['tasks.check_skipped_hint']()}</p>{/if}
 				{#if step.compose_file}<p class="text-xs text-muted-foreground">
 						{m['tasks.check_services']({ file: step.compose_file })}
 					</p>{/if}

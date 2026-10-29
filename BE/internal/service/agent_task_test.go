@@ -495,7 +495,7 @@ func TestTaskValidationUsesIndependentOutcome(t *testing.T) {
 	for _, tc := range []struct {
 		status domain.DevMachineAgentRunStepStatus
 		want   string
-	}{{"queued", "validating"}, {"running", "validating"}, {"succeeded", "publishing"}, {"skipped", "blocked"}, {"failed", "cancelling"}, {"cancelled", "cancelling"}} {
+	}{{"queued", "validating"}, {"running", "validating"}, {"succeeded", "publishing"}, {"skipped", "publishing"}, {"failed", "cancelling"}, {"cancelled", "cancelling"}} {
 		t.Run(string(tc.status), func(t *testing.T) {
 			task := domain.AgentTask{ID: uuid.New(), WorkspaceID: uuid.New(), CreatorID: uuid.New(), State: "validating"}
 			store := &taskStoreFake{task: task}
@@ -506,6 +506,23 @@ func TestTaskValidationUsesIndependentOutcome(t *testing.T) {
 			require.Zero(t, runtime.attempts)
 		})
 	}
+}
+
+func TestTaskWithoutCheckPublishesADraftForReview(t *testing.T) {
+	task := domain.AgentTask{ID: uuid.New(), WorkspaceID: uuid.New(), CreatorID: uuid.New(), State: "validating"}
+	store := &taskStoreFake{task: task}
+	runtime := &taskRuntimeFake{validation: &domain.DevMachineAgentRunStep{Status: "skipped"}}
+	service := &AgentTaskService{store: store, runtime: runtime}
+	require.NoError(t, service.step(context.Background(), task))
+	require.Equal(t, "publishing", store.task.State)
+	require.Equal(t, unvalidatedPublishingReason, store.reasons[len(store.reasons)-1])
+
+	published := store.task
+	published.Reason = unvalidatedPublishingReason
+	runtime.publication = &domain.DevMachineAgentRunStep{Status: "succeeded"}
+	require.NoError(t, service.step(context.Background(), published))
+	require.Equal(t, "awaiting_review", store.task.State)
+	require.Contains(t, store.reasons[len(store.reasons)-1], "Draft pull request opened without validation")
 }
 
 func (f *taskRuntimeFake) Publish(context.Context, domain.AgentTask) (*domain.DevMachineAgentRunStep, error) {

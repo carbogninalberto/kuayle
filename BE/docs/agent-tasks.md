@@ -54,7 +54,10 @@ worker queues one `validation` step (sequence 0) on the succeeded native attempt
 with the attempt's effective command snapshot, inside the fenced task transaction.
 It uses the same workspace/machine advisory locks as native run creation and
 requires a running machine, enabled policy and no active native run. An empty
-snapshot records a `skipped` step and blocks the task; it is never a pass.
+snapshot records a `skipped` step; it is never a pass. The task still moves to
+`publishing`, and the change is opened as a **draft** pull request whose
+description starts with a "Not validated" warning; the task then awaits review
+with a reason that says no check is configured.
 
 The manager runs the argv directly (no shell, harness bootstrap or provider
 parsing) in a deterministic `-validation-<run>` container from the machine's
@@ -156,7 +159,10 @@ and write, checks that the checkout is the task's own ready checkout, then:
    helpers) is never loaded while the token exists, and the token is never written
    to the workspace volume.
 3. Reuses an open pull request from the task branch into the base branch, or opens
-   one with the GitHub App. The title carries the issue identifier so the existing
+   one with the GitHub App, as a draft when the attempt's check was skipped. A
+   reused pull request gets this attempt's description, so a later passing check
+   replaces the "Not validated" warning; GitHub's draft flag is left for a person
+   to clear. The title carries the issue identifier so the existing
    `pr_opened` GitHub automation moves the issue to In Review; publication does not
    change the issue status itself. The agent's summary is included only as fenced,
    explicitly unverified text. GitHub's URL must belong to the checkout repository.
