@@ -116,7 +116,8 @@ const gatewayAccessLogPurgeBatch = 1000
 
 type githubAPI interface {
 	GetRepositoryInstallationToken(int64, string) (string, time.Time, error)
-	CreatePullRequest(string, string, string, string, string, string, string) (*githubclient.PullRequest, error)
+	CreatePullRequest(string, string, string, string, string, string, string, bool) (*githubclient.PullRequest, error)
+	UpdatePullRequestBody(string, string, string, int, string) error
 	FindOpenPullRequest(string, string, string, string, string) (*githubclient.PullRequest, error)
 }
 

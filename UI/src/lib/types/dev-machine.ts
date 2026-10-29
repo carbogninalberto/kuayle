@@ -359,6 +359,13 @@ export interface DevMachineRepositoryDefaults {
 	repositories: { id: string; full_name: string; default_branch: string }[];
 }
 
+/** A check command proposed from a repository's manifests; never saved by itself. */
+export interface DevMachineCheckSuggestion {
+	command: string[];
+	/** Manifest paths the command was derived from. */
+	basis: string[];
+}
+
 export interface DevMachineTerminalSession {
 	id: string;
 	machine_id: string;

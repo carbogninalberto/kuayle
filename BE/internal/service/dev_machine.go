@@ -116,6 +116,9 @@ type DevMachineService struct {
 	modelClient *http.Client
 	// diskQuotaMode is the configured workspace disk quota mode.
 	diskQuotaMode string
+	// manifests reads repositories for check suggestions; see
+	// SetRepositoryManifests.
+	manifests RepositoryManifestReader
 }
 
 func NewDevMachineService(store repository.DevMachineStore, agents *agent.Registry, enabled bool, domain string, encryptionKey []byte, ticketTTL time.Duration, images DevMachineImages, frontendURL ...string) *DevMachineService {

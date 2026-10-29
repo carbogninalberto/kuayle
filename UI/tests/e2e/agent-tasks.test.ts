@@ -496,6 +496,24 @@ test('validates test command overrides and preserves them across transport retri
 	expect(state.retries[0].test_command).toEqual([]);
 });
 
+test('a skipped check says the change was published as an untested draft', async ({ page }) => {
+	const { state, emit } = await fixture(page);
+	await page.goto('/test/assistant?conversation=chat-1');
+	await delegate(page);
+	await page.getByRole('button', { name: 'Execution details', exact: true }).click();
+	const checks = page.getByRole('region', { name: 'Independent checks', exact: true });
+	state.validation = {
+		id: 'validation-1',
+		agent_run_id: 'run-1',
+		status: 'skipped',
+		command_argv: [],
+		summary: 'No test command is configured; validation is unavailable'
+	};
+	emit('task.tests_updated', { task_id: 'task-1', run_id: 'run-1', step: state.validation });
+	await checks.getByRole('button', { name: 'Not validated: no check command is configured' }).click();
+	await expect(checks.getByText(/opened as a draft pull request/)).toBeVisible();
+});
+
 test('independent checks update live and retain their actual exit status after reload', async ({ page }) => {
 	const { state, emit } = await fixture(page);
 	await page.goto('/test/assistant?conversation=chat-1');

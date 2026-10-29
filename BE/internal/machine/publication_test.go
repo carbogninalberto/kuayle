@@ -53,6 +53,8 @@ type publicationGitHubFake struct {
 	created  *githubclient.PullRequest
 	err      error
 	creates  int
+	draft    bool
+	updates  int
 	title    string
 	body     string
 	head     string
@@ -66,10 +68,15 @@ func (f *publicationGitHubFake) FindOpenPullRequest(_, _, _, head, base string) 
 	f.head, f.base = head, base
 	return f.existing, f.err
 }
-func (f *publicationGitHubFake) CreatePullRequest(_, _, _, title, head, base, body string) (*githubclient.PullRequest, error) {
+func (f *publicationGitHubFake) CreatePullRequest(_, _, _, title, head, base, body string, draft bool) (*githubclient.PullRequest, error) {
 	f.creates++
-	f.title, f.body = title, body
+	f.title, f.body, f.draft = title, body, draft
 	return f.created, nil
+}
+func (f *publicationGitHubFake) UpdatePullRequestBody(_, _, _ string, _ int, body string) error {
+	f.updates++
+	f.body = body
+	return nil
 }
 
 func publicationFixture() (*domain.DevMachine, *publicationStoreFake) {
@@ -106,7 +113,31 @@ func TestPublishAgentOpensOnePullRequestWithManagerHeldCredential(t *testing.T) 
 	require.Contains(t, github.body, "Commits: `4916a03`")
 	require.Contains(t, github.body, "Kuayle ran `npm test` independently on this branch in a clean container without credentials: passed (exit code 0).")
 	require.Contains(t, github.body, "Written by Codex (deepseek-flash)")
+	require.False(t, github.draft, "a validated change opens ready for review")
 	require.Equal(t, &domain.AgentPublicationResult{Branch: "kuayle/rec-1", Commit: runtime.commit, PullRequestNumber: 12, PullRequestURL: "https://github.com/acme/app/pull/12"}, store.result)
+}
+
+func TestPublishAgentWithoutCheckOpensAWarnedDraft(t *testing.T) {
+	machine, store := publicationFixture()
+	store.publication.CheckArgv, store.publication.CheckExitCode = nil, nil
+	runtime := &publicationRuntimeFake{runtimeFake: &runtimeFake{}, commit: "0123456789abcdef0123456789abcdef01234567"}
+	github := &publicationGitHubFake{created: &githubclient.PullRequest{Number: 12, HTMLURL: "https://github.com/acme/app/pull/12"}}
+	manager := &Manager{store: store, runtime: runtime, github: github, encryptionKey: make([]byte, 32)}
+	require.NoError(t, manager.publishAgent(context.Background(), machine, &domain.DevMachineOperation{}))
+	require.True(t, github.draft)
+	require.True(t, strings.HasPrefix(github.body, "> [!WARNING]\n> **Not validated:**"), "the warning leads the description")
+	require.Equal(t, 12, store.result.PullRequestNumber)
+}
+
+func TestPublishAgentRefreshesReusedPullRequestDescription(t *testing.T) {
+	machine, store := publicationFixture()
+	runtime := &publicationRuntimeFake{runtimeFake: &runtimeFake{}, commit: "0123456789abcdef0123456789abcdef01234567"}
+	github := &publicationGitHubFake{existing: &githubclient.PullRequest{Number: 3, Draft: true, HTMLURL: "https://github.com/acme/app/pull/3"}}
+	manager := &Manager{store: store, runtime: runtime, github: github, encryptionKey: make([]byte, 32)}
+	require.NoError(t, manager.publishAgent(context.Background(), machine, &domain.DevMachineOperation{}))
+	require.Equal(t, 1, github.updates, "a later validated attempt replaces the not-validated warning")
+	require.NotContains(t, github.body, "Not validated")
+	require.Contains(t, github.body, "passed (exit code 0)")
 }
 
 func TestPublishAgentReusesOpenPullRequestOnRetry(t *testing.T) {

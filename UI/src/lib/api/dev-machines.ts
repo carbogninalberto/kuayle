@@ -18,6 +18,7 @@ import type {
 	DevMachineEnvironment,
 	DevMachineScopeSetting,
 	DevMachineRepositoryDefaults,
+	DevMachineCheckSuggestion,
 	LaunchMachineServiceResponse,
 	ResourceSample,
 	TerminalSessionLaunchResponse,
@@ -253,6 +254,17 @@ export function getDevMachineRepositoryDefaults(
 	if (scope.projectId) query.set('project_id', scope.projectId);
 	const suffix = query.size ? `?${query}` : '';
 	return api.get(`${base(slug)}/dev-machine-repository-defaults${suffix}`);
+}
+
+/** Proposes a check for a repository, or for the repository a project or team inherits; null when nothing is recognised. */
+export function getDevMachineCheckSuggestion(
+	slug: string,
+	scope: { repositoryId: string } | { projectId: string } | { teamId: string }
+): Promise<DevMachineCheckSuggestion | null> {
+	const query = new URLSearchParams(
+		'repositoryId' in scope ? { repository_id: scope.repositoryId } : 'projectId' in scope ? { project_id: scope.projectId } : { team_id: scope.teamId }
+	);
+	return api.get(`${base(slug)}/dev-machine-check-suggestion?${query}`);
 }
 
 export function getDevMachineScopeSetting(

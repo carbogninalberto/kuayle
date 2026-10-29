@@ -425,8 +425,12 @@ func (f *githubAPIFake) FindOpenPullRequest(string, string, string, string, stri
 	return nil, nil
 }
 
-func (f *githubAPIFake) CreatePullRequest(string, string, string, string, string, string, string) (*githubclient.PullRequest, error) {
+func (f *githubAPIFake) CreatePullRequest(string, string, string, string, string, string, string, bool) (*githubclient.PullRequest, error) {
 	return &githubclient.PullRequest{HTMLURL: "https://github.com/kuayle/api/pull/1", Number: 1}, nil
+}
+
+func (f *githubAPIFake) UpdatePullRequestBody(string, string, string, int, string) error {
+	return nil
 }
 
 func (f *runtimeFake) CollectValidationArtifacts(context.Context, *domain.DevMachine, *domain.DevMachineAgentRun, *domain.DevMachineCheckout) ([]domain.ValidationArtifact, error) {

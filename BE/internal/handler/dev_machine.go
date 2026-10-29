@@ -229,6 +229,57 @@ func (h *DevMachineHandler) RepositoryDefaults(c echo.Context) error {
 	return response.Success(c, http.StatusOK, defaults)
 }
 
+// CheckSuggestion proposes a check command for repository_id or, with
+// project_id or team_id, for the repository that scope inherits. Nothing is
+// saved.
+func (h *DevMachineHandler) CheckSuggestion(c echo.Context) error {
+	role := middleware.GetWorkspaceRole(c)
+	if role != domain.RoleOwner && role != domain.RoleAdmin {
+		return response.Error(c, http.StatusForbidden, "FORBIDDEN", "Workspace, team, and project development defaults require workspace administration")
+	}
+	workspaceID := middleware.GetWorkspace(c).ID
+	var repositoryID uuid.UUID
+	if raw := c.QueryParam("repository_id"); raw != "" {
+		parsed, err := uuid.Parse(raw)
+		if err != nil {
+			return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid repository_id")
+		}
+		repositoryID = parsed
+	} else if raw := c.QueryParam("project_id"); raw != "" {
+		if _, err := uuid.Parse(raw); err != nil {
+			return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid project_id")
+		}
+		defaults, err := h.service.RepositoryDefaults(c.Request().Context(), workspaceID, nil, &raw)
+		if err != nil {
+			return machineError(c, err)
+		}
+		if defaults.Inherited == nil {
+			return response.NotFound(c, "Repository")
+		}
+		repositoryID = defaults.Inherited.ID
+	} else if raw := c.QueryParam("team_id"); raw != "" {
+		if _, err := uuid.Parse(raw); err != nil {
+			return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid team_id")
+		}
+		// A team inherits the workspace's repository.
+		setting, err := h.service.GetScopeSetting(c.Request().Context(), workspaceID, "workspace", nil)
+		if err != nil {
+			return machineError(c, err)
+		}
+		if setting.GitHubRepoID == nil {
+			return response.NotFound(c, "Repository")
+		}
+		repositoryID = *setting.GitHubRepoID
+	} else {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "repository_id, project_id or team_id is required")
+	}
+	suggestion, err := h.service.SuggestCheck(c.Request().Context(), workspaceID, repositoryID)
+	if err != nil {
+		return machineError(c, err)
+	}
+	return response.Success(c, http.StatusOK, suggestion)
+}
+
 func (h *DevMachineHandler) UpdateScopeSetting(c echo.Context) error {
 	var request dto.DevMachineScopeSettingRequest
 	if err := bindAndValidate(c, &request); err != nil {
@@ -766,6 +817,9 @@ func machineError(c echo.Context, err error) error {
 		return response.Error(c, http.StatusNotFound, "NOT_FOUND", err.Error())
 	case errors.Is(err, service.ErrModelDiscoveryFailed):
 		return response.Error(c, http.StatusBadGateway, "MODEL_DISCOVERY_FAILED", err.Error())
+	case errors.Is(err, service.ErrRepositoryUnreadable):
+		// GitHub's own message is not shown; it can name internal details.
+		return response.Error(c, http.StatusBadGateway, "REPOSITORY_UNREADABLE", service.ErrRepositoryUnreadable.Error())
 	default:
 		return response.InternalError(c)
 	}

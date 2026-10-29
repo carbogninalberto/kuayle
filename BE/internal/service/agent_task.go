@@ -107,6 +107,10 @@ func (s *AgentTaskService) process(ctx context.Context, task domain.AgentTask) {
 	}
 }
 
+// unvalidatedPublishingReason marks a publication that follows a skipped
+// check; the publishing state keeps it until the pull request is recorded.
+const unvalidatedPublishingReason = "No check command is configured; publishing a draft pull request without validation"
+
 func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) error {
 	if task.State == "cancelling" {
 		if err := s.runtime.Cancel(ctx, task); err != nil {
@@ -146,7 +150,8 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 		case domain.DevMachineAgentRunStepStatusSucceeded:
 			return s.store.Transition(ctx, task, "publishing", "Independent validation passed; preparing review artifacts")
 		case domain.DevMachineAgentRunStepStatusSkipped:
-			return s.store.Transition(ctx, task, "blocked", "No test command is configured; configure a check and retry")
+			// The work is still published, as a draft that says it was not tested.
+			return s.store.Transition(ctx, task, "publishing", unvalidatedPublishingReason)
 		case domain.DevMachineAgentRunStepStatusFailed, domain.DevMachineAgentRunStepStatusCancelled:
 			return s.store.Fail(ctx, task, "Independent validation failed; stopping execution before retry")
 		}
@@ -164,6 +169,9 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 		// the validated work in place, so the task blocks instead of failing.
 		switch result.Status {
 		case domain.DevMachineAgentRunStepStatusSucceeded:
+			if task.Reason == unvalidatedPublishingReason {
+				return s.store.Transition(ctx, task, "awaiting_review", "Draft pull request opened without validation; no check command is configured. Review it, and add a check in the development settings")
+			}
 			return s.store.Transition(ctx, task, "awaiting_review", "Pull request opened; waiting for human review")
 		case domain.DevMachineAgentRunStepStatusSkipped:
 			return s.store.Transition(ctx, task, "blocked", "The attempt produced no changes to publish")
