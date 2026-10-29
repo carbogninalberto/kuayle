@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import { ShieldCheck, PencilLine, CircleSlash } from '@lucide/svelte';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
@@ -13,6 +15,7 @@
 	} from '$lib/api/assistant-capabilities';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/paraglide/messages.js';
+	import AssistantSkills from './AssistantSkills.svelte';
 
 	let { slug }: { slug: string } = $props();
 	let capabilities = $state<AssistantCapabilities | null>(null);
@@ -23,6 +26,13 @@
 	// stay in English because they are what the model receives.
 	const labels = m as unknown as Record<string, (() => string) | undefined>;
 	const label = (tool: AssistantCapability) => labels[`assistant.tool_${tool.name}`]?.() ?? tool.name;
+	// The tab is in the URL so chat cards can link to Skills.
+	const tab = $derived(page.url.searchParams.get('tab') === 'skills' ? 'skills' : 'tools');
+	function selectTab(value: string) {
+		const url = new URL(page.url);
+		url.search = value === 'skills' ? '?tab=skills' : '';
+		void goto(url.pathname + url.search, { replaceState: true, noScroll: true, keepFocus: true });
+	}
 	const enabledCount = $derived(capabilities?.tools.filter((tool) => tool.enabled).length ?? 0);
 
 	async function load() {
@@ -64,13 +74,11 @@
 		<p class="text-sm text-muted-foreground">{m['assistant_settings.desc']()}</p>
 	</div>
 
-	<Tabs.Root value="tools" class="gap-4">
+	<Tabs.Root value={tab} onValueChange={selectTab} class="gap-4">
 		<Tabs.List>
 			<Tabs.Trigger value="tools">{m['assistant_settings.tab_tools']()}</Tabs.Trigger>
-			<!-- Skills and custom tools arrive in later releases. -->
-			<Tabs.Trigger value="skills" disabled title={m['assistant_settings.coming_soon']()}
-				>{m['assistant_settings.tab_skills']()}</Tabs.Trigger
-			>
+			<Tabs.Trigger value="skills">{m['assistant_settings.tab_skills']()}</Tabs.Trigger>
+			<!-- Custom tools arrive in a later release. -->
 			<Tabs.Trigger value="custom-tools" disabled title={m['assistant_settings.coming_soon']()}
 				>{m['assistant_settings.tab_custom_tools']()}</Tabs.Trigger
 			>
@@ -144,7 +152,7 @@
 				<p role="status" class="text-sm text-muted-foreground">{m['assistant_settings.loading']()}</p>
 			{/if}
 		</Tabs.Content>
-		<Tabs.Content value="skills"></Tabs.Content>
+		<Tabs.Content value="skills" class="space-y-4"><AssistantSkills {slug} /></Tabs.Content>
 		<Tabs.Content value="custom-tools"></Tabs.Content>
 	</Tabs.Root>
 </div>

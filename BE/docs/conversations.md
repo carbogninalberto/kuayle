@@ -277,9 +277,8 @@ model as data, and has no effect. Approving a pending approval whose tool has
 since been disabled fails it with `This tool is disabled in this workspace`,
 from the Web and Telegram alike, and starts nothing. The Settings page
 (`/[workspaceSlug]/settings/assistant`) lists the tools with Switches for owners
-and admins and a read-only state for members; its Skills tab is a placeholder
-until its settings page lands (the API is described under [Skills](#skills)),
-and its Custom tools tab is a placeholder for a later phase.
+and admins and a read-only state for members; its Skills tab is described under
+[Skills](#skills), and its Custom tools tab is a placeholder for a later phase.
 
 ### Skills
 
@@ -345,6 +344,25 @@ replies name each draft they saved and say it is not active until activated in
 Settings. Both tools are in the registry, so they appear in
 `GET /assistant-capabilities` and obey the tool switches; with `load_skill`
 off, the prompt lists no skills.
+
+**Settings UI.** Settings → Assistant → Skills
+(`/[workspaceSlug]/settings/assistant?tab=skills`, `&skill=<id>` opens one
+skill) lists skills with scope, status, version in effect, pending draft,
+author kind and update time, filtered by scope. Owners and admins create skills
+(workspace-wide or for a team they can see), edit them in a Markdown Textarea
+with a preview, save edits as drafts or apply them, switch them on or off,
+review a draft as a line diff against the version in effect before activating
+it, restore old versions and delete skills after an AlertDialog confirmation;
+members get the same views without write controls. In chat, a completed
+`propose_skill` call renders as a card with the proposed name, description and
+full body (through the sanitizing Markdown renderer, without images), a
+"not active until activated" badge and a link to that skill in Settings; a
+completed `load_skill` call is one "Used skill" line. Sources:
+`UI/src/lib/features/assistant/AssistantSkills.svelte`,
+`SkillEditorDialog.svelte`, `SkillReviewDialog.svelte`,
+`ProposedSkillCard.svelte` and `skill-diff.ts`; checks:
+`UI/tests/e2e/assistant-skills.test.ts`, the skill card test in
+`UI/tests/e2e/assistant.test.ts` and `UI/tests/unit/skill-diff.test.mjs`.
 
 A provider may return tool calls only when tools were offered and must finish
 the turn with `finish_reason: "tool_calls"`. One reply runs at most 400 tool
