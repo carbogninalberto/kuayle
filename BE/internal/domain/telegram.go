@@ -60,4 +60,13 @@ type TelegramDelivery struct {
 	PreviewText       string `db:"preview_text"`
 
 	Approvals []TelegramApprovalButton `db:"-"`
+	// SkillDrafts are the skills the reply proposed with propose_skill.
+	SkillDrafts []TelegramSkillDraft `db:"-"`
+}
+
+// TelegramSkillDraft is a draft skill saved by a delivered reply.
+type TelegramSkillDraft struct {
+	Name    string `db:"name"`
+	TeamKey string `db:"team_key"`
+	Version int    `db:"version"`
 }

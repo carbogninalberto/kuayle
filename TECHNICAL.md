@@ -1106,6 +1106,13 @@ off (`PUT /assistant-capabilities/:name`, stored in `assistant_tool_settings`);
 a disabled tool is not offered to the model, is refused if called anyway, and a
 pending approval for it fails when approved. Members see the list read-only.
 See [tool switches](BE/docs/conversations.md#tool-switches-settings--assistant).
+Workspace skills (`/assistant-skills`, migration 98) are versioned Markdown
+guidance, workspace-wide or for one team, that members can read (private-team
+skills only when they see the team) and owners and admins write, activate,
+restore and delete. The assistant's system prompt lists active, enabled skills
+by name and description; `load_skill` returns a body as workspace guidance and
+`propose_skill` only saves drafts for an admin to activate. See
+[skills](BE/docs/conversations.md#skills).
 
 ### Images in conversations
 

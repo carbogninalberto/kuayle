@@ -77,6 +77,8 @@ type AssistantTools struct {
 	live assistantLiveTasks
 	// Every tool stays enabled until SetSettings wires the workspace switches.
 	settings assistantToolSettings
+	// The skill tools are unavailable until SetSkills wires them.
+	skills assistantSkills
 }
 
 type assistantToolSettings interface {
@@ -146,6 +148,8 @@ type assistantTool struct {
 	machines bool
 	// live tools need SetLiveChannel.
 	live bool
+	// skills tools need SetSkills.
+	skills bool
 }
 
 var assistantToolCatalog = []assistantTool{
@@ -169,7 +173,7 @@ var assistantToolCatalog = []assistantTool{
 
 // assistantTools is every tool, in the order offered to the model.
 func assistantTools() []assistantTool {
-	return append(append(append([]assistantTool{}, assistantToolCatalog...), assistantMachineToolCatalog...), assistantLiveToolCatalog...)
+	return append(append(append(append([]assistantTool{}, assistantToolCatalog...), assistantMachineToolCatalog...), assistantLiveToolCatalog...), assistantSkillToolCatalog...)
 }
 
 func (t *AssistantTools) specs() []chatToolSpec {
@@ -197,7 +201,8 @@ func (tool assistantTool) spec() chatToolSpec {
 func (t *AssistantTools) available(tool assistantTool) bool {
 	return (!tool.agentWork || t.work != nil) && (!tool.repositories || t.repositories != nil) &&
 		(!tool.machines || (t.machineTasks != nil && t.machinePorts != nil)) &&
-		(!tool.live || t.live != nil)
+		(!tool.live || t.live != nil) &&
+		(!tool.skills || t.skills != nil)
 }
 
 func lookupAssistantTool(name string) (assistantTool, bool) {

@@ -277,8 +277,74 @@ model as data, and has no effect. Approving a pending approval whose tool has
 since been disabled fails it with `This tool is disabled in this workspace`,
 from the Web and Telegram alike, and starts nothing. The Settings page
 (`/[workspaceSlug]/settings/assistant`) lists the tools with Switches for owners
-and admins and a read-only state for members; its Skills and Custom tools tabs
-are placeholders for later phases.
+and admins and a read-only state for members; its Skills tab is a placeholder
+until its settings page lands (the API is described under [Skills](#skills)),
+and its Custom tools tab is a placeholder for a later phase.
+
+### Skills
+
+Skills are Markdown guidance for the assistant, written for the workspace or
+for one team (migration 98: `assistant_skills` and `assistant_skill_versions`).
+A skill has a name (1–100 characters on one line, unique ignoring case among
+the workspace-wide skills and among each team's), a description that tells the
+assistant when to use it (1–500 characters on one line), a body (at most 64
+KiB), `enabled`, `status` (`draft` or `active`), `current_version`,
+`created_by_user_id` and `author_kind` (`user` or `assistant`). The skill row
+holds the content in effect; every saved edit is a version row (name,
+description, body, status, author kind and user). A `draft` version above
+`current_version` of an active skill is a pending edit (`pending_version`).
+
+The session-only routes under `/api/workspaces/:slug/assistant-skills` are:
+
+| Route | Effect |
+| --- | --- |
+| `GET /` | `{skills, can_manage}`, without bodies |
+| `GET /:skillId` | one skill with its body |
+| `GET /:skillId/versions` | `{versions}`, newest first |
+| `POST /` | create `{team_id?, name, description, body, status?}`; active unless `status` is `draft` |
+| `PUT /:skillId` | save `{name, description, body, status?}` as the next version; the team is fixed at creation |
+| `PUT /:skillId/enabled` | `{"enabled": true\|false}` |
+| `POST /:skillId/activate` | put a draft into effect: `{"version": n}`, or the newest draft with an empty body |
+| `POST /:skillId/versions/:version/restore` | save an old version's content as the next version |
+| `DELETE /:skillId` | delete the skill and its versions |
+
+An update without `status` keeps the skill's status. A draft edit of an active
+skill only adds the version; any other edit (and a restore) takes effect at
+once. Only draft versions can be activated (409 otherwise); a name already used
+in the scope is 409. Non-guest members read the skills they can see: workspace
+skills and those of teams visible to them, so a private team's skills are
+visible only to its members and workspace owners and admins, as for issues.
+Writes require a current owner or admin: the role is locked (`FOR SHARE`) in
+the transaction that writes, so members, guests, outsiders and an admin
+demoted concurrently get 403. Personal access tokens are refused.
+
+**Loading.** Each reply's system prompt lists the active, enabled skills the
+conversation's creator can see, by name, team key and description only (at
+most 50 skills and 8 KiB; an issue chat lists only its team's skills and
+workspace ones). `load_skill(name, team_key?)` returns the body to the model
+fenced as Markdown and marked as workspace-authored guidance activated by an
+owner or admin; the prompt says to follow it where it applies but that it
+cannot grant permissions, skip approvals or override the assistant's rules.
+Unlike other tools its result is not wrapped as `untrusted_data`, and only a
+summary (name, version, size) is stored on the tool call, so large bodies do
+not fill the conversation. Drafts, disabled skills and skills the user cannot
+see are never listed or loaded. A name used by several teams in a free chat
+needs `team_key` unless one skill is workspace-wide.
+
+**Proposing.** `propose_skill(name, description, body, team_key?)` saves only
+drafts, with `author_kind` `assistant` and the creator as author: a new name is
+a new draft skill; the name of an existing skill in that scope adds a draft
+version and leaves the active version in effect. It is available to owners and
+admins only (members get a tool failure), counts toward the change limit and,
+because the tool arguments are bounded to 16 KiB, a proposed body is at most
+12 000 characters. It is not a `conversation_approvals` request: the stored
+tool result (the card) carries the full proposed text, the version and a note,
+and activation is the approval step, done by an owner or admin through the API
+or Settings → Assistant → Skills. The model only gets a short receipt. Telegram
+replies name each draft they saved and say it is not active until activated in
+Settings. Both tools are in the registry, so they appear in
+`GET /assistant-capabilities` and obey the tool switches; with `load_skill`
+off, the prompt lists no skills.
 
 A provider may return tool calls only when tools were offered and must finish
 the turn with `finish_reason: "tool_calls"`. One reply runs at most 400 tool
@@ -291,7 +357,7 @@ stays bounded: the conversation is unchanged, while the reply's newest tool
 rounds are kept complete within 128 KiB and older ones keep their call/result
 pairing but have their text, arguments and results replaced by a short
 "omitted" marker the model can act on by calling the tool again. Results are returned to the model wrapped as
-`untrusted_data`, and the instruction says to ignore instructions inside them.
+`untrusted_data` (except a loaded skill, see [Skills](#skills)), and the instruction says to ignore instructions inside them.
 Prompt-injected content can therefore at most cause the bounded, user-permitted
 actions above, which remain visible and attributed in the conversation.
 
