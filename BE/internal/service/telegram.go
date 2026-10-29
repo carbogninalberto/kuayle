@@ -572,6 +572,9 @@ func (s *TelegramService) Run(ctx context.Context) {
 				if err != nil {
 					return err
 				}
+				if note := skillDraftNote(d.SkillDrafts); note != "" {
+					d.Text = telegramText(d.Text, 2600) + note
+				}
 				text := telegramText(d.Text, 3200)
 				if d.ConversationID != nil {
 					text = s.replyText(d.Text, d.Slug, *d.ConversationID)
@@ -595,6 +598,20 @@ func (s *TelegramService) Run(ctx context.Context) {
 			cancel()
 		}
 	}
+}
+
+// skillDraftNote tells the reader which skills a reply saved as drafts and
+// where an owner or admin reviews and activates them.
+func skillDraftNote(drafts []domain.TelegramSkillDraft) string {
+	note := ""
+	for _, draft := range drafts {
+		scope := ""
+		if draft.TeamKey != "" {
+			scope = " (team " + draft.TeamKey + ")"
+		}
+		note += fmt.Sprintf("\n\nDraft skill “%s”%s saved as version %d. It is not active: an owner or admin reviews the full text and activates it in Kuayle under Settings → Assistant → Skills.", truncateRunes(draft.Name, 100), scope, draft.Version)
+	}
+	return note
 }
 
 // replyText is a reply with a link back to its conversation. Telegram only

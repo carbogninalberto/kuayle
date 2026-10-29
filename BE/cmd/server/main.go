@@ -154,6 +154,9 @@ func main() {
 	assistantTools := service.NewAssistantTools(issueRepo, teamRepo, workspaceRepo, issueSvc)
 	assistantToolSettings := repository.NewAssistantToolSettingsRepository(db)
 	assistantTools.SetSettings(assistantToolSettings)
+	assistantSkills := repository.NewAssistantSkillRepository(db)
+	assistantTools.SetSkills(assistantSkills)
+	assistantSkillH := handler.NewAssistantSkillHandler(service.NewAssistantSkillService(assistantSkills, workspaceRepo))
 	assistantTools.SetPlanning(repository.NewIssueDependencyRepository(db), service.NewIssueRelationService(repository.NewIssueRelationRepository(db), issueRepo))
 	conversationSvc.SetTools(assistantTools)
 	conversationH := handler.NewConversationHandler(conversationSvc, cfg.FrontendURL)
@@ -290,6 +293,7 @@ func main() {
 		token:             tokenH,
 		aiSettings:        aiSettingsH,
 		conversation:      conversationH,
+		assistantSkill:    assistantSkillH,
 		agentTask:         agentTaskH,
 		agentAutomation:   agentAutomationH,
 		agentMessage:      agentMessageH,

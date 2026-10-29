@@ -207,6 +207,10 @@ reported as already decided. Answers name the effect: a started coding agent,
 review or follow-up, accepted work, a starting preview or an exposed port (which
 the user then opens from the chat in Kuayle), or why it failed.
 
+A reply that saved skill drafts with `propose_skill` names each one (at most
+three) with its version and says it is not active until an owner or admin
+activates it in Settings → Assistant → Skills; the full text stays in Kuayle.
+
 ## Verification
 
 Real PostgreSQL tests cover owner-only settings, unauthorized IDs, an empty list,

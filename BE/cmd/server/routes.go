@@ -58,6 +58,7 @@ type appHandlers struct {
 	agentAutomation   *handler.AgentAutomationHandler
 	agentMessage      *handler.AgentMessageHandler
 	conversation      *handler.ConversationHandler
+	assistantSkill    *handler.AssistantSkillHandler
 	telegram          *handler.TelegramHandler
 	voice             *handler.VoiceHandler
 	devMachine        *handler.DevMachineHandler
@@ -250,6 +251,17 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	// Members read the assistant's tools; the service lets owners and admins switch them.
 	sessionOnly(ws, http.MethodGet, "/assistant-capabilities", h.conversation.Capabilities)
 	sessionOnly(ws, http.MethodPut, "/assistant-capabilities/:name", h.conversation.SetCapability)
+	// Members read the skills they can see; the repository lets only current
+	// owners and admins write them.
+	sessionOnly(ws, http.MethodGet, "/assistant-skills", h.assistantSkill.List)
+	sessionOnly(ws, http.MethodPost, "/assistant-skills", h.assistantSkill.Create)
+	sessionOnly(ws, http.MethodGet, "/assistant-skills/:skillId", h.assistantSkill.Get)
+	sessionOnly(ws, http.MethodPut, "/assistant-skills/:skillId", h.assistantSkill.Update)
+	sessionOnly(ws, http.MethodDelete, "/assistant-skills/:skillId", h.assistantSkill.Delete)
+	sessionOnly(ws, http.MethodPut, "/assistant-skills/:skillId/enabled", h.assistantSkill.SetEnabled)
+	sessionOnly(ws, http.MethodPost, "/assistant-skills/:skillId/activate", h.assistantSkill.Activate)
+	sessionOnly(ws, http.MethodGet, "/assistant-skills/:skillId/versions", h.assistantSkill.Versions)
+	sessionOnly(ws, http.MethodPost, "/assistant-skills/:skillId/versions/:version/restore", h.assistantSkill.Restore)
 	sessionOnly(ws, http.MethodGet, "/conversations", h.conversation.List)
 	sessionOnly(ws, http.MethodPost, "/conversations", h.conversation.Create)
 	sessionOnly(ws, http.MethodGet, "/conversations/:conversationId", h.conversation.History)

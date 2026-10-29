@@ -451,6 +451,11 @@ func (r *TelegramRepository) Deliver(ctx context.Context, d domain.TelegramDeliv
  WHERE c.message_id=$1 AND a.actor_id=$2 AND a.status='pending' AND a.expires_at>now() ORDER BY c.sequence LIMIT 3`, d.MessageID, d.UserID); err != nil {
 			return err
 		}
+		// Name the drafts the reply saved; their full text stays in Kuayle.
+		if err = tx.SelectContext(ctx, &d.SkillDrafts, `SELECT c.output->>'name' AS name,COALESCE(c.output->>'team_key','') AS team_key,(c.output->>'version')::int AS version
+ FROM conversation_tool_calls c WHERE c.message_id=$1 AND c.name='propose_skill' AND c.status='completed' AND c.output->>'version' IS NOT NULL ORDER BY c.sequence LIMIT 3`, d.MessageID); err != nil {
+			return err
+		}
 	}
 	if allowed {
 		d.TokenEncrypted = token
