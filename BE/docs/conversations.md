@@ -355,7 +355,7 @@ machine's owner, can open the link while signed in to Kuayle. After approval
 the chat reads the machine's ports from the API (never from tool output) and
 offers an Open button per port, which launches it with a one-time ticket as the
 machine page does; a starting preview is polled until its task port exists.
-Migration 100 adds `start_preview` and `expose_port` to the allowed approval
+Migration 94 adds `start_preview` and `expose_port` to the allowed approval
 actions; rolling back deletes those approvals, not the previews or ports.
 
 ## Images
