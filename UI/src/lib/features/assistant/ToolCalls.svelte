@@ -9,7 +9,8 @@
 		CircleX,
 		GitBranch,
 		Lock,
-		Server
+		Server,
+		BookOpenText
 	} from '@lucide/svelte';
 	import * as Trace from '$lib/components/ui/trace/index.js';
 	import * as CodeBlock from '$lib/components/ui/code-block/index.js';
@@ -19,6 +20,7 @@
 	import { m } from '$lib/paraglide/messages.js';
 	import AgentSubagent from './AgentSubagent.svelte';
 	import AppPortLinks from './AppPortLinks.svelte';
+	import ProposedSkillCard, { proposedSkill } from './ProposedSkillCard.svelte';
 	import AgentLogo from '$lib/features/agents/AgentLogo.svelte';
 	import { agentInfo } from '$lib/features/agents/agents';
 	import { repositorySourceLabel } from '$lib/features/dev-machines/repository-source';
@@ -68,7 +70,9 @@
 		list_ports: m['assistant.tool_list_ports'],
 		run_check: m['assistant.tool_run_check'],
 		message_task: m['assistant.tool_message_task'],
-		get_task_messages: m['assistant.tool_get_task_messages']
+		get_task_messages: m['assistant.tool_get_task_messages'],
+		load_skill: m['assistant.tool_load_skill'],
+		propose_skill: m['assistant.tool_propose_skill']
 	};
 	// Outcome lines per approval action.
 	function outcome(approval: ConversationApproval) {
@@ -199,6 +203,13 @@
 			? { identifier: output.identifier, live: output.delivery === 'live' }
 			: undefined;
 	}
+	// load_skill stores only a summary; the line names the skill it loaded.
+	function loadedSkill(call: ConversationToolCall) {
+		const name = (call.output as { name?: unknown } | undefined)?.name ?? call.input?.name;
+		return call.name === 'load_skill' && call.status === 'completed' && typeof name === 'string' ? name : undefined;
+	}
+	const proposal = (call: ConversationToolCall) =>
+		call.name === 'propose_skill' && call.status === 'completed' ? proposedSkill(call.output) : undefined;
 	// Tool data is untrusted: it is rendered only as escaped Code Block text.
 	const pretty = (value: unknown) => JSON.stringify(value ?? null, null, 2);
 </script>
@@ -422,6 +433,15 @@
 				<Trace.Line status="running">
 					<Trace.Icon><LoaderCircle class="animate-spin" /></Trace.Icon>
 					<Trace.Title>{m['assistant.tool_running']({ tool: label(call) })}</Trace.Title>
+				</Trace.Line>
+			{:else if proposal(call)}
+				<ProposedSkillCard skill={proposal(call)!} {slug} id={call.id} />
+			{:else if loadedSkill(call)}
+				<Trace.Line status="success">
+					<Trace.Icon><BookOpenText /></Trace.Icon>
+					<Trace.Title class="whitespace-normal break-words"
+						>{m['assistant.skill_used']({ name: loadedSkill(call)! })}</Trace.Title
+					>
 				</Trace.Line>
 			{:else}
 				{@const failed = call.status === 'failed'}

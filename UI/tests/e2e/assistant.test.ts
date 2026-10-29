@@ -1510,3 +1510,59 @@ test('message_task says where the message went without asking for approval', asy
 		page.locator('[data-slot="code-block-code"]').getByText('Also add tests', { exact: false })
 	).toBeVisible();
 });
+
+test('a proposed skill shows its full draft and links to Settings; a loaded skill is one line', async ({ page }) => {
+	const state = await fixture(page);
+	const answered = { ...reply, status: 'completed', content: 'I saved the draft.' };
+	state.messages = [userMessage, answered];
+	const skillId = '00000000-0000-4000-8000-0000000000aa';
+	const tool = (id: string, sequence: number, name: string, input: unknown, output: unknown) => ({
+		id,
+		conversation_id: 'chat-1',
+		message_id: answered.id,
+		sequence,
+		call_id: `call_${id}`,
+		name,
+		input,
+		status: 'completed',
+		output,
+		created_at: conversation.created_at
+	});
+	const body = '## Steps\n\n1. Bump the version\n2. Tag the release\n\n<img src=x onerror="window.__xss=1">';
+	state.tools = [
+		tool('tool-40', 0, 'load_skill', { name: 'How we triage' }, { skill_id: skillId, name: 'How we triage', version: 2, team_key: null, bytes: 120 }),
+		tool(
+			'tool-41',
+			1,
+			'propose_skill',
+			{ name: 'How we release', description: 'Use when releasing.', body },
+			{
+				skill_id: skillId,
+				name: 'How we release',
+				description: 'Use when asked how to cut a release.',
+				body,
+				team_key: 'ENG',
+				version: 3,
+				status: 'draft',
+				skill_status: 'active',
+				active_version: 2,
+				note: 'Saved as draft version 3.'
+			}
+		)
+	];
+	await page.goto('/test/assistant?conversation=chat-1');
+	await expect(page.getByText('Used skill How we triage', { exact: true })).toBeVisible();
+	const card = page.getByRole('article', { name: 'Proposed skill: How we release' });
+	await expect(card).toBeVisible();
+	await expect(card.getByText('Draft — not active until activated')).toBeVisible();
+	await expect(card.getByText('Use when asked how to cut a release.')).toBeVisible();
+	await expect(card.getByRole('heading', { name: 'Steps' })).toBeVisible();
+	await expect(card.getByText('Tag the release')).toBeVisible();
+	await expect(card.getByText('Draft version 3 for ENG. Active version 2 stays in effect until the draft is activated.')).toBeVisible();
+	await expect(card.locator('img')).toHaveCount(0);
+	expect(await page.evaluate(() => (window as unknown as { __xss?: number }).__xss)).toBeUndefined();
+	await expect(card.getByRole('link', { name: 'Review in Settings' })).toHaveAttribute(
+		'href',
+		`/test/settings/assistant?tab=skills&skill=${skillId}`
+	);
+});

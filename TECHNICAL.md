@@ -1111,8 +1111,10 @@ guidance, workspace-wide or for one team, that members can read (private-team
 skills only when they see the team) and owners and admins write, activate,
 restore and delete. The assistant's system prompt lists active, enabled skills
 by name and description; `load_skill` returns a body as workspace guidance and
-`propose_skill` only saves drafts for an admin to activate. See
-[skills](BE/docs/conversations.md#skills).
+`propose_skill` only saves drafts for an admin to activate; chat shows a
+proposed skill's full text with a link to Settings → Assistant → Skills, where
+admins edit with a Markdown preview, review a draft's diff, activate, restore
+and delete, and members read. See [skills](BE/docs/conversations.md#skills).
 
 ### Images in conversations
 

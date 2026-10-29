@@ -42,7 +42,7 @@ test('admins see every tool and switch tools on and off', async ({ page }) => {
 	await expect(page.getByRole('heading', { name: 'Assistant', exact: true })).toBeVisible();
 	await expect(page.getByRole('link', { name: 'Assistant' })).toBeVisible();
 	await expect(page.getByRole('tab', { name: 'Tools', exact: true })).toHaveAttribute('aria-selected', 'true');
-	await expect(page.getByRole('tab', { name: 'Skills', exact: true })).toBeDisabled();
+	await expect(page.getByRole('tab', { name: 'Skills', exact: true })).toBeEnabled();
 	await expect(page.getByRole('tab', { name: 'Custom tools', exact: true })).toBeDisabled();
 
 	const list = page.getByRole('list');
