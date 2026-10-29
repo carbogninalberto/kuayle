@@ -81,15 +81,16 @@ func TestAssistantCapabilitiesListTheRegistryAndOnlyAdminsSwitchTools(t *testing
 	listed, err := f.service.Capabilities(f.ctx, f.ws)
 	require.NoError(t, err)
 	require.False(t, listed.CanManage, "members read the list")
-	require.Len(t, listed.Tools, len(assistantToolCatalog)+1, "every catalog tool and image filing are listed")
+	require.Len(t, listed.Tools, len(assistantTools())+1, "every registry tool and image filing are listed")
 	byName := map[string]AssistantCapability{}
 	for _, tool := range listed.Tools {
 		require.NotEmpty(t, tool.Description, tool.Name)
 		byName[tool.Name] = tool
 	}
-	for _, tool := range assistantToolCatalog {
+	for _, tool := range assistantTools() {
 		require.Contains(t, byName, tool.name, "new registry tools appear automatically")
 	}
+	require.True(t, byName["start_preview"].RequiresApproval, "tools from other catalogs are listed too")
 	require.Equal(t, AssistantCapability{Name: "list_teams", Description: byName["list_teams"].Description, Available: true, Enabled: true}, byName["list_teams"])
 	require.False(t, byName["search_issues"].Enabled)
 	require.True(t, byName["delegate_issue"].RequiresApproval)

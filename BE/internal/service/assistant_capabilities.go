@@ -36,7 +36,7 @@ type AssistantCapabilities struct {
 // builtInTools lists every built-in tool, from the registry, with whether its
 // dependencies are wired.
 func (s *ConversationService) builtInTools() ([]assistantTool, []bool) {
-	tools := append(append([]assistantTool{}, assistantToolCatalog...), attachImagesTool)
+	tools := append(assistantTools(), attachImagesTool)
 	available := make([]bool, len(tools))
 	for i, tool := range tools {
 		available[i] = s.tools.available(tool)
