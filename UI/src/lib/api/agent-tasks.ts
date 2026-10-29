@@ -184,6 +184,29 @@ export interface TaskOptions {
 	model_servers: ModelServer[];
 	default_provider?: string;
 }
+// One message of a task's live channel. Messages to the agent come from its
+// creator ("user") or the orchestrator for them; the agent's own text
+// (from_agent) is untrusted and only ever shown as plain text.
+export interface AgentLiveMessage {
+	id: string;
+	task_id: string;
+	direction: 'to_agent' | 'from_agent';
+	seq: number | null;
+	sender: 'user' | 'orchestrator' | 'agent';
+	author_id: string | null;
+	kind: 'message' | 'question';
+	body: string;
+	state: 'queued' | 'delivered' | 'received' | 'rejected';
+	delivered_via: 'inbox' | 'prompt' | null;
+	run_id: string | null;
+	reject_reason: string | null;
+	created_at: string;
+	delivered_at: string | null;
+}
+// A live message as the conversation that owns the task shows it.
+export interface AgentLiveChatMessage extends AgentLiveMessage {
+	identifier: string;
+}
 const base = (slug: string) => `/api/workspaces/${encodeURIComponent(slug)}`;
 const task = (slug: string, id: string) => `${base(slug)}/agent-tasks/${encodeURIComponent(id)}`;
 const chat = (slug: string, id: string) => `${base(slug)}/conversations/${encodeURIComponent(id)}`;
@@ -203,6 +226,12 @@ export const agentTasks = {
 	// Queue starting or stopping the task's app (its preview command); 202.
 	startPreview: (slug: string, id: string) => api.post<void>(`${task(slug, id)}/preview`),
 	stopPreview: (slug: string, id: string) => api.delete<void>(`${task(slug, id)}/preview`),
+	// The task's live channel: both directions, oldest first; sending queues the
+	// creator's message for the running agent or the next attempt.
+	liveMessages: (slug: string, id: string) =>
+		api.get<{ messages: AgentLiveMessage[] }>(`${task(slug, id)}/live-messages`),
+	sendLiveMessage: (slug: string, id: string, body: string) =>
+		api.post<AgentLiveMessage>(`${task(slug, id)}/live-messages`, { body }),
 	// Keeps the sign-in finished in the machine's terminal and starts a new attempt.
 	continueAfterSignIn: (slug: string, id: string, requestId: string) =>
 		api.post<AgentTask>(`${task(slug, id)}/sign-in`, { request_id: requestId }),

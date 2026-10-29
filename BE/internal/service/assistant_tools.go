@@ -73,6 +73,8 @@ type AssistantTools struct {
 	// The preview and port tools are unavailable until SetMachines wires them.
 	machineTasks assistantMachineTasks
 	machinePorts assistantMachinePorts
+	// The live channel tools are unavailable until SetLiveChannel wires them.
+	live assistantLiveTasks
 	// Every tool stays enabled until SetSettings wires the workspace switches.
 	settings assistantToolSettings
 }
@@ -142,6 +144,8 @@ type assistantTool struct {
 	repositories bool
 	// machines tools need SetMachines.
 	machines bool
+	// live tools need SetLiveChannel.
+	live bool
 }
 
 var assistantToolCatalog = []assistantTool{
@@ -165,7 +169,7 @@ var assistantToolCatalog = []assistantTool{
 
 // assistantTools is every tool, in the order offered to the model.
 func assistantTools() []assistantTool {
-	return append(append([]assistantTool{}, assistantToolCatalog...), assistantMachineToolCatalog...)
+	return append(append(append([]assistantTool{}, assistantToolCatalog...), assistantMachineToolCatalog...), assistantLiveToolCatalog...)
 }
 
 func (t *AssistantTools) specs() []chatToolSpec {
@@ -192,7 +196,8 @@ func (tool assistantTool) spec() chatToolSpec {
 // available reports whether a tool's dependencies are wired.
 func (t *AssistantTools) available(tool assistantTool) bool {
 	return (!tool.agentWork || t.work != nil) && (!tool.repositories || t.repositories != nil) &&
-		(!tool.machines || (t.machineTasks != nil && t.machinePorts != nil))
+		(!tool.machines || (t.machineTasks != nil && t.machinePorts != nil)) &&
+		(!tool.live || t.live != nil)
 }
 
 func lookupAssistantTool(name string) (assistantTool, bool) {
@@ -354,6 +359,8 @@ func (t *AssistantTools) run(ctx context.Context, ws, user uuid.UUID, name, argu
 		return t.linkRepository(ctx, ws, member.Role, arguments)
 	case "stop_preview", "list_ports":
 		return t.runMachineTool(ctx, ws, user, name, arguments)
+	case "message_task", "get_task_messages":
+		return t.runLiveTool(ctx, ws, user, name, arguments)
 	case "plan_issues":
 		return t.planIssues(ctx, ws, arguments)
 	case "link_issues":

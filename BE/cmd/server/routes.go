@@ -322,6 +322,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/runs/:runId/publication", h.agentTask.Publication)
 	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/signals", h.agentTask.Signals)
 	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/sessions", h.agentTask.Sessions)
+	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/live-messages", h.agentTask.LiveMessages)
 	sessionOnly(dm, http.MethodGet, "/agent-tasks", h.agentTask.Queue)
 	sessionOnly(dm, http.MethodGet, "/dev-machines/:machineId/tasks", h.agentTask.MachineTasks)
 	if h.agentAutomation != nil {
@@ -343,6 +344,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 		sessionOnly(dm, http.MethodPost, "/agent-message-holds", h.agentMessage.HoldConversation)
 		sessionOnly(dm, http.MethodDelete, "/agent-message-holds/:holdId", h.agentMessage.ReleaseConversation)
 	}
+	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/live-messages", h.agentTask.SendLiveMessage)
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/cancel", h.agentTask.Cancel)
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/retry", h.agentTask.Retry)
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/accept", h.agentTask.Accept)

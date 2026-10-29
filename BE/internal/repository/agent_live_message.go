@@ -2,8 +2,13 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"fmt"
 	"sort"
+	"strings"
+	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
@@ -62,6 +67,9 @@ func (r *AgentTaskRepository) QueueLiveMessage(ctx context.Context, ws, id uuid.
 	err = tx.GetContext(ctx, &message, `INSERT INTO agent_live_messages(workspace_id,task_id,direction,seq,sender,author_id,body,state)
  SELECT $1,$2,'to_agent',COALESCE(max(seq),0)+1,$3,$4,$5,'queued' FROM agent_live_messages WHERE task_id=$2 RETURNING *`, ws, id, sender, actor, body)
 	if err != nil {
+		return nil, err
+	}
+	if err = liveMessageEvents(ctx, tx, []domain.AgentLiveMessage{message}); err != nil {
 		return nil, err
 	}
 	return &message, tx.Commit()
@@ -124,6 +132,9 @@ func (r *AgentTaskRepository) ClaimLiveMessages(ctx context.Context, task domain
 	if err = tx.SelectContext(ctx, &messages, `UPDATE agent_live_messages SET state='delivered',delivered_via='prompt',run_id=$2,delivered_at=now() WHERE id=ANY($1) RETURNING *`, pq.Array(ids), task.RunID); err != nil {
 		return nil, err
 	}
+	if err = liveMessageEvents(ctx, tx, messages); err != nil {
+		return nil, err
+	}
 	sort.Slice(messages, func(i, j int) bool { return *messages[i].Seq < *messages[j].Seq })
 	return messages, tx.Commit()
 }
@@ -143,32 +154,142 @@ func (r *DevMachineRepository) MarkLiveMessagesDelivered(ctx context.Context, ru
 	if len(ids) == 0 {
 		return 0, nil
 	}
-	result, err := r.db.ExecContext(ctx, `UPDATE agent_live_messages m SET state='delivered',delivered_via='inbox',run_id=$2,delivered_at=now()
- FROM agent_tasks t WHERE t.id=m.task_id AND t.run_id=$2 AND m.id=ANY($1) AND m.state='queued'`, pq.Array(ids), run)
+	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
-	count, _ := result.RowsAffected()
-	return int(count), nil
+	defer tx.Rollback()
+	messages := []domain.AgentLiveMessage{}
+	err = tx.SelectContext(ctx, &messages, `UPDATE agent_live_messages m SET state='delivered',delivered_via='inbox',run_id=$2,delivered_at=now()
+ FROM agent_tasks t WHERE t.id=m.task_id AND t.run_id=$2 AND m.id=ANY($1) AND m.state='queued' RETURNING m.*`, pq.Array(ids), run)
+	if err != nil {
+		return 0, err
+	}
+	if err = liveMessageEvents(ctx, tx, messages); err != nil {
+		return 0, err
+	}
+	return len(messages), tx.Commit()
 }
 
 // recordLiveOutbox records one outbox file addressed to the orchestrator in
 // the task's live channel, within its hourly budget, inside RecordTaskOutbox's
-// transaction. It reports whether a new record was inserted.
+// transaction, and tells the task's conversation; an accepted question also
+// notifies the creator on Telegram. It reports whether a new record was
+// inserted.
 func recordLiveOutbox(ctx context.Context, tx *sqlx.Tx, sender messageSender, dedupe string, message *domain.AgentOutboxMessage, body, reason string) (bool, error) {
-	row := map[string]any{"workspace_id": sender.WorkspaceID, "task_id": sender.ID, "run_id": sender.RunID, "dedupe_key": dedupe, "kind": domain.AgentLiveKindMessage, "body": body, "state": domain.AgentLiveReceived, "reject_reason": nil}
+	kind, state := domain.AgentLiveKindMessage, domain.AgentLiveReceived
+	var rejected *string
 	if message != nil {
-		row["kind"], row["body"] = message.Kind, message.Body
+		kind, body = message.Kind, message.Body
 	}
 	if reason != "" {
-		row["state"], row["reject_reason"] = domain.AgentLiveRejected, reason
+		state, rejected = domain.AgentLiveRejected, &reason
 	}
-	result, err := tx.NamedExecContext(ctx, `INSERT INTO agent_live_messages(workspace_id,task_id,direction,sender,kind,body,state,run_id,reject_reason,dedupe_key,created_at)
- VALUES(:workspace_id,:task_id,'from_agent','agent',:kind,:body,:state,:run_id,:reject_reason,:dedupe_key,clock_timestamp())
- ON CONFLICT (task_id,dedupe_key) DO NOTHING`, row)
+	var recorded domain.AgentLiveMessage
+	err := tx.GetContext(ctx, &recorded, `INSERT INTO agent_live_messages(workspace_id,task_id,direction,sender,kind,body,state,run_id,reject_reason,dedupe_key,created_at)
+ VALUES($1,$2,'from_agent','agent',$3,$4,$5,$6,$7,$8,clock_timestamp())
+ ON CONFLICT (task_id,dedupe_key) DO NOTHING RETURNING *`, sender.WorkspaceID, sender.ID, kind, body, state, sender.RunID, rejected, dedupe)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
 	if err != nil {
 		return false, err
 	}
-	inserted, _ := result.RowsAffected()
-	return inserted > 0, nil
+	if err = liveMessageEvents(ctx, tx, []domain.AgentLiveMessage{recorded}); err != nil {
+		return false, err
+	}
+	if recorded.Kind == domain.AgentLiveKindQuestion && recorded.State == domain.AgentLiveReceived {
+		if err = notifyLiveQuestion(ctx, tx, recorded); err != nil {
+			return false, err
+		}
+	}
+	return true, nil
+}
+
+// liveMessageOwner is the conversation that owns a task, with its issue.
+type liveMessageOwner struct {
+	WorkspaceID    uuid.UUID `db:"workspace_id"`
+	CreatorID      uuid.UUID `db:"creator_id"`
+	ConversationID uuid.UUID `db:"conversation_id"`
+	Identifier     string    `db:"identifier_text"`
+	Title          string    `db:"title"`
+}
+
+// ownerOfLiveTask returns the conversation of the task's creator that owns
+// the task, or nil for a task without one.
+func ownerOfLiveTask(ctx context.Context, tx *sqlx.Tx, task uuid.UUID) (*liveMessageOwner, error) {
+	var owner liveMessageOwner
+	err := tx.GetContext(ctx, &owner, `SELECT t.workspace_id,t.creator_id,t.conversation_id,i.identifier_text,i.title FROM agent_tasks t
+ JOIN issues i ON i.id=t.issue_id AND i.workspace_id=t.workspace_id
+ JOIN conversations c ON c.id=t.conversation_id AND c.workspace_id=t.workspace_id AND c.creator_id=t.creator_id WHERE t.id=$1`, task)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return &owner, err
+}
+
+// liveMessageEvents tells the conversation that owns each message's task
+// about it (task.live_message), labelled with the issue, in the transaction
+// that changed it, so open chats and task cards update live.
+func liveMessageEvents(ctx context.Context, tx *sqlx.Tx, messages []domain.AgentLiveMessage) error {
+	owners := map[uuid.UUID]*liveMessageOwner{}
+	for _, message := range messages {
+		owner, known := owners[message.TaskID]
+		if !known {
+			var err error
+			if owner, err = ownerOfLiveTask(ctx, tx, message.TaskID); err != nil {
+				return err
+			}
+			owners[message.TaskID] = owner
+		}
+		if owner == nil {
+			continue
+		}
+		if _, err := conversationEvent(ctx, tx, owner.ConversationID, "task.live_message", domain.AgentLiveChatMessage{AgentLiveMessage: message, Identifier: owner.Identifier}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// liveQuestionRunes bounds the agent's question in a Telegram notice.
+const liveQuestionRunes = 1500
+
+// notifyLiveQuestion queues a Telegram notice of an agent's question for the
+// task's creator when they linked Telegram on an enabled bot, like task
+// notices; the delivery worker re-checks access before sending. The question
+// is untrusted agent text: it is fenced so Telegram shows it verbatim, never
+// as links or formatting.
+func notifyLiveQuestion(ctx context.Context, tx *sqlx.Tx, message domain.AgentLiveMessage) error {
+	owner, err := ownerOfLiveTask(ctx, tx, message.TaskID)
+	if err != nil || owner == nil {
+		return err
+	}
+	var linked bool
+	if err = tx.GetContext(ctx, &linked, `SELECT EXISTS(SELECT 1 FROM telegram_links l JOIN telegram_settings s ON s.workspace_id=l.workspace_id WHERE l.workspace_id=$1 AND l.user_id=$2 AND s.enabled)`, owner.WorkspaceID, owner.CreatorID); err != nil || !linked {
+		return err
+	}
+	body := message.Body
+	if utf8.RuneCountInString(body) > liveQuestionRunes {
+		body = string([]rune(body)[:liveQuestionRunes]) + "…"
+	}
+	body = strings.ReplaceAll(body, "```", "` ` `")
+	text := fmt.Sprintf("%s · %s: the coding agent asks:\n```\n%s\n```\nThis is the agent's own text. Answer it in Kuayle.", owner.Identifier, owner.Title, body)
+	_, err = tx.ExecContext(ctx, `INSERT INTO telegram_deliveries(workspace_id,user_id,telegram_user_id,conversation_id,text)
+ SELECT l.workspace_id,l.user_id,l.telegram_user_id,$3,$4 FROM telegram_links l WHERE l.workspace_id=$1 AND l.user_id=$2`, owner.WorkspaceID, owner.CreatorID, owner.ConversationID, text)
+	return err
+}
+
+// conversationAgentMessages returns what the conversation's coding agents
+// sent it and Kuayle accepted, created in [from, to) (either bound optional),
+// newest 200, oldest first, labelled with their issues.
+func conversationAgentMessages(ctx context.Context, tx *sqlx.Tx, c domain.Conversation, from, to *time.Time) ([]domain.AgentLiveChatMessage, error) {
+	messages := []domain.AgentLiveChatMessage{}
+	err := tx.SelectContext(ctx, &messages, `SELECT * FROM (SELECT m.*,i.identifier_text FROM agent_live_messages m
+ JOIN agent_tasks t ON t.id=m.task_id AND t.workspace_id=m.workspace_id
+ JOIN issues i ON i.id=t.issue_id AND i.workspace_id=t.workspace_id
+ WHERE t.conversation_id=$1 AND t.workspace_id=$2 AND t.creator_id=$3 AND m.direction='from_agent' AND m.state='received'
+  AND ($4::timestamptz IS NULL OR m.created_at>=$4) AND ($5::timestamptz IS NULL OR m.created_at<$5)
+ ORDER BY m.created_at DESC,m.id DESC LIMIT 200) a ORDER BY created_at,id`, c.ID, c.WorkspaceID, c.CreatorID, from, to)
+	return messages, err
 }

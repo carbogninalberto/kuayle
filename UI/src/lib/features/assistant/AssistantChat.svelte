@@ -30,6 +30,8 @@
 	import { ATTACHMENT_TYPES } from './attachment-rules';
 	import TaskPanel from './TaskPanel.svelte';
 	import ToolCalls from './ToolCalls.svelte';
+	import AgentChatMessage from './AgentChatMessage.svelte';
+	import type { AgentLiveChatMessage } from '$lib/api/agent-tasks';
 	import AgentQueue from './AgentQueue.svelte';
 	import ToolSources from './ToolSources.svelte';
 	import Markdown from './Markdown.svelte';
@@ -107,6 +109,20 @@
 	// Reloads after sending keep the transcript, header and task on screen, so
 	// the reader keeps their place; only the first load shows the loading state.
 	const firstLoad = $derived(chat.loading && !chat.messages.length);
+	// Agent messages sit between the conversation's messages by time; they are
+	// never conversation messages themselves.
+	const agentPlacement = $derived.by(() => {
+		const before: Record<string, AgentLiveChatMessage[]> = {};
+		const list = chat.agentMessages;
+		let next = 0;
+		for (const message of chat.messages) {
+			const at = Date.parse(message.created_at);
+			const group: AgentLiveChatMessage[] = [];
+			while (next < list.length && Date.parse(list[next].created_at) < at) group.push(list[next++]);
+			if (group.length) before[message.id] = group;
+		}
+		return { before, after: list.slice(next) };
+	});
 	// Sending asks to watch the reply: return to the live edge (re-arming follow
 	// mode) even when the reader had scrolled up. Scrolling away while it streams
 	// releases follow again and reveals the latest-message button.
@@ -161,6 +177,12 @@
 	);
 
 	onMount(() => {
+		// An agent's question needs the reader: say so even when it is scrolled away.
+		chat.onAgentQuestion = (question) =>
+			appToast.warning(m['assistant.agent_question_toast']({ identifier: question.identifier }), {
+				description: question.body.length > 140 ? `${question.body.slice(0, 140)}…` : question.body,
+				duration: 10000
+			});
 		try {
 			text = localStorage.getItem(draftKey) ?? '';
 			const saved = JSON.parse(localStorage.getItem(`${draftKey}:pending`) ?? 'null');
@@ -451,6 +473,11 @@
 									</div>
 								{/if}
 								{#each chat.messages as message (message.id)}
+									{#each agentPlacement.before[message.id] ?? [] as agent (agent.id)}
+										<MessageScroller.Item messageId={agent.id}
+											><AgentChatMessage message={agent} {slug} /></MessageScroller.Item
+										>
+									{/each}
 									<MessageScroller.Item messageId={message.id}>
 										<Message.Root align={message.role === 'user' ? 'end' : 'start'}>
 											<Message.Content>
@@ -509,6 +536,11 @@
 											</Message.Content>
 										</Message.Root>
 									</MessageScroller.Item>
+								{/each}
+								{#each agentPlacement.after as agent (agent.id)}
+									<MessageScroller.Item messageId={agent.id}
+										><AgentChatMessage message={agent} {slug} /></MessageScroller.Item
+									>
 								{/each}
 							</MessageScroller.Content>
 						</MessageScroller.Viewport>

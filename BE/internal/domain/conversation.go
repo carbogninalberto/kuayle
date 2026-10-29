@@ -78,8 +78,11 @@ type ConversationHistory struct {
 	Messages     []ConversationMessage  `json:"messages"`
 	Tools        []ConversationToolCall `json:"tools"`
 	Approvals    []ConversationApproval `json:"approvals"`
-	Cursor       int64                  `json:"cursor"`
-	HasMore      bool                   `json:"has_more"`
+	// AgentMessages are what the conversation's coding agents sent it through
+	// their live channel during the page's span: untrusted text to show.
+	AgentMessages []AgentLiveChatMessage `json:"agent_messages"`
+	Cursor        int64                  `json:"cursor"`
+	HasMore       bool                   `json:"has_more"`
 }
 type ConversationAttempt struct {
 	Conversation Conversation

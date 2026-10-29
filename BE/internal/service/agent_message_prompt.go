@@ -77,7 +77,7 @@ func withLiveMessages(prompt string, messages []domain.AgentLiveMessage) string 
 // withLiveChannel tells an implementing attempt how the task's owner reaches
 // it while it runs and how to answer or ask them.
 func withLiveChannel(prompt string) string {
-	line := "Live messages: the person who owns this task (directly or through the Kuayle orchestrator) may message you while you work. Each message is a read-only file `" + domain.AgentLiveInboxPath + "/<seq>.json` ({\"seq\",\"from\",\"kind\",\"body\",\"sent_at\"}); Claude Code also shows new ones after each tool call. Check for new ones between steps. To answer or report, write {\"to\":\"orchestrator\",\"body\":\"...\"} to `.kuayle/outbox/<name>.json` at this worktree's root; add \"kind\":\"question\" only when you cannot continue on a reasonable assumption, then keep working on what you can."
+	line := "Live messages: the person who owns this task (directly or through the Kuayle orchestrator) may message you while you work. Each message is a read-only file `" + domain.AgentLiveInboxPath + "/<seq>.json` ({\"seq\",\"from\",\"kind\",\"body\",\"sent_at\"}); Claude Code also shows new ones after each tool call; other agents must check for new ones between steps (see kuayle-live-channel in the kuayle-agents skill). To answer or report, write {\"to\":\"orchestrator\",\"body\":\"...\"} to `.kuayle/outbox/<name>.json` at this worktree's root; add \"kind\":\"question\" only when you cannot continue on a reasonable assumption, then keep working on what you can."
 	if len(prompt)+len(line) > 31500 {
 		return prompt
 	}

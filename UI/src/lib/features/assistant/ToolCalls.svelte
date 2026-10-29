@@ -66,7 +66,9 @@
 		stop_preview: m['assistant.tool_stop_preview'],
 		expose_port: m['assistant.tool_expose_port'],
 		list_ports: m['assistant.tool_list_ports'],
-		run_check: m['assistant.tool_run_check']
+		run_check: m['assistant.tool_run_check'],
+		message_task: m['assistant.tool_message_task'],
+		get_task_messages: m['assistant.tool_get_task_messages']
 	};
 	// Outcome lines per approval action.
 	function outcome(approval: ConversationApproval) {
@@ -188,6 +190,13 @@
 			typeof machine === 'string' &&
 			uuidPattern.test(machine)
 			? machine
+			: undefined;
+	}
+	// message_task only delivers text, so its card says where it went.
+	function sentTo(call: ConversationToolCall) {
+		const output = call.output as { identifier?: unknown; delivery?: unknown } | undefined;
+		return call.name === 'message_task' && call.status === 'completed' && typeof output?.identifier === 'string'
+			? { identifier: output.identifier, live: output.delivery === 'live' }
 			: undefined;
 	}
 	// Tool data is untrusted: it is rendered only as escaped Code Block text.
@@ -418,20 +427,25 @@
 				{@const failed = call.status === 'failed'}
 				{@const identifier = created(call)}
 				{@const machine = listedMachine(call)}
+				{@const sent = sentTo(call)}
 				<Trace.Collapsible>
 					<Trace.CollapsibleTrigger>
-						<Trace.Line status={failed ? 'error' : identifier ? 'success' : undefined}>
+						<Trace.Line status={failed ? 'error' : identifier || sent ? 'success' : undefined}>
 							<Trace.Icon
 								>{#if failed}<CircleAlert />{:else}<Wrench />{/if}</Trace.Icon
 							>
 							<Trace.Title class="whitespace-normal break-words"
-								>{identifier
-									? call.name === 'update_issue'
-										? m['assistant.tool_updated_issue']({ identifier })
-										: m['assistant.tool_created_issue']({ identifier })
-									: failed
-										? m['assistant.tool_failed']({ tool: label(call) })
-										: m['assistant.tool_completed']({ tool: label(call) })}</Trace.Title
+								>{sent
+									? sent.live
+										? m['assistant.tool_message_sent_live']({ identifier: sent.identifier })
+										: m['assistant.tool_message_sent_next']({ identifier: sent.identifier })
+									: identifier
+										? call.name === 'update_issue'
+											? m['assistant.tool_updated_issue']({ identifier })
+											: m['assistant.tool_created_issue']({ identifier })
+										: failed
+											? m['assistant.tool_failed']({ tool: label(call) })
+											: m['assistant.tool_completed']({ tool: label(call) })}</Trace.Title
 							>
 						</Trace.Line>
 					</Trace.CollapsibleTrigger>

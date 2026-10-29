@@ -1,4 +1,4 @@
-import type { AgentTask, TaskActivity } from '$lib/api/agent-tasks';
+import type { AgentLiveChatMessage, AgentTask, TaskActivity } from '$lib/api/agent-tasks';
 import type { TaskBar } from './task-actions';
 import {
 	conversations,
@@ -29,6 +29,13 @@ export class ConversationState {
 	taskSignalCursor = $state<Record<string, number>>({});
 	// Bumped when a review of the task changes; the task card reloads its sessions.
 	taskReviewCursor = $state<Record<string, number>>({});
+	// What the conversation's coding agents sent it, oldest first. Agent text
+	// is untrusted: it is only ever shown as plain text.
+	agentMessages = $state<AgentLiveChatMessage[]>([]);
+	// Bumped when a task's live channel changes; its thread on the card reloads.
+	taskLiveCursor = $state<Record<string, number>>({});
+	// Told about an agent question that arrives live, to notify the reader.
+	onAgentQuestion: ((message: AgentLiveChatMessage) => void) | null = null;
 	// Text a task card asks the chat composer to show, e.g. a review request.
 	composerDraft = $state<string | null>(null);
 	cursor = 0;
@@ -65,6 +72,8 @@ export class ConversationState {
 			this.approvals = {};
 			this.acceptTools(history.tools ?? []);
 			this.acceptApprovals(history.approvals ?? []);
+			this.agentMessages = [];
+			this.acceptAgentMessages(history.agent_messages ?? []);
 			this.cursor = history.cursor;
 			this.hasMore = history.has_more;
 			this.connect();
@@ -93,6 +102,8 @@ export class ConversationState {
 			this.taskPublicationCursor = {};
 			this.taskSignalCursor = {};
 			this.taskReviewCursor = {};
+			this.agentMessages = [];
+			this.taskLiveCursor = {};
 			this.conversation = null;
 			this.issue = null;
 			this.disconnect();
@@ -120,6 +131,14 @@ export class ConversationState {
 		} else if (event.type === 'task.signal_recorded') {
 			const data = event.payload as { task_id: string };
 			this.taskSignalCursor = { ...this.taskSignalCursor, [data.task_id]: event.cursor };
+		} else if (event.type === 'task.live_message') {
+			const message = event.payload as AgentLiveChatMessage;
+			this.taskLiveCursor = { ...this.taskLiveCursor, [message.task_id]: event.cursor };
+			if (message.direction === 'from_agent' && message.state === 'received') {
+				const known = this.agentMessages.some((m) => m.id === message.id);
+				this.acceptAgentMessages([message]);
+				if (!known && message.kind === 'question') this.onAgentQuestion?.(message);
+			}
 		} else if (event.type === 'task.review_updated') {
 			this.reviewChanged((event.payload as { task_id: string }).task_id);
 		} else if (event.type === 'task.publication_updated') {
@@ -172,6 +191,18 @@ export class ConversationState {
 			next[call.message_id] = [...existing, kept].sort((a, b) => a.sequence - b.sequence);
 		}
 		this.tools = next;
+	}
+	acceptAgentMessages(messages: AgentLiveChatMessage[]) {
+		const fresh = messages.filter(
+			(message) =>
+				message.direction === 'from_agent' &&
+				message.state === 'received' &&
+				!this.agentMessages.some((known) => known.id === message.id)
+		);
+		if (!fresh.length) return;
+		this.agentMessages = [...this.agentMessages, ...fresh].sort(
+			(a, b) => Date.parse(a.created_at) - Date.parse(b.created_at) || a.id.localeCompare(b.id)
+		);
 	}
 	private reviewChanged(taskId: string) {
 		this.taskReviewCursor = { ...this.taskReviewCursor, [taskId]: (this.taskReviewCursor[taskId] ?? 0) + 1 };
@@ -251,6 +282,7 @@ export class ConversationState {
 			this.messages = [...history.messages.filter((m) => !known.has(m.id)), ...this.messages];
 			this.acceptTools(history.tools ?? []);
 			this.acceptApprovals(history.approvals ?? []);
+			this.acceptAgentMessages(history.agent_messages ?? []);
 			this.hasMore = history.has_more;
 		} catch (error) {
 			if (version === this.loadVersion) this.handleError(error);

@@ -1470,3 +1470,43 @@ test('a check run waits for approval and shows the exact command it runs', async
 	await expect(page.getByText('Check started on ENG-1; its result appears on the task', { exact: true })).toBeVisible();
 	expect(state.decisions).toEqual(['approve']);
 });
+
+test('message_task says where the message went without asking for approval', async ({ page }) => {
+	const state = await fixture(page);
+	const answered = { ...reply, status: 'completed', content: 'I told the agent.' };
+	state.messages = [userMessage, answered];
+	const call = {
+		id: 'tool-live-1',
+		conversation_id: 'chat-1',
+		message_id: answered.id,
+		sequence: 0,
+		call_id: 'call_1',
+		name: 'message_task',
+		input: { identifier: 'ENG-1', body: 'Also add tests' },
+		status: 'completed',
+		output: { identifier: 'ENG-1', sent: true, seq: 1, task_state: 'running', delivery: 'live' },
+		created_at: conversation.created_at
+	};
+	state.tools = [
+		call,
+		{
+			...call,
+			id: 'tool-live-2',
+			sequence: 1,
+			call_id: 'call_2',
+			input: { identifier: 'ENG-2', body: 'Keep v1' },
+			output: { identifier: 'ENG-2', sent: true, seq: 1, task_state: 'awaiting_review', delivery: 'next_attempt' }
+		}
+	];
+	await page.goto('/test/assistant?conversation=chat-1');
+	const live = page.getByRole('button', { name: 'Message sent to the running agent of ENG-1' });
+	await expect(live).toBeVisible();
+	await expect(
+		page.getByRole('button', { name: "Message for ENG-2 queued for the agent's next attempt" })
+	).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Approve', exact: true })).toHaveCount(0);
+	await live.click();
+	await expect(
+		page.locator('[data-slot="code-block-code"]').getByText('Also add tests', { exact: false })
+	).toBeVisible();
+});

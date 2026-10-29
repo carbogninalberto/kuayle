@@ -53,6 +53,9 @@ async function fixture(page: Page) {
 		tokenSaves: [] as any[],
 		sessions: [] as any[],
 		agentMessages: [] as any[],
+		liveMessages: [] as any[],
+		liveSends: [] as string[],
+		chatAgentMessages: [] as any[],
 		messageQueries: [] as string[],
 		messageActions: [] as string[],
 		providers: [{ id: 'codex', display_name: 'Codex', supported_modes: ['autonomous'], custom: false }] as any[]
@@ -142,9 +145,41 @@ async function fixture(page: Page) {
 			return route.fulfill({ json: state.events.filter((e) => e.cursor > Number(url.searchParams.get('after') ?? 0)) });
 		if (path.endsWith('/conversations/chat-1'))
 			return route.fulfill({
-				json: { conversation, issue, messages: state.messages, cursor: 0, has_more: false }
+				json: {
+					conversation,
+					issue,
+					messages: state.messages,
+					agent_messages: state.chatAgentMessages,
+					cursor: 0,
+					has_more: false
+				}
 			});
 		if (path.includes('/agent-tasks/task-1')) {
+			if (path.endsWith('/live-messages')) {
+				if (req.method() === 'POST') {
+					const { body } = req.postDataJSON();
+					state.liveSends.push(body);
+					const sent = {
+						id: `live-${state.liveMessages.length + 1}`,
+						task_id: 'task-1',
+						direction: 'to_agent',
+						seq: state.liveMessages.length + 1,
+						sender: 'user',
+						author_id: 'user-1',
+						kind: 'message',
+						body,
+						state: 'queued',
+						delivered_via: null,
+						run_id: null,
+						reject_reason: null,
+						created_at: time,
+						delivered_at: null
+					};
+					state.liveMessages = [...state.liveMessages, sent];
+					return route.fulfill({ status: 201, json: sent });
+				}
+				return route.fulfill({ json: { messages: state.liveMessages } });
+			}
 			if (path.endsWith('/preview') && req.method() === 'POST') {
 				state.appStarts++;
 				if (state.appStartError) return route.fulfill(state.appStartError);
@@ -1347,4 +1382,82 @@ test('the task card shows the agent messages of its issue and lets the creator h
 	await expect(queued.getByRole('button', { name: 'Release', exact: true })).toBeVisible();
 	expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
 	await panel.screenshot({ path: testInfo.outputPath('task-messages-390.png') });
+});
+
+const agentQuestion = {
+	id: 'live-agent-1',
+	task_id: 'task-1',
+	direction: 'from_agent',
+	seq: null,
+	sender: 'agent',
+	author_id: null,
+	kind: 'question',
+	body: 'Keep the v1 route? See [the plan](https://evil.example/steal)',
+	state: 'received',
+	delivered_via: null,
+	run_id: 'run-1',
+	reject_reason: null,
+	created_at: '2026-10-26T10:02:00Z',
+	delivered_at: null,
+	identifier: 'ENG-1'
+};
+
+test('the task card thread messages the running agent and shows its answers live', async ({ page }) => {
+	const { state, emit } = await fixture(page);
+	state.task = {
+		id: 'task-1',
+		workspace_id: 'workspace-1',
+		conversation_id: 'chat-1',
+		creator_id: 'user-1',
+		issue_id: 'issue-1',
+		team_id: 'team-1',
+		prompt: 'Implement search',
+		provider: 'codex',
+		model: 'deepseek-flash',
+		thinking: 'high',
+		state: 'running',
+		reason: 'Native coding harness started',
+		generation: 1,
+		failure_count: 0,
+		machine_id: 'machine-1',
+		checkout_id: 'checkout-1',
+		run_id: 'run-1',
+		created_at: '2026-10-26T10:00:00Z',
+		updated_at: '2026-10-26T10:00:00Z'
+	};
+	await page.goto('/test/assistant?conversation=chat-1');
+	const thread = page.getByRole('region', { name: 'Live messages' });
+	await expect(thread.getByText('The running agent reads it after its current step.')).toBeVisible();
+	const composer = thread.getByRole('textbox', { name: 'Write to the agent' });
+	await composer.fill('Also add tests for the empty list');
+	await thread.getByRole('button', { name: 'Send', exact: true }).click();
+	await expect.poll(() => state.liveSends).toEqual(['Also add tests for the empty list']);
+	await expect(composer).toHaveValue('');
+	await expect(thread.getByRole('listitem', { name: 'You' })).toContainText('Waiting for the agent');
+
+	// The manager records the agent's question: the card and the chat update live.
+	state.liveMessages = [...state.liveMessages, agentQuestion];
+	emit('task.live_message', agentQuestion);
+	const answer = thread.getByRole('listitem', { name: 'Agent' });
+	await expect(answer).toContainText('Keep the v1 route?');
+	await expect(answer.getByText('Question', { exact: true })).toBeVisible();
+	const item = page.getByRole('article', { name: 'Question from the coding agent of ENG-1' });
+	await expect(item).toBeVisible();
+	await expect(item.getByText('See [the plan](https://evil.example/steal)', { exact: false })).toBeVisible();
+	await expect(page.getByRole('link', { name: 'the plan' })).toHaveCount(0);
+	await expect(page.getByText('The coding agent of ENG-1 has a question')).toBeVisible();
+	// A replayed event is one item.
+	state.sockets.at(-1)!.send(JSON.stringify(state.events.at(-1)));
+	await expect(page.getByRole('article', { name: 'Question from the coding agent of ENG-1' })).toHaveCount(1);
+});
+
+test('agent messages from history appear in the chat as untrusted text', async ({ page }) => {
+	const { state } = await fixture(page);
+	state.chatAgentMessages = [{ ...agentQuestion, kind: 'message', body: 'Tests added. <img src=x onerror=alert(1)>' }];
+	await page.goto('/test/assistant?conversation=chat-1');
+	const item = page.getByRole('article', { name: 'Message from the coding agent of ENG-1' });
+	await expect(item).toContainText('Tests added. <img src=x onerror=alert(1)>');
+	await expect(item.locator('img')).toHaveCount(0);
+	await expect(item.getByRole('link', { name: 'ENG-1' })).toHaveAttribute('href', '/test/issue/ENG-1');
+	await expect(item).toContainText('the assistant does not act on it unless you ask');
 });

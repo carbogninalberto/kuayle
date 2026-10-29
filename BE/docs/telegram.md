@@ -173,6 +173,17 @@ delivery worker applies the usual allowlist, membership, binding and issue-scope
 checks at send time, so a moved or revoked issue chat is not delivered. Other
 transitions (queued, preparing, running, validating, publishing) do not notify.
 
+A coding agent's question to the orchestrator (an outbox file with
+`"kind":"question"` that Kuayle accepted; see the
+[live channel](agent-tasks.md#live-channel)) queues a notice in the same way,
+in the transaction that records it: "ENG-1 · Title: the coding agent asks:"
+followed by the question (at most 1,500 characters) in a code block, so
+Telegram shows the agent's untrusted text verbatim rather than as links or
+formatting (triple backticks in it are broken up), and a link to the issue
+conversation. Ordinary agent messages do not notify. The answer is given in
+Kuayle; a Telegram reply is an ordinary assistant turn, which may answer the
+agent with `message_task` when asked.
+
 ## Approval buttons
 
 When a delivered reply contains pending approvals bound to its recipient (for

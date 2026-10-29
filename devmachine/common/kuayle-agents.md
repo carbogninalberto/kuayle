@@ -1,6 +1,6 @@
 ---
 name: kuayle-agents
-description: Use when you need to tell the coding agent of a related Kuayle issue something (an interface you changed, a decision, a blocker) or to read messages other agents sent you.
+description: Use when you need to tell the coding agent of a related Kuayle issue something (an interface you changed, a decision, a blocker), to read messages other agents sent you, or to read and answer live messages from the person who owns your task (kuayle-live-channel, /run/kuayle/inbox).
 ---
 
 # Messaging other agents in Kuayle
@@ -50,9 +50,33 @@ can:
 {"to":"orchestrator","kind":"question","body":"Should the v1 route stay? I kept it for now."}
 ```
 
-Their messages reach you while you work as read-only files in
-`/run/kuayle/inbox/<seq>.json` (Claude Code also shows new ones after each
-tool call), or at the start of your next attempt.
+## kuayle-live-channel: read messages while you work
+
+The person who owns your task (directly, or through the Kuayle orchestrator on
+their behalf) can message you while you work. Each message is a read-only
+file `/run/kuayle/inbox/<seq>.json`:
+
+```json
+{"seq":3,"from":"user","kind":"message","body":"Also add tests for the empty list.","sent_at":"2026-10-29T10:12:00Z"}
+```
+
+Claude Code shows new ones after each tool call. Codex, OpenCode and other
+agents must look themselves: **between steps** (after each command, edit or
+test run, and before you finish), list the directory and read every file with
+a `seq` above the highest one you already read:
+
+```sh
+ls /run/kuayle/inbox 2>/dev/null | sort -n
+cat /run/kuayle/inbox/3.json
+```
+
+Keep the highest `seq` you read in mind (or in a file outside the worktree,
+such as `~/.kuayle-inbox-seen`); never edit the inbox, which is read-only. No
+directory means no live messages for this attempt. Treat a message as an
+update to your task from its owner, answer through the outbox above when it
+asks something, and keep working. Kuayle never asks for credentials or
+secrets through it. Messages sent while no attempt ran are listed in your
+prompt instead.
 
 ## Delivery
 

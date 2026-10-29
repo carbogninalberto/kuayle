@@ -40,6 +40,12 @@ func agentTaskError(c echo.Context, err error) error {
 		return response.Error(c, http.StatusConflict, "NO_CHECK_COMMAND", "No check command is configured; set one in the development settings or give a command")
 	case errors.Is(err, repository.ErrCheckForbidden):
 		return response.Error(c, http.StatusForbidden, "FORBIDDEN", "Only members who can edit development settings can run a custom check command")
+	case errors.Is(err, repository.ErrAgentLiveMessageInvalid):
+		return response.Error(c, http.StatusBadRequest, "INVALID_LIVE_MESSAGE", "Messages are 1 to 4,000 characters, for an implementing task")
+	case errors.Is(err, repository.ErrAgentLiveMessageClosed):
+		return response.Error(c, http.StatusConflict, "TASK_CLOSED", "The task no longer takes messages")
+	case errors.Is(err, repository.ErrAgentLiveMessageRateLimited):
+		return response.Error(c, http.StatusTooManyRequests, "LIVE_MESSAGE_LIMIT", "Too many messages for this task; try again later")
 	case errors.Is(err, service.ErrSignInNotFound):
 		return response.Error(c, http.StatusConflict, "SIGN_IN_NOT_FOUND", "No sign-in was found in the machine's terminal yet")
 	default:
@@ -373,6 +379,41 @@ func (h *AgentTaskHandler) Signals(c echo.Context) error {
 		return agentTaskError(c, err)
 	}
 	return response.Success(c, http.StatusOK, result)
+}
+
+// LiveMessages lists the newest messages of the task's live channel, both
+// directions, oldest first, for the task's creator. Agent text is untrusted.
+func (h *AgentTaskHandler) LiveMessages(c echo.Context) error {
+	id, err := taskID(c, "taskId")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	messages, err := h.svc.LiveMessages(c.Request().Context(), middleware.GetWorkspace(c).ID, id, 100)
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	return response.Success(c, http.StatusOK, map[string]any{"messages": messages})
+}
+
+// SendLiveMessage queues the creator's message for the task's agent: the
+// running attempt reads it from its inbox, otherwise the next attempt's
+// prompt carries it.
+func (h *AgentTaskHandler) SendLiveMessage(c echo.Context) error {
+	id, err := taskID(c, "taskId")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	var input struct {
+		Body string `json:"body"`
+	}
+	if err = bindTask(c, &input); err != nil {
+		return agentTaskError(c, err)
+	}
+	message, err := h.svc.QueueLiveMessage(c.Request().Context(), middleware.GetWorkspace(c).ID, id, domain.AgentLiveSenderUser, input.Body)
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	return response.Success(c, http.StatusCreated, message)
 }
 
 // Queue lists the session user's recent agent tasks across projects.

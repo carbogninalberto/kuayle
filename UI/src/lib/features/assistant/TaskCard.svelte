@@ -33,6 +33,7 @@
 	import TaskActions from './TaskActions.svelte';
 	import AgentReviews from './AgentReviews.svelte';
 	import TaskMessages from '$lib/features/agent-messages/TaskMessages.svelte';
+	import TaskLiveThread from './TaskLiveThread.svelte';
 	import ReviewRequestMenu from './ReviewRequestMenu.svelte';
 	import AgentLogo from '$lib/features/agents/AgentLogo.svelte';
 	import { reviewHarnesses, reviewSessions } from './agent-review';
@@ -954,6 +955,7 @@
 			{/if}
 			<AgentReviews {reviews} />
 			<TaskMessages slug={chat.slug} {task} />
+			{#if task.kind !== 'review'}<TaskLiveThread {chat} {task} />{/if}
 			{#if appError}<p role="alert" class="text-sm break-words text-destructive">{appError}</p>{/if}
 			{#if checkError}<p role="alert" class="text-sm break-words text-destructive">{checkError}</p>{/if}
 			{#if error}<p role="alert" class="text-sm text-destructive">{error}</p>
