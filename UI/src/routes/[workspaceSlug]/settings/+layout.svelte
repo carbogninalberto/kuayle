@@ -21,7 +21,8 @@
 		KeyRound,
 		Bot,
 		MessagesSquare,
-		Mic
+		Mic,
+		BotMessageSquare
 	} from '@lucide/svelte';
 	import { GithubLogoIcon } from 'phosphor-svelte';
 	import type { Snippet } from 'svelte';
@@ -104,6 +105,7 @@
 				{ label: m['settings.nav.github'](), href: `/${slug}/settings/github`, icon: GithubLogoIcon },
 				{ label: m['settings.nav.templates'](), href: `/${slug}/settings/templates`, icon: FileText },
 				{ label: m['settings.nav.ai'](), href: `/${slug}/settings/ai`, icon: Sparkles },
+				{ label: m['settings.nav.assistant'](), href: `/${slug}/settings/assistant`, icon: BotMessageSquare },
 				{ label: m['telegram.title'](), href: `/${slug}/settings/telegram`, icon: Sparkles },
 				{ label: m['settings.nav.voice'](), href: `/${slug}/settings/voice`, icon: Mic },
 				...(canUseDevMachines

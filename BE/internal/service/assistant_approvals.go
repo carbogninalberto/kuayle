@@ -34,6 +34,18 @@ type AssistantApprovals struct {
 	// Previews and ports are unavailable until SetMachines wires them.
 	machineTasks assistantMachineTasks
 	machines     assistantMachinePorts
+	// Tool switches are ignored until SetToolSettings wires them.
+	settings approvalToolSettings
+}
+
+type approvalToolSettings interface {
+	Disabled(ctx context.Context, ws uuid.UUID) (map[string]bool, error)
+}
+
+// SetToolSettings makes approving fail for a tool the workspace has turned off
+// since the approval was requested.
+func (s *AssistantApprovals) SetToolSettings(settings approvalToolSettings) {
+	s.settings = settings
 }
 
 type approvalAcceptor interface {
@@ -81,6 +93,16 @@ func (s *AssistantApprovals) Resolve(ctx context.Context, ws, conversation, id u
 	approval, err := s.conversations.ClaimApproval(ctx, ws, conversation, id, approve)
 	if err != nil || approval.Status != "approving" {
 		return approval, err
+	}
+	if s.settings != nil {
+		disabled, err := s.settings.Disabled(ctx, ws)
+		if err != nil {
+			// The claim stays in place; approving again resumes it.
+			return nil, err
+		}
+		if disabled[approval.Action] {
+			return s.conversations.FinishApproval(ctx, ws, conversation, id, nil, "This tool is disabled in this workspace")
+		}
 	}
 	switch approval.Action {
 	case "merge_pull_request":

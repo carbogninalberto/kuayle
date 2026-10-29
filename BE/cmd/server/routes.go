@@ -247,6 +247,9 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 
 	// Conversations are session-only until dedicated PAT scopes are defined.
 	sessionOnly(ws, http.MethodGet, "/assistant/status", h.conversation.Status)
+	// Members read the assistant's tools; the service lets owners and admins switch them.
+	sessionOnly(ws, http.MethodGet, "/assistant-capabilities", h.conversation.Capabilities)
+	sessionOnly(ws, http.MethodPut, "/assistant-capabilities/:name", h.conversation.SetCapability)
 	sessionOnly(ws, http.MethodGet, "/conversations", h.conversation.List)
 	sessionOnly(ws, http.MethodPost, "/conversations", h.conversation.Create)
 	sessionOnly(ws, http.MethodGet, "/conversations/:conversationId", h.conversation.History)

@@ -249,6 +249,34 @@ neither reports one; delegation then fails as data asking the user to choose and
 link one, and a repository the policy refuses fails the same way. The approval
 does not pin the repository: the task resolves current settings when it runs.
 
+### Tool switches (Settings → Assistant)
+
+`GET /assistant-capabilities` lists every built-in tool from the registry in
+`assistant_tools.go` (plus `attach_images_to_issue`), so new tools appear without
+further changes: `name`, the model-facing `description` (English),
+`requires_approval`, `changes_data` (counts toward the change limit),
+`available` (its dependencies are wired on this server, as `available()`
+decides) and `enabled` for the workspace, with `can_manage` for the caller. Any
+non-guest member may read it. `PUT /assistant-capabilities/:name` with
+`{"enabled": true|false}` turns one tool on or off; unknown names are 404. Both
+routes are session-only (personal access tokens are refused), and the write is
+allowed only for current owners and admins: the role is checked in the same
+SQL statement that writes `assistant_tool_settings` (workspace, tool name,
+enabled, updated by, updated at; no row means enabled), so members, guests,
+outsiders and an admin demoted concurrently get 403.
+
+A disabled tool is enforced on the server, never only in the UI. Each reply
+reads the switches fresh and does not offer disabled tools to the model. Each
+call is checked again at the dispatch point (`runToolCall`), before approval
+requests, the change limit or execution: a call to a disabled tool is recorded
+as a failed tool call (`<name> is disabled in this workspace`), returned to the
+model as data, and has no effect. Approving a pending approval whose tool has
+since been disabled fails it with `This tool is disabled in this workspace`,
+from the Web and Telegram alike, and starts nothing. The Settings page
+(`/[workspaceSlug]/settings/assistant`) lists the tools with Switches for owners
+and admins and a read-only state for members; its Skills and Custom tools tabs
+are placeholders for later phases.
+
 A provider may return tool calls only when tools were offered and must finish
 the turn with `finish_reason: "tool_calls"`. One reply runs at most 400 tool
 calls (at most 32 per model round, enough rounds for each call to run in its

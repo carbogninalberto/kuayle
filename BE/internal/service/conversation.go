@@ -9,6 +9,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/pkg/crypto"
 	log "github.com/sirupsen/logrus"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -258,6 +259,11 @@ func (s *ConversationService) converse(ctx context.Context, a domain.Conversatio
 		if s.images != nil {
 			tools = append(tools, attachImagesTool.spec())
 		}
+		disabled, err := s.tools.disabledTools(ctx, a.Conversation.WorkspaceID)
+		if err != nil {
+			return err
+		}
+		tools = slices.DeleteFunc(tools, func(spec chatToolSpec) bool { return disabled[spec.Function.Name] })
 	}
 	sequence, changes := 0, 0
 	// Text from successive tool rounds is one reply; separate it into
@@ -326,7 +332,9 @@ func (s *ConversationService) runToolCall(ctx context.Context, a domain.Conversa
 	var output any
 	var issueID *uuid.UUID
 	var runErr error
-	if tool.approval {
+	if runErr = s.tools.refuseDisabled(ctx, a.Conversation.WorkspaceID, tool.name); runErr != nil {
+		// A tool the workspace turned off is recorded as refused and never runs.
+	} else if tool.approval {
 		output, issueID, runErr = s.requestApproval(ctx, a, record.ID, tool.name, call.Function.Arguments)
 	} else if tool.write && *changes >= assistantMaxChangesPerReply {
 		runErr = toolFailure("at most %d issue changes can be made per reply", assistantMaxChangesPerReply)
