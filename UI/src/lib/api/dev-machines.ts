@@ -17,6 +17,7 @@ import type {
 	DevMachineCheckout,
 	DevMachineEnvironment,
 	DevMachineScopeSetting,
+	DevMachineRepositoryDefaults,
 	LaunchMachineServiceResponse,
 	ResourceSample,
 	TerminalSessionLaunchResponse,
@@ -240,6 +241,18 @@ export async function ensureIssueCheckoutReady(
 		checkout = next;
 	}
 	return checkout;
+}
+
+/** The repository an issue or project inherits, and the repositories it may use instead. */
+export function getDevMachineRepositoryDefaults(
+	slug: string,
+	scope: { issueId?: string; projectId?: string } = {}
+): Promise<DevMachineRepositoryDefaults> {
+	const query = new URLSearchParams();
+	if (scope.issueId) query.set('issue_id', scope.issueId);
+	if (scope.projectId) query.set('project_id', scope.projectId);
+	const suffix = query.size ? `?${query}` : '';
+	return api.get(`${base(slug)}/dev-machine-repository-defaults${suffix}`);
 }
 
 export function getDevMachineScopeSetting(

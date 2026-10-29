@@ -327,6 +327,22 @@ export interface DevMachineScopeSetting {
 	updated_at?: string;
 }
 
+/** A repository resolved from the issue → project → team → workspace development settings. */
+export interface DevelopmentRepository {
+	id: string;
+	full_name: string;
+	base_branch: string;
+	source: 'issue' | 'project' | 'team' | 'workspace';
+	/** False when the workspace policy refuses it; work relying on it is refused. */
+	allowed: boolean;
+}
+
+export interface DevMachineRepositoryDefaults {
+	repository: DevelopmentRepository | null;
+	inherited_repository: DevelopmentRepository | null;
+	repositories: { id: string; full_name: string; default_branch: string }[];
+}
+
 export interface DevMachineTerminalSession {
 	id: string;
 	machine_id: string;

@@ -105,6 +105,10 @@ export interface DelegationPayload {
 	identifier: string;
 	title: string;
 	instructions: string;
+	/** The development repository resolved when approval was requested. */
+	repository?: string;
+	base_branch?: string;
+	repository_source?: 'issue' | 'project' | 'team' | 'workspace';
 }
 // A merge approval is bound to the reviewed commit shown to the user.
 export interface MergePayload {

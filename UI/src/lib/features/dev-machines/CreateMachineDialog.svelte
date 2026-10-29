@@ -14,6 +14,7 @@
 		checkMachineName,
 		createDevMachine,
 		getDevMachinePolicy,
+		getDevMachineRepositoryDefaults,
 		getMachineNameSuggestion,
 		listAgentProviders,
 		listDevMachineEnvironments
@@ -23,8 +24,12 @@
 		CreateDevMachineInput,
 		DevMachine,
 		DevMachineEnvironment,
-		DevMachinePolicy
+		DevMachinePolicy,
+		DevMachineRepositoryDefaults,
+		DevelopmentRepository
 	} from '$lib/types/dev-machine';
+	import { DEFAULT_REPOSITORY_CHOICE, repositoryChoiceBlocked, repositoryCreateInput } from '$lib/features/dev-machines/repository-choice';
+	import { repositorySourceLabel } from '$lib/features/dev-machines/repository-source';
 	import {
 		DEFAULT_MACHINE_RESOURCES,
 		MACHINE_DISK_GB,
@@ -49,6 +54,8 @@
 	let name = $state('');
 	let nameStatus = $state<'idle' | 'checking' | 'available' | 'unavailable'>('idle');
 	let environmentId = $state('standard');
+	let repositoryDefaults = $state<DevMachineRepositoryDefaults | null>(null);
+	let repositoryChoice = $state(DEFAULT_REPOSITORY_CHOICE);
 	let cpuMillis = $state(DEFAULT_MACHINE_RESOURCES.cpu_millis);
 	let memoryMb = $state(DEFAULT_MACHINE_RESOURCES.memory_mb);
 	let diskGb = $state(DEFAULT_MACHINE_RESOURCES.disk_gb);
@@ -72,6 +79,8 @@
 	const selectedProvider = $derived(providers.find((item) => item.id === provider));
 	const selectedEnvironment = $derived(environments.find((item) => item.id === environmentId));
 	const headless = $derived(profile === 'headless');
+	const defaultRepository = $derived(repositoryDefaults?.repository ?? null);
+	const repositoryBlocked = $derived(repositoryChoiceBlocked(repositoryChoice, repositoryDefaults));
 	const sizeOptions = $derived(
 		resolveMachineSizeOptions(policy?.size_options, policy?.max_disk_gb ?? MACHINE_DISK_GB[MACHINE_DISK_GB.length - 1])
 	);
@@ -83,6 +92,7 @@
 		!loading &&
 		!loadingOptions &&
 		policy?.enabled !== false &&
+		!repositoryBlocked &&
 		nameStatus === 'available' &&
 		sizeOptions.disk_gb.length > 0 &&
 		(!useAgent || (!!selectedProvider && allRequiredSecretsFilled)) &&
@@ -167,15 +177,19 @@
 		keepRunning = false;
 		profile = 'standard';
 		browser = true;
+		repositoryDefaults = null;
+		repositoryChoice = DEFAULT_REPOSITORY_CHOICE;
 		cpuMillis = DEFAULT_MACHINE_RESOURCES.cpu_millis;
 		memoryMb = DEFAULT_MACHINE_RESOURCES.memory_mb;
 		diskGb = DEFAULT_MACHINE_RESOURCES.disk_gb;
 		try {
-			const [suggestion, availableProviders, machinePolicy, availableEnvironments] = await Promise.all([
+			const [suggestion, availableProviders, machinePolicy, availableEnvironments, defaults] = await Promise.all([
 				getMachineNameSuggestion(currentSlug),
 				listAgentProviders(currentSlug),
 				getDevMachinePolicy(currentSlug),
-				listDevMachineEnvironments(currentSlug)
+				listDevMachineEnvironments(currentSlug),
+				// Optional: without it the server still applies the configured repository.
+				getDevMachineRepositoryDefaults(currentSlug, { issueId: issue?.id }).catch(() => null)
 			]);
 			if (!isCurrentDialog(currentSlug, generation)) return;
 			name = suggestion.name;
@@ -189,6 +203,7 @@
 			policy = machinePolicy;
 			environments = (availableEnvironments ?? []).filter((item) => item.status === 'ready');
 			environmentId = 'standard';
+			repositoryDefaults = defaults;
 			if (providers.length > 0 && !providers.some((item) => item.id === provider)) provider = providers[0].id;
 			if (providers.length === 0) useAgent = false;
 		} catch (error) {
@@ -214,6 +229,11 @@
 			nameStatus = 'unavailable';
 			appToast.apiError(error, 'Failed to generate a machine name');
 		}
+	}
+
+	function defaultRepositoryLabel(repository: DevelopmentRepository | null) {
+		if (!repository) return m['machines.no_default_repository']();
+		return m['machines.repository_from_settings']({ repository: repository.full_name, source: repositorySourceLabel(repository.source) });
 	}
 
 	function selectProvider(value: AgentProvider['id']) {
@@ -273,6 +293,7 @@
 				agents: useAgent ? [{ provider, mode: 'autonomous', config: providerConfig }] : [],
 				env_vars: envVars,
 				environment_id: selectedEnvironment?.id,
+				repo: repositoryCreateInput(repositoryChoice, repositoryDefaults),
 				keep_running: keepRunning
 			});
 			appToast.success('Dev Machine queued');
@@ -345,6 +366,24 @@
 						{#each environments as environment}<Select.Item value={environment.id} label={environment.name}>{environment.name}</Select.Item>{/each}
 					</Select.Content>
 				</Select.Root>
+			</div>
+
+			<div class="space-y-1.5">
+				<Label>{m['machines.repository']()}</Label>
+				<Select.Root type="single" value={repositoryChoice} disabled={loadingOptions} onValueChange={(value) => value && (repositoryChoice = value)}>
+					<Select.Trigger class="w-full min-w-0" aria-label={m['machines.repository']()}><span class="truncate">{repositoryChoice === DEFAULT_REPOSITORY_CHOICE ? defaultRepositoryLabel(defaultRepository) : (repositoryDefaults?.repositories.find((item) => item.id === repositoryChoice)?.full_name ?? defaultRepositoryLabel(defaultRepository))}</span></Select.Trigger>
+					<Select.Content>
+						<Select.Item value={DEFAULT_REPOSITORY_CHOICE} label={defaultRepositoryLabel(defaultRepository)}>{defaultRepositoryLabel(defaultRepository)}</Select.Item>
+						{#each repositoryDefaults?.repositories ?? [] as repository (repository.id)}
+							{#if repository.id !== defaultRepository?.id}<Select.Item value={repository.id} label={repository.full_name}>{repository.full_name}</Select.Item>{/if}
+						{/each}
+					</Select.Content>
+				</Select.Root>
+				{#if repositoryBlocked && defaultRepository}
+					<p class="text-xs text-destructive">{m['machines.repository_not_allowed']({ repository: defaultRepository.full_name })}</p>
+				{:else if defaultRepository}
+					<p class="text-xs text-muted-foreground">{m['machines.repository_default_help']()}</p>
+				{/if}
 			</div>
 
 			<MachineResourceSliders bind:cpu_millis={cpuMillis} bind:memory_mb={memoryMb} bind:disk_gb={diskGb} {sizeOptions} />
