@@ -1122,7 +1122,11 @@ can only draft new ones with `propose_tool`. Each run asks for approval unless
 an admin marked the tool read-only and `auto`, and executes as a `run_tool`
 machine operation in the credential-free check container under the manual
 check's machine lock, with arguments only as environment variables and a JSON
-file. See [custom tools](BE/docs/conversations.md#custom-tools) and
+file. Settings → Assistant → Custom tools
+(`?tab=custom-tools&tool=<id>`) lists, edits (script, parameter builder),
+reviews, activates, restores, deletes and test-runs them with their run
+history; chat shows `propose_tool` drafts and run approvals and results as
+escaped text. See [custom tools](BE/docs/conversations.md#custom-tools) and
 [custom tool runs](BE/docs/agent-tasks.md#custom-tool-runs).
 
 ### Images in conversations

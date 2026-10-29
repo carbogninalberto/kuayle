@@ -185,6 +185,21 @@ export interface RunCheckPayload {
 	// Absent: the task's configured check command.
 	command?: string[];
 }
+// A custom tool run is bound to the tool version and the validated inputs shown.
+export interface RunCustomToolPayload {
+	identifier: string;
+	title: string;
+	tool_id: string;
+	tool_name: string;
+	version: number;
+	description: string;
+	read_only: boolean;
+	interpreter: string;
+	inputs: Record<string, string | number | boolean>;
+	task_id?: string;
+	generation?: number;
+	machine_id?: string;
+}
 export type ConversationApproval = ApprovalBase &
 	(
 		| { action: 'delegate_issue'; payload: DelegationPayload }
@@ -195,6 +210,7 @@ export type ConversationApproval = ApprovalBase &
 		| { action: 'start_preview'; payload: PreviewPayload }
 		| { action: 'expose_port'; payload: ExposePortPayload }
 		| { action: 'run_check'; payload: RunCheckPayload }
+		| { action: 'run_custom_tool'; payload: RunCustomToolPayload }
 	);
 interface ApprovalBase {
 	id: string;

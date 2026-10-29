@@ -280,6 +280,10 @@ from the Web and Telegram alike, and starts nothing. The Settings page
 and admins and a read-only state for members; its Skills tab is described under
 [Skills](#skills), and its Custom tools tab is a placeholder for a later phase.
 
+and admins and a read-only state for members; its Skills tab is a placeholder
+until its settings page lands (the API is described under [Skills](#skills)),
+and its Custom tools tab is described under [Custom tools](#custom-tools).
+
 ### Skills
 
 Skills are Markdown guidance for the assistant, written for the workspace or
@@ -452,6 +456,30 @@ with switches; `GET /assistant-capabilities` also lists active custom tools as
 `enabled` flag. Migration 100 also widens `conversation_tool_calls.name` to
 allow digits; its rollback renames such calls to `custom_tool` and deletes
 `run_custom_tool` approvals.
+
+**Settings UI.** Settings → Assistant → Custom tools
+(`/[workspaceSlug]/settings/assistant?tab=custom-tools`, `&tool=<id>` opens
+one tool, which `propose_tool` cards link to) lists each tool with its
+`custom_<name>` call name, description, status, pending draft, run mode,
+read-only mark, interpreter, version, author and an enabled Switch. The editor
+has a monospace Textarea for the script and a parameter builder (name, type
+string/number/integer/boolean/enum, description, required, length or numeric
+bounds, enum values) that produces the canonical schema above and refuses
+locally what the server would refuse; a JSON tab shows the generated schema.
+`auto` is selectable only with read-only set. Saving offers a draft or an
+immediate version, as for skills; activating a draft shows what changes and a
+line diff of the script against the version in effect. The tool page shows the
+schema, the script, versions (restore) and the run history (inputs, status,
+exit code, output), and the test-run dialog builds an inputs form from the
+selected version's schema, targets one of your machines or an issue's task
+machine and polls `GET /assistant-tool-runs/:runId` until the run ends. Members
+get the same pages read-only, without write or test-run controls; the server
+enforces every write. In chat, a `propose_tool` result renders as a draft card
+with the full script and a schema summary, a pending `run_custom_tool`
+approval shows the tool, version, description, interpreter and the exact
+validated inputs, and an approved or `auto` run is polled (found by its
+`approval_id` in the tool's runs) until it ends; `get_tool_run` is one line.
+Scripts, inputs and output are always rendered as escaped text.
 
 A provider may return tool calls only when tools were offered and must finish
 the turn with `finish_reason: "tool_calls"`. One reply runs at most 400 tool
