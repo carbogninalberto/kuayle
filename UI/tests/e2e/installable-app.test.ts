@@ -91,3 +91,66 @@ test('caches only the app shell and serves an offline page for navigations', asy
 	await expect(page.getByRole('heading', { name: "You're offline" })).toBeVisible();
 	await context.setOffline(false);
 });
+
+// Pretends the page was launched from the home screen / an installed app window.
+async function launchedAsInstalledApp(page: Page) {
+	await page.addInitScript(() => {
+		const original = window.matchMedia.bind(window);
+		window.matchMedia = (query: string) => {
+			const result = original(query);
+			if (!query.includes('display-mode: standalone')) return result;
+			return {
+				matches: true,
+				media: query,
+				onchange: null,
+				addEventListener: () => {},
+				removeEventListener: () => {},
+				addListener: () => {},
+				removeListener: () => {},
+				dispatchEvent: () => false
+			} as unknown as MediaQueryList;
+		};
+	});
+}
+
+async function zoomState(page: Page) {
+	return page.evaluate(() => {
+		const input = document.querySelector('input');
+		return {
+			viewport: document.querySelector('meta[name="viewport"]')?.getAttribute('content'),
+			pageTouch: getComputedStyle(document.documentElement).touchAction,
+			inputTouch: input ? getComputedStyle(input).touchAction : null
+		};
+	});
+}
+
+test('the installed app disables pinch and double-tap zoom while browser tabs keep zoom', async ({ browser }, testInfo) => {
+	const mobile = { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true };
+	const tab = await browser.newContext(mobile);
+	const tabPage = await tab.newPage();
+	await signedOut(tabPage);
+	await tabPage.goto('/login');
+	await expect(tabPage.getByRole('button', { name: /sign in|log in/i }).first()).toBeVisible();
+	expect(await zoomState(tabPage)).toEqual({ viewport: 'width=device-width, initial-scale=1', pageTouch: 'auto', inputTouch: 'auto' });
+	await tab.close();
+
+	const installed = await browser.newContext(mobile);
+	const page = await installed.newPage();
+	await launchedAsInstalledApp(page);
+	await signedOut(page);
+	await page.goto('/login');
+	await expect(page.getByRole('button', { name: /sign in|log in/i }).first()).toBeVisible();
+	await expect
+		.poll(() => zoomState(page))
+		.toEqual({
+			viewport: 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no',
+			pageTouch: 'pan-x pan-y',
+			inputTouch: 'pan-x pan-y'
+		});
+	// Focusing a field does not zoom the installed app.
+	await page.locator('input').first().tap();
+	expect(await page.evaluate(() => window.visualViewport?.scale ?? 1)).toBe(1);
+	expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+	await page.screenshot({ path: testInfo.outputPath('installed-login-390.png') });
+	await installed.close();
+});

@@ -37,6 +37,7 @@
 	} from '$lib/api/dev-machines';
 	import {
 		DEFAULT_MACHINE_RESOURCES,
+		DEFAULT_TASK_MACHINE_RESOURCES,
 		MACHINE_DISK_GB,
 		normalizeMachineResources,
 		resolveMachineSizeOptions
@@ -108,6 +109,13 @@
 			builderSizeOptions
 		)
 	);
+	// Task machine sizes follow the disk limit being edited, not the saved one.
+	const taskMachineSizeOptions = $derived(
+		resolveMachineSizeOptions(
+			{ cpu_millis: policy?.size_options?.cpu_millis, memory_mb: policy?.size_options?.memory_mb },
+			policy?.max_disk_gb ?? MACHINE_DISK_GB[MACHINE_DISK_GB.length - 1]
+		)
+	);
 	const canCreateEnvironmentBuilder = $derived(
 		canAdmin && !builderBusy && builderSizeOptions.disk_gb.length > 0
 	);
@@ -140,7 +148,7 @@
 				getDevMachinePolicy(slug), getGitHubStatus(slug),
 				getDevMachineScopeSetting(slug, 'workspace'), listDevMachineEnvironments(slug)
 			]);
-			policy = { ...loaded, allowed_providers: loaded.allowed_providers ?? [], allowed_repositories: loaded.allowed_repositories ?? [], allow_unattended_automations: loaded.allow_unattended_automations ?? false, allow_docker: loaded.allow_docker ?? false };
+			policy = { ...loaded, allowed_providers: loaded.allowed_providers ?? [], allowed_repositories: loaded.allowed_repositories ?? [], allow_unattended_automations: loaded.allow_unattended_automations ?? false, allow_docker: loaded.allow_docker ?? false, allow_sudo: loaded.allow_sudo ?? false, task_machine_cpu_millis: loaded.task_machine_cpu_millis || DEFAULT_TASK_MACHINE_RESOURCES.cpu_millis, task_machine_memory_mb: loaded.task_machine_memory_mb || DEFAULT_TASK_MACHINE_RESOURCES.memory_mb, task_machine_disk_gb: loaded.task_machine_disk_gb || DEFAULT_TASK_MACHINE_RESOURCES.disk_gb };
 			repositories = policy.allowed_repositories.join('\n');
 			linkedRepositories = github.repos ?? [];
 			environments = availableEnvironments ?? [];
@@ -160,6 +168,11 @@
 		if (!policy) return;
 		if (!canAdmin) return;
 		saving = true;
+		// Saved as shown: the sliders display these values snapped to the options.
+		const taskMachine = normalizeMachineResources(
+			{ cpu_millis: policy.task_machine_cpu_millis, memory_mb: policy.task_machine_memory_mb, disk_gb: policy.task_machine_disk_gb },
+			taskMachineSizeOptions
+		);
 		try {
 			const command = parseTestCommand(defaultTestCommand);
 			policy = await updateDevMachinePolicy(slug, {
@@ -174,9 +187,13 @@
 				allow_custom_providers: policy.allow_custom_providers,
 				allow_unattended_automations: policy.allow_unattended_automations,
 				allow_docker: policy.allow_docker ?? false,
+				allow_sudo: policy.allow_sudo ?? false,
 				agent_git_name: (policy.agent_git_name ?? '').trim(),
 				agent_git_email: (policy.agent_git_email ?? '').trim(),
-				idle_pause_minutes: policy.idle_pause_minutes
+				idle_pause_minutes: policy.idle_pause_minutes,
+				task_machine_cpu_millis: taskMachine.cpu_millis,
+				task_machine_memory_mb: taskMachine.memory_mb,
+				task_machine_disk_gb: taskMachine.disk_gb
 			});
 			const repository = linkedRepositories.find((item) => item.id === defaultRepositoryId);
 			if (defaultRepositoryId === 'none' && defaultEnvironmentId === 'standard' && command === undefined && defaultAgentProvider === 'inherit' && !defaultAgentInstructions.trim() && !defaultComposeFile.trim() && !defaultPreviewCommand.trim()) {
@@ -201,8 +218,9 @@
 
 	function openEnvironmentBuilder() {
 		if (!canAdmin) return;
-		builderCpuMillis = DEFAULT_MACHINE_RESOURCES.cpu_millis;
-		builderMemoryMb = DEFAULT_MACHINE_RESOURCES.memory_mb;
+		// A builder installs and compiles like a task machine, so it starts with that size.
+		builderCpuMillis = policy?.task_machine_cpu_millis || DEFAULT_MACHINE_RESOURCES.cpu_millis;
+		builderMemoryMb = policy?.task_machine_memory_mb || DEFAULT_MACHINE_RESOURCES.memory_mb;
 		builderDiskGb = DEFAULT_MACHINE_RESOURCES.disk_gb;
 		environmentBuilderOpen = true;
 	}
@@ -278,9 +296,14 @@
 				<label class="space-y-1"><Label>{m['settings.dev_machines.per_user']()}</Label><Input type="number" min="0" max="50" bind:value={policy.max_machines_per_user} /></label>
 				<label class="space-y-1"><Label>{m['settings.dev_machines.daily_runs']()}</Label><Input type="number" min="0" bind:value={policy.max_daily_agent_runs} /></label>
 				<label class="space-y-1"><Label>{m['settings.dev_machines.max_runtime']()}</Label><Input type="number" min="5" max="1440" bind:value={policy.max_runtime_minutes} /></label>
-				<label class="space-y-1"><Label>{m['settings.dev_machines.max_disk']()}</Label><Input type="number" min="20" max="2048" bind:value={policy.max_disk_gb} /></label>
+				<label class="space-y-1"><Label>{m['settings.dev_machines.max_disk']()}</Label><Input type="number" min="20" max="2048" step="2" bind:value={policy.max_disk_gb} /></label>
 				<label class="space-y-1"><Label>{m['settings.dev_machines.idle_pause']()}</Label><Input type="number" min="5" max="10080" bind:value={policy.idle_pause_minutes} /></label>
 			</div>
+		</section>
+		<section class="space-y-4 rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-5" aria-labelledby="task-machines-title">
+			<div><h2 id="task-machines-title" class="text-sm font-semibold">{m['settings.dev_machines.task_machines']()}</h2><p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.task_machines_desc']()}</p></div>
+			<MachineResourceSliders inputId="task-machine" disabled={!canAdmin} sizeOptions={taskMachineSizeOptions} bind:cpu_millis={policy.task_machine_cpu_millis} bind:memory_mb={policy.task_machine_memory_mb} bind:disk_gb={policy.task_machine_disk_gb} />
+			<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.task_machines_split']()}</p>
 		</section>
 		<section class="space-y-4 rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-5">
 			<div class="flex items-start justify-between gap-4"><div><h2 class="text-sm font-semibold">{m['settings.dev_machines.environments']()}</h2><p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.environments_desc']()}</p></div><Button type="button" variant="outline" onclick={openEnvironmentBuilder} disabled={builderBusy}>{m['settings.dev_machines.new_env']()}</Button></div>
@@ -300,6 +323,17 @@
 			<div class="space-y-1">
 				<label class="flex items-center gap-2 text-sm"><Switch bind:checked={policy.allow_docker} aria-describedby="allow-docker-desc" />{m['settings.dev_machines.allow_docker']()}</label>
 				<p id="allow-docker-desc" class="text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.allow_docker_desc']()}</p>
+			</div>
+			<div class="space-y-2">
+				<label class="flex items-center gap-2 text-sm"><Switch bind:checked={policy.allow_sudo} aria-describedby="allow-sudo-desc" />{m['settings.dev_machines.allow_sudo']()}</label>
+				<p id="allow-sudo-desc" class="text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.allow_sudo_desc']()}</p>
+				{#if policy.allow_sudo}
+					<Alert.Root class="border-[var(--color-warning)] bg-[var(--color-bg-secondary)] text-[var(--color-warning)]">
+						<TriangleAlert />
+						<Alert.Title>{m['settings.dev_machines.allow_sudo_warning_title']()}</Alert.Title>
+						<Alert.Description class="text-[var(--color-text-secondary)]">{m['settings.dev_machines.allow_sudo_warning']()}</Alert.Description>
+					</Alert.Root>
+				{/if}
 			</div>
 		</section>
 		<section class="space-y-3 rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-5">

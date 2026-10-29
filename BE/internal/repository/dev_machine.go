@@ -60,6 +60,7 @@ type DevMachineStore interface {
 	CreateGitRef(context.Context, *domain.DevMachineGitRef) error
 	MachineNameExistsForUser(context.Context, uuid.UUID, uuid.UUID, string) (bool, error)
 	UpdateMachinePreferencesForUser(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, *bool) (*domain.DevMachine, error)
+	RequestResizeForUser(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, domain.DevMachineResize, *domain.DevMachineOperation) (*domain.DevMachine, error)
 	TouchMachineActivity(context.Context, uuid.UUID, time.Time) error
 	RequestPermanentDelete(context.Context, uuid.UUID, uuid.UUID, *uuid.UUID) (*domain.DevMachineOperation, error)
 	BulkPurgeMachines(context.Context, uuid.UUID, []uuid.UUID, time.Time, bool, bool) (int, error)
@@ -70,6 +71,7 @@ type DevMachineStore interface {
 	ScopeResourceExists(context.Context, uuid.UUID, string, *uuid.UUID) (bool, error)
 	GetLinkedRepository(context.Context, uuid.UUID, uuid.UUID) (*domain.GitHubRepoModel, error)
 	GetLinkedRepositoryByFullName(context.Context, uuid.UUID, string) (*domain.GitHubRepoModel, error)
+	ListLinkedRepositories(context.Context, uuid.UUID) ([]domain.GitHubRepoModel, error)
 	GetIssueDevelopmentContext(context.Context, uuid.UUID, uuid.UUID) (*domain.Issue, error)
 	GetProjectDevelopmentContext(context.Context, uuid.UUID, uuid.UUID) (*domain.Project, error)
 	ListEnvironments(context.Context, uuid.UUID) ([]domain.DevMachineEnvironment, error)
@@ -214,8 +216,8 @@ func (r *DevMachineRepository) CreateBundle(
 		status, desired_status, generation, repo_url, repo_provider, repo_owner, repo_name,
 		base_branch, working_branch, machine_size, profile, cpu_millis, memory_mb, disk_gb, pids_limit,
 		max_runtime_minutes, services_config, labels, expires_at, environment_id,
-		repository_affinity_id, keep_running, environment_builder, last_activity_at
-	) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31)
+		repository_affinity_id, keep_running, environment_builder, last_activity_at, sudo_enabled
+	) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32)
 	RETURNING created_at, updated_at`
 	if err := tx.QueryRowContext(ctx, machineQuery,
 		machine.ID, machine.WorkspaceID, machine.ProjectID, machine.IssueID, machine.CreatedByUserID,
@@ -224,6 +226,7 @@ func (r *DevMachineRepository) CreateBundle(
 		machine.WorkingBranch, machine.MachineSize, machine.Profile, machine.CPUMillis, machine.MemoryMB, machine.DiskGB,
 		machine.PidsLimit, machine.MaxRuntimeMinutes, machine.ServicesConfig, machine.Labels, machine.ExpiresAt,
 		machine.EnvironmentID, machine.RepositoryAffinityID, machine.KeepRunning, machine.EnvironmentBuilder, machine.LastActivityAt,
+		machine.SudoEnabled,
 	).Scan(&machine.CreatedAt, &machine.UpdatedAt); err != nil {
 		var postgresError *pgconn.PgError
 		if errors.As(err, &postgresError) && postgresError.Code == "23505" && postgresError.ConstraintName == "idx_dev_machines_workspace_name" {
@@ -502,6 +505,9 @@ func (r *DevMachineRepository) LeaseOperations(ctx context.Context, owner string
 			SELECT 1 FROM dev_machine_operations leased
 			WHERE leased.machine_id=o.machine_id AND leased.id<>o.id
 			AND leased.status='leased' AND leased.lease_expires_at >= NOW()
+			-- A resize applies beside a long agent run or check, which can
+			-- need the memory, but never beside lifecycle work.
+			AND (o.action<>'resize' OR leased.action IN ('spawn','start','stop','pause','teardown','snapshot_environment','resize'))
 		))
 	), candidates AS (
 		SELECT o.id FROM ranked r
@@ -649,21 +655,40 @@ func (r *DevMachineRepository) DockerAllowed(ctx context.Context, workspaceID uu
 	return allowed, err
 }
 
+// SudoAllowed reports whether the workspace policy allows sudo in machines; a
+// workspace without a policy does not.
+func (r *DevMachineRepository) SudoAllowed(ctx context.Context, workspaceID uuid.UUID) (bool, error) {
+	var allowed bool
+	err := r.db.GetContext(ctx, &allowed, `SELECT allow_sudo FROM dev_machine_workspace_policies WHERE workspace_id=$1`, workspaceID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return allowed, err
+}
+
 func (r *DevMachineRepository) UpsertPolicy(ctx context.Context, policy *domain.DevMachineWorkspacePolicy) error {
+	// A policy built without task machine resources stores the defaults.
+	taskMachine := policy.TaskMachine()
+	policy.TaskMachineCPUMillis, policy.TaskMachineMemoryMB, policy.TaskMachineDiskGB = taskMachine.CPUMillis, taskMachine.MemoryMB, taskMachine.DiskGB
 	return r.db.QueryRowContext(ctx, `INSERT INTO dev_machine_workspace_policies
 		(workspace_id, enabled, max_concurrent_machines, max_machines_per_user, max_daily_agent_runs,
-		 max_runtime_minutes, max_disk_gb, allowed_providers, allowed_repositories, allow_custom_providers, idle_pause_minutes, allow_unattended_automations, agent_git_name, agent_git_email, allow_docker)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+		 max_runtime_minutes, max_disk_gb, allowed_providers, allowed_repositories, allow_custom_providers, idle_pause_minutes, allow_unattended_automations, agent_git_name, agent_git_email, allow_docker, allow_sudo,
+		 task_machine_cpu_millis, task_machine_memory_mb, task_machine_disk_gb)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
 		ON CONFLICT (workspace_id) DO UPDATE SET enabled=EXCLUDED.enabled,
 		max_concurrent_machines=EXCLUDED.max_concurrent_machines, max_machines_per_user=EXCLUDED.max_machines_per_user,
 		max_daily_agent_runs=EXCLUDED.max_daily_agent_runs, max_runtime_minutes=EXCLUDED.max_runtime_minutes,
 		max_disk_gb=EXCLUDED.max_disk_gb, allowed_providers=EXCLUDED.allowed_providers,
 		allowed_repositories=EXCLUDED.allowed_repositories, allow_custom_providers=EXCLUDED.allow_custom_providers,
 		idle_pause_minutes=EXCLUDED.idle_pause_minutes, allow_unattended_automations=EXCLUDED.allow_unattended_automations,
-		agent_git_name=EXCLUDED.agent_git_name, agent_git_email=EXCLUDED.agent_git_email, allow_docker=EXCLUDED.allow_docker
+		agent_git_name=EXCLUDED.agent_git_name, agent_git_email=EXCLUDED.agent_git_email, allow_docker=EXCLUDED.allow_docker,
+		allow_sudo=EXCLUDED.allow_sudo,
+		task_machine_cpu_millis=EXCLUDED.task_machine_cpu_millis, task_machine_memory_mb=EXCLUDED.task_machine_memory_mb,
+		task_machine_disk_gb=EXCLUDED.task_machine_disk_gb
 		RETURNING created_at, updated_at`, policy.WorkspaceID, policy.Enabled, policy.MaxConcurrentMachines,
 		policy.MaxMachinesPerUser, policy.MaxDailyAgentRuns, policy.MaxRuntimeMinutes, policy.MaxDiskGB,
 		policy.AllowedProviders, policy.AllowedRepositories, policy.AllowCustomProviders, policy.IdlePauseMinutes, policy.AllowUnattendedAutomations, policy.AgentGitName, policy.AgentGitEmail, policy.AllowDocker,
+		policy.AllowSudo, policy.TaskMachineCPUMillis, policy.TaskMachineMemoryMB, policy.TaskMachineDiskGB,
 	).Scan(&policy.CreatedAt, &policy.UpdatedAt)
 }
 
@@ -1901,6 +1926,13 @@ func (r *DevMachineRepository) GetLinkedRepositoryByFullName(ctx context.Context
 		return nil, nil
 	}
 	return &repo, err
+}
+
+// ListLinkedRepositories lists the workspace's active linked repositories.
+func (r *DevMachineRepository) ListLinkedRepositories(ctx context.Context, workspaceID uuid.UUID) ([]domain.GitHubRepoModel, error) {
+	repos := []domain.GitHubRepoModel{}
+	err := r.db.SelectContext(ctx, &repos, `SELECT * FROM github_repos WHERE workspace_id=$1 AND is_active ORDER BY full_name`, workspaceID)
+	return repos, err
 }
 
 func (r *DevMachineRepository) GetIssueDevelopmentContext(ctx context.Context, workspaceID, issueID uuid.UUID) (*domain.Issue, error) {

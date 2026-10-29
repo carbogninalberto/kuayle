@@ -764,7 +764,9 @@ func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine
 	for name := range secrets {
 		secretNames = append(secretNames, name)
 	}
-	hostConfig := r.secureHostConfig(machine, "agent", *machine.DockerNetworkName, *machine.WorkspaceVolumeName)
+	// Attempts on a machine with a Docker daemon receive its address.
+	_, docker := secrets["KUAYLE_DOCKER_HOST"]
+	hostConfig := r.secureHostConfig(machine, "agent", *machine.DockerNetworkName, *machine.WorkspaceVolumeName, docker)
 	entrypoint := []string{"/usr/local/bin/kuayle-agent-runner"}
 	if provider.IsCustom {
 		entrypoint = []string{"/bin/sh", "-c", customAgentBootstrap, "kuayle-agent"}
@@ -792,7 +794,7 @@ func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine
 		Config: &container.Config{
 			Image: provider.ImageRef, User: "1000:1000", WorkingDir: workingDirectory,
 			Entrypoint: entrypoint, Cmd: argv,
-			Env: mergeEnvironment(imageEnvironment, runtimeEnvironment...), Labels: labels,
+			Env: mergeEnvironment(agentImageEnvironment(imageEnvironment), runtimeEnvironment...), Labels: labels,
 			AttachStdout: true, AttachStderr: true, AttachStdin: run.Mode == "interactive",
 			OpenStdin: run.Mode == "interactive", Tty: run.Mode == "interactive",
 		},
@@ -978,7 +980,26 @@ func (r *DockerRuntime) resumeExecution(ctx context.Context, inspection containe
 			return r.agentOutputFailure(containerID, ctx.Err())
 		}
 	}
-	return &AgentExecution{ContainerID: containerID, Stdout: stdout.String(), Stderr: stderr.String(), ExitCode: inspection.State.ExitCode}, nil
+	execution := &AgentExecution{ContainerID: containerID, Stdout: stdout.String(), Stderr: stderr.String(), ExitCode: inspection.State.ExitCode}
+	r.inspectMemoryLimit(ctx, execution)
+	return execution, nil
+}
+
+// inspectMemoryLimit records whether the exited container hit its memory
+// limit. Docker sets OOMKilled for any out-of-memory kill in the container's
+// cgroup, so a killed child process (a compiler) is reported as well.
+func (r *DockerRuntime) inspectMemoryLimit(ctx context.Context, execution *AgentExecution) {
+	result, err := r.client.ContainerInspect(ctx, execution.ContainerID, client.ContainerInspectOptions{})
+	if err != nil {
+		// The exit code still stands; the manager reports no memory limit.
+		return
+	}
+	if result.Container.State != nil {
+		execution.OOMKilled = result.Container.State.OOMKilled
+	}
+	if result.Container.HostConfig != nil {
+		execution.MemoryLimitBytes = result.Container.HostConfig.Memory
+	}
 }
 
 // A failed observer cannot leave an unmonitored native process running.
@@ -1411,7 +1432,7 @@ func (r *DockerRuntime) ensureService(ctx context.Context, machine *domain.DevMa
 	}
 	response, err := r.client.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config:           containerConfig,
-		HostConfig:       r.secureHostConfig(machine, service.ServiceType, networkName, volumeName),
+		HostConfig:       r.secureHostConfig(machine, service.ServiceType, networkName, volumeName, docker),
 		NetworkingConfig: &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{networkName: {Aliases: []string{service.InternalHost}}}},
 		Name:             service.ContainerName,
 	})
@@ -1437,20 +1458,39 @@ func (r *DockerRuntime) ensureService(ctx context.Context, machine *domain.DevMa
 	return response.ID, true, false, nil
 }
 
-func (r *DockerRuntime) secureHostConfig(machine *domain.DevMachine, serviceType, networkName, volumeName string) *container.HostConfig {
-	fraction := int64(5)
+// containerSharePercent is the part of the machine's CPU, memory and process
+// limits a container of serviceType gets; docker reports whether the machine
+// runs a Docker daemon, which takes dockerShare itself.
+//
+// Standard machines: IDE (with the terminal) 25, browser 25, agent 35,
+// collector and egress 5 each. Headless machines (agent task machines among
+// them) have no IDE or browser, so the agent gets half of the machine: agent
+// 50 and terminal 40. With a daemon (40%) the agent and terminal get 35% each:
+// the shares are ceilings, not reservations, and the terminal is where people
+// run CLIs by hand, so it is not squeezed below the agent.
+func containerSharePercent(machine *domain.DevMachine, serviceType string, docker bool) int64 {
+	headless := machine.Profile == domain.DevMachineProfileHeadless
 	switch serviceType {
-	case "ide":
-		fraction = 25
+	case "ide", "browser":
+		return 25
 	case "terminal":
-		// Only headless machines run a standalone terminal container; it takes the IDE and
-		// browser shares because neither exists there.
-		fraction = 50
-	case "browser":
-		fraction = 25
+		// Only headless machines run a standalone terminal container.
+		if headless && docker {
+			return 35
+		}
+		return 40
 	case "agent":
-		fraction = 35
+		if headless && !docker {
+			return 50
+		}
+		return 35
+	default:
+		return 5
 	}
+}
+
+func (r *DockerRuntime) secureHostConfig(machine *domain.DevMachine, serviceType, networkName, volumeName string, docker bool) *container.HostConfig {
+	fraction := containerSharePercent(machine, serviceType, docker)
 	memory := int64(machine.MemoryMB) * 1024 * 1024 * fraction / 100
 	if memory < 128*1024*1024 {
 		memory = 128 * 1024 * 1024
@@ -1503,6 +1543,17 @@ func (r *DockerRuntime) secureHostConfig(machine *domain.DevMachine, serviceType
 	if machine.EnvironmentBuilder && serviceType == "ide" {
 		hostConfig.ReadonlyRootfs = false
 		hostConfig.CapDrop = nil
+		hostConfig.SecurityOpt = securityOptions[1:]
+	} else if machine.SudoEnabled && (serviceType == "ide" || serviceType == "terminal") {
+		// The workspace allows sudo: the image's passwordless sudoers rule takes
+		// effect once privileges may be gained, and packages can be installed
+		// into the root filesystem until the container is recreated. Docker's
+		// default capabilities apply minus NET_RAW (no raw sockets on the
+		// machine network); never privileged, NET_ADMIN or SYS_ADMIN, so root
+		// cannot change routes or firewall rules and egress still goes through
+		// the machine's proxy. Agent attempts are never relaxed.
+		hostConfig.ReadonlyRootfs = false
+		hostConfig.CapDrop = []string{"NET_RAW"}
 		hostConfig.SecurityOpt = securityOptions[1:]
 	}
 	if serviceType == "browser" {
@@ -1569,6 +1620,31 @@ func (r *DockerRuntime) imageConfig(ctx context.Context, reference string) ([]st
 		return nil, nil, fmt.Errorf("image %s declares unmanaged volumes", reference)
 	}
 	return append([]string(nil), inspection.Config.Cmd...), append([]string(nil), inspection.Config.Env...), nil
+}
+
+// workspaceNpmBin is where developer images install global npm packages, on
+// the workspace volume and first on their PATH.
+const workspaceNpmBin = "/workspace/.kuayle/npm-global/bin"
+
+// agentImageEnvironment removes the workspace npm prefix from an image's PATH,
+// so agent attempts on a developer image run the image's pinned CLIs rather
+// than whatever was installed on the workspace volume.
+func agentImageEnvironment(environment []string) []string {
+	result := make([]string, 0, len(environment))
+	for _, item := range environment {
+		if value, ok := strings.CutPrefix(item, "PATH="); ok {
+			entries := strings.Split(value, ":")
+			kept := entries[:0]
+			for _, entry := range entries {
+				if entry != workspaceNpmBin {
+					kept = append(kept, entry)
+				}
+			}
+			item = "PATH=" + strings.Join(kept, ":")
+		}
+		result = append(result, item)
+	}
+	return result
 }
 
 func mergeEnvironment(base []string, overrides ...string) []string {
@@ -1683,7 +1759,9 @@ func validateWorkspaceVolume(existing volumetypes.Volume, expected client.Volume
 	expectedQuotaMode := expected.Labels[workspaceQuotaModeLabel]
 	monitored := expectedQuotaMode == "monitored"
 	for key, value := range expected.Labels {
-		if key == workspaceQuotaModeLabel && monitored {
+		// A monitored limit is the machine's stored size, which a resize can
+		// change after the volume was created with its first size.
+		if monitored && (key == workspaceQuotaModeLabel || key == workspaceQuotaLabel) {
 			continue
 		}
 		if existing.Labels[key] != value {
@@ -1707,7 +1785,7 @@ func validateWorkspaceVolume(existing volumetypes.Volume, expected client.Volume
 		}
 		return nil
 	}
-	if actualSize != expected.Labels[workspaceQuotaLabel] {
+	if actualSize != existing.Labels[workspaceQuotaLabel] {
 		return fmt.Errorf("hard quota is %q instead of %q", existing.Options["size"], expected.DriverOpts["size"])
 	}
 	return nil

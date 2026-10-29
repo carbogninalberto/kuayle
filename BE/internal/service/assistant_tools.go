@@ -109,8 +109,8 @@ type assistantTool struct {
 var assistantToolCatalog = []assistantTool{
 	{name: "list_teams", description: "List the teams the user can access, with the key used to create issues.", parameters: `{"type":"object","properties":{},"additionalProperties":false}`},
 	{name: "search_issues", description: "Search issues the user can access by text in the title or identifier.", parameters: `{"type":"object","properties":{"query":{"type":"string","maxLength":200},"limit":{"type":"integer","minimum":1,"maximum":20}},"required":["query"],"additionalProperties":false}`},
-	{name: "get_issue", description: "Read one issue by identifier, such as ENG-12.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32}},"required":["identifier"],"additionalProperties":false}`},
-	{name: "delegate_issue", description: "Ask the user to approve starting a coding agent on an existing issue. The agent only starts after the user approves in Kuayle; never claim work has started.", approval: true, parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"instructions":{"type":"string","minLength":1,"maxLength":16000}},"required":["identifier","instructions"],"additionalProperties":false}`},
+	{name: "get_issue", description: "Read one issue by identifier, such as ENG-12, including the development repository coding agents use for it when one is configured on the issue, its project, team or workspace.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32}},"required":["identifier"],"additionalProperties":false}`},
+	{name: "delegate_issue", description: "Ask the user to approve starting a coding agent on an existing issue. The agent works in the development repository configured for the issue, its project, team or workspace, so do not ask for a repository unless this tool reports that none is configured. The agent only starts after the user approves in Kuayle; never claim work has started.", approval: true, parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"instructions":{"type":"string","minLength":1,"maxLength":16000}},"required":["identifier","instructions"],"additionalProperties":false}`},
 	{name: "update_issue", description: "Change an existing issue's title, description, status or priority. Only call this when the user explicitly asked for that change.", write: true, parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"title":{"type":"string","minLength":1,"maxLength":500},"description":{"type":"string","maxLength":8000},"status":{"type":"string","enum":["backlog","todo","in_progress","in_review","done","cancelled"]},"priority":{"type":"integer","minimum":0,"maximum":4}},"required":["identifier"],"additionalProperties":false}`},
 	{name: "create_issue", description: "Create a new issue, optionally as a sub-issue of parent_identifier to split work between agents. Only call this when the user explicitly asked to create or file an issue.", write: true, parameters: `{"type":"object","properties":{"team_key":{"type":"string","maxLength":16},"title":{"type":"string","minLength":1,"maxLength":500},"description":{"type":"string","maxLength":8000},"priority":{"type":"integer","minimum":0,"maximum":4},"parent_identifier":{"type":"string","maxLength":32}},"required":["team_key","title"],"additionalProperties":false}`},
 	{name: "plan_issues", description: "Order up to 20 issues by their blocked-by dependencies into waves that can run in parallel. Delegated issues with unfinished blockers wait automatically, so a whole plan can be delegated at once.", parameters: `{"type":"object","properties":{"identifiers":{"type":"array","minItems":1,"maxItems":20,"items":{"type":"string","maxLength":32}}},"required":["identifiers"],"additionalProperties":false}`},
@@ -257,6 +257,15 @@ func (t *AssistantTools) run(ctx context.Context, ws, user uuid.UUID, name, argu
 		result := issueSummary(*issue)
 		if issue.Description != nil {
 			result["description"] = truncateRunes(sanitize.StripHTML(*issue.Description), 4000)
+		}
+		if t.repositories != nil {
+			repository, err := issueDevelopmentRepository(ctx, t.repositories, ws, issue)
+			if err != nil {
+				return nil, nil, err
+			}
+			if repository != nil {
+				result["development_repository"] = map[string]any{"repository": repository.FullName, "base_branch": repository.BaseBranch, "source": repository.Source}
+			}
 		}
 		if t.dependencies != nil {
 			blockers, err := t.visibleBlockers(ctx, ws, []uuid.UUID{issue.ID})
@@ -433,7 +442,23 @@ func (t *AssistantTools) prepareDelegation(ctx context.Context, ws, user uuid.UU
 	if err != nil || issue == nil {
 		return uuid.Nil, domain.DelegationPayload{}, toolFailure("issue not found")
 	}
-	return issue.ID, domain.DelegationPayload{Identifier: issue.Identifier, Title: issue.Title, Instructions: input.Instructions}, nil
+	payload := domain.DelegationPayload{Identifier: issue.Identifier, Title: issue.Title, Instructions: input.Instructions}
+	if t.repositories != nil {
+		// The agent uses the issue's inherited repository; ask only when none is
+		// configured, and refuse one the workspace policy does not allow.
+		repository, err := issueDevelopmentRepository(ctx, t.repositories, ws, issue)
+		if err != nil {
+			return uuid.Nil, domain.DelegationPayload{}, err
+		}
+		if repository == nil {
+			return uuid.Nil, domain.DelegationPayload{}, missingDevelopmentRepository(issue.Identifier)
+		}
+		if !repository.Allowed {
+			return uuid.Nil, domain.DelegationPayload{}, refusedDevelopmentRepository(issue.Identifier, repository.FullName)
+		}
+		payload.Repository, payload.BaseBranch, payload.RepositorySource = repository.FullName, repository.BaseBranch, repository.Source
+	}
+	return issue.ID, payload, nil
 }
 
 // prepareMerge binds a merge request to the issue's task awaiting review, its

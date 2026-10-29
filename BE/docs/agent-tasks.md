@@ -505,6 +505,10 @@ failures move the task to `cancelling`; capacity waits and stale leases are not
 failures, and a successful step resets the counter. A native failure also enters
 cleanup first. Only confirmed cleanup produces the terminal `failed` state.
 Exhausted cleanup stays visibly pending rather than claiming the process stopped.
+A native failure caused by a resource limit (an out-of-memory kill of the agent
+container, see [resource limits](../../TECHNICAL.md#resource-limits-and-quotas))
+fails with that explanation as its reason, kept as the final `failed` reason;
+other native failures use the generic reason and cleanup message.
 Configuration failures after reserving an environment also enter cleanup: a
 preparing task may already have started native execution between worker polls.
 An authorized repeat cancellation request can retry failed cleanup operations
@@ -515,6 +519,13 @@ allocated running machine, or stops an incomplete one, preserving its volume and
 worktrees. It does not pause a reused manual machine or one serving another
 active task. A later manual start superseding an already completed cleanup is
 respected. Completion waits for the queued machine cleanup operation.
+
+Preparation resolves the task's repository from the issue, project, team and
+workspace development settings (the most specific configured scope wins), so an
+issue needs no repository of its own when its team or project has one. Without
+any, a task that has not reserved a machine is blocked with "No development
+repository is configured for this issue, its project, team or workspace"; after
+setting one, retrying the task resolves it again.
 
 Explicit retries of blocked/failed tasks and review follow-ups require the
 expected task generation and a request UUID. Duplicate requests return the same
@@ -528,6 +539,10 @@ already requested. Each start is keyed by task, task generation and machine
 generation, so a machine paused again is started again while a start that
 failed for good is not retried in a loop. An exhausted checkout is requeued at most once per explicit task
 generation, so polling cannot silently produce unlimited setup retries.
+A new task machine is a custom-size machine with the workspace policy's task
+machine CPU, memory and disk (default 4 vCPU, 8 GB, 20 GB), headless unless an
+environment applies; see [Resource Limits and Quotas](../../TECHNICAL.md#resource-limits-and-quotas)
+for its limits and how its memory is split between the agent and terminal.
 
 ## Issue lifecycle
 

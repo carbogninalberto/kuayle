@@ -17,6 +17,7 @@ import type {
 	DevMachineCheckout,
 	DevMachineEnvironment,
 	DevMachineScopeSetting,
+	DevMachineRepositoryDefaults,
 	LaunchMachineServiceResponse,
 	ResourceSample,
 	TerminalSessionLaunchResponse,
@@ -56,7 +57,7 @@ export function getDevMachine(slug: string, machineId: string): Promise<DevMachi
 export function updateDevMachine(
 	slug: string,
 	machineId: string,
-	input: { keep_running?: boolean }
+	input: { keep_running?: boolean; cpu_millis?: number; memory_mb?: number; disk_gb?: number }
 ): Promise<DevMachine> {
 	return api.patch(`${base(slug)}/dev-machines/${machineId}`, input);
 }
@@ -240,6 +241,18 @@ export async function ensureIssueCheckoutReady(
 		checkout = next;
 	}
 	return checkout;
+}
+
+/** The repository an issue or project inherits, and the repositories it may use instead. */
+export function getDevMachineRepositoryDefaults(
+	slug: string,
+	scope: { issueId?: string; projectId?: string } = {}
+): Promise<DevMachineRepositoryDefaults> {
+	const query = new URLSearchParams();
+	if (scope.issueId) query.set('issue_id', scope.issueId);
+	if (scope.projectId) query.set('project_id', scope.projectId);
+	const suffix = query.size ? `?${query}` : '';
+	return api.get(`${base(slug)}/dev-machine-repository-defaults${suffix}`);
 }
 
 export function getDevMachineScopeSetting(

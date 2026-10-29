@@ -114,6 +114,8 @@ type DevMachineService struct {
 	images         DevMachineImages
 	// modelClient lists model server models; see SetModelDiscovery.
 	modelClient *http.Client
+	// diskQuotaMode is the configured workspace disk quota mode.
+	diskQuotaMode string
 }
 
 func NewDevMachineService(store repository.DevMachineStore, agents *agent.Registry, enabled bool, domain string, encryptionKey []byte, ticketTTL time.Duration, images DevMachineImages, frontendURL ...string) *DevMachineService {
@@ -291,6 +293,7 @@ func (s *DevMachineService) create(ctx context.Context, workspaceID, userID uuid
 		MaxRuntimeMinutes: maxRuntime, ServicesConfig: servicesConfig, Labels: json.RawMessage(`{}`),
 		ExpiresAt: now.Add(time.Duration(maxRuntime) * time.Minute), EnvironmentID: environmentID,
 		KeepRunning: req.KeepRunning, EnvironmentBuilder: req.EnvironmentBuilder, LastActivityAt: &now,
+		SudoEnabled: policy.AllowSudo,
 	}
 	if repositoryModel != nil {
 		machine.RepositoryAffinityID = &repositoryModel.ID
@@ -648,6 +651,12 @@ func (s *DevMachineService) NameAvailable(ctx context.Context, workspaceID, user
 }
 
 func (s *DevMachineService) Update(ctx context.Context, workspaceID, machineID, userID uuid.UUID, request dto.UpdateDevMachineRequest) (*domain.DevMachine, error) {
+	if request.Resizes() {
+		resized, err := s.resize(ctx, workspaceID, machineID, userID, request)
+		if err != nil || request.KeepRunning == nil {
+			return resized, err
+		}
+	}
 	machine, err := s.store.UpdateMachinePreferencesForUser(ctx, workspaceID, machineID, userID, request.KeepRunning)
 	if err != nil {
 		if errors.Is(err, repository.ErrMachineStateConflict) {
@@ -915,57 +924,13 @@ func scopePointers(scopeType string, scopeID *uuid.UUID) (teamID, projectID, iss
 	return
 }
 
+// ErrNoDevelopmentRepository means no issue, project, team or workspace
+// development setting names a repository; it is a checkout eligibility error.
+var ErrNoDevelopmentRepository = fmt.Errorf("%w: issue has no development repository", ErrCheckoutNotEligible)
+
 func (s *DevMachineService) resolveDevelopmentSetting(ctx context.Context, workspaceID uuid.UUID, issue *domain.Issue, project *domain.Project) (*domain.DevMachineScopeSetting, error) {
-	resolved := &domain.DevMachineScopeSetting{WorkspaceID: workspaceID}
-	var scopes [][3]*uuid.UUID
-	if issue != nil {
-		scopes = append(scopes, [3]*uuid.UUID{nil, nil, &issue.ID})
-		if issue.ProjectID != nil {
-			scopes = append(scopes, [3]*uuid.UUID{nil, issue.ProjectID, nil})
-		}
-		scopes = append(scopes, [3]*uuid.UUID{&issue.TeamID, nil, nil})
-	} else if project != nil {
-		scopes = append(scopes, [3]*uuid.UUID{nil, &project.ID, nil})
-		if project.TeamID != nil {
-			scopes = append(scopes, [3]*uuid.UUID{project.TeamID, nil, nil})
-		}
-	}
-	scopes = append(scopes, [3]*uuid.UUID{nil, nil, nil})
-	for _, scope := range scopes {
-		if resolved.GitHubRepoID != nil && resolved.EnvironmentID != nil && resolved.TestCommand != nil && resolved.AgentProvider != nil && resolved.AgentInstructions != nil && resolved.ComposeFile != nil && resolved.PreviewCommand != nil {
-			break
-		}
-		setting, err := s.store.GetScopeSetting(ctx, workspaceID, scope[0], scope[1], scope[2])
-		if err != nil {
-			return nil, err
-		}
-		if setting == nil {
-			continue
-		}
-		if resolved.GitHubRepoID == nil && setting.GitHubRepoID != nil {
-			resolved.GitHubRepoID, resolved.BaseBranch = setting.GitHubRepoID, setting.BaseBranch
-		}
-		if resolved.EnvironmentID == nil && setting.EnvironmentID != nil {
-			resolved.EnvironmentID = setting.EnvironmentID
-		}
-		if resolved.TestCommand == nil && setting.TestCommand != nil {
-			command := append(json.RawMessage(nil), (*setting.TestCommand)...)
-			resolved.TestCommand = &command
-		}
-		if resolved.AgentProvider == nil && setting.AgentProvider != nil {
-			resolved.AgentProvider = setting.AgentProvider
-		}
-		if resolved.AgentInstructions == nil && setting.AgentInstructions != nil {
-			resolved.AgentInstructions = setting.AgentInstructions
-		}
-		if resolved.ComposeFile == nil && setting.ComposeFile != nil {
-			resolved.ComposeFile = setting.ComposeFile
-		}
-		if resolved.PreviewCommand == nil && setting.PreviewCommand != nil {
-			resolved.PreviewCommand, resolved.PreviewPort = setting.PreviewCommand, setting.PreviewPort
-		}
-	}
-	return resolved, nil
+	setting, _, err := resolveDevelopmentScopes(ctx, s.store, workspaceID, developmentScopes(issue, project))
+	return setting, err
 }
 
 func (s *DevMachineService) CheckoutIssue(ctx context.Context, workspaceID, machineID, userID uuid.UUID, request dto.CheckoutIssueRequest) (*domain.DevMachineCheckout, error) {
@@ -1005,7 +970,7 @@ func (s *DevMachineService) checkoutIssue(ctx context.Context, workspaceID, mach
 		return nil, err
 	}
 	if setting.GitHubRepoID == nil {
-		return nil, fmt.Errorf("%w: issue has no development repository", ErrCheckoutNotEligible)
+		return nil, ErrNoDevelopmentRepository
 	}
 	if setting.EnvironmentID != nil && (machine.EnvironmentID == nil || *machine.EnvironmentID != *setting.EnvironmentID) {
 		return nil, fmt.Errorf("%w: issue requires a different development environment", ErrCheckoutNotEligible)
@@ -2057,8 +2022,11 @@ func (s *DevMachineService) GetPolicy(ctx context.Context, workspaceID uuid.UUID
 	return &domain.DevMachineWorkspacePolicy{
 		WorkspaceID: workspaceID, MaxConcurrentMachines: 20, MaxMachinesPerUser: 20, MaxDailyAgentRuns: 25,
 		MaxRuntimeMinutes: 480, MaxDiskGB: 100, IdlePauseMinutes: 240,
-		AllowedProviders:    json.RawMessage(`["claude-code","opencode","codex","qwen-code","crush","kimi","goose"]`),
-		AllowedRepositories: json.RawMessage(`[]`),
+		TaskMachineCPUMillis: domain.DefaultTaskMachineResources.CPUMillis,
+		TaskMachineMemoryMB:  domain.DefaultTaskMachineResources.MemoryMB,
+		TaskMachineDiskGB:    domain.DefaultTaskMachineResources.DiskGB,
+		AllowedProviders:     json.RawMessage(`["claude-code","opencode","codex","qwen-code","crush","kimi","goose"]`),
+		AllowedRepositories:  json.RawMessage(`[]`),
 	}, nil
 }
 
@@ -2095,13 +2063,39 @@ func (s *DevMachineService) UpdatePolicy(ctx context.Context, workspaceID uuid.U
 		AllowedRepositories: repositories, AllowCustomProviders: req.AllowCustomProviders, IdlePauseMinutes: idlePauseMinutes,
 		AllowUnattendedAutomations: req.AllowUnattendedAutomations,
 	}
+	if !domain.ValidDevMachineDiskGB(req.MaxDiskGB) {
+		return nil, fmt.Errorf("%w: max_disk_gb must be an even number of GB from %d to %d", ErrInvalidMachineInput, domain.DevMachineMinDiskGB, domain.DevMachineMaxDiskGB)
+	}
+	current, err := s.store.GetPolicy(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	// Omitted optional settings (Docker, sudo, task machines) keep their
+	// current values for older clients.
+	taskMachine := domain.DefaultTaskMachineResources
+	if current != nil {
+		policy.AllowDocker, policy.AllowSudo = current.AllowDocker, current.AllowSudo
+		taskMachine = current.TaskMachine()
+	}
 	if req.AllowDocker != nil {
 		policy.AllowDocker = *req.AllowDocker
-	} else if current, err := s.store.GetPolicy(ctx, workspaceID); err != nil {
-		return nil, err
-	} else if current != nil {
-		policy.AllowDocker = current.AllowDocker
 	}
+	if req.AllowSudo != nil {
+		policy.AllowSudo = *req.AllowSudo
+	}
+	if req.TaskMachineCPUMillis != nil {
+		taskMachine.CPUMillis = *req.TaskMachineCPUMillis
+	}
+	if req.TaskMachineMemoryMB != nil {
+		taskMachine.MemoryMB = *req.TaskMachineMemoryMB
+	}
+	if req.TaskMachineDiskGB != nil {
+		taskMachine.DiskGB = *req.TaskMachineDiskGB
+	}
+	if err := domain.ValidateTaskMachineResources(taskMachine, req.MaxDiskGB); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalidMachineInput, err)
+	}
+	policy.TaskMachineCPUMillis, policy.TaskMachineMemoryMB, policy.TaskMachineDiskGB = taskMachine.CPUMillis, taskMachine.MemoryMB, taskMachine.DiskGB
 	name, email := strings.TrimSpace(req.AgentGitName), strings.TrimSpace(req.AgentGitEmail)
 	if (name == "") != (email == "") || !validGitAuthor(name, email) {
 		return nil, fmt.Errorf("%w: a commit author needs both a name and a valid email", ErrInvalidMachineInput)

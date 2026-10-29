@@ -15,12 +15,14 @@ type assistantRepositoryStore interface {
 	GetScopeSetting(ctx context.Context, workspaceID uuid.UUID, teamID, projectID, issueID *uuid.UUID) (*domain.DevMachineScopeSetting, error)
 	UpsertScopeSetting(ctx context.Context, setting *domain.DevMachineScopeSetting) error
 	GetLinkedRepositoryByFullName(ctx context.Context, workspaceID uuid.UUID, fullName string) (*domain.GitHubRepoModel, error)
+	GetLinkedRepository(ctx context.Context, workspaceID, repositoryID uuid.UUID) (*domain.GitHubRepoModel, error)
 	GetPolicy(ctx context.Context, workspaceID uuid.UUID) (*domain.DevMachineWorkspacePolicy, error)
 }
 
 var _ assistantRepositoryStore = (*repository.DevMachineRepository)(nil)
 
-// SetRepositories enables link_repository.
+// SetRepositories enables link_repository and lets get_issue and
+// delegate_issue report the issue's inherited development repository.
 func (t *AssistantTools) SetRepositories(store assistantRepositoryStore) {
 	t.repositories = store
 }

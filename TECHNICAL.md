@@ -236,6 +236,59 @@ ports are kept. Pausing freezes the processes, which resume with the machine.
 The machine page lists ports, detected listeners, and expose, rename, open and
 remove controls; a task card starts, stops and opens its app.
 
+## Sudo in machines
+
+Workspace administrators can allow passwordless `sudo` in the developer
+containers (IDE and terminal) of new machines, for example to `apt-get install`
+system packages. It is off by default: migration 93 adds
+`dev_machine_workspace_policies.allow_sudo` (Settings → Dev Machines → policy)
+and `dev_machines.sudo_enabled`, which records the switch when a machine is
+created. A policy update that omits `allow_sudo` keeps the current value, and a
+workspace import resets it to off. Once it is turned off, spawning or starting
+a machine created with sudo fails with `sudo_not_allowed` (the machine must be
+recreated): its containers keep the configuration they were created with.
+
+**Containers.** Both developer images install `sudo` with an
+`/etc/sudoers.d/kuayle` rule (`NOPASSWD:ALL` for UID 1000), inert under the
+default `no-new-privileges` and `CapDrop: ALL`. For `sudo_enabled` machines,
+`secureHostConfig` gives `ide` and `terminal` containers a writable root
+filesystem, no `no-new-privileges`, and Docker's default capability set minus
+`NET_RAW`. They are never privileged, get no `NET_ADMIN`/`SYS_ADMIN`/`CapAdd`,
+no host mounts or Docker socket, keep the configured seccomp/AppArmor profiles,
+resources and machine network, so egress still goes through the machine's
+proxy. Root-filesystem changes last until the container is recreated; only
+`/workspace` (and the in-memory home until a restart) is kept otherwise.
+
+**Agent attempts stay locked.** Agent containers, collector, browser and egress
+never get these relaxations. Autonomous attempts run unattended on prompts that
+can include untrusted issue, comment and repository content; root there would
+widen what a prompt injection can do (install persistent tooling, read every
+file regardless of ownership) without a person to notice, while agents already
+have everything they need in their images. The agent images ship no `sudo`;
+attempts of the providers that run on the headless image keep its sudoers rule
+inert under the locked configuration, and their `PATH` omits the workspace npm
+prefix below, so they run the image's pinned CLIs. Anything an agent writes to
+`/workspace` (including that prefix and Git hooks) can still run later in a
+person's terminal, with sudo if the machine has it; review agent changes as
+before.
+
+**Upgrading CLIs without sudo.** Both developer images point npm's global
+config at `/etc/npmrc` (`NPM_CONFIG_GLOBALCONFIG`), which sets
+`prefix=/workspace/.kuayle/npm-global` and lets Claude Code's install script
+run (`allow-scripts=@anthropic-ai/claude-code`), and put
+`/workspace/.kuayle/npm-global/bin` first on `PATH`. `npm i -g
+@anthropic-ai/claude-code` or `claude update` therefore works on every machine,
+with or without sudo, and the upgrade survives restarts on the workspace volume
+(the terminal, IDE and agent containers of a machine share it; agents keep
+using their images' pinned CLIs). Project and `~/.npmrc` settings override `/etc/npmrc`.
+
+`TestSudoMachinesGetRootWithoutLeavingTheSandbox`
+(`KUAYLE_SUDO_INTEGRATION=1`, `KUAYLE_TEST_DISK_QUOTA_MODE=monitored` on a
+developer machine, and the `KUAYLE_TEST_{HEADLESS,COLLECTOR,EGRESS}_IMAGE`
+images) spawns a real headless machine and checks root, the capability set,
+that root cannot bypass the egress proxy, global npm installs, a restart, and
+that agent and non-sudo containers cannot use sudo.
+
 ## Machine Docker daemon
 
 Workspace administrators can give machines their own Docker daemon so people
@@ -541,7 +594,50 @@ Machine sizes are aggregate admission profiles:
 | medium | 4 vCPU | 8 GB | 50 GB | 4 hours |
 | large | 8 vCPU | 16 GB | 100 GB | 8 hours |
 
-The manager assigns a bounded percentage of the profile to each service and applies Docker `NanoCPUs`, memory, memory-swap, and PID limits. The IDE and browser each receive 25%, an agent run 35%, and the collector and egress 5% each; a headless machine's terminal container receives 50%, the IDE and browser shares it replaces. Non-builder workloads use a read-only root filesystem, tmpfs scratch paths, `CapDrop=ALL`, `no-new-privileges`, the Docker default seccomp profile or a configured replacement, and AppArmor where available. Environment Builder deliberately relaxes the developer container root filesystem so owners/admins can install tooling before snapshot. Docker's `json-file` logs rotate at 10 MiB with three files per container, and removal paths also remove anonymous image volumes.
+A `custom` size picks CPU (1, 2, 4, 6, 8, 12 or 16 vCPU) and memory (2, 4, 8, 12, 16, 24, 32, 48 or 64 GB) from the offered options with at least 1 GB per vCPU, and any disk size in 2 GB steps from 20 GB up to the workspace `max_disk_gb` (itself an even number from 20 to 2048); its maximum runtime is 8 hours, capped by the policy. The policy API returns these options as `size_options`.
+
+**Task machines.** Machines Kuayle creates itself for agent tasks (issue delegations, the assistant's delegate tool and automations all go through agent tasks) are headless custom machines sized by the workspace policy's `task_machine_cpu_millis`, `task_machine_memory_mb` and `task_machine_disk_gb` (Settings → Dev Machines → Policy → Task machines). The defaults are 4 vCPU, 8 GB and 20 GB; migration 90 gives existing workspaces the same values (task machines were previously `small`, whose 4 GB left an agent such as Claude Code 1.4 GB and was OOM-killed under builds). The same size rules apply, and the task disk must stay within `max_disk_gb`. Changes affect task machines created afterwards; reused task machines keep their size. The Environment Builder dialog starts with the task machine CPU and memory.
+
+The manager assigns a bounded percentage of the profile to each service and applies Docker `NanoCPUs`, memory, memory-swap, and PID limits (`containerSharePercent` in `BE/internal/machine/docker.go`). On standard machines the IDE (which also serves the terminal) and browser each receive 25%, an agent run 35%, and the collector and egress 5% each. Headless machines (task machines among them) have no IDE or browser, so the agent receives 50% and the terminal container 40%; with a Docker daemon, which takes 40%, the agent and the terminal receive 35% each. Shares are per-container ceilings, not reservations: without Docker the headless shares add up to the machine, and with Docker the agent and terminal ceilings overlap (120%) so the terminal people use by hand is not squeezed below the agent. An 8 GB task machine therefore gives its agent 4 GB (2.8 GB with Docker). Validation checks keep the 35% agent share because their compose services share another 30%. Non-builder workloads use a read-only root filesystem, tmpfs scratch paths, `CapDrop=ALL`, `no-new-privileges`, the Docker default seccomp profile or a configured replacement, and AppArmor where available. Environment Builder deliberately relaxes the developer container root filesystem so owners/admins can install tooling before snapshot, and a workspace that allows sudo relaxes its developer containers (see [Sudo in machines](#sudo-in-machines)). Docker's `json-file` logs rotate at 10 MiB with three files per container, and removal paths also remove anonymous image volumes.
+
+**Live resize.** `PATCH /dev-machines/:machineId` with any of `cpu_millis`,
+`memory_mb` and `disk_gb` (omitted values keep the current size; `keep_running`
+may be sent alongside) resizes the creator's machine while it is running, paused
+or stopped and not changing state (`dev_machine:manage`; 409 `INVALID_OPERATION`
+otherwise, including while another resize or a lifecycle operation is queued).
+The size is validated like a custom create size (`domain.DevMachineCustomSize`,
+1 GiB per vCPU) and the disk against the workspace `max_disk_gb`. Disk changes
+need monitored disk quotas (a hard XFS quota is fixed when the volume is
+created); a smaller disk is accepted only when the latest measured usage is
+below 90 % of it. The API stores the request as `pending_cpu_millis`,
+`pending_memory_mb` and `pending_disk_gb` (migration 91) and queues a `resize`
+operation at the machine's current generation, so queued work stays current.
+The manager leases a resize beside a long agent run or check (which may need the
+memory) but never beside lifecycle work. For a running or paused machine it
+admits the new size like a start; a size the host cannot fit is rejected with a
+reason instead of waiting. It then applies `docker update` (CPU, memory,
+memory-swap and PID limits) to every machine container, running or stopped,
+with the shares below, restores the previous limits if any update fails, and
+moves the pending size into `cpu_millis`/`memory_mb`/`disk_gb` (size `custom`)
+and the volumes' `size_limit_bytes`, which the disk monitor reads. A stopped
+machine's containers take the new limits at their next start, which admits them.
+A rejected resize clears the pending size and records `resize_error`. Events:
+`machine.resize_requested` and `machine.resized`.
+
+**Resource limit visibility.** An exited agent or check container is inspected
+for Docker's `State.OOMKilled` (set for any out-of-memory kill in its cgroup, a
+killed compiler included); the manager also follows Docker `oom` events for
+Kuayle containers (terminal, editor, Docker daemon, check services) as they
+happen, reporting each container once per minute. A kill records
+`resource_limit_kind=memory` with a message such as "Out of memory: the agent
+container reached its 1.4 GiB memory limit. Resize the machine or raise the task
+machine memory." on the machine (shown as an alert on the machine page until a
+resize clears it), the `resource.memory_limit` event, a `Kuayle:` note in the run
+or check log, the run's `error_message` and, for a failed task attempt, the task
+reason (kept as the final failed reason). Exit code 137 without an
+out-of-memory event is reported as a killed process, never as out of memory. A
+machine stopped at its monitored disk limit records `resource_limit_kind=disk`.
+Process (PID) limit hits are not reported: Docker exposes no event for them.
 
 Workspace policy controls:
 
@@ -550,11 +646,13 @@ Workspace policy controls:
 - maximum daily agent runs;
 - maximum runtime;
 - idle pause interval (default 240 minutes; bypassed by per-machine `keep_running`);
-- maximum per-machine workspace-volume size;
+- maximum per-machine workspace-volume size (2 GB steps up to 2048 GB; migration 90 rounded an odd limit down);
+- task machine CPU, memory and disk (default 4 vCPU, 8 GB, 20 GB; older clients that omit them keep the current values);
 - allowed providers;
 - allowed repositories;
 - whether custom providers are allowed;
-- whether new machines get their own Docker daemon (`allow_docker`, default off).
+- whether new machines get their own Docker daemon (`allow_docker`, default off);
+- whether the developer containers of new machines allow sudo (`allow_sudo`, default off).
 
 ### Disk Limitation
 
@@ -617,6 +715,8 @@ Migration `000076_agent_model_servers` converts an existing workspace DeepSeek c
 ## Scoped Settings, Worktrees, and Environments
 
 Development defaults are stored in `dev_machine_scope_settings`. A setting may provide a linked GitHub repository, base branch, development environment, test command, Compose file for checks (migration 68), preview command and preferred port (migrations 71 and 85), preferred coding agent and/or agent instructions (at most 8000 characters) for a workspace, team, project, or issue. Each value is resolved independently in this order: issue, project, team, workspace (migration 65). The preferred agent is the default for task delegation from chat and the task composer when the workspace policy allows it; instructions and the Compose file path are snapshotted onto each task when it is accepted or retried and placed ahead of the task in the native prompt. This lets an issue override only the repository while inheriting an environment, or vice versa.
+
+`GET /dev-machine-repository-defaults` (`dev_machine:read`, optional `issue_id` or `project_id`) reports the effective repository with the scope that supplied it, the value inherited without the most specific scope's own setting, and the linked repositories the policy allows. Issues and projects are read with machine-creation visibility (public teams of the request workspace). A refused default is reported with `allowed: false` rather than replaced. The create-machine dialog preselects the effective repository and sends `repo` only for an explicit choice, so the server keeps applying the configured repository and base branch; the issue defaults dialog names the inherited repository. The assistant's `get_issue` reports an issue's `development_repository`, and `delegate_issue` resolves it when approval is requested: it asks the user only when no scope configures one, refuses a repository the policy disallows, and shows the resolved repository on the approval (the task resolves it again when it runs). A task with no resolvable repository is blocked with a reason naming where to set one.
 
 Machine creation accepts optional issue/project/repository information but does not require it. If no repository resolves, legacy repository fields remain empty and the machine starts as a generic developer workspace. When an issue is opened, `POST /dev-machines/:machineId/checkouts` resolves the issue's development settings, enforces the machine's repository affinity, and creates an idempotent issue worktree under `/workspace/tasks/{issue-key}`. A machine can hold multiple ready manual checkouts from the same repository. Task checkouts (`/workspace/tasks/{issue-key}-{task-id}`) do not use or change the machine's repository affinity, so one task machine serves several repositories; the environment must still match.
 
@@ -708,6 +808,10 @@ Migration `000052_dev_machine_deepseek` adds workspace model credentials and per
 
 Migration `000089_dev_machine_docker` adds `dev_machine_workspace_policies.allow_docker` (default false), the `docker` service type, `dev_machine_ports.target` (`developer` or `docker`) and `dev_machines.docker_listening_ports`. Its rollback deletes `docker` service rows (tear such machines down first; their containers and volumes are otherwise left for manual removal) and port targets; ports are kept and stay unlimited in number.
 
+Migration `000090_dev_machine_task_resources` adds `dev_machine_workspace_policies.task_machine_cpu_millis`, `task_machine_memory_mb` and `task_machine_disk_gb` (defaults 4000, 8192, 20, applied to existing workspaces), at least 1 GB per vCPU, an even task disk within `max_disk_gb`, and an even `max_disk_gb` (odd limits are rounded down, irreversibly). Its rollback drops the columns and constraints; rounded limits keep their even values.
+
+Migration `000093_dev_machine_sudo` adds `dev_machine_workspace_policies.allow_sudo` and `dev_machines.sudo_enabled` (both default false). Its rollback drops both columns; containers already created with sudo keep their configuration, so delete those machines first.
+
 All user-facing repository access is constrained by both `workspace_id` and resource ID. Internal manager lookups are limited to the trusted manager process.
 
 ## API
@@ -726,6 +830,7 @@ GET    /api/workspaces/:slug/dev-machine-policy
 PATCH  /api/workspaces/:slug/dev-machine-policy
 GET    /api/workspaces/:slug/dev-machine-scope-settings
 GET    /api/workspaces/:slug/dev-machine-scope-setting
+GET    /api/workspaces/:slug/dev-machine-repository-defaults
 PUT    /api/workspaces/:slug/dev-machine-scope-setting
 DELETE /api/workspaces/:slug/dev-machine-scope-setting
 GET    /api/workspaces/:slug/dev-machine-environments
@@ -815,6 +920,8 @@ The UI is an installable web app (PWA) in production. `UI/static/manifest.webman
 
 `UI/src/service-worker.ts` precaches only the built immutable app chunks and public shell files (favicon, manifest, icons, `offline.html`) and serves them cache-first. API requests, WebSockets, requests with credentials headers, other origins, release data and page HTML are never cached; navigations always go to the network, falling back to the static offline page only when it fails ([policy](UI/src/lib/features/pwa/service-worker-policy.ts)). The worker is registered by the app itself (`kit.serviceWorker.register` is off), only in production builds and never under browser automation unless a test sets the `kuayle-service-worker-tests` localStorage key. A new deployment installs in the background and waits: an "update available" toast reloads into it on request, otherwise it activates once every Kuayle tab has closed. The UI Caddyfile serves the manifest as `application/manifest+json` and `service-worker.js` with `Cache-Control: no-cache`.
 
+Launched as the installed app (display mode `standalone`, `fullscreen` or `window-controls-overlay`, or iOS `navigator.standalone`), the page locks zoom: [installed-viewport](UI/src/lib/features/pwa/installed-viewport.ts) adds `maximum-scale=1, user-scalable=no` to the viewport meta (which also stops iOS focus zoom on small inputs), sets `data-installed-app` on `<html>` so `app.css` applies a zero-specificity `touch-action: pan-x pan-y` (no pinch or double-tap zoom; explicit `touch-*` utilities still win), and cancels Safari pinch `gesturestart`/`gesturechange` events. Browser tabs keep the default viewport and normal zoom.
+
 Installation requires HTTPS (or `localhost`). Chrome and Edge offer Install in the address bar or menu; on iOS use Safari's Share → Add to Home Screen.
 
 ## Self-Hosted Deployment
@@ -899,6 +1006,7 @@ The self-hosting `dev-machine-images` profile builds the IDE, headless developer
 - Pinned Chrome Stable packages for amd64 and arm64 run through KasmVNC in a separately hardened non-root container. The browser's internal sandbox is disabled because Docker namespace restrictions conflict with its setup. The browser must not receive provider or GitHub secrets.
 - Domain egress controls cannot prevent exfiltration to an explicitly allowed destination.
 - A machine's own Docker daemon (opt-in, `allow_docker`) runs with relaxed seccomp/AppArmor, unmasked proc/sys and `SETUID`/`SETGID` unless `DEV_MACHINE_DOCKER_RUNTIME` selects Sysbox. Machine users control a rootless daemon in its own user namespace, so a kernel user-namespace or mount vulnerability is more exposed from that container than from the other, fully confined, machine containers. It is never privileged and reaches nothing beyond the machine network and the egress proxy.
+- With sudo allowed (opt-in, `allow_sudo`), machine users are root in their IDE and terminal containers, with Docker's default capabilities minus `NET_RAW`, a writable root filesystem and no `no-new-privileges`. It is never privileged or given `NET_ADMIN`/`SYS_ADMIN`, and egress still goes through the proxy, but root in a container exposes more kernel surface (and anything readable inside the container regardless of file ownership) than the confined default. Agent attempts never get sudo.
 - Compose support for checks is a constrained subset run by the manager, not `docker compose`. Builds, mounts, privileges, host networking and published ports are rejected, because arbitrary untrusted Compose execution needs an isolated Docker daemon. Image pulls run on the host daemon, outside the egress proxy, so `DEV_MACHINE_COMPOSE_IMAGES` restricts them to official Docker Hub images by default.
 - The default model server's key is delivered into every developer container, and a run's server key into its agent container, so any member who can create a machine can read it from a terminal or have an agent reveal it. The API never returns it, but treat model server keys as shared with those members (SECURITY_AUDIT.md KS-08).
 - Command and filesystem collection is best-effort and can be bypassed by trusted workspace code.

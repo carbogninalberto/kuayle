@@ -12,12 +12,26 @@ export interface MachineResources {
 
 export const MACHINE_CPU_MILLIS = [1000, 2000, 4000, 6000, 8000, 12000, 16000] as const;
 export const MACHINE_MEMORY_MB = [2048, 4096, 8192, 12288, 16384, 24576, 32768, 49152, 65536] as const;
-export const MACHINE_DISK_GB = [20, 30, 40, 50, 75, 100, 150, 200, 300, 500, 750, 1000, 1500, 2048] as const;
+// Disks are any even size from 20 GB to 2048 GB, as the API validates.
+export const MACHINE_DISK_MIN_GB = 20;
+export const MACHINE_DISK_MAX_GB = 2048;
+export const MACHINE_DISK_STEP_GB = 2;
+export const MACHINE_DISK_GB: readonly number[] = Array.from(
+	{ length: (MACHINE_DISK_MAX_GB - MACHINE_DISK_MIN_GB) / MACHINE_DISK_STEP_GB + 1 },
+	(_, index) => MACHINE_DISK_MIN_GB + index * MACHINE_DISK_STEP_GB
+);
 
 export const DEFAULT_MACHINE_RESOURCES: MachineResources = {
 	cpu_millis: 4000,
 	memory_mb: 8192,
 	disk_gb: 50
+};
+
+// Machines Kuayle creates for agent tasks, unless the workspace policy says otherwise.
+export const DEFAULT_TASK_MACHINE_RESOURCES: MachineResources = {
+	cpu_millis: 4000,
+	memory_mb: 8192,
+	disk_gb: 20
 };
 
 function normalizedOptions(values: readonly number[] | undefined, fallback: readonly number[]): number[] {
@@ -48,6 +62,16 @@ export function clampToOption(value: number, options: readonly number[]): number
 		}
 	}
 	return nearest;
+}
+
+// A typed disk size becomes the smallest offered size that holds it, or the
+// largest one. Below the previous size (a step down with the input's arrows)
+// it becomes the largest offered size not above it, so stepping down works.
+export function snapDiskGb(value: number, options: readonly number[], previous?: number): number {
+	if (!Number.isFinite(value)) return previous ?? options[0] ?? MACHINE_DISK_MIN_GB;
+	if (previous !== undefined && value < previous)
+		return options.findLast((option) => option <= value) ?? options[0] ?? value;
+	return options.find((option) => option >= value) ?? options.at(-1) ?? value;
 }
 
 export function minimumMemoryIndexForCpu(cpuMillis: number, memoryOptions: readonly number[]): number {

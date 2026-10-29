@@ -178,7 +178,10 @@ existing primitives are not overwritten. Typed Svelte state consumes the Go
 contract directly; there is no second AI orchestration runtime.
 
 The scroller follows only at the live edge, preserves prepended history, and
-provides a latest-message button. The composer supports Enter/Shift+Enter,
+provides a latest-message button. Sending or retrying returns the reader to the
+live edge (re-arming follow mode, even if they had scrolled up); scrolling away
+while a reply streams releases it again. Reloads after a send keep the
+transcript on screen; only a first load shows the loading state. The composer supports Enter/Shift+Enter,
 per-user/conversation drafts, send, stop and explicit retry. All strings use the
 four existing Paraglide catalogs. Desktop conversation history collapses into a
 mobile disclosure.
@@ -236,6 +239,14 @@ needs `dev_machine:manage`, a project needs a workspace owner or admin, the
 repository must be active in the workspace's GitHub installation and allowed by
 the Dev Machine policy's repository allowlist, and the scope's other settings
 (environment, test command, instructions, preview) are kept.
+`get_issue` adds the issue's `development_repository` (repository, base branch
+and the issue/project/team/workspace scope that configured it), and
+`delegate_issue` resolves the same repository when it requests approval and
+shows it on the approval payload (`repository`, `base_branch`,
+`repository_source`). The model is told not to ask for a repository unless
+neither reports one; delegation then fails as data asking the user to choose and
+link one, and a repository the policy refuses fails the same way. The approval
+does not pin the repository: the task resolves current settings when it runs.
 
 A provider may return tool calls only when tools were offered and must finish
 the turn with `finish_reason: "tool_calls"`. One reply runs at most 400 tool

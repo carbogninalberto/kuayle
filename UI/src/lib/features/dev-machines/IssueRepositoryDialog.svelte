@@ -13,9 +13,10 @@
 	import ComboboxPopover from '$lib/components/shared/ComboboxPopover.svelte';
 	import { ChevronsUpDown, GitBranch } from '@lucide/svelte';
 	import { getGitHubStatus } from '$lib/api/github';
-	import { deleteDevMachineScopeSetting, getDevMachineScopeSetting, listDevMachineEnvironments, updateDevMachineScopeSetting } from '$lib/api/dev-machines';
+	import { deleteDevMachineScopeSetting, getDevMachineRepositoryDefaults, getDevMachineScopeSetting, listDevMachineEnvironments, updateDevMachineScopeSetting } from '$lib/api/dev-machines';
+	import { repositorySourceLabel } from '$lib/features/dev-machines/repository-source';
 	import type { GitHubRepo } from '$lib/types/github';
-	import type { DevMachineEnvironment } from '$lib/types/dev-machine';
+	import type { DevMachineEnvironment, DevelopmentRepository } from '$lib/types/dev-machine';
 	import type { Issue } from '$lib/types/issue';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/paraglide/messages.js';
@@ -35,9 +36,16 @@
 	let loading = $state(false);
 	let saving = $state(false);
 	let repositoryOpen = $state(false);
+	let inheritedRepository = $state<DevelopmentRepository | null>(null);
 
 	const selectedRepository = $derived(repositories.find((item) => item.id === repositoryId));
 	const selectedEnvironment = $derived(environments.find((item) => item.id === environmentId));
+	// Name what "inherit" resolves to, so a team or project repository is visibly used.
+	const inheritLabel = $derived(
+		inheritedRepository
+			? m['machines.inherit_repository']({ repository: inheritedRepository.full_name, source: repositorySourceLabel(inheritedRepository.source) })
+			: m['machines.use_workspace_default']()
+	);
 
 	$effect(() => {
 		if (!open) return;
@@ -47,9 +55,11 @@
 	async function load() {
 		loading = true;
 		try {
-			const [github, setting, availableEnvironments] = await Promise.all([
-				getGitHubStatus(slug), getDevMachineScopeSetting(slug, 'issue', issue.id), listDevMachineEnvironments(slug)
+			const [github, setting, availableEnvironments, defaults] = await Promise.all([
+				getGitHubStatus(slug), getDevMachineScopeSetting(slug, 'issue', issue.id), listDevMachineEnvironments(slug),
+				getDevMachineRepositoryDefaults(slug, { issueId: issue.id }).catch(() => null)
 			]);
+			inheritedRepository = defaults?.inherited_repository ?? null;
 			repositories = github.repos ?? [];
 			environments = (availableEnvironments ?? []).filter((item) => item.status === 'ready');
 			repositoryId = setting.github_repo_id ?? 'inherit';
@@ -96,11 +106,11 @@
 				<ComboboxPopover bind:open={repositoryOpen} placeholder={m['machines.search_repositories']()} emptyMessage={m['machines.no_repositories']()} width="w-[min(28rem,calc(100vw-2rem))]">
 					{#snippet trigger(props)}
 						<Button {...props} type="button" variant="outline" class="w-full justify-between gap-2 font-normal" disabled={loading} aria-label={m['machines.repository']()}>
-							<span class="flex min-w-0 items-center gap-2"><GitBranch class="size-3.5 shrink-0 text-[var(--color-text-tertiary)]" /><span class="truncate">{selectedRepository?.full_name ?? m['machines.use_workspace_default']()}</span></span>
+							<span class="flex min-w-0 items-center gap-2"><GitBranch class="size-3.5 shrink-0 text-[var(--color-text-tertiary)]" /><span class="truncate">{selectedRepository?.full_name ?? inheritLabel}</span></span>
 							<ChevronsUpDown class="size-3.5 shrink-0 text-[var(--color-text-tertiary)]" />
 						</Button>
 					{/snippet}
-					<Command.Item value="Use project team or workspace default" data-checked={repositoryId === 'inherit'} onSelect={() => { repositoryId = 'inherit'; repositoryOpen = false; }} class="text-[var(--color-text-tertiary)]">Use project, team, or workspace default</Command.Item>
+					<Command.Item value={inheritLabel} data-checked={repositoryId === 'inherit'} onSelect={() => { repositoryId = 'inherit'; repositoryOpen = false; }} class="text-[var(--color-text-tertiary)]">{inheritLabel}</Command.Item>
 					{#each repositories as repository (repository.id)}
 						<Command.Item value={repository.full_name} data-checked={repositoryId === repository.id} onSelect={() => { repositoryId = repository.id; repositoryOpen = false; }} class="flex items-center gap-2"><GitBranch class="size-3.5 text-[var(--color-text-tertiary)]" /><span class="truncate">{repository.full_name}</span></Command.Item>
 					{/each}

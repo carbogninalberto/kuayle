@@ -82,6 +82,16 @@ export interface DevMachine {
 	expires_at: string;
 	teardown_at?: string;
 	destroyed_at?: string;
+	/** A requested size the manager has not applied yet. */
+	pending_cpu_millis?: number;
+	pending_memory_mb?: number;
+	pending_disk_gb?: number;
+	/** Why the last resize was not applied. */
+	resize_error?: string;
+	/** The latest memory or disk limit a machine container hit. */
+	resource_limit_kind?: 'memory' | 'disk';
+	resource_limit_message?: string;
+	resource_limit_at?: string;
 }
 
 export interface DevMachineService {
@@ -266,9 +276,15 @@ export interface DevMachinePolicy {
 	allow_unattended_automations: boolean;
 	// Machines created while on get their own sandboxed Docker daemon.
 	allow_docker?: boolean;
+	// Developer containers of machines created while on get passwordless sudo.
+	allow_sudo?: boolean;
 	agent_git_name?: string | null;
 	agent_git_email?: string | null;
 	idle_pause_minutes: number;
+	// Size of the machines Kuayle creates itself for agent tasks.
+	task_machine_cpu_millis: number;
+	task_machine_memory_mb: number;
+	task_machine_disk_gb: number;
 	disk_quota_mode: 'hard' | 'monitored';
 	size_options?: {
 		cpu_millis: number[];
@@ -325,6 +341,22 @@ export interface DevMachineScopeSetting {
 	environment_id?: string;
 	created_at?: string;
 	updated_at?: string;
+}
+
+/** A repository resolved from the issue → project → team → workspace development settings. */
+export interface DevelopmentRepository {
+	id: string;
+	full_name: string;
+	base_branch: string;
+	source: 'issue' | 'project' | 'team' | 'workspace';
+	/** False when the workspace policy refuses it; work relying on it is refused. */
+	allowed: boolean;
+}
+
+export interface DevMachineRepositoryDefaults {
+	repository: DevelopmentRepository | null;
+	inherited_repository: DevelopmentRepository | null;
+	repositories: { id: string; full_name: string; default_branch: string }[];
 }
 
 export interface DevMachineTerminalSession {

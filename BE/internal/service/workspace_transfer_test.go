@@ -266,7 +266,7 @@ func TestWorkspaceTransferRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	_, err = db.ExecContext(ctx, `INSERT INTO ai_settings(workspace_id,provider,base_url,model,api_key_encrypted,description_expand_prompt,issue_copy_prompt) VALUES($1,'openai_compatible','https://ai.example.test','portable-model','encrypted-secret','Expand prompt','Copy prompt')`, workspaceID)
 	require.NoError(t, err)
-	_, err = db.ExecContext(ctx, `INSERT INTO dev_machine_workspace_policies(workspace_id,enabled,allowed_providers,allowed_repositories,allow_docker) VALUES($1,true,'["codex"]','["portable/repo"]',true)`, workspaceID)
+	_, err = db.ExecContext(ctx, `INSERT INTO dev_machine_workspace_policies(workspace_id,enabled,allowed_providers,allowed_repositories,allow_docker,allow_sudo) VALUES($1,true,'["codex"]','["portable/repo"]',true,true)`, workspaceID)
 	require.NoError(t, err)
 	_, err = db.ExecContext(ctx, `INSERT INTO dev_machine_scope_settings(id,workspace_id,team_id,github_repo_id,base_branch) VALUES(gen_random_uuid(),$1,$2,$3,'main')`, workspaceID, teamID, githubRepoID)
 	require.NoError(t, err)
@@ -354,6 +354,9 @@ func TestWorkspaceTransferRoundTrip(t *testing.T) {
 	var importedDocker bool
 	require.NoError(t, db.Get(&importedDocker, `SELECT allow_docker FROM dev_machine_workspace_policies WHERE workspace_id=$1`, targetWorkspaceID))
 	require.False(t, importedDocker, "the Docker daemon is opted into again by the destination")
+	var importedSudo bool
+	require.NoError(t, db.Get(&importedSudo, `SELECT allow_sudo FROM dev_machine_workspace_policies WHERE workspace_id=$1`, targetWorkspaceID))
+	require.False(t, importedSudo, "sudo is opted into again by the destination")
 	var importedAISecret *string
 	require.NoError(t, db.Get(&importedAISecret, `SELECT api_key_encrypted FROM ai_settings WHERE workspace_id=$1`, targetWorkspaceID))
 	require.Nil(t, importedAISecret)
@@ -566,5 +569,16 @@ func TestPrivateArchiveVisibilityMustBeExplicitBooleanFalse(t *testing.T) {
 	for _, value := range []any{true, "false", nil, map[string]any{}, []any{}, json.Number("0")} {
 		parsed := &parsedWorkspaceArchive{data: dto.WorkspaceTransferData{Workspace: dto.WorkspaceTransferRow{}, Tables: map[string][]dto.WorkspaceTransferRow{"teams": {{"is_private": value}}}}}
 		require.ErrorIs(t, validateWorkspaceArchive(parsed), ErrUnsupportedArchive)
+	}
+}
+
+// An export from before migration 90 may carry an odd disk limit, which the
+// schema now rejects; the import rounds it down like the migration did.
+func TestImportedDevMachinePolicyDiskLimitMovesToTwoGBSteps(t *testing.T) {
+	for exported, imported := range map[float64]int64{75: 74, 100: 100, 2048: 2048} {
+		row := dto.WorkspaceTransferRow{"max_disk_gb": exported, "enabled": true}
+		prepareImportedRow("dev_machine_workspace_policies", row)
+		require.Equal(t, imported, transferInt64(row["max_disk_gb"]))
+		require.Equal(t, false, row["enabled"])
 	}
 }

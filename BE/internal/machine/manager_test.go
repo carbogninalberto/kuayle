@@ -78,6 +78,12 @@ type managerStoreFake struct {
 	modelServer               *domain.AgentModelServer
 	reclaimable               *domain.DevMachine
 	reclaimWaitingIDs         []uuid.UUID
+	resourceLimits            []string
+}
+
+func (f *managerStoreFake) RecordResourceLimit(_ context.Context, _ uuid.UUID, kind, message string) error {
+	f.resourceLimits = append(f.resourceLimits, kind+": "+message)
+	return nil
 }
 
 func (f *managerStoreFake) LeaseOperations(context.Context, string, int, time.Duration) ([]domain.DevMachineOperation, error) {
@@ -1759,7 +1765,7 @@ func TestWorkspaceMountDisablesImageCopyUp(t *testing.T) {
 	runtime := &DockerRuntime{}
 	machine := &domain.DevMachine{MemoryMB: 4096, CPUMillis: 2000, PidsLimit: 512}
 
-	hostConfig := runtime.secureHostConfig(machine, "ide", "machine-network", "workspace-volume")
+	hostConfig := runtime.secureHostConfig(machine, "ide", "machine-network", "workspace-volume", false)
 
 	require.Len(t, hostConfig.Mounts, 1)
 	require.NotNil(t, hostConfig.Mounts[0].VolumeOptions)

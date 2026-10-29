@@ -458,7 +458,8 @@ test('creates a generic machine with an accessible size and inactivity controls'
 	await page.getByRole('region', { name: 'Dev Machines' }).getByRole('button', { name: 'New machine' }).first().click();
 	const dialog = page.getByRole('dialog');
 	await expect(dialog.getByRole('heading', { name: 'New Dev Machine' })).toBeVisible();
-	await expect(dialog.getByLabel('Repository')).toHaveCount(0);
+	// Without configured development defaults no repository is preselected or sent.
+	await expect(dialog.getByRole('combobox', { name: 'Repository' })).toHaveText('No repository: attach one later from an issue');
 	await expect(dialog.getByLabel('Machine name')).toHaveValue('quiet-orchid-7f3a');
 	await dialog.getByLabel('Machine name').fill('pending-close');
 	await dialog.getByRole('button', { name: 'Cancel' }).click();

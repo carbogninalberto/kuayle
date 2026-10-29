@@ -438,7 +438,12 @@ func (r *AgentTaskRepository) FinishCancellation(ctx context.Context, claimed do
 	target := "cancelled"
 	if task.FailurePending {
 		target = "failed"
-		reason = "Execution failed; runtime cleanup confirmed"
+		// A resource limit stays the final reason: it tells the user what to change.
+		if !domain.IsResourceLimitReason(task.Reason) {
+			reason = "Execution failed; runtime cleanup confirmed"
+		} else {
+			reason = task.Reason
+		}
 	}
 	if err = transitionAgentTask(ctx, tx, task, target, reason, nil); err != nil {
 		return err

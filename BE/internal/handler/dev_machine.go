@@ -210,6 +210,25 @@ func (h *DevMachineHandler) ScopeSetting(c echo.Context) error {
 	return response.Success(c, http.StatusOK, setting)
 }
 
+// RepositoryDefaults reports the development repository an issue or project
+// inherits, so clients can preselect it instead of asking for one.
+func (h *DevMachineHandler) RepositoryDefaults(c echo.Context) error {
+	var issueID, projectID *string
+	for name, target := range map[string]**string{"issue_id": &issueID, "project_id": &projectID} {
+		if raw := c.QueryParam(name); raw != "" {
+			if _, err := uuid.Parse(raw); err != nil {
+				return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid "+name)
+			}
+			*target = &raw
+		}
+	}
+	defaults, err := h.service.RepositoryDefaults(c.Request().Context(), middleware.GetWorkspace(c).ID, issueID, projectID)
+	if err != nil {
+		return machineError(c, err)
+	}
+	return response.Success(c, http.StatusOK, defaults)
+}
+
 func (h *DevMachineHandler) UpdateScopeSetting(c echo.Context) error {
 	var request dto.DevMachineScopeSettingRequest
 	if err := bindAndValidate(c, &request); err != nil {

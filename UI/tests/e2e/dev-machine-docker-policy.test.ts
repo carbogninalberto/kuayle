@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 const workspaceId = '00000000-0000-0000-0000-000000000002';
 
-async function mockPolicyApi(page: Page, allowDocker: boolean | undefined) {
+async function mockPolicyApi(page: Page, allowDocker: boolean | undefined, overrides: Record<string, unknown> = {}) {
 	const state = { saved: [] as Record<string, unknown>[] };
 	const policy: Record<string, unknown> = {
 		workspace_id: workspaceId,
@@ -20,6 +20,7 @@ async function mockPolicyApi(page: Page, allowDocker: boolean | undefined) {
 		disk_quota_mode: 'hard'
 	};
 	if (allowDocker !== undefined) policy.allow_docker = allowDocker;
+	Object.assign(policy, overrides);
 	await page.routeWebSocket('**/ws', () => {});
 	await page.route('https://raw.githubusercontent.com/carbogninalberto/kuayle/main/UI/static/releases.json', (route) =>
 		route.fulfill({ json: [] })
@@ -95,4 +96,51 @@ test('saving the policy keeps Docker on unless it is turned off', async ({ page 
 	await page.getByRole('button', { name: 'Save policy' }).click();
 	await expect.poll(() => state.saved.length).toBe(2);
 	expect(state.saved[1]).toMatchObject({ allow_docker: false });
+});
+
+test('admins opt machines into sudo after a warning about what it allows', async ({ page }) => {
+	const state = await mockPolicyApi(page, undefined);
+	await page.goto('/test/settings/dev-machines?tab=policy');
+	const sudo = page.getByRole('switch', { name: 'Allow sudo on new machines' });
+	await expect(sudo).toBeVisible();
+	await expect(sudo).not.toBeChecked();
+	await expect(page.getByText(/without sudo/)).toBeVisible();
+	const warning = page.getByRole('alert').filter({ hasText: 'Sudo gives machine users root' });
+	await expect(warning).toHaveCount(0);
+	await sudo.click();
+	await expect(sudo).toBeChecked();
+	await expect(warning).toBeVisible();
+	await expect(warning).toContainText('recreated');
+	await page.getByRole('button', { name: 'Save policy' }).click();
+	await expect.poll(() => state.saved.length).toBe(1);
+	expect(state.saved[0]).toMatchObject({ allow_sudo: true, allow_docker: false });
+});
+
+test('saving the policy keeps sudo on unless it is turned off', async ({ page }) => {
+	const state = await mockPolicyApi(page, false, { allow_sudo: true });
+	await page.goto('/test/settings/dev-machines?tab=policy');
+	const sudo = page.getByRole('switch', { name: 'Allow sudo on new machines' });
+	await expect(sudo).toBeChecked();
+	await page.getByRole('button', { name: 'Save policy' }).click();
+	await expect.poll(() => state.saved.length).toBe(1);
+	expect(state.saved[0]).toMatchObject({ allow_sudo: true });
+	await sudo.click();
+	await page.getByRole('button', { name: 'Save policy' }).click();
+	await expect.poll(() => state.saved.length).toBe(2);
+	expect(state.saved[1]).toMatchObject({ allow_sudo: false });
+});
+
+test('the sudo switch and its warning fit a phone screen', async ({ page }) => {
+	await page.setViewportSize({ width: 390, height: 844 });
+	await mockPolicyApi(page, false, { allow_sudo: true });
+	await page.goto('/test/settings/dev-machines?tab=policy');
+	const warning = page.getByRole('alert').filter({ hasText: 'Sudo gives machine users root' });
+	await expect(warning).toBeVisible();
+	const box = await warning.boundingBox();
+	expect(box).not.toBeNull();
+	expect(box!.x).toBeGreaterThanOrEqual(0);
+	expect(box!.x + box!.width).toBeLessThanOrEqual(390);
+	expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+	await warning.scrollIntoViewIfNeeded();
+	await page.screenshot({ path: test.info().outputPath('sudo-policy-390.png') });
 });

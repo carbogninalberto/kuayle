@@ -82,6 +82,12 @@ html {
 	font-size: var(--app-font-size);
 }
 
+/* The installed app pans but never pinch- or double-tap-zooms (see
+   installed-viewport.ts). Zero specificity keeps explicit touch-action utilities. */
+:where(html[data-installed-app], html[data-installed-app] *) {
+	touch-action: pan-x pan-y;
+}
+
 body {
 	background-color: var(--color-bg);
 	color: var(--color-text-primary);

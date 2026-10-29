@@ -36,12 +36,15 @@ COPY ide/terminal-session.sh /usr/local/bin/kuayle-terminal-session
 COPY ide/command-event.js /usr/local/lib/kuayle-command-event.js
 COPY ide/tmux.conf /etc/tmux.conf
 
+# Passwordless sudo for the machine user stays inert: containers run with
+# no-new-privileges and without capabilities unless the workspace allows sudo
+# (allow_sudo) or the machine builds an environment. See TECHNICAL.md.
 ARG SECURITY_REFRESH=initial
 RUN rm -f /usr/bin/pebble \
     && apt-get update \
     && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
-         ca-certificates curl git make ncurses-term python3 ripgrep tmux xz-utils \
+         ca-certificates curl git make ncurses-term python3 ripgrep sudo tmux xz-utils \
     && case "${TARGETARCH}" in \
          amd64) ttyd_arch=x86_64; ttyd_sha="$TTYD_AMD64_SHA256" ;; \
          arm64) ttyd_arch=aarch64; ttyd_sha="$TTYD_ARM64_SHA256" ;; \
@@ -68,8 +71,17 @@ RUN rm -f /usr/bin/pebble \
          /usr/local/bin/kuayle-terminal-session \
          /usr/local/bin/install-agent-clis.sh \
     && ttyd --version \
-    && /usr/local/go/bin/go version
+    && /usr/local/go/bin/go version \
+    && user_name=$(getent passwd 1000 | cut -d: -f1) \
+    && printf '%s ALL=(ALL) NOPASSWD:ALL\n' "$user_name" > /etc/sudoers.d/kuayle \
+    && chmod 0440 /etc/sudoers.d/kuayle \
+    && visudo -cf /etc/sudoers.d/kuayle \
+    && printf 'prefix=/workspace/.kuayle/npm-global\nallow-scripts=@anthropic-ai/claude-code\n' > /etc/npmrc
 
+# Global npm installs (npm i -g, Claude Code's updater) go to the persistent
+# workspace volume, ahead of the image's CLIs on PATH, so they work without sudo.
+# /etc/npmrc is npm's global config (projects and ~/.npmrc override it); it lets
+# Claude Code's install script fetch its native binary, as the image build does.
 USER 1000:1000
 ENV HOME=/home/kuayle \
     LANG=C.UTF-8 \
@@ -78,7 +90,8 @@ ENV HOME=/home/kuayle \
     GOPATH=/home/kuayle/go \
     GOCACHE=/home/kuayle/.cache/go-build \
     GOMODCACHE=/home/kuayle/go/pkg/mod \
-    PATH="/usr/local/go/bin:/usr/local/bin:${PATH}"
+    NPM_CONFIG_GLOBALCONFIG=/etc/npmrc \
+    PATH="/workspace/.kuayle/npm-global/bin:/usr/local/go/bin:/usr/local/bin:${PATH}"
 WORKDIR /workspace
 EXPOSE 7681
 CMD ["/usr/local/bin/kuayle-headless-start"]

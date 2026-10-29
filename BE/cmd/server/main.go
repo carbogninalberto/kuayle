@@ -126,6 +126,7 @@ func main() {
 		}, cfg.FrontendURL,
 	)
 	devMachineSvc.SetModelDiscovery(cfg.AIAllowPrivateNetwork)
+	devMachineSvc.SetDiskQuotaMode(cfg.DevMachine.EffectiveDiskQuotaMode())
 
 	// Handlers
 	healthH := handler.NewHealthHandler(db)

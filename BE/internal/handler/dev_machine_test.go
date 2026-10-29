@@ -399,7 +399,8 @@ func TestDevMachinePolicyIncludesConfiguredDiskQuotaMode(t *testing.T) {
 			var current domain.DevMachineWorkspacePolicy
 			require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &current))
 			require.Equal(t, test.mode, current.DiskQuotaMode)
-			require.Equal(t, []int{20, 30, 40, 50, 75, 100}, current.SizeOptions.DiskGB)
+			require.Equal(t, domain.DevMachineOptionsForWorkspace(100).DiskGB, current.SizeOptions.DiskGB)
+			require.Equal(t, []int{20, 22}, current.SizeOptions.DiskGB[:2], "disk sizes move in 2 GiB steps")
 			require.Equal(t, []int{1000, 2000, 4000, 6000, 8000, 12000, 16000}, current.SizeOptions.CPUMillis)
 
 			body := fmt.Sprintf(`{
@@ -425,7 +426,7 @@ func TestDevMachinePolicyIncludesConfiguredDiskQuotaMode(t *testing.T) {
 			var updated domain.DevMachineWorkspacePolicy
 			require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &updated))
 			require.Equal(t, test.mode, updated.DiskQuotaMode)
-			require.Equal(t, []int{20, 30, 40, 50, 75, 100}, updated.SizeOptions.DiskGB)
+			require.Equal(t, domain.DevMachineOptionsForWorkspace(100).DiskGB, updated.SizeOptions.DiskGB)
 			require.Empty(t, store.policy.DiskQuotaMode)
 		})
 	}
@@ -463,6 +464,68 @@ func TestDevMachinePolicyDockerSwitchIsKeptUnlessSent(t *testing.T) {
 	require.True(t, update("").AllowDocker, "omitting the field keeps it on")
 	require.False(t, update(`,"allow_docker":false`).AllowDocker)
 	require.False(t, store.policy.AllowDocker)
+}
+
+// Task machine resources are kept when an older client omits them, stored
+// when valid and rejected (keeping the policy) against the size rules or the
+// workspace disk limit. The disk limit moves in 2 GiB steps.
+func TestDevMachinePolicyTaskMachineResources(t *testing.T) {
+	workspaceID := uuid.New()
+	store := &handlerDevMachineStoreFake{policy: &domain.DevMachineWorkspacePolicy{
+		WorkspaceID: workspaceID, Enabled: true, MaxConcurrentMachines: 5, MaxMachinesPerUser: 2,
+		MaxDailyAgentRuns: 25, MaxRuntimeMinutes: 480, MaxDiskGB: 100, IdlePauseMinutes: 240,
+		AllowedProviders: json.RawMessage(`["opencode"]`), AllowedRepositories: json.RawMessage(`[]`),
+		TaskMachineCPUMillis: 4000, TaskMachineMemoryMB: 8192, TaskMachineDiskGB: 20,
+	}}
+	h := NewDevMachineHandler(service.NewDevMachineService(
+		store, agent.NewRegistry(), true, "machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, service.DevMachineImages{},
+	), config.DiskQuotaModeHard)
+	update := func(maxDisk int, extra string) *httptest.ResponseRecorder {
+		t.Helper()
+		body := fmt.Sprintf(`{"enabled":true,"max_concurrent_machines":5,"max_machines_per_user":2,"max_daily_agent_runs":25,
+			"max_runtime_minutes":480,"max_disk_gb":%d,"allowed_providers":["opencode"],"allowed_repositories":[],
+			"idle_pause_minutes":240%s}`, maxDisk, extra)
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPatch, "/dev-machine-policy", strings.NewReader(body))
+		request.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		require.NoError(t, h.UpdatePolicy(devMachineHandlerContext(request, recorder, workspaceID, uuid.New())))
+		return recorder
+	}
+	decode := func(recorder *httptest.ResponseRecorder) domain.DevMachineWorkspacePolicy {
+		t.Helper()
+		require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+		var updated domain.DevMachineWorkspacePolicy
+		require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &updated))
+		return updated
+	}
+
+	updated := decode(update(100, ""))
+	require.Equal(t, []int{4000, 8192, 20}, []int{updated.TaskMachineCPUMillis, updated.TaskMachineMemoryMB, updated.TaskMachineDiskGB}, "omitted resources are kept")
+
+	updated = decode(update(1000, `,"task_machine_cpu_millis":8000,"task_machine_memory_mb":16384,"task_machine_disk_gb":250`))
+	require.Equal(t, []int{8000, 16384, 250}, []int{updated.TaskMachineCPUMillis, updated.TaskMachineMemoryMB, updated.TaskMachineDiskGB})
+	require.Equal(t, 1000, updated.MaxDiskGB, "a limit above 40 GB and between the former fixed sizes is accepted")
+	require.Equal(t, 1000, updated.SizeOptions.DiskGB[len(updated.SizeOptions.DiskGB)-1])
+	require.Equal(t, 16384, store.policy.TaskMachineMemoryMB)
+
+	for _, test := range []struct {
+		name, extra, errMessage string
+		maxDisk                 int
+	}{
+		{name: "memory option", maxDisk: 1000, extra: `,"task_machine_memory_mb":10000`, errMessage: "memory_mb 10000 is not a supported option"},
+		{name: "one GiB per vCPU", maxDisk: 1000, extra: `,"task_machine_cpu_millis":8000,"task_machine_memory_mb":4096`, errMessage: "memory_mb 4096 must be at least 8192 for cpu_millis 8000 (1 GiB per vCPU)"},
+		{name: "odd task disk", maxDisk: 1000, extra: `,"task_machine_disk_gb":251`, errMessage: "disk_gb 251 is not a supported option"},
+		{name: "kept task disk above a lowered limit", maxDisk: 200, errMessage: "task machine disk_gb 250 exceeds the workspace limit of 200 GB"},
+		{name: "odd disk limit", maxDisk: 1001, errMessage: "max_disk_gb must be an even number of GB"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			recorder := update(test.maxDisk, test.extra)
+			require.Equal(t, http.StatusBadRequest, recorder.Code, recorder.Body.String())
+			require.Contains(t, recorder.Body.String(), test.errMessage)
+			require.Equal(t, 1000, store.policy.MaxDiskGB, "a rejected update keeps the policy")
+			require.Equal(t, 250, store.policy.TaskMachineDiskGB)
+		})
+	}
 }
 
 func TestDevMachineCreateRejectsInvalidCustomResources(t *testing.T) {
@@ -726,4 +789,59 @@ func (f *collectorHandlerStoreFake) ListModelServers(context.Context, uuid.UUID)
 }
 func (f *collectorHandlerStoreFake) ListAgentRunSecretSnapshots(context.Context, uuid.UUID, uuid.UUID) ([]string, error) {
 	return nil, nil
+}
+
+func TestRepositoryDefaultsValidatesScopeAndPolicy(t *testing.T) {
+	workspaceID, userID := uuid.New(), uuid.New()
+	store := &handlerDevMachineStoreFake{policy: &domain.DevMachineWorkspacePolicy{WorkspaceID: workspaceID, Enabled: false}}
+	h := modelServerHandler(store)
+	get := func(query string) *httptest.ResponseRecorder {
+		recorder := httptest.NewRecorder()
+		ctx := devMachineHandlerContext(httptest.NewRequest(http.MethodGet, "/dev-machine-repository-defaults"+query, nil), recorder, workspaceID, userID)
+		require.NoError(t, h.RepositoryDefaults(ctx))
+		return recorder
+	}
+	require.Equal(t, http.StatusBadRequest, get("?issue_id=not-a-uuid").Code)
+	require.Equal(t, http.StatusBadRequest, get("?project_id=1").Code)
+	require.Equal(t, http.StatusForbidden, get("?issue_id="+uuid.NewString()).Code, "disabled Dev Machines expose no development defaults")
+}
+
+// Sudo is off by default. A policy update without allow_sudo (an older
+// client) keeps the current choice, and it is independent of allow_docker.
+func TestDevMachinePolicySudoSwitchIsKeptUnlessSent(t *testing.T) {
+	workspaceID := uuid.New()
+	store := &handlerDevMachineStoreFake{policy: &domain.DevMachineWorkspacePolicy{
+		WorkspaceID: workspaceID, Enabled: true, MaxConcurrentMachines: 5, MaxMachinesPerUser: 2,
+		MaxDailyAgentRuns: 25, MaxRuntimeMinutes: 480, MaxDiskGB: 100, IdlePauseMinutes: 240,
+		AllowedProviders: json.RawMessage(`["opencode"]`), AllowedRepositories: json.RawMessage(`[]`), AllowDocker: true,
+	}}
+	h := NewDevMachineHandler(service.NewDevMachineService(
+		store, agent.NewRegistry(), true, "machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, service.DevMachineImages{},
+	), config.DiskQuotaModeHard)
+	update := func(extra string) domain.DevMachineWorkspacePolicy {
+		t.Helper()
+		body := `{"enabled":true,"max_concurrent_machines":5,"max_machines_per_user":2,"max_daily_agent_runs":25,
+			"max_runtime_minutes":480,"max_disk_gb":100,"allowed_providers":["opencode"],"allowed_repositories":[],
+			"idle_pause_minutes":240` + extra + `}`
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPatch, "/dev-machine-policy", strings.NewReader(body))
+		request.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		require.NoError(t, h.UpdatePolicy(devMachineHandlerContext(request, recorder, workspaceID, uuid.New())))
+		require.Equal(t, http.StatusOK, recorder.Code)
+		var updated domain.DevMachineWorkspacePolicy
+		require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &updated))
+		return updated
+	}
+	first := update("")
+	require.False(t, first.AllowSudo, "off by default")
+	require.True(t, first.AllowDocker, "the Docker switch is kept")
+	require.True(t, update(`,"allow_sudo":true`).AllowSudo)
+	require.True(t, store.policy.AllowSudo)
+	kept := update("")
+	require.True(t, kept.AllowSudo, "omitting the field keeps it on")
+	require.True(t, kept.AllowDocker)
+	off := update(`,"allow_sudo":false,"allow_docker":true`)
+	require.False(t, off.AllowSudo)
+	require.True(t, off.AllowDocker)
+	require.False(t, store.policy.AllowSudo)
 }

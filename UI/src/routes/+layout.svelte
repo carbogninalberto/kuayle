@@ -6,6 +6,7 @@
 	import ReleaseNotice from '$lib/components/shared/ReleaseNotice.svelte';
 	import { preferencesState } from '$lib/features/preferences/preferences.state.svelte';
 	import { registerServiceWorker } from '$lib/features/pwa/register-service-worker';
+	import { lockInstalledAppZoom } from '$lib/features/pwa/installed-viewport';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
 
@@ -15,6 +16,7 @@
 	onMount(() => {
 		preferencesState.init();
 		registerServiceWorker();
+		return lockInstalledAppZoom();
 	});
 </script>
 

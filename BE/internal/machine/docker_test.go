@@ -302,10 +302,10 @@ func TestInteractiveToolingTmpfsAllowsExecutables(t *testing.T) {
 	machine := &domain.DevMachine{MemoryMB: 4096, PidsLimit: 512}
 	runtime := &DockerRuntime{}
 
-	agentConfig := runtime.secureHostConfig(machine, "agent", "network", "volume")
-	ideConfig := runtime.secureHostConfig(machine, "ide", "network", "volume")
-	terminalConfig := runtime.secureHostConfig(machine, "terminal", "network", "volume")
-	collectorConfig := runtime.secureHostConfig(machine, "collector", "network", "volume")
+	agentConfig := runtime.secureHostConfig(machine, "agent", "network", "volume", false)
+	ideConfig := runtime.secureHostConfig(machine, "ide", "network", "volume", false)
+	terminalConfig := runtime.secureHostConfig(machine, "terminal", "network", "volume", false)
+	collectorConfig := runtime.secureHostConfig(machine, "collector", "network", "volume", false)
 
 	require.False(t, strings.Contains(agentConfig.Tmpfs["/tmp"], "noexec"))
 	require.True(t, strings.Contains(agentConfig.Tmpfs["/tmp"], "exec"))
@@ -325,19 +325,14 @@ func TestInteractiveToolingTmpfsAllowsExecutables(t *testing.T) {
 }
 
 func TestHeadlessTerminalUsesDeveloperContainerSecurityAndResources(t *testing.T) {
-	machine := &domain.DevMachine{MemoryMB: 8192, CPUMillis: 4000, PidsLimit: 512}
+	machine := &domain.DevMachine{MemoryMB: 8192, CPUMillis: 4000, PidsLimit: 512, Profile: domain.DevMachineProfileHeadless}
 	runtime := &DockerRuntime{}
 
-	ideConfig := runtime.secureHostConfig(machine, "ide", "network", "volume")
-	terminalConfig := runtime.secureHostConfig(machine, "terminal", "network", "volume")
+	terminalConfig := runtime.secureHostConfig(machine, "terminal", "network", "volume", false)
 
 	require.True(t, terminalConfig.ReadonlyRootfs)
 	require.Equal(t, []string{"ALL"}, terminalConfig.CapDrop)
 	require.Contains(t, strings.Split(terminalConfig.Tmpfs["/home/kuayle"], ","), "exec")
-	// A headless developer container receives the IDE and browser shares, which it replaces.
-	require.Equal(t, 2*ideConfig.Resources.Memory, terminalConfig.Resources.Memory)
-	require.Equal(t, 2*ideConfig.Resources.NanoCPUs, terminalConfig.Resources.NanoCPUs)
-	require.Equal(t, 2*(*ideConfig.Resources.PidsLimit), *terminalConfig.Resources.PidsLimit)
 	require.Len(t, terminalConfig.Mounts, 1)
 	require.Equal(t, "/workspace", terminalConfig.Mounts[0].Target)
 	require.False(t, terminalConfig.Mounts[0].ReadOnly)
@@ -496,4 +491,102 @@ func TestEnvironmentImageReferencesPreferDigestAndCleanupFallsBackToTag(t *testi
 	require.Empty(t, environmentImmutableImageID(&domain.DevMachineEnvironment{ImageRef: "kuayle/dev-environment-test:snapshot"}))
 	require.Equal(t, digest, environmentImageCleanupReference(environment))
 	require.Equal(t, "kuayle/dev-environment-test:snapshot", environmentImageCleanupReference(&domain.DevMachineEnvironment{ImageRef: "kuayle/dev-environment-test:snapshot"}))
+}
+
+// A machine created while the workspace allows sudo gets developer containers
+// whose root filesystem is writable and which may gain privileges through
+// sudo, with Docker's default capabilities minus raw sockets: never
+// privileged, never NET_ADMIN or SYS_ADMIN, still on the machine network
+// behind the egress proxy and still under the configured seccomp and AppArmor
+// profiles. Agent attempts and the support containers stay locked.
+func TestSudoMachinesRelaxOnlyTheDeveloperContainers(t *testing.T) {
+	runtime := &DockerRuntime{config: DockerConfig{SeccompProfile: "/etc/kuayle/seccomp.json", AppArmorProfile: "kuayle-machine"}}
+	sudo := &domain.DevMachine{MemoryMB: 4096, CPUMillis: 2000, PidsLimit: 512, SudoEnabled: true}
+	locked := &domain.DevMachine{MemoryMB: 4096, CPUMillis: 2000, PidsLimit: 512}
+
+	for _, serviceType := range []string{"ide", "terminal"} {
+		relaxed := runtime.secureHostConfig(sudo, serviceType, "machine-network", "workspace-volume", false)
+		require.False(t, relaxed.ReadonlyRootfs, serviceType)
+		require.False(t, relaxed.Privileged, serviceType)
+		require.NotContains(t, relaxed.SecurityOpt, "no-new-privileges=true", serviceType)
+		require.Contains(t, relaxed.SecurityOpt, "seccomp=/etc/kuayle/seccomp.json", serviceType)
+		require.Contains(t, relaxed.SecurityOpt, "apparmor=kuayle-machine", serviceType)
+		require.Empty(t, relaxed.CapAdd, serviceType)
+		require.Equal(t, []string{"NET_RAW"}, relaxed.CapDrop, serviceType)
+		require.Equal(t, container.NetworkMode("machine-network"), relaxed.NetworkMode, serviceType)
+		require.Empty(t, relaxed.Binds, serviceType)
+		for _, mounted := range relaxed.Mounts {
+			require.NotContains(t, mounted.Source, "docker.sock", serviceType)
+		}
+
+		same := runtime.secureHostConfig(locked, serviceType, "machine-network", "workspace-volume", false)
+		require.Equal(t, same.Resources, relaxed.Resources, "sudo does not change the container's resources")
+		require.True(t, same.ReadonlyRootfs, serviceType)
+		require.Equal(t, []string{"ALL"}, same.CapDrop, serviceType)
+		require.Contains(t, same.SecurityOpt, "no-new-privileges=true", serviceType)
+	}
+	for _, serviceType := range []string{"agent", "collector", "browser", "egress"} {
+		hostConfig := runtime.secureHostConfig(sudo, serviceType, "machine-network", "workspace-volume", false)
+		require.True(t, hostConfig.ReadonlyRootfs, serviceType)
+		require.Equal(t, []string{"ALL"}, hostConfig.CapDrop, serviceType)
+		require.Contains(t, hostConfig.SecurityOpt, "no-new-privileges=true", serviceType)
+	}
+}
+
+// Agent attempts that run on a developer image (the headless providers) keep
+// using the image's pinned CLIs: the workspace npm prefix, which people and
+// agents can write, is removed from their PATH.
+func TestAgentAttemptsDoNotRunCLIsFromTheWorkspaceNpmPrefix(t *testing.T) {
+	environment := agentImageEnvironment([]string{
+		"HOME=/home/kuayle",
+		"PATH=/workspace/.kuayle/npm-global/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/workspace/.kuayle/npm-global/bin",
+		"NPM_CONFIG_GLOBALCONFIG=/etc/npmrc",
+	})
+	require.Equal(t, []string{"HOME=/home/kuayle", "PATH=/usr/local/go/bin:/usr/local/bin:/usr/bin", "NPM_CONFIG_GLOBALCONFIG=/etc/npmrc"}, environment)
+	unchanged := []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}
+	require.Equal(t, unchanged, agentImageEnvironment(unchanged), "agent images are unaffected")
+}
+
+// Each container's CPU, memory and process limits are a share of the machine.
+// A headless machine (agent task machines) has no IDE or browser, so its agent
+// gets half of the machine; with a Docker daemon the daemon takes 40% and the
+// agent and terminal keep 35% each, ceilings that may overlap.
+func TestContainerSharesSplitTheMachine(t *testing.T) {
+	runtime := &DockerRuntime{}
+	shares := func(machine *domain.DevMachine, docker bool, serviceTypes ...string) map[string]int64 {
+		result := map[string]int64{}
+		for _, serviceType := range serviceTypes {
+			config := runtime.secureHostConfig(machine, serviceType, "network", "volume", docker)
+			require.Equal(t, int64(machine.MemoryMB)*1024*1024*containerSharePercent(machine, serviceType, docker)/100, config.Resources.Memory, serviceType)
+			require.Equal(t, int64(machine.CPUMillis)*1_000_000*containerSharePercent(machine, serviceType, docker)/100, config.Resources.NanoCPUs, serviceType)
+			result[serviceType] = containerSharePercent(machine, serviceType, docker)
+		}
+		if docker {
+			result["docker"] = dockerShare
+		}
+		return result
+	}
+	total := func(values map[string]int64) (sum int64) {
+		for _, value := range values {
+			sum += value
+		}
+		return sum
+	}
+	headless := &domain.DevMachine{MemoryMB: 8192, CPUMillis: 4000, PidsLimit: 512, Profile: domain.DevMachineProfileHeadless}
+	split := shares(headless, false, "agent", "terminal", "collector", "egress")
+	require.Equal(t, map[string]int64{"agent": 50, "terminal": 40, "collector": 5, "egress": 5}, split)
+	require.Equal(t, int64(4096)*1024*1024, runtime.secureHostConfig(headless, "agent", "network", "volume", false).Resources.Memory, "an 8 GiB task machine gives its agent 4 GiB")
+	require.Equal(t, int64(100), total(split))
+	split = shares(headless, true, "agent", "terminal", "collector", "egress")
+	require.Equal(t, map[string]int64{"agent": 35, "terminal": 35, "collector": 5, "egress": 5, "docker": 40}, split)
+	require.Equal(t, int64(120), total(split), "with a daemon the agent and terminal ceilings overlap")
+
+	// Standard machines keep their split; Docker does not change it.
+	standard := &domain.DevMachine{MemoryMB: 8192, CPUMillis: 4000, PidsLimit: 512, Profile: domain.DevMachineProfileStandard}
+	for _, docker := range []bool{false, true} {
+		split = shares(standard, docker, "ide", "browser", "agent", "collector", "egress")
+		require.Equal(t, int64(25), split["ide"])
+		require.Equal(t, int64(25), split["browser"])
+		require.Equal(t, int64(35), split["agent"])
+	}
 }

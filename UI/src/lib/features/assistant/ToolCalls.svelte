@@ -1,5 +1,14 @@
 <script lang="ts">
-	import { Wrench, CircleAlert, LoaderCircle, ExternalLink, Bot, CircleCheck, CircleX } from '@lucide/svelte';
+	import {
+		Wrench,
+		CircleAlert,
+		LoaderCircle,
+		ExternalLink,
+		Bot,
+		CircleCheck,
+		CircleX,
+		GitBranch
+	} from '@lucide/svelte';
 	import * as Trace from '$lib/components/ui/trace/index.js';
 	import * as CodeBlock from '$lib/components/ui/code-block/index.js';
 	import * as Item from '$lib/components/ui/item/index.js';
@@ -9,6 +18,7 @@
 	import AgentSubagent from './AgentSubagent.svelte';
 	import AgentLogo from '$lib/features/agents/AgentLogo.svelte';
 	import { agentInfo } from '$lib/features/agents/agents';
+	import { repositorySourceLabel } from '$lib/features/dev-machines/repository-source';
 	let {
 		calls,
 		slug,
@@ -215,6 +225,17 @@
 								<Item.Description class="line-clamp-none"
 									>{m['assistant.approval_description']({ title: approval.payload.title })}</Item.Description
 								>
+								{#if approval.payload.repository}<p
+										class="flex min-w-0 items-center gap-1 text-xs text-muted-foreground"
+									>
+										<GitBranch size={12} class="shrink-0" /><span class="truncate"
+											>{m['assistant.approval_repository']({
+												repository: approval.payload.repository,
+												branch: approval.payload.base_branch ?? '',
+												source: repositorySourceLabel(approval.payload.repository_source ?? 'workspace')
+											})}</span
+										>
+									</p>{/if}
 								<CodeBlock.Root size="sm"
 									><CodeBlock.Content
 										code={approval.payload.instructions}
