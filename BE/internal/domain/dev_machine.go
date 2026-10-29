@@ -510,13 +510,18 @@ type DevMachineWorkspacePolicy struct {
 	// machine is refused once it is off.
 	AllowSudo bool `json:"allow_sudo" db:"allow_sudo"`
 	// AgentGitName and AgentGitEmail optionally author agent commits.
-	AgentGitName     *string               `json:"agent_git_name" db:"agent_git_name"`
-	AgentGitEmail    *string               `json:"agent_git_email" db:"agent_git_email"`
-	IdlePauseMinutes int                   `json:"idle_pause_minutes" db:"idle_pause_minutes"`
-	DiskQuotaMode    string                `json:"disk_quota_mode" db:"-"`
-	SizeOptions      DevMachineSizeOptions `json:"size_options" db:"-"`
-	CreatedAt        time.Time             `json:"created_at" db:"created_at"`
-	UpdatedAt        time.Time             `json:"updated_at" db:"updated_at"`
+	AgentGitName     *string `json:"agent_git_name" db:"agent_git_name"`
+	AgentGitEmail    *string `json:"agent_git_email" db:"agent_git_email"`
+	IdlePauseMinutes int     `json:"idle_pause_minutes" db:"idle_pause_minutes"`
+	// TaskMachine* size the machines Kuayle creates itself for agent tasks
+	// (delegations and automations); see TaskMachine.
+	TaskMachineCPUMillis int                   `json:"task_machine_cpu_millis" db:"task_machine_cpu_millis"`
+	TaskMachineMemoryMB  int                   `json:"task_machine_memory_mb" db:"task_machine_memory_mb"`
+	TaskMachineDiskGB    int                   `json:"task_machine_disk_gb" db:"task_machine_disk_gb"`
+	DiskQuotaMode        string                `json:"disk_quota_mode" db:"-"`
+	SizeOptions          DevMachineSizeOptions `json:"size_options" db:"-"`
+	CreatedAt            time.Time             `json:"created_at" db:"created_at"`
+	UpdatedAt            time.Time             `json:"updated_at" db:"updated_at"`
 }
 
 type DevMachineSizeOptions struct {
@@ -528,8 +533,61 @@ type DevMachineSizeOptions struct {
 var (
 	devMachineCPUOptions    = []int{1000, 2000, 4000, 6000, 8000, 12000, 16000}
 	devMachineMemoryOptions = []int{2048, 4096, 8192, 12288, 16384, 24576, 32768, 49152, 65536}
-	devMachineDiskOptions   = []int{20, 30, 40, 50, 75, 100, 150, 200, 300, 500, 750, 1000, 1500, 2048}
 )
+
+// Machine disks are any even size from DevMachineMinDiskGB to
+// DevMachineMaxDiskGB (2 GiB steps); the workspace max_disk_gb follows the
+// same rule.
+const (
+	DevMachineMinDiskGB  = 20
+	DevMachineMaxDiskGB  = 2048
+	DevMachineDiskStepGB = 2
+)
+
+// ValidDevMachineDiskGB reports whether a disk size (a machine's or the
+// workspace limit) is a supported 2 GiB step.
+func ValidDevMachineDiskGB(diskGB int) bool {
+	return diskGB >= DevMachineMinDiskGB && diskGB <= DevMachineMaxDiskGB && diskGB%DevMachineDiskStepGB == 0
+}
+
+// TaskMachineResources size a machine Kuayle creates itself for an agent task.
+type TaskMachineResources struct {
+	CPUMillis int
+	MemoryMB  int
+	DiskGB    int
+}
+
+// DefaultTaskMachineResources is 4 vCPU and 8 GiB: an agent CLI such as
+// Claude Code with a build or test run did not fit the former 4 GiB machine.
+var DefaultTaskMachineResources = TaskMachineResources{CPUMillis: 4000, MemoryMB: 8192, DiskGB: 20}
+
+// TaskMachine returns the policy's task machine resources; a field without a
+// stored value (a policy built in memory) takes the default.
+func (p *DevMachineWorkspacePolicy) TaskMachine() TaskMachineResources {
+	resources := DefaultTaskMachineResources
+	if p.TaskMachineCPUMillis > 0 {
+		resources.CPUMillis = p.TaskMachineCPUMillis
+	}
+	if p.TaskMachineMemoryMB > 0 {
+		resources.MemoryMB = p.TaskMachineMemoryMB
+	}
+	if p.TaskMachineDiskGB > 0 {
+		resources.DiskGB = p.TaskMachineDiskGB
+	}
+	return resources
+}
+
+// ValidateTaskMachineResources applies the custom machine size rules and the
+// workspace disk limit to task machine resources.
+func ValidateTaskMachineResources(resources TaskMachineResources, maxDiskGB int) error {
+	if err := DevMachineCustomSize(resources.CPUMillis, resources.MemoryMB, resources.DiskGB); err != nil {
+		return err
+	}
+	if resources.DiskGB > maxDiskGB {
+		return fmt.Errorf("task machine disk_gb %d exceeds the workspace limit of %d GB", resources.DiskGB, maxDiskGB)
+	}
+	return nil
+}
 
 type DevMachineEnvironment struct {
 	ID                uuid.UUID  `json:"id" db:"id"`
@@ -649,11 +707,9 @@ func DevMachineSize(size string) (cpuMillis, memoryMB, diskGB, maxRuntimeMinutes
 }
 
 func DevMachineOptionsForWorkspace(maxDiskGB int) DevMachineSizeOptions {
-	diskOptions := make([]int, 0, len(devMachineDiskOptions))
-	for _, diskGB := range devMachineDiskOptions {
-		if diskGB <= maxDiskGB {
-			diskOptions = append(diskOptions, diskGB)
-		}
+	diskOptions := []int{}
+	for diskGB := DevMachineMinDiskGB; diskGB <= min(maxDiskGB, DevMachineMaxDiskGB); diskGB += DevMachineDiskStepGB {
+		diskOptions = append(diskOptions, diskGB)
 	}
 	return DevMachineSizeOptions{
 		CPUMillis: append([]int(nil), devMachineCPUOptions...),
@@ -669,7 +725,7 @@ func DevMachineCustomSize(cpuMillis, memoryMB, diskGB int) error {
 	if !containsDevMachineOption(devMachineMemoryOptions, memoryMB) {
 		return fmt.Errorf("memory_mb %d is not a supported option", memoryMB)
 	}
-	if !containsDevMachineOption(devMachineDiskOptions, diskGB) {
+	if !ValidDevMachineDiskGB(diskGB) {
 		return fmt.Errorf("disk_gb %d is not a supported option", diskGB)
 	}
 	minimumMemoryMB := cpuMillis * 1024 / 1000

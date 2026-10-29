@@ -751,6 +751,10 @@ func prepareImportedRow(table string, row dto.WorkspaceTransferRow) {
 		row["allow_docker"] = false
 		// So is sudo in machines.
 		row["allow_sudo"] = false
+		// Exports from before migration 90 may hold an odd disk limit.
+		if limit, ok := row["max_disk_gb"]; ok && transferInt64(limit)%2 == 1 {
+			row["max_disk_gb"] = transferInt64(limit) - 1
+		}
 	case "dev_machine_scope_settings":
 		row["environment_id"] = nil
 	}

@@ -764,7 +764,9 @@ func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine
 	for name := range secrets {
 		secretNames = append(secretNames, name)
 	}
-	hostConfig := r.secureHostConfig(machine, "agent", *machine.DockerNetworkName, *machine.WorkspaceVolumeName)
+	// Attempts on a machine with a Docker daemon receive its address.
+	_, docker := secrets["KUAYLE_DOCKER_HOST"]
+	hostConfig := r.secureHostConfig(machine, "agent", *machine.DockerNetworkName, *machine.WorkspaceVolumeName, docker)
 	entrypoint := []string{"/usr/local/bin/kuayle-agent-runner"}
 	if provider.IsCustom {
 		entrypoint = []string{"/bin/sh", "-c", customAgentBootstrap, "kuayle-agent"}
@@ -1411,7 +1413,7 @@ func (r *DockerRuntime) ensureService(ctx context.Context, machine *domain.DevMa
 	}
 	response, err := r.client.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config:           containerConfig,
-		HostConfig:       r.secureHostConfig(machine, service.ServiceType, networkName, volumeName),
+		HostConfig:       r.secureHostConfig(machine, service.ServiceType, networkName, volumeName, docker),
 		NetworkingConfig: &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{networkName: {Aliases: []string{service.InternalHost}}}},
 		Name:             service.ContainerName,
 	})
@@ -1437,20 +1439,38 @@ func (r *DockerRuntime) ensureService(ctx context.Context, machine *domain.DevMa
 	return response.ID, true, false, nil
 }
 
-func (r *DockerRuntime) secureHostConfig(machine *domain.DevMachine, serviceType, networkName, volumeName string) *container.HostConfig {
-	fraction := int64(5)
+// containerSharePercent is the part of the machine's CPU, memory and process
+// limits a container of serviceType gets; docker reports whether the machine
+// runs a Docker daemon, which takes dockerShare itself.
+//
+// Standard machines: IDE (with the terminal) 25, browser 25, agent 35,
+// collector and egress 5 each. Headless machines (agent task machines among
+// them) have no IDE or browser, so the agent gets half of the machine: agent
+// 50 and terminal 40, or with a daemon agent 35 and terminal 15. Either way
+// the headless shares, collector and egress included, add up to the machine.
+func containerSharePercent(machine *domain.DevMachine, serviceType string, docker bool) int64 {
+	headless := machine.Profile == domain.DevMachineProfileHeadless
 	switch serviceType {
-	case "ide":
-		fraction = 25
+	case "ide", "browser":
+		return 25
 	case "terminal":
-		// Only headless machines run a standalone terminal container; it takes the IDE and
-		// browser shares because neither exists there.
-		fraction = 50
-	case "browser":
-		fraction = 25
+		// Only headless machines run a standalone terminal container.
+		if headless && docker {
+			return 15
+		}
+		return 40
 	case "agent":
-		fraction = 35
+		if headless && !docker {
+			return 50
+		}
+		return 35
+	default:
+		return 5
 	}
+}
+
+func (r *DockerRuntime) secureHostConfig(machine *domain.DevMachine, serviceType, networkName, volumeName string, docker bool) *container.HostConfig {
+	fraction := containerSharePercent(machine, serviceType, docker)
 	memory := int64(machine.MemoryMB) * 1024 * 1024 * fraction / 100
 	if memory < 128*1024*1024 {
 		memory = 128 * 1024 * 1024

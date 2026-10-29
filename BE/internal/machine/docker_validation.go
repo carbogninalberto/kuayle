@@ -63,7 +63,9 @@ func (r *DockerRuntime) RunValidation(ctx context.Context, machine *domain.DevMa
 		Name: name,
 		Config: &container.Config{Image: image, User: "1000:1000", WorkingDir: checkout.WorkspacePath, Entrypoint: argv[:1], Cmd: argv[1:], Labels: labels, AttachStdout: true, AttachStderr: true,
 			Env: []string{"HOME=/home/kuayle", "CI=true", "HTTP_PROXY=http://" + machine.RoutingKey + "-egress:3128", "HTTPS_PROXY=http://" + machine.RoutingKey + "-egress:3128", "NO_PROXY=localhost,127.0.0.1"}},
-		HostConfig:       r.secureHostConfig(machine, "agent", *machine.DockerNetworkName, *machine.WorkspaceVolumeName),
+		// A check may start compose services beside it, so it keeps the agent
+		// share of a machine with a daemon (35%).
+		HostConfig:       r.secureHostConfig(machine, "agent", *machine.DockerNetworkName, *machine.WorkspaceVolumeName, true),
 		NetworkingConfig: &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{*machine.DockerNetworkName: {Aliases: []string{"validation-" + run.ID.String()}}}},
 	})
 	if err != nil {

@@ -663,10 +663,14 @@ func (r *DevMachineRepository) SudoAllowed(ctx context.Context, workspaceID uuid
 }
 
 func (r *DevMachineRepository) UpsertPolicy(ctx context.Context, policy *domain.DevMachineWorkspacePolicy) error {
+	// A policy built without task machine resources stores the defaults.
+	taskMachine := policy.TaskMachine()
+	policy.TaskMachineCPUMillis, policy.TaskMachineMemoryMB, policy.TaskMachineDiskGB = taskMachine.CPUMillis, taskMachine.MemoryMB, taskMachine.DiskGB
 	return r.db.QueryRowContext(ctx, `INSERT INTO dev_machine_workspace_policies
 		(workspace_id, enabled, max_concurrent_machines, max_machines_per_user, max_daily_agent_runs,
-		 max_runtime_minutes, max_disk_gb, allowed_providers, allowed_repositories, allow_custom_providers, idle_pause_minutes, allow_unattended_automations, agent_git_name, agent_git_email, allow_docker, allow_sudo)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+		 max_runtime_minutes, max_disk_gb, allowed_providers, allowed_repositories, allow_custom_providers, idle_pause_minutes, allow_unattended_automations, agent_git_name, agent_git_email, allow_docker, allow_sudo,
+		 task_machine_cpu_millis, task_machine_memory_mb, task_machine_disk_gb)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
 		ON CONFLICT (workspace_id) DO UPDATE SET enabled=EXCLUDED.enabled,
 		max_concurrent_machines=EXCLUDED.max_concurrent_machines, max_machines_per_user=EXCLUDED.max_machines_per_user,
 		max_daily_agent_runs=EXCLUDED.max_daily_agent_runs, max_runtime_minutes=EXCLUDED.max_runtime_minutes,
@@ -674,11 +678,13 @@ func (r *DevMachineRepository) UpsertPolicy(ctx context.Context, policy *domain.
 		allowed_repositories=EXCLUDED.allowed_repositories, allow_custom_providers=EXCLUDED.allow_custom_providers,
 		idle_pause_minutes=EXCLUDED.idle_pause_minutes, allow_unattended_automations=EXCLUDED.allow_unattended_automations,
 		agent_git_name=EXCLUDED.agent_git_name, agent_git_email=EXCLUDED.agent_git_email, allow_docker=EXCLUDED.allow_docker,
-		allow_sudo=EXCLUDED.allow_sudo
+		allow_sudo=EXCLUDED.allow_sudo,
+		task_machine_cpu_millis=EXCLUDED.task_machine_cpu_millis, task_machine_memory_mb=EXCLUDED.task_machine_memory_mb,
+		task_machine_disk_gb=EXCLUDED.task_machine_disk_gb
 		RETURNING created_at, updated_at`, policy.WorkspaceID, policy.Enabled, policy.MaxConcurrentMachines,
 		policy.MaxMachinesPerUser, policy.MaxDailyAgentRuns, policy.MaxRuntimeMinutes, policy.MaxDiskGB,
 		policy.AllowedProviders, policy.AllowedRepositories, policy.AllowCustomProviders, policy.IdlePauseMinutes, policy.AllowUnattendedAutomations, policy.AgentGitName, policy.AgentGitEmail, policy.AllowDocker,
-		policy.AllowSudo,
+		policy.AllowSudo, policy.TaskMachineCPUMillis, policy.TaskMachineMemoryMB, policy.TaskMachineDiskGB,
 	).Scan(&policy.CreatedAt, &policy.UpdatedAt)
 }
 

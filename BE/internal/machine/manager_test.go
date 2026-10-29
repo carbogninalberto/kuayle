@@ -1759,7 +1759,7 @@ func TestWorkspaceMountDisablesImageCopyUp(t *testing.T) {
 	runtime := &DockerRuntime{}
 	machine := &domain.DevMachine{MemoryMB: 4096, CPUMillis: 2000, PidsLimit: 512}
 
-	hostConfig := runtime.secureHostConfig(machine, "ide", "machine-network", "workspace-volume")
+	hostConfig := runtime.secureHostConfig(machine, "ide", "machine-network", "workspace-volume", false)
 
 	require.Len(t, hostConfig.Mounts, 1)
 	require.NotNil(t, hostConfig.Mounts[0].VolumeOptions)

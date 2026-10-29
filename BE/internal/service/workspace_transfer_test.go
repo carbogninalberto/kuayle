@@ -571,3 +571,14 @@ func TestPrivateArchiveVisibilityMustBeExplicitBooleanFalse(t *testing.T) {
 		require.ErrorIs(t, validateWorkspaceArchive(parsed), ErrUnsupportedArchive)
 	}
 }
+
+// An export from before migration 90 may carry an odd disk limit, which the
+// schema now rejects; the import rounds it down like the migration did.
+func TestImportedDevMachinePolicyDiskLimitMovesToTwoGBSteps(t *testing.T) {
+	for exported, imported := range map[float64]int64{75: 74, 100: 100, 2048: 2048} {
+		row := dto.WorkspaceTransferRow{"max_disk_gb": exported, "enabled": true}
+		prepareImportedRow("dev_machine_workspace_policies", row)
+		require.Equal(t, imported, transferInt64(row["max_disk_gb"]))
+		require.Equal(t, false, row["enabled"])
+	}
+}

@@ -1774,6 +1774,7 @@ func TestSnapshotEnvironmentRequiresSourceBuilderOwner(t *testing.T) {
 
 type devMachineStoreFake struct {
 	repository.DevMachineStore
+	createdVolumes              []domain.DevMachineVolume
 	attachedProviders           []domain.DevMachineAgentProvider
 	policy                      *domain.DevMachineWorkspacePolicy
 	workspaceActiveCount        int
@@ -1847,11 +1848,12 @@ func testPolicy(workspaceID uuid.UUID) *domain.DevMachineWorkspacePolicy {
 	}
 }
 
-func (f *devMachineStoreFake) CreateBundle(_ context.Context, machine *domain.DevMachine, _ []domain.DevMachineAgentProvider, services []domain.DevMachineService, _ []domain.DevMachineVolume, envVars []domain.DevMachineEnvVar, _ []domain.DevMachineToken, operation *domain.DevMachineOperation) error {
+func (f *devMachineStoreFake) CreateBundle(_ context.Context, machine *domain.DevMachine, _ []domain.DevMachineAgentProvider, services []domain.DevMachineService, volumes []domain.DevMachineVolume, envVars []domain.DevMachineEnvVar, _ []domain.DevMachineToken, operation *domain.DevMachineOperation) error {
 	if f.createBundleErr != nil {
 		return f.createBundleErr
 	}
 	f.createdMachine = machine
+	f.createdVolumes = append([]domain.DevMachineVolume(nil), volumes...)
 	f.createdServices = append([]domain.DevMachineService(nil), services...)
 	f.createdEnvVars = append([]domain.DevMachineEnvVar(nil), envVars...)
 	f.createdOperation = operation

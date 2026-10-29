@@ -535,6 +535,10 @@ already requested. Each start is keyed by task, task generation and machine
 generation, so a machine paused again is started again while a start that
 failed for good is not retried in a loop. An exhausted checkout is requeued at most once per explicit task
 generation, so polling cannot silently produce unlimited setup retries.
+A new task machine is a custom-size machine with the workspace policy's task
+machine CPU, memory and disk (default 4 vCPU, 8 GB, 20 GB), headless unless an
+environment applies; see [Resource Limits and Quotas](../../TECHNICAL.md#resource-limits-and-quotas)
+for its limits and how its memory is split between the agent and terminal.
 
 ## Issue lifecycle
 

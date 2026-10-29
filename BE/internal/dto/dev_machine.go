@@ -288,6 +288,11 @@ type DevMachinePolicyRequest struct {
 	AgentGitName     string `json:"agent_git_name" validate:"omitempty,max=100"`
 	AgentGitEmail    string `json:"agent_git_email" validate:"omitempty,max=254"`
 	IdlePauseMinutes int    `json:"idle_pause_minutes" validate:"omitempty,min=5,max=10080"`
+	// Task machine resources are optional: omitted, the current values are
+	// kept. The service applies the custom machine size rules to them.
+	TaskMachineCPUMillis *int `json:"task_machine_cpu_millis,omitempty"`
+	TaskMachineMemoryMB  *int `json:"task_machine_memory_mb,omitempty"`
+	TaskMachineDiskGB    *int `json:"task_machine_disk_gb,omitempty"`
 }
 
 type CollectorEventInput struct {

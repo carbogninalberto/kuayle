@@ -2014,8 +2014,11 @@ func (s *DevMachineService) GetPolicy(ctx context.Context, workspaceID uuid.UUID
 	return &domain.DevMachineWorkspacePolicy{
 		WorkspaceID: workspaceID, MaxConcurrentMachines: 20, MaxMachinesPerUser: 20, MaxDailyAgentRuns: 25,
 		MaxRuntimeMinutes: 480, MaxDiskGB: 100, IdlePauseMinutes: 240,
-		AllowedProviders:    json.RawMessage(`["claude-code","opencode","codex","qwen-code","crush","kimi","goose"]`),
-		AllowedRepositories: json.RawMessage(`[]`),
+		TaskMachineCPUMillis: domain.DefaultTaskMachineResources.CPUMillis,
+		TaskMachineMemoryMB:  domain.DefaultTaskMachineResources.MemoryMB,
+		TaskMachineDiskGB:    domain.DefaultTaskMachineResources.DiskGB,
+		AllowedProviders:     json.RawMessage(`["claude-code","opencode","codex","qwen-code","crush","kimi","goose"]`),
+		AllowedRepositories:  json.RawMessage(`[]`),
 	}, nil
 }
 
@@ -2052,15 +2055,19 @@ func (s *DevMachineService) UpdatePolicy(ctx context.Context, workspaceID uuid.U
 		AllowedRepositories: repositories, AllowCustomProviders: req.AllowCustomProviders, IdlePauseMinutes: idlePauseMinutes,
 		AllowUnattendedAutomations: req.AllowUnattendedAutomations,
 	}
-	// The Docker and sudo switches are kept when an older client omits them.
-	if req.AllowDocker == nil || req.AllowSudo == nil {
-		current, err := s.store.GetPolicy(ctx, workspaceID)
-		if err != nil {
-			return nil, err
-		}
-		if current != nil {
-			policy.AllowDocker, policy.AllowSudo = current.AllowDocker, current.AllowSudo
-		}
+	if !domain.ValidDevMachineDiskGB(req.MaxDiskGB) {
+		return nil, fmt.Errorf("%w: max_disk_gb must be an even number of GB from %d to %d", ErrInvalidMachineInput, domain.DevMachineMinDiskGB, domain.DevMachineMaxDiskGB)
+	}
+	current, err := s.store.GetPolicy(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	// Omitted optional settings (Docker, sudo, task machines) keep their
+	// current values for older clients.
+	taskMachine := domain.DefaultTaskMachineResources
+	if current != nil {
+		policy.AllowDocker, policy.AllowSudo = current.AllowDocker, current.AllowSudo
+		taskMachine = current.TaskMachine()
 	}
 	if req.AllowDocker != nil {
 		policy.AllowDocker = *req.AllowDocker
@@ -2068,6 +2075,19 @@ func (s *DevMachineService) UpdatePolicy(ctx context.Context, workspaceID uuid.U
 	if req.AllowSudo != nil {
 		policy.AllowSudo = *req.AllowSudo
 	}
+	if req.TaskMachineCPUMillis != nil {
+		taskMachine.CPUMillis = *req.TaskMachineCPUMillis
+	}
+	if req.TaskMachineMemoryMB != nil {
+		taskMachine.MemoryMB = *req.TaskMachineMemoryMB
+	}
+	if req.TaskMachineDiskGB != nil {
+		taskMachine.DiskGB = *req.TaskMachineDiskGB
+	}
+	if err := domain.ValidateTaskMachineResources(taskMachine, req.MaxDiskGB); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalidMachineInput, err)
+	}
+	policy.TaskMachineCPUMillis, policy.TaskMachineMemoryMB, policy.TaskMachineDiskGB = taskMachine.CPUMillis, taskMachine.MemoryMB, taskMachine.DiskGB
 	name, email := strings.TrimSpace(req.AgentGitName), strings.TrimSpace(req.AgentGitEmail)
 	if (name == "") != (email == "") || !validGitAuthor(name, email) {
 		return nil, fmt.Errorf("%w: a commit author needs both a name and a valid email", ErrInvalidMachineInput)

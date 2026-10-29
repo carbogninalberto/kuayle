@@ -295,6 +295,17 @@ type devMachineTaskRuntime struct {
 	messages agentMessageSource
 }
 
+// taskMachineRequest creates the machine of an agent task, named after its
+// reservation and sized by the workspace's task machine resources.
+func taskMachineRequest(task domain.AgentTask, profile string, resources domain.TaskMachineResources) dto.CreateDevMachineRequest {
+	issueID := task.IssueID.String()
+	return dto.CreateDevMachineRequest{
+		Name: "task-" + task.ReservedMachineID.String(), IssueID: &issueID, Profile: profile,
+		Size: "custom", CPUMillis: resources.CPUMillis, MemoryMB: resources.MemoryMB, DiskGB: resources.DiskGB,
+		Agents: []dto.DevMachineAgentInput{{Provider: task.Provider, Mode: "autonomous"}},
+	}
+}
+
 func (r *devMachineTaskRuntime) Prepare(ctx context.Context, task *domain.AgentTask) (bool, error) {
 	s := r.machines
 	rawIssue := task.IssueID.String()
@@ -347,7 +358,11 @@ func (r *devMachineTaskRuntime) Prepare(ctx context.Context, task *domain.AgentT
 		if setting.EnvironmentID != nil {
 			profile = domain.DevMachineProfileStandard
 		}
-		machine, _, err = s.create(ctx, task.WorkspaceID, task.CreatorID, dto.CreateDevMachineRequest{Name: "task-" + task.ReservedMachineID.String(), IssueID: &rawIssue, Size: "small", Profile: profile, Agents: []dto.DevMachineAgentInput{{Provider: task.Provider, Mode: "autonomous"}}}, task.ReservedMachineID)
+		policy, policyErr := s.enabledPolicy(ctx, task.WorkspaceID)
+		if policyErr != nil {
+			return false, policyErr
+		}
+		machine, _, err = s.create(ctx, task.WorkspaceID, task.CreatorID, taskMachineRequest(*task, profile, policy.TaskMachine()), task.ReservedMachineID)
 		if err != nil {
 			return false, err
 		}

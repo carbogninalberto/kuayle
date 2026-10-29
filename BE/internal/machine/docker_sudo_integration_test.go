@@ -130,8 +130,8 @@ func TestSudoMachinesGetRootWithoutLeavingTheSandbox(t *testing.T) {
 	locked := *machine
 	locked.SudoEnabled = false
 	for name, config := range map[string]*container.HostConfig{
-		"agent":    runtime.secureHostConfig(machine, "agent", networkName, volumeName),
-		"terminal": runtime.secureHostConfig(&locked, "terminal", networkName, volumeName),
+		"agent":    runtime.secureHostConfig(machine, "agent", networkName, volumeName, false),
+		"terminal": runtime.secureHostConfig(&locked, "terminal", networkName, volumeName, false),
 	} {
 		created, err := runtime.client.ContainerCreate(ctx, client.ContainerCreateOptions{
 			Config:           &container.Config{Image: headlessImage, User: "1000:1000", WorkingDir: "/workspace", Entrypoint: []string{"/bin/sleep"}, Cmd: []string{"300"}, Labels: machineLabels(machine)},

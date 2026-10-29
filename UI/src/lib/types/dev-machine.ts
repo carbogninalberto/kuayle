@@ -271,6 +271,10 @@ export interface DevMachinePolicy {
 	agent_git_name?: string | null;
 	agent_git_email?: string | null;
 	idle_pause_minutes: number;
+	// Size of the machines Kuayle creates itself for agent tasks.
+	task_machine_cpu_millis: number;
+	task_machine_memory_mb: number;
+	task_machine_disk_gb: number;
 	disk_quota_mode: 'hard' | 'monitored';
 	size_options?: {
 		cpu_millis: number[];

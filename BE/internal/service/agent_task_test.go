@@ -696,3 +696,33 @@ func TestTaskUsesTheTeamRepositoryAndExplainsAMissingOne(t *testing.T) {
 	require.Equal(t, "blocked", tasks.task.State)
 	require.Equal(t, []string{"No development repository is configured for this issue, its project, team or workspace; set one in the development settings and retry"}, tasks.reasons)
 }
+
+// Machines Kuayle creates for agent tasks take the workspace's task machine
+// resources instead of the former fixed 4 GiB "small" size; a policy without
+// stored values gets the 8 GiB default.
+func TestTaskMachinesUseTheWorkspaceTaskMachineResources(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		policy   func(*domain.DevMachineWorkspacePolicy)
+		expected []int
+	}{
+		{name: "default", policy: func(*domain.DevMachineWorkspacePolicy) {}, expected: []int{4000, 8192, 20}},
+		{name: "configured", policy: func(policy *domain.DevMachineWorkspacePolicy) {
+			policy.TaskMachineCPUMillis, policy.TaskMachineMemoryMB, policy.TaskMachineDiskGB = 8000, 16384, 64
+		}, expected: []int{8000, 16384, 64}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store, runtime, task := reusedMachineFixture(domain.DevMachineStatusRunning, domain.DevMachineStatusRunning)
+			test.policy(store.policy)
+			request := taskMachineRequest(task, domain.DevMachineProfileHeadless, store.policy.TaskMachine())
+			machine, _, err := runtime.machines.create(context.Background(), task.WorkspaceID, task.CreatorID, request, task.ReservedMachineID)
+			require.NoError(t, err)
+			require.Equal(t, task.ReservedMachineID, machine.ID)
+			require.Equal(t, "task-"+task.ReservedMachineID.String(), machine.Name)
+			require.Equal(t, domain.DevMachineProfileHeadless, machine.Profile)
+			require.Equal(t, test.expected, []int{machine.CPUMillis, machine.MemoryMB, machine.DiskGB})
+			require.Equal(t, int64(test.expected[2])*1024*1024*1024, store.createdVolumes[0].SizeLimitBytes)
+			require.Equal(t, task.IssueID, *machine.IssueID)
+		})
+	}
+}

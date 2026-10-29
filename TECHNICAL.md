@@ -594,7 +594,11 @@ Machine sizes are aggregate admission profiles:
 | medium | 4 vCPU | 8 GB | 50 GB | 4 hours |
 | large | 8 vCPU | 16 GB | 100 GB | 8 hours |
 
-The manager assigns a bounded percentage of the profile to each service and applies Docker `NanoCPUs`, memory, memory-swap, and PID limits. The IDE and browser each receive 25%, an agent run 35%, and the collector and egress 5% each; a headless machine's terminal container receives 50%, the IDE and browser shares it replaces. Non-builder workloads use a read-only root filesystem, tmpfs scratch paths, `CapDrop=ALL`, `no-new-privileges`, the Docker default seccomp profile or a configured replacement, and AppArmor where available. Environment Builder deliberately relaxes the developer container root filesystem so owners/admins can install tooling before snapshot, and a workspace that allows sudo relaxes its developer containers (see [Sudo in machines](#sudo-in-machines)). Docker's `json-file` logs rotate at 10 MiB with three files per container, and removal paths also remove anonymous image volumes.
+A `custom` size picks CPU (1, 2, 4, 6, 8, 12 or 16 vCPU) and memory (2, 4, 8, 12, 16, 24, 32, 48 or 64 GB) from the offered options with at least 1 GB per vCPU, and any disk size in 2 GB steps from 20 GB up to the workspace `max_disk_gb` (itself an even number from 20 to 2048); its maximum runtime is 8 hours, capped by the policy. The policy API returns these options as `size_options`.
+
+**Task machines.** Machines Kuayle creates itself for agent tasks (issue delegations, the assistant's delegate tool and automations all go through agent tasks) are headless custom machines sized by the workspace policy's `task_machine_cpu_millis`, `task_machine_memory_mb` and `task_machine_disk_gb` (Settings → Dev Machines → Policy → Task machines). The defaults are 4 vCPU, 8 GB and 20 GB; migration 90 gives existing workspaces the same values (task machines were previously `small`, whose 4 GB left an agent such as Claude Code 1.4 GB and was OOM-killed under builds). The same size rules apply, and the task disk must stay within `max_disk_gb`. Changes affect task machines created afterwards; reused task machines keep their size. The Environment Builder dialog starts with the task machine CPU and memory.
+
+The manager assigns a bounded percentage of the profile to each service and applies Docker `NanoCPUs`, memory, memory-swap, and PID limits (`containerSharePercent` in `BE/internal/machine/docker.go`). On standard machines the IDE (which also serves the terminal) and browser each receive 25%, an agent run 35%, and the collector and egress 5% each. Headless machines (task machines among them) have no IDE or browser, so the agent receives 50% and the terminal container 40%; with a Docker daemon, which takes 40%, the agent receives 35% and the terminal 15%. The headless shares, collector and egress included, add up to the machine either way; an 8 GB task machine therefore gives its agent 4 GB (2.8 GB with Docker). Validation checks keep the 35% agent share because their compose services share another 30%. Non-builder workloads use a read-only root filesystem, tmpfs scratch paths, `CapDrop=ALL`, `no-new-privileges`, the Docker default seccomp profile or a configured replacement, and AppArmor where available. Environment Builder deliberately relaxes the developer container root filesystem so owners/admins can install tooling before snapshot, and a workspace that allows sudo relaxes its developer containers (see [Sudo in machines](#sudo-in-machines)). Docker's `json-file` logs rotate at 10 MiB with three files per container, and removal paths also remove anonymous image volumes.
 
 Workspace policy controls:
 
@@ -603,7 +607,8 @@ Workspace policy controls:
 - maximum daily agent runs;
 - maximum runtime;
 - idle pause interval (default 240 minutes; bypassed by per-machine `keep_running`);
-- maximum per-machine workspace-volume size;
+- maximum per-machine workspace-volume size (2 GB steps up to 2048 GB; migration 90 rounded an odd limit down);
+- task machine CPU, memory and disk (default 4 vCPU, 8 GB, 20 GB; older clients that omit them keep the current values);
 - allowed providers;
 - allowed repositories;
 - whether custom providers are allowed;
@@ -763,6 +768,8 @@ Migration `000051_dev_machine_agents_headless` adds the `dev_machines.profile` v
 Migration `000052_dev_machine_deepseek` adds workspace model credentials and persists each agent run's non-secret command environment so a Claude Code effort override survives queueing.
 
 Migration `000089_dev_machine_docker` adds `dev_machine_workspace_policies.allow_docker` (default false), the `docker` service type, `dev_machine_ports.target` (`developer` or `docker`) and `dev_machines.docker_listening_ports`. Its rollback deletes `docker` service rows (tear such machines down first; their containers and volumes are otherwise left for manual removal) and port targets; ports are kept and stay unlimited in number.
+
+Migration `000090_dev_machine_task_resources` adds `dev_machine_workspace_policies.task_machine_cpu_millis`, `task_machine_memory_mb` and `task_machine_disk_gb` (defaults 4000, 8192, 20, applied to existing workspaces), at least 1 GB per vCPU, an even task disk within `max_disk_gb`, and an even `max_disk_gb` (odd limits are rounded down, irreversibly). Its rollback drops the columns and constraints; rounded limits keep their even values.
 
 Migration `000093_dev_machine_sudo` adds `dev_machine_workspace_policies.allow_sudo` and `dev_machines.sudo_enabled` (both default false). Its rollback drops both columns; containers already created with sudo keep their configuration, so delete those machines first.
 

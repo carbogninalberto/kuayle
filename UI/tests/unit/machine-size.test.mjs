@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
 	DEFAULT_MACHINE_RESOURCES,
+	DEFAULT_TASK_MACHINE_RESOURCES,
 	MACHINE_CPU_MILLIS,
 	MACHINE_DISK_GB,
 	MACHINE_MEMORY_MB,
@@ -10,7 +11,8 @@ import {
 	memoryGb,
 	minimumMemoryIndexForCpu,
 	normalizeMachineResources,
-	resolveMachineSizeOptions
+	resolveMachineSizeOptions,
+	snapDiskGb
 } from '../../src/lib/features/dev-machines/machine-size.ts';
 
 test('uses the shared snap lists and filters disk to the workspace policy', () => {
@@ -18,7 +20,9 @@ test('uses the shared snap lists and filters disk to the workspace policy', () =
 
 	assert.deepEqual(options.cpu_millis, [...MACHINE_CPU_MILLIS]);
 	assert.deepEqual(options.memory_mb, [...MACHINE_MEMORY_MB]);
-	assert.deepEqual(options.disk_gb, [20, 30, 40, 50, 75]);
+	assert.equal(options.disk_gb.length, 28);
+	assert.deepEqual(options.disk_gb.slice(0, 3), [20, 22, 24]);
+	assert.equal(options.disk_gb.at(-1), 74, 'an odd limit offers the even sizes below it');
 	assert.deepEqual(resolveMachineSizeOptions(undefined, 10).disk_gb, []);
 	assert.deepEqual(DEFAULT_MACHINE_RESOURCES, {
 		cpu_millis: 4000,
@@ -102,5 +106,28 @@ test('converts memory from MiB to GiB for display', () => {
 test('the snap lists match the API contract', () => {
 	assert.deepEqual([...MACHINE_CPU_MILLIS], [1000, 2000, 4000, 6000, 8000, 12000, 16000]);
 	assert.deepEqual([...MACHINE_MEMORY_MB], [2048, 4096, 8192, 12288, 16384, 24576, 32768, 49152, 65536]);
-	assert.deepEqual([...MACHINE_DISK_GB], [20, 30, 40, 50, 75, 100, 150, 200, 300, 500, 750, 1000, 1500, 2048]);
+	assert.equal(MACHINE_DISK_GB.length, 1015);
+	assert.equal(MACHINE_DISK_GB[0], 20);
+	assert.equal(MACHINE_DISK_GB.at(-1), 2048);
+	assert.ok(MACHINE_DISK_GB.every((value, index) => index === 0 || value - MACHINE_DISK_GB[index - 1] === 2));
+});
+
+test('task machines default to 4 vCPU and 8 GB', () => {
+	assert.deepEqual(DEFAULT_TASK_MACHINE_RESOURCES, { cpu_millis: 4000, memory_mb: 8192, disk_gb: 20 });
+});
+
+test('snaps a typed disk size to a 2 GB step within the allowed range', () => {
+	const options = resolveMachineSizeOptions(undefined, 500);
+	assert.equal(snapDiskGb(61, options.disk_gb), 62);
+	assert.equal(snapDiskGb(60, options.disk_gb), 60);
+	assert.equal(snapDiskGb(5, options.disk_gb), 20);
+	assert.equal(snapDiskGb(4000, options.disk_gb), 500);
+	assert.equal(snapDiskGb(Number.NaN, options.disk_gb), 20);
+	assert.equal(snapDiskGb(Number.NaN, options.disk_gb, 64), 64, 'a cleared input keeps the size');
+	assert.equal(snapDiskGb(21, options.disk_gb, 20), 22, 'a step up reaches the next size');
+	assert.equal(snapDiskGb(21, options.disk_gb, 22), 20, 'a step down reaches the previous size');
+	assert.equal(snapDiskGb(5, options.disk_gb, 22), 20);
+	const legacy = [20, 30, 40, 50, 75];
+	assert.equal(snapDiskGb(74, legacy, 75), 50);
+	assert.equal(snapDiskGb(76, legacy, 75), 75);
 });
