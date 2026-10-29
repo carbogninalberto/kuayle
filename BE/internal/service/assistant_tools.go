@@ -70,6 +70,9 @@ type AssistantTools struct {
 	work assistantAgentWork
 	// link_repository is unavailable until SetRepositories wires it.
 	repositories assistantRepositoryStore
+	// The preview and port tools are unavailable until SetMachines wires them.
+	machineTasks assistantMachineTasks
+	machinePorts assistantMachinePorts
 }
 
 type assistantAgentWork interface {
@@ -104,6 +107,8 @@ type assistantTool struct {
 	agentWork bool
 	// repositories tools need SetRepositories.
 	repositories bool
+	// machines tools need SetMachines.
+	machines bool
 }
 
 var assistantToolCatalog = []assistantTool{
@@ -124,9 +129,15 @@ var assistantToolCatalog = []assistantTool{
 	{name: "link_repository", repositories: true, write: true, description: "Set the GitHub repository (owner/name) coding agents use for an issue, or with scope \"project\" for every issue of its project, as the development settings in Kuayle do. Only repositories linked to the workspace's GitHub installation and allowed by its Dev Machine policy can be used; the base branch defaults to the repository's default branch. Only call this when the user explicitly asked to link or change the repository.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"repository":{"type":"string","minLength":3,"maxLength":200},"base_branch":{"type":"string","minLength":1,"maxLength":255},"scope":{"type":"string","enum":["issue","project"]}},"required":["identifier","repository"],"additionalProperties":false}`},
 }
 
+// assistantTools is every tool, in the order offered to the model.
+func assistantTools() []assistantTool {
+	return append(append([]assistantTool{}, assistantToolCatalog...), assistantMachineToolCatalog...)
+}
+
 func (t *AssistantTools) specs() []chatToolSpec {
-	specs := make([]chatToolSpec, 0, len(assistantToolCatalog))
-	for _, tool := range assistantToolCatalog {
+	tools := assistantTools()
+	specs := make([]chatToolSpec, 0, len(tools))
+	for _, tool := range tools {
 		if !t.available(tool) {
 			continue
 		}
@@ -146,11 +157,12 @@ func (tool assistantTool) spec() chatToolSpec {
 
 // available reports whether a tool's dependencies are wired.
 func (t *AssistantTools) available(tool assistantTool) bool {
-	return (!tool.agentWork || t.work != nil) && (!tool.repositories || t.repositories != nil)
+	return (!tool.agentWork || t.work != nil) && (!tool.repositories || t.repositories != nil) &&
+		(!tool.machines || (t.machineTasks != nil && t.machinePorts != nil))
 }
 
 func lookupAssistantTool(name string) (assistantTool, bool) {
-	for _, tool := range assistantToolCatalog {
+	for _, tool := range assistantTools() {
 		if tool.name == name {
 			return tool, true
 		}
@@ -306,6 +318,8 @@ func (t *AssistantTools) run(ctx context.Context, ws, user uuid.UUID, name, argu
 		return t.listAgentWork(ctx, ws, arguments)
 	case "link_repository":
 		return t.linkRepository(ctx, ws, member.Role, arguments)
+	case "stop_preview", "list_ports":
+		return t.runMachineTool(ctx, ws, user, name, arguments)
 	case "plan_issues":
 		return t.planIssues(ctx, ws, arguments)
 	case "link_issues":

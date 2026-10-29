@@ -703,7 +703,10 @@ cancelled or failed, when the user stops it, or when the user removes the task
 port. Stopping or re-provisioning the machine marks its previews stopped and
 removes task ports; pausing keeps them (the processes are frozen and resume).
 Task payloads carry `preview: {state, port_id, port, error} | null`; changes
-are published as `task.updated` conversation events.
+are published as `task.updated` conversation events. The assistant's
+`start_preview` (with approval), `stop_preview`, `expose_port` (with approval)
+and `list_ports` tools use these same paths; see
+[previews and ports from chat](conversations.md#previews-and-ports-from-chat).
 
 Implementing attempts get one prompt line about manual QA: with a preview
 command, that Kuayle starts it for the reviewer; without one, that the attempt

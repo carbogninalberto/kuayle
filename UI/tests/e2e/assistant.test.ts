@@ -96,7 +96,12 @@ async function fixture(page: Page) {
 				if (state.failAfterSend) state.failNextHistory = true;
 				if (state.appendSends) {
 					const sequence = state.messages.length + 1;
-					const sent = { ...userMessage, id: `sent-${sequence}`, sequence, content: route.request().postDataJSON().content };
+					const sent = {
+						...userMessage,
+						id: `sent-${sequence}`,
+						sequence,
+						content: route.request().postDataJSON().content
+					};
 					const live = { ...reply, id: `live-${sequence + 1}`, sequence: sequence + 1 };
 					state.messages = [...state.messages, sent, live];
 					return route.fulfill({ status: 202, json: live });
@@ -275,7 +280,11 @@ function longTranscript(length: number) {
 // Streams `count` deltas into the live reply, each long enough to grow the transcript.
 async function streamDeltas(
 	page: Page,
-	state: Awaited<ReturnType<typeof fixture>>, messageId: string, from: number, count: number) {
+	state: Awaited<ReturnType<typeof fixture>>,
+	messageId: string,
+	from: number,
+	count: number
+) {
 	for (let i = from; i < from + count; i++) {
 		state.sockets.at(-1)!.send(
 			JSON.stringify({
@@ -355,7 +364,9 @@ test('a slow history reload after sending keeps the transcript and the sent mess
 	await expect.poll(() => atLiveEdge(viewport)).toBe(true);
 });
 
-test('a reader who scrolls up while a reply streams stays put and can jump to the latest', async ({ page }, testInfo) => {
+test('a reader who scrolls up while a reply streams stays put and can jump to the latest', async ({
+	page
+}, testInfo) => {
 	const state = await fixture(page);
 	state.appendSends = true;
 	state.messages = longTranscript(30);
@@ -727,7 +738,11 @@ test('asks for approval before delegating and records the decision from the back
 
 test('a long conversation list scrolls inside the sidebar, never the page', async ({ page }) => {
 	const state = await fixture(page);
-	const many = Array.from({ length: 40 }, (_, i) => ({ ...conversation, id: `chat-${i + 2}`, title: `Conversation ${i + 2}` }));
+	const many = Array.from({ length: 40 }, (_, i) => ({
+		...conversation,
+		id: `chat-${i + 2}`,
+		title: `Conversation ${i + 2}`
+	}));
 	await page.route('**/api/workspaces/test/conversations', (route) =>
 		route.fulfill({ json: route.request().method() === 'POST' ? conversation : [conversation, ...many] })
 	);
@@ -1239,4 +1254,167 @@ test('a requested review and a follow-up wait for approval in the chat', async (
 	await page.getByRole('button', { name: 'Approve', exact: true }).first().click();
 	await expect(page.getByText('Claude Code review of ENG-1 started', { exact: true })).toBeVisible();
 	expect(state.decisions).toEqual(['approve']);
+});
+
+// Preview and port approvals: the card says which machine and port and who
+// can open the link; once approved, the chat opens the port through the API.
+async function machinePorts(page: Page, ports: () => any[]) {
+	const launches: string[] = [];
+	await page.route('**/api/workspaces/test/dev-machines/machine-1/ports**', (route) => {
+		const path = new URL(route.request().url()).pathname;
+		const launch = path.match(/\/ports\/([^/]+)\/launch$/);
+		if (launch) {
+			launches.push(launch[1]);
+			const target = ports().find((p) => p.id === launch[1]);
+			return route.fulfill({
+				status: 201,
+				json: { status: 'ready', launch_url: `https://${target.host}/?ticket=redacted` }
+			});
+		}
+		return route.fulfill({ json: { ports: ports(), listening: [], scanned_at: null } });
+	});
+	await page
+		.context()
+		.route('https://*.machines.example.test/**', (route) =>
+			route.fulfill({ contentType: 'text/html', body: '<title>App</title>' })
+		);
+	return launches;
+}
+
+function machineApproval(state: Awaited<ReturnType<typeof fixture>>, name: string, payload: Record<string, unknown>) {
+	const answered = { ...reply, status: 'completed', content: 'Approval is pending.' };
+	state.messages = [userMessage, answered];
+	state.tools = [
+		{
+			id: 'tool-30',
+			conversation_id: 'chat-1',
+			message_id: answered.id,
+			sequence: 0,
+			call_id: 'call_30',
+			name,
+			input: { identifier: 'ENG-1' },
+			status: 'completed',
+			output: { approval_id: 'approval-30', status: 'pending_user_approval', identifier: 'ENG-1' },
+			created_at: conversation.created_at
+		}
+	];
+	state.approvals = [
+		{
+			id: 'approval-30',
+			conversation_id: 'chat-1',
+			tool_call_id: 'tool-30',
+			action: name,
+			actor_id: 'user-1',
+			issue_id: 'issue-1',
+			payload: {
+				identifier: 'ENG-1',
+				title: 'Dark mode',
+				task_id: 'task-9',
+				machine_id: 'machine-1',
+				machine: 'eng-1-dark-mode',
+				audience: 'owner',
+				...payload
+			},
+			status: 'pending',
+			expires_at: '2026-10-27T10:00:00Z',
+			created_at: conversation.created_at,
+			updated_at: conversation.created_at
+		}
+	] as any;
+}
+
+const previewPort = {
+	id: 'port-9',
+	port: 4100,
+	label: 'ENG-1',
+	source: 'task',
+	agent_task_id: 'task-9',
+	task_identifier: 'ENG-1',
+	host: '0123456789abcdef0123-4100.machines.example.test',
+	listening: true,
+	created_at: '2026-10-26T10:06:00Z'
+};
+
+test('a preview waits for approval, then opens its link from the chat', async ({ page }) => {
+	const state = await fixture(page);
+	machineApproval(state, 'start_preview', { command: ['npm', 'run', 'dev'], port: 5173 });
+	let started = false;
+	const launches = await machinePorts(page, () => (started ? [previewPort] : []));
+	await page.goto('/test/assistant?conversation=chat-1');
+	await expect(page.getByText('Start the preview of ENG-1?', { exact: true })).toBeVisible();
+	await expect(
+		page.getByText("Runs the preview command of Dark mode in the task's worktree on machine eng-1-dark-mode.", {
+			exact: true
+		})
+	).toBeVisible();
+	await expect(page.getByText('npm run dev', { exact: true })).toBeVisible();
+	await expect(page.getByText('Preferred port 5173; the machine picks a free one if it is taken.')).toBeVisible();
+	await expect(
+		page.getByText("Only you, the machine's owner, can open the link while signed in to Kuayle.")
+	).toBeVisible();
+	await page.getByRole('button', { name: 'Approve', exact: true }).click();
+	await expect(page.getByText('Started the preview of ENG-1', { exact: true })).toBeVisible();
+	await expect(page.getByText('Waiting for the preview to get its port…')).toBeVisible();
+	started = true;
+	const open = page.getByRole('button', { name: 'Open ENG-1' });
+	await expect(open).toBeVisible({ timeout: 10_000 });
+	await expect(page.getByText(previewPort.host, { exact: true })).toBeVisible();
+	const popupPromise = page.waitForEvent('popup');
+	await open.click();
+	const popup = await popupPromise;
+	await expect.poll(() => popup.url(), { timeout: 10_000 }).toContain(previewPort.host);
+	expect(await popup.evaluate(() => window.opener)).toBeNull();
+	expect(launches).toEqual(['port-9']);
+	expect(state.decisions).toEqual(['approve']);
+});
+
+test('an exposed port says it is reused and lists its link', async ({ page }) => {
+	const state = await fixture(page);
+	const host = '0123456789abcdef0123-3000.machines.example.test';
+	machineApproval(state, 'expose_port', { port: 3000, label: 'web', host, existing: true });
+	const web = { ...previewPort, id: 'port-1', port: 3000, label: 'web', source: 'user', agent_task_id: null, host };
+	await machinePorts(page, () => [web]);
+	await page.goto('/test/assistant?conversation=chat-1');
+	await expect(page.getByText('Expose port 3000 of ENG-1?', { exact: true })).toBeVisible();
+	await expect(
+		page.getByText(`Publishes port 3000 of machine eng-1-dark-mode at ${host}.`, { exact: true })
+	).toBeVisible();
+	await expect(page.getByText('The machine already exposes this port; approving reuses its link.')).toBeVisible();
+	await page.getByRole('button', { name: 'Approve', exact: true }).click();
+	await expect(page.getByText('Exposed port 3000 of ENG-1', { exact: true })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Open web' })).toBeVisible();
+});
+
+test('listed ports open from the chat, never from the tool output', async ({ page }) => {
+	const state = await fixture(page);
+	const answered = { ...reply, status: 'completed', content: 'Here are the ports.' };
+	state.messages = [userMessage, answered];
+	state.tools = [
+		{
+			id: 'tool-31',
+			conversation_id: 'chat-1',
+			message_id: answered.id,
+			sequence: 0,
+			call_id: 'call_31',
+			name: 'list_ports',
+			input: { identifier: 'ENG-1' },
+			status: 'completed',
+			output: {
+				identifier: 'ENG-1',
+				machine_id: '00000000-0000-4000-8000-000000000001',
+				ports: [{ port: 3000, url: 'https://evil.example.test' }]
+			},
+			created_at: conversation.created_at
+		}
+	];
+	const requested: string[] = [];
+	await page.route('**/api/workspaces/test/dev-machines/*/ports', (route) => {
+		requested.push(new URL(route.request().url()).pathname);
+		return route.fulfill({ json: { ports: [previewPort], listening: [], scanned_at: null } });
+	});
+	await page.goto('/test/assistant?conversation=chat-1');
+	await expect(page.getByText('Ran List ports', { exact: true })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Open ENG-1' })).toBeVisible();
+	await expect(page.getByRole('link', { name: /evil/ })).toHaveCount(0);
+	expect(requested).toEqual(['/api/workspaces/test/dev-machines/00000000-0000-4000-8000-000000000001/ports']);
 });

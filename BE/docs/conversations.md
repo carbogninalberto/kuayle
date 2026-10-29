@@ -212,8 +212,9 @@ The worker offers OpenAI-compatible function tools: `list_teams`,
 status or priority; assignees are not changed), `delegate_issue`, `plan_issues` and `link_issues` (see [dependencies and collaborating agents](agent-tasks.md#dependencies-and-collaborating-agents)),
 `get_agent_work`, `list_agent_work`, `merge_pull_request`, `accept_agent_work`
 (see [accepting without merge](agent-tasks.md#accepting-without-merge)), `request_agent_review`,
-`follow_up_task` (see [requested agent reviews](agent-tasks.md#requested-agent-reviews))
-and `link_repository`.
+`follow_up_task` (see [requested agent reviews](agent-tasks.md#requested-agent-reviews)),
+`link_repository`, and `start_preview`, `stop_preview`, `expose_port` and
+`list_ports` (see [previews and ports from chat](#previews-and-ports-from-chat)).
 `create_issue` accepts a `parent_identifier`. The write tools (`create_issue`,
 `update_issue`, `link_issues` and `link_repository`) count toward the per-reply
 change limit. The model only proposes calls.
@@ -323,6 +324,39 @@ this same resolution path; see [Telegram approval buttons](telegram.md#approval-
 `request_agent_review` and `follow_up_task` use the same approval path (migration
 84 extends the allowed actions); their effects and re-checks are described in
 [requested agent reviews](agent-tasks.md#requested-agent-reviews).
+
+### Previews and ports from chat
+
+The machine tools act on the issue's newest implementing task and its machine,
+resolved after the issue is read with the user's own visibility. They call the
+same code as the HTTP routes, as the conversation's user: the task repository's
+`RequestPreview` (`POST/DELETE /agent-tasks/:taskId/preview`, task creator only)
+and `DevMachineService` `ListPorts`/`CreatePort`/`UpdatePort`
+(`/dev-machines/:machineId/ports`, machine owner only, since the gateway admits
+only the owner). Another member's task, a task without a machine, a task without
+a preview command, a reserved service port, an invalid port or label and a
+disabled Dev Machine policy fail as data before anything is asked.
+
+- `start_preview` (approval) binds the task, its machine, the preview command and
+  the preferred port. Approval re-reads the task as the approver, refuses it when
+  it moved to another machine and queues the preview; `PREVIEW_UNAVAILABLE`
+  becomes a failed approval with its reason.
+- `stop_preview` (no approval) queues the stop and reports `stopping` or
+  `stopped`.
+- `expose_port` (approval) binds the machine, port, optional label and gateway
+  host, and says when the port already exists. Approval calls `CreatePort`; an
+  existing port for that machine and port is reused (and renamed when a new
+  label was approved) instead of duplicated.
+- `list_ports` (read-only) returns the machine's ports with `https://` gateway
+  links, listening state, detected listening ports and the task's preview.
+
+Payloads carry `audience: "owner"`: the card says only the user, as the
+machine's owner, can open the link while signed in to Kuayle. After approval
+the chat reads the machine's ports from the API (never from tool output) and
+offers an Open button per port, which launches it with a one-time ticket as the
+machine page does; a starting preview is polled until its task port exists.
+Migration 100 adds `start_preview` and `expose_port` to the allowed approval
+actions; rolling back deletes those approvals, not the previews or ports.
 
 ## Images
 
