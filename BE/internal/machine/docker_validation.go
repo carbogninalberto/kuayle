@@ -28,7 +28,8 @@ func (r *DockerRuntime) RunValidation(ctx context.Context, machine *domain.DevMa
 	} else if err := r.ensureImage(ctx, image); err != nil {
 		return nil, err
 	}
-	name := "kuayle-" + machine.RoutingKey + "-validation-" + run.ID.String()
+	key := checkContainerKey(run, step)
+	name := "kuayle-" + machine.RoutingKey + "-" + key
 	labels := machineLabels(machine)
 	labels["com.kuayle.service"] = "agent"
 	labels["com.kuayle.agent-run-id"] = run.ID.String()
@@ -66,7 +67,7 @@ func (r *DockerRuntime) RunValidation(ctx context.Context, machine *domain.DevMa
 		// A check may start compose services beside it, so it keeps the agent
 		// share of a machine with a daemon (35%).
 		HostConfig:       r.secureHostConfig(machine, "agent", *machine.DockerNetworkName, *machine.WorkspaceVolumeName, true),
-		NetworkingConfig: &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{*machine.DockerNetworkName: {Aliases: []string{"validation-" + run.ID.String()}}}},
+		NetworkingConfig: &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{*machine.DockerNetworkName: {Aliases: []string{key}}}},
 	})
 	if err != nil {
 		return nil, err
@@ -77,6 +78,41 @@ func (r *DockerRuntime) RunValidation(ctx context.Context, machine *domain.DevMa
 	// The same stream/recovery path executes a direct argv, without the native
 	// harness bootstrap, model parsing or any provider/GitHub credential handoff.
 	return r.resumeExecution(ctx, container.InspectResponse{ID: result.ID, State: &container.State{Status: "created"}}, false, nil, observer, false)
+}
+
+// checkContainerKey names a check's container, service and network alias.
+// The attempt's independent validation keeps one per attempt; each manual
+// check gets its own, so it never replays an earlier check's result.
+func checkContainerKey(run *domain.DevMachineAgentRun, step *domain.DevMachineAgentRunStep) string {
+	if step != nil && step.StepType == manualCheckStepType {
+		return "check-" + step.ID.String()
+	}
+	return "validation-" + run.ID.String()
+}
+
+const manualCheckStepType = "manual_check"
+
+// RemoveCheck deletes a finished manual check's container. Its recorded
+// result and output stay; only replay needed the container.
+func (r *DockerRuntime) RemoveCheck(ctx context.Context, machine *domain.DevMachine, run *domain.DevMachineAgentRun, step *domain.DevMachineAgentRunStep) error {
+	if step == nil || step.StepType != manualCheckStepType {
+		return nil
+	}
+	name := "kuayle-" + machine.RoutingKey + "-" + checkContainerKey(run, step)
+	result, err := r.client.ContainerInspect(ctx, name, client.ContainerInspectOptions{})
+	if errdefs.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if result.Container.Config == nil || !ownedByMachine(result.Container.Config.Labels, machine.ID) || result.Container.Config.Labels["com.kuayle.validation-id"] != step.ID.String() {
+		return fmt.Errorf("check container ownership does not match")
+	}
+	if _, err = r.client.ContainerRemove(ctx, result.Container.ID, client.ContainerRemoveOptions{Force: true}); err != nil && !errdefs.IsNotFound(err) {
+		return err
+	}
+	return nil
 }
 
 func (r *DockerRuntime) prepareCheckServices(ctx context.Context, machine *domain.DevMachine, run *domain.DevMachineAgentRun, step *domain.DevMachineAgentRunStep, checkout *domain.DevMachineCheckout, checkID string) error {

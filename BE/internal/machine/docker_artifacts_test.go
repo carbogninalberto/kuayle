@@ -66,7 +66,7 @@ func TestValidationArtifactsKeepOnlyBoundedReportFiles(t *testing.T) {
 	defer docker.Close()
 	machine := &domain.DevMachine{RoutingKey: "fixture"}
 	run := &domain.DevMachineAgentRun{ID: uuid.New()}
-	artifacts, err := (&DockerRuntime{client: docker}).CollectValidationArtifacts(context.Background(), machine, run, &domain.DevMachineCheckout{WorkspacePath: "/workspace/tasks/rec-1"})
+	artifacts, err := (&DockerRuntime{client: docker}).CollectValidationArtifacts(context.Background(), machine, run, nil, &domain.DevMachineCheckout{WorkspacePath: "/workspace/tasks/rec-1"})
 	require.NoError(t, err)
 	require.Equal(t, []string{"/workspace/tasks/rec-1/playwright-report", "/workspace/tasks/rec-1/test-results"}, requested)
 	paths := map[string]string{}

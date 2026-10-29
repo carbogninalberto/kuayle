@@ -22,6 +22,9 @@ async function fixture(page: Page) {
 	const state = {
 		task: null as any,
 		validation: null as any,
+		manualChecks: [] as any[],
+		checkRuns: [] as any[],
+		checkError: null as any,
 		artifacts: [] as any[],
 		publication: { step: null } as any,
 		publications: 0,
@@ -154,6 +157,21 @@ async function fixture(page: Page) {
 				state.task = { ...state.task, preview: { state: 'stopped', port_id: null, port: null, error: null } };
 				return route.fulfill({ status: 202, json: {} });
 			}
+			if (path.endsWith('/agent-tasks/task-1/checks') && req.method() === 'POST') {
+				state.checkRuns.push(req.postDataJSON());
+				if (state.checkError) return route.fulfill(state.checkError);
+				const step = {
+					id: `check-${state.manualChecks.length + 1}`,
+					agent_run_id: state.task.run_id,
+					step_type: 'manual_check',
+					status: 'queued',
+					command_argv: ['npm', 'test'],
+					summary: 'Waiting for the check to start'
+				};
+				state.manualChecks = [...state.manualChecks, step];
+				return route.fulfill({ status: 202, json: step });
+			}
+			if (path.endsWith('/runs/run-1/checks')) return route.fulfill({ json: state.manualChecks });
 			if (state.missingRun && path.includes('/runs/'))
 				return route.fulfill({ status: 404, json: { error: { code: 'NOT_FOUND' } } });
 			if (path.endsWith('/cancel')) {
@@ -590,6 +608,64 @@ test('a rejected Compose stack shows its reason with the failed check', async ({
 	await expect(checks.getByText('Services from deploy/compose.yaml')).toBeVisible();
 	await expect(checks.getByText('Compose file rejected: service "app": "privileged" is not supported')).toBeVisible();
 	await expect(checks.getByText(/Exit code/)).toHaveCount(0);
+});
+
+test('runs the check from the task card and shows the manual check live, apart from the independent check', async ({
+	page
+}) => {
+	const { state, emit } = await fixture(page);
+	await page.goto('/test/assistant?conversation=chat-1');
+	await delegate(page);
+	const task = page.getByRole('article', { name: 'Coding task' });
+	const run = task.getByRole('group', { name: 'Tools' }).getByRole('button', { name: 'Run check', exact: true });
+	await expect(run).toHaveCount(0);
+	await awaitReview(state, emit);
+	state.task = { ...state.task, machine_id: 'machine-1' };
+	emit('task.state_changed', state.task);
+	await run.click();
+	await expect.poll(() => state.checkRuns).toEqual([{}]);
+	const manual = task.getByRole('region', { name: 'Manual check', exact: true });
+	await expect(manual.getByText('Manual check queued')).toBeVisible();
+	await expect(task.getByRole('region', { name: 'Independent checks', exact: true })).toContainText(
+		'No independent check recorded'
+	);
+	const busy = task.getByRole('group', { name: 'Tools' }).getByRole('button', { name: 'Running manual check' });
+	state.manualChecks = [{ ...state.manualChecks[0], status: 'running', started_at: '2026-10-27T10:00:00Z' }];
+	emit('task.tests_updated', { task_id: 'task-1', run_id: 'run-1', step: state.manualChecks[0] });
+	await expect(manual.getByText('Running manual check')).toBeVisible();
+	await expect(busy).toBeDisabled();
+	state.logs = [
+		{
+			id: 1,
+			agent_run_id: 'run-1',
+			service_id: 'check-1',
+			stream: 'stdout',
+			sequence: 1,
+			content: '1 failing: search returns hidden issues',
+			truncated: false
+		}
+	];
+	state.manualChecks = [
+		{ ...state.manualChecks[0], status: 'failed', exit_code: 1, completed_at: '2026-10-27T10:01:00Z' }
+	];
+	emit('task.tests_updated', { task_id: 'task-1', run_id: 'run-1', step: state.manualChecks[0] });
+	await manual.getByRole('button', { name: 'Manual check failed' }).click();
+	await expect(manual.getByText('Exit code: 1')).toBeVisible();
+	await expect(manual.getByText(/1 failing: search returns hidden issues/)).toBeVisible();
+	await expect(page.getByText(/1 failing: search returns hidden issues/)).toHaveCount(1);
+	await expect(run).toBeEnabled();
+	expect(state.task.state).toBe('awaiting_review');
+	expect(state.retries).toHaveLength(0);
+
+	// A busy machine refuses the check with the server's reason.
+	state.checkError = {
+		status: 409,
+		json: { error: { code: 'MACHINE_BUSY', message: 'The agent is working on this machine; try again when it pauses' } }
+	};
+	await run.click();
+	await expect(
+		task.getByRole('alert').filter({ hasText: 'The agent is working on this machine; try again when it pauses' })
+	).toBeVisible();
 });
 
 test('opens the recorded pull request only after publication succeeds', async ({ page }) => {

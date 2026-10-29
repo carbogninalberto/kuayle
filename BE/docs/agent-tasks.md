@@ -135,6 +135,53 @@ the task's app port on the daemon. The independent check still uses the subset
 above, because the check container cannot join the daemon's Compose networks.
 
 
+### Manual checks
+
+Migration 97 adds the `run_check` machine operation. The task's creator can run
+the check on demand, without an agent attempt and without changing the task's
+state, generation or attempt: `POST /agent-tasks/:taskId/checks` with an empty
+body or `{}` runs the task's check (the command requested for the task, else the
+command configured for its issue now, with the configured Compose file), and
+`{"command": [argv...]}` runs a one-off argv (the assistant sends
+`["sh","-c","<command>"]`). Commands follow `ValidateTestCommand`; a custom
+command also needs `dev_machine:manage`, the permission that edits the check
+command in the development settings. The answer is 202 with the step.
+
+The task must be `awaiting_review`, `blocked`, `failed` or `completed`, with its
+latest attempt's redaction snapshot and ready checkout on a running machine with
+an enabled policy (otherwise 409 `CHECK_UNAVAILABLE`; no command at all is 409
+`NO_CHECK_COMMAND`). The request takes native-run creation's workspace and
+machine locks and refuses with 409 `MACHINE_BUSY` ("the agent is working; try
+again when it pauses") while an attempt, an independent validation or
+publication, or another manual check uses the machine. In return a queued or
+running manual check makes new attempts wait (the worker retries quietly),
+makes validation and publication of other tasks on the machine wait, refuses
+pause, stop and teardown like an active run, and blocks the task's retry.
+
+The result is a `manual_check` step on the task's latest attempt (sequence 100
+and up, so it never takes validation's or publication's place, and it never
+counts as validation). The operation's idempotency key `task-check:<step id>`
+names the step. The manager reuses the independent check path: the same
+credential-free container (developer image, hardened host config, egress proxy,
+`CI=true`, the attempt's snapshot used only for redaction), Compose services,
+artifacts and log chunks under `service_id` = step ID, but a container of its own,
+`kuayle-<routing key>-check-<step id>`, removed once the result is recorded so a
+later check never replays an earlier one. Every write re-checks that the
+requester still created and may use the task, that the task is still idle on the
+same attempt and machine, and the operation's lease, generation and policy. A
+retry, cancellation or revoked access stops it. The exit code alone decides
+`succeeded` or `failed`; an operation that fails for good (stale machine,
+timeout, rejected Compose file) marks the step `failed` with a safe summary, and
+cancellation marks it `cancelled`. Every change emits `task.tests_updated`, so the
+task card shows it live, labelled "Manual check", beside the independent check.
+`GET /agent-tasks/:taskId/runs/:runId/checks` lists an attempt's manual checks.
+
+The assistant's `run_check(identifier, command?)` tool asks for approval (the
+card shows the exact argv) and runs the check of the issue's newest task as its
+creator. `get_agent_work` then reports the latest manual check: status, exit
+code, command and summary, plus the last 1,500 characters of its untrusted
+output for the task's creator only.
+
 ## Publication
 
 Task attempts never receive a GitHub credential (`push_branch` is false), so the
@@ -973,6 +1020,9 @@ and cancellation remain available to authorized users.
 - `GET /agent-tasks/:taskId/runs/:runId/artifacts` lists that check's kept
   artifacts (`id, path, content_type, size`); `.../artifacts/:artifactId`
   downloads one.
+- `POST /agent-tasks/:taskId/checks` runs the task's check, or `{"command": [...]}`,
+  without an agent attempt; `GET /agent-tasks/:taskId/runs/:runId/checks` lists an
+  attempt's manual checks ([manual checks](#manual-checks)).
 - `GET /agent-tasks/:taskId/runs/:runId/publication` returns `{step, branch,
   pull_request_url}`; `pull_request_url` is present only for a succeeded step.
 - `GET /agent-tasks/:taskId/sessions` returns the task's agent sessions and the

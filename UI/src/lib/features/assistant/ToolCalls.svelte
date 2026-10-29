@@ -65,7 +65,8 @@
 		start_preview: m['assistant.tool_start_preview'],
 		stop_preview: m['assistant.tool_stop_preview'],
 		expose_port: m['assistant.tool_expose_port'],
-		list_ports: m['assistant.tool_list_ports']
+		list_ports: m['assistant.tool_list_ports'],
+		run_check: m['assistant.tool_run_check']
 	};
 	// Outcome lines per approval action.
 	function outcome(approval: ConversationApproval) {
@@ -112,6 +113,20 @@
 					return m['assistant.approval_expired']({ identifier });
 				default:
 					return m['assistant.port_denied']({ identifier, port });
+			}
+		}
+		if (approval.action === 'run_check') {
+			switch (approval.status) {
+				case 'approving':
+					return m['assistant.run_check_approving']({ identifier });
+				case 'approved':
+					return m['assistant.run_check_approved']({ identifier });
+				case 'failed':
+					return m['assistant.run_check_failed']({ identifier, error: approval.error ?? '' });
+				case 'expired':
+					return m['assistant.approval_expired']({ identifier });
+				default:
+					return m['assistant.run_check_denied']({ identifier });
 			}
 		}
 		if (approval.action === 'request_agent_review' || approval.action === 'follow_up_task') {
@@ -254,6 +269,21 @@
 									href={approval.payload.pull_request_url}
 									target="_blank"
 									rel="noopener noreferrer"><ExternalLink size={12} />{m['tasks.open_pull_request']()}</a
+								>
+							{:else if approval.action === 'run_check'}
+								<Item.Title>{m['assistant.run_check_title']({ identifier })}</Item.Title>
+								<Item.Description class="line-clamp-none"
+									>{m['assistant.run_check_description']({ title: approval.payload.title })}</Item.Description
+								>
+								<!-- The exact argv that runs, as recorded on the check. -->
+								<CodeBlock.Root size="sm"
+									><CodeBlock.Content
+										code={approval.payload.command
+											? JSON.stringify(approval.payload.command)
+											: m['assistant.run_check_default']()}
+										wrap
+										class="max-h-48 text-xs"
+									/></CodeBlock.Root
 								>
 							{:else if approval.action === 'follow_up_task'}
 								<Item.Title>{m['assistant.follow_up_title']({ identifier })}</Item.Title>

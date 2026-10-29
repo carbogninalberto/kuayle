@@ -32,11 +32,11 @@ const (
 // check container. Only regular files of allowed types under the report
 // directories are kept, within per-file, total and count limits; links,
 // devices and anything outside those directories are ignored.
-func (r *DockerRuntime) CollectValidationArtifacts(ctx context.Context, machine *domain.DevMachine, run *domain.DevMachineAgentRun, checkout *domain.DevMachineCheckout) ([]domain.ValidationArtifact, error) {
+func (r *DockerRuntime) CollectValidationArtifacts(ctx context.Context, machine *domain.DevMachine, run *domain.DevMachineAgentRun, step *domain.DevMachineAgentRunStep, checkout *domain.DevMachineCheckout) ([]domain.ValidationArtifact, error) {
 	if checkout == nil {
 		return nil, nil
 	}
-	name := "kuayle-" + machine.RoutingKey + "-validation-" + run.ID.String()
+	name := "kuayle-" + machine.RoutingKey + "-" + checkContainerKey(run, step)
 	artifacts := []domain.ValidationArtifact{}
 	total := 0
 	for _, dir := range validationArtifactDirs {

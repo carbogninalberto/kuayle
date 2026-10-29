@@ -551,6 +551,12 @@ documents migration 56, authorization/lease ordering, encrypted per-attempt
 recovery credentials, live output capture and conversation events, and the
 session-only task routes, worker wiring, independent validation, pull request publication and remaining review work. Manual IDE/terminal
 workflows continue to use the existing machine controls.
+A task's check can also run on demand ([manual checks](BE/docs/agent-tasks.md#manual-checks),
+migration 97): `POST /agent-tasks/:taskId/checks`, the task card's "Run check"
+button or the assistant's approved `run_check` tool queue a `run_check`
+operation that runs in the credential-free check container on the latest
+attempt's checkout, records a `manual_check` step and never starts an attempt
+or changes the task's state. It is refused while the agent works on the machine.
 
 Every task attempt runs inside a tracked [agent session](BE/docs/agent-tasks.md#agent-sessions)
 (migration 84, `agent_sessions`): an implementing task keeps one session across

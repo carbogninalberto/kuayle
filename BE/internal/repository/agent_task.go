@@ -432,7 +432,7 @@ func (r *AgentTaskRepository) FinishCancellation(ctx context.Context, claimed do
 		}
 		return ErrAgentTaskConflict
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE dev_machine_agent_run_steps SET status='cancelled',completed_at=now(),summary='Runtime cancellation confirmed' WHERE agent_run_id=$1 AND step_type IN ('validation','publication') AND status IN ('queued','running')`, task.RunID); err != nil {
+	if _, err = tx.ExecContext(ctx, `UPDATE dev_machine_agent_run_steps SET status='cancelled',completed_at=now(),summary='Runtime cancellation confirmed' WHERE agent_run_id=$1 AND step_type IN ('validation','publication','manual_check') AND status IN ('queued','running')`, task.RunID); err != nil {
 		return err
 	}
 	target := "cancelled"

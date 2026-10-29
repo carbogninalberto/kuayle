@@ -36,15 +36,17 @@ const (
 type DevMachineOperationAction string
 
 const (
-	DevMachineOpSpawn               DevMachineOperationAction = "spawn"
-	DevMachineOpStart               DevMachineOperationAction = "start"
-	DevMachineOpStop                DevMachineOperationAction = "stop"
-	DevMachineOpPause               DevMachineOperationAction = "pause"
-	DevMachineOpTeardown            DevMachineOperationAction = "teardown"
-	DevMachineOpReconcile           DevMachineOperationAction = "reconcile"
-	DevMachineOpRunAgent            DevMachineOperationAction = "run_agent"
-	DevMachineOpValidateAgent       DevMachineOperationAction = "validate_agent"
-	DevMachineOpPublishAgent        DevMachineOperationAction = "publish_agent"
+	DevMachineOpSpawn         DevMachineOperationAction = "spawn"
+	DevMachineOpStart         DevMachineOperationAction = "start"
+	DevMachineOpStop          DevMachineOperationAction = "stop"
+	DevMachineOpPause         DevMachineOperationAction = "pause"
+	DevMachineOpTeardown      DevMachineOperationAction = "teardown"
+	DevMachineOpReconcile     DevMachineOperationAction = "reconcile"
+	DevMachineOpRunAgent      DevMachineOperationAction = "run_agent"
+	DevMachineOpValidateAgent DevMachineOperationAction = "validate_agent"
+	DevMachineOpPublishAgent  DevMachineOperationAction = "publish_agent"
+	// DevMachineOpRunCheck runs a task's check on demand, outside its workflow.
+	DevMachineOpRunCheck            DevMachineOperationAction = "run_check"
 	DevMachineOpPurgeTaskSession    DevMachineOperationAction = "purge_task_session"
 	DevMachineOpStartPreview        DevMachineOperationAction = "start_preview"
 	DevMachineOpStopPreview         DevMachineOperationAction = "stop_preview"

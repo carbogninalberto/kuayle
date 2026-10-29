@@ -213,7 +213,7 @@ func (r *DockerRuntime) waitForCheckServices(ctx context.Context, services []Com
 
 // RemoveCheckServices deletes a check's services and network. The check
 // container itself is kept for artifact collection and result replay.
-func (r *DockerRuntime) RemoveCheckServices(ctx context.Context, machine *domain.DevMachine, run *domain.DevMachineAgentRun) error {
+func (r *DockerRuntime) RemoveCheckServices(ctx context.Context, machine *domain.DevMachine, run *domain.DevMachineAgentRun, step *domain.DevMachineAgentRunStep) error {
 	containers, err := r.client.ContainerList(ctx, client.ContainerListOptions{All: true, Filters: make(client.Filters).Add("label", "com.kuayle.agent-run-id="+run.ID.String()).Add("label", "com.kuayle.service=compose")})
 	if err != nil {
 		return err
@@ -229,7 +229,7 @@ func (r *DockerRuntime) RemoveCheckServices(ctx context.Context, machine *domain
 		}
 	}
 	networkName := checkNetworkName(machine, run)
-	_, _ = r.client.NetworkDisconnect(ctx, networkName, client.NetworkDisconnectOptions{Container: "kuayle-" + machine.RoutingKey + "-validation-" + run.ID.String(), Force: true})
+	_, _ = r.client.NetworkDisconnect(ctx, networkName, client.NetworkDisconnectOptions{Container: "kuayle-" + machine.RoutingKey + "-" + checkContainerKey(run, step), Force: true})
 	cleanup = append(cleanup, r.removeManagedNetwork(ctx, networkName, machine.ID))
 	return errors.Join(cleanup...)
 }
