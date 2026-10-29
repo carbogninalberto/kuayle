@@ -52,7 +52,7 @@ func TestUpdateResourcesAppliesEachContainerShareOfTheNewSize(t *testing.T) {
 	require.True(t, dockerClient.containerListOptions.All, "stopped containers start with the new limits")
 	expected := map[string]container.Resources{}
 	for _, service := range []string{"ide", "collector", "egress", "browser", "agent"} {
-		expected[service] = runtime.secureHostConfig(machine, service, "", "").Resources
+		expected[service] = runtime.secureHostConfig(machine, service, "", "", true).Resources
 	}
 	expected["validation"] = expected["agent"]
 	expected["db"] = runtime.composeHostConfig(machine, "", 2).Resources
@@ -68,6 +68,22 @@ func TestUpdateResourcesAppliesEachContainerShareOfTheNewSize(t *testing.T) {
 		require.Empty(t, update.Devices, "only limits are updated")
 	}
 	require.Equal(t, int64(16384)*1024*1024*35/100, dockerClient.updates["agent"].Memory)
+}
+
+func TestUpdateResourcesGivesHeadlessAgentsWithoutDaemonHalfTheMachine(t *testing.T) {
+	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), Profile: domain.DevMachineProfileHeadless, CPUMillis: 4000, MemoryMB: 8192, PidsLimit: 512}
+	labels := func(service string) map[string]string {
+		result := machineLabels(machine)
+		result["com.kuayle.service"] = service
+		return result
+	}
+	dockerClient := &resizeDockerClientFake{dockerClientFake: &dockerClientFake{containers: []container.Summary{
+		{ID: "agent", Labels: labels("agent")}, {ID: "terminal", Labels: labels("terminal")},
+	}}, updates: map[string]container.Resources{}}
+	require.NoError(t, (&DockerRuntime{client: dockerClient}).UpdateResources(context.Background(), machine))
+	require.Equal(t, int64(8192)*1024*1024*containerSharePercent(machine, "agent", false)/100, dockerClient.updates["agent"].Memory)
+	require.Equal(t, int64(8192)*1024*1024*50/100, dockerClient.updates["agent"].Memory)
+	require.Equal(t, int64(8192)*1024*1024*40/100, dockerClient.updates["terminal"].Memory)
 }
 
 func TestMonitoredVolumeAcceptsResizedDiskLimit(t *testing.T) {

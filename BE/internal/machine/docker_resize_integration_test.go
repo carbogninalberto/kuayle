@@ -42,11 +42,11 @@ func TestDockerResizeAndMemoryLimitDetection(t *testing.T) {
 		})
 		return created.ID
 	}
-	initial := runtime.secureHostConfig(machine, "terminal", "", "").Resources
+	initial := runtime.secureHostConfig(machine, "terminal", "", "", false).Resources
 	running := create("terminal", "terminal", initial, "sleep", "120")
 	_, err = runtime.client.ContainerStart(ctx, running, client.ContainerStartOptions{})
 	require.NoError(t, err)
-	stopped := create("agent", "agent", runtime.secureHostConfig(machine, "agent", "", "").Resources, "true")
+	stopped := create("agent", "agent", runtime.secureHostConfig(machine, "agent", "", "", false).Resources, "true")
 
 	resized := *machine
 	resized.CPUMillis, resized.MemoryMB = 2000, 4096
@@ -54,7 +54,7 @@ func TestDockerResizeAndMemoryLimitDetection(t *testing.T) {
 	for id, service := range map[string]string{running: "terminal", stopped: "agent"} {
 		inspection, err := runtime.client.ContainerInspect(ctx, id, client.ContainerInspectOptions{})
 		require.NoError(t, err)
-		expected := runtime.secureHostConfig(&resized, service, "", "").Resources
+		expected := runtime.secureHostConfig(&resized, service, "", "", false).Resources
 		require.Equal(t, expected.Memory, inspection.Container.HostConfig.Memory, service)
 		require.Equal(t, expected.NanoCPUs, inspection.Container.HostConfig.NanoCPUs, service)
 		require.Equal(t, *expected.PidsLimit, *inspection.Container.HostConfig.PidsLimit, service)

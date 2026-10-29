@@ -12,7 +12,7 @@ import (
 
 // UpdateResources applies the machine's size to each of its containers,
 // running or stopped, with the same share each one gets when it is created:
-// service and agent containers through secureHostConfig, the Docker daemon
+// service and agent containers through secureHostConfig (containerSharePercent), the Docker daemon
 // through dockerHostConfig and check services through composeHostConfig.
 // Short-lived helpers keep their fixed limits.
 func (r *DockerRuntime) UpdateResources(ctx context.Context, machine *domain.DevMachine) error {
@@ -23,9 +23,16 @@ func (r *DockerRuntime) UpdateResources(ctx context.Context, machine *domain.Dev
 		return err
 	}
 	composeCounts := map[string]int{}
+	docker := false
 	for _, item := range containers.Items {
-		if r.ownedForResize(item.Labels, machine) && item.Labels["com.kuayle.service"] == "compose" {
+		if !r.ownedForResize(item.Labels, machine) {
+			continue
+		}
+		switch item.Labels["com.kuayle.service"] {
+		case "compose":
 			composeCounts[item.Labels["com.kuayle.agent-run-id"]]++
+		case "docker":
+			docker = true
 		}
 	}
 	var failures []error
@@ -36,7 +43,9 @@ func (r *DockerRuntime) UpdateResources(ctx context.Context, machine *domain.Dev
 		var resources container.Resources
 		switch service := item.Labels["com.kuayle.service"]; service {
 		case "ide", "terminal", "browser", "collector", "egress", "agent":
-			resources = r.secureHostConfig(machine, service, "", "").Resources
+			// Shares follow containerSharePercent; a check keeps the share of
+			// a machine with a daemon, as when it is created.
+			resources = r.secureHostConfig(machine, service, "", "", docker || item.Labels["com.kuayle.validation-id"] != "").Resources
 		case "docker":
 			resources = r.dockerHostConfig(machine, "", "", "").Resources
 		case "compose":
