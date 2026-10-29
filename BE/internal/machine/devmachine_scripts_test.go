@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -193,7 +194,12 @@ printf 'tampered release' > "$output"
 
 	require.Error(t, err)
 	require.Contains(t, stderr.String(), "sha256 mismatch for goose")
-	require.Contains(t, stderr.String(), "225a929b35b5130fb691eafdb50be236f2c0a150019b53973775938f8f19c281")
+	// Release bumps rewrite the pinned digest, so read it from the script.
+	script, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", "common", "install-agent-clis.sh"))
+	require.NoError(t, err)
+	pinned := regexp.MustCompile(`(?m)^\s*amd64\)[\s\S]*?goose_sha256=([0-9a-f]{64})`).FindSubmatch(script)
+	require.NotNil(t, pinned, "amd64 goose digest pin")
+	require.Contains(t, stderr.String(), "expected "+string(pinned[1]))
 }
 
 func TestAgentCLIInstallerPinsEveryCLIAndReleaseDigest(t *testing.T) {
