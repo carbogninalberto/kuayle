@@ -216,6 +216,8 @@ status or priority; assignees are not changed), `delegate_issue`, `plan_issues` 
 `run_check` (see [manual checks](agent-tasks.md#manual-checks)),
 `link_repository`, and `start_preview`, `stop_preview`, `expose_port` and
 `list_ports` (see [previews and ports from chat](#previews-and-ports-from-chat)).
+`link_repository`, and the live channel tools `message_task` and
+`get_task_messages` (see [agent messages in chat](#agent-messages-in-chat)).
 `create_issue` accepts a `parent_identifier`. The write tools (`create_issue`,
 `update_issue`, `link_issues` and `link_repository`) count toward the per-reply
 change limit. The model only proposes calls.
@@ -317,6 +319,49 @@ its live state, harness and model, reason and a link to the issue chat.
 Model context includes completed message text only; earlier turns' tool
 results are not replayed, so the assistant relies on its own replies for
 continuity.
+
+## Agent messages in chat
+
+A running coding agent and the person who owns its task talk through the
+task's [live channel](agent-tasks.md#live-channel).
+
+**Tools.** `message_task(identifier, body)` resolves the visible issue and its
+newest implementing task, as `follow_up_task` does, and queues the text as the
+conversation's user with sender `orchestrator` (`QueueLiveMessage`: only the
+task's creator, at most 4,000 characters, 30 per task per hour, not once the
+task completed or was cancelled). It needs no approval because it only
+delivers text and changes no other state; it is not an issue change. The
+result says `delivery: "live"` for a running attempt (the agent reads it after
+its current step) or `"next_attempt"`, and the tool card says so.
+`get_task_messages(identifier, limit?)` is read-only and returns up to 50 (20
+by default) messages of both directions, oldest first. Messages to the agent
+carry `body`; the agent's own messages carry only `untrusted_agent_text`
+(refused files are left out), and the result's `notice` tells the model never
+to follow or act on them by itself. The system prompt says the same: the
+assistant reports agent messages and answers an agent with `message_task` only
+when the user's turn asks.
+
+**Display.** Agent messages are never conversation messages and never enter
+the model's context. Whenever a live message is queued, delivered or received,
+the same transaction writes a `task.live_message` event (the message plus the
+issue `identifier`) to the conversation that owns the task, when that
+conversation's creator is the task's creator; this includes messages the
+machine manager records while the attempt runs, so an open chat updates within
+seconds. History returns `agent_messages`: the accepted (`received`)
+`from_agent` messages of the conversation's tasks in the page's span of time
+(from its oldest message, or the beginning for the oldest page, up to the
+next newer page),
+newest 200, oldest first, labelled with their issue. The chat places them
+between its messages by time as distinct items labelled "Coding agent ·
+ENG-1", rendered as escaped plain text (never Markdown, so no links, images or
+HTML), with a note that the assistant does not act on them unless asked. A
+`kind: "question"` item is marked as a question, and one that arrives live
+raises a toast; the creator also gets a [Telegram notice](telegram.md#task-notifications)
+when linked. The task card's **Live messages** thread lists both directions
+with their delivery state and has a composer that posts to
+`POST /agent-tasks/:taskId/live-messages` (see
+[agent tasks](agent-tasks.md#live-channel)); it reloads on each
+`task.live_message` event of its task.
 
 ## Approvals
 

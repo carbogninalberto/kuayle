@@ -1,4 +1,4 @@
-import type { AgentTask, TaskActivity } from './agent-tasks';
+import type { AgentLiveChatMessage, AgentTask, TaskActivity } from './agent-tasks';
 import { api } from './client';
 
 export interface Conversation {
@@ -66,6 +66,7 @@ export interface ConversationEvent {
 		| 'task.publication_updated'
 		| 'task.signal_recorded'
 		| 'task.review_updated'
+		| 'task.live_message'
 		| 'tool.started'
 		| 'tool.completed'
 		| 'approval.requested'
@@ -76,6 +77,7 @@ export interface ConversationEvent {
 		| ConversationToolCall
 		| AgentTask
 		| TaskActivity
+		| AgentLiveChatMessage
 		| ConversationMessage
 		| { message_id: string; delta?: string; status?: MessageStatus };
 }
@@ -214,6 +216,8 @@ export interface ConversationHistory {
 	messages: ConversationMessage[];
 	tools?: ConversationToolCall[];
 	approvals?: ConversationApproval[];
+	// What the conversation's coding agents sent it during the page's span.
+	agent_messages?: AgentLiveChatMessage[];
 	cursor: number;
 	has_more: boolean;
 }

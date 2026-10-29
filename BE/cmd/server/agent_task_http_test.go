@@ -124,6 +124,22 @@ func TestAgentTaskHTTPPrivateControlsAndRecovery(t *testing.T) {
 	request("GET", taskPath+"/runs", "", token, 200, &runs)
 	require.Empty(t, runs.Runs)
 	request("GET", taskPath+"/runs/"+uuid.NewString()+"/logs", "", token, 404, nil)
+	// The live channel: the creator messages the agent and reads both directions.
+	var live domain.AgentLiveMessage
+	request("POST", taskPath+"/live-messages", `{"body":"  Also add tests "}`, token, 201, &live)
+	require.Equal(t, "Also add tests", live.Body)
+	require.Equal(t, domain.AgentLiveSenderUser, live.Sender, "the HTTP route always sends as the user")
+	require.Equal(t, domain.AgentLiveQueued, live.State)
+	var thread struct {
+		Messages []domain.AgentLiveMessage `json:"messages"`
+	}
+	request("GET", taskPath+"/live-messages", "", token, 200, &thread)
+	require.Len(t, thread.Messages, 1)
+	require.Equal(t, live.ID, thread.Messages[0].ID)
+	for _, invalid := range []string{`{"body":""}`, `{"body":"x","sender":"orchestrator"}`, `{"body":"` + strings.Repeat("x", 4001) + `"}`, `not json`} {
+		request("POST", taskPath+"/live-messages", invalid, token, 400, nil)
+	}
+	request("GET", "/agent-tasks/"+uuid.NewString()+"/live-messages", "", token, 404, nil)
 	for _, suffix := range []string{"/history?after=-1", "/runs?before=invalid"} {
 		request("GET", taskPath+suffix, "", token, 400, nil)
 	}
@@ -149,12 +165,14 @@ func TestAgentTaskHTTPPrivateControlsAndRecovery(t *testing.T) {
 			request("GET", taskPath+suffix, "", auth, 404, nil)
 		}
 		request("POST", taskPath+"/cancel", "", auth, 404, nil)
+		request("GET", taskPath+"/live-messages", "", auth, 404, nil)
+		request("POST", taskPath+"/live-messages", `{"body":"Steer someone else's agent"}`, auth, 404, nil)
 		request("POST", taskPath+"/retry", `{"request_id":"`+uuid.NewString()+`","generation":1,"prompt":"Retry"}`, auth, 404, nil)
 	}
 	raw, hash, prefix, err := domain.GenerateToken()
 	require.NoError(t, err)
 	require.NoError(t, tokens.Create(context.Background(), &domain.PersonalAccessToken{ID: uuid.New(), UserID: user, Name: "Task routes denied", Scopes: []string{"dev_machine:read", "dev_machine:create", "dev_machine:manage", "issues:read"}, TokenHash: hash, TokenPrefix: prefix}))
-	guarded := []struct{ method, path, body string }{{"POST", path, body}, {"GET", path, ""}, {"GET", optionsPath, ""}, {"GET", taskPath, ""}, {"GET", taskPath + "/history", ""}, {"GET", taskPath + "/sessions", ""}, {"GET", taskPath + "/runs", ""}, {"GET", taskPath + "/runs/" + task.RunID.String() + "/logs", ""}, {"POST", taskPath + "/cancel", ""}, {"POST", taskPath + "/retry", `{}`}, {"POST", taskPath + "/accept", `{"generation":1}`}}
+	guarded := []struct{ method, path, body string }{{"POST", path, body}, {"GET", path, ""}, {"GET", optionsPath, ""}, {"GET", taskPath, ""}, {"GET", taskPath + "/history", ""}, {"GET", taskPath + "/sessions", ""}, {"GET", taskPath + "/runs", ""}, {"GET", taskPath + "/runs/" + task.RunID.String() + "/logs", ""}, {"POST", taskPath + "/cancel", ""}, {"POST", taskPath + "/retry", `{}`}, {"POST", taskPath + "/accept", `{"generation":1}`}, {"GET", taskPath + "/live-messages", ""}, {"POST", taskPath + "/live-messages", `{"body":"x"}`}}
 	for _, route := range guarded {
 		request(route.method, route.path, route.body, raw, 403, nil)
 	}
@@ -174,6 +192,7 @@ func TestAgentTaskHTTPPrivateControlsAndRecovery(t *testing.T) {
 	request("POST", taskPath+"/accept", `{"generation":1}`, token, 200, &accepted)
 	require.Equal(t, "completed", accepted.State)
 	require.Equal(t, "Accepted in Kuayle by Task HTTP", accepted.Reason)
+	request("POST", taskPath+"/live-messages", `{"body":"too late"}`, token, 409, nil)
 	request("POST", taskPath+"/accept", `{"generation":1}`, token, 200, &duplicate)
 	require.Equal(t, "completed", duplicate.State)
 	// Simulate a worker discovering missing repository configuration, then retry

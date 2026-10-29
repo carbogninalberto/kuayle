@@ -31,6 +31,7 @@ func TestLiveMessagesInThePromptNameTheirSenderAndAreFenced(t *testing.T) {
 	require.Contains(t, line, domain.AgentLiveInboxPath)
 	require.Contains(t, line, `"to":"orchestrator"`)
 	require.Contains(t, line, `"kind":"question"`)
+	require.Contains(t, line, "kuayle-live-channel", "agents without the hook are pointed at the skill that tells them to poll")
 	require.Equal(t, strings.Repeat("x", 31400), withLiveChannel(strings.Repeat("x", 31400)), "a full prompt keeps its room")
 }
 

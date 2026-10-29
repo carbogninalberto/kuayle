@@ -170,6 +170,23 @@ func (r *ConversationRepository) History(ctx context.Context, ws, id uuid.UUID, 
 	if h.Approvals, err = toolApprovals(ctx, tx, h.Tools); err != nil {
 		return nil, err
 	}
+	// Agent messages share the page's span of time: from its oldest message
+	// (or the beginning, for the oldest page) up to the next newer page.
+	var from, to *time.Time
+	if h.HasMore && len(h.Messages) > 0 {
+		from = &h.Messages[0].CreatedAt
+	}
+	if before > 0 {
+		var next time.Time
+		if err = tx.GetContext(ctx, &next, `SELECT created_at FROM conversation_messages WHERE conversation_id=$1 AND sequence>=$2 ORDER BY sequence LIMIT 1`, id, before); err == nil {
+			to = &next
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			return nil, err
+		}
+	}
+	if h.AgentMessages, err = conversationAgentMessages(ctx, tx, *c, from, to); err != nil {
+		return nil, err
+	}
 	err = tx.GetContext(ctx, &h.Cursor, `SELECT COALESCE(MAX(cursor),0) FROM conversation_events WHERE conversation_id=$1`, id)
 	return h, err
 }

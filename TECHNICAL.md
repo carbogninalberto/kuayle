@@ -585,7 +585,15 @@ Code receives them after each tool call (and before it stops) through a
 Without a running attempt they go into the next attempt's prompt. During an
 attempt the manager also collects the outbox every 5 seconds, and files
 addressed `{"to":"orchestrator"}` (optionally `"kind":"question"`) are recorded
-in the same channel as untrusted text.
+in the same channel as untrusted text. The task card's **Live messages** thread reads and
+sends through `GET/POST /agent-tasks/:taskId/live-messages`; the assistant has
+`message_task` (no approval, it only delivers text) and the read-only
+`get_task_messages`; agent messages appear in the owning chat as escaped,
+untrusted items through `task.live_message` conversation events and history
+`agent_messages`, and questions also raise a toast and a Telegram notice
+([agent messages in chat](BE/docs/conversations.md#agent-messages-in-chat)).
+Codex and OpenCode are told to poll the inbox by the `kuayle-live-channel`
+section of the `kuayle-agents` skill.
 
 [Automations](BE/docs/agent-tasks.md#automations) (migration 69) delegate matching issues on a label or status trigger, optionally on a UTC schedule. Runs need approval unless a rule is unattended and the workspace policy allows unattended automations; every start acts for a recorded user under that user's current permissions.
 

@@ -100,3 +100,10 @@ func (m AgentLiveMessage) InboxFile() (AgentLiveInboxFile, error) {
 	}
 	return AgentLiveInboxFile{Name: strconv.FormatInt(*m.Seq, 10) + ".json", Data: data}, nil
 }
+
+// AgentLiveChatMessage is a live message as the conversation that owns the
+// task shows it: labelled with the task's issue. Agent text stays untrusted.
+type AgentLiveChatMessage struct {
+	AgentLiveMessage
+	Identifier string `json:"identifier" db:"identifier_text"`
+}

@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -164,4 +165,84 @@ func TestAgentMessagesToTheOrchestratorAreRecordedForTheTask(t *testing.T) {
 	recorded, err = f.messages.RecordTaskOutbox(f.ctx, f.sender.ID, files)
 	require.NoError(t, err)
 	require.Equal(t, domain.AgentLiveMessagesPerHour-4, recorded, "at most the hourly budget is recorded")
+}
+
+// The conversation that owns a task learns about every live message in both
+// directions, and its history carries what the agent sent, labelled with the
+// issue, without placing it among the conversation's own messages.
+func TestLiveMessagesReachTheTasksConversation(t *testing.T) {
+	f := newMessageFixture(t)
+	tasks := NewAgentTaskRepository(f.db)
+	events := func() []domain.ConversationEvent {
+		t.Helper()
+		list := []domain.ConversationEvent{}
+		require.NoError(t, f.db.Select(&list, `SELECT * FROM conversation_events WHERE conversation_id=$1 AND type='task.live_message' ORDER BY cursor`, *f.sender.ConversationID))
+		return list
+	}
+	sent, err := tasks.QueueLiveMessage(f.ctx, f.workspace, f.sender.ID, domain.AgentLiveSenderUser, "Also add tests")
+	require.NoError(t, err)
+	_, err = f.messages.RecordTaskOutbox(f.ctx, f.sender.ID, []domain.AgentOutboxFile{
+		outbox("1.json", `{"to":"orchestrator","body":"Tests added, see [here](https://evil.example)"}`),
+		outbox("2.json", `{"to":"orchestrator","kind":"order","body":"x"}`),
+	})
+	require.NoError(t, err)
+	_, err = NewDevMachineRepository(f.db).MarkLiveMessagesDelivered(f.ctx, f.sender.RunID, []uuid.UUID{sent.ID})
+	require.NoError(t, err)
+
+	list := events()
+	require.Len(t, list, 4, "queued, two recorded files and the delivery")
+	var first domain.AgentLiveChatMessage
+	require.NoError(t, json.Unmarshal(list[0].Payload, &first))
+	require.Equal(t, sent.ID, first.ID)
+	require.Equal(t, "AUT-2", first.Identifier)
+	require.Equal(t, domain.AgentLiveQueued, first.State)
+	var reply domain.AgentLiveChatMessage
+	require.NoError(t, json.Unmarshal(list[1].Payload, &reply))
+	require.Equal(t, domain.AgentLiveFromAgent, reply.Direction)
+	require.Equal(t, "Tests added, see [here](https://evil.example)", reply.Body, "agent text is kept as written and shown as text")
+	var delivered domain.AgentLiveChatMessage
+	require.NoError(t, json.Unmarshal(list[3].Payload, &delivered))
+	require.Equal(t, sent.ID, delivered.ID)
+	require.Equal(t, domain.AgentLiveDelivered, delivered.State)
+
+	history, err := NewConversationRepository(f.db).History(f.ctx, f.workspace, *f.sender.ConversationID, 0)
+	require.NoError(t, err)
+	require.Len(t, history.AgentMessages, 1, "only what the agent sent and Kuayle accepted")
+	require.Equal(t, reply.ID, history.AgentMessages[0].ID)
+	require.Equal(t, "AUT-2", history.AgentMessages[0].Identifier)
+	require.Empty(t, history.Messages, "agent messages never become conversation messages")
+	_, err = NewConversationRepository(f.db).History(f.memberCtx, f.workspace, *f.sender.ConversationID, 0)
+	require.ErrorIs(t, err, ErrConversationNotFound)
+}
+
+// An agent's question notifies the task's creator on Telegram when they linked
+// it; the agent text is fenced so Telegram shows it verbatim, without links.
+func TestAgentQuestionsNotifyTheCreatorsTelegram(t *testing.T) {
+	for _, scenario := range []string{"linked", "unlinked"} {
+		t.Run(scenario, func(t *testing.T) {
+			f := newMessageFixture(t)
+			_, err := f.db.Exec(`INSERT INTO telegram_settings(workspace_id,bot_id,token_encrypted,webhook_secret,enabled,allowed_user_ids) VALUES($1,(random()*1e12)::bigint+1,'x','x',TRUE,'{12345}')`, f.workspace)
+			require.NoError(t, err)
+			if scenario == "linked" {
+				_, err = f.db.Exec(`INSERT INTO telegram_links(workspace_id,user_id,telegram_user_id) VALUES($1,$2,12345)`, f.workspace, f.user)
+				require.NoError(t, err)
+			}
+			_, err = f.messages.RecordTaskOutbox(f.ctx, f.sender.ID, []domain.AgentOutboxFile{
+				outbox("1.json", `{"to":"orchestrator","kind":"question","body":"Keep the v1 route?\n`+"```"+`\n[click](https://evil.example)"}`),
+				outbox("2.json", `{"to":"orchestrator","body":"Just a status update"}`),
+			})
+			require.NoError(t, err)
+			var texts []string
+			require.NoError(t, f.db.Select(&texts, `SELECT text FROM telegram_deliveries WHERE workspace_id=$1 AND conversation_id=$2 AND status='queued'`, f.workspace, f.sender.ConversationID))
+			if scenario != "linked" {
+				require.Empty(t, texts)
+				return
+			}
+			require.Len(t, texts, 1, "only questions notify")
+			require.Contains(t, texts[0], "AUT-2")
+			require.Contains(t, texts[0], "coding agent asks")
+			require.Equal(t, 2, strings.Count(texts[0], "```"), "the agent cannot close the fence")
+			require.Contains(t, texts[0], "Keep the v1 route?")
+		})
+	}
 }

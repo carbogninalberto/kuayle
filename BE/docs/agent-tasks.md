@@ -896,8 +896,8 @@ the agent marker of posted comments (the comments stay as their authors').
 
 Migration 95 adds `agent_live_messages`: one task's two-way channel between
 its creator (or the orchestrator acting for them) and its agent, while the
-agent works. The backend and the Claude Code hook are in place; the assistant
-tools and the chat display build on the service functions below.
+agent works. The task card, the chat and the assistant use it as described in
+[agent messages in chat](conversations.md#agent-messages-in-chat).
 
 **Sending to the agent.** `AgentTaskService.QueueLiveMessage(ws, task, sender,
 body)` (repository `QueueLiveMessage`) records a message from `user` or
@@ -940,8 +940,11 @@ from the task's owner or the orchestrator on their behalf, as
 `{"decision":"block","reason":...}` when Claude would stop, so Claude continues
 with them. A file that cannot be parsed yet is retried on the next call
 (later files wait behind it) and skipped after 30 seconds. Without an inbox
-the hook prints nothing. Codex and OpenCode read the same files; every
-implementing prompt has one line about the inbox and answering.
+the hook prints nothing. Codex and OpenCode have no such hook: the
+`kuayle-live-channel` section of the injected `kuayle-agents` skill
+(`devmachine/common/kuayle-agents.md`) tells them to list the inbox between
+steps and read files above the highest `seq` they read, and every
+implementing prompt has one line about the inbox, answering and that skill.
 
 **Next attempt.** Messages still queued when an attempt is created (none ran,
 or they arrived after the last pass) are placed in its prompt after other
@@ -967,8 +970,23 @@ reach another agent, GitHub or an issue, and are untrusted text to show.
 
 **Reading.** `AgentTaskService.LiveMessages(ws, task, limit)` returns the
 newest messages of both directions (at most 200), oldest first, for the
-task's creator. HTTP routes, assistant tools, chat display and question
-notifications are not part of this step.
+task's creator.
+
+**HTTP.** Session-only routes under the Dev Machine demo guard, with the same
+authorization as the service (another member, a guest or another workspace
+gets 404; PATs get 403):
+
+| Method | Workspace-relative path | Purpose |
+| --- | --- | --- |
+| GET | `/agent-tasks/:taskId/live-messages` | `{messages}`: the newest 100, both directions, oldest first |
+| POST | `/agent-tasks/:taskId/live-messages` | `{body}` only (unknown fields refused); 201 with the queued message, always sender `user`; 400 invalid text or a review task, 409 an ended task, 429 over the hourly budget |
+
+**Conversation events.** Queuing, inbox or prompt delivery and recording an
+agent's file each write a `task.live_message` event, with the message and its
+issue identifier, to the task's conversation in the same transaction (the
+manager's live collection included), and an accepted question queues a
+[Telegram notice](telegram.md#task-notifications) for the creator. See
+[agent messages in chat](conversations.md#agent-messages-in-chat).
 
 **Cleanup.** When an attempt ends the manager removes the writer and the
 volume once unused; the ended agent container keeps it until the run is
