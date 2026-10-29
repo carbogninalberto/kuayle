@@ -50,7 +50,10 @@ async function fixture(page: Page) {
 		replayDelay: null as Promise<void> | null,
 		replayRequested: false,
 		olderDelay: null as Promise<void> | null,
-		olderRequested: false
+		olderRequested: false,
+		// Append each send to the existing transcript instead of replacing it.
+		appendSends: false,
+		historyDelay: null as Promise<void> | null
 	};
 	await page.routeWebSocket('**/api/workspaces/test/ws', () => {});
 	await page.routeWebSocket('**/conversations/chat-1/stream*', (socket) => {
@@ -91,6 +94,13 @@ async function fixture(page: Page) {
 				state.sends.push(route.request().postDataJSON().content);
 				if (state.sendDelay) await state.sendDelay;
 				if (state.failAfterSend) state.failNextHistory = true;
+				if (state.appendSends) {
+					const sequence = state.messages.length + 1;
+					const sent = { ...userMessage, id: `sent-${sequence}`, sequence, content: route.request().postDataJSON().content };
+					const live = { ...reply, id: `live-${sequence + 1}`, sequence: sequence + 1 };
+					state.messages = [...state.messages, sent, live];
+					return route.fulfill({ status: 202, json: live });
+				}
 				state.messages = [userMessage, reply];
 				return route.fulfill({ status: 202, json: reply });
 			}
@@ -124,6 +134,7 @@ async function fixture(page: Page) {
 				state.failNextHistory = false;
 				return route.fulfill({ status: 500, json: { error: { code: 'INTERNAL_ERROR' } } });
 			}
+			if (state.historyDelay) await state.historyDelay;
 			const before = Number(url.searchParams.get('before') ?? 0);
 			if (before && state.olderDelay) {
 				state.olderRequested = true;
@@ -249,6 +260,129 @@ test('loads long history without moving the reader and follows only at the live 
 	await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('desktop.png') });
 	await page.evaluate(() => document.documentElement.classList.add('dark'));
 	await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('desktop-dark.png') });
+});
+
+function longTranscript(length: number) {
+	return Array.from({ length }, (_, i) => ({
+		...userMessage,
+		id: `history-${i}`,
+		sequence: i + 1,
+		role: i % 2 ? 'assistant' : 'user',
+		content: `History message ${i}. ` + 'Detailed content. '.repeat(30)
+	}));
+}
+
+// Streams `count` deltas into the live reply, each long enough to grow the transcript.
+async function streamDeltas(
+	page: Page,
+	state: Awaited<ReturnType<typeof fixture>>, messageId: string, from: number, count: number) {
+	for (let i = from; i < from + count; i++) {
+		state.sockets.at(-1)!.send(
+			JSON.stringify({
+				id: `delta-${i}`,
+				cursor: 1000 + i,
+				conversation_id: 'chat-1',
+				type: 'message.delta',
+				payload: { message_id: messageId, delta: `\n\nStreamed paragraph ${i}. ` + 'More streamed text. '.repeat(20) }
+			})
+		);
+		await expect(page.getByText(`Streamed paragraph ${i}.`, { exact: false })).toHaveCount(1);
+	}
+}
+
+function atLiveEdge(viewport: ReturnType<Page['locator']>) {
+	return viewport.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight <= 16);
+}
+
+for (const size of [
+	{ name: 'desktop', width: 1280, height: 800 },
+	{ name: 'phone', width: 390, height: 844 }
+]) {
+	test(`pressing Enter shows the sent message and follows the streaming reply (${size.name})`, async ({
+		page
+	}, testInfo) => {
+		await page.setViewportSize({ width: size.width, height: size.height });
+		const state = await fixture(page);
+		state.appendSends = true;
+		state.messages = longTranscript(30);
+		await page.goto('/test/assistant?conversation=chat-1');
+		const viewport = page.locator('[data-slot="message-scroller-viewport"]');
+		await expect(page.locator('[data-slot="message"]')).toHaveCount(30);
+		// The reader glanced at earlier history; sending is still a request to see the reply.
+		await viewport.hover();
+		await page.mouse.wheel(0, -600);
+		await expect.poll(() => atLiveEdge(viewport)).toBe(false);
+		const composer = page.getByRole('textbox', { name: 'Message' });
+		await composer.fill('What changed in the latest release?');
+		await composer.press('Enter');
+		await expect.poll(() => state.sends).toEqual(['What changed in the latest release?']);
+		await expect(page.getByText('What changed in the latest release?', { exact: true })).toBeInViewport();
+		await expect.poll(() => atLiveEdge(viewport)).toBe(true);
+		await expect.poll(() => state.sockets.length).toBeGreaterThanOrEqual(2);
+		await streamDeltas(page, state, 'live-32', 0, 6);
+		await expect(page.getByText('Streamed paragraph 5.', { exact: false })).toBeInViewport();
+		await expect.poll(() => atLiveEdge(viewport)).toBe(true);
+		await expect(page.getByRole('button', { name: 'Scroll to latest' })).toHaveAttribute('data-active', 'false');
+		expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+		await page.screenshot({ animations: 'disabled', path: testInfo.outputPath(`send-follow-${size.name}.png`) });
+	});
+}
+
+test('a slow history reload after sending keeps the transcript and the sent message on screen', async ({ page }) => {
+	const state = await fixture(page);
+	state.appendSends = true;
+	state.messages = longTranscript(30);
+	await page.goto('/test/assistant?conversation=chat-1');
+	const viewport = page.locator('[data-slot="message-scroller-viewport"]');
+	await expect(page.locator('[data-slot="message"]')).toHaveCount(30);
+	await expect.poll(() => atLiveEdge(viewport)).toBe(true);
+	let releaseReload!: () => void;
+	const reload = new Promise<void>((resolve) => (releaseReload = resolve));
+	const composer = page.getByRole('textbox', { name: 'Message' });
+	await composer.fill('Slow question');
+	state.historyDelay = reload;
+	await composer.press('Enter');
+	await expect.poll(() => state.sends).toEqual(['Slow question']);
+	// While the reload is pending the transcript stays rendered and the accepted reply is followed.
+	await expect(page.locator('[data-slot="message"]')).toHaveCount(31);
+	await expect(page.locator('[data-slot="message"]').last()).toBeInViewport();
+	await expect.poll(() => atLiveEdge(viewport)).toBe(true);
+	await expect(page.getByRole('status').filter({ hasText: 'Loading' })).toHaveCount(0);
+	state.historyDelay = null;
+	releaseReload();
+	await expect(page.locator('[data-slot="message"]')).toHaveCount(32);
+	await expect(page.getByText('Slow question', { exact: true })).toBeInViewport();
+	await expect.poll(() => atLiveEdge(viewport)).toBe(true);
+});
+
+test('a reader who scrolls up while a reply streams stays put and can jump to the latest', async ({ page }, testInfo) => {
+	const state = await fixture(page);
+	state.appendSends = true;
+	state.messages = longTranscript(30);
+	await page.goto('/test/assistant?conversation=chat-1');
+	const viewport = page.locator('[data-slot="message-scroller-viewport"]');
+	await expect(page.locator('[data-slot="message"]')).toHaveCount(30);
+	const composer = page.getByRole('textbox', { name: 'Message' });
+	await composer.fill('Summarise the thread');
+	await composer.press('Enter');
+	await expect.poll(() => state.sockets.length).toBeGreaterThanOrEqual(2);
+	await streamDeltas(page, state, 'live-32', 0, 2);
+	await expect.poll(() => atLiveEdge(viewport)).toBe(true);
+	await viewport.hover();
+	await page.mouse.wheel(0, -1500);
+	await expect.poll(() => atLiveEdge(viewport)).toBe(false);
+	const position = await viewport.evaluate((el) => el.scrollTop);
+	await streamDeltas(page, state, 'live-32', 2, 4);
+	expect(Math.abs((await viewport.evaluate((el) => el.scrollTop)) - position)).toBeLessThan(40);
+	const latest = page.getByRole('button', { name: 'Scroll to latest' });
+	await expect(latest).toHaveAttribute('data-active', 'true');
+	await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('scrolled-up-latest.png') });
+	await latest.click();
+	await expect(page.getByText('Streamed paragraph 5.', { exact: false })).toBeInViewport();
+	await expect.poll(() => atLiveEdge(viewport)).toBe(true);
+	// Back at the live edge, later chunks are followed again.
+	await streamDeltas(page, state, 'live-32', 6, 2);
+	await expect.poll(() => atLiveEdge(viewport)).toBe(true);
 });
 
 test('does not fetch provider-authored image URLs or execute agent HTML', async ({ page }) => {

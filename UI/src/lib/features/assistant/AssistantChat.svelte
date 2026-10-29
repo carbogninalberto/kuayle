@@ -35,6 +35,7 @@
 	import Markdown from './Markdown.svelte';
 	import ConversationNav from './ConversationNav.svelte';
 	import LiveStatus from './LiveStatus.svelte';
+	import ScrollerHandle from './ScrollerHandle.svelte';
 	import DiffPanel from './DiffPanel.svelte';
 	import * as Sheet from '$lib/components/ui/sheet/index.js';
 	import * as Select from '$lib/components/ui/select/index.js';
@@ -102,6 +103,16 @@
 	let error = $state('');
 	let copied = $state<string | null>(null);
 	let textarea = $state<HTMLTextAreaElement | null>(null);
+	let scroller = $state<ReturnType<typeof MessageScroller.useMessageScroller>>();
+	// Reloads after sending keep the transcript, header and task on screen, so
+	// the reader keeps their place; only the first load shows the loading state.
+	const firstLoad = $derived(chat.loading && !chat.messages.length);
+	// Sending asks to watch the reply: return to the live edge (re-arming follow
+	// mode) even when the reader had scrolled up. Scrolling away while it streams
+	// releases follow again and reveals the latest-message button.
+	function followLatest() {
+		scroller?.scrollToEnd({ behavior: 'auto' });
+	}
 	let draftLoaded = $state(false);
 	let pending: { id: string; content: string; attachments: string[]; conversation?: string } | null = null;
 	// A new chat is created when its first image is attached, so the image can
@@ -213,6 +224,7 @@
 		if (!canSend) return;
 		sending = true;
 		error = '';
+		followLatest();
 		const ids = attachments.ids;
 		if (!pending || pending.content !== text || !sameIds(pending.attachments, ids))
 			pending = {
@@ -276,6 +288,7 @@
 		sending = true;
 		error = '';
 		if (retryRequest?.message !== message) retryRequest = { message, id: crypto.randomUUID() };
+		followLatest();
 		try {
 			const accepted = await conversations.retry(slug, conversationId, message, retryRequest.id);
 			chat.accept(accepted);
@@ -387,7 +400,7 @@
 	{/snippet}
 	{#snippet chatSection()}
 		<section class="flex min-h-0 min-w-0 flex-1 flex-col" aria-label={m['assistant.conversation']()}>
-			{#if conversationId && !chat.loading && !chat.unavailable}
+			{#if conversationId && !firstLoad && !chat.unavailable}
 				<div class="flex shrink-0 items-center gap-2 px-5 pt-3 text-xs text-muted-foreground">
 					{#if chat.issue}<a
 							class="shrink-0 underline underline-offset-2"
@@ -399,6 +412,7 @@
 			{/if}
 			<div class="min-h-0 flex-1">
 				<MessageScroller.Provider autoScroll>
+					<ScrollerHandle bind:scroller />
 					<MessageScroller.Root>
 						<MessageScroller.Viewport aria-label={m['assistant.messages']()}>
 							{#if chat.hasMore}<div class="mx-auto w-full max-w-3xl px-5 pt-3 md:px-8">
@@ -407,8 +421,8 @@
 									>
 								</div>{/if}
 							<MessageScroller.Content class="mx-auto w-full max-w-3xl gap-8 px-5 py-6 md:px-8">
-								{#if chat.issue && !chat.loading && !chat.unavailable}<TaskPanel {chat} />{/if}
-								{#if chat.loading}
+								{#if chat.issue && !firstLoad && !chat.unavailable}<TaskPanel {chat} />{/if}
+								{#if firstLoad}
 									<p class="text-sm text-muted-foreground" role="status">{m['assistant.loading']()}</p>
 								{:else if chat.unavailable}
 									<p role="alert" class="text-sm text-muted-foreground">{m['assistant.unavailable']()}</p>

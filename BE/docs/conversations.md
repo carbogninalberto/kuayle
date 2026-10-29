@@ -178,7 +178,10 @@ existing primitives are not overwritten. Typed Svelte state consumes the Go
 contract directly; there is no second AI orchestration runtime.
 
 The scroller follows only at the live edge, preserves prepended history, and
-provides a latest-message button. The composer supports Enter/Shift+Enter,
+provides a latest-message button. Sending or retrying returns the reader to the
+live edge (re-arming follow mode, even if they had scrolled up); scrolling away
+while a reply streams releases it again. Reloads after a send keep the
+transcript on screen; only a first load shows the loading state. The composer supports Enter/Shift+Enter,
 per-user/conversation drafts, send, stop and explicit retry. All strings use the
 four existing Paraglide catalogs. Desktop conversation history collapses into a
 mobile disclosure.
