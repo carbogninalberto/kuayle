@@ -433,12 +433,19 @@ func (f *githubAPIFake) UpdatePullRequestBody(string, string, string, int, strin
 	return nil
 }
 
-func (f *runtimeFake) CollectValidationArtifacts(context.Context, *domain.DevMachine, *domain.DevMachineAgentRun, *domain.DevMachineCheckout) ([]domain.ValidationArtifact, error) {
+func (f *runtimeFake) CollectValidationArtifacts(context.Context, *domain.DevMachine, *domain.DevMachineAgentRun, *domain.DevMachineAgentRunStep, *domain.DevMachineCheckout) ([]domain.ValidationArtifact, error) {
 	return f.artifacts, nil
 }
 
-func (f *runtimeFake) RemoveCheckServices(context.Context, *domain.DevMachine, *domain.DevMachineAgentRun) error {
+func (f *runtimeFake) RemoveCheckServices(context.Context, *domain.DevMachine, *domain.DevMachineAgentRun, *domain.DevMachineAgentRunStep) error {
 	f.checkCleanups++
+	return nil
+}
+
+func (f *runtimeFake) RemoveCheck(_ context.Context, _ *domain.DevMachine, _ *domain.DevMachineAgentRun, step *domain.DevMachineAgentRunStep) error {
+	if step != nil && step.StepType == manualCheckStepType {
+		f.removedChecks = append(f.removedChecks, step.ID)
+	}
 	return nil
 }
 
@@ -452,6 +459,7 @@ type runtimeFake struct {
 	host               HostResources
 	artifacts          []domain.ValidationArtifact
 	checkCleanups      int
+	removedChecks      []uuid.UUID
 
 	agentCancellations                          int
 	onAgentOutput                               func(AgentOutput) error

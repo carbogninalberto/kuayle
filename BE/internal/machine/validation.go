@@ -13,6 +13,8 @@ import (
 
 // validateAgent uses the developer environment, never a model invocation. The
 // original credential snapshot is used only for output redaction, not injection.
+// It runs both the attempt's independent validation and manual checks
+// (run_check); the store applies each one's own authority.
 func (m *Manager) validateAgent(ctx context.Context, machine *domain.DevMachine, op *domain.DevMachineOperation) error {
 	step, err := m.store.GetValidation(ctx, *op)
 	if err != nil {
@@ -53,7 +55,8 @@ func (m *Manager) validateAgent(ctx context.Context, machine *domain.DevMachine,
 	if image == "" {
 		return &terminalOperationError{code: "validation_unavailable", message: "Developer environment is unavailable"}
 	}
-	service := &domain.DevMachineService{ID: step.ID, WorkspaceID: machine.WorkspaceID, MachineID: machine.ID, AgentRunID: &run.ID, ServiceType: "agent", ServiceKey: "validation-" + run.ID.String(), ContainerName: "kuayle-" + machine.RoutingKey + "-validation-" + run.ID.String(), ImageRef: image, InternalHost: "validation-" + run.ID.String(), InternalPort: 8080, Status: "pending", HealthStatus: "unknown"}
+	key := checkContainerKey(run, step)
+	service := &domain.DevMachineService{ID: step.ID, WorkspaceID: machine.WorkspaceID, MachineID: machine.ID, AgentRunID: &run.ID, ServiceType: "agent", ServiceKey: key, ContainerName: "kuayle-" + machine.RoutingKey + "-" + key, ImageRef: image, InternalHost: key, InternalPort: 8080, Status: "pending", HealthStatus: "unknown"}
 	if err = m.store.CreateRuntimeService(ctx, service); err != nil {
 		return err
 	}
@@ -83,7 +86,7 @@ func (m *Manager) validateAgent(ctx context.Context, machine *domain.DevMachine,
 		defer func() {
 			cleanupCtx, done := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
 			defer done()
-			if err := m.runtime.RemoveCheckServices(cleanupCtx, machine, run); err != nil {
+			if err := m.runtime.RemoveCheckServices(cleanupCtx, machine, run, step); err != nil {
 				log.WithField("agent_run_id", run.ID).WithError(err).Warn("check service cleanup failed")
 			}
 		}()
@@ -107,6 +110,13 @@ func (m *Manager) validateAgent(ctx context.Context, machine *domain.DevMachine,
 		if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
 			cleanupCtx, done := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 			defer done()
+			if step.StepType == manualCheckStepType {
+				// Only this check's container stops; the attempt's are kept.
+				if err = m.runtime.RemoveCheck(cleanupCtx, machine, run, step); err != nil {
+					return fmt.Errorf("validation_cleanup_failed: %w", err)
+				}
+				return &terminalOperationError{code: "validation_timeout", message: "The check exceeded its time limit"}
+			}
 			if err = m.runtime.CancelAgent(cleanupCtx, run); err != nil {
 				return fmt.Errorf("validation_cleanup_failed: %w", err)
 			}
@@ -121,12 +131,30 @@ func (m *Manager) validateAgent(ctx context.Context, machine *domain.DevMachine,
 		return errors.New("validation execution returned no result")
 	}
 	// QA artifacts are best effort: they never change the check's outcome.
-	if artifacts, err := m.runtime.CollectValidationArtifacts(ctx, machine, run, checkout); err != nil {
+	if artifacts, err := m.runtime.CollectValidationArtifacts(ctx, machine, run, step, checkout); err != nil {
 		log.WithField("agent_run_id", run.ID).WithError(err).Warn("validation artifact collection failed")
 	} else if len(artifacts) > 0 {
 		if err := m.store.SaveValidationArtifacts(ctx, *op, artifacts); err != nil {
 			return err
 		}
 	}
-	return m.store.CompleteValidation(ctx, *op, execution.ExitCode)
+	if err = m.store.CompleteValidation(ctx, *op, execution.ExitCode); err != nil {
+		return err
+	}
+	// A recorded manual check is never replayed, so its container can go.
+	if err = m.runtime.RemoveCheck(ctx, machine, run, step); err != nil {
+		log.WithField("agent_run_id", run.ID).WithError(err).Warn("manual check cleanup failed")
+	}
+	return nil
+}
+
+// manualCheckFailure is the summary shown for a manual check that could not
+// run: a terminal reason is the project's own configuration or a limit and
+// is safe to show; other infrastructure errors stay generic.
+func manualCheckFailure(err error) string {
+	var terminal *terminalOperationError
+	if errors.As(err, &terminal) {
+		return terminal.message
+	}
+	return "The check could not finish"
 }

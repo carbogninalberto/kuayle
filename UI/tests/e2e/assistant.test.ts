@@ -1418,3 +1418,55 @@ test('listed ports open from the chat, never from the tool output', async ({ pag
 	await expect(page.getByRole('link', { name: /evil/ })).toHaveCount(0);
 	expect(requested).toEqual(['/api/workspaces/test/dev-machines/00000000-0000-4000-8000-000000000001/ports']);
 });
+
+test('a check run waits for approval and shows the exact command it runs', async ({ page }) => {
+	const state = await fixture(page);
+	const answered = { ...reply, status: 'completed', content: 'Check approval is pending.' };
+	state.messages = [userMessage, answered];
+	state.tools = [
+		{
+			id: 'tool-40',
+			conversation_id: 'chat-1',
+			message_id: answered.id,
+			sequence: 0,
+			call_id: 'call_tool-40',
+			name: 'run_check',
+			input: { identifier: 'ENG-1', command: 'npm test -- auth' },
+			status: 'completed',
+			output: { approval_id: 'approval-40', status: 'pending_user_approval', identifier: 'ENG-1' },
+			created_at: conversation.created_at
+		}
+	];
+	state.approvals = [
+		{
+			id: 'approval-40',
+			conversation_id: 'chat-1',
+			tool_call_id: 'tool-40',
+			actor_id: 'user-1',
+			issue_id: 'issue-1',
+			action: 'run_check',
+			payload: {
+				identifier: 'ENG-1',
+				title: 'Dark mode',
+				task_id: 'task-9',
+				generation: 1,
+				command: ['sh', '-c', 'npm test -- auth']
+			},
+			status: 'pending',
+			expires_at: '2026-10-27T10:00:00Z',
+			created_at: conversation.created_at,
+			updated_at: conversation.created_at
+		}
+	] as any;
+	await page.goto('/test/assistant?conversation=chat-1');
+	await expect(page.getByText('Run the check on ENG-1?', { exact: true })).toBeVisible();
+	await expect(
+		page.getByText('Runs on the checkout of Dark mode, without starting the agent or changing the task:', {
+			exact: true
+		})
+	).toBeVisible();
+	await expect(page.getByText('["sh","-c","npm test -- auth"]', { exact: true })).toBeVisible();
+	await page.getByRole('button', { name: 'Approve', exact: true }).click();
+	await expect(page.getByText('Check started on ENG-1; its result appears on the task', { exact: true })).toBeVisible();
+	expect(state.decisions).toEqual(['approve']);
+});

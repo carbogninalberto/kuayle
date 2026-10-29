@@ -405,6 +405,10 @@ func (s *ConversationService) requestApproval(ctx context.Context, a domain.Conv
 		var port domain.ExposePortPayload
 		issueID, port, err = s.tools.preparePort(ctx, a.Conversation.WorkspaceID, a.Conversation.CreatorID, arguments)
 		payload, identifier = port, port.Identifier
+	case "run_check":
+		var check domain.RunCheckPayload
+		issueID, check, err = s.tools.prepareRunCheck(ctx, a.Conversation.WorkspaceID, a.Conversation.CreatorID, arguments)
+		payload, identifier = check, check.Identifier
 	default:
 		err = toolFailure("unknown tool")
 	}

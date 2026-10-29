@@ -82,7 +82,8 @@ func lockTaskMachine(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask) (i
 		return 0, err
 	}
 	var allowed bool
-	if err := tx.GetContext(ctx, &allowed, `SELECT EXISTS(SELECT 1 FROM dev_machine_workspace_policies WHERE workspace_id=$1 AND enabled) AND NOT EXISTS(SELECT 1 FROM dev_machine_agent_runs WHERE machine_id=$2 AND status IN ('queued','starting','running','waiting_input'))`, task.WorkspaceID, task.MachineID); err != nil {
+	if err := tx.GetContext(ctx, &allowed, `SELECT EXISTS(SELECT 1 FROM dev_machine_workspace_policies WHERE workspace_id=$1 AND enabled) AND NOT EXISTS(SELECT 1 FROM dev_machine_agent_runs WHERE machine_id=$2 AND status IN ('queued','starting','running','waiting_input'))
+ AND NOT EXISTS(SELECT 1 FROM dev_machine_operations WHERE machine_id=$2 AND action='run_check' AND status IN ('pending','leased'))`, task.WorkspaceID, task.MachineID); err != nil {
 		return 0, err
 	}
 	if !allowed {
@@ -142,7 +143,11 @@ var (
 
 // Validation has its own phase authority. Native output writers remain forbidden
 // after native completion. Every write also fences the manager's operation lease.
+// A manual check uses the same check writers under its own authority.
 func (r *DevMachineRepository) validationTransaction(ctx context.Context, op domain.DevMachineOperation) (*sqlx.Tx, *domain.AgentTask, *domain.DevMachineAgentRunStep, error) {
+	if op.Action == domain.DevMachineOpRunCheck {
+		return r.manualCheckTransaction(ctx, op)
+	}
 	return r.taskStepTransaction(ctx, op, validationPhase)
 }
 
@@ -169,20 +174,7 @@ func (r *DevMachineRepository) taskStepTransaction(ctx context.Context, op domai
 	if task.State != phase.state || task.RunID != run.ID || task.MachineID == nil || *task.MachineID != run.MachineID || task.CreatorID != *run.RequestedByUserID || op.WorkspaceID != run.WorkspaceID || op.MachineID != run.MachineID {
 		return fail(ErrAgentTaskUnauthorized)
 	}
-	var current domain.DevMachineOperation
-	err = tx.GetContext(ctx, &current, `SELECT * FROM dev_machine_operations WHERE id=$1 AND action=$8 AND agent_run_id=$2 AND workspace_id=$3 AND machine_id=$4 AND generation=$5 AND status='leased' AND lease_owner=$6 AND attempts=$7 AND lease_expires_at>clock_timestamp() FOR SHARE`, op.ID, run.ID, run.WorkspaceID, run.MachineID, op.Generation, *op.LeaseOwner, op.Attempts, phase.action)
-	if errors.Is(err, sql.ErrNoRows) {
-		return fail(ErrAgentTaskConflict)
-	}
-	if err != nil {
-		return fail(err)
-	}
-	var machineID uuid.UUID
-	err = tx.GetContext(ctx, &machineID, `SELECT m.id FROM dev_machines m JOIN dev_machine_workspace_policies p ON p.workspace_id=m.workspace_id WHERE m.id=$1 AND m.workspace_id=$2 AND m.generation=$3 AND m.status='running' AND m.desired_status='running' AND m.expires_at>now() AND p.enabled FOR SHARE OF m,p`, run.MachineID, run.WorkspaceID, op.Generation)
-	if errors.Is(err, sql.ErrNoRows) {
-		return fail(ErrAgentTaskUnauthorized)
-	}
-	if err != nil {
+	if err = fenceTaskStepOperation(ctx, tx, op, run); err != nil {
 		return fail(err)
 	}
 	var succeeded bool
@@ -198,6 +190,26 @@ func (r *DevMachineRepository) taskStepTransaction(ctx context.Context, op domai
 	}
 	return tx, task, step, nil
 }
+
+// fenceTaskStepOperation requires the manager's live lease on the operation
+// and the machine generation, running state and enabled policy it was queued for.
+func fenceTaskStepOperation(ctx context.Context, tx *sqlx.Tx, op domain.DevMachineOperation, run domain.DevMachineAgentRun) error {
+	var current domain.DevMachineOperation
+	err := tx.GetContext(ctx, &current, `SELECT * FROM dev_machine_operations WHERE id=$1 AND action=$8 AND agent_run_id=$2 AND workspace_id=$3 AND machine_id=$4 AND generation=$5 AND status='leased' AND lease_owner=$6 AND attempts=$7 AND lease_expires_at>clock_timestamp() FOR SHARE`, op.ID, run.ID, run.WorkspaceID, run.MachineID, op.Generation, *op.LeaseOwner, op.Attempts, op.Action)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrAgentTaskConflict
+	}
+	if err != nil {
+		return err
+	}
+	var machineID uuid.UUID
+	err = tx.GetContext(ctx, &machineID, `SELECT m.id FROM dev_machines m JOIN dev_machine_workspace_policies p ON p.workspace_id=m.workspace_id WHERE m.id=$1 AND m.workspace_id=$2 AND m.generation=$3 AND m.status='running' AND m.desired_status='running' AND m.expires_at>now() AND p.enabled FOR SHARE OF m,p`, run.MachineID, run.WorkspaceID, op.Generation)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrAgentTaskUnauthorized
+	}
+	return err
+}
+
 func (r *DevMachineRepository) GetValidation(ctx context.Context, op domain.DevMachineOperation) (*domain.DevMachineAgentRunStep, error) {
 	tx, _, step, err := r.validationTransaction(ctx, op)
 	if err != nil {
@@ -216,7 +228,11 @@ func (r *DevMachineRepository) StartValidation(ctx context.Context, op domain.De
 		return ErrAgentTaskConflict
 	}
 	changed := step.Status == domain.DevMachineAgentRunStepStatusQueued
-	if err = tx.GetContext(ctx, step, `UPDATE dev_machine_agent_run_steps SET status='running',started_at=COALESCE(started_at,now()),summary='Running independent validation' WHERE id=$1 RETURNING *`, step.ID); err != nil {
+	summary := "Running independent validation"
+	if step.StepType == manualCheckStepType {
+		summary = "Running the check"
+	}
+	if err = tx.GetContext(ctx, step, `UPDATE dev_machine_agent_run_steps SET status='running',started_at=COALESCE(started_at,now()),summary=$2 WHERE id=$1 RETURNING *`, step.ID, summary); err != nil {
 		return err
 	}
 	result, err := tx.ExecContext(ctx, `UPDATE dev_machine_services SET container_id=$2,status='running',health_status='healthy',started_at=COALESCE(started_at,now()) WHERE id=$1 AND agent_run_id=$3 AND machine_id=$4 AND workspace_id=$5`, step.ID, containerID, step.AgentRunID, op.MachineID, op.WorkspaceID)
@@ -245,6 +261,9 @@ func (r *DevMachineRepository) CompleteValidation(ctx context.Context, op domain
 	status, summary := "failed", "Independent validation failed"
 	if exit == 0 {
 		status, summary = "succeeded", "Independent validation passed"
+	}
+	if step.StepType == manualCheckStepType {
+		summary = map[bool]string{true: "The check passed", false: "The check failed"}[exit == 0]
 	}
 	if err = tx.GetContext(ctx, step, `UPDATE dev_machine_agent_run_steps SET status=$2,exit_code=$3,summary=$4,completed_at=now() WHERE id=$1 RETURNING *`, step.ID, status, exit, summary); err != nil {
 		return err

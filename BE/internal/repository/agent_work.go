@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/kuayle/kuayle-backend/internal/domain"
 )
 
 // IssueAgentWork is one coding task on an issue as the assistant reports it:
@@ -25,20 +26,35 @@ type IssueAgentWork struct {
 	// AgentReview is the latest requested agent review: its state, harness,
 	// verdict and the start of its untrusted findings.
 	AgentReview *json.RawMessage `db:"agent_review" json:"agent_review,omitempty"`
+	// ManualCheck is the latest check run on demand on the current attempt:
+	// status, exit code, command and, for the task's creator only, the end of
+	// its untrusted output.
+	ManualCheck *json.RawMessage `db:"manual_check" json:"manual_check,omitempty"`
 	UpdatedAt   time.Time        `db:"updated_at" json:"updated_at"`
 }
+
+// latestManualCheck reads the current attempt's newest manual check. Output
+// is task-private like the task's logs, so only its creator ($3) gets the tail.
+const latestManualCheck = `(SELECT json_build_object('status',s.status,'exit_code',s.exit_code,'command',s.command_argv,'summary',s.summary,'started_at',s.started_at,'completed_at',s.completed_at,
+ 'output_tail',CASE WHEN t.creator_id=$3 THEN (SELECT right(string_agg(c.content,'' ORDER BY c.id),1500) FROM (SELECT l.id,l.content FROM dev_machine_log_chunks l WHERE l.agent_run_id=s.agent_run_id AND l.service_id=s.id ORDER BY l.id DESC LIMIT 50) c) END)
+ FROM dev_machine_agent_run_steps s WHERE s.agent_run_id=t.run_id AND s.step_type='manual_check' ORDER BY s.sequence DESC LIMIT 1) AS manual_check`
 
 // IssueAgentWork lists an issue's latest coding tasks. Pull requests and reviews
 // come only from Kuayle's records of the current attempt, never agent output.
 // Callers authorize the issue first.
 func (r *AgentTaskRepository) IssueAgentWork(ctx context.Context, ws, issue uuid.UUID) ([]IssueAgentWork, error) {
+	var actor uuid.UUID
+	if access, ok := domain.AccessFromContext(ctx); ok && access.WorkspaceID == ws {
+		actor = access.UserID
+	}
 	work := []IssueAgentWork{}
 	err := r.db.SelectContext(ctx, &work, `SELECT t.id,t.state,t.reason,t.provider,t.generation,t.updated_at,
  (SELECT g.url FROM dev_machine_git_refs g WHERE g.agent_run_id=t.run_id AND g.workspace_id=t.workspace_id AND g.ref_type='pull_request' AND g.source='published' ORDER BY g.created_at DESC LIMIT 1) AS pull_request_url,
  (SELECT g.pull_request_number FROM dev_machine_git_refs g WHERE g.agent_run_id=t.run_id AND g.workspace_id=t.workspace_id AND g.ref_type='pull_request' AND g.source='published' ORDER BY g.created_at DESC LIMIT 1) AS pull_request_number,
  (SELECT s.outcome FROM agent_task_signals s WHERE s.task_id=t.id AND s.run_id=t.run_id AND s.kind='review' AND s.action<>'untrusted' AND s.outcome<>'commented' ORDER BY s.created_at DESC LIMIT 1) AS review,
- `+latestAgentReview(2000)+`
- FROM agent_tasks t WHERE t.workspace_id=$1 AND t.issue_id=$2 AND t.kind='implement' ORDER BY t.created_at DESC LIMIT 5`, ws, issue)
+ `+latestAgentReview(2000)+`,
+ `+latestManualCheck+`
+ FROM agent_tasks t WHERE t.workspace_id=$1 AND t.issue_id=$2 AND t.kind='implement' ORDER BY t.created_at DESC LIMIT 5`, ws, issue, actor)
 	return work, err
 }
 

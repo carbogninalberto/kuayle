@@ -232,6 +232,7 @@ func main() {
 	assistantApprovals.SetMerging(repository.NewAgentTaskRepository(db), workspaceRepo, githubSvc)
 	assistantApprovals.SetReviews(agentTaskSvc)
 	assistantApprovals.SetAccepting(agentTaskSvc)
+	assistantApprovals.SetChecks(agentTaskSvc)
 	githubSvc.SetReviewComments(repository.NewAgentTaskRepository(db))
 	taskFeedback := service.NewAgentTaskFeedback(repository.NewAgentTaskRepository(db), agentTaskSvc)
 	githubSvc.SetTaskSignals(taskFeedback)

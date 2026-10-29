@@ -26,7 +26,8 @@
 		Server,
 		ChevronRight,
 		ChevronDown,
-		BadgeCheck
+		BadgeCheck,
+		FlaskConical
 	} from '@lucide/svelte';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
 	import TaskActions from './TaskActions.svelte';
@@ -96,6 +97,10 @@
 		runsBefore = $state<string | undefined>(),
 		logsAfter = $state<number | undefined>();
 	let validation = $state<ValidationStep | null>(null);
+	// Checks run on demand on the selected attempt, oldest first.
+	let manualChecks = $state<ValidationStep[]>([]);
+	let checkBusy = $state(false),
+		checkError = $state('');
 	let publication = $state<PublicationView | null>(null);
 	let signals = $state<TaskSignal[]>([]);
 	let appPorts = $state<AppPort[]>([]),
@@ -127,19 +132,22 @@
 	let acceptOpen = $state(false);
 	// The independent check owns its own runtime service; never attribute its
 	// output to the native harness or the harness output to the check.
-	const isCheck = (line: DevMachineLogChunk) => !!validation && line.service_id === validation.id;
+	const checkIds = $derived(new Set([validation?.id, ...manualChecks.map((check) => check.id)].filter(Boolean)));
+	const isCheck = (line: DevMachineLogChunk) => !!line.service_id && checkIds.has(line.service_id);
+	const latestCheck = $derived(manualChecks.at(-1) ?? null);
 	const output = $derived(
 		logs
 			.filter((line) => !isCheck(line))
 			.map((line) => `${line.stream === 'stderr' ? '[stderr] ' : ''}${line.content}`)
 			.join('')
 	);
-	const checkOutput = $derived(
+	const stepOutput = (id: string | undefined) =>
 		logs
-			.filter(isCheck)
+			.filter((line) => !!id && line.service_id === id)
 			.map((line) => line.content)
-			.join('')
-	);
+			.join('');
+	const checkOutput = $derived(stepOutput(validation?.id));
+	const manualOutput = $derived(stepOutput(latestCheck?.id));
 	const selected = $derived(runs.find((run) => run.id === selectedRun));
 	// Derived only from the attempt's recorded native output and git state.
 	const nativeLines = $derived(
@@ -213,12 +221,15 @@
 			history = [...history, ...events.transitions.filter((e) => !known.has(e.sequence))];
 			historyAfter = events.next_after;
 			if (attempts.runs.some((run) => run.id === runID) || runs.some((run) => run.id === runID)) {
-				const [page, check] = await Promise.all([
+				const [page, check, manual] = await Promise.all([
 					agentTasks.logs(chat.slug, task.id, runID, logs.at(-1)?.id ?? 0),
-					agentTasks.validation(chat.slug, task.id, runID)
+					agentTasks.validation(chat.slug, task.id, runID),
+					// Manual checks are optional context; the panel works without them.
+					agentTasks.manualChecks(chat.slug, task.id, runID).catch(() => [] as ValidationStep[])
 				]);
 				if (disposed || chat.unavailable || selectedRun !== runID) return;
 				validation = check;
+				manualChecks = Array.isArray(manual) ? manual : [];
 				const ids = new Set(logs.map((line) => line.id));
 				logs = [...logs, ...page.logs.filter((line) => !ids.has(line.id))];
 				logsAfter = page.next_after;
@@ -241,6 +252,7 @@
 			selectedRun = task.run_id;
 			logs = [];
 			validation = null;
+			manualChecks = [];
 			logsAfter = undefined;
 		}
 	});
@@ -249,6 +261,7 @@
 		untrack(() => {
 			logs = [];
 			validation = null;
+			manualChecks = [];
 			logsAfter = undefined;
 		});
 		if (!run) return;
@@ -473,6 +486,31 @@
 			indicator: appState === 'stopped' ? undefined : appState
 		};
 	});
+	// The task's check runs on the latest attempt's checkout without the agent;
+	// the result streams into the details like the independent check.
+	const canRunCheck = $derived(
+		!!task.machine_id &&
+			task.kind !== 'review' &&
+			['awaiting_review', 'blocked', 'failed', 'completed'].includes(task.state)
+	);
+	const checkRunning = $derived(latestCheck?.status === 'queued' || latestCheck?.status === 'running');
+	async function runCheck() {
+		if (checkBusy) return;
+		checkBusy = true;
+		checkError = '';
+		try {
+			const step = await agentTasks.runCheck(chat.slug, task.id);
+			if (disposed) return;
+			selectedRun = step.agent_run_id;
+			manualChecks = [...manualChecks.filter((check) => check.id !== step.id), step];
+			open = true;
+			void refresh();
+		} catch (e) {
+			if (!disposed) checkError = getErrorMessage(e, m['tasks.run_check_error']());
+		} finally {
+			if (!disposed) checkBusy = false;
+		}
+	}
 	async function cancel() {
 		if (busy) return;
 		busy = true;
@@ -602,6 +640,16 @@
 						runId: selectedRun,
 						title: `${chat.issue?.identifier ?? ''} · ${m['tasks.attempt']({ number: task.generation })}`
 					})
+			});
+		if (canRunCheck)
+			list.push({
+				id: 'check',
+				icon: FlaskConical,
+				label: checkRunning ? m['tasks.manual_check_running']() : m['tasks.run_check'](),
+				title: m['tasks.run_check_help'](),
+				group: 'tools',
+				disabled: checkBusy || checkRunning,
+				onclick: () => void runCheck()
 			});
 		if (appAction) list.push(appAction);
 		if (task.machine_id && dock) {
@@ -782,6 +830,13 @@
 						{#if plan}<AgentPlan steps={plan} />{/if}
 						{#if reasoning.length}<AgentReasoning summaries={reasoning} />{/if}
 						<TestResults step={validation} output={checkOutput} slug={chat.slug} taskId={task.id} />
+						{#if latestCheck}<TestResults
+								step={latestCheck}
+								output={manualOutput}
+								slug={chat.slug}
+								taskId={task.id}
+								manual
+							/>{/if}
 						{#if changedFiles.length}<section aria-label={m['tasks.changed_files']()} class="min-w-0 text-sm">
 								<p class="mb-1 text-xs font-medium text-muted-foreground">{m['tasks.changed_files']()}</p>
 								{#each changedFiles as node (node.path)}<FileTreeNode {node} href={fileLink} />{/each}
@@ -900,6 +955,7 @@
 			<AgentReviews {reviews} />
 			<TaskMessages slug={chat.slug} {task} />
 			{#if appError}<p role="alert" class="text-sm break-words text-destructive">{appError}</p>{/if}
+			{#if checkError}<p role="alert" class="text-sm break-words text-destructive">{checkError}</p>{/if}
 			{#if error}<p role="alert" class="text-sm text-destructive">{error}</p>
 				<Button variant="ghost" size="sm" onclick={() => void refresh()}>{m['tasks.refresh']()}</Button>{/if}
 			<TaskActions {actions}>

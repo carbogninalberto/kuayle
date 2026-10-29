@@ -6,8 +6,20 @@
 	import * as CodeBlock from '$lib/components/ui/code-block/index.js';
 	import type { ValidationStep } from '$lib/api/agent-tasks';
 	import { m } from '$lib/paraglide/messages.js';
-	let { step, output, slug, taskId }: { step: ValidationStep | null; output: string; slug?: string; taskId?: string } =
-		$props();
+	let {
+		step,
+		output,
+		slug,
+		taskId,
+		manual = false
+	}: {
+		step: ValidationStep | null;
+		output: string;
+		slug?: string;
+		taskId?: string;
+		// A check run on demand, shown apart from the attempt's independent check.
+		manual?: boolean;
+	} = $props();
 	let artifacts = $state<ValidationArtifact[]>([]);
 	// Reports, screenshots and traces the check left behind, once it finished.
 	$effect(() => {
@@ -20,7 +32,8 @@
 		void agentTasks
 			.artifacts(slug, taskId, run)
 			.then((list) => {
-				if (step?.agent_run_id === run) artifacts = list;
+				// An attempt can have several checks; show only this one's files.
+				if (step?.agent_run_id === run) artifacts = list.filter((artifact) => artifact.step_id === step?.id);
 			})
 			.catch(() => (artifacts = []));
 	});
@@ -46,7 +59,16 @@
 	const label = $derived(
 		!step
 			? m['tasks.check_unavailable']()
-			: {
+			: manual
+				? {
+						queued: m['tasks.manual_check_queued'](),
+						running: m['tasks.manual_check_running'](),
+						succeeded: m['tasks.manual_check_passed'](),
+						failed: m['tasks.manual_check_failed'](),
+						cancelled: m['tasks.manual_check_cancelled'](),
+						skipped: m['tasks.manual_check']()
+					}[step.status]
+				: {
 					queued: m['tasks.check_queued'](),
 					running: m['tasks.check_running'](),
 					succeeded: m['tasks.check_passed'](),
@@ -59,7 +81,7 @@
 
 <!-- Official AI Elements Test Results composition: Trace + Code Block.
      A configured command is one check; no suite counts are inferred from text. -->
-<section aria-label={m['tasks.checks']()} class="min-w-0">
+<section aria-label={manual ? m['tasks.manual_check']() : m['tasks.checks']()} class="min-w-0">
 	<Trace.Collapsible>
 		<Trace.CollapsibleTrigger>
 			<Trace.Line status={running ? 'running' : failed ? 'error' : undefined}>
@@ -74,7 +96,9 @@
 			{#if step}
 				<CodeBlock.Root size="sm"
 					><CodeBlock.Header
-						><CodeBlock.Title><FlaskConical class="size-4" />{m['tasks.checks']()}</CodeBlock.Title></CodeBlock.Header
+						><CodeBlock.Title
+							><FlaskConical class="size-4" />{manual ? m['tasks.manual_check']() : m['tasks.checks']()}</CodeBlock.Title
+						></CodeBlock.Header
 					><CodeBlock.Content code={JSON.stringify(step.command_argv)} wrap /></CodeBlock.Root
 				>
 				{#if step.status === 'skipped'}<p class="text-xs text-muted-foreground">{m['tasks.check_skipped_hint']()}</p>{/if}

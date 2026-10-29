@@ -417,6 +417,11 @@ func (r *DevMachineRepository) SetDesiredAndEnqueue(ctx context.Context, workspa
 			WHERE machine_id=$1 AND (status IN ('queued','starting','running','waiting_input') OR EXISTS(SELECT 1 FROM agent_tasks t WHERE t.run_id=dev_machine_agent_runs.id AND t.state IN ('preparing','running','waiting_input','validating','publishing','cancelling'))))`, machineID); err != nil {
 			return err
 		}
+		if !active {
+			if err := tx.GetContext(ctx, &active, activeManualCheckSQL, machineID); err != nil {
+				return err
+			}
+		}
 		if active {
 			return ErrActiveAgentRun
 		}
@@ -1048,6 +1053,13 @@ func (r *DevMachineRepository) CreateAgentRun(ctx context.Context, run *domain.D
 	}
 	if active {
 		return ErrActiveAgentRun
+	}
+	// A manual check holds the checkout; the attempt waits until it finishes.
+	if err := tx.GetContext(ctx, &active, activeManualCheckSQL, run.MachineID); err != nil {
+		return err
+	}
+	if active {
+		return ErrMachineBusy
 	}
 	if len(run.CommandEnvironment) == 0 {
 		run.CommandEnvironment = json.RawMessage(`{}`)

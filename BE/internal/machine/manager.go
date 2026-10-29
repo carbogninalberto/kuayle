@@ -31,6 +31,7 @@ type ManagerStore interface {
 	ListResourceAllocations(context.Context) ([]domain.DevMachineResourceAllocation, error)
 	RecordNativeSession(context.Context, uuid.UUID, string) error
 	SaveValidationArtifacts(context.Context, domain.DevMachineOperation, []domain.ValidationArtifact) error
+	FailManualCheck(context.Context, domain.DevMachineOperation, string) error
 	MachinePorts(context.Context, uuid.UUID) ([]domain.DevMachinePort, error)
 	CreatePort(context.Context, *domain.DevMachinePort) error
 	DeleteAgentPort(context.Context, uuid.UUID, int) (bool, error)
@@ -282,7 +283,7 @@ func (m *Manager) processLeasedOperation(ctx context.Context, operation domain.D
 	}()
 	started := time.Now()
 	operationCtx, cancel := context.WithCancel(ctx)
-	if (operation.Action == domain.DevMachineOpRunAgent || operation.Action == domain.DevMachineOpValidateAgent || operation.Action == domain.DevMachineOpPublishAgent) && operation.AgentRunID != nil {
+	if (operation.Action == domain.DevMachineOpRunAgent || operation.Action == domain.DevMachineOpValidateAgent || operation.Action == domain.DevMachineOpPublishAgent || operation.Action == domain.DevMachineOpRunCheck) && operation.AgentRunID != nil {
 		m.registerActiveRun(operation.MachineID, *operation.AgentRunID, cancel)
 		defer m.unregisterActiveRun(operation.MachineID, *operation.AgentRunID)
 	}
@@ -342,6 +343,11 @@ func (m *Manager) processLeasedOperation(ctx context.Context, operation domain.D
 		}
 		if !willRetry && operation.Action == domain.DevMachineOpRunAgent && operation.AgentRunID != nil {
 			m.failAgentRun(finalCtx, *operation.AgentRunID, err)
+		}
+		if !willRetry && operation.Action == domain.DevMachineOpRunCheck {
+			if checkErr := m.store.FailManualCheck(finalCtx, operation, manualCheckFailure(err)); checkErr != nil {
+				log.WithFields(fields).WithError(checkErr).Error("failed to record manual check failure")
+			}
 		}
 		if !willRetry && operation.Action == domain.DevMachineOpCheckoutIssue && operation.CheckoutID != nil {
 			message := safeError(err)
@@ -412,6 +418,8 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 			return nil
 		case domain.DevMachineOpValidateAgent:
 			return &terminalOperationError{code: "validation_stale", message: "Machine changed during validation"}
+		case domain.DevMachineOpRunCheck:
+			return &terminalOperationError{code: "check_stale", message: "The machine changed before the check ran"}
 		case domain.DevMachineOpPublishAgent:
 			return &terminalOperationError{code: "publication_stale", message: "Machine changed during publication"}
 		case domain.DevMachineOpRunAgent:
@@ -559,7 +567,7 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 		}
 		m.previewsEnded(ctx, machine)
 		return m.setStateAndEventForOperation(ctx, machine, operation, domain.DevMachineStatusDestroyed, "machine.destroyed", nil, true)
-	case domain.DevMachineOpValidateAgent:
+	case domain.DevMachineOpValidateAgent, domain.DevMachineOpRunCheck:
 		return m.validateAgent(ctx, machine, operation)
 	case domain.DevMachineOpPublishAgent:
 		return m.publishAgent(ctx, machine, operation)

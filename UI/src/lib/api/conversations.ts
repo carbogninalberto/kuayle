@@ -175,6 +175,14 @@ export interface ExposePortPayload {
 	existing: boolean;
 	audience: AppPortAudience;
 }
+export interface RunCheckPayload {
+	identifier: string;
+	title: string;
+	task_id: string;
+	generation: number;
+	// Absent: the task's configured check command.
+	command?: string[];
+}
 export type ConversationApproval = ApprovalBase &
 	(
 		| { action: 'delegate_issue'; payload: DelegationPayload }
@@ -184,6 +192,7 @@ export type ConversationApproval = ApprovalBase &
 		| { action: 'follow_up_task'; payload: FollowUpPayload }
 		| { action: 'start_preview'; payload: PreviewPayload }
 		| { action: 'expose_port'; payload: ExposePortPayload }
+		| { action: 'run_check'; payload: RunCheckPayload }
 	);
 interface ApprovalBase {
 	id: string;

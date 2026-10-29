@@ -86,8 +86,10 @@ type RuntimeServiceInspection struct {
 type Runtime interface {
 	RunValidation(context.Context, *domain.DevMachine, *domain.DevMachineAgentRun, *domain.DevMachineAgentRunStep, *domain.DevMachineCheckout, string, *AgentObserver) (*AgentExecution, error)
 	HostResources(context.Context) (HostResources, error)
-	CollectValidationArtifacts(context.Context, *domain.DevMachine, *domain.DevMachineAgentRun, *domain.DevMachineCheckout) ([]domain.ValidationArtifact, error)
-	RemoveCheckServices(context.Context, *domain.DevMachine, *domain.DevMachineAgentRun) error
+	CollectValidationArtifacts(context.Context, *domain.DevMachine, *domain.DevMachineAgentRun, *domain.DevMachineAgentRunStep, *domain.DevMachineCheckout) ([]domain.ValidationArtifact, error)
+	RemoveCheckServices(context.Context, *domain.DevMachine, *domain.DevMachineAgentRun, *domain.DevMachineAgentRunStep) error
+	// RemoveCheck deletes a finished manual check's container.
+	RemoveCheck(context.Context, *domain.DevMachine, *domain.DevMachineAgentRun, *domain.DevMachineAgentRunStep) error
 	// StartPreview (re)starts one task's preview process; StopPreview stops it.
 	// Neither affects another task's preview.
 	StartPreview(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService, checkout *domain.DevMachineCheckout, taskID uuid.UUID, argv []string, port int) error

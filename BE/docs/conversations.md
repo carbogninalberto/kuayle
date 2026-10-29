@@ -213,6 +213,7 @@ status or priority; assignees are not changed), `delegate_issue`, `plan_issues` 
 `get_agent_work`, `list_agent_work`, `merge_pull_request`, `accept_agent_work`
 (see [accepting without merge](agent-tasks.md#accepting-without-merge)), `request_agent_review`,
 `follow_up_task` (see [requested agent reviews](agent-tasks.md#requested-agent-reviews)),
+`run_check` (see [manual checks](agent-tasks.md#manual-checks)),
 `link_repository`, and `start_preview`, `stop_preview`, `expose_port` and
 `list_ports` (see [previews and ports from chat](#previews-and-ports-from-chat)).
 `create_issue` accepts a `parent_identifier`. The write tools (`create_issue`,
@@ -351,7 +352,8 @@ this same resolution path; see [Telegram approval buttons](telegram.md#approval-
 
 `request_agent_review` and `follow_up_task` use the same approval path (migration
 84 extends the allowed actions); their effects and re-checks are described in
-[requested agent reviews](agent-tasks.md#requested-agent-reviews).
+[requested agent reviews](agent-tasks.md#requested-agent-reviews). `run_check` does too (migration 97); see
+[manual checks](agent-tasks.md#manual-checks).
 
 ### Previews and ports from chat
 

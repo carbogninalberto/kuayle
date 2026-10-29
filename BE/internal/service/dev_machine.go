@@ -1545,6 +1545,10 @@ func (s *DevMachineService) createAgentRun(ctx context.Context, workspaceID, mac
 		IdempotencyKey: "run-agent:" + runID.String(), RequestedByUserID: &userID, MaxAttempts: 3,
 	}
 	if err := s.store.CreateAgentRun(ctx, run, operation); err != nil {
+		if errors.Is(err, repository.ErrMachineBusy) {
+			// A manual check is running on the machine: the task waits for it.
+			return nil, repository.ErrAgentTaskConflict
+		}
 		if errors.Is(err, repository.ErrMachineStateConflict) || errors.Is(err, repository.ErrActiveAgentRun) {
 			return nil, fmt.Errorf("%w: %v", ErrInvalidOperation, err)
 		}

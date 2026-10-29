@@ -32,6 +32,14 @@ func agentTaskError(c echo.Context, err error) error {
 		return response.Error(c, http.StatusBadRequest, "INVALID_TASK", "Invalid task request")
 	case errors.Is(err, repository.ErrPreviewUnavailable):
 		return response.Error(c, http.StatusConflict, "PREVIEW_UNAVAILABLE", "The task needs a preview command and a ready checkout on a running machine")
+	case errors.Is(err, repository.ErrMachineBusy):
+		return response.Error(c, http.StatusConflict, "MACHINE_BUSY", "The agent is working on this machine; try again when it pauses")
+	case errors.Is(err, repository.ErrCheckUnavailable):
+		return response.Error(c, http.StatusConflict, "CHECK_UNAVAILABLE", "The check needs the task's latest attempt and its checkout on a running machine")
+	case errors.Is(err, repository.ErrNoCheckCommand):
+		return response.Error(c, http.StatusConflict, "NO_CHECK_COMMAND", "No check command is configured; set one in the development settings or give a command")
+	case errors.Is(err, repository.ErrCheckForbidden):
+		return response.Error(c, http.StatusForbidden, "FORBIDDEN", "Only members who can edit development settings can run a custom check command")
 	case errors.Is(err, service.ErrSignInNotFound):
 		return response.Error(c, http.StatusConflict, "SIGN_IN_NOT_FOUND", "No sign-in was found in the machine's terminal yet")
 	default:
@@ -159,6 +167,45 @@ func (h *AgentTaskHandler) preview(c echo.Context, start bool) error {
 		return agentTaskError(c, err)
 	}
 	return response.Success(c, http.StatusAccepted, task)
+}
+
+// RunCheck runs the task's check, or a given command, on the latest attempt's
+// checkout without starting an agent attempt. An empty body runs the task's check.
+func (h *AgentTaskHandler) RunCheck(c echo.Context) error {
+	id, err := taskID(c, "taskId")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	var input struct {
+		Command []string `json:"command"`
+	}
+	if c.Request().ContentLength != 0 {
+		if err = bindTask(c, &input); err != nil {
+			return agentTaskError(c, err)
+		}
+	}
+	step, err := h.svc.Repo.RunCheck(c.Request().Context(), middleware.GetWorkspace(c).ID, id, input.Command)
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	return response.Success(c, http.StatusAccepted, step)
+}
+
+// ManualChecks lists an attempt's manual checks, oldest first.
+func (h *AgentTaskHandler) ManualChecks(c echo.Context) error {
+	id, err := taskID(c, "taskId")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	run, err := taskID(c, "runId")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	result, err := h.svc.Repo.ManualChecks(c.Request().Context(), middleware.GetWorkspace(c).ID, id, run)
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	return response.Success(c, http.StatusOK, result)
 }
 
 // ContinueAfterSignIn keeps the sign-in the user completed in their terminal

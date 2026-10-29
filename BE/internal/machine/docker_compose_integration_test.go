@@ -77,7 +77,7 @@ func TestDockerCheckReachesComposeServicesOnAnInternalNetwork(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, network.Network.Internal, "services must have no egress")
 
-	require.NoError(t, runtime.RemoveCheckServices(ctx, machine, run))
+	require.NoError(t, runtime.RemoveCheckServices(ctx, machine, run, step))
 	_, err = runtime.client.ContainerInspect(ctx, composeContainerName(machine, run, "cache"), client.ContainerInspectOptions{})
 	require.Error(t, err)
 	_, err = runtime.client.NetworkInspect(ctx, checkNetworkName(machine, run), client.NetworkInspectOptions{})
