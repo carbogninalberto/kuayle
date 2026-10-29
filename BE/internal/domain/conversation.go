@@ -195,3 +195,38 @@ type FollowUpPayload struct {
 	Generation   int64     `json:"generation"`
 	Instructions string    `json:"instructions"`
 }
+
+// AppPortAudienceOwner means only the machine's owner, signed in to Kuayle,
+// can open an app port link: the gateway admits nobody else.
+const AppPortAudienceOwner = "owner"
+
+// PreviewPayload binds a start_preview approval to the issue's task, its
+// machine and the preview command shown to the user.
+type PreviewPayload struct {
+	Identifier string    `json:"identifier"`
+	Title      string    `json:"title"`
+	TaskID     uuid.UUID `json:"task_id"`
+	MachineID  uuid.UUID `json:"machine_id"`
+	Machine    string    `json:"machine"`
+	Command    []string  `json:"command"`
+	// Port is the preferred preview port; the machine picks a free one when
+	// it is taken.
+	Port     *int   `json:"port,omitempty"`
+	Audience string `json:"audience"`
+}
+
+// ExposePortPayload binds an expose_port approval to the task's machine, the
+// port and the gateway host shown to the user. Existing reports that the
+// machine already exposed the port when approval was requested.
+type ExposePortPayload struct {
+	Identifier string    `json:"identifier"`
+	Title      string    `json:"title"`
+	TaskID     uuid.UUID `json:"task_id"`
+	MachineID  uuid.UUID `json:"machine_id"`
+	Machine    string    `json:"machine"`
+	Port       int       `json:"port"`
+	Label      *string   `json:"label,omitempty"`
+	Host       string    `json:"host"`
+	Existing   bool      `json:"existing"`
+	Audience   string    `json:"audience"`
+}

@@ -149,6 +149,32 @@ export interface FollowUpPayload {
 	generation: number;
 	instructions: string;
 }
+// Who can open an app port link: only the machine's owner, signed in.
+export type AppPortAudience = 'owner';
+export interface PreviewPayload {
+	identifier: string;
+	title: string;
+	task_id: string;
+	machine_id: string;
+	machine: string;
+	command: string[];
+	// The preferred port; the machine picks a free one when it is taken.
+	port?: number;
+	audience: AppPortAudience;
+}
+export interface ExposePortPayload {
+	identifier: string;
+	title: string;
+	task_id: string;
+	machine_id: string;
+	machine: string;
+	port: number;
+	label?: string;
+	host: string;
+	// The machine already exposed the port when approval was requested.
+	existing: boolean;
+	audience: AppPortAudience;
+}
 export type ConversationApproval = ApprovalBase &
 	(
 		| { action: 'delegate_issue'; payload: DelegationPayload }
@@ -156,6 +182,8 @@ export type ConversationApproval = ApprovalBase &
 		| { action: 'accept_agent_work'; payload: AcceptPayload }
 		| { action: 'request_agent_review'; payload: ReviewPayload }
 		| { action: 'follow_up_task'; payload: FollowUpPayload }
+		| { action: 'start_preview'; payload: PreviewPayload }
+		| { action: 'expose_port'; payload: ExposePortPayload }
 	);
 interface ApprovalBase {
 	id: string;

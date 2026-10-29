@@ -389,6 +389,14 @@ func (s *ConversationService) requestApproval(ctx context.Context, a domain.Conv
 		var followUp domain.FollowUpPayload
 		issueID, followUp, err = s.tools.prepareFollowUp(ctx, a.Conversation.WorkspaceID, a.Conversation.CreatorID, arguments)
 		payload, identifier = followUp, followUp.Identifier
+	case "start_preview":
+		var preview domain.PreviewPayload
+		issueID, preview, err = s.tools.preparePreview(ctx, a.Conversation.WorkspaceID, a.Conversation.CreatorID, arguments)
+		payload, identifier = preview, preview.Identifier
+	case "expose_port":
+		var port domain.ExposePortPayload
+		issueID, port, err = s.tools.preparePort(ctx, a.Conversation.WorkspaceID, a.Conversation.CreatorID, arguments)
+		payload, identifier = port, port.Identifier
 	default:
 		err = toolFailure("unknown tool")
 	}

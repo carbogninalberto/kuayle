@@ -754,14 +754,23 @@ func telegramApprovalAnswer(approval *domain.ConversationApproval, err error) (s
 			return "Approved: the follow-up is starting.", true
 		case "accept_agent_work":
 			return "Approved: the work was accepted in Kuayle without merging.", true
+		case "start_preview":
+			return "Approved: the preview is starting. Open it from the chat in Kuayle.", true
+		case "expose_port":
+			return "Approved: the port is exposed. Open it from the chat in Kuayle.", true
 		}
 		return "Approved: the coding agent is starting.", true
 	case "denied":
 		return "Denied.", true
 	case "failed":
 		message := "The coding agent could not start."
-		if approval.Action == "accept_agent_work" {
+		switch approval.Action {
+		case "accept_agent_work":
 			message = "The work could not be accepted."
+		case "start_preview":
+			message = "The preview could not be started."
+		case "expose_port":
+			message = "The port could not be exposed."
 		}
 		if approval.Error != nil {
 			message += " " + *approval.Error

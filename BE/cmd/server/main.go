@@ -159,6 +159,8 @@ func main() {
 	assistantTools.SetAgentWork(repository.NewAgentTaskRepository(db))
 	assistantTools.SetRepositories(devMachineRepo)
 	assistantApprovals := service.NewAssistantApprovals(conversationSvc.Repo, agentTaskSvc)
+	assistantTools.SetMachines(repository.NewAgentTaskRepository(db), devMachineSvc)
+	assistantApprovals.SetMachines(repository.NewAgentTaskRepository(db), devMachineSvc)
 	conversationSvc.SetApprovals(assistantApprovals)
 	agentTaskH := handler.NewAgentTaskHandler(agentTaskSvc)
 	agentMessageSvc := service.NewAgentMessageService(repository.NewAgentMessageRepository(db), hub)

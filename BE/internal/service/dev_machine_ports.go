@@ -105,14 +105,8 @@ func (s *DevMachineService) CreatePort(ctx context.Context, workspaceID, machine
 	if label, err = normalizePortLabel(label); err != nil {
 		return nil, err
 	}
-	services, err := s.store.ListServices(ctx, workspaceID, machine.ID)
-	if err != nil {
+	if err = s.ReservedPort(ctx, workspaceID, machine.ID, number); err != nil {
 		return nil, err
-	}
-	for _, service := range services {
-		if service.InternalPort == number {
-			return nil, fmt.Errorf("%w: port %d belongs to the machine's %s service", ErrPortReserved, number, service.ServiceType)
-		}
 	}
 	port := &domain.DevMachinePort{WorkspaceID: workspaceID, MachineID: machine.ID, Port: number, Label: label, Source: domain.DevMachinePortSourceUser, CreatedByUserID: userID}
 	if err = s.store.CreatePort(ctx, port); err != nil {
@@ -121,6 +115,20 @@ func (s *DevMachineService) CreatePort(ctx context.Context, workspaceID, machine
 	s.emit(ctx, machine, nil, &userID, "gateway", "port.exposed", map[string]any{"port": number, "source": port.Source})
 	view := s.appPort(machine, *port)
 	return &view, nil
+}
+
+// ReservedPort refuses a port of one of the machine's own services.
+func (s *DevMachineService) ReservedPort(ctx context.Context, workspaceID, machineID uuid.UUID, number int) error {
+	services, err := s.store.ListServices(ctx, workspaceID, machineID)
+	if err != nil {
+		return err
+	}
+	for _, service := range services {
+		if service.InternalPort == number {
+			return fmt.Errorf("%w: port %d belongs to the machine's %s service", ErrPortReserved, number, service.ServiceType)
+		}
+	}
+	return nil
 }
 
 func portError(err error) error {

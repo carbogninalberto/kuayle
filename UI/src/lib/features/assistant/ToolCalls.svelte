@@ -7,7 +7,9 @@
 		Bot,
 		CircleCheck,
 		CircleX,
-		GitBranch
+		GitBranch,
+		Lock,
+		Server
 	} from '@lucide/svelte';
 	import * as Trace from '$lib/components/ui/trace/index.js';
 	import * as CodeBlock from '$lib/components/ui/code-block/index.js';
@@ -16,6 +18,7 @@
 	import type { ConversationApproval, ConversationToolCall } from '$lib/api/conversations';
 	import { m } from '$lib/paraglide/messages.js';
 	import AgentSubagent from './AgentSubagent.svelte';
+	import AppPortLinks from './AppPortLinks.svelte';
 	import AgentLogo from '$lib/features/agents/AgentLogo.svelte';
 	import { agentInfo } from '$lib/features/agents/agents';
 	import { repositorySourceLabel } from '$lib/features/dev-machines/repository-source';
@@ -58,7 +61,11 @@
 		merge_pull_request: m['assistant.tool_merge_pull_request'],
 		accept_agent_work: m['assistant.tool_accept_agent_work'],
 		request_agent_review: m['assistant.tool_request_agent_review'],
-		follow_up_task: m['assistant.tool_follow_up_task']
+		follow_up_task: m['assistant.tool_follow_up_task'],
+		start_preview: m['assistant.tool_start_preview'],
+		stop_preview: m['assistant.tool_stop_preview'],
+		expose_port: m['assistant.tool_expose_port'],
+		list_ports: m['assistant.tool_list_ports']
 	};
 	// Outcome lines per approval action.
 	function outcome(approval: ConversationApproval) {
@@ -76,6 +83,35 @@
 					return m['assistant.approval_expired']({ identifier });
 				default:
 					return m['assistant.accept_denied']({ identifier });
+			}
+		}
+		if (approval.action === 'start_preview') {
+			switch (approval.status) {
+				case 'approving':
+					return m['assistant.preview_approving']({ identifier });
+				case 'approved':
+					return m['assistant.preview_approved']({ identifier });
+				case 'failed':
+					return m['assistant.preview_failed']({ identifier, error: approval.error ?? '' });
+				case 'expired':
+					return m['assistant.approval_expired']({ identifier });
+				default:
+					return m['assistant.preview_denied']({ identifier });
+			}
+		}
+		if (approval.action === 'expose_port') {
+			const port = approval.payload.port;
+			switch (approval.status) {
+				case 'approving':
+					return m['assistant.port_approving']({ identifier, port });
+				case 'approved':
+					return m['assistant.port_approved']({ identifier, port });
+				case 'failed':
+					return m['assistant.port_failed']({ identifier, port, error: approval.error ?? '' });
+				case 'expired':
+					return m['assistant.approval_expired']({ identifier });
+				default:
+					return m['assistant.port_denied']({ identifier, port });
 			}
 		}
 		if (approval.action === 'request_agent_review' || approval.action === 'follow_up_task') {
@@ -126,6 +162,17 @@
 			call.status === 'completed' &&
 			typeof identifier === 'string'
 			? identifier
+			: undefined;
+	}
+	// list_ports names its machine; the ports themselves are read from the API.
+	const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+	function listedMachine(call: ConversationToolCall) {
+		const machine = (call.output as { machine_id?: unknown } | undefined)?.machine_id;
+		return call.name === 'list_ports' &&
+			call.status === 'completed' &&
+			typeof machine === 'string' &&
+			uuidPattern.test(machine)
+			? machine
 			: undefined;
 	}
 	// Tool data is untrusted: it is rendered only as escaped Code Block text.
@@ -220,6 +267,42 @@
 										class="max-h-48 text-xs"
 									/></CodeBlock.Root
 								>
+							{:else if approval.action === 'start_preview'}
+								<Item.Title>{m['assistant.preview_title']({ identifier })}</Item.Title>
+								<Item.Description class="line-clamp-none"
+									>{m['assistant.preview_description']({
+										title: approval.payload.title,
+										machine: approval.payload.machine
+									})}</Item.Description
+								>
+								<CodeBlock.Root size="sm"
+									><CodeBlock.Content
+										code={approval.payload.command.join(' ')}
+										wrap
+										class="max-h-24 text-xs"
+									/></CodeBlock.Root
+								>
+								{#if approval.payload.port}<p class="text-xs text-muted-foreground">
+										{m['assistant.preview_port']({ port: approval.payload.port })}
+									</p>{/if}
+								<p class="flex items-center gap-1 text-xs text-muted-foreground">
+									<Lock size={12} class="shrink-0" />{m['assistant.port_audience_owner']()}
+								</p>
+							{:else if approval.action === 'expose_port'}
+								<Item.Title>{m['assistant.port_title']({ identifier, port: approval.payload.port })}</Item.Title>
+								<Item.Description class="line-clamp-none"
+									>{m['assistant.port_description']({
+										port: approval.payload.port,
+										machine: approval.payload.machine,
+										host: approval.payload.host
+									})}</Item.Description
+								>
+								{#if approval.payload.existing}<p class="flex items-center gap-1 text-xs text-muted-foreground">
+										<Server size={12} class="shrink-0" />{m['assistant.port_existing']()}
+									</p>{/if}
+								<p class="flex items-center gap-1 text-xs text-muted-foreground">
+									<Lock size={12} class="shrink-0" />{m['assistant.port_audience_owner']()}
+								</p>
 							{:else}
 								<Item.Title>{m['assistant.approval_title']({ identifier })}</Item.Title>
 								<Item.Description class="line-clamp-none"
@@ -284,6 +367,16 @@
 							{slug}
 							taskId={approval.task_id}
 							{identifier}
+						/>{:else if approval.action === 'start_preview' && approval.status === 'approved'}<AppPortLinks
+							{slug}
+							machineId={approval.payload.machine_id}
+							taskId={approval.payload.task_id}
+							wait
+						/>{:else if approval.action === 'expose_port' && approval.status === 'approved'}<AppPortLinks
+							{slug}
+							machineId={approval.payload.machine_id}
+							port={approval.payload.port}
+							wait
 						/>{/if}
 				{/if}
 			{:else if call.status === 'running'}
@@ -294,6 +387,7 @@
 			{:else}
 				{@const failed = call.status === 'failed'}
 				{@const identifier = created(call)}
+				{@const machine = listedMachine(call)}
 				<Trace.Collapsible>
 					<Trace.CollapsibleTrigger>
 						<Trace.Line status={failed ? 'error' : identifier ? 'success' : undefined}>
@@ -330,6 +424,7 @@
 						class="inline-flex items-center gap-1 text-xs underline underline-offset-2"
 						href="/{slug}/issue/{encodeURIComponent(identifier)}"><ExternalLink size={12} />{identifier}</a
 					>{/if}
+				{#if machine}<AppPortLinks {slug} machineId={machine} />{/if}
 			{/if}
 		{/each}
 	</Trace.Root>

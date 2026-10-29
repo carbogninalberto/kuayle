@@ -1065,8 +1065,9 @@ creator's list, and issue chats follow their issue's project. Orchestrator tools
 the assistant list teams, search, read, create and update issues, read and list
 agent work, link an issue or project to a repository and request approval for
 delegation, an agent review of a published pull request, a follow-up on a task
-or a merge, with the user's own permissions; it cannot change Dev Machine
-lifecycles. One reply runs up to 10 minutes, 400 tool calls and 10 issue
+or a merge, start or stop a task's preview and expose or list its machine's app
+ports (start and expose need approval), with the user's own permissions; it
+cannot change Dev Machine lifecycles. One reply runs up to 10 minutes, 400 tool calls and 10 issue
 changes, with a bounded per-round context. Comments by workspace members on an
 issue whose task awaits review queue a bounded follow-up attempt
 ([agent tasks](BE/docs/agent-tasks.md#kuayle-issue-comments)). See [conversation architecture and API](BE/docs/conversations.md)

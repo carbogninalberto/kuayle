@@ -31,6 +31,9 @@ type AssistantApprovals struct {
 	reviews approvalReviews
 	// Acceptance is unavailable until SetAccepting wires it.
 	acceptor approvalAcceptor
+	// Previews and ports are unavailable until SetMachines wires them.
+	machineTasks assistantMachineTasks
+	machines     assistantMachinePorts
 }
 
 type approvalAcceptor interface {
@@ -88,6 +91,10 @@ func (s *AssistantApprovals) Resolve(ctx context.Context, ws, conversation, id u
 		return s.review(ctx, ws, conversation, approval)
 	case "follow_up_task":
 		return s.followUp(ctx, ws, conversation, approval)
+	case "start_preview":
+		return s.startPreview(ctx, ws, conversation, approval)
+	case "expose_port":
+		return s.exposePort(ctx, ws, conversation, approval)
 	}
 	var payload domain.DelegationPayload
 	if approval.Action != "delegate_issue" || json.Unmarshal(approval.Payload, &payload) != nil {

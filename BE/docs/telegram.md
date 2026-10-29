@@ -192,7 +192,9 @@ single claim and idempotent task creation all apply; approvals of other users
 look missing. The bot answers the press (`answerCallbackQuery`) and removes the
 buttons once the decision is final (`editMessageReplyMarkup`); both calls are best
 effort because the decision is already durable. A Web decision made first is
-reported as already decided.
+reported as already decided. Answers name the effect: a started coding agent,
+review or follow-up, accepted work, a starting preview or an exposed port (which
+the user then opens from the chat in Kuayle), or why it failed.
 
 ## Verification
 
