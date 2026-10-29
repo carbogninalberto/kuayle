@@ -90,7 +90,28 @@ func TestMissingValidationCommandIsUnavailableNotPassed(t *testing.T) {
 	var count int
 	require.NoError(t, db.Get(&count, `SELECT count(*) FROM dev_machine_operations WHERE agent_run_id=$1 AND action='validate_agent'`, task.RunID))
 	require.Zero(t, count)
-	require.ErrorIs(t, repo.Transition(ctx, *claimed, "publishing", "Unavailable is not passed"), ErrAgentTaskConflict)
+	// A skipped check is never a pass, but the work is still published, as a
+	// draft whose publication records no check.
+	require.NoError(t, repo.Transition(ctx, *claimed, "publishing", "No check command is configured; publishing a draft"))
+	_, err = repo.EnsurePublication(ctx, *claimed)
+	require.NoError(t, err)
+	store := NewDevMachineRepository(db)
+	publication, err := store.GetPublication(ctx, leasePublication(t, store, ctx))
+	require.NoError(t, err)
+	require.Empty(t, publication.CheckArgv, "an unchecked publication never claims a check")
+}
+
+func TestSkippedValidationWithACommandCannotPublish(t *testing.T) {
+	db, repo, ctx, task, fixture := taskRecoveryFixture(t)
+	claimed := prepareTaskStart(t, db, repo, ctx, task, fixture)
+	_, err := repo.Start(ctx, *claimed)
+	require.NoError(t, err)
+	_, err = db.Exec(`UPDATE dev_machine_agent_runs SET status='succeeded',completed_at=now() WHERE id=$1`, task.RunID)
+	require.NoError(t, err)
+	require.NoError(t, repo.Transition(ctx, *claimed, "validating", "Native attempt finished"))
+	_, err = db.Exec(`INSERT INTO dev_machine_agent_run_steps(agent_run_id,sequence,step_type,name,status,command_argv,summary,completed_at) VALUES($1,0,'validation','Independent validation','skipped','["npm","test"]','Skipped',now())`, task.RunID)
+	require.NoError(t, err)
+	require.ErrorIs(t, repo.Transition(ctx, *claimed, "publishing", "A configured check never ran"), ErrAgentTaskConflict)
 }
 
 func TestValidationRejectsRevokedAuthorityAndExpiredOperationLeases(t *testing.T) {

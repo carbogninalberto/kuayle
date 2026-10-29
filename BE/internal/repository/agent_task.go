@@ -323,7 +323,10 @@ func (r *AgentTaskRepository) Transition(ctx context.Context, claimed domain.Age
 	if to == "publishing" {
 		var passed bool
 		if err = tx.GetContext(ctx, &passed, `SELECT EXISTS(SELECT 1 FROM dev_machine_agent_run_steps s JOIN dev_machine_operations o ON o.agent_run_id=s.agent_run_id AND o.action='validate_agent'
-         WHERE s.agent_run_id=$1 AND s.sequence=0 AND s.step_type='validation' AND s.status='succeeded' AND s.exit_code=0 AND s.started_at IS NOT NULL AND s.completed_at IS NOT NULL AND o.status='completed')`, task.RunID); err != nil {
+         WHERE s.agent_run_id=$1 AND s.sequence=0 AND s.step_type='validation' AND s.status='succeeded' AND s.exit_code=0 AND s.started_at IS NOT NULL AND s.completed_at IS NOT NULL AND o.status='completed')
+         -- With no check configured the step is skipped, never passed; the work
+         -- is still published, as a draft whose publication records no check.
+         OR EXISTS(SELECT 1 FROM dev_machine_agent_run_steps s WHERE s.agent_run_id=$1 AND s.sequence=0 AND s.step_type='validation' AND s.status='skipped' AND s.command_argv='[]'::jsonb AND s.completed_at IS NOT NULL)`, task.RunID); err != nil {
 			return err
 		}
 		if !passed {
