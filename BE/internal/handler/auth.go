@@ -13,6 +13,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/middleware"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
+	"github.com/kuayle/kuayle-backend/pkg/storage"
 	"github.com/kuayle/kuayle-backend/pkg/validate"
 	"github.com/labstack/echo/v4"
 	log "github.com/sirupsen/logrus"
@@ -24,6 +25,7 @@ type AuthHandler struct {
 	hostCookies   bool
 	loginThrottle *middleware.LoginThrottle
 	isSysAdmin    func(uuid.UUID) bool
+	avatarStore   storage.Backend
 }
 
 func NewAuthHandler(authService *service.AuthService, secureCookie bool, loginThrottle *middleware.LoginThrottle, isSysAdmin func(uuid.UUID) bool, hostCookies ...bool) *AuthHandler {
@@ -109,6 +111,51 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	return response.Success(c, http.StatusOK, h.userResponse(user))
 }
 
+// ForgotPassword always answers 200 so it cannot be used to enumerate accounts.
+func (h *AuthHandler) ForgotPassword(c echo.Context) error {
+	var req dto.ForgotPasswordRequest
+	if err := c.Bind(&req); err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
+	}
+	if err := validate.Struct(&req); err != nil {
+		return response.ValidationError(c, validationDetails(err))
+	}
+	if err := h.authService.RequestPasswordReset(c.Request().Context(), req.Email); err != nil {
+		log.WithError(err).WithField("event", "auth.password_reset_request_failed").Error("password reset request failed")
+	}
+	return response.Success(c, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (h *AuthHandler) ResetPassword(c echo.Context) error {
+	var req dto.ResetPasswordRequest
+	if err := c.Bind(&req); err != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
+	}
+	if err := validate.Struct(&req); err != nil {
+		return response.ValidationError(c, validationDetails(err))
+	}
+	if err := h.authService.ResetPassword(c.Request().Context(), req.Token, req.Password); err != nil {
+		if errors.Is(err, service.ErrWeakPassword) {
+			return response.Error(c, http.StatusBadRequest, "WEAK_PASSWORD", err.Error())
+		}
+		if errors.Is(err, service.ErrInvalidToken) {
+			return response.Error(c, http.StatusBadRequest, "INVALID_RESET_TOKEN", "This reset link is invalid or has expired")
+		}
+		return response.InternalError(c)
+	}
+	log.WithFields(log.Fields{"event": "auth.password_reset", "ip": c.RealIP()}).Info("password reset")
+	h.clearAuthCookies(c)
+	return response.Success(c, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func validationDetails(err error) []dto.ErrorDetail {
+	details := make([]dto.ErrorDetail, 0)
+	for _, e := range validate.FormatErrors(err) {
+		details = append(details, dto.ErrorDetail{Field: e["field"], Message: e["message"]})
+	}
+	return details
+}
+
 func (h *AuthHandler) Refresh(c echo.Context) error {
 	cookie, err := c.Cookie(h.refreshCookieName())
 	if err != nil || cookie.Value == "" {
@@ -158,7 +205,8 @@ func (h *AuthHandler) UpdateProfile(c echo.Context) error {
 		}
 		return response.ValidationError(c, details)
 	}
-	if req.AvatarURL.Set && req.AvatarURL.Value != nil && strings.TrimSpace(*req.AvatarURL.Value) != "" {
+	if req.AvatarURL.Set && req.AvatarURL.Value != nil && strings.TrimSpace(*req.AvatarURL.Value) != "" &&
+		!isOwnAvatarPath(*req.AvatarURL.Value, middleware.GetUserID(c)) {
 		if err := validateProfileURL(*req.AvatarURL.Value); err != nil {
 			return response.ValidationError(c, []dto.ErrorDetail{{Field: "AvatarURL", Message: err.Error()}})
 		}

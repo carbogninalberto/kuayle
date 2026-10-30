@@ -95,6 +95,8 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	auth.POST("/login", h.auth.Login).Name = "public"
 	auth.POST("/refresh", h.auth.Refresh).Name = "public"
 	auth.POST("/logout", h.auth.Logout).Name = "public"
+	auth.POST("/forgot-password", h.auth.ForgotPassword).Name = "public"
+	auth.POST("/reset-password", h.auth.ResetPassword).Name = "public"
 
 	// Public share routes (no auth, rate limited)
 	pub := e.Group("/api/public", m.publicRateLimit)
@@ -112,6 +114,8 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	// User
 	scoped(api, http.MethodGet, "/auth/me", h.auth.Me, "account:read")
 	sessionOnly(api, http.MethodPatch, "/auth/me", h.auth.UpdateProfile)
+	sessionOnly(api, http.MethodPost, "/auth/me/avatar", h.auth.UploadAvatar)
+	scoped(api, http.MethodGet, "/users/:userId/avatar/:file", h.auth.GetAvatar, "account:read")
 	scoped(api, http.MethodGet, "/preferences", h.prefs.Get, "account:read", mw.RequireUnrestrictedTokenWorkspaces())
 	sessionOnly(api, http.MethodPatch, "/preferences", h.prefs.Update)
 
