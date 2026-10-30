@@ -82,6 +82,9 @@
 			else appToast.success(title, options);
 			clearConfirm = false;
 			await load(currentPage);
+			// Clearing every row of a later page leaves it out of range; step back
+			// so the remaining machines and the pager stay reachable.
+			while (!failed && machines.length === 0 && currentPage > 1) await load(currentPage - 1);
 		} catch (error) {
 			appToast.apiError(error, m['machines.clear_failed']());
 		} finally {

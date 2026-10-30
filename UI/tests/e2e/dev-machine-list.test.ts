@@ -62,7 +62,7 @@ const endedMachines = [
 	machine(expiredId, 'nightly-integration', 'expired')
 ];
 
-async function mockApi(page: Page, options: { role?: string } = {}) {
+async function mockApi(page: Page, options: { role?: string; paged?: boolean } = {}) {
 	const state = {
 		machines: [...activeMachines, ...endedMachines] as Array<ReturnType<typeof machine>>,
 		purgePayloads: [] as Array<Record<string, unknown>>
@@ -84,13 +84,20 @@ async function mockApi(page: Page, options: { role?: string } = {}) {
 		if (['teams', 'projects', 'labels', 'members', 'views'].some((part) => path === `/api/workspaces/test/${part}`))
 			return route.fulfill({ json: [] });
 		if (path === '/api/notifications') return route.fulfill({ json: { notifications: [], unread_count: 0 } });
-		if (path === '/api/workspaces/test/dev-machines' && request.method() === 'GET')
-			return route.fulfill({ json: { data: state.machines, total_count: state.machines.length, page: 1, has_more: false } });
+		if (path === '/api/workspaces/test/dev-machines' && request.method() === 'GET') {
+			if (!options.paged)
+				return route.fulfill({ json: { data: state.machines, total_count: state.machines.length, page: 1, has_more: false } });
+			// Active machines fill page 1; ended machines are on page 2.
+			const pageNum = Number(new URL(request.url()).searchParams.get('page') ?? '1');
+			const pages = [state.machines.filter((entry) => !['destroyed', 'failed', 'expired'].includes(entry.status)), state.machines.filter((entry) => ['destroyed', 'failed', 'expired'].includes(entry.status))];
+			const data = pages[pageNum - 1] ?? [];
+			return route.fulfill({ json: { data, total_count: state.machines.length, page: pageNum, has_more: pageNum === 1 && pages[1].length > 0 } });
+		}
 		if (path === '/api/workspaces/test/dev-machines/bulk/permanent-delete' && request.method() === 'POST') {
 			const payload = request.postDataJSON() as { machine_ids?: string[] };
 			state.purgePayloads.push(payload);
 			// The failed machine still holds runtime resources and is kept.
-			const removed = (payload.machine_ids ?? []).filter((id) => id !== failedId);
+			const removed = (payload.machine_ids ?? []).filter((id) => options.paged || id !== failedId);
 			state.machines = state.machines.filter((entry) => !removed.includes(entry.id));
 			return route.fulfill({
 				json: { count: removed.length, skipped: 1, skipped_active: 0, skipped_runtime: 1, skipped_recent: 0 }
@@ -131,6 +138,18 @@ test('clears destroyed, failed and expired machines at once and reports the ones
 	await expect(ended.getByRole('link', { name: /task-1d2c3b4a/ })).toHaveCount(0);
 	await expect(ended.getByRole('link', { name: /task-5b4a3c2d/ })).toBeVisible();
 	await expect(page.getByRole('link', { name: /task-3f2b9c1e/ })).toBeVisible();
+});
+
+test('clearing every machine on a later page returns to a page that still has machines', async ({ page }) => {
+	await mockApi(page, { paged: true });
+	await page.goto('/test/settings/dev-machines');
+	await page.getByRole('button', { name: 'Next' }).click();
+	const ended = page.getByRole('region', { name: 'Destroyed, failed and expired' });
+	await expect(ended.getByRole('link', { name: /task-1d2c3b4a/ })).toBeVisible();
+	await ended.getByRole('button', { name: 'Clear' }).click();
+	await page.getByRole('button', { name: 'Clear 4 machines' }).click();
+	await expect(page.getByText('Removed 4 machines')).toBeVisible();
+	await expect(page.getByRole('region', { name: 'Active machines' }).getByRole('link', { name: /task-3f2b9c1e/ })).toBeVisible();
 });
 
 test('hides the clear action from members who cannot purge machines', async ({ page }) => {
