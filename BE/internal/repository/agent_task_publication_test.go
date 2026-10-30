@@ -245,32 +245,65 @@ func TestMergedPullRequestCompletesOnlyTheRecordedReviewTask(t *testing.T) {
 
 // Deleting a machine destroys its runtime but keeps the record while agent tasks
 // have history on it: attempts, logs and the pull request refs that let a later
-// merge complete the task.
+// merge complete the task. The kept record stays deleted for the user: it no
+// longer appears in their machine list and the manager stops revisiting it.
 func TestMachinePurgeKeepsAgentTaskHistory(t *testing.T) {
 	db, _, ctx, task, claimed := publishingTask(t)
 	store := NewDevMachineRepository(db)
 	machine := *claimed.MachineID
 	_, err := db.Exec(`UPDATE dev_machine_operations SET status='completed',lease_owner=NULL,lease_expires_at=NULL WHERE machine_id=$1`, machine)
 	require.NoError(t, err)
-	_, err = db.Exec(`UPDATE dev_machines SET status='destroyed',destroyed_at=now()-interval '30 days',delete_requested_at=now(),docker_network_name=NULL,workspace_volume_name=NULL WHERE id=$1`, machine)
+	_, err = db.Exec(`UPDATE dev_machines SET status='destroyed',destroyed_at=now(),delete_requested_at=now(),docker_network_name=NULL,workspace_volume_name=NULL WHERE id=$1`, machine)
 	require.NoError(t, err)
+	var owner uuid.UUID
+	require.NoError(t, db.Get(&owner, `SELECT created_by_user_id FROM dev_machines WHERE id=$1`, machine))
+	listed := func() bool {
+		machines, _, err := store.ListMachinesForUser(ctx, task.WorkspaceID, owner, "", nil, 100, 0)
+		require.NoError(t, err)
+		for _, listedMachine := range machines {
+			if listedMachine.ID == machine {
+				return true
+			}
+		}
+		return false
+	}
+	pendingPurge := func() bool {
+		requests, err := store.ListPermanentDeleteRequests(ctx, 1000)
+		require.NoError(t, err)
+		for _, request := range requests {
+			if request.ID == machine {
+				return true
+			}
+		}
+		return false
+	}
 
 	require.NoError(t, store.PurgePermanentDeleteRequest(ctx, task.WorkspaceID, machine))
 	var requested *time.Time
 	require.NoError(t, db.Get(&requested, `SELECT delete_requested_at FROM dev_machines WHERE id=$1`, machine), "the record is kept")
-	require.Nil(t, requested, "a kept record is no longer pending deletion")
-	count, err := store.BulkPurgeMachines(ctx, task.WorkspaceID, nil, time.Now(), true, true)
+	require.NotNil(t, requested, "the kept record stays deleted for the user")
+	require.False(t, listed(), "a deleted machine does not reappear in the machine list")
+	require.False(t, pendingPurge(), "the manager does not revisit a record kept as history")
+
+	// Clearing destroyed machines hides a kept record the same way.
+	_, err = db.Exec(`UPDATE dev_machines SET delete_requested_at=NULL WHERE id=$1`, machine)
 	require.NoError(t, err)
-	require.Zero(t, count)
+	require.True(t, listed())
+	result, err := store.BulkPurgeMachines(ctx, task.WorkspaceID, domain.DevMachinePurge{IncludeFailed: true, IncludeExpired: true})
+	require.NoError(t, err)
+	require.Equal(t, 1, result.Removed)
+	require.False(t, listed())
 	var runs int
 	require.NoError(t, db.Get(&runs, `SELECT count(*) FROM dev_machine_agent_runs WHERE id=$1`, task.RunID))
 	require.Equal(t, 1, runs)
+	result, err = store.BulkPurgeMachines(ctx, task.WorkspaceID, domain.DevMachinePurge{IncludeFailed: true, IncludeExpired: true})
+	require.NoError(t, err)
+	require.Zero(t, result.Removed, "a hidden record is not counted twice")
 
-	// Machines without agent task history are still purged.
+	// Once no agent task needs the history, the pending deletion completes.
 	_, err = db.Exec(`UPDATE dev_machine_agent_runs SET task_id=NULL WHERE machine_id=$1`, machine)
 	require.NoError(t, err)
-	_, err = db.Exec(`UPDATE dev_machines SET delete_requested_at=now() WHERE id=$1`, machine)
-	require.NoError(t, err)
+	require.True(t, pendingPurge())
 	require.NoError(t, store.PurgePermanentDeleteRequest(ctx, task.WorkspaceID, machine))
 	var left int
 	require.NoError(t, db.Get(&left, `SELECT count(*) FROM dev_machines WHERE id=$1`, machine))

@@ -24,6 +24,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	cryptoutil "github.com/kuayle/kuayle-backend/pkg/crypto"
 	"github.com/kuayle/kuayle-backend/pkg/sanitize"
+	log "github.com/sirupsen/logrus"
 )
 
 var (
@@ -699,6 +700,13 @@ func (s *DevMachineService) requestPermanentDelete(ctx context.Context, workspac
 		payload["operation_id"] = operation.ID
 	}
 	s.emit(ctx, machine, nil, &userID, "lifecycle", "machine.permanent_delete_requested", payload)
+	if operation == nil {
+		// Nothing to tear down: purge now. A failure leaves the request for the
+		// manager's reconcile pass, which retries it.
+		if err := s.store.PurgePermanentDeleteRequest(ctx, workspaceID, machineID); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			log.WithField("machine_id", machineID).WithError(err).Warn("permanent machine purge deferred to reconciliation")
+		}
+	}
 	return operation, nil
 }
 
@@ -747,20 +755,38 @@ func (s *DevMachineService) BulkDelete(ctx context.Context, workspaceID, userID 
 	return response, nil
 }
 
-func (s *DevMachineService) BulkPermanentDelete(ctx context.Context, workspaceID uuid.UUID, request dto.PurgeDevMachinesRequest) (int, error) {
-	machineIDs := make([]uuid.UUID, 0, len(request.MachineIDs))
+// BulkPermanentDelete purges settled machines in the workspace. Leaving
+// older_than_days out keeps the retention default; 0 is an explicit request to
+// remove machines of any age.
+func (s *DevMachineService) BulkPermanentDelete(ctx context.Context, workspaceID uuid.UUID, request dto.PurgeDevMachinesRequest) (dto.PurgeDevMachinesResponse, error) {
+	purge := domain.DevMachinePurge{
+		MachineIDs:    make([]uuid.UUID, 0, len(request.MachineIDs)),
+		IncludeFailed: request.IncludeFailed, IncludeExpired: request.IncludeExpired,
+	}
 	for _, raw := range request.MachineIDs {
 		machineID, err := uuid.Parse(raw)
 		if err != nil {
-			return 0, fmt.Errorf("%w: invalid machine id", ErrInvalidMachineInput)
+			return dto.PurgeDevMachinesResponse{}, fmt.Errorf("%w: invalid machine id", ErrInvalidMachineInput)
 		}
-		machineIDs = append(machineIDs, machineID)
+		purge.MachineIDs = append(purge.MachineIDs, machineID)
 	}
-	olderThanDays := request.OlderThanDays
-	if olderThanDays == 0 {
-		olderThanDays = 7
+	olderThanDays := 7
+	if request.OlderThanDays != nil {
+		olderThanDays = *request.OlderThanDays
 	}
-	return s.store.BulkPurgeMachines(ctx, workspaceID, machineIDs, time.Now().UTC().AddDate(0, 0, -olderThanDays), request.IncludeFailed, request.IncludeExpired)
+	if olderThanDays > 0 {
+		cutoff := time.Now().UTC().AddDate(0, 0, -olderThanDays)
+		purge.OlderThan = &cutoff
+	}
+	result, err := s.store.BulkPurgeMachines(ctx, workspaceID, purge)
+	if err != nil {
+		return dto.PurgeDevMachinesResponse{}, err
+	}
+	return dto.PurgeDevMachinesResponse{
+		Count:   result.Removed,
+		Skipped: result.SkippedActive + result.SkippedRuntime + result.SkippedRecent, SkippedActive: result.SkippedActive,
+		SkippedRuntime: result.SkippedRuntime, SkippedRecent: result.SkippedRecent,
+	}, nil
 }
 
 func (s *DevMachineService) GetScopeSetting(ctx context.Context, workspaceID uuid.UUID, scopeType string, scopeID *uuid.UUID) (*domain.DevMachineScopeSetting, error) {

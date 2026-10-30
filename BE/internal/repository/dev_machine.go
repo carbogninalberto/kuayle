@@ -62,7 +62,8 @@ type DevMachineStore interface {
 	RequestResizeForUser(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, domain.DevMachineResize, *domain.DevMachineOperation) (*domain.DevMachine, error)
 	TouchMachineActivity(context.Context, uuid.UUID, time.Time) error
 	RequestPermanentDelete(context.Context, uuid.UUID, uuid.UUID, *uuid.UUID) (*domain.DevMachineOperation, error)
-	BulkPurgeMachines(context.Context, uuid.UUID, []uuid.UUID, time.Time, bool, bool) (int, error)
+	BulkPurgeMachines(context.Context, uuid.UUID, domain.DevMachinePurge) (domain.DevMachinePurgeResult, error)
+	PurgePermanentDeleteRequest(context.Context, uuid.UUID, uuid.UUID) error
 	ListScopeSettings(context.Context, uuid.UUID) ([]domain.DevMachineScopeSetting, error)
 	GetScopeSetting(context.Context, uuid.UUID, *uuid.UUID, *uuid.UUID, *uuid.UUID) (*domain.DevMachineScopeSetting, error)
 	UpsertScopeSetting(context.Context, *domain.DevMachineScopeSetting) error
@@ -1623,29 +1624,30 @@ func (r *DevMachineRepository) RequestPermanentDelete(ctx context.Context, works
 // machineHasAgentTaskHistory keeps a destroyed machine's record while agent
 // tasks have attempts on it. Their logs, diffs and pull request refs cascade
 // from the machine, and a later merge completes the task through those refs.
+// The kept record keeps delete_requested_at, so it stays out of the user's
+// machine list; once no task needs it, the manager completes the purge.
 const machineHasAgentTaskHistory = `EXISTS (SELECT 1 FROM dev_machine_agent_runs r WHERE r.machine_id=m.id AND r.task_id IS NOT NULL)`
 
+// machineSettled matches a machine whose runtime is gone.
+const machineSettled = `(m.status='destroyed' OR (m.status IN ('expired','failed') AND m.docker_network_name IS NULL AND m.workspace_volume_name IS NULL))`
+
+const machineHasActiveOperation = `EXISTS (SELECT 1 FROM dev_machine_operations o WHERE o.machine_id=m.id AND o.status IN ('pending','leased'))`
+
 func (r *DevMachineRepository) PurgePermanentDeleteRequest(ctx context.Context, workspaceID, machineID uuid.UUID) error {
-	purgeable := `m.workspace_id=$1 AND m.id=$2
-		AND (
-			m.status='destroyed'
-			OR (m.status IN ('expired','failed') AND m.docker_network_name IS NULL AND m.workspace_volume_name IS NULL)
-		)
-		AND NOT EXISTS (SELECT 1 FROM dev_machine_operations o WHERE o.machine_id=m.id AND o.status IN ('pending','leased'))`
-	// The runtime is gone; the record stays as task history, no longer pending deletion.
-	kept, err := r.db.ExecContext(ctx, `UPDATE dev_machines m SET delete_requested_at=NULL,updated_at=now()
-		WHERE `+purgeable+` AND `+machineHasAgentTaskHistory, workspaceID, machineID)
-	if err != nil {
-		return err
-	}
-	if rows, _ := kept.RowsAffected(); rows == 1 {
-		return nil
-	}
+	purgeable := `m.workspace_id=$1 AND m.id=$2 AND ` + machineSettled + ` AND NOT ` + machineHasActiveOperation
 	result, err := r.db.ExecContext(ctx, `DELETE FROM dev_machines m WHERE `+purgeable+` AND NOT `+machineHasAgentTaskHistory, workspaceID, machineID)
 	if err != nil {
 		return err
 	}
-	if rows, _ := result.RowsAffected(); rows != 1 {
+	if rows, _ := result.RowsAffected(); rows == 1 {
+		return nil
+	}
+	// The runtime is gone; the record stays, still deleted, as task history.
+	var kept bool
+	if err := r.db.GetContext(ctx, &kept, `SELECT EXISTS(SELECT 1 FROM dev_machines m WHERE `+purgeable+` AND `+machineHasAgentTaskHistory+`)`, workspaceID, machineID); err != nil {
+		return err
+	}
+	if !kept {
 		return sql.ErrNoRows
 	}
 	return nil
@@ -1653,40 +1655,108 @@ func (r *DevMachineRepository) PurgePermanentDeleteRequest(ctx context.Context, 
 
 func (r *DevMachineRepository) ListPermanentDeleteRequests(ctx context.Context, limit int) ([]domain.DevMachine, error) {
 	var machines []domain.DevMachine
-	err := r.db.SelectContext(ctx, &machines, `SELECT * FROM dev_machines
-		WHERE delete_requested_at IS NOT NULL
-		ORDER BY delete_requested_at, updated_at LIMIT $1`, limit)
+	err := r.db.SelectContext(ctx, &machines, `SELECT * FROM dev_machines m
+		WHERE m.delete_requested_at IS NOT NULL AND NOT (`+machineSettled+` AND `+machineHasAgentTaskHistory+`)
+		ORDER BY m.delete_requested_at, m.updated_at LIMIT $1`, limit)
 	return machines, err
 }
 
-func (r *DevMachineRepository) BulkPurgeMachines(ctx context.Context, workspaceID uuid.UUID, machineIDs []uuid.UUID, olderThan time.Time, includeFailed, includeExpired bool) (int, error) {
+type purgeCandidate struct {
+	ID      uuid.UUID `db:"id"`
+	Active  bool      `db:"active"`
+	Runtime bool      `db:"runtime"`
+	Recent  bool      `db:"recent"`
+	History bool      `db:"history"`
+}
+
+// BulkPurgeMachines removes settled machines in the workspace. A machine with
+// agent task history is kept as a deleted record instead (see
+// machineHasAgentTaskHistory) and counts as removed, since the user no longer
+// sees it. Machines that must stay are counted by reason.
+func (r *DevMachineRepository) BulkPurgeMachines(ctx context.Context, workspaceID uuid.UUID, purge domain.DevMachinePurge) (domain.DevMachinePurgeResult, error) {
+	var result domain.DevMachinePurgeResult
 	statuses := []string{"destroyed"}
-	if includeExpired {
+	if purge.IncludeExpired {
 		statuses = append(statuses, "expired")
 	}
-	if includeFailed {
+	if purge.IncludeFailed {
 		statuses = append(statuses, "failed")
 	}
-	query := `DELETE FROM dev_machines m WHERE m.workspace_id=? AND m.status IN (?)
-		AND COALESCE(m.destroyed_at, m.delete_requested_at, m.updated_at, m.created_at) < ?
-		AND NOT EXISTS (SELECT 1 FROM dev_machine_operations o WHERE o.machine_id=m.id AND o.status IN ('pending','leased'))
-		AND (m.status='destroyed' OR (m.docker_network_name IS NULL AND m.workspace_volume_name IS NULL))
-		AND NOT ` + machineHasAgentTaskHistory
-	args := []any{workspaceID, statuses, olderThan.UTC()}
-	if len(machineIDs) > 0 {
+	var olderThan *time.Time
+	if purge.OlderThan != nil {
+		cutoff := purge.OlderThan.UTC()
+		olderThan = &cutoff
+	}
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return result, err
+	}
+	defer tx.Rollback()
+	// Serializes with RequestPermanentDelete, which queues teardown work.
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`, workspaceID); err != nil {
+		return result, err
+	}
+	query := `SELECT m.id, ` + machineHasActiveOperation + ` AS active,
+		NOT ` + machineSettled + ` AS runtime,
+		(?::timestamptz IS NOT NULL AND COALESCE(m.destroyed_at, m.delete_requested_at, m.updated_at, m.created_at) >= ?::timestamptz) AS recent,
+		` + machineHasAgentTaskHistory + ` AS history
+		FROM dev_machines m WHERE m.workspace_id=? AND m.status IN (?)
+		AND NOT (m.delete_requested_at IS NOT NULL AND ` + machineHasAgentTaskHistory + `)`
+	args := []any{olderThan, olderThan, workspaceID, statuses}
+	if len(purge.MachineIDs) > 0 {
 		query += ` AND m.id IN (?)`
-		args = append(args, machineIDs)
+		args = append(args, purge.MachineIDs)
 	}
-	query, args, err := sqlx.In(query, args...)
+	query, args, err = sqlx.In(query+` FOR UPDATE OF m`, args...)
 	if err != nil {
-		return 0, err
+		return result, err
 	}
-	result, err := r.db.ExecContext(ctx, r.db.Rebind(query), args...)
-	if err != nil {
-		return 0, err
+	var candidates []purgeCandidate
+	if err := tx.SelectContext(ctx, &candidates, tx.Rebind(query), args...); err != nil {
+		return result, err
 	}
-	rows, _ := result.RowsAffected()
-	return int(rows), nil
+	var remove, keep []uuid.UUID
+	for _, candidate := range candidates {
+		switch {
+		case candidate.Active:
+			result.SkippedActive++
+		case candidate.Runtime:
+			result.SkippedRuntime++
+		case candidate.Recent:
+			result.SkippedRecent++
+		case candidate.History:
+			keep = append(keep, candidate.ID)
+		default:
+			remove = append(remove, candidate.ID)
+		}
+	}
+	if len(remove) > 0 {
+		query, args, err := sqlx.In(`DELETE FROM dev_machines m WHERE m.workspace_id=? AND m.id IN (?) AND NOT `+machineHasActiveOperation, workspaceID, remove)
+		if err != nil {
+			return result, err
+		}
+		deleted, err := tx.ExecContext(ctx, tx.Rebind(query), args...)
+		if err != nil {
+			return result, err
+		}
+		rows, _ := deleted.RowsAffected()
+		result.Removed += int(rows)
+		result.SkippedActive += len(remove) - int(rows)
+	}
+	if len(keep) > 0 {
+		query, args, err := sqlx.In(`UPDATE dev_machines SET delete_requested_at=now(),updated_at=now() WHERE workspace_id=? AND id IN (?)`, workspaceID, keep)
+		if err != nil {
+			return result, err
+		}
+		if _, err := tx.ExecContext(ctx, tx.Rebind(query), args...); err != nil {
+			return result, err
+		}
+		result.Removed += len(keep)
+	}
+	if err := tx.Commit(); err != nil {
+		return domain.DevMachinePurgeResult{}, err
+	}
+	return result, nil
 }
 
 func (r *DevMachineRepository) ListScopeSettings(ctx context.Context, workspaceID uuid.UUID) ([]domain.DevMachineScopeSetting, error) {

@@ -114,22 +114,6 @@ func newCaptureDevMachineRepository(t *testing.T, rowsAffected int64) (*DevMachi
 	return NewDevMachineRepository(sqlx.NewDb(db, "postgres")), conn
 }
 
-func TestBulkPurgeMachinesKeepsUnsafeRuntimeRowsGuarded(t *testing.T) {
-	repo, conn := newCaptureDevMachineRepository(t, 2)
-	workspaceID := uuid.New()
-	machineID := uuid.New()
-
-	count, err := repo.BulkPurgeMachines(context.Background(), workspaceID, []uuid.UUID{machineID}, time.Now().Add(-7*24*time.Hour), true, true)
-
-	require.NoError(t, err)
-	require.Equal(t, 2, count)
-	query, args := conn.captured()
-	require.Contains(t, query, "m.status IN")
-	require.Contains(t, query, "NOT EXISTS (SELECT 1 FROM dev_machine_operations")
-	require.Contains(t, query, "m.status='destroyed' OR (m.docker_network_name IS NULL AND m.workspace_volume_name IS NULL)")
-	require.Len(t, args, 6)
-}
-
 func TestMachineNameExistsForUserScopesByCreator(t *testing.T) {
 	repo, conn := newCaptureDevMachineRepository(t, 0)
 	workspaceID, userID := uuid.New(), uuid.New()

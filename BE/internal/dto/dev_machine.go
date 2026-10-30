@@ -109,10 +109,23 @@ type BulkDeleteDevMachinesResponse struct {
 }
 
 type PurgeDevMachinesRequest struct {
-	MachineIDs     []string `json:"machine_ids,omitempty" validate:"omitempty,max=500,dive,uuid"`
-	OlderThanDays  int      `json:"older_than_days,omitempty" validate:"omitempty,min=1,max=3650"`
-	IncludeFailed  bool     `json:"include_failed"`
-	IncludeExpired bool     `json:"include_expired"`
+	MachineIDs []string `json:"machine_ids,omitempty" validate:"omitempty,max=500,dive,uuid"`
+	// OlderThanDays limits the purge to machines settled at least that many
+	// days ago. Omitted keeps the 7 day retention default; 0 removes machines
+	// of any age, for an explicit user action.
+	OlderThanDays  *int `json:"older_than_days,omitempty" validate:"omitempty,min=0,max=3650"`
+	IncludeFailed  bool `json:"include_failed"`
+	IncludeExpired bool `json:"include_expired"`
+}
+
+// PurgeDevMachinesResponse reports what a purge removed and why selected
+// machines were kept.
+type PurgeDevMachinesResponse struct {
+	Count          int `json:"count"`
+	Skipped        int `json:"skipped"`
+	SkippedActive  int `json:"skipped_active"`
+	SkippedRuntime int `json:"skipped_runtime"`
+	SkippedRecent  int `json:"skipped_recent"`
 }
 
 type CreateDevMachineEnvironmentRequest struct {

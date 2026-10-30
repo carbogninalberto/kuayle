@@ -33,8 +33,8 @@ func (h *DevMachineHandler) SaveAgentSignInToken(c echo.Context) error {
 	}
 	c.Request().Body = http.MaxBytesReader(c.Response().Writer, c.Request().Body, 8*1024)
 	var request dto.SaveAgentSignInTokenRequest
-	if err := bindAndValidate(c, &request); err != nil {
-		return err
+	if !bindAndValidate(c, &request) {
+		return nil
 	}
 	signIn, err := h.service.SaveAgentSignInToken(c.Request().Context(), middleware.GetWorkspace(c).ID, middleware.GetUserID(c), c.Param("provider"), request.Token)
 	if err != nil {

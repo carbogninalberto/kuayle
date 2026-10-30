@@ -1334,6 +1334,71 @@ func (f *bulkDeleteStoreFake) RequestPermanentDelete(_ context.Context, workspac
 
 func (f *bulkDeleteStoreFake) CreateEvent(context.Context, *domain.DevMachineEvent) error { return nil }
 
+// Deleting a destroyed machine purges it in the request rather than leaving it
+// for the manager's next reconcile pass.
+func TestDeleteDestroyedMachinePurgesImmediately(t *testing.T) {
+	workspaceID, userID, machineID := uuid.New(), uuid.New(), uuid.New()
+	store := &devMachineStoreFake{
+		machine: &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID, Status: domain.DevMachineStatusDestroyed, DesiredStatus: domain.DevMachineStatusDestroyed, Generation: 3},
+	}
+
+	operation, err := newTestDevMachineService(store).Delete(context.Background(), workspaceID, machineID, userID)
+
+	require.NoError(t, err)
+	require.Nil(t, operation)
+	require.Equal(t, []uuid.UUID{machineID}, store.purgedMachineIDs)
+	require.Nil(t, store.queuedOperation)
+}
+
+type purgeStoreFake struct {
+	repository.DevMachineStore
+	purge  *domain.DevMachinePurge
+	result domain.DevMachinePurgeResult
+}
+
+func (f *purgeStoreFake) BulkPurgeMachines(_ context.Context, _ uuid.UUID, purge domain.DevMachinePurge) (domain.DevMachinePurgeResult, error) {
+	f.purge = &purge
+	return f.result, nil
+}
+
+// The retention guard applies to cleanup that leaves older_than_days out; an
+// explicit user action sends 0 and removes machines of any age.
+func TestBulkPermanentDeleteAgeGuard(t *testing.T) {
+	days := func(value int) *int { return &value }
+	for _, test := range []struct {
+		name     string
+		days     *int
+		wantDays int
+	}{
+		{name: "omitted keeps the seven day default", days: nil, wantDays: 7},
+		{name: "explicit age", days: days(3), wantDays: 3},
+		{name: "zero removes any age", days: days(0), wantDays: 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			machineID := uuid.New()
+			store := &purgeStoreFake{result: domain.DevMachinePurgeResult{Removed: 2, SkippedActive: 1, SkippedRuntime: 1, SkippedRecent: 3}}
+			before := time.Now().UTC()
+
+			response, err := newTestDevMachineService(store).BulkPermanentDelete(context.Background(), uuid.New(), dto.PurgeDevMachinesRequest{
+				MachineIDs: []string{machineID.String()}, OlderThanDays: test.days, IncludeFailed: true,
+			})
+
+			require.NoError(t, err)
+			require.Equal(t, dto.PurgeDevMachinesResponse{Count: 2, Skipped: 5, SkippedActive: 1, SkippedRuntime: 1, SkippedRecent: 3}, response)
+			require.NotNil(t, store.purge)
+			require.Equal(t, []uuid.UUID{machineID}, store.purge.MachineIDs)
+			require.True(t, store.purge.IncludeFailed)
+			require.False(t, store.purge.IncludeExpired)
+			if test.wantDays == 0 {
+				require.Nil(t, store.purge.OlderThan)
+				return
+			}
+			require.NotNil(t, store.purge.OlderThan)
+			require.WithinDuration(t, before.AddDate(0, 0, -test.wantDays), *store.purge.OlderThan, 5*time.Second)
+		})
+	}
+}
+
 func TestDeleteScopeSettingIsIdempotent(t *testing.T) {
 	store := &devMachineStoreFake{deleteScopeSettingErr: sql.ErrNoRows}
 	svc := newTestDevMachineService(store)
@@ -1708,6 +1773,7 @@ func TestSnapshotEnvironmentRequiresSourceBuilderOwner(t *testing.T) {
 
 type devMachineStoreFake struct {
 	repository.DevMachineStore
+	purgedMachineIDs            []uuid.UUID
 	createdVolumes              []domain.DevMachineVolume
 	attachedProviders           []domain.DevMachineAgentProvider
 	policy                      *domain.DevMachineWorkspacePolicy
@@ -2131,6 +2197,11 @@ func (f *devMachineStoreFake) CreateEnvironment(_ context.Context, environment *
 	}
 	f.createdEnvironment = environment
 	f.createdEnvironmentOperation = operation
+	return nil
+}
+
+func (f *devMachineStoreFake) PurgePermanentDeleteRequest(_ context.Context, _ uuid.UUID, machineID uuid.UUID) error {
+	f.purgedMachineIDs = append(f.purgedMachineIDs, machineID)
 	return nil
 }
 
