@@ -2,7 +2,7 @@ FROM node:22.23.3-bookworm-slim@sha256:43ac6c60b8f89723f746e8a92ce91abd5017e627c
 
 FROM golang:1.27.3-bookworm AS crush-build
 # Release binaries embed an older Go standard library with known CVEs; build with patched Go.
-ARG CRUSH_VERSION=0.98.2
+ARG CRUSH_VERSION=0.99.0
 RUN CGO_ENABLED=0 GOBIN=/out go install -trimpath -ldflags="-s -w" "github.com/charmbracelet/crush@v${CRUSH_VERSION}"
 
 # Compose and Buildx, built from pinned release commits (see the script).
