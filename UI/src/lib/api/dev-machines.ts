@@ -6,6 +6,7 @@ import type {
 	AppPort,
 	AppPortList,
 	BulkPermanentDeleteDevMachinesInput,
+	BulkPermanentDeleteDevMachinesResult,
 	CreateDevMachineInput,
 	CreateTerminalSessionInput,
 	DevMachine,
@@ -70,7 +71,7 @@ export function deleteDevMachine(slug: string, machineId: string): Promise<void>
 export function bulkPermanentDeleteDevMachines(
 	slug: string,
 	input: BulkPermanentDeleteDevMachinesInput
-): Promise<{ count: number }> {
+): Promise<BulkPermanentDeleteDevMachinesResult> {
 	return api.post(`${base(slug)}/dev-machines/bulk/permanent-delete`, input);
 }
 

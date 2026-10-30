@@ -720,6 +720,28 @@ func DevMachineResizable(machine *DevMachine) bool {
 	}
 }
 
+// DevMachinePurge selects the settled machines a bulk permanent delete
+// removes. A nil OlderThan removes them regardless of age: the user asked
+// explicitly. Retention cleanup sets it so recent records stay inspectable.
+type DevMachinePurge struct {
+	MachineIDs     []uuid.UUID
+	OlderThan      *time.Time
+	IncludeFailed  bool
+	IncludeExpired bool
+}
+
+// DevMachinePurgeResult counts the machines a purge removed and, by reason,
+// the selected machines it had to keep.
+type DevMachinePurgeResult struct {
+	Removed int
+	// SkippedActive machines still have a queued or running operation.
+	SkippedActive int
+	// SkippedRuntime failed or expired machines still hold a network or volume.
+	SkippedRuntime int
+	// SkippedRecent machines are newer than OlderThan.
+	SkippedRecent int
+}
+
 func DevMachineSafelyPurgeable(machine *DevMachine) bool {
 	if machine == nil {
 		return false

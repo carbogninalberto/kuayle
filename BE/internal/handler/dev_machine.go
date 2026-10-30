@@ -54,10 +54,7 @@ func (h *DevMachineHandler) List(c echo.Context) error {
 func (h *DevMachineHandler) Create(c echo.Context) error {
 	c.Request().Body = http.MaxBytesReader(c.Response().Writer, c.Request().Body, 1024*1024)
 	var request dto.CreateDevMachineRequest
-	if err := bindAndValidate(c, &request); err != nil {
-		return err
-	}
-	if c.Response().Committed {
+	if !bindAndValidate(c, &request) {
 		return nil
 	}
 	if request.EnvironmentBuilder && middleware.GetWorkspaceRole(c) != domain.RoleOwner && middleware.GetWorkspaceRole(c) != domain.RoleAdmin {
@@ -110,8 +107,8 @@ func (h *DevMachineHandler) Get(c echo.Context) error {
 
 func (h *DevMachineHandler) Update(c echo.Context) error {
 	var request dto.UpdateDevMachineRequest
-	if err := bindAndValidate(c, &request); err != nil {
-		return err
+	if !bindAndValidate(c, &request) {
+		return nil
 	}
 	machineID, err := uuid.Parse(c.Param("machineId"))
 	if err != nil {
@@ -152,8 +149,8 @@ func (h *DevMachineHandler) PermanentDelete(c echo.Context) error {
 
 func (h *DevMachineHandler) BulkDelete(c echo.Context) error {
 	var request dto.BulkDeleteDevMachinesRequest
-	if err := bindAndValidate(c, &request); err != nil {
-		return err
+	if !bindAndValidate(c, &request) {
+		return nil
 	}
 	result, err := h.service.BulkDelete(c.Request().Context(), middleware.GetWorkspace(c).ID, middleware.GetUserID(c), request)
 	if err != nil {
@@ -164,14 +161,14 @@ func (h *DevMachineHandler) BulkDelete(c echo.Context) error {
 
 func (h *DevMachineHandler) BulkPermanentDelete(c echo.Context) error {
 	var request dto.PurgeDevMachinesRequest
-	if err := bindAndValidate(c, &request); err != nil {
-		return err
+	if !bindAndValidate(c, &request) {
+		return nil
 	}
-	count, err := h.service.BulkPermanentDelete(c.Request().Context(), middleware.GetWorkspace(c).ID, request)
+	result, err := h.service.BulkPermanentDelete(c.Request().Context(), middleware.GetWorkspace(c).ID, request)
 	if err != nil {
 		return machineError(c, err)
 	}
-	return response.Success(c, http.StatusOK, map[string]int{"count": count})
+	return response.Success(c, http.StatusOK, result)
 }
 
 func (h *DevMachineHandler) TouchActivity(c echo.Context) error {
@@ -282,8 +279,8 @@ func (h *DevMachineHandler) CheckSuggestion(c echo.Context) error {
 
 func (h *DevMachineHandler) UpdateScopeSetting(c echo.Context) error {
 	var request dto.DevMachineScopeSettingRequest
-	if err := bindAndValidate(c, &request); err != nil {
-		return err
+	if !bindAndValidate(c, &request) {
+		return nil
 	}
 	role := middleware.GetWorkspaceRole(c)
 	if request.ScopeType != "issue" && role != domain.RoleOwner && role != domain.RoleAdmin {
@@ -330,8 +327,8 @@ func (h *DevMachineHandler) Checkouts(c echo.Context) error {
 
 func (h *DevMachineHandler) CheckoutIssue(c echo.Context) error {
 	var request dto.CheckoutIssueRequest
-	if err := bindAndValidate(c, &request); err != nil {
-		return err
+	if !bindAndValidate(c, &request) {
+		return nil
 	}
 	machineID, err := uuid.Parse(c.Param("machineId"))
 	if err != nil {
@@ -366,8 +363,8 @@ func (h *DevMachineHandler) GetEnvironment(c echo.Context) error {
 
 func (h *DevMachineHandler) SnapshotEnvironment(c echo.Context) error {
 	var request dto.CreateDevMachineEnvironmentRequest
-	if err := bindAndValidate(c, &request); err != nil {
-		return err
+	if !bindAndValidate(c, &request) {
+		return nil
 	}
 	environment, err := h.service.SnapshotEnvironment(c.Request().Context(), middleware.GetWorkspace(c).ID, middleware.GetUserID(c), request)
 	if err != nil {
@@ -537,8 +534,8 @@ func (h *DevMachineHandler) ListTerminalSessions(c echo.Context) error {
 func (h *DevMachineHandler) CreateTerminalSession(c echo.Context) error {
 	c.Request().Body = http.MaxBytesReader(c.Response().Writer, c.Request().Body, 64*1024)
 	var request dto.CreateTerminalSessionRequest
-	if err := bindAndValidate(c, &request); err != nil {
-		return err
+	if !bindAndValidate(c, &request) {
+		return nil
 	}
 	workspace := middleware.GetWorkspace(c)
 	machineID, err := uuid.Parse(c.Param("machineId"))
@@ -624,8 +621,8 @@ func (h *DevMachineHandler) saveModelServer(c echo.Context, id *uuid.UUID) error
 	}
 	c.Request().Body = http.MaxBytesReader(c.Response().Writer, c.Request().Body, 96*1024)
 	var request dto.SaveModelServerRequest
-	if err := bindAndValidate(c, &request); err != nil {
-		return err
+	if !bindAndValidate(c, &request) {
+		return nil
 	}
 	server, err := h.service.SaveModelServer(c.Request().Context(), middleware.GetWorkspace(c).ID, middleware.GetUserID(c), id, request)
 	if err != nil {
@@ -660,8 +657,8 @@ func (h *DevMachineHandler) DiscoverModels(c echo.Context) error {
 	}
 	c.Request().Body = http.MaxBytesReader(c.Response().Writer, c.Request().Body, 8*1024)
 	var request dto.DiscoverModelsRequest
-	if err := bindAndValidate(c, &request); err != nil {
-		return err
+	if !bindAndValidate(c, &request) {
+		return nil
 	}
 	models, err := h.service.DiscoverModels(c.Request().Context(), middleware.GetWorkspace(c).ID, request)
 	if err != nil {
@@ -687,8 +684,8 @@ func (h *DevMachineHandler) GetPolicy(c echo.Context) error {
 func (h *DevMachineHandler) UpdatePolicy(c echo.Context) error {
 	c.Request().Body = http.MaxBytesReader(c.Response().Writer, c.Request().Body, 256*1024)
 	var request dto.DevMachinePolicyRequest
-	if err := bindAndValidate(c, &request); err != nil {
-		return err
+	if !bindAndValidate(c, &request) {
+		return nil
 	}
 	workspace := middleware.GetWorkspace(c)
 	policy, err := h.service.UpdatePolicy(c.Request().Context(), workspace.ID, request)
@@ -711,8 +708,8 @@ func (h *DevMachineHandler) policyResponse(policy *domain.DevMachineWorkspacePol
 func (h *DevMachineHandler) IngestEvent(c echo.Context) error {
 	c.Request().Body = http.MaxBytesReader(c.Response().Writer, c.Request().Body, 1024*1024)
 	var input dto.CollectorEventInput
-	if err := bindAndValidate(c, &input); err != nil {
-		return err
+	if !bindAndValidate(c, &input) {
+		return nil
 	}
 	if err := h.service.IngestEvent(c.Request().Context(), bearerToken(c), input); err != nil {
 		if errors.Is(err, service.ErrMachineAuthentication) {
@@ -726,8 +723,8 @@ func (h *DevMachineHandler) IngestEvent(c echo.Context) error {
 func (h *DevMachineHandler) IngestLog(c echo.Context) error {
 	c.Request().Body = http.MaxBytesReader(c.Response().Writer, c.Request().Body, 128*1024)
 	var input dto.CollectorLogInput
-	if err := bindAndValidate(c, &input); err != nil {
-		return err
+	if !bindAndValidate(c, &input) {
+		return nil
 	}
 	if err := h.service.IngestLog(c.Request().Context(), bearerToken(c), input); err != nil {
 		if errors.Is(err, service.ErrMachineAuthentication) {
@@ -746,18 +743,22 @@ func bearerToken(c echo.Context) string {
 	return ""
 }
 
-func bindAndValidate(c echo.Context, request any) error {
+// bindAndValidate binds and validates request, writing the 400 response and
+// returning false when it is invalid; the caller then stops without acting.
+func bindAndValidate(c echo.Context, request any) bool {
 	if err := c.Bind(request); err != nil {
-		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
+		_ = response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
+		return false
 	}
 	if err := validate.Struct(request); err != nil {
 		details := make([]dto.ErrorDetail, 0)
 		for _, item := range validate.FormatErrors(err) {
 			details = append(details, dto.ErrorDetail{Field: item["field"], Message: item["message"]})
 		}
-		return response.ValidationError(c, details)
+		_ = response.ValidationError(c, details)
+		return false
 	}
-	return nil
+	return true
 }
 
 func operationResponse(operation *domain.DevMachineOperation) dto.DevMachineOperationResponse {

@@ -423,7 +423,20 @@ export interface TerminalSessionLaunchResponse {
 
 export interface BulkPermanentDeleteDevMachinesInput {
 	machine_ids?: string[];
+	/** Omitted keeps the backend's 7 day retention guard; 0 removes machines of any age. */
 	older_than_days?: number;
 	include_failed: boolean;
 	include_expired: boolean;
+}
+
+/** Machines removed, and selected machines kept by reason. */
+export interface BulkPermanentDeleteDevMachinesResult {
+	count: number;
+	skipped: number;
+	/** A queued or running operation still owns the machine. */
+	skipped_active: number;
+	/** A failed or expired machine still holds a network or volume. */
+	skipped_runtime: number;
+	/** Newer than older_than_days. */
+	skipped_recent: number;
 }

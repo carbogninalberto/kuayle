@@ -541,7 +541,9 @@ Pause, stop, teardown, and permanent delete are intentionally distinct:
 - **Pause** pauses Docker processes and keeps memory allocated.
 - **Stop** stops containers while retaining deterministic runtime resources for a later start.
 - **Teardown** revokes sessions/tickets and removes containers, the private network, and workspace volume; database history remains.
-- **Permanent delete** is admin-only. `DELETE /dev-machines/:machineId` and selected bulk DELETE record `delete_requested_at`; the manager converges runtime teardown first and purges after the operation completes. The `/permanent-delete` endpoint remains an equivalent explicit route, while bulk permanent delete is a guarded purge for old already-safe rows only.
+- **Permanent delete** is admin-only. `DELETE /dev-machines/:machineId` and selected bulk DELETE record `delete_requested_at`, which hides the machine from the list at once. A machine that still has runtime resources is torn down first and purged when the teardown completes; an already destroyed machine (or a failed/expired one without a network or volume) has nothing to tear down and is purged in the same request, with the manager's reconcile pass retrying a purge that fails. The `/permanent-delete` endpoint remains an equivalent explicit route.
+- **Bulk permanent delete** (`POST /dev-machines/bulk/permanent-delete`) purges settled machines: destroyed ones, plus failed/expired ones without runtime resources when `include_failed`/`include_expired` are set, optionally limited to `machine_ids`. `older_than_days` is the retention guard: omitted it defaults to 7, and `0` removes machines of any age; the Settings → Dev Machines "Clear" action sends `0` because the user asked explicitly. Machines with a queued or running operation, with runtime resources, or newer than the guard are kept and reported as `skipped_active`, `skipped_runtime` and `skipped_recent` beside the removed `count`.
+- A deleted machine on which agent tasks have attempts keeps its record as task history (attempts, logs, diffs and the pull request refs a later merge completes through cascade from it). The record keeps `delete_requested_at`, so it stays out of the machine list and counts as removed; the manager purges it once no task run references it.
 
 ## Agent task integration
 
@@ -935,7 +937,7 @@ Create requests accept `profile: "standard" | "headless"`; omission means standa
 | PostgreSQL unavailable | Running containers continue; manager/gateway report degraded health |
 | Service unavailable | Gateway returns 502 and records an access/proxy error |
 | Opening paused service | API queues an idempotent resume and returns `resuming` with retry guidance |
-| Permanent delete | Admin request is persisted; manager queues teardown if needed, then deletes the machine row and child history only after resources are safe |
+| Permanent delete | Admin request is persisted and hides the machine; a destroyed machine is purged at once, otherwise the manager queues teardown and purges after it. Records with agent task history stay hidden until no task needs them |
 | Disk threshold reached | Resource event recorded and stop operation queued |
 | Teardown repeated | Missing containers/networks/volumes are treated as already removed |
 | Agent timeout | Container stopped; run result normalized to `timeout` |

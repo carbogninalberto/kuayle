@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { Plus, GitBranch, ChevronLeft, ChevronRight, Trash2 } from '@lucide/svelte';
+	import { Plus, ChevronLeft, ChevronRight, Trash2 } from '@lucide/svelte';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
-	import * as Card from '$lib/components/ui/card';
+	import * as Table from '$lib/components/ui/table';
 	import { bulkPermanentDeleteDevMachines, listDevMachines } from '$lib/api/dev-machines';
 	import { getWorkspace } from '$lib/api/workspaces';
 	import type { DevMachine } from '$lib/types/dev-machine';
@@ -26,12 +26,17 @@
 	let loading = $state(true);
 	let failed = $state(false);
 	let createOpen = $state(false);
-	let cleanupConfirm = $state(false);
-	let cleanupBusy = $state(false);
+	let clearConfirm = $state(false);
+	let clearBusy = $state(false);
 	let workspaceRole = $state('');
 	onMount(() => {
 		void load();
 	});
+
+	// Machines whose runtime has ended; they are listed apart and can be cleared.
+	const endedStatuses = new Set(['destroyed', 'failed', 'expired']);
+	const activeMachines = $derived(machines.filter((machine) => !endedStatuses.has(machine.status)));
+	const endedMachines = $derived(machines.filter((machine) => endedStatuses.has(machine.status)));
 
 	async function load(pageNum = 1) {
 		loading = true;
@@ -55,27 +60,85 @@
 		}
 	}
 
-	async function cleanupOldMachines() {
-		cleanupBusy = true;
+	async function clearEndedMachines() {
+		clearBusy = true;
 		try {
-			const result = await bulkPermanentDeleteDevMachines(slug, { include_failed: true, include_expired: true });
-			appToast.success(`${result.count} old ${result.count === 1 ? 'machine' : 'machines'} permanently deleted`);
-			cleanupConfirm = false;
-			await load(1);
+			// An explicit clear removes the listed machines whatever their age;
+			// the backend's retention window only guards automatic cleanup.
+			const result = await bulkPermanentDeleteDevMachines(slug, {
+				machine_ids: endedMachines.map((machine) => machine.id),
+				older_than_days: 0,
+				include_failed: true,
+				include_expired: true
+			});
+			const kept = [
+				result.skipped_active ? m['machines.clear_kept_active']({ count: result.skipped_active }) : '',
+				result.skipped_runtime ? m['machines.clear_kept_runtime']({ count: result.skipped_runtime }) : '',
+				result.skipped_recent ? m['machines.clear_kept_recent']({ count: result.skipped_recent }) : ''
+			].filter(Boolean);
+			const title = result.count === 1 ? m['machines.clear_removed_one']() : m['machines.clear_removed']({ count: result.count });
+			const options = kept.length ? { description: kept.join(' ') } : undefined;
+			if (result.count === 0 && kept.length) appToast.warning(title, options);
+			else appToast.success(title, options);
+			clearConfirm = false;
+			await load(currentPage);
 		} catch (error) {
-			appToast.apiError(error, 'Failed to permanently delete old machines');
+			appToast.apiError(error, m['machines.clear_failed']());
 		} finally {
-			cleanupBusy = false;
+			clearBusy = false;
 		}
+	}
+
+	function sizeLabel(machine: DevMachine) {
+		return `${machine.machine_size} · ${machine.cpu_millis / 1000} CPU · ${machine.memory_mb / 1024} GB`;
 	}
 
 	const canAdminDevMachines = $derived(workspaceRole === 'owner' || workspaceRole === 'admin');
 </script>
 
+{#snippet machineTable(rows: DevMachine[])}
+	<div class="overflow-hidden rounded-lg border border-[var(--app-border)]">
+		<Table.Root>
+			<Table.Header>
+				<Table.Row class="hover:bg-transparent">
+					<Table.Head class="text-xs text-muted-foreground">{m['machines.column_machine']()}</Table.Head>
+					<Table.Head class="w-px text-xs text-muted-foreground">{m['machines.column_status']()}</Table.Head>
+					<Table.Head class="hidden w-px text-xs text-muted-foreground sm:table-cell">{m['machines.column_size']()}</Table.Head>
+					<Table.Head class="w-px p-0"><span class="sr-only">{m['machines.open_machine']()}</span></Table.Head>
+				</Table.Row>
+			</Table.Header>
+			<Table.Body>
+				{#each rows as machine (machine.id)}
+					{@const repository = machine.repo_owner && machine.repo_name ? `${machine.repo_owner}/${machine.repo_name}` : m['machines.no_repository']()}
+					{@const notice = machine.resource_limit_message || (machine.status === 'failed' ? machine.last_error_message : '')}
+					<Table.Row data-testid="machine-row" class="relative">
+						<!-- max-w-0 lets the name column take the remaining width and truncate inside it. -->
+						<Table.Cell class="w-full max-w-0 py-2.5 pl-3 align-top">
+							<a href="/{slug}/machines/{machine.id}" class="block truncate text-sm font-medium after:absolute after:inset-0 focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-ring focus-visible:after:ring-inset" title={machine.name} data-testid="machine-name">{machine.name}</a>
+							<p class="truncate text-xs text-muted-foreground" title={machine.working_branch ? `${repository} · ${machine.working_branch}` : repository}>{repository}{#if machine.working_branch}{` · ${machine.working_branch}`}{/if}</p>
+							{#if machine.pending_cpu_millis || machine.pending_memory_mb || machine.pending_disk_gb}
+								<p class="truncate text-xs text-blue-400">{m['machines.list_resize_pending']()}</p>
+							{/if}
+							{#if notice}
+								<p class="truncate text-xs text-red-400" title={notice}>{notice}</p>
+							{/if}
+							<p class="truncate text-xs capitalize text-muted-foreground sm:hidden">{sizeLabel(machine)}</p>
+						</Table.Cell>
+						<!-- Minimum widths keep the columns of both sections aligned. -->
+						<Table.Cell class="py-2.5 align-top"><div class="sm:min-w-32"><MachineStatusBadge status={machine.status} /></div></Table.Cell>
+						<Table.Cell class="hidden py-2.5 align-top text-xs capitalize text-muted-foreground sm:table-cell"><div class="min-w-40">{sizeLabel(machine)}</div></Table.Cell>
+						<Table.Cell class="py-2.5 pr-2 pl-0 align-top text-muted-foreground"><ChevronRight size={14} aria-hidden="true" /></Table.Cell>
+					</Table.Row>
+				{/each}
+			</Table.Body>
+		</Table.Root>
+	</div>
+{/snippet}
+
 <section class="space-y-4" aria-label={m['machines.title']()}>
 	<div class="flex flex-wrap items-center justify-between gap-3">
-		<p class="min-w-0 text-xs text-[var(--color-text-tertiary)]">{issueId ? m['machines.filtered_by_issue']() : m['machines.list_desc']()}</p>
-		<div class="flex gap-2">{#if canAdminDevMachines}<Button size="sm" variant="outline" onclick={() => (cleanupConfirm = true)}><Trash2 size={14} />{m['machines.delete_old']()}</Button>{/if}<Button size="sm" onclick={() => (createOpen = true)}><Plus size={14} />{m['machines.new_machine']()}</Button></div>
+		<p class="min-w-0 flex-1 text-xs text-[var(--color-text-tertiary)]">{issueId ? m['machines.filtered_by_issue']() : m['machines.list_desc']()}</p>
+		<Button size="sm" onclick={() => (createOpen = true)}><Plus size={14} />{m['machines.new_machine']()}</Button>
 	</div>
 
 	{#if loading}
@@ -85,11 +148,23 @@
 	{:else if machines.length === 0}
 		<EmptyState title={issueId ? m['machines.no_machines_for_issue']() : m['machines.no_machines']()} description={issueId ? m['machines.create_from_issue']() : m['machines.create_isolated_env']()} action={{ label: m['machines.new_machine'](), onclick: () => (createOpen = true) }} />
 	{:else}
-		<div class="grid gap-3 sm:grid-cols-2">
-			{#each machines as machine (machine.id)}
-				<a href="/{slug}/machines/{machine.id}" class="group block"><Card.Root class="h-full transition group-hover:border-[var(--color-text-tertiary)]"><Card.Header><div class="flex items-start justify-between gap-3"><div class="min-w-0"><Card.Title class="truncate text-sm">{machine.name}</Card.Title><Card.Description class="truncate">{machine.repo_owner && machine.repo_name ? `${machine.repo_owner}/${machine.repo_name}` : m['machines.no_repository']()}</Card.Description></div><MachineStatusBadge status={machine.status} /></div></Card.Header><Card.Content><div class="flex items-center gap-3 text-[11px] text-muted-foreground"><span class="flex min-w-0 items-center gap-1"><GitBranch size={12} class="shrink-0" /><span class="truncate">{machine.working_branch || m['machines.waiting_checkout']()}</span></span></div></Card.Content><Card.Footer class="justify-between border-t pt-3 text-[11px]"><span class="capitalize text-muted-foreground">{machine.machine_size} · {machine.cpu_millis / 1000} CPU · {machine.memory_mb / 1024} GB</span></Card.Footer></Card.Root></a>
-			{/each}
-		</div>
+		<section class="space-y-2" aria-labelledby="active-machines-title">
+			<h2 id="active-machines-title" class="text-xs font-medium text-muted-foreground">{m['machines.section_active']()}</h2>
+			{#if activeMachines.length}
+				{@render machineTable(activeMachines)}
+			{:else}
+				<p class="rounded-lg border border-dashed border-[var(--app-border)] p-3 text-xs text-muted-foreground">{m['machines.no_active_machines']()}</p>
+			{/if}
+		</section>
+		{#if endedMachines.length}
+			<section class="space-y-2" aria-labelledby="ended-machines-title">
+				<div class="flex min-h-8 items-center justify-between gap-3">
+					<h2 id="ended-machines-title" class="text-xs font-medium text-muted-foreground">{m['machines.section_ended']()}</h2>
+					{#if canAdminDevMachines}<Button size="sm" variant="outline" onclick={() => (clearConfirm = true)}><Trash2 size={14} />{m['machines.clear']()}</Button>{/if}
+				</div>
+				{@render machineTable(endedMachines)}
+			</section>
+		{/if}
 		{#if totalCount > machines.length || hasMore}
 			<div class="flex items-center justify-center gap-2">
 				<Button variant="outline" size="sm" disabled={currentPage <= 1} onclick={() => load(currentPage - 1)}><ChevronLeft size={14} /> {m['machines.prev']()}</Button>
@@ -101,4 +176,4 @@
 </section>
 
 <CreateMachineDialog bind:open={createOpen} {slug} oncreated={(machine) => goto(`/${slug}/machines/${machine.id}`)} />
-<AlertDialog.Root bind:open={cleanupConfirm}><AlertDialog.Content><AlertDialog.Header><AlertDialog.Title>{m['machines.cleanup_title']()}</AlertDialog.Title><AlertDialog.Description>{m['machines.cleanup_desc']()}</AlertDialog.Description></AlertDialog.Header><AlertDialog.Footer><AlertDialog.Cancel>{m['common.cancel']()}</AlertDialog.Cancel><AlertDialog.Action variant="destructive" onclick={cleanupOldMachines} disabled={cleanupBusy}>{cleanupBusy ? m['machines.deleting']() : m['machines.cleanup_action']()}</AlertDialog.Action></AlertDialog.Footer></AlertDialog.Content></AlertDialog.Root>
+<AlertDialog.Root bind:open={clearConfirm}><AlertDialog.Content><AlertDialog.Header><AlertDialog.Title>{m['machines.clear_title']()}</AlertDialog.Title><AlertDialog.Description>{m['machines.clear_desc']()}</AlertDialog.Description></AlertDialog.Header><AlertDialog.Footer><AlertDialog.Cancel>{m['common.cancel']()}</AlertDialog.Cancel><AlertDialog.Action variant="destructive" onclick={clearEndedMachines} disabled={clearBusy}>{clearBusy ? m['machines.deleting']() : m['machines.clear_action']({ count: endedMachines.length })}</AlertDialog.Action></AlertDialog.Footer></AlertDialog.Content></AlertDialog.Root>
