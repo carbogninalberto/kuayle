@@ -23,7 +23,7 @@ func TestPolicyStoresTaskMachineResources(t *testing.T) {
 	ctx := context.Background()
 	policy := &domain.DevMachineWorkspacePolicy{
 		WorkspaceID: fixture.workspaceID, Enabled: true, MaxConcurrentMachines: 5, MaxMachinesPerUser: 5,
-		MaxDailyAgentRuns: 25, MaxRuntimeMinutes: 480, MaxDiskGB: 600, IdlePauseMinutes: 240,
+		MaxDailyAgentRuns: 25, MaxDiskGB: 600,
 		AllowedProviders: json.RawMessage(`[]`), AllowedRepositories: json.RawMessage(`[]`),
 	}
 	require.NoError(t, repo.UpsertPolicy(ctx, policy))

@@ -74,13 +74,10 @@ async function fixture(page: Page, options: { creator?: string } = {}) {
 		memory_mb: 8192,
 		disk_gb: 50,
 		pids_limit: 1024,
-		max_runtime_minutes: 240,
-		keep_running: false,
 		environment_builder: true,
 		created_by_user_id: options.creator ?? userId,
 		created_at: time,
-		updated_at: time,
-		expires_at: '2099-07-13T04:00:00Z'
+		updated_at: time
 	};
 	const refuse = (code: string, status: number, message: string) => ({ status, json: { error: { code, message } } });
 	await page.routeWebSocket('**/api/workspaces/test/ws', () => {});

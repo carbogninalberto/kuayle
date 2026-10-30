@@ -63,7 +63,6 @@
 	let provider = $state<AgentProvider['id']>('opencode');
 	let profile = $state<'standard' | 'headless'>('standard');
 	let browser = $state(true);
-	let keepRunning = $state(false);
 	let secretValues = $state<Record<string, string>>({});
 	let extraSecretName = $state('');
 	let extraSecretValue = $state('');
@@ -174,7 +173,6 @@
 		secretValues = {};
 		extraSecretName = '';
 		extraSecretValue = '';
-		keepRunning = false;
 		profile = 'standard';
 		browser = true;
 		repositoryDefaults = null;
@@ -293,8 +291,7 @@
 				agents: useAgent ? [{ provider, mode: 'autonomous', config: providerConfig }] : [],
 				env_vars: envVars,
 				environment_id: selectedEnvironment?.id,
-				repo: repositoryCreateInput(repositoryChoice, repositoryDefaults),
-				keep_running: keepRunning
+				repo: repositoryCreateInput(repositoryChoice, repositoryDefaults)
 			});
 			appToast.success('Dev Machine queued');
 			open = false;
@@ -388,10 +385,11 @@
 
 			<MachineResourceSliders bind:cpu_millis={cpuMillis} bind:memory_mb={memoryMb} bind:disk_gb={diskGb} {sizeOptions} />
 
-			<div class="space-y-3 rounded-lg border border-border p-4">
-				{#if !headless}<div class="flex items-center justify-between gap-4"><div><Label>{m['machines.browser']()}</Label><p class="text-xs text-muted-foreground">{m['machines.browser_desc']()}</p></div><Switch aria-label={m['machines.browser']()} bind:checked={browser} /></div>{/if}
-				<div class="flex items-center justify-between gap-4"><div><Label>{m['machines.keep_running']()}</Label><p class="text-xs text-muted-foreground">{m['machines.keep_running_desc']({ minutes: policy?.idle_pause_minutes ?? 240 })}</p></div><Switch aria-label={m['machines.keep_running']()} bind:checked={keepRunning} /></div>
-			</div>
+			{#if !headless}
+				<div class="space-y-3 rounded-lg border border-border p-4">
+					<div class="flex items-center justify-between gap-4"><div><Label>{m['machines.browser']()}</Label><p class="text-xs text-muted-foreground">{m['machines.browser_desc']()}</p></div><Switch aria-label={m['machines.browser']()} bind:checked={browser} /></div>
+				</div>
+			{/if}
 
 			<div class="space-y-3 rounded-lg border border-border p-4">
 				<div class="flex items-center justify-between gap-4"><div><Label>{m['machines.agent_runtime']()}</Label><p class="text-xs text-muted-foreground">{m['machines.agent_runtime_desc']()}</p></div><Switch aria-label={m['machines.agent_runtime']()} bind:checked={useAgent} /></div>

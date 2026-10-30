@@ -52,7 +52,7 @@ func TestCreateAddsTheDockerDaemonOnlyWhenTheWorkspaceAllowsIt(t *testing.T) {
 				continue
 			}
 			require.True(t, envVar.IsSecret)
-			require.Equal(t, store.createdMachine.ExpiresAt, *envVar.ExpiresAt)
+			require.Nil(t, envVar.ExpiresAt, "the material lasts as long as the machine")
 			value, err := cryptoutil.Decrypt(envVar.EncryptedValue, cryptoutil.DeriveKey("test"))
 			require.NoError(t, err)
 			if secrets[envVar.TargetService] == nil {

@@ -81,7 +81,7 @@ func (f *publicationGitHubFake) UpdatePullRequestBody(_, _, _ string, _ int, bod
 
 func publicationFixture() (*domain.DevMachine, *publicationStoreFake) {
 	taskID, checkoutID, runID := uuid.New(), uuid.New(), uuid.New()
-	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), ExpiresAt: time.Now().Add(time.Hour)}
+	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New()}
 	summary := "Done. @maintainers please merge ~~~ now"
 	return machine, &publicationStoreFake{
 		managerStoreFake: &managerStoreFake{machine: machine, githubInstallationID: 7,

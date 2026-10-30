@@ -69,7 +69,7 @@ func TestDockerDaemonRunsComposeProjects(t *testing.T) {
 		integrationService(machine, "docker", "docker", dockerImage, dockerDaemonPort),
 		integrationService(machine, "terminal", "terminal", integrationImage("KUAYLE_TEST_HEADLESS_IMAGE", "kuayle/dev-machine-headless:0.1.0"), 7681),
 	}
-	material, err := dockertls.New(routingKey, time.Now().Add(time.Hour))
+	material, err := dockertls.New(routingKey)
 	require.NoError(t, err)
 	secrets := map[string]map[string]string{
 		"collector": {"KUAYLE_MACHINE_TOKEN": "integration-test-token"},

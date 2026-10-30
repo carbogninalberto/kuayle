@@ -48,8 +48,8 @@ func TestAssistantCustomToolsHTTP(t *testing.T) {
 	}
 	_, err = db.Exec(`INSERT INTO dev_machine_workspace_policies(workspace_id,enabled) VALUES($1,true)`, ws)
 	require.NoError(t, err)
-	_, err = db.Exec(`INSERT INTO dev_machines(id,workspace_id,created_by_user_id,routing_key,name,status,desired_status,generation,repo_url,repo_provider,repo_owner,repo_name,base_branch,working_branch,machine_size,cpu_millis,memory_mb,disk_gb,max_runtime_minutes,expires_at)
- VALUES($1,$2,$3,$4,'Admin','running','running',1,'','github','','','','','small',1000,2048,20,60,now()+interval '1 hour')`, machine, ws, admin, strings.ReplaceAll(machine.String(), "-", "")[:16])
+	_, err = db.Exec(`INSERT INTO dev_machines(id,workspace_id,created_by_user_id,routing_key,name,status,desired_status,generation,repo_url,repo_provider,repo_owner,repo_name,base_branch,working_branch,machine_size,cpu_millis,memory_mb,disk_gb)
+ VALUES($1,$2,$3,$4,'Admin','running','running',1,'','github','','','','','small',1000,2048,20)`, machine, ws, admin, strings.ReplaceAll(machine.String(), "-", "")[:16])
 	require.NoError(t, err)
 	workspaces := repository.NewWorkspaceRepository(db)
 	tools := service.NewAssistantCustomToolService(repository.NewAssistantCustomToolRepository(db), workspaces, repository.NewIssueRepository(db), repository.NewAgentTaskRepository(db))

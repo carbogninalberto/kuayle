@@ -36,7 +36,7 @@ func (f *manualCheckStoreFake) FailManualCheck(_ context.Context, _ domain.DevMa
 func manualCheckManager(t *testing.T, exit int) (*Manager, *manualCheckStoreFake, *validationRuntimeFake, *domain.DevMachine, *domain.DevMachineOperation) {
 	t.Helper()
 	taskID, checkoutID, runID := uuid.New(), uuid.New(), uuid.New()
-	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), RoutingKey: "fixture", ExpiresAt: time.Now().Add(time.Hour)}
+	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), RoutingKey: "fixture"}
 	key := make([]byte, 32)
 	encrypted, err := cryptoutil.Encrypt(`{"FIXTURE_CREDENTIAL":"fixture-private-value"}`, key)
 	require.NoError(t, err)

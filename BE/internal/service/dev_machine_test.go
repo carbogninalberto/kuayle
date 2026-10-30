@@ -172,7 +172,6 @@ func TestCreateAgentRunPointsCodexAtTheModelServer(t *testing.T) {
 		machine: &domain.DevMachine{
 			ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID,
 			Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning,
-			ExpiresAt: time.Now().Add(time.Hour), MaxRuntimeMinutes: 60,
 		},
 		agentProvider: &domain.DevMachineAgentProvider{
 			ProviderID: "codex", Enabled: true, SupportedModes: json.RawMessage(`["autonomous"]`),
@@ -223,7 +222,6 @@ func TestCreateAgentRunClaudeOverrideStoresNonSecretEnvironment(t *testing.T) {
 		machine: &domain.DevMachine{
 			ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID,
 			Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning,
-			ExpiresAt: time.Now().Add(time.Hour), MaxRuntimeMinutes: 60,
 		},
 		agentProvider: &domain.DevMachineAgentProvider{
 			ProviderID: "claude-code", Enabled: true, SupportedModes: json.RawMessage(`["autonomous"]`),
@@ -336,7 +334,7 @@ func TestCreateAgentRunNeverImplicitlyFallsBackToRootWorkspace(t *testing.T) {
 				machine: &domain.DevMachine{
 					ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID,
 					Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning,
-					RepositoryAffinityID: test.affinity, ExpiresAt: time.Now().Add(time.Hour), MaxRuntimeMinutes: 60,
+					RepositoryAffinityID: test.affinity,
 				},
 			}
 			_, err := newTestDevMachineService(store).createAgentRun(context.Background(), workspaceID, machineID, userID, dto.CreateAgentRunRequest{
@@ -372,7 +370,7 @@ func TestCreateAgentRunUsesOnlyExplicitRootOrReadyCheckout(t *testing.T) {
 				machine: &domain.DevMachine{
 					ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID,
 					Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning,
-					RepositoryAffinityID: test.affinity, ExpiresAt: time.Now().Add(time.Hour), MaxRuntimeMinutes: 60,
+					RepositoryAffinityID: test.affinity,
 				},
 				agentProvider: &domain.DevMachineAgentProvider{
 					ProviderID: "opencode", Enabled: true, SupportedModes: json.RawMessage(`["autonomous"]`),
@@ -405,8 +403,8 @@ func TestIngestEventRedactsActiveRuntimeCredential(t *testing.T) {
 	encrypted, err := cryptoutil.Encrypt(runtimeToken, cryptoutil.DeriveKey("test"))
 	require.NoError(t, err)
 	store := &devMachineStoreFake{
-		machine:            &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, Status: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour)},
-		authenticatedToken: &domain.DevMachineToken{ID: uuid.New(), MachineID: machineID, Scopes: json.RawMessage(`{"events:write":true}`), ExpiresAt: time.Now().Add(time.Hour)},
+		machine:            &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, Status: domain.DevMachineStatusRunning},
+		authenticatedToken: &domain.DevMachineToken{ID: uuid.New(), MachineID: machineID, Scopes: json.RawMessage(`{"events:write":true}`)},
 		runtimeCredentials: []domain.DevMachineRuntimeCredential{{
 			ID: uuid.New(), MachineID: machineID, Scope: domain.DevMachineRuntimeCredentialScopeMachine,
 			CredentialType: domain.DevMachineRuntimeCredentialTypeGitHubToken, EncryptedValue: encrypted,
@@ -436,8 +434,8 @@ func TestIngestLogRedactsActiveRuntimeCredential(t *testing.T) {
 	encrypted, err := cryptoutil.Encrypt(runtimeToken, cryptoutil.DeriveKey("test"))
 	require.NoError(t, err)
 	store := &devMachineStoreFake{
-		machine:            &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, Status: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour)},
-		authenticatedToken: &domain.DevMachineToken{ID: uuid.New(), MachineID: machineID, Scopes: json.RawMessage(`{"logs:write":true}`), ExpiresAt: time.Now().Add(time.Hour)},
+		machine:            &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, Status: domain.DevMachineStatusRunning},
+		authenticatedToken: &domain.DevMachineToken{ID: uuid.New(), MachineID: machineID, Scopes: json.RawMessage(`{"logs:write":true}`)},
 		runtimeCredentials: []domain.DevMachineRuntimeCredential{{
 			ID: uuid.New(), MachineID: machineID, Scope: domain.DevMachineRuntimeCredentialScopeMachine,
 			CredentialType: domain.DevMachineRuntimeCredentialTypeGitHubToken, EncryptedValue: encrypted,
@@ -496,14 +494,14 @@ func TestGenerateNameRetriesCollisions(t *testing.T) {
 	require.Equal(t, 20, store.nameChecks)
 }
 
+// Machines have no lifetime: nothing about a new machine expires or idles out.
 func TestCreateGenericMachineDoesNotRequireRepositoryOrTTL(t *testing.T) {
 	workspaceID, userID := uuid.New(), uuid.New()
 	store := &devMachineStoreFake{policy: testPolicy(workspaceID)}
 	svc := newTestDevMachineService(store)
 
 	machine, operation, err := svc.Create(context.Background(), workspaceID, userID, dto.CreateDevMachineRequest{
-		Size:        "small",
-		KeepRunning: true,
+		Size: "small",
 	})
 	require.NoError(t, err)
 	require.NotNil(t, operation)
@@ -513,9 +511,8 @@ func TestCreateGenericMachineDoesNotRequireRepositoryOrTTL(t *testing.T) {
 	require.Empty(t, machine.RepoOwner)
 	require.Empty(t, machine.RepoName)
 	require.Nil(t, machine.RepositoryAffinityID)
-	require.Equal(t, 120, machine.MaxRuntimeMinutes)
-	require.WithinDuration(t, time.Now().UTC().Add(120*time.Minute), machine.ExpiresAt, 5*time.Second)
-	require.True(t, store.createdMachine.KeepRunning)
+	require.Len(t, store.createdTokens, 1)
+	require.Nil(t, store.createdTokens[0].ExpiresAt, "the collector token lasts as long as the machine")
 	require.NotContains(t, string(machine.ServicesConfig), "app_preview")
 	for _, service := range store.createdServices {
 		require.NotEqual(t, "app_preview", service.ServiceType)
@@ -688,7 +685,7 @@ func TestCreateScopesDedicatedCDPTokenToBrowserAndCollector(t *testing.T) {
 		require.NoError(t, decryptErr)
 		tokensByService[envVar.TargetService] = value
 		require.True(t, envVar.IsSecret)
-		require.Equal(t, store.createdMachine.ExpiresAt, *envVar.ExpiresAt)
+		require.Nil(t, envVar.ExpiresAt)
 	}
 	require.Len(t, tokensByService["browser"], 64)
 	require.Equal(t, tokensByService["browser"], tokensByService["collector"])
@@ -697,42 +694,10 @@ func TestCreateScopesDedicatedCDPTokenToBrowserAndCollector(t *testing.T) {
 	require.NotEqual(t, collectorToken, tokensByService["browser"])
 }
 
-func TestCreateAppliesSizeAndWorkspaceRuntimeLimits(t *testing.T) {
-	for _, test := range []struct {
-		name          string
-		size          string
-		policyMinutes int
-		expected      int
-	}{
-		{name: "small size cap", size: "small", policyMinutes: 480, expected: 120},
-		{name: "medium workspace cap", size: "medium", policyMinutes: 180, expected: 180},
-		{name: "large size cap", size: "large", policyMinutes: 1440, expected: 480},
-		{name: "small workspace cap", size: "small", policyMinutes: 30, expected: 30},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			workspaceID, userID := uuid.New(), uuid.New()
-			policy := testPolicy(workspaceID)
-			policy.MaxRuntimeMinutes = test.policyMinutes
-			store := &devMachineStoreFake{policy: policy}
-			before := time.Now().UTC()
-
-			machine, _, err := newTestDevMachineService(store).Create(context.Background(), workspaceID, userID, dto.CreateDevMachineRequest{
-				Name: "runtime-limit", Size: test.size,
-			})
-
-			require.NoError(t, err)
-			require.Equal(t, test.expected, machine.MaxRuntimeMinutes)
-			require.Equal(t, test.expected, store.createdMachine.MaxRuntimeMinutes)
-			require.WithinDuration(t, before.Add(time.Duration(test.expected)*time.Minute), machine.ExpiresAt, time.Second)
-		})
-	}
-}
-
 func TestCreateCustomMachinePersistsExactResources(t *testing.T) {
 	workspaceID, userID := uuid.New(), uuid.New()
 	policy := testPolicy(workspaceID)
 	policy.MaxDiskGB = 200
-	policy.MaxRuntimeMinutes = 1440
 	store := &devMachineStoreFake{policy: policy}
 
 	machine, _, err := newTestDevMachineService(store).Create(context.Background(), workspaceID, userID, dto.CreateDevMachineRequest{
@@ -745,22 +710,7 @@ func TestCreateCustomMachinePersistsExactResources(t *testing.T) {
 	require.Equal(t, 12288, machine.MemoryMB)
 	require.Equal(t, 150, machine.DiskGB)
 	require.Equal(t, 512, machine.PidsLimit)
-	require.Equal(t, 480, machine.MaxRuntimeMinutes)
 	require.Equal(t, machine, store.createdMachine)
-}
-
-func TestCreateCustomMachineUsesShorterWorkspaceRuntimeLimit(t *testing.T) {
-	workspaceID, userID := uuid.New(), uuid.New()
-	policy := testPolicy(workspaceID)
-	policy.MaxRuntimeMinutes = 180
-	store := &devMachineStoreFake{policy: policy}
-
-	machine, _, err := newTestDevMachineService(store).Create(context.Background(), workspaceID, userID, dto.CreateDevMachineRequest{
-		Name: "custom-runtime", Size: "custom", CPUMillis: 2000, MemoryMB: 4096, DiskGB: 20,
-	})
-
-	require.NoError(t, err)
-	require.Equal(t, 180, machine.MaxRuntimeMinutes)
 }
 
 func TestCreatePresetIgnoresRequestedCustomResources(t *testing.T) {
@@ -769,11 +719,10 @@ func TestCreatePresetIgnoresRequestedCustomResources(t *testing.T) {
 		cpuMillis int
 		memoryMB  int
 		diskGB    int
-		maxRun    int
 	}{
-		{size: "small", cpuMillis: 2000, memoryMB: 4096, diskGB: 20, maxRun: 120},
-		{size: "medium", cpuMillis: 4000, memoryMB: 8192, diskGB: 50, maxRun: 240},
-		{size: "large", cpuMillis: 8000, memoryMB: 16384, diskGB: 100, maxRun: 480},
+		{size: "small", cpuMillis: 2000, memoryMB: 4096, diskGB: 20},
+		{size: "medium", cpuMillis: 4000, memoryMB: 8192, diskGB: 50},
+		{size: "large", cpuMillis: 8000, memoryMB: 16384, diskGB: 100},
 	} {
 		t.Run(test.size, func(t *testing.T) {
 			workspaceID, userID := uuid.New(), uuid.New()
@@ -788,7 +737,6 @@ func TestCreatePresetIgnoresRequestedCustomResources(t *testing.T) {
 			require.Equal(t, test.cpuMillis, machine.CPUMillis)
 			require.Equal(t, test.memoryMB, machine.MemoryMB)
 			require.Equal(t, test.diskGB, machine.DiskGB)
-			require.Equal(t, test.maxRun, machine.MaxRuntimeMinutes)
 		})
 	}
 }
@@ -951,7 +899,7 @@ func TestCreateUsesImmutableEnvironmentDigestForDeveloperServices(t *testing.T) 
 func TestCheckoutIssueEnforcesRepositoryAffinityAndIsIdempotent(t *testing.T) {
 	workspaceID, userID := uuid.New(), uuid.New()
 	machineID, issueID, repoID, otherRepoID, teamID := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
-	readyMachine := &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID, Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, RepositoryAffinityID: &repoID, ExpiresAt: time.Now().Add(time.Hour)}
+	readyMachine := &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID, Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, RepositoryAffinityID: &repoID}
 	issue := &domain.Issue{ID: issueID, WorkspaceID: workspaceID, TeamID: teamID, Identifier: "ENG-7"}
 	existing := domain.DevMachineCheckout{ID: uuid.New(), WorkspaceID: workspaceID, MachineID: machineID, IssueID: issueID, GitHubRepoID: repoID, Status: "queued"}
 	store := &devMachineStoreFake{
@@ -981,7 +929,7 @@ func TestCheckoutIssueRetriesFailedCheckout(t *testing.T) {
 	message := "temporary checkout failure"
 	store := &devMachineStoreFake{
 		policy:  testPolicy(workspaceID),
-		machine: &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID, Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, Generation: 3, RepositoryAffinityID: &repoID, ExpiresAt: time.Now().Add(time.Hour)},
+		machine: &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID, Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, Generation: 3, RepositoryAffinityID: &repoID},
 		issues:  map[uuid.UUID]*domain.Issue{issueID: {ID: issueID, WorkspaceID: workspaceID, TeamID: teamID, Identifier: "ENG-7"}},
 		reposByID: map[uuid.UUID]*domain.GitHubRepoModel{
 			repoID: {ID: repoID, WorkspaceID: workspaceID, FullName: "kuayle/api", DefaultBranch: "main", IsActive: true},
@@ -1006,7 +954,7 @@ func TestCheckoutIssueRequiresDevelopmentRepository(t *testing.T) {
 	workspaceID, userID, machineID, issueID, teamID := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	store := &devMachineStoreFake{
 		policy:  testPolicy(workspaceID),
-		machine: &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID, Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour)},
+		machine: &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID, Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning},
 		issues:  map[uuid.UUID]*domain.Issue{issueID: {ID: issueID, WorkspaceID: workspaceID, TeamID: teamID, Identifier: "ENG-7"}},
 	}
 	svc := newTestDevMachineService(store)
@@ -1049,7 +997,7 @@ func TestLaunchServicePausedMachineQueuesResumeAndReturnsPendingContract(t *test
 	workspaceID, userID, machineID := uuid.New(), uuid.New(), uuid.New()
 	store := &devMachineStoreFake{
 		policy:  testPolicy(workspaceID),
-		machine: &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID, RoutingKey: "0123456789abcdef0123", Status: domain.DevMachineStatusPaused, DesiredStatus: domain.DevMachineStatusPaused, Generation: 7, ExpiresAt: time.Now().Add(time.Hour)},
+		machine: &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID, RoutingKey: "0123456789abcdef0123", Status: domain.DevMachineStatusPaused, DesiredStatus: domain.DevMachineStatusPaused, Generation: 7},
 	}
 	svc := newTestDevMachineService(store)
 
@@ -1067,7 +1015,7 @@ func TestLaunchServiceDoesNotAutoResumeStoppedMachine(t *testing.T) {
 	workspaceID, userID, machineID := uuid.New(), uuid.New(), uuid.New()
 	store := &devMachineStoreFake{
 		policy:  testPolicy(workspaceID),
-		machine: &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID, RoutingKey: "0123456789abcdef0123", Status: domain.DevMachineStatusStopped, DesiredStatus: domain.DevMachineStatusStopped, Generation: 7, ExpiresAt: time.Now().Add(time.Hour)},
+		machine: &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID, RoutingKey: "0123456789abcdef0123", Status: domain.DevMachineStatusStopped, DesiredStatus: domain.DevMachineStatusStopped, Generation: 7},
 	}
 	svc := newTestDevMachineService(store)
 
@@ -1082,7 +1030,7 @@ func TestLaunchBrowserOpensResponsiveKasmClient(t *testing.T) {
 	workspaceID, userID, machineID := uuid.New(), uuid.New(), uuid.New()
 	store := &devMachineStoreFake{
 		policy:  testPolicy(workspaceID),
-		machine: &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID, RoutingKey: "0123456789abcdef0123", Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour)},
+		machine: &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID, RoutingKey: "0123456789abcdef0123", Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning},
 		service: &domain.DevMachineService{ID: uuid.New(), MachineID: machineID, ServiceKey: "browser", ServiceType: "browser", Status: "running"},
 	}
 	svc := newTestDevMachineService(store)
@@ -1106,7 +1054,7 @@ func TestLaunchServiceMapsAccessTicketNoRowsToServiceUnavailable(t *testing.T) {
 		machine: &domain.DevMachine{
 			ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID,
 			RoutingKey: "0123456789abcdef0123", Status: domain.DevMachineStatusRunning,
-			DesiredStatus: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour),
+			DesiredStatus: domain.DevMachineStatusRunning,
 		},
 		service:               &domain.DevMachineService{ID: uuid.New(), MachineID: machineID, ServiceKey: "ide", ServiceType: "ide", Status: "running"},
 		createAccessTicketErr: sql.ErrNoRows,
@@ -1137,7 +1085,7 @@ func TestLaunchServiceDistinguishesMissingAndPendingCheckouts(t *testing.T) {
 				machine: &domain.DevMachine{
 					ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID,
 					RoutingKey: "0123456789abcdef0123", Status: domain.DevMachineStatusRunning,
-					DesiredStatus: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour),
+					DesiredStatus: domain.DevMachineStatusRunning,
 				},
 				service: &domain.DevMachineService{ID: uuid.New(), MachineID: machineID, ServiceKey: "ide", ServiceType: "ide", Status: "running"},
 			}
@@ -1168,7 +1116,6 @@ func TestLaunchServiceRejectsTerminalWithoutMintingBrowserTicket(t *testing.T) {
 				machine: &domain.DevMachine{
 					ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID,
 					RoutingKey: "0123456789abcdef0123", Status: test.status, DesiredStatus: test.desired,
-					ExpiresAt: time.Now().Add(time.Hour),
 				},
 				service: &domain.DevMachineService{
 					ID: uuid.New(), MachineID: machineID, ServiceKey: test.serviceKey, ServiceType: "terminal", Status: "running",
@@ -1191,7 +1138,7 @@ func TestCreateTerminalSessionMapsAccessTicketNoRowsToServiceUnavailable(t *test
 		machine: &domain.DevMachine{
 			ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID,
 			RoutingKey: "0123456789abcdef0123", Status: domain.DevMachineStatusRunning,
-			DesiredStatus: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour),
+			DesiredStatus: domain.DevMachineStatusRunning,
 		},
 		service:               &domain.DevMachineService{ID: uuid.New(), MachineID: machineID, ServiceKey: "terminal", ServiceType: "terminal", Status: "running"},
 		createAccessTicketErr: sql.ErrNoRows,
@@ -1211,7 +1158,7 @@ func TestCreateTerminalSessionPendingResponseHasNoSession(t *testing.T) {
 		machine: &domain.DevMachine{
 			ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID,
 			RoutingKey: "0123456789abcdef0123", Status: domain.DevMachineStatusSpawning,
-			DesiredStatus: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour),
+			DesiredStatus: domain.DevMachineStatusRunning,
 		},
 	}
 	svc := NewDevMachineService(store, agent.NewRegistry(), true, "machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, DevMachineImages{}, "https://app.example.test")
@@ -1231,7 +1178,7 @@ func TestCreateTerminalSessionLinksTicketToSession(t *testing.T) {
 		machine: &domain.DevMachine{
 			ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID,
 			RoutingKey: "0123456789abcdef0123", Status: domain.DevMachineStatusRunning,
-			DesiredStatus: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour),
+			DesiredStatus: domain.DevMachineStatusRunning,
 		},
 		service: &domain.DevMachineService{ID: uuid.New(), MachineID: machineID, ServiceKey: "terminal", ServiceType: "terminal", Status: "running"},
 	}
@@ -1252,7 +1199,7 @@ func TestCreateTerminalSessionLinksTicketToSession(t *testing.T) {
 func TestPermanentDeleteRunningMachineRequestsPurgeAndQueuesTeardown(t *testing.T) {
 	workspaceID, userID, machineID := uuid.New(), uuid.New(), uuid.New()
 	store := &devMachineStoreFake{
-		machine: &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID, Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, Generation: 3, ExpiresAt: time.Now().Add(time.Hour)},
+		machine: &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID, Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, Generation: 3},
 	}
 	svc := newTestDevMachineService(store)
 
@@ -1270,7 +1217,7 @@ func TestPermanentDeleteRunningMachineRequestsPurgeAndQueuesTeardown(t *testing.
 func TestDeleteRequestsPermanentPurgeAndQueuesTeardown(t *testing.T) {
 	workspaceID, userID, machineID := uuid.New(), uuid.New(), uuid.New()
 	store := &devMachineStoreFake{
-		machine: &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID, Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, Generation: 3, ExpiresAt: time.Now().Add(time.Hour)},
+		machine: &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID, Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, Generation: 3},
 	}
 	svc := newTestDevMachineService(store)
 
@@ -1288,7 +1235,7 @@ func TestDeleteRequestsPermanentPurgeAndQueuesTeardown(t *testing.T) {
 func TestPermanentDeleteRepeatedRequestIsSafe(t *testing.T) {
 	workspaceID, userID, machineID := uuid.New(), uuid.New(), uuid.New()
 	store := &devMachineStoreFake{
-		machine: &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID, Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, Generation: 3, ExpiresAt: time.Now().Add(time.Hour)},
+		machine: &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID, Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, Generation: 3},
 	}
 	svc := newTestDevMachineService(store)
 
@@ -1403,7 +1350,7 @@ func TestLifecycleMapsTransactionalConflicts(t *testing.T) {
 			machine: &domain.DevMachine{
 				ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID,
 				Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning,
-				Generation: 1, ExpiresAt: time.Now().Add(time.Hour),
+				Generation: 1,
 			},
 			setDesiredErr: conflict,
 		}
@@ -1472,7 +1419,7 @@ func TestEnvironmentUnavailableMapsToInvalidOperation(t *testing.T) {
 			machine: &domain.DevMachine{
 				ID: uuid.New(), WorkspaceID: workspaceID, CreatedByUserID: &userID,
 				Status: domain.DevMachineStatusStopped, DesiredStatus: domain.DevMachineStatusStopped,
-				Generation: 1, ExpiresAt: time.Now().Add(time.Hour),
+				Generation: 1,
 			},
 			setDesiredErr: repository.ErrEnvironmentUnavailable,
 		}
@@ -1485,13 +1432,12 @@ func TestEnvironmentUnavailableMapsToInvalidOperation(t *testing.T) {
 
 func TestUserScopedMachineAccessRequiresCreator(t *testing.T) {
 	workspaceID, ownerID, otherID, machineID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
-	keepRunning := true
 	store := &devMachineStoreFake{
 		policy: testPolicy(workspaceID),
 		machine: &domain.DevMachine{
 			ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &ownerID,
 			RoutingKey: "0123456789abcdef0123", Status: domain.DevMachineStatusRunning,
-			DesiredStatus: domain.DevMachineStatusRunning, Generation: 3, ExpiresAt: time.Now().Add(time.Hour),
+			DesiredStatus: domain.DevMachineStatusRunning, Generation: 3,
 		},
 		service:         &domain.DevMachineService{ID: uuid.New(), MachineID: machineID, ServiceKey: "ide", ServiceType: "ide", Status: "running"},
 		agentProvider:   &domain.DevMachineAgentProvider{MachineID: machineID, ProviderID: "opencode", DisplayName: "OpenCode", ImageRef: "kuayle/opencode:test", Enabled: true},
@@ -1554,10 +1500,10 @@ func TestUserScopedMachineAccessRequiresCreator(t *testing.T) {
 	_, err = svc.ConfiguredProviders(context.Background(), workspaceID, machineID, otherID)
 	require.ErrorIs(t, err, ErrMachineNotFound)
 
-	updated, err := svc.Update(context.Background(), workspaceID, machineID, ownerID, dto.UpdateDevMachineRequest{KeepRunning: &keepRunning})
+	updated, err := svc.Update(context.Background(), workspaceID, machineID, ownerID, dto.UpdateDevMachineRequest{})
 	require.NoError(t, err)
-	require.True(t, updated.KeepRunning)
-	_, err = svc.Update(context.Background(), workspaceID, machineID, otherID, dto.UpdateDevMachineRequest{KeepRunning: &keepRunning})
+	require.Equal(t, machineID, updated.ID)
+	_, err = svc.Update(context.Background(), workspaceID, machineID, otherID, dto.UpdateDevMachineRequest{})
 	require.ErrorIs(t, err, ErrMachineNotFound)
 
 	require.NoError(t, svc.TouchActivity(context.Background(), workspaceID, machineID, ownerID))
@@ -1587,7 +1533,6 @@ func TestEmptyMachineCollectionsReturnJSONArrays(t *testing.T) {
 	store := &devMachineStoreFake{machine: &domain.DevMachine{
 		ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &ownerID,
 		Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning,
-		ExpiresAt: time.Now().Add(time.Hour),
 	}}
 	svc := newTestDevMachineService(store)
 
@@ -1626,7 +1571,7 @@ func TestMachineDeletionRequiresCreator(t *testing.T) {
 			store := &devMachineStoreFake{machine: &domain.DevMachine{
 				ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &ownerID,
 				Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning,
-				Generation: 3, ExpiresAt: time.Now().Add(time.Hour),
+				Generation: 3,
 			}}
 			svc := newTestDevMachineService(store)
 
@@ -1646,7 +1591,7 @@ func TestTerminalEndpointsRequireMachineOwner(t *testing.T) {
 		machine: &domain.DevMachine{
 			ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &ownerID,
 			RoutingKey: "0123456789abcdef0123", Status: domain.DevMachineStatusRunning,
-			DesiredStatus: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour),
+			DesiredStatus: domain.DevMachineStatusRunning,
 		},
 		service: &domain.DevMachineService{ID: uuid.New(), MachineID: machineID, ServiceKey: "terminal", ServiceType: "terminal", Status: "running"},
 		terminalSessions: []domain.DevMachineTerminalSession{
@@ -1709,7 +1654,7 @@ func TestWorkspaceAdminPolicyPermissionDoesNotGrantMachineRuntimeAccess(t *testi
 		machine: &domain.DevMachine{
 			ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &ownerID,
 			RoutingKey: "0123456789abcdef0123", Status: domain.DevMachineStatusRunning,
-			DesiredStatus: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour),
+			DesiredStatus: domain.DevMachineStatusRunning,
 		},
 		service: &domain.DevMachineService{ID: uuid.New(), MachineID: machineID, ServiceKey: "ide", ServiceType: "ide", Status: "running"},
 	}
@@ -1742,17 +1687,6 @@ func TestMachineNamesAreCreatorScoped(t *testing.T) {
 	machine, _, err := svc.Create(context.Background(), workspaceID, ownerID, dto.CreateDevMachineRequest{Size: "small", Name: "builder-01"})
 	require.NoError(t, err)
 	require.Equal(t, "builder-01", machine.Name)
-}
-
-func TestUpdateMachineRejectsImmutableState(t *testing.T) {
-	store := &devMachineStoreFake{updatePreferencesErr: repository.ErrMachineStateConflict}
-	keepRunning := true
-
-	machine, err := newTestDevMachineService(store).Update(context.Background(), uuid.New(), uuid.New(), uuid.New(), dto.UpdateDevMachineRequest{KeepRunning: &keepRunning})
-
-	require.Nil(t, machine)
-	require.ErrorIs(t, err, ErrInvalidOperation)
-	require.ErrorContains(t, err, "no longer accepts preference updates")
 }
 
 func TestSnapshotEnvironmentRequiresSourceBuilderOwner(t *testing.T) {
@@ -1829,7 +1763,7 @@ type devMachineStoreFake struct {
 	deleteEnvironmentErr        error
 	upsertScopeErr              error
 	setDesiredErr               error
-	updatePreferencesErr        error
+	createdTokens               []domain.DevMachineToken
 	queuedOperation             *domain.DevMachineOperation
 	queuedDesired               domain.DevMachineStatus
 	modelServers                []domain.AgentModelServer
@@ -1842,13 +1776,13 @@ func newTestDevMachineService(store repository.DevMachineStore) *DevMachineServi
 func testPolicy(workspaceID uuid.UUID) *domain.DevMachineWorkspacePolicy {
 	return &domain.DevMachineWorkspacePolicy{
 		WorkspaceID: workspaceID, Enabled: true, MaxConcurrentMachines: 10, MaxMachinesPerUser: 10,
-		MaxDailyAgentRuns: 25, MaxRuntimeMinutes: 480, MaxDiskGB: 100, IdlePauseMinutes: 240,
+		MaxDailyAgentRuns: 25, MaxDiskGB: 100,
 		AllowedProviders:    json.RawMessage(`[]`),
 		AllowedRepositories: json.RawMessage(`[]`),
 	}
 }
 
-func (f *devMachineStoreFake) CreateBundle(_ context.Context, machine *domain.DevMachine, _ []domain.DevMachineAgentProvider, services []domain.DevMachineService, volumes []domain.DevMachineVolume, envVars []domain.DevMachineEnvVar, _ []domain.DevMachineToken, operation *domain.DevMachineOperation) error {
+func (f *devMachineStoreFake) CreateBundle(_ context.Context, machine *domain.DevMachine, _ []domain.DevMachineAgentProvider, services []domain.DevMachineService, volumes []domain.DevMachineVolume, envVars []domain.DevMachineEnvVar, tokens []domain.DevMachineToken, operation *domain.DevMachineOperation) error {
 	if f.createBundleErr != nil {
 		return f.createBundleErr
 	}
@@ -1856,6 +1790,7 @@ func (f *devMachineStoreFake) CreateBundle(_ context.Context, machine *domain.De
 	f.createdVolumes = append([]domain.DevMachineVolume(nil), volumes...)
 	f.createdServices = append([]domain.DevMachineService(nil), services...)
 	f.createdEnvVars = append([]domain.DevMachineEnvVar(nil), envVars...)
+	f.createdTokens = append([]domain.DevMachineToken(nil), tokens...)
 	f.createdOperation = operation
 	machine.CreatedAt = time.Now().UTC()
 	machine.UpdatedAt = machine.CreatedAt
@@ -2011,20 +1946,6 @@ func (f *devMachineStoreFake) MachineNameExistsForUser(_ context.Context, _ uuid
 		return f.nameExistsByUser[userID][strings.ToLower(name)], nil
 	}
 	return f.nameExists[strings.ToLower(name)], nil
-}
-
-func (f *devMachineStoreFake) UpdateMachinePreferencesForUser(_ context.Context, workspaceID, machineID, userID uuid.UUID, keepRunning *bool) (*domain.DevMachine, error) {
-	if f.updatePreferencesErr != nil {
-		return nil, f.updatePreferencesErr
-	}
-	machine, err := f.GetMachineForUser(context.Background(), workspaceID, machineID, userID)
-	if err != nil || machine == nil {
-		return nil, err
-	}
-	if keepRunning != nil {
-		machine.KeepRunning = *keepRunning
-	}
-	return machine, nil
 }
 
 func (f *devMachineStoreFake) ListEnvVarsInternal(_ context.Context, machineID uuid.UUID, _ *string, _ string) ([]domain.DevMachineEnvVar, error) {
@@ -2358,8 +2279,8 @@ func TestCollectorRedactsWorkspaceAndOriginalNativeCredentials(t *testing.T) {
 				}
 				machineID, workspaceID := uuid.New(), uuid.New()
 				store := &devMachineStoreFake{
-					machine:              &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, Status: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour)},
-					authenticatedToken:   &domain.DevMachineToken{ID: uuid.New(), MachineID: machineID, Scopes: json.RawMessage(`{"events:write":true,"logs:write":true}`), ExpiresAt: time.Now().Add(time.Hour)},
+					machine:              &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, Status: domain.DevMachineStatusRunning},
+					authenticatedToken:   &domain.DevMachineToken{ID: uuid.New(), MachineID: machineID, Scopes: json.RawMessage(`{"events:write":true,"logs:write":true}`)},
 					modelServers:         []domain.AgentModelServer{{EncryptedAPIKey: current}},
 					agentSecretSnapshots: []string{snapshot},
 				}

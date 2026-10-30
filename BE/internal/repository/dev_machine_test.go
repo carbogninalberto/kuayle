@@ -216,8 +216,9 @@ func TestCreateAccessTicketQueryRevalidatesCreatorAndTuple(t *testing.T) {
 	require.Contains(t, query, "JOIN dev_machine_services s ON s.id=$4 AND s.machine_id=m.id")
 	require.Contains(t, query, "JOIN workspace_members wm ON wm.workspace_id=m.workspace_id AND wm.user_id=$5")
 	require.Contains(t, query, "m.workspace_id=$2 AND m.id=$3 AND m.created_by_user_id=$5")
-	require.Contains(t, query, "m.status='running' AND m.desired_status='running' AND m.expires_at>NOW()")
-	require.Contains(t, query, "s.status='running' AND $9>NOW() AND $9<=m.expires_at")
+	require.Contains(t, query, "m.status='running' AND m.desired_status='running'")
+	require.Contains(t, query, "s.status='running' AND $9>NOW()")
+	require.NotContains(t, query, "m.expires_at", "machines have no lifetime")
 	require.Contains(t, query, "$10::uuid IS NULL OR (s.service_type='terminal' AND EXISTS")
 	require.Contains(t, query, "ts.id=$10")
 }
@@ -255,8 +256,9 @@ func TestCreateAccessSessionQueryRevalidatesCreatorAndTuple(t *testing.T) {
 	require.Contains(t, query, "JOIN dev_machine_services s ON s.id=$4 AND s.machine_id=m.id")
 	require.Contains(t, query, "JOIN workspace_members wm ON wm.workspace_id=m.workspace_id AND wm.user_id=$5")
 	require.Contains(t, query, "m.workspace_id=$2 AND m.id=$3 AND m.created_by_user_id=$5")
-	require.Contains(t, query, "m.status='running' AND m.desired_status='running' AND m.expires_at>NOW()")
-	require.Contains(t, query, "s.status='running' AND $8>NOW() AND $8<=m.expires_at")
+	require.Contains(t, query, "m.status='running' AND m.desired_status='running'")
+	require.Contains(t, query, "s.status='running' AND $8>NOW()")
+	require.NotContains(t, query, "m.expires_at", "machines have no lifetime")
 }
 
 func TestUpsertRuntimeCredentialQueryUsesMachineFingerprintConflict(t *testing.T) {
@@ -373,9 +375,9 @@ func TestTerminalCloseRequestRevokesTicketAndReusesOperation(t *testing.T) {
 	_, err = db.Exec(`INSERT INTO dev_machines
 		(id,workspace_id,created_by_user_id,routing_key,name,status,desired_status,generation,
 		 repo_url,repo_provider,repo_owner,repo_name,base_branch,working_branch,
-		 machine_size,cpu_millis,memory_mb,disk_gb,max_runtime_minutes,expires_at)
+		 machine_size,cpu_millis,memory_mb,disk_gb)
 		VALUES ($1,$2,$3,$4,$5,'running','running',7,'','github','','','','',
-		 'small',1000,2048,20,480,NOW()+INTERVAL '1 hour')`,
+		 'small',1000,2048,20)`,
 		machineID, workspaceID, userID, suffix[:16], "machine-"+suffix)
 	require.NoError(t, err)
 	_, err = db.Exec(`INSERT INTO dev_machine_services
@@ -497,7 +499,8 @@ func requireAccessAuthorizationQuery(t *testing.T, query, alias string) {
 	require.Contains(t, query, "m.id="+alias+".machine_id")
 	require.Contains(t, query, alias+".workspace_id=m.workspace_id")
 	require.Contains(t, query, "m.created_by_user_id="+alias+".user_id")
-	require.Contains(t, query, "m.status='running' AND m.desired_status='running' AND m.expires_at>NOW()")
+	require.Contains(t, query, "m.status='running' AND m.desired_status='running'")
+	require.NotContains(t, query, "m.expires_at")
 	require.Contains(t, query, "s.id="+alias+".service_id AND s.machine_id=m.id AND s.status='running'")
 	require.Contains(t, query, "wm.workspace_id=m.workspace_id AND wm.user_id="+alias+".user_id")
 	require.Contains(t, query, "wm.role IN ('owner','admin','member')")
@@ -566,7 +569,7 @@ func TestTransactionalMachineQuotaExcludesUnprovisionedPendingTeardown(t *testin
 				RoutingKey: routingKey, Name: "quota-" + routingKey, Status: domain.DevMachineStatusQueued,
 				DesiredStatus: domain.DevMachineStatusRunning, Generation: 1, RepoProvider: "github",
 				MachineSize: size, CPUMillis: cpuMillis, MemoryMB: memoryMB, DiskGB: diskGB, PidsLimit: 512,
-				MaxRuntimeMinutes: 480, ServicesConfig: []byte(`{}`), Labels: []byte(`{}`), ExpiresAt: time.Now().Add(time.Hour),
+				ServicesConfig: []byte(`{}`), Labels: []byte(`{}`),
 			}, &domain.DevMachineOperation{
 				ID: uuid.New(), MachineID: machineID, WorkspaceID: fixture.workspaceID, Action: domain.DevMachineOpSpawn,
 				Status: domain.DevMachineOpStatusPending, Generation: 1, IdempotencyKey: "spawn:1",
@@ -718,9 +721,9 @@ func TestDevMachineOffsetPaginationUsesStableTieBreakers(t *testing.T) {
 		_, err = db.Exec(`INSERT INTO dev_machines
 			(id,workspace_id,created_by_user_id,routing_key,name,status,desired_status,generation,
 			 repo_url,repo_provider,repo_owner,repo_name,base_branch,working_branch,
-			 machine_size,cpu_millis,memory_mb,disk_gb,max_runtime_minutes,created_at,updated_at,expires_at)
+			 machine_size,cpu_millis,memory_mb,disk_gb,created_at,updated_at)
 			VALUES ($1,$2,$3,$4,$5,'stopped','stopped',1,'','github','','','','',
-			 'small',1000,2048,20,480,$6::timestamptz,$6::timestamptz,$6::timestamptz+INTERVAL '1 hour')`,
+			 'small',1000,2048,20,$6::timestamptz,$6::timestamptz)`,
 			machineID, workspaceID, userID, routingKey[len(routingKey)-16:], fmt.Sprintf("pagination-machine-%d", index), createdAt)
 		require.NoError(t, err)
 	}
@@ -796,9 +799,9 @@ func TestAgentRunCreationSerializesWithLifecycle(t *testing.T) {
 			_, err = db.Exec(`INSERT INTO dev_machines
 				(id,workspace_id,created_by_user_id,routing_key,name,status,desired_status,generation,
 				 repo_url,repo_provider,repo_owner,repo_name,base_branch,working_branch,
-				 machine_size,cpu_millis,memory_mb,disk_gb,max_runtime_minutes,expires_at)
+				 machine_size,cpu_millis,memory_mb,disk_gb)
 				VALUES ($1,$2,$3,$4,$5,'running','running',1,'','github','','','','',
-				 'small',1000,2048,20,480,NOW()+INTERVAL '1 hour')`,
+				 'small',1000,2048,20)`,
 				machineID, workspaceID, userID, suffix[:16], "machine-"+suffix)
 			require.NoError(t, err)
 
@@ -898,79 +901,12 @@ func (f environmentRaceFixture) insertMachine(t *testing.T, status, desired doma
 	_, err := f.db.Exec(`INSERT INTO dev_machines
 		(id,workspace_id,created_by_user_id,routing_key,name,status,desired_status,generation,
 		 repo_url,repo_provider,repo_owner,repo_name,base_branch,working_branch,
-		 machine_size,cpu_millis,memory_mb,disk_gb,max_runtime_minutes,expires_at,environment_id,environment_builder)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,1,'','github','','','','','small',1000,2048,20,480,
-		 NOW()+INTERVAL '1 hour',$8,$9)`, machineID, f.workspaceID, f.userID, suffix[:16], "machine-"+suffix,
+		 machine_size,cpu_millis,memory_mb,disk_gb,environment_id,environment_builder)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,1,'','github','','','','','small',1000,2048,20,
+		 $8,$9)`, machineID, f.workspaceID, f.userID, suffix[:16], "machine-"+suffix,
 		status, desired, f.environmentID, builder)
 	require.NoError(t, err)
 	return machineID
-}
-
-func TestUpdateMachinePreferencesRejectsImmutableStates(t *testing.T) {
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("DATABASE_URL is not configured")
-	}
-	db, err := sqlx.Connect("pgx", databaseURL)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	fixture := newEnvironmentRaceFixture(t, db)
-	keepRunning := true
-	var mutableMachineID uuid.UUID
-
-	for _, test := range []struct {
-		name            string
-		status          domain.DevMachineStatus
-		desired         domain.DevMachineStatus
-		deleteRequested bool
-		allowed         bool
-	}{
-		{name: "running", status: domain.DevMachineStatusRunning, desired: domain.DevMachineStatusRunning, allowed: true},
-		{name: "destroyed", status: domain.DevMachineStatusDestroyed, desired: domain.DevMachineStatusDestroyed},
-		{name: "tearing down", status: domain.DevMachineStatusTearingDown, desired: domain.DevMachineStatusDestroyed},
-		{name: "expired", status: domain.DevMachineStatusExpired, desired: domain.DevMachineStatusStopped},
-		{name: "teardown desired", status: domain.DevMachineStatusRunning, desired: domain.DevMachineStatusDestroyed},
-		{name: "permanent deletion requested", status: domain.DevMachineStatusRunning, desired: domain.DevMachineStatusRunning, deleteRequested: true},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			machineID := fixture.insertMachine(t, test.status, test.desired, false)
-			if test.allowed {
-				mutableMachineID = machineID
-			}
-			if test.deleteRequested {
-				_, err := db.Exec(`UPDATE dev_machines SET delete_requested_at=NOW() WHERE id=$1`, machineID)
-				require.NoError(t, err)
-			}
-
-			machine, err := fixture.repository.UpdateMachinePreferencesForUser(context.Background(), fixture.workspaceID, machineID, fixture.userID, &keepRunning)
-			if test.allowed {
-				require.NoError(t, err)
-				require.NotNil(t, machine)
-				require.True(t, machine.KeepRunning)
-				return
-			}
-			require.ErrorIs(t, err, ErrMachineStateConflict)
-			require.Nil(t, machine)
-			var persisted bool
-			require.NoError(t, db.Get(&persisted, `SELECT keep_running FROM dev_machines WHERE id=$1`, machineID))
-			require.False(t, persisted)
-		})
-	}
-
-	stopRunning := false
-	machine, err := fixture.repository.UpdateMachinePreferencesForUser(context.Background(), fixture.workspaceID, mutableMachineID, uuid.New(), &stopRunning)
-	require.NoError(t, err)
-	require.Nil(t, machine, "another user's machine must remain private-safe missing")
-	var updatedAt time.Time
-	require.NoError(t, db.Get(&updatedAt, `SELECT updated_at FROM dev_machines WHERE id=$1`, mutableMachineID))
-	machine, err = fixture.repository.UpdateMachinePreferencesForUser(context.Background(), fixture.workspaceID, mutableMachineID, fixture.userID, nil)
-	require.NoError(t, err)
-	require.Equal(t, updatedAt, machine.UpdatedAt, "an empty preference request must not mutate the machine")
-
-	destroyedID := fixture.insertMachine(t, domain.DevMachineStatusDestroyed, domain.DevMachineStatusDestroyed, false)
-	machine, err = fixture.repository.UpdateMachinePreferencesForUser(context.Background(), fixture.workspaceID, destroyedID, fixture.userID, &keepRunning)
-	require.ErrorIs(t, err, ErrMachineStateConflict)
-	require.Nil(t, machine)
 }
 
 func TestPermanentDeleteRevalidatesCreatorInsideTransaction(t *testing.T) {
@@ -1033,8 +969,8 @@ func TestEnvironmentDeletionSerializesWithMachineCreation(t *testing.T) {
 		RoutingKey: suffix[:16], Name: "machine-" + suffix, Status: domain.DevMachineStatusQueued,
 		DesiredStatus: domain.DevMachineStatusRunning, Generation: 1, RepoProvider: "github",
 		MachineSize: "small", CPUMillis: 1000, MemoryMB: 2048, DiskGB: 20, PidsLimit: 512,
-		MaxRuntimeMinutes: 480, ServicesConfig: []byte(`{}`), Labels: []byte(`{}`),
-		ExpiresAt: time.Now().Add(time.Hour), EnvironmentID: &fixture.environmentID,
+		ServicesConfig: []byte(`{}`), Labels: []byte(`{}`),
+		EnvironmentID: &fixture.environmentID,
 	}
 	operation := &domain.DevMachineOperation{
 		ID: uuid.New(), MachineID: machineID, WorkspaceID: fixture.workspaceID, Action: domain.DevMachineOpSpawn,

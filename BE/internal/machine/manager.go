@@ -82,7 +82,6 @@ type ManagerStore interface {
 	CreateLogChunk(context.Context, *domain.DevMachineLogChunk) error
 	CreateAgentOutput(context.Context, *domain.DevMachineLogChunk, []domain.DevMachineEvent) error
 	RevokeMachineAccess(context.Context, uuid.UUID) error
-	ListExpiredMachines(context.Context, int) ([]domain.DevMachine, error)
 	ListTimedOutAgentRuns(context.Context, int) ([]domain.DevMachineAgentRun, error)
 	ListRuntimeMachines(context.Context, int, int) ([]domain.DevMachine, error)
 	SetDesiredAndEnqueue(context.Context, uuid.UUID, uuid.UUID, domain.DevMachineStatus, *domain.DevMachineOperation) error
@@ -105,8 +104,6 @@ type ManagerStore interface {
 	ReconcileOrphanedCheckouts(context.Context, int) (int, error)
 	ListDeleteRequestedEnvironments(context.Context, int) ([]domain.DevMachineEnvironment, error)
 	DeleteEnvironment(context.Context, uuid.UUID, uuid.UUID) error
-	ListIdleMachines(context.Context, int) ([]domain.DevMachine, error)
-	ReclaimIdleMachine(context.Context, uuid.UUID) (*domain.DevMachine, error)
 	UpsertRuntimeCredential(context.Context, *domain.DevMachineRuntimeCredential) error
 	PurgeExpiredRuntimeCredentials(context.Context, time.Time) (int, error)
 	PurgeAccessLogs(context.Context, time.Time, int) (int, error)
@@ -454,12 +451,10 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 		}
 	}
 	if operation.Action == domain.DevMachineOpSpawn || (operation.Action == domain.DevMachineOpStart && machine.Status != domain.DevMachineStatusRunning) {
+		// A machine waiting for host capacity waits: running machines are
+		// never stopped to make room.
 		release, err := m.admit(ctx, machine)
 		if err != nil {
-			var waitErr *capacityWaitError
-			if errors.As(err, &waitErr) {
-				m.reclaimHostCapacity(ctx, machine)
-			}
 			return err
 		}
 		defer release()
@@ -1405,40 +1400,6 @@ func (m *Manager) reconcile(ctx context.Context) error {
 		if _, err := m.store.RequestPermanentDelete(ctx, machine.WorkspaceID, machine.ID, nil); err != nil && !errors.Is(err, sql.ErrNoRows) {
 			log.WithField("machine_id", machine.ID).WithError(err).Warn("permanent delete teardown queue failed")
 		}
-	}
-
-	idleMachines, err := m.store.ListIdleMachines(ctx, 100)
-	if err != nil {
-		return err
-	}
-	for i := range idleMachines {
-		machine := &idleMachines[i]
-		operation := &domain.DevMachineOperation{
-			ID: uuid.New(), MachineID: machine.ID, WorkspaceID: machine.WorkspaceID,
-			Action: domain.DevMachineOpPause, Status: domain.DevMachineOpStatusPending,
-			Generation: machine.Generation + 1, IdempotencyKey: fmt.Sprintf("idle-pause:%d", machine.Generation+1), MaxAttempts: 5,
-		}
-		if err := m.store.SetDesiredAndEnqueue(ctx, machine.WorkspaceID, machine.ID, domain.DevMachineStatusPaused, operation); err != nil && !errors.Is(err, sql.ErrNoRows) {
-			log.WithField("machine_id", machine.ID).WithError(err).Warn("idle pause queue failed")
-		}
-	}
-
-	expired, err := m.store.ListExpiredMachines(ctx, 100)
-	if err != nil {
-		return err
-	}
-	for i := range expired {
-		machine := &expired[i]
-		if err := m.store.SetMachineState(ctx, machine.ID, domain.DevMachineStatusExpired, nil, nil, nil, nil); err != nil {
-			continue
-		}
-		operation := &domain.DevMachineOperation{
-			ID: uuid.New(), MachineID: machine.ID, WorkspaceID: machine.WorkspaceID,
-			Action: domain.DevMachineOpTeardown, Status: domain.DevMachineOpStatusPending,
-			Generation: machine.Generation + 1, IdempotencyKey: fmt.Sprintf("ttl-teardown:%d", machine.Generation+1), MaxAttempts: 10,
-		}
-		_ = m.store.SetDesiredAndEnqueue(ctx, machine.WorkspaceID, machine.ID, domain.DevMachineStatusDestroyed, operation)
-		_ = m.createEvent(ctx, machine, nil, "lifecycle", "machine.expired", nil)
 	}
 
 	hostDiskFloorBreached := m.reconcileHostDiskFloor(ctx)

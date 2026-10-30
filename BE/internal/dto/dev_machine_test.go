@@ -53,14 +53,12 @@ func TestDevMachineDTOsAcceptProfiles(t *testing.T) {
 func TestDevMachinePolicyRejectsUnknownProviders(t *testing.T) {
 	for _, provider := range []string{"claude-code", "opencode", "codex", "qwen-code", "crush", "kimi", "goose"} {
 		require.NoError(t, validate.Struct(dto.DevMachinePolicyRequest{
-			MaxRuntimeMinutes: 60,
-			MaxDiskGB:         20,
-			AllowedProviders:  []string{provider},
+			MaxDiskGB:        20,
+			AllowedProviders: []string{provider},
 		}))
 	}
 	require.Error(t, validate.Struct(dto.DevMachinePolicyRequest{
-		MaxRuntimeMinutes: 60,
-		MaxDiskGB:         20,
-		AllowedProviders:  []string{"unknown"},
+		MaxDiskGB:        20,
+		AllowedProviders: []string{"unknown"},
 	}))
 }

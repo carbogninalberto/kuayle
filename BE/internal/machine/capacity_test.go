@@ -75,7 +75,7 @@ func (f *deferringStoreFake) FailOperation(context.Context, uuid.UUID, string, s
 }
 
 func TestSpawnWithoutHostCapacityIsDeferredNotFailed(t *testing.T) {
-	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), Status: domain.DevMachineStatusQueued, DesiredStatus: domain.DevMachineStatusRunning, Generation: 1, CPUMillis: 1000, MemoryMB: 16384, ExpiresAt: time.Now().Add(time.Hour)}
+	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), Status: domain.DevMachineStatusQueued, DesiredStatus: domain.DevMachineStatusRunning, Generation: 1, CPUMillis: 1000, MemoryMB: 16384}
 	store := &deferringStoreFake{capacityStoreFake: &capacityStoreFake{managerStoreFake: &managerStoreFake{machine: machine}}}
 	runtime := &runtimeFake{host: HostResources{CPUMillis: 4000, MemoryMB: 8192}}
 	manager := &Manager{store: store, runtime: runtime, operationSlots: make(chan struct{}, 1)}
@@ -88,13 +88,14 @@ func TestSpawnWithoutHostCapacityIsDeferredNotFailed(t *testing.T) {
 	require.Zero(t, runtime.spawned)
 }
 
-// A machine waiting for host capacity stops the least recently active idle
-// machine the store chooses, so an always-on idle machine gives way.
-func TestHostCapacityWaitStopsTheChosenIdleMachine(t *testing.T) {
-	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), Status: domain.DevMachineStatusStopped, DesiredStatus: domain.DevMachineStatusRunning, Generation: 1, CPUMillis: 1000, MemoryMB: 4096, ExpiresAt: time.Now().Add(time.Hour)}
+// A machine waiting for host capacity waits: an idle running machine is never
+// stopped to make room, because booted machines stay up until their user
+// stops them.
+func TestHostCapacityWaitNeverStopsAnIdleMachine(t *testing.T) {
+	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), Status: domain.DevMachineStatusStopped, DesiredStatus: domain.DevMachineStatusRunning, Generation: 1, CPUMillis: 1000, MemoryMB: 4096}
 	idle := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, Generation: 7}
 	store := &deferringStoreFake{capacityStoreFake: &capacityStoreFake{
-		managerStoreFake: &managerStoreFake{machine: machine, reclaimable: idle},
+		managerStoreFake: &managerStoreFake{machine: machine},
 		allocations:      []domain.DevMachineResourceAllocation{{MachineID: idle.ID, CPUMillis: 1000, MemoryMB: 4096}},
 	}}
 	runtime := &runtimeFake{host: HostResources{CPUMillis: 4000, MemoryMB: 8192}}
@@ -104,14 +105,8 @@ func TestHostCapacityWaitStopsTheChosenIdleMachine(t *testing.T) {
 	manager.operations.Add(1)
 	manager.processLeasedOperation(context.Background(), domain.DevMachineOperation{ID: uuid.New(), MachineID: machine.ID, WorkspaceID: machine.WorkspaceID, Action: domain.DevMachineOpStart, Generation: 1})
 	require.Equal(t, []string{"host_capacity_wait"}, store.deferred)
-	require.Equal(t, []uuid.UUID{machine.ID}, store.reclaimWaitingIDs)
-	require.Len(t, store.operations, 1)
-	stop := store.operations[0]
-	require.Equal(t, domain.DevMachineOpStop, stop.Action)
-	require.Equal(t, idle.ID, stop.MachineID)
-	require.Equal(t, int64(8), stop.Generation)
-	require.Equal(t, "host-capacity:8", stop.IdempotencyKey)
-	require.Equal(t, []domain.DevMachineStatus{domain.DevMachineStatusStopped}, store.desired)
+	require.Empty(t, store.operations, "no machine is stopped for capacity")
+	require.Empty(t, store.desired)
 	require.Zero(t, runtime.started)
 }
 

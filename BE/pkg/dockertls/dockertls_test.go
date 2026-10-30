@@ -24,10 +24,9 @@ func parseCertificate(t *testing.T, value string) *x509.Certificate {
 // client certificate is only valid for client authentication, and another
 // machine's certificates are not accepted.
 func TestDockerTLSIsMutualAndScopedToTheMachine(t *testing.T) {
-	expires := time.Now().Add(2 * time.Hour)
-	material, err := New("0123456789abcdef0123", expires)
+	material, err := New("0123456789abcdef0123")
 	require.NoError(t, err)
-	other, err := New("fedcba98765432100123", expires)
+	other, err := New("fedcba98765432100123")
 	require.NoError(t, err)
 
 	roots := x509.NewCertPool()
@@ -37,7 +36,11 @@ func TestDockerTLSIsMutualAndScopedToTheMachine(t *testing.T) {
 	ca := parseCertificate(t, material.CA)
 	require.True(t, ca.IsCA)
 	require.ElementsMatch(t, []string{"docker", "0123456789abcdef0123-docker", "localhost"}, server.DNSNames)
-	require.False(t, server.NotAfter.Before(expires), "valid while the machine may run")
+	// Machines run until they are torn down, so the material outlives any
+	// realistic machine; teardown discards the per-machine CA.
+	for _, certificate := range []*x509.Certificate{ca, server, client} {
+		require.True(t, certificate.NotAfter.After(time.Now().AddDate(9, 0, 0)), "valid while the machine runs")
+	}
 	for _, host := range []string{"docker", "0123456789abcdef0123-docker"} {
 		_, err = server.Verify(x509.VerifyOptions{Roots: roots, DNSName: host, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}})
 		require.NoError(t, err, host)

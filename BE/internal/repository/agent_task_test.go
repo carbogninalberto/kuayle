@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"sync"
 	"testing"
@@ -404,11 +405,12 @@ func TestReservationReusesAnIdleMachineWithADifferentAgent(t *testing.T) {
 	require.Equal(t, "Waiting for a free dev machine", reason)
 }
 
-// Tasks reuse the creator's own machines before creating new ones: a running
-// machine first, then a paused or stopped one, whatever repository it served
-// before. Other users' machines and machines of another environment are never
-// chosen.
-func TestReservationReusesTheCreatorsStoppedAndPausedMachines(t *testing.T) {
+// Tasks reuse a running, idle machine of their creator before creating a new
+// one, whatever repository it served before. Other users' machines, another
+// environment's, paused or stopped ones (their user chose that), busy ones and
+// ones the workspace policy no longer allows are never chosen. A machine
+// already used for the same issue comes first, then the most recently active.
+func TestReservationReusesTheCreatorsRunningIdleMachine(t *testing.T) {
 	url := os.Getenv("DATABASE_URL")
 	if url == "" {
 		t.Skip("DATABASE_URL is not set")
@@ -421,15 +423,20 @@ func TestReservationReusesTheCreatorsStoppedAndPausedMachines(t *testing.T) {
 	require.NoError(t, err)
 	_, err = db.Exec(`INSERT INTO workspace_members(workspace_id,user_id,role) VALUES($1,$2,'member')`, ws, other)
 	require.NoError(t, err)
-	team, issue := uuid.New(), uuid.New()
+	team, issue, otherIssue := uuid.New(), uuid.New(), uuid.New()
 	_, err = db.Exec(`INSERT INTO teams(id,workspace_id,name,key) VALUES($1,$2,'Task','RUN')`, team, ws)
 	require.NoError(t, err)
 	_, err = db.Exec(`INSERT INTO team_statuses(team_id,name,slug,category) VALUES($1,'Todo','todo','unstarted')`, team)
 	require.NoError(t, err)
-	_, err = db.Exec(`INSERT INTO issues(id,workspace_id,team_id,number,identifier_text,title,creator_id,status_id) VALUES($1,$2,$3,1,'RUN-1','Dispatch',$4,(SELECT id FROM team_statuses WHERE team_id=$3 LIMIT 1))`, issue, ws, team, user)
-	require.NoError(t, err)
+	for number, id := range []uuid.UUID{issue, otherIssue} {
+		_, err = db.Exec(`INSERT INTO issues(id,workspace_id,team_id,number,identifier_text,title,creator_id,status_id) VALUES($1,$2,$3,$4,$5,'Dispatch',$6,(SELECT id FROM team_statuses WHERE team_id=$3 LIMIT 1))`, id, ws, team, number+1, fmt.Sprintf("RUN-%d", number+1), user)
+		require.NoError(t, err)
+	}
 	ctx := domain.WithAccess(context.Background(), domain.Access{WorkspaceID: ws, UserID: user})
-	c, err := NewConversationRepository(db).OpenIssue(ctx, ws, issue)
+	chats := NewConversationRepository(db)
+	c, err := chats.OpenIssue(ctx, ws, issue)
+	require.NoError(t, err)
+	otherChat, err := chats.OpenIssue(ctx, ws, otherIssue)
 	require.NoError(t, err)
 	repo := NewAgentTaskRepository(db)
 	_, err = repo.Create(ctx, ws, c.ID, domain.AgentTaskRequest{RequestID: uuid.New(), Prompt: "Implement issue", Provider: "codex"})
@@ -448,49 +455,93 @@ func TestReservationReusesTheCreatorsStoppedAndPausedMachines(t *testing.T) {
 		require.NoError(t, err)
 		return id
 	}
+	running := func(activity string) uuid.UUID {
+		t.Helper()
+		id := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning, false)
+		_, err := db.Exec(`UPDATE dev_machines SET last_activity_at=now()-$2::interval WHERE id=$1`, id, activity)
+		require.NoError(t, err)
+		return id
+	}
+	exec := func(query string, args ...any) {
+		t.Helper()
+		_, err := db.Exec(query, args...)
+		require.NoError(t, err)
+	}
 
-	othersStopped := fixture.insertMachine(t, domain.DevMachineStatusStopped, domain.DevMachineStatusStopped, false)
-	_, err = db.Exec(`UPDATE dev_machines SET created_by_user_id=$2 WHERE id=$1`, othersStopped, other)
-	require.NoError(t, err)
-	otherEnvironment := fixture.insertMachine(t, domain.DevMachineStatusStopped, domain.DevMachineStatusStopped, false)
-	_, err = db.Exec(`UPDATE dev_machines SET environment_id=NULL WHERE id=$1`, otherEnvironment)
-	require.NoError(t, err)
-	deleting := fixture.insertMachine(t, domain.DevMachineStatusStopped, domain.DevMachineStatusStopped, false)
-	_, err = db.Exec(`UPDATE dev_machines SET delete_requested_at=now() WHERE id=$1`, deleting)
-	require.NoError(t, err)
-	require.Equal(t, claimed.ReservedMachineID, reserve(), "no reusable machine of the creator exists yet")
+	othersRunning := running("1 minute")
+	exec(`UPDATE dev_machines SET created_by_user_id=$2 WHERE id=$1`, othersRunning, other)
+	otherEnvironment := running("1 minute")
+	exec(`UPDATE dev_machines SET environment_id=NULL WHERE id=$1`, otherEnvironment)
+	deleting := running("1 minute")
+	exec(`UPDATE dev_machines SET delete_requested_at=now() WHERE id=$1`, deleting)
+	builder := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning, true)
+	fixture.insertMachine(t, domain.DevMachineStatusStopped, domain.DevMachineStatusStopped, false)
+	fixture.insertMachine(t, domain.DevMachineStatusPaused, domain.DevMachineStatusPaused, false)
+	starting := fixture.insertMachine(t, domain.DevMachineStatusStopped, domain.DevMachineStatusRunning, false)
+	require.Equal(t, claimed.ReservedMachineID, reserve(), "no running machine of the creator fits, so a new one is created")
+	for _, id := range []uuid.UUID{builder, starting} {
+		exec(`UPDATE dev_machines SET status='destroyed',desired_status='destroyed' WHERE id=$1`, id)
+	}
 
-	stopped := fixture.insertMachine(t, domain.DevMachineStatusStopped, domain.DevMachineStatusStopped, false)
 	// The machine served another repository before: one machine serves several.
+	older := running("3 hours")
 	installation, previousRepository := uuid.New(), uuid.New()
-	_, err = db.Exec(`INSERT INTO github_installations(id,workspace_id,installation_id,account_login,account_type,installed_by) VALUES($1,$2,1,'fixture','Organization',$3)`, installation, ws, user)
-	require.NoError(t, err)
-	_, err = db.Exec(`INSERT INTO github_repos(id,installation_id,workspace_id,github_repo_id,full_name,default_branch) VALUES($1,$2,$3,1,'fixture/previous','main')`, previousRepository, installation, ws)
-	require.NoError(t, err)
-	_, err = db.Exec(`UPDATE dev_machines SET repository_affinity_id=$2,last_activity_at=now()-interval '1 hour' WHERE id=$1`, stopped, previousRepository)
-	require.NoError(t, err)
-	require.Equal(t, stopped, reserve())
+	exec(`INSERT INTO github_installations(id,workspace_id,installation_id,account_login,account_type,installed_by) VALUES($1,$2,1,'fixture','Organization',$3)`, installation, ws, user)
+	exec(`INSERT INTO github_repos(id,installation_id,workspace_id,github_repo_id,full_name,default_branch) VALUES($1,$2,$3,1,'fixture/previous','main')`, previousRepository, installation, ws)
+	exec(`UPDATE dev_machines SET repository_affinity_id=$2 WHERE id=$1`, older, previousRepository)
+	require.Equal(t, older, reserve())
+	recent := running("1 hour")
+	require.Equal(t, recent, reserve(), "the most recently active machine is preferred")
 
+	// A machine already used for this issue (an earlier, finished task) wins
+	// over a more recently active one.
+	earlier, err := repo.Create(ctx, ws, c.ID, domain.AgentTaskRequest{RequestID: uuid.New(), Prompt: "Earlier attempt", Provider: "codex"})
+	require.NoError(t, err)
+	exec(`UPDATE agent_tasks SET machine_id=$2,state='completed' WHERE id=$1`, earlier.ID, older)
+	require.Equal(t, older, reserve(), "the issue's previous machine is preferred")
+	exec(`UPDATE agent_tasks SET machine_id=NULL WHERE id=$1`, earlier.ID)
+
+	// Busy machines are skipped: an active run, another active task, or a
+	// queued validation, publication, check or tool run.
+	busyRun := uuid.New()
+	exec(`INSERT INTO dev_machine_agent_runs(id,workspace_id,machine_id,provider_id,mode,prompt,command_argv,max_runtime_seconds,status) VALUES($1,$2,$3,'codex','autonomous','Busy','["codex"]',60,'running')`, busyRun, ws, recent)
+	require.Equal(t, older, reserve(), "a machine with a running agent is busy")
+	exec(`UPDATE dev_machine_agent_runs SET status='succeeded' WHERE id=$1`, busyRun)
+	require.Equal(t, recent, reserve())
+	for _, action := range []string{"validate_agent", "publish_agent", "run_check", "run_tool"} {
+		exec(`INSERT INTO dev_machine_operations(workspace_id,machine_id,action,status,generation,idempotency_key) VALUES($1,$2,$3,'pending',1,$4)`, ws, recent, action, "busy-"+action)
+		require.Equal(t, older, reserve(), action+" holds the machine")
+		exec(`UPDATE dev_machine_operations SET status='completed' WHERE machine_id=$1 AND idempotency_key=$2`, recent, "busy-"+action)
+	}
+	require.Equal(t, recent, reserve())
+	holder, err := repo.Create(ctx, ws, otherChat.ID, domain.AgentTaskRequest{RequestID: uuid.New(), Prompt: "Other work", Provider: "codex"})
+	require.NoError(t, err)
+	exec(`UPDATE agent_tasks SET machine_id=$2,state='running' WHERE id=$1`, holder.ID, recent)
+	require.Equal(t, older, reserve(), "another task's machine is not shared")
+	// Once that task awaits review its machine is free again; its checkout
+	// stays separate from this task's.
+	exec(`UPDATE agent_tasks SET state='awaiting_review' WHERE id=$1`, holder.ID)
+	require.Equal(t, recent, reserve())
+
+	// The workspace policy must still allow the machine.
+	exec(`UPDATE dev_machines SET sudo_enabled=true WHERE id=$1`, recent)
+	require.Equal(t, older, reserve(), "a sudo machine is not reused once sudo is disallowed")
+	exec(`UPDATE dev_machine_workspace_policies SET allow_sudo=true WHERE workspace_id=$1`, ws)
+	require.Equal(t, recent, reserve())
+	exec(`INSERT INTO dev_machine_services(workspace_id,machine_id,service_key,service_type,container_name,image_ref,internal_host,internal_port) VALUES($1,$2,'docker','docker','fixture-docker','docker:fixture','docker',2376)`, ws, recent)
+	require.Equal(t, older, reserve(), "a Docker machine is not reused once Docker is disallowed")
+	exec(`UPDATE dev_machine_workspace_policies SET allow_docker=true WHERE workspace_id=$1`, ws)
+	require.Equal(t, recent, reserve())
+	exec(`UPDATE dev_machine_workspace_policies SET enabled=false WHERE workspace_id=$1`, ws)
+	require.Equal(t, claimed.ReservedMachineID, reserve(), "nothing is reused while Dev Machines are disabled")
+	exec(`UPDATE dev_machine_workspace_policies SET enabled=true WHERE workspace_id=$1`, ws)
 	paused := fixture.insertMachine(t, domain.DevMachineStatusPaused, domain.DevMachineStatusPaused, false)
-	_, err = db.Exec(`UPDATE dev_machines SET last_activity_at=now()-interval '2 hours' WHERE id=$1`, paused)
-	require.NoError(t, err)
-	require.Equal(t, paused, reserve(), "a paused machine resumes faster than a stopped one starts")
-
-	running := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning, false)
-	_, err = db.Exec(`UPDATE dev_machines SET last_activity_at=now()-interval '3 hours' WHERE id=$1`, running)
-	require.NoError(t, err)
-	require.Equal(t, running, reserve(), "a running machine is preferred")
-
-	// A machine that another active task holds is not shared.
-	busy, err := repo.Create(ctx, ws, c.ID, domain.AgentTaskRequest{RequestID: uuid.New(), Prompt: "Other work", Provider: "codex"})
-	require.NoError(t, err)
-	_, err = db.Exec(`UPDATE agent_tasks SET machine_id=$2 WHERE id=$1`, busy.ID, running)
-	require.NoError(t, err)
-	require.Equal(t, paused, reserve())
+	stopped := older
+	exec(`UPDATE dev_machines SET status='stopped',desired_status='stopped' WHERE id=$1`, stopped)
 
 	// A task whose machine was destroyed (records are kept as history) gets a
 	// fresh reservation instead of waiting on the destroyed machine forever.
-	_, err = db.Exec(`UPDATE dev_machines SET status='destroyed',desired_status='destroyed' WHERE id IN ($1,$2,$3,$4)`, paused, stopped, running, otherEnvironment)
+	_, err = db.Exec(`UPDATE dev_machines SET status='destroyed',desired_status='destroyed' WHERE id IN ($1,$2,$3,$4)`, paused, stopped, recent, otherEnvironment)
 	require.NoError(t, err)
 	_, err = db.Exec(`UPDATE agent_tasks SET machine_id=$2,reserved_machine_id=$2 WHERE id=$1`, claimed.ID, paused)
 	require.NoError(t, err)

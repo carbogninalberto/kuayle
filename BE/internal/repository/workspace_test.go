@@ -130,7 +130,7 @@ func TestCreateBundleReturnsTypedMachineNameConflict(t *testing.T) {
 		RoutingKey: routingKey, Name: existingName, Status: domain.DevMachineStatusQueued,
 		DesiredStatus: domain.DevMachineStatusRunning, Generation: 1, RepoProvider: "github",
 		MachineSize: "small", CPUMillis: 1000, MemoryMB: 2048, DiskGB: 20, PidsLimit: 512,
-		MaxRuntimeMinutes: 480, ServicesConfig: []byte(`{}`), Labels: []byte(`{}`), ExpiresAt: time.Now().Add(time.Hour),
+		ServicesConfig: []byte(`{}`), Labels: []byte(`{}`),
 	}
 	operation := &domain.DevMachineOperation{
 		ID: uuid.New(), MachineID: machineID, WorkspaceID: fixture.workspaceID, Action: domain.DevMachineOpSpawn,

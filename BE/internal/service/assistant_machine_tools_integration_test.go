@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -83,7 +82,7 @@ func newMachineToolsFixture(t *testing.T) machineToolsFixture {
 	require.NoError(t, err)
 	containerID := "developer"
 	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: f.ws, CreatedByUserID: &f.user, Name: "eng-1-dark-mode", RoutingKey: "0123456789abcdef0123",
-		Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour), ListeningPorts: pq.Int64Array{3000}}
+		Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, ListeningPorts: pq.Int64Array{3000}}
 	store := &portStoreFake{devMachineStoreFake: &devMachineStoreFake{policy: testPolicy(f.ws), machine: machine,
 		services: []domain.DevMachineService{{ID: uuid.New(), MachineID: machine.ID, ServiceKey: "ide", ServiceType: "ide", Status: "running", InternalPort: 8080, ContainerID: &containerID}}}}
 	machines := newTestDevMachineService(store)

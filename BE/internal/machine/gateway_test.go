@@ -94,7 +94,7 @@ func (f *gatewayStoreFake) TouchMachineActivity(context.Context, uuid.UUID, time
 func gatewayMachine(workspaceID, machineID, userID uuid.UUID, routingKey string) *domain.DevMachine {
 	return &domain.DevMachine{
 		ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID, RoutingKey: routingKey,
-		Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour),
+		Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning,
 	}
 }
 
@@ -621,8 +621,9 @@ func TestCertificateApprovalOnlyForLiveRoutes(t *testing.T) {
 	store.machine.DesiredStatus = domain.DevMachineStatusStopped
 	check("abcdefgh1234.app.example.com", 403)
 	store.machine.DesiredStatus = domain.DevMachineStatusRunning
-	store.machine.ExpiresAt = time.Now().Add(-time.Second)
-	check("abcdefgh1234.app.example.com", 403)
+	// A machine has no lifetime: one started long ago is still served.
+	store.machine.StartedAt = new(time.Now().Add(-30 * 24 * time.Hour))
+	check("abcdefgh1234.app.example.com", 200)
 }
 
 func TestGatewayParsesAppPortHosts(t *testing.T) {

@@ -88,7 +88,7 @@ func TestAppPortEndpointsFollowTheContract(t *testing.T) {
 	store := &portHandlerStoreFake{handlerDevMachineStoreFake: &handlerDevMachineStoreFake{
 		policy: testPolicyForHandler(workspaceID),
 		machine: &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &ownerID, RoutingKey: "0123456789abcdef0123",
-			Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour),
+			Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning,
 			ListeningPorts: pq.Int64Array{3000}},
 	}}
 	h := NewDevMachineHandler(service.NewDevMachineService(store, agent.NewRegistry(), true, "machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, service.DevMachineImages{}))

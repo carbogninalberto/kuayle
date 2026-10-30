@@ -100,7 +100,7 @@ func (f *toolRuntimeFake) RemoveTool(_ context.Context, _ *domain.DevMachine, ru
 
 func toolManager(t *testing.T, exit int) (*Manager, *toolStoreFake, *toolRuntimeFake, *domain.DevMachineOperation) {
 	t.Helper()
-	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), RoutingKey: "fixture", ExpiresAt: time.Now().Add(time.Hour)}
+	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), RoutingKey: "fixture"}
 	key := make([]byte, 32)
 	encrypted, err := cryptoutil.Encrypt(`{"FIXTURE_CREDENTIAL":"fixture-private-value"}`, key)
 	require.NoError(t, err)

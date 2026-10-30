@@ -35,7 +35,6 @@ type managerStoreFake struct {
 	services                  []domain.DevMachineService
 	states                    []domain.DevMachineStatus
 	events                    []domain.DevMachineEvent
-	idle                      []domain.DevMachine
 	runtimeMachines           []domain.DevMachine
 	permanentDeleteMachines   []domain.DevMachine
 	permanentDeleteRequests   int
@@ -76,8 +75,6 @@ type managerStoreFake struct {
 	envVarListCalls           int
 	runtimeServicesCreated    int
 	modelServer               *domain.AgentModelServer
-	reclaimable               *domain.DevMachine
-	reclaimWaitingIDs         []uuid.UUID
 	resourceLimits            []string
 }
 
@@ -255,9 +252,6 @@ func (f *managerStoreFake) RevokeMachineAccess(_ context.Context, machineID uuid
 	f.revokedMachineIDs = append(f.revokedMachineIDs, machineID)
 	return nil
 }
-func (f *managerStoreFake) ListExpiredMachines(context.Context, int) ([]domain.DevMachine, error) {
-	return nil, nil
-}
 func (f *managerStoreFake) ListTimedOutAgentRuns(context.Context, int) ([]domain.DevMachineAgentRun, error) {
 	return nil, nil
 }
@@ -270,11 +264,6 @@ func (f *managerStoreFake) SetDesiredAndEnqueue(_ context.Context, _ uuid.UUID, 
 	f.actions = append(f.actions, operation.Action)
 	f.operations = append(f.operations, operation)
 	return nil
-}
-
-func (f *managerStoreFake) ReclaimIdleMachine(_ context.Context, waiting uuid.UUID) (*domain.DevMachine, error) {
-	f.reclaimWaitingIDs = append(f.reclaimWaitingIDs, waiting)
-	return f.reclaimable, nil
 }
 
 func (f *managerStoreFake) RequestPermanentDelete(_ context.Context, workspaceID, machineID uuid.UUID, _ *uuid.UUID) (*domain.DevMachineOperation, error) {
@@ -390,9 +379,6 @@ func (f *managerStoreFake) ListDeleteRequestedEnvironments(context.Context, int)
 func (f *managerStoreFake) DeleteEnvironment(_ context.Context, _ uuid.UUID, environmentID uuid.UUID) error {
 	f.deletedEnvironmentIDs = append(f.deletedEnvironmentIDs, environmentID)
 	return nil
-}
-func (f *managerStoreFake) ListIdleMachines(context.Context, int) ([]domain.DevMachine, error) {
-	return f.idle, nil
 }
 func (f *managerStoreFake) UpsertRuntimeCredential(_ context.Context, credential *domain.DevMachineRuntimeCredential) error {
 	f.runtimeCredentials = append(f.runtimeCredentials, *credential)
@@ -676,17 +662,42 @@ func TestManagerDoesNotLaunchAgentCancelledBeforeStart(t *testing.T) {
 	require.Zero(t, runtime.agentRuns)
 }
 
-func TestReconcileQueuesIdlePause(t *testing.T) {
+// Booted machines stay up: a machine idle for weeks, started long ago, is
+// neither paused, stopped nor torn down by reconciliation.
+func TestReconcileNeverPausesStopsOrExpiresIdleMachines(t *testing.T) {
+	longAgo := time.Now().Add(-30 * 24 * time.Hour)
 	machine := domain.DevMachine{
 		ID: uuid.New(), WorkspaceID: uuid.New(), Status: domain.DevMachineStatusRunning,
-		DesiredStatus: domain.DevMachineStatusRunning, Generation: 4,
+		DesiredStatus: domain.DevMachineStatusRunning, Generation: 4, DiskGB: 10,
+		CreatedAt: longAgo, StartedAt: &longAgo, LastActivityAt: &longAgo,
 	}
-	store := &managerStoreFake{machine: &machine, idle: []domain.DevMachine{machine}}
-	manager := NewManager(store, &runtimeFake{}, agent.NewRegistry(), nil, nil, nil, "test")
+	store := &managerStoreFake{machine: &machine, runtimeMachines: []domain.DevMachine{machine}}
+	manager := NewManager(store, &runtimeFake{stats: map[uuid.UUID]ResourceUsage{}}, agent.NewRegistry(), nil, nil, nil, "test")
+
+	for range 3 {
+		require.NoError(t, manager.reconcile(context.Background()))
+	}
+	require.Empty(t, store.desired)
+	require.Empty(t, store.actions)
+	require.Empty(t, store.states)
+	require.Empty(t, store.revokedMachineIDs)
+}
+
+// A machine the old expiry reaper marked expired, rescued by migration 101,
+// is stopped rather than torn down.
+func TestReconcileStopsARescuedExpiredMachine(t *testing.T) {
+	machine := domain.DevMachine{
+		ID: uuid.New(), WorkspaceID: uuid.New(), Status: domain.DevMachineStatusExpired,
+		DesiredStatus: domain.DevMachineStatusStopped, Generation: 2,
+	}
+	store := &managerStoreFake{machine: &machine, runtimeMachines: []domain.DevMachine{machine}}
+	runtime := &runtimeFake{}
+	manager := NewManager(store, runtime, agent.NewRegistry(), nil, nil, nil, "test")
 
 	require.NoError(t, manager.reconcile(context.Background()))
-	require.Equal(t, []domain.DevMachineStatus{domain.DevMachineStatusPaused}, store.desired)
-	require.Equal(t, []domain.DevMachineOperationAction{domain.DevMachineOpPause}, store.actions)
+	require.Equal(t, 1, runtime.stopped)
+	require.Zero(t, runtime.tornDown)
+	require.Equal(t, []domain.DevMachineStatus{domain.DevMachineStatusStopped}, store.states)
 }
 
 func TestReconcileEmitsDiskQuotaWarningOncePerGenerationAndStillStopsAtLimit(t *testing.T) {

@@ -6,7 +6,6 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
@@ -38,7 +37,7 @@ func TestSudoSwitchAndMachineRecordPersist(t *testing.T) {
 
 	policy := &domain.DevMachineWorkspacePolicy{
 		WorkspaceID: fixture.workspaceID, Enabled: true, MaxConcurrentMachines: 5, MaxMachinesPerUser: 5,
-		MaxDailyAgentRuns: 25, MaxRuntimeMinutes: 480, MaxDiskGB: 100, IdlePauseMinutes: 240,
+		MaxDailyAgentRuns: 25, MaxDiskGB: 100,
 		AllowedProviders: json.RawMessage(`[]`), AllowedRepositories: json.RawMessage(`[]`), AllowSudo: true,
 	}
 	require.NoError(t, store.UpsertPolicy(ctx, policy))
@@ -57,7 +56,7 @@ func TestSudoSwitchAndMachineRecordPersist(t *testing.T) {
 		RoutingKey: routingKey, Name: "sudo-" + routingKey, Status: domain.DevMachineStatusQueued,
 		DesiredStatus: domain.DevMachineStatusRunning, Generation: 1, RepoProvider: "github",
 		MachineSize: "small", CPUMillis: 2000, MemoryMB: 4096, DiskGB: 20, PidsLimit: 512,
-		MaxRuntimeMinutes: 480, ServicesConfig: []byte(`{}`), Labels: []byte(`{}`), ExpiresAt: time.Now().Add(time.Hour),
+		ServicesConfig: []byte(`{}`), Labels: []byte(`{}`),
 		SudoEnabled: true,
 	}
 	operation := &domain.DevMachineOperation{

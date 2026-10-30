@@ -52,7 +52,7 @@ func TestAttemptsReceiveLiveMessagesQueuedWhileNoAttemptRan(t *testing.T) {
 	ws, machine, user, checkout := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	store := &taskPolicyStore{devMachineStoreFake: &devMachineStoreFake{
 		policy:        testPolicy(ws),
-		machine:       &domain.DevMachine{ID: machine, WorkspaceID: ws, CreatedByUserID: &user, Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour), MaxRuntimeMinutes: 60},
+		machine:       &domain.DevMachine{ID: machine, WorkspaceID: ws, CreatedByUserID: &user, Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning},
 		agentProvider: &domain.DevMachineAgentProvider{ProviderID: "opencode", Enabled: true, RequiredSecrets: json.RawMessage(`[]`), Config: json.RawMessage(`{}`)},
 		checkouts:     []domain.DevMachineCheckout{{ID: checkout, WorkspaceID: ws, MachineID: machine, Status: "ready", WorkspacePath: "/workspace/tasks/check", RepositoryFullName: "example/test", BaseBranch: "main", WorkingBranch: "task/check"}},
 	}}

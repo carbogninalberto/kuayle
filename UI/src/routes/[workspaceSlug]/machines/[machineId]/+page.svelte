@@ -10,7 +10,7 @@
 	import {
 		getDevMachine, launchMachineServiceWithResume, listMachineServices, listMachineEvents, listMachineLogs,
 		listMachineTasks, listResourceUsage, pauseDevMachine, startDevMachine, stopDevMachine, teardownDevMachine,
-		checkoutIssue, deleteDevMachine, getDevMachinePolicy, listMachineCheckouts, snapshotDevMachineEnvironment, updateDevMachine
+		checkoutIssue, deleteDevMachine, getDevMachinePolicy, listMachineCheckouts, snapshotDevMachineEnvironment
 	} from '$lib/api/dev-machines';
 	import { getWorkspace } from '$lib/api/workspaces';
 	import type { AgentQueueItem } from '$lib/api/agent-tasks';
@@ -30,7 +30,6 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
-	import { Switch } from '$lib/components/ui/switch';
 	import { m } from '$lib/paraglide/messages.js';
 	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
 
@@ -65,11 +64,9 @@
 	let checkoutAttempted = false;
 	let workspaceRole = $state('');
 	let launchBusy = $state<Record<string, boolean>>({});
-	let machineUpdateBusy = false;
 	let terminalQueryConsumed = false;
 	let routeGeneration = 0;
 	let refreshSequence = 0;
-	let machineUpdateSequence = 0;
 	let pollGeneration = 0;
 	let fragmentScrollVersion = 0;
 	const dock = useTerminalDock();
@@ -155,10 +152,8 @@
 		checkoutAttempted = false;
 		workspaceRole = '';
 		launchBusy = {};
-		machineUpdateBusy = false;
 		terminalQueryConsumed = false;
 		refreshSequence++;
-		machineUpdateSequence++;
 		fragmentScrollVersion++;
 	}
 
@@ -273,7 +268,7 @@
 	}
 
 	async function poll(targetSlug = slug, targetMachineId = machineId, generation = routeGeneration) {
-		if (pollGeneration === generation || !isCurrentRoute(targetSlug, targetMachineId, generation) || loading || actionBusy || machineUpdateBusy) return;
+		if (pollGeneration === generation || !isCurrentRoute(targetSlug, targetMachineId, generation) || loading || actionBusy) return;
 		pollGeneration = generation;
 		try {
 			await refreshAll(targetSlug, targetMachineId, generation);
@@ -408,29 +403,6 @@
 			appToast.apiError(error, 'Failed to permanently delete machine');
 		} finally {
 			if (isCurrentRoute(targetSlug, targetMachineId, generation)) actionBusy = false;
-		}
-	}
-
-	async function toggleKeepRunning(checked: boolean) {
-		if (!machine) return;
-		const targetSlug = slug;
-		const targetMachineId = machineId;
-		const generation = routeGeneration;
-		const updateSequence = ++machineUpdateSequence;
-		const previous = machine.keep_running;
-		const stateSequence = ++refreshSequence;
-		machineUpdateBusy = true;
-		machine = { ...machine, keep_running: checked };
-		try {
-			const updated = await updateDevMachine(targetSlug, targetMachineId, { keep_running: checked });
-			if (!isCurrentRefresh(targetSlug, targetMachineId, generation, stateSequence) || machineUpdateSequence !== updateSequence) return;
-			machine = updated;
-		} catch (error) {
-			if (!isCurrentRefresh(targetSlug, targetMachineId, generation, stateSequence) || machineUpdateSequence !== updateSequence) return;
-			if (machine) machine = { ...machine, keep_running: previous };
-			appToast.apiError(error, 'Failed to update inactivity behavior');
-		} finally {
-			if (isCurrentRoute(targetSlug, targetMachineId, generation) && machineUpdateSequence === updateSequence) machineUpdateBusy = false;
 		}
 	}
 
@@ -581,10 +553,6 @@
 				</Card.Root>
 
 				<AppPortsCard {slug} {machineId} running={machine.status === 'running'} canManage={!machine.created_by_user_id || machine.created_by_user_id === authState.user?.id} />
-
-				<section class="rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-4">
-					<div class="flex items-center justify-between gap-4"><div><h2 class="text-sm font-semibold">{m['machines.inactivity']()}</h2><p class="text-xs text-[var(--color-text-tertiary)]">{m['machines.inactivity_desc']()}</p></div><label class="flex items-center gap-2 text-sm"><span>{m['machines.keep_running']()}</span><Switch aria-label={m['machines.keep_running']()} checked={machine.keep_running} onCheckedChange={toggleKeepRunning} /></label></div>
-				</section>
 
 				<section class="rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-4">
 					<div class="mb-3"><h2 class="text-sm font-semibold">{m['machines.issue_worktrees']()}</h2><p class="text-xs text-[var(--color-text-tertiary)]">{m['machines.issue_worktrees_desc']()}</p></div>

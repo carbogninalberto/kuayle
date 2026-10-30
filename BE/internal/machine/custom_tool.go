@@ -248,9 +248,6 @@ func (m *Manager) runTool(ctx context.Context, machine *domain.DevMachine, op *d
 		started = *run.StartedAt
 	}
 	deadline := started.Add(time.Duration(run.TimeoutSeconds) * time.Second)
-	if machine.ExpiresAt.Before(deadline) {
-		deadline = machine.ExpiresAt
-	}
 	runCtx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
 	writer := &toolOutputWriter{last: time.Now(), write: func(content string, truncated bool) error {

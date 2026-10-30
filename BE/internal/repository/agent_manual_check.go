@@ -147,7 +147,7 @@ func lockMachineForCheck(ctx context.Context, tx *sqlx.Tx, ws, machine uuid.UUID
 	}
 	var generation int64
 	err := tx.GetContext(ctx, &generation, `SELECT m.generation FROM dev_machines m JOIN dev_machine_workspace_policies p ON p.workspace_id=m.workspace_id AND p.enabled
- WHERE m.id=$1 AND m.workspace_id=$2 AND m.status='running' AND m.desired_status='running' AND m.expires_at>now() FOR UPDATE OF m`, machine, ws)
+ WHERE m.id=$1 AND m.workspace_id=$2 AND m.status='running' AND m.desired_status='running' FOR UPDATE OF m`, machine, ws)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, ErrCheckUnavailable
 	}

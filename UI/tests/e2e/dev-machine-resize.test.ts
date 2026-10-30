@@ -28,12 +28,9 @@ function baseMachine(overrides: Machine = {}): Machine {
 		memory_mb: 4096,
 		disk_gb: 20,
 		pids_limit: 512,
-		max_runtime_minutes: 120,
-		keep_running: false,
 		environment_builder: false,
 		created_at: '2026-10-29T00:00:00Z',
 		updated_at: '2026-10-29T00:00:00Z',
-		expires_at: '2099-10-29T04:00:00Z',
 		...overrides
 	};
 }
@@ -89,9 +86,7 @@ async function mockMachineApi(page: Page, initial: Machine, mode: 'hard' | 'moni
 					max_concurrent_machines: 5,
 					max_machines_per_user: 2,
 					max_daily_agent_runs: 25,
-					max_runtime_minutes: 480,
 					max_disk_gb: 100,
-					idle_pause_minutes: 240,
 					allowed_providers: ['opencode'],
 					allowed_repositories: [],
 					allow_custom_providers: false,

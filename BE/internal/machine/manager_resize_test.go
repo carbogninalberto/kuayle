@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -57,7 +56,7 @@ func (f *resizeRuntimeFake) UpdateResources(_ context.Context, machine *domain.D
 func pendingResizeMachine(status domain.DevMachineStatus, cpu, memory, disk int) *domain.DevMachine {
 	return &domain.DevMachine{
 		ID: uuid.New(), WorkspaceID: uuid.New(), Status: status, DesiredStatus: status, Generation: 4,
-		CPUMillis: 2000, MemoryMB: 4096, DiskGB: 20, ExpiresAt: time.Now().Add(time.Hour),
+		CPUMillis: 2000, MemoryMB: 4096, DiskGB: 20,
 		PendingCPUMillis: &cpu, PendingMemoryMB: &memory, PendingDiskGB: &disk,
 	}
 }

@@ -57,9 +57,7 @@ async function mockWorkspace(page: Page, defaults: Defaults) {
 					max_concurrent_machines: 5,
 					max_machines_per_user: 2,
 					max_daily_agent_runs: 25,
-					max_runtime_minutes: 480,
 					max_disk_gb: 100,
-					idle_pause_minutes: 240,
 					allowed_providers: ['codex'],
 					allowed_repositories: [],
 					allow_custom_providers: false

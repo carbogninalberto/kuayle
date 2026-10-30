@@ -74,7 +74,9 @@ func TestAgentTaskWorkerFailuresAreBoundedBeforeTerminalState(t *testing.T) {
 	require.Equal(t, "failed", current.State)
 }
 
-func TestAgentTaskCancellationSettlesOnlyItsAllocatedMachine(t *testing.T) {
+// A cancelled task leaves its machine running, whether Kuayle created it for
+// the task or the task reused it, so the next task can reuse it.
+func TestAgentTaskCancellationKeepsTheMachineRunning(t *testing.T) {
 	for _, owned := range []bool{true, false} {
 		t.Run(map[bool]string{true: "allocated", false: "reused"}[owned], func(t *testing.T) {
 			db, repo, ctx, task, fixture := taskRecoveryFixture(t)
@@ -85,32 +87,17 @@ func TestAgentTaskCancellationSettlesOnlyItsAllocatedMachine(t *testing.T) {
 			cleanup, err := repo.Claim(ctx)
 			require.NoError(t, err)
 			require.NotNil(t, cleanup)
-			err = repo.FinishCancellation(ctx, *cleanup, "Cleanup confirmed")
-			var count int
-			require.NoError(t, db.Get(&count, `SELECT count(*) FROM dev_machine_operations WHERE machine_id=$1 AND action='pause'`, machine))
-			if !owned {
-				require.NoError(t, err)
-				require.Zero(t, count)
-				return
-			}
-			require.ErrorIs(t, err, ErrAgentTaskConflict)
-			require.Equal(t, 1, count)
-			_, err = db.Exec(`UPDATE dev_machine_operations SET status='failed',attempts=5 WHERE machine_id=$1 AND action='pause'`, machine)
+			require.NoError(t, repo.FinishCancellation(ctx, *cleanup, "Cleanup confirmed"))
+			var operations int
+			require.NoError(t, db.Get(&operations, `SELECT count(*) FROM dev_machine_operations WHERE machine_id=$1 AND action IN ('pause','stop','teardown')`, machine))
+			require.Zero(t, operations)
+			var status, desired string
+			require.NoError(t, db.QueryRow(`SELECT status,desired_status FROM dev_machines WHERE id=$1`, machine).Scan(&status, &desired))
+			require.Equal(t, "running", status)
+			require.Equal(t, "running", desired)
+			current, err := repo.Get(ctx, task.WorkspaceID, task.ID)
 			require.NoError(t, err)
-			require.ErrorIs(t, repo.FinishCancellation(ctx, *cleanup, "Not stopped"), ErrAgentTaskCleanupFailed)
-			require.NoError(t, repo.RequestCancel(ctx, task.WorkspaceID, task.ID))
-			var reset bool
-			require.NoError(t, db.Get(&reset, `SELECT status='pending' AND attempts=0 FROM dev_machine_operations WHERE machine_id=$1 AND action='pause'`, machine))
-			require.True(t, reset)
-			require.ErrorIs(t, repo.FinishCancellation(ctx, *cleanup, "Still pending"), ErrAgentTaskConflict)
-			_, err = db.Exec(`UPDATE dev_machine_operations SET status='completed' WHERE machine_id=$1 AND action='pause'`, machine)
-			require.NoError(t, err)
-			_, err = db.Exec(`UPDATE dev_machines SET status='paused' WHERE id=$1`, machine)
-			require.NoError(t, err)
-			require.NoError(t, repo.FinishCancellation(ctx, *cleanup, "Paused with worktree preserved"))
-			var desired string
-			require.NoError(t, db.Get(&desired, `SELECT desired_status FROM dev_machines WHERE id=$1`, machine))
-			require.Equal(t, "paused", desired)
+			require.Equal(t, "cancelled", current.State)
 		})
 	}
 }

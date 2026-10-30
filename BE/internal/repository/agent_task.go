@@ -425,16 +425,6 @@ func (r *AgentTaskRepository) FinishCancellation(ctx context.Context, claimed do
 	if active {
 		return ErrAgentTaskConflict
 	}
-	settled, err := settleTaskMachine(ctx, tx, *task)
-	if err != nil {
-		return err
-	}
-	if !settled {
-		if err = tx.Commit(); err != nil {
-			return err
-		}
-		return ErrAgentTaskConflict
-	}
 	if _, err = tx.ExecContext(ctx, `UPDATE dev_machine_agent_run_steps SET status='cancelled',completed_at=now(),summary='Runtime cancellation confirmed' WHERE agent_run_id=$1 AND step_type IN ('validation','publication','manual_check') AND status IN ('queued','running')`, task.RunID); err != nil {
 		return err
 	}
@@ -544,25 +534,34 @@ func (r *AgentTaskRepository) ReserveMachine(ctx context.Context, claimed domain
 	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text,0))`, task.WorkspaceID); err != nil {
 		return uuid.Nil, uuid.Nil, err
 	}
-	// Reuse the creator's own machine of the same environment, whatever
-	// repositories it served before: each task gets its own worktree on it.
-	// Running machines come first, then paused (resumed in place), then
-	// stopped ones; machines that already cache this repository or carry the
-	// task's agent need the least preparation.
+	// Reuse a running machine of the creator, whatever repositories it served
+	// before: each task gets its own worktree on it. The machine must suit the
+	// task (same environment, so the same profile; not an environment
+	// builder), still be allowed by the workspace policy (Docker and sudo
+	// machines only while those stay allowed) and be idle: no agent run, no
+	// other active task and no queued lifecycle, validation, publication,
+	// check or tool operation. A paused or stopped machine was paused or
+	// stopped by its user and is left alone. Machines already used for this
+	// issue come first, then the most recently active.
 	var machineID uuid.UUID
 	err = tx.GetContext(ctx, &machineID, `SELECT m.id FROM dev_machines m
+ JOIN dev_machine_workspace_policies policy ON policy.workspace_id=m.workspace_id AND policy.enabled
  WHERE m.workspace_id=$1 AND m.created_by_user_id=$2
- AND ((m.status='running' AND m.desired_status='running') OR (m.status IN ('paused','stopped') AND m.desired_status=m.status))
- AND m.delete_requested_at IS NULL
- AND m.expires_at>now()+interval '5 minutes' AND NOT m.environment_builder
+ AND m.status='running' AND m.desired_status='running'
+ AND m.delete_requested_at IS NULL AND NOT m.environment_builder
+ AND m.profile IN ('standard','headless')
  AND m.environment_id IS NOT DISTINCT FROM $4::uuid
+ AND (policy.allow_sudo OR NOT m.sudo_enabled)
+ AND (policy.allow_docker OR NOT EXISTS(SELECT 1 FROM dev_machine_services s WHERE s.machine_id=m.id AND s.service_type='docker'))
  AND NOT EXISTS(SELECT 1 FROM dev_machine_agent_runs r WHERE r.machine_id=m.id AND r.status IN ('queued','starting','running','waiting_input'))
  AND NOT EXISTS(SELECT 1 FROM agent_tasks t WHERE t.machine_id=m.id AND t.id<>$6 AND t.state NOT IN ('completed','cancelled','failed','blocked','awaiting_review'))
- AND NOT EXISTS(SELECT 1 FROM dev_machine_operations o WHERE o.machine_id=m.id AND o.status IN ('pending','leased') AND o.action IN ('stop','pause','teardown','snapshot_environment'))
- ORDER BY CASE m.status WHEN 'running' THEN 0 WHEN 'paused' THEN 1 ELSE 2 END,
+ AND NOT EXISTS(SELECT 1 FROM dev_machine_operations o WHERE o.machine_id=m.id AND o.status IN ('pending','leased')
+  AND o.action IN ('stop','pause','teardown','snapshot_environment','validate_agent','publish_agent','run_check','run_tool'))
+ ORDER BY EXISTS(SELECT 1 FROM agent_tasks t WHERE t.machine_id=m.id AND t.issue_id=$7) DESC,
+  m.last_activity_at DESC NULLS LAST,
   EXISTS(SELECT 1 FROM dev_machine_checkouts c WHERE c.machine_id=m.id AND c.github_repo_id=$3) DESC,
   EXISTS(SELECT 1 FROM dev_machine_agent_providers p WHERE p.machine_id=m.id AND p.provider_id=$5 AND p.enabled) DESC,
-  m.last_activity_at DESC NULLS LAST,m.id FOR UPDATE OF m SKIP LOCKED LIMIT 1`, task.WorkspaceID, task.CreatorID, repositoryID, environmentID, task.Provider, task.ID)
+  m.id FOR UPDATE OF m SKIP LOCKED LIMIT 1`, task.WorkspaceID, task.CreatorID, repositoryID, environmentID, task.Provider, task.ID, task.IssueID)
 	if errors.Is(err, sql.ErrNoRows) {
 		machineID = task.ReservedMachineID
 	} else if err != nil {
@@ -755,60 +754,6 @@ func (r *AgentTaskRepository) FailForSignIn(ctx context.Context, claimed domain.
 }
 
 var ErrAgentTaskCleanupFailed = errors.New("task runtime cleanup needs an explicit retry")
-
-// Pause an automatically allocated environment only after execution/preparation
-// settles. Reused manual machines and another task's active environment stay up.
-func settleTaskMachine(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask) (bool, error) {
-	if task.MachineID == nil || *task.MachineID != task.ReservedMachineID {
-		return true, nil
-	}
-	var machine domain.DevMachine
-	err := tx.GetContext(ctx, &machine, `SELECT * FROM dev_machines WHERE id=$1 AND workspace_id=$2 FOR UPDATE`, *task.MachineID, task.WorkspaceID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return true, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	var shared bool
-	err = tx.GetContext(ctx, &shared, `SELECT EXISTS(SELECT 1 FROM agent_tasks WHERE machine_id=$1 AND id<>$2 AND state NOT IN ('completed','cancelled','failed','blocked')) OR EXISTS(SELECT 1 FROM dev_machine_agent_runs WHERE machine_id=$1 AND id<>$3 AND status IN ('queued','starting','running','waiting_input'))`, machine.ID, task.ID, task.RunID)
-	if err != nil {
-		return false, err
-	}
-	if shared {
-		return true, nil
-	}
-	if machine.Status == domain.DevMachineStatusPaused || machine.Status == domain.DevMachineStatusStopped || machine.Status == domain.DevMachineStatusDestroyed {
-		return true, nil
-	}
-	key := fmt.Sprintf("task-idle:%s:%d", task.ID, task.Generation)
-	var previous domain.DevMachineOperation
-	err = tx.GetContext(ctx, &previous, `SELECT * FROM dev_machine_operations WHERE machine_id=$1 AND idempotency_key=$2`, machine.ID, key)
-	if err == nil {
-		if previous.Status == domain.DevMachineOpStatusFailed {
-			return false, ErrAgentTaskCleanupFailed
-		}
-		// A later manual start may supersede a completed pause. Respect that action.
-		return previous.Status == domain.DevMachineOpStatusCompleted, nil
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return false, err
-	}
-	desired, action := domain.DevMachineStatusPaused, domain.DevMachineOpPause
-	if machine.Status != domain.DevMachineStatusRunning {
-		desired, action = domain.DevMachineStatusStopped, domain.DevMachineOpStop
-	}
-	generation := machine.Generation + 1
-	_, err = tx.ExecContext(ctx, `UPDATE dev_machines SET desired_status=$2,generation=$3 WHERE id=$1`, machine.ID, desired, generation)
-	if err != nil {
-		return false, err
-	}
-	op := &domain.DevMachineOperation{ID: uuid.New(), WorkspaceID: task.WorkspaceID, MachineID: machine.ID, Action: action, Status: domain.DevMachineOpStatusPending, Generation: generation, IdempotencyKey: key, MaxAttempts: 5}
-	if err = enqueueOperation(ctx, tx, op); err != nil {
-		return false, err
-	}
-	return false, nil
-}
 
 func (r *AgentTaskRepository) Retry(ctx context.Context, ws, id uuid.UUID, req domain.AgentTaskRetryRequest) (*domain.AgentTask, error) {
 	if _, err := conversationActor(ctx, ws); err != nil {

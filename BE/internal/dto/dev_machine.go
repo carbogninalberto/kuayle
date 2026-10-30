@@ -49,7 +49,6 @@ type CreateDevMachineRequest struct {
 	Agents             []DevMachineAgentInput  `json:"agents" validate:"max=4,dive"`
 	EnvVars            []DevMachineEnvVarInput `json:"env_vars" validate:"max=64,dive"`
 	EnvironmentID      *string                 `json:"environment_id,omitempty" validate:"omitempty,uuid"`
-	KeepRunning        bool                    `json:"keep_running"`
 	EnvironmentBuilder bool                    `json:"environment_builder"`
 	Profile            string                  `json:"profile,omitempty" validate:"omitempty,oneof=standard headless"`
 }
@@ -81,7 +80,6 @@ type CheckoutIssueRequest struct {
 }
 
 type UpdateDevMachineRequest struct {
-	KeepRunning *bool `json:"keep_running,omitempty"`
 	// CPUMillis, MemoryMB and DiskGB resize the machine; an omitted value
 	// keeps the current one. The manager applies the new size live.
 	CPUMillis *int `json:"cpu_millis,omitempty"`
@@ -285,7 +283,6 @@ type DevMachinePolicyRequest struct {
 	MaxConcurrentMachines      int      `json:"max_concurrent_machines" validate:"min=0,max=100"`
 	MaxMachinesPerUser         int      `json:"max_machines_per_user" validate:"min=0,max=50"`
 	MaxDailyAgentRuns          int      `json:"max_daily_agent_runs" validate:"min=0,max=10000"`
-	MaxRuntimeMinutes          int      `json:"max_runtime_minutes" validate:"min=5,max=1440"`
 	MaxDiskGB                  int      `json:"max_disk_gb" validate:"min=20,max=2048"`
 	AllowedProviders           []string `json:"allowed_providers" validate:"omitempty,max=7,dive,oneof=claude-code opencode codex qwen-code crush kimi goose"`
 	AllowedRepositories        []string `json:"allowed_repositories"`
@@ -294,10 +291,9 @@ type DevMachinePolicyRequest struct {
 	// AllowDocker is optional: omitted, the current choice is kept.
 	AllowDocker *bool `json:"allow_docker"`
 	// AllowSudo is optional: omitted, the current choice is kept.
-	AllowSudo        *bool  `json:"allow_sudo"`
-	AgentGitName     string `json:"agent_git_name" validate:"omitempty,max=100"`
-	AgentGitEmail    string `json:"agent_git_email" validate:"omitempty,max=254"`
-	IdlePauseMinutes int    `json:"idle_pause_minutes" validate:"omitempty,min=5,max=10080"`
+	AllowSudo     *bool  `json:"allow_sudo"`
+	AgentGitName  string `json:"agent_git_name" validate:"omitempty,max=100"`
+	AgentGitEmail string `json:"agent_git_email" validate:"omitempty,max=254"`
 	// Task machine resources are optional: omitted, the current values are
 	// kept. The service applies the custom machine size rules to them.
 	TaskMachineCPUMillis *int `json:"task_machine_cpu_millis,omitempty"`

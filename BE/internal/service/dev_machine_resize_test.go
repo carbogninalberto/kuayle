@@ -39,7 +39,7 @@ func newResizeFixture(status domain.DevMachineStatus) (*resizeStoreFake, *DevMac
 		policy: testPolicy(workspaceID),
 		machine: &domain.DevMachine{
 			ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &ownerID, Status: status, DesiredStatus: status,
-			Generation: 3, MachineSize: "small", CPUMillis: 2000, MemoryMB: 4096, DiskGB: 40, ExpiresAt: time.Now().Add(time.Hour),
+			Generation: 3, MachineSize: "small", CPUMillis: 2000, MemoryMB: 4096, DiskGB: 40,
 		},
 	}}
 	svc := NewDevMachineService(store, nil, true, "machines.example.test", make([]byte, 32), time.Minute, DevMachineImages{})
