@@ -20,8 +20,22 @@ import urllib.request
 from pathlib import Path
 
 REPOSITORY = 'carbogninalberto/kuayle'
-IMAGES = {'backend': 'ghcr.io/carbogninalberto/kuayle-api',
-          'frontend': 'ghcr.io/carbogninalberto/kuayle-web'}
+REGISTRY = 'ghcr.io/carbogninalberto'
+IMAGES = {'backend': f'{REGISTRY}/kuayle-api',
+          'frontend': f'{REGISTRY}/kuayle-web'}
+CONTROL_PLANE = ('machine-manager', 'machine-gateway')
+# Set to build Dev Machines images from release source instead of pulling them.
+BUILD_FLAG = 'RELEASE_BUILD_DEV_MACHINE_IMAGES'
+
+
+def published_repository(service):
+    """GHCR repository that release publishing uses for a Dev Machines service."""
+    return f'{REGISTRY}/kuayle-{service}'
+
+
+def dev_machine_services(reference):
+    return [*CONTROL_PLANE, *(name for name, spec in reference['services'].items()
+                              if 'dev-machine-images' in spec.get('profiles', []))]
 
 
 def log(message):
@@ -46,7 +60,10 @@ def build_from_source(service, source):
     return build
 
 
-def make_candidate(raw, reference, source, project, tag, images, dev_active):
+def make_candidate(raw, reference, source, project, tag, images, dev_active, published=None):
+    """Build the candidate configuration. Dev Machines services listed in
+    ``published`` use those digest-pinned images; the rest are built locally."""
+    published = published or {}
     candidate = copy.deepcopy(raw)
     services = candidate['services']
     for name, image in images.items():
@@ -58,24 +75,27 @@ def make_candidate(raw, reference, source, project, tag, images, dev_active):
         current = services[name].setdefault('environment', {})
         for key, value in reference['services'][name].get('environment', {}).items():
             current.setdefault(key, value)
-    for name in ('machine-manager', 'machine-gateway'):
-        services[name]['build'] = build_from_source(reference['services'][name], source)
-        services[name]['image'] = f'local/{project}-{name}:{tag}'
-        builds.append(name)
-    for name, spec in reference['services'].items():
-        if 'dev-machine-images' not in spec.get('profiles', []):
-            continue
+    def assign(service, name, spec):
+        if name in published:
+            service.pop('build', None)
+            service['image'] = published[name]
+        else:
+            service['build'] = build_from_source(spec, source)
+            service['image'] = f'local/{project}-{name}:{tag}'
+            builds.append(name)
+        return service['image']
+    for name in CONTROL_PLANE:
+        assign(services[name], name, reference['services'][name])
+    for name in dev_machine_services(reference)[len(CONTROL_PLANE):]:
+        spec = reference['services'][name]
         runtime = copy.deepcopy(spec)
-        runtime['build'] = build_from_source(runtime, source)
-        image = f'local/{project}-{name}:{tag}'
         match = re.fullmatch(r'\$\{(DEV_MACHINE_[A-Z_]+_IMAGE)(?::-[^}]+)?\}', runtime['image'])
         if not match:
             raise ValueError(f'Cannot identify runtime image setting for {name}')
-        runtime['image'] = image
+        image = assign(runtime, name, spec)
         services[name] = runtime
         for consumer in ('backend', 'machine-manager'):
             services[consumer]['environment'][match[1]] = image
-        builds.append(name)
     role = services['machine-gateway-db-provision']
     volumes = role.get('volumes', [])
     for i, volume in enumerate(volumes):
@@ -99,6 +119,7 @@ class ReleaseUpdater:
         # Never inherit a caller's alternate Compose selection.
         self.env.pop('COMPOSE_FILE', None)
         self.env.pop('COMPOSE_PROFILES', None)
+        self.build_dev_images = os.environ.get(BUILD_FLAG, '').strip().lower() in ('1', 'true', 'yes')
 
     def run(self, args, *, capture=False, stdout=None):
         result = subprocess.run(args, cwd=self.directory, env=self.env, check=True,
@@ -119,6 +140,49 @@ class ReleaseUpdater:
             return yaml.safe_load(Path(config or self.config).read_text())
         return json.loads(self.compose('config', '--format', 'json',
                                        config=config, capture=True))
+
+    def pull_digest(self, repository, tag):
+        """Pull a release image and return its immutable reference and local ID."""
+        image = f'{repository}:{tag}'
+        self.run(['docker', 'pull', image])
+        info = json.loads(self.run(['docker', 'image', 'inspect', image], capture=True))[0]
+        digest = next(d for d in info.get('RepoDigests', []) if d.startswith(repository + '@sha256:'))
+        return digest, info['Id']
+
+    def pull_dev_images(self, services, tag):
+        """Pull published Dev Machines images; unavailable ones are built locally."""
+        published = {}
+        for name in services:
+            repository = published_repository(name)
+            try:
+                published[name] = self.pull_digest(repository, tag)[0]
+            except (subprocess.CalledProcessError, StopIteration, KeyError, IndexError, ValueError) as exc:
+                reason = 'pull failed' if isinstance(exc, subprocess.CalledProcessError) else 'no registry digest'
+                log(f'Published image {repository}:{tag} is unavailable ({reason}); building {name} locally from release source.')
+        return published
+
+    def dev_images_current(self, state, resolved, tag):
+        """Whether an installed release's Dev Machines images need no reconciliation.
+
+        A state written before images were published, a change of build mode,
+        configured references that drifted from the recorded digests, or an image
+        built locally that is now published all require the full update."""
+        if 'dev_machine_builds' not in state:
+            return False
+        pulled, builds = state.get('dev_machine_images') or {}, state['dev_machine_builds']
+        if self.build_dev_images:
+            return not pulled
+        if any(resolved['services'].get(name, {}).get('image') != image for name, image in pulled.items()):
+            return False
+        for name in builds:
+            repository = published_repository(name)
+            try:
+                self.pull_digest(repository, tag)
+            except (subprocess.CalledProcessError, StopIteration, KeyError, IndexError, ValueError):
+                continue
+            log(f'{repository}:{tag} is now published; replacing the locally built {name} image.')
+            return False
+        return True
 
     def activate(self, candidate, backup, dev_active, running):
         writers = ['backend'] + (['machine-manager', 'machine-gateway'] if dev_active else [])
@@ -187,18 +251,15 @@ class ReleaseUpdater:
         images = {}
         image_ids = {}
         for service, repository in IMAGES.items():
-            image = f'{repository}:{tag}'
-            self.run(['docker', 'pull', image])
-            info = json.loads(self.run(['docker', 'image', 'inspect', image], capture=True))[0]
-            images[service] = next(d for d in info['RepoDigests'] if d.startswith(repository + '@sha256:'))
-            image_ids[service] = info['Id']
+            images[service], image_ids[service] = self.pull_digest(repository, tag)
         if old_state.get('release') == tag and old_state.get('images') == images and not self.marker.exists():
             ids = self.compose('ps', '-q', 'backend', 'frontend', *(['machine-manager', 'machine-gateway'] if dev_active else []), capture=True).split()
             info = json.loads(self.run(['docker', 'inspect', *ids], capture=True)) if ids else []
             expected = 4 if dev_active else 2
             image_match = all(c['Image'] == image_ids.get(c['Config']['Labels']['com.docker.compose.service'], c['Image']) for c in info)
             config_match = all(resolved['services'][name]['image'] == image for name, image in images.items())
-            if config_match and image_match and len(info) == expected and all(c['State'].get('Health', {}).get('Status') == 'healthy' for c in info):
+            dev_match = not dev_active or self.dev_images_current(old_state, resolved, tag)
+            if dev_match and config_match and image_match and len(info) == expected and all(c['State'].get('Health', {}).get('Status') == 'healthy' for c in info):
                 log(f'{tag} is already installed and healthy; no restart required.')
                 return
         # Fetch only the published release ref. Detached operator checkouts stay untouched.
@@ -219,12 +280,18 @@ class ReleaseUpdater:
                 shutil.rmtree(staging)
                 raise
         reference = self.model(config=source / 'selfhosting/docker-compose.yml', raw=True)
-        candidate, builds = make_candidate(raw, reference, source, self.project, tag, images, dev_active)
+        dev_images = {}
+        if dev_active and self.build_dev_images:
+            log(f'{BUILD_FLAG} is set; building Dev Machines images locally from release source.')
+        elif dev_active:
+            log('Pulling published Dev Machines images before stopping services...')
+            dev_images = self.pull_dev_images(dev_machine_services(reference), tag)
+        candidate, builds = make_candidate(raw, reference, source, self.project, tag, images, dev_active, dev_images)
         candidate_path = self.runtime / 'release-candidate.json'
         atomic_json(candidate_path, candidate)
         self.model(config=candidate_path)  # reject invalid Compose before disruption
         if builds:
-            log('Building release control-plane and runtime images before stopping services...')
+            log(f'Building {len(builds)} Dev Machines image(s) locally before stopping services: {", ".join(builds)}')
             self.compose('build', '--pull', *builds, config=candidate_path)
         backup = self.directory / 'backups' / ('release-' + datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%S%fZ'))
         backup.mkdir(parents=True, mode=0o700)
@@ -235,6 +302,7 @@ class ReleaseUpdater:
         log(f'Prepared {tag}. Configuration and database backup: {backup}')
         self.activate(candidate_path, backup, dev_active, running)
         atomic_json(self.state, {'release': tag, 'source': commit, 'images': images,
+                                'dev_machine_images': dev_images, 'dev_machine_builds': builds,
                                 'backup': str(backup), 'updated_at': datetime.datetime.now(datetime.timezone.utc).isoformat()})
         log(f'Release {tag} completed successfully; all updated services are healthy.')
 

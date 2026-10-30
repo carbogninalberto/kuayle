@@ -40,6 +40,20 @@ class CandidateTests(unittest.TestCase):
         self.assertEqual(services['dev-machine-headless']['build']['context'], '/repo/releases/abc/devmachine')
         self.assertIn('dev-machine-headless', builds)
         self.assertEqual(raw['services']['backend']['image'], 'old-api@sha256:a')
+        published = {'machine-manager': 'ghcr.io/x/kuayle-machine-manager@sha256:m',
+                     'machine-gateway': 'ghcr.io/x/kuayle-machine-gateway@sha256:g',
+                     'dev-machine-headless': 'ghcr.io/x/kuayle-dev-machine-headless@sha256:h'}
+        pinned, builds = m.make_candidate(raw, reference, Path('/repo/releases/abc'), 'instance', 'v1.2.3', {'backend': 'api@sha256:new', 'frontend': 'web@sha256:new'}, True, published)
+        self.assertEqual(builds, [])
+        for name, image in published.items():
+            self.assertEqual(pinned['services'][name]['image'], image)
+            self.assertNotIn('build', pinned['services'][name])
+        for consumer in ('backend', 'machine-manager'):
+            self.assertEqual(pinned['services'][consumer]['environment']['DEV_MACHINE_HEADLESS_IMAGE'], published['dev-machine-headless'])
+        self.assertEqual(pinned['services']['machine-manager']['networks'], ['private'])
+        partial, builds = m.make_candidate(raw, reference, Path('/repo/releases/abc'), 'instance', 'v1.2.3', {'backend': 'new', 'frontend': 'new'}, True, {'machine-manager': published['machine-manager']})
+        self.assertEqual(builds, ['machine-gateway', 'dev-machine-headless'])
+        self.assertEqual(partial['services']['machine-gateway']['image'], 'local/instance-machine-gateway:v1.2.3')
         disabled, builds = m.make_candidate(raw, reference, Path('/repo/releases/abc'), 'instance', 'v1.2.3', {'backend': 'new', 'frontend': 'new'}, False)
         self.assertEqual(builds, [])
         self.assertNotIn('dev-machine-headless', disabled['services'])
@@ -197,6 +211,153 @@ class UpdateFlowTests(unittest.TestCase):
         self.assertFalse(any(c[0] == 'git' for c in self.calls))
         containers[0]['Image'] = 'wrong-running-image'
         self.updater.update()
+        self.assertTrue(self.activated)
+
+    def dev_profile(self, missing=()):
+        self.raw = {'services': {
+            'backend': {'image': 'old-api', 'environment': {'DEV_MACHINES_ENABLED': 'true'}},
+            'frontend': {'image': 'old-web'},
+            'machine-manager': {'image': 'old-manager', 'environment': {}},
+            'machine-gateway': {'image': 'old-gateway', 'environment': {}},
+            'machine-gateway-db-provision': {'volumes': []},
+        }}
+        self.config.write_text(json.dumps(self.raw))
+        reference = {'services': {
+            'backend': {'environment': {}},
+            'machine-manager': {'build': {'context': '../BE', 'dockerfile': 'Dockerfile.machine-manager'}, 'environment': {}},
+            'machine-gateway': {'build': {'context': '../BE', 'dockerfile': 'Dockerfile.machine-gateway'}, 'environment': {}},
+            'dev-machine-ide': {'profiles': ['dev-machine-images'], 'image': '${DEV_MACHINE_IDE_IMAGE:-default}', 'build': {'context': '../devmachine', 'dockerfile': 'ide/Dockerfile'}},
+        }}
+        self.updater.model = lambda config=None, raw=False: reference if config and str(config).endswith('docker-compose.yml') else self.raw
+        original_run, original_compose = self.updater.run, self.updater.compose
+        def run(args, **kwargs):
+            if args[:2] == ['docker', 'pull'] and any(args[2].startswith(m.published_repository(name) + ':') for name in missing):
+                self.calls.append(args)
+                raise m.subprocess.CalledProcessError(1, args)
+            return original_run(args, **kwargs)
+        def compose(*args, **kwargs):
+            if args[0] == 'ps':
+                self.calls.append(list(args))
+                return 'backend\nfrontend\nmachine-manager\nmachine-gateway'
+            return original_compose(*args, **kwargs)
+        self.updater.run, self.updater.compose = run, compose
+        return ['machine-manager', 'machine-gateway', 'dev-machine-ide']
+
+    def test_dev_profile_pulls_published_release_images_and_records_digests(self):
+        services = self.dev_profile()
+        out = io.StringIO()
+        with patch('sys.stdout', out):
+            self.updater.update()
+        self.assertTrue(self.activated)
+        for name in services:
+            self.assertIn(['docker', 'pull', m.published_repository(name) + ':v1.2.3'], self.calls)
+        self.assertFalse(any(c[0] == 'build' for c in self.calls))
+        candidate = json.loads((self.updater.runtime / 'release-candidate.json').read_text())['services']
+        digest = m.published_repository('dev-machine-ide') + '@sha256:new'
+        self.assertEqual(candidate['dev-machine-ide']['image'], digest)
+        self.assertEqual(candidate['machine-manager']['environment']['DEV_MACHINE_IDE_IMAGE'], digest)
+        self.assertEqual(candidate['backend']['environment']['DEV_MACHINE_IDE_IMAGE'], digest)
+        state = json.loads(self.updater.state.read_text())
+        self.assertEqual(state['dev_machine_images'], {name: m.published_repository(name) + '@sha256:new' for name in services})
+        self.assertEqual(state['dev_machine_builds'], [])
+        self.assertNotIn('building', out.getvalue().lower())
+
+    def test_missing_published_dev_image_falls_back_to_local_build(self):
+        self.dev_profile(missing=['machine-gateway'])
+        out = io.StringIO()
+        with patch('sys.stdout', out):
+            self.updater.update()
+        self.assertTrue(self.activated)
+        build = next(c for c in self.calls if c[0] == 'build')
+        self.assertEqual(build, ['build', '--pull', 'machine-gateway'])
+        candidate = json.loads((self.updater.runtime / 'release-candidate.json').read_text())['services']
+        self.assertEqual(candidate['machine-gateway']['image'], 'local/instance-machine-gateway:v1.2.3')
+        self.assertEqual(candidate['machine-manager']['image'], m.published_repository('machine-manager') + '@sha256:new')
+        state = json.loads(self.updater.state.read_text())
+        self.assertEqual(state['dev_machine_builds'], ['machine-gateway'])
+        self.assertNotIn('machine-gateway', state['dev_machine_images'])
+        self.assertIn('building machine-gateway locally', out.getvalue())
+
+    def test_forced_local_build_skips_dev_image_pulls(self):
+        services = self.dev_profile()
+        self.updater.build_dev_images = True
+        with patch('sys.stdout', io.StringIO()):
+            self.updater.update()
+        self.assertFalse(any(c[:2] == ['docker', 'pull'] and 'machine' in c[2] for c in self.calls))
+        self.assertEqual(next(c for c in self.calls if c[0] == 'build'), ['build', '--pull', *services])
+
+    def installed_dev_release(self, pulled, builds, missing=()):
+        """Same release already installed and healthy with Dev Machines active."""
+        services = self.dev_profile(missing=missing)
+        images = {name: repository + '@sha256:new' for name, repository in m.IMAGES.items()}
+        for name, image in images.items():
+            self.raw['services'][name]['image'] = image
+        for name, image in pulled.items():
+            self.raw['services'].setdefault(name, {})['image'] = image
+        self.updater.state.write_text(json.dumps({'release': 'v1.2.3', 'images': images,
+                                                  'dev_machine_images': pulled, 'dev_machine_builds': builds}))
+        names = ['backend', 'frontend', 'machine-manager', 'machine-gateway']
+        containers = [{'Image': m.IMAGES.get(name, 'local'), 'Config': {'Labels': {'com.docker.compose.service': name}},
+                       'State': {'Health': {'Status': 'healthy'}}} for name in names]
+        dev_run = self.updater.run
+        def run(args, **kwargs):
+            if args[:2] == ['docker', 'inspect']:
+                return json.dumps(containers)
+            return dev_run(args, **kwargs)
+        self.updater.run = run
+        return services
+
+    def test_same_release_with_pulled_dev_images_is_noop(self):
+        services = self.dev_profile()
+        pulled = {name: m.published_repository(name) + '@sha256:new' for name in services}
+        self.installed_dev_release(pulled, [])
+        with patch('sys.stdout', io.StringIO()):
+            self.updater.update()
+        self.assertFalse(self.activated)
+        self.assertFalse(any(c[0] == 'build' for c in self.calls))
+
+    def test_same_release_replaces_a_local_build_once_its_image_is_published(self):
+        services = self.dev_profile()
+        pulled = {name: m.published_repository(name) + '@sha256:new' for name in services if name != 'machine-gateway'}
+        self.installed_dev_release(pulled, ['machine-gateway'])
+        out = io.StringIO()
+        with patch('sys.stdout', out):
+            self.updater.update()
+        self.assertTrue(self.activated)
+        self.assertIn('now published', out.getvalue())
+        state = json.loads(self.updater.state.read_text())
+        self.assertEqual(state['dev_machine_builds'], [])
+
+    def test_same_release_keeps_a_local_build_while_its_image_is_unpublished(self):
+        services = self.dev_profile()
+        pulled = {name: m.published_repository(name) + '@sha256:new' for name in services if name != 'machine-gateway'}
+        self.installed_dev_release(pulled, ['machine-gateway'], missing=['machine-gateway'])
+        with patch('sys.stdout', io.StringIO()):
+            self.updater.update()
+        self.assertFalse(self.activated)
+
+    def test_same_release_reconciles_drifted_dev_images_and_build_mode(self):
+        services = self.dev_profile()
+        pulled = {name: m.published_repository(name) + '@sha256:new' for name in services}
+        self.installed_dev_release(pulled, [])
+        self.raw['services']['dev-machine-ide']['image'] = 'local/instance-dev-machine-ide:v1.2.3'
+        with patch('sys.stdout', io.StringIO()):
+            self.updater.update()
+        self.assertTrue(self.activated, 'drifted references are repaired')
+        self.activated = False
+        self.installed_dev_release(pulled, [])
+        self.updater.build_dev_images = True
+        with patch('sys.stdout', io.StringIO()):
+            self.updater.update()
+        self.assertTrue(self.activated, 'switching to local builds rebuilds the same release')
+
+    def test_state_without_dev_records_reconciles_once(self):
+        self.installed_dev_release({}, [])
+        state = json.loads(self.updater.state.read_text())
+        del state['dev_machine_builds'], state['dev_machine_images']
+        self.updater.state.write_text(json.dumps(state))
+        with patch('sys.stdout', io.StringIO()):
+            self.updater.update()
         self.assertTrue(self.activated)
 
     def test_prerelease_is_rejected_before_commands(self):

@@ -1,7 +1,8 @@
 # Published-release updater
 
 Use this opt-in flow for a self-hosted instance with an operator-maintained Compose
-file and published API/UI images. The default `update.sh` remains the source-build
+file and published API/UI images (and, with Dev Machines enabled, published
+control-plane and runtime images). The default `update.sh` remains the source-build
 workflow and requires a tracking Git branch. The release updater supports detached
 checkouts and does not pull into, switch, or reset the operator's checkout.
 
@@ -9,7 +10,10 @@ checkouts and does not pull into, switch, or reset the operator's checkout.
 
 Requirements: Linux, Docker Engine, Compose v2 with `up --wait`, Git, tar and Python 3 with PyYAML. The updater
 image includes these tools. The repository must have the Kuayle origin remote and
-GitHub/GHCR network access. The deployment must use the reference service names,
+GitHub/GHCR network access. GHCR must allow anonymous pulls of `kuayle-api`,
+`kuayle-web` and, for an active Dev Machines profile, the release's
+`kuayle-machine-gateway`, `kuayle-machine-manager` and `kuayle-dev-machine-*`
+images (or the Docker daemon must already be logged in to `ghcr.io` with read access). The deployment must use the reference service names,
 PostgreSQL's `POSTGRES_USER`/`POSTGRES_DB`, and mapping-style service environments.
 The proxy must already serve the `selfhosting/runtime/upgrading` maintenance marker.
 Custom deployment secrets and policies remain in the production Compose file and
@@ -33,7 +37,14 @@ Keep the updater private. The existing backend `SYSADMINS`, `SYSTEM_UPDATER_TOKE
 and `SYSTEM_UPDATER_URL` settings and Settings → Version button apply unchanged.
 Both script files may instead be copied into a persistent directory inside the
 repository mount, with `UPDATE_SCRIPT` pointing to that copy. This allows an
-operator hotfix without modifying a detached release's tracked files.
+operator hotfix without modifying a detached release's tracked files. Such a copy
+does not change when the release does: refresh both `release-update.sh` and
+`release_update.py` in that directory from a release that includes the behavior
+you need (for example image pulling for Dev Machines) before running the next update.
+
+To build Dev Machines images on the server instead of pulling them, add
+`RELEASE_BUILD_DEV_MACHINE_IMAGES: "true"` to the updater service environment and
+recreate the updater service.
 
 ## Update behavior
 
@@ -42,10 +53,17 @@ operator hotfix without modifying a detached release's tracked files.
    release tag's source into `selfhosting/runtime/releases/COMMIT` without changing
    the checkout. Release publishing must build its images from the tagged source.
 3. Preserve the production Compose configuration, secrets references, networks and
-   custom policies. For an active Dev Machines profile, build the release gateway,
-   manager and all runtime images under instance-specific tags. Newly introduced
-   runtime image settings are added to the backend and manager. Disabled profiles
-   remain disabled. Compose validation and image preparation precede any downtime.
+   custom policies. For an active Dev Machines profile, pull the release gateway,
+   manager and every runtime image (each `dev-machine-images` service in the
+   release Compose file) from `ghcr.io/carbogninalberto/kuayle-SERVICE:TAG`, and
+   configure the services and the backend/manager `DEV_MACHINE_*_IMAGE` settings
+   with their immutable digests. An image that cannot be pulled (a release
+   published before these images, a fork, or no registry access) is built locally
+   from the release source under an instance-specific tag, as the output reports;
+   `RELEASE_BUILD_DEV_MACHINE_IMAGES=true` builds all of them locally. Newly
+   introduced runtime image settings are added to the backend and manager.
+   Disabled profiles remain disabled. Compose validation and image preparation
+   precede any downtime.
 4. Back up configuration and `.env` under `selfhosting/backups/release-TIMESTAMP/`.
    Enable maintenance, stop backend/manager/gateway writers, and dump PostgreSQL
    in custom format. A failed backup restarts the same previous containers.
@@ -54,8 +72,10 @@ operator hotfix without modifying a detached release's tracked files.
    application and control plane with health waits. The proxy, database, Redis,
    updater, existing machine workloads and unrelated Compose projects are not
    recreated. No Docker pruning or volume deletion is performed.
-6. Remove maintenance only after healthy startup. Save version, source, digests
-   and backup path in `runtime/release-updater-state.json`. Repeating an already
+6. Remove maintenance only after healthy startup. Save version, source, API/UI
+   digests, pulled Dev Machines digests (`dev_machine_images`), locally built Dev
+   Machines services (`dev_machine_builds`) and backup path in
+   `runtime/release-updater-state.json`. Repeating an already
    successful update verifies health and returns without restarting services.
 
 Schema/config architecture changes beyond the reference service contract require
@@ -75,6 +95,14 @@ Do not delete the upgrade marker to bypass a failed migration. A database restor
 is an operator action requiring matching pre-update configuration and images.
 Keep private backups off-host according to the deployment's backup policy.
 
+## Published images
+
+Release publishing (`.github/workflows/build.yml`) builds each Dev Machines image
+natively on amd64 and arm64, runs its smoke tests and HIGH/CRITICAL scan, then
+pushes that scanned image as `kuayle-SERVICE:TAG-ARCH` and combines both
+architectures into the `kuayle-SERVICE:TAG` and `:latest` manifests the updater
+pulls. Pull requests build and scan the same images without pushing.
+
 ## Validation
 
 ```sh
@@ -84,7 +112,8 @@ node AGENTS/TOOLS/check-harness.mjs
 ```
 
 Tests mock command execution and exercise candidate construction, preservation of
-instance policy, disabled profiles, backup ordering, pre-migration recovery,
+instance policy, published Dev Machines image pulls and digest pinning, local-build
+fallback for missing images and the forced-build setting, disabled profiles, backup ordering, pre-migration recovery,
 migration failure and failed health waits. They do not contact production or prove
 registry availability. On deployment, verify authenticated updater status, actual
 service health, public readiness, migration version and a repeat no-op update.
