@@ -72,8 +72,10 @@ Recovery replays an already exited container's result instead of rerunning it,
 after checking image, argv, workdir and ownership labels.
 
 The process exit code alone decides the step: 0 succeeds, anything else fails.
-Moving to `publishing` re-checks a succeeded step with exit code 0 and a completed
-operation in the same transaction. A failed or cancelled check goes to cleanup
+Moving to `publishing` re-checks, in the same transaction, a succeeded step with
+exit code 0 and a completed operation, or a step skipped because the snapshot
+had no command (an unchecked draft); a skipped step with a command never
+qualifies. A failed or cancelled check goes to cleanup
 and `failed`; an exhausted infrastructure operation marks the step failed rather
 than leaving it queued. Cancellation marks open steps cancelled. Every step change
 emits a `task.tests_updated` conversation event with `{task_id, run_id, step}`.
