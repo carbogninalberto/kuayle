@@ -161,6 +161,29 @@ class ReleaseUpdater:
                 log(f'Published image {repository}:{tag} is unavailable ({reason}); building {name} locally from release source.')
         return published
 
+    def dev_images_current(self, state, resolved, tag):
+        """Whether an installed release's Dev Machines images need no reconciliation.
+
+        A state written before images were published, a change of build mode,
+        configured references that drifted from the recorded digests, or an image
+        built locally that is now published all require the full update."""
+        if 'dev_machine_builds' not in state:
+            return False
+        pulled, builds = state.get('dev_machine_images') or {}, state['dev_machine_builds']
+        if self.build_dev_images:
+            return not pulled
+        if any(resolved['services'].get(name, {}).get('image') != image for name, image in pulled.items()):
+            return False
+        for name in builds:
+            repository = published_repository(name)
+            try:
+                self.pull_digest(repository, tag)
+            except (subprocess.CalledProcessError, StopIteration, KeyError, IndexError, ValueError):
+                continue
+            log(f'{repository}:{tag} is now published; replacing the locally built {name} image.')
+            return False
+        return True
+
     def activate(self, candidate, backup, dev_active, running):
         writers = ['backend'] + (['machine-manager', 'machine-gateway'] if dev_active else [])
         restore = [s for s in writers if s in running]
@@ -235,7 +258,8 @@ class ReleaseUpdater:
             expected = 4 if dev_active else 2
             image_match = all(c['Image'] == image_ids.get(c['Config']['Labels']['com.docker.compose.service'], c['Image']) for c in info)
             config_match = all(resolved['services'][name]['image'] == image for name, image in images.items())
-            if config_match and image_match and len(info) == expected and all(c['State'].get('Health', {}).get('Status') == 'healthy' for c in info):
+            dev_match = not dev_active or self.dev_images_current(old_state, resolved, tag)
+            if dev_match and config_match and image_match and len(info) == expected and all(c['State'].get('Health', {}).get('Status') == 'healthy' for c in info):
                 log(f'{tag} is already installed and healthy; no restart required.')
                 return
         # Fetch only the published release ref. Detached operator checkouts stay untouched.

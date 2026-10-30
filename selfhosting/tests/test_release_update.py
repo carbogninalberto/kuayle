@@ -286,6 +286,80 @@ class UpdateFlowTests(unittest.TestCase):
         self.assertFalse(any(c[:2] == ['docker', 'pull'] and 'machine' in c[2] for c in self.calls))
         self.assertEqual(next(c for c in self.calls if c[0] == 'build'), ['build', '--pull', *services])
 
+    def installed_dev_release(self, pulled, builds, missing=()):
+        """Same release already installed and healthy with Dev Machines active."""
+        services = self.dev_profile(missing=missing)
+        images = {name: repository + '@sha256:new' for name, repository in m.IMAGES.items()}
+        for name, image in images.items():
+            self.raw['services'][name]['image'] = image
+        for name, image in pulled.items():
+            self.raw['services'].setdefault(name, {})['image'] = image
+        self.updater.state.write_text(json.dumps({'release': 'v1.2.3', 'images': images,
+                                                  'dev_machine_images': pulled, 'dev_machine_builds': builds}))
+        names = ['backend', 'frontend', 'machine-manager', 'machine-gateway']
+        containers = [{'Image': m.IMAGES.get(name, 'local'), 'Config': {'Labels': {'com.docker.compose.service': name}},
+                       'State': {'Health': {'Status': 'healthy'}}} for name in names]
+        dev_run = self.updater.run
+        def run(args, **kwargs):
+            if args[:2] == ['docker', 'inspect']:
+                return json.dumps(containers)
+            return dev_run(args, **kwargs)
+        self.updater.run = run
+        return services
+
+    def test_same_release_with_pulled_dev_images_is_noop(self):
+        services = self.dev_profile()
+        pulled = {name: m.published_repository(name) + '@sha256:new' for name in services}
+        self.installed_dev_release(pulled, [])
+        with patch('sys.stdout', io.StringIO()):
+            self.updater.update()
+        self.assertFalse(self.activated)
+        self.assertFalse(any(c[0] == 'build' for c in self.calls))
+
+    def test_same_release_replaces_a_local_build_once_its_image_is_published(self):
+        services = self.dev_profile()
+        pulled = {name: m.published_repository(name) + '@sha256:new' for name in services if name != 'machine-gateway'}
+        self.installed_dev_release(pulled, ['machine-gateway'])
+        out = io.StringIO()
+        with patch('sys.stdout', out):
+            self.updater.update()
+        self.assertTrue(self.activated)
+        self.assertIn('now published', out.getvalue())
+        state = json.loads(self.updater.state.read_text())
+        self.assertEqual(state['dev_machine_builds'], [])
+
+    def test_same_release_keeps_a_local_build_while_its_image_is_unpublished(self):
+        services = self.dev_profile()
+        pulled = {name: m.published_repository(name) + '@sha256:new' for name in services if name != 'machine-gateway'}
+        self.installed_dev_release(pulled, ['machine-gateway'], missing=['machine-gateway'])
+        with patch('sys.stdout', io.StringIO()):
+            self.updater.update()
+        self.assertFalse(self.activated)
+
+    def test_same_release_reconciles_drifted_dev_images_and_build_mode(self):
+        services = self.dev_profile()
+        pulled = {name: m.published_repository(name) + '@sha256:new' for name in services}
+        self.installed_dev_release(pulled, [])
+        self.raw['services']['dev-machine-ide']['image'] = 'local/instance-dev-machine-ide:v1.2.3'
+        with patch('sys.stdout', io.StringIO()):
+            self.updater.update()
+        self.assertTrue(self.activated, 'drifted references are repaired')
+        self.activated = False
+        self.installed_dev_release(pulled, [])
+        self.updater.build_dev_images = True
+        with patch('sys.stdout', io.StringIO()):
+            self.updater.update()
+        self.assertTrue(self.activated, 'switching to local builds rebuilds the same release')
+
+    def test_state_without_dev_records_reconciles_once(self):
+        self.installed_dev_release({}, [])
+        state = json.loads(self.updater.state.read_text())
+        del state['dev_machine_builds'], state['dev_machine_images']
+        self.updater.state.write_text(json.dumps(state))
+        with patch('sys.stdout', io.StringIO()):
+            self.updater.update()
+        self.assertTrue(self.activated)
+
     def test_prerelease_is_rejected_before_commands(self):
         self.response['prerelease'] = True
         with self.assertRaises(ValueError):
