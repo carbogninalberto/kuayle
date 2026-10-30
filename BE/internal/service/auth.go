@@ -55,6 +55,7 @@ type AuthService struct {
 	mailer              mail.Sender
 	frontendURL         string
 	logResetLinks       bool
+	async               func(func()) // test hook; nil runs in a goroutine
 }
 
 func NewAuthService(userRepo repository.UserRepo, refreshRepo repository.RefreshTokenRepo, jwtSecret string, opts ...AuthServiceOption) *AuthService {

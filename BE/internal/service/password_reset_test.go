@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -16,14 +17,20 @@ import (
 )
 
 type fakeResetRepo struct {
+	issued time.Time
 	tokens map[string]bool // hash -> usable
 	hashes []string
 }
 
 func (f *fakeResetRepo) Create(_ context.Context, t *repository.PasswordResetToken) error {
+	f.issued = time.Now()
 	f.tokens = map[string]bool{t.TokenHash: true}
 	f.hashes = append(f.hashes, t.TokenHash)
 	return nil
+}
+
+func (f *fakeResetRepo) LastIssuedAt(context.Context, uuid.UUID) (time.Time, error) {
+	return f.issued, nil
 }
 
 func (f *fakeResetRepo) Reset(_ context.Context, tokenHash, _ string) error {
@@ -48,12 +55,17 @@ func TestPasswordResetFlow(t *testing.T) {
 	mailer := &fakeMailer{}
 	svc := NewAuthService(users, new(mockRefreshTokenRepo), "secret", WithPasswordReset(repo, mailer, "http://app.test/", false))
 
+	svc.async = func(f func()) { f() }
+
 	require.NoError(t, svc.RequestPasswordReset(ctx, "none@example.com"))
 	assert.Empty(t, mailer.to, "unknown emails must not receive mail")
 	assert.Empty(t, repo.hashes)
 
 	require.NoError(t, svc.RequestPasswordReset(ctx, "a@example.com"))
 	require.Equal(t, "a@example.com", mailer.to)
+	require.NoError(t, svc.RequestPasswordReset(ctx, "a@example.com"))
+	assert.Len(t, repo.hashes, 1, "second request within the cooldown mints no token")
+
 	idx := strings.Index(mailer.body, "http://app.test/reset-password?token=")
 	require.GreaterOrEqual(t, idx, 0)
 	link := strings.Fields(mailer.body[idx:])[0]

@@ -18,7 +18,10 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-const passwordResetTTL = time.Hour
+const (
+	passwordResetTTL      = time.Hour
+	passwordResetCooldown = time.Minute
+)
 
 // WithPasswordReset enables the forgot/reset password flow. A nil sender means
 // SMTP is not configured; the reset link is then logged when logLinks is true.
@@ -44,6 +47,13 @@ func (s *AuthService) RequestPasswordReset(ctx context.Context, email string) er
 		return nil
 	}
 
+	// Per-account cooldown: repeated requests neither mint tokens nor send mail.
+	if last, err := s.resetRepo.LastIssuedAt(ctx, user.ID); err != nil {
+		return err
+	} else if !last.IsZero() && time.Since(last) < passwordResetCooldown {
+		return nil
+	}
+
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return err
@@ -66,10 +76,22 @@ func (s *AuthService) RequestPasswordReset(ctx context.Context, email string) er
 	}
 	body := "Someone requested a password reset for your Kuayle account.\r\n\r\nReset your password: " + link +
 		"\r\n\r\nThis link expires in 1 hour. If you did not request it, you can ignore this email."
-	if err := s.mailer.Send(user.Email, "Reset your Kuayle password", body); err != nil {
-		log.WithError(err).WithField("event", "auth.password_reset_send_failed").Error("failed to send password reset email")
-	}
+	// Send in the background so SMTP latency does not reveal whether the account exists.
+	to := user.Email
+	s.runAsync(func() {
+		if err := s.mailer.Send(to, "Reset your Kuayle password", body); err != nil {
+			log.WithError(err).WithField("event", "auth.password_reset_send_failed").Error("failed to send password reset email")
+		}
+	})
 	return nil
+}
+
+func (s *AuthService) runAsync(f func()) {
+	if s.async != nil {
+		s.async(f)
+		return
+	}
+	go f()
 }
 
 func (s *AuthService) ResetPassword(ctx context.Context, token, password string) error {

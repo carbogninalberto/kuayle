@@ -213,9 +213,20 @@ func (h *AuthHandler) UpdateProfile(c echo.Context) error {
 	}
 
 	userID := middleware.GetUserID(c)
+	var previousAvatar *string
+	if req.AvatarURL.Set && h.avatarStore != nil {
+		if prev, err := h.authService.GetUserByID(c.Request().Context(), userID); err == nil && prev != nil && prev.AvatarURL != nil {
+			v := *prev.AvatarURL
+			previousAvatar = &v
+		}
+	}
 	user, err := h.authService.UpdateProfile(c.Request().Context(), userID, req)
 	if err != nil || user == nil {
 		return response.NotFound(c, "User")
+	}
+	// Drop the stored file once the avatar no longer points at it.
+	if previousAvatar != nil && (user.AvatarURL == nil || *user.AvatarURL != *previousAvatar) {
+		h.deleteStored(c, userID, previousAvatar)
 	}
 	return response.Success(c, http.StatusOK, h.userResponse(user))
 }

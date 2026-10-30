@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
 	"github.com/google/uuid"
@@ -38,6 +39,14 @@ func (r *PasswordResetRepository) Create(ctx context.Context, t *PasswordResetTo
 		return err
 	}
 	return tx.Commit()
+}
+
+// LastIssuedAt returns when the user's outstanding reset token was created, or
+// the zero time when there is none.
+func (r *PasswordResetRepository) LastIssuedAt(ctx context.Context, userID uuid.UUID) (time.Time, error) {
+	var t sql.NullTime
+	err := r.db.QueryRowContext(ctx, `SELECT MAX(created_at) FROM password_reset_tokens WHERE user_id = $1`, userID).Scan(&t)
+	return t.Time, err
 }
 
 // Reset atomically consumes an unexpired, unused token, sets the user's new

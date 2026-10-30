@@ -105,6 +105,9 @@ func (h *AuthHandler) UploadAvatar(c echo.Context) error {
 
 // GetAvatar serves a stored profile picture to any signed-in user.
 func (h *AuthHandler) GetAvatar(c echo.Context) error {
+	if h.avatarStore == nil {
+		return response.NotFound(c, "Avatar")
+	}
 	userID, err := uuid.Parse(c.Param("userId"))
 	file := c.Param("file")
 	if err != nil || !avatarFilePattern.MatchString(file) {
