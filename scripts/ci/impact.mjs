@@ -8,10 +8,12 @@ const releaseImages = [
   { id: 'api', context: './BE', dockerfile: './BE/Dockerfile' },
   { id: 'web', context: './UI', dockerfile: './UI/Dockerfile' }
 ];
-const goImage = (id, name) => ({ id, name, context: './BE', dockerfile: `./BE/Dockerfile.${id === 'updater' ? id : `machine-${id}`}`, build_args: '' });
+const goImage = (id, name) => ({ id, name, context: './BE', dockerfile: `./BE/Dockerfile.${id === 'updater' ? id : `machine-${id}`}`, build_args: '', package: `kuayle-${id === 'updater' ? id : `machine-${id}`}` });
+// `package` is the GHCR repository published on release: kuayle-<Compose service>,
+// which selfhosting/release_update.py pulls for an active Dev Machines profile.
 const devImages = [goImage('gateway', 'Gateway'), goImage('manager', 'Manager'),
-  ...['ide', 'headless', 'browser', 'collector', 'egress', 'docker'].map((id) => ({ id, name: id === 'ide' ? 'IDE' : id[0].toUpperCase() + id.slice(1), context: './devmachine', dockerfile: `./devmachine/${id}/Dockerfile`, build_args: '' })),
-  ...[['claude', 'Claude', 'claude-code'], ['opencode', 'OpenCode', 'opencode'], ['codex', 'Codex', 'codex']].map(([id, name, provider]) => ({ id: `agent-${id}`, name: `Agent ${name}`, context: './devmachine', dockerfile: './devmachine/agent/Dockerfile', build_args: `PROVIDER=${provider}` }))
+  ...['ide', 'headless', 'browser', 'collector', 'egress', 'docker'].map((id) => ({ id, name: id === 'ide' ? 'IDE' : id[0].toUpperCase() + id.slice(1), context: './devmachine', dockerfile: `./devmachine/${id}/Dockerfile`, build_args: '', package: `kuayle-dev-machine-${id}` })),
+  ...[['claude', 'Claude', 'claude-code'], ['opencode', 'OpenCode', 'opencode'], ['codex', 'Codex', 'codex']].map(([id, name, provider]) => ({ id: `agent-${id}`, name: `Agent ${name}`, context: './devmachine', dockerfile: './devmachine/agent/Dockerfile', build_args: `PROVIDER=${provider}`, package: `kuayle-dev-machine-agent-${id}` }))
 ];
 const updater = goImage('updater', 'Updater');
 const agents = ['agent-claude', 'agent-opencode', 'agent-codex'];
@@ -105,7 +107,9 @@ export function planForPaths(paths, event = 'pull_request') {
   const jobs = {
     tests: { 'agent-harness': plan.harness, 'backend-test': plan.backend, 'frontend-check': plan.frontend, 'web-check': plan.web, 'docker-integration': plan.runtime, 'selfhosting-check': plan.selfhosting, 'ci-validation': plan.ci },
     security: { 'go-security': plan.backend, 'frontend-security': plan.frontend, 'docker-security': !pr, 'dev-machine-security': plan.securityImages.length > 0 },
-    build: { build: !pr, 'dev-machine-images': plan.devImages.length > 0 },
+    // Build & Push runs only for PRs and releases. A release builds, scans and
+    // publishes every runtime image once in dev-machine-publish instead.
+    build: { build: !pr, 'dev-machine-images': pr && plan.devImages.length > 0, 'dev-machine-publish': !pr, 'dev-machine-manifests': !pr },
     readiness: { images: plan.releaseImages.length > 0 }
   };
   plan.jobs = Object.fromEntries(Object.entries(jobs).map(([scope, entries]) => [scope, Object.keys(entries)]));

@@ -46,3 +46,31 @@ test('release runtime checks consume refreshed source while PR checks survive sk
   assert.match(runtime, /github.event_name != 'release' \|\| needs.build.result == 'success'/);
   assert.match(runtime, /ref: \$\{\{ needs.build.outputs.source_sha \|\| github.event.pull_request.head.sha \|\| github.sha \}\}/);
 });
+
+test('releases publish the scanned runtime images the updater pulls; PR builds never push', () => {
+  const workflow = readFileSync(new URL('../../.github/workflows/build.yml', import.meta.url), 'utf8');
+  const action = readFileSync(new URL('../../.github/actions/dev-machine-image/action.yml', import.meta.url), 'utf8');
+  const compose = readFileSync(new URL('../../selfhosting/docker-compose.yml', import.meta.url), 'utf8');
+  const runtime = workflow.split('  dev-machine-images:\n')[1].split('  dev-machine-publish:\n')[0];
+  const publish = workflow.split('  dev-machine-publish:\n')[1].split('  dev-machine-manifests:\n')[0];
+  const manifests = workflow.split('  dev-machine-manifests:\n')[1].split('  result:\n')[0];
+  for (const job of [runtime, publish]) assert.match(job, /uses: \.\/\.github\/actions\/dev-machine-image/);
+  assert.doesNotMatch(runtime, /packages: write|docker push|login-action/);
+  assert.match(action, /push: false\n\s+load: true/);
+  // The pushed image is the one that passed the smoke tests and scan.
+  assert.ok(action.indexOf('Scan native architecture image') > action.indexOf('Build native architecture image'));
+  assert.match(publish, /github.event_name == 'release'/);
+  assert.match(publish, /needs.build.result == 'success'/);
+  assert.match(publish, /packages: write/);
+  assert.ok(publish.indexOf('docker push') > publish.indexOf('uses: ./.github/actions/dev-machine-image'));
+  assert.match(publish, /ref: \$\{\{ needs.build.outputs.source_sha \}\}/);
+  assert.match(manifests, /needs: \[changes, build, dev-machine-publish\]/);
+  assert.match(manifests, /needs.dev-machine-publish.result == 'success'/);
+  assert.match(manifests, /imagetools create/);
+  assert.match(manifests, /-amd64.*-arm64/s);
+  // Updater convention: Compose service NAME is published as kuayle-NAME.
+  const services = [...compose.matchAll(/^  ([a-z0-9-]+):\n(?:    .*\n)*?    profiles: \["dev-machine-images"\]/gm)].map((match) => match[1]);
+  assert.equal(services.length, 9);
+  const packages = planForPaths([], 'release').devImages.map((image) => image.package);
+  assert.deepEqual(packages.sort(), ['machine-gateway', 'machine-manager', ...services].map((name) => `kuayle-${name}`).sort());
+});

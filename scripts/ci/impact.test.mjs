@@ -127,9 +127,18 @@ test('mixed changes union their coverage; non-PR events retain the full original
     const plan = planForPaths([], event);
     assert.equal(plan.devImages.length, 11);
     assert.equal(plan.securityImages.length, 12);
-    assert.deepEqual(plan.required.build, ['build', 'dev-machine-images']);
+    // Releases build, scan and publish every runtime image once, in the publish job.
+    assert.deepEqual(plan.required.build, ['build', 'dev-machine-publish', 'dev-machine-manifests']);
     assert.ok(plan.required.security.includes('docker-security'));
   }
+  const pr = planForPaths(['.github/workflows/build.yml']);
+  assert.deepEqual(pr.required.build, ['dev-machine-images'], 'PRs build and scan without publishing');
+});
+
+test('every dev machine image names the GHCR package the release updater pulls', () => {
+  const packages = planForPaths([], 'release').devImages.map((image) => image.package);
+  assert.deepEqual(packages, ['kuayle-machine-gateway', 'kuayle-machine-manager',
+    ...['ide', 'headless', 'browser', 'collector', 'egress', 'docker', 'agent-claude', 'agent-opencode', 'agent-codex'].map((id) => `kuayle-dev-machine-${id}`)]);
 });
 
 function repository(t) {
