@@ -7,7 +7,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -192,9 +191,6 @@ func (s *DevMachineService) LaunchPort(ctx context.Context, workspaceID, machine
 	}
 	if port == nil {
 		return nil, ErrPortNotFound
-	}
-	if !machine.ExpiresAt.After(time.Now().UTC()) {
-		return nil, fmt.Errorf("%w: machine has expired", ErrInvalidOperation)
 	}
 	if pending, handled, err := s.pendingLaunch(ctx, workspaceID, machine, userID); handled || err != nil {
 		return pending, err

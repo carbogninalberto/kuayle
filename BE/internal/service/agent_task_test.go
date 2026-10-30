@@ -22,7 +22,7 @@ func TestAgentTaskCheckoutsAreIsolatedAndRecoverable(t *testing.T) {
 	ws, user, machineID, issueID, repoID := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	manual := domain.DevMachineCheckout{ID: uuid.New(), WorkspaceID: ws, MachineID: machineID, IssueID: issueID, GitHubRepoID: repoID, Status: "ready", WorkingBranch: "kuayle/eng-7", WorkspacePath: "/workspace/tasks/eng-7"}
 	store := &devMachineStoreFake{
-		policy: testPolicy(ws), machine: &domain.DevMachine{ID: machineID, WorkspaceID: ws, CreatedByUserID: &user, Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour)},
+		policy: testPolicy(ws), machine: &domain.DevMachine{ID: machineID, WorkspaceID: ws, CreatedByUserID: &user, Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning},
 		issues:        map[uuid.UUID]*domain.Issue{issueID: {ID: issueID, WorkspaceID: ws, TeamID: uuid.New(), Identifier: "ENG-7"}},
 		reposByID:     map[uuid.UUID]*domain.GitHubRepoModel{repoID: {ID: repoID, WorkspaceID: ws, FullName: "kuayle/api", DefaultBranch: "main", IsActive: true}},
 		scopeSettings: map[string]*domain.DevMachineScopeSetting{scopeKey(nil, nil, &issueID): {WorkspaceID: ws, GitHubRepoID: &repoID}},
@@ -434,7 +434,7 @@ func TestAgentTaskAttemptPassesAcceptedTestCommandToNativeHarness(t *testing.T) 
 	ws, machine, user, checkout := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	store := &taskPolicyStore{devMachineStoreFake: &devMachineStoreFake{
 		policy:        testPolicy(ws),
-		machine:       &domain.DevMachine{ID: machine, WorkspaceID: ws, CreatedByUserID: &user, Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour), MaxRuntimeMinutes: 60},
+		machine:       &domain.DevMachine{ID: machine, WorkspaceID: ws, CreatedByUserID: &user, Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning},
 		agentProvider: &domain.DevMachineAgentProvider{ProviderID: "opencode", Enabled: true, RequiredSecrets: json.RawMessage(`[]`), Config: json.RawMessage(`{}`)},
 		checkouts:     []domain.DevMachineCheckout{{ID: checkout, WorkspaceID: ws, MachineID: machine, Status: "ready", WorkspacePath: "/workspace/tasks/check", RepositoryFullName: "example/test", BaseBranch: "main", WorkingBranch: "task/check"}},
 	}}
@@ -624,7 +624,7 @@ func reusedMachineFixture(status, desired domain.DevMachineStatus) (*devMachineS
 	store := &devMachineStoreFake{
 		policy: testPolicy(ws),
 		machine: &domain.DevMachine{ID: machineID, WorkspaceID: ws, CreatedByUserID: &user, Status: status, DesiredStatus: desired,
-			Generation: 4, ExpiresAt: time.Now().Add(time.Hour)},
+			Generation: 4},
 		issues:        map[uuid.UUID]*domain.Issue{issueID: {ID: issueID, WorkspaceID: ws, TeamID: uuid.New(), Identifier: "ENG-9"}},
 		reposByID:     map[uuid.UUID]*domain.GitHubRepoModel{repoID: {ID: repoID, WorkspaceID: ws, FullName: "kuayle/web", DefaultBranch: "main", IsActive: true}},
 		scopeSettings: map[string]*domain.DevMachineScopeSetting{scopeKey(nil, nil, &issueID): {WorkspaceID: ws, GitHubRepoID: &repoID}},
@@ -637,8 +637,9 @@ func reusedMachineFixture(status, desired domain.DevMachineStatus) (*devMachineS
 	return store, &devMachineTaskRuntime{machines: machines}, task
 }
 
-// A reused stopped or paused machine is started for the task instead of
-// failing the preparation; once the start is requested the task waits for it.
+// The task's machine, stopped or paused by its user, is started for the task
+// instead of failing the preparation; once the start is requested the task
+// waits for it.
 func TestPreparationStartsAReusedStoppedOrPausedMachine(t *testing.T) {
 	for _, status := range []domain.DevMachineStatus{domain.DevMachineStatusStopped, domain.DevMachineStatusPaused} {
 		t.Run(string(status), func(t *testing.T) {
@@ -659,7 +660,7 @@ func TestPreparationStartsAReusedStoppedOrPausedMachine(t *testing.T) {
 			require.False(t, ready)
 			require.Nil(t, store.queuedOperation)
 
-			// Paused again later (for example beyond the cap): a new start is requested.
+			// Paused again later by its user: a new start is requested.
 			store.machine.DesiredStatus = status
 			ready, err = runtime.Prepare(context.Background(), &task)
 			require.NoError(t, err)

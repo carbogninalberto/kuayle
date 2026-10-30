@@ -396,7 +396,7 @@ func TestMachineTasksListOnlyTheOwnersVisibleTasksOnThatMachine(t *testing.T) {
 	var owner uuid.UUID
 	require.NoError(t, db.Get(&owner, `SELECT created_by_user_id FROM dev_machines WHERE id=$1`, machine))
 	otherMachine := uuid.New()
-	_, err = db.Exec(`INSERT INTO dev_machines(id,workspace_id,created_by_user_id,routing_key,name,status,desired_status,generation,repo_url,repo_provider,repo_owner,repo_name,base_branch,working_branch,machine_size,cpu_millis,memory_mb,disk_gb,max_runtime_minutes,expires_at) VALUES($1,$2,$3,$4,'Other machine','running','running',1,'','github','','','','','small',1000,2048,20,60,now()+interval '1 hour')`, otherMachine, task.WorkspaceID, owner, strings.ReplaceAll(otherMachine.String(), "-", "")[:16])
+	_, err = db.Exec(`INSERT INTO dev_machines(id,workspace_id,created_by_user_id,routing_key,name,status,desired_status,generation,repo_url,repo_provider,repo_owner,repo_name,base_branch,working_branch,machine_size,cpu_millis,memory_mb,disk_gb) VALUES($1,$2,$3,$4,'Other machine','running','running',1,'','github','','','','','small',1000,2048,20)`, otherMachine, task.WorkspaceID, owner, strings.ReplaceAll(otherMachine.String(), "-", "")[:16])
 	require.NoError(t, err)
 	items, err = repo.MachineTasks(ctx, task.WorkspaceID, otherMachine)
 	require.NoError(t, err)

@@ -165,12 +165,12 @@ func (s *DevMachineService) create(ctx context.Context, workspaceID, userID uuid
 		return nil, nil, err
 	}
 
-	cpuMillis, memoryMB, diskGB, sizeMaxRuntime, ok := domain.DevMachineSize(req.Size)
+	cpuMillis, memoryMB, diskGB, ok := domain.DevMachineSize(req.Size)
 	if req.Size == "custom" {
 		if err := domain.DevMachineCustomSize(req.CPUMillis, req.MemoryMB, req.DiskGB); err != nil {
 			return nil, nil, fmt.Errorf("%w: %v", ErrInvalidMachineInput, err)
 		}
-		cpuMillis, memoryMB, diskGB, sizeMaxRuntime, ok = req.CPUMillis, req.MemoryMB, req.DiskGB, 480, true
+		cpuMillis, memoryMB, diskGB, ok = req.CPUMillis, req.MemoryMB, req.DiskGB, true
 	}
 	if !ok {
 		return nil, nil, fmt.Errorf("%w: unsupported machine size %q", ErrInvalidMachineInput, req.Size)
@@ -195,7 +195,6 @@ func (s *DevMachineService) create(ctx context.Context, workspaceID, userID uuid
 	); err != nil {
 		return nil, nil, err
 	}
-	maxRuntime := min(sizeMaxRuntime, policy.MaxRuntimeMinutes)
 	name := normalizeMachineName(req.Name)
 	if name == "" {
 		name, err = s.GenerateName(ctx, workspaceID, userID)
@@ -293,9 +292,8 @@ func (s *DevMachineService) create(ctx context.Context, workspaceID, userID uuid
 		Name: name, Status: domain.DevMachineStatusQueued, DesiredStatus: domain.DevMachineStatusRunning,
 		Generation: 1, ProjectID: projectID, IssueID: issueID, BaseBranch: baseBranch, WorkingBranch: workingBranch,
 		MachineSize: req.Size, Profile: profile, CPUMillis: cpuMillis, MemoryMB: memoryMB, DiskGB: diskGB, PidsLimit: 512,
-		MaxRuntimeMinutes: maxRuntime, ServicesConfig: servicesConfig, Labels: json.RawMessage(`{}`),
-		ExpiresAt: now.Add(time.Duration(maxRuntime) * time.Minute), EnvironmentID: environmentID,
-		KeepRunning: req.KeepRunning, EnvironmentBuilder: req.EnvironmentBuilder, LastActivityAt: &now,
+		ServicesConfig: servicesConfig, Labels: json.RawMessage(`{}`), EnvironmentID: environmentID,
+		EnvironmentBuilder: req.EnvironmentBuilder, LastActivityAt: &now,
 		SudoEnabled: policy.AllowSudo,
 	}
 	if repositoryModel != nil {
@@ -351,7 +349,7 @@ func (s *DevMachineService) create(ctx context.Context, workspaceID, userID uuid
 	}
 	envVars = append(envVars, domain.DevMachineEnvVar{
 		ID: uuid.New(), MachineID: machineID, TargetService: "collector", Name: "KUAYLE_MACHINE_TOKEN",
-		EncryptedValue: encryptedCollectorToken, EncryptionKeyVersion: 1, IsSecret: true, ExpiresAt: &machine.ExpiresAt,
+		EncryptedValue: encryptedCollectorToken, EncryptionKeyVersion: 1, IsSecret: true,
 	})
 	if req.Services.Browser {
 		browserCDPToken, err := randomHex(32)
@@ -365,14 +363,14 @@ func (s *DevMachineService) create(ctx context.Context, workspaceID, userID uuid
 		for _, targetService := range []string{"browser", "collector"} {
 			envVars = append(envVars, domain.DevMachineEnvVar{
 				ID: uuid.New(), MachineID: machineID, TargetService: targetService, Name: "KUAYLE_BROWSER_CDP_TOKEN",
-				EncryptedValue: encryptedBrowserCDPToken, EncryptionKeyVersion: 1, IsSecret: true, ExpiresAt: &machine.ExpiresAt,
+				EncryptedValue: encryptedBrowserCDPToken, EncryptionKeyVersion: 1, IsSecret: true,
 			})
 		}
 	}
 	collectorTokenHash := sha256.Sum256([]byte(collectorToken))
 	tokens := []domain.DevMachineToken{{
 		ID: uuid.New(), MachineID: machineID, TokenHash: hex.EncodeToString(collectorTokenHash[:]),
-		Scopes: json.RawMessage(`["events:write","logs:write","heartbeat:write"]`), ExpiresAt: machine.ExpiresAt,
+		Scopes: json.RawMessage(`["events:write","logs:write","heartbeat:write"]`),
 	}}
 	operation := &domain.DevMachineOperation{
 		ID: uuid.New(), MachineID: machineID, WorkspaceID: workspaceID, Action: domain.DevMachineOpSpawn,
@@ -653,24 +651,13 @@ func (s *DevMachineService) NameAvailable(ctx context.Context, workspaceID, user
 	return !exists, err
 }
 
+// Update resizes the machine; a request without a size change returns it
+// unchanged.
 func (s *DevMachineService) Update(ctx context.Context, workspaceID, machineID, userID uuid.UUID, request dto.UpdateDevMachineRequest) (*domain.DevMachine, error) {
 	if request.Resizes() {
-		resized, err := s.resize(ctx, workspaceID, machineID, userID, request)
-		if err != nil || request.KeepRunning == nil {
-			return resized, err
-		}
+		return s.resize(ctx, workspaceID, machineID, userID, request)
 	}
-	machine, err := s.store.UpdateMachinePreferencesForUser(ctx, workspaceID, machineID, userID, request.KeepRunning)
-	if err != nil {
-		if errors.Is(err, repository.ErrMachineStateConflict) {
-			return nil, fmt.Errorf("%w: machine no longer accepts preference updates", ErrInvalidOperation)
-		}
-		return nil, err
-	}
-	if machine == nil {
-		return nil, ErrMachineNotFound
-	}
-	return machine, nil
+	return s.GetForUser(ctx, workspaceID, machineID, userID)
 }
 
 func (s *DevMachineService) TouchActivity(ctx context.Context, workspaceID, machineID, userID uuid.UUID) error {
@@ -1160,9 +1147,6 @@ func (s *DevMachineService) Lifecycle(ctx context.Context, workspaceID, machineI
 			return existing, nil
 		}
 	}
-	if (action == domain.DevMachineOpStart || action == domain.DevMachineOpSpawn) && !machine.ExpiresAt.After(time.Now().UTC()) {
-		return nil, fmt.Errorf("%w: machine has expired", ErrInvalidOperation)
-	}
 	if !domain.ValidOperationForStatus(action, machine.Status) {
 		return nil, fmt.Errorf("%w: cannot %s a %s machine", ErrInvalidOperation, action, machine.Status)
 	}
@@ -1423,10 +1407,6 @@ func (s *DevMachineService) createAgentRun(ctx context.Context, workspaceID, mac
 	if selectedCheckout == nil && !req.UseRootWorkspace {
 		return nil, fmt.Errorf("%w: set use_root_workspace to run without a repository checkout", ErrInvalidMachineInput)
 	}
-	remainingRuntime := int(time.Until(machine.ExpiresAt).Seconds())
-	if remainingRuntime < 30 {
-		return nil, fmt.Errorf("%w: machine has expired or has insufficient runtime remaining", ErrInvalidOperation)
-	}
 	active, err := s.store.HasActiveAgentRun(ctx, machineID)
 	if err != nil {
 		return nil, err
@@ -1521,12 +1501,6 @@ func (s *DevMachineService) createAgentRun(ctx context.Context, workspaceID, mac
 	if timeout == 0 {
 		timeout = 3600
 	}
-	if timeout > machine.MaxRuntimeMinutes*60 {
-		return nil, fmt.Errorf("%w: agent runtime exceeds machine maximum", ErrInvalidMachineInput)
-	}
-	if timeout > remainingRuntime {
-		return nil, fmt.Errorf("%w: agent runtime exceeds machine lifetime", ErrInvalidMachineInput)
-	}
 	run := &domain.DevMachineAgentRun{
 		ID: runID, MachineID: machineID, WorkspaceID: workspaceID, IssueID: runIssueID, CheckoutID: checkoutID,
 		RequestedByUserID: &userID, ProviderID: req.Provider, Mode: req.Mode,
@@ -1604,9 +1578,6 @@ func (s *DevMachineService) LaunchService(ctx context.Context, workspaceID, mach
 	if s.domain == "" {
 		return nil, fmt.Errorf("dev machine domain is not configured")
 	}
-	if !machine.ExpiresAt.After(time.Now().UTC()) {
-		return nil, fmt.Errorf("%w: machine has expired", ErrInvalidOperation)
-	}
 	if pending, handled, err := s.pendingLaunch(ctx, workspaceID, machine, userID); handled || err != nil {
 		return pending, err
 	}
@@ -1652,9 +1623,6 @@ func (s *DevMachineService) issueLaunch(ctx context.Context, workspaceID uuid.UU
 	}
 	hash := sha256.Sum256([]byte(raw))
 	expiresAt := time.Now().UTC().Add(s.ticketTTL)
-	if machine.ExpiresAt.Before(expiresAt) {
-		expiresAt = machine.ExpiresAt
-	}
 	ticket := &domain.DevMachineAccessTicket{
 		ID: uuid.New(), WorkspaceID: workspaceID, MachineID: machineID, ServiceID: service.ID, UserID: userID,
 		TokenHash: hex.EncodeToString(hash[:]), Status: domain.DevMachineAccessTicketStatusActive,
@@ -1723,9 +1691,6 @@ func (s *DevMachineService) CreateTerminalSession(ctx context.Context, workspace
 	if s.frontendOrigin == "" {
 		return nil, fmt.Errorf("frontend origin is not configured")
 	}
-	if !machine.ExpiresAt.After(time.Now().UTC()) {
-		return nil, fmt.Errorf("%w: machine has expired", ErrInvalidOperation)
-	}
 	if pending, handled, err := s.pendingLaunch(ctx, workspaceID, machine, userID); handled || err != nil {
 		if err != nil {
 			return nil, err
@@ -1781,9 +1746,6 @@ func (s *DevMachineService) CreateTerminalSession(ctx context.Context, workspace
 	cwd := terminalWorkingDirectory(machine, checkout)
 	host := machine.RoutingKey + "-terminal." + s.domain
 	expiresAt := time.Now().UTC().Add(s.ticketTTL)
-	if machine.ExpiresAt.Before(expiresAt) {
-		expiresAt = machine.ExpiresAt
-	}
 	ticket := &domain.DevMachineAccessTicket{
 		ID: uuid.New(), WorkspaceID: workspaceID, MachineID: machineID, ServiceID: terminalService.ID, UserID: userID,
 		TerminalSessionID: &session.ID,
@@ -2028,7 +1990,7 @@ func (s *DevMachineService) GetPolicy(ctx context.Context, workspaceID uuid.UUID
 	}
 	return &domain.DevMachineWorkspacePolicy{
 		WorkspaceID: workspaceID, MaxConcurrentMachines: 20, MaxMachinesPerUser: 20, MaxDailyAgentRuns: 25,
-		MaxRuntimeMinutes: 480, MaxDiskGB: 100, IdlePauseMinutes: 240,
+		MaxDiskGB:            100,
 		TaskMachineCPUMillis: domain.DefaultTaskMachineResources.CPUMillis,
 		TaskMachineMemoryMB:  domain.DefaultTaskMachineResources.MemoryMB,
 		TaskMachineDiskGB:    domain.DefaultTaskMachineResources.DiskGB,
@@ -2059,15 +2021,11 @@ func validGitAuthor(name, email string) bool {
 func (s *DevMachineService) UpdatePolicy(ctx context.Context, workspaceID uuid.UUID, req dto.DevMachinePolicyRequest) (*domain.DevMachineWorkspacePolicy, error) {
 	providers, _ := json.Marshal(req.AllowedProviders)
 	repositories, _ := json.Marshal(req.AllowedRepositories)
-	idlePauseMinutes := req.IdlePauseMinutes
-	if idlePauseMinutes == 0 {
-		idlePauseMinutes = 240
-	}
 	policy := &domain.DevMachineWorkspacePolicy{
 		WorkspaceID: workspaceID, Enabled: req.Enabled, MaxConcurrentMachines: req.MaxConcurrentMachines,
 		MaxMachinesPerUser: req.MaxMachinesPerUser, MaxDailyAgentRuns: req.MaxDailyAgentRuns,
-		MaxRuntimeMinutes: req.MaxRuntimeMinutes, MaxDiskGB: req.MaxDiskGB, AllowedProviders: providers,
-		AllowedRepositories: repositories, AllowCustomProviders: req.AllowCustomProviders, IdlePauseMinutes: idlePauseMinutes,
+		MaxDiskGB: req.MaxDiskGB, AllowedProviders: providers,
+		AllowedRepositories: repositories, AllowCustomProviders: req.AllowCustomProviders,
 		AllowUnattendedAutomations: req.AllowUnattendedAutomations,
 	}
 	if !domain.ValidDevMachineDiskGB(req.MaxDiskGB) {

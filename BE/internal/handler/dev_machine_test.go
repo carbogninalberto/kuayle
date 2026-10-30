@@ -384,7 +384,7 @@ func TestDevMachinePolicyIncludesConfiguredDiskQuotaMode(t *testing.T) {
 		t.Run(test.mode, func(t *testing.T) {
 			store := &handlerDevMachineStoreFake{policy: &domain.DevMachineWorkspacePolicy{
 				WorkspaceID: workspaceID, Enabled: true, MaxConcurrentMachines: 5, MaxMachinesPerUser: 2,
-				MaxDailyAgentRuns: 25, MaxRuntimeMinutes: 480, MaxDiskGB: 100, IdlePauseMinutes: 240,
+				MaxDailyAgentRuns: 25, MaxDiskGB: 100,
 				AllowedProviders:    json.RawMessage(`["claude-code","opencode","codex"]`),
 				AllowedRepositories: json.RawMessage(`[]`),
 			}}
@@ -403,6 +403,8 @@ func TestDevMachinePolicyIncludesConfiguredDiskQuotaMode(t *testing.T) {
 			require.Equal(t, []int{20, 22}, current.SizeOptions.DiskGB[:2], "disk sizes move in 2 GiB steps")
 			require.Equal(t, []int{1000, 2000, 4000, 6000, 8000, 12000, 16000}, current.SizeOptions.CPUMillis)
 
+			// An older client still sends the removed lifetime settings; they
+			// are ignored.
 			body := fmt.Sprintf(`{
 				"enabled": true,
 				"max_concurrent_machines": 5,
@@ -428,6 +430,8 @@ func TestDevMachinePolicyIncludesConfiguredDiskQuotaMode(t *testing.T) {
 			require.Equal(t, test.mode, updated.DiskQuotaMode)
 			require.Equal(t, domain.DevMachineOptionsForWorkspace(100).DiskGB, updated.SizeOptions.DiskGB)
 			require.Empty(t, store.policy.DiskQuotaMode)
+			require.NotContains(t, recorder.Body.String(), "idle_pause_minutes")
+			require.NotContains(t, recorder.Body.String(), "max_runtime_minutes")
 		})
 	}
 }
@@ -438,7 +442,7 @@ func TestDevMachinePolicyDockerSwitchIsKeptUnlessSent(t *testing.T) {
 	workspaceID := uuid.New()
 	store := &handlerDevMachineStoreFake{policy: &domain.DevMachineWorkspacePolicy{
 		WorkspaceID: workspaceID, Enabled: true, MaxConcurrentMachines: 5, MaxMachinesPerUser: 2,
-		MaxDailyAgentRuns: 25, MaxRuntimeMinutes: 480, MaxDiskGB: 100, IdlePauseMinutes: 240,
+		MaxDailyAgentRuns: 25, MaxDiskGB: 100,
 		AllowedProviders: json.RawMessage(`["opencode"]`), AllowedRepositories: json.RawMessage(`[]`),
 	}}
 	h := NewDevMachineHandler(service.NewDevMachineService(
@@ -447,8 +451,7 @@ func TestDevMachinePolicyDockerSwitchIsKeptUnlessSent(t *testing.T) {
 	update := func(extra string) domain.DevMachineWorkspacePolicy {
 		t.Helper()
 		body := `{"enabled":true,"max_concurrent_machines":5,"max_machines_per_user":2,"max_daily_agent_runs":25,
-			"max_runtime_minutes":480,"max_disk_gb":100,"allowed_providers":["opencode"],"allowed_repositories":[],
-			"idle_pause_minutes":240` + extra + `}`
+			"max_disk_gb":100,"allowed_providers":["opencode"],"allowed_repositories":[]` + extra + `}`
 		recorder := httptest.NewRecorder()
 		request := httptest.NewRequest(http.MethodPatch, "/dev-machine-policy", strings.NewReader(body))
 		request.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
@@ -473,7 +476,7 @@ func TestDevMachinePolicyTaskMachineResources(t *testing.T) {
 	workspaceID := uuid.New()
 	store := &handlerDevMachineStoreFake{policy: &domain.DevMachineWorkspacePolicy{
 		WorkspaceID: workspaceID, Enabled: true, MaxConcurrentMachines: 5, MaxMachinesPerUser: 2,
-		MaxDailyAgentRuns: 25, MaxRuntimeMinutes: 480, MaxDiskGB: 100, IdlePauseMinutes: 240,
+		MaxDailyAgentRuns: 25, MaxDiskGB: 100,
 		AllowedProviders: json.RawMessage(`["opencode"]`), AllowedRepositories: json.RawMessage(`[]`),
 		TaskMachineCPUMillis: 4000, TaskMachineMemoryMB: 8192, TaskMachineDiskGB: 20,
 	}}
@@ -483,8 +486,7 @@ func TestDevMachinePolicyTaskMachineResources(t *testing.T) {
 	update := func(maxDisk int, extra string) *httptest.ResponseRecorder {
 		t.Helper()
 		body := fmt.Sprintf(`{"enabled":true,"max_concurrent_machines":5,"max_machines_per_user":2,"max_daily_agent_runs":25,
-			"max_runtime_minutes":480,"max_disk_gb":%d,"allowed_providers":["opencode"],"allowed_repositories":[],
-			"idle_pause_minutes":240%s}`, maxDisk, extra)
+			"max_disk_gb":%d,"allowed_providers":["opencode"],"allowed_repositories":[]%s}`, maxDisk, extra)
 		recorder := httptest.NewRecorder()
 		request := httptest.NewRequest(http.MethodPatch, "/dev-machine-policy", strings.NewReader(body))
 		request.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
@@ -779,7 +781,7 @@ func devMachineHandlerContext(req *http.Request, recorder *httptest.ResponseReco
 func testPolicyForHandler(workspaceID uuid.UUID) *domain.DevMachineWorkspacePolicy {
 	return &domain.DevMachineWorkspacePolicy{
 		WorkspaceID: workspaceID, Enabled: true, MaxConcurrentMachines: 10, MaxMachinesPerUser: 2,
-		MaxDailyAgentRuns: 25, MaxRuntimeMinutes: 480, MaxDiskGB: 100, IdlePauseMinutes: 240,
+		MaxDailyAgentRuns: 25, MaxDiskGB: 100,
 		AllowedProviders: json.RawMessage(`[]`), AllowedRepositories: json.RawMessage(`[]`),
 	}
 }
@@ -812,7 +814,7 @@ func TestDevMachinePolicySudoSwitchIsKeptUnlessSent(t *testing.T) {
 	workspaceID := uuid.New()
 	store := &handlerDevMachineStoreFake{policy: &domain.DevMachineWorkspacePolicy{
 		WorkspaceID: workspaceID, Enabled: true, MaxConcurrentMachines: 5, MaxMachinesPerUser: 2,
-		MaxDailyAgentRuns: 25, MaxRuntimeMinutes: 480, MaxDiskGB: 100, IdlePauseMinutes: 240,
+		MaxDailyAgentRuns: 25, MaxDiskGB: 100,
 		AllowedProviders: json.RawMessage(`["opencode"]`), AllowedRepositories: json.RawMessage(`[]`), AllowDocker: true,
 	}}
 	h := NewDevMachineHandler(service.NewDevMachineService(
@@ -821,8 +823,7 @@ func TestDevMachinePolicySudoSwitchIsKeptUnlessSent(t *testing.T) {
 	update := func(extra string) domain.DevMachineWorkspacePolicy {
 		t.Helper()
 		body := `{"enabled":true,"max_concurrent_machines":5,"max_machines_per_user":2,"max_daily_agent_runs":25,
-			"max_runtime_minutes":480,"max_disk_gb":100,"allowed_providers":["opencode"],"allowed_repositories":[],
-			"idle_pause_minutes":240` + extra + `}`
+			"max_disk_gb":100,"allowed_providers":["opencode"],"allowed_repositories":[]` + extra + `}`
 		recorder := httptest.NewRecorder()
 		request := httptest.NewRequest(http.MethodPatch, "/dev-machine-policy", strings.NewReader(body))
 		request.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)

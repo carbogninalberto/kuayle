@@ -78,7 +78,7 @@ func lockTaskMachine(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask) (i
 		}
 	}
 	var generation int64
-	if err := tx.GetContext(ctx, &generation, `SELECT generation FROM dev_machines WHERE id=$1 AND workspace_id=$2 AND status='running' AND desired_status='running' AND expires_at>now() FOR UPDATE`, task.MachineID, task.WorkspaceID); err != nil {
+	if err := tx.GetContext(ctx, &generation, `SELECT generation FROM dev_machines WHERE id=$1 AND workspace_id=$2 AND status='running' AND desired_status='running' FOR UPDATE`, task.MachineID, task.WorkspaceID); err != nil {
 		return 0, err
 	}
 	var allowed bool
@@ -203,7 +203,7 @@ func fenceTaskStepOperation(ctx context.Context, tx *sqlx.Tx, op domain.DevMachi
 		return err
 	}
 	var machineID uuid.UUID
-	err = tx.GetContext(ctx, &machineID, `SELECT m.id FROM dev_machines m JOIN dev_machine_workspace_policies p ON p.workspace_id=m.workspace_id WHERE m.id=$1 AND m.workspace_id=$2 AND m.generation=$3 AND m.status='running' AND m.desired_status='running' AND m.expires_at>now() AND p.enabled FOR SHARE OF m,p`, run.MachineID, run.WorkspaceID, op.Generation)
+	err = tx.GetContext(ctx, &machineID, `SELECT m.id FROM dev_machines m JOIN dev_machine_workspace_policies p ON p.workspace_id=m.workspace_id WHERE m.id=$1 AND m.workspace_id=$2 AND m.generation=$3 AND m.status='running' AND m.desired_status='running' AND p.enabled FOR SHARE OF m,p`, run.MachineID, run.WorkspaceID, op.Generation)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrAgentTaskUnauthorized
 	}

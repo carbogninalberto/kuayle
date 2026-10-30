@@ -69,9 +69,6 @@ func (m *Manager) validateAgent(ctx context.Context, machine *domain.DevMachine,
 		started = *step.StartedAt
 	}
 	deadline := started.Add(time.Duration(run.MaxRuntimeSeconds) * time.Second)
-	if machine.ExpiresAt.Before(deadline) {
-		deadline = machine.ExpiresAt
-	}
 	runCtx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
 	output := newAgentOutputBuffer(secrets.Redactions, func(stream string, sequence int64, source, content string, truncated bool) error {

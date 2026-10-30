@@ -10,9 +10,7 @@ async function mockPolicyApi(page: Page, taskMachine: Record<string, number>, ro
 		max_concurrent_machines: 5,
 		max_machines_per_user: 2,
 		max_daily_agent_runs: 25,
-		max_runtime_minutes: 480,
 		max_disk_gb: 100,
-		idle_pause_minutes: 240,
 		allowed_providers: ['opencode'],
 		allowed_repositories: [],
 		allow_custom_providers: false,
@@ -122,6 +120,11 @@ test('admins size the machines Kuayle creates for agent tasks', async ({ page })
 		task_machine_memory_mb: 12288,
 		task_machine_disk_gb: 252
 	});
+	// Machines no longer expire or pause when idle, so the policy has no such limits.
+	expect(state.saved[0]).not.toHaveProperty('max_runtime_minutes');
+	expect(state.saved[0]).not.toHaveProperty('idle_pause_minutes');
+	await expect(page.getByLabel('Maximum runtime, minutes')).toHaveCount(0);
+	await expect(page.getByLabel('Pause after inactivity, minutes')).toHaveCount(0);
 });
 
 test('more vCPU raise task machine memory to 1 GB per vCPU', async ({ page }) => {

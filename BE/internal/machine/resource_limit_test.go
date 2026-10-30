@@ -109,7 +109,7 @@ func (f *oomValidationRuntimeFake) RunValidation(ctx context.Context, machine *d
 
 func TestOutOfMemoryCheckExplainsTheLimitInItsLog(t *testing.T) {
 	taskID, checkoutID, runID := uuid.New(), uuid.New(), uuid.New()
-	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), ExpiresAt: time.Now().Add(time.Hour)}
+	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New()}
 	key := make([]byte, 32)
 	encrypted, err := cryptoutil.Encrypt(`{}`, key)
 	require.NoError(t, err)

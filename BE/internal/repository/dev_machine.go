@@ -59,7 +59,6 @@ type DevMachineStore interface {
 	ListResourceSamples(context.Context, uuid.UUID, uuid.UUID, int) ([]domain.DevMachineResourceSample, error)
 	CreateGitRef(context.Context, *domain.DevMachineGitRef) error
 	MachineNameExistsForUser(context.Context, uuid.UUID, uuid.UUID, string) (bool, error)
-	UpdateMachinePreferencesForUser(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, *bool) (*domain.DevMachine, error)
 	RequestResizeForUser(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, domain.DevMachineResize, *domain.DevMachineOperation) (*domain.DevMachine, error)
 	TouchMachineActivity(context.Context, uuid.UUID, time.Time) error
 	RequestPermanentDelete(context.Context, uuid.UUID, uuid.UUID, *uuid.UUID) (*domain.DevMachineOperation, error)
@@ -215,17 +214,17 @@ func (r *DevMachineRepository) CreateBundle(
 		id, workspace_id, project_id, issue_id, created_by_user_id, routing_key, name,
 		status, desired_status, generation, repo_url, repo_provider, repo_owner, repo_name,
 		base_branch, working_branch, machine_size, profile, cpu_millis, memory_mb, disk_gb, pids_limit,
-		max_runtime_minutes, services_config, labels, expires_at, environment_id,
-		repository_affinity_id, keep_running, environment_builder, last_activity_at, sudo_enabled
-	) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32)
+		services_config, labels, environment_id,
+		repository_affinity_id, environment_builder, last_activity_at, sudo_enabled
+	) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
 	RETURNING created_at, updated_at`
 	if err := tx.QueryRowContext(ctx, machineQuery,
 		machine.ID, machine.WorkspaceID, machine.ProjectID, machine.IssueID, machine.CreatedByUserID,
 		machine.RoutingKey, machine.Name, machine.Status, machine.DesiredStatus, machine.Generation,
 		machine.RepoURL, machine.RepoProvider, machine.RepoOwner, machine.RepoName, machine.BaseBranch,
 		machine.WorkingBranch, machine.MachineSize, machine.Profile, machine.CPUMillis, machine.MemoryMB, machine.DiskGB,
-		machine.PidsLimit, machine.MaxRuntimeMinutes, machine.ServicesConfig, machine.Labels, machine.ExpiresAt,
-		machine.EnvironmentID, machine.RepositoryAffinityID, machine.KeepRunning, machine.EnvironmentBuilder, machine.LastActivityAt,
+		machine.PidsLimit, machine.ServicesConfig, machine.Labels,
+		machine.EnvironmentID, machine.RepositoryAffinityID, machine.EnvironmentBuilder, machine.LastActivityAt,
 		machine.SudoEnabled,
 	).Scan(&machine.CreatedAt, &machine.UpdatedAt); err != nil {
 		var postgresError *pgconn.PgError
@@ -602,15 +601,6 @@ func (r *DevMachineRepository) SetMachineStateForOperation(ctx context.Context, 
 	return rows == 1, nil
 }
 
-func (r *DevMachineRepository) ListExpiredMachines(ctx context.Context, limit int) ([]domain.DevMachine, error) {
-	var machines []domain.DevMachine
-	err := r.db.SelectContext(ctx, &machines, `SELECT m.* FROM dev_machines m WHERE m.expires_at <= NOW()
-		AND m.status NOT IN ('tearing_down','destroyed') AND NOT EXISTS (
-			SELECT 1 FROM dev_machine_operations o WHERE o.machine_id=m.id AND o.action='teardown' AND o.status IN ('pending','leased')
-		) ORDER BY m.expires_at LIMIT $1`, limit)
-	return machines, err
-}
-
 func (r *DevMachineRepository) ListTimedOutAgentRuns(ctx context.Context, limit int) ([]domain.DevMachineAgentRun, error) {
 	var runs []domain.DevMachineAgentRun
 	err := r.db.SelectContext(ctx, &runs, `SELECT * FROM dev_machine_agent_runs WHERE status='running'
@@ -623,7 +613,8 @@ func (r *DevMachineRepository) ListRuntimeMachines(ctx context.Context, limit, o
 	var machines []domain.DevMachine
 	err := r.db.SelectContext(ctx, &machines, `SELECT * FROM dev_machines
 		WHERE (status IN ('spawning','running','paused','stopping','tearing_down','failed')
-		OR (desired_status='running' AND status NOT IN ('destroyed','tearing_down','expired')))
+		OR (desired_status='running' AND status NOT IN ('destroyed','tearing_down','expired'))
+		OR (status='expired' AND desired_status IN ('stopped','destroyed')))
 		AND NOT EXISTS (SELECT 1 FROM dev_machine_operations o WHERE o.machine_id=dev_machines.id
 			AND o.status IN ('pending','leased'))
 		ORDER BY updated_at, id LIMIT $1 OFFSET $2`, limit, offset)
@@ -677,22 +668,22 @@ func (r *DevMachineRepository) UpsertPolicy(ctx context.Context, policy *domain.
 	policy.TaskMachineCPUMillis, policy.TaskMachineMemoryMB, policy.TaskMachineDiskGB = taskMachine.CPUMillis, taskMachine.MemoryMB, taskMachine.DiskGB
 	return r.db.QueryRowContext(ctx, `INSERT INTO dev_machine_workspace_policies
 		(workspace_id, enabled, max_concurrent_machines, max_machines_per_user, max_daily_agent_runs,
-		 max_runtime_minutes, max_disk_gb, allowed_providers, allowed_repositories, allow_custom_providers, idle_pause_minutes, allow_unattended_automations, agent_git_name, agent_git_email, allow_docker, allow_sudo,
+		 max_disk_gb, allowed_providers, allowed_repositories, allow_custom_providers, allow_unattended_automations, agent_git_name, agent_git_email, allow_docker, allow_sudo,
 		 task_machine_cpu_millis, task_machine_memory_mb, task_machine_disk_gb)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
 		ON CONFLICT (workspace_id) DO UPDATE SET enabled=EXCLUDED.enabled,
 		max_concurrent_machines=EXCLUDED.max_concurrent_machines, max_machines_per_user=EXCLUDED.max_machines_per_user,
-		max_daily_agent_runs=EXCLUDED.max_daily_agent_runs, max_runtime_minutes=EXCLUDED.max_runtime_minutes,
+		max_daily_agent_runs=EXCLUDED.max_daily_agent_runs,
 		max_disk_gb=EXCLUDED.max_disk_gb, allowed_providers=EXCLUDED.allowed_providers,
 		allowed_repositories=EXCLUDED.allowed_repositories, allow_custom_providers=EXCLUDED.allow_custom_providers,
-		idle_pause_minutes=EXCLUDED.idle_pause_minutes, allow_unattended_automations=EXCLUDED.allow_unattended_automations,
+		allow_unattended_automations=EXCLUDED.allow_unattended_automations,
 		agent_git_name=EXCLUDED.agent_git_name, agent_git_email=EXCLUDED.agent_git_email, allow_docker=EXCLUDED.allow_docker,
 		allow_sudo=EXCLUDED.allow_sudo,
 		task_machine_cpu_millis=EXCLUDED.task_machine_cpu_millis, task_machine_memory_mb=EXCLUDED.task_machine_memory_mb,
 		task_machine_disk_gb=EXCLUDED.task_machine_disk_gb
 		RETURNING created_at, updated_at`, policy.WorkspaceID, policy.Enabled, policy.MaxConcurrentMachines,
-		policy.MaxMachinesPerUser, policy.MaxDailyAgentRuns, policy.MaxRuntimeMinutes, policy.MaxDiskGB,
-		policy.AllowedProviders, policy.AllowedRepositories, policy.AllowCustomProviders, policy.IdlePauseMinutes, policy.AllowUnattendedAutomations, policy.AgentGitName, policy.AgentGitEmail, policy.AllowDocker,
+		policy.MaxMachinesPerUser, policy.MaxDailyAgentRuns, policy.MaxDiskGB,
+		policy.AllowedProviders, policy.AllowedRepositories, policy.AllowCustomProviders, policy.AllowUnattendedAutomations, policy.AgentGitName, policy.AgentGitEmail, policy.AllowDocker,
 		policy.AllowSudo, policy.TaskMachineCPUMillis, policy.TaskMachineMemoryMB, policy.TaskMachineDiskGB,
 	).Scan(&policy.CreatedAt, &policy.UpdatedAt)
 }
@@ -1243,7 +1234,7 @@ func (r *DevMachineRepository) AuthenticateMachineToken(ctx context.Context, tok
 	defer tx.Rollback()
 	var token domain.DevMachineToken
 	err = tx.GetContext(ctx, &token, `UPDATE dev_machine_tokens SET last_used_at=NOW()
-		WHERE token_hash=$1 AND revoked_at IS NULL AND expires_at>NOW() AND scopes ? $2 RETURNING *`, tokenHash, scope)
+		WHERE token_hash=$1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>NOW()) AND scopes ? $2 RETURNING *`, tokenHash, scope)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil, nil
 	}
@@ -1251,7 +1242,7 @@ func (r *DevMachineRepository) AuthenticateMachineToken(ctx context.Context, tok
 		return nil, nil, err
 	}
 	var machine domain.DevMachine
-	if err := tx.GetContext(ctx, &machine, `SELECT * FROM dev_machines WHERE id=$1 AND status='running' AND expires_at>NOW()`, token.MachineID); err != nil {
+	if err := tx.GetContext(ctx, &machine, `SELECT * FROM dev_machines WHERE id=$1 AND status='running'`, token.MachineID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil, nil
 		}
@@ -1375,8 +1366,8 @@ func (r *DevMachineRepository) CreateAccessTicket(ctx context.Context, ticket *d
 		JOIN dev_machine_services s ON s.id=$4 AND s.machine_id=m.id
 		JOIN workspace_members wm ON wm.workspace_id=m.workspace_id AND wm.user_id=$5 AND wm.role IN ('owner','admin','member')
 		WHERE m.workspace_id=$2 AND m.id=$3 AND m.created_by_user_id=$5
-		AND m.status='running' AND m.desired_status='running' AND m.expires_at>NOW()
-		AND s.status='running' AND $9>NOW() AND $9<=m.expires_at
+		AND m.status='running' AND m.desired_status='running'
+		AND s.status='running' AND $9>NOW()
 		AND ($10::uuid IS NULL OR (s.service_type='terminal' AND EXISTS (
 			SELECT 1 FROM dev_machine_terminal_sessions ts
 			WHERE ts.id=$10 AND ts.workspace_id=m.workspace_id AND ts.machine_id=m.id
@@ -1393,7 +1384,7 @@ func (r *DevMachineRepository) ConsumeAccessTicket(ctx context.Context, tokenHas
 		FROM dev_machines m, dev_machine_services s, workspace_members wm
 		WHERE t.token_hash=$1 AND t.bound_host=$2 AND t.status='active' AND t.expires_at>NOW()
 		AND m.id=t.machine_id AND t.workspace_id=m.workspace_id AND m.created_by_user_id=t.user_id
-		AND m.status='running' AND m.desired_status='running' AND m.expires_at>NOW()
+		AND m.status='running' AND m.desired_status='running'
 		AND s.id=t.service_id AND s.machine_id=m.id AND s.status='running'
 		AND wm.workspace_id=m.workspace_id AND wm.user_id=t.user_id AND wm.role IN ('owner','admin','member')
 		AND (t.terminal_session_id IS NULL OR EXISTS (
@@ -1416,8 +1407,8 @@ func (r *DevMachineRepository) CreateAccessSession(ctx context.Context, session 
 		JOIN dev_machine_services s ON s.id=$4 AND s.machine_id=m.id
 		JOIN workspace_members wm ON wm.workspace_id=m.workspace_id AND wm.user_id=$5 AND wm.role IN ('owner','admin','member')
 		WHERE m.workspace_id=$2 AND m.id=$3 AND m.created_by_user_id=$5
-		AND m.status='running' AND m.desired_status='running' AND m.expires_at>NOW()
-		AND s.status='running' AND $8>NOW() AND $8<=m.expires_at
+		AND m.status='running' AND m.desired_status='running'
+		AND s.status='running' AND $8>NOW()
 		RETURNING created_at, last_seen_at`, session.ID, session.WorkspaceID,
 		session.MachineID, session.ServiceID, session.UserID, session.TokenHash, session.BoundHost, session.ExpiresAt,
 	).Scan(&session.CreatedAt, &session.LastSeenAt)
@@ -1429,7 +1420,7 @@ func (r *DevMachineRepository) GetAccessSession(ctx context.Context, tokenHash, 
 		FROM dev_machines m, dev_machine_services s, workspace_members wm
 		WHERE a.token_hash=$1 AND a.bound_host=$2 AND a.revoked_at IS NULL AND a.expires_at>NOW()
 		AND m.id=a.machine_id AND a.workspace_id=m.workspace_id AND m.created_by_user_id=a.user_id
-		AND m.status='running' AND m.desired_status='running' AND m.expires_at>NOW()
+		AND m.status='running' AND m.desired_status='running'
 		AND s.id=a.service_id AND s.machine_id=m.id AND s.status='running'
 		AND wm.workspace_id=m.workspace_id AND wm.user_id=a.user_id AND wm.role IN ('owner','admin','member')
 		RETURNING a.*`, tokenHash, host)
@@ -1533,45 +1524,6 @@ func (r *DevMachineRepository) MachineNameExistsForUser(ctx context.Context, wor
 		SELECT 1 FROM dev_machines WHERE workspace_id=$1 AND created_by_user_id=$2 AND LOWER(name)=LOWER($3)
 	)`, workspaceID, userID, name)
 	return exists, err
-}
-
-func (r *DevMachineRepository) UpdateMachinePreferencesForUser(ctx context.Context, workspaceID, machineID, userID uuid.UUID, keepRunning *bool) (*domain.DevMachine, error) {
-	return r.updateMachinePreferences(ctx, workspaceID, machineID, &userID, keepRunning)
-}
-
-func (r *DevMachineRepository) updateMachinePreferences(ctx context.Context, workspaceID, machineID uuid.UUID, userID *uuid.UUID, keepRunning *bool) (*domain.DevMachine, error) {
-	var machine domain.DevMachine
-	var err error
-	if keepRunning == nil {
-		err = r.db.GetContext(ctx, &machine, `SELECT * FROM dev_machines
-			WHERE workspace_id=$1 AND id=$2 AND ($3::uuid IS NULL OR created_by_user_id=$3)
-			AND delete_requested_at IS NULL
-			AND status NOT IN ('tearing_down','destroyed','expired')
-			AND desired_status NOT IN ('tearing_down','destroyed','expired')`, workspaceID, machineID, userID)
-	} else {
-		err = r.db.GetContext(ctx, &machine, `UPDATE dev_machines SET keep_running=$1
-			WHERE workspace_id=$2 AND id=$3 AND ($4::uuid IS NULL OR created_by_user_id=$4)
-			AND delete_requested_at IS NULL
-			AND status NOT IN ('tearing_down','destroyed','expired')
-			AND desired_status NOT IN ('tearing_down','destroyed','expired')
-			RETURNING *`, *keepRunning, workspaceID, machineID, userID)
-	}
-	if err == nil {
-		return &machine, nil
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return nil, err
-	}
-	var existing *domain.DevMachine
-	if userID == nil {
-		existing, err = r.GetMachine(ctx, workspaceID, machineID)
-	} else {
-		existing, err = r.GetMachineForUser(ctx, workspaceID, machineID, *userID)
-	}
-	if err != nil || existing == nil {
-		return existing, err
-	}
-	return nil, ErrMachineStateConflict
 }
 
 func (r *DevMachineRepository) TouchMachineActivity(ctx context.Context, machineID uuid.UUID, at time.Time) error {
@@ -1735,78 +1687,6 @@ func (r *DevMachineRepository) BulkPurgeMachines(ctx context.Context, workspaceI
 	}
 	rows, _ := result.RowsAffected()
 	return int(rows), nil
-}
-
-// ListIdleMachines returns running machines idle for longer than the
-// workspace's idle_pause_minutes, least recently active first, for pausing.
-// Machines that agent tasks use stay running while the creator's and the
-// workspace's running machines are within max_machines_per_user and
-// max_concurrent_machines: only those ranked beyond a cap by recent activity
-// (for example after an admin lowered it) are paused. keep_running machines,
-// machines with an active run and machines with a pending operation are never
-// returned.
-func (r *DevMachineRepository) ListIdleMachines(ctx context.Context, limit int) ([]domain.DevMachine, error) {
-	var machines []domain.DevMachine
-	err := r.db.SelectContext(ctx, &machines, `WITH running AS (
-			SELECT id,
-				row_number() OVER (PARTITION BY workspace_id, created_by_user_id
-					ORDER BY COALESCE(last_activity_at,started_at,created_at) DESC, id) AS user_rank,
-				row_number() OVER (PARTITION BY workspace_id
-					ORDER BY COALESCE(last_activity_at,started_at,created_at) DESC, id) AS workspace_rank
-			FROM dev_machines WHERE status='running' AND desired_status='running'
-		)
-		SELECT m.* FROM dev_machines m
-		JOIN dev_machine_workspace_policies p ON p.workspace_id=m.workspace_id AND p.enabled
-		JOIN running ON running.id=m.id
-		WHERE m.status='running' AND m.desired_status='running' AND NOT m.keep_running
-		AND COALESCE(m.last_activity_at,m.started_at,m.created_at) + make_interval(mins => p.idle_pause_minutes) <= NOW()
-		AND (NOT EXISTS (SELECT 1 FROM agent_tasks t WHERE t.machine_id=m.id)
-			OR running.user_rank > p.max_machines_per_user OR running.workspace_rank > p.max_concurrent_machines)
-		AND NOT EXISTS (SELECT 1 FROM dev_machine_agent_runs r WHERE r.machine_id=m.id
-			AND r.status IN ('queued','starting','running','waiting_input'))
-		AND NOT EXISTS (SELECT 1 FROM dev_machine_operations o WHERE o.machine_id=m.id
-			AND o.status IN ('pending','leased'))
-		ORDER BY COALESCE(m.last_activity_at,m.started_at,m.created_at) LIMIT $1`, limit)
-	return machines, err
-}
-
-// HostCapacityReclaimKeyPrefix marks stop operations that free host capacity.
-const HostCapacityReclaimKeyPrefix = "host-capacity:"
-
-// hostCapacityReclaimIdleMinutes is how long a machine must have been idle
-// before host capacity pressure may stop it.
-const hostCapacityReclaimIdleMinutes = 10
-
-// ReclaimIdleMachine chooses the machine to stop when another machine waits
-// for host CPU or memory: the least recently active running or paused
-// machine, on any workspace, that has been idle for a while, is not kept
-// running and has no active run, active task or pending operation. Stopped
-// machines release their allocation; paused ones keep it. Nothing is chosen
-// while an earlier reclaim stop is still in flight, so pressure stops one
-// machine at a time.
-func (r *DevMachineRepository) ReclaimIdleMachine(ctx context.Context, waitingMachineID uuid.UUID) (*domain.DevMachine, error) {
-	var machine domain.DevMachine
-	err := r.db.GetContext(ctx, &machine, `SELECT m.* FROM dev_machines m
-		WHERE m.id<>$1 AND m.status IN ('running','paused') AND m.desired_status=m.status
-		AND NOT m.keep_running AND NOT m.environment_builder AND m.delete_requested_at IS NULL
-		AND COALESCE(m.last_activity_at,m.started_at,m.created_at) + make_interval(mins => $2) <= NOW()
-		AND NOT EXISTS (SELECT 1 FROM dev_machine_agent_runs r WHERE r.machine_id=m.id
-			AND r.status IN ('queued','starting','running','waiting_input'))
-		AND NOT EXISTS (SELECT 1 FROM agent_tasks t WHERE t.machine_id=m.id
-			AND t.state NOT IN ('completed','cancelled','failed','blocked','awaiting_review'))
-		AND NOT EXISTS (SELECT 1 FROM dev_machine_operations o WHERE o.machine_id=m.id
-			AND o.status IN ('pending','leased'))
-		AND NOT EXISTS (SELECT 1 FROM dev_machine_operations o WHERE o.action='stop'
-			AND o.status IN ('pending','leased') AND starts_with(o.idempotency_key, $3))
-		ORDER BY COALESCE(m.last_activity_at,m.started_at,m.created_at), m.id LIMIT 1`,
-		waitingMachineID, hostCapacityReclaimIdleMinutes, HostCapacityReclaimKeyPrefix)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	return &machine, nil
 }
 
 func (r *DevMachineRepository) ListScopeSettings(ctx context.Context, workspaceID uuid.UUID) ([]domain.DevMachineScopeSetting, error) {

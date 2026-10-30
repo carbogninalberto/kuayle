@@ -190,7 +190,7 @@ func (r *DevMachineRepository) SetListeningPorts(ctx context.Context, machineID 
 // ListPortScanMachines returns running machines, least recently scanned first.
 func (r *DevMachineRepository) ListPortScanMachines(ctx context.Context, limit int) ([]domain.DevMachine, error) {
 	machines := []domain.DevMachine{}
-	err := r.db.SelectContext(ctx, &machines, `SELECT * FROM dev_machines WHERE status='running' AND desired_status='running' AND expires_at>now()
+	err := r.db.SelectContext(ctx, &machines, `SELECT * FROM dev_machines WHERE status='running' AND desired_status='running'
  ORDER BY listening_ports_at NULLS FIRST,id LIMIT $1`, limit)
 	return machines, err
 }
@@ -406,7 +406,7 @@ func (r *AgentTaskRepository) RequestPreview(ctx context.Context, ws, id uuid.UU
 	}
 	var generation int64
 	err = tx.GetContext(ctx, &generation, `SELECT m.generation FROM dev_machines m JOIN dev_machine_checkouts c ON c.machine_id=m.id AND c.id=$3 AND c.status='ready'
- WHERE m.id=$1 AND m.workspace_id=$2 AND m.status='running' AND m.desired_status='running' AND m.expires_at>now()`, task.MachineID, task.WorkspaceID, task.CheckoutID)
+ WHERE m.id=$1 AND m.workspace_id=$2 AND m.status='running' AND m.desired_status='running'`, task.MachineID, task.WorkspaceID, task.CheckoutID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrPreviewUnavailable
 	}

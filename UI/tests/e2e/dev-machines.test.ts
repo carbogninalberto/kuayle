@@ -19,7 +19,6 @@ function createRequestDelay() {
 test('lists the tasks on a machine and handles actions without applying stale poll or route responses', async ({ page }) => {
 	const machineId = '00000000-0000-0000-0000-000000000050';
 	let pauseRequests = 0;
-	let keepRunningRequests = 0;
 	let machineRequestDelay: ReturnType<typeof createRequestDelay> | null = null;
 	const unhandledPaths: string[] = [];
 	const machine = {
@@ -41,12 +40,9 @@ test('lists the tasks on a machine and handles actions without applying stale po
 		memory_mb: 8192,
 		disk_gb: 20,
 		pids_limit: 1024,
-		max_runtime_minutes: 240,
-		keep_running: false,
 		environment_builder: false,
 		created_at: '2026-07-13T00:00:00Z',
-		updated_at: '2026-07-13T00:00:00Z',
-		expires_at: '2099-07-13T04:00:00Z'
+		updated_at: '2026-07-13T00:00:00Z'
 	};
 	const secondMachineId = '00000000-0000-0000-0000-000000000059';
 	const secondMachine = {
@@ -129,11 +125,6 @@ test('lists the tasks on a machine and handles actions without applying stale po
 		}
 		if (path === '/api/workspaces/test/dev-machines') {
 			return route.fulfill({ json: { data: [machine], total_count: 1, page: 1, has_more: false } });
-		}
-		if (path === `/api/workspaces/test/dev-machines/${machineId}` && request.method() === 'PATCH') {
-			keepRunningRequests += 1;
-			Object.assign(machine, request.postDataJSON());
-			return route.fulfill({ json: machine });
 		}
 		if (path === `/api/workspaces/test/dev-machines/${machineId}`) {
 			const response = { ...machine };
@@ -239,9 +230,7 @@ test('lists the tasks on a machine and handles actions without applying stale po
 					max_concurrent_machines: 5,
 					max_machines_per_user: 2,
 					max_daily_agent_runs: 25,
-					max_runtime_minutes: 480,
 					max_disk_gb: 100,
-					idle_pause_minutes: 240,
 					allowed_providers: ['opencode'],
 					allowed_repositories: [],
 					allow_custom_providers: false,
@@ -260,6 +249,8 @@ test('lists the tasks on a machine and handles actions without applying stale po
 	await expect(page.getByRole('heading', { name: 'Dev Machines' })).toBeVisible();
 	await expect(page.getByRole('tab', { name: 'Machines' })).toHaveAttribute('aria-selected', 'true');
 	const machineLink = page.getByRole('link', { name: /Runtime smoke machine/ });
+	// Machines have no lifetime: the card shows no time left.
+	await expect(machineLink).not.toContainText(/\d+[hm]\b/);
 	await machineLink.evaluate((element) => {
 		const link = element as HTMLAnchorElement;
 		const url = new URL(link.href);
@@ -293,8 +284,9 @@ test('lists the tasks on a machine and handles actions without applying stale po
 		)
 		.toBe(true);
 	await expect(page.getByTitle('Save development environment')).toHaveCount(0);
-	await page.getByRole('switch', { name: 'Keep running' }).click();
-	await expect.poll(() => keepRunningRequests).toBe(1);
+	// Machines stay up until their user pauses or stops them: no inactivity controls.
+	await expect(page.getByRole('switch', { name: 'Keep running' })).toHaveCount(0);
+	await expect(page.getByRole('heading', { name: 'Inactivity' })).toHaveCount(0);
 	// Agents run only as tasks: no manual run controls, and each task links to its chat.
 	await expect(page.getByRole('button', { name: 'Run agent' })).toHaveCount(0);
 	const tasks = page.locator('#tasks');
@@ -346,7 +338,7 @@ test('lists the tasks on a machine and handles actions without applying stale po
 	expect(unhandledPaths).toEqual([]);
 });
 
-test('creates a generic machine with an accessible size and inactivity controls', async ({ page }) => {
+test('creates a generic machine with an accessible size and no lifetime controls', async ({ page }) => {
 	let createPayload: Record<string, unknown> | undefined;
 	const availabilityRequests: string[] = [];
 	const takenNameDelay = createRequestDelay();
@@ -438,9 +430,7 @@ test('creates a generic machine with an accessible size and inactivity controls'
 					max_concurrent_machines: 5,
 					max_machines_per_user: 2,
 					max_daily_agent_runs: 25,
-					max_runtime_minutes: 480,
 					max_disk_gb: 100,
-					idle_pause_minutes: 240,
 					allowed_providers: ['opencode'],
 					allowed_repositories: [],
 					allow_custom_providers: false
@@ -491,7 +481,7 @@ test('creates a generic machine with an accessible size and inactivity controls'
 	await expect(dialog.getByText('4 vCPU · 8 GB RAM · 50 GB disk', { exact: true })).toBeVisible();
 	await dialog.getByRole('slider', { name: 'Disk' }).press('End');
 	await expect(dialog.getByRole('slider', { name: 'Disk' })).toHaveAttribute('aria-valuetext', '100 GB');
-	await dialog.getByRole('switch', { name: 'Keep running' }).click();
+	await expect(dialog.getByRole('switch', { name: 'Keep running' })).toHaveCount(0);
 	await dialog.getByRole('button', { name: 'Create machine' }).click();
 	await expect.poll(() => createPayload).toBeTruthy();
 	expect(createPayload).toMatchObject({
@@ -500,9 +490,9 @@ test('creates a generic machine with an accessible size and inactivity controls'
 		cpu_millis: 4000,
 		memory_mb: 8192,
 		disk_gb: 100,
-		keep_running: true,
 		services: { ide: true, browser: true }
 	});
+	expect(createPayload).not.toHaveProperty('keep_running');
 	expect(availabilityRequests).toContain('taken-machine');
 	expect(availabilityRequests).toContain('fresh-machine');
 	expect(createPayload).not.toHaveProperty('repo');
@@ -580,9 +570,7 @@ test('snaps slider keyboard input and raises memory with vCPU', async ({ page })
 					max_concurrent_machines: 5,
 					max_machines_per_user: 2,
 					max_daily_agent_runs: 25,
-					max_runtime_minutes: 480,
 					max_disk_gb: 75,
-					idle_pause_minutes: 240,
 					allowed_providers: ['opencode'],
 					allowed_repositories: [],
 					allow_custom_providers: false,
@@ -698,9 +686,7 @@ test('creates an environment builder with policy-compatible custom resources', a
 					max_concurrent_machines: 5,
 					max_machines_per_user: 2,
 					max_daily_agent_runs: 25,
-					max_runtime_minutes: 480,
 					max_disk_gb: 75,
-					idle_pause_minutes: 240,
 					allowed_providers: ['opencode'],
 					allowed_repositories: [],
 					allow_custom_providers: false,
@@ -747,9 +733,9 @@ test('creates an environment builder with policy-compatible custom resources', a
 		services: { ide: true, browser: false },
 		agents: [],
 		env_vars: [],
-		keep_running: true,
 		environment_builder: true
 	});
+	expect(createPayload).not.toHaveProperty('keep_running');
 });
 
 test('blocks environment builder creation when the policy has no disk options', async ({ page }) => {
@@ -803,9 +789,7 @@ test('blocks environment builder creation when the policy has no disk options', 
 					max_concurrent_machines: 5,
 					max_machines_per_user: 2,
 					max_daily_agent_runs: 25,
-					max_runtime_minutes: 480,
 					max_disk_gb: 100,
-					idle_pause_minutes: 240,
 					allowed_providers: ['opencode'],
 					allowed_repositories: [],
 					allow_custom_providers: false,
@@ -867,12 +851,9 @@ test('retries a code-server launch while a paused machine resumes', async ({ pag
 		memory_mb: 8192,
 		disk_gb: 50,
 		pids_limit: 1024,
-		max_runtime_minutes: 240,
-		keep_running: false,
 		environment_builder: true,
 		created_at: '2026-07-13T00:00:00Z',
-		updated_at: '2026-07-13T00:00:00Z',
-		expires_at: '2099-07-13T04:00:00Z'
+		updated_at: '2026-07-13T00:00:00Z'
 	};
 	const unhandledPaths: string[] = [];
 
@@ -971,8 +952,7 @@ test('retries a code-server launch while a paused machine resumes', async ({ pag
 				status: 201,
 				json: {
 					status: 'ready',
-					launch_url: 'https://code.example.test/?ticket=redacted',
-					expires_at: '2099-07-13T04:00:00Z'
+					launch_url: 'https://code.example.test/?ticket=redacted'
 				}
 			});
 		}
@@ -985,9 +965,7 @@ test('retries a code-server launch while a paused machine resumes', async ({ pag
 					max_concurrent_machines: 5,
 					max_machines_per_user: 2,
 					max_daily_agent_runs: 25,
-					max_runtime_minutes: 480,
 					max_disk_gb: 100,
-					idle_pause_minutes: 240,
 					allowed_providers: ['opencode'],
 					allowed_repositories: [],
 					allow_custom_providers: false,
@@ -1116,12 +1094,9 @@ test('keeps multiple docked terminals alive across collapse and navigation', asy
 			memory_mb: 8192,
 			disk_gb: 50,
 			pids_limit: 1024,
-			max_runtime_minutes: 240,
-			keep_running: false,
 			environment_builder: false,
 			created_at: '2026-07-13T00:00:00Z',
-			updated_at: '2026-07-13T00:00:00Z',
-			expires_at: '2099-07-13T04:00:00Z'
+			updated_at: '2026-07-13T00:00:00Z'
 		};
 		const checkout = {
 			id: checkoutId,
@@ -1571,7 +1546,7 @@ test('keeps Dev Machines in Settings with machine and policy tabs, and redirects
 		if (path === '/api/workspaces/test/dev-machine-policy') {
 			policyRequests++;
 			return route.fulfill({
-				json: { workspace_id: workspaceId, enabled: true, max_concurrent_machines: 20, max_machines_per_user: 20, max_daily_agent_runs: 25, max_runtime_minutes: 480, max_disk_gb: 100, idle_pause_minutes: 240, allowed_providers: [], allowed_repositories: [], allow_custom_providers: false, disk_quota_mode: 'hard' }
+				json: { workspace_id: workspaceId, enabled: true, max_concurrent_machines: 20, max_machines_per_user: 20, max_daily_agent_runs: 25, max_disk_gb: 100, allowed_providers: [], allowed_repositories: [], allow_custom_providers: false, disk_quota_mode: 'hard' }
 			});
 		}
 		if (path === '/api/workspaces/test/github/status') return route.fulfill({ json: { installed: false, repos: [] } });
@@ -1650,12 +1625,9 @@ test('cancels Issue Machine Picker work when the dialog is dismissed', async ({ 
 		memory_mb: 8192,
 		disk_gb: 50,
 		pids_limit: 1024,
-		max_runtime_minutes: 240,
-		keep_running: false,
 		environment_builder: false,
 		created_at: '2026-07-13T00:00:00Z',
-		updated_at: '2026-07-13T00:00:00Z',
-		expires_at: '2099-07-13T04:00:00Z'
+		updated_at: '2026-07-13T00:00:00Z'
 	};
 	const checkout = {
 		id: checkoutId,
@@ -1774,8 +1746,7 @@ test('cancels Issue Machine Picker work when the dialog is dismissed', async ({ 
 				status: 201,
 				json: {
 					status: 'ready',
-					launch_url: 'https://code.example.test/?ticket=redacted',
-					expires_at: '2099-07-13T04:00:00Z'
+					launch_url: 'https://code.example.test/?ticket=redacted'
 				}
 			});
 			delay?.markCompleted();
@@ -1994,12 +1965,9 @@ test('bounds machine telemetry during long-running sessions', async ({ page }) =
 		memory_mb: 8192,
 		disk_gb: 20,
 		pids_limit: 1024,
-		max_runtime_minutes: 240,
-		keep_running: false,
 		environment_builder: false,
 		created_at: '2026-07-13T00:00:00Z',
-		updated_at: '2026-07-13T00:00:00Z',
-		expires_at: '2099-07-13T04:00:00Z'
+		updated_at: '2026-07-13T00:00:00Z'
 	};
 	const machineEvents = Array.from({ length: 450 }, (_, index) => ({
 		id: index + 1,
@@ -2175,9 +2143,7 @@ test('creates a headless machine with a new built-in provider', async ({ page })
 					max_concurrent_machines: 5,
 					max_machines_per_user: 2,
 					max_daily_agent_runs: 25,
-					max_runtime_minutes: 480,
 					max_disk_gb: 100,
-					idle_pause_minutes: 240,
 					allowed_providers: providers.map((provider) => provider.id),
 					allowed_repositories: [],
 					allow_custom_providers: false
@@ -2288,9 +2254,7 @@ test('creates a Codex machine without an API key for subscription sign-in', asyn
 					max_concurrent_machines: 5,
 					max_machines_per_user: 2,
 					max_daily_agent_runs: 25,
-					max_runtime_minutes: 480,
 					max_disk_gb: 100,
-					idle_pause_minutes: 240,
 					allowed_providers: providers.map((provider) => provider.id),
 					allowed_repositories: [],
 					allow_custom_providers: false

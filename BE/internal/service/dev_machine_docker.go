@@ -21,9 +21,9 @@ const (
 )
 
 // dockerEnvVars encrypts a machine's daemon TLS material as scoped secrets
-// that expire with the machine.
+// that last as long as the machine.
 func (s *DevMachineService) dockerEnvVars(machine *domain.DevMachine) ([]domain.DevMachineEnvVar, error) {
-	material, err := dockertls.New(machine.RoutingKey, machine.ExpiresAt)
+	material, err := dockertls.New(machine.RoutingKey)
 	if err != nil {
 		return nil, fmt.Errorf("issue docker TLS material: %w", err)
 	}
@@ -43,7 +43,7 @@ func (s *DevMachineService) dockerEnvVars(machine *domain.DevMachine) ([]domain.
 		}
 		envVars = append(envVars, domain.DevMachineEnvVar{
 			ID: uuid.New(), MachineID: machine.ID, TargetService: value.target, Name: value.name,
-			EncryptedValue: encrypted, EncryptionKeyVersion: 1, IsSecret: true, ExpiresAt: &machine.ExpiresAt,
+			EncryptedValue: encrypted, EncryptionKeyVersion: 1, IsSecret: true,
 		})
 	}
 	return envVars, nil

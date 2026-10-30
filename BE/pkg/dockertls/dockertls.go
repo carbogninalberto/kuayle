@@ -25,12 +25,15 @@ type Material struct {
 	ClientKey  string
 }
 
+// Validity is how long the material stays valid. Machines run until they are
+// torn down, which discards the per-machine CA, so it outlives any machine.
+const Validity = 10 * 365 * 24 * time.Hour
+
 // New issues the TLS material of the daemon reachable as "docker"
-// and "<routingKey>-docker" on the machine network, valid a day beyond the
-// machine's expiry.
-func New(routingKey string, expiresAt time.Time) (Material, error) {
+// and "<routingKey>-docker" on the machine network.
+func New(routingKey string) (Material, error) {
 	notBefore := time.Now().Add(-time.Hour)
-	notAfter := expiresAt.Add(24 * time.Hour)
+	notAfter := notBefore.Add(Validity)
 	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return Material{}, err

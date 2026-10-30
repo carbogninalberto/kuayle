@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -136,7 +135,7 @@ func portMachine() (*domain.DevMachine, []domain.DevMachineService) {
 	creator := uuid.New()
 	container := "developer"
 	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), CreatedByUserID: &creator, RoutingKey: "0123456789abcdef0123",
-		Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour)}
+		Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning}
 	services := []domain.DevMachineService{
 		{ID: uuid.New(), MachineID: machine.ID, ServiceType: "ide", Status: "running", InternalPort: 8080, ContainerID: &container},
 		{ID: uuid.New(), MachineID: machine.ID, ServiceType: "terminal", Status: "running", InternalPort: 7681, ContainerID: &container},

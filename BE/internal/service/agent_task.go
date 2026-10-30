@@ -436,14 +436,11 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 	if task.State != "preparing" || task.MachineID == nil {
 		return nil, ErrInvalidOperation
 	}
-	machine, err := s.GetForUser(ctx, task.WorkspaceID, *task.MachineID, task.CreatorID)
-	if err != nil {
+	if _, err := s.GetForUser(ctx, task.WorkspaceID, *task.MachineID, task.CreatorID); err != nil {
 		return nil, err
 	}
-	timeout := min(3600, int(time.Until(machine.ExpiresAt).Seconds())-5, machine.MaxRuntimeMinutes*60)
-	if timeout < 30 {
-		return nil, ErrInvalidOperation
-	}
+	// Each attempt has its own time limit; the machine itself has none.
+	const timeout = 3600
 	var command []string
 	if len(task.ValidationCommand) > 0 && json.Unmarshal(task.ValidationCommand, &command) != nil {
 		return nil, ErrInvalidMachineInput

@@ -610,11 +610,10 @@ preparing task may already have started native execution between worker polls.
 An authorized repeat cancellation request can retry failed cleanup operations
 once their underlying cause has been repaired.
 
-After native/preparation operations settle, cancellation pauses an automatically
-allocated running machine, or stops an incomplete one, preserving its volume and
-worktrees. It does not pause a reused manual machine or one serving another
-active task. A later manual start superseding an already completed cleanup is
-respected. Completion waits for the queued machine cleanup operation.
+Cancellation, failure and completion leave the task's machine as it is: a
+machine Kuayle created for the task and a reused one both stay running, with
+their volume and worktrees, so a later task can reuse them. Machines are never
+paused, stopped or torn down on a timer either; only their user does that.
 
 Preparation resolves the task's repository from the issue, project, team and
 workspace development settings (the most specific configured scope wins), so an
@@ -628,12 +627,22 @@ expected task generation and a request UUID. Duplicate requests return the same
 attempt; different payloads conflict. Retries allocate a new native run ID and
 invalidate old worker leases while retaining the task's checkout and branch.
 Retried task-owned machines resume through existing lifecycle policy checks and
-task fencing. Reservation reuses the creator's own running, then paused, then
-stopped machine of the same environment, whatever repository it served before;
-preparation starts a reused paused or stopped machine and waits for a start
-already requested. Each start is keyed by task, task generation and machine
-generation, so a machine paused again is started again while a start that
-failed for good is not retried in a loop. An exhausted checkout is requeued at most once per explicit task
+task fencing. A task keeps the machine it was given; when it has none,
+reservation reuses a running, idle machine of its creator before creating a new
+task machine: same workspace and environment (so the same profile), not an
+Environment Builder or being deleted, still allowed by the enabled policy (sudo
+and Docker machines only while those stay allowed), and without an active run,
+another active task, or a queued lifecycle, snapshot, validation, publication,
+check or custom tool operation. A machine already used for the same issue comes
+first, then the most recently active. Paused and stopped machines are not
+chosen, since their user paused or stopped them. The full rule is in
+[task machine reuse](../../TECHNICAL.md#resource-limits-and-quotas). Each task
+has its own checkout, and the machine locks serialize attempts, checks and tool
+runs on a shared machine. Preparation starts the task's own machine when its
+user paused or stopped it, and waits for a start already requested. Each start
+is keyed by task, task generation and machine generation, so a machine paused
+again is started again while a start that failed for good is not retried in a
+loop. An exhausted checkout is requeued at most once per explicit task
 generation, so polling cannot silently produce unlimited setup retries.
 A new task machine is a custom-size machine with the workspace policy's task
 machine CPU, memory and disk (default 4 vCPU, 8 GB, 20 GB), headless unless an

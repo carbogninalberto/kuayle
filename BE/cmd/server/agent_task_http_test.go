@@ -62,7 +62,7 @@ func TestAgentTaskHTTPPrivateControlsAndRecovery(t *testing.T) {
 	var demoDenied atomic.Bool
 	middleware.devMachineDemoGuard = mw.DevMachineDemoGuard(func(uuid.UUID) bool { return !demoDenied.Load() })
 	machines := repository.NewDevMachineRepository(db)
-	require.NoError(t, machines.UpsertPolicy(ctx, &domain.DevMachineWorkspacePolicy{WorkspaceID: ws, Enabled: true, MaxConcurrentMachines: 10, MaxMachinesPerUser: 10, MaxDailyAgentRuns: 25, MaxRuntimeMinutes: 60, MaxDiskGB: 100, IdlePauseMinutes: 15, AllowedProviders: json.RawMessage(`["codex"]`), AllowedRepositories: json.RawMessage(`[]`)}))
+	require.NoError(t, machines.UpsertPolicy(ctx, &domain.DevMachineWorkspacePolicy{WorkspaceID: ws, Enabled: true, MaxConcurrentMachines: 10, MaxMachinesPerUser: 10, MaxDailyAgentRuns: 25, MaxDiskGB: 100, AllowedProviders: json.RawMessage(`["codex"]`), AllowedRepositories: json.RawMessage(`[]`)}))
 	machineSvc := service.NewDevMachineService(machines, agent.NewRegistry(agent.NewCodexProvider("test")), true, "machines.test.invalid", make([]byte, 32), time.Minute, service.DevMachineImages{})
 	taskRepo := repository.NewAgentTaskRepository(db)
 	taskSvc := service.NewAgentTaskService(taskRepo, machineSvc, nil)
@@ -222,7 +222,7 @@ func TestAgentTaskHTTPPrivateControlsAndRecovery(t *testing.T) {
 
 	// Neither session nor PAT calls to older machine reads can bypass task scope.
 	machineID := uuid.New()
-	_, err = db.Exec(`INSERT INTO dev_machines(id,workspace_id,created_by_user_id,routing_key,name,status,desired_status,generation,repo_url,repo_provider,repo_owner,repo_name,base_branch,working_branch,machine_size,cpu_millis,memory_mb,disk_gb,max_runtime_minutes,expires_at) VALUES($1,$2,$3,$4,'Task HTTP','running','running',1,'','github','','','','','small',1000,2048,20,60,now()+interval '1 hour')`, machineID, ws, user, strings.ReplaceAll(machineID.String(), "-", "")[:16])
+	_, err = db.Exec(`INSERT INTO dev_machines(id,workspace_id,created_by_user_id,routing_key,name,status,desired_status,generation,repo_url,repo_provider,repo_owner,repo_name,base_branch,working_branch,machine_size,cpu_millis,memory_mb,disk_gb) VALUES($1,$2,$3,$4,'Task HTTP','running','running',1,'','github','','','','','small',1000,2048,20)`, machineID, ws, user, strings.ReplaceAll(machineID.String(), "-", "")[:16])
 	require.NoError(t, err)
 	_, err = db.Exec(`INSERT INTO dev_machine_agent_runs(id,workspace_id,machine_id,task_id,provider_id,mode,prompt,command_argv,max_runtime_seconds,status) VALUES($1,$2,$3,$4,'codex','autonomous','Private task prompt','["codex"]',60,'cancelled')`, retried.RunID, ws, machineID, task.ID)
 	require.NoError(t, err)

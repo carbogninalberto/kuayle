@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { Plus, GitBranch, Clock3, ChevronLeft, ChevronRight, Trash2 } from '@lucide/svelte';
+	import { Plus, GitBranch, ChevronLeft, ChevronRight, Trash2 } from '@lucide/svelte';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import * as Card from '$lib/components/ui/card';
 	import { bulkPermanentDeleteDevMachines, listDevMachines } from '$lib/api/dev-machines';
@@ -29,13 +29,8 @@
 	let cleanupConfirm = $state(false);
 	let cleanupBusy = $state(false);
 	let workspaceRole = $state('');
-	let now = $state(Date.now());
-	let clock: ReturnType<typeof setInterval> | undefined;
-
 	onMount(() => {
 		void load();
-		clock = setInterval(() => (now = Date.now()), 30000);
-		return () => clock && clearInterval(clock);
 	});
 
 	async function load(pageNum = 1) {
@@ -58,11 +53,6 @@
 		} finally {
 			loading = false;
 		}
-	}
-
-	function remaining(machine: DevMachine) {
-		const minutes = Math.max(0, Math.ceil((new Date(machine.expires_at).getTime() - now) / 60000));
-		return minutes > 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m` : `${minutes}m`;
 	}
 
 	async function cleanupOldMachines() {
@@ -97,7 +87,7 @@
 	{:else}
 		<div class="grid gap-3 sm:grid-cols-2">
 			{#each machines as machine (machine.id)}
-				<a href="/{slug}/machines/{machine.id}" class="group block"><Card.Root class="h-full transition group-hover:border-[var(--color-text-tertiary)]"><Card.Header><div class="flex items-start justify-between gap-3"><div class="min-w-0"><Card.Title class="truncate text-sm">{machine.name}</Card.Title><Card.Description class="truncate">{machine.repo_owner && machine.repo_name ? `${machine.repo_owner}/${machine.repo_name}` : m['machines.no_repository']()}</Card.Description></div><MachineStatusBadge status={machine.status} /></div></Card.Header><Card.Content><div class="flex items-center gap-3 text-[11px] text-muted-foreground"><span class="flex min-w-0 items-center gap-1"><GitBranch size={12} class="shrink-0" /><span class="truncate">{machine.working_branch || m['machines.waiting_checkout']()}</span></span></div></Card.Content><Card.Footer class="justify-between border-t pt-3 text-[11px]"><span class="capitalize text-muted-foreground">{machine.machine_size} · {machine.cpu_millis / 1000} CPU · {machine.memory_mb / 1024} GB</span><span class="flex items-center gap-1 text-muted-foreground"><Clock3 size={12} />{remaining(machine)}</span></Card.Footer></Card.Root></a>
+				<a href="/{slug}/machines/{machine.id}" class="group block"><Card.Root class="h-full transition group-hover:border-[var(--color-text-tertiary)]"><Card.Header><div class="flex items-start justify-between gap-3"><div class="min-w-0"><Card.Title class="truncate text-sm">{machine.name}</Card.Title><Card.Description class="truncate">{machine.repo_owner && machine.repo_name ? `${machine.repo_owner}/${machine.repo_name}` : m['machines.no_repository']()}</Card.Description></div><MachineStatusBadge status={machine.status} /></div></Card.Header><Card.Content><div class="flex items-center gap-3 text-[11px] text-muted-foreground"><span class="flex min-w-0 items-center gap-1"><GitBranch size={12} class="shrink-0" /><span class="truncate">{machine.working_branch || m['machines.waiting_checkout']()}</span></span></div></Card.Content><Card.Footer class="justify-between border-t pt-3 text-[11px]"><span class="capitalize text-muted-foreground">{machine.machine_size} · {machine.cpu_millis / 1000} CPU · {machine.memory_mb / 1024} GB</span></Card.Footer></Card.Root></a>
 			{/each}
 		</div>
 		{#if totalCount > machines.length || hasMore}

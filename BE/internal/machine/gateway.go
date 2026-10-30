@@ -162,7 +162,7 @@ func (g *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		http.Error(writer, "not found", http.StatusNotFound)
 		return
 	}
-	if machine.Status != domain.DevMachineStatusRunning || machine.DesiredStatus != domain.DevMachineStatusRunning || !machine.ExpiresAt.After(time.Now().UTC()) {
+	if machine.Status != domain.DevMachineStatusRunning || machine.DesiredStatus != domain.DevMachineStatusRunning {
 		g.audit(request, machine, service, nil, "denied", "machine_not_running", http.StatusServiceUnavailable)
 		http.Error(writer, "machine is not running", http.StatusServiceUnavailable)
 		return
@@ -275,9 +275,6 @@ func (g *Gateway) exchangeTicket(writer http.ResponseWriter, request *http.Reque
 		return
 	}
 	expiresAt := time.Now().UTC().Add(g.sessionTTL)
-	if machine.ExpiresAt.Before(expiresAt) {
-		expiresAt = machine.ExpiresAt
-	}
 	session := &domain.DevMachineAccessSession{
 		ID: uuid.New(), WorkspaceID: ticket.WorkspaceID, MachineID: ticket.MachineID, ServiceID: ticket.ServiceID,
 		UserID: ticket.UserID, TokenHash: hashToken(rawSession), BoundHost: host,
@@ -675,7 +672,7 @@ func (g *Gateway) ApproveCertificate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	if !routeMatchesHost(m, s, key, kind) || m.Status != domain.DevMachineStatusRunning || m.DesiredStatus != domain.DevMachineStatusRunning || !m.ExpiresAt.After(time.Now()) {
+	if !routeMatchesHost(m, s, key, kind) || m.Status != domain.DevMachineStatusRunning || m.DesiredStatus != domain.DevMachineStatusRunning {
 		http.Error(w, "machine service is not running", http.StatusForbidden)
 		return
 	}

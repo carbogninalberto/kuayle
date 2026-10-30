@@ -181,7 +181,6 @@
 				max_concurrent_machines: policy.max_concurrent_machines,
 				max_machines_per_user: policy.max_machines_per_user,
 				max_daily_agent_runs: policy.max_daily_agent_runs,
-				max_runtime_minutes: policy.max_runtime_minutes,
 				max_disk_gb: policy.max_disk_gb,
 				allowed_providers: policy.allowed_providers,
 				allowed_repositories: repositories.split('\n').map((line) => line.trim()).filter(Boolean),
@@ -191,7 +190,6 @@
 				allow_sudo: policy.allow_sudo ?? false,
 				agent_git_name: (policy.agent_git_name ?? '').trim(),
 				agent_git_email: (policy.agent_git_email ?? '').trim(),
-				idle_pause_minutes: policy.idle_pause_minutes,
 				task_machine_cpu_millis: taskMachine.cpu_millis,
 				task_machine_memory_mb: taskMachine.memory_mb,
 				task_machine_disk_gb: taskMachine.disk_gb
@@ -237,7 +235,7 @@
 				memory_mb: builderResources.memory_mb,
 				disk_gb: builderResources.disk_gb,
 				services: { ide: true, browser: false },
-				agents: [], env_vars: [], keep_running: true, environment_builder: true
+				agents: [], env_vars: [], environment_builder: true
 			});
 			appToast.success(m['settings.dev_machines.env_queued']());
 			environmentBuilderOpen = false;
@@ -296,9 +294,7 @@
 				<label class="space-y-1"><Label>{m['settings.dev_machines.concurrent']()}</Label><Input type="number" min="0" max="100" bind:value={policy.max_concurrent_machines} /></label>
 				<label class="space-y-1"><Label>{m['settings.dev_machines.per_user']()}</Label><Input type="number" min="0" max="50" bind:value={policy.max_machines_per_user} /></label>
 				<label class="space-y-1"><Label>{m['settings.dev_machines.daily_runs']()}</Label><Input type="number" min="0" bind:value={policy.max_daily_agent_runs} /></label>
-				<label class="space-y-1"><Label>{m['settings.dev_machines.max_runtime']()}</Label><Input type="number" min="5" max="1440" bind:value={policy.max_runtime_minutes} /></label>
 				<label class="space-y-1"><Label>{m['settings.dev_machines.max_disk']()}</Label><Input type="number" min="20" max="2048" step="2" bind:value={policy.max_disk_gb} /></label>
-				<label class="space-y-1"><Label>{m['settings.dev_machines.idle_pause']()}</Label><Input type="number" min="5" max="10080" bind:value={policy.idle_pause_minutes} /></label>
 			</div>
 		</section>
 		<section class="space-y-4 rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-5" aria-labelledby="task-machines-title">

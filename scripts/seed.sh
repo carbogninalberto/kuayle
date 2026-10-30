@@ -413,14 +413,12 @@ INSERT INTO issue_subscribers (issue_id, user_id) VALUES
 -- ============================================================
 INSERT INTO dev_machine_workspace_policies (
     workspace_id, enabled, max_concurrent_machines, max_machines_per_user,
-    max_daily_agent_runs, max_runtime_minutes, max_disk_gb, allowed_providers,
-    idle_pause_minutes
+    max_daily_agent_runs, max_disk_gb, allowed_providers
 ) VALUES (
     'b0000000-0000-0000-0000-000000000001',
     TRUE,
-    3, 1, 20, 480, 50,
-    '["claude-code","opencode","codex"]'::jsonb,
-    240
+    3, 1, 20, 50,
+    '["claude-code","opencode","codex"]'::jsonb
 );
 
 COMMIT;

@@ -64,10 +64,8 @@ export interface DevMachine {
 	memory_mb: number;
 	disk_gb: number;
 	pids_limit: number;
-	max_runtime_minutes: number;
 	environment_id?: string;
 	repository_affinity_id?: string;
-	keep_running: boolean;
 	environment_builder: boolean;
 	last_activity_at?: string;
 	delete_requested_at?: string;
@@ -79,7 +77,6 @@ export interface DevMachine {
 	updated_at: string;
 	started_at?: string;
 	stopped_at?: string;
-	expires_at: string;
 	teardown_at?: string;
 	destroyed_at?: string;
 	/** A requested size the manager has not applied yet. */
@@ -217,7 +214,6 @@ interface CreateDevMachineBaseInput {
 		secret?: boolean;
 	}>;
 	environment_id?: string;
-	keep_running: boolean;
 	environment_builder?: boolean;
 }
 
@@ -268,7 +264,6 @@ export interface DevMachinePolicy {
 	max_concurrent_machines: number;
 	max_machines_per_user: number;
 	max_daily_agent_runs: number;
-	max_runtime_minutes: number;
 	max_disk_gb: number;
 	allowed_providers: string[];
 	allowed_repositories: string[];
@@ -280,7 +275,6 @@ export interface DevMachinePolicy {
 	allow_sudo?: boolean;
 	agent_git_name?: string | null;
 	agent_git_email?: string | null;
-	idle_pause_minutes: number;
 	// Size of the machines Kuayle creates itself for agent tasks.
 	task_machine_cpu_millis: number;
 	task_machine_memory_mb: number;

@@ -57,15 +57,15 @@ func TestDevMachineCustomSizeValidation(t *testing.T) {
 }
 
 func TestDevMachinePresetSizesRemainUnchanged(t *testing.T) {
-	expected := map[string][4]int{
-		"small":  {2000, 4096, 20, 120},
-		"medium": {4000, 8192, 50, 240},
-		"large":  {8000, 16384, 100, 480},
+	expected := map[string][3]int{
+		"small":  {2000, 4096, 20},
+		"medium": {4000, 8192, 50},
+		"large":  {8000, 16384, 100},
 	}
 	for size, values := range expected {
-		cpuMillis, memoryMB, diskGB, maxRuntime, ok := DevMachineSize(size)
+		cpuMillis, memoryMB, diskGB, ok := DevMachineSize(size)
 		require.True(t, ok, size)
-		require.Equal(t, values, [4]int{cpuMillis, memoryMB, diskGB, maxRuntime}, size)
+		require.Equal(t, values, [3]int{cpuMillis, memoryMB, diskGB}, size)
 	}
 }
 

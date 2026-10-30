@@ -54,7 +54,7 @@ func TestAgentAutomationHTTPRequiresAdminsForRulesAndOwnersForDecisions(t *testi
 	require.NoError(t, err)
 	ctx := domain.WithAccess(context.Background(), domain.Access{WorkspaceID: ws, UserID: owner})
 	machines := repository.NewDevMachineRepository(db)
-	require.NoError(t, machines.UpsertPolicy(ctx, &domain.DevMachineWorkspacePolicy{WorkspaceID: ws, Enabled: true, MaxConcurrentMachines: 10, MaxMachinesPerUser: 10, MaxDailyAgentRuns: 25, MaxRuntimeMinutes: 60, MaxDiskGB: 100, IdlePauseMinutes: 15, AllowedProviders: json.RawMessage(`["codex"]`), AllowedRepositories: json.RawMessage(`[]`)}))
+	require.NoError(t, machines.UpsertPolicy(ctx, &domain.DevMachineWorkspacePolicy{WorkspaceID: ws, Enabled: true, MaxConcurrentMachines: 10, MaxMachinesPerUser: 10, MaxDailyAgentRuns: 25, MaxDiskGB: 100, AllowedProviders: json.RawMessage(`["codex"]`), AllowedRepositories: json.RawMessage(`[]`)}))
 	machineSvc := service.NewDevMachineService(machines, agent.NewRegistry(agent.NewCodexProvider("test")), true, "machines.test.invalid", make([]byte, 32), time.Minute, service.DevMachineImages{})
 	taskSvc := service.NewAgentTaskService(repository.NewAgentTaskRepository(db), machineSvc, nil)
 	automationRepo := repository.NewAgentAutomationRepository(db)

@@ -127,7 +127,7 @@ The implementation:
 
 ### Configuration
 
-Machines are created without requiring a repository, branch, issue, project, or manual TTL. Friendly random names are case-insensitively unique per creator within a workspace and have an availability API. Opening an issue resolves its repository and environment using issue, project, team, then workspace defaults and creates an isolated Git worktree. Workspace policies control concurrency, maximum hard runtime, a default 240-minute idle pause, per-machine disk size, providers, repositories, and custom CLI access. A per-machine **Keep running** switch bypasses idle pause; no automatic deletion is performed. Owners and admins can create a writable Environment Builder, pause or stop it, and save selected tooling/home customization as an immutable local OCI Development Environment image.
+Machines are created without requiring a repository, branch, issue, project, or manual TTL. Friendly random names are case-insensitively unique per creator within a workspace and have an availability API. Opening an issue resolves its repository and environment using issue, project, team, then workspace defaults and creates an isolated Git worktree. Workspace policies control concurrency, per-machine disk size, providers, repositories, and custom CLI access. Machines have no lifetime: a booted machine stays up until its user pauses, stops, tears down or deletes it, and agent tasks reuse their creator's running idle machines before creating new ones. Owners and admins can create a writable Environment Builder, pause or stop it, and save selected tooling/home customization as an immutable local OCI Development Environment image.
 
 | Size   | CPU     | Memory | PID basis | Disk (hard quota) |
 | ------ | ------- | ------ | --------- | ----------------- |
@@ -652,7 +652,7 @@ https:// {
 
 The catch-all obtains individual certificates, not a wildcard certificate. The
 private approval listener on port 8091 allows only exact, existing running machine
-service hostnames, rejects unknown/stopped/expired services, and fails closed when
+service hostnames, rejects unknown or stopped services, and fails closed when
 the database is unavailable. Keep it on the private control network: do not publish
 8091 or proxy it publicly. With a shared edge proxy, attach it to the control network
 and adjust the gateway hostname. Certificate issuance can delay the first connection

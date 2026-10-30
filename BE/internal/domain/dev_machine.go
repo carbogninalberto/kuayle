@@ -30,7 +30,10 @@ const (
 	DevMachineStatusTearingDown DevMachineStatus = "tearing_down"
 	DevMachineStatusDestroyed   DevMachineStatus = "destroyed"
 	DevMachineStatusFailed      DevMachineStatus = "failed"
-	DevMachineStatusExpired     DevMachineStatus = "expired"
+	// DevMachineStatusExpired is no longer assigned: machines do not expire.
+	// Rows the old expiry reaper marked keep it until the manager stops or
+	// tears them down.
+	DevMachineStatusExpired DevMachineStatus = "expired"
 )
 
 type DevMachineOperationAction string
@@ -127,10 +130,8 @@ type DevMachine struct {
 	MemoryMB             int              `json:"memory_mb" db:"memory_mb"`
 	DiskGB               int              `json:"disk_gb" db:"disk_gb"`
 	PidsLimit            int              `json:"pids_limit" db:"pids_limit"`
-	MaxRuntimeMinutes    int              `json:"max_runtime_minutes" db:"max_runtime_minutes"`
 	EnvironmentID        *uuid.UUID       `json:"environment_id,omitempty" db:"environment_id"`
 	RepositoryAffinityID *uuid.UUID       `json:"repository_affinity_id,omitempty" db:"repository_affinity_id"`
-	KeepRunning          bool             `json:"keep_running" db:"keep_running"`
 	EnvironmentBuilder   bool             `json:"environment_builder" db:"environment_builder"`
 	SudoEnabled          bool             `json:"sudo_enabled" db:"sudo_enabled"` // the workspace allowed sudo at creation
 	DeleteRequestedAt    *time.Time       `json:"delete_requested_at,omitempty" db:"delete_requested_at"`
@@ -145,7 +146,6 @@ type DevMachine struct {
 	UpdatedAt            time.Time        `json:"updated_at" db:"updated_at"`
 	StartedAt            *time.Time       `json:"started_at,omitempty" db:"started_at"`
 	StoppedAt            *time.Time       `json:"stopped_at,omitempty" db:"stopped_at"`
-	ExpiresAt            time.Time        `json:"expires_at" db:"expires_at"`
 	TeardownAt           *time.Time       `json:"teardown_at,omitempty" db:"teardown_at"`
 	DestroyedAt          *time.Time       `json:"destroyed_at,omitempty" db:"destroyed_at"`
 	// ListeningPorts are the machine's listening TCP ports (developer container
@@ -295,10 +295,12 @@ type DevMachineToken struct {
 	AgentRunID *uuid.UUID      `json:"agent_run_id,omitempty" db:"agent_run_id"`
 	TokenHash  string          `json:"-" db:"token_hash"`
 	Scopes     json.RawMessage `json:"scopes" db:"scopes"`
-	ExpiresAt  time.Time       `json:"expires_at" db:"expires_at"`
-	LastUsedAt *time.Time      `json:"last_used_at,omitempty" db:"last_used_at"`
-	RevokedAt  *time.Time      `json:"revoked_at,omitempty" db:"revoked_at"`
-	CreatedAt  time.Time       `json:"created_at" db:"created_at"`
+	// ExpiresAt is nil for the machine's own collector token, which lasts as
+	// long as the machine.
+	ExpiresAt  *time.Time `json:"expires_at,omitempty" db:"expires_at"`
+	LastUsedAt *time.Time `json:"last_used_at,omitempty" db:"last_used_at"`
+	RevokedAt  *time.Time `json:"revoked_at,omitempty" db:"revoked_at"`
+	CreatedAt  time.Time  `json:"created_at" db:"created_at"`
 }
 
 type DevMachineOperation struct {
@@ -513,7 +515,6 @@ type DevMachineWorkspacePolicy struct {
 	MaxConcurrentMachines int             `json:"max_concurrent_machines" db:"max_concurrent_machines"`
 	MaxMachinesPerUser    int             `json:"max_machines_per_user" db:"max_machines_per_user"`
 	MaxDailyAgentRuns     int             `json:"max_daily_agent_runs" db:"max_daily_agent_runs"`
-	MaxRuntimeMinutes     int             `json:"max_runtime_minutes" db:"max_runtime_minutes"`
 	MaxDiskGB             int             `json:"max_disk_gb" db:"max_disk_gb"`
 	AllowedProviders      json.RawMessage `json:"allowed_providers" db:"allowed_providers"`
 	AllowedRepositories   json.RawMessage `json:"allowed_repositories" db:"allowed_repositories"`
@@ -529,9 +530,8 @@ type DevMachineWorkspacePolicy struct {
 	// machine is refused once it is off.
 	AllowSudo bool `json:"allow_sudo" db:"allow_sudo"`
 	// AgentGitName and AgentGitEmail optionally author agent commits.
-	AgentGitName     *string `json:"agent_git_name" db:"agent_git_name"`
-	AgentGitEmail    *string `json:"agent_git_email" db:"agent_git_email"`
-	IdlePauseMinutes int     `json:"idle_pause_minutes" db:"idle_pause_minutes"`
+	AgentGitName  *string `json:"agent_git_name" db:"agent_git_name"`
+	AgentGitEmail *string `json:"agent_git_email" db:"agent_git_email"`
 	// TaskMachine* size the machines Kuayle creates itself for agent tasks
 	// (delegations and automations); see TaskMachine.
 	TaskMachineCPUMillis int                   `json:"task_machine_cpu_millis" db:"task_machine_cpu_millis"`
@@ -733,16 +733,16 @@ func DevMachineSafelyPurgeable(machine *DevMachine) bool {
 	return false
 }
 
-func DevMachineSize(size string) (cpuMillis, memoryMB, diskGB, maxRuntimeMinutes int, ok bool) {
+func DevMachineSize(size string) (cpuMillis, memoryMB, diskGB int, ok bool) {
 	switch size {
 	case "small":
-		return 2000, 4096, 20, 120, true
+		return 2000, 4096, 20, true
 	case "medium":
-		return 4000, 8192, 50, 240, true
+		return 4000, 8192, 50, true
 	case "large":
-		return 8000, 16384, 100, 480, true
+		return 8000, 16384, 100, true
 	default:
-		return 0, 0, 0, 0, false
+		return 0, 0, 0, false
 	}
 }
 

@@ -151,7 +151,7 @@ func TestSharingPrivacyPostgres(t *testing.T) {
 	for _, artifact := range []struct{ table, insert string }{
 		{"dev_machine_scope_settings", `INSERT INTO dev_machine_scope_settings(workspace_id) VALUES($1)`},
 		{"dev_machine_environments", `INSERT INTO dev_machine_environments(workspace_id,name,image_ref) VALUES($1,'test','test:image')`},
-		{"dev_machines", `INSERT INTO dev_machines(workspace_id,routing_key,name,machine_size,cpu_millis,memory_mb,disk_gb,max_runtime_minutes,status,expires_at) VALUES($1,'` + strings.ReplaceAll(uuid.NewString(), "-", "") + `','test','small',1000,1024,20,60,'stopped',NOW()+INTERVAL '1 hour')`},
+		{"dev_machines", `INSERT INTO dev_machines(workspace_id,routing_key,name,machine_size,cpu_millis,memory_mb,disk_gb,status) VALUES($1,'` + strings.ReplaceAll(uuid.NewString(), "-", "") + `','test','small',1000,1024,20,'stopped')`},
 	} {
 		_, err = db.Exec(artifact.insert, ws)
 		require.NoError(t, err)

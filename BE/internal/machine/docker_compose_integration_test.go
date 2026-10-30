@@ -29,7 +29,7 @@ func TestDockerCheckReachesComposeServicesOnAnInternalNetwork(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = runtime.client.Close() })
 	key := "cmp" + strings.ReplaceAll(uuid.NewString(), "-", "")[:16]
-	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), RoutingKey: key, CPUMillis: 2000, MemoryMB: 2048, PidsLimit: 512, ExpiresAt: time.Now().Add(time.Hour)}
+	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), RoutingKey: key, CPUMillis: 2000, MemoryMB: 2048, PidsLimit: 512}
 	networkName, volumeName := "kuayle-machine-"+key, "kuayle-workspace-"+key
 	machine.DockerNetworkName, machine.WorkspaceVolumeName = &networkName, &volumeName
 	_, err = runtime.client.NetworkCreate(ctx, networkName, client.NetworkCreateOptions{Driver: "bridge", Internal: true, Labels: machineLabels(machine)})

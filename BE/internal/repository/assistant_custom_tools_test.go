@@ -27,8 +27,8 @@ func machineFor(t *testing.T, f skillFixture, owner uuid.UUID) uuid.UUID {
 	_, err = f.db.Exec(`INSERT INTO dev_machine_workspace_policies(workspace_id,enabled) VALUES($1,true) ON CONFLICT (workspace_id) DO NOTHING`, f.ws)
 	require.NoError(t, err)
 	machine := uuid.New()
-	_, err = f.db.Exec(`INSERT INTO dev_machines(id,workspace_id,created_by_user_id,routing_key,name,status,desired_status,generation,repo_url,repo_provider,repo_owner,repo_name,base_branch,working_branch,machine_size,cpu_millis,memory_mb,disk_gb,max_runtime_minutes,expires_at)
- VALUES($1,$2,$3,$4,'Tools','running','running',1,'','github','','','','','small',1000,2048,20,60,now()+interval '1 hour')`, machine, f.ws, owner, strings.ReplaceAll(machine.String(), "-", "")[:16])
+	_, err = f.db.Exec(`INSERT INTO dev_machines(id,workspace_id,created_by_user_id,routing_key,name,status,desired_status,generation,repo_url,repo_provider,repo_owner,repo_name,base_branch,working_branch,machine_size,cpu_millis,memory_mb,disk_gb)
+ VALUES($1,$2,$3,$4,'Tools','running','running',1,'','github','','','','','small',1000,2048,20)`, machine, f.ws, owner, strings.ReplaceAll(machine.String(), "-", "")[:16])
 	require.NoError(t, err)
 	return machine
 }

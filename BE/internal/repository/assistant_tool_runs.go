@@ -309,7 +309,7 @@ func (r *DevMachineRepository) toolRunTransaction(ctx context.Context, op domain
 	}
 	var running bool
 	if err = tx.GetContext(ctx, &running, `SELECT EXISTS(SELECT 1 FROM dev_machines m JOIN dev_machine_workspace_policies p ON p.workspace_id=m.workspace_id AND p.enabled
- WHERE m.id=$1 AND m.workspace_id=$2 AND m.generation=$3 AND m.status='running' AND m.desired_status='running' AND m.expires_at>now())`, op.MachineID, op.WorkspaceID, op.Generation); err != nil {
+ WHERE m.id=$1 AND m.workspace_id=$2 AND m.generation=$3 AND m.status='running' AND m.desired_status='running')`, op.MachineID, op.WorkspaceID, op.Generation); err != nil {
 		return fail(err)
 	}
 	if !running {

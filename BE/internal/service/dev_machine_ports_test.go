@@ -82,7 +82,7 @@ func newPortService(t *testing.T) (*DevMachineService, *portStoreFake, uuid.UUID
 	store := &portStoreFake{devMachineStoreFake: &devMachineStoreFake{
 		policy: testPolicy(workspaceID),
 		machine: &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID, RoutingKey: "0123456789abcdef0123",
-			Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, ExpiresAt: time.Now().Add(time.Hour),
+			Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning,
 			ListeningPorts: pq.Int64Array{5173, 9229}},
 		services: []domain.DevMachineService{ide},
 	}}

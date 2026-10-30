@@ -65,7 +65,7 @@ Dev Machines target trusted self-hosted workspaces. Docker hardening reduces ris
 |---|---|---|
 | Kuayle API | Application control plane | RBAC, machine and run APIs, policy admission, secret encryption, one-time launch tickets |
 | PostgreSQL | Durable control plane | Desired/observed state, operation leases, events, logs, tokens, sessions, results, Git refs |
-| Machine Manager | Host privileged | Docker networks, volumes, containers, resource limits, secrets handoff, lifecycle, hard runtime, idle pause, cleanup |
+| Machine Manager | Host privileged | Docker networks, volumes, containers, resource limits, secrets handoff, lifecycle, cleanup |
 | Machine Gateway | Unprivileged ingress | Host parsing, browser ticket exchange, native terminal ticket exchange, session authorization, header stripping, HTTP/WebSocket proxying, access audit |
 | Caddy | Public ingress | Main-domain and wildcard-machine TLS termination |
 | Collector | Per-machine data plane | Filesystem, root-checkout Git, browser CDP, and heartbeat events |
@@ -405,7 +405,7 @@ The Kuayle UI renders `@xterm/xterm` and speaks ttyd's native WebSocket protocol
 4. The UI opens the returned `wss://{routing-key}-terminal.{DEV_MACHINE_DOMAIN}/ws?...` URL from the main frontend origin.
 5. The gateway requires the WebSocket `Origin` to equal the configured `FRONTEND_URL` origin exactly, consumes the ticket atomically, rewrites upstream to ttyd `/ws` with only the internal `arg=session` and `arg=cwd` values, strips credentials before proxying, audits the exchange, and touches machine activity until the socket closes.
 
-Opening a paused machine service queues an idempotent resume operation and returns a `resuming` response with `retry_after_seconds`; the UI polls/retries. Queued or spawning machines return `pending`. Stopped, destroyed, expired, and invalid states do not auto-resume.
+Opening a paused machine service queues an idempotent resume operation and returns a `resuming` response with `retry_after_seconds`; the UI polls/retries. Queued or spawning machines return `pending`. Stopped, destroyed and invalid states do not auto-resume.
 
 Machine access decisions are persisted in `dev_machine_access_logs` without query strings.
 
@@ -490,7 +490,7 @@ An autonomous run receives:
 - prompt and acceptance criteria;
 - allowed commands and forbidden paths;
 - exact test-command argv;
-- maximum runtime;
+- maximum runtime (its own time limit; the machine has none);
 - explicitly allowed secret names;
 - whether to push the working branch.
 
@@ -506,7 +506,7 @@ Machine status and desired status are persisted separately.
 queued -> spawning -> running
                        -> paused -> running
                        -> stopping -> stopped -> running
-                       -> expired -> tearing_down -> destroyed
+                       -> tearing_down -> destroyed
 spawn/reconcile failure -> failed -> spawning or tearing_down
 ```
 
@@ -522,7 +522,7 @@ spawn/reconcile failure -> failed -> spawning or tearing_down
 | `tearing_down` | Sessions and Docker resources are being removed |
 | `destroyed` | Final lifecycle state after runtime teardown; retained events/results remain queryable |
 | `failed` | A lifecycle operation attempt failed and requires retry or teardown |
-| `expired` | Maximum runtime elapsed and teardown has been queued |
+| `expired` | Legacy: no longer assigned. Migration 101 turns a machine the old expiry reaper marked but had not started tearing down into a stop; the manager stops it (`expired` → `stopped`) |
 
 Lifecycle commands write `dev_machine_operations` with generation and idempotency key. Leasing locks the machine row and selects at most one ordinary operation per machine; teardown and cancellation may preempt a long-running agent operation. The manager cancels local run contexts before destructive cleanup. Every non-destructive state write is conditional on the operation generation, and a stale spawn compensates by tearing down anything it created, so it cannot overwrite or survive a newer desired state. Identical idempotency-key retries return the original operation; reusing a key for another action is rejected.
 
@@ -532,7 +532,7 @@ Resource names and labels are deterministic. Missing resources during teardown c
 
 The production repository currently supplies services to the runtime in egress, collector, developer, then browser order; the Docker runtime starts them in caller-provided order rather than computing dependencies itself. Developer and browser containers publish file-based Docker health checks.
 
-Idle pause and hard runtime are separate controls. Workspace policy defaults idle pause to 240 minutes; `keep_running=true` bypasses idle pause for that machine. Gateway requests, native terminal WebSockets, API activity touches, checkouts, and agent runs update `last_activity_at`. The manager queues idempotent pause operations for idle running machines, but it does not automatically delete machines. Machines that agent tasks have used stay running while the creator's and the workspace's running machines are within `max_machines_per_user` and `max_concurrent_machines`: ranked by recent activity, only those beyond a cap (for example after an admin lowered it) are idle-paused, least recently active first. Under host pressure a task machine may still be stopped: when a spawn or start waits for host CPU or memory, the manager stops the least recently active machine on the host that has been idle for at least 10 minutes and is not kept running, has no active run, active task or pending operation (operation key `host-capacity:<generation>`, event `machine.reclaimed_for_capacity`), one machine at a time; the host disk floor stops running machines as before. Maximum hard runtime is policy-controlled through `expires_at`; expired machines transition to `expired` and teardown is queued.
+Machines have no lifetime. A booted machine stays up until its user pauses, stops, tears down or deletes it: nothing pauses idle machines, stops them after a maximum runtime, tears them down when they expire, or stops an idle machine to make room for another (a spawn or start that waits for host CPU or memory keeps waiting, see host admission below). Agent tasks do not pause or stop their machine when they finish or are cancelled, so the next task can reuse it (see [Task machines](#resource-limits-and-quotas)). Only the host disk floor still stops running machines, to protect the host. Gateway requests, native terminal WebSockets, API activity touches, checkouts, and agent runs update `last_activity_at`, which orders machines for reuse. Each agent run, validation, check and custom tool run keeps its own time limit (`max_runtime_seconds`, 3600 seconds by default and for task attempts, up to 86400). Migration `000101_dev_machines_persistent` drops `dev_machines.expires_at`, `max_runtime_minutes` and `keep_running` and the workspace policy's `max_runtime_minutes` and `idle_pause_minutes`; existing machines keep running whatever their old expiry, and the machine's own credentials (collector token, browser CDP token, Docker TLS material) no longer expire with it. Docker TLS material is issued for ten years and discarded at teardown; Docker-enabled machines created before migration 101 keep certificates that end a day after their old expiry, so recreate them to use Docker beyond that. Rollback restores the columns with a 480-minute runtime and a lifetime of one day counted from the rollback, after which the previous release tears machines down again.
 
 Starting a stopped or paused machine is idempotent. When its workspace volume was never recorded (its first spawn failed), the volume no longer exists, or a service container is missing, the start provisions the machine again from its deterministic names and reuses whatever still exists. The developer start scripts accept a workspace volume that already holds Kuayle state (`.kuayle/`, `repos/`, `tasks/`) or the user's work: a repository machine's root checkout is cloned into `.kuayle/root-checkout`, its files are moved into `/workspace` without replacing existing paths, and `.git` is moved last, so an existing `/workspace/.git` means the root is prepared and an interrupted preparation completes on the next start. The working branch is selected only when the root checkout is created; a restart keeps the current branch and local commits.
 
@@ -610,26 +610,28 @@ seconds with a visible `host_capacity_wait` reason and without consuming a
 retry, and agent tasks keep waiting rather than failing. Admission is serialized
 within one manager process, which also counts machines admitted but not yet
 running; multiple manager replicas on one host are not coordinated. An unknown
-host size never blocks. Idle machines are still paused by `IdlePauseMinutes`,
-preserving worktrees, and the workspace/user machine quotas below still apply.
+host size never blocks. No machine is stopped to make room; the workspace/user
+machine quotas below still apply.
 
 Machine sizes are aggregate admission profiles:
 
-| Size | CPU | RAM | Workspace disk hard quota | Maximum runtime |
-|---|---:|---:|---:|---:|
-| small | 2 vCPU | 4 GB | 20 GB | 2 hours |
-| medium | 4 vCPU | 8 GB | 50 GB | 4 hours |
-| large | 8 vCPU | 16 GB | 100 GB | 8 hours |
+| Size | CPU | RAM | Workspace disk hard quota |
+|---|---:|---:|---:|
+| small | 2 vCPU | 4 GB | 20 GB |
+| medium | 4 vCPU | 8 GB | 50 GB |
+| large | 8 vCPU | 16 GB | 100 GB |
 
-A `custom` size picks CPU (1, 2, 4, 6, 8, 12 or 16 vCPU) and memory (2, 4, 8, 12, 16, 24, 32, 48 or 64 GB) from the offered options with at least 1 GB per vCPU, and any disk size in 2 GB steps from 20 GB up to the workspace `max_disk_gb` (itself an even number from 20 to 2048); its maximum runtime is 8 hours, capped by the policy. The policy API returns these options as `size_options`.
+A `custom` size picks CPU (1, 2, 4, 6, 8, 12 or 16 vCPU) and memory (2, 4, 8, 12, 16, 24, 32, 48 or 64 GB) from the offered options with at least 1 GB per vCPU, and any disk size in 2 GB steps from 20 GB up to the workspace `max_disk_gb` (itself an even number from 20 to 2048). The policy API returns these options as `size_options`.
 
-**Task machines.** Machines Kuayle creates itself for agent tasks (issue delegations, the assistant's delegate tool and automations all go through agent tasks) are headless custom machines sized by the workspace policy's `task_machine_cpu_millis`, `task_machine_memory_mb` and `task_machine_disk_gb` (Settings → Dev Machines → Policy → Task machines). The defaults are 4 vCPU, 8 GB and 20 GB; migration 90 gives existing workspaces the same values (task machines were previously `small`, whose 4 GB left an agent such as Claude Code 1.4 GB and was OOM-killed under builds). The same size rules apply, and the task disk must stay within `max_disk_gb`. Changes affect task machines created afterwards; reused task machines keep their size. The Environment Builder dialog starts with the task machine CPU and memory.
+**Task machines.** Machines Kuayle creates itself for agent tasks (issue delegations, the assistant's delegate tool and automations all go through agent tasks) are headless custom machines sized by the workspace policy's `task_machine_cpu_millis`, `task_machine_memory_mb` and `task_machine_disk_gb` (Settings → Dev Machines → Policy → Task machines). The defaults are 4 vCPU, 8 GB and 20 GB; migration 90 gives existing workspaces the same values (task machines were previously `small`, whose 4 GB left an agent such as Claude Code 1.4 GB and was OOM-killed under builds). The same size rules apply, and the task disk must stay within `max_disk_gb`. Changes affect task machines created afterwards; reused task machines keep their size.
+
+**Task machine reuse.** A task first reuses a suitable machine that is already running; only when none fits does it create a task machine (named `task-<reservation>`), which then stays running after the task for later tasks. `AgentTaskRepository.ReserveMachine` picks, under the workspace advisory lock and `FOR UPDATE SKIP LOCKED`, a machine that is: in the task's workspace and created by the task's creator (the task runs as its creator); `running` with desired `running` and not being deleted; a `standard` or `headless` machine of the task's environment (no environment means headless) and not an Environment Builder; allowed by the enabled workspace policy (a sudo machine only while sudo is allowed, a Docker machine only while Docker is allowed); and idle — no queued or active agent run, no other task in an active state (`awaiting_review`, `blocked` and finished tasks do not hold it), and no pending or leased stop, pause, teardown, snapshot, validation, publication, check or custom tool operation. Paused and stopped machines are left alone: their user chose that. A machine already used by a task of the same issue comes first, then the most recently active one (machines that already cache the repository or carry the task's agent break ties). A task keeps the machine it was given across attempts, retries and restarts (a stopped or paused one is started again for it). Each task works in its own checkout (`/workspace/tasks/<issue>-<task>`, scoped to the task), so reuse never mixes work; attempts, validations, checks and tool runs on one machine are serialized by the machine locks (`CreateAgentRun`, `lockMachineForCheck`), never running concurrently. The machine's agent is attached under the same policy checks as creating a machine with it. The Environment Builder dialog starts with the task machine CPU and memory.
 
 The manager assigns a bounded percentage of the profile to each service and applies Docker `NanoCPUs`, memory, memory-swap, and PID limits (`containerSharePercent` in `BE/internal/machine/docker.go`). On standard machines the IDE (which also serves the terminal) and browser each receive 25%, an agent run 35%, and the collector and egress 5% each. Headless machines (task machines among them) have no IDE or browser, so the agent receives 50% and the terminal container 40%; with a Docker daemon, which takes 40%, the agent and the terminal receive 35% each. Shares are per-container ceilings, not reservations: without Docker the headless shares add up to the machine, and with Docker the agent and terminal ceilings overlap (120%) so the terminal people use by hand is not squeezed below the agent. An 8 GB task machine therefore gives its agent 4 GB (2.8 GB with Docker). Validation checks keep the 35% agent share because their compose services share another 30%. Non-builder workloads use a read-only root filesystem, tmpfs scratch paths, `CapDrop=ALL`, `no-new-privileges`, the Docker default seccomp profile or a configured replacement, and AppArmor where available. Environment Builder deliberately relaxes the developer container root filesystem so owners/admins can install tooling before snapshot, and a workspace that allows sudo relaxes its developer containers (see [Sudo in machines](#sudo-in-machines)). Docker's `json-file` logs rotate at 10 MiB with three files per container, and removal paths also remove anonymous image volumes.
 
 **Live resize.** `PATCH /dev-machines/:machineId` with any of `cpu_millis`,
-`memory_mb` and `disk_gb` (omitted values keep the current size; `keep_running`
-may be sent alongside) resizes the creator's machine while it is running, paused
+`memory_mb` and `disk_gb` (omitted values keep the current size; a request
+without a size returns the machine unchanged) resizes the creator's machine while it is running, paused
 or stopped and not changing state (`dev_machine:manage`; 409 `INVALID_OPERATION`
 otherwise, including while another resize or a lifecycle operation is queued).
 The size is validated like a custom create size (`domain.DevMachineCustomSize`,
@@ -671,8 +673,6 @@ Workspace policy controls:
 - maximum concurrent machines (default 20);
 - maximum machines per user (default 20; migration 79 raised existing policies to at least 20/20, admins can lower them);
 - maximum daily agent runs;
-- maximum runtime;
-- idle pause interval (default 240 minutes; bypassed by per-machine `keep_running`);
 - maximum per-machine workspace-volume size (2 GB steps up to 2048 GB; migration 90 rounded an odd limit down);
 - task machine CPU, memory and disk (default 4 vCPU, 8 GB, 20 GB; older clients that omit them keep the current values);
 - allowed providers;
@@ -804,7 +804,7 @@ Migration `000033_dev_machines` creates:
 
 | Table | Purpose |
 |---|---|
-| `dev_machines` | Legacy repository fields, issue/project, desired/observed state, size, runtime names, hard runtime, failures |
+| `dev_machines` | Legacy repository fields, issue/project, desired/observed state, size, runtime names, failures |
 | `dev_machine_services` | Container image/name/ID, service type, private endpoint, health |
 | `dev_machine_volumes` | Workspace/scratch/artifact volume names and monitored usage |
 | `dev_machine_env_vars` | Encrypted, target-scoped, provider-scoped values with TTL/revocation |
@@ -840,6 +840,8 @@ Migration `000089_dev_machine_docker` adds `dev_machine_workspace_policies.allow
 Migration `000090_dev_machine_task_resources` adds `dev_machine_workspace_policies.task_machine_cpu_millis`, `task_machine_memory_mb` and `task_machine_disk_gb` (defaults 4000, 8192, 20, applied to existing workspaces), at least 1 GB per vCPU, an even task disk within `max_disk_gb`, and an even `max_disk_gb` (odd limits are rounded down, irreversibly). Its rollback drops the columns and constraints; rounded limits keep their even values.
 
 Migration `000093_dev_machine_sudo` adds `dev_machine_workspace_policies.allow_sudo` and `dev_machines.sudo_enabled` (both default false). Its rollback drops both columns; containers already created with sudo keep their configuration, so delete those machines first.
+
+Migration `000101_dev_machines_persistent` removes machine lifetimes: it drops `dev_machines.expires_at`, `max_runtime_minutes` and `keep_running` (with the expiry and idle indexes) and `dev_machine_workspace_policies.max_runtime_minutes` and `idle_pause_minutes`, makes `dev_machine_tokens.expires_at` nullable and clears the expiry of the machine's own credentials. A teardown the old expiry reaper queued but never leased is cancelled and the machine is stopped instead. Columns are dropped rather than kept unused because the self-hosting updater never runs an older image against a newer schema (a failed update is recovered from its backup); rollback restores them with new lifetimes (see [Lifecycle](#lifecycle)).
 
 All user-facing repository access is constrained by both `workspace_id` and resource ID. Internal manager lookups are limited to the trusted manager process.
 
@@ -917,8 +919,7 @@ Example create payload:
   "profile": "standard",
   "services": { "ide": true, "browser": true },
   "agents": [{ "provider": "opencode", "mode": "autonomous" }],
-  "env_vars": [],
-  "keep_running": false
+  "env_vars": []
 }
 ```
 
@@ -933,8 +934,6 @@ Create requests accept `profile: "standard" | "headless"`; omission means standa
 | Docker unavailable | Manager readiness fails; operations remain durable |
 | PostgreSQL unavailable | Running containers continue; manager/gateway report degraded health |
 | Service unavailable | Gateway returns 502 and records an access/proxy error |
-| Hard runtime expiry | Machine becomes `expired`; idempotent teardown is queued; records are not automatically deleted |
-| Idle interval reached | A non-keep-running machine receives an idempotent pause operation |
 | Opening paused service | API queues an idempotent resume and returns `resuming` with retry guidance |
 | Permanent delete | Admin request is persisted; manager queues teardown if needed, then deletes the machine row and child history only after resources are safe |
 | Disk threshold reached | Resource event recorded and stop operation queued |

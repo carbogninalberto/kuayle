@@ -68,7 +68,7 @@ func TestValidationManagerUsesActualExitAndRedactsWithoutModelParsing(t *testing
 	for _, outputFailure := range []bool{false, true} {
 		t.Run(map[bool]string{false: "actual_exit", true: "retain_recovery_container"}[outputFailure], func(t *testing.T) {
 			taskID, checkoutID, runID := uuid.New(), uuid.New(), uuid.New()
-			machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), ExpiresAt: time.Now().Add(time.Hour)}
+			machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New()}
 			key := make([]byte, 32)
 			encrypted, err := cryptoutil.Encrypt(`{"FIXTURE_CREDENTIAL":"fixture-private-value"}`, key)
 			require.NoError(t, err)
@@ -98,7 +98,7 @@ func TestValidationManagerUsesActualExitAndRedactsWithoutModelParsing(t *testing
 
 func TestValidationManagerFailsARejectedComposeStackWithItsReasonAndCleansUp(t *testing.T) {
 	taskID, checkoutID, runID := uuid.New(), uuid.New(), uuid.New()
-	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), ExpiresAt: time.Now().Add(time.Hour)}
+	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New()}
 	key := make([]byte, 32)
 	encrypted, err := cryptoutil.Encrypt(`{}`, key)
 	require.NoError(t, err)
