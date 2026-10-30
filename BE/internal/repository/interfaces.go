@@ -259,3 +259,9 @@ type IssueTemplateRepo interface {
 	Delete(ctx context.Context, id uuid.UUID) error
 	ListDueForRecurrence(ctx context.Context) ([]domain.IssueTemplate, error)
 }
+
+type PasswordResetRepo interface {
+	LastIssuedAt(ctx context.Context, userID uuid.UUID) (time.Time, error)
+	Create(ctx context.Context, t *PasswordResetToken) error
+	Reset(ctx context.Context, tokenHash, passwordHash string) error
+}

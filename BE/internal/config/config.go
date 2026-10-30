@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kelseyhightower/envconfig"
+	"github.com/kuayle/kuayle-backend/pkg/mail"
 	"github.com/kuayle/kuayle-backend/pkg/storage"
 	"golang.org/x/net/publicsuffix"
 )
@@ -31,13 +32,15 @@ func (g GitHubAppConfig) IsConfigured() bool {
 }
 
 type Config struct {
-	Port           int    `envconfig:"PORT" default:"8080"`
-	DatabaseURL    string `envconfig:"DATABASE_URL" required:"true"`
-	RedisURL       string `envconfig:"REDIS_URL" required:"true"`
-	JWTSecret      string `envconfig:"JWT_SECRET" required:"true"`
-	FrontendURL    string `envconfig:"FRONTEND_URL" default:"http://localhost:5173"`
-	Environment    string `envconfig:"ENVIRONMENT" default:"development"`
-	Storage        storage.Config
+	Port        int    `envconfig:"PORT" default:"8080"`
+	DatabaseURL string `envconfig:"DATABASE_URL" required:"true"`
+	RedisURL    string `envconfig:"REDIS_URL" required:"true"`
+	JWTSecret   string `envconfig:"JWT_SECRET" required:"true"`
+	FrontendURL string `envconfig:"FRONTEND_URL" default:"http://localhost:5173"`
+	Environment string `envconfig:"ENVIRONMENT" default:"development"`
+	Storage     storage.Config
+	// SMTP is optional; password reset emails need it (the link is logged in development otherwise).
+	SMTP           mail.Config
 	Sysadmins      string `envconfig:"SYSADMINS"`
 	PublicDemoMode bool   `envconfig:"PUBLIC_DEMO_MODE"`
 

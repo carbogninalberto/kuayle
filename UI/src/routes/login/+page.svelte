@@ -117,11 +117,14 @@
 			<div>
 				<label for="password" class="block text-sm text-[var(--color-text-secondary)]">{m['login.password']()}</label>
 				<Password id="password" bind:value={password} required minlength={8} class={authInputClass} />
+				{#if mode === 'login'}
+					<a href="/forgot-password" class="mt-1 inline-block text-xs text-[var(--app-accent)] hover:underline">{m['login.forgot_password']()}</a>
+				{/if}
 			</div>
 
 			<Button variant="plain" type="submit"
 				disabled={loading}
-				class="w-full rounded-md bg-[var(--app-accent)] px-4 py-2 text-sm font-medium text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)] disabled:opacity-50"
+				class="inline-flex h-9 w-full items-center justify-center rounded-md bg-[var(--app-accent)] px-4 text-sm font-medium text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)] disabled:opacity-50"
 			>
 				{#if loading}<Loader2 size={14} class="animate-spin" />{:else}{mode === 'login'
 						? m['login.button.signin']()

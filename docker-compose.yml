@@ -50,6 +50,11 @@ services:
       REDIS_URL: redis://redis:6379
       JWT_SECRET: ${JWT_SECRET:-local_dev_jwt_secret_32_chars_minimum_do_not_use_prod}
       DISABLE_REGISTRATION: ${DISABLE_REGISTRATION:-false}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
       AI_ALLOW_PRIVATE_NETWORK: ${AI_ALLOW_PRIVATE_NETWORK:-false}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
       ENVIRONMENT: ${ENVIRONMENT:-development}
