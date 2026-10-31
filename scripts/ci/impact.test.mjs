@@ -88,6 +88,9 @@ test('headless and shared developer image inputs select only their consumers', (
   assert.deepEqual(ids(planForPaths(['devmachine/common/kuayle-agent-runner']).devImages), ['headless', 'agent-claude', 'agent-opencode', 'agent-codex']);
   assert.deepEqual(ids(planForPaths(['devmachine/common/kuayle-live-inbox-hook.cjs', 'devmachine/common/claude-managed-settings.json']).devImages), ['agent-claude', 'agent-opencode', 'agent-codex']);
   assert.deepEqual(ids(planForPaths(['devmachine/ide/terminal-session.sh']).devImages), ['ide', 'headless']);
+  for (const path of ['devmachine/common/kuayle-agent-sign-in.sh', 'devmachine/common/kuayle-claude-config.cjs', 'devmachine/common/kuayle-task-claude']) {
+    assert.deepEqual(ids(planForPaths([path]).devImages), ['ide', 'headless'], path);
+  }
 });
 
 test('the machine Docker daemon image and the shared Docker CLI installer select their consumers', () => {

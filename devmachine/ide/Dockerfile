@@ -28,12 +28,13 @@ COPY --from=node-stage /usr/local /usr/local
 COPY --from=crush-build /out/crush /usr/local/bin/crush
 COPY --from=docker-plugins /out/docker-compose /out/docker-buildx /usr/local/lib/docker/cli-plugins/
 COPY common/install-agent-clis.sh common/install-docker-cli.sh common/kuayle-ports common/kuayle-service-entrypoint /usr/local/bin/
-COPY common/start-common.sh common/codex-model-catalog.cjs common/patch-npm-security.cjs common/test-http-cache-semantics.cjs common/kuayle-qa.md common/kuayle-agents.md /usr/local/lib/kuayle/
+COPY common/start-common.sh common/codex-model-catalog.cjs common/patch-npm-security.cjs common/test-http-cache-semantics.cjs common/kuayle-qa.md common/kuayle-agents.md common/kuayle-agent-sign-in.sh common/kuayle-claude-config.cjs /usr/local/lib/kuayle/
 COPY ide/patch-security.cjs ide/test-zod-security.cjs ide/test-body-parser-security.cjs /usr/local/lib/kuayle/
 COPY ide/start.sh /usr/local/bin/kuayle-ide-start
 COPY ide/shell.sh /usr/local/bin/kuayle-shell
 COPY ide/checkout.sh /usr/local/bin/kuayle-checkout
 COPY ide/terminal-session.sh /usr/local/bin/kuayle-terminal-session
+COPY common/kuayle-task-claude /usr/local/bin/kuayle-task-claude
 COPY ide/command-event.js /usr/local/lib/kuayle-command-event.js
 COPY ide/tmux.conf /etc/tmux.conf
 # Passwordless sudo for the machine user stays inert: containers run with
@@ -86,7 +87,7 @@ RUN rm -f /usr/bin/pebble \
          /etc/ssl/private/ssl-cert-snakeoil.key /etc/ssl/certs/ssl-cert-snakeoil.pem \
     && mkdir -p /home/kuayle \
     && chown 1000:1000 /home/kuayle \
-    && chmod 0755 /usr/local/bin/kuayle-ports /usr/local/bin/kuayle-service-entrypoint /usr/local/bin/install-agent-clis.sh /usr/local/bin/kuayle-ide-start /usr/local/bin/kuayle-shell /usr/local/bin/kuayle-checkout /usr/local/bin/kuayle-terminal-session \
+    && chmod 0755 /usr/local/bin/kuayle-ports /usr/local/bin/kuayle-service-entrypoint /usr/local/bin/install-agent-clis.sh /usr/local/bin/kuayle-ide-start /usr/local/bin/kuayle-shell /usr/local/bin/kuayle-checkout /usr/local/bin/kuayle-terminal-session /usr/local/bin/kuayle-task-claude \
     && code-server --version \
     && node --version \
     && npm --version \
