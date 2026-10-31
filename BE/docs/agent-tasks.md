@@ -312,6 +312,34 @@ independent check or publication. An older handoff is replaced, not accumulated,
 and the prompt stays within the attempt limit. Other harnesses always start new
 sessions with the handoff.
 
+**Open in Claude Code.** `POST /agent-tasks/:taskId/terminal` (session-only,
+no body) lets the task's creator continue a Claude Code task's own session
+interactively. It is allowed only while nothing else uses the session or the
+worktree: in `awaiting_review`, `blocked` or `failed` (`409 TASK_BUSY`
+otherwise; a non-Claude task answers `409 TERMINAL_UNSUPPORTED`), on the task's
+machine, which the creator must own, with its checkout ready and the harness
+still allowed by the workspace policy. It returns the usual terminal launch
+(`TerminalSessionLaunchResponse`, `resuming`/`pending` while the machine
+starts) for a session named `ktask-<8 hex>-<task>[-<native session>]` in the
+task's worktree. The native session is the task's latest recorded one, used
+only when it was recorded on the task's current machine. Reopening while that
+session is still open returns a new ticket for it, so the user attaches to the
+same Claude Code instead of starting a second writer on the transcript.
+`kuayle-terminal-session` runs `kuayle-task-claude` for these names: it points
+`CLAUDE_CONFIG_DIR` at `~/.kuayle/claude-tasks/<task>` in the in-memory home,
+whose `projects/` links to the task's transcripts and whose
+`.credentials.json` links to the user's own `~/.claude/.credentials.json`;
+the owner's saved token comes from the terminal sign-ins (see TECHNICAL.md,
+agent sign-in), so no credential reaches the volume. It runs
+`claude --resume <id>` when that transcript exists, otherwise a new `claude`
+in the worktree with a note, then leaves a shell. Claude Code resumes in place,
+so the user's turns are appended to the same transcript and the next follow-up
+attempt resumes them. The task card shows **Open in Claude Code** for a
+stopped Claude Code task (Codex keeps the typed session command). Starting an
+attempt while the terminal is still open is not refused: closing the terminal
+tab (which ends its tmux session) before the next attempt is the user's
+responsibility, and the terminal says so when Claude Code exits.
+
 When a task completes or is cancelled, a `purge_task_session` operation removes
 its directory with a short-lived helper container that has no network, a
 read-only root, no capabilities and only `rm -rf -- <that directory>`; it works
@@ -1095,6 +1123,8 @@ and cancellation remain available to authorized users.
   attempt's manual checks ([manual checks](#manual-checks)).
 - `GET /agent-tasks/:taskId/runs/:runId/publication` returns `{step, branch,
   pull_request_url}`; `pull_request_url` is present only for a succeeded step.
+- `POST /agent-tasks/:taskId/terminal` opens the creator's stopped Claude Code
+  task in Claude Code ([open in Claude Code](#native-session-resume-and-handoff)).
 - `GET /agent-tasks/:taskId/sessions` returns the task's agent sessions and the
   review sessions of its published work ([agent sessions](#agent-sessions)).
 

@@ -21,6 +21,7 @@ async function fixture(page: Page) {
 	};
 	const state = {
 		task: null as any,
+		terminals: 0,
 		validation: null as any,
 		manualChecks: [] as any[],
 		checkRuns: [] as any[],
@@ -213,6 +214,13 @@ async function fixture(page: Page) {
 				state.cancels++;
 				state.task = { ...state.task, state: 'cancelling', reason: 'Stopping native execution' };
 				return route.fulfill({ status: 204 });
+			}
+			if (path.endsWith('/terminal') && req.method() === 'POST') {
+				state.terminals++;
+				return route.fulfill({
+					status: 409,
+					json: { error: { code: 'TASK_BUSY', message: 'The agent is working on this task; open it in Claude Code when it stops' } }
+				});
 			}
 			if (path.endsWith('/sign-in')) {
 				state.signIns.push(req.postDataJSON());
@@ -1460,4 +1468,33 @@ test('agent messages from history appear in the chat as untrusted text', async (
 	await expect(item.locator('img')).toHaveCount(0);
 	await expect(item.getByRole('link', { name: 'ENG-1' })).toHaveAttribute('href', '/test/issue/ENG-1');
 	await expect(item).toContainText('the assistant does not act on it unless you ask');
+});
+
+test('opens a stopped Claude Code task in Claude Code through the task terminal', async ({ page }) => {
+	const { state, emit } = await fixture(page);
+	await page.goto('/test/assistant?conversation=chat-1');
+	await delegate(page);
+	const tasks = page.getByRole('region', { name: 'Coding tasks' });
+	await expect(tasks.getByText('Queued', { exact: true })).toBeVisible();
+	const open = tasks.getByRole('button', { name: 'Open in Claude Code', exact: true });
+	await expect(open).toHaveCount(0);
+	// A Codex task keeps the typed session command instead.
+	state.task = { ...state.task, state: 'awaiting_review', reason: 'Pull request opened; waiting for human review', machine_id: 'machine-1' };
+	emit('task.state_changed', state.task);
+	await expect(tasks.getByText('Pull request opened; waiting for human review', { exact: true })).toBeVisible();
+	await expect(open).toHaveCount(0);
+
+	state.task = { ...state.task, provider: 'claude-code' };
+	emit('task.state_changed', state.task);
+	await expect(open).toBeVisible();
+	await open.click();
+	await expect.poll(() => state.terminals).toBe(1);
+	await expect(page.getByRole('tab', { name: 'Claude Code' })).toBeVisible();
+	await expect(
+		page.getByRole('alert').filter({ hasText: 'The agent is working on this task; open it in Claude Code when it stops' })
+	).toBeVisible();
+
+	state.task = { ...state.task, state: 'running', reason: 'Running' };
+	emit('task.state_changed', state.task);
+	await expect(open).toHaveCount(0);
 });

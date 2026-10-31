@@ -1,5 +1,5 @@
 import { api } from './client';
-import type { AgentProvider, AgentRun, DevMachineLogChunk, ModelServer } from '$lib/types/dev-machine';
+import type { AgentProvider, AgentRun, DevMachineLogChunk, ModelServer, TerminalSessionLaunchResponse } from '$lib/types/dev-machine';
 export type TaskState =
 	| 'queued'
 	| 'preparing'
@@ -232,6 +232,10 @@ export const agentTasks = {
 		api.get<{ messages: AgentLiveMessage[] }>(`${task(slug, id)}/live-messages`),
 	sendLiveMessage: (slug: string, id: string, body: string) =>
 		api.post<AgentLiveMessage>(`${task(slug, id)}/live-messages`, { body }),
+	// Opens a terminal on the task's machine running Claude Code on the task's
+	// own session, in its worktree; only for its creator, while it is stopped.
+	openInClaudeCode: (slug: string, id: string) =>
+		api.post<TerminalSessionLaunchResponse>(`${task(slug, id)}/terminal`),
 	// Keeps the sign-in finished in the machine's terminal and starts a new attempt.
 	continueAfterSignIn: (slug: string, id: string, requestId: string) =>
 		api.post<AgentTask>(`${task(slug, id)}/sign-in`, { request_id: requestId }),

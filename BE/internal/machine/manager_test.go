@@ -76,6 +76,13 @@ type managerStoreFake struct {
 	runtimeServicesCreated    int
 	modelServer               *domain.AgentModelServer
 	resourceLimits            []string
+	policy                    *domain.DevMachineWorkspacePolicy
+	// signInReads records the workspace/user of each sign-in read.
+	signInReads []string
+}
+
+func (f *managerStoreFake) GetPolicy(context.Context, uuid.UUID) (*domain.DevMachineWorkspacePolicy, error) {
+	return f.policy, nil
 }
 
 func (f *managerStoreFake) RecordResourceLimit(_ context.Context, _ uuid.UUID, kind, message string) error {
@@ -121,10 +128,12 @@ func (f *managerStoreFake) ListEnvVarsInternal(context.Context, uuid.UUID, *stri
 func (f *managerStoreFake) GetModelServer(context.Context, uuid.UUID, *uuid.UUID) (*domain.AgentModelServer, error) {
 	return f.modelServer, nil
 }
-func (f *managerStoreFake) GetAgentSignIn(_ context.Context, _ uuid.UUID, user uuid.UUID, provider string) (string, error) {
+func (f *managerStoreFake) GetAgentSignIn(_ context.Context, workspace, user uuid.UUID, provider string) (string, error) {
+	f.signInReads = append(f.signInReads, workspace.String()+"/"+user.String())
 	return f.signIns[user.String()+"/"+provider], nil
 }
-func (f *managerStoreFake) GetAgentSignInToken(_ context.Context, _ uuid.UUID, user uuid.UUID, provider string) (string, error) {
+func (f *managerStoreFake) GetAgentSignInToken(_ context.Context, workspace, user uuid.UUID, provider string) (string, error) {
+	f.signInReads = append(f.signInReads, workspace.String()+"/"+user.String())
 	return f.signIns[user.String()+"/"+provider+"/token"], nil
 }
 
@@ -469,6 +478,14 @@ type runtimeFake struct {
 	terminalSignIn                              string
 	returnedSignIn                              string
 	startErr                                    error
+	terminalSignIns                             map[string]string
+	terminalSignInSyncs                         int
+}
+
+func (f *runtimeFake) SyncAgentSignIns(_ context.Context, _ []domain.DevMachineService, files map[string]string) error {
+	f.terminalSignInSyncs++
+	f.terminalSignIns = files
+	return nil
 }
 
 func (f *runtimeFake) ReadSignIn(context.Context, []domain.DevMachineService, string) (string, error) {

@@ -68,6 +68,9 @@ type ManagerStore interface {
 	GetModelServer(context.Context, uuid.UUID, *uuid.UUID) (*domain.AgentModelServer, error)
 	GetAgentSignIn(context.Context, uuid.UUID, uuid.UUID, string) (string, error)
 	GetAgentSignInToken(context.Context, uuid.UUID, uuid.UUID, string) (string, error)
+	// GetPolicy reads the workspace policy's allowed agents for the owner's
+	// terminal sign-ins; it returns nil without a policy.
+	GetPolicy(context.Context, uuid.UUID) (*domain.DevMachineWorkspacePolicy, error)
 	SaveAgentSignIn(context.Context, uuid.UUID, uuid.UUID, string, string) error
 	SetMachineState(context.Context, uuid.UUID, domain.DevMachineStatus, *string, *string, *string, *string) error
 	SetMachineStateForOperation(context.Context, uuid.UUID, int64, bool, domain.DevMachineStatus, *string, *string, *string, *string) (bool, error)
@@ -511,6 +514,7 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 				}
 				_ = m.store.UpdateServiceRuntime(ctx, service.ID, *service.ContainerID, "running", "healthy", nil)
 			}
+			m.syncTerminalSignInsAfterStart(ctx, machine)
 			return m.setStateAndEventForOperation(ctx, machine, operation, domain.DevMachineStatusRunning, "machine.started", nil, false)
 		}
 		return nil
@@ -589,6 +593,12 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 		return m.stopPreview(ctx, machine, operation)
 	case domain.DevMachineOpCaptureSignIn:
 		return m.captureSignIn(ctx, machine, operation)
+	case domain.DevMachineOpSyncAgentSignIns:
+		// A machine that is not running syncs when it starts.
+		if machine.Status != domain.DevMachineStatusRunning {
+			return nil
+		}
+		return m.syncTerminalSignIns(ctx, machine)
 	case domain.DevMachineOpRunAgent:
 		return m.runAgent(ctx, machine, operation)
 	case domain.DevMachineOpCancelAgent:
@@ -764,6 +774,7 @@ func (m *Manager) spawn(ctx context.Context, machine *domain.DevMachine, service
 		_ = m.runtime.Teardown(cleanupCtx, machine, runtimeServices)
 		return nil
 	}
+	m.syncTerminalSignInsAfterStart(ctx, machine)
 	return m.createEvent(ctx, machine, nil, "lifecycle", "machine.running", map[string]any{
 		"docker_network_name": networkName, "workspace_volume_name": volumeName,
 	})
@@ -1525,6 +1536,7 @@ func (m *Manager) reconcile(ctx context.Context) error {
 						continue
 					}
 					if updated {
+						m.syncTerminalSignInsAfterStart(ctx, machine)
 						_ = m.createEvent(ctx, machine, nil, "lifecycle", "machine.recovered", nil)
 					}
 					continue
