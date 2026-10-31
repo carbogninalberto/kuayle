@@ -54,6 +54,12 @@
 			: bytes < 1048576
 				? `${Math.round(bytes / 1024)} KB`
 				: `${(bytes / 1048576).toFixed(1)} MB`;
+	// Each command of the check with its result once recorded.
+	const commandRows = $derived(
+		step?.commands?.length
+			? step.commands.map((argv, index) => ({ argv, result: step?.command_results?.[index] }))
+			: []
+	);
 	const running = $derived(step?.status === 'queued' || step?.status === 'running');
 	const failed = $derived(step?.status === 'failed' || step?.status === 'cancelled');
 	const label = $derived(
@@ -99,8 +105,37 @@
 						><CodeBlock.Title
 							><FlaskConical class="size-4" />{manual ? m['tasks.manual_check']() : m['tasks.checks']()}</CodeBlock.Title
 						></CodeBlock.Header
-					><CodeBlock.Content code={JSON.stringify(step.command_argv)} wrap /></CodeBlock.Root
+					><CodeBlock.Content code={JSON.stringify(commandRows.length > 1 ? step.commands : step.command_argv)} wrap /></CodeBlock.Root
 				>
+				{#if step.command_source === 'agent'}<p class="text-xs text-muted-foreground">{m['tasks.check_source_agent']()}</p>
+				{:else if step.command_source === 'configured'}<p class="text-xs text-muted-foreground">
+						{m['tasks.check_source_configured']()}
+					</p>{/if}
+				{#if commandRows.length > 1}
+					<ul class="space-y-1" aria-label={m['tasks.check_commands']()}>
+						{#each commandRows as row, index (index)}
+							<li class="flex min-w-0 items-start gap-2 text-xs">
+								{#if !row.result}<CircleDashed class="mt-0.5 size-3.5 shrink-0" />{:else if row.result.exit_code === 0}<CircleCheck
+										class="mt-0.5 size-3.5 shrink-0"
+									/>{:else}<CircleAlert class="mt-0.5 size-3.5 shrink-0 text-destructive" />{/if}
+								<code class="min-w-0 flex-1 break-all">{row.argv.join(' ')}</code>
+								<span class="shrink-0 text-muted-foreground"
+									>{!row.result
+										? m['tasks.check_command_pending']()
+										: row.result.exit_code === 0
+											? m['tasks.check_command_passed']()
+											: m['tasks.check_command_failed']({ code: row.result.exit_code })}</span
+								>
+							</li>
+						{/each}
+					</ul>
+				{/if}
+				{#if step.agent_summary}
+					<div class="space-y-1">
+						<p class="text-xs font-medium text-muted-foreground">{m['tasks.check_agent_summary']()}</p>
+						<p class="text-xs break-words whitespace-pre-wrap">{step.agent_summary}</p>
+					</div>
+				{/if}
 				{#if step.status === 'skipped'}<p class="text-xs text-muted-foreground">{m['tasks.check_skipped_hint']()}</p>{/if}
 				{#if step.compose_file}<p class="text-xs text-muted-foreground">
 						{m['tasks.check_services']({ file: step.compose_file })}

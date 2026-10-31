@@ -84,10 +84,18 @@ func (r *DevMachineRepository) GetPublication(ctx context.Context, op domain.Dev
 		return nil, err
 	}
 	publication.PublishedCommit = published.String
-	var argv []byte
-	err = tx.QueryRowContext(ctx, `SELECT command_argv,exit_code FROM dev_machine_agent_run_steps WHERE agent_run_id=$1 AND sequence=0 AND step_type='validation' AND status='succeeded'`, task.RunID).Scan(&argv, &publication.CheckExitCode)
+	check := domain.DevMachineAgentRunStep{}
+	err = tx.GetContext(ctx, &check, `SELECT * FROM dev_machine_agent_run_steps WHERE agent_run_id=$1 AND sequence=0 AND step_type='validation' AND status='succeeded'`, task.RunID)
 	if err == nil {
-		_ = json.Unmarshal(argv, &publication.CheckArgv)
+		_ = json.Unmarshal(check.CommandArgv, &publication.CheckArgv)
+		publication.CheckExitCode = check.ExitCode
+		publication.CheckCommands = check.CheckRuns()
+		if check.CommandSource != nil {
+			publication.CheckSource = *check.CommandSource
+		}
+		if check.AgentSummary != nil {
+			publication.AgentSummary = *check.AgentSummary
+		}
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}

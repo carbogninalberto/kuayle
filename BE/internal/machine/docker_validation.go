@@ -2,9 +2,9 @@ package machine
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"slices"
+	"strconv"
 
 	"github.com/containerd/errdefs"
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -13,14 +13,18 @@ import (
 	"github.com/moby/moby/client"
 )
 
-func (r *DockerRuntime) RunValidation(ctx context.Context, machine *domain.DevMachine, run *domain.DevMachineAgentRun, step *domain.DevMachineAgentRunStep, checkout *domain.DevMachineCheckout, image string, observer *AgentObserver) (*AgentExecution, error) {
+// RunValidation runs one command of a check step: each command of an
+// agent-chosen check has its own deterministic container, so a retry replays
+// the commands that already ran and Docker reports every exit code.
+func (r *DockerRuntime) RunValidation(ctx context.Context, machine *domain.DevMachine, run *domain.DevMachineAgentRun, step *domain.DevMachineAgentRunStep, index int, checkout *domain.DevMachineCheckout, image string, observer *AgentObserver) (*AgentExecution, error) {
 	if machine.DockerNetworkName == nil || machine.WorkspaceVolumeName == nil || checkout == nil {
 		return nil, fmt.Errorf("validation runtime resources are unavailable")
 	}
-	var argv []string
-	if json.Unmarshal(step.CommandArgv, &argv) != nil || len(argv) == 0 || domain.ValidateTestCommand(argv) != nil {
+	commands := step.CheckCommands()
+	if index < 0 || index >= len(commands) || domain.ValidateTestCommand(commands[index]) != nil {
 		return nil, fmt.Errorf("invalid validation command")
 	}
+	argv := commands[index]
 	if machine.EnvironmentID != nil {
 		if err := r.ensureEnvironmentImage(ctx, image, machine.WorkspaceID, *machine.EnvironmentID); err != nil {
 			return nil, err
@@ -28,7 +32,7 @@ func (r *DockerRuntime) RunValidation(ctx context.Context, machine *domain.DevMa
 	} else if err := r.ensureImage(ctx, image); err != nil {
 		return nil, err
 	}
-	key := checkContainerKey(run, step)
+	key := checkCommandKey(run, step, index)
 	name := "kuayle-" + machine.RoutingKey + "-" + key
 	labels := machineLabels(machine)
 	labels["com.kuayle.service"] = "agent"
@@ -36,7 +40,7 @@ func (r *DockerRuntime) RunValidation(ctx context.Context, machine *domain.DevMa
 	labels["com.kuayle.validation-id"] = step.ID.String()
 	if result, err := r.client.ContainerInspect(ctx, name, client.ContainerInspectOptions{}); err == nil {
 		config := result.Container.Config
-		if result.Container.State == nil || config == nil || config.Image != image || !slices.Equal(config.Entrypoint, argv[:1]) || !slices.Equal(config.Cmd, argv[1:]) || config.WorkingDir != checkout.WorkspacePath {
+		if result.Container.State == nil || config == nil || config.Image != image || !checkContainerRuns(config, argv) || config.WorkingDir != checkout.WorkspacePath {
 			return nil, fmt.Errorf("validation container does not match the accepted command")
 		}
 		for key, value := range labels {
@@ -62,8 +66,8 @@ func (r *DockerRuntime) RunValidation(ctx context.Context, machine *domain.DevMa
 	}
 	result, err := r.client.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Name: name,
-		Config: &container.Config{Image: image, User: "1000:1000", WorkingDir: checkout.WorkspacePath, Entrypoint: argv[:1], Cmd: argv[1:], Labels: labels, AttachStdout: true, AttachStderr: true,
-			Env: []string{"HOME=/home/kuayle", "CI=true", "HTTP_PROXY=http://" + machine.RoutingKey + "-egress:3128", "HTTPS_PROXY=http://" + machine.RoutingKey + "-egress:3128", "NO_PROXY=localhost,127.0.0.1"}},
+		Config: &container.Config{Image: image, User: "1000:1000", WorkingDir: checkout.WorkspacePath, Entrypoint: checkEntrypoint, Cmd: checkCommand(argv), Labels: labels, AttachStdout: true, AttachStderr: true,
+			Env: append([]string{"HOME=/home/kuayle", "CI=true", "HTTP_PROXY=http://" + machine.RoutingKey + "-egress:3128", "HTTPS_PROXY=http://" + machine.RoutingKey + "-egress:3128", "NO_PROXY=localhost,127.0.0.1"}, runTmpEnvironment(runTmpDir(key))...)},
 		// A check may start compose services beside it, so it keeps the agent
 		// share of a machine with a daemon (35%).
 		HostConfig:       r.secureHostConfig(machine, "agent", *machine.DockerNetworkName, *machine.WorkspaceVolumeName, true),
@@ -80,6 +84,13 @@ func (r *DockerRuntime) RunValidation(ctx context.Context, machine *domain.DevMa
 	return r.resumeExecution(ctx, container.InspectResponse{ID: result.ID, State: &container.State{Status: "created"}}, false, nil, observer, false)
 }
 
+// checkContainerRuns reports whether a retained check container runs argv,
+// through the check runner or, when created by an earlier version, directly.
+func checkContainerRuns(config *container.Config, argv []string) bool {
+	direct := slices.Equal(config.Entrypoint, argv[:1]) && slices.Equal(config.Cmd, argv[1:])
+	return direct || slices.Equal(config.Entrypoint, checkEntrypoint) && slices.Equal(config.Cmd, checkCommand(argv))
+}
+
 // checkContainerKey names a check's container, service and network alias.
 // The attempt's independent validation keeps one per attempt; each manual
 // check gets its own, so it never replays an earlier check's result.
@@ -88,6 +99,15 @@ func checkContainerKey(run *domain.DevMachineAgentRun, step *domain.DevMachineAg
 		return "check-" + step.ID.String()
 	}
 	return "validation-" + run.ID.String()
+}
+
+// checkCommandKey names the container of a check's command index; the first
+// keeps the check's own name.
+func checkCommandKey(run *domain.DevMachineAgentRun, step *domain.DevMachineAgentRunStep, index int) string {
+	if index == 0 {
+		return checkContainerKey(run, step)
+	}
+	return checkContainerKey(run, step) + "-" + strconv.Itoa(index)
 }
 
 const manualCheckStepType = "manual_check"

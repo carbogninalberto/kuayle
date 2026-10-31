@@ -205,7 +205,7 @@ func TestToolContainerGetsArgumentsOnlyAsData(t *testing.T) {
 	require.Equal(t, []string{"sh"}, input.Entrypoint)
 	require.Equal(t, []string{"-c", toolBootstrap, "kuayle-tool", "python3"}, input.Cmd)
 	for _, arg := range append(input.Entrypoint, input.Cmd...) {
-		require.NotContains(t, arg, "rm -rf", "arguments never reach the command line")
+		require.NotContains(t, arg, "touch pwned", "arguments never reach the command line")
 		require.NotContains(t, arg, "KUAYLE_ARG_SPEC\"", "nor does the script")
 	}
 	require.Equal(t, "/workspace/tasks/eng-1", input.WorkingDir)
@@ -213,8 +213,9 @@ func TestToolContainerGetsArgumentsOnlyAsData(t *testing.T) {
 	require.Contains(t, input.Env, "KUAYLE_ARG_SPEC="+hostileInput)
 	require.Contains(t, input.Env, "KUAYLE_TOOL_SCRIPT=echo \"$KUAYLE_ARG_SPEC\"")
 	for _, env := range input.Env {
-		require.Regexp(t, `^(HOME|CI|HTTP_PROXY|HTTPS_PROXY|NO_PROXY|KUAYLE_TOOL_NAME|KUAYLE_TOOL_SCRIPT|KUAYLE_TOOL_INPUT|KUAYLE_ARG_SPEC)=`, env)
+		require.Regexp(t, `^(HOME|CI|HTTP_PROXY|HTTPS_PROXY|NO_PROXY|KUAYLE_TOOL_NAME|KUAYLE_TOOL_SCRIPT|KUAYLE_TOOL_INPUT|KUAYLE_ARG_SPEC|KUAYLE_RUN_TMP|TMPDIR|TMP|TEMP|GOTMPDIR|GOCACHE|GOMODCACHE|XDG_CACHE_HOME|npm_config_cache|PIP_CACHE_DIR|YARN_CACHE_FOLDER)=`, env)
 	}
+	require.Contains(t, input.Env, "GOCACHE=/workspace/.kuayle/tmp/tool-"+execution.Run.ID.String()+"/cache/go-build", "caches live on the workspace volume, not the small home tmpfs")
 	require.Equal(t, execution.Run.ID.String(), input.Labels["com.kuayle.tool-run-id"])
 	require.True(t, input.HostConfig.ReadonlyRootfs)
 	require.Contains(t, input.HostConfig.CapDrop, "ALL")

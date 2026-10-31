@@ -26,7 +26,7 @@ import (
 type ManagerStore interface {
 	GetValidation(context.Context, domain.DevMachineOperation) (*domain.DevMachineAgentRunStep, error)
 	StartValidation(context.Context, domain.DevMachineOperation, string) error
-	CompleteValidation(context.Context, domain.DevMachineOperation, int) error
+	CompleteValidation(context.Context, domain.DevMachineOperation, int, []domain.CheckCommandResult) error
 	CreateValidationOutput(context.Context, domain.DevMachineOperation, *domain.DevMachineLogChunk) error
 	ListResourceAllocations(context.Context) ([]domain.DevMachineResourceAllocation, error)
 	RecordNativeSession(context.Context, uuid.UUID, string) error
@@ -1236,6 +1236,12 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	outboxCtx, cancelOutbox := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 	m.collectOutbox(outboxCtx, machine, services)
 	m.closeLiveInbox(outboxCtx, machine, run)
+	m.takeValidationFile(outboxCtx, machine, run, services, checkout)
+	if cleaner, ok := m.runtime.(runTmpRuntime); ok && run.Mode != "interactive" {
+		if err := cleaner.RemoveRunTmp(outboxCtx, services, agentRunTmpKey(run)); err != nil {
+			log.WithField("agent_run_id", run.ID).WithError(err).Warn("agent run directory could not be removed")
+		}
+	}
 	cancelOutbox()
 	stdout, stderr := output.Text("stdout"), output.Text("stderr")
 	result := provider.ParseResult(stdout, stderr, execution.ExitCode)

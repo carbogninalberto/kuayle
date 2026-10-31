@@ -27,15 +27,21 @@ import (
 // toolBootstrap is the fixed command line of every tool container. It writes
 // the script and the inputs from the environment to private files and runs
 // the script with the interpreter named by $1. Nothing from the request is
-// part of it, so arguments cannot be interpreted as shell syntax.
-const toolBootstrap = `set -eu
+// part of it, so arguments cannot be interpreted as shell syntax. Temporary
+// files and caches use the run's directory on the workspace volume, which is
+// removed when the script ends.
+const toolBootstrap = runTmpPrepare + `set -eu
 umask 077
 dir=$(mktemp -d "${TMPDIR:-/tmp}/kuayle-tool.XXXXXX")
 printf '%s' "$KUAYLE_TOOL_SCRIPT" > "$dir/script"
 printf '%s' "$KUAYLE_TOOL_INPUT" > "$dir/input.json"
 unset KUAYLE_TOOL_SCRIPT KUAYLE_TOOL_INPUT
 export KUAYLE_TOOL_INPUT_FILE="$dir/input.json"
-exec "$1" "$dir/script"`
+set +e
+"$1" "$dir/script"
+kuayle_status=$?
+[ -z "$kuayle_tmp" ] || kuayle_tmp_clean "$kuayle_tmp"
+exit "$kuayle_status"`
 
 // toolOutputFlush bounds how long output waits before it is stored.
 const toolOutputFlush = time.Second
@@ -64,6 +70,7 @@ func toolEnvironment(machine *domain.DevMachine, execution *domain.AssistantTool
 	}
 	env := []string{"HOME=/home/kuayle", "CI=true", "HTTP_PROXY=http://" + machine.RoutingKey + "-egress:3128", "HTTPS_PROXY=http://" + machine.RoutingKey + "-egress:3128", "NO_PROXY=localhost,127.0.0.1",
 		"KUAYLE_TOOL_NAME=" + execution.Run.ToolName, "KUAYLE_TOOL_SCRIPT=" + execution.Script, "KUAYLE_TOOL_INPUT=" + string(execution.Run.Inputs)}
+	env = append(env, runTmpEnvironment(runTmpDir("tool-"+execution.Run.ID.String()))...)
 	return append(env, args...), nil
 }
 
