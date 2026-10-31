@@ -59,7 +59,8 @@ snapshot records a `skipped` step; it is never a pass. The task still moves to
 description starts with a "Not validated" warning; the task then awaits review
 with a reason that says no check is configured.
 
-The manager runs the argv directly (no shell, harness bootstrap or provider
+The manager runs the argv as positional arguments of a fixed `sh` runner that
+only prepares the run's temporary directory (no interpolation, harness bootstrap or provider
 parsing) in a deterministic `-validation-<run>` container from the machine's
 developer image, on the task checkout, under the hardened agent host config,
 egress proxy and `CI=true`. No model, GitHub or runtime credentials are copied
@@ -92,6 +93,49 @@ is best-effort and never changes the check's result. Downloads are session-only
 and task-authorized. They are served as attachments (png/jpeg inline) with
 `nosniff`, a sandbox CSP and `no-store`, and the UI always saves them as files,
 so a report's HTML never runs on the app origin.
+
+### Agent-chosen tests
+
+Migration 102 lets an implement attempt choose the tests Kuayle reruns. The
+prompt (`withValidationFile`) and the `kuayle-agents` skill ask the agent to run
+fast, preferably database-free tests relevant to its change and then write
+`.kuayle/validation.json` at the worktree root:
+
+```json
+{"commands": [["sh","-c","cd BE && go test ./internal/service/..."], ["npm","run","check"]],
+ "summary": "what was tested and why, and what was not"}
+```
+
+The file is untrusted. When the attempt ends, the manager reads it through the
+developer container as a regular file only (never through a symlink), at most
+64 KiB, and removes it; an attempt's start removes a leftover file, so every
+attempt declares its own. `domain.ParseAgentValidationFile` accepts exactly
+those two keys: 1 to 8 non-empty argv arrays that pass `ValidateTestCommand`,
+and a summary of at most 2,000 characters; anything else rejects the whole file
+with a fixed reason. The parsed result, or the reason, is stored on the attempt
+(`dev_machine_agent_runs.declared_validation`).
+
+Precedence: a check command configured in the development settings (issue,
+project, team or workspace, or requested for the task) is an admin override.
+When one exists it alone runs and the declaration is ignored. Otherwise the
+declared commands run. Without either, the step is skipped and the change opens
+as the not-validated draft described above; a rejected file's reason is in the
+skipped step's summary. The step records `command_source` (`configured` or
+`agent`), `commands` (agent source only; `command_argv` keeps the first
+command), `command_results` (one exit code per command) and `agent_summary`.
+
+The manager runs every command in order, each in its own deterministic check
+container (`-validation-<run>` for the first, `-validation-<run>-<n>` after it),
+so retries replay what already ran and Docker reports each exit code. All
+commands run even after a failure; the first non-zero exit code is the step's.
+`CompleteValidation` refuses results that do not match the commands. A
+passing check opens the pull request ready for review. Its Verification section
+lists each command with pass/fail, exit code and "agent-chosen", and the
+agent's summary fenced as unverified text (no mentions, no fence breaking). A
+failure fails the task with "Kuayle re-ran the agent's tests and they failed:
+<cmd> exit N". The check output stays on the task, and the next attempt's
+handoff names the failed command and its exit code. Rollback is refused while an
+agent-chosen check is queued or running.
 
 ### Compose services for checks
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -77,7 +78,45 @@ func (m *Manager) validateAgent(ctx context.Context, machine *domain.DevMachine,
 		return m.store.CreateValidationOutput(writeCtx, *op, &domain.DevMachineLogChunk{WorkspaceID: machine.WorkspaceID, MachineID: machine.ID, AgentRunID: &run.ID, ServiceID: &step.ID, Stream: stream, Sequence: sequence, SourceKey: source, Content: content, Truncated: truncated})
 	})
 	observer := &AgentObserver{Authorize: func() error { _, err := m.store.GetValidation(runCtx, *op); return err }, Started: func(id string) error { return m.store.StartValidation(runCtx, *op, id) }, Output: output.WriteDocker}
-	execution, execErr := m.runtime.RunValidation(runCtx, machine, run, step, checkout, image, observer)
+	// Every command runs, in order and each in its own container, so the
+	// result shows each one's outcome; the first failure decides the exit code.
+	commands := step.CheckCommands()
+	if len(commands) == 0 {
+		return &terminalOperationError{code: "validation_unavailable", message: "The check has no command"}
+	}
+	results := make([]domain.CheckCommandResult, 0, len(commands))
+	exitCode := 0
+	var execution *AgentExecution
+	var execErr error
+	for index, argv := range commands {
+		// Deterministic notes, so a replay stores the same output; the first
+		// is written once the check runs (output needs a running step).
+		if index > 0 {
+			if execErr = output.Write("stderr", []byte(fmt.Sprintf("Kuayle: running command %d of %d: %s\n", index+1, len(commands), strings.Join(argv, " ")))); execErr != nil {
+				break
+			}
+		}
+		execution, execErr = m.runtime.RunValidation(runCtx, machine, run, step, index, checkout, image, observer)
+		if memoryLimit := m.recordRunMemoryLimit(ctx, machine, run, "validation", execution); memoryLimit != "" && execErr == nil {
+			writeKuayleNote(output, run.ID, memoryLimit)
+		}
+		if execErr != nil {
+			break
+		}
+		if execution == nil {
+			execErr = errors.New("validation execution returned no result")
+			break
+		}
+		results = append(results, domain.CheckCommandResult{ExitCode: execution.ExitCode})
+		if exitCode == 0 {
+			exitCode = execution.ExitCode
+		}
+		if len(commands) > 1 {
+			if execErr = output.Write("stderr", []byte(fmt.Sprintf("Kuayle: command %d of %d (%s) exited with code %d\n", index+1, len(commands), strings.Join(argv, " "), execution.ExitCode))); execErr != nil {
+				break
+			}
+		}
+	}
 	if step.ComposeFile != "" {
 		// Services live only for this check; the check container stays for replay.
 		defer func() {
@@ -96,9 +135,6 @@ func (m *Manager) validateAgent(ctx context.Context, machine *domain.DevMachine,
 			_ = output.Finish()
 		}
 		return &terminalOperationError{code: "compose_rejected", message: "Compose file rejected: " + composeErr.Reason}
-	}
-	if memoryLimit := m.recordRunMemoryLimit(ctx, machine, run, "validation", execution); memoryLimit != "" && execErr == nil {
-		writeKuayleNote(output, run.ID, memoryLimit)
 	}
 	if execErr == nil {
 		execErr = output.Finish()
@@ -124,9 +160,6 @@ func (m *Manager) validateAgent(ctx context.Context, machine *domain.DevMachine,
 		// command on an operation retry. Cancellation owns physical removal.
 		return execErr
 	}
-	if execution == nil {
-		return errors.New("validation execution returned no result")
-	}
 	// QA artifacts are best effort: they never change the check's outcome.
 	if artifacts, err := m.runtime.CollectValidationArtifacts(ctx, machine, run, step, checkout); err != nil {
 		log.WithField("agent_run_id", run.ID).WithError(err).Warn("validation artifact collection failed")
@@ -135,7 +168,12 @@ func (m *Manager) validateAgent(ctx context.Context, machine *domain.DevMachine,
 			return err
 		}
 	}
-	if err = m.store.CompleteValidation(ctx, *op, execution.ExitCode); err != nil {
+	// A step with a single command predates per-command results or is a
+	// configured or manual check: its exit code is the whole result.
+	if len(step.Commands) == 0 {
+		results = nil
+	}
+	if err = m.store.CompleteValidation(ctx, *op, exitCode, results); err != nil {
 		return err
 	}
 	// A recorded manual check is never replayed, so its container can go.

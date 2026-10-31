@@ -39,7 +39,7 @@ func publishingTask(t *testing.T) (*sqlx.DB, *AgentTaskRepository, context.Conte
 	op := ops[0]
 	require.NoError(t, store.CreateRuntimeService(ctx, &domain.DevMachineService{ID: step.ID, WorkspaceID: task.WorkspaceID, MachineID: op.MachineID, AgentRunID: &task.RunID, ServiceType: "agent", ServiceKey: "validation", ContainerName: "validation", ImageRef: "fixture", InternalHost: "validation", InternalPort: 8080, Status: "pending", HealthStatus: "unknown"}))
 	require.NoError(t, store.StartValidation(ctx, op, "container"))
-	require.NoError(t, store.CompleteValidation(ctx, op, 0))
+	require.NoError(t, store.CompleteValidation(ctx, op, 0, nil))
 	require.NoError(t, store.CompleteOperation(ctx, op.ID, *op.LeaseOwner))
 	require.NoError(t, repo.Transition(ctx, *claimed, "publishing", "Checks passed"))
 	return db, repo, ctx, task, claimed

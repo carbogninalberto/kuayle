@@ -248,6 +248,12 @@ type AgentPublication struct {
 	// The independent check that passed for this attempt, for the PR body.
 	CheckArgv     []string
 	CheckExitCode *int
+	// CheckSource is configured or agent; CheckCommands are every command it
+	// ran with its exit code, and AgentSummary is the agent's own, untrusted
+	// account of what it chose to test.
+	CheckSource   string
+	CheckCommands []CheckCommandRun
+	AgentSummary  string
 	// The workspace's configured commit author, when set.
 	AuthorName, AuthorEmail string
 	// The last commit Kuayle published on the task branch, if any.
@@ -309,7 +315,12 @@ type AgentHandoff struct {
 	ChangedFiles       []string
 	Validation         string
 	ValidationExitCode *int
-	PullRequestURL     string
+	// ValidationSource says whether the check was configured or the agent's
+	// own choice; FailedCommand is its first failing command, if any.
+	ValidationSource      string
+	FailedCommand         []string
+	FailedCommandExitCode *int
+	PullRequestURL        string
 }
 
 // ValidationArtifact is a file the independent check left in its report

@@ -58,6 +58,12 @@ export interface ValidationStep {
 	step_type?: string;
 	status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'skipped';
 	command_argv: string[];
+	// Where the independent check's commands came from, every command it runs
+	// and their exit codes, and the agent's own (untrusted) summary.
+	command_source?: 'configured' | 'agent' | null;
+	commands?: string[][] | null;
+	command_results?: { exit_code: number }[] | null;
+	agent_summary?: string | null;
 	exit_code?: number | null;
 	summary?: string | null;
 	compose_file?: string;

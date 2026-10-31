@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
@@ -45,19 +46,20 @@ func (r *AgentTaskRepository) EnsureValidation(ctx context.Context, claimed doma
 	if json.Unmarshal(task.ValidationCommand, &command) != nil || command == nil || domain.ValidateTestCommand(command) != nil {
 		return nil, ErrConversationInvalid
 	}
+	plan := validationPlan(command, run.DeclaredValidation)
 	status, summary := "queued", "Waiting for independent validation"
-	if len(command) == 0 {
-		status, summary = "skipped", "No test command is configured; validation is unavailable"
+	if plan.source == nil {
+		status, summary = "skipped", plan.skipped
 	}
 	generation, err := lockTaskMachine(ctx, tx, *task)
 	if err != nil {
 		return nil, err
 	}
-	err = tx.GetContext(ctx, step, `INSERT INTO dev_machine_agent_run_steps(agent_run_id,sequence,step_type,name,status,command_argv,summary,completed_at,compose_file) VALUES($1,0,'validation','Independent validation',$2::dev_machine_agent_run_step_status,$3,$4,CASE WHEN $2::dev_machine_agent_run_step_status='skipped' THEN now() END,$5) RETURNING *`, task.RunID, status, task.ValidationCommand, summary, task.ComposeFile)
+	err = tx.GetContext(ctx, step, `INSERT INTO dev_machine_agent_run_steps(agent_run_id,sequence,step_type,name,status,command_argv,summary,completed_at,compose_file,command_source,commands,agent_summary) VALUES($1,0,'validation','Independent validation',$2::dev_machine_agent_run_step_status,$3,$4,CASE WHEN $2::dev_machine_agent_run_step_status='skipped' THEN now() END,$5,$6,$7,$8) RETURNING *`, task.RunID, status, plan.first, summary, task.ComposeFile, plan.source, plan.commands, plan.summary)
 	if err != nil {
 		return nil, err
 	}
-	if len(command) > 0 {
+	if plan.source != nil {
 		op := &domain.DevMachineOperation{ID: uuid.New(), WorkspaceID: task.WorkspaceID, MachineID: *task.MachineID, AgentRunID: &task.RunID, Action: domain.DevMachineOpValidateAgent, Status: domain.DevMachineOpStatusPending, Generation: generation, IdempotencyKey: "task-validation:" + task.RunID.String(), RequestedByUserID: &task.CreatorID, MaxAttempts: 3}
 		if err = enqueueOperation(ctx, tx, op); err != nil {
 			return nil, err
@@ -67,6 +69,53 @@ func (r *AgentTaskRepository) EnsureValidation(ctx context.Context, claimed doma
 		return nil, err
 	}
 	return step, tx.Commit()
+}
+
+// checkPlan is what an attempt's independent check runs: a configured
+// command overrides the attempt's own choice; otherwise the commands the agent
+// declared in its validation file run; without either the step is skipped.
+type checkPlan struct {
+	source   *string
+	first    json.RawMessage
+	commands []byte
+	summary  *string
+	skipped  string
+}
+
+func validationPlan(configured []string, declaredRaw *json.RawMessage) checkPlan {
+	var declared domain.AgentDeclaredValidation
+	if declaredRaw != nil && json.Unmarshal(*declaredRaw, &declared) != nil {
+		declared = domain.AgentDeclaredValidation{Error: "the recorded declaration is unreadable"}
+	}
+	if len(configured) > 0 {
+		// A single configured command keeps the step's original shape: its
+		// argv and exit code are the whole result.
+		source := domain.CheckSourceConfigured
+		first, _ := json.Marshal(configured)
+		return checkPlan{source: &source, first: first}
+	}
+	if declared.Error == "" && len(declared.Commands) > 0 && len(declared.Commands) <= domain.AgentValidationMaxCommands {
+		valid := true
+		for _, argv := range declared.Commands {
+			valid = valid && len(argv) > 0 && domain.ValidateTestCommand(argv) == nil
+		}
+		if valid {
+			source := domain.CheckSourceAgent
+			first, _ := json.Marshal(declared.Commands[0])
+			commands, _ := json.Marshal(declared.Commands)
+			plan := checkPlan{source: &source, first: first, commands: commands}
+			if summary := declared.Summary; summary != "" && utf8.RuneCountInString(summary) <= domain.AgentValidationSummaryMaxRunes {
+				plan.summary = &summary
+			}
+			return plan
+		}
+		declared.Error = "a recorded command is invalid"
+	}
+	skipped := "No check command is configured and the agent did not declare its tests; validation is unavailable"
+	if declared.Error != "" {
+		skipped = "No check command is configured and the agent's " + domain.AgentValidationFile + " was rejected: " + declared.Error + "; validation is unavailable"
+	}
+	return checkPlan{first: json.RawMessage(`[]`), skipped: skipped}
 }
 
 // lockTaskMachine matches native-run creation's lock order to exclude competing
@@ -249,7 +298,11 @@ func (r *DevMachineRepository) StartValidation(ctx context.Context, op domain.De
 	}
 	return tx.Commit()
 }
-func (r *DevMachineRepository) CompleteValidation(ctx context.Context, op domain.DevMachineOperation, exit int) error {
+
+// CompleteValidation records a check's result: the overall exit code (the
+// first failing command's, else 0) and, for a step with recorded commands, one
+// result per command in order.
+func (r *DevMachineRepository) CompleteValidation(ctx context.Context, op domain.DevMachineOperation, exit int, results []domain.CheckCommandResult) error {
 	tx, task, step, err := r.validationTransaction(ctx, op)
 	if err != nil {
 		return err
@@ -258,6 +311,27 @@ func (r *DevMachineRepository) CompleteValidation(ctx context.Context, op domain
 	if step.Status != domain.DevMachineAgentRunStepStatusRunning || step.StartedAt == nil {
 		return ErrAgentTaskConflict
 	}
+	if results == nil {
+		results = []domain.CheckCommandResult{}
+	}
+	if len(step.Commands) > 0 {
+		overall := 0
+		for _, result := range results {
+			if result.ExitCode != 0 {
+				overall = result.ExitCode
+				break
+			}
+		}
+		if len(results) != len(step.CheckCommands()) || overall != exit {
+			return ErrAgentTaskConflict
+		}
+	} else if len(results) > 0 {
+		return ErrAgentTaskConflict
+	}
+	recorded, err := json.Marshal(results)
+	if err != nil {
+		return err
+	}
 	status, summary := "failed", "Independent validation failed"
 	if exit == 0 {
 		status, summary = "succeeded", "Independent validation passed"
@@ -265,7 +339,7 @@ func (r *DevMachineRepository) CompleteValidation(ctx context.Context, op domain
 	if step.StepType == manualCheckStepType {
 		summary = map[bool]string{true: "The check passed", false: "The check failed"}[exit == 0]
 	}
-	if err = tx.GetContext(ctx, step, `UPDATE dev_machine_agent_run_steps SET status=$2,exit_code=$3,summary=$4,completed_at=now() WHERE id=$1 RETURNING *`, step.ID, status, exit, summary); err != nil {
+	if err = tx.GetContext(ctx, step, `UPDATE dev_machine_agent_run_steps SET status=$2,exit_code=$3,summary=$4,command_results=$5,completed_at=now() WHERE id=$1 RETURNING *`, step.ID, status, exit, summary, recorded); err != nil {
 		return err
 	}
 	if _, err = tx.ExecContext(ctx, `UPDATE dev_machine_services SET status='stopped',health_status='stopped',stopped_at=now() WHERE id=$1`, step.ID); err != nil {
