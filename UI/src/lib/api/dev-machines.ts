@@ -330,18 +330,28 @@ function createTerminalSession(
 	return api.post(`${base(slug)}/dev-machines/${machineId}/terminal-sessions`, input);
 }
 
-export async function createTerminalSessionWithResume(
+export function createTerminalSessionWithResume(
 	slug: string,
 	machineId: string,
 	input: CreateTerminalSessionInput,
 	options: ResumeRetryOptions = {}
 ): Promise<TerminalSessionLaunchResponse> {
+	return launchTerminalWithResume(slug, machineId, () => createTerminalSession(slug, machineId, input), options);
+}
+
+/** Repeats a terminal launch while its machine resumes or finishes starting. */
+export async function launchTerminalWithResume(
+	slug: string,
+	machineId: string,
+	launch: () => Promise<TerminalSessionLaunchResponse>,
+	options: ResumeRetryOptions = {}
+): Promise<TerminalSessionLaunchResponse> {
 	const deadline = Date.now() + (options.timeoutMs ?? 120_000);
-	let response = await createTerminalSession(slug, machineId, input);
+	let response = await launch();
 	while (response.status === 'resuming' || response.status === 'pending') {
 		options.onStatus?.(response.status);
 		await waitForLaunchRetry(slug, machineId, response.retry_after_seconds, deadline, options.onStatus);
-		response = await createTerminalSession(slug, machineId, input);
+		response = await launch();
 	}
 	if (response.status !== 'ready') {
 		throw new Error('Terminal session is not ready');

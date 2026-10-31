@@ -1765,6 +1765,13 @@ func (s *DevMachineService) CreateTerminalSession(ctx context.Context, workspace
 	if err := s.store.CreateTerminalSession(ctx, session); err != nil {
 		return nil, err
 	}
+	return s.launchTerminalSession(ctx, machine, terminalService, checkout, session)
+}
+
+// launchTerminalSession issues the one-time ticket that connects the
+// session's user to the terminal session in its working directory.
+func (s *DevMachineService) launchTerminalSession(ctx context.Context, machine *domain.DevMachine, terminalService *domain.DevMachineService, checkout *domain.DevMachineCheckout, session *domain.DevMachineTerminalSession) (*dto.TerminalSessionLaunchResponse, error) {
+	workspaceID, machineID, userID, runtimeName := machine.WorkspaceID, machine.ID, session.UserID, session.RuntimeSessionName
 	raw, err := randomHex(32)
 	if err != nil {
 		return nil, err

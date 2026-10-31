@@ -86,6 +86,9 @@ export function planForPaths(paths, event = 'pull_request') {
         'devmachine/ide/shell.sh',
         'devmachine/ide/terminal-session.sh',
         'devmachine/ide/tmux.conf',
+        'devmachine/common/kuayle-agent-sign-in.sh',
+        'devmachine/common/kuayle-claude-config.cjs',
+        'devmachine/common/kuayle-task-claude',
       ].includes(path)) add(dev, ['ide', 'headless']);
       else if (path.startsWith('devmachine/security/')) { /* host policy; exercised by runtime tests */ }
       else {

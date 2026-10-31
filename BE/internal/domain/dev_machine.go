@@ -62,6 +62,9 @@ const (
 	DevMachineOpResize DevMachineOperationAction = "resize"
 	// DevMachineOpRunTool runs a custom assistant tool's script on demand.
 	DevMachineOpRunTool DevMachineOperationAction = "run_tool"
+	// DevMachineOpSyncAgentSignIns rewrites the owner's agent sign-ins in the
+	// machine's terminal home after they change in Kuayle.
+	DevMachineOpSyncAgentSignIns DevMachineOperationAction = "sync_agent_sign_ins"
 )
 
 type DevMachineOperationStatus string

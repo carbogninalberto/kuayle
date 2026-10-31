@@ -1,0 +1,60 @@
+#!/bin/sh
+# Usage: kuayle-task-claude TASK_ID [NATIVE_SESSION_ID]
+# Opens Claude Code in a task's worktree for the machine owner, resuming the
+# task's native session when its transcript is on this machine.
+#
+# Task attempts keep their Claude Code transcripts in
+# /workspace/.kuayle/agent-sessions/<task>/claude (see the agent session
+# wrapper). This terminal points CLAUDE_CONFIG_DIR at a per-task directory in
+# the in-memory home whose projects/ links to those transcripts, so
+# `claude --resume` continues the same session and the next follow-up attempt
+# resumes it with the user's turns. Credentials never go to the volume: the
+# owner's sign-in comes from kuayle-agent-sign-in.sh (CLAUDE_CODE_OAUTH_TOKEN)
+# or their own ~/.claude/.credentials.json, linked into the config directory.
+set -eu
+
+task=${1:-}
+native=${2:-}
+uuid_pattern='[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}'
+if ! printf '%s' "$task" | grep -qx "$uuid_pattern"; then
+  echo "invalid task" >&2
+  exit 1
+fi
+if [ -n "$native" ] && ! printf '%s' "$native" | grep -qx "$uuid_pattern"; then
+  echo "invalid session" >&2
+  exit 1
+fi
+home=${HOME:-/home/kuayle}
+workspace_root=${KUAYLE_WORKSPACE_ROOT:-/workspace}
+transcripts="$workspace_root/.kuayle/agent-sessions/$task/claude"
+config="$home/.kuayle/claude-tasks/$task"
+umask 077
+mkdir -p "$transcripts" "$config" "$home/.claude"
+if [ ! -L "$config/projects" ]; then
+  rm -rf "$config/projects"
+  ln -s "$transcripts" "$config/projects"
+fi
+
+KUAYLE_SIGN_IN_HINT=0
+. "${KUAYLE_AGENT_SIGN_IN:-/usr/local/lib/kuayle/kuayle-agent-sign-in.sh}"
+# A file login (the user's own, or one Kuayle installed) is shared with the
+# user's other terminals, so a refreshed token is not lost with this directory.
+if [ ! -L "$config/.credentials.json" ]; then
+  rm -f "$config/.credentials.json"
+  ln -s "$home/.claude/.credentials.json" "$config/.credentials.json"
+fi
+node "${KUAYLE_CLAUDE_CONFIG:-/usr/local/lib/kuayle/kuayle-claude-config.cjs}" "$config/.claude.json" "$workspace_root" "$PWD" 2>/dev/null || true
+export CLAUDE_CONFIG_DIR="$config"
+
+status=0
+if [ -n "$native" ] && ls "$transcripts"/*/"$native.jsonl" >/dev/null 2>&1; then
+  claude --resume "$native" || status=$?
+else
+  if [ -n "$native" ]; then
+    echo "Kuayle: the task's Claude Code session is not on this machine; starting a new session in its worktree."
+  fi
+  claude || status=$?
+fi
+unset CLAUDE_CONFIG_DIR
+echo "Kuayle: Claude Code exited ($status). Close this terminal before the task's next attempt."
+exec "${KUAYLE_TASK_SHELL:-/usr/local/bin/kuayle-shell}"

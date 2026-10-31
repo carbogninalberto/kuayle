@@ -104,6 +104,9 @@ type Runtime interface {
 	WritePortState(ctx context.Context, services []domain.DevMachineService, state []byte) error
 	ReadSignIn(ctx context.Context, services []domain.DevMachineService, provider string) (string, error)
 	TakeSignInReturn(ctx context.Context, services []domain.DevMachineService, runID uuid.UUID) (string, error)
+	// SyncAgentSignIns replaces the owner's sign-in files in the developer
+	// container's in-memory home with files (name to content).
+	SyncAgentSignIns(ctx context.Context, services []domain.DevMachineService, files map[string]string) error
 	PurgeTaskSession(context.Context, *domain.DevMachine, string, uuid.UUID) error
 	PublishCheckout(context.Context, *domain.DevMachine, []domain.DevMachineService, *domain.DevMachineCheckout, PublishRequest) (string, error)
 	Spawn(context.Context, *domain.DevMachine, []domain.DevMachineService, map[string]map[string]string) (string, string, map[string]string, error)

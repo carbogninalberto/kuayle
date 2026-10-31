@@ -46,6 +46,10 @@ func agentTaskError(c echo.Context, err error) error {
 		return response.Error(c, http.StatusConflict, "TASK_CLOSED", "The task no longer takes messages")
 	case errors.Is(err, repository.ErrAgentLiveMessageRateLimited):
 		return response.Error(c, http.StatusTooManyRequests, "LIVE_MESSAGE_LIMIT", "Too many messages for this task; try again later")
+	case errors.Is(err, service.ErrTaskTerminalBusy):
+		return response.Error(c, http.StatusConflict, "TASK_BUSY", "The agent is working on this task; open it in Claude Code when it stops")
+	case errors.Is(err, service.ErrTaskTerminalUnsupported):
+		return response.Error(c, http.StatusConflict, "TERMINAL_UNSUPPORTED", "Only Claude Code tasks open in Claude Code")
 	case errors.Is(err, service.ErrSignInNotFound):
 		return response.Error(c, http.StatusConflict, "SIGN_IN_NOT_FOUND", "No sign-in was found in the machine's terminal yet")
 	default:
@@ -233,6 +237,21 @@ func (h *AgentTaskHandler) ContinueAfterSignIn(c echo.Context) error {
 	}
 	return response.Success(c, http.StatusAccepted, task)
 }
+
+// OpenInClaudeCode opens the task's Claude Code session in a terminal on its
+// machine for the task's creator.
+func (h *AgentTaskHandler) OpenInClaudeCode(c echo.Context) error {
+	id, err := taskID(c, "taskId")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	launch, err := h.svc.OpenInClaudeCode(c.Request().Context(), middleware.GetWorkspace(c).ID, id)
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	return response.Success(c, http.StatusOK, launch)
+}
+
 func (h *AgentTaskHandler) Retry(c echo.Context) error {
 	id, err := taskID(c, "taskId")
 	if err != nil {
