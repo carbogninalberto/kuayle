@@ -84,6 +84,12 @@ func (m *Manager) validateAgent(ctx context.Context, machine *domain.DevMachine,
 	if len(commands) == 0 {
 		return &terminalOperationError{code: "validation_unavailable", message: "The check has no command"}
 	}
+	// Notes join the commands' Docker-formatted stderr, with a timestamp
+	// fixed by the step so a replay stores the same lines.
+	noteTime := step.CreatedAt.UTC().Format(time.RFC3339Nano)
+	note := func(format string, args ...any) error {
+		return output.WriteDocker("stderr", []byte(noteTime+" Kuayle: "+fmt.Sprintf(format, args...)+"\n"))
+	}
 	results := make([]domain.CheckCommandResult, 0, len(commands))
 	exitCode := 0
 	var execution *AgentExecution
@@ -92,7 +98,7 @@ func (m *Manager) validateAgent(ctx context.Context, machine *domain.DevMachine,
 		// Deterministic notes, so a replay stores the same output; the first
 		// is written once the check runs (output needs a running step).
 		if index > 0 {
-			if execErr = output.Write("stderr", []byte(fmt.Sprintf("Kuayle: running command %d of %d: %s\n", index+1, len(commands), strings.Join(argv, " ")))); execErr != nil {
+			if execErr = note("running command %d of %d: %s", index+1, len(commands), strings.Join(argv, " ")); execErr != nil {
 				break
 			}
 		}
@@ -112,7 +118,7 @@ func (m *Manager) validateAgent(ctx context.Context, machine *domain.DevMachine,
 			exitCode = execution.ExitCode
 		}
 		if len(commands) > 1 {
-			if execErr = output.Write("stderr", []byte(fmt.Sprintf("Kuayle: command %d of %d (%s) exited with code %d\n", index+1, len(commands), strings.Join(argv, " "), execution.ExitCode))); execErr != nil {
+			if execErr = note("command %d of %d (%s) exited with code %d", index+1, len(commands), strings.Join(argv, " "), execution.ExitCode); execErr != nil {
 				break
 			}
 		}
