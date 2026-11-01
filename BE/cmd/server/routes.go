@@ -376,6 +376,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/retry", h.agentTask.Retry)
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/accept", h.agentTask.Accept)
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/sign-in", h.agentTask.ContinueAfterSignIn)
+	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/terminal", h.agentTask.OpenInClaudeCode)
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/preview", h.agentTask.StartPreview)
 	sessionOnly(dm, http.MethodDelete, "/agent-tasks/:taskId/preview", h.agentTask.StopPreview)
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/checks", h.agentTask.RunCheck)

@@ -591,6 +591,20 @@ func TestTaskSessionResumesOnlyASucceededAttemptOnTheSameMachine(t *testing.T) {
 	require.Empty(t, resumed.NewID)
 }
 
+// A failed attempt whose session the user continued in Claude Code through
+// the task terminal is resumed, so the next attempt keeps the user's turns;
+// on another machine its transcript is not there, so it starts anew.
+func TestTaskSessionResumesAFailedAttemptTheUserContinued(t *testing.T) {
+	machine, other := uuid.New(), uuid.New()
+	native := uuid.NewString()
+	claude := domain.AgentTask{ID: uuid.New(), Provider: "claude-code", MachineID: &machine}
+	resumed := taskSession(claude, &domain.AgentHandoff{Status: "failed", MachineID: machine, NativeSessionID: native, ContinuedInteractively: true})
+	require.Equal(t, native, resumed.ResumeID)
+	require.Empty(t, resumed.NewID)
+	require.Empty(t, taskSession(claude, &domain.AgentHandoff{Status: "failed", MachineID: other, NativeSessionID: native, ContinuedInteractively: true}).ResumeID)
+	require.Empty(t, taskSession(claude, &domain.AgentHandoff{Status: "failed", MachineID: machine, NativeSessionID: native}).ResumeID, "a failed attempt alone is not resumed")
+}
+
 func TestProjectInstructionsPrecedeTheTaskWithinTheLimit(t *testing.T) {
 	require.Equal(t, "Fix it", withInstructions("Fix it", "  "))
 	prompt := withInstructions("Fix it", "Use pnpm. Never edit generated files.")

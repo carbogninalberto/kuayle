@@ -76,6 +76,26 @@ type managerStoreFake struct {
 	runtimeServicesCreated    int
 	modelServer               *domain.AgentModelServer
 	resourceLimits            []string
+	policy                    *domain.DevMachineWorkspacePolicy
+	// signInReads records the workspace/user of each sign-in read.
+	signInReads []string
+	tokenExpiry time.Time
+}
+
+func (f *managerStoreFake) ListAgentSignIns(_ context.Context, workspace, user uuid.UUID) ([]domain.AgentSignIn, error) {
+	f.signInReads = append(f.signInReads, workspace.String()+"/"+user.String())
+	var signIns []domain.AgentSignIn
+	for _, provider := range []string{"claude-code", "codex"} {
+		if f.signIns[user.String()+"/"+provider+"/token"] != "" {
+			expires := f.tokenExpiry
+			signIns = append(signIns, domain.AgentSignIn{Provider: provider, Kind: domain.AgentSignInToken, ExpiresAt: &expires})
+		}
+	}
+	return signIns, nil
+}
+
+func (f *managerStoreFake) GetPolicy(context.Context, uuid.UUID) (*domain.DevMachineWorkspacePolicy, error) {
+	return f.policy, nil
 }
 
 func (f *managerStoreFake) RecordResourceLimit(_ context.Context, _ uuid.UUID, kind, message string) error {
@@ -121,18 +141,21 @@ func (f *managerStoreFake) ListEnvVarsInternal(context.Context, uuid.UUID, *stri
 func (f *managerStoreFake) GetModelServer(context.Context, uuid.UUID, *uuid.UUID) (*domain.AgentModelServer, error) {
 	return f.modelServer, nil
 }
-func (f *managerStoreFake) GetAgentSignIn(_ context.Context, _ uuid.UUID, user uuid.UUID, provider string) (string, error) {
+func (f *managerStoreFake) GetAgentSignIn(_ context.Context, workspace, user uuid.UUID, provider string) (string, error) {
+	f.signInReads = append(f.signInReads, workspace.String()+"/"+user.String())
 	return f.signIns[user.String()+"/"+provider], nil
 }
-func (f *managerStoreFake) GetAgentSignInToken(_ context.Context, _ uuid.UUID, user uuid.UUID, provider string) (string, error) {
+func (f *managerStoreFake) GetAgentSignInToken(_ context.Context, workspace, user uuid.UUID, provider string) (string, error) {
+	f.signInReads = append(f.signInReads, workspace.String()+"/"+user.String())
 	return f.signIns[user.String()+"/"+provider+"/token"], nil
 }
 
 // SaveAgentSignInToken is a test helper: the manager only reads tokens.
-func (f *managerStoreFake) SaveAgentSignInToken(_ context.Context, _ uuid.UUID, user uuid.UUID, provider, encrypted string, _ time.Time) error {
+func (f *managerStoreFake) SaveAgentSignInToken(_ context.Context, _ uuid.UUID, user uuid.UUID, provider, encrypted string, expiresAt time.Time) error {
 	if f.signIns == nil {
 		f.signIns = map[string]string{}
 	}
+	f.tokenExpiry = expiresAt
 	f.signIns[user.String()+"/"+provider+"/token"] = encrypted
 	return nil
 }
@@ -469,6 +492,14 @@ type runtimeFake struct {
 	terminalSignIn                              string
 	returnedSignIn                              string
 	startErr                                    error
+	terminalSignIns                             map[string]string
+	terminalSignInSyncs                         int
+}
+
+func (f *runtimeFake) SyncAgentSignIns(_ context.Context, _ []domain.DevMachineService, files map[string]string) error {
+	f.terminalSignInSyncs++
+	f.terminalSignIns = files
+	return nil
 }
 
 func (f *runtimeFake) ReadSignIn(context.Context, []domain.DevMachineService, string) (string, error) {

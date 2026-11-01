@@ -43,4 +43,28 @@ fi
 # ttyd sets TERM from --terminal-type; tmux reads it to detect the outer terminal features.
 export TERM="${TERM:-xterm-256color}"
 export COLORTERM=truecolor
+# Kuayle names a task's Claude Code session
+# ktask-<8 hex>-<task>[-<native session>]: it opens Claude Code on the task
+# instead of a shell. Reopening it attaches to the same Claude Code.
+case "$session" in
+  ktask-* )
+    task_session=${session#ktask-}
+    case "$task_session" in
+      [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-* ) task_session=${task_session#*-} ;;
+      * ) echo "invalid terminal session" >&2; exit 1 ;;
+    esac
+    task=$(printf '%s' "$task_session" | cut -c1-36)
+    native=$(printf '%s' "$task_session" | cut -c38-)
+    uuid_pattern='[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}'
+    if ! printf '%s' "$task" | grep -qx "$uuid_pattern" || { [ -n "$native" ] && ! printf '%s' "$native" | grep -qx "$uuid_pattern"; }; then
+      echo "invalid terminal session" >&2
+      exit 1
+    fi
+    case "$task_session" in
+      "$task" | "$task-$native" ) ;;
+      * ) echo "invalid terminal session" >&2; exit 1 ;;
+    esac
+    exec tmux -u new-session -A -s "$session" -c "$workspace" "${KUAYLE_TASK_CLAUDE:-/usr/local/bin/kuayle-task-claude} $task $native"
+    ;;
+esac
 exec tmux -u new-session -A -s "$session" -c "$workspace"

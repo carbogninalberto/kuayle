@@ -894,9 +894,43 @@ func (r *DevMachineRepository) GetAgentSignIn(ctx context.Context, workspaceID, 
 }
 
 func (r *DevMachineRepository) SaveAgentSignIn(ctx context.Context, workspaceID, userID uuid.UUID, provider, encrypted string) error {
-	_, err := r.db.ExecContext(ctx, `INSERT INTO agent_sign_ins(workspace_id,user_id,provider,encrypted_credential) VALUES($1,$2,$3,$4)
+	return r.changeAgentSignIns(ctx, workspaceID, userID, func(tx *sqlx.Tx) (int64, error) {
+		result, err := tx.ExecContext(ctx, `INSERT INTO agent_sign_ins(workspace_id,user_id,provider,encrypted_credential) VALUES($1,$2,$3,$4)
 		ON CONFLICT (workspace_id,user_id,provider,kind) DO UPDATE SET encrypted_credential=EXCLUDED.encrypted_credential, updated_at=now()`, workspaceID, userID, provider, encrypted)
-	return err
+		if err != nil {
+			return 0, err
+		}
+		return result.RowsAffected()
+	})
+}
+
+// changeAgentSignIns applies a change to one user's sign-ins and, when it
+// changed anything, queues in the same transaction a sign-in sync for each
+// running machine that user owns in the workspace, so their terminals pick up
+// the change. A sync still pending reads the latest sign-ins when it runs, so
+// it is not queued twice.
+func (r *DevMachineRepository) changeAgentSignIns(ctx context.Context, workspaceID, userID uuid.UUID, change func(*sqlx.Tx) (int64, error)) error {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	changed, err := change(tx)
+	if err != nil {
+		return err
+	}
+	if changed > 0 {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO dev_machine_operations
+			(machine_id, workspace_id, action, status, generation, idempotency_key, requested_by_user_id, max_attempts)
+			SELECT m.id, m.workspace_id, 'sync_agent_sign_ins', 'pending', m.generation, 'agent-sign-ins:' || gen_random_uuid(), $2, 3
+			FROM dev_machines m
+			WHERE m.workspace_id=$1 AND m.created_by_user_id=$2 AND m.status='running' AND m.delete_requested_at IS NULL
+			  AND NOT EXISTS (SELECT 1 FROM dev_machine_operations o
+			    WHERE o.machine_id=m.id AND o.action='sync_agent_sign_ins' AND o.status='pending')`, workspaceID, userID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // GetAgentSignInToken returns a user's encrypted Claude Code token, or "" when
@@ -913,10 +947,15 @@ func (r *DevMachineRepository) GetAgentSignInToken(ctx context.Context, workspac
 
 // SaveAgentSignInToken stores or replaces a user's encrypted token.
 func (r *DevMachineRepository) SaveAgentSignInToken(ctx context.Context, workspaceID, userID uuid.UUID, provider, encrypted string, expiresAt time.Time) error {
-	_, err := r.db.ExecContext(ctx, `INSERT INTO agent_sign_ins(workspace_id,user_id,provider,kind,encrypted_credential,expires_at) VALUES($1,$2,$3,'token',$4,$5)
+	return r.changeAgentSignIns(ctx, workspaceID, userID, func(tx *sqlx.Tx) (int64, error) {
+		result, err := tx.ExecContext(ctx, `INSERT INTO agent_sign_ins(workspace_id,user_id,provider,kind,encrypted_credential,expires_at) VALUES($1,$2,$3,'token',$4,$5)
 		ON CONFLICT (workspace_id,user_id,provider,kind) DO UPDATE SET encrypted_credential=EXCLUDED.encrypted_credential, expires_at=EXCLUDED.expires_at, created_at=now(), updated_at=now()`,
-		workspaceID, userID, provider, encrypted, expiresAt)
-	return err
+			workspaceID, userID, provider, encrypted, expiresAt)
+		if err != nil {
+			return 0, err
+		}
+		return result.RowsAffected()
+	})
 }
 
 // ListAgentSignIns describes one user's sign-ins without their values.
@@ -930,12 +969,17 @@ func (r *DevMachineRepository) ListAgentSignIns(ctx context.Context, workspaceID
 // DeleteAgentSignIns removes one user's sign-ins for an agent: one kind, or
 // every kind when kind is "". It reports how many were removed.
 func (r *DevMachineRepository) DeleteAgentSignIns(ctx context.Context, workspaceID, userID uuid.UUID, provider, kind string) (int64, error) {
-	result, err := r.db.ExecContext(ctx, `DELETE FROM agent_sign_ins WHERE workspace_id=$1 AND user_id=$2 AND provider=$3 AND ($4='' OR kind=$4)`,
-		workspaceID, userID, provider, kind)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
+	var removed int64
+	err := r.changeAgentSignIns(ctx, workspaceID, userID, func(tx *sqlx.Tx) (int64, error) {
+		result, err := tx.ExecContext(ctx, `DELETE FROM agent_sign_ins WHERE workspace_id=$1 AND user_id=$2 AND provider=$3 AND ($4='' OR kind=$4)`,
+			workspaceID, userID, provider, kind)
+		if err != nil {
+			return 0, err
+		}
+		removed, err = result.RowsAffected()
+		return removed, err
+	})
+	return removed, err
 }
 
 func (r *DevMachineRepository) UpsertRuntimeCredential(ctx context.Context, credential *domain.DevMachineRuntimeCredential) error {

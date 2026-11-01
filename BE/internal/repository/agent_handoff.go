@@ -28,10 +28,12 @@ func (r *AgentTaskRepository) PreviousAttempt(ctx context.Context, task domain.A
 		Commands     domain.NullJSON `db:"commands"`
 		Results      domain.NullJSON `db:"command_results"`
 		Argv         domain.NullJSON `db:"command_argv"`
+		Continued    bool            `db:"continued"`
 	}
 	err := r.db.GetContext(ctx, &row, `SELECT r.id,r.machine_id,r.native_session_id,r.status::text AS status,r.summary,r.changed_files,
  v.status::text AS validation,v.exit_code,v.command_source,v.commands,v.command_results,v.command_argv,
- CASE WHEN p.status='succeeded' THEN r.pull_request_url END AS pull_request
+ CASE WHEN p.status='succeeded' THEN r.pull_request_url END AS pull_request,
+ r.session_continued_at IS NOT NULL AS continued
  FROM dev_machine_agent_runs r
  LEFT JOIN dev_machine_agent_run_steps v ON v.agent_run_id=r.id AND v.sequence=0 AND v.step_type='validation'
  LEFT JOIN dev_machine_agent_run_steps p ON p.agent_run_id=r.id AND p.sequence=1 AND p.step_type='publication'
@@ -42,7 +44,7 @@ func (r *AgentTaskRepository) PreviousAttempt(ctx context.Context, task domain.A
 	if err != nil {
 		return nil, err
 	}
-	handoff := &domain.AgentHandoff{AttemptID: row.ID, MachineID: row.MachineID, Status: row.Status, ValidationExitCode: row.ExitCode}
+	handoff := &domain.AgentHandoff{AttemptID: row.ID, MachineID: row.MachineID, Status: row.Status, ValidationExitCode: row.ExitCode, ContinuedInteractively: row.Continued}
 	if row.Session != nil {
 		handoff.NativeSessionID = *row.Session
 	}
@@ -64,4 +66,12 @@ func (r *AgentTaskRepository) PreviousAttempt(ctx context.Context, task domain.A
 	}
 	_ = json.Unmarshal(row.ChangedFiles, &handoff.ChangedFiles)
 	return handoff, nil
+}
+
+// MarkSessionContinued records that the user opened the task's native
+// session in Claude Code on machineID, on the attempt that recorded it there.
+func (r *AgentTaskRepository) MarkSessionContinued(ctx context.Context, ws, taskID, machineID uuid.UUID, nativeSessionID string) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE dev_machine_agent_runs SET session_continued_at=now()
+ WHERE workspace_id=$1 AND task_id=$2 AND machine_id=$3 AND native_session_id=$4`, ws, taskID, machineID, nativeSessionID)
+	return err
 }

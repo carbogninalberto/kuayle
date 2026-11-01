@@ -593,6 +593,22 @@
 			sessionName: chat.issue?.identifier
 		});
 	}
+	// Claude Code tasks open on the server, which resumes the task's exact
+	// session with the creator's saved sign-in (see OpenInClaudeCode).
+	const claudeCode = $derived(task.provider === 'claude-code' && resumableStates.includes(task.state));
+	function openInClaudeCode() {
+		if (!task.machine_id || !dock) return;
+		const id = task.id;
+		dock.open({
+			slug: chat.slug,
+			machineId: task.machine_id,
+			machineName: chat.issue?.identifier ?? task.machine_id,
+			checkoutId: task.checkout_id,
+			checkoutLabel: chat.issue ? `${chat.issue.identifier} · ${chat.issue.title}` : undefined,
+			sessionName: 'Claude Code',
+			launch: () => agentTasks.openInClaudeCode(chat.slug, id)
+		});
+	}
 	const actions = $derived.by(() => {
 		const list: TaskAction[] = [];
 		// Retrying is the next step once a task stopped; otherwise it is secondary.
@@ -661,7 +677,16 @@
 				group: 'tools',
 				onclick: () => openTerminal()
 			});
-			if (sessionCommand) {
+			if (claudeCode) {
+				list.push({
+					id: 'claude-code',
+					icon: Bot,
+					label: m['tasks.open_in_claude_code'](),
+					title: m['tasks.open_in_claude_code_help'](),
+					group: 'main',
+					onclick: openInClaudeCode
+				});
+			} else if (sessionCommand) {
 				const command = sessionCommand;
 				list.push({
 					id: 'session',
