@@ -129,6 +129,57 @@ func TestTerminalShellInstallsCapturedSignInsWithoutOverwritingTheUsers(t *testi
 	require.Equal(t, `{"own":1}`, home.read(t, ".claude/.credentials.json"))
 }
 
+// A credentials file Kuayle installed is removed once the agent is no longer
+// signed in by Kuayle: the policy stopped allowing it, or a model server or
+// API key now configures it. The user's own login stays.
+func TestTerminalShellRemovesSignInsOfAgentsNoLongerManaged(t *testing.T) {
+	home := newTerminalHome(t)
+	home.sync(t, map[string]string{"managed": "claude-code\ncodex\n", "claude-code.credentials.json": `{"a":1}`, "codex.auth.json": `{"c":1}`})
+	home.shell(t)
+	require.FileExists(t, filepath.Join(home.home, ".claude", ".credentials.json"))
+	require.FileExists(t, filepath.Join(home.home, ".codex", "auth.json"))
+
+	// An API key secret now configures Codex.
+	home.shell(t, "OPENAI_API_KEY=fixture-key")
+	require.NoFileExists(t, filepath.Join(home.home, ".codex", "auth.json"))
+	require.NoFileExists(t, filepath.Join(home.home, ".kuayle", "agent-sign-ins-installed", "codex.auth.json"))
+	require.FileExists(t, filepath.Join(home.home, ".claude", ".credentials.json"))
+
+	// The policy no longer allows Claude Code: nothing is managed.
+	require.NoError(t, os.MkdirAll(filepath.Join(home.home, ".codex"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(home.home, ".codex", "auth.json"), []byte(`{"own":1}`), 0o600))
+	home.sync(t, map[string]string{})
+	_, output := home.shell(t)
+	require.Empty(t, output)
+	require.NoFileExists(t, filepath.Join(home.home, ".claude", ".credentials.json"))
+	require.NoFileExists(t, filepath.Join(home.home, ".kuayle", "agent-sign-ins-installed", "claude-code.credentials.json"))
+	require.Equal(t, `{"own":1}`, home.read(t, ".codex/auth.json"), "the user's own login is never removed")
+}
+
+// A saved token past its recorded expiry is not exported; the shell falls
+// back to the captured credentials file Kuayle sent with it.
+func TestTerminalShellSkipsAnExpiredToken(t *testing.T) {
+	home := newTerminalHome(t)
+	home.sync(t, map[string]string{
+		"managed": "claude-code\n", "claude-code.token": "fixture-token-0001", "claude-code.token-expires": "1",
+		"claude-code.credentials.json": `{"a":1}`,
+	})
+	token, output := home.shell(t)
+	require.Empty(t, token, "an expired token is not exported")
+	require.Empty(t, output)
+	require.Equal(t, `{"a":1}`, home.read(t, ".claude/.credentials.json"))
+
+	home.sync(t, map[string]string{"managed": "claude-code\n", "claude-code.token": "fixture-token-0001", "claude-code.token-expires": "1"})
+	token, output = home.shell(t)
+	require.Empty(t, token)
+	require.Contains(t, output, "claude setup-token", "with nothing else, the shell asks to sign in again")
+
+	home.sync(t, map[string]string{"managed": "claude-code\n", "claude-code.token": "fixture-token-0001", "claude-code.token-expires": "99999999999"})
+	token, _ = home.shell(t)
+	require.Equal(t, "fixture-token-0001", token)
+	require.NoFileExists(t, filepath.Join(home.home, ".claude", ".credentials.json"), "an installed file gives way to a valid token")
+}
+
 // Without anything synced (an older manager, or an agent the policy does not
 // allow) the shell stays quiet.
 func TestTerminalShellIsQuietForAgentsKuayleDoesNotManage(t *testing.T) {
@@ -140,21 +191,22 @@ func TestTerminalShellIsQuietForAgentsKuayleDoesNotManage(t *testing.T) {
 	require.Empty(t, output)
 }
 
-// The Claude Code config is pre-seeded to skip onboarding and trust the
-// workspace, keeping everything the user set.
-func TestClaudeConfigSeedKeepsTheUsersSettings(t *testing.T) {
+// The Claude Code config is pre-seeded to skip onboarding only, keeping
+// everything the user set. It never grants workspace trust or tool
+// permissions: Claude Code still asks before it trusts a checkout, so a
+// repository's committed hooks cannot run without the user's consent.
+func TestClaudeConfigSeedSkipsOnboardingWithoutGrantingTrust(t *testing.T) {
 	home := newTerminalHome(t)
-	seed := func() map[string]any {
-		cmd := exec.Command("node", filepath.Join(home.repoRoot, "devmachine", "common", "kuayle-claude-config.cjs"), filepath.Join(home.home, ".claude.json"), "/workspace")
-		output, err := cmd.CombinedOutput()
+	seed := func(extra ...string) map[string]any {
+		args := append([]string{filepath.Join(home.repoRoot, "devmachine", "common", "kuayle-claude-config.cjs"), filepath.Join(home.home, ".claude.json")}, extra...)
+		output, err := exec.Command("node", args...).CombinedOutput()
 		require.NoError(t, err, string(output))
 		var config map[string]any
 		require.NoError(t, json.Unmarshal([]byte(home.read(t, ".claude.json")), &config))
 		return config
 	}
-	config := seed()
-	require.Equal(t, true, config["hasCompletedOnboarding"])
-	require.Equal(t, map[string]any{"/workspace": map[string]any{"hasTrustDialogAccepted": true}}, config["projects"])
+	config := seed("/workspace")
+	require.Equal(t, map[string]any{"hasCompletedOnboarding": true}, config, "no trust, projects or allowed tools are written")
 	info, err := os.Stat(filepath.Join(home.home, ".claude.json"))
 	require.NoError(t, err)
 	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
@@ -167,9 +219,16 @@ func TestClaudeConfigSeedKeepsTheUsersSettings(t *testing.T) {
 	require.Equal(t, map[string]any{"hasTrustDialogAccepted": false, "allowedTools": []any{"x"}}, config["projects"].(map[string]any)["/workspace"])
 
 	require.NoError(t, os.WriteFile(filepath.Join(home.home, ".claude.json"), []byte(`not json`), 0o600))
-	cmd := exec.Command("node", filepath.Join(home.repoRoot, "devmachine", "common", "kuayle-claude-config.cjs"), filepath.Join(home.home, ".claude.json"), "/workspace")
-	require.NoError(t, cmd.Run())
+	require.NoError(t, exec.Command("node", filepath.Join(home.repoRoot, "devmachine", "common", "kuayle-claude-config.cjs"), filepath.Join(home.home, ".claude.json")).Run())
 	require.Equal(t, "not json", home.read(t, ".claude.json"), "an unreadable config is left alone")
+
+	// No start or launcher script passes a directory to trust.
+	for _, script := range []string{"devmachine/common/start-common.sh", "devmachine/common/kuayle-task-claude"} {
+		content, err := os.ReadFile(filepath.Join(home.repoRoot, script))
+		require.NoError(t, err)
+		require.NotContains(t, string(content), "hasTrustDialogAccepted", script)
+		require.Regexp(t, `kuayle-claude-config\.cjs\}" "[^"]+\.claude\.json" 2>`, string(content), script)
+	}
 }
 
 // A ktask- terminal session runs Claude Code on that task; anything else in
@@ -229,7 +288,7 @@ func TestTaskClaudeResumesTheTasksSession(t *testing.T) {
 	require.Equal(t, transcripts, link, "the terminal shares the task's transcripts")
 	var seeded map[string]any
 	require.NoError(t, json.Unmarshal([]byte(home.read(t, ".kuayle/claude-tasks/"+task+"/.claude.json")), &seeded))
-	require.Equal(t, true, seeded["hasCompletedOnboarding"])
+	require.Equal(t, map[string]any{"hasCompletedOnboarding": true}, seeded, "the task's config does not pre-trust its worktree")
 	entries, err := os.ReadDir(filepath.Join(workspace, ".kuayle", "agent-sessions", task))
 	require.NoError(t, err)
 	require.Len(t, entries, 1, "nothing but transcripts goes to the workspace volume")

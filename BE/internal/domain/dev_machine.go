@@ -365,6 +365,9 @@ type DevMachineAgentRun struct {
 	Branch                 *string                  `json:"branch,omitempty" db:"branch"`
 	PullRequestURL         *string                  `json:"pull_request_url,omitempty" db:"pull_request_url"`
 	NativeSessionID        *string                  `json:"-" db:"native_session_id"`
+	// SessionContinuedAt is when the user opened this attempt's native
+	// session in Claude Code through the task terminal.
+	SessionContinuedAt *time.Time `json:"-" db:"session_continued_at"`
 	// SessionID is the Kuayle agent session the attempt ran in.
 	SessionID *uuid.UUID `json:"session_id,omitempty" db:"session_id"`
 	// DeclaredValidation is the attempt's parsed .kuayle/validation.json

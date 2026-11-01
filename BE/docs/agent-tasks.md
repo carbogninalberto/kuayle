@@ -347,7 +347,10 @@ Migration 64 stores the ID on the attempt (`native_session_id`, restricted to
 retry or follow-up **resumes natively** (`codex exec resume <id>` with the same
 settings as a new session, or `claude --resume <id>`) only when
 the previous attempt succeeded on the same machine, where its transcripts live.
-Otherwise it starts a new session, so a failed resume is never repeated. Either
+It also resumes a failed attempt whose session the user continued through
+**Open in Claude Code** on that machine (`session_continued_at`, migration
+103), so the user's turns are kept. Otherwise it starts a new session, so a
+failed resume is never repeated. Either
 way the prompt keeps the task instructions and appends a bounded handoff naming
 the previous attempt, its native outcome, its independent check result and exit
 code, a recorded pull request, up to 50 changed files and the previous agent's
@@ -377,8 +380,10 @@ the owner's saved token comes from the terminal sign-ins (see TECHNICAL.md,
 agent sign-in), so no credential reaches the volume. It runs
 `claude --resume <id>` when that transcript exists, otherwise a new `claude`
 in the worktree with a note, then leaves a shell. Claude Code resumes in place,
-so the user's turns are appended to the same transcript and the next follow-up
-attempt resumes them. The task card shows **Open in Claude Code** for a
+so the user's turns are appended to the same transcript. Opening a native
+session marks the attempt that recorded it (`session_continued_at`), so the
+next attempt resumes it even when that attempt failed. Workspace trust is not
+pre-granted: Claude Code asks before it trusts the worktree. The task card shows **Open in Claude Code** for a
 stopped Claude Code task (Codex keeps the typed session command). Starting an
 attempt while the terminal is still open is not refused: closing the terminal
 tab (which ends its tmux session) before the next attempt is the user's

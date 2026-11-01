@@ -4,7 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	cryptoutil "github.com/kuayle/kuayle-backend/pkg/crypto"
@@ -15,10 +19,12 @@ import (
 // ~/.kuayle/agent-sign-ins in its in-memory home. kuayle-agent-sign-in.sh reads
 // them when an interactive shell starts.
 const (
-	terminalSignInManaged     = "managed"
-	terminalClaudeToken       = "claude-code.token"
-	terminalClaudeCredentials = "claude-code.credentials.json"
-	terminalCodexAuth         = "codex.auth.json"
+	terminalSignInManaged = "managed"
+	terminalClaudeToken   = "claude-code.token"
+	// terminalClaudeTokenExpires is the token's expiry in Unix seconds.
+	terminalClaudeTokenExpires = "claude-code.token-expires"
+	terminalClaudeCredentials  = "claude-code.credentials.json"
+	terminalCodexAuth          = "codex.auth.json"
 )
 
 // terminalSignIns are the sign-ins the machine owner's own terminal and IDE
@@ -52,13 +58,22 @@ func (m *Manager) terminalSignIns(ctx context.Context, machine *domain.DevMachin
 		}
 		managed = append(managed, provider)
 		if provider == "claude-code" {
+			// An expired token is never returned. The expiry goes with the
+			// token, and so does the captured file, so a shell started after
+			// the token expires falls back to it without another sync.
 			token, err := m.decryptSignIn(m.store.GetAgentSignInToken(ctx, machine.WorkspaceID, owner, provider))
 			if err != nil {
 				return nil, err
 			}
 			if token != "" {
 				files[terminalClaudeToken] = token
-				continue
+				expires, err := m.signInTokenExpiry(ctx, machine, owner, provider)
+				if err != nil {
+					return nil, err
+				}
+				if expires != nil {
+					files[terminalClaudeTokenExpires] = strconv.FormatInt(expires.Unix(), 10)
+				}
 			}
 		}
 		content, err := m.decryptSignIn(m.store.GetAgentSignIn(ctx, machine.WorkspaceID, owner, provider))
@@ -112,6 +127,20 @@ func (m *Manager) terminalAgentConfiguration(ctx context.Context, machine *domai
 		}
 	}
 	return configured, nil
+}
+
+// signInTokenExpiry is the expiry recorded for the owner's saved token.
+func (m *Manager) signInTokenExpiry(ctx context.Context, machine *domain.DevMachine, owner uuid.UUID, provider string) (*time.Time, error) {
+	signIns, err := m.store.ListAgentSignIns(ctx, machine.WorkspaceID, owner)
+	if err != nil {
+		return nil, err
+	}
+	for _, signIn := range signIns {
+		if signIn.Provider == provider && signIn.Kind == domain.AgentSignInToken {
+			return signIn.ExpiresAt, nil
+		}
+	}
+	return nil, nil
 }
 
 func (m *Manager) decryptSignIn(encrypted string, err error) (string, error) {

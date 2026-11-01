@@ -55,7 +55,16 @@ func (s *AgentTaskService) OpenInClaudeCode(ctx context.Context, ws, id uuid.UUI
 	if err != nil {
 		return nil, err
 	}
-	return s.machines.OpenTaskTerminal(ctx, ws, *task.MachineID, access.UserID, task.CheckoutID, task.Provider, task.ID, native)
+	launch, err := s.machines.OpenTaskTerminal(ctx, ws, *task.MachineID, access.UserID, task.CheckoutID, task.Provider, task.ID, native)
+	if err != nil || native == "" || launch.Status != "ready" {
+		return launch, err
+	}
+	// The next attempt resumes this session with the user's turns, also
+	// after a failed attempt (see taskSession).
+	if err := s.Repo.MarkSessionContinued(ctx, ws, task.ID, *task.MachineID, native); err != nil {
+		return nil, err
+	}
+	return launch, nil
 }
 
 // taskTerminalSession checks that the user may open the task in Claude Code

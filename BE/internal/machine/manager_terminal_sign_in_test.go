@@ -3,6 +3,7 @@ package machine
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"testing"
 	"time"
 
@@ -64,11 +65,17 @@ func TestManagerSyncsTheOwnersSignInsIntoTheirTerminal(t *testing.T) {
 	require.NoError(t, store.SaveAgentSignIn(ctx, store.machine.WorkspaceID, owner, "codex", sealSignIn(t, key, terminalCodexFile)))
 	require.NoError(t, store.SaveAgentSignIn(ctx, store.machine.WorkspaceID, other, "claude-code", sealSignIn(t, key, terminalClaudeFile)))
 
+	require.NoError(t, store.SaveAgentSignIn(ctx, store.machine.WorkspaceID, owner, "claude-code", sealSignIn(t, key, terminalClaudeFile)))
+
 	require.NoError(t, syncTerminalSignIns(t, manager, store))
+	// The token comes with its expiry and the captured file, so a shell stops
+	// using it once it expires and falls back to the file.
 	require.Equal(t, map[string]string{
-		"managed":           "claude-code\ncodex\n",
-		"claude-code.token": claudeTokenFixture,
-		"codex.auth.json":   terminalCodexFile,
+		"managed":                      "claude-code\ncodex\n",
+		"claude-code.token":            claudeTokenFixture,
+		"claude-code.token-expires":    strconv.FormatInt(store.tokenExpiry.Unix(), 10),
+		"claude-code.credentials.json": terminalClaudeFile,
+		"codex.auth.json":              terminalCodexFile,
 	}, runtime.terminalSignIns)
 	require.NotEmpty(t, store.signInReads)
 	for _, read := range store.signInReads {

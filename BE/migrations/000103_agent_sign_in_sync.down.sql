@@ -5,3 +5,4 @@ DO $$ BEGIN
   RAISE EXCEPTION 'Cannot downgrade while agent sign-in syncs are queued';
  END IF;
 END $$;
+ALTER TABLE dev_machine_agent_runs DROP COLUMN IF EXISTS session_continued_at;

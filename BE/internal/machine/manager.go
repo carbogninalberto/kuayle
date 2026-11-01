@@ -71,6 +71,8 @@ type ManagerStore interface {
 	// GetPolicy reads the workspace policy's allowed agents for the owner's
 	// terminal sign-ins; it returns nil without a policy.
 	GetPolicy(context.Context, uuid.UUID) (*domain.DevMachineWorkspacePolicy, error)
+	// ListAgentSignIns gives the saved token's expiry, without values.
+	ListAgentSignIns(context.Context, uuid.UUID, uuid.UUID) ([]domain.AgentSignIn, error)
 	SaveAgentSignIn(context.Context, uuid.UUID, uuid.UUID, string, string) error
 	SetMachineState(context.Context, uuid.UUID, domain.DevMachineStatus, *string, *string, *string, *string) error
 	SetMachineStateForOperation(context.Context, uuid.UUID, int64, bool, domain.DevMachineStatus, *string, *string, *string, *string) (bool, error)

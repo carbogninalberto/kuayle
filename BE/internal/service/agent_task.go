@@ -591,7 +591,9 @@ func withHandoff(prompt string, previous *domain.AgentHandoff, resumed bool) str
 // relies on the recorded handoff, so a failed resume is never repeated.
 func taskSession(task domain.AgentTask, previous *domain.AgentHandoff) *agent.SessionInput {
 	session := &agent.SessionInput{Dir: "/workspace/.kuayle/agent-sessions/" + task.ID.String()}
-	if previous != nil && task.MachineID != nil && previous.Status == "succeeded" && previous.MachineID == *task.MachineID && agent.ValidSessionID(previous.NativeSessionID) {
+	// A failed attempt is resumed only when the user continued its session
+	// interactively, so the next attempt keeps the user's turns.
+	if previous != nil && task.MachineID != nil && (previous.Status == "succeeded" || previous.ContinuedInteractively) && previous.MachineID == *task.MachineID && agent.ValidSessionID(previous.NativeSessionID) {
 		session.ResumeID = previous.NativeSessionID
 	} else if task.Provider == "claude-code" {
 		session.NewID = uuid.NewString()

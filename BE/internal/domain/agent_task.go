@@ -321,6 +321,9 @@ type AgentHandoff struct {
 	FailedCommand         []string
 	FailedCommandExitCode *int
 	PullRequestURL        string
+	// ContinuedInteractively means the user opened this attempt's native
+	// session in Claude Code through the task terminal.
+	ContinuedInteractively bool
 }
 
 // ValidationArtifact is a file the independent check left in its report

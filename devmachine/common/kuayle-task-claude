@@ -43,7 +43,8 @@ if [ ! -L "$config/.credentials.json" ]; then
   rm -f "$config/.credentials.json"
   ln -s "$home/.claude/.credentials.json" "$config/.credentials.json"
 fi
-node "${KUAYLE_CLAUDE_CONFIG:-/usr/local/lib/kuayle/kuayle-claude-config.cjs}" "$config/.claude.json" "$workspace_root" "$PWD" 2>/dev/null || true
+# Onboarding only: Claude Code still asks before it trusts the worktree.
+node "${KUAYLE_CLAUDE_CONFIG:-/usr/local/lib/kuayle/kuayle-claude-config.cjs}" "$config/.claude.json" 2>/dev/null || true
 export CLAUDE_CONFIG_DIR="$config"
 
 status=0

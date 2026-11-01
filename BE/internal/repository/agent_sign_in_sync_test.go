@@ -80,3 +80,27 @@ func TestAgentSignInChangesQueueASyncForTheOwnersRunningMachines(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, syncs(owned), 2)
 }
+
+// Opening a task's session in Claude Code marks the attempt that recorded
+// it, scoped to the task, its workspace and machine, so the next attempt
+// knows the user continued it.
+func TestContinuedTaskSessionIsMarkedOnItsAttempt(t *testing.T) {
+	db, repo, ctx, task, claimed := publishingTask(t)
+	native := uuid.NewString()
+	_, err := db.Exec(`UPDATE dev_machine_agent_runs SET native_session_id=$2,status='failed' WHERE id=$1`, task.RunID, native)
+	require.NoError(t, err)
+	next := task
+	next.RunID = uuid.New()
+
+	require.NoError(t, repo.MarkSessionContinued(ctx, task.WorkspaceID, task.ID, uuid.New(), native))
+	require.NoError(t, repo.MarkSessionContinued(ctx, uuid.New(), task.ID, *claimed.MachineID, native))
+	previous, err := repo.PreviousAttempt(ctx, next)
+	require.NoError(t, err)
+	require.False(t, previous.ContinuedInteractively, "another machine or workspace marks nothing")
+
+	require.NoError(t, repo.MarkSessionContinued(ctx, task.WorkspaceID, task.ID, *claimed.MachineID, native))
+	previous, err = repo.PreviousAttempt(ctx, next)
+	require.NoError(t, err)
+	require.True(t, previous.ContinuedInteractively)
+	require.Equal(t, native, previous.NativeSessionID)
+}
