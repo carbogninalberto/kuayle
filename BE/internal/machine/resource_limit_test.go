@@ -99,8 +99,8 @@ type oomValidationRuntimeFake struct {
 	*validationRuntimeFake
 }
 
-func (f *oomValidationRuntimeFake) RunValidation(ctx context.Context, machine *domain.DevMachine, run *domain.DevMachineAgentRun, step *domain.DevMachineAgentRunStep, checkout *domain.DevMachineCheckout, image string, o *AgentObserver) (*AgentExecution, error) {
-	execution, err := f.validationRuntimeFake.RunValidation(ctx, machine, run, step, checkout, image, o)
+func (f *oomValidationRuntimeFake) RunValidation(ctx context.Context, machine *domain.DevMachine, run *domain.DevMachineAgentRun, step *domain.DevMachineAgentRunStep, _ int, checkout *domain.DevMachineCheckout, image string, o *AgentObserver) (*AgentExecution, error) {
+	execution, err := f.validationRuntimeFake.RunValidation(ctx, machine, run, step, 0, checkout, image, o)
 	if execution != nil {
 		execution.OOMKilled, execution.MemoryLimitBytes = true, 2<<30
 	}

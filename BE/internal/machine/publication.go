@@ -113,7 +113,8 @@ func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, 
 
 // publicationBody describes the change for human review from facts Kuayle
 // recorded: the issue, the changed files and commits, and the independent
-// check. Agent output is never included; it is unverified and often noisy.
+// check. Agent output is never included, except the agent's summary of the
+// tests it chose, fenced as unverified.
 func publicationBody(publication *domain.AgentPublication, run *domain.DevMachineAgentRun) string {
 	var body strings.Builder
 	if !publicationValidated(publication) {
@@ -143,7 +144,18 @@ func publicationBody(publication *domain.AgentPublication, run *domain.DevMachin
 		fmt.Fprintf(&body, "\nCommits: %s\n", strings.Join(short, ", "))
 	}
 	body.WriteString("\n### Verification\n")
-	if publicationValidated(publication) {
+	if publicationValidated(publication) && publication.CheckSource == domain.CheckSourceAgent {
+		body.WriteString("No check command is configured, so Kuayle re-ran the tests the agent chose (in `.kuayle/validation.json`) independently on this branch in a clean container without credentials or databases:\n")
+		for _, command := range publication.CheckCommands {
+			fmt.Fprintf(&body, "- `%s` (agent-chosen): %s (exit code %d)\n", strings.ReplaceAll(markdownLine(strings.Join(command.Argv, " ")), "`", "'"), map[bool]string{true: "passed", false: "failed"}[command.ExitCode == 0], command.ExitCode)
+		}
+		if summary := strings.TrimSpace(publication.AgentSummary); summary != "" {
+			// The agent's own account: fenced, unable to mention anyone or
+			// close the fence.
+			summary = strings.ReplaceAll(strings.ReplaceAll(truncateText(summary, 2000*4), "~~~", "~ ~ ~"), "@", "@\u200b")
+			fmt.Fprintf(&body, "\nThe agent's summary of what it tested (unverified):\n~~~text\n%s\n~~~\n", summary)
+		}
+	} else if publicationValidated(publication) {
 		fmt.Fprintf(&body, "Kuayle ran `%s` independently on this branch in a clean container without credentials: passed (exit code %d).\n", strings.ReplaceAll(markdownLine(strings.Join(publication.CheckArgv, " ")), "`", "'"), *publication.CheckExitCode)
 	} else {
 		body.WriteString("No independent check is configured for this project.\n")

@@ -623,6 +623,62 @@ test('independent checks update live and retain their actual exit status after r
 	expect(state.creates).toHaveLength(1);
 });
 
+test('agent-chosen checks show their source, each command and the agent summary as text', async ({ page }) => {
+	const { state, emit } = await fixture(page);
+	await page.goto('/test/assistant?conversation=chat-1');
+	await delegate(page);
+	await page.getByRole('button', { name: 'Execution details', exact: true }).click();
+	const checks = page.getByRole('region', { name: 'Independent checks', exact: true });
+	state.validation = {
+		id: 'validation-1',
+		agent_run_id: 'run-1',
+		status: 'failed',
+		command_argv: ['go', 'vet', './...'],
+		command_source: 'agent',
+		commands: [
+			['go', 'vet', './...'],
+			['sh', '-c', 'cd BE && go test ./internal/service/...']
+		],
+		command_results: [{ exit_code: 0 }, { exit_code: 2 }],
+		agent_summary: '<img src=x onerror="window.evil=true"> Service tests only; the UI was not run.',
+		exit_code: 2,
+		completed_at: '2026-10-27T10:01:00Z'
+	};
+	emit('task.tests_updated', { task_id: 'task-1', run_id: 'run-1', step: state.validation });
+	await checks.getByRole('button', { name: 'Independent check failed' }).click();
+	await expect(checks.getByText('Tests chosen by the agent, re-run by Kuayle')).toBeVisible();
+	const commands = checks.getByRole('list', { name: 'Commands' });
+	await expect(commands.getByRole('listitem')).toHaveCount(2);
+	await expect(commands.getByRole('listitem').nth(0)).toContainText('go vet ./...');
+	await expect(commands.getByRole('listitem').nth(0)).toContainText('Passed');
+	await expect(commands.getByRole('listitem').nth(1)).toContainText('sh -c cd BE && go test ./internal/service/...');
+	await expect(commands.getByRole('listitem').nth(1)).toContainText('Failed, exit code 2');
+	await expect(checks.getByText("Agent's summary (unverified)")).toBeVisible();
+	await expect(checks.getByText(/Service tests only; the UI was not run\./)).toBeVisible();
+	expect(await page.evaluate(() => (window as any).evil)).toBeUndefined();
+});
+
+test('a configured check is labelled as configured', async ({ page }) => {
+	const { state, emit } = await fixture(page);
+	await page.goto('/test/assistant?conversation=chat-1');
+	await delegate(page);
+	await page.getByRole('button', { name: 'Execution details', exact: true }).click();
+	const checks = page.getByRole('region', { name: 'Independent checks', exact: true });
+	state.validation = {
+		id: 'validation-1',
+		agent_run_id: 'run-1',
+		status: 'succeeded',
+		command_argv: ['npm', 'test'],
+		command_source: 'configured',
+		exit_code: 0,
+		completed_at: '2026-10-27T10:01:00Z'
+	};
+	emit('task.tests_updated', { task_id: 'task-1', run_id: 'run-1', step: state.validation });
+	await checks.getByRole('button', { name: 'Independent check passed' }).click();
+	await expect(checks.getByText('Check configured in the development settings')).toBeVisible();
+	await expect(checks.getByText("Agent's summary (unverified)")).toHaveCount(0);
+});
+
 test('a rejected Compose stack shows its reason with the failed check', async ({ page }) => {
 	const { state, emit } = await fixture(page);
 	await page.goto('/test/assistant?conversation=chat-1');

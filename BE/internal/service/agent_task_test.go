@@ -744,3 +744,29 @@ func TestTaskMachinesUseTheWorkspaceTaskMachineResources(t *testing.T) {
 		})
 	}
 }
+
+func TestFailedAgentChosenTestsFailTheTaskWithTheCommand(t *testing.T) {
+	task := domain.AgentTask{ID: uuid.New(), WorkspaceID: uuid.New(), CreatorID: uuid.New(), State: "validating"}
+	store := &taskStoreFake{task: task}
+	source := domain.CheckSourceAgent
+	exit := 2
+	runtime := &taskRuntimeFake{validation: &domain.DevMachineAgentRunStep{Status: "failed", CommandSource: &source, ExitCode: &exit,
+		Commands: []byte(`[["go","vet","./..."],["go","test","./internal/service/..."]]`), CommandResults: []byte(`[{"exit_code":0},{"exit_code":2}]`)}}
+	service := &AgentTaskService{store: store, runtime: runtime}
+	require.NoError(t, service.step(context.Background(), task))
+	require.Equal(t, "Kuayle re-ran the agent's tests and they failed: go test ./internal/service/... exit 2", store.failReason)
+}
+
+func TestHandoffNamesTheFailedAgentChosenTest(t *testing.T) {
+	exit := 2
+	previous := &domain.AgentHandoff{AttemptID: uuid.New(), Status: "succeeded", Validation: "failed", ValidationExitCode: &exit, ValidationSource: domain.CheckSourceAgent, FailedCommand: []string{"go", "test", "./internal/service/..."}, FailedCommandExitCode: &exit}
+	prompt := withHandoff("Fix it", previous, false)
+	require.Contains(t, prompt, "Kuayle re-ran the tests you declared in .kuayle/validation.json and `go test ./internal/service/...` failed (exit code 2)")
+}
+
+func TestImplementPromptAsksForAValidationFile(t *testing.T) {
+	prompt := withValidationFile("Implement dark mode")
+	require.Contains(t, prompt, ".kuayle/validation.json")
+	require.Contains(t, prompt, "without credentials or databases")
+	require.Equal(t, prompt, withValidationFile(prompt), "added once")
+}

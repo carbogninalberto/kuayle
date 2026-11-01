@@ -46,18 +46,18 @@ func TestIndependentValidationPersistsEvidenceAndFencesStaleWriters(t *testing.T
 	require.Equal(t, domain.DevMachineOpValidateAgent, op.Action)
 	service := &domain.DevMachineService{ID: step.ID, WorkspaceID: task.WorkspaceID, MachineID: op.MachineID, AgentRunID: &task.RunID, ServiceType: "agent", ServiceKey: "validation-" + task.RunID.String(), ContainerName: "validation", ImageRef: "fixture", InternalHost: "validation", InternalPort: 8080, Status: "pending", HealthStatus: "unknown"}
 	require.NoError(t, store.CreateRuntimeService(ctx, service))
-	require.ErrorIs(t, store.CompleteValidation(ctx, op, 0), ErrAgentTaskConflict, "a result needs a real start")
+	require.ErrorIs(t, store.CompleteValidation(ctx, op, 0, nil), ErrAgentTaskConflict, "a result needs a real start")
 	require.NoError(t, store.StartValidation(ctx, op, "container"))
 	stale := op
 	stale.Attempts++
-	require.ErrorIs(t, store.CompleteValidation(ctx, stale, 0), ErrAgentTaskConflict)
+	require.ErrorIs(t, store.CompleteValidation(ctx, stale, 0, nil), ErrAgentTaskConflict)
 	chunk := &domain.DevMachineLogChunk{WorkspaceID: task.WorkspaceID, MachineID: op.MachineID, AgentRunID: &task.RunID, ServiceID: &step.ID, Stream: "stdout", Sequence: 1, Content: "actual check output", SourceKey: "source"}
 	require.NoError(t, store.CreateValidationOutput(ctx, op, chunk))
 	require.NoError(t, store.CreateValidationOutput(ctx, op, chunk))
 	logs, err := repo.Logs(ctx, task.WorkspaceID, task.ID, task.RunID, 0)
 	require.NoError(t, err)
 	require.Len(t, logs.Logs, 1)
-	require.NoError(t, store.CompleteValidation(ctx, op, 0))
+	require.NoError(t, store.CompleteValidation(ctx, op, 0, nil))
 	require.ErrorIs(t, repo.Transition(ctx, *claimed, "publishing", "Checks passed"), ErrAgentTaskConflict, "operation completion must settle first")
 	require.NoError(t, store.CompleteOperation(ctx, op.ID, *op.LeaseOwner))
 	require.NoError(t, repo.Transition(ctx, *claimed, "publishing", "Checks passed"))
@@ -155,7 +155,7 @@ func TestValidationRejectsRevokedAuthorityAndExpiredOperationLeases(t *testing.T
 			require.NoError(t, err)
 			_, err = store.GetValidation(ctx, op)
 			require.Error(t, err)
-			require.Error(t, store.CompleteValidation(ctx, op, 0))
+			require.Error(t, store.CompleteValidation(ctx, op, 0, nil))
 			require.Error(t, store.CreateValidationOutput(ctx, op, &domain.DevMachineLogChunk{WorkspaceID: task.WorkspaceID, MachineID: op.MachineID, AgentRunID: &task.RunID, ServiceID: &step.ID, Stream: "stdout", Sequence: 1, Content: "must not persist"}))
 			var succeeded bool
 			require.NoError(t, db.Get(&succeeded, `SELECT status='succeeded' FROM dev_machine_agent_run_steps WHERE id=$1`, step.ID))

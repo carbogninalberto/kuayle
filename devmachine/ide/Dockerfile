@@ -61,7 +61,7 @@ RUN rm -f /usr/bin/pebble \
     && node /usr/local/lib/kuayle/patch-npm-security.cjs /usr/lib/code-server \
     && npm install --prefix /tmp/code-server-patches --ignore-scripts --package-lock=false \
          "basic-ftp@6.2.2" "js-yaml@5.4.2" "shell-quote@1.12.0" "undici@7.30.1" "ip-address@10.7.3" \
-         "compression@1.8.2" "destroy@1.2.0" "follow-redirects@1.16.1" \
+         "compression@1.8.2" "destroy@1.2.0" "follow-redirects@1.16.2" \
     && rm -rf /usr/lib/code-server/node_modules/js-yaml \
          /usr/lib/code-server/node_modules/basic-ftp \
          /usr/lib/code-server/node_modules/compression \

@@ -56,15 +56,22 @@ func TestValidationRunsExactCommandWithoutHarnessOrCredentialHandoff(t *testing.
 	docker, err := client.New(client.WithHost(server.URL), client.WithAPIVersion("1.52"))
 	require.NoError(t, err)
 	defer docker.Close()
-	result, err := (&DockerRuntime{client: docker}).RunValidation(context.Background(), machine, run, step, checkout, "developer:fixture", &AgentObserver{Authorize: func() error { authorizations++; return nil }, Started: func(id string) error { require.Equal(t, "validation", id); started++; return nil }})
+	result, err := (&DockerRuntime{client: docker}).RunValidation(context.Background(), machine, run, step, 0, checkout, "developer:fixture", &AgentObserver{Authorize: func() error { authorizations++; return nil }, Started: func(id string) error { require.Equal(t, "validation", id); started++; return nil }})
 	require.NoError(t, err)
 	require.Equal(t, 7, result.ExitCode)
 	require.Equal(t, 1, starts)
 	require.Equal(t, 1, started)
 	require.GreaterOrEqual(t, authorizations, 2)
 	require.Zero(t, archives)
-	require.Equal(t, []string{"sh"}, config.Entrypoint)
-	require.Equal(t, []string{"-c", "exit 7"}, config.Cmd)
+	// The exact argv runs after the fixed runner, as positional arguments.
+	require.Equal(t, []string{"/bin/sh"}, config.Entrypoint)
+	require.Equal(t, []string{"-c", checkRunner, "kuayle-check", "sh", "-c", "exit 7"}, config.Cmd)
+	// The tmpfs /tmp and home are small; temporary files and caches live in a
+	// per-run directory on the workspace volume.
+	dir := "/workspace/.kuayle/tmp/validation-" + run.ID.String()
+	for _, env := range []string{"KUAYLE_RUN_TMP=" + dir, "TMPDIR=" + dir + "/tmp", "GOTMPDIR=" + dir + "/tmp", "GOCACHE=" + dir + "/cache/go-build", "GOMODCACHE=" + dir + "/go-mod", "XDG_CACHE_HOME=" + dir + "/cache", "npm_config_cache=" + dir + "/cache/npm", "PIP_CACHE_DIR=" + dir + "/cache/pip"} {
+		require.Contains(t, config.Env, env)
+	}
 	require.Equal(t, checkout.WorkspacePath, config.WorkingDir)
 	require.Equal(t, "1000:1000", config.User)
 	require.True(t, host.ReadonlyRootfs)
@@ -81,8 +88,12 @@ func TestValidationRunsExactCommandWithoutHarnessOrCredentialHandoff(t *testing.
 }
 
 func TestValidationRecoveryReplaysExitedContainerWithoutRerunning(t *testing.T) {
-	for _, tampered := range []bool{false, true} {
-		t.Run(map[bool]string{false: "replay", true: "wrong_ownership"}[tampered], func(t *testing.T) {
+	for _, test := range []struct {
+		name             string
+		tampered, legacy bool
+	}{{"replay", false, false}, {"replay_direct_argv_container", false, true}, {"wrong_ownership", true, false}} {
+		tampered := test.tampered
+		t.Run(test.name, func(t *testing.T) {
 			machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), RoutingKey: "fixture", DockerNetworkName: ptr("network"), WorkspaceVolumeName: ptr("workspace")}
 			run := &domain.DevMachineAgentRun{ID: uuid.New()}
 			step := &domain.DevMachineAgentRunStep{ID: uuid.New(), CommandArgv: []byte(`["sh","-c","exit 7"]`)}
@@ -94,13 +105,17 @@ func TestValidationRecoveryReplaysExitedContainerWithoutRerunning(t *testing.T) 
 			if tampered {
 				labels["com.kuayle.workspace-id"] = uuid.NewString()
 			}
+			entrypoint, cmd := checkEntrypoint, checkCommand([]string{"sh", "-c", "exit 7"})
+			if test.legacy {
+				entrypoint, cmd = []string{"sh"}, []string{"-c", "exit 7"}
+			}
 			var starts, creates, observed int
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch {
 				case strings.Contains(r.URL.Path, "/images/"):
 					_, _ = w.Write([]byte(`{"Id":"image","Config":{}}`))
 				case strings.HasSuffix(r.URL.Path, "/json"):
-					_ = json.NewEncoder(w).Encode(container.InspectResponse{ID: "retained", Config: &container.Config{Image: "developer:fixture", Labels: labels, Entrypoint: []string{"sh"}, Cmd: []string{"-c", "exit 7"}, WorkingDir: checkout.WorkspacePath}, State: &container.State{Status: "exited", ExitCode: 7}})
+					_ = json.NewEncoder(w).Encode(container.InspectResponse{ID: "retained", Config: &container.Config{Image: "developer:fixture", Labels: labels, Entrypoint: entrypoint, Cmd: cmd, WorkingDir: checkout.WorkspacePath}, State: &container.State{Status: "exited", ExitCode: 7}})
 				case strings.HasSuffix(r.URL.Path, "/logs"):
 					writeDockerFrame(w, stdcopy.Stdout, "2026-10-27T10:00:00Z retained output\n")
 				case strings.HasSuffix(r.URL.Path, "/start"):
@@ -117,7 +132,7 @@ func TestValidationRecoveryReplaysExitedContainerWithoutRerunning(t *testing.T) 
 			docker, err := client.New(client.WithHost(server.URL), client.WithAPIVersion("1.52"))
 			require.NoError(t, err)
 			defer docker.Close()
-			result, err := (&DockerRuntime{client: docker}).RunValidation(context.Background(), machine, run, step, checkout, "developer:fixture", &AgentObserver{Started: func(string) error { observed++; return nil }})
+			result, err := (&DockerRuntime{client: docker}).RunValidation(context.Background(), machine, run, step, 0, checkout, "developer:fixture", &AgentObserver{Started: func(string) error { observed++; return nil }})
 			if tampered {
 				require.Error(t, err)
 				require.Zero(t, observed)

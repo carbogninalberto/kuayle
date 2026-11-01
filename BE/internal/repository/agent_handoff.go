@@ -24,9 +24,13 @@ func (r *AgentTaskRepository) PreviousAttempt(ctx context.Context, task domain.A
 		Validation   *string         `db:"validation"`
 		ExitCode     *int            `db:"exit_code"`
 		PullRequest  *string         `db:"pull_request"`
+		Source       *string         `db:"command_source"`
+		Commands     domain.NullJSON `db:"commands"`
+		Results      domain.NullJSON `db:"command_results"`
+		Argv         domain.NullJSON `db:"command_argv"`
 	}
 	err := r.db.GetContext(ctx, &row, `SELECT r.id,r.machine_id,r.native_session_id,r.status::text AS status,r.summary,r.changed_files,
- v.status::text AS validation,v.exit_code,
+ v.status::text AS validation,v.exit_code,v.command_source,v.commands,v.command_results,v.command_argv,
  CASE WHEN p.status='succeeded' THEN r.pull_request_url END AS pull_request
  FROM dev_machine_agent_runs r
  LEFT JOIN dev_machine_agent_run_steps v ON v.agent_run_id=r.id AND v.sequence=0 AND v.step_type='validation'
@@ -47,6 +51,13 @@ func (r *AgentTaskRepository) PreviousAttempt(ctx context.Context, task domain.A
 	}
 	if row.Validation != nil {
 		handoff.Validation = *row.Validation
+	}
+	if row.Source != nil {
+		handoff.ValidationSource = *row.Source
+	}
+	check := domain.DevMachineAgentRunStep{CommandArgv: json.RawMessage(row.Argv), Commands: row.Commands, CommandResults: json.RawMessage(row.Results), ExitCode: row.ExitCode}
+	if command, exit, failed := check.FailedCommand(); failed && handoff.Validation == "failed" {
+		handoff.FailedCommand, handoff.FailedCommandExitCode = command, &exit
 	}
 	if row.PullRequest != nil {
 		handoff.PullRequestURL = *row.PullRequest

@@ -782,6 +782,12 @@ func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine
 		"KUAYLE_AGENT_RUN_ID=" + run.ID.String(),
 	}
 	runtimeEnvironment = append(runtimeEnvironment, invocationEnvironment...)
+	if run.Mode != "interactive" {
+		// Temporary files and build caches go to the attempt's directory on the
+		// workspace volume instead of the small /tmp and home tmpfs.
+		entrypoint = agentEntrypoint(entrypoint)
+		runtimeEnvironment = append(runtimeEnvironment, runTmpEnvironment(runTmpDir(agentRunTmpKey(run)))...)
+	}
 	if inspection, inspectErr := r.client.ContainerInspect(ctx, containerName, client.ContainerInspectOptions{}); inspectErr == nil {
 		if inspection.Container.Config.Image != provider.ImageRef || inspection.Container.Config.Labels["com.kuayle.agent-run-id"] != run.ID.String() {
 			return nil, fmt.Errorf("existing agent container does not match run")

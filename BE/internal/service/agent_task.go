@@ -154,6 +154,11 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 			// The work is still published, as a draft that says it was not tested.
 			return s.store.Transition(ctx, task, "publishing", unvalidatedPublishingReason)
 		case domain.DevMachineAgentRunStepStatusFailed, domain.DevMachineAgentRunStepStatusCancelled:
+			if result.CommandSource != nil && *result.CommandSource == domain.CheckSourceAgent {
+				if command, exit, failed := result.FailedCommand(); failed {
+					return s.store.Fail(ctx, task, fmt.Sprintf("Kuayle re-ran the agent's tests and they failed: %s exit %d", truncateRunes(strings.Join(command, " "), 300), exit))
+				}
+			}
 			return s.store.Fail(ctx, task, "Independent validation failed; stopping execution before retry")
 		}
 		return nil
@@ -500,6 +505,7 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 	}
 	if !review {
 		prompt = withQA(prompt, task)
+		prompt = withValidationFile(prompt)
 		prompt = withOutbox(prompt, related)
 		prompt = withLiveChannel(prompt)
 	}
@@ -552,6 +558,9 @@ func withHandoff(prompt string, previous *domain.AgentHandoff, resumed bool) str
 		fmt.Fprintf(&b, "- Independent check: %s (exit code %d)\n", previous.Validation, *previous.ValidationExitCode)
 	default:
 		fmt.Fprintf(&b, "- Independent check: %s\n", previous.Validation)
+	}
+	if previous.ValidationSource == domain.CheckSourceAgent && len(previous.FailedCommand) > 0 && previous.FailedCommandExitCode != nil {
+		fmt.Fprintf(&b, "- Kuayle re-ran the tests you declared in %s and `%s` failed (exit code %d); its output is on the task. Fix the cause, then declare your tests again.\n", domain.AgentValidationFile, strings.ReplaceAll(truncateRunes(strings.Join(previous.FailedCommand, " "), 500), "`", "'"), *previous.FailedCommandExitCode)
 	}
 	if previous.PullRequestURL != "" {
 		fmt.Fprintf(&b, "- Published pull request: %s (keep working on its branch)\n", previous.PullRequestURL)
@@ -656,6 +665,17 @@ func withQA(prompt string, task domain.AgentTask) string {
 		return prompt
 	}
 	return prompt + "\n\n" + line
+}
+
+// validationFileLine asks an implement attempt to choose the tests Kuayle
+// reruns. A configured check still overrides them.
+const validationFileLine = "Tests Kuayle re-runs: before you finish, pick the fast tests relevant to your change (avoid tests that need a database or other services when you can), run them yourself, then write `.kuayle/validation.json` at this worktree's root as {\"commands\":[[\"sh\",\"-c\",\"cd BE && go test ./internal/service/...\"]],\"summary\":\"what you tested and why, and what you did not\"} (at most 8 argv arrays, summary at most 2000 characters). Unless the project configures its own check, Kuayle re-runs those commands in a clean container without credentials or databases, and the pull request opens ready for review only if they pass. See the kuayle-agents skill."
+
+func withValidationFile(prompt string) string {
+	if strings.Contains(prompt, validationFileLine) || len(prompt)+len(validationFileLine) > 31500 {
+		return prompt
+	}
+	return prompt + "\n\n" + validationFileLine
 }
 
 func previewCommand(task domain.AgentTask) []string {

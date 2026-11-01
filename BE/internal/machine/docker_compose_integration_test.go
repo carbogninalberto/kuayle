@@ -60,7 +60,7 @@ func TestDockerCheckReachesComposeServicesOnAnInternalNetwork(t *testing.T) {
 	checkout := &domain.DevMachineCheckout{WorkspacePath: "/workspace/tasks/t"}
 	step := &domain.DevMachineAgentRunStep{ID: uuid.New(), ComposeFile: "compose.yaml", CommandArgv: json.RawMessage(`["sh","-c","nc -z -w 3 cache 6379 && echo reached-cache"]`)}
 	var output strings.Builder
-	execution, err := runtime.RunValidation(ctx, machine, run, step, checkout, "alpine:3", &AgentObserver{Output: func(_ string, data []byte) error { output.Write(data); return nil }})
+	execution, err := runtime.RunValidation(ctx, machine, run, step, 0, checkout, "alpine:3", &AgentObserver{Output: func(_ string, data []byte) error { output.Write(data); return nil }})
 	require.NoError(t, err)
 	require.Zero(t, execution.ExitCode, output.String())
 	require.Contains(t, output.String(), "reached-cache")
@@ -88,7 +88,7 @@ func TestDockerCheckReachesComposeServicesOnAnInternalNetwork(t *testing.T) {
 	rejected := &domain.DevMachineAgentRun{ID: uuid.New(), MachineID: machine.ID, WorkspaceID: machine.WorkspaceID}
 	bad := *step
 	bad.ID, bad.ComposeFile = uuid.New(), "missing.yaml"
-	_, err = runtime.RunValidation(ctx, machine, rejected, &bad, checkout, "alpine:3", &AgentObserver{})
+	_, err = runtime.RunValidation(ctx, machine, rejected, &bad, 0, checkout, "alpine:3", &AgentObserver{})
 	var composeError *ComposeError
 	require.True(t, errors.As(err, &composeError), "%v", err)
 	require.NoError(t, runtime.CancelAgent(ctx, rejected))

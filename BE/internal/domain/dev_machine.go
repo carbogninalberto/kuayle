@@ -363,18 +363,21 @@ type DevMachineAgentRun struct {
 	PullRequestURL         *string                  `json:"pull_request_url,omitempty" db:"pull_request_url"`
 	NativeSessionID        *string                  `json:"-" db:"native_session_id"`
 	// SessionID is the Kuayle agent session the attempt ran in.
-	SessionID     *uuid.UUID      `json:"session_id,omitempty" db:"session_id"`
-	Diff          string          `json:"-" db:"diff"`
-	DiffTruncated bool            `json:"-" db:"diff_truncated"`
-	TestsRun      json.RawMessage `json:"tests_run" db:"tests_run"`
-	TestStatus    string          `json:"test_status" db:"test_status"`
-	RiskNotes     json.RawMessage `json:"risk_notes" db:"risk_notes"`
-	ExitCode      *int            `json:"exit_code,omitempty" db:"exit_code"`
-	ErrorMessage  *string         `json:"error_message,omitempty" db:"error_message"`
-	CreatedAt     time.Time       `json:"created_at" db:"created_at"`
-	StartedAt     *time.Time      `json:"started_at,omitempty" db:"started_at"`
-	CompletedAt   *time.Time      `json:"completed_at,omitempty" db:"completed_at"`
-	CancelledAt   *time.Time      `json:"cancelled_at,omitempty" db:"cancelled_at"`
+	SessionID *uuid.UUID `json:"session_id,omitempty" db:"session_id"`
+	// DeclaredValidation is the attempt's parsed .kuayle/validation.json
+	// (AgentDeclaredValidation), when it wrote one.
+	DeclaredValidation *json.RawMessage `json:"-" db:"declared_validation"`
+	Diff               string           `json:"-" db:"diff"`
+	DiffTruncated      bool             `json:"-" db:"diff_truncated"`
+	TestsRun           json.RawMessage  `json:"tests_run" db:"tests_run"`
+	TestStatus         string           `json:"test_status" db:"test_status"`
+	RiskNotes          json.RawMessage  `json:"risk_notes" db:"risk_notes"`
+	ExitCode           *int             `json:"exit_code,omitempty" db:"exit_code"`
+	ErrorMessage       *string          `json:"error_message,omitempty" db:"error_message"`
+	CreatedAt          time.Time        `json:"created_at" db:"created_at"`
+	StartedAt          *time.Time       `json:"started_at,omitempty" db:"started_at"`
+	CompletedAt        *time.Time       `json:"completed_at,omitempty" db:"completed_at"`
+	CancelledAt        *time.Time       `json:"cancelled_at,omitempty" db:"cancelled_at"`
 }
 
 type DevMachineAgentRunStep struct {
@@ -391,6 +394,13 @@ type DevMachineAgentRunStep struct {
 	CompletedAt *time.Time                   `json:"completed_at,omitempty" db:"completed_at"`
 	CreatedAt   time.Time                    `json:"created_at" db:"created_at"`
 	ComposeFile string                       `json:"compose_file,omitempty" db:"compose_file"`
+	// An independent check records where its commands came from (configured
+	// or chosen by the agent), every command it runs and their results, and
+	// the agent's untrusted summary of what it tested.
+	CommandSource  *string         `json:"command_source,omitempty" db:"command_source"`
+	Commands       NullJSON        `json:"commands,omitempty" db:"commands"`
+	CommandResults json.RawMessage `json:"command_results,omitempty" db:"command_results"`
+	AgentSummary   *string         `json:"agent_summary,omitempty" db:"agent_summary"`
 }
 
 type DevMachineEvent struct {
