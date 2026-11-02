@@ -283,20 +283,32 @@ and write, checks that the checkout is the task's own ready checkout, then:
    as `DEV_MACHINE_AGENT_GIT_NAME <DEV_MACHINE_AGENT_GIT_EMAIL>` (default
    `Kuayle Agent <agent@kuayle.invalid>`), with repository hooks, fsmonitor and
    signing programs disabled and system/global configuration ignored. The message
-   is `<ISSUE-ID>: <issue title>`. A branch with no commits ahead of the base is
-   recorded as `skipped` and blocks the task; it is never reviewable.
+   is `<ISSUE-ID>: <issue title>`. Commits since the last published commit (the
+   floor Kuayle recorded, or the task branch as fetched from GitHub when that
+   descends from it) by any other author or carrying co-author trailers are
+   folded into one commit by the configured author; Kuayle's own commits are
+   kept, so a retry republishes the same commit. Base-branch commits are never
+   judged or folded: when the agent merged the base, the folded commit is a merge
+   of the floor and that base commit, so the pull request is neither behind its
+   base nor re-adds the base's commits. A branch with no commits ahead of the
+   base is recorded as `skipped` and blocks the task; it is never reviewable.
 2. Fetches exactly that branch tip into a new temporary repository outside the
    workspace volume, verifies it is still the recorded commit, and only then reads
-   a fresh repository-scoped GitHub App token from stdin. It pushes the commit to
-   the fixed `https://github.com/<checkout repository>` URL without force. The
-   agent-writable checkout's configuration (hooks, URL rewrites, credential
-   helpers) is never loaded while the token exists, and the token is never written
-   to the workspace volume.
+   a fresh repository-scoped GitHub App token from stdin. It fetches the base and
+   task branches from GitHub and refuses a push that would add a commit by
+   another author or with a co-author trailer, since the checkout's
+   remote-tracking refs the commit step relied on are agent-writable. It pushes
+   the commit to the fixed `https://github.com/<checkout repository>` URL without
+   force. The agent-writable checkout's configuration (hooks, URL rewrites,
+   credential helpers) is never loaded while the token exists, and the token is
+   never written to the workspace volume.
 3. Reuses an open pull request from the task branch into the base branch, or opens
    one with the GitHub App, as a draft when the attempt's check was skipped. A
    reused pull request gets this attempt's description, so a later passing check
-   replaces the "Not validated" warning; GitHub's draft flag is left for a person
-   to clear. The title carries the issue identifier so the existing
+   replaces the "Not validated" warning and a draft is marked ready for review
+   (GraphQL `markPullRequestReadyForReview`). A ready pull request is never turned
+   back into a draft by a later unchecked attempt; its description carries the
+   warning instead. The title carries the issue identifier so the existing
    `pr_opened` GitHub automation moves the issue to In Review; publication does not
    change the issue status itself. The agent's summary is included only as fenced,
    explicitly unverified text. GitHub's URL must belong to the checkout repository.
