@@ -42,11 +42,15 @@ g add -A
 # the agent-writable checkout, so commits already on GitHub are never rewritten.
 # Kuayle's own commits are kept, so a retry republishes the same commit.
 # A history rewritten below the published commit is rebuilt on top of it with
-# the checkout's current tree, so the push stays a fast-forward.
-floor=${6:-} recorded=
+# the checkout's current tree, so the push stays a fast-forward; a newer base
+# it was rebased onto becomes a merge parent.
+floor=${6:-} recorded= rebuilt=
+# The checkout's own head, kept so a rebase onto a newer base still records
+# that base when it is rebuilt on the published commit.
+head=$(g rev-parse --verify HEAD)
 if [ -n "$floor" ] && g cat-file -e "$floor^{commit}" 2>/dev/null; then
   recorded=1
-  g merge-base --is-ancestor "$floor" HEAD || g reset -q --soft "$floor"
+  g merge-base --is-ancestor "$floor" HEAD || { g reset -q --soft "$floor"; rebuilt=1; }
 else
   floor=$(g merge-base HEAD "refs/remotes/origin/$base")
 fi
@@ -61,11 +65,11 @@ if g rev-parse -q --verify "$remote^{commit}" >/dev/null && g merge-base --is-an
 fi
 tip=$(g rev-parse --verify "refs/remotes/origin/$base^{commit}")
 foreign=$(g log --format='%ae%n%ce' "$floor..HEAD" --not "$tip" | grep -vxF -- "$5" | head -n 1 || true)
-if [ -n "$foreign" ] || g log --format=%B "$floor..HEAD" --not "$tip" | grep -qi '^co-authored-by:'; then
+if [ -n "$rebuilt" ] || [ -n "$foreign" ] || g log --format=%B "$floor..HEAD" --not "$tip" | grep -qi '^co-authored-by:'; then
   # A merge of the base branch stays a merge, so the pull request is neither
   # shown behind its base nor re-adds the base's commits.
   merged=$tip
-  g merge-base --is-ancestor "$tip" HEAD || merged=$(g merge-base HEAD "$tip" || true)
+  g merge-base --is-ancestor "$tip" "$head" || merged=$(g merge-base "$head" "$tip" || true)
   if [ -n "$merged" ] && ! g merge-base --is-ancestor "$merged" "$floor"; then
     folded=$(g commit-tree --no-gpg-sign -p "$floor" -p "$merged" -m "$message" "$(g write-tree)")
     g reset -q --soft "$folded"

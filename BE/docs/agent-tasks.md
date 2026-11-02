@@ -288,9 +288,10 @@ and write, checks that the checkout is the task's own ready checkout, then:
    descends from it) by any other author or carrying co-author trailers are
    folded into one commit by the configured author; Kuayle's own commits are
    kept, so a retry republishes the same commit. Base-branch commits are never
-   judged or folded: when the agent merged the base, the folded commit is a merge
-   of the floor and that base commit, so the pull request is neither behind its
-   base nor re-adds the base's commits. A branch with no commits ahead of the
+   judged or folded: when the agent merged the base, or rebased onto a newer one
+   so the floor is no longer an ancestor, the folded commit is a merge of the
+   floor and that base commit, so the pull request is neither behind its base nor
+   re-adds the base's commits. A branch with no commits ahead of the
    base is recorded as `skipped` and blocks the task; it is never reviewable.
 2. Fetches exactly that branch tip into a new temporary repository outside the
    workspace volume, verifies it is still the recorded commit, and only then reads

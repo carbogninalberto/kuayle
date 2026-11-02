@@ -204,3 +204,53 @@ func TestPublishScriptsJudgeAuthorsWhenTheConfiguredEmailStartsWithADash(t *test
 	require.Equal(t, "-agent@kuayle.invalid -agent@kuayle.invalid", run("log", "-1", "--format=%ae %ce", published),
 		"a commit by another author is folded even when the configured email looks like an option")
 }
+
+func TestPublishScriptsKeepTheBaseOfARebaseOntoANewerBase(t *testing.T) {
+	realGit, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git is unavailable")
+	}
+	root := t.TempDir()
+	as := func(name, email string) []string {
+		return []string{"GIT_AUTHOR_NAME=" + name, "GIT_AUTHOR_EMAIL=" + email, "GIT_COMMITTER_NAME=" + name, "GIT_COMMITTER_EMAIL=" + email}
+	}
+	kuayle, bot := as("Kuayle Agent", "agent@kuayle.invalid"), as("app[bot]", "1+app[bot]@users.noreply.github.com")
+	run := func(env []string, args ...string) string {
+		t.Helper()
+		command := exec.Command(realGit, args...)
+		command.Dir = root
+		command.Env = append(append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "HOME="+root), env...)
+		output, err := command.CombinedOutput()
+		require.NoError(t, err, string(output))
+		return strings.TrimSpace(string(output))
+	}
+	commit := func(env []string, name string) string {
+		t.Helper()
+		require.NoError(t, os.WriteFile(filepath.Join(root, name), []byte(name+"\n"), 0o644))
+		run(env, "add", name)
+		run(env, "commit", "-q", "-m", name)
+		return run(nil, "rev-parse", "HEAD")
+	}
+	run(nil, "init", "-q", "-b", "main")
+	commit(bot, "README.md")
+	run(nil, "update-ref", "refs/remotes/origin/main", "HEAD")
+	run(nil, "checkout", "-q", "-b", "kuayle/rec-1")
+	published := commit(kuayle, "feature.txt")
+	run(nil, "checkout", "-q", "main")
+	mainTip := commit(bot, "main-1.txt")
+	run(nil, "update-ref", "refs/remotes/origin/main", mainTip)
+	run(nil, "checkout", "-q", "kuayle/rec-1")
+	// The agent rebases the published work onto the newer base, so the
+	// published commit is no longer an ancestor of the checkout.
+	run(bot, "rebase", "-q", "refs/remotes/origin/main")
+
+	command := exec.Command("sh", "-c", publishCommitScript, "kuayle-publish", root, "kuayle/rec-1", "main", "Kuayle Agent", "agent@kuayle.invalid", published)
+	command.Env = append(os.Environ(), "HOME="+root)
+	command.Stdin = strings.NewReader("REC-1: Feature")
+	output, err := command.CombinedOutput()
+	require.NoError(t, err, string(output))
+	rebuilt := strings.TrimSpace(string(output))
+	require.Equal(t, published+" "+mainTip, run(nil, "log", "-1", "--format=%P", rebuilt), "rebuilt on the published commit, merging the newer base")
+	require.Equal(t, "agent@kuayle.invalid agent@kuayle.invalid", run(nil, "log", "-1", "--format=%ae %ce", rebuilt))
+	require.Equal(t, "feature.txt", run(nil, "diff", "--name-only", "refs/remotes/origin/main", rebuilt), "the base's commits are not re-added")
+}
