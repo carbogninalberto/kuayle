@@ -136,6 +136,50 @@ func (c *Client) UpdatePullRequestBody(token, owner, repository string, number i
 	return nil
 }
 
+// MarkPullRequestReadyForReview takes a draft pull request out of draft. The
+// REST API cannot do this, so it uses the GraphQL mutation with the pull
+// request's node ID.
+func (c *Client) MarkPullRequestReadyForReview(token, nodeID string) error {
+	if nodeID == "" {
+		return fmt.Errorf("missing pull request node id")
+	}
+	payload, err := json.Marshal(map[string]any{
+		"query":     "mutation($id: ID!) { markPullRequestReadyForReview(input: {pullRequestId: $id}) { pullRequest { isDraft } } }",
+		"variables": map[string]string{"id": nodeID},
+	})
+	if err != nil {
+		return err
+	}
+	request, err := http.NewRequest(http.MethodPost, githubAPIBaseURL+"/graphql", bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Authorization", "Bearer "+token)
+	request.Header.Set("Content-Type", "application/json")
+	response, err := c.httpClient.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	responseBody, _ := io.ReadAll(io.LimitReader(response.Body, 64<<10))
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("GitHub API error %d: %s", response.StatusCode, responseBody)
+	}
+	// GraphQL reports failures with HTTP 200 and an errors list.
+	var result struct {
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	if err := json.Unmarshal(responseBody, &result); err != nil {
+		return fmt.Errorf("decoding GitHub GraphQL response: %w", err)
+	}
+	if len(result.Errors) > 0 {
+		return fmt.Errorf("GitHub GraphQL error: %s", result.Errors[0].Message)
+	}
+	return nil
+}
+
 type cachedToken struct {
 	Token     string
 	ExpiresAt time.Time
@@ -152,6 +196,7 @@ type Repository struct {
 // PullRequest represents a GitHub pull request.
 type PullRequest struct {
 	ID        int64      `json:"id"`
+	NodeID    string     `json:"node_id"`
 	Number    int        `json:"number"`
 	Title     string     `json:"title"`
 	State     string     `json:"state"`

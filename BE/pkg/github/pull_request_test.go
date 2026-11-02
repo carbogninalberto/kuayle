@@ -34,3 +34,32 @@ func TestUpdatePullRequestBodyChangesOnlyTheDescription(t *testing.T) {
 	require.NoError(t, c.UpdatePullRequestBody("secret", "owner", "repo", 4, "New body"))
 	require.Equal(t, map[string]any{"body": "New body"}, sent)
 }
+
+func TestMarkPullRequestReadyForReviewUsesTheGraphQLMutation(t *testing.T) {
+	var sent struct {
+		Query     string         `json:"query"`
+		Variables map[string]any `json:"variables"`
+	}
+	c := &Client{httpClient: &http.Client{Transport: commentTransport(func(r *http.Request) (*http.Response, error) {
+		require.Equal(t, http.MethodPost, r.Method)
+		require.Equal(t, "/graphql", r.URL.Path)
+		require.Equal(t, "Bearer secret", r.Header.Get("Authorization"))
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&sent))
+		return commentResponse(200, `{"data":{"markPullRequestReadyForReview":{"pullRequest":{"isDraft":false}}}}`), nil
+	})}}
+	require.NoError(t, c.MarkPullRequestReadyForReview("secret", "PR_kwDOfixture"))
+	require.Contains(t, sent.Query, "markPullRequestReadyForReview(input: {pullRequestId: $id})")
+	require.Equal(t, map[string]any{"id": "PR_kwDOfixture"}, sent.Variables)
+}
+
+func TestMarkPullRequestReadyForReviewReportsGraphQLErrors(t *testing.T) {
+	c := &Client{httpClient: &http.Client{Transport: commentTransport(func(*http.Request) (*http.Response, error) {
+		return commentResponse(200, `{"data":null,"errors":[{"message":"Resource not accessible by integration"}]}`), nil
+	})}}
+	require.ErrorContains(t, c.MarkPullRequestReadyForReview("secret", "PR_kwDOfixture"), "Resource not accessible by integration")
+	require.ErrorContains(t, c.MarkPullRequestReadyForReview("secret", ""), "pull request node id")
+	c = &Client{httpClient: &http.Client{Transport: commentTransport(func(*http.Request) (*http.Response, error) {
+		return commentResponse(502, `bad gateway`), nil
+	})}}
+	require.ErrorContains(t, c.MarkPullRequestReadyForReview("secret", "PR_kwDOfixture"), "GitHub API error 502")
+}
