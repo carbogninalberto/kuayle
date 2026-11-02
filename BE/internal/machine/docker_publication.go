@@ -60,7 +60,7 @@ if g rev-parse -q --verify "$remote^{commit}" >/dev/null && g merge-base --is-an
   floor=$(g rev-parse --verify "$remote^{commit}")
 fi
 tip=$(g rev-parse --verify "refs/remotes/origin/$base^{commit}")
-foreign=$(g log --format='%ae%n%ce' "$floor..HEAD" --not "$tip" | grep -vxF "$5" | head -n 1 || true)
+foreign=$(g log --format='%ae%n%ce' "$floor..HEAD" --not "$tip" | grep -vxF -- "$5" | head -n 1 || true)
 if [ -n "$foreign" ] || g log --format=%B "$floor..HEAD" --not "$tip" | grep -qi '^co-authored-by:'; then
   # A merge of the base branch stays a merge, so the pull request is neither
   # shown behind its base nor re-adds the base's commits.
@@ -118,7 +118,7 @@ if remote ls-remote --exit-code --heads "$url" "refs/heads/$branch" >/dev/null; 
 fi
 authors=$(git --git-dir="$work/repo" log --format='%ae%n%ce' "$commit" --not --glob='refs/kuayle/remote/*')
 messages=$(git --git-dir="$work/repo" log --format=%B "$commit" --not --glob='refs/kuayle/remote/*')
-if printf '%s\n' "$authors" | grep -vxF "$email" | grep -q . || printf '%s\n' "$messages" | grep -qi '^co-authored-by:'; then
+if printf '%s\n' "$authors" | grep -vxF -- "$email" | grep -q . || printf '%s\n' "$messages" | grep -qi '^co-authored-by:'; then
   echo "publication adds commits by another author" >&2; exit 1
 fi
 remote push -q "$url" "$commit:refs/heads/$branch"

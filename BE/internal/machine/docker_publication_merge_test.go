@@ -166,3 +166,41 @@ func TestPublishScriptsKeepBaseMergesAndCommitsAlreadyOnGitHub(t *testing.T) {
 	require.Contains(t, output, "another author")
 	require.Equal(t, onHuman, run(origin, nil, "rev-parse", "refs/heads/kuayle/rec-1"), "nothing was pushed")
 }
+
+func TestPublishScriptsJudgeAuthorsWhenTheConfiguredEmailStartsWithADash(t *testing.T) {
+	realGit, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git is unavailable")
+	}
+	root := t.TempDir()
+	env := []string{"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "HOME=" + root,
+		"GIT_AUTHOR_NAME=app[bot]", "GIT_AUTHOR_EMAIL=1+app[bot]@users.noreply.github.com",
+		"GIT_COMMITTER_NAME=app[bot]", "GIT_COMMITTER_EMAIL=1+app[bot]@users.noreply.github.com"}
+	run := func(args ...string) string {
+		t.Helper()
+		command := exec.Command(realGit, args...)
+		command.Dir = root
+		command.Env = append(os.Environ(), env...)
+		output, err := command.CombinedOutput()
+		require.NoError(t, err, string(output))
+		return strings.TrimSpace(string(output))
+	}
+	run("init", "-q", "-b", "main")
+	require.NoError(t, os.WriteFile(filepath.Join(root, "README.md"), []byte("base\n"), 0o644))
+	run("add", "README.md")
+	run("commit", "-q", "-m", "base")
+	run("update-ref", "refs/remotes/origin/main", "HEAD")
+	run("checkout", "-q", "-b", "kuayle/rec-1")
+	require.NoError(t, os.WriteFile(filepath.Join(root, "feature.txt"), []byte("feature\n"), 0o644))
+	run("add", "feature.txt")
+	run("commit", "-q", "-m", "Agent commit")
+
+	command := exec.Command("sh", "-c", publishCommitScript, "kuayle-publish", root, "kuayle/rec-1", "main", "Kuayle Agent", "-agent@kuayle.invalid")
+	command.Env = append(os.Environ(), "HOME="+root)
+	command.Stdin = strings.NewReader("REC-1: Feature")
+	output, err := command.CombinedOutput()
+	require.NoError(t, err, string(output))
+	published := strings.TrimSpace(string(output))
+	require.Equal(t, "-agent@kuayle.invalid -agent@kuayle.invalid", run("log", "-1", "--format=%ae %ce", published),
+		"a commit by another author is folded even when the configured email looks like an option")
+}
