@@ -261,7 +261,6 @@ type IssueTemplateRepo interface {
 }
 
 type PasswordResetRepo interface {
-	LastIssuedAt(ctx context.Context, userID uuid.UUID) (time.Time, error)
-	Create(ctx context.Context, t *PasswordResetToken) error
+	Issue(ctx context.Context, t *PasswordResetToken, cooldown time.Duration) (bool, error)
 	Reset(ctx context.Context, tokenHash, passwordHash string) error
 }

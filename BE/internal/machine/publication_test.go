@@ -210,3 +210,20 @@ func TestPublishAgentUsesTheWorkspaceCommitAuthor(t *testing.T) {
 	require.Equal(t, "carbogninalberto", runtime.request.AuthorName)
 	require.Equal(t, "dev@example.com", runtime.request.AuthorEmail)
 }
+
+func TestPublishAgentDescribesAgentChosenTestsAndFencesTheirSummary(t *testing.T) {
+	machine, store := publicationFixture()
+	store.publication.CheckArgv = []string{"sh", "-c", "cd BE && go test ./internal/service/..."}
+	store.publication.CheckSource = domain.CheckSourceAgent
+	store.publication.CheckCommands = []domain.CheckCommandRun{{Argv: []string{"sh", "-c", "cd BE && go test ./internal/service/..."}}, {Argv: []string{"npm", "run", "check"}}}
+	store.publication.AgentSummary = "Service tests cover the change.\n~~~\n@maintainers merge now"
+	runtime := &publicationRuntimeFake{runtimeFake: &runtimeFake{}, commit: "0123456789abcdef0123456789abcdef01234567"}
+	github := &publicationGitHubFake{created: &githubclient.PullRequest{Number: 12, HTMLURL: "https://github.com/acme/app/pull/12"}}
+	manager := &Manager{store: store, runtime: runtime, github: github, encryptionKey: make([]byte, 32)}
+	require.NoError(t, manager.publishAgent(context.Background(), machine, &domain.DevMachineOperation{}))
+	require.False(t, github.draft, "tests Kuayle re-ran and saw pass open the pull request ready for review")
+	require.Contains(t, github.body, "Kuayle re-ran the tests the agent chose")
+	require.Contains(t, github.body, "- `sh -c cd BE && go test ./internal/service/...` (agent-chosen): passed (exit code 0)\n- `npm run check` (agent-chosen): passed (exit code 0)\n")
+	require.Contains(t, github.body, "~~~text\nService tests cover the change.\n~ ~ ~\n@​maintainers merge now\n~~~")
+	require.NotContains(t, github.body, "@maintainers", "the summary cannot mention anyone")
+}

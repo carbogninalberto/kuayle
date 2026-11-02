@@ -207,50 +207,103 @@ jobs:
           ref: ${{ needs.build.outputs.source_sha || github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
+      - name: Build, smoke test and scan native architecture image
+        uses: ./.github/actions/dev-machine-image
+        with:
+          id: ${{ matrix.image.id }}
+          context: ${{ matrix.image.context }}
+          dockerfile: ${{ matrix.image.dockerfile }}
+          build-args: ${{ matrix.image.build_args }}
+          architecture: ${{ matrix.architecture }}
+
+  # Releases run the same native build/smoke/scan once here instead of in
+  # dev-machine-images, then push exactly the scanned local image. The release
+  # updater pulls these images rather than building them on the server.
+  dev-machine-publish:
+    needs: [changes, build]
+    if: ${{ !cancelled() && github.event_name == 'release' && needs.changes.result == 'success' && needs.build.result == 'success' && contains(fromJSON(needs.changes.outputs.plan).required.build, 'dev-machine-publish') }}
+    name: Publish Dev Machine Image (${{ matrix.image.name }}, ${{ matrix.architecture }})
+    runs-on: ${{ matrix.architecture == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        architecture: [amd64, arm64]
+        image: ${{ fromJSON(needs.changes.outputs.plan).devImages }}
+
+    steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          ref: ${{ needs.build.outputs.source_sha }}
+          persist-credentials: false
+
+      - name: Build, smoke test and scan native architecture image
+        id: image
+        uses: ./.github/actions/dev-machine-image
+        with:
+          id: ${{ matrix.image.id }}
+          context: ${{ matrix.image.context }}
+          dockerfile: ${{ matrix.image.dockerfile }}
+          build-args: ${{ matrix.image.build_args }}
+          architecture: ${{ matrix.architecture }}
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4.2.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push scanned architecture image
+        env:
+          SOURCE: ${{ steps.image.outputs.image }}
+          TARGET: ${{ env.IMAGE_PREFIX }}/${{ matrix.image.package }}:${{ github.event.release.tag_name }}-${{ matrix.architecture }}
+        run: |
+          docker tag "$SOURCE" "$TARGET"
+          docker push "$TARGET"
+
+  dev-machine-manifests:
+    needs: [changes, build, dev-machine-publish]
+    if: ${{ !cancelled() && github.event_name == 'release' && needs.dev-machine-publish.result == 'success' && contains(fromJSON(needs.changes.outputs.plan).required.build, 'dev-machine-manifests') }}
+    name: Publish Dev Machine Manifest (${{ matrix.image.name }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ${{ fromJSON(needs.changes.outputs.plan).devImages }}
+
+    steps:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4.2.0
 
-      - name: Set image security refresh date
-        id: security-refresh
-        run: echo "day=$(date -u +%F)" >> "$GITHUB_OUTPUT"
-
-      - name: Build native architecture image
-        uses: docker/build-push-action@v7.3.0
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4.2.0
         with:
-          context: ${{ matrix.image.context }}
-          file: ${{ matrix.image.dockerfile }}
-          platforms: linux/${{ matrix.architecture }}
-          build-args: |
-            ${{ matrix.image.build_args }}
-            SECURITY_REFRESH=${{ steps.security-refresh.outputs.day }}
-          pull: true
-          push: false
-          load: true
-          tags: kuayle-dev-machine-${{ matrix.image.id }}:${{ matrix.architecture }}-ci
-          cache-from: type=gha,scope=dev-machine-${{ matrix.image.id }}-${{ matrix.architecture }}
-          cache-to: type=gha,mode=min,scope=dev-machine-${{ matrix.image.id }}-${{ matrix.architecture }}
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Smoke test native IDE runtime
-        if: matrix.image.id == 'ide'
-        run: ./devmachine/ide/smoke-test.sh kuayle-dev-machine-ide:${{ matrix.architecture }}-ci
-
-      - name: Smoke test native headless runtime
-        if: matrix.image.id == 'headless'
-        run: ./devmachine/headless/smoke-test.sh kuayle-dev-machine-headless:${{ matrix.architecture }}-ci
-
-      - name: Scan native architecture image
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          image-ref: kuayle-dev-machine-${{ matrix.image.id }}:${{ matrix.architecture }}-ci
-          format: table
-          exit-code: 1
-          severity: CRITICAL,HIGH
-          trivyignores: .trivyignore.yaml
+      - name: Create multi-architecture release manifest
+        env:
+          REPOSITORY: ${{ env.IMAGE_PREFIX }}/${{ matrix.image.package }}
+          VERSION: ${{ github.event.release.tag_name }}
+        run: |
+          docker buildx imagetools create \
+            --tag "$REPOSITORY:$VERSION" \
+            --tag "$REPOSITORY:latest" \
+            "$REPOSITORY:$VERSION-amd64" "$REPOSITORY:$VERSION-arm64"
+          docker buildx imagetools inspect "$REPOSITORY:$VERSION"
 
   result:
     name: Build CI Result
     if: always()
-    needs: [changes, build, dev-machine-images]
+    needs: [changes, build, dev-machine-images, dev-machine-publish, dev-machine-manifests]
     runs-on: ubuntu-latest
     permissions:
       contents: read

@@ -7,7 +7,8 @@
 	import { Button } from '$lib/components/ui/button';
 	import {
 		closeTerminalSession,
-		createTerminalSessionWithResume
+		createTerminalSessionWithResume,
+		launchTerminalWithResume
 	} from '$lib/api/dev-machines';
 	import type { DevMachineTerminalSession } from '$lib/types/dev-machine';
 	import {
@@ -127,19 +128,22 @@
 		try {
 			await prepareTerminal();
 			if (id !== runId) return;
-			const launch = await createTerminalSessionWithResume(
-				tab.slug,
-				tab.machineId,
-				{ name: tab.sessionName ?? (tab.checkoutLabel ? `Terminal - ${tab.checkoutLabel}` : 'Terminal'), checkout_id: tab.checkoutId },
-				{
-					onStatus: (next) => {
-						status = next;
-						statusMessage = next === 'resuming'
-							? 'Resuming the paused Dev Machine...'
-							: 'Waiting for the Dev Machine runtime to finish starting...';
-					}
+			const resume = {
+				onStatus: (next: 'resuming' | 'pending') => {
+					status = next;
+					statusMessage = next === 'resuming'
+						? 'Resuming the paused Dev Machine...'
+						: 'Waiting for the Dev Machine runtime to finish starting...';
 				}
-			);
+			};
+			const launch = tab.launch
+				? await launchTerminalWithResume(tab.slug, tab.machineId, tab.launch, resume)
+				: await createTerminalSessionWithResume(
+						tab.slug,
+						tab.machineId,
+						{ name: tab.sessionName ?? (tab.checkoutLabel ? `Terminal - ${tab.checkoutLabel}` : 'Terminal'), checkout_id: tab.checkoutId },
+						resume
+					);
 			if (id !== runId) {
 				if (launch.session?.id) {
 					closeTerminalSession(tab.slug, tab.machineId, launch.session.id).catch(() => {});

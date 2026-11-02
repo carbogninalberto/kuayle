@@ -75,11 +75,11 @@ func TestManualCheckRunsOnTheLatestAttemptWithoutChangingTheTask(t *testing.T) {
 
 	store := NewDevMachineRepository(db)
 	leased := leaseManualCheck(t, db, ctx, task, step)
-	require.ErrorIs(t, store.CompleteValidation(ctx, leased, 0), ErrAgentTaskConflict, "a result needs a real start")
+	require.ErrorIs(t, store.CompleteValidation(ctx, leased, 0, nil), ErrAgentTaskConflict, "a result needs a real start")
 	require.NoError(t, store.StartValidation(ctx, leased, "container"))
 	chunk := &domain.DevMachineLogChunk{WorkspaceID: task.WorkspaceID, MachineID: machine, AgentRunID: &task.RunID, ServiceID: &step.ID, Stream: "stdout", Sequence: 1, Content: "3 tests failed", SourceKey: "source"}
 	require.NoError(t, store.CreateValidationOutput(ctx, leased, chunk))
-	require.NoError(t, store.CompleteValidation(ctx, leased, 3))
+	require.NoError(t, store.CompleteValidation(ctx, leased, 3, nil))
 	require.NoError(t, store.CompleteOperation(ctx, leased.ID, *leased.LeaseOwner))
 
 	checks, err := repo.ManualChecks(ctx, task.WorkspaceID, task.ID, task.RunID)
@@ -181,7 +181,7 @@ func TestManualCheckRejectsRevokedAuthorityAndRecordsFailedOperations(t *testing
 			require.NoError(t, err)
 			_, err = store.GetValidation(ctx, op)
 			require.Error(t, err)
-			require.Error(t, store.CompleteValidation(ctx, op, 0))
+			require.Error(t, store.CompleteValidation(ctx, op, 0, nil))
 			require.Error(t, store.CreateValidationOutput(ctx, op, &domain.DevMachineLogChunk{WorkspaceID: task.WorkspaceID, MachineID: op.MachineID, AgentRunID: &task.RunID, ServiceID: &step.ID, Stream: "stdout", Sequence: 1, Content: "must not persist"}))
 			var status string
 			require.NoError(t, db.Get(&status, `SELECT status FROM dev_machine_agent_run_steps WHERE id=$1`, step.ID))
@@ -227,7 +227,7 @@ func TestAgentWorkReportsTheLatestManualCheckAndKeepsItsOutputPrivate(t *testing
 	for i, line := range []string{"PASS auth\n", "FAIL search: expected 2 results\n"} {
 		require.NoError(t, store.CreateValidationOutput(ctx, op, &domain.DevMachineLogChunk{WorkspaceID: task.WorkspaceID, MachineID: machine, AgentRunID: &task.RunID, ServiceID: &step.ID, Stream: "stdout", Sequence: int64(i + 1), Content: line, SourceKey: "source"}))
 	}
-	require.NoError(t, store.CompleteValidation(ctx, op, 1))
+	require.NoError(t, store.CompleteValidation(ctx, op, 1, nil))
 	type check struct {
 		Status     string   `json:"status"`
 		ExitCode   *int     `json:"exit_code"`

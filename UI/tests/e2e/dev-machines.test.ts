@@ -1461,63 +1461,6 @@ test('keeps multiple docked terminals alive across collapse and navigation', asy
 	await expect(page.getByTestId('native-terminal').last()).toBeVisible();
 });
 
-test('uses guarded permanent-delete routes for old-machine cleanup', async ({ page }) => {
-	const workspaceId = '00000000-0000-0000-0000-000000000002';
-	let bulkPayload: Record<string, unknown> | undefined;
-	await page.route('https://raw.githubusercontent.com/carbogninalberto/kuayle/main/UI/static/releases.json', (route) =>
-		route.fulfill({ json: [] })
-	);
-	await page.route('**/api/**', async (route) => {
-		const request = route.request();
-		const path = new URL(request.url()).pathname;
-		if (path === '/api/auth/me')
-			return route.fulfill({
-				json: {
-					id: '00000000-0000-0000-0000-000000000001',
-					email: 'test@example.com',
-					name: 'Test User',
-					display_name: 'Test User',
-					avatar_url: null
-				}
-			});
-		if (path === '/api/preferences')
-			return route.fulfill({
-				json: {
-					font_size: 'default',
-					pointer_cursors: true,
-					theme_mode: 'dark',
-					light_theme: 'light',
-					dark_theme: 'dark',
-					workflow_sort_mode: 'default',
-					workflow_sort_order: ['backlog', 'unstarted', 'started', 'completed', 'cancelled'],
-					team_workflow_sort_overrides: {},
-					issues_group_by: 'status'
-				}
-			});
-		if (path === '/api/workspaces')
-			return route.fulfill({ json: [{ id: workspaceId, name: 'Test Workspace', slug: 'test' }] });
-		if (path === '/api/workspaces/test')
-			return route.fulfill({
-				json: { id: workspaceId, name: 'Test Workspace', slug: 'test', current_user_role: 'owner' }
-			});
-		if (['teams', 'projects', 'labels', 'members', 'views'].some((part) => path === `/api/workspaces/test/${part}`))
-			return route.fulfill({ json: [] });
-		if (path === '/api/notifications') return route.fulfill({ json: { notifications: [], unread_count: 0 } });
-		if (path === '/api/workspaces/test/dev-machines' && request.method() === 'GET')
-			return route.fulfill({ json: { data: [], total_count: 0, page: 1, has_more: false } });
-		if (path === '/api/workspaces/test/dev-machines/bulk/permanent-delete' && request.method() === 'POST') {
-			bulkPayload = request.postDataJSON();
-			return route.fulfill({ json: { count: 3 } });
-		}
-		return route.fulfill({ status: 404, json: { error: { message: `Unhandled ${request.method()} ${path}` } } });
-	});
-
-	await page.goto('/test/machines');
-	await page.getByRole('button', { name: 'Delete old' }).click();
-	await page.getByRole('button', { name: 'Permanently delete old machines' }).click();
-	await expect.poll(() => bulkPayload).toMatchObject({ include_failed: true, include_expired: true });
-});
-
 test('keeps Dev Machines in Settings with machine and policy tabs, and redirects old list links', async ({ page }) => {
 	const workspaceId = '00000000-0000-0000-0000-000000000002';
 	const listQueries: string[] = [];

@@ -56,6 +56,27 @@ func TestSuggestCheckCommand(t *testing.T) {
 			basis:   []string{"Cargo.toml", "tools/Makefile"},
 		},
 		{
+			name:    "a root Makefile is left out when sub-folder projects have their own checks",
+			paths:   []string{"Makefile", "BE/go.mod", "UI/package.json", "UI/package-lock.json"},
+			files:   map[string]string{"Makefile": "test:\n\tdocker compose up -d db && go test ./...\ncheck: test\n", "UI/package.json": `{"scripts":{"check":"svelte-check"}}`},
+			command: "(cd BE && go build ./... && go vet ./...) && (cd UI && npm ci && npm run check)",
+			basis:   []string{"BE/go.mod", "UI/package.json"},
+		},
+		{
+			name:    "a root Makefile is kept when it is the only check",
+			paths:   []string{"Makefile", "docs/Makefile", "scripts/run.sh"},
+			files:   map[string]string{"Makefile": "check:\n\t./scripts/run.sh\n"},
+			command: "make check",
+			basis:   []string{"Makefile"},
+		},
+		{
+			name:    "a root project manifest still runs beside sub-folder checks",
+			paths:   []string{"go.mod", "Makefile", "web/package.json"},
+			files:   map[string]string{"Makefile": "test:\n\tgo test ./...\n", "web/package.json": `{"scripts":{"lint":"eslint ."}}`},
+			command: "go build ./... && go vet ./... && (cd web && npm install && npm run lint)",
+			basis:   []string{"go.mod", "web/package.json"},
+		},
+		{
 			name:    "python projects get a syntax check",
 			paths:   []string{"pyproject.toml", "pkg/__init__.py"},
 			command: "python3 -m compileall -q .",

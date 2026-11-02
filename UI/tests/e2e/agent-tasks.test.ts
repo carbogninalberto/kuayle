@@ -21,6 +21,7 @@ async function fixture(page: Page) {
 	};
 	const state = {
 		task: null as any,
+		terminals: 0,
 		validation: null as any,
 		manualChecks: [] as any[],
 		checkRuns: [] as any[],
@@ -213,6 +214,13 @@ async function fixture(page: Page) {
 				state.cancels++;
 				state.task = { ...state.task, state: 'cancelling', reason: 'Stopping native execution' };
 				return route.fulfill({ status: 204 });
+			}
+			if (path.endsWith('/terminal') && req.method() === 'POST') {
+				state.terminals++;
+				return route.fulfill({
+					status: 409,
+					json: { error: { code: 'TASK_BUSY', message: 'The agent is working on this task; open it in Claude Code when it stops' } }
+				});
 			}
 			if (path.endsWith('/sign-in')) {
 				state.signIns.push(req.postDataJSON());
@@ -621,6 +629,62 @@ test('independent checks update live and retain their actual exit status after r
 	await page.getByRole('button', { name: 'Execution details', exact: true }).click();
 	await expect(checks.getByText('Independent check failed')).toBeVisible();
 	expect(state.creates).toHaveLength(1);
+});
+
+test('agent-chosen checks show their source, each command and the agent summary as text', async ({ page }) => {
+	const { state, emit } = await fixture(page);
+	await page.goto('/test/assistant?conversation=chat-1');
+	await delegate(page);
+	await page.getByRole('button', { name: 'Execution details', exact: true }).click();
+	const checks = page.getByRole('region', { name: 'Independent checks', exact: true });
+	state.validation = {
+		id: 'validation-1',
+		agent_run_id: 'run-1',
+		status: 'failed',
+		command_argv: ['go', 'vet', './...'],
+		command_source: 'agent',
+		commands: [
+			['go', 'vet', './...'],
+			['sh', '-c', 'cd BE && go test ./internal/service/...']
+		],
+		command_results: [{ exit_code: 0 }, { exit_code: 2 }],
+		agent_summary: '<img src=x onerror="window.evil=true"> Service tests only; the UI was not run.',
+		exit_code: 2,
+		completed_at: '2026-10-27T10:01:00Z'
+	};
+	emit('task.tests_updated', { task_id: 'task-1', run_id: 'run-1', step: state.validation });
+	await checks.getByRole('button', { name: 'Independent check failed' }).click();
+	await expect(checks.getByText('Tests chosen by the agent, re-run by Kuayle')).toBeVisible();
+	const commands = checks.getByRole('list', { name: 'Commands' });
+	await expect(commands.getByRole('listitem')).toHaveCount(2);
+	await expect(commands.getByRole('listitem').nth(0)).toContainText('go vet ./...');
+	await expect(commands.getByRole('listitem').nth(0)).toContainText('Passed');
+	await expect(commands.getByRole('listitem').nth(1)).toContainText('sh -c cd BE && go test ./internal/service/...');
+	await expect(commands.getByRole('listitem').nth(1)).toContainText('Failed, exit code 2');
+	await expect(checks.getByText("Agent's summary (unverified)")).toBeVisible();
+	await expect(checks.getByText(/Service tests only; the UI was not run\./)).toBeVisible();
+	expect(await page.evaluate(() => (window as any).evil)).toBeUndefined();
+});
+
+test('a configured check is labelled as configured', async ({ page }) => {
+	const { state, emit } = await fixture(page);
+	await page.goto('/test/assistant?conversation=chat-1');
+	await delegate(page);
+	await page.getByRole('button', { name: 'Execution details', exact: true }).click();
+	const checks = page.getByRole('region', { name: 'Independent checks', exact: true });
+	state.validation = {
+		id: 'validation-1',
+		agent_run_id: 'run-1',
+		status: 'succeeded',
+		command_argv: ['npm', 'test'],
+		command_source: 'configured',
+		exit_code: 0,
+		completed_at: '2026-10-27T10:01:00Z'
+	};
+	emit('task.tests_updated', { task_id: 'task-1', run_id: 'run-1', step: state.validation });
+	await checks.getByRole('button', { name: 'Independent check passed' }).click();
+	await expect(checks.getByText('Check configured in the development settings')).toBeVisible();
+	await expect(checks.getByText("Agent's summary (unverified)")).toHaveCount(0);
 });
 
 test('a rejected Compose stack shows its reason with the failed check', async ({ page }) => {
@@ -1460,4 +1524,33 @@ test('agent messages from history appear in the chat as untrusted text', async (
 	await expect(item.locator('img')).toHaveCount(0);
 	await expect(item.getByRole('link', { name: 'ENG-1' })).toHaveAttribute('href', '/test/issue/ENG-1');
 	await expect(item).toContainText('the assistant does not act on it unless you ask');
+});
+
+test('opens a stopped Claude Code task in Claude Code through the task terminal', async ({ page }) => {
+	const { state, emit } = await fixture(page);
+	await page.goto('/test/assistant?conversation=chat-1');
+	await delegate(page);
+	const tasks = page.getByRole('region', { name: 'Coding tasks' });
+	await expect(tasks.getByText('Queued', { exact: true })).toBeVisible();
+	const open = tasks.getByRole('button', { name: 'Open in Claude Code', exact: true });
+	await expect(open).toHaveCount(0);
+	// A Codex task keeps the typed session command instead.
+	state.task = { ...state.task, state: 'awaiting_review', reason: 'Pull request opened; waiting for human review', machine_id: 'machine-1' };
+	emit('task.state_changed', state.task);
+	await expect(tasks.getByText('Pull request opened; waiting for human review', { exact: true })).toBeVisible();
+	await expect(open).toHaveCount(0);
+
+	state.task = { ...state.task, provider: 'claude-code' };
+	emit('task.state_changed', state.task);
+	await expect(open).toBeVisible();
+	await open.click();
+	await expect.poll(() => state.terminals).toBe(1);
+	await expect(page.getByRole('tab', { name: 'Claude Code' })).toBeVisible();
+	await expect(
+		page.getByRole('alert').filter({ hasText: 'The agent is working on this task; open it in Claude Code when it stops' })
+	).toBeVisible();
+
+	state.task = { ...state.task, state: 'running', reason: 'Running' };
+	emit('task.state_changed', state.task);
+	await expect(open).toHaveCount(0);
 });

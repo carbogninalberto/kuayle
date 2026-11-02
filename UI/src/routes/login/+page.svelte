@@ -117,9 +117,6 @@
 			<div>
 				<label for="password" class="block text-sm text-[var(--color-text-secondary)]">{m['login.password']()}</label>
 				<Password id="password" bind:value={password} required minlength={8} class={authInputClass} />
-				{#if mode === 'login'}
-					<a href="/forgot-password" class="mt-1 inline-block text-xs text-[var(--app-accent)] hover:underline">{m['login.forgot_password']()}</a>
-				{/if}
 			</div>
 
 			<Button variant="plain" type="submit"
@@ -130,6 +127,11 @@
 						? m['login.button.signin']()
 						: m['login.button.create_account']()}{/if}
 			</Button>
+			{#if mode === 'login'}
+				<p class="text-center text-sm">
+					<a href="/forgot-password" class="text-[var(--app-accent)] hover:underline">{m['login.forgot_password']()}</a>
+				</p>
+			{/if}
 		</form>
 
 		{#if registrationEnabled || inviteToken}

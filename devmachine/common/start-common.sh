@@ -72,6 +72,15 @@ wire_api = "responses"
 CONFIG
 }
 
+# Pre-seeds ~/.claude.json so an interactive claude skips its first-run
+# onboarding; keys the user set are kept. Workspace trust is never granted:
+# Claude Code asks per checkout. The home is in memory, so this runs on every
+# start.
+configure_claude_code() {
+  command -v node >/dev/null 2>&1 || return 0
+  node "${KUAYLE_CLAUDE_CONFIG:-/usr/local/lib/kuayle/kuayle-claude-config.cjs}" "$HOME/.claude.json" 2>/dev/null || true
+}
+
 # Codex keeps its managed app-server (~400 MB per version) in ~/.codex/packages.
 # The home is a small in-memory tmpfs, so the cache lives on the machine's
 # workspace volume, shared by its terminal and agent containers.

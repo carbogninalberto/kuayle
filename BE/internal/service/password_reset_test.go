@@ -22,15 +22,14 @@ type fakeResetRepo struct {
 	hashes []string
 }
 
-func (f *fakeResetRepo) Create(_ context.Context, t *repository.PasswordResetToken) error {
+func (f *fakeResetRepo) Issue(_ context.Context, t *repository.PasswordResetToken, cooldown time.Duration) (bool, error) {
+	if !f.issued.IsZero() && time.Since(f.issued) < cooldown {
+		return false, nil
+	}
 	f.issued = time.Now()
 	f.tokens = map[string]bool{t.TokenHash: true}
 	f.hashes = append(f.hashes, t.TokenHash)
-	return nil
-}
-
-func (f *fakeResetRepo) LastIssuedAt(context.Context, uuid.UUID) (time.Time, error) {
-	return f.issued, nil
+	return true, nil
 }
 
 func (f *fakeResetRepo) Reset(_ context.Context, tokenHash, _ string) error {

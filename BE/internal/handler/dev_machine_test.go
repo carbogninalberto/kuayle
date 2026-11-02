@@ -642,6 +642,12 @@ type handlerDevMachineStoreFake struct {
 	permanentDeleteRequests int
 	terminalCloseOperation  *domain.DevMachineOperation
 	modelServers            []domain.AgentModelServer
+	purge                   *domain.DevMachinePurge
+}
+
+func (f *handlerDevMachineStoreFake) BulkPurgeMachines(_ context.Context, _ uuid.UUID, purge domain.DevMachinePurge) (domain.DevMachinePurgeResult, error) {
+	f.purge = &purge
+	return domain.DevMachinePurgeResult{Removed: 4, SkippedActive: 1}, nil
 }
 
 func (f *handlerDevMachineStoreFake) GetPolicy(context.Context, uuid.UUID) (*domain.DevMachineWorkspacePolicy, error) {
@@ -845,4 +851,32 @@ func TestDevMachinePolicySudoSwitchIsKeptUnlessSent(t *testing.T) {
 	require.False(t, off.AllowSudo)
 	require.True(t, off.AllowDocker)
 	require.False(t, store.policy.AllowSudo)
+}
+
+// older_than_days 0 is an explicit "no age limit" for a user's own clear
+// action; leaving it out keeps the retention default for existing callers.
+func TestBulkPermanentDeleteOlderThanDays(t *testing.T) {
+	send := func(body string) (*httptest.ResponseRecorder, *handlerDevMachineStoreFake) {
+		store := &handlerDevMachineStoreFake{}
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/dev-machines/bulk/permanent-delete", strings.NewReader(body))
+		request.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		require.NoError(t, modelServerHandler(store).BulkPermanentDelete(devMachineHandlerContext(request, recorder, uuid.New(), uuid.New())))
+		return recorder, store
+	}
+
+	recorder, store := send(`{"older_than_days":0,"include_failed":true,"include_expired":true}`)
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	require.NotNil(t, store.purge)
+	require.Nil(t, store.purge.OlderThan, "0 removes machines of any age")
+	require.JSONEq(t, `{"count":4,"skipped":1,"skipped_active":1,"skipped_runtime":0,"skipped_recent":0}`, recorder.Body.String())
+
+	recorder, store = send(`{"include_failed":true}`)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.NotNil(t, store.purge.OlderThan)
+	require.WithinDuration(t, time.Now().UTC().AddDate(0, 0, -7), *store.purge.OlderThan, 5*time.Second)
+
+	recorder, store = send(`{"older_than_days":-1}`)
+	require.Equal(t, http.StatusBadRequest, recorder.Code, recorder.Body.String())
+	require.Nil(t, store.purge)
 }

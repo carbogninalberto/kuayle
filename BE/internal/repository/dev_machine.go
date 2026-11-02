@@ -62,7 +62,8 @@ type DevMachineStore interface {
 	RequestResizeForUser(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, domain.DevMachineResize, *domain.DevMachineOperation) (*domain.DevMachine, error)
 	TouchMachineActivity(context.Context, uuid.UUID, time.Time) error
 	RequestPermanentDelete(context.Context, uuid.UUID, uuid.UUID, *uuid.UUID) (*domain.DevMachineOperation, error)
-	BulkPurgeMachines(context.Context, uuid.UUID, []uuid.UUID, time.Time, bool, bool) (int, error)
+	BulkPurgeMachines(context.Context, uuid.UUID, domain.DevMachinePurge) (domain.DevMachinePurgeResult, error)
+	PurgePermanentDeleteRequest(context.Context, uuid.UUID, uuid.UUID) error
 	ListScopeSettings(context.Context, uuid.UUID) ([]domain.DevMachineScopeSetting, error)
 	GetScopeSetting(context.Context, uuid.UUID, *uuid.UUID, *uuid.UUID, *uuid.UUID) (*domain.DevMachineScopeSetting, error)
 	UpsertScopeSetting(context.Context, *domain.DevMachineScopeSetting) error
@@ -893,9 +894,43 @@ func (r *DevMachineRepository) GetAgentSignIn(ctx context.Context, workspaceID, 
 }
 
 func (r *DevMachineRepository) SaveAgentSignIn(ctx context.Context, workspaceID, userID uuid.UUID, provider, encrypted string) error {
-	_, err := r.db.ExecContext(ctx, `INSERT INTO agent_sign_ins(workspace_id,user_id,provider,encrypted_credential) VALUES($1,$2,$3,$4)
+	return r.changeAgentSignIns(ctx, workspaceID, userID, func(tx *sqlx.Tx) (int64, error) {
+		result, err := tx.ExecContext(ctx, `INSERT INTO agent_sign_ins(workspace_id,user_id,provider,encrypted_credential) VALUES($1,$2,$3,$4)
 		ON CONFLICT (workspace_id,user_id,provider,kind) DO UPDATE SET encrypted_credential=EXCLUDED.encrypted_credential, updated_at=now()`, workspaceID, userID, provider, encrypted)
-	return err
+		if err != nil {
+			return 0, err
+		}
+		return result.RowsAffected()
+	})
+}
+
+// changeAgentSignIns applies a change to one user's sign-ins and, when it
+// changed anything, queues in the same transaction a sign-in sync for each
+// running machine that user owns in the workspace, so their terminals pick up
+// the change. A sync still pending reads the latest sign-ins when it runs, so
+// it is not queued twice.
+func (r *DevMachineRepository) changeAgentSignIns(ctx context.Context, workspaceID, userID uuid.UUID, change func(*sqlx.Tx) (int64, error)) error {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	changed, err := change(tx)
+	if err != nil {
+		return err
+	}
+	if changed > 0 {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO dev_machine_operations
+			(machine_id, workspace_id, action, status, generation, idempotency_key, requested_by_user_id, max_attempts)
+			SELECT m.id, m.workspace_id, 'sync_agent_sign_ins', 'pending', m.generation, 'agent-sign-ins:' || gen_random_uuid(), $2, 3
+			FROM dev_machines m
+			WHERE m.workspace_id=$1 AND m.created_by_user_id=$2 AND m.status='running' AND m.delete_requested_at IS NULL
+			  AND NOT EXISTS (SELECT 1 FROM dev_machine_operations o
+			    WHERE o.machine_id=m.id AND o.action='sync_agent_sign_ins' AND o.status='pending')`, workspaceID, userID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // GetAgentSignInToken returns a user's encrypted Claude Code token, or "" when
@@ -912,10 +947,15 @@ func (r *DevMachineRepository) GetAgentSignInToken(ctx context.Context, workspac
 
 // SaveAgentSignInToken stores or replaces a user's encrypted token.
 func (r *DevMachineRepository) SaveAgentSignInToken(ctx context.Context, workspaceID, userID uuid.UUID, provider, encrypted string, expiresAt time.Time) error {
-	_, err := r.db.ExecContext(ctx, `INSERT INTO agent_sign_ins(workspace_id,user_id,provider,kind,encrypted_credential,expires_at) VALUES($1,$2,$3,'token',$4,$5)
+	return r.changeAgentSignIns(ctx, workspaceID, userID, func(tx *sqlx.Tx) (int64, error) {
+		result, err := tx.ExecContext(ctx, `INSERT INTO agent_sign_ins(workspace_id,user_id,provider,kind,encrypted_credential,expires_at) VALUES($1,$2,$3,'token',$4,$5)
 		ON CONFLICT (workspace_id,user_id,provider,kind) DO UPDATE SET encrypted_credential=EXCLUDED.encrypted_credential, expires_at=EXCLUDED.expires_at, created_at=now(), updated_at=now()`,
-		workspaceID, userID, provider, encrypted, expiresAt)
-	return err
+			workspaceID, userID, provider, encrypted, expiresAt)
+		if err != nil {
+			return 0, err
+		}
+		return result.RowsAffected()
+	})
 }
 
 // ListAgentSignIns describes one user's sign-ins without their values.
@@ -929,12 +969,17 @@ func (r *DevMachineRepository) ListAgentSignIns(ctx context.Context, workspaceID
 // DeleteAgentSignIns removes one user's sign-ins for an agent: one kind, or
 // every kind when kind is "". It reports how many were removed.
 func (r *DevMachineRepository) DeleteAgentSignIns(ctx context.Context, workspaceID, userID uuid.UUID, provider, kind string) (int64, error) {
-	result, err := r.db.ExecContext(ctx, `DELETE FROM agent_sign_ins WHERE workspace_id=$1 AND user_id=$2 AND provider=$3 AND ($4='' OR kind=$4)`,
-		workspaceID, userID, provider, kind)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
+	var removed int64
+	err := r.changeAgentSignIns(ctx, workspaceID, userID, func(tx *sqlx.Tx) (int64, error) {
+		result, err := tx.ExecContext(ctx, `DELETE FROM agent_sign_ins WHERE workspace_id=$1 AND user_id=$2 AND provider=$3 AND ($4='' OR kind=$4)`,
+			workspaceID, userID, provider, kind)
+		if err != nil {
+			return 0, err
+		}
+		removed, err = result.RowsAffected()
+		return removed, err
+	})
+	return removed, err
 }
 
 func (r *DevMachineRepository) UpsertRuntimeCredential(ctx context.Context, credential *domain.DevMachineRuntimeCredential) error {
@@ -1204,11 +1249,12 @@ func (r *DevMachineRepository) UpdateAgentRunStarted(ctx context.Context, runID 
 func (r *DevMachineRepository) CompleteAgentRun(ctx context.Context, run *domain.DevMachineAgentRun) error {
 	_, err := r.db.ExecContext(ctx, `UPDATE dev_machine_agent_runs SET status=$1, result=$2, summary=$3,
 		changed_files=$4, commits=$5, branch=$6, pull_request_url=$7, tests_run=$8, test_status=$9,
-		risk_notes=$10, exit_code=$11, error_message=$12, diff=$14, diff_truncated=$15, completed_at=NOW()
+		risk_notes=$10, exit_code=$11, error_message=$12, diff=$14, diff_truncated=$15,
+		declared_validation=COALESCE($16, declared_validation), completed_at=NOW()
 		WHERE id=$13 AND (status NOT IN ('succeeded','failed','cancelled','timeout') OR status=$1)`,
 		run.Status, nullJSONPointer(run.Result), run.Summary, run.ChangedFiles, run.Commits, run.Branch,
 		run.PullRequestURL, run.TestsRun, run.TestStatus, run.RiskNotes, run.ExitCode, run.ErrorMessage, run.ID,
-		run.Diff, run.DiffTruncated)
+		run.Diff, run.DiffTruncated, nullJSONPointer(run.DeclaredValidation))
 	return err
 }
 
@@ -1623,29 +1669,30 @@ func (r *DevMachineRepository) RequestPermanentDelete(ctx context.Context, works
 // machineHasAgentTaskHistory keeps a destroyed machine's record while agent
 // tasks have attempts on it. Their logs, diffs and pull request refs cascade
 // from the machine, and a later merge completes the task through those refs.
+// The kept record keeps delete_requested_at, so it stays out of the user's
+// machine list; once no task needs it, the manager completes the purge.
 const machineHasAgentTaskHistory = `EXISTS (SELECT 1 FROM dev_machine_agent_runs r WHERE r.machine_id=m.id AND r.task_id IS NOT NULL)`
 
+// machineSettled matches a machine whose runtime is gone.
+const machineSettled = `(m.status='destroyed' OR (m.status IN ('expired','failed') AND m.docker_network_name IS NULL AND m.workspace_volume_name IS NULL))`
+
+const machineHasActiveOperation = `EXISTS (SELECT 1 FROM dev_machine_operations o WHERE o.machine_id=m.id AND o.status IN ('pending','leased'))`
+
 func (r *DevMachineRepository) PurgePermanentDeleteRequest(ctx context.Context, workspaceID, machineID uuid.UUID) error {
-	purgeable := `m.workspace_id=$1 AND m.id=$2
-		AND (
-			m.status='destroyed'
-			OR (m.status IN ('expired','failed') AND m.docker_network_name IS NULL AND m.workspace_volume_name IS NULL)
-		)
-		AND NOT EXISTS (SELECT 1 FROM dev_machine_operations o WHERE o.machine_id=m.id AND o.status IN ('pending','leased'))`
-	// The runtime is gone; the record stays as task history, no longer pending deletion.
-	kept, err := r.db.ExecContext(ctx, `UPDATE dev_machines m SET delete_requested_at=NULL,updated_at=now()
-		WHERE `+purgeable+` AND `+machineHasAgentTaskHistory, workspaceID, machineID)
-	if err != nil {
-		return err
-	}
-	if rows, _ := kept.RowsAffected(); rows == 1 {
-		return nil
-	}
+	purgeable := `m.workspace_id=$1 AND m.id=$2 AND ` + machineSettled + ` AND NOT ` + machineHasActiveOperation
 	result, err := r.db.ExecContext(ctx, `DELETE FROM dev_machines m WHERE `+purgeable+` AND NOT `+machineHasAgentTaskHistory, workspaceID, machineID)
 	if err != nil {
 		return err
 	}
-	if rows, _ := result.RowsAffected(); rows != 1 {
+	if rows, _ := result.RowsAffected(); rows == 1 {
+		return nil
+	}
+	// The runtime is gone; the record stays, still deleted, as task history.
+	var kept bool
+	if err := r.db.GetContext(ctx, &kept, `SELECT EXISTS(SELECT 1 FROM dev_machines m WHERE `+purgeable+` AND `+machineHasAgentTaskHistory+`)`, workspaceID, machineID); err != nil {
+		return err
+	}
+	if !kept {
 		return sql.ErrNoRows
 	}
 	return nil
@@ -1653,40 +1700,108 @@ func (r *DevMachineRepository) PurgePermanentDeleteRequest(ctx context.Context, 
 
 func (r *DevMachineRepository) ListPermanentDeleteRequests(ctx context.Context, limit int) ([]domain.DevMachine, error) {
 	var machines []domain.DevMachine
-	err := r.db.SelectContext(ctx, &machines, `SELECT * FROM dev_machines
-		WHERE delete_requested_at IS NOT NULL
-		ORDER BY delete_requested_at, updated_at LIMIT $1`, limit)
+	err := r.db.SelectContext(ctx, &machines, `SELECT * FROM dev_machines m
+		WHERE m.delete_requested_at IS NOT NULL AND NOT (`+machineSettled+` AND `+machineHasAgentTaskHistory+`)
+		ORDER BY m.delete_requested_at, m.updated_at LIMIT $1`, limit)
 	return machines, err
 }
 
-func (r *DevMachineRepository) BulkPurgeMachines(ctx context.Context, workspaceID uuid.UUID, machineIDs []uuid.UUID, olderThan time.Time, includeFailed, includeExpired bool) (int, error) {
+type purgeCandidate struct {
+	ID      uuid.UUID `db:"id"`
+	Active  bool      `db:"active"`
+	Runtime bool      `db:"runtime"`
+	Recent  bool      `db:"recent"`
+	History bool      `db:"history"`
+}
+
+// BulkPurgeMachines removes settled machines in the workspace. A machine with
+// agent task history is kept as a deleted record instead (see
+// machineHasAgentTaskHistory) and counts as removed, since the user no longer
+// sees it. Machines that must stay are counted by reason.
+func (r *DevMachineRepository) BulkPurgeMachines(ctx context.Context, workspaceID uuid.UUID, purge domain.DevMachinePurge) (domain.DevMachinePurgeResult, error) {
+	var result domain.DevMachinePurgeResult
 	statuses := []string{"destroyed"}
-	if includeExpired {
+	if purge.IncludeExpired {
 		statuses = append(statuses, "expired")
 	}
-	if includeFailed {
+	if purge.IncludeFailed {
 		statuses = append(statuses, "failed")
 	}
-	query := `DELETE FROM dev_machines m WHERE m.workspace_id=? AND m.status IN (?)
-		AND COALESCE(m.destroyed_at, m.delete_requested_at, m.updated_at, m.created_at) < ?
-		AND NOT EXISTS (SELECT 1 FROM dev_machine_operations o WHERE o.machine_id=m.id AND o.status IN ('pending','leased'))
-		AND (m.status='destroyed' OR (m.docker_network_name IS NULL AND m.workspace_volume_name IS NULL))
-		AND NOT ` + machineHasAgentTaskHistory
-	args := []any{workspaceID, statuses, olderThan.UTC()}
-	if len(machineIDs) > 0 {
+	var olderThan *time.Time
+	if purge.OlderThan != nil {
+		cutoff := purge.OlderThan.UTC()
+		olderThan = &cutoff
+	}
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return result, err
+	}
+	defer tx.Rollback()
+	// Serializes with RequestPermanentDelete, which queues teardown work.
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`, workspaceID); err != nil {
+		return result, err
+	}
+	query := `SELECT m.id, ` + machineHasActiveOperation + ` AS active,
+		NOT ` + machineSettled + ` AS runtime,
+		(?::timestamptz IS NOT NULL AND COALESCE(m.destroyed_at, m.delete_requested_at, m.updated_at, m.created_at) >= ?::timestamptz) AS recent,
+		` + machineHasAgentTaskHistory + ` AS history
+		FROM dev_machines m WHERE m.workspace_id=? AND m.status IN (?)
+		AND NOT (m.delete_requested_at IS NOT NULL AND ` + machineHasAgentTaskHistory + `)`
+	args := []any{olderThan, olderThan, workspaceID, statuses}
+	if len(purge.MachineIDs) > 0 {
 		query += ` AND m.id IN (?)`
-		args = append(args, machineIDs)
+		args = append(args, purge.MachineIDs)
 	}
-	query, args, err := sqlx.In(query, args...)
+	query, args, err = sqlx.In(query+` FOR UPDATE OF m`, args...)
 	if err != nil {
-		return 0, err
+		return result, err
 	}
-	result, err := r.db.ExecContext(ctx, r.db.Rebind(query), args...)
-	if err != nil {
-		return 0, err
+	var candidates []purgeCandidate
+	if err := tx.SelectContext(ctx, &candidates, tx.Rebind(query), args...); err != nil {
+		return result, err
 	}
-	rows, _ := result.RowsAffected()
-	return int(rows), nil
+	var remove, keep []uuid.UUID
+	for _, candidate := range candidates {
+		switch {
+		case candidate.Active:
+			result.SkippedActive++
+		case candidate.Runtime:
+			result.SkippedRuntime++
+		case candidate.Recent:
+			result.SkippedRecent++
+		case candidate.History:
+			keep = append(keep, candidate.ID)
+		default:
+			remove = append(remove, candidate.ID)
+		}
+	}
+	if len(remove) > 0 {
+		query, args, err := sqlx.In(`DELETE FROM dev_machines m WHERE m.workspace_id=? AND m.id IN (?) AND NOT `+machineHasActiveOperation, workspaceID, remove)
+		if err != nil {
+			return result, err
+		}
+		deleted, err := tx.ExecContext(ctx, tx.Rebind(query), args...)
+		if err != nil {
+			return result, err
+		}
+		rows, _ := deleted.RowsAffected()
+		result.Removed += int(rows)
+		result.SkippedActive += len(remove) - int(rows)
+	}
+	if len(keep) > 0 {
+		query, args, err := sqlx.In(`UPDATE dev_machines SET delete_requested_at=now(),updated_at=now() WHERE workspace_id=? AND id IN (?)`, workspaceID, keep)
+		if err != nil {
+			return result, err
+		}
+		if _, err := tx.ExecContext(ctx, tx.Rebind(query), args...); err != nil {
+			return result, err
+		}
+		result.Removed += len(keep)
+	}
+	if err := tx.Commit(); err != nil {
+		return domain.DevMachinePurgeResult{}, err
+	}
+	return result, nil
 }
 
 func (r *DevMachineRepository) ListScopeSettings(ctx context.Context, workspaceID uuid.UUID) ([]domain.DevMachineScopeSetting, error) {

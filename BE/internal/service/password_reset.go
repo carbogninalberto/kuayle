@@ -34,24 +34,27 @@ func WithPasswordReset(repo repository.PasswordResetRepo, sender mail.Sender, fr
 	}
 }
 
-// RequestPasswordReset never reveals whether the email belongs to an account.
-func (s *AuthService) RequestPasswordReset(ctx context.Context, email string) error {
+// RequestPasswordReset never reveals whether the email belongs to an account:
+// the caller returns immediately and all account-dependent work (lookup, cooldown,
+// token insert, mail) runs in the background, so response time is uniform.
+func (s *AuthService) RequestPasswordReset(_ context.Context, email string) error {
 	if s.resetRepo == nil {
 		return nil
 	}
-	user, err := s.userRepo.GetByEmail(ctx, email)
-	if err != nil {
-		return err
-	}
-	if user == nil {
-		return nil
-	}
+	s.runAsync(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		if err := s.issuePasswordReset(ctx, email); err != nil {
+			log.WithError(err).WithField("event", "auth.password_reset_request_failed").Error("password reset request failed")
+		}
+	})
+	return nil
+}
 
-	// Per-account cooldown: repeated requests neither mint tokens nor send mail.
-	if last, err := s.resetRepo.LastIssuedAt(ctx, user.ID); err != nil {
+func (s *AuthService) issuePasswordReset(ctx context.Context, email string) error {
+	user, err := s.userRepo.GetByEmail(ctx, email)
+	if err != nil || user == nil {
 		return err
-	} else if !last.IsZero() && time.Since(last) < passwordResetCooldown {
-		return nil
 	}
 
 	raw := make([]byte, 32)
@@ -59,9 +62,11 @@ func (s *AuthService) RequestPasswordReset(ctx context.Context, email string) er
 		return err
 	}
 	token := base64.RawURLEncoding.EncodeToString(raw)
-	if err := s.resetRepo.Create(ctx, &repository.PasswordResetToken{
+	// Issue enforces the per-account cooldown atomically; mail only follows a stored token.
+	issued, err := s.resetRepo.Issue(ctx, &repository.PasswordResetToken{
 		ID: uuid.New(), UserID: user.ID, TokenHash: hashToken(token), ExpiresAt: time.Now().Add(passwordResetTTL),
-	}); err != nil {
+	}, passwordResetCooldown)
+	if err != nil || !issued {
 		return err
 	}
 
@@ -76,13 +81,9 @@ func (s *AuthService) RequestPasswordReset(ctx context.Context, email string) er
 	}
 	body := "Someone requested a password reset for your Kuayle account.\r\n\r\nReset your password: " + link +
 		"\r\n\r\nThis link expires in 1 hour. If you did not request it, you can ignore this email."
-	// Send in the background so SMTP latency does not reveal whether the account exists.
-	to := user.Email
-	s.runAsync(func() {
-		if err := s.mailer.Send(to, "Reset your Kuayle password", body); err != nil {
-			log.WithError(err).WithField("event", "auth.password_reset_send_failed").Error("failed to send password reset email")
-		}
-	})
+	if err := s.mailer.Send(user.Email, "Reset your Kuayle password", body); err != nil {
+		log.WithError(err).WithField("event", "auth.password_reset_send_failed").Error("failed to send password reset email")
+	}
 	return nil
 }
 

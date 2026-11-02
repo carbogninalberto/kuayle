@@ -117,7 +117,7 @@ func TestManualCheckContainerIsNamedPerStepAndGetsNoCredentials(t *testing.T) {
 	docker, err := client.New(client.WithHost(server.URL), client.WithAPIVersion("1.52"))
 	require.NoError(t, err)
 	defer docker.Close()
-	result, err := (&DockerRuntime{client: docker}).RunValidation(context.Background(), machine, run, step, checkout, "developer:fixture", &AgentObserver{})
+	result, err := (&DockerRuntime{client: docker}).RunValidation(context.Background(), machine, run, step, 0, checkout, "developer:fixture", &AgentObserver{})
 	require.NoError(t, err)
 	require.Zero(t, result.ExitCode)
 	name := "kuayle-fixture-check-" + step.ID.String()
@@ -127,12 +127,13 @@ func TestManualCheckContainerIsNamedPerStepAndGetsNoCredentials(t *testing.T) {
 	}
 	require.Equal(t, []string{"check-" + step.ID.String()}, input.NetworkingConfig.EndpointsConfig["network"].Aliases)
 	require.Equal(t, step.ID.String(), input.Labels["com.kuayle.validation-id"])
-	require.Equal(t, []string{"sh"}, input.Entrypoint)
-	require.Equal(t, []string{"-c", "npm test -- auth"}, input.Cmd)
+	require.Equal(t, []string{"/bin/sh"}, input.Entrypoint)
+	require.Equal(t, []string{"-c", checkRunner, "kuayle-check", "sh", "-c", "npm test -- auth"}, input.Cmd)
 	require.True(t, input.HostConfig.ReadonlyRootfs)
 	require.Contains(t, input.HostConfig.CapDrop, "ALL")
 	require.Len(t, input.HostConfig.Mounts, 1, "only the workspace volume, no credential files")
 	for _, env := range input.Env {
-		require.Regexp(t, `^(HOME|CI|HTTP_PROXY|HTTPS_PROXY|NO_PROXY)=`, env)
+		require.Regexp(t, `^(HOME|CI|HTTP_PROXY|HTTPS_PROXY|NO_PROXY|KUAYLE_RUN_TMP|TMPDIR|TMP|TEMP|GOTMPDIR|GOCACHE|GOMODCACHE|XDG_CACHE_HOME|npm_config_cache|PIP_CACHE_DIR|YARN_CACHE_FOLDER)=`, env)
 	}
+	require.Contains(t, input.Env, "TMPDIR=/workspace/.kuayle/tmp/check-"+step.ID.String()+"/tmp", "temporary files go to the workspace volume, not the small /tmp")
 }

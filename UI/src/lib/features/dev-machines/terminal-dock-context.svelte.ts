@@ -1,4 +1,5 @@
 import { getContext, setContext } from 'svelte';
+import type { TerminalSessionLaunchResponse } from '$lib/types/dev-machine';
 
 export interface TerminalTab {
 	id: string;
@@ -11,6 +12,8 @@ export interface TerminalTab {
 	runtimeTitle?: string;
 	/** Typed once into a new session after it connects (e.g. resume an agent). */
 	initialInput?: string;
+	/** Creates the session instead of a plain terminal (e.g. a task's Claude Code). */
+	launch?: () => Promise<TerminalSessionLaunchResponse>;
 }
 
 class TerminalDockState {

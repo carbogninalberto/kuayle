@@ -62,6 +62,9 @@ const (
 	DevMachineOpResize DevMachineOperationAction = "resize"
 	// DevMachineOpRunTool runs a custom assistant tool's script on demand.
 	DevMachineOpRunTool DevMachineOperationAction = "run_tool"
+	// DevMachineOpSyncAgentSignIns rewrites the owner's agent sign-ins in the
+	// machine's terminal home after they change in Kuayle.
+	DevMachineOpSyncAgentSignIns DevMachineOperationAction = "sync_agent_sign_ins"
 )
 
 type DevMachineOperationStatus string
@@ -362,19 +365,25 @@ type DevMachineAgentRun struct {
 	Branch                 *string                  `json:"branch,omitempty" db:"branch"`
 	PullRequestURL         *string                  `json:"pull_request_url,omitempty" db:"pull_request_url"`
 	NativeSessionID        *string                  `json:"-" db:"native_session_id"`
+	// SessionContinuedAt is when the user opened this attempt's native
+	// session in Claude Code through the task terminal.
+	SessionContinuedAt *time.Time `json:"-" db:"session_continued_at"`
 	// SessionID is the Kuayle agent session the attempt ran in.
-	SessionID     *uuid.UUID      `json:"session_id,omitempty" db:"session_id"`
-	Diff          string          `json:"-" db:"diff"`
-	DiffTruncated bool            `json:"-" db:"diff_truncated"`
-	TestsRun      json.RawMessage `json:"tests_run" db:"tests_run"`
-	TestStatus    string          `json:"test_status" db:"test_status"`
-	RiskNotes     json.RawMessage `json:"risk_notes" db:"risk_notes"`
-	ExitCode      *int            `json:"exit_code,omitempty" db:"exit_code"`
-	ErrorMessage  *string         `json:"error_message,omitempty" db:"error_message"`
-	CreatedAt     time.Time       `json:"created_at" db:"created_at"`
-	StartedAt     *time.Time      `json:"started_at,omitempty" db:"started_at"`
-	CompletedAt   *time.Time      `json:"completed_at,omitempty" db:"completed_at"`
-	CancelledAt   *time.Time      `json:"cancelled_at,omitempty" db:"cancelled_at"`
+	SessionID *uuid.UUID `json:"session_id,omitempty" db:"session_id"`
+	// DeclaredValidation is the attempt's parsed .kuayle/validation.json
+	// (AgentDeclaredValidation), when it wrote one.
+	DeclaredValidation *json.RawMessage `json:"-" db:"declared_validation"`
+	Diff               string           `json:"-" db:"diff"`
+	DiffTruncated      bool             `json:"-" db:"diff_truncated"`
+	TestsRun           json.RawMessage  `json:"tests_run" db:"tests_run"`
+	TestStatus         string           `json:"test_status" db:"test_status"`
+	RiskNotes          json.RawMessage  `json:"risk_notes" db:"risk_notes"`
+	ExitCode           *int             `json:"exit_code,omitempty" db:"exit_code"`
+	ErrorMessage       *string          `json:"error_message,omitempty" db:"error_message"`
+	CreatedAt          time.Time        `json:"created_at" db:"created_at"`
+	StartedAt          *time.Time       `json:"started_at,omitempty" db:"started_at"`
+	CompletedAt        *time.Time       `json:"completed_at,omitempty" db:"completed_at"`
+	CancelledAt        *time.Time       `json:"cancelled_at,omitempty" db:"cancelled_at"`
 }
 
 type DevMachineAgentRunStep struct {
@@ -391,6 +400,13 @@ type DevMachineAgentRunStep struct {
 	CompletedAt *time.Time                   `json:"completed_at,omitempty" db:"completed_at"`
 	CreatedAt   time.Time                    `json:"created_at" db:"created_at"`
 	ComposeFile string                       `json:"compose_file,omitempty" db:"compose_file"`
+	// An independent check records where its commands came from (configured
+	// or chosen by the agent), every command it runs and their results, and
+	// the agent's untrusted summary of what it tested.
+	CommandSource  *string         `json:"command_source,omitempty" db:"command_source"`
+	Commands       NullJSON        `json:"commands,omitempty" db:"commands"`
+	CommandResults json.RawMessage `json:"command_results,omitempty" db:"command_results"`
+	AgentSummary   *string         `json:"agent_summary,omitempty" db:"agent_summary"`
 }
 
 type DevMachineEvent struct {
@@ -718,6 +734,28 @@ func DevMachineResizable(machine *DevMachine) bool {
 	default:
 		return false
 	}
+}
+
+// DevMachinePurge selects the settled machines a bulk permanent delete
+// removes. A nil OlderThan removes them regardless of age: the user asked
+// explicitly. Retention cleanup sets it so recent records stay inspectable.
+type DevMachinePurge struct {
+	MachineIDs     []uuid.UUID
+	OlderThan      *time.Time
+	IncludeFailed  bool
+	IncludeExpired bool
+}
+
+// DevMachinePurgeResult counts the machines a purge removed and, by reason,
+// the selected machines it had to keep.
+type DevMachinePurgeResult struct {
+	Removed int
+	// SkippedActive machines still have a queued or running operation.
+	SkippedActive int
+	// SkippedRuntime failed or expired machines still hold a network or volume.
+	SkippedRuntime int
+	// SkippedRecent machines are newer than OlderThan.
+	SkippedRecent int
 }
 
 func DevMachineSafelyPurgeable(machine *DevMachine) bool {

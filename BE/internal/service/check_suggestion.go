@@ -126,6 +126,7 @@ func suggestCheckCommand(paths []string, files map[string][]byte) *CheckSuggesti
 		rootWorkspaces = json.Unmarshal(files["package.json"], &manifest) == nil && len(manifest.Workspaces) > 0
 	}
 	var steps, basis []string
+	rootMakefile := false
 	for _, dir := range dirs {
 		if len(steps) == maxCheckProjects {
 			break
@@ -133,6 +134,15 @@ func suggestCheckCommand(paths []string, files map[string][]byte) *CheckSuggesti
 		step, manifest := projectCheck(projects[dir], dir, files, dir != "" && rootWorkspaces)
 		if step == "" {
 			continue
+		}
+		// In a monorepo the root Makefile usually drives every project with
+		// its services (databases, compose), which a check cannot assume, so
+		// it is used only when no sub-folder project has a check of its own.
+		if dir == "" && manifest == "Makefile" {
+			rootMakefile = true
+		} else if dir != "" && rootMakefile {
+			rootMakefile = false
+			steps, basis = steps[1:], basis[1:]
 		}
 		if dir != "" {
 			step = "(cd " + dir + " && " + step + ")"

@@ -24,29 +24,34 @@ func NewPasswordResetRepository(db *sqlx.DB) *PasswordResetRepository {
 	return &PasswordResetRepository{db: db}
 }
 
-// Create replaces any outstanding tokens for the user so only the latest link works.
-func (r *PasswordResetRepository) Create(ctx context.Context, t *PasswordResetToken) error {
+// Issue stores a new token for the user, replacing any outstanding one, unless a
+// token was created within cooldown. The user row is locked so concurrent requests
+// serialize and at most one of them wins; it reports whether the token was stored.
+func (r *PasswordResetRepository) Issue(ctx context.Context, t *PasswordResetToken, cooldown time.Duration) (bool, error) {
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer tx.Rollback()
+	var locked uuid.UUID
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM users WHERE id = $1 FOR UPDATE`, t.UserID).Scan(&locked); err != nil {
+		return false, err
+	}
+	var last sql.NullTime
+	if err := tx.QueryRowContext(ctx, `SELECT MAX(created_at) FROM password_reset_tokens WHERE user_id = $1`, t.UserID).Scan(&last); err != nil {
+		return false, err
+	}
+	if last.Valid && time.Since(last.Time) < cooldown {
+		return false, nil
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM password_reset_tokens WHERE user_id = $1`, t.UserID); err != nil {
-		return err
+		return false, err
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at) VALUES ($1, $2, $3, $4)`,
 		t.ID, t.UserID, t.TokenHash, t.ExpiresAt); err != nil {
-		return err
+		return false, err
 	}
-	return tx.Commit()
-}
-
-// LastIssuedAt returns when the user's outstanding reset token was created, or
-// the zero time when there is none.
-func (r *PasswordResetRepository) LastIssuedAt(ctx context.Context, userID uuid.UUID) (time.Time, error) {
-	var t sql.NullTime
-	err := r.db.QueryRowContext(ctx, `SELECT MAX(created_at) FROM password_reset_tokens WHERE user_id = $1`, userID).Scan(&t)
-	return t.Time, err
+	return true, tx.Commit()
 }
 
 // Reset atomically consumes an unexpired, unused token, sets the user's new

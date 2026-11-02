@@ -3,6 +3,7 @@ package machine
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +20,7 @@ type validationStoreFake struct {
 	validationChunks []domain.DevMachineLogChunk
 	outputErr        error
 	exit             *int
+	results          []domain.CheckCommandResult
 }
 
 func (f *validationStoreFake) GetValidation(context.Context, domain.DevMachineOperation) (*domain.DevMachineAgentRunStep, error) {
@@ -29,8 +31,9 @@ func (f *validationStoreFake) StartValidation(context.Context, domain.DevMachine
 	f.step.Status = "running"
 	return nil
 }
-func (f *validationStoreFake) CompleteValidation(_ context.Context, _ domain.DevMachineOperation, exit int) error {
+func (f *validationStoreFake) CompleteValidation(_ context.Context, _ domain.DevMachineOperation, exit int, results []domain.CheckCommandResult) error {
 	f.exit = &exit
+	f.results = results
 	f.step.Status = "succeeded"
 	return nil
 }
@@ -43,13 +46,23 @@ type validationRuntimeFake struct {
 	*runtimeFake
 	calls int
 	exit  int
-	image string
-	err   error
+	// exits, when set, is each command's exit code by index.
+	exits   []int
+	indexes []int
+	image   string
+	err     error
+	// stderr, when set, is written by every command as Docker output.
+	stderr bool
 }
 
-func (f *validationRuntimeFake) RunValidation(_ context.Context, _ *domain.DevMachine, _ *domain.DevMachineAgentRun, _ *domain.DevMachineAgentRunStep, _ *domain.DevMachineCheckout, image string, o *AgentObserver) (*AgentExecution, error) {
+func (f *validationRuntimeFake) RunValidation(_ context.Context, _ *domain.DevMachine, _ *domain.DevMachineAgentRun, _ *domain.DevMachineAgentRunStep, index int, _ *domain.DevMachineCheckout, image string, o *AgentObserver) (*AgentExecution, error) {
 	f.calls++
+	f.indexes = append(f.indexes, index)
 	f.image = image
+	exit := f.exit
+	if index < len(f.exits) {
+		exit = f.exits[index]
+	}
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -62,7 +75,12 @@ func (f *validationRuntimeFake) RunValidation(_ context.Context, _ *domain.DevMa
 	if err := o.Output("stdout", []byte("2026-10-27T10:00:00Z fixture-private-value must be hidden; tests passed\n")); err != nil {
 		return nil, err
 	}
-	return &AgentExecution{ContainerID: "check", ExitCode: f.exit}, nil
+	if f.stderr {
+		if err := o.Output("stderr", []byte(fmt.Sprintf("2026-10-27T10:00:0%dZ warning from command %d\n", index, index+1))); err != nil {
+			return nil, err
+		}
+	}
+	return &AgentExecution{ContainerID: "check", ExitCode: exit}, nil
 }
 func TestValidationManagerUsesActualExitAndRedactsWithoutModelParsing(t *testing.T) {
 	for _, outputFailure := range []bool{false, true} {
@@ -114,4 +132,54 @@ func TestValidationManagerFailsARejectedComposeStackWithItsReasonAndCleansUp(t *
 	require.Equal(t, 1, runtime.checkCleanups)
 	require.Len(t, store.validationChunks, 1)
 	require.Contains(t, store.validationChunks[0].Content, "privileged")
+}
+
+func TestValidationManagerRunsEveryAgentChosenCommandAndRecordsEachResult(t *testing.T) {
+	taskID, checkoutID, runID := uuid.New(), uuid.New(), uuid.New()
+	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New()}
+	key := make([]byte, 32)
+	encrypted, err := cryptoutil.Encrypt(`{}`, key)
+	require.NoError(t, err)
+	source := domain.CheckSourceAgent
+	step := domain.DevMachineAgentRunStep{ID: uuid.New(), AgentRunID: runID, Status: "queued", CreatedAt: time.Now(), CommandSource: &source,
+		CommandArgv: []byte(`["go","vet","./..."]`), Commands: []byte(`[["go","vet","./..."],["go","test","./internal/service/..."],["npm","run","check"]]`)}
+	store := &validationStoreFake{managerStoreFake: &managerStoreFake{machine: machine, agentRun: &domain.DevMachineAgentRun{ID: runID, TaskID: &taskID, CheckoutID: &checkoutID, EncryptedOutputSecrets: &encrypted, MaxRuntimeSeconds: 60}, checkout: &domain.DevMachineCheckout{ID: checkoutID, MachineID: machine.ID, WorkspaceID: machine.WorkspaceID, ScopeKey: taskID.String(), Status: "ready"}, services: []domain.DevMachineService{{ServiceType: "terminal", ImageRef: "developer:fixture"}}}, step: step}
+	runtime := &validationRuntimeFake{runtimeFake: &runtimeFake{}, exits: []int{0, 2, 0}}
+	manager := &Manager{store: store, runtime: runtime, encryptionKey: key}
+	require.NoError(t, manager.validateAgent(context.Background(), machine, &domain.DevMachineOperation{AgentRunID: &runID}))
+	require.Equal(t, []int{0, 1, 2}, runtime.indexes, "a failure does not hide the remaining commands' results")
+	require.Equal(t, 2, *store.exit, "the first failing command decides the check")
+	require.Equal(t, []domain.CheckCommandResult{{ExitCode: 0}, {ExitCode: 2}, {ExitCode: 0}}, store.results)
+	var output strings.Builder
+	for _, chunk := range store.validationChunks {
+		output.WriteString(chunk.Content)
+	}
+	require.Contains(t, output.String(), "command 2 of 3 (go test ./internal/service/...) exited with code 2")
+}
+
+// Commands writing stderr before and after Kuayle's notes keep one Docker
+// formatted stream.
+func TestValidationManagerNotesShareTheCommandsStderrStream(t *testing.T) {
+	taskID, checkoutID, runID := uuid.New(), uuid.New(), uuid.New()
+	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New()}
+	key := make([]byte, 32)
+	encrypted, err := cryptoutil.Encrypt(`{}`, key)
+	require.NoError(t, err)
+	source := domain.CheckSourceAgent
+	step := domain.DevMachineAgentRunStep{ID: uuid.New(), AgentRunID: runID, Status: "queued", CreatedAt: time.Now(), CommandSource: &source,
+		CommandArgv: []byte(`["go","vet","./..."]`), Commands: []byte(`[["go","vet","./..."],["go","test","./..."]]`)}
+	store := &validationStoreFake{managerStoreFake: &managerStoreFake{machine: machine, agentRun: &domain.DevMachineAgentRun{ID: runID, TaskID: &taskID, CheckoutID: &checkoutID, EncryptedOutputSecrets: &encrypted, MaxRuntimeSeconds: 60}, checkout: &domain.DevMachineCheckout{ID: checkoutID, MachineID: machine.ID, WorkspaceID: machine.WorkspaceID, ScopeKey: taskID.String(), Status: "ready"}, services: []domain.DevMachineService{{ServiceType: "terminal", ImageRef: "developer:fixture"}}}, step: step}
+	runtime := &validationRuntimeFake{runtimeFake: &runtimeFake{}, exits: []int{0, 1}, stderr: true}
+	manager := &Manager{store: store, runtime: runtime, encryptionKey: key}
+	require.NoError(t, manager.validateAgent(context.Background(), machine, &domain.DevMachineOperation{AgentRunID: &runID}))
+	require.Equal(t, 1, *store.exit)
+	var stderr strings.Builder
+	for _, chunk := range store.validationChunks {
+		if chunk.Stream == "stderr" {
+			stderr.WriteString(chunk.Content)
+		}
+	}
+	for _, line := range []string{"warning from command 1", "command 1 of 2 (go vet ./...) exited with code 0", "running command 2 of 2: go test ./...", "warning from command 2", "command 2 of 2 (go test ./...) exited with code 1"} {
+		require.Contains(t, stderr.String(), line)
+	}
 }

@@ -51,7 +51,8 @@ Go test files and README files do not enter the built application.
   `Build Images` and `Container Security Scan` jobs are intentionally skipped.
 - [Build & Push](../../.github/workflows/build.yml) owns selected dev-machine image
   builds and HIGH/CRITICAL scans on amd64 and arm64, including IDE and headless
-  smoke tests.
+  smoke tests. The shared steps live in the
+  [dev-machine-image action](../../.github/actions/dev-machine-image/action.yml).
   [Security Scan](../../.github/workflows/security.yml) retains the updater image;
   the ten duplicate PR runtime-image scans are omitted there.
 - PR Go race tests run in [Tests](../../.github/workflows/test.yml) with database
@@ -62,11 +63,17 @@ Go test files and README files do not enter the built application.
   substitutes for architecture scans.
 
 Pushes to main, security tag/schedule runs, releases and manual readiness runs
-keep their existing full job/image coverage. Release publishing/version updates
+keep their existing full job/image coverage. On a release, `dev-machine-images`
+is intentionally omitted: the release-only `dev-machine-publish` matrix runs the
+same native build, smoke tests and scan for every image once, then pushes that
+scanned image as `kuayle-<service>:<tag>-<arch>`; `dev-machine-manifests`
+combines both architectures into `:<tag>` and `:latest`. Each planner dev image's
+`package` is that GHCR repository and must stay `kuayle-` plus its self-hosting
+Compose service name, which the release updater pulls (a workflow test checks it). Release publishing/version updates
 remain release-only; publishing does not depend on the change-detection job. The new self-hosting and CI-validation jobs also run with
 full Tests coverage on main. PR execution uses read-only contents permission,
 no persisted checkout credentials, and no `pull_request_target` or secrets handoff.
-Only the release publishing job retains write permissions.
+Only the release publishing jobs (`build`, `dev-machine-publish`, `dev-machine-manifests`) retain write permissions.
 
 ## Result gates and branch protection
 
