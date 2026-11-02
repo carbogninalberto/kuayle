@@ -128,6 +128,7 @@ type githubAPI interface {
 	CreatePullRequest(string, string, string, string, string, string, string, bool) (*githubclient.PullRequest, error)
 	UpdatePullRequestBody(string, string, string, int, string) error
 	FindOpenPullRequest(string, string, string, string, string) (*githubclient.PullRequest, error)
+	MarkPullRequestReadyForReview(string, string) error
 }
 
 type DiskQuotaConfig struct {

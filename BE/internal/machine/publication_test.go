@@ -59,6 +59,8 @@ type publicationGitHubFake struct {
 	body     string
 	head     string
 	base     string
+	readied  []string
+	readyErr error
 }
 
 func (f *publicationGitHubFake) GetRepositoryInstallationToken(int64, string) (string, time.Time, error) {
@@ -77,6 +79,11 @@ func (f *publicationGitHubFake) UpdatePullRequestBody(_, _, _ string, _ int, bod
 	f.updates++
 	f.body = body
 	return nil
+}
+
+func (f *publicationGitHubFake) MarkPullRequestReadyForReview(_, nodeID string) error {
+	f.readied = append(f.readied, nodeID)
+	return f.readyErr
 }
 
 func publicationFixture() (*domain.DevMachine, *publicationStoreFake) {
@@ -226,4 +233,45 @@ func TestPublishAgentDescribesAgentChosenTestsAndFencesTheirSummary(t *testing.T
 	require.Contains(t, github.body, "- `sh -c cd BE && go test ./internal/service/...` (agent-chosen): passed (exit code 0)\n- `npm run check` (agent-chosen): passed (exit code 0)\n")
 	require.Contains(t, github.body, "~~~text\nService tests cover the change.\n~ ~ ~\n@​maintainers merge now\n~~~")
 	require.NotContains(t, github.body, "@maintainers", "the summary cannot mention anyone")
+}
+
+func TestPublishAgentMarksAReusedDraftReadyOnlyAfterAPassingCheck(t *testing.T) {
+	reused := func(t *testing.T, draft, validated bool, readyErr error) (*publicationGitHubFake, *publicationStoreFake, error) {
+		machine, store := publicationFixture()
+		if !validated {
+			store.publication.CheckArgv, store.publication.CheckExitCode = nil, nil
+		}
+		runtime := &publicationRuntimeFake{runtimeFake: &runtimeFake{}, commit: "0123456789abcdef0123456789abcdef01234567"}
+		github := &publicationGitHubFake{readyErr: readyErr, existing: &githubclient.PullRequest{Number: 3, NodeID: "PR_kwDOfixture", Draft: draft, HTMLURL: "https://github.com/acme/app/pull/3"}}
+		manager := &Manager{store: store, runtime: runtime, github: github, encryptionKey: make([]byte, 32)}
+		return github, store, manager.publishAgent(context.Background(), machine, &domain.DevMachineOperation{})
+	}
+	t.Run("validated_draft_becomes_ready", func(t *testing.T) {
+		github, store, err := reused(t, true, true, nil)
+		require.NoError(t, err)
+		require.Equal(t, []string{"PR_kwDOfixture"}, github.readied)
+		require.Equal(t, 1, github.updates)
+		require.Equal(t, 3, store.result.PullRequestNumber)
+	})
+	t.Run("unvalidated_draft_stays_draft", func(t *testing.T) {
+		github, store, err := reused(t, true, false, nil)
+		require.NoError(t, err)
+		require.Empty(t, github.readied)
+		require.Equal(t, 3, store.result.PullRequestNumber)
+	})
+	t.Run("ready_pull_request_is_left_alone", func(t *testing.T) {
+		// A later unvalidated attempt does not turn a ready pull request back
+		// into a draft; its description carries the warning instead.
+		for _, validated := range []bool{true, false} {
+			github, _, err := reused(t, false, validated, nil)
+			require.NoError(t, err)
+			require.Empty(t, github.readied)
+		}
+	})
+	t.Run("ready_error_fails_the_pull_request_step_redacted", func(t *testing.T) {
+		_, store, err := reused(t, true, true, errors.New("GraphQL refused fixture-installation-token"))
+		require.ErrorContains(t, err, "pull_request_failed: ")
+		require.NotContains(t, err.Error(), "fixture-installation-token")
+		require.Nil(t, store.result)
+	})
 }

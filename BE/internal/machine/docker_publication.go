@@ -42,16 +42,40 @@ g add -A
 # the agent-writable checkout, so commits already on GitHub are never rewritten.
 # Kuayle's own commits are kept, so a retry republishes the same commit.
 # A history rewritten below the published commit is rebuilt on top of it with
-# the checkout's current tree, so the push stays a fast-forward.
-floor=${6:-}
+# the checkout's current tree, so the push stays a fast-forward; a newer base
+# it was rebased onto becomes a merge parent.
+floor=${6:-} recorded= rebuilt=
+# The checkout's own head, kept so a rebase onto a newer base still records
+# that base when it is rebuilt on the published commit.
+head=$(g rev-parse --verify HEAD)
 if [ -n "$floor" ] && g cat-file -e "$floor^{commit}" 2>/dev/null; then
-  g merge-base --is-ancestor "$floor" HEAD || g reset -q --soft "$floor"
+  recorded=1
+  g merge-base --is-ancestor "$floor" HEAD || { g reset -q --soft "$floor"; rebuilt=1; }
 else
   floor=$(g merge-base HEAD "refs/remotes/origin/$base")
 fi
-foreign=$(g log --format='%ae%n%ce' "$floor..HEAD" | grep -vxF "$5" | head -n 1 || true)
-if [ -n "$foreign" ] || g log --format=%B "$floor..HEAD" | grep -qi '^co-authored-by:'; then
-  g reset -q --soft "$floor"
+# Commits people pushed to the task branch on GitHub (fetched into the
+# checkout) are kept as well, and base-branch commits merged into the task are
+# never judged or folded. Those refs are agent-writable, so the push step
+# re-checks every commit it adds against the branches fetched from GitHub.
+remote="refs/remotes/origin/$branch"
+if g rev-parse -q --verify "$remote^{commit}" >/dev/null && g merge-base --is-ancestor "$remote" HEAD &&
+  { [ -z "$recorded" ] || g merge-base --is-ancestor "$floor" "$remote"; }; then
+  floor=$(g rev-parse --verify "$remote^{commit}")
+fi
+tip=$(g rev-parse --verify "refs/remotes/origin/$base^{commit}")
+foreign=$(g log --format='%ae%n%ce' "$floor..HEAD" --not "$tip" | grep -vxF -- "$5" | head -n 1 || true)
+if [ -n "$rebuilt" ] || [ -n "$foreign" ] || g log --format=%B "$floor..HEAD" --not "$tip" | grep -qi '^co-authored-by:'; then
+  # A merge of the base branch stays a merge, so the pull request is neither
+  # shown behind its base nor re-adds the base's commits.
+  merged=$tip
+  g merge-base --is-ancestor "$tip" "$head" || merged=$(g merge-base "$head" "$tip" || true)
+  if [ -n "$merged" ] && ! g merge-base --is-ancestor "$merged" "$floor"; then
+    folded=$(g commit-tree --no-gpg-sign -p "$floor" -p "$merged" -m "$message" "$(g write-tree)")
+    g reset -q --soft "$folded"
+  else
+    g reset -q --soft "$floor"
+  fi
 fi
 if ! g diff --cached --quiet; then
   g commit --no-verify -q -m "$message"
@@ -64,7 +88,7 @@ g rev-parse --verify HEAD
 // with no hooks or inherited configuration, then pushes it non-forcefully. The
 // agent-writable checkout's configuration never runs while the token exists.
 const publishPushScript = `set -eu
-repository=$1 branch=$2 path=$3 commit=$4
+repository=$1 branch=$2 path=$3 commit=$4 base=$5 email=$6
 export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0
 umask 077
 work=$(mktemp -d /tmp/kuayle-publish.XXXXXX)
@@ -86,7 +110,22 @@ case "$1" in
 esac
 SCRIPT
 chmod 0700 "$work/askpass"
-GIT_ASKPASS="$work/askpass" KUAYLE_PUBLISH_TOKEN_FILE="$work/token" git --git-dir="$work/repo" -c credential.helper= -c core.hooksPath=/dev/null push -q "https://github.com/$repository" "$commit:refs/heads/$branch" </dev/null
+remote() { GIT_ASKPASS="$work/askpass" KUAYLE_PUBLISH_TOKEN_FILE="$work/token" git --git-dir="$work/repo" -c credential.helper= -c core.hooksPath=/dev/null "$@" </dev/null; }
+url="https://github.com/$repository"
+# Every commit this push adds to GitHub must be by the configured author and
+# carry no co-author trailers. The commit step trusted the checkout's
+# remote-tracking refs to keep base and task-branch commits; here they come from
+# GitHub itself.
+remote fetch -q --no-tags "$url" "+refs/heads/$base:refs/kuayle/remote/base"
+if remote ls-remote --exit-code --heads "$url" "refs/heads/$branch" >/dev/null; then
+  remote fetch -q --no-tags "$url" "+refs/heads/$branch:refs/kuayle/remote/branch"
+fi
+authors=$(git --git-dir="$work/repo" log --format='%ae%n%ce' "$commit" --not --glob='refs/kuayle/remote/*')
+messages=$(git --git-dir="$work/repo" log --format=%B "$commit" --not --glob='refs/kuayle/remote/*')
+if printf '%s\n' "$authors" | grep -vxF -- "$email" | grep -q . || printf '%s\n' "$messages" | grep -qi '^co-authored-by:'; then
+  echo "publication adds commits by another author" >&2; exit 1
+fi
+remote push -q "$url" "$commit:refs/heads/$branch"
 `
 
 // PublishCheckout commits pending task changes and pushes the task branch. It
@@ -118,7 +157,7 @@ func (r *DockerRuntime) PublishCheckout(ctx context.Context, _ *domain.DevMachin
 		return "", fmt.Errorf("publication returned an invalid commit")
 	}
 	if _, err = r.execInputOutput(ctx, developerContainer, []string{"sh", "-c", publishPushScript, "kuayle-publish-push",
-		checkout.RepositoryFullName, checkout.WorkingBranch, checkout.WorkspacePath, commit}, request.Token+"\n"); err != nil {
+		checkout.RepositoryFullName, checkout.WorkingBranch, checkout.WorkspacePath, commit, checkout.BaseBranch, request.AuthorEmail}, request.Token+"\n"); err != nil {
 		return "", err
 	}
 	return commit, nil

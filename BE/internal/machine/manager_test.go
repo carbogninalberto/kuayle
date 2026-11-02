@@ -442,6 +442,10 @@ func (f *githubAPIFake) UpdatePullRequestBody(string, string, string, int, strin
 	return nil
 }
 
+func (f *githubAPIFake) MarkPullRequestReadyForReview(string, string) error {
+	return nil
+}
+
 func (f *runtimeFake) CollectValidationArtifacts(context.Context, *domain.DevMachine, *domain.DevMachineAgentRun, *domain.DevMachineAgentRunStep, *domain.DevMachineCheckout) ([]domain.ValidationArtifact, error) {
 	return f.artifacts, nil
 }

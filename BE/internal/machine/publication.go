@@ -98,6 +98,13 @@ func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, 
 			// A reused pull request describes this attempt, so an earlier
 			// not-validated warning does not outlive a passing check.
 			prErr = githubAPI.UpdatePullRequestBody(token, owner, repository, pullRequest.Number, body)
+			// A draft opened by an unchecked attempt becomes mergeable once a
+			// later attempt passes. The reverse is not done: a ready pull
+			// request stays ready, and its description now carries the
+			// not-validated warning.
+			if prErr == nil && pullRequest.Draft && publicationValidated(publication) {
+				prErr = githubAPI.MarkPullRequestReadyForReview(token, pullRequest.NodeID)
+			}
 		}
 		if prErr != nil {
 			return errors.New("pull_request_failed: " + strings.ReplaceAll(safeError(prErr), token, "[redacted]"))
