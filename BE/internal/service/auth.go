@@ -14,6 +14,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	jwtpkg "github.com/kuayle/kuayle-backend/pkg/jwt"
+	"github.com/kuayle/kuayle-backend/pkg/mail"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -50,6 +51,11 @@ type AuthService struct {
 	jwtSecret           string
 	disableRegistration bool
 	inviteRedeemer      InviteRedeemer
+	resetRepo           repository.PasswordResetRepo
+	mailer              mail.Sender
+	frontendURL         string
+	logResetLinks       bool
+	async               func(func()) // test hook; nil runs in a goroutine
 }
 
 func NewAuthService(userRepo repository.UserRepo, refreshRepo repository.RefreshTokenRepo, jwtSecret string, opts ...AuthServiceOption) *AuthService {

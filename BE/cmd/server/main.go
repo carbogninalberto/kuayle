@@ -22,6 +22,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/crypto"
+	"github.com/kuayle/kuayle-backend/pkg/mail"
 	"github.com/kuayle/kuayle-backend/pkg/storage"
 )
 
@@ -81,6 +82,7 @@ func main() {
 	authSvc := service.NewAuthService(userRepo, refreshRepo, cfg.JWTSecret,
 		service.WithRegistrationDisabled(cfg.DisableRegistration),
 		service.WithInviteRedeemer(inviteLinkSvc),
+		service.WithPasswordReset(repository.NewPasswordResetRepository(db), resetMailer(cfg), cfg.FrontendURL, cfg.Environment == "development"),
 	)
 	workspaceSvc := service.NewWorkspaceService(workspaceRepo, userRepo, hub)
 	teamSvc := service.NewTeamService(teamRepo, teamStatusRepo, hub)
@@ -199,6 +201,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to initialize storage: %v", err)
 	}
+	authH.SetAvatarStore(store)
 	uploadH := handler.NewUploadHandler(store, assetRepo, issueRepo, cfg.JWTSecret)
 	conversationImages := service.NewImageStore(store)
 	conversationSvc.SetAttachments(conversationImages, assetRepo, commentSvc, workspaceRepo)
@@ -394,4 +397,12 @@ func runMigrate(args []string) {
 		fmt.Println("Usage: server migrate [up|down|version|force <version>]")
 		os.Exit(1)
 	}
+}
+
+// resetMailer returns nil when SMTP is not configured.
+func resetMailer(cfg *config.Config) mail.Sender {
+	if !cfg.SMTP.Enabled() {
+		return nil
+	}
+	return mail.NewSMTPSender(cfg.SMTP)
 }

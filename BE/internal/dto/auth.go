@@ -31,3 +31,12 @@ type UpdateProfileRequest struct {
 	DisplayName *string        `json:"display_name" validate:"omitempty,max=100"`
 	AvatarURL   OptionalString `json:"avatar_url"`
 }
+
+type ForgotPasswordRequest struct {
+	Email string `json:"email" validate:"required,email"`
+}
+
+type ResetPasswordRequest struct {
+	Token    string `json:"token" validate:"required,max=256"`
+	Password string `json:"password" validate:"required,min=12,max=128"`
+}
