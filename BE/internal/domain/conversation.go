@@ -233,3 +233,11 @@ type ExposePortPayload struct {
 	Existing   bool      `json:"existing"`
 	Audience   string    `json:"audience"`
 }
+
+// UpgradePayload binds an upgrade_instance approval to the versions the user
+// saw. The approval belongs to no issue.
+type UpgradePayload struct {
+	CurrentVersion string `json:"current_version"`
+	LatestVersion  string `json:"latest_version"`
+	Changelog      string `json:"changelog,omitempty"`
+}

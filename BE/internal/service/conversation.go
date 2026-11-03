@@ -460,5 +460,9 @@ func (s *ConversationService) requestApproval(ctx context.Context, a domain.Conv
 	if err != nil {
 		return nil, nil, err
 	}
+	// An upgrade belongs to no issue.
+	if issueID == uuid.Nil {
+		return map[string]any{"approval_id": approval.ID, "status": "pending_user_approval"}, nil, nil
+	}
 	return map[string]any{"approval_id": approval.ID, "status": "pending_user_approval", "identifier": identifier}, &issueID, nil
 }

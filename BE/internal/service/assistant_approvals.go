@@ -40,6 +40,8 @@ type AssistantApprovals struct {
 	customTools assistantCustomTools
 	// Tool switches are ignored until SetToolSettings wires them.
 	settings approvalToolSettings
+	// Upgrades are unavailable until SetSystem wires them.
+	system *AssistantSystem
 }
 
 type approvalToolSettings interface {
@@ -123,6 +125,8 @@ func (s *AssistantApprovals) Resolve(ctx context.Context, ws, conversation, id u
 		return s.exposePort(ctx, ws, conversation, approval)
 	case "run_check":
 		return s.runCheck(ctx, ws, conversation, approval)
+	case "upgrade_instance":
+		return s.upgradeInstance(ctx, ws, conversation, approval)
 	case "run_custom_tool":
 		return s.runCustomTool(ctx, ws, conversation, approval)
 	}

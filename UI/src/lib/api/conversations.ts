@@ -202,6 +202,12 @@ export interface RunCustomToolPayload {
 	generation?: number;
 	machine_id?: string;
 }
+// An upgrade belongs to no issue: it names the installed and the latest release.
+export interface UpgradePayload {
+	current_version: string;
+	latest_version: string;
+	changelog?: string;
+}
 export type ConversationApproval = ApprovalBase &
 	(
 		| { action: 'delegate_issue'; payload: DelegationPayload }
@@ -213,6 +219,7 @@ export type ConversationApproval = ApprovalBase &
 		| { action: 'expose_port'; payload: ExposePortPayload }
 		| { action: 'run_check'; payload: RunCheckPayload }
 		| { action: 'run_custom_tool'; payload: RunCustomToolPayload }
+		| { action: 'upgrade_instance'; payload: UpgradePayload }
 	);
 interface ApprovalBase {
 	id: string;

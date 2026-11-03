@@ -2,8 +2,6 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -11,17 +9,16 @@ import (
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/middleware"
+	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/labstack/echo/v4"
 	log "github.com/sirupsen/logrus"
 )
 
 type SystemHandler struct {
-	updaterURL   string
-	updaterToken string
-	isSysAdmin   func(uuid.UUID) bool
-	client       *http.Client
-	announce     func()
+	updater    *service.SystemUpdater
+	isSysAdmin func(uuid.UUID) bool
+	announce   func()
 }
 
 func NewSystemHandler(updaterURL, updaterToken string, isSysAdmin func(uuid.UUID) bool) *SystemHandler {
@@ -29,10 +26,8 @@ func NewSystemHandler(updaterURL, updaterToken string, isSysAdmin func(uuid.UUID
 		isSysAdmin = func(uuid.UUID) bool { return false }
 	}
 	return &SystemHandler{
-		updaterURL:   strings.TrimRight(strings.TrimSpace(updaterURL), "/"),
-		updaterToken: strings.TrimSpace(updaterToken),
-		isSysAdmin:   isSysAdmin,
-		client:       &http.Client{Timeout: 10 * time.Second},
+		updater:    service.NewSystemUpdater(updaterURL, updaterToken),
+		isSysAdmin: isSysAdmin,
 	}
 }
 
@@ -56,8 +51,7 @@ func (h *SystemHandler) UpdateStatus(c echo.Context) error {
 	ctx, cancel := context.WithTimeout(c.Request().Context(), 10*time.Second)
 	defer cancel()
 
-	var status dto.SystemUpdateStatusResponse
-	statusCode, err := h.callUpdater(ctx, http.MethodGet, "/status", &status)
+	status, statusCode, err := h.updater.Status(ctx)
 	if err != nil {
 		log.WithError(err).Warn("system updater status request failed")
 		return response.Error(c, http.StatusBadGateway, "UPDATER_UNAVAILABLE", "System updater is unavailable")
@@ -69,7 +63,7 @@ func (h *SystemHandler) UpdateStatus(c echo.Context) error {
 
 	status.Enabled = true
 	if status.State == "" {
-		status.State = legacyUpdateState(status)
+		status.State = service.LegacyUpdateState(status)
 	}
 	return response.Success(c, http.StatusOK, status)
 }
@@ -86,8 +80,7 @@ func (h *SystemHandler) StartUpdate(c echo.Context) error {
 	ctx, cancel := context.WithTimeout(c.Request().Context(), 10*time.Second)
 	defer cancel()
 
-	var result dto.SystemUpdateStartResponse
-	statusCode, err := h.callUpdater(ctx, http.MethodPost, "/update", &result)
+	result, statusCode, err := h.updater.Start(ctx)
 	if err != nil {
 		log.WithError(err).WithField("user_id", userID).Warn("system update request failed")
 		return response.Error(c, http.StatusBadGateway, "UPDATER_UNAVAILABLE", "System updater is unavailable")
@@ -125,8 +118,7 @@ func (h *SystemHandler) UpdateActivity(c echo.Context) error {
 	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Second)
 	defer cancel()
 
-	var status dto.SystemUpdateStatusResponse
-	statusCode, err := h.callUpdater(ctx, http.MethodGet, "/status", &status)
+	status, statusCode, err := h.updater.Status(ctx)
 	if err != nil || statusCode != http.StatusOK {
 		return response.Error(c, http.StatusBadGateway, "UPDATER_UNAVAILABLE", "System updater is unavailable")
 	}
@@ -134,46 +126,11 @@ func (h *SystemHandler) UpdateActivity(c echo.Context) error {
 }
 
 func (h *SystemHandler) updaterConfigured() bool {
-	return h.updaterURL != "" && h.updaterToken != ""
+	return h.updater.Configured()
 }
 
 func (h *SystemHandler) isCurrentUserSysAdmin(c echo.Context) bool {
 	return h.isSysAdmin(middleware.GetUserID(c))
-}
-
-func (h *SystemHandler) callUpdater(ctx context.Context, method, path string, target any) (int, error) {
-	req, err := http.NewRequestWithContext(ctx, method, h.updaterURL+path, nil)
-	if err != nil {
-		return 0, err
-	}
-	req.Header.Set("Authorization", "Bearer "+h.updaterToken)
-
-	res, err := h.client.Do(req)
-	if err != nil {
-		return 0, err
-	}
-	defer res.Body.Close()
-
-	if target != nil {
-		_ = json.NewDecoder(io.LimitReader(res.Body, 64*1024)).Decode(target)
-	}
-
-	return res.StatusCode, nil
-}
-
-// legacyUpdateState derives the run state from sidecars that predate the state
-// field; update scripts do not recreate the running updater.
-func legacyUpdateState(status dto.SystemUpdateStatusResponse) string {
-	switch {
-	case status.Running:
-		return "running"
-	case status.Message == "Last update failed":
-		return "failed"
-	case status.Message == "Last update completed successfully":
-		return "succeeded"
-	default:
-		return "idle"
-	}
 }
 
 func fallbackMessage(message, fallback string) string {

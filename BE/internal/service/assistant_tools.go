@@ -83,6 +83,8 @@ type AssistantTools struct {
 	// Custom tools are unavailable until SetCustomTools wires them.
 	customTools    assistantCustomTools
 	customToolWait time.Duration
+	// The instance tools are unavailable until SetSystem wires them.
+	system *AssistantSystem
 }
 
 type assistantToolSettings interface {
@@ -156,6 +158,8 @@ type assistantTool struct {
 	skills bool
 	// customTools tools need SetCustomTools.
 	customTools bool
+	// system tools need SetSystem.
+	system bool
 }
 
 var assistantToolCatalog = []assistantTool{
@@ -186,6 +190,7 @@ func assistantTools() []assistantTool {
 		assistantLiveToolCatalog,
 		assistantSkillToolCatalog,
 		assistantCustomToolCatalog,
+		assistantSystemToolCatalog,
 	} {
 		tools = append(tools, catalog...)
 	}
@@ -219,7 +224,8 @@ func (t *AssistantTools) available(tool assistantTool) bool {
 		(!tool.machines || (t.machineTasks != nil && t.machinePorts != nil)) &&
 		(!tool.live || t.live != nil) &&
 		(!tool.skills || t.skills != nil) &&
-		(!tool.customTools || t.customTools != nil)
+		(!tool.customTools || t.customTools != nil) &&
+		(!tool.system || t.system != nil)
 }
 
 func lookupAssistantTool(name string) (assistantTool, bool) {
@@ -379,6 +385,9 @@ func (t *AssistantTools) run(ctx context.Context, ws, user uuid.UUID, name, argu
 		return t.listAgentWork(ctx, ws, arguments)
 	case "link_repository":
 		return t.linkRepository(ctx, ws, member.Role, arguments)
+	case "get_instance_version":
+		result, err := t.instanceVersion(ctx, user, arguments)
+		return result, nil, err
 	case "stop_preview", "list_ports":
 		return t.runMachineTool(ctx, ws, user, name, arguments)
 	case "message_task", "get_task_messages":

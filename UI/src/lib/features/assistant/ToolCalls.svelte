@@ -21,6 +21,7 @@
 	import { m } from '$lib/paraglide/messages.js';
 	import AgentSubagent from './AgentSubagent.svelte';
 	import AppPortLinks from './AppPortLinks.svelte';
+	import UpgradeProgress from './UpgradeProgress.svelte';
 	import ProposedSkillCard, { proposedSkill } from './ProposedSkillCard.svelte';
 	import ProposedToolCard, { proposedTool } from './ProposedToolCard.svelte';
 	import CustomToolRunResult, { toolRunSummary } from './CustomToolRunResult.svelte';
@@ -78,10 +79,27 @@
 		load_skill: m['assistant.tool_load_skill'],
 		propose_skill: m['assistant.tool_propose_skill'],
 		propose_tool: m['assistant.tool_propose_tool'],
-		get_tool_run: m['assistant.tool_get_tool_run']
+		get_tool_run: m['assistant.tool_get_tool_run'],
+		get_instance_version: m['assistant.tool_get_instance_version'],
+		upgrade_instance: m['assistant.tool_upgrade_instance']
 	};
 	// Outcome lines per approval action.
 	function outcome(approval: ConversationApproval) {
+		if (approval.action === 'upgrade_instance') {
+			const latest = approval.payload.latest_version;
+			switch (approval.status) {
+				case 'approving':
+					return m['assistant.upgrade_approving']({ latest });
+				case 'approved':
+					return m['assistant.upgrade_approved']({ latest });
+				case 'failed':
+					return m['assistant.upgrade_failed']({ error: approval.error ?? '' });
+				case 'expired':
+					return m['assistant.approval_expired']({ identifier: latest });
+				default:
+					return m['assistant.upgrade_denied']({ latest });
+			}
+		}
 		const identifier = approval.payload.identifier;
 		const merge = approval.action === 'merge_pull_request';
 		if (approval.action === 'accept_agent_work') {
@@ -248,7 +266,7 @@
 		{#each calls as call (call.id)}
 			{@const approval = approvals[call.id]}
 			{#if approval}
-				{@const identifier = approval.payload.identifier}
+				{@const identifier = approval.action === 'upgrade_instance' ? '' : approval.payload.identifier}
 				{#if approval.status === 'pending'}
 					<!-- Official AI Elements Confirmation composition: Item prompt with Deny/Approve. -->
 					<!-- A pending approval is the one thing waiting on the user: give it the warning tone. -->
@@ -396,6 +414,20 @@
 								<p class="flex items-center gap-1 text-xs text-muted-foreground">
 									<Lock size={12} class="shrink-0" />{m['assistant.port_audience_owner']()}
 								</p>
+							{:else if approval.action === 'upgrade_instance'}
+								<Item.Title
+									>{m['assistant.upgrade_title']({
+										current: approval.payload.current_version,
+										latest: approval.payload.latest_version
+									})}</Item.Title
+								>
+								<Item.Description class="line-clamp-none">{m['assistant.upgrade_description']()}</Item.Description>
+								{#if approval.payload.changelog}<p class="text-xs font-medium text-muted-foreground">
+										{m['assistant.upgrade_changelog']()}
+									</p>
+									<CodeBlock.Root size="sm"
+										><CodeBlock.Content code={approval.payload.changelog} wrap class="max-h-48 text-xs" /></CodeBlock.Root
+									>{/if}
 							{:else if approval.action === 'expose_port'}
 								<Item.Title>{m['assistant.port_title']({ identifier, port: approval.payload.port })}</Item.Title>
 								<Item.Description class="line-clamp-none"
@@ -485,6 +517,7 @@
 							machineId={approval.payload.machine_id}
 							port={approval.payload.port}
 							wait
+						/>{:else if approval.action === 'upgrade_instance' && approval.status === 'approved'}<UpgradeProgress
 						/>{:else if approval.action === 'run_custom_tool' && approval.status === 'approved'}<CustomToolRunResult
 							{slug}
 							name="custom_{approval.payload.tool_name}"

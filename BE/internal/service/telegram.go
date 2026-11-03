@@ -789,6 +789,8 @@ func telegramApprovalAnswer(approval *domain.ConversationApproval, err error) (s
 			return "Approved: the preview is starting. Open it from the chat in Kuayle.", true
 		case "expose_port":
 			return "Approved: the port is exposed. Open it from the chat in Kuayle.", true
+		case "upgrade_instance":
+			return "Approved: the upgrade is starting. The instance restarts; follow it from the chat in Kuayle.", true
 		}
 		return "Approved: the coding agent is starting.", true
 	case "denied":
@@ -806,6 +808,8 @@ func telegramApprovalAnswer(approval *domain.ConversationApproval, err error) (s
 			message = "The check could not start."
 		case "run_custom_tool":
 			message = "The tool could not start."
+		case "upgrade_instance":
+			message = "The upgrade could not start."
 		}
 		if approval.Error != nil {
 			message += " " + *approval.Error
