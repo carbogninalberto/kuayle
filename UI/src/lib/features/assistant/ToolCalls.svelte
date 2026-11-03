@@ -270,6 +270,32 @@
 										repository: approval.payload.repository
 									})}</Item.Description
 								>
+								{#if approval.payload.head_change}
+									{@const change = approval.payload.head_change}
+									{@const published = (approval.payload.published_commit ?? '').slice(0, 7)}
+									<!-- Commits others pushed after publication: authors and whether the files changed. -->
+									<div class="space-y-1 text-xs text-muted-foreground" data-testid="merge-head-change">
+										<p>
+											{change.kind === 'base_merge'
+												? m['assistant.merge_head_base_merge']({ published })
+												: m['assistant.merge_head_pushed']({ published })}
+											{change.tree_changed
+												? m['assistant.merge_head_tree_changed']()
+												: m['assistant.merge_head_tree_same']()}
+										</p>
+										<ul class="list-disc space-y-0.5 pl-4">
+											{#each change.commits as commit (commit.sha)}
+												<li class="break-words">
+													{m['assistant.merge_head_commit']({
+														commit: commit.sha.slice(0, 7),
+														author: commit.author,
+														subject: commit.subject
+													})}
+												</li>
+											{/each}
+										</ul>
+									</div>
+								{/if}
 								<a
 									class="inline-flex items-center gap-1 text-xs underline underline-offset-2"
 									href={approval.payload.pull_request_url}

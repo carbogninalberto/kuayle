@@ -468,6 +468,8 @@ func (f *runtimeFake) HostResources(context.Context) (HostResources, error) {
 
 type runtimeFake struct {
 	Runtime
+	syncErr            error
+	syncs              int
 	beforeAgentStarted func()
 	host               HostResources
 	artifacts          []domain.ValidationArtifact
@@ -2012,4 +2014,9 @@ func TestManagerRedactsCredentialsWithoutCorruptingModelConfigurationOrNumbers(t
 		require.Equal(t, "tool.started", store.events[0].EventType)
 		require.Equal(t, "fixture-model-key", runtime.agentSecrets["KUAYLE_MODEL_API_KEY"])
 	}
+}
+
+func (f *runtimeFake) SyncCheckout(context.Context, *domain.DevMachine, []domain.DevMachineService, *domain.DevMachineCheckout, string) error {
+	f.syncs++
+	return f.syncErr
 }

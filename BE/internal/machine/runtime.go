@@ -109,6 +109,9 @@ type Runtime interface {
 	// container's in-memory home with files (name to content).
 	SyncAgentSignIns(ctx context.Context, services []domain.DevMachineService, files map[string]string) error
 	PurgeTaskSession(context.Context, *domain.DevMachine, string, uuid.UUID) error
+	// SyncCheckout fast-forwards the checkout to commits others pushed to the task
+	// branch on GitHub, and fails if it cannot without rewriting either side.
+	SyncCheckout(context.Context, *domain.DevMachine, []domain.DevMachineService, *domain.DevMachineCheckout, string) error
 	PublishCheckout(context.Context, *domain.DevMachine, []domain.DevMachineService, *domain.DevMachineCheckout, PublishRequest) (string, error)
 	Spawn(context.Context, *domain.DevMachine, []domain.DevMachineService, map[string]map[string]string) (string, string, map[string]string, error)
 	Start(context.Context, *domain.DevMachine, []domain.DevMachineService, map[string]map[string]string) error

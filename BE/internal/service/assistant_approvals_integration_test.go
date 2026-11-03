@@ -360,3 +360,105 @@ func TestAcceptApprovalCompletesTheReviewedAttemptWithoutMerging(t *testing.T) {
 	_, _, err = f.service.tools.prepareAccept(f.ctx, f.ws, f.user, `{"identifier":"ENG-1"}`)
 	require.ErrorContains(t, err, "no pull request of this issue is awaiting review")
 }
+
+type headsFake struct {
+	head  domain.PullRequestHead
+	err   error
+	reads []string
+}
+
+func (f *headsFake) InspectPullRequestHead(_ context.Context, _ uuid.UUID, _ string, _ int, published string) (*domain.PullRequestHead, error) {
+	f.reads = append(f.reads, published)
+	if f.err != nil {
+		return nil, f.err
+	}
+	head := f.head
+	return &head, nil
+}
+
+// KUA-66 / PR #108: a maintainer merged main into the pull request branch, so
+// the head is no longer the commit Kuayle published. The approval shows the new
+// commit and what changed, merges exactly that commit, and refuses it again if
+// the head moves once more before or during the merge.
+func TestMergeApprovalShowsAndMergesTheHeadOthersPushed(t *testing.T) {
+	f := newToolFixture(t)
+	a, delegation, _ := requestDelegation(t, f)
+	started, err := f.service.ResolveApproval(f.ctx, f.ws, a.Conversation.ID, delegation.ID, true)
+	require.NoError(t, err)
+	work := &mergeWorkFake{target: &repository.MergeTarget{TaskID: *started.TaskID, IssueID: delegation.IssueID, CreatorID: f.user, Repository: "acme/app", Number: 108, URL: "https://github.com/acme/app/pull/108", Commit: "15af2c3a"}}
+	change := &domain.PullRequestHeadChange{Kind: "base_merge", Commits: []domain.PullRequestHeadCommit{{SHA: "3220dbc9", Author: "maintainer", Subject: "Merge branch 'main'", Merge: true}}}
+	heads := &headsFake{head: domain.PullRequestHead{SHA: "3220dbc9", Change: change}}
+	merger := &mergerFake{}
+	f.service.tools.SetAgentWork(work)
+	f.service.tools.SetPullRequestHeads(heads)
+	f.service.approvals.SetMerging(work, repository.NewWorkspaceRepository(f.db), merger)
+	f.service.approvals.SetPullRequestHeads(heads)
+	request := func() (domain.ConversationAttempt, domain.ConversationApproval) {
+		t.Helper()
+		a := f.attempt(t, "Merge ENG-1")
+		provider, _ := scriptedProvider(t, toolCallStream("merge_pull_request", `{"identifier":"eng-1"}`), finalAnswer)
+		require.NoError(t, f.service.converse(f.ctx, a, provider.URL, "key", []chatCompletionMessage{{Role: "user", Content: "Merge"}}, func(string) error { return nil }))
+		h, err := f.repo.History(f.ctx, f.ws, a.Conversation.ID, 0)
+		require.NoError(t, err)
+		require.Len(t, h.Approvals, 1)
+		return a, h.Approvals[0]
+	}
+	resolve := func(a domain.ConversationAttempt, approval domain.ConversationApproval) *domain.ConversationApproval {
+		t.Helper()
+		result, err := f.service.ResolveApproval(f.ctx, f.ws, a.Conversation.ID, approval.ID, true)
+		require.NoError(t, err)
+		return result
+	}
+
+	a, approval := request()
+	var payload domain.MergePayload
+	require.NoError(t, json.Unmarshal(approval.Payload, &payload))
+	require.Equal(t, "3220dbc9", payload.Commit, "the card shows the commit that will be merged")
+	require.Equal(t, "15af2c3a", payload.PublishedCommit)
+	require.Equal(t, change, payload.HeadChange)
+	require.Empty(t, merger.merged)
+
+	// The head moved again after the card was shown: nothing is merged.
+	heads.head.SHA = "9999aaaa"
+	result := resolve(a, approval)
+	require.Equal(t, "failed", result.Status)
+	require.Contains(t, *result.Error, "head moved to 9999aaaa")
+	require.Empty(t, merger.merged)
+
+	// An outsider cannot cause a merge, and GitHub is not read for them.
+	heads.head.SHA = "3220dbc9"
+	a, approval = request()
+	work.target.CreatorID = uuid.New()
+	heads.reads = nil
+	result = resolve(a, approval)
+	require.Equal(t, "failed", result.Status)
+	require.Contains(t, *result.Error, "admins or the task's creator")
+	require.Empty(t, heads.reads)
+	work.target.CreatorID = f.user
+
+	// A push that lands between the fresh read and the merge is refused by the
+	// pin with a message that says so.
+	a, approval = request()
+	merger.err = &gh.ErrMergeRefused{Reason: "Head branch was modified. Review and try the merge again."}
+	result = resolve(a, approval)
+	require.Equal(t, "failed", result.Status)
+	require.Contains(t, *result.Error, "head moved after it was approved (3220dbc9)")
+	merger.err = nil
+
+	// A published commit that changed since the request invalidates it.
+	a, approval = request()
+	work.target.Commit = "bbbbbbbb"
+	result = resolve(a, approval)
+	require.Equal(t, "failed", result.Status)
+	require.Contains(t, *result.Error, "changed after approval")
+	work.target.Commit = "15af2c3a"
+
+	a, approval = request()
+	result = resolve(a, approval)
+	require.Equal(t, "approved", result.Status)
+	require.Equal(t, []string{"acme/app#108@3220dbc9"}, merger.merged, "merged at the commit shown, not the published one")
+
+	heads.err = errors.New("GitHub not connected")
+	_, _, err = f.service.tools.prepareMerge(f.ctx, f.ws, f.user, `{"identifier":"ENG-1"}`)
+	require.ErrorContains(t, err, "could not read the pull request from GitHub")
+}

@@ -216,6 +216,7 @@ type PullRequest struct {
 
 type PRBranch struct {
 	Ref string `json:"ref"`
+	SHA string `json:"sha"`
 }
 
 type GitHubUser struct {
@@ -229,11 +230,18 @@ type Commit struct {
 	HTMLURL string      `json:"html_url"`
 	Commit  CommitData  `json:"commit"`
 	Author  *GitHubUser `json:"author"`
+	Parents []CommitRef `json:"parents"`
+}
+
+// CommitRef names a commit or tree by SHA.
+type CommitRef struct {
+	SHA string `json:"sha"`
 }
 
 type CommitData struct {
 	Message string       `json:"message"`
 	Author  CommitAuthor `json:"author"`
+	Tree    CommitRef    `json:"tree"`
 }
 
 type CommitAuthor struct {
@@ -445,6 +453,29 @@ func (c *Client) GetPullRequest(token, owner, repo string, number int) (*PullReq
 		return nil, err
 	}
 	return &pr, nil
+}
+
+// GetCommit fetches one commit, including its tree and parents.
+func (c *Client) GetCommit(token, owner, repo, sha string) (*Commit, error) {
+	var commit Commit
+	endpoint := fmt.Sprintf("%s/repos/%s/%s/commits/%s", githubAPIBaseURL, owner, repo, url.PathEscape(sha))
+	if err := c.doGet(token, endpoint, &commit); err != nil {
+		return nil, err
+	}
+	return &commit, nil
+}
+
+// CompareCommits lists the commits reachable from head but not from base,
+// oldest first (GitHub returns at most 250).
+func (c *Client) CompareCommits(token, owner, repo, base, head string) ([]Commit, error) {
+	var comparison struct {
+		Commits []Commit `json:"commits"`
+	}
+	endpoint := fmt.Sprintf("%s/repos/%s/%s/compare/%s...%s?per_page=100", githubAPIBaseURL, owner, repo, url.PathEscape(base), url.PathEscape(head))
+	if err := c.doGet(token, endpoint, &comparison); err != nil {
+		return nil, err
+	}
+	return comparison.Commits, nil
 }
 
 // ErrMergeRefused carries GitHub's reason for refusing a merge, such as branch

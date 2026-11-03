@@ -38,3 +38,24 @@ func TestMergePullRequestReportsGitHubsReason(t *testing.T) {
 	var refused *ErrMergeRefused
 	require.False(t, errors.As(c.MergePullRequest("secret", "owner", "repo", 7, "abc"), &refused))
 }
+
+func TestCompareCommitsAndGetCommitReadAuthorsParentsAndTrees(t *testing.T) {
+	c := &Client{httpClient: &http.Client{Transport: commentTransport(func(r *http.Request) (*http.Response, error) {
+		switch r.URL.Path {
+		case "/repos/owner/repo/compare/aaa...bbb":
+			return commentResponse(200, `{"commits":[{"sha":"bbb","commit":{"message":"Merge branch 'main'\n\nbody","author":{"name":"Maint"},"tree":{"sha":"t1"}},"author":{"login":"maintainer"},"parents":[{"sha":"aaa"},{"sha":"mmm"}]}]}`), nil
+		case "/repos/owner/repo/commits/aaa":
+			return commentResponse(200, `{"sha":"aaa","commit":{"tree":{"sha":"t1"}}}`), nil
+		}
+		return commentResponse(404, `{}`), nil
+	})}}
+	commits, err := c.CompareCommits("secret", "owner", "repo", "aaa", "bbb")
+	require.NoError(t, err)
+	require.Len(t, commits, 1)
+	require.Len(t, commits[0].Parents, 2)
+	require.Equal(t, "maintainer", commits[0].Author.Login)
+	require.Equal(t, "t1", commits[0].Commit.Tree.SHA)
+	commit, err := c.GetCommit("secret", "owner", "repo", "aaa")
+	require.NoError(t, err)
+	require.Equal(t, "t1", commit.Commit.Tree.SHA)
+}

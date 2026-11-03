@@ -79,6 +79,12 @@ func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, 
 	if publication.AuthorName != "" && publication.AuthorEmail != "" {
 		identity = GitIdentity{Name: publication.AuthorName, Email: publication.AuthorEmail}
 	}
+	// Commits others pushed to the pull request branch (a maintainer merging the
+	// base branch into it) come first, so this publication builds on them
+	// instead of being refused as a non-fast-forward push.
+	if err = m.runtime.SyncCheckout(ctx, machine, services, checkout, token); err != nil {
+		return errors.New("checkout_sync_failed: " + strings.ReplaceAll(safeError(err), token, "[redacted]"))
+	}
 	commit, err := m.runtime.PublishCheckout(ctx, machine, services, checkout, PublishRequest{
 		AuthorName: identity.Name, AuthorEmail: identity.Email, Token: token, PublishedCommit: publication.PublishedCommit,
 		Message: title + "\n\nKuayle agent task " + run.TaskID.String(),

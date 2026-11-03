@@ -122,7 +122,18 @@ export interface MergePayload {
 	repository: string;
 	pull_request: number;
 	pull_request_url: string;
+	/** The head GitHub reported when approval was requested: the commit that merges. */
 	commit: string;
+	/** The commit Kuayle published; differs from `commit` when others pushed. */
+	published_commit?: string;
+	head_change?: PullRequestHeadChange;
+}
+/** What others added to the pull request after Kuayle published it. */
+export interface PullRequestHeadChange {
+	kind: 'base_merge' | 'pushed';
+	tree_changed: boolean;
+	commits: { sha: string; author: string; subject: string; merge?: boolean }[];
+	truncated?: boolean;
 }
 // An acceptance approval is bound to the reviewed attempt and pull request;
 // accepting completes the task in Kuayle and never merges.

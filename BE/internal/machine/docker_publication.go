@@ -162,3 +162,65 @@ func (r *DockerRuntime) PublishCheckout(ctx context.Context, _ *domain.DevMachin
 	}
 	return commit, nil
 }
+
+// The sync step brings the checkout up to the task branch on GitHub before it is
+// published: commits others pushed (a maintainer merging the base branch into
+// the pull request) are fetched and fast-forwarded to, never overwritten. The
+// credential is used only in a fresh bare repository; the checkout, which the
+// agent can configure, fetches from that repository without a credential.
+const publishSyncScript = `set -eu
+repository=$1 branch=$2 path=$3
+export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0
+umask 077
+work=$(mktemp -d /tmp/kuayle-sync.XXXXXX)
+trap 'rm -rf "$work"' EXIT
+trap 'rm -rf "$work"; exit 130' INT
+trap 'rm -rf "$work"; exit 143' TERM
+IFS= read -r token
+[ -n "$token" ] || { echo "missing repository credential" >&2; exit 1; }
+printf '%s' "$token" > "$work/token"
+unset token
+cat > "$work/askpass" <<'SCRIPT'
+#!/bin/sh
+case "$1" in
+  *Username*) printf '%s\n' x-access-token ;;
+  *) cat "$KUAYLE_PUBLISH_TOKEN_FILE" ;;
+esac
+SCRIPT
+chmod 0700 "$work/askpass"
+git init -q --bare "$work/repo"
+remote() { GIT_ASKPASS="$work/askpass" KUAYLE_PUBLISH_TOKEN_FILE="$work/token" git --git-dir="$work/repo" -c credential.helper= -c core.hooksPath=/dev/null "$@" </dev/null; }
+url="https://github.com/$repository"
+# A branch that is not on GitHub yet has nothing to bring in.
+remote ls-remote --exit-code --heads "$url" "refs/heads/$branch" >/dev/null || exit 0
+remote fetch -q --no-tags "$url" "+refs/heads/$branch:refs/kuayle/branch"
+g() { git -C "$path" -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@" </dev/null; }
+[ "$(g symbolic-ref --short HEAD)" = "$branch" ] || { echo "checkout is not on the task branch" >&2; exit 1; }
+g fetch -q --no-tags "$work/repo" "+refs/kuayle/branch:refs/remotes/origin/$branch"
+tip=$(g rev-parse --verify "refs/remotes/origin/$branch^{commit}")
+g merge-base --is-ancestor "$tip" HEAD && exit 0
+if g merge-base --is-ancestor HEAD "$tip"; then
+  g merge -q --ff-only "$tip" || { echo "could not fast-forward the checkout to commits pushed to GitHub; resolve it by hand, nothing was force-pushed" >&2; exit 1; }
+  exit 0
+fi
+echo "the task branch on GitHub has commits the checkout does not have and the checkout has commits GitHub does not have; it cannot be fast-forwarded and nothing was force-pushed" >&2
+exit 1
+`
+
+// SyncCheckout fast-forwards the task checkout to the task branch on GitHub. It
+// fails, leaving the checkout alone, when the histories diverged.
+func (r *DockerRuntime) SyncCheckout(ctx context.Context, _ *domain.DevMachine, services []domain.DevMachineService, checkout *domain.DevMachineCheckout, token string) error {
+	developerContainer := developerContainerID(services)
+	if developerContainer == "" {
+		return fmt.Errorf("developer container is unavailable")
+	}
+	if checkout == nil || !publishRepositoryPattern.MatchString(checkout.RepositoryFullName) {
+		return fmt.Errorf("invalid publication repository")
+	}
+	if token == "" {
+		return fmt.Errorf("repository credential is unavailable")
+	}
+	_, err := r.execInputOutput(ctx, developerContainer, []string{"sh", "-c", publishSyncScript, "kuayle-publish-sync",
+		checkout.RepositoryFullName, checkout.WorkingBranch, checkout.WorkspacePath}, token+"\n")
+	return err
+}
