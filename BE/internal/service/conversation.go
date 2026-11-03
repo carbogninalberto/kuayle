@@ -442,6 +442,10 @@ func (s *ConversationService) requestApproval(ctx context.Context, a domain.Conv
 		var port domain.ExposePortPayload
 		issueID, port, err = s.tools.preparePort(ctx, a.Conversation.WorkspaceID, a.Conversation.CreatorID, arguments)
 		payload, identifier = port, port.Identifier
+	case "upgrade_instance":
+		var upgrade domain.UpgradePayload
+		_, upgrade, err = s.tools.prepareUpgrade(ctx, a.Conversation.CreatorID, arguments)
+		payload = upgrade
 	case "run_check":
 		var check domain.RunCheckPayload
 		issueID, check, err = s.tools.prepareRunCheck(ctx, a.Conversation.WorkspaceID, a.Conversation.CreatorID, arguments)

@@ -46,6 +46,8 @@ type AssistantSystem struct {
 	releases func(ctx context.Context) ([]instanceRelease, error)
 	// announce tells connected clients that an update started.
 	announce func()
+	// health probes the backend's dependencies after an upgrade.
+	health func(ctx context.Context) error
 }
 
 func NewAssistantSystem(updater assistantSystemUpdater, isAdmin func(uuid.UUID) bool, version string) *AssistantSystem {
@@ -232,11 +234,19 @@ func (s *AssistantSystem) upgradeState(ctx context.Context, info instanceVersion
 	case "running":
 		result["next_step"] = "The upgrade is running and the instance restarts during it. Check again in a minute."
 	case "succeeded":
-		// This backend answered and reached the updater, so the new release is serving requests.
-		result["health_check"] = "passed"
-		result["final_version"] = info.current
-		if info.available {
-			result["warning"] = fmt.Sprintf("The updater finished but the instance still runs %s while %s is available. Check Settings → Version.", info.current, info.latest)
+		// Only what this process can verify is reported: it is the running
+		// binary, and it just reached the database and the updater.
+		result["running_version"] = info.current
+		result["health_check"] = s.healthCheck(ctx)
+		switch {
+		case info.err != nil || !info.known || info.current == "dev":
+			result["final_version"] = "unknown"
+			result["next_step"] = "The updater reports success but the running release cannot be compared with the latest one. Check the version in Settings → Version."
+		case info.available:
+			result["final_version"] = "unconfirmed"
+			result["warning"] = fmt.Sprintf("The updater finished but the instance still runs %s while %s is available. Check Settings → Version, then ask for the upgrade again.", info.current, info.latest)
+		default:
+			result["final_version"] = info.current
 		}
 	case "failed":
 		result["health_check"] = "not run"
@@ -341,4 +351,22 @@ func (s *AssistantSystem) startUpgrade(ctx context.Context, actor uuid.UUID, pay
 		return fail("The system updater failed to start the upgrade: " + truncateRunes(result.Message, 200))
 	}
 	return fail("The system updater failed to start the upgrade")
+}
+
+// SetHealthCheck registers the probe run after an upgrade, such as a database ping.
+func (s *AssistantSystem) SetHealthCheck(check func(ctx context.Context) error) { s.health = check }
+
+// healthCheck probes this backend's dependencies and the updater for real; with
+// no probe wired it says so instead of claiming success.
+func (s *AssistantSystem) healthCheck(ctx context.Context) string {
+	if s.health == nil {
+		return "not verified: no health probe is configured"
+	}
+	if err := s.health(ctx); err != nil {
+		return "failed: " + truncateRunes(err.Error(), 200) + ". Check the backend logs and the database, then retry."
+	}
+	if _, code, err := s.updater.Status(ctx); err != nil || code != http.StatusOK {
+		return "failed: the updater did not answer. Check that the updater container is running."
+	}
+	return "passed"
 }

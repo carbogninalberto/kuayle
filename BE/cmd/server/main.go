@@ -177,6 +177,7 @@ func main() {
 	assistantApprovals.SetCustomTools(assistantCustomTools)
 	assistantSystem := service.NewAssistantSystem(service.NewSystemUpdater(cfg.SystemUpdaterURL, cfg.SystemUpdaterToken), cfg.IsSysAdmin, buildinfo.Version)
 	assistantTools.SetSystem(assistantSystem)
+	assistantSystem.SetHealthCheck(func(ctx context.Context) error { return db.PingContext(ctx) })
 	assistantApprovals.SetSystem(assistantSystem)
 	conversationSvc.SetApprovals(assistantApprovals)
 	agentTaskH := handler.NewAgentTaskHandler(agentTaskSvc)

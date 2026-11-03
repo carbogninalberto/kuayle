@@ -182,26 +182,6 @@ func TestInstanceVersionShowsUpgradeStateOnlyToAdministrators(t *testing.T) {
 	require.Contains(t, upgrade["next_step"], "Settings → Version")
 }
 
-func TestInstanceVersionReportsHealthAndFinalVersionAfterSuccess(t *testing.T) {
-	updater := &updaterFake{configured: true, status: dto.SystemUpdateStatusResponse{State: "succeeded"}}
-	// The restarted instance runs the new release, which is also the latest.
-	tools, _ := newSystemTools(updater, "0.3.0", releaseList...)
-	result, err := tools.instanceVersion(context.Background(), adminUser, `{}`)
-	require.NoError(t, err)
-	info := result.(map[string]any)
-	require.Equal(t, false, info["update_available"])
-	upgrade := info["upgrade"].(map[string]any)
-	require.Equal(t, "passed", upgrade["health_check"])
-	require.Equal(t, "0.3.0", upgrade["final_version"])
-	require.NotContains(t, upgrade, "warning")
-
-	// Finished, yet still the old release: say so instead of claiming success.
-	tools, _ = newSystemTools(updater, "0.2.8", releaseList...)
-	result, err = tools.instanceVersion(context.Background(), adminUser, `{}`)
-	require.NoError(t, err)
-	require.Contains(t, result.(map[string]any)["upgrade"].(map[string]any)["warning"], "still runs 0.2.8")
-}
-
 func TestInstanceVersionSurvivesAnUnavailableUpdaterAndReleaseList(t *testing.T) {
 	tools, system := newSystemTools(&updaterFake{}, "0.2.8")
 	system.releases = func(context.Context) ([]instanceRelease, error) { return nil, errors.New("offline") }
@@ -221,4 +201,66 @@ func TestCompareVersions(t *testing.T) {
 	require.Equal(t, -1, compareVersions("0.2.8", "v0.3.0"))
 	require.Equal(t, 1, compareVersions("0.10.0", "0.9.9"))
 	require.Equal(t, 0, compareVersions("v1.0", "1.0.0-rc1"))
+}
+
+func succeededUpgrade(t *testing.T, tools *AssistantTools, system *AssistantSystem) map[string]any {
+	t.Helper()
+	result, err := tools.instanceVersion(context.Background(), adminUser, `{}`)
+	require.NoError(t, err)
+	return result.(map[string]any)["upgrade"].(map[string]any)
+}
+
+func TestFinalVersionAndHealthAreReportedOnlyWhenVerified(t *testing.T) {
+	succeeded := &updaterFake{configured: true, status: dto.SystemUpdateStatusResponse{State: "succeeded"}}
+
+	// The running binary is the latest release and the probe passes.
+	tools, system := newSystemTools(succeeded, "0.3.0", releaseList...)
+	system.SetHealthCheck(func(context.Context) error { return nil })
+	upgrade := succeededUpgrade(t, tools, system)
+	require.Equal(t, "passed", upgrade["health_check"])
+	require.Equal(t, "0.3.0", upgrade["final_version"])
+	require.NotContains(t, upgrade, "warning")
+
+	// No probe: the health check is not claimed.
+	tools, _ = newSystemTools(succeeded, "0.3.0", releaseList...)
+	upgrade = succeededUpgrade(t, tools, nil)
+	require.Contains(t, upgrade["health_check"], "not verified")
+
+	// A failing probe is reported with a next step.
+	tools, system = newSystemTools(succeeded, "0.3.0", releaseList...)
+	system.SetHealthCheck(func(context.Context) error { return errors.New("db down") })
+	require.Contains(t, succeededUpgrade(t, tools, system)["health_check"], "failed: db down")
+
+	// Finished, yet still the old release: no final version is claimed.
+	tools, system = newSystemTools(succeeded, "0.2.8", releaseList...)
+	system.SetHealthCheck(func(context.Context) error { return nil })
+	upgrade = succeededUpgrade(t, tools, system)
+	require.Equal(t, "unconfirmed", upgrade["final_version"])
+	require.Contains(t, upgrade["warning"], "still runs 0.2.8")
+
+	// The release list is unreachable: the running version is known, the final one is not.
+	tools, system = newSystemTools(succeeded, "0.3.0")
+	system.releases = func(context.Context) ([]instanceRelease, error) { return nil, errors.New("offline") }
+	upgrade = succeededUpgrade(t, tools, system)
+	require.Equal(t, "unknown", upgrade["final_version"])
+	require.Equal(t, "0.3.0", upgrade["running_version"])
+}
+
+// The request path the model uses: an upgrade call reaches prepareUpgrade, so a
+// non-administrator is refused with the real reason, never "unknown tool".
+func TestRequestApprovalRoutesUpgradeCallsThroughPrepareUpgrade(t *testing.T) {
+	updater := &updaterFake{configured: true}
+	tools, _ := newSystemTools(updater, "0.2.8", releaseList...)
+	service := &ConversationService{tools: tools}
+	attempt := domain.ConversationAttempt{Conversation: domain.Conversation{CreatorID: plainUser}}
+	_, _, err := service.requestApproval(context.Background(), attempt, uuid.New(), "upgrade_instance", `{}`)
+	require.ErrorContains(t, err, "only an instance administrator can upgrade")
+	require.Zero(t, updater.started)
+}
+
+// An upgrade approval has no issue; the database stores NULL and it scans as the zero ID.
+func TestApprovalWithoutIssueScansAsNil(t *testing.T) {
+	var approval domain.ConversationApproval
+	require.NoError(t, approval.IssueID.Scan(nil))
+	require.Equal(t, uuid.Nil, approval.IssueID)
 }
