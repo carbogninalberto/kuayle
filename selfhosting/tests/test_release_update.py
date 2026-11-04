@@ -205,6 +205,7 @@ class UpdateFlowTests(unittest.TestCase):
 
     def test_success_removes_this_instance_images_older_than_the_previous_release(self):
         self.updater.state.write_text(json.dumps({'release': 'v1.2.2'}))
+        self.raw['services']['machine-manager'] = {'image': 'old-manager'}
         ghcr = m.REGISTRY + '/kuayle'
         self.image_listing([
             f'{ghcr}-api:v1.2.1', f'{ghcr}-dev-machine-ide:v1.0.0', f'{ghcr}:v0.9.0',
@@ -213,6 +214,8 @@ class UpdateFlowTests(unittest.TestCase):
             f'{ghcr}-api:v1.2.2', f'{ghcr}-api:v1.2.3', 'local/instance-dev-machine-ide:v1.2.2',
             # Other projects, custom tags and moving tags are never touched.
             'local/other-dev-machine-ide:v1.0.0', 'library/postgres:v1.0.0', f'{m.REGISTRY}/elsewhere:v1.0.0',
+            # A project whose name extends this one owns its own local builds.
+            'local/instance-staging-machine-manager:v1.0.0', 'local/instance-unknown:v1.0.0',
             f'{ghcr}-api:latest', f'{ghcr}-updater:release-fix', f'{ghcr}-api:v1.0.0-fix',
         ], in_use={f'{ghcr}-dev-machine-docker:v1.1.9'})
         out = io.StringIO()

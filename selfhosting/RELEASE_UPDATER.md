@@ -79,8 +79,8 @@ recreate the updater service.
    successful update verifies health and returns without restarting services.
 7. Remove this instance's images from releases older than the previous one, so
    repeated releases do not fill the host disk (each pulls a full image set):
-   `ghcr.io/carbogninalberto/kuayle*` and `local/PROJECT-*` images with an exact
-   `vX.Y.Z` tag. The installed and previous releases stay for rollback; `latest`,
+   `ghcr.io/carbogninalberto/kuayle*` and `local/PROJECT-SERVICE` images (this
+   project's Compose services only) with an exact `vX.Y.Z` tag. The installed and previous releases stay for rollback; `latest`,
    custom tags, other projects' images and images a container still uses are
    kept. A removal failure is logged and never fails the completed update.
 

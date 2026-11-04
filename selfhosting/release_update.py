@@ -188,17 +188,20 @@ class ReleaseUpdater:
             return False
         return True
 
-    def prune_release_images(self, tag, previous):
+    def prune_release_images(self, tag, previous, services):
         """Remove this instance's images from releases older than the previous one.
 
         Every release pulls a full image set, so without this the host disk
         fills up. The installed and previous releases stay for rollback; only
-        exact release tags are considered, and Docker refuses to remove an
-        image a container still uses. Removed images can be pulled again."""
+        exact release tags of GHCR releases or of this project's own service
+        builds (``local/PROJECT-SERVICE``, never a longer project name sharing
+        the prefix) are considered, and Docker refuses to remove an image a
+        container still uses."""
         if previous == tag:
             return  # a repair of the installed release keeps the previous one
         keep = release_version(previous) or release_version(tag)
-        repository = re.compile(rf'{re.escape(REGISTRY)}/kuayle(-[a-z0-9-]+)?|local/{re.escape(self.project)}-[a-z0-9-]+')
+        local = '|'.join(re.escape(f'local/{self.project}-{name}') for name in sorted(services))
+        repository = re.compile(rf'{re.escape(REGISTRY)}/kuayle(-[a-z0-9-]+)?' + (f'|{local}' if local else ''))
         listing = self.run(['docker', 'image', 'ls', '--format', '{{json .}}'], capture=True)
         removed = 0
         for line in filter(None, listing.splitlines()):
@@ -336,7 +339,7 @@ class ReleaseUpdater:
                                 'backup': str(backup), 'updated_at': datetime.datetime.now(datetime.timezone.utc).isoformat()})
         log(f'Release {tag} completed successfully; all updated services are healthy.')
         try:
-            self.prune_release_images(tag, previous)
+            self.prune_release_images(tag, previous, {*resolved['services'], *reference['services']})
         except Exception as exc:
             log(f'Could not remove old release images: {exc}')
 
