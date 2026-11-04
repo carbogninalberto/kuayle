@@ -186,6 +186,70 @@ class UpdateFlowTests(unittest.TestCase):
         self.assertEqual((backup / '.env').read_text(), 'SECRET=private\n')
         self.assertEqual((backup / '.env').stat().st_mode & 0o777, 0o600)
 
+    def image_listing(self, references, in_use=()):
+        original_run = self.updater.run
+        def run(args, **kwargs):
+            if args[:3] == ['docker', 'image', 'ls']:
+                self.calls.append(args)
+                return '\n'.join(json.dumps({'Repository': r.rsplit(':', 1)[0], 'Tag': r.rsplit(':', 1)[1]}) for r in references)
+            if args[:3] == ['docker', 'image', 'rm']:
+                self.calls.append(args)
+                if args[-1] in in_use:
+                    raise m.subprocess.CalledProcessError(1, args)
+                return ''
+            return original_run(args, **kwargs)
+        self.updater.run = run
+
+    def removed(self):
+        return [c[-1] for c in self.calls if c[:3] == ['docker', 'image', 'rm']]
+
+    def test_success_removes_this_instance_images_older_than_the_previous_release(self):
+        self.updater.state.write_text(json.dumps({'release': 'v1.2.2'}))
+        ghcr = m.REGISTRY + '/kuayle'
+        self.image_listing([
+            f'{ghcr}-api:v1.2.1', f'{ghcr}-dev-machine-ide:v1.0.0', f'{ghcr}:v0.9.0',
+            'local/instance-machine-manager:v1.1.0', f'{ghcr}-dev-machine-docker:v1.1.9',
+            # The release being installed and the previous one stay for rollback.
+            f'{ghcr}-api:v1.2.2', f'{ghcr}-api:v1.2.3', 'local/instance-dev-machine-ide:v1.2.2',
+            # Other projects, custom tags and moving tags are never touched.
+            'local/other-dev-machine-ide:v1.0.0', 'library/postgres:v1.0.0', f'{m.REGISTRY}/elsewhere:v1.0.0',
+            f'{ghcr}-api:latest', f'{ghcr}-updater:release-fix', f'{ghcr}-api:v1.0.0-fix',
+        ], in_use={f'{ghcr}-dev-machine-docker:v1.1.9'})
+        out = io.StringIO()
+        with patch('sys.stdout', out):
+            self.updater.update()
+        self.assertEqual(sorted(self.removed()), sorted([
+            f'{ghcr}-api:v1.2.1', f'{ghcr}-dev-machine-ide:v1.0.0', f'{ghcr}:v0.9.0',
+            'local/instance-machine-manager:v1.1.0', f'{ghcr}-dev-machine-docker:v1.1.9']))
+        # An image still used by a container is kept, and the update still succeeds.
+        self.assertIn('Release v1.2.3 completed successfully', out.getvalue())
+        self.assertIn('Removed 4 image(s) from releases before v1.2.2', out.getvalue())
+        self.assertEqual(json.loads(self.updater.state.read_text())['release'], 'v1.2.3')
+
+    def test_failed_activation_removes_no_images(self):
+        self.updater.state.write_text(json.dumps({'release': 'v1.2.2'}))
+        self.image_listing([m.REGISTRY + '/kuayle-api:v1.0.0'])
+        def activate(*args):
+            raise RuntimeError('health wait failed')
+        self.updater.activate = activate
+        with self.assertRaises(RuntimeError):
+            self.updater.update()
+        self.assertEqual(self.removed(), [])
+
+    def test_repairing_the_installed_release_keeps_the_previous_one(self):
+        self.updater.state.write_text(json.dumps({'release': 'v1.2.3', 'images': {}}))
+        self.image_listing([m.REGISTRY + '/kuayle-api:v1.2.2'])
+        with patch('sys.stdout', io.StringIO()):
+            self.updater.update()
+        self.assertTrue(self.activated)
+        self.assertEqual(self.removed(), [])
+
+    def test_first_install_keeps_only_the_installed_release(self):
+        self.image_listing([m.REGISTRY + '/kuayle-api:v1.2.2', m.REGISTRY + '/kuayle-api:v1.2.3'])
+        with patch('sys.stdout', io.StringIO()):
+            self.updater.update()
+        self.assertEqual(self.removed(), [m.REGISTRY + '/kuayle-api:v1.2.2'])
+
     def test_missing_release_image_does_not_stop_services(self):
         self.fail_pull = True
         with self.assertRaises(RuntimeError):

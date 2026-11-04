@@ -38,6 +38,10 @@ def dev_machine_services(reference):
                               if 'dev-machine-images' in spec.get('profiles', []))]
 
 
+def release_version(tag):
+    return tuple(map(int, tag[1:].split('.'))) if re.fullmatch(r'v\d+\.\d+\.\d+', tag or '') else None
+
+
 def log(message):
     print(message, flush=True)
 
@@ -184,6 +188,32 @@ class ReleaseUpdater:
             return False
         return True
 
+    def prune_release_images(self, tag, previous):
+        """Remove this instance's images from releases older than the previous one.
+
+        Every release pulls a full image set, so without this the host disk
+        fills up. The installed and previous releases stay for rollback; only
+        exact release tags are considered, and Docker refuses to remove an
+        image a container still uses. Removed images can be pulled again."""
+        if previous == tag:
+            return  # a repair of the installed release keeps the previous one
+        keep = release_version(previous) or release_version(tag)
+        repository = re.compile(rf'{re.escape(REGISTRY)}/kuayle(-[a-z0-9-]+)?|local/{re.escape(self.project)}-[a-z0-9-]+')
+        listing = self.run(['docker', 'image', 'ls', '--format', '{{json .}}'], capture=True)
+        removed = 0
+        for line in filter(None, listing.splitlines()):
+            image = json.loads(line)
+            version = release_version(image.get('Tag'))
+            if not version or version >= keep or not repository.fullmatch(image.get('Repository', '')):
+                continue
+            try:
+                self.run(['docker', 'image', 'rm', f"{image['Repository']}:{image['Tag']}"], capture=True)
+                removed += 1
+            except subprocess.CalledProcessError:
+                log(f"Kept {image['Repository']}:{image['Tag']}; it is still in use.")
+        if removed:
+            log(f'Removed {removed} image(s) from releases before {"v" + ".".join(map(str, keep))}.')
+
     def activate(self, candidate, backup, dev_active, running):
         writers = ['backend'] + (['machine-manager', 'machine-gateway'] if dev_active else [])
         restore = [s for s in writers if s in running]
@@ -305,6 +335,10 @@ class ReleaseUpdater:
                                 'dev_machine_images': dev_images, 'dev_machine_builds': builds,
                                 'backup': str(backup), 'updated_at': datetime.datetime.now(datetime.timezone.utc).isoformat()})
         log(f'Release {tag} completed successfully; all updated services are healthy.')
+        try:
+            self.prune_release_images(tag, previous)
+        except Exception as exc:
+            log(f'Could not remove old release images: {exc}')
 
 
 def main():
