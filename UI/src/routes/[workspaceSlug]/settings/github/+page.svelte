@@ -15,7 +15,9 @@
 		listAutoTransitions,
 		updateAutoTransitions
 	} from '$lib/api/github';
+	import { getWorkspace } from '$lib/api/workspaces';
 	import { githubRepositoryHomeUrl } from '$lib/security/github-url';
+	import GitHubAppSetupCard from '$lib/features/github/GitHubAppSetupCard.svelte';
 	import type { GitHubStatus, GitHubAvailableRepo, GitHubAutoTransition } from '$lib/types/github';
 	import { Button } from '$lib/components/ui/button';
 	import { Badge } from '$lib/components/ui/badge';
@@ -39,6 +41,8 @@
 	let settingUp = $state(false);
 	let repoSearch = $state('');
 	let savingRepos = $state(false);
+	// Matches the API's workspace:manage permission; the API enforces it.
+	let canManage = $state(false);
 
 	const filteredRepos = $derived(
 		repoSearch
@@ -76,6 +80,12 @@
 			const cleanPath = window.location.pathname;
 			window.history.replaceState(null, '', cleanPath);
 		}
+
+		void getWorkspace(slug)
+			.then((workspace) => {
+				canManage = workspace.current_user_role === 'owner';
+			})
+			.catch(() => undefined);
 
 		try {
 			// An installation redirect also carries the installing user's OAuth code.
@@ -305,6 +315,10 @@
 					</Button>
 				</div>
 			</div>
+
+			{#if canManage}
+				<GitHubAppSetupCard {slug} />
+			{/if}
 
 			<!-- Linked repos -->
 			<div>

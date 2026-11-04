@@ -64,6 +64,8 @@ type GitHubService struct {
 	reviewComments reviewCommentStore
 	// postReviewComment comments through the GitHub App; replaced in tests.
 	postReviewComment func(ctx context.Context, workspaceID uuid.UUID, repository string, number int, marker, body string) error
+	// githubHTTPClient replaces the GitHub API transport in tests.
+	githubHTTPClient *http.Client
 }
 
 type mergedPullRequestCompleter interface {
@@ -127,6 +129,9 @@ func (s *GitHubService) getClient(ctx context.Context, workspaceID uuid.UUID) (*
 		if err != nil {
 			return nil, nil, fmt.Errorf("creating global GitHub client: %w", err)
 		}
+		if s.githubHTTPClient != nil {
+			client.UseHTTPClient(s.githubHTTPClient)
+		}
 		slug := s.globalApp.Slug
 		cfg := &domain.GitHubAppConfig{
 			AppID:   s.globalApp.AppID,
@@ -152,6 +157,9 @@ func (s *GitHubService) getClient(ctx context.Context, workspaceID uuid.UUID) (*
 	client, err := gh.NewClient(cfg.AppID, privateKey)
 	if err != nil {
 		return nil, nil, fmt.Errorf("creating GitHub client: %w", err)
+	}
+	if s.githubHTTPClient != nil {
+		client.UseHTTPClient(s.githubHTTPClient)
 	}
 
 	return client, cfg, nil
@@ -182,26 +190,14 @@ func (s *GitHubService) GetManifest(workspaceID uuid.UUID, slug string) (map[str
 	isLocal := strings.Contains(s.frontendURL, "localhost") || strings.Contains(s.frontendURL, "127.0.0.1")
 
 	manifest := map[string]any{
-		"name":            fmt.Sprintf("Kuayle (%s)", slug),
-		"url":             s.frontendURL,
-		"redirect_url":    callbackURL,
-		"setup_url":       callbackURL,
-		"setup_on_update": true,
-		"public":          false,
-		"default_permissions": map[string]string{
-			"pull_requests": "write",
-			"contents":      "write",
-			"metadata":      "read",
-			"issues":        "read",
-			"checks":        "read",
-		},
-		"default_events": []string{
-			"pull_request",
-			"pull_request_review",
-			"check_suite",
-			"push",
-			"create",
-		},
+		"name":                fmt.Sprintf("Kuayle (%s)", slug),
+		"url":                 s.frontendURL,
+		"redirect_url":        callbackURL,
+		"setup_url":           callbackURL,
+		"setup_on_update":     true,
+		"public":              false,
+		"default_permissions": GitHubAppPermissions(),
+		"default_events":      GitHubAppEvents(),
 	}
 
 	// Determine webhook URL: explicit override > auto-derive from domain > placeholder

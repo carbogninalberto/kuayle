@@ -130,3 +130,27 @@ Existing apps and the shared app must add them in the GitHub App settings, and
 each installation owner must accept the updated permissions. Without them, tasks
 still publish and complete on merge but never receive CI or review signals. See
 the [agent task contract](agent-tasks.md#ci-and-review-feedback).
+
+### GitHub App setup check
+
+GitHub has no API for an app to change its own events or permissions, so Kuayle
+detects a stale app instead. Workspace owners see a **GitHub App setup** card on
+Settings → GitHub once the app is installed. It calls
+`GET /api/workspaces/{slug}/github/app-setup` (`workspace:manage`), which signs an
+app JWT and compares `GET /app` (what the app's owner configured) and
+`GET /app/installations/{id}` (what the installation accepted) against the
+manifest's permission map and event list, the single source of these
+requirements in `BE/internal/service/github_app_setup.go`. A higher level
+satisfies a lower one (`write` covers `read`). The response `state` is:
+
+| State | Meaning and fix |
+|---|---|
+| `ok` | Agents receive CI results and review requests. |
+| `app_missing` | The app lacks the listed events/permissions. **Fix on GitHub** opens `github.com/settings/apps/{slug}/permissions` (or `github.com/organizations/{owner}/settings/apps/{slug}/permissions` for an organization-owned app). Tick the listed items, click **Save changes** and confirm **Update permissions** in GitHub's dialog; the change only takes effect once the installation accepts it. With the shared app (`managed: true`) the card asks the workspace to contact the Kuayle operator instead. |
+| `installation_pending` | The app requests them but the installation has not accepted. **Accept on GitHub** opens the installation's `html_url`; click **Review request**, then **Accept new permissions**. Events that need no new permission may apply without acceptance, which the next check reflects. |
+| `installation_suspended` / `installation_missing` | The installation is suspended, or GitHub no longer has it (uninstalled); GitHub sends no events. Unsuspend it, or disconnect and install again. |
+| `not_configured` / `not_installed` | No app or installation for the workspace. |
+| `unavailable` | GitHub could not be reached or rejected the request; details are only logged. |
+
+The card re-checks on **Check again** and whenever the window regains focus
+while the state is not `ok`.

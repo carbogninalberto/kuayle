@@ -163,3 +163,36 @@ func TestCycleWritesRejectGuestSessions(t *testing.T) {
 		})
 	}
 }
+
+// The GitHub App setup check exposes the app's owner and installation pages,
+// so like the other GitHub settings it is limited to workspace managers.
+func TestGitHubAppSetupRequiresWorkspaceManage(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		role   string
+		scopes []string
+	}{
+		{"admin session", domain.RoleAdmin, nil},
+		{"member session", domain.RoleMember, nil},
+		{"guest session", domain.RoleGuest, nil},
+		{"owner token without workspace:manage", domain.RoleOwner, []string{"workspaces:read"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := echo.New()
+			auth := func(next echo.HandlerFunc) echo.HandlerFunc {
+				return func(c echo.Context) error {
+					if tc.scopes != nil {
+						c.Set(mw.TokenScopesKey, tc.scopes)
+					}
+					c.Set("workspace_role", tc.role)
+					return next(c)
+				}
+			}
+			registerRoutes(e, &appHandlers{}, testMiddleware(auth))
+			rec := httptest.NewRecorder()
+			// The nil handler panics if the request gets past authorization.
+			e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/workspaces/acme/github/app-setup", nil))
+			require.Equal(t, http.StatusForbidden, rec.Code)
+		})
+	}
+}

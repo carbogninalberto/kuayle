@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -381,32 +382,65 @@ func (c *Client) ListInstallationRepos(token string) ([]Repository, error) {
 
 // GetInstallation fetches installation details by ID.
 func (c *Client) GetInstallation(installationID int64) (*Installation, error) {
-	appJWT, err := c.generateAppJWT()
-	if err != nil {
+	return c.GetInstallationContext(context.Background(), installationID)
+}
+
+// GetInstallationContext fetches an installation, including the events and
+// permissions its account has accepted, within the caller deadline.
+func (c *Client) GetInstallationContext(ctx context.Context, installationID int64) (*Installation, error) {
+	var inst Installation
+	if err := c.getAsApp(ctx, fmt.Sprintf("/app/installations/%d", installationID), &inst); err != nil {
 		return nil, err
 	}
+	return &inst, nil
+}
 
-	url := fmt.Sprintf("%s/app/installations/%d", githubAPIBaseURL, installationID)
-	req, _ := http.NewRequest("GET", url, nil)
+// GetApp fetches the authenticated GitHub App, including the events and
+// permissions currently configured by its owner.
+func (c *Client) GetApp(ctx context.Context) (*App, error) {
+	var app App
+	if err := c.getAsApp(ctx, "/app", &app); err != nil {
+		return nil, err
+	}
+	return &app, nil
+}
+
+// getAsApp performs a GET authenticated with the app JWT.
+func (c *Client) getAsApp(ctx context.Context, path string, result any) error {
+	appJWT, err := c.generateAppJWT()
+	if err != nil {
+		return fmt.Errorf("generating app JWT: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, githubAPIBaseURL+path, nil)
+	if err != nil {
+		return err
+	}
 	req.Header.Set("Authorization", "Bearer "+appJWT)
 	req.Header.Set("Accept", "application/vnd.github+json")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusNotFound {
+		return fmt.Errorf("%w: %s", ErrNotFound, path)
+	}
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("GitHub API error %d: %s", resp.StatusCode, body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+		return fmt.Errorf("GitHub API error %d: %s", resp.StatusCode, body)
 	}
+	return json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(result)
+}
 
-	var inst Installation
-	if err := json.NewDecoder(resp.Body).Decode(&inst); err != nil {
-		return nil, err
-	}
-	return &inst, nil
+// ErrNotFound reports that GitHub has no such resource, for example an
+// installation that was uninstalled on GitHub.
+var ErrNotFound = errors.New("GitHub resource not found")
+
+// UseHTTPClient replaces the transport used for GitHub API calls.
+func (c *Client) UseHTTPClient(httpClient *http.Client) {
+	c.httpClient = httpClient
 }
 
 type Installation struct {
@@ -415,6 +449,22 @@ type Installation struct {
 		Login string `json:"login"`
 		Type  string `json:"type"`
 	} `json:"account"`
+	HTMLURL     string            `json:"html_url"`
+	Events      []string          `json:"events"`
+	Permissions map[string]string `json:"permissions"`
+	SuspendedAt *time.Time        `json:"suspended_at"`
+}
+
+// App is the GitHub App as configured by its owner.
+type App struct {
+	ID    int64  `json:"id"`
+	Slug  string `json:"slug"`
+	Owner struct {
+		Login string `json:"login"`
+		Type  string `json:"type"`
+	} `json:"owner"`
+	Events      []string          `json:"events"`
+	Permissions map[string]string `json:"permissions"`
 }
 
 // doGet is a helper for authenticated GET requests.

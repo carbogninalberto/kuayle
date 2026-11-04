@@ -107,3 +107,43 @@ type GitHubAutoTransitionResponse struct {
 	TargetStatusID *string `json:"target_status_id"`
 	IsActive       bool    `json:"is_active"`
 }
+
+// GitHubAppSetupState says whether the GitHub App delivers everything Kuayle needs.
+type GitHubAppSetupState string
+
+const (
+	// GitHubAppSetupOK means the app and its installation grant every requirement.
+	GitHubAppSetupOK GitHubAppSetupState = "ok"
+	// GitHubAppSetupAppMissing means the app's owner must add events or permissions.
+	GitHubAppSetupAppMissing GitHubAppSetupState = "app_missing"
+	// GitHubAppSetupInstallationPending means the installation must accept the app's update.
+	GitHubAppSetupInstallationPending GitHubAppSetupState = "installation_pending"
+	// GitHubAppSetupInstallationSuspended means the installation is suspended on GitHub.
+	GitHubAppSetupInstallationSuspended GitHubAppSetupState = "installation_suspended"
+	// GitHubAppSetupInstallationMissing means GitHub no longer has the recorded installation.
+	GitHubAppSetupInstallationMissing GitHubAppSetupState = "installation_missing"
+	// GitHubAppSetupNotConfigured means the workspace has no GitHub App.
+	GitHubAppSetupNotConfigured GitHubAppSetupState = "not_configured"
+	// GitHubAppSetupNotInstalled means the app is not installed for the workspace.
+	GitHubAppSetupNotInstalled GitHubAppSetupState = "not_installed"
+	// GitHubAppSetupUnavailable means GitHub could not be asked.
+	GitHubAppSetupUnavailable GitHubAppSetupState = "unavailable"
+)
+
+type GitHubAppPermissionRequirement struct {
+	Name  string `json:"name"`
+	Level string `json:"level"`
+}
+
+type GitHubAppSetupResponse struct {
+	State GitHubAppSetupState `json:"state"`
+	// Managed is true when a shared app is configured by the Kuayle operator,
+	// so workspace owners cannot change the app's own settings.
+	Managed            bool                             `json:"managed"`
+	AppSlug            string                           `json:"app_slug,omitempty"`
+	AccountLogin       string                           `json:"account_login,omitempty"`
+	MissingEvents      []string                         `json:"missing_events"`
+	MissingPermissions []GitHubAppPermissionRequirement `json:"missing_permissions"`
+	AppSettingsURL     string                           `json:"app_settings_url,omitempty"`
+	InstallationURL    string                           `json:"installation_url,omitempty"`
+}
