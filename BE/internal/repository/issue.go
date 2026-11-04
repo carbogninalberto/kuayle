@@ -372,6 +372,12 @@ func (r *IssueRepository) UpdateContent(ctx context.Context, issue *domain.Issue
 	if err != nil {
 		return err
 	}
+	// Labels scoped to a project the issue is no longer in stop applying, in
+	// the same transaction as the move.
+	if _, err = tx.ExecContext(ctx, `DELETE FROM issue_labels il USING labels l WHERE il.issue_id = $1 AND l.id = il.label_id
+		AND l.project_id IS NOT NULL AND l.project_id IS DISTINCT FROM $2::uuid`, issue.ID, issue.ProjectID); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
@@ -746,12 +752,4 @@ func (r *IssueRepository) ValidateLabelScope(ctx context.Context, projectID *uui
 		return ErrLabelProjectMismatch
 	}
 	return nil
-}
-
-// DetachForeignProjectLabels removes the issue's labels that are scoped to a
-// project other than projectID, used when an issue moves between projects.
-func (r *IssueRepository) DetachForeignProjectLabels(ctx context.Context, issueID uuid.UUID, projectID *uuid.UUID) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM issue_labels il USING labels l WHERE il.issue_id = $1 AND l.id = il.label_id
-		AND l.project_id IS NOT NULL AND l.project_id IS DISTINCT FROM $2::uuid`, issueID, projectID)
-	return err
 }

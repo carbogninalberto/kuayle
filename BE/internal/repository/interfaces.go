@@ -87,6 +87,7 @@ type IssueRepo interface {
 	UpdateContent(ctx context.Context, issue *domain.Issue, titleChanged, descriptionChanged bool) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	SetLabels(ctx context.Context, issueID uuid.UUID, labelIDs []uuid.UUID) error
+	ValidateLabelScope(ctx context.Context, projectID *uuid.UUID, labelIDs []uuid.UUID) error
 	GetLabels(ctx context.Context, issueID uuid.UUID) ([]domain.Label, error)
 	GetLabelsForIssues(ctx context.Context, issueIDs []uuid.UUID) (map[uuid.UUID][]domain.Label, error)
 	SetAssignees(ctx context.Context, issueID uuid.UUID, userIDs []uuid.UUID) error

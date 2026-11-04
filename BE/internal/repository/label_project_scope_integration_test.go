@@ -88,7 +88,10 @@ func TestProjectScopedLabelsPostgres(t *testing.T) {
 	require.Equal(t, 2, count(`SELECT COUNT(*) FROM issue_labels WHERE issue_id=$1`, issueID))
 	require.Zero(t, count(`SELECT COUNT(*) FROM issue_labels WHERE issue_id=$1 AND label_id=$2`, issueID, inB.ID), "the other project's label is not attached")
 
-	require.NoError(t, issues.DetachForeignProjectLabels(ctx, issueID, &projectB))
+	moved, err := issues.GetByID(ctx, issueID)
+	require.NoError(t, err)
+	moved.ProjectID = &projectB
+	require.NoError(t, issues.Update(ctx, moved))
 	require.Equal(t, 1, count(`SELECT COUNT(*) FROM issue_labels WHERE issue_id=$1`, issueID), "moving to project B drops A's label and keeps the global one")
 	require.Equal(t, 1, count(`SELECT COUNT(*) FROM issue_labels WHERE issue_id=$1 AND label_id=$2`, issueID, global.ID))
 

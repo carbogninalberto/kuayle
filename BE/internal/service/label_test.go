@@ -10,6 +10,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -158,4 +159,22 @@ func TestIssueService_ValidateLabelScope(t *testing.T) {
 	repo.err = nil
 	assert.NoError(t, svc.validateLabelScope(context.Background(), nil, labelIDs))
 	assert.Nil(t, repo.got)
+}
+
+func TestIssueService_RecordLabelNamesWhenMoveDropsLabels(t *testing.T) {
+	ctx := context.Background()
+	issueID, userID := uuid.New(), uuid.New()
+	repo := &mockIssueRepo{}
+	history := new(mockIssueHistoryRepo)
+	svc := &IssueService{issueRepo: repo, historyRepo: history}
+
+	repo.On("GetLabels", ctx, issueID).Return([]domain.Label{{Name: "global"}}, nil).Once()
+	history.On("Create", ctx, issueID, userID, "labels", mock.MatchedBy(func(v *string) bool {
+		return *v == "global, Launch blocker"
+	}), mock.MatchedBy(func(v *string) bool { return *v == "global" })).Return(nil).Once()
+	svc.recordLabelNames(ctx, issueID, userID, "global, Launch blocker")
+	history.AssertExpectations(t)
+
+	repo.On("GetLabels", ctx, issueID).Return([]domain.Label{{Name: "global"}}, nil).Once()
+	svc.recordLabelNames(ctx, issueID, userID, "global") // unchanged: no history call
 }

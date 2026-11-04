@@ -354,11 +354,13 @@ func (s *IssueService) ConvertToProject(ctx context.Context, workspaceID, userID
 			oldParent = item.ParentID.String()
 		}
 		newProject := projectID.String()
+		labelsBefore := s.labelNames(ctx, item.ID)
 		item.ProjectID = &projectID
 		item.ParentID = nil
 		if err := s.issueRepo.Update(ctx, item); err != nil {
 			return nil, err
 		}
+		s.recordLabelNames(ctx, item.ID, userID, labelsBefore)
 		if oldProject != newProject {
 			s.recordHistory(ctx, item.ID, userID, "project", &oldProject, &newProject)
 		}
@@ -680,19 +682,17 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 		issue.SortOrder = *req.SortOrder
 	}
 
+	var labelsBeforeMove string
+	if movedProject && req.LabelIDs == nil {
+		labelsBeforeMove = s.labelNames(ctx, issue.ID)
+	}
 	if err := s.issueRepo.UpdateContent(repository.WithIssueHistoryActor(ctx, userID), issue, changes.fieldSet["title"], changes.fieldSet["description"]); err != nil {
 		return nil, err
 	}
 
 	if movedProject && req.LabelIDs == nil {
-		// Labels scoped to the project the issue left no longer apply.
-		if detacher, ok := s.issueRepo.(interface {
-			DetachForeignProjectLabels(context.Context, uuid.UUID, *uuid.UUID) error
-		}); ok {
-			if err := detacher.DetachForeignProjectLabels(ctx, issue.ID, issue.ProjectID); err != nil {
-				log.WithError(err).Warn("failed to detach project labels")
-			}
-		}
+		// The repository dropped labels scoped to the project the issue left.
+		s.recordLabelNames(ctx, issue.ID, userID, labelsBeforeMove)
 	}
 
 	if req.LabelIDs != nil {
@@ -990,22 +990,33 @@ func (s *IssueService) BulkUpdate(ctx context.Context, workspaceID, userID uuid.
 	return n, nil
 }
 
+func (s *IssueService) labelNames(ctx context.Context, issueID uuid.UUID) string {
+	labels, _ := s.issueRepo.GetLabels(ctx, issueID)
+	names := make([]string, len(labels))
+	for i, l := range labels {
+		names[i] = l.Name
+	}
+	return strings.Join(names, ", ")
+}
+
+// recordLabelNames records a labels history entry when the issue's labels
+// differ from before.
+func (s *IssueService) recordLabelNames(ctx context.Context, issueID, userID uuid.UUID, before string) {
+	if after := s.labelNames(ctx, issueID); after != before {
+		s.recordHistory(ctx, issueID, userID, "labels", &before, &after)
+	}
+}
+
 // validateLabelScope rejects project-scoped labels that do not belong to the
 // issue's project.
 func (s *IssueService) validateLabelScope(ctx context.Context, projectID *uuid.UUID, rawLabelIDs []string) error {
-	validator, ok := s.issueRepo.(interface {
-		ValidateLabelScope(context.Context, *uuid.UUID, []uuid.UUID) error
-	})
-	if !ok {
-		return nil
-	}
 	labelIDs := make([]uuid.UUID, 0, len(rawLabelIDs))
 	for _, raw := range rawLabelIDs {
 		if id, err := uuid.Parse(raw); err == nil {
 			labelIDs = append(labelIDs, id)
 		}
 	}
-	if err := validator.ValidateLabelScope(ctx, projectID, labelIDs); err != nil {
+	if err := s.issueRepo.ValidateLabelScope(ctx, projectID, labelIDs); err != nil {
 		if errors.Is(err, repository.ErrLabelProjectMismatch) {
 			return fmt.Errorf("a project label can only be used on issues of that project")
 		}

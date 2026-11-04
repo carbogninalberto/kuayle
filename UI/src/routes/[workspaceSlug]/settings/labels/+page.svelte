@@ -26,6 +26,9 @@
 			const own = labels.filter((l) => l.project_id === project.id);
 			if (own.length > 0) out.push({ id: project.id, name: project.name, labels: own });
 		}
+		// Labels of a project this user cannot list stay reachable, so they can still be edited or deleted.
+		const orphans = labels.filter((l) => l.project_id && !projects.some((p) => p.id === l.project_id));
+		if (orphans.length > 0) out.push({ id: 'other', name: m['settings.labels.other_projects'](), labels: orphans });
 		return out.filter((g) => g.labels.length > 0);
 	});
 	let loading = $state(true);
