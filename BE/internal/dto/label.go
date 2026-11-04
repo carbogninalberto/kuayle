@@ -7,6 +7,7 @@ type CreateLabelRequest struct {
 	Color       string  `json:"color" validate:"required,hexcolor"`
 	Description *string `json:"description"`
 	ParentID    *string `json:"parent_id" validate:"omitempty,uuid"`
+	ProjectID   *string `json:"project_id" validate:"omitempty,uuid"`
 }
 
 type UpdateLabelRequest struct {
@@ -21,6 +22,7 @@ type LabelResponse struct {
 	Color       string    `json:"color"`
 	Description *string   `json:"description"`
 	ParentID    *string   `json:"parent_id"`
+	ProjectID   *string   `json:"project_id"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }

@@ -352,6 +352,7 @@
 			<LabelSelector
 				bind:open={labelsOpen}
 				{labels}
+				projectId={null}
 				value={formLabelIds}
 				onchange={toggleLabel}
 				oncreated={onlabelcreated}

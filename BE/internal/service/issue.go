@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -76,6 +77,18 @@ func (s *IssueService) Create(ctx context.Context, workspaceID, creatorID uuid.U
 	team, err := s.teamRepo.GetByID(ctx, teamID)
 	if err != nil || team == nil {
 		return nil, fmt.Errorf("team not found")
+	}
+
+	if len(req.LabelIDs) > 0 {
+		var projectID *uuid.UUID
+		if req.ProjectID != nil {
+			if pid, err := uuid.Parse(*req.ProjectID); err == nil {
+				projectID = &pid
+			}
+		}
+		if err := s.validateLabelScope(ctx, projectID, req.LabelIDs); err != nil {
+			return nil, err
+		}
 	}
 
 	tx, err := s.issueRepo.BeginTx(ctx)
@@ -462,6 +475,18 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 			return nil, fmt.Errorf("resource reference is unavailable or crosses a private-team boundary")
 		}
 	}
+	if len(req.LabelIDs) > 0 {
+		projectID := issue.ProjectID
+		if req.ProjectID != nil {
+			projectID = nil
+			if pid, err := uuid.Parse(*req.ProjectID); err == nil {
+				projectID = &pid
+			}
+		}
+		if err := s.validateLabelScope(ctx, projectID, req.LabelIDs); err != nil {
+			return nil, err
+		}
+	}
 	// Sanitize user input
 	if req.Title != nil {
 		clean := sanitize.PlainText(*req.Title)
@@ -567,6 +592,7 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 			}
 		}
 	}
+	movedProject := false
 	if req.ProjectID != nil {
 		old := ""
 		if issue.ProjectID != nil {
@@ -585,6 +611,7 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 		if old != newVal {
 			s.recordHistory(ctx, issue.ID, userID, "project", &old, &newVal)
 			changes.addField("project")
+			movedProject = true
 		}
 	}
 	if req.CycleID != nil {
@@ -655,6 +682,17 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 
 	if err := s.issueRepo.UpdateContent(repository.WithIssueHistoryActor(ctx, userID), issue, changes.fieldSet["title"], changes.fieldSet["description"]); err != nil {
 		return nil, err
+	}
+
+	if movedProject && req.LabelIDs == nil {
+		// Labels scoped to the project the issue left no longer apply.
+		if detacher, ok := s.issueRepo.(interface {
+			DetachForeignProjectLabels(context.Context, uuid.UUID, *uuid.UUID) error
+		}); ok {
+			if err := detacher.DetachForeignProjectLabels(ctx, issue.ID, issue.ProjectID); err != nil {
+				log.WithError(err).Warn("failed to detach project labels")
+			}
+		}
 	}
 
 	if req.LabelIDs != nil {
@@ -950,6 +988,30 @@ func (s *IssueService) BulkUpdate(ctx context.Context, workspaceID, userID uuid.
 	}
 
 	return n, nil
+}
+
+// validateLabelScope rejects project-scoped labels that do not belong to the
+// issue's project.
+func (s *IssueService) validateLabelScope(ctx context.Context, projectID *uuid.UUID, rawLabelIDs []string) error {
+	validator, ok := s.issueRepo.(interface {
+		ValidateLabelScope(context.Context, *uuid.UUID, []uuid.UUID) error
+	})
+	if !ok {
+		return nil
+	}
+	labelIDs := make([]uuid.UUID, 0, len(rawLabelIDs))
+	for _, raw := range rawLabelIDs {
+		if id, err := uuid.Parse(raw); err == nil {
+			labelIDs = append(labelIDs, id)
+		}
+	}
+	if err := validator.ValidateLabelScope(ctx, projectID, labelIDs); err != nil {
+		if errors.Is(err, repository.ErrLabelProjectMismatch) {
+			return fmt.Errorf("a project label can only be used on issues of that project")
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *IssueService) validateParentID(ctx context.Context, workspaceID, issueID uuid.UUID, rawParentID string) (*uuid.UUID, *domain.Issue, error) {

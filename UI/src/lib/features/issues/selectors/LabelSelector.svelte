@@ -21,6 +21,7 @@
 		shortcutKey,
 		slug,
 		oncreated,
+		projectId,
 	}: {
 		open?: boolean;
 		labels: Label[];
@@ -32,14 +33,18 @@
 		shortcutKey?: string;
 		slug?: string;
 		oncreated?: (label: Label) => void;
+		/** Project of the issue: hides other projects' labels. null = no project, undefined = no filtering. */
+		projectId?: string | null;
 	} = $props();
 
 	let creating = $state(false);
 	let createdLabels = $state<Label[]>([]);
-	let visibleLabels = $derived([
-		...createdLabels.filter((createdLabel) => !labels.some((label) => label.id === createdLabel.id)),
-		...labels,
-	]);
+	let visibleLabels = $derived(
+		[
+			...createdLabels.filter((createdLabel) => !labels.some((label) => label.id === createdLabel.id)),
+			...labels,
+		].filter((label) => projectId === undefined || !label.project_id || label.project_id === projectId)
+	);
 
 	const presetColors = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4', '#3b82f6', '#6366f1', '#8b5cf6', '#ec4899', '#6b7280'];
 

@@ -531,7 +531,14 @@
 				bind:open={projectOpen}
 				projects={availableProjects}
 				value={projectId}
-				onchange={(id) => { projectId = id; }}
+				onchange={(id) => {
+					projectId = id;
+					// Labels of another project do not apply to this one.
+					labelIds = labelIds.filter((labelId) => {
+						const scope = labels.find((l) => l.id === labelId)?.project_id;
+						return !scope || scope === id;
+					});
+				}}
 			>
 				{#snippet trigger(props)}
 					<Button {...props} variant="plain" class="flex items-center gap-1.5 rounded-full border border-[var(--app-border)] px-2.5 py-1 max-sm:px-3 max-sm:py-1.5 text-xs {selectedProject ? 'text-[var(--color-text-secondary)]' : 'text-[var(--color-text-tertiary)]'} hover:bg-[var(--color-bg-hover)]">
@@ -572,6 +579,7 @@
 			<LabelSelector
 				bind:open={labelsOpen}
 				{labels}
+				{projectId}
 				value={labelIds}
 				onchange={(labelId) => toggleLabel(labelId)}
 				oncreated={(label) => onlabelcreated?.(label)}

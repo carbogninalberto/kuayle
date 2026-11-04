@@ -3,6 +3,10 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
+	import * as Select from '$lib/components/ui/select';
+	import type { Project } from '$lib/types/project';
+	import { m } from '$lib/paraglide/messages.js';
+	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
 
 	let {
 		open = $bindable(false),
@@ -10,6 +14,8 @@
 		initialName = '',
 		initialColor = '#6366f1',
 		initialDescription = '',
+		initialProjectId = null,
+		projects = [],
 		onsubmit
 	}: {
 		open: boolean;
@@ -17,12 +23,18 @@
 		initialName?: string;
 		initialColor?: string;
 		initialDescription?: string;
-		onsubmit: (data: { name: string; color: string; description?: string }) => void;
+		/** The label's project; null = workspace-wide. Fixed once the label exists. */
+		initialProjectId?: string | null;
+		/** When given, create mode offers a project to scope the label to. */
+		projects?: Project[];
+		onsubmit: (data: { name: string; color: string; description?: string; project_id?: string }) => void;
 	} = $props();
 
 	let name = $state('');
 	let color = $state('#6366f1');
 	let description = $state('');
+	let projectId = $state<string | null>(null);
+	let selectedProject = $derived(projects.find((p) => p.id === projectId));
 
 	const PRESET_COLORS = [
 		'#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4',
@@ -34,6 +46,7 @@
 			name = initialName;
 			color = initialColor;
 			description = initialDescription;
+			projectId = initialProjectId;
 		}
 	});
 
@@ -43,7 +56,8 @@
 		onsubmit({
 			name: name.trim(),
 			color,
-			description: description.trim() || undefined
+			description: description.trim() || undefined,
+			project_id: mode === 'create' ? (projectId ?? undefined) : undefined
 		});
 		open = false;
 	}
@@ -69,6 +83,29 @@
 						class=""
 					/>
 				</div>
+
+				{#if projects.length > 0}
+					<div class="space-y-1.5">
+						<Label class="text-xs text-[var(--color-text-secondary)]">{m['settings.labels.scope']()}</Label>
+						<Select.Root
+							type="single"
+							disabled={mode === 'edit'}
+							value={projectId ?? 'workspace'}
+							onValueChange={(value) => (projectId = value === 'workspace' ? null : value)}
+						>
+							<Select.Trigger aria-label={m['settings.labels.scope']()} class="w-full">
+								{selectedProject?.name ?? m['settings.labels.scope_workspace']()}
+							</Select.Trigger>
+							<Select.Content>
+								<Select.Item value="workspace">{m['settings.labels.scope_workspace']()}</Select.Item>
+								{#each projects as project (project.id)}
+									<Select.Item value={project.id}>{project.name}</Select.Item>
+								{/each}
+							</Select.Content>
+						</Select.Root>
+						<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.labels.scope_hint']()}</p>
+					</div>
+				{/if}
 
 				<div class="space-y-1.5">
 					<Label class="text-xs text-[var(--color-text-secondary)]">Color</Label>

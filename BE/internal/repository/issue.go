@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"github.com/lib/pq"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 )
@@ -393,11 +394,13 @@ func (r *IssueRepository) SetLabels(ctx context.Context, issueID uuid.UUID, labe
 		return err
 	}
 
-	// Labels from another workspace are ignored rather than attached.
+	// Labels from another workspace, or scoped to another project, are ignored
+	// rather than attached.
 	for _, labelID := range labelIDs {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO issue_labels (issue_id, label_id) SELECT $1, $2 WHERE EXISTS (
 			SELECT 1 FROM issues label_issue JOIN labels l ON l.workspace_id = label_issue.workspace_id
-			WHERE label_issue.id = $1 AND l.id = $2 AND l.deleted_at IS NULL)`, issueID, labelID); err != nil {
+			WHERE label_issue.id = $1 AND l.id = $2 AND l.deleted_at IS NULL
+			AND (l.project_id IS NULL OR l.project_id = label_issue.project_id))`, issueID, labelID); err != nil {
 			return err
 		}
 	}
@@ -721,4 +724,34 @@ func (r *IssueRepository) GetSubscribedIssueIDs(ctx context.Context, issueIDs []
 
 func (r *IssueRepository) BeginTx(ctx context.Context) (*sqlx.Tx, error) {
 	return r.db.BeginTxx(ctx, nil)
+}
+
+// ErrLabelProjectMismatch is returned when a label is scoped to a project other
+// than the one the issue belongs to.
+var ErrLabelProjectMismatch = errors.New("label belongs to a different project")
+
+// ValidateLabelScope rejects project-scoped labels that do not belong to
+// projectID (the project of the issue the labels are about to be attached to).
+func (r *IssueRepository) ValidateLabelScope(ctx context.Context, projectID *uuid.UUID, labelIDs []uuid.UUID) error {
+	if len(labelIDs) == 0 {
+		return nil
+	}
+	var mismatched bool
+	err := r.db.GetContext(ctx, &mismatched, `SELECT EXISTS(SELECT 1 FROM labels WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL
+		AND project_id IS NOT NULL AND project_id IS DISTINCT FROM $2::uuid)`, pq.Array(labelIDs), projectID)
+	if err != nil {
+		return err
+	}
+	if mismatched {
+		return ErrLabelProjectMismatch
+	}
+	return nil
+}
+
+// DetachForeignProjectLabels removes the issue's labels that are scoped to a
+// project other than projectID, used when an issue moves between projects.
+func (r *IssueRepository) DetachForeignProjectLabels(ctx context.Context, issueID uuid.UUID, projectID *uuid.UUID) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM issue_labels il USING labels l WHERE il.issue_id = $1 AND l.id = il.label_id
+		AND l.project_id IS NOT NULL AND l.project_id IS DISTINCT FROM $2::uuid`, issueID, projectID)
+	return err
 }

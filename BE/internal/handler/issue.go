@@ -1017,6 +1017,10 @@ func toLabelResponse(l domain.Label) dto.LabelResponse {
 		s := l.ParentID.String()
 		resp.ParentID = &s
 	}
+	if l.ProjectID != nil {
+		s := l.ProjectID.String()
+		resp.ProjectID = &s
+	}
 	return resp
 }
 

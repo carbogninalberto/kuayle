@@ -19,8 +19,8 @@ func NewLabelRepository(db *sqlx.DB) *LabelRepository {
 }
 
 func (r *LabelRepository) Create(ctx context.Context, label *domain.Label) error {
-	query := `INSERT INTO labels (id, workspace_id, name, color, description, parent_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING created_at, updated_at`
-	return r.db.QueryRowContext(ctx, query, label.ID, label.WorkspaceID, label.Name, label.Color, label.Description, label.ParentID).Scan(&label.CreatedAt, &label.UpdatedAt)
+	query := `INSERT INTO labels (id, workspace_id, name, color, description, parent_id, project_id) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING created_at, updated_at`
+	return r.db.QueryRowContext(ctx, query, label.ID, label.WorkspaceID, label.Name, label.Color, label.Description, label.ParentID, label.ProjectID).Scan(&label.CreatedAt, &label.UpdatedAt)
 }
 
 func (r *LabelRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Label, error) {
@@ -32,9 +32,15 @@ func (r *LabelRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.La
 	return &label, err
 }
 
-func (r *LabelRepository) ListByWorkspace(ctx context.Context, workspaceID uuid.UUID) ([]domain.Label, error) {
+// ListByWorkspace returns every label of the workspace. With a projectID it
+// returns the workspace-wide labels plus that project's own.
+func (r *LabelRepository) ListByWorkspace(ctx context.Context, workspaceID uuid.UUID, projectID *uuid.UUID) ([]domain.Label, error) {
 	var labels []domain.Label
-	err := r.db.SelectContext(ctx, &labels, `SELECT * FROM labels WHERE workspace_id = $1 AND deleted_at IS NULL ORDER BY name`, workspaceID)
+	if projectID == nil {
+		err := r.db.SelectContext(ctx, &labels, `SELECT * FROM labels WHERE workspace_id = $1 AND deleted_at IS NULL ORDER BY name`, workspaceID)
+		return labels, err
+	}
+	err := r.db.SelectContext(ctx, &labels, `SELECT * FROM labels WHERE workspace_id = $1 AND (project_id IS NULL OR project_id = $2) AND deleted_at IS NULL ORDER BY name`, workspaceID, *projectID)
 	return labels, err
 }
 
@@ -48,8 +54,10 @@ func (r *LabelRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	return err
 }
 
-func (r *LabelRepository) ExistsByName(ctx context.Context, workspaceID uuid.UUID, name string) (bool, error) {
+// ExistsByName reports whether the name is taken within one scope: the
+// workspace-wide labels (projectID nil) or a single project's labels.
+func (r *LabelRepository) ExistsByName(ctx context.Context, workspaceID uuid.UUID, projectID *uuid.UUID, name string) (bool, error) {
 	var exists bool
-	err := r.db.GetContext(ctx, &exists, `SELECT EXISTS(SELECT 1 FROM labels WHERE workspace_id = $1 AND LOWER(name) = LOWER($2) AND deleted_at IS NULL)`, workspaceID, name)
+	err := r.db.GetContext(ctx, &exists, `SELECT EXISTS(SELECT 1 FROM labels WHERE workspace_id = $1 AND project_id IS NOT DISTINCT FROM $2::uuid AND LOWER(name) = LOWER($3) AND deleted_at IS NULL)`, workspaceID, projectID, name)
 	return exists, err
 }
