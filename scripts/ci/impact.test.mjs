@@ -131,7 +131,7 @@ test('mixed changes union their coverage; non-PR events retain the full original
     assert.equal(plan.devImages.length, 11);
     assert.equal(plan.securityImages.length, 12);
     // Releases build, scan and publish every runtime image once, in the publish job.
-    assert.deepEqual(plan.required.build, ['build', 'dev-machine-publish', 'dev-machine-manifests']);
+    assert.deepEqual(plan.required.build, ['release-source', 'build', 'dev-machine-publish', 'dev-machine-manifests']);
     assert.ok(plan.required.security.includes('docker-security'));
   }
   const pr = planForPaths(['.github/workflows/build.yml']);

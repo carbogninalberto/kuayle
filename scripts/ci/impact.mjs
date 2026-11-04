@@ -112,7 +112,7 @@ export function planForPaths(paths, event = 'pull_request') {
     security: { 'go-security': plan.backend, 'frontend-security': plan.frontend, 'docker-security': !pr, 'dev-machine-security': plan.securityImages.length > 0 },
     // Build & Push runs only for PRs and releases. A release builds, scans and
     // publishes every runtime image once in dev-machine-publish instead.
-    build: { build: !pr, 'dev-machine-images': pr && plan.devImages.length > 0, 'dev-machine-publish': !pr, 'dev-machine-manifests': !pr },
+    build: { 'release-source': !pr, build: !pr, 'dev-machine-images': pr && plan.devImages.length > 0, 'dev-machine-publish': !pr, 'dev-machine-manifests': !pr },
     readiness: { images: plan.releaseImages.length > 0 }
   };
   plan.jobs = Object.fromEntries(Object.entries(jobs).map(([scope, entries]) => [scope, Object.keys(entries)]));

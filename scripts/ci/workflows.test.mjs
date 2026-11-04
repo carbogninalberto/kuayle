@@ -36,15 +36,20 @@ for (const [scope, file] of Object.entries(workflows)) {
 
 test('release runtime checks consume refreshed source while PR checks survive skipped publishing', () => {
   const workflow = readFileSync(new URL('../../.github/workflows/build.yml', import.meta.url), 'utf8');
+  const source = workflow.split('  release-source:\n')[1].split('  build:\n')[0];
   const build = workflow.split('  build:\n')[1].split('  dev-machine-images:\n')[0];
   const runtime = workflow.split('  dev-machine-images:\n')[1].split('  result:\n')[0];
-  assert.ok(build.indexOf('run: node scripts/ci/upgrade-agent-clis.mjs') < build.indexOf('- name: Commit version bump'));
-  assert.match(build, /source_sha: \$\{\{ steps.source.outputs.sha \}\}/);
-  assert.match(build, /git add devmachine\/common\/install-agent-clis.sh devmachine\/\{agent,ide,headless\}\/Dockerfile/);
-  assert.match(runtime, /needs: \[changes, build\]/);
+  assert.ok(source.indexOf('run: node scripts/ci/upgrade-agent-clis.mjs') < source.indexOf('- name: Commit version bump'));
+  assert.match(source, /source_sha: \$\{\{ steps.source.outputs.sha \}\}/);
+  assert.match(source, /git add devmachine\/common\/install-agent-clis.sh devmachine\/\{agent,ide,headless\}\/Dockerfile/);
+  // Application images are built from the bumped commit, without repeating the bump.
+  assert.match(build, /needs: \[release-source\]/);
+  assert.match(build, /ref: \$\{\{ needs.release-source.outputs.source_sha \}\}/);
+  assert.doesNotMatch(build, /Commit version bump|git push/);
+  assert.match(runtime, /needs: \[changes, release-source\]/);
   assert.match(runtime, /!cancelled\(\)/);
-  assert.match(runtime, /github.event_name != 'release' \|\| needs.build.result == 'success'/);
-  assert.match(runtime, /ref: \$\{\{ needs.build.outputs.source_sha \|\| github.event.pull_request.head.sha \|\| github.sha \}\}/);
+  assert.match(runtime, /github.event_name != 'release' \|\| needs.release-source.result == 'success'/);
+  assert.match(runtime, /ref: \$\{\{ needs.release-source.outputs.source_sha \|\| github.event.pull_request.head.sha \|\| github.sha \}\}/);
 });
 
 test('releases publish the scanned runtime images the updater pulls; PR builds never push', () => {
@@ -60,12 +65,16 @@ test('releases publish the scanned runtime images the updater pulls; PR builds n
   // The pushed image is the one that passed the smoke tests and scan.
   assert.ok(action.indexOf('Scan native architecture image') > action.indexOf('Build native architecture image'));
   assert.match(publish, /github.event_name == 'release'/);
-  assert.match(publish, /needs.build.result == 'success'/);
+  // Runtime images build alongside the application images, not after them.
+  assert.match(publish, /needs: \[changes, release-source\]/);
+  assert.match(publish, /needs.release-source.result == 'success'/);
+  assert.doesNotMatch(publish, /needs.build|max-parallel/);
   assert.match(publish, /packages: write/);
   assert.ok(publish.indexOf('docker push') > publish.indexOf('uses: ./.github/actions/dev-machine-image'));
-  assert.match(publish, /ref: \$\{\{ needs.build.outputs.source_sha \}\}/);
+  assert.match(publish, /ref: \$\{\{ needs.release-source.outputs.source_sha \}\}/);
+  // Release tags appear only once the application images are published too.
   assert.match(manifests, /needs: \[changes, build, dev-machine-publish\]/);
-  assert.match(manifests, /needs.dev-machine-publish.result == 'success'/);
+  assert.match(manifests, /needs.build.result == 'success' && needs.dev-machine-publish.result == 'success'/);
   assert.match(manifests, /imagetools create/);
   assert.match(manifests, /-amd64.*-arm64/s);
   // Updater convention: Compose service NAME is published as kuayle-NAME.
