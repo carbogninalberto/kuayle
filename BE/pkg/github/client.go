@@ -196,23 +196,27 @@ type Repository struct {
 
 // PullRequest represents a GitHub pull request.
 type PullRequest struct {
-	ID        int64      `json:"id"`
-	NodeID    string     `json:"node_id"`
-	Number    int        `json:"number"`
-	Title     string     `json:"title"`
-	State     string     `json:"state"`
-	Draft     bool       `json:"draft"`
-	Merged    bool       `json:"merged"`
-	HTMLURL   string     `json:"html_url"`
-	Head      PRBranch   `json:"head"`
-	Base      PRBranch   `json:"base"`
-	User      GitHubUser `json:"user"`
-	Additions int        `json:"additions"`
-	Deletions int        `json:"deletions"`
-	MergedAt  *time.Time `json:"merged_at"`
-	ClosedAt  *time.Time `json:"closed_at"`
-	CreatedAt time.Time  `json:"created_at"`
-	UpdatedAt time.Time  `json:"updated_at"`
+	ID     int64  `json:"id"`
+	NodeID string `json:"node_id"`
+	Number int    `json:"number"`
+	Title  string `json:"title"`
+	State  string `json:"state"`
+	Draft  bool   `json:"draft"`
+	Merged bool   `json:"merged"`
+	// Mergeable is nil while GitHub is still computing it.
+	Mergeable      *bool      `json:"mergeable"`
+	MergeableState string     `json:"mergeable_state"`
+	ChangedFiles   int        `json:"changed_files"`
+	HTMLURL        string     `json:"html_url"`
+	Head           PRBranch   `json:"head"`
+	Base           PRBranch   `json:"base"`
+	User           GitHubUser `json:"user"`
+	Additions      int        `json:"additions"`
+	Deletions      int        `json:"deletions"`
+	MergedAt       *time.Time `json:"merged_at"`
+	ClosedAt       *time.Time `json:"closed_at"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
 }
 
 type PRBranch struct {
@@ -536,6 +540,8 @@ func (c *Client) CompareCommitsPage(token, owner, repo, base, head string, page 
 // history. TotalCommits can exceed len(Commits).
 type Comparison struct {
 	Status       string        `json:"status"`
+	AheadBy      int           `json:"ahead_by"`
+	BehindBy     int           `json:"behind_by"`
 	TotalCommits int           `json:"total_commits"`
 	Commits      []Commit      `json:"commits"`
 	Files        []CompareFile `json:"files"`
@@ -549,7 +555,13 @@ func (e *ErrMergeRefused) Error() string { return "GitHub refused the merge: " +
 
 // MergePullRequest squash-merges a pull request only if its head is still sha.
 func (c *Client) MergePullRequest(token, owner, repo string, number int, sha string) error {
-	payload, err := json.Marshal(map[string]string{"sha": sha, "merge_method": "squash"})
+	return c.MergePullRequestWithMethod(token, owner, repo, number, sha, "squash")
+}
+
+// MergePullRequestWithMethod merges with "merge", "squash" or "rebase" only if
+// the pull request's head is still sha.
+func (c *Client) MergePullRequestWithMethod(token, owner, repo string, number int, sha, method string) error {
+	payload, err := json.Marshal(map[string]string{"sha": sha, "merge_method": method})
 	if err != nil {
 		return err
 	}

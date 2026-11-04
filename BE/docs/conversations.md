@@ -742,3 +742,38 @@ the same `service.SystemUpdater` as Settings → Version → Upgrade; requests,
 refusals, starts and failures go to the audit log. The instance restarts during
 the run, so the approval card follows `/api/system/update-status` and the
 assistant follows progress with `get_instance_version`.
+
+### Pull request tools
+
+`get_pull_request`, `get_pull_request_checks` and `list_pull_request_comments`
+read the pull request Kuayle published for the issue's newest task (any task
+state) from GitHub now, for anyone who can see the issue. They report what blocks
+a merge with the next step instead of a generic error: a draft
+(`mark_pull_request_ready`), conflicts or a branch behind its base
+(`update_pull_request_branch`), failing checks with links to their logs and a
+summary (`follow_up_task`), and unresolved review threads, bot reviewers such as
+Codex included. A missing App permission, a deleted pull request and an
+unreachable GitHub each get their own message.
+
+`reply_to_review_comment`, `resolve_review_thread`, `update_pull_request_branch`
+and `mark_pull_request_ready` (`draft` true puts it back to draft) need approval
+(migration 107 adds the actions) and are bound to the task, repository and pull
+request number; the card shows the exact reply, the thread, or the head a branch
+update is pinned to. Like merging, they need a workspace owner/admin or the
+task's creator, checked when asking and again when approving, and every request,
+refusal, change and failure is audited. `update_pull_request_branch` asks the
+task agent to merge the base in its own checkout (a `follow_up_task` approval)
+when the user created the task and it awaits review, is blocked or failed; it
+uses GitHub's update-branch (pinned to the head the user saw) when that is
+requested or no agent can take it, and never for conflicts. The new head is
+recorded as for any head that moved (see
+[pull request heads](agent-tasks.md#pull-request-head-tracking)); the
+task's checkout fast-forwards to it when the task next publishes
+(`SyncCheckout`).
+
+`merge_pull_request` now merges with the repository's method from Settings →
+Development (`repository_merge_methods`, `GET/PUT /dev-machine-merge-methods`,
+admins only), otherwise the first method GitHub says the repository allows
+(squash, merge, rebase). The method is pinned in the approval; a configured method
+the repository disallows, a draft and a closed pull request are refused with
+their next step before asking.

@@ -5,6 +5,7 @@
 	import { previewSettingPayload } from '$lib/features/dev-machines/preview-setting';
 	import AgentDefaultsField from '$lib/features/dev-machines/AgentDefaultsField.svelte';
 	import AutomationsCard from '$lib/features/dev-machines/AutomationsCard.svelte';
+	import MergeMethodsCard from '$lib/features/dev-machines/MergeMethodsCard.svelte';
 	import { parseTestCommand, formatTestCommand } from '$lib/features/dev-machines/test-command';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
@@ -344,6 +345,7 @@
 		<div class="flex justify-end"><Button type="submit" disabled={saving}>{saving ? m['settings.saving']() : m['settings.dev_machines.save_policy']()}</Button></div>
 		</fieldset>
 	</form>
+	<MergeMethodsCard {slug} repositories={linkedRepositories} disabled={!canAdmin} />
 {/if}
 		</Tabs.Content>
 		{#if canAdmin}

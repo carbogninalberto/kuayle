@@ -464,3 +464,15 @@ function appendQueryParam(url: string, key: string, value: string): string {
 		return `${url}${separator}${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
 	}
 }
+
+export type MergeMethod = 'merge' | 'squash' | 'rebase';
+
+/** The merge method chosen in the development settings, by repository full name. */
+export function getMergeMethods(slug: string): Promise<Record<string, MergeMethod>> {
+	return api.get(`${base(slug)}/dev-machine-merge-methods`);
+}
+
+/** Sets a repository's merge method; an empty method restores the default. */
+export function setMergeMethod(slug: string, repository: string, method: MergeMethod | ''): Promise<unknown> {
+	return api.put(`${base(slug)}/dev-machine-merge-methods`, { repository, merge_method: method });
+}

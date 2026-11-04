@@ -1109,7 +1109,7 @@ test('asks for approval before merging the reviewed pull request', async ({ page
 	await page.goto('/test/assistant?conversation=chat-1');
 	await expect(page.getByText('Merge pull request #12 for ENG-1?', { exact: true })).toBeVisible();
 	await expect(
-		page.getByText('Squash-merges the reviewed commit 0123456 of Dark mode in acme/app.', { exact: false })
+		page.getByText('Merges (squash) the reviewed commit 0123456 of Dark mode in acme/app.', { exact: false })
 	).toBeVisible();
 	await expect(page.getByRole('link', { name: 'Open pull request' })).toHaveAttribute(
 		'href',
@@ -1119,6 +1119,113 @@ test('asks for approval before merging the reviewed pull request', async ({ page
 	await expect(page.getByText('Merged the pull request for ENG-1', { exact: true })).toBeVisible();
 	await expect(page.getByRole('button', { name: /Coding agent on ENG-1/ })).toHaveCount(0);
 	expect(state.decisions).toEqual(['approve']);
+});
+
+const pullRequestPayload = {
+	identifier: 'ENG-1',
+	title: 'Dark mode',
+	task_id: 'task-9',
+	repository: 'acme/app',
+	pull_request: 12,
+	pull_request_url: 'https://github.com/acme/app/pull/12',
+	draft: false
+};
+
+const pullRequestCards: {
+	name: string;
+	payload: Record<string, unknown>;
+	title: string;
+	text: string[];
+	done: string;
+}[] = [
+	{
+		name: 'reply_to_review_comment',
+		payload: {
+			comment_id: 55,
+			thread_id: 'T1',
+			author: 'chatgpt-codex-connector',
+			bot: true,
+			path: 'src/app.go',
+			excerpt: 'Possible nil dereference when the cache is empty',
+			body: 'Fixed in 1a2b3c4: the cache is now checked first.'
+		},
+		title: 'Reply to chatgpt-codex-connector on pull request #12 for ENG-1?',
+		text: [
+			'chatgpt-codex-connector is a bot reviewer.',
+			'Possible nil dereference when the cache is empty',
+			'Fixed in 1a2b3c4: the cache is now checked first.'
+		],
+		done: 'Changed the pull request for ENG-1'
+	},
+	{
+		name: 'resolve_review_thread',
+		payload: { thread_id: 'T1', author: 'maintainer', path: 'src/app.go', comment_id: 55, excerpt: 'Add a test' },
+		title: 'Resolve the review thread on src/app.go for ENG-1?',
+		text: ['Add a test'],
+		done: 'Changed the pull request for ENG-1'
+	},
+	{
+		name: 'update_pull_request_branch',
+		payload: { head: '0123456789abcdef0123456789abcdef01234567', base: 'main', behind: 3 },
+		title: 'Update the branch of pull request #12 for ENG-1?',
+		text: ['only while its head is still 0123456', 'It cannot resolve conflicts'],
+		done: 'Changed the pull request for ENG-1'
+	},
+	{
+		name: 'mark_pull_request_ready',
+		payload: { draft: false },
+		title: 'Mark pull request #12 for ENG-1 ready for review?',
+		text: ['Changes the draft state of Dark mode in acme/app on GitHub.'],
+		done: 'Changed the pull request for ENG-1'
+	},
+	{
+		name: 'mark_pull_request_ready',
+		payload: { draft: true },
+		title: 'Put pull request #12 for ENG-1 back to draft?',
+		text: ['Changes the draft state of Dark mode in acme/app on GitHub.'],
+		done: 'Changed the pull request for ENG-1'
+	}
+];
+
+for (const card of pullRequestCards) {
+	test(`${card.name} (${JSON.stringify(card.payload.draft ?? '')}) waits for approval and shows exactly what changes`, async ({
+		page
+	}) => {
+		const state = await fixture(page);
+		machineApproval(state, card.name, { ...pullRequestPayload, ...card.payload });
+		await page.goto('/test/assistant?conversation=chat-1');
+		await expect(page.getByText(card.title, { exact: true })).toBeVisible();
+		for (const text of card.text) await expect(page.getByText(text, { exact: false })).toBeVisible();
+		await expect(page.getByRole('link', { name: 'Open pull request' })).toHaveAttribute(
+			'href',
+			'https://github.com/acme/app/pull/12'
+		);
+		// Nothing is decided before the user answers.
+		expect(state.decisions).toEqual([]);
+		await page.getByRole('button', { name: 'Approve', exact: true }).click();
+		await expect(page.getByText(card.done, { exact: true })).toBeVisible();
+		expect(state.decisions).toEqual(['approve']);
+	});
+}
+
+test('denying a pull request change records the denial and changes nothing', async ({ page }) => {
+	const state = await fixture(page);
+	machineApproval(state, 'resolve_review_thread', { ...pullRequestPayload, thread_id: 'T1', path: 'a.go' });
+	await page.goto('/test/assistant?conversation=chat-1');
+	await page.getByRole('button', { name: 'Deny', exact: true }).click();
+	await expect(page.getByText('Denied changing the pull request for ENG-1', { exact: true })).toBeVisible();
+	expect(state.decisions).toEqual(['deny']);
+});
+
+test('a failed pull request change shows GitHub’s reason and the next step', async ({ page }) => {
+	const state = await fixture(page);
+	machineApproval(state, 'update_pull_request_branch', { ...pullRequestPayload, head: '0123456789abcdef', base: 'main' });
+	state.approvals[0].status = 'failed' as any;
+	(state.approvals[0] as any).error =
+		'GitHub refused: merge conflict. If the branch has conflicts or moved, ask for update_pull_request_branch again so the task agent merges the base itself';
+	await page.goto('/test/assistant?conversation=chat-1');
+	await expect(page.getByText(/Could not change the pull request for ENG-1: GitHub refused: merge conflict/)).toBeVisible();
+	await expect(page.getByText(/task agent merges the base itself/)).toBeVisible();
 });
 
 test('merge approval shows the commit others pushed after the task was published', async ({ page }) => {
