@@ -129,7 +129,10 @@ jobs:
 
       - name: Extract version
         id: version
-        run: echo "version=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+        run: |
+          version="${{ github.event.release.tag_name }}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "number=${version#v}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4.1.0
@@ -167,7 +170,9 @@ jobs:
           context: ./BE
           file: ./BE/Dockerfile
           pull: true
-          build-args: SECURITY_REFRESH=${{ steps.security-refresh.outputs.day }}
+          build-args: |
+            SECURITY_REFRESH=${{ steps.security-refresh.outputs.day }}
+            VERSION=${{ steps.version.outputs.number }}
           push: ${{ github.event_name == 'release' }}
           tags: |
             ${{ env.IMAGE_PREFIX }}/kuayle-api:latest

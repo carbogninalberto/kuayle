@@ -83,3 +83,12 @@ test('releases publish the scanned runtime images the updater pulls; PR builds n
   const packages = planForPaths([], 'release').devImages.map((image) => image.package);
   assert.deepEqual(packages.sort(), ['machine-gateway', 'machine-manager', ...services].map((name) => `kuayle-${name}`).sort());
 });
+
+test('release API image is built with the release number', () => {
+  // Release Readiness runs the built binary to verify the stamp itself.
+  const workflow = readFileSync(new URL('../../.github/workflows/build.yml', import.meta.url), 'utf8');
+  const api = workflow.split('- name: Build & push API\n')[1].split('- name: Build & push Web\n')[0];
+  assert.match(api, /VERSION=\$\{\{ steps.version.outputs.number \}\}/);
+  const build = workflow.split('  build:\n')[1].split('  dev-machine-images:\n')[0];
+  assert.match(build, /echo "number=\$\{version#v\}" >> "\$GITHUB_OUTPUT"/);
+});

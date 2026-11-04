@@ -31,6 +31,10 @@ func main() {
 	log.SetFormatter(&log.TextFormatter{FullTimestamp: true})
 
 	// Handle CLI subcommands
+	if len(os.Args) > 1 && os.Args[1] == "version" {
+		fmt.Println(buildinfo.Version)
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "migrate" {
 		runMigrate(os.Args[2:])
 		return

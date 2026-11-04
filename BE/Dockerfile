@@ -3,7 +3,9 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -o server ./cmd/server
+# The release the assistant reports; release builds pass it, local builds report "dev".
+ARG VERSION=dev
+RUN CGO_ENABLED=0 go build -ldflags "-X github.com/kuayle/kuayle-backend/internal/buildinfo.Version=${VERSION}" -o server ./cmd/server
 
 FROM alpine:3.23
 ARG SECURITY_REFRESH=initial

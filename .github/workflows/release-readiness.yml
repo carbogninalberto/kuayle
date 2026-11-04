@@ -56,7 +56,10 @@ jobs:
           pull: true
           push: false
           load: true
-          build-args: SECURITY_REFRESH=${{ steps.source.outputs.day }}
+          # VERSION stamps the API image (the all-in-one image uses UI/package.json).
+          build-args: |
+            SECURITY_REFRESH=${{ steps.source.outputs.day }}
+            VERSION=0.0.0-readiness
           tags: kuayle-readiness-${{ matrix.image.id }}:${{ matrix.architecture }}
           labels: org.opencontainers.image.revision=${{ steps.source.outputs.sha }}
           cache-from: type=gha,scope=readiness-${{ matrix.image.id }}-${{ matrix.architecture }}
@@ -77,6 +80,7 @@ jobs:
         env:
           IMAGE: kuayle-readiness-${{ matrix.image.id }}:${{ matrix.architecture }}
           KIND: ${{ matrix.image.id }}
+          EXPECTED_VERSION: 0.0.0-readiness
         run: python3 -u selfhosting/image_smoke_test.py "$IMAGE" "$KIND" 2>&1 | tee evidence/runtime.log
 
       - name: Scan release candidate

@@ -7,6 +7,7 @@ run their real server and migrations against PostgreSQL 17 and Redis 7.
 """
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -89,6 +90,13 @@ def main():
                        "-e", "REDIS_URL=redis://redis:6379",
                        "-e", "JWT_SECRET=disposable-image-smoke-secret-32-characters",
                        "-e", "ENVIRONMENT=production"]
+                # The assistant reports this stamped release: the all-in-one image
+                # reads UI/package.json, the API image its VERSION build argument.
+                stamped = docker("run", "--rm", "--entrypoint", "/app/server", image, "version")
+                expected_release = (json.loads((Path(__file__).resolve().parents[1] / "UI" / "package.json").read_text())["version"]
+                                    if kind == "all-in-one" else os.environ.get("EXPECTED_VERSION", "dev"))
+                assert stamped == expected_release, f"server version {stamped!r}, expected {expected_release!r}"
+                print(f"PASS server reports release {stamped}")
                 print(docker("run", "--rm", "--network", name, *env,
                              "--entrypoint", "/app/server", image, "migrate", "up"))
                 schema = docker("exec", database, "psql", "-U", "postgres", "-d", "smoke", "-Atc",
