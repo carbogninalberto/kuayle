@@ -256,6 +256,54 @@ class UpdateFlowTests(unittest.TestCase):
         self.assertTrue(self.activated)
         self.assertEqual(self.removed(), [])
 
+    def test_repair_uses_the_recorded_rollback_release(self):
+        self.updater.state.write_text(json.dumps({'release': 'v1.2.3', 'images': {}, 'rollback_release': 'v1.2.2'}))
+        self.image_listing([m.REGISTRY + '/kuayle-api:v1.2.1', m.REGISTRY + '/kuayle-api:v1.2.2'])
+        with patch('sys.stdout', io.StringIO()):
+            self.updater.update()
+        self.assertTrue(self.activated)
+        self.assertEqual(self.removed(), [m.REGISTRY + '/kuayle-api:v1.2.1'])
+        self.assertEqual(json.loads(self.updater.state.read_text())['rollback_release'], 'v1.2.2')
+
+    def test_upgrade_records_the_replaced_release_for_rollback(self):
+        self.updater.state.write_text(json.dumps({'release': 'v1.2.2', 'rollback_release': 'v1.2.1'}))
+        self.image_listing([])
+        with patch('sys.stdout', io.StringIO()):
+            self.updater.update()
+        self.assertEqual(json.loads(self.updater.state.read_text())['rollback_release'], 'v1.2.2')
+
+    def test_failed_cleanup_is_retried_by_a_healthy_repeat_run(self):
+        images = {name: repository + '@sha256:new' for name, repository in m.IMAGES.items()}
+        for name, image in images.items():
+            self.raw['services'][name]['image'] = image
+        containers = [{'Image': repository, 'Config': {'Labels': {'com.docker.compose.service': name}}, 'State': {'Health': {'Status': 'healthy'}}} for name, repository in m.IMAGES.items()]
+        self.updater.state.write_text(json.dumps({'release': 'v1.2.3', 'images': images, 'rollback_release': 'v1.2.2', 'image_services': ['backend']}))
+        self.image_listing([m.REGISTRY + '/kuayle-api:v1.2.1', 'local/instance-backend:v1.0.0', m.REGISTRY + '/kuayle-api:v1.2.2'])
+        listed = self.updater.run
+        def run(args, **kwargs):
+            if args[:2] == ['docker', 'inspect']:
+                return json.dumps(containers)
+            return listed(args, **kwargs)
+        self.updater.run = run
+        with patch('sys.stdout', io.StringIO()):
+            self.updater.update()
+        self.assertFalse(self.activated)
+        self.assertEqual(sorted(self.removed()), [m.REGISTRY + '/kuayle-api:v1.2.1', 'local/instance-backend:v1.0.0'])
+
+    def test_healthy_run_without_a_recorded_rollback_removes_nothing(self):
+        images = {name: repository + '@sha256:new' for name, repository in m.IMAGES.items()}
+        for name, image in images.items():
+            self.raw['services'][name]['image'] = image
+        containers = [{'Image': repository, 'Config': {'Labels': {'com.docker.compose.service': name}}, 'State': {'Health': {'Status': 'healthy'}}} for name, repository in m.IMAGES.items()]
+        self.updater.state.write_text(json.dumps({'release': 'v1.2.3', 'images': images}))
+        self.image_listing([m.REGISTRY + '/kuayle-api:v1.2.1'])
+        listed = self.updater.run
+        self.updater.run = lambda args, **kw: json.dumps(containers) if args[:2] == ['docker', 'inspect'] else listed(args, **kw)
+        with patch('sys.stdout', io.StringIO()):
+            self.updater.update()
+        self.assertFalse(self.activated)
+        self.assertEqual(self.removed(), [])
+
     def test_first_install_keeps_only_the_installed_release(self):
         self.image_listing([m.REGISTRY + '/kuayle-api:v1.2.2', m.REGISTRY + '/kuayle-api:v1.2.3'])
         with patch('sys.stdout', io.StringIO()):

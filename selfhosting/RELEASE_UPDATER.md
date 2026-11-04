@@ -84,7 +84,9 @@ recreate the updater service.
    a retired service's images still age out) with an exact `vX.Y.Z` tag. The
    installed and previous releases stay for rollback; `latest`,
    custom tags, other projects' images and images a container still uses are
-   kept. A removal failure is logged and never fails the completed update.
+   kept. A removal failure is logged and never fails the completed update; the
+   rollback release is recorded as `rollback_release`, so a later run that finds
+   the release healthy finishes any cleanup that did not complete.
 
 Schema/config architecture changes beyond the reference service contract require
 operator review. This flow preserves existing instance settings rather than
