@@ -93,32 +93,45 @@ func (s *GitHubService) githubCompareCommits(ctx context.Context, ws uuid.UUID, 
 	if err != nil {
 		return nil, err
 	}
-	commits, err := client.CompareCommits(token, owner, name, published, head)
+	comparison, err := client.CompareCommits(token, owner, name, published, head)
 	if err != nil {
 		return nil, err
 	}
+	// Trees come from the two commits themselves: the compare result is one
+	// page, so its last commit is not necessarily the head.
 	publishedCommit, err := client.GetCommit(token, owner, name, published)
 	if err != nil {
 		return nil, err
 	}
-	headTree := publishedCommit.Commit.Tree.SHA
-	if len(commits) > 0 {
-		headTree = commits[len(commits)-1].Commit.Tree.SHA
+	headCommit, err := client.GetCommit(token, owner, name, head)
+	if err != nil {
+		return nil, err
 	}
-	return headChange(commits, publishedCommit.Commit.Tree.SHA != headTree), nil
+	treeChanged := publishedCommit.Commit.Tree.SHA == "" || publishedCommit.Commit.Tree.SHA != headCommit.Commit.Tree.SHA
+	return headChange(comparison, treeChanged), nil
 }
 
-// headChange summarizes commits added after publication. Merge commits are
-// merges of another branch (normally the base) into the task branch; when every
-// added commit is one, the change is labelled a base merge.
-func headChange(commits []gh.Commit, treeChanged bool) *domain.PullRequestHeadChange {
-	change := &domain.PullRequestHeadChange{Kind: "base_merge", TreeChanged: treeChanged, Commits: []domain.PullRequestHeadCommit{}}
+// headChange summarizes commits added after publication. When every added
+// commit has several parents the change is a "merge" (normally the base branch
+// merged in; the branch is not verified, so the tree decides whether it is
+// harmless). A history that no longer contains the published commit is
+// "rewritten". An empty comparison cannot say what changed, so the tree is
+// reported as changed.
+func headChange(comparison *gh.Comparison, treeChanged bool) *domain.PullRequestHeadChange {
+	commits := comparison.Commits
+	change := &domain.PullRequestHeadChange{Kind: "merge", TreeChanged: treeChanged, Commits: []domain.PullRequestHeadCommit{}}
 	if len(commits) == 0 {
-		change.Kind = "pushed"
+		change.Kind, change.TreeChanged = "pushed", true
+	}
+	if comparison.TotalCommits > len(commits) {
+		change.Truncated = true
+	}
+	if comparison.Status != "ahead" {
+		change.Kind = "rewritten"
 	}
 	for i, commit := range commits {
 		merge := len(commit.Parents) > 1
-		if !merge {
+		if !merge && change.Kind == "merge" {
 			change.Kind = "pushed"
 		}
 		if i >= maxHeadChangeCommits {

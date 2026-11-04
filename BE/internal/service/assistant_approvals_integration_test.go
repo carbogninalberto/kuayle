@@ -386,7 +386,7 @@ func TestMergeApprovalShowsAndMergesTheHeadOthersPushed(t *testing.T) {
 	started, err := f.service.ResolveApproval(f.ctx, f.ws, a.Conversation.ID, delegation.ID, true)
 	require.NoError(t, err)
 	work := &mergeWorkFake{target: &repository.MergeTarget{TaskID: *started.TaskID, IssueID: delegation.IssueID, CreatorID: f.user, Repository: "acme/app", Number: 108, URL: "https://github.com/acme/app/pull/108", Commit: "15af2c3a"}}
-	change := &domain.PullRequestHeadChange{Kind: "base_merge", Commits: []domain.PullRequestHeadCommit{{SHA: "3220dbc9", Author: "maintainer", Subject: "Merge branch 'main'", Merge: true}}}
+	change := &domain.PullRequestHeadChange{Kind: "merge", Commits: []domain.PullRequestHeadCommit{{SHA: "3220dbc9", Author: "maintainer", Subject: "Merge branch 'main'", Merge: true}}}
 	heads := &headsFake{head: domain.PullRequestHead{SHA: "3220dbc9", Change: change}}
 	merger := &mergerFake{}
 	f.service.tools.SetAgentWork(work)

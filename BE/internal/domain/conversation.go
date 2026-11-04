@@ -167,9 +167,11 @@ type MergePayload struct {
 }
 
 // PullRequestHeadChange describes what others added to a task's pull request
-// since Kuayle published it. Kind is "base_merge" when every extra commit merges
-// a branch into the task branch, otherwise "pushed". TreeChanged is false when
-// the head's tree equals the published commit's.
+// since Kuayle published it. Kind is "merge" when every extra commit has several
+// parents (usually the base branch merged in; the branch is not verified),
+// "rewritten" when the published commit is no longer in the head's history, and
+// otherwise "pushed". TreeChanged is false only when the head's tree is known to
+// equal the published commit's.
 type PullRequestHeadChange struct {
 	Kind        string                  `json:"kind"`
 	TreeChanged bool                    `json:"tree_changed"`

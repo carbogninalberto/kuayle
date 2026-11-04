@@ -160,7 +160,11 @@ func (r *AgentTaskRepository) FollowUpTarget(ctx context.Context, ws, issue uuid
 func latestAgentReview(findings int) string {
 	// A review of a commit that is no longer the pull request's head is stale:
 	// its findings are withheld so they are not repeated as current.
-	const stale = `EXISTS(SELECT 1 FROM pull_request_heads h WHERE h.workspace_id=ar.workspace_id AND h.repository_full_name=ar.repository_full_name AND h.pull_request_number=ar.pull_request_number AND h.head_sha<>ar.commit_sha)`
+	// It is stale when GitHub's recorded head differs, or when the task has
+	// since published a newer commit (which needs no recorded head, so a missed
+	// webhook cannot keep an old review current).
+	const stale = `(EXISTS(SELECT 1 FROM pull_request_heads h WHERE h.workspace_id=ar.workspace_id AND h.repository_full_name=ar.repository_full_name AND h.pull_request_number=ar.pull_request_number AND h.head_sha<>ar.commit_sha)
+ OR COALESCE((SELECT g.commit_sha<>ar.commit_sha FROM dev_machine_git_refs g WHERE g.agent_run_id=t.run_id AND g.workspace_id=t.workspace_id AND g.ref_type='commit' AND g.source='published' AND g.commit_sha IS NOT NULL ORDER BY g.created_at DESC LIMIT 1),false))`
 	return fmt.Sprintf(`(SELECT json_build_object('review_task_id',ar.task_id,'state',rt.state,'agent',ar.provider,'verdict',ar.verdict,'commit',ar.commit_sha,'findings',CASE WHEN %[2]s THEN NULL ELSE left(ar.findings,%[1]d) END,'pull_request_comment',ar.comment_state,'stale',%[2]s,'stale_note',CASE WHEN %[2]s THEN 'The pull request head moved after this review; its findings are withheld. Offer request_agent_review to review the new head.' END)
  FROM agent_reviews ar JOIN agent_tasks rt ON rt.id=ar.task_id WHERE ar.reviewed_task_id=t.id AND ar.workspace_id=t.workspace_id ORDER BY ar.created_at DESC LIMIT 1) AS agent_review`, findings, stale)
 }

@@ -1157,7 +1157,7 @@ test('merge approval shows the commit others pushed after the task was published
 				commit: '3220dbc9aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 				published_commit: '15af2c3abbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
 				head_change: {
-					kind: 'base_merge',
+					kind: 'merge',
 					tree_changed: false,
 					commits: [
 						{
@@ -1180,7 +1180,7 @@ test('merge approval shows the commit others pushed after the task was published
 	// The card names the exact commit that merges, not the one Kuayle published.
 	await expect(page.getByText('reviewed commit 3220dbc of Dark mode', { exact: false })).toBeVisible();
 	const change = page.getByTestId('merge-head-change');
-	await expect(change).toContainText('Since Kuayle published 15af2c3, the base branch was merged into this pull request.');
+	await expect(change).toContainText('Since Kuayle published 15af2c3, a branch was merged into this pull request.');
 	await expect(change).toContainText('The files are identical to what Kuayle published.');
 	await expect(change).toContainText("3220dbc by maintainer: Merge branch 'main'");
 	await page.getByRole('button', { name: 'Approve', exact: true }).click();

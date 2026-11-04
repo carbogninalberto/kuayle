@@ -276,9 +276,11 @@
 									<!-- Commits others pushed after publication: authors and whether the files changed. -->
 									<div class="space-y-1 text-xs text-muted-foreground" data-testid="merge-head-change">
 										<p>
-											{change.kind === 'base_merge'
-												? m['assistant.merge_head_base_merge']({ published })
-												: m['assistant.merge_head_pushed']({ published })}
+											{change.kind === 'merge'
+												? m['assistant.merge_head_merge']({ published })
+												: change.kind === 'rewritten'
+													? m['assistant.merge_head_rewritten']({ published })
+													: m['assistant.merge_head_pushed']({ published })}
 											{change.tree_changed
 												? m['assistant.merge_head_tree_changed']()
 												: m['assistant.merge_head_tree_same']()}

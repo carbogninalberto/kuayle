@@ -130,7 +130,7 @@ export interface MergePayload {
 }
 /** What others added to the pull request after Kuayle published it. */
 export interface PullRequestHeadChange {
-	kind: 'base_merge' | 'pushed';
+	kind: 'merge' | 'pushed' | 'rewritten';
 	tree_changed: boolean;
 	commits: { sha: string; author: string; subject: string; merge?: boolean }[];
 	truncated?: boolean;

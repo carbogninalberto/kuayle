@@ -43,13 +43,14 @@ func TestCompareCommitsAndGetCommitReadAuthorsParentsAndTrees(t *testing.T) {
 	c := &Client{httpClient: &http.Client{Transport: commentTransport(func(r *http.Request) (*http.Response, error) {
 		switch r.URL.Path {
 		case "/repos/owner/repo/compare/aaa...bbb":
-			return commentResponse(200, `{"commits":[{"sha":"bbb","commit":{"message":"Merge branch 'main'\n\nbody","author":{"name":"Maint"},"tree":{"sha":"t1"}},"author":{"login":"maintainer"},"parents":[{"sha":"aaa"},{"sha":"mmm"}]}]}`), nil
+			return commentResponse(200, `{"status":"ahead","total_commits":1,"commits":[{"sha":"bbb","commit":{"message":"Merge branch 'main'\n\nbody","author":{"name":"Maint"},"tree":{"sha":"t1"}},"author":{"login":"maintainer"},"parents":[{"sha":"aaa"},{"sha":"mmm"}]}]}`), nil
 		case "/repos/owner/repo/commits/aaa":
 			return commentResponse(200, `{"sha":"aaa","commit":{"tree":{"sha":"t1"}}}`), nil
 		}
 		return commentResponse(404, `{}`), nil
 	})}}
-	commits, err := c.CompareCommits("secret", "owner", "repo", "aaa", "bbb")
+	comparison, err := c.CompareCommits("secret", "owner", "repo", "aaa", "bbb")
+	commits := comparison.Commits
 	require.NoError(t, err)
 	require.Len(t, commits, 1)
 	require.Len(t, commits[0].Parents, 2)

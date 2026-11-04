@@ -467,15 +467,22 @@ func (c *Client) GetCommit(token, owner, repo, sha string) (*Commit, error) {
 
 // CompareCommits lists the commits reachable from head but not from base,
 // oldest first (GitHub returns at most 250).
-func (c *Client) CompareCommits(token, owner, repo, base, head string) ([]Commit, error) {
-	var comparison struct {
-		Commits []Commit `json:"commits"`
-	}
+func (c *Client) CompareCommits(token, owner, repo, base, head string) (*Comparison, error) {
+	var comparison Comparison
 	endpoint := fmt.Sprintf("%s/repos/%s/%s/compare/%s...%s?per_page=100", githubAPIBaseURL, owner, repo, url.PathEscape(base), url.PathEscape(head))
 	if err := c.doGet(token, endpoint, &comparison); err != nil {
 		return nil, err
 	}
-	return comparison.Commits, nil
+	return &comparison, nil
+}
+
+// Comparison is the first page of commits between two refs. Status is "ahead"
+// only when head descends from base; "diverged" or "behind" mean rewritten
+// history. TotalCommits can exceed len(Commits).
+type Comparison struct {
+	Status       string   `json:"status"`
+	TotalCommits int      `json:"total_commits"`
+	Commits      []Commit `json:"commits"`
 }
 
 // ErrMergeRefused carries GitHub's reason for refusing a merge, such as branch

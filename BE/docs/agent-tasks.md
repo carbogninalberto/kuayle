@@ -1266,8 +1266,11 @@ requested and again when it is approved, before authorization-dependent effects.
 
 The card carries the head as `commit`, the published commit as
 `published_commit`, and `head_change`: the commits added since (authors,
-subjects) and whether the tree changed. When every added commit is a merge the
-kind is `base_merge`. Approving merges exactly `commit`, still pinned as the
+subjects) and whether the tree changed, read from the two commits' trees (an
+unknown comparison counts as changed). Kind is `merge` when every added commit
+has several parents (the merged branch is not verified, so the tree decides
+whether it is harmless), `rewritten` when the published commit is no longer in
+the head's history, otherwise `pushed`. Approving merges exactly `commit`, still pinned as the
 GitHub merge `sha`; if the head moved after the card was shown the approval fails
 with a message asking to ask again, and a push that lands after the fresh read is
 refused by GitHub with the same clear message. The merge is refused too when the
@@ -1276,7 +1279,8 @@ task's published commit changed.
 Publication first fetches the task branch from GitHub with a credential used
 only in a fresh repository, and fast-forwards the checkout to commits others
 pushed. It never force-pushes; diverged histories fail the publication with the
-reason. An agent review whose commit is no longer the recorded head is stale:
+reason. An agent review is stale when its commit is no longer the recorded head
+or the task has published a newer commit:
 `get_agent_work` withholds its findings and tells the assistant to offer
 `request_agent_review` for the new head. Re-running a review still pins the
 commit Kuayle published; reviewing others' commits needs the checkout updated by
