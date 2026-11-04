@@ -24,7 +24,10 @@ WORKDIR /app
 COPY BE/go.mod BE/go.sum ./
 RUN go mod download
 COPY BE/ .
-RUN CGO_ENABLED=0 go build -o server ./cmd/server
+# The release shown by the assistant and stamped from the UI package version.
+COPY UI/package.json /tmp/ui-package.json
+RUN VERSION=$(sed -n 's/^[[:space:]]*"version": "\([^"]*\)".*/\1/p' /tmp/ui-package.json | head -1) && \
+    CGO_ENABLED=0 go build -ldflags "-X github.com/kuayle/kuayle-backend/internal/buildinfo.Version=${VERSION}" -o server ./cmd/server
 
 # Stage 4: Final image
 FROM alpine:3.23

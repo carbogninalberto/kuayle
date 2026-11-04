@@ -15,6 +15,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/kuayle/kuayle-backend/internal/agent"
+	"github.com/kuayle/kuayle-backend/internal/buildinfo"
 	"github.com/kuayle/kuayle-backend/internal/config"
 	"github.com/kuayle/kuayle-backend/internal/handler"
 	mw "github.com/kuayle/kuayle-backend/internal/middleware"
@@ -174,6 +175,10 @@ func main() {
 	assistantApprovals.SetMachines(repository.NewAgentTaskRepository(db), devMachineSvc)
 	assistantApprovals.SetToolSettings(assistantToolSettings)
 	assistantApprovals.SetCustomTools(assistantCustomTools)
+	assistantSystem := service.NewAssistantSystem(service.NewSystemUpdater(cfg.SystemUpdaterURL, cfg.SystemUpdaterToken), cfg.IsSysAdmin, buildinfo.Version)
+	assistantTools.SetSystem(assistantSystem)
+	assistantSystem.SetHealthCheck(func(ctx context.Context) error { return db.PingContext(ctx) })
+	assistantApprovals.SetSystem(assistantSystem)
 	conversationSvc.SetApprovals(assistantApprovals)
 	agentTaskH := handler.NewAgentTaskHandler(agentTaskSvc)
 	agentMessageSvc := service.NewAgentMessageService(repository.NewAgentMessageRepository(db), hub)
@@ -191,6 +196,7 @@ func main() {
 	analyticsH := handler.NewAnalyticsHandler(analyticsRepo)
 	systemH := handler.NewSystemHandler(cfg.SystemUpdaterURL, cfg.SystemUpdaterToken, cfg.IsSysAdmin)
 	systemH.OnUpdateStarted(func() { hub.BroadcastSystem(realtime.Event{Type: "system.update.started"}) })
+	assistantSystem.OnUpdateStarted(func() { hub.BroadcastSystem(realtime.Event{Type: "system.update.started"}) })
 	webhookRepo := repository.NewWebhookRepository(db)
 	webhookSvc := service.NewWebhookService(webhookRepo, cfg.JWTSecret)
 	webhookH := handler.NewWebhookHandler(webhookSvc)

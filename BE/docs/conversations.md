@@ -724,3 +724,21 @@ Telegram is now an additional private channel for these same records. See the
 [Telegram contract](telegram.md) for encrypted settings, numeric user-ID allowlists,
 one-time account linking, webhook deduplication and delivery guarantees. Migration
 54 and its delivery tables are required by the current conversation writer.
+
+## Instance version and upgrade from chat
+
+`get_instance_version` reads the installed release (stamped into the binary from
+`UI/package.json` by the Dockerfile; `dev` for unstamped builds), the latest
+non-prerelease in the release manifest and a short changelog. Only instance
+administrators (`SYSADMIN_IDS`) also see the updater's state, error and, once an
+upgrade ended, the health check and final version.
+
+`upgrade_instance` needs approval and belongs to no issue (migration 105 makes
+`conversation_approvals.issue_id` optional for this action only). Asking refuses
+non-administrators, an unconfigured, unreachable or busy updater, a development
+build and an instance already on the latest release, each with its next step.
+Approving re-checks administrator rights and the installed version, then starts
+the same `service.SystemUpdater` as Settings → Version → Upgrade; requests,
+refusals, starts and failures go to the audit log. The instance restarts during
+the run, so the approval card follows `/api/system/update-status` and the
+assistant follows progress with `get_instance_version`.

@@ -1471,6 +1471,63 @@ test('a check run waits for approval and shows the exact command it runs', async
 	expect(state.decisions).toEqual(['approve']);
 });
 
+test('an instance upgrade waits for approval, shows both versions and follows the updater', async ({ page }) => {
+	const state = await fixture(page);
+	const answered = { ...reply, status: 'completed', content: 'Upgrade approval is pending.' };
+	state.messages = [userMessage, answered];
+	state.tools = [
+		{
+			id: 'tool-50',
+			conversation_id: 'chat-1',
+			message_id: answered.id,
+			sequence: 0,
+			call_id: 'call_tool-50',
+			name: 'upgrade_instance',
+			input: {},
+			status: 'completed',
+			output: { approval_id: 'approval-50', status: 'pending_user_approval' },
+			created_at: conversation.created_at
+		}
+	];
+	state.approvals = [
+		{
+			id: 'approval-50',
+			conversation_id: 'chat-1',
+			tool_call_id: 'tool-50',
+			actor_id: 'user-1',
+			issue_id: '00000000-0000-0000-0000-000000000000',
+			action: 'upgrade_instance',
+			payload: { current_version: '0.2.8', latest_version: '0.3.0', changelog: 'v0.3.0: Faster boards' },
+			status: 'pending',
+			expires_at: '2026-10-27T10:00:00Z',
+			created_at: conversation.created_at,
+			updated_at: conversation.created_at
+		}
+	] as any;
+	let polls = 0;
+	await page.route('**/api/system/update-status', (route) => {
+		polls += 1;
+		return route.fulfill({
+			json:
+				polls < 2
+					? { enabled: true, running: true, state: 'running' }
+					: { enabled: true, running: false, state: 'succeeded' }
+		});
+	});
+	await page.goto('/test/assistant?conversation=chat-1');
+	await expect(page.getByText('Upgrade Kuayle from 0.2.8 to 0.3.0?', { exact: true })).toBeVisible();
+	await expect(page.getByText('v0.3.0: Faster boards', { exact: true })).toBeVisible();
+	// Nothing is requested from the updater, and nothing runs, before approval.
+	expect(polls).toBe(0);
+	expect(state.decisions).toEqual([]);
+	await page.getByRole('button', { name: 'Approve', exact: true }).click();
+	await expect(page.getByText('Upgrade to 0.3.0 started; the instance restarts, follow it below', { exact: true })).toBeVisible();
+	await expect(
+		page.getByText('Upgrade finished and the health check passed. Reload to run the new version.', { exact: true })
+	).toBeVisible();
+	expect(state.decisions).toEqual(['approve']);
+});
+
 test('message_task says where the message went without asking for approval', async ({ page }) => {
 	const state = await fixture(page);
 	const answered = { ...reply, status: 'completed', content: 'I told the agent.' };

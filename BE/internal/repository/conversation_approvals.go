@@ -27,7 +27,7 @@ func (r *ConversationRepository) CreateApproval(ctx context.Context, a domain.Co
 	}
 	approval := &domain.ConversationApproval{}
 	if err = tx.GetContext(ctx, approval, `INSERT INTO conversation_approvals(conversation_id,tool_call_id,action,actor_id,issue_id,payload,status,expires_at)
- SELECT $1,$2,$3,$4,$5,$6,'pending',now()+make_interval(secs=>$7) FROM conversation_tool_calls WHERE id=$2 AND message_id=$8 AND status='running' RETURNING *`,
+ SELECT $1,$2,$3,$4,NULLIF($5::uuid,'00000000-0000-0000-0000-000000000000'::uuid),$6,'pending',now()+make_interval(secs=>$7) FROM conversation_tool_calls WHERE id=$2 AND message_id=$8 AND status='running' RETURNING *`,
 		a.Conversation.ID, toolCallID, action, a.Conversation.CreatorID, issueID, payload, ttl.Seconds(), a.Message.ID); errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrConversationConflict
 	} else if err != nil {
