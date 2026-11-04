@@ -83,3 +83,15 @@ test('releases publish the scanned runtime images the updater pulls; PR builds n
   const packages = planForPaths([], 'release').devImages.map((image) => image.package);
   assert.deepEqual(packages.sort(), ['machine-gateway', 'machine-manager', ...services].map((name) => `kuayle-${name}`).sort());
 });
+
+test('release API image is stamped with the release version the assistant reports', () => {
+  const workflow = readFileSync(new URL('../../.github/workflows/build.yml', import.meta.url), 'utf8');
+  const dockerfile = readFileSync(new URL('../../BE/Dockerfile', import.meta.url), 'utf8');
+  const api = workflow.split('- name: Build & push API\n')[1].split('- name: Build & push Web\n')[0];
+  assert.match(api, /VERSION=\$\{\{ steps.version.outputs.number \}\}/);
+  const build = workflow.split('  build:\n')[1].split('  dev-machine-images:\n')[0];
+  assert.match(build, /echo "number=\$\{version#v\}" >> "\$GITHUB_OUTPUT"/);
+  // Unstamped local builds keep reporting "dev".
+  assert.match(dockerfile, /^ARG VERSION=dev$/m);
+  assert.match(dockerfile, /-ldflags "-X github.com\/kuayle\/kuayle-backend\/internal\/buildinfo.Version=\$\{VERSION\}"/);
+});
