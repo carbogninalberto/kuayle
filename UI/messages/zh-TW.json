@@ -1057,7 +1057,6 @@
 	"settings.labels.scope_workspace": "所有專案",
 	"settings.labels.title": "標籤",
 	"settings.labels.updated": "標籤已更新",
-	"settings.labels.workspace_group": "所有專案",
 	"settings.licenses.desc": "從 UI 套件鎖定檔案自動生成。包含與應用捆綁的直接和間接開源套件。",
 	"settings.licenses.dev_dep": "開發依賴",
 	"settings.licenses.license": "授權",

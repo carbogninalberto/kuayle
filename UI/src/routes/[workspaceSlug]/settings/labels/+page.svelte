@@ -20,7 +20,7 @@
 	// Workspace-wide labels first, then one group per project that has labels.
 	const groups = $derived.by(() => {
 		const out: { id: string | null; name: string; labels: Label[] }[] = [
-			{ id: null, name: m['settings.labels.workspace_group'](), labels: labels.filter((l) => !l.project_id) }
+			{ id: null, name: m['settings.labels.scope_workspace'](), labels: labels.filter((l) => !l.project_id) }
 		];
 		for (const project of projects) {
 			const own = labels.filter((l) => l.project_id === project.id);

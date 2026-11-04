@@ -1057,7 +1057,6 @@
 	"settings.labels.scope_workspace": "All projects",
 	"settings.labels.title": "Labels",
 	"settings.labels.updated": "Label updated",
-	"settings.labels.workspace_group": "All projects",
 	"settings.licenses.desc": "Automatically generated from the UI package lockfile. Includes direct and transitive open source packages bundled with the app.",
 	"settings.licenses.dev_dep": "Development dependency",
 	"settings.licenses.license": "License",

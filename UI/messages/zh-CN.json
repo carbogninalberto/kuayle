@@ -1057,7 +1057,6 @@
 	"settings.labels.scope_workspace": "所有项目",
 	"settings.labels.title": "标签",
 	"settings.labels.updated": "标签已更新",
-	"settings.labels.workspace_group": "所有项目",
 	"settings.licenses.desc": "从 UI 包锁定文件自动生成。包含与应用捆绑的直接和间接开源包。",
 	"settings.licenses.dev_dep": "开发依赖",
 	"settings.licenses.license": "许可证",
