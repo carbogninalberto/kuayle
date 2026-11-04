@@ -7,6 +7,8 @@ CREATE TABLE pull_request_heads (
     repository_full_name TEXT NOT NULL,
     pull_request_number INT NOT NULL CHECK (pull_request_number > 0),
     head_sha TEXT NOT NULL CHECK (head_sha ~ '^([0-9a-f]{40}|[0-9a-f]{64})$'),
+    -- When GitHub (or a fresh read) observed this head; an older observation never replaces a newer one.
+    observed_at TIMESTAMPTZ NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (workspace_id, repository_full_name, pull_request_number)
 );

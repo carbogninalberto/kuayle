@@ -2208,6 +2208,7 @@
 	"assistant.merge_head_pushed": "自 Kuayle 发布 {published} 以来,其他人向此拉取请求推送了提交。",
 	"assistant.merge_head_tree_same": "文件与 Kuayle 发布的内容相同。",
 	"assistant.merge_head_tree_changed": "文件与 Kuayle 发布的内容不同或无法比较;批准前请检查新的提交。",
+	"assistant.merge_head_review_stale": "之前的评审结果不包含这些提交，视为已过期；请让助手对新的 head 重新运行代理评审。",
 	"assistant.merge_head_commit": "{commit}({author}):{subject}",
 	"assistant.merge_head_truncated": "还有 {count} 个提交未显示 — 批准前请在 GitHub 上检查此拉取请求。",
 	"assistant.merge_approving": "正在合并 {identifier} 的拉取请求",

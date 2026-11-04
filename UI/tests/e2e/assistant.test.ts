@@ -1182,6 +1182,7 @@ test('merge approval shows the commit others pushed after the task was published
 	const change = page.getByTestId('merge-head-change');
 	await expect(change).toContainText('Since Kuayle published 15af2c3, a branch was merged into this pull request.');
 	await expect(change).toContainText('The files are identical to what Kuayle published.');
+	await expect(page.getByTestId('merge-review-stale')).toContainText('re-run the agent review');
 	await expect(change).toContainText("3220dbc by maintainer: Merge branch 'main'");
 	await page.getByRole('button', { name: 'Approve', exact: true }).click();
 	expect(state.decisions).toEqual(['approve']);

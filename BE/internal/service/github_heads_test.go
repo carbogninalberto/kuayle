@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -16,7 +17,7 @@ type headStoreFake struct {
 	err      error
 }
 
-func (f *headStoreFake) RecordPullRequestHead(_ context.Context, _ uuid.UUID, _ string, _ int, sha string) error {
+func (f *headStoreFake) RecordPullRequestHead(_ context.Context, _ uuid.UUID, _ string, _ int, sha string, _ time.Time) error {
 	f.recorded = append(f.recorded, sha)
 	return f.err
 }
@@ -116,4 +117,20 @@ func TestHeadChangePropagatesBaseLookupFailures(t *testing.T) {
 	head := gh.Commit{SHA: "a1", Parents: []gh.CommitRef{{SHA: "a"}, {SHA: "b"}}}
 	_, err := headChange(&gh.Comparison{Status: "ahead"}, &head, "a", false, func(string) (bool, error) { return false, errors.New("boom") })
 	require.EqualError(t, err, "boom")
+}
+
+func TestReadPullRequestHeadRecordsWithoutComparing(t *testing.T) {
+	store := &headStoreFake{}
+	s := &GitHubService{
+		heads:               store,
+		readPullRequestHead: func(context.Context, uuid.UUID, string, int) (string, error) { return "3220dbc9", nil },
+		compareCommits: func(context.Context, uuid.UUID, string, int, string, string) (*domain.PullRequestHeadChange, error) {
+			t.Fatal("the head read must not run the comparison")
+			return nil, nil
+		},
+	}
+	head, err := s.ReadPullRequestHead(context.Background(), uuid.New(), "acme/app", 108)
+	require.NoError(t, err)
+	require.Equal(t, "3220dbc9", head)
+	require.Equal(t, []string{"3220dbc9"}, store.recorded)
 }

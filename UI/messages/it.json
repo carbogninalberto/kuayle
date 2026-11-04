@@ -2208,6 +2208,7 @@
 	"assistant.merge_head_pushed": "Dopo la pubblicazione di Kuayle ({published}), altri hanno inviato commit a questa pull request.",
 	"assistant.merge_head_tree_same": "I file sono identici a quelli pubblicati da Kuayle.",
 	"assistant.merge_head_tree_changed": "I file differiscono da quelli pubblicati da Kuayle o non è stato possibile confrontarli; controlla i nuovi commit prima di approvare.",
+	"assistant.merge_head_review_stale": "I risultati di revisione precedenti non coprono questi commit e sono considerati obsoleti; chiedi all'assistente di rieseguire la revisione dell'agente sul nuovo head.",
 	"assistant.merge_head_commit": "{commit} di {author}: {subject}",
 	"assistant.merge_head_truncated": "{count} commit in più non mostrati — controlla la pull request su GitHub prima di approvare.",
 	"assistant.merge_approving": "Merge della pull request per {identifier} in corso",

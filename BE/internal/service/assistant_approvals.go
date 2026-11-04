@@ -94,6 +94,7 @@ func (s *AssistantApprovals) SetMerging(targets approvalMergeTargets, members as
 // and describes any commits added after the published one.
 type pullRequestHeadReader interface {
 	InspectPullRequestHead(ctx context.Context, ws uuid.UUID, repository string, number int, published string) (*domain.PullRequestHead, error)
+	ReadPullRequestHead(ctx context.Context, ws uuid.UUID, repository string, number int) (string, error)
 }
 
 // SetPullRequestHeads makes approving a merge read the head from GitHub again,
@@ -234,12 +235,12 @@ func (s *AssistantApprovals) merge(ctx context.Context, ws, conversation uuid.UU
 	if s.heads != nil {
 		// Read the head again now that the approver is known to be allowed to
 		// merge: anything pushed since the user saw the card is not approved.
-		head, err := s.heads.InspectPullRequestHead(ctx, ws, target.Repository, target.Number, published)
+		head, err := s.heads.ReadPullRequestHead(ctx, ws, target.Repository, target.Number)
 		if err != nil {
 			return nil, err
 		}
-		if head.SHA != payload.Commit {
-			return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, fmt.Sprintf("The pull request head moved to %s after approval was requested; ask again to review the new commit", shortSHA(head.SHA)))
+		if head != payload.Commit {
+			return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, fmt.Sprintf("The pull request head moved to %s after approval was requested; ask again to review the new commit", shortSHA(head)))
 		}
 	}
 	// The merge is pinned to the commit the user saw, so a push that lands after

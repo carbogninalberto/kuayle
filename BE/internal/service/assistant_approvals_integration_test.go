@@ -365,10 +365,15 @@ type headsFake struct {
 	head  domain.PullRequestHead
 	err   error
 	reads []string
+	// inspectErr fails only the detailed comparison, not the head read.
+	inspectErr error
 }
 
 func (f *headsFake) InspectPullRequestHead(_ context.Context, _ uuid.UUID, _ string, _ int, published string) (*domain.PullRequestHead, error) {
 	f.reads = append(f.reads, published)
+	if f.inspectErr != nil {
+		return nil, f.inspectErr
+	}
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -458,7 +463,30 @@ func TestMergeApprovalShowsAndMergesTheHeadOthersPushed(t *testing.T) {
 	require.Equal(t, "approved", result.Status)
 	require.Equal(t, []string{"acme/app#108@3220dbc9"}, merger.merged, "merged at the commit shown, not the published one")
 
+	// The comparison is only for the card: once the user approved, a failure of
+	// it must not block the merge, while a failed head read must.
+	a, approval = request()
+	heads.inspectErr = errors.New("compare failed")
+	merger.merged = nil
+	result = resolve(a, approval)
+	require.Equal(t, "approved", result.Status)
+	require.Equal(t, []string{"acme/app#108@3220dbc9"}, merger.merged)
+	heads.inspectErr = nil
+
+	a, approval = request()
+	heads.err = errors.New("GitHub not connected")
+	_, err = f.service.ResolveApproval(f.ctx, f.ws, a.Conversation.ID, approval.ID, true)
+	require.ErrorContains(t, err, "GitHub not connected")
+	heads.err = nil
+
 	heads.err = errors.New("GitHub not connected")
 	_, _, err = f.service.tools.prepareMerge(f.ctx, f.ws, f.user, `{"identifier":"ENG-1"}`)
 	require.ErrorContains(t, err, "could not read the pull request from GitHub")
+}
+
+func (f *headsFake) ReadPullRequestHead(context.Context, uuid.UUID, string, int) (string, error) {
+	if f.err != nil {
+		return "", f.err
+	}
+	return f.head.SHA, nil
 }

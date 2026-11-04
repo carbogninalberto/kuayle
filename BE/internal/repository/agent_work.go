@@ -165,15 +165,15 @@ func latestAgentReview(findings int) string {
 	// webhook cannot keep an old review current).
 	const stale = `(EXISTS(SELECT 1 FROM pull_request_heads h WHERE h.workspace_id=ar.workspace_id AND h.repository_full_name=ar.repository_full_name AND h.pull_request_number=ar.pull_request_number AND h.head_sha<>ar.commit_sha)
  OR COALESCE((SELECT g.commit_sha<>ar.commit_sha FROM dev_machine_git_refs g WHERE g.agent_run_id=t.run_id AND g.workspace_id=t.workspace_id AND g.ref_type='commit' AND g.source='published' AND g.commit_sha IS NOT NULL ORDER BY g.created_at DESC LIMIT 1),false))`
-	return fmt.Sprintf(`(SELECT json_build_object('review_task_id',ar.task_id,'state',rt.state,'agent',ar.provider,'verdict',ar.verdict,'commit',ar.commit_sha,'findings',CASE WHEN %[2]s THEN NULL ELSE left(ar.findings,%[1]d) END,'pull_request_comment',ar.comment_state,'stale',%[2]s,'stale_note',CASE WHEN %[2]s THEN 'The pull request head moved after this review; its findings are withheld. Offer request_agent_review to review the new head.' END)
+	return fmt.Sprintf(`(SELECT json_build_object('review_task_id',ar.task_id,'state',rt.state,'agent',ar.provider,'verdict',ar.verdict,'commit',ar.commit_sha,'findings',CASE WHEN %[2]s THEN NULL ELSE left(ar.findings,%[1]d) END,'pull_request_comment',ar.comment_state,'stale',%[2]s,'stale_note',CASE WHEN %[2]s THEN 'The pull request head moved after this review; its findings are withheld (this is not an absence of findings). Do not repeat earlier findings; propose request_agent_review for the new head.' END)
  FROM agent_reviews ar JOIN agent_tasks rt ON rt.id=ar.task_id WHERE ar.reviewed_task_id=t.id AND ar.workspace_id=t.workspace_id ORDER BY ar.created_at DESC LIMIT 1) AS agent_review`, findings, stale)
 }
 
 // RecordPullRequestHead stores the head GitHub reports for the pull request of
 // an agent task. Pull requests Kuayle did not publish are ignored.
-func (r *AgentTaskRepository) RecordPullRequestHead(ctx context.Context, ws uuid.UUID, repository string, number int, sha string) error {
-	_, err := r.db.ExecContext(ctx, `INSERT INTO pull_request_heads(workspace_id,repository_full_name,pull_request_number,head_sha)
- SELECT $1,$2,$3,$4 WHERE EXISTS (SELECT 1 FROM dev_machine_git_refs g WHERE g.workspace_id=$1 AND g.repository_full_name=$2 AND g.pull_request_number=$3 AND g.ref_type='pull_request' AND g.source='published')
- ON CONFLICT (workspace_id,repository_full_name,pull_request_number) DO UPDATE SET head_sha=EXCLUDED.head_sha,updated_at=now()`, ws, repository, number, sha)
+func (r *AgentTaskRepository) RecordPullRequestHead(ctx context.Context, ws uuid.UUID, repository string, number int, sha string, observed time.Time) error {
+	_, err := r.db.ExecContext(ctx, `INSERT INTO pull_request_heads(workspace_id,repository_full_name,pull_request_number,head_sha,observed_at)
+ SELECT $1,$2,$3,$4,$5 WHERE EXISTS (SELECT 1 FROM dev_machine_git_refs g WHERE g.workspace_id=$1 AND g.repository_full_name=$2 AND g.pull_request_number=$3 AND g.ref_type='pull_request' AND g.source='published')
+ ON CONFLICT (workspace_id,repository_full_name,pull_request_number) DO UPDATE SET head_sha=EXCLUDED.head_sha,observed_at=EXCLUDED.observed_at,updated_at=now() WHERE EXCLUDED.observed_at>=pull_request_heads.observed_at`, ws, repository, number, sha, observed)
 	return err
 }

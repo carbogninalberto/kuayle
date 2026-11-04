@@ -694,6 +694,7 @@ type ghWebhookPR struct {
 		Additions int        `json:"additions"`
 		Deletions int        `json:"deletions"`
 		MergedAt  *time.Time `json:"merged_at"`
+		UpdatedAt time.Time  `json:"updated_at"`
 		ClosedAt  *time.Time `json:"closed_at"`
 		Body      string     `json:"body"`
 	} `json:"pull_request"`
@@ -783,7 +784,7 @@ func (s *GitHubService) processPullRequestEvent(ctx context.Context, payload []b
 	switch event.Action {
 	case "opened", "reopened", "synchronize":
 		if s.heads != nil && event.PullRequest.Head.SHA != "" {
-			if err := s.heads.RecordPullRequestHead(ctx, inst.WorkspaceID, repo.FullName, event.PullRequest.Number, event.PullRequest.Head.SHA); err != nil {
+			if err := s.heads.RecordPullRequestHead(ctx, inst.WorkspaceID, repo.FullName, event.PullRequest.Number, event.PullRequest.Head.SHA, event.PullRequest.UpdatedAt); err != nil {
 				return fmt.Errorf("recording pull request head: %w", err)
 			}
 		}

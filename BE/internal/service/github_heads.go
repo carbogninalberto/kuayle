@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -13,7 +14,7 @@ import (
 const maxHeadChangeCommits = 20
 
 type pullRequestHeadStore interface {
-	RecordPullRequestHead(ctx context.Context, ws uuid.UUID, repository string, number int, sha string) error
+	RecordPullRequestHead(ctx context.Context, ws uuid.UUID, repository string, number int, sha string, observed time.Time) error
 }
 
 // SetPullRequestHeads lets webhooks and merge checks record the head GitHub
@@ -22,22 +23,33 @@ func (s *GitHubService) SetPullRequestHeads(heads pullRequestHeadStore) {
 	s.heads = heads
 }
 
-// InspectPullRequestHead reads the pull request's head from GitHub right now,
-// records it, and when it is not the published commit describes the commits
-// others added: their authors and whether the tree changed.
-func (s *GitHubService) InspectPullRequestHead(ctx context.Context, ws uuid.UUID, repository string, number int, published string) (*domain.PullRequestHead, error) {
+// ReadPullRequestHead reads only the pull request's head commit from GitHub
+// right now and records it. Merging an approved request needs nothing more, so
+// a failure of the detailed comparison cannot block it.
+func (s *GitHubService) ReadPullRequestHead(ctx context.Context, ws uuid.UUID, repository string, number int) (string, error) {
 	read := s.readPullRequestHead
 	if read == nil {
 		read = s.githubPullRequestHead
 	}
 	head, err := read(ctx, ws, repository, number)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	if s.heads != nil {
-		if err = s.heads.RecordPullRequestHead(ctx, ws, repository, number, head); err != nil {
-			return nil, err
+		if err = s.heads.RecordPullRequestHead(ctx, ws, repository, number, head, time.Now()); err != nil {
+			return "", err
 		}
+	}
+	return head, nil
+}
+
+// InspectPullRequestHead reads the pull request's head from GitHub right now,
+// records it, and when it is not the published commit describes the commits
+// others added: their authors and whether the tree changed.
+func (s *GitHubService) InspectPullRequestHead(ctx context.Context, ws uuid.UUID, repository string, number int, published string) (*domain.PullRequestHead, error) {
+	head, err := s.ReadPullRequestHead(ctx, ws, repository, number)
+	if err != nil {
+		return nil, err
 	}
 	result := &domain.PullRequestHead{SHA: head}
 	if head == published {

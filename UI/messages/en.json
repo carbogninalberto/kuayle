@@ -2208,6 +2208,7 @@
 	"assistant.merge_head_pushed": "Since Kuayle published {published}, others pushed commits to this pull request.",
 	"assistant.merge_head_tree_same": "The files are identical to what Kuayle published.",
 	"assistant.merge_head_tree_changed": "The files differ from what Kuayle published, or could not be compared; review the new commits before approving.",
+	"assistant.merge_head_review_stale": "Earlier review results do not cover these commits and are treated as stale; ask the assistant to re-run the agent review on the new head.",
 	"assistant.merge_head_commit": "{commit} by {author}: {subject}",
 	"assistant.merge_head_truncated": "{count} more commits not shown — inspect the pull request on GitHub before approving.",
 	"assistant.merge_approving": "Merging the pull request for {identifier}",

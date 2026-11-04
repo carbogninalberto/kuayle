@@ -286,6 +286,7 @@
 												? m['assistant.merge_head_tree_changed']()
 												: m['assistant.merge_head_tree_same']()}
 										</p>
+										<p data-testid="merge-review-stale">{m['assistant.merge_head_review_stale']()}</p>
 										<ul class="list-disc space-y-0.5 pl-4">
 											{#each change.commits as commit (commit.sha)}
 												<li class="break-words">
