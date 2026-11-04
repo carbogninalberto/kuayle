@@ -30,7 +30,7 @@ func TestInspectPullRequestHeadRecordsTheFreshHeadAndDescribesWhatChanged(t *tes
 		readPullRequestHead: func(context.Context, uuid.UUID, string, int) (string, error) {
 			return "3220dbc9", nil
 		},
-		compareCommits: func(_ context.Context, _ uuid.UUID, _, published, head string) (*domain.PullRequestHeadChange, error) {
+		compareCommits: func(_ context.Context, _ uuid.UUID, _ string, _ int, published, head string) (*domain.PullRequestHeadChange, error) {
 			compared = [2]string{published, head}
 			return change, nil
 		},
@@ -61,38 +61,59 @@ func TestInspectPullRequestHeadFailsWhenGitHubCannotBeRead(t *testing.T) {
 	require.Empty(t, store.recorded)
 }
 
-func TestHeadChangeLabelsABaseMergeAndReportsTreeChanges(t *testing.T) {
-	merge := gh.Commit{SHA: "3220dbc9", Commit: gh.CommitData{Message: "Merge branch 'main' into kuayle/kua-66\n\nbody"}, Author: &gh.GitHubUser{Login: "maintainer"}, Parents: []gh.CommitRef{{SHA: "a"}, {SHA: "b"}}}
-	change := headChange(&gh.Comparison{Status: "ahead", TotalCommits: 1, Commits: []gh.Commit{merge}}, false)
+func baseOnly(reachable ...string) func(string) (bool, error) {
+	return func(sha string) (bool, error) {
+		for _, r := range reachable {
+			if r == sha {
+				return true, nil
+			}
+		}
+		return false, nil
+	}
+}
+
+func TestHeadChangeLabelsABaseMergeWithItsBroughtInCommits(t *testing.T) {
+	// KUA-66: main was merged into the branch. The compare list also holds the
+	// main commits the merge brought in, each with a single parent.
+	merge := gh.Commit{SHA: "3220dbc9", Commit: gh.CommitData{Message: "Merge branch 'main' into kuayle/kua-66\n\nbody"}, Author: &gh.GitHubUser{Login: "maintainer"}, Parents: []gh.CommitRef{{SHA: "15af2c3a"}, {SHA: "m2"}}}
+	m1 := gh.Commit{SHA: "m1", Parents: []gh.CommitRef{{SHA: "m0"}}}
+	m2 := gh.Commit{SHA: "m2", Parents: []gh.CommitRef{{SHA: "m1"}}}
+	comparison := &gh.Comparison{Status: "ahead", TotalCommits: 3, Commits: []gh.Commit{m1, m2, merge}}
+	change, err := headChange(comparison, &merge, "15af2c3a", false, baseOnly("m2"))
+	require.NoError(t, err)
 	require.Equal(t, "merge", change.Kind)
 	require.False(t, change.TreeChanged)
 	require.Equal(t, []domain.PullRequestHeadCommit{{SHA: "3220dbc9", Author: "maintainer", Subject: "Merge branch 'main' into kuayle/kua-66", Merge: true}}, change.Commits)
 
-	push := gh.Commit{SHA: "f00d", Commit: gh.CommitData{Message: "Fix typo", Author: gh.CommitAuthor{Name: "Dev"}}, Parents: []gh.CommitRef{{SHA: "a"}}}
-	change = headChange(&gh.Comparison{Status: "ahead", TotalCommits: 2, Commits: []gh.Commit{merge, push}}, true)
-	require.Equal(t, "pushed", change.Kind, "a commit that is not a merge is a change to the task")
+	// The merged-in parent is not on the base branch: it is someone's work.
+	change, err = headChange(comparison, &merge, "15af2c3a", true, baseOnly())
+	require.NoError(t, err)
+	require.Equal(t, "pushed", change.Kind)
 	require.True(t, change.TreeChanged)
-	require.Equal(t, "Dev", change.Commits[1].Author)
-
-	many := make([]gh.Commit, maxHeadChangeCommits+5)
-	for i := range many {
-		many[i] = merge
-	}
-	change = headChange(&gh.Comparison{Status: "ahead", TotalCommits: 300, Commits: many}, false)
-	require.Len(t, change.Commits, maxHeadChangeCommits)
-	require.True(t, change.Truncated)
 }
 
-func TestHeadChangeReportsRewrittenHistoryAndUnknownTrees(t *testing.T) {
-	merge := gh.Commit{SHA: "a1", Parents: []gh.CommitRef{{SHA: "a"}, {SHA: "b"}}}
-	change := headChange(&gh.Comparison{Status: "diverged", TotalCommits: 1, Commits: []gh.Commit{merge}}, false)
+func TestHeadChangeListsOnlyCommitsAddedSinceTheTruncatedFirstPage(t *testing.T) {
+	push := gh.Commit{SHA: "f00d", Commit: gh.CommitData{Message: "Fix typo", Author: gh.CommitAuthor{Name: "Dev"}}, Parents: []gh.CommitRef{{SHA: "15af2c3a"}}}
+	change, err := headChange(&gh.Comparison{Status: "ahead", TotalCommits: 1, Commits: []gh.Commit{push}}, &push, "15af2c3a", true, baseOnly())
+	require.NoError(t, err)
+	require.Equal(t, "pushed", change.Kind, "a commit that is not a merge is a change to the task")
+	require.Equal(t, "Dev", change.Commits[0].Author)
+
+	// Head missing from a truncated first page still anchors the chain.
+	change, err = headChange(&gh.Comparison{Status: "ahead", TotalCommits: 300, Commits: []gh.Commit{{SHA: "old"}}}, &push, "15af2c3a", false, baseOnly())
+	require.NoError(t, err)
+	require.Equal(t, []string{"f00d"}, []string{change.Commits[0].SHA})
+}
+
+func TestHeadChangeReportsRewrittenHistory(t *testing.T) {
+	head := gh.Commit{SHA: "a1", Parents: []gh.CommitRef{{SHA: "a"}, {SHA: "b"}}}
+	change, err := headChange(&gh.Comparison{Status: "diverged", TotalCommits: 1, Commits: []gh.Commit{head}}, &head, "15af2c3a", false, baseOnly("b"))
+	require.NoError(t, err)
 	require.Equal(t, "rewritten", change.Kind, "a history without the published commit is not a push on top of it")
+}
 
-	change = headChange(&gh.Comparison{Status: "ahead"}, false)
-	require.True(t, change.TreeChanged, "nothing to compare is not evidence that the files are unchanged")
-	require.Equal(t, "pushed", change.Kind)
-
-	change = headChange(&gh.Comparison{Status: "ahead", TotalCommits: 150, Commits: []gh.Commit{merge}}, false)
-	require.True(t, change.Truncated)
-	require.False(t, change.TreeChanged, "the tree comes from the head commit, not the truncated list")
+func TestHeadChangePropagatesBaseLookupFailures(t *testing.T) {
+	head := gh.Commit{SHA: "a1", Parents: []gh.CommitRef{{SHA: "a"}, {SHA: "b"}}}
+	_, err := headChange(&gh.Comparison{Status: "ahead"}, &head, "a", false, func(string) (bool, error) { return false, errors.New("boom") })
+	require.EqualError(t, err, "boom")
 }

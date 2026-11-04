@@ -47,7 +47,7 @@ func (s *GitHubService) InspectPullRequestHead(ctx context.Context, ws uuid.UUID
 	if compare == nil {
 		compare = s.githubCompareCommits
 	}
-	if result.Change, err = compare(ctx, ws, repository, published, head); err != nil {
+	if result.Change, err = compare(ctx, ws, repository, number, published, head); err != nil {
 		return nil, err
 	}
 	return result, nil
@@ -88,18 +88,20 @@ func (s *GitHubService) githubPullRequestHead(ctx context.Context, ws uuid.UUID,
 	return pull.Head.SHA, nil
 }
 
-func (s *GitHubService) githubCompareCommits(ctx context.Context, ws uuid.UUID, repository, published, head string) (*domain.PullRequestHeadChange, error) {
+// maxCompareFilePages bounds file listing; GitHub caps a comparison at 300 files.
+const maxCompareFilePages = 3
+
+func (s *GitHubService) githubCompareCommits(ctx context.Context, ws uuid.UUID, repository string, number int, published, head string) (*domain.PullRequestHeadChange, error) {
 	client, token, owner, name, err := s.repositoryClient(ctx, ws, repository)
 	if err != nil {
 		return nil, err
 	}
-	comparison, err := client.CompareCommits(token, owner, name, published, head)
+	pull, err := client.GetPullRequest(token, owner, name, number)
 	if err != nil {
 		return nil, err
 	}
-	// Trees come from the two commits themselves: the compare result is one
-	// page, so its last commit is not necessarily the head.
-	publishedCommit, err := client.GetCommit(token, owner, name, published)
+	base := pull.Base.Ref
+	comparison, err := client.CompareCommits(token, owner, name, published, head)
 	if err != nil {
 		return nil, err
 	}
@@ -107,35 +109,92 @@ func (s *GitHubService) githubCompareCommits(ctx context.Context, ws uuid.UUID, 
 	if err != nil {
 		return nil, err
 	}
-	treeChanged := publishedCommit.Commit.Tree.SHA == "" || publishedCommit.Commit.Tree.SHA != headCommit.Commit.Tree.SHA
-	return headChange(comparison, treeChanged), nil
+	inBase := func(sha string) (bool, error) {
+		c, err := client.CompareCommits(token, owner, name, base, sha)
+		if err != nil {
+			return false, err
+		}
+		return c.Status == "behind" || c.Status == "identical", nil
+	}
+	// The PR's own files: what the branch changes relative to the base branch,
+	// before and after. Unequal or unreadable file sets count as a change.
+	prFiles := func(sha string) (map[string]string, bool) {
+		files := map[string]string{}
+		for page := 1; page <= maxCompareFilePages; page++ {
+			c, err := client.CompareCommitsPage(token, owner, name, base, sha, page)
+			if err != nil {
+				return nil, false
+			}
+			for _, f := range c.Files {
+				files[f.Filename] = f.SHA
+			}
+			if len(c.Files) < 100 {
+				return files, len(files) < 300
+			}
+		}
+		return nil, false
+	}
+	before, okBefore := prFiles(published)
+	after, okAfter := prFiles(head)
+	filesChanged := !okBefore || !okAfter || len(before) != len(after)
+	if !filesChanged {
+		for f, sha := range before {
+			if after[f] != sha {
+				filesChanged = true
+				break
+			}
+		}
+	}
+	return headChange(comparison, headCommit, published, filesChanged, inBase)
 }
 
-// headChange summarizes commits added after publication. When every added
-// commit has several parents the change is a "merge" (normally the base branch
-// merged in; the branch is not verified, so the tree decides whether it is
-// harmless). A history that no longer contains the published commit is
-// "rewritten". An empty comparison cannot say what changed, so the tree is
-// reported as changed.
-func headChange(comparison *gh.Comparison, treeChanged bool) *domain.PullRequestHeadChange {
-	commits := comparison.Commits
-	change := &domain.PullRequestHeadChange{Kind: "merge", TreeChanged: treeChanged, Commits: []domain.PullRequestHeadCommit{}}
-	if len(commits) == 0 {
-		change.Kind, change.TreeChanged = "pushed", true
+// headChange summarizes the commits added after publication. Only commits on
+// the head's first-parent chain back to the published commit are listed: the
+// commits a merge brings in from the base branch are reachable from head too,
+// but they are not what was added to the task. The change is a "merge" when
+// every such commit merges in only commits already on the base branch, "pushed"
+// when someone committed work on the branch, and "rewritten" when the history no
+// longer contains the published commit. filesChanged says whether the PR's own
+// changed files differ from what was published.
+func headChange(comparison *gh.Comparison, head *gh.Commit, published string, filesChanged bool, inBase func(sha string) (bool, error)) (*domain.PullRequestHeadChange, error) {
+	bySHA := make(map[string]gh.Commit, len(comparison.Commits)+1)
+	for _, c := range comparison.Commits {
+		bySHA[c.SHA] = c
 	}
-	if comparison.TotalCommits > len(commits) {
-		change.Truncated = true
+	bySHA[head.SHA] = *head
+	var chain []gh.Commit
+	for cur, ok := bySHA[head.SHA], true; ok && cur.SHA != published; {
+		chain = append(chain, cur)
+		if len(cur.Parents) == 0 {
+			break
+		}
+		cur, ok = bySHA[cur.Parents[0].SHA]
 	}
+	change := &domain.PullRequestHeadChange{Kind: "merge", TreeChanged: filesChanged, Commits: []domain.PullRequestHeadCommit{}}
 	if comparison.Status != "ahead" {
 		change.Kind = "rewritten"
 	}
-	for i, commit := range commits {
+	change.TotalCommits = len(chain)
+	change.Truncated = len(chain) > maxHeadChangeCommits
+	for i := len(chain) - 1; i >= 0; i-- {
+		commit := chain[i]
 		merge := len(commit.Parents) > 1
-		if !merge && change.Kind == "merge" {
+		if change.Kind == "merge" && !merge {
 			change.Kind = "pushed"
 		}
-		if i >= maxHeadChangeCommits {
-			change.Truncated = true
+		for _, parent := range commit.Parents[min(1, len(commit.Parents)):] {
+			if change.Kind != "merge" {
+				break
+			}
+			reachable, err := inBase(parent.SHA)
+			if err != nil {
+				return nil, err
+			}
+			if !reachable {
+				change.Kind = "pushed"
+			}
+		}
+		if len(change.Commits) >= maxHeadChangeCommits {
 			continue
 		}
 		author := commit.Commit.Author.Name
@@ -147,5 +206,5 @@ func headChange(comparison *gh.Comparison, treeChanged bool) *domain.PullRequest
 			SHA: commit.SHA, Author: truncateRunes(author, 80), Subject: truncateRunes(subject, 200), Merge: merge,
 		})
 	}
-	return change
+	return change, nil
 }

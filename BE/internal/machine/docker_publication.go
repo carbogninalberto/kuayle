@@ -172,6 +172,11 @@ const publishSyncScript = `set -eu
 repository=$1 branch=$2 path=$3
 export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0
 umask 077
+g() { git -C "$path" -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@" </dev/null; }
+# Everything that runs git in the agent-configurable checkout happens while no
+# credential exists: first the checks, then, after the token file is gone, the
+# fetch from the temporary repository and the fast-forward.
+[ "$(g symbolic-ref --short HEAD)" = "$branch" ] || { echo "checkout is not on the task branch" >&2; exit 1; }
 work=$(mktemp -d /tmp/kuayle-sync.XXXXXX)
 trap 'rm -rf "$work"' EXIT
 trap 'rm -rf "$work"; exit 130' INT
@@ -192,10 +197,14 @@ git init -q --bare "$work/repo"
 remote() { GIT_ASKPASS="$work/askpass" KUAYLE_PUBLISH_TOKEN_FILE="$work/token" git --git-dir="$work/repo" -c credential.helper= -c core.hooksPath=/dev/null "$@" </dev/null; }
 url="https://github.com/$repository"
 # A branch that is not on GitHub yet has nothing to bring in.
-remote ls-remote --exit-code --heads "$url" "refs/heads/$branch" >/dev/null || exit 0
-remote fetch -q --no-tags "$url" "+refs/heads/$branch:refs/kuayle/branch"
-g() { git -C "$path" -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@" </dev/null; }
-[ "$(g symbolic-ref --short HEAD)" = "$branch" ] || { echo "checkout is not on the task branch" >&2; exit 1; }
+if remote ls-remote --exit-code --heads "$url" "refs/heads/$branch" >/dev/null; then
+  remote fetch -q --no-tags "$url" "+refs/heads/$branch:refs/kuayle/branch"
+  fetched=1
+else
+  fetched=
+fi
+rm -f "$work/token" "$work/askpass"
+[ -n "$fetched" ] || exit 0
 g fetch -q --no-tags "$work/repo" "+refs/kuayle/branch:refs/remotes/origin/$branch"
 tip=$(g rev-parse --verify "refs/remotes/origin/$branch^{commit}")
 g merge-base --is-ancestor "$tip" HEAD && exit 0

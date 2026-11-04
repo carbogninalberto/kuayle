@@ -2209,6 +2209,7 @@
 	"assistant.merge_head_tree_same": "檔案與 Kuayle 發布的內容相同。",
 	"assistant.merge_head_tree_changed": "檔案與 Kuayle 發布的內容不同或無法比較;批准前請檢查新的提交。",
 	"assistant.merge_head_commit": "{commit}({author}):{subject}",
+	"assistant.merge_head_truncated": "還有 {count} 個提交未顯示 — 批准前請在 GitHub 上檢查此拉取請求。",
 	"assistant.merge_approving": "正在合併 {identifier} 的拉取請求",
 	"assistant.merge_approved": "已合併 {identifier} 的拉取請求",
 	"assistant.merge_denied": "已拒絕合併 {identifier}",

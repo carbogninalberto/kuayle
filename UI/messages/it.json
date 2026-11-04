@@ -2209,6 +2209,7 @@
 	"assistant.merge_head_tree_same": "I file sono identici a quelli pubblicati da Kuayle.",
 	"assistant.merge_head_tree_changed": "I file differiscono da quelli pubblicati da Kuayle o non è stato possibile confrontarli; controlla i nuovi commit prima di approvare.",
 	"assistant.merge_head_commit": "{commit} di {author}: {subject}",
+	"assistant.merge_head_truncated": "{count} commit in più non mostrati — controlla la pull request su GitHub prima di approvare.",
 	"assistant.merge_approving": "Merge della pull request per {identifier} in corso",
 	"assistant.merge_approved": "Merge della pull request per {identifier} completato",
 	"assistant.merge_denied": "Merge di {identifier} rifiutato",

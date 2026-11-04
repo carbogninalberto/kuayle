@@ -177,6 +177,8 @@ type PullRequestHeadChange struct {
 	TreeChanged bool                    `json:"tree_changed"`
 	Commits     []PullRequestHeadCommit `json:"commits"`
 	Truncated   bool                    `json:"truncated,omitempty"`
+	// TotalCommits is how many commits GitHub counts since publication.
+	TotalCommits int `json:"total_commits,omitempty"`
 }
 
 // PullRequestHeadCommit is one commit added after publication.

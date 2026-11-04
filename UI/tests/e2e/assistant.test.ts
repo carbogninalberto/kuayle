@@ -1187,6 +1187,75 @@ test('merge approval shows the commit others pushed after the task was published
 	expect(state.decisions).toEqual(['approve']);
 });
 
+test('merge approval warns when the list of commits others pushed is truncated', async ({ page }) => {
+	const state = await fixture(page);
+	const answered = { ...reply, status: 'completed', content: 'Merge approval is pending.' };
+	state.messages = [userMessage, answered];
+	state.tools = [
+		{
+			id: 'tool-10',
+			conversation_id: 'chat-1',
+			message_id: answered.id,
+			sequence: 0,
+			call_id: 'call_10',
+			name: 'merge_pull_request',
+			input: { identifier: 'ENG-1' },
+			status: 'completed',
+			output: { approval_id: 'approval-2', status: 'pending_user_approval', identifier: 'ENG-1' },
+			created_at: conversation.created_at
+		}
+	];
+	state.approvals = [
+		{
+			id: 'approval-2',
+			conversation_id: 'chat-1',
+			tool_call_id: 'tool-10',
+			action: 'merge_pull_request',
+			actor_id: 'user-1',
+			issue_id: 'issue-1',
+			payload: {
+				identifier: 'ENG-1',
+				title: 'Dark mode',
+				task_id: 'task-9',
+				repository: 'acme/app',
+				pull_request: 108,
+				pull_request_url: 'https://github.com/acme/app/pull/108',
+				commit: '3220dbc9aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+				published_commit: '15af2c3abbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+				head_change: {
+					kind: 'merge',
+					tree_changed: true,
+					truncated: true,
+					total_commits: 121,
+					commits: [
+						{
+							sha: '3220dbc9aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+							author: 'maintainer',
+							subject: "Merge branch 'main'",
+							merge: true
+						}
+					]
+				}
+			},
+			status: 'pending',
+			expires_at: '2026-10-27T10:00:00Z',
+			created_at: conversation.created_at,
+			updated_at: conversation.created_at
+		}
+	] as any;
+	await page.goto('/test/assistant?conversation=chat-1');
+	await expect(page.getByText('Merge pull request #108 for ENG-1?', { exact: true })).toBeVisible();
+	// The card names the exact commit that merges, not the one Kuayle published.
+	await expect(page.getByText('reviewed commit 3220dbc of Dark mode', { exact: false })).toBeVisible();
+	await expect(page.getByTestId('merge-head-truncated')).toContainText(
+		'120 more commits not shown — inspect the pull request on GitHub before approving.'
+	);
+	await expect(page.getByRole('link', { name: 'Open pull request' })).toHaveAttribute(
+		'href',
+		'https://github.com/acme/app/pull/108'
+	);
+});
+
 test('asks for approval before accepting work in Kuayle without merging', async ({ page }) => {
 	const state = await fixture(page);
 	const answered = { ...reply, status: 'completed', content: 'Acceptance approval is pending.' };

@@ -16,6 +16,7 @@
 	import * as Trace from '$lib/components/ui/trace/index.js';
 	import * as CodeBlock from '$lib/components/ui/code-block/index.js';
 	import * as Item from '$lib/components/ui/item/index.js';
+	import * as Alert from '$lib/components/ui/alert/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import type { ConversationApproval, ConversationToolCall } from '$lib/api/conversations';
 	import { m } from '$lib/paraglide/messages.js';
@@ -296,6 +297,19 @@
 												</li>
 											{/each}
 										</ul>
+										{#if change.truncated}
+											<!-- The list is a prefix: approving must not imply it is complete. -->
+											<Alert.Root
+												class="border-[var(--status-warning)]/40 text-[var(--status-warning)]"
+												data-testid="merge-head-truncated"
+											>
+												<Alert.Description
+													>{m['assistant.merge_head_truncated']({
+														count: Math.max((change.total_commits ?? 0) - change.commits.length, 1)
+													})}</Alert.Description
+												>
+											</Alert.Root>
+										{/if}
 									</div>
 								{/if}
 								<a

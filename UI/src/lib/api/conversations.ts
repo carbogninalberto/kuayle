@@ -134,6 +134,7 @@ export interface PullRequestHeadChange {
 	tree_changed: boolean;
 	commits: { sha: string; author: string; subject: string; merge?: boolean }[];
 	truncated?: boolean;
+	total_commits?: number;
 }
 // An acceptance approval is bound to the reviewed attempt and pull request;
 // accepting completes the task in Kuayle and never merges.

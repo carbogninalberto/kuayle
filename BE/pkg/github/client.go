@@ -468,8 +468,13 @@ func (c *Client) GetCommit(token, owner, repo, sha string) (*Commit, error) {
 // CompareCommits lists the commits reachable from head but not from base,
 // oldest first (GitHub returns at most 250).
 func (c *Client) CompareCommits(token, owner, repo, base, head string) (*Comparison, error) {
+	return c.CompareCommitsPage(token, owner, repo, base, head, 1)
+}
+
+// CompareCommitsPage is CompareCommits for one page of commits and files.
+func (c *Client) CompareCommitsPage(token, owner, repo, base, head string, page int) (*Comparison, error) {
 	var comparison Comparison
-	endpoint := fmt.Sprintf("%s/repos/%s/%s/compare/%s...%s?per_page=100", githubAPIBaseURL, owner, repo, url.PathEscape(base), url.PathEscape(head))
+	endpoint := fmt.Sprintf("%s/repos/%s/%s/compare/%s...%s?per_page=100&page=%d", githubAPIBaseURL, owner, repo, url.PathEscape(base), url.PathEscape(head), page)
 	if err := c.doGet(token, endpoint, &comparison); err != nil {
 		return nil, err
 	}
@@ -480,9 +485,10 @@ func (c *Client) CompareCommits(token, owner, repo, base, head string) (*Compari
 // only when head descends from base; "diverged" or "behind" mean rewritten
 // history. TotalCommits can exceed len(Commits).
 type Comparison struct {
-	Status       string   `json:"status"`
-	TotalCommits int      `json:"total_commits"`
-	Commits      []Commit `json:"commits"`
+	Status       string        `json:"status"`
+	TotalCommits int           `json:"total_commits"`
+	Commits      []Commit      `json:"commits"`
+	Files        []CompareFile `json:"files"`
 }
 
 // ErrMergeRefused carries GitHub's reason for refusing a merge, such as branch
@@ -551,4 +557,11 @@ func (c *Client) ListPRCommits(token, owner, repo string, number int) ([]Commit,
 		return nil, err
 	}
 	return commits, nil
+}
+
+// CompareFile is one file changed between two refs; SHA is its blob at head.
+type CompareFile struct {
+	Filename string `json:"filename"`
+	SHA      string `json:"sha"`
+	Status   string `json:"status"`
 }
