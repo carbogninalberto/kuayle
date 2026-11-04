@@ -275,3 +275,25 @@ func TestPublishAgentMarksAReusedDraftReadyOnlyAfterAPassingCheck(t *testing.T) 
 		require.Nil(t, store.result)
 	})
 }
+
+func TestPublishAgentSyncsTheCheckoutFirstAndStopsWhenItCannotFastForward(t *testing.T) {
+	machine, store := publicationFixture()
+	base := &runtimeFake{syncErr: errors.New("cannot be fast-forwarded and nothing was force-pushed")}
+	runtime := &publicationRuntimeFake{runtimeFake: base, commit: "0123456789abcdef0123456789abcdef01234567"}
+	github := &publicationGitHubFake{created: &githubclient.PullRequest{Number: 12, HTMLURL: "https://github.com/acme/app/pull/12"}}
+	manager := &Manager{store: store, runtime: runtime, github: github, encryptionKey: make([]byte, 32)}
+	err := manager.publishAgent(context.Background(), machine, &domain.DevMachineOperation{})
+	require.ErrorContains(t, err, "checkout_sync_failed")
+	require.ErrorContains(t, err, "nothing was force-pushed")
+	require.Equal(t, 1, base.syncs)
+	require.Zero(t, runtime.calls, "nothing is committed or pushed over commits GitHub has")
+	require.Nil(t, store.result)
+
+	machine, store = publicationFixture()
+	base = &runtimeFake{}
+	runtime = &publicationRuntimeFake{runtimeFake: base, commit: "0123456789abcdef0123456789abcdef01234567"}
+	manager = &Manager{store: store, runtime: runtime, github: github, encryptionKey: make([]byte, 32)}
+	require.NoError(t, manager.publishAgent(context.Background(), machine, &domain.DevMachineOperation{}))
+	require.Equal(t, 1, base.syncs)
+	require.Equal(t, 1, runtime.calls)
+}

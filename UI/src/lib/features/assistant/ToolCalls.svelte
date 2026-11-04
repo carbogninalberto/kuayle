@@ -16,6 +16,7 @@
 	import * as Trace from '$lib/components/ui/trace/index.js';
 	import * as CodeBlock from '$lib/components/ui/code-block/index.js';
 	import * as Item from '$lib/components/ui/item/index.js';
+	import * as Alert from '$lib/components/ui/alert/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import type { ConversationApproval, ConversationToolCall } from '$lib/api/conversations';
 	import { m } from '$lib/paraglide/messages.js';
@@ -288,6 +289,48 @@
 										repository: approval.payload.repository
 									})}</Item.Description
 								>
+								{#if approval.payload.head_change}
+									{@const change = approval.payload.head_change}
+									{@const published = (approval.payload.published_commit ?? '').slice(0, 7)}
+									<!-- Commits others pushed after publication: authors and whether the files changed. -->
+									<div class="space-y-1 text-xs text-muted-foreground" data-testid="merge-head-change">
+										<p>
+											{change.kind === 'merge'
+												? m['assistant.merge_head_merge']({ published })
+												: change.kind === 'rewritten'
+													? m['assistant.merge_head_rewritten']({ published })
+													: m['assistant.merge_head_pushed']({ published })}
+											{change.tree_changed
+												? m['assistant.merge_head_tree_changed']()
+												: m['assistant.merge_head_tree_same']()}
+										</p>
+										<p data-testid="merge-review-stale">{m['assistant.merge_head_review_stale']()}</p>
+										<ul class="list-disc space-y-0.5 pl-4">
+											{#each change.commits as commit (commit.sha)}
+												<li class="break-words">
+													{m['assistant.merge_head_commit']({
+														commit: commit.sha.slice(0, 7),
+														author: commit.author,
+														subject: commit.subject
+													})}
+												</li>
+											{/each}
+										</ul>
+										{#if change.truncated}
+											<!-- The list is a prefix: approving must not imply it is complete. -->
+											<Alert.Root
+												class="border-[var(--status-warning)]/40 text-[var(--status-warning)]"
+												data-testid="merge-head-truncated"
+											>
+												<Alert.Description
+													>{m['assistant.merge_head_truncated']({
+														count: Math.max((change.total_commits ?? 0) - change.commits.length, 1)
+													})}</Alert.Description
+												>
+											</Alert.Root>
+										{/if}
+									</div>
+								{/if}
 								<a
 									class="inline-flex items-center gap-1 text-xs underline underline-offset-2"
 									href={approval.payload.pull_request_url}

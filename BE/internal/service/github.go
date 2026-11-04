@@ -60,6 +60,11 @@ type GitHubService struct {
 	pullRequestMerged func(ctx context.Context, workspaceID uuid.UUID, repository string, number int) (bool, error)
 	// mergePullRequest merges through the GitHub App; replaced in tests.
 	mergePullRequest func(ctx context.Context, workspaceID uuid.UUID, repository string, number int, sha string) error
+	// heads records pull request heads reported by GitHub.
+	heads pullRequestHeadStore
+	// readPullRequestHead and compareCommits ask GitHub; replaced in tests.
+	readPullRequestHead func(ctx context.Context, workspaceID uuid.UUID, repository string, number int) (string, error)
+	compareCommits      func(ctx context.Context, workspaceID uuid.UUID, repository string, number int, published, head string) (*domain.PullRequestHeadChange, error)
 	// reviewComments supplies requested agent review comments to post.
 	reviewComments reviewCommentStore
 	// postReviewComment comments through the GitHub App; replaced in tests.
@@ -673,6 +678,7 @@ type ghWebhookPR struct {
 		HTMLURL string `json:"html_url"`
 		Head    struct {
 			Ref string `json:"ref"`
+			SHA string `json:"sha"`
 		} `json:"head"`
 		Base struct {
 			Ref string `json:"ref"`
@@ -684,6 +690,7 @@ type ghWebhookPR struct {
 		Additions int        `json:"additions"`
 		Deletions int        `json:"deletions"`
 		MergedAt  *time.Time `json:"merged_at"`
+		UpdatedAt time.Time  `json:"updated_at"`
 		ClosedAt  *time.Time `json:"closed_at"`
 		Body      string     `json:"body"`
 	} `json:"pull_request"`
@@ -767,6 +774,16 @@ func (s *GitHubService) processPullRequestEvent(ctx context.Context, payload []b
 	inserted, err := s.ghRepo.UpsertPullRequest(ctx, pr)
 	if err != nil {
 		return fmt.Errorf("upserting PR: %w", err)
+	}
+	// The head can move without Kuayle publishing (a maintainer merging the
+	// base branch into the task branch), so every update records it.
+	switch event.Action {
+	case "opened", "reopened", "synchronize":
+		if s.heads != nil && event.PullRequest.Head.SHA != "" {
+			if err := s.heads.RecordPullRequestHead(ctx, inst.WorkspaceID, repo.FullName, event.PullRequest.Number, event.PullRequest.Head.SHA, event.PullRequest.UpdatedAt); err != nil {
+				return fmt.Errorf("recording pull request head: %w", err)
+			}
+		}
 	}
 	if event.PullRequest.Merged && s.taskReviews != nil {
 		if _, err := s.taskReviews.CompleteMergedPullRequest(ctx, inst.WorkspaceID, repo.FullName, event.PullRequest.Number); err != nil {

@@ -150,16 +150,50 @@ type DelegationPayload struct {
 	RepositorySource string `json:"repository_source,omitempty"`
 }
 
-// MergePayload binds a merge approval to the pull request and the reviewed
-// commit shown to the user; a later push invalidates the approval.
+// MergePayload binds a merge approval to the pull request and the commit shown
+// to the user, which is the head GitHub reported when approval was requested; a
+// later push invalidates the approval. PublishedCommit is the commit Kuayle
+// published, which differs from Commit when someone else pushed to the branch.
 type MergePayload struct {
-	Identifier     string    `json:"identifier"`
-	Title          string    `json:"title"`
-	TaskID         uuid.UUID `json:"task_id"`
-	Repository     string    `json:"repository"`
-	PullRequest    int       `json:"pull_request"`
-	PullRequestURL string    `json:"pull_request_url"`
-	Commit         string    `json:"commit"`
+	Identifier      string                 `json:"identifier"`
+	Title           string                 `json:"title"`
+	TaskID          uuid.UUID              `json:"task_id"`
+	Repository      string                 `json:"repository"`
+	PullRequest     int                    `json:"pull_request"`
+	PullRequestURL  string                 `json:"pull_request_url"`
+	Commit          string                 `json:"commit"`
+	PublishedCommit string                 `json:"published_commit,omitempty"`
+	HeadChange      *PullRequestHeadChange `json:"head_change,omitempty"`
+}
+
+// PullRequestHeadChange describes what others added to a task's pull request
+// since Kuayle published it. Kind is "merge" when every extra commit has several
+// parents (usually the base branch merged in; the branch is not verified),
+// "rewritten" when the published commit is no longer in the head's history, and
+// otherwise "pushed". TreeChanged is false only when the head's tree is known to
+// equal the published commit's.
+type PullRequestHeadChange struct {
+	Kind        string                  `json:"kind"`
+	TreeChanged bool                    `json:"tree_changed"`
+	Commits     []PullRequestHeadCommit `json:"commits"`
+	Truncated   bool                    `json:"truncated,omitempty"`
+	// TotalCommits is how many commits GitHub counts since publication.
+	TotalCommits int `json:"total_commits,omitempty"`
+}
+
+// PullRequestHeadCommit is one commit added after publication.
+type PullRequestHeadCommit struct {
+	SHA     string `json:"sha"`
+	Author  string `json:"author"`
+	Subject string `json:"subject"`
+	Merge   bool   `json:"merge,omitempty"`
+}
+
+// PullRequestHead is the pull request head read from GitHub. Change is nil
+// while the head is the published commit.
+type PullRequestHead struct {
+	SHA    string
+	Change *PullRequestHeadChange
 }
 
 // AcceptPayload binds an acceptance approval to the task attempt and the pull

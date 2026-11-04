@@ -69,6 +69,9 @@ type AssistantTools struct {
 	relations    assistantRelationCreator
 	// Agent work tools are unavailable until SetAgentWork wires them.
 	work assistantAgentWork
+	// merge_pull_request shows the head GitHub reports once SetPullRequestHeads
+	// wires it; before that it shows the published commit.
+	heads pullRequestHeadReader
 	// link_repository is unavailable until SetRepositories wires it.
 	repositories assistantRepositoryStore
 	// The preview and port tools are unavailable until SetMachines wires them.
@@ -170,9 +173,9 @@ var assistantToolCatalog = []assistantTool{
 	{name: "update_issue", description: "Change an existing issue's title, description, status or priority. Only call this when the user explicitly asked for that change.", write: true, parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"title":{"type":"string","minLength":1,"maxLength":500},"description":{"type":"string","maxLength":8000},"status":{"type":"string","enum":["backlog","todo","in_progress","in_review","done","cancelled"]},"priority":{"type":"integer","minimum":0,"maximum":4}},"required":["identifier"],"additionalProperties":false}`},
 	{name: "create_issue", description: "Create a new issue, optionally as a sub-issue of parent_identifier to split work between agents. Only call this when the user explicitly asked to create or file an issue.", write: true, parameters: `{"type":"object","properties":{"team_key":{"type":"string","maxLength":16},"title":{"type":"string","minLength":1,"maxLength":500},"description":{"type":"string","maxLength":8000},"priority":{"type":"integer","minimum":0,"maximum":4},"parent_identifier":{"type":"string","maxLength":32}},"required":["team_key","title"],"additionalProperties":false}`},
 	{name: "plan_issues", description: "Order up to 20 issues by their blocked-by dependencies into waves that can run in parallel. Delegated issues with unfinished blockers wait automatically, so a whole plan can be delegated at once.", parameters: `{"type":"object","properties":{"identifiers":{"type":"array","minItems":1,"maxItems":20,"items":{"type":"string","maxLength":32}}},"required":["identifiers"],"additionalProperties":false}`},
-	{name: "get_agent_work", agentWork: true, description: "Read the coding tasks on an issue as Kuayle recorded them: state, attempt, pull request, latest review decision and latest manual check (run_check). Use it before saying anything about an issue's code, pull request or merge.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32}},"required":["identifier"],"additionalProperties":false}`},
+	{name: "get_agent_work", agentWork: true, description: "Read the coding tasks on an issue as Kuayle recorded them: state, attempt, pull request, latest review decision (agent_review.stale=true means the pull request head moved after that review: its findings are withheld, which is not the same as no findings; propose request_agent_review for the new head and do not repeat old findings) and latest manual check (run_check). Use it before saying anything about an issue's code, pull request or merge.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32}},"required":["identifier"],"additionalProperties":false}`},
 	{name: "list_agent_work", agentWork: true, description: "List the workspace's most recently updated coding tasks on issues the user can see, newest first: issue, task state and reason, agent, attempt, pull request and latest review decision. Use it for questions about what agents are doing, what is pending or awaiting review, or overall status; filter by state when the user asks about one.", parameters: `{"type":"object","properties":{"state":{"type":"string","enum":["queued","preparing","running","waiting_input","validating","publishing","awaiting_review","blocked","completed","failed","cancelling","cancelled"]},"limit":{"type":"integer","minimum":1,"maximum":50}},"additionalProperties":false}`},
-	{name: "merge_pull_request", agentWork: true, approval: true, description: "Ask the user to approve squash-merging the pull request of an issue's task that is awaiting review, at the commit Kuayle published. Nothing merges until the user approves in Kuayle; GitHub still enforces branch protection. Only call this when the user asked to merge.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32}},"required":["identifier"],"additionalProperties":false}`},
+	{name: "merge_pull_request", agentWork: true, approval: true, description: "Ask the user to approve squash-merging the pull request of an issue's task that is awaiting review, at the head commit GitHub reports now (the card lists commits others pushed after Kuayle published, and whether the tree changed). Nothing merges until the user approves in Kuayle, and a later push is refused; GitHub still enforces branch protection. If agent_review is stale, its findings are withheld: offer request_agent_review for the new head instead of repeating them. Only call this when the user asked to merge.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32}},"required":["identifier"],"additionalProperties":false}`},
 	{name: "accept_agent_work", agentWork: true, approval: true, description: "Ask the user to approve accepting the work of an issue's task that is awaiting review, in Kuayle, without merging its pull request: the task completes, its app stops and the issue moves to its team's completed status, while the pull request stays open and unmerged on GitHub. Only the task's creator or a workspace admin can accept. Only call this when the user asked to accept the work without merging; use merge_pull_request to merge.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32}},"required":["identifier"],"additionalProperties":false}`},
 	{name: "request_agent_review", agentWork: true, approval: true, description: "Ask the user to approve a coding agent reviewing the pull request Kuayle published for an issue's task awaiting review, at its published commit. Only call this when the user asked for a review; reviews never start on their own. The harness may differ from the one that implemented the task (default: the same). The reviewer never pushes; set post_to_pull_request only when the user asked to comment the findings on the pull request.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"task_id":{"type":"string","maxLength":36},"harness":{"type":"string","enum":["claude-code","codex","opencode"]},"focus":{"type":"string","maxLength":4000},"post_to_pull_request":{"type":"boolean"}},"additionalProperties":false}`},
 	{name: "follow_up_task", agentWork: true, approval: true, description: "Ask the user to approve a follow-up attempt on an issue's latest coding task, on its existing branch and pull request, for example to fix review findings. Put everything the agent must do in instructions. Only the task's creator can approve it.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"instructions":{"type":"string","minLength":1,"maxLength":16000}},"required":["identifier","instructions"],"additionalProperties":false}`},
@@ -574,10 +577,26 @@ func (t *AssistantTools) prepareMerge(ctx context.Context, ws, user uuid.UUID, a
 	if err != nil {
 		return uuid.Nil, domain.MergePayload{}, err
 	}
-	return issue.ID, domain.MergePayload{
+	payload := domain.MergePayload{
 		Identifier: issue.Identifier, Title: issue.Title, TaskID: target.TaskID, Repository: target.Repository,
 		PullRequest: target.Number, PullRequestURL: target.URL, Commit: target.Commit,
-	}, nil
+	}
+	if t.heads != nil {
+		// Others may have pushed to the branch, so the commit to merge is the
+		// head GitHub reports now, not the one Kuayle published.
+		head, err := t.heads.InspectPullRequestHead(ctx, ws, target.Repository, target.Number, target.Commit)
+		if err != nil {
+			return uuid.Nil, domain.MergePayload{}, toolFailure("could not read the pull request from GitHub: %s", truncateRunes(err.Error(), 200))
+		}
+		payload.PublishedCommit, payload.Commit, payload.HeadChange = target.Commit, head.SHA, head.Change
+	}
+	return issue.ID, payload, nil
+}
+
+// SetPullRequestHeads makes merge_pull_request read the pull request head from
+// GitHub and show the commit that would be merged.
+func (t *AssistantTools) SetPullRequestHeads(heads pullRequestHeadReader) {
+	t.heads = heads
 }
 
 // prepareAccept binds an acceptance request to the issue's task awaiting

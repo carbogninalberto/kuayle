@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/google/uuid"
@@ -27,6 +28,8 @@ type AssistantApprovals struct {
 	targets approvalMergeTargets
 	members assistantMemberRepo
 	merger  approvalMerger
+	// Heads are read fresh before merging once SetPullRequestHeads wires them.
+	heads pullRequestHeadReader
 	// Reviews and follow-ups are unavailable until SetReviews wires them.
 	reviews approvalReviews
 	// Acceptance is unavailable until SetAccepting wires it.
@@ -87,6 +90,20 @@ type approvalMerger interface {
 // SetMerging enables approving merge_pull_request requests.
 func (s *AssistantApprovals) SetMerging(targets approvalMergeTargets, members assistantMemberRepo, merger approvalMerger) {
 	s.targets, s.members, s.merger = targets, members, merger
+}
+
+// pullRequestHeadReader reads a pull request's head from GitHub, records it,
+// and describes any commits added after the published one.
+type pullRequestHeadReader interface {
+	InspectPullRequestHead(ctx context.Context, ws uuid.UUID, repository string, number int, published string) (*domain.PullRequestHead, error)
+	ReadPullRequestHead(ctx context.Context, ws uuid.UUID, repository string, number int) (string, error)
+}
+
+// SetPullRequestHeads makes approving a merge read the head from GitHub again,
+// so it merges the commit the user saw or not at all. Without it a merge is
+// pinned to the published commit.
+func (s *AssistantApprovals) SetPullRequestHeads(heads pullRequestHeadReader) {
+	s.heads = heads
 }
 
 func NewAssistantApprovals(conversations *repository.ConversationRepository, tasks approvalTasks) *AssistantApprovals {
@@ -205,7 +222,11 @@ func (s *AssistantApprovals) merge(ctx context.Context, ws, conversation uuid.UU
 	if err != nil {
 		return nil, err
 	}
-	if target.IssueID != approval.IssueID || target.Repository != payload.Repository || target.Number != payload.PullRequest || target.Commit != payload.Commit {
+	published := payload.PublishedCommit
+	if published == "" {
+		published = payload.Commit
+	}
+	if target.IssueID != approval.IssueID || target.Repository != payload.Repository || target.Number != payload.PullRequest || target.Commit != published {
 		return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, "The pull request changed after approval was requested; ask again")
 	}
 	member, err := s.members.GetMember(ctx, ws, approval.ActorID)
@@ -215,10 +236,27 @@ func (s *AssistantApprovals) merge(ctx context.Context, ws, conversation uuid.UU
 	if member == nil || (member.Role != domain.RoleOwner && member.Role != domain.RoleAdmin && target.CreatorID != approval.ActorID) {
 		return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, "Only workspace admins or the task's creator can merge")
 	}
-	if err = s.merger.MergeTaskPullRequest(ctx, ws, target.Repository, target.Number, target.Commit); err != nil {
+	if s.heads != nil {
+		// Read the head again now that the approver is known to be allowed to
+		// merge: anything pushed since the user saw the card is not approved.
+		head, err := s.heads.ReadPullRequestHead(ctx, ws, target.Repository, target.Number)
+		if err != nil {
+			return nil, err
+		}
+		if head != payload.Commit {
+			return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, fmt.Sprintf("The pull request head moved to %s after approval was requested; ask again to review the new commit", shortSHA(head)))
+		}
+	}
+	// The merge is pinned to the commit the user saw, so a push that lands after
+	// the check above is refused by GitHub.
+	if err = s.merger.MergeTaskPullRequest(ctx, ws, target.Repository, target.Number, payload.Commit); err != nil {
 		var refused *gh.ErrMergeRefused
 		if errors.As(err, &refused) {
-			return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, truncateRunes(refused.Error(), 500))
+			message := truncateRunes(refused.Error(), 500)
+			if strings.Contains(strings.ToLower(refused.Reason), "head branch was modified") {
+				message = "GitHub refused the merge because the pull request head moved after it was approved (" + shortSHA(payload.Commit) + "); ask again to review the new commit"
+			}
+			return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, message)
 		}
 		// A transient failure leaves the claim in place; approving again resumes it.
 		return nil, err
@@ -343,4 +381,11 @@ func chatFollowUpPrompt(prompt, instructions string) string {
 	base, _, _ := strings.Cut(prompt, followUpMarker)
 	base = truncateRunes(base, 16000)
 	return base + followUpMarker + "Kuayle chat:\nThe user approved this follow-up in Kuayle's assistant. Continue on the existing branch and pull request:\n\n" + truncateRunes(instructions, 16000)
+}
+
+func shortSHA(sha string) string {
+	if len(sha) > 8 {
+		return sha[:8]
+	}
+	return sha
 }

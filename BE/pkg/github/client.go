@@ -217,6 +217,7 @@ type PullRequest struct {
 
 type PRBranch struct {
 	Ref string `json:"ref"`
+	SHA string `json:"sha"`
 }
 
 type GitHubUser struct {
@@ -230,11 +231,18 @@ type Commit struct {
 	HTMLURL string      `json:"html_url"`
 	Commit  CommitData  `json:"commit"`
 	Author  *GitHubUser `json:"author"`
+	Parents []CommitRef `json:"parents"`
+}
+
+// CommitRef names a commit or tree by SHA.
+type CommitRef struct {
+	SHA string `json:"sha"`
 }
 
 type CommitData struct {
 	Message string       `json:"message"`
 	Author  CommitAuthor `json:"author"`
+	Tree    CommitRef    `json:"tree"`
 }
 
 type CommitAuthor struct {
@@ -497,6 +505,42 @@ func (c *Client) GetPullRequest(token, owner, repo string, number int) (*PullReq
 	return &pr, nil
 }
 
+// GetCommit fetches one commit, including its tree and parents.
+func (c *Client) GetCommit(token, owner, repo, sha string) (*Commit, error) {
+	var commit Commit
+	endpoint := fmt.Sprintf("%s/repos/%s/%s/commits/%s", githubAPIBaseURL, owner, repo, url.PathEscape(sha))
+	if err := c.doGet(token, endpoint, &commit); err != nil {
+		return nil, err
+	}
+	return &commit, nil
+}
+
+// CompareCommits lists the commits reachable from head but not from base,
+// oldest first (GitHub returns at most 250).
+func (c *Client) CompareCommits(token, owner, repo, base, head string) (*Comparison, error) {
+	return c.CompareCommitsPage(token, owner, repo, base, head, 1)
+}
+
+// CompareCommitsPage is CompareCommits for one page of commits and files.
+func (c *Client) CompareCommitsPage(token, owner, repo, base, head string, page int) (*Comparison, error) {
+	var comparison Comparison
+	endpoint := fmt.Sprintf("%s/repos/%s/%s/compare/%s...%s?per_page=100&page=%d", githubAPIBaseURL, owner, repo, url.PathEscape(base), url.PathEscape(head), page)
+	if err := c.doGet(token, endpoint, &comparison); err != nil {
+		return nil, err
+	}
+	return &comparison, nil
+}
+
+// Comparison is the first page of commits between two refs. Status is "ahead"
+// only when head descends from base; "diverged" or "behind" mean rewritten
+// history. TotalCommits can exceed len(Commits).
+type Comparison struct {
+	Status       string        `json:"status"`
+	TotalCommits int           `json:"total_commits"`
+	Commits      []Commit      `json:"commits"`
+	Files        []CompareFile `json:"files"`
+}
+
 // ErrMergeRefused carries GitHub's reason for refusing a merge, such as branch
 // protection, failing checks or a head that moved past the reviewed commit.
 type ErrMergeRefused struct{ Reason string }
@@ -563,4 +607,11 @@ func (c *Client) ListPRCommits(token, owner, repo string, number int) ([]Commit,
 		return nil, err
 	}
 	return commits, nil
+}
+
+// CompareFile is one file changed between two refs; SHA is its blob at head.
+type CompareFile struct {
+	Filename string `json:"filename"`
+	SHA      string `json:"sha"`
+	Status   string `json:"status"`
 }
