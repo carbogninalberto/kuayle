@@ -278,6 +278,60 @@ test.describe('workspace controls', () => {
 		await expect(page).toHaveURL('/test/issue/ENG-1');
 	});
 
+	test('the issue due date stays on one line within the details card with large text', async ({ page }) => {
+		await page.route('**/api/preferences', (route) =>
+			route.fulfill({
+				json: {
+					font_size: 'large',
+					theme_mode: 'dark',
+					light_theme: 'light',
+					dark_theme: 'dark',
+					pointer_cursors: true,
+					issues_group_by: 'status',
+					workflow_sort_mode: 'default',
+					workflow_sort_order: ['backlog', 'unstarted', 'started', 'completed', 'cancelled'],
+					team_workflow_sort_overrides: {}
+				}
+			})
+		);
+		await page.route('**/api/workspaces/test/issues/ENG-1', (route) =>
+			route.fulfill({ json: { ...issues[0], due_date: '2026-10-31' } })
+		);
+		await page.goto('/test/issue/ENG-1');
+		const detailsCard = page.getByRole('button', { name: 'Details', exact: true }).locator('..');
+		const dueDateRow = page.getByText('Due date', { exact: true }).locator('..');
+		const dateTrigger = dueDateRow.getByRole('button', { name: 'Oct 31, 2026', exact: true });
+		await expect(dateTrigger).toBeVisible();
+		await expect(dueDateRow.getByRole('button', { name: 'Clear', exact: true })).toBeVisible();
+
+		const dateLayout = await dateTrigger.evaluate((node) => {
+			const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+			let text: Text | null;
+			while ((text = walker.nextNode() as Text | null)) {
+				if (!text.textContent?.includes('Oct 31')) continue;
+				const range = document.createRange();
+				range.selectNodeContents(text);
+				const lines = new Set([...range.getClientRects()].map((rect) => rect.top));
+				return {
+					lineCount: lines.size,
+					fullyVisible: range.getBoundingClientRect().width <= (text.parentElement?.clientWidth ?? 0) + 1
+				};
+			}
+			throw new Error('Due date text not found');
+		});
+		expect(dateLayout.lineCount).toBe(1);
+		expect(dateLayout.fullyVisible).toBe(true);
+
+		const [controlBox, rowBox, cardBox] = await Promise.all([
+			dateTrigger.locator('..').boundingBox(),
+			dueDateRow.boundingBox(),
+			detailsCard.boundingBox()
+		]);
+		expect(controlBox!.x).toBeGreaterThanOrEqual(rowBox!.x);
+		expect(controlBox!.x + controlBox!.width).toBeLessThanOrEqual(rowBox!.x + rowBox!.width);
+		expect(controlBox!.x + controlBox!.width).toBeLessThanOrEqual(cardBox!.x + cardBox!.width);
+	});
+
 	test('the collapsed sidebar drawer closes from its overlay by click and Escape', async ({ page }) => {
 		await page.addInitScript(() => localStorage.setItem('sidebar_collapsed_panel', 'true'));
 		await page.goto(`/test/teams/${teamId}`);

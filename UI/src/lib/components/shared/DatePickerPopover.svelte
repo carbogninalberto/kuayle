@@ -65,21 +65,23 @@
 
 <Popover.Root bind:open>
 	<!-- The clear action sits inside the original pill frame as a sibling, never nested in the trigger. -->
-	<div class="inline-flex items-center rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] text-xs hover:bg-[var(--color-bg-hover)] {displayDate && colorClass ? colorClass : 'text-[var(--color-text-secondary)]'}">
+	<div class="inline-flex max-w-full items-center rounded-md border border-[var(--app-border)] bg-[var(--color-bg-secondary)] text-xs hover:bg-[var(--color-bg-hover)] {displayDate && colorClass ? colorClass : 'text-[var(--color-text-secondary)]'}">
 	<Popover.Trigger>
 		{#snippet child({ props })}
-			<Button {...props} variant="plain" class="flex items-center gap-1.5 py-1 pl-2.5 {displayDate ? 'pr-0' : 'pr-2.5'}">
-				<CalendarIcon size={12} />
-				{#if displayDate}
-					{displayDate}
-				{:else}
-					{placeholder}
-				{/if}
+			<Button {...props} variant="plain" title={displayDate ?? placeholder} class="flex min-w-0 items-center gap-1 whitespace-nowrap py-1 pl-1.5 {displayDate ? 'pr-0' : 'pr-1.5'}">
+				<CalendarIcon size={12} class="shrink-0" />
+				<span class="truncate">
+					{#if displayDate}
+						{displayDate}
+					{:else}
+						{placeholder}
+					{/if}
+				</span>
 			</Button>
 		{/snippet}
 	</Popover.Trigger>
 	{#if displayDate}
-		<Button variant="plain" aria-label={m['insights.clear']()} onclick={handleClear} class="mr-2.5 ml-2.5 inline-flex rounded p-0.5 hover:bg-[var(--color-bg-hover)]"><X size={10} /></Button>
+		<Button variant="plain" aria-label={m['insights.clear']()} onclick={handleClear} class="mx-0.5 inline-flex shrink-0 rounded p-0.5 hover:bg-[var(--color-bg-hover)]"><X size={10} /></Button>
 	{/if}
 	</div>
 	<Popover.Content class="w-auto p-0" align="start">

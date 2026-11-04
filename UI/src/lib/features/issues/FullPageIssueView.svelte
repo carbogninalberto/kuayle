@@ -1360,13 +1360,15 @@
 						<!-- Due date row -->
 						<div class="flex items-center gap-3 rounded-md px-2 py-1.5 hover:bg-[var(--color-bg-hover)] transition-colors">
 							<span class="w-20 shrink-0 text-xs text-[var(--color-text-tertiary)]">{m['issue.due_date']()}</span>
-							<DatePickerPopover
-								value={issue.due_date}
-								onchange={(d) => updateField('due_date', d ?? '')}
-								placeholder={m['issue.set_date']()}
-								colorClass={issue.due_date ? formatDueDate(issue.due_date).colorClass : ''}
-								dueDateMode
-							/>
+							<div class="min-w-0 flex-1">
+								<DatePickerPopover
+									value={issue.due_date}
+									onchange={(d) => updateField('due_date', d ?? '')}
+									placeholder={m['issue.set_date']()}
+									colorClass={issue.due_date ? formatDueDate(issue.due_date).colorClass : ''}
+									dueDateMode
+								/>
+							</div>
 						</div>
 
 					</div>
