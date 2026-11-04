@@ -229,6 +229,15 @@ class UpdateFlowTests(unittest.TestCase):
         self.assertIn('Removed 4 image(s) from releases before v1.2.2', out.getvalue())
         self.assertEqual(json.loads(self.updater.state.read_text())['release'], 'v1.2.3')
 
+    def test_retired_service_images_stay_eligible_after_it_leaves_the_configuration(self):
+        self.updater.state.write_text(json.dumps({'release': 'v1.2.2', 'image_services': ['retired']}))
+        self.image_listing(['local/instance-retired:v1.2.1', 'local/instance-retired:v1.2.2'])
+        with patch('sys.stdout', io.StringIO()):
+            self.updater.update()
+        self.assertEqual(self.removed(), ['local/instance-retired:v1.2.1'])
+        # Kept for the next update, which removes the last image after its rollback release ages out.
+        self.assertIn('retired', json.loads(self.updater.state.read_text())['image_services'])
+
     def test_failed_activation_removes_no_images(self):
         self.updater.state.write_text(json.dumps({'release': 'v1.2.2'}))
         self.image_listing([m.REGISTRY + '/kuayle-api:v1.0.0'])

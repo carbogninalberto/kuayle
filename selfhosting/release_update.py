@@ -334,12 +334,16 @@ class ReleaseUpdater:
                 (backup / path.name).chmod(0o600)
         log(f'Prepared {tag}. Configuration and database backup: {backup}')
         self.activate(candidate_path, backup, dev_active, running)
+        # Services whose images this updater manages, kept across releases so a
+        # retired service's images are still removed once they age out.
+        image_services = sorted({*old_state.get('image_services', []), *resolved['services'], *reference['services']})
         atomic_json(self.state, {'release': tag, 'source': commit, 'images': images,
                                 'dev_machine_images': dev_images, 'dev_machine_builds': builds,
+                                'image_services': image_services,
                                 'backup': str(backup), 'updated_at': datetime.datetime.now(datetime.timezone.utc).isoformat()})
         log(f'Release {tag} completed successfully; all updated services are healthy.')
         try:
-            self.prune_release_images(tag, previous, {*resolved['services'], *reference['services']})
+            self.prune_release_images(tag, previous, image_services)
         except Exception as exc:
             log(f'Could not remove old release images: {exc}')
 
