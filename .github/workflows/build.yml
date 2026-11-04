@@ -18,53 +18,38 @@ jobs:
     name: CI Impact
     uses: ./.github/workflows/ci-impact.yml
 
-  build:
+  # Releases first commit the version bump and refreshed agent CLIs, then build
+  # the application and runtime images from that commit in parallel.
+  release-source:
     if: github.event_name == 'release'
-    name: Build Images
+    name: Prepare Release Source
     outputs:
       source_sha: ${{ steps.source.outputs.sha }}
-    # PR application images are built, smoke-tested and scanned by Release Readiness.
     permissions:
       contents: write
-      packages: write
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout main for release build
-        if: github.event_name == 'release'
         uses: actions/checkout@v7.0.0
         with:
           ref: main
           fetch-depth: 0
 
-      - name: Checkout pull request
-        if: github.event_name == 'pull_request'
-        uses: actions/checkout@v7.0.0
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          persist-credentials: false
-
       - name: Extract version
         id: version
         run: |
-          if [ "${{ github.event_name }}" = "release" ]; then
-            version="${{ github.event.release.tag_name }}"
-            number="${version#v}"
-          else
-            version="pr"
-            number="0.0.0"
-          fi
+          version="${{ github.event.release.tag_name }}"
+          number="${version#v}"
 
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "number=$number" >> "$GITHUB_OUTPUT"
 
       - name: Bump UI version
-        if: github.event_name == 'release'
         working-directory: UI
         run: npm version "${{ steps.version.outputs.number }}" --no-git-tag-version --allow-same-version
 
       - name: Update public release manifest
-        if: github.event_name == 'release'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -87,7 +72,6 @@ jobs:
             > UI/static/releases.json
 
       - name: Update README contributors
-        if: github.event_name == 'release'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -104,13 +88,11 @@ jobs:
           mv /tmp/README.md README.md
 
       - name: Upgrade all built-in agent CLIs to latest stable versions
-        if: github.event_name == 'release'
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/ci/upgrade-agent-clis.mjs
 
       - name: Commit version bump
-        if: github.event_name == 'release'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -128,11 +110,31 @@ jobs:
         id: source
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
+  build:
+    needs: [release-source]
+    if: github.event_name == 'release' && needs.release-source.result == 'success'
+    name: Build Images
+    # PR application images are built, smoke-tested and scanned by Release Readiness.
+    permissions:
+      contents: read
+      packages: write
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout refreshed release source
+        uses: actions/checkout@v7.0.0
+        with:
+          ref: ${{ needs.release-source.outputs.source_sha }}
+          persist-credentials: false
+
+      - name: Extract version
+        id: version
+        run: echo "version=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4.1.0
 
       - name: Log in to GitHub Container Registry
-        if: github.event_name == 'release'
         uses: docker/login-action@v4.2.0
         with:
           registry: ${{ env.REGISTRY }}
@@ -189,8 +191,8 @@ jobs:
           cache-to: type=gha,mode=max,scope=web
 
   dev-machine-images:
-    needs: [changes, build]
-    if: ${{ !cancelled() && needs.changes.result == 'success' && (github.event_name != 'release' || needs.build.result == 'success') && contains(fromJSON(needs.changes.outputs.plan).required.build, 'dev-machine-images') }}
+    needs: [changes, release-source]
+    if: ${{ !cancelled() && needs.changes.result == 'success' && (github.event_name != 'release' || needs.release-source.result == 'success') && contains(fromJSON(needs.changes.outputs.plan).required.build, 'dev-machine-images') }}
     name: Dev Machine Image (${{ matrix.image.name }}, ${{ matrix.architecture }})
     runs-on: ${{ matrix.architecture == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     strategy:
@@ -204,7 +206,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.0
         with:
-          ref: ${{ needs.build.outputs.source_sha || github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ needs.release-source.outputs.source_sha || github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
       - name: Build, smoke test and scan native architecture image
@@ -218,10 +220,12 @@ jobs:
 
   # Releases run the same native build/smoke/scan once here instead of in
   # dev-machine-images, then push exactly the scanned local image. The release
-  # updater pulls these images rather than building them on the server.
+  # updater pulls these images rather than building them on the server. The
+  # matrix is unbounded so it runs alongside Build Images; GitHub queues any
+  # jobs beyond the account's runner concurrency.
   dev-machine-publish:
-    needs: [changes, build]
-    if: ${{ !cancelled() && github.event_name == 'release' && needs.changes.result == 'success' && needs.build.result == 'success' && contains(fromJSON(needs.changes.outputs.plan).required.build, 'dev-machine-publish') }}
+    needs: [changes, release-source]
+    if: ${{ !cancelled() && github.event_name == 'release' && needs.changes.result == 'success' && needs.release-source.result == 'success' && contains(fromJSON(needs.changes.outputs.plan).required.build, 'dev-machine-publish') }}
     name: Publish Dev Machine Image (${{ matrix.image.name }}, ${{ matrix.architecture }})
     runs-on: ${{ matrix.architecture == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     permissions:
@@ -229,7 +233,6 @@ jobs:
       packages: write
     strategy:
       fail-fast: false
-      max-parallel: 4
       matrix:
         architecture: [amd64, arm64]
         image: ${{ fromJSON(needs.changes.outputs.plan).devImages }}
@@ -237,7 +240,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.0
         with:
-          ref: ${{ needs.build.outputs.source_sha }}
+          ref: ${{ needs.release-source.outputs.source_sha }}
           persist-credentials: false
 
       - name: Build, smoke test and scan native architecture image
@@ -267,7 +270,7 @@ jobs:
 
   dev-machine-manifests:
     needs: [changes, build, dev-machine-publish]
-    if: ${{ !cancelled() && github.event_name == 'release' && needs.dev-machine-publish.result == 'success' && contains(fromJSON(needs.changes.outputs.plan).required.build, 'dev-machine-manifests') }}
+    if: ${{ !cancelled() && github.event_name == 'release' && needs.build.result == 'success' && needs.dev-machine-publish.result == 'success' && contains(fromJSON(needs.changes.outputs.plan).required.build, 'dev-machine-manifests') }}
     name: Publish Dev Machine Manifest (${{ matrix.image.name }})
     runs-on: ubuntu-latest
     permissions:
@@ -303,7 +306,7 @@ jobs:
   result:
     name: Build CI Result
     if: always()
-    needs: [changes, build, dev-machine-images, dev-machine-publish, dev-machine-manifests]
+    needs: [changes, release-source, build, dev-machine-images, dev-machine-publish, dev-machine-manifests]
     runs-on: ubuntu-latest
     permissions:
       contents: read
