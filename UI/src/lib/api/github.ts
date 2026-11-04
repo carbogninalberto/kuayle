@@ -6,9 +6,14 @@ import {
 	safeGitHubCommitUrl,
 	safeGitHubPullRequestUrl
 } from '$lib/security/github-url';
+import type { GitHubAppSetup } from '$lib/features/github/app-setup';
 
 export function getGitHubStatus(slug: string): Promise<GitHubStatus> {
 	return api.get<GitHubStatus>(`/api/workspaces/${slug}/github/status`);
+}
+
+export function getGitHubAppSetup(slug: string): Promise<GitHubAppSetup> {
+	return api.get<GitHubAppSetup>(`/api/workspaces/${slug}/github/app-setup`);
 }
 
 export function getManifestSetup(slug: string): Promise<{ manifest: Record<string, any>; submit_url: string }> {

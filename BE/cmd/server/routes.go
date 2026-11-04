@@ -323,6 +323,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	// GitHub integration (workspace-scoped)
 	sessionOnly(ws, http.MethodGet, "/github/status", h.github.Status)
 	scoped(ws, http.MethodGet, "/github/setup", h.github.Setup, "workspace:manage")
+	scoped(ws, http.MethodGet, "/github/app-setup", h.github.AppSetup, "workspace:manage")
 	scoped(ws, http.MethodGet, "/github/setup/callback", h.github.SetupCallback, "workspace:manage")
 	scoped(ws, http.MethodGet, "/github/install", h.github.InstallURL, "workspace:manage")
 	scoped(ws, http.MethodGet, "/github/callback", h.github.Callback, "workspace:manage")

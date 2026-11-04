@@ -39,6 +39,17 @@ func (h *GitHubHandler) Status(c echo.Context) error {
 	return response.Success(c, http.StatusOK, status)
 }
 
+// AppSetup reports whether the GitHub App and its installation deliver every
+// event and permission Kuayle needs, with links to fix them on GitHub.
+func (h *GitHubHandler) AppSetup(c echo.Context) error {
+	ws := c.Get("workspace").(*domain.Workspace)
+	setup, err := h.ghSvc.GetAppSetup(c.Request().Context(), ws.ID)
+	if err != nil {
+		return response.InternalError(c)
+	}
+	return response.Success(c, http.StatusOK, setup)
+}
+
 // Setup serves an HTML page that auto-submits the manifest form to GitHub.
 // Uses a CSP nonce to allow the inline script securely.
 func (h *GitHubHandler) Setup(c echo.Context) error {
