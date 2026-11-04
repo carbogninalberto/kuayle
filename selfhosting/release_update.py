@@ -38,6 +38,10 @@ def dev_machine_services(reference):
                               if 'dev-machine-images' in spec.get('profiles', []))]
 
 
+def release_version(tag):
+    return tuple(map(int, tag[1:].split('.'))) if re.fullmatch(r'v\d+\.\d+\.\d+', tag or '') else None
+
+
 def log(message):
     print(message, flush=True)
 
@@ -184,6 +188,44 @@ class ReleaseUpdater:
             return False
         return True
 
+    def prune_release_images(self, tag, rollback, services):
+        """Remove this instance's images from releases older than the rollback one.
+
+        Every release pulls a full image set, so without this the host disk
+        fills up. The installed and previous releases stay for rollback; only
+        exact release tags of GHCR releases or of this project's own service
+        builds (``local/PROJECT-SERVICE``, never a longer project name sharing
+        the prefix) are considered, and Docker refuses to remove an image a
+        container still uses. It is idempotent, so a healthy repeat run
+        finishes a cleanup that an earlier run could not complete."""
+        keep = release_version(rollback) or release_version(tag)
+        local = '|'.join(re.escape(f'local/{self.project}-{name}') for name in sorted(services))
+        repository = re.compile(rf'{re.escape(REGISTRY)}/kuayle(-[a-z0-9-]+)?' + (f'|{local}' if local else ''))
+        listing = self.run(['docker', 'image', 'ls', '--format', '{{json .}}'], capture=True)
+        removed = 0
+        for line in filter(None, listing.splitlines()):
+            image = json.loads(line)
+            version = release_version(image.get('Tag'))
+            if not version or version >= keep or not repository.fullmatch(image.get('Repository', '')):
+                continue
+            try:
+                self.run(['docker', 'image', 'rm', f"{image['Repository']}:{image['Tag']}"], capture=True)
+                removed += 1
+            except subprocess.CalledProcessError:
+                log(f"Kept {image['Repository']}:{image['Tag']}; it is still in use.")
+        if removed:
+            log(f'Removed {removed} image(s) from releases before {"v" + ".".join(map(str, keep))}.')
+
+    def cleanup(self, tag, rollback, services):
+        # An unknown rollback release (a repair of a release installed before
+        # this was recorded) keeps everything rather than guessing.
+        if rollback is None:
+            return
+        try:
+            self.prune_release_images(tag, rollback, services)
+        except Exception as exc:
+            log(f'Could not remove old release images: {exc}')
+
     def activate(self, candidate, backup, dev_active, running):
         writers = ['backend'] + (['machine-manager', 'machine-gateway'] if dev_active else [])
         restore = [s for s in writers if s in running]
@@ -261,6 +303,8 @@ class ReleaseUpdater:
             dev_match = not dev_active or self.dev_images_current(old_state, resolved, tag)
             if dev_match and config_match and image_match and len(info) == expected and all(c['State'].get('Health', {}).get('Status') == 'healthy' for c in info):
                 log(f'{tag} is already installed and healthy; no restart required.')
+                self.cleanup(tag, old_state.get('rollback_release'),
+                             old_state.get('image_services') or [*resolved['services']])
                 return
         # Fetch only the published release ref. Detached operator checkouts stay untouched.
         self.run(['git', '-C', str(repo), 'fetch', 'origin', f'refs/tags/{tag}:refs/tags/{tag}'])
@@ -301,10 +345,19 @@ class ReleaseUpdater:
                 (backup / path.name).chmod(0o600)
         log(f'Prepared {tag}. Configuration and database backup: {backup}')
         self.activate(candidate_path, backup, dev_active, running)
+        # Services whose images this updater manages, kept across releases so a
+        # retired service's images are still removed once they age out.
+        image_services = sorted({*old_state.get('image_services', []), *resolved['services'], *reference['services']})
+        # The release kept for rollback: the one this update replaced; a repair
+        # keeps the recorded one, and a first install has none.
+        rollback = old_state.get('rollback_release') if previous == tag else previous
         atomic_json(self.state, {'release': tag, 'source': commit, 'images': images,
                                 'dev_machine_images': dev_images, 'dev_machine_builds': builds,
+                                'image_services': image_services,
+                                **({'rollback_release': rollback} if rollback is not None else {}),
                                 'backup': str(backup), 'updated_at': datetime.datetime.now(datetime.timezone.utc).isoformat()})
         log(f'Release {tag} completed successfully; all updated services are healthy.')
+        self.cleanup(tag, rollback, image_services)
 
 
 def main():

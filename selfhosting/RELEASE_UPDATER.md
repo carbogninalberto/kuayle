@@ -71,17 +71,27 @@ recreate the updater service.
    with the new backend, provision gateway grants if active, and start the new
    application and control plane with health waits. The proxy, database, Redis,
    updater, existing machine workloads and unrelated Compose projects are not
-   recreated. No Docker pruning or volume deletion is performed.
+   recreated. No volume deletion is performed.
 6. Remove maintenance only after healthy startup. Save version, source, API/UI
    digests, pulled Dev Machines digests (`dev_machine_images`), locally built Dev
    Machines services (`dev_machine_builds`) and backup path in
    `runtime/release-updater-state.json`. Repeating an already
    successful update verifies health and returns without restarting services.
+7. Remove this instance's images from releases older than the previous one, so
+   repeated releases do not fill the host disk (each pulls a full image set):
+   `ghcr.io/carbogninalberto/kuayle*` and `local/PROJECT-SERVICE` images (this
+   project's Compose services only, recorded as `image_services` in the state so
+   a retired service's images still age out) with an exact `vX.Y.Z` tag. The
+   installed and previous releases stay for rollback; `latest`,
+   custom tags, other projects' images and images a container still uses are
+   kept. A removal failure is logged and never fails the completed update; the
+   rollback release is recorded as `rollback_release`, so a later run that finds
+   the release healthy finishes any cleanup that did not complete.
 
 Schema/config architecture changes beyond the reference service contract require
 operator review. This flow preserves existing instance settings rather than
 replacing the production file with the repository's defaults. It does not refresh
-its own running sidecar or remove older runtime images/source exports/backups.
+its own running sidecar or remove older source exports/backups.
 
 ## Failure recovery
 
@@ -113,7 +123,7 @@ node AGENTS/TOOLS/check-harness.mjs
 
 Tests mock command execution and exercise candidate construction, preservation of
 instance policy, published Dev Machines image pulls and digest pinning, local-build
-fallback for missing images and the forced-build setting, disabled profiles, backup ordering, pre-migration recovery,
+fallback for missing images and the forced-build setting, old release image removal, disabled profiles, backup ordering, pre-migration recovery,
 migration failure and failed health waits. They do not contact production or prove
 registry availability. On deployment, verify authenticated updater status, actual
 service health, public readiness, migration version and a repeat no-op update.
