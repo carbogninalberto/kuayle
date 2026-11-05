@@ -226,7 +226,22 @@ export type CreateDevMachineInput =
 			disk_gb: number;
 	  });
 
-export type ThinkingLevel = 'off' | 'low' | 'high' | 'max';
+export type ThinkingLevel = 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
+// A coding agent's workspace default for runs on its own sign-in. Empty
+// fields leave the model or effort to the agent.
+export interface AgentModelDefault {
+	provider: string;
+	model: string;
+	thinking: ThinkingLevel | '';
+	thinking_levels: ThinkingLevel[];
+	updated_at?: string;
+}
+
+export interface AgentModelDefaultInput {
+	model: string;
+	thinking: ThinkingLevel | '';
+}
 
 // A workspace model server. Codex uses its OpenAI-compatible URL and Claude
 // Code its Anthropic-compatible URL; `harnesses` lists who can use it. The API

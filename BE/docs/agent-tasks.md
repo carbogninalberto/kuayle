@@ -1201,6 +1201,11 @@ on the existing machine routes.
 Encrypted recovery credentials never appear in API output. Mutating task bodies
 reject unknown properties; callers cannot supply runtime IDs or lease authority.
 Provider model/effort validation is shared with direct native execution.
+A task stores only an explicit model and effort. Each attempt's run fills what
+the task left empty from the workspace default of its agent on its own sign-in
+when the run is created, so open tasks pick up a changed default on their next
+attempt while an existing run keeps its own; see
+[agent model defaults](../../TECHNICAL.md#agent-model-defaults).
 
 
 ## Web task controls

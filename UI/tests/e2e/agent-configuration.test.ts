@@ -227,3 +227,68 @@ test('members see model servers but cannot change them', async ({ page }) => {
 	await expect(page.getByRole('button', { name: 'Edit DeepSeek' })).toHaveCount(0);
 	await expect(page.getByRole('switch', { name: 'Allow Codex' })).toBeDisabled();
 });
+
+const levels = ['off', 'low', 'medium', 'high', 'xhigh', 'max'];
+const policy = {
+	workspace_id: workspaceId,
+	enabled: true,
+	max_concurrent_machines: 5,
+	max_machines_per_user: 2,
+	max_daily_agent_runs: 25,
+	max_disk_gb: 100,
+	allowed_providers: ['codex', 'claude-code'],
+	allowed_repositories: [],
+	allow_custom_providers: false,
+	allow_unattended_automations: false,
+	disk_quota_mode: 'hard'
+};
+
+async function mockModelDefaults(page: import('@playwright/test').Page, saves: Array<Record<string, unknown>>) {
+	let defaults = [
+		{ provider: 'codex', model: '', thinking: '', thinking_levels: levels },
+		{ provider: 'claude-code', model: '', thinking: '', thinking_levels: levels }
+	];
+	await page.route('**/api/**', async (route) => {
+		const request = route.request();
+		const path = new URL(request.url()).pathname;
+		if (path === '/api/workspaces/test/dev-machine-policy') return route.fulfill({ json: policy });
+		if (path === '/api/workspaces/test/agent-model-servers') return route.fulfill({ json: [] });
+		if (path === '/api/workspaces/test/agent-model-defaults') return route.fulfill({ json: defaults });
+		if (path === '/api/workspaces/test/agent-model-defaults/claude-code' && request.method() === 'PUT') {
+			const body = request.postDataJSON();
+			saves.push(body);
+			const saved = { provider: 'claude-code', ...body, thinking_levels: levels, updated_at: now };
+			defaults = defaults.map((item) => (item.provider === 'claude-code' ? saved : item));
+			return route.fulfill({ json: saved });
+		}
+		return route.fallback();
+	});
+}
+
+test('owners set the default model and effort Claude Code runs with on its own sign-in', async ({ page }) => {
+	const saves: Array<Record<string, unknown>> = [];
+	await mockShell(page);
+	await mockModelDefaults(page, saves);
+	await page.goto('/test/settings/agents');
+	const card = page.getByRole('region', { name: 'Default model and effort' });
+	await expect(card).toBeVisible();
+	const save = card.getByRole('button', { name: 'Save the Claude Code default' });
+	await expect(save).toBeDisabled();
+	await card.locator('#agent-default-model-claude-code').fill('claude-opus-5-5');
+	await card.locator('#agent-default-effort-claude-code').click();
+	await page.getByRole('option', { name: 'Medium' }).click();
+	await save.click();
+	await expect.poll(() => saves.length).toBe(1);
+	expect(saves[0]).toEqual({ model: 'claude-opus-5-5', thinking: 'medium' });
+	await expect(save).toBeDisabled();
+	await expect(card.locator('#agent-default-model-codex')).toHaveValue('');
+});
+
+test('members see the default models but cannot change them', async ({ page }) => {
+	await mockShell(page, 'member');
+	await mockModelDefaults(page, []);
+	await page.goto('/test/settings/agents');
+	const card = page.getByRole('region', { name: 'Default model and effort' });
+	await expect(card.locator('#agent-default-model-claude-code')).toBeDisabled();
+	await expect(card.getByRole('button', { name: 'Save the Claude Code default' })).toHaveCount(0);
+});

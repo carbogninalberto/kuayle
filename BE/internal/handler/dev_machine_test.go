@@ -642,6 +642,7 @@ type handlerDevMachineStoreFake struct {
 	permanentDeleteRequests int
 	terminalCloseOperation  *domain.DevMachineOperation
 	modelServers            []domain.AgentModelServer
+	agentModelDefaults      []domain.AgentModelDefault
 	purge                   *domain.DevMachinePurge
 }
 
