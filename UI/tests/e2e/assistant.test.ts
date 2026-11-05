@@ -1294,12 +1294,18 @@ test('denying a pull request change records the denial and changes nothing', asy
 
 test('a failed pull request change shows GitHub’s reason and the next step', async ({ page }) => {
 	const state = await fixture(page);
-	machineApproval(state, 'update_pull_request_branch', { ...pullRequestPayload, head: '0123456789abcdef', base: 'main' });
+	machineApproval(state, 'update_pull_request_branch', {
+		...pullRequestPayload,
+		head: '0123456789abcdef',
+		base: 'main'
+	});
 	state.approvals[0].status = 'failed' as any;
 	(state.approvals[0] as any).error =
 		'GitHub refused: merge conflict. If the branch has conflicts or moved, ask for update_pull_request_branch again so the task agent merges the base itself';
 	await page.goto('/test/assistant?conversation=chat-1');
-	await expect(page.getByText(/Could not change the pull request for ENG-1: GitHub refused: merge conflict/)).toBeVisible();
+	await expect(
+		page.getByText(/Could not change the pull request for ENG-1: GitHub refused: merge conflict/)
+	).toBeVisible();
 	await expect(page.getByText(/task agent merges the base itself/)).toBeVisible();
 });
 
@@ -1903,11 +1909,123 @@ test('an instance upgrade waits for approval, shows both versions and follows th
 	expect(polls).toBe(0);
 	expect(state.decisions).toEqual([]);
 	await page.getByRole('button', { name: 'Approve', exact: true }).click();
-	await expect(page.getByText('Upgrade to 0.3.0 started; the instance restarts, follow it below', { exact: true })).toBeVisible();
+	await expect(
+		page.getByText('Upgrade to 0.3.0 started; the instance restarts, follow it below', { exact: true })
+	).toBeVisible();
 	await expect(
 		page.getByText('Upgrade finished and the health check passed. Reload to run the new version.', { exact: true })
 	).toBeVisible();
 	expect(state.decisions).toEqual(['approve']);
+});
+
+test('a release waits for approval with its notes editable, and publishes the edited notes', async ({ page }) => {
+	const state = await fixture(page);
+	const answered = { ...reply, status: 'completed', content: 'The release is waiting for your approval.' };
+	state.messages = [userMessage, answered];
+	const draft =
+		'### Features\n- **Release tools (KUA-88).**\n\n**Full Changelog**: https://github.com/acme/app/compare/v1.2.0...v1.3.0';
+	state.tools = [
+		{
+			id: 'tool-60',
+			conversation_id: 'chat-1',
+			message_id: answered.id,
+			sequence: 0,
+			call_id: 'call_tool-60',
+			name: 'create_release',
+			input: { repository: 'acme/app', tag: 'v1.3.0' },
+			status: 'completed',
+			output: { approval_id: 'approval-60', status: 'pending_user_approval' },
+			created_at: conversation.created_at
+		}
+	];
+	const pending = {
+		id: 'approval-60',
+		conversation_id: 'chat-1',
+		tool_call_id: 'tool-60',
+		actor_id: 'user-1',
+		issue_id: '00000000-0000-0000-0000-000000000000',
+		action: 'create_release',
+		payload: {
+			repository: 'acme/app',
+			tag: 'v1.3.0',
+			name: 'v1.3.0',
+			target_commit: '0123456789abcdef0123456789abcdef01234567',
+			branch: 'main',
+			previous_tag: 'v1.2.0',
+			notes: draft,
+			checks_passed: 12,
+			commits: 4,
+			scanned_files: 9,
+			unscanned_files: ['UI/static/logo.png'],
+			compare_url: 'https://github.com/acme/app/compare/v1.2.0...0123456789abcdef0123456789abcdef01234567',
+			release_url: 'https://github.com/acme/app/releases/tag/v1.3.0'
+		},
+		status: 'pending',
+		expires_at: '2026-10-27T10:00:00Z',
+		created_at: conversation.created_at,
+		updated_at: conversation.created_at
+	};
+	state.approvals = [pending] as any;
+	const bodies: any[] = [];
+	await page.route('**/conversations/chat-1/approvals/**', (route) => {
+		const body = route.request().postDataJSON();
+		bodies.push(body);
+		// The server checks the edited notes again; the first edit holds a private address.
+		if (body.notes?.includes('10.0.0.8'))
+			return route.fulfill({
+				status: 422,
+				json: {
+					error: {
+						code: 'INVALID_APPROVAL_EDIT',
+						message:
+							'The check of the release notes found 1 secret(s), private address(es), host name(s) or local path(s): notes line 1 (private address).'
+					}
+				}
+			});
+		const approved = {
+			...pending,
+			payload: { ...pending.payload, notes: body.notes ?? draft, notes_edited: body.notes !== undefined },
+			status: 'approved',
+			resolved_at: '2026-10-26T10:05:00Z',
+			updated_at: '2026-10-26T10:05:00Z'
+		};
+		state.approvals = [approved] as any;
+		return route.fulfill({ json: approved });
+	});
+	await page.goto('/test/assistant?conversation=chat-1');
+	await expect(page.getByText('Publish v1.3.0 of acme/app?', { exact: true })).toBeVisible();
+	await expect(page.getByText('Tags 0123456 on main, where all 12 checks passed.', { exact: false })).toBeVisible();
+	await expect(page.getByTestId('release-scan')).toContainText(
+		'Since v1.2.0: 4 commits; the secret scan read 9 changed files'
+	);
+	await expect(page.getByText(/UI\/static\/logo\.png/)).toBeVisible();
+	const notes = page.getByLabel('Release notes (published as you leave them)');
+	await expect(notes).toHaveValue(draft);
+	expect(bodies).toEqual([]);
+
+	// An empty edit cannot be approved.
+	await notes.fill('   ');
+	await expect(page.getByRole('button', { name: 'Approve', exact: true })).toBeDisabled();
+
+	// The server's reason for refusing an edit is shown, and the card stays pending.
+	await notes.fill('- staged on 10.0.0.8 first');
+	await page.getByRole('button', { name: 'Approve', exact: true }).click();
+	await expect(page.getByRole('alert').filter({ hasText: 'notes line 1 (private address)' })).toBeVisible();
+	await expect(notes).toBeVisible();
+
+	// Reset restores the draft; the edited notes are what is sent and published.
+	await page.getByRole('button', { name: 'Reset to the draft' }).click();
+	await expect(notes).toHaveValue(draft);
+	const edited = '### Fixed\n- **Edited on the card (KUA-88).**';
+	await notes.fill(edited);
+	await page.getByRole('button', { name: 'Approve', exact: true }).click();
+	await expect(page.getByText('Published v1.3.0', { exact: true })).toBeVisible();
+	await expect(page.getByRole('link', { name: 'Open the release' })).toHaveAttribute(
+		'href',
+		'https://github.com/acme/app/releases/tag/v1.3.0'
+	);
+	expect(bodies.map((body) => body.decision)).toEqual(['approve', 'approve']);
+	expect(bodies[1]).toEqual({ decision: 'approve', notes: edited });
 });
 
 test('message_task says where the message went without asking for approval', async ({ page }) => {
@@ -1969,7 +2087,13 @@ test('a proposed skill shows its full draft and links to Settings; a loaded skil
 	});
 	const body = '## Steps\n\n1. Bump the version\n2. Tag the release\n\n<img src=x onerror="window.__xss=1">';
 	state.tools = [
-		tool('tool-40', 0, 'load_skill', { name: 'How we triage' }, { skill_id: skillId, name: 'How we triage', version: 2, team_key: null, bytes: 120 }),
+		tool(
+			'tool-40',
+			0,
+			'load_skill',
+			{ name: 'How we triage' },
+			{ skill_id: skillId, name: 'How we triage', version: 2, team_key: null, bytes: 120 }
+		),
 		tool(
 			'tool-41',
 			1,
@@ -1997,7 +2121,9 @@ test('a proposed skill shows its full draft and links to Settings; a loaded skil
 	await expect(card.getByText('Use when asked how to cut a release.')).toBeVisible();
 	await expect(card.getByRole('heading', { name: 'Steps' })).toBeVisible();
 	await expect(card.getByText('Tag the release')).toBeVisible();
-	await expect(card.getByText('Draft version 3 for ENG. Active version 2 stays in effect until the draft is activated.')).toBeVisible();
+	await expect(
+		card.getByText('Draft version 3 for ENG. Active version 2 stays in effect until the draft is activated.')
+	).toBeVisible();
 	await expect(card.locator('img')).toHaveCount(0);
 	expect(await page.evaluate(() => (window as unknown as { __xss?: number }).__xss)).toBeUndefined();
 	await expect(card.getByRole('link', { name: 'Review in Settings' })).toHaveAttribute(

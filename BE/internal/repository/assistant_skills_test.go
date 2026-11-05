@@ -271,3 +271,37 @@ func TestAssistantSkillsFollowPrivateTeamVisibility(t *testing.T) {
 	_, err = repo.Get(teamMember, f.ws, secret.ID)
 	require.ErrorIs(t, err, ErrAssistantSkillNotFound)
 }
+
+func TestReleaseNotesStyleIsSeededOnceAndThenEditable(t *testing.T) {
+	f := newSkillFixture(t)
+	repo := NewAssistantSkillRepository(f.db)
+	seed := domain.AssistantSkillInput{Name: "Release notes style", Description: "How to write release notes", Body: "Sections: Features, Fixed", Status: "active", AuthorKind: "user"}
+	// Any member's draft seeds the style; nobody's role is needed for that.
+	style, err := repo.ReleaseNotesStyle(f.as(f.member, f.ws), f.ws, seed)
+	require.NoError(t, err)
+	require.Equal(t, "Sections: Features, Fixed", style.Body)
+	require.Equal(t, "active", style.Status)
+	require.Nil(t, style.TeamID)
+	require.Nil(t, style.CreatedByUserID, "the seed is Kuayle's, not the member's")
+	again, err := repo.ReleaseNotesStyle(f.as(f.member, f.ws), f.ws, seed)
+	require.NoError(t, err)
+	require.Equal(t, style.ID, again.ID, "seeding twice keeps one skill")
+	versions, err := repo.Versions(f.as(f.admin, f.ws), f.ws, style.ID)
+	require.NoError(t, err)
+	require.Len(t, versions, 1)
+
+	// An admin's edit is what the next draft reads, and the seed never overwrites it.
+	edited := seed
+	edited.Body = "Sections: Fixed"
+	_, err = repo.Update(f.as(f.admin, f.ws), f.ws, style.ID, f.admin, edited)
+	require.NoError(t, err)
+	current, err := repo.ReleaseNotesStyle(f.as(f.member, f.ws), f.ws, seed)
+	require.NoError(t, err)
+	require.Equal(t, "Sections: Fixed", current.Body)
+	require.Equal(t, 2, current.CurrentVersion)
+
+	// Each workspace has its own style.
+	other, err := repo.ReleaseNotesStyle(f.as(f.outsider, f.other), f.other, seed)
+	require.NoError(t, err)
+	require.NotEqual(t, style.ID, other.ID)
+}

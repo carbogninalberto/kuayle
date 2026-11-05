@@ -28,6 +28,8 @@ var githubAppPermissions = map[string]string{
 	"issues":        "read",
 	"checks":        "read",
 	"statuses":      "read",
+	// get_workflow_run follows release builds (KUA-88).
+	"actions": "read",
 }
 
 var githubAppEvents = []string{

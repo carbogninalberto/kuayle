@@ -132,9 +132,20 @@ func (s *GitHubService) PullRequestChecks(ctx context.Context, ws uuid.UUID, rep
 		return "", nil, coverage, err
 	}
 	head := pull.Head.SHA
-	runs, truncated, err := client.ListCheckRuns(token, owner, name, head)
+	checks, coverage, err := commitChecks(client, token, owner, name, head)
 	if err != nil {
 		return "", nil, coverage, err
+	}
+	return head, checks, coverage, nil
+}
+
+// commitChecks reads a commit's check runs and legacy statuses. A failed read
+// of the statuses is flagged rather than fatal, so it never looks like green CI.
+func commitChecks(client *gh.Client, token, owner, name, sha string) ([]PullRequestCheck, ChecksCoverage, error) {
+	var coverage ChecksCoverage
+	runs, truncated, err := client.ListCheckRuns(token, owner, name, sha)
+	if err != nil {
+		return nil, coverage, err
 	}
 	coverage.Truncated = truncated
 	var checks []PullRequestCheck
@@ -148,9 +159,7 @@ func (s *GitHubService) PullRequestChecks(ctx context.Context, ws uuid.UUID, rep
 		}
 		checks = append(checks, check)
 	}
-	// Legacy commit statuses cannot fail the whole read (the checks are still
-	// reported), but a failed read is flagged so it never looks like green CI.
-	statuses, statusesTruncated, statusErr := client.ListCommitStatuses(token, owner, name, head)
+	statuses, statusesTruncated, statusErr := client.ListCommitStatuses(token, owner, name, sha)
 	if statusErr != nil {
 		coverage.StatusesUnavailable = true
 	}
@@ -166,7 +175,7 @@ func (s *GitHubService) PullRequestChecks(ctx context.Context, ws uuid.UUID, rep
 		}
 		checks = append(checks, check)
 	}
-	return head, checks, coverage, nil
+	return checks, coverage, nil
 }
 
 // checkRunState maps a check run to passed, failed or pending.

@@ -74,6 +74,15 @@ func resolveApproval(ctx context.Context, tx *sqlx.Tx, approval *domain.Conversa
 // The boolean reports whether this call changed the approval's status, so a
 // repeated decision is not recorded twice.
 func (r *ConversationRepository) ClaimApproval(ctx context.Context, ws, conversation, id uuid.UUID, approve bool) (*domain.ConversationApproval, bool, error) {
+	return r.ClaimApprovalEdited(ctx, ws, conversation, id, approve, nil)
+}
+
+// ClaimApprovalEdited is ClaimApproval with the approver's edit of the
+// payload: when a pending approval is approved, edit returns the payload to
+// store with the claim, under the same lock, so the effect uses exactly what
+// was approved. An error from edit leaves the approval pending. An approval
+// already claimed keeps its payload, so a retry resumes what was approved.
+func (r *ConversationRepository) ClaimApprovalEdited(ctx context.Context, ws, conversation, id uuid.UUID, approve bool, edit func(*domain.ConversationApproval) (json.RawMessage, error)) (*domain.ConversationApproval, bool, error) {
 	actor, err := conversationActor(ctx, ws)
 	if err != nil {
 		return nil, false, err
@@ -98,6 +107,15 @@ func (r *ConversationRepository) ClaimApproval(ctx context.Context, ws, conversa
 			target = "expired"
 		} else if approve {
 			target = "approving"
+		}
+		if target == "approving" && edit != nil {
+			payload, err := edit(approval)
+			if err != nil {
+				return nil, false, err
+			}
+			if err = tx.GetContext(ctx, approval, `UPDATE conversation_approvals SET payload=$2,updated_at=now() WHERE id=$1 RETURNING *`, id, payload); err != nil {
+				return nil, false, err
+			}
 		}
 		if err = resolveApproval(ctx, tx, approval, target, nil, nil); err != nil {
 			return nil, false, err
