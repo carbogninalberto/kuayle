@@ -71,7 +71,10 @@ recreate the updater service.
    with the new backend, provision gateway grants if active, and start the new
    application and control plane with health waits. The proxy, database, Redis,
    updater, existing machine workloads and unrelated Compose projects are not
-   recreated. No volume deletion is performed.
+   recreated. No volume deletion is performed. The new manager then moves existing
+   Dev Machines to the release's images: new agent runs use them at once, a
+   stopped machine at its next start, and a running machine once it is idle
+   (see [TECHNICAL.md](../TECHNICAL.md), "Release images").
 6. Remove maintenance only after healthy startup. Save version, source, API/UI
    digests, pulled Dev Machines digests (`dev_machine_images`), locally built Dev
    Machines services (`dev_machine_builds`) and backup path in

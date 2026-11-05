@@ -82,7 +82,14 @@
 		propose_tool: m['assistant.tool_propose_tool'],
 		get_tool_run: m['assistant.tool_get_tool_run'],
 		get_instance_version: m['assistant.tool_get_instance_version'],
-		upgrade_instance: m['assistant.tool_upgrade_instance']
+		upgrade_instance: m['assistant.tool_upgrade_instance'],
+		get_pull_request: m['assistant.tool_get_pull_request'],
+		get_pull_request_checks: m['assistant.tool_get_pull_request_checks'],
+		list_pull_request_comments: m['assistant.tool_list_pull_request_comments'],
+		reply_to_review_comment: m['assistant.tool_reply_to_review_comment'],
+		resolve_review_thread: m['assistant.tool_resolve_review_thread'],
+		update_pull_request_branch: m['assistant.tool_update_pull_request_branch'],
+		mark_pull_request_ready: m['assistant.tool_mark_pull_request_ready']
 	};
 	// Outcome lines per approval action.
 	function outcome(approval: ConversationApproval) {
@@ -103,6 +110,25 @@
 		}
 		const identifier = approval.payload.identifier;
 		const merge = approval.action === 'merge_pull_request';
+		if (
+			approval.action === 'reply_to_review_comment' ||
+			approval.action === 'resolve_review_thread' ||
+			approval.action === 'update_pull_request_branch' ||
+			approval.action === 'mark_pull_request_ready'
+		) {
+			switch (approval.status) {
+				case 'approving':
+					return m['assistant.pr_action_approving']({ identifier });
+				case 'approved':
+					return m['assistant.pr_action_approved']({ identifier });
+				case 'failed':
+					return m['assistant.pr_action_failed']({ identifier, error: approval.error ?? '' });
+				case 'expired':
+					return m['assistant.approval_expired']({ identifier });
+				default:
+					return m['assistant.pr_action_denied']({ identifier });
+			}
+		}
 		if (approval.action === 'accept_agent_work') {
 			switch (approval.status) {
 				case 'approving':
@@ -307,6 +333,7 @@
 									>{m['assistant.merge_description']({
 										title: approval.payload.title,
 										commit: approval.payload.commit.slice(0, 7),
+						method: approval.payload.merge_method ?? 'squash',
 										repository: approval.payload.repository
 									})}</Item.Description
 								>
@@ -352,6 +379,92 @@
 										{/if}
 									</div>
 								{/if}
+								<a
+									class="inline-flex items-center gap-1 text-xs underline underline-offset-2"
+									href={approval.payload.pull_request_url}
+									target="_blank"
+									rel="noopener noreferrer"><ExternalLink size={12} />{m['tasks.open_pull_request']()}</a
+								>
+							{:else if approval.action === 'reply_to_review_comment' || approval.action === 'resolve_review_thread'}
+								{@const reply = approval.action === 'reply_to_review_comment'}
+								<Item.Title
+									>{reply
+										? m['assistant.pr_reply_title']({
+												author: approval.payload.author ?? '',
+												number: approval.payload.pull_request,
+												identifier
+											})
+										: m['assistant.pr_resolve_title']({
+												path: approval.payload.path ?? '',
+												identifier
+											})}</Item.Title
+								>
+								<Item.Description class="line-clamp-none"
+									>{reply
+										? m['assistant.pr_reply_description']({
+												path: approval.payload.path ?? '',
+												repository: approval.payload.repository
+											})
+										: m['assistant.pr_resolve_description']({
+												author: approval.payload.author ?? '',
+												number: approval.payload.pull_request,
+												repository: approval.payload.repository
+											})}</Item.Description
+								>
+								{#if approval.payload.bot}<p class="text-xs text-muted-foreground">
+										{m['assistant.pr_comment_bot']({ author: approval.payload.author ?? '' })}
+									</p>{/if}
+								{#if approval.payload.excerpt}
+									<p class="text-xs font-medium text-muted-foreground">{m['assistant.pr_comment_excerpt']()}</p>
+									<CodeBlock.Root size="sm"
+										><CodeBlock.Content code={approval.payload.excerpt} wrap class="max-h-24 text-xs" /></CodeBlock.Root
+									>
+								{/if}
+								{#if reply}
+									<p class="text-xs font-medium text-muted-foreground">{m['assistant.pr_reply_body']()}</p>
+									<CodeBlock.Root size="sm"
+										><CodeBlock.Content
+											code={approval.payload.body ?? ''}
+											wrap
+											class="max-h-48 text-xs"
+										/></CodeBlock.Root
+									>
+								{/if}
+								<a
+									class="inline-flex items-center gap-1 text-xs underline underline-offset-2"
+									href={approval.payload.pull_request_url}
+									target="_blank"
+									rel="noopener noreferrer"><ExternalLink size={12} />{m['tasks.open_pull_request']()}</a
+								>
+							{:else if approval.action === 'update_pull_request_branch'}
+								<Item.Title
+									>{m['assistant.pr_branch_title']({ number: approval.payload.pull_request, identifier })}</Item.Title
+								>
+								<Item.Description class="line-clamp-none"
+									>{m['assistant.pr_branch_description']({
+										base: approval.payload.base ?? '',
+										head: (approval.payload.head ?? '').slice(0, 7),
+										repository: approval.payload.repository
+									})}</Item.Description
+								>
+								<a
+									class="inline-flex items-center gap-1 text-xs underline underline-offset-2"
+									href={approval.payload.pull_request_url}
+									target="_blank"
+									rel="noopener noreferrer"><ExternalLink size={12} />{m['tasks.open_pull_request']()}</a
+								>
+							{:else if approval.action === 'mark_pull_request_ready'}
+								<Item.Title
+									>{approval.payload.draft
+										? m['assistant.pr_draft_title']({ number: approval.payload.pull_request, identifier })
+										: m['assistant.pr_ready_title']({ number: approval.payload.pull_request, identifier })}</Item.Title
+								>
+								<Item.Description class="line-clamp-none"
+									>{m['assistant.pr_draft_description']({
+										title: approval.payload.title,
+										repository: approval.payload.repository
+									})}</Item.Description
+								>
 								<a
 									class="inline-flex items-center gap-1 text-xs underline underline-offset-2"
 									href={approval.payload.pull_request_url}

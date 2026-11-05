@@ -65,6 +65,9 @@ const (
 	// DevMachineOpSyncAgentSignIns rewrites the owner's agent sign-ins in the
 	// machine's terminal home after they change in Kuayle.
 	DevMachineOpSyncAgentSignIns DevMachineOperationAction = "sync_agent_sign_ins"
+	// DevMachineOpUpdateImages recreates an idle running machine's containers
+	// whose image is not the installed release's.
+	DevMachineOpUpdateImages DevMachineOperationAction = "update_images"
 )
 
 type DevMachineOperationStatus string

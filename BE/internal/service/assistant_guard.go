@@ -201,7 +201,7 @@ func approvalTarget(approval *domain.ConversationApproval) string {
 func isGitHubPermissionDenied(err error) bool {
 	var api *gh.APIError
 	return errors.As(err, &api) && api.Status == http.StatusForbidden &&
-		strings.Contains(api.Body, "Resource not accessible by integration")
+		strings.Contains(api.Message, "Resource not accessible by integration")
 }
 
 // permissionDeniedGap words a refusal by GitHub using the permissions the

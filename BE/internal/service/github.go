@@ -60,11 +60,16 @@ type GitHubService struct {
 	// pullRequestMerged asks GitHub whether a pull request merged; replaced in tests.
 	pullRequestMerged func(ctx context.Context, workspaceID uuid.UUID, repository string, number int) (bool, error)
 	// mergePullRequest merges through the GitHub App; replaced in tests.
-	mergePullRequest func(ctx context.Context, workspaceID uuid.UUID, repository string, number int, sha string) error
+	mergePullRequest func(ctx context.Context, workspaceID uuid.UUID, repository string, number int, sha, method string) error
+	// mergeSettings holds the merge method per repository; repositoryMergeSettings
+	// reads the methods a repository allows (replaced in tests).
+	mergeSettings           pullRequestSettings
+	repositoryMergeSettings func(ctx context.Context, workspaceID uuid.UUID, repository string) (*gh.RepositoryMergeSettings, error)
 	// heads records pull request heads reported by GitHub.
 	heads pullRequestHeadStore
 	// readPullRequestHead and compareCommits ask GitHub; replaced in tests.
 	readPullRequestHead func(ctx context.Context, workspaceID uuid.UUID, repository string, number int) (string, error)
+	headPollWaits       []time.Duration
 	compareCommits      func(ctx context.Context, workspaceID uuid.UUID, repository string, number int, published, head string) (*domain.PullRequestHeadChange, error)
 	// reviewComments supplies requested agent review comments to post.
 	reviewComments reviewCommentStore
@@ -256,7 +261,7 @@ func (s *GitHubService) HandleManifestCallback(ctx context.Context, workspaceID 
 		log.WithFields(log.Fields{
 			"status": resp.StatusCode,
 		}).Warn("GitHub manifest conversion failed")
-		return nil, &gh.APIError{Status: resp.StatusCode, Body: string(body)}
+		return nil, &gh.APIError{Status: resp.StatusCode, Message: string(body)}
 	}
 
 	var result struct {
@@ -1505,7 +1510,7 @@ func (s *GitHubService) githubPullRequestMerged(ctx context.Context, workspaceID
 // MergeTaskPullRequest merges a task's recorded pull request at the reviewed
 // commit through the GitHub App, then completes the task. GitHub still enforces
 // branch protection and required checks; its refusal is returned unchanged.
-func (s *GitHubService) MergeTaskPullRequest(ctx context.Context, workspaceID uuid.UUID, repository string, number int, sha string) error {
+func (s *GitHubService) MergeTaskPullRequest(ctx context.Context, workspaceID uuid.UUID, repository string, number int, sha, method string) error {
 	if s.taskReviews == nil {
 		return fmt.Errorf("agent tasks are unavailable")
 	}
@@ -1513,14 +1518,14 @@ func (s *GitHubService) MergeTaskPullRequest(ctx context.Context, workspaceID uu
 	if merge == nil {
 		merge = s.githubMergePullRequest
 	}
-	if err := merge(ctx, workspaceID, repository, number, sha); err != nil {
+	if err := merge(ctx, workspaceID, repository, number, sha, method); err != nil {
 		return err
 	}
 	_, err := s.taskReviews.CompleteMergedPullRequest(ctx, workspaceID, repository, number)
 	return err
 }
 
-func (s *GitHubService) githubMergePullRequest(ctx context.Context, workspaceID uuid.UUID, repository string, number int, sha string) error {
+func (s *GitHubService) githubMergePullRequest(ctx context.Context, workspaceID uuid.UUID, repository string, number int, sha, method string) error {
 	owner, name, ok := strings.Cut(repository, "/")
 	if !ok {
 		return fmt.Errorf("invalid repository %q", repository)
@@ -1537,5 +1542,5 @@ func (s *GitHubService) githubMergePullRequest(ctx context.Context, workspaceID 
 	if err != nil {
 		return err
 	}
-	return client.MergePullRequest(token, owner, name, number, sha)
+	return client.MergePullRequestWithMethod(token, owner, name, number, sha, method)
 }

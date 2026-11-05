@@ -458,6 +458,13 @@ func (s *ConversationService) requestApproval(ctx context.Context, a domain.Conv
 		var port domain.ExposePortPayload
 		issueID, port, err = s.tools.preparePort(ctx, a.Conversation.WorkspaceID, a.Conversation.CreatorID, arguments)
 		payload, identifier = port, port.Identifier
+	case "reply_to_review_comment", "resolve_review_thread", "update_pull_request_branch", "mark_pull_request_ready":
+		// Updating a branch may become a follow-up to the task agent, which
+		// records its own action.
+		issueID, payload, action, err = s.tools.preparePullRequestAction(ctx, a.Conversation.WorkspaceID, a.Conversation.CreatorID, action, arguments)
+		if err == nil {
+			identifier = pullRequestIdentifier(payload)
+		}
 	case "upgrade_instance":
 		var upgrade domain.UpgradePayload
 		_, upgrade, err = s.tools.prepareUpgrade(ctx, a.Conversation.CreatorID, arguments)

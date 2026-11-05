@@ -251,6 +251,9 @@ func main() {
 	githubSvc.SetTaskReviews(repository.NewAgentTaskRepository(db))
 	devMachineSvc.SetRepositoryManifests(githubSvc)
 	assistantApprovals.SetMerging(repository.NewAgentTaskRepository(db), workspaceRepo, githubSvc)
+	assistantApprovals.SetPullRequests(githubSvc, repository.NewAgentTaskRepository(db))
+	assistantTools.SetPullRequests(githubSvc, repository.NewAgentTaskRepository(db))
+	githubSvc.SetPullRequestSettings(repository.NewAgentTaskRepository(db))
 	assistantApprovals.SetPullRequestHeads(githubSvc)
 	assistantApprovals.SetGitHubAccess(githubSvc)
 	assistantTools.SetGitHubAccess(service.NewCachedGitHubAccess(githubSvc))
@@ -323,6 +326,7 @@ func main() {
 		telegram:          telegramH,
 		voice:             voiceH,
 		devMachine:        devMachineH,
+		mergeMethods:      handler.NewMergeMethodHandler(githubSvc),
 		analytics:         analyticsH,
 		system:            systemH,
 		webhook:           webhookH,

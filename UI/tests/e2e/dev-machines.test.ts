@@ -1495,6 +1495,7 @@ test('keeps Dev Machines in Settings with machine and policy tabs, and redirects
 		if (path === '/api/workspaces/test/github/status') return route.fulfill({ json: { installed: false, repos: [] } });
 		if (path === '/api/workspaces/test/dev-machine-scope-setting') return route.fulfill({ json: { workspace_id: workspaceId } });
 		if (path === '/api/workspaces/test/dev-machine-environments') return route.fulfill({ json: [] });
+		if (path === '/api/workspaces/test/dev-machine-merge-methods') return route.fulfill({ json: {} });
 		unhandled.push(`${request.method()} ${path}`);
 		return route.fulfill({ status: 404, json: { error: { message: `Unhandled ${path}` } } });
 	});

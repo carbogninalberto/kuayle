@@ -783,6 +783,14 @@ func telegramApprovalAnswer(approval *domain.ConversationApproval, err error) (s
 			return "Approved: the check is starting.", true
 		case "run_custom_tool":
 			return "Approved: the tool is running. Its result appears in the chat in Kuayle.", true
+		case "reply_to_review_comment":
+			return "Approved: the reply was posted on the pull request.", true
+		case "resolve_review_thread":
+			return "Approved: the review thread was resolved.", true
+		case "update_pull_request_branch":
+			return "Approved: the pull request branch is being updated.", true
+		case "mark_pull_request_ready":
+			return "Approved: the pull request draft state was changed.", true
 		case "accept_agent_work":
 			return "Approved: the work was accepted in Kuayle without merging.", true
 		case "start_preview":
@@ -798,6 +806,8 @@ func telegramApprovalAnswer(approval *domain.ConversationApproval, err error) (s
 	case "failed":
 		message := "The coding agent could not start."
 		switch approval.Action {
+		case "reply_to_review_comment", "resolve_review_thread", "update_pull_request_branch", "mark_pull_request_ready":
+			message = "The pull request was not changed."
 		case "accept_agent_work":
 			message = "The work could not be accepted."
 		case "start_preview":

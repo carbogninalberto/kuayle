@@ -90,6 +90,9 @@ type AssistantTools struct {
 	customToolWait time.Duration
 	// The instance tools are unavailable until SetSystem wires them.
 	system *AssistantSystem
+	// The pull request tools are unavailable until SetPullRequests wires them.
+	pulls       pullRequestReader
+	pullTargets pullRequestTargets
 }
 
 type assistantToolSettings interface {
@@ -165,6 +168,8 @@ type assistantTool struct {
 	customTools bool
 	// system tools need SetSystem.
 	system bool
+	// pulls tools need SetPullRequests.
+	pulls bool
 }
 
 var assistantToolCatalog = []assistantTool{
@@ -177,7 +182,7 @@ var assistantToolCatalog = []assistantTool{
 	{name: "plan_issues", description: "Order up to 20 issues by their blocked-by dependencies into waves that can run in parallel. Delegated issues with unfinished blockers wait automatically, so a whole plan can be delegated at once.", parameters: `{"type":"object","properties":{"identifiers":{"type":"array","minItems":1,"maxItems":20,"items":{"type":"string","maxLength":32}}},"required":["identifiers"],"additionalProperties":false}`},
 	{name: "get_agent_work", agentWork: true, description: "Read the coding tasks on an issue as Kuayle recorded them: state, attempt, pull request, latest review decision (agent_review.stale=true means the pull request head moved after that review: its findings are withheld, which is not the same as no findings; propose request_agent_review for the new head and do not repeat old findings) and latest manual check (run_check). Use it before saying anything about an issue's code, pull request or merge.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32}},"required":["identifier"],"additionalProperties":false}`},
 	{name: "list_agent_work", agentWork: true, description: "List the workspace's most recently updated coding tasks on issues the user can see, newest first: issue, task state and reason, agent, attempt, pull request and latest review decision. Use it for questions about what agents are doing, what is pending or awaiting review, or overall status; filter by state when the user asks about one.", parameters: `{"type":"object","properties":{"state":{"type":"string","enum":["queued","preparing","running","waiting_input","validating","publishing","awaiting_review","blocked","completed","failed","cancelling","cancelled"]},"limit":{"type":"integer","minimum":1,"maximum":50}},"additionalProperties":false}`},
-	{name: "merge_pull_request", agentWork: true, approval: true, description: "Ask the user to approve squash-merging the pull request of an issue's task that is awaiting review, at the head commit GitHub reports now (the card lists commits others pushed after Kuayle published, and whether the tree changed). Nothing merges until the user approves in Kuayle, and a later push is refused; GitHub still enforces branch protection. If agent_review is stale, its findings are withheld: offer request_agent_review for the new head instead of repeating them. Only call this when the user asked to merge.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32}},"required":["identifier"],"additionalProperties":false}`},
+	{name: "merge_pull_request", agentWork: true, approval: true, description: "Ask the user to approve merging the pull request of an issue's task that is awaiting review with the repository's merge method (chosen in the development settings, otherwise the first the repository allows: squash, merge, rebase), at the head commit GitHub reports now (the card lists commits others pushed after Kuayle published, and whether the tree changed). Nothing merges until the user approves in Kuayle, and a later push is refused; GitHub still enforces branch protection. If agent_review is stale, its findings are withheld: offer request_agent_review for the new head instead of repeating them. A draft pull request is refused with the next step (mark_pull_request_ready); read get_pull_request, get_pull_request_checks and list_pull_request_comments first and report failing checks or unresolved review threads. Only call this when the user asked to merge.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32}},"required":["identifier"],"additionalProperties":false}`},
 	{name: "accept_agent_work", agentWork: true, approval: true, description: "Ask the user to approve accepting the work of an issue's task that is awaiting review, in Kuayle, without merging its pull request: the task completes, its app stops and the issue moves to its team's completed status, while the pull request stays open and unmerged on GitHub. Only the task's creator or a workspace admin can accept. Only call this when the user asked to accept the work without merging; use merge_pull_request to merge.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32}},"required":["identifier"],"additionalProperties":false}`},
 	{name: "request_agent_review", agentWork: true, approval: true, description: "Ask the user to approve a coding agent reviewing the pull request Kuayle published for an issue's task awaiting review, at its published commit. Only call this when the user asked for a review; reviews never start on their own. The harness may differ from the one that implemented the task (default: the same). The reviewer never pushes; set post_to_pull_request only when the user asked to comment the findings on the pull request.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"task_id":{"type":"string","maxLength":36},"harness":{"type":"string","enum":["claude-code","codex","opencode"]},"focus":{"type":"string","maxLength":4000},"post_to_pull_request":{"type":"boolean"}},"additionalProperties":false}`},
 	{name: "follow_up_task", agentWork: true, approval: true, description: "Ask the user to approve a follow-up attempt on an issue's latest coding task, on its existing branch and pull request, for example to fix review findings. Put everything the agent must do in instructions. Only the task's creator can approve it.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"instructions":{"type":"string","minLength":1,"maxLength":16000}},"required":["identifier","instructions"],"additionalProperties":false}`},
@@ -196,6 +201,7 @@ func assistantTools() []assistantTool {
 		assistantSkillToolCatalog,
 		assistantCustomToolCatalog,
 		assistantSystemToolCatalog,
+		assistantPullRequestToolCatalog,
 	} {
 		tools = append(tools, catalog...)
 	}
@@ -230,7 +236,8 @@ func (t *AssistantTools) available(tool assistantTool) bool {
 		(!tool.live || t.live != nil) &&
 		(!tool.skills || t.skills != nil) &&
 		(!tool.customTools || t.customTools != nil) &&
-		(!tool.system || t.system != nil)
+		(!tool.system || t.system != nil) &&
+		(!tool.pulls || (t.pulls != nil && t.pullTargets != nil))
 }
 
 func lookupAssistantTool(name string) (assistantTool, bool) {
@@ -390,6 +397,8 @@ func (t *AssistantTools) run(ctx context.Context, ws, user uuid.UUID, name, argu
 		return t.listAgentWork(ctx, ws, arguments)
 	case "link_repository":
 		return t.linkRepository(ctx, ws, member.Role, arguments)
+	case "get_pull_request", "get_pull_request_checks", "list_pull_request_comments":
+		return t.runPullRequestTool(ctx, ws, name, arguments)
 	case "get_instance_version":
 		result, err := t.instanceVersion(ctx, user, arguments)
 		return result, nil, err
@@ -599,6 +608,23 @@ func (t *AssistantTools) prepareMerge(ctx context.Context, ws, user uuid.UUID, a
 			return uuid.Nil, domain.MergePayload{}, toolFailure("could not read the pull request from GitHub: %s", truncateRunes(err.Error(), 200))
 		}
 		payload.PublishedCommit, payload.Commit, payload.HeadChange = target.Commit, head.SHA, head.Change
+	}
+	if t.pulls != nil {
+		// A draft, a closed pull request or a method the repository refuses
+		// cannot merge: say so with the step that fixes it, before asking.
+		status, err := t.pulls.PullRequestStatus(ctx, ws, target.Repository, target.Number)
+		if err != nil {
+			return uuid.Nil, domain.MergePayload{}, pullRequestGitHubFailure("read the pull request", err)
+		}
+		if status.State != "open" || status.Draft {
+			return uuid.Nil, domain.MergePayload{}, toolFailure("pull request #%d cannot be merged yet. %s", target.Number, strings.Join(pullRequestNextSteps(status), " "))
+		}
+		if payload.MergeMethod, err = t.pulls.ResolveMergeMethod(ctx, ws, target.Repository); err != nil {
+			if errors.Is(err, ErrMergeMethodNotAllowed) {
+				return uuid.Nil, domain.MergePayload{}, toolFailure("%s. Next step: choose a method the repository allows in the development settings, or allow it in the repository's GitHub settings", truncateRunes(err.Error(), 200))
+			}
+			return uuid.Nil, domain.MergePayload{}, err
+		}
 	}
 	return issue.ID, payload, nil
 }

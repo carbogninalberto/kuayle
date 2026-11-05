@@ -211,15 +211,15 @@ func TestOnlyToolsThatActAtOnceArePreflightedBeforeRunning(t *testing.T) {
 
 func TestGitHub403BecomesAnActionableMissingPermission(t *testing.T) {
 	withPolicies(t)
-	denied := fmt.Errorf("merging: %w", &gh.APIError{Status: 403, Body: `{"message":"Resource not accessible by integration"}`})
+	denied := fmt.Errorf("merging: %w", &gh.APIError{Status: 403, Message: `{"message":"Resource not accessible by integration"}`})
 	gap := preflightGitHub(context.Background(), &countingAccess{err: denied}, uuid.New(), "test_release")
 	require.NotNil(t, gap)
 	require.Equal(t, []domain.GitHubPermissionNeed{{Name: "contents", Level: "write"}}, gap.Missing)
 	require.Contains(t, gap.Message, "contents: write")
 
 	require.True(t, isGitHubPermissionDenied(denied))
-	require.False(t, isGitHubPermissionDenied(&gh.APIError{Status: 500, Body: "Resource not accessible by integration"}))
-	require.False(t, isGitHubPermissionDenied(&gh.APIError{Status: 403, Body: "rate limited"}))
+	require.False(t, isGitHubPermissionDenied(&gh.APIError{Status: 500, Message: "Resource not accessible by integration"}))
+	require.False(t, isGitHubPermissionDenied(&gh.APIError{Status: 403, Message: "rate limited"}))
 	require.False(t, isGitHubPermissionDenied(nil))
 	require.False(t, isGitHubPermissionDenied(errors.New("GitHub API error 403: Resource not accessible by integration")), "only a typed 403 counts")
 }
