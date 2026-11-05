@@ -598,7 +598,10 @@ published for its current attempt (the same records as `MergeTarget`). A
 request is idempotent per (task, published commit, harness, model, model
 server): it returns the newest such review unless it failed or was cancelled,
 in which case a new review starts. Another model or server picked on the
-approval card is a review of its own. `attempt` counts every review of the
+approval card is a review of its own. A review without a chosen server records
+the workspace default it runs on (when that server speaks the harness), so a
+later default is a different review; an older review without a recorded server
+is matched by the server its run used. `attempt` counts every review of the
 commit with that harness (unique per task, commit and harness). Replaying the
 approval's request ID returns its review.
 

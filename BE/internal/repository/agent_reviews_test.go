@@ -345,3 +345,46 @@ func TestReviewsAreDistinctPerModelAndServer(t *testing.T) {
 	require.NotEqual(t, first.ID, retried.ID)
 	require.Equal(t, 4, retriedRecord.Attempt)
 }
+
+// A review on the workspace default records the server that default was, so
+// after an administrator switches the default the same request runs on the new one.
+func TestReviewsOnTheDefaultServerFollowADefaultSwitch(t *testing.T) {
+	db, repo, ctx, task := reviewableTask(t)
+	ws := task.WorkspaceID
+	server := func(name string, isDefault bool) uuid.UUID {
+		var id uuid.UUID
+		require.NoError(t, db.Get(&id, `INSERT INTO agent_model_servers(workspace_id,name,anthropic_base_url,encrypted_api_key,default_model,is_default) VALUES($1,$2,'https://models.example.test','x','opus',$3) RETURNING id`, ws, name, isDefault))
+		return id
+	}
+	a := server("Gateway A", true)
+	request := reviewRequest("claude-code")
+	request.Model = "opus"
+	first, _, err := repo.CreateReview(ctx, ws, *task.ConversationID, task.ID, request)
+	require.NoError(t, err)
+	require.Equal(t, &a, first.ModelServerID, "the default server is recorded on the review")
+	request.RequestID = uuid.New()
+	same, _, err := repo.CreateReview(ctx, ws, *task.ConversationID, task.ID, request)
+	require.NoError(t, err)
+	require.Equal(t, first.ID, same.ID)
+
+	_, err = db.Exec(`UPDATE agent_model_servers SET is_default=false WHERE id=$1`, a)
+	require.NoError(t, err)
+	b := server("Gateway B", true)
+	request.RequestID = uuid.New()
+	switched, _, err := repo.CreateReview(ctx, ws, *task.ConversationID, task.ID, request)
+	require.NoError(t, err)
+	require.NotEqual(t, first.ID, switched.ID, "the new default runs its own review")
+	require.Equal(t, &b, switched.ModelServerID)
+
+	// A review from before servers were recorded is matched by its run's server.
+	_, err = db.Exec(`UPDATE agent_tasks SET model_server_id=NULL WHERE id=$1`, switched.ID)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO dev_machines(id,workspace_id,created_by_user_id,routing_key,name,status,desired_status,generation,repo_url,repo_provider,repo_owner,repo_name,base_branch,working_branch,machine_size,cpu_millis,memory_mb,disk_gb) SELECT gen_random_uuid(),$1,$2,substr(md5(random()::text),1,16),'Review','running','running',1,'','github','','','','','small',1000,2048,20`, ws, task.CreatorID)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO dev_machine_agent_runs(id,workspace_id,machine_id,task_id,provider_id,mode,prompt,command_argv,max_runtime_seconds,status,model_server_id) SELECT t.run_id,$1,(SELECT id FROM dev_machines WHERE workspace_id=$1 LIMIT 1),t.id,'claude-code','autonomous','Review','["claude"]',60,'running',$3 FROM agent_tasks t WHERE t.id=$2`, ws, switched.ID, b)
+	require.NoError(t, err)
+	request.RequestID = uuid.New()
+	legacy, _, err := repo.CreateReview(ctx, ws, *task.ConversationID, task.ID, request)
+	require.NoError(t, err)
+	require.Equal(t, switched.ID, legacy.ID)
+}

@@ -103,12 +103,26 @@ func (r *AgentTaskRepository) CreateReview(ctx context.Context, ws, conversation
 	if input.ExpectedCommit != "" && input.ExpectedCommit != published.CommitSHA {
 		return nil, nil, ErrReviewTargetChanged
 	}
+	// Without a server the review runs on the workspace default when it speaks
+	// the harness's protocol; record which server that is, so that a later
+	// default is a different review rather than an implicit NULL matching it.
+	if input.ModelServerID == nil {
+		var server domain.AgentModelServer
+		err = tx.GetContext(ctx, &server, `SELECT * FROM agent_model_servers WHERE workspace_id=$1 AND is_default`, ws)
+		if err == nil && server.Serves(input.Provider) {
+			input.ModelServerID = &server.ID
+		} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return nil, nil, err
+		}
+	}
 	// A review of this commit with the same harness, model and model server that
 	// has not failed or been cancelled is the one asked for; another model or
-	// server is a review of its own. Attempts count per commit and harness.
+	// server is a review of its own. A review that recorded no server is matched
+	// by the server its run used. Attempts count per commit and harness.
 	var existing domain.AgentTask
 	err = tx.GetContext(ctx, &existing, `SELECT t.* FROM agent_reviews r JOIN agent_tasks t ON t.id=r.task_id
- WHERE r.reviewed_task_id=$1 AND r.commit_sha=$2 AND r.provider=$3 AND t.model=$4 AND t.model_server_id IS NOT DISTINCT FROM $5 AND t.state NOT IN ('failed','cancelled')
+ WHERE r.reviewed_task_id=$1 AND r.commit_sha=$2 AND r.provider=$3 AND t.model=$4 AND t.state NOT IN ('failed','cancelled')
+ AND COALESCE(t.model_server_id,(SELECT m.model_server_id FROM dev_machine_agent_runs m WHERE m.id=t.run_id)) IS NOT DISTINCT FROM $5
  ORDER BY r.attempt DESC LIMIT 1`, reviewed, published.CommitSHA, input.Provider, input.Model, input.ModelServerID)
 	if err == nil {
 		review, err := getReview(ctx, tx, existing.ID)
