@@ -7,15 +7,11 @@
 	import { diffTotals, lineMatches, parseDiff, searchDiff, type DiffFile } from './diff';
 	import { m } from '$lib/paraglide/messages.js';
 
-	// Layout decision (KUA-67): the aggregate total lives in the header; the search
-	// field and collapse/expand-all sit in a toolbar pinned above the scrolling file
-	// list. A fixed footer was evaluated and rejected: the panel is a narrow column
-	// beside the chat, so a footer would cost vertical space and put the controls far
-	// from the header summary they act on. Other candidates considered (next/previous
-	// match, copy diff, wrap lines, files-only view) are deferred.
-	// Search only filters/highlights; it never touches `closed`, and files that match
-	// are shown open while a query is active, so clearing the query restores the
-	// user's own collapse state.
+	// Layout decision (KUA-67): the aggregate total lives in the header; search and
+	// collapse/expand-all sit in a toolbar pinned above the scrolling list, not a
+	// footer. Rationale and evaluated extra controls: docs/kua-67-diff-panel.md.
+	// Search only filters/highlights and never overrides `closed`; collapse/expand-all
+	// act on the files currently visible, so the two never conflict.
 
 	// An attempt's captured diff against its base branch, beside the chat.
 	let {
@@ -32,12 +28,13 @@
 	let closed = $state<Record<string, boolean>>({});
 	let query = $state('');
 	const totals = $derived(diffTotals(files));
+	const fileCount = (count: number) => (count === 1 ? m['tasks.diff_file_one']() : m['tasks.diff_files']({ count }));
 	const visible = $derived(searchDiff(files, query));
 	const searching = $derived(query.trim() !== '');
-	const allClosed = $derived(files.length > 0 && files.every((f) => closed[f.path]));
+	const allClosed = $derived(visible.length > 0 && visible.every((f) => closed[f.path]));
 
 	function setAll(collapse: boolean) {
-		closed = Object.fromEntries(files.map((f) => [f.path, collapse]));
+		closed = { ...closed, ...Object.fromEntries(visible.map((f) => [f.path, collapse])) };
 	}
 
 	$effect(() => {
@@ -76,7 +73,7 @@
 					{#if totals.files === 0}
 						<span class="text-muted-foreground">{m['tasks.diff_no_changes']()}</span>
 					{:else}
-						<span class="text-muted-foreground">{m['tasks.diff_files']({ count: totals.files })}</span>
+						<span class="text-muted-foreground">{fileCount(totals.files)}</span>
 						<span class="text-[var(--status-success)]">+{totals.additions}</span>
 						<span class="text-[var(--status-error)]">−{totals.deletions}</span>
 					{/if}
@@ -102,11 +99,17 @@
 				size="icon-sm"
 				aria-label={allClosed ? m['tasks.diff_expand_all']() : m['tasks.diff_collapse_all']()}
 				title={allClosed ? m['tasks.diff_expand_all']() : m['tasks.diff_collapse_all']()}
+				disabled={visible.length === 0}
 				onclick={() => setAll(!allClosed)}
 			>
 				{#if allClosed}<ChevronsUpDown />{:else}<ChevronsDownUp />{/if}
 			</Button>
 		</div>
+		{#if searching}
+			<p class="shrink-0 border-b px-3 py-1 text-xs text-muted-foreground" role="status" data-testid="diff-match-count">
+				{m['tasks.diff_match_count']({ count: visible.length, total: files.length })}
+			</p>
+		{/if}
 	{/if}
 	<div class="min-h-0 flex-1 overflow-auto p-3">
 		{#if status === 'loading'}
@@ -116,6 +119,7 @@
 		{:else if files.length === 0}
 			<p class="text-sm text-muted-foreground">{m['tasks.diff_empty']()}</p>
 		{:else if visible.length === 0}
+			{#if truncated}<p class="mb-2 text-xs text-[var(--status-warning)]">{m['tasks.diff_truncated']()}</p>{/if}
 			<div class="flex flex-col items-start gap-2" role="status">
 				<p class="text-sm text-muted-foreground">{m['tasks.diff_no_matches']({ query: query.trim() })}</p>
 				<Button variant="outline" size="sm" onclick={() => (query = '')}>{m['tasks.diff_clear_search']()}</Button>
@@ -125,16 +129,14 @@
 			<div class="space-y-2">
 				{#each visible as file (file.path)}
 					<Collapsible.Root
-						open={searching || !closed[file.path]}
-						onOpenChange={(open) => {
-							if (!searching) closed = { ...closed, [file.path]: !open };
-						}}
+						open={!closed[file.path]}
+						onOpenChange={(open) => (closed = { ...closed, [file.path]: !open })}
 						class="overflow-hidden rounded-md border"
 					>
 						<Collapsible.Trigger
 							class="flex w-full min-w-0 items-center gap-2 bg-muted/40 px-3 py-1.5 text-left text-xs"
 						>
-							<ChevronRight class="size-3.5 shrink-0 transition-transform {searching || !closed[file.path] ? 'rotate-90' : ''}" />
+							<ChevronRight class="size-3.5 shrink-0 transition-transform {closed[file.path] ? '' : 'rotate-90'}" />
 							<span class="min-w-0 flex-1 truncate font-mono">{file.path}</span>
 							<span class="shrink-0 text-[var(--status-success)]">+{file.additions}</span>
 							<span class="shrink-0 text-[var(--status-error)]">−{file.deletions}</span>
