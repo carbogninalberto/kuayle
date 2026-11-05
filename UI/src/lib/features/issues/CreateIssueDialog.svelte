@@ -339,6 +339,7 @@
 		pendingUploads = 0;
 		priority = tmpl.priority ?? 0;
 		labelIds = Array.isArray(tmpl.label_ids) ? tmpl.label_ids : [];
+		pruneScopedLabels();
 		if (tmpl.assignee_id) assigneeIds = [tmpl.assignee_id];
 		const templateTeamId = tmpl.team_id && validTeam(tmpl.team_id) ? tmpl.team_id : undefined;
 		let teamChanged = false;
