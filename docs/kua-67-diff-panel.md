@@ -19,8 +19,8 @@ submit or file navigation).
 
 - Search filters files by path or line text and highlights matching lines; it never
   changes the collapsed set. A match count is shown while a query is active.
-- Collapse/expand-all applies to the visible (filtered) files, and the button's
-  label/icon reflect those files. It is disabled when nothing is visible.
+- Collapse/expand-all applies to every file, including ones a query hides, and the
+  button's label/icon reflect all files, so clearing a query never shows a mixed state.
 - No matches shows an empty state with a Clear search action; the truncation warning
   stays visible there.
 

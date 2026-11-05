@@ -517,18 +517,20 @@
 		editor.commands.focus('start');
 	}
 
-	/** True when the collapsed caret sits on the first visual line of the content. */
+	/**
+	 * True when the collapsed caret is on the first visual line of the first block, so
+	 * ArrowUp has nowhere left to go inside the editor. False while a slash/mention
+	 * popup is open (it owns ArrowUp), or when anything (e.g. an image) precedes the
+	 * caret's block.
+	 */
 	export function isCaretOnFirstLine(): boolean {
-		if (!editor || editor.isDestroyed) return false;
+		if (!editor || editor.isDestroyed || slashActive || mentionActive) return false;
 		const { selection } = editor.state;
 		if (!selection.empty) return false;
-		try {
-			const caret = editor.view.coordsAtPos(selection.from);
-			const first = editor.view.coordsAtPos(1);
-			return caret.top < first.bottom - 1;
-		} catch {
-			return false;
-		}
+		const $from = selection.$from;
+		if (!$from.parent.isTextblock) return false;
+		for (let depth = 0; depth < $from.depth; depth++) if ($from.index(depth) !== 0) return false;
+		return editor.view.endOfTextblock('up');
 	}
 
 	let uploadInput = $state<HTMLInputElement | null>(null);

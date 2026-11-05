@@ -11,7 +11,7 @@
 	// collapse/expand-all sit in a toolbar pinned above the scrolling list, not a
 	// footer. Rationale and evaluated extra controls: docs/kua-67-diff-panel.md.
 	// Search only filters/highlights and never overrides `closed`; collapse/expand-all
-	// act on the files currently visible, so the two never conflict.
+	// act on every file (visible or not), so the two never conflict.
 
 	// An attempt's captured diff against its base branch, beside the chat.
 	let {
@@ -31,10 +31,10 @@
 	const fileCount = (count: number) => (count === 1 ? m['tasks.diff_file_one']() : m['tasks.diff_files']({ count }));
 	const visible = $derived(searchDiff(files, query));
 	const searching = $derived(query.trim() !== '');
-	const allClosed = $derived(visible.length > 0 && visible.every((f) => closed[f.path]));
+	const allClosed = $derived(files.length > 0 && files.every((f) => closed[f.path]));
 
 	function setAll(collapse: boolean) {
-		closed = { ...closed, ...Object.fromEntries(visible.map((f) => [f.path, collapse])) };
+		closed = Object.fromEntries(files.map((f) => [f.path, collapse]));
 	}
 
 	$effect(() => {
@@ -99,7 +99,6 @@
 				size="icon-sm"
 				aria-label={allClosed ? m['tasks.diff_expand_all']() : m['tasks.diff_collapse_all']()}
 				title={allClosed ? m['tasks.diff_expand_all']() : m['tasks.diff_collapse_all']()}
-				disabled={visible.length === 0}
 				onclick={() => setAll(!allClosed)}
 			>
 				{#if allClosed}<ChevronsUpDown />{:else}<ChevronsDownUp />{/if}

@@ -293,3 +293,46 @@ test('uses the owning team when applying a team-scoped template', async ({ page 
 	expect(issues[0]).not.toHaveProperty('cycle_id');
 	await expect.poll(() => statusRequests.filter((id) => id === teamId).length).toBeGreaterThanOrEqual(2);
 });
+
+test('moves between the title and the description with the arrow keys', async ({ page }) => {
+	await setup(page);
+	const title = page.locator('#create-issue-title');
+	const editor = page.locator('.tiptap');
+
+	// ArrowDown from the title lands in the description.
+	await title.press('ArrowDown');
+	await expect(editor).toBeFocused();
+
+	// ArrowUp from the first line returns to the title.
+	await editor.pressSequentially('first line');
+	await editor.press('ArrowUp');
+	await expect(title).toBeFocused();
+});
+
+test('ArrowUp on a wrapped second line stays in the description until the first line', async ({ page }) => {
+	await setup(page);
+	const title = page.locator('#create-issue-title');
+	const editor = page.locator('.tiptap');
+	await title.press('ArrowDown');
+	await editor.pressSequentially('wrapped words '.repeat(30));
+
+	// The caret is at the end of a wrapped paragraph: ArrowUp moves up a visual line only.
+	await editor.press('ArrowUp');
+	await expect(editor).toBeFocused();
+	await expect(title).not.toBeFocused();
+
+	// Walk up to the first visual line, then one more ArrowUp reaches the title.
+	for (let i = 0; i < 10 && !(await title.evaluate((el) => el === document.activeElement)); i++) {
+		await page.keyboard.press('ArrowUp');
+	}
+	await expect(title).toBeFocused();
+});
+
+test('ArrowUp in the first line does not jump to the title while the slash menu is open', async ({ page }) => {
+	await setup(page);
+	await page.locator('#create-issue-title').press('ArrowDown');
+	const editor = page.locator('.tiptap');
+	await editor.pressSequentially('/');
+	await editor.press('ArrowUp');
+	await expect(editor).toBeFocused();
+});
