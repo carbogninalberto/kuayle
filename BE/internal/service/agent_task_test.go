@@ -812,3 +812,21 @@ func TestPreparationExplainsAMachineWaitingForHostCapacity(t *testing.T) {
 	require.NoError(t, svc.step(context.Background(), tasks.task))
 	require.Equal(t, "Starting the dev machine", tasks.waiting)
 }
+
+// A stopped or paused machine the task restarts waits for host capacity too.
+func TestPreparationExplainsARestartWaitingForHostCapacity(t *testing.T) {
+	store, runtime, task := reusedMachineFixture(domain.DevMachineStatusStopped, domain.DevMachineStatusStopped)
+	ready, err := runtime.Prepare(context.Background(), &task)
+	require.NoError(t, err)
+	require.False(t, ready)
+	start := store.queuedOperation
+	require.NotNil(t, start)
+	code, message := "host_capacity_wait", "waiting for host CPU: 4000 millicores requested of 2000 available to machines"
+	start.ErrorCode, start.ErrorMessage = &code, &message
+	store.operationLookups = nil
+	ready, err = runtime.Prepare(context.Background(), &task)
+	require.False(t, ready)
+	require.ErrorIs(t, err, ErrHostCapacityWait)
+	require.ErrorContains(t, err, message)
+	require.Equal(t, []string{start.IdempotencyKey}, store.operationLookups, "the wait is read from the task's own start")
+}

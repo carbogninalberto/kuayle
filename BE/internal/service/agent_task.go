@@ -405,7 +405,7 @@ func (r *devMachineTaskRuntime) Prepare(ctx context.Context, task *domain.AgentT
 	switch machine.Status {
 	case domain.DevMachineStatusQueued, domain.DevMachineStatusSpawning, domain.DevMachineStatusConfiguring:
 		if machine.Status == domain.DevMachineStatusQueued {
-			return false, r.hostCapacityWait(ctx, machine)
+			return false, r.hostCapacityWait(ctx, machine, fmt.Sprintf("spawn:%d", machine.Generation))
 		}
 		return false, nil
 	case domain.DevMachineStatusRunning:
@@ -413,7 +413,8 @@ func (r *devMachineTaskRuntime) Prepare(ctx context.Context, task *domain.AgentT
 		// Reused machines may be paused or stopped; the task starts them. A
 		// start already requested is awaited rather than queued again.
 		if machine.Status != domain.DevMachineStatusFailed && machine.DesiredStatus == domain.DevMachineStatusRunning {
-			return false, nil
+			// The task's start took the machine to the next generation.
+			return false, r.hostCapacityWait(ctx, machine, fmt.Sprintf("task-start:%s:%d:%d", task.ID, task.Generation, machine.Generation-1))
 		}
 		// The machine generation keys each start, so a machine paused again
 		// after this task started it is started again, while a start that
@@ -443,21 +444,21 @@ func (r *devMachineTaskRuntime) Prepare(ctx context.Context, task *domain.AgentT
 	return checkout.Status == "ready", nil
 }
 
-// ErrHostCapacityWait reports a task machine whose spawn waits for host
+// ErrHostCapacityWait reports a task machine whose spawn or start waits for host
 // memory or CPU. The manager retries it without consuming attempts.
 var ErrHostCapacityWait = errors.New("host_capacity_wait")
 
 const hostCapacityWaitReason = "Waiting for host capacity to start the dev machine"
 
-func (r *devMachineTaskRuntime) hostCapacityWait(ctx context.Context, machine *domain.DevMachine) error {
-	spawn, err := r.machines.store.GetOperationByIdempotency(ctx, machine.WorkspaceID, machine.ID, fmt.Sprintf("spawn:%d", machine.Generation))
-	if err != nil || spawn == nil {
+func (r *devMachineTaskRuntime) hostCapacityWait(ctx context.Context, machine *domain.DevMachine, key string) error {
+	operation, err := r.machines.store.GetOperationByIdempotency(ctx, machine.WorkspaceID, machine.ID, key)
+	if err != nil || operation == nil {
 		return err
 	}
-	if spawn.Status != domain.DevMachineOpStatusPending || spawn.ErrorCode == nil || *spawn.ErrorCode != ErrHostCapacityWait.Error() || spawn.ErrorMessage == nil {
+	if operation.Status != domain.DevMachineOpStatusPending || operation.ErrorCode == nil || *operation.ErrorCode != ErrHostCapacityWait.Error() || operation.ErrorMessage == nil {
 		return nil
 	}
-	return fmt.Errorf("%w: %s", ErrHostCapacityWait, *spawn.ErrorMessage)
+	return fmt.Errorf("%w: %s", ErrHostCapacityWait, *operation.ErrorMessage)
 }
 
 func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTask) (*domain.DevMachineAgentRun, error) {
