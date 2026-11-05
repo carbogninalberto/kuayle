@@ -37,7 +37,7 @@ func TestAgentTaskRetryModelMigration(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
 	fixture := insertBaseMigrationFixture(t, db)
-	require.NoError(t, m.Migrate(108))
+	require.NoError(t, m.Migrate(109))
 	var issue, team, conversation, task uuid.UUID
 	require.NoError(t, db.QueryRow(`SELECT id,team_id FROM issues WHERE workspace_id=$1 LIMIT 1`, fixture.workspaceA).Scan(&issue, &team))
 	require.NoError(t, db.QueryRow(`INSERT INTO conversations(workspace_id,creator_id,title,issue_id,team_id) VALUES($1,$2,'Retry',$3,$4) RETURNING id`, fixture.workspaceA, fixture.userA, issue, team).Scan(&conversation))
@@ -46,7 +46,7 @@ func TestAgentTaskRetryModelMigration(t *testing.T) {
 	_, err = db.Exec(`INSERT INTO agent_task_retries(task_id,request_id,expected_generation,prompt) VALUES($1,$2,1,'Retry')`, task, existing)
 	require.NoError(t, err)
 
-	require.NoError(t, m.Migrate(109))
+	require.NoError(t, m.Migrate(110))
 	var model string
 	var server *uuid.UUID
 	require.NoError(t, db.QueryRow(`SELECT model,model_server_id FROM agent_task_retries WHERE request_id=$1`, existing).Scan(&model, &server))
@@ -64,5 +64,5 @@ func TestAgentTaskRetryModelMigration(t *testing.T) {
 	require.Equal(t, 2, count, "rolling back keeps the receipts")
 	require.NoError(t, db.QueryRow(`SELECT count(*) FROM information_schema.columns WHERE table_name='agent_task_retries' AND column_name IN ('model','model_server_id')`).Scan(&count))
 	require.Zero(t, count)
-	require.NoError(t, m.Migrate(109), "the migration re-applies cleanly")
+	require.NoError(t, m.Migrate(110), "the migration re-applies cleanly")
 }

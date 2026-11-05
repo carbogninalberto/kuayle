@@ -45,7 +45,7 @@ Rollback refuses configured overrides or nonempty effective snapshots.
 
 A retry may also switch the task's `model` (internally with the model server an
 approver picked). The retry receipt (`agent_task_retries.model` and
-`model_server_id`, migration `000109_agent_task_retry_model`) records what was
+`model_server_id`, migration `000110_agent_task_retry_model`) records what was
 asked, `''`/NULL meaning keep the task's, so replaying a request ID with another
 model or server conflicts like a changed prompt. Existing receipts asked for no
 model; rollback drops only the two columns.

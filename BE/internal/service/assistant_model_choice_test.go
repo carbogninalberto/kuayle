@@ -108,14 +108,17 @@ func (s modelServerStore) GetModelServer(context.Context, uuid.UUID, *uuid.UUID)
 	return s.server, nil
 }
 
-func TestValidateAgentModelRejectsAModelTheServerOrHarnessCannotServe(t *testing.T) {
+func TestValidateAgentModelRejectsAModelTheChosenServerOrHarnessCannotServe(t *testing.T) {
 	url := "https://models.example"
 	models, _ := json.Marshal([]string{"gpt-5"})
 	service := &DevMachineService{store: modelServerStore{server: &domain.AgentModelServer{Name: "main", OpenAIBaseURL: &url, Models: models}}}
 	ctx := context.Background()
 	require.NoError(t, service.validateAgentModel(ctx, uuid.New(), "codex", nil, "gpt-5", ""))
 	require.ErrorIs(t, service.validateAgentModel(ctx, uuid.New(), "codex", nil, "other", ""), ErrInvalidMachineInput)
-	require.ErrorIs(t, service.validateAgentModel(ctx, uuid.New(), "claude-code", nil, "gpt-5", ""), ErrInvalidMachineInput)
+	// The default server does not speak Claude Code's protocol, so Claude Code
+	// runs on its own sign-in, which takes any model; naming that server does not.
+	require.NoError(t, service.validateAgentModel(ctx, uuid.New(), "claude-code", nil, "opus", ""))
+	require.ErrorIs(t, service.validateAgentModel(ctx, uuid.New(), "claude-code", &uuid.UUID{}, "opus", ""), ErrInvalidMachineInput)
 	require.ErrorIs(t, service.validateAgentModel(ctx, uuid.New(), "opencode", nil, "gpt-5", ""), ErrInvalidMachineInput)
 }
 

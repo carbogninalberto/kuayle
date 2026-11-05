@@ -135,7 +135,7 @@
 				></DropdownMenu.Root
 			>
 		{:else if current.model}
-			<!-- No server offers the proposed model; approving reports why it cannot run. -->
+			<!-- No server offers the proposed model: it runs on the agent's own sign-in. -->
 			<span class="text-xs text-muted-foreground">{current.model}</span>
 		{/if}
 	</div>

@@ -75,9 +75,10 @@ func serverForModel(servers []dto.ModelServerResponse, harness, model string, pr
 // chatModel resolves the model, thinking level and model server of an agent
 // started from chat. Without an explicit model it is the default model
 // server's model and thinking, when that server speaks the harness's protocol
-// (no server ID: the default applies). An explicit model takes the thinking
-// level, and the server when it is not the default, of the chosen server, else
-// of the server that offers it. An unknown chosen server is kept so that
+// (no server ID: the default applies); otherwise nothing, and the run fills
+// the workspace's agent default for its own sign-in when it is created. An
+// explicit model takes the thinking level, and the server when it is not the
+// default, of the chosen server, else of the server that offers it. An unknown chosen server is kept so that
 // validation rejects it rather than silently running another server.
 func chatModel(options *AgentTaskOptions, harness, model string, chosen *uuid.UUID) (string, string, *uuid.UUID) {
 	var defaultModel, thinking string
@@ -98,7 +99,9 @@ func chatModel(options *AgentTaskOptions, harness, model string, chosen *uuid.UU
 		server = serverForModel(options.ModelServers, harness, model, nil)
 	}
 	if server == nil {
-		// No server offers it: validation rejects the request.
+		// No server offers it: without a default server for the harness it runs
+		// on the agent's own sign-in, which takes any model; otherwise validation
+		// rejects a model the default server does not list.
 		return model, "", nil
 	}
 	if server.IsDefault {
@@ -134,7 +137,9 @@ func retryModel(servers []dto.ModelServerResponse, task *domain.AgentTask, model
 		server = serverForModel(servers, task.Provider, model, task.ModelServerID)
 	}
 	if server == nil {
-		// No server offers it: validation rejects the request.
+		// No server offers it: without a default server for the harness it runs
+		// on the agent's own sign-in, which takes any model; otherwise validation
+		// rejects a model the default server does not list.
 		return model, "", nil
 	}
 	if server.IsDefault && task.ModelServerID == nil {

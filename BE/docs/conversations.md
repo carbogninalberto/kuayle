@@ -610,7 +610,9 @@ harness and `model_server_id`. The approval card (`ApprovalModelPicker`) opens
 on what the backend would start: the proposal on the server that offers it
 (the task's own first, then the default, then another compatible server), else
 the default model server's default model when that server speaks the harness,
-else the agent's own sign-in. A follow-up without a proposed model opens on the
+else the agent's own sign-in (whose run fills the model and effort from the
+workspace's [agent default](../../TECHNICAL.md#agent-model-defaults) when it is
+created; a proposed model no server offers also runs there). A follow-up without a proposed model opens on the
 task's current model and the server it actually runs on (its own, else the
 current default), even if that server no longer lists the model, since an
 untouched card keeps both. Like the task composer it offers the compatible
