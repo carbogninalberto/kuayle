@@ -76,3 +76,23 @@ test('only what differs from the initial selection is sent, with the server of a
 	});
 	assert.deepEqual(choiceFrom(initial, { harness: 'claude-code', server: '', model: '' }), { harness: 'claude-code' });
 });
+
+test('a follow-up opens on the server the task actually runs on, even if it no longer lists the model', () => {
+	// The task has no pinned server, so it runs on the current default (s1), which does not list o4.
+	assert.deepEqual(initialSelection(options, { harness: 'codex', model: 'o4', current: true }), {
+		harness: 'codex',
+		server: 's1',
+		model: 'o4'
+	});
+	assert.deepEqual(initialSelection(options, { harness: 'codex', model: 'gpt-5', server: 's3', current: true }), {
+		harness: 'codex',
+		server: 's3',
+		model: 'gpt-5'
+	});
+	// A harness the default does not speak and no pinned server: the agent's own sign-in.
+	assert.deepEqual(initialSelection(options, { harness: 'claude-code', model: 'opus', current: true }), {
+		harness: 'claude-code',
+		server: '',
+		model: 'opus'
+	});
+});

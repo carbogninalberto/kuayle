@@ -633,7 +633,8 @@
 										? {
 												harness: approval.payload.harness,
 												model: approval.payload.model || approval.payload.current_model,
-												server: approval.payload.model_server_id
+												server: approval.payload.model_server_id,
+												current: !approval.payload.model
 											}
 										: approval.payload}
 									harnessLocked={approval.action === 'follow_up_task'}

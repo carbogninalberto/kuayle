@@ -47,12 +47,19 @@ function defaultFor(servers: ModelServer[] | undefined, harness: string): Omit<M
 
 // The selection an approval card opens with: what the assistant proposed (on
 // the server the backend resolves for it, the task's own first), else what the
-// backend starts with the configured default harness.
+// backend starts with the configured default harness. current marks a
+// follow-up's existing model: an untouched card keeps the task's model and
+// server, so it shows the server the task runs on (its own, else the current
+// default) without resolving the model again.
 export function initialSelection(
 	options: Options,
-	proposed: { harness?: string; model?: string; server?: string }
+	proposed: { harness?: string; model?: string; server?: string; current?: boolean }
 ): ModelSelection {
 	const harness = proposed.harness || options.default_provider || options.providers[0]?.id || '';
+	if (proposed.current) {
+		const server = proposed.server || defaultFor(options.model_servers, harness).server;
+		return { harness, server, model: proposed.model ?? '' };
+	}
 	if (!proposed.model) return { harness, ...defaultFor(options.model_servers, harness) };
 	const server = serverForModel(options.model_servers, harness, proposed.model, proposed.server);
 	return { harness, server: server?.id ?? '', model: proposed.model };

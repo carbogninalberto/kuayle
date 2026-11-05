@@ -33,7 +33,7 @@
 		slug: string;
 		issueId: string;
 		/** server: the server the task runs on, preferred for the proposed model. */
-		proposed: { harness?: string; model?: string; server?: string };
+		proposed: { harness?: string; model?: string; server?: string; current?: boolean };
 		/** A follow-up continues on the task's own harness: only its model can change. */
 		harnessLocked?: boolean;
 		onchange: (choice: ApprovalModelChoice) => void;
