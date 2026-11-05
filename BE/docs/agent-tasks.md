@@ -43,6 +43,13 @@ defaults unless it explicitly supplies an override. Existing attempts migrate
 with no configured command; later defaults are never retroactively applied.
 Rollback refuses configured overrides or nonempty effective snapshots.
 
+A retry may also switch the task's `model` (internally with the model server an
+approver picked). The retry receipt (`agent_task_retries.model` and
+`model_server_id`, migration `000109_agent_task_retry_model`) records what was
+asked, `''`/NULL meaning keep the task's, so replaying a request ID with another
+model or server conflicts like a changed prompt. Existing receipts asked for no
+model; rollback drops only the two columns.
+
 The native attempt receives this command in its instructions and existing
 `test_command` field. That is advisory only: the outcome used by the task is the
 independent check below. Missing commands are not evidence of success.

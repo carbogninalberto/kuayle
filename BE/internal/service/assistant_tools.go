@@ -797,5 +797,5 @@ func (t *AssistantTools) prepareFollowUp(ctx context.Context, ws, user uuid.UUID
 	if target.State != "awaiting_review" && target.State != "failed" && target.State != "blocked" {
 		return uuid.Nil, domain.FollowUpPayload{}, toolFailure("the task is %s; a follow-up can start once it awaits review, is blocked or failed", target.State)
 	}
-	return issue.ID, domain.FollowUpPayload{Identifier: issue.Identifier, Title: issue.Title, TaskID: target.TaskID, Generation: target.Generation, Instructions: input.Instructions, Model: input.Model, CurrentModel: target.Model, Harness: target.Provider}, nil
+	return issue.ID, domain.FollowUpPayload{Identifier: issue.Identifier, Title: issue.Title, TaskID: target.TaskID, Generation: target.Generation, Instructions: input.Instructions, Model: input.Model, CurrentModel: target.Model, Harness: target.Provider, ModelServerID: target.ModelServerID}, nil
 }

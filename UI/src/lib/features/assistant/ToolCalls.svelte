@@ -630,7 +630,11 @@
 									{slug}
 									issueId={approval.issue_id}
 									proposed={approval.action === 'follow_up_task'
-										? { harness: approval.payload.harness, model: approval.payload.model || approval.payload.current_model }
+										? {
+												harness: approval.payload.harness,
+												model: approval.payload.model || approval.payload.current_model,
+												server: approval.payload.model_server_id
+											}
 										: approval.payload}
 									harnessLocked={approval.action === 'follow_up_task'}
 									disabled={deciding !== null}

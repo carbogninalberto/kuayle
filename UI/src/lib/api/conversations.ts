@@ -109,6 +109,8 @@ export interface ConversationToolCall {
 export interface ApprovalModelChoice {
 	harness?: string;
 	model?: string;
+	/** The model server that runs model; sent only with a model. */
+	model_server_id?: string;
 }
 export interface DelegationPayload {
 	identifier: string;
@@ -176,9 +178,10 @@ export interface FollowUpPayload {
 	generation: number;
 	instructions: string;
 	model?: string;
-	/** The model and harness the task ran with. */
+	/** The model, harness and model server (absent: the workspace default) the task ran with. */
 	current_model?: string;
 	harness?: string;
+	model_server_id?: string;
 }
 // Who can open an app port link: only the machine's owner, signed in.
 export type AppPortAudience = 'owner';

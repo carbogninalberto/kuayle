@@ -8,11 +8,20 @@
 	import { agentTasks, type TaskOptions } from '$lib/api/agent-tasks';
 	import { conversations, type ApprovalModelChoice } from '$lib/api/conversations';
 	import { m } from '$lib/paraglide/messages.js';
-	import { choiceFrom, initialSelection, modelsFor, selectHarness, type ModelSelection } from './approval-model';
+	import { serversFor } from '$lib/features/agents/model-choice';
+	import {
+		choiceFrom,
+		initialSelection,
+		selectHarness,
+		selectServer,
+		serverModels,
+		type ModelSelection
+	} from './approval-model';
 
-	// The harness and model of the coding agent an approval starts. It opens on
-	// what the assistant proposed, else the configured default, and reports only
-	// what the user changed.
+	// The harness, model server and model of the coding agent an approval starts.
+	// It opens on what the assistant proposed, else what the backend starts by
+	// default, and reports only what the user changed. As in the task composer,
+	// the models are those of the selected server.
 	let {
 		slug,
 		issueId,
@@ -23,7 +32,8 @@
 	}: {
 		slug: string;
 		issueId: string;
-		proposed: { harness?: string; model?: string };
+		/** server: the server the task runs on, preferred for the proposed model. */
+		proposed: { harness?: string; model?: string; server?: string };
 		/** A follow-up continues on the task's own harness: only its model can change. */
 		harnessLocked?: boolean;
 		onchange: (choice: ApprovalModelChoice) => void;
@@ -32,7 +42,10 @@
 	let options = $state<TaskOptions | null>(null),
 		initial = $state<ModelSelection | null>(null),
 		current = $state<ModelSelection | null>(null);
-	const models = $derived(current && options ? modelsFor(options.model_servers, current.harness) : []);
+	const servers = $derived(current && options ? serversFor(options.model_servers, current.harness) : []);
+	const server = $derived(servers.find((item) => item.id === current?.server));
+	// The agent's own sign-in is offered only when it is what the card opened on.
+	const ownSignIn = $derived(initial?.harness === current?.harness && initial?.server === '');
 	onMount(() => {
 		let disposed = false;
 		void (async () => {
@@ -80,7 +93,29 @@
 				></DropdownMenu.Root
 			>
 		{/if}
-		{#if models.length}
+		{#if servers.length > 1 || (servers.length && !server)}
+			<DropdownMenu.Root
+				><DropdownMenu.Trigger {disabled}
+					>{#snippet child({ props })}<Button
+							{...props}
+							variant="outline"
+							size="sm"
+							aria-label={m['tasks.model_server']()}
+							>{server?.name ?? m['tasks.own_sign_in']()}<ChevronDown size={14} /></Button
+						>{/snippet}</DropdownMenu.Trigger
+				><DropdownMenu.Content
+					><DropdownMenu.RadioGroup
+						value={current.server}
+						onValueChange={(value) => options && current && update(selectServer(options, current, value))}
+						>{#if ownSignIn}<DropdownMenu.RadioItem value="" closeOnSelect>{m['tasks.own_sign_in']()}</DropdownMenu.RadioItem
+							>{/if}{#each servers as item (item.id)}<DropdownMenu.RadioItem value={item.id} closeOnSelect
+								>{item.name}</DropdownMenu.RadioItem
+							>{/each}</DropdownMenu.RadioGroup
+					></DropdownMenu.Content
+				></DropdownMenu.Root
+			>
+		{/if}
+		{#if server}
 			<DropdownMenu.Root
 				><DropdownMenu.Trigger {disabled}
 					>{#snippet child({ props })}<Button
@@ -93,12 +128,15 @@
 					><DropdownMenu.RadioGroup
 						value={current.model}
 						onValueChange={(value) => current && update({ ...current, model: value })}
-						>{#each models as value (value)}<DropdownMenu.RadioItem {value} closeOnSelect
+						>{#each serverModels(server) as value (value)}<DropdownMenu.RadioItem {value} closeOnSelect
 								>{value}</DropdownMenu.RadioItem
 							>{/each}</DropdownMenu.RadioGroup
 					></DropdownMenu.Content
 				></DropdownMenu.Root
 			>
+		{:else if current.model}
+			<!-- No server offers the proposed model; approving reports why it cannot run. -->
+			<span class="text-xs text-muted-foreground">{current.model}</span>
 		{/if}
 	</div>
 {/if}

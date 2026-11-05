@@ -759,8 +759,8 @@ func (r *AgentTaskRepository) Retry(ctx context.Context, ws, id uuid.UUID, req d
 	if _, err := conversationActor(ctx, ws); err != nil {
 		return nil, err
 	}
-	req.Prompt = strings.TrimSpace(req.Prompt)
-	if req.RequestID == uuid.Nil || req.Generation < 1 || len(req.Prompt) == 0 || len(req.Prompt) > 32768 || !utf8.ValidString(req.Prompt) {
+	req.Prompt, req.Model = strings.TrimSpace(req.Prompt), strings.TrimSpace(req.Model)
+	if req.RequestID == uuid.Nil || req.Generation < 1 || len(req.Prompt) == 0 || len(req.Prompt) > 32768 || !utf8.ValidString(req.Prompt) || utf8.RuneCountInString(req.Model) > 200 || !utf8.ValidString(req.Model) {
 		return nil, ErrConversationInvalid
 	}
 	tx, task, err := r.transaction(ctx, id, true)
@@ -790,7 +790,7 @@ func (r *AgentTaskRepository) Retry(ctx context.Context, ws, id uuid.UUID, req d
 	if err != nil {
 		return nil, err
 	}
-	if _, err = tx.ExecContext(ctx, `INSERT INTO agent_task_retries(task_id,request_id,expected_generation,prompt) VALUES($1,$2,$3,$4)`, id, req.RequestID, req.Generation, req.Prompt); err != nil {
+	if _, err = tx.ExecContext(ctx, `INSERT INTO agent_task_retries(task_id,request_id,expected_generation,prompt,model,model_server_id) VALUES($1,$2,$3,$4,$5,$6)`, id, req.RequestID, req.Generation, req.Prompt, req.Model, requestedRetryServer(req)); err != nil {
 		return nil, err
 	}
 	instructions, err := resolveScopeDefault(ctx, tx, ws, task.IssueID, "agent_instructions")

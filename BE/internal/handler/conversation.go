@@ -292,16 +292,17 @@ func (h *ConversationHandler) ResolveApproval(c echo.Context) error {
 		return conversationError(c, repository.ErrConversationNotFound)
 	}
 	var input struct {
-		Decision string `json:"decision"`
-		Harness  string `json:"harness"`
-		Model    string `json:"model"`
+		Decision      string     `json:"decision"`
+		Harness       string     `json:"harness"`
+		Model         string     `json:"model"`
+		ModelServerID *uuid.UUID `json:"model_server_id"`
 	}
 	decoder := json.NewDecoder(io.LimitReader(c.Request().Body, 4096))
 	decoder.DisallowUnknownFields()
 	if decoder.Decode(&input) != nil || (input.Decision != "approve" && input.Decision != "deny") {
 		return conversationError(c, repository.ErrConversationInvalid)
 	}
-	result, err := h.svc.ResolveApprovalWithModel(c.Request().Context(), middleware.GetWorkspace(c).ID, id, approval, input.Decision == "approve", service.ModelChoice{Harness: input.Harness, Model: input.Model})
+	result, err := h.svc.ResolveApprovalWithModel(c.Request().Context(), middleware.GetWorkspace(c).ID, id, approval, input.Decision == "approve", service.ModelChoice{Harness: input.Harness, Model: input.Model, ModelServerID: input.ModelServerID})
 	if err != nil {
 		return conversationError(c, err)
 	}

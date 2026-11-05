@@ -245,6 +245,9 @@ type FollowUpPayload struct {
 	CurrentModel string `json:"current_model,omitempty"`
 	// Harness is the task's coding agent, shown on the card.
 	Harness string `json:"harness,omitempty"`
+	// ModelServerID is the task's model server (nil: the workspace default), so
+	// the card opens on the server that runs CurrentModel.
+	ModelServerID *uuid.UUID `json:"model_server_id,omitempty"`
 }
 
 // AppPortAudienceOwner means only the machine's owner, signed in to Kuayle,

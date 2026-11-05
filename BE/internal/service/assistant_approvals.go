@@ -168,8 +168,8 @@ func (s *AssistantApprovals) ResolveWithModel(ctx context.Context, ws, conversat
 	if approval.Action != "delegate_issue" || json.Unmarshal(approval.Payload, &payload) != nil {
 		return s.conversations.FinishApproval(ctx, ws, conversation, id, nil, "This approval cannot be executed")
 	}
-	harness, model := choice.over(payload.Harness, payload.Model)
-	task, err := delegateIssue(ctx, s.conversations, s.tasks, ws, approval.IssueID, payload.Instructions, approval.RequestID, harness, model)
+	harness, model, server := choice.over(payload.Harness, payload.Model)
+	task, err := delegateIssue(ctx, s.conversations, s.tasks, ws, approval.IssueID, payload.Instructions, approval.RequestID, harness, model, server)
 	if err != nil {
 		if message, permanent := delegationFailure(err); permanent {
 			return s.conversations.FinishApproval(ctx, ws, conversation, id, nil, message)
@@ -182,7 +182,7 @@ func (s *AssistantApprovals) ResolveWithModel(ctx context.Context, ws, conversat
 
 // delegateIssue starts a coding task on an issue for the actor in ctx, with the
 // task composer's defaults. Replaying the same request ID converges on one task.
-func delegateIssue(ctx context.Context, conversations *repository.ConversationRepository, tasks approvalTasks, ws, issue uuid.UUID, instructions string, requestID uuid.UUID, harness, model string) (*domain.AgentTask, error) {
+func delegateIssue(ctx context.Context, conversations *repository.ConversationRepository, tasks approvalTasks, ws, issue uuid.UUID, instructions string, requestID uuid.UUID, harness, model string, server *uuid.UUID) (*domain.AgentTask, error) {
 	chat, err := conversations.OpenIssue(ctx, ws, issue)
 	if err != nil {
 		return nil, err
@@ -210,7 +210,7 @@ func delegateIssue(ctx context.Context, conversations *repository.ConversationRe
 	// Match the task composer's defaults: the explicit model, else the default
 	// model server's model and thinking level when that server speaks the
 	// harness's protocol.
-	request.Model, request.Thinking, request.ModelServerID = chatModel(options, provider, model)
+	request.Model, request.Thinking, request.ModelServerID = chatModel(options, provider, model, server)
 	return tasks.Create(ctx, ws, chat.ID, request)
 }
 
@@ -342,12 +342,12 @@ func (s *AssistantApprovals) review(ctx context.Context, ws, conversation uuid.U
 		}
 		return nil, err
 	}
-	harness, model := choice.over(payload.Harness, payload.Model)
+	harness, model, server := choice.over(payload.Harness, payload.Model)
 	if !providerListed(options, harness) {
 		return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, "That coding agent is not available in this workspace")
 	}
 	request := domain.AgentReviewRequest{RequestID: approval.RequestID, Provider: harness, Focus: payload.Focus, PostToPullRequest: payload.PostToPullRequest, ExpectedCommit: payload.Commit}
-	request.Model, request.Thinking, request.ModelServerID = chatModel(options, harness, model)
+	request.Model, request.Thinking, request.ModelServerID = chatModel(options, harness, model, server)
 	task, _, err := s.reviews.RequestReview(ctx, ws, chat.ID, payload.TaskID, request)
 	switch {
 	case errors.Is(err, repository.ErrNoReviewTarget):
@@ -375,7 +375,8 @@ func (s *AssistantApprovals) followUp(ctx context.Context, ws, conversation uuid
 		err = repository.ErrConversationNotFound
 	}
 	if err == nil {
-		task, err = s.reviews.Retry(ctx, ws, payload.TaskID, domain.AgentTaskRetryRequest{RequestID: approval.RequestID, Generation: payload.Generation, Prompt: chatFollowUpPrompt(task.Prompt, payload.Instructions), Model: followUpModel(choice, payload)})
+		model, server := followUpModel(choice, payload)
+		task, err = s.reviews.Retry(ctx, ws, payload.TaskID, domain.AgentTaskRetryRequest{RequestID: approval.RequestID, Generation: payload.Generation, Prompt: chatFollowUpPrompt(task.Prompt, payload.Instructions), Model: model, RequestedModelServerID: server})
 	}
 	if err != nil {
 		if errors.Is(err, repository.ErrConversationNotFound) || errors.Is(err, repository.ErrAgentTaskUnauthorized) {
@@ -392,13 +393,14 @@ func (s *AssistantApprovals) followUp(ctx context.Context, ws, conversation uuid
 	return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, &task.ID, "")
 }
 
-// followUpModel is the model a follow-up switches the task to. A follow-up
-// continues on the task's own harness and branch, so only the model can change.
-func followUpModel(choice ModelChoice, payload domain.FollowUpPayload) string {
+// followUpModel is the model, and the server picked for it, a follow-up
+// switches the task to. A follow-up continues on the task's own harness and
+// branch, so only the model (and its server) can change.
+func followUpModel(choice ModelChoice, payload domain.FollowUpPayload) (string, *uuid.UUID) {
 	if model := strings.TrimSpace(choice.Model); model != "" {
-		return model
+		return model, choice.ModelServerID
 	}
-	return payload.Model
+	return payload.Model, nil
 }
 
 func providerListed(options *AgentTaskOptions, harness string) bool {

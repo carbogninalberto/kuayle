@@ -8,6 +8,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/realtime"
 	"github.com/kuayle/kuayle-backend/internal/repository"
+	"strings"
 )
 
 type AgentTaskOptions struct {
@@ -86,6 +87,7 @@ func (s *AgentTaskService) Create(ctx context.Context, ws, conversation uuid.UUI
 }
 
 func (s *AgentTaskService) Retry(ctx context.Context, ws, id uuid.UUID, input domain.AgentTaskRetryRequest) (*domain.AgentTask, error) {
+	input.Model = strings.TrimSpace(input.Model)
 	if accepted, err := s.Repo.ReplayRetry(ctx, ws, id, input); err != nil || accepted != nil {
 		return accepted, err
 	}
@@ -95,21 +97,12 @@ func (s *AgentTaskService) Retry(ctx context.Context, ws, id uuid.UUID, input do
 	}
 	model, thinking, serverID := task.Model, task.Thinking, task.ModelServerID
 	if input.Model != "" {
-		model = input.Model
-		if input.Model != task.Model {
-			// Keep thinking and the model server consistent with the new model.
-			servers, err := s.machines.ListModelServers(ctx, ws)
-			if err != nil {
-				return nil, err
-			}
-			thinking, serverID = "", nil
-			if server := serverForModel(servers, task.Provider, model, task.ModelServerID); server != nil {
-				thinking = server.Thinking
-				if !server.IsDefault || task.ModelServerID != nil {
-					serverID = &server.ID
-				}
-			}
+		// Keep thinking and the model server consistent with the new model.
+		servers, err := s.machines.ListModelServers(ctx, ws)
+		if err != nil {
+			return nil, err
 		}
+		model, thinking, serverID = retryModel(servers, task, input.Model, input.RequestedModelServerID)
 		input.Thinking, input.ModelServerID = thinking, serverID
 	}
 	if err = s.validateRequest(ctx, ws, domain.AgentTaskRequest{Prompt: input.Prompt, Provider: task.Provider, Model: model, Thinking: thinking, ModelServerID: serverID}); err != nil {

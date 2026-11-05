@@ -736,6 +736,81 @@ test('asks for approval before delegating and records the decision from the back
 	await expect(page.getByRole('button', { name: 'Approve', exact: true })).toHaveCount(0);
 });
 
+test('the approval card runs the model on the model server the user picked', async ({ page }) => {
+	const state = await fixture(page);
+	const answered = { ...reply, status: 'completed', content: 'Approval is pending.' };
+	state.messages = [userMessage, answered];
+	state.tools = [
+		{
+			id: 'tool-9',
+			conversation_id: 'chat-1',
+			message_id: answered.id,
+			sequence: 0,
+			call_id: 'call_9',
+			name: 'delegate_issue',
+			input: { identifier: 'ENG-1' },
+			status: 'completed',
+			output: { approval_id: 'approval-1', status: 'pending_user_approval', identifier: 'ENG-1' },
+			created_at: conversation.created_at
+		}
+	];
+	state.approvals = [
+		{
+			id: 'approval-1',
+			conversation_id: 'chat-1',
+			tool_call_id: 'tool-9',
+			action: 'delegate_issue',
+			actor_id: 'user-1',
+			issue_id: 'issue-1',
+			payload: { identifier: 'ENG-1', title: 'Dark mode', instructions: 'Implement dark mode' },
+			status: 'pending',
+			expires_at: '2026-10-27T10:00:00Z',
+			created_at: conversation.created_at,
+			updated_at: conversation.created_at
+		}
+	];
+	// Two gateways list the same model name; only the server tells them apart.
+	const server = (id: string, name: string, is_default: boolean, models: string[]) => ({
+		id,
+		name,
+		models,
+		default_model: models[0],
+		fast_model: '',
+		thinking: 'high',
+		is_default,
+		harnesses: ['codex'],
+		thinking_levels: ['off', 'low', 'high', 'max'],
+		updated_at: conversation.created_at
+	});
+	await page.route('**/api/workspaces/test/conversations/chat-1/task-options', (route) =>
+		route.fulfill({
+			json: {
+				providers: [{ id: 'codex', display_name: 'Codex' }],
+				default_provider: 'codex',
+				model_servers: [
+					server('server-a', 'Gateway A', true, ['gpt-5']),
+					server('server-b', 'Gateway B', false, ['gpt-5', 'o4'])
+				]
+			}
+		})
+	);
+	const bodies: unknown[] = [];
+	page.on('request', (request) => {
+		if (request.method() === 'POST' && request.url().includes('/approvals/')) bodies.push(request.postDataJSON());
+	});
+	await page.goto('/test/assistant?conversation=chat-1');
+	const serverButton = page.getByRole('button', { name: 'Model server' });
+	await expect(serverButton).toHaveText('Gateway A');
+	await expect(page.getByRole('button', { name: 'Model', exact: true })).toHaveText('gpt-5');
+	await serverButton.click();
+	await page.getByRole('menuitemradio', { name: 'Gateway B' }).click();
+	await expect(serverButton).toHaveText('Gateway B');
+	await expect(page.getByRole('button', { name: 'Model', exact: true })).toHaveText('gpt-5');
+	await page.getByRole('button', { name: 'Approve', exact: true }).click();
+	await expect(page.getByText('Coding agent started on ENG-1', { exact: true })).toBeVisible();
+	expect(bodies).toEqual([{ decision: 'approve', model: 'gpt-5', model_server_id: 'server-b' }]);
+});
+
 test('a long conversation list scrolls inside the sidebar, never the page', async ({ page }) => {
 	const state = await fixture(page);
 	const many = Array.from({ length: 40 }, (_, i) => ({
