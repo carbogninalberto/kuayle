@@ -158,6 +158,22 @@ func TestClaudeCodeRunOverridesUseArgvModelAndEnvironmentEffort(t *testing.T) {
 	require.Equal(t, map[string]string{"CLAUDE_CODE_EFFORT_LEVEL": "max"}, invocation.Environment)
 }
 
+// Claude Code 2.1.318 accepts low, medium, high, xhigh and max in --effort and
+// CLAUDE_CODE_EFFORT_LEVEL; Codex accepts the same names as reasoning efforts.
+func TestEveryEffortLevelReachesTheSignedInAgent(t *testing.T) {
+	for _, level := range []string{"low", "medium", "high", "xhigh", "max"} {
+		claude, err := NewClaudeCodeProvider("").BuildInvocation(RunInput{Mode: ModeAutonomous, Prompt: "x", Model: "claude-opus-5-5", Thinking: level})
+		require.NoError(t, err, level)
+		require.Equal(t, map[string]string{"CLAUDE_CODE_EFFORT_LEVEL": level}, claude.Environment)
+		require.Contains(t, strings.Join(claude.Argv, " "), "--model claude-opus-5-5")
+		codex, err := NewCodexProvider("").BuildInvocation(RunInput{Mode: ModeAutonomous, Prompt: "x", Thinking: level})
+		require.NoError(t, err, level)
+		require.Contains(t, codex.Argv, `model_reasoning_effort="`+level+`"`)
+	}
+	_, err := NewClaudeCodeProvider("").BuildInvocation(RunInput{Mode: ModeAutonomous, Prompt: "x", Thinking: "ultra"})
+	require.Error(t, err)
+}
+
 func TestClaudeCodeThinkingOffOmitsEffortEnvironment(t *testing.T) {
 	invocation, err := NewClaudeCodeProvider("").BuildInvocation(RunInput{
 		Mode: ModeAutonomous, Prompt: "fix the issue", Thinking: "off",

@@ -40,6 +40,9 @@ type DevMachineStore interface {
 	GetModelServer(context.Context, uuid.UUID, *uuid.UUID) (*domain.AgentModelServer, error)
 	SaveModelServer(context.Context, *domain.AgentModelServer) error
 	DeleteModelServer(context.Context, uuid.UUID, uuid.UUID) error
+	ListAgentModelDefaults(context.Context, uuid.UUID) ([]domain.AgentModelDefault, error)
+	GetAgentModelDefault(context.Context, uuid.UUID, string) (*domain.AgentModelDefault, error)
+	SaveAgentModelDefault(context.Context, *domain.AgentModelDefault) error
 	ListAgentSignIns(context.Context, uuid.UUID, uuid.UUID) ([]domain.AgentSignIn, error)
 	GetAgentSignInToken(context.Context, uuid.UUID, uuid.UUID, string) (string, error)
 	SaveAgentSignInToken(context.Context, uuid.UUID, uuid.UUID, string, string, time.Time) error
@@ -881,6 +884,37 @@ func (r *DevMachineRepository) DeleteModelServer(ctx context.Context, workspaceI
 		return sql.ErrNoRows
 	}
 	return nil
+}
+
+func (r *DevMachineRepository) ListAgentModelDefaults(ctx context.Context, workspaceID uuid.UUID) ([]domain.AgentModelDefault, error) {
+	defaults := []domain.AgentModelDefault{}
+	err := r.db.SelectContext(ctx, &defaults, `SELECT * FROM agent_model_defaults WHERE workspace_id=$1 ORDER BY provider`, workspaceID)
+	return defaults, err
+}
+
+// GetAgentModelDefault returns the workspace's default for a coding agent, or nil.
+func (r *DevMachineRepository) GetAgentModelDefault(ctx context.Context, workspaceID uuid.UUID, provider string) (*domain.AgentModelDefault, error) {
+	var value domain.AgentModelDefault
+	err := r.db.GetContext(ctx, &value, `SELECT * FROM agent_model_defaults WHERE workspace_id=$1 AND provider=$2`, workspaceID, provider)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return &value, err
+}
+
+// SaveAgentModelDefault replaces an agent's default; with no model and no effort it
+// removes it, so the agent keeps its own defaults.
+func (r *DevMachineRepository) SaveAgentModelDefault(ctx context.Context, value *domain.AgentModelDefault) error {
+	if value.Model == "" && value.Thinking == "" {
+		_, err := r.db.ExecContext(ctx, `DELETE FROM agent_model_defaults WHERE workspace_id=$1 AND provider=$2`, value.WorkspaceID, value.Provider)
+		return err
+	}
+	return r.db.QueryRowContext(ctx, `INSERT INTO agent_model_defaults (workspace_id, provider, model, thinking, updated_by)
+		VALUES ($1,$2,$3,$4,$5)
+		ON CONFLICT (workspace_id, provider) DO UPDATE SET model=EXCLUDED.model, thinking=EXCLUDED.thinking, updated_by=EXCLUDED.updated_by
+		RETURNING created_at, updated_at`,
+		value.WorkspaceID, value.Provider, value.Model, value.Thinking, value.UpdatedBy,
+	).Scan(&value.CreatedAt, &value.UpdatedAt)
 }
 
 // GetAgentSignIn returns a user's encrypted sign-in for a coding agent, or "".

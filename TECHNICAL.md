@@ -454,7 +454,7 @@ Initial providers:
 
 Provider adapters can construct both invocation modes, but the current product dialogs queue autonomous runs only and there is no UI/gateway endpoint for attaching to an interactive agent container. The IDE developer image pins all seven built-in CLI versions for terminal use. Qwen Code, Crush, Kimi, and Goose use `DEV_MACHINE_HEADLESS_IMAGE` for both developer-terminal and autonomous execution. The existing three built-ins retain their provider-specific agent images. Custom providers must be enabled by workspace policy and are currently launched through the autonomous dashboard flow. Provider-specific agent images remain separately pinned by tag or digest in configuration and runtime Dockerfiles; custom provider images must also be pinned.
 
-Codex and Claude Code runs accept an optional `model_server_id`, `model` and `thinking`. They are rejected for other providers. A run uses the chosen model server, or the workspace default when it speaks the harness's protocol (OpenAI-compatible for Codex, Anthropic-compatible for Claude Code); without one the harness uses its own sign-in. A model must be offered by the server when its model list is known; thinking levels are `off`, `low`, `high`, and `max`. The server is recorded on the run (`model_server_id`). Codex receives the server and model entirely as argv `-c` overrides (`model_provider="kuayle"`, its `base_url`, `env_key="KUAYLE_MODEL_API_KEY"`, `wire_api="responses"`), so a user-managed `config.toml` cannot redirect a run; model names and URLs are restricted to characters that need no TOML quoting. Claude Code receives the model as argv and the thinking level through the validated non-secret `CLAUDE_CODE_EFFORT_LEVEL` container environment; `off` omits that variable.
+Codex and Claude Code runs accept an optional `model_server_id`, `model` and `thinking`. They are rejected for other providers. A run uses the chosen model server, or the workspace default when it speaks the harness's protocol (OpenAI-compatible for Codex, Anthropic-compatible for Claude Code); without one the harness uses its own sign-in and takes any valid model name. A model on a server must be offered by it when its model list is known; thinking levels are `off`, `low`, `medium`, `high`, `xhigh`, and `max` (Claude Code 2.1.318 accepts `low`, `medium`, `high`, `xhigh` and `max` for `--effort` and `CLAUDE_CODE_EFFORT_LEVEL`; Codex maps `off` to `none`). A run on the harness's own sign-in fills the model and thinking level it did not choose from the [workspace default](#agent-model-defaults). The server is recorded on the run (`model_server_id`). Codex receives the server and model entirely as argv `-c` overrides (`model_provider="kuayle"`, its `base_url`, `env_key="KUAYLE_MODEL_API_KEY"`, `wire_api="responses"`), so a user-managed `config.toml` cannot redirect a run; model names and URLs are restricted to characters that need no TOML quoting. Claude Code receives the model as argv and the thinking level through the validated non-secret `CLAUDE_CODE_EFFORT_LEVEL` container environment; `off` omits that variable.
 
 ### Normalized Result
 
@@ -771,6 +771,14 @@ Setting up the Claude Code token (also shown under Settings → Agent configurat
 
 Migration `000076_agent_model_servers` converts an existing workspace DeepSeek credential into a default server named DeepSeek with the same encrypted key, models and thinking level; rolling back restores it.
 
+### Agent model defaults
+
+Settings → Agent configuration → Default model and effort sets, per workspace, the model and effort Codex and Claude Code use on their own sign-in (`agent_model_defaults`, one row per workspace and agent; migration `000109_agent_model_defaults`). `GET /agent-model-defaults` (`dev_machine:read`) lists both agents, configured or not, with the accepted `thinking_levels`; `PUT /agent-model-defaults/:provider` (`dev_machine:admin`, owners and admins only) takes `{"model","thinking"}` with the same model-name pattern and levels as runs, and both empty removes the default. For production without a model server, setting Claude Code to `claude-opus-5-5` and `medium` makes its runs start with `--model claude-opus-5-5` and `CLAUDE_CODE_EFFORT_LEVEL=medium`.
+
+The default is resolved when each run is created (`createAgentRun`), not when a task is accepted: tasks keep storing only an explicit choice, and a run fills each of model and thinking that it left empty. Every new task, including those delegated from chat (`delegate_issue`) and automations, and every new attempt of an open task (retry, follow-up, sign-in continuation, review) therefore uses the default current at that moment. A run that already exists keeps the model and effort recorded on it, including while it is recovered, and resuming a Claude Code session in a new attempt applies the current default to that attempt. A run that uses a model server, chosen or the workspace default speaking the agent's protocol, ignores the agent default; the server's default model and thinking level apply as before. IDE and terminal shells are not affected.
+
+Migration `000109` also widens the `thinking` checks of `dev_machine_agent_runs` and `agent_model_servers` to `medium` and `xhigh`. Rolling it back drops the defaults and maps `medium` to `high` and `xhigh` to `max` on runs, servers and tasks, which is not reversible.
+
 ## Scoped Settings, Worktrees, and Environments
 
 Development defaults are stored in `dev_machine_scope_settings`. A setting may provide a linked GitHub repository, base branch, development environment, test command, Compose file for checks (migration 68), preview command and preferred port (migrations 71 and 85), preferred coding agent and/or agent instructions (at most 8000 characters) for a workspace, team, project, or issue. Each value is resolved independently in this order: issue, project, team, workspace (migration 65). The preferred agent is the default for task delegation from chat and the task composer when the workspace policy allows it; instructions and the Compose file path are snapshotted onto each task when it is accepted or retried and placed ahead of the task in the native prompt. This lets an issue override only the repository while inheriting an environment, or vice versa.
@@ -860,6 +868,7 @@ Migration `000033_dev_machines` creates:
 | `dev_machine_terminal_sessions` | User terminal tabs mapped to runtime tmux sessions and optional checkouts |
 | `dev_machine_runtime_credentials` | Encrypted, expiring runtime-secret registrations used for telemetry redaction |
 | `agent_model_servers` | Workspace model servers: protocol URLs, encrypted API key, models, default and fast model, thinking level, default flag |
+| `agent_model_defaults` | Workspace default model and effort per coding agent on its own sign-in |
 
 The migration creates the final scoped-workspace schema directly. Composite foreign keys bind workspace, machine, service, checkout, run, session, and environment tuples so cross-workspace identifiers are rejected by PostgreSQL rather than relying only on application checks. Rolling migration `000033` back is destructive for all Dev Machine control-plane records.
 
@@ -909,6 +918,8 @@ POST   /api/workspaces/:slug/agent-model-servers
 POST   /api/workspaces/:slug/agent-model-servers/discover
 PUT    /api/workspaces/:slug/agent-model-servers/:serverId
 DELETE /api/workspaces/:slug/agent-model-servers/:serverId
+GET    /api/workspaces/:slug/agent-model-defaults
+PUT    /api/workspaces/:slug/agent-model-defaults/:provider
 
 GET    /api/workspaces/:slug/dev-machines/:machineId
 PATCH  /api/workspaces/:slug/dev-machines/:machineId
