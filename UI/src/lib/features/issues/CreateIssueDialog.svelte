@@ -126,7 +126,11 @@
 	let labelsOpen = $state(false);
 	let cycleOpen = $state(false);
 
-	let descriptionEditor = $state<{ insertFiles: (files: File[]) => void } | null>(null);
+	let descriptionEditor = $state<{
+		insertFiles: (files: File[]) => void;
+		focusStart: () => void;
+		isCaretOnFirstLine: () => boolean;
+	} | null>(null);
 	const uploadUrl = $derived(slug && teamId ? `/api/workspaces/${slug}/upload?team_id=${teamId}` : undefined);
 	// Uploads started in the description editor that have not been inserted yet.
 	let pendingUploads = $state(0);
@@ -365,6 +369,17 @@
 	function handleKeydown(e: KeyboardEvent) {
 		if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
 			handleSubmit();
+			return;
+		}
+		if (e.defaultPrevented || e.shiftKey || e.altKey || e.metaKey || e.ctrlKey || e.isComposing) return;
+		const target = e.target as HTMLElement;
+		// Title -> content, and content (first line) -> title.
+		if (e.key === 'ArrowDown' && target.id === 'create-issue-title') {
+			e.preventDefault();
+			descriptionEditor?.focusStart();
+		} else if (e.key === 'ArrowUp' && target.closest('.ProseMirror') && descriptionEditor?.isCaretOnFirstLine()) {
+			e.preventDefault();
+			document.getElementById('create-issue-title')?.focus();
 		}
 	}
 

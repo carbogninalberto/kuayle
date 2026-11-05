@@ -511,6 +511,26 @@
 		void uploadFiles(files);
 	}
 
+	/** Moves the caret to the start of the content (e.g. from a title input). */
+	export function focusStart() {
+		if (!editor || editor.isDestroyed) return;
+		editor.commands.focus('start');
+	}
+
+	/** True when the collapsed caret sits on the first visual line of the content. */
+	export function isCaretOnFirstLine(): boolean {
+		if (!editor || editor.isDestroyed) return false;
+		const { selection } = editor.state;
+		if (!selection.empty) return false;
+		try {
+			const caret = editor.view.coordsAtPos(selection.from);
+			const first = editor.view.coordsAtPos(1);
+			return caret.top < first.bottom - 1;
+		} catch {
+			return false;
+		}
+	}
+
 	let uploadInput = $state<HTMLInputElement | null>(null);
 	let imagesOnly = $state(false);
 
