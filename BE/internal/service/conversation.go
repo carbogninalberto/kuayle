@@ -33,10 +33,16 @@ func (s *ConversationService) SetApprovals(approvals *AssistantApprovals) {
 }
 
 func (s *ConversationService) ResolveApproval(ctx context.Context, ws, conversation, id uuid.UUID, approve bool) (*domain.ConversationApproval, error) {
+	return s.ResolveApprovalWithModel(ctx, ws, conversation, id, approve, ModelChoice{})
+}
+
+// ResolveApprovalWithModel resolves with the harness and model the approver
+// picked on the approval card.
+func (s *ConversationService) ResolveApprovalWithModel(ctx context.Context, ws, conversation, id uuid.UUID, approve bool, choice ModelChoice) (*domain.ConversationApproval, error) {
 	if s.approvals == nil {
 		return nil, repository.ErrConversationNotFound
 	}
-	return s.approvals.Resolve(ctx, ws, conversation, id, approve)
+	return s.approvals.ResolveWithModel(ctx, ws, conversation, id, approve, choice)
 }
 
 // SetTools enables authorized Kuayle operations for the assistant. Without it

@@ -167,3 +167,60 @@ func TestAgentTaskRequestReplayKeepsOriginalAttemptAfterLaterRetries(t *testing.
 	_, err = repo.Retry(ctx, task.WorkspaceID, task.ID, requestA)
 	require.ErrorIs(t, err, ErrConversationConflict)
 }
+
+func TestAgentTaskRetrySwitchesModelAndReplaysOnlyTheSameModel(t *testing.T) {
+	db, repo, ctx, task, _ := taskRecoveryFixture(t)
+	var server uuid.UUID
+	require.NoError(t, db.Get(&server, `INSERT INTO agent_model_servers(workspace_id,name,openai_base_url,encrypted_api_key,models,default_model,thinking) VALUES($1,'Other','https://models.example.test','x','["model-b"]','model-b','low') RETURNING id`, task.WorkspaceID))
+	_, err := db.Exec(`UPDATE agent_tasks SET state='blocked',model='model-a',thinking='high',model_server_id=NULL WHERE id=$1`, task.ID)
+	require.NoError(t, err)
+
+	switched := domain.AgentTaskRetryRequest{RequestID: uuid.New(), Generation: task.Generation, Prompt: "Use another model", Model: "model-b", Thinking: "low", ModelServerID: &server}
+	retried, err := repo.Retry(ctx, task.WorkspaceID, task.ID, switched)
+	require.NoError(t, err)
+	require.Equal(t, "model-b", retried.Model)
+	require.Equal(t, "low", retried.Thinking)
+	require.Equal(t, &server, retried.ModelServerID)
+	var model, thinking string
+	var stored *uuid.UUID
+	require.NoError(t, db.QueryRow(`SELECT model,thinking,model_server_id FROM agent_tasks WHERE id=$1`, task.ID).Scan(&model, &thinking, &stored))
+	require.Equal(t, "model-b", model)
+	require.Equal(t, "low", thinking)
+	require.Equal(t, &server, stored)
+
+	// Replaying the same receipt returns the same attempt; a changed model is a
+	// different intent and conflicts, as a changed prompt does.
+	repeated, err := repo.Retry(ctx, task.WorkspaceID, task.ID, switched)
+	require.NoError(t, err)
+	require.Equal(t, retried.RunID, repeated.RunID)
+	changed := switched
+	changed.Model, changed.Thinking, changed.ModelServerID = "model-c", "", nil
+	_, err = repo.Retry(ctx, task.WorkspaceID, task.ID, changed)
+	require.ErrorIs(t, err, ErrConversationConflict)
+	kept := switched
+	kept.Model, kept.Thinking, kept.ModelServerID = "", "", nil
+	_, err = repo.Retry(ctx, task.WorkspaceID, task.ID, kept)
+	require.ErrorIs(t, err, ErrConversationConflict)
+	otherServer := switched
+	otherServer.RequestedModelServerID = &server
+	_, err = repo.Retry(ctx, task.WorkspaceID, task.ID, otherServer)
+	require.ErrorIs(t, err, ErrConversationConflict, "the server the caller picked is part of the intent")
+
+	// Without a model the next attempt keeps the task's model, thinking and server,
+	// and replaying it with a model conflicts too.
+	_, err = db.Exec(`UPDATE agent_tasks SET state='blocked' WHERE id=$1`, task.ID)
+	require.NoError(t, err)
+	plain := domain.AgentTaskRetryRequest{RequestID: uuid.New(), Generation: retried.Generation, Prompt: "Keep the model"}
+	next, err := repo.Retry(ctx, task.WorkspaceID, task.ID, plain)
+	require.NoError(t, err)
+	require.Equal(t, "model-b", next.Model)
+	require.Equal(t, "low", next.Thinking)
+	require.Equal(t, &server, next.ModelServerID)
+	plainWithModel := plain
+	plainWithModel.Model = "model-b"
+	_, err = repo.Retry(ctx, task.WorkspaceID, task.ID, plainWithModel)
+	require.ErrorIs(t, err, ErrConversationConflict)
+	again, err := repo.Retry(ctx, task.WorkspaceID, task.ID, plain)
+	require.NoError(t, err)
+	require.Equal(t, next.RunID, again.RunID)
+}

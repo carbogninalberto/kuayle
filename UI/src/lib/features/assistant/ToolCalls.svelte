@@ -18,7 +18,13 @@
 	import * as Item from '$lib/components/ui/item/index.js';
 	import * as Alert from '$lib/components/ui/alert/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
-	import type { ConversationApproval, ConversationToolCall, GitHubAccessGap } from '$lib/api/conversations';
+	import type {
+		ApprovalModelChoice,
+		ConversationApproval,
+		ConversationToolCall,
+		GitHubAccessGap
+	} from '$lib/api/conversations';
+	import ApprovalModelPicker from './ApprovalModelPicker.svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import AgentSubagent from './AgentSubagent.svelte';
 	import AppPortLinks from './AppPortLinks.svelte';
@@ -39,8 +45,9 @@
 		calls: ConversationToolCall[];
 		slug: string;
 		approvals?: Record<string, ConversationApproval>;
-		onresolve?: (approval: ConversationApproval, decision: 'approve' | 'deny') => Promise<void>;
+		onresolve?: (approval: ConversationApproval, decision: 'approve' | 'deny', choice?: ApprovalModelChoice) => Promise<void>;
 	} = $props();
+	let choices = $state<Record<string, ApprovalModelChoice>>({});
 	let deciding = $state<string | null>(null),
 		decisionError = $state<string | null>(null);
 	async function decide(approval: ConversationApproval, decision: 'approve' | 'deny') {
@@ -48,7 +55,7 @@
 		deciding = approval.id;
 		decisionError = null;
 		try {
-			await onresolve(approval, decision);
+			await onresolve(approval, decision, decision === 'approve' ? choices[approval.id] : undefined);
 		} catch (error) {
 			// An expiry is reported through the conversation stream as well.
 			if ((error as { status?: number }).status !== 410) decisionError = approval.id;
@@ -643,6 +650,23 @@
 										class="max-h-48 text-xs"
 									/></CodeBlock.Root
 								>
+							{/if}
+							{#if approval.action === 'delegate_issue' || approval.action === 'request_agent_review' || approval.action === 'follow_up_task'}
+								<ApprovalModelPicker
+									{slug}
+									issueId={approval.issue_id}
+									proposed={approval.action === 'follow_up_task'
+										? {
+												harness: approval.payload.harness,
+												model: approval.payload.model || approval.payload.current_model,
+												server: approval.payload.model_server_id,
+												current: !approval.payload.model
+											}
+										: approval.payload}
+									harnessLocked={approval.action === 'follow_up_task'}
+									disabled={deciding !== null}
+									onchange={(choice) => (choices[approval.id] = choice)}
+								/>
 							{/if}
 							{#if decisionError === approval.id}<p role="alert" class="text-xs text-destructive">
 									{m['assistant.approval_error']()}

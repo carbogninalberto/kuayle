@@ -43,6 +43,13 @@ defaults unless it explicitly supplies an override. Existing attempts migrate
 with no configured command; later defaults are never retroactively applied.
 Rollback refuses configured overrides or nonempty effective snapshots.
 
+A retry may also switch the task's `model` (internally with the model server an
+approver picked). The retry receipt (`agent_task_retries.model` and
+`model_server_id`, migration `000110_agent_task_retry_model`) records what was
+asked, `''`/NULL meaning keep the task's, so replaying a request ID with another
+model or server conflicts like a changed prompt. Existing receipts asked for no
+model; rollback drops only the two columns.
+
 The native attempt receives this command in its instructions and existing
 `test_command` field. That is advisory only: the outcome used by the task is the
 independent check below. Missing commands are not evidence of success.
@@ -588,9 +595,15 @@ workspace policy and the provider/model checks of any coding task, and calls
 `CreateReview` under the conversation transaction. The task must be an
 implementing task in `awaiting_review` with a pull request and commit Kuayle
 published for its current attempt (the same records as `MergeTarget`). A
-request is idempotent per (task, published commit, harness): it returns the
-existing review unless that one failed or was cancelled, in which case a new
-`attempt` starts. Replaying the approval's request ID returns its review.
+request is idempotent per (task, published commit, harness, model, model
+server): it returns the newest such review unless it failed or was cancelled,
+in which case a new review starts. Another model or server picked on the
+approval card is a review of its own. A review without a chosen server records
+the workspace default it runs on (when that server speaks the harness), so a
+later default is a different review; an older review without a recorded server
+is matched by the server its run used. `attempt` counts every review of the
+commit with that harness (unique per task, commit and harness). Replaying the
+approval's request ID returns its review.
 
 A review is an `agent_tasks` row with `kind='review'` and `review_of_task_id`,
 created by the approver in their issue conversation, with an `agent_reviews`
