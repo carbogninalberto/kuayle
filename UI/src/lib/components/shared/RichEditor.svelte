@@ -511,6 +511,28 @@
 		void uploadFiles(files);
 	}
 
+	/** Moves the caret to the start of the content (e.g. from a title input). */
+	export function focusStart() {
+		if (!editor || editor.isDestroyed) return;
+		editor.commands.focus('start');
+	}
+
+	/**
+	 * True when the collapsed caret is on the first visual line of the first block, so
+	 * ArrowUp has nowhere left to go inside the editor. False while a slash/mention
+	 * popup is open (it owns ArrowUp), or when anything (e.g. an image) precedes the
+	 * caret's block.
+	 */
+	export function isCaretOnFirstLine(): boolean {
+		if (!editor || editor.isDestroyed || slashActive || mentionActive) return false;
+		const { selection } = editor.state;
+		if (!selection.empty) return false;
+		const from = selection.$from;
+		if (!from.parent.isTextblock) return false;
+		for (let depth = 0; depth < from.depth; depth++) if (from.index(depth) !== 0) return false;
+		return editor.view.endOfTextblock('up');
+	}
+
 	let uploadInput = $state<HTMLInputElement | null>(null);
 	let imagesOnly = $state(false);
 

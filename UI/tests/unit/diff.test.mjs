@@ -30,3 +30,24 @@ test('parses files, counts and line kinds', () => {
 test('an empty diff has no files', () => {
 	assert.deepEqual(parseDiff(''), []);
 });
+
+test('totals aggregate across files and handle no diffs', async () => {
+	const { diffTotals } = await import('../../src/lib/features/assistant/diff.ts');
+	assert.deepEqual(diffTotals([]), { files: 0, additions: 0, deletions: 0 });
+	const files = parseDiff(
+		['diff --git a/a b/a', '+x', '+y', '-z', 'diff --git a/b b/b', '+q'].join('\n')
+	);
+	assert.deepEqual(diffTotals(files), { files: 2, additions: 3, deletions: 1 });
+});
+
+test('search matches path or line text case-insensitively; blank matches all', async () => {
+	const { searchDiff } = await import('../../src/lib/features/assistant/diff.ts');
+	const files = parseDiff(
+		['diff --git a/src/Foo.ts b/src/Foo.ts', '+hello', 'diff --git a/bar.md b/bar.md', '+world (x)'].join('\n')
+	);
+	assert.equal(searchDiff(files, '').length, 2);
+	assert.equal(searchDiff(files, '  ').length, 2);
+	assert.deepEqual(searchDiff(files, 'FOO').map((f) => f.path), ['src/Foo.ts']);
+	assert.deepEqual(searchDiff(files, 'world (').map((f) => f.path), ['bar.md']);
+	assert.equal(searchDiff(files, 'nope').length, 0);
+});

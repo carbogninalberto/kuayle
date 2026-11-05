@@ -255,6 +255,8 @@ func main() {
 	assistantTools.SetPullRequests(githubSvc, repository.NewAgentTaskRepository(db))
 	githubSvc.SetPullRequestSettings(repository.NewAgentTaskRepository(db))
 	assistantApprovals.SetPullRequestHeads(githubSvc)
+	assistantApprovals.SetGitHubAccess(githubSvc)
+	assistantTools.SetGitHubAccess(service.NewCachedGitHubAccess(githubSvc))
 	assistantTools.SetPullRequestHeads(githubSvc)
 	githubSvc.SetPullRequestHeads(repository.NewAgentTaskRepository(db))
 	assistantApprovals.SetReviews(agentTaskSvc)
