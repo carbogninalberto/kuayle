@@ -93,7 +93,11 @@ func (s *AgentTaskService) Retry(ctx context.Context, ws, id uuid.UUID, input do
 	if err != nil {
 		return nil, err
 	}
-	if err = s.validateRequest(ctx, ws, domain.AgentTaskRequest{Prompt: input.Prompt, Provider: task.Provider, Model: task.Model, Thinking: task.Thinking, ModelServerID: task.ModelServerID}); err != nil {
+	model := task.Model
+	if input.Model != "" {
+		model = input.Model
+	}
+	if err = s.validateRequest(ctx, ws, domain.AgentTaskRequest{Prompt: input.Prompt, Provider: task.Provider, Model: model, Thinking: task.Thinking, ModelServerID: task.ModelServerID}); err != nil {
 		return nil, err
 	}
 	return s.Repo.Retry(ctx, ws, id, input)

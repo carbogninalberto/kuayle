@@ -105,10 +105,18 @@ export interface ConversationToolCall {
 	created_at: string;
 	completed_at?: string;
 }
+/** The harness and model picked on an approval card; empty keeps what was proposed. */
+export interface ApprovalModelChoice {
+	harness?: string;
+	model?: string;
+}
 export interface DelegationPayload {
 	identifier: string;
 	title: string;
 	instructions: string;
+	/** The coding agent the assistant proposed; empty means the configured default. */
+	harness?: string;
+	model?: string;
 	/** The development repository resolved when approval was requested. */
 	repository?: string;
 	base_branch?: string;
@@ -154,6 +162,7 @@ export interface ReviewPayload {
 	title: string;
 	task_id: string;
 	harness: string;
+	model?: string;
 	focus?: string;
 	post_to_pull_request: boolean;
 	pull_request: number;
@@ -166,6 +175,10 @@ export interface FollowUpPayload {
 	task_id: string;
 	generation: number;
 	instructions: string;
+	model?: string;
+	/** The model and harness the task ran with. */
+	current_model?: string;
+	harness?: string;
 }
 // Who can open an app port link: only the machine's owner, signed in.
 export type AppPortAudience = 'owner';
@@ -344,10 +357,16 @@ export const conversations = {
 			file,
 			onProgress
 		),
-	resolveApproval: (slug: string, id: string, approval: string, decision: 'approve' | 'deny') =>
+	resolveApproval: (
+		slug: string,
+		id: string,
+		approval: string,
+		decision: 'approve' | 'deny',
+		choice: ApprovalModelChoice = {}
+	) =>
 		api.post<ConversationApproval>(
 			`${base(slug)}/conversations/${encodeURIComponent(id)}/approvals/${encodeURIComponent(approval)}`,
-			{ decision }
+			{ decision, ...choice }
 		),
 	retry: (slug: string, id: string, message: string, request_id: string) =>
 		api.post<ConversationMessage>(

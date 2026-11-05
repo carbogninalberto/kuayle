@@ -117,6 +117,8 @@ type AgentTaskRetryRequest struct {
 	RequestID  uuid.UUID `json:"request_id"`
 	Generation int64     `json:"generation"`
 	Prompt     string    `json:"prompt"`
+	// Model, when set, replaces the task's model for the new attempt.
+	Model string `json:"model,omitempty"`
 
 	TestCommand []string `json:"test_command"`
 }

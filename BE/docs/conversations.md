@@ -601,6 +601,20 @@ this same resolution path; see [Telegram approval buttons](telegram.md#approval-
 [requested agent reviews](agent-tasks.md#requested-agent-reviews). `run_check` does too (migration 97); see
 [manual checks](agent-tasks.md#manual-checks).
 
+### Model choice for agents started from chat
+
+`delegate_issue`, `request_agent_review` and `follow_up_task` accept an optional
+`model` (and `harness` for delegations and reviews) that is stored in the
+approval payload. The approval card (`ApprovalModelPicker`) opens on that
+proposal, else on the configured default, and `POST .../approvals/:id` accepts
+optional `harness` and `model` next to `decision`; only what the user changed
+is sent. The approver's choice wins over the proposal, a new harness never
+inherits the proposed model, and with no choice the workspace/project/team
+default model server applies as before. The harness must be allowed in the
+workspace. Reviews still default to the implementing task's harness. A
+follow-up continues on the task's own harness, so only its model changes
+(`agent_tasks.model` is updated when the attempt is queued).
+
 ### Previews and ports from chat
 
 The machine tools act on the issue's newest implementing task and its machine,
