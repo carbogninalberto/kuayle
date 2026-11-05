@@ -279,6 +279,26 @@ type UpgradePayload struct {
 	Changelog      string `json:"changelog,omitempty"`
 }
 
+// ReleasePayload is a create_release request: the tag to create at a commit of
+// the repository's default branch, and the notes to publish. The notes are the
+// assistant's draft until the approver edits them on the card.
+type ReleasePayload struct {
+	Repository     string   `json:"repository"`
+	Tag            string   `json:"tag"`
+	Name           string   `json:"name"`
+	TargetCommit   string   `json:"target_commit"`
+	Branch         string   `json:"branch"`
+	PreviousTag    string   `json:"previous_tag,omitempty"`
+	Notes          string   `json:"notes"`
+	NotesEdited    bool     `json:"notes_edited,omitempty"`
+	ChecksPassed   int      `json:"checks_passed"`
+	Commits        int      `json:"commits"`
+	ScannedFiles   int      `json:"scanned_files"`
+	UnscannedFiles []string `json:"unscanned_files,omitempty"`
+	CompareURL     string   `json:"compare_url,omitempty"`
+	ReleaseURL     string   `json:"release_url"`
+}
+
 // GitHubAccessGap is the GitHub App access an action needs but lacks. It rides
 // in the tool result and in the approval's payload so the card can show it.
 type GitHubAccessGap struct {

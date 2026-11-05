@@ -39,6 +39,14 @@ func (s *ConversationService) ResolveApproval(ctx context.Context, ws, conversat
 	return s.approvals.Resolve(ctx, ws, conversation, id, approve)
 }
 
+// ResolveApprovalEdited applies a decision with the approver's edit of the card.
+func (s *ConversationService) ResolveApprovalEdited(ctx context.Context, ws, conversation, id uuid.UUID, approve bool, edit *ApprovalEdit) (*domain.ConversationApproval, error) {
+	if s.approvals == nil {
+		return nil, repository.ErrConversationNotFound
+	}
+	return s.approvals.ResolveEdited(ctx, ws, conversation, id, approve, edit)
+}
+
 // SetTools enables authorized Kuayle operations for the assistant. Without it
 // the assistant remains conversation-only.
 func (s *ConversationService) SetTools(tools *AssistantTools) {
@@ -461,6 +469,11 @@ func (s *ConversationService) requestApproval(ctx context.Context, a domain.Conv
 		var upgrade domain.UpgradePayload
 		_, upgrade, err = s.tools.prepareUpgrade(ctx, a.Conversation.CreatorID, arguments)
 		payload = upgrade
+	case "create_release":
+		// A release belongs to a repository, not to an issue.
+		var release domain.ReleasePayload
+		release, err = s.tools.prepareRelease(ctx, ws, actor, arguments)
+		payload = release
 	case "run_check":
 		var check domain.RunCheckPayload
 		issueID, check, err = s.tools.prepareRunCheck(ctx, a.Conversation.WorkspaceID, a.Conversation.CreatorID, arguments)
@@ -491,7 +504,7 @@ func (s *ConversationService) requestApproval(ctx context.Context, a domain.Conv
 		result["github_access"] = gap
 		result["warning"] = gap.Message
 	}
-	// An upgrade belongs to no issue.
+	// An upgrade or a release belongs to no issue.
 	if issueID == uuid.Nil {
 		return result, nil, nil
 	}

@@ -258,6 +258,10 @@ func TestPolicyTableMatchesRegisteredTools(t *testing.T) {
 			require.True(t, ok, "%s calls GitHub but has no policy", tool.name)
 			require.NotEmpty(t, policy.github, "%s calls GitHub but declares no GitHub permission", tool.name)
 		}
+		if tool.releases {
+			require.True(t, ok, "%s calls GitHub but has no policy", tool.name)
+			require.NotEmpty(t, policy.github, "%s calls GitHub but declares no GitHub permission", tool.name)
+		}
 		if tool.pulls && tool.approval {
 			require.Equal(t, roleAdminOrCreator, policy.role, "%s changes a pull request, which needs what merging needs", tool.name)
 		}
@@ -275,9 +279,13 @@ func TestPolicyTableMatchesRegisteredTools(t *testing.T) {
 			require.True(t, ownerScoped(name))
 		}
 	}
-	// A future tool's permission is not requested before the tool exists.
-	_, actions := manifest["actions"]
-	require.False(t, actions, "no registered tool uses Actions")
+	// Actions is requested only because get_workflow_run uses it.
+	used := false
+	for _, policy := range assistantActionPolicies {
+		_, ok := policy.github["actions"]
+		used = used || ok
+	}
+	require.True(t, used, "the manifest requests Actions for get_workflow_run")
 }
 
 func TestPullRequestToolsDeclareWhatTheyCallOnGitHub(t *testing.T) {

@@ -246,12 +246,34 @@ export interface UpgradePayload {
 	latest_version: string;
 	changelog?: string;
 }
+// A release belongs to a repository, not an issue: the tag, the pinned commit of
+// the default branch, what the gate and secret scan found, and the notes that
+// will be published (editable on the card until approved).
+export interface ReleasePayload {
+	repository: string;
+	tag: string;
+	name: string;
+	target_commit: string;
+	branch: string;
+	previous_tag?: string;
+	notes: string;
+	notes_edited?: boolean;
+	checks_passed: number;
+	commits: number;
+	scanned_files: number;
+	unscanned_files?: string[];
+	compare_url?: string;
+	release_url: string;
+}
 // GitHub App access an action needs but the installation lacks; any approval payload may carry it.
 export interface GitHubAccessGap {
 	missing: { name: string; level: string }[];
 	settings_url?: string;
 	unverified?: boolean;
 	message: string;
+}
+export interface ApprovalEdit {
+	notes?: string;
 }
 export type ConversationApproval = ApprovalBase &
 	(
@@ -269,6 +291,7 @@ export type ConversationApproval = ApprovalBase &
 		| { action: 'resolve_review_thread'; payload: PullRequestActionPayload }
 		| { action: 'update_pull_request_branch'; payload: PullRequestActionPayload }
 		| { action: 'mark_pull_request_ready'; payload: PullRequestActionPayload }
+		| { action: 'create_release'; payload: ReleasePayload }
 	);
 interface ApprovalBase {
 	id: string;
@@ -351,10 +374,11 @@ export const conversations = {
 			file,
 			onProgress
 		),
-	resolveApproval: (slug: string, id: string, approval: string, decision: 'approve' | 'deny') =>
+	// edit.notes replaces a release's notes when approving; the server checks it.
+	resolveApproval: (slug: string, id: string, approval: string, decision: 'approve' | 'deny', edit?: ApprovalEdit) =>
 		api.post<ConversationApproval>(
 			`${base(slug)}/conversations/${encodeURIComponent(id)}/approvals/${encodeURIComponent(approval)}`,
-			{ decision }
+			{ decision, ...(decision === 'approve' ? edit : undefined) }
 		),
 	retry: (slug: string, id: string, message: string, request_id: string) =>
 		api.post<ConversationMessage>(
@@ -365,4 +389,3 @@ export const conversations = {
 	streamURL: (slug: string, id: string, after: number) =>
 		`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}${base(slug)}/conversations/${encodeURIComponent(id)}/stream?after=${after}`
 };
-

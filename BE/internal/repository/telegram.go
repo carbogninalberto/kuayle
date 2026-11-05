@@ -446,8 +446,9 @@ func (r *TelegramRepository) Deliver(ctx context.Context, d domain.TelegramDeliv
 	status := "denied"
 	if allowed && d.MessageID != nil {
 		// Offer buttons only for this reply's pending approvals bound to the
-		// recipient; resolving them re-authorizes on the server.
-		if err = tx.SelectContext(ctx, &d.Approvals, `SELECT a.id,a.payload->>'identifier' AS identifier FROM conversation_approvals a JOIN conversation_tool_calls c ON c.id=a.tool_call_id
+		// recipient; resolving them re-authorizes on the server. Releases and
+		// upgrades belong to no issue, so their button names the tag or version.
+		if err = tx.SelectContext(ctx, &d.Approvals, `SELECT a.id,COALESCE(a.payload->>'identifier','release '||(a.payload->>'tag'),'upgrade '||(a.payload->>'latest_version'),'') AS identifier FROM conversation_approvals a JOIN conversation_tool_calls c ON c.id=a.tool_call_id
  WHERE c.message_id=$1 AND a.actor_id=$2 AND a.status='pending' AND a.expires_at>now() ORDER BY c.sequence LIMIT 3`, d.MessageID, d.UserID); err != nil {
 			return err
 		}

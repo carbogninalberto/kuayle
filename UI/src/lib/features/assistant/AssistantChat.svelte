@@ -492,7 +492,7 @@
 														calls={chat.tools[message.id] ?? []}
 														slug={chat.slug}
 														approvals={chat.approvals}
-														onresolve={(approval, decision) => chat.resolveApproval(approval, decision)}
+														onresolve={(approval, decision, edit) => chat.resolveApproval(approval, decision, edit)}
 													/><ToolSources calls={chat.tools[message.id] ?? []} slug={chat.slug} />{/if}
 												{#if message.attachments?.length}<MessageAttachments
 														{slug}

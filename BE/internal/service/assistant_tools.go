@@ -93,6 +93,10 @@ type AssistantTools struct {
 	// The pull request tools are unavailable until SetPullRequests wires them.
 	pulls       pullRequestReader
 	pullTargets pullRequestTargets
+	// The release tools are unavailable until SetReleases wires them.
+	releases      releaseGitHub
+	releaseRepos  linkedRepositories
+	releaseStyles releaseStyleStore
 }
 
 type assistantToolSettings interface {
@@ -170,6 +174,8 @@ type assistantTool struct {
 	system bool
 	// pulls tools need SetPullRequests.
 	pulls bool
+	// releases tools need SetReleases.
+	releases bool
 }
 
 var assistantToolCatalog = []assistantTool{
@@ -202,6 +208,7 @@ func assistantTools() []assistantTool {
 		assistantCustomToolCatalog,
 		assistantSystemToolCatalog,
 		assistantPullRequestToolCatalog,
+		assistantReleaseToolCatalog,
 	} {
 		tools = append(tools, catalog...)
 	}
@@ -237,7 +244,8 @@ func (t *AssistantTools) available(tool assistantTool) bool {
 		(!tool.skills || t.skills != nil) &&
 		(!tool.customTools || t.customTools != nil) &&
 		(!tool.system || t.system != nil) &&
-		(!tool.pulls || (t.pulls != nil && t.pullTargets != nil))
+		(!tool.pulls || (t.pulls != nil && t.pullTargets != nil)) &&
+		(!tool.releases || (t.releases != nil && t.releaseRepos != nil && t.releaseStyles != nil))
 }
 
 func lookupAssistantTool(name string) (assistantTool, bool) {
@@ -399,6 +407,8 @@ func (t *AssistantTools) run(ctx context.Context, ws, user uuid.UUID, name, argu
 		return t.linkRepository(ctx, ws, member.Role, arguments)
 	case "get_pull_request", "get_pull_request_checks", "list_pull_request_comments":
 		return t.runPullRequestTool(ctx, ws, name, arguments)
+	case "list_releases", "get_release", "draft_release_notes", "get_workflow_run":
+		return t.runReleaseTool(ctx, ws, name, arguments)
 	case "get_instance_version":
 		result, err := t.instanceVersion(ctx, user, arguments)
 		return result, nil, err

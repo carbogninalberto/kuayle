@@ -1174,6 +1174,16 @@ reviews, activates, restores, deletes and test-runs them with their run
 history; chat shows `propose_tool` drafts and run approvals and results as
 escaped text. See [custom tools](BE/docs/conversations.md#custom-tools) and
 [custom tool runs](BE/docs/agent-tasks.md#custom-tool-runs).
+Release tools read a linked repository's releases (`list_releases`,
+`get_release`), draft the next notes from the pull requests merged since the
+latest release in the workspace's editable "Release notes style" skill
+(`draft_release_notes`), publish a release after approval (`create_release`,
+owners and admins, migration 111) and follow its build (`get_workflow_run`,
+GitHub App **Actions: Read**). Tagging is refused unless the target is on the
+default branch and all its checks passed; the release range (previous tag to
+target, from GitHub's compare API) and the notes go through a server-side secret
+scan first, and the approval card lets the approver edit the notes that are
+published. See [release tools](BE/docs/conversations.md#release-tools).
 
 ### Images in conversations
 

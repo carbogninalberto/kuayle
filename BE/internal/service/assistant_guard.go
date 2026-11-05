@@ -66,11 +66,18 @@ var assistantActionPolicies = map[string]assistantActionPolicy{
 	"resolve_review_thread":      {github: map[string]string{"pull_requests": "write"}, role: roleAdminOrCreator, refusal: pullRequestChangeRefusal},
 	"update_pull_request_branch": {github: map[string]string{"pull_requests": "write", "contents": "write"}, role: roleAdminOrCreator, refusal: pullRequestChangeRefusal},
 	"mark_pull_request_ready":    {github: map[string]string{"pull_requests": "write"}, role: roleAdminOrCreator, refusal: pullRequestChangeRefusal},
-	// Deferred to the issues that add the tools (KUA-88 releases with contents
-	// write and the admin-only role, KUA-90 workflow runs with actions read): an
-	// entry is added with each tool, never before, so the manifest asks for no
-	// permission nothing uses. A test keeps this table and the registered tools
-	// in step.
+	// Release tools (KUA-88). Drafting reads the releases and the comparison
+	// (contents), the merged pull requests and the target's checks; publishing
+	// creates the tag and release (contents write) after reading the checks
+	// again, and only workspace owners and admins may publish. Following the
+	// release build reads Actions runs. An entry is added with each tool, never
+	// before, so the manifest asks for no permission nothing uses; a test keeps
+	// this table and the registered tools in step.
+	"list_releases":       {github: map[string]string{"contents": "read"}},
+	"get_release":         {github: map[string]string{"contents": "read"}},
+	"draft_release_notes": {github: map[string]string{"contents": "read", "pull_requests": "read", "checks": "read", "statuses": "read"}},
+	"create_release":      {github: map[string]string{"contents": "write", "checks": "read", "statuses": "read"}, role: roleWorkspaceAdmin, refusal: "only workspace owners and admins can publish a release"},
+	"get_workflow_run":    {github: map[string]string{"actions": "read"}},
 }
 
 const pullRequestChangeRefusal = "only workspace admins or the task's creator can change this pull request"
@@ -221,6 +228,7 @@ func approvalTarget(approval *domain.ConversationApproval) string {
 		Identifier     string `json:"identifier"`
 		Repository     string `json:"repository"`
 		PullRequest    int    `json:"pull_request"`
+		Tag            string `json:"tag"`
 		LatestVersion  string `json:"latest_version"`
 		CurrentVersion string `json:"current_version"`
 	}
@@ -228,6 +236,8 @@ func approvalTarget(approval *domain.ConversationApproval) string {
 	switch {
 	case payload.Repository != "" && payload.PullRequest > 0:
 		return fmt.Sprintf("%s#%d", payload.Repository, payload.PullRequest)
+	case payload.Repository != "" && payload.Tag != "":
+		return payload.Repository + "@" + payload.Tag
 	case payload.Identifier != "":
 		return payload.Identifier
 	case payload.LatestVersion != "":

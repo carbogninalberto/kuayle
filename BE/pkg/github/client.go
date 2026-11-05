@@ -200,6 +200,7 @@ type PullRequest struct {
 	NodeID string `json:"node_id"`
 	Number int    `json:"number"`
 	Title  string `json:"title"`
+	Body   string `json:"body"`
 	State  string `json:"state"`
 	Draft  bool   `json:"draft"`
 	Merged bool   `json:"merged"`
@@ -211,12 +212,18 @@ type PullRequest struct {
 	Head           PRBranch   `json:"head"`
 	Base           PRBranch   `json:"base"`
 	User           GitHubUser `json:"user"`
+	Labels         []Label    `json:"labels"`
 	Additions      int        `json:"additions"`
 	Deletions      int        `json:"deletions"`
 	MergedAt       *time.Time `json:"merged_at"`
 	ClosedAt       *time.Time `json:"closed_at"`
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`
+}
+
+// Label is an issue or pull request label.
+type Label struct {
+	Name string `json:"name"`
 }
 
 type PRBranch struct {
@@ -626,4 +633,7 @@ type CompareFile struct {
 	Filename string `json:"filename"`
 	SHA      string `json:"sha"`
 	Status   string `json:"status"`
+	// Patch is the file's unified diff; GitHub omits it for binary or very
+	// large files.
+	Patch string `json:"patch"`
 }

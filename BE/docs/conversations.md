@@ -215,7 +215,9 @@ status or priority; assignees are not changed), `delegate_issue`, `plan_issues` 
 `follow_up_task` (see [requested agent reviews](agent-tasks.md#requested-agent-reviews)),
 `run_check` (see [manual checks](agent-tasks.md#manual-checks)),
 `link_repository`, and `start_preview`, `stop_preview`, `expose_port` and
-`list_ports` (see [previews and ports from chat](#previews-and-ports-from-chat)).
+`list_ports` (see [previews and ports from chat](#previews-and-ports-from-chat)),
+and the release tools `list_releases`, `get_release`, `draft_release_notes`,
+`create_release` and `get_workflow_run` (see [release tools](#release-tools)).
 `link_repository`, and the live channel tools `message_task` and
 `get_task_messages` (see [agent messages in chat](#agent-messages-in-chat)).
 `create_issue` accepts a `parent_identifier`. The write tools (`create_issue`,
@@ -749,7 +751,7 @@ assistant follows progress with `get_instance_version`.
 [assistant_guard.go](../internal/service/assistant_guard.go) is the one
 declaration of what each assistant action needs: the GitHub App permissions it
 calls and who may do it. Every approval tool and every tool that calls GitHub for
-a pull request must have an entry, and every permission an entry names must be in
+a pull request or a release must have an entry, and every permission an entry names must be in
 the App manifest (`githubAppPermissions`); a unit test enforces both, so no entry
 asks for a permission before its tool exists. `authorizeAssistantAction` is the
 single role check, made when an approval is requested and again, against the
@@ -805,3 +807,113 @@ admins only), otherwise the first method GitHub says the repository allows
 (squash, merge, rebase). The method is pinned in the approval; a configured method
 the repository disallows, a draft and a closed pull request are refused with
 their next step before asking.
+
+### Release tools
+
+The release tools work on a repository linked to the workspace's GitHub
+installation (`owner/name`, the same list as Settings → Integrations), not on an
+issue. Anyone who can use the assistant (no guests) may read; only workspace
+owners and admins may publish. Their entries in `assistantActionPolicies`
+declare the GitHub permissions below, so the preflight names a missing one.
+
+| Tool | GitHub App permissions | Role |
+| --- | --- | --- |
+| `list_releases`, `get_release` | contents: read | member |
+| `draft_release_notes` | contents, pull requests, checks, statuses: read | member |
+| `create_release` (approval) | contents: write; checks, statuses: read | owner/admin |
+| `get_workflow_run` | actions: read | member |
+
+`list_releases` and `get_release` return previous releases and their notes as
+untrusted data, so the assistant can learn their style.
+
+**Style skill.** The style is the workspace skill **Release notes style**
+(workspace-wide, an ordinary [skill](#skills)). `draft_release_notes` seeds it
+with the default style the first time it runs in a workspace (active, no
+author); owners and admins edit, version, switch off or delete it in Settings →
+Assistant → Skills, and a deleted one is seeded again on the next draft. Its
+`Sections:` line sets which sections are rendered and in what order (default:
+Features, Improvements, Fixed, Upgrade, Validation, PR links, Full Changelog);
+the rest of the body is guidance returned to the model as `style.guidance`. A
+switched-off or draft skill is not followed: the built-in default is used and
+the result says so.
+
+**Drafting.** `draft_release_notes(repository, tag?, target?, previous_tag?)`
+pins the target commit (default: the head of the default branch), takes the
+latest non-prerelease release as the previous tag, compares the two with
+GitHub's compare API, and reads the pull requests named by the range's merge
+commits (`Merge pull request #N`) and squash titles (`… (#N)`), at most 40. Pull
+requests go to Features or Fixed by their conventional prefix (`feat`, `fix`)
+or `bug`/`enhancement` labels, otherwise Improvements; added migration files
+fill Upgrade; Validation states that all checks of the target passed (or that
+they have not); then the PR links line and the Full Changelog compare link. It
+returns the draft, the pull requests (title, labels, a body excerpt), the
+suggested next patch tag, the previous release's notes as an example and the
+checks state, and stays within the tool output limit by dropping body excerpts
+first. The model rewrites the bullets in the style's wording and passes the
+notes to `create_release`.
+
+**Publishing.** `create_release(repository, tag, target_commit, notes, name?,
+previous_tag?)` needs approval (migration 111 adds the action; like an upgrade
+the approval has no issue). Before the approval is offered, and again when it
+is approved, Kuayle refuses with a reason, auditing the refusal:
+
+- a tag that is not a plain git tag name or that already exists;
+- a target commit not on the default branch (`Tagging refused: commit … is not on main`);
+- a target whose checks did not all pass, from the same check-run and
+  commit-status reading as `get_pull_request_checks`: failing (named), still
+  running, none reported, or not all readable (`Tagging refused: …`);
+- a target that does not descend from the previous tag, or a range of 300 or
+  more changed files (more than the compare API lists, so the scan cannot
+  cover it);
+- a finding of the secret scan of the range, or of the notes.
+
+The secret scan (`release_scan.go`) reads the added lines of each changed file's
+diff from the compare API and looks for private-key headers, AWS, GitHub,
+GitLab, Slack, Google and API secret key formats, JWTs and URLs with an
+embedded password (placeholders such as `${DB_PASSWORD}` or `<password>` are
+allowed), and flags files that hold secrets by name (`.env`, `*.pem`, `*.key`,
+`id_rsa`, `*.tfstate`, database dumps and similar; `.env.example` and other
+templates are scanned instead). Removed lines and files are not findings.
+Files GitHub sends no diff for (binary or very large) are listed on the card as
+not scanned. The notes get the same credential patterns plus private IPv4
+addresses (RFC 1918, loopback, link-local, CGNAT), host names under `.internal`,
+`.local`, `.lan`, `.corp`, `.home`, `.intranet`, `.localdomain` or `.private`,
+and local paths (`/Users/<name>/`, `/home/<name>/`), and are limited to 20 000
+characters. A refusal names the file or notes line and the type, never the
+value.
+
+The approval card shows the repository, tag, short commit and branch, the
+number of passing checks, commits and scanned files, files not scanned, a
+compare link and the notes in a Textarea. The approver may edit the notes:
+`POST …/approvals/:approvalId` accepts `{"decision":"approve","notes":"…"}`;
+the edit is checked like the requested notes and stored on the approval with
+the claim (`notes_edited`), so the edited notes are what gets published and a
+retry publishes the same. An edit that fails the check is answered with 422
+`INVALID_APPROVAL_EDIT` and the reason, and the approval stays pending. Approving
+re-checks the admin role and GitHub permissions, runs the whole gate again, then
+creates the release with `target_commitish` pinned to the full commit SHA,
+`make_latest` and not as a draft or prerelease. A release found at the same tag
+and commit (an earlier attempt whose answer was lost) counts as done; a 422 from
+GitHub fails the approval with its message; an unreachable GitHub leaves the
+claim to resume. Telegram can approve too and then publishes the notes as
+requested (they cannot be edited there); its button names the release tag.
+Requests, refusals, approvals and outcomes go to the audit log as for every
+assistant action.
+
+**Following the build.** Publishing a release starts the repository's release
+workflows (in Kuayle's own repository, **Build & Push**). `get_workflow_run`
+lists the runs of a tag or commit, optionally only one workflow by name, with
+`state` `running`, `success`, `failure` or `none` (not started yet), or reads one
+run by `run_id` with its failed jobs and their log links. It needs the GitHub
+App permission **Actions: Read**, which the manifest now requests; apps created
+before it must grant it and installations accept it (see
+[GitHub integration](github-integration.md)).
+
+Sources: `BE/internal/service/assistant_releases.go`, `release_notes.go`,
+`release_scan.go`, `github_releases.go`, `BE/pkg/github/releases.go` and
+`UI/src/lib/features/assistant/ReleaseApprovalCard.svelte`. Checks:
+`assistant_releases_test.go` (authorization, gate, scan, approval, workflow
+runs), `release_notes_test.go` (style rendering), `release_scan_test.go`,
+`assistant_releases_integration_test.go` (request, edited approval, demoted
+admin; needs `DATABASE_URL`), `BE/migrations/release_approvals_test.go` and the
+release card test in `UI/tests/e2e/assistant.test.ts`.

@@ -291,15 +291,21 @@ func (h *ConversationHandler) ResolveApproval(c echo.Context) error {
 	if err != nil {
 		return conversationError(c, repository.ErrConversationNotFound)
 	}
+	// notes is the approver's edit of a release's notes; the service checks it.
 	var input struct {
-		Decision string `json:"decision"`
+		Decision string  `json:"decision"`
+		Notes    *string `json:"notes"`
 	}
-	decoder := json.NewDecoder(io.LimitReader(c.Request().Body, 1024))
+	decoder := json.NewDecoder(io.LimitReader(c.Request().Body, 256<<10))
 	decoder.DisallowUnknownFields()
 	if decoder.Decode(&input) != nil || (input.Decision != "approve" && input.Decision != "deny") {
 		return conversationError(c, repository.ErrConversationInvalid)
 	}
-	result, err := h.svc.ResolveApproval(c.Request().Context(), middleware.GetWorkspace(c).ID, id, approval, input.Decision == "approve")
+	result, err := h.svc.ResolveApprovalEdited(c.Request().Context(), middleware.GetWorkspace(c).ID, id, approval, input.Decision == "approve", &service.ApprovalEdit{Notes: input.Notes})
+	var invalid *service.ApprovalEditError
+	if errors.As(err, &invalid) {
+		return response.Error(c, http.StatusUnprocessableEntity, "INVALID_APPROVAL_EDIT", invalid.Message)
+	}
 	if err != nil {
 		return conversationError(c, err)
 	}

@@ -50,6 +50,8 @@ type AssistantApprovals struct {
 	// Pull request changes are unavailable until SetPullRequests wires them.
 	pulls       pullRequestReader
 	pullTargets pullRequestTargets
+	// Releases are unavailable until SetReleases wires them.
+	releases releaseGitHub
 }
 
 type approvalToolSettings interface {
@@ -118,7 +120,26 @@ func NewAssistantApprovals(conversations *repository.ConversationRepository, tas
 // Resolve applies a decision. Concurrent or repeated approvals converge on one
 // task because the effect replays the approval's fixed request ID.
 func (s *AssistantApprovals) Resolve(ctx context.Context, ws, conversation, id uuid.UUID, approve bool) (*domain.ConversationApproval, error) {
-	approval, changed, err := s.conversations.ClaimApproval(ctx, ws, conversation, id, approve)
+	return s.ResolveEdited(ctx, ws, conversation, id, approve, nil)
+}
+
+// ApprovalEdit is what the approver changed on the card before approving:
+// only a release's notes can be edited.
+type ApprovalEdit struct {
+	Notes *string
+}
+
+// ResolveEdited is Resolve with the approver's edit, checked and stored with
+// the claim. An invalid edit is an *ApprovalEditError and leaves it pending.
+func (s *AssistantApprovals) ResolveEdited(ctx context.Context, ws, conversation, id uuid.UUID, approve bool, change *ApprovalEdit) (*domain.ConversationApproval, error) {
+	var edit func(*domain.ConversationApproval) (json.RawMessage, error)
+	if approve && change != nil && change.Notes != nil {
+		notes := *change.Notes
+		edit = func(approval *domain.ConversationApproval) (json.RawMessage, error) {
+			return editReleaseApproval(approval, notes)
+		}
+	}
+	approval, changed, err := s.conversations.ClaimApprovalEdited(ctx, ws, conversation, id, approve, edit)
 	if err != nil {
 		if changed && approval != nil && errors.Is(err, repository.ErrApprovalExpired) {
 			// The attempt that found the approval past its deadline is recorded once.
@@ -213,6 +234,8 @@ func (s *AssistantApprovals) dispatch(ctx context.Context, ws, conversation, id 
 		return s.runCheck(ctx, ws, conversation, approval)
 	case "upgrade_instance":
 		return s.upgradeInstance(ctx, ws, conversation, approval)
+	case "create_release":
+		return s.release(ctx, ws, conversation, approval)
 	case "run_custom_tool":
 		return s.runCustomTool(ctx, ws, conversation, approval)
 	case "reply_to_review_comment", "resolve_review_thread", "update_pull_request_branch", "mark_pull_request_ready":

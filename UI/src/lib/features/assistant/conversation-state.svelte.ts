@@ -7,7 +7,8 @@ import {
 	type ConversationMessage,
 	type ConversationEvent,
 	type ConversationToolCall,
-	type ConversationApproval
+	type ConversationApproval,
+	type ApprovalEdit
 } from '$lib/api/conversations';
 
 export class ConversationState {
@@ -164,8 +165,8 @@ export class ConversationState {
 		}
 		this.cursor = event.cursor;
 	}
-	async resolveApproval(approval: ConversationApproval, decision: 'approve' | 'deny') {
-		const result = await conversations.resolveApproval(this.slug, this.id, approval.id, decision);
+	async resolveApproval(approval: ConversationApproval, decision: 'approve' | 'deny', edit?: ApprovalEdit) {
+		const result = await conversations.resolveApproval(this.slug, this.id, approval.id, decision, edit);
 		if (!this.disposed && !this.unavailable) this.acceptApprovals([result]);
 	}
 	acceptApprovals(approvals: ConversationApproval[]) {
