@@ -1132,10 +1132,10 @@ test('opens the attempt diff beside the chat and closes it', async ({ page }) =>
 	await search.fill('kebab');
 	await expect(panel.getByTestId('diff-match-count')).toHaveText('1 of 1 files match');
 	await panel.getByRole('button', { name: 'Collapse all files' }).click();
-	await expect(panel.getByText('+export const kebab', { exact: false })).toHaveCount(0);
+	await expect(panel.getByText('+export const kebab', { exact: false })).not.toBeVisible();
 	await expect(panel.getByRole('button', { name: 'Expand all files' })).toBeVisible();
 	await search.fill('');
-	await expect(panel.getByText('+export const kebab', { exact: false })).toHaveCount(0);
+	await expect(panel.getByText('+export const kebab', { exact: false })).not.toBeVisible();
 	await panel.getByRole('button', { name: 'Expand all files' }).click();
 	await expect(panel.getByText('+export const kebab = "<script>window.evil=1</script>";')).toBeVisible();
 	expect(await page.evaluate(() => (window as any).evil)).toBeUndefined();
