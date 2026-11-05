@@ -665,20 +665,23 @@ agent keeps its configured image. A machine's own containers (collector, egress,
 Docker daemon, browser, and the IDE or headless terminal) are recreated from the
 release images: when a stopped machine starts, and, for a running machine, by an
 `update_images` operation (migration `000107_machine_image_updates`) that
-reconciliation queues only while the machine is idle: no other queued or running
+reconciliation queues for an outdated machine or one with finished run
+containers, only while the machine is idle: no other queued or running
 operation, no unfinished agent run, no running task preview and no activity
 through the gateway or API (`last_activity_at`, which an open terminal or IDE
 connection renews every minute) in the last 15 minutes. The
-operation re-checks this when it runs, removes the machine's finished agent and
-check containers (they would keep old images in use), removes the outdated
-containers, records the new images and provisions the machine again like a
+operation re-checks this when it runs, removes the machine's finished agent,
+check and never-started live inbox writer containers and the inbox volumes no
+container uses (they would keep old images in use; a failed removal fails the
+operation, which is retried), removes any outdated containers, records the new images and provisions the machine again like a
 recovery, then records `machine.images_updated` with each service's old and new
 image. Containers keep no state of their own (read-only root, in-memory `/tmp`
 and home), and the workspace and Docker volumes stay, so this is like a restart:
 running processes and detached terminal sessions end. A paused machine keeps its frozen
 processes and is not recreated. The developer container of a machine built from
 a Development Environment keeps the environment's image. A busy or failed
-update is queued again after an hour.
+update is queued again after an hour. A manager without release images
+configured leaves machine images alone.
 
 **Resource limit visibility.** An exited agent or check container is inspected
 for Docker's `State.OOMKilled` (set for any out-of-memory kill in its cgroup, a

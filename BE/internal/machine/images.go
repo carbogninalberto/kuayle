@@ -136,7 +136,7 @@ func (m *Manager) imagesUpdatedEvent(ctx context.Context, machine *domain.DevMac
 
 // updateImages moves an idle running machine to the installed release's
 // images: it removes its finished runs' containers, then recreates its own
-// containers that use another image. A machine that became busy since the
+// containers that use another image, if any. A machine that became busy since the
 // update was queued is left for a later attempt.
 func (m *Manager) updateImages(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService, operation *domain.DevMachineOperation) error {
 	if machine.Status != domain.DevMachineStatusRunning || machine.DesiredStatus != domain.DevMachineStatusRunning {
@@ -147,7 +147,9 @@ func (m *Manager) updateImages(ctx context.Context, machine *domain.DevMachine, 
 		return err
 	}
 	if err := m.runtime.RemoveFinishedRunContainers(ctx, machine); err != nil {
-		log.WithField("machine_id", machine.ID).WithError(err).Warn("removing finished run containers failed")
+		// The operation retries, and reconciliation queues the update again
+		// while finished containers remain.
+		return fmt.Errorf("image_update_failed: remove finished run containers: %w", err)
 	}
 	changes, err := m.replaceOutdatedServices(ctx, machine, services)
 	if err != nil || len(changes) == 0 {
@@ -163,12 +165,22 @@ func (m *Manager) updateImages(ctx context.Context, machine *domain.DevMachine, 
 }
 
 // queueImageUpdate queues update_images for a running machine with outdated
-// containers. The store queues it only while the machine is idle; the key
-// changes with the target images and every imageUpdateRetry, so a busy
-// machine is tried again later and a new release is applied at once.
+// containers or finished run containers (a stopped machine's containers are
+// updated when it starts, but its finished runs are removed here). The store
+// queues it only while the machine is idle; the key changes with the target
+// images and every imageUpdateRetry, so a busy machine or a failed cleanup is
+// tried again later and a new release is applied at once.
 func (m *Manager) queueImageUpdate(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService, now time.Time) {
+	if m.images == (MachineImages{}) {
+		// Without release images this manager does not manage machine images.
+		return
+	}
 	changes := m.outdatedServices(machine, services)
-	if len(changes) == 0 {
+	finished, err := m.runtime.FinishedRunContainers(ctx, machine)
+	if err != nil {
+		log.WithField("machine_id", machine.ID).WithError(err).Warn("finished run container listing failed")
+	}
+	if len(changes) == 0 && finished == 0 {
 		return
 	}
 	targets := make([]string, 0, len(changes))

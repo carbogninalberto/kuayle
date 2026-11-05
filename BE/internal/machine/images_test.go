@@ -2,6 +2,7 @@ package machine
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -58,7 +59,13 @@ func (f *imageStoreFake) UpdateProviderImage(_ context.Context, id uuid.UUID, im
 type imageRuntimeFake struct {
 	*runtimeFake
 	removed          [][]string
+	finished         int
 	finishedRemovals int
+	finishedErr      error
+}
+
+func (f *imageRuntimeFake) FinishedRunContainers(context.Context, *domain.DevMachine) (int, error) {
+	return f.finished, nil
 }
 
 func (f *imageRuntimeFake) RemoveContainers(_ context.Context, _ *domain.DevMachine, ids []string) error {
@@ -68,7 +75,7 @@ func (f *imageRuntimeFake) RemoveContainers(_ context.Context, _ *domain.DevMach
 
 func (f *imageRuntimeFake) RemoveFinishedRunContainers(context.Context, *domain.DevMachine) error {
 	f.finishedRemovals++
-	return nil
+	return f.finishedErr
 }
 
 var releaseImages = MachineImages{
@@ -226,12 +233,45 @@ func TestManagerQueuesImageUpdateOnlyForOutdatedMachines(t *testing.T) {
 	require.Equal(t, store.queued[0].IdempotencyKey, store.queued[1].IdempotencyKey, "a queued or completed update is not queued again right away")
 	require.NotEqual(t, store.queued[0].IdempotencyKey, store.queued[2].IdempotencyKey, "a machine that was busy is tried again later")
 
-	_, _, current := imageFixture(domain.DevMachineStatusRunning, domain.DevMachineProfileHeadless, func(machineID uuid.UUID) []domain.DevMachineService {
+	currentStore, currentRuntime, current := imageFixture(domain.DevMachineStatusRunning, domain.DevMachineProfileHeadless, func(machineID uuid.UUID) []domain.DevMachineService {
 		return []domain.DevMachineService{imageService(machineID, "terminal", "terminal", releaseImages.Headless, "c-terminal")}
 	})
-	currentStore := current.store.(*imageStoreFake)
 	current.queueImageUpdate(context.Background(), currentStore.machine, currentStore.services, now)
 	require.Empty(t, currentStore.queued)
+
+	// A machine already moved to the release images when it started still has
+	// its finished runs' containers removed.
+	currentRuntime.finished = 2
+	current.queueImageUpdate(context.Background(), currentStore.machine, currentStore.services, now)
+	require.Len(t, currentStore.queued, 1)
+}
+
+func TestManagerUpdateImagesRemovesFinishedRunsOfCurrentMachine(t *testing.T) {
+	store, runtime, manager := imageFixture(domain.DevMachineStatusRunning, domain.DevMachineProfileHeadless, func(machineID uuid.UUID) []domain.DevMachineService {
+		return []domain.DevMachineService{imageService(machineID, "terminal", "terminal", releaseImages.Headless, "c-terminal")}
+	})
+	operation := &domain.DevMachineOperation{ID: uuid.New(), MachineID: store.machine.ID, WorkspaceID: store.machine.WorkspaceID, Action: domain.DevMachineOpUpdateImages, Generation: 4}
+
+	require.NoError(t, manager.processOperation(context.Background(), operation))
+
+	require.Equal(t, 1, runtime.finishedRemovals)
+	require.Empty(t, runtime.removed)
+	require.Zero(t, runtime.spawned, "a machine on the release images is not reprovisioned")
+}
+
+// A failed cleanup fails the operation so it is retried, before any container
+// is replaced.
+func TestManagerUpdateImagesRetriesFailedCleanup(t *testing.T) {
+	store, runtime, manager := imageFixture(domain.DevMachineStatusRunning, domain.DevMachineProfileHeadless, headlessServices("local/headless:v0.2.4"))
+	runtime.finishedErr = errors.New("docker unavailable")
+	operation := &domain.DevMachineOperation{ID: uuid.New(), MachineID: store.machine.ID, WorkspaceID: store.machine.WorkspaceID, Action: domain.DevMachineOpUpdateImages, Generation: 4}
+
+	err := manager.processOperation(context.Background(), operation)
+
+	require.ErrorContains(t, err, "docker unavailable")
+	require.Empty(t, runtime.removed)
+	require.Empty(t, store.replacedService)
+	require.Zero(t, runtime.spawned)
 }
 
 // New runs of built-in agents use the installed release's image; a run that

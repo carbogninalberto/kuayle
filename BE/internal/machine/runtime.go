@@ -134,7 +134,10 @@ type Runtime interface {
 	UpdateResources(context.Context, *domain.DevMachine) error
 	// RemoveContainers force-removes the machine's containers with these IDs.
 	RemoveContainers(context.Context, *domain.DevMachine, []string) error
-	// RemoveFinishedRunContainers removes the machine's stopped agent run
-	// and check containers. Call it only when no run is unfinished.
+	// FinishedRunContainers counts the machine's finished agent run, check
+	// and live inbox writer containers.
+	FinishedRunContainers(context.Context, *domain.DevMachine) (int, error)
+	// RemoveFinishedRunContainers removes them and their unused inbox
+	// volumes. Call it only when no run is unfinished.
 	RemoveFinishedRunContainers(context.Context, *domain.DevMachine) error
 }
