@@ -423,7 +423,7 @@ func (r *IssueRepository) SetLabels(ctx context.Context, issueID uuid.UUID, labe
 
 func (r *IssueRepository) GetLabels(ctx context.Context, issueID uuid.UUID) ([]domain.Label, error) {
 	var labels []domain.Label
-	query := `SELECT l.* FROM labels l INNER JOIN issue_labels il ON l.id = il.label_id WHERE il.issue_id = $1 AND ` + issueVisible(ctx, "il.issue_id") + ` ORDER BY l.name`
+	query := `SELECT l.* FROM labels l INNER JOIN issue_labels il ON l.id = il.label_id WHERE il.issue_id = $1 AND ` + issueVisible(ctx, "il.issue_id") + ` AND ` + labelVisible(ctx, "l") + ` ORDER BY l.name`
 	err := r.db.SelectContext(ctx, &labels, query, issueID)
 	return labels, err
 }
@@ -441,7 +441,7 @@ func (r *IssueRepository) GetLabelsForIssues(ctx context.Context, issueIDs []uui
 
 	query, args, err := sqlx.In(`SELECT l.*, il.issue_id FROM labels l
 		INNER JOIN issue_labels il ON l.id = il.label_id
-		WHERE il.issue_id IN (?) AND (l.deleted_at IS NULL) AND `+issueVisible(ctx, "il.issue_id")+` ORDER BY l.name`, issueIDs)
+		WHERE il.issue_id IN (?) AND (l.deleted_at IS NULL) AND `+issueVisible(ctx, "il.issue_id")+` AND `+labelVisible(ctx, "l")+` ORDER BY l.name`, issueIDs)
 	if err != nil {
 		return nil, err
 	}

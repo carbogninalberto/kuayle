@@ -176,6 +176,31 @@ func TestProjectScopedLabelVisibilityAndMoveLockPostgres(t *testing.T) {
 		require.NotNil(t, got)
 	})
 
+	t.Run("issue responses leave out labels of a project the caller cannot see", func(t *testing.T) {
+		issueID := uuid.New()
+		exec(`INSERT INTO issues(id,workspace_id,team_id,status_id,number,identifier_text,title,creator_id,project_id) VALUES($1,$2,$3,$4,2,'OPN-2','Hidden label',$5,$6)`, issueID, workspace, team, status, owner, openProject)
+		// Written directly: the invariant is meant to prevent this row, the read must not leak it anyway.
+		exec(`INSERT INTO issue_labels(issue_id,label_id) VALUES($1,$2),($1,$3)`, issueID, global.ID, secret.ID)
+
+		names := func(list []domain.Label) []string {
+			var out []string
+			for _, l := range list {
+				out = append(out, l.Name)
+			}
+			return out
+		}
+		one, err := issues.GetLabels(memberCtx, issueID)
+		require.NoError(t, err)
+		require.Equal(t, []string{"global"}, names(one))
+		many, err := issues.GetLabelsForIssues(memberCtx, []uuid.UUID{issueID})
+		require.NoError(t, err)
+		require.Equal(t, []string{"global"}, names(many[issueID]))
+
+		one, err = issues.GetLabels(ownerCtx, issueID)
+		require.NoError(t, err)
+		require.ElementsMatch(t, []string{"global", "secret"}, names(one))
+	})
+
 	t.Run("SetLabels waits for a project move in flight", func(t *testing.T) {
 		issueID := uuid.New()
 		exec(`INSERT INTO issues(id,workspace_id,team_id,status_id,number,identifier_text,title,creator_id,project_id) VALUES($1,$2,$3,$4,1,'OPN-1','Race',$5,$6)`, issueID, workspace, team, status, owner, openProject)
