@@ -418,16 +418,8 @@ func (s *ConversationService) requestApproval(ctx context.Context, a domain.Conv
 	var identifier string
 	var err error
 	ws, actor := a.Conversation.WorkspaceID, a.Conversation.CreatorID
-	refusal, err := "", error(nil)
-	if !ownerScoped(action) {
-		refusal, err = authorizeAssistantAction(ctx, s.tools.members, s.tools.system, ws, actor, action, uuid.Nil)
-	}
-	if err != nil {
+	if err = s.refuseRequest(ctx, ws, actor, action); err != nil {
 		return nil, nil, err
-	}
-	if refusal != "" {
-		auditAssistantAction("request_refused", actor, ws, action, map[string]interface{}{"reason": refusal})
-		return nil, nil, toolFailure("%s", refusal)
 	}
 	switch action {
 	case "delegate_issue":
@@ -493,7 +485,7 @@ func (s *ConversationService) requestApproval(ctx context.Context, a domain.Conv
 	if err != nil {
 		return nil, nil, err
 	}
-	auditAssistantAction("approval_requested", actor, ws, action, map[string]interface{}{"approval_id": approval.ID.String(), "github_permissions_missing": gap != nil})
+	auditApprovalRequested(actor, ws, approval, gap)
 	result := map[string]any{"approval_id": approval.ID, "status": "pending_user_approval"}
 	if gap != nil {
 		result["github_access"] = gap

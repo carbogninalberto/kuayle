@@ -248,14 +248,85 @@ func TestPolicyTableMatchesRegisteredTools(t *testing.T) {
 	registered := map[string]bool{"run_custom_tool": true} // custom tools are named by their authors
 	for _, tool := range assistantTools() {
 		registered[tool.name] = true
+		policy, ok := assistantActionPolicies[tool.name]
 		if tool.approval {
-			_, ok := assistantActionPolicies[tool.name]
 			require.True(t, ok, "%s needs approval but has no policy", tool.name)
 		}
+		if tool.pulls {
+			// Every tool that calls GitHub for a pull request declares what it uses,
+			// so the preflight can name a missing permission before GitHub refuses.
+			require.True(t, ok, "%s calls GitHub but has no policy", tool.name)
+			require.NotEmpty(t, policy.github, "%s calls GitHub but declares no GitHub permission", tool.name)
+		}
+		if tool.pulls && tool.approval {
+			require.Equal(t, roleAdminOrCreator, policy.role, "%s changes a pull request, which needs what merging needs", tool.name)
+		}
 	}
-	for name := range assistantActionPolicies {
+	manifest := GitHubAppPermissions()
+	for name, policy := range assistantActionPolicies {
 		require.True(t, registered[name], "policy %q names no registered tool", name)
+		for permission, level := range policy.github {
+			// The manifest must request everything a tool needs, or no installation
+			// created from it could ever run the tool.
+			require.GreaterOrEqual(t, githubPermissionRank(manifest[permission]), githubPermissionRank(level),
+				"%s needs %s: %s, which the GitHub App manifest does not request", name, permission, level)
+		}
+		if policy.role == roleAdminOrCreator {
+			require.True(t, ownerScoped(name))
+		}
 	}
+	// A future tool's permission is not requested before the tool exists.
+	_, actions := manifest["actions"]
+	require.False(t, actions, "no registered tool uses Actions")
+}
+
+func TestPullRequestToolsDeclareWhatTheyCallOnGitHub(t *testing.T) {
+	for name, want := range map[string]map[string]string{
+		"get_pull_request":           {"pull_requests": "read", "contents": "read"},
+		"get_pull_request_checks":    {"pull_requests": "read", "checks": "read", "statuses": "read"},
+		"list_pull_request_comments": {"pull_requests": "read"},
+		"reply_to_review_comment":    {"pull_requests": "write"},
+		"resolve_review_thread":      {"pull_requests": "write"},
+		"update_pull_request_branch": {"pull_requests": "write", "contents": "write"},
+		"mark_pull_request_ready":    {"pull_requests": "write"},
+	} {
+		require.Equal(t, want, assistantActionPolicies[name].github, name)
+	}
+}
+
+func TestPullRequestChangesShareTheMergeRole(t *testing.T) {
+	ctx, ws, user, other := context.Background(), uuid.New(), uuid.New(), uuid.New()
+	for _, action := range []string{"reply_to_review_comment", "resolve_review_thread", "update_pull_request_branch", "mark_pull_request_ready"} {
+		check := func(role string, owner uuid.UUID) string {
+			refusal, err := authorizeAssistantAction(ctx, memberFake{role}, nil, ws, user, action, owner)
+			require.NoError(t, err)
+			return refusal
+		}
+		require.Empty(t, check(domain.RoleAdmin, other), action)
+		require.Empty(t, check(domain.RoleOwner, other), action)
+		require.Empty(t, check(domain.RoleMember, user), "%s: the task's creator may", action)
+		require.Contains(t, check(domain.RoleMember, other), "admins or the task's creator", action)
+		require.Contains(t, check(domain.RoleGuest, user), "no longer have access", "%s: a guest is refused even as creator", action)
+		require.Contains(t, check("", user), "no longer have access", action)
+		require.True(t, ownerScoped(action), "%s is checked where the task's creator is known", action)
+	}
+}
+
+func TestCustomToolRequestsGoThroughTheRoleTable(t *testing.T) {
+	saved := assistantActionPolicies["run_custom_tool"]
+	assistantActionPolicies["run_custom_tool"] = assistantActionPolicy{role: roleWorkspaceAdmin, refusal: "only admins may run custom tools"}
+	defer func() { assistantActionPolicies["run_custom_tool"] = saved }()
+	svc := &ConversationService{tools: &AssistantTools{members: memberFake{domain.RoleMember}}}
+	a := domain.ConversationAttempt{Conversation: domain.Conversation{ID: uuid.New(), WorkspaceID: uuid.New(), CreatorID: uuid.New()}}
+	events := auditEvents(t, func() {
+		// Refused before the tool is even looked up (the fake has no tool store).
+		_, _, err := svc.runCustomTool(context.Background(), a, uuid.New(), domain.CustomToolPrefix+"run_e2e", `{}`)
+		require.ErrorContains(t, err, "only admins may run custom tools")
+	})
+	require.NotEmpty(t, events)
+	last := events[len(events)-1]
+	require.Equal(t, "assistant.request_refused", last.Data["action"])
+	require.Equal(t, "run_custom_tool", last.Data["tool"])
 }
 
 type rewriteTransport struct{ calls *int }

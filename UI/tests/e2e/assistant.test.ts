@@ -1295,6 +1295,70 @@ test('merge approval shows the commit others pushed after the task was published
 	expect(state.decisions).toEqual(['approve']);
 });
 
+test('an approval card names the GitHub App permissions the action lacks', async ({ page }) => {
+	const state = await fixture(page);
+	const answered = { ...reply, status: 'completed', content: 'Approval is pending.' };
+	state.messages = [userMessage, answered];
+	state.tools = [
+		{
+			id: 'tool-11',
+			conversation_id: 'chat-1',
+			message_id: answered.id,
+			sequence: 0,
+			call_id: 'call_11',
+			name: 'merge_pull_request',
+			input: { identifier: 'ENG-1' },
+			status: 'completed',
+			output: { approval_id: 'approval-3', status: 'pending_user_approval', identifier: 'ENG-1' },
+			created_at: conversation.created_at
+		}
+	];
+	const approval = (githubAccess: Record<string, unknown>) => ({
+		id: 'approval-3',
+		conversation_id: 'chat-1',
+		tool_call_id: 'tool-11',
+		action: 'merge_pull_request',
+		actor_id: 'user-1',
+		issue_id: 'issue-1',
+		payload: {
+			identifier: 'ENG-1',
+			title: 'Dark mode',
+			task_id: 'task-9',
+			repository: 'acme/app',
+			pull_request: 108,
+			pull_request_url: 'https://github.com/acme/app/pull/108',
+			commit: '3220dbc9aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+			github_access: githubAccess
+		},
+		status: 'pending',
+		expires_at: '2026-10-27T10:00:00Z',
+		created_at: conversation.created_at,
+		updated_at: conversation.created_at
+	});
+	state.approvals = [
+		approval({
+			missing: [{ name: 'contents', level: 'write' }],
+			settings_url: 'https://github.com/settings/apps/kuayle/permissions',
+			message: 'The GitHub App lacks permissions this needs (contents: write).'
+		})
+	] as any;
+	await page.goto('/test/assistant?conversation=chat-1');
+	const gap = page.getByTestId('github-access-gap');
+	await expect(gap).toContainText('GitHub App permission missing');
+	await expect(gap).toContainText('(contents: write)');
+	await expect(gap.getByRole('link', { name: 'Open GitHub App settings' })).toHaveAttribute(
+		'href',
+		'https://github.com/settings/apps/kuayle/permissions'
+	);
+	// The approval stays available: approving re-checks the permission.
+	await expect(page.getByRole('button', { name: 'Approve', exact: true })).toBeEnabled();
+
+	state.approvals = [approval({ missing: [], unverified: true, message: 'GitHub did not answer.' })] as any;
+	await page.reload();
+	await expect(page.getByTestId('github-access-gap')).toContainText("Couldn't verify GitHub App permissions");
+	await expect(page.getByTestId('github-access-gap').getByRole('link')).toHaveCount(0);
+});
+
 test('merge approval warns when the list of commits others pushed is truncated', async ({ page }) => {
 	const state = await fixture(page);
 	const answered = { ...reply, status: 'completed', content: 'Merge approval is pending.' };

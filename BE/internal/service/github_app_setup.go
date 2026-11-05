@@ -27,6 +27,7 @@ var githubAppPermissions = map[string]string{
 	"metadata":      "read",
 	"issues":        "read",
 	"checks":        "read",
+	"statuses":      "read",
 }
 
 var githubAppEvents = []string{

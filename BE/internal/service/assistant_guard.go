@@ -55,11 +55,28 @@ var assistantActionPolicies = map[string]assistantActionPolicy{
 	"run_custom_tool":      {},
 	"merge_pull_request":   {github: map[string]string{"pull_requests": "write", "contents": "write"}, role: roleAdminOrCreator, refusal: "only workspace admins or the task's creator can merge"},
 	"upgrade_instance":     {role: roleInstanceAdmin, refusal: "only an instance administrator can upgrade this instance; ask one to upgrade it"},
-	// Deferred to the issues that add the tools (KUA-88 releases, KUA-87 pull
-	// request tools): an entry, including contents/actions permissions and the
-	// admin-only role for tags and releases, is added with each tool; a test keeps this
-	// table and the registered tools in step.
+	// Pull request tools (KUA-87). Reads use the pull request, the base
+	// comparison (contents), check runs and commit statuses; changes post
+	// replies, resolve threads and change the draft state (pull requests), and
+	// update-branch also writes the head branch (contents).
+	"get_pull_request":           {github: map[string]string{"pull_requests": "read", "contents": "read"}},
+	"get_pull_request_checks":    {github: map[string]string{"pull_requests": "read", "checks": "read", "statuses": "read"}},
+	"list_pull_request_comments": {github: map[string]string{"pull_requests": "read"}},
+	"reply_to_review_comment":    {github: map[string]string{"pull_requests": "write"}, role: roleAdminOrCreator, refusal: pullRequestChangeRefusal},
+	"resolve_review_thread":      {github: map[string]string{"pull_requests": "write"}, role: roleAdminOrCreator, refusal: pullRequestChangeRefusal},
+	"update_pull_request_branch": {github: map[string]string{"pull_requests": "write", "contents": "write"}, role: roleAdminOrCreator, refusal: pullRequestChangeRefusal},
+	"mark_pull_request_ready":    {github: map[string]string{"pull_requests": "write"}, role: roleAdminOrCreator, refusal: pullRequestChangeRefusal},
+	// Deferred to the issues that add the tools (KUA-88 releases with contents
+	// write and the admin-only role, KUA-90 workflow runs with actions read): an
+	// entry is added with each tool, never before, so the manifest asks for no
+	// permission nothing uses. A test keeps this table and the registered tools
+	// in step.
 }
+
+const pullRequestChangeRefusal = "only workspace admins or the task's creator can change this pull request"
+
+// noWorkspaceAccess is the refusal for a user who left the workspace or is a guest.
+const noWorkspaceAccess = "you no longer have access to this workspace"
 
 // githubAccess reports which of the needed permissions the workspace's GitHub
 // App installation lacks. A nil gap means nothing is missing or it is unknown.
@@ -129,8 +146,8 @@ func authorizeAssistantAction(ctx context.Context, members assistantMemberRepo, 
 		if err != nil {
 			return "", err
 		}
-		if member == nil {
-			return refusal, nil
+		if member == nil || member.Role == domain.RoleGuest {
+			return noWorkspaceAccess, nil
 		}
 		admin := member.Role == domain.RoleOwner || member.Role == domain.RoleAdmin
 		creator := policy.role == roleAdminOrCreator && owner != uuid.Nil && owner == actor
@@ -143,6 +160,29 @@ func authorizeAssistantAction(ctx context.Context, members assistantMemberRepo, 
 		}
 	}
 	return "", nil
+}
+
+// refuseRequest is the role check made when an approval is requested, for
+// actions whose role does not depend on the target; owner-scoped actions make
+// the same check where the target is loaded. A refusal is audited.
+func (s *ConversationService) refuseRequest(ctx context.Context, ws, actor uuid.UUID, action string) error {
+	if ownerScoped(action) {
+		return nil
+	}
+	refusal, err := authorizeAssistantAction(ctx, s.tools.members, s.tools.system, ws, actor, action, uuid.Nil)
+	if err != nil {
+		return err
+	}
+	if refusal != "" {
+		auditAssistantAction("request_refused", actor, ws, action, map[string]interface{}{"reason": refusal})
+		return toolFailure("%s", refusal)
+	}
+	return nil
+}
+
+// auditApprovalRequested records a created approval, whatever path created it.
+func auditApprovalRequested(actor, ws uuid.UUID, approval *domain.ConversationApproval, gap *domain.GitHubAccessGap) {
+	auditAssistantAction("approval_requested", actor, ws, approval.Action, map[string]interface{}{"approval_id": approval.ID.String(), "target": approvalTarget(approval), "github_permissions_missing": gap != nil})
 }
 
 // auditAssistantAction records an event of the assistant's action lifecycle:
