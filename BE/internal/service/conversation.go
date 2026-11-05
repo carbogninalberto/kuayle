@@ -359,8 +359,9 @@ func (s *ConversationService) runToolCall(ctx context.Context, a domain.Conversa
 	modelContent := ""
 	if runErr = s.tools.refuseDisabled(ctx, a.Conversation.WorkspaceID, tool.name); runErr != nil {
 		// A tool the workspace turned off is recorded as refused and never runs.
-	} else if gap := preflightGitHub(ctx, s.tools.access, a.Conversation.WorkspaceID, tool.name); gap != nil && !tool.approval {
-		// A read-only GitHub tool cannot work without its permission.
+	} else if gap := s.readOnlyGitHubGap(ctx, a.Conversation.WorkspaceID, tool); gap != nil {
+		// A read-only GitHub tool cannot work without its permission; approval
+		// tools are checked when the approval is requested instead.
 		runErr = toolFailure("%s", gap.Message)
 	} else if custom {
 		output, issueID, runErr = s.runCustomTool(ctx, a, record.ID, tool.name, call.Function.Arguments)

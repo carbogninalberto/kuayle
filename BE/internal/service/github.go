@@ -40,6 +40,7 @@ type GlobalGitHubAppConfig struct {
 }
 
 type GitHubService struct {
+	apps           *appCache
 	ghRepo         *repository.GitHubRepository
 	issueRepo      repository.IssueRepo
 	teamRepo       repository.TeamRepo

@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -236,7 +237,7 @@ func (s *GitHubService) PermissionGap(ctx context.Context, workspaceID uuid.UUID
 	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	app, err := client.GetApp(ctx)
+	app, err := s.appFor(ctx, workspaceID, client)
 	if err != nil {
 		return nil, err
 	}
@@ -246,4 +247,43 @@ func (s *GitHubService) PermissionGap(ctx context.Context, workspaceID uuid.UUID
 	}
 	return permissionGap(needs, app.Permissions, installation.Permissions,
 		githubAppSettingsURL(app.Slug, app.Owner.Login, app.Owner.Type), safeGitHubPageURL(installation.HTMLURL)), nil
+}
+
+// appCache remembers workspaces' GitHub Apps; copying a service shares it.
+type appCache struct {
+	mu    sync.Mutex
+	items map[uuid.UUID]cachedApp
+}
+
+type cachedApp struct {
+	app     *gh.App
+	expires time.Time
+}
+
+// appFor returns the workspace's GitHub App, reading it from GitHub at most
+// once per githubAppTTL. Only the link to the settings page and the app's own
+// permissions come from it; whether the installation grants a permission is
+// always read live.
+func (s *GitHubService) appFor(ctx context.Context, ws uuid.UUID, client *gh.Client) (*gh.App, error) {
+	cache := s.apps
+	if cache == nil {
+		return client.GetApp(ctx)
+	}
+	cache.mu.Lock()
+	hit, ok := cache.items[ws]
+	cache.mu.Unlock()
+	if ok && time.Now().Before(hit.expires) {
+		return hit.app, nil
+	}
+	app, err := client.GetApp(ctx)
+	if err != nil {
+		return nil, err
+	}
+	cache.mu.Lock()
+	if cache.items == nil {
+		cache.items = map[uuid.UUID]cachedApp{}
+	}
+	cache.items[ws] = cachedApp{app: app, expires: time.Now().Add(githubAppTTL)}
+	cache.mu.Unlock()
+	return app, nil
 }

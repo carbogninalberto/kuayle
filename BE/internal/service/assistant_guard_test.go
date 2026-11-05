@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -120,4 +121,99 @@ func TestAssistantActionsAreWrittenToTheAuditLog(t *testing.T) {
 	require.Equal(t, ws.String(), entry.Data["workspace_id"])
 	require.Equal(t, "merge_pull_request", entry.Data["tool"])
 	require.Equal(t, "a1", entry.Data["approval_id"])
+}
+
+type countingAccess struct {
+	calls int
+	gap   *domain.GitHubAccessGap
+	err   error
+}
+
+func (c *countingAccess) PermissionGap(context.Context, uuid.UUID, map[string]string) (*domain.GitHubAccessGap, error) {
+	c.calls++
+	return c.gap, c.err
+}
+
+func TestCachedAccessRemembersBrieflyAndExpires(t *testing.T) {
+	ctx, ws := context.Background(), uuid.New()
+	needs := map[string]string{"contents": "write"}
+	inner := &countingAccess{gap: newGitHubAccessGap([]domain.GitHubPermissionNeed{{Name: "contents", Level: "write"}}, "")}
+	cache := NewCachedGitHubAccess(inner)
+	now := time.Now()
+	cache.now = func() time.Time { return now }
+
+	for i := 0; i < 3; i++ {
+		gap, err := cache.PermissionGap(ctx, ws, needs)
+		require.NoError(t, err)
+		require.Equal(t, inner.gap, gap)
+	}
+	require.Equal(t, 1, inner.calls, "repeated checks within the TTL reuse the answer")
+
+	_, _ = cache.PermissionGap(ctx, uuid.New(), needs)
+	_, _ = cache.PermissionGap(ctx, ws, map[string]string{"actions": "read"})
+	require.Equal(t, 3, inner.calls, "another workspace or permission set is checked separately")
+
+	now = now.Add(githubAccessTTL + time.Second)
+	_, _ = cache.PermissionGap(ctx, ws, needs)
+	require.Equal(t, 4, inner.calls, "an expired answer is read again")
+
+	inner.err = errors.New("down")
+	now = now.Add(time.Hour)
+	_, err := cache.PermissionGap(ctx, ws, needs)
+	require.Error(t, err)
+	inner.err = nil
+	_, _ = cache.PermissionGap(ctx, ws, needs)
+	require.Equal(t, 6, inner.calls, "failures are not cached")
+}
+
+func TestApproveTimeCheckIsNeverServedFromTheCache(t *testing.T) {
+	// Approving is wired to the live check, requesting to the cached wrapper.
+	live := &countingAccess{}
+	ctx, ws := context.Background(), uuid.New()
+	approvals := &AssistantApprovals{access: live}
+	for i := 0; i < 2; i++ {
+		preflightGitHub(ctx, approvals.access, ws, "merge_pull_request")
+	}
+	require.Equal(t, 2, live.calls)
+
+	cached := NewCachedGitHubAccess(live)
+	tools := &AssistantTools{access: cached}
+	for i := 0; i < 2; i++ {
+		preflightGitHub(ctx, tools.access, ws, "merge_pull_request")
+	}
+	require.Equal(t, 3, live.calls, "requests share one cached check")
+}
+
+func TestOnlyToolsThatActAtOnceArePreflightedBeforeRunning(t *testing.T) {
+	access := &countingAccess{}
+	svc := &ConversationService{tools: &AssistantTools{access: access}}
+	ctx, ws := context.Background(), uuid.New()
+
+	svc.readOnlyGitHubGap(ctx, ws, assistantTool{name: "merge_pull_request", approval: true})
+	require.Zero(t, access.calls, "approval tools are checked when the approval is requested")
+	svc.readOnlyGitHubGap(ctx, ws, assistantTool{name: "get_workflow_run"})
+	require.Equal(t, 1, access.calls)
+	svc.readOnlyGitHubGap(ctx, ws, assistantTool{name: "get_issue"})
+	require.Equal(t, 1, access.calls, "tools without GitHub needs make no GitHub call")
+}
+
+func TestGitHub403BecomesAnActionableMissingPermission(t *testing.T) {
+	denied := errors.New(`GitHub API error 403: {"message":"Resource not accessible by integration"}`)
+	gap := preflightGitHub(context.Background(), &countingAccess{err: denied}, uuid.New(), "create_release")
+	require.NotNil(t, gap)
+	require.Equal(t, []domain.GitHubPermissionNeed{{Name: "contents", Level: "write"}}, gap.Missing)
+	require.Contains(t, gap.Message, "contents: write")
+
+	require.True(t, isGitHubPermissionDenied(denied))
+	require.False(t, isGitHubPermissionDenied(errors.New("GitHub API error 500: boom")))
+	require.False(t, isGitHubPermissionDenied(nil))
+	require.Nil(t, preflightGitHub(context.Background(), &countingAccess{err: errors.New("timeout")}, uuid.New(), "create_release"))
+}
+
+func TestAuditNamesActorActionTargetAndOutcome(t *testing.T) {
+	merge := &domain.ConversationApproval{Action: "merge_pull_request", Payload: json.RawMessage(`{"identifier":"KUA-1","repository":"o/r","pull_request":7}`)}
+	require.Equal(t, "o/r#7", approvalTarget(merge))
+	require.Equal(t, "KUA-2", approvalTarget(&domain.ConversationApproval{Payload: json.RawMessage(`{"identifier":"KUA-2"}`)}))
+	require.Equal(t, "instance 0.2.8 → 0.3.0", approvalTarget(&domain.ConversationApproval{Action: "upgrade_instance", Payload: json.RawMessage(`{"current_version":"0.2.8","latest_version":"0.3.0"}`)}))
+	require.Equal(t, "upgrade_instance", approvalTarget(&domain.ConversationApproval{Action: "upgrade_instance", Payload: json.RawMessage(`{}`)}))
 }

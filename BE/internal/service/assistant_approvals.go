@@ -121,17 +121,17 @@ func (s *AssistantApprovals) Resolve(ctx context.Context, ws, conversation, id u
 	}
 	if approval.Status != "approving" {
 		if approval.Status == "denied" && !approve {
-			auditAssistantAction("approval_denied", approval.ActorID, ws, approval.Action, map[string]interface{}{"approval_id": id.String()})
+			auditAssistantAction("approval_denied", approval.ActorID, ws, approval.Action, map[string]interface{}{"approval_id": id.String(), "target": approvalTarget(approval)})
 		}
 		return approval, nil
 	}
-	auditAssistantAction("approval_approved", approval.ActorID, ws, approval.Action, map[string]interface{}{"approval_id": id.String()})
+	auditAssistantAction("approval_approved", approval.ActorID, ws, approval.Action, map[string]interface{}{"approval_id": id.String(), "target": approvalTarget(approval)})
 	finished, err := s.execute(ctx, ws, conversation, id, approval)
 	if err == nil && finished != nil {
-		fields := map[string]interface{}{"approval_id": id.String(), "status": finished.Status}
+		fields := map[string]interface{}{"approval_id": id.String(), "status": finished.Status, "target": approvalTarget(approval), "outcome": "executed"}
 		event := "action_executed"
 		if finished.Error != nil && *finished.Error != "" {
-			event, fields["error"] = "action_failed", *finished.Error
+			event, fields["error"], fields["outcome"] = "action_failed", *finished.Error, "failed"
 		}
 		auditAssistantAction(event, approval.ActorID, ws, approval.Action, fields)
 	}
@@ -160,6 +160,16 @@ func (s *AssistantApprovals) execute(ctx context.Context, ws, conversation, id u
 			return s.conversations.FinishApproval(ctx, ws, conversation, id, nil, "This tool is disabled in this workspace")
 		}
 	}
+	finished, err := s.dispatch(ctx, ws, conversation, id, approval)
+	if err != nil && isGitHubPermissionDenied(err) {
+		// GitHub refused for lack of a permission the preflight could not see.
+		return s.conversations.FinishApproval(ctx, ws, conversation, id, nil, permissionDeniedGap(approval.Action).Message)
+	}
+	return finished, err
+}
+
+// dispatch performs the approved action itself.
+func (s *AssistantApprovals) dispatch(ctx context.Context, ws, conversation, id uuid.UUID, approval *domain.ConversationApproval) (*domain.ConversationApproval, error) {
 	switch approval.Action {
 	case "merge_pull_request":
 		return s.merge(ctx, ws, conversation, approval)

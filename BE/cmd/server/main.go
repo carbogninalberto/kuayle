@@ -253,7 +253,7 @@ func main() {
 	assistantApprovals.SetMerging(repository.NewAgentTaskRepository(db), workspaceRepo, githubSvc)
 	assistantApprovals.SetPullRequestHeads(githubSvc)
 	assistantApprovals.SetGitHubAccess(githubSvc)
-	assistantTools.SetGitHubAccess(githubSvc)
+	assistantTools.SetGitHubAccess(service.NewCachedGitHubAccess(githubSvc))
 	assistantTools.SetPullRequestHeads(githubSvc)
 	githubSvc.SetPullRequestHeads(repository.NewAgentTaskRepository(db))
 	assistantApprovals.SetReviews(agentTaskSvc)
