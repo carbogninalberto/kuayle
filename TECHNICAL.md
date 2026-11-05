@@ -664,7 +664,7 @@ run that already has a container keeps its image so it can resume, and a custom
 agent keeps its configured image. A machine's own containers (collector, egress,
 Docker daemon, browser, and the IDE or headless terminal) are recreated from the
 release images: when a stopped machine starts, and, for a running machine, by an
-`update_images` operation (migration `000107_machine_image_updates`) that
+`update_images` operation (migration `000108_machine_image_updates`) that
 reconciliation queues for an outdated machine or one with finished run
 containers, only while the machine is idle: no other queued or running
 operation, no unfinished agent run, no running task preview and no activity
