@@ -594,7 +594,11 @@ func (r *AgentTaskRepository) CancelAttempt(ctx context.Context, claimed domain.
 	var run domain.DevMachineAgentRun
 	err = tx.GetContext(ctx, &run, `SELECT * FROM dev_machine_agent_runs WHERE id=$1 AND workspace_id=$2`, task.RunID, task.WorkspaceID)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil
+		// No attempt yet: the task may still wait for its machine to start.
+		if err = withdrawTaskMachineStart(ctx, tx, *task); err != nil {
+			return err
+		}
+		return tx.Commit()
 	}
 	if err != nil {
 		return err

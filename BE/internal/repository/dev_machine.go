@@ -1583,6 +1583,20 @@ func (r *DevMachineRepository) RequestPermanentDelete(ctx context.Context, works
 		return nil, err
 	}
 	defer tx.Rollback()
+	operation, err := requestPermanentDelete(ctx, tx, workspaceID, machineID, requestedByUserID)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return operation, nil
+}
+
+// requestPermanentDelete marks the machine deleted and queues its teardown,
+// unless one is already queued or nothing is left to tear down. The caller
+// commits the transaction.
+func requestPermanentDelete(ctx context.Context, tx *sqlx.Tx, workspaceID, machineID uuid.UUID, requestedByUserID *uuid.UUID) (*domain.DevMachineOperation, error) {
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`, workspaceID); err != nil {
 		return nil, err
 	}
@@ -1597,7 +1611,7 @@ func (r *DevMachineRepository) RequestPermanentDelete(ctx context.Context, works
 		return nil, err
 	}
 	var active domain.DevMachineOperation
-	err = tx.GetContext(ctx, &active, `SELECT * FROM dev_machine_operations
+	err := tx.GetContext(ctx, &active, `SELECT * FROM dev_machine_operations
 		WHERE workspace_id=$1 AND machine_id=$2 AND action='teardown' AND status IN ('pending','leased')
 		ORDER BY generation DESC, created_at LIMIT 1`, workspaceID, machineID)
 	if err == nil {
@@ -1607,9 +1621,6 @@ func (r *DevMachineRepository) RequestPermanentDelete(ctx context.Context, works
 				WHERE workspace_id=$1 AND id=$2`, workspaceID, machineID, active.Generation); err != nil {
 				return nil, err
 			}
-		}
-		if err := tx.Commit(); err != nil {
-			return nil, err
 		}
 		return &active, nil
 	}
@@ -1623,7 +1634,7 @@ func (r *DevMachineRepository) RequestPermanentDelete(ctx context.Context, works
 		return nil, err
 	}
 	if domain.DevMachineSafelyPurgeable(&machine) && !hasActiveOperation {
-		return nil, tx.Commit()
+		return nil, nil
 	}
 
 	generation := machine.Generation + 1
@@ -1640,9 +1651,6 @@ func (r *DevMachineRepository) RequestPermanentDelete(ctx context.Context, works
 		if existing.Action != operation.Action || !sameOptionalUUID(existing.RequestedByUserID, operation.RequestedByUserID) {
 			return nil, ErrIdempotencyKeyConflict
 		}
-		if err := tx.Commit(); err != nil {
-			return nil, err
-		}
 		return &existing, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
@@ -1658,9 +1666,6 @@ func (r *DevMachineRepository) RequestPermanentDelete(ctx context.Context, works
 		return nil, sql.ErrNoRows
 	}
 	if err := enqueueOperation(ctx, tx, operation); err != nil {
-		return nil, err
-	}
-	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return operation, nil

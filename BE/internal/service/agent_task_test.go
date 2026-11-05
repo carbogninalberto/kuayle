@@ -784,3 +784,31 @@ func TestImplementPromptAsksForAValidationFile(t *testing.T) {
 	require.Contains(t, prompt, "without credentials or databases")
 	require.Equal(t, prompt, withValidationFile(prompt), "added once")
 }
+
+// While the task's machine waits for host memory or CPU, the task says so
+// instead of only "preparing"; it keeps waiting without counting a failure.
+func TestPreparationExplainsAMachineWaitingForHostCapacity(t *testing.T) {
+	store, runtime, task := reusedMachineFixture(domain.DevMachineStatusQueued, domain.DevMachineStatusRunning)
+	code, message := "host_capacity_wait", "waiting for host memory: 12288 MB requested of 4096 MB available to machines"
+	store.queuedOperation = &domain.DevMachineOperation{Action: domain.DevMachineOpSpawn, Status: domain.DevMachineOpStatusPending, ErrorCode: &code, ErrorMessage: &message}
+	ready, err := runtime.Prepare(context.Background(), &task)
+	require.False(t, ready)
+	require.ErrorIs(t, err, ErrHostCapacityWait)
+
+	tasks := &taskStoreFake{task: domain.AgentTask{ID: uuid.New(), WorkspaceID: uuid.New(), CreatorID: uuid.New(), State: "preparing"}}
+	svc := &AgentTaskService{store: tasks, runtime: &taskRuntimeFake{prepareErr: err}}
+	require.NoError(t, svc.step(context.Background(), tasks.task))
+	require.Equal(t, "preparing", tasks.task.State)
+	require.Equal(t, "Waiting for host capacity to start the dev machine (waiting for host memory: 12288 MB requested of 4096 MB available to machines). It starts when running machines free enough; cancel the task to withdraw it.", tasks.waiting)
+
+	// A spawn that is not waiting for capacity is ordinary preparation, and
+	// the task stops naming a wait that is over.
+	store.queuedOperation.ErrorCode = nil
+	ready, err = runtime.Prepare(context.Background(), &task)
+	require.NoError(t, err)
+	require.False(t, ready)
+	tasks.task.Reason = tasks.waiting
+	svc.runtime = &taskRuntimeFake{}
+	require.NoError(t, svc.step(context.Background(), tasks.task))
+	require.Equal(t, "Starting the dev machine", tasks.waiting)
+}
