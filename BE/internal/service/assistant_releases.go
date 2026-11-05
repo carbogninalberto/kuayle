@@ -116,7 +116,11 @@ func (t *AssistantTools) runReleaseTool(ctx context.Context, ws uuid.UUID, name,
 			return nil, nil, releaseGitHubFailure("read the release", err)
 		}
 		result := releaseSummary(*release)
-		result["repository"], result["notes"] = repo.FullName, truncateRunes(release.Body, 12000)
+		// Bounded so even multi-byte notes fit the tool result limit.
+		result["repository"], result["notes"] = repo.FullName, truncateRunes(release.Body, 6000)
+		if len([]rune(release.Body)) > 6000 {
+			result["notes_truncated"] = true
+		}
 		delete(result, "notes_excerpt")
 		return result, nil, nil
 	case "draft_release_notes":
