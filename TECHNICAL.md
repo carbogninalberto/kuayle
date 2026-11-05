@@ -609,7 +609,9 @@ stopping; paused machines keep memory) plus this one fits within the host minus
 Memory is never overcommitted; CPU may be, up to `DEV_MACHINE_CPU_OVERCOMMIT`.
 A machine that does not fit stays queued: its operation is deferred for 30
 seconds with a visible `host_capacity_wait` reason and without consuming a
-retry, and agent tasks keep waiting rather than failing. Admission is serialized
+retry, and agent tasks keep waiting rather than failing, with a reason naming
+the wait; cancelling such a task withdraws its machine's start (see
+[cancellation](BE/docs/agent-tasks.md#failure-cancellation-and-explicit-retries)). Admission is serialized
 within one manager process, which also counts machines admitted but not yet
 running; multiple manager replicas on one host are not coordinated. An unknown
 host size never blocks. No machine is stopped to make room; the workspace/user
