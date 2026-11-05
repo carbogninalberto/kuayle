@@ -2,28 +2,25 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
+	"io"
+	"net/http"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
+	gh "github.com/kuayle/kuayle-backend/pkg/github"
 	"github.com/sirupsen/logrus"
 	logtest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 )
-
-func TestEveryApprovalToolHasAnActionPolicy(t *testing.T) {
-	for _, tool := range assistantTools() {
-		if tool.approval {
-			_, ok := assistantActionPolicies[tool.name]
-			require.True(t, ok, "%s needs approval but has no assistantActionPolicy", tool.name)
-		}
-	}
-	_, ok := assistantActionPolicies["run_custom_tool"]
-	require.True(t, ok)
-}
 
 func TestPermissionGapNamesWhatToGrantAndWhere(t *testing.T) {
 	needs := map[string]string{"contents": "write", "actions": "read"}
@@ -57,14 +54,15 @@ func (a *accessFake) PermissionGap(_ context.Context, _ uuid.UUID, needs map[str
 }
 
 func TestPreflightAsksForTheToolsPermissions(t *testing.T) {
+	withPolicies(t)
 	gap := newGitHubAccessGap([]domain.GitHubPermissionNeed{{Name: "contents", Level: "write"}}, "https://github.com/settings/apps/x/permissions")
 	access := &accessFake{gap: gap}
-	require.Equal(t, gap, preflightGitHub(context.Background(), access, uuid.New(), "create_release"))
+	require.Equal(t, gap, preflightGitHub(context.Background(), access, uuid.New(), "test_release"))
 	require.Equal(t, map[string]string{"contents": "write"}, access.asked)
 
 	require.Nil(t, preflightGitHub(context.Background(), access, uuid.New(), "run_check"), "tools without GitHub needs are not checked")
-	require.Nil(t, preflightGitHub(context.Background(), nil, uuid.New(), "create_release"))
-	require.Nil(t, preflightGitHub(context.Background(), &accessFake{err: errors.New("down")}, uuid.New(), "create_release"),
+	require.Nil(t, preflightGitHub(context.Background(), nil, uuid.New(), "test_release"))
+	require.Nil(t, preflightGitHub(context.Background(), &accessFake{err: errors.New("down")}, uuid.New(), "test_release"),
 		"an unreachable GitHub is not reported as a missing permission")
 }
 
@@ -96,9 +94,10 @@ func (m memberFake) GetMember(context.Context, uuid.UUID, uuid.UUID) (*domain.Wo
 }
 
 func TestAdminOnlyActionsAreRefusedForOtherRoles(t *testing.T) {
+	withPolicies(t)
 	ctx, ws, user := context.Background(), uuid.New(), uuid.New()
 	for role, allowed := range map[string]bool{domain.RoleOwner: true, domain.RoleAdmin: true, domain.RoleMember: false, "": false} {
-		refusal, err := authorizeAssistantAction(ctx, memberFake{role}, nil, ws, user, "create_release")
+		refusal, err := authorizeAssistantAction(ctx, memberFake{role}, nil, ws, user, "test_release")
 		require.NoError(t, err)
 		require.Equal(t, allowed, refusal == "", "role %q", role)
 	}
@@ -137,7 +136,7 @@ func (c *countingAccess) PermissionGap(context.Context, uuid.UUID, map[string]st
 func TestCachedAccessRemembersBrieflyAndExpires(t *testing.T) {
 	ctx, ws := context.Background(), uuid.New()
 	needs := map[string]string{"contents": "write"}
-	inner := &countingAccess{gap: newGitHubAccessGap([]domain.GitHubPermissionNeed{{Name: "contents", Level: "write"}}, "")}
+	inner := &countingAccess{}
 	cache := NewCachedGitHubAccess(inner)
 	now := time.Now()
 	cache.now = func() time.Time { return now }
@@ -164,6 +163,14 @@ func TestCachedAccessRemembersBrieflyAndExpires(t *testing.T) {
 	inner.err = nil
 	_, _ = cache.PermissionGap(ctx, ws, needs)
 	require.Equal(t, 6, inner.calls, "failures are not cached")
+
+	inner.gap = newGitHubAccessGap([]domain.GitHubPermissionNeed{{Name: "contents", Level: "write"}}, "")
+	now = now.Add(time.Hour)
+	for i := 0; i < 2; i++ {
+		gap, _ := cache.PermissionGap(ctx, ws, needs)
+		require.NotNil(t, gap)
+	}
+	require.Equal(t, 8, inner.calls, "a missing permission is rechecked every time so a grant is seen at once")
 }
 
 func TestApproveTimeCheckIsNeverServedFromTheCache(t *testing.T) {
@@ -185,29 +192,32 @@ func TestApproveTimeCheckIsNeverServedFromTheCache(t *testing.T) {
 }
 
 func TestOnlyToolsThatActAtOnceArePreflightedBeforeRunning(t *testing.T) {
+	withPolicies(t)
 	access := &countingAccess{}
 	svc := &ConversationService{tools: &AssistantTools{access: access}}
 	ctx, ws := context.Background(), uuid.New()
 
 	svc.readOnlyGitHubGap(ctx, ws, assistantTool{name: "merge_pull_request", approval: true})
 	require.Zero(t, access.calls, "approval tools are checked when the approval is requested")
-	svc.readOnlyGitHubGap(ctx, ws, assistantTool{name: "get_workflow_run"})
+	svc.readOnlyGitHubGap(ctx, ws, assistantTool{name: "test_workflow"})
 	require.Equal(t, 1, access.calls)
 	svc.readOnlyGitHubGap(ctx, ws, assistantTool{name: "get_issue"})
 	require.Equal(t, 1, access.calls, "tools without GitHub needs make no GitHub call")
 }
 
 func TestGitHub403BecomesAnActionableMissingPermission(t *testing.T) {
+	withPolicies(t)
 	denied := errors.New(`GitHub API error 403: {"message":"Resource not accessible by integration"}`)
-	gap := preflightGitHub(context.Background(), &countingAccess{err: denied}, uuid.New(), "create_release")
+	gap := preflightGitHub(context.Background(), &countingAccess{err: denied}, uuid.New(), "test_release")
 	require.NotNil(t, gap)
 	require.Equal(t, []domain.GitHubPermissionNeed{{Name: "contents", Level: "write"}}, gap.Missing)
 	require.Contains(t, gap.Message, "contents: write")
 
 	require.True(t, isGitHubPermissionDenied(denied))
 	require.False(t, isGitHubPermissionDenied(errors.New("GitHub API error 500: boom")))
+	require.False(t, isGitHubPermissionDenied(errors.New("GitHub API error 403: rate limit, permission pending")))
 	require.False(t, isGitHubPermissionDenied(nil))
-	require.Nil(t, preflightGitHub(context.Background(), &countingAccess{err: errors.New("timeout")}, uuid.New(), "create_release"))
+	require.Nil(t, preflightGitHub(context.Background(), &countingAccess{err: errors.New("timeout")}, uuid.New(), "test_release"))
 }
 
 func TestAuditNamesActorActionTargetAndOutcome(t *testing.T) {
@@ -216,4 +226,61 @@ func TestAuditNamesActorActionTargetAndOutcome(t *testing.T) {
 	require.Equal(t, "KUA-2", approvalTarget(&domain.ConversationApproval{Payload: json.RawMessage(`{"identifier":"KUA-2"}`)}))
 	require.Equal(t, "instance 0.2.8 → 0.3.0", approvalTarget(&domain.ConversationApproval{Action: "upgrade_instance", Payload: json.RawMessage(`{"current_version":"0.2.8","latest_version":"0.3.0"}`)}))
 	require.Equal(t, "upgrade_instance", approvalTarget(&domain.ConversationApproval{Action: "upgrade_instance", Payload: json.RawMessage(`{}`)}))
+}
+
+// withPolicies registers synthetic policies for the test, for the admin-only
+// and read-only paths no registered tool uses yet.
+func withPolicies(t *testing.T) {
+	t.Helper()
+	assistantActionPolicies["test_release"] = assistantActionPolicy{github: map[string]string{"contents": "write"}, role: roleWorkspaceAdmin}
+	assistantActionPolicies["test_workflow"] = assistantActionPolicy{github: map[string]string{"actions": "read"}}
+	t.Cleanup(func() {
+		delete(assistantActionPolicies, "test_release")
+		delete(assistantActionPolicies, "test_workflow")
+	})
+}
+
+func TestPolicyTableMatchesRegisteredTools(t *testing.T) {
+	registered := map[string]bool{"run_custom_tool": true} // custom tools are named by their authors
+	for _, tool := range assistantTools() {
+		registered[tool.name] = true
+		if tool.approval {
+			_, ok := assistantActionPolicies[tool.name]
+			require.True(t, ok, "%s needs approval but has no policy", tool.name)
+		}
+	}
+	for name := range assistantActionPolicies {
+		require.True(t, registered[name], "policy %q names no registered tool", name)
+	}
+}
+
+type rewriteTransport struct{ calls *int }
+
+func (r rewriteTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	*r.calls++
+	return &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Request: req,
+		Body: io.NopCloser(strings.NewReader(`{"id":1,"slug":"kuayle","permissions":{"contents":"write"}}`))}, nil
+}
+
+func TestAppIsReadFromGitHubOnceAcrossPermissionChecks(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	pemKey := string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}))
+	client, err := gh.NewClient(1, pemKey)
+	require.NoError(t, err)
+	calls := 0
+	client.UseHTTPClient(&http.Client{Transport: rewriteTransport{&calls}})
+
+	svc := NewGitHubService(nil, nil, nil, nil, nil, nil, nil, "", "", nil)
+	require.NotNil(t, svc.apps, "the constructor must enable the app cache")
+	ws := uuid.New()
+	for i := 0; i < 3; i++ {
+		app, err := svc.appFor(context.Background(), ws, client)
+		require.NoError(t, err)
+		require.Equal(t, "kuayle", app.Slug)
+	}
+	require.Equal(t, 1, calls)
+	_, err = svc.appFor(context.Background(), uuid.New(), client)
+	require.NoError(t, err)
+	require.Equal(t, 2, calls, "each workspace has its own app")
 }

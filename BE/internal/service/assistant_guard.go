@@ -49,18 +49,9 @@ var assistantActionPolicies = map[string]assistantActionPolicy{
 	"run_custom_tool":      {},
 	"merge_pull_request":   {github: map[string]string{"pull_requests": "write", "contents": "write"}, role: roleCustom},
 	"upgrade_instance":     {role: roleCustom},
-	// Tools that change GitHub beyond pull requests are admin-only.
-	"create_tag":                 {github: map[string]string{"contents": "write"}, role: roleWorkspaceAdmin},
-	"create_release":             {github: map[string]string{"contents": "write"}, role: roleWorkspaceAdmin},
-	"update_pull_request_branch": {github: map[string]string{"pull_requests": "write", "contents": "write"}},
-	"mark_pull_request_ready":    {github: map[string]string{"pull_requests": "write"}},
-	"comment_pull_request":       {github: map[string]string{"pull_requests": "write"}},
-	"reply_pull_request_comment": {github: map[string]string{"pull_requests": "write"}},
-	// Read-only tools only need the preflight.
-	"get_pull_request":        {github: map[string]string{"pull_requests": "read"}},
-	"get_pull_request_checks": {github: map[string]string{"pull_requests": "read", "checks": "read"}},
-	"list_workflow_runs":      {github: map[string]string{"actions": "read"}},
-	"get_workflow_run":        {github: map[string]string{"actions": "read"}},
+	// Tools that do not exist yet (releases and tags, workflow runs, the pull
+	// request tools) get an entry when they are registered; a test keeps this
+	// table and the registered tools in step.
 }
 
 // githubAccess reports which of the needed permissions the workspace's GitHub
@@ -189,12 +180,7 @@ func approvalTarget(approval *domain.ConversationApproval) string {
 // isGitHubPermissionDenied recognizes GitHub's answer to a call the
 // installation's permissions do not cover.
 func isGitHubPermissionDenied(err error) bool {
-	if err == nil {
-		return false
-	}
-	text := err.Error()
-	return strings.Contains(text, "Resource not accessible by integration") ||
-		(strings.Contains(text, "403") && strings.Contains(strings.ToLower(text), "permission"))
+	return err != nil && strings.Contains(err.Error(), "Resource not accessible by integration")
 }
 
 // permissionDeniedGap words a refusal by GitHub using the permissions the
@@ -251,6 +237,11 @@ func (c *cachedGitHubAccess) PermissionGap(ctx context.Context, ws uuid.UUID, ne
 	gap, err := c.inner.PermissionGap(ctx, ws, needs)
 	if err != nil {
 		return nil, err
+	}
+	if gap != nil {
+		// A missing permission is not remembered: the admin may grant it at any
+		// moment and the next call should see that.
+		return gap, nil
 	}
 	c.mu.Lock()
 	c.items[key] = cachedGap{gap: gap, expires: c.now().Add(githubAccessTTL)}

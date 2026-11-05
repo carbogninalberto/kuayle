@@ -112,6 +112,7 @@ func NewGitHubService(
 ) *GitHubService {
 	return &GitHubService{
 		ghRepo:         ghRepo,
+		apps:           &appCache{items: map[uuid.UUID]cachedApp{}},
 		issueRepo:      issueRepo,
 		teamRepo:       teamRepo,
 		teamStatusRepo: teamStatusRepo,
