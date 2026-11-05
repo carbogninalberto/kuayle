@@ -224,6 +224,7 @@ export interface UpgradePayload {
 export interface GitHubAccessGap {
 	missing: { name: string; level: string }[];
 	settings_url?: string;
+	unverified?: boolean;
 	message: string;
 }
 export type ConversationApproval = ApprovalBase &

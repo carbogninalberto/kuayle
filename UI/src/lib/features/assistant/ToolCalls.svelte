@@ -281,7 +281,11 @@
 							{@const gap = (approval.payload as { github_access?: GitHubAccessGap }).github_access}
 							{#if gap}
 								<Alert.Root class="mb-2 border-[var(--status-warning)]/40" data-testid="github-access-gap">
-									<Alert.Title>{m['assistant.github_access_title']()}</Alert.Title>
+									<Alert.Title
+										>{gap.unverified
+											? m['assistant.github_access_unverified_title']()
+											: m['assistant.github_access_title']()}</Alert.Title
+									>
 									<Alert.Description class="space-y-1">
 										<p>{gap.message}</p>
 										{#if gap.settings_url}

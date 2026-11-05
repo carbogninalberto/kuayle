@@ -115,17 +115,20 @@ func NewAssistantApprovals(conversations *repository.ConversationRepository, tas
 // Resolve applies a decision. Concurrent or repeated approvals converge on one
 // task because the effect replays the approval's fixed request ID.
 func (s *AssistantApprovals) Resolve(ctx context.Context, ws, conversation, id uuid.UUID, approve bool) (*domain.ConversationApproval, error) {
-	approval, err := s.conversations.ClaimApproval(ctx, ws, conversation, id, approve)
+	approval, changed, err := s.conversations.ClaimApproval(ctx, ws, conversation, id, approve)
 	if err != nil {
 		return approval, err
 	}
 	if approval.Status != "approving" {
-		if approval.Status == "denied" && !approve {
+		// Only the call that denied it is recorded, not repeated requests.
+		if approval.Status == "denied" && changed {
 			auditAssistantAction("approval_denied", approval.ActorID, ws, approval.Action, map[string]interface{}{"approval_id": id.String(), "target": approvalTarget(approval)})
 		}
 		return approval, nil
 	}
-	auditAssistantAction("approval_approved", approval.ActorID, ws, approval.Action, map[string]interface{}{"approval_id": id.String(), "target": approvalTarget(approval)})
+	if changed {
+		auditAssistantAction("approval_approved", approval.ActorID, ws, approval.Action, map[string]interface{}{"approval_id": id.String(), "target": approvalTarget(approval)})
+	}
 	finished, err := s.execute(ctx, ws, conversation, id, approval)
 	if err == nil && finished != nil {
 		fields := map[string]interface{}{"approval_id": id.String(), "status": finished.Status, "target": approvalTarget(approval), "outcome": "executed"}
@@ -147,7 +150,7 @@ func (s *AssistantApprovals) execute(ctx context.Context, ws, conversation, id u
 	if refusal != "" {
 		return s.conversations.FinishApproval(ctx, ws, conversation, id, nil, refusal)
 	}
-	if gap := preflightGitHub(ctx, s.access, ws, approval.Action); gap != nil {
+	if gap := preflightGitHub(ctx, s.access, ws, approval.Action); gap != nil && !gap.Unverified {
 		return s.conversations.FinishApproval(ctx, ws, conversation, id, nil, gap.Message)
 	}
 	if s.settings != nil {
@@ -163,7 +166,7 @@ func (s *AssistantApprovals) execute(ctx context.Context, ws, conversation, id u
 	finished, err := s.dispatch(ctx, ws, conversation, id, approval)
 	if err != nil && isGitHubPermissionDenied(err) {
 		// GitHub refused for lack of a permission the preflight could not see.
-		return s.conversations.FinishApproval(ctx, ws, conversation, id, nil, permissionDeniedGap(approval.Action).Message)
+		return s.conversations.FinishApproval(ctx, ws, conversation, id, nil, deniedGap(ctx, s.access, ws, approval.Action).Message)
 	}
 	return finished, err
 }

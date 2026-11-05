@@ -282,6 +282,8 @@ type GitHubAccessGap struct {
 	Missing     []GitHubPermissionNeed `json:"missing"`
 	SettingsURL string                 `json:"settings_url,omitempty"`
 	Message     string                 `json:"message"`
+	// Unverified means GitHub could not be asked, not that a permission is missing.
+	Unverified bool `json:"unverified,omitempty"`
 }
 
 // GitHubPermissionNeed is one GitHub App permission at a minimum level.

@@ -2835,5 +2835,6 @@
 	"settings.github.app_setup.opens_new_tab": "（在新标签页中打开）",
 	"settings.github.app_setup.load_failed": "无法检查 GitHub App 设置。",
 	"assistant.github_access_title": "缺少 GitHub App 权限",
-	"assistant.github_access_link": "打开 GitHub App 设置"
+	"assistant.github_access_link": "打开 GitHub App 设置",
+	"assistant.github_access_unverified_title": "无法验证 GitHub App 权限"
 }

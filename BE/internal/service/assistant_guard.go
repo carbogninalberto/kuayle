@@ -66,8 +66,8 @@ func (t *AssistantTools) SetGitHubAccess(access githubAccess) { t.access = acces
 // SetGitHubAccess enables the GitHub permission check when approving.
 func (s *AssistantApprovals) SetGitHubAccess(access githubAccess) { s.access = access }
 
-// preflightGitHub returns the gap for an action, or nil. Failing to ask GitHub
-// is not a gap: the action then fails with GitHub's own error.
+// preflightGitHub returns the gap for an action, or nil. When GitHub cannot be
+// asked the gap is Unverified: shown as a warning, never a reason to refuse.
 func preflightGitHub(ctx context.Context, access githubAccess, ws uuid.UUID, action string) *domain.GitHubAccessGap {
 	policy, ok := assistantActionPolicies[action]
 	if !ok || len(policy.github) == 0 || access == nil {
@@ -79,7 +79,7 @@ func preflightGitHub(ctx context.Context, access githubAccess, ws uuid.UUID, act
 			return permissionDeniedGap(action)
 		}
 		log.WithFields(log.Fields{"workspace_id": ws, "action": action}).WithError(err).Warn("GitHub permission preflight failed")
-		return nil
+		return &domain.GitHubAccessGap{Unverified: true, Message: "Could not verify the GitHub App's permissions because GitHub did not answer; the action may still fail for lack of a permission."}
 	}
 	return gap
 }
@@ -255,5 +255,20 @@ func (s *ConversationService) readOnlyGitHubGap(ctx context.Context, ws uuid.UUI
 	if tool.approval {
 		return nil
 	}
-	return preflightGitHub(ctx, s.tools.access, ws, tool.name)
+	if gap := preflightGitHub(ctx, s.tools.access, ws, tool.name); gap != nil && !gap.Unverified {
+		return gap
+	}
+	return nil
+}
+
+// deniedGap words GitHub's refusal of an action. It asks the permission check
+// again so only the permissions actually missing are named, with the settings
+// link; if that cannot say, it lists what the action needs.
+func deniedGap(ctx context.Context, access githubAccess, ws uuid.UUID, action string) *domain.GitHubAccessGap {
+	if policy := assistantActionPolicies[action]; access != nil && len(policy.github) > 0 {
+		if gap, err := access.PermissionGap(ctx, ws, policy.github); err == nil && gap != nil && !gap.Unverified && len(gap.Missing) > 0 {
+			return gap
+		}
+	}
+	return permissionDeniedGap(action)
 }

@@ -62,8 +62,11 @@ func TestPreflightAsksForTheToolsPermissions(t *testing.T) {
 
 	require.Nil(t, preflightGitHub(context.Background(), access, uuid.New(), "run_check"), "tools without GitHub needs are not checked")
 	require.Nil(t, preflightGitHub(context.Background(), nil, uuid.New(), "test_release"))
-	require.Nil(t, preflightGitHub(context.Background(), &accessFake{err: errors.New("down")}, uuid.New(), "test_release"),
-		"an unreachable GitHub is not reported as a missing permission")
+	unverified := preflightGitHub(context.Background(), &accessFake{err: errors.New("down")}, uuid.New(), "test_release")
+	require.NotNil(t, unverified, "an outage is shown, not silent")
+	require.True(t, unverified.Unverified)
+	require.Empty(t, unverified.Missing, "an outage is not reported as a missing permission")
+	require.Contains(t, unverified.Message, "Could not verify")
 }
 
 func TestWithGitHubAccessPutsTheGapOnTheApprovalCard(t *testing.T) {
@@ -217,7 +220,6 @@ func TestGitHub403BecomesAnActionableMissingPermission(t *testing.T) {
 	require.False(t, isGitHubPermissionDenied(errors.New("GitHub API error 500: boom")))
 	require.False(t, isGitHubPermissionDenied(errors.New("GitHub API error 403: rate limit, permission pending")))
 	require.False(t, isGitHubPermissionDenied(nil))
-	require.Nil(t, preflightGitHub(context.Background(), &countingAccess{err: errors.New("timeout")}, uuid.New(), "test_release"))
 }
 
 func TestAuditNamesActorActionTargetAndOutcome(t *testing.T) {
@@ -283,4 +285,21 @@ func TestAppIsReadFromGitHubOnceAcrossPermissionChecks(t *testing.T) {
 	_, err = svc.appFor(context.Background(), uuid.New(), client)
 	require.NoError(t, err)
 	require.Equal(t, 2, calls, "each workspace has its own app")
+}
+
+func TestUnverifiedAccessNeverBlocksAndDeniedNamesOnlyWhatIsMissing(t *testing.T) {
+	withPolicies(t)
+	ctx, ws := context.Background(), uuid.New()
+	svc := &ConversationService{tools: &AssistantTools{access: &countingAccess{err: errors.New("down")}}}
+	require.Nil(t, svc.readOnlyGitHubGap(ctx, ws, assistantTool{name: "test_workflow"}), "an outage does not stop a tool")
+
+	assistantActionPolicies["test_multi"] = assistantActionPolicy{github: map[string]string{"contents": "write", "pull_requests": "write"}}
+	defer delete(assistantActionPolicies, "test_multi")
+	live := newGitHubAccessGap([]domain.GitHubPermissionNeed{{Name: "contents", Level: "write"}}, "https://github.com/settings/apps/x/permissions")
+	gap := deniedGap(ctx, &countingAccess{gap: live}, ws, "test_multi")
+	require.Equal(t, live.Missing, gap.Missing, "permissions already granted are not named")
+	require.Equal(t, live.SettingsURL, gap.SettingsURL)
+
+	fallback := deniedGap(ctx, &countingAccess{err: errors.New("down")}, ws, "test_multi")
+	require.Len(t, fallback.Missing, 2, "without a live answer it lists what the action needs")
 }

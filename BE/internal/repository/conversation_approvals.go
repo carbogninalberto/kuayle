@@ -71,25 +71,27 @@ func resolveApproval(ctx context.Context, tx *sqlx.Tx, approval *domain.Conversa
 // ClaimApproval applies the actor's decision. Denial is final. Approval moves to
 // `approving`, which the caller completes after the effect; repeating an approval
 // returns the same claim so a client retry resumes rather than duplicates it.
-func (r *ConversationRepository) ClaimApproval(ctx context.Context, ws, conversation, id uuid.UUID, approve bool) (*domain.ConversationApproval, error) {
+// The boolean reports whether this call changed the approval's status, so a
+// repeated decision is not recorded twice.
+func (r *ConversationRepository) ClaimApproval(ctx context.Context, ws, conversation, id uuid.UUID, approve bool) (*domain.ConversationApproval, bool, error) {
 	actor, err := conversationActor(ctx, ws)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	tx, _, err := r.authorized(ctx, ws, conversation)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer tx.Rollback()
 	approval, err := lockApproval(ctx, tx, conversation, id, actor)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	switch approval.Status {
 	case "pending":
 		var expired bool
 		if err = tx.GetContext(ctx, &expired, `SELECT expires_at<=now() FROM conversation_approvals WHERE id=$1`, id); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		target := "denied"
 		if expired {
@@ -98,27 +100,27 @@ func (r *ConversationRepository) ClaimApproval(ctx context.Context, ws, conversa
 			target = "approving"
 		}
 		if err = resolveApproval(ctx, tx, approval, target, nil, nil); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		if err = tx.Commit(); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		if expired {
-			return approval, ErrApprovalExpired
+			return approval, true, ErrApprovalExpired
 		}
-		return approval, nil
+		return approval, true, nil
 	case "approving", "approved":
 		if approve {
-			return approval, nil
+			return approval, false, nil
 		}
 	case "denied":
 		if !approve {
-			return approval, nil
+			return approval, false, nil
 		}
 	case "expired":
-		return approval, ErrApprovalExpired
+		return approval, false, ErrApprovalExpired
 	}
-	return nil, ErrConversationConflict
+	return nil, false, ErrConversationConflict
 }
 
 // FinishApproval records the effect of a claimed approval exactly once.
