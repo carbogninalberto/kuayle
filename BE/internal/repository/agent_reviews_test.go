@@ -304,3 +304,44 @@ func TestReviewCommentsAreDueOnlyWhenRequestedAndFinished(t *testing.T) {
 	require.NoError(t, db.Get(&state, `SELECT comment_state FROM agent_reviews WHERE task_id=$1`, other.ID))
 	require.Equal(t, "failed", state)
 }
+
+// The review card can pick another model or server for the same harness; that
+// is a different review, while asking again for one that runs converges on it.
+func TestReviewsAreDistinctPerModelAndServer(t *testing.T) {
+	db, repo, ctx, task := reviewableTask(t)
+	ws := task.WorkspaceID
+	var server uuid.UUID
+	require.NoError(t, db.Get(&server, `INSERT INTO agent_model_servers(workspace_id,name,anthropic_base_url,encrypted_api_key,default_model) VALUES($1,'Gateway','https://models.example.test','x','opus') RETURNING id`, ws))
+	request := func(model string, server *uuid.UUID) domain.AgentReviewRequest {
+		r := reviewRequest("claude-code")
+		r.Model, r.ModelServerID = model, server
+		return r
+	}
+	first, record, err := repo.CreateReview(ctx, ws, *task.ConversationID, task.ID, request("opus", nil))
+	require.NoError(t, err)
+	require.Equal(t, 1, record.Attempt)
+	same, _, err := repo.CreateReview(ctx, ws, *task.ConversationID, task.ID, request("opus", nil))
+	require.NoError(t, err)
+	require.Equal(t, first.ID, same.ID)
+	other, otherRecord, err := repo.CreateReview(ctx, ws, *task.ConversationID, task.ID, request("sonnet", nil))
+	require.NoError(t, err)
+	require.NotEqual(t, first.ID, other.ID, "another model reviews independently")
+	require.Equal(t, "sonnet", other.Model)
+	require.Equal(t, 2, otherRecord.Attempt)
+	onServer, serverRecord, err := repo.CreateReview(ctx, ws, *task.ConversationID, task.ID, request("opus", &server))
+	require.NoError(t, err)
+	require.NotEqual(t, first.ID, onServer.ID, "the same model on another server reviews independently")
+	require.Equal(t, &server, onServer.ModelServerID)
+	require.Equal(t, 3, serverRecord.Attempt)
+	again, _, err := repo.CreateReview(ctx, ws, *task.ConversationID, task.ID, request("opus", nil))
+	require.NoError(t, err)
+	require.Equal(t, first.ID, again.ID, "an earlier running review of that model is still found")
+
+	// A failed review of that model is requested again as a new attempt.
+	_, err = db.Exec(`UPDATE agent_tasks SET state='failed' WHERE id=$1`, first.ID)
+	require.NoError(t, err)
+	retried, retriedRecord, err := repo.CreateReview(ctx, ws, *task.ConversationID, task.ID, request("opus", nil))
+	require.NoError(t, err)
+	require.NotEqual(t, first.ID, retried.ID)
+	require.Equal(t, 4, retriedRecord.Attempt)
+}

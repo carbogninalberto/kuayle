@@ -595,9 +595,12 @@ workspace policy and the provider/model checks of any coding task, and calls
 `CreateReview` under the conversation transaction. The task must be an
 implementing task in `awaiting_review` with a pull request and commit Kuayle
 published for its current attempt (the same records as `MergeTarget`). A
-request is idempotent per (task, published commit, harness): it returns the
-existing review unless that one failed or was cancelled, in which case a new
-`attempt` starts. Replaying the approval's request ID returns its review.
+request is idempotent per (task, published commit, harness, model, model
+server): it returns the newest such review unless it failed or was cancelled,
+in which case a new review starts. Another model or server picked on the
+approval card is a review of its own. `attempt` counts every review of the
+commit with that harness (unique per task, commit and harness). Replaying the
+approval's request ID returns its review.
 
 A review is an `agent_tasks` row with `kind='review'` and `review_of_task_id`,
 created by the approver in their issue conversation, with an `agent_reviews`

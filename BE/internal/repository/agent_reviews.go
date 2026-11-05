@@ -103,25 +103,22 @@ func (r *AgentTaskRepository) CreateReview(ctx context.Context, ws, conversation
 	if input.ExpectedCommit != "" && input.ExpectedCommit != published.CommitSHA {
 		return nil, nil, ErrReviewTargetChanged
 	}
-	attempt := 1
-	var previous struct {
-		TaskID  uuid.UUID `db:"task_id"`
-		Attempt int       `db:"attempt"`
-		State   string    `db:"state"`
-	}
-	err = tx.GetContext(ctx, &previous, `SELECT r.task_id,r.attempt,t.state FROM agent_reviews r JOIN agent_tasks t ON t.id=r.task_id
- WHERE r.reviewed_task_id=$1 AND r.commit_sha=$2 AND r.provider=$3 ORDER BY r.attempt DESC LIMIT 1`, reviewed, published.CommitSHA, input.Provider)
-	switch {
-	case err == nil && previous.State != "failed" && previous.State != "cancelled":
-		var existing domain.AgentTask
-		if err = tx.GetContext(ctx, &existing, `SELECT * FROM agent_tasks WHERE id=$1`, previous.TaskID); err != nil {
-			return nil, nil, err
-		}
+	// A review of this commit with the same harness, model and model server that
+	// has not failed or been cancelled is the one asked for; another model or
+	// server is a review of its own. Attempts count per commit and harness.
+	var existing domain.AgentTask
+	err = tx.GetContext(ctx, &existing, `SELECT t.* FROM agent_reviews r JOIN agent_tasks t ON t.id=r.task_id
+ WHERE r.reviewed_task_id=$1 AND r.commit_sha=$2 AND r.provider=$3 AND t.model=$4 AND t.model_server_id IS NOT DISTINCT FROM $5 AND t.state NOT IN ('failed','cancelled')
+ ORDER BY r.attempt DESC LIMIT 1`, reviewed, published.CommitSHA, input.Provider, input.Model, input.ModelServerID)
+	if err == nil {
 		review, err := getReview(ctx, tx, existing.ID)
 		return &existing, review, err
-	case err == nil:
-		attempt = previous.Attempt + 1
-	case !errors.Is(err, sql.ErrNoRows):
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return nil, nil, err
+	}
+	var attempt int
+	if err = tx.GetContext(ctx, &attempt, `SELECT COALESCE(max(attempt),0)+1 FROM agent_reviews WHERE reviewed_task_id=$1 AND commit_sha=$2 AND provider=$3`, reviewed, published.CommitSHA, input.Provider); err != nil {
 		return nil, nil, err
 	}
 	prompt := domain.AgentReviewPrompt(*published, input.Focus)
