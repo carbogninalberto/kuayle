@@ -25,7 +25,7 @@ func (r *LabelRepository) Create(ctx context.Context, label *domain.Label) error
 
 func (r *LabelRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Label, error) {
 	var label domain.Label
-	err := r.db.GetContext(ctx, &label, `SELECT * FROM labels WHERE id = $1 AND deleted_at IS NULL`, id)
+	err := r.db.GetContext(ctx, &label, `SELECT * FROM labels WHERE id = $1 AND deleted_at IS NULL AND `+labelVisible(ctx, "labels"), id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -37,20 +37,20 @@ func (r *LabelRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.La
 func (r *LabelRepository) ListByWorkspace(ctx context.Context, workspaceID uuid.UUID, projectID *uuid.UUID) ([]domain.Label, error) {
 	var labels []domain.Label
 	if projectID == nil {
-		err := r.db.SelectContext(ctx, &labels, `SELECT * FROM labels WHERE workspace_id = $1 AND deleted_at IS NULL ORDER BY name`, workspaceID)
+		err := r.db.SelectContext(ctx, &labels, `SELECT * FROM labels WHERE workspace_id = $1 AND deleted_at IS NULL AND `+labelVisible(ctx, "labels")+` ORDER BY name`, workspaceID)
 		return labels, err
 	}
-	err := r.db.SelectContext(ctx, &labels, `SELECT * FROM labels WHERE workspace_id = $1 AND (project_id IS NULL OR project_id = $2) AND deleted_at IS NULL ORDER BY name`, workspaceID, *projectID)
+	err := r.db.SelectContext(ctx, &labels, `SELECT * FROM labels WHERE workspace_id = $1 AND (project_id IS NULL OR project_id = $2) AND deleted_at IS NULL AND `+labelVisible(ctx, "labels")+` ORDER BY name`, workspaceID, *projectID)
 	return labels, err
 }
 
 func (r *LabelRepository) Update(ctx context.Context, label *domain.Label) error {
-	query := `UPDATE labels SET name = $1, color = $2, description = $3, updated_at = NOW() WHERE id = $4 RETURNING updated_at`
+	query := `UPDATE labels SET name = $1, color = $2, description = $3, updated_at = NOW() WHERE id = $4 AND ` + labelVisible(ctx, "labels") + ` RETURNING updated_at`
 	return r.db.QueryRowContext(ctx, query, label.Name, label.Color, label.Description, label.ID).Scan(&label.UpdatedAt)
 }
 
 func (r *LabelRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.ExecContext(ctx, `UPDATE labels SET deleted_at = NOW() WHERE id = $1`, id)
+	_, err := r.db.ExecContext(ctx, `UPDATE labels SET deleted_at = NOW() WHERE id = $1 AND `+labelVisible(ctx, "labels"), id)
 	return err
 }
 

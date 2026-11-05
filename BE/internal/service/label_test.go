@@ -9,6 +9,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/repository"
+	"github.com/kuayle/kuayle-backend/internal/realtime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -177,4 +178,32 @@ func TestIssueService_RecordLabelNamesWhenMoveDropsLabels(t *testing.T) {
 
 	repo.On("GetLabels", ctx, issueID).Return([]domain.Label{{Name: "global"}}, nil).Once()
 	svc.recordLabelNames(ctx, issueID, userID, "global") // unchanged: no history call
+}
+
+// A move that also sends label_ids (even empty) still records what the move
+// removed: the snapshot is taken before the repository drops the old labels.
+func TestIssueService_UpdateRecordsLabelsDroppedByMoveWithLabelIDs(t *testing.T) {
+	issueRepo := new(mockIssueRepo)
+	historyRepo := new(mockIssueHistoryRepo)
+	svc := NewIssueService(issueRepo, new(mockTeamRepo), new(mockTeamStatusRepo), historyRepo, realtime.NewHub(), newTestNotifSvc())
+
+	ctx := context.Background()
+	wsID, userID, issueID, projectA := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	issue := &domain.Issue{ID: issueID, WorkspaceID: wsID, Identifier: "ENG-1", Title: "T", ProjectID: &projectA}
+
+	issueRepo.On("GetByIdentifier", ctx, wsID, "ENG-1").Return(issue, nil)
+	issueRepo.On("GetLabels", ctx, issueID).Return([]domain.Label{{Name: "Launch blocker"}}, nil).Once()
+	issueRepo.On("UpdateContent", repository.WithIssueHistoryActor(ctx, userID), mock.AnythingOfType("*domain.Issue"), false, false).Return(nil)
+	issueRepo.On("SetLabels", ctx, issueID, []uuid.UUID{}).Return(nil)
+	issueRepo.On("GetLabels", ctx, issueID).Return([]domain.Label{}, nil)
+	issueRepo.On("GetAssignees", ctx, issueID).Return([]uuid.UUID{}, nil)
+	historyRepo.On("Create", ctx, issueID, userID, "project", mock.Anything, mock.Anything).Return(nil)
+	historyRepo.On("Create", ctx, issueID, userID, "labels", mock.MatchedBy(func(v *string) bool {
+		return *v == "Launch blocker"
+	}), mock.MatchedBy(func(v *string) bool { return *v == "" })).Return(nil).Once()
+
+	noProject := ""
+	_, err := svc.Update(ctx, wsID, userID, "ENG-1", dto.UpdateIssueRequest{ProjectID: &noProject, LabelIDs: []string{}})
+	require.NoError(t, err)
+	historyRepo.AssertCalled(t, "Create", ctx, issueID, userID, "labels", mock.Anything, mock.Anything)
 }

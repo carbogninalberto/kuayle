@@ -372,8 +372,10 @@ func (r *IssueRepository) UpdateContent(ctx context.Context, issue *domain.Issue
 	if err != nil {
 		return err
 	}
-	// Labels scoped to a project the issue is no longer in stop applying, in
-	// the same transaction as the move.
+	// The UPDATE above holds the issue row lock until commit, so a concurrent
+	// SetLabels waits and then checks scope against the new project. Labels
+	// scoped to a project the issue is no longer in stop applying, in the same
+	// transaction as the move.
 	if _, err = tx.ExecContext(ctx, `DELETE FROM issue_labels il USING labels l WHERE il.issue_id = $1 AND l.id = il.label_id
 		AND l.project_id IS NOT NULL AND l.project_id IS DISTINCT FROM $2::uuid`, issue.ID, issue.ProjectID); err != nil {
 		return err
@@ -393,6 +395,11 @@ func (r *IssueRepository) SetLabels(ctx context.Context, issueID uuid.UUID, labe
 	}
 	defer tx.Rollback()
 	if err := requireVisible(ctx, tx, issueVisible(ctx, uuidSQL(issueID))); err != nil {
+		return err
+	}
+	// Serializes with a concurrent project move: the move's UPDATE takes the
+	// same row lock, and the scope check below then sees the committed project.
+	if _, err := tx.ExecContext(ctx, `SELECT 1 FROM issues WHERE id = $1 FOR UPDATE`, issueID); err != nil {
 		return err
 	}
 

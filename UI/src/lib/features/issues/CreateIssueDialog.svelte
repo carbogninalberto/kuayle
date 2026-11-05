@@ -384,10 +384,19 @@
 		loadStatusesForTeam(id);
 	}
 
+	/** Labels of another project do not apply to the current one: call after projectId changes. */
+	function pruneScopedLabels() {
+		labelIds = labelIds.filter((labelId) => {
+			const scope = labels.find((l) => l.id === labelId)?.project_id;
+			return !scope || scope === projectId;
+		});
+	}
+
 	function clearIncompatibleTeamSelections(nextTeamId: string) {
 		const project = projects.find((p) => p.id === projectId);
 		if (projectId && (!project || (project.team_id && project.team_id !== nextTeamId))) {
 			projectId = null;
+			pruneScopedLabels();
 		}
 		const cycle = cycles?.find((c) => c.id === cycleId);
 		if (cycleId && (!cycle || cycle.team_id !== nextTeamId)) {
@@ -533,11 +542,7 @@
 				value={projectId}
 				onchange={(id) => {
 					projectId = id;
-					// Labels of another project do not apply to this one.
-					labelIds = labelIds.filter((labelId) => {
-						const scope = labels.find((l) => l.id === labelId)?.project_id;
-						return !scope || scope === id;
-					});
+					pruneScopedLabels();
 				}}
 			>
 				{#snippet trigger(props)}

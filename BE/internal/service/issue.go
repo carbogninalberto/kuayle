@@ -682,9 +682,11 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 		issue.SortOrder = *req.SortOrder
 	}
 
-	var labelsBeforeMove string
-	if movedProject && req.LabelIDs == nil {
-		labelsBeforeMove = s.labelNames(ctx, issue.ID)
+	// Taken before the move: it drops labels of the project the issue leaves,
+	// also when label_ids replaces them afterwards.
+	var labelsBefore string
+	if movedProject || req.LabelIDs != nil {
+		labelsBefore = s.labelNames(ctx, issue.ID)
 	}
 	if err := s.issueRepo.UpdateContent(repository.WithIssueHistoryActor(ctx, userID), issue, changes.fieldSet["title"], changes.fieldSet["description"]); err != nil {
 		return nil, err
@@ -692,17 +694,11 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 
 	if movedProject && req.LabelIDs == nil {
 		// The repository dropped labels scoped to the project the issue left.
-		s.recordLabelNames(ctx, issue.ID, userID, labelsBeforeMove)
+		s.recordLabelNames(ctx, issue.ID, userID, labelsBefore)
 	}
 
 	if req.LabelIDs != nil {
 		// Track label changes
-		oldLabels, _ := s.issueRepo.GetLabels(ctx, issue.ID)
-		oldNames := make([]string, len(oldLabels))
-		for i, l := range oldLabels {
-			oldNames[i] = l.Name
-		}
-
 		labelUUIDs := make([]uuid.UUID, len(req.LabelIDs))
 		for i, lid := range req.LabelIDs {
 			labelUUIDs[i], _ = uuid.Parse(lid)
@@ -711,13 +707,8 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 			log.WithError(err).Warn("failed to set labels")
 		}
 
-		newLabels, _ := s.issueRepo.GetLabels(ctx, issue.ID)
-		newNames := make([]string, len(newLabels))
-		for i, l := range newLabels {
-			newNames[i] = l.Name
-		}
-		oldStr := strings.Join(oldNames, ", ")
-		newStr := strings.Join(newNames, ", ")
+		oldStr := labelsBefore
+		newStr := s.labelNames(ctx, issue.ID)
 		if oldStr != newStr {
 			s.recordHistory(ctx, issue.ID, userID, "labels", &oldStr, &newStr)
 			changes.addField("labels")
