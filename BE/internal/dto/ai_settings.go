@@ -38,3 +38,11 @@ type ExpandIssueDescriptionResponse struct {
 type ExpandIssueDescriptionRequest struct {
 	SelectedText *string `json:"selected_text" validate:"omitempty,max=8000"`
 }
+
+// ExpandDraftIssueDescriptionRequest carries an unsaved issue so its
+// description can be expanded during creation.
+type ExpandDraftIssueDescriptionRequest struct {
+	Title        string  `json:"title" validate:"max=500"`
+	Description  string  `json:"description" validate:"max=100000"`
+	SelectedText *string `json:"selected_text" validate:"omitempty,max=8000"`
+}

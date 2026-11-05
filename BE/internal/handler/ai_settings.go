@@ -74,19 +74,43 @@ func (h *AISettingsHandler) Update(c echo.Context) error {
 
 func (h *AISettingsHandler) ExpandIssueDescription(c echo.Context) error {
 	var req dto.ExpandIssueDescriptionRequest
-	if err := c.Bind(&req); err != nil {
-		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
+	if ok, err := bindExpansionRequest(c, &req); !ok {
+		return err
 	}
-	if err := validate.Struct(&req); err != nil {
+	ws := c.Get("workspace").(*domain.Workspace)
+	description, err := h.aiSvc.ExpandIssueDescription(c.Request().Context(), ws.ID, c.Param("identifier"), req.SelectedText)
+	return expansionResponse(c, description, err)
+}
+
+// ExpandDraftIssueDescription expands the description of an issue that is
+// still being created; it never reads stored issues.
+func (h *AISettingsHandler) ExpandDraftIssueDescription(c echo.Context) error {
+	var req dto.ExpandDraftIssueDescriptionRequest
+	if ok, err := bindExpansionRequest(c, &req); !ok {
+		return err
+	}
+	ws := c.Get("workspace").(*domain.Workspace)
+	description, err := h.aiSvc.ExpandDraftIssueDescription(c.Request().Context(), ws.ID, req.Title, req.Description, req.SelectedText)
+	return expansionResponse(c, description, err)
+}
+
+// bindExpansionRequest binds and validates req. When it reports false the
+// error response has been written and its result must be returned.
+func bindExpansionRequest(c echo.Context, req any) (bool, error) {
+	if err := c.Bind(req); err != nil {
+		return false, response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
+	}
+	if err := validate.Struct(req); err != nil {
 		details := make([]dto.ErrorDetail, 0)
 		for _, e := range validate.FormatErrors(err) {
 			details = append(details, dto.ErrorDetail{Field: e["field"], Message: e["message"]})
 		}
-		return response.ValidationError(c, details)
+		return false, response.ValidationError(c, details)
 	}
+	return true, nil
+}
 
-	ws := c.Get("workspace").(*domain.Workspace)
-	description, err := h.aiSvc.ExpandIssueDescription(c.Request().Context(), ws.ID, c.Param("identifier"), req.SelectedText)
+func expansionResponse(c echo.Context, description string, err error) error {
 	if err != nil {
 		switch {
 		case errors.Is(err, repository.ErrPrivateWorkspaceOperation):

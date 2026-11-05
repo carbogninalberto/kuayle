@@ -180,6 +180,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	// Issues
 	scoped(ws, http.MethodGet, "/issues", h.issue.List, "issues:read")
 	scoped(ws, http.MethodPost, "/issues", h.issue.Create, "issue:create")
+	scoped(ws, http.MethodPost, "/issues/expand-description", h.aiSettings.ExpandDraftIssueDescription, "issue:create")
 	scoped(ws, http.MethodPatch, "/issues/bulk", h.issue.BulkUpdate, "issue:update")
 	scoped(ws, http.MethodDelete, "/issues/bulk", h.issue.BulkDelete, "issue:delete_own")
 	scoped(ws, http.MethodGet, "/issues/:identifier", h.issue.Get, "issues:read")

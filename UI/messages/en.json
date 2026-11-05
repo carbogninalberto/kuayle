@@ -1323,6 +1323,8 @@
 	"sharedComponents.create_issue.assignees_count": "{count} assignees",
 	"sharedComponents.create_issue.create_issue": "Create issue",
 	"sharedComponents.create_issue.create_more": "Create more",
+	"sharedComponents.create_issue.expand": "Expand",
+	"sharedComponents.create_issue.collapse": "Collapse",
 	"sharedComponents.create_issue.cycle": "Cycle",
 	"sharedComponents.create_issue.description_placeholder": "Add description...",
 	"sharedComponents.create_issue.due_date_placeholder": "Due date",

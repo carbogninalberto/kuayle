@@ -196,3 +196,18 @@ func TestGitHubAppSetupRequiresWorkspaceManage(t *testing.T) {
 		})
 	}
 }
+
+// Draft issues can be expanded with AI by anyone allowed to create issues;
+// the static path must not be captured by the per-issue routes.
+func TestDraftDescriptionExpansionRequiresIssueCreate(t *testing.T) {
+	e := echo.New()
+	registerRoutes(e, &appHandlers{}, testMiddleware(noopMiddleware()))
+	found := false
+	for _, route := range e.Routes() {
+		if route.Method == http.MethodPost && route.Path == "/api/workspaces/:slug/issues/expand-description" {
+			found = true
+			require.Equal(t, "perm:issue:create", route.Name)
+		}
+	}
+	require.True(t, found, "draft expansion route is not registered")
+}

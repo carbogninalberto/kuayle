@@ -31,6 +31,7 @@
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { StatusSelector, PrioritySelector, AssigneeSelector, LabelSelector, ProjectSelector, CycleSelector } from './selectors';
 	import { createKeyboardHandler } from '$lib/utils/keyboard';
+	import { reworkDescriptionSelection } from './description-rework';
 	import {
 		ChevronUp, ChevronDown, ChevronRight, Plus, CalendarDays,
 		Copy, Link as LinkIcon, GitBranch, SquareMousePointer,
@@ -293,15 +294,8 @@
 	}
 
 
-	async function reworkSelectedDescriptionText(selectedText: string): Promise<string> {
-		try {
-			const result = await expandIssueDescription(slug, issue.identifier, { selected_text: selectedText });
-			appToast.success(m['issue.toast.selection_reworked']());
-			return result.description;
-		} catch (err: any) {
-			appToast.apiError(err, m['issue.toast.failed_rework']());
-			return '';
-		}
+	function reworkSelectedDescriptionText(selectedText: string): Promise<string> {
+		return reworkDescriptionSelection(() => expandIssueDescription(slug, issue.identifier, { selected_text: selectedText }));
 	}
 
 	async function updateField(field: string, value: any) {
