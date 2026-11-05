@@ -1120,7 +1120,21 @@ test('opens the attempt diff beside the chat and closes it', async ({ page }) =>
 	await page.getByRole('button', { name: 'View diff' }).click();
 	const panel = page.getByRole('region', { name: 'Changes' });
 	await expect(panel.getByText('src/text.js')).toBeVisible();
-	await expect(panel.getByText('+1', { exact: true })).toBeVisible();
+	await expect(panel.getByTestId('diff-totals')).toHaveText('1 files +1 −1');
+	await expect(panel.getByRole('button', { name: /src\/text\.js/ })).toContainText('+1');
+	// Search filters without touching collapse state; clearing restores it.
+	const search = panel.getByRole('searchbox', { name: 'Search changes' });
+	await search.fill('nomatch');
+	await expect(panel.getByText('No files match “nomatch”.')).toBeVisible();
+	await panel.getByRole('button', { name: 'Clear search' }).click();
+	await expect(search).toHaveValue('');
+	await panel.getByRole('button', { name: 'Collapse all files' }).click();
+	await expect(panel.getByText('+export const kebab', { exact: false })).toHaveCount(0);
+	await search.fill('kebab');
+	await expect(panel.getByText('+export const kebab', { exact: false })).toBeVisible();
+	await search.fill('');
+	await expect(panel.getByText('+export const kebab', { exact: false })).toHaveCount(0);
+	await panel.getByRole('button', { name: 'Expand all files' }).click();
 	await expect(panel.getByText('+export const kebab = "<script>window.evil=1</script>";')).toBeVisible();
 	expect(await page.evaluate(() => (window as any).evil)).toBeUndefined();
 	await expect(page.getByRole('separator', { name: 'Resize changes panel' })).toBeVisible();
