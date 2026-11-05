@@ -132,4 +132,9 @@ type Runtime interface {
 	// UpdateResources sets the CPU, memory and process limits of every
 	// container of the machine (running or not) from its size.
 	UpdateResources(context.Context, *domain.DevMachine) error
+	// RemoveContainers force-removes the machine's containers with these IDs.
+	RemoveContainers(context.Context, *domain.DevMachine, []string) error
+	// RemoveFinishedRunContainers removes the machine's stopped agent run
+	// and check containers. Call it only when no run is unfinished.
+	RemoveFinishedRunContainers(context.Context, *domain.DevMachine) error
 }
