@@ -120,9 +120,12 @@ func (s *AssistantApprovals) Resolve(ctx context.Context, ws, conversation, id u
 }
 
 // ResolveWithModel is Resolve with the harness and model the approver picked
-// on the card for the coding agent the approval starts.
+// on the card for the coding agent the approval starts. Only delegate_issue,
+// request_agent_review and follow_up_task use it; every other action ignores it
+// (the action is known only once the approval is claimed). A denial ignores it
+// too, so it is not validated.
 func (s *AssistantApprovals) ResolveWithModel(ctx context.Context, ws, conversation, id uuid.UUID, approve bool, choice ModelChoice) (*domain.ConversationApproval, error) {
-	if !validModelName(choice.Model) || !validModelName(choice.Harness) {
+	if approve && (!validModelName(choice.Model) || !validModelName(choice.Harness)) {
 		return nil, repository.ErrConversationInvalid
 	}
 	approval, err := s.conversations.ClaimApproval(ctx, ws, conversation, id, approve)
@@ -207,7 +210,7 @@ func delegateIssue(ctx context.Context, conversations *repository.ConversationRe
 	// Match the task composer's defaults: the explicit model, else the default
 	// model server's model and thinking level when that server speaks the
 	// harness's protocol.
-	request.Model, request.Thinking = chatModel(options, provider, model)
+	request.Model, request.Thinking, request.ModelServerID = chatModel(options, provider, model)
 	return tasks.Create(ctx, ws, chat.ID, request)
 }
 
@@ -344,7 +347,7 @@ func (s *AssistantApprovals) review(ctx context.Context, ws, conversation uuid.U
 		return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, "That coding agent is not available in this workspace")
 	}
 	request := domain.AgentReviewRequest{RequestID: approval.RequestID, Provider: harness, Focus: payload.Focus, PostToPullRequest: payload.PostToPullRequest, ExpectedCommit: payload.Commit}
-	request.Model, request.Thinking = chatModel(options, harness, model)
+	request.Model, request.Thinking, request.ModelServerID = chatModel(options, harness, model)
 	task, _, err := s.reviews.RequestReview(ctx, ws, chat.ID, payload.TaskID, request)
 	switch {
 	case errors.Is(err, repository.ErrNoReviewTarget):

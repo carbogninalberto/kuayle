@@ -613,7 +613,10 @@ inherits the proposed model, and with no choice the workspace/project/team
 default model server applies as before. The harness must be allowed in the
 workspace. Reviews still default to the implementing task's harness. A
 follow-up continues on the task's own harness, so only its model changes
-(`agent_tasks.model` is updated when the attempt is queued).
+(`agent_tasks.model`, `thinking` and `model_server_id` are updated together when the
+attempt is queued, using the server that offers the new model). An explicit model
+also picks the thinking level and server of the server that offers it. Harness and
+model on an approval other than these three, or on a denial, are ignored.
 
 ### Previews and ports from chat
 

@@ -93,11 +93,26 @@ func (s *AgentTaskService) Retry(ctx context.Context, ws, id uuid.UUID, input do
 	if err != nil {
 		return nil, err
 	}
-	model := task.Model
+	model, thinking, serverID := task.Model, task.Thinking, task.ModelServerID
 	if input.Model != "" {
 		model = input.Model
+		if input.Model != task.Model {
+			// Keep thinking and the model server consistent with the new model.
+			servers, err := s.machines.ListModelServers(ctx, ws)
+			if err != nil {
+				return nil, err
+			}
+			thinking, serverID = "", nil
+			if server := serverForModel(servers, task.Provider, model, task.ModelServerID); server != nil {
+				thinking = server.Thinking
+				if !server.IsDefault || task.ModelServerID != nil {
+					serverID = &server.ID
+				}
+			}
+		}
+		input.Thinking, input.ModelServerID = thinking, serverID
 	}
-	if err = s.validateRequest(ctx, ws, domain.AgentTaskRequest{Prompt: input.Prompt, Provider: task.Provider, Model: model, Thinking: task.Thinking, ModelServerID: task.ModelServerID}); err != nil {
+	if err = s.validateRequest(ctx, ws, domain.AgentTaskRequest{Prompt: input.Prompt, Provider: task.Provider, Model: model, Thinking: thinking, ModelServerID: serverID}); err != nil {
 		return nil, err
 	}
 	return s.Repo.Retry(ctx, ws, id, input)

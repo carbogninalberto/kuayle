@@ -1,6 +1,8 @@
 package service
 
 import (
+	"github.com/google/uuid"
+	"github.com/kuayle/kuayle-backend/internal/dto"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -26,20 +28,55 @@ func (c ModelChoice) over(harness, model string) (string, string) {
 	return harness, model
 }
 
-// chatModel resolves the model and thinking level of an agent started from
-// chat: the explicit model when given, otherwise the default model server's
-// model, when that server speaks the harness's protocol.
-func chatModel(options *AgentTaskOptions, harness, model string) (string, string) {
+// serverForModel picks the model server that can run the model on the harness:
+// the preferred one, then the default, then any other that lists it. A server
+// with no model list accepts any model. Nil means none offers it.
+func serverForModel(servers []dto.ModelServerResponse, harness, model string, prefer *uuid.UUID) *dto.ModelServerResponse {
+	var found *dto.ModelServerResponse
+	rank := 0
+	for i := range servers {
+		server := &servers[i]
+		if !containsString(server.Harnesses, harness) || (len(server.Models) > 0 && !containsString(server.Models, model)) {
+			continue
+		}
+		score := 1
+		if server.IsDefault {
+			score = 2
+		}
+		if prefer != nil && server.ID == *prefer {
+			score = 3
+		}
+		if score > rank {
+			found, rank = server, score
+		}
+	}
+	return found
+}
+
+// chatModel resolves the model, thinking level and model server of an agent
+// started from chat. Without an explicit model it is the default model
+// server's model and thinking, when that server speaks the harness's protocol
+// (no server ID: the default applies). An explicit model takes the thinking
+// level, and the server when it is not the default, of the server that offers it.
+func chatModel(options *AgentTaskOptions, harness, model string) (string, string, *uuid.UUID) {
 	var defaultModel, thinking string
 	for _, server := range options.ModelServers {
 		if server.IsDefault && containsString(server.Harnesses, harness) {
 			defaultModel, thinking = server.DefaultModel, server.Thinking
 		}
 	}
-	if model != "" {
-		return model, thinking
+	if model == "" {
+		return defaultModel, thinking, nil
 	}
-	return defaultModel, thinking
+	server := serverForModel(options.ModelServers, harness, model, nil)
+	if server == nil {
+		// No server offers it: validation rejects the request.
+		return model, "", nil
+	}
+	if server.IsDefault {
+		return model, server.Thinking, nil
+	}
+	return model, server.Thinking, &server.ID
 }
 
 // validModelName accepts an empty name (use the default) or a short printable one.
