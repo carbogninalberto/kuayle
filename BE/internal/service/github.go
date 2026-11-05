@@ -40,6 +40,7 @@ type GlobalGitHubAppConfig struct {
 }
 
 type GitHubService struct {
+	apps           *appCache
 	ghRepo         *repository.GitHubRepository
 	issueRepo      repository.IssueRepo
 	teamRepo       repository.TeamRepo
@@ -116,6 +117,7 @@ func NewGitHubService(
 ) *GitHubService {
 	return &GitHubService{
 		ghRepo:         ghRepo,
+		apps:           &appCache{items: map[uuid.UUID]cachedApp{}},
 		issueRepo:      issueRepo,
 		teamRepo:       teamRepo,
 		teamStatusRepo: teamStatusRepo,
@@ -259,7 +261,7 @@ func (s *GitHubService) HandleManifestCallback(ctx context.Context, workspaceID 
 		log.WithFields(log.Fields{
 			"status": resp.StatusCode,
 		}).Warn("GitHub manifest conversion failed")
-		return nil, fmt.Errorf("GitHub API error %d: %s", resp.StatusCode, body)
+		return nil, &gh.APIError{Status: resp.StatusCode, Message: string(body)}
 	}
 
 	var result struct {

@@ -169,7 +169,9 @@ func TestApprovalToolRunsOnTheTaskMachineAfterApproval(t *testing.T) {
 
 	a = f.attempt(t, "Run the e2e for login on ENG-1")
 	provider, requests := scriptedProvider(t, toolCallStream("custom_run_e2e", `{"identifier":"eng-1","inputs":{"spec":"; rm -rf / $(id)"}}`), finalAnswer)
-	require.NoError(t, f.service.converse(f.ctx, a, provider.URL, "key", []chatCompletionMessage{{Role: "user", Content: "Run"}}, func(string) error { return nil }))
+	events := auditEvents(t, func() {
+		require.NoError(t, f.service.converse(f.ctx, a, provider.URL, "key", []chatCompletionMessage{{Role: "user", Content: "Run"}}, func(string) error { return nil }))
+	})
 	history := (*requests)[1]["messages"].([]any)
 	require.Contains(t, history[len(history)-1].(map[string]any)["content"], "pending_user_approval")
 	require.Zero(t, runs(), "asking runs nothing")
@@ -178,6 +180,16 @@ func TestApprovalToolRunsOnTheTaskMachineAfterApproval(t *testing.T) {
 	require.Len(t, h.Approvals, 1)
 	approval := h.Approvals[0]
 	require.Equal(t, "run_custom_tool", approval.Action)
+	requested := 0
+	for _, event := range events {
+		if event.Data["action"] == "assistant.approval_requested" {
+			requested++
+			require.Equal(t, "run_custom_tool", event.Data["tool"])
+			require.Equal(t, approval.ID.String(), event.Data["approval_id"])
+			require.Equal(t, "ENG-1", event.Data["target"])
+		}
+	}
+	require.Equal(t, 1, requested, "a custom tool's approval request is audited like any other")
 	var payload domain.CustomToolRunPayload
 	require.NoError(t, json.Unmarshal(approval.Payload, &payload))
 	require.Equal(t, "ENG-1", payload.Identifier)

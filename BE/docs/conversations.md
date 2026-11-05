@@ -743,6 +743,32 @@ refusals, starts and failures go to the audit log. The instance restarts during
 the run, so the approval card follows `/api/system/update-status` and the
 assistant follows progress with `get_instance_version`.
 
+### Assistant action policies
+
+`assistantActionPolicies` in
+[assistant_guard.go](../internal/service/assistant_guard.go) is the one
+declaration of what each assistant action needs: the GitHub App permissions it
+calls and who may do it. Every approval tool and every tool that calls GitHub for
+a pull request must have an entry, and every permission an entry names must be in
+the App manifest (`githubAppPermissions`); a unit test enforces both, so no entry
+asks for a permission before its tool exists. `authorizeAssistantAction` is the
+single role check, made when an approval is requested and again, against the
+current role, when it is approved; guests and former members are refused.
+Admin-or-creator actions (merging and the four pull request changes) make it
+where the task's creator is known. Custom tools (`run_custom_tool`) go through
+the same check and audit.
+
+Before an approval is created its GitHub permissions are checked live against
+the app and installation (cached briefly for requests, never when approving). A
+gap is shown on the approval card with what to grant and where; approving
+re-checks and refuses while it remains, and a GitHub 403 for a missing permission
+names the permissions that are still missing. A read tool with a gap fails with
+the same message instead of calling GitHub. When GitHub cannot be asked, the gap
+is only a warning. The audit log records `assistant.approval_requested`,
+`request_refused`, `approval_approved`, `approval_denied`, `approval_expired`,
+`action_executed`, `action_failed` and `action_error` with the actor, tool,
+approval and target, each decision and outcome once.
+
 ### Pull request tools
 
 `get_pull_request`, `get_pull_request_checks` and `list_pull_request_comments`

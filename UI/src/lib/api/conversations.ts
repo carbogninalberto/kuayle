@@ -246,6 +246,13 @@ export interface UpgradePayload {
 	latest_version: string;
 	changelog?: string;
 }
+// GitHub App access an action needs but the installation lacks; any approval payload may carry it.
+export interface GitHubAccessGap {
+	missing: { name: string; level: string }[];
+	settings_url?: string;
+	unverified?: boolean;
+	message: string;
+}
 export type ConversationApproval = ApprovalBase &
 	(
 		| { action: 'delegate_issue'; payload: DelegationPayload }

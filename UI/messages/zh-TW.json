@@ -2890,5 +2890,8 @@
 	"settings.github.app_setup.check_again": "重新檢查",
 	"settings.github.app_setup.checking": "正在檢查…",
 	"settings.github.app_setup.opens_new_tab": "（在新分頁中開啟）",
-	"settings.github.app_setup.load_failed": "無法檢查 GitHub App 設定。"
+	"settings.github.app_setup.load_failed": "無法檢查 GitHub App 設定。",
+	"assistant.github_access_title": "缺少 GitHub App 權限",
+	"assistant.github_access_link": "開啟 GitHub App 設定",
+	"assistant.github_access_unverified_title": "無法驗證 GitHub App 權限"
 }

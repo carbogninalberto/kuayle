@@ -8,9 +8,11 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	gh "github.com/kuayle/kuayle-backend/pkg/github"
 	log "github.com/sirupsen/logrus"
@@ -25,6 +27,7 @@ var githubAppPermissions = map[string]string{
 	"metadata":      "read",
 	"issues":        "read",
 	"checks":        "read",
+	"statuses":      "read",
 }
 
 var githubAppEvents = []string{
@@ -193,4 +196,94 @@ func (s *GitHubService) GetAppSetup(ctx context.Context, workspaceID uuid.UUID) 
 	result := evaluateGitHubAppSetup(app, installation)
 	result.Managed = resp.Managed
 	return result, nil
+}
+
+// permissionGap lists the needed permissions the installation lacks. A
+// permission the app itself does not request is fixed in the app's settings;
+// one the app requests but the installation has not accepted is fixed on the
+// installation's page.
+func permissionGap(needs, appPermissions, installationPermissions map[string]string, appURL, installationURL string) *domain.GitHubAccessGap {
+	var missing []domain.GitHubPermissionNeed
+	appLacks := false
+	for name, level := range needs {
+		if githubPermissionRank(installationPermissions[name]) >= githubPermissionRank(level) {
+			continue
+		}
+		missing = append(missing, domain.GitHubPermissionNeed{Name: name, Level: level})
+		if githubPermissionRank(appPermissions[name]) < githubPermissionRank(level) {
+			appLacks = true
+		}
+	}
+	link := installationURL
+	if appLacks || link == "" {
+		link = appURL
+	}
+	return newGitHubAccessGap(missing, link)
+}
+
+// PermissionGap checks the live GitHub App and installation against the
+// permissions an assistant tool needs. An unreachable GitHub is an error, not a gap.
+func (s *GitHubService) PermissionGap(ctx context.Context, workspaceID uuid.UUID, needs map[string]string) (*domain.GitHubAccessGap, error) {
+	inst, err := s.ghRepo.GetInstallationByWorkspace(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	if inst == nil || inst.InstallationID <= 0 {
+		return &domain.GitHubAccessGap{Message: "The GitHub App is not installed for this workspace. Connect it in Settings → Integrations → GitHub."}, nil
+	}
+	client, _, err := s.getClient(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	app, err := s.appFor(ctx, workspaceID, client)
+	if err != nil {
+		return nil, err
+	}
+	installation, err := client.GetInstallationContext(ctx, inst.InstallationID)
+	if err != nil {
+		return nil, err
+	}
+	return permissionGap(needs, app.Permissions, installation.Permissions,
+		githubAppSettingsURL(app.Slug, app.Owner.Login, app.Owner.Type), safeGitHubPageURL(installation.HTMLURL)), nil
+}
+
+// appCache remembers workspaces' GitHub Apps; copying a service shares it.
+type appCache struct {
+	mu    sync.Mutex
+	items map[uuid.UUID]cachedApp
+}
+
+type cachedApp struct {
+	app     *gh.App
+	expires time.Time
+}
+
+// appFor returns the workspace's GitHub App, reading it from GitHub at most
+// once per githubAppTTL. Only the link to the settings page and the app's own
+// permissions come from it; whether the installation grants a permission is
+// always read live.
+func (s *GitHubService) appFor(ctx context.Context, ws uuid.UUID, client *gh.Client) (*gh.App, error) {
+	cache := s.apps
+	if cache == nil {
+		return client.GetApp(ctx)
+	}
+	cache.mu.Lock()
+	hit, ok := cache.items[ws]
+	cache.mu.Unlock()
+	if ok && time.Now().Before(hit.expires) {
+		return hit.app, nil
+	}
+	app, err := client.GetApp(ctx)
+	if err != nil {
+		return nil, err
+	}
+	cache.mu.Lock()
+	if cache.items == nil {
+		cache.items = map[uuid.UUID]cachedApp{}
+	}
+	cache.items[ws] = cachedApp{app: app, expires: time.Now().Add(githubAppTTL)}
+	cache.mu.Unlock()
+	return app, nil
 }

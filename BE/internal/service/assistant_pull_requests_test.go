@@ -490,12 +490,19 @@ func TestApprovedPullRequestChangesRunAsTheApproverAndAreBoundToThePullRequest(t
 			_, message, err = approvals.applyPullRequestAction(ctx, f.ws, approval)
 			require.NoError(t, err)
 			require.Empty(t, message)
-			for _, actor := range []uuid.UUID{f.other, f.guest, uuid.New()} {
+			for _, refused := range []struct {
+				actor func(*prFixture) uuid.UUID
+				want  string
+			}{
+				{func(f *prFixture) uuid.UUID { return f.other }, "Only workspace admins or the task's creator"},
+				{func(f *prFixture) uuid.UUID { return f.guest }, "You no longer have access to this workspace"},
+				{func(*prFixture) uuid.UUID { return uuid.New() }, "You no longer have access to this workspace"},
+			} {
 				f = newPRFixture()
-				approvals, approval = approvalFor(f, actor, action, tc.payload)
+				approvals, approval = approvalFor(f, refused.actor(f), action, tc.payload)
 				_, message, err = approvals.applyPullRequestAction(ctx, f.ws, approval)
 				require.NoError(t, err)
-				require.Contains(t, message, "Only workspace admins or the task's creator")
+				require.Contains(t, message, refused.want)
 				require.Empty(t, f.github.calls, "a refused approval changes nothing on GitHub")
 			}
 
@@ -524,7 +531,7 @@ func TestApprovedPullRequestChangesReportGitHubRefusalsWithTheNextStep(t *testin
 		want      string
 		transient bool
 	}{
-		"app lacks permission": {&gh.APIError{Status: 403, Message: "Resource not accessible by integration"}, "resolve_review_thread", "lacks the permission", false},
+		"app lacks permission": {&gh.APIError{Status: 403, Message: "Resource not accessible by integration"}, "resolve_review_thread", "lacks permissions this needs (pull_requests: write)", false},
 		"gone":                 {&gh.APIError{Status: 404}, "reply_to_review_comment", "cannot find it", false},
 		"branch conflict":      {&gh.APIError{Status: 422, Message: "merge conflict between base and head"}, "update_pull_request_branch", "task agent merges the base itself", false},
 		"head moved":           {&gh.APIError{Status: 422, Message: "expected head sha didn't match current head ref"}, "update_pull_request_branch", "expected head sha", false},

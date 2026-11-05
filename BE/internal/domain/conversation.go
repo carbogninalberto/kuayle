@@ -279,6 +279,22 @@ type UpgradePayload struct {
 	Changelog      string `json:"changelog,omitempty"`
 }
 
+// GitHubAccessGap is the GitHub App access an action needs but lacks. It rides
+// in the tool result and in the approval's payload so the card can show it.
+type GitHubAccessGap struct {
+	Missing     []GitHubPermissionNeed `json:"missing"`
+	SettingsURL string                 `json:"settings_url,omitempty"`
+	Message     string                 `json:"message"`
+	// Unverified means GitHub could not be asked, not that a permission is missing.
+	Unverified bool `json:"unverified,omitempty"`
+}
+
+// GitHubPermissionNeed is one GitHub App permission at a minimum level.
+type GitHubPermissionNeed struct {
+	Name  string `json:"name"`
+	Level string `json:"level"`
+}
+
 // PullRequestActionPayload binds an approval of reply_to_review_comment,
 // resolve_review_thread, update_pull_request_branch or mark_pull_request_ready
 // to the task's pull request and to exactly what the user saw. Only the fields

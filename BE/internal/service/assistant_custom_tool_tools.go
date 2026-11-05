@@ -200,6 +200,11 @@ func (t *AssistantTools) prepareCustomTool(ctx context.Context, ws, user uuid.UU
 // waits briefly for its result.
 func (s *ConversationService) runCustomTool(ctx context.Context, a domain.ConversationAttempt, toolCallID uuid.UUID, name, arguments string) (any, *uuid.UUID, error) {
 	ws, user := a.Conversation.WorkspaceID, a.Conversation.CreatorID
+	// Custom tools share the action policy table and its audit with the
+	// built-in approval tools.
+	if err := s.refuseRequest(ctx, ws, user, "run_custom_tool"); err != nil {
+		return nil, nil, err
+	}
 	prepared, err := s.tools.prepareCustomTool(ctx, ws, user, strings.TrimPrefix(name, domain.CustomToolPrefix), arguments)
 	if err != nil {
 		return nil, nil, err
@@ -225,6 +230,7 @@ func (s *ConversationService) runCustomTool(ctx context.Context, a domain.Conver
 		if err != nil {
 			return nil, nil, err
 		}
+		auditApprovalRequested(user, ws, approval, nil)
 		return map[string]any{"approval_id": approval.ID, "status": "pending_user_approval", "identifier": prepared.issue.Identifier, "tool": prepared.tool.Name}, issueID, nil
 	}
 	req := repository.ToolRunRequest{ToolID: prepared.tool.ID, Version: prepared.tool.CurrentVersion, Inputs: prepared.inputs, MachineID: prepared.machine, IssueID: issueID,

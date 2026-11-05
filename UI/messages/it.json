@@ -2890,5 +2890,8 @@
 	"settings.github.app_setup.check_again": "Verifica di nuovo",
 	"settings.github.app_setup.checking": "Verifica in corso…",
 	"settings.github.app_setup.opens_new_tab": "(si apre in una nuova scheda)",
-	"settings.github.app_setup.load_failed": "Impossibile verificare la configurazione della GitHub App."
+	"settings.github.app_setup.load_failed": "Impossibile verificare la configurazione della GitHub App.",
+	"assistant.github_access_title": "Permesso della GitHub App mancante",
+	"assistant.github_access_link": "Apri le impostazioni della GitHub App",
+	"assistant.github_access_unverified_title": "Impossibile verificare i permessi della GitHub App"
 }

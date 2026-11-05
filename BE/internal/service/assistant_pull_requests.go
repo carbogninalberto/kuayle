@@ -260,16 +260,18 @@ func summarizeChecks(checks []PullRequestCheck, coverage ChecksCoverage) (map[st
 	return summary, "passing", "All checks pass."
 }
 
-// pullRequestChanger checks that the user may change the pull request: the
-// workspace owners and admins, and the task's creator, as for merging.
-func (t *AssistantTools) pullRequestChanger(ctx context.Context, ws, user uuid.UUID, target *repository.PullRequestTarget) error {
-	member, err := t.members.GetMember(ctx, ws, user)
-	if err != nil || member == nil || member.Role == domain.RoleGuest {
-		return toolFailure("you no longer have access to this workspace")
+// pullRequestChanger checks that the user may change the pull request with the
+// action's shared policy: workspace owners and admins, and the task's creator,
+// as for merging.
+func (t *AssistantTools) pullRequestChanger(ctx context.Context, ws, user uuid.UUID, action string, target *repository.PullRequestTarget) error {
+	refusal, err := authorizeAssistantAction(ctx, t.members, t.system, ws, user, action, target.CreatorID)
+	if err != nil {
+		return err
 	}
-	if member.Role != domain.RoleOwner && member.Role != domain.RoleAdmin && target.CreatorID != user {
+	if refusal != "" {
 		audit.Log("pull_request.change_refused", user, map[string]interface{}{"repository": target.Repository, "pull_request": target.Number})
-		return toolFailure("only workspace admins or the task's creator can change this pull request")
+		auditAssistantAction("request_refused", user, ws, action, map[string]interface{}{"reason": refusal, "target": fmt.Sprintf("%s#%d", target.Repository, target.Number)})
+		return toolFailure("%s", refusal)
 	}
 	return nil
 }
@@ -293,7 +295,7 @@ func (t *AssistantTools) preparePullRequestAction(ctx context.Context, ws, user 
 	if err != nil {
 		return uuid.Nil, nil, "", err
 	}
-	if err = t.pullRequestChanger(ctx, ws, user, target); err != nil {
+	if err = t.pullRequestChanger(ctx, ws, user, action, target); err != nil {
 		return uuid.Nil, nil, "", err
 	}
 	payload := domain.PullRequestActionPayload{
@@ -450,12 +452,12 @@ func (s *AssistantApprovals) applyPullRequestAction(ctx context.Context, ws uuid
 	if target.TaskID != payload.TaskID || target.Repository != payload.Repository || target.Number != payload.PullRequest {
 		return fail("The pull request changed after approval was requested; ask again")
 	}
-	member, err := s.members.GetMember(ctx, ws, approval.ActorID)
+	refusal, err := authorizeAssistantAction(ctx, s.members, s.system, ws, approval.ActorID, approval.Action, target.CreatorID)
 	if err != nil {
 		return uuid.Nil, "", err
 	}
-	if member == nil || member.Role == domain.RoleGuest || (member.Role != domain.RoleOwner && member.Role != domain.RoleAdmin && target.CreatorID != approval.ActorID) {
-		return fail("Only workspace admins or the task's creator can change this pull request")
+	if refusal != "" {
+		return fail(upperFirst(refusal))
 	}
 	var newHead string
 	switch approval.Action {
@@ -475,6 +477,10 @@ func (s *AssistantApprovals) applyPullRequestAction(ctx context.Context, ws uuid
 		if errors.As(err, &unsynced) {
 			// GitHub did update the branch, so asking again would not help.
 			return fail("GitHub updated the branch, but Kuayle could not record the new head (" + truncateRunes(unsynced.Err.Error(), 200) + "), so the task's checkout is not known to follow it. Next step: get_pull_request shows the current head; the checkout syncs from GitHub when the task agent next publishes (follow_up_task)")
+		}
+		if isGitHubPermissionDenied(err) {
+			// Name the permissions actually missing, with where to grant them.
+			return fail(deniedGap(ctx, s.access, ws, approval.Action).Message)
 		}
 		if message, permanent := pullRequestApprovalFailure(approval.Action, err); permanent {
 			return fail(message)

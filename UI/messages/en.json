@@ -2890,5 +2890,8 @@
 	"settings.github.app_setup.check_again": "Check again",
 	"settings.github.app_setup.checking": "Checking…",
 	"settings.github.app_setup.opens_new_tab": "(opens in a new tab)",
-	"settings.github.app_setup.load_failed": "Couldn't check the GitHub App setup."
+	"settings.github.app_setup.load_failed": "Couldn't check the GitHub App setup.",
+	"assistant.github_access_title": "GitHub App permission missing",
+	"assistant.github_access_link": "Open GitHub App settings",
+	"assistant.github_access_unverified_title": "Couldn't verify GitHub App permissions"
 }
