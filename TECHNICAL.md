@@ -863,6 +863,8 @@ GET    /api/workspaces/:slug/dev-machine-names/availability
 
 GET    /api/workspaces/:slug/dev-machine-policy
 PATCH  /api/workspaces/:slug/dev-machine-policy
+GET    /api/workspaces/:slug/dev-machine-merge-methods
+PUT    /api/workspaces/:slug/dev-machine-merge-methods
 GET    /api/workspaces/:slug/dev-machine-scope-settings
 GET    /api/workspaces/:slug/dev-machine-scope-setting
 GET    /api/workspaces/:slug/dev-machine-repository-defaults

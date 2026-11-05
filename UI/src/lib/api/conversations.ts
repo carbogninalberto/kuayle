@@ -126,6 +126,8 @@ export interface MergePayload {
 	commit: string;
 	/** The commit Kuayle published; differs from `commit` when others pushed. */
 	published_commit?: string;
+	/** merge, squash or rebase; approvals created before it was recorded merge by squash. */
+	merge_method?: string;
 	head_change?: PullRequestHeadChange;
 }
 /** What others added to the pull request after Kuayle published it. */
@@ -214,6 +216,30 @@ export interface RunCustomToolPayload {
 	generation?: number;
 	machine_id?: string;
 }
+// A pull request change (reply, resolve, branch update, draft state) is bound
+// to the task's pull request and to exactly what the user sees on the card.
+export interface PullRequestActionPayload {
+	identifier: string;
+	title: string;
+	task_id: string;
+	repository: string;
+	pull_request: number;
+	pull_request_url: string;
+	comment_id?: number;
+	thread_id?: string;
+	author?: string;
+	bot?: boolean;
+	path?: string;
+	excerpt?: string;
+	/** The exact reply that will be posted. */
+	body?: string;
+	/** The head a branch update is pinned to. */
+	head?: string;
+	base?: string;
+	behind?: number;
+	/** The state mark_pull_request_ready sets: true puts the pull request back to draft. */
+	draft: boolean;
+}
 // An upgrade belongs to no issue: it names the installed and the latest release.
 export interface UpgradePayload {
 	current_version: string;
@@ -232,6 +258,10 @@ export type ConversationApproval = ApprovalBase &
 		| { action: 'run_check'; payload: RunCheckPayload }
 		| { action: 'run_custom_tool'; payload: RunCustomToolPayload }
 		| { action: 'upgrade_instance'; payload: UpgradePayload }
+		| { action: 'reply_to_review_comment'; payload: PullRequestActionPayload }
+		| { action: 'resolve_review_thread'; payload: PullRequestActionPayload }
+		| { action: 'update_pull_request_branch'; payload: PullRequestActionPayload }
+		| { action: 'mark_pull_request_ready'; payload: PullRequestActionPayload }
 	);
 interface ApprovalBase {
 	id: string;

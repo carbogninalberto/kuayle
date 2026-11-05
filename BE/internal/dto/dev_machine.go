@@ -364,3 +364,10 @@ type AppPortRequest struct {
 type AppPortUpdate struct {
 	Label *string `json:"label"`
 }
+
+// MergeMethodRequest sets the merge method of one linked repository; an empty
+// method restores the default (the first method the repository allows).
+type MergeMethodRequest struct {
+	Repository  string `json:"repository" validate:"required,max=200"`
+	MergeMethod string `json:"merge_method" validate:"omitempty,oneof=merge squash rebase"`
+}

@@ -155,15 +155,18 @@ type DelegationPayload struct {
 // later push invalidates the approval. PublishedCommit is the commit Kuayle
 // published, which differs from Commit when someone else pushed to the branch.
 type MergePayload struct {
-	Identifier      string                 `json:"identifier"`
-	Title           string                 `json:"title"`
-	TaskID          uuid.UUID              `json:"task_id"`
-	Repository      string                 `json:"repository"`
-	PullRequest     int                    `json:"pull_request"`
-	PullRequestURL  string                 `json:"pull_request_url"`
-	Commit          string                 `json:"commit"`
-	PublishedCommit string                 `json:"published_commit,omitempty"`
-	HeadChange      *PullRequestHeadChange `json:"head_change,omitempty"`
+	Identifier      string    `json:"identifier"`
+	Title           string    `json:"title"`
+	TaskID          uuid.UUID `json:"task_id"`
+	Repository      string    `json:"repository"`
+	PullRequest     int       `json:"pull_request"`
+	PullRequestURL  string    `json:"pull_request_url"`
+	Commit          string    `json:"commit"`
+	PublishedCommit string    `json:"published_commit,omitempty"`
+	// MergeMethod is merge, squash or rebase, from the development settings or
+	// the first the repository allows; approvals created before it merged by squash.
+	MergeMethod string                 `json:"merge_method,omitempty"`
+	HeadChange  *PullRequestHeadChange `json:"head_change,omitempty"`
 }
 
 // PullRequestHeadChange describes what others added to a task's pull request
@@ -274,4 +277,34 @@ type UpgradePayload struct {
 	CurrentVersion string `json:"current_version"`
 	LatestVersion  string `json:"latest_version"`
 	Changelog      string `json:"changelog,omitempty"`
+}
+
+// PullRequestActionPayload binds an approval of reply_to_review_comment,
+// resolve_review_thread, update_pull_request_branch or mark_pull_request_ready
+// to the task's pull request and to exactly what the user saw. Only the fields
+// of the approval's action are set.
+type PullRequestActionPayload struct {
+	Identifier     string    `json:"identifier"`
+	Title          string    `json:"title"`
+	TaskID         uuid.UUID `json:"task_id"`
+	Repository     string    `json:"repository"`
+	PullRequest    int       `json:"pull_request"`
+	PullRequestURL string    `json:"pull_request_url"`
+	// Replies and resolutions name the review comment or thread, its author
+	// and path, an excerpt of it and, for a reply, the exact text to post.
+	CommentID int64  `json:"comment_id,omitempty"`
+	ThreadID  string `json:"thread_id,omitempty"`
+	Author    string `json:"author,omitempty"`
+	Bot       bool   `json:"bot,omitempty"`
+	Path      string `json:"path,omitempty"`
+	Excerpt   string `json:"excerpt,omitempty"`
+	Body      string `json:"body,omitempty"`
+	// A branch update names the head it was requested at, the base branch it
+	// merges in and how far behind it is (-1 when unknown).
+	Head   string `json:"head,omitempty"`
+	Base   string `json:"base,omitempty"`
+	Behind int    `json:"behind,omitempty"`
+	// Draft is the state a mark_pull_request_ready approval sets: true puts the
+	// pull request back to draft, false makes it ready for review.
+	Draft bool `json:"draft"`
 }

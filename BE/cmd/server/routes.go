@@ -63,6 +63,7 @@ type appHandlers struct {
 	telegram          *handler.TelegramHandler
 	voice             *handler.VoiceHandler
 	devMachine        *handler.DevMachineHandler
+	mergeMethods      *handler.MergeMethodHandler
 	analytics         *handler.AnalyticsHandler
 	system            *handler.SystemHandler
 	webhook           *handler.WebhookHandler
@@ -396,6 +397,8 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	scoped(dm, http.MethodGet, "/dev-machine-names/availability", h.devMachine.NameAvailability, "dev_machine:create")
 	scoped(dm, http.MethodGet, "/dev-machine-policy", h.devMachine.GetPolicy, "dev_machine:read")
 	scoped(dm, http.MethodPatch, "/dev-machine-policy", h.devMachine.UpdatePolicy, "dev_machine:admin")
+	scoped(dm, http.MethodGet, "/dev-machine-merge-methods", h.mergeMethods.List, "dev_machine:read")
+	scoped(dm, http.MethodPut, "/dev-machine-merge-methods", h.mergeMethods.Update, "dev_machine:admin")
 	scoped(dm, http.MethodGet, "/dev-machine-scope-settings", h.devMachine.ScopeSettings, "dev_machine:read")
 	scoped(dm, http.MethodGet, "/dev-machine-scope-setting", h.devMachine.ScopeSetting, "dev_machine:read")
 	scoped(dm, http.MethodGet, "/dev-machine-repository-defaults", h.devMachine.RepositoryDefaults, "dev_machine:read")

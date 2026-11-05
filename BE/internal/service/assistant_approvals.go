@@ -45,6 +45,9 @@ type AssistantApprovals struct {
 	settings approvalToolSettings
 	// Upgrades are unavailable until SetSystem wires them.
 	system *AssistantSystem
+	// Pull request changes are unavailable until SetPullRequests wires them.
+	pulls       pullRequestReader
+	pullTargets pullRequestTargets
 }
 
 type approvalToolSettings interface {
@@ -84,7 +87,7 @@ type approvalMergeTargets interface {
 }
 
 type approvalMerger interface {
-	MergeTaskPullRequest(ctx context.Context, ws uuid.UUID, repository string, number int, sha string) error
+	MergeTaskPullRequest(ctx context.Context, ws uuid.UUID, repository string, number int, sha, method string) error
 }
 
 // SetMerging enables approving merge_pull_request requests.
@@ -146,6 +149,8 @@ func (s *AssistantApprovals) Resolve(ctx context.Context, ws, conversation, id u
 		return s.upgradeInstance(ctx, ws, conversation, approval)
 	case "run_custom_tool":
 		return s.runCustomTool(ctx, ws, conversation, approval)
+	case "reply_to_review_comment", "resolve_review_thread", "update_pull_request_branch", "mark_pull_request_ready":
+		return s.pullRequestAction(ctx, ws, conversation, approval)
 	}
 	var payload domain.DelegationPayload
 	if approval.Action != "delegate_issue" || json.Unmarshal(approval.Payload, &payload) != nil {
@@ -249,13 +254,14 @@ func (s *AssistantApprovals) merge(ctx context.Context, ws, conversation uuid.UU
 	}
 	// The merge is pinned to the commit the user saw, so a push that lands after
 	// the check above is refused by GitHub.
-	if err = s.merger.MergeTaskPullRequest(ctx, ws, target.Repository, target.Number, payload.Commit); err != nil {
+	method := payload.MergeMethod
+	if method == "" {
+		method = "squash"
+	}
+	if err = s.merger.MergeTaskPullRequest(ctx, ws, target.Repository, target.Number, payload.Commit, method); err != nil {
 		var refused *gh.ErrMergeRefused
 		if errors.As(err, &refused) {
-			message := truncateRunes(refused.Error(), 500)
-			if strings.Contains(strings.ToLower(refused.Reason), "head branch was modified") {
-				message = "GitHub refused the merge because the pull request head moved after it was approved (" + shortSHA(payload.Commit) + "); ask again to review the new commit"
-			}
+			message := mergeRefusalMessage(refused.Reason, payload.Commit)
 			return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, message)
 		}
 		// A transient failure leaves the claim in place; approving again resumes it.

@@ -205,7 +205,7 @@ type mergerFake struct {
 	merged []string
 }
 
-func (f *mergerFake) MergeTaskPullRequest(_ context.Context, _ uuid.UUID, repo string, number int, sha string) error {
+func (f *mergerFake) MergeTaskPullRequest(_ context.Context, _ uuid.UUID, repo string, number int, sha, _ string) error {
 	if f.err != nil {
 		return f.err
 	}
