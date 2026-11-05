@@ -17,12 +17,18 @@ submit or file navigation).
 
 ## Behaviour rules
 
-- Search filters files by path or line text and highlights matching lines; it never
-  changes the collapsed set. A match count is shown while a query is active.
-- Collapse/expand-all applies to every file, including ones a query hides, and the
-  button's label/icon reflect all files, so clearing a query never shows a mixed state.
-- No matches shows an empty state with a Clear search action; the truncation warning
-  stays visible there.
+- Search filters files by path or line text and highlights matching lines. A match
+  count is shown while a query is active.
+- While a query is active, matching files are shown expanded so the highlights are
+  visible, even files the user collapsed. A file collapsed during a search stays
+  collapsed only until the query changes; clearing the query restores the user's own
+  collapsed set unchanged.
+- Collapse/expand-all applies to every file and is disabled while a query is
+  active, so it never changes hidden state the user cannot see.
+- No matches shows an empty state with a Clear search action.
+- A truncated diff only holds a prefix: the header totals read "At least N files"
+  and are described as partial, the truncation warning stays visible, and an empty
+  search says it covered only the loaded part of the diff.
 
 ## Additional controls evaluated
 

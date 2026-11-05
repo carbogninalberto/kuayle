@@ -527,9 +527,9 @@
 		if (!editor || editor.isDestroyed || slashActive || mentionActive) return false;
 		const { selection } = editor.state;
 		if (!selection.empty) return false;
-		const $from = selection.$from;
-		if (!$from.parent.isTextblock) return false;
-		for (let depth = 0; depth < $from.depth; depth++) if ($from.index(depth) !== 0) return false;
+		const from = selection.$from;
+		if (!from.parent.isTextblock) return false;
+		for (let depth = 0; depth < from.depth; depth++) if (from.index(depth) !== 0) return false;
 		return editor.view.endOfTextblock('up');
 	}
 
