@@ -17,14 +17,14 @@ func queuedTaskMachine(t *testing.T, db *sqlx.DB, task domain.AgentTask, fixture
 	machine := fixture.insertMachine(t, status, domain.DevMachineStatusRunning, false)
 	_, err := db.Exec(`UPDATE agent_tasks SET state='preparing',machine_id=$2,reserved_machine_id=$2 WHERE id=$1`, task.ID, machine)
 	require.NoError(t, err)
-	action := "spawn"
+	action, key := "spawn", "spawn:1"
 	if status != domain.DevMachineStatusQueued {
-		action = "start"
+		action, key = "start", "task-start:"+task.ID.String()+":1:0"
 	}
 	spawn := uuid.New()
 	_, err = db.Exec(`INSERT INTO dev_machine_operations(id,machine_id,workspace_id,action,status,generation,idempotency_key,attempts,error_code,error_message,available_at)
  VALUES($1,$2,$3,$4,'pending',1,$5,0,'host_capacity_wait','waiting for host memory: 12288 MB requested of 4096 MB available to machines',now()+interval '30 seconds')`,
-		spawn, machine, fixture.workspaceID, action, action+":1")
+		spawn, machine, fixture.workspaceID, action, key)
 	require.NoError(t, err)
 	return machine, spawn
 }
@@ -175,4 +175,20 @@ func TestCancellingTaskWithdrawsTheRestartOfItsStoppedMachine(t *testing.T) {
 	require.Equal(t, "stopped", desired)
 	require.False(t, deleting)
 	require.NoError(t, repo.FinishCancellation(ctx, claimed, "Runtime cancellation confirmed"))
+}
+
+// A start the user requested on the task's stopped machine is the user's: it is
+// not withdrawn, and the machine still starts.
+func TestCancellingTaskKeepsAStartTheUserRequested(t *testing.T) {
+	db, repo, ctx, task, fixture := taskRecoveryFixture(t)
+	machine, start := queuedTaskMachine(t, db, task, fixture, domain.DevMachineStatusStopped)
+	_, err := db.Exec(`UPDATE dev_machine_operations SET idempotency_key='start:2',requested_by_user_id=$2 WHERE id=$1`, start, task.CreatorID)
+	require.NoError(t, err)
+	claimed := cancelClaimed(t, repo, task)
+	require.NoError(t, repo.CancelAttempt(ctx, claimed))
+	var startStatus, desired string
+	require.NoError(t, db.Get(&startStatus, `SELECT status FROM dev_machine_operations WHERE id=$1`, start))
+	require.Equal(t, "pending", startStatus)
+	require.NoError(t, db.Get(&desired, `SELECT desired_status FROM dev_machines WHERE id=$1`, machine))
+	require.Equal(t, "running", desired)
 }

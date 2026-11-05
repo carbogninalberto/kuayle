@@ -5,8 +5,12 @@ import (
 	"database/sql"
 	"errors"
 
+	"strings"
+
+	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/kuayle/kuayle-backend/internal/domain"
+	"github.com/lib/pq"
 )
 
 // withdrawTaskMachineStart stops a cancelled task from waiting for its own
@@ -16,7 +20,8 @@ import (
 // ordinary permanent deletion; one that ran before keeps its workspace and
 // stays as it was. Machines the task did not create, machines another task or
 // run uses, and starts already underway are left alone, and cancellation keeps
-// waiting for them. The caller holds the task lock and commits.
+// waiting for them, as does a start the user requested. The caller holds the
+// task lock and commits.
 func withdrawTaskMachineStart(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask) error {
 	if task.MachineID == nil || *task.MachineID != task.ReservedMachineID {
 		return nil
@@ -50,17 +55,24 @@ func withdrawTaskMachineStart(ctx context.Context, tx *sqlx.Tx, task domain.Agen
 	if len(operations) == 0 {
 		return nil
 	}
-	for _, operation := range operations {
-		if operation.Status != domain.DevMachineOpStatusPending || operation.Attempts != 0 || (operation.Action != domain.DevMachineOpSpawn && operation.Action != domain.DevMachineOpStart) {
-			return nil
-		}
-	}
 	neverRan := machine.StartedAt == nil && machine.DockerNetworkName == nil && machine.WorkspaceVolumeName == nil &&
 		(machine.Status == domain.DevMachineStatusQueued || machine.Status == domain.DevMachineStatusSpawning || machine.Status == domain.DevMachineStatusFailed)
 	if !neverRan && machine.Status != domain.DevMachineStatusStopped && machine.Status != domain.DevMachineStatusPaused {
 		return nil
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE dev_machine_operations SET status='cancelled',completed_at=now(),updated_at=now() WHERE machine_id=$1 AND status='pending' AND attempts=0 AND action IN ('spawn','start')`, machine.ID); err != nil {
+	// Only the task's own operations are withdrawn: the spawn that created the
+	// machine for its reservation, and the starts the task queued. A start the
+	// user requested keeps the cancellation waiting.
+	ids := make([]uuid.UUID, 0, len(operations))
+	for _, operation := range operations {
+		owned := strings.HasPrefix(operation.IdempotencyKey, "task-start:"+task.ID.String()+":") ||
+			(neverRan && operation.Action == domain.DevMachineOpSpawn && strings.HasPrefix(operation.IdempotencyKey, "spawn:"))
+		if !owned || operation.Status != domain.DevMachineOpStatusPending || operation.Attempts != 0 || (operation.Action != domain.DevMachineOpSpawn && operation.Action != domain.DevMachineOpStart) {
+			return nil
+		}
+		ids = append(ids, operation.ID)
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE dev_machine_operations SET status='cancelled',completed_at=now(),updated_at=now() WHERE id=ANY($1) AND status='pending' AND attempts=0`, pq.Array(ids)); err != nil {
 		return err
 	}
 	if !neverRan {

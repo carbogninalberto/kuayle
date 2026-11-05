@@ -705,9 +705,10 @@ machine Kuayle created for the task and a reused one both stay running, with
 their volume and worktrees, so a later task can reuse them. The exception is a
 start that has not begun: when a cancelling task has no attempt yet and its own
 machine (the one created for its reservation, used by no other task or run) has
-only spawn or start operations that the manager has not leased and that made no
-attempt, typically ones waiting for host capacity, cleanup cancels them instead
-of waiting. A machine that never ran is then permanently deleted through the
+only the task's own spawn or start operations (its creation spawn and its
+`task-start:` keys) that the manager has not leased and that made no attempt,
+typically ones waiting for host capacity, cleanup cancels them instead of
+waiting. A start the user requested on that machine is not withdrawn. A machine that never ran is then permanently deleted through the
 ordinary teardown, which cancellation waits for; one that ran before (stopped or
 paused, restarting for a retry) keeps its workspace and its desired state
 returns to its current state. A reused machine, one another task waits for, and
