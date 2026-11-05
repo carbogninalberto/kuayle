@@ -61,6 +61,7 @@ type prGitHub struct {
 	calls                             []string
 	replied                           string
 	statusCalls                       int
+	coverage                          ChecksCoverage
 }
 
 func (f *prGitHub) PullRequestStatus(context.Context, uuid.UUID, string, int) (*PullRequestStatus, error) {
@@ -68,8 +69,8 @@ func (f *prGitHub) PullRequestStatus(context.Context, uuid.UUID, string, int) (*
 	status := f.status
 	return &status, f.readErr
 }
-func (f *prGitHub) PullRequestChecks(context.Context, uuid.UUID, string, int) (string, []PullRequestCheck, error) {
-	return "head1", f.checks, f.readErr
+func (f *prGitHub) PullRequestChecks(context.Context, uuid.UUID, string, int) (string, []PullRequestCheck, ChecksCoverage, error) {
+	return "head1", f.checks, f.coverage, f.readErr
 }
 func (f *prGitHub) PullRequestComments(context.Context, uuid.UUID, string, int) (*PullRequestCommentList, error) {
 	return &PullRequestCommentList{Comments: append([]PullRequestComment(nil), f.comments...), ThreadsUnavailable: f.threadsUnavailable, Truncated: f.listTruncated}, f.readErr
@@ -672,4 +673,34 @@ func TestApprovedBranchUpdateReportsAHeadItCouldNotRecord(t *testing.T) {
 	require.NoError(t, err, "GitHub did update the branch, so approving again would not help")
 	require.Contains(t, message, "could not record the new head")
 	require.Contains(t, message, "follow_up_task")
+}
+
+func TestGetPullRequestChecksNeverReportsPassingWhenCoverageIsIncomplete(t *testing.T) {
+	passing := []PullRequestCheck{{Name: "lint", State: "passed"}}
+	for name, tc := range map[string]struct {
+		coverage ChecksCoverage
+		checks   []PullRequestCheck
+		state    string
+		want     string
+		flag     string
+	}{
+		"truncated list":       {ChecksCoverage{Truncated: true}, passing, "incomplete", "more checks than this tool reads", "checks_truncated"},
+		"statuses unavailable": {ChecksCoverage{StatusesUnavailable: true}, passing, "incomplete", "legacy commit statuses could not be read", "statuses_unavailable"},
+		"both":                 {ChecksCoverage{Truncated: true, StatusesUnavailable: true}, passing, "incomplete", "more may be failing", "statuses_unavailable"},
+		"nothing seen":         {ChecksCoverage{StatusesUnavailable: true}, nil, "incomplete", "Do not treat CI as passing", "statuses_unavailable"},
+		"pending is not green": {ChecksCoverage{Truncated: true}, []PullRequestCheck{{Name: "e2e", State: "pending"}}, "incomplete", "Do not treat CI as passing", "checks_truncated"},
+		"failure still shown":  {ChecksCoverage{Truncated: true}, []PullRequestCheck{{Name: "unit", State: "failed"}}, "failing", "more may be failing", "checks_truncated"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newPRFixture()
+			f.github.checks, f.github.coverage = tc.checks, tc.coverage
+			result, err := f.run(t, "get_pull_request_checks", `{"identifier":"ENG-1"}`)
+			require.NoError(t, err)
+			require.Equal(t, tc.state, result["state"])
+			require.NotEqual(t, "passing", result["state"])
+			require.NotContains(t, result["next_step"], "All checks pass")
+			require.Contains(t, result["next_step"], tc.want)
+			require.Equal(t, true, result[tc.flag])
+		})
+	}
 }

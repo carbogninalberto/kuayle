@@ -79,11 +79,11 @@ func TestListCheckRunsAndStatusesAndMergeSettings(t *testing.T) {
 		}
 		return 404, `{}`
 	})
-	runs, err := c.ListCheckRuns("secret", "owner", "repo", "abc")
+	runs, _, err := c.ListCheckRuns("secret", "owner", "repo", "abc")
 	require.NoError(t, err)
 	require.Equal(t, "unit", runs[0].Name)
 	require.Equal(t, "3 failed", runs[0].Output.Title)
-	statuses, err := c.ListCommitStatuses("secret", "owner", "repo", "abc")
+	statuses, _, err := c.ListCommitStatuses("secret", "owner", "repo", "abc")
 	require.NoError(t, err)
 	require.Equal(t, "pending", statuses[0].State)
 	settings, err := c.GetRepositoryMergeSettings("secret", "owner", "repo")
@@ -167,4 +167,69 @@ func TestReviewThreadsFollowCursorsThroughThreadsAndTheirComments(t *testing.T) 
 	require.Equal(t, []int64{101, 102}, threads[0].CommentIDs)
 	require.Equal(t, "T2", threads[1].ID)
 	require.True(t, threads[1].IsResolved)
+}
+
+func TestCheckRunsAndStatusesFollowPagesUntilTotalCount(t *testing.T) {
+	items := func(key string, from, to int) string {
+		var parts []string
+		for i := from; i <= to; i++ {
+			parts = append(parts, fmt.Sprintf(`{"name":"c%d","context":"s%d"}`, i, i))
+		}
+		return fmt.Sprintf(`{"total_count":150,"%s":[%s]}`, key, strings.Join(parts, ","))
+	}
+	var pages []string
+	c := pullsClient(func(r *http.Request, _ map[string]any) (int, string) {
+		key := "check_runs"
+		if strings.HasSuffix(r.URL.Path, "/status") {
+			key = "statuses"
+		}
+		pages = append(pages, key+r.URL.Query().Get("page"))
+		if r.URL.Query().Get("page") == "1" {
+			return 200, items(key, 1, 100)
+		}
+		return 200, items(key, 101, 150)
+	})
+	runs, truncated, err := c.ListCheckRuns("secret", "owner", "repo", "abc")
+	require.NoError(t, err)
+	require.False(t, truncated)
+	require.Len(t, runs, 150)
+	statuses, truncated, err := c.ListCommitStatuses("secret", "owner", "repo", "abc")
+	require.NoError(t, err)
+	require.False(t, truncated)
+	require.Len(t, statuses, 150)
+	require.Equal(t, []string{"check_runs1", "check_runs2", "statuses1", "statuses2"}, pages)
+}
+
+func TestCheckRunsAndStatusesSayWhenThePageLimitCutThemShort(t *testing.T) {
+	c := pullsClient(func(r *http.Request, _ map[string]any) (int, string) {
+		full := make([]string, 100)
+		for i := range full {
+			full[i] = `{"name":"c"}`
+		}
+		body := strings.Join(full, ",")
+		if strings.HasSuffix(r.URL.Path, "/status") {
+			return 200, `{"total_count":999999,"statuses":[` + body + `]}`
+		}
+		return 200, `{"total_count":999999,"check_runs":[` + body + `]}`
+	})
+	_, truncated, err := c.ListCheckRuns("secret", "owner", "repo", "abc")
+	require.NoError(t, err)
+	require.True(t, truncated)
+	_, truncated, err = c.ListCommitStatuses("secret", "owner", "repo", "abc")
+	require.NoError(t, err)
+	require.True(t, truncated)
+}
+
+func TestCheckRunsAndStatusesFailOnALaterPage(t *testing.T) {
+	c := pullsClient(func(r *http.Request, _ map[string]any) (int, string) {
+		if r.URL.Query().Get("page") == "2" {
+			return 403, `{"message":"rate limited"}`
+		}
+		return 200, `{"total_count":150,"check_runs":[` + strings.Repeat(`{"name":"c"},`, 99) + `{"name":"c"}],"statuses":[` + strings.Repeat(`{"context":"s"},`, 99) + `{"context":"s"}]}`
+	})
+	_, _, err := c.ListCheckRuns("secret", "owner", "repo", "abc")
+	var api *APIError
+	require.True(t, errors.As(err, &api), "a failed page is an error, not a shorter list")
+	_, _, err = c.ListCommitStatuses("secret", "owner", "repo", "abc")
+	require.True(t, errors.As(err, &api))
 }

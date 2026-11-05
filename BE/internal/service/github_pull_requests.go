@@ -67,7 +67,7 @@ type PullRequestComment struct {
 // pullRequestReader is the GitHub side of the pull request tools.
 type pullRequestReader interface {
 	PullRequestStatus(ctx context.Context, ws uuid.UUID, repository string, number int) (*PullRequestStatus, error)
-	PullRequestChecks(ctx context.Context, ws uuid.UUID, repository string, number int) (string, []PullRequestCheck, error)
+	PullRequestChecks(ctx context.Context, ws uuid.UUID, repository string, number int) (string, []PullRequestCheck, ChecksCoverage, error)
 	PullRequestComments(ctx context.Context, ws uuid.UUID, repository string, number int) (*PullRequestCommentList, error)
 	ReplyToReviewComment(ctx context.Context, ws uuid.UUID, repository string, number int, commentID int64, body string) error
 	ResolveReviewThread(ctx context.Context, ws uuid.UUID, repository string, number int, threadID string) error
@@ -111,21 +111,32 @@ func (s *GitHubService) PullRequestStatus(ctx context.Context, ws uuid.UUID, rep
 
 const maxChecksListed = 40
 
-func (s *GitHubService) PullRequestChecks(ctx context.Context, ws uuid.UUID, repository string, number int) (string, []PullRequestCheck, error) {
+// ChecksCoverage says how much of a commit's CI was read. When Truncated or
+// StatusesUnavailable, failures may be unseen, so the checks must never be
+// reported as passing.
+type ChecksCoverage struct {
+	Truncated           bool
+	StatusesUnavailable bool
+}
+
+func (c ChecksCoverage) incomplete() bool { return c.Truncated || c.StatusesUnavailable }
+
+func (s *GitHubService) PullRequestChecks(ctx context.Context, ws uuid.UUID, repository string, number int) (string, []PullRequestCheck, ChecksCoverage, error) {
+	var coverage ChecksCoverage
 	client, token, owner, name, err := s.pullClient(ctx, ws, repository)
 	if err != nil {
-		return "", nil, err
+		return "", nil, coverage, err
 	}
 	pull, err := client.GetPullRequest(token, owner, name, number)
 	if err != nil {
-		return "", nil, err
+		return "", nil, coverage, err
 	}
 	head := pull.Head.SHA
-	runs, err := client.ListCheckRuns(token, owner, name, head)
+	runs, truncated, err := client.ListCheckRuns(token, owner, name, head)
 	if err != nil {
-		return "", nil, err
+		return "", nil, coverage, err
 	}
-	// Failing checks first, so a long list never hides the one that matters.
+	coverage.Truncated = truncated
 	var checks []PullRequestCheck
 	for _, run := range runs {
 		check := PullRequestCheck{Name: truncateRunes(run.Name, 120), State: checkRunState(run), URL: run.HTMLURL}
@@ -137,21 +148,25 @@ func (s *GitHubService) PullRequestChecks(ctx context.Context, ws uuid.UUID, rep
 		}
 		checks = append(checks, check)
 	}
-	// Legacy commit statuses are best effort: checks alone are still reported.
-	if statuses, err := client.ListCommitStatuses(token, owner, name, head); err == nil {
-		for _, status := range statuses {
-			state := map[string]string{"success": "passed", "pending": "pending"}[status.State]
-			if state == "" {
-				state = "failed"
-			}
-			check := PullRequestCheck{Name: truncateRunes(status.Context, 120), State: state, URL: status.TargetURL}
-			if state == "failed" {
-				check.Summary = truncateRunes(status.Description, 500)
-			}
-			checks = append(checks, check)
-		}
+	// Legacy commit statuses cannot fail the whole read (the checks are still
+	// reported), but a failed read is flagged so it never looks like green CI.
+	statuses, statusesTruncated, statusErr := client.ListCommitStatuses(token, owner, name, head)
+	if statusErr != nil {
+		coverage.StatusesUnavailable = true
 	}
-	return head, checks, nil
+	coverage.Truncated = coverage.Truncated || statusesTruncated
+	for _, status := range statuses {
+		state := map[string]string{"success": "passed", "pending": "pending"}[status.State]
+		if state == "" {
+			state = "failed"
+		}
+		check := PullRequestCheck{Name: truncateRunes(status.Context, 120), State: state, URL: status.TargetURL}
+		if state == "failed" {
+			check.Summary = truncateRunes(status.Description, 500)
+		}
+		checks = append(checks, check)
+	}
+	return head, checks, coverage, nil
 }
 
 // checkRunState maps a check run to passed, failed or pending.

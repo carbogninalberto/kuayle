@@ -122,16 +122,25 @@ type CheckRun struct {
 	} `json:"output"`
 }
 
-// ListCheckRuns lists the check runs of a commit.
-func (c *Client) ListCheckRuns(token, owner, repo, sha string) ([]CheckRun, error) {
-	var page struct {
-		CheckRuns []CheckRun `json:"check_runs"`
+// ListCheckRuns lists the check runs of a commit, following pages of 100
+// until total_count is reached. truncated is true when the page limit cut the
+// list short, so failures may be unseen.
+func (c *Client) ListCheckRuns(token, owner, repo, sha string) (runs []CheckRun, truncated bool, err error) {
+	for page := 1; page <= maxReviewPages; page++ {
+		var batch struct {
+			TotalCount int        `json:"total_count"`
+			CheckRuns  []CheckRun `json:"check_runs"`
+		}
+		endpoint := fmt.Sprintf("%s/repos/%s/%s/commits/%s/check-runs?per_page=100&page=%d", githubAPIBaseURL, owner, repo, url.PathEscape(sha), page)
+		if err = c.do(http.MethodGet, endpoint, token, nil, &batch); err != nil {
+			return nil, false, err
+		}
+		runs = append(runs, batch.CheckRuns...)
+		if len(batch.CheckRuns) == 0 || len(runs) >= batch.TotalCount {
+			return runs, false, nil
+		}
 	}
-	endpoint := fmt.Sprintf("%s/repos/%s/%s/commits/%s/check-runs?per_page=100", githubAPIBaseURL, owner, repo, url.PathEscape(sha))
-	if err := c.do(http.MethodGet, endpoint, token, nil, &page); err != nil {
-		return nil, err
-	}
-	return page.CheckRuns, nil
+	return runs, true, nil
 }
 
 // CommitStatus is one legacy commit status (for CI that does not use checks).
@@ -142,16 +151,25 @@ type CommitStatus struct {
 	TargetURL   string `json:"target_url"`
 }
 
-// ListCommitStatuses lists the latest status of every context of a commit.
-func (c *Client) ListCommitStatuses(token, owner, repo, sha string) ([]CommitStatus, error) {
-	var combined struct {
-		Statuses []CommitStatus `json:"statuses"`
+// ListCommitStatuses lists the latest status of every context of a commit,
+// following pages of 100 until total_count is reached. truncated is true when
+// the page limit cut the list short.
+func (c *Client) ListCommitStatuses(token, owner, repo, sha string) (statuses []CommitStatus, truncated bool, err error) {
+	for page := 1; page <= maxReviewPages; page++ {
+		var batch struct {
+			TotalCount int            `json:"total_count"`
+			Statuses   []CommitStatus `json:"statuses"`
+		}
+		endpoint := fmt.Sprintf("%s/repos/%s/%s/commits/%s/status?per_page=100&page=%d", githubAPIBaseURL, owner, repo, url.PathEscape(sha), page)
+		if err = c.do(http.MethodGet, endpoint, token, nil, &batch); err != nil {
+			return nil, false, err
+		}
+		statuses = append(statuses, batch.Statuses...)
+		if len(batch.Statuses) == 0 || len(statuses) >= batch.TotalCount {
+			return statuses, false, nil
+		}
 	}
-	endpoint := fmt.Sprintf("%s/repos/%s/%s/commits/%s/status?per_page=100", githubAPIBaseURL, owner, repo, url.PathEscape(sha))
-	if err := c.do(http.MethodGet, endpoint, token, nil, &combined); err != nil {
-		return nil, err
-	}
-	return combined.Statuses, nil
+	return statuses, true, nil
 }
 
 // ReviewComment is one inline review comment of a pull request.

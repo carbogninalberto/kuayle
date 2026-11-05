@@ -753,7 +753,9 @@ a merge with the next step instead of a generic error: a draft
 (`update_pull_request_branch`), failing checks with links to their logs and a
 summary (`follow_up_task`), and unresolved review threads, bot reviewers such as
 Codex included. A missing App permission, a deleted pull request and an
-unreachable GitHub each get their own message.
+unreachable GitHub each get their own message. Checks are read page by page; when
+the list was cut short or the legacy commit statuses could not be read, the state
+is `incomplete` (`checks_truncated`, `statuses_unavailable`) and never `passing`.
 
 `reply_to_review_comment`, `resolve_review_thread`, `update_pull_request_branch`
 and `mark_pull_request_ready` (`draft` true puts it back to draft) need approval

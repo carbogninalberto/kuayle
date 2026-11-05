@@ -112,12 +112,18 @@ func (t *AssistantTools) runPullRequestTool(ctx context.Context, ws uuid.UUID, n
 		}
 		base["next_steps"] = pullRequestNextSteps(status)
 	case "get_pull_request_checks":
-		head, checks, err := t.pulls.PullRequestChecks(ctx, ws, target.Repository, target.Number)
+		head, checks, coverage, err := t.pulls.PullRequestChecks(ctx, ws, target.Repository, target.Number)
 		if err != nil {
 			return nil, nil, pullRequestGitHubFailure("read the checks", err)
 		}
-		summary, state, next := summarizeChecks(checks)
+		summary, state, next := summarizeChecks(checks, coverage)
 		base["head_sha"], base["state"], base["summary"], base["next_step"] = head, state, summary, next
+		if coverage.Truncated {
+			base["checks_truncated"] = true
+		}
+		if coverage.StatusesUnavailable {
+			base["statuses_unavailable"] = true
+		}
 		sort.SliceStable(checks, func(i, j int) bool { return checkOrder(checks[i].State) < checkOrder(checks[j].State) })
 		if len(checks) > maxChecksListed {
 			base["checks_not_listed"] = len(checks) - maxChecksListed
@@ -221,14 +227,31 @@ func checkOrder(state string) int {
 }
 
 // summarizeChecks counts the checks and says what to do about them.
-func summarizeChecks(checks []PullRequestCheck) (map[string]int, string, string) {
+func summarizeChecks(checks []PullRequestCheck, coverage ChecksCoverage) (map[string]int, string, string) {
 	summary := map[string]int{"passed": 0, "failed": 0, "pending": 0, "total": len(checks)}
 	for _, check := range checks {
 		summary[check.State]++
 	}
+	// What was not read: said in every outcome but failing, which needs no more
+	// evidence, and never turned into "passing".
+	gap := ""
+	switch {
+	case coverage.Truncated && coverage.StatusesUnavailable:
+		gap = "Not every check could be read: the list was cut short and the legacy commit statuses could not be read, so more may be failing."
+	case coverage.Truncated:
+		gap = "Not every check could be read: the commit has more checks than this tool reads, so more may be failing."
+	case coverage.StatusesUnavailable:
+		gap = "The legacy commit statuses could not be read (the GitHub App may lack the commit statuses permission), so failing statuses may be missing."
+	}
 	switch {
 	case summary["failed"] > 0:
-		return summary, "failing", fmt.Sprintf("%d check(s) are failing. Open the links for the logs, then fix them with follow_up_task (name the failing checks in its instructions). Do not merge until they pass.", summary["failed"])
+		next := fmt.Sprintf("%d check(s) are failing. Open the links for the logs, then fix them with follow_up_task (name the failing checks in its instructions). Do not merge until they pass.", summary["failed"])
+		if gap != "" {
+			next += " " + gap
+		}
+		return summary, "failing", next
+	case gap != "":
+		return summary, "incomplete", gap + " Do not treat CI as passing; check the commit's checks on GitHub, then read them again."
 	case summary["pending"] > 0:
 		return summary, "pending", fmt.Sprintf("%d check(s) are still running. Wait for them, then read the checks again before merging.", summary["pending"])
 	case len(checks) == 0:
