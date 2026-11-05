@@ -203,7 +203,7 @@ type CreateAgentRunRequest struct {
 	// ModelServerID picks a workspace model server; nil uses the default one.
 	ModelServerID *uuid.UUID `json:"model_server_id,omitempty"`
 	Model         string     `json:"model,omitempty" validate:"omitempty,max=128"`
-	Thinking      string     `json:"thinking,omitempty" validate:"omitempty,oneof=off low high max"`
+	Thinking      string     `json:"thinking,omitempty" validate:"omitempty,oneof=off low medium high xhigh max"`
 }
 
 // SaveModelServerRequest creates or updates a model server. The API key is
@@ -216,7 +216,7 @@ type SaveModelServerRequest struct {
 	Models           []string `json:"models" validate:"max=500"`
 	DefaultModel     string   `json:"default_model" validate:"required,max=128"`
 	FastModel        string   `json:"fast_model" validate:"max=128"`
-	Thinking         string   `json:"thinking" validate:"required,oneof=off low high max"`
+	Thinking         string   `json:"thinking" validate:"required,oneof=off low medium high xhigh max"`
 	IsDefault        bool     `json:"is_default"`
 }
 
@@ -248,6 +248,23 @@ type ModelServerResponse struct {
 	Harnesses      []string  `json:"harnesses"`
 	ThinkingLevels []string  `json:"thinking_levels"`
 	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+// SaveAgentModelDefaultRequest sets a coding agent's workspace default. Both empty
+// removes it.
+type SaveAgentModelDefaultRequest struct {
+	Model    string `json:"model" validate:"max=128"`
+	Thinking string `json:"thinking" validate:"omitempty,oneof=off low medium high xhigh max"`
+}
+
+// AgentModelDefaultResponse is a coding agent's workspace default model and effort
+// for runs on its own sign-in; empty fields keep the agent's own defaults.
+type AgentModelDefaultResponse struct {
+	Provider       string     `json:"provider"`
+	Model          string     `json:"model"`
+	Thinking       string     `json:"thinking"`
+	ThinkingLevels []string   `json:"thinking_levels"`
+	UpdatedAt      *time.Time `json:"updated_at,omitempty"`
 }
 
 type AgentProviderResponse struct {

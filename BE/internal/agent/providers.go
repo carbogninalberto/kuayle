@@ -406,7 +406,7 @@ func validateModelOverrides(providerID string, input RunInput) error {
 		return fmt.Errorf("unsupported model server URL")
 	}
 	switch input.Thinking {
-	case "", "off", "low", "high", "max":
+	case "", "off", "low", "medium", "high", "xhigh", "max":
 	default:
 		return fmt.Errorf("unsupported thinking level %q", input.Thinking)
 	}

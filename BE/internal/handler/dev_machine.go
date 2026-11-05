@@ -649,6 +649,33 @@ func (h *DevMachineHandler) DeleteModelServer(c echo.Context) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
+// ListAgentModelDefaults reports the workspace default model and effort of each
+// coding agent that takes them; members read them to know what tasks run with.
+func (h *DevMachineHandler) ListAgentModelDefaults(c echo.Context) error {
+	defaults, err := h.service.ListAgentModelDefaults(c.Request().Context(), middleware.GetWorkspace(c).ID)
+	if err != nil {
+		return machineError(c, err)
+	}
+	return response.Success(c, http.StatusOK, defaults)
+}
+
+// SaveAgentModelDefault sets one agent's workspace default. Owners and admins only.
+func (h *DevMachineHandler) SaveAgentModelDefault(c echo.Context) error {
+	if !canAdministerDevMachines(c) {
+		return response.Forbidden(c)
+	}
+	c.Request().Body = http.MaxBytesReader(c.Response().Writer, c.Request().Body, 4*1024)
+	var request dto.SaveAgentModelDefaultRequest
+	if !bindAndValidate(c, &request) {
+		return nil
+	}
+	saved, err := h.service.SaveAgentModelDefault(c.Request().Context(), middleware.GetWorkspace(c).ID, middleware.GetUserID(c), c.Param("provider"), request)
+	if err != nil {
+		return machineError(c, err)
+	}
+	return response.Success(c, http.StatusOK, saved)
+}
+
 // DiscoverModels lists a server's models for the settings form. It sends the
 // key to an admin-chosen URL, so only admins may call it.
 func (h *DevMachineHandler) DiscoverModels(c echo.Context) error {

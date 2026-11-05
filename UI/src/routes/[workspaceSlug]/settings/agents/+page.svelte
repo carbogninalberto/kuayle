@@ -9,6 +9,7 @@
 	import { appToast } from '$lib/features/toast/toast';
 	import CodingAgentsCard from '$lib/features/agents/CodingAgentsCard.svelte';
 	import ModelServersCard from '$lib/features/agents/ModelServersCard.svelte';
+	import AgentModelDefaultsCard from '$lib/features/agents/AgentModelDefaultsCard.svelte';
 	import AgentSignInsCard from '$lib/features/agents/AgentSignInsCard.svelte';
 	import { m } from '$lib/paraglide/messages.js';
 
@@ -70,6 +71,7 @@
 				{m['settings.dev_machines.admin_only']()}
 			</p>{/if}
 		<ModelServersCard {slug} {canAdmin} />
+		<AgentModelDefaultsCard {slug} {canAdmin} />
 		<CodingAgentsCard {policy} {canAdmin} {saving} onchange={saveAgents} />
 		<AgentSignInsCard {slug} />
 	</div>
