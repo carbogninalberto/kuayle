@@ -418,7 +418,10 @@ func (s *ConversationService) requestApproval(ctx context.Context, a domain.Conv
 	var identifier string
 	var err error
 	ws, actor := a.Conversation.WorkspaceID, a.Conversation.CreatorID
-	refusal, err := authorizeAssistantAction(ctx, s.tools.members, s.tools.system, ws, actor, action)
+	refusal, err := "", error(nil)
+	if !ownerScoped(action) {
+		refusal, err = authorizeAssistantAction(ctx, s.tools.members, s.tools.system, ws, actor, action, uuid.Nil)
+	}
 	if err != nil {
 		return nil, nil, err
 	}

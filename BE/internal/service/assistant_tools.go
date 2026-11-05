@@ -579,6 +579,14 @@ func (t *AssistantTools) prepareMerge(ctx context.Context, ws, user uuid.UUID, a
 	if err != nil {
 		return uuid.Nil, domain.MergePayload{}, err
 	}
+	refusal, err := authorizeAssistantAction(ctx, t.members, t.system, ws, user, "merge_pull_request", target.CreatorID)
+	if err != nil {
+		return uuid.Nil, domain.MergePayload{}, err
+	}
+	if refusal != "" {
+		auditAssistantAction("request_refused", user, ws, "merge_pull_request", map[string]interface{}{"reason": refusal, "target": fmt.Sprintf("%s#%d", target.Repository, target.Number)})
+		return uuid.Nil, domain.MergePayload{}, toolFailure("%s", refusal)
+	}
 	payload := domain.MergePayload{
 		Identifier: issue.Identifier, Title: issue.Title, TaskID: target.TaskID, Repository: target.Repository,
 		PullRequest: target.Number, PullRequestURL: target.URL, Commit: target.Commit,

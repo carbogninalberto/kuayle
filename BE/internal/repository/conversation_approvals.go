@@ -151,7 +151,13 @@ func (r *ConversationRepository) FinishApproval(ctx context.Context, ws, convers
 	if err = resolveApproval(ctx, tx, approval, status, taskID, errorText); err != nil {
 		return nil, err
 	}
-	return approval, tx.Commit()
+	if err = tx.Commit(); err != nil {
+		return nil, err
+	}
+	if flag, ok := ctx.Value(finishTransitionKey{}).(*bool); ok {
+		*flag = true
+	}
+	return approval, nil
 }
 
 func toolApprovals(ctx context.Context, tx *sqlx.Tx, calls []domain.ConversationToolCall) ([]domain.ConversationApproval, error) {
@@ -169,4 +175,14 @@ func toolApprovals(ctx context.Context, tx *sqlx.Tx, calls []domain.Conversation
 	}
 	err = tx.SelectContext(ctx, &approvals, tx.Rebind(query), args...)
 	return approvals, err
+}
+
+type finishTransitionKey struct{}
+
+// WithFinishTransition returns a context whose FinishApproval reports through
+// the returned flag whether it moved the approval out of `approving`, as opposed
+// to finding it already finished. Callers use it to record an outcome once.
+func WithFinishTransition(ctx context.Context) (context.Context, *bool) {
+	flag := new(bool)
+	return context.WithValue(ctx, finishTransitionKey{}, flag), flag
 }

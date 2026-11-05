@@ -24,9 +24,10 @@ const (
 	roleWorkspaceAdmin
 	// roleInstanceAdmin is an administrator of the whole instance.
 	roleInstanceAdmin
-	// roleCustom means the action's own code decides, with the same rigor
-	// (merging also admits the task's creator).
-	roleCustom
+	// roleAdminOrCreator admits workspace owners and admins, and the creator of
+	// the task acted on (merging a pull request). The creator is known only once
+	// the target is loaded, so the action checks it there with the same gate.
+	roleAdminOrCreator
 )
 
 // assistantActionPolicy is the single declaration of what an action needs: the
@@ -36,6 +37,8 @@ const (
 type assistantActionPolicy struct {
 	github map[string]string
 	role   assistantRole
+	// refusal is why the role check refuses, worded for a tool failure.
+	refusal string
 }
 
 var assistantActionPolicies = map[string]assistantActionPolicy{
@@ -47,10 +50,11 @@ var assistantActionPolicies = map[string]assistantActionPolicy{
 	"expose_port":          {},
 	"run_check":            {},
 	"run_custom_tool":      {},
-	"merge_pull_request":   {github: map[string]string{"pull_requests": "write", "contents": "write"}, role: roleCustom},
-	"upgrade_instance":     {role: roleCustom},
-	// Tools that do not exist yet (releases and tags, workflow runs, the pull
-	// request tools) get an entry when they are registered; a test keeps this
+	"merge_pull_request":   {github: map[string]string{"pull_requests": "write", "contents": "write"}, role: roleAdminOrCreator, refusal: "only workspace admins or the task's creator can merge"},
+	"upgrade_instance":     {role: roleInstanceAdmin, refusal: "only an instance administrator can upgrade this instance; ask one to upgrade it"},
+	// Deferred to the issues that add the tools (KUA-88 releases, KUA-87 pull
+	// request tools): an entry, including contents/actions permissions and the
+	// admin-only role for tags and releases, is added with each tool; a test keeps this
 	// table and the registered tools in step.
 }
 
@@ -104,23 +108,35 @@ func newGitHubAccessGap(missing []domain.GitHubPermissionNeed, settingsURL strin
 
 // authorizeAssistantAction is the one role check for an action, used when it is
 // requested and again when it is approved, against the user's current role.
-// It returns the reason for a refusal, or "".
-func authorizeAssistantAction(ctx context.Context, members assistantMemberRepo, system *AssistantSystem, ws, actor uuid.UUID, action string) (string, error) {
-	switch assistantActionPolicies[action].role {
-	case roleWorkspaceAdmin:
+// owner is the user who owns the thing acted on, where the policy admits them
+// (the creator of a task being merged); uuid.Nil when not known, which admits
+// no one by ownership. It returns the reason for a refusal, or "".
+func authorizeAssistantAction(ctx context.Context, members assistantMemberRepo, system *AssistantSystem, ws, actor uuid.UUID, action string, owner uuid.UUID) (string, error) {
+	policy := assistantActionPolicies[action]
+	refusal := policy.refusal
+	if refusal == "" {
+		refusal = "only workspace owners and admins can do this"
+	}
+	switch policy.role {
+	case roleWorkspaceAdmin, roleAdminOrCreator:
 		if members == nil {
-			return "Only workspace owners and admins can do this", nil
+			return refusal, nil
 		}
 		member, err := members.GetMember(ctx, ws, actor)
 		if err != nil {
 			return "", err
 		}
-		if member == nil || (member.Role != domain.RoleOwner && member.Role != domain.RoleAdmin) {
-			return "Only workspace owners and admins can do this", nil
+		if member == nil {
+			return refusal, nil
+		}
+		admin := member.Role == domain.RoleOwner || member.Role == domain.RoleAdmin
+		creator := policy.role == roleAdminOrCreator && owner != uuid.Nil && owner == actor
+		if !admin && !creator {
+			return refusal, nil
 		}
 	case roleInstanceAdmin:
 		if system == nil || !system.isAdmin(actor) {
-			return "Only an instance administrator can do this", nil
+			return refusal, nil
 		}
 	}
 	return "", nil
@@ -271,4 +287,10 @@ func deniedGap(ctx context.Context, access githubAccess, ws uuid.UUID, action st
 		}
 	}
 	return permissionDeniedGap(action)
+}
+
+// ownerScoped reports whether the action's role depends on who owns its
+// target, so the gate runs where the target is loaded instead of up front.
+func ownerScoped(action string) bool {
+	return assistantActionPolicies[action].role == roleAdminOrCreator
 }

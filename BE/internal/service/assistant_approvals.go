@@ -129,26 +129,42 @@ func (s *AssistantApprovals) Resolve(ctx context.Context, ws, conversation, id u
 	if changed {
 		auditAssistantAction("approval_approved", approval.ActorID, ws, approval.Action, map[string]interface{}{"approval_id": id.String(), "target": approvalTarget(approval)})
 	}
+	ctx, transitioned := repository.WithFinishTransition(ctx)
 	finished, err := s.execute(ctx, ws, conversation, id, approval)
-	if err == nil && finished != nil {
-		fields := map[string]interface{}{"approval_id": id.String(), "status": finished.Status, "target": approvalTarget(approval), "outcome": "executed"}
+	auditApprovalOutcome(ws, approval, finished, *transitioned, err)
+	return finished, err
+}
+
+// auditApprovalOutcome records how an approved action ended, once: an error
+// that leaves the claim in place is recorded as action_error, and a finished
+// outcome only by the call that moved the approval out of `approving`.
+func auditApprovalOutcome(ws uuid.UUID, approval, finished *domain.ConversationApproval, transitioned bool, err error) {
+	fields := map[string]interface{}{"approval_id": approval.ID.String(), "target": approvalTarget(approval)}
+	switch {
+	case err != nil:
+		fields["outcome"], fields["error"] = "error", truncateRunes(err.Error(), 300)
+		auditAssistantAction("action_error", approval.ActorID, ws, approval.Action, fields)
+	case finished != nil && transitioned:
+		fields["status"], fields["outcome"] = finished.Status, "executed"
 		event := "action_executed"
 		if finished.Error != nil && *finished.Error != "" {
 			event, fields["error"], fields["outcome"] = "action_failed", *finished.Error, "failed"
 		}
 		auditAssistantAction(event, approval.ActorID, ws, approval.Action, fields)
 	}
-	return finished, err
 }
 
 // execute runs an approved action after the shared role and GitHub checks.
 func (s *AssistantApprovals) execute(ctx context.Context, ws, conversation, id uuid.UUID, approval *domain.ConversationApproval) (*domain.ConversationApproval, error) {
-	refusal, err := authorizeAssistantAction(ctx, s.members, s.system, ws, approval.ActorID, approval.Action)
+	refusal, err := "", error(nil)
+	if !ownerScoped(approval.Action) {
+		refusal, err = authorizeAssistantAction(ctx, s.members, s.system, ws, approval.ActorID, approval.Action, uuid.Nil)
+	}
 	if err != nil {
 		return nil, err
 	}
 	if refusal != "" {
-		return s.conversations.FinishApproval(ctx, ws, conversation, id, nil, refusal)
+		return s.conversations.FinishApproval(ctx, ws, conversation, id, nil, upperFirst(refusal))
 	}
 	if gap := preflightGitHub(ctx, s.access, ws, approval.Action); gap != nil && !gap.Unverified {
 		return s.conversations.FinishApproval(ctx, ws, conversation, id, nil, gap.Message)
@@ -275,12 +291,12 @@ func (s *AssistantApprovals) merge(ctx context.Context, ws, conversation uuid.UU
 	if target.IssueID != approval.IssueID || target.Repository != payload.Repository || target.Number != payload.PullRequest || target.Commit != published {
 		return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, "The pull request changed after approval was requested; ask again")
 	}
-	member, err := s.members.GetMember(ctx, ws, approval.ActorID)
+	refusal, err := authorizeAssistantAction(ctx, s.members, s.system, ws, approval.ActorID, approval.Action, target.CreatorID)
 	if err != nil {
 		return nil, err
 	}
-	if member == nil || (member.Role != domain.RoleOwner && member.Role != domain.RoleAdmin && target.CreatorID != approval.ActorID) {
-		return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, "Only workspace admins or the task's creator can merge")
+	if refusal != "" {
+		return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, upperFirst(refusal))
 	}
 	if s.heads != nil {
 		// Read the head again now that the approver is known to be allowed to

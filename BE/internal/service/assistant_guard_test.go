@@ -100,11 +100,11 @@ func TestAdminOnlyActionsAreRefusedForOtherRoles(t *testing.T) {
 	withPolicies(t)
 	ctx, ws, user := context.Background(), uuid.New(), uuid.New()
 	for role, allowed := range map[string]bool{domain.RoleOwner: true, domain.RoleAdmin: true, domain.RoleMember: false, "": false} {
-		refusal, err := authorizeAssistantAction(ctx, memberFake{role}, nil, ws, user, "test_release")
+		refusal, err := authorizeAssistantAction(ctx, memberFake{role}, nil, ws, user, "test_release", uuid.Nil)
 		require.NoError(t, err)
 		require.Equal(t, allowed, refusal == "", "role %q", role)
 	}
-	refusal, err := authorizeAssistantAction(ctx, memberFake{domain.RoleMember}, nil, ws, user, "run_check")
+	refusal, err := authorizeAssistantAction(ctx, memberFake{domain.RoleMember}, nil, ws, user, "run_check", uuid.Nil)
 	require.NoError(t, err)
 	require.Empty(t, refusal, "members may use member-level actions")
 }
@@ -302,4 +302,73 @@ func TestUnverifiedAccessNeverBlocksAndDeniedNamesOnlyWhatIsMissing(t *testing.T
 
 	fallback := deniedGap(ctx, &countingAccess{err: errors.New("down")}, ws, "test_multi")
 	require.Len(t, fallback.Missing, 2, "without a live answer it lists what the action needs")
+}
+
+func TestRealToolPoliciesEnforceTheirRoles(t *testing.T) {
+	ctx, ws, user, other := context.Background(), uuid.New(), uuid.New(), uuid.New()
+	check := func(members assistantMemberRepo, system *AssistantSystem, action string, owner uuid.UUID) string {
+		refusal, err := authorizeAssistantAction(ctx, members, system, ws, user, action, owner)
+		require.NoError(t, err)
+		return refusal
+	}
+
+	// merge_pull_request: workspace admins and owners, or the task's creator.
+	require.Empty(t, check(memberFake{domain.RoleAdmin}, nil, "merge_pull_request", other))
+	require.Empty(t, check(memberFake{domain.RoleOwner}, nil, "merge_pull_request", other))
+	require.Empty(t, check(memberFake{domain.RoleMember}, nil, "merge_pull_request", user), "the task's creator may merge")
+	require.Contains(t, check(memberFake{domain.RoleMember}, nil, "merge_pull_request", other), "admins or the task's creator")
+	require.NotEmpty(t, check(memberFake{domain.RoleMember}, nil, "merge_pull_request", uuid.Nil), "an unknown creator admits no one by ownership")
+	require.NotEmpty(t, check(memberFake{""}, nil, "merge_pull_request", user), "a creator who left the workspace is refused")
+
+	// upgrade_instance: instance administrators only, whatever the workspace role.
+	admin := NewAssistantSystem(&updaterFake{}, func(id uuid.UUID) bool { return id == user }, "0.2.8")
+	notAdmin := NewAssistantSystem(&updaterFake{}, func(uuid.UUID) bool { return false }, "0.2.8")
+	require.Empty(t, check(memberFake{domain.RoleMember}, admin, "upgrade_instance", uuid.Nil))
+	require.Contains(t, check(memberFake{domain.RoleOwner}, notAdmin, "upgrade_instance", uuid.Nil), "only an instance administrator can upgrade")
+	require.NotEmpty(t, check(memberFake{domain.RoleOwner}, nil, "upgrade_instance", uuid.Nil))
+
+	// The merge check is made where the creator is known.
+	require.True(t, ownerScoped("merge_pull_request"))
+	require.False(t, ownerScoped("upgrade_instance"))
+}
+
+func TestPreflightUsesTheRealMergePolicy(t *testing.T) {
+	access := &accessFake{gap: newGitHubAccessGap([]domain.GitHubPermissionNeed{{Name: "contents", Level: "write"}}, "https://github.com/settings/apps/x/permissions")}
+	gap := preflightGitHub(context.Background(), access, uuid.New(), "merge_pull_request")
+	require.Equal(t, access.gap, gap)
+	require.Equal(t, map[string]string{"pull_requests": "write", "contents": "write"}, access.asked)
+}
+
+func auditEvents(t *testing.T, run func()) []*logrus.Entry {
+	t.Helper()
+	hook := logtest.NewGlobal()
+	defer logrus.StandardLogger().ReplaceHooks(make(logrus.LevelHooks))
+	run()
+	return hook.AllEntries()
+}
+
+func TestApprovalOutcomeIsAuditedExactlyOnce(t *testing.T) {
+	ws := uuid.New()
+	approval := &domain.ConversationApproval{ID: uuid.New(), ActorID: uuid.New(), Action: "merge_pull_request", Payload: json.RawMessage(`{"repository":"o/r","pull_request":7}`)}
+	reason := "GitHub refused"
+	done := &domain.ConversationApproval{Status: "approved"}
+	failed := &domain.ConversationApproval{Status: "failed", Error: &reason}
+
+	entries := auditEvents(t, func() { auditApprovalOutcome(ws, approval, done, true, nil) })
+	require.Len(t, entries, 1)
+	require.Equal(t, "assistant.action_executed", entries[0].Data["action"])
+	require.Equal(t, "o/r#7", entries[0].Data["target"])
+
+	entries = auditEvents(t, func() { auditApprovalOutcome(ws, approval, failed, true, nil) })
+	require.Len(t, entries, 1)
+	require.Equal(t, "assistant.action_failed", entries[0].Data["action"])
+	require.Equal(t, "failed", entries[0].Data["outcome"])
+
+	entries = auditEvents(t, func() { auditApprovalOutcome(ws, approval, done, false, nil) })
+	require.Empty(t, entries, "a retry that finds the approval already finished records nothing")
+
+	entries = auditEvents(t, func() { auditApprovalOutcome(ws, approval, nil, false, errors.New("database down")) })
+	require.Len(t, entries, 1, "an error that leaves the claim in place is recorded")
+	require.Equal(t, "assistant.action_error", entries[0].Data["action"])
+	require.Equal(t, "database down", entries[0].Data["error"])
 }
