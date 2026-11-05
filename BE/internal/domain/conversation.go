@@ -275,3 +275,17 @@ type UpgradePayload struct {
 	LatestVersion  string `json:"latest_version"`
 	Changelog      string `json:"changelog,omitempty"`
 }
+
+// GitHubAccessGap is the GitHub App access an action needs but lacks. It rides
+// in the tool result and in the approval's payload so the card can show it.
+type GitHubAccessGap struct {
+	Missing     []GitHubPermissionNeed `json:"missing"`
+	SettingsURL string                 `json:"settings_url,omitempty"`
+	Message     string                 `json:"message"`
+}
+
+// GitHubPermissionNeed is one GitHub App permission at a minimum level.
+type GitHubPermissionNeed struct {
+	Name  string `json:"name"`
+	Level string `json:"level"`
+}

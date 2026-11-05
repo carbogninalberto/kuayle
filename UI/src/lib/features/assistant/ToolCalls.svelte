@@ -18,7 +18,7 @@
 	import * as Item from '$lib/components/ui/item/index.js';
 	import * as Alert from '$lib/components/ui/alert/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
-	import type { ConversationApproval, ConversationToolCall } from '$lib/api/conversations';
+	import type { ConversationApproval, ConversationToolCall, GitHubAccessGap } from '$lib/api/conversations';
 	import { m } from '$lib/paraglide/messages.js';
 	import AgentSubagent from './AgentSubagent.svelte';
 	import AppPortLinks from './AppPortLinks.svelte';
@@ -278,6 +278,23 @@
 					>
 						<Item.Media variant="icon" class="text-[var(--status-warning)]"><Bot /></Item.Media>
 						<Item.Content class="min-w-0">
+							{@const gap = (approval.payload as { github_access?: GitHubAccessGap }).github_access}
+							{#if gap}
+								<Alert.Root class="mb-2 border-[var(--status-warning)]/40" data-testid="github-access-gap">
+									<Alert.Title>{m['assistant.github_access_title']()}</Alert.Title>
+									<Alert.Description class="space-y-1">
+										<p>{gap.message}</p>
+										{#if gap.settings_url}
+											<a
+												href={gap.settings_url}
+												target="_blank"
+												rel="noopener noreferrer"
+												class="underline underline-offset-2">{m['assistant.github_access_link']()}</a
+											>
+										{/if}
+									</Alert.Description>
+								</Alert.Root>
+							{/if}
 							{#if approval.action === 'merge_pull_request'}
 								<Item.Title
 									>{m['assistant.merge_title']({ identifier, number: approval.payload.pull_request })}</Item.Title

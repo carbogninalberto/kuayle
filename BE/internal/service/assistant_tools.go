@@ -64,6 +64,8 @@ type AssistantTools struct {
 	teams   repository.TeamRepo
 	members assistantMemberRepo
 	creator assistantIssueCreator
+	// The GitHub permission preflight is skipped until SetGitHubAccess wires it.
+	access githubAccess
 	// Planning tools are unavailable until SetPlanning wires them.
 	dependencies assistantDependencies
 	relations    assistantRelationCreator

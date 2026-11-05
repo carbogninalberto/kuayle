@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	gh "github.com/kuayle/kuayle-backend/pkg/github"
 	log "github.com/sirupsen/logrus"
@@ -25,6 +26,7 @@ var githubAppPermissions = map[string]string{
 	"metadata":      "read",
 	"issues":        "read",
 	"checks":        "read",
+	"actions":       "read",
 }
 
 var githubAppEvents = []string{
@@ -193,4 +195,55 @@ func (s *GitHubService) GetAppSetup(ctx context.Context, workspaceID uuid.UUID) 
 	result := evaluateGitHubAppSetup(app, installation)
 	result.Managed = resp.Managed
 	return result, nil
+}
+
+// permissionGap lists the needed permissions the installation lacks. A
+// permission the app itself does not request is fixed in the app's settings;
+// one the app requests but the installation has not accepted is fixed on the
+// installation's page.
+func permissionGap(needs, appPermissions, installationPermissions map[string]string, appURL, installationURL string) *domain.GitHubAccessGap {
+	var missing []domain.GitHubPermissionNeed
+	appLacks := false
+	for name, level := range needs {
+		if githubPermissionRank(installationPermissions[name]) >= githubPermissionRank(level) {
+			continue
+		}
+		missing = append(missing, domain.GitHubPermissionNeed{Name: name, Level: level})
+		if githubPermissionRank(appPermissions[name]) < githubPermissionRank(level) {
+			appLacks = true
+		}
+	}
+	link := installationURL
+	if appLacks || link == "" {
+		link = appURL
+	}
+	return newGitHubAccessGap(missing, link)
+}
+
+// PermissionGap checks the live GitHub App and installation against the
+// permissions an assistant tool needs. An unreachable GitHub is an error, not a gap.
+func (s *GitHubService) PermissionGap(ctx context.Context, workspaceID uuid.UUID, needs map[string]string) (*domain.GitHubAccessGap, error) {
+	inst, err := s.ghRepo.GetInstallationByWorkspace(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	if inst == nil || inst.InstallationID <= 0 {
+		return &domain.GitHubAccessGap{Message: "The GitHub App is not installed for this workspace. Connect it in Settings → Integrations → GitHub."}, nil
+	}
+	client, _, err := s.getClient(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	app, err := client.GetApp(ctx)
+	if err != nil {
+		return nil, err
+	}
+	installation, err := client.GetInstallationContext(ctx, inst.InstallationID)
+	if err != nil {
+		return nil, err
+	}
+	return permissionGap(needs, app.Permissions, installation.Permissions,
+		githubAppSettingsURL(app.Slug, app.Owner.Login, app.Owner.Type), safeGitHubPageURL(installation.HTMLURL)), nil
 }

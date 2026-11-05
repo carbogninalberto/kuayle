@@ -45,6 +45,8 @@ type AssistantApprovals struct {
 	settings approvalToolSettings
 	// Upgrades are unavailable until SetSystem wires them.
 	system *AssistantSystem
+	// The GitHub permission check is skipped until SetGitHubAccess wires it.
+	access githubAccess
 }
 
 type approvalToolSettings interface {
@@ -114,8 +116,39 @@ func NewAssistantApprovals(conversations *repository.ConversationRepository, tas
 // task because the effect replays the approval's fixed request ID.
 func (s *AssistantApprovals) Resolve(ctx context.Context, ws, conversation, id uuid.UUID, approve bool) (*domain.ConversationApproval, error) {
 	approval, err := s.conversations.ClaimApproval(ctx, ws, conversation, id, approve)
-	if err != nil || approval.Status != "approving" {
+	if err != nil {
 		return approval, err
+	}
+	if approval.Status != "approving" {
+		if approval.Status == "denied" && !approve {
+			auditAssistantAction("approval_denied", approval.ActorID, ws, approval.Action, map[string]interface{}{"approval_id": id.String()})
+		}
+		return approval, nil
+	}
+	auditAssistantAction("approval_approved", approval.ActorID, ws, approval.Action, map[string]interface{}{"approval_id": id.String()})
+	finished, err := s.execute(ctx, ws, conversation, id, approval)
+	if err == nil && finished != nil {
+		fields := map[string]interface{}{"approval_id": id.String(), "status": finished.Status}
+		event := "action_executed"
+		if finished.Error != nil && *finished.Error != "" {
+			event, fields["error"] = "action_failed", *finished.Error
+		}
+		auditAssistantAction(event, approval.ActorID, ws, approval.Action, fields)
+	}
+	return finished, err
+}
+
+// execute runs an approved action after the shared role and GitHub checks.
+func (s *AssistantApprovals) execute(ctx context.Context, ws, conversation, id uuid.UUID, approval *domain.ConversationApproval) (*domain.ConversationApproval, error) {
+	refusal, err := authorizeAssistantAction(ctx, s.members, s.system, ws, approval.ActorID, approval.Action)
+	if err != nil {
+		return nil, err
+	}
+	if refusal != "" {
+		return s.conversations.FinishApproval(ctx, ws, conversation, id, nil, refusal)
+	}
+	if gap := preflightGitHub(ctx, s.access, ws, approval.Action); gap != nil {
+		return s.conversations.FinishApproval(ctx, ws, conversation, id, nil, gap.Message)
 	}
 	if s.settings != nil {
 		disabled, err := s.settings.Disabled(ctx, ws)

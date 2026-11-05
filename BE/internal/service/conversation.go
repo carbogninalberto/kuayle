@@ -359,6 +359,9 @@ func (s *ConversationService) runToolCall(ctx context.Context, a domain.Conversa
 	modelContent := ""
 	if runErr = s.tools.refuseDisabled(ctx, a.Conversation.WorkspaceID, tool.name); runErr != nil {
 		// A tool the workspace turned off is recorded as refused and never runs.
+	} else if gap := preflightGitHub(ctx, s.tools.access, a.Conversation.WorkspaceID, tool.name); gap != nil && !tool.approval {
+		// A read-only GitHub tool cannot work without its permission.
+		runErr = toolFailure("%s", gap.Message)
 	} else if custom {
 		output, issueID, runErr = s.runCustomTool(ctx, a, record.ID, tool.name, call.Function.Arguments)
 	} else if tool.approval {
@@ -413,6 +416,15 @@ func (s *ConversationService) requestApproval(ctx context.Context, a domain.Conv
 	var payload any
 	var identifier string
 	var err error
+	ws, actor := a.Conversation.WorkspaceID, a.Conversation.CreatorID
+	refusal, err := authorizeAssistantAction(ctx, s.tools.members, s.tools.system, ws, actor, action)
+	if err != nil {
+		return nil, nil, err
+	}
+	if refusal != "" {
+		auditAssistantAction("request_refused", actor, ws, action, map[string]interface{}{"reason": refusal})
+		return nil, nil, toolFailure("%s", refusal)
+	}
 	switch action {
 	case "delegate_issue":
 		var delegation domain.DelegationPayload
@@ -456,6 +468,12 @@ func (s *ConversationService) requestApproval(ctx context.Context, a domain.Conv
 	if err != nil {
 		return nil, nil, err
 	}
+	// The approval is still offered when GitHub access is missing, so the admin
+	// sees what to grant on the card; approving re-checks it.
+	gap := preflightGitHub(ctx, s.tools.access, ws, action)
+	if payload, err = withGitHubAccess(payload, gap); err != nil {
+		return nil, nil, err
+	}
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return nil, nil, err
@@ -464,9 +482,16 @@ func (s *ConversationService) requestApproval(ctx context.Context, a domain.Conv
 	if err != nil {
 		return nil, nil, err
 	}
+	auditAssistantAction("approval_requested", actor, ws, action, map[string]interface{}{"approval_id": approval.ID.String(), "github_permissions_missing": gap != nil})
+	result := map[string]any{"approval_id": approval.ID, "status": "pending_user_approval"}
+	if gap != nil {
+		result["github_access"] = gap
+		result["warning"] = gap.Message
+	}
 	// An upgrade belongs to no issue.
 	if issueID == uuid.Nil {
-		return map[string]any{"approval_id": approval.ID, "status": "pending_user_approval"}, nil, nil
+		return result, nil, nil
 	}
-	return map[string]any{"approval_id": approval.ID, "status": "pending_user_approval", "identifier": identifier}, &issueID, nil
+	result["identifier"] = identifier
+	return result, &issueID, nil
 }
