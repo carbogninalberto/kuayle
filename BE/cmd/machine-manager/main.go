@@ -96,6 +96,10 @@ func main() {
 		})
 	manager.SetCapacity(machine.CapacityConfig{ReservedCPUMillis: configValue.DevMachine.HostReservedCPUMillis, ReservedMemoryMB: configValue.DevMachine.HostReservedMemoryMB, CPUOvercommit: configValue.DevMachine.CPUOvercommit})
 	manager.SetMachineDomain(configValue.DevMachine.Domain)
+	manager.SetImages(machine.MachineImages{
+		IDE: configValue.DevMachine.IDEImage, Headless: configValue.DevMachine.HeadlessImage, Browser: configValue.DevMachine.BrowserImage,
+		Collector: configValue.DevMachine.CollectorImage, Egress: configValue.DevMachine.EgressImage, Docker: configValue.DevMachine.DockerImage,
+	})
 	manager.SetAgentGitIdentity(machine.GitIdentity{Name: configValue.DevMachine.AgentGitName, Email: configValue.DevMachine.AgentGitEmail})
 	// Task images are read from the API's storage; without it runs get none.
 	if files, err := storage.New(configValue.Storage); err == nil {
