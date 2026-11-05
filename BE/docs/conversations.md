@@ -603,6 +603,38 @@ this same resolution path; see [Telegram approval buttons](telegram.md#approval-
 [requested agent reviews](agent-tasks.md#requested-agent-reviews). `run_check` does too (migration 97); see
 [manual checks](agent-tasks.md#manual-checks).
 
+### Model choice for agents started from chat
+
+`delegate_issue`, `request_agent_review` and `follow_up_task` accept an optional
+`model` (and `harness` for delegations and reviews) that is stored in the
+approval payload; a follow-up payload also shows the task's current model,
+harness and `model_server_id`. The approval card (`ApprovalModelPicker`) opens
+on what the backend would start: the proposal on the server that offers it
+(the task's own first, then the default, then another compatible server), else
+the default model server's default model when that server speaks the harness,
+else the agent's own sign-in (whose run fills the model and effort from the
+workspace's [agent default](../../TECHNICAL.md#agent-model-defaults) when it is
+created; a proposed model no server offers also runs there). A follow-up without a proposed model opens on the
+task's current model and the server it actually runs on (its own, else the
+current default), even if that server no longer lists the model, since an
+untouched card keeps both. Like the task composer it offers the compatible
+model servers and the models of the selected one. `POST .../approvals/:id`
+accepts optional `harness`, `model` and `model_server_id` next to `decision`;
+only what the user changed is sent, and a picked model always carries its server
+because two servers may list the same model name (the server is ignored without
+a model). The approver's choice wins over the proposal and a new harness never
+inherits the proposed model. With no choice the default model server applies as
+before. The harness must be allowed in the workspace, and the model must be one
+the chosen server offers (validation fails the approval otherwise; an unknown
+server is never replaced by another). Reviews still default to the implementing
+task's harness. A follow-up continues on the task's own harness, so only its
+model and server change (`agent_tasks.model`, `thinking` and `model_server_id`
+are updated together when the attempt is queued). An explicit model takes the
+thinking level of the server that runs it; the default server stays implicit
+unless the task was pinned to a server. Harness and model on an approval other
+than these three, or on a denial, are ignored. Only the approval's bound actor
+can resolve it, and the effect re-checks their access as for any approval.
+
 ### Previews and ports from chat
 
 The machine tools act on the issue's newest implementing task and its machine,

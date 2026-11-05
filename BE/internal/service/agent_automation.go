@@ -152,7 +152,7 @@ func (s *AgentAutomationService) start(ctx context.Context, run domain.AgentAuto
 		return
 	}
 	access := domain.WithAccess(ctx, domain.Access{WorkspaceID: run.WorkspaceID, UserID: *run.ActorID})
-	task, err := delegateIssue(access, s.conversations, s.tasks, run.WorkspaceID, run.IssueID, run.Instructions, run.RequestID)
+	task, err := delegateIssue(access, s.conversations, s.tasks, run.WorkspaceID, run.IssueID, run.Instructions, run.RequestID, "", "", nil)
 	if err != nil {
 		message, permanent := delegationFailure(err)
 		if !permanent {

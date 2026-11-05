@@ -142,6 +142,10 @@ type DelegationPayload struct {
 	Identifier   string `json:"identifier"`
 	Title        string `json:"title"`
 	Instructions string `json:"instructions"`
+	// Harness and Model are the coding agent the assistant proposed; empty
+	// means the workspace, project or team default. The approver can change them.
+	Harness string `json:"harness,omitempty"`
+	Model   string `json:"model,omitempty"`
 	// Repository, BaseBranch and RepositorySource show the development
 	// repository resolved when approval was requested (issue → project → team
 	// → workspace). The task resolves it again when it runs.
@@ -219,6 +223,7 @@ type ReviewPayload struct {
 	Title             string    `json:"title"`
 	TaskID            uuid.UUID `json:"task_id"`
 	Harness           string    `json:"harness"`
+	Model             string    `json:"model,omitempty"`
 	Focus             string    `json:"focus,omitempty"`
 	PostToPullRequest bool      `json:"post_to_pull_request"`
 	PullRequest       int       `json:"pull_request"`
@@ -234,6 +239,15 @@ type FollowUpPayload struct {
 	TaskID       uuid.UUID `json:"task_id"`
 	Generation   int64     `json:"generation"`
 	Instructions string    `json:"instructions"`
+	// Model switches the task's model for this attempt; the harness stays.
+	Model string `json:"model,omitempty"`
+	// CurrentModel is the model the task ran with, shown on the card.
+	CurrentModel string `json:"current_model,omitempty"`
+	// Harness is the task's coding agent, shown on the card.
+	Harness string `json:"harness,omitempty"`
+	// ModelServerID is the task's model server (nil: the workspace default), so
+	// the card opens on the server that runs CurrentModel.
+	ModelServerID *uuid.UUID `json:"model_server_id,omitempty"`
 }
 
 // AppPortAudienceOwner means only the machine's owner, signed in to Kuayle,

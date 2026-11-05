@@ -51,7 +51,7 @@ func TestCreateReleaseFromChatPublishesTheEditedNotesAfterApproval(t *testing.T)
 
 	// Notes that fail the check are refused and the approval stays pending.
 	bad := "- staged on 192.168.0.4 first"
-	_, err = f.service.ResolveApprovalEdited(f.ctx, f.ws, a.Conversation.ID, approval.ID, true, &ApprovalEdit{Notes: &bad})
+	_, err = f.service.ResolveApprovalDecision(f.ctx, f.ws, a.Conversation.ID, approval.ID, true, ModelChoice{}, &ApprovalEdit{Notes: &bad})
 	var invalid *ApprovalEditError
 	require.True(t, errors.As(err, &invalid))
 	require.Contains(t, invalid.Message, "private address")
@@ -61,7 +61,7 @@ func TestCreateReleaseFromChatPublishesTheEditedNotesAfterApproval(t *testing.T)
 	require.Empty(t, github.created)
 
 	edited := "### Fixed\n- **Notes edited on the card.**"
-	done, err := f.service.ResolveApprovalEdited(f.ctx, f.ws, a.Conversation.ID, approval.ID, true, &ApprovalEdit{Notes: &edited})
+	done, err := f.service.ResolveApprovalDecision(f.ctx, f.ws, a.Conversation.ID, approval.ID, true, ModelChoice{}, &ApprovalEdit{Notes: &edited})
 	require.NoError(t, err)
 	require.Equal(t, "approved", done.Status, "error: %v", done.Error)
 	require.Len(t, github.created, 1)

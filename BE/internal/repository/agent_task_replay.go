@@ -59,17 +59,19 @@ func replayAgentTaskCreate(ctx context.Context, tx *sqlx.Tx, c *domain.Conversat
 
 func replayAgentTaskRetry(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, input domain.AgentTaskRetryRequest) (*domain.AgentTask, error) {
 	var previous struct {
-		Generation int64  `db:"expected_generation"`
-		Prompt     string `db:"prompt"`
+		Generation int64      `db:"expected_generation"`
+		Prompt     string     `db:"prompt"`
+		Model      string     `db:"model"`
+		Server     *uuid.UUID `db:"model_server_id"`
 	}
-	err := tx.GetContext(ctx, &previous, `SELECT expected_generation,prompt FROM agent_task_retries WHERE task_id=$1 AND request_id=$2`, task.ID, input.RequestID)
+	err := tx.GetContext(ctx, &previous, `SELECT expected_generation,prompt,model,model_server_id FROM agent_task_retries WHERE task_id=$1 AND request_id=$2`, task.ID, input.RequestID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	if previous.Generation != input.Generation || previous.Prompt != strings.TrimSpace(input.Prompt) {
+	if previous.Generation != input.Generation || previous.Prompt != strings.TrimSpace(input.Prompt) || previous.Model != strings.TrimSpace(input.Model) || !sameUUIDPointer(previous.Server, requestedRetryServer(input)) {
 		return nil, ErrConversationConflict
 	}
 	accepted, err := acceptedAgentTask(ctx, tx, task, previous.Generation+1)
@@ -109,4 +111,12 @@ func sameUUIDPointer(a, b *uuid.UUID) bool {
 		return a == nil && b == nil
 	}
 	return *a == *b
+}
+
+// requestedRetryServer is the server a retry asked for; it counts only with a model.
+func requestedRetryServer(input domain.AgentTaskRetryRequest) *uuid.UUID {
+	if strings.TrimSpace(input.Model) == "" {
+		return nil
+	}
+	return input.RequestedModelServerID
 }

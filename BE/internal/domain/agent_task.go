@@ -117,6 +117,15 @@ type AgentTaskRetryRequest struct {
 	RequestID  uuid.UUID `json:"request_id"`
 	Generation int64     `json:"generation"`
 	Prompt     string    `json:"prompt"`
+	// Model, when set, replaces the task's model for the new attempt; Thinking and
+	// ModelServerID then replace its thinking level and model server with it.
+	Model         string     `json:"model,omitempty"`
+	Thinking      string     `json:"-"`
+	ModelServerID *uuid.UUID `json:"-"`
+	// RequestedModelServerID is the model server the caller picked for Model
+	// (an approval card); nil lets the service choose. The retry receipt records
+	// it with Model, so a replay with another choice conflicts.
+	RequestedModelServerID *uuid.UUID `json:"-"`
 
 	TestCommand []string `json:"test_command"`
 }

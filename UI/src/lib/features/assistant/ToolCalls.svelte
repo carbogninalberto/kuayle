@@ -20,10 +20,12 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import type {
 		ApprovalEdit,
+		ApprovalModelChoice,
 		ConversationApproval,
 		ConversationToolCall,
 		GitHubAccessGap
 	} from '$lib/api/conversations';
+	import ApprovalModelPicker from './ApprovalModelPicker.svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import AgentSubagent from './AgentSubagent.svelte';
 	import AppPortLinks from './AppPortLinks.svelte';
@@ -45,8 +47,9 @@
 		calls: ConversationToolCall[];
 		slug: string;
 		approvals?: Record<string, ConversationApproval>;
-		onresolve?: (approval: ConversationApproval, decision: 'approve' | 'deny', edit?: ApprovalEdit) => Promise<void>;
+		onresolve?: (approval: ConversationApproval, decision: 'approve' | 'deny', choice?: ApprovalEdit) => Promise<void>;
 	} = $props();
+	let choices = $state<Record<string, ApprovalModelChoice>>({});
 	let deciding = $state<string | null>(null),
 		decisionError = $state<string | null>(null),
 		// The server's reason for refusing an edit, such as a secret in the notes.
@@ -70,7 +73,9 @@
 		decisionError = null;
 		decisionReason = null;
 		try {
-			await onresolve(approval, decision, decision === 'approve' ? editOf(approval) : undefined);
+			// A model choice for coding agents, or a release's edited notes.
+			const choice = decision === 'approve' ? { ...choices[approval.id], ...editOf(approval) } : undefined;
+			await onresolve(approval, decision, choice);
 		} catch (error) {
 			const failure = error as { status?: number; error?: { message?: string } };
 			// An expiry is reported through the conversation stream as well.
@@ -699,6 +704,23 @@
 										class="max-h-48 text-xs"
 									/></CodeBlock.Root
 								>
+							{/if}
+							{#if approval.action === 'delegate_issue' || approval.action === 'request_agent_review' || approval.action === 'follow_up_task'}
+								<ApprovalModelPicker
+									{slug}
+									issueId={approval.issue_id}
+									proposed={approval.action === 'follow_up_task'
+										? {
+												harness: approval.payload.harness,
+												model: approval.payload.model || approval.payload.current_model,
+												server: approval.payload.model_server_id,
+												current: !approval.payload.model
+											}
+										: approval.payload}
+									harnessLocked={approval.action === 'follow_up_task'}
+									disabled={deciding !== null}
+									onchange={(choice) => (choices[approval.id] = choice)}
+								/>
 							{/if}
 							{#if decisionError === approval.id}<p role="alert" class="text-xs text-destructive">
 									{decisionReason ?? m['assistant.approval_error']()}

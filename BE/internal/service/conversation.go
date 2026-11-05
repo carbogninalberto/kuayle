@@ -33,18 +33,25 @@ func (s *ConversationService) SetApprovals(approvals *AssistantApprovals) {
 }
 
 func (s *ConversationService) ResolveApproval(ctx context.Context, ws, conversation, id uuid.UUID, approve bool) (*domain.ConversationApproval, error) {
-	if s.approvals == nil {
-		return nil, repository.ErrConversationNotFound
-	}
-	return s.approvals.Resolve(ctx, ws, conversation, id, approve)
+	return s.ResolveApprovalWithModel(ctx, ws, conversation, id, approve, ModelChoice{})
 }
 
-// ResolveApprovalEdited applies a decision with the approver's edit of the card.
-func (s *ConversationService) ResolveApprovalEdited(ctx context.Context, ws, conversation, id uuid.UUID, approve bool, edit *ApprovalEdit) (*domain.ConversationApproval, error) {
+// ResolveApprovalWithModel resolves with the harness and model the approver
+// picked on the approval card.
+func (s *ConversationService) ResolveApprovalWithModel(ctx context.Context, ws, conversation, id uuid.UUID, approve bool, choice ModelChoice) (*domain.ConversationApproval, error) {
 	if s.approvals == nil {
 		return nil, repository.ErrConversationNotFound
 	}
-	return s.approvals.ResolveEdited(ctx, ws, conversation, id, approve, edit)
+	return s.approvals.ResolveWithModel(ctx, ws, conversation, id, approve, choice)
+}
+
+// ResolveApprovalDecision resolves with the approver's model choice and edit
+// of the approval card.
+func (s *ConversationService) ResolveApprovalDecision(ctx context.Context, ws, conversation, id uuid.UUID, approve bool, choice ModelChoice, edit *ApprovalEdit) (*domain.ConversationApproval, error) {
+	if s.approvals == nil {
+		return nil, repository.ErrConversationNotFound
+	}
+	return s.approvals.ResolveDecision(ctx, ws, conversation, id, approve, choice, edit)
 }
 
 // SetTools enables authorized Kuayle operations for the assistant. Without it
