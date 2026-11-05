@@ -79,7 +79,7 @@ func scanLine(line string) []string {
 // Templates such as .env.example are content-scanned instead.
 func sensitiveFile(name string) bool {
 	base := strings.ToLower(path.Base(name))
-	for _, suffix := range []string{".example", ".sample", ".template", ".dist"} {
+	for _, suffix := range []string{".example", ".sample", ".template", ".dist", ".pub"} {
 		if strings.HasSuffix(base, suffix) {
 			return false
 		}
@@ -99,6 +99,16 @@ func sensitiveFile(name string) bool {
 		}
 	}
 	return strings.Contains(base, ".tfstate.") || (strings.Contains(base, "credentials") && strings.HasSuffix(base, ".json"))
+}
+
+// binaryFile tells files GitHub sends no diff for because they are binary.
+func binaryFile(name string) bool {
+	switch strings.ToLower(path.Ext(name)) {
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".icns", ".bmp", ".avif", ".pdf", ".zip", ".gz", ".tgz", ".bz2", ".xz", ".7z", ".jar",
+		".woff", ".woff2", ".ttf", ".otf", ".eot", ".mp3", ".mp4", ".webm", ".mov", ".wav", ".ogg", ".wasm", ".so", ".dylib", ".dll", ".exe", ".bin":
+		return true
+	}
+	return false
 }
 
 var hunkHeader = regexp.MustCompile(`^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@`)

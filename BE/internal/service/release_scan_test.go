@@ -85,3 +85,8 @@ func TestReleaseNotesCheckRefusesSecretsPrivateHostsAndLocalPaths(t *testing.T) 
 	require.ErrorContains(t, checkReleaseNotes("   "), "empty")
 	require.ErrorContains(t, checkReleaseNotes(strings.Repeat("a", maxReleaseNotesRunes+1)), "at most")
 }
+
+func TestPublicKeysAreNotSensitiveFiles(t *testing.T) {
+	findings, _ := scanReleaseFiles([]gh.CompareFile{{Filename: "deploy/id_ed25519.pub", Status: "added", Patch: "@@ -0,0 +1 @@\n+ssh-ed25519 AAAA test"}})
+	require.Empty(t, findings)
+}

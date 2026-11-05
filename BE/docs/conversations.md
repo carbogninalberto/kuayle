@@ -852,8 +852,8 @@ checks state, and stays within the tool output limit by dropping body excerpts
 first. The model rewrites the bullets in the style's wording and passes the
 notes to `create_release`.
 
-**Publishing.** `create_release(repository, tag, target_commit, notes, name?,
-previous_tag?)` needs approval (migration 111 adds the action; like an upgrade
+**Publishing.** `create_release(repository, tag, target_commit, notes, name?)`
+needs approval (migration 111 adds the action; like an upgrade
 the approval has no issue). Before the approval is offered, and again when it
 is approved, Kuayle refuses with a reason, auditing the refusal:
 
@@ -862,9 +862,13 @@ is approved, Kuayle refuses with a reason, auditing the refusal:
 - a target whose checks did not all pass, from the same check-run and
   commit-status reading as `get_pull_request_checks`: failing (named), still
   running, none reported, or not all readable (`Tagging refused: …`);
-- a target that does not descend from the previous tag, or a range of 300 or
-  more changed files (more than the compare API lists, so the scan cannot
-  cover it);
+- no earlier stable release among the newest 100 (the range always starts at
+  the latest stable release, which the model cannot change, so a first release
+  has no range to scan and is published outside Kuayle);
+- a target that does not descend from that release, or a range of 300 or more
+  changed files (more than the compare API lists, so the scan cannot cover it);
+- a changed text file GitHub sent no diff for (too large), which the scan could
+  not read;
 - a finding of the secret scan of the range, or of the notes.
 
 The secret scan (`release_scan.go`) reads the added lines of each changed file's
@@ -874,8 +878,10 @@ embedded password (placeholders such as `${DB_PASSWORD}` or `<password>` are
 allowed), and flags files that hold secrets by name (`.env`, `*.pem`, `*.key`,
 `id_rsa`, `*.tfstate`, database dumps and similar; `.env.example` and other
 templates are scanned instead). Removed lines and files are not findings.
-Files GitHub sends no diff for (binary or very large) are listed on the card as
-not scanned. The notes get the same credential patterns plus private IPv4
+Binary files (by extension) are listed on the card as not scanned; public keys
+(`*.pub`) are content-scanned rather than flagged by name. Tool results are
+bounded in encoded bytes so long or multi-byte notes never exceed the tool
+output limit. The notes get the same credential patterns plus private IPv4
 addresses (RFC 1918, loopback, link-local, CGNAT), host names under `.internal`,
 `.local`, `.lan`, `.corp`, `.home`, `.intranet`, `.localdomain` or `.private`,
 and local paths (`/Users/<name>/`, `/home/<name>/`), and are limited to 20 000

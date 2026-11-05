@@ -447,3 +447,57 @@ func TestGetWorkflowRunFollowsTheReleaseBuild(t *testing.T) {
 	_, err = f.run(t, "get_workflow_run", `{"repository":"acme/app"}`)
 	require.ErrorContains(t, err, "run_id, tag or commit")
 }
+
+func TestCreateReleaseScansFromTheLatestReleaseOnly(t *testing.T) {
+	// The model cannot choose a narrower range to scan.
+	f := newReleaseFixture()
+	_, err := f.prepare(t, `{"repository":"acme/app","tag":"v1.3.0","target_commit":"0123456","notes":"x","previous_tag":"v1.2.9"}`)
+	require.ErrorContains(t, err, "invalid arguments")
+
+	// Without an earlier stable release there is no range to scan, so nothing is tagged.
+	f = newReleaseFixture()
+	f.github.releases = []gh.Release{{TagName: "v1.3.0-rc.1", Prerelease: true}}
+	_, err = f.prepare(t, createArgs(releaseNotes))
+	require.ErrorContains(t, err, "no earlier release")
+	require.Empty(t, f.github.rangeBases)
+
+	// A text file GitHub sent no diff for cannot be scanned, so it blocks tagging.
+	f = newReleaseFixture()
+	f.github.rng.Files = append(f.github.rng.Files, gh.CompareFile{Filename: "BE/fixtures/huge.json", Status: "modified"})
+	_, err = f.prepare(t, createArgs(releaseNotes))
+	require.ErrorContains(t, err, "BE/fixtures/huge.json")
+	require.ErrorContains(t, err, "could not be scanned")
+}
+
+func TestReleaseToolResultsFitTheToolOutputLimit(t *testing.T) {
+	f := newReleaseFixture()
+	wide := strings.Repeat("发布说明<&>", 4000)
+	f.github.releases = nil
+	for i := 0; i < 20; i++ {
+		f.github.releases = append(f.github.releases, gh.Release{TagName: "v1." + strings.Repeat("9", i+1) + ".0", Body: wide})
+	}
+	f.github.releases[0].TagName = "v1.2.0"
+	fits := func(result map[string]any) {
+		data, err := json.Marshal(result)
+		require.NoError(t, err)
+		require.LessOrEqual(t, len(data), assistantToolOutputBytes)
+	}
+	result, err := f.run(t, "list_releases", `{"repository":"acme/app","limit":20}`)
+	require.NoError(t, err)
+	fits(result)
+	result, err = f.run(t, "get_release", `{"repository":"acme/app","tag":"v1.2.0"}`)
+	require.NoError(t, err)
+	fits(result)
+	require.Equal(t, true, result["notes_truncated"])
+
+	f.github.rng.Messages = nil
+	for i := 1; i <= 40; i++ {
+		f.github.rng.Messages = append(f.github.rng.Messages, "Merge pull request #"+strings.Repeat("1", 1)+string(rune('0'+i%10))+" from x")
+	}
+	for n := 10; n <= 19; n++ {
+		f.github.pulls[n] = gh.PullRequest{Number: n, Title: "feat: " + strings.Repeat("长标题", 70), HTMLURL: "https://github.com/acme/app/pull/1", Body: wide}
+	}
+	result, err = f.run(t, "draft_release_notes", `{"repository":"acme/app"}`)
+	require.NoError(t, err)
+	fits(result)
+}
