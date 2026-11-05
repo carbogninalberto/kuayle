@@ -53,7 +53,10 @@ var (
 )
 
 var (
-	modelThinkingLevels = []string{"off", "low", "high", "max"}
+	// Effort levels Kuayle passes to Codex (model_reasoning_effort, with off as
+	// none) and Claude Code (CLAUDE_CODE_EFFORT_LEVEL, off omits it). Claude
+	// Code 2.1.318 accepts low, medium, high, xhigh and max.
+	modelThinkingLevels = []string{"off", "low", "medium", "high", "xhigh", "max"}
 )
 
 type machineQuotaError struct {
@@ -1363,6 +1366,11 @@ func (s *DevMachineService) createAgentRun(ctx context.Context, workspaceID, mac
 			}
 		}
 	}
+	if modelServer == nil {
+		if err := s.applyAgentModelDefault(ctx, workspaceID, &req); err != nil {
+			return nil, err
+		}
+	}
 	openAIBaseURL := ""
 	if modelServer != nil && req.Provider == "codex" {
 		openAIBaseURL = *modelServer.OpenAIBaseURL
@@ -2399,8 +2407,9 @@ func redactText(value string, secrets []string) string {
 }
 
 // Shared by direct native runs and conversation delegation; model selectors must
-// describe the same overrides that the harness actually accepts. A chosen model
-// must come from a server that speaks the harness's protocol.
+// describe the same overrides that the harness actually accepts. A model on a
+// model server must be one it offers; without a server that speaks the
+// harness's protocol the harness uses its own sign-in, which takes any model.
 func (s *DevMachineService) validateAgentModel(ctx context.Context, workspaceID uuid.UUID, provider string, serverID *uuid.UUID, model, thinking string) error {
 	if model != "" || thinking != "" || serverID != nil {
 		if provider != "codex" && provider != "claude-code" {
@@ -2420,11 +2429,11 @@ func (s *DevMachineService) validateAgentModel(ctx context.Context, workspaceID 
 	if err != nil {
 		return err
 	}
-	if server == nil {
-		if serverID != nil {
-			return fmt.Errorf("%w: model server not found", ErrInvalidMachineInput)
-		}
-		return fmt.Errorf("%w: add a model server for this workspace before selecting a model", ErrInvalidOperation)
+	if server == nil && serverID != nil {
+		return fmt.Errorf("%w: model server not found", ErrInvalidMachineInput)
+	}
+	if server == nil || (serverID == nil && !server.Serves(provider)) {
+		return nil
 	}
 	if !server.Serves(provider) {
 		return fmt.Errorf("%w: %s does not offer the protocol this agent needs", ErrInvalidMachineInput, server.Name)

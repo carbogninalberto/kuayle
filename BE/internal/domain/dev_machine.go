@@ -259,6 +259,19 @@ type AgentModelServer struct {
 	UpdatedAt            time.Time       `json:"updated_at" db:"updated_at"`
 }
 
+// AgentModelDefault is the workspace's model and effort for a coding agent that
+// runs with its own sign-in. A run fills what it did not choose from it when
+// the run is created; empty fields keep the agent's own defaults.
+type AgentModelDefault struct {
+	WorkspaceID uuid.UUID  `json:"workspace_id" db:"workspace_id"`
+	Provider    string     `json:"provider" db:"provider"`
+	Model       string     `json:"model" db:"model"`
+	Thinking    string     `json:"thinking" db:"thinking"`
+	UpdatedBy   *uuid.UUID `json:"-" db:"updated_by"`
+	CreatedAt   time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at" db:"updated_at"`
+}
+
 // ModelList is the server's selectable models, as discovered or entered.
 func (s AgentModelServer) ModelList() []string {
 	var models []string

@@ -24,7 +24,9 @@ import type {
 	ResourceSample,
 	TerminalSessionLaunchResponse,
 	ModelServer,
-	ModelServerInput
+	ModelServerInput,
+	AgentModelDefault,
+	AgentModelDefaultInput
 } from '$lib/types/dev-machine';
 
 const base = (slug: string) => `/api/workspaces/${slug}`;
@@ -370,6 +372,12 @@ export function closeTerminalSession(
 export function listAgentProviders(slug: string): Promise<AgentProvider[]> {
 	return api.get(`${base(slug)}/dev-machine-providers`);
 }
+
+export const agentModelDefaults = {
+	list: (slug: string) => api.get<AgentModelDefault[]>(`${base(slug)}/agent-model-defaults`),
+	save: (slug: string, provider: string, input: AgentModelDefaultInput) =>
+		api.put<AgentModelDefault>(`${base(slug)}/agent-model-defaults/${encodeURIComponent(provider)}`, input)
+};
 
 export const modelServers = {
 	list: (slug: string) => api.get<ModelServer[]>(`${base(slug)}/agent-model-servers`),
