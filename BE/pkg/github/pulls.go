@@ -171,14 +171,24 @@ type ReviewUser struct {
 	Type  string `json:"type"`
 }
 
-// ListReviewComments lists the inline review comments of a pull request.
-func (c *Client) ListReviewComments(token, owner, repo string, number int) ([]ReviewComment, error) {
-	var comments []ReviewComment
-	endpoint := fmt.Sprintf("%s/repos/%s/%s/pulls/%d/comments?per_page=100", githubAPIBaseURL, owner, repo, number)
-	if err := c.do(http.MethodGet, endpoint, token, nil, &comments); err != nil {
-		return nil, err
+// maxReviewPages bounds pagination so a huge pull request cannot loop forever.
+const maxReviewPages = 20
+
+// ListReviewComments lists the inline review comments of a pull request,
+// following pages of 100. truncated is true when the page limit cut the list.
+func (c *Client) ListReviewComments(token, owner, repo string, number int) (comments []ReviewComment, truncated bool, err error) {
+	for page := 1; page <= maxReviewPages; page++ {
+		var batch []ReviewComment
+		endpoint := fmt.Sprintf("%s/repos/%s/%s/pulls/%d/comments?per_page=100&page=%d", githubAPIBaseURL, owner, repo, number, page)
+		if err = c.do(http.MethodGet, endpoint, token, nil, &batch); err != nil {
+			return nil, false, err
+		}
+		comments = append(comments, batch...)
+		if len(batch) < 100 {
+			return comments, false, nil
+		}
 	}
-	return comments, nil
+	return comments, true, nil
 }
 
 // ReplyToReviewComment replies in the thread of an inline review comment.
@@ -200,38 +210,74 @@ type ReviewThread struct {
 	CommentIDs []int64 `json:"-"`
 }
 
-// ListReviewThreads lists the first 100 review threads of a pull request with
-// the database IDs of their comments, which the REST comments share.
-func (c *Client) ListReviewThreads(token, owner, repo string, number int) ([]ReviewThread, error) {
-	var data struct {
-		Repository struct {
-			PullRequest struct {
-				ReviewThreads struct {
-					Nodes []struct {
-						ReviewThread
-						Comments struct {
-							Nodes []struct {
-								DatabaseID int64 `json:"databaseId"`
-							} `json:"nodes"`
-						} `json:"comments"`
-					} `json:"nodes"`
-				} `json:"reviewThreads"`
-			} `json:"pullRequest"`
-		} `json:"repository"`
+type reviewCommentsPage struct {
+	Nodes []struct {
+		DatabaseID int64 `json:"databaseId"`
+	} `json:"nodes"`
+	PageInfo struct {
+		HasNextPage bool   `json:"hasNextPage"`
+		EndCursor   string `json:"endCursor"`
+	} `json:"pageInfo"`
+}
+
+// ListReviewThreads lists the review threads of a pull request with the
+// database IDs of their comments, which the REST comments share. It follows
+// GraphQL cursors through threads and through the comments of a thread.
+// truncated is true when the page limit cut the thread list.
+func (c *Client) ListReviewThreads(token, owner, repo string, number int) (threads []ReviewThread, truncated bool, err error) {
+	type threadNode struct {
+		ReviewThread
+		Comments reviewCommentsPage `json:"comments"`
 	}
-	const query = `query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { reviewThreads(first: 100) { nodes { id isResolved isOutdated path comments(first: 100) { nodes { databaseId } } } } } } }`
-	if err := c.graphQL(token, query, map[string]any{"owner": owner, "name": repo, "number": number}, &data); err != nil {
-		return nil, err
-	}
-	var threads []ReviewThread
-	for _, node := range data.Repository.PullRequest.ReviewThreads.Nodes {
-		thread := node.ReviewThread
-		for _, comment := range node.Comments.Nodes {
-			thread.CommentIDs = append(thread.CommentIDs, comment.DatabaseID)
+	const query = `query($owner: String!, $name: String!, $number: Int!, $after: String) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { reviewThreads(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { id isResolved isOutdated path comments(first: 100) { pageInfo { hasNextPage endCursor } nodes { databaseId } } } } } } }`
+	const moreComments = `query($id: ID!, $after: String) { node(id: $id) { ... on PullRequestReviewThread { comments(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { databaseId } } } } }`
+	var cursor any
+	for page := 0; page < maxReviewPages; page++ {
+		var data struct {
+			Repository struct {
+				PullRequest struct {
+					ReviewThreads struct {
+						Nodes    []threadNode `json:"nodes"`
+						PageInfo struct {
+							HasNextPage bool   `json:"hasNextPage"`
+							EndCursor   string `json:"endCursor"`
+						} `json:"pageInfo"`
+					} `json:"reviewThreads"`
+				} `json:"pullRequest"`
+			} `json:"repository"`
 		}
-		threads = append(threads, thread)
+		if err = c.graphQL(token, query, map[string]any{"owner": owner, "name": repo, "number": number, "after": cursor}, &data); err != nil {
+			return nil, false, err
+		}
+		for _, node := range data.Repository.PullRequest.ReviewThreads.Nodes {
+			thread := node.ReviewThread
+			comments := node.Comments
+			for {
+				for _, comment := range comments.Nodes {
+					thread.CommentIDs = append(thread.CommentIDs, comment.DatabaseID)
+				}
+				if !comments.PageInfo.HasNextPage {
+					break
+				}
+				var more struct {
+					Node struct {
+						Comments reviewCommentsPage `json:"comments"`
+					} `json:"node"`
+				}
+				if err = c.graphQL(token, moreComments, map[string]any{"id": thread.ID, "after": comments.PageInfo.EndCursor}, &more); err != nil {
+					return nil, false, err
+				}
+				comments = more.Node.Comments
+			}
+			threads = append(threads, thread)
+		}
+		info := data.Repository.PullRequest.ReviewThreads.PageInfo
+		if !info.HasNextPage {
+			return threads, false, nil
+		}
+		cursor = info.EndCursor
 	}
-	return threads, nil
+	return threads, true, nil
 }
 
 // ResolveReviewThread marks a review thread resolved.

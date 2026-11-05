@@ -125,32 +125,57 @@ func (t *AssistantTools) runPullRequestTool(ctx context.Context, ws uuid.UUID, n
 		}
 		base["checks"] = checks
 	case "list_pull_request_comments":
-		comments, err := t.pulls.PullRequestComments(ctx, ws, target.Repository, target.Number)
+		list, err := t.pulls.PullRequestComments(ctx, ws, target.Repository, target.Number)
 		if err != nil {
 			return nil, nil, pullRequestGitHubFailure("read the review comments", err)
 		}
+		threads := groupReviewThreads(list.Comments)
 		unresolved, bots := 0, 0
-		for _, comment := range comments {
-			if comment.ReplyTo == 0 && !comment.Resolved {
+		for _, thread := range threads {
+			if !thread.resolved {
 				unresolved++
-				if comment.Bot {
+				if thread.bot {
 					bots++
 				}
 			}
 		}
-		// Unresolved threads first; the comments of the rest are cut short.
-		sort.SliceStable(comments, func(i, j int) bool { return !comments[i].Resolved && comments[j].Resolved })
-		if len(comments) > 50 {
-			base["comments_not_listed"] = len(comments) - 50
-			comments = comments[:50]
+		// Unresolved threads come first and a thread is listed whole, so a reply
+		// never appears without its root; the rest is cut short.
+		sort.SliceStable(threads, func(i, j int) bool { return !threads[i].resolved && threads[j].resolved })
+		comments := make([]PullRequestComment, 0, maxCommentsListed)
+		for _, thread := range threads {
+			if len(comments) > 0 && len(comments)+len(thread.comments) > maxCommentsListed {
+				break
+			}
+			comments = append(comments, thread.comments...)
+		}
+		if len(comments) > maxCommentsListed {
+			comments = comments[:maxCommentsListed]
+		}
+		if hidden := len(list.Comments) - len(comments); hidden > 0 {
+			base["comments_not_listed"] = hidden
 		}
 		for i := range comments {
 			comments[i].Body = truncateRunes(comments[i].Body, 800)
 		}
-		base["unresolved_threads"], base["unresolved_by_bots"], base["comments"] = unresolved, bots, comments
-		base["next_step"] = "No unresolved review threads."
-		if unresolved > 0 {
-			base["next_step"] = fmt.Sprintf("%d review thread(s) are unresolved. Fix them with follow_up_task (put the comments in its instructions), answer with reply_to_review_comment, then resolve_review_thread; each of those needs the user's approval.", unresolved)
+		base["comments"] = comments
+		if list.Truncated {
+			base["list_truncated"] = true
+		}
+		switch {
+		case list.ThreadsUnavailable:
+			// Resolved state is unknown, so nothing is reported as unresolved.
+			base["threads_unavailable"] = true
+			base["next_step"] = "The resolved state of the review threads could not be read (the GitHub App may lack GraphQL or read access to pull request review threads), so thread state is unknown and resolve_review_thread cannot be used. Check the threads on GitHub; reply_to_review_comment still works (needs the user's approval)."
+		default:
+			base["unresolved_threads"], base["unresolved_by_bots"] = unresolved, bots
+			base["next_step"] = "No unresolved review threads."
+			if unresolved > 0 {
+				base["next_step"] = fmt.Sprintf("%d review thread(s) are unresolved. Fix them with follow_up_task (put the comments in its instructions), answer with reply_to_review_comment, then resolve_review_thread; each of those needs the user's approval.", unresolved)
+			}
+		}
+		if list.Truncated {
+			base["next_step"] = fmt.Sprintf("%v Only the first review comments and threads GitHub returned are counted; the pull request has more than this tool reads.", base["next_step"])
 		}
 	}
 	return base, &issue.ID, nil
@@ -303,14 +328,18 @@ func (t *AssistantTools) openPullRequest(ctx context.Context, ws uuid.UUID, targ
 // reviewCommentFor finds the comment (or thread) on the pull request now. A
 // reply to a reply goes to the thread's first comment, as GitHub requires.
 func (t *AssistantTools) reviewCommentFor(ctx context.Context, ws uuid.UUID, target *repository.PullRequestTarget, action string, commentID int64, threadID string) (*PullRequestComment, error) {
-	comments, err := t.pulls.PullRequestComments(ctx, ws, target.Repository, target.Number)
+	list, err := t.pulls.PullRequestComments(ctx, ws, target.Repository, target.Number)
 	if err != nil {
 		return nil, pullRequestGitHubFailure("read the review comments", err)
 	}
+	if list.ThreadsUnavailable && action == "resolve_review_thread" {
+		return nil, toolFailure("the review threads could not be read (the GitHub App may lack GraphQL or read access), so the thread cannot be resolved from here. Next step: resolve it on GitHub")
+	}
+	comments := list.Comments
 	missing := toolFailure("that review comment or thread is not on the pull request. Next step: list_pull_request_comments shows the current ones")
 	for _, comment := range comments {
 		switch {
-		case action == "resolve_review_thread" && comment.ThreadID == threadID && threadID != "" && comment.ReplyTo == 0:
+		case action == "resolve_review_thread" && comment.ThreadID == threadID && threadID != "":
 			if comment.Resolved {
 				return nil, toolFailure("that review thread is already resolved")
 			}
@@ -405,25 +434,31 @@ func (s *AssistantApprovals) applyPullRequestAction(ctx context.Context, ws uuid
 	if member == nil || member.Role == domain.RoleGuest || (member.Role != domain.RoleOwner && member.Role != domain.RoleAdmin && target.CreatorID != approval.ActorID) {
 		return fail("Only workspace admins or the task's creator can change this pull request")
 	}
+	var newHead string
 	switch approval.Action {
 	case "reply_to_review_comment":
 		err = s.pulls.ReplyToReviewComment(ctx, ws, payload.Repository, payload.PullRequest, payload.CommentID, payload.Body)
 	case "resolve_review_thread":
 		err = s.pulls.ResolveReviewThread(ctx, ws, payload.Repository, payload.PullRequest, payload.ThreadID)
 	case "update_pull_request_branch":
-		err = s.pulls.UpdatePullRequestBranch(ctx, ws, payload.Repository, payload.PullRequest, payload.Head)
+		newHead, err = s.pulls.UpdatePullRequestBranch(ctx, ws, payload.Repository, payload.PullRequest, payload.Head)
 	case "mark_pull_request_ready":
 		err = s.pulls.SetPullRequestDraft(ctx, ws, payload.Repository, payload.PullRequest, payload.Draft)
 	default:
 		return fail("This approval cannot be executed")
 	}
 	if err != nil {
+		var unsynced *HeadSyncError
+		if errors.As(err, &unsynced) {
+			// GitHub did update the branch, so asking again would not help.
+			return fail("GitHub updated the branch, but Kuayle could not record the new head (" + truncateRunes(unsynced.Err.Error(), 200) + "), so the task's checkout is not known to follow it. Next step: get_pull_request shows the current head; the checkout syncs from GitHub when the task agent next publishes (follow_up_task)")
+		}
 		if message, permanent := pullRequestApprovalFailure(approval.Action, err); permanent {
 			return fail(message)
 		}
 		return uuid.Nil, "", err
 	}
-	audit.Log("pull_request."+approval.Action, approval.ActorID, map[string]interface{}{"workspace_id": ws, "repository": payload.Repository, "pull_request": payload.PullRequest})
+	audit.Log("pull_request."+approval.Action, approval.ActorID, map[string]interface{}{"workspace_id": ws, "repository": payload.Repository, "pull_request": payload.PullRequest, "head": newHead})
 	return target.TaskID, "", nil
 }
 
@@ -474,4 +509,48 @@ func pullRequestIdentifier(payload any) string {
 		return p.Identifier
 	}
 	return ""
+}
+
+const maxCommentsListed = 50
+
+// reviewThread is the comments of one conversation on the diff, root first.
+type reviewThread struct {
+	comments []PullRequestComment
+	resolved bool
+	bot      bool
+}
+
+// groupReviewThreads groups comments by their thread (or, when thread state
+// is unknown, by their root comment) so counting and listing work per thread
+// even when a root fell outside what was read.
+func groupReviewThreads(comments []PullRequestComment) []*reviewThread {
+	var threads []*reviewThread
+	byKey := map[string]*reviewThread{}
+	for _, comment := range comments {
+		root := comment.ID
+		if comment.ReplyTo != 0 {
+			root = comment.ReplyTo
+		}
+		key := comment.ThreadID
+		if key == "" {
+			key = fmt.Sprintf("root:%d", root)
+		}
+		thread := byKey[key]
+		if thread == nil {
+			thread = &reviewThread{resolved: comment.Resolved}
+			byKey[key] = thread
+			threads = append(threads, thread)
+		}
+		thread.comments = append(thread.comments, comment)
+		if comment.ReplyTo == 0 {
+			thread.bot = comment.Bot
+		}
+	}
+	for _, thread := range threads {
+		sort.SliceStable(thread.comments, func(i, j int) bool { return thread.comments[i].ReplyTo == 0 && thread.comments[j].ReplyTo != 0 })
+		if thread.comments[0].ReplyTo != 0 {
+			thread.bot = thread.comments[0].Bot // root cut off: the first reply stands in for it
+		}
+	}
+	return threads
 }

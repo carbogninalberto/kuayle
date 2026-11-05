@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	gh "github.com/kuayle/kuayle-backend/pkg/github"
@@ -67,10 +68,10 @@ type PullRequestComment struct {
 type pullRequestReader interface {
 	PullRequestStatus(ctx context.Context, ws uuid.UUID, repository string, number int) (*PullRequestStatus, error)
 	PullRequestChecks(ctx context.Context, ws uuid.UUID, repository string, number int) (string, []PullRequestCheck, error)
-	PullRequestComments(ctx context.Context, ws uuid.UUID, repository string, number int) ([]PullRequestComment, error)
+	PullRequestComments(ctx context.Context, ws uuid.UUID, repository string, number int) (*PullRequestCommentList, error)
 	ReplyToReviewComment(ctx context.Context, ws uuid.UUID, repository string, number int, commentID int64, body string) error
 	ResolveReviewThread(ctx context.Context, ws uuid.UUID, repository string, number int, threadID string) error
-	UpdatePullRequestBranch(ctx context.Context, ws uuid.UUID, repository string, number int, expectedHead string) error
+	UpdatePullRequestBranch(ctx context.Context, ws uuid.UUID, repository string, number int, expectedHead string) (string, error)
 	SetPullRequestDraft(ctx context.Context, ws uuid.UUID, repository string, number int, draft bool) error
 	ResolveMergeMethod(ctx context.Context, ws uuid.UUID, repository string) (string, error)
 }
@@ -165,34 +166,40 @@ func checkRunState(run gh.CheckRun) string {
 	return "failed"
 }
 
-func (s *GitHubService) PullRequestComments(ctx context.Context, ws uuid.UUID, repository string, number int) ([]PullRequestComment, error) {
+func (s *GitHubService) PullRequestComments(ctx context.Context, ws uuid.UUID, repository string, number int) (*PullRequestCommentList, error) {
 	client, token, owner, name, err := s.pullClient(ctx, ws, repository)
 	if err != nil {
 		return nil, err
 	}
-	comments, err := client.ListReviewComments(token, owner, name, number)
+	comments, truncated, err := client.ListReviewComments(token, owner, name, number)
 	if err != nil {
 		return nil, err
 	}
-	// Thread state needs GraphQL; without it the comments are still listed,
-	// every thread reported as unresolved.
+	// Thread state needs GraphQL; without it the comments are still listed but
+	// the list says their state is unknown instead of calling them unresolved.
+	list := &PullRequestCommentList{Truncated: truncated}
 	threadOf := map[int64]gh.ReviewThread{}
-	if threads, err := client.ListReviewThreads(token, owner, name, number); err == nil {
-		for _, thread := range threads {
-			for _, id := range thread.CommentIDs {
-				threadOf[id] = thread
-			}
+	threads, threadsTruncated, threadErr := client.ListReviewThreads(token, owner, name, number)
+	if threadErr != nil {
+		list.ThreadsUnavailable = true
+	}
+	if threadsTruncated {
+		list.Truncated = true
+	}
+	for _, thread := range threads {
+		for _, id := range thread.CommentIDs {
+			threadOf[id] = thread
 		}
 	}
-	result := make([]PullRequestComment, 0, len(comments))
+	list.Comments = make([]PullRequestComment, 0, len(comments))
 	for _, comment := range comments {
 		thread := threadOf[comment.ID]
-		result = append(result, PullRequestComment{
+		list.Comments = append(list.Comments, PullRequestComment{
 			ID: comment.ID, Author: comment.User.Login, Bot: strings.EqualFold(comment.User.Type, "Bot"), Path: comment.Path, Line: comment.Line,
 			Body: comment.Body, URL: comment.HTMLURL, ReplyTo: comment.InReplyToID, ThreadID: thread.ID, Resolved: thread.IsResolved, Outdated: thread.IsOutdated,
 		})
 	}
-	return result, nil
+	return list, nil
 }
 
 func (s *GitHubService) ReplyToReviewComment(ctx context.Context, ws uuid.UUID, repository string, number int, commentID int64, body string) error {
@@ -210,9 +217,12 @@ func (s *GitHubService) ResolveReviewThread(ctx context.Context, ws uuid.UUID, r
 	if err != nil {
 		return err
 	}
-	threads, err := client.ListReviewThreads(token, owner, name, number)
+	threads, truncated, err := client.ListReviewThreads(token, owner, name, number)
 	if err != nil {
 		return err
+	}
+	if truncated {
+		return &gh.APIError{Status: 422, Message: "this pull request has too many review threads to look the thread up"}
 	}
 	for _, thread := range threads {
 		if thread.ID == threadID {
@@ -222,22 +232,46 @@ func (s *GitHubService) ResolveReviewThread(ctx context.Context, ws uuid.UUID, r
 	return &gh.APIError{Status: 404, Message: "review thread not found on this pull request"}
 }
 
+// HeadSyncError means GitHub accepted a branch update but Kuayle could not
+// read and record the new head, so the task's checkout is not known to follow.
+type HeadSyncError struct{ Err error }
+
+func (e *HeadSyncError) Error() string { return "could not record the updated head: " + e.Err.Error() }
+func (e *HeadSyncError) Unwrap() error { return e.Err }
+
 // UpdatePullRequestBranch asks GitHub to merge the base branch into the head
-// branch while the head is still expectedHead, then records the head GitHub
-// reports so the checkout of the task is synced to it on its next publication
-// (see SyncCheckout), exactly as for any commit others add to the branch.
-func (s *GitHubService) UpdatePullRequestBranch(ctx context.Context, ws uuid.UUID, repository string, number int, expectedHead string) error {
+// branch while the head is still expectedHead. It then records the new head
+// through ReadPullRequestHead, the path head tracking uses, so the checkout of
+// the task is synced to it on its next publication (see SyncCheckout) exactly
+// as for any commit others add to the branch. GitHub merges asynchronously, so
+// it waits briefly for the head to move; if it has not, the pull_request
+// webhook records it later and the returned head is still expectedHead.
+func (s *GitHubService) UpdatePullRequestBranch(ctx context.Context, ws uuid.UUID, repository string, number int, expectedHead string) (string, error) {
 	client, token, owner, name, err := s.pullClient(ctx, ws, repository)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if err = client.UpdatePullRequestBranch(token, owner, name, number, expectedHead); err != nil {
-		return err
+		return "", err
 	}
-	// GitHub completes the merge asynchronously and the pull_request webhook
-	// records the new head; reading now only helps when it is already done.
-	_, _ = s.ReadPullRequestHead(ctx, ws, repository, number)
-	return nil
+	waits := s.headPollWaits
+	if waits == nil {
+		waits = []time.Duration{time.Second, 2 * time.Second, 3 * time.Second, 4 * time.Second}
+	}
+	head := expectedHead
+	for attempt := 0; ; attempt++ {
+		if head, err = s.ReadPullRequestHead(ctx, ws, repository, number); err != nil {
+			return "", &HeadSyncError{Err: err}
+		}
+		if head != expectedHead || attempt >= len(waits) {
+			return head, nil
+		}
+		select {
+		case <-ctx.Done():
+			return head, nil
+		case <-time.After(waits[attempt]):
+		}
+	}
 }
 
 // SetPullRequestDraft marks a pull request ready for review or back to draft.
@@ -338,3 +372,13 @@ func (s *GitHubService) MergeMethodSettings(ctx context.Context, ws uuid.UUID) (
 
 // ErrRepositoryNotLinked means the repository is not linked to the workspace.
 var ErrRepositoryNotLinked = errors.New("repository is not linked to the workspace")
+
+// PullRequestCommentList is the inline review comments of a pull request.
+// ThreadsUnavailable means the resolved state of every thread is unknown
+// (GraphQL failed or the App lacks read access); Truncated that a page limit
+// cut the comments or threads.
+type PullRequestCommentList struct {
+	Comments           []PullRequestComment
+	ThreadsUnavailable bool
+	Truncated          bool
+}

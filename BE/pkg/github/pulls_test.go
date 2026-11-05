@@ -3,7 +3,9 @@ package github
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -99,8 +101,9 @@ func TestReviewThreadsMapCommentIDsAndGraphQLErrorsAreFailures(t *testing.T) {
 		}
 		return 200, `{"errors":[{"message":"Resource not accessible by integration"}]}`
 	})
-	threads, err := c.ListReviewThreads("secret", "owner", "repo", 7)
+	threads, truncated, err := c.ListReviewThreads("secret", "owner", "repo", 7)
 	require.NoError(t, err)
+	require.False(t, truncated)
 	require.Len(t, threads, 1)
 	require.Equal(t, "T1", threads[0].ID)
 	require.True(t, threads[0].IsOutdated)
@@ -110,4 +113,58 @@ func TestReviewThreadsMapCommentIDsAndGraphQLErrorsAreFailures(t *testing.T) {
 	require.True(t, errors.As(err, &api))
 	require.Contains(t, api.Message, "not accessible")
 	require.Error(t, c.ConvertPullRequestToDraft("secret", "PR_node"))
+}
+
+func TestReviewCommentsAreReadPageByPage(t *testing.T) {
+	var pages []string
+	c := pullsClient(func(r *http.Request, _ map[string]any) (int, string) {
+		pages = append(pages, r.URL.Query().Get("page"))
+		if r.URL.Query().Get("page") == "1" {
+			full := make([]string, 100)
+			for i := range full {
+				full[i] = fmt.Sprintf(`{"id":%d}`, i+1)
+			}
+			return 200, "[" + strings.Join(full, ",") + "]"
+		}
+		return 200, `[{"id":101}]`
+	})
+	comments, truncated, err := c.ListReviewComments("secret", "owner", "repo", 7)
+	require.NoError(t, err)
+	require.False(t, truncated)
+	require.Len(t, comments, 101)
+	require.Equal(t, []string{"1", "2"}, pages)
+
+	c = pullsClient(func(*http.Request, map[string]any) (int, string) {
+		full := make([]string, 100)
+		for i := range full {
+			full[i] = `{"id":1}`
+		}
+		return 200, "[" + strings.Join(full, ",") + "]"
+	})
+	_, truncated, err = c.ListReviewComments("secret", "owner", "repo", 7)
+	require.NoError(t, err)
+	require.True(t, truncated, "a list cut by the page limit says so")
+}
+
+func TestReviewThreadsFollowCursorsThroughThreadsAndTheirComments(t *testing.T) {
+	c := pullsClient(func(_ *http.Request, body map[string]any) (int, string) {
+		query := body["query"].(string)
+		vars := body["variables"].(map[string]any)
+		switch {
+		case strings.Contains(query, "node(id"):
+			require.Equal(t, "T1", vars["id"])
+			return 200, `{"data":{"node":{"comments":{"pageInfo":{"hasNextPage":false},"nodes":[{"databaseId":102}]}}}}`
+		case vars["after"] == nil:
+			return 200, `{"data":{"repository":{"pullRequest":{"reviewThreads":{"pageInfo":{"hasNextPage":true,"endCursor":"c1"},"nodes":[{"id":"T1","isResolved":false,"comments":{"pageInfo":{"hasNextPage":true,"endCursor":"k1"},"nodes":[{"databaseId":101}]}}]}}}}}`
+		}
+		require.Equal(t, "c1", vars["after"])
+		return 200, `{"data":{"repository":{"pullRequest":{"reviewThreads":{"pageInfo":{"hasNextPage":false},"nodes":[{"id":"T2","isResolved":true,"comments":{"pageInfo":{"hasNextPage":false},"nodes":[{"databaseId":201}]}}]}}}}}`
+	})
+	threads, truncated, err := c.ListReviewThreads("secret", "owner", "repo", 7)
+	require.NoError(t, err)
+	require.False(t, truncated)
+	require.Len(t, threads, 2)
+	require.Equal(t, []int64{101, 102}, threads[0].CommentIDs)
+	require.Equal(t, "T2", threads[1].ID)
+	require.True(t, threads[1].IsResolved)
 }

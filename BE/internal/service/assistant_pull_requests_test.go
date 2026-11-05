@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/google/uuid"
@@ -49,16 +50,17 @@ func (f *prTargets) PullRequestTarget(context.Context, uuid.UUID, uuid.UUID) (*r
 
 // prGitHub records every call so tests can prove what was and was not sent.
 type prGitHub struct {
-	status      PullRequestStatus
-	checks      []PullRequestCheck
-	comments    []PullRequestComment
-	readErr     error
-	writeErr    error
-	methodErr   error
-	method      string
-	calls       []string
-	replied     string
-	statusCalls int
+	status                            PullRequestStatus
+	checks                            []PullRequestCheck
+	comments                          []PullRequestComment
+	threadsUnavailable, listTruncated bool
+	readErr                           error
+	writeErr                          error
+	methodErr                         error
+	method                            string
+	calls                             []string
+	replied                           string
+	statusCalls                       int
 }
 
 func (f *prGitHub) PullRequestStatus(context.Context, uuid.UUID, string, int) (*PullRequestStatus, error) {
@@ -69,8 +71,8 @@ func (f *prGitHub) PullRequestStatus(context.Context, uuid.UUID, string, int) (*
 func (f *prGitHub) PullRequestChecks(context.Context, uuid.UUID, string, int) (string, []PullRequestCheck, error) {
 	return "head1", f.checks, f.readErr
 }
-func (f *prGitHub) PullRequestComments(context.Context, uuid.UUID, string, int) ([]PullRequestComment, error) {
-	return append([]PullRequestComment(nil), f.comments...), f.readErr
+func (f *prGitHub) PullRequestComments(context.Context, uuid.UUID, string, int) (*PullRequestCommentList, error) {
+	return &PullRequestCommentList{Comments: append([]PullRequestComment(nil), f.comments...), ThreadsUnavailable: f.threadsUnavailable, Truncated: f.listTruncated}, f.readErr
 }
 func (f *prGitHub) ReplyToReviewComment(_ context.Context, _ uuid.UUID, _ string, _ int, id int64, body string) error {
 	f.calls, f.replied = append(f.calls, "reply"), body
@@ -80,9 +82,9 @@ func (f *prGitHub) ResolveReviewThread(_ context.Context, _ uuid.UUID, _ string,
 	f.calls = append(f.calls, "resolve:"+thread)
 	return f.writeErr
 }
-func (f *prGitHub) UpdatePullRequestBranch(_ context.Context, _ uuid.UUID, _ string, _ int, head string) error {
+func (f *prGitHub) UpdatePullRequestBranch(_ context.Context, _ uuid.UUID, _ string, _ int, head string) (string, error) {
 	f.calls = append(f.calls, "update:"+head)
-	return f.writeErr
+	return "head2", f.writeErr
 }
 func (f *prGitHub) SetPullRequestDraft(_ context.Context, _ uuid.UUID, _ string, _ int, draft bool) error {
 	f.calls = append(f.calls, map[bool]string{true: "draft", false: "ready"}[draft])
@@ -616,4 +618,58 @@ func TestResolveMergeMethodUsesTheSettingOtherwiseWhatTheRepositoryAllows(t *tes
 	s := &GitHubService{mergeSettings: mergeSettingsFake{err: errors.New("db down")}, repositoryMergeSettings: allowing(gh.RepositoryMergeSettings{AllowSquashMerge: true}, nil)}
 	_, err := s.ResolveMergeMethod(ctx, uuid.New(), "acme/app")
 	require.Error(t, err)
+}
+
+func TestListPullRequestCommentsReportsUnknownThreadStateInsteadOfUnresolved(t *testing.T) {
+	f := newPRFixture()
+	f.github.comments = []PullRequestComment{{ID: 1, Author: "dev", Path: "a.go", Body: "Rename"}}
+	f.github.threadsUnavailable = true
+	result, err := f.run(t, "list_pull_request_comments", `{"identifier":"ENG-1"}`)
+	require.NoError(t, err)
+	require.Equal(t, true, result["threads_unavailable"])
+	require.NotContains(t, result, "unresolved_threads")
+	require.Contains(t, result["next_step"], "could not be read")
+	require.NotContains(t, result["next_step"], "unresolved. Fix")
+}
+
+func TestListPullRequestCommentsCountsRepliesWhoseRootWasCutOffAndKeepsThreadsWhole(t *testing.T) {
+	f := newPRFixture()
+	f.github.comments = []PullRequestComment{
+		{ID: 12, Author: "dev", Body: "orphan reply", ReplyTo: 11, ThreadID: "T9"},
+		{ID: 20, Author: "dev", Body: "root", ThreadID: "T5", Resolved: true},
+		{ID: 21, Author: "dev", Body: "reply", ReplyTo: 20, ThreadID: "T5", Resolved: true},
+	}
+	f.github.listTruncated = true
+	result, err := f.run(t, "list_pull_request_comments", `{"identifier":"ENG-1"}`)
+	require.NoError(t, err)
+	require.Equal(t, 1, result["unresolved_threads"], "an unresolved thread counts once even without its root")
+	require.Equal(t, true, result["list_truncated"])
+	require.Contains(t, result["next_step"], "more than this tool reads")
+
+	// A cut never lists a reply without its root.
+	var comments []PullRequestComment
+	for i := 0; i < 30; i++ {
+		id := int64(100 + i*2)
+		thread := fmt.Sprintf("T%d", i)
+		comments = append(comments, PullRequestComment{ID: id + 1, ReplyTo: id, ThreadID: thread}, PullRequestComment{ID: id, ThreadID: thread})
+	}
+	f.github.comments, f.github.listTruncated = comments, false
+	result, _ = f.run(t, "list_pull_request_comments", `{"identifier":"ENG-1"}`)
+	listed := result["comments"].([]PullRequestComment)
+	require.Equal(t, 60-len(listed), result["comments_not_listed"])
+	require.LessOrEqual(t, len(listed), 50)
+	for i := 0; i < len(listed); i += 2 {
+		require.Zero(t, listed[i].ReplyTo, "each thread starts with its root")
+		require.Equal(t, listed[i].ID, listed[i+1].ReplyTo)
+	}
+}
+
+func TestApprovedBranchUpdateReportsAHeadItCouldNotRecord(t *testing.T) {
+	f := newPRFixture()
+	f.github.writeErr = &HeadSyncError{Err: errors.New("database down")}
+	approvals, approval := approvalFor(f, f.admin, "update_pull_request_branch", domain.PullRequestActionPayload{Head: "head1"})
+	_, message, err := approvals.applyPullRequestAction(context.Background(), f.ws, approval)
+	require.NoError(t, err, "GitHub did update the branch, so approving again would not help")
+	require.Contains(t, message, "could not record the new head")
+	require.Contains(t, message, "follow_up_task")
 }

@@ -68,6 +68,7 @@ type GitHubService struct {
 	heads pullRequestHeadStore
 	// readPullRequestHead and compareCommits ask GitHub; replaced in tests.
 	readPullRequestHead func(ctx context.Context, workspaceID uuid.UUID, repository string, number int) (string, error)
+	headPollWaits       []time.Duration
 	compareCommits      func(ctx context.Context, workspaceID uuid.UUID, repository string, number int, published, head string) (*domain.PullRequestHeadChange, error)
 	// reviewComments supplies requested agent review comments to post.
 	reviewComments reviewCommentStore
