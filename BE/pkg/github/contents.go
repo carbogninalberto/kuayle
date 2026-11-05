@@ -43,7 +43,7 @@ func (c *Client) GetFileContent(token, owner, repo, path, ref string, limit int6
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
-		return nil, fmt.Errorf("GitHub API error %d: %s", response.StatusCode, body)
+		return nil, &APIError{Status: response.StatusCode, Body: string(body)}
 	}
 	return io.ReadAll(io.LimitReader(response.Body, limit))
 }

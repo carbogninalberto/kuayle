@@ -67,7 +67,7 @@ func (c *Client) GetRepositoryInstallationToken(installationID int64, repository
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusCreated {
 		responseBody, _ := io.ReadAll(response.Body)
-		return "", time.Time{}, fmt.Errorf("GitHub API error %d: %s", response.StatusCode, responseBody)
+		return "", time.Time{}, &APIError{Status: response.StatusCode, Body: string(responseBody)}
 	}
 	var result struct {
 		Token     string    `json:"token"`
@@ -102,7 +102,7 @@ func (c *Client) CreatePullRequest(token, owner, repository, title, head, base, 
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusCreated {
 		responseBody, _ := io.ReadAll(response.Body)
-		return nil, fmt.Errorf("GitHub API error %d: %s", response.StatusCode, responseBody)
+		return nil, &APIError{Status: response.StatusCode, Body: string(responseBody)}
 	}
 	var pullRequest PullRequest
 	if err := json.NewDecoder(response.Body).Decode(&pullRequest); err != nil {
@@ -132,7 +132,7 @@ func (c *Client) UpdatePullRequestBody(token, owner, repository string, number i
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
 		responseBody, _ := io.ReadAll(response.Body)
-		return fmt.Errorf("GitHub API error %d: %s", response.StatusCode, responseBody)
+		return &APIError{Status: response.StatusCode, Body: string(responseBody)}
 	}
 	return nil
 }
@@ -164,7 +164,7 @@ func (c *Client) MarkPullRequestReadyForReview(token, nodeID string) error {
 	defer response.Body.Close()
 	responseBody, _ := io.ReadAll(io.LimitReader(response.Body, 64<<10))
 	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("GitHub API error %d: %s", response.StatusCode, responseBody)
+		return &APIError{Status: response.StatusCode, Body: string(responseBody)}
 	}
 	// GraphQL reports failures with HTTP 200 and an errors list.
 	var result struct {
@@ -334,7 +334,7 @@ func (c *Client) GetInstallationTokenContext(ctx context.Context, installationID
 
 	if resp.StatusCode != http.StatusCreated {
 		body, _ := io.ReadAll(resp.Body)
-		return "", time.Time{}, fmt.Errorf("GitHub API error %d: %s", resp.StatusCode, body)
+		return "", time.Time{}, &APIError{Status: resp.StatusCode, Body: string(body)}
 	}
 
 	var result struct {
@@ -370,7 +370,7 @@ func (c *Client) ListInstallationRepos(token string) ([]Repository, error) {
 
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
-			return nil, fmt.Errorf("GitHub API error %d: %s", resp.StatusCode, body)
+			return nil, &APIError{Status: resp.StatusCode, Body: string(body)}
 		}
 
 		var result struct {
@@ -437,7 +437,7 @@ func (c *Client) getAsApp(ctx context.Context, path string, result any) error {
 	}
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
-		return fmt.Errorf("GitHub API error %d: %s", resp.StatusCode, body)
+		return &APIError{Status: resp.StatusCode, Body: string(body)}
 	}
 	return json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(result)
 }
@@ -489,7 +489,7 @@ func (c *Client) doGet(token, url string, result interface{}) error {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("GitHub API error %d: %s", resp.StatusCode, body)
+		return &APIError{Status: resp.StatusCode, Body: string(body)}
 	}
 
 	return json.NewDecoder(resp.Body).Decode(result)
@@ -581,7 +581,7 @@ func (c *Client) MergePullRequest(token, owner, repo string, number int, sha str
 		}
 		return &ErrMergeRefused{Reason: reason}
 	}
-	return fmt.Errorf("GitHub API error %d: %s", response.StatusCode, body.Message)
+	return &APIError{Status: response.StatusCode, Body: body.Message}
 }
 
 // FindOpenPullRequest returns the open PR from head into base in the same
@@ -615,3 +615,11 @@ type CompareFile struct {
 	SHA      string `json:"sha"`
 	Status   string `json:"status"`
 }
+
+// APIError is an unsuccessful GitHub API response.
+type APIError struct {
+	Status int
+	Body   string
+}
+
+func (e *APIError) Error() string { return fmt.Sprintf("GitHub API error %d: %s", e.Status, e.Body) }

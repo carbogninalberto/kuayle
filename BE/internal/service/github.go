@@ -256,7 +256,7 @@ func (s *GitHubService) HandleManifestCallback(ctx context.Context, workspaceID 
 		log.WithFields(log.Fields{
 			"status": resp.StatusCode,
 		}).Warn("GitHub manifest conversion failed")
-		return nil, fmt.Errorf("GitHub API error %d: %s", resp.StatusCode, body)
+		return nil, &gh.APIError{Status: resp.StatusCode, Body: string(body)}
 	}
 
 	var result struct {

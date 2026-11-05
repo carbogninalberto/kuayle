@@ -117,6 +117,10 @@ func NewAssistantApprovals(conversations *repository.ConversationRepository, tas
 func (s *AssistantApprovals) Resolve(ctx context.Context, ws, conversation, id uuid.UUID, approve bool) (*domain.ConversationApproval, error) {
 	approval, changed, err := s.conversations.ClaimApproval(ctx, ws, conversation, id, approve)
 	if err != nil {
+		if changed && approval != nil && errors.Is(err, repository.ErrApprovalExpired) {
+			// The attempt that found the approval past its deadline is recorded once.
+			auditAssistantAction("approval_expired", approval.ActorID, ws, approval.Action, map[string]interface{}{"approval_id": id.String(), "target": approvalTarget(approval), "outcome": "expired"})
+		}
 		return approval, err
 	}
 	if approval.Status != "approving" {

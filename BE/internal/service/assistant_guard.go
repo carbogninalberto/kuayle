@@ -3,7 +3,9 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"sort"
 	"strings"
 	"sync"
@@ -12,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/pkg/audit"
+	gh "github.com/kuayle/kuayle-backend/pkg/github"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -193,10 +196,12 @@ func approvalTarget(approval *domain.ConversationApproval) string {
 	return approval.Action
 }
 
-// isGitHubPermissionDenied recognizes GitHub's answer to a call the
+// isGitHubPermissionDenied recognizes GitHub's 403 for a call the
 // installation's permissions do not cover.
 func isGitHubPermissionDenied(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "Resource not accessible by integration")
+	var api *gh.APIError
+	return errors.As(err, &api) && api.Status == http.StatusForbidden &&
+		strings.Contains(api.Body, "Resource not accessible by integration")
 }
 
 // permissionDeniedGap words a refusal by GitHub using the permissions the
