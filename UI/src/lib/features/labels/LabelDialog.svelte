@@ -35,6 +35,8 @@
 	let description = $state('');
 	let projectId = $state<string | null>(null);
 	let selectedProject = $derived(projects.find((p) => p.id === projectId));
+	/** Scoped to a project the user cannot list: shown honestly instead of as "All projects". */
+	let unknownScope = $derived(projectId !== null && !selectedProject);
 
 	const PRESET_COLORS = [
 		'#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4',
@@ -94,13 +96,17 @@
 							onValueChange={(value) => (projectId = value === 'workspace' ? null : value)}
 						>
 							<Select.Trigger aria-label={m['settings.labels.scope']()} class="w-full">
-								{selectedProject?.name ?? m['settings.labels.scope_workspace']()}
+								{selectedProject?.name ??
+									(unknownScope ? m['settings.labels.other_projects']() : m['settings.labels.scope_workspace']())}
 							</Select.Trigger>
 							<Select.Content>
 								<Select.Item value="workspace">{m['settings.labels.scope_workspace']()}</Select.Item>
 								{#each projects as project (project.id)}
 									<Select.Item value={project.id}>{project.name}</Select.Item>
 								{/each}
+								{#if unknownScope && projectId}
+									<Select.Item value={projectId} disabled>{m['settings.labels.other_projects']()}</Select.Item>
+								{/if}
 							</Select.Content>
 						</Select.Root>
 						<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.labels.scope_hint']()}</p>
