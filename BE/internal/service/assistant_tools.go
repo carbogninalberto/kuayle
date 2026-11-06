@@ -97,6 +97,14 @@ type AssistantTools struct {
 	releases      releaseGitHub
 	releaseRepos  linkedRepositories
 	releaseStyles releaseStyleStore
+	// The repository scan tools are unavailable until SetRepositoryScans wires them.
+	checkouts *RepositoryCheckouts
+	scanRepos linkedRepositories
+	// web_search is unavailable until SetWebSearch wires it.
+	research       assistantResearchSettings
+	searchProvider map[string]WebSearchProvider
+	// spawn_research_subagents is unavailable until SetSubagents wires it.
+	subagents bool
 }
 
 type assistantToolSettings interface {
@@ -176,6 +184,12 @@ type assistantTool struct {
 	pulls bool
 	// releases tools need SetReleases.
 	releases bool
+	// scan tools need SetRepositoryScans.
+	scan bool
+	// webSearch tools need SetWebSearch.
+	webSearch bool
+	// subagents tools need SetSubagents and a research tool to delegate to.
+	subagents bool
 }
 
 var assistantToolCatalog = []assistantTool{
@@ -210,6 +224,8 @@ func assistantTools() []assistantTool {
 		assistantPullRequestToolCatalog,
 		assistantReleaseToolCatalog,
 		assistantShipToolCatalog,
+		assistantResearchToolCatalog,
+		assistantScanToolCatalog,
 	} {
 		tools = append(tools, catalog...)
 	}
@@ -246,7 +262,10 @@ func (t *AssistantTools) available(tool assistantTool) bool {
 		(!tool.customTools || t.customTools != nil) &&
 		(!tool.system || t.system != nil) &&
 		(!tool.pulls || (t.pulls != nil && t.pullTargets != nil)) &&
-		(!tool.releases || (t.releases != nil && t.releaseRepos != nil && t.releaseStyles != nil))
+		(!tool.releases || (t.releases != nil && t.releaseRepos != nil && t.releaseStyles != nil)) &&
+		(!tool.scan || (t.checkouts != nil && t.scanRepos != nil)) &&
+		(!tool.webSearch || (t.research != nil && len(t.searchProvider) > 0)) &&
+		(!tool.subagents || (t.subagents && t.research != nil && (t.checkouts != nil && t.scanRepos != nil || len(t.searchProvider) > 0)))
 }
 
 func lookupAssistantTool(name string) (assistantTool, bool) {
@@ -410,6 +429,10 @@ func (t *AssistantTools) run(ctx context.Context, ws, user uuid.UUID, name, argu
 		return t.runPullRequestTool(ctx, ws, name, arguments)
 	case "list_releases", "get_release", "draft_release_notes", "get_workflow_run":
 		return t.runReleaseTool(ctx, ws, name, arguments)
+	case "repo_list_files", "repo_glob", "repo_grep", "repo_read_file", "repo_symbols":
+		return t.runScanTool(ctx, ws, name, arguments)
+	case "web_search":
+		return t.webSearch(ctx, ws, arguments)
 	case "get_instance_version":
 		result, err := t.instanceVersion(ctx, user, arguments)
 		return result, nil, err

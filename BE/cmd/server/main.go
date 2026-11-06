@@ -170,6 +170,12 @@ func main() {
 	assistantCustomTools := repository.NewAssistantCustomToolRepository(db)
 	assistantTools.SetCustomTools(assistantCustomTools)
 	assistantToolH := handler.NewAssistantCustomToolHandler(service.NewAssistantCustomToolService(assistantCustomTools, workspaceRepo, issueRepo, repository.NewAgentTaskRepository(db)))
+	// Research tools (KUA-93): web search with the workspace's provider key, and
+	// research sub-tasks on the assistant's own provider.
+	assistantResearch := service.NewAssistantResearchService(repository.NewAssistantResearchSettingsRepository(db), workspaceRepo, crypto.DeriveKey(cfg.JWTSecret+":assistant-research"))
+	assistantResearchH := handler.NewAssistantResearchHandler(assistantResearch)
+	assistantTools.SetWebSearch(assistantResearch, service.NewBraveSearch(), service.NewTavilySearch())
+	assistantTools.SetSubagents(true)
 	assistantTools.SetPlanning(repository.NewIssueDependencyRepository(db), service.NewIssueRelationService(repository.NewIssueRelationRepository(db), issueRepo))
 	conversationSvc.SetTools(assistantTools)
 	conversationH := handler.NewConversationHandler(conversationSvc, cfg.FrontendURL)
@@ -257,6 +263,10 @@ func main() {
 	assistantApprovals.SetPullRequests(githubSvc, repository.NewAgentTaskRepository(db))
 	assistantTools.SetPullRequests(githubSvc, repository.NewAgentTaskRepository(db))
 	assistantTools.SetReleases(githubSvc, devMachineRepo, assistantSkills)
+	// Repository scans read temporary checkouts on this server, removed when
+	// they expire and on shutdown.
+	repositoryCheckouts := service.NewRepositoryCheckouts(githubSvc)
+	assistantTools.SetRepositoryScans(repositoryCheckouts, devMachineRepo)
 	assistantApprovals.SetReleases(githubSvc)
 	githubSvc.SetPullRequestSettings(repository.NewAgentTaskRepository(db))
 	assistantApprovals.SetPullRequestHeads(githubSvc)
@@ -326,6 +336,7 @@ func main() {
 		conversation:      conversationH,
 		assistantSkill:    assistantSkillH,
 		assistantTool:     assistantToolH,
+		assistantResearch: assistantResearchH,
 		agentTask:         agentTaskH,
 		agentAutomation:   agentAutomationH,
 		agentMessage:      agentMessageH,
@@ -360,6 +371,10 @@ func main() {
 	go githubSvc.RunMergeReconciliation(conversationCtx, 2*time.Minute)
 	go githubSvc.RunReviewComments(conversationCtx, 15*time.Second)
 	go telegramSvc.Run(conversationCtx)
+	// Removes expired scan checkouts (and roots a crashed process left), and
+	// every checkout when the server stops.
+	go repositoryCheckouts.Run(conversationCtx)
+	defer repositoryCheckouts.Close()
 	// Chains approved before a restart continue from their last recorded step.
 	go assistantApprovals.ResumeShips(conversationCtx)
 
