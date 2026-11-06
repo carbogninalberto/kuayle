@@ -152,6 +152,9 @@ test('explains a denied microphone and server refusals', async ({ page }) => {
 	await page.getByRole('button', { name: 'Dictate a message' }).click();
 	await expect(page.getByText('Microphone access was denied.', { exact: false })).toBeVisible();
 	expect(state.transcriptions).toHaveLength(0);
+	// The toast sits over the docked composer's corner; close it before dictating again.
+	await page.getByRole('button', { name: 'Close toast' }).click();
+	await expect(page.getByText('Microphone access was denied.', { exact: false })).toHaveCount(0);
 
 	await page.evaluate(() => ((window as any).__micDenied = false));
 	state.failure = { status: 422, code: 'VOICE_TOO_LONG' };
