@@ -1507,6 +1507,19 @@ func containerSharePercent(machine *domain.DevMachine, serviceType string, docke
 	}
 }
 
+// buildMinimumPids is the process budget of the containers agents and people
+// build in. PID limits count threads: a coding agent's native runtime and a
+// parallel toolchain (`go test ./...` running test binaries that shell out to
+// git, compilers, bundlers) together pass a few hundred tasks, and when clone
+// fails the runtime and git crash with SIGSEGV instead of reporting it. Memory
+// and CPU still bound the container; this only keeps a share of a small
+// machine-wide PID limit from starving them.
+const buildMinimumPids = 1024
+
+func buildServiceType(serviceType string) bool {
+	return serviceType == "agent" || serviceType == "ide" || serviceType == "terminal"
+}
+
 func (r *DockerRuntime) secureHostConfig(machine *domain.DevMachine, serviceType, networkName, volumeName string, docker bool) *container.HostConfig {
 	fraction := containerSharePercent(machine, serviceType, docker)
 	memory := int64(machine.MemoryMB) * 1024 * 1024 * fraction / 100
@@ -1514,7 +1527,9 @@ func (r *DockerRuntime) secureHostConfig(machine *domain.DevMachine, serviceType
 		memory = 128 * 1024 * 1024
 	}
 	pids := int64(machine.PidsLimit) * fraction / 100
-	if serviceType == "browser" && pids < 256 {
+	if buildServiceType(serviceType) && pids < buildMinimumPids {
+		pids = buildMinimumPids
+	} else if serviceType == "browser" && pids < 256 {
 		pids = 256
 	} else if pids < 32 {
 		pids = 32
