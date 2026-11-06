@@ -11,6 +11,8 @@
 
 import { url, type PageMeta } from '$lib/config/site';
 import { FALLBACK_VERSION } from '$lib/release.svelte';
+import { alternativePages, competitorBySlug } from '$lib/data/alternative-pages';
+import { alternativePath } from '$lib/data/competitor-types';
 
 // Re-export url for convenience
 export { url };
@@ -111,16 +113,23 @@ export const HUBS: Record<string, Hub> = {
 		slug: 'compare',
 		label: 'Compare',
 		href: '/compare',
-		children: [
-			{ slug: 'kuayle-vs-linear', label: 'Kuayle vs Linear', href: '/compare/kuayle-vs-linear', description: 'Self-hosted source access versus a mature hosted service.' },
-			{ slug: 'kuayle-vs-plane', label: 'Kuayle vs Plane', href: '/compare/kuayle-vs-plane', description: 'A focused ungated tracker versus a broader suite with commercial plans.' }
-		]
+		children: []
 	},
 	alternatives: {
 		slug: 'alternatives',
 		label: 'Alternatives',
 		href: '/alternatives',
 		children: [
+			...alternativePages.map((page) => {
+				const competitor = competitorBySlug(page.competitor);
+				return {
+					slug: alternativePath(competitor).slice(1),
+					label: `${competitor.displayName ?? competitor.name} alternative`,
+					href: alternativePath(competitor),
+					description: page.difference
+				};
+			}),
+			{ slug: 'jira-data-center-end-of-life', label: 'Jira Data Center end of life', href: '/jira-data-center-end-of-life', description: 'Dates, what changes, and self-hosted options after 2029.' },
 			{ slug: 'open-source-issue-trackers', label: 'Open Source Issue Trackers', href: '/alternatives/open-source-issue-trackers', description: 'Compare licenses, product scope and commercial edition models.' },
 			{ slug: 'self-hosted-issue-trackers', label: 'Self-Hosted Issue Trackers', href: '/alternatives/self-hosted-issue-trackers', description: 'Compare deployment footprint, updates, backups and operator responsibility.' }
 		]
@@ -141,8 +150,8 @@ export const STANDALONE_PAGES: StandalonePage[] = [
 	{ slug: '', title: '', description: '', canonical: url('/'), inSitemap: true },
 	{ slug: 'features', title: 'Kuayle Features — Issues, Cycles, Projects and GitHub', description: `Review released issue tracking, version history, private teams, cycle, project, GitHub and analytics features, plus opt-in Dev Machines.`, canonical: url('/features'), inSitemap: true },
 	{ slug: 'self-hosting', title: 'Self-Host Kuayle With Docker Compose', description: 'Deploy Kuayle with Caddy, PostgreSQL, Redis, the Go API and SvelteKit frontend; configure storage, updates, GitHub webhooks and workspace transfer.', canonical: url('/self-hosting'), inSitemap: true },
-	{ slug: 'compare', title: 'Compare Kuayle — Issue Tracker Comparisons', description: 'Compare Kuayle with Linear and Plane by hosting model, license, workflow coverage, product maturity and operating cost.', canonical: url('/compare'), inSitemap: true },
-	{ slug: 'alternatives', title: 'Issue Tracker Alternatives — Kuayle', description: 'Compare open-source and self-hosted issue trackers by license, edition model, product scope, deployment footprint and operator responsibility.', canonical: url('/alternatives'), inSitemap: true },
+	{ slug: 'compare', title: 'Self-Hosted Issue Tracker Comparison: 29 Tools Compared (2026) | Kuayle', description: 'Compare 28 issue trackers and project tools with Kuayle by licence, self-hosting, per-seat price, SSO, AI, MCP and importers, with first-party sources.', canonical: url('/compare'), inSitemap: true },
+	{ slug: 'alternatives', title: 'Open Source Issue Tracker Alternatives to Linear, Jira and More | Kuayle', description: 'Open source and self-hosted alternatives to Linear, Jira, Plane, Asana, ClickUp, YouTrack, GitLab, Trello and more, compared honestly with sources.', canonical: url('/alternatives'), inSitemap: true },
 	{ slug: 'open-source', title: 'Kuayle Open-Source Model — Apache 2.0, One Edition', description: 'Understand Kuayle’s Apache 2.0 license, single public repository, ungated feature model and self-hosting costs.', canonical: url('/open-source'), inSitemap: true },
 	{ slug: 'license', title: 'Kuayle License — Apache 2.0', description: 'A plain-language summary of Kuayle’s Apache 2.0 permissions, redistribution conditions, patent grant and warranty limits.', canonical: url('/license'), inSitemap: true },
 	{ slug: 'security', title: 'Kuayle Security and Self-Hosting Responsibilities', description: 'Review Kuayle authentication, network exposure, credential storage, update flow and operator security responsibilities.', canonical: url('/security'), inSitemap: true },
@@ -259,5 +268,17 @@ export function metaForStandalone(slug: string): PageMeta | undefined {
 		title: page.title,
 		description: page.description,
 		canonical: page.canonical
+	};
+}
+
+export function faqLd(items: { question: string; answer: string }[]) {
+	return {
+		'@context': 'https://schema.org',
+		'@type': 'FAQPage',
+		mainEntity: items.map((item) => ({
+			'@type': 'Question',
+			name: item.question,
+			acceptedAnswer: { '@type': 'Answer', text: item.answer }
+		}))
 	};
 }

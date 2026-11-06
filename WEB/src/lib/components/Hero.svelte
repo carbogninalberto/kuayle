@@ -1,160 +1,92 @@
 <script lang="ts">
-  import { Button } from "$lib/components/ui/button";
-  import ArrowRight from "@lucide/svelte/icons/arrow-right";
-  import Github from "$lib/components/GithubIcon.svelte";
-  import ScrollText from "@lucide/svelte/icons/scroll-text";
-  import Users from "@lucide/svelte/icons/users";
-  import Server from "@lucide/svelte/icons/server";
-  import Terminal from "@lucide/svelte/icons/terminal";
-  import { DEV_MACHINES_RELEASE_STATUS } from "$lib/config/releases";
-  import { useLatestRelease } from "$lib/release.svelte";
+	import { Button } from '$lib/components/ui/button';
+	import ArrowRight from '@lucide/svelte/icons/arrow-right';
+	import Star from '@lucide/svelte/icons/star';
+	import Github from '$lib/components/GithubIcon.svelte';
+	import HeroBoard from '$lib/components/home/HeroBoard.svelte';
+	import { DEV_MACHINES_RELEASE_STATUS } from '$lib/config/releases';
+	import { useLatestRelease } from '$lib/release.svelte';
 
-  const release = useLatestRelease();
+	let { stars = null }: { stars?: number | null } = $props();
 
-  const stats = [
-    { icon: ScrollText, label: "Apache 2.0 license" },
-    { icon: Users, label: "$0 per user" },
-    { icon: Server, label: "Self-hosted" },
-    { icon: Terminal, label: `Dev Machines · ${DEV_MACHINES_RELEASE_STATUS}` }
-  ];
+	const release = useLatestRelease();
+
+	const facts = ['Apache 2.0', '$0 per user', 'No paid tier', 'Self-hosted', `Dev Machines · ${DEV_MACHINES_RELEASE_STATUS}`];
+
+	const starLabel = $derived(
+		stars === null ? null : new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(stars)
+	);
 </script>
 
-<section class="relative overflow-hidden pt-36 pb-20 sm:pt-44">
-  <!-- Backdrop: grid + layered glow -->
-  <div class="hero-grid absolute inset-0 -z-10"></div>
-  <div
-    class="animate-glow absolute -top-40 left-1/2 -z-10 h-[520px] w-[820px] -translate-x-1/2 rounded-full bg-brand-400/25 blur-[140px]"
-  ></div>
-  <div
-    class="absolute top-24 -left-40 -z-10 h-[320px] w-[420px] rounded-full bg-brand-600/15 blur-[120px]"
-  ></div>
-  <div
-    class="absolute top-40 -right-40 -z-10 h-[320px] w-[420px] rounded-full bg-brand-500/10 blur-[120px]"
-  ></div>
+<section class="relative overflow-hidden pt-32 pb-24 sm:pt-40">
+	<!-- Faint grid and one calm glow behind the headline -->
+	<div class="hero-grid absolute inset-0 -z-10 opacity-50" aria-hidden="true"></div>
+	<div
+		class="absolute -top-48 left-1/2 -z-10 h-[460px] w-[760px] -translate-x-1/2 rounded-full bg-brand-400/15 blur-[150px]"
+		aria-hidden="true"
+	></div>
 
-  <div class="mx-auto max-w-6xl px-6 text-center">
-    <!-- Release badge -->
-    <div class="animate-fade-up flex justify-center" style="animation-delay: 0ms">
-      <a
-        href={release.releaseUrl}
-        target="_blank"
-        rel="noopener"
-        class="group inline-flex items-center gap-2.5 rounded-full border border-brand-400/30 bg-brand-400/10 py-1.5 pr-4 pl-2.5 text-xs font-medium text-brand-200 transition-colors hover:border-brand-400/50 hover:bg-brand-400/15"
-      >
-        <span class="relative flex size-2">
-          <span class="animate-pulse-dot absolute inline-flex size-2 rounded-full bg-brand-300"></span>
-        </span>
-        {release.version} is public — Apache 2.0
-        <ArrowRight class="size-3 transition-transform group-hover:translate-x-0.5" />
-      </a>
-    </div>
+	<div class="mx-auto max-w-6xl px-6">
+		<div class="mx-auto max-w-4xl text-center">
+			<a
+				href={release.releaseUrl}
+				target="_blank"
+				rel="noopener"
+				class="group inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] py-1 pr-3 pl-1.5 text-xs text-muted-foreground transition-colors hover:border-brand-400/40 hover:text-foreground"
+			>
+				<span class="rounded-full bg-brand-400/15 px-2 py-0.5 font-mono text-brand-200">{release.version}</span>
+				Latest release, open source under Apache 2.0
+				<ArrowRight class="size-3 transition-transform group-hover:translate-x-0.5" />
+			</a>
 
-    <h1
-      class="animate-fade-up mx-auto mt-6 max-w-3xl text-5xl leading-[1.05] font-bold tracking-tight sm:text-6xl md:text-7xl"
-      style="animation-delay: 100ms"
-    >
-      The issue tracker with <span class="gradient-text">no paid tier</span>
-    </h1>
+			<h1 class="mx-auto mt-7 max-w-4xl text-5xl leading-[1.05] font-bold tracking-tight text-balance sm:text-6xl md:text-7xl">
+				The open source issue tracker with <span class="gradient-text">no paid tier</span>
+			</h1>
+			<p class="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-muted-foreground sm:text-xl">
+				A self-hosted, keyboard-first alternative to Linear and Jira. Plan multi-assignee issues in cycles and projects,
+				keep private teams private and let GitHub pull requests move the work. Free for any team size.
+			</p>
 
-    <p
-      class="animate-fade-up mx-auto mt-6 max-w-2xl text-lg text-muted-foreground sm:text-xl"
-      style="animation-delay: 200ms"
-    >
-      Run Kuayle on your own infrastructure. Plan multi-assignee issues in cycles
-      and projects, keep private teams private and link GitHub pull requests to
-      issues, all from one Apache 2.0-licensed codebase. Opt-in Dev Machines add
-      self-hosted agentic coding environments.
-    </p>
+			<div class="mt-9 flex flex-wrap items-center justify-center gap-3">
+				<Button href="/self-hosting" size="lg" class="h-11 bg-brand-400 px-6 text-base text-white hover:bg-brand-500">
+					Self-host Kuayle
+					<ArrowRight />
+				</Button>
+				<Button
+					href="https://github.com/carbogninalberto/kuayle"
+					target="_blank"
+					rel="noopener"
+					variant="outline"
+					size="lg"
+					class="h-11 px-6 text-base"
+				>
+					<Github />
+					View source
+					{#if starLabel}
+						<span class="ml-1 inline-flex items-center gap-1 border-l border-white/15 pl-2.5 font-mono text-sm text-muted-foreground">
+							<Star class="size-3.5" aria-hidden="true" />{starLabel}<span class="sr-only"> GitHub stars</span>
+						</span>
+					{/if}
+				</Button>
+			</div>
 
-    <div
-      class="animate-fade-up mt-10 flex flex-wrap items-center justify-center gap-3"
-      style="animation-delay: 300ms"
-    >
-      <Button
-        href="https://github.com/carbogninalberto/kuayle"
-        target="_blank"
-        rel="noopener"
-        size="lg"
-        class="h-11 bg-brand-400 px-6 text-base text-white shadow-lg shadow-brand-400/30 hover:bg-brand-500"
-      >
-        <Github />
-        View source
-      </Button>
-      <Button
-        href="/self-hosting"
-        variant="outline"
-        size="lg"
-        class="h-11 px-6 text-base"
-      >
-        Self-host Kuayle
-        <ArrowRight />
-      </Button>
-    </div>
+			<ul class="mt-7 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 font-mono text-xs text-muted-foreground">
+				{#each facts as fact, i}
+					<li class="flex items-center gap-4">
+						{#if i > 0}<span class="text-white/20" aria-hidden="true">/</span>{/if}
+						{fact}
+					</li>
+				{/each}
+			</ul>
+		</div>
 
-    <!-- Quick facts -->
-    <div
-      class="animate-fade-up mt-8 flex flex-wrap items-center justify-center gap-2"
-      style="animation-delay: 400ms"
-    >
-      {#each stats as stat (stat.label)}
-        <span
-          class="inline-flex items-center gap-1.5 rounded-full border border-border bg-card/60 px-3 py-1.5 text-xs text-muted-foreground"
-        >
-          <stat.icon class="size-3.5 text-brand-300" />
-          {stat.label}
-        </span>
-      {/each}
-    </div>
-
-    <p
-      class="animate-fade-up mt-6 text-sm text-muted-foreground"
-      style="animation-delay: 500ms"
-    >
-      Press <kbd class="key h-6! min-w-6! text-xs">C</kbd> to create an issue.
-      <kbd class="key h-6! min-w-6! text-xs">⌘</kbd><kbd
-        class="key h-6! min-w-6! text-xs">K</kbd
-      >
-      to search issues and navigate.
-    </p>
-
-    <!-- Product screenshot -->
-    <div
-      class="animate-fade-up relative mx-auto mt-16 max-w-5xl"
-      style="animation-delay: 600ms"
-    >
-      <div
-        class="animate-glow absolute -inset-6 -z-10 rounded-3xl bg-gradient-to-tr from-brand-600/40 via-brand-400/25 to-transparent blur-2xl"
-      ></div>
-      <div
-        class="animate-float ring-gradient relative overflow-hidden rounded-2xl border border-white/10 bg-card shadow-2xl shadow-black/60"
-      >
-        <div
-          class="flex items-center gap-1.5 border-b border-white/5 bg-black/40 px-4 py-3"
-        >
-          <span class="size-3 rounded-full bg-[#ff5f57]/80"></span>
-          <span class="size-3 rounded-full bg-[#febc2e]/80"></span>
-          <span class="size-3 rounded-full bg-[#28c840]/80"></span>
-          <span
-            class="ml-3 hidden h-5 flex-1 items-center rounded-md bg-white/5 px-2 font-mono text-[10px] text-muted-foreground sm:flex"
-          >
-            kuayle.yourcompany.com
-          </span>
-        </div>
-        <div class="relative overflow-hidden">
-          <div class="beam"></div>
-          <img
-            src="/product-screenshot.png"
-            srcset="/product-screenshot-720.png 720w, /product-screenshot-1440.png 1440w, /product-screenshot.png 3600w"
-            sizes="(max-width: 640px) 100vw, (max-width: 1200px) 92vw, 1152px"
-            alt="Kuayle team issue list grouped by status, with priorities, labels, due dates and assignees"
-            width="3600"
-            height="1886"
-            class="w-full h-auto"
-            loading="eager"
-            fetchpriority="high"
-          />
-        </div>
-      </div>
-    </div>
-  </div>
+		<div class="relative mx-auto mt-16 max-w-5xl">
+			<HeroBoard />
+		</div>
+		<p class="mt-14 text-center text-sm text-muted-foreground">
+			Press <kbd class="key h-6! min-w-6! text-xs">C</kbd> to create an issue,
+			<kbd class="key h-6! min-w-6! text-xs">⌘</kbd><kbd class="key h-6! min-w-6! text-xs">K</kbd> to search and navigate.
+			Illustration with sample data.
+		</p>
+	</div>
 </section>

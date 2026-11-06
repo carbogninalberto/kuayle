@@ -23,14 +23,14 @@ docker compose exec backend /app/server seed`;
 </script>
 
 <section id="deploy" class="relative overflow-hidden py-24 sm:py-32">
-	<div class="hero-grid absolute inset-0 -z-10 rotate-180"></div>
 	<div
-		class="animate-glow absolute -bottom-40 left-1/2 -z-10 h-[420px] w-[720px] -translate-x-1/2 rounded-full bg-brand-400/20 blur-[140px]"
+		class="absolute -bottom-40 left-1/2 -z-10 h-[380px] w-[680px] -translate-x-1/2 rounded-full bg-brand-400/10 blur-[150px]"
+		aria-hidden="true"
 	></div>
 
 	<div class="mx-auto max-w-3xl px-6 text-center">
 		<div use:reveal>
-			<p class="text-sm font-semibold tracking-widest text-brand-300 uppercase">Self-host</p>
+			<p class="font-mono text-xs tracking-widest text-brand-300 uppercase"><span class="text-muted-foreground">07</span> · Deploy</p>
 			<h2 class="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">Deploy with Docker Compose</h2>
 			<p class="mt-4 text-lg text-muted-foreground">
 				The self-hosting stack runs Caddy, PostgreSQL 17, Redis 7, the Go API and the SvelteKit app.

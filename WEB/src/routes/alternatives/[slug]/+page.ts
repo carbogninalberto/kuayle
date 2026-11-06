@@ -1,7 +1,7 @@
-import { HUBS } from '$lib/data/routes';
+import { alternatives } from '$lib/data/alternatives';
 
 export function entries() {
-	return HUBS.alternatives.children.map((c) => ({ slug: c.slug }));
+	return Object.keys(alternatives).map((slug) => ({ slug }));
 }
 
 export const prerender = true;

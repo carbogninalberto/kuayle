@@ -1,40 +1,19 @@
 <script lang="ts">
-	import { page } from '$app/state';
-	import PageLayout from '$lib/components/PageLayout.svelte';
-	import { HUBS, breadcrumbsFrom } from '$lib/data/routes';
-	import { contentModifiedAt, url } from '$lib/config/site';
-	import { compare } from '$lib/data/compare';
+	import { url } from '$lib/config/site';
 
-	const slug = $derived(page.params.slug ?? '');
-
-	const content = $derived(slug ? compare[slug] : undefined);
-	const parent = $derived(HUBS.compare);
-
-	const meta = $derived(
-		content
-			? {
-					title: content.title,
-					description: content.description,
-					canonical: url(`/compare/${slug}`),
-					ogType: 'article' as const,
-					modifiedAt: contentModifiedAt(`/compare/${slug}`)
-				}
-			: { title: '', description: '', canonical: url('/') }
-	);
-
-	const crumbs = $derived(breadcrumbsFrom('compare', 'Compare', content?.heading, slug));
+	let { data } = $props();
+	const target = $derived(url(data.moved.to));
 </script>
 
-{#if content}
-	<PageLayout
-		{meta}
-		heading={content.heading}
-		intro={content.intro}
-		sections={content.sections}
-		footnotes={content.footnotes}
-		breadcrumbs={crumbs}
-		hubLinks={parent.children}
-		hubTitle="Compare"
-		currentSlug={slug}
-	/>
-{/if}
+<svelte:head>
+	<title>This comparison moved to {data.moved.label} | Kuayle</title>
+	<link rel="canonical" href={target} />
+	<meta http-equiv="refresh" content={`0; url=${data.moved.to}`} />
+</svelte:head>
+
+<main id="main" class="mx-auto max-w-xl px-6 pt-40 pb-20 text-center">
+	<h1 class="text-2xl font-semibold">This comparison has moved</h1>
+	<p class="mt-4 text-muted-foreground">
+		It now lives at <a class="text-brand-300 underline underline-offset-4" href={data.moved.to}>{data.moved.label}</a>.
+	</p>
+</main>

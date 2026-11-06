@@ -1,99 +1,33 @@
 /**
- * Latest Kuayle release, resolved at runtime.
+ * Latest Kuayle release.
  *
- * Mirrors the app's mechanism in UI/src/lib/release.ts: the releases
- * manifest is served from the repository's main branch and the first
- * non-prerelease entry by semantic version wins.
- *
- * The prerendered static HTML always contains FALLBACK_VERSION (good for
- * SEO and no-JS clients); after hydration the manifest is fetched with
- * bounded retries and every consumer updates if a newer release exists.
+ * The build resolves the current releases from the manifest on main
+ * (vite.config.ts → __KUAYLE_RELEASES__), so prerendered HTML already shows
+ * the current version and recent releases with no manual bump. After
+ * hydration the manifest is fetched again with bounded retries, so a page
+ * built before a newer release still updates in the browser.
  */
+import {
+	LAST_KNOWN_VERSION,
+	RELEASES_MANIFEST_URL,
+	RELEASES_PAGE_URL,
+	stableReleases,
+	type RecentRelease
+} from './release-manifest.ts';
 
-export const FALLBACK_VERSION = 'v0.1.24';
-export const RELEASES_PAGE_URL = 'https://github.com/carbogninalberto/kuayle/releases';
+export { RELEASES_PAGE_URL, type RecentRelease };
 
-const RELEASES_MANIFEST_URL =
-	'https://raw.githubusercontent.com/carbogninalberto/kuayle/main/UI/static/releases.json';
-const RELEASE_VERSION = /^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+const BUILD_RELEASES: RecentRelease[] =
+	typeof __KUAYLE_RELEASES__ !== 'undefined' && Array.isArray(__KUAYLE_RELEASES__) ? __KUAYLE_RELEASES__ : [];
+
+/** Current release at build time; LAST_KNOWN_VERSION only if the build could not reach the manifest. */
+export const FALLBACK_VERSION = BUILD_RELEASES[0]?.version ?? LAST_KNOWN_VERSION;
+
 const RELEASE_RETRY_DELAYS_MS = [0, 250, 1000];
 
-interface GitHubRelease {
-	tag_name: string;
-	html_url?: string;
-	prerelease?: boolean;
-}
-
-function normalizeVersion(version: string): number[] {
-	return version
-		.replace(/^v/i, '')
-		.split(/[-+]/)[0]
-		.split('.')
-		.map((part) => Number.parseInt(part, 10) || 0);
-}
-
-function compareVersions(left: string, right: string): number {
-	const a = normalizeVersion(left);
-	const b = normalizeVersion(right);
-	const length = Math.max(a.length, b.length);
-	for (let i = 0; i < length; i += 1) {
-		const delta = (a[i] ?? 0) - (b[i] ?? 0);
-		if (delta !== 0) return delta;
-	}
-	return 0;
-}
-
-function parseManifest(manifest: unknown): GitHubRelease[] {
-	let releases: unknown[] = [];
-	if (Array.isArray(manifest)) releases = manifest;
-	if (manifest && typeof manifest === 'object') {
-		const nestedReleases = (manifest as { releases?: unknown }).releases;
-		if (Array.isArray(nestedReleases)) releases = nestedReleases;
-	}
-	return releases.flatMap((value): GitHubRelease[] => {
-		if (!value || typeof value !== 'object') return [];
-		const release = value as Record<string, unknown>;
-		if (typeof release.tag_name !== 'string' || !RELEASE_VERSION.test(release.tag_name)) return [];
-		return [
-			{
-				tag_name: release.tag_name,
-				html_url: typeof release.html_url === 'string' ? release.html_url : undefined,
-				prerelease: release.prerelease === true
-			}
-		];
-	});
-}
-
-function releaseUrlFor(tagName: string, value: string | undefined): string {
-	const fallback = `${RELEASES_PAGE_URL}/tag/${encodeURIComponent(tagName)}`;
-	if (!value) return fallback;
-
-	try {
-		const url = new URL(value);
-		const path = url.pathname.split('/').slice(1).map((part) => decodeURIComponent(part));
-		if (
-			url.protocol !== 'https:' ||
-			url.hostname.toLowerCase() !== 'github.com' ||
-			url.username !== '' ||
-			url.password !== '' ||
-			url.port !== '' ||
-			path.length !== 5 ||
-			path[0].toLowerCase() !== 'carbogninalberto' ||
-			path[1].toLowerCase() !== 'kuayle' ||
-			path[2] !== 'releases' ||
-			path[3] !== 'tag' ||
-			path[4] !== tagName
-		) {
-			return fallback;
-		}
-		return url.href;
-	} catch {
-		return fallback;
-	}
-}
-
 let version = $state(FALLBACK_VERSION);
-let releaseUrl = $state(`${RELEASES_PAGE_URL}/tag/${FALLBACK_VERSION}`);
+let releaseUrl = $state(BUILD_RELEASES[0]?.url ?? `${RELEASES_PAGE_URL}/tag/${FALLBACK_VERSION}`);
+let recent = $state<RecentRelease[]>(BUILD_RELEASES);
 let loaded = false;
 let request: Promise<void> | null = null;
 
@@ -101,13 +35,12 @@ async function loadOnce(): Promise<boolean> {
 	try {
 		const response = await fetch(RELEASES_MANIFEST_URL, { cache: 'no-store' });
 		if (!response.ok) return false;
-		const releases = parseManifest(await response.json());
-		const latest = releases
-			.filter((release) => !release.prerelease && release.tag_name)
-			.sort((a, b) => compareVersions(b.tag_name, a.tag_name))[0];
+		const releases = stableReleases(await response.json());
+		const latest = releases[0];
 		if (!latest) return false;
-		version = latest.tag_name;
-		releaseUrl = releaseUrlFor(latest.tag_name, latest.html_url);
+		recent = releases;
+		version = latest.version;
+		releaseUrl = latest.url;
 		return true;
 	} catch {
 		return false;
@@ -137,6 +70,10 @@ export function useLatestRelease() {
 	return {
 		get version() {
 			return version;
+		},
+		/** Latest stable releases: from the build, refreshed after hydration. */
+		get recent() {
+			return recent;
 		},
 		get releaseUrl() {
 			return releaseUrl;

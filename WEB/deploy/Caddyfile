@@ -1,0 +1,26 @@
+# Static file server for the kuayle.com marketing site, built by deploy/Dockerfile.
+# The edge proxy (TLS, HSTS) sits in front of this container and forwards :80.
+:80 {
+	root * /srv
+	encode zstd gzip
+
+	# Moved pages: permanent redirects. Keep in sync with src/lib/data/moved-pages.ts
+	# (tests/unit/deploy.test.mjs checks both lists match).
+	redir /compare/kuayle-vs-linear /linear-alternative permanent
+	redir /compare/kuayle-vs-plane /plane-alternative permanent
+
+	# Prerendered routes are /path.html or /path/index.html. Unknown paths get a real 404,
+	# not the homepage, so search engines do not index soft-404 duplicates.
+	try_files {path} {path}.html {path}/index.html
+	file_server
+
+	handle_errors 404 {
+		rewrite * /404.html
+		file_server
+	}
+
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+}

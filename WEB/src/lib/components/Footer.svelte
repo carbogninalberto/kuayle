@@ -1,20 +1,5 @@
 <script lang="ts">
-	import { page } from '$app/state';
-
-	const isHome = $derived(page.url.pathname === '/');
-
-	const productLinks = $derived([
-		{ label: 'Open source', homeHref: '#open-source', routeHref: '/open-source' },
-		{ label: 'Features', homeHref: '#features', routeHref: '/features' },
-		{ label: 'Pricing', homeHref: '#pricing', routeHref: '/#pricing' },
-		{ label: 'Self-host', homeHref: '#deploy', routeHref: '/self-hosting' },
-		{ label: 'Compare', homeHref: '/compare', routeHref: '/compare' },
-		{ label: 'Alternatives', homeHref: '/alternatives', routeHref: '/alternatives' }
-	]);
-
-	function linkHref(link: { homeHref: string; routeHref: string }): string {
-		return isHome ? link.homeHref : link.routeHref;
-	}
+	import { FOOTER_COLUMNS } from '$lib/data/navigation';
 
 	const year = new Date().getFullYear();
 
@@ -31,8 +16,8 @@
 
 <footer class="border-t border-border bg-black/30">
 	<div class="mx-auto max-w-6xl px-6 py-12">
-		<div class="grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
-			<div class="flex flex-col gap-3 sm:col-span-2">
+		<div class="grid gap-10 sm:grid-cols-2 lg:grid-cols-6">
+			<div class="flex flex-col gap-3 sm:col-span-2 lg:col-span-2">
 				<img src="/logo_white.svg" alt="Kuayle" class="h-6 w-auto self-start" width={96} height={24} />
 				<p class="text-xs text-muted-foreground">
 					The keyboard-driven, self-hosted issue tracker with no paid tier. Made by Bakney.
@@ -46,38 +31,23 @@
 				</address>
 			</div>
 
-			<div class="flex flex-col gap-3 text-sm">
-				<p class="text-xs font-semibold tracking-widest text-muted-foreground uppercase">Product</p>
-				{#each productLinks as link}
-					<a href={linkHref(link)} class="text-muted-foreground transition-colors hover:text-foreground">{link.label}</a>
-				{/each}
-			</div>
-
-			<div class="flex flex-col gap-3 text-sm">
-				<p class="text-xs font-semibold tracking-widest text-muted-foreground uppercase">Company</p>
-				<a
-					href="https://github.com/carbogninalberto/kuayle"
-					target="_blank"
-					rel="noopener"
-					class="text-muted-foreground transition-colors hover:text-foreground">GitHub</a
-				>
-			<a
-				href="/license"
-				class="text-muted-foreground transition-colors hover:text-foreground">License</a
-			>
-				<a href="/privacy" class="text-muted-foreground transition-colors hover:text-foreground"
-					>Privacy</a
-				>
-				<a href="/security" class="text-muted-foreground transition-colors hover:text-foreground">Security</a>
-				<a href="/about" class="text-muted-foreground transition-colors hover:text-foreground">About</a>
-				<a href="/roadmap" class="text-muted-foreground transition-colors hover:text-foreground">Roadmap</a>
-			<a
-				href="mailto:support@bakney.com"
-				class="text-muted-foreground transition-colors hover:text-foreground"
-				>support@bakney.com</a
-			>
-			</div>
+			{#each FOOTER_COLUMNS as column}
+				<nav aria-label={column.title} class="flex flex-col gap-2.5 text-sm">
+					<p class="text-xs font-semibold tracking-widest text-muted-foreground uppercase">{column.title}</p>
+					{#each column.links as link}
+						<a
+							href={link.href}
+							target={link.external ? '_blank' : undefined}
+							rel={link.external ? 'noopener' : undefined}
+							class="text-muted-foreground transition-colors hover:text-foreground">{link.label}</a
+						>
+					{/each}
+				</nav>
+			{/each}
 		</div>
+		<p class="mt-8 text-xs text-muted-foreground">
+			Contact: <a href="mailto:support@bakney.com" class="transition-colors hover:text-foreground">support@bakney.com</a>
+		</p>
 
 		<div
 			class="mt-10 flex flex-col items-center justify-between gap-3 border-t border-border pt-6 sm:flex-row"

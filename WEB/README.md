@@ -27,14 +27,15 @@ run component additions from this package and preserve the site's custom theme.
 | `npm run preview`    | Preview the production build                           |
 | `npm run check`      | Run `svelte-check` for type errors                     |
 | `npm run validate-seo` | Run SEO validation on `build/` output               |
-| `npm run validate`   | Build + validate (CI-ready)                            |
-| `npm run test:responsive` | Playwright check that every route fits a 320 px viewport |
+| `npm run validate`   | Unit tests + build + SEO validation (CI-ready)         |
+| `npm run test:unit`  | Node unit tests for the competitor registry, cost maths and release summaries |
+| `npm run test:responsive` | Playwright checks: every route fits 320 px, navigation menus and sheet by keyboard, cookie controls, pricing calculator |
 
 ## SEO conventions
 
 - **Centralized config**: `src/lib/config/site.ts` — canonical origin, defaults, `url()` helper.
 - **Reusable SEO component**: `src/lib/components/Seo.svelte` — title, description, canonical, robots, full OG/Twitter metadata, JSON-LD.
-- **JSON-LD**: Organization, WebSite, SoftwareApplication on homepage; BreadcrumbList + WebPage on all child pages.
+- **JSON-LD**: Organization, WebSite, SoftwareApplication on homepage; BreadcrumbList + WebPage on all child pages; FAQPage on alternative pages, `/compare` and the Jira guide (questions must also be visible on the page).
 - **Sitemap**: Generated at build time via `src/routes/sitemap.xml/+server.ts` using the route registry.
 - **robots.txt**: Declares the sitemap location.
 - **Image optimization**: All `<img>` tags carry intrinsic `width`/`height` and descriptive `alt`.
@@ -42,13 +43,18 @@ run component additions from this package and preserve the site's custom theme.
 ## Content conventions
 
 - **Route registry**: `src/lib/data/routes.ts` — source of truth for sitemap entries, hubs, breadcrumbs, and shared metadata.
-- **Content registries**: `src/lib/data/features.ts`, `self-hosting.ts`, `compare.ts`, `alternatives.ts` — data-driven content for dynamic routes.
-- **Release version**: `src/lib/release.svelte.ts` — `useLatestRelease()` fetches the `UI/static/releases.json` manifest from the repository's main branch at runtime (same mechanism as the app). Static HTML renders `FALLBACK_VERSION`; bump it when the fallback becomes stale.
-- **Silo architecture**: Each hub (Features, Self-Hosting, Compare, Alternatives) has a hub page + child detail pages using shared `PageLayout.svelte`.
+- **Content registries**: `src/lib/data/features.ts`, `self-hosting.ts`, `alternatives.ts` (roundups) — data-driven content for dynamic routes.
+- **Competitor inventory**: `src/lib/data/competitors.ts` (28 tools, types and helpers in `competitor-types.ts`). Every external fact needs a first-party source (vendor pricing, docs or licence file) with its check date; unverifiable fields stay `null` and render as "Not documented". Tier A tools get an alternative page; Tier B appear only in matrices.
+- **Kuayle facts**: `src/lib/data/kuayle-facts.ts` is the single source for Kuayle's side of every comparison and the homepage feature grid, verified against the code at the version it names. State gaps as gaps.
+- **Alternative pages**: `/<competitor>-alternative` (param matcher `src/params/alternative.ts`), content in `alternative-pages.ts`, rendered by `AlternativePage.svelte`. Titles follow "Open Source <X> Alternative, Self-Hosted and Free (2026) | Kuayle" and work target keywords into H1, H2s and FAQ questions without stuffing.
+- **Moved URLs**: `src/lib/data/moved-pages.ts` keeps prerendered stubs (canonical + immediate refresh) for old URLs; replace with host-level 301s when the hosting platform supports them.
+- **Navigation**: navbar dropdowns, mobile sheet and footer columns are built from `src/lib/data/navigation.ts`, which reads the route registry.
+- **Release version**: `src/lib/release.svelte.ts` — `useLatestRelease()` fetches the `UI/static/releases.json` manifest from the repository's main branch at runtime (same mechanism as the app). The build resolves the current release from the same manifest, so static HTML is current without a manual bump (see Deployment).
+- **Silo architecture**: Features and Self-Hosting hubs have child pages using `PageLayout.svelte`. The Alternatives hub lists the root-level alternative pages, the Jira guide and the roundups; `/compare` is the full matrix.
 - **Standalone pages**: `/open-source`, `/license`, `/security`, `/about`, `/roadmap` — each uses `StandalonePage.svelte` wrapper.
 - **Breadcrumbs**: Every page includes a `<Breadcrumbs>` component with structured data.
 - **CTA**: Every content page ends with a `<CtaSection>`.
-- **Comparisons**: Neutral language, methodology notes, and separate visible dates for Kuayle details (October 22, 2026) and competitor details (last reviewed July 2026).
+- **Comparisons**: Neutral language, methodology notes, and separate visible dates for Kuayle details (verified against v0.2.15) and competitor details (checked November 6, 2026). Re-check sources before changing a reviewed date.
 - **Self-hosting pages**: Aligned with the actual README and `selfhosting/` configs. No secrets exposed.
 
 ## Route map
@@ -59,10 +65,12 @@ run component additions from this package and preserve the site's custom theme.
 /features/[slug]                               Feature detail (10 pages)
 /self-hosting                                  Self-hosting hub
 /self-hosting/[slug]                           Self-hosting guide (8 pages)
-/compare                                       Comparison hub
-/compare/[slug]                                Comparison pages (2)
+/compare                                       Full comparison matrix (28 tools)
+/compare/[slug]                                Moved-page stubs for the old kuayle-vs-* URLs (not in sitemap)
 /alternatives                                  Alternatives hub
-/alternatives/[slug]                           Alternatives overview (2)
+/alternatives/[slug]                           Roundups with matrices (2)
+/[slug=alternative]                            Alternative pages, e.g. /linear-alternative (11)
+/jira-data-center-end-of-life                  Jira Data Center EOL guide
 /open-source                                   Open source philosophy
 /license                                       Apache 2.0 license details
 /security                                      Security practices
@@ -71,6 +79,12 @@ run component additions from this package and preserve the site's custom theme.
 /privacy                                       Privacy policy
 /sitemap.xml                                   XML sitemap
 ```
+
+## Deployment
+
+`deploy/Dockerfile` builds the site (`npm run validate`, so unit and SEO checks gate the image) and serves `build/` with Caddy using `deploy/Caddyfile`. Build from this directory: `docker build -f deploy/Dockerfile -t kuayle-web .`. The Caddyfile issues the permanent redirects for moved pages (kept in sync with `src/lib/data/moved-pages.ts` by a unit test) and returns the prerendered `/404` page with HTTP 404 for unknown paths instead of a soft-404 homepage. TLS and HSTS are handled by the edge proxy in front of the container.
+
+The current release (version badge, recently shipped strip, About/Roadmap and JSON-LD `softwareVersion`) is resolved at build time from the releases manifest on `main`; offline builds fall back to `LAST_KNOWN_VERSION` in `src/lib/release-manifest.ts`. Rebuild the image after a release to refresh the static HTML; browsers also refresh it after hydration.
 
 ## Build output
 
@@ -88,7 +102,9 @@ The script at `scripts/validate-seo.mjs` checks:
 6. Images have `alt` and intrinsic `width`/`height`
 7. Internal links resolve to existing files
 8. Bare fragment links (`#...`) on non-homepages are flagged
+9. Moved-page stubs are canonical to, refresh to and link to their new URL
+10. FAQ pages publish FAQPage JSON-LD whose questions are visible on the page
 
-The homepage screenshot has responsive 720 px and 1440 px variants. The product tour uses `static/tour-*-{720,1440,2160}.webp` (16:10). Social metadata uses the dedicated 1200 × 630 `static/social-card.png` asset.
+The homepage hero and chapters use HTML product mocks with sample data (`src/lib/components/home/`); they are `aria-hidden` with a text alternative and must only show behaviour the app really has. The homepage GitHub star count is fetched once at build time (`src/routes/+page.server.ts`) and hidden when unavailable. The legacy homepage screenshot has responsive 720 px and 1440 px variants. The product tour uses `static/tour-*-{720,1440,2160}.webp` (16:10). Social metadata uses the dedicated 1200 × 630 `static/social-card.png` asset.
 
 Screenshots are captured from a local instance (`make dev` + `make seed`, dark theme, signed in as the seeded owner) with Playwright, then resized and optimized at the same pixel dimensions.
