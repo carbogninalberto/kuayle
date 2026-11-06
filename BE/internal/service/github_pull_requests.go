@@ -39,6 +39,8 @@ type PullRequestStatus struct {
 	Ahead, Behind  int
 	ChangedFiles   int
 	URL            string
+	// MergeCommit is the commit the merge created on the base branch, once merged.
+	MergeCommit string
 }
 
 // PullRequestCheck is one CI check of the head commit.
@@ -96,7 +98,7 @@ func (s *GitHubService) PullRequestStatus(ctx context.Context, ws uuid.UUID, rep
 		HeadSHA: pull.Head.SHA, HeadRef: pull.Head.Ref, BaseRef: pull.Base.Ref, ChangedFiles: pull.ChangedFiles, URL: pull.HTMLURL,
 	}
 	if pull.Merged {
-		status.State = "merged"
+		status.State, status.MergeCommit = "merged", pull.MergeCommitSHA
 	}
 	// Ahead and behind are counted from the base branch; a failed comparison
 	// only leaves them unknown (-1) rather than failing the whole read.

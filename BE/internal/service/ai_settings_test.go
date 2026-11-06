@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -55,4 +56,25 @@ func TestAICompletionPrivateNetworkOptInDoesNotFollowRedirects(t *testing.T) {
 	_, err = svc.complete(context.Background(), provider.URL+"/redirect", "model", "key", "prompt")
 	require.ErrorIs(t, err, ErrAIProviderRequestFailed)
 	assert.Zero(t, redirected.Load())
+}
+
+// Issue creation and issue details expand descriptions with one prompt, so a
+// draft gets the same instructions and selection-only rewriting.
+func TestDescriptionExpansionPromptIncludesDraftAndSelection(t *testing.T) {
+	selected := "  fix login  "
+	prompt := descriptionExpansionPrompt("Expand it.", "Login broken", "<p>fix login</p>", &selected)
+	assert.Equal(t, "Expand it.\n\nIssue title:\nLogin broken\n\nCurrent description:\n<p>fix login</p>"+
+		"\n\nSelected text to rewrite. Return only the replacement HTML for this selected text, not the full issue description:\nfix login", prompt)
+
+	blank := "   "
+	assert.NotContains(t, descriptionExpansionPrompt("Expand it.", "T", "", &blank), "Selected text")
+	assert.NotContains(t, descriptionExpansionPrompt("Expand it.", "T", "", nil), "Selected text")
+}
+
+func TestDraftDescriptionExpansionRequiresConfiguredAI(t *testing.T) {
+	key := "encrypted"
+	assert.False(t, aiSettingsConfigured(&domain.AISettings{Model: "m", APIKeyEncrypted: &key}))
+	assert.False(t, aiSettingsConfigured(&domain.AISettings{BaseURL: "https://ai.example", APIKeyEncrypted: &key}))
+	assert.False(t, aiSettingsConfigured(&domain.AISettings{BaseURL: "https://ai.example", Model: "m"}))
+	assert.True(t, aiSettingsConfigured(&domain.AISettings{BaseURL: "https://ai.example", Model: "m", APIKeyEncrypted: &key}))
 }

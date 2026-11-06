@@ -396,13 +396,7 @@ func (t *AssistantTools) prepareRelease(ctx context.Context, ws, user uuid.UUID,
 		}
 		return domain.ReleasePayload{}, err
 	}
-	if !validReleaseTag(payload.Tag) {
-		return refuse(toolFailure("%q is not a valid tag: use letters, digits, dots, dashes and plus signs, such as v1.4.0", truncateRunes(payload.Tag, 100)))
-	}
-	if payload.Name == "" {
-		payload.Name = payload.Tag
-	}
-	if err := checkReleaseNotes(payload.Notes); err != nil {
+	if err := t.checkReleaseRequest(ctx, ws, &payload); err != nil {
 		return refuse(err)
 	}
 	sha, err := t.releases.ResolveCommit(ctx, ws, repo.FullName, strings.TrimSpace(input.TargetCommit))
@@ -410,26 +404,46 @@ func (t *AssistantTools) prepareRelease(ctx context.Context, ws, user uuid.UUID,
 		return refuse(releaseGitHubFailure("find the target commit", err))
 	}
 	payload.TargetCommit = sha
-	// The scanned range always starts at the latest stable release; the model
-	// cannot narrow it.
-	releases, err := t.releases.ListReleases(ctx, ws, repo.FullName, maxReleasesListed)
-	if err != nil {
-		return refuse(releaseGitHubFailure("list the releases", err))
-	}
-	latest := latestRelease(releases)
-	if latest == nil {
-		return refuse(toolFailure("Tagging refused: %s has no earlier release among its newest %d, so there is no release range to scan for secrets. Publish the first release outside Kuayle after scanning the repository", repo.FullName, maxReleasesListed))
-	}
-	previous := latest.TagName
-	payload.PreviousTag = previous
-	payload.ReleaseURL = fmt.Sprintf("https://github.com/%s/releases/tag/%s", repo.FullName, payload.Tag)
-	if previous != "" {
-		payload.CompareURL = fmt.Sprintf("https://github.com/%s/compare/%s...%s", repo.FullName, previous, sha)
-	}
+	payload.CompareURL = releaseCompareURL(payload)
 	if err := verifyRelease(ctx, t.releases, ws, &payload); err != nil {
 		return refuse(err)
 	}
 	return payload, nil
+}
+
+// checkReleaseRequest checks what a release request names before its commit
+// is known: the tag, the notes and the latest stable release the scanned range
+// starts at, which the model cannot narrow. It fills in the name, the previous
+// tag and the release's URL.
+func (t *AssistantTools) checkReleaseRequest(ctx context.Context, ws uuid.UUID, payload *domain.ReleasePayload) error {
+	if !validReleaseTag(payload.Tag) {
+		return toolFailure("%q is not a valid tag: use letters, digits, dots, dashes and plus signs, such as v1.4.0", truncateRunes(payload.Tag, 100))
+	}
+	if payload.Name == "" {
+		payload.Name = payload.Tag
+	}
+	if err := checkReleaseNotes(payload.Notes); err != nil {
+		return err
+	}
+	releases, err := t.releases.ListReleases(ctx, ws, payload.Repository, maxReleasesListed)
+	if err != nil {
+		return releaseGitHubFailure("list the releases", err)
+	}
+	latest := latestRelease(releases)
+	if latest == nil {
+		return toolFailure("Tagging refused: %s has no earlier release among its newest %d, so there is no release range to scan for secrets. Publish the first release outside Kuayle after scanning the repository", payload.Repository, maxReleasesListed)
+	}
+	payload.PreviousTag = latest.TagName
+	payload.ReleaseURL = fmt.Sprintf("https://github.com/%s/releases/tag/%s", payload.Repository, payload.Tag)
+	return nil
+}
+
+// releaseCompareURL links the release range, once the target commit is known.
+func releaseCompareURL(payload domain.ReleasePayload) string {
+	if payload.PreviousTag == "" || payload.TargetCommit == "" {
+		return ""
+	}
+	return fmt.Sprintf("https://github.com/%s/compare/%s...%s", payload.Repository, payload.PreviousTag, payload.TargetCommit)
 }
 
 // verifyRelease is the gate before tagging, run when the release is requested
@@ -527,8 +541,12 @@ func releaseGateRefusal(checks []PullRequestCheck, coverage ChecksCoverage, bran
 }
 
 // editReleaseApproval returns the approval's payload with the approver's notes,
-// after the same notes check the request had.
+// after the same notes check the request had. A chain's release notes are
+// edited the same way.
 func editReleaseApproval(approval *domain.ConversationApproval, notes string) (json.RawMessage, error) {
+	if approval.Action == shipAction {
+		return editShipApproval(approval, notes)
+	}
 	if approval.Action != "create_release" {
 		return nil, &ApprovalEditError{Message: "Only release notes can be edited before approving"}
 	}
@@ -543,9 +561,14 @@ func editReleaseApproval(approval *domain.ConversationApproval, notes string) (j
 	if notes != payload.Notes {
 		payload.Notes, payload.NotesEdited = notes, true
 	}
-	// The access gap shown on the card is kept with the rest of the payload.
+	return keepGitHubAccess(approval.Payload, payload)
+}
+
+// keepGitHubAccess encodes an edited payload with the access gap the original
+// carried, so the card still shows it.
+func keepGitHubAccess(original json.RawMessage, payload any) (json.RawMessage, error) {
 	fields := map[string]json.RawMessage{}
-	if err := json.Unmarshal(approval.Payload, &fields); err != nil {
+	if err := json.Unmarshal(original, &fields); err != nil {
 		return nil, err
 	}
 	data, err := json.Marshal(payload)
@@ -586,12 +609,21 @@ func (s *AssistantApprovals) applyRelease(ctx context.Context, ws uuid.UUID, app
 	if s.releases == nil || json.Unmarshal(approval.Payload, &payload) != nil {
 		return "This approval cannot be executed", nil
 	}
+	return s.publishRelease(ctx, ws, &payload)
+}
+
+// publishRelease is applyRelease for a payload already read; the gate fills in
+// the counts it found.
+func (s *AssistantApprovals) publishRelease(ctx context.Context, ws uuid.UUID, payload *domain.ReleasePayload) (string, error) {
+	if s.releases == nil {
+		return "This approval cannot be executed", nil
+	}
 	if existing, err := s.releases.GetRelease(ctx, ws, payload.Repository, payload.Tag); err == nil && existing.TargetCommitish == payload.TargetCommit {
 		return "", nil
 	} else if err != nil && !isNotFound(err) {
 		return "", err
 	}
-	if err := verifyRelease(ctx, s.releases, ws, &payload); err != nil {
+	if err := verifyRelease(ctx, s.releases, ws, payload); err != nil {
 		var failure *errAssistantTool
 		if errors.As(err, &failure) {
 			return upperFirst(failure.message), nil

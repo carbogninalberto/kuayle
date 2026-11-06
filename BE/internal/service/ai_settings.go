@@ -178,7 +178,7 @@ func (s *AISettingsService) ExpandIssueDescription(ctx context.Context, workspac
 	if err != nil {
 		return "", err
 	}
-	if strings.TrimSpace(settings.BaseURL) == "" || strings.TrimSpace(settings.Model) == "" || settings.APIKeyEncrypted == nil || *settings.APIKeyEncrypted == "" {
+	if !aiSettingsConfigured(settings) {
 		return "", ErrAISettingsNotConfigured
 	}
 
@@ -187,25 +187,50 @@ func (s *AISettingsService) ExpandIssueDescription(ctx context.Context, workspac
 		return "", ErrIssueNotFound
 	}
 
-	apiKey, err := crypto.Decrypt(*settings.APIKeyEncrypted, s.encryptionKey)
-	if err != nil {
-		return "", ErrAISettingsNotConfigured
-	}
-
 	currentDescription := ""
 	if issue.Description != nil {
 		currentDescription = *issue.Description
 	}
+	return s.expandDescription(ctx, workspaceID, settings, issue.Title, currentDescription, selectedText)
+}
 
-	selected := ""
+// ExpandDraftIssueDescription expands the description of an issue that is
+// still being created. It reads only the caller-supplied draft and shares the
+// prompt, provider and private-workspace guard of ExpandIssueDescription.
+func (s *AISettingsService) ExpandDraftIssueDescription(ctx context.Context, workspaceID uuid.UUID, title, description string, selectedText *string) (string, error) {
+	settings, err := s.Get(ctx, workspaceID)
+	if err != nil {
+		return "", err
+	}
+	if !aiSettingsConfigured(settings) {
+		return "", ErrAISettingsNotConfigured
+	}
+	return s.expandDescription(ctx, workspaceID, settings, title, description, selectedText)
+}
+
+func aiSettingsConfigured(settings *domain.AISettings) bool {
+	return strings.TrimSpace(settings.BaseURL) != "" && strings.TrimSpace(settings.Model) != "" &&
+		settings.APIKeyEncrypted != nil && *settings.APIKeyEncrypted != ""
+}
+
+// descriptionExpansionPrompt asks for an expanded description, or, when text
+// is selected, for a replacement of only that selection.
+func descriptionExpansionPrompt(instructions, title, description string, selectedText *string) string {
+	prompt := fmt.Sprintf("%s\n\nIssue title:\n%s\n\nCurrent description:\n%s", instructions, title, description)
 	if selectedText != nil {
-		selected = strings.TrimSpace(*selectedText)
+		if selected := strings.TrimSpace(*selectedText); selected != "" {
+			prompt += fmt.Sprintf("\n\nSelected text to rewrite. Return only the replacement HTML for this selected text, not the full issue description:\n%s", selected)
+		}
 	}
+	return prompt
+}
 
-	userPrompt := fmt.Sprintf("%s\n\nIssue title:\n%s\n\nCurrent description:\n%s", settings.DescriptionExpandPrompt, issue.Title, currentDescription)
-	if selected != "" {
-		userPrompt += fmt.Sprintf("\n\nSelected text to rewrite. Return only the replacement HTML for this selected text, not the full issue description:\n%s", selected)
+func (s *AISettingsService) expandDescription(ctx context.Context, workspaceID uuid.UUID, settings *domain.AISettings, title, description string, selectedText *string) (string, error) {
+	apiKey, err := crypto.Decrypt(*settings.APIKeyEncrypted, s.encryptionKey)
+	if err != nil {
+		return "", ErrAISettingsNotConfigured
 	}
+	userPrompt := descriptionExpansionPrompt(settings.DescriptionExpandPrompt, title, description, selectedText)
 	releaseSlot, err := acquirePublicationSlot(ctx)
 	if err != nil {
 		return "", err

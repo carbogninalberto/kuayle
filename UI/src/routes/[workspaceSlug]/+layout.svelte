@@ -33,6 +33,7 @@
 	import { teamStatusesState } from '$lib/features/issues/team-statuses.state.svelte';
 	import { sidebarState } from '$lib/features/layout/sidebar.state.svelte';
 	import { createShortcutEngine, type ShortcutDef } from '$lib/utils/keyboard';
+	import { isWorkspaceSettingsPath } from '$lib/utils/workspace-routes';
 	import { Menu, Search, SquarePen } from '@lucide/svelte';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/paraglide/messages.js';
@@ -82,7 +83,7 @@
 	const isMobile = new IsMobile();
 	const terminalDock = setTerminalDock();
 	const slug = $derived(page.params.workspaceSlug ?? '');
-	const isSettings = $derived(page.url.pathname.includes('/settings'));
+	const isSettings = $derived(isWorkspaceSettingsPath(page.url.pathname));
 
 	$effect(() => {
 		terminalDock.setWorkspace(slug);
@@ -223,6 +224,8 @@
 		// Actions
 		{
 			key: 'c',
+			// Settings pages have no issue context; the key must not open issue creation there.
+			when: () => !isWorkspaceSettingsPath(page.url.pathname),
 			handler: () => {
 				if (teams.length === 0) {
 					showCreateTeam = true;
@@ -321,6 +324,8 @@
 	}
 
 	function openCreateIssue() {
+		// Settings pages offer no issue creation, whichever entry point asks for it.
+		if (isWorkspaceSettingsPath(page.url.pathname)) return;
 		if (teams.length === 0) {
 			showCreateTeam = true;
 		} else {
@@ -614,7 +619,7 @@
 	</div>
 
 	{#if showCommandPalette}
-		<CommandPalette {slug} {teams} onclose={() => (showCommandPalette = false)} oncreateissue={openCreateIssue} />
+		<CommandPalette {slug} {teams} onclose={() => (showCommandPalette = false)} oncreateissue={isSettings ? undefined : openCreateIssue} />
 	{/if}
 
 	<CreateIssueDialog
