@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { agentName } from './history-agent';
-	import IssueAssistant from '$lib/features/assistant/IssueAssistant.svelte';
+	import OpenIssueChatButton from '$lib/features/assistant/OpenIssueChatButton.svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
@@ -753,6 +753,7 @@
 		</div>
 		<div class="no-scrollbar flex shrink-0 items-center gap-0.5 overflow-x-auto">
 			<!-- Actions -->
+			<OpenIssueChatButton {slug} issueId={issue.id} class="mr-1" />
 			<Button variant="plain" onclick={toggleSubscription}
 				disabled={subscriptionBusy}
 				aria-pressed={isSubscribed}
@@ -1004,8 +1005,6 @@
 				<div class="mt-2">
 					<IssueGitHubActivity {slug} identifier={issue.identifier} />
 				</div>
-
-			<div class="mt-6"><IssueAssistant {slug} issueId={issue.id} /></div>
 
 			<div class="mt-5"><IssueVersionHistory {slug} identifier={issue.identifier} {members} /></div>
 
