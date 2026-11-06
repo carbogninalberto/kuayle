@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ChevronRight } from '@lucide/svelte';
+	import { ChevronRight, Bot } from '@lucide/svelte';
 	import * as Card from '$lib/components/ui/card';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import AgentLogo from '$lib/features/agents/AgentLogo.svelte';
@@ -17,7 +17,7 @@
 
 <Card.Root id="tasks" class="scroll-mt-4">
 	<Card.Header>
-		<Card.Title class="text-sm">{m['machines.tasks_title']()}</Card.Title>
+		<Card.Title class="flex items-center gap-2 text-sm"><Bot class="size-4 text-muted-foreground" aria-hidden="true" />{m['machines.tasks_title']()}</Card.Title>
 		<Card.Description>{m['machines.tasks_desc']()}</Card.Description>
 	</Card.Header>
 	<Card.Content>

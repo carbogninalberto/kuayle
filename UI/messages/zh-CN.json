@@ -3093,10 +3093,8 @@
 	"machines.usage_empty": "此时间段内尚无样本。",
 	"machines.usage_loading": "正在加载使用情况…",
 	"machines.chart_cpu": "CPU",
-	"machines.chart_cpu_desc": "整台机器正在使用的核心数",
+	"machines.chart_limit": "上限 {limit} {unit}",
 	"machines.chart_memory": "内存",
-	"machines.chart_memory_desc": "整台机器正在使用的内存",
-	"machines.usage_of_limit": "{used} / {limit} {unit}",
 	"machines.usage_amount": "{used} {unit}",
 	"machines.gb_unit": "GB"
 }

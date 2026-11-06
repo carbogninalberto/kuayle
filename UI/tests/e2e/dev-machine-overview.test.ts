@@ -116,9 +116,11 @@ test('shows the machine summary and charts its resource history for the chosen w
 
 	const usage = page.getByTestId('machine-usage');
 	// The newest sample is the current usage, against the machine's size.
-	await expect(usage.getByTestId('machine-usage-cpu')).toContainText('11.8 / 16 vCPU');
-	await expect(usage.getByTestId('machine-usage-memory')).toContainText('8.9 / 16 GB');
-	await expect(usage.getByTestId('machine-usage-disk')).toContainText('Monitored limit 80 GB');
+	await expect(usage.getByTestId('machine-usage-cpu')).toContainText('11.8 vCPU');
+	await expect(usage.getByTestId('machine-usage-cpu-limit')).toHaveText('Limit 16 vCPU');
+	await expect(usage.getByTestId('machine-usage-memory')).toContainText('8.9 GB');
+	await expect(usage.getByTestId('machine-usage-memory-limit')).toHaveText('Limit 16 GB');
+	await expect(usage.getByTestId('machine-usage-disk-limit')).toHaveText('Monitored limit 80 GB');
 	for (const key of ['cpu', 'memory', 'disk']) await expect(usage.getByTestId(`machine-usage-${key}`).locator('svg').first()).toBeVisible();
 	await expect.poll(() => windows).toEqual(['1h']);
 

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { tick } from 'svelte';
-	import { ArrowLeft, CircleAlert, Code2, ExternalLink, Gauge, GitBranch, Pause, Play, Save, Server, ServerOff, Square, SquareTerminal, Trash2, Loader } from '@lucide/svelte';
+	import { Activity, AppWindow, ArrowLeft, CalendarPlus, CircleAlert, Clock, Code2, Cpu, ExternalLink, Gauge, GitBranch, LayoutDashboard, Pause, Play, Save, ScrollText, Server, ServerOff, Square, SquareTerminal, Trash2, Loader } from '@lucide/svelte';
 	import * as Tabs from '$lib/components/ui/tabs/index.js';
 	import { goto, replaceState } from '$app/navigation';
 	import * as Alert from '$lib/components/ui/alert';
@@ -165,7 +165,8 @@
 			}
 		};
 		void refreshUsage();
-		const usageTimer = setInterval(() => void refreshUsage(), 30_000);
+		// Samples arrive every 30 seconds; a 10 second refresh shows each soon.
+		const usageTimer = setInterval(() => void refreshUsage(), 10_000);
 		return () => {
 			current = false;
 			clearInterval(usageTimer);
@@ -539,15 +540,15 @@
 		</header>
 
 		<div class="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
-			<div class="mx-auto max-w-6xl space-y-5">
+			<div class="w-full space-y-5">
 				<section aria-label={m['machines.summary']()} class="rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-4">
 					<dl class="grid grid-cols-2 gap-x-6 gap-y-3 lg:grid-cols-4" data-testid="machine-summary">
 						<div class="min-w-0">
-							<dt class="text-[10px] uppercase tracking-wider text-[var(--color-text-tertiary)]">{m['machines.size']()}</dt>
+							<dt class="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-[var(--color-text-tertiary)]"><Cpu size={12} aria-hidden="true" />{m['machines.size']()}</dt>
 							<dd class="mt-1 break-words text-sm font-medium">{sizeLabel}</dd>
 						</div>
 						<div class="min-w-0">
-							<dt class="text-[10px] uppercase tracking-wider text-[var(--color-text-tertiary)]">{m['machines.repository_affinity']()}</dt>
+							<dt class="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-[var(--color-text-tertiary)]"><GitBranch size={12} aria-hidden="true" />{m['machines.repository_affinity']()}</dt>
 							{#if machine.repo_owner && machine.repo_name}
 								<dd class="mt-1 truncate text-sm font-medium">{machine.repo_owner}/{machine.repo_name}</dd>
 								<dd class="mt-0.5 flex items-center gap-1 text-xs text-[var(--color-text-tertiary)]"><GitBranch size={12} />{checkouts.length} issue {checkouts.length === 1 ? 'branch' : 'branches'}</dd>
@@ -556,11 +557,11 @@
 							{/if}
 						</div>
 						<div class="min-w-0">
-							<dt class="text-[10px] uppercase tracking-wider text-[var(--color-text-tertiary)]">{m['machines.created']()}</dt>
+							<dt class="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-[var(--color-text-tertiary)]"><CalendarPlus size={12} aria-hidden="true" />{m['machines.created']()}</dt>
 							<dd class="mt-1 break-words text-sm font-medium">{dateTime(machine.created_at)}</dd>
 						</div>
 						<div class="min-w-0">
-							<dt class="text-[10px] uppercase tracking-wider text-[var(--color-text-tertiary)]">{m['machines.last_activity']()}</dt>
+							<dt class="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-[var(--color-text-tertiary)]"><Clock size={12} aria-hidden="true" />{m['machines.last_activity']()}</dt>
 							<dd class="mt-1 break-words text-sm font-medium">{machine.last_activity_at ? dateTime(machine.last_activity_at) : m['machines.no_recent_activity']()}</dd>
 						</div>
 					</dl>
@@ -589,10 +590,10 @@
 
 				<Tabs.Root bind:value={tab} class="gap-4">
 					<Tabs.List class="grid w-full grid-cols-2 group-data-horizontal/tabs:h-auto sm:inline-flex sm:w-fit sm:group-data-horizontal/tabs:h-8">
-						<Tabs.Trigger value="overview">{m['machines.tab_overview']()}</Tabs.Trigger>
-						<Tabs.Trigger value="work">{m['machines.tab_work']()}{#if checkouts.length + tasks.length > 0}<span class="text-muted-foreground tabular-nums">{checkouts.length + tasks.length}</span>{/if}</Tabs.Trigger>
-						<Tabs.Trigger value="apps">{m['machines.tab_apps']()}</Tabs.Trigger>
-						<Tabs.Trigger value="activity">{m['machines.activity']()}</Tabs.Trigger>
+						<Tabs.Trigger value="overview"><LayoutDashboard aria-hidden="true" />{m['machines.tab_overview']()}</Tabs.Trigger>
+						<Tabs.Trigger value="work"><GitBranch aria-hidden="true" />{m['machines.tab_work']()}{#if checkouts.length + tasks.length > 0}<span class="text-muted-foreground tabular-nums">{checkouts.length + tasks.length}</span>{/if}</Tabs.Trigger>
+						<Tabs.Trigger value="apps"><AppWindow aria-hidden="true" />{m['machines.tab_apps']()}</Tabs.Trigger>
+						<Tabs.Trigger value="activity"><Activity aria-hidden="true" />{m['machines.activity']()}</Tabs.Trigger>
 					</Tabs.List>
 
 					<Tabs.Content value="overview" class="space-y-5">
@@ -606,7 +607,7 @@
 						/>
 						<Card.Root>
 							<Card.Header>
-								<Card.Title class="text-sm">{m['machines.developer_environment']()}</Card.Title>
+								<Card.Title class="flex items-center gap-2 text-sm"><SquareTerminal class="size-4 text-muted-foreground" aria-hidden="true" />{m['machines.developer_environment']()}</Card.Title>
 								<Card.Description>{machine.profile === 'headless' ? m['machines.developer_environment_headless_desc']() : m['machines.developer_environment_desc']()}</Card.Description>
 							</Card.Header>
 							<Card.Content>
@@ -628,7 +629,7 @@
 
 					<Tabs.Content value="work" class="space-y-5">
 						<section class="rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-4">
-							<div class="mb-3"><h2 class="text-sm font-semibold">{m['machines.issue_worktrees']()}</h2><p class="text-xs text-[var(--color-text-tertiary)]">{m['machines.issue_worktrees_desc']()}</p></div>
+							<div class="mb-3"><h2 class="flex items-center gap-2 text-sm font-semibold"><GitBranch class="size-4 text-muted-foreground" aria-hidden="true" />{m['machines.issue_worktrees']()}</h2><p class="text-xs text-[var(--color-text-tertiary)]">{m['machines.issue_worktrees_desc']()}</p></div>
 							<RecentList items={checkouts} title={m['machines.issue_worktrees']()} description={m['machines.issue_worktrees_desc']()}>
 								{#snippet empty()}<p class="text-xs text-[var(--color-text-tertiary)]">{m['machines.no_issue_branches']()}</p>{/snippet}
 								{#snippet content(shown)}
@@ -653,7 +654,7 @@
 		<AppPortsCard {slug} {machineId} running={machine.status === 'running'} canManage={!machine.created_by_user_id || machine.created_by_user_id === authState.user?.id} />
 
 						<section class="rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-4">
-							<div class="mb-3"><h2 class="text-sm font-semibold">{m['machines.services']()}</h2><p class="text-xs text-[var(--color-text-tertiary)]">{m['machines.services_desc']()}</p></div>
+							<div class="mb-3"><h2 class="flex items-center gap-2 text-sm font-semibold"><Server class="size-4 text-muted-foreground" aria-hidden="true" />{m['machines.services']()}</h2><p class="text-xs text-[var(--color-text-tertiary)]">{m['machines.services_desc']()}</p></div>
 							<RecentList items={services} limit={6} title={m['machines.services']()} description={m['machines.services_desc']()}>
 								{#snippet content(shown, all)}
 									<div class="grid gap-2 {all ? '' : 'md:grid-cols-2'}">
@@ -679,7 +680,7 @@
 					<Tabs.Content value="activity">
 						<section id="activity" class="grid gap-5 lg:grid-cols-2 scroll-mt-4">
 							<div class="rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-4">
-								<h2 class="text-sm font-semibold">{m['machines.activity']()} ({events.length})</h2>
+								<h2 class="flex items-center gap-2 text-sm font-semibold"><Activity class="size-4 text-muted-foreground" aria-hidden="true" />{m['machines.activity']()} ({events.length})</h2>
 								{#if eventsLimited}<p class="mt-1 text-[10px] text-[var(--color-text-tertiary)]" data-testid="machine-events-retention">{m['machines.events_retention']({ count: DEV_MACHINE_EVENT_RETENTION })}</p>{/if}
 								<div class="mt-3">
 									<RecentList items={newestEvents} limit={8} title={`${m['machines.activity']()} (${events.length})`}>
@@ -698,7 +699,7 @@
 								</div>
 							</div>
 							<div class="rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-4">
-								<h2 class="text-sm font-semibold">{m['machines.logs']()} ({logs.length})</h2>
+								<h2 class="flex items-center gap-2 text-sm font-semibold"><ScrollText class="size-4 text-muted-foreground" aria-hidden="true" />{m['machines.logs']()} ({logs.length})</h2>
 								{#if logsLimited}<p class="mt-1 text-[10px] text-[var(--color-text-tertiary)]" data-testid="machine-logs-retention">{m['machines.logs_retention']({ count: DEV_MACHINE_LOG_RETENTION })}</p>{/if}
 								<div class="mt-3">
 									<RecentList items={logs} limit={20} take="last" title={`${m['machines.logs']()} (${logs.length})`}>

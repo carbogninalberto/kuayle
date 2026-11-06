@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { AreaChart } from 'layerchart';
+	import { Activity, Cpu, HardDrive, MemoryStick } from '@lucide/svelte';
 	import * as Chart from '$lib/components/ui/chart/index.js';
 	import * as Card from '$lib/components/ui/card/index.js';
 	import * as ToggleGroup from '$lib/components/ui/toggle-group/index.js';
@@ -29,6 +30,15 @@
 
 	const GIB = 1024 ** 3;
 	const windows: ResourceUsageWindow[] = ['1h', '6h', '24h'];
+	const windowMs: Record<ResourceUsageWindow, number> = { '1h': 3_600_000, '6h': 21_600_000, '24h': 86_400_000 };
+	// The x axis spans the whole window up to now (renewed with each refresh),
+	// so a new machine's first samples start at the right edge instead of
+	// stretching across the chart.
+	const xDomain = $derived.by(() => {
+		void samples;
+		const end = new Date();
+		return [new Date(end.getTime() - windowMs[window]), end];
+	});
 	const latest = $derived(samples.at(-1));
 	const cpuLimit = $derived(machine.cpu_millis / 1000);
 	const memoryLimit = $derived(machine.memory_mb / 1024);
@@ -44,34 +54,38 @@
 	const charts = $derived([
 		{
 			key: 'cpu',
+			icon: Cpu,
+			unit: m['machines.cpu_unit'](),
 			title: m['machines.chart_cpu'](),
 			color: 'var(--chart-2)',
 			data: points((sample) => sample.cpu_percent / 100),
 			limit: cpuLimit,
-			current: m['machines.usage_of_limit']({
+			current: m['machines.usage_amount']({
 				used: number((latest?.cpu_percent ?? 0) / 100),
-				limit: number(cpuLimit, 0),
 				unit: m['machines.cpu_unit']()
 			}),
-			detail: m['machines.chart_cpu_desc'](),
+			limitLabel: m['machines.chart_limit']({ limit: number(cpuLimit, 0), unit: m['machines.cpu_unit']() }),
 			warning: false
 		},
 		{
 			key: 'memory',
+			icon: MemoryStick,
+			unit: m['machines.gb_unit'](),
 			title: m['machines.chart_memory'](),
 			color: 'var(--chart-3)',
 			data: points((sample) => sample.memory_bytes / GIB),
 			limit: memoryLimit,
-			current: m['machines.usage_of_limit']({
+			current: m['machines.usage_amount']({
 				used: number((latest?.memory_bytes ?? 0) / GIB),
-				limit: number(memoryLimit, 0),
 				unit: m['machines.gb_unit']()
 			}),
-			detail: m['machines.chart_memory_desc'](),
+			limitLabel: m['machines.chart_limit']({ limit: number(memoryLimit, 0), unit: m['machines.gb_unit']() }),
 			warning: false
 		},
 		{
 			key: 'disk',
+			icon: HardDrive,
+			unit: m['machines.gb_unit'](),
 			title: m['machines.workspace_disk'](),
 			color: 'var(--chart-4)',
 			data: points((sample) => sample.disk_bytes / GIB),
@@ -80,7 +94,7 @@
 				used: number((latest?.disk_bytes ?? 0) / GIB),
 				unit: m['machines.gb_unit']()
 			}),
-			detail: diskLimitLabel,
+			limitLabel: diskLimitLabel,
 			warning: diskNearLimit
 		}
 	]);
@@ -89,7 +103,9 @@
 <Card.Root data-testid="machine-usage">
 	<Card.Header class="flex flex-row flex-wrap items-start justify-between gap-3">
 		<div class="space-y-1">
-			<Card.Title class="text-sm">{m['machines.usage_title']()}</Card.Title>
+			<Card.Title class="flex items-center gap-2 text-sm"
+				><Activity class="size-4 text-muted-foreground" aria-hidden="true" />{m['machines.usage_title']()}</Card.Title
+			>
 			<Card.Description>{m['machines.usage_desc']()}</Card.Description>
 		</div>
 		<ToggleGroup.Root
@@ -110,17 +126,26 @@
 	<Card.Content class="grid gap-4 lg:grid-cols-3">
 		{#each charts as chart (chart.key)}
 			<section class="min-w-0 rounded-lg border p-3" aria-label={chart.title} data-testid="machine-usage-{chart.key}">
-				<p class="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{chart.title}</p>
+				<div class="flex items-start justify-between gap-2">
+					<p class="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+						<chart.icon class="size-3.5" aria-hidden="true" />{chart.title}
+					</p>
+					<p
+						class="text-right text-xs text-muted-foreground tabular-nums"
+						data-testid="machine-usage-{chart.key}-limit"
+					>
+						{chart.limitLabel}
+					</p>
+				</div>
 				<p class="mt-1 text-sm font-semibold tabular-nums {chart.warning ? 'text-[var(--color-warning)]' : ''}">
 					{chart.current}
 				</p>
-				<p class="text-xs text-muted-foreground">{chart.detail}</p>
 				{#if chart.warning}<p class="mt-0.5 text-xs font-medium text-[var(--color-warning)]">
 						{m['machines.disk_near_limit']()}
 					</p>{/if}
 				{#if chart.data.length < 2}
 					<p
-						class="flex h-32 items-center justify-center text-center text-xs text-muted-foreground"
+						class="flex h-52 items-center justify-center text-center text-xs text-muted-foreground"
 						data-testid="machine-usage-empty"
 					>
 						{loaded ? m['machines.usage_empty']() : m['machines.usage_loading']()}
@@ -128,21 +153,26 @@
 				{:else}
 					<Chart.Container
 						config={{ value: { label: chart.title, color: chart.color } }}
-						class="mt-2 aspect-auto h-32 w-full"
+						class="mt-3 aspect-auto h-52 w-full"
 					>
 						<AreaChart
 							data={chart.data}
 							x="date"
 							y="value"
+							{xDomain}
 							yDomain={[0, chart.limit]}
+							padding={{ top: 12, left: 68, bottom: 40, right: 32 }}
 							series={[{ key: 'value', label: chart.title, color: chart.color }]}
 							props={{
 								area: { 'fill-opacity': 0.25, line: { class: 'stroke-[1.5]' } },
-								xAxis: { format: (value: Date) => time(value), ticks: 3 },
+								// tickLength sets the label's distance from the axis; the marks are hidden.
+								xAxis: { format: (value: Date) => time(value), tickSpacing: 110, tickLength: 16, tickMarks: false },
 								// Zero, half and the machine's limit, so the top tick names the limit.
 								yAxis: {
-									format: (value: number) => number(value, Number.isInteger(value) ? 0 : 1),
-									ticks: [0, chart.limit / 2, chart.limit]
+									format: (value: number) => `${number(value, Number.isInteger(value) ? 0 : 1)} ${chart.unit}`,
+									ticks: [0, chart.limit / 2, chart.limit],
+									tickLength: 12,
+									tickMarks: false
 								}
 							}}
 						>

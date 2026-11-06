@@ -3093,10 +3093,8 @@
 	"machines.usage_empty": "此時段內尚無樣本。",
 	"machines.usage_loading": "正在載入使用情況…",
 	"machines.chart_cpu": "CPU",
-	"machines.chart_cpu_desc": "整台機器正在使用的核心數",
+	"machines.chart_limit": "上限 {limit} {unit}",
 	"machines.chart_memory": "記憶體",
-	"machines.chart_memory_desc": "整台機器正在使用的記憶體",
-	"machines.usage_of_limit": "{used} / {limit} {unit}",
 	"machines.usage_amount": "{used} {unit}",
 	"machines.gb_unit": "GB"
 }

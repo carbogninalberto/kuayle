@@ -3093,10 +3093,8 @@
 	"machines.usage_empty": "Ancora nessun campione in questo periodo.",
 	"machines.usage_loading": "Caricamento utilizzo…",
 	"machines.chart_cpu": "CPU",
-	"machines.chart_cpu_desc": "Core in uso nell'intera macchina",
+	"machines.chart_limit": "Limite {limit} {unit}",
 	"machines.chart_memory": "Memoria",
-	"machines.chart_memory_desc": "Memoria in uso nell'intera macchina",
-	"machines.usage_of_limit": "{used} / {limit} {unit}",
 	"machines.usage_amount": "{used} {unit}",
 	"machines.gb_unit": "GB"
 }
