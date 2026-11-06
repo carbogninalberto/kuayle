@@ -154,6 +154,19 @@ test('opens the worktrees tab from #tasks and lists every worktree in a dialog',
 	await expect(panel.getByRole('button', { name: 'View all (9)' })).toBeFocused();
 });
 
+test('phones keep lifecycle actions in the header and the rest in a menu', async ({ page }) => {
+	await page.setViewportSize({ width: 390, height: 844 });
+	await mockMachine(page, { samples: samples(4) });
+	await page.goto(`/test/machines/${machineId}`);
+	await expect(page.getByRole('button', { name: 'Pause' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Resize' })).toBeHidden();
+	await page.getByRole('button', { name: 'More actions' }).click();
+	const menu = page.getByRole('menu');
+	await expect(menu.getByRole('menuitem', { name: 'Resize' })).toBeVisible();
+	await menu.getByRole('menuitem', { name: 'Resize' }).click();
+	await expect(page.getByRole('dialog', { name: 'Resize machine' })).toBeVisible();
+});
+
 for (const theme of ['dark', 'light'] as const) {
 	for (const viewport of [
 		{ name: 'desktop', width: 1440, height: 1000 },
@@ -165,7 +178,13 @@ for (const theme of ['dark', 'light'] as const) {
 			await page.goto(`/test/machines/${machineId}`);
 			await expect(page.getByTestId('machine-usage-cpu').locator('svg').first()).toBeVisible();
 			const directory = process.env.KUAYLE_SCREENSHOT_DIR;
-			if (directory) await page.screenshot({ path: `${directory}/machine-overview-${theme}-${viewport.name}.png`, fullPage: true });
+			if (!directory) return;
+			await page.screenshot({ path: `${directory}/machine-overview-${theme}-${viewport.name}.png`, fullPage: true });
+			for (const tab of ['Worktrees & tasks', 'Apps & services', 'Activity']) {
+				await page.getByRole('tab', { name: tab }).click();
+				const slug = tab.split(' ')[0].toLowerCase();
+				await page.screenshot({ path: `${directory}/machine-${slug}-${theme}-${viewport.name}.png`, fullPage: true });
+			}
 		});
 	}
 }

@@ -1,13 +1,14 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { tick } from 'svelte';
-	import { Activity, AppWindow, ArrowLeft, CalendarPlus, CircleAlert, Clock, Code2, Cpu, ExternalLink, Gauge, GitBranch, LayoutDashboard, Pause, Play, Save, ScrollText, Server, ServerOff, Square, SquareTerminal, Trash2, Loader } from '@lucide/svelte';
+	import { Activity, AppWindow, ArrowLeft, CalendarPlus, CircleAlert, Clock, Code2, Ellipsis, Cpu, ExternalLink, Gauge, GitBranch, LayoutDashboard, Pause, Play, Save, ScrollText, Server, ServerOff, Square, SquareTerminal, Trash2, Loader } from '@lucide/svelte';
 	import * as Tabs from '$lib/components/ui/tabs/index.js';
 	import { goto, replaceState } from '$app/navigation';
 	import * as Alert from '$lib/components/ui/alert';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import * as Card from '$lib/components/ui/card';
 	import * as Dialog from '$lib/components/ui/dialog';
+	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
 	import {
 		getDevMachine, launchMachineServiceWithResume, listMachineServices, listMachineEvents, listMachineLogs,
 		listMachineTasks, listResourceUsage, pauseDevMachine, startDevMachine, stopDevMachine, teardownDevMachine,
@@ -94,6 +95,7 @@
 	// Resizing, like the other machine changes, is for the machine's creator.
 	const canManageMachine = $derived(!!machine && (!machine.created_by_user_id || machine.created_by_user_id === authState.user?.id));
 	const resizable = $derived(!!machine && canResizeMachine(machine));
+	const canSnapshot = $derived(!!machine && machine.environment_builder && (machine.status === 'paused' || machine.status === 'stopped'));
 	const pendingSize = $derived(machine ? pendingResize(machine) : null);
 	const pendingSizeLabel = $derived(
 		pendingSize
@@ -115,7 +117,8 @@
 	);
 	// Events arrive oldest first; the activity list shows the newest first.
 	const newestEvents = $derived(events.slice().reverse());
-	const dateTime = (value: string) => new Date(value).toLocaleString(getLocale());
+	const dateTime = (value: string) =>
+		new Date(value).toLocaleString(getLocale(), { dateStyle: 'medium', timeStyle: 'short' });
 	const ideService = $derived(services.find((item) => item.service_type === 'ide'));
 	const terminalService = $derived(services.find((item) => item.service_type === 'terminal'));
 
@@ -454,6 +457,11 @@
 		}
 	}
 
+	function openSnapshot() {
+		snapshotName = `${machine?.name ?? 'Development'} environment`;
+		snapshotOpen = true;
+	}
+
 	async function saveSnapshot() {
 		if (!snapshotName.trim()) return;
 		const targetSlug = slug;
@@ -519,9 +527,6 @@
 				{/if}
 			</div>
 			<div class="flex items-center gap-1">
-				{#if machine.environment_builder && (machine.status === 'paused' || machine.status === 'stopped')}
-					<Button variant="ghost" size="icon-sm" disabled={actionBusy} onclick={() => { snapshotName = `${machine?.name ?? 'Development'} environment`; snapshotOpen = true; }} title={m['machines.save_environment']()}><Save size={15} /></Button>
-				{/if}
 				{#if machine.status === 'running' && !isPending}
 					<Button variant="ghost" size="icon-sm" disabled={actionBusy} onclick={() => lifecycle('pause')} title={m['machines.pause']()}><Pause size={15} /></Button>
 					<Button variant="ghost" size="icon-sm" disabled={actionBusy} onclick={() => lifecycle('stop')} title={m['machines.stop']()}><Square size={15} /></Button>
@@ -529,13 +534,32 @@
 				{#if (machine.status === 'paused' || machine.status === 'stopped' || machine.status === 'failed') && !isPending}
 					<Button variant="ghost" size="icon-sm" disabled={actionBusy} onclick={() => lifecycle('start')} title={m['machines.start']()}><Play size={15} /></Button>
 				{/if}
-				{#if canManageMachine}
-					<Button variant="ghost" size="icon-sm" disabled={actionBusy || !resizable} onclick={() => (resizeOpen = true)} title={resizable ? m['machines.resize']() : m['machines.resize_unavailable']()} aria-label={m['machines.resize']()}><Gauge size={15} /></Button>
-				{/if}
-				<Button variant="ghost" size="icon-sm" disabled={actionBusy || machine.status === 'destroyed'} onclick={() => (teardownConfirm = true)} title={m['machines.teardown_runtime']()}><ServerOff size={15} /></Button>
-				{#if canAdminDevMachines}
-					<Button variant="destructive" size="icon-sm" disabled={actionBusy} onclick={() => (deleteConfirm = true)} title={m['machines.delete_permanently']()}><Trash2 size={15} /></Button>
-				{/if}
+				<!-- Phones keep lifecycle actions visible and the rest in a menu, so the name stays readable. -->
+				<div class="hidden items-center gap-1 sm:flex">
+					{#if canSnapshot}
+						<Button variant="ghost" size="icon-sm" disabled={actionBusy} onclick={openSnapshot} title={m['machines.save_environment']()}><Save size={15} /></Button>
+					{/if}
+					{#if canManageMachine}
+						<Button variant="ghost" size="icon-sm" disabled={actionBusy || !resizable} onclick={() => (resizeOpen = true)} title={resizable ? m['machines.resize']() : m['machines.resize_unavailable']()} aria-label={m['machines.resize']()}><Gauge size={15} /></Button>
+					{/if}
+					<Button variant="ghost" size="icon-sm" disabled={actionBusy || machine.status === 'destroyed'} onclick={() => (teardownConfirm = true)} title={m['machines.teardown_runtime']()}><ServerOff size={15} /></Button>
+					{#if canAdminDevMachines}
+						<Button variant="destructive" size="icon-sm" disabled={actionBusy} onclick={() => (deleteConfirm = true)} title={m['machines.delete_permanently']()}><Trash2 size={15} /></Button>
+					{/if}
+				</div>
+				<DropdownMenu.Root>
+					<DropdownMenu.Trigger>
+						{#snippet child({ props })}
+							<Button {...props} variant="ghost" size="icon-sm" class="sm:hidden" disabled={actionBusy} aria-label={m['tasks.more_actions']()}><Ellipsis size={15} /></Button>
+						{/snippet}
+					</DropdownMenu.Trigger>
+					<DropdownMenu.Content align="end">
+						{#if canSnapshot}<DropdownMenu.Item onclick={openSnapshot}><Save />{m['machines.save_environment']()}</DropdownMenu.Item>{/if}
+						{#if canManageMachine}<DropdownMenu.Item disabled={!resizable} onclick={() => (resizeOpen = true)}><Gauge />{m['machines.resize']()}</DropdownMenu.Item>{/if}
+						<DropdownMenu.Item disabled={machine.status === 'destroyed'} onclick={() => (teardownConfirm = true)}><ServerOff />{m['machines.teardown_runtime']()}</DropdownMenu.Item>
+						{#if canAdminDevMachines}<DropdownMenu.Item variant="destructive" onclick={() => (deleteConfirm = true)}><Trash2 />{m['machines.delete_permanently']()}</DropdownMenu.Item>{/if}
+					</DropdownMenu.Content>
+				</DropdownMenu.Root>
 			</div>
 		</header>
 

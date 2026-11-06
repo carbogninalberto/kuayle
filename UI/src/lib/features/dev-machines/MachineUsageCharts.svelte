@@ -106,7 +106,7 @@
 			<Card.Title class="flex items-center gap-2 text-sm"
 				><Activity class="size-4 text-muted-foreground" aria-hidden="true" />{m['machines.usage_title']()}</Card.Title
 			>
-			<Card.Description>{m['machines.usage_desc']()}</Card.Description>
+			<Card.Description class="hidden sm:block">{m['machines.usage_desc']()}</Card.Description>
 		</div>
 		<ToggleGroup.Root
 			type="single"
@@ -145,7 +145,7 @@
 					</p>{/if}
 				{#if chart.data.length < 2}
 					<p
-						class="flex h-52 items-center justify-center text-center text-xs text-muted-foreground"
+						class="flex h-40 items-center justify-center sm:h-52 text-center text-xs text-muted-foreground"
 						data-testid="machine-usage-empty"
 					>
 						{loaded ? m['machines.usage_empty']() : m['machines.usage_loading']()}
@@ -153,7 +153,7 @@
 				{:else}
 					<Chart.Container
 						config={{ value: { label: chart.title, color: chart.color } }}
-						class="mt-3 aspect-auto h-52 w-full"
+						class="mt-3 aspect-auto h-40 w-full sm:h-52"
 					>
 						<AreaChart
 							data={chart.data}
