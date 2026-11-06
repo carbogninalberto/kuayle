@@ -12,6 +12,7 @@ import (
 	"github.com/kelseyhightower/envconfig"
 	"github.com/kuayle/kuayle-backend/pkg/mail"
 	"github.com/kuayle/kuayle-backend/pkg/storage"
+	"github.com/kuayle/kuayle-backend/pkg/validate"
 	"golang.org/x/net/publicsuffix"
 )
 
@@ -59,6 +60,13 @@ type Config struct {
 	// for every workspace unless both are set.
 	VoiceURL           string `envconfig:"VOICE_URL"`
 	VoiceInternalToken string `envconfig:"VOICE_INTERNAL_TOKEN"`
+
+	// WebSearchSearXNGURL is the base URL of a self-hosted SearXNG instance
+	// (optional, e.g. http://searxng:8080 with the Compose "searxng" profile).
+	// An operator setting: it is the only private address web_search may
+	// dial, and workspaces can choose SearXNG only when it is set.
+	WebSearchSearXNGURL string `envconfig:"WEB_SEARCH_SEARXNG_URL"`
+	searxngURL          *url.URL
 
 	SystemUpdaterURL   string `envconfig:"SYSTEM_UPDATER_URL"`
 	SystemUpdaterToken string `envconfig:"SYSTEM_UPDATER_TOKEN"`
@@ -283,6 +291,15 @@ func validHostnameSuffix(value string) bool {
 	return true
 }
 
+// SearXNGURL is the validated WEB_SEARCH_SEARXNG_URL, or nil when unset.
+func (c *Config) SearXNGURL() *url.URL {
+	if c.searxngURL == nil {
+		return nil
+	}
+	copy := *c.searxngURL
+	return &copy
+}
+
 func Load() (*Config, error) {
 	var cfg Config
 	if err := envconfig.Process("", &cfg); err != nil {
@@ -296,6 +313,13 @@ func Load() (*Config, error) {
 	}
 	if cfg.VoiceURL != "" && cfg.VoiceInternalToken != "" && len(cfg.VoiceInternalToken) < 32 {
 		return nil, fmt.Errorf("VOICE_INTERNAL_TOKEN must be at least 32 characters")
+	}
+	if strings.TrimSpace(cfg.WebSearchSearXNGURL) != "" {
+		parsed, err := validate.OperatorBaseURL(cfg.WebSearchSearXNGURL)
+		if err != nil {
+			return nil, fmt.Errorf("WEB_SEARCH_SEARXNG_URL %w", err)
+		}
+		cfg.searxngURL = parsed
 	}
 	sysadmins, err := parseSysadmins(cfg.Sysadmins)
 	if err != nil {

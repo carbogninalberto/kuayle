@@ -9,6 +9,10 @@ fi
 if [ "$command_name" = docker ]; then
 	printf 'docker %s\n' "$*" >>"${COMMAND_LOG:?}"
 	case " $* " in
+	*" --profile searxng ps --status running --services "*)
+		[ "${SEARXNG_RUNNING:-false}" = true ] && printf '%s\n' searxng
+		exit 0
+		;;
 	*" ps --status running --services "*)
 		printf '%s\n' machine-gateway machine-manager
 		exit 0
@@ -29,6 +33,9 @@ if [ "$command_name" = docker ]; then
 		;;
 	application-up)
 		case " $* " in *" compose up -d caddy backend frontend "*) exit 44 ;; esac
+		;;
+	searxng-up)
+		case " $* " in *" --profile searxng up -d searxng "*) exit 47 ;; esac
 		;;
 	control-plane-up)
 		case " $* " in *" --profile dev-machines up -d machine-gateway machine-manager "*) exit 45 ;; esac
@@ -131,6 +138,51 @@ for service in $image_services; do
 	*) fail "update.sh does not rebuild runtime image $service" ;;
 	esac
 done
+
+# An active SearXNG keeps its secret, gets its pinned image refreshed and is
+# restarted after the application; a SearXNG failure does not fail the update.
+run_searxng_case() {
+	local name=$1 fail_point=$2 env_content=$3
+	local test_root repo_root fake_bin command_log output status
+	test_root=$(mktemp -d)
+	repo_root="$test_root/repo"
+	fake_bin="$test_root/bin"
+	command_log="$test_root/commands.log"
+	mkdir -p "$repo_root/selfhosting/runtime" "$fake_bin"
+	cp "$SCRIPT_DIR/update.sh" "$SCRIPT_DIR/searxng.sh" "$repo_root/selfhosting/"
+	printf '%b' "$env_content" >"$repo_root/selfhosting/.env"
+	chmod 600 "$repo_root/selfhosting/.env"
+	ln -s "$SCRIPT_DIR/update_test.sh" "$fake_bin/git"
+	ln -s "$SCRIPT_DIR/update_test.sh" "$fake_bin/docker"
+	: >"$command_log"
+	set +e
+	output=$(PATH="$fake_bin:$PATH" COMMAND_LOG="$command_log" FAIL_POINT="$fail_point" SEARXNG_RUNNING=true \
+		bash "$repo_root/selfhosting/update.sh" 2>&1)
+	status=$?
+	set -e
+	[ "$status" -eq 0 ] || fail "$name returned $status: $output"
+	grep -Fq 'docker compose --profile searxng pull searxng' "$command_log" || fail "$name did not refresh the SearXNG image"
+	local app_line searxng_line
+	app_line=$(grep -Fn 'docker compose up -d caddy backend frontend' "$command_log" | head -n1 | cut -d: -f1)
+	searxng_line=$(grep -Fn 'docker compose --profile searxng up -d searxng' "$command_log" | head -n1 | cut -d: -f1)
+	[ -n "$searxng_line" ] && [ "$app_line" -lt "$searxng_line" ] || fail "$name did not restart SearXNG after the application"
+	local secret
+	secret=$(sed -n 's/^SEARXNG_SECRET=//p' "$repo_root/selfhosting/.env")
+	[ "${#secret}" -ge 32 ] || fail "$name left SEARXNG_SECRET unset"
+	[ "$(grep -c '^SEARXNG_SECRET=' "$repo_root/selfhosting/.env")" -eq 1 ] || fail "$name duplicated SEARXNG_SECRET"
+	grep -Fq 'JWT_SECRET=keep-me' "$repo_root/selfhosting/.env" || fail "$name lost other settings"
+	case "$output" in *"$secret"*) fail "$name printed the secret" ;; esac
+	if [ "$fail_point" = searxng-up ]; then
+		case "$output" in *"WARNING: SearXNG did not restart"*) ;; *) fail "$name hid the SearXNG failure" ;; esac
+	fi
+	printf '%s\n' "$secret"
+	rm -rf "$test_root"
+}
+
+existing=0123456789abcdef0123456789abcdef0123456789abcdef
+[ "$(run_searxng_case searxng-keeps-secret '' "JWT_SECRET=keep-me\nSEARXNG_SECRET=$existing\n")" = "$existing" ] || fail "update.sh replaced an existing SEARXNG_SECRET"
+run_searxng_case searxng-generates-secret '' 'JWT_SECRET=keep-me\nSEARXNG_SECRET=\n' >/dev/null
+run_searxng_case searxng-restart-failure searxng-up 'JWT_SECRET=keep-me\n' >/dev/null
 
 # name fail-point status control-plane-restore control-restore-fails backend-restore backend-restore-fails backend-held
 run_case runtime-build-failure runtime-build 41 false

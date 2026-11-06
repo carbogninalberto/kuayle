@@ -34,10 +34,21 @@ type AssistantResearchService struct {
 	store   assistantResearchStore
 	members assistantMemberRepo
 	key     []byte
+	// providers are the search providers workspaces may choose.
+	providers []string
 }
 
 func NewAssistantResearchService(store assistantResearchStore, members assistantMemberRepo, encryptionKey []byte) *AssistantResearchService {
-	return &AssistantResearchService{store: store, members: members, key: encryptionKey}
+	return &AssistantResearchService{store: store, members: members, key: encryptionKey, providers: slices.Clone(WebSearchProviders)}
+}
+
+// SetSearchProviders sets the providers this instance offers, the same ones
+// given to AssistantTools.SetWebSearch (SearXNG only when configured).
+func (s *AssistantResearchService) SetSearchProviders(providers ...WebSearchProvider) {
+	s.providers = s.providers[:0]
+	for _, provider := range providers {
+		s.providers = append(s.providers, provider.Name())
+	}
 }
 
 // ResearchSettingsView is the client's view of the settings.
@@ -88,9 +99,9 @@ func (s *AssistantResearchService) access(ctx context.Context, ws uuid.UUID) (uu
 	return access.UserID, member.Role == domain.RoleOwner || member.Role == domain.RoleAdmin, nil
 }
 
-func researchView(settings *domain.AssistantResearchSettings, manage bool) *ResearchSettingsView {
+func (s *AssistantResearchService) researchView(settings *domain.AssistantResearchSettings, manage bool) *ResearchSettingsView {
 	view := &ResearchSettingsView{
-		SearchProvider: settings.SearchProvider, SearchProviders: slices.Clone(WebSearchProviders),
+		SearchProvider: settings.SearchProvider, SearchProviders: slices.Clone(s.providers),
 		HasSearchAPIKey: settings.SearchAPIKeyEncrypted != nil && *settings.SearchAPIKeyEncrypted != "",
 		SubagentModel:   settings.SubagentModel, SubagentMaxParallel: settings.SubagentMaxParallel, CanManage: manage,
 	}
@@ -110,7 +121,7 @@ func (s *AssistantResearchService) View(ctx context.Context, ws uuid.UUID) (*Res
 	if err != nil {
 		return nil, err
 	}
-	return researchView(settings, manage), nil
+	return s.researchView(settings, manage), nil
 }
 
 func invalidResearch(format string, args ...any) error {
@@ -131,8 +142,8 @@ func (s *AssistantResearchService) Update(ctx context.Context, ws uuid.UUID, upd
 	}
 	if update.SearchProvider != nil {
 		provider := strings.TrimSpace(*update.SearchProvider)
-		if !slices.Contains(WebSearchProviders, provider) {
-			return nil, invalidResearch("search_provider must be one of %s", strings.Join(WebSearchProviders, ", "))
+		if !slices.Contains(s.providers, provider) {
+			return nil, invalidResearch("search_provider must be one of %s", strings.Join(s.providers, ", "))
 		}
 		settings.SearchProvider = provider
 	}
@@ -179,7 +190,7 @@ func (s *AssistantResearchService) Update(ctx context.Context, ws uuid.UUID, upd
 		"workspace_id": ws.String(), "search_provider": settings.SearchProvider, "search_key_changed": keyChanged,
 		"search_key_set": settings.SearchAPIKeyEncrypted != nil, "subagent_model": settings.SubagentModel, "subagent_max_parallel": settings.SubagentMaxParallel,
 	})
-	return researchView(settings, true), nil
+	return s.researchView(settings, true), nil
 }
 
 // ResearchConfig is the settings with the key decrypted, for the tools.

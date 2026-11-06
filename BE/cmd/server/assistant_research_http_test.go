@@ -19,6 +19,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/crypto"
 	jwtpkg "github.com/kuayle/kuayle-backend/pkg/jwt"
+	"github.com/kuayle/kuayle-backend/pkg/validate"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 )
@@ -124,4 +125,23 @@ func TestAssistantResearchSettingsHTTP(t *testing.T) {
 	require.Equal(t, 200, status)
 	require.Equal(t, false, payload["has_search_api_key"])
 	require.Equal(t, "tavily", payload["search_provider"], "other settings are kept")
+
+	// SearXNG is offered, and can be chosen, only when the operator set
+	// WEB_SEARCH_SEARXNG_URL.
+	status, payload = do("GET", "", tokenFor(member))
+	require.Equal(t, 200, status)
+	require.Equal(t, []any{"brave", "tavily"}, payload["search_providers"])
+	require.Equal(t, 400, first(do("PUT", `{"search_provider":"searxng"}`, tokenFor(admin))))
+	base, err := validate.OperatorBaseURL("http://searxng:8080")
+	require.NoError(t, err)
+	research.SetSearchProviders(service.NewBraveSearch(), service.NewTavilySearch(), service.NewSearXNGSearch(base))
+	status, payload = do("GET", "", tokenFor(member))
+	require.Equal(t, 200, status)
+	require.Equal(t, []any{"brave", "tavily", "searxng"}, payload["search_providers"])
+	require.Equal(t, 403, first(do("PUT", `{"search_provider":"searxng"}`, tokenFor(member))))
+	status, payload = do("PUT", `{"search_provider":"searxng"}`, tokenFor(admin))
+	require.Equal(t, 200, status)
+	require.Equal(t, "searxng", payload["search_provider"])
+	require.NoError(t, db.Get(&stored, `SELECT search_provider FROM assistant_research_settings WHERE workspace_id=$1`, ws))
+	require.Equal(t, "searxng", stored)
 }
