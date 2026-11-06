@@ -43,6 +43,7 @@
 	import { agentInfo } from '$lib/features/agents/agents';
 	import { repositorySourceLabel } from '$lib/features/dev-machines/repository-source';
 	import { toolChip, toolLabel } from './tool-chips';
+	import './research-chips';
 	import { elapsed, formatDuration, splitSteps } from './shell-rules';
 	let {
 		calls,

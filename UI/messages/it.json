@@ -3027,5 +3027,16 @@
 	"tasks.iteration_retry_failed": "nuovo tentativo dopo un errore",
 	"tasks.iteration_retry_blocked": "nuovo tentativo dopo un blocco",
 	"tasks.iteration_restarted": "riavviata",
-	"assistant.place_skills": "Skill e strumenti"
+	"assistant.place_skills": "Skill e strumenti",
+	"assistant.tool_web_search": "Ricerca web",
+	"assistant.tool_repo_list_files": "Elenca i file del repository",
+	"assistant.tool_repo_glob": "Trova file nel repository",
+	"assistant.tool_repo_grep": "Cerca nel codice del repository",
+	"assistant.tool_repo_read_file": "Leggi file del repository",
+	"assistant.tool_repo_symbols": "Elenca simboli del codice",
+	"assistant.tool_spawn_research_subagents": "Subagenti di ricerca",
+	"assistant.research_web_results": "{count} risultati per “{query}”",
+	"assistant.research_truncated": "Altri risultati sono stati omessi per restare nel budget.",
+	"assistant.research_scanned": "{repository} al commit {commit}",
+	"assistant.research_subagents_summary": "{completed} completati, {failed} non riusciti · {duration}"
 }

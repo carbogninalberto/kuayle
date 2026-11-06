@@ -3027,5 +3027,16 @@
 	"tasks.iteration_retry_failed": "retry after failure",
 	"tasks.iteration_retry_blocked": "retry after it was blocked",
 	"tasks.iteration_restarted": "restarted",
-	"assistant.place_skills": "Skills and tools"
+	"assistant.place_skills": "Skills and tools",
+	"assistant.tool_web_search": "Web search",
+	"assistant.tool_repo_list_files": "List repository files",
+	"assistant.tool_repo_glob": "Find repository files",
+	"assistant.tool_repo_grep": "Search repository code",
+	"assistant.tool_repo_read_file": "Read repository file",
+	"assistant.tool_repo_symbols": "List code symbols",
+	"assistant.tool_spawn_research_subagents": "Research subagents",
+	"assistant.research_web_results": "{count} results for “{query}”",
+	"assistant.research_truncated": "More results were left out to stay within the budget.",
+	"assistant.research_scanned": "{repository} at {commit}",
+	"assistant.research_subagents_summary": "{completed} finished, {failed} failed · {duration}"
 }

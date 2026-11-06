@@ -3027,5 +3027,16 @@
 	"tasks.iteration_retry_failed": "失敗後重試",
 	"tasks.iteration_retry_blocked": "受阻後重試",
 	"tasks.iteration_restarted": "已重新啟動",
-	"assistant.place_skills": "技能與工具"
+	"assistant.place_skills": "技能與工具",
+	"assistant.tool_web_search": "網頁搜尋",
+	"assistant.tool_repo_list_files": "列出儲存庫檔案",
+	"assistant.tool_repo_glob": "尋找儲存庫檔案",
+	"assistant.tool_repo_grep": "搜尋儲存庫程式碼",
+	"assistant.tool_repo_read_file": "讀取儲存庫檔案",
+	"assistant.tool_repo_symbols": "列出程式碼符號",
+	"assistant.tool_spawn_research_subagents": "研究子代理",
+	"assistant.research_web_results": "「{query}」的 {count} 筆結果",
+	"assistant.research_truncated": "為控制在預算內，省略了更多結果。",
+	"assistant.research_scanned": "{repository}，提交 {commit}",
+	"assistant.research_subagents_summary": "{completed} 個完成，{failed} 個失敗 · {duration}"
 }
