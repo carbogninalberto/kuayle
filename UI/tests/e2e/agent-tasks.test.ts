@@ -221,7 +221,12 @@ async function fixture(page: Page) {
 				state.terminals++;
 				return route.fulfill({
 					status: 409,
-					json: { error: { code: 'TASK_BUSY', message: 'The agent is working on this task; open it in Claude Code when it stops' } }
+					json: {
+						error: {
+							code: 'TASK_BUSY',
+							message: 'The agent is working on this task; open it in Claude Code when it stops'
+						}
+					}
 				});
 			}
 			if (path.endsWith('/sign-in')) {
@@ -283,7 +288,8 @@ async function fixture(page: Page) {
 					body: '<html><script>window.evil=true</script></html>',
 					headers: { 'content-type': 'text/html', 'content-disposition': 'attachment; filename="index.html"' }
 				});
-			if (path.endsWith('/runs/run-1/diff')) return route.fulfill({ json: { diff: state.diff, truncated: state.diffTruncated } });
+			if (path.endsWith('/runs/run-1/diff'))
+				return route.fulfill({ json: { diff: state.diff, truncated: state.diffTruncated } });
 			if (path.endsWith('/validation')) return route.fulfill({ json: state.validation });
 			if (path.endsWith('/signals')) return route.fulfill({ json: state.signals });
 			if (path.endsWith('/sessions')) return route.fulfill({ json: { sessions: state.sessions } });
@@ -344,12 +350,35 @@ async function fixture(page: Page) {
 
 test('delegates from an issue conversation and shows real execution updates', async ({ page }) => {
 	const { state, emit } = await fixture(page);
+	// A second harness, so the picker shows several tiles side by side.
+	state.providers.push({ id: 'claude', display_name: 'Claude Code', supported_modes: ['autonomous'], custom: false });
 	await page.goto('/test/assistant?conversation=chat-1');
 	await showAgents(page);
 	await page.getByRole('button', { name: 'Start coding', exact: true }).click();
 	const dialog = page.getByRole('dialog', { name: 'Start coding', exact: true });
 	// The harness is chosen from logo tiles; the default server fits Codex.
 	await expect(dialog.getByRole('radio', { name: 'Codex' })).toHaveAttribute('aria-checked', 'true');
+	// Every tile is a separate chip: a border on all four sides and the same rounded corners, never a joined bar.
+	const tiles = await dialog.getByRole('radio').evaluateAll((nodes) =>
+		nodes.map((node) => {
+			const style = getComputedStyle(node);
+			return {
+				borders: [style.borderTopWidth, style.borderRightWidth, style.borderBottomWidth, style.borderLeftWidth],
+				radii: [
+					style.borderTopLeftRadius,
+					style.borderTopRightRadius,
+					style.borderBottomRightRadius,
+					style.borderBottomLeftRadius
+				]
+			};
+		})
+	);
+	expect(tiles.length).toBeGreaterThan(1);
+	for (const tile of tiles) {
+		expect(tile.borders.every((width) => width !== '0px')).toBe(true);
+		expect(new Set(tile.radii).size).toBe(1);
+		expect(tile.radii[0]).toBe(tiles[0].radii[0]);
+	}
 	await dialog.getByRole('textbox', { name: 'Task instructions' }).fill('Implement search and add regression coverage');
 	await dialog.getByRole('button', { name: 'Delegate task', exact: true }).click();
 	await expect.poll(() => state.creates.length).toBe(1);
@@ -441,7 +470,9 @@ test('replays task failure, retries the same task and clears revoked task conten
 	await dialog.getByRole('button', { name: 'Retry task', exact: true }).click();
 	await expect.poll(() => state.retries.length).toBe(1);
 	expect(state.retries[0]).toMatchObject({ generation: 1, prompt: 'Address the failed authorization check' });
-	await expect(page.getByRole('region', { name: 'Coding tasks' }).getByText('Iteration 2', { exact: false })).toBeVisible();
+	await expect(
+		page.getByRole('region', { name: 'Coding tasks' }).getByText('Iteration 2', { exact: false })
+	).toBeVisible();
 	expect(state.creates).toHaveLength(1);
 	state.denied = true;
 	state.sockets.at(-1)!.close({ code: 1008, reason: 'Revoked' });
@@ -1238,7 +1269,10 @@ test('a failed task stays in the transcript and the panel with its reason and a 
 	await page.reload();
 	await expect(page.getByRole('group', { name: 'Agent task for ENG-1' })).toContainText('Failed');
 	await expect(page.getByRole('region', { name: 'Coding tasks' }).getByText('Failed', { exact: true })).toBeVisible();
-	await page.getByRole('group', { name: 'Agent task for ENG-1' }).getByRole('button', { name: 'Retry this task' }).click();
+	await page
+		.getByRole('group', { name: 'Agent task for ENG-1' })
+		.getByRole('button', { name: 'Retry this task' })
+		.click();
 	await expect(page.getByRole('dialog', { name: 'Retry task', exact: true })).toBeVisible();
 });
 
@@ -1623,7 +1657,12 @@ test('opens a stopped Claude Code task in Claude Code through the task terminal'
 	const open = tasks.getByRole('button', { name: 'Open in Claude Code', exact: true });
 	await expect(open).toHaveCount(0);
 	// A Codex task keeps the typed session command instead.
-	state.task = { ...state.task, state: 'awaiting_review', reason: 'Pull request opened; waiting for human review', machine_id: 'machine-1' };
+	state.task = {
+		...state.task,
+		state: 'awaiting_review',
+		reason: 'Pull request opened; waiting for human review',
+		machine_id: 'machine-1'
+	};
 	emit('task.state_changed', state.task);
 	await expect(tasks.getByText('Pull request opened; waiting for human review', { exact: true })).toBeVisible();
 	await expect(open).toHaveCount(0);
@@ -1635,7 +1674,9 @@ test('opens a stopped Claude Code task in Claude Code through the task terminal'
 	await expect.poll(() => state.terminals).toBe(1);
 	await expect(page.getByRole('tab', { name: 'Claude Code' })).toBeVisible();
 	await expect(
-		page.getByRole('alert').filter({ hasText: 'The agent is working on this task; open it in Claude Code when it stops' })
+		page
+			.getByRole('alert')
+			.filter({ hasText: 'The agent is working on this task; open it in Claude Code when it stops' })
 	).toBeVisible();
 
 	state.task = { ...state.task, state: 'running', reason: 'Running' };
@@ -1674,7 +1715,12 @@ test('each iteration says why it started: a retry after failure and review chang
 		created_at: time,
 		updated_at: time
 	};
-	state.transitions = [step(1, '', 'queued'), step(2, 'queued', 'running'), step(3, 'running', 'failed'), step(4, 'failed', 'queued')];
+	state.transitions = [
+		step(1, '', 'queued'),
+		step(2, 'queued', 'running'),
+		step(3, 'running', 'failed'),
+		step(4, 'failed', 'queued')
+	];
 	await page.goto('/test/assistant?conversation=chat-1');
 	const card = page.getByRole('article', { name: 'Coding task' });
 	await expect(card).toContainText('Iteration 2');
