@@ -2028,6 +2028,186 @@ test('a release waits for approval with its notes editable, and publishes the ed
 	expect(bodies[1]).toEqual({ decision: 'approve', notes: edited });
 });
 
+// A ship_pull_request chain approval for ENG-7, with the given steps.
+function shipApproval(steps: { step: string; status: string; detail?: string; url?: string }[], extra = {}) {
+	return {
+		id: 'approval-70',
+		conversation_id: 'chat-1',
+		tool_call_id: 'tool-70',
+		actor_id: 'user-1',
+		issue_id: 'issue-7',
+		action: 'ship_pull_request',
+		payload: {
+			identifier: 'ENG-7',
+			title: 'Ship it',
+			repository: 'acme/app',
+			pull_request: 42,
+			merge: {
+				identifier: 'ENG-7',
+				title: 'Ship it',
+				task_id: 'task-7',
+				repository: 'acme/app',
+				pull_request: 42,
+				pull_request_url: 'https://github.com/acme/app/pull/42',
+				commit: 'abcdef0123456789abcdef0123456789abcdef01',
+				merge_method: 'squash'
+			},
+			release: {
+				repository: 'acme/app',
+				tag: 'v1.4.0',
+				name: 'v1.4.0',
+				target_commit: '',
+				branch: 'main',
+				previous_tag: 'v1.3.0',
+				notes: '### Features\n- **Ship in one go (KUA-90).**',
+				checks_passed: 0,
+				commits: 0,
+				scanned_files: 0,
+				release_url: 'https://github.com/acme/app/releases/tag/v1.4.0'
+			},
+			upgrade: { current_version: '1.3.0', latest_version: '1.4.0' },
+			steps
+		},
+		status: 'pending',
+		expires_at: '2026-10-27T10:00:00Z',
+		created_at: conversation.created_at,
+		updated_at: conversation.created_at,
+		...extra
+	};
+}
+
+async function shipFixture(page: Page) {
+	const state = await fixture(page);
+	const answered = { ...reply, status: 'completed', content: 'Shipping waits for your approval.' };
+	state.messages = [userMessage, answered];
+	state.tools = [
+		{
+			id: 'tool-70',
+			conversation_id: 'chat-1',
+			message_id: answered.id,
+			sequence: 0,
+			call_id: 'call_tool-70',
+			name: 'ship_pull_request',
+			input: { identifier: 'ENG-7', tag: 'v1.4.0', upgrade: true },
+			status: 'completed',
+			output: { approval_id: 'approval-70', status: 'pending_user_approval' },
+			created_at: conversation.created_at
+		}
+	];
+	return state;
+}
+
+const pendingSteps = ['merge', 'tests', 'release', 'build', 'upgrade'].map((step) => ({ step, status: 'pending' }));
+
+test('shipping asks for one approval that lists every step, then follows each step', async ({ page }) => {
+	const state = await shipFixture(page);
+	const pending = shipApproval(pendingSteps);
+	state.approvals = [pending] as any;
+	const bodies: any[] = [];
+	await page.route('**/conversations/chat-1/approvals/**', (route) => {
+		const body = route.request().postDataJSON();
+		bodies.push(body);
+		const approving = {
+			...pending,
+			payload: { ...pending.payload, release: { ...pending.payload.release, notes: body.notes } },
+			status: 'approving',
+			updated_at: '2026-10-26T10:05:00Z'
+		};
+		state.approvals = [approving] as any;
+		return route.fulfill({ json: approving });
+	});
+	await page.goto('/test/assistant?conversation=chat-1');
+	await expect(page.getByText('Ship ENG-7: merge #42 and publish v1.4.0 of acme/app?', { exact: true })).toBeVisible();
+	// Every step is listed, in order, before anything runs.
+	const steps = page.getByTestId('ship-steps').getByRole('listitem');
+	await expect(steps).toHaveCount(5);
+	await expect(steps.nth(0)).toContainText('Merge pull request #42 (squash) at abcdef0');
+	await expect(steps.nth(1)).toContainText('Wait for the checks of the merge commit on main');
+	await expect(steps.nth(2)).toContainText('Publish v1.4.0 at the merge commit');
+	await expect(steps.nth(3)).toContainText('Wait for the release build');
+	await expect(steps.nth(4)).toContainText('Upgrade this instance from 1.3.0 to 1.4.0');
+	await expect(page.getByRole('button', { name: 'Approve', exact: true })).toHaveCount(1);
+	expect(bodies).toEqual([]);
+
+	// The notes are editable as on a release card; the edit is what is approved.
+	const notes = page.getByLabel('Release notes (published as you leave them)');
+	await expect(notes).toHaveValue(pending.payload.release.notes);
+	await notes.fill('   ');
+	await expect(page.getByRole('button', { name: 'Approve', exact: true })).toBeDisabled();
+	const edited = '### Features\n- **Edited before shipping.**';
+	await notes.fill(edited);
+	await page.getByRole('button', { name: 'Approve', exact: true }).click();
+	await expect(page.getByText('Shipping ENG-7 step by step', { exact: true })).toBeVisible();
+	expect(bodies).toEqual([{ decision: 'approve', notes: edited }]);
+
+	// Progress arrives as approval updates; the finished chain links the release.
+	const socket = state.sockets.at(-1)!;
+	const running = shipApproval(
+		[
+			{ step: 'merge', status: 'done', detail: 'Merged #42 by squash as 1234567' },
+			{ step: 'tests', status: 'running' },
+			...pendingSteps.slice(2)
+		],
+		{ status: 'approving', updated_at: '2026-10-26T10:06:00Z' }
+	);
+	socket.send(
+		JSON.stringify({ id: 'e1', cursor: 1, conversation_id: 'chat-1', type: 'approval.updated', payload: running })
+	);
+	await expect(page.getByText('Merged #42 by squash as 1234567', { exact: true })).toBeVisible();
+	const done = shipApproval(
+		[
+			{ step: 'merge', status: 'done', detail: 'Merged #42 by squash as 1234567' },
+			{ step: 'tests', status: 'done', detail: '12 check(s) passed on main at 1234567' },
+			{
+				step: 'release',
+				status: 'done',
+				detail: 'Published v1.4.0 at 1234567 with 9 scanned file(s)',
+				url: 'https://github.com/acme/app/releases/tag/v1.4.0'
+			},
+			{ step: 'build', status: 'done', detail: 'The release build succeeded: Release' },
+			{ step: 'upgrade', status: 'done', detail: 'Started the upgrade from 1.3.0 to 1.4.0; the instance restarts' }
+		],
+		{ status: 'approved', resolved_at: '2026-10-26T10:30:00Z', updated_at: '2026-10-26T10:30:00Z' }
+	);
+	socket.send(
+		JSON.stringify({ id: 'e2', cursor: 2, conversation_id: 'chat-1', type: 'approval.resolved', payload: done })
+	);
+	await expect(page.getByText('Shipped ENG-7: merged, tested and released v1.4.0', { exact: true })).toBeVisible();
+	await expect(
+		page.getByText('Started the upgrade from 1.3.0 to 1.4.0; the instance restarts', { exact: true })
+	).toBeVisible();
+	await expect(page.getByRole('link', { name: 'Open the release' }).first()).toHaveAttribute(
+		'href',
+		'https://github.com/acme/app/releases/tag/v1.4.0'
+	);
+});
+
+test('a failed ship step is reported with its reason, and later steps show they did not run', async ({ page }) => {
+	const state = await shipFixture(page);
+	const error =
+		'Step 2 of 5 (wait for the tests) failed: 1 check failed on main. Next step: pull request #42 is merged as 1234567 but nothing was released. Not run: publish the release, wait for the release build, upgrade the instance.';
+	state.approvals = [
+		shipApproval(
+			[
+				{ step: 'merge', status: 'done', detail: 'Merged #42 by squash as 1234567' },
+				{ step: 'tests', status: 'failed', detail: '1 check failed on main' },
+				{ step: 'release', status: 'skipped' },
+				{ step: 'build', status: 'skipped' },
+				{ step: 'upgrade', status: 'skipped' }
+			],
+			{ status: 'failed', error, resolved_at: '2026-10-26T10:30:00Z', updated_at: '2026-10-26T10:30:00Z' }
+		)
+	] as any;
+	await page.goto('/test/assistant?conversation=chat-1');
+	await expect(page.getByText(`Shipping ENG-7 stopped: ${error}`, { exact: true })).toBeVisible();
+	const steps = page.getByTestId('ship-steps').getByRole('listitem');
+	await expect(steps.nth(1)).toContainText('Failed');
+	await expect(steps.nth(1)).toContainText('1 check failed on main');
+	for (const index of [2, 3, 4]) await expect(steps.nth(index)).toContainText('Not run');
+	await expect(page.getByRole('link', { name: 'Open the release' })).toHaveCount(0);
+	await expect(page.getByRole('button', { name: 'Approve', exact: true })).toHaveCount(0);
+});
+
 test('message_task says where the message went without asking for approval', async ({ page }) => {
 	const state = await fixture(page);
 	const answered = { ...reply, status: 'completed', content: 'I told the agent.' };
