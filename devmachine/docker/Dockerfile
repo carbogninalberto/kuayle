@@ -13,7 +13,7 @@ ARG RUNC_VERSION=1.5.2
 ARG RUNC_COMMIT=29dd3dc2b13b4123162e5fe132504bb4b15569f1
 ARG CONTAINERD_VERSION=2.4.2
 ARG CONTAINERD_COMMIT=b7a25261e029d68978bbf290df0a62fc819b3c51
-ARG XNET_VERSION=v0.60.0
+ARG XNET_VERSION=v0.62.0
 WORKDIR /src
 RUN git init -q runc && cd runc \
     && git fetch -q --depth 1 https://github.com/opencontainers/runc "$RUNC_COMMIT" && git checkout -q FETCH_HEAD \
