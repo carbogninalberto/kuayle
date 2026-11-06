@@ -49,7 +49,7 @@ run component additions from this package and preserve the site's custom theme.
 - **Alternative pages**: `/<competitor>-alternative` (param matcher `src/params/alternative.ts`), content in `alternative-pages.ts`, rendered by `AlternativePage.svelte`. Titles follow "Open Source <X> Alternative, Self-Hosted and Free (2026) | Kuayle" and work target keywords into H1, H2s and FAQ questions without stuffing.
 - **Moved URLs**: `src/lib/data/moved-pages.ts` keeps prerendered stubs (canonical + immediate refresh) for old URLs; replace with host-level 301s when the hosting platform supports them.
 - **Navigation**: navbar dropdowns, mobile sheet and footer columns are built from `src/lib/data/navigation.ts`, which reads the route registry.
-- **Release version**: `src/lib/release.svelte.ts` — `useLatestRelease()` fetches the `UI/static/releases.json` manifest from the repository's main branch at runtime (same mechanism as the app). Static HTML renders `FALLBACK_VERSION`; bump it when the fallback becomes stale.
+- **Release version**: `src/lib/release.svelte.ts` — `useLatestRelease()` fetches the `UI/static/releases.json` manifest from the repository's main branch at runtime (same mechanism as the app). The build resolves the current release from the same manifest, so static HTML is current without a manual bump (see Deployment).
 - **Silo architecture**: Features and Self-Hosting hubs have child pages using `PageLayout.svelte`. The Alternatives hub lists the root-level alternative pages, the Jira guide and the roundups; `/compare` is the full matrix.
 - **Standalone pages**: `/open-source`, `/license`, `/security`, `/about`, `/roadmap` — each uses `StandalonePage.svelte` wrapper.
 - **Breadcrumbs**: Every page includes a `<Breadcrumbs>` component with structured data.
@@ -79,6 +79,12 @@ run component additions from this package and preserve the site's custom theme.
 /privacy                                       Privacy policy
 /sitemap.xml                                   XML sitemap
 ```
+
+## Deployment
+
+`deploy/Dockerfile` builds the site (`npm run validate`, so unit and SEO checks gate the image) and serves `build/` with Caddy using `deploy/Caddyfile`. Build from this directory: `docker build -f deploy/Dockerfile -t kuayle-web .`. The Caddyfile issues the permanent redirects for moved pages (kept in sync with `src/lib/data/moved-pages.ts` by a unit test) and returns the prerendered `/404` page with HTTP 404 for unknown paths instead of a soft-404 homepage. TLS and HSTS are handled by the edge proxy in front of the container.
+
+The current release (version badge, recently shipped strip, About/Roadmap and JSON-LD `softwareVersion`) is resolved at build time from the releases manifest on `main`; offline builds fall back to `LAST_KNOWN_VERSION` in `src/lib/release-manifest.ts`. Rebuild the image after a release to refresh the static HTML; browsers also refresh it after hydration.
 
 ## Build output
 

@@ -28,6 +28,9 @@ description: Maintain Kuayle WEB marketing pages, route registries, SEO, assets 
   [kuayle facts](../../../WEB/src/lib/data/kuayle-facts.ts). Alternative pages use
   `/<competitor>-alternative`; never add `kuayle-vs-*` URLs. Navigation menus and
   footer columns come from [navigation](../../../WEB/src/lib/data/navigation.ts).
+- The production image is [WEB/deploy](../../../WEB/deploy): its Caddyfile owns the
+  301s for moved pages (sync with `moved-pages.ts`) and the real 404. The build
+  resolves the current release; do not hard-code version numbers in copy.
 - Check [content modification data](../../../WEB/src/lib/data/content-modified.json)
   when changing indexed content. Keep comparison claims, reviewed dates and
   self-hosting instructions accurate against the implementation and
