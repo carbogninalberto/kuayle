@@ -2141,6 +2141,7 @@ test('shipping asks for one approval that lists every step, then follows each st
 	expect(bodies).toEqual([{ decision: 'approve', notes: edited }]);
 
 	// Progress arrives as approval updates; the finished chain links the release.
+	await expect.poll(() => state.sockets.length).toBeGreaterThan(0);
 	const socket = state.sockets.at(-1)!;
 	const running = shipApproval(
 		[
