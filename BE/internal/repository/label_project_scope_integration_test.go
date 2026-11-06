@@ -1,0 +1,339 @@
+package repository
+
+import (
+	"context"
+	"os"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jmoiron/sqlx"
+	"github.com/kuayle/kuayle-backend/internal/domain"
+	"github.com/kuayle/kuayle-backend/internal/dto"
+	"github.com/stretchr/testify/require"
+)
+
+// A label with a project_id is only usable on issues of that project; labels
+// without one stay workspace-wide.
+func TestProjectScopedLabelsPostgres(t *testing.T) {
+	url := os.Getenv("DATABASE_URL")
+	if url == "" {
+		t.Skip("DATABASE_URL is not set")
+	}
+	db, err := sqlx.Connect("pgx", url)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	exec := func(query string, args ...any) {
+		t.Helper()
+		_, err := db.Exec(query, args...)
+		require.NoError(t, err)
+	}
+	count := func(query string, args ...any) int {
+		t.Helper()
+		var n int
+		require.NoError(t, db.Get(&n, query, args...))
+		return n
+	}
+
+	user, workspace, team, status := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	exec(`INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,'Label scope','hash')`, user, user.String()+"@example.test")
+	t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM users WHERE id=$1`, user) })
+	exec(`INSERT INTO workspaces(id,name,slug,owner_id) VALUES($1,'Label scope',$2,$3)`, workspace, workspace.String(), user)
+	t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM workspaces WHERE id=$1`, workspace) })
+	exec(`INSERT INTO workspace_members(workspace_id,user_id,role) VALUES($1,$2,'owner')`, workspace, user)
+	exec(`INSERT INTO teams(id,workspace_id,name,key) VALUES($1,$2,'Scope','SCP')`, team, workspace)
+	exec(`INSERT INTO team_statuses(id,team_id,name,slug,category) VALUES($1,$2,'Todo','todo','unstarted')`, status, team)
+
+	projectA, projectB := uuid.New(), uuid.New()
+	exec(`INSERT INTO projects(id,workspace_id,name) VALUES($1,$2,'A')`, projectA, workspace)
+	exec(`INSERT INTO projects(id,workspace_id,name) VALUES($1,$2,'B')`, projectB, workspace)
+
+	ctx := domain.WithAccess(context.Background(), domain.Access{UserID: user, WorkspaceID: workspace})
+	labels, issues := NewLabelRepository(db), NewIssueRepository(db)
+	newLabel := func(name string, project *uuid.UUID) *domain.Label {
+		l := &domain.Label{ID: uuid.New(), WorkspaceID: workspace, Name: name, Color: "#112233", ProjectID: project}
+		require.NoError(t, labels.Create(ctx, l))
+		return l
+	}
+	global, inA, inB := newLabel("global", nil), newLabel("a", &projectA), newLabel("b", &projectB)
+
+	names := func(project *uuid.UUID) []string {
+		list, err := labels.ListByWorkspace(ctx, workspace, project)
+		require.NoError(t, err)
+		out := make([]string, len(list))
+		for i, l := range list {
+			out[i] = l.Name
+		}
+		return out
+	}
+	require.ElementsMatch(t, []string{"global", "a", "b"}, names(nil))
+	require.ElementsMatch(t, []string{"global", "a"}, names(&projectA))
+
+	exists := func(project *uuid.UUID, name string) bool {
+		ok, err := labels.ExistsByName(ctx, workspace, project, name, uuid.Nil)
+		require.NoError(t, err)
+		return ok
+	}
+	require.True(t, exists(nil, "GLOBAL"))
+	require.False(t, exists(&projectA, "global"), "a project may reuse a workspace label's name")
+	require.True(t, exists(&projectA, "A"))
+	require.False(t, exists(&projectB, "a"))
+
+	issueID := uuid.New()
+	exec(`INSERT INTO issues(id,workspace_id,team_id,status_id,number,identifier_text,title,creator_id,project_id) VALUES($1,$2,$3,$4,1,'SCP-1','Scoped',$5,$6)`, issueID, workspace, team, status, user, projectA)
+
+	require.NoError(t, issues.ValidateLabelScope(ctx, &projectA, []uuid.UUID{global.ID, inA.ID}))
+	require.ErrorIs(t, issues.ValidateLabelScope(ctx, &projectA, []uuid.UUID{inB.ID}), ErrLabelProjectMismatch)
+	require.ErrorIs(t, issues.ValidateLabelScope(ctx, nil, []uuid.UUID{inA.ID}), ErrLabelProjectMismatch, "an issue without a project takes no project label")
+
+	require.NoError(t, issues.SetLabels(ctx, issueID, []uuid.UUID{global.ID, inA.ID, inB.ID}))
+	require.Equal(t, 2, count(`SELECT COUNT(*) FROM issue_labels WHERE issue_id=$1`, issueID))
+	require.Zero(t, count(`SELECT COUNT(*) FROM issue_labels WHERE issue_id=$1 AND label_id=$2`, issueID, inB.ID), "the other project's label is not attached")
+
+	moved, err := issues.GetByID(ctx, issueID)
+	require.NoError(t, err)
+	moved.ProjectID = &projectB
+	require.NoError(t, issues.Update(ctx, moved))
+	require.Equal(t, 1, count(`SELECT COUNT(*) FROM issue_labels WHERE issue_id=$1`, issueID), "moving to project B drops A's label and keeps the global one")
+	require.Equal(t, 1, count(`SELECT COUNT(*) FROM issue_labels WHERE issue_id=$1 AND label_id=$2`, issueID, global.ID))
+
+	exec(`DELETE FROM projects WHERE id=$1`, projectB)
+	require.Zero(t, count(`SELECT COUNT(*) FROM labels WHERE id=$1`, inB.ID), "deleting a project deletes its labels")
+}
+
+// Scoped labels follow their project's visibility, and attaching labels waits
+// for a project move in flight instead of racing it.
+func TestProjectScopedLabelVisibilityAndMoveLockPostgres(t *testing.T) {
+	url := os.Getenv("DATABASE_URL")
+	if url == "" {
+		t.Skip("DATABASE_URL is not set")
+	}
+	db, err := sqlx.Connect("pgx", url)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	exec := func(query string, args ...any) {
+		t.Helper()
+		_, err := db.Exec(query, args...)
+		require.NoError(t, err)
+	}
+
+	owner, member, workspace, privateTeam, team, status := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	for _, u := range []uuid.UUID{owner, member} {
+		exec(`INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,'Label vis','hash')`, u, u.String()+"@example.test")
+		u := u
+		t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM users WHERE id=$1`, u) })
+	}
+	exec(`INSERT INTO workspaces(id,name,slug,owner_id) VALUES($1,'Label vis',$2,$3)`, workspace, workspace.String(), owner)
+	t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM workspaces WHERE id=$1`, workspace) })
+	exec(`INSERT INTO workspace_members(workspace_id,user_id,role) VALUES($1,$2,'owner'),($1,$3,'member')`, workspace, owner, member)
+	exec(`INSERT INTO teams(id,workspace_id,name,key,is_private) VALUES($1,$2,'Secret','SEC',true)`, privateTeam, workspace)
+	exec(`INSERT INTO teams(id,workspace_id,name,key) VALUES($1,$2,'Open','OPN')`, team, workspace)
+	exec(`INSERT INTO team_members(team_id,user_id) VALUES($1,$2)`, privateTeam, owner)
+	exec(`INSERT INTO team_statuses(id,team_id,name,slug,category) VALUES($1,$2,'Todo','todo','unstarted')`, status, team)
+
+	secretProject, openProject := uuid.New(), uuid.New()
+	exec(`INSERT INTO projects(id,workspace_id,name,team_id) VALUES($1,$2,'Secret',$3)`, secretProject, workspace, privateTeam)
+	exec(`INSERT INTO projects(id,workspace_id,name) VALUES($1,$2,'Open')`, openProject, workspace)
+
+	ownerCtx := domain.WithAccess(context.Background(), domain.Access{UserID: owner, WorkspaceID: workspace})
+	memberCtx := domain.WithAccess(context.Background(), domain.Access{UserID: member, WorkspaceID: workspace})
+	labels, issues := NewLabelRepository(db), NewIssueRepository(db)
+	newLabel := func(name string, project *uuid.UUID) *domain.Label {
+		l := &domain.Label{ID: uuid.New(), WorkspaceID: workspace, Name: name, Color: "#112233", ProjectID: project}
+		require.NoError(t, labels.Create(ownerCtx, l))
+		return l
+	}
+	global, secret, open := newLabel("global", nil), newLabel("secret", &secretProject), newLabel("open", &openProject)
+
+	t.Run("a member outside the private team does not see its project labels", func(t *testing.T) {
+		list, err := labels.ListByWorkspace(memberCtx, workspace, nil)
+		require.NoError(t, err)
+		var names []string
+		for _, l := range list {
+			names = append(names, l.Name)
+		}
+		require.ElementsMatch(t, []string{"global", "open"}, names)
+
+		hidden, err := labels.GetByID(memberCtx, secret.ID)
+		require.NoError(t, err)
+		require.Nil(t, hidden)
+
+		secret := *secret
+		secret.Name = "renamed"
+		require.Error(t, labels.Update(memberCtx, &secret), "the update matches no visible row")
+		require.NoError(t, labels.Delete(memberCtx, secret.ID))
+		var stored domain.Label
+		require.NoError(t, db.Get(&stored, `SELECT * FROM labels WHERE id=$1`, secret.ID))
+		require.Equal(t, "secret", stored.Name)
+		require.Nil(t, stored.DeletedAt, "the hidden label is not deleted")
+	})
+
+	t.Run("a team member sees and edits them", func(t *testing.T) {
+		list, err := labels.ListByWorkspace(ownerCtx, workspace, nil)
+		require.NoError(t, err)
+		require.Len(t, list, 3)
+		got, err := labels.GetByID(ownerCtx, secret.ID)
+		require.NoError(t, err)
+		require.NotNil(t, got)
+	})
+
+	t.Run("issue responses leave out labels of a project the caller cannot see", func(t *testing.T) {
+		issueID := uuid.New()
+		exec(`INSERT INTO issues(id,workspace_id,team_id,status_id,number,identifier_text,title,creator_id,project_id) VALUES($1,$2,$3,$4,2,'OPN-2','Hidden label',$5,$6)`, issueID, workspace, team, status, owner, openProject)
+		// Written directly: the invariant is meant to prevent this row, the read must not leak it anyway.
+		exec(`INSERT INTO issue_labels(issue_id,label_id) VALUES($1,$2),($1,$3)`, issueID, global.ID, secret.ID)
+
+		names := func(list []domain.Label) []string {
+			var out []string
+			for _, l := range list {
+				out = append(out, l.Name)
+			}
+			return out
+		}
+		one, err := issues.GetLabels(memberCtx, issueID)
+		require.NoError(t, err)
+		require.Equal(t, []string{"global"}, names(one))
+		many, err := issues.GetLabelsForIssues(memberCtx, []uuid.UUID{issueID})
+		require.NoError(t, err)
+		require.Equal(t, []string{"global"}, names(many[issueID]))
+
+		one, err = issues.GetLabels(ownerCtx, issueID)
+		require.NoError(t, err)
+		require.ElementsMatch(t, []string{"global", "secret"}, names(one))
+
+		found := func(ctx context.Context, params dto.IssueFilterParams) int {
+			t.Helper()
+			_, total, err := issues.List(ctx, workspace, params)
+			require.NoError(t, err)
+			return total
+		}
+		require.Zero(t, found(memberCtx, dto.IssueFilterParams{Search: "secret"}), "search does not match a hidden label's name")
+		require.Zero(t, found(memberCtx, dto.IssueFilterParams{LabelID: secret.ID.String()}), "filtering by a hidden label matches nothing")
+		withoutLabels := found(memberCtx, dto.IssueFilterParams{LabelID: "none"})
+		exec(`DELETE FROM issue_labels WHERE issue_id=$1 AND label_id=$2`, issueID, global.ID)
+		require.Equal(t, withoutLabels+1, found(memberCtx, dto.IssueFilterParams{LabelID: "none"}), "an issue whose only label is hidden counts as unlabelled")
+		exec(`INSERT INTO issue_labels(issue_id,label_id) VALUES($1,$2)`, issueID, global.ID)
+		require.Equal(t, 1, found(ownerCtx, dto.IssueFilterParams{Search: "secret"}))
+		require.Equal(t, 1, found(ownerCtx, dto.IssueFilterParams{LabelID: secret.ID.String()}))
+
+		favorites := NewFavoriteRepository(db)
+		hiddenFavorite := &domain.Favorite{ID: uuid.New(), WorkspaceID: workspace, UserID: member, EntityType: "label", EntityID: secret.ID}
+		require.Error(t, favorites.Create(memberCtx, hiddenFavorite), "a hidden label cannot be favorited")
+		require.NoError(t, favorites.Create(memberCtx, &domain.Favorite{ID: uuid.New(), WorkspaceID: workspace, UserID: member, EntityType: "label", EntityID: open.ID}))
+		_, err = db.Exec(`INSERT INTO favorites(id,workspace_id,user_id,entity_type,entity_id,position) VALUES($1,$2,$3,'label',$4,9)`, hiddenFavorite.ID, workspace, member, secret.ID)
+		require.NoError(t, err)
+		listed, err := favorites.ListByUser(memberCtx, workspace, member)
+		require.NoError(t, err)
+		require.Len(t, listed, 1, "a favorite of a label that became hidden is not listed")
+		require.Equal(t, open.ID, listed[0].EntityID)
+	})
+
+	t.Run("SetLabels waits for a project move in flight", func(t *testing.T) {
+		issueID := uuid.New()
+		exec(`INSERT INTO issues(id,workspace_id,team_id,status_id,number,identifier_text,title,creator_id,project_id) VALUES($1,$2,$3,$4,1,'OPN-1','Race',$5,$6)`, issueID, workspace, team, status, owner, openProject)
+
+		// The move: project changes, not yet committed.
+		move, err := db.BeginTxx(context.Background(), nil)
+		require.NoError(t, err)
+		defer move.Rollback()
+		_, err = move.Exec(`UPDATE issues SET project_id=NULL WHERE id=$1`, issueID)
+		require.NoError(t, err)
+
+		done := make(chan error, 1)
+		go func() { done <- issues.SetLabels(ownerCtx, issueID, []uuid.UUID{global.ID, open.ID}) }()
+		select {
+		case err := <-done:
+			t.Fatalf("SetLabels did not wait for the move: %v", err)
+		case <-time.After(500 * time.Millisecond):
+		}
+
+		_, err = move.Exec(`DELETE FROM issue_labels il USING labels l WHERE il.issue_id=$1 AND l.id=il.label_id AND l.project_id IS NOT NULL`, issueID)
+		require.NoError(t, err)
+		require.NoError(t, move.Commit())
+		require.NoError(t, <-done)
+
+		var attached []uuid.UUID
+		require.NoError(t, db.Select(&attached, `SELECT label_id FROM issue_labels WHERE issue_id=$1`, issueID))
+		require.Equal(t, []uuid.UUID{global.ID}, attached, "the old project's label is not attached to the moved issue")
+	})
+	t.Run("SetLabels takes the privacy barrier before the issue lock", func(t *testing.T) {
+		issueID := uuid.New()
+		exec(`INSERT INTO issues(id,workspace_id,team_id,status_id,number,identifier_text,title,creator_id,project_id) VALUES($1,$2,$3,$4,3,'OPN-3','Barrier',$5,$6)`, issueID, workspace, team, status, owner, openProject)
+
+		// A cascading delete holds the exclusive barrier and then needs the issue row.
+		deleter, err := db.BeginTxx(context.Background(), nil)
+		require.NoError(t, err)
+		defer deleter.Rollback()
+		_, err = deleter.Exec(`SELECT pg_advisory_xact_lock(610046,0)`)
+		require.NoError(t, err)
+
+		done := make(chan error, 1)
+		go func() { done <- issues.SetLabels(ownerCtx, issueID, []uuid.UUID{global.ID}) }()
+		select {
+		case err := <-done:
+			t.Fatalf("SetLabels did not wait for the barrier: %v", err)
+		case <-time.After(500 * time.Millisecond):
+		}
+
+		// SetLabels waits without holding the issue row, so the deleter can take it.
+		_, err = deleter.Exec(`SELECT 1 FROM issues WHERE id=$1 FOR UPDATE NOWAIT`, issueID)
+		require.NoError(t, err, "SetLabels must not hold the issue lock while it waits for the barrier")
+		require.NoError(t, deleter.Commit())
+		require.NoError(t, <-done)
+	})
+	t.Run("Create refuses a project the caller cannot see", func(t *testing.T) {
+		hidden := &domain.Label{ID: uuid.New(), WorkspaceID: workspace, Name: "sneaky", Color: "#112233", ProjectID: &secretProject}
+		require.ErrorIs(t, labels.Create(memberCtx, hidden), ErrLabelProjectNotVisible)
+		other := uuid.New()
+		missing := &domain.Label{ID: uuid.New(), WorkspaceID: workspace, Name: "nowhere", Color: "#112233", ProjectID: &other}
+		require.ErrorIs(t, labels.Create(ownerCtx, missing), ErrLabelProjectNotVisible)
+		var n int
+		require.NoError(t, db.Get(&n, `SELECT COUNT(*) FROM labels WHERE name IN ('sneaky','nowhere')`))
+		require.Zero(t, n)
+
+		visible := &domain.Label{ID: uuid.New(), WorkspaceID: workspace, Name: "fine", Color: "#112233", ProjectID: &openProject}
+		require.NoError(t, labels.Create(memberCtx, visible))
+		workspaceWide := &domain.Label{ID: uuid.New(), WorkspaceID: workspace, Name: "everywhere", Color: "#112233"}
+		require.NoError(t, labels.Create(memberCtx, workspaceWide))
+	})
+	t.Run("ExistsByName excludes the label being renamed", func(t *testing.T) {
+		a := newLabel("dupe-a", &openProject)
+		newLabel("dupe-b", &openProject)
+		taken, err := labels.ExistsByName(ownerCtx, workspace, &openProject, "DUPE-B", a.ID)
+		require.NoError(t, err)
+		require.True(t, taken, "another label of the scope has the name")
+		taken, err = labels.ExistsByName(ownerCtx, workspace, &openProject, "dupe-a", a.ID)
+		require.NoError(t, err)
+		require.False(t, taken, "its own name is not a clash")
+		taken, err = labels.ExistsByName(ownerCtx, workspace, nil, "dupe-b", a.ID)
+		require.NoError(t, err)
+		require.False(t, taken, "workspace scope is separate from the project's")
+	})
+	t.Run("the database keeps names unique per scope when checks race", func(t *testing.T) {
+		const racers = 8
+		results := make(chan error, racers)
+		for i := 0; i < racers; i++ {
+			go func(i int) {
+				l := &domain.Label{ID: uuid.New(), WorkspaceID: workspace, Name: []string{"Race", "RACE"}[i%2], Color: "#112233", ProjectID: &openProject}
+				results <- labels.Create(ownerCtx, l)
+			}(i)
+		}
+		created := 0
+		for i := 0; i < racers; i++ {
+			if err := <-results; err == nil {
+				created++
+			} else {
+				require.ErrorIs(t, err, ErrLabelNameTaken)
+			}
+		}
+		require.Equal(t, 1, created, "one create wins, the others see the name taken")
+		require.NoError(t, labels.Create(ownerCtx, &domain.Label{ID: uuid.New(), WorkspaceID: workspace, Name: "race", Color: "#112233"}), "another scope may use the name")
+
+		rename := newLabel("rename-me", &openProject)
+		rename.Name = "race"
+		require.ErrorIs(t, labels.Update(ownerCtx, rename), ErrLabelNameTaken, "a rename cannot take a name of its scope")
+		var stored string
+		require.NoError(t, db.Get(&stored, `SELECT name FROM labels WHERE id=$1`, rename.ID))
+		require.Equal(t, "rename-me", stored)
+	})
+}

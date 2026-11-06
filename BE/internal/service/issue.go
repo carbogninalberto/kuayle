@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -76,6 +77,18 @@ func (s *IssueService) Create(ctx context.Context, workspaceID, creatorID uuid.U
 	team, err := s.teamRepo.GetByID(ctx, teamID)
 	if err != nil || team == nil {
 		return nil, fmt.Errorf("team not found")
+	}
+
+	if len(req.LabelIDs) > 0 {
+		var projectID *uuid.UUID
+		if req.ProjectID != nil {
+			if pid, err := uuid.Parse(*req.ProjectID); err == nil {
+				projectID = &pid
+			}
+		}
+		if err := s.validateLabelScope(ctx, projectID, req.LabelIDs); err != nil {
+			return nil, err
+		}
 	}
 
 	tx, err := s.issueRepo.BeginTx(ctx)
@@ -341,11 +354,13 @@ func (s *IssueService) ConvertToProject(ctx context.Context, workspaceID, userID
 			oldParent = item.ParentID.String()
 		}
 		newProject := projectID.String()
+		labelsBefore := s.labelSnapshot(ctx, item.ID)
 		item.ProjectID = &projectID
 		item.ParentID = nil
 		if err := s.issueRepo.Update(ctx, item); err != nil {
 			return nil, err
 		}
+		s.recordLabelChange(ctx, item.ID, userID, labelsBefore)
 		if oldProject != newProject {
 			s.recordHistory(ctx, item.ID, userID, "project", &oldProject, &newProject)
 		}
@@ -462,6 +477,18 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 			return nil, fmt.Errorf("resource reference is unavailable or crosses a private-team boundary")
 		}
 	}
+	if len(req.LabelIDs) > 0 {
+		projectID := issue.ProjectID
+		if req.ProjectID != nil {
+			projectID = nil
+			if pid, err := uuid.Parse(*req.ProjectID); err == nil {
+				projectID = &pid
+			}
+		}
+		if err := s.validateLabelScope(ctx, projectID, req.LabelIDs); err != nil {
+			return nil, err
+		}
+	}
 	// Sanitize user input
 	if req.Title != nil {
 		clean := sanitize.PlainText(*req.Title)
@@ -567,6 +594,7 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 			}
 		}
 	}
+	movedProject := false
 	if req.ProjectID != nil {
 		old := ""
 		if issue.ProjectID != nil {
@@ -585,6 +613,7 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 		if old != newVal {
 			s.recordHistory(ctx, issue.ID, userID, "project", &old, &newVal)
 			changes.addField("project")
+			movedProject = true
 		}
 	}
 	if req.CycleID != nil {
@@ -653,18 +682,23 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 		issue.SortOrder = *req.SortOrder
 	}
 
+	// Taken before the move: it drops labels of the project the issue leaves,
+	// also when label_ids replaces them afterwards.
+	var labelsBefore labelSnapshot
+	if movedProject || req.LabelIDs != nil {
+		labelsBefore = s.labelSnapshot(ctx, issue.ID)
+	}
 	if err := s.issueRepo.UpdateContent(repository.WithIssueHistoryActor(ctx, userID), issue, changes.fieldSet["title"], changes.fieldSet["description"]); err != nil {
 		return nil, err
 	}
 
+	if movedProject && req.LabelIDs == nil {
+		// The repository dropped labels scoped to the project the issue left.
+		s.recordLabelChange(ctx, issue.ID, userID, labelsBefore)
+	}
+
 	if req.LabelIDs != nil {
 		// Track label changes
-		oldLabels, _ := s.issueRepo.GetLabels(ctx, issue.ID)
-		oldNames := make([]string, len(oldLabels))
-		for i, l := range oldLabels {
-			oldNames[i] = l.Name
-		}
-
 		labelUUIDs := make([]uuid.UUID, len(req.LabelIDs))
 		for i, lid := range req.LabelIDs {
 			labelUUIDs[i], _ = uuid.Parse(lid)
@@ -673,15 +707,7 @@ func (s *IssueService) Update(ctx context.Context, workspaceID, userID uuid.UUID
 			log.WithError(err).Warn("failed to set labels")
 		}
 
-		newLabels, _ := s.issueRepo.GetLabels(ctx, issue.ID)
-		newNames := make([]string, len(newLabels))
-		for i, l := range newLabels {
-			newNames[i] = l.Name
-		}
-		oldStr := strings.Join(oldNames, ", ")
-		newStr := strings.Join(newNames, ", ")
-		if oldStr != newStr {
-			s.recordHistory(ctx, issue.ID, userID, "labels", &oldStr, &newStr)
+		if s.recordLabelChange(ctx, issue.ID, userID, labelsBefore) {
 			changes.addField("labels")
 		}
 	}
@@ -950,6 +976,54 @@ func (s *IssueService) BulkUpdate(ctx context.Context, workspaceID, userID uuid.
 	}
 
 	return n, nil
+}
+
+// labelSnapshot is an issue's labels at a point in time: the names shown in
+// history, and the IDs that decide whether the set changed (two labels can
+// share a name, e.g. a workspace "Bug" and a project "Bug").
+type labelSnapshot struct {
+	names string
+	ids   string
+}
+
+func (s *IssueService) labelSnapshot(ctx context.Context, issueID uuid.UUID) labelSnapshot {
+	labels, _ := s.issueRepo.GetLabels(ctx, issueID)
+	names := make([]string, len(labels))
+	ids := make([]string, len(labels))
+	for i, l := range labels {
+		names[i], ids[i] = l.Name, l.ID.String()
+	}
+	sort.Strings(ids)
+	return labelSnapshot{names: strings.Join(names, ", "), ids: strings.Join(ids, ",")}
+}
+
+// recordLabelChange records a labels history entry when the issue's labels
+// differ from before, and reports whether they did.
+func (s *IssueService) recordLabelChange(ctx context.Context, issueID, userID uuid.UUID, before labelSnapshot) bool {
+	after := s.labelSnapshot(ctx, issueID)
+	if after.ids == before.ids {
+		return false
+	}
+	s.recordHistory(ctx, issueID, userID, "labels", &before.names, &after.names)
+	return true
+}
+
+// validateLabelScope rejects project-scoped labels that do not belong to the
+// issue's project.
+func (s *IssueService) validateLabelScope(ctx context.Context, projectID *uuid.UUID, rawLabelIDs []string) error {
+	labelIDs := make([]uuid.UUID, 0, len(rawLabelIDs))
+	for _, raw := range rawLabelIDs {
+		if id, err := uuid.Parse(raw); err == nil {
+			labelIDs = append(labelIDs, id)
+		}
+	}
+	if err := s.issueRepo.ValidateLabelScope(ctx, projectID, labelIDs); err != nil {
+		if errors.Is(err, repository.ErrLabelProjectMismatch) {
+			return fmt.Errorf("a project label can only be used on issues of that project")
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *IssueService) validateParentID(ctx context.Context, workspaceID, issueID uuid.UUID, rawParentID string) (*uuid.UUID, *domain.Issue, error) {

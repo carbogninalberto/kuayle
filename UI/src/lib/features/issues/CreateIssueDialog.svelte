@@ -8,6 +8,7 @@
 	import type { Team } from '$lib/types/team';
 	import type { Project } from '$lib/types/project';
 	import type { Label } from '$lib/types/label';
+	import { labelAppliesTo } from '$lib/features/labels/label-scope';
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import type { Cycle } from '$lib/types/cycle';
 	import type { Issue, IssueStatus, IssuePriority } from '$lib/types/issue';
@@ -217,6 +218,7 @@
 		projectId = defaultProjectId !== undefined ? validProject(defaultProjectId) : validProject(savedDefaults.projectId);
 		assigneeIds = defaultAssigneeIds ? validMemberIds(defaultAssigneeIds) : (defaultAssigneeId ? validMemberIds([defaultAssigneeId]) : validMemberIds(savedDefaults.assigneeIds));
 		labelIds = defaultLabelIds ? validLabelIds(defaultLabelIds) : validLabelIds(savedDefaults.labelIds);
+		pruneScopedLabels();
 		dueDate = defaultDueDate !== undefined ? defaultDueDate : savedDefaults.dueDate ?? null;
 		cycleId = defaultCycleId !== undefined ? validCycle(defaultCycleId) : validCycle(savedDefaults.cycleId);
 		clearIncompatibleTeamSelections(teamId);
@@ -355,6 +357,7 @@
 		pendingUploads = 0;
 		priority = tmpl.priority ?? 0;
 		labelIds = Array.isArray(tmpl.label_ids) ? tmpl.label_ids : [];
+		pruneScopedLabels();
 		if (tmpl.assignee_id) assigneeIds = [tmpl.assignee_id];
 		const templateTeamId = tmpl.team_id && validTeam(tmpl.team_id) ? tmpl.team_id : undefined;
 		let teamChanged = false;
@@ -412,10 +415,19 @@
 		loadStatusesForTeam(id);
 	}
 
+	/** Labels of another project do not apply to the current one: call after projectId changes. */
+	function pruneScopedLabels() {
+		labelIds = labelIds.filter((labelId) => {
+			const label = labels.find((l) => l.id === labelId);
+			return !label || labelAppliesTo(label, projectId);
+		});
+	}
+
 	function clearIncompatibleTeamSelections(nextTeamId: string) {
 		const project = projects.find((p) => p.id === projectId);
 		if (projectId && (!project || (project.team_id && project.team_id !== nextTeamId))) {
 			projectId = null;
+			pruneScopedLabels();
 		}
 		const cycle = cycles?.find((c) => c.id === cycleId);
 		if (cycleId && (!cycle || cycle.team_id !== nextTeamId)) {
@@ -584,7 +596,10 @@
 				bind:open={projectOpen}
 				projects={availableProjects}
 				value={projectId}
-				onchange={(id) => { projectId = id; }}
+				onchange={(id) => {
+					projectId = id;
+					pruneScopedLabels();
+				}}
 			>
 				{#snippet trigger(props)}
 					<Button {...props} variant="plain" class="flex items-center gap-1.5 rounded-full border border-[var(--app-border)] px-2.5 py-1 max-sm:px-3 max-sm:py-1.5 text-xs {selectedProject ? 'text-[var(--color-text-secondary)]' : 'text-[var(--color-text-tertiary)]'} hover:bg-[var(--color-bg-hover)]">
@@ -625,6 +640,7 @@
 			<LabelSelector
 				bind:open={labelsOpen}
 				{labels}
+				{projectId}
 				value={labelIds}
 				onchange={(labelId) => toggleLabel(labelId)}
 				oncreated={(label) => onlabelcreated?.(label)}

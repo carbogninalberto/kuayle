@@ -53,5 +53,5 @@ func favoriteVisible(ctx context.Context, workspace, user, kind, id string) stri
 		kind + "='project' AND EXISTS(SELECT 1 FROM projects fp WHERE fp.id=" + id + " AND fp.workspace_id=" + workspace + " AND " + projectVisible(ctx, "fp.workspace_id", "fp.team_id") + ")) OR (" +
 		kind + "='cycle' AND EXISTS(SELECT 1 FROM cycles fc JOIN teams fct ON fct.id=fc.team_id WHERE fc.id=" + id + " AND fct.workspace_id=" + workspace + " AND " + teamVisible(ctx, "fc.team_id") + ")) OR (" +
 		kind + "='view' AND EXISTS(SELECT 1 FROM views fv WHERE fv.id=" + id + " AND fv.workspace_id=" + workspace + " AND " + viewVisible(ctx, "fv.workspace_id", "fv.creator_id", "fv.is_shared") + ")) OR (" +
-		kind + "='label' AND EXISTS(SELECT 1 FROM labels fl WHERE fl.id=" + id + " AND fl.workspace_id=" + workspace + "))))"
+		kind + "='label' AND EXISTS(SELECT 1 FROM labels fl WHERE fl.id=" + id + " AND fl.workspace_id=" + workspace + " AND " + labelVisible(ctx, "fl") + "))))"
 }

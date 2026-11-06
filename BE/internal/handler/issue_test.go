@@ -668,3 +668,7 @@ func TestIssueHistoryResponseOptionalActor(t *testing.T) {
 	require.NotNil(t, result.UserID)
 	require.Equal(t, entry.UserID.String(), *result.UserID)
 }
+
+func (r *testIssueRepo) ValidateLabelScope(ctx context.Context, projectID *uuid.UUID, labelIDs []uuid.UUID) error {
+	return nil
+}

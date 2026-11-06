@@ -1390,6 +1390,7 @@
 							<LabelSelector
 								bind:open={labelsOpen}
 								{labels}
+								projectId={issue.project_id}
 								value={(issue.labels ?? []).map(l => l.id)}
 								shortcutKey="L"
 								oncreated={(label) => (labels = [label, ...labels.filter((existing) => existing.id !== label.id)])}

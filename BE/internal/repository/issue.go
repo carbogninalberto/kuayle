@@ -11,6 +11,7 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
+	"github.com/lib/pq"
 )
 
 type IssueRepository struct {
@@ -145,10 +146,10 @@ func (r *IssueRepository) List(ctx context.Context, workspaceID uuid.UUID, param
 			where = append(where, `NOT EXISTS (
 				SELECT 1 FROM issue_labels il
 				INNER JOIN labels l ON l.id = il.label_id AND l.deleted_at IS NULL
-				WHERE il.issue_id = i.id
+				WHERE il.issue_id = i.id AND `+labelVisible(ctx, "l")+`
 			)`)
 		} else {
-			where = append(where, "EXISTS (SELECT 1 FROM issue_labels il WHERE il.issue_id = i.id AND il.label_id = :label_id)")
+			where = append(where, "EXISTS (SELECT 1 FROM issue_labels il JOIN labels l ON l.id = il.label_id WHERE il.issue_id = i.id AND il.label_id = :label_id AND "+labelVisible(ctx, "l")+")")
 			args["label_id"] = params.LabelID
 		}
 	}
@@ -204,6 +205,7 @@ func (r *IssueRepository) List(ctx context.Context, workspaceID uuid.UUID, param
 				WHERE il.issue_id = i.id
 				AND l.deleted_at IS NULL
 				AND (l.name ILIKE :search OR l.description ILIKE :search OR l.color ILIKE :search)
+				AND ` + labelVisible(ctx, "l") + `
 			)`,
 			`EXISTS (
 				SELECT 1 FROM teams t
@@ -371,6 +373,14 @@ func (r *IssueRepository) UpdateContent(ctx context.Context, issue *domain.Issue
 	if err != nil {
 		return err
 	}
+	// The UPDATE above holds the issue row lock until commit, so a concurrent
+	// SetLabels waits and then checks scope against the new project. Labels
+	// scoped to a project the issue is no longer in stop applying, in the same
+	// transaction as the move.
+	if _, err = tx.ExecContext(ctx, `DELETE FROM issue_labels il USING labels l WHERE il.issue_id = $1 AND l.id = il.label_id
+		AND l.project_id IS NOT NULL AND l.project_id IS DISTINCT FROM $2::uuid`, issue.ID, issue.ProjectID); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
@@ -380,7 +390,9 @@ func (r *IssueRepository) Delete(ctx context.Context, id uuid.UUID) error {
 }
 
 func (r *IssueRepository) SetLabels(ctx context.Context, issueID uuid.UUID, labelIDs []uuid.UUID) error {
-	tx, err := r.db.BeginTxx(ctx, nil)
+	// The privacy graph barrier comes before the issue row lock below, the
+	// order cascading team and workspace deletes use.
+	tx, err := beginConversationTransaction(ctx, r.db)
 	if err != nil {
 		return err
 	}
@@ -388,16 +400,24 @@ func (r *IssueRepository) SetLabels(ctx context.Context, issueID uuid.UUID, labe
 	if err := requireVisible(ctx, tx, issueVisible(ctx, uuidSQL(issueID))); err != nil {
 		return err
 	}
+	// Serializes with a concurrent project move: the move's UPDATE takes the
+	// same row lock (its statement trigger takes the shared barrier first),
+	// and the scope check below then sees the committed project.
+	if _, err := tx.ExecContext(ctx, `SELECT 1 FROM issues WHERE id = $1 FOR UPDATE`, issueID); err != nil {
+		return err
+	}
 
 	if _, err := tx.ExecContext(ctx, `DELETE FROM issue_labels WHERE issue_id = $1`, issueID); err != nil {
 		return err
 	}
 
-	// Labels from another workspace are ignored rather than attached.
+	// Labels from another workspace, or scoped to another project, are ignored
+	// rather than attached.
 	for _, labelID := range labelIDs {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO issue_labels (issue_id, label_id) SELECT $1, $2 WHERE EXISTS (
 			SELECT 1 FROM issues label_issue JOIN labels l ON l.workspace_id = label_issue.workspace_id
-			WHERE label_issue.id = $1 AND l.id = $2 AND l.deleted_at IS NULL)`, issueID, labelID); err != nil {
+			WHERE label_issue.id = $1 AND l.id = $2 AND l.deleted_at IS NULL
+			AND (l.project_id IS NULL OR l.project_id = label_issue.project_id))`, issueID, labelID); err != nil {
 			return err
 		}
 	}
@@ -407,7 +427,7 @@ func (r *IssueRepository) SetLabels(ctx context.Context, issueID uuid.UUID, labe
 
 func (r *IssueRepository) GetLabels(ctx context.Context, issueID uuid.UUID) ([]domain.Label, error) {
 	var labels []domain.Label
-	query := `SELECT l.* FROM labels l INNER JOIN issue_labels il ON l.id = il.label_id WHERE il.issue_id = $1 AND ` + issueVisible(ctx, "il.issue_id") + ` ORDER BY l.name`
+	query := `SELECT l.* FROM labels l INNER JOIN issue_labels il ON l.id = il.label_id WHERE il.issue_id = $1 AND ` + issueVisible(ctx, "il.issue_id") + ` AND ` + labelVisible(ctx, "l") + ` ORDER BY l.name`
 	err := r.db.SelectContext(ctx, &labels, query, issueID)
 	return labels, err
 }
@@ -425,7 +445,7 @@ func (r *IssueRepository) GetLabelsForIssues(ctx context.Context, issueIDs []uui
 
 	query, args, err := sqlx.In(`SELECT l.*, il.issue_id FROM labels l
 		INNER JOIN issue_labels il ON l.id = il.label_id
-		WHERE il.issue_id IN (?) AND (l.deleted_at IS NULL) AND `+issueVisible(ctx, "il.issue_id")+` ORDER BY l.name`, issueIDs)
+		WHERE il.issue_id IN (?) AND (l.deleted_at IS NULL) AND `+issueVisible(ctx, "il.issue_id")+` AND `+labelVisible(ctx, "l")+` ORDER BY l.name`, issueIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -721,4 +741,26 @@ func (r *IssueRepository) GetSubscribedIssueIDs(ctx context.Context, issueIDs []
 
 func (r *IssueRepository) BeginTx(ctx context.Context) (*sqlx.Tx, error) {
 	return r.db.BeginTxx(ctx, nil)
+}
+
+// ErrLabelProjectMismatch is returned when a label is scoped to a project other
+// than the one the issue belongs to.
+var ErrLabelProjectMismatch = errors.New("label belongs to a different project")
+
+// ValidateLabelScope rejects project-scoped labels that do not belong to
+// projectID (the project of the issue the labels are about to be attached to).
+func (r *IssueRepository) ValidateLabelScope(ctx context.Context, projectID *uuid.UUID, labelIDs []uuid.UUID) error {
+	if len(labelIDs) == 0 {
+		return nil
+	}
+	var mismatched bool
+	err := r.db.GetContext(ctx, &mismatched, `SELECT EXISTS(SELECT 1 FROM labels WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL
+		AND project_id IS NOT NULL AND project_id IS DISTINCT FROM $2::uuid)`, pq.Array(labelIDs), projectID)
+	if err != nil {
+		return err
+	}
+	if mismatched {
+		return ErrLabelProjectMismatch
+	}
+	return nil
 }

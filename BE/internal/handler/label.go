@@ -1,14 +1,15 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 
+	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/kuayle/kuayle-backend/pkg/validate"
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 )
 
@@ -22,9 +23,13 @@ func NewLabelHandler(labelSvc *service.LabelService) *LabelHandler {
 
 func (h *LabelHandler) List(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
-	labels, err := h.labelSvc.ListByWorkspace(c.Request().Context(), ws.ID)
+	var projectID *string
+	if raw := c.QueryParam("project_id"); raw != "" {
+		projectID = &raw
+	}
+	labels, err := h.labelSvc.ListByWorkspace(c.Request().Context(), ws.ID, projectID)
 	if err != nil {
-		return response.InternalError(c)
+		return labelError(c, err)
 	}
 	resp := make([]dto.LabelResponse, len(labels))
 	for i, l := range labels {
@@ -49,9 +54,19 @@ func (h *LabelHandler) Create(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	label, err := h.labelSvc.Create(c.Request().Context(), ws.ID, req)
 	if err != nil {
-		return response.InternalError(c)
+		return labelError(c, err)
 	}
 	return response.Success(c, http.StatusCreated, toLabelResponse(*label))
+}
+
+func labelError(c *echo.Context, err error) error {
+	if errors.Is(err, service.ErrLabelProject) {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+	}
+	if errors.Is(err, service.ErrLabelNameTaken) {
+		return response.Error(c, http.StatusConflict, "CONFLICT", err.Error())
+	}
+	return response.InternalError(c)
 }
 
 func (h *LabelHandler) Update(c *echo.Context) error {
@@ -66,7 +81,7 @@ func (h *LabelHandler) Update(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	label, err := h.labelSvc.Update(c.Request().Context(), ws.ID, id, req)
 	if err != nil {
-		return response.InternalError(c)
+		return labelError(c, err)
 	}
 	return response.Success(c, http.StatusOK, toLabelResponse(*label))
 }

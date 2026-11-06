@@ -748,3 +748,7 @@ func TestIssueService_GetHistory(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, result, 1)
 }
+
+func (m *mockIssueRepo) ValidateLabelScope(ctx context.Context, projectID *uuid.UUID, labelIDs []uuid.UUID) error {
+	return nil
+}

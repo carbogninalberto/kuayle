@@ -3,6 +3,10 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
+	import SelectField from '$lib/components/shared/SelectField.svelte';
+	import type { Project } from '$lib/types/project';
+	import { m } from '$lib/paraglide/messages.js';
+	import { getLocale, setLocale } from '$lib/paraglide/runtime.js';
 
 	let {
 		open = $bindable(false),
@@ -10,6 +14,8 @@
 		initialName = '',
 		initialColor = '#6366f1',
 		initialDescription = '',
+		initialProjectId = null,
+		projects = [],
 		onsubmit
 	}: {
 		open: boolean;
@@ -17,12 +23,24 @@
 		initialName?: string;
 		initialColor?: string;
 		initialDescription?: string;
-		onsubmit: (data: { name: string; color: string; description?: string }) => void;
+		/** The label's project; null = workspace-wide. Fixed once the label exists. */
+		initialProjectId?: string | null;
+		/** When given, create mode offers a project to scope the label to. */
+		projects?: Project[];
+		onsubmit: (data: { name: string; color: string; description?: string; project_id?: string }) => void;
 	} = $props();
 
 	let name = $state('');
 	let color = $state('#6366f1');
 	let description = $state('');
+	let projectId = $state<string | null>(null);
+	/** Scoped to a project the user cannot list: shown honestly instead of as "All projects". */
+	let unknownScope = $derived(projectId !== null && !projects.some((p) => p.id === projectId));
+	let scopeOptions = $derived([
+		{ value: 'workspace', label: m['settings.labels.scope_workspace']() },
+		...projects.map((p) => ({ value: p.id, label: p.name })),
+		...(unknownScope && projectId ? [{ value: projectId, label: m['settings.labels.other_projects'](), disabled: true }] : [])
+	]);
 
 	const PRESET_COLORS = [
 		'#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4',
@@ -34,6 +52,7 @@
 			name = initialName;
 			color = initialColor;
 			description = initialDescription;
+			projectId = initialProjectId;
 		}
 	});
 
@@ -43,7 +62,8 @@
 		onsubmit({
 			name: name.trim(),
 			color,
-			description: description.trim() || undefined
+			description: description.trim() || undefined,
+			project_id: mode === 'create' ? (projectId ?? undefined) : undefined
 		});
 		open = false;
 	}
@@ -54,9 +74,9 @@
 		<form onsubmit={handleSubmit}>
 			<div class="px-5 pt-5 pb-4 space-y-4">
 				<div>
-					<h2 class="text-base font-semibold text-[var(--color-text-primary)]">
+					<Dialog.Title class="text-base font-semibold leading-normal text-[var(--color-text-primary)]">
 						{mode === 'create' ? 'Create label' : 'Edit label'}
-					</h2>
+					</Dialog.Title>
 					<p class="mt-0.5 text-xs text-[var(--color-text-tertiary)]">Labels help categorize and filter issues.</p>
 				</div>
 
@@ -69,6 +89,20 @@
 						class=""
 					/>
 				</div>
+
+				{#if projects.length > 0}
+					<div class="space-y-1.5">
+						<Label class="text-xs text-[var(--color-text-secondary)]">{m['settings.labels.scope']()}</Label>
+						<SelectField
+							aria-label={m['settings.labels.scope']()}
+							class="w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none"
+							disabled={mode === 'edit'}
+							bind:value={() => projectId ?? 'workspace', (value) => (projectId = value === 'workspace' ? null : value)}
+							options={scopeOptions}
+						/>
+						<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.labels.scope_hint']()}</p>
+					</div>
+				{/if}
 
 				<div class="space-y-1.5">
 					<Label class="text-xs text-[var(--color-text-secondary)]">Color</Label>

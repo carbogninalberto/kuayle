@@ -5,9 +5,10 @@ import (
 	"database/sql"
 	"errors"
 
-	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jmoiron/sqlx"
+	"github.com/kuayle/kuayle-backend/internal/domain"
 )
 
 type LabelRepository struct {
@@ -18,38 +19,83 @@ func NewLabelRepository(db *sqlx.DB) *LabelRepository {
 	return &LabelRepository{db: db}
 }
 
+// ErrLabelProjectNotVisible is returned by Create when the label's project
+// does not exist in the workspace or the caller cannot see it.
+var ErrLabelProjectNotVisible = errors.New("label project not found")
+
+// ErrLabelNameTaken is returned by Create and Update when another active label
+// of the same scope (workspace-wide, or one project) has the name, ignoring case.
+var ErrLabelNameTaken = errors.New("label name taken in its scope")
+
+// labelNameConflict maps a violation of migration 115's per-scope unique name
+// index, which also catches creates and renames racing past ExistsByName.
+func labelNameConflict(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "idx_labels_scope_name" {
+		return ErrLabelNameTaken
+	}
+	return err
+}
+
+// Create checks the project's visibility in the same statement as the insert,
+// after the privacy barrier, so a project that became hidden meanwhile is not
+// written to.
 func (r *LabelRepository) Create(ctx context.Context, label *domain.Label) error {
-	query := `INSERT INTO labels (id, workspace_id, name, color, description, parent_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING created_at, updated_at`
-	return r.db.QueryRowContext(ctx, query, label.ID, label.WorkspaceID, label.Name, label.Color, label.Description, label.ParentID).Scan(&label.CreatedAt, &label.UpdatedAt)
+	tx, err := beginConversationTransaction(ctx, r.db)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	query := `INSERT INTO labels (id, workspace_id, name, color, description, parent_id, project_id)
+		SELECT $1, $2, $3, $4, $5, $6, $7 WHERE $7::uuid IS NULL OR EXISTS (
+			SELECT 1 FROM projects label_project WHERE label_project.id = $7::uuid AND label_project.workspace_id = $2 AND ` + projectVisible(ctx, "label_project.workspace_id", "label_project.team_id") + `)
+		RETURNING created_at, updated_at`
+	err = tx.QueryRowContext(ctx, query, label.ID, label.WorkspaceID, label.Name, label.Color, label.Description, label.ParentID, label.ProjectID).Scan(&label.CreatedAt, &label.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrLabelProjectNotVisible
+	}
+	if err != nil {
+		return labelNameConflict(err)
+	}
+	return tx.Commit()
 }
 
 func (r *LabelRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Label, error) {
 	var label domain.Label
-	err := r.db.GetContext(ctx, &label, `SELECT * FROM labels WHERE id = $1 AND deleted_at IS NULL`, id)
+	err := r.db.GetContext(ctx, &label, `SELECT * FROM labels WHERE id = $1 AND deleted_at IS NULL AND `+labelVisible(ctx, "labels"), id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	return &label, err
 }
 
-func (r *LabelRepository) ListByWorkspace(ctx context.Context, workspaceID uuid.UUID) ([]domain.Label, error) {
+// ListByWorkspace returns every label of the workspace. With a projectID it
+// returns the workspace-wide labels plus that project's own.
+func (r *LabelRepository) ListByWorkspace(ctx context.Context, workspaceID uuid.UUID, projectID *uuid.UUID) ([]domain.Label, error) {
 	var labels []domain.Label
-	err := r.db.SelectContext(ctx, &labels, `SELECT * FROM labels WHERE workspace_id = $1 AND deleted_at IS NULL ORDER BY name`, workspaceID)
+	if projectID == nil {
+		err := r.db.SelectContext(ctx, &labels, `SELECT * FROM labels WHERE workspace_id = $1 AND deleted_at IS NULL AND `+labelVisible(ctx, "labels")+` ORDER BY name`, workspaceID)
+		return labels, err
+	}
+	err := r.db.SelectContext(ctx, &labels, `SELECT * FROM labels WHERE workspace_id = $1 AND (project_id IS NULL OR project_id = $2) AND deleted_at IS NULL AND `+labelVisible(ctx, "labels")+` ORDER BY name`, workspaceID, *projectID)
 	return labels, err
 }
 
 func (r *LabelRepository) Update(ctx context.Context, label *domain.Label) error {
-	query := `UPDATE labels SET name = $1, color = $2, description = $3, updated_at = NOW() WHERE id = $4 RETURNING updated_at`
-	return r.db.QueryRowContext(ctx, query, label.Name, label.Color, label.Description, label.ID).Scan(&label.UpdatedAt)
+	query := `UPDATE labels SET name = $1, color = $2, description = $3, updated_at = NOW() WHERE id = $4 AND ` + labelVisible(ctx, "labels") + ` RETURNING updated_at`
+	return labelNameConflict(r.db.QueryRowContext(ctx, query, label.Name, label.Color, label.Description, label.ID).Scan(&label.UpdatedAt))
 }
 
 func (r *LabelRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.ExecContext(ctx, `UPDATE labels SET deleted_at = NOW() WHERE id = $1`, id)
+	_, err := r.db.ExecContext(ctx, `UPDATE labels SET deleted_at = NOW() WHERE id = $1 AND `+labelVisible(ctx, "labels"), id)
 	return err
 }
 
-func (r *LabelRepository) ExistsByName(ctx context.Context, workspaceID uuid.UUID, name string) (bool, error) {
+// ExistsByName reports whether the name is taken within one scope: the
+// workspace-wide labels (projectID nil) or a single project's labels. A label
+// being renamed passes its own ID as excludeID (uuid.Nil excludes nothing).
+func (r *LabelRepository) ExistsByName(ctx context.Context, workspaceID uuid.UUID, projectID *uuid.UUID, name string, excludeID uuid.UUID) (bool, error) {
 	var exists bool
-	err := r.db.GetContext(ctx, &exists, `SELECT EXISTS(SELECT 1 FROM labels WHERE workspace_id = $1 AND LOWER(name) = LOWER($2) AND deleted_at IS NULL)`, workspaceID, name)
+	err := r.db.GetContext(ctx, &exists, `SELECT EXISTS(SELECT 1 FROM labels WHERE workspace_id = $1 AND project_id IS NOT DISTINCT FROM $2::uuid AND LOWER(name) = LOWER($3) AND id <> $4 AND deleted_at IS NULL)`, workspaceID, projectID, name, excludeID)
 	return exists, err
 }

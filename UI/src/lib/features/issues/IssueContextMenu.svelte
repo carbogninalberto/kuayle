@@ -6,6 +6,7 @@
 	import { teamStatusesState } from './team-statuses.state.svelte';
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import type { Label } from '$lib/types/label';
+	import { labelAppliesTo } from '$lib/features/labels/label-scope';
 	import type { Project } from '$lib/types/project';
 	import type { Cycle } from '$lib/types/cycle';
 	import * as ContextMenu from '$lib/components/ui/context-menu';
@@ -72,6 +73,8 @@
 		removeLabel?: string;
 		onchanged?: () => void;
 	} = $props();
+	// Labels of another project do not apply to this issue.
+	const applicableLabels = $derived(labels.filter((label) => labelAppliesTo(label, issue.project_id)));
 
 	type PickerMode = 'sub_issue_of' | 'parent_of';
 
@@ -302,13 +305,13 @@
 				</ContextMenu.Sub>
 			{/if}
 
-			{#if labels.length > 0}
+			{#if applicableLabels.length > 0}
 				<ContextMenu.Sub>
 					<ContextMenu.SubTrigger>
 						<span class={rowClass}><Tag class={iconClass} />{m['common.context_menu.labels']()}</span>
 					</ContextMenu.SubTrigger>
 					<ContextMenu.SubContent class="w-48">
-						{#each labels as label}
+						{#each applicableLabels as label}
 							{@const isSelected = (issue.labels ?? []).some((l) => l.id === label.id)}
 							<ContextMenu.CheckboxItem
 								checked={isSelected}

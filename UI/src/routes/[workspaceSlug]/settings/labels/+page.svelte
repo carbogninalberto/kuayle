@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
+	import { listProjects } from '$lib/api/projects';
+	import type { Project } from '$lib/types/project';
 	import { listLabels, createLabel, updateLabel, deleteLabel } from '$lib/api/labels';
 	import type { Label } from '$lib/types/label';
 	import LabelDialog from '$lib/features/labels/LabelDialog.svelte';
@@ -14,6 +16,21 @@
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	let labels = $state<Label[]>([]);
+	let projects = $state<Project[]>([]);
+	// Workspace-wide labels first, then one group per project that has labels.
+	const groups = $derived.by(() => {
+		const out: { id: string | null; name: string; labels: Label[] }[] = [
+			{ id: null, name: m['settings.labels.scope_workspace'](), labels: labels.filter((l) => !l.project_id) }
+		];
+		for (const project of projects) {
+			const own = labels.filter((l) => l.project_id === project.id);
+			if (own.length > 0) out.push({ id: project.id, name: project.name, labels: own });
+		}
+		// Labels of a project this user cannot list stay reachable, so they can still be edited or deleted.
+		const orphans = labels.filter((l) => l.project_id && !projects.some((p) => p.id === l.project_id));
+		if (orphans.length > 0) out.push({ id: 'other', name: m['settings.labels.other_projects'](), labels: orphans });
+		return out.filter((g) => g.labels.length > 0);
+	});
 	let loading = $state(true);
 	let showCreate = $state(false);
 	let editingLabel = $state<Label | null>(null);
@@ -22,13 +39,13 @@
 
 	onMount(async () => {
 		try {
-			labels = await listLabels(slug);
+			[labels, projects] = await Promise.all([listLabels(slug), listProjects(slug).catch(() => [] as Project[])]);
 		} finally {
 			loading = false;
 		}
 	});
 
-	async function handleCreate(data: { name: string; color: string; description?: string }) {
+	async function handleCreate(data: { name: string; color: string; description?: string; project_id?: string }) {
 		try {
 			const label = await createLabel(slug, data);
 			labels = [...labels, label];
@@ -89,44 +106,53 @@
 				action={{ label: m['settings.labels.new_label'](), onclick: () => (showCreate = true) }}
 			/>
 		{:else}
-			<div class="rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
-				{#each labels as label, i}
-					<div class="group flex items-center justify-between px-5 py-3.5 {i > 0 ? 'border-t border-[var(--app-border)]' : ''}">
-						<div class="flex items-center gap-3">
-							<div class="h-3.5 w-3.5 rounded-full shrink-0" style="background-color: {label.color}"></div>
-							<div>
-								<span class="text-sm text-[var(--color-text-primary)]">{label.name}</span>
-								{#if label.description}
-									<p class="text-xs text-[var(--color-text-tertiary)]">{label.description}</p>
-								{/if}
+			<div class="space-y-6">
+				{#each groups as group (group.id ?? 'workspace')}
+					<section>
+						{#if groups.length > 1}
+							<h2 class="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--color-text-tertiary)]">{group.name}</h2>
+						{/if}
+						<div class="rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
+					{#each group.labels as label, i}
+						<div class="group flex items-center justify-between px-5 py-3.5 {i > 0 ? 'border-t border-[var(--app-border)]' : ''}">
+							<div class="flex items-center gap-3">
+								<div class="h-3.5 w-3.5 rounded-full shrink-0" style="background-color: {label.color}"></div>
+								<div>
+									<span class="text-sm text-[var(--color-text-primary)]">{label.name}</span>
+									{#if label.description}
+										<p class="text-xs text-[var(--color-text-tertiary)]">{label.description}</p>
+									{/if}
+								</div>
+							</div>
+							<div class="flex items-center gap-1 opacity-0 group-hover:opacity-100">
+								<Popover.Root open={menuOpenId === label.id} onOpenChange={(open) => { menuOpenId = open ? label.id : null; }}>
+									<Popover.Trigger>
+										{#snippet child({ props })}
+											<Button {...props} variant="ghost" size="icon-sm" class="h-7 w-7">
+												<MoreHorizontal size={14} />
+											</Button>
+										{/snippet}
+									</Popover.Trigger>
+									<Popover.Content class="w-36 p-1" align="end">
+										<Button variant="plain" onclick={() => openEdit(label)}
+											class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+										>
+											<Pencil size={13} />
+											{m['settings.edit']()}
+										</Button>
+										<Button variant="plain" onclick={() => { menuOpenId = null; handleDelete(label.id); }}
+											class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-error)] hover:bg-[var(--color-bg-hover)]"
+										>
+											<Trash2 size={13} />
+											{m['settings.delete']()}
+										</Button>
+									</Popover.Content>
+								</Popover.Root>
 							</div>
 						</div>
-						<div class="flex items-center gap-1 opacity-0 group-hover:opacity-100">
-							<Popover.Root open={menuOpenId === label.id} onOpenChange={(open) => { menuOpenId = open ? label.id : null; }}>
-								<Popover.Trigger>
-									{#snippet child({ props })}
-										<Button {...props} variant="ghost" size="icon-sm" class="h-7 w-7">
-											<MoreHorizontal size={14} />
-										</Button>
-									{/snippet}
-								</Popover.Trigger>
-								<Popover.Content class="w-36 p-1" align="end">
-									<Button variant="plain" onclick={() => openEdit(label)}
-										class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
-									>
-										<Pencil size={13} />
-										{m['settings.edit']()}
-									</Button>
-									<Button variant="plain" onclick={() => { menuOpenId = null; handleDelete(label.id); }}
-										class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-error)] hover:bg-[var(--color-bg-hover)]"
-									>
-										<Trash2 size={13} />
-										{m['settings.delete']()}
-									</Button>
-								</Popover.Content>
-							</Popover.Root>
+					{/each}
 						</div>
-					</div>
+					</section>
 				{/each}
 			</div>
 		{/if}
@@ -136,6 +162,7 @@
 <LabelDialog
 	bind:open={showCreate}
 	mode="create"
+	{projects}
 	onsubmit={handleCreate}
 />
 
@@ -145,5 +172,7 @@
 	initialName={editingLabel?.name ?? ''}
 	initialColor={editingLabel?.color ?? '#6366f1'}
 	initialDescription={editingLabel?.description ?? ''}
+	initialProjectId={editingLabel?.project_id ?? null}
+	{projects}
 	onsubmit={handleEdit}
 />

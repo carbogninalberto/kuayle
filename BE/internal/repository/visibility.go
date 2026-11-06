@@ -49,6 +49,12 @@ func projectVisible(ctx context.Context, workspaceColumn, teamColumn string) str
 	return "(" + workspaceVisible(ctx, workspaceColumn) + " AND (" + teamColumn + " IS NULL OR " + teamVisible(ctx, teamColumn) + "))"
 }
 
+// labelVisible hides a project-scoped label from callers who cannot see its
+// project (a private-team project), as ProjectRepository.GetByID does.
+func labelVisible(ctx context.Context, labelColumn string) string {
+	return "(" + labelColumn + ".project_id IS NULL OR EXISTS (SELECT 1 FROM projects label_project WHERE label_project.id = " + labelColumn + ".project_id AND " + projectVisible(ctx, "label_project.workspace_id", "label_project.team_id") + "))"
+}
+
 func issueVisible(ctx context.Context, issueColumn string) string {
 	return "EXISTS (SELECT 1 FROM issues access_issue WHERE access_issue.id = " + issueColumn + " AND " + teamVisible(ctx, "access_issue.team_id") + ")"
 }
