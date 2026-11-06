@@ -183,6 +183,10 @@ func TestDockerImagesArePinned(t *testing.T) {
 	require.NoError(t, err)
 	from := regexp.MustCompile(`(?m)^FROM docker:([0-9.]+)-dind-rootless@sha256:[0-9a-f]{64}$`).FindStringSubmatch(string(dockerfile))
 	require.Len(t, from, 2, "the daemon image is pinned by version and digest")
+	// runc, the containerd shim and rootlesskit replace the upstream binaries,
+	// rebuilt with the golang.org/x/net floor (CVE-2026-78661).
+	require.Contains(t, string(dockerfile), "ARG XNET_VERSION=v0.62.0\n")
+	require.Contains(t, string(dockerfile), "COPY --from=runtime-builder /out/runc /out/containerd-shim-runc-v2 /out/rootlesskit /usr/local/bin/")
 	installer, err := os.ReadFile(filepath.Join(root, "devmachine", "common", "install-docker-cli.sh"))
 	require.NoError(t, err)
 	require.Contains(t, string(installer), "DOCKER_VERSION="+from[1]+"\n", "the CLI matches the daemon")

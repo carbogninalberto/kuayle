@@ -157,6 +157,8 @@ func TestDeveloperImagesBuildCrushWithPatchedGo(t *testing.T) {
 		// Release bumps update the pin, so the test checks that one exists.
 		require.Regexp(t, `(?m)^ARG CRUSH_VERSION=[0-9]+\.[0-9]+\.[0-9]+$`, dockerfile, image)
 		require.Contains(t, dockerfile, "github.com/charmbracelet/crush@v${CRUSH_VERSION}", image)
+		// A wrapper module raises the release's golang.org/x/net past CVE-2026-78661.
+		require.Contains(t, dockerfile, "ARG CRUSH_XNET_VERSION=v0.62.0\n", image)
 		require.Contains(t, dockerfile, "COPY --from=crush-build /out/crush /usr/local/bin/crush", image)
 	}
 	headless, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", "headless", "Dockerfile"))
