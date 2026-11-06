@@ -344,9 +344,11 @@ test.describe('workspace controls', () => {
 	});
 
 	test.describe('issue due date relative to today', () => {
-		// Fixed "now" so overdue, tomorrow and future dates are stable.
+		// Due dates are parsed as UTC midnight, so the browser runs in UTC with a
+		// fixed "now": overdue, tomorrow and later labels are the same anywhere.
+		test.use({ timezoneId: 'UTC' });
 		test.beforeEach(async ({ page }) => {
-			await page.clock.setFixedTime(new Date('2026-11-06T10:00:00'));
+			await page.clock.setFixedTime(new Date('2026-11-06T10:00:00Z'));
 		});
 
 		for (const { name, dueDate, label, color } of [
