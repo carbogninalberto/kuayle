@@ -310,7 +310,8 @@ UID 1000 under rootlesskit (slirp4netns networking, builtin port driver,
 overlayfs on its data volume). The container is never privileged and has no
 host mounts, socket or published host ports, a read-only root filesystem,
 tmpfs `/run`, `/tmp`, `/certs` and home, 40% of the machine's CPU and memory (at
-least 512 MB) and at least 1,024 PIDs. Rootless Docker needs, and gets only for
+least 512 MB; the whole machine's memory when it shares its memory, see
+[shared machine memory](#shared-machine-memory)) and at least 1,024 PIDs. Rootless Docker needs, and gets only for
 this container:
 
 - `CAP_SETUID` and `CAP_SETGID` (all others dropped) and no `no-new-privileges`,
@@ -631,7 +632,7 @@ A `custom` size picks CPU (1, 2, 4, 6, 8, 12 or 16 vCPU) and memory (2, 4, 8, 12
 
 **Task machine reuse.** A task first runs on a suitable machine that is already running, sharing it with other tasks when needed; only when none fits does it create a task machine (named `task-<reservation>`), which then stays running after the task for later tasks. `AgentTaskRepository.ReserveMachine` picks, under the workspace advisory lock and `FOR UPDATE SKIP LOCKED`, a machine that is: in the task's workspace and created by the task's creator (the task runs as its creator); `running` with desired `running` and not being deleted; a `standard` or `headless` machine of the task's environment (no environment means headless) and not an Environment Builder; allowed by the enabled workspace policy (a sudo machine only while sudo is allowed, a Docker machine only while Docker is allowed); running no agent session of the user's own and no pending or leased stop, pause, teardown, snapshot, check or custom tool operation; and working on fewer other active tasks than the policy's `task_machine_max_tasks` (default 2, from 1 to 4; `awaiting_review`, `blocked` and finished tasks do not count). Idle machines (no active agent run, no other active task, no queued validation or publication) come first: one already used by a task of the same issue, then the most recently active one (machines that already cache the repository or carry the task's agent break ties). Otherwise the least loaded busy machine is shared, with the same tie-breaks. Paused and stopped machines are left alone: their user chose that. A task keeps the machine it was given across attempts, retries and restarts (a stopped or paused one is started again for it). Each task works in its own checkout (`/workspace/tasks/<issue>-<task>`, branch `kuayle/<issue>-<task>`, agent sessions under `/workspace/.kuayle/agent-sessions/<task>`), so sharing never mixes work. `CreateAgentRun` re-checks the limit under the workspace and machine locks: a task attempt waits (the task retries) while the user's own agent session runs, a manual check or tool run is queued, or as many other tasks as the limit allows hold an attempt, validation, publication or cleanup there; a user's own agent run still needs a machine without task work. Validations and publications of a finished attempt run beside other tasks' attempts (`lockTaskMachine`), while manual checks and custom tool runs still need a machine without agent work (`lockMachineForCheck`). The manager leases one operation per machine at a time, except that agent tasks' `run_agent`, `checkout_issue`, `validate_agent` and `publish_agent` operations (a run with a `task_id`, a checkout with a task `scope_key`) run beside one another (`LeaseOperations`); the user's own agent runs and checkouts, which share the root workspace and its `/workspace/current` link, and lifecycle, preview, image update and sign-in operations still run alone. Tasks on one machine share its CPU, memory and disk: each agent container keeps its own share ceiling below, so two agents can together use up to twice the agent share, which Docker does not reserve. Set `task_machine_max_tasks` to 1 to give every task its own machine. The machine's agent is attached under the same policy checks as creating a machine with it. The Environment Builder dialog starts with the task machine CPU and memory.
 
-The manager assigns a bounded percentage of the profile to each service and applies Docker `NanoCPUs`, memory, memory-swap, and PID limits (`containerSharePercent` in `BE/internal/machine/docker.go`). On standard machines the IDE (which also serves the terminal) and browser each receive 25%, an agent run 35%, and the collector and egress 5% each. Headless machines (task machines among them) have no IDE or browser, so the agent receives 50% and the terminal container 40%; with a Docker daemon, which takes 40%, the agent and the terminal receive 35% each. Shares are per-container ceilings, not reservations: without Docker the headless shares add up to the machine, and with Docker the agent and terminal ceilings overlap (120%) so the terminal people use by hand is not squeezed below the agent. An 8 GB task machine therefore gives its agent 4 GB (2.8 GB with Docker). PID limits count threads, so the containers agents and people build in (agent runs, validation checks, custom tools, the IDE and the terminal) get at least 1,024 PIDs (`buildMinimumPids`) whatever their share of the machine's limit: with a 512-PID machine their 35% share was 179, which a Claude Code session plus a parallel `go test ./...` exceeds, and the failed thread and process creation then crashed git and the harness with SIGSEGV (exit 139). Other services keep their share, with at least 256 for the browser and 32 otherwise. Validation checks keep the 35% agent share because their compose services share another 30%. Non-builder workloads use a read-only root filesystem, tmpfs scratch paths, `CapDrop=ALL`, `no-new-privileges`, the Docker default seccomp profile or a configured replacement, and AppArmor where available. Environment Builder deliberately relaxes the developer container root filesystem so owners/admins can install tooling before snapshot, and a workspace that allows sudo relaxes its developer containers (see [Sudo in machines](#sudo-in-machines)). Docker's `json-file` logs rotate at 10 MiB with three files per container, and removal paths also remove anonymous image volumes.
+The manager assigns a bounded percentage of the profile to each service and applies Docker `NanoCPUs`, memory, memory-swap, and PID limits (`containerSharePercent` in `BE/internal/machine/docker.go`). On standard machines the IDE (which also serves the terminal) and browser each receive 25%, an agent run 35%, and the collector and egress 5% each. Headless machines (task machines among them) have no IDE or browser, so the agent receives 50% and the terminal container 40%; with a Docker daemon, which takes 40%, the agent and the terminal receive 35% each. Shares are per-container ceilings, not reservations: without Docker the headless shares add up to the machine, and with Docker the agent and terminal ceilings overlap (120%) so the terminal people use by hand is not squeezed below the agent. An 8 GB task machine therefore gives its agent 4 GB (2.8 GB with Docker). PID limits count threads, so the containers agents and people build in (agent runs, validation checks, custom tools, the IDE and the terminal) get at least 1,024 PIDs (`buildMinimumPids`) whatever their share of the machine's limit: with a 512-PID machine their 35% share was 179, which a Claude Code session plus a parallel `go test ./...` exceeds, and the failed thread and process creation then crashed git and the harness with SIGSEGV (exit 139). Other services keep their share, with at least 256 for the browser and 32 otherwise. Validation checks keep the 35% agent share because their compose services share another 30%. These memory shares apply to machines that do not share their memory (below); CPU and PID shares always apply. Non-builder workloads use a read-only root filesystem, tmpfs scratch paths, `CapDrop=ALL`, `no-new-privileges`, the Docker default seccomp profile or a configured replacement, and AppArmor where available. Environment Builder deliberately relaxes the developer container root filesystem so owners/admins can install tooling before snapshot, and a workspace that allows sudo relaxes its developer containers (see [Sudo in machines](#sudo-in-machines)). Docker's `json-file` logs rotate at 10 MiB with three files per container, and removal paths also remove anonymous image volumes.
 
 **Live resize.** `PATCH /dev-machines/:machineId` with any of `cpu_millis`,
 `memory_mb` and `disk_gb` (omitted values keep the current size; a request
@@ -691,7 +692,9 @@ killed compiler included); the manager also follows Docker `oom` events for
 Kuayle containers (terminal, editor, Docker daemon, check services) as they
 happen, reporting each container once per minute. A kill records
 `resource_limit_kind=memory` with a message such as "Out of memory: the agent
-container reached its 1.4 GiB memory limit. Resize the machine or raise the task
+container reached its 1.4 GiB memory limit (or, on a machine that shares its
+memory, "the machine reached its 16 GiB memory limit and a process in the agent
+container was stopped"). Resize the machine or raise the task
 machine memory." on the machine (shown as an alert on the machine page until a
 resize clears it), the `resource.memory_limit` event, a `Kuayle:` note in the run
 or check log, the run's `error_message` and, for a failed task attempt, the task
@@ -713,6 +716,49 @@ Workspace policy controls:
 - whether custom providers are allowed;
 - whether new machines get their own Docker daemon (`allow_docker`, default off);
 - whether the developer containers of new machines allow sudo (`allow_sudo`, default off).
+
+### Shared machine memory
+
+Fixed memory shares strand memory: on a 16 GB headless machine with Docker the
+daemon container was capped at 6.4 GiB and its Node build was killed while the
+terminal's 5.6 GiB sat unused. When the host's Docker daemon uses the systemd
+cgroup driver with cgroup v2, every container of a **new** machine runs in one
+systemd slice, `kuayle-<routing key>.slice` (a child of `kuayle.slice`), whose
+`MemoryMax` is the machine's memory and whose `MemorySwapMax` is
+`DEV_MACHINE_SWAP_PERCENT` of it (default 50). Workload containers (editor,
+terminal, browser, agent runs, checks, custom tools, the Docker daemon and check
+services) get the machine's memory as their own limit and unlimited swap, so any
+of them may use the whole machine; when the machine as a whole runs out, the
+kernel stops the largest process in the slice and the alert reads "Out of memory:
+the machine reached its 16 GiB memory limit and a process in the Docker daemon
+container was stopped." The collector and egress proxy keep their 5% limits
+inside the slice. CPU and PID shares are unchanged. Swap holds idle pages; a
+runaway process still reaches `MemoryMax` and is killed, and host swap is shared
+by all machines, so it is a ceiling rather than a reservation. Swapped pages are
+written unencrypted to the host's swap device like any other host memory.
+
+The machine network's `com.kuayle.memory-scope=machine` label records the choice
+when the machine is created, after its slice limits are set, so a machine never
+mixes both models; machines created earlier, on hosts without systemd/cgroup v2,
+with `DEV_MACHINE_MEMORY_SLICES=off`, or whose slice could not be prepared keep
+per-container shares until they are recreated. Containers on a shared machine
+carry the same label, which resize and out-of-memory reporting read. Limits are
+stored as persistent systemd properties (`/etc/systemd/system.control`), so they
+apply before the slice exists and survive host reboots; Spawn re-applies them,
+resize applies the new size to the slice before its containers, and teardown
+stops the slice and reverts its properties (`BE/internal/machine/memory_slice.go`).
+
+The manager itself runs as UID 1000 without capabilities, and systemd accepts
+unit changes from root only. It therefore runs each change in a short-lived
+helper container from its own image (found by inspecting its own container):
+`machine-manager memory-slice probe|apply|remove`, as UID 0 with no
+capabilities, `no-new-privileges`, no network, a read-only root filesystem and
+only systemd's private socket (`/run/systemd/private`) bind-mounted. The helper
+calls `SetUnitProperties`, `StopUnit` and `RevertUnitFiles` and accepts only
+names matching `kuayle-[a-z0-9]+.slice` (`BE/internal/systemdslice`). The manager
+probes the helper at startup and logs why new machines keep container shares
+when it is unavailable (for example on Docker Desktop or with user-namespace
+remapping).
 
 ### Disk Limitation
 
@@ -1078,6 +1124,7 @@ Required configuration when enabled:
 | `DEV_MACHINE_DOCKER_ROOT` | Host path of Docker's data root, mounted read-only into the manager (default `/var/lib/docker`) |
 | `DEV_MACHINE_HOST_DISK_PATH` | In-container path measured for host free space (Compose sets the mount point; falls back to a running collector when empty) |
 | `DEV_MACHINE_HOST_RESERVED_CPU_MILLIS`, `DEV_MACHINE_HOST_RESERVED_MEMORY_MB`, `DEV_MACHINE_CPU_OVERCOMMIT` | Host admission for spawning/starting machines (defaults 1000, 2048, 2): Docker host CPU/memory minus these reserves bounds the sum of live machines' requests; memory is never overcommitted, CPU up to the factor. Machines that do not fit wait in the queue without consuming retries |
+| `DEV_MACHINE_MEMORY_SLICES`, `DEV_MACHINE_SWAP_PERCENT` | Shared machine memory (defaults `auto`, 50): with `auto`, new machines on hosts with Docker's systemd cgroup driver and cgroup v2 share their memory in one systemd slice, with a swap ceiling of the given percentage of the machine's memory (0-100); `off` keeps per-container shares. See [shared machine memory](#shared-machine-memory) |
 | `DEV_MACHINE_AGENT_GIT_NAME`, `DEV_MACHINE_AGENT_GIT_EMAIL` | Default commit author for agent task publications (default `Kuayle Agent <agent@kuayle.invalid>`). A workspace can override it with a username and verified email in its coding-agent policy (migration 70), so GitHub attributes agent commits to that account. Pull requests are opened by the GitHub App installation. Control characters and angle brackets are rejected |
 | `DEV_MACHINE_DOCKER_GID` | Numeric host group owner of the mounted Docker socket; obtain it on Linux with `stat -c '%g' /var/run/docker.sock` (Docker Desktop commonly uses `0`) |
 | `DEV_MACHINE_HEADLESS_IMAGE` | Headless developer and new built-in provider image (default `ghcr.io/kuayle/dev-machine-headless:0.1.0`) |

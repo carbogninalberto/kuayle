@@ -126,12 +126,16 @@ func (r *DockerRuntime) RunTool(ctx context.Context, machine *domain.DevMachine,
 			return nil, err
 		}
 	}
+	// The same share and isolation as a check container.
+	hostConfig := r.secureHostConfig(machine, "agent", *machine.DockerNetworkName, *machine.WorkspaceVolumeName, true)
+	if err := r.scopeMachineMemory(ctx, machine, "agent", labels, hostConfig); err != nil {
+		return nil, err
+	}
 	result, err := r.client.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Name: name,
 		Config: &container.Config{Image: image, User: "1000:1000", WorkingDir: run.WorkingDirectory, Entrypoint: []string{"sh"}, Cmd: cmd, Labels: labels,
 			AttachStdout: true, AttachStderr: true, Env: env},
-		// The same share and isolation as a check container.
-		HostConfig:       r.secureHostConfig(machine, "agent", *machine.DockerNetworkName, *machine.WorkspaceVolumeName, true),
+		HostConfig:       hostConfig,
 		NetworkingConfig: &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{*machine.DockerNetworkName: {}}},
 	})
 	if err != nil {

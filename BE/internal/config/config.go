@@ -141,6 +141,11 @@ type DevMachineConfig struct {
 	HostReservedCPUMillis int     `envconfig:"DEV_MACHINE_HOST_RESERVED_CPU_MILLIS" default:"1000"`
 	HostReservedMemoryMB  int     `envconfig:"DEV_MACHINE_HOST_RESERVED_MEMORY_MB" default:"2048"`
 	CPUOvercommit         float64 `envconfig:"DEV_MACHINE_CPU_OVERCOMMIT" default:"2"`
+	// MemorySlices lets each new machine's containers share its memory in one
+	// systemd slice when the host supports it (auto), or never (off).
+	// SwapPercent is the slice's swap ceiling as a percentage of its memory.
+	MemorySlices string `envconfig:"DEV_MACHINE_MEMORY_SLICES" default:"auto"`
+	SwapPercent  int    `envconfig:"DEV_MACHINE_SWAP_PERCENT" default:"50"`
 }
 
 const (
@@ -221,6 +226,12 @@ func (c DevMachineConfig) Validate(frontendURL string) error {
 	}
 	if c.CPUOvercommit != 0 && (c.CPUOvercommit < 1 || c.CPUOvercommit > 10) {
 		return fmt.Errorf("DEV_MACHINE_CPU_OVERCOMMIT must be between 1 and 10")
+	}
+	if c.MemorySlices != "" && c.MemorySlices != "auto" && c.MemorySlices != "off" {
+		return fmt.Errorf("DEV_MACHINE_MEMORY_SLICES must be auto or off")
+	}
+	if c.SwapPercent < 0 || c.SwapPercent > 100 {
+		return fmt.Errorf("DEV_MACHINE_SWAP_PERCENT must be between 0 and 100")
 	}
 	for _, value := range []string{c.AgentGitName, c.AgentGitEmail} {
 		if strings.ContainsFunc(value, func(r rune) bool { return unicode.IsControl(r) || r == '<' || r == '>' }) {

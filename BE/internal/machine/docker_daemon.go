@@ -159,8 +159,12 @@ func (r *DockerRuntime) createDockerService(ctx context.Context, machine *domain
 			Interval: 2 * time.Second, Timeout: 5 * time.Second, StartPeriod: 2 * time.Minute, Retries: 30,
 		},
 	}
+	hostConfig := r.dockerHostConfig(machine, networkName, workspaceVolume, dockerVolumeName(machine))
+	if err := r.scopeMachineMemory(ctx, machine, "docker", labels, hostConfig); err != nil {
+		return "", err
+	}
 	response, err := r.client.ContainerCreate(ctx, client.ContainerCreateOptions{
-		Config: config, HostConfig: r.dockerHostConfig(machine, networkName, workspaceVolume, dockerVolumeName(machine)),
+		Config: config, HostConfig: hostConfig,
 		NetworkingConfig: &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{networkName: {Aliases: []string{service.InternalHost, "docker"}}}},
 		Name:             service.ContainerName,
 	})

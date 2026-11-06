@@ -28,3 +28,14 @@ func TestDiskLimitMessageIsAResourceLimitReason(t *testing.T) {
 	require.False(t, IsResourceLimitReason("Native coding iteration failed; stopping execution before retry"))
 	require.False(t, IsResourceLimitReason(""))
 }
+
+// Production: a 16 GiB machine reported its Docker daemon container's 6.4 GiB
+// share. Machines whose containers share the machine's memory name the
+// machine's limit and the container whose process was stopped.
+func TestMachineMemoryLimitMessageNamesTheMachineLimit(t *testing.T) {
+	message := MachineMemoryLimitMessage("docker", 16<<30, false)
+	require.Equal(t, "Out of memory: the machine reached its 16 GiB memory limit and a process in the Docker daemon container was stopped. Resize the machine.", message)
+	require.True(t, IsResourceLimitReason(message))
+	require.Equal(t, "Out of memory: the machine reached its memory limit and a process in the agent container was stopped. Resize the machine or raise the task machine memory.",
+		MachineMemoryLimitMessage("agent", 0, true))
+}

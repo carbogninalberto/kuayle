@@ -120,6 +120,11 @@ type DockerRuntime struct {
 
 	dockerUsageMu sync.Mutex
 	dockerUsage   map[uuid.UUID]dockerUsageSample
+
+	// slices is set when machines may share their memory (memory_slice.go).
+	slices        memorySlices
+	memoryScopeMu sync.Mutex
+	memoryScopes  map[uuid.UUID]bool
 }
 
 func NewDockerRuntime(config DockerConfig) (*DockerRuntime, error) {
@@ -305,8 +310,11 @@ func (r *DockerRuntime) Spawn(ctx context.Context, machine *domain.DevMachine, s
 		}
 	}()
 
-	var err error
-	if networkCreated, err = r.ensureNetwork(ctx, networkName, true, labels); err != nil {
+	networkLabels, err := r.prepareMachineMemory(ctx, machine, networkName, labels)
+	if err != nil {
+		return "", "", nil, fmt.Errorf("prepare machine memory: %w", err)
+	}
+	if networkCreated, err = r.ensureNetwork(ctx, networkName, true, networkLabels); err != nil {
 		return "", "", nil, fmt.Errorf("create private network: %w", err)
 	}
 	if _, err := r.ensureNetwork(ctx, egressNetworkName, false, map[string]string{"com.kuayle.kind": "machine-egress"}); err != nil {
@@ -666,10 +674,7 @@ func (r *DockerRuntime) Teardown(ctx context.Context, machine *domain.DevMachine
 	if err := r.removeLiveInboxVolumes(ctx, "com.kuayle.machine-id="+machine.ID.String(), machine.ID); err != nil {
 		return err
 	}
-	networkName := "kuayle-machine-" + machine.RoutingKey
-	if machine.DockerNetworkName != nil && *machine.DockerNetworkName != "" {
-		networkName = *machine.DockerNetworkName
-	}
+	networkName := machineNetworkName(machine)
 	_, _ = r.client.NetworkDisconnect(ctx, networkName, client.NetworkDisconnectOptions{Container: r.config.GatewayContainerName, Force: true})
 	if err := r.removeManagedNetwork(ctx, networkName, machine.ID); err != nil {
 		return err
@@ -681,7 +686,18 @@ func (r *DockerRuntime) Teardown(ctx context.Context, machine *domain.DevMachine
 	if err := r.removeManagedVolume(ctx, volumeName, machine.ID); err != nil {
 		return err
 	}
-	return r.removeDockerVolume(ctx, machine)
+	if err := r.removeDockerVolume(ctx, machine); err != nil {
+		return err
+	}
+	// Removing a slice that never existed is a no-op, and a retried teardown
+	// whose network is already gone still removes it.
+	if r.slices != nil {
+		if err := r.slices.Remove(ctx, machine); err != nil {
+			return fmt.Errorf("remove machine memory slice: %w", err)
+		}
+	}
+	r.forgetMemoryScope(machine)
+	return nil
 }
 
 func (r *DockerRuntime) removeManagedContainer(ctx context.Context, containerID string, machineID uuid.UUID) error {
@@ -806,6 +822,9 @@ func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine
 		log.WithFields(log.Fields{"machine_id": machine.ID, "agent_run_id": run.ID}).WithError(err).Warn("live inbox could not be prepared")
 	} else {
 		hostConfig.Mounts = append(hostConfig.Mounts, liveInboxMount(machine, run))
+	}
+	if err := r.scopeMachineMemory(ctx, machine, "agent", labels, hostConfig); err != nil {
+		return nil, err
 	}
 	response, err := r.client.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config: &container.Config{
@@ -1016,6 +1035,9 @@ func (r *DockerRuntime) inspectMemoryLimit(ctx context.Context, execution *Agent
 	}
 	if result.Container.HostConfig != nil {
 		execution.MemoryLimitBytes = result.Container.HostConfig.Memory
+	}
+	if result.Container.Config != nil {
+		execution.MachineMemory = result.Container.Config.Labels[memoryScopeLabel] == memoryScopeMachine
 	}
 }
 
@@ -1448,9 +1470,13 @@ func (r *DockerRuntime) ensureService(ctx context.Context, machine *domain.DevMa
 	} else if service.ServiceType == "browser" {
 		containerConfig.Healthcheck = &container.HealthConfig{Test: []string{"CMD", "/usr/local/bin/kuayle-browser-healthcheck"}, Interval: 10 * time.Second, Timeout: 2 * time.Second, StartPeriod: 10 * time.Second, Retries: 6}
 	}
+	hostConfig := r.secureHostConfig(machine, service.ServiceType, networkName, volumeName, docker)
+	if err := r.scopeMachineMemory(ctx, machine, service.ServiceType, labels, hostConfig); err != nil {
+		return "", false, false, err
+	}
 	response, err := r.client.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config:           containerConfig,
-		HostConfig:       r.secureHostConfig(machine, service.ServiceType, networkName, volumeName, docker),
+		HostConfig:       hostConfig,
 		NetworkingConfig: &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{networkName: {Aliases: []string{service.InternalHost}}}},
 		Name:             service.ContainerName,
 	})

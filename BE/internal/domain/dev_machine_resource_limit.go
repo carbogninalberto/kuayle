@@ -26,11 +26,26 @@ func MemoryLimitMessage(service string, limitBytes int64, taskMachine bool) stri
 	if limitBytes > 0 {
 		limit = "its " + formatMemoryLimit(limitBytes) + " memory limit"
 	}
-	hint := "Resize the machine."
-	if taskMachine {
-		hint = "Resize the machine or raise the task machine memory."
+	return memoryLimitReasonPrefix + "the " + resourceLimitContainerName(service) + " reached " + limit + ". " + memoryLimitHint(taskMachine)
+}
+
+// MachineMemoryLimitMessage explains an out-of-memory kill on a machine whose
+// containers share its memory: the machine reached limitBytes (its size; zero
+// omits it) and the kernel stopped a process in the service's container.
+func MachineMemoryLimitMessage(service string, limitBytes int64, taskMachine bool) string {
+	limit := "its memory limit"
+	if limitBytes > 0 {
+		limit = "its " + formatMemoryLimit(limitBytes) + " memory limit"
 	}
-	return memoryLimitReasonPrefix + "the " + resourceLimitContainerName(service) + " reached " + limit + ". " + hint
+	return memoryLimitReasonPrefix + "the machine reached " + limit + " and a process in the " +
+		resourceLimitContainerName(service) + " was stopped. " + memoryLimitHint(taskMachine)
+}
+
+func memoryLimitHint(taskMachine bool) string {
+	if taskMachine {
+		return "Resize the machine or raise the task machine memory."
+	}
+	return "Resize the machine."
 }
 
 // DiskLimitMessage explains why a machine stopped at its workspace disk limit.
