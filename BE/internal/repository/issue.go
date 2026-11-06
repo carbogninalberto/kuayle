@@ -9,9 +9,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
-	"github.com/lib/pq"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
+	"github.com/lib/pq"
 )
 
 type IssueRepository struct {
@@ -146,10 +146,10 @@ func (r *IssueRepository) List(ctx context.Context, workspaceID uuid.UUID, param
 			where = append(where, `NOT EXISTS (
 				SELECT 1 FROM issue_labels il
 				INNER JOIN labels l ON l.id = il.label_id AND l.deleted_at IS NULL
-				WHERE il.issue_id = i.id
+				WHERE il.issue_id = i.id AND `+labelVisible(ctx, "l")+`
 			)`)
 		} else {
-			where = append(where, "EXISTS (SELECT 1 FROM issue_labels il WHERE il.issue_id = i.id AND il.label_id = :label_id)")
+			where = append(where, "EXISTS (SELECT 1 FROM issue_labels il JOIN labels l ON l.id = il.label_id WHERE il.issue_id = i.id AND il.label_id = :label_id AND "+labelVisible(ctx, "l")+")")
 			args["label_id"] = params.LabelID
 		}
 	}
@@ -205,6 +205,7 @@ func (r *IssueRepository) List(ctx context.Context, workspaceID uuid.UUID, param
 				WHERE il.issue_id = i.id
 				AND l.deleted_at IS NULL
 				AND (l.name ILIKE :search OR l.description ILIKE :search OR l.color ILIKE :search)
+				AND ` + labelVisible(ctx, "l") + `
 			)`,
 			`EXISTS (
 				SELECT 1 FROM teams t

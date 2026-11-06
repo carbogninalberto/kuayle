@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/kuayle/kuayle-backend/internal/domain"
+	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/stretchr/testify/require"
 )
 
@@ -199,6 +200,32 @@ func TestProjectScopedLabelVisibilityAndMoveLockPostgres(t *testing.T) {
 		one, err = issues.GetLabels(ownerCtx, issueID)
 		require.NoError(t, err)
 		require.ElementsMatch(t, []string{"global", "secret"}, names(one))
+
+		found := func(ctx context.Context, params dto.IssueFilterParams) int {
+			t.Helper()
+			_, total, err := issues.List(ctx, workspace, params)
+			require.NoError(t, err)
+			return total
+		}
+		require.Zero(t, found(memberCtx, dto.IssueFilterParams{Search: "secret"}), "search does not match a hidden label's name")
+		require.Zero(t, found(memberCtx, dto.IssueFilterParams{LabelID: secret.ID.String()}), "filtering by a hidden label matches nothing")
+		withoutLabels := found(memberCtx, dto.IssueFilterParams{LabelID: "none"})
+		exec(`DELETE FROM issue_labels WHERE issue_id=$1 AND label_id=$2`, issueID, global.ID)
+		require.Equal(t, withoutLabels+1, found(memberCtx, dto.IssueFilterParams{LabelID: "none"}), "an issue whose only label is hidden counts as unlabelled")
+		exec(`INSERT INTO issue_labels(issue_id,label_id) VALUES($1,$2)`, issueID, global.ID)
+		require.Equal(t, 1, found(ownerCtx, dto.IssueFilterParams{Search: "secret"}))
+		require.Equal(t, 1, found(ownerCtx, dto.IssueFilterParams{LabelID: secret.ID.String()}))
+
+		favorites := NewFavoriteRepository(db)
+		hiddenFavorite := &domain.Favorite{ID: uuid.New(), WorkspaceID: workspace, UserID: member, EntityType: "label", EntityID: secret.ID}
+		require.Error(t, favorites.Create(memberCtx, hiddenFavorite), "a hidden label cannot be favorited")
+		require.NoError(t, favorites.Create(memberCtx, &domain.Favorite{ID: uuid.New(), WorkspaceID: workspace, UserID: member, EntityType: "label", EntityID: open.ID}))
+		_, err = db.Exec(`INSERT INTO favorites(id,workspace_id,user_id,entity_type,entity_id,position) VALUES($1,$2,$3,'label',$4,9)`, hiddenFavorite.ID, workspace, member, secret.ID)
+		require.NoError(t, err)
+		listed, err := favorites.ListByUser(memberCtx, workspace, member)
+		require.NoError(t, err)
+		require.Len(t, listed, 1, "a favorite of a label that became hidden is not listed")
+		require.Equal(t, open.ID, listed[0].EntityID)
 	})
 
 	t.Run("SetLabels waits for a project move in flight", func(t *testing.T) {
