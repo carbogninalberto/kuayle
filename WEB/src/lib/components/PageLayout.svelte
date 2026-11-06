@@ -9,6 +9,7 @@
 	import { url, type PageMeta } from '$lib/config/site';
 	import { webPageLd, type Crumb } from '$lib/data/routes';
 	import { reveal } from '$lib/actions/reveal';
+	import type { Snippet } from 'svelte';
 
 	interface Section {
 		heading: string;
@@ -34,7 +35,8 @@
 		hubLinks,
 		hubTitle,
 		currentSlug,
-		relatedLinks
+		relatedLinks,
+		children
 	}: {
 		meta: PageMeta;
 		heading: string;
@@ -46,6 +48,7 @@
 		hubTitle: string;
 		currentSlug: string;
 		relatedLinks?: HubLink[];
+		children?: Snippet;
 	} = $props();
 
 	const jsonLd = $derived(
@@ -110,6 +113,10 @@
 					</section>
 				{/each}
 			</div>
+
+			{#if children}
+				<div class="mt-14">{@render children()}</div>
+			{/if}
 
 			{#if footnotes}
 				<aside class="mt-12 rounded-lg border border-white/5 bg-white/[0.02] p-4 text-xs text-muted-foreground">

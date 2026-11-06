@@ -7,9 +7,9 @@ import type { ContentRegistry } from './routes';
 export const alternatives: ContentRegistry = {
 	'open-source-issue-trackers': {
 		slug: 'open-source-issue-trackers',
-		title: 'Open Source Issue Trackers — Alternatives to Kuayle',
+		title: 'Best Open Source Issue Trackers in 2026, Compared | Kuayle',
 		description:
-			'Compare open-source issue tracker categories by license, deployment model, product scope, and commercial edition structure.',
+			'The best open source issue and bug trackers in 2026, compared by licence, edition model, self-hosting, price, SSO and MCP, with first-party sources.',
 		heading: 'Open Source Issue Trackers',
 		intro:
 			'“Open source issue tracker” describes several different products: focused trackers, project-management suites and issue systems attached to source hosting. License and edition model matter as much as the feature list.',
@@ -54,14 +54,14 @@ export const alternatives: ContentRegistry = {
 				]
 			}
 		],
-		footnotes: 'Kuayle details updated: October 22, 2026. Other projects last reviewed: July 11, 2026. This is an informational overview, not an endorsement. Tool availability, features, and licensing can change. Always review the latest project documentation directly.'
+		footnotes: 'Kuayle details verified against v0.2.15 on November 6, 2026. The comparison table was checked against each project’s own pages on November 6, 2026. This is an informational overview, not an endorsement. Tool availability, features, and licensing can change. Always review the latest project documentation directly.'
 	},
 
 	'self-hosted-issue-trackers': {
 		slug: 'self-hosted-issue-trackers',
-		title: 'Self-Hosted Issue Trackers — Alternatives to Kuayle',
+		title: 'Best Self-Hosted Issue Trackers in 2026, Compared | Kuayle',
 		description:
-			'Compare self-hosted issue trackers by deployment footprint, license, update path, storage, backup responsibilities, and product scope.',
+			'The best self-hosted issue trackers and project management tools in 2026, compared by deployment, licence, price, SSO, importers and operator work.',
 		heading: 'Self-Hosted Issue Trackers',
 		intro:
 			'Self-hosting moves control—and operational responsibility—to your team. Compare the application and the work required to keep it available, secure and recoverable.',
@@ -89,7 +89,7 @@ export const alternatives: ContentRegistry = {
 			},
 			{
 				heading: 'What to consider',
-				body: 'Evaluate the deployment you will actually operate, not only a product screenshot. Kuayle’s reference stack uses five services in one Compose file, with an update script and an optional in-app updater; other products may support additional deployment methods or require more services.',
+				body: 'Evaluate the deployment you will actually operate, not only a product screenshot. Kuayle’s reference stack runs five core services in one Compose file (Caddy, PostgreSQL, Redis, API and frontend), with optional Dev Machines, voice and updater services; other products may support additional deployment methods or require more services.',
 				list: [
 					'Deployment and update procedure',
 					'Moving data between instances (Kuayle: workspace export and import)',
@@ -109,6 +109,6 @@ export const alternatives: ContentRegistry = {
 				]
 			}
 		],
-		footnotes: 'Kuayle details updated: October 22, 2026. Other projects last reviewed: July 11, 2026. This overview reflects publicly available information and is not a guarantee of current accuracy. Features, deployment options, and licensing change. Always consult each project\'s official documentation.'
+		footnotes: 'Kuayle details verified against v0.2.15 on November 6, 2026. The comparison table was checked against each project’s own pages on November 6, 2026. This overview reflects publicly available information and is not a guarantee of current accuracy. Features, deployment options, and licensing change. Always consult each project\'s official documentation.'
 	}
 };

@@ -36,9 +36,19 @@ const ROUTES = [
 	'/roadmap',
 	'/privacy',
 	'/compare',
-	'/compare/kuayle-vs-linear',
-	'/compare/kuayle-vs-plane',
 	'/alternatives',
+	'/linear-alternative',
+	'/jira-alternative',
+	'/plane-alternative',
+	'/asana-alternative',
+	'/clickup-alternative',
+	'/youtrack-alternative',
+	'/openproject-alternative',
+	'/taiga-alternative',
+	'/gitlab-alternative',
+	'/trello-alternative',
+	'/itsaplan-alternative',
+	'/jira-data-center-end-of-life',
 	'/alternatives/open-source-issue-trackers',
 	'/alternatives/self-hosted-issue-trackers'
 ];
@@ -98,8 +108,30 @@ const DEV_MACHINE_STATUS_ROUTES = [
 	'/self-hosting/dev-machines',
 	'/about',
 	'/roadmap',
-	'/compare/kuayle-vs-linear',
-	'/compare/kuayle-vs-plane'
+	'/linear-alternative',
+	'/plane-alternative'
+];
+
+// Old URLs kept as prerendered stubs: canonical + immediate refresh to the new page, not in the sitemap.
+const MOVED_ROUTES = {
+	'/compare/kuayle-vs-linear': '/linear-alternative',
+	'/compare/kuayle-vs-plane': '/plane-alternative'
+};
+// Pages whose FAQ must be published as FAQPage structured data.
+const FAQ_ROUTES = [
+	'/linear-alternative',
+	'/jira-alternative',
+	'/plane-alternative',
+	'/asana-alternative',
+	'/clickup-alternative',
+	'/youtrack-alternative',
+	'/openproject-alternative',
+	'/taiga-alternative',
+	'/gitlab-alternative',
+	'/trello-alternative',
+	'/itsaplan-alternative',
+	'/jira-data-center-end-of-life',
+	'/compare'
 ];
 
 for (const route of Object.keys(contentModifiedDates)) {
@@ -216,6 +248,39 @@ for (const route of DEV_MACHINE_STATUS_ROUTES) {
 	if (!/Dev Machines/i.test(text)) fail(`${route}: missing Dev Machines status context`);
 	if (!/opt-in/i.test(text)) fail(`${route}: Dev Machines must be labeled opt-in`);
 	if (/\bunreleased\b|development[- ]branch/i.test(text)) fail(`${route}: Dev Machines ship in releases since v0.1.13`);
+}
+
+for (const [route, target] of Object.entries(MOVED_ROUTES)) {
+	const html = htmlFor(route);
+	if (!html) continue;
+	const canonical = html.match(/<link\s+[^>]*rel=["']canonical["'][^>]*>/i)?.[0];
+	if (!canonical || attribute(canonical, 'href') !== `${ORIGIN}${target}`) fail(`${route}: moved page must be canonical to ${target}`);
+	const refresh = html.match(/<meta\s+[^>]*http-equiv=["']refresh["'][^>]*>/i)?.[0];
+	if (!refresh || !attribute(refresh, 'content')?.endsWith(`url=${target}`)) fail(`${route}: moved page must refresh to ${target}`);
+	if (!html.includes(`href="${target}"`)) fail(`${route}: moved page must link to ${target}`);
+}
+
+for (const route of FAQ_ROUTES) {
+	const html = routeHtml.get(route);
+	if (!html) continue;
+	const items = [...html.matchAll(/<script\s+type=["']application\/ld\+json["']>([\s\S]*?)<\/script>/gi)].flatMap((block) => {
+		try {
+			const parsed = JSON.parse(block[1]);
+			return Array.isArray(parsed) ? parsed : [parsed];
+		} catch {
+			return [];
+		}
+	});
+	const faq = items.find((item) => item && item['@type'] === 'FAQPage');
+	if (!faq || !Array.isArray(faq.mainEntity) || faq.mainEntity.length < 4) {
+		fail(`${route}: missing FAQPage JSON-LD with at least four questions`);
+		continue;
+	}
+	const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+	for (const question of faq.mainEntity) {
+		if (!question?.name || !question?.acceptedAnswer?.text) fail(`${route}: FAQ entry is incomplete`);
+		else if (!text.includes(question.name.replace(/&/g, '&amp;'))) fail(`${route}: FAQ question is not visible on the page: ${question.name}`);
+	}
 }
 
 const savedViewsHtml = routeHtml.get('/features/views-and-triage');
