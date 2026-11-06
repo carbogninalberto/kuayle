@@ -255,30 +255,43 @@ func shareOtherTask(t *testing.T, db *sqlx.DB, task domain.AgentTask, machine uu
 }
 
 // The manager works on several tasks of one machine at once: an attempt,
-// checkout, validation or publication is leased beside another task's long
-// attempt, while lifecycle work still waits for the machine to be free.
+// checkout, validation or publication of one task is leased beside another
+// task's long attempt. The user's own agent runs and checkouts stay exclusive
+// (they share the root workspace and its current checkout link), and other
+// machine work waits.
 func TestOperationsOfSharedMachineTasksAreLeasedTogether(t *testing.T) {
-	url := os.Getenv("DATABASE_URL")
-	if url == "" {
-		t.Skip("DATABASE_URL is not set")
-	}
-	db := isolatedPrivacyDatabase(t, url)
-	fixture := newEnvironmentRaceFixture(t, db)
-	machine := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning, false)
-	insert := func(action, status string) uuid.UUID {
+	f := newMachineShareFixture(t)
+	machine := f.runningMachine(t, "1 minute")
+	other := f.workingTask(t, machine)
+	var issue uuid.UUID
+	require.NoError(t, f.db.Get(&issue, `SELECT issue_id FROM agent_tasks WHERE id=$1`, other))
+	installation, repository := uuid.New(), uuid.New()
+	f.exec(t, `INSERT INTO github_installations(id,workspace_id,installation_id,account_login,account_type,installed_by) VALUES($1,$2,1,'fixture','Organization',$3)`, installation, f.workspaceID, f.userID)
+	f.exec(t, `INSERT INTO github_repos(id,installation_id,workspace_id,github_repo_id,full_name,default_branch) VALUES($1,$2,$3,1,'fixture/share','main')`, repository, installation, f.workspaceID)
+	checkout := func(scope string) uuid.UUID {
 		t.Helper()
 		id := uuid.New()
-		_, err := db.Exec(`INSERT INTO dev_machine_operations(id,workspace_id,machine_id,action,status,generation,idempotency_key) VALUES($1,$2,$3,$4,'pending',1,$5)`, id, fixture.workspaceID, machine, action, "lease-"+id.String())
-		require.NoError(t, err)
-		if status == "leased" {
-			_, err = db.Exec(`UPDATE dev_machine_operations SET status='leased',lease_owner='other-manager',lease_expires_at=now()+interval '1 minute',attempts=1 WHERE id=$1`, id)
-			require.NoError(t, err)
-		}
+		f.exec(t, `INSERT INTO dev_machine_checkouts(id,workspace_id,machine_id,issue_id,github_repo_id,repository_full_name,base_branch,working_branch,workspace_path,scope_key)
+ VALUES($1,$2,$3,$4,$5,'fixture/share','main',$6,$7,$8)`, id, f.workspaceID, machine, issue, repository, "kuayle/shr-1"+scope, "/workspace/tasks/shr-1"+scope, scope)
+		return id
+	}
+	manualRun := func() uuid.UUID {
+		t.Helper()
+		id := uuid.New()
+		f.exec(t, `INSERT INTO dev_machine_agent_runs(id,workspace_id,machine_id,requested_by_user_id,provider_id,mode,prompt,command_argv,max_runtime_seconds,status) VALUES($1,$2,$3,$4,'codex','interactive','Manual','["codex"]',60,'succeeded')`, id, f.workspaceID, machine, f.userID)
+		return id
+	}
+	var otherRun uuid.UUID
+	require.NoError(t, f.db.Get(&otherRun, `SELECT run_id FROM agent_tasks WHERE id=$1`, other))
+	insert := func(action string, run, checkout *uuid.UUID) uuid.UUID {
+		t.Helper()
+		id := uuid.New()
+		f.exec(t, `INSERT INTO dev_machine_operations(id,workspace_id,machine_id,action,status,generation,idempotency_key,agent_run_id,checkout_id) VALUES($1,$2,$3,$4,'pending',1,$5,$6,$7)`, id, f.workspaceID, machine, action, "lease-"+id.String(), run, checkout)
 		return id
 	}
 	lease := func() []uuid.UUID {
 		t.Helper()
-		ops, err := fixture.repository.LeaseOperations(context.Background(), "share-fixture", 10, time.Minute)
+		ops, err := f.repository.LeaseOperations(context.Background(), "share-fixture", 10, time.Minute)
 		require.NoError(t, err)
 		ids := make([]uuid.UUID, 0, len(ops))
 		for _, op := range ops {
@@ -286,11 +299,56 @@ func TestOperationsOfSharedMachineTasksAreLeasedTogether(t *testing.T) {
 		}
 		return ids
 	}
-	insert("run_agent", "leased")
-	for _, action := range []string{"checkout_issue", "run_agent", "validate_agent", "publish_agent"} {
-		id := insert(action, "pending")
-		require.Equal(t, []uuid.UUID{id}, lease(), action+" is leased beside another task's attempt")
+	finish := func(ids ...uuid.UUID) {
+		t.Helper()
+		for _, id := range ids {
+			f.exec(t, `UPDATE dev_machine_operations SET status='completed',lease_owner=NULL,lease_expires_at=NULL WHERE id=$1`, id)
+		}
 	}
-	insert("start_preview", "pending")
+	attempt := insert("run_agent", &otherRun, nil)
+	require.Equal(t, []uuid.UUID{attempt}, lease())
+
+	// Task work of another task runs beside the attempt.
+	taskCheckout := checkout("-task")
+	f.exec(t, `UPDATE dev_machine_checkouts SET scope_key=$2 WHERE id=$1`, taskCheckout, uuid.NewString())
+	for _, op := range []uuid.UUID{
+		insert("checkout_issue", nil, &taskCheckout),
+		insert("validate_agent", &otherRun, nil),
+		insert("publish_agent", &otherRun, nil),
+	} {
+		require.Equal(t, []uuid.UUID{op}, lease(), "task work is leased beside another task's attempt")
+		finish(op)
+	}
+	second := f.preparingTask(t)
+	f.exec(t, `INSERT INTO dev_machine_agent_runs(id,workspace_id,machine_id,task_id,requested_by_user_id,provider_id,mode,prompt,command_argv,max_runtime_seconds,status) VALUES($1,$2,$3,$4,$5,'codex','autonomous','Second','["codex"]',60,'queued')`, second.RunID, f.workspaceID, machine, second.ID, f.userID)
+	secondAttempt := insert("run_agent", &second.RunID, nil)
+	require.Equal(t, []uuid.UUID{secondAttempt}, lease(), "two task attempts run together")
+	finish(secondAttempt)
+
+	// The user's own checkout and agent run do not lease beside task work.
+	manualCheckout := checkout("")
+	manual := insert("checkout_issue", nil, &manualCheckout)
+	require.Empty(t, lease(), "a manual checkout waits for the task attempt")
+	finish(manual)
+	manualAgent := manualRun()
+	manualAttempt := insert("run_agent", &manualAgent, nil)
+	require.Empty(t, lease(), "a manual agent run waits for the task attempt")
+	finish(manualAttempt)
+
+	// Nor does task work lease beside the user's own work.
+	finish(attempt)
+	manualAttempt = insert("run_agent", &manualAgent, nil)
+	require.Equal(t, []uuid.UUID{manualAttempt}, lease())
+	taskCheckoutOp := insert("checkout_issue", nil, &taskCheckout)
+	require.Empty(t, lease(), "a task checkout waits for the user's own agent run")
+	finish(manualAttempt)
+	require.Equal(t, []uuid.UUID{taskCheckoutOp}, lease())
+	manual = insert("checkout_issue", nil, &manualCheckout)
+	require.Empty(t, lease(), "a manual checkout waits for a task checkout")
+	finish(taskCheckoutOp, manual)
+
+	attempt = insert("run_agent", &otherRun, nil)
+	require.Equal(t, []uuid.UUID{attempt}, lease())
+	insert("start_preview", nil, nil)
 	require.Empty(t, lease(), "other machine work waits while attempts run")
 }

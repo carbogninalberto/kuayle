@@ -498,6 +498,14 @@ func enqueueOperation(ctx context.Context, tx *sqlx.Tx, operation *domain.DevMac
 	).Scan(&operation.ID, &operation.Status, &operation.Attempts, &operation.AvailableAt, &operation.CreatedAt, &operation.UpdatedAt)
 }
 
+// taskOwnedOperationSQL reports whether operation alias op is an agent task's
+// attempt, checkout, validation or publication: its run belongs to a task
+// (task_id is set only under task authority) or its checkout is task-scoped.
+func taskOwnedOperationSQL(op string) string {
+	return `((` + op + `.action IN ('run_agent','validate_agent','publish_agent') AND EXISTS(SELECT 1 FROM dev_machine_agent_runs task_run WHERE task_run.id=` + op + `.agent_run_id AND task_run.task_id IS NOT NULL))
+				OR (` + op + `.action='checkout_issue' AND EXISTS(SELECT 1 FROM dev_machine_checkouts task_checkout WHERE task_checkout.id=` + op + `.checkout_id AND task_checkout.scope_key<>'')))`
+}
+
 func (r *DevMachineRepository) LeaseOperations(ctx context.Context, owner string, limit int, duration time.Duration) ([]domain.DevMachineOperation, error) {
 	var operations []domain.DevMachineOperation
 	err := r.db.SelectContext(ctx, &operations, `WITH ranked AS (
@@ -518,9 +526,10 @@ func (r *DevMachineRepository) LeaseOperations(ctx context.Context, owner string
 			AND (o.action<>'resize' OR leased.action IN ('spawn','start','stop','pause','teardown','snapshot_environment','resize'))
 			-- Tasks sharing a machine work at the same time, each in its own
 			-- worktree: their attempts, checkouts, validations and
-			-- publications run beside one another, other work waits.
-			AND NOT (o.action IN ('run_agent','checkout_issue','validate_agent','publish_agent')
-				AND leased.action IN ('run_agent','checkout_issue','validate_agent','publish_agent'))
+			-- publications run beside one another. The user's own agent runs
+			-- and checkouts (root workspace, current checkout link) and all
+			-- other work stay exclusive.
+			AND NOT (`+taskOwnedOperationSQL("o")+` AND `+taskOwnedOperationSQL("leased")+`)
 		))
 	), candidates AS (
 		SELECT o.id FROM ranked r
