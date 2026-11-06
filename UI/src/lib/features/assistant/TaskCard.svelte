@@ -34,6 +34,7 @@
 	import AgentReviews from './AgentReviews.svelte';
 	import TaskMessages from '$lib/features/agent-messages/TaskMessages.svelte';
 	import TaskLiveThread from './TaskLiveThread.svelte';
+	import AgentTranscript from './AgentTranscript.svelte';
 	import ReviewRequestMenu from './ReviewRequestMenu.svelte';
 	import AgentLogo from '$lib/features/agents/AgentLogo.svelte';
 	import { reviewHarnesses, reviewSessions } from './agent-review';
@@ -48,7 +49,6 @@
 	import { agentSessionCommand, resumableStates } from './agent-session';
 	import { taskTone, toneBadge, toneStatus } from './task-tone';
 	import * as Trace from '$lib/components/ui/trace/index.js';
-	import * as CodeBlock from '$lib/components/ui/code-block/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import SelectField from '$lib/components/shared/SelectField.svelte';
 	import {
@@ -88,6 +88,8 @@
 	} = $props();
 	// Earlier tasks start as one-line rows; the newest one is shown in full.
 	let expanded = $state(untrack(() => pinned));
+	// The parsed session is built only while the output is shown.
+	let outputOpen = $state(false);
 	let open = $state(false),
 		busy = $state(false),
 		loading = $state(false),
@@ -137,12 +139,7 @@
 	const checkIds = $derived(new Set([validation?.id, ...manualChecks.map((check) => check.id)].filter(Boolean)));
 	const isCheck = (line: DevMachineLogChunk) => !!line.service_id && checkIds.has(line.service_id);
 	const latestCheck = $derived(manualChecks.at(-1) ?? null);
-	const output = $derived(
-		logs
-			.filter((line) => !isCheck(line))
-			.map((line) => `${line.stream === 'stderr' ? '[stderr] ' : ''}${line.content}`)
-			.join('')
-	);
+	const sessionLogs = $derived(logs.filter((line) => !isCheck(line)));
 	const stepOutput = (id: string | undefined) =>
 		logs
 			.filter((line) => !!id && line.service_id === id)
@@ -1013,24 +1010,18 @@
 									><Trace.Title>{event.type}</Trace.Title></Trace.Line
 								>{/each}{/if}
 						<!-- Raw output is long: collapsed by default, still copyable when open. -->
-						<Trace.Collapsible>
+						<Trace.Collapsible bind:open={outputOpen}>
 							<Trace.CollapsibleTrigger
 								><Trace.Line
 									><Trace.Icon><Terminal /></Trace.Icon><Trace.Title>{m['tasks.output']()}</Trace.Title></Trace.Line
 								></Trace.CollapsibleTrigger
 							>
 							<Trace.CollapsibleContent>
-								<CodeBlock.Root
-									><CodeBlock.Header
-										><CodeBlock.Title>{m['tasks.output']()}</CodeBlock.Title><CodeBlock.Actions
-											><CodeBlock.CopyButton value={output} aria-label={m['assistant.copy']()} /></CodeBlock.Actions
-										></CodeBlock.Header
-									><CodeBlock.Content
-										code={output || m['tasks.no_output']()}
-										wrap
-										class="max-h-72 text-xs"
-									/></CodeBlock.Root
-								>
+								<!-- The run as a readable session; its Raw toggle keeps the original output. -->
+								{#if outputOpen}<AgentTranscript
+										chunks={sessionLogs}
+										active={active && selectedRun === task.run_id}
+									/>{/if}
 							</Trace.CollapsibleContent>
 						</Trace.Collapsible>
 						{#if logsAfter}<Button variant="ghost" size="sm" disabled={loading} onclick={() => void refresh()}

@@ -852,7 +852,7 @@ test('lists background agent work; failed tasks stay listed and finished ones fo
 	await expect(queue.getByText('3 in progress or waiting', { exact: true })).toBeAttached();
 	await expect(queue.getByRole('link', { name: /ENG-1 · Title ENG-1/ })).toHaveAttribute(
 		'href',
-		'/test/assistant?conversation=chat-a&task=a'
+		'/test/assistant?conversation=chat-a&agent=a'
 	);
 	await expect(queue.getByRole('link', { name: /ENG-2/ })).toBeVisible();
 	// A failure does not disappear into the finished row: it stays listed with its state.
