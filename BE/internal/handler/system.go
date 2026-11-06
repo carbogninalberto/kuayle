@@ -11,7 +11,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/middleware"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -36,7 +36,7 @@ func (h *SystemHandler) OnUpdateStarted(announce func()) {
 	h.announce = announce
 }
 
-func (h *SystemHandler) UpdateStatus(c echo.Context) error {
+func (h *SystemHandler) UpdateStatus(c *echo.Context) error {
 	if !h.isCurrentUserSysAdmin(c) {
 		return response.Forbidden(c)
 	}
@@ -68,7 +68,7 @@ func (h *SystemHandler) UpdateStatus(c echo.Context) error {
 	return response.Success(c, http.StatusOK, status)
 }
 
-func (h *SystemHandler) StartUpdate(c echo.Context) error {
+func (h *SystemHandler) StartUpdate(c *echo.Context) error {
 	userID := middleware.GetUserID(c)
 	if !h.isSysAdmin(userID) {
 		return response.Forbidden(c)
@@ -109,7 +109,7 @@ func (h *SystemHandler) StartUpdate(c echo.Context) error {
 
 // UpdateActivity is public so the maintenance page can tell when an update ends,
 // even after the viewer's access token expires. It reveals only the running flag.
-func (h *SystemHandler) UpdateActivity(c echo.Context) error {
+func (h *SystemHandler) UpdateActivity(c *echo.Context) error {
 	c.Response().Header().Set("Cache-Control", "no-store")
 	if !h.updaterConfigured() {
 		return response.Success(c, http.StatusOK, dto.SystemUpdateActivityResponse{})
@@ -129,7 +129,7 @@ func (h *SystemHandler) updaterConfigured() bool {
 	return h.updater.Configured()
 }
 
-func (h *SystemHandler) isCurrentUserSysAdmin(c echo.Context) bool {
+func (h *SystemHandler) isCurrentUserSysAdmin(c *echo.Context) bool {
 	return h.isSysAdmin(middleware.GetUserID(c))
 }
 

@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/service"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 )
 

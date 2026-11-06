@@ -11,7 +11,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 // AgentMessageHandler serves the agent messaging registry ("navigator").
@@ -21,7 +21,7 @@ func NewAgentMessageHandler(svc *service.AgentMessageService) *AgentMessageHandl
 	return &AgentMessageHandler{svc}
 }
 
-func agentMessageError(c echo.Context, err error) error {
+func agentMessageError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, repository.ErrAgentMessageNotFound):
 		return response.NotFound(c, "Agent message")
@@ -36,7 +36,7 @@ func agentMessageError(c echo.Context, err error) error {
 	}
 }
 
-func optionalUUID(c echo.Context, name string) (*uuid.UUID, error) {
+func optionalUUID(c *echo.Context, name string) (*uuid.UUID, error) {
 	raw := c.QueryParam(name)
 	if raw == "" {
 		return nil, nil
@@ -48,7 +48,7 @@ func optionalUUID(c echo.Context, name string) (*uuid.UUID, error) {
 	return &id, nil
 }
 
-func pathUUID(c echo.Context, name string) (uuid.UUID, error) {
+func pathUUID(c *echo.Context, name string) (uuid.UUID, error) {
 	id, err := uuid.Parse(c.Param(name))
 	if err != nil {
 		return uuid.Nil, repository.ErrAgentMessageNotFound
@@ -58,7 +58,7 @@ func pathUUID(c echo.Context, name string) (uuid.UUID, error) {
 
 // List pages messages with optional task_id, issue_id, state, channel and
 // before filters.
-func (h *AgentMessageHandler) List(c echo.Context) error {
+func (h *AgentMessageHandler) List(c *echo.Context) error {
 	filter := domain.AgentMessageFilter{State: c.QueryParam("state"), Channel: c.QueryParam("channel"), Issue: strings.ToUpper(strings.TrimSpace(c.QueryParam("issue")))}
 	if filter.Issue != "" && !domain.ValidAgentMessageIssue(filter.Issue) {
 		return agentMessageError(c, repository.ErrAgentMessageInvalid)
@@ -87,7 +87,7 @@ func (h *AgentMessageHandler) List(c echo.Context) error {
 }
 
 // Get returns one message with its audited actions.
-func (h *AgentMessageHandler) Get(c echo.Context) error {
+func (h *AgentMessageHandler) Get(c *echo.Context) error {
 	id, err := pathUUID(c, "messageId")
 	if err != nil {
 		return agentMessageError(c, err)
@@ -100,7 +100,7 @@ func (h *AgentMessageHandler) Get(c echo.Context) error {
 }
 
 func (h *AgentMessageHandler) act(action string) echo.HandlerFunc {
-	return func(c echo.Context) error {
+	return func(c *echo.Context) error {
 		id, err := pathUUID(c, "messageId")
 		if err != nil {
 			return agentMessageError(c, err)
@@ -118,7 +118,7 @@ func (h *AgentMessageHandler) Release() echo.HandlerFunc { return h.act("release
 func (h *AgentMessageHandler) Drop() echo.HandlerFunc    { return h.act("drop") }
 
 // Holds lists held conversations.
-func (h *AgentMessageHandler) Holds(c echo.Context) error {
+func (h *AgentMessageHandler) Holds(c *echo.Context) error {
 	holds, err := h.svc.Holds(c.Request().Context(), middleware.GetWorkspace(c).ID)
 	if err != nil {
 		return agentMessageError(c, err)
@@ -127,7 +127,7 @@ func (h *AgentMessageHandler) Holds(c echo.Context) error {
 }
 
 // HoldConversation holds the messages between two issues' agents.
-func (h *AgentMessageHandler) HoldConversation(c echo.Context) error {
+func (h *AgentMessageHandler) HoldConversation(c *echo.Context) error {
 	var body struct {
 		IssueIDs []uuid.UUID `json:"issue_ids"`
 	}
@@ -142,7 +142,7 @@ func (h *AgentMessageHandler) HoldConversation(c echo.Context) error {
 }
 
 // ReleaseConversation ends a held conversation and releases its messages.
-func (h *AgentMessageHandler) ReleaseConversation(c echo.Context) error {
+func (h *AgentMessageHandler) ReleaseConversation(c *echo.Context) error {
 	id, err := pathUUID(c, "holdId")
 	if err != nil {
 		return agentMessageError(c, err)

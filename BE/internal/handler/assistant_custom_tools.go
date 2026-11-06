@@ -13,7 +13,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 // Scripts are at most 64 KiB; JSON escaping may grow them.
@@ -28,7 +28,7 @@ func NewAssistantCustomToolHandler(svc *service.AssistantCustomToolService) *Ass
 	return &AssistantCustomToolHandler{svc: svc}
 }
 
-func customToolError(c echo.Context, err error) error {
+func customToolError(c *echo.Context, err error) error {
 	var invalid *service.ErrInvalidAssistantTool
 	switch {
 	case errors.As(err, &invalid):
@@ -50,22 +50,22 @@ func customToolError(c echo.Context, err error) error {
 	}
 }
 
-func decodeToolJSON(c echo.Context, target any) bool {
+func decodeToolJSON(c *echo.Context, target any) bool {
 	decoder := json.NewDecoder(io.LimitReader(c.Request().Body, assistantToolRequestBytes))
 	decoder.DisallowUnknownFields()
 	return decoder.Decode(target) == nil
 }
 
-func invalidToolBody(c echo.Context) error {
+func invalidToolBody(c *echo.Context) error {
 	return response.Error(c, http.StatusBadRequest, "INVALID_ASSISTANT_TOOL", "Invalid request body")
 }
 
-func customToolParam(c echo.Context, name string) (uuid.UUID, bool) {
+func customToolParam(c *echo.Context, name string) (uuid.UUID, bool) {
 	id, err := uuid.Parse(c.Param(name))
 	return id, err == nil
 }
 
-func (h *AssistantCustomToolHandler) List(c echo.Context) error {
+func (h *AssistantCustomToolHandler) List(c *echo.Context) error {
 	result, err := h.svc.List(c.Request().Context(), middleware.GetWorkspace(c).ID)
 	if err != nil {
 		return customToolError(c, err)
@@ -73,7 +73,7 @@ func (h *AssistantCustomToolHandler) List(c echo.Context) error {
 	return response.Success(c, http.StatusOK, result)
 }
 
-func (h *AssistantCustomToolHandler) Get(c echo.Context) error {
+func (h *AssistantCustomToolHandler) Get(c *echo.Context) error {
 	id, ok := customToolParam(c, "toolId")
 	if !ok {
 		return response.NotFound(c, "Custom tool")
@@ -85,7 +85,7 @@ func (h *AssistantCustomToolHandler) Get(c echo.Context) error {
 	return response.Success(c, http.StatusOK, result)
 }
 
-func (h *AssistantCustomToolHandler) Versions(c echo.Context) error {
+func (h *AssistantCustomToolHandler) Versions(c *echo.Context) error {
 	id, ok := customToolParam(c, "toolId")
 	if !ok {
 		return response.NotFound(c, "Custom tool")
@@ -97,7 +97,7 @@ func (h *AssistantCustomToolHandler) Versions(c echo.Context) error {
 	return response.Success(c, http.StatusOK, map[string]any{"versions": result})
 }
 
-func (h *AssistantCustomToolHandler) Create(c echo.Context) error {
+func (h *AssistantCustomToolHandler) Create(c *echo.Context) error {
 	var input service.AssistantCustomToolRequest
 	if !decodeToolJSON(c, &input) {
 		return invalidToolBody(c)
@@ -110,7 +110,7 @@ func (h *AssistantCustomToolHandler) Create(c echo.Context) error {
 }
 
 // Update saves the request as a new version.
-func (h *AssistantCustomToolHandler) Update(c echo.Context) error {
+func (h *AssistantCustomToolHandler) Update(c *echo.Context) error {
 	id, ok := customToolParam(c, "toolId")
 	if !ok {
 		return response.NotFound(c, "Custom tool")
@@ -126,7 +126,7 @@ func (h *AssistantCustomToolHandler) Update(c echo.Context) error {
 	return response.Success(c, http.StatusOK, result)
 }
 
-func (h *AssistantCustomToolHandler) SetEnabled(c echo.Context) error {
+func (h *AssistantCustomToolHandler) SetEnabled(c *echo.Context) error {
 	id, ok := customToolParam(c, "toolId")
 	if !ok {
 		return response.NotFound(c, "Custom tool")
@@ -146,7 +146,7 @@ func (h *AssistantCustomToolHandler) SetEnabled(c echo.Context) error {
 
 // Activate puts a draft into effect: {"version": n}, or the newest draft when
 // the body is empty.
-func (h *AssistantCustomToolHandler) Activate(c echo.Context) error {
+func (h *AssistantCustomToolHandler) Activate(c *echo.Context) error {
 	id, ok := customToolParam(c, "toolId")
 	if !ok {
 		return response.NotFound(c, "Custom tool")
@@ -172,7 +172,7 @@ func (h *AssistantCustomToolHandler) Activate(c echo.Context) error {
 	return response.Success(c, http.StatusOK, result)
 }
 
-func (h *AssistantCustomToolHandler) Restore(c echo.Context) error {
+func (h *AssistantCustomToolHandler) Restore(c *echo.Context) error {
 	id, ok := customToolParam(c, "toolId")
 	version, err := strconv.Atoi(c.Param("version"))
 	if !ok || err != nil || version < 1 {
@@ -185,7 +185,7 @@ func (h *AssistantCustomToolHandler) Restore(c echo.Context) error {
 	return response.Success(c, http.StatusOK, result)
 }
 
-func (h *AssistantCustomToolHandler) Delete(c echo.Context) error {
+func (h *AssistantCustomToolHandler) Delete(c *echo.Context) error {
 	id, ok := customToolParam(c, "toolId")
 	if !ok {
 		return response.NotFound(c, "Custom tool")
@@ -198,7 +198,7 @@ func (h *AssistantCustomToolHandler) Delete(c echo.Context) error {
 
 // TestRun queues an owner's or admin's run of a saved version with sample
 // inputs: {"inputs":{...},"machine_id"|"identifier":...,"version"?:n}.
-func (h *AssistantCustomToolHandler) TestRun(c echo.Context) error {
+func (h *AssistantCustomToolHandler) TestRun(c *echo.Context) error {
 	id, ok := customToolParam(c, "toolId")
 	if !ok {
 		return response.NotFound(c, "Custom tool")
@@ -214,7 +214,7 @@ func (h *AssistantCustomToolHandler) TestRun(c echo.Context) error {
 	return response.Success(c, http.StatusAccepted, result)
 }
 
-func (h *AssistantCustomToolHandler) Runs(c echo.Context) error {
+func (h *AssistantCustomToolHandler) Runs(c *echo.Context) error {
 	id, ok := customToolParam(c, "toolId")
 	if !ok {
 		return response.NotFound(c, "Custom tool")
@@ -226,7 +226,7 @@ func (h *AssistantCustomToolHandler) Runs(c echo.Context) error {
 	return response.Success(c, http.StatusOK, map[string]any{"runs": result})
 }
 
-func (h *AssistantCustomToolHandler) Run(c echo.Context) error {
+func (h *AssistantCustomToolHandler) Run(c *echo.Context) error {
 	id, ok := customToolParam(c, "runId")
 	if !ok {
 		return response.NotFound(c, "Custom tool run")

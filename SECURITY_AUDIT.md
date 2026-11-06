@@ -58,7 +58,7 @@ In priority order:
 | KS-09 | Low | Deferred | `issue:delete_own` PATs of owners/admins delete any issue | `BE/internal/handler/issue.go:348`, `:405` |
 | KS-10 | Low | Deferred | Workspace WebSocket accepts any Origin | `BE/internal/handler/ws.go:26` |
 | KS-11 | Low | Deferred | SVG uploads render inline from the API origin | `BE/internal/handler/upload.go:36` |
-| KS-12 | Low | Deferred | Per-email login lockout and proxy-dependent client IPs | `BE/internal/middleware/loginthrottle.go:51` |
+| KS-12 | Low | Deferred | Per-email login lockout (proxy-dependent client IPs fixed by KUA-92) | `BE/internal/middleware/loginthrottle.go:51` |
 | KS-13 | Low | Deferred (product decision) | Existing users can be added to workspaces without consent; email enumeration | `BE/internal/service/workspace.go:198` |
 | KS-14 | Low | Deferred (latent) | Outgoing webhook delivery would be SSRF-prone if enabled | `BE/internal/service/webhook.go:112` |
 | KS-15 | Low | Deferred | Role downgrades leave Dev Machine side effects available | `BE/internal/service/dev_machine.go:642` |
@@ -219,10 +219,10 @@ return 413. Test: `TestGitHubWebhookBoundsUnauthenticatedBody`.
   A `Content-Security-Policy: sandbox` on asset responses would make this
   independent of the CSP.
 - **KS-12 (Low).** Five failed logins lock an email for 15 minutes for
-  everyone (account lockout DoS). Rate limits key on `c.RealIP()` without an `IPExtractor`, which
-  is correct only behind the bundled Caddy (which overwrites
-  `X-Forwarded-For`); a directly exposed API could be bypassed with forged
-  headers.
+  everyone (account lockout DoS). Rate limits key on `c.RealIP()`; since KUA-92
+  the API and gateway configure an explicit `IPExtractor` (`internal/clientip`)
+  that trusts `X-Forwarded-For` only from loopback/private proxy hops, so a
+  directly exposed API can no longer be bypassed with forged headers.
 - **KS-13 (Low, product decision).** `POST /invite` and workspace import add
   existing users by email without consent (import can also create notifications
   for them). "User not found" and import's missing-user list reveal which

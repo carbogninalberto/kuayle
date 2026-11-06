@@ -13,10 +13,10 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
-func attachmentID(c echo.Context) (uuid.UUID, error) {
+func attachmentID(c *echo.Context) (uuid.UUID, error) {
 	id, err := uuid.Parse(c.Param("attachmentId"))
 	if err != nil {
 		return uuid.Nil, repository.ErrConversationNotFound
@@ -26,7 +26,7 @@ func attachmentID(c echo.Context) (uuid.UUID, error) {
 
 // UploadAttachment accepts one image in the multipart field "file". The
 // content decides the type; the name is only kept for display.
-func (h *ConversationHandler) UploadAttachment(c echo.Context) error {
+func (h *ConversationHandler) UploadAttachment(c *echo.Context) error {
 	id, err := conversationID(c)
 	if err != nil {
 		return conversationError(c, err)
@@ -64,7 +64,7 @@ func (h *ConversationHandler) UploadAttachment(c echo.Context) error {
 // Attachment streams one image to a current conversation reader. It is never
 // served as markup: the stored type is a sniffed raster type, nosniff is set
 // and the response cannot run script even if opened directly.
-func (h *ConversationHandler) Attachment(c echo.Context) error {
+func (h *ConversationHandler) Attachment(c *echo.Context) error {
 	c.Response().Header().Set("Cache-Control", "private, no-store")
 	id, err := conversationID(c)
 	if err != nil {
@@ -100,7 +100,7 @@ func (h *ConversationHandler) Attachment(c echo.Context) error {
 }
 
 // RemoveAttachment discards a pending image removed from the composer.
-func (h *ConversationHandler) RemoveAttachment(c echo.Context) error {
+func (h *ConversationHandler) RemoveAttachment(c *echo.Context) error {
 	id, err := conversationID(c)
 	if err != nil {
 		return conversationError(c, err)

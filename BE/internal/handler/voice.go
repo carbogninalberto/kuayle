@@ -9,14 +9,14 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 type VoiceHandler struct{ svc *service.VoiceService }
 
 func NewVoiceHandler(svc *service.VoiceService) *VoiceHandler { return &VoiceHandler{svc} }
 
-func voiceError(c echo.Context, err error) error {
+func voiceError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, service.ErrVoiceDenied), errors.Is(err, service.ErrNotWorkspaceOwner):
 		return response.Forbidden(c)
@@ -44,7 +44,7 @@ func voiceError(c echo.Context, err error) error {
 	}
 }
 
-func (h *VoiceHandler) Status(c echo.Context) error {
+func (h *VoiceHandler) Status(c *echo.Context) error {
 	status, err := h.svc.Status(c.Request().Context(), middleware.GetWorkspace(c).ID)
 	if err != nil {
 		return voiceError(c, err)
@@ -52,7 +52,7 @@ func (h *VoiceHandler) Status(c echo.Context) error {
 	return response.Success(c, http.StatusOK, status)
 }
 
-func (h *VoiceHandler) Select(c echo.Context) error {
+func (h *VoiceHandler) Select(c *echo.Context) error {
 	var req struct {
 		Model string `json:"model"`
 	}
@@ -69,7 +69,7 @@ func (h *VoiceHandler) Select(c echo.Context) error {
 // Transcribe takes one raw audio recording (the request body, with its
 // Content-Type) and returns its text for the composer. The conversation is
 // authorized before the body is read; nothing is stored.
-func (h *VoiceHandler) Transcribe(c echo.Context) error {
+func (h *VoiceHandler) Transcribe(c *echo.Context) error {
 	c.Response().Header().Set("Cache-Control", "no-store")
 	id, err := conversationID(c)
 	if err != nil {

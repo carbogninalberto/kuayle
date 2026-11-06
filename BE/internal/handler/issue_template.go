@@ -11,7 +11,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/kuayle/kuayle-backend/pkg/validate"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -23,7 +23,7 @@ func NewIssueTemplateHandler(templateSvc *service.IssueTemplateService) *IssueTe
 	return &IssueTemplateHandler{templateSvc: templateSvc}
 }
 
-func (h *IssueTemplateHandler) Create(c echo.Context) error {
+func (h *IssueTemplateHandler) Create(c *echo.Context) error {
 	var req dto.CreateIssueTemplateRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
@@ -48,7 +48,7 @@ func (h *IssueTemplateHandler) Create(c echo.Context) error {
 	return response.Success(c, http.StatusCreated, toIssueTemplateResponse(tmpl))
 }
 
-func (h *IssueTemplateHandler) List(c echo.Context) error {
+func (h *IssueTemplateHandler) List(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 
 	templates, err := h.templateSvc.ListByWorkspace(c.Request().Context(), ws.ID)
@@ -65,7 +65,7 @@ func (h *IssueTemplateHandler) List(c echo.Context) error {
 	return response.Success(c, http.StatusOK, resp)
 }
 
-func (h *IssueTemplateHandler) Get(c echo.Context) error {
+func (h *IssueTemplateHandler) Get(c *echo.Context) error {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid template ID")
@@ -79,7 +79,7 @@ func (h *IssueTemplateHandler) Get(c echo.Context) error {
 	return response.Success(c, http.StatusOK, toIssueTemplateResponse(tmpl))
 }
 
-func (h *IssueTemplateHandler) Update(c echo.Context) error {
+func (h *IssueTemplateHandler) Update(c *echo.Context) error {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid template ID")
@@ -105,7 +105,7 @@ func (h *IssueTemplateHandler) Update(c echo.Context) error {
 	return response.Success(c, http.StatusOK, toIssueTemplateResponse(tmpl))
 }
 
-func (h *IssueTemplateHandler) Delete(c echo.Context) error {
+func (h *IssueTemplateHandler) Delete(c *echo.Context) error {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid template ID")

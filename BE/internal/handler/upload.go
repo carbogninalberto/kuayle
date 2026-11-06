@@ -16,7 +16,7 @@ import (
 
 	"github.com/gabriel-vasile/mimetype"
 	"github.com/google/uuid"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/middleware"
@@ -44,7 +44,7 @@ func NewUploadHandler(store storage.Backend, assetRepo repository.AssetRepo, iss
 	}
 }
 
-func (h *UploadHandler) Upload(c echo.Context) error {
+func (h *UploadHandler) Upload(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	userID := middleware.GetUserID(c)
 	var teamID *uuid.UUID
@@ -55,7 +55,7 @@ func (h *UploadHandler) Upload(c echo.Context) error {
 		}
 		teamID = &id
 	}
-	c.Request().Body = http.MaxBytesReader(c.Response().Writer, c.Request().Body, maxUploadSize+1024*1024)
+	c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, maxUploadSize+1024*1024)
 
 	file, err := c.FormFile("file")
 	if err != nil {
@@ -129,7 +129,7 @@ func (h *UploadHandler) Upload(c echo.Context) error {
 	})
 }
 
-func (h *UploadHandler) GetAsset(c echo.Context) error {
+func (h *UploadHandler) GetAsset(c *echo.Context) error {
 	c.Response().Header().Set("Cache-Control", "private, no-store")
 	ws := c.Get("workspace").(*domain.Workspace)
 	assetID, err := uuid.Parse(c.Param("assetId"))
@@ -146,7 +146,7 @@ func (h *UploadHandler) GetAsset(c echo.Context) error {
 	return h.streamAsset(c, asset)
 }
 
-func (h *UploadHandler) PublicAsset(c echo.Context) error {
+func (h *UploadHandler) PublicAsset(c *echo.Context) error {
 	c.Response().Header().Set("Cache-Control", "private, no-store")
 	claims, err := assettoken.Validate(c.Param("token"), h.tokenSecret)
 	if err != nil {
@@ -189,13 +189,13 @@ func allowedUploadType(detectedType, ext string) (string, bool) {
 	return detectedType, true
 }
 
-func (h *UploadHandler) setAssetDisposition(c echo.Context, asset *domain.Asset) {
+func (h *UploadHandler) setAssetDisposition(c *echo.Context, asset *domain.Asset) {
 	if c.QueryParam("download") == "1" || !strings.HasPrefix(domain.SafeAssetContentType(asset.ContentType), "image/") {
 		c.Response().Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": asset.Filename}))
 	}
 }
 
-func (h *UploadHandler) SignIssuePromptAssets(c echo.Context) error {
+func (h *UploadHandler) SignIssuePromptAssets(c *echo.Context) error {
 	c.Response().Header().Set("Cache-Control", "private, no-store")
 	ws := c.Get("workspace").(*domain.Workspace)
 	issue, err := h.issueRepo.GetByIdentifier(c.Request().Context(), ws.ID, c.Param("identifier"))
@@ -232,7 +232,7 @@ func (h *UploadHandler) SignIssuePromptAssets(c echo.Context) error {
 	})
 }
 
-func (h *UploadHandler) streamAsset(c echo.Context, asset *domain.Asset) error {
+func (h *UploadHandler) streamAsset(c *echo.Context, asset *domain.Asset) error {
 	rc, err := h.store.Get(c.Request().Context(), asset.StorageKey)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {

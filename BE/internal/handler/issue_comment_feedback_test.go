@@ -11,7 +11,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/middleware"
 	"github.com/kuayle/kuayle-backend/internal/realtime"
 	"github.com/kuayle/kuayle-backend/internal/service"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 )
 
@@ -42,8 +42,7 @@ func TestIssueCommentsFromSessionsBecomeTaskFeedback(t *testing.T) {
 		if pat {
 			c.Set(middleware.TokenScopesKey, []string{"issue:create"})
 		}
-		c.SetParamNames("identifier")
-		c.SetParamValues("ENG-1")
+		c.SetPathValues(echo.PathValues{{Name: "identifier", Value: "ENG-1"}})
 		require.NoError(t, h.CreateComment(c))
 		require.Equal(t, http.StatusCreated, rec.Code)
 	}
