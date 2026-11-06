@@ -27,7 +27,7 @@ run component additions from this package and preserve the site's custom theme.
 | `npm run preview`    | Preview the production build                           |
 | `npm run check`      | Run `svelte-check` for type errors                     |
 | `npm run validate-seo` | Run SEO validation on `build/` output               |
-| `npm run validate`   | Build + validate (CI-ready)                            |
+| `npm run validate`   | Unit tests + build + SEO validation (CI-ready)         |
 | `npm run test:unit`  | Node unit tests for the competitor registry, cost maths and release summaries |
 | `npm run test:responsive` | Playwright checks: every route fits 320 px, navigation menus and sheet by keyboard, cookie controls, pricing calculator |
 

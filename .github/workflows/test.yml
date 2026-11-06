@@ -249,9 +249,6 @@ jobs:
       - name: Svelte check (type checking)
         run: npm run check
 
-      - name: Unit tests
-        run: npm run test:unit
-
       - name: Build + SEO validation
         run: npm run validate
 
