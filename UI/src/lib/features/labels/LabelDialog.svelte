@@ -70,9 +70,9 @@
 		<form onsubmit={handleSubmit}>
 			<div class="px-5 pt-5 pb-4 space-y-4">
 				<div>
-					<h2 class="text-base font-semibold text-[var(--color-text-primary)]">
+					<Dialog.Title class="text-base font-semibold leading-normal text-[var(--color-text-primary)]">
 						{mode === 'create' ? 'Create label' : 'Edit label'}
-					</h2>
+					</Dialog.Title>
 					<p class="mt-0.5 text-xs text-[var(--color-text-tertiary)]">Labels help categorize and filter issues.</p>
 				</div>
 

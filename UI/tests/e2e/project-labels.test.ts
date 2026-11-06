@@ -107,6 +107,7 @@ test('groups labels by project and creates a project label', async ({ page }) =>
 
 	await expect.poll(() => calls.creates).toHaveLength(1);
 	expect(calls.creates[0]).toMatchObject({ name: 'Apollo only', project_id: project.id });
+	await expect(dialog).toBeHidden();
 	await expect(page.getByText('Apollo only', { exact: true })).toBeVisible();
 });
 
