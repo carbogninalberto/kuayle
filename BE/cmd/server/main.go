@@ -4,18 +4,21 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/kuayle/kuayle-backend/internal/agent"
 	"github.com/kuayle/kuayle-backend/internal/buildinfo"
+	"github.com/kuayle/kuayle-backend/internal/clientip"
 	"github.com/kuayle/kuayle-backend/internal/config"
 	"github.com/kuayle/kuayle-backend/internal/handler"
 	mw "github.com/kuayle/kuayle-backend/internal/middleware"
@@ -285,7 +288,8 @@ func main() {
 
 	// Echo
 	e := echo.New()
-	e.HideBanner = true
+	// Trust X-Forwarded-For only from the proxy networks; see internal/clientip.
+	e.IPExtractor = clientip.FromRequest
 
 	// Global middleware
 	e.Use(mw.Recovery())
@@ -362,7 +366,10 @@ func main() {
 	// Start
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	log.Infof("Starting server on %s", addr)
-	if err := e.Start(addr); err != nil {
+	serverCtx, stopServer := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stopServer()
+	start := echo.StartConfig{Address: addr, HideBanner: true, HidePort: true}
+	if err := start.Start(serverCtx, e); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
 }

@@ -10,10 +10,10 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
-func capabilityError(c echo.Context, err error) error {
+func capabilityError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, service.ErrAssistantCapabilitiesDenied), errors.Is(err, repository.ErrAssistantToolSettingDenied):
 		return response.Forbidden(c)
@@ -27,7 +27,7 @@ func capabilityError(c echo.Context, err error) error {
 }
 
 // Capabilities lists the assistant's built-in tools for workspace members.
-func (h *ConversationHandler) Capabilities(c echo.Context) error {
+func (h *ConversationHandler) Capabilities(c *echo.Context) error {
 	result, err := h.svc.Capabilities(c.Request().Context(), middleware.GetWorkspace(c).ID)
 	if err != nil {
 		return capabilityError(c, err)
@@ -37,7 +37,7 @@ func (h *ConversationHandler) Capabilities(c echo.Context) error {
 
 // SetCapability turns one tool on or off; the service and SQL allow only
 // current owners and admins.
-func (h *ConversationHandler) SetCapability(c echo.Context) error {
+func (h *ConversationHandler) SetCapability(c *echo.Context) error {
 	var input struct {
 		Enabled *bool `json:"enabled"`
 	}

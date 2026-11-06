@@ -14,7 +14,7 @@ import (
 	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/kuayle/kuayle-backend/pkg/sanitize"
 	"github.com/kuayle/kuayle-backend/pkg/validate"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -36,7 +36,7 @@ func NewIssueHandler(issueSvc *service.IssueService, commentSvc *service.Comment
 	return &IssueHandler{issueSvc: issueSvc, relationSvc: relationSvc, commentSvc: commentSvc, userRepo: userRepo, teamStatusRepo: teamStatusRepo, projectRepo: projectRepo, cycleRepo: cycleRepo}
 }
 
-func (h *IssueHandler) List(c echo.Context) error {
+func (h *IssueHandler) List(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	var params dto.IssueFilterParams
 	if err := c.Bind(&params); err != nil {
@@ -172,7 +172,7 @@ func (h *IssueHandler) List(c echo.Context) error {
 	})
 }
 
-func (h *IssueHandler) Create(c echo.Context) error {
+func (h *IssueHandler) Create(c *echo.Context) error {
 	var req dto.CreateIssueRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
@@ -198,7 +198,7 @@ func (h *IssueHandler) Create(c echo.Context) error {
 	return response.Success(c, http.StatusCreated, resp)
 }
 
-func (h *IssueHandler) CreateSubIssue(c echo.Context) error {
+func (h *IssueHandler) CreateSubIssue(c *echo.Context) error {
 	var req dto.CreateSubIssueRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
@@ -223,7 +223,7 @@ func (h *IssueHandler) CreateSubIssue(c echo.Context) error {
 	return response.Success(c, http.StatusCreated, resp)
 }
 
-func (h *IssueHandler) BulkCreateSubIssues(c echo.Context) error {
+func (h *IssueHandler) BulkCreateSubIssues(c *echo.Context) error {
 	var req dto.BulkCreateSubIssueRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
@@ -251,7 +251,7 @@ func (h *IssueHandler) BulkCreateSubIssues(c echo.Context) error {
 	return response.Success(c, http.StatusCreated, resp)
 }
 
-func (h *IssueHandler) Duplicate(c echo.Context) error {
+func (h *IssueHandler) Duplicate(c *echo.Context) error {
 	var req dto.DuplicateIssueRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
@@ -269,7 +269,7 @@ func (h *IssueHandler) Duplicate(c echo.Context) error {
 	return response.Success(c, http.StatusCreated, resp)
 }
 
-func (h *IssueHandler) ConvertToProject(c echo.Context) error {
+func (h *IssueHandler) ConvertToProject(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	userID := middleware.GetUserID(c)
 	project, err := h.issueSvc.ConvertToProject(c.Request().Context(), ws.ID, userID, c.Param("identifier"))
@@ -279,7 +279,7 @@ func (h *IssueHandler) ConvertToProject(c echo.Context) error {
 	return response.Success(c, http.StatusCreated, dto.ConvertIssueToProjectResponse{Project: toProjectResponseForIssue(*project)})
 }
 
-func (h *IssueHandler) Get(c echo.Context) error {
+func (h *IssueHandler) Get(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	identifier := c.Param("identifier")
 
@@ -299,7 +299,7 @@ func (h *IssueHandler) Get(c echo.Context) error {
 	return response.Success(c, http.StatusOK, resp)
 }
 
-func (h *IssueHandler) Update(c echo.Context) error {
+func (h *IssueHandler) Update(c *echo.Context) error {
 	var req dto.UpdateIssueRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
@@ -320,7 +320,7 @@ func (h *IssueHandler) Update(c echo.Context) error {
 	return response.Success(c, http.StatusOK, resp)
 }
 
-func (h *IssueHandler) Subscribe(c echo.Context) error {
+func (h *IssueHandler) Subscribe(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	userID := middleware.GetUserID(c)
 	if err := h.issueSvc.Subscribe(c.Request().Context(), ws.ID, userID, c.Param("identifier")); err != nil {
@@ -329,7 +329,7 @@ func (h *IssueHandler) Subscribe(c echo.Context) error {
 	return response.Success(c, http.StatusOK, dto.SubscriptionResponse{IsSubscribed: true})
 }
 
-func (h *IssueHandler) Unsubscribe(c echo.Context) error {
+func (h *IssueHandler) Unsubscribe(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	userID := middleware.GetUserID(c)
 	if err := h.issueSvc.Unsubscribe(c.Request().Context(), ws.ID, userID, c.Param("identifier")); err != nil {
@@ -338,7 +338,7 @@ func (h *IssueHandler) Unsubscribe(c echo.Context) error {
 	return response.Success(c, http.StatusOK, dto.SubscriptionResponse{IsSubscribed: false})
 }
 
-func (h *IssueHandler) Delete(c echo.Context) error {
+func (h *IssueHandler) Delete(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	identifier := c.Param("identifier")
 	role, _ := c.Get("workspace_role").(string)
@@ -362,7 +362,7 @@ func (h *IssueHandler) Delete(c echo.Context) error {
 	return response.Success(c, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
-func (h *IssueHandler) BulkUpdate(c echo.Context) error {
+func (h *IssueHandler) BulkUpdate(c *echo.Context) error {
 	var req dto.BulkUpdateIssueRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
@@ -386,7 +386,7 @@ func (h *IssueHandler) BulkUpdate(c echo.Context) error {
 	return response.Success(c, http.StatusOK, map[string]int{"updated": updated})
 }
 
-func (h *IssueHandler) BulkDelete(c echo.Context) error {
+func (h *IssueHandler) BulkDelete(c *echo.Context) error {
 	var req dto.BulkDeleteIssueRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
@@ -415,7 +415,7 @@ func (h *IssueHandler) BulkDelete(c echo.Context) error {
 	return response.Success(c, http.StatusOK, map[string]int{"deleted": deleted})
 }
 
-func (h *IssueHandler) ListComments(c echo.Context) error {
+func (h *IssueHandler) ListComments(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	identifier := c.Param("identifier")
 
@@ -480,7 +480,7 @@ func (h *IssueHandler) toCommentResponse(ctx context.Context, comment domain.Com
 	return cr
 }
 
-func (h *IssueHandler) CreateComment(c echo.Context) error {
+func (h *IssueHandler) CreateComment(c *echo.Context) error {
 	var req dto.CreateCommentRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
@@ -517,7 +517,7 @@ func (h *IssueHandler) CreateComment(c echo.Context) error {
 	return response.Success(c, http.StatusCreated, cr)
 }
 
-func (h *IssueHandler) ResolveComment(c echo.Context) error {
+func (h *IssueHandler) ResolveComment(c *echo.Context) error {
 	commentID, err := uuid.Parse(c.Param("commentId"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid comment ID")
@@ -538,7 +538,7 @@ func (h *IssueHandler) ResolveComment(c echo.Context) error {
 	return response.Success(c, http.StatusOK, cr)
 }
 
-func (h *IssueHandler) ReopenComment(c echo.Context) error {
+func (h *IssueHandler) ReopenComment(c *echo.Context) error {
 	commentID, err := uuid.Parse(c.Param("commentId"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid comment ID")
@@ -559,7 +559,7 @@ func (h *IssueHandler) ReopenComment(c echo.Context) error {
 	return response.Success(c, http.StatusOK, cr)
 }
 
-func (h *IssueHandler) ListSubIssues(c echo.Context) error {
+func (h *IssueHandler) ListSubIssues(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	identifier := c.Param("identifier")
 
@@ -583,7 +583,7 @@ func (h *IssueHandler) ListSubIssues(c echo.Context) error {
 	return response.Success(c, http.StatusOK, resp)
 }
 
-func (h *IssueHandler) GetHistory(c echo.Context) error {
+func (h *IssueHandler) GetHistory(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	identifier := c.Param("identifier")
 
@@ -720,7 +720,7 @@ func (h *IssueHandler) historyDisplayValue(ctx context.Context, field string, va
 	}
 }
 
-func (h *IssueHandler) TriageAccept(c echo.Context) error {
+func (h *IssueHandler) TriageAccept(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	userID := middleware.GetUserID(c)
 	identifier := c.Param("identifier")
@@ -732,7 +732,7 @@ func (h *IssueHandler) TriageAccept(c echo.Context) error {
 	return response.Success(c, http.StatusOK, toIssueResponse(*issue))
 }
 
-func (h *IssueHandler) TriageDecline(c echo.Context) error {
+func (h *IssueHandler) TriageDecline(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	userID := middleware.GetUserID(c)
 	identifier := c.Param("identifier")

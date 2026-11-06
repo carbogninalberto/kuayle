@@ -11,7 +11,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/audit"
 	"github.com/kuayle/kuayle-backend/pkg/response"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 type mergeMethodService interface {
@@ -27,7 +27,7 @@ func NewMergeMethodHandler(service mergeMethodService) *MergeMethodHandler {
 }
 
 // List returns the configured merge method by repository full name.
-func (h *MergeMethodHandler) List(c echo.Context) error {
+func (h *MergeMethodHandler) List(c *echo.Context) error {
 	methods, err := h.service.MergeMethodSettings(c.Request().Context(), middleware.GetWorkspace(c).ID)
 	if err != nil {
 		return response.Error(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Could not read the merge methods")
@@ -36,7 +36,7 @@ func (h *MergeMethodHandler) List(c echo.Context) error {
 }
 
 // Update sets or clears the merge method of a repository linked to the workspace.
-func (h *MergeMethodHandler) Update(c echo.Context) error {
+func (h *MergeMethodHandler) Update(c *echo.Context) error {
 	var request dto.MergeMethodRequest
 	if !bindAndValidate(c, &request) {
 		return nil

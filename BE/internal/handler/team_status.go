@@ -9,7 +9,7 @@ import (
 	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/kuayle/kuayle-backend/pkg/validate"
 	"github.com/google/uuid"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 type TeamStatusHandler struct {
@@ -20,7 +20,7 @@ func NewTeamStatusHandler(statusSvc *service.TeamStatusService) *TeamStatusHandl
 	return &TeamStatusHandler{statusSvc: statusSvc}
 }
 
-func (h *TeamStatusHandler) List(c echo.Context) error {
+func (h *TeamStatusHandler) List(c *echo.Context) error {
 	teamIDStr := c.Param("teamId")
 	teamID, err := uuid.Parse(teamIDStr)
 	if err != nil {
@@ -54,7 +54,7 @@ func (h *TeamStatusHandler) List(c echo.Context) error {
 	return response.Success(c, http.StatusOK, resp)
 }
 
-func (h *TeamStatusHandler) Create(c echo.Context) error {
+func (h *TeamStatusHandler) Create(c *echo.Context) error {
 	var req dto.CreateTeamStatusRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
@@ -89,7 +89,7 @@ func (h *TeamStatusHandler) Create(c echo.Context) error {
 	return response.Success(c, http.StatusCreated, resp)
 }
 
-func (h *TeamStatusHandler) Update(c echo.Context) error {
+func (h *TeamStatusHandler) Update(c *echo.Context) error {
 	var req dto.UpdateTeamStatusRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
@@ -117,7 +117,7 @@ func (h *TeamStatusHandler) Update(c echo.Context) error {
 	return response.Success(c, http.StatusOK, resp)
 }
 
-func (h *TeamStatusHandler) Delete(c echo.Context) error {
+func (h *TeamStatusHandler) Delete(c *echo.Context) error {
 	idStr := c.Param("statusId")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
