@@ -9,7 +9,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/kuayle/kuayle-backend/pkg/validate"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 type IssueRelationHandler struct {
@@ -20,7 +20,7 @@ func NewIssueRelationHandler(relationSvc *service.IssueRelationService) *IssueRe
 	return &IssueRelationHandler{relationSvc: relationSvc}
 }
 
-func (h *IssueRelationHandler) Create(c echo.Context) error {
+func (h *IssueRelationHandler) Create(c *echo.Context) error {
 	var req dto.CreateIssueRelationRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
@@ -44,7 +44,7 @@ func (h *IssueRelationHandler) Create(c echo.Context) error {
 	return response.Success(c, http.StatusCreated, toIssueRelationResponse(*rel))
 }
 
-func (h *IssueRelationHandler) List(c echo.Context) error {
+func (h *IssueRelationHandler) List(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	identifier := c.Param("identifier")
 
@@ -61,7 +61,7 @@ func (h *IssueRelationHandler) List(c echo.Context) error {
 	return response.Success(c, http.StatusOK, resp)
 }
 
-func (h *IssueRelationHandler) Delete(c echo.Context) error {
+func (h *IssueRelationHandler) Delete(c *echo.Context) error {
 	id, err := uuid.Parse(c.Param("relationId"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid relation ID")

@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/kuayle/kuayle-backend/pkg/response"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 // ConfigHandler exposes public instance configuration for the frontend
@@ -18,7 +18,7 @@ func NewConfigHandler(registrationEnabled bool) *ConfigHandler {
 }
 
 // Get handles GET /api/config
-func (h *ConfigHandler) Get(c echo.Context) error {
+func (h *ConfigHandler) Get(c *echo.Context) error {
 	return response.Success(c, http.StatusOK, map[string]bool{
 		"registration_enabled": h.registrationEnabled,
 	})

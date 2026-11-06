@@ -9,7 +9,7 @@ import (
 	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/kuayle/kuayle-backend/pkg/validate"
 	"github.com/google/uuid"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 type WebhookHandler struct {
@@ -20,7 +20,7 @@ func NewWebhookHandler(webhookSvc *service.WebhookService) *WebhookHandler {
 	return &WebhookHandler{webhookSvc: webhookSvc}
 }
 
-func (h *WebhookHandler) List(c echo.Context) error {
+func (h *WebhookHandler) List(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	webhooks, err := h.webhookSvc.List(c.Request().Context(), ws.ID)
 	if err != nil {
@@ -33,7 +33,7 @@ func (h *WebhookHandler) List(c echo.Context) error {
 	return response.Success(c, http.StatusOK, resp)
 }
 
-func (h *WebhookHandler) Create(c echo.Context) error {
+func (h *WebhookHandler) Create(c *echo.Context) error {
 	var req dto.CreateWebhookRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
@@ -54,7 +54,7 @@ func (h *WebhookHandler) Create(c echo.Context) error {
 	return response.Success(c, http.StatusCreated, toWebhookResponse(*w))
 }
 
-func (h *WebhookHandler) Update(c echo.Context) error {
+func (h *WebhookHandler) Update(c *echo.Context) error {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid webhook ID")
@@ -70,7 +70,7 @@ func (h *WebhookHandler) Update(c echo.Context) error {
 	return response.Success(c, http.StatusOK, toWebhookResponse(*w))
 }
 
-func (h *WebhookHandler) Delete(c echo.Context) error {
+func (h *WebhookHandler) Delete(c *echo.Context) error {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid webhook ID")

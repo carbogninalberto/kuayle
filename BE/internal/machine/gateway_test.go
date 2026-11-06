@@ -713,3 +713,35 @@ func TestCertificateApprovalForAppPortsNeedsTheExposedPort(t *testing.T) {
 	store.service = nil
 	check("abcdefgh1234-5173.app.example.com", 403)
 }
+
+func TestGatewayRouteLimitIgnoresForwardedForFromUntrustedPeers(t *testing.T) {
+	store := &gatewayStoreFake{}
+	gateway, err := NewGateway(store, "machines.example.com", time.Hour)
+	require.NoError(t, err)
+	source := "203.0.113.7"
+	future := time.Now().Add(time.Hour)
+	for range gatewayRoutesPerSource {
+		require.True(t, gateway.abuseGuard.allowRouteLookup(source, future))
+	}
+	host := "0123456789abcdef0123.machines.example.com"
+	request := httptest.NewRequest(http.MethodGet, "https://"+host+"/", nil)
+	request.Host = host
+	request.RemoteAddr = source + ":1234"
+	request.Header.Set("X-Forwarded-For", "198.51.100.77")
+	recorder := httptest.NewRecorder()
+
+	gateway.ServeHTTP(recorder, request)
+
+	require.Equal(t, http.StatusTooManyRequests, recorder.Code)
+	require.Zero(t, store.routeLookups)
+}
+
+func TestGatewayRemoteIPTrustsForwardedForFromProxyNetwork(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	request.RemoteAddr = "172.20.0.3:443"
+	request.Header.Set("X-Forwarded-For", "192.0.2.1, 198.51.100.77")
+	require.Equal(t, "198.51.100.77", requestRemoteIP(request))
+
+	request.RemoteAddr = "198.51.100.200:443"
+	require.Equal(t, "198.51.100.200", requestRemoteIP(request))
+}

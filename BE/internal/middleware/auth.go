@@ -9,7 +9,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	jwtpkg "github.com/kuayle/kuayle-backend/pkg/jwt"
 	"github.com/kuayle/kuayle-backend/pkg/response"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -30,7 +30,7 @@ func Auth(jwtSecret string, patRepo repository.PersonalAccessTokenRepo, hostCook
 		cookieName = "__Host-kuayle-access"
 	}
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
+		return func(c *echo.Context) error {
 			c.Response().Header().Set("Cache-Control", "private, no-store")
 			var tokenString string
 
@@ -81,7 +81,7 @@ func Auth(jwtSecret string, patRepo repository.PersonalAccessTokenRepo, hostCook
 // authenticatePAT validates a personal access token and populates the same
 // user_id context key as the JWT path, plus the token's scopes and workspace
 // restriction, so downstream handlers need no PAT-specific logic.
-func authenticatePAT(c echo.Context, patRepo repository.PersonalAccessTokenRepo, tokenString string, next echo.HandlerFunc) error {
+func authenticatePAT(c *echo.Context, patRepo repository.PersonalAccessTokenRepo, tokenString string, next echo.HandlerFunc) error {
 	if patRepo == nil {
 		return response.Unauthorized(c)
 	}

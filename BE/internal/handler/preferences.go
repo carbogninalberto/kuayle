@@ -10,7 +10,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/kuayle/kuayle-backend/pkg/validate"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 type PreferencesHandler struct {
@@ -21,7 +21,7 @@ func NewPreferencesHandler(prefsSvc *service.PreferencesService) *PreferencesHan
 	return &PreferencesHandler{prefsSvc: prefsSvc}
 }
 
-func (h *PreferencesHandler) Get(c echo.Context) error {
+func (h *PreferencesHandler) Get(c *echo.Context) error {
 	userID := middleware.GetUserID(c)
 	prefs, err := h.prefsSvc.Get(c.Request().Context(), userID)
 	if err != nil {
@@ -30,7 +30,7 @@ func (h *PreferencesHandler) Get(c echo.Context) error {
 	return response.Success(c, http.StatusOK, toPreferencesResponse(prefs))
 }
 
-func (h *PreferencesHandler) Update(c echo.Context) error {
+func (h *PreferencesHandler) Update(c *echo.Context) error {
 	var req dto.UpdatePreferencesRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")

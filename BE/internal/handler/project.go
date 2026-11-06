@@ -9,7 +9,7 @@ import (
 	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/kuayle/kuayle-backend/pkg/validate"
 	"github.com/google/uuid"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 type ProjectHandler struct {
@@ -20,7 +20,7 @@ func NewProjectHandler(projectSvc *service.ProjectService) *ProjectHandler {
 	return &ProjectHandler{projectSvc: projectSvc}
 }
 
-func (h *ProjectHandler) List(c echo.Context) error {
+func (h *ProjectHandler) List(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	projects, err := h.projectSvc.ListByWorkspace(c.Request().Context(), ws.ID)
 	if err != nil {
@@ -38,7 +38,7 @@ func (h *ProjectHandler) List(c echo.Context) error {
 	return response.Success(c, http.StatusOK, resp)
 }
 
-func (h *ProjectHandler) Create(c echo.Context) error {
+func (h *ProjectHandler) Create(c *echo.Context) error {
 	var req dto.CreateProjectRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
@@ -59,7 +59,7 @@ func (h *ProjectHandler) Create(c echo.Context) error {
 	return response.Success(c, http.StatusCreated, toProjectResponse(*project))
 }
 
-func (h *ProjectHandler) Get(c echo.Context) error {
+func (h *ProjectHandler) Get(c *echo.Context) error {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid project ID")
@@ -76,7 +76,7 @@ func (h *ProjectHandler) Get(c echo.Context) error {
 	return response.Success(c, http.StatusOK, r)
 }
 
-func (h *ProjectHandler) Update(c echo.Context) error {
+func (h *ProjectHandler) Update(c *echo.Context) error {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid project ID")
@@ -93,7 +93,7 @@ func (h *ProjectHandler) Update(c echo.Context) error {
 	return response.Success(c, http.StatusOK, toProjectResponse(*project))
 }
 
-func (h *ProjectHandler) Delete(c echo.Context) error {
+func (h *ProjectHandler) Delete(c *echo.Context) error {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid project ID")
@@ -105,7 +105,7 @@ func (h *ProjectHandler) Delete(c echo.Context) error {
 	return response.Success(c, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
-func (h *ProjectHandler) ListByTeam(c echo.Context) error {
+func (h *ProjectHandler) ListByTeam(c *echo.Context) error {
 	teamID, err := uuid.Parse(c.Param("teamId"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid team ID")

@@ -11,7 +11,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/kuayle/kuayle-backend/pkg/validate"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 type InviteLinkHandler struct {
@@ -24,7 +24,7 @@ func NewInviteLinkHandler(inviteLinkSvc *service.InviteLinkService, frontendURL 
 }
 
 // Create handles POST /api/workspaces/:slug/invite-links
-func (h *InviteLinkHandler) Create(c echo.Context) error {
+func (h *InviteLinkHandler) Create(c *echo.Context) error {
 	var req dto.CreateInviteLinkRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
@@ -51,7 +51,7 @@ func (h *InviteLinkHandler) Create(c echo.Context) error {
 }
 
 // List handles GET /api/workspaces/:slug/invite-links
-func (h *InviteLinkHandler) List(c echo.Context) error {
+func (h *InviteLinkHandler) List(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	links, err := h.inviteLinkSvc.List(c.Request().Context(), ws.ID)
 	if err != nil {
@@ -66,7 +66,7 @@ func (h *InviteLinkHandler) List(c echo.Context) error {
 }
 
 // Revoke handles DELETE /api/workspaces/:slug/invite-links/:id
-func (h *InviteLinkHandler) Revoke(c echo.Context) error {
+func (h *InviteLinkHandler) Revoke(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	linkID, err := parseUUID(c.Param("id"))
 	if err != nil {
@@ -84,7 +84,7 @@ func (h *InviteLinkHandler) Revoke(c echo.Context) error {
 }
 
 // Preview handles GET /api/invite/:token (public, no auth)
-func (h *InviteLinkHandler) Preview(c echo.Context) error {
+func (h *InviteLinkHandler) Preview(c *echo.Context) error {
 	preview, err := h.inviteLinkSvc.Preview(c.Request().Context(), c.Param("token"))
 	if err != nil {
 		if errors.Is(err, service.ErrInviteLinkInvalid) {
@@ -96,7 +96,7 @@ func (h *InviteLinkHandler) Preview(c echo.Context) error {
 }
 
 // Accept handles POST /api/invite/:token/accept (requires auth)
-func (h *InviteLinkHandler) Accept(c echo.Context) error {
+func (h *InviteLinkHandler) Accept(c *echo.Context) error {
 	userID := middleware.GetUserID(c)
 	ws, role, err := h.inviteLinkSvc.Accept(c.Request().Context(), c.Param("token"), userID)
 	if err != nil {
