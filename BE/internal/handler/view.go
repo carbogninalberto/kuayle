@@ -12,7 +12,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/kuayle/kuayle-backend/pkg/validate"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 type ViewHandler struct {
@@ -23,7 +23,7 @@ func NewViewHandler(viewSvc *service.ViewService) *ViewHandler {
 	return &ViewHandler{viewSvc: viewSvc}
 }
 
-func (h *ViewHandler) List(c echo.Context) error {
+func (h *ViewHandler) List(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	userID := middleware.GetUserID(c)
 
@@ -40,7 +40,7 @@ func (h *ViewHandler) List(c echo.Context) error {
 	return response.Success(c, http.StatusOK, resp)
 }
 
-func (h *ViewHandler) Create(c echo.Context) error {
+func (h *ViewHandler) Create(c *echo.Context) error {
 	var req dto.CreateViewRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
@@ -67,7 +67,7 @@ func (h *ViewHandler) Create(c echo.Context) error {
 	return response.Success(c, http.StatusCreated, toViewResponse(*view))
 }
 
-func (h *ViewHandler) Get(c echo.Context) error {
+func (h *ViewHandler) Get(c *echo.Context) error {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid view ID")
@@ -81,7 +81,7 @@ func (h *ViewHandler) Get(c echo.Context) error {
 	return response.Success(c, http.StatusOK, toViewResponse(*view))
 }
 
-func (h *ViewHandler) Update(c echo.Context) error {
+func (h *ViewHandler) Update(c *echo.Context) error {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid view ID")
@@ -102,7 +102,7 @@ func (h *ViewHandler) Update(c echo.Context) error {
 	return response.Success(c, http.StatusOK, toViewResponse(*view))
 }
 
-func (h *ViewHandler) Delete(c echo.Context) error {
+func (h *ViewHandler) Delete(c *echo.Context) error {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid view ID")

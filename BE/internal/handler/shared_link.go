@@ -12,7 +12,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/kuayle/kuayle-backend/pkg/validate"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 type SharedLinkHandler struct {
@@ -24,7 +24,7 @@ func NewSharedLinkHandler(sharedLinkSvc *service.SharedLinkService, frontendURL 
 	return &SharedLinkHandler{sharedLinkSvc: sharedLinkSvc, frontendURL: frontendURL}
 }
 
-func (h *SharedLinkHandler) Create(c echo.Context) error {
+func (h *SharedLinkHandler) Create(c *echo.Context) error {
 	var req dto.CreateSharedLinkRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
@@ -56,7 +56,7 @@ func (h *SharedLinkHandler) Create(c echo.Context) error {
 	return response.Success(c, http.StatusCreated, h.toSharedLinkResponse(*link))
 }
 
-func (h *SharedLinkHandler) List(c echo.Context) error {
+func (h *SharedLinkHandler) List(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	userRole := c.Get("workspace_role").(string)
 
@@ -77,7 +77,7 @@ func (h *SharedLinkHandler) List(c echo.Context) error {
 	return response.Success(c, http.StatusOK, resp)
 }
 
-func (h *SharedLinkHandler) Update(c echo.Context) error {
+func (h *SharedLinkHandler) Update(c *echo.Context) error {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid shared link ID")
@@ -104,7 +104,7 @@ func (h *SharedLinkHandler) Update(c echo.Context) error {
 	return response.Success(c, http.StatusOK, h.toSharedLinkResponse(*link))
 }
 
-func (h *SharedLinkHandler) Delete(c echo.Context) error {
+func (h *SharedLinkHandler) Delete(c *echo.Context) error {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid shared link ID")
@@ -126,7 +126,7 @@ func (h *SharedLinkHandler) Delete(c echo.Context) error {
 
 // --- Public endpoints (no auth required) ---
 
-func (h *SharedLinkHandler) GetPublicMeta(c echo.Context) error {
+func (h *SharedLinkHandler) GetPublicMeta(c *echo.Context) error {
 	c.Response().Header().Set("Cache-Control", "no-store")
 	token := c.Param("token")
 	if token == "" {
@@ -141,7 +141,7 @@ func (h *SharedLinkHandler) GetPublicMeta(c echo.Context) error {
 	return response.Success(c, http.StatusOK, meta)
 }
 
-func (h *SharedLinkHandler) ListPublicIssues(c echo.Context) error {
+func (h *SharedLinkHandler) ListPublicIssues(c *echo.Context) error {
 	c.Response().Header().Set("Cache-Control", "no-store")
 	token := c.Param("token")
 	if token == "" {

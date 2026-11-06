@@ -6,12 +6,12 @@ import (
 
 	"github.com/kuayle/kuayle-backend/pkg/response"
 	log "github.com/sirupsen/logrus"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 func Recovery() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
+		return func(c *echo.Context) error {
 			defer func() {
 				if r := recover(); r != nil {
 					buf := make([]byte, 2048)

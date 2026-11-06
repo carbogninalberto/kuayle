@@ -3,7 +3,7 @@ package middleware
 import (
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/pkg/response"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 // DevMachineDemoGuard returns middleware that blocks non-sysadmin users from
@@ -18,7 +18,7 @@ func DevMachineDemoGuard(allowed func(uuid.UUID) bool) echo.MiddlewareFunc {
 		allowed = func(uuid.UUID) bool { return false }
 	}
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
+		return func(c *echo.Context) error {
 			userID := GetUserID(c)
 			if userID == uuid.Nil {
 				return response.Forbidden(c)

@@ -10,7 +10,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"io"
 	"net/http"
 	"net/url"
@@ -34,7 +34,7 @@ func NewConversationHandler(svc *service.ConversationService, frontendURL string
 	}
 	return &ConversationHandler{svc: svc, origin: origin}
 }
-func conversationError(c echo.Context, err error) error {
+func conversationError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, repository.ErrConversationNotFound):
 		return response.NotFound(c, "Conversation")
@@ -60,14 +60,14 @@ func conversationError(c echo.Context, err error) error {
 		return response.InternalError(c)
 	}
 }
-func conversationID(c echo.Context) (uuid.UUID, error) {
+func conversationID(c *echo.Context) (uuid.UUID, error) {
 	id, err := uuid.Parse(c.Param("conversationId"))
 	if err != nil {
 		return uuid.Nil, repository.ErrConversationNotFound
 	}
 	return id, nil
 }
-func conversationCursor(c echo.Context, name string) (int64, error) {
+func conversationCursor(c *echo.Context, name string) (int64, error) {
 	raw := c.QueryParam(name)
 	if raw == "" {
 		return 0, nil
@@ -78,7 +78,7 @@ func conversationCursor(c echo.Context, name string) (int64, error) {
 	}
 	return v, nil
 }
-func (h *ConversationHandler) Status(c echo.Context) error {
+func (h *ConversationHandler) Status(c *echo.Context) error {
 	result, err := h.svc.Status(c.Request().Context(), middleware.GetWorkspace(c).ID)
 	if err != nil {
 		return conversationError(c, err)
@@ -88,7 +88,7 @@ func (h *ConversationHandler) Status(c echo.Context) error {
 
 // List returns the caller's own conversations; ?project_id=<id> narrows them
 // to one visible project and ?project_id=none to chats without one.
-func (h *ConversationHandler) List(c echo.Context) error {
+func (h *ConversationHandler) List(c *echo.Context) error {
 	var filter domain.ConversationFilter
 	switch raw := c.QueryParam("project_id"); raw {
 	case "":
@@ -107,7 +107,7 @@ func (h *ConversationHandler) List(c echo.Context) error {
 	}
 	return response.Success(c, http.StatusOK, result)
 }
-func (h *ConversationHandler) Create(c echo.Context) error {
+func (h *ConversationHandler) Create(c *echo.Context) error {
 	var req struct {
 		Title     string     `json:"title"`
 		IssueID   *uuid.UUID `json:"issue_id"`
@@ -132,7 +132,7 @@ func (h *ConversationHandler) Create(c echo.Context) error {
 	}
 	return response.Success(c, http.StatusCreated, result)
 }
-func (h *ConversationHandler) History(c echo.Context) error {
+func (h *ConversationHandler) History(c *echo.Context) error {
 	id, err := conversationID(c)
 	if err != nil {
 		return conversationError(c, err)
@@ -147,7 +147,7 @@ func (h *ConversationHandler) History(c echo.Context) error {
 	}
 	return response.Success(c, http.StatusOK, result)
 }
-func (h *ConversationHandler) Events(c echo.Context) error {
+func (h *ConversationHandler) Events(c *echo.Context) error {
 	id, err := conversationID(c)
 	if err != nil {
 		return conversationError(c, err)
@@ -162,7 +162,7 @@ func (h *ConversationHandler) Events(c echo.Context) error {
 	}
 	return response.Success(c, http.StatusOK, result)
 }
-func (h *ConversationHandler) Send(c echo.Context) error {
+func (h *ConversationHandler) Send(c *echo.Context) error {
 	id, err := conversationID(c)
 	if err != nil {
 		return conversationError(c, err)
@@ -181,7 +181,7 @@ func (h *ConversationHandler) Send(c echo.Context) error {
 	}
 	return response.Success(c, http.StatusAccepted, result)
 }
-func (h *ConversationHandler) Retry(c echo.Context) error {
+func (h *ConversationHandler) Retry(c *echo.Context) error {
 	id, err := conversationID(c)
 	if err != nil {
 		return conversationError(c, err)
@@ -202,7 +202,7 @@ func (h *ConversationHandler) Retry(c echo.Context) error {
 	}
 	return response.Success(c, http.StatusAccepted, result)
 }
-func (h *ConversationHandler) Cancel(c echo.Context) error {
+func (h *ConversationHandler) Cancel(c *echo.Context) error {
 	id, err := conversationID(c)
 	if err != nil {
 		return conversationError(c, err)
@@ -216,7 +216,7 @@ func (h *ConversationHandler) Cancel(c echo.Context) error {
 // Stream reuses the authenticated Echo/WebSocket stack, with conversation-level
 // authorization rather than the workspace-wide broadcast hub. Persisted events
 // are the source for both initial replay and live delivery on every API replica.
-func (h *ConversationHandler) Stream(c echo.Context) error {
+func (h *ConversationHandler) Stream(c *echo.Context) error {
 	id, err := conversationID(c)
 	if err != nil {
 		return conversationError(c, err)
@@ -232,7 +232,7 @@ func (h *ConversationHandler) Stream(c echo.Context) error {
 	if h.origin == "" || !strings.EqualFold(c.Request().Header.Get("Origin"), h.origin) {
 		return response.Forbidden(c)
 	}
-	conn, err := websocket.Accept(c.Response().Writer, c.Request(), &websocket.AcceptOptions{InsecureSkipVerify: true})
+	conn, err := websocket.Accept(c.Response(), c.Request(), &websocket.AcceptOptions{InsecureSkipVerify: true})
 	if err != nil {
 		return err
 	}
@@ -275,14 +275,14 @@ func (h *ConversationHandler) Stream(c echo.Context) error {
 	}
 }
 
-func bindConversation(c echo.Context, req any) error {
+func bindConversation(c *echo.Context, req any) error {
 	c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, 32<<10)
 	return c.Bind(req)
 }
 
 // ResolveApproval accepts the session user's decision. The backend binds the
 // approval to its actor and re-authorizes the effect; repeats are idempotent.
-func (h *ConversationHandler) ResolveApproval(c echo.Context) error {
+func (h *ConversationHandler) ResolveApproval(c *echo.Context) error {
 	id, err := conversationID(c)
 	if err != nil {
 		return conversationError(c, err)
@@ -315,7 +315,7 @@ func (h *ConversationHandler) ResolveApproval(c echo.Context) error {
 	return response.Success(c, http.StatusOK, result)
 }
 
-func folderID(c echo.Context) (uuid.UUID, error) {
+func folderID(c *echo.Context) (uuid.UUID, error) {
 	id, err := uuid.Parse(c.Param("folderId"))
 	if err != nil {
 		return uuid.Nil, repository.ErrConversationNotFound
@@ -323,7 +323,7 @@ func folderID(c echo.Context) (uuid.UUID, error) {
 	return id, nil
 }
 
-func (h *ConversationHandler) Folders(c echo.Context) error {
+func (h *ConversationHandler) Folders(c *echo.Context) error {
 	folders, err := h.svc.Repo.Folders(c.Request().Context(), middleware.GetWorkspace(c).ID)
 	if err != nil {
 		return conversationError(c, err)
@@ -331,7 +331,7 @@ func (h *ConversationHandler) Folders(c echo.Context) error {
 	return response.Success(c, http.StatusOK, folders)
 }
 
-func (h *ConversationHandler) CreateFolder(c echo.Context) error {
+func (h *ConversationHandler) CreateFolder(c *echo.Context) error {
 	var req struct {
 		Name string `json:"name"`
 	}
@@ -345,7 +345,7 @@ func (h *ConversationHandler) CreateFolder(c echo.Context) error {
 	return response.Success(c, http.StatusCreated, folder)
 }
 
-func (h *ConversationHandler) RenameFolder(c echo.Context) error {
+func (h *ConversationHandler) RenameFolder(c *echo.Context) error {
 	id, err := folderID(c)
 	if err != nil {
 		return conversationError(c, err)
@@ -363,7 +363,7 @@ func (h *ConversationHandler) RenameFolder(c echo.Context) error {
 	return response.Success(c, http.StatusOK, folder)
 }
 
-func (h *ConversationHandler) DeleteFolder(c echo.Context) error {
+func (h *ConversationHandler) DeleteFolder(c *echo.Context) error {
 	id, err := folderID(c)
 	if err != nil {
 		return conversationError(c, err)
@@ -375,7 +375,7 @@ func (h *ConversationHandler) DeleteFolder(c echo.Context) error {
 }
 
 // Update renames, files or tags one conversation per request.
-func (h *ConversationHandler) Update(c echo.Context) error {
+func (h *ConversationHandler) Update(c *echo.Context) error {
 	id, err := conversationID(c)
 	if err != nil {
 		return conversationError(c, err)
@@ -415,7 +415,7 @@ func (h *ConversationHandler) Update(c echo.Context) error {
 	return response.Success(c, http.StatusOK, result)
 }
 
-func (h *ConversationHandler) Delete(c echo.Context) error {
+func (h *ConversationHandler) Delete(c *echo.Context) error {
 	id, err := conversationID(c)
 	if err != nil {
 		return conversationError(c, err)

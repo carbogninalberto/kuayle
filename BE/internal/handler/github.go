@@ -15,7 +15,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 // GitHub caps webhook payloads at 25 MB.
@@ -30,7 +30,7 @@ func NewGitHubHandler(ghSvc *service.GitHubService) *GitHubHandler {
 }
 
 // Status returns the GitHub integration status for the workspace.
-func (h *GitHubHandler) Status(c echo.Context) error {
+func (h *GitHubHandler) Status(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	status, err := h.ghSvc.GetStatus(c.Request().Context(), ws.ID)
 	if err != nil {
@@ -41,7 +41,7 @@ func (h *GitHubHandler) Status(c echo.Context) error {
 
 // AppSetup reports whether the GitHub App and its installation deliver every
 // event and permission Kuayle needs, with links to fix them on GitHub.
-func (h *GitHubHandler) AppSetup(c echo.Context) error {
+func (h *GitHubHandler) AppSetup(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	setup, err := h.ghSvc.GetAppSetup(c.Request().Context(), ws.ID)
 	if err != nil {
@@ -52,7 +52,7 @@ func (h *GitHubHandler) AppSetup(c echo.Context) error {
 
 // Setup serves an HTML page that auto-submits the manifest form to GitHub.
 // Uses a CSP nonce to allow the inline script securely.
-func (h *GitHubHandler) Setup(c echo.Context) error {
+func (h *GitHubHandler) Setup(c *echo.Context) error {
 	if h.ghSvc.IsGlobalMode() {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "GitHub App is centrally managed — setup is not needed")
 	}
@@ -89,7 +89,7 @@ func (h *GitHubHandler) Setup(c echo.Context) error {
 }
 
 // SetupCallback handles the redirect from GitHub after app creation via manifest.
-func (h *GitHubHandler) SetupCallback(c echo.Context) error {
+func (h *GitHubHandler) SetupCallback(c *echo.Context) error {
 	if h.ghSvc.IsGlobalMode() {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "GitHub App is centrally managed — setup is not needed")
 	}
@@ -116,7 +116,7 @@ func (h *GitHubHandler) SetupCallback(c echo.Context) error {
 }
 
 // InstallURL returns the URL to install the GitHub App.
-func (h *GitHubHandler) InstallURL(c echo.Context) error {
+func (h *GitHubHandler) InstallURL(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	url, err := h.ghSvc.GetInstallURL(c.Request().Context(), ws.ID)
 	if err != nil {
@@ -126,7 +126,7 @@ func (h *GitHubHandler) InstallURL(c echo.Context) error {
 }
 
 // Callback handles the GitHub App installation callback.
-func (h *GitHubHandler) Callback(c echo.Context) error {
+func (h *GitHubHandler) Callback(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	userID := c.Get("user_id").(uuid.UUID)
 
@@ -151,7 +151,7 @@ func (h *GitHubHandler) Callback(c echo.Context) error {
 }
 
 // Disconnect removes the GitHub installation (keeps app config).
-func (h *GitHubHandler) Disconnect(c echo.Context) error {
+func (h *GitHubHandler) Disconnect(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	if err := h.ghSvc.Disconnect(c.Request().Context(), ws.ID); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
@@ -160,7 +160,7 @@ func (h *GitHubHandler) Disconnect(c echo.Context) error {
 }
 
 // DeleteApp removes the entire GitHub App configuration.
-func (h *GitHubHandler) DeleteApp(c echo.Context) error {
+func (h *GitHubHandler) DeleteApp(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	if err := h.ghSvc.DeleteApp(c.Request().Context(), ws.ID); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
@@ -169,7 +169,7 @@ func (h *GitHubHandler) DeleteApp(c echo.Context) error {
 }
 
 // ListRepos lists available GitHub repos for the installation.
-func (h *GitHubHandler) ListRepos(c echo.Context) error {
+func (h *GitHubHandler) ListRepos(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	repos, err := h.ghSvc.ListAvailableRepos(c.Request().Context(), ws.ID)
 	if err != nil {
@@ -182,7 +182,7 @@ func (h *GitHubHandler) ListRepos(c echo.Context) error {
 }
 
 // LinkRepos links selected GitHub repos to the workspace.
-func (h *GitHubHandler) LinkRepos(c echo.Context) error {
+func (h *GitHubHandler) LinkRepos(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	var req dto.LinkGitHubReposRequest
 	if err := c.Bind(&req); err != nil {
@@ -195,7 +195,7 @@ func (h *GitHubHandler) LinkRepos(c echo.Context) error {
 }
 
 // UnlinkRepo removes a linked repo.
-func (h *GitHubHandler) UnlinkRepo(c echo.Context) error {
+func (h *GitHubHandler) UnlinkRepo(c *echo.Context) error {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid repo ID")
@@ -211,7 +211,7 @@ func (h *GitHubHandler) UnlinkRepo(c echo.Context) error {
 }
 
 // ListAutoTransitions returns the auto-transition rules.
-func (h *GitHubHandler) ListAutoTransitions(c echo.Context) error {
+func (h *GitHubHandler) ListAutoTransitions(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	transitions, err := h.ghSvc.ListAutoTransitions(c.Request().Context(), ws.ID)
 	if err != nil {
@@ -224,7 +224,7 @@ func (h *GitHubHandler) ListAutoTransitions(c echo.Context) error {
 }
 
 // UpdateAutoTransitions updates the auto-transition rules.
-func (h *GitHubHandler) UpdateAutoTransitions(c echo.Context) error {
+func (h *GitHubHandler) UpdateAutoTransitions(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	var req dto.UpdateAutoTransitionsRequest
 	if err := c.Bind(&req); err != nil {
@@ -237,7 +237,7 @@ func (h *GitHubHandler) UpdateAutoTransitions(c echo.Context) error {
 }
 
 // IssueGitHubActivity returns GitHub PRs, branches, commits linked to an issue.
-func (h *GitHubHandler) IssueGitHubActivity(c echo.Context) error {
+func (h *GitHubHandler) IssueGitHubActivity(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	identifier := c.Param("identifier")
 	activity, err := h.ghSvc.GetIssueActivity(c.Request().Context(), ws.ID, identifier)
@@ -248,7 +248,7 @@ func (h *GitHubHandler) IssueGitHubActivity(c echo.Context) error {
 }
 
 // AgentIssueLinks returns issue-PR/branch/commit links for agent consumption.
-func (h *GitHubHandler) AgentIssueLinks(c echo.Context) error {
+func (h *GitHubHandler) AgentIssueLinks(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	identifier := c.QueryParam("identifier")
 	if identifier == "" {
@@ -262,11 +262,11 @@ func (h *GitHubHandler) AgentIssueLinks(c echo.Context) error {
 }
 
 // HandleWebhook receives incoming GitHub webhook events (public endpoint).
-func (h *GitHubHandler) HandleWebhook(c echo.Context) error {
+func (h *GitHubHandler) HandleWebhook(c *echo.Context) error {
 	signature := c.Request().Header.Get("X-Hub-Signature-256")
 	eventType := c.Request().Header.Get("X-GitHub-Event")
 
-	body, err := io.ReadAll(http.MaxBytesReader(c.Response().Writer, c.Request().Body, maxGitHubWebhookBytes))
+	body, err := io.ReadAll(http.MaxBytesReader(c.Response(), c.Request().Body, maxGitHubWebhookBytes))
 	if err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {

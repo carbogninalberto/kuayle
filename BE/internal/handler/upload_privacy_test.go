@@ -15,7 +15,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/pkg/assettoken"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 )
 
@@ -76,13 +76,11 @@ func TestAssetPrivacyPostgres(t *testing.T) {
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
 		if public {
-			c.SetParamNames("token")
-			c.SetParamValues(token)
+			c.SetPathValues(echo.PathValues{{Name: "token", Value: token}})
 			require.NoError(t, h.PublicAsset(c))
 		} else {
 			c.Set("workspace", &domain.Workspace{ID: workspace})
-			c.SetParamNames("assetId")
-			c.SetParamValues(owned.ID.String())
+			c.SetPathValues(echo.PathValues{{Name: "assetId", Value: owned.ID.String()}})
 			require.NoError(t, h.GetAsset(c))
 		}
 		return rec
@@ -104,8 +102,7 @@ func TestAssetPrivacyPostgres(t *testing.T) {
 	signRec := httptest.NewRecorder()
 	signCtx := echo.New().NewContext(signReq, signRec)
 	signCtx.Set("workspace", &domain.Workspace{ID: workspace})
-	signCtx.SetParamNames("identifier")
-	signCtx.SetParamValues("AS0-1")
+	signCtx.SetPathValues(echo.PathValues{{Name: "identifier", Value: "AS0-1"}})
 	require.NoError(t, h.SignIssuePromptAssets(signCtx))
 	require.Equal(t, http.StatusForbidden, signRec.Code)
 	require.NotContains(t, signRec.Body.String(), "/api/public/assets/")

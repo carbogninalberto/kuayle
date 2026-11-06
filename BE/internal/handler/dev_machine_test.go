@@ -21,7 +21,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	cryptoutil "github.com/kuayle/kuayle-backend/pkg/crypto"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 )
 
@@ -280,8 +280,7 @@ func TestDevMachineGetIsCreatorScoped(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	ctx := devMachineHandlerContext(httptest.NewRequest(http.MethodGet, "/dev-machines/"+machineID.String(), nil), recorder, workspaceID, otherID)
 	ctx.SetPath("/dev-machines/:machineId")
-	ctx.SetParamNames("machineId")
-	ctx.SetParamValues(machineID.String())
+	ctx.SetPathValues(echo.PathValues{{Name: "machineId", Value: machineID.String()}})
 
 	require.NoError(t, h.Get(ctx))
 	require.Equal(t, http.StatusNotFound, recorder.Code)
@@ -289,8 +288,7 @@ func TestDevMachineGetIsCreatorScoped(t *testing.T) {
 	recorder = httptest.NewRecorder()
 	ctx = devMachineHandlerContext(httptest.NewRequest(http.MethodGet, "/dev-machines/"+machineID.String(), nil), recorder, workspaceID, ownerID)
 	ctx.SetPath("/dev-machines/:machineId")
-	ctx.SetParamNames("machineId")
-	ctx.SetParamValues(machineID.String())
+	ctx.SetPathValues(echo.PathValues{{Name: "machineId", Value: machineID.String()}})
 
 	require.NoError(t, h.Get(ctx))
 	require.Equal(t, http.StatusOK, recorder.Code)
@@ -310,8 +308,7 @@ func sendModelServer(t *testing.T, h *DevMachineHandler, method, path, body, rol
 	ctx := devMachineHandlerContext(request, recorder, workspaceID, userID)
 	ctx.Set("workspace_role", role)
 	if serverID != nil {
-		ctx.SetParamNames("serverId")
-		ctx.SetParamValues(serverID.String())
+		ctx.SetPathValues(echo.PathValues{{Name: "serverId", Value: serverID.String()}})
 	}
 	switch {
 	case method == http.MethodGet:
@@ -661,8 +658,7 @@ func TestTerminalCloseReturnsAcceptedWhileRuntimeCleanupIsPending(t *testing.T) 
 	recorder := httptest.NewRecorder()
 	ctx := devMachineHandlerContext(httptest.NewRequest(http.MethodPost, "/dev-machines/"+machineID.String()+"/terminal-sessions/"+sessionID.String()+"/close", nil), recorder, workspaceID, userID)
 	ctx.SetPath("/dev-machines/:machineId/terminal-sessions/:sessionId/close")
-	ctx.SetParamNames("machineId", "sessionId")
-	ctx.SetParamValues(machineID.String(), sessionID.String())
+	ctx.SetPathValues(echo.PathValues{{Name: "machineId", Value: machineID.String()}, {Name: "sessionId", Value: sessionID.String()}})
 
 	require.NoError(t, h.CloseTerminalSession(ctx))
 	require.Equal(t, http.StatusAccepted, recorder.Code)
@@ -814,7 +810,7 @@ func (f *handlerDevMachineStoreFake) CreateEvent(context.Context, *domain.DevMac
 	return nil
 }
 
-func devMachineHandlerContext(req *http.Request, recorder *httptest.ResponseRecorder, workspaceID, userID uuid.UUID) echo.Context {
+func devMachineHandlerContext(req *http.Request, recorder *httptest.ResponseRecorder, workspaceID, userID uuid.UUID) *echo.Context {
 	e := echo.New()
 	ctx := e.NewContext(req, recorder)
 	ctx.Set("workspace", &domain.Workspace{ID: workspaceID})

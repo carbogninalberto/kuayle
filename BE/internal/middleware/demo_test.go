@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -21,7 +21,7 @@ func TestDevMachineDemoGuard(t *testing.T) {
 		ctx := e.NewContext(req, rec)
 		ctx.Set(string(UserIDKey), sysAdminID)
 		mw := DevMachineDemoGuard(func(id uuid.UUID) bool { return id == sysAdminID })
-		h := mw(func(c echo.Context) error { return c.NoContent(http.StatusNoContent) })
+		h := mw(func(c *echo.Context) error { return c.NoContent(http.StatusNoContent) })
 
 		err := h(ctx)
 
@@ -36,7 +36,7 @@ func TestDevMachineDemoGuard(t *testing.T) {
 		ctx := e.NewContext(req, rec)
 		ctx.Set(string(UserIDKey), normalID)
 		mw := DevMachineDemoGuard(func(id uuid.UUID) bool { return id == sysAdminID })
-		h := mw(func(c echo.Context) error { return c.NoContent(http.StatusNoContent) })
+		h := mw(func(c *echo.Context) error { return c.NoContent(http.StatusNoContent) })
 
 		err := h(ctx)
 
@@ -51,7 +51,7 @@ func TestDevMachineDemoGuard(t *testing.T) {
 		ctx := e.NewContext(req, rec)
 		ctx.Set(string(UserIDKey), normalID)
 		mw := DevMachineDemoGuard(nil)
-		h := mw(func(c echo.Context) error { return c.NoContent(http.StatusNoContent) })
+		h := mw(func(c *echo.Context) error { return c.NoContent(http.StatusNoContent) })
 
 		err := h(ctx)
 
@@ -65,7 +65,7 @@ func TestDevMachineDemoGuard(t *testing.T) {
 		rec := httptest.NewRecorder()
 		ctx := e.NewContext(req, rec)
 		mw := DevMachineDemoGuard(func(id uuid.UUID) bool { return true })
-		h := mw(func(c echo.Context) error { return c.NoContent(http.StatusNoContent) })
+		h := mw(func(c *echo.Context) error { return c.NoContent(http.StatusNoContent) })
 
 		err := h(ctx)
 

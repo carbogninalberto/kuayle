@@ -13,7 +13,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 // Skill bodies are at most 64 KiB; JSON escaping may grow them.
@@ -28,7 +28,7 @@ func NewAssistantSkillHandler(svc *service.AssistantSkillService) *AssistantSkil
 	return &AssistantSkillHandler{svc: svc}
 }
 
-func skillError(c echo.Context, err error) error {
+func skillError(c *echo.Context, err error) error {
 	var invalid *service.ErrInvalidAssistantSkill
 	switch {
 	case errors.As(err, &invalid):
@@ -47,22 +47,22 @@ func skillError(c echo.Context, err error) error {
 }
 
 // decodeSkillJSON rejects unknown fields and oversized bodies.
-func decodeSkillJSON(c echo.Context, target any) bool {
+func decodeSkillJSON(c *echo.Context, target any) bool {
 	decoder := json.NewDecoder(io.LimitReader(c.Request().Body, assistantSkillRequestBytes))
 	decoder.DisallowUnknownFields()
 	return decoder.Decode(target) == nil
 }
 
-func invalidSkillBody(c echo.Context) error {
+func invalidSkillBody(c *echo.Context) error {
 	return response.Error(c, http.StatusBadRequest, "INVALID_ASSISTANT_SKILL", "Invalid request body")
 }
 
-func skillID(c echo.Context) (uuid.UUID, bool) {
+func skillID(c *echo.Context) (uuid.UUID, bool) {
 	id, err := uuid.Parse(c.Param("skillId"))
 	return id, err == nil
 }
 
-func (h *AssistantSkillHandler) List(c echo.Context) error {
+func (h *AssistantSkillHandler) List(c *echo.Context) error {
 	result, err := h.svc.List(c.Request().Context(), middleware.GetWorkspace(c).ID)
 	if err != nil {
 		return skillError(c, err)
@@ -70,7 +70,7 @@ func (h *AssistantSkillHandler) List(c echo.Context) error {
 	return response.Success(c, http.StatusOK, result)
 }
 
-func (h *AssistantSkillHandler) Get(c echo.Context) error {
+func (h *AssistantSkillHandler) Get(c *echo.Context) error {
 	id, ok := skillID(c)
 	if !ok {
 		return response.NotFound(c, "Assistant skill")
@@ -82,7 +82,7 @@ func (h *AssistantSkillHandler) Get(c echo.Context) error {
 	return response.Success(c, http.StatusOK, result)
 }
 
-func (h *AssistantSkillHandler) Versions(c echo.Context) error {
+func (h *AssistantSkillHandler) Versions(c *echo.Context) error {
 	id, ok := skillID(c)
 	if !ok {
 		return response.NotFound(c, "Assistant skill")
@@ -94,7 +94,7 @@ func (h *AssistantSkillHandler) Versions(c echo.Context) error {
 	return response.Success(c, http.StatusOK, map[string]any{"versions": result})
 }
 
-func (h *AssistantSkillHandler) Create(c echo.Context) error {
+func (h *AssistantSkillHandler) Create(c *echo.Context) error {
 	var input service.AssistantSkillRequest
 	if !decodeSkillJSON(c, &input) {
 		return invalidSkillBody(c)
@@ -107,7 +107,7 @@ func (h *AssistantSkillHandler) Create(c echo.Context) error {
 }
 
 // Update saves a new version; the team scope is fixed at creation.
-func (h *AssistantSkillHandler) Update(c echo.Context) error {
+func (h *AssistantSkillHandler) Update(c *echo.Context) error {
 	id, ok := skillID(c)
 	if !ok {
 		return response.NotFound(c, "Assistant skill")
@@ -128,7 +128,7 @@ func (h *AssistantSkillHandler) Update(c echo.Context) error {
 	return response.Success(c, http.StatusOK, result)
 }
 
-func (h *AssistantSkillHandler) SetEnabled(c echo.Context) error {
+func (h *AssistantSkillHandler) SetEnabled(c *echo.Context) error {
 	id, ok := skillID(c)
 	if !ok {
 		return response.NotFound(c, "Assistant skill")
@@ -151,7 +151,7 @@ func (h *AssistantSkillHandler) SetEnabled(c echo.Context) error {
 
 // Activate puts a draft into effect: {"version": n}, or the newest draft when
 // the body is empty.
-func (h *AssistantSkillHandler) Activate(c echo.Context) error {
+func (h *AssistantSkillHandler) Activate(c *echo.Context) error {
 	id, ok := skillID(c)
 	if !ok {
 		return response.NotFound(c, "Assistant skill")
@@ -177,7 +177,7 @@ func (h *AssistantSkillHandler) Activate(c echo.Context) error {
 	return response.Success(c, http.StatusOK, result)
 }
 
-func (h *AssistantSkillHandler) Restore(c echo.Context) error {
+func (h *AssistantSkillHandler) Restore(c *echo.Context) error {
 	id, ok := skillID(c)
 	version, err := strconv.Atoi(c.Param("version"))
 	if !ok || err != nil || version < 1 {
@@ -190,7 +190,7 @@ func (h *AssistantSkillHandler) Restore(c echo.Context) error {
 	return response.Success(c, http.StatusOK, result)
 }
 
-func (h *AssistantSkillHandler) Delete(c echo.Context) error {
+func (h *AssistantSkillHandler) Delete(c *echo.Context) error {
 	id, ok := skillID(c)
 	if !ok {
 		return response.NotFound(c, "Assistant skill")
