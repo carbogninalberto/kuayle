@@ -528,6 +528,10 @@ type DevMachineAccessLog struct {
 	CreatedAt      time.Time  `json:"created_at" db:"created_at"`
 }
 
+// DevMachineResourceRetention is how long a machine's usage samples are kept
+// (one every reconcile, 30 seconds); teardown removes them.
+const DevMachineResourceRetention = 24 * time.Hour
+
 type DevMachineResourceSample struct {
 	ID             int64     `json:"id" db:"id"`
 	WorkspaceID    uuid.UUID `json:"workspace_id" db:"workspace_id"`

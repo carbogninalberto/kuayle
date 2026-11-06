@@ -186,9 +186,15 @@ async function fixture(page: Page, options: { creator?: string } = {}) {
 
 const card = (page: Page) => page.getByRole('region', { name: 'App ports' });
 
+// App ports live on the machine page's Apps & services tab.
+async function openApps(page: Page) {
+	await page.goto(`/test/machines/${machineId}`);
+	await page.getByRole('tab', { name: 'Apps & services' }).click();
+}
+
 test('lists exposed app ports with their source and listening state', async ({ page }) => {
 	const state = await fixture(page);
-	await page.goto(`/test/machines/${machineId}`);
+	await openApps(page);
 	const ports = card(page);
 	await expect(ports.getByText('3', { exact: true })).toBeVisible();
 	await expect(ports.getByText('3/10')).toHaveCount(0);
@@ -214,7 +220,7 @@ test('lists exposed app ports with their source and listening state', async ({ p
 test('opens a port in a new tab and waits while its host is starting', async ({ page }) => {
 	const state = await fixture(page);
 	state.startingLaunches = 1;
-	await page.goto(`/test/machines/${machineId}`);
+	await openApps(page);
 	const popupPromise = page.waitForEvent('popup');
 	await card(page).getByRole('button', { name: 'Open web' }).click();
 	const popup = await popupPromise;
@@ -225,7 +231,7 @@ test('opens a port in a new tab and waits while its host is starting', async ({ 
 
 test('exposes a typed port and explains refusals', async ({ page }) => {
 	const state = await fixture(page);
-	await page.goto(`/test/machines/${machineId}`);
+	await openApps(page);
 	const ports = card(page);
 	const port = ports.getByRole('spinbutton', { name: 'Port' });
 	const label = ports.getByRole('textbox', { name: 'Label' });
@@ -251,7 +257,7 @@ test('keeps offering exposure with many ports', async ({ page }) => {
 	const state = await fixture(page);
 	state.ports = Array.from({ length: 12 }, (_, i) => appPort({ id: `p${i}`, port: 3000 + i }));
 	state.listening = [5173];
-	await page.goto(`/test/machines/${machineId}`);
+	await openApps(page);
 	const ports = card(page);
 	await expect(ports.getByText('12', { exact: true })).toBeVisible();
 	await expect(ports.getByRole('button', { name: 'Expose port 5173' })).toBeVisible();
@@ -265,7 +271,7 @@ test('keeps offering exposure with many ports', async ({ page }) => {
 
 test('renames inline and removes a port after confirmation', async ({ page }) => {
 	const state = await fixture(page);
-	await page.goto(`/test/machines/${machineId}`);
+	await openApps(page);
 	const ports = card(page);
 	await ports.getByRole('button', { name: 'Rename :8080' }).click();
 	const input = ports.getByRole('textbox', { name: 'Label for :8080' });
@@ -294,7 +300,7 @@ test('renames inline and removes a port after confirmation', async ({ page }) =>
 test('refreshes listening ports while the card is visible', async ({ page }) => {
 	await page.clock.install();
 	const state = await fixture(page);
-	await page.goto(`/test/machines/${machineId}`);
+	await openApps(page);
 	const ports = card(page);
 	await expect(ports.getByRole('button', { name: 'Expose port 5173' })).toBeVisible();
 	state.listening = [3000, 5173, 6006, 8080];
@@ -304,7 +310,7 @@ test('refreshes listening ports while the card is visible', async ({ page }) => 
 
 test('shows ports read-only to a workspace admin who did not create the machine', async ({ page }) => {
 	await fixture(page, { creator: '00000000-0000-0000-0000-000000000099' });
-	await page.goto(`/test/machines/${machineId}`);
+	await openApps(page);
 	const ports = card(page);
 	await expect(ports.getByText(':3000')).toBeVisible();
 	await expect(ports.getByRole('button', { name: 'Open web' })).toHaveCount(0);
@@ -319,7 +325,7 @@ for (const [name, width] of [
 	test(`fits the ports card at ${name} width`, async ({ page }, testInfo) => {
 		await page.setViewportSize({ width, height: 900 });
 		await fixture(page);
-		await page.goto(`/test/machines/${machineId}`);
+		await openApps(page);
 		const ports = card(page);
 		await expect(ports.getByRole('button', { name: 'Open web' })).toBeVisible();
 		const overflow = await ports.evaluate((element) =>

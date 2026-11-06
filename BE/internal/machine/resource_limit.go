@@ -22,6 +22,9 @@ type ResourceLimitHit struct {
 	// for an independent check container.
 	Service    string
 	LimitBytes int64
+	// MachineMemory reports that the container shares the machine's memory,
+	// so LimitBytes is the machine's size.
+	MachineMemory bool
 }
 
 // resourceLimitWatcher is implemented by runtimes that report memory limit
@@ -83,7 +86,10 @@ func (r *DockerRuntime) resourceLimitHit(ctx context.Context, message events.Mes
 	if err != nil {
 		return ResourceLimitHit{}, false
 	}
-	hit := ResourceLimitHit{MachineID: machineID, WorkspaceID: workspaceID, ContainerID: message.Actor.ID, Service: labels["com.kuayle.service"]}
+	hit := ResourceLimitHit{
+		MachineID: machineID, WorkspaceID: workspaceID, ContainerID: message.Actor.ID, Service: labels["com.kuayle.service"],
+		MachineMemory: labels[resourceScopeLabel] == resourceScopeMachine,
+	}
 	if labels["com.kuayle.validation-id"] != "" {
 		hit.Service = "validation"
 	}
@@ -127,15 +133,22 @@ func (m *Manager) recordMemoryLimit(ctx context.Context, hit ResourceLimitHit, n
 			hit.AgentRunID = nil
 		}
 	}
-	message := domain.MemoryLimitMessage(hit.Service, hit.LimitBytes, taskMachine)
+	message := memoryLimitMessage(hit.Service, hit.LimitBytes, hit.MachineMemory, taskMachine)
 	if err := m.store.RecordResourceLimit(ctx, machine.ID, domain.DevMachineResourceLimitMemory, message); err != nil {
 		log.WithField("machine_id", machine.ID).WithError(err).Warn("memory limit could not be recorded")
 	}
 	_ = m.createEvent(ctx, machine, hit.AgentRunID, "runtime", "resource.memory_limit", map[string]any{
-		"service": hit.Service, "limit_bytes": hit.LimitBytes, "message": message,
+		"service": hit.Service, "limit_bytes": hit.LimitBytes, "machine_memory": hit.MachineMemory, "message": message,
 	})
 	log.WithFields(log.Fields{"machine_id": machine.ID, "workspace_id": machine.WorkspaceID, "service": hit.Service, "limit_bytes": hit.LimitBytes}).
 		Warn("machine container reached its memory limit")
+}
+
+func memoryLimitMessage(service string, limitBytes int64, machineMemory, taskMachine bool) string {
+	if machineMemory {
+		return domain.MachineMemoryLimitMessage(service, limitBytes, taskMachine)
+	}
+	return domain.MemoryLimitMessage(service, limitBytes, taskMachine)
 }
 
 // recordRunMemoryLimit explains an agent or check exit after an
@@ -144,7 +157,7 @@ func (m *Manager) recordRunMemoryLimit(ctx context.Context, machine *domain.DevM
 	if execution == nil || !execution.OOMKilled {
 		return ""
 	}
-	message := domain.MemoryLimitMessage(service, execution.MemoryLimitBytes, run.TaskID != nil)
+	message := memoryLimitMessage(service, execution.MemoryLimitBytes, execution.MachineMemory, run.TaskID != nil)
 	if err := m.store.RecordResourceLimit(ctx, machine.ID, domain.DevMachineResourceLimitMemory, message); err != nil {
 		log.WithField("machine_id", machine.ID).WithError(err).Warn("memory limit could not be recorded")
 	}

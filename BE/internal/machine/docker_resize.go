@@ -14,6 +14,8 @@ import (
 // running or stopped, with the same share each one gets when it is created:
 // service and agent containers through secureHostConfig (containerSharePercent), the Docker daemon
 // through dockerHostConfig and check services through composeHostConfig.
+// On a machine that shares its memory, its slice gets the new size first and
+// workload containers keep the whole machine's memory (machine_slice.go).
 // Short-lived helpers keep their fixed limits.
 func (r *DockerRuntime) UpdateResources(ctx context.Context, machine *domain.DevMachine) error {
 	containers, err := r.client.ContainerList(ctx, client.ContainerListOptions{
@@ -23,16 +25,25 @@ func (r *DockerRuntime) UpdateResources(ctx context.Context, machine *domain.Dev
 		return err
 	}
 	composeCounts := map[string]int{}
-	docker := false
+	docker, sharedMemory := false, false
 	for _, item := range containers.Items {
 		if !r.ownedForResize(item.Labels, machine) {
 			continue
 		}
+		sharedMemory = sharedMemory || item.Labels[resourceScopeLabel] == resourceScopeMachine
 		switch item.Labels["com.kuayle.service"] {
 		case "compose":
 			composeCounts[item.Labels["com.kuayle.agent-run-id"]]++
 		case "docker":
 			docker = true
+		}
+	}
+	if sharedMemory {
+		if r.slices == nil {
+			return fmt.Errorf("machine machine slice cannot be resized: machine slices are unavailable")
+		}
+		if err := r.slices.Apply(ctx, machine); err != nil {
+			return fmt.Errorf("resize machine machine slice: %w", err)
 		}
 	}
 	var failures []error
@@ -52,6 +63,9 @@ func (r *DockerRuntime) UpdateResources(ctx context.Context, machine *domain.Dev
 			resources = r.composeHostConfig(machine, "", composeCounts[item.Labels["com.kuayle.agent-run-id"]]).Resources
 		default:
 			continue
+		}
+		if item.Labels[resourceScopeLabel] == resourceScopeMachine {
+			resources = sharedMachineResources(machine, resources)
 		}
 		pids := *resources.PidsLimit
 		if _, err := r.client.ContainerUpdate(ctx, item.ID, client.ContainerUpdateOptions{Resources: &container.Resources{

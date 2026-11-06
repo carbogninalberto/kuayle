@@ -120,6 +120,13 @@ type DockerRuntime struct {
 
 	dockerUsageMu sync.Mutex
 	dockerUsage   map[uuid.UUID]dockerUsageSample
+
+	// slices is set when machines may share their resources (machine_slice.go).
+	slices         machineSlices
+	machineScopeMu sync.Mutex
+	machineScopes  map[uuid.UUID]bool
+	// agentCLIs mounts the shared, refreshed agent CLIs (agent_clis.go).
+	agentCLIs bool
 }
 
 func NewDockerRuntime(config DockerConfig) (*DockerRuntime, error) {
@@ -305,8 +312,11 @@ func (r *DockerRuntime) Spawn(ctx context.Context, machine *domain.DevMachine, s
 		}
 	}()
 
-	var err error
-	if networkCreated, err = r.ensureNetwork(ctx, networkName, true, labels); err != nil {
+	networkLabels, err := r.prepareMachineSlice(ctx, machine, networkName, labels)
+	if err != nil {
+		return "", "", nil, fmt.Errorf("prepare machine memory: %w", err)
+	}
+	if networkCreated, err = r.ensureNetwork(ctx, networkName, true, networkLabels); err != nil {
 		return "", "", nil, fmt.Errorf("create private network: %w", err)
 	}
 	if _, err := r.ensureNetwork(ctx, egressNetworkName, false, map[string]string{"com.kuayle.kind": "machine-egress"}); err != nil {
@@ -666,10 +676,7 @@ func (r *DockerRuntime) Teardown(ctx context.Context, machine *domain.DevMachine
 	if err := r.removeLiveInboxVolumes(ctx, "com.kuayle.machine-id="+machine.ID.String(), machine.ID); err != nil {
 		return err
 	}
-	networkName := "kuayle-machine-" + machine.RoutingKey
-	if machine.DockerNetworkName != nil && *machine.DockerNetworkName != "" {
-		networkName = *machine.DockerNetworkName
-	}
+	networkName := machineNetworkName(machine)
 	_, _ = r.client.NetworkDisconnect(ctx, networkName, client.NetworkDisconnectOptions{Container: r.config.GatewayContainerName, Force: true})
 	if err := r.removeManagedNetwork(ctx, networkName, machine.ID); err != nil {
 		return err
@@ -681,7 +688,18 @@ func (r *DockerRuntime) Teardown(ctx context.Context, machine *domain.DevMachine
 	if err := r.removeManagedVolume(ctx, volumeName, machine.ID); err != nil {
 		return err
 	}
-	return r.removeDockerVolume(ctx, machine)
+	if err := r.removeDockerVolume(ctx, machine); err != nil {
+		return err
+	}
+	// Removing a slice that never existed is a no-op, and a retried teardown
+	// whose network is already gone still removes it.
+	if r.slices != nil {
+		if err := r.slices.Remove(ctx, machine); err != nil {
+			return fmt.Errorf("remove machine machine slice: %w", err)
+		}
+	}
+	r.forgetMachineScope(machine)
+	return nil
 }
 
 func (r *DockerRuntime) removeManagedContainer(ctx context.Context, containerID string, machineID uuid.UUID) error {
@@ -776,11 +794,11 @@ func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine
 		entrypoint = []string{"/bin/sh", "-c", customAgentBootstrap, "kuayle-agent"}
 	}
 	runtimeEnvironment := []string{
-		"HOME=/home/kuayle", "HTTP_PROXY=http://" + machine.RoutingKey + "-egress:3128",
-		"HTTPS_PROXY=http://" + machine.RoutingKey + "-egress:3128", "NO_PROXY=localhost,127.0.0.1," + machine.RoutingKey + "-collector",
+		"HOME=/home/kuayle",
 		"KUAYLE_COLLECTOR_URL=http://" + machine.RoutingKey + "-collector:8091", "KUAYLE_SECRET_NAMES=" + strings.Join(secretNames, ","),
 		"KUAYLE_AGENT_RUN_ID=" + run.ID.String(),
 	}
+	runtimeEnvironment = append(runtimeEnvironment, agentProxyEnvironment(machine)...)
 	runtimeEnvironment = append(runtimeEnvironment, invocationEnvironment...)
 	if run.Mode != "interactive" {
 		// Temporary files and build caches go to the attempt's directory on the
@@ -807,11 +825,18 @@ func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine
 	} else {
 		hostConfig.Mounts = append(hostConfig.Mounts, liveInboxMount(machine, run))
 	}
+	if err := r.scopeMachineResources(ctx, machine, "agent", labels, hostConfig); err != nil {
+		return nil, err
+	}
+	agentEnvironment := mergeEnvironment(agentImageEnvironment(imageEnvironment), runtimeEnvironment...)
+	if !provider.IsCustom {
+		agentEnvironment = r.useAgentCLIs(hostConfig, agentEnvironment)
+	}
 	response, err := r.client.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config: &container.Config{
 			Image: provider.ImageRef, User: "1000:1000", WorkingDir: workingDirectory,
 			Entrypoint: entrypoint, Cmd: argv,
-			Env: mergeEnvironment(agentImageEnvironment(imageEnvironment), runtimeEnvironment...), Labels: labels,
+			Env: agentEnvironment, Labels: labels,
 			AttachStdout: true, AttachStderr: true, AttachStdin: run.Mode == "interactive",
 			OpenStdin: run.Mode == "interactive", Tty: run.Mode == "interactive",
 		},
@@ -1017,6 +1042,9 @@ func (r *DockerRuntime) inspectMemoryLimit(ctx context.Context, execution *Agent
 	if result.Container.HostConfig != nil {
 		execution.MemoryLimitBytes = result.Container.HostConfig.Memory
 	}
+	if result.Container.Config != nil {
+		execution.MachineMemory = result.Container.Config.Labels[resourceScopeLabel] == resourceScopeMachine
+	}
 }
 
 // A failed observer cannot leave an unmonitored native process running.
@@ -1075,22 +1103,39 @@ func (r *DockerRuntime) CancelAgent(ctx context.Context, run *domain.DevMachineA
 	return errors.Join(cleanupErrors...)
 }
 
+// Stats sums the CPU, memory, process and network usage of the machine's
+// running containers: its services and the agent runs, checks, check services
+// and custom tools that run beside them.
 func (r *DockerRuntime) Stats(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService) (ResourceUsage, error) {
 	var usage ResourceUsage
 	var collectorID string
+	containerIDs := make([]string, 0, len(services))
 	seen := make(map[string]bool, len(services))
 	for _, service := range services {
-		if service.ContainerID == nil || service.Status != "running" {
-			continue
-		}
-		if seen[*service.ContainerID] {
+		if service.ContainerID == nil || service.Status != "running" || seen[*service.ContainerID] {
 			continue
 		}
 		seen[*service.ContainerID] = true
+		containerIDs = append(containerIDs, *service.ContainerID)
 		if service.ServiceType == "collector" {
 			collectorID = *service.ContainerID
 		}
-		statsReader, err := r.client.ContainerStats(ctx, *service.ContainerID, client.ContainerStatsOptions{Stream: false})
+	}
+	if machine != nil {
+		running, err := r.client.ContainerList(ctx, client.ContainerListOptions{Filters: make(client.Filters).
+			Add("label", "com.kuayle.machine-id="+machine.ID.String()).Add("status", "running")})
+		if err != nil {
+			return usage, err
+		}
+		for _, item := range running.Items {
+			if ownedByMachine(item.Labels, machine.ID) && item.Labels["com.kuayle.workspace-id"] == machine.WorkspaceID.String() && !seen[item.ID] {
+				seen[item.ID] = true
+				containerIDs = append(containerIDs, item.ID)
+			}
+		}
+	}
+	for _, containerID := range containerIDs {
+		statsReader, err := r.client.ContainerStats(ctx, containerID, client.ContainerStatsOptions{Stream: false})
 		if err != nil {
 			if errdefs.IsNotFound(err) {
 				continue
@@ -1448,9 +1493,16 @@ func (r *DockerRuntime) ensureService(ctx context.Context, machine *domain.DevMa
 	} else if service.ServiceType == "browser" {
 		containerConfig.Healthcheck = &container.HealthConfig{Test: []string{"CMD", "/usr/local/bin/kuayle-browser-healthcheck"}, Interval: 10 * time.Second, Timeout: 2 * time.Second, StartPeriod: 10 * time.Second, Retries: 6}
 	}
+	hostConfig := r.secureHostConfig(machine, service.ServiceType, networkName, volumeName, docker)
+	if err := r.scopeMachineResources(ctx, machine, service.ServiceType, labels, hostConfig); err != nil {
+		return "", false, false, err
+	}
+	if isDeveloperService(service.ServiceType) {
+		containerConfig.Env = r.useAgentCLIs(hostConfig, containerConfig.Env)
+	}
 	response, err := r.client.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config:           containerConfig,
-		HostConfig:       r.secureHostConfig(machine, service.ServiceType, networkName, volumeName, docker),
+		HostConfig:       hostConfig,
 		NetworkingConfig: &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{networkName: {Aliases: []string{service.InternalHost}}}},
 		Name:             service.ContainerName,
 	})

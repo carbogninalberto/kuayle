@@ -16,6 +16,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/config"
 	"github.com/kuayle/kuayle-backend/internal/machine"
 	"github.com/kuayle/kuayle-backend/internal/repository"
+	"github.com/kuayle/kuayle-backend/internal/systemdslice"
 	cryptoutil "github.com/kuayle/kuayle-backend/pkg/crypto"
 	githubclient "github.com/kuayle/kuayle-backend/pkg/github"
 	"github.com/kuayle/kuayle-backend/pkg/storage"
@@ -23,6 +24,15 @@ import (
 )
 
 func main() {
+	// The machine slice helper runs this binary in a root container that only
+	// receives systemd's socket; it needs no configuration.
+	if len(os.Args) > 1 && os.Args[1] == systemdslice.Command {
+		if err := systemdslice.Run(context.Background(), os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	log.SetFormatter(&log.JSONFormatter{})
 	configValue, err := config.Load()
 	if err != nil {
@@ -62,6 +72,15 @@ func main() {
 		log.WithError(err).Fatal("verify Docker workspace quota support")
 	}
 	cancelRuntimeCheck()
+	if configValue.DevMachine.MachineSlices != "off" {
+		sliceCtx, cancelSlice := context.WithTimeout(context.Background(), 2*time.Minute)
+		if err := runtime.EnableMachineSlices(sliceCtx, configValue.DevMachine.SwapPercent); err != nil {
+			log.WithError(err).Warn("machine slices unavailable; new machines give each container a share of the machine's CPU and memory")
+		} else {
+			log.WithField("swap_percent", configValue.DevMachine.SwapPercent).Info("new machines share their CPU and memory in a systemd slice")
+		}
+		cancelSlice()
+	}
 	if configValue.DevMachine.MonitoredDiskQuota() {
 		log.WithFields(log.Fields{
 			"quota_mode":                 configValue.DevMachine.EffectiveDiskQuotaMode(),
@@ -100,6 +119,12 @@ func main() {
 		IDE: configValue.DevMachine.IDEImage, Headless: configValue.DevMachine.HeadlessImage, Browser: configValue.DevMachine.BrowserImage,
 		Collector: configValue.DevMachine.CollectorImage, Egress: configValue.DevMachine.EgressImage, Docker: configValue.DevMachine.DockerImage,
 	})
+	if hours := configValue.DevMachine.AgentCLIRefreshHours; hours > 0 {
+		runtime.EnableAgentCLIs()
+		manager.SetAgentCLIUpdates(machine.AgentCLIUpdates{
+			Interval: time.Duration(hours) * time.Hour, MinAge: time.Duration(configValue.DevMachine.AgentCLIMinAgeHours) * time.Hour,
+		})
+	}
 	manager.SetAgentGitIdentity(machine.GitIdentity{Name: configValue.DevMachine.AgentGitName, Email: configValue.DevMachine.AgentGitEmail})
 	// Task images are read from the API's storage; without it runs get none.
 	if files, err := storage.New(configValue.Storage); err == nil {

@@ -105,8 +105,16 @@ export function listMachineLogs(slug: string, machineId: string, afterId = 0): P
 	return api.get(`${base(slug)}/dev-machines/${machineId}/logs?after_id=${afterId}`);
 }
 
-export function listResourceUsage(slug: string, machineId: string): Promise<ResourceSample[]> {
-	return api.get(`${base(slug)}/dev-machines/${machineId}/resource-usage`);
+export type ResourceUsageWindow = '1h' | '6h' | '24h';
+
+/**
+ * Without a window: the latest 120 samples, newest first. With a window: the
+ * samples of that period averaged into time buckets, oldest first (each
+ * created_at is its bucket's start).
+ */
+export function listResourceUsage(slug: string, machineId: string, window?: ResourceUsageWindow): Promise<ResourceSample[]> {
+	const query = window ? `?window=${window}` : '';
+	return api.get(`${base(slug)}/dev-machines/${machineId}/resource-usage${query}`);
 }
 
 function launchMachineService(

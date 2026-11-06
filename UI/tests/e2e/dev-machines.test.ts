@@ -263,9 +263,10 @@ test('lists the tasks on a machine and handles actions without applying stale po
 	await expect(page.getByRole('link', { name: 'Dev Machines', exact: true })).toHaveCount(0);
 	await expect(page.locator('a[href="/test/machines"]')).toHaveCount(0);
 	await expect(page.getByRole('link', { name: 'Back to Dev Machines' })).toHaveAttribute('href', '/test/settings/dev-machines');
-	await expect(page.getByText('Hard limit 20 GB', { exact: true })).toBeVisible();
-	await expect(page.getByText('Soft limit 20 GB', { exact: true })).toHaveCount(0);
-	await expect(page.getByRole('heading', { name: 'Services' })).toBeVisible();
+	// The #activity deep link opens the Activity tab.
+	await expect(page.getByRole('tab', { name: 'Activity' })).toHaveAttribute('aria-selected', 'true');
+	await expect(page.getByTestId('machine-summary')).toContainText('4 vCPU');
+	await expect(page.getByTestId('machine-summary')).toContainText('kuayle/kuayle');
 	await expect(page.getByText('machine a event', { exact: true })).toBeVisible();
 	await expect(page.getByText('[system] machine A log', { exact: true })).toBeVisible();
 	await expect
@@ -277,18 +278,23 @@ test('lists the tasks on a machine and handles actions without applying stale po
 				if (!container) return false;
 				const targetRect = target.getBoundingClientRect();
 				const containerRect = container.getBoundingClientRect();
-				return (
-					container.scrollTop > 0 && targetRect.top < containerRect.bottom && targetRect.bottom > containerRect.top
-				);
+				// The Activity tab opened and its section is scrolled into the page's view.
+				return targetRect.top >= containerRect.top - 1 && targetRect.top < containerRect.bottom;
 			})
 		)
 		.toBe(true);
+	await page.getByRole('tab', { name: 'Overview' }).click();
+	await expect(page.getByText('Hard limit 20 GB', { exact: true })).toBeVisible();
+	await expect(page.getByText('Soft limit 20 GB', { exact: true })).toHaveCount(0);
+	await page.getByRole('tab', { name: 'Apps & services' }).click();
+	await expect(page.getByRole('heading', { name: 'Services' })).toBeVisible();
 	await expect(page.getByTitle('Save development environment')).toHaveCount(0);
 	// Machines stay up until their user pauses or stops them: no inactivity controls.
 	await expect(page.getByRole('switch', { name: 'Keep running' })).toHaveCount(0);
 	await expect(page.getByRole('heading', { name: 'Inactivity' })).toHaveCount(0);
 	// Agents run only as tasks: no manual run controls, and each task links to its chat.
 	await expect(page.getByRole('button', { name: 'Run agent' })).toHaveCount(0);
+	await page.getByRole('tab', { name: /Worktrees & tasks/ }).click();
 	const tasks = page.locator('#tasks');
 	await expect(tasks.getByText('Tasks on this machine', { exact: true })).toBeVisible();
 	const taskLinks = tasks.getByRole('link');
@@ -333,6 +339,8 @@ test('lists the tasks on a machine and handles actions without applying stale po
 	await expect(page.getByText('machine a event', { exact: true })).toHaveCount(0);
 	await expect(page.getByText('[system] machine A log', { exact: true })).toHaveCount(0);
 	await expect(page.getByText('Fix login redirect', { exact: false })).toHaveCount(0);
+	// A new route opens on the Overview tab.
+	await expect(page.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true');
 	await expect(page.locator('#tasks')).toContainText('No agent tasks have used this machine yet.');
 	await expect(page.getByText('kuayle/runtime-smoke', { exact: true })).toHaveCount(0);
 	expect(unhandledPaths).toEqual([]);
@@ -1233,6 +1241,7 @@ test('keeps multiple docked terminals alive across collapse and navigation', asy
 
 	await page.goto(`/test/machines/${machineId}`);
 	await expect(page.getByTestId('terminal-dock')).toHaveCount(0);
+	await page.getByRole('tab', { name: /Worktrees & tasks/ }).click();
 	await page.getByRole('button', { name: 'Terminal', exact: true }).click();
 	await expect(page.getByTestId('terminal-dock')).toBeVisible();
 	await expect(page.getByTestId('native-terminal')).toBeVisible();
@@ -1403,13 +1412,13 @@ test('keeps multiple docked terminals alive across collapse and navigation', asy
 
 	await page.getByRole('button', { name: 'Terminal', exact: true }).click();
 	await expect.poll(() => terminalPayloads.length).toBe(5);
-	await expect(page.getByRole('tab')).toHaveCount(2);
+	await expect(page.getByTestId('terminal-dock').getByRole('tab')).toHaveCount(2);
 	await expect.poll(() => page.evaluate(() => (window as any).__terminalSockets?.length ?? 0)).toBe(5);
 	await page.evaluate(() => (window as any).__terminalSockets[4].open());
 	await expect
 		.poll(() => page.evaluate(() => (window as any).__terminalSockets?.[4]?.sent.length ?? 0))
 		.toBeGreaterThan(0);
-	await page.getByRole('tab').first().click();
+	await page.getByTestId('terminal-dock').getByRole('tab').first().click();
 	await expect
 		.poll(() =>
 			page.evaluate(() => [(window as any).__terminalSockets[3].closed, (window as any).__terminalSockets[4].closed])
@@ -1989,7 +1998,7 @@ test('bounds machine telemetry during long-running sessions', async ({ page }) =
 		return route.fulfill({ status: 404, json: { error: { message: `Unhandled ${request.method()} ${path}` } } });
 	});
 
-	await page.goto(`/test/machines/${machineId}`);
+	await page.goto(`/test/machines/${machineId}#activity`);
 	await expect.poll(() => machineEventRequests).toBe(1);
 	await expect.poll(() => machineLogRequests).toBe(1);
 	for (let requestCount = 2; requestCount <= 5; requestCount++) {
@@ -2007,6 +2016,14 @@ test('bounds machine telemetry during long-running sessions', async ({ page }) =
 	await expect(activity.getByTestId('machine-events-retention')).toContainText('older events are omitted');
 	await expect(activity.getByText('machine event 1', { exact: true })).toHaveCount(0);
 	await expect(activity.getByText('machine event 450', { exact: true })).toBeVisible();
+	// The card shows the newest events; the dialog lists every retained one.
+	await expect(activity.getByText('machine event 442', { exact: true })).toHaveCount(0);
+	await activity.getByRole('button', { name: 'View all (200)' }).click();
+	const allEvents = page.getByRole('dialog', { name: 'Activity (200)' });
+	await expect(allEvents.getByText('machine event 251', { exact: true })).toBeAttached();
+	await expect(allEvents.getByText('machine event 450', { exact: true })).toBeAttached();
+	await page.keyboard.press('Escape');
+	await expect(allEvents).toHaveCount(0);
 	await expect(machineLogPanel.getByRole('heading', { name: 'Logs (500)' })).toBeVisible();
 	await expect(machineLogPanel.getByTestId('machine-logs-retention')).toContainText('older logs are omitted');
 	await expect(machineLogPanel.locator('pre')).not.toContainText('MACHINE_OLDEST_LOG');

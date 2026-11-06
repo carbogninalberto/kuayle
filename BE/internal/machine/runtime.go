@@ -39,6 +39,9 @@ type AgentExecution struct {
 	// reaching MemoryLimitBytes, the container's memory limit.
 	OOMKilled        bool
 	MemoryLimitBytes int64
+	// MachineMemory reports that the container shares the machine's memory,
+	// so MemoryLimitBytes is the machine's size (machine_slice.go).
+	MachineMemory bool
 }
 
 type ResourceUsage struct {

@@ -107,6 +107,7 @@ RUN rm -f /usr/bin/pebble \
     && rm -rf /root/.config/code-server \
     && user_name=$(getent passwd 1000 | cut -d: -f1) \
     && printf '%s ALL=(ALL) NOPASSWD:ALL\n' "$user_name" > /etc/sudoers.d/kuayle \
+    && printf 'Defaults env_keep += "http_proxy https_proxy no_proxy HTTP_PROXY HTTPS_PROXY NO_PROXY"\n' >> /etc/sudoers.d/kuayle \
     && chmod 0440 /etc/sudoers.d/kuayle \
     && visudo -cf /etc/sudoers.d/kuayle \
     && printf 'prefix=/workspace/.kuayle/npm-global\nallow-scripts=@anthropic-ai/claude-code\n' > /etc/npmrc

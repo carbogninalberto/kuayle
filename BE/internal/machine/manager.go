@@ -94,6 +94,8 @@ type ManagerStore interface {
 	ListPermanentDeleteRequests(context.Context, int) ([]domain.DevMachine, error)
 	PurgePermanentDeleteRequest(context.Context, uuid.UUID, uuid.UUID) error
 	CreateResourceSample(context.Context, *domain.DevMachineResourceSample) error
+	PruneResourceSamples(ctx context.Context, machineID uuid.UUID, before time.Time) error
+	DeleteResourceSamples(ctx context.Context, machineID uuid.UUID) error
 	UpdateVolumeUsage(context.Context, uuid.UUID, int64) error
 	CreateGitRef(context.Context, *domain.DevMachineGitRef) error
 	GetGitHubInstallationID(context.Context, uuid.UUID, string) (int64, error)
@@ -193,6 +195,13 @@ type Manager struct {
 
 	// images are the installed release's machine images; see SetImages.
 	images MachineImages
+
+	// Shared agent CLI refresh (agent_clis.go).
+	agentCLIMu       sync.Mutex
+	agentCLIUpdates  AgentCLIUpdates
+	agentCLINext     time.Time
+	agentCLIVersions map[string]string
+	agentCLIRunning  atomic.Bool
 }
 
 type terminalOperationError struct {
@@ -253,6 +262,15 @@ func (m *Manager) Run(ctx context.Context) error {
 		case <-reconcileTicker.C:
 			if err := m.reconcile(ctx); err != nil {
 				log.WithError(err).Error("dev machine reconciliation failed")
+			}
+			// A refresh takes minutes; it never holds up operations.
+			if m.agentCLIRunning.CompareAndSwap(false, true) {
+				m.operations.Add(1)
+				go func() {
+					defer m.operations.Done()
+					defer m.agentCLIRunning.Store(false)
+					m.refreshAgentCLIs(ctx, time.Now().UTC())
+				}()
 			}
 		}
 	}
@@ -603,6 +621,10 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 			if service.ContainerID != nil {
 				_ = m.store.UpdateServiceRuntime(ctx, service.ID, *service.ContainerID, "destroyed", "stopped", nil)
 			}
+		}
+		// The usage history describes the runtime that is now gone.
+		if err := m.store.DeleteResourceSamples(ctx, machine.ID); err != nil {
+			return err
 		}
 		m.previewsEnded(ctx, machine)
 		return m.setStateAndEventForOperation(ctx, machine, operation, domain.DevMachineStatusDestroyed, "machine.destroyed", nil, true)
@@ -1609,6 +1631,9 @@ func (m *Manager) reconcile(ctx context.Context) error {
 				DiskBytes: usage.DiskBytes, Pids: usage.Pids, NetworkRxBytes: usage.NetworkRxBytes,
 				NetworkTxBytes: usage.NetworkTxBytes,
 			})
+			if err := m.store.PruneResourceSamples(ctx, machine.ID, now.Add(-domain.DevMachineResourceRetention)); err != nil {
+				log.WithField("machine_id", machine.ID).WithError(err).Warn("resource sample pruning failed")
+			}
 			_ = m.store.UpdateVolumeUsage(ctx, machine.ID, usage.DiskBytes)
 			limit := int64(machine.DiskGB) * 1024 * 1024 * 1024
 			if usage.DiskBytes >= limit*9/10 && usage.DiskBytes < limit && m.claimDiskQuotaWarning(machine.ID, machine.Generation) {

@@ -1809,6 +1809,9 @@ type devMachineStoreFake struct {
 	events                      []domain.DevMachineEvent
 	logs                        []domain.DevMachineLogChunk
 	resourceSamples             []domain.DevMachineResourceSample
+	historyMachineID            uuid.UUID
+	historySince                time.Time
+	historyBucket               time.Duration
 	terminalSessions            []domain.DevMachineTerminalSession
 	terminalCloseOperation      *domain.DevMachineOperation
 	createCheckoutCalled        bool
@@ -2241,6 +2244,11 @@ func (f *devMachineStoreFake) ListLogs(context.Context, uuid.UUID, uuid.UUID, *u
 }
 
 func (f *devMachineStoreFake) ListResourceSamples(context.Context, uuid.UUID, uuid.UUID, int) ([]domain.DevMachineResourceSample, error) {
+	return f.resourceSamples, nil
+}
+
+func (f *devMachineStoreFake) ListResourceHistory(_ context.Context, _ uuid.UUID, machineID uuid.UUID, since time.Time, bucket time.Duration) ([]domain.DevMachineResourceSample, error) {
+	f.historyMachineID, f.historySince, f.historyBucket = machineID, since, bucket
 	return f.resourceSamples, nil
 }
 

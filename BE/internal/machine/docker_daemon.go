@@ -61,7 +61,24 @@ func proxyEnvironment(machine *domain.DevMachine, docker bool) []string {
 	if docker {
 		noProxy += ",docker," + machine.RoutingKey + "-docker"
 	}
-	return []string{"HTTP_PROXY=" + egressProxyURL(machine), "HTTPS_PROXY=" + egressProxyURL(machine), "NO_PROXY=" + noProxy}
+	return proxyVariables(egressProxyURL(machine), noProxy)
+}
+
+// agentProxyEnvironment is the proxy of agent run containers: only the
+// collector is reached directly.
+func agentProxyEnvironment(machine *domain.DevMachine) []string {
+	return proxyVariables(egressProxyURL(machine), "localhost,127.0.0.1,"+machine.RoutingKey+"-collector")
+}
+
+// proxyVariables sets both spellings: curl, wget and apt read only the
+// lowercase ones for plain HTTP, while other tools read the uppercase ones.
+// The developer images keep them through sudo (env_keep), so `sudo apt-get
+// update` reaches the mirrors through the egress proxy too.
+func proxyVariables(proxyURL, noProxy string) []string {
+	return []string{
+		"HTTP_PROXY=" + proxyURL, "HTTPS_PROXY=" + proxyURL, "NO_PROXY=" + noProxy,
+		"http_proxy=" + proxyURL, "https_proxy=" + proxyURL, "no_proxy=" + noProxy,
+	}
 }
 
 // dockerClientEnvironment points the Docker CLI of a developer container at
@@ -159,8 +176,12 @@ func (r *DockerRuntime) createDockerService(ctx context.Context, machine *domain
 			Interval: 2 * time.Second, Timeout: 5 * time.Second, StartPeriod: 2 * time.Minute, Retries: 30,
 		},
 	}
+	hostConfig := r.dockerHostConfig(machine, networkName, workspaceVolume, dockerVolumeName(machine))
+	if err := r.scopeMachineResources(ctx, machine, "docker", labels, hostConfig); err != nil {
+		return "", err
+	}
 	response, err := r.client.ContainerCreate(ctx, client.ContainerCreateOptions{
-		Config: config, HostConfig: r.dockerHostConfig(machine, networkName, workspaceVolume, dockerVolumeName(machine)),
+		Config: config, HostConfig: hostConfig,
 		NetworkingConfig: &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{networkName: {Aliases: []string{service.InternalHost, "docker"}}}},
 		Name:             service.ContainerName,
 	})
