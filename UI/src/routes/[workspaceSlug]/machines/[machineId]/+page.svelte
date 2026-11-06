@@ -2,6 +2,7 @@
 	import { page } from '$app/state';
 	import { tick } from 'svelte';
 	import { ArrowLeft, CircleAlert, Code2, ExternalLink, Gauge, GitBranch, Pause, Play, Save, Server, ServerOff, Square, SquareTerminal, Trash2, Loader } from '@lucide/svelte';
+	import * as Tabs from '$lib/components/ui/tabs/index.js';
 	import { goto, replaceState } from '$app/navigation';
 	import * as Alert from '$lib/components/ui/alert';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
@@ -12,6 +13,7 @@
 		listMachineTasks, listResourceUsage, pauseDevMachine, startDevMachine, stopDevMachine, teardownDevMachine,
 		checkoutIssue, deleteDevMachine, getDevMachinePolicy, listMachineCheckouts, snapshotDevMachineEnvironment
 	} from '$lib/api/dev-machines';
+	import type { ResourceUsageWindow } from '$lib/api/dev-machines';
 	import { getWorkspace } from '$lib/api/workspaces';
 	import type { AgentQueueItem } from '$lib/api/agent-tasks';
 	import type { DevMachine, DevMachineCheckout, DevMachineEvent, DevMachineLogChunk, DevMachinePolicy, DevMachineService, ResourceSample } from '$lib/types/dev-machine';
@@ -21,6 +23,8 @@
 	import MachineTasksCard from '$lib/features/dev-machines/MachineTasksCard.svelte';
 	import AppPortsCard from '$lib/features/dev-machines/AppPortsCard.svelte';
 	import MachineResizeDialog from '$lib/features/dev-machines/MachineResizeDialog.svelte';
+	import MachineUsageCharts from '$lib/features/dev-machines/MachineUsageCharts.svelte';
+	import RecentList from '$lib/features/dev-machines/RecentList.svelte';
 	import { canResizeMachine, pendingResize } from '$lib/features/dev-machines/machine-resize';
 	import { formatMachineResource, memoryGb } from '$lib/features/dev-machines/machine-size';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
@@ -51,7 +55,12 @@
 	let logsAfterId = 0;
 	let tasks = $state<AgentQueueItem[]>([]);
 	let tasksFailed = $state(false);
+	// Resource history of the selected window, oldest first; refreshed every 30 s, not on every poll.
 	let usage = $state<ResourceSample[]>([]);
+	let usageLoaded = $state(false);
+	let usageWindow = $state<ResourceUsageWindow>('1h');
+	type MachineTab = 'overview' | 'work' | 'apps' | 'activity';
+	let tab = $state<MachineTab>('overview');
 	let loading = $state(true);
 	let failed = $state(false);
 	let actionBusy = $state(false);
@@ -74,7 +83,7 @@
 	// Treat desired_status != status as pending ("transitioning")
 	const isPending = $derived(machine ? machine.desired_status !== machine.status : false);
 
-	const latestUsage = $derived(usage[0]);
+	const latestUsage = $derived(usage.at(-1));
 	const diskUsageNearLimit = $derived(
 		machine !== null &&
 			latestUsage !== undefined &&
@@ -95,6 +104,18 @@
 				})
 			: ''
 	);
+	const sizeLabel = $derived(
+		machine
+			? m['machines.resource_summary']({
+					cpu: formatMachineResource(machine.cpu_millis / 1000, m['machines.cpu_unit']()),
+					memory: formatMachineResource(memoryGb(machine.memory_mb), m['machines.memory_summary_unit']()),
+					disk: formatMachineResource(machine.disk_gb, m['machines.disk_summary_unit']())
+				})
+			: ''
+	);
+	// Events arrive oldest first; the activity list shows the newest first.
+	const newestEvents = $derived(events.slice().reverse());
+	const dateTime = (value: string) => new Date(value).toLocaleString(getLocale());
 	const ideService = $derived(services.find((item) => item.service_type === 'ide'));
 	const terminalService = $derived(services.find((item) => item.service_type === 'terminal'));
 
@@ -118,10 +139,36 @@
 		const targetMachineId = machineId;
 		const currentLoading = loading;
 		if (currentLoading || (hash !== '#tasks' && hash !== '#activity')) return;
+		// Deep links open the tab holding their section, then scroll to it.
+		tab = hash === '#tasks' ? 'work' : 'activity';
 		const version = ++fragmentScrollVersion;
 		void scrollToFragment(hash.slice(1), targetSlug, targetMachineId, version);
 		return () => {
 			if (fragmentScrollVersion === version) fragmentScrollVersion++;
+		};
+	});
+
+	$effect(() => {
+		const targetSlug = slug;
+		const targetMachineId = machineId;
+		const window = usageWindow;
+		if (!targetSlug || !targetMachineId) return;
+		let current = true;
+		const refreshUsage = async () => {
+			try {
+				const samples = await listResourceUsage(targetSlug, targetMachineId, window);
+				if (current) usage = samples ?? [];
+			} catch {
+				// Keep the last good history on a failed background refresh.
+			} finally {
+				if (current) usageLoaded = true;
+			}
+		};
+		void refreshUsage();
+		const usageTimer = setInterval(() => void refreshUsage(), 30_000);
+		return () => {
+			current = false;
+			clearInterval(usageTimer);
 		};
 	});
 
@@ -140,6 +187,8 @@
 		tasks = [];
 		tasksFailed = false;
 		usage = [];
+		usageLoaded = false;
+		tab = 'overview';
 		loading = true;
 		failed = false;
 		actionBusy = false;
@@ -199,17 +248,15 @@
 		if (!isCurrentRefresh(targetSlug, targetMachineId, generation, sequence)) return;
 		machine = nextMachine;
 		policy = nextPolicy;
-		const [serviceResult, checkoutResult, usageResult, tasksResult, workspaceResult] = await Promise.allSettled([
+		const [serviceResult, checkoutResult, tasksResult, workspaceResult] = await Promise.allSettled([
 			listMachineServices(targetSlug, targetMachineId),
 			listMachineCheckouts(targetSlug, targetMachineId),
-			listResourceUsage(targetSlug, targetMachineId),
 			listMachineTasks(targetSlug, targetMachineId),
 			workspaceRole ? Promise.resolve(null) : getWorkspace(targetSlug)
 		]);
 		if (!isCurrentRefresh(targetSlug, targetMachineId, generation, sequence)) return;
 		if (serviceResult.status === 'fulfilled') services = serviceResult.value ?? [];
 		if (checkoutResult.status === 'fulfilled') checkouts = checkoutResult.value ?? [];
-		if (usageResult.status === 'fulfilled') usage = usageResult.value ?? [];
 		// Keep the last good list on a failed background refresh.
 		if (tasksResult.status === 'fulfilled') {
 			tasks = tasksResult.value ?? [];
@@ -426,12 +473,6 @@
 		}
 	}
 
-	function bytes(value = 0) {
-		if (value < 1024 * 1024) return `${Math.round(value / 1024)} KB`;
-		if (value < 1024 * 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MB`;
-		return `${(value / 1024 / 1024 / 1024).toFixed(1)} GB`;
-	}
-
 	function serviceHealthy(service: DevMachineService): boolean {
 		return service.status === 'running' && ['healthy', 'running'].includes(service.health_status);
 	}
@@ -460,10 +501,10 @@
 		<header class="flex min-h-[49px] items-center justify-between gap-3 border-b border-[var(--app-border)] px-4">
 			<div class="flex min-w-0 items-center gap-2">
 				<a href="/{slug}/settings/dev-machines" class="rounded p-1 hover:bg-[var(--color-bg-hover)]" aria-label={m['machines.back_to_machines']()}><ArrowLeft size={16} /></a>
-				<Server size={15} />
-				<span class="truncate text-sm font-medium">{machine.name}</span>
+				<Server size={15} class="hidden shrink-0 sm:block" />
+				<span class="min-w-16 truncate text-sm font-medium">{machine.name}</span>
 				<MachineStatusBadge status={machine.status} />
-				{#if machine.profile === 'headless'}<span class="rounded-full border border-[var(--app-border)] px-2 py-0.5 text-[10px] font-semibold uppercase text-[var(--color-text-tertiary)]">{m['machines.profile_headless_short']()}</span>{/if}
+				{#if machine.profile === 'headless'}<span class="hidden rounded-full border border-[var(--app-border)] px-2 py-0.5 text-[10px] font-semibold uppercase text-[var(--color-text-tertiary)] sm:inline">{m['machines.profile_headless_short']()}</span>{/if}
 				{#if machine.environment_builder}<span class="text-[10px] font-semibold uppercase text-[var(--app-accent)]">{m['machines.environment_builder']()}</span>{/if}
 				{#if isPending}
 					<span class="inline-flex items-center gap-1 rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase text-blue-400">
@@ -499,6 +540,31 @@
 
 		<div class="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
 			<div class="mx-auto max-w-6xl space-y-5">
+				<section aria-label={m['machines.summary']()} class="rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-4">
+					<dl class="grid grid-cols-2 gap-x-6 gap-y-3 lg:grid-cols-4" data-testid="machine-summary">
+						<div class="min-w-0">
+							<dt class="text-[10px] uppercase tracking-wider text-[var(--color-text-tertiary)]">{m['machines.size']()}</dt>
+							<dd class="mt-1 break-words text-sm font-medium">{sizeLabel}</dd>
+						</div>
+						<div class="min-w-0">
+							<dt class="text-[10px] uppercase tracking-wider text-[var(--color-text-tertiary)]">{m['machines.repository_affinity']()}</dt>
+							{#if machine.repo_owner && machine.repo_name}
+								<dd class="mt-1 truncate text-sm font-medium">{machine.repo_owner}/{machine.repo_name}</dd>
+								<dd class="mt-0.5 flex items-center gap-1 text-xs text-[var(--color-text-tertiary)]"><GitBranch size={12} />{checkouts.length} issue {checkouts.length === 1 ? 'branch' : 'branches'}</dd>
+							{:else}
+								<dd class="mt-1 text-sm text-[var(--color-text-tertiary)]">{m['machines.no_repository_attached']()}</dd>
+							{/if}
+						</div>
+						<div class="min-w-0">
+							<dt class="text-[10px] uppercase tracking-wider text-[var(--color-text-tertiary)]">{m['machines.created']()}</dt>
+							<dd class="mt-1 break-words text-sm font-medium">{dateTime(machine.created_at)}</dd>
+						</div>
+						<div class="min-w-0">
+							<dt class="text-[10px] uppercase tracking-wider text-[var(--color-text-tertiary)]">{m['machines.last_activity']()}</dt>
+							<dd class="mt-1 break-words text-sm font-medium">{machine.last_activity_at ? dateTime(machine.last_activity_at) : m['machines.no_recent_activity']()}</dd>
+						</div>
+					</dl>
+				</section>
 				{#if pendingSize}
 					<p class="text-xs text-blue-400 sm:hidden">{m['machines.resize_pending']({ size: pendingSizeLabel })}</p>
 				{/if}
@@ -520,85 +586,132 @@
 						<Alert.Description>{machine.resize_error}</Alert.Description>
 					</Alert.Root>
 				{/if}
-				<section class="grid gap-3 md:grid-cols-4">
-					<div class="rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-4 md:col-span-2"><p class="text-[10px] uppercase tracking-wider text-[var(--color-text-tertiary)]">{m['machines.repository_affinity']()}</p>{#if machine.repo_owner && machine.repo_name}<p class="mt-2 text-sm font-medium">{machine.repo_owner}/{machine.repo_name}</p><p class="mt-1 flex items-center gap-1 text-xs text-[var(--color-text-tertiary)]"><GitBranch size={12} />{checkouts.length} issue {checkouts.length === 1 ? 'branch' : 'branches'}</p>{:else}<p class="mt-2 text-sm text-[var(--color-text-tertiary)]">{m['machines.no_repository_attached']()}</p>{/if}</div>
-					<div class="rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-4"><p class="text-[10px] uppercase tracking-wider text-[var(--color-text-tertiary)]">{m['machines.cpu_memory']()}</p><p class="mt-2 text-sm font-medium">{latestUsage?.cpu_percent.toFixed(1) ?? '0.0'}% · {bytes(latestUsage?.memory_bytes)}</p><p class="mt-1 text-xs text-[var(--color-text-tertiary)]">Limit {machine.cpu_millis / 1000} CPU / {machine.memory_mb / 1024} GB</p></div>
-					<div class="rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-4">
-						<p class="text-[10px] uppercase tracking-wider text-[var(--color-text-tertiary)]">{m['machines.workspace_disk']()}</p>
-						<p class={`mt-2 text-sm font-medium ${diskUsageNearLimit ? 'text-[var(--color-warning)]' : ''}`}>{bytes(latestUsage?.disk_bytes)}</p>
-						<p class="mt-1 text-xs text-[var(--color-text-tertiary)]">{policy?.disk_quota_mode === 'monitored' ? m['machines.monitored_limit']({ disk: machine.disk_gb }) : m['machines.hard_limit']({ disk: machine.disk_gb })}</p>
-						{#if diskUsageNearLimit}<p class="mt-1 text-xs font-medium text-[var(--color-warning)]">{m['machines.disk_near_limit']()}</p>{/if}
-					</div>
-				</section>
 
-				<Card.Root>
-					<Card.Header>
-						<Card.Title class="text-sm">{m['machines.developer_environment']()}</Card.Title>
-						<Card.Description>{machine.profile === 'headless' ? m['machines.developer_environment_headless_desc']() : m['machines.developer_environment_desc']()}</Card.Description>
-					</Card.Header>
-					<Card.Content>
-						<div class="grid gap-3 sm:grid-cols-2">
-							{#if machine.profile !== 'headless'}
-								<Button variant="outline" class="h-auto justify-start gap-3 p-4" disabled={!ideService || !machineCanAutoLaunch() || (!!ideService && launchBusyFor(ideService))} onclick={() => ideService && launch(ideService)}>
-									<Code2 class="size-5" />
-									<span class="text-left"><span class="block text-sm font-medium">{m['machines.code_editor']()}</span><span class="block text-xs text-muted-foreground">{m['machines.code_editor_desc']()}</span></span>
-								</Button>
-							{/if}
-							<Button variant="outline" class="h-auto justify-start gap-3 p-4" disabled={!terminalService || !machineCanAutoLaunch()} onclick={() => terminalService && launch(terminalService)}>
-								<SquareTerminal class="size-5" />
-								<span class="text-left"><span class="block text-sm font-medium">{m['machines.native_terminal']()}</span><span class="block text-xs text-muted-foreground">{m['machines.native_terminal_desc']()}</span></span>
-							</Button>
-						</div>
-					</Card.Content>
-				</Card.Root>
+				<Tabs.Root bind:value={tab} class="gap-4">
+					<Tabs.List class="grid w-full grid-cols-2 group-data-horizontal/tabs:h-auto sm:inline-flex sm:w-fit sm:group-data-horizontal/tabs:h-8">
+						<Tabs.Trigger value="overview">{m['machines.tab_overview']()}</Tabs.Trigger>
+						<Tabs.Trigger value="work">{m['machines.tab_work']()}{#if checkouts.length + tasks.length > 0}<span class="text-muted-foreground tabular-nums">{checkouts.length + tasks.length}</span>{/if}</Tabs.Trigger>
+						<Tabs.Trigger value="apps">{m['machines.tab_apps']()}</Tabs.Trigger>
+						<Tabs.Trigger value="activity">{m['machines.activity']()}</Tabs.Trigger>
+					</Tabs.List>
 
-				<AppPortsCard {slug} {machineId} running={machine.status === 'running'} canManage={!machine.created_by_user_id || machine.created_by_user_id === authState.user?.id} />
-
-				<section class="rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-4">
-					<div class="mb-3"><h2 class="text-sm font-semibold">{m['machines.issue_worktrees']()}</h2><p class="text-xs text-[var(--color-text-tertiary)]">{m['machines.issue_worktrees_desc']()}</p></div>
-					<div class="space-y-2">
-						{#if checkouts.length === 0}<p class="text-xs text-[var(--color-text-tertiary)]">{m['machines.no_issue_branches']()}</p>{/if}
-						{#each checkouts as checkout}
-							<div class="flex flex-col justify-between gap-3 rounded-lg border border-[var(--app-border)] p-3 sm:flex-row sm:items-center">
-								<div class="min-w-0"><p class="truncate text-xs font-medium">{checkout.repository_full_name}</p><p class="mt-1 truncate text-[10px] text-[var(--color-text-tertiary)]">{checkout.working_branch} · {checkout.status}</p>{#if checkout.last_error}<p class="mt-1 text-[10px] text-red-400">{checkout.last_error}</p>{/if}</div>
-								{#if checkout.status === 'ready' && machineCanAutoLaunch()}
-									<div class="flex gap-2">{#if machine.profile !== 'headless'}<Button size="sm" variant="outline" disabled={!ideService || (!!ideService && launchBusyFor(ideService, checkout.id))} onclick={() => { if (ideService) launch(ideService, checkout.id); }}><Code2 size={13} />{m['machines.code_editor']()}</Button>{/if}<Button size="sm" variant="outline" disabled={!terminalService} onclick={() => { if (terminalService) launch(terminalService, checkout.id); }}><SquareTerminal size={13} />{m['machines.terminal']()}</Button></div>
-								{/if}
-							</div>
-						{/each}
-					</div>
-				</section>
-
-				<section class="rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-4">
-					<div class="mb-3"><h2 class="text-sm font-semibold">{m['machines.services']()}</h2><p class="text-xs text-[var(--color-text-tertiary)]">{m['machines.services_desc']()}</p></div>
-					<div class="grid gap-2 md:grid-cols-2">
-						{#each services as service}
-							<div class="flex items-center justify-between rounded-lg border border-[var(--app-border)] p-3">
-								<div>
-									<p class="text-xs font-medium capitalize">{service.service_type.replace('_', ' ')}</p>
-									<p class="mt-1 text-[10px] text-[var(--color-text-tertiary)]">{service.status} · {service.health_status}{#if service.health_message && service.health_status !== 'healthy'} · {service.health_message}{/if}</p>
+					<Tabs.Content value="overview" class="space-y-5">
+						<MachineUsageCharts
+							{machine}
+							samples={usage}
+							bind:window={usageWindow}
+							loaded={usageLoaded}
+							diskLimitLabel={policy?.disk_quota_mode === 'monitored' ? m['machines.monitored_limit']({ disk: machine.disk_gb }) : m['machines.hard_limit']({ disk: machine.disk_gb })}
+							diskNearLimit={diskUsageNearLimit}
+						/>
+						<Card.Root>
+							<Card.Header>
+								<Card.Title class="text-sm">{m['machines.developer_environment']()}</Card.Title>
+								<Card.Description>{machine.profile === 'headless' ? m['machines.developer_environment_headless_desc']() : m['machines.developer_environment_desc']()}</Card.Description>
+							</Card.Header>
+							<Card.Content>
+								<div class="grid gap-3 sm:grid-cols-2">
+									{#if machine.profile !== 'headless'}
+										<Button variant="outline" class="h-auto justify-start gap-3 p-4" disabled={!ideService || !machineCanAutoLaunch() || (!!ideService && launchBusyFor(ideService))} onclick={() => ideService && launch(ideService)}>
+											<Code2 class="size-5" />
+											<span class="text-left"><span class="block text-sm font-medium">{m['machines.code_editor']()}</span><span class="block text-xs text-muted-foreground">{m['machines.code_editor_desc']()}</span></span>
+										</Button>
+									{/if}
+									<Button variant="outline" class="h-auto justify-start gap-3 p-4" disabled={!terminalService || !machineCanAutoLaunch()} onclick={() => terminalService && launch(terminalService)}>
+										<SquareTerminal class="size-5" />
+										<span class="text-left"><span class="block text-sm font-medium">{m['machines.native_terminal']()}</span><span class="block text-xs text-muted-foreground">{m['machines.native_terminal_desc']()}</span></span>
+									</Button>
 								</div>
-								{#if serviceActionAvailable(service) && service.service_type !== 'ide' && service.service_type !== 'terminal'}
-									<Button variant="ghost" size="icon-sm" disabled={launchBusyFor(service)} onclick={() => launch(service)} title={m['machines.open_service']()}><ExternalLink size={14} /></Button>
-								{:else if serviceActionAvailable(service) && (machine.environment_builder || checkouts.length === 0) && (service.service_type === 'ide' || service.service_type === 'terminal') && !(machine.profile === 'headless' && service.service_type === 'ide')}
-									<Button variant="ghost" size="icon-sm" disabled={launchBusyFor(service)} onclick={() => launch(service)} title={service.service_type === 'ide' ? m['machines.open_code_editor']() : m['machines.open_terminal']()}>{#if service.service_type === 'ide'}<Code2 size={14} />{:else}<SquareTerminal size={14} />{/if}</Button>
-								{/if}
+							</Card.Content>
+						</Card.Root>
+					</Tabs.Content>
+
+					<Tabs.Content value="work" class="space-y-5">
+						<section class="rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-4">
+							<div class="mb-3"><h2 class="text-sm font-semibold">{m['machines.issue_worktrees']()}</h2><p class="text-xs text-[var(--color-text-tertiary)]">{m['machines.issue_worktrees_desc']()}</p></div>
+							<RecentList items={checkouts} title={m['machines.issue_worktrees']()} description={m['machines.issue_worktrees_desc']()}>
+								{#snippet empty()}<p class="text-xs text-[var(--color-text-tertiary)]">{m['machines.no_issue_branches']()}</p>{/snippet}
+								{#snippet content(shown)}
+									<div class="space-y-2">
+										{#each shown as checkout (checkout.id)}
+											<div class="flex flex-col justify-between gap-3 rounded-lg border border-[var(--app-border)] p-3 sm:flex-row sm:items-center">
+												<div class="min-w-0"><p class="truncate text-xs font-medium">{checkout.repository_full_name}</p><p class="mt-1 truncate text-[10px] text-[var(--color-text-tertiary)]">{checkout.working_branch} · {checkout.status}</p>{#if checkout.last_error}<p class="mt-1 text-[10px] text-red-400">{checkout.last_error}</p>{/if}</div>
+												{#if checkout.status === 'ready' && machineCanAutoLaunch()}
+													<div class="flex gap-2">{#if machine?.profile !== 'headless'}<Button size="sm" variant="outline" disabled={!ideService || (!!ideService && launchBusyFor(ideService, checkout.id))} onclick={() => { if (ideService) launch(ideService, checkout.id); }}><Code2 size={13} />{m['machines.code_editor']()}</Button>{/if}<Button size="sm" variant="outline" disabled={!terminalService} onclick={() => { if (terminalService) launch(terminalService, checkout.id); }}><SquareTerminal size={13} />{m['machines.terminal']()}</Button></div>
+												{/if}
+											</div>
+										{/each}
+									</div>
+								{/snippet}
+							</RecentList>
+						</section>
+
+						<MachineTasksCard {slug} {tasks} failed={tasksFailed} />
+					</Tabs.Content>
+
+					<Tabs.Content value="apps" class="space-y-5">
+		<AppPortsCard {slug} {machineId} running={machine.status === 'running'} canManage={!machine.created_by_user_id || machine.created_by_user_id === authState.user?.id} />
+
+						<section class="rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-4">
+							<div class="mb-3"><h2 class="text-sm font-semibold">{m['machines.services']()}</h2><p class="text-xs text-[var(--color-text-tertiary)]">{m['machines.services_desc']()}</p></div>
+							<RecentList items={services} limit={6} title={m['machines.services']()} description={m['machines.services_desc']()}>
+								{#snippet content(shown, all)}
+									<div class="grid gap-2 {all ? '' : 'md:grid-cols-2'}">
+										{#each shown as service (service.id)}
+											<div class="flex items-center justify-between rounded-lg border border-[var(--app-border)] p-3">
+												<div>
+													<p class="text-xs font-medium capitalize">{service.service_type.replace('_', ' ')}</p>
+													<p class="mt-1 text-[10px] text-[var(--color-text-tertiary)]">{service.status} · {service.health_status}{#if service.health_message && service.health_status !== 'healthy'} · {service.health_message}{/if}</p>
+												</div>
+												{#if serviceActionAvailable(service) && service.service_type !== 'ide' && service.service_type !== 'terminal'}
+													<Button variant="ghost" size="icon-sm" disabled={launchBusyFor(service)} onclick={() => launch(service)} title={m['machines.open_service']()}><ExternalLink size={14} /></Button>
+												{:else if serviceActionAvailable(service) && (machine?.environment_builder || checkouts.length === 0) && (service.service_type === 'ide' || service.service_type === 'terminal') && !(machine?.profile === 'headless' && service.service_type === 'ide')}
+													<Button variant="ghost" size="icon-sm" disabled={launchBusyFor(service)} onclick={() => launch(service)} title={service.service_type === 'ide' ? m['machines.open_code_editor']() : m['machines.open_terminal']()}>{#if service.service_type === 'ide'}<Code2 size={14} />{:else}<SquareTerminal size={14} />{/if}</Button>
+												{/if}
+											</div>
+										{/each}
+									</div>
+								{/snippet}
+							</RecentList>
+						</section>
+					</Tabs.Content>
+
+					<Tabs.Content value="activity">
+						<section id="activity" class="grid gap-5 lg:grid-cols-2 scroll-mt-4">
+							<div class="rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-4">
+								<h2 class="text-sm font-semibold">{m['machines.activity']()} ({events.length})</h2>
+								{#if eventsLimited}<p class="mt-1 text-[10px] text-[var(--color-text-tertiary)]" data-testid="machine-events-retention">{m['machines.events_retention']({ count: DEV_MACHINE_EVENT_RETENTION })}</p>{/if}
+								<div class="mt-3">
+									<RecentList items={newestEvents} limit={8} title={`${m['machines.activity']()} (${events.length})`}>
+										{#snippet empty()}<p class="text-xs text-[var(--color-text-tertiary)]">{m['machines.no_activity']()}</p>{/snippet}
+										{#snippet content(shown)}
+											<div class="space-y-3">
+												{#each shown as event (event.id)}
+													<div class="border-l border-[var(--app-border)] pl-3">
+														<p class="text-xs font-medium">{event.event_type.replaceAll('_', ' ')}</p>
+														<p class="text-[10px] text-[var(--color-text-tertiary)]">{event.source} · {new Date(event.occurred_at).toLocaleString()}</p>
+													</div>
+												{/each}
+											</div>
+										{/snippet}
+									</RecentList>
+								</div>
 							</div>
-						{/each}
-					</div>
-				</section>
-
-				<MachineTasksCard {slug} {tasks} failed={tasksFailed} />
-
-				<section id="activity" class="grid gap-5 lg:grid-cols-2 scroll-mt-4">
-					<div class="rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-4"><h2 class="text-sm font-semibold">{m['machines.activity']()} ({events.length})</h2>{#if eventsLimited}<p class="mt-1 text-[10px] text-[var(--color-text-tertiary)]" data-testid="machine-events-retention">{m['machines.events_retention']({ count: DEV_MACHINE_EVENT_RETENTION })}</p>{/if}<div class="mt-3 max-h-96 space-y-3 overflow-y-auto">{#if events.length === 0}<p class="text-xs text-[var(--color-text-tertiary)]">{m['machines.no_activity']()}</p>{/if}{#each events as event}
-						<div class="border-l border-[var(--app-border)] pl-3">
-							<p class="text-xs font-medium">{event.event_type.replaceAll('_', ' ')}</p>
-							<p class="text-[10px] text-[var(--color-text-tertiary)]">{event.source} · {new Date(event.occurred_at).toLocaleString()}</p>
-						</div>
-					{/each}</div></div>
-					<div class="rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-4"><h2 class="text-sm font-semibold">{m['machines.logs']()} ({logs.length})</h2>{#if logsLimited}<p class="mt-1 text-[10px] text-[var(--color-text-tertiary)]" data-testid="machine-logs-retention">{m['machines.logs_retention']({ count: DEV_MACHINE_LOG_RETENTION })}</p>{/if}<pre class="mt-3 max-h-96 overflow-auto whitespace-pre-wrap rounded-lg bg-black/30 p-3 text-[11px] leading-relaxed text-zinc-300">{logs.length ? logs.map((chunk) => `[${chunk.stream}] ${chunk.content}`).join('\n') : m['machines.no_logs']()}</pre></div>
-				</section>
+							<div class="rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-4">
+								<h2 class="text-sm font-semibold">{m['machines.logs']()} ({logs.length})</h2>
+								{#if logsLimited}<p class="mt-1 text-[10px] text-[var(--color-text-tertiary)]" data-testid="machine-logs-retention">{m['machines.logs_retention']({ count: DEV_MACHINE_LOG_RETENTION })}</p>{/if}
+								<div class="mt-3">
+									<RecentList items={logs} limit={20} take="last" title={`${m['machines.logs']()} (${logs.length})`}>
+										{#snippet empty()}<pre class="rounded-lg bg-black/30 p-3 text-[11px] leading-relaxed text-zinc-300">{m['machines.no_logs']()}</pre>{/snippet}
+										{#snippet content(shown, all)}
+											<pre class="overflow-x-auto whitespace-pre-wrap rounded-lg bg-black/30 p-3 text-[11px] leading-relaxed text-zinc-300 {all ? '' : 'max-h-96 overflow-y-auto'}">{shown.map((chunk) => `[${chunk.stream}] ${chunk.content}`).join('\n')}</pre>
+										{/snippet}
+									</RecentList>
+								</div>
+							</div>
+						</section>
+					</Tabs.Content>
+				</Tabs.Root>
 			</div>
 		</div>
 	</div>

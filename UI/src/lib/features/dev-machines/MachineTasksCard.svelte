@@ -7,6 +7,7 @@
 	import { taskLabel } from '$lib/features/assistant/task-labels';
 	import { taskTone, toneBadge } from '$lib/features/assistant/task-tone';
 	import type { AgentQueueItem } from '$lib/api/agent-tasks';
+	import RecentList from './RecentList.svelte';
 	import { m } from '$lib/paraglide/messages.js';
 
 	// The agent tasks that used this machine (active first, then recent), each
@@ -25,30 +26,34 @@
 		{:else if tasks.length === 0}
 			<p class="text-xs text-muted-foreground">{m['machines.tasks_empty']()}</p>
 		{:else}
-			<ul class="divide-y rounded-lg border" aria-label={m['machines.tasks_title']()}>
-				{#each tasks as task (task.id)}
-					{@const tone = taskTone(task.state)}
-					<li>
-						<a
-							href="/{slug}/assistant?conversation={encodeURIComponent(task.conversation_id)}"
-							class="flex min-w-0 items-center gap-3 px-3 py-2.5 transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
-							aria-label={m['machines.task_open_chat']({ issue: `${task.issue_identifier} ${task.issue_title}`, state: taskLabel(task.state), agent: agentInfo(task.provider).name })}
-						>
-							<AgentLogo agent={task.provider} size="sm" />
-							<span class="min-w-0 flex-1">
-								<span class="block truncate text-xs font-medium"
-									><span class="text-muted-foreground">{task.issue_identifier}</span> · {task.issue_title}</span
-								>
-								<span class="block truncate text-[11px] text-muted-foreground"
-									>{agentInfo(task.provider).name} · {new Date(task.updated_at).toLocaleString()}</span
-								>
-							</span>
-							<Badge variant="outline" class="shrink-0 {toneBadge[tone]}">{taskLabel(task.state)}</Badge>
-							<ChevronRight size={14} class="shrink-0 text-muted-foreground" aria-hidden="true" />
-						</a>
-					</li>
-				{/each}
-			</ul>
+			<RecentList items={tasks} title={m['machines.tasks_title']()} description={m['machines.tasks_desc']()}>
+				{#snippet content(shown)}
+				<ul class="divide-y rounded-lg border" aria-label={m['machines.tasks_title']()}>
+					{#each shown as task (task.id)}
+						{@const tone = taskTone(task.state)}
+						<li>
+							<a
+								href="/{slug}/assistant?conversation={encodeURIComponent(task.conversation_id)}"
+								class="flex min-w-0 items-center gap-3 px-3 py-2.5 transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
+								aria-label={m['machines.task_open_chat']({ issue: `${task.issue_identifier} ${task.issue_title}`, state: taskLabel(task.state), agent: agentInfo(task.provider).name })}
+							>
+								<AgentLogo agent={task.provider} size="sm" />
+								<span class="min-w-0 flex-1">
+									<span class="block truncate text-xs font-medium"
+										><span class="text-muted-foreground">{task.issue_identifier}</span> · {task.issue_title}</span
+									>
+									<span class="block truncate text-[11px] text-muted-foreground"
+										>{agentInfo(task.provider).name} · {new Date(task.updated_at).toLocaleString()}</span
+									>
+								</span>
+								<Badge variant="outline" class="shrink-0 {toneBadge[tone]}">{taskLabel(task.state)}</Badge>
+								<ChevronRight size={14} class="shrink-0 text-muted-foreground" aria-hidden="true" />
+							</a>
+						</li>
+					{/each}
+				</ul>
+				{/snippet}
+			</RecentList>
 		{/if}
 	</Card.Content>
 </Card.Root>
