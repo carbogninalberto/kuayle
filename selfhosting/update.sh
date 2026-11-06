@@ -71,6 +71,15 @@ if docker compose -f "$SELFHOST_DIR/docker-compose.yml" --profile dev-machines p
 	echo "Dev Machines services detected - including control plane and runtime images"
 fi
 
+# Detect a running SearXNG (optional "searxng" profile) the same way.
+SEARXNG_ACTIVE=false
+if docker compose -f "$SELFHOST_DIR/docker-compose.yml" --profile searxng ps --status running --services 2>/dev/null | grep -qx searxng; then
+	SEARXNG_ACTIVE=true
+	echo "SearXNG detected - refreshing its pinned image"
+	# Keeps an existing secret; generates one for an instance enabled by hand.
+	bash "$SELFHOST_DIR/searxng.sh" ensure-secret
+fi
+
 # 2. Serve the upgrade page while app containers are refreshed
 echo "Serving upgrade page during update..."
 mkdir -p "$SELFHOST_DIR/runtime"
@@ -92,6 +101,9 @@ if [ "$DEV_MACHINES_ACTIVE" = true ]; then
 		dev-machine-egress dev-machine-docker dev-machine-agent-claude dev-machine-agent-opencode dev-machine-agent-codex
 	CONTROL_PLANE_STOPPED=true
 	docker compose --profile dev-machines stop machine-manager machine-gateway
+fi
+if [ "$SEARXNG_ACTIVE" = true ]; then
+	docker compose --profile searxng pull searxng
 fi
 
 # 4. Stop the running backend so no previous-version writer (requests or
@@ -116,6 +128,12 @@ APPLICATION_STOPPED=false
 if [ "$DEV_MACHINES_ACTIVE" = true ]; then
 	docker compose --profile dev-machines up -d machine-gateway machine-manager
 	CONTROL_PLANE_STOPPED=false
+fi
+
+# 7. Web search is optional: a SearXNG failure is reported, not fatal.
+if [ "$SEARXNG_ACTIVE" = true ]; then
+	docker compose --profile searxng up -d searxng ||
+		echo "WARNING: SearXNG did not restart; web_search reports it cannot reach it. Inspect 'docker compose --profile searxng logs searxng'." >&2
 fi
 
 disable_upgrade_page

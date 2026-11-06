@@ -125,3 +125,33 @@ func TestResearchSettingsAreValidated(t *testing.T) {
 }
 
 var _ assistantResearchStore = (*repository.AssistantResearchSettingsRepository)(nil)
+
+// SearXNG is offered only when the operator configured it; choosing it keeps
+// any stored key for the keyed providers.
+func TestResearchSettingsOfferSearXNGOnlyWhenConfigured(t *testing.T) {
+	searxng := "searxng"
+	svc, _, ws, users := researchService()
+	view, err := svc.View(as(ws, users[domain.RoleOwner]), ws)
+	require.NoError(t, err)
+	require.NotContains(t, view.SearchProviders, searxng)
+	_, err = svc.Update(as(ws, users[domain.RoleOwner]), ws, ResearchSettingsUpdate{SearchProvider: &searxng})
+	require.ErrorIs(t, err, ErrInvalidResearchSettings, "not offered without WEB_SEARCH_SEARXNG_URL")
+
+	svc, store, ws, users := researchService()
+	svc.SetSearchProviders(NewBraveSearch(), NewTavilySearch(), &SearXNGSearch{})
+	view, err = svc.View(as(ws, users[domain.RoleMember]), ws)
+	require.NoError(t, err)
+	require.Equal(t, []string{"brave", "tavily", "searxng"}, view.SearchProviders)
+	require.Equal(t, "brave", view.SearchProvider, "the default stays Brave")
+
+	_, err = svc.Update(as(ws, users[domain.RoleAdmin]), ws, ResearchSettingsUpdate{SearchAPIKey: optional("brave-key")})
+	require.NoError(t, err)
+	view, err = svc.Update(as(ws, users[domain.RoleAdmin]), ws, ResearchSettingsUpdate{SearchProvider: &searxng})
+	require.NoError(t, err)
+	require.Equal(t, searxng, view.SearchProvider)
+	require.Equal(t, searxng, store.settings.SearchProvider)
+	config, err := svc.ResearchConfig(context.Background(), ws)
+	require.NoError(t, err)
+	require.Equal(t, "searxng", config.SearchProvider)
+	require.Equal(t, "brave-key", config.SearchAPIKey, "switching to SearXNG keeps the stored key")
+}

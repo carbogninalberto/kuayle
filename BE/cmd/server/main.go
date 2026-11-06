@@ -174,7 +174,14 @@ func main() {
 	// research sub-tasks on the assistant's own provider.
 	assistantResearch := service.NewAssistantResearchService(repository.NewAssistantResearchSettingsRepository(db), workspaceRepo, crypto.DeriveKey(cfg.JWTSecret+":assistant-research"))
 	assistantResearchH := handler.NewAssistantResearchHandler(assistantResearch)
-	assistantTools.SetWebSearch(assistantResearch, service.NewBraveSearch(), service.NewTavilySearch())
+	searchProviders := []service.WebSearchProvider{service.NewBraveSearch(), service.NewTavilySearch()}
+	if searxng := cfg.SearXNGURL(); searxng != nil {
+		// Operator-configured SearXNG: the only private host web_search may dial.
+		searchProviders = append(searchProviders, service.NewSearXNGSearch(searxng))
+		log.WithField("host", searxng.Host).Info("Web search: SearXNG offered to workspaces")
+	}
+	assistantResearch.SetSearchProviders(searchProviders...)
+	assistantTools.SetWebSearch(assistantResearch, searchProviders...)
 	assistantTools.SetSubagents(true)
 	assistantTools.SetPlanning(repository.NewIssueDependencyRepository(db), service.NewIssueRelationService(repository.NewIssueRelationRepository(db), issueRepo))
 	conversationSvc.SetTools(assistantTools)

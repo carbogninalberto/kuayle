@@ -302,3 +302,26 @@ func TestDevMachineAgentGitIdentityRejectsHeaderInjection(t *testing.T) {
 	config.AgentGitName, config.AgentGitEmail = "agent", "a@b> <c@d"
 	require.ErrorContains(t, config.Validate("https://app.example.com"), "DEV_MACHINE_AGENT_GIT_EMAIL")
 }
+
+func TestLoadValidatesTheSearXNGURL(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://db/kuayle?sslmode=disable")
+	t.Setenv("REDIS_URL", "redis://redis:6379")
+	t.Setenv("JWT_SECRET", "01234567890123456789012345678901")
+	t.Setenv("DEV_MACHINES_ENABLED", "false")
+	t.Setenv("WEB_SEARCH_SEARXNG_URL", "")
+	cfg, err := Load()
+	if err != nil || cfg.SearXNGURL() != nil {
+		t.Fatalf("unset SearXNG: %v %v", cfg, err)
+	}
+	t.Setenv("WEB_SEARCH_SEARXNG_URL", " http://SearXNG:8080/ ")
+	cfg, err = Load()
+	if err != nil || cfg.SearXNGURL().String() != "http://searxng:8080" {
+		t.Fatalf("configured SearXNG: %v", err)
+	}
+	for _, bad := range []string{"searxng:8080", "http://user:pw@searxng:8080", "http://searxng:8080/../x", "http://searxng:8080?format=json", "gopher://searxng"} {
+		t.Setenv("WEB_SEARCH_SEARXNG_URL", bad)
+		if _, err := Load(); err == nil || !strings.Contains(err.Error(), "WEB_SEARCH_SEARXNG_URL") {
+			t.Fatalf("%s: want a WEB_SEARCH_SEARXNG_URL error, got %v", bad, err)
+		}
+	}
+}

@@ -1077,7 +1077,7 @@ the exact paths and lines read, and put them in any issue filed after a scan).
 **Settings** (migration 114, `assistant_research_settings`; no row means the
 defaults). `GET /assistant-research-settings` (session only, any non-guest
 member) returns
-`{"search_provider":"brave"|"tavily","search_providers":["brave","tavily"],"has_search_api_key":bool,"subagent_model":string,"subagent_max_parallel":1-8,"can_manage":bool,"updated_at"?:time}`.
+`{"search_provider":"brave"|"tavily"|"searxng","search_providers":["brave","tavily"(,"searxng")],"has_search_api_key":bool,"subagent_model":string,"subagent_max_parallel":1-8,"can_manage":bool,"updated_at"?:time}`.
 `PUT` (owners and admins; the role is checked again in the writing SQL
 statement, so a concurrent demotion is refused) takes any of
 `search_provider`, `search_api_key` (absent keeps it, `null` or `""` removes
@@ -1086,7 +1086,13 @@ it), `subagent_model` (`""` = the conversation's model) and
 encrypted with a key derived from `JWT_SECRET` (`:assistant-research`), never
 returned or logged; `assistant.research_settings_updated` is audited without it.
 Guests, outsiders and personal access tokens get 403. The settings UI is the
-Research tab of Settings → Assistant (`?tab=research`).
+Research tab of Settings → Assistant (`?tab=research`). `search_providers` is
+what this instance offers: `searxng` only while `WEB_SEARCH_SEARXNG_URL` is set
+(migration 116 allows it in the table); `PUT` refuses a provider not offered
+with 400. `has_search_api_key` does not apply to SearXNG and choosing it keeps
+any stored key; the UI hides the key field for it and, when the saved provider
+is no longer offered, asks for another one (`web_search` then reports it is not
+configured).
 
 **Web search.** Providers implement `WebSearchProvider` (`Name`, `Search`) in
 [assistant_web_search.go](../internal/service/assistant_web_search.go):
@@ -1094,10 +1100,22 @@ Research tab of Settings → Assistant (`?tab=research`).
 `X-Subscription-Token`) and `TavilySearch` (`POST api.tavily.com/search`, bearer
 key). The host is fixed by Kuayle, dialled only at public addresses without
 redirects; result URLs are given to the model to cite and never fetched by the
-server. Arguments: `query` (1–400 characters), `count` (1–10, default 5).
+server. `SearXNGSearch` (`GET <base>/search?q=…&format=json&safesearch=1&pageno=1`,
+no key; it implements `Keyless`) uses the base URL from the operator's
+`WEB_SEARCH_SEARXNG_URL`, never a workspace value. `validate.OperatorBaseURL`
+checks it at startup (http(s), host and optional port, no credentials, query,
+fragment, escapes or dot segments; an invalid value stops the server). Its
+client skips the public-address check only for a dial whose host and port
+exactly match the configured ones, and then dials that configured host itself,
+so its name is resolved by the operator's DNS (a Compose service on a private
+network) while every other private address, another port included, is still
+refused; redirects are never followed. SearXNG has no count parameter, so the
+tool caps the list. A 401/403 from SearXNG means `json` is missing from its
+`search.formats`; the tool error and a server warning tell the operator to
+enable it. Arguments: `query` (1–400 characters), `count` (1–10, default 5).
 Titles and excerpts are stripped of markup and capped (200 and 500 runes); only
 `http(s)` URLs are kept; the list is cut to 12 KB. A missing key, a rejected
-key, a rate limit (429), a timeout (15 s) or an unreachable provider is a tool
+key, a rate limit (429), a timeout (15 s), invalid JSON or an unreachable provider is a tool
 error that tells the model to say it could not search and not to invent
 sources. Result:
 
@@ -1227,7 +1245,9 @@ Sources: `BE/internal/service/assistant_web_search.go`,
 `BE/pkg/github/tarball.go`, `BE/internal/handler/assistant_research.go` and
 `UI/src/lib/features/assistant/AssistantResearchSettings.svelte`. Checks:
 `assistant_web_search_test.go` (providers on httptest servers, failures,
-budget), `assistant_scan_checkout_test.go` (traversal, links, a link planted
+budget), `assistant_web_search_searxng_test.go` (SearXNG mapping, failures
+including a disabled format, the allowed-host dialer and redirects),
+`BE/pkg/validate/operator_url_test.go`, `assistant_scan_checkout_test.go` (traversal, links, a link planted
 after extraction, size caps, `.gitignore`, sharing, expiry, cleanup, stale
 roots), `assistant_scan_tools_test.go`, `assistant_subagents_test.go`
 (concurrency cap, failure isolation, read-only tools, shared budget, verified

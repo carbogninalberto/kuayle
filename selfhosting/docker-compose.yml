@@ -109,9 +109,13 @@ services:
       # Voice transcription: set VOICE_INTERNAL_TOKEN and start the "voice" profile.
       VOICE_URL: ${VOICE_URL:-http://voice:8000}
       VOICE_INTERNAL_TOKEN: ${VOICE_INTERNAL_TOKEN:-}
+      # Self-hosted web search: selfhosting/searxng.sh enable sets
+      # http://searxng:8080 and starts the "searxng" profile.
+      WEB_SEARCH_SEARXNG_URL: ${WEB_SEARCH_SEARXNG_URL:-}
     networks:
       - default
       - voice-control
+      - search-control
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
       interval: 30s
@@ -405,6 +409,46 @@ services:
       VOICE_INTERNAL_TOKEN: ${VOICE_INTERNAL_TOKEN:-}
       VOICE_CPU_THREADS: ${VOICE_CPU_THREADS:-0}
 
+  # Self-hosted web search (SearXNG) for the assistant's web_search tool.
+  # Not published: only the backend reaches it, on the internal
+  # search-control network; search-egress lets it query the upstream
+  # engines. Enable with selfhosting/searxng.sh enable, which generates
+  # SEARXNG_SECRET into .env and sets WEB_SEARCH_SEARXNG_URL.
+  searxng:
+    profiles: ["searxng"]
+    image: docker.io/searxng/searxng:2026.10.19-81371861f
+    restart: unless-stopped
+    user: "977:977"
+    read_only: true
+    tmpfs:
+      - /etc/searxng:size=1m,uid=977,gid=977,mode=0755
+      - /var/cache/searxng:size=64m,uid=977,gid=977,mode=0700
+      - /tmp:size=64m,noexec,nosuid
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+    networks:
+      - search-control
+      - search-egress
+    environment:
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-}
+      SEARXNG_BASE_URL: http://searxng:8080/
+    entrypoint:
+      - sh
+      - -ec
+      - |
+        test "$${#SEARXNG_SECRET}" -ge 32 || { echo "SEARXNG_SECRET must be set to at least 32 characters: run selfhosting/searxng.sh enable" >&2; exit 1; }
+        exec /usr/local/searxng/entrypoint.sh
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
   updater:
     profiles: ["updater"]
     build:
@@ -442,3 +486,6 @@ networks:
   voice-control:
     internal: true
   voice-egress:
+  search-control:
+    internal: true
+  search-egress:
