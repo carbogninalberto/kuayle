@@ -2,12 +2,9 @@
 	import { Bot, BotMessageSquare, PanelLeftClose, Search, Server, Settings, SquarePen } from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
-	import * as Avatar from '$lib/components/ui/avatar/index.js';
 	import * as Select from '$lib/components/ui/select/index.js';
 	import type { Conversation } from '$lib/api/conversations';
 	import type { Project } from '$lib/types/project';
-	import { authState } from '$lib/features/auth/auth.state.svelte';
-	import { getCurrentWorkspace } from '$lib/features/workspaces/current-workspace.svelte';
 	import ConversationNav from './ConversationNav.svelte';
 	import type { ProjectFilter } from './project-filter';
 	import type { TaskIndicator } from './shell-rules';
@@ -15,7 +12,7 @@
 
 	// The assistant's own left column: new chat and the other assistant places,
 	// conversation search and project filter, the collapsible Recents list with
-	// folders, and who is signed in. It scrolls on its own; the page never does.
+	// folders. It scrolls on its own; the page never does.
 	let {
 		slug,
 		conversationId,
@@ -42,17 +39,6 @@
 		collapseLabel: string;
 	} = $props();
 	let search = $state('');
-	let searchInput = $state<HTMLInputElement | null>(null);
-	const workspace = getCurrentWorkspace();
-	const user = $derived(authState.user);
-	const name = $derived(user?.display_name || user?.name || user?.email || '');
-	const role = $derived.by(() => {
-		const value = workspace?.membership?.workspace.current_user_role;
-		if (value === 'owner') return m['settings.role_owner']();
-		if (value === 'admin') return m['settings.role_admin']();
-		if (value === 'member') return m['settings.role_member']();
-		return value ?? '';
-	});
 	const places = $derived([
 		{ href: `/${slug}/settings/assistant`, label: m['assistant.place_skills'](), icon: BotMessageSquare },
 		{ href: `/${slug}/settings/agents`, label: m['settings.nav.agents'](), icon: Bot },
@@ -71,9 +57,9 @@
 		<Button
 			variant="ghost"
 			size="icon-sm"
-			aria-label={m['assistant.search']()}
-			title={m['assistant.search']()}
-			onclick={() => searchInput?.focus()}><Search /></Button
+			href="/{slug}/settings/assistant"
+			aria-label={m['settings.nav.assistant']()}
+			title={m['settings.nav.assistant']()}><Settings /></Button
 		>
 		<Button variant="ghost" size="icon-sm" aria-label={collapseLabel} title={collapseLabel} onclick={oncollapse}
 			><PanelLeftClose /></Button
@@ -82,8 +68,7 @@
 	<div class="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
 		<nav class="flex flex-col gap-0.5 pb-2" aria-label={m['assistant.places']()}>
 			<a href="/{slug}/assistant" class="{itemClass} text-foreground"
-				><SquarePen size={15} class="shrink-0" aria-hidden="true" /><span class="truncate"
-					>{m['assistant.new']()}</span
+				><SquarePen size={15} class="shrink-0" aria-hidden="true" /><span class="truncate">{m['assistant.new']()}</span
 				></a
 			>
 			{#each places as place (place.href)}
@@ -99,7 +84,6 @@
 				aria-hidden="true"
 			/>
 			<Input
-				bind:ref={searchInput}
 				bind:value={search}
 				type="search"
 				aria-label={m['assistant.search']()}
@@ -127,23 +111,15 @@
 				</Select.Root>
 			</div>
 		{/if}
-		<ConversationNav {slug} {conversationId} bind:history {search} {projects} {projectFilter} {indicators} {onrenamed} />
-	</div>
-	<div class="flex h-14 shrink-0 items-center gap-2 border-t px-3">
-		<Avatar.Root class="size-7">
-			{#if user?.avatar_url}<Avatar.Image src={user.avatar_url} alt="" />{/if}
-			<Avatar.Fallback class="text-xs">{name.charAt(0).toUpperCase()}</Avatar.Fallback>
-		</Avatar.Root>
-		<div class="min-w-0 flex-1 leading-tight">
-			<p class="truncate text-sm font-medium">{name}</p>
-			{#if role}<p class="truncate text-xs text-muted-foreground">{role}</p>{/if}
-		</div>
-		<Button
-			variant="ghost"
-			size="icon-sm"
-			href="/{slug}/settings/assistant"
-			aria-label={m['settings.nav.assistant']()}
-			title={m['settings.nav.assistant']()}><Settings /></Button
-		>
+		<ConversationNav
+			{slug}
+			{conversationId}
+			bind:history
+			{search}
+			{projects}
+			{projectFilter}
+			{indicators}
+			{onrenamed}
+		/>
 	</div>
 </aside>

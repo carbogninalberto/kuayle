@@ -829,9 +829,7 @@ test('a long conversation list scrolls inside the sidebar, never the page', asyn
 	expect(await page.evaluate(() => window.scrollY)).toBe(0);
 });
 
-test('lists background agent work; failed tasks stay listed and finished ones fold into one row', async ({
-	page
-}) => {
+test('lists background agent work; failed tasks stay listed and finished ones fold into one row', async ({ page }) => {
 	const state = await fixture(page);
 	const item = (id: string, identifier: string, taskState: string) => ({
 		id,
@@ -877,6 +875,13 @@ test('three columns on desktop; both sidebars become drawers on narrow screens',
 	await expect(conversationSection).toBeVisible();
 	await expect(panel).toBeVisible();
 	await expect(panel.getByText('Background tasks')).toBeVisible();
+	// The sidebar header holds the settings cog; there is no search button there and no user footer.
+	await expect(sidebar.getByRole('link', { name: 'Assistant', exact: true })).toHaveAttribute(
+		'href',
+		'/test/settings/assistant'
+	);
+	await expect(sidebar.getByRole('button', { name: 'Search conversations' })).toHaveCount(0);
+	await expect(sidebar.getByRole('searchbox', { name: 'Search conversations' })).toBeVisible();
 	const [left, middle, right] = await Promise.all([
 		sidebar.boundingBox(),
 		conversationSection.boundingBox(),
