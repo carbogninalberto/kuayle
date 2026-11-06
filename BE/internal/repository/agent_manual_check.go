@@ -35,7 +35,7 @@ var (
 	ErrMachineBusy = errors.New("the agent is working on this machine; try again when it pauses")
 	// ErrCheckUnavailable means the task has no attempt with a ready checkout
 	// on a running machine to check.
-	ErrCheckUnavailable = errors.New("the check needs the task's latest attempt and its checkout on a running machine")
+	ErrCheckUnavailable = errors.New("the check needs the task's latest iteration and its checkout on a running machine")
 	// ErrNoCheckCommand means no command was given and none is configured.
 	ErrNoCheckCommand = errors.New("no check command is configured for this task")
 	// ErrCheckForbidden means the caller may not run a command of their own.

@@ -33,7 +33,7 @@ var (
 	ErrToolRunForbidden = errors.New("your role cannot run custom tools")
 	// ErrToolTaskChanged means the task started another attempt since the
 	// request was shown.
-	ErrToolTaskChanged = errors.New("the task started a new attempt after the run was requested; ask again")
+	ErrToolTaskChanged = errors.New("the task started a new iteration after the run was requested; ask again")
 )
 
 // ToolRunRequest is a validated request to run a tool version. Exactly one of

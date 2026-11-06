@@ -1158,7 +1158,7 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 			if cleanupErr != nil {
 				return fmt.Errorf("agent_recovery_cleanup_failed: %w", cleanupErr)
 			}
-			return &terminalOperationError{code: "agent_recovery_credentials_unavailable", message: "Native attempt cannot recover its original credentials"}
+			return &terminalOperationError{code: "agent_recovery_credentials_unavailable", message: "Native iteration cannot recover its original credentials"}
 		}
 		return err
 	}

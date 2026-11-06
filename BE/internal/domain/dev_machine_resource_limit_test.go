@@ -25,6 +25,6 @@ func TestDiskLimitMessageIsAResourceLimitReason(t *testing.T) {
 	message := DiskLimitMessage(40)
 	require.Equal(t, "Disk full: the workspace reached its 40 GB disk limit, so Kuayle stopped the machine. Resize the disk to continue.", message)
 	require.True(t, IsResourceLimitReason(message))
-	require.False(t, IsResourceLimitReason("Native coding attempt failed; stopping execution before retry"))
+	require.False(t, IsResourceLimitReason("Native coding iteration failed; stopping execution before retry"))
 	require.False(t, IsResourceLimitReason(""))
 }

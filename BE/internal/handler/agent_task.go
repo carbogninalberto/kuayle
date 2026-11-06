@@ -35,7 +35,7 @@ func agentTaskError(c *echo.Context, err error) error {
 	case errors.Is(err, repository.ErrMachineBusy):
 		return response.Error(c, http.StatusConflict, "MACHINE_BUSY", "The agent is working on this machine; try again when it pauses")
 	case errors.Is(err, repository.ErrCheckUnavailable):
-		return response.Error(c, http.StatusConflict, "CHECK_UNAVAILABLE", "The check needs the task's latest attempt and its checkout on a running machine")
+		return response.Error(c, http.StatusConflict, "CHECK_UNAVAILABLE", "The check needs the task's latest iteration and its checkout on a running machine")
 	case errors.Is(err, repository.ErrNoCheckCommand):
 		return response.Error(c, http.StatusConflict, "NO_CHECK_COMMAND", "No check command is configured; set one in the development settings or give a command")
 	case errors.Is(err, repository.ErrCheckForbidden):
