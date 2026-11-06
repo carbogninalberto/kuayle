@@ -498,7 +498,7 @@ func beginTaskRuntimeTransaction(ctx context.Context, db *sqlx.DB, kind string, 
 }
 
 // ReserveMachine serializes compatible-machine selection with other task
-// reservations. Running attempts still use the runtime's own machine-wide guard.
+// reservations. Attempt creation re-checks the machine's task limit.
 // ReserveMachine picks the machine for a task and returns it with the task's
 // current reservation ID, which changes when a destroyed machine is replaced.
 func (r *AgentTaskRepository) ReserveMachine(ctx context.Context, claimed domain.AgentTask, repositoryID uuid.UUID, environmentID *uuid.UUID) (uuid.UUID, uuid.UUID, error) {
@@ -538,14 +538,26 @@ func (r *AgentTaskRepository) ReserveMachine(ctx context.Context, claimed domain
 	// before: each task gets its own worktree on it. The machine must suit the
 	// task (same environment, so the same profile; not an environment
 	// builder), still be allowed by the workspace policy (Docker and sudo
-	// machines only while those stay allowed) and be idle: no agent run, no
-	// other active task and no queued lifecycle, validation, publication,
-	// check or tool operation. A paused or stopped machine was paused or
-	// stopped by its user and is left alone. Machines already used for this
-	// issue come first, then the most recently active.
+	// machines only while those stay allowed), run no agent session of the
+	// user's own and have no queued lifecycle, environment snapshot, check or
+	// tool operation. A paused or stopped machine was paused or stopped by its
+	// user and is left alone.
+	//
+	// An idle machine (no agent run, no other active task, no queued
+	// validation or publication) comes first: one already used for this
+	// issue, then the most recently active. Otherwise the task shares the
+	// least loaded busy machine that runs fewer active tasks than the
+	// workspace's task_machine_max_tasks. Only when none is left does the task
+	// get a new machine. The workspace lock above serializes these choices, so
+	// concurrent tasks cannot take the same last place.
 	var machineID uuid.UUID
 	err = tx.GetContext(ctx, &machineID, `SELECT m.id FROM dev_machines m
  JOIN dev_machine_workspace_policies policy ON policy.workspace_id=m.workspace_id AND policy.enabled
+ CROSS JOIN LATERAL (SELECT count(*) AS tasks FROM agent_tasks t WHERE t.machine_id=m.id AND t.id<>$6
+  AND t.state NOT IN ('completed','cancelled','failed','blocked','awaiting_review')) load
+ CROSS JOIN LATERAL (SELECT load.tasks=0
+  AND NOT EXISTS(SELECT 1 FROM dev_machine_agent_runs r WHERE r.machine_id=m.id AND r.status IN ('queued','starting','running','waiting_input'))
+  AND NOT EXISTS(SELECT 1 FROM dev_machine_operations o WHERE o.machine_id=m.id AND o.status IN ('pending','leased') AND o.action IN ('validate_agent','publish_agent')) AS idle) state
  WHERE m.workspace_id=$1 AND m.created_by_user_id=$2
  AND m.status='running' AND m.desired_status='running'
  AND m.delete_requested_at IS NULL AND NOT m.environment_builder
@@ -553,11 +565,12 @@ func (r *AgentTaskRepository) ReserveMachine(ctx context.Context, claimed domain
  AND m.environment_id IS NOT DISTINCT FROM $4::uuid
  AND (policy.allow_sudo OR NOT m.sudo_enabled)
  AND (policy.allow_docker OR NOT EXISTS(SELECT 1 FROM dev_machine_services s WHERE s.machine_id=m.id AND s.service_type='docker'))
- AND NOT EXISTS(SELECT 1 FROM dev_machine_agent_runs r WHERE r.machine_id=m.id AND r.status IN ('queued','starting','running','waiting_input'))
- AND NOT EXISTS(SELECT 1 FROM agent_tasks t WHERE t.machine_id=m.id AND t.id<>$6 AND t.state NOT IN ('completed','cancelled','failed','blocked','awaiting_review'))
+ AND load.tasks < policy.task_machine_max_tasks
+ AND NOT EXISTS(SELECT 1 FROM dev_machine_agent_runs r WHERE r.machine_id=m.id AND r.task_id IS NULL AND r.status IN ('queued','starting','running','waiting_input'))
  AND NOT EXISTS(SELECT 1 FROM dev_machine_operations o WHERE o.machine_id=m.id AND o.status IN ('pending','leased')
-  AND o.action IN ('stop','pause','teardown','snapshot_environment','validate_agent','publish_agent','run_check','run_tool'))
- ORDER BY EXISTS(SELECT 1 FROM agent_tasks t WHERE t.machine_id=m.id AND t.issue_id=$7) DESC,
+  AND o.action IN ('stop','pause','teardown','snapshot_environment','run_check','run_tool'))
+ ORDER BY state.idle DESC, load.tasks,
+  EXISTS(SELECT 1 FROM agent_tasks t WHERE t.machine_id=m.id AND t.issue_id=$7) DESC,
   m.last_activity_at DESC NULLS LAST,
   EXISTS(SELECT 1 FROM dev_machine_checkouts c WHERE c.machine_id=m.id AND c.github_repo_id=$3) DESC,
   EXISTS(SELECT 1 FROM dev_machine_agent_providers p WHERE p.machine_id=m.id AND p.provider_id=$5 AND p.enabled) DESC,

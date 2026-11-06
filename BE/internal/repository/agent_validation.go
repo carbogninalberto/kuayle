@@ -131,8 +131,11 @@ func lockTaskMachine(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask) (i
 		return 0, err
 	}
 	var allowed bool
-	if err := tx.GetContext(ctx, &allowed, `SELECT EXISTS(SELECT 1 FROM dev_machine_workspace_policies WHERE workspace_id=$1 AND enabled) AND NOT EXISTS(SELECT 1 FROM dev_machine_agent_runs WHERE machine_id=$2 AND status IN ('queued','starting','running','waiting_input'))
- AND NOT EXISTS(SELECT 1 FROM dev_machine_operations WHERE machine_id=$2 AND action IN ('run_check','run_tool') AND status IN ('pending','leased'))`, task.WorkspaceID, task.MachineID); err != nil {
+	// Other tasks' attempts may run beside it on a shared machine, each in its
+	// own worktree; the user's own agent session, a check or a tool run, or a
+	// still active attempt of this task may not.
+	if err := tx.GetContext(ctx, &allowed, `SELECT EXISTS(SELECT 1 FROM dev_machine_workspace_policies WHERE workspace_id=$1 AND enabled) AND NOT EXISTS(SELECT 1 FROM dev_machine_agent_runs WHERE machine_id=$2 AND (task_id IS NULL OR task_id=$3) AND status IN ('queued','starting','running','waiting_input'))
+ AND NOT EXISTS(SELECT 1 FROM dev_machine_operations WHERE machine_id=$2 AND action IN ('run_check','run_tool') AND status IN ('pending','leased'))`, task.WorkspaceID, task.MachineID, task.ID); err != nil {
 		return 0, err
 	}
 	if !allowed {

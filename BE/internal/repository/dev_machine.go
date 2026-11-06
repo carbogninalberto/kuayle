@@ -498,6 +498,14 @@ func enqueueOperation(ctx context.Context, tx *sqlx.Tx, operation *domain.DevMac
 	).Scan(&operation.ID, &operation.Status, &operation.Attempts, &operation.AvailableAt, &operation.CreatedAt, &operation.UpdatedAt)
 }
 
+// taskOwnedOperationSQL reports whether operation alias op is an agent task's
+// attempt, checkout, validation or publication: its run belongs to a task
+// (task_id is set only under task authority) or its checkout is task-scoped.
+func taskOwnedOperationSQL(op string) string {
+	return `((` + op + `.action IN ('run_agent','validate_agent','publish_agent') AND EXISTS(SELECT 1 FROM dev_machine_agent_runs task_run WHERE task_run.id=` + op + `.agent_run_id AND task_run.task_id IS NOT NULL))
+				OR (` + op + `.action='checkout_issue' AND EXISTS(SELECT 1 FROM dev_machine_checkouts task_checkout WHERE task_checkout.id=` + op + `.checkout_id AND task_checkout.scope_key<>'')))`
+}
+
 func (r *DevMachineRepository) LeaseOperations(ctx context.Context, owner string, limit int, duration time.Duration) ([]domain.DevMachineOperation, error) {
 	var operations []domain.DevMachineOperation
 	err := r.db.SelectContext(ctx, &operations, `WITH ranked AS (
@@ -516,6 +524,12 @@ func (r *DevMachineRepository) LeaseOperations(ctx context.Context, owner string
 			-- A resize applies beside a long agent run or check, which can
 			-- need the memory, but never beside lifecycle work.
 			AND (o.action<>'resize' OR leased.action IN ('spawn','start','stop','pause','teardown','snapshot_environment','resize'))
+			-- Tasks sharing a machine work at the same time, each in its own
+			-- worktree: their attempts, checkouts, validations and
+			-- publications run beside one another. The user's own agent runs
+			-- and checkouts (root workspace, current checkout link) and all
+			-- other work stay exclusive.
+			AND NOT (`+taskOwnedOperationSQL("o")+` AND `+taskOwnedOperationSQL("leased")+`)
 		))
 	), candidates AS (
 		SELECT o.id FROM ranked r
@@ -670,11 +684,14 @@ func (r *DevMachineRepository) UpsertPolicy(ctx context.Context, policy *domain.
 	// A policy built without task machine resources stores the defaults.
 	taskMachine := policy.TaskMachine()
 	policy.TaskMachineCPUMillis, policy.TaskMachineMemoryMB, policy.TaskMachineDiskGB = taskMachine.CPUMillis, taskMachine.MemoryMB, taskMachine.DiskGB
+	if policy.TaskMachineMaxTasks == 0 {
+		policy.TaskMachineMaxTasks = domain.DefaultTaskMachineMaxTasks
+	}
 	return r.db.QueryRowContext(ctx, `INSERT INTO dev_machine_workspace_policies
 		(workspace_id, enabled, max_concurrent_machines, max_machines_per_user, max_daily_agent_runs,
 		 max_disk_gb, allowed_providers, allowed_repositories, allow_custom_providers, allow_unattended_automations, agent_git_name, agent_git_email, allow_docker, allow_sudo,
-		 task_machine_cpu_millis, task_machine_memory_mb, task_machine_disk_gb)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+		 task_machine_cpu_millis, task_machine_memory_mb, task_machine_disk_gb, task_machine_max_tasks)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
 		ON CONFLICT (workspace_id) DO UPDATE SET enabled=EXCLUDED.enabled,
 		max_concurrent_machines=EXCLUDED.max_concurrent_machines, max_machines_per_user=EXCLUDED.max_machines_per_user,
 		max_daily_agent_runs=EXCLUDED.max_daily_agent_runs,
@@ -684,11 +701,11 @@ func (r *DevMachineRepository) UpsertPolicy(ctx context.Context, policy *domain.
 		agent_git_name=EXCLUDED.agent_git_name, agent_git_email=EXCLUDED.agent_git_email, allow_docker=EXCLUDED.allow_docker,
 		allow_sudo=EXCLUDED.allow_sudo,
 		task_machine_cpu_millis=EXCLUDED.task_machine_cpu_millis, task_machine_memory_mb=EXCLUDED.task_machine_memory_mb,
-		task_machine_disk_gb=EXCLUDED.task_machine_disk_gb
+		task_machine_disk_gb=EXCLUDED.task_machine_disk_gb, task_machine_max_tasks=EXCLUDED.task_machine_max_tasks
 		RETURNING created_at, updated_at`, policy.WorkspaceID, policy.Enabled, policy.MaxConcurrentMachines,
 		policy.MaxMachinesPerUser, policy.MaxDailyAgentRuns, policy.MaxDiskGB,
 		policy.AllowedProviders, policy.AllowedRepositories, policy.AllowCustomProviders, policy.AllowUnattendedAutomations, policy.AgentGitName, policy.AgentGitEmail, policy.AllowDocker,
-		policy.AllowSudo, policy.TaskMachineCPUMillis, policy.TaskMachineMemoryMB, policy.TaskMachineDiskGB,
+		policy.AllowSudo, policy.TaskMachineCPUMillis, policy.TaskMachineMemoryMB, policy.TaskMachineDiskGB, policy.TaskMachineMaxTasks,
 	).Scan(&policy.CreatedAt, &policy.UpdatedAt)
 }
 
@@ -1117,12 +1134,32 @@ func (r *DevMachineRepository) CreateAgentRun(ctx context.Context, run *domain.D
 		return fmt.Errorf("dev machine quota exceeded: daily agent run limit reached")
 	}
 	var active bool
-	if err := tx.GetContext(ctx, &active, `SELECT EXISTS(SELECT 1 FROM dev_machine_agent_runs
+	if run.TaskID == nil {
+		// The user's own agent session keeps the machine to itself.
+		if err := tx.GetContext(ctx, &active, `SELECT EXISTS(SELECT 1 FROM dev_machine_agent_runs
 		WHERE machine_id=$1 AND (status IN ('queued','starting','running','waiting_input') OR EXISTS(SELECT 1 FROM agent_tasks t WHERE t.run_id=dev_machine_agent_runs.id AND t.state IN ('preparing','running','waiting_input','validating','publishing','cancelling'))))`, run.MachineID); err != nil {
-		return err
-	}
-	if active {
-		return ErrActiveAgentRun
+			return err
+		}
+		if active {
+			return ErrActiveAgentRun
+		}
+	} else {
+		// Attempts of different tasks share the machine, each in its own
+		// worktree, while fewer tasks than the workspace limit work there
+		// (attempt, validation, publication or cleanup). The machine lock
+		// above serializes this count. A task waits for the user's own
+		// session and never runs two attempts at once.
+		if err := tx.GetContext(ctx, &active, `SELECT EXISTS(SELECT 1 FROM dev_machine_agent_runs WHERE machine_id=$1 AND task_id IS NULL AND status IN ('queued','starting','running','waiting_input'))
+		OR EXISTS(SELECT 1 FROM dev_machine_agent_runs WHERE task_id=$2 AND id<>$3 AND status IN ('queued','starting','running','waiting_input'))
+		OR (SELECT count(DISTINCT r.task_id) FROM dev_machine_agent_runs r WHERE r.machine_id=$1 AND r.task_id<>$2
+			AND (r.status IN ('queued','starting','running','waiting_input') OR EXISTS(SELECT 1 FROM agent_tasks t WHERE t.run_id=r.id AND t.state IN ('preparing','running','waiting_input','validating','publishing','cancelling'))))
+			>= COALESCE((SELECT task_machine_max_tasks FROM dev_machine_workspace_policies WHERE workspace_id=$4), $5)`,
+			run.MachineID, *run.TaskID, run.ID, run.WorkspaceID, domain.DefaultTaskMachineMaxTasks); err != nil {
+			return err
+		}
+		if active {
+			return ErrMachineBusy
+		}
 	}
 	// A manual check holds the checkout; the attempt waits until it finishes.
 	if err := tx.GetContext(ctx, &active, activeManualCheckSQL, run.MachineID); err != nil {

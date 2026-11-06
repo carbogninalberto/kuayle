@@ -951,6 +951,8 @@
 	"settings.dev_machines.task_machines": "Task machines",
 	"settings.dev_machines.task_machines_desc": "Kuayle creates these machines itself to run agent tasks from delegations and automations when none of the task creator's running machines is free. They stay running after the task, so later tasks reuse them. Changes apply to task machines created afterwards.",
 	"settings.dev_machines.task_machines_split": "Task machines have no IDE or browser, so the agent gets half of the CPU and memory and the terminal 40%. With Docker enabled, Docker gets 40%, the agent 35% and the terminal 15%.",
+	"settings.dev_machines.task_machine_max_tasks": "Tasks per machine",
+	"settings.dev_machines.task_machine_max_tasks_desc": "Agent tasks share a running machine of their creator, each in its own worktree and with the CPU and memory split above, up to this many at a time (1 to 4). A new task machine is created only when every suitable machine is full.",
 	"settings.dev_machines.monitored_quota_description": "This host does not enforce hard disk quotas. Machines receive a warning at 90% of their limit and are stopped at 100%. All machines are stopped when host free space falls below the configured floor.",
 	"settings.dev_machines.monitored_quota_title": "Disk limits are monitored",
 	"settings.dev_machines.new_env": "New Environment Builder",

@@ -294,6 +294,8 @@ export interface DevMachinePolicy {
 	task_machine_cpu_millis: number;
 	task_machine_memory_mb: number;
 	task_machine_disk_gb: number;
+	// Active agent tasks sharing one machine before a task gets a new one (1-4).
+	task_machine_max_tasks?: number;
 	disk_quota_mode: 'hard' | 'monitored';
 	size_options?: {
 		cpu_millis: number[];

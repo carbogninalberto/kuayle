@@ -199,7 +199,10 @@ func TestAgentTasksReserveMachinesAndFenceActualDispatch(t *testing.T) {
 		require.NoError(t, repo.Transition(ctx, *claimed, "preparing", "Resolve runtime"))
 		tasks[i] = *claimed
 	}
-	// The workspace reservation prevents both tasks choosing the same idle runtime.
+	// With one task per machine, the workspace reservation prevents both tasks
+	// choosing the same idle runtime.
+	_, err = db.Exec(`UPDATE dev_machine_workspace_policies SET task_machine_max_tasks=1 WHERE workspace_id=$1`, ws)
+	require.NoError(t, err)
 	chosen := make(chan uuid.UUID, 2)
 	var wg sync.WaitGroup
 	for _, task := range tasks {
@@ -501,8 +504,8 @@ func TestReservationReusesTheCreatorsRunningIdleMachine(t *testing.T) {
 	require.Equal(t, older, reserve(), "the issue's previous machine is preferred")
 	exec(`UPDATE agent_tasks SET machine_id=NULL WHERE id=$1`, earlier.ID)
 
-	// Busy machines are skipped: an active run, another active task, or a
-	// queued validation, publication, check or tool run.
+	// Idle machines come before busy ones: an active run, another active
+	// task, or a queued validation, publication, check or tool run.
 	busyRun := uuid.New()
 	exec(`INSERT INTO dev_machine_agent_runs(id,workspace_id,machine_id,provider_id,mode,prompt,command_argv,max_runtime_seconds,status) VALUES($1,$2,$3,'codex','autonomous','Busy','["codex"]',60,'running')`, busyRun, ws, recent)
 	require.Equal(t, older, reserve(), "a machine with a running agent is busy")
@@ -517,7 +520,7 @@ func TestReservationReusesTheCreatorsRunningIdleMachine(t *testing.T) {
 	holder, err := repo.Create(ctx, ws, otherChat.ID, domain.AgentTaskRequest{RequestID: uuid.New(), Prompt: "Other work", Provider: "codex"})
 	require.NoError(t, err)
 	exec(`UPDATE agent_tasks SET machine_id=$2,state='running' WHERE id=$1`, holder.ID, recent)
-	require.Equal(t, older, reserve(), "another task's machine is not shared")
+	require.Equal(t, older, reserve(), "an idle machine comes before another task's machine")
 	// Once that task awaits review its machine is free again; its checkout
 	// stays separate from this task's.
 	exec(`UPDATE agent_tasks SET state='awaiting_review' WHERE id=$1`, holder.ID)

@@ -527,6 +527,43 @@ func TestDevMachinePolicyTaskMachineResources(t *testing.T) {
 	}
 }
 
+// The number of tasks sharing a task machine defaults to 2, is kept when an
+// older client omits it and is refused outside 1 to 4.
+func TestDevMachinePolicyTaskMachineMaxTasks(t *testing.T) {
+	workspaceID := uuid.New()
+	store := &handlerDevMachineStoreFake{}
+	h := NewDevMachineHandler(service.NewDevMachineService(
+		store, agent.NewRegistry(), true, "machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, service.DevMachineImages{},
+	), config.DiskQuotaModeHard)
+	update := func(extra string) *httptest.ResponseRecorder {
+		t.Helper()
+		body := `{"enabled":true,"max_concurrent_machines":5,"max_machines_per_user":2,"max_daily_agent_runs":25,
+			"max_disk_gb":100,"allowed_providers":["opencode"],"allowed_repositories":[]` + extra + `}`
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPatch, "/dev-machine-policy", strings.NewReader(body))
+		request.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		require.NoError(t, h.UpdatePolicy(devMachineHandlerContext(request, recorder, workspaceID, uuid.New())))
+		return recorder
+	}
+	limit := func(recorder *httptest.ResponseRecorder) int {
+		t.Helper()
+		require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+		var updated domain.DevMachineWorkspacePolicy
+		require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &updated))
+		return updated.TaskMachineMaxTasks
+	}
+	require.Equal(t, 2, limit(update("")), "a new policy shares a machine between two tasks")
+	require.Equal(t, 3, limit(update(`,"task_machine_max_tasks":3`)))
+	require.Equal(t, 3, limit(update("")), "omitting the limit keeps it")
+	require.Equal(t, 1, limit(update(`,"task_machine_max_tasks":1`)), "1 gives every task its own machine")
+	for _, invalid := range []string{"0", "5"} {
+		recorder := update(`,"task_machine_max_tasks":` + invalid)
+		require.Equal(t, http.StatusBadRequest, recorder.Code, recorder.Body.String())
+		require.Contains(t, recorder.Body.String(), "task_machine_max_tasks must be from 1 to 4")
+		require.Equal(t, 1, store.policy.TaskMachineMaxTasks, "a rejected update keeps the policy")
+	}
+}
+
 func TestDevMachineCreateRejectsInvalidCustomResources(t *testing.T) {
 	workspaceID, userID := uuid.New(), uuid.New()
 	for _, test := range []struct {
