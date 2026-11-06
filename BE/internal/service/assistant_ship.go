@@ -176,6 +176,9 @@ func (t *AssistantTools) prepareShip(ctx context.Context, ws, user uuid.UUID, ar
 		if compareVersions(version, info.current) <= 0 {
 			return refuse(toolFailure("%s is not newer than the installed %s, so upgrading to it changes nothing. Next step: ship without upgrade, or choose a later tag", release.Tag, info.current))
 		}
+		if info.known && compareVersions(info.latest, version) > 0 {
+			return refuse(toolFailure("the release list this instance upgrades from already has %s, newer than %s, and the upgrade installs the latest release. Next step: ship without upgrade, then upgrade from Settings → Version", info.latest, release.Tag))
+		}
 		audit.Log("system.update_requested", user, map[string]interface{}{"from": info.current, "to": version, "chain": shipAction})
 		payload.Upgrade = &domain.UpgradePayload{CurrentVersion: info.current, LatestVersion: version}
 	}
@@ -284,6 +287,24 @@ func (s *AssistantApprovals) ship(ctx context.Context, ws, conversation uuid.UUI
 	ctx = context.WithoutCancel(ctx)
 	s.ships.spawn(func() {
 		defer s.ships.done(approval.ID)
+		// Another server process may run the same chain: the database lock
+		// lets one run it, from the progress stored when it took the lock.
+		unlock, held, err := s.conversations.LockApprovalEffect(ctx, approval.ID)
+		if err != nil || !held {
+			if err != nil {
+				log.WithFields(log.Fields{"workspace_id": ws, "approval_id": approval.ID}).WithError(err).Warn("ship_pull_request could not be locked; a restart or approving again resumes it")
+			}
+			return
+		}
+		defer unlock()
+		status, data, err := s.conversations.ApprovalState(ctx, approval.ID)
+		if err == nil && status != "approving" {
+			return
+		}
+		if err != nil || json.Unmarshal(data, &payload) != nil {
+			log.WithFields(log.Fields{"workspace_id": ws, "approval_id": approval.ID}).WithError(err).Warn("ship_pull_request progress could not be read; a restart or approving again resumes it")
+			return
+		}
 		ctx, transitioned := repository.WithFinishTransition(ctx)
 		chain := &shipChain{ws: ws, approval: approval, payload: payload, save: func(progress domain.ShipPayload) error {
 			data, err := json.Marshal(progress)
@@ -532,7 +553,9 @@ func (s *AssistantApprovals) shipBuildStep(ctx context.Context, chain *shipChain
 		var built []releaseBuildRun
 		running := false
 		for _, run := range runs {
-			if run.Event != "release" {
+			// A release run reports its tag as the head branch; runs of an
+			// earlier release of the same commit are not this release's build.
+			if run.Event != "release" || run.HeadBranch != release.Tag {
 				continue
 			}
 			built = append(built, releaseBuildRun{name: truncateRunes(run.Name, 120), url: run.HTMLURL})
@@ -583,8 +606,16 @@ func (s *AssistantApprovals) shipUpgradeStep(ctx context.Context, chain *shipCha
 	deadline := s.ships.now().Add(s.ships.timing.listing)
 	for {
 		info := s.system.versionInfo(ctx)
-		if info.err == nil && info.known && compareVersions(info.latest, upgrade.LatestVersion) >= 0 {
-			break
+		if info.err == nil && info.known {
+			// The updater installs the feed's latest release, so it must be the
+			// approved one: a newer release would be installed in its place.
+			latest := compareVersions(info.latest, upgrade.LatestVersion)
+			if latest == 0 {
+				break
+			}
+			if latest > 0 {
+				return "", fmt.Sprintf("The release list this instance upgrades from shows %s as the latest release, not the approved %s, and the upgrade installs the latest one", info.latest, upgrade.LatestVersion), nil
+			}
 		}
 		if !s.ships.now().Before(deadline) {
 			return "", fmt.Sprintf("The release list this instance upgrades from did not show %s within %s", upgrade.LatestVersion, s.ships.timing.listing), nil

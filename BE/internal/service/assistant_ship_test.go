@@ -100,7 +100,7 @@ func newShipFixture(upgrade bool) *shipFixture {
 	f := &shipFixture{github: pr.github, ws: pr.ws, admin: pr.admin, clock: time.Date(2026, 11, 6, 10, 0, 0, 0, time.UTC)}
 	f.members = prMembers{pr.creator: domain.RoleMember, pr.admin: domain.RoleAdmin, pr.other: domain.RoleMember}
 	f.releases = &shipReleases{releaseFake: newReleaseFake()}
-	f.releases.runs = []gh.WorkflowRun{{ID: 9, Name: "Build & Push", Event: "release", Status: "completed", Conclusion: "success", HTMLURL: "https://github.com/acme/app/actions/runs/9"}}
+	f.releases.runs = []gh.WorkflowRun{{ID: 9, Name: "Build & Push", Event: "release", HeadBranch: "v1.3.0", Status: "completed", Conclusion: "success", HTMLURL: "https://github.com/acme/app/actions/runs/9"}}
 	f.merger = &shipMerger{github: f.github}
 	f.updater = &updaterFake{configured: true}
 	f.instance = map[uuid.UUID]bool{pr.admin: true}
@@ -164,7 +164,7 @@ func (f *shipFixture) statuses() []string {
 func TestShipMergesWaitsForTestsReleasesAndUpgradesInOrder(t *testing.T) {
 	f := newShipFixture(true)
 	f.releases.checkReads = [][]PullRequestCheck{nil, {{Name: "Tests", State: "pending"}}, passingChecks}
-	running := gh.WorkflowRun{ID: 9, Name: "Build & Push", Event: "release", Status: "in_progress", HTMLURL: "https://github.com/acme/app/actions/runs/9"}
+	running := gh.WorkflowRun{ID: 9, Name: "Build & Push", Event: "release", HeadBranch: "v1.3.0", Status: "in_progress", HTMLURL: "https://github.com/acme/app/actions/runs/9"}
 	tests := gh.WorkflowRun{ID: 8, Name: "Tests", Event: "push", Status: "completed", Conclusion: "failure"}
 	f.releases.runReads = [][]gh.WorkflowRun{{tests}, {tests, running}, {tests, f.releases.runs[0]}}
 
@@ -261,7 +261,7 @@ func TestShipStopsAtTheFirstFailingStepAndRunsNothingAfterIt(t *testing.T) {
 
 	t.Run("release build fails", func(t *testing.T) {
 		f := newShipFixture(true)
-		f.releases.runs = []gh.WorkflowRun{{ID: 9, Name: "Build & Push", Event: "release", Status: "completed", Conclusion: "failure", HTMLURL: "https://github.com/acme/app/actions/runs/9"}}
+		f.releases.runs = []gh.WorkflowRun{{ID: 9, Name: "Build & Push", Event: "release", HeadBranch: "v1.3.0", Status: "completed", Conclusion: "failure", HTMLURL: "https://github.com/acme/app/actions/runs/9"}}
 		message := f.run(t)
 		require.Contains(t, message, "Step 4 of 5 (wait for the release build) failed: The release build \"Build & Push\" failed (failure)")
 		require.Contains(t, message, "upgrade with upgrade_instance once it succeeds")
@@ -396,6 +396,41 @@ func TestShipBuildStepWithoutAReleaseWorkflow(t *testing.T) {
 	require.Zero(t, f.updater.started)
 }
 
+// A release run of another tag on the same commit is not this release's build:
+// an old success does not let the chain go on before the new build finished,
+// and an old failure does not fail it.
+func TestShipBuildStepIgnoresRunsOfOtherReleases(t *testing.T) {
+	oldSuccess := gh.WorkflowRun{ID: 5, Name: "Build & Push", Event: "release", HeadBranch: "v1.2.0", Status: "completed", Conclusion: "success", HTMLURL: "https://github.com/acme/app/actions/runs/5"}
+	oldFailure := gh.WorkflowRun{ID: 6, Name: "Build & Push", Event: "release", HeadBranch: "v1.2.1", Status: "completed", Conclusion: "failure", HTMLURL: "https://github.com/acme/app/actions/runs/6"}
+	running := gh.WorkflowRun{ID: 9, Name: "Build & Push", Event: "release", HeadBranch: "v1.3.0", Status: "in_progress", HTMLURL: "https://github.com/acme/app/actions/runs/9"}
+
+	f := newShipFixture(true)
+	f.releases.checkReads = [][]PullRequestCheck{passingChecks}
+	f.releases.runReads = [][]gh.WorkflowRun{{oldSuccess, oldFailure}, {oldSuccess, oldFailure, running}, {oldSuccess, oldFailure, f.releases.runs[0]}}
+	require.Empty(t, f.run(t), "the old runs neither pass nor fail the chain")
+	require.Equal(t, []string{"merge:done", "tests:done", "release:done", "build:done", "upgrade:done"}, f.statuses())
+	require.Equal(t, "https://github.com/acme/app/actions/runs/9", f.payload.Steps[3].URL, "the build followed is this release's")
+	require.GreaterOrEqual(t, f.sleeps, 2, "the chain waited for this release's build")
+
+	// Only an old release's run, never this one's: no build started for it.
+	f = newShipFixture(true)
+	f.releases.runs = []gh.WorkflowRun{oldSuccess}
+	require.Contains(t, f.run(t), "No release build started for v1.3.0")
+	require.Zero(t, f.updater.started)
+}
+
+// The updater installs the latest release of the feed, so the upgrade starts
+// only when that is the approved release: a newer one in the feed would be
+// installed instead, and the chain stops rather than upgrade past the approval.
+func TestShipUpgradeStartsOnlyWhenTheFeedsLatestIsTheApprovedRelease(t *testing.T) {
+	f := newShipFixture(true)
+	f.listed = []instanceRelease{{Tag: "v1.2.0"}, {Tag: "v1.3.0"}, {Tag: "v1.4.0"}}
+	message := f.run(t)
+	require.Contains(t, message, "shows 1.4.0 as the latest release, not the approved 1.3.0")
+	require.Equal(t, "upgrade:failed", f.statuses()[4])
+	require.Zero(t, f.updater.started, "nothing past the approved release is installed")
+}
+
 // The approver can edit the chain's release notes like create_release's; a
 // bad edit leaves the approval pending and the access gap stays on the card.
 func TestShipNotesAreEditableOnTheCard(t *testing.T) {
@@ -523,6 +558,14 @@ func TestShipRequestWithUpgradeChecksTheInstance(t *testing.T) {
 	pr, tools, _ = setup("v1.3.0")
 	_, _, err = tools.prepareShip(ctx, pr.ws, pr.admin, shipArguments(true))
 	require.Contains(t, toolErrorText(err), "v1.3.0 is not newer than the installed 1.3.0")
+
+	// The updater installs the feed's latest release, which must be the tag.
+	pr, tools, _ = setup("v1.2.0")
+	tools.system.releases = func(context.Context) ([]instanceRelease, error) {
+		return []instanceRelease{{Tag: "v1.2.0"}, {Tag: "v1.4.0"}}, nil
+	}
+	_, _, err = tools.prepareShip(ctx, pr.ws, pr.admin, shipArguments(true))
+	require.Contains(t, toolErrorText(err), "already has 1.4.0, newer than v1.3.0")
 
 	pr, tools, updater = setup("v1.2.0")
 	updater.status.Running = true

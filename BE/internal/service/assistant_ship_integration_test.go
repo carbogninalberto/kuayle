@@ -26,7 +26,7 @@ func TestShipFromChatMergesAndReleasesAfterOneApproval(t *testing.T) {
 	work := prWork{merge: &repository.MergeTarget{TaskID: uuid.New(), IssueID: issue, CreatorID: f.user, Repository: "acme/app", Number: 12, URL: "https://github.com/acme/app/pull/12", Commit: "head1"}}
 	pulls := &prGitHub{method: "squash", status: PullRequestStatus{State: "open", HeadSHA: "head1", BaseRef: "main"}}
 	releases := &shipReleases{releaseFake: newReleaseFake()}
-	releases.runs = []gh.WorkflowRun{{ID: 9, Name: "Build & Push", Event: "release", Status: "completed", Conclusion: "success", HTMLURL: "https://github.com/acme/app/actions/runs/9"}}
+	releases.runs = []gh.WorkflowRun{{ID: 9, Name: "Build & Push", Event: "release", HeadBranch: "v1.3.0", Status: "completed", Conclusion: "success", HTMLURL: "https://github.com/acme/app/actions/runs/9"}}
 	merger := &shipMerger{github: pulls}
 	members := repository.NewWorkspaceRepository(f.db)
 
@@ -113,4 +113,26 @@ func TestShipFromChatMergesAndReleasesAfterOneApproval(t *testing.T) {
 	require.Equal(t, "approved", h.Approvals[0].Status)
 	require.Len(t, merger.merged, 1, "the merge is not repeated")
 	require.Len(t, releases.created, 1, "the release is not published twice")
+
+	// Another server process running the chain holds its lock, so this one
+	// leaves the chain to it; once the lock is free, resuming finishes it.
+	_, err = f.db.Exec(`UPDATE conversation_approvals SET status='approving',resolved_at=NULL,payload=jsonb_set(payload,'{steps,3,status}','"running"') WHERE id=$1`, approval.ID)
+	require.NoError(t, err)
+	unlock, held, err := f.repo.LockApprovalEffect(f.ctx, approval.ID)
+	require.NoError(t, err)
+	require.True(t, held)
+	_, second, err := f.repo.LockApprovalEffect(f.ctx, approval.ID)
+	require.NoError(t, err)
+	require.False(t, second, "one process at a time holds a chain")
+	approvals.ResumeShips(f.ctx)
+	h, err = f.repo.History(f.ctx, f.ws, a.Conversation.ID, 0)
+	require.NoError(t, err)
+	require.Equal(t, "approving", h.Approvals[0].Status, "the chain is left to the process holding it")
+	unlock()
+	approvals.ResumeShips(f.ctx)
+	h, err = f.repo.History(f.ctx, f.ws, a.Conversation.ID, 0)
+	require.NoError(t, err)
+	require.Equal(t, "approved", h.Approvals[0].Status)
+	require.Len(t, merger.merged, 1)
+	require.Len(t, releases.created, 1)
 }
